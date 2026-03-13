@@ -12,10 +12,15 @@ listing:
 code-tools:
   source: https://github.com/allierc/flyvis-gnn
 ---
+
+```{=html}
 <div style="text-align: center; margin-bottom: 1.5em;">
-<p style="font-size: 1.1em; margin-bottom: 0.3em;">Cédric Allier<sup>1</sup>, Janne K. Lappalainen<sup>2</sup>, Stephan Saalfeld<sup>1</sup></p>
-<p style="font-size: 0.85em; color: #555;"><sup>1</sup>Janelia Research Campus, Howard Hughes Medical Institute, Ashburn, VA 20147, USA &ensp; <sup>2</sup>Allen Institute, Seattle</p>
+<p style="font-size: 1.1em; margin-bottom: 0.3em;">Cédric Allier<sup>1</sup>, Janne K. Lappalainen<sup>2, 3</sup>, Stephan Saalfeld<sup>1</sup></p>
+<p style="font-size: 0.85em; color: #555; margin-bottom: 0.1em;"><sup>1</sup>Janelia Research Campus, Howard Hughes Medical Institute, Ashburn, VA 20147, USA</p>
+<p style="font-size: 0.85em; color: #555; margin-bottom: 0.1em;"><sup>2</sup>Allen Institute, Seattle, WA 98109, USA</p>
+<p style="font-size: 0.85em; color: #555; margin-bottom: 0.1em;"><sup>3</sup>Machine Learning in Science, University of Tübingen &amp; Tübingen AI Center, Germany</p>
 </div>
+```
 
 Synapse-level connectomes describe the structure of circuits, but not the electrical and chemical dynamics.  Conversely, large-scale recordings of neural activity capture these dynamics, but not the circuit structure.  We asked whether combining binary connectivity and recorded neural activity can be used to infer mechanistic models of neural circuits.  We trained a graph neural network (GNN) [6] ([neural-gnn](https://saalfeldlab.github.io/neural-gnn/)) to forecast the activity of *Drosophila* visual system simulations.  Trained on activity trajectories in response to visual inputs, the model recovered effective connectivity weights, neuron types, and nonlinear activation functions.  Moreover, it correctly predicted causal effects of connection removal, demonstrating the ability to infer mechanistic dependencies. Our simple, flexible, and interpretable method recovered both structure and dynamics from neural activity.
 
