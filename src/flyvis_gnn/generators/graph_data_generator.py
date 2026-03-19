@@ -15,8 +15,10 @@ from flyvis_gnn.log import get_logger
 from flyvis_gnn.neuron_state import NeuronState
 from flyvis_gnn.plot import (
     plot_activity_traces,
+    plot_hh_debug,
     plot_selected_neuron_traces,
     plot_spatial_activity_grid,
+    plot_spiking_traces,
 )
 from flyvis_gnn.zarr_io import ZarrArrayWriter, ZarrSimulationWriterV3
 
@@ -42,6 +44,16 @@ from flyvis_gnn.generators.utils import (
 from flyvis_gnn.utils import get_datavis_root_dir, graphs_data_path, to_numpy
 
 logger = get_logger(__name__)
+
+
+def _is_spiking_model(signal_model_name: str) -> bool:
+    """Check if signal_model_name maps to a spiking ODE params class via the registry."""
+    from flyvis_gnn.generators.ode_params import FlyVisAdExODEParams, get_ode_params_class
+    try:
+        cls = get_ode_params_class(signal_model_name)
+        return cls is FlyVisAdExODEParams
+    except KeyError:
+        return False
 
 
 def data_generate(
@@ -71,6 +83,17 @@ def data_generate(
 
     if config.data_folder_name != "none":
         generate_from_data(config=config, device=device, visualize=visualize, style=style, step=step)
+    elif _is_spiking_model(config.graph_model.signal_model_name):
+        data_generate_fly_AdEx_spiking(
+            config,
+            visualize=visualize,
+            run_vizualized=run_vizualized,
+            style=style,
+            erase=erase,
+            step=step,
+            device=device,
+            save=save,
+        )
     else:
         data_generate_fly_voltage(
             config,
@@ -195,6 +218,12 @@ def _run_ode_generation(stimulus_sequences, net, pde, x, edge_index, initial_sta
         current_davis_seq = None
         sintel_frame_idx = 0
         davis_frame_idx = 0
+
+    # Collect HH traces for diagnostic plot (hh_debug_seq0.png)
+    _hh_debug_buffers = None
+    _hh_debug_n_seqs = 30  # capture enough sequences for 400ms window
+    if hasattr(pde, 'step_gates'):
+        _hh_debug_buffers = {'volt': [], 'stim': [], 'm': [], 'h': [], 'n': []}
 
     with torch.no_grad():
         for pass_num in range(num_passes):
@@ -356,8 +385,42 @@ def _run_ode_generation(stimulus_sequences, net, pde, x, edge_index, initial_sta
                                                                                                   dtype=torch.float32,
                                                                                                   device=device) * sim.noise_visual_input
 
-                    y = pde(x, edge_index, has_field=False)
-                    prev_calcium = x.calcium.clone()
+                    prev_calcium = x.calcium.clone() if x.calcium is not None else None
+
+                    # HH models use substeps for numerical stability
+                    hh_substeps = getattr(sim, 'hh_substeps', 1)
+                    has_gates = hasattr(pde, 'step_gates')
+
+                    if has_gates and hh_substeps > 1:
+                        # Multiple substeps per stimulus frame (HH)
+                        sub_dt = sim.delta_t / hh_substeps
+                        for _sub in range(hh_substeps):
+                            y = pde(x, edge_index, has_field=False)
+                            dv = y.squeeze()
+                            if sim.noise_model_level > 0:
+                                x.voltage = x.voltage + sub_dt * dv + torch.randn(n_neurons, dtype=torch.float32, device=device) * sim.noise_model_level / (hh_substeps ** 0.5)
+                            else:
+                                x.voltage = x.voltage + sub_dt * dv
+                            pde.step_gates(x, sub_dt)
+                        # y for recording is the last substep's derivative
+                        y = pde(x, edge_index, has_field=False)
+                    else:
+                        y = pde(x, edge_index, has_field=False)
+                        dv_step = y.squeeze()
+                        if sim.noise_model_level > 0:
+                            x.voltage = x.voltage + sim.delta_t * dv_step + torch.randn(n_neurons, dtype=torch.float32, device=device) * sim.noise_model_level
+                        else:
+                            x.voltage = x.voltage + sim.delta_t * dv_step
+                        if has_gates:
+                            pde.step_gates(x, sim.delta_t)
+
+                    # Collect traces for first N sequences (for hh_debug plot)
+                    if _hh_debug_buffers is not None and data_idx < _hh_debug_n_seqs and pass_num == 0:
+                        _hh_debug_buffers['volt'].append(x.voltage.cpu().numpy().copy())
+                        _hh_debug_buffers['stim'].append(x.stimulus.cpu().numpy().copy())
+                        _hh_debug_buffers['m'].append(x.hh_m.cpu().numpy().copy())
+                        _hh_debug_buffers['h'].append(x.hh_h.cpu().numpy().copy())
+                        _hh_debug_buffers['n'].append(x.hh_n.cpu().numpy().copy())
 
                     # Generate measurement noise for this timestep
                     if sim.measurement_noise_level > 0:
@@ -366,12 +429,6 @@ def _run_ode_generation(stimulus_sequences, net, pde, x, edge_index, initial_sta
                         x.noise = torch.zeros(n_neurons, dtype=torch.float32, device=device)
 
                     x_writer.append_state(x)
-
-                    dv = y.squeeze()
-                    if sim.noise_model_level > 0:
-                        x.voltage = x.voltage + sim.delta_t * dv + torch.randn(n_neurons, dtype=torch.float32, device=device) * sim.noise_model_level
-                    else:
-                        x.voltage = x.voltage + sim.delta_t * dv
 
                     if sim.calcium_type == "leaky":
                         if sim.calcium_activation == "softplus":
@@ -406,6 +463,37 @@ def _run_ode_generation(stimulus_sequences, net, pde, x, edge_index, initial_sta
                     it = it + 1
                     if it >= target_frames:
                         break
+                # Save HH diagnostic plot after collecting enough sequences
+                if _hh_debug_buffers is not None and data_idx == _hh_debug_n_seqs - 1 and pass_num == 0 and _hh_debug_buffers['volt']:
+                    logger.info(f"saving hh_debug_seq0.png ({len(_hh_debug_buffers['volt'])} frames)")
+                    # Build HH params dict for current decomposition plot
+                    _hh_plot_params = None
+                    if hasattr(pde, 'ode_params'):
+                        _pp = pde.ode_params
+                        _hh_plot_params = {
+                            k: getattr(_pp, k).cpu().numpy()
+                            for k in ('g_L', 'E_L', 'g_Na', 'E_Na', 'g_K', 'E_K', 'C', 'I_bias', 'stim_scale')
+                            if hasattr(_pp, k) and getattr(_pp, k) is not None
+                        }
+                    _warmup_f = int(100.0 / sim.delta_t)  # 100ms warmup
+                    _window_f = int(800.0 / sim.delta_t)  # 800ms window
+                    plot_hh_debug(
+                        voltage_history=np.stack(_hh_debug_buffers['volt']),
+                        stimulus_history=np.stack(_hh_debug_buffers['stim']),
+                        gate_m_history=np.stack(_hh_debug_buffers['m']),
+                        gate_h_history=np.stack(_hh_debug_buffers['h']),
+                        gate_n_history=np.stack(_hh_debug_buffers['n']),
+                        type_list=to_numpy_fn(x.neuron_type).astype(int),
+                        output_path=graphs_data_path(config.dataset, 'hh_debug_seq0.png'),
+                        dt_ms=sim.delta_t,
+                        hh_substeps=getattr(sim, 'hh_substeps', 1),
+                        hh_params=_hh_plot_params,
+                        style=fig_style,
+                        warmup_frames=_warmup_f,
+                        max_frames=_window_f,
+                    )
+                    _hh_debug_buffers = None  # free memory
+
                 if it >= target_frames:
                     break
             if it >= target_frames:
@@ -457,6 +545,284 @@ def _compute_noisy_derivatives(config, sim, n_neurons, split='train'):
                 f"(measurement_noise_level={sim.measurement_noise_level})")
 
 
+def data_generate_fly_AdEx_spiking(config, visualize=True, run_vizualized=0, style="color", erase=False, step=5, device=None,
+                              save=True):
+    """Generate spiking (AdEx) simulation data using the flyvis connectome.
+
+    Uses the same visual stimulus pipeline as data_generate_fly_voltage,
+    but integrates AdEx dynamics with event-triggered synaptic transmission.
+    """
+    from flyvis_gnn.generators.flyvis_adex_ode import FlyVisAdExODE
+    from flyvis_gnn.generators.flyvis_ode import (
+        get_photoreceptor_positions_from_net,
+        group_by_direction_and_function,
+    )
+    from flyvis_gnn.generators.ode_params import FlyVisAdExODEParams
+    from flyvis_gnn.utils import setup_flyvis_model_path
+
+    fig_style = dark_style if "black" in style else default_style
+    fig_style.apply_globally()
+
+    sim = config.simulation
+    model_config = config.graph_model
+
+    torch.random.fork_rng(devices=device)
+    if sim.seed != 42:
+        torch.random.manual_seed(sim.seed)
+        np.random.seed(sim.seed)
+
+    n_frames = sim.n_frames
+
+    synapse_model = "COBA" if "coba" in model_config.signal_model_name else "CUBA"
+    logger.info(f"generating spiking data ... {model_config.signal_model_name}  synapse_model: {synapse_model}  seed: {sim.seed}")
+
+    os.makedirs(graphs_data_path("fly"), exist_ok=True)
+    folder = graphs_data_path(config.dataset) + "/"
+    os.makedirs(folder, exist_ok=True)
+    os.makedirs(graphs_data_path(config.dataset, "Fig"), exist_ok=True)
+    files = glob.glob(graphs_data_path(config.dataset, "Fig", "*"))
+    for f in files:
+        os.remove(f)
+
+    extent = 8
+
+    import logging
+
+    from flyvis import Network, NetworkView
+    from flyvis.datasets.sintel import AugmentedSintel
+    from flyvis.utils.config_utils import CONFIG_PATH, get_default_config
+
+    logging.getLogger().setLevel(logging.WARNING)
+    setup_flyvis_model_path()
+
+    # Initialize stimulus dataset (same as graded model)
+    sintel_config = {
+        "n_frames": 19,
+        "flip_axes": [0, 1],
+        "n_rotations": [0, 1, 2, 3, 4, 5],
+        "temporal_split": True,
+        "dt": sim.delta_t,
+        "interpolate": True,
+        "boxfilter": dict(extent=extent, kernel_size=13),
+        "vertical_splits": 3,
+        "center_crop_fraction": 0.7,
+    }
+    stimulus_dataset = AugmentedSintel(**sintel_config)
+
+    # Initialize flyvis network (for connectome topology and stimulus processing)
+    import logging as _logging
+    _logging.getLogger("flyvis.utils.logging_utils").setLevel(_logging.ERROR)
+    config_net = get_default_config(overrides=[], path=f"{CONFIG_PATH}/network/network.yaml")
+    config_net.connectome.extent = extent
+    net = Network(**config_net)
+    nnv = NetworkView(f"flow/{sim.ensemble_id}/{sim.model_id}")
+    trained_net = nnv.init_network(checkpoint=0)
+    net.load_state_dict(trained_net.state_dict())
+    torch.set_grad_enabled(False)
+
+    # Build spiking ODE params from flyvis connectome
+    adex_overrides = {}
+    if hasattr(sim, 'adex_stim_scale'):
+        adex_overrides['stim_scale'] = sim.adex_stim_scale
+    if hasattr(sim, 'adex_I_bias'):
+        adex_overrides['I_bias'] = sim.adex_I_bias
+
+    ode_params = FlyVisAdExODEParams.from_flyvis_network(
+        net, synapse_model=synapse_model, device=device,
+        overrides=adex_overrides if adex_overrides else None,
+    )
+
+    if save:
+        ode_params.save(folder)
+
+    # Create AdEx ODE
+    pde = FlyVisAdExODE(ode_params=ode_params, device=device)
+
+    # Extract positions and neuron metadata
+    x_coords, y_coords, u_coords, v_coords = get_photoreceptor_positions_from_net(net)
+    node_types = np.array(net.connectome.nodes["type"])
+    node_types_str = [t.decode("utf-8") if isinstance(t, bytes) else str(t) for t in node_types]
+    grouped_types = np.array([group_by_direction_and_function(t) for t in node_types_str])
+    _, node_types_int = np.unique(node_types, return_inverse=True)
+
+    n_neurons = sim.n_neurons
+    X1 = torch.tensor(np.stack((x_coords, y_coords), axis=1), dtype=torch.float32, device=device)
+    xc, yc = get_equidistant_points(n_points=n_neurons - x_coords.shape[0])
+    pos = torch.tensor(np.stack((xc, yc), axis=1), dtype=torch.float32, device=device) / 2
+    X1 = torch.cat((X1, pos[torch.randperm(pos.size(0))]), dim=0)
+
+    # Initialize spiking neuron state
+    x = pde.init_state(n_neurons)
+    x.index = torch.arange(n_neurons, dtype=torch.long, device=device)
+    x.pos = X1
+    x.group_type = torch.tensor(grouped_types, dtype=torch.long, device=device)
+    x.neuron_type = torch.tensor(node_types_int, dtype=torch.long, device=device)
+    x.calcium = torch.zeros(n_neurons, dtype=torch.float32, device=device)
+    x.fluorescence = torch.zeros(n_neurons, dtype=torch.float32, device=device)
+    x.noise = torch.zeros(n_neurons, dtype=torch.float32, device=device)
+
+    # AdEx integration timestep (ms) — much finer than graded model
+    adex_dt = getattr(sim, 'adex_dt', 0.2)  # default 0.2 ms
+    # Number of AdEx substeps per stimulus frame
+    substeps = max(1, int(sim.delta_t / adex_dt))
+    logger.info(f"AdEx dt={adex_dt}ms, stimulus dt={sim.delta_t}ms, substeps={substeps}")
+
+    # Train/test split (same logic as graded model)
+    df = stimulus_dataset.arg_df
+    original_indices = df['original_index'].values
+    unique_videos = sorted(set(original_indices))
+    n_train_vids = int(len(unique_videos) * 0.8)
+    train_video_set = set(unique_videos[:n_train_vids])
+    test_video_set = set(unique_videos[n_train_vids:])
+
+    train_indices = [i for i, oi in enumerate(original_indices) if oi in train_video_set]
+    test_indices = [i for i, oi in enumerate(original_indices) if oi in test_video_set]
+    train_sequences = [stimulus_dataset[i] for i in train_indices]
+    test_sequences = [stimulus_dataset[i] for i in test_indices]
+
+    logger.info(f"subdirectory split: {n_train_vids} train / {len(unique_videos) - n_train_vids} test videos"
+                f"  ({len(train_indices)} train seqs, {len(test_indices)} test seqs)")
+
+    frames_per_sequence = 35
+
+    def _run_spiking_generation(sequences, x, split_name, target_frames,
+                                record_plot_frames=0):
+        """Inner loop: run AdEx simulation over stimulus sequences.
+
+        Args:
+            record_plot_frames: number of stimulus frames for which to record
+                substep-level voltage/spike/stimulus (for plotting). 0 = no recording.
+
+        Returns:
+            n_written: number of frames written to zarr.
+            plot_data: dict with 'voltage', 'spike_raster', 'stimulus' arrays
+                at substep resolution, or None if record_plot_frames == 0.
+        """
+        x_writer = ZarrSimulationWriterV3(
+            path=graphs_data_path(config.dataset, f"x_list_{split_name}"),
+            n_neurons=n_neurons,
+            time_chunks=2000,
+        )
+        y_writer = ZarrArrayWriter(
+            path=graphs_data_path(config.dataset, f"y_list_{split_name}"),
+            n_neurons=n_neurons,
+            n_features=1,
+            time_chunks=2000,
+        )
+
+        # Substep-level recording for plotting
+        v_record = [] if record_plot_frames > 0 else None
+        spike_record = [] if record_plot_frames > 0 else None
+        stim_record = [] if record_plot_frames > 0 else None
+        plot_frames_left = record_plot_frames
+
+        it = 0
+        with torch.no_grad():
+            for data_idx, data in enumerate(tqdm(sequences, desc=f"spiking {split_name}", ncols=100)):
+                lum = data["lum"]
+                sequence_length = lum.shape[0]
+
+                for frame_id in range(sequence_length):
+                    # Set stimulus from visual input (photoreceptors only)
+                    frame = lum[frame_id][None, None]
+                    net.stimulus.add_input(frame)
+                    x.stimulus[:] = 0
+                    x.stimulus[:sim.n_input_neurons] = net.stimulus().squeeze()[:sim.n_input_neurons]
+
+                    # Record state BEFORE integration (same convention as graded model)
+                    x_writer.append_state(x)
+
+                    # Integrate AdEx for substeps within this stimulus frame
+                    v_before = x.voltage.clone()
+                    for sub in range(substeps):
+                        pde.step(x, adex_dt)
+
+                        # Record substep data for plotting
+                        if plot_frames_left > 0:
+                            v_record.append(to_numpy(x.voltage.clone()))
+                            spike_record.append(to_numpy(x.spiked.clone()))
+                            stim_record.append(to_numpy(x.stimulus[:sim.n_input_neurons].clone()))
+
+                    if plot_frames_left > 0:
+                        plot_frames_left -= 1
+
+                    # Compute effective dv/dt for this frame (for GNN training target)
+                    dv = ((x.voltage - v_before) / sim.delta_t).unsqueeze(-1)
+                    y_writer.append(to_numpy(dv.clone().detach()))
+
+                    it += 1
+                    if it >= target_frames:
+                        break
+                if it >= target_frames:
+                    break
+
+        n_written = x_writer.finalize()
+        y_writer.finalize()
+
+        plot_data = None
+        if v_record:
+            plot_data = {
+                'voltage': np.stack(v_record, axis=1),       # (N, T_substeps)
+                'spike_raster': np.stack(spike_record, axis=1),  # (N, T_substeps)
+                'stimulus': np.stack(stim_record, axis=1),    # (n_input, T_substeps)
+            }
+        return n_written, plot_data
+
+    # --- Generate TRAIN split ---
+    total_frames_per_pass = len(train_sequences) * frames_per_sequence
+    if n_frames == 0:
+        target_frames = float('inf')
+    else:
+        target_frames = n_frames
+
+    # Record substep-level data for first 400 stimulus frames (for plotting ~20000 substeps)
+    plot_record_frames = 400
+    logger.info(f"generating spiking TRAIN data ({target_frames} frames from {len(train_sequences)} sequences)...")
+    n_frames_train, train_plot_data = _run_spiking_generation(
+        train_sequences, x, "train", target_frames,
+        record_plot_frames=plot_record_frames,
+    )
+    logger.info(f"generated {n_frames_train} spiking TRAIN frames")
+
+    # --- Plot spiking traces ---
+    if train_plot_data is not None:
+        logger.info("plotting spiking traces...")
+        dataset_dir = graphs_data_path(config.dataset)
+        os.makedirs(dataset_dir, exist_ok=True)
+        is_exc_np = to_numpy(ode_params.is_excitatory)
+        plot_spiking_traces(
+            voltage=train_plot_data['voltage'],
+            spike_raster=train_plot_data['spike_raster'],
+            stimulus=train_plot_data['stimulus'],
+            is_excitatory=is_exc_np,
+            type_list=node_types_int,
+            output_path=dataset_dir,
+            n_input_neurons=sim.n_input_neurons,
+            dt_ms=adex_dt,
+            style=fig_style,
+        )
+        logger.info(f"saved spiking plots to {dataset_dir}")
+
+    # --- Generate TEST split ---
+    # Reset state for test
+    x_test = pde.init_state(n_neurons)
+    x_test.index = x.index
+    x_test.pos = x.pos
+    x_test.group_type = x.group_type
+    x_test.neuron_type = x.neuron_type
+    x_test.calcium = torch.zeros(n_neurons, dtype=torch.float32, device=device)
+    x_test.fluorescence = torch.zeros(n_neurons, dtype=torch.float32, device=device)
+    x_test.noise = torch.zeros(n_neurons, dtype=torch.float32, device=device)
+
+    test_target = len(test_sequences) * frames_per_sequence
+    logger.info(f"generating spiking TEST data ({test_target} frames from {len(test_sequences)} sequences)...")
+    n_frames_test, _ = _run_spiking_generation(test_sequences, x_test, "test", float('inf'))
+    logger.info(f"generated {n_frames_test} spiking TEST frames")
+
+    torch.set_grad_enabled(True)
+    logger.info("spiking data generation complete")
+
+
 def data_generate_fly_voltage(config, visualize=True, run_vizualized=0, style="color", erase=False, step=5, device=None,
                               save=True):
 
@@ -501,7 +867,15 @@ def data_generate_fly_voltage(config, visualize=True, run_vizualized=0, style="c
         get_photoreceptor_positions_from_net,
         group_by_direction_and_function,
     )
+    from flyvis_gnn.generators.ode_params import FlyVisHodgkinHuxleyODEParams, FlyVisODEParams, get_ode_params_class
     from flyvis_gnn.utils import setup_flyvis_model_path
+
+    is_hh = False
+    try:
+        ode_cls = get_ode_params_class(model_config.signal_model_name)
+        is_hh = (ode_cls is FlyVisHodgkinHuxleyODEParams)
+    except KeyError:
+        pass
 
     logging.getLogger().setLevel(logging.WARNING)
     setup_flyvis_model_path()
@@ -577,14 +951,20 @@ def data_generate_fly_voltage(config, visualize=True, run_vizualized=0, style="c
     net.load_state_dict(trained_net.state_dict())
     torch.set_grad_enabled(False)
 
-    # Extract ground-truth parameters: time constants (tau), resting potentials (V_rest),
-    # and effective synaptic weights (strength * count * sign) for PDE simulation.
-    params = net._param_api()
-    p = {"tau_i": params.nodes.time_const, "V_i_rest": params.nodes.bias,
-         "w": params.edges.syn_strength * params.edges.syn_count * params.edges.sign}
-    edge_index = torch.stack(
-        [torch.tensor(net.connectome.edges.source_index[:]), torch.tensor(net.connectome.edges.target_index[:])],
-        dim=0).to(device)
+    # Extract ground-truth parameters from flyvis connectome.
+    if is_hh:
+        hh_overrides = {}
+        if getattr(sim, 'hh_stim_scale', None) is not None:
+            hh_overrides['stim_scale'] = sim.hh_stim_scale
+        if getattr(sim, 'hh_I_bias', None) is not None:
+            hh_overrides['I_bias'] = sim.hh_I_bias
+        if getattr(sim, 'hh_w_scale', None) is not None:
+            hh_overrides['w_scale'] = sim.hh_w_scale
+        ode_params = FlyVisHodgkinHuxleyODEParams.from_flyvis_network(
+            net, device=device, overrides=hh_overrides or None)
+    else:
+        ode_params = FlyVisODEParams.from_flyvis_network(net, device=device)
+    edge_index = ode_params.edge_index
 
     if sim.n_extra_null_edges > 0:
         logger.info(f"adding {sim.n_extra_null_edges} extra null edges (mode={sim.null_edges_mode})...")
@@ -641,7 +1021,8 @@ def data_generate_fly_voltage(config, visualize=True, run_vizualized=0, style="c
         if extra_edges:
             extra_edge_index = torch.tensor(extra_edges, dtype=torch.long, device=device).t()
             edge_index = torch.cat([edge_index, extra_edge_index], dim=1)
-            p["w"] = torch.cat([p["w"], torch.zeros(len(extra_edges), device=device)])
+            ode_params.edge_index = edge_index
+            ode_params.W = torch.cat([ode_params.W, torch.zeros(len(extra_edges), device=device)])
             logger.info(f"Total extra edges added: {len(extra_edges)}")
 
     # Edge ablation: zero out a fraction of edge weights before ODE simulation
@@ -653,18 +1034,35 @@ def data_generate_fly_voltage(config, visualize=True, run_vizualized=0, style="c
         ablate_indices = rng.choice(n_edges, size=n_ablate, replace=False)
         ablation_mask = torch.ones(n_edges, dtype=torch.bool, device=device)
         ablation_mask[ablate_indices] = False
-        p["w"][~ablation_mask] = 0.0
+        ode_params.W[~ablation_mask] = 0.0
         logger.info(f"ablated {n_ablate}/{n_edges} edges ({sim.ablation_ratio*100:.0f}%)")
 
-    pde = FlyVisODE(p=p, f=torch.nn.functional.relu, params=sim.params,
-                    model_type=model_config.signal_model_name, n_neuron_types=sim.n_neuron_types, device=device)
+    if is_hh:
+        from flyvis_gnn.generators.flyvis_hodgkin_huxley_ode import FlyVisHodgkinHuxleyODE
+        pde = FlyVisHodgkinHuxleyODE(ode_params=ode_params, device=device)
+        p = ode_params
+        logger.info(
+            f"[HH] params: g_L={p.g_L[0]:.2f} E_L={p.E_L[0]:.1f} g_Na={p.g_Na[0]:.0f} E_Na={p.E_Na[0]:.0f} "
+            f"g_K={p.g_K[0]:.0f} E_K={p.E_K[0]:.0f} C={p.C[0]:.1f} (mS/cm2, mV, uF/cm2)"
+        )
+        logger.info(
+            f"[HH] drive: I_bias={p.I_bias[0]:.1f} uA/cm2, stim_scale={p.stim_scale[0]:.1f}, "
+            f"syn_v_half={p.syn_v_half[0]:.1f} mV, syn_slope={p.syn_slope[0]:.1f} mV"
+        )
+        logger.info(
+            f"[HH] connectome: W range=[{p.W.min():.3f}, {p.W.max():.3f}] mean={p.W.mean():.4f} "
+            f"nonzero={int((p.W != 0).sum())}/{len(p.W)} edges"
+        )
+    else:
+        pde = FlyVisODE(ode_params=ode_params, g_phi=torch.nn.functional.relu, params=sim.params,
+                        model_type=model_config.signal_model_name, n_neuron_types=sim.n_neuron_types, device=device)
 
     # Edge removal: drop a fraction of edges before saving
     # (simulation already ran with the full graph)
     if sim.edge_removal_ratio > 0:
         # Save full edges first (for reference / analysis)
         if save:
-            torch.save(p["w"].clone(), graphs_data_path(config.dataset, "weights_full.pt"))
+            torch.save(ode_params.W.clone(), graphs_data_path(config.dataset, "weights_full.pt"))
             torch.save(edge_index.clone(), graphs_data_path(config.dataset, "edge_index_full.pt"))
 
         rng_rm = np.random.RandomState(sim.edge_removal_seed)
@@ -690,7 +1088,8 @@ def data_generate_fly_voltage(config, visualize=True, run_vizualized=0, style="c
             kept_indices = np.sort(rng_rm.choice(n_total, n_keep, replace=False))
 
         edge_index = edge_index[:, kept_indices]
-        p["w"] = p["w"][kept_indices]
+        ode_params.edge_index = edge_index
+        ode_params.W = ode_params.W[kept_indices]
         logger.info(f"edge removal: kept {len(kept_indices)}/{n_total} edges "
                      f"({(1 - len(kept_indices)/n_total)*100:.1f}% removed)")
         if save:
@@ -698,10 +1097,7 @@ def data_generate_fly_voltage(config, visualize=True, run_vizualized=0, style="c
                         graphs_data_path(config.dataset, "kept_edge_indices.pt"))
 
     if save:
-        torch.save(p["w"], graphs_data_path(config.dataset, "weights.pt"))
-        torch.save(edge_index, graphs_data_path(config.dataset, "edge_index.pt"))
-        torch.save(p["tau_i"], graphs_data_path(config.dataset, "taus.pt"))
-        torch.save(p["V_i_rest"], graphs_data_path(config.dataset, "V_i_rest.pt"))
+        ode_params.save(folder)
         if ablation_mask is not None:
             torch.save(ablation_mask, graphs_data_path(config.dataset, "ablation_mask.pt"))
 
@@ -729,17 +1125,36 @@ def data_generate_fly_voltage(config, visualize=True, run_vizualized=0, style="c
     # init neuron state x
 
     _init_calcium = torch.rand(n_neurons, dtype=torch.float32, device=device)
-    x = NeuronState(
-        index=torch.arange(n_neurons, dtype=torch.long, device=device),
-        pos=X1,
-        voltage=initial_state,
-        stimulus=net.stimulus().squeeze(),
-        group_type=torch.tensor(grouped_types, dtype=torch.long, device=device),
-        neuron_type=torch.tensor(node_types_int, dtype=torch.long, device=device),
-        calcium=_init_calcium,
-        fluorescence=sim.calcium_alpha * _init_calcium + sim.calcium_beta,
-        noise=torch.zeros(n_neurons, dtype=torch.float32, device=device),
-    )
+
+    if is_hh:
+        # HH: initialize at resting potential with steady-state gates
+        hh_state = pde.init_state(n_neurons)
+        x = NeuronState(
+            index=torch.arange(n_neurons, dtype=torch.long, device=device),
+            pos=X1,
+            voltage=hh_state.voltage,
+            stimulus=net.stimulus().squeeze(),
+            group_type=torch.tensor(grouped_types, dtype=torch.long, device=device),
+            neuron_type=torch.tensor(node_types_int, dtype=torch.long, device=device),
+            calcium=_init_calcium,
+            fluorescence=sim.calcium_alpha * _init_calcium + sim.calcium_beta,
+            noise=torch.zeros(n_neurons, dtype=torch.float32, device=device),
+            hh_m=hh_state.hh_m,
+            hh_h=hh_state.hh_h,
+            hh_n=hh_state.hh_n,
+        )
+    else:
+        x = NeuronState(
+            index=torch.arange(n_neurons, dtype=torch.long, device=device),
+            pos=X1,
+            voltage=initial_state,
+            stimulus=net.stimulus().squeeze(),
+            group_type=torch.tensor(grouped_types, dtype=torch.long, device=device),
+            neuron_type=torch.tensor(node_types_int, dtype=torch.long, device=device),
+            calcium=_init_calcium,
+            fluorescence=sim.calcium_alpha * _init_calcium + sim.calcium_beta,
+            noise=torch.zeros(n_neurons, dtype=torch.float32, device=device),
+        )
 
     # --- Subdirectory-level train/test split ---
     # arg_df is aligned with cached_sequences (shuffle applied to both in _build).
@@ -770,6 +1185,12 @@ def data_generate_fly_voltage(config, visualize=True, run_vizualized=0, style="c
     # Build sequences lists for ODE generation
     train_sequences = [stimulus_dataset[i] for i in train_indices]
     test_sequences = [stimulus_dataset[i] for i in test_indices]
+
+    # Optionally limit number of sequences for faster debugging
+    if sim.max_train_sequences > 0:
+        train_sequences = train_sequences[:sim.max_train_sequences]
+        test_sequences = test_sequences[:max(1, sim.max_train_sequences // 4)]
+        logger.info(f"max_train_sequences={sim.max_train_sequences}: using {len(train_sequences)} train, {len(test_sequences)} test sequences")
 
     # Build metadata labels for preview plots (name, flip_ax, n_rot)
     train_meta = [
@@ -842,7 +1263,14 @@ def data_generate_fly_voltage(config, visualize=True, run_vizualized=0, style="c
 
     # --- Generate TEST split ---
     # Reset neural state to avoid train→test leakage
-    x.voltage[:] = initial_state
+    if is_hh:
+        hh_state = pde.init_state(n_neurons)
+        x.voltage = hh_state.voltage
+        x.hh_m = hh_state.hh_m
+        x.hh_h = hh_state.hh_h
+        x.hh_n = hh_state.hh_n
+    else:
+        x.voltage[:] = initial_state
     _init_calcium = torch.rand(n_neurons, dtype=torch.float32, device=device)
     x.calcium = _init_calcium
     x.fluorescence = sim.calcium_alpha * _init_calcium + sim.calcium_beta
@@ -924,17 +1352,44 @@ def data_generate_fly_voltage(config, visualize=True, run_vizualized=0, style="c
     #     style=fig_style,
     # )
 
-    logger.info('plot activity traces ...')
-    trace_name = f'activity_traces_mask_{int(sim.ablation_ratio*100)}.png' if sim.ablation_ratio > 0 else 'activity_traces.png'
-    trace_indices = plot_activity_traces(
-        activity=activity_full.T,
-        output_path=graphs_data_path(config.dataset, trace_name),
-        n_traces=100,
-        max_frames=10000,
-        n_input_neurons=sim.n_input_neurons,
-        style=fig_style,
-        dpi=300,
-    )
+    # Skip warmup frames (100ms / dt) and show 400ms window for all plots
+    warmup_ms = 100.0
+    window_ms = 800.0
+    warmup_frames = int(warmup_ms / sim.delta_t)
+    window_frames = int(window_ms / sim.delta_t)
+    activity_plot = activity_full[warmup_frames:] if activity_full.shape[0] > warmup_frames + 10 else activity_full
+    stim_plot = x_ts.stimulus[warmup_frames:, :sim.n_input_neurons].numpy() if x_ts.stimulus.shape[0] > warmup_frames + 10 else x_ts.stimulus[:, :sim.n_input_neurons].numpy()
+    logger.info(f'plotting traces (warmup_skip={warmup_frames} frames={warmup_ms}ms, window={window_frames} frames={window_ms}ms, {activity_plot.shape[0]} frames available)')
+
+    # HH-specific spiking plots (detect spikes from voltage threshold crossings)
+    if is_hh:
+        logger.info('plotting HH spiking traces ...')
+        # Use warmup-skipped data: (T, N) -> (N, T)
+        voltage_NT = activity_plot.T
+        stimulus_NT = stim_plot.T
+        # Detect spikes: voltage crosses 0mV from below
+        spike_raster = np.zeros_like(voltage_NT, dtype=bool)
+        spike_raster[:, 1:] = (voltage_NT[:, 1:] > 0) & (voltage_NT[:, :-1] <= 0)
+        # Infer E/I from connectome weights
+        W_np = to_numpy(ode_params.W)
+        src_np = to_numpy(ode_params.edge_index[0])
+        sum_w = np.zeros(voltage_NT.shape[0])
+        np.add.at(sum_w, src_np.astype(int), W_np)
+        is_exc_np = sum_w >= 0
+
+        plot_spiking_traces(
+            voltage=voltage_NT,
+            spike_raster=spike_raster,
+            stimulus=stimulus_NT,
+            is_excitatory=is_exc_np,
+            type_list=node_types_int,
+            output_path=graphs_data_path(config.dataset),
+            n_input_neurons=sim.n_input_neurons,
+            max_frames=20000,
+            dt_ms=sim.delta_t,
+            style=fig_style,
+        )
+        logger.info(f"saved HH spiking plots to {graphs_data_path(config.dataset)}")
 
     # Plot noisy activity traces using the same neurons + compute SNR
     snr_stats = None
@@ -950,7 +1405,7 @@ def data_generate_fly_voltage(config, visualize=True, run_vizualized=0, style="c
                 max_frames=10000,
                 n_input_neurons=sim.n_input_neurons,
                 style=fig_style,
-                neuron_indices=trace_indices,
+                type_list=node_types_int,
                 dpi=300,
                 title='noisy voltage traces (measurement noise)',
             )

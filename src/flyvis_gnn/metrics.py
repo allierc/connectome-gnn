@@ -9,7 +9,6 @@ Used by:
     - graph_trainer.py (training-time monitoring)
     - sparsify.py (pruning)
 """
-import os
 from typing import Optional
 
 import numpy as np
@@ -24,19 +23,19 @@ from flyvis_gnn.utils import graphs_data_path, to_numpy
 # ------------------------------------------------------------------ #
 
 INDEX_TO_NAME: dict[int, str] = {
-    0: 'am', 1: 'c2', 2: 'c3', 3: 'ct1(lo1)', 4: 'ct1(m10)',
-    5: 'l1', 6: 'l2', 7: 'l3', 8: 'l4', 9: 'l5',
-    10: 'lawf1', 11: 'lawf2', 12: 'mi1', 13: 'mi10', 14: 'mi11',
-    15: 'mi12', 16: 'mi13', 17: 'mi14', 18: 'mi15', 19: 'mi2',
-    20: 'mi3', 21: 'mi4', 22: 'mi9', 23: 'r1', 24: 'r2',
-    25: 'r3', 26: 'r4', 27: 'r5', 28: 'r6', 29: 'r7', 30: 'r8',
-    31: 't1', 32: 't2', 33: 't2a', 34: 't3', 35: 't4a',
-    36: 't4b', 37: 't4c', 38: 't4d', 39: 't5a', 40: 't5b',
-    41: 't5c', 42: 't5d', 43: 'tm1', 44: 'tm16', 45: 'tm2',
-    46: 'tm20', 47: 'tm28', 48: 'tm3', 49: 'tm30', 50: 'tm4',
-    51: 'tm5y', 52: 'tm5a', 53: 'tm5b', 54: 'tm5c', 55: 'tm9',
-    56: 'tmy10', 57: 'tmy13', 58: 'tmy14', 59: 'tmy15',
-    60: 'tmy18', 61: 'tmy3', 62: 'tmy4', 63: 'tmy5a', 64: 'tmy9',
+    0: 'Am', 1: 'C2', 2: 'C3', 3: 'CT1(Lo1)', 4: 'CT1(M10)',
+    5: 'L1', 6: 'L2', 7: 'L3', 8: 'L4', 9: 'L5',
+    10: 'Lawf1', 11: 'Lawf2', 12: 'Mi1', 13: 'Mi10', 14: 'Mi11',
+    15: 'Mi12', 16: 'Mi13', 17: 'Mi14', 18: 'Mi15', 19: 'Mi2',
+    20: 'Mi3', 21: 'Mi4', 22: 'Mi9', 23: 'R1', 24: 'R2',
+    25: 'R3', 26: 'R4', 27: 'R5', 28: 'R6', 29: 'R7', 30: 'R8',
+    31: 'T1', 32: 'T2', 33: 'T2a', 34: 'T3', 35: 'T4a',
+    36: 'T4b', 37: 'T4c', 38: 'T4d', 39: 'T5a', 40: 'T5b',
+    41: 'T5c', 42: 'T5d', 43: 'Tm1', 44: 'Tm16', 45: 'Tm2',
+    46: 'Tm20', 47: 'Tm28', 48: 'Tm3', 49: 'Tm30', 50: 'Tm4',
+    51: 'Tm5Y', 52: 'Tm5a', 53: 'Tm5b', 54: 'Tm5c', 55: 'Tm9',
+    56: 'TmY10', 57: 'TmY13', 58: 'TmY14', 59: 'TmY15',
+    60: 'TmY18', 61: 'TmY3', 62: 'TmY4', 63: 'TmY5a', 64: 'TmY9',
 }
 
 ANATOMICAL_ORDER: list[Optional[int]] = [
@@ -487,14 +486,10 @@ def compute_dynamics_r2(model, x_ts, config, device, n_neurons):
     Returns:
         (vrest_r2, tau_r2): tuple of float R² values.
     """
-    gt_V_rest_tensor = torch.load(graphs_data_path(config.dataset, 'V_i_rest.pt'),
-                                  map_location=device, weights_only=True)
-    tau_path = graphs_data_path(config.dataset, 'taus.pt')
-    if not os.path.exists(tau_path):
-        tau_path = graphs_data_path(config.dataset, 'tau_i.pt')
-    gt_tau_tensor = torch.load(tau_path, map_location=device, weights_only=True)
-    gt_V_rest = to_numpy(gt_V_rest_tensor[:n_neurons])
-    gt_tau = to_numpy(gt_tau_tensor[:n_neurons])
+    from flyvis_gnn.generators.ode_params import FlyVisODEParams
+    ode_params = FlyVisODEParams.load(graphs_data_path(config.dataset), device=device)
+    gt_V_rest = to_numpy(ode_params.V_i_rest[:n_neurons])
+    gt_tau = to_numpy(ode_params.tau_i[:n_neurons])
 
     mu, sigma = compute_activity_stats(x_ts, device)
     slopes, offsets = extract_f_theta_slopes(model, config, n_neurons, mu, sigma, device)
@@ -525,15 +520,11 @@ def compute_dynamics_r2_linear(model, config, device, n_neurons):
     """
     import torch.nn.functional as F
 
-    gt_V_rest = to_numpy(torch.load(
-        graphs_data_path(config.dataset, 'V_i_rest.pt'),
-        map_location=device, weights_only=True)[:n_neurons])
-    tau_path = graphs_data_path(config.dataset, 'taus.pt')
-    if not os.path.exists(tau_path):
-        tau_path = graphs_data_path(config.dataset, 'tau_i.pt')
-    gt_tau = to_numpy(torch.load(tau_path, map_location=device, weights_only=True)[:n_neurons])
-    gt_weights = to_numpy(torch.load(
-        graphs_data_path(config.dataset, 'weights.pt'), map_location=device, weights_only=False))
+    from flyvis_gnn.generators.ode_params import FlyVisODEParams
+    ode_params = FlyVisODEParams.load(graphs_data_path(config.dataset), device=device)
+    gt_V_rest = to_numpy(ode_params.V_i_rest[:n_neurons])
+    gt_tau = to_numpy(ode_params.tau_i[:n_neurons])
+    gt_weights = to_numpy(ode_params.W)
 
     learned_tau = to_numpy(F.softplus(model.raw_tau[:n_neurons]).detach())
     learned_vrest = to_numpy(model.V_rest[:n_neurons].detach())
