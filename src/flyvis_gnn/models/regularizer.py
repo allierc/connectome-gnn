@@ -113,17 +113,12 @@ class LossRegularizer:
         rate = tc.regul_annealing_rate
 
         # Exponential ramp-up annealing for weight regularization
+        # rate > 0: coeff ramps up over epochs (zero at epoch 0)
+        # rate = 0: full coeff from epoch 0 (no annealing)
         def anneal(coeff):
             return coeff * (1 - np.exp(-rate * epoch)) if rate > 0 else coeff
 
-        # Two-phase training support (like ParticleGraph data_train_synaptic2)
-        n_epochs_init = getattr(tc, 'n_epochs_init', 0)
-        first_coeff_L1 = getattr(tc, 'first_coeff_L1', tc.coeff_W_L1)
-
-        if n_epochs_init > 0 and epoch < n_epochs_init:
-            self._coeffs['W_L1'] = first_coeff_L1
-        else:
-            self._coeffs['W_L1'] = anneal(tc.coeff_W_L1)
+        self._coeffs['W_L1'] = anneal(tc.coeff_W_L1)
         self._coeffs['W_L2'] = anneal(tc.coeff_W_L2)
         self._coeffs['g_phi_weight_L1'] = anneal(tc.coeff_g_phi_weight_L1)
         self._coeffs['g_phi_weight_L2'] = anneal(tc.coeff_g_phi_weight_L2)
@@ -132,11 +127,7 @@ class LossRegularizer:
 
         # Non-annealed coefficients
         self._coeffs['W_sign'] = tc.coeff_W_sign
-        # Two-phase: g_phi_diff is active in phase 1, disabled in phase 2
-        if n_epochs_init > 0 and epoch >= n_epochs_init:
-            self._coeffs['g_phi_diff'] = 0  # Phase 2: no monotonicity constraint
-        else:
-            self._coeffs['g_phi_diff'] = tc.coeff_g_phi_diff
+        self._coeffs['g_phi_diff'] = tc.coeff_g_phi_diff
         self._coeffs['g_phi_norm'] = tc.coeff_g_phi_norm
         self._coeffs['f_theta_zero'] = tc.coeff_f_theta_zero
         self._coeffs['f_theta_diff'] = tc.coeff_f_theta_diff
@@ -442,7 +433,8 @@ class LossRegularizer:
         if self._coeffs['f_theta_msg_diff'] > 0:
             pred_msg = model.f_theta(in_features.clone().detach())
             in_features_msg_next = in_features.clone().detach()
-            in_features_msg_next[:, embedding_dim + 1] = in_features_msg_next[:, embedding_dim + 1] * 1.05
+            delta_msg = 0.05 * max(float(xnorm), 1e-6) if xnorm is not None else 1e-6
+            in_features_msg_next[:, embedding_dim + 1] = in_features_msg_next[:, embedding_dim + 1] + delta_msg
             pred_msg_next = model.f_theta(in_features_msg_next)
             regul_term = torch.relu(pred_msg[ids_batch] - pred_msg_next[ids_batch]).norm(2) * self._coeffs['f_theta_msg_diff']
             total_regul = total_regul + regul_term

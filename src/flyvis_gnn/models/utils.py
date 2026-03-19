@@ -238,14 +238,18 @@ def get_in_features_g_phi(x, model, model_config, xnorm, n_neurons, device):
     voltage_all = x.voltage.unsqueeze(-1)
     signal_model_name = model_config.signal_model_name
 
+    # Additive perturbation so dg/dv>0 is enforced consistently for v<0 too.
+    # Multiplicative (v*1.05) flips direction for negative voltages.
+    delta_v = 0.05 * max(float(xnorm), 1e-6)
+
     if signal_model_name == 'flyvis_B':
         perm_indices = torch.randperm(n_neurons, device=model.a.device)
         in_features = torch.cat((voltage_all, voltage_all, model.a, model.a[perm_indices]), dim=1)
-        in_features_next = torch.cat((voltage_all, voltage_all * 1.05, model.a, model.a[perm_indices]), dim=1)
+        in_features_next = torch.cat((voltage_all, voltage_all + delta_v, model.a, model.a[perm_indices]), dim=1)
     else:
         # flyvis_A, flyvis_C, flyvis_D, and default
         in_features = torch.cat((voltage_all, model.a), dim=1)
-        in_features_next = torch.cat((voltage_all * 1.05, model.a), dim=1)
+        in_features_next = torch.cat((voltage_all + delta_v, model.a), dim=1)
 
     return in_features, in_features_next
 
