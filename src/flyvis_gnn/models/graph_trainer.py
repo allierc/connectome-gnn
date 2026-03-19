@@ -26,6 +26,7 @@ from flyvis_gnn.models.Neural_ode_wrapper_FlyVis import (
     debug_check_gradients,
     neural_ode_loss_FlyVis,
 )
+from flyvis_gnn.models.recurrent_step import recurrent_loss
 from flyvis_gnn.models.registry import create_model
 from flyvis_gnn.models.training_utils import build_lr_scheduler, build_model, determine_load_fields, load_flyvis_data
 from flyvis_gnn.models.utils import (
@@ -174,7 +175,8 @@ def data_train_flyvis(config, erase, best_model, device, log_file=None):
     elif tc.pretrained_model != '':
         checkpoint_path = tc.pretrained_model
 
-    model, start_epoch = build_model(config, device, checkpoint_path=checkpoint_path)
+    reset_epoch = (tc.pretrained_model != '' and not best_model)
+    model, start_epoch = build_model(config, device, checkpoint_path=checkpoint_path, reset_epoch=reset_epoch)
     list_loss = []
 
     # W init mode info
@@ -335,6 +337,45 @@ def data_train_flyvis(config, erase, best_model, device, log_file=None):
 
             optimizer.zero_grad()
 
+            # Recurrent training (standard or multi-start) — delegated to recurrent_step
+            if tc.recurrent_training and not tc.neural_ODE_training:
+                loss, regul_val = recurrent_loss(
+                    model=model, x_ts=x_ts, y_ts=y_ts, edges=edges, ids=ids,
+                    frame_indices=frame_indices, iter_idx=N, config=config,
+                    device=device, xnorm=xnorm, ynorm=ynorm,
+                    regularizer=regularizer, has_visual_field=has_visual_field,
+                )
+                loss.backward()
+                if hasattr(tc, 'grad_clip_W') and tc.grad_clip_W > 0 and hasattr(model, 'W'):
+                    if model.W.grad is not None:
+                        torch.nn.utils.clip_grad_norm_([model.W], max_norm=tc.grad_clip_W)
+                optimizer.step()
+                lr_scheduler.step()
+                total_loss += loss.item()
+                total_loss_regul += regul_val
+                regularizer.finalize_iteration()
+
+                if regularizer.should_record():
+                    loss_components['loss'].append((loss.item() - regul_val) / n_neurons)
+                    plot_dict = {**regularizer.get_history(), 'loss': loss_components['loss']}
+                    plot_signal_loss(plot_dict, log_dir, epoch=epoch, Niter=Niter,
+                                    epoch_boundaries=regularizer.epoch_boundaries)
+
+                # R2 checkpoint
+                is_regular_r2 = (N > 0) and (N % connectivity_plot_frequency == 0)
+                is_early_r2 = (N > 0) and (N < connectivity_plot_frequency) and (N % early_r2_frequency == 0)
+                model_name = model_config.signal_model_name
+                if (is_regular_r2 or is_early_r2) and 'MLP' not in model_name:
+                    last_connectivity_r2 = plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_list, gt_weights, edges, n_neurons=n_neurons, n_neuron_types=sim.n_neuron_types)
+                    last_vrest_r2, last_tau_r2 = compute_dynamics_r2(model, x_ts, config, device, n_neurons)
+                    with open(metrics_log_path, 'a') as f:
+                        f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f}\n')
+
+                if last_connectivity_r2 is not None:
+                    c_conn, c_vr, c_tau = r2_color(last_connectivity_r2), r2_color(last_vrest_r2), r2_color(last_tau_r2)
+                    pbar.set_postfix_str(f'{c_conn}conn={last_connectivity_r2:.3f}{ANSI_RESET} {c_vr}Vr={last_vrest_r2:.3f}{ANSI_RESET} {c_tau}τ={last_tau_r2:.3f}{ANSI_RESET}')
+                continue
+
             state_batch = []
             y_list = []
             ids_list = []
@@ -344,9 +385,16 @@ def data_train_flyvis(config, erase, best_model, device, log_file=None):
 
             loss = 0
 
+            # Consecutive batch: pick one random start, use batch_size consecutive frames
+            if tc.consecutive_batch:
+                k_start = int(frame_indices[N * tc.batch_size])
+
             for batch in range(tc.batch_size):
 
-                k = int(frame_indices[N * tc.batch_size + batch])
+                if tc.consecutive_batch:
+                    k = k_start + batch
+                else:
+                    k = int(frame_indices[N * tc.batch_size + batch])
 
                 if tc.recurrent_training or tc.neural_ODE_training:
                     k = k - k % tc.time_step

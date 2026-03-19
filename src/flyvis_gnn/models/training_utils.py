@@ -88,7 +88,7 @@ def load_flyvis_data(dataset_name, split='train', fields=None, device=None,
     return x_ts, y_ts, type_list
 
 
-def build_model(config, device, checkpoint_path=None):
+def build_model(config, device, checkpoint_path=None, reset_epoch=False):
     """Create a FlyVisGNN model and optionally load a checkpoint.
 
     Args:
@@ -107,6 +107,13 @@ def build_model(config, device, checkpoint_path=None):
         config=config, device=device,
     ).to(device)
 
+    # Resolve relative ./log/... paths against data_root
+    if checkpoint_path and not os.path.isabs(checkpoint_path) and not os.path.exists(checkpoint_path):
+        from flyvis_gnn.utils import get_data_root
+        resolved = os.path.join(get_data_root(), checkpoint_path.lstrip('./'))
+        if os.path.exists(resolved):
+            checkpoint_path = resolved
+
     start_epoch = 0
     if checkpoint_path and os.path.exists(checkpoint_path):
         print(f'loading state_dict from {checkpoint_path} ...')
@@ -122,6 +129,8 @@ def build_model(config, device, checkpoint_path=None):
             start_epoch = int(parts[-1])
         except (ValueError, IndexError):
             pass
+        if reset_epoch:
+            start_epoch = 0
         print(f'state_dict loaded, start_epoch={start_epoch}')
     else:
         if checkpoint_path:

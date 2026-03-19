@@ -814,9 +814,10 @@ def plot_signal_loss(loss_dict, log_dir, epoch=None, Niter=None, epoch_boundarie
     x_iter = loss_dict.get('iteration') or list(range(len(loss_dict['loss'])))
 
     # Linear scale
-    legend_fs = 9
+    legend_fs = 7
     for a in (ax1, ax2, ax3):
         a.tick_params(axis='x', labelsize=9)
+        a.tick_params(axis='y', labelsize=9)
     ax1.plot(x_iter, loss_dict['loss'], color='b', linewidth=1, label='loss (no regul)', alpha=0.8)
     ax1.plot(x_iter, loss_dict['regul_total'], color='b', linewidth=1, label='total regularization', alpha=0.8)
     ax1.plot(x_iter, loss_dict['W_L1'], color='r', linewidth=1, label='W l1 sparsity', alpha=0.7)
@@ -884,8 +885,8 @@ def plot_signal_loss(loss_dict, log_dir, epoch=None, Niter=None, epoch_boundarie
             latest_text = (f"conn={conn_vals[-1]:.3f}\n"
                            f"vrest={vrest_vals[-1]:.3f}\n"
                            f"tau={tau_vals[-1]:.3f}")
-            ax3.text(0.02, 0.97, latest_text, transform=ax3.transAxes,
-                     fontsize=style.annotation_font_size, verticalalignment='top')
+            ax3.text(0.98, 0.97, latest_text, transform=ax3.transAxes,
+                     fontsize=8, verticalalignment='top', horizontalalignment='right')
         else:
             ax3.text(0.5, 0.5, 'no r\u00b2 data yet', ha='center', va='center',
                      transform=ax3.transAxes, fontsize=style.label_font_size, color='gray')

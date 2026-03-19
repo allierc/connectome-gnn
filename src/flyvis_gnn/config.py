@@ -447,7 +447,7 @@ class TrainingConfig(BaseModel):
     device: Annotated[str, Field(pattern=r"^(auto|cpu|cuda:\d+)$")] = "auto"
 
     n_epochs: int = 20
-    n_epochs_init: int = 99999
+    n_epochs_init: int = 99999  # DEPRECATED: no longer used by regularizer
     epoch_reset: int = -1
     epoch_reset_freq: int = 99999
     batch_size: int = 1
@@ -632,6 +632,8 @@ class TrainingConfig(BaseModel):
     lr_scheduler_warmup_iters: int = 100  # linear warmup iterations
 
     time_step: int = 1
+    multi_start_recurrent: bool = False
+    consecutive_batch: bool = False
     recurrent_sequence: str = ""
     recurrent_parameters: list[float] = [0, 0]
 

@@ -42,18 +42,7 @@ if __name__ == "__main__":
 
     if args.option:
         print(f"Options: {args.option}")
-    # named config lists for batch runs
-    CONFIG_LISTS = {
-        'w_init_ablation': [
-            'signal_fig_2', 'signal_fig_2_W_init', 'signal_fig_2_W_init_zeros', 'signal_fig_2_clip', 'signal_fig_2_clip_W_init',
-            'signal_fig_3', 'signal_fig_3_W_init', 'signal_fig_3_W_init_zeros', 'signal_fig_3_clip', 'signal_fig_3_clip_W_init',
-            'signal_fig_supp_8_1', 'signal_fig_supp_8_1_W_init', 'signal_fig_supp_8_1_W_init_zeros', 'signal_fig_supp_8_1_clip', 'signal_fig_supp_8_1_clip_W_init',
-        ],
-        'flyvis_top5_bottom5': [
-            'flyvis_62_1_id_006', 'flyvis_62_1_id_029', 'flyvis_62_1_id_001', 'flyvis_62_1_id_000', 'flyvis_62_1_id_037',
-            'flyvis_62_1_id_011', 'flyvis_62_1_id_036', 'flyvis_62_1_id_003', 'flyvis_62_1_id_041', 'flyvis_62_1_id_049',
-        ],
-    }
+    CONFIG_LISTS = {}
 
     if args.option is not None:
         task = args.option[0]
