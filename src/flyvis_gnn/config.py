@@ -188,6 +188,7 @@ class SimulationConfig(BaseModel):
     visual_input_type: str = ""  # for flyvis experiments
     datavis_roots: list[str] = []  # list of dataset roots (each contains JPEGImages/480p/); empty list uses default get_datavis_root_dir()
     skip_short_videos: bool = True  # skip videos with fewer frames than chunk size (n_frames in video_config)
+    max_train_sequences: int = 0  # limit train sequences (0 = use all); reduces generation time proportionally
     blank_freq: int = 2  # Frequency of blank frames in visual input
     simulation_initial_state: bool = False
 
@@ -222,6 +223,17 @@ class SimulationConfig(BaseModel):
 
     adjacency_matrix: str = ""
     short_term_plasticity_mode: str = "depression"
+
+    # AdEx spiking model parameters
+    adex_dt: float = 0.2              # ms — integration timestep for AdEx (0.2ms default from Zerlaut)
+    adex_stim_scale: float = 1.0      # pA per unit stimulus — converts visual input to current
+    adex_I_bias: float = 0.0          # pA — constant bias current injected into all neurons
+
+    # Hodgkin-Huxley model parameters
+    hh_substeps: int = 50             # number of Euler substeps per stimulus frame
+    hh_stim_scale: float = 50.0       # uA/cm^2 per unit stimulus
+    hh_I_bias: float = 3.0            # uA/cm^2 — tonic drive (subthreshold)
+    hh_w_scale: float = 2.0           # global W multiplier (connectome weights calibrated for graded model)
 
     connectivity_file: str = ""
     connectivity_init: list[float] = [-1]

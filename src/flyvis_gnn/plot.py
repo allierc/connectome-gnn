@@ -575,40 +575,78 @@ def plot_activity_traces(
     n_input_neurons: int = 0,
     style: FigureStyle = default_style,
     neuron_indices: np.ndarray | None = None,
+    type_list: np.ndarray | None = None,
+    stimulus: np.ndarray | None = None,
+    dt_ms: float = 0.5,
     dpi: int | None = None,
     title: str | None = None,
 ) -> np.ndarray:
     """Sampled neuron voltage traces stacked vertically.
 
-    Args:
-        activity: (n_neurons, n_frames) transposed voltage array.
-        output_path: where to save the figure.
-        n_traces: number of neurons to sample.
-        max_frames: truncate x-axis at this frame count.
-        n_input_neurons: shown as annotation.
-        style: FigureStyle instance.
-        neuron_indices: pre-selected neuron indices; if None, random sample.
-        dpi: override DPI for this figure; if None, use style default.
-        title: optional title for the figure.
+    If type_list is provided, picks one neuron per type (65 types) and labels
+    them by name.  Otherwise falls back to random sampling of n_traces neurons.
 
     Returns:
         neuron_indices used (for reuse in paired plots).
     """
-    n_neurons, n_frames = activity.shape
-    n_traces = min(n_traces, n_neurons)
-    if neuron_indices is None:
+    n_neurons, n_frames_raw = activity.shape
+    if max_frames > 0:
+        n_frames_raw = min(n_frames_raw, max_frames)
+    activity = activity[:, :n_frames_raw]
+    n_frames = n_frames_raw
+
+    # Select one neuron per type when type_list is provided
+    type_labels = None
+    if type_list is not None and neuron_indices is None:
+        names = INDEX_TO_NAME
+        unique_types = np.unique(type_list)
+        neuron_indices = []
+        type_labels = []
+        for t in unique_types:
+            indices = np.where(type_list == t)[0]
+            if len(indices) > 0:
+                neuron_indices.append(indices[0])
+                type_labels.append(names.get(int(t), f'type_{t}'))
+        neuron_indices = np.array(neuron_indices)
+    elif neuron_indices is None:
+        n_traces = min(n_traces, n_neurons)
         neuron_indices = np.sort(np.random.choice(n_neurons, n_traces, replace=False))
-    sampled = activity[neuron_indices]
-    offset = sampled + 2 * np.arange(len(neuron_indices))[:, None]
+
+    sampled = activity[neuron_indices] / 20.0  # scale down so spikes don't dominate
+    step_v = 2.0
+    offset = sampled + step_v * np.arange(len(neuron_indices))[:, None]
 
     fig, ax = style.figure(aspect=1.5)
     ax.plot(offset.T, linewidth=0.5, alpha=0.7, color=style.foreground)
-    style.xlabel(ax, 'time (frames)', fontsize=16)
-    style.ylabel(ax, f'{len(neuron_indices)} / {n_neurons} neurons')
-    ax.set_yticks([])
-    ax.tick_params(axis='x', labelsize=14)
-    ax.set_xlim([0, min(n_frames, max_frames)])
-    ax.set_ylim([offset[0].min() - 2, offset[-1].max() + 2])
+
+    # Red stimulus trace at the bottom
+    if stimulus is not None:
+        stim_mean = stimulus.mean(axis=0)
+        if max_frames > 0:
+            stim_mean = stim_mean[:min(len(stim_mean), max_frames)]
+        stim_y = offset[0].min() - step_v * 1.5 + stim_mean * step_v * 5
+        ax.plot(stim_y, linewidth=0.8, alpha=0.9, color='red')
+
+    style.xlabel(ax, 'frames', fontsize=10)
+
+    if type_labels is not None:
+        ax.set_yticks([i * step_v for i in range(len(neuron_indices))])
+        ax.set_yticklabels(type_labels, fontsize=3)
+        style.ylabel(ax, '')
+    else:
+        style.ylabel(ax, f'{len(neuron_indices)} / {n_neurons} neurons')
+        ax.set_yticks([])
+
+    ax.tick_params(axis='x', labelsize=6)
+    ax.set_xlim([0, n_frames])
+    y_bottom = (offset[0].min() - step_v * 3) if stimulus is not None else (offset[0].min() - 2)
+    ax.set_ylim([y_bottom, offset[-1].max() + 2])
+
+    # Secondary x-axis: time in ms
+    ax2 = ax.twiny()
+    ax2.set_xlim([0, n_frames * dt_ms])
+    ax2.set_xlabel('time (ms)', fontsize=10)
+    ax2.tick_params(axis='x', labelsize=6)
     if title:
         ax.set_title(title, fontsize=style.font_size)
 
@@ -682,6 +720,356 @@ def plot_selected_neuron_traces(
 
     plt.tight_layout()
     style.savefig(fig, output_path)
+
+
+def plot_retina_traces(
+    activity: np.ndarray,
+    stimulus: np.ndarray,
+    type_list: np.ndarray,
+    output_path: str,
+    max_frames: int = 0,
+    dt_ms: float = 0.5,
+    style: FigureStyle = default_style,
+) -> None:
+    """Plot R1-R8 + L1/L2 traces with stimulus overlay.
+
+    One trace per type (R1..R8, L1, L2), picking the first neuron of each type.
+    A stimulus trace (first photoreceptor input) is shown in red at the bottom.
+
+    Args:
+        activity: (n_neurons, n_frames) voltage array.
+        stimulus: (n_input_neurons, n_frames) stimulus array.
+        type_list: (n_neurons,) integer neuron type per neuron.
+        output_path: where to save the figure.
+        max_frames: truncate at this many frames (0 = show all).
+        dt_ms: timestep in ms (for x-axis label).
+        style: FigureStyle instance.
+    """
+    # R1-R8 + L1/L2 type indices from INDEX_TO_NAME
+    retina_types = [23, 24, 25, 26, 27, 28, 29, 30, 5, 6]
+    retina_names = ['R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7', 'R8', 'L1', 'L2']
+
+    neuron_indices = []
+    labels = []
+    for t, name in zip(retina_types, retina_names):
+        indices = np.where(type_list == t)[0]
+        if len(indices) > 0:
+            neuron_indices.append(indices[0])
+            labels.append(name)
+
+    n_sel = len(neuron_indices)
+    if n_sel == 0:
+        return
+
+    n_frames = activity.shape[1]
+    if max_frames > 0:
+        n_frames = min(n_frames, max_frames)
+
+    traces = activity[neuron_indices, :n_frames]
+
+    # Vertical offset between traces
+    v_range = np.max(np.ptp(traces, axis=1))
+    step_v = max(v_range * 1.2, 1.0)
+    offset = traces + step_v * np.arange(n_sel)[:, None]
+
+    fig, ax = style.figure(aspect=2.0)
+    colors = plt.cm.tab20(np.linspace(0, 0.95, n_sel))
+    for i in range(n_sel):
+        ax.plot(offset[i], linewidth=0.8, alpha=0.85, color=colors[i], label=labels[i])
+
+    # Stimulus trace at the bottom
+    if stimulus.shape[0] > 0:
+        stim_trace = stimulus[0, :n_frames]
+        stim_min = offset.min() - step_v * 1.5
+        stim_range = max(stim_trace.max() - stim_trace.min(), 1e-6)
+        stim_scaled = (stim_trace - stim_trace.min()) / stim_range * step_v + stim_min
+        ax.plot(stim_scaled, linewidth=1.0, alpha=0.9, color='red', label='stimulus')
+
+    ax.set_yticks([i * step_v for i in range(n_sel)])
+    ax.set_yticklabels(labels, fontsize=8)
+    ax.set_xlim([0, n_frames])
+    ax.set_ylim([offset.min() - step_v * 2, offset.max() + step_v * 0.5])
+    style.xlabel(ax, f'time (dt={dt_ms:.1f}ms)', fontsize=14)
+    ax.set_title('Retina (R1-R8) + L1/L2 voltage traces', fontsize=14)
+    ax.legend(loc='upper right', fontsize=10, ncol=4, framealpha=0.7)
+
+    plt.tight_layout()
+    style.savefig(fig, output_path, dpi=300)
+
+
+def plot_hh_debug(
+    voltage_history: np.ndarray,
+    stimulus_history: np.ndarray,
+    gate_m_history: np.ndarray,
+    gate_h_history: np.ndarray,
+    gate_n_history: np.ndarray,
+    type_list: np.ndarray,
+    output_path: str,
+    dt_ms: float = 0.5,
+    hh_substeps: int = 50,
+    hh_params: dict = None,
+    style: FigureStyle = default_style,
+    warmup_frames: int = 0,
+    max_frames: int = 0,
+) -> None:
+    """Multi-panel HH debug plot for R1-R8 + L1/L2.
+
+    5 panels: voltage, stimulus, gate variables, current decomposition, dv/dt.
+
+    Args:
+        voltage_history: (n_frames, n_neurons)
+        stimulus_history: (n_frames, n_neurons)
+        gate_m/h/n_history: (n_frames, n_neurons)
+        type_list: (n_neurons,) int type indices
+        hh_params: dict with per-neuron arrays: g_L, E_L, g_Na, E_Na, g_K, E_K, C,
+                   I_bias, stim_scale. If None, current panel is skipped.
+        warmup_frames: skip this many frames at the start.
+        max_frames: show at most this many frames after warmup (0 = all).
+    """
+    # R1-R8 + L1/L2
+    trace_types = [23, 24, 25, 26, 27, 28, 29, 30, 5, 6]
+    trace_names = ['R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7', 'R8', 'L1', 'L2']
+
+    idx_map = {}
+    for t, name in zip(trace_types, trace_names):
+        indices = np.where(type_list == t)[0]
+        if len(indices) > 0:
+            idx_map[name] = indices[0]
+
+    if not idx_map:
+        return
+
+    # Slice warmup and window
+    total = voltage_history.shape[0]
+    start = min(warmup_frames, total - 1)
+    end = total if max_frames <= 0 else min(start + max_frames, total)
+    voltage_history = voltage_history[start:end]
+    stimulus_history = stimulus_history[start:end]
+    gate_m_history = gate_m_history[start:end]
+    gate_h_history = gate_h_history[start:end]
+    gate_n_history = gate_n_history[start:end]
+
+    n_frames = voltage_history.shape[0]
+    t_axis = np.arange(n_frames) * dt_ms + start * dt_ms
+    r_indices = [idx_map[n] for n in trace_names[:8] if n in idx_map]  # R1-R8 only for gates/currents
+
+    n_panels = 5 if hh_params else 4
+    fig, axes = plt.subplots(n_panels, 1, figsize=(16, 3.0 * n_panels), sharex=True)
+    colors = plt.cm.tab20(np.linspace(0, 0.95, len(idx_map)))
+
+    # Panel 1: Voltage
+    ax = axes[0]
+    for i, (name, nidx) in enumerate(idx_map.items()):
+        ax.plot(t_axis, voltage_history[:, nidx], linewidth=0.8, color=colors[i], label=name)
+    ax.axhline(-55, color='gray', ls='--', lw=0.7, label='spike thresh ~-55mV')
+    ax.set_ylabel('voltage (mV)')
+    ax.set_title(f'HH Debug: R1-R8 + L1/L2  (dt={dt_ms}ms, substeps={hh_substeps})')
+    ax.legend(fontsize=12, ncol=6, loc='upper right')
+    ax.grid(True, alpha=0.3)
+
+    # Panel 2: Stimulus (raw x.stimulus value) — only R1-R8 (L1/L2 are not input neurons)
+    ax = axes[1]
+    for i, (name, nidx) in enumerate(idx_map.items()):
+        if name.startswith('R'):
+            ax.plot(t_axis, stimulus_history[:, nidx], linewidth=0.8, color=colors[i], label=name)
+    ax.set_ylabel('x.stimulus')
+    ax.set_title('Stimulus injected into R1-R8')
+    ax.set_ylim([0.0, 1.0])
+    ax.legend(fontsize=12, ncol=4, loc='upper right')
+    ax.grid(True, alpha=0.3)
+
+    # Panel 3: Gate variables (mean of m, h, n across R1-R8)
+    ax = axes[2]
+    m_mean = gate_m_history[:, r_indices].mean(axis=1)
+    h_mean = gate_h_history[:, r_indices].mean(axis=1)
+    n_mean = gate_n_history[:, r_indices].mean(axis=1)
+    ax.plot(t_axis, m_mean, linewidth=1.2, color='red', label='m (Na act)')
+    ax.plot(t_axis, h_mean, linewidth=1.2, color='blue', label='h (Na inact)')
+    ax.plot(t_axis, n_mean, linewidth=1.2, color='green', label='n (K act)')
+    ax.set_ylabel('gate value')
+    ax.set_title('HH gates (mean R1-R8)')
+    ax.legend(fontsize=12, loc='upper right')
+    ax.set_ylim([-0.05, 1.05])
+    ax.grid(True, alpha=0.3)
+
+    # Panel 4: Current decomposition (mean over R1-R8 first neurons)
+    panel_idx = 3
+    if hh_params:
+        ax = axes[panel_idx]
+        panel_idx += 1
+        v = voltage_history[:, r_indices]   # (T, n_retina)
+        m = gate_m_history[:, r_indices]
+        h = gate_h_history[:, r_indices]
+        n = gate_n_history[:, r_indices]
+        s = stimulus_history[:, r_indices]
+
+        g_L = np.array([hh_params['g_L'][i] for i in r_indices])
+        E_L = np.array([hh_params['E_L'][i] for i in r_indices])
+        g_Na = np.array([hh_params['g_Na'][i] for i in r_indices])
+        E_Na = np.array([hh_params['E_Na'][i] for i in r_indices])
+        g_K = np.array([hh_params['g_K'][i] for i in r_indices])
+        E_K = np.array([hh_params['E_K'][i] for i in r_indices])
+        I_bias = np.array([hh_params['I_bias'][i] for i in r_indices])
+        stim_scale = np.array([hh_params['stim_scale'][i] for i in r_indices])
+
+        I_Na_t = (g_Na * (m**3) * h * (v - E_Na)).mean(axis=1)
+        I_K_t  = (g_K * (n**4) * (v - E_K)).mean(axis=1)
+        I_L_t  = (g_L * (v - E_L)).mean(axis=1)
+        I_ext_t = (I_bias + stim_scale * s).mean(axis=1)
+
+        ax.plot(t_axis, -I_L_t, linewidth=1.0, color='gray', label='-I_L (leak)')
+        ax.plot(t_axis, -I_Na_t, linewidth=1.0, color='red', label='-I_Na')
+        ax.plot(t_axis, -I_K_t, linewidth=1.0, color='blue', label='-I_K')
+        ax.plot(t_axis, I_ext_t, linewidth=1.0, color='green', label='I_ext')
+        ax.plot(t_axis, -I_Na_t - I_K_t - I_L_t + I_ext_t, linewidth=1.5, color='black', ls='--', label='net (dv*C)')
+        ax.axhline(0, color='gray', ls=':', lw=0.5)
+        ax.set_ylabel('current (uA/cm²)')
+        ax.set_title(f'Current decomposition R1-R8 (g_L={g_L.mean():.2f}, standard=0.3)')
+        ax.legend(fontsize=12, ncol=3, loc='upper right')
+        ax.grid(True, alpha=0.3)
+
+    # Panel 5: dv/dt (finite difference)
+    ax = axes[panel_idx]
+    if n_frames > 1:
+        for i, (name, nidx) in enumerate(idx_map.items()):
+            dv = np.diff(voltage_history[:, nidx]) / dt_ms
+            ax.plot(t_axis[1:], dv, linewidth=0.6, color=colors[i], alpha=0.7, label=name)
+    ax.set_ylabel('dv/dt (mV/ms)')
+    ax.set_xlabel('time (ms)')
+    ax.set_title('Voltage derivative (finite diff)')
+    ax.legend(fontsize=12, ncol=6, loc='upper right')
+    ax.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    style.savefig(fig, output_path, dpi=200)
+
+
+def plot_spiking_traces(
+    voltage: np.ndarray,
+    spike_raster: np.ndarray,
+    stimulus: np.ndarray,
+    is_excitatory: np.ndarray,
+    type_list: np.ndarray,
+    output_path: str,
+    n_traces: int = 100,
+    n_input_neurons: int = 0,
+    max_frames: int = 0,
+    dt_ms: float = 0.2,
+    style: FigureStyle = None,
+) -> None:
+    """Spiking voltage traces — same layout as plot_activity_traces.
+
+    Produces two separate figures saved to output_path:
+      1. ``spiking_traces.png`` — sampled voltage traces stacked vertically
+         with one red stimulus trace at the bottom (matching activity_traces.png).
+      2. ``spiking_raster.png`` — spike raster (E=black/light, I=gray).
+
+    Args:
+        voltage: (n_neurons, n_frames) voltage array at substep resolution.
+        spike_raster: (n_neurons, n_frames) bool spike array.
+        stimulus: (n_input_neurons, n_frames) stimulus array.
+        is_excitatory: (n_neurons,) bool array.
+        type_list: (n_neurons,) integer neuron type per neuron.
+        output_path: base path for figures (directory).
+        n_traces: number of sampled voltage traces to show.
+        n_input_neurons: number of input (photoreceptor) neurons.
+        max_frames: truncate at this many frames (0 = show all).
+        dt_ms: substep timestep in ms (for x-axis).
+        style: FigureStyle instance.
+    """
+    from flyvis_gnn.figure_style import default_style
+    if style is None:
+        style = default_style
+
+    n_neurons, n_frames = voltage.shape
+    if max_frames > 0:
+        n_frames = min(n_frames, max_frames)
+    voltage = voltage[:, :n_frames]
+    spike_raster = spike_raster[:, :n_frames]
+    if stimulus.shape[1] > n_frames:
+        stimulus = stimulus[:, :n_frames]
+
+    # --- Figure 1: voltage traces — one neuron per type (like data_test) ---
+    names = INDEX_TO_NAME
+    unique_types = np.unique(type_list)
+    neuron_indices = []
+    type_labels = []
+    for t in unique_types:
+        indices = np.where(type_list == t)[0]
+        if len(indices) > 0:
+            neuron_indices.append(indices[0])
+            type_labels.append(names.get(int(t), f'type_{t}'))
+    neuron_indices = np.array(neuron_indices)
+    n_sel = len(neuron_indices)
+
+    sampled = voltage[neuron_indices]
+    step_v = 40.0  # mV offset between traces
+    offset = sampled + step_v * np.arange(n_sel)[:, None]
+
+    fig, ax = style.figure(aspect=1.5)
+    ax.plot(offset.T, linewidth=0.5, alpha=0.7, color=style.foreground)
+
+    # One red stimulus trace at the bottom — larger amplitude, closer to traces
+    if stimulus.shape[0] > 0:
+        stim_trace = stimulus[0]
+        stim_min = offset.min() - 30.0
+        stim_range = max(stim_trace.max() - stim_trace.min(), 1e-6)
+        stim_scaled = (stim_trace - stim_trace.min()) / stim_range * 50.0 + stim_min
+        ax.plot(stim_scaled, linewidth=0.8, alpha=0.9, color='red')
+
+    style.xlabel(ax, 'time (substeps, dt={:.1f}ms)'.format(dt_ms), fontsize=12)
+    ax.set_yticks([i * step_v for i in range(n_sel)])
+    ax.set_yticklabels(type_labels, fontsize=4)
+    ax.tick_params(axis='x', labelsize=8)
+    ax.set_xlim([0, n_frames])
+    ax.set_ylim([offset.min() - 50, offset.max() + 20])
+
+    plt.tight_layout()
+    traces_path = os.path.join(output_path, 'spiking_traces.png') if os.path.isdir(output_path) else output_path
+    style.savefig(fig, traces_path)
+
+    # --- Figure 2: spike raster — one neuron per type (same 65 as traces) ---
+    raster_data = spike_raster[neuron_indices]
+    is_exc_raster = is_excitatory[neuron_indices]
+
+    fig2, ax2 = style.figure(aspect=1.5)
+    exc_plotted = inh_plotted = False
+    for i in range(n_sel):
+        spike_frames = np.where(raster_data[i])[0]
+        if len(spike_frames) == 0:
+            continue
+        is_exc = is_exc_raster[i]
+        color = style.foreground if is_exc else 'gray'
+        label = None
+        if is_exc and not exc_plotted:
+            label = 'excitatory'
+            exc_plotted = True
+        elif not is_exc and not inh_plotted:
+            label = 'inhibitory'
+            inh_plotted = True
+        ax2.plot(spike_frames, np.full_like(spike_frames, i), '|',
+                 color=color, ms=2.0, mew=0.6, alpha=0.9, label=label)
+
+    # Red stimulus trace at bottom of raster — smaller amplitude
+    if stimulus.shape[0] > 0:
+        stim_trace = stimulus[0]
+        stim_min = -3
+        stim_range = max(stim_trace.max() - stim_trace.min(), 1e-6)
+        stim_scaled = (stim_trace - stim_trace.min()) / stim_range * 4.0 + stim_min
+        ax2.plot(stim_scaled, linewidth=0.8, alpha=0.9, color='red', label='stimulus')
+
+    # Legend with bigger spike markers
+    leg = ax2.legend(loc='upper right', fontsize=8, framealpha=0.8, markerscale=5.0)
+    style.xlabel(ax2, 'time (substeps, dt={:.1f}ms)'.format(dt_ms), fontsize=12)
+    ax2.set_yticks(list(range(n_sel)))
+    ax2.set_yticklabels(type_labels, fontsize=4)
+    ax2.tick_params(axis='x', labelsize=8)
+    ax2.set_xlim([0, n_frames])
+    ax2.set_ylim([-5, n_sel + 1])
+
+    plt.tight_layout()
+    raster_path = os.path.join(output_path, 'spiking_raster.png') if os.path.isdir(output_path) else output_path.replace('traces', 'raster')
+    style.savefig(fig2, raster_path)
 
 
 # --------------------------------------------------------------------------- #
@@ -1052,14 +1440,11 @@ def plot_training_linear(model, config, epoch, N, log_dir, device,
     learned_vrest = to_numpy(model.V_rest[:n_neurons].detach())
 
     # Load ground-truth tau and V_rest for scatter plots
+    from flyvis_gnn.generators.ode_params import FlyVisODEParams
     from flyvis_gnn.utils import graphs_data_path
-    tau_path = graphs_data_path(config.dataset, 'taus.pt')
-    if not os.path.exists(tau_path):
-        tau_path = graphs_data_path(config.dataset, 'tau_i.pt')
-    gt_tau_np = to_numpy(torch.load(tau_path, map_location=device, weights_only=True)[:n_neurons])
-    gt_vrest_np = to_numpy(torch.load(
-        graphs_data_path(config.dataset, 'V_i_rest.pt'),
-        map_location=device, weights_only=True)[:n_neurons])
+    ode_params = FlyVisODEParams.load(graphs_data_path(config.dataset), device=device)
+    gt_tau_np = to_numpy(ode_params.tau_i[:n_neurons])
+    gt_vrest_np = to_numpy(ode_params.V_i_rest[:n_neurons])
 
     # Plot 1: Raw W scatter
     fig, ax = plt.subplots(figsize=(8, 8))
