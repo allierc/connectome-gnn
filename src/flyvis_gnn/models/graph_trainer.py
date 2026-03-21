@@ -380,8 +380,13 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                         f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f}\n')
 
                 if last_connectivity_r2 is not None:
-                    c_conn, c_vr, c_tau = r2_color(last_connectivity_r2), r2_color(last_vrest_r2), r2_color(last_tau_r2)
-                    pbar.set_postfix_str(f'{c_conn}conn={last_connectivity_r2:.3f}{ANSI_RESET} {c_vr}Vr={last_vrest_r2:.3f}{ANSI_RESET} {c_tau}τ={last_tau_r2:.3f}{ANSI_RESET}')
+                    c_conn = r2_color(last_connectivity_r2)
+                    bar_parts = [f'{c_conn}conn={last_connectivity_r2:.3f}{ANSI_RESET}']
+                    if ode_params.has_vrest():
+                        bar_parts.append(f'{r2_color(last_vrest_r2)}Vr={last_vrest_r2:.3f}{ANSI_RESET}')
+                    if ode_params.has_tau():
+                        bar_parts.append(f'{r2_color(last_tau_r2)}τ={last_tau_r2:.3f}{ANSI_RESET}')
+                    pbar.set_postfix_str(' '.join(bar_parts))
                 continue
 
             state_batch = []
@@ -633,9 +638,13 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                         f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f}\n')
 
                 if last_connectivity_r2 is not None:
-                    c_conn, c_vr, c_tau = r2_color(last_connectivity_r2), r2_color(last_vrest_r2), r2_color(last_tau_r2)
-                    pbar.set_postfix_str(f'{c_conn}conn={last_connectivity_r2:.3f}{ANSI_RESET} {c_vr}Vr={last_vrest_r2:.3f}{ANSI_RESET} {c_tau}τ={last_tau_r2:.3f}{ANSI_RESET}')
-
+                    c_conn = r2_color(last_connectivity_r2)
+                    bar_parts = [f'{c_conn}conn={last_connectivity_r2:.3f}{ANSI_RESET}']
+                    if ode_params.has_vrest():
+                        bar_parts.append(f'{r2_color(last_vrest_r2)}Vr={last_vrest_r2:.3f}{ANSI_RESET}')
+                    if ode_params.has_tau():
+                        bar_parts.append(f'{r2_color(last_tau_r2)}τ={last_tau_r2:.3f}{ANSI_RESET}')
+                    pbar.set_postfix_str(' '.join(bar_parts))
 
                 if (has_visual_field) & (N in plot_iterations):
                     field_R2, field_slope = render_visual_field_video(

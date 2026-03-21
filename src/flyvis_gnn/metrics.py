@@ -480,39 +480,44 @@ def compute_f_theta_centering_loss(
 def compute_dynamics_r2(model, x_ts, config, device, n_neurons):
     """Compute V_rest R² and tau R² during training (lightweight, no plots).
 
-    Extracts learned V_rest and tau from f_theta slopes/offsets and compares
-    against ground truth V_i_rest.pt and taus.pt.
+    Uses the ODE params analysis interface: gt_tau(), gt_vrest(), derive_tau(),
+    derive_vrest(). Returns (0.0, 0.0) for models that don't have these params.
 
     Returns:
         (vrest_r2, tau_r2): tuple of float R² values.
     """
-    from flyvis_gnn.generators.ode_params import FlyVisODEParams, get_ode_params_class
+    from flyvis_gnn.generators.ode_params import get_ode_params_class
     signal_model = config.graph_model.signal_model_name
     try:
         OdeParamsCls = get_ode_params_class(signal_model)
-    except KeyError:
-        OdeParamsCls = FlyVisODEParams
-    try:
         ode_params = OdeParamsCls.load(graphs_data_path(config.dataset), device=device)
-        gt_V_rest = to_numpy(ode_params.V_i_rest[:n_neurons])
-        gt_tau = to_numpy(ode_params.tau_i[:n_neurons])
-    except (AttributeError, TypeError, FileNotFoundError):
+    except (KeyError, FileNotFoundError):
         return 0.0, 0.0
 
     mu, sigma = compute_activity_stats(x_ts, device)
     slopes, offsets = extract_f_theta_slopes(model, config, n_neurons, mu, sigma, device)
 
-    learned_V_rest = derive_vrest(slopes, offsets, n_neurons)
-    learned_tau = derive_tau(slopes, n_neurons)
+    # Tau R²
+    tau_r2 = 0.0
+    if ode_params.has_tau():
+        gt_tau = ode_params.gt_tau(n_neurons)
+        if gt_tau is not None:
+            learned_tau = ode_params.derive_tau(slopes, n_neurons)
+            try:
+                tau_r2, _ = compute_r_squared(gt_tau, learned_tau)
+            except Exception:
+                pass
 
-    try:
-        vrest_r2, _ = compute_r_squared(gt_V_rest, learned_V_rest)
-    except Exception:
-        vrest_r2 = 0.0
-    try:
-        tau_r2, _ = compute_r_squared(gt_tau, learned_tau)
-    except Exception:
-        tau_r2 = 0.0
+    # V_rest R²
+    vrest_r2 = 0.0
+    if ode_params.has_vrest():
+        gt_vrest = ode_params.gt_vrest(n_neurons)
+        if gt_vrest is not None:
+            learned_vrest = ode_params.derive_vrest(slopes, offsets, n_neurons)
+            try:
+                vrest_r2, _ = compute_r_squared(gt_vrest, learned_vrest)
+            except Exception:
+                pass
 
     return vrest_r2, tau_r2
 

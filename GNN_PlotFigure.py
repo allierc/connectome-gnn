@@ -792,21 +792,20 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             plt.savefig(f"{log_dir}/results/g_phi_{config_indices}_domain.png", dpi=300)
             plt.close()
 
-            # Functional R² for g_phi: per-neuron R² between true and learned curves
+            # Functional Pearson r² for g_phi: per-neuron correlation between true and learned curves
             if func_true_g_phi is not None and func_true_g_phi.shape == func_np.shape:
                 _valid = valid_edge
                 _true_g = func_true_g_phi[_valid]
                 _learned_g = func_np[_valid]
-                # Per-neuron R²: 1 - SS_res/SS_tot
-                ss_res_g = np.sum((_true_g - _learned_g) ** 2, axis=1)
-                ss_tot_g = np.sum((_true_g - np.mean(_true_g, axis=1, keepdims=True)) ** 2, axis=1)
-                r2_g_phi_per_neuron = np.where(ss_tot_g > 1e-10, 1.0 - ss_res_g / ss_tot_g, 0.0)
-                r2_g_phi_mean = np.mean(r2_g_phi_per_neuron)
-                r2_g_phi_median = np.median(r2_g_phi_per_neuron)
-                print(f"g_phi functional R²: mean=\033[92m{r2_g_phi_mean:.3f}\033[0m  median={r2_g_phi_median:.3f}")
-                logger.info(f"g_phi functional R²: mean={r2_g_phi_mean:.3f}  median={r2_g_phi_median:.3f}")
+                # Per-neuron Pearson r² (shape match, invariant to scale/offset)
+                _corr_g = np.array([np.corrcoef(t, l)[0, 1] ** 2
+                                    if np.std(t) > 1e-10 and np.std(l) > 1e-10 else 0.0
+                                    for t, l in zip(_true_g, _learned_g)])
+                r2_g_phi_mean = float(np.mean(_corr_g))
+                r2_g_phi_median = float(np.median(_corr_g))
             else:
                 r2_g_phi_mean = 0.0
+                r2_g_phi_median = 0.0
 
             fig = plt.figure(figsize=(10, 9))
             ax = plt.gca()
@@ -864,18 +863,17 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             plt.savefig(f"{log_dir}/results/f_theta_{config_indices}_domain.png", dpi=300)
             plt.close()
 
-            # Functional R² for f_theta: per-neuron R² between true and learned curves
+            # Functional Pearson r² for f_theta: per-neuron correlation between true and learned curves
             func_domain_phi_np = to_numpy(func_domain_phi)
             if func_true_f_theta is not None and func_true_f_theta.shape == func_domain_phi_np.shape:
-                ss_res_f = np.sum((func_true_f_theta - func_domain_phi_np) ** 2, axis=1)
-                ss_tot_f = np.sum((func_true_f_theta - np.mean(func_true_f_theta, axis=1, keepdims=True)) ** 2, axis=1)
-                r2_f_theta_per_neuron = np.where(ss_tot_f > 1e-10, 1.0 - ss_res_f / ss_tot_f, 0.0)
-                r2_f_theta_mean = np.mean(r2_f_theta_per_neuron)
-                r2_f_theta_median = np.median(r2_f_theta_per_neuron)
-                print(f"f_theta functional R²: mean=\033[92m{r2_f_theta_mean:.3f}\033[0m  median={r2_f_theta_median:.3f}")
-                logger.info(f"f_theta functional R²: mean={r2_f_theta_mean:.3f}  median={r2_f_theta_median:.3f}")
+                _corr_f = np.array([np.corrcoef(t, l)[0, 1] ** 2
+                                    if np.std(t) > 1e-10 and np.std(l) > 1e-10 else 0.0
+                                    for t, l in zip(func_true_f_theta, func_domain_phi_np)])
+                r2_f_theta_mean = float(np.mean(_corr_f))
+                r2_f_theta_median = float(np.median(_corr_f))
             else:
                 r2_f_theta_mean = 0.0
+                r2_f_theta_median = 0.0
 
             slopes_f_theta_array = np.array(slopes_f_theta_list)
             offsets_array = np.array(offsets_list)
@@ -1072,10 +1070,10 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             if ode_params.has_vrest():
                 print(f"V_rest reconstruction R²: \033[92m{r_squared_V_rest:.3f}\033[0m  slope: {slope_V_rest:.2f}")
                 logger.info(f"V_rest reconstruction R²: {r_squared_V_rest:.3f}  slope: {slope_V_rest:.2f}")
-
-            # Print functional R² summary
-            print(f"f_theta functional R²: \033[92m{r2_f_theta_mean:.3f}\033[0m")
-            print(f"g_phi functional R²: \033[92m{r2_g_phi_mean:.3f}\033[0m")
+            print(f"f_theta Pearson r²: \033[92m{r2_f_theta_mean:.3f}\033[0m  median={r2_f_theta_median:.3f}")
+            print(f"g_phi Pearson r²: \033[92m{r2_g_phi_mean:.3f}\033[0m  median={r2_g_phi_median:.3f}")
+            logger.info(f"f_theta Pearson r²: mean={r2_f_theta_mean:.3f}  median={r2_f_theta_median:.3f}")
+            logger.info(f"g_phi Pearson r²: mean={r2_g_phi_mean:.3f}  median={r2_g_phi_median:.3f}")
 
             # Write to analysis log file for Claude
             if log_file:
