@@ -280,6 +280,8 @@ def data_generate_connconstr(config, visualize=True, device=None, save=True):
     edge_index = ode_params.edge_index
     if save:
         ode_params.save(folder)
+        torch.save(edge_index.clone(), os.path.join(folder, "edge_index.pt"))
+        torch.save(ode_params.W.clone(), os.path.join(folder, "weights.pt"))
 
     # Create ODE, get integration params — all via registry methods
     pde = ode_params.create_ode(device=device)
