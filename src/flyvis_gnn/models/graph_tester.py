@@ -263,10 +263,12 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     logger.debug(f'results saved to {results_path}')
 
     if log_file:
-        log_file.write('\n--- Pre-generated test results ---\n')
+        log_file.write('\n--- One-step test results ---\n')
         log_file.write(f'test_dataset: {test_ds}\n')
-        log_file.write(f'Pearson r: {np.nanmean(pearson):.3f} +/- {np.nanstd(pearson):.3f}\n')
-        log_file.write(f'RMSE: {np.mean(rmse):.4f} +/- {np.std(rmse):.4f}\n')
+        log_file.write(f'onestep_pearson: {np.nanmean(pearson):.4f}\n')
+        log_file.write(f'onestep_pearson_std: {np.nanstd(pearson):.4f}\n')
+        log_file.write(f'onestep_RMSE: {np.mean(rmse):.4f}\n')
+        log_file.write(f'onestep_RMSE_std: {np.std(rmse):.4f}\n')
 
     # --- Rollout evaluation ---
     # Start from initial voltages at t=0, predict autoregressively
@@ -423,10 +425,10 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
 
     if log_file:
         log_file.write('\n--- Rollout results ---\n')
-        log_file.write(f'RMSE: {np.mean(rmse_ro):.4f} +/- {np.std(rmse_ro):.4f}\n')
-        log_file.write(f'Pearson r: {np.nanmean(pearson_ro):.3f} +/- {np.nanstd(pearson_ro):.3f}\n')
-        # log_file.write(f'R2: {np.nanmean(r2_ro):.3f} +/- {np.nanstd(r2_ro):.3f}\n')
-        # log_file.write(f'FEVE: {np.mean(feve_ro):.3f} +/- {np.std(feve_ro):.3f}\n')
+        log_file.write(f'rollout_pearson: {np.nanmean(pearson_ro):.4f}\n')
+        log_file.write(f'rollout_pearson_std: {np.nanstd(pearson_ro):.4f}\n')
+        log_file.write(f'rollout_RMSE: {np.mean(rmse_ro):.4f}\n')
+        log_file.write(f'rollout_RMSE_std: {np.std(rmse_ro):.4f}\n')
         if stimuli_R2 is not None:
             log_file.write(f'stimuli_R2: {stimuli_R2:.4f}\n')
 

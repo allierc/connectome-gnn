@@ -847,27 +847,34 @@ def update_ucb_scores(state: ExplorationState, batch: BatchInfo):
             continue
         with open(slot_log_path, 'r') as f:
             log_content = f.read()
-        r2_m = re.search(r'connectivity_R2[=:]\s*([\d.eE+-]+|nan)', log_content)
-        pearson_m = re.search(r'test_pearson[=:]\s*([\d.eE+-]+|nan)', log_content)
-        cluster_m = re.search(r'cluster_accuracy[=:]\s*([\d.eE+-]+|nan)', log_content)
-        tau_m = re.search(r'tau_R2[=:]\s*([\d.eE+-]+|nan)', log_content)
-        vrest_m = re.search(r'V_rest_R2[=:]\s*([\d.eE+-]+|nan)', log_content)
-        stimuli_m = re.search(r'stimuli_R2[=:]\s*([\d.eE+-]+|nan)', log_content)
-        time_m = re.search(r'training_time_min[=:]\s*([\d.]+)', log_content)
-        if r2_m:
-            r2_val = r2_m.group(1)
-            pearson_val = pearson_m.group(1) if pearson_m else '0.0'
-            cluster_val = cluster_m.group(1) if cluster_m else '0.0'
-            tau_val = tau_m.group(1) if tau_m else '0.0'
-            vrest_val = vrest_m.group(1) if vrest_m else '0.0'
-            stimuli_val = stimuli_m.group(1) if stimuli_m else ''
-            metrics_line = (
-                f"Metrics: test_R2=0, test_pearson={pearson_val}, "
-                f"connectivity_R2={r2_val}, tau_R2={tau_val}, "
-                f"V_rest_R2={vrest_val}, cluster_accuracy={cluster_val}"
-            )
+        def _parse(key):
+            m = re.search(rf'{key}[=:]\s*([\d.eE+-]+|nan)', log_content)
+            return m.group(1) if m else None
+
+        r2_val = _parse('connectivity_R2')
+        if r2_val:
+            parts = [
+                f"connectivity_R2={r2_val}",
+                f"raw_W_R2={_parse('raw_W_R2') or '0.0'}",
+                f"onestep_pearson={_parse('onestep_pearson') or '0.0'}",
+                f"onestep_RMSE={_parse('onestep_RMSE') or '0.0'}",
+                f"rollout_pearson={_parse('rollout_pearson') or '0.0'}",
+                f"rollout_RMSE={_parse('rollout_RMSE') or '0.0'}",
+                f"f_theta_R2={_parse('f_theta_functional_R2') or '0.0'}",
+                f"g_phi_R2={_parse('g_phi_functional_R2') or '0.0'}",
+                f"tau_R2={_parse('tau_R2') or '0.0'}",
+                f"V_rest_R2={_parse('V_rest_R2') or '0.0'}",
+                f"cluster_accuracy={_parse('cluster_accuracy') or '0.0'}",
+                f"spectral_radius_learned={_parse('spectral_radius_learned') or '0.0'}",
+                f"spectral_radius_true={_parse('spectral_radius_true') or '0.0'}",
+            ]
+            stimuli_val = _parse('stimuli_R2')
             if stimuli_val:
-                metrics_line += f", stimuli_R2={stimuli_val}"
+                parts.append(f"stimuli_R2={stimuli_val}")
+            bias_val = _parse('g_phi_bias_R2')
+            if bias_val:
+                parts.append(f"g_phi_bias_R2={bias_val}")
+            metrics_line = "Metrics: " + ", ".join(parts)
             if f'## Iter {iteration}:' not in existing_content:
                 stub_entries += (
                     f"\n## Iter {iteration}: pending\n"

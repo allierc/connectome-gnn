@@ -8,10 +8,11 @@ Current ceiling: **connectivity_R2 ≈ 0.5**. The goal is to break past this cei
 
 Data is **re-generated each iteration** with a different seed to verify seed independence.
 
-Primary metric: **connectivity_R2** (R² between learned W and ground-truth W).
-Secondary metrics: **test_R2** (one-step prediction), **cluster_accuracy** (neuron type clustering from embeddings).
+Primary metric: **connectivity_R2** (effective W R² — learned W×g_phi_gain vs true W×exp(g)).
+Secondary metrics: **rollout_pearson** (autoregressive rollout Pearson r), **f_theta_R2** (functional curve match), **g_phi_R2** (functional curve match), **cluster_accuracy** (neuron type clustering).
+Informational metrics (not for optimization): **onestep_pearson** (one-step prediction — easy to fit, less discriminative), **tau_R2** (exists but noisy — derived from tiny f_theta slopes ~0.05), **g_phi_bias_R2** (softplus bias recovery), **spectral_radius_learned** vs **spectral_radius_true**.
 
-**NOTE**: tau_R2 and V_rest_R2 will always be 0.0 for this model — the CX ODE does not have explicit V_rest or tau_i parameters in the same sense as the flyvis model. Ignore these metrics.
+**NOTE**: V_rest_R2 is always 0.0 — the CX ODE has no resting potential. tau_R2 exists but is unreliable (slope ≈ -α/τ ≈ -0.05, noise amplified by division).
 
 ## Scientific Method
 
@@ -57,15 +58,16 @@ dh/dt = α * (-h + exp(g_i) * softplus(h_j + b_j, β=5) @ J^T + input) / τ_i
 - Much smaller network (152 vs 13,741 neurons)
 - Softplus activation (not ReLU) → g_phi should learn softplus-like curves
 - No explicit V_rest → f_theta should learn pure decay: slope ≈ -α/τ_i
-- The "corrected W" metric may not be meaningful (correction assumes ReLU); focus on **raw W R²**
+- W correction now fits softplus gain from g_phi curves; **connectivity_R2** = effective W R² (W×gain)
+- Also available: **raw_W_R2** (uncorrected W) — useful diagnostic but less meaningful
 - Only 4 cell types → embedding should separate 4 clusters
 
 ## GNN Architecture
 
 Two MLPs learn the neural dynamics:
 
-- **g_phi** (MLP1): Edge message function. Maps (v_j, a_j) → message. `g_phi_positive=true` squares output to enforce positivity.
-- **f_theta** (MLP0): Node update function. Maps (v_i, a_i, aggregated_messages, I_i) → dv_i/dt.
+- **g_phi**: Edge message function. Maps (v_j, a_j) → message. `g_phi_positive=true` squares output to enforce positivity.
+- **f_theta**: Node update function. Maps (v_i, a_i, aggregated_messages, I_i) → dv_i/dt.
 - **Embedding a_i**: learnable low-dimensional embedding per neuron type.
 
 Architecture parameters (explorable):
