@@ -949,12 +949,18 @@ def save_exploration_artifacts(root_dir, exploration_dir, config, config_file_, 
         latest_scatter = max(scatter_files, key=os.path.getmtime)
         _copy(latest_scatter, f"{scatter_save_dir}/iter_{iteration:03d}.png")
 
-    # save connectivity matrix heatmap only at first iteration of each block
+    # save learned connectivity matrix (true vs learned heatmap from results/)
+    results_dir_mat = log_path(f"{pre_folder}{config_file_}", 'results')
+    src_learned_matrix = f"{results_dir_mat}/connectivity_matrix.png"
+    if os.path.exists(src_learned_matrix):
+        _copy(src_learned_matrix, f"{matrix_save_dir}/iter_{iteration:03d}.png")
+
+    # save ground-truth connectivity matrix from data folder at block starts
     data_folder = graphs_data_path(config.dataset)
     if is_block_start:
         src_matrix = f"{data_folder}/connectivity_matrix.png"
         if os.path.exists(src_matrix):
-            _copy(src_matrix, f"{matrix_save_dir}/block_{block_number:03d}.png")
+            _copy(src_matrix, f"{matrix_save_dir}/block_{block_number:03d}_gt.png")
 
     # save activity plot only at first iteration of each block
     activity_path = f"{data_folder}/activity.png"
@@ -1128,6 +1134,11 @@ def save_exploration_artifacts_flyvis(root_dir, exploration_dir, config, config_
     if os.path.exists(r2_log_src):
         _copy(r2_log_src, f"{r2_trajectory_dir}/iter_{iteration:03d}.log")
 
+    # learned connectivity matrix (true vs learned heatmap from results/)
+    src_learned_matrix = f"{results_dir}/connectivity_matrix.png"
+    if os.path.exists(src_learned_matrix):
+        _copy(src_learned_matrix, f"{connectivity_matrix_dir}/iter_{iteration:03d}.png")
+
     # --- Per-block panels (block start only) ---
 
     data_folder = graphs_data_path(config.dataset)
@@ -1136,7 +1147,7 @@ def save_exploration_artifacts_flyvis(root_dir, exploration_dir, config, config_
     if is_block_start:
         src_matrix = f"{data_folder}/connectivity_matrix.png"
         if os.path.exists(src_matrix):
-            _copy(src_matrix, f"{connectivity_matrix_dir}/block_{block_number:03d}.png")
+            _copy(src_matrix, f"{connectivity_matrix_dir}/block_{block_number:03d}_gt.png")
 
         if os.path.exists(activity_path):
             _copy(activity_path, f"{activity_dir}/block_{block_number:03d}.png")
