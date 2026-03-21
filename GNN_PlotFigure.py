@@ -996,8 +996,8 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             plt.tight_layout()
             plt.savefig(f'{log_dir}/results/weights_comparison_raw.png', dpi=300)
             plt.close()
-            print(f"first weights fit R²: {_r2_color(r_squared)}{r_squared:.2f}{_ANSI_RESET}  slope: {np.round(slope_raw, 4)}")
-            logger.info(f"first weights fit R²: {r_squared:.2f}  slope: {np.round(slope_raw, 4)}")
+            print(f"raw W R²: {_r2_color(r_squared)}{r_squared:.2f}{_ANSI_RESET}  slope: {np.round(slope_raw, 4)}")
+            logger.info(f"raw W R²: {r_squared:.2f}  slope: {np.round(slope_raw, 4)}")
 
             # Corrected weights via metrics pipeline (replaces inline DataLoader +
             # gradient computation + correction formula — see metrics.py)
@@ -1058,8 +1058,8 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             plt.savefig(f'{log_dir}/results/weights_comparison_corrected.png', dpi=300)
             plt.close()
 
-            print(f"second weights fit R²: {_r2_color(r_squared)}{r_squared:.4f}{_ANSI_RESET}  slope: {np.round(slope_corrected, 4)}")
-            logger.info(f"second weights fit R²: {r_squared:.4f}  slope: {np.round(slope_corrected, 4)}")
+            print(f"effective W R² (W*g_phi vs W_true*gain): {_r2_color(r_squared)}{r_squared:.4f}{_ANSI_RESET}  slope: {np.round(slope_corrected, 4)}")
+            logger.info(f"effective W R²: {r_squared:.4f}  slope: {np.round(slope_corrected, 4)}")
 
             # R² on only real (non-null) edges
             connectivity_r2_real = None
