@@ -792,6 +792,22 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             plt.savefig(f"{log_dir}/results/g_phi_{config_indices}_domain.png", dpi=300)
             plt.close()
 
+            # Functional R² for g_phi: per-neuron R² between true and learned curves
+            if func_true_g_phi is not None and func_true_g_phi.shape == func_np.shape:
+                _valid = valid_edge
+                _true_g = func_true_g_phi[_valid]
+                _learned_g = func_np[_valid]
+                # Per-neuron R²: 1 - SS_res/SS_tot
+                ss_res_g = np.sum((_true_g - _learned_g) ** 2, axis=1)
+                ss_tot_g = np.sum((_true_g - np.mean(_true_g, axis=1, keepdims=True)) ** 2, axis=1)
+                r2_g_phi_per_neuron = np.where(ss_tot_g > 1e-10, 1.0 - ss_res_g / ss_tot_g, 0.0)
+                r2_g_phi_mean = np.mean(r2_g_phi_per_neuron)
+                r2_g_phi_median = np.median(r2_g_phi_per_neuron)
+                print(f"g_phi functional R²: mean=\033[92m{r2_g_phi_mean:.3f}\033[0m  median={r2_g_phi_median:.3f}")
+                logger.info(f"g_phi functional R²: mean={r2_g_phi_mean:.3f}  median={r2_g_phi_median:.3f}")
+            else:
+                r2_g_phi_mean = 0.0
+
             fig = plt.figure(figsize=(10, 9))
             ax = plt.gca()
             for spine in ax.spines.values():
@@ -847,6 +863,19 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             plt.tight_layout()
             plt.savefig(f"{log_dir}/results/f_theta_{config_indices}_domain.png", dpi=300)
             plt.close()
+
+            # Functional R² for f_theta: per-neuron R² between true and learned curves
+            func_domain_phi_np = to_numpy(func_domain_phi)
+            if func_true_f_theta is not None and func_true_f_theta.shape == func_domain_phi_np.shape:
+                ss_res_f = np.sum((func_true_f_theta - func_domain_phi_np) ** 2, axis=1)
+                ss_tot_f = np.sum((func_true_f_theta - np.mean(func_true_f_theta, axis=1, keepdims=True)) ** 2, axis=1)
+                r2_f_theta_per_neuron = np.where(ss_tot_f > 1e-10, 1.0 - ss_res_f / ss_tot_f, 0.0)
+                r2_f_theta_mean = np.mean(r2_f_theta_per_neuron)
+                r2_f_theta_median = np.median(r2_f_theta_per_neuron)
+                print(f"f_theta functional R²: mean=\033[92m{r2_f_theta_mean:.3f}\033[0m  median={r2_f_theta_median:.3f}")
+                logger.info(f"f_theta functional R²: mean={r2_f_theta_mean:.3f}  median={r2_f_theta_median:.3f}")
+            else:
+                r2_f_theta_mean = 0.0
 
             slopes_f_theta_array = np.array(slopes_f_theta_list)
             offsets_array = np.array(offsets_list)
@@ -1044,13 +1073,21 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 print(f"V_rest reconstruction R²: \033[92m{r_squared_V_rest:.3f}\033[0m  slope: {slope_V_rest:.2f}")
                 logger.info(f"V_rest reconstruction R²: {r_squared_V_rest:.3f}  slope: {slope_V_rest:.2f}")
 
+            # Print functional R² summary
+            print(f"f_theta functional R²: \033[92m{r2_f_theta_mean:.3f}\033[0m")
+            print(f"g_phi functional R²: \033[92m{r2_g_phi_mean:.3f}\033[0m")
+
             # Write to analysis log file for Claude
             if log_file:
                 log_file.write(f"connectivity_R2: {r_squared:.4f}\n")
                 if connectivity_r2_real is not None:
                     log_file.write(f"connectivity_R2_real: {connectivity_r2_real:.4f}\n")
-                log_file.write(f"tau_R2: {r_squared_tau:.4f}\n")
-                log_file.write(f"V_rest_R2: {r_squared_V_rest:.4f}\n")
+                log_file.write(f"f_theta_functional_R2: {r2_f_theta_mean:.4f}\n")
+                log_file.write(f"g_phi_functional_R2: {r2_g_phi_mean:.4f}\n")
+                if ode_params.has_tau():
+                    log_file.write(f"tau_R2: {r_squared_tau:.4f}\n")
+                if ode_params.has_vrest():
+                    log_file.write(f"V_rest_R2: {r_squared_V_rest:.4f}\n")
 
 
             # Plot connectivity matrix comparison (skipped — dense NxN heatmaps too slow)
@@ -1192,12 +1229,12 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 config=config,
                 model=model,
                 edges=to_numpy(edges),
-                true_weights=true_weights,  #  ground truth weights
-                gt_taus=to_numpy(gt_taus[:n_neurons]),  #  ground truth tau values
-                gt_V_Rest=to_numpy(gt_V_Rest[:n_neurons]),  #  ground truth V_rest values
+                true_weights=true_weights,
+                gt_taus=to_numpy(gt_taus[:n_neurons]),
+                gt_V_Rest=to_numpy(gt_V_Rest[:n_neurons]),
                 learned_weights=learned_weights,
                 learned_tau=learned_tau,
-                learned_V_rest=learned_V_rest, # Learned V_rest
+                learned_V_rest=learned_V_rest,
                 type_list=to_numpy(type_list),
                 n_frames=sim.n_frames,
                 dimension=sim.dimension,
@@ -1210,7 +1247,8 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 r_squared=r_squared,
                 slope_corrected=slope_corrected,
                 r_squared_tau=r_squared_tau,
-                r_squared_V_rest=r_squared_V_rest
+                r_squared_V_rest=r_squared_V_rest,
+                ode_params=ode_params,
             )
 
             print('alternative clustering methods...')
@@ -1258,49 +1296,69 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             W_true = np.column_stack([w_in_mean_true, w_in_std_true,
                                     w_out_mean_true, w_out_std_true])
 
-            # learned combinations
-            learned_combos = {
-                'a': to_numpy(model.a),
-                'τ': learned_tau.reshape(-1, 1),
-                'V': learned_V_rest.reshape(-1, 1),
-                'W': W_learned,
-                '(τ,V)': np.column_stack([learned_tau, learned_V_rest]),
-                '(τ,V,W)': np.column_stack([learned_tau, learned_V_rest, W_learned]),
-                '(a,τ,V,W)': np.column_stack([to_numpy(model.a), learned_tau, learned_V_rest, W_learned]),
-            }
-
-            # true combinations
+            # Build feature arrays dynamically from ode_params.clustering_features()
             _gt_taus_np = to_numpy(gt_taus[:n_neurons])
             _gt_vrest_np = to_numpy(gt_V_Rest[:n_neurons])
-            true_combos = {
-                'τ': _gt_taus_np.reshape(-1, 1),
+
+            # Atomic feature pools (learned and true)
+            _learned_atoms = {
+                'a': to_numpy(model.a),
+                r'$\tau$': learned_tau.reshape(-1, 1),
+                'V': learned_V_rest.reshape(-1, 1),
+                'W': W_learned,
+            }
+            _true_atoms = {
+                r'$\tau$': _gt_taus_np.reshape(-1, 1),
                 'V': _gt_vrest_np.reshape(-1, 1),
                 'W': W_true,
-                '(τ,V)': np.column_stack([_gt_taus_np, _gt_vrest_np]),
-                '(τ,V,W)': np.column_stack([_gt_taus_np, _gt_vrest_np, W_true]),
             }
 
-            # cluster learned
+            def _build_combo(name, atoms):
+                """Build feature array for a clustering feature name."""
+                if name in atoms:
+                    return atoms[name]
+                # Composite: strip parens, split on comma
+                inner = name.strip('()')
+                parts = [p.strip() for p in inner.split(',')]
+                arrays = [atoms[p] for p in parts if p in atoms]
+                if not arrays:
+                    return None
+                return np.column_stack(arrays)
+
+            cluster_features = ode_params.clustering_features()
+
+            # Cluster learned
             print('clustering learned features...')
             learned_results = {}
-            for name, feat_array in learned_combos.items():
-                result = clustering_gmm(feat_array, type_list, n_components=75)
+            for name in cluster_features:
+                feat = _build_combo(name, _learned_atoms)
+                if feat is None:
+                    continue
+                result = clustering_gmm(feat, type_list, n_components=75)
                 learned_results[name] = result['accuracy']
                 print(f"{name}: {result['accuracy']:.3f}")
 
-            # Cluster true
+            # Cluster true (skip 'a' — no ground truth embeddings)
             print('clustering true features...')
             true_results = {}
-            for name, feat_array in true_combos.items():
-                result = clustering_gmm(feat_array, type_list, n_components=75)
+            for name in cluster_features:
+                if name == 'a':
+                    continue
+                feat = _build_combo(name, _true_atoms)
+                if feat is None:
+                    continue
+                result = clustering_gmm(feat, type_list, n_components=75)
                 true_results[name] = result['accuracy']
                 print(f"{name}: {result['accuracy']:.3f}")
 
             # Plot two-panel figure
-            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
-            # Learned features - fixed order
-            learned_order = ['a', 'τ', 'V', 'W', '(τ,V)', '(τ,V,W)', '(a,τ,V,W)']
-            learned_vals = [learned_results[k] for k in ['a', 'τ', 'V', 'W', '(τ,V)', '(τ,V,W)', '(a,τ,V,W)']]
+            fig, axes_cl = plt.subplots(1, 2 if true_results else 1,
+                                        figsize=(14 if true_results else 7, max(5, len(cluster_features) * 0.7)))
+            if not true_results:
+                axes_cl = [axes_cl]
+            ax1 = axes_cl[0]
+            learned_order = [k for k in cluster_features if k in learned_results]
+            learned_vals = [learned_results[k] for k in learned_order]
             colors_l = ['#d62728' if v < 0.6 else '#ff7f0e' if v < 0.85 else '#2ca02c' for v in learned_vals]
             ax1.barh(range(len(learned_order)), learned_vals, color=colors_l)
             ax1.set_yticks(range(len(learned_order)))
@@ -1312,26 +1370,32 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             ax1.invert_yaxis()
             for i, v in enumerate(learned_vals):
                 ax1.text(v + 0.02, i, f'{v:.3f}', va='center', fontsize=10)
-            # True features - fixed order
-            true_order = ['τ', 'V', 'W', '(τ,V)', '(τ,V,W)']
-            true_vals = [true_results[k] for k in ['τ', 'V', 'W', '(τ,V)', '(τ,V,W)']]
-            colors_t = ['#d62728' if v < 0.6 else '#ff7f0e' if v < 0.85 else '#2ca02c' for v in true_vals]
-            ax2.barh(range(len(true_order)), true_vals, color=colors_t)
-            ax2.set_yticks(range(len(true_order)))
-            ax2.set_yticklabels(true_order, fontsize=11)
-            ax2.set_xlabel('clustering accuracy', fontsize=12)
-            ax2.set_title('true features', fontsize=14)
-            ax2.set_xlim([0, 1])
-            ax2.grid(axis='x', alpha=0.3)
-            ax2.invert_yaxis()
-            for i, v in enumerate(true_vals):
-                ax2.text(v + 0.02, i, f'{v:.3f}', va='center', fontsize=10)
+            if true_results:
+                ax2 = axes_cl[1]
+                true_order = [k for k in cluster_features if k in true_results]
+                true_vals = [true_results[k] for k in true_order]
+                colors_t = ['#d62728' if v < 0.6 else '#ff7f0e' if v < 0.85 else '#2ca02c' for v in true_vals]
+                ax2.barh(range(len(true_order)), true_vals, color=colors_t)
+                ax2.set_yticks(range(len(true_order)))
+                ax2.set_yticklabels(true_order, fontsize=11)
+                ax2.set_xlabel('clustering accuracy', fontsize=12)
+                ax2.set_title('true features', fontsize=14)
+                ax2.set_xlim([0, 1])
+                ax2.grid(axis='x', alpha=0.3)
+                ax2.invert_yaxis()
+                for i, v in enumerate(true_vals):
+                    ax2.text(v + 0.02, i, f'{v:.3f}', va='center', fontsize=10)
             plt.tight_layout()
             plt.savefig(f'{log_dir}/results/clustering_comprehensive.png', dpi=300, bbox_inches='tight')
             plt.close()
 
-            a_aug = np.column_stack([to_numpy(model.a), learned_tau, learned_V_rest,
-                                    w_in_mean_learned, w_in_std_learned, w_out_mean_learned, w_out_std_learned])
+            # Build augmented embedding for GMM + UMAP
+            _aug_parts = [to_numpy(model.a), learned_tau.reshape(-1, 1)]
+            if ode_params.has_vrest():
+                _aug_parts.append(learned_V_rest.reshape(-1, 1))
+            _aug_parts.extend([w_in_mean_learned.reshape(-1, 1), w_in_std_learned.reshape(-1, 1),
+                               w_out_mean_learned.reshape(-1, 1), w_out_std_learned.reshape(-1, 1)])
+            a_aug = np.column_stack(_aug_parts)
 
             n_gmm = 100
             results = clustering_gmm(a_aug, type_list, n_components=n_gmm)
@@ -1429,12 +1493,13 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
 def analyze_neuron_type_reconstruction(config, model, edges, true_weights, gt_taus, gt_V_Rest,
                                        learned_weights, learned_tau, learned_V_rest, type_list, n_frames, dimension,
                                        n_neuron_types, device, log_dir, dataset_name, logger, index_to_name,
-                                       r_squared=None, slope_corrected=None, r_squared_tau=None, r_squared_V_rest=None):
+                                       r_squared=None, slope_corrected=None, r_squared_tau=None, r_squared_V_rest=None,
+                                       ode_params=None):
 
     print('stratified analysis by neuron type...')
 
-    colors_65 = sns.color_palette("Set3", 12) * 6  # pastel, repeat until 65
-    colors_65 = colors_65[:65]
+    # Determine which RMSE panels to show based on model
+    panels = ode_params.neuron_type_rmse_panels() if ode_params else ["weights", "tau", "vrest"]
 
     rmse_weights = []
     rmse_taus = []
@@ -1442,120 +1507,67 @@ def analyze_neuron_type_reconstruction(config, model, edges, true_weights, gt_ta
     n_connections = []
 
     for neuron_type in range(n_neuron_types):
-
-        type_indices = np.where(type_list[edges[1,:]] == neuron_type)[0]
-        gt_w_type = true_weights[type_indices]
-        learned_w_type = learned_weights[type_indices]
-        n_conn = len(type_indices)
+        type_indices_edge = np.where(type_list[edges[1,:]] == neuron_type)[0]
+        gt_w_type = true_weights[type_indices_edge]
+        learned_w_type = learned_weights[type_indices_edge]
+        n_conn = len(type_indices_edge)
 
         type_indices = np.where(type_list == neuron_type)[0]
-        gt_tau_type = gt_taus[type_indices]
-        gt_vrest_type = gt_V_Rest[type_indices]
-
-        learned_tau_type = learned_tau[type_indices]
-        learned_vrest_type = learned_V_rest[type_indices]
 
         rmse_w = np.sqrt(np.mean((gt_w_type - learned_w_type)** 2))
-        rmse_tau = np.sqrt(np.mean((gt_tau_type - learned_tau_type)** 2))
-        rmse_vrest = np.sqrt(np.mean((gt_vrest_type - learned_vrest_type)** 2))
-
         rmse_weights.append(rmse_w)
-        rmse_taus.append(rmse_tau)
-        rmse_vrests.append(rmse_vrest)
         n_connections.append(n_conn)
+
+        if "tau" in panels:
+            rmse_taus.append(np.sqrt(np.mean((gt_taus[type_indices] - learned_tau[type_indices])** 2)))
+        if "vrest" in panels:
+            rmse_vrests.append(np.sqrt(np.mean((gt_V_Rest[type_indices] - learned_V_rest[type_indices])** 2)))
 
     n_neurons = len(type_list)
 
-    # Per-neuron RMSE for tau
-    rmse_tau_per_neuron = np.abs(learned_tau - gt_taus)
-    # Per-neuron RMSE for V_rest
-    rmse_vrest_per_neuron = np.abs(learned_V_rest - gt_V_Rest)
-    # Per-neuron RMSE for weights (incoming connections)
+    # Per-neuron RMSE
     rmse_weights_per_neuron = np.zeros(n_neurons)
     for neuron_idx in range(n_neurons):
         incoming_edges = np.where(edges[1, :] == neuron_idx)[0]
         if len(incoming_edges) > 0:
-            true_w = true_weights[incoming_edges]
-            learned_w = learned_weights[incoming_edges]
-            rmse_weights_per_neuron[neuron_idx] = np.sqrt(np.mean((learned_w - true_w)**2))
+            rmse_weights_per_neuron[neuron_idx] = np.sqrt(np.mean((learned_weights[incoming_edges] - true_weights[incoming_edges])**2))
 
-    # Convert to arrays
+    rmse_tau_per_neuron = np.abs(learned_tau - gt_taus) if "tau" in panels else np.zeros(n_neurons)
+    rmse_vrest_per_neuron = np.abs(learned_V_rest - gt_V_Rest) if "vrest" in panels else np.zeros(n_neurons)
+
     rmse_weights = np.array(rmse_weights)
-    rmse_taus = np.array(rmse_taus)
-    rmse_vrests = np.array(rmse_vrests)
+    rmse_taus = np.array(rmse_taus) if rmse_taus else np.zeros(n_neuron_types)
+    rmse_vrests = np.array(rmse_vrests) if rmse_vrests else np.zeros(n_neuron_types)
 
-    # Build neuron type names in order 0..n_neuron_types-1 (matching rmse arrays)
     sorted_neuron_type_names = [index_to_name.get(t, f'Type{t}') for t in range(n_neuron_types)]
-    sort_indices = np.arange(n_neuron_types)
+    x_pos = np.arange(n_neuron_types)
 
-    fig, axes = plt.subplots(3, 1, figsize=(10, 12))
+    # Build panel config: (data, ylabel, color, ylim, threshold)
+    panel_defs = []
+    if "weights" in panels:
+        panel_defs.append((rmse_weights, 'RMSE weights', 'skyblue', [0, 2.5], 0.5))
+    if "tau" in panels:
+        panel_defs.append((rmse_taus, r'RMSE $\tau$', 'lightcoral', [0, 0.3], 0.03))
+    if "vrest" in panels:
+        panel_defs.append((rmse_vrests, r'RMSE $V_{rest}$', 'lightgreen', [0, 0.8], 0.08))
 
-    x_pos = np.arange(len(sort_indices))
+    n_panels = len(panel_defs)
+    fig, axes = plt.subplots(n_panels, 1, figsize=(10, 4 * n_panels))
+    if n_panels == 1:
+        axes = [axes]
 
-    # Plot weights RMSE
-    ax1 = axes[0]
-    ax1.bar(x_pos, rmse_weights[sort_indices], color='skyblue', alpha=0.7)
-    ax1.set_ylabel('RMSE weights', fontsize=14)
-    ax1.grid(True, alpha=0.3)
-    ax1.set_ylim([0, 2.5])
-    ax1.set_xticks(x_pos)
-    ax1.set_xticklabels(sorted_neuron_type_names, rotation=90, ha='right', fontsize=6)
-    ax1.grid(False)
-    ax1.tick_params(axis='y', labelsize=12)
-
-    for i, (tick, rmse_w) in enumerate(zip(ax1.get_xticklabels(), rmse_weights[sort_indices])):
-        if rmse_w > 0.5:
-            tick.set_color('red')
-            tick.set_fontsize(8)
-
-    # Panel 2 (tau)
-    ax2 = axes[1]
-    ax2.bar(x_pos, rmse_taus[sort_indices], color='lightcoral', alpha=0.7)
-    ax2.set_ylabel(r'RMSE $\tau$', fontsize=14)
-    ax2.grid(True, alpha=0.3)
-    ax2.set_ylim([0, 0.3])
-    ax2.set_xticks(x_pos)
-    ax2.set_xticklabels(sorted_neuron_type_names, rotation=90, ha='right', fontsize=6)
-    ax2.grid(False)
-    ax2.tick_params(axis='y', labelsize=12)
-
-    # Calculate mean ground truth taus per neuron type
-    mean_gt_taus = []
-    for neuron_type in range(n_neuron_types):
-        type_indices = np.where(type_list == neuron_type)[0]
-        gt_tau_type = gt_taus[type_indices]
-        mean_gt_taus.append(np.mean(np.abs(gt_tau_type)))
-
-    mean_gt_taus = np.array(mean_gt_taus)
-
-    for i, (tick, rmse_tau) in enumerate(zip(ax2.get_xticklabels(), rmse_taus[sort_indices])):
-        if rmse_tau > 0.03:
-            tick.set_color('red')
-            tick.set_fontsize(8)
-
-    # Panel 3 (V_rest)
-    ax3 = axes[2]
-    ax3.bar(x_pos, rmse_vrests[sort_indices], color='lightgreen', alpha=0.7)
-    ax3.set_ylabel(r'RMSE $V_{rest}$', fontsize=14)
-    ax3.grid(True, alpha=0.3)
-    ax3.set_ylim([0, 0.8])
-    ax3.set_xticks(x_pos)
-    ax3.set_xticklabels(sorted_neuron_type_names, rotation=90, ha='right', fontsize=6)
-    ax3.grid(False)
-    ax3.tick_params(axis='y', labelsize=12)
-
-    # Calculate mean ground truth V_rest per neuron type
-    mean_gt_vrests = []
-    for neuron_type in range(n_neuron_types):
-        type_indices = np.where(type_list == neuron_type)[0]
-        gt_vrest_type = gt_V_Rest[type_indices]
-        mean_gt_vrests.append(np.mean(np.abs(gt_vrest_type)))
-
-    mean_gt_vrests = np.array(mean_gt_vrests)
-    for i, (tick, rmse_vrest) in enumerate(zip(ax3.get_xticklabels(), rmse_vrests[sort_indices])):
-        if rmse_vrest > 0.08:
-            tick.set_color('red')
-            tick.set_fontsize(8)
+    for ax, (data, ylabel, color, ylim, thresh) in zip(axes, panel_defs):
+        ax.bar(x_pos, data, color=color, alpha=0.7)
+        ax.set_ylabel(ylabel, fontsize=14)
+        ax.set_ylim(ylim)
+        ax.set_xticks(x_pos)
+        ax.set_xticklabels(sorted_neuron_type_names, rotation=90, ha='right', fontsize=6)
+        ax.grid(False)
+        ax.tick_params(axis='y', labelsize=12)
+        for i, (tick, val) in enumerate(zip(ax.get_xticklabels(), data)):
+            if val > thresh:
+                tick.set_color('red')
+                tick.set_fontsize(8)
 
     plt.tight_layout()
     plt.savefig(os.path.join(log_dir, 'results', 'neuron_type_reconstruction.png'), dpi=300, bbox_inches='tight')
@@ -1563,24 +1575,27 @@ def analyze_neuron_type_reconstruction(config, model, edges, true_weights, gt_ta
 
     # Log summary statistics
     logger.info(f"mean weights RMSE: {np.mean(rmse_weights):.3f} ± {np.std(rmse_weights):.3f}")
-    logger.info(f"mean tau RMSE: {np.mean(rmse_taus):.3f} ± {np.std(rmse_taus):.3f}")
-    logger.info(f"mean V_rest RMSE: {np.mean(rmse_vrests):.3f} ± {np.std(rmse_vrests):.3f}")
+    if "tau" in panels:
+        logger.info(f"mean tau RMSE: {np.mean(rmse_taus):.3f} ± {np.std(rmse_taus):.3f}")
+    if "vrest" in panels:
+        logger.info(f"mean V_rest RMSE: {np.mean(rmse_vrests):.3f} ± {np.std(rmse_vrests):.3f}")
 
-    # Write clean key-value metrics file for Notebook_04
+    # Write clean key-value metrics file
     metrics_path = os.path.join(log_dir, 'results', 'metrics.txt')
     if r_squared is not None:
         with open(metrics_path, 'w') as mf:
             mf.write(f"W_corrected_R2: {r_squared:.4f}\n")
             mf.write(f"W_corrected_slope: {slope_corrected:.4f}\n")
-            mf.write(f"tau_R2: {r_squared_tau:.4f}\n")
-            mf.write(f"V_rest_R2: {r_squared_V_rest:.4f}\n")
+            if "tau" in panels:
+                mf.write(f"tau_R2: {r_squared_tau:.4f}\n")
+            if "vrest" in panels:
+                mf.write(f"V_rest_R2: {r_squared_V_rest:.4f}\n")
     try:
         with open(metrics_path, 'a') as mf:
             mf.write(f"clustering_accuracy: {cluster_acc:.4f}\n")
     except NameError:
         pass
 
-    # Return per-neuron results (NEW)
     return {
         'rmse_weights_per_neuron': rmse_weights_per_neuron,
         'rmse_tau_per_neuron': rmse_tau_per_neuron,
@@ -1589,7 +1604,6 @@ def analyze_neuron_type_reconstruction(config, model, edges, true_weights, gt_ta
         'rmse_tau_per_type': rmse_taus,
         'rmse_vrest_per_type': rmse_vrests
     }
-    pass  # Implement as needed
 
 
 def plot_neuron_activity_analysis(activity, target_type_name_list, type_list, index_to_name, n_neurons, n_frames, delta_t, output_path):
