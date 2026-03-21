@@ -14,7 +14,7 @@ simulation:
   delta_t: 0.1
   baseline_value: 0
   noise_model_level: 0.0
-  seed: 3002
+  seed: 7002
   connconstr_datapath: papers/Code_NN/Code_NN/Data/Figure5
   connconstr_model: drosophila_cx
   connconstr_n_trials: 50
@@ -63,9 +63,10 @@ training:
   coeff_f_theta_weight_L2: 0.001
   coeff_W_L1: 0
   coeff_W_L2: 1.5e-06
+  coeff_W_sign: 0.0
   regul_annealing_rate: 0
   w_init_mode: zeros
-  seed: 3502
+  seed: 7502
 claude:
   n_epochs: 1
   data_augmentation_loop: 100

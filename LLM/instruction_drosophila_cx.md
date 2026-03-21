@@ -48,7 +48,7 @@ The teacher model is a trained RNN implementing a ring attractor circuit:
 dh/dt = α * (-h + exp(g_i) * softplus(h_j + b_j, β=5) @ J^T + input) / τ_i
 ```
 
-- **152 neurons**, 4 cell types (EPG, PEN, Delta7, PEG), **9,722 edges**
+- **152 neurons**, 6 cell types (EPG, EPGt, PEN_a, PEN_b, Delta7, PEG), **9,722 edges**
 - τ bounded [0.2, 5.0] via tanh: τ = 2.6 + 2.4·tanh(τ_raw)
 - α = 0.2, β = 5 (softplus sharpness)
 - Pretrained teacher weights from hemibrain connectivity
@@ -60,7 +60,7 @@ dh/dt = α * (-h + exp(g_i) * softplus(h_j + b_j, β=5) @ J^T + input) / τ_i
 - No explicit V_rest → f_theta should learn pure decay: slope ≈ -α/τ_i
 - W correction now fits softplus gain from g_phi curves; **connectivity_R2** = effective W R² (W×gain)
 - Also available: **raw_W_R2** (uncorrected W) — useful diagnostic but less meaningful
-- Only 4 cell types → embedding should separate 4 clusters
+- 6 cell types (hemibrain subtypes) → embedding should separate 6 clusters
 
 ## GNN Architecture
 
@@ -108,6 +108,28 @@ Also explore `w_init_scale` (default 1.0) when using `randn_scaled`.
 | `coeff_f_theta_msg_diff`  | Monotonicity of f_theta w.r.t. message input                       | 0       |
 | `coeff_W_L1`              | L1 sparsity penalty on connectivity W                              | 0       |
 | `coeff_W_L2`              | L2 penalty on W                                                    | 1.5e-06 |
+| `coeff_W_sign`            | Dale's law penalty — penalizes mixed-sign outgoing weights per neuron | 0     |
+
+### Dale's Law Regularization
+
+Dale's law states that each neuron releases the same neurotransmitter at all its synapses — meaning all outgoing weights from a given neuron should have the **same sign** (all positive = excitatory, or all negative = inhibitory).
+
+In the CX circuit, **Delta7 neurons are inhibitory** (negative outgoing weights) while EPG, EPGt, PEN_a, PEN_b, and PEG are excitatory (positive outgoing weights). The ground truth connectivity matrix respects this strictly.
+
+**`coeff_W_sign`** penalizes neurons whose outgoing weights have mixed signs. The regularizer (in `regularizer.py`) computes per-neuron violation scores:
+
+```python
+# For each source neuron, count fraction of positive vs negative outgoing weights
+# violation = frac_positive * frac_negative (0 if all same sign, max 0.25 if 50/50 split)
+pos_mask = sigmoid(temperature * W)
+neg_mask = sigmoid(-temperature * W)
+violation = (n_pos / n_total) * (n_neg / n_total)
+loss += sum(violation) * coeff_W_sign
+```
+
+**Suggested values**: Start with `coeff_W_sign: 0.1` and increase to 1.0–10.0 if needed. Too high may over-constrain early training. Combines well with `regul_annealing_rate` (annealing lets the model learn dynamics first, then Dale's law cleans up weight signs in later epochs).
+
+**W_sign_temperature** (default 10.0): Controls sharpness of the sign classification. Higher = stricter boundary at W=0. Usually no need to change.
 
 ### Regularization Annealing (Block 5 — requires n_epochs ≥ 2)
 
@@ -281,7 +303,7 @@ Next: parent=P
 | 1     | W initialization     | w_init_mode (zeros, randn_scaled, randn), w_init_scale                   |
 | 2     | Learning rates       | lr_W, lr, lr_emb — especially lr_W which drives W recovery              |
 | 3     | Batch size           | batch_size (1, 2, 4, 8) — gradient noise vs. stability tradeoff          |
-| 4     | Regularization       | coeff_g_phi_diff, coeff_W_L1, coeff_W_L2, coeff_f_theta_weight_L2       |
+| 4     | Regularization       | coeff_g_phi_diff, coeff_W_L1, coeff_W_L2, coeff_W_sign, coeff_f_theta_weight_L2 |
 | 5     | Multi-epoch + anneal | n_epochs=2, test regul_annealing_rate (0, 0.5, 1.0, 2.0). Halve data_augmentation_loop to keep time constant. |
 | 6     | Data volume          | n_frames (3000, 6000, 10000), data_augmentation_loop (10, 20, 50, 100)  |
 | 7     | Combined best        | Best parameters from blocks 1–6                                         |
@@ -313,7 +335,7 @@ The hypothesis: annealing allows epoch 0 to fit data freely, then epoch 1 applie
 ## Known Results (prior experiments)
 
 - Default config (flyvis_noise_free params): connectivity_R2 ≈ 0.5 after 1 epoch
-- g_phi learns 4 distinct softplus-like curves (correct — matches 4 cell types)
+- g_phi learns 6 distinct softplus-like curves (correct — matches 6 cell types)
 - f_theta learns linear negative slope ≈ -0.2 (consistent with -α/τ decay)
 - Training is fast (~15 min/epoch on A100)
 
