@@ -107,8 +107,4 @@ if __name__ == "__main__":
         # Finalize: tree viz, protocol/memory snapshots
         finalize_batch(state, batch)
 
-
-# python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005 iterations=168 --cluster --resume
-# python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_004 --cluster --resume
-# python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_free iterations=168 --cluster --resume
-# python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_INR iterations=84 --cluster
+# python GNN_LLM.py -o generate_train_test_plot_Claude drosophila_cx iterations=256 --cluster

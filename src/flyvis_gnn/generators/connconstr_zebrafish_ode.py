@@ -11,6 +11,11 @@ Continuous form:
 
 This is a LINEAR ODE — no activation function. tau=1.0 fixed.
 W is scaled so spectral radius = 0.9 (line 179).
+
+Differences from paper repo:
+    - Paper processes one pulse at a time (simulate_series); we generate
+      continuous trajectories with concatenated stimuli.
+    - Paper uses dense W @ r; we use sparse scatter_add.
 """
 
 import torch

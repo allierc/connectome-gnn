@@ -6,9 +6,9 @@ simulation:
   params:
     - - 1.0
       - 1.0
-  n_neurons: 49  # approximate — determined from hemibrain subselection
+  n_neurons: 152  # determined from hemibrain subselection (EPG+PEN+Delta7+PEG)
   n_input_neurons: 0
-  n_neuron_types: 4  # EPG, PEN, Delta7, PEG
+  n_neuron_types: 6  # EPG, PEN_a, PEN_b, Delta7, PEG + subtypes from hemibrain
   n_edges: 0
   n_frames: 10000
   delta_t: 0.1
@@ -17,7 +17,7 @@ simulation:
   seed: 42
   connconstr_datapath: "papers/Code_NN/Code_NN/Data/Figure5"
   connconstr_model: drosophila_cx
-  connconstr_n_trials: 50
+  connconstr_n_trials: 50  # unused — stimulus auto-fills n_frames
   connconstr_use_pretrained: true
 graph_model:
   signal_model_name: drosophila_cx

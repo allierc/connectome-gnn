@@ -499,7 +499,8 @@ def data_test_flyvis(config, best_model=None, device=None, log_file=None, test_c
         ax.legend(loc='upper right', fontsize=14, frameon=False)
 
         plt.tight_layout()
-        plt.savefig(f"{results_dir}/rollout_{filename_}_{sim.visual_input_type}_{fig_name}{test_suffix}.png",
+        _vis_tag = f"_{sim.visual_input_type}" if sim.visual_input_type else ""
+        plt.savefig(f"{results_dir}/rollout_{filename_}{_vis_tag}_{fig_name}{test_suffix}.png",
                     dpi=300, bbox_inches='tight')
         plt.close()
 
@@ -1314,7 +1315,8 @@ def data_test_flyvis_special(
 
             plt.tight_layout()
             save_suffix = f"_{fig_suffix}" if fig_suffix else ""
-            plt.savefig(f"{log_dir}/results/rollout_{filename_}_{sim.visual_input_type}{save_suffix}.png", dpi=300, bbox_inches='tight')
+            _vis_tag = f"_{sim.visual_input_type}" if sim.visual_input_type else ""
+            plt.savefig(f"{log_dir}/results/rollout_{filename_}{_vis_tag}{save_suffix}.png", dpi=300, bbox_inches='tight')
             plt.close()
 
     else:
@@ -1398,7 +1400,8 @@ def data_test_flyvis_special(
             ax.legend(loc='upper right', fontsize=14, frameon=False)
 
             plt.tight_layout()
-            plt.savefig(f"{log_dir}/results/rollout_{filename_}_{sim.visual_input_type}_{fig_name}.png", dpi=300, bbox_inches='tight')
+            _vis_tag = f"_{sim.visual_input_type}" if sim.visual_input_type else ""
+            plt.savefig(f"{log_dir}/results/rollout_{filename_}{_vis_tag}_{fig_name}.png", dpi=300, bbox_inches='tight')
             plt.close()
 
         if ('test_ablation' in test_mode) or ('test_inactivity' in test_mode):

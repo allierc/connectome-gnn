@@ -15,6 +15,12 @@ Where:
 
 Activation: Softplus (setup.py lines 32-33), NOT ReLU.
 Gains clamped to [0.5, 5.0] (setup.py lines 49-51).
+
+Differences from paper repo:
+    - Paper uses trial-based training with state reset every 2 conditions × 6s.
+      Trial resets are not biologically realistic — we generate continuous trajectories.
+    - Paper uses dense J @ r; we use sparse scatter_add on a unified graph.
+    - Paper treats premotor/motor as separate arrays; we merge into one graph.
 """
 
 import torch
