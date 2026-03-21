@@ -1001,8 +1001,8 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
 
             # Corrected weights via metrics pipeline (replaces inline DataLoader +
             # gradient computation + correction formula — see metrics.py)
-            corrected_W, ret_slopes_f, ret_slopes_g, ret_offsets = compute_all_corrected_weights(
-                model, config, edges, x_ts, device, n_grad_frames=8)
+            corrected_W, ret_slopes_f, ret_slopes_g, ret_offsets, g_phi_fitted = compute_all_corrected_weights(
+                model, config, edges, x_ts, device, n_grad_frames=8, ode_params=ode_params)
             torch.save(corrected_W, f'{log_dir}/results/corrected_W.pt')
 
             learned_weights = to_numpy(corrected_W.squeeze())
@@ -1079,16 +1079,40 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                     f'outliers: {len(outlier_residuals)}  mean residual: {np.mean(outlier_residuals):.4f}  std: {np.std(outlier_residuals):.4f}  min,max: {np.min(outlier_residuals):.4f}, {np.max(outlier_residuals):.4f}')
             else:
                 print('outliers: 0  (no outliers detected)')
-            if ode_params.has_tau() and r_squared_tau > 0.01:
+            if ode_params.has_tau():
                 print(f"tau reconstruction R²: {_r2_color(r_squared_tau)}{r_squared_tau:.3f}{_ANSI_RESET}  slope: {slope_tau:.2f}")
                 logger.info(f"tau reconstruction R²: {r_squared_tau:.3f}  slope: {slope_tau:.2f}")
-            if ode_params.has_vrest() and r_squared_V_rest > 0.01:
+            if ode_params.has_vrest():
                 print(f"V_rest reconstruction R²: {_r2_color(r_squared_V_rest)}{r_squared_V_rest:.3f}{_ANSI_RESET}  slope: {slope_V_rest:.2f}")
                 logger.info(f"V_rest reconstruction R²: {r_squared_V_rest:.3f}  slope: {slope_V_rest:.2f}")
             print(f"f_theta Pearson r²: {_r2_color(r2_f_theta_mean)}{r2_f_theta_mean:.3f}{_ANSI_RESET}  median={r2_f_theta_median:.3f}")
             print(f"g_phi Pearson r²: {_r2_color(r2_g_phi_mean)}{r2_g_phi_mean:.3f}{_ANSI_RESET}  median={r2_g_phi_median:.3f}")
             logger.info(f"f_theta Pearson r²: mean={r2_f_theta_mean:.3f}  median={r2_f_theta_median:.3f}")
             logger.info(f"g_phi Pearson r²: mean={r2_g_phi_mean:.3f}  median={r2_g_phi_median:.3f}")
+
+            # g_phi parameter R² (model-specific: gain/bias for CX, slope for flyvis)
+            gt_g_params = ode_params.gt_g_phi_params(n_neurons)
+            if gt_g_params is not None and g_phi_fitted is not None:
+                for pname in ode_params.g_phi_param_names():
+                    if pname in g_phi_fitted and pname in gt_g_params:
+                        gt_vals = gt_g_params[pname]
+                        learned_vals = g_phi_fitted[pname][:n_neurons]
+                        r2_p, slope_p = compute_r_squared(gt_vals, learned_vals)
+                        print(f"g_phi {pname} R²: {_r2_color(r2_p)}{r2_p:.3f}{_ANSI_RESET}  slope: {slope_p:.2f}")
+                        logger.info(f"g_phi {pname} R²: {r2_p:.3f}  slope: {slope_p:.2f}")
+
+                        # Scatter plot for each g_phi parameter
+                        fig = plt.figure(figsize=(10, 9))
+                        plt.scatter(gt_vals, learned_vals, c=mc, s=_dot_s, alpha=_dot_alpha)
+                        plt.text(0.05, 0.95, f'R²: {r2_p:.2f}\nslope: {slope_p:.2f}\nN: {n_neurons}',
+                                 transform=plt.gca().transAxes, verticalalignment='top', fontsize=32)
+                        plt.xlabel(f'true {pname}', fontsize=48)
+                        plt.ylabel(f'learned {pname}', fontsize=48)
+                        plt.xticks(fontsize=24)
+                        plt.yticks(fontsize=24)
+                        plt.tight_layout()
+                        plt.savefig(f'{log_dir}/results/g_phi_{pname}_comparison_{config_indices}.png', dpi=300)
+                        plt.close()
 
             # Write to analysis log file for Claude
             if log_file:
@@ -1101,6 +1125,13 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                     log_file.write(f"tau_R2: {r_squared_tau:.4f}\n")
                 if ode_params.has_vrest():
                     log_file.write(f"V_rest_R2: {r_squared_V_rest:.4f}\n")
+                if gt_g_params is not None and g_phi_fitted is not None:
+                    for pname in ode_params.g_phi_param_names():
+                        if pname in g_phi_fitted and pname in gt_g_params:
+                            gt_v = gt_g_params[pname]
+                            lr_v = g_phi_fitted[pname][:n_neurons]
+                            r2_p, _ = compute_r_squared(gt_v, lr_v)
+                            log_file.write(f"g_phi_{pname}_R2: {r2_p:.4f}\n")
 
 
             # Plot connectivity matrix comparison (only for small networks)

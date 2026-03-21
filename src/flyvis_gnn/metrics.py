@@ -243,14 +243,13 @@ def compute_activity_stats(x_ts, device: Optional[torch.device] = None) -> tuple
 #  Slope extraction
 # ------------------------------------------------------------------ #
 
-def extract_g_phi_slopes(model, config, n_neurons, mu_activity, sigma_activity, device):
-    """Extract linear slope of g_phi for each neuron j (vectorized).
-
-    Evaluates g_phi(a_j, v) over each neuron's activity range [mu-2σ, mu+2σ]
-    in one batched forward pass, then fits all slopes with vectorized regression.
+def evaluate_g_phi_curves(model, config, n_neurons, mu_activity, sigma_activity, device):
+    """Evaluate learned g_phi curves over each neuron's activity range.
 
     Returns:
-        slopes: (n_neurons,) numpy array of g_phi slopes.
+        v_ranges: (N, n_pts) numpy array of voltage grids per neuron.
+        curves: (N, n_pts) numpy array of g_phi outputs.
+        valid: (N,) bool array — neurons with positive activity range.
     """
     signal_model_name = config.graph_model.signal_model_name
     g_phi_positive = config.graph_model.g_phi_positive
@@ -259,12 +258,9 @@ def extract_g_phi_slopes(model, config, n_neurons, mu_activity, sigma_activity, 
     mu = to_numpy(mu_activity).astype(np.float32) if torch.is_tensor(mu_activity) else np.asarray(mu_activity, dtype=np.float32)
     sigma = to_numpy(sigma_activity).astype(np.float32) if torch.is_tensor(sigma_activity) else np.asarray(sigma_activity, dtype=np.float32)
 
-    # Neurons where activity range includes positive values
     valid = (mu + sigma) > 0
     starts = np.maximum(mu - 2 * sigma, 0.0)
     ends = mu + 2 * sigma
-
-    # For invalid neurons, set dummy range (won't be used)
     starts[~valid] = 0.0
     ends[~valid] = 1.0
 
@@ -276,11 +272,23 @@ def extract_g_phi_slopes(model, config, n_neurons, mu_activity, sigma_activity, 
     func = _batched_mlp_eval(model.g_phi, model.a[:n_neurons], rr,
                              build_fn, device, post_fn=post_fn)  # (N, n_pts)
 
-    slopes, _ = _vectorized_linear_fit(rr, func)
+    return to_numpy(rr), to_numpy(func), valid
 
-    # Invalid neurons get slope = 1.0
+
+def extract_g_phi_slopes(model, config, n_neurons, mu_activity, sigma_activity, device):
+    """Extract linear slope of g_phi for each neuron j (vectorized).
+
+    Returns:
+        slopes: (n_neurons,) numpy array of g_phi slopes.
+    """
+    v_ranges, curves, valid = evaluate_g_phi_curves(
+        model, config, n_neurons, mu_activity, sigma_activity, device)
+
+    rr_t = torch.tensor(v_ranges, dtype=torch.float32)
+    func_t = torch.tensor(curves, dtype=torch.float32)
+    slopes, _ = _vectorized_linear_fit(rr_t, func_t)
+
     slopes[~valid] = 1.0
-
     return slopes
 
 
@@ -647,11 +655,12 @@ def compute_corrected_weights(model, edges, slopes_f_theta, slopes_g_phi, grad_m
     return corrected_W
 
 
-def compute_all_corrected_weights(model, config, edges, x_ts, device, n_grad_frames=8):
+def compute_all_corrected_weights(model, config, edges, x_ts, device,
+                                   n_grad_frames=8, ode_params=None):
     """High-level: compute corrected W from model state and training data.
 
-    Extracts slopes from g_phi and f_theta, computes grad_msg averaged
-    over multiple frames, and applies the correction formula.
+    Uses model-specific g_phi fitting via ode_params to extract the per-neuron
+    correction factor (ReLU slope for flyvis, softplus gain for CX, etc.).
 
     Args:
         model: NeuralGNN model.
@@ -660,25 +669,42 @@ def compute_all_corrected_weights(model, config, edges, x_ts, device, n_grad_fra
         x_ts: NeuronTimeSeries (training data).
         device: torch device.
         n_grad_frames: number of frames to sample for grad_msg (default 8).
+        ode_params: ODEParamsBase instance for model-specific g_phi fitting.
 
     Returns:
         corrected_W: (E, 1) tensor of corrected weights.
         slopes_f_theta: (N,) numpy array.
-        slopes_g_phi: (N,) numpy array.
+        g_phi_correction: (N,) numpy array — per-neuron factor used for W correction.
         offsets_f_theta: (N,) numpy array.
+        g_phi_fitted: dict — all fitted g_phi params (model-specific).
     """
     n_neurons = model.a.shape[0]
 
     # 1. Activity statistics
     mu_activity, sigma_activity = compute_activity_stats(x_ts, device)
 
-    # 2. Slope extraction
-    slopes_g_phi = extract_g_phi_slopes(
+    # 2. Evaluate g_phi curves and fit model-specific parameters
+    v_ranges, g_phi_curves, valid = evaluate_g_phi_curves(
         model, config, n_neurons, mu_activity, sigma_activity, device)
+
+    if ode_params is not None:
+        g_phi_fitted = ode_params.fit_g_phi_curves(v_ranges, g_phi_curves)
+    else:
+        # Fallback: linear slope (legacy behavior)
+        rr_t = torch.tensor(v_ranges, dtype=torch.float32)
+        func_t = torch.tensor(g_phi_curves, dtype=torch.float32)
+        slopes, _ = _vectorized_linear_fit(rr_t, func_t)
+        slopes[~valid] = 1.0
+        g_phi_fitted = {'correction': slopes, 'slopes': slopes}
+
+    g_phi_correction = g_phi_fitted['correction']
+    g_phi_correction[~valid] = 1.0
+
+    # 3. f_theta slopes
     slopes_f_theta, offsets_f_theta = extract_f_theta_slopes(
         model, config, n_neurons, mu_activity, sigma_activity, device)
 
-    # 3. Compute grad_msg over multiple frames and take median
+    # 4. Compute grad_msg over multiple frames and take median
     n_frames = x_ts.voltage.shape[0]
     frame_indices = np.linspace(n_frames // 10, n_frames - 100, n_grad_frames, dtype=int)
     data_id = torch.zeros((n_neurons, 1), dtype=torch.int, device=device)
@@ -686,7 +712,6 @@ def compute_all_corrected_weights(model, config, edges, x_ts, device, n_grad_fra
     was_training = model.training
     model.eval()
 
-    # Ensure edges are on the correct device
     edges = edges.to(device)
 
     grad_list = []
@@ -702,8 +727,8 @@ def compute_all_corrected_weights(model, config, edges, x_ts, device, n_grad_fra
 
     grad_msg = torch.stack(grad_list).median(dim=0).values  # (N,)
 
-    # 4. Corrected weights
+    # 5. Corrected weights using model-specific g_phi correction
     corrected_W = compute_corrected_weights(
-        model, edges, slopes_f_theta, slopes_g_phi, grad_msg)
+        model, edges, slopes_f_theta, g_phi_correction, grad_msg)
 
-    return corrected_W, slopes_f_theta, slopes_g_phi, offsets_f_theta
+    return corrected_W, slopes_f_theta, g_phi_correction, offsets_f_theta, g_phi_fitted
