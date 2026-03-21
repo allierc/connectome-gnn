@@ -1064,10 +1064,10 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                     f'outliers: {len(outlier_residuals)}  mean residual: {np.mean(outlier_residuals):.4f}  std: {np.std(outlier_residuals):.4f}  min,max: {np.min(outlier_residuals):.4f}, {np.max(outlier_residuals):.4f}')
             else:
                 print('outliers: 0  (no outliers detected)')
-            if ode_params.has_tau():
+            if ode_params.has_tau() and r_squared_tau > 0.01:
                 print(f"tau reconstruction R²: \033[92m{r_squared_tau:.3f}\033[0m  slope: {slope_tau:.2f}")
                 logger.info(f"tau reconstruction R²: {r_squared_tau:.3f}  slope: {slope_tau:.2f}")
-            if ode_params.has_vrest():
+            if ode_params.has_vrest() and r_squared_V_rest > 0.01:
                 print(f"V_rest reconstruction R²: \033[92m{r_squared_V_rest:.3f}\033[0m  slope: {slope_V_rest:.2f}")
                 logger.info(f"V_rest reconstruction R²: {r_squared_V_rest:.3f}  slope: {slope_V_rest:.2f}")
             print(f"f_theta Pearson r²: \033[92m{r2_f_theta_mean:.3f}\033[0m  median={r2_f_theta_median:.3f}")
