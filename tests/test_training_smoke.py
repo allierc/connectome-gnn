@@ -5,7 +5,7 @@ These tests exercise the training infrastructure without requiring real data or 
 import pytest
 import torch
 
-from flyvis_gnn.models.flyvis_gnn import FlyVisGNN
+from flyvis_gnn.models.flyvis_gnn import NeuralGNN
 from flyvis_gnn.models.regularizer import LossRegularizer
 from flyvis_gnn.neuron_state import NeuronState
 
@@ -19,7 +19,7 @@ def training_setup(minimal_config):
     N = config.simulation.n_neurons
     n_edges = config.simulation.n_edges
 
-    model = FlyVisGNN(aggr_type="add", config=config, device="cpu")
+    model = NeuralGNN(aggr_type="add", config=config, device="cpu")
     model.train()
 
     state = NeuronState.zeros(N)

@@ -1,4 +1,4 @@
-"""FlyVis-GNN — Parallel LLM Exploration Loop.
+"""Connectome-GNN — Parallel LLM Exploration Loop.
 
 Orchestrates Claude-driven hyperparameter exploration with optional
 interactive code modification sessions at block boundaries.
@@ -41,7 +41,7 @@ warnings.filterwarnings("ignore", message="pkg_resources is deprecated as an API
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="FlyVis-GNN — FlyVis Parallel LLM Loop")
+    parser = argparse.ArgumentParser(description="Connectome-GNN — Parallel LLM Loop")
     parser.add_argument("-o", "--option", nargs="+", help="option that takes multiple values")
     parser.add_argument("--fresh", action="store_true", default=True,
                         help="start from iteration 1 (ignore auto-resume)")

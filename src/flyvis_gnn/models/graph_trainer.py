@@ -22,9 +22,9 @@ from tqdm import trange
 from flyvis_gnn.figure_style import default_style
 from flyvis_gnn.log import get_logger
 from flyvis_gnn.metrics import compute_dynamics_r2
-from flyvis_gnn.models.Neural_ode_wrapper_FlyVis import (
+from flyvis_gnn.models.neural_ode_wrapper import (
     debug_check_gradients,
-    neural_ode_loss_FlyVis,
+    neural_ode_loss,
 )
 from flyvis_gnn.models.recurrent_step import recurrent_loss
 from flyvis_gnn.models.registry import create_model
@@ -84,16 +84,16 @@ def data_train(config=None, erase=False, best_model=None, style=None, device=Non
     _connconstr = any(x in config.dataset for x in ('drosophila_cx', 'zebrafish_oculomotor', 'larva'))
     if 'fly' in config.dataset or _connconstr:
         if 'RNN' in config.graph_model.signal_model_name or 'LSTM' in config.graph_model.signal_model_name:
-            data_train_flyvis_RNN(config, erase, best_model, device)
+            data_train_gnn_RNN(config, erase, best_model, device)
         else:
-            data_train_flyvis(config, erase, best_model, device, log_file=log_file)
+            data_train_gnn(config, erase, best_model, device, log_file=log_file)
     else:
         raise ValueError(f"Unknown dataset type: {config.dataset}")
 
     _logger.info("training completed.")
 
 
-def data_train_flyvis(config, erase, best_model, device, log_file=None):
+def data_train_gnn(config, erase, best_model, device, log_file=None):
     sim = config.simulation
     tc = config.training
     model_config = config.graph_model
@@ -502,7 +502,7 @@ def data_train_flyvis(config, erase, best_model, device, log_file=None):
 
                         ode_state_clamp = getattr(tc, 'ode_state_clamp', 10.0)
                         ode_stab_lambda = getattr(tc, 'ode_stab_lambda', 0.0)
-                        ode_loss, pred_x = neural_ode_loss_FlyVis(
+                        ode_loss, pred_x = neural_ode_loss(
                             model=model,
                             dataset_batch=state_batch,
                             edge_index=edges,
@@ -796,7 +796,7 @@ def data_train_flyvis(config, erase, best_model, device, log_file=None):
 
 
 # data_train_flyvis_alternate removed — use data_train_flyvis instead
-def data_train_flyvis_RNN(config, erase, best_model, device):
+def data_train_gnn_RNN(config, erase, best_model, device):
     """RNN training with sequential processing through time"""
 
     sim = config.simulation
@@ -984,7 +984,7 @@ def data_test(config=None, config_file=None, visualize=False, style='color frame
         if any(m in test_mode for m in special_modes):
             if test_mode == "":
                 test_mode = "test_ablation_0"
-            data_test_flyvis_special(
+            data_test_gnn_special(
                 config,
                 visualize,
                 style,
@@ -999,7 +999,7 @@ def data_test(config=None, config_file=None, visualize=False, style='color frame
                 log_file=log_file,
             )
         else:
-            data_test_flyvis(
+            data_test_gnn(
                 config,
                 best_model=best_model,
                 device=device,
@@ -1012,4 +1012,4 @@ def data_test(config=None, config_file=None, visualize=False, style='color frame
 
 
 # Test functions moved to graph_tester.py
-from flyvis_gnn.models.graph_tester import data_test_flyvis, data_test_flyvis_special
+from flyvis_gnn.models.graph_tester import data_test_gnn, data_test_gnn_special

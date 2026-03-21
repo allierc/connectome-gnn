@@ -246,12 +246,12 @@ def init_shared_files(state: ExplorationState, is_resume: bool):
     # Initialize shared files on fresh start
     if state.start_iteration == 1 and not is_resume:
         with open(state.analysis_path, 'w') as f:
-            f.write(f"# FlyVis Experiment Log: {state.base_config_name} (parallel)\n\n")
+            f.write(f"# Experiment Log: {state.base_config_name} (parallel)\n\n")
         print(f"\033[93mcleared {state.analysis_path}\033[0m")
         open(state.reasoning_log_path, 'w').close()
         print(f"\033[93mcleared {state.reasoning_log_path}\033[0m")
         with open(state.memory_path, 'w') as f:
-            f.write(f"# FlyVis Working Memory: {state.base_config_name} (parallel)\n\n")
+            f.write(f"# Working Memory: {state.base_config_name} (parallel)\n\n")
             f.write("## Paper Summary (update at every block boundary)\n\n")
             f.write("- **GNN optimization**: [pending first results]\n")
             f.write("- **LLM-driven exploration**: [pending first results]\n\n")
@@ -998,7 +998,7 @@ def finalize_batch(state: ExplorationState, batch: BatchInfo):
             if hasattr(config.simulation, 'noise_model_level'):
                 sim_info += f", noise={config.simulation.noise_model_level}"
             plot_ucb_tree(nodes, ucb_tree_path,
-                          title=f"FlyVis UCB Tree - Batch {batch.batch_first}-{batch.batch_last}",
+                          title=f"UCB Tree - Batch {batch.batch_first}-{batch.batch_last}",
                           simulation_info=sim_info)
 
     # Save instruction file at first iteration of each block

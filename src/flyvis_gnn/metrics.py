@@ -1,4 +1,4 @@
-"""Pure metrics computation for FlyVis — no matplotlib dependency.
+"""Pure metrics computation — no matplotlib dependency.
 
 Contains the connectivity R² pipeline (slope correction, grad_msg,
 corrected weights) and derived quantities (tau, V_rest).
@@ -391,7 +391,7 @@ def compute_f_theta_linearity_loss(model, n_neurons: int, mu: np.ndarray, sigma:
     - rr (voltage grid) is constructed from cached data stats (no grad)
 
     Args:
-        model: FlyVisGNN model with f_theta and a attributes.
+        model: NeuralGNN model with f_theta and a attributes.
         n_neurons: Number of neurons.
         mu: (N,) numpy array — per-neuron mean voltage.
         sigma: (N,) numpy array — per-neuron std voltage.
@@ -451,7 +451,7 @@ def compute_f_theta_centering_loss(
     Cost: N f_theta evaluations (trivial — no voltage grid needed).
 
     Args:
-        model: FlyVisGNN model with f_theta and a attributes.
+        model: NeuralGNN model with f_theta and a attributes.
         n_neurons: Number of neurons.
         mu: (N,) numpy array — per-neuron mean voltage.
         device: Torch device.
@@ -518,7 +518,7 @@ def compute_dynamics_r2(model, x_ts, config, device, n_neurons):
 
 
 def compute_dynamics_r2_linear(model, config, device, n_neurons):
-    """Compute V_rest R² and tau R² for FlyVisLinear (direct parameter comparison).
+    """Compute V_rest R² and tau R² for LinearODE (direct parameter comparison).
 
     Unlike GNN models where tau and V_rest must be extracted from f_theta
     slopes, the linear model exposes them as direct learnable parameters.
@@ -562,7 +562,7 @@ def compute_grad_msg(model, in_features, config):
     """Compute d(f_theta)/d(msg) for each neuron from a forward-pass in_features.
 
     Args:
-        model: FlyVisGNN model.
+        model: NeuralGNN model.
         in_features: (N, D) tensor from model(..., return_all=True).
             Layout: [v(1), embedding(E), msg(1), excitation(1)].
         config: config object with graph_model.embedding_dim.
@@ -649,7 +649,7 @@ def compute_all_corrected_weights(model, config, edges, x_ts, device, n_grad_fra
     over multiple frames, and applies the correction formula.
 
     Args:
-        model: FlyVisGNN model.
+        model: NeuralGNN model.
         config: full config object.
         edges: (2, E) edge index tensor.
         x_ts: NeuronTimeSeries (training data).

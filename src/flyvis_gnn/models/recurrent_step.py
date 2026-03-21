@@ -1,4 +1,4 @@
-"""Recurrent multi-step training loss for FlyVis GNN.
+"""Recurrent multi-step training loss for GNN.
 
 Overview of recurrent / noise-aware training strategies
 -------------------------------------------------------

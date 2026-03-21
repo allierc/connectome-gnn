@@ -1,8 +1,8 @@
-"""Tests for flyvis_gnn.models.flyvis_gnn — FlyVisGNN forward pass shapes."""
+"""Tests for flyvis_gnn.models.flyvis_gnn — NeuralGNN forward pass shapes."""
 import pytest
 import torch
 
-from flyvis_gnn.models.flyvis_gnn import FlyVisGNN
+from flyvis_gnn.models.flyvis_gnn import NeuralGNN
 from flyvis_gnn.neuron_state import NeuronState
 
 pytestmark = pytest.mark.tier3
@@ -10,8 +10,8 @@ pytestmark = pytest.mark.tier3
 
 @pytest.fixture
 def model_and_inputs(minimal_config):
-    """Create a tiny FlyVisGNN and matching synthetic inputs."""
-    model = FlyVisGNN(aggr_type="add", config=minimal_config, device="cpu")
+    """Create a tiny NeuralGNN and matching synthetic inputs."""
+    model = NeuralGNN(aggr_type="add", config=minimal_config, device="cpu")
     model.eval()
 
     N = minimal_config.simulation.n_neurons
@@ -29,7 +29,7 @@ def model_and_inputs(minimal_config):
     return model, state, edge_index, data_id
 
 
-class TestFlyVisGNNForward:
+class TestNeuralGNNForward:
     def test_output_shape(self, model_and_inputs):
         model, state, edge_index, data_id = model_and_inputs
         pred = model(state, edge_index, data_id=data_id)
@@ -48,7 +48,7 @@ class TestFlyVisGNNForward:
         assert torch.isfinite(pred).all()
 
 
-class TestFlyVisGNNAttributes:
+class TestNeuralGNNAttributes:
     def test_parameter_counts(self, model_and_inputs):
         model = model_and_inputs[0]
         assert hasattr(model, "g_phi")

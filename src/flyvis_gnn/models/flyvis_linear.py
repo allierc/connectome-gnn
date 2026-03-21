@@ -1,4 +1,4 @@
-"""Linear ODE model for FlyVis — simple baseline with fixed ReLU activation.
+"""Linear ODE baseline model — simple baseline with fixed ReLU activation.
 
 Matches the ground-truth ODE structure:
     msg_j  = W_j * relu(v_j)
@@ -19,8 +19,8 @@ from flyvis_gnn.neuron_state import NeuronState
 
 
 @register_model("flyvis_linear", "flyvis_linear_tanh")
-class FlyVisLinear(nn.Module):
-    """Linear ODE baseline for FlyVis neural signal dynamics.
+class LinearODE(nn.Module):
+    """Linear ODE baseline for neural signal dynamics.
 
     Equations:
         msg   = sum_j  W_j * relu(v_j)           (scatter_add over incoming edges)

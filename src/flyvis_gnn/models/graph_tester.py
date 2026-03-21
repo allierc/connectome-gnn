@@ -1,9 +1,9 @@
-"""Test functions for FlyVis GNN models.
+"""Test functions for GNN models.
 
 Extracted from graph_trainer.py to reduce file size.
 Contains:
-- data_test_flyvis: standard test with 1-step + rollout evaluation
-- data_test_flyvis_special: ablation/modification test via ODE regeneration
+- data_test_gnn: standard test with 1-step + rollout evaluation
+- data_test_gnn_special: ablation/modification test via ODE regeneration
 """
 
 import glob
@@ -27,7 +27,7 @@ from flyvis_gnn.generators.ode_params import FlyVisODEParams
 from flyvis_gnn.generators.utils import generate_compressed_video_mp4
 from flyvis_gnn.log import get_logger
 from flyvis_gnn.metrics import INDEX_TO_NAME
-from flyvis_gnn.models.Neural_ode_wrapper_FlyVis import integrate_neural_ode_FlyVis
+from flyvis_gnn.models.neural_ode_wrapper import integrate_neural_ode
 from flyvis_gnn.models.registry import create_model
 from flyvis_gnn.models.utils import _batch_frames
 from flyvis_gnn.neuron_state import NeuronState
@@ -53,7 +53,7 @@ except ImportError:
 logger = get_logger(__name__)
 
 
-def data_test_flyvis(config, best_model=None, device=None, log_file=None, test_config=None):
+def data_test_gnn(config, best_model=None, device=None, log_file=None, test_config=None):
     """Test using pre-generated test data (x_list_test / y_list_test).
 
     Loads the held-out test split, runs the trained model on every frame,
@@ -318,7 +318,7 @@ def data_test_flyvis(config, best_model=None, device=None, log_file=None, test_c
                 y = model(x.to_packed(), data_id=data_id, return_all=False)
             elif hasattr(tc, 'neural_ODE_training') and tc.neural_ODE_training:
                 v0 = x.voltage.flatten()
-                v_final, _ = integrate_neural_ode_FlyVis(
+                v_final, _ = integrate_neural_ode(
                     model=model, v0=v0, x_template=x,
                     edge_index=edges, data_id=data_id,
                     time_steps=1, delta_t=sim.delta_t,
@@ -511,7 +511,7 @@ def data_test_flyvis(config, best_model=None, device=None, log_file=None, test_c
     logger.debug(f'rollout plots saved to {results_dir}/')
 
 
-def data_test_flyvis_special(
+def data_test_gnn_special(
         config,
         visualize=True,
         style="color",
@@ -1069,7 +1069,7 @@ def data_test_flyvis_special(
                         elif tc.neural_ODE_training:
                             data_id = torch.zeros((x.n_neurons, 1), dtype=torch.int, device=device)
                             v0 = x.voltage.flatten()
-                            v_final, _ = integrate_neural_ode_FlyVis(
+                            v_final, _ = integrate_neural_ode(
                                 model=model,
                                 v0=v0,
                                 x_template=x,
