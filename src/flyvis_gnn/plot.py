@@ -204,8 +204,10 @@ def plot_f_theta(ax, model, config, n_neurons, type_list, cmap, device, step=20)
     n_pts = 1000
     xlim = config.plotting.xlim
 
-    # Select every step-th neuron
-    neuron_ids = np.arange(0, n_neurons, step)
+    # Plot every neuron for small networks, subsample for large
+    _step = 1 if n_neurons < 1000 else step
+    _alpha = 1.0 if n_neurons < 1000 else 0.2
+    neuron_ids = np.arange(0, n_neurons, _step)
     n_sel = len(neuron_ids)
 
     # Shared x-range, expanded to (n_sel, n_pts)
@@ -221,7 +223,7 @@ def plot_f_theta(ax, model, config, n_neurons, type_list, cmap, device, step=20)
     # Fast plot with LineCollection
     type_np = to_numpy(type_list).astype(int)
     _plot_curves_fast(ax, to_numpy(rr_1d), to_numpy(func),
-                      type_np[neuron_ids], cmap, linewidth=1, alpha=0.2)
+                      type_np[neuron_ids], cmap, linewidth=1, alpha=_alpha)
 
     ax.set_xlim(xlim)
     ax.set_ylim(config.plotting.ylim)
@@ -239,7 +241,9 @@ def plot_g_phi(ax, model, config, n_neurons, type_list, cmap, device, step=20):
     model_config = config.graph_model
     n_pts = 1000
 
-    neuron_ids = np.arange(0, n_neurons, step)
+    _step = 1 if n_neurons < 1000 else step
+    _alpha = 1.0 if n_neurons < 1000 else 0.2
+    neuron_ids = np.arange(0, n_neurons, _step)
     n_sel = len(neuron_ids)
 
     rr_1d = torch.linspace(config.plotting.xlim[0], config.plotting.xlim[1], n_pts, device=device)
@@ -254,7 +258,7 @@ def plot_g_phi(ax, model, config, n_neurons, type_list, cmap, device, step=20):
 
     type_np = to_numpy(type_list).astype(int)
     _plot_curves_fast(ax, to_numpy(rr_1d), to_numpy(func),
-                      type_np[neuron_ids], cmap, linewidth=1, alpha=0.2)
+                      type_np[neuron_ids], cmap, linewidth=1, alpha=_alpha)
 
     ax.set_xlim(config.plotting.xlim)
     ax.set_ylim([-config.plotting.xlim[1] / 10, config.plotting.xlim[1] * 1.2])
