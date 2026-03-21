@@ -486,10 +486,18 @@ def compute_dynamics_r2(model, x_ts, config, device, n_neurons):
     Returns:
         (vrest_r2, tau_r2): tuple of float R² values.
     """
-    from flyvis_gnn.generators.ode_params import FlyVisODEParams
-    ode_params = FlyVisODEParams.load(graphs_data_path(config.dataset), device=device)
-    gt_V_rest = to_numpy(ode_params.V_i_rest[:n_neurons])
-    gt_tau = to_numpy(ode_params.tau_i[:n_neurons])
+    from flyvis_gnn.generators.ode_params import FlyVisODEParams, get_ode_params_class
+    signal_model = config.graph_model.signal_model_name
+    try:
+        OdeParamsCls = get_ode_params_class(signal_model)
+    except KeyError:
+        OdeParamsCls = FlyVisODEParams
+    try:
+        ode_params = OdeParamsCls.load(graphs_data_path(config.dataset), device=device)
+        gt_V_rest = to_numpy(ode_params.V_i_rest[:n_neurons])
+        gt_tau = to_numpy(ode_params.tau_i[:n_neurons])
+    except (AttributeError, TypeError, FileNotFoundError):
+        return 0.0, 0.0
 
     mu, sigma = compute_activity_stats(x_ts, device)
     slopes, offsets = extract_f_theta_slopes(model, config, n_neurons, mu, sigma, device)
