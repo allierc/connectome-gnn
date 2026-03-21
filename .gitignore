@@ -12,17 +12,8 @@ config/
 paper/
 papers/
 
-# Log folder - include models/*.pt and loss_components.pt, exclude everything else
-log/**/*
-!log/.gitkeep
-!log/fly/
-!log/fly/**/
-!log/fly/**/models/
-!log/fly/**/models/*.pt
-!log/fly/flyvis_noise_free/loss_components.pt
-!log/fly/flyvis_noise_005/loss_components.pt
-!log/fly/flyvis_noise_05/loss_components.pt
-!log/fly/flyvis_noise_005_INR/loss_components.pt
+# Log folder — nothing tracked
+log/
 
 # Ignore edge_index.pt and mask.pt everywhere (recreated from connectivity)
 **/edge_index.pt
