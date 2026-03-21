@@ -22,17 +22,17 @@ simulation:
 graph_model:
   signal_model_name: drosophila_cx
   prediction: first_derivative
-  input_size: 3
+  input_size: 5
   n_layers: 3
-  hidden_dim: 32
+  hidden_dim: 80
   output_size: 1
-  input_size_update: 5
+  input_size_update: 7
   n_layers_update: 3
-  hidden_dim_update: 32
+  hidden_dim_update: 80
   aggr_type: add
-  embedding_dim: 2
+  embedding_dim: 4
   update_type: generic
-  g_phi_positive: false
+  g_phi_positive: true
 plotting:
   colormap: tab10
   arrow_length: 1
@@ -46,13 +46,23 @@ training:
   n_epochs: 20
   n_runs: 1
   device: auto
-  batch_size: 4
+  batch_size: 2
   batch_ratio: 1
   small_init_batch_size: false
   sparsity: none
-  data_augmentation_loop: 20
-  learning_rate_W_start: 0.001
-  learning_rate_start: 0.001
-  learning_rate_embedding_start: 0.001
-  coeff_W_L1: 0.0001
+  data_augmentation_loop: 500
+  learning_rate_W_start: 0.0006
+  learning_rate_start: 0.0018
+  learning_rate_embedding_start: 0.00155
+  coeff_g_phi_diff: 1500
+  coeff_f_theta_msg_diff: 0
+  coeff_g_phi_norm: 0
+  coeff_g_phi_weight_L1: 0.0
+  coeff_f_theta_weight_L1: 0
+  coeff_g_phi_weight_L2: 0
+  coeff_f_theta_weight_L2: 0.001
+  coeff_W_L1: 0
+  coeff_W_L2: 1.5e-06
+  regul_annealing_rate: 0
+  w_init_mode: "randn_scaled"
   seed: 42
