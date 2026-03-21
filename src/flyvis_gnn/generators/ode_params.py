@@ -189,6 +189,42 @@ class ODEParamsBase:
         """Names of parameters recoverable from f_theta. Used for scatter plot labels."""
         return [r"$\tau_i$", r"$V^{rest}_i$"]
 
+    # ------------------------------------------------------------------
+    # g_phi curve fitting and W correction
+    # ------------------------------------------------------------------
+
+    def fit_g_phi_curves(self, v_ranges: np.ndarray, learned_curves: np.ndarray
+                         ) -> dict:
+        """Fit learned g_phi curves to extract model-specific parameters.
+
+        Args:
+            v_ranges: (N, n_pts) per-neuron voltage grids.
+            learned_curves: (N, n_pts) learned g_phi output per neuron.
+
+        Returns:
+            dict with model-specific fitted params. Must include 'correction'
+            key: (N,) array — per-neuron multiplicative factor absorbed into W.
+            For ReLU models this is the slope; for softplus it's the gain.
+        """
+        # Default: linear slope (suitable for ReLU-like g_phi)
+        from flyvis_gnn.metrics import _vectorized_linear_fit
+        v_t = torch.tensor(v_ranges, dtype=torch.float32)
+        c_t = torch.tensor(learned_curves, dtype=torch.float32)
+        slopes, offsets = _vectorized_linear_fit(v_t, c_t)
+        slopes = slopes.numpy()
+        slopes[np.abs(slopes) < 1e-8] = 1.0
+        return {'correction': slopes, 'slopes': slopes}
+
+    def gt_g_phi_params(self, n_neurons: int) -> dict | None:
+        """Ground truth g_phi parameters for R² comparison.
+        Returns dict with same keys as fit_g_phi_curves (minus 'correction'),
+        or None if no ground truth available."""
+        return None
+
+    def g_phi_param_names(self) -> list[str]:
+        """Names of extractable g_phi parameters (for printing)."""
+        return ["slope"]
+
     def clustering_features(self) -> list[str]:
         """Feature combinations for neuron type clustering analysis."""
         return ["a", "W"]
@@ -1089,6 +1125,56 @@ class DrosophilaCxODEParams(ODEParamsBase):
 
     def f_theta_param_names(self):
         return [r"$\tau_i$"]
+
+    def fit_g_phi_curves(self, v_ranges, learned_curves):
+        """Fit learned g_phi to A * softplus(v + b, beta=5) per neuron.
+
+        Args:
+            v_ranges: (N, n_pts) per-neuron voltage grids.
+            learned_curves: (N, n_pts) learned g_phi output per neuron.
+
+        Returns dict with:
+            correction: (N,) gain A — factor absorbed into W from source side
+            gain: (N,) fitted amplitude A ≈ exp(g_true)
+            bias: (N,) fitted bias b ≈ b_true
+        """
+        from scipy.optimize import curve_fit
+        beta = self.beta
+        n_neurons = learned_curves.shape[0]
+        gains = np.ones(n_neurons)
+        biases = np.zeros(n_neurons)
+
+        def _softplus_model(v, A, b):
+            x = beta * (v + b)
+            return A * np.where(x > 20, v + b, np.log1p(np.exp(x)) / beta)
+
+        for j in range(n_neurons):
+            v_j = v_ranges[j]
+            y = learned_curves[j]
+            A0 = max(np.max(np.abs(y)), 0.1)
+            try:
+                popt, _ = curve_fit(_softplus_model, v_j, y,
+                                    p0=[A0, 0.0], maxfev=2000)
+                gains[j] = popt[0]
+                biases[j] = popt[1]
+            except (RuntimeError, ValueError):
+                gains[j] = A0
+                biases[j] = 0.0
+
+        correction = gains.copy()
+        correction[np.abs(correction) < 1e-8] = 1.0
+        return {'correction': correction, 'gain': gains, 'bias': biases}
+
+    def gt_g_phi_params(self, n_neurons):
+        """Ground truth gain=exp(g) and bias=b for R² comparison."""
+        if self.g is None or self.b is None:
+            return None
+        g_np = self.g[:n_neurons].cpu().numpy()
+        b_np = self.b[:n_neurons].cpu().numpy()
+        return {'gain': np.exp(g_np), 'bias': b_np}
+
+    def g_phi_param_names(self):
+        return ["gain", "bias"]
 
     def clustering_features(self):
         return ["a", r"$\tau$", "W", r"(a,$\tau$,W)"]

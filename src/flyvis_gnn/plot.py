@@ -1381,7 +1381,7 @@ def plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_li
     plt.close()
 
     # Compute corrected weights
-    corrected_W, _, _, _ = compute_all_corrected_weights(
+    corrected_W, _, _, _, _ = compute_all_corrected_weights(
         model, config, edges, x_ts, device)
 
     # Plot 3: Corrected weight comparison scatter plot
