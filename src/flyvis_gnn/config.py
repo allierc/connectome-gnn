@@ -564,7 +564,7 @@ class TrainingConfig(BaseModel):
     regul_annealing_rate: float = 0.5
 
     # Regularization coefficients
-    # -- f_theta (MLP0, neuron update) regularizers --
+    # -- f_theta (neuron update) regularizers --
     coeff_f_theta_zero: float = 0  # Penalize f_theta(0) != 0 (enforce zero-input zero-output)
     coeff_f_theta_diff: float = 0  # Monotonicity of f_theta w.r.t. voltage (generic update_type only)
     coeff_f_theta_msg_diff: float = 0  # Monotonicity of f_theta w.r.t. aggregated message input
@@ -573,7 +573,7 @@ class TrainingConfig(BaseModel):
     coeff_f_theta_weight_L1: float = 0  # L1 penalty on f_theta MLP weights
     coeff_f_theta_weight_L2: float = 0  # L2 penalty on f_theta MLP weights
 
-    # -- g_phi (MLP1, edge message) regularizers --
+    # -- g_phi (edge message) regularizers --
     coeff_g_phi_diff: float = 0  # Variance penalty on g_phi output across edges
     coeff_g_phi_norm: float = 0  # Norm penalty on g_phi edge messages
     coeff_func_g_phi: float = 0.0  # Penalize g_phi output at zero input

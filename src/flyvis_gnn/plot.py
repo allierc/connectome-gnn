@@ -79,8 +79,8 @@ def plot_training_summary_panels(fig, log_dir, Niter=None):
     panels = [
         (2, f"{log_dir}/tmp_training/embedding/{last_epoch}_{last_N}.png", 'learned embedding'),
         (3, f"{log_dir}/tmp_training/matrix/comparison_{last_epoch}_{last_N}.png", 'weight comparison'),
-        (4, f"{log_dir}/tmp_training/function/MLP1/func_{last_epoch}_{last_N}.png", r'$g_\phi$ (MLP1)'),
-        (5, f"{log_dir}/tmp_training/function/MLP0/func_{last_epoch}_{last_N}.png", r'$f_\theta$ (MLP0)'),
+        (4, f"{log_dir}/tmp_training/function/g_phi/func_{last_epoch}_{last_N}.png", r'$g_\phi$'),
+        (5, f"{log_dir}/tmp_training/function/f_theta/func_{last_epoch}_{last_N}.png", r'$f_\theta$'),
     ]
     for pos, path, title in panels:
         fig.add_subplot(2, 3, pos)
@@ -174,12 +174,15 @@ def plot_embedding(ax, model, type_list, n_types, cmap):
     """
     embedding = to_numpy(model.a)
     type_np = to_numpy(type_list).squeeze()
+    n_neurons = len(type_np)
+    _dot_s = max(6, min(80, 3000 / max(n_neurons, 1)))
+    _dot_alpha = max(0.25, min(0.9, 100 / max(n_neurons, 1)))
 
     for n in range(n_types):
         mask = (type_np == n)
         if np.any(mask):
             ax.scatter(embedding[mask, 0], embedding[mask, 1],
-                       c=cmap.color(n), s=6, alpha=0.25, edgecolors='none')
+                       c=cmap.color(n), s=_dot_s, alpha=_dot_alpha, edgecolors='none')
 
     ax.set_xlabel('$a_0$', fontsize=32)
     ax.set_ylabel('$a_1$', fontsize=32)
@@ -1397,18 +1400,18 @@ def plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_li
                 dpi=87, bbox_inches='tight', pad_inches=0)
     plt.close()
 
-    # Plot 4: Edge function visualization (g_phi / MLP1)
+    # Plot 4: Edge function visualization (g_phi)
     fig, ax = plt.subplots(figsize=(8, 8))
     plot_g_phi(ax, model, config, n_neurons, type_list, cmap, device)
     plt.tight_layout()
-    plt.savefig(f"{log_dir}/tmp_training/function/MLP1/func_{epoch}_{N}.png", dpi=87)
+    plt.savefig(f"{log_dir}/tmp_training/function/g_phi/func_{epoch}_{N}.png", dpi=87)
     plt.close()
 
-    # Plot 5: Phi function visualization (f_theta / MLP0)
+    # Plot 5: Phi function visualization (f_theta)
     fig, ax = plt.subplots(figsize=(8, 8))
     plot_f_theta(ax, model, config, n_neurons, type_list, cmap, device)
     plt.tight_layout()
-    plt.savefig(f"{log_dir}/tmp_training/function/MLP0/func_{epoch}_{N}.png", dpi=87)
+    plt.savefig(f"{log_dir}/tmp_training/function/f_theta/func_{epoch}_{N}.png", dpi=87)
     plt.close()
 
     return r_squared

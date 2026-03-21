@@ -962,10 +962,10 @@ def save_exploration_artifacts(root_dir, exploration_dir, config, config_file_, 
         if os.path.exists(activity_path):
             _copy(activity_path, f"{activity_save_dir}/block_{block_number:03d}.png")
 
-    # save combined MLP plot (MLP0 + MLP1 side by side) using PNG files from results
+    # save combined MLP plot (f_theta + g_phi side by side) using PNG files from results
     results_dir = log_path(f"{pre_folder}{config_file_}", 'results')
-    src_mlp0 = f"{results_dir}/MLP0.png"
-    src_mlp1 = f"{results_dir}/MLP1_corrected.png"
+    src_mlp0 = f"{results_dir}/f_theta.png"
+    src_mlp1 = f"{results_dir}/g_phi_corrected.png"
     if os.path.exists(src_mlp0) and os.path.exists(src_mlp1):
         try:
             img0 = mpimg.imread(src_mlp0)
@@ -1015,7 +1015,7 @@ def save_exploration_artifacts_flyvis(root_dir, exploration_dir, config, config_
     Save exploration artifacts for flyvis Claude analysis.
 
     Flyvis-specific panels: connectivity_scatter, embedding, tau_scatter, V_rest_scatter,
-    MLP0, MLP1, UMAP. Plus activity and connectivity_matrix at block starts.
+    f_theta, g_phi, UMAP. Plus activity and connectivity_matrix at block starts.
 
     Args:
         root_dir: Root directory of the project
@@ -1040,8 +1040,8 @@ def save_exploration_artifacts_flyvis(root_dir, exploration_dir, config, config_
     embedding_dir = f"{exploration_dir}/embedding"
     tau_scatter_dir = f"{exploration_dir}/tau_scatter"
     v_rest_scatter_dir = f"{exploration_dir}/V_rest_scatter"
-    mlp0_dir = f"{exploration_dir}/MLP0"
-    mlp1_dir = f"{exploration_dir}/MLP1"
+    mlp0_dir = f"{exploration_dir}/f_theta"
+    mlp1_dir = f"{exploration_dir}/g_phi"
     umap_dir = f"{exploration_dir}/UMAP"
     tree_save_dir = f"{exploration_dir}/exploration_tree"
     protocol_save_dir = f"{exploration_dir}/protocol"
@@ -1097,20 +1097,20 @@ def save_exploration_artifacts_flyvis(root_dir, exploration_dir, config, config_
         latest = max(vrest_files, key=os.path.getmtime)
         _copy(latest, f"{v_rest_scatter_dir}/iter_{iteration:03d}.png")
 
-    # MLP0: MLP0_{indices}.png (all neurons overlay, not per-type like MLP0_Tm30.png)
-    mlp0_src = f"{results_dir}/MLP0_{config_indices}.png"
+    # f_theta: f_theta_{indices}.png (all neurons overlay)
+    mlp0_src = f"{results_dir}/f_theta_{config_indices}.png"
     if os.path.exists(mlp0_src):
         _copy(mlp0_src, f"{mlp0_dir}/iter_{iteration:03d}.png")
     else:
-        mlp0_files = glob.glob(f"{results_dir}/MLP0_*.png")
+        mlp0_files = glob.glob(f"{results_dir}/f_theta_*.png")
         mlp0_files = [f for f in mlp0_files if '_domain' not in f and '_params' not in f]
-        mlp0_files = [f for f in mlp0_files if any(c.isdigit() for c in os.path.basename(f).replace('MLP0_', ''))]
+        mlp0_files = [f for f in mlp0_files if any(c.isdigit() for c in os.path.basename(f).replace('f_theta_', ''))]
         if mlp0_files:
             latest = max(mlp0_files, key=os.path.getmtime)
             _copy(latest, f"{mlp0_dir}/iter_{iteration:03d}.png")
 
-    # MLP1: MLP1_{indices}.png
-    mlp1_files = glob.glob(f"{results_dir}/MLP1_*.png")
+    # g_phi: g_phi_{indices}.png
+    mlp1_files = glob.glob(f"{results_dir}/g_phi_*.png")
     mlp1_files = [f for f in mlp1_files if '_domain' not in f and '_slope' not in f]
     if mlp1_files:
         latest = max(mlp1_files, key=os.path.getmtime)
