@@ -28,6 +28,22 @@ import matplotlib.ticker as ticker
 from sklearn.mixture import GaussianMixture
 from sklearn.decomposition import TruncatedSVD
 
+_ANSI_RED = '\033[91m'
+_ANSI_ORANGE = '\033[38;5;208m'
+_ANSI_GREEN = '\033[92m'
+_ANSI_BLUE = '\033[94m'
+_ANSI_RESET = '\033[0m'
+
+def _r2_color(val):
+    """Red < 0.3, orange < 0.7, green >= 0.7."""
+    if val < 0.3: return _ANSI_RED
+    if val < 0.7: return _ANSI_ORANGE
+    return _ANSI_GREEN
+
+def _rmse_color(val, good=0.05, bad=0.2):
+    """Blue for all RMSE values."""
+    return _ANSI_BLUE
+
 from flyvis_gnn.figure_style import default_style as fig_style
 from flyvis_gnn.zarr_io import load_simulation_data, load_raw_array
 from flyvis_gnn.sparsify import clustering_gmm
@@ -187,7 +203,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     plt.tight_layout()
     plt.savefig(f'{log_dir}/results/weights_comparison_raw.png', dpi=300)
     plt.close()
-    print(f"weights R²: \033[92m{r_squared_W:.4f}\033[0m  slope: {slope_W:.4f}")
+    print(f"weights R²: {_r2_color(r_squared_W)}{r_squared_W:.4f}{_ANSI_RESET}  slope: {slope_W:.4f}")
     logger.info(f"weights R²: {r_squared_W:.4f}  slope: {slope_W:.4f}")
 
     # --- Plot 3: tau comparison ---
@@ -203,7 +219,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     plt.tight_layout()
     plt.savefig(f'{log_dir}/results/tau_comparison_{config_indices}.png', dpi=300)
     plt.close()
-    print(f"tau R²: \033[92m{r_squared_tau:.3f}\033[0m  slope: {slope_tau:.2f}")
+    print(f"tau R²: {_r2_color(r_squared_tau)}{r_squared_tau:.3f}{_ANSI_RESET}  slope: {slope_tau:.2f}")
     logger.info(f"tau R²: {r_squared_tau:.3f}  slope: {slope_tau:.2f}")
 
     # --- Plot 4: V_rest comparison ---
@@ -219,7 +235,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     plt.tight_layout()
     plt.savefig(f'{log_dir}/results/V_rest_comparison_{config_indices}.png', dpi=300)
     plt.close()
-    print(f"V_rest R²: \033[92m{r_squared_V_rest:.3f}\033[0m  slope: {slope_V_rest:.2f}")
+    print(f"V_rest R²: {_r2_color(r_squared_V_rest)}{r_squared_V_rest:.3f}{_ANSI_RESET}  slope: {slope_V_rest:.2f}")
     logger.info(f"V_rest R²: {r_squared_V_rest:.3f}  slope: {slope_V_rest:.2f}")
 
     # --- Plot 5: tau and V_rest per neuron ---
@@ -412,7 +428,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     n_gmm = 100
     results = clustering_gmm(a_aug, type_list, n_components=n_gmm)
     cluster_acc = results['accuracy']
-    print(f"GMM (n_components={n_gmm}): accuracy=\033[92m{cluster_acc:.3f}\033[0m, ARI={results['ari']:.3f}, NMI={results['nmi']:.3f}")
+    print(f"GMM (n_components={n_gmm}): accuracy={_r2_color(cluster_acc)}{cluster_acc:.3f}{_ANSI_RESET}, ARI={results['ari']:.3f}, NMI={results['nmi']:.3f}")
     logger.info(f"GMM n_components={n_gmm}, accuracy={cluster_acc:.3f}, ARI={results['ari']:.3f}, NMI={results['nmi']:.3f}")
 
     if log_file:
@@ -772,16 +788,16 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
 
             # Side-by-side: true (left) vs learned (right)
             fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 9))
-            _plot_curves_fast(ax1, rr_np[valid_edge], func_true_g_phi[valid_edge],
-                              type_np[valid_edge], cmap, linewidth=1, alpha=_curve_alpha)
+            _plot_curves_fast(ax1, rr_np, func_true_g_phi,
+                              type_np, cmap, linewidth=1, alpha=_curve_alpha)
             ax1.set_xlabel('$v_j$', fontsize=48)
             ax1.set_ylabel(f'true {ode_params.g_phi_label()}', fontsize=48)
             ax1.tick_params(axis='both', which='major', labelsize=24)
             ax1.set_xlim([-1, 5])
             ax1.set_ylim([-config.plotting.xlim[1]/10, config.plotting.xlim[1]*2])
 
-            _plot_curves_fast(ax2, rr_np[valid_edge], func_np[valid_edge],
-                              type_np[valid_edge], cmap, linewidth=1, alpha=_curve_alpha)
+            _plot_curves_fast(ax2, rr_np, func_np,
+                              type_np, cmap, linewidth=1, alpha=_curve_alpha)
             ax2.set_xlabel('$v_j$', fontsize=48)
             ax2.set_ylabel(r'learned $g_\phi(a_j, v_j)$', fontsize=48)
             ax2.tick_params(axis='both', which='major', labelsize=24)
@@ -794,9 +810,8 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
 
             # Functional Pearson r² for g_phi: per-neuron correlation between true and learned curves
             if func_true_g_phi is not None and func_true_g_phi.shape == func_np.shape:
-                _valid = valid_edge
-                _true_g = func_true_g_phi[_valid]
-                _learned_g = func_np[_valid]
+                _true_g = func_true_g_phi
+                _learned_g = func_np
                 # Per-neuron Pearson r² (shape match, invariant to scale/offset)
                 _corr_g = np.array([np.corrcoef(t, l)[0, 1] ** 2
                                     if np.std(t) > 1e-10 and np.std(l) > 1e-10 else 0.0
@@ -981,7 +996,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             plt.tight_layout()
             plt.savefig(f'{log_dir}/results/weights_comparison_raw.png', dpi=300)
             plt.close()
-            print(f"first weights fit R²: {r_squared:.2f}  slope: {np.round(slope_raw, 4)}")
+            print(f"first weights fit R²: {_r2_color(r_squared)}{r_squared:.2f}{_ANSI_RESET}  slope: {np.round(slope_raw, 4)}")
             logger.info(f"first weights fit R²: {r_squared:.2f}  slope: {np.round(slope_raw, 4)}")
 
             # Corrected weights via metrics pipeline (replaces inline DataLoader +
@@ -1041,7 +1056,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             plt.savefig(f'{log_dir}/results/weights_comparison_corrected.png', dpi=300)
             plt.close()
 
-            print(f"second weights fit R²: \033[92m{r_squared:.4f}\033[0m  slope: {np.round(slope_corrected, 4)}")
+            print(f"second weights fit R²: {_r2_color(r_squared)}{r_squared:.4f}{_ANSI_RESET}  slope: {np.round(slope_corrected, 4)}")
             logger.info(f"second weights fit R²: {r_squared:.4f}  slope: {np.round(slope_corrected, 4)}")
 
             # R² on only real (non-null) edges
@@ -1051,7 +1066,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 try:
                     r2_real, _ = compute_r_squared(true_weights[:n_real], learned_weights[:n_real])
                     connectivity_r2_real = r2_real
-                    print(f"connectivity R² (real edges only): \033[92m{r2_real:.4f}\033[0m")
+                    print(f"connectivity R² (real edges only): {_r2_color(r2_real)}{r2_real:.4f}{_ANSI_RESET}")
                     logger.info(f"connectivity R² (real edges only): {r2_real:.4f}")
                 except Exception:
                     pass
@@ -1065,13 +1080,13 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             else:
                 print('outliers: 0  (no outliers detected)')
             if ode_params.has_tau() and r_squared_tau > 0.01:
-                print(f"tau reconstruction R²: \033[92m{r_squared_tau:.3f}\033[0m  slope: {slope_tau:.2f}")
+                print(f"tau reconstruction R²: {_r2_color(r_squared_tau)}{r_squared_tau:.3f}{_ANSI_RESET}  slope: {slope_tau:.2f}")
                 logger.info(f"tau reconstruction R²: {r_squared_tau:.3f}  slope: {slope_tau:.2f}")
             if ode_params.has_vrest() and r_squared_V_rest > 0.01:
-                print(f"V_rest reconstruction R²: \033[92m{r_squared_V_rest:.3f}\033[0m  slope: {slope_V_rest:.2f}")
+                print(f"V_rest reconstruction R²: {_r2_color(r_squared_V_rest)}{r_squared_V_rest:.3f}{_ANSI_RESET}  slope: {slope_V_rest:.2f}")
                 logger.info(f"V_rest reconstruction R²: {r_squared_V_rest:.3f}  slope: {slope_V_rest:.2f}")
-            print(f"f_theta Pearson r²: \033[92m{r2_f_theta_mean:.3f}\033[0m  median={r2_f_theta_median:.3f}")
-            print(f"g_phi Pearson r²: \033[92m{r2_g_phi_mean:.3f}\033[0m  median={r2_g_phi_median:.3f}")
+            print(f"f_theta Pearson r²: {_r2_color(r2_f_theta_mean)}{r2_f_theta_mean:.3f}{_ANSI_RESET}  median={r2_f_theta_median:.3f}")
+            print(f"g_phi Pearson r²: {_r2_color(r2_g_phi_mean)}{r2_g_phi_mean:.3f}{_ANSI_RESET}  median={r2_g_phi_median:.3f}")
             logger.info(f"f_theta Pearson r²: mean={r2_f_theta_mean:.3f}  median={r2_f_theta_median:.3f}")
             logger.info(f"g_phi Pearson r²: mean={r2_g_phi_mean:.3f}  median={r2_g_phi_median:.3f}")
 
@@ -1088,7 +1103,31 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                     log_file.write(f"V_rest_R2: {r_squared_V_rest:.4f}\n")
 
 
-            # Plot connectivity matrix comparison (skipped — dense NxN heatmaps too slow)
+            # Plot connectivity matrix comparison (only for small networks)
+            if n_neurons < 1000:
+                print('plot true vs learned connectivity matrix ...')
+                edges_np = to_numpy(edges)
+                J_true = np.zeros((n_neurons, n_neurons), dtype=np.float32)
+                J_true[edges_np[0], edges_np[1]] = true_weights.flatten()
+                J_learned = np.zeros((n_neurons, n_neurons), dtype=np.float32)
+                J_learned[edges_np[0], edges_np[1]] = to_numpy(corrected_W.squeeze()).flatten()
+                nonzero = np.abs(true_weights.flatten())
+                vmax = np.percentile(nonzero[nonzero > 0], 98) if np.any(nonzero > 0) else 1.0
+                vmax = max(vmax, 1e-6)
+                fig_mat, (ax_t, ax_l) = plt.subplots(1, 2, figsize=(14, 6))
+                im_t = ax_t.imshow(J_true.T, cmap='bwr_r', vmin=-vmax, vmax=vmax,
+                                   aspect='auto', interpolation='nearest', origin='upper')
+                ax_t.set_title('True connectivity')
+                fig_mat.colorbar(im_t, ax=ax_t, fraction=0.046, pad=0.04)
+                im_l = ax_l.imshow(J_learned.T, cmap='bwr_r', vmin=-vmax, vmax=vmax,
+                                   aspect='auto', interpolation='nearest', origin='upper')
+                ax_l.set_title('Learned connectivity')
+                fig_mat.colorbar(im_l, ax=ax_l, fraction=0.046, pad=0.04)
+                plt.tight_layout()
+                plt.savefig(f'{log_dir}/results/connectivity_matrix.png', dpi=200)
+                plt.close(fig_mat)
+                logger.info("saved connectivity_matrix.png")
+
             # eigenvalue and singular value analysis using sparse matrices
             print('plot eigenvalue spectrum and eigenvector comparison ...')
 
@@ -1398,7 +1437,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             n_gmm = 100
             results = clustering_gmm(a_aug, type_list, n_components=n_gmm)
             cluster_acc = results['accuracy']
-            print(f"GMM (n_components={n_gmm}): accuracy=\033[92m{cluster_acc:.3f}\033[0m, ARI={results['ari']:.3f}, NMI={results['nmi']:.3f}")
+            print(f"GMM (n_components={n_gmm}): accuracy={_r2_color(cluster_acc)}{cluster_acc:.3f}{_ANSI_RESET}, ARI={results['ari']:.3f}, NMI={results['nmi']:.3f}")
             logger.info(f"GMM n_components={n_gmm}, accuracy={cluster_acc:.3f}, ARI={results['ari']:.3f}, NMI={results['nmi']:.3f}")
 
             # Write cluster accuracy to analysis log file for Claude

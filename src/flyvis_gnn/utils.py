@@ -386,8 +386,8 @@ def create_log_dir(config=[], erase=True):
     os.makedirs(os.path.join(log_dir, 'tmp_training/external_input'), exist_ok=True)
     os.makedirs(os.path.join(log_dir, 'tmp_training/matrix'), exist_ok=True)
     os.makedirs(os.path.join(log_dir, 'tmp_training/function'), exist_ok=True)
-    os.makedirs(os.path.join(log_dir, 'tmp_training/function/MLP0'), exist_ok=True)
-    os.makedirs(os.path.join(log_dir, 'tmp_training/function/MLP1'), exist_ok=True)
+    os.makedirs(os.path.join(log_dir, 'tmp_training/function/f_theta'), exist_ok=True)
+    os.makedirs(os.path.join(log_dir, 'tmp_training/function/g_phi'), exist_ok=True)
     os.makedirs(os.path.join(log_dir, 'tmp_training/embedding'), exist_ok=True)
     if config.training.n_ghosts > 0:
         os.makedirs(os.path.join(log_dir, 'tmp_training/ghost'), exist_ok=True)
@@ -409,8 +409,8 @@ def create_log_dir(config=[], erase=True):
         os.makedirs(os.path.join(log_dir, 'tmp_training/external_input'), exist_ok=True)
         os.makedirs(os.path.join(log_dir, 'tmp_training/matrix'), exist_ok=True)
         os.makedirs(os.path.join(log_dir, 'tmp_training/function'), exist_ok=True)
-        os.makedirs(os.path.join(log_dir, 'tmp_training/function/MLP0'), exist_ok=True)
-        os.makedirs(os.path.join(log_dir, 'tmp_training/function/MLP1'), exist_ok=True)
+        os.makedirs(os.path.join(log_dir, 'tmp_training/function/f_theta'), exist_ok=True)
+        os.makedirs(os.path.join(log_dir, 'tmp_training/function/g_phi'), exist_ok=True)
         os.makedirs(os.path.join(log_dir, 'tmp_training/embedding'), exist_ok=True)
         if config.training.n_ghosts > 0:
             os.makedirs(os.path.join(log_dir, 'tmp_training/ghost'), exist_ok=True)
@@ -591,8 +591,11 @@ def compute_trace_metrics(true, pred, label=""):
     if len(rmse_list) == 0:
         print("\033[91mERROR: all neurons contain NaN — model diverged\033[0m")
     else:
-        print(f"Pearson r: \033[92m{np.nanmean(pearson):.3f}\033[0m ± {np.nanstd(pearson):.3f} [{np.nanmin(pearson):.3f}, {np.nanmax(pearson):.3f}]")
-        print(f"RMSE: \033[92m{np.nanmean(rmse):.4f}\033[0m ± {np.nanstd(rmse):.4f} [{np.nanmin(rmse):.4f}, {np.nanmax(rmse):.4f}]")
+        _pr = np.nanmean(pearson)
+        _c_pr = '\033[92m' if _pr >= 0.9 else '\033[38;5;208m' if _pr > 0.3 else '\033[91m'
+        print(f"Pearson r: {_c_pr}{_pr:.3f}\033[0m ± {np.nanstd(pearson):.3f} [{np.nanmin(pearson):.3f}, {np.nanmax(pearson):.3f}]")
+        _rm = np.nanmean(rmse)
+        print(f"RMSE: {_rm:.4f} ± {np.nanstd(rmse):.4f} [{np.nanmin(rmse):.4f}, {np.nanmax(rmse):.4f}]")
         # print(f"R²: \033[92m{np.nanmean(r2):.3f}\033[0m ± {np.nanstd(r2):.3f} [{np.nanmin(r2):.3f}, {np.nanmax(r2):.3f}]")
 
     feve = compute_feve(true, pred, None)

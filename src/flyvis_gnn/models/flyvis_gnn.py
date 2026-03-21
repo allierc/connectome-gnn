@@ -43,7 +43,7 @@ class NeuralGNN(nn.Module):
         },
         "graph_model_config": {
             "description": "Parameters in the graph_model: section of the YAML config.",
-            "g_phi (MLP0)": {
+            "g_phi": {
                 "description": "Edge message function — computes per-edge features, multiplied by W[edge]",
                 "input_size": {
                     "flyvis_A": "input_size = 1 + embedding_dim  (v_j, a_j)",
@@ -53,7 +53,7 @@ class NeuralGNN(nn.Module):
                 "hidden_dim": {"description": "Hidden layer width", "typical_range": [32, 128], "default": 64},
                 "n_layers": {"description": "Number of MLP layers", "typical_range": [2, 5], "default": 3},
             },
-            "f_theta (MLP1)": {
+            "f_theta": {
                 "description": "Node update function — computes du/dt from voltage + embedding + messages + excitation",
                 "input_size_update": "1 + embedding_dim + output_size + 1  (v, a, msg, excitation)",
                 "output_size": "1 (du/dt scalar)",

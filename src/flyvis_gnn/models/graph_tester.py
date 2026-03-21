@@ -212,12 +212,12 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     data_id = torch.zeros((n_neurons, 1), dtype=torch.int, device=device)
 
     # Run model on all frames (one-step prediction)
-    logger.info(f'\033[93mone-step prediction on {n_eval_frames} frames ...\033[0m')
+    logger.info(f'one-step prediction on {n_eval_frames} frames ...')
     all_pred = []
     all_true = []
 
     with torch.no_grad():
-        for k in range(n_eval_frames - 1):
+        for k in trange(n_eval_frames - 1, ncols=100, desc="one-step"):
             x = x_ts_eval.frame(k)
             y = torch.tensor(y_ts_eval[k], device=device)
 
@@ -270,7 +270,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
 
     # --- Rollout evaluation ---
     # Start from initial voltages at t=0, predict autoregressively
-    logger.info('\033[93mrunning rollout evaluation ...\033[0m')
+    logger.info('running rollout evaluation ...')
     results_dir = os.path.join(log_dir, 'results')
     os.makedirs(results_dir, exist_ok=True)
 
