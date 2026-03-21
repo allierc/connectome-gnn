@@ -1,0 +1,58 @@
+description: "Drosophila adult central complex ring attractor (Beiran & Litwin-Kumar 2023, Fig 5)"
+dataset: connconstr_drosophila_cx
+simulation:
+  connectivity_file: to be specified
+  adjacency_matrix: ""
+  params:
+    - - 1.0
+      - 1.0
+  n_neurons: 49  # approximate — determined from hemibrain subselection
+  n_input_neurons: 0
+  n_neuron_types: 4  # EPG, PEN, Delta7, PEG
+  n_edges: 0
+  n_frames: 10000
+  delta_t: 0.1
+  baseline_value: 0
+  noise_model_level: 0.0
+  seed: 42
+  connconstr_datapath: "papers/Code_NN/Code_NN/Data/Figure5/exported-traced-adjacencies-v1.2"
+  connconstr_model: drosophila_cx
+  connconstr_n_trials: 50
+  connconstr_use_pretrained: false
+graph_model:
+  signal_model_name: drosophila_cx
+  prediction: first_derivative
+  input_size: 3
+  n_layers: 3
+  hidden_dim: 32
+  output_size: 1
+  input_size_update: 5
+  n_layers_update: 3
+  hidden_dim_update: 32
+  aggr_type: add
+  embedding_dim: 2
+  update_type: generic
+  g_phi_positive: false
+plotting:
+  colormap: tab10
+  arrow_length: 1
+  xlim:
+    - -2.5
+    - 2.5
+  ylim:
+    - -5
+    - 5
+training:
+  n_epochs: 1
+  n_runs: 1
+  device: auto
+  batch_size: 4
+  batch_ratio: 1
+  small_init_batch_size: false
+  sparsity: none
+  data_augmentation_loop: 20
+  learning_rate_W_start: 0.001
+  learning_rate_start: 0.001
+  learning_rate_embedding_start: 0.001
+  coeff_W_L1: 0.0001
+  seed: 42

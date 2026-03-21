@@ -235,6 +235,12 @@ class SimulationConfig(BaseModel):
     hh_I_bias: float = 3.0            # uA/cm^2 — tonic drive (subthreshold)
     hh_w_scale: float = 2.0           # global W multiplier (connectome weights calibrated for graded model)
 
+    # Connconstr model parameters (Beiran & Litwin-Kumar 2023, Fig 5)
+    connconstr_datapath: str = ""      # path to external data files (hemibrain CSVs, goldman_data/, etc.)
+    connconstr_model: str = ""         # which model: drosophila_cx, larva, zebrafish
+    connconstr_n_trials: int = 50      # number of stimulus trials (CX model)
+    connconstr_use_pretrained: bool = True  # use pre-trained teacher params if available
+
     connectivity_file: str = ""
     connectivity_init: list[float] = [-1]
     connectivity_filling_factor: float = 1
