@@ -801,7 +801,10 @@ def analyze_data_svd(data, output_folder, config=None, max_components=100, logge
             external_input = stimulus_sampled
 
         # check if external_input has actual signal
-        ext_range = external_input.max() - external_input.min()
+        if external_input.size == 0:
+            ext_range = 0.0
+        else:
+            ext_range = external_input.max() - external_input.min()
         if ext_range > 1e-6:
             if not (is_flyvis and n_input_neurons is not None):
                 log_print(f"--- {input_label} ---")

@@ -81,7 +81,7 @@ def data_train(config=None, erase=False, best_model=None, style=None, device=Non
     _logger.info(f"dataset: {config.dataset}")
     _logger.info(f"{config.description}")
 
-    if 'fly' in config.dataset:
+    if 'fly' in config.dataset or 'connconstr' in config.dataset:
         if 'RNN' in config.graph_model.signal_model_name or 'LSTM' in config.graph_model.signal_model_name:
             data_train_flyvis_RNN(config, erase, best_model, device)
         else:
@@ -154,8 +154,13 @@ def data_train_flyvis(config, erase, best_model, device, log_file=None):
         _logger.info(f'svd analysis already exists: {svd_plot_path}')
 
     # Load edges early so n_edges is correct before model creation
-    from flyvis_gnn.generators.ode_params import FlyVisODEParams
-    ode_params = FlyVisODEParams.load(graphs_data_path(config.dataset), device=device)
+    from flyvis_gnn.generators.ode_params import FlyVisODEParams, get_ode_params_class
+    signal_model = config.graph_model.signal_model_name
+    try:
+        OdeParamsCls = get_ode_params_class(signal_model)
+    except KeyError:
+        OdeParamsCls = FlyVisODEParams
+    ode_params = OdeParamsCls.load(graphs_data_path(config.dataset), device=device)
     gt_weights = ode_params.W
     edges = ode_params.edge_index
     actual_n_edges = edges.shape[1]
