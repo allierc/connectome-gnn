@@ -334,7 +334,7 @@ def add_pre_folder(config_file_):
     elif 'CElegans' in config_file_:
         config_file = os.path.join('CElegans', config_file_)
         pre_folder = 'CElegans/'
-    elif config_file_.startswith('connconstr_') or config_file_ in ('zebrafish', 'drosophila_cx', 'larva'):
+    elif config_file_.startswith('connconstr_') or config_file_.startswith('drosophila_cx') or config_file_.startswith('zebrafish_oculomotor') or config_file_.startswith('larva'):
         config_file = os.path.join('connconstr', config_file_)
         pre_folder = 'connconstr/'
     elif 'fly' in config_file_:
