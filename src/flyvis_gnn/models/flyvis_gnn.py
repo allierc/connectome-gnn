@@ -13,6 +13,7 @@ from flyvis_gnn.neuron_state import NeuronState
 @register_model(
     "flyvis_A", "flyvis_A_tanh", "flyvis_A_multiple_ReLU", "flyvis_A_NULL",
     "flyvis_B", "flyvis_C", "flyvis_D",
+    "drosophila_cx", "larva", "zebrafish",
 )
 class FlyVisGNN(nn.Module):
     """GNN for FlyVis neural signal dynamics with per-edge W.
