@@ -173,6 +173,7 @@ def init_slot_configs(state: ExplorationState, is_resume: bool):
                 with open(target, 'r') as f:
                     config_data = yaml.safe_load(f)
                 config_data['training']['n_epochs'] = state.n_epochs
+                config_data['training']['data_augmentation_loop'] = state.data_augmentation_loop
                 if state.generate_data:
                     config_data['dataset'] = f"{state.base_config_name}_{slot:02d}"
                 config_data['claude'] = {

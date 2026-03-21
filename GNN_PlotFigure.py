@@ -529,8 +529,16 @@ def plot_synaptic_flyvis(config, epoch_list, log_dir, logger, cc, style, extende
     n_neurons = x_ts.n_neurons
 
     gt_weights = torch.load(graphs_data_path(config.dataset, 'weights.pt'), map_location=device, weights_only=False)
-    gt_taus = torch.load(graphs_data_path(config.dataset, 'taus.pt'), map_location=device, weights_only=False)
-    gt_V_Rest = torch.load(graphs_data_path(config.dataset, 'V_i_rest.pt'), map_location=device, weights_only=False)
+    taus_path = graphs_data_path(config.dataset, 'taus.pt')
+    vrest_path = graphs_data_path(config.dataset, 'V_i_rest.pt')
+    if os.path.exists(taus_path):
+        gt_taus = torch.load(taus_path, map_location=device, weights_only=False)
+    else:
+        gt_taus = torch.zeros(n_neurons, device=device)
+    if os.path.exists(vrest_path):
+        gt_V_Rest = torch.load(vrest_path, map_location=device, weights_only=False)
+    else:
+        gt_V_Rest = torch.zeros(n_neurons, device=device)
     edges = torch.load(graphs_data_path(config.dataset, 'edge_index.pt'), map_location=device, weights_only=False)
     true_weights = torch.zeros((n_neurons, n_neurons), dtype=torch.float32, device=edges.device)
     true_weights[edges[1], edges[0]] = gt_weights
