@@ -364,6 +364,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
         gt_w_np.flatten(), src, dst, n_neurons)
     W_true = np.column_stack([w_in_mean_t, w_in_std_t, w_out_mean_t, w_out_std_t])
 
+    n_gmm = min(max(2 * n_types, 10), n_neurons - 1)
     learned_combos = {
         'τ': learned_tau.reshape(-1, 1),
         'V': learned_V_rest.reshape(-1, 1),
@@ -381,12 +382,12 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
 
     learned_results = {}
     for name, feat in learned_combos.items():
-        result = clustering_gmm(feat, type_list, n_components=75)
+        result = clustering_gmm(feat, type_list, n_components=n_gmm)
         learned_results[name] = result['accuracy']
         print(f"  learned {name}: {result['accuracy']:.3f}")
     true_results = {}
     for name, feat in true_combos.items():
-        result = clustering_gmm(feat, type_list, n_components=75)
+        result = clustering_gmm(feat, type_list, n_components=n_gmm)
         true_results[name] = result['accuracy']
         print(f"  true {name}: {result['accuracy']:.3f}")
 
@@ -425,7 +426,6 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
 
     # Augmented clustering: (tau, V_rest, W_stats) since no embeddings
     a_aug = np.column_stack([learned_tau, learned_V_rest, w_in_mean, w_in_std, w_out_mean, w_out_std])
-    n_gmm = 100
     results = clustering_gmm(a_aug, type_list, n_components=n_gmm)
     cluster_acc = results['accuracy']
     print(f"GMM (n_components={n_gmm}): accuracy={_r2_color(cluster_acc)}{cluster_acc:.3f}{_ANSI_RESET}, ARI={results['ari']:.3f}, NMI={results['nmi']:.3f}")
@@ -1363,6 +1363,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 return np.column_stack(arrays)
 
             cluster_features = ode_params.clustering_features()
+            n_gmm = min(max(2 * n_types, 10), n_neurons - 1)
 
             # Cluster learned
             print('clustering learned features...')
@@ -1371,7 +1372,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 feat = _build_combo(name, _learned_atoms)
                 if feat is None:
                     continue
-                result = clustering_gmm(feat, type_list, n_components=75)
+                result = clustering_gmm(feat, type_list, n_components=n_gmm)
                 learned_results[name] = result['accuracy']
                 print(f"{name}: {result['accuracy']:.3f}")
 
@@ -1384,7 +1385,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 feat = _build_combo(name, _true_atoms)
                 if feat is None:
                     continue
-                result = clustering_gmm(feat, type_list, n_components=75)
+                result = clustering_gmm(feat, type_list, n_components=n_gmm)
                 true_results[name] = result['accuracy']
                 print(f"{name}: {result['accuracy']:.3f}")
 
@@ -1434,7 +1435,6 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                                w_out_mean_learned.reshape(-1, 1), w_out_std_learned.reshape(-1, 1)])
             a_aug = np.column_stack(_aug_parts)
 
-            n_gmm = 100
             results = clustering_gmm(a_aug, type_list, n_components=n_gmm)
             cluster_acc = results['accuracy']
             print(f"GMM (n_components={n_gmm}): accuracy={_r2_color(cluster_acc)}{cluster_acc:.3f}{_ANSI_RESET}, ARI={results['ari']:.3f}, NMI={results['nmi']:.3f}")
