@@ -191,7 +191,7 @@ All 4 slots should run the **same config** (different seeds are applied automati
 - Edit all 4 config files: `{name}_00.yaml` through `{name}_03.yaml`
 - **All 4 configs should be identical** (only seeds differ, set automatically)
 - Only modify `training:` and `graph_model:` parameters (and `claude:` where allowed)
-- **DO NOT change `simulation:` parameters** (except that seed is managed automatically)
+- **DO NOT change `simulation:` parameters** except: `n_frames` and `connconstr_n_trials` (data volume — Block 6), and seed (managed automatically)
 
 ## Iteration Loop Structure
 
@@ -281,9 +281,10 @@ Next: parent=P
 | 3     | Batch size           | batch_size (1, 2, 4, 8) — gradient noise vs. stability tradeoff          |
 | 4     | Regularization       | coeff_g_phi_diff, coeff_W_L1, coeff_W_L2, coeff_f_theta_weight_L2       |
 | 5     | Multi-epoch + anneal | n_epochs=2, test regul_annealing_rate (0, 0.5, 1.0, 2.0). Halve data_augmentation_loop to keep time constant. |
-| 6     | Combined best        | Best parameters from blocks 1–5                                         |
-| 7     | MLP size             | hidden_dim (32, 64, 80, 128), n_layers (2, 3, 4), hidden_dim_update     |
-| 8     | Free exploration     | Any parameter — test novel hypotheses, combinations, LR schedulers, etc. |
+| 6     | Data volume          | n_frames (3000, 6000, 10000), data_augmentation_loop (10, 20, 50, 100)  |
+| 7     | Combined best        | Best parameters from blocks 1–6                                         |
+| 8     | MLP size             | hidden_dim (32, 64, 80, 128), n_layers (2, 3, 4), hidden_dim_update     |
+| 9     | Free exploration     | Any parameter — test novel hypotheses, combinations, LR schedulers, etc. |
 
 ### Block 5 details — Annealing Rate Exploration
 
