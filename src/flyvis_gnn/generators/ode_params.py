@@ -18,10 +18,11 @@ Usage:
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from dataclasses import fields as dc_fields
 from typing import Any
 
+import numpy as np
 import torch
 
 from flyvis_gnn.log import get_logger
@@ -547,4 +548,343 @@ class FlyVisHodgkinHuxleyODEParams(ODEParamsBase):
             stim_scale=_expand(d["stim_scale"]),
             edge_index=edge_index,
             W=W * d["w_scale"],
+        )
+
+
+# ---------------------------------------------------------------------------
+# Zebrafish oculomotor integrator (Beiran & Litwin-Kumar 2023, Fig 5)
+# ---------------------------------------------------------------------------
+
+@register_ode_params("zebrafish")
+@dataclass
+class ZebrafishODEParams(ODEParamsBase):
+    """Parameters for the zebrafish oculomotor linear integrator ODE.
+
+    Ref: papers/Code_NN/Code_NN/nn_fig5_zebrafish_teacher.py
+         simulate_series() line 172:
+         r[i,:] = r[i-1,:] + dt*(W @ r[i-1,:] - r[i-1,:] + I[i-1]*v_in) / tau
+
+    ODE: dr/dt = (-r + W @ r + I * v_in) / tau
+    Linear (no nonlinearity). tau=1.0 fixed. dt=0.001.
+
+    Edge params:
+        edge_index: (2, E) source/destination indices
+        W: (E,) sparse weights (from dense W scaled to spectral radius 0.9)
+
+    Node params:
+        v_in: (N,) input vector (eigenvector combination + noise)
+        neuron_types: (N,) int cell type labels
+
+    Scalars:
+        tau: time constant (default 1.0)
+        n_neurons: number of neurons
+    """
+    edge_index: torch.Tensor = None  # (2, E)
+    W: torch.Tensor = None           # (E,)
+    v_in: torch.Tensor = None        # (N,) input direction vector
+    neuron_types: torch.Tensor = None  # (N,) int type labels
+    tau: float = 1.0
+    n_neurons: int = 0
+
+    @classmethod
+    def from_connectome(cls, datapath: str, device: torch.device | str = "cpu"):
+        """Construct from Goldman lab MATLAB data.
+
+        Ref: nn_fig5_zebrafish_teacher.py lines 64-179
+        Uses load_zebrafish_connectome() from connconstr_data.py.
+        """
+        from flyvis_gnn.generators.connconstr_data import (
+            dense_to_sparse, load_zebrafish_connectome,
+        )
+
+        data = load_zebrafish_connectome(datapath)
+        edge_index, W_sparse = dense_to_sparse(data["W"])
+
+        # Build integer type labels from cell_types
+        cell_types = data["cell_types"]
+        N = data["N"]
+        unique_types = list(data["cell_type_names"])
+        type_labels = np.zeros(N, dtype=np.int64)
+        for i, name in enumerate(unique_types):
+            mask = (cell_types == name).flatten()
+            type_labels[mask] = i
+
+        return cls(
+            edge_index=edge_index.to(device),
+            W=W_sparse.to(device),
+            v_in=torch.tensor(data["v_in"], dtype=torch.float32, device=device),
+            neuron_types=torch.tensor(type_labels, dtype=torch.long, device=device),
+            tau=1.0,
+            n_neurons=N,
+        )
+
+    @classmethod
+    def from_pretrained(cls, datapath: str, device: torch.device | str = "cpu"):
+        """Construct from pre-saved zebrafish.npz (output of teacher script).
+
+        Ref: nn_fig5_zebrafish_teacher.py line 394
+        """
+        from flyvis_gnn.generators.connconstr_data import (
+            dense_to_sparse, load_zebrafish_pretrained,
+        )
+
+        data = load_zebrafish_pretrained(datapath)
+        W_dense = data["W"]
+        N = W_dense.shape[0]
+        edge_index, W_sparse = dense_to_sparse(W_dense)
+
+        return cls(
+            edge_index=edge_index.to(device),
+            W=W_sparse.to(device),
+            v_in=torch.tensor(data["v_in"], dtype=torch.float32, device=device),
+            neuron_types=torch.zeros(N, dtype=torch.long, device=device),
+            tau=1.0,
+            n_neurons=N,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Drosophila adult central complex ring attractor (Beiran & Litwin-Kumar 2023, Fig 5)
+# ---------------------------------------------------------------------------
+
+@register_ode_params("drosophila_cx")
+@dataclass
+class DrosophilaCxODEParams(ODEParamsBase):
+    """Parameters for the Drosophila central complex ring attractor ODE.
+
+    Ref: papers/Code_NN/Code_NN/nn_fig5_drosophilaCx_teacher.py
+         RNN.forward() lines 171-191:
+         h += alpha * (-h + exp(g) * softplus(h+b, beta) @ J^T + input) / tau
+         tau = 2.6 + 2.4 * tanh(tau_raw)  →  bounded [0.2, 5.0]
+         J_eff = exp(wrec) * mwrec  (line 184)
+         Activation: Softplus(beta=5) (lines 105-106)
+
+    Edge params:
+        edge_index: (2, E)
+        W: (E,) effective weights = exp(wrec_log) * sign(mwrec)
+
+    Node params:
+        g: (N,) log gain
+        b: (N,) bias
+        h0: (N,) initial hidden state
+        tau_raw: (N,) raw time constant (bounded via tanh)
+        neuron_types: (N,) int type labels
+
+    Input/output weights:
+        winp: (input_size, N) input projection
+        wout: (N, output_size) output projection
+
+    Scalars:
+        alpha: learning rate for ODE integration (default 1.0)
+        beta: softplus sharpness (default 5.0)
+        noise_std: noise magnitude (default 0.0)
+        n_neurons: total neuron count
+    """
+    edge_index: torch.Tensor = None    # (2, E)
+    W: torch.Tensor = None             # (E,)
+    g: torch.Tensor = None             # (N,) log gain
+    b: torch.Tensor = None             # (N,) bias
+    h0: torch.Tensor = None            # (N,) initial state
+    tau_raw: torch.Tensor = None       # (N,) raw time constant
+    neuron_types: torch.Tensor = None  # (N,) int type labels
+    winp: torch.Tensor = None          # (input_size, N)
+    wout: torch.Tensor = None          # (N, output_size)
+    alpha: float = 1.0
+    beta: float = 5.0
+    noise_std: float = 0.0
+    n_neurons: int = 0
+
+    @classmethod
+    def from_connectome(cls, datapath: str, device: torch.device | str = "cpu"):
+        """Construct from hemibrain CSV data.
+
+        Ref: nn_fig5_drosophilaCx_teacher.py lines 431-598
+        Uses load_drosophila_cx_connectome() from connconstr_data.py.
+        """
+        from flyvis_gnn.generators.connconstr_data import (
+            dense_to_sparse, load_drosophila_cx_connectome,
+        )
+
+        data = load_drosophila_cx_connectome(datapath)
+        N = data["N"]
+
+        # J_effective = exp(wrec_log) * mwrec  (line 184)
+        J_eff = data["J_effective"]
+        edge_index, W_sparse = dense_to_sparse(J_eff)
+
+        # Initialize node params to zeros (to be trained or loaded)
+        # Ref: nn_fig5_drosophilaCx_teacher.py RNN.__init__ lines 97-115
+        g = torch.zeros(N, dtype=torch.float32, device=device)
+        b = torch.zeros(N, dtype=torch.float32, device=device)
+        h0 = torch.zeros(N, dtype=torch.float32, device=device)
+        tau_raw = torch.zeros(N, dtype=torch.float32, device=device)  # tanh(0)=0 → tau=2.6
+
+        return cls(
+            edge_index=edge_index.to(device),
+            W=W_sparse.to(device),
+            g=g,
+            b=b,
+            h0=h0,
+            tau_raw=tau_raw,
+            neuron_types=torch.tensor(data["neuron_types"], dtype=torch.long, device=device),
+            winp=torch.tensor(data["winp"], dtype=torch.float32, device=device),
+            wout=torch.tensor(data["wout"], dtype=torch.float32, device=device),
+            alpha=1.0,
+            beta=5.0,
+            noise_std=0.0,
+            n_neurons=N,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Drosophila larva two-population model (Beiran & Litwin-Kumar 2023, Fig 5)
+# ---------------------------------------------------------------------------
+
+@register_ode_params("larva")
+@dataclass
+class LarvaODEParams(ODEParamsBase):
+    """Parameters for the Drosophila larva two-population ODE.
+
+    Ref: papers/Code_NN/Code_NN/Data/Figure5/setup.py forwardpass() lines 24-45
+
+    Two populations:
+      - Premotor (PMN, N neurons): up' = (1-dt/taup)*up + (dt/taup)*(gp*softplus(up) @ Jpp + bp + wsp @ stim)
+      - Motor (MN, M neurons):     um' = (1-dt/taum)*um + (dt/taum)*(gm*softplus(up) @ Jpm + bm)
+
+    Activation: Softplus (torch.nn.functional.softplus), NOT ReLU.
+    Gains clamped to [0.5, 5.0] (setup.py line 49-51).
+
+    For GNN compatibility, both populations are merged into a single graph:
+      - Nodes 0..N-1 are premotor, N..N+M-1 are motor
+      - Jpp edges: src ∈ [0,N), dst ∈ [0,N)
+      - Jpm edges: src ∈ [0,N), dst ∈ [N,N+M)
+
+    Edge params:
+        edge_index: (2, E) combined Jpp + Jpm edges
+        W: (E,) edge weights
+
+    Node params:
+        gp: (N,) premotor gain
+        gm: (M,) motor gain
+        bp: (N,) premotor bias
+        bm: (M,) motor bias
+        wsp: (S, N) stimulus-to-premotor weights
+        neuron_types: (N+M,) int labels (0=premotor, 1=motor)
+
+    Scalars:
+        taup: premotor time constant
+        taum: motor time constant
+        n_premotor: N
+        n_motor: M
+        dt: integration time step
+    """
+    edge_index: torch.Tensor = None    # (2, E)
+    W: torch.Tensor = None             # (E,)
+    gp: torch.Tensor = None            # (N,)
+    gm: torch.Tensor = None            # (M,)
+    bp: torch.Tensor = None            # (N,)
+    bm: torch.Tensor = None            # (M,)
+    wsp: torch.Tensor = None           # (S, N) stimulus→premotor
+    neuron_types: torch.Tensor = None  # (N+M,)
+    taup: float = 1.0
+    taum: float = 1.0
+    n_premotor: int = 0
+    n_motor: int = 0
+    dt: float = 0.001
+
+    @classmethod
+    def from_connectome(cls, datapath: str, device: torch.device | str = "cpu"):
+        """Construct from larva h5 connectivity data.
+
+        Ref: setup.py loadconns() lines 68-81
+        Uses load_larva_connectome() from connconstr_data.py.
+        """
+        from flyvis_gnn.generators.connconstr_data import (
+            dense_to_sparse, load_larva_connectome,
+        )
+
+        data = load_larva_connectome(datapath)
+        N = data["N"]  # premotor
+        M = data["M"]  # motor
+
+        # Build combined graph: premotor [0..N-1], motor [N..N+M-1]
+        # Jpp/Jpm are in [pre, post] format (setup.py does .T on h5 data).
+        # dense_to_sparse expects [post, pre], so we transpose back.
+        ei_pp, w_pp = dense_to_sparse(data["Jpp"].T)
+        ei_pm, w_pm = dense_to_sparse(data["Jpm"].T)
+        # Shift motor indices by N
+        ei_pm[1] += N
+
+        edge_index = torch.cat([ei_pp, ei_pm], dim=1)
+        W = torch.cat([w_pp, w_pm])
+
+        # Initialize gains and biases (to be trained or loaded from pretrained)
+        gp = torch.ones(N, dtype=torch.float32, device=device)
+        gm = torch.ones(M, dtype=torch.float32, device=device)
+        bp = torch.zeros(N, dtype=torch.float32, device=device)
+        bm = torch.zeros(M, dtype=torch.float32, device=device)
+
+        # Type labels: 0=premotor, 1=motor
+        neuron_types = torch.cat([
+            torch.zeros(N, dtype=torch.long),
+            torch.ones(M, dtype=torch.long),
+        ]).to(device)
+
+        return cls(
+            edge_index=edge_index.to(device),
+            W=W.to(device),
+            gp=gp, gm=gm, bp=bp, bm=bm,
+            wsp=torch.zeros(2, N, dtype=torch.float32, device=device),
+            neuron_types=neuron_types,
+            taup=1.0, taum=1.0,
+            n_premotor=N, n_motor=M,
+            dt=0.001,
+        )
+
+    @classmethod
+    def from_pretrained(cls, datapath: str, device: torch.device | str = "cpu"):
+        """Construct from pre-trained ashokF_softplus.npz parameters.
+
+        Ref: nn_fig5_plots_abc.py lines 31-41
+        """
+        from flyvis_gnn.generators.connconstr_data import (
+            dense_to_sparse, load_larva_pretrained,
+        )
+
+        data = load_larva_pretrained(datapath)
+        Jpp = data["Jpp"]
+        Jpm = data["Jpm"]
+        # Jpp: (N, N) premotor recurrent in [pre, post] format
+        # Jpm: (N, M) premotor→motor in [pre, post] format
+        N = Jpp.shape[0]  # premotor
+        M = Jpm.shape[1]  # motor (columns = post = motor targets)
+
+        # Pretrained Jpp/Jpm are in [pre, post] format (same convention as setup.py).
+        # dense_to_sparse expects [post, pre], so transpose.
+        ei_pp, w_pp = dense_to_sparse(Jpp.T)
+        ei_pm, w_pm = dense_to_sparse(Jpm.T)
+        ei_pm[1] += N
+
+        edge_index = torch.cat([ei_pp, ei_pm], dim=1)
+        W = torch.cat([w_pp, w_pm])
+
+        neuron_types = torch.cat([
+            torch.zeros(N, dtype=torch.long),
+            torch.ones(M, dtype=torch.long),
+        ]).to(device)
+
+        return cls(
+            edge_index=edge_index.to(device),
+            W=W.to(device),
+            gp=torch.tensor(data["gp"].flatten(), dtype=torch.float32, device=device),
+            gm=torch.tensor(data["gm"].flatten(), dtype=torch.float32, device=device),
+            bp=torch.tensor(data["bp"].flatten(), dtype=torch.float32, device=device),
+            bm=torch.tensor(data["bm"].flatten(), dtype=torch.float32, device=device),
+            wsp=torch.tensor(data["wsp"], dtype=torch.float32, device=device),
+            neuron_types=neuron_types,
+            taup=float(data["taup"].item() if hasattr(data["taup"], 'item') else data["taup"]),
+            taum=float(data["taum"].item() if hasattr(data["taum"], 'item') else data["taum"]),
+            n_premotor=N,
+            n_motor=M,
+            dt=0.001,
         )

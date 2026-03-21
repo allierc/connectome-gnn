@@ -56,6 +56,223 @@ def _is_spiking_model(signal_model_name: str) -> bool:
         return False
 
 
+def _is_connconstr_model(signal_model_name: str) -> bool:
+    """Check if signal_model_name maps to a connconstr ODE params class."""
+    from flyvis_gnn.generators.ode_params import (
+        DrosophilaCxODEParams,
+        LarvaODEParams,
+        ZebrafishODEParams,
+        get_ode_params_class,
+    )
+    connconstr_classes = (ZebrafishODEParams, DrosophilaCxODEParams, LarvaODEParams)
+    try:
+        cls = get_ode_params_class(signal_model_name)
+        return cls in connconstr_classes
+    except KeyError:
+        return False
+
+
+def data_generate_connconstr(config, visualize=True, device=None, save=True):
+    """Generate simulation data from a connconstr biological connectome model.
+
+    Ref: Beiran & Litwin-Kumar (2023), Fig 5
+
+    Supports three models:
+      - zebrafish: linear oculomotor integrator
+      - drosophila_cx: ring attractor (central complex)
+      - larva: two-population premotor + motor
+
+    Each model has its own ODE class, stimulus generation, and integration loop.
+    Output format matches the existing pipeline: zarr-based x_list_train/y_list_train.
+    """
+    from flyvis_gnn.generators.ode_params import get_ode_params_class
+
+    sim = config.simulation
+    model_config = config.graph_model
+    model_name = model_config.signal_model_name
+
+    torch.random.fork_rng(devices=device)
+    if sim.seed != 42:
+        torch.random.manual_seed(sim.seed)
+        np.random.seed(sim.seed)
+
+    logger.info(f"generating connconstr data ... model={model_name}  datapath={sim.connconstr_datapath}")
+
+    folder = graphs_data_path(config.dataset) + "/"
+    os.makedirs(graphs_data_path("fly"), exist_ok=True)
+    os.makedirs(folder, exist_ok=True)
+
+    # Load ODE params from connectome data
+    OdeParamsCls = get_ode_params_class(model_name)
+    datapath = sim.connconstr_datapath
+
+    if sim.connconstr_use_pretrained and hasattr(OdeParamsCls, 'from_pretrained'):
+        try:
+            ode_params = OdeParamsCls.from_pretrained(datapath, device=device)
+            logger.info(f"loaded pretrained params for {model_name}")
+        except FileNotFoundError:
+            logger.info(f"pretrained not found, using connectome for {model_name}")
+            ode_params = OdeParamsCls.from_connectome(datapath, device=device)
+    else:
+        ode_params = OdeParamsCls.from_connectome(datapath, device=device)
+
+    edge_index = ode_params.edge_index
+
+    if save:
+        ode_params.save(folder)
+
+    # Create ODE instance
+    if model_name == "zebrafish":
+        from flyvis_gnn.generators.connconstr_zebrafish_ode import ZebrafishODE
+        pde = ZebrafishODE(ode_params=ode_params, device=device)
+        n_neurons = ode_params.n_neurons
+        dt = 0.001  # Ref: simulate_series line 166
+        n_frames_total = 21000  # 3 pulse repeats (line 161-164)
+    elif model_name == "drosophila_cx":
+        from flyvis_gnn.generators.connconstr_cx_ode import DrosophilaCxODE
+        pde = DrosophilaCxODE(ode_params=ode_params, device=device)
+        n_neurons = ode_params.n_neurons
+        dt = 0.1  # Ref: teacher training dt
+        n_frames_total = sim.n_frames if sim.n_frames > 0 else 10000
+    elif model_name == "larva":
+        from flyvis_gnn.generators.connconstr_larva_ode import LarvaODE
+        pde = LarvaODE(ode_params=ode_params, device=device)
+        n_neurons = ode_params.n_premotor + ode_params.n_motor
+        dt = ode_params.dt
+        n_frames_total = sim.n_frames if sim.n_frames > 0 else 6000
+    else:
+        raise ValueError(f"Unknown connconstr model: {model_name}")
+
+    logger.info(f"n_neurons={n_neurons}  n_edges={edge_index.shape[1]}  dt={dt}  n_frames={n_frames_total}")
+
+    # Generate stimulus
+    if model_name == "zebrafish":
+        from flyvis_gnn.generators.connconstr_data import generate_zebrafish_stimulus
+        I_stim = generate_zebrafish_stimulus(n_frames_total)
+        I_stim = torch.tensor(I_stim, dtype=torch.float32, device=device)
+    elif model_name == "drosophila_cx":
+        from flyvis_gnn.generators.connconstr_data import generate_cx_stimulus
+        data_dict = None
+        if hasattr(ode_params, 'winp'):
+            # Load CX connectome data for stimulus generation helpers
+            from flyvis_gnn.generators.connconstr_data import load_drosophila_cx_connectome
+            data_dict = load_drosophila_cx_connectome(datapath)
+        # For CX, stimulus is generated per trial — we'll handle it in the integration loop
+        I_stim = None
+    elif model_name == "larva":
+        from flyvis_gnn.generators.connconstr_data import generate_larva_stimulus, load_larva_connectome
+        conn_data = load_larva_connectome(datapath)
+        mtarg, s_stim = generate_larva_stimulus(
+            conn_data["mnorder"], B=2, S=2, dt=dt
+        )
+        # s_stim: (T, B, S) — use first batch condition
+        s_stim = torch.tensor(s_stim[:, 0, :], dtype=torch.float32, device=device)  # (T, S)
+        n_frames_total = s_stim.shape[0]
+
+    # Initialize neuron state
+    x = NeuronState(
+        index=torch.arange(n_neurons, dtype=torch.long, device=device),
+        pos=torch.zeros(n_neurons, 2, dtype=torch.float32, device=device),
+        voltage=torch.zeros(n_neurons, dtype=torch.float32, device=device),
+        stimulus=torch.zeros(n_neurons, dtype=torch.float32, device=device),
+        group_type=torch.zeros(n_neurons, dtype=torch.long, device=device),
+        neuron_type=ode_params.neuron_types if hasattr(ode_params, 'neuron_types') and ode_params.neuron_types is not None
+                    else torch.zeros(n_neurons, dtype=torch.long, device=device),
+        calcium=torch.zeros(n_neurons, dtype=torch.float32, device=device),
+        fluorescence=torch.zeros(n_neurons, dtype=torch.float32, device=device),
+        noise=torch.zeros(n_neurons, dtype=torch.float32, device=device),
+    )
+
+    # For CX model, set initial state from h0
+    if model_name == "drosophila_cx" and ode_params.h0 is not None:
+        x.voltage = ode_params.h0.clone()
+
+    # For larva, set initial state from pretrained p0/m0 if available
+    if model_name == "larva":
+        try:
+            from flyvis_gnn.generators.connconstr_data import load_larva_pretrained
+            pretrained = load_larva_pretrained(datapath)
+            # p0/m0 are trajectories (T, B, N) — use first time step, first batch
+            if "p0" in pretrained and pretrained["p0"] is not None:
+                p0 = pretrained["p0"]
+                if p0.ndim == 3:
+                    p0 = p0[0, 0, :]  # (T, B, N) → (N,)
+                x.voltage[:ode_params.n_premotor] = torch.tensor(
+                    p0.flatten()[:ode_params.n_premotor], dtype=torch.float32, device=device)
+            if "m0" in pretrained and pretrained["m0"] is not None:
+                m0 = pretrained["m0"]
+                if m0.ndim == 3:
+                    m0 = m0[0, 0, :]  # (T, B, M) → (M,)
+                x.voltage[ode_params.n_premotor:] = torch.tensor(
+                    m0.flatten()[:ode_params.n_motor], dtype=torch.float32, device=device)
+        except (FileNotFoundError, KeyError):
+            pass
+
+    # Split into train/test (80/20 by time)
+    n_train = int(n_frames_total * 0.8)
+    n_test = n_frames_total - n_train
+
+    for split, (frame_start, frame_end) in [("train", (0, n_train)), ("test", (n_train, n_frames_total))]:
+        n_split = frame_end - frame_start
+        logger.info(f"generating {split} split: frames [{frame_start}, {frame_end}) ({n_split} frames)")
+
+        # Reset state for test split
+        if split == "test":
+            x.voltage[:] = 0
+
+        x_writer = ZarrSimulationWriterV3(
+            path=graphs_data_path(config.dataset, f"x_list_{split}"),
+            n_neurons=n_neurons,
+            time_chunks=2000,
+        )
+        y_writer = ZarrArrayWriter(
+            path=graphs_data_path(config.dataset, f"y_list_{split}"),
+            n_neurons=n_neurons,
+            n_features=1,
+            time_chunks=2000,
+        )
+
+        with torch.no_grad():
+            for t in tqdm(range(frame_start, frame_end), desc=f"connconstr {split}", ncols=100):
+                # Set stimulus for this timestep
+                if model_name == "zebrafish":
+                    # Zebrafish: scalar I(t) broadcast via v_in in the ODE
+                    x.stimulus[:] = I_stim[t]
+                elif model_name == "larva":
+                    # Larva: stimulus goes to premotor neurons via wsp
+                    # stim_projected = wsp.T @ s(t) where wsp is (S, N_premotor)
+                    stim_t = s_stim[t]  # (S,)
+                    projected = ode_params.wsp.t() @ stim_t  # (N_premotor,)
+                    x.stimulus[:ode_params.n_premotor] = projected
+                    x.stimulus[ode_params.n_premotor:] = 0
+                elif model_name == "drosophila_cx":
+                    # CX: for now, no external stimulus (free ring attractor dynamics)
+                    # TODO: add velocity input for bump rotation
+                    x.stimulus[:] = 0
+
+                # Record state before integration
+                x_writer.append_state(x)
+
+                # Euler step: dv = pde(x, edge_index); v += dt * dv
+                dv = pde(x, edge_index)
+                dv_squeeze = dv.squeeze()
+
+                if sim.noise_model_level > 0:
+                    x.voltage = x.voltage + dt * dv_squeeze + torch.randn(
+                        n_neurons, dtype=torch.float32, device=device
+                    ) * sim.noise_model_level
+                else:
+                    x.voltage = x.voltage + dt * dv_squeeze
+
+                y_writer.append(to_numpy(dv.clone().detach()))
+
+        n_written = x_writer.finalize()
+        y_writer.finalize()
+        logger.info(f"generated {n_written} {split} frames")
+
+    logger.info("connconstr data generation complete")
+
+
 def data_generate(
     config,
     visualize=True,
@@ -83,6 +300,13 @@ def data_generate(
 
     if config.data_folder_name != "none":
         generate_from_data(config=config, device=device, visualize=visualize, style=style, step=step)
+    elif _is_connconstr_model(config.graph_model.signal_model_name):
+        data_generate_connconstr(
+            config,
+            visualize=visualize,
+            device=device,
+            save=save,
+        )
     elif _is_spiking_model(config.graph_model.signal_model_name):
         data_generate_fly_AdEx_spiking(
             config,
