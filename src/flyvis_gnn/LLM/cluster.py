@@ -68,7 +68,7 @@ def submit_cluster_job(slot, config_path, analysis_log_path, config_file_field,
     cluster_analysis_log = local_to_cluster(analysis_log_path, root_dir)
     cluster_error_log = local_to_cluster(error_details_path, root_dir)
 
-    cluster_train_cmd = f"python train_flyvis_subprocess.py --config '{cluster_config_path}' --device cuda"
+    cluster_train_cmd = f"python train_subprocess.py --config '{cluster_config_path}' --device cuda"
     cluster_train_cmd += f" --log_file '{cluster_analysis_log}'"
     cluster_train_cmd += f" --config_file '{config_file_field}'"
     cluster_train_cmd += f" --error_log '{cluster_error_log}'"

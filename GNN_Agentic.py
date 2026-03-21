@@ -1,4 +1,4 @@
-"""FlyVis-GNN — Local LLM Exploration Loop.
+"""Connectome-GNN — Local LLM Exploration Loop.
 
 Lightweight version of GNN_LLM.py for running agentic hyper-parameter
 optimization locally (no SSH, no cluster submission).
@@ -35,7 +35,7 @@ warnings.filterwarnings("ignore", message="pkg_resources is deprecated as an API
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="FlyVis-GNN — Local LLM Exploration")
+    parser = argparse.ArgumentParser(description="Connectome-GNN — Local LLM Exploration")
     parser.add_argument("-o", "--option", nargs="+", help="option that takes multiple values")
     parser.add_argument("--fresh", action="store_true", default=True,
                         help="start from iteration 1 (ignore auto-resume)")

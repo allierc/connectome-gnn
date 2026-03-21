@@ -1,8 +1,8 @@
-"""Shared utilities for FlyVis training and testing.
+"""Shared utilities for GNN training and testing.
 
 Extracted from graph_trainer.py to eliminate duplication of data loading,
 model construction, checkpoint management, and optimizer setup across
-data_train_flyvis, data_test_flyvis, and data_test_flyvis_special.
+data_train_gnn, data_test_gnn, and data_test_gnn_special.
 """
 
 import glob
@@ -89,7 +89,7 @@ def load_flyvis_data(dataset_name, split='train', fields=None, device=None,
 
 
 def build_model(config, device, checkpoint_path=None, reset_epoch=False):
-    """Create a FlyVisGNN model and optionally load a checkpoint.
+    """Create a NeuralGNN model and optionally load a checkpoint.
 
     Args:
         config: NeuralGraphConfig
@@ -97,7 +97,7 @@ def build_model(config, device, checkpoint_path=None, reset_epoch=False):
         checkpoint_path: path to .pt checkpoint file (or None)
 
     Returns:
-        model: FlyVisGNN on device
+        model: NeuralGNN on device
         start_epoch: int, 0 unless resumed from a checkpoint with epoch in filename
     """
     model_config = config.graph_model

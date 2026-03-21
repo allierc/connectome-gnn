@@ -1,4 +1,4 @@
-"""INR (Implicit Neural Representation) training for FlyVis.
+"""INR (Implicit Neural Representation) training.
 
 Trains SIREN or InstantNGP models to learn stimulus/voltage fields
 from NeuronTimeSeries data. Extracted from graph_trainer.py.

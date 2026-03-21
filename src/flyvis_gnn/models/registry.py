@@ -1,11 +1,11 @@
-"""Model registry for flyvis-gnn.
+"""Model registry for connectome-gnn.
 
-Maps config signal_model_name strings (e.g. 'flyvis_A') to model classes.
-Replaces scattered if/elif dispatch chains with a single lookup.
+Maps config signal_model_name strings (e.g. 'flyvis_A', 'drosophila_cx')
+to model classes. Replaces scattered if/elif dispatch chains with a single lookup.
 
 Usage:
-    @register_model("flyvis_A", "flyvis_B", "flyvis_C")
-    class FlyVisGNN(nn.Module):
+    @register_model("flyvis_A", "drosophila_cx")
+    class NeuralGNN(nn.Module):
         ...
 
     model = create_model("flyvis_A", config=config, device=device)

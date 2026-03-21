@@ -15,20 +15,20 @@ from flyvis_gnn.neuron_state import NeuronState
     "flyvis_B", "flyvis_C", "flyvis_D",
     "drosophila_cx", "larva", "zebrafish", "zebrafish_oculomotor",
 )
-class FlyVisGNN(nn.Module):
-    """GNN for FlyVis neural signal dynamics with per-edge W.
+class NeuralGNN(nn.Module):
+    """GNN for neural signal dynamics with per-edge W.
 
     Equations:
-        msg_j = W[edge] * g_phi(v_j, a_j)^2   (flyvis_A, g_phi_positive=True)
-        msg_j = W[edge] * g_phi(v_i, v_j, a_i, a_j)^2   (flyvis_B)
+        msg_j = W[edge] * g_phi(v_j, a_j)^2   (g_phi_positive=True)
+        msg_j = W[edge] * g_phi(v_i, v_j, a_i, a_j)^2   (variant B)
         du/dt = f_theta(v, a, sum(msg), excitation)
 
     Uses explicit scatter_add for message passing (no PyG dependency).
     """
 
     PARAMS_DOC = {
-        "model_name": "FlyVisGNN",
-        "description": "GNN for FlyVis neural signal dynamics with per-edge W: "
+        "model_name": "NeuralGNN",
+        "description": "GNN for neural signal dynamics with per-edge W: "
                        "du/dt = f_theta(v, a, sum(msg), excitation), msg_j = W[edge] * g_phi(v_j, a_j)",
         "key_differences_from_SignalPropagation": {
             "W_shape": "1D per-edge vector W[n_edges + n_extra_null_edges, 1] instead of dense N×N matrix",

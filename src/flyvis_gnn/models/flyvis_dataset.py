@@ -1,4 +1,4 @@
-"""PyTorch Dataset and Sampler for FlyVis GNN training.
+"""PyTorch Dataset and Sampler for GNN training.
 
 Wraps the in-memory NeuronTimeSeries with a proper Dataset interface
 and provides a reproducible frame sampler to replace bare np.random.randint.
@@ -15,7 +15,7 @@ import torch
 from torch.utils.data import Dataset, Sampler
 
 
-class FlyVisDataset(Dataset):
+class GNNDataset(Dataset):
     """Dataset wrapping an in-memory NeuronTimeSeries.
 
     All data lives on GPU. __getitem__ returns frame indices into the
@@ -25,7 +25,7 @@ class FlyVisDataset(Dataset):
         x_ts: NeuronTimeSeries on GPU — (T, N) voltage/stimulus/etc.
         y_ts: numpy array — derivative targets, shape (T, N, 1)
         config: NeuralGraphConfig
-        model: FlyVisGNN (needed for forward_visual if has_visual_field)
+        model: NeuralGNN (needed for forward_visual if has_visual_field)
     """
 
     def __init__(self, x_ts, y_ts, config, model=None):
@@ -106,7 +106,7 @@ class FlyVisDataset(Dataset):
         return self.get_frame(k)
 
 
-class FlyVisFrameSampler(Sampler):
+class GNNFrameSampler(Sampler):
     """Reproducible random frame sampler with per-epoch seeding.
 
     Replaces bare np.random.randint calls with a seeded RNG that produces
@@ -114,7 +114,7 @@ class FlyVisFrameSampler(Sampler):
     different sampling order across epochs while remaining deterministic.
 
     Args:
-        dataset: FlyVisDataset (used for valid range)
+        dataset: GNNDataset (used for valid range)
         num_samples: total frames to sample per epoch (= Niter * batch_size)
         seed: base random seed
     """

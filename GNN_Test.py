@@ -46,7 +46,7 @@ from flyvis_gnn.utils import set_device, add_pre_folder, log_path
 def parse_results_log(path):
     """Parse results.log and extract key metrics.
 
-    Regex patterns match the format written by plot_synaptic_flyvis()
+    Regex patterns match the format written by plot_synaptic()
     in GNN_PlotFigure.py (same patterns as compare_gnn_results()).
     """
     if not os.path.exists(path):

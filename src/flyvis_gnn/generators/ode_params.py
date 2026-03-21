@@ -138,6 +138,66 @@ class ODEParamsBase:
             f"for {cls.__name__}"
         )
 
+    # ------------------------------------------------------------------
+    # Analysis interface — override in subclasses for model-specific
+    # interpretation of learned f_theta and g_phi
+    # ------------------------------------------------------------------
+
+    def has_tau(self) -> bool:
+        """Whether this model has per-neuron time constants to recover."""
+        return False
+
+    def has_vrest(self) -> bool:
+        """Whether this model has per-neuron resting potentials to recover."""
+        return False
+
+    def gt_tau(self, n_neurons: int) -> np.ndarray | None:
+        """Ground truth tau array (n_neurons,). None if not applicable."""
+        return None
+
+    def gt_vrest(self, n_neurons: int) -> np.ndarray | None:
+        """Ground truth V_rest array (n_neurons,). None if not applicable."""
+        return None
+
+    def derive_tau(self, slopes_f_theta: np.ndarray, n_neurons: int) -> np.ndarray:
+        """Derive time constants from f_theta slopes. Default: tau = 1/(-slope)."""
+        slopes = slopes_f_theta[:n_neurons]
+        derived = np.where(slopes != 0, 1.0 / -slopes, 1.0)
+        return np.clip(derived, 0, 10)
+
+    def derive_vrest(self, slopes_f_theta: np.ndarray, offsets_f_theta: np.ndarray,
+                     n_neurons: int) -> np.ndarray:
+        """Derive resting potentials from f_theta slopes/offsets. Default: V = -offset/slope."""
+        slopes = slopes_f_theta[:n_neurons]
+        offsets = offsets_f_theta[:n_neurons]
+        return np.where(slopes != 0, -offsets / slopes, 0.0)
+
+    def gt_g_phi_func(self, v: np.ndarray) -> np.ndarray:
+        """Ground truth g_phi(v) evaluated at points v. Shape: (n_neurons, n_pts) or (n_pts,).
+        Override in subclass. Default: ReLU."""
+        return np.maximum(v, 0.0)
+
+    def g_phi_label(self) -> str:
+        """Label for the ground truth g_phi in plots."""
+        return r"$\mathrm{ReLU}(v_j)$"
+
+    def f_theta_label(self) -> str:
+        """Label for the ground truth f_theta in plots."""
+        return r"$(-v_i + V^{rest}_i) / \tau_i$"
+
+    def f_theta_param_names(self) -> list[str]:
+        """Names of parameters recoverable from f_theta. Used for scatter plot labels."""
+        return [r"$\tau_i$", r"$V^{rest}_i$"]
+
+    def clustering_features(self) -> list[str]:
+        """Feature combinations for neuron type clustering analysis."""
+        return ["a", "W"]
+
+    def neuron_type_rmse_panels(self) -> list[str]:
+        """Panel names for neuron type reconstruction plot. Each must match a key
+        in the per-type RMSE dict returned by the analysis."""
+        return ["weights"]
+
 
 # ---------------------------------------------------------------------------
 # FlyVis graded-voltage model params
@@ -206,6 +266,44 @@ class FlyVisODEParams(ODEParamsBase):
 
         logger.info(f"loaded legacy ODE params from {folder}")
         return cls(tau_i=tau_i, V_i_rest=V_i_rest, edge_index=edge_index, W=W)
+
+    # --- Analysis interface ---
+    def has_tau(self): return True
+    def has_vrest(self): return True
+
+    def gt_tau(self, n_neurons):
+        if self.tau_i is None: return None
+        return self.tau_i[:n_neurons].cpu().numpy()
+
+    def gt_vrest(self, n_neurons):
+        if self.V_i_rest is None: return None
+        return self.V_i_rest[:n_neurons].cpu().numpy()
+
+    def gt_g_phi_func(self, v):
+        return np.maximum(v, 0.0)  # ReLU
+
+    def g_phi_label(self):
+        return r"$\mathrm{ReLU}(v_j)$"
+
+    def f_theta_label(self):
+        return r"$(-v_i + V^{rest}_i) / \tau_i$"
+
+    def gt_f_theta_func(self, v, n_neurons):
+        """Ground truth f_theta(v) = (-v + V_rest) / tau per neuron. Shape: (n_neurons, n_pts)."""
+        tau = self.gt_tau(n_neurons)
+        vrest = self.gt_vrest(n_neurons)
+        if tau is None or vrest is None:
+            return None
+        return (-v + vrest[:, None]) / tau[:, None]
+
+    def f_theta_param_names(self):
+        return [r"$\tau_i$", r"$V^{rest}_i$"]
+
+    def clustering_features(self):
+        return ["a", r"$\tau$", "V", "W", r"($\tau$,V)", r"($\tau$,V,W)", r"(a,$\tau$,V,W)"]
+
+    def neuron_type_rmse_panels(self):
+        return ["weights", "tau", "vrest"]
 
 
 # ---------------------------------------------------------------------------
@@ -678,6 +776,31 @@ class ZebrafishODEParams(ODEParamsBase):
         # continuous trajectories — no trial resets.
         return 0
 
+    # --- Analysis interface ---
+    def has_tau(self): return False  # fixed tau=1
+    def has_vrest(self): return False
+
+    def gt_g_phi_func(self, v):
+        return v  # identity — linear ODE, no activation
+
+    def g_phi_label(self):
+        return r"$v_j$ (identity)"
+
+    def f_theta_label(self):
+        return r"$-v_i / \tau$  ($\tau\!=\!1$)"
+
+    def gt_f_theta_func(self, v, n_neurons):
+        return -v * np.ones((n_neurons, 1))  # f(v) = -v/tau = -v
+
+    def f_theta_param_names(self):
+        return []  # no recoverable per-neuron params
+
+    def clustering_features(self):
+        return ["a", "W"]
+
+    def neuron_type_rmse_panels(self):
+        return ["weights"]
+
 
 # ---------------------------------------------------------------------------
 # Drosophila adult central complex ring attractor (Beiran & Litwin-Kumar 2023, Fig 5)
@@ -919,6 +1042,60 @@ class DrosophilaCxODEParams(ODEParamsBase):
         # realistic — real neural circuits do not reset their state periodically.
         return 0
 
+    # --- Analysis interface ---
+    def has_tau(self): return True
+    def has_vrest(self): return False
+
+    def gt_tau(self, n_neurons):
+        """CX tau = 2.6 + 2.4 * tanh(tau_raw), bounded [0.2, 5.0]."""
+        if self.tau_raw is None: return None
+        tau = 2.6 + 2.4 * np.tanh(self.tau_raw[:n_neurons].cpu().numpy())
+        return tau
+
+    def gt_vrest(self, n_neurons):
+        return None  # CX ODE has no resting potential term
+
+    def derive_tau(self, slopes_f_theta, n_neurons):
+        """CX f_theta slope = -alpha/tau → tau = alpha/(-slope)."""
+        slopes = slopes_f_theta[:n_neurons]
+        alpha = self.alpha
+        derived = np.where(slopes != 0, alpha / -slopes, 1.0)
+        return np.clip(derived, 0, 10)
+
+    def gt_f_theta_func(self, v, n_neurons):
+        """Ground truth f_theta(v) = -alpha * v / tau per neuron."""
+        tau = self.gt_tau(n_neurons)
+        if tau is None: return None
+        return -self.alpha * v / tau[:, None]
+
+    def gt_g_phi_func(self, v):
+        """Ground truth g_phi(v) = exp(g) * softplus(v + b, beta=5) per neuron.
+        Returns (n_neurons, n_pts) array."""
+        if self.g is None or self.b is None:
+            return np.maximum(v, 0.0)  # fallback to ReLU
+        g_np = self.g.cpu().numpy()
+        b_np = self.b.cpu().numpy()
+        beta = self.beta
+        # softplus(x, beta) = (1/beta) * log(1 + exp(beta * x))
+        x = v + b_np[:, None]  # (N, n_pts)
+        sp = np.where(beta * x > 20, x, np.log1p(np.exp(beta * x)) / beta)
+        return np.exp(g_np[:, None]) * sp
+
+    def g_phi_label(self):
+        return r"$e^{g_j} \, \mathrm{softplus}(v_j + b_j, \beta\!=\!5)$"
+
+    def f_theta_label(self):
+        return r"$-\alpha \, v_i / \tau_i$"
+
+    def f_theta_param_names(self):
+        return [r"$\tau_i$"]
+
+    def clustering_features(self):
+        return ["a", r"$\tau$", "W", r"(a,$\tau$,W)"]
+
+    def neuron_type_rmse_panels(self):
+        return ["weights", "tau"]
+
 
 # ---------------------------------------------------------------------------
 # Drosophila larva two-population model (Beiran & Litwin-Kumar 2023, Fig 5)
@@ -1143,3 +1320,38 @@ class LarvaODEParams(ODEParamsBase):
                     m0.flatten()[:self.n_motor], dtype=torch.float32, device=device)
         except (FileNotFoundError, KeyError):
             pass
+
+    # --- Analysis interface ---
+    def has_tau(self): return True  # two distinct tau values (premotor/motor)
+    def has_vrest(self): return False
+
+    def gt_tau(self, n_neurons):
+        """Premotor neurons have taup, motor neurons have taum."""
+        tau = np.zeros(n_neurons)
+        tau[:self.n_premotor] = self.taup
+        tau[self.n_premotor:self.n_premotor + self.n_motor] = self.taum
+        return tau[:n_neurons]
+
+    def gt_g_phi_func(self, v):
+        """Softplus activation (gain-modulated per neuron)."""
+        if self.gp is not None:
+            gp = self.gp.cpu().numpy()
+            # For premotor: g_phi = gp * softplus(v)
+            # Simplified: just show softplus shape (gain applied as scalar)
+            return np.log1p(np.exp(v))
+        return np.log1p(np.exp(v))
+
+    def g_phi_label(self):
+        return r"$\mathrm{softplus}(v_j)$"
+
+    def f_theta_label(self):
+        return r"$-v_i / \tau_i$"
+
+    def f_theta_param_names(self):
+        return [r"$\tau_i$"]
+
+    def clustering_features(self):
+        return ["a", r"$\tau$", "W"]
+
+    def neuron_type_rmse_panels(self):
+        return ["weights", "tau"]

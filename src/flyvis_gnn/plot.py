@@ -1,4 +1,4 @@
-"""Plotting functions for FlyVis.
+"""Plotting functions for connectome-gnn.
 
 Used by the training loop (graph_trainer.py), data generation
 (graph_data_generator.py), testing (graph_tester.py), and
@@ -1416,7 +1416,7 @@ def plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_li
 
 def plot_training_linear(model, config, epoch, N, log_dir, device,
                          gt_weights, n_neurons=None):
-    """Training diagnostics for FlyVisLinear — raw W scatter + tau/Vrest vs GT.
+    """Training diagnostics for LinearODE — raw W scatter + tau/Vrest vs GT.
 
     Uses compute_dynamics_r2_linear from metrics for R² computation,
     and generates scatter plots for W, tau, V_rest.
@@ -1531,7 +1531,7 @@ def render_visual_field_video(model, x_ts, sim, log_dir, epoch, N, logger):
     plots and rolling traces for 10 representative neurons.
 
     Args:
-        model: FlyVisGNN model with forward_visual method
+        model: NeuralGNN model with forward_visual method
         x_ts: NeuronTimeSeries on GPU
         sim: SimulationConfig
         log_dir: output directory path

@@ -31,7 +31,7 @@ from sklearn.decomposition import TruncatedSVD
 from flyvis_gnn.figure_style import default_style as fig_style
 from flyvis_gnn.zarr_io import load_simulation_data, load_raw_array
 from flyvis_gnn.sparsify import clustering_gmm
-from flyvis_gnn.models.flyvis_gnn import FlyVisGNN  # noqa: F401 — kept for backwards compat
+from flyvis_gnn.models.flyvis_gnn import NeuralGNN  # noqa: F401 — kept for backwards compat
 from flyvis_gnn.models.registry import create_model
 from flyvis_gnn.config import NeuralGraphConfig
 from flyvis_gnn.metrics import (
@@ -133,7 +133,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
                           edges, gt_weights, gt_taus, gt_V_Rest,
                           type_list, n_types, n_neurons, cmap, device,
                           extended, log_file, mu_activity, sigma_activity):
-    """Analysis plots for FlyVisLinear: W, tau, V_rest R² + clustering."""
+    """Analysis plots for LinearODE: W, tau, V_rest R² + clustering."""
     import torch.nn.functional as F
     sim = config.simulation
 
@@ -457,7 +457,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
         r_squared_tau=r_squared_tau, r_squared_V_rest=r_squared_V_rest)
 
 
-def plot_synaptic_flyvis(config, epoch_list, log_dir, logger, cc, style, extended, device, log_file=None):
+def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, device, log_file=None):
     sim = config.simulation
     model_config = config.graph_model
     tc = config.training
@@ -528,31 +528,35 @@ def plot_synaptic_flyvis(config, epoch_list, log_dir, logger, cc, style, extende
     n_region_types = len(torch.unique(region_list))
     n_neurons = x_ts.n_neurons
 
+    # Load ODE params for model-specific analysis
+    from flyvis_gnn.generators.ode_params import get_ode_params_class, FlyVisODEParams
+    signal_model = model_config.signal_model_name
+    try:
+        OdeParamsCls = get_ode_params_class(signal_model)
+    except KeyError:
+        OdeParamsCls = FlyVisODEParams
+    _ode_params_path = graphs_data_path(config.dataset, 'ode_params.pt')
+    if os.path.exists(_ode_params_path):
+        ode_params = OdeParamsCls.load(graphs_data_path(config.dataset), device='cpu')
+    else:
+        ode_params = OdeParamsCls()  # empty, analysis methods return defaults
+
     gt_weights = torch.load(graphs_data_path(config.dataset, 'weights.pt'), map_location=device, weights_only=False)
-    taus_path = graphs_data_path(config.dataset, 'taus.pt')
-    vrest_path = graphs_data_path(config.dataset, 'V_i_rest.pt')
-    if os.path.exists(taus_path):
-        gt_taus = torch.load(taus_path, map_location=device, weights_only=False)
-    else:
-        gt_taus = torch.zeros(n_neurons, device=device)
-    if os.path.exists(vrest_path):
-        gt_V_Rest = torch.load(vrest_path, map_location=device, weights_only=False)
-    else:
-        gt_V_Rest = torch.zeros(n_neurons, device=device)
+    gt_taus_np = ode_params.gt_tau(n_neurons)
+    gt_taus = torch.tensor(gt_taus_np, device=device) if gt_taus_np is not None else torch.zeros(n_neurons, device=device)
+    gt_vrest_np = ode_params.gt_vrest(n_neurons)
+    gt_V_Rest = torch.tensor(gt_vrest_np, device=device) if gt_vrest_np is not None else torch.zeros(n_neurons, device=device)
     edges = torch.load(graphs_data_path(config.dataset, 'edge_index.pt'), map_location=device, weights_only=False)
     true_weights = torch.zeros((n_neurons, n_neurons), dtype=torch.float32, device=edges.device)
     true_weights[edges[1], edges[0]] = gt_weights
 
-    # Neuron type index to name mapping — load from ode_params if available
     _connconstr = any(x in config.dataset for x in ('drosophila_cx', 'zebrafish_oculomotor', 'larva'))
-    _ode_params_path = graphs_data_path(config.dataset, 'ode_params.pt')
-    if _connconstr and os.path.exists(_ode_params_path):
-        _ode_state = torch.load(_ode_params_path, map_location='cpu', weights_only=False)
-        _type_names = _ode_state.get('type_names', None)
-        if _type_names:
-            index_to_name = {i: name for i, name in enumerate(_type_names)}
-        else:
-            index_to_name = {i: f'Type{i}' for i in range(n_types)}
+
+    # Neuron type index to name mapping — load from ode_params if available
+    if hasattr(ode_params, 'type_names') and ode_params.type_names:
+        index_to_name = {i: name for i, name in enumerate(ode_params.type_names)}
+    elif _connconstr:
+        index_to_name = {i: f'Type{i}' for i in range(n_types)}
     else:
         index_to_name = {
             0: 'Am', 1: 'C2', 2: 'C3', 3: 'CT1(Lo1)', 4: 'CT1(M10)', 5: 'L1', 6: 'L2', 7: 'L3', 8: 'L4', 9: 'L5',
@@ -681,8 +685,8 @@ def plot_synaptic_flyvis(config, epoch_list, log_dir, logger, cc, style, extende
             a_params = model.a.numel()
             w_params = get_model_W(model).numel()
             print('learnable parameters:')
-            print(f'  MLP0 (f_theta): {mlp0_params:,}')
-            print(f'  MLP1 (g_phi): {mlp1_params:,}')
+            print(f'  f_theta: {mlp0_params:,}')
+            print(f'  g_phi: {mlp1_params:,}')
             print(f'  a (embeddings): {a_params:,}')
             print(f'  W (connectivity): {w_params:,}')
             total_params = mlp0_params + mlp1_params + a_params + w_params
@@ -763,16 +767,15 @@ def plot_synaptic_flyvis(config, epoch_list, log_dir, logger, cc, style, extende
             rr_np = to_numpy(rr_domain_edge)
             func_np = to_numpy(func_domain_edge)
 
-            # Ground truth g_phi: ReLU(v) — same for all neurons
-            # The learned model plots g_phi(v)^2, and the true g_phi(v)^2 = ReLU(v)
-            func_true_g_phi = np.maximum(rr_np, 0.0)
+            # Ground truth g_phi via ODE params registry
+            func_true_g_phi = ode_params.gt_g_phi_func(rr_np)
 
             # Side-by-side: true (left) vs learned (right)
             fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 9))
             _plot_curves_fast(ax1, rr_np[valid_edge], func_true_g_phi[valid_edge],
                               type_np[valid_edge], cmap, linewidth=1, alpha=_curve_alpha)
             ax1.set_xlabel('$v_j$', fontsize=48)
-            ax1.set_ylabel(r'true $g_\phi(v_j)$', fontsize=48)
+            ax1.set_ylabel(f'true {ode_params.g_phi_label()}', fontsize=48)
             ax1.tick_params(axis='both', which='major', labelsize=24)
             ax1.set_xlim([-1, 5])
             ax1.set_ylim([-config.plotting.xlim[1]/10, config.plotting.xlim[1]*2])
@@ -786,7 +789,7 @@ def plot_synaptic_flyvis(config, epoch_list, log_dir, logger, cc, style, extende
             ax2.set_ylim([-config.plotting.xlim[1]/10, config.plotting.xlim[1]*2])
 
             plt.tight_layout()
-            plt.savefig(f"{log_dir}/results/MLP1_{config_indices}_domain.png", dpi=300)
+            plt.savefig(f"{log_dir}/results/g_phi_{config_indices}_domain.png", dpi=300)
             plt.close()
 
             fig = plt.figure(figsize=(10, 9))
@@ -803,7 +806,7 @@ def plot_synaptic_flyvis(config, epoch_list, log_dir, logger, cc, style, extende
             plt.xticks(fontsize=24)
             plt.yticks(fontsize=24)
             plt.tight_layout()
-            plt.savefig(f"{log_dir}/results/MLP1_slope_{config_indices}.png", dpi=300)
+            plt.savefig(f"{log_dir}/results/g_phi_slope_{config_indices}.png", dpi=300)
             plt.close()
 
             # f_theta domain range: evaluate + slope extraction (vectorized)
@@ -816,20 +819,21 @@ def plot_synaptic_flyvis(config, epoch_list, log_dir, logger, cc, style, extende
             slopes_f_theta_list = slopes_phi  # (N,) numpy array
             offsets_list = offsets_phi
 
-            # Ground truth f_theta: f_true(v) = (-v + V_rest) / tau per neuron
+            # Ground truth f_theta via ODE params registry
             gt_taus_np = to_numpy(gt_taus[:n_neurons])
             gt_V_rest_np = to_numpy(gt_V_Rest[:n_neurons])
             rr_domain_phi_np = to_numpy(rr_domain_phi)
-            func_true_f_theta = (-rr_domain_phi_np + gt_V_rest_np[:, None]) / gt_taus_np[:, None]
+            func_true_f_theta = ode_params.gt_f_theta_func(rr_domain_phi_np, n_neurons) if hasattr(ode_params, 'gt_f_theta_func') else (-rr_domain_phi_np + gt_V_rest_np[:, None]) / np.maximum(gt_taus_np[:, None], 1e-8)
 
             # Side-by-side: true (left) vs learned (right)
             fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 9))
-            _plot_curves_fast(ax1, rr_domain_phi_np, func_true_f_theta,
-                              type_np, cmap, linewidth=1, alpha=_curve_alpha)
+            if func_true_f_theta is not None:
+                _plot_curves_fast(ax1, rr_domain_phi_np, func_true_f_theta,
+                                  type_np, cmap, linewidth=1, alpha=_curve_alpha)
             ax1.set_xlim(config.plotting.xlim)
             ax1.set_ylim(config.plotting.ylim)
             ax1.set_xlabel('$v_i$', fontsize=48)
-            ax1.set_ylabel(r'true $f_\theta(v_i)$', fontsize=48)
+            ax1.set_ylabel(f'true {ode_params.f_theta_label()}', fontsize=48)
             ax1.tick_params(axis='both', which='major', labelsize=24)
 
             _plot_curves_fast(ax2, to_numpy(rr_domain_phi), to_numpy(func_domain_phi),
@@ -841,67 +845,75 @@ def plot_synaptic_flyvis(config, epoch_list, log_dir, logger, cc, style, extende
             ax2.tick_params(axis='both', which='major', labelsize=24)
 
             plt.tight_layout()
-            plt.savefig(f"{log_dir}/results/MLP0_{config_indices}_domain.png", dpi=300)
+            plt.savefig(f"{log_dir}/results/f_theta_{config_indices}_domain.png", dpi=300)
             plt.close()
 
             slopes_f_theta_array = np.array(slopes_f_theta_list)
             offsets_array = np.array(offsets_list)
-            gt_taus = to_numpy(gt_taus[:n_neurons])
-            learned_tau = derive_tau(slopes_f_theta_array, n_neurons)
+            gt_taus_np = ode_params.gt_tau(n_neurons)
+            learned_tau = ode_params.derive_tau(slopes_f_theta_array, n_neurons)
+            r_squared_tau = 0.0
+            slope_tau = 0.0
 
-            fig = plt.figure(figsize=(10, 9))
-            plt.scatter(gt_taus, learned_tau, c=mc, s=_dot_s, alpha=_dot_alpha)
-            r_squared_tau, slope_tau = compute_r_squared(gt_taus, learned_tau)
-            plt.text(0.05, 0.95, f'R²: {r_squared_tau:.2f}\nslope: {slope_tau:.2f}\nN: {sim.n_edges}',
-                     transform=plt.gca().transAxes, verticalalignment='top', fontsize=32)
-            plt.xlabel(r'true $\tau$', fontsize=48)
-            plt.ylabel(r'learned $\tau$', fontsize=48)
-            plt.xticks(fontsize=24)
-            plt.yticks(fontsize=24)
-            plt.xlim([0, 0.35])
-            plt.ylim([0, 0.35])
-            plt.tight_layout()
-            plt.savefig(f'{log_dir}/results/tau_comparison_{config_indices}.png', dpi=300)
-            plt.close()
+            if ode_params.has_tau() and gt_taus_np is not None:
+                fig = plt.figure(figsize=(10, 9))
+                plt.scatter(gt_taus_np, learned_tau, c=mc, s=_dot_s, alpha=_dot_alpha)
+                r_squared_tau, slope_tau = compute_r_squared(gt_taus_np, learned_tau)
+                plt.text(0.05, 0.95, f'R²: {r_squared_tau:.2f}\nslope: {slope_tau:.2f}\nN: {n_neurons}',
+                         transform=plt.gca().transAxes, verticalalignment='top', fontsize=32)
+                plt.xlabel(r'true $\tau$', fontsize=48)
+                plt.ylabel(r'learned $\tau$', fontsize=48)
+                plt.xticks(fontsize=24)
+                plt.yticks(fontsize=24)
+                plt.tight_layout()
+                plt.savefig(f'{log_dir}/results/tau_comparison_{config_indices}.png', dpi=300)
+                plt.close()
 
+            gt_vrest_np = ode_params.gt_vrest(n_neurons)
+            learned_V_rest = ode_params.derive_vrest(slopes_f_theta_array, offsets_array, n_neurons)
+            r_squared_V_rest = 0.0
+            slope_V_rest = 0.0
 
-            # V_rest comparison (reconstructed vs ground truth)
-            learned_V_rest = derive_vrest(slopes_f_theta_array, offsets_array, n_neurons)
-            gt_V_rest = to_numpy(gt_V_Rest[:n_neurons])
-            fig = plt.figure(figsize=(10, 9))
-            plt.scatter(gt_V_rest, learned_V_rest, c=mc, s=_dot_s, alpha=_dot_alpha)
-            r_squared_V_rest, slope_V_rest = compute_r_squared(gt_V_rest, learned_V_rest)
-            plt.text(0.05, 0.95, f'R²: {r_squared_V_rest:.2f}\nslope: {slope_V_rest:.2f}\nN: {sim.n_edges}',
-                     transform=plt.gca().transAxes, verticalalignment='top', fontsize=32)
-            plt.xlabel(r'true $V_{rest}$', fontsize=48)
-            plt.ylabel(r'learned $V_{rest}$', fontsize=48)
-            plt.xticks(fontsize=24)
-            plt.yticks(fontsize=24)
-            plt.xlim([0, 0.8])
-            plt.ylim([0, 0.8])
-            plt.tight_layout()
-            plt.savefig(f'{log_dir}/results/V_rest_comparison_{config_indices}.png', dpi=300)
-            plt.close()
+            if ode_params.has_vrest() and gt_vrest_np is not None:
+                fig = plt.figure(figsize=(10, 9))
+                plt.scatter(gt_vrest_np, learned_V_rest, c=mc, s=_dot_s, alpha=_dot_alpha)
+                r_squared_V_rest, slope_V_rest = compute_r_squared(gt_vrest_np, learned_V_rest)
+                plt.text(0.05, 0.95, f'R²: {r_squared_V_rest:.2f}\nslope: {slope_V_rest:.2f}\nN: {n_neurons}',
+                         transform=plt.gca().transAxes, verticalalignment='top', fontsize=32)
+                plt.xlabel(r'true $V_{rest}$', fontsize=48)
+                plt.ylabel(r'learned $V_{rest}$', fontsize=48)
+                plt.xticks(fontsize=24)
+                plt.yticks(fontsize=24)
+                plt.tight_layout()
+                plt.savefig(f'{log_dir}/results/V_rest_comparison_{config_indices}.png', dpi=300)
+                plt.close()
 
-            fig = plt.figure(figsize=(10, 9))
-            ax = plt.subplot(2, 1, 1)
-            plt.scatter(np.arange(n_neurons), learned_tau,
-                        c=cmap.color(to_numpy(type_list).astype(int)), s=_dot_s, alpha=_dot_alpha)
-            plt.ylabel(r'$\tau_i$', fontsize=48)
-            plt.xticks([])   # no xticks for top plot
-            plt.yticks(fontsize=24)
-            ax = plt.subplot(2, 1, 2)
-            plt.scatter(np.arange(n_neurons), learned_V_rest,
-                        c=cmap.color(to_numpy(type_list).astype(int)), s=_dot_s, alpha=_dot_alpha)
-            plt.xlabel('neuron index', fontsize=48)
-            plt.ylabel(r'$V^{\mathrm{rest}}_i$', fontsize=48)
-            ax.xaxis.set_major_locator(ticker.MaxNLocator(nbins=5))
-            plt.xticks(fontsize=24)
-            plt.yticks(fontsize=24)
-            plt.ylim([0, 1])
-            plt.tight_layout()
-            plt.savefig(f"{log_dir}/results/MLP0_{config_indices}_params.png", dpi=300)
-            plt.close()
+            # f_theta derived params plot — panels depend on model
+            param_names = ode_params.f_theta_param_names()
+            n_panels = max(1, len(param_names))
+            _param_arrays = []
+            if ode_params.has_tau():
+                _param_arrays.append((r'$\tau_i$', learned_tau))
+            if ode_params.has_vrest():
+                _param_arrays.append((r'$V^{\mathrm{rest}}_i$', learned_V_rest))
+
+            if _param_arrays:
+                fig = plt.figure(figsize=(10, 4.5 * len(_param_arrays)))
+                for pi, (plabel, pdata) in enumerate(_param_arrays):
+                    ax = plt.subplot(len(_param_arrays), 1, pi + 1)
+                    plt.scatter(np.arange(n_neurons), pdata,
+                                c=cmap.color(to_numpy(type_list).astype(int)), s=_dot_s, alpha=_dot_alpha)
+                    plt.ylabel(plabel, fontsize=48)
+                    if pi < len(_param_arrays) - 1:
+                        plt.xticks([])
+                    else:
+                        plt.xlabel('neuron index', fontsize=48)
+                        ax.xaxis.set_major_locator(ticker.MaxNLocator(nbins=5))
+                        plt.xticks(fontsize=24)
+                    plt.yticks(fontsize=24)
+                plt.tight_layout()
+                plt.savefig(f"{log_dir}/results/f_theta_{config_indices}_params.png", dpi=300)
+                plt.close()
 
 
             # Plot 4: Weight comparison using model.W and gt_weights
@@ -1025,10 +1037,12 @@ def plot_synaptic_flyvis(config, epoch_list, log_dir, logger, cc, style, extende
                     f'outliers: {len(outlier_residuals)}  mean residual: {np.mean(outlier_residuals):.4f}  std: {np.std(outlier_residuals):.4f}  min,max: {np.min(outlier_residuals):.4f}, {np.max(outlier_residuals):.4f}')
             else:
                 print('outliers: 0  (no outliers detected)')
-            print(f"tau reconstruction R²: \033[92m{r_squared_tau:.3f}\033[0m  slope: {slope_tau:.2f}")
-            logger.info(f"tau reconstruction R²: {r_squared_tau:.3f}  slope: {slope_tau:.2f}")
-            print(f"V_rest reconstruction R²: \033[92m{r_squared_V_rest:.3f}\033[0m  slope: {slope_V_rest:.2f}")
-            logger.info(f"V_rest reconstruction R²: {r_squared_V_rest:.3f}  slope: {slope_V_rest:.2f}")
+            if ode_params.has_tau():
+                print(f"tau reconstruction R²: \033[92m{r_squared_tau:.3f}\033[0m  slope: {slope_tau:.2f}")
+                logger.info(f"tau reconstruction R²: {r_squared_tau:.3f}  slope: {slope_tau:.2f}")
+            if ode_params.has_vrest():
+                print(f"V_rest reconstruction R²: \033[92m{r_squared_V_rest:.3f}\033[0m  slope: {slope_V_rest:.2f}")
+                logger.info(f"V_rest reconstruction R²: {r_squared_V_rest:.3f}  slope: {slope_V_rest:.2f}")
 
             # Write to analysis log file for Claude
             if log_file:
@@ -1772,9 +1786,9 @@ def data_plot(config, config_file, epoch_list, style, extended, device, apply_we
     _connconstr = any(x in config.dataset for x in ('drosophila_cx', 'zebrafish_oculomotor', 'larva'))
     if 'fly' in config.dataset or _connconstr:
         if config.simulation.calcium_type != 'none':
-            plot_synaptic_flyvis_calcium(config, epoch_list, log_dir, logger, 'viridis', style, extended, device) # noqa: F821
+            plot_synaptic_calcium(config, epoch_list, log_dir, logger, 'viridis', style, extended, device) # noqa: F821
         else:
-            plot_synaptic_flyvis(config, epoch_list, log_dir, logger, 'viridis', style, extended, device, log_file=log_file)
+            plot_synaptic(config, epoch_list, log_dir, logger, 'viridis', style, extended, device, log_file=log_file)
 
     for handler in logger.handlers[:]:
         handler.close()

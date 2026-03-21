@@ -4,7 +4,7 @@ import pytest
 import torch
 
 from flyvis_gnn.config import NeuralGraphConfig
-from flyvis_gnn.models.flyvis_dataset import FlyVisDataset, FlyVisFrameSampler
+from flyvis_gnn.models.flyvis_dataset import GNNDataset, GNNFrameSampler
 from flyvis_gnn.neuron_state import NeuronState, NeuronTimeSeries
 
 pytestmark = pytest.mark.tier3
@@ -12,7 +12,7 @@ pytestmark = pytest.mark.tier3
 
 @pytest.fixture
 def synthetic_dataset():
-    """Build a FlyVisDataset from synthetic data with known dimensions."""
+    """Build a GNNDataset from synthetic data with known dimensions."""
     T, N = 100, 10
     cfg_dict = {
         "dataset": "test",
@@ -55,10 +55,10 @@ def synthetic_dataset():
         stimulus=torch.randn(T, N),
     )
     y_ts = np.random.RandomState(0).randn(T, N, 1).astype(np.float32)
-    return FlyVisDataset(x_ts, y_ts, config)
+    return GNNDataset(x_ts, y_ts, config)
 
 
-class TestFlyVisDataset:
+class TestGNNDataset:
     def test_len_positive(self, synthetic_dataset):
         assert len(synthetic_dataset) > 0
 
@@ -83,18 +83,18 @@ class TestFlyVisDataset:
         assert synthetic_dataset.loss_noise_level == pytest.approx(0.0)  # config noise = 0
 
 
-class TestFlyVisFrameSampler:
+class TestGNNFrameSampler:
     def test_len(self, synthetic_dataset):
-        sampler = FlyVisFrameSampler(synthetic_dataset, num_samples=50, seed=42)
+        sampler = GNNFrameSampler(synthetic_dataset, num_samples=50, seed=42)
         assert len(sampler) == 50
 
     def test_deterministic(self, synthetic_dataset):
-        s1 = FlyVisFrameSampler(synthetic_dataset, num_samples=20, seed=42)
-        s2 = FlyVisFrameSampler(synthetic_dataset, num_samples=20, seed=42)
+        s1 = GNNFrameSampler(synthetic_dataset, num_samples=20, seed=42)
+        s2 = GNNFrameSampler(synthetic_dataset, num_samples=20, seed=42)
         assert list(s1) == list(s2)
 
     def test_epoch_changes_order(self, synthetic_dataset):
-        s = FlyVisFrameSampler(synthetic_dataset, num_samples=20, seed=42)
+        s = GNNFrameSampler(synthetic_dataset, num_samples=20, seed=42)
         s.set_epoch(0)
         order0 = list(s)
         s.set_epoch(1)
@@ -102,6 +102,6 @@ class TestFlyVisFrameSampler:
         assert order0 != order1
 
     def test_indices_in_range(self, synthetic_dataset):
-        sampler = FlyVisFrameSampler(synthetic_dataset, num_samples=100, seed=42)
+        sampler = GNNFrameSampler(synthetic_dataset, num_samples=100, seed=42)
         indices = list(sampler)
         assert all(0 <= i < len(synthetic_dataset) for i in indices)

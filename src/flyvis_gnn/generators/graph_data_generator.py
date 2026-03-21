@@ -416,7 +416,7 @@ def data_generate(
             save=save,
         )
     elif _is_spiking_model(config.graph_model.signal_model_name):
-        data_generate_fly_AdEx_spiking(
+        data_generate_spiking(
             config,
             visualize=visualize,
             run_vizualized=run_vizualized,
@@ -427,7 +427,7 @@ def data_generate(
             save=save,
         )
     else:
-        data_generate_fly_voltage(
+        data_generate_voltage(
             config,
             visualize=visualize,
             run_vizualized=run_vizualized,
@@ -877,11 +877,11 @@ def _compute_noisy_derivatives(config, sim, n_neurons, split='train'):
                 f"(measurement_noise_level={sim.measurement_noise_level})")
 
 
-def data_generate_fly_AdEx_spiking(config, visualize=True, run_vizualized=0, style="color", erase=False, step=5, device=None,
+def data_generate_spiking(config, visualize=True, run_vizualized=0, style="color", erase=False, step=5, device=None,
                               save=True):
     """Generate spiking (AdEx) simulation data using the flyvis connectome.
 
-    Uses the same visual stimulus pipeline as data_generate_fly_voltage,
+    Uses the same visual stimulus pipeline as data_generate_voltage,
     but integrates AdEx dynamics with event-triggered synaptic transmission.
     """
     from flyvis_gnn.generators.flyvis_adex_ode import FlyVisAdExODE
@@ -1155,7 +1155,7 @@ def data_generate_fly_AdEx_spiking(config, visualize=True, run_vizualized=0, sty
     logger.info("spiking data generation complete")
 
 
-def data_generate_fly_voltage(config, visualize=True, run_vizualized=0, style="color", erase=False, step=5, device=None,
+def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color", erase=False, step=5, device=None,
                               save=True):
 
     fig_style = dark_style if "black" in style else default_style

@@ -1,5 +1,5 @@
 """
-Neural ODE wrapper for FlyVisGNN.
+Neural ODE wrapper for NeuralGNN.
 
 Uses torchdiffeq's adjoint method for memory-efficient training:
 - Memory O(1) in rollout steps L (vs O(L) for BPTT)
@@ -17,7 +17,7 @@ from flyvis_gnn.neuron_state import NeuronState
 logger = logging.getLogger(__name__)
 
 
-class GNNODEFunc_FlyVis(nn.Module):
+class GNNODEFunc(nn.Module):
     """
     Wraps GNN model as ODE vector field: dv/dt = f(t, v).
 
@@ -88,7 +88,7 @@ class GNNODEFunc_FlyVis(nn.Module):
         return dv
 
 
-def integrate_neural_ode_FlyVis(model, v0, x_template, edge_index, data_id, time_steps, delta_t,
+def integrate_neural_ode(model, v0, x_template, edge_index, data_id, time_steps, delta_t,
                          neurons_per_sample, batch_size, has_visual_field=False,
                          x_ts=None, device=None, k_batch=None,
                          ode_method='dopri5', rtol=1e-4, atol=1e-5,
@@ -97,7 +97,7 @@ def integrate_neural_ode_FlyVis(model, v0, x_template, edge_index, data_id, time
     Integrate GNN dynamics using Neural ODE.
 
     args:
-        model: FlyVisGNN model
+        model: NeuralGNN model
         v0: initial voltage state (B*N,)
         x_template: NeuronState used as template for ODE steps (batched, B*N neurons)
         edge_index: (2, B*E) batched edge index
@@ -120,7 +120,7 @@ def integrate_neural_ode_FlyVis(model, v0, x_template, edge_index, data_id, time
     # adjoint: O(1) memory, standard: faster but O(L) memory
     solver = odeint_adjoint if adjoint else odeint
 
-    ode_func = GNNODEFunc_FlyVis(
+    ode_func = GNNODEFunc(
         model=model,
         x_template=x_template,
         edge_index=edge_index,
@@ -160,7 +160,7 @@ def integrate_neural_ode_FlyVis(model, v0, x_template, edge_index, data_id, time
     return v_final, v_trajectory
 
 
-def neural_ode_loss_FlyVis(model, dataset_batch, edge_index, x_ts, k_batch,
+def neural_ode_loss(model, dataset_batch, edge_index, x_ts, k_batch,
                            time_step, batch_size, n_neurons, ids_batch,
                            delta_t, device,
                            data_id=None, has_visual_field=False,
@@ -206,7 +206,7 @@ def neural_ode_loss_FlyVis(model, dataset_batch, edge_index, x_ts, k_batch,
         logger.debug(f"  v0 shape={v0.shape}, mean={v0.mean().item():.4f}, std={v0.std().item():.4f}")
         logger.debug(f"  k_per_sample={k_per_sample.tolist()}, ode_method={ode_method}, adjoint={adjoint}")
 
-    v_final, v_trajectory = integrate_neural_ode_FlyVis(
+    v_final, v_trajectory = integrate_neural_ode(
         model=model,
         v0=v0,
         x_template=x_template,
