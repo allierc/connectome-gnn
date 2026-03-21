@@ -10,7 +10,7 @@ import time
 CLUSTER_USER = "allierc"
 CLUSTER_LOGIN = "login1"
 CLUSTER_HOME = "/groups/saalfeld/home/allierc"
-CLUSTER_ROOT_DIR = f"{CLUSTER_HOME}/GraphCluster/flyvis-gnn"
+CLUSTER_ROOT_DIR = f"{CLUSTER_HOME}/GraphCluster/connectome-gnn"
 CLUSTER_DATA_DIR = f"{CLUSTER_HOME}/GraphData"
 CLUSTER_SSH = f"{CLUSTER_USER}@{CLUSTER_LOGIN}"
 
