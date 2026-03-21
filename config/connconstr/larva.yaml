@@ -1,5 +1,5 @@
 description: "Drosophila larva two-population motor model (Beiran & Litwin-Kumar 2023, Fig 5)"
-dataset: connconstr_larva
+dataset: larva
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ""
@@ -10,13 +10,14 @@ simulation:
   n_input_neurons: 0
   n_neuron_types: 2  # premotor, motor
   n_edges: 0
-  n_frames: 6000  # 6s at dt=0.001
-  delta_t: 0.001
+  n_frames: 2400  # 10 repeats × 2 conditions × 120 frames
+  delta_t: 0.05
   baseline_value: 0
   noise_model_level: 0.0
   seed: 42
   connconstr_datapath: "papers/Code_NN/Code_NN/Data/Figure5"
   connconstr_model: larva
+  connconstr_n_trials: 10
   connconstr_use_pretrained: true
 graph_model:
   signal_model_name: larva

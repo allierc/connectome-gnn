@@ -1,5 +1,5 @@
 description: "Zebrafish oculomotor integrator (Beiran & Litwin-Kumar 2023, Fig 5)"
-dataset: connconstr_zebrafish
+dataset: zebrafish
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ""

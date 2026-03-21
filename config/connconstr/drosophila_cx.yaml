@@ -1,5 +1,5 @@
 description: "Drosophila adult central complex ring attractor (Beiran & Litwin-Kumar 2023, Fig 5)"
-dataset: connconstr_drosophila_cx
+dataset: drosophila_cx
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ""
@@ -15,10 +15,10 @@ simulation:
   baseline_value: 0
   noise_model_level: 0.0
   seed: 42
-  connconstr_datapath: "papers/Code_NN/Code_NN/Data/Figure5/exported-traced-adjacencies-v1.2"
+  connconstr_datapath: "papers/Code_NN/Code_NN/Data/Figure5"
   connconstr_model: drosophila_cx
   connconstr_n_trials: 50
-  connconstr_use_pretrained: false
+  connconstr_use_pretrained: true
 graph_model:
   signal_model_name: drosophila_cx
   prediction: first_derivative
