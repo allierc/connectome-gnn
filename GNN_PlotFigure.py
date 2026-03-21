@@ -1448,18 +1448,9 @@ def analyze_neuron_type_reconstruction(config, model, edges, true_weights, gt_ta
     rmse_taus = np.array(rmse_taus)
     rmse_vrests = np.array(rmse_vrests)
 
-    unique_types_in_order = []
-    seen_types = set()
-    for i in range(len(type_list)):
-        neuron_type_id = type_list[i].item() if hasattr(type_list[i], 'item') else int(type_list[i])
-        if neuron_type_id not in seen_types:
-            unique_types_in_order.append(neuron_type_id)
-            seen_types.add(neuron_type_id)
-
-    # Create neuron type names in the same order as they appear in data
-    sorted_neuron_type_names = [index_to_name.get(type_id, f'Type{type_id}') for type_id in unique_types_in_order]
-    unique_types_in_order = np.array(unique_types_in_order)
-    sort_indices = unique_types_in_order.astype(int)
+    # Build neuron type names in order 0..n_neuron_types-1 (matching rmse arrays)
+    sorted_neuron_type_names = [index_to_name.get(t, f'Type{t}') for t in range(n_neuron_types)]
+    sort_indices = np.arange(n_neuron_types)
 
     fig, axes = plt.subplots(3, 1, figsize=(10, 12))
 
