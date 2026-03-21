@@ -81,7 +81,7 @@ def data_train(config=None, erase=False, best_model=None, style=None, device=Non
     _logger.info(f"dataset: {config.dataset}")
     _logger.info(f"{config.description}")
 
-    _connconstr = config.dataset.startswith(('drosophila_cx', 'zebrafish_oculomotor', 'larva'))
+    _connconstr = any(x in config.dataset for x in ('drosophila_cx', 'zebrafish_oculomotor', 'larva'))
     if 'fly' in config.dataset or _connconstr:
         if 'RNN' in config.graph_model.signal_model_name or 'LSTM' in config.graph_model.signal_model_name:
             data_train_flyvis_RNN(config, erase, best_model, device)
@@ -976,7 +976,7 @@ def data_test(config=None, config_file=None, visualize=False, style='color frame
     _logger.info(f"dataset_name: {dataset_name}")
     _logger.info(f"{config.description}")
 
-    _connconstr = config.dataset.startswith(('drosophila_cx', 'zebrafish_oculomotor', 'larva'))
+    _connconstr = any(x in config.dataset for x in ('drosophila_cx', 'zebrafish_oculomotor', 'larva'))
     if 'fly' in config.dataset or _connconstr:
         # Route to special test (ODE regeneration) for ablation/modification experiments,
         # otherwise use pre-generated test data
