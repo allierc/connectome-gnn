@@ -996,6 +996,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             plt.tight_layout()
             plt.savefig(f'{log_dir}/results/weights_comparison_raw.png', dpi=300)
             plt.close()
+            raw_W_r2 = r_squared
             print(f"raw W R²: {_r2_color(r_squared)}{r_squared:.2f}{_ANSI_RESET}  slope: {np.round(slope_raw, 4)}")
             logger.info(f"raw W R²: {r_squared:.2f}  slope: {np.round(slope_raw, 4)}")
 
@@ -1118,6 +1119,8 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
 
             # Write to analysis log file for Claude
             if log_file:
+                log_file.write(f"\n--- Parameter extraction results ---\n")
+                log_file.write(f"raw_W_R2: {raw_W_r2:.4f}\n")
                 log_file.write(f"connectivity_R2: {r_squared:.4f}\n")
                 if connectivity_r2_real is not None:
                     log_file.write(f"connectivity_R2_real: {connectivity_r2_real:.4f}\n")
@@ -1293,6 +1296,11 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             print(f'eigenvector alignment - right: {np.mean(best_alignment_R):.3f}  left: {np.mean(best_alignment_L):.3f}')
             logger.info(f'eigenvector alignment - right: {np.mean(best_alignment_R):.3f}  left: {np.mean(best_alignment_L):.3f}')
 
+            if log_file:
+                log_file.write(f"spectral_radius_true: {true_spectral_radius:.4f}\n")
+                log_file.write(f"spectral_radius_learned: {learned_spectral_radius:.4f}\n")
+                log_file.write(f"eigenvector_alignment_R: {np.mean(best_alignment_R):.4f}\n")
+                log_file.write(f"eigenvector_alignment_L: {np.mean(best_alignment_L):.4f}\n")
 
             # plot analyze_neuron_type_reconstruction
             results_per_neuron = analyze_neuron_type_reconstruction(
