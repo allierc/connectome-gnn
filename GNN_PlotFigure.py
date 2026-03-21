@@ -1193,10 +1193,10 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 model=model,
                 edges=to_numpy(edges),
                 true_weights=true_weights,  #  ground truth weights
-                gt_taus=gt_taus,  #  ground truth tau values
-                gt_V_Rest=gt_V_rest,  #  ground truth V_rest values
+                gt_taus=to_numpy(gt_taus[:n_neurons]),  #  ground truth tau values
+                gt_V_Rest=to_numpy(gt_V_Rest[:n_neurons]),  #  ground truth V_rest values
                 learned_weights=learned_weights,
-                learned_tau = learned_tau,
+                learned_tau=learned_tau,
                 learned_V_rest=learned_V_rest, # Learned V_rest
                 type_list=to_numpy(type_list),
                 n_frames=sim.n_frames,
@@ -1270,12 +1270,14 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             }
 
             # true combinations
+            _gt_taus_np = to_numpy(gt_taus[:n_neurons])
+            _gt_vrest_np = to_numpy(gt_V_Rest[:n_neurons])
             true_combos = {
-                'τ': gt_taus.reshape(-1, 1),
-                'V': gt_V_rest.reshape(-1, 1),
+                'τ': _gt_taus_np.reshape(-1, 1),
+                'V': _gt_vrest_np.reshape(-1, 1),
                 'W': W_true,
-                '(τ,V)': np.column_stack([gt_taus, gt_V_rest]),
-                '(τ,V,W)': np.column_stack([gt_taus, gt_V_rest, W_true]),
+                '(τ,V)': np.column_stack([_gt_taus_np, _gt_vrest_np]),
+                '(τ,V,W)': np.column_stack([_gt_taus_np, _gt_vrest_np, W_true]),
             }
 
             # cluster learned
