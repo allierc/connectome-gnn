@@ -68,7 +68,7 @@ training:
   seed: 42
 claude:
   n_epochs: 1
-  data_augmentation_loop: 20
+  data_augmentation_loop: 500
   n_iter_block: 12
   ucb_c: 1.414
   n_parallel: 4
