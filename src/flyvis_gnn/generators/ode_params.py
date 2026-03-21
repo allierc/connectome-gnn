@@ -555,7 +555,7 @@ class FlyVisHodgkinHuxleyODEParams(ODEParamsBase):
 # Zebrafish oculomotor integrator (Beiran & Litwin-Kumar 2023, Fig 5)
 # ---------------------------------------------------------------------------
 
-@register_ode_params("zebrafish")
+@register_ode_params("zebrafish", "zebrafish_oculomotor")
 @dataclass
 class ZebrafishODEParams(ODEParamsBase):
     """Parameters for the zebrafish oculomotor linear integrator ODE.

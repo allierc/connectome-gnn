@@ -1,5 +1,5 @@
 description: "Zebrafish oculomotor integrator (Beiran & Litwin-Kumar 2023, Fig 5)"
-dataset: zebrafish
+dataset: zebrafish_oculomotor
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ""
@@ -19,7 +19,7 @@ simulation:
   connconstr_model: zebrafish
   connconstr_use_pretrained: true
 graph_model:
-  signal_model_name: zebrafish
+  signal_model_name: zebrafish_oculomotor
   prediction: first_derivative
   input_size: 3
   n_layers: 3

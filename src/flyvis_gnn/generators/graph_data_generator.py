@@ -141,7 +141,7 @@ def _plot_connconstr_diagnostics(
     # Zebrafish: remove disconnected neurons, sort by total outgoing weight
     # Ref: nn_fig5_plots_ghi.py lines 156-161
     # CX/larva: keep natural cell-type ordering (EPG/PEN/Δ7/PEG or PMN/MN)
-    if model_name == "zebrafish":
+    if model_name in ("zebrafish", "zebrafish_oculomotor"):
         # Remove neurons with no connections (zeroed by final_adjustments)
         has_conn = (np.abs(J).sum(axis=0) + np.abs(J).sum(axis=1)) > 0
         J_active = J[has_conn, :][:, has_conn]
@@ -186,7 +186,7 @@ def _plot_connconstr_diagnostics(
         phi = np.log1p(np.exp(v_range))
         ax.plot(v_range, phi, linewidth=style.line_width, color=style.foreground,
                 label='softplus($\\beta$=1)')
-    elif model_name == "zebrafish":
+    elif model_name in ("zebrafish", "zebrafish_oculomotor"):
         phi = v_range.copy()
         ax.plot(v_range, phi, linewidth=style.line_width, color=style.foreground,
                 label='linear (identity)')
