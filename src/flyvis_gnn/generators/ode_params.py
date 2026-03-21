@@ -225,6 +225,24 @@ class ODEParamsBase:
         """Names of extractable g_phi parameters (for printing)."""
         return ["slope"]
 
+    def effective_true_weights(self, gt_weights: np.ndarray, edges: np.ndarray,
+                               n_neurons: int) -> np.ndarray:
+        """Adjust true weights to include the g_phi amplitude factor.
+
+        For ReLU models (slope=1), returns gt_weights unchanged.
+        For models where g_phi has a per-neuron gain entangled with W
+        (e.g. CX softplus with exp(g)), returns W_true * gain[src].
+
+        Args:
+            gt_weights: (E,) true edge weights.
+            edges: (2, E) edge indices.
+            n_neurons: number of neurons.
+
+        Returns:
+            (E,) effective true weights for comparison with corrected W.
+        """
+        return gt_weights  # Default: no adjustment (ReLU slope ≈ 1)
+
     def clustering_features(self) -> list[str]:
         """Feature combinations for neuron type clustering analysis."""
         return ["a", "W"]
@@ -1129,14 +1147,19 @@ class DrosophilaCxODEParams(ODEParamsBase):
     def fit_g_phi_curves(self, v_ranges, learned_curves):
         """Fit learned g_phi to A * softplus(v + b, beta=5) per neuron.
 
+        Gain A is entangled with W (the GNN can split amplitude arbitrarily
+        between g_phi and W), so only bias b is a meaningful shape parameter.
+        The correction factor is the gain A — used to form the effective weight
+        W_eff = W_learned * A_j, compared against W_true * exp(g_true_j).
+
         Args:
             v_ranges: (N, n_pts) per-neuron voltage grids.
             learned_curves: (N, n_pts) learned g_phi output per neuron.
 
         Returns dict with:
-            correction: (N,) gain A — factor absorbed into W from source side
-            gain: (N,) fitted amplitude A ≈ exp(g_true)
-            bias: (N,) fitted bias b ≈ b_true
+            correction: (N,) gain A — multiplied INTO W to form effective weight
+            gain: (N,) fitted amplitude (entangled with W, not reported as R²)
+            bias: (N,) fitted bias b ≈ b_true (shape param, disentangled)
         """
         from scipy.optimize import curve_fit
         beta = self.beta
@@ -1166,15 +1189,27 @@ class DrosophilaCxODEParams(ODEParamsBase):
         return {'correction': correction, 'gain': gains, 'bias': biases}
 
     def gt_g_phi_params(self, n_neurons):
-        """Ground truth gain=exp(g) and bias=b for R² comparison."""
-        if self.g is None or self.b is None:
+        """Ground truth bias b for R² comparison.
+        Gain is entangled with W — only bias is a meaningful shape parameter."""
+        if self.b is None:
             return None
-        g_np = self.g[:n_neurons].cpu().numpy()
         b_np = self.b[:n_neurons].cpu().numpy()
-        return {'gain': np.exp(g_np), 'bias': b_np}
+        return {'bias': b_np}
 
     def g_phi_param_names(self):
-        return ["gain", "bias"]
+        return ["bias"]
+
+    def effective_true_weights(self, gt_weights, edges, n_neurons):
+        """True effective weight = W_true * exp(g_src).
+
+        The GNN's corrected_W = W_learned * A_src ≈ W_true * exp(g_src),
+        so we compare against W_true * exp(g_src) rather than bare W_true.
+        """
+        if self.g is None:
+            return gt_weights
+        g_np = self.g[:n_neurons].cpu().numpy()
+        src = edges[0]
+        return gt_weights * np.exp(g_np[src])
 
     def clustering_features(self):
         return ["a", r"$\tau$", "W", r"(a,$\tau$,W)"]
