@@ -72,24 +72,186 @@ def _is_connconstr_model(signal_model_name: str) -> bool:
         return False
 
 
+def _plot_connconstr_diagnostics(
+    voltage_history, stimulus_history, ode_params, edge_index,
+    model_name, n_neurons, dt, config, device,
+):
+    """Generate traces, connectivity, and g_phi plots for connconstr models.
+
+    Uses the same FigureStyle as the flyvis-gnn pipeline:
+    - flat design (no spines), 14pt labels, 12pt ticks, 200dpi
+    - activity_traces: all neurons stacked, auto-scaled amplitude
+    - connectivity: weight matrix heatmap with optimal contrast (percentile clamp)
+    - g_phi: teacher activation function
+    """
+    from flyvis_gnn.figure_style import default_style as style
+
+    style.apply_globally()
+    folder = graphs_data_path(config.dataset)
+    os.makedirs(folder, exist_ok=True)
+
+    voltage_arr = np.array(voltage_history)   # (T_sampled, N)
+    stimulus_arr = np.array(stimulus_history)  # (T_sampled, N)
+
+    # --- 1. Activity traces (all neurons, auto-scaled) ---
+    # Follows plot_activity_traces pattern: stacked traces, black on white
+    activity = voltage_arr.T  # (N, T_sampled)
+    n_frames = activity.shape[1]
+
+    # Auto-scale: subtract per-neuron mean, normalize by global amplitude
+    mu = activity.mean(axis=1, keepdims=True)
+    activity_centered = activity - mu
+    amp = np.percentile(np.abs(activity_centered), 99)
+    if amp < 1e-12:
+        amp = 1.0
+    activity_scaled = activity_centered / amp
+
+    step_v = 2.0
+    offset = activity_scaled + step_v * np.arange(n_neurons)[:, None]
+
+    fig, ax = style.figure(aspect=2.5)
+    ax.plot(offset.T, linewidth=0.3, alpha=0.6, color=style.foreground)
+
+    # Red stimulus trace at bottom
+    stim_mean = stimulus_arr.mean(axis=1)  # mean across neurons per timestep
+    if np.abs(stim_mean).max() > 1e-12:
+        stim_scaled = stim_mean / np.abs(stim_mean).max()
+        stim_y = offset[0].min() - step_v * 2 + stim_scaled * step_v * 3
+        ax.plot(stim_y, linewidth=0.8, alpha=0.9, color='red')
+
+    style.xlabel(ax, 'time (frames)')
+    style.ylabel(ax, f'{n_neurons} neurons')
+    ax.set_yticks([])
+    ax.set_xlim([0, n_frames])
+    y_bottom = offset[0].min() - step_v * 4
+    ax.set_ylim([y_bottom, offset[-1].max() + 2])
+
+    style.savefig(fig, os.path.join(folder, "activity_traces.png"))
+    logger.info("saved activity_traces.png")
+
+    # --- 2. Connectivity heatmap (flyvis-gnn style, optimal contrast) ---
+    # W_dense[pre, post] from edge_index convention; transpose to J[post, pre]
+    # to match neuroscience convention: rows=postsynaptic, cols=presynaptic
+    ei = to_numpy(edge_index)
+    W = to_numpy(ode_params.W)
+    W_dense = np.zeros((n_neurons, n_neurons), dtype=np.float32)
+    W_dense[ei[0], ei[1]] = W
+    J = W_dense.T  # J[post, pre] — paper convention
+
+    # Zebrafish: remove disconnected neurons, sort by total outgoing weight
+    # Ref: nn_fig5_plots_ghi.py lines 156-161
+    # CX/larva: keep natural cell-type ordering (EPG/PEN/Δ7/PEG or PMN/MN)
+    if model_name == "zebrafish":
+        # Remove neurons with no connections (zeroed by final_adjustments)
+        has_conn = (np.abs(J).sum(axis=0) + np.abs(J).sum(axis=1)) > 0
+        J_active = J[has_conn, :][:, has_conn]
+        # Sort by total outgoing weight (column sum, strongest first)
+        col_sum = np.sum(J_active, axis=0)
+        sort_idx = np.argsort(col_sum)[::-1]
+        W_plot = J_active[sort_idx, :][:, sort_idx]
+    else:
+        W_plot = J
+
+    # Optimal contrast: use percentile-based clamp instead of global min/max
+    nonzero_W = W[np.abs(W) > 0]
+    if len(nonzero_W) > 0:
+        vmax = np.percentile(np.abs(nonzero_W), 98)
+    else:
+        vmax = 1.0
+    vmax = max(vmax, 1e-6)
+
+    fig, ax = style.figure(aspect=1.0)
+    im = ax.imshow(
+        W_plot, cmap='bwr_r', vmin=-vmax, vmax=vmax,
+        aspect='auto', interpolation='nearest', origin='upper',
+    )
+    cb = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    cb.ax.tick_params(labelsize=style.tick_font_size)
+    style.xlabel(ax, 'presynaptic neuron')
+    style.ylabel(ax, 'postsynaptic neuron')
+
+    style.savefig(fig, os.path.join(folder, "connectivity.png"))
+    logger.info("saved connectivity.png")
+
+    # --- 3. g_phi plot (teacher activation function, flyvis-gnn style) ---
+    v_range = np.linspace(-2, 5, 500)
+
+    fig, ax = style.figure(aspect=1.2)
+    if model_name == "drosophila_cx":
+        beta = 5.0
+        phi = np.log1p(np.exp(beta * v_range)) / beta
+        ax.plot(v_range, phi, linewidth=style.line_width, color=style.foreground,
+                label=f'softplus($\\beta$={int(beta)})')
+    elif model_name == "larva":
+        phi = np.log1p(np.exp(v_range))
+        ax.plot(v_range, phi, linewidth=style.line_width, color=style.foreground,
+                label='softplus($\\beta$=1)')
+    elif model_name == "zebrafish":
+        phi = v_range.copy()
+        ax.plot(v_range, phi, linewidth=style.line_width, color=style.foreground,
+                label='linear (identity)')
+
+    ax.axhline(0, color='#aaa', linewidth=0.5, linestyle='--')
+    ax.axvline(0, color='#aaa', linewidth=0.5, linestyle='--')
+    style.xlabel(ax, '$v$ (presynaptic)')
+    style.ylabel(ax, r'$g_\phi(v)$')
+    ax.legend(fontsize=style.tick_font_size, frameon=False)
+
+    style.savefig(fig, os.path.join(folder, "g_phi.png"))
+    logger.info("saved g_phi.png")
+
+    # --- 4. Kinograph (neurons x time heatmap, viridis LUT) ---
+    fig, axes = plt.subplots(
+        2, 1,
+        figsize=(style.figure_height * 3.0, style.figure_height * 2.0),
+        facecolor=style.background,
+        gridspec_kw={'height_ratios': [3, 1]},
+    )
+    imshow_kw = dict(aspect='auto', cmap='viridis', origin='lower', interpolation='nearest')
+
+    # Top: activity kinograph
+    ax = axes[0]
+    vmax_act = np.percentile(np.abs(voltage_arr), 99)
+    if vmax_act < 1e-12:
+        vmax_act = 1.0
+    im = ax.imshow(voltage_arr.T, vmin=-vmax_act, vmax=vmax_act, **imshow_kw)
+    cb = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    cb.ax.tick_params(labelsize=style.tick_font_size)
+    style.ylabel(ax, 'neurons')
+    ax.set_xticks([])
+    ax.set_yticks([0, n_neurons - 1])
+    ax.set_yticklabels([1, n_neurons], fontsize=style.tick_font_size)
+
+    # Bottom: stimulus kinograph
+    ax = axes[1]
+    vmax_stim = np.percentile(np.abs(stimulus_arr), 99)
+    if vmax_stim < 1e-12:
+        vmax_stim = 1.0
+    im = ax.imshow(stimulus_arr.T, vmin=-vmax_stim, vmax=vmax_stim, **imshow_kw)
+    cb = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    cb.ax.tick_params(labelsize=style.tick_font_size)
+    style.ylabel(ax, 'stimulus')
+    style.xlabel(ax, 'time (frames)')
+    ax.set_yticks([0, n_neurons - 1])
+    ax.set_yticklabels([1, n_neurons], fontsize=style.tick_font_size)
+
+    plt.tight_layout()
+    style.savefig(fig, os.path.join(folder, "kinograph.png"))
+    logger.info("saved kinograph.png")
+
+
 def data_generate_connconstr(config, visualize=True, device=None, save=True):
     """Generate simulation data from a connconstr biological connectome model.
 
     Ref: Beiran & Litwin-Kumar (2023), Fig 5
 
-    Supports three models:
-      - zebrafish: linear oculomotor integrator
-      - drosophila_cx: ring attractor (central complex)
-      - larva: two-population premotor + motor
-
-    Each model has its own ODE class, stimulus generation, and integration loop.
-    Output format matches the existing pipeline: zarr-based x_list_train/y_list_train.
+    Model-agnostic: uses registry methods on ODE params classes
+    (create_ode, generate_stimulus, init_state, etc.)
     """
     from flyvis_gnn.generators.ode_params import get_ode_params_class
 
     sim = config.simulation
-    model_config = config.graph_model
-    model_name = model_config.signal_model_name
+    model_name = config.graph_model.signal_model_name
 
     torch.random.fork_rng(devices=device)
     if sim.seed != 42:
@@ -99,10 +261,9 @@ def data_generate_connconstr(config, visualize=True, device=None, save=True):
     logger.info(f"generating connconstr data ... model={model_name}  datapath={sim.connconstr_datapath}")
 
     folder = graphs_data_path(config.dataset) + "/"
-    os.makedirs(graphs_data_path("fly"), exist_ok=True)
     os.makedirs(folder, exist_ok=True)
 
-    # Load ODE params from connectome data
+    # Load ODE params via registry
     OdeParamsCls = get_ode_params_class(model_name)
     datapath = sim.connconstr_datapath
 
@@ -117,57 +278,21 @@ def data_generate_connconstr(config, visualize=True, device=None, save=True):
         ode_params = OdeParamsCls.from_connectome(datapath, device=device)
 
     edge_index = ode_params.edge_index
-
     if save:
         ode_params.save(folder)
 
-    # Create ODE instance
-    if model_name == "zebrafish":
-        from flyvis_gnn.generators.connconstr_zebrafish_ode import ZebrafishODE
-        pde = ZebrafishODE(ode_params=ode_params, device=device)
-        n_neurons = ode_params.n_neurons
-        dt = 0.001  # Ref: simulate_series line 166
-        n_frames_total = 21000  # 3 pulse repeats (line 161-164)
-    elif model_name == "drosophila_cx":
-        from flyvis_gnn.generators.connconstr_cx_ode import DrosophilaCxODE
-        pde = DrosophilaCxODE(ode_params=ode_params, device=device)
-        n_neurons = ode_params.n_neurons
-        dt = 0.1  # Ref: teacher training dt
-        n_frames_total = sim.n_frames if sim.n_frames > 0 else 10000
-    elif model_name == "larva":
-        from flyvis_gnn.generators.connconstr_larva_ode import LarvaODE
-        pde = LarvaODE(ode_params=ode_params, device=device)
-        n_neurons = ode_params.n_premotor + ode_params.n_motor
-        dt = ode_params.dt
-        n_frames_total = sim.n_frames if sim.n_frames > 0 else 6000
-    else:
-        raise ValueError(f"Unknown connconstr model: {model_name}")
+    # Create ODE, get integration params — all via registry methods
+    pde = ode_params.create_ode(device=device)
+    n_neurons = ode_params.get_n_neurons()
+    dt = ode_params.get_dt()
+    n_frames_total = ode_params.get_n_frames(sim)
+    trial_len = ode_params.get_trial_length()
 
     logger.info(f"n_neurons={n_neurons}  n_edges={edge_index.shape[1]}  dt={dt}  n_frames={n_frames_total}")
 
-    # Generate stimulus
-    if model_name == "zebrafish":
-        from flyvis_gnn.generators.connconstr_data import generate_zebrafish_stimulus
-        I_stim = generate_zebrafish_stimulus(n_frames_total)
-        I_stim = torch.tensor(I_stim, dtype=torch.float32, device=device)
-    elif model_name == "drosophila_cx":
-        from flyvis_gnn.generators.connconstr_data import generate_cx_stimulus
-        data_dict = None
-        if hasattr(ode_params, 'winp'):
-            # Load CX connectome data for stimulus generation helpers
-            from flyvis_gnn.generators.connconstr_data import load_drosophila_cx_connectome
-            data_dict = load_drosophila_cx_connectome(datapath)
-        # For CX, stimulus is generated per trial — we'll handle it in the integration loop
-        I_stim = None
-    elif model_name == "larva":
-        from flyvis_gnn.generators.connconstr_data import generate_larva_stimulus, load_larva_connectome
-        conn_data = load_larva_connectome(datapath)
-        mtarg, s_stim = generate_larva_stimulus(
-            conn_data["mnorder"], B=2, S=2, dt=dt
-        )
-        # s_stim: (T, B, S) — use first batch condition
-        s_stim = torch.tensor(s_stim[:, 0, :], dtype=torch.float32, device=device)  # (T, S)
-        n_frames_total = s_stim.shape[0]
+    # Generate per-neuron stimulus (T, N) via registry method
+    stim_all = ode_params.generate_stimulus(n_frames_total, sim, device=device)
+    n_frames_total = stim_all.shape[0]  # may be adjusted by stimulus generator
 
     # Initialize neuron state
     x = NeuronState(
@@ -183,40 +308,21 @@ def data_generate_connconstr(config, visualize=True, device=None, save=True):
         noise=torch.zeros(n_neurons, dtype=torch.float32, device=device),
     )
 
-    # For CX model, set initial state from h0
-    if model_name == "drosophila_cx" and ode_params.h0 is not None:
-        x.voltage = ode_params.h0.clone()
-
-    # For larva, set initial state from pretrained p0/m0 if available
-    if model_name == "larva":
-        try:
-            from flyvis_gnn.generators.connconstr_data import load_larva_pretrained
-            pretrained = load_larva_pretrained(datapath)
-            # p0/m0 are trajectories (T, B, N) — use first time step, first batch
-            if "p0" in pretrained and pretrained["p0"] is not None:
-                p0 = pretrained["p0"]
-                if p0.ndim == 3:
-                    p0 = p0[0, 0, :]  # (T, B, N) → (N,)
-                x.voltage[:ode_params.n_premotor] = torch.tensor(
-                    p0.flatten()[:ode_params.n_premotor], dtype=torch.float32, device=device)
-            if "m0" in pretrained and pretrained["m0"] is not None:
-                m0 = pretrained["m0"]
-                if m0.ndim == 3:
-                    m0 = m0[0, 0, :]  # (T, B, M) → (M,)
-                x.voltage[ode_params.n_premotor:] = torch.tensor(
-                    m0.flatten()[:ode_params.n_motor], dtype=torch.float32, device=device)
-        except (FileNotFoundError, KeyError):
-            pass
+    # Set initial state via registry method
+    ode_params.init_state(x.voltage, datapath=datapath, device=device)
 
     # Split into train/test (80/20 by time)
     n_train = int(n_frames_total * 0.8)
     n_test = n_frames_total - n_train
 
+    # Collect voltage history for visualization (train split only)
+    voltage_history = [] if visualize else None
+    stimulus_history = [] if visualize else None
+
     for split, (frame_start, frame_end) in [("train", (0, n_train)), ("test", (n_train, n_frames_total))]:
         n_split = frame_end - frame_start
         logger.info(f"generating {split} split: frames [{frame_start}, {frame_end}) ({n_split} frames)")
 
-        # Reset state for test split
         if split == "test":
             x.voltage[:] = 0
 
@@ -234,26 +340,20 @@ def data_generate_connconstr(config, visualize=True, device=None, save=True):
 
         with torch.no_grad():
             for t in tqdm(range(frame_start, frame_end), desc=f"connconstr {split}", ncols=100):
-                # Set stimulus for this timestep
-                if model_name == "zebrafish":
-                    # Zebrafish: scalar I(t) broadcast via v_in in the ODE
-                    x.stimulus[:] = I_stim[t]
-                elif model_name == "larva":
-                    # Larva: stimulus goes to premotor neurons via wsp
-                    # stim_projected = wsp.T @ s(t) where wsp is (S, N_premotor)
-                    stim_t = s_stim[t]  # (S,)
-                    projected = ode_params.wsp.t() @ stim_t  # (N_premotor,)
-                    x.stimulus[:ode_params.n_premotor] = projected
-                    x.stimulus[ode_params.n_premotor:] = 0
-                elif model_name == "drosophila_cx":
-                    # CX: for now, no external stimulus (free ring attractor dynamics)
-                    # TODO: add velocity input for bump rotation
-                    x.stimulus[:] = 0
+                # Reset state at trial boundaries if model has trial structure
+                if trial_len > 0 and t % trial_len == 0:
+                    ode_params.init_state(x.voltage, datapath=datapath, device=device)
 
-                # Record state before integration
+                # Set per-neuron stimulus from precomputed tensor
+                x.stimulus[:] = stim_all[t]
+
                 x_writer.append_state(x)
 
-                # Euler step: dv = pde(x, edge_index); v += dt * dv
+                if visualize and split == "train" and (t - frame_start) % max(1, n_split // 5000) == 0:
+                    voltage_history.append(to_numpy(x.voltage.clone()))
+                    stimulus_history.append(to_numpy(x.stimulus.clone()))
+
+                # Euler step
                 dv = pde(x, edge_index)
                 dv_squeeze = dv.squeeze()
 
@@ -269,6 +369,12 @@ def data_generate_connconstr(config, visualize=True, device=None, save=True):
         n_written = x_writer.finalize()
         y_writer.finalize()
         logger.info(f"generated {n_written} {split} frames")
+
+    if visualize and voltage_history:
+        _plot_connconstr_diagnostics(
+            voltage_history, stimulus_history, ode_params, edge_index,
+            model_name, n_neurons, dt, config, device,
+        )
 
     logger.info("connconstr data generation complete")
 

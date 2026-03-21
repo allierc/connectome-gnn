@@ -628,7 +628,12 @@ class ZebrafishODEParams(ODEParamsBase):
             dense_to_sparse, load_zebrafish_pretrained,
         )
 
-        data = load_zebrafish_pretrained(datapath)
+        # zebrafish.npz may be in parent directory
+        try:
+            data = load_zebrafish_pretrained(datapath)
+        except FileNotFoundError:
+            parent = os.path.dirname(datapath)
+            data = load_zebrafish_pretrained(parent)
         W_dense = data["W"]
         N = W_dense.shape[0]
         edge_index, W_sparse = dense_to_sparse(W_dense)
@@ -641,6 +646,33 @@ class ZebrafishODEParams(ODEParamsBase):
             tau=1.0,
             n_neurons=N,
         )
+
+    def create_ode(self, device=None):
+        from flyvis_gnn.generators.connconstr_zebrafish_ode import ZebrafishODE
+        return ZebrafishODE(ode_params=self, device=device)
+
+    def get_dt(self):
+        return 0.001  # Ref: simulate_series line 166
+
+    def get_n_neurons(self):
+        return self.n_neurons
+
+    def get_n_frames(self, sim):
+        return 21000  # 3 pulse repeats (line 161-164)
+
+    def generate_stimulus(self, n_frames, sim, device=None):
+        """Returns per-neuron stimulus tensor (T, N)."""
+        from flyvis_gnn.generators.connconstr_data import generate_zebrafish_stimulus
+        I = generate_zebrafish_stimulus(n_frames)
+        # Broadcast scalar stimulus to all neurons (ODE uses v_in internally)
+        I_t = torch.tensor(I, dtype=torch.float32, device=device)
+        return I_t.unsqueeze(1).expand(-1, self.n_neurons)  # (T, N)
+
+    def init_state(self, voltage, datapath=None, device=None):
+        pass  # zero init is fine
+
+    def get_trial_length(self):
+        return 0  # no trial structure
 
 
 # ---------------------------------------------------------------------------
@@ -705,7 +737,11 @@ class DrosophilaCxODEParams(ODEParamsBase):
             dense_to_sparse, load_drosophila_cx_connectome,
         )
 
-        data = load_drosophila_cx_connectome(datapath)
+        # Accept either parent dir or hemibrain subdir
+        hemibrain_dir = datapath
+        if not os.path.exists(os.path.join(datapath, "traced-neurons.csv")):
+            hemibrain_dir = os.path.join(datapath, "exported-traced-adjacencies-v1.2")
+        data = load_drosophila_cx_connectome(hemibrain_dir)
         N = data["N"]
 
         # J_effective = exp(wrec_log) * mwrec  (line 184)
@@ -734,6 +770,140 @@ class DrosophilaCxODEParams(ODEParamsBase):
             noise_std=0.0,
             n_neurons=N,
         )
+
+    @classmethod
+    def from_pretrained(cls, datapath: str, device: torch.device | str = "cpu"):
+        """Construct from trained teacher params_netSimpleRing2_final.npz.
+
+        Ref: nn_fig5_drosophilaCx_teacher.py lines 701-709
+        Saved arrays:
+          arr_0 = JJ = exp(wrec) * sign(mwrec)  (152, 152) effective connectivity
+          arr_1 = gg = exp(g)  (152,) gains (already exponentiated)
+          arr_2 = bb  (152,) biases
+          arr_3 = hh0  (152,) initial hidden state
+          arr_4 = wI  (48, 152) input weights
+          arr_5 = wOut  (152, 49) output weights
+          arr_6 = alpha_  scalar
+          arr_7 = si_  (48, 152) input scaling
+        """
+        from flyvis_gnn.generators.connconstr_data import (
+            dense_to_sparse, load_drosophila_cx_connectome,
+        )
+
+        # Prefer the .pt state dict (has taus), fallback to .npz
+        pt_path = os.path.join(datapath, "netPopVec_Wrec_simplering.pt")
+        npz_path = os.path.join(datapath, "params_netSimpleRing2_final.npz")
+
+        if os.path.exists(pt_path):
+            # Load full state dict — has all trained params including taus
+            sd = torch.load(pt_path, map_location='cpu', weights_only=False)
+            wrec_t = sd['wrec'].numpy()
+            mwrec_t = sd['mwrec'].numpy()
+            JJ = np.exp(wrec_t) * mwrec_t  # effective J (line 184)
+            g = sd['g'].numpy().flatten()   # log gain (ODE uses exp(g))
+            bb = sd['b'].numpy().flatten()
+            hh0 = sd['h0'].numpy().flatten()
+            tau_raw = sd['taus'].numpy().flatten()
+            wI = sd['wi'].numpy()           # (48, N)
+            si_ = sd['si'].numpy()          # (48, 1)
+            wOut = sd['wout'].numpy()       # (N, 49)
+            alpha_ = 0.2  # Ref: RNN.__init__ default alpha=0.2
+            N = JJ.shape[0]
+        elif os.path.exists(npz_path):
+            AA = np.load(npz_path)
+            JJ = AA['arr_0']       # effective J
+            gg = AA['arr_1']       # exp(g), already exponentiated
+            bb = AA['arr_2']       # bias
+            hh0 = AA['arr_3']      # initial state
+            wI = AA['arr_4']       # (48, N) input weights
+            wOut = AA['arr_5']     # (N, 49) output weights
+            alpha_ = float(AA['arr_6'])
+            si_ = AA['arr_7']      # (48, N) or (48, 1) input scaling
+            N = JJ.shape[0]
+            g = np.log(np.maximum(gg, 1e-12))  # log it back
+            tau_raw = np.zeros(N, dtype=np.float32)  # default
+        else:
+            raise FileNotFoundError(
+                f"CX pretrained not found at {pt_path} or {npz_path}\n"
+                "Run nn_fig5_drosophilaCx_teacher.py first."
+            )
+
+        edge_index, W_sparse = dense_to_sparse(JJ)
+
+        # Load neuron type labels from hemibrain data
+        hemibrain_dir = datapath
+        if not os.path.exists(os.path.join(datapath, "traced-neurons.csv")):
+            hemibrain_dir = os.path.join(datapath, "exported-traced-adjacencies-v1.2")
+        try:
+            cx_data = load_drosophila_cx_connectome(hemibrain_dir)
+            neuron_types = torch.tensor(cx_data["neuron_types"], dtype=torch.long, device=device)
+        except (FileNotFoundError, Exception):
+            neuron_types = torch.zeros(N, dtype=torch.long, device=device)
+
+        # Effective input weights: exp(si) * wI  (Ref: line 187)
+        winp_effective = np.exp(si_) * wI
+
+        return cls(
+            edge_index=edge_index.to(device),
+            W=W_sparse.to(device),
+            g=torch.tensor(g.flatten(), dtype=torch.float32, device=device),
+            b=torch.tensor(bb.flatten(), dtype=torch.float32, device=device),
+            h0=torch.tensor(hh0.flatten(), dtype=torch.float32, device=device),
+            tau_raw=torch.tensor(tau_raw.flatten(), dtype=torch.float32, device=device),
+            neuron_types=neuron_types,
+            winp=torch.tensor(winp_effective, dtype=torch.float32, device=device),
+            wout=torch.tensor(wOut, dtype=torch.float32, device=device),
+            alpha=alpha_,
+            beta=5.0,
+            noise_std=0.005,  # Ref: RNN.__init__ noise_std=0.005
+            n_neurons=N,
+        )
+
+    def create_ode(self, device=None):
+        from flyvis_gnn.generators.connconstr_cx_ode import DrosophilaCxODE
+        return DrosophilaCxODE(ode_params=self, device=device)
+
+    def get_dt(self):
+        return 0.1  # Ref: teacher training dt
+
+    def get_n_neurons(self):
+        return self.n_neurons
+
+    def get_n_frames(self, sim):
+        n_trials = sim.connconstr_n_trials
+        T_trial = 6.0
+        return n_trials * int(T_trial / self.get_dt())
+
+    def generate_stimulus(self, n_frames, sim, device=None):
+        """Returns per-neuron stimulus tensor (T, N)."""
+        from flyvis_gnn.generators.connconstr_data import (
+            generate_cx_stimulus, load_drosophila_cx_connectome,
+        )
+        from flyvis_gnn.utils import to_numpy
+        # Accept either parent dir or hemibrain subdir
+        hemibrain_dir = sim.connconstr_datapath
+        if not os.path.exists(os.path.join(hemibrain_dir, "traced-neurons.csv")):
+            hemibrain_dir = os.path.join(hemibrain_dir, "exported-traced-adjacencies-v1.2")
+        cx_data = load_drosophila_cx_connectome(hemibrain_dir)
+        dt = self.get_dt()
+        n_trials = sim.connconstr_n_trials
+        T_trial = 6.0
+        _, _, cx_inps, _ = generate_cx_stimulus(
+            n_trials, T_trial, dt,
+            cx_data["epg_ix"], cx_data["W_16to46"], cx_data["W_46to3"],
+            seed=sim.seed,
+        )
+        cx_inps_flat = cx_inps.reshape(-1, 48)
+        winp_np = to_numpy(self.winp)
+        stim_projected = cx_inps_flat @ winp_np
+        return torch.tensor(stim_projected, dtype=torch.float32, device=device)
+
+    def init_state(self, voltage, datapath=None, device=None):
+        if self.h0 is not None:
+            voltage[:] = self.h0.clone()
+
+    def get_trial_length(self):
+        return int(6.0 / self.get_dt())
 
 
 # ---------------------------------------------------------------------------
@@ -790,7 +960,7 @@ class LarvaODEParams(ODEParamsBase):
     taum: float = 1.0
     n_premotor: int = 0
     n_motor: int = 0
-    dt: float = 0.001
+    dt: float = 0.05  # Ref: setup.py line 224,227
 
     @classmethod
     def from_connectome(cls, datapath: str, device: torch.device | str = "cpu"):
@@ -838,7 +1008,7 @@ class LarvaODEParams(ODEParamsBase):
             neuron_types=neuron_types,
             taup=1.0, taum=1.0,
             n_premotor=N, n_motor=M,
-            dt=0.001,
+            dt=0.05,  # Ref: setup.py line 224,227
         )
 
     @classmethod
@@ -886,5 +1056,78 @@ class LarvaODEParams(ODEParamsBase):
             taum=float(data["taum"].item() if hasattr(data["taum"], 'item') else data["taum"]),
             n_premotor=N,
             n_motor=M,
-            dt=0.001,
+            dt=0.05,  # Ref: setup.py line 224,227
         )
+
+    def create_ode(self, device=None):
+        from flyvis_gnn.generators.connconstr_larva_ode import LarvaODE
+        return LarvaODE(ode_params=self, device=device)
+
+    def get_dt(self):
+        return self.dt
+
+    def get_n_neurons(self):
+        return self.n_premotor + self.n_motor
+
+    def get_n_frames(self, sim):
+        # Paper uses B=2 conditions × 120 frames each.
+        # We concatenate both conditions and repeat n_repeats times.
+        n_repeats = getattr(sim, 'connconstr_n_trials', 0)
+        if n_repeats <= 0:
+            n_repeats = 10  # default: 10 repeats → 2400 frames
+        T_per_condition = int(6.0 / self.dt)  # 120 frames
+        return 2 * T_per_condition * n_repeats  # B=2 conditions × repeats
+
+    def generate_stimulus(self, n_frames, sim, device=None):
+        """Returns per-neuron stimulus tensor (T, N_total).
+
+        Concatenates both B=2 conditions (forward + backward) and repeats
+        to produce enough training data.
+        """
+        from flyvis_gnn.generators.connconstr_data import (
+            generate_larva_stimulus, load_larva_connectome,
+        )
+        conn_data = load_larva_connectome(sim.connconstr_datapath)
+        mtarg, s_stim = generate_larva_stimulus(
+            conn_data["mnorder"], B=2, S=2, dt=self.dt
+        )
+        # s_stim: (T_trial, B, S)
+        T_trial = s_stim.shape[0]
+        N_total = self.n_premotor + self.n_motor
+
+        # Build one cycle: condition 0 then condition 1
+        stim_cycle = torch.zeros(2 * T_trial, N_total, dtype=torch.float32, device=device)
+        for bi in range(2):
+            s_raw = torch.tensor(s_stim[:, bi, :], dtype=torch.float32, device=device)
+            offset = bi * T_trial
+            for t_idx in range(T_trial):
+                stim_cycle[offset + t_idx, :self.n_premotor] = self.wsp.t() @ s_raw[t_idx]
+
+        # Repeat cycle to fill n_frames
+        n_cycle = stim_cycle.shape[0]
+        n_repeats = (n_frames + n_cycle - 1) // n_cycle
+        stim_all = stim_cycle.repeat(n_repeats, 1)[:n_frames]
+        return stim_all
+
+    def get_trial_length(self):
+        # Reset at cycle boundary: 2 conditions × 120 frames = 240 frames per cycle
+        return 2 * int(6.0 / self.dt)
+
+    def init_state(self, voltage, datapath=None, device=None):
+        try:
+            from flyvis_gnn.generators.connconstr_data import load_larva_pretrained
+            pretrained = load_larva_pretrained(datapath)
+            if "p0" in pretrained and pretrained["p0"] is not None:
+                p0 = pretrained["p0"]
+                if p0.ndim == 3:
+                    p0 = p0[0, 0, :]
+                voltage[:self.n_premotor] = torch.tensor(
+                    p0.flatten()[:self.n_premotor], dtype=torch.float32, device=device)
+            if "m0" in pretrained and pretrained["m0"] is not None:
+                m0 = pretrained["m0"]
+                if m0.ndim == 3:
+                    m0 = m0[0, 0, :]
+                voltage[self.n_premotor:] = torch.tensor(
+                    m0.flatten()[:self.n_motor], dtype=torch.float32, device=device)
+        except (FileNotFoundError, KeyError):
+            pass
