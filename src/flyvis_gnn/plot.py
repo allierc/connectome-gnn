@@ -176,7 +176,11 @@ def plot_embedding(ax, model, type_list, n_types, cmap):
     type_np = to_numpy(type_list).squeeze()
     n_neurons = len(type_np)
     _dot_s = max(6, min(80, 3000 / max(n_neurons, 1)))
-    _dot_alpha = max(0.25, min(0.9, 100 / max(n_neurons, 1)))
+    if n_neurons < 100:
+        _dot_s = max(40, _dot_s)
+        _dot_alpha = 1.0
+    else:
+        _dot_alpha = max(0.25, min(0.9, 100 / max(n_neurons, 1)))
 
     for n in range(n_types):
         mask = (type_np == n)
