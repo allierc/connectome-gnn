@@ -975,7 +975,7 @@ def data_test(config=None, config_file=None, visualize=False, style='color frame
     _logger.info(f"dataset_name: {dataset_name}")
     _logger.info(f"{config.description}")
 
-    if 'fly' in config.dataset:
+    if 'fly' in config.dataset or 'connconstr' in config.dataset:
         # Route to special test (ODE regeneration) for ablation/modification experiments,
         # otherwise use pre-generated test data
         special_modes = ('ablation', 'modified', 'inactivity', 'special')
