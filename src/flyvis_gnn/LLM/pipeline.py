@@ -73,7 +73,7 @@ def setup_exploration(args, root_dir: str) -> ExplorationState:
     # Load source config and claude settings
     for cfg in config_list:
         cfg_file, pre = add_pre_folder(cfg)
-        source_config = f"{config_root}/{pre}{cfg}.yaml"
+        source_config = f"{config_root}/{cfg_file}.yaml"
 
     with open(source_config, 'r') as f:
         source_data = yaml.safe_load(f)
@@ -162,7 +162,8 @@ def init_slot_configs(state: ExplorationState, is_resume: bool):
     for slot in range(state.n_parallel):
         slot_name = f"{state.llm_task_name}_{slot:02d}"
         state.slot_names[slot] = slot_name
-        target = f"{state.config_root}/{state.pre_folder}{slot_name}.yaml"
+        slot_cfg_file, _ = add_pre_folder(slot_name)
+        target = f"{state.config_root}/{slot_cfg_file}.yaml"
         state.config_paths[slot] = target
         state.analysis_log_paths[slot] = f"{state.exploration_dir}/{slot_name}_analysis.log"
 
