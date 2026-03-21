@@ -1006,7 +1006,9 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             torch.save(corrected_W, f'{log_dir}/results/corrected_W.pt')
 
             learned_weights = to_numpy(corrected_W.squeeze())
-            true_weights = to_numpy(gt_weights)
+            # Use effective true weights (includes g_phi gain for models like CX)
+            true_weights = ode_params.effective_true_weights(
+                to_numpy(gt_weights), to_numpy(edges), n_neurons)
 
             # Outlier removal + R² via metrics
             r_squared, slope_corrected, mask = compute_r_squared_filtered(
