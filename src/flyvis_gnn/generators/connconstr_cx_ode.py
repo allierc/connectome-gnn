@@ -14,6 +14,12 @@ Where:
 
 Message from neuron j to neuron i:
     J[i,j] * exp(g_j) * softplus(h_j + b_j, beta=5)
+
+Differences from paper repo:
+    - Paper uses trial-based training with state reset every 6s (generate_targets).
+      Trial resets are not biologically realistic — we generate continuous trajectories.
+    - Paper uses dense J @ r matrix multiply; we use sparse scatter_add.
+    - Paper trains RNN end-to-end; we use the trained teacher as a data generator.
 """
 
 import torch

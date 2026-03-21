@@ -543,17 +543,27 @@ def plot_synaptic_flyvis(config, epoch_list, log_dir, logger, cc, style, extende
     true_weights = torch.zeros((n_neurons, n_neurons), dtype=torch.float32, device=edges.device)
     true_weights[edges[1], edges[0]] = gt_weights
 
-    # Neuron type index to name mapping
-    index_to_name = {
-        0: 'Am', 1: 'C2', 2: 'C3', 3: 'CT1(Lo1)', 4: 'CT1(M10)', 5: 'L1', 6: 'L2', 7: 'L3', 8: 'L4', 9: 'L5',
-        10: 'Lawf1', 11: 'Lawf2', 12: 'Mi1', 13: 'Mi10', 14: 'Mi11', 15: 'Mi12', 16: 'Mi13', 17: 'Mi14',
-        18: 'Mi15', 19: 'Mi2', 20: 'Mi3', 21: 'Mi4', 22: 'Mi9', 23: 'R1', 24: 'R2', 25: 'R3', 26: 'R4',
-        27: 'R5', 28: 'R6', 29: 'R7', 30: 'R8', 31: 'T1', 32: 'T2', 33: 'T2a', 34: 'T3', 35: 'T4a',
-        36: 'T4b', 37: 'T4c', 38: 'T4d', 39: 'T5a', 40: 'T5b', 41: 'T5c', 42: 'T5d', 43: 'Tm1',
-        44: 'Tm16', 45: 'Tm2', 46: 'Tm20', 47: 'Tm28', 48: 'Tm3', 49: 'Tm30', 50: 'Tm4', 51: 'Tm5Y',
-        52: 'Tm5a', 53: 'Tm5b', 54: 'Tm5c', 55: 'Tm9', 56: 'TmY10', 57: 'TmY13', 58: 'TmY14',
-        59: 'TmY15', 60: 'TmY18', 61: 'TmY3', 62: 'TmY4', 63: 'TmY5a', 64: 'TmY9'
-    }
+    # Neuron type index to name mapping — load from ode_params if available
+    _connconstr = any(x in config.dataset for x in ('drosophila_cx', 'zebrafish_oculomotor', 'larva'))
+    _ode_params_path = graphs_data_path(config.dataset, 'ode_params.pt')
+    if _connconstr and os.path.exists(_ode_params_path):
+        _ode_state = torch.load(_ode_params_path, map_location='cpu', weights_only=False)
+        _type_names = _ode_state.get('type_names', None)
+        if _type_names:
+            index_to_name = {i: name for i, name in enumerate(_type_names)}
+        else:
+            index_to_name = {i: f'Type{i}' for i in range(n_types)}
+    else:
+        index_to_name = {
+            0: 'Am', 1: 'C2', 2: 'C3', 3: 'CT1(Lo1)', 4: 'CT1(M10)', 5: 'L1', 6: 'L2', 7: 'L3', 8: 'L4', 9: 'L5',
+            10: 'Lawf1', 11: 'Lawf2', 12: 'Mi1', 13: 'Mi10', 14: 'Mi11', 15: 'Mi12', 16: 'Mi13', 17: 'Mi14',
+            18: 'Mi15', 19: 'Mi2', 20: 'Mi3', 21: 'Mi4', 22: 'Mi9', 23: 'R1', 24: 'R2', 25: 'R3', 26: 'R4',
+            27: 'R5', 28: 'R6', 29: 'R7', 30: 'R8', 31: 'T1', 32: 'T2', 33: 'T2a', 34: 'T3', 35: 'T4a',
+            36: 'T4b', 37: 'T4c', 38: 'T4d', 39: 'T5a', 40: 'T5b', 41: 'T5c', 42: 'T5d', 43: 'Tm1',
+            44: 'Tm16', 45: 'Tm2', 46: 'Tm20', 47: 'Tm28', 48: 'Tm3', 49: 'Tm30', 50: 'Tm4', 51: 'Tm5Y',
+            52: 'Tm5a', 53: 'Tm5b', 54: 'Tm5c', 55: 'Tm9', 56: 'TmY10', 57: 'TmY13', 58: 'TmY14',
+            59: 'TmY15', 60: 'TmY18', 61: 'TmY3', 62: 'TmY4', 63: 'TmY5a', 64: 'TmY9'
+        }
 
     activity = x_ts.voltage.to(device).t()  # (N, T)
     mu_activity, sigma_activity = compute_activity_stats(x_ts, device)
@@ -605,14 +615,17 @@ def plot_synaptic_flyvis(config, epoch_list, log_dir, logger, cc, style, extende
         # Adjust fontsize based on number of neurons
         name_fontsize = 10 if len(selected_types) > 50 else 18
 
+        _stim_color = 'red' if _connconstr else 'yellow'
+        _stim_label = 'stimuli' if _connconstr else 'visual input'
+        _stim_scale = 0.3 if _connconstr else 1.0
+
         for i in range(len(neuron_indices)):
             baseline = np.mean(true_slice[i])
             ax.plot(true_slice[i] - baseline + i * step_v, linewidth=lw, c='green', alpha=0.9,
                     label='activity' if i == 0 else None)
-            # Plot visual input only for neuron_id = 0
             if (neuron_indices[i] == 0) and visual_input_slice[i].mean() > 0:
-                ax.plot(visual_input_slice[i] - baseline + i * step_v, linewidth=1, c='yellow', alpha=0.9,
-                        linestyle='--', label='visual input')
+                ax.plot(visual_input_slice[i] * _stim_scale - baseline + i * step_v, linewidth=1,
+                        c=_stim_color, alpha=0.9, linestyle='--', label=_stim_label)
 
         for i in range(len(neuron_indices)):
             type_idx = selected_types[i] if isinstance(selected_types, list) else selected_types[i]
@@ -695,6 +708,11 @@ def plot_synaptic_flyvis(config, epoch_list, log_dir, logger, cc, style, extende
                 plt.savefig(f'{log_dir}/results/loss.png', dpi=300)
                 plt.close()
 
+            # Adaptive dot size and alpha for different neuron counts
+            _dot_s = max(2, min(48, 2000 / max(n_neurons, 1)))
+            _dot_alpha = max(0.1, min(0.9, 100 / max(n_neurons, 1)))
+            _curve_alpha = max(0.1, min(0.8, 50 / max(n_neurons, 1)))
+
             # Plot 2: Embedding using model.a
             fig = plt.figure(figsize=(10, 9))
             ax = plt.gca()
@@ -702,8 +720,8 @@ def plot_synaptic_flyvis(config, epoch_list, log_dir, logger, cc, style, extende
                 spine.set_alpha(0.75)
             for n in range(n_types):
                 pos = torch.argwhere(type_list == n)
-                plt.scatter(to_numpy(model.a[pos, 0]), to_numpy(model.a[pos, 1]), s=24, color=colors_65[n], alpha=0.8,
-                            edgecolors='none')
+                plt.scatter(to_numpy(model.a[pos, 0]), to_numpy(model.a[pos, 1]), s=_dot_s, color=colors_65[n],
+                            alpha=_dot_alpha, edgecolors='none')
             plt.xlabel(r'$a_{i0}$', fontsize=48)
             plt.ylabel(r'$a_{i1}$', fontsize=48)
             plt.xticks(fontsize=24)
@@ -752,7 +770,7 @@ def plot_synaptic_flyvis(config, epoch_list, log_dir, logger, cc, style, extende
             # Side-by-side: true (left) vs learned (right)
             fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 9))
             _plot_curves_fast(ax1, rr_np[valid_edge], func_true_g_phi[valid_edge],
-                              type_np[valid_edge], cmap, linewidth=1, alpha=0.1)
+                              type_np[valid_edge], cmap, linewidth=1, alpha=_curve_alpha)
             ax1.set_xlabel('$v_j$', fontsize=48)
             ax1.set_ylabel(r'true $g_\phi(v_j)$', fontsize=48)
             ax1.tick_params(axis='both', which='major', labelsize=24)
@@ -760,7 +778,7 @@ def plot_synaptic_flyvis(config, epoch_list, log_dir, logger, cc, style, extende
             ax1.set_ylim([-config.plotting.xlim[1]/10, config.plotting.xlim[1]*2])
 
             _plot_curves_fast(ax2, rr_np[valid_edge], func_np[valid_edge],
-                              type_np[valid_edge], cmap, linewidth=1, alpha=0.1)
+                              type_np[valid_edge], cmap, linewidth=1, alpha=_curve_alpha)
             ax2.set_xlabel('$v_j$', fontsize=48)
             ax2.set_ylabel(r'learned $g_\phi(a_j, v_j)$', fontsize=48)
             ax2.tick_params(axis='both', which='major', labelsize=24)
@@ -777,7 +795,7 @@ def plot_synaptic_flyvis(config, epoch_list, log_dir, logger, cc, style, extende
                 spine.set_alpha(0.75)
             slopes_g_phi_array = np.array(slopes_g_phi_list)
             plt.scatter(np.arange(n_neurons), slopes_g_phi_array,
-                        c=cmap.color(to_numpy(type_list).astype(int)), s=2, alpha=0.5)
+                        c=cmap.color(to_numpy(type_list).astype(int)), s=_dot_s, alpha=_dot_alpha)
             plt.xlabel('neuron index', fontsize=48)
             plt.ylabel(r'$r_j$', fontsize=48)
             ax.xaxis.set_major_locator(ticker.MaxNLocator(nbins=5))
@@ -807,7 +825,7 @@ def plot_synaptic_flyvis(config, epoch_list, log_dir, logger, cc, style, extende
             # Side-by-side: true (left) vs learned (right)
             fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 9))
             _plot_curves_fast(ax1, rr_domain_phi_np, func_true_f_theta,
-                              type_np, cmap, linewidth=1, alpha=0.1)
+                              type_np, cmap, linewidth=1, alpha=_curve_alpha)
             ax1.set_xlim(config.plotting.xlim)
             ax1.set_ylim(config.plotting.ylim)
             ax1.set_xlabel('$v_i$', fontsize=48)
@@ -815,7 +833,7 @@ def plot_synaptic_flyvis(config, epoch_list, log_dir, logger, cc, style, extende
             ax1.tick_params(axis='both', which='major', labelsize=24)
 
             _plot_curves_fast(ax2, to_numpy(rr_domain_phi), to_numpy(func_domain_phi),
-                              type_np, cmap, linewidth=1, alpha=0.1)
+                              type_np, cmap, linewidth=1, alpha=_curve_alpha)
             ax2.set_xlim(config.plotting.xlim)
             ax2.set_ylim(config.plotting.ylim)
             ax2.set_xlabel('$v_i$', fontsize=48)
@@ -832,7 +850,7 @@ def plot_synaptic_flyvis(config, epoch_list, log_dir, logger, cc, style, extende
             learned_tau = derive_tau(slopes_f_theta_array, n_neurons)
 
             fig = plt.figure(figsize=(10, 9))
-            plt.scatter(gt_taus, learned_tau, c=mc, s=1, alpha=0.3)
+            plt.scatter(gt_taus, learned_tau, c=mc, s=_dot_s, alpha=_dot_alpha)
             r_squared_tau, slope_tau = compute_r_squared(gt_taus, learned_tau)
             plt.text(0.05, 0.95, f'R²: {r_squared_tau:.2f}\nslope: {slope_tau:.2f}\nN: {sim.n_edges}',
                      transform=plt.gca().transAxes, verticalalignment='top', fontsize=32)
@@ -851,7 +869,7 @@ def plot_synaptic_flyvis(config, epoch_list, log_dir, logger, cc, style, extende
             learned_V_rest = derive_vrest(slopes_f_theta_array, offsets_array, n_neurons)
             gt_V_rest = to_numpy(gt_V_Rest[:n_neurons])
             fig = plt.figure(figsize=(10, 9))
-            plt.scatter(gt_V_rest, learned_V_rest, c=mc, s=1, alpha=0.3)
+            plt.scatter(gt_V_rest, learned_V_rest, c=mc, s=_dot_s, alpha=_dot_alpha)
             r_squared_V_rest, slope_V_rest = compute_r_squared(gt_V_rest, learned_V_rest)
             plt.text(0.05, 0.95, f'R²: {r_squared_V_rest:.2f}\nslope: {slope_V_rest:.2f}\nN: {sim.n_edges}',
                      transform=plt.gca().transAxes, verticalalignment='top', fontsize=32)
@@ -868,13 +886,13 @@ def plot_synaptic_flyvis(config, epoch_list, log_dir, logger, cc, style, extende
             fig = plt.figure(figsize=(10, 9))
             ax = plt.subplot(2, 1, 1)
             plt.scatter(np.arange(n_neurons), learned_tau,
-                        c=cmap.color(to_numpy(type_list).astype(int)), s=2, alpha=0.5)
+                        c=cmap.color(to_numpy(type_list).astype(int)), s=_dot_s, alpha=_dot_alpha)
             plt.ylabel(r'$\tau_i$', fontsize=48)
             plt.xticks([])   # no xticks for top plot
             plt.yticks(fontsize=24)
             ax = plt.subplot(2, 1, 2)
             plt.scatter(np.arange(n_neurons), learned_V_rest,
-                        c=cmap.color(to_numpy(type_list).astype(int)), s=2, alpha=0.5)
+                        c=cmap.color(to_numpy(type_list).astype(int)), s=_dot_s, alpha=_dot_alpha)
             plt.xlabel('neuron index', fontsize=48)
             plt.ylabel(r'$V^{\mathrm{rest}}_i$', fontsize=48)
             ax.xaxis.set_major_locator(ticker.MaxNLocator(nbins=5))
@@ -900,7 +918,9 @@ def plot_synaptic_flyvis(config, epoch_list, log_dir, logger, cc, style, extende
             fig = plt.figure(figsize=(10, 9))
             learned_weights = to_numpy(get_model_W(model).squeeze())
             true_weights = to_numpy(gt_weights)
-            plt.scatter(true_weights, learned_weights, c=mc, s=0.1, alpha=0.1)
+            _edge_s = max(0.1, min(10, 2000 / max(len(true_weights), 1)))
+            _edge_alpha = max(0.05, min(0.8, 500 / max(len(true_weights), 1)))
+            plt.scatter(true_weights, learned_weights, c=mc, s=_edge_s, alpha=_edge_alpha)
             r_squared, slope_raw = compute_r_squared(true_weights, learned_weights)
             plt.text(0.05, 0.95, f'R²: {r_squared:.3f}\nslope: {slope_raw:.2f}',
                      transform=plt.gca().transAxes, verticalalignment='top', fontsize=24)
@@ -953,7 +973,7 @@ def plot_synaptic_flyvis(config, epoch_list, log_dir, logger, cc, style, extende
                 learned_in_ = learned_in_[mask]
 
                 fig = plt.figure(figsize=(10, 9))
-                plt.scatter(true_in, learned_in_, c=mc, s=0.1, alpha=0.1)
+                plt.scatter(true_in, learned_in_, c=mc, s=_edge_s, alpha=_edge_alpha)
                 r_squared_rj, slope_rj = compute_r_squared(true_in, learned_in_)
                 plt.text(0.05, 0.95,
                         f'R²: {r_squared_rj:.3f}\nslope: {slope_rj:.2f}',
@@ -967,7 +987,7 @@ def plot_synaptic_flyvis(config, epoch_list, log_dir, logger, cc, style, extende
                 plt.close()
 
             fig = plt.figure(figsize=(10, 9))
-            plt.scatter(true_in, learned_in, c=mc, s=0.5, alpha=0.06)
+            plt.scatter(true_in, learned_in, c=mc, s=_edge_s, alpha=_edge_alpha)
             plt.text(0.05, 0.95,
                      f'R²: {r_squared:.2f}\nslope: {slope_corrected:.2f}\nN: {sim.n_edges}',
                      transform=plt.gca().transAxes, verticalalignment='top', fontsize=32)

@@ -658,7 +658,8 @@ class ZebrafishODEParams(ODEParamsBase):
         return self.n_neurons
 
     def get_n_frames(self, sim):
-        return 21000  # 3 pulse repeats (line 161-164)
+        # Use sim.n_frames directly — stimulus is generated to fill this length
+        return sim.n_frames
 
     def generate_stimulus(self, n_frames, sim, device=None):
         """Returns per-neuron stimulus tensor (T, N)."""
@@ -672,7 +673,10 @@ class ZebrafishODEParams(ODEParamsBase):
         pass  # zero init is fine
 
     def get_trial_length(self):
-        return 0  # no trial structure
+        # Diff from paper repo: paper uses simulate_series() which processes one
+        # pulse at a time (nn_fig5_zebrafish_teacher.py line 165). We generate
+        # continuous trajectories — no trial resets.
+        return 0
 
 
 # ---------------------------------------------------------------------------
@@ -721,6 +725,7 @@ class DrosophilaCxODEParams(ODEParamsBase):
     neuron_types: torch.Tensor = None  # (N,) int type labels
     winp: torch.Tensor = None          # (input_size, N)
     wout: torch.Tensor = None          # (N, output_size)
+    type_names: list = None             # unique type name strings
     alpha: float = 1.0
     beta: float = 5.0
     noise_std: float = 0.0
@@ -763,6 +768,7 @@ class DrosophilaCxODEParams(ODEParamsBase):
             h0=h0,
             tau_raw=tau_raw,
             neuron_types=torch.tensor(data["neuron_types"], dtype=torch.long, device=device),
+            type_names=data["type_names"],
             winp=torch.tensor(data["winp"], dtype=torch.float32, device=device),
             wout=torch.tensor(data["wout"], dtype=torch.float32, device=device),
             alpha=1.0,
@@ -837,8 +843,10 @@ class DrosophilaCxODEParams(ODEParamsBase):
         try:
             cx_data = load_drosophila_cx_connectome(hemibrain_dir)
             neuron_types = torch.tensor(cx_data["neuron_types"], dtype=torch.long, device=device)
+            type_names = cx_data["type_names"]
         except (FileNotFoundError, Exception):
             neuron_types = torch.zeros(N, dtype=torch.long, device=device)
+            type_names = None
 
         # Effective input weights: exp(si) * wI  (Ref: line 187)
         winp_effective = np.exp(si_) * wI
@@ -851,6 +859,7 @@ class DrosophilaCxODEParams(ODEParamsBase):
             h0=torch.tensor(hh0.flatten(), dtype=torch.float32, device=device),
             tau_raw=torch.tensor(tau_raw.flatten(), dtype=torch.float32, device=device),
             neuron_types=neuron_types,
+            type_names=type_names,
             winp=torch.tensor(winp_effective, dtype=torch.float32, device=device),
             wout=torch.tensor(wOut, dtype=torch.float32, device=device),
             alpha=alpha_,
@@ -870,9 +879,8 @@ class DrosophilaCxODEParams(ODEParamsBase):
         return self.n_neurons
 
     def get_n_frames(self, sim):
-        n_trials = sim.connconstr_n_trials
-        T_trial = 6.0
-        return n_trials * int(T_trial / self.get_dt())
+        # Use sim.n_frames directly — stimulus is generated to fill this length
+        return sim.n_frames
 
     def generate_stimulus(self, n_frames, sim, device=None):
         """Returns per-neuron stimulus tensor (T, N)."""
@@ -886,14 +894,16 @@ class DrosophilaCxODEParams(ODEParamsBase):
             hemibrain_dir = os.path.join(hemibrain_dir, "exported-traced-adjacencies-v1.2")
         cx_data = load_drosophila_cx_connectome(hemibrain_dir)
         dt = self.get_dt()
-        n_trials = sim.connconstr_n_trials
         T_trial = 6.0
+        frames_per_trial = int(T_trial / dt)
+        # Generate enough trials to fill n_frames of continuous stimulus
+        n_trials = max(1, (n_frames + frames_per_trial - 1) // frames_per_trial)
         _, _, cx_inps, _ = generate_cx_stimulus(
             n_trials, T_trial, dt,
             cx_data["epg_ix"], cx_data["W_16to46"], cx_data["W_46to3"],
             seed=sim.seed,
         )
-        cx_inps_flat = cx_inps.reshape(-1, 48)
+        cx_inps_flat = cx_inps.reshape(-1, 48)[:n_frames]
         winp_np = to_numpy(self.winp)
         stim_projected = cx_inps_flat @ winp_np
         return torch.tensor(stim_projected, dtype=torch.float32, device=device)
@@ -903,7 +913,11 @@ class DrosophilaCxODEParams(ODEParamsBase):
             voltage[:] = self.h0.clone()
 
     def get_trial_length(self):
-        return int(6.0 / self.get_dt())
+        # Diff from paper repo: paper uses trial_len=60 (6s / dt=0.1) with state
+        # reset at each trial boundary (nn_fig5_drosophilaCx_teacher.py generate_targets).
+        # Trial resets are an artifact of the training procedure, not biologically
+        # realistic — real neural circuits do not reset their state periodically.
+        return 0
 
 
 # ---------------------------------------------------------------------------
@@ -1070,13 +1084,8 @@ class LarvaODEParams(ODEParamsBase):
         return self.n_premotor + self.n_motor
 
     def get_n_frames(self, sim):
-        # Paper uses B=2 conditions × 120 frames each.
-        # We concatenate both conditions and repeat n_repeats times.
-        n_repeats = getattr(sim, 'connconstr_n_trials', 0)
-        if n_repeats <= 0:
-            n_repeats = 10  # default: 10 repeats → 2400 frames
-        T_per_condition = int(6.0 / self.dt)  # 120 frames
-        return 2 * T_per_condition * n_repeats  # B=2 conditions × repeats
+        # Use sim.n_frames directly — stimulus is generated to fill this length
+        return sim.n_frames
 
     def generate_stimulus(self, n_frames, sim, device=None):
         """Returns per-neuron stimulus tensor (T, N_total).
@@ -1110,8 +1119,11 @@ class LarvaODEParams(ODEParamsBase):
         return stim_all
 
     def get_trial_length(self):
-        # Reset at cycle boundary: 2 conditions × 120 frames = 240 frames per cycle
-        return 2 * int(6.0 / self.dt)
+        # Diff from paper repo: paper uses trial_len=240 (2 conditions × 6s / dt=0.05)
+        # with state reset at each trial boundary (setup.py forwardpass).
+        # Trial resets are an artifact of the training procedure, not biologically
+        # realistic — real neural circuits do not reset their state periodically.
+        return 0
 
     def init_state(self, voltage, datapath=None, device=None):
         try:
