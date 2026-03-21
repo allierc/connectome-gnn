@@ -1750,7 +1750,7 @@ def data_plot(config, config_file, epoch_list, style, extended, device, apply_we
             log_file.write(f"final_loss: {loss[-1]:.4e}\n")
 
 
-    if 'fly' in config.dataset:
+    if 'fly' in config.dataset or 'connconstr' in config.dataset:
         if config.simulation.calcium_type != 'none':
             plot_synaptic_flyvis_calcium(config, epoch_list, log_dir, logger, 'viridis', style, extended, device) # noqa: F821
         else:
