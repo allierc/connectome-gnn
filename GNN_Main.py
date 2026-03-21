@@ -73,7 +73,8 @@ if __name__ == "__main__":
 
         # load config
         config = NeuralGraphConfig.from_yaml(config_path(f"{config_file}.yaml"))
-        config.dataset = pre_folder + config.dataset
+        if not config.dataset.startswith(pre_folder):
+            config.dataset = pre_folder + config.dataset
         config.config_file = pre_folder + config_file_
 
         if device == []:
@@ -120,7 +121,8 @@ if __name__ == "__main__":
             if test_config_name:
                 tc_file, tc_pre = add_pre_folder(test_config_name)
                 test_config = NeuralGraphConfig.from_yaml(f"{config_root}/{tc_file}.yaml")
-                test_config.dataset = tc_pre + test_config.dataset
+                if not test_config.dataset.startswith(tc_pre):
+                    test_config.dataset = tc_pre + test_config.dataset
                 test_config.config_file = tc_pre + test_config_name
                 print(f'cross-dataset test: model from {config.dataset}, test data from {test_config.dataset}')
 
