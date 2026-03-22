@@ -19,7 +19,7 @@ class ExplorationState:
     n_epochs: int = 1
     data_augmentation_loop: int = 25
     n_iter_block: int = 12
-    ucb_c: float = 1.414
+    ucb_c: float = 0
     node_name: str = "h100"
     n_parallel: int = 4
     generate_data: bool = False

@@ -105,7 +105,7 @@ def setup_exploration(args, root_dir: str) -> ExplorationState:
         n_epochs=claude_cfg.get('n_epochs', 1),
         data_augmentation_loop=claude_cfg.get('data_augmentation_loop', 25),
         n_iter_block=claude_cfg.get('n_iter_block', 12),
-        ucb_c=claude_cfg.get('ucb_c', 1.414),
+        ucb_c=claude_cfg.get('ucb_c', 0),
         node_name=claude_cfg.get('node_name', 'h100'),
         n_parallel=claude_cfg.get('n_parallel', 4),
         generate_data=generate_data,
@@ -826,12 +826,15 @@ def save_artifacts(state: ExplorationState, batch: BatchInfo):
 # ---------------------------------------------------------------------------
 
 def update_ucb_scores(state: ExplorationState, batch: BatchInfo):
-    """PHASE 5: Compute UCB scores from batch results."""
-    print("\n\033[93mPHASE 5: Computing UCB scores\033[0m")
-
+    """PHASE 5: Compute UCB scores from batch results (skipped when ucb_c=0)."""
     with open(state.config_paths[0], 'r') as f:
         raw_config = yaml.safe_load(f)
-    ucb_c = raw_config.get('claude', {}).get('ucb_c', 1.414)
+    ucb_c = raw_config.get('claude', {}).get('ucb_c', 0)
+    if ucb_c == 0:
+        print("\033[93mPHASE 5: UCB scores skipped (ucb_c=0)\033[0m")
+        return
+
+    print("\n\033[93mPHASE 5: Computing UCB scores\033[0m")
 
     existing_content = ""
     if os.path.exists(state.analysis_path):
@@ -977,36 +980,36 @@ def run_claude_analysis(state: ExplorationState, batch: BatchInfo):
 # ---------------------------------------------------------------------------
 
 def finalize_batch(state: ExplorationState, batch: BatchInfo):
-    """UCB recompute, tree visualization, protocol/memory snapshots."""
-    # Recompute UCB after Claude writes iteration entries
+    """UCB recompute (if enabled), tree visualization, protocol/memory snapshots."""
     with open(state.config_paths[0], 'r') as f:
         raw_config = yaml.safe_load(f)
-    ucb_c = raw_config.get('claude', {}).get('ucb_c', 1.414)
+    ucb_c = raw_config.get('claude', {}).get('ucb_c', 0)
 
-    compute_ucb_scores(state.analysis_path, state.ucb_path, c=ucb_c,
-                       current_log_path=None,
-                       current_iteration=batch.batch_last,
-                       block_size=state.n_iter_block)
+    if ucb_c > 0:
+        compute_ucb_scores(state.analysis_path, state.ucb_path, c=ucb_c,
+                           current_log_path=None,
+                           current_iteration=batch.batch_last,
+                           block_size=state.n_iter_block)
 
-    # UCB tree visualization
-    should_save_tree = (batch.block_number == 1) or batch.is_block_end
-    if should_save_tree:
-        tree_save_dir = f"{state.exploration_dir}/exploration_tree"
-        os.makedirs(tree_save_dir, exist_ok=True)
-        ucb_tree_path = f"{tree_save_dir}/ucb_tree_iter_{batch.batch_last:03d}.png"
-        nodes = parse_ucb_scores(state.ucb_path) if os.path.exists(state.ucb_path) else []
-        if nodes:
-            config = batch.configs[0]
-            sim_info = f"n_neurons={config.simulation.n_neurons}"
-            sim_info += f", n_neuron_types={config.simulation.n_neuron_types}"
-            sim_info += f", n_edges={config.simulation.n_edges}"
-            if hasattr(config.simulation, 'visual_input_type'):
-                sim_info += f", visual_input={config.simulation.visual_input_type}"
-            if hasattr(config.simulation, 'noise_model_level'):
-                sim_info += f", noise={config.simulation.noise_model_level}"
-            plot_ucb_tree(nodes, ucb_tree_path,
-                          title=f"UCB Tree - Batch {batch.batch_first}-{batch.batch_last}",
-                          simulation_info=sim_info)
+        # UCB tree visualization
+        should_save_tree = (batch.block_number == 1) or batch.is_block_end
+        if should_save_tree:
+            tree_save_dir = f"{state.exploration_dir}/exploration_tree"
+            os.makedirs(tree_save_dir, exist_ok=True)
+            ucb_tree_path = f"{tree_save_dir}/ucb_tree_iter_{batch.batch_last:03d}.png"
+            nodes = parse_ucb_scores(state.ucb_path) if os.path.exists(state.ucb_path) else []
+            if nodes:
+                config = batch.configs[0]
+                sim_info = f"n_neurons={config.simulation.n_neurons}"
+                sim_info += f", n_neuron_types={config.simulation.n_neuron_types}"
+                sim_info += f", n_edges={config.simulation.n_edges}"
+                if hasattr(config.simulation, 'visual_input_type'):
+                    sim_info += f", visual_input={config.simulation.visual_input_type}"
+                if hasattr(config.simulation, 'noise_model_level'):
+                    sim_info += f", noise={config.simulation.noise_model_level}"
+                plot_ucb_tree(nodes, ucb_tree_path,
+                              title=f"UCB Tree - Batch {batch.batch_first}-{batch.batch_last}",
+                              simulation_info=sim_info)
 
     # Save instruction file at first iteration of each block
     protocol_save_dir = f"{state.exploration_dir}/protocol"

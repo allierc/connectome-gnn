@@ -49,7 +49,6 @@ PARALLEL MODE: Analyze {batch.n_slots} results, then propose next {state.n_paral
 Instructions (follow all instructions): {state.instruction_path}
 Working memory: {state.memory_path}
 Full log (append only): {state.analysis_path}
-UCB scores: {state.ucb_path}
 User input (read and acknowledge any pending instructions): {state.user_input_path}
 {code_brief_context}
 {slot_info}
