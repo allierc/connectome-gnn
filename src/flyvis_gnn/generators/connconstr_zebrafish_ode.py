@@ -85,13 +85,13 @@ class ZebrafishODE(nn.Module):
             dv: (N, 1) voltage derivative
         """
         v = state.voltage.unsqueeze(-1)           # (N, 1)
-        stim = state.stimulus.unsqueeze(-1)        # (N, 1) — I(t) broadcast to all neurons
-        v_in = self.ode_params.v_in[:, None]       # (N, 1) — input direction vector
+        stim = state.stimulus.unsqueeze(-1)        # (N, 1) — already per-neuron (I(t) * v_in)
         tau = self.ode_params.tau
 
         msg = self._compute_messages(v, edge_index)
 
-        # dr/dt = (-r + W @ r + I * v_in) / tau
-        dv = (-v + msg + stim * v_in) / tau
+        # dr/dt = (-r + W @ r + stim) / tau
+        # stim already includes v_in weighting from generate_stimulus
+        dv = (-v + msg + stim) / tau
 
         return dv
