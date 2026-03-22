@@ -1170,7 +1170,8 @@ class DrosophilaCxODEParams(ODEParamsBase):
         cx_inps_flat = cx_inps.reshape(-1, 48)[:n_frames]
         winp_np = to_numpy(self.winp)
         stim_projected = cx_inps_flat @ winp_np
-        return torch.tensor(stim_projected, dtype=torch.float32, device=device)
+        # Scale to produce activity in [-10, 10] range (baseline gives ±4)
+        return torch.tensor(2.5 * stim_projected, dtype=torch.float32, device=device)
 
     def init_state(self, voltage, datapath=None, device=None):
         if self.h0 is not None:
