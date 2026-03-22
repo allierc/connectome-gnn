@@ -8,7 +8,7 @@
 Extend Cosyne flyvis work (https://saalfeldlab.github.io/flyvis-gnn/) in two axes:
 
 1. **Generality**: 4 biological models (flyvis + 3 from Beiran & Litwin-Kumar 2023)
-2. **Robustness**: intrinsic noise, missing timepoints, calcium imaging, edge removal
+2. **Robustness**: intrinsic noise, measurement noise, missing timepoints, missing neurons, calcium imaging, edge removal, edge addition (unknown topology)
 
 Compare against 3 baselines: Linear ODE, RNN, Neural ODE.
 
@@ -33,7 +33,7 @@ LLM/instruction_{biomodel}_{experiment}.md
 | `instruction_flyvis_noise_05.md` | flyvis | intrinsic noise 0.5 | Exists |
 | `instruction_drosophila_cx.md` | drosophila_cx | clean, fully connected | Exists |
 | `instruction_larva.md` | larva | clean, fully connected | **To write** |
-| `instruction_zebrafish.md` | zebrafish | clean, fully connected | **To write** |
+| `instruction_zebrafish_oculomotor.md` | zebrafish_oculomotor | clean, fully connected | **To write** |
 | `instruction_flyvis_missing_time_80.md` | flyvis | keep 20% timepoints | **To write** |
 | `instruction_flyvis_remove_edges_20.md` | flyvis | remove 20% edges | **To write** |
 | `instruction_flyvis_calcium.md` | flyvis | calcium indicator | **To write** (colleague) |
@@ -44,16 +44,18 @@ The agentic pipeline reads the instruction file to guide exploration.
 ### Config File Nomenclature
 
 ```
-{biomodel}_{mlmodel}_{experiment}[_{seed}].yaml
+{biomodel}_{mlmodel}[_{experiment}]_{seed}.yaml
 ```
+
+No experiment suffix = baseline (clean data, known/fully-connected topology).
 
 ### biomodel
 | Code | Full name | N neurons | N edges | Source |
 |------|-----------|-----------|---------|--------|
 | `flyvis` | Drosophila optic lobe | 13,741 | 434,112 | flyvis package |
-| `cx` | Drosophila adult central complex | 152 | 9,722 | Beiran 2023, Fig 5d |
-| `larva` | Drosophila larva motor | ~100 | ~? | Beiran 2023, Fig 5a |
-| `zebrafish` | Zebrafish oculomotor | ~500 | ~? | Beiran 2023, Fig 5g |
+| `drosophila_cx` | Drosophila adult central complex | 152 | 9,722 | Beiran 2023, Fig 5d |
+| `larva` | Drosophila larva motor | 230 | 4,222 | Beiran 2023, Fig 5a |
+| `zebrafish_oculomotor` | Zebrafish oculomotor | 609 | ~10,665 | Beiran 2023, Fig 5g |
 
 ### mlmodel
 | Code | Full name | File | Status |
@@ -66,27 +68,30 @@ The agentic pipeline reads the instruction file to guide exploration.
 ### experiment
 | Code | Description | Applies to |
 |------|-------------|------------|
-| `baseline` | Clean data, known topology | all |
-| `noise005` | Intrinsic noise sigma=0.05 | all |
-| `noise05` | Intrinsic noise sigma=0.5 | all |
+| *(no suffix)* | Clean data, known topology (baseline) | all |
+| `noise005` | Intrinsic (process) noise sigma=0.05 | all |
+| `noise05` | Intrinsic (process) noise sigma=0.5 | all |
+| `meas_noise_005` | Measurement noise sigma=0.05 | all |
+| `meas_noise_05` | Measurement noise sigma=0.5 | all |
 | `missing_time_80` | Remove 4/5 timepoints (keep 20%) | all |
+| `missing_neurons_20` | Remove 20% of neurons from observation | all |
 | `calcium` | Calcium indicator (not voltage) | all |
 | `remove_edges_20` | Remove 20% of true edges | all |
 | `null_edges_200` | Add 200% null edges (unknown topology) | flyvis only |
-| `fully_connected` | Train on fully connected graph | cx, larva, zebrafish |
+| `fully_connected` | Train on fully connected graph | drosophila_cx, larva, zebrafish_oculomotor |
 
 ### seed
 `_00` through `_04` for 5-seed benchmark, `_Claude_00` through `_Claude_03` for agentic exploration.
 
 ### Examples
 ```
-flyvis_gnn_baseline_00.yaml
-flyvis_linear_baseline_00.yaml
-cx_gnn_baseline_00.yaml
-cx_rnn_noise005_00.yaml
-zebrafish_gnn_missing_time_80_00.yaml
+flyvis_gnn_00.yaml                          # baseline (no suffix)
+flyvis_linear_00.yaml                       # baseline (no suffix)
+drosophila_cx_gnn_00.yaml                   # baseline (no suffix)
+drosophila_cx_rnn_noise005_00.yaml
+zebrafish_oculomotor_gnn_missing_time_80_00.yaml
 flyvis_gnn_null_edges_200_00.yaml
-cx_gnn_fully_connected_00.yaml
+drosophila_cx_gnn_fully_connected_00.yaml
 ```
 
 ---
@@ -123,15 +128,20 @@ Secondary metric — autoregressive prediction quality.
 
 All 4 bio models. Report mean R2_conn over 5 seeds.
 
-| Condition | Flyvis | CX | Larva | Zebrafish |
-|-----------|--------|-------|-------|-----------|
+| Condition | Flyvis | Drosophila CX | Larva | Zebrafish |
+|-----------|--------|---------------|-------|-----------|
 | Baseline (clean) | 0.93 | ? | ? | ? |
 | Intrinsic noise (sigma=0.05) | 0.96 | ? | ? | ? |
+| Intrinsic noise (sigma=0.5) | ? | ? | ? | ? |
+| Measurement noise (sigma=0.05) | ? | ? | ? | ? |
+| Measurement noise (sigma=0.5) | ? | ? | ? | ? |
 | Missing timepoints (keep 20%) | ? | ? | ? | ? |
+| Missing neurons (remove 20%) | ? | ? | ? | ? |
 | Calcium (not voltage) | ? | ? | ? | ? |
 | Remove 20% edges | ? | ? | ? | ? |
+| Add 200% null edges (unknown topology) | ? | N/A | N/A | N/A |
 
-Note: flyvis trains with known topology; cx/larva/zebrafish train fully connected.
+Note: flyvis trains with known topology; drosophila_cx, larva, zebrafish_oculomotor train fully connected.
 
 ### Supplementary Table: Topology ablation (flyvis only)
 
@@ -163,9 +173,9 @@ Note: flyvis trains with known topology; cx/larva/zebrafish train fully connecte
 | Bio model | Status | Est. iterations | Est. GPU-hours |
 |-----------|--------|-----------------|----------------|
 | Flyvis | ~144 iters done | Done (maybe refine) | Done |
-| CX | Running (Block 1) | 48-96 more | ~50h (A100) |
+| Drosophila CX | Running (Block 1) | 48-96 more | ~50h (A100) |
 | Larva | Not started | 48-96 | ~20h (A100) |
-| Zebrafish | Not started | 48-96 | ~30h (A100) |
+| Zebrafish oculomotor | Not started | 48-96 | ~30h (A100) |
 
 ### Baselines (no agentic — manual HP sweep)
 
@@ -180,7 +190,7 @@ Each baseline: 5 configs x 5 seeds x 4 bio models = 100 runs per ML model.
 
 ### Robustness Ablations (GNN only)
 
-4 conditions x 4 bio models x 5 seeds = 80 runs.
+9 conditions x 4 bio models x 5 seeds = 180 runs (minus N/A combos).
 Use best GNN config from agentic exploration (no re-exploration needed).
 
 ---
@@ -191,16 +201,19 @@ Use best GNN config from agentic exploration (no re-exploration needed).
 
 - [ ] **RNN baseline model** (`flyvis_rnn.py`) — vanilla RNN with same graph topology, learns W + hidden dynamics
 - [ ] **Missing timepoints** — subsample training frames (keep every 5th frame)
+- [ ] **Missing neurons** — remove 20% of neurons from observation during training
+- [ ] **Measurement noise** — add Gaussian noise to observed trajectories (sigma=0.05, 0.5)
 - [ ] **Edge removal** — randomly remove 20% of true edges before training
+- [ ] **Edge addition (unknown topology)** — add null edges (200%) to graph before training
 - [ ] **Benchmark script** — automated: generate data, train all models, collect metrics into CSV
 
 ### Must Run
 
 - [ ] **Larva GNN** — write instruction file, start agentic exploration
-- [ ] **Zebrafish GNN** — write instruction file, start agentic exploration
-- [ ] **CX GNN** — finish current exploration (Dale's law, n_types=6)
+- [ ] **Zebrafish oculomotor GNN** — write instruction file, start agentic exploration
+- [ ] **Drosophila CX GNN** — finish current exploration (Dale's law, n_types=6)
 - [ ] **All baselines** on all 4 bio models (linear, rnn, neuralode)
-- [ ] **Robustness ablations** on all 4 bio models (noise, missing time, edge removal)
+- [ ] **Robustness ablations** on all 4 bio models (intrinsic noise, measurement noise, missing timepoints, missing neurons, calcium, edge removal, edge addition)
 - [ ] **Calcium ablation** — colleague handles implementation
 
 ### Must Write
@@ -217,10 +230,10 @@ Use best GNN config from agentic exploration (no re-exploration needed).
 
 | Week | Dates | Focus |
 |------|-------|-------|
-| W1 | Mar 22-28 | CX agentic (Dale's law). Write larva+zebrafish instruction files. Start larva+zebrafish GNN. Implement RNN baseline. |
-| W2 | Mar 29-Apr 4 | Run all baselines on flyvis (5 configs x 5 seeds x 3 models). Continue cx/larva/zebrafish agentic. |
-| W3 | Apr 5-11 | Run baselines on cx/larva/zebrafish. Implement missing timepoints + edge removal. |
-| W4 | Apr 12-18 | Robustness ablations (all 4 models x 4 conditions x 5 seeds). Calcium from colleague. |
+| W1 | Mar 22-28 | CX agentic (Dale's law). Write larva+zebrafish_oculomotor instruction files. Start larva+zebrafish_oculomotor GNN. Implement RNN baseline. |
+| W2 | Mar 29-Apr 4 | Run all baselines on flyvis (5 configs x 5 seeds x 3 models). Continue drosophila_cx/larva/zebrafish_oculomotor agentic. |
+| W3 | Apr 5-11 | Run baselines on drosophila_cx/larva/zebrafish_oculomotor. Implement missing timepoints, missing neurons, measurement noise, edge removal, edge addition. |
+| W4 | Apr 12-18 | Robustness ablations (all 4 models x 9 conditions x 5 seeds). Calcium from colleague. |
 | W5 | Apr 19-25 | Collect all results into tables. Start writing methods + results. Make figures. |
 | W6 | Apr 26-May 2 | Write intro, related work, discussion. Polish figures. |
 | W7 | May 3-11 | Revisions, supplement, format check, submit. |
@@ -233,30 +246,32 @@ Keep flat per-biomodel structure (matches `graphs_data/` and `log/` layout). Ben
 
 ```
 config/fly/
-  flyvis_gnn_baseline_00.yaml      ->  graphs_data/flyvis_gnn_baseline_00/  log/flyvis_gnn_baseline_00/
-  flyvis_linear_baseline_00.yaml   ->  graphs_data/flyvis_linear_baseline_00/  ...
-  flyvis_rnn_baseline_00.yaml
-  flyvis_neuralode_baseline_00.yaml
+  flyvis_gnn_00.yaml               ->  graphs_data/flyvis_gnn_00/  log/flyvis_gnn_00/
+  flyvis_linear_00.yaml            ->  graphs_data/flyvis_linear_00/  ...
+  flyvis_rnn_00.yaml
+  flyvis_neuralode_00.yaml
   flyvis_gnn_noise005_00.yaml
+  flyvis_gnn_meas_noise_005_00.yaml
   flyvis_gnn_missing_time_80_00.yaml
+  flyvis_gnn_missing_neurons_20_00.yaml
   flyvis_gnn_remove_edges_20_00.yaml
   flyvis_gnn_null_edges_200_00.yaml
   ... (existing organic configs remain)
 
 config/drosophila_cx/
-  cx_gnn_baseline_00.yaml
-  cx_linear_baseline_00.yaml
-  cx_rnn_baseline_00.yaml
-  cx_neuralode_baseline_00.yaml
-  cx_gnn_noise005_00.yaml
+  drosophila_cx_gnn_00.yaml
+  drosophila_cx_linear_00.yaml
+  drosophila_cx_rnn_00.yaml
+  drosophila_cx_neuralode_00.yaml
+  drosophila_cx_gnn_noise005_00.yaml
   ...
 
 config/larva/
-  larva_gnn_baseline_00.yaml
+  larva_gnn_00.yaml
   ...
 
 config/zebrafish_oculomotor/
-  zebrafish_gnn_baseline_00.yaml
+  zebrafish_oculomotor_gnn_00.yaml
   ...
 ```
 
