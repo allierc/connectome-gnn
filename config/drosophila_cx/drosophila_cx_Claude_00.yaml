@@ -53,9 +53,9 @@ training:
   sparsity: none
   data_augmentation_loop: 100
   recurrent_training: false
-  learning_rate_W_start: 0.0003
-  learning_rate_start: 0.001
-  learning_rate_embedding_start: 0.001
+  lr_W: 0.0003
+  lr: 0.001
+  lr_embedding: 0.001
   coeff_g_phi_diff: 1500
   coeff_f_theta_msg_diff: 0
   coeff_g_phi_norm: 0
