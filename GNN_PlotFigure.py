@@ -283,21 +283,35 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     sv_learned = svd_learned.singular_values_
 
     n_eigs = min(200, n_neurons - 2)
+    eig_true = eig_learned = None
     try:
         eig_true, _ = scipy.sparse.linalg.eigs(true_sparse.astype(np.float64), k=n_eigs, which='LM')
         eig_learned, _ = scipy.sparse.linalg.eigs(learned_sparse.astype(np.float64), k=n_eigs, which='LM')
     except Exception:
-        n_eigs = min(50, n_neurons - 2)
-        eig_true, _ = scipy.sparse.linalg.eigs(true_sparse.astype(np.float64), k=n_eigs, which='LM')
-        eig_learned, _ = scipy.sparse.linalg.eigs(learned_sparse.astype(np.float64), k=n_eigs, which='LM')
+        try:
+            n_eigs = min(50, n_neurons - 2)
+            if eig_true is None:
+                eig_true, _ = scipy.sparse.linalg.eigs(true_sparse.astype(np.float64), k=n_eigs, which='LM')
+            if eig_learned is None:
+                eig_learned, _ = scipy.sparse.linalg.eigs(learned_sparse.astype(np.float64), k=n_eigs, which='LM')
+        except Exception as e:
+            logger.warning(f"eigenvalue computation failed: {e}")
 
     V_true = svd_true.components_
     V_learned = svd_learned.components_
     alignment = np.abs(V_true @ V_learned.T)
 
     fig, axes = plt.subplots(1, 3, figsize=(30, 10))
-    axes[0].scatter(eig_true.real, eig_true.imag, s=100, c='green', alpha=0.7, label='true')
-    axes[0].scatter(eig_learned.real, eig_learned.imag, s=100, c='black', alpha=0.7, label='learned')
+    if eig_true is not None and eig_learned is not None:
+        axes[0].scatter(eig_true.real, eig_true.imag, s=100, c='green', alpha=0.7, label='true')
+        axes[0].scatter(eig_learned.real, eig_learned.imag, s=100, c='black', alpha=0.7, label='learned')
+    elif eig_true is not None:
+        axes[0].scatter(eig_true.real, eig_true.imag, s=100, c='green', alpha=0.7, label='true')
+        axes[0].text(0.5, 0.5, 'learned W ≈ 0', transform=axes[0].transAxes,
+                    ha='center', va='center', fontsize=20, color='red')
+    else:
+        axes[0].text(0.5, 0.5, 'eigenvalue computation failed', transform=axes[0].transAxes,
+                    ha='center', va='center', fontsize=20, color='red')
     axes[0].axhline(y=0, color='gray', linestyle='--', linewidth=0.5)
     axes[0].axvline(x=0, color='gray', linestyle='--', linewidth=0.5)
     axes[0].set_xlabel('real', fontsize=32)
@@ -328,10 +342,14 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     plt.savefig(f'{log_dir}/results/eigen_comparison.png', dpi=87)
     plt.close()
 
-    true_spectral_radius = np.max(np.abs(eig_true))
-    learned_spectral_radius = np.max(np.abs(eig_learned))
-    print(f'spectral radius - true: {true_spectral_radius:.3f}  learned: {learned_spectral_radius:.3f}')
-    logger.info(f'spectral radius - true: {true_spectral_radius:.3f}  learned: {learned_spectral_radius:.3f}')
+    if eig_true is not None and eig_learned is not None:
+        true_spectral_radius = np.max(np.abs(eig_true))
+        learned_spectral_radius = np.max(np.abs(eig_learned))
+        print(f'spectral radius - true: {true_spectral_radius:.3f}  learned: {learned_spectral_radius:.3f}')
+        logger.info(f'spectral radius - true: {true_spectral_radius:.3f}  learned: {learned_spectral_radius:.3f}')
+    else:
+        print('spectral radius - skipped (eigenvalue computation failed)')
+        logger.warning('spectral radius computation skipped')
 
     # --- Clustering (no embeddings — use tau, V_rest, W stats) ---
     print('clustering learned features...')
@@ -1202,22 +1220,36 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             # 200 largest-magnitude eigenvalues captures spectral structure;
             # 500 was very slow for N>10000 (ARPACK scales poorly with k)
             n_eigs = min(200, n_neurons - 2)
+            eig_true = eig_learned = None
             try:
                 eig_true, _ = scipy.sparse.linalg.eigs(true_sparse.astype(np.float64), k=n_eigs, which='LM')
                 eig_learned, _ = scipy.sparse.linalg.eigs(learned_sparse.astype(np.float64), k=n_eigs, which='LM')
             except Exception:
-                # fallback: use smaller k if convergence issues
-                n_eigs = min(50, n_neurons - 2)
-                eig_true, _ = scipy.sparse.linalg.eigs(true_sparse.astype(np.float64), k=n_eigs, which='LM')
-                eig_learned, _ = scipy.sparse.linalg.eigs(learned_sparse.astype(np.float64), k=n_eigs, which='LM')
+                try:
+                    n_eigs = min(50, n_neurons - 2)
+                    if eig_true is None:
+                        eig_true, _ = scipy.sparse.linalg.eigs(true_sparse.astype(np.float64), k=n_eigs, which='LM')
+                    if eig_learned is None:
+                        eig_learned, _ = scipy.sparse.linalg.eigs(learned_sparse.astype(np.float64), k=n_eigs, which='LM')
+                except Exception as e:
+                    logger.warning(f"eigenvalue computation failed (learned W may be all zeros): {e}")
+                    eig_true = eig_learned = None
 
             # create 2x3 figure
             fig, axes = plt.subplots(2, 3, figsize=(30, 20))
 
             # Row 1: Eigenvalues/Singular values
             # (0,0) eigenvalues in complex plane
-            axes[0, 0].scatter(eig_true.real, eig_true.imag, s=100, c='green', alpha=0.7, label='true')
-            axes[0, 0].scatter(eig_learned.real, eig_learned.imag, s=100, c='black', alpha=0.7, label='learned')
+            if eig_true is not None and eig_learned is not None:
+                axes[0, 0].scatter(eig_true.real, eig_true.imag, s=100, c='green', alpha=0.7, label='true')
+                axes[0, 0].scatter(eig_learned.real, eig_learned.imag, s=100, c='black', alpha=0.7, label='learned')
+            elif eig_true is not None:
+                axes[0, 0].scatter(eig_true.real, eig_true.imag, s=100, c='green', alpha=0.7, label='true')
+                axes[0, 0].text(0.5, 0.5, 'learned W ≈ 0\n(no eigenvalues)', transform=axes[0, 0].transAxes,
+                               ha='center', va='center', fontsize=20, color='red')
+            else:
+                axes[0, 0].text(0.5, 0.5, 'eigenvalue computation failed', transform=axes[0, 0].transAxes,
+                               ha='center', va='center', fontsize=20, color='red')
             axes[0, 0].axhline(y=0, color='gray', linestyle='--', linewidth=0.5)
             axes[0, 0].axvline(x=0, color='gray', linestyle='--', linewidth=0.5)
             axes[0, 0].set_xlabel('real', fontsize=32)
@@ -1289,16 +1321,21 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             plt.close()
 
             # print spectral analysis results (consistent with plot_signal)
-            true_spectral_radius = np.max(np.abs(eig_true))
-            learned_spectral_radius = np.max(np.abs(eig_learned))
-            print(f'spectral radius - true: {true_spectral_radius:.3f}  learned: {learned_spectral_radius:.3f}')
-            logger.info(f'spectral radius - true: {true_spectral_radius:.3f}  learned: {learned_spectral_radius:.3f}')
+            if eig_true is not None and eig_learned is not None:
+                true_spectral_radius = np.max(np.abs(eig_true))
+                learned_spectral_radius = np.max(np.abs(eig_learned))
+                print(f'spectral radius - true: {true_spectral_radius:.3f}  learned: {learned_spectral_radius:.3f}')
+                logger.info(f'spectral radius - true: {true_spectral_radius:.3f}  learned: {learned_spectral_radius:.3f}')
+            else:
+                print('spectral radius - skipped (eigenvalue computation failed)')
+                logger.warning('spectral radius computation skipped')
             print(f'eigenvector alignment - right: {np.mean(best_alignment_R):.3f}  left: {np.mean(best_alignment_L):.3f}')
             logger.info(f'eigenvector alignment - right: {np.mean(best_alignment_R):.3f}  left: {np.mean(best_alignment_L):.3f}')
 
             if log_file:
-                log_file.write(f"spectral_radius_true: {true_spectral_radius:.4f}\n")
-                log_file.write(f"spectral_radius_learned: {learned_spectral_radius:.4f}\n")
+                if eig_true is not None and eig_learned is not None:
+                    log_file.write(f"spectral_radius_true: {true_spectral_radius:.4f}\n")
+                    log_file.write(f"spectral_radius_learned: {learned_spectral_radius:.4f}\n")
                 log_file.write(f"eigenvector_alignment_R: {np.mean(best_alignment_R):.4f}\n")
                 log_file.write(f"eigenvector_alignment_L: {np.mean(best_alignment_L):.4f}\n")
 
