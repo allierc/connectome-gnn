@@ -21,7 +21,7 @@ Informational (not for optimization): onestep_pearson, f_theta_R2, g_phi_R2, spe
 Strict **hypothesize -> test -> validate/falsify** cycle:
 
 1. **Hypothesize**: Form a specific, testable prediction
-2. **Design experiment**: Change ONE parameter at a time
+2. **Design experiment**: Change ONE parameter at a time (at most two) to understand causality — IF YOU CHANGE MORE, YOU CANNOT ATTRIBUTE THE EFFECT
 3. **Run training**: 4 seeds — you cannot predict the outcome
 4. **Analyze results**: Use metrics AND cross-seed variance
 5. **Update understanding**: Revise hypotheses based on evidence
@@ -108,20 +108,24 @@ The blocks below provide a **recommended exploration roadmap**. Follow the block
 
 | Block | Focus | Parameters to scan | Ranges |
 |---|---|---|---|
-| 1 | **lr_W + W_L2** | `lr_W`, `coeff_W_L2` | lr_W: {1e-4, 3e-4, 6e-4, 1e-3}, W_L2: {5e-6, 1e-5, 2e-5} |
-| 2 | **Training volume** | `data_augmentation_loop`, `n_epochs` | DAL: {50, 100, 200}, n_epochs: {2, 4} (halve DAL when doubling epochs) |
-| 3 | **Regularization** | `coeff_W_sign`, `coeff_W_L1`, `coeff_g_phi_diff`, `coeff_f_theta_msg_diff` | W_sign: {0, 0.01, 0.1}, W_L1: {0, 5e-5, 1e-4}, g_phi_diff: {500, 1000, 1500}, f_theta_msg_diff: {0, 10, 100} |
-| 4 | **Architecture** | `hidden_dim`, `embedding_dim` | hidden_dim: {48, 64, 80}, embedding_dim: {2, 4} (update input_size accordingly) |
-| 5 | **Combined best + edge discovery** | Best from 1-4, `use_gt_edges`, `coeff_W_L1` | use_gt_edges: {true, false}, W_L1: {0, 5e-5, 1e-4} when fully connected |
-| 6 | **Noise robustness** | Best from 1-4, `noise_model_level` | noise_model_level: {0, 0.05, 0.5} |
+| 1 | **lr_W + W_L1** | `lr_W`, `coeff_W_L1` | lr_W: {1e-4, 3e-4, 6e-4, 1e-3}, W_L1: {0, 1e-6, 1e-5, 5e-5} |
+| 2 | **W initialization** | `w_init_mode` | {zeros, randn, randn_scaled} — low-rank dynamics may favor randn |
+| 3 | **Training volume** | `data_augmentation_loop`, `n_epochs` | DAL: {50, 100, 200}, n_epochs: {2, 4} (halve DAL when doubling epochs) |
+| 4 | **GT edges comparison** | `use_gt_edges` | use_gt_edges: {true, false} — default is fully connected. One block to test if providing GT edges helps or hurts |
+| 5 | **Regularization** | `coeff_W_L2`, `coeff_W_sign`, `coeff_g_phi_diff`, `coeff_f_theta_msg_diff` | W_L2: {5e-6, 1e-5, 2e-5}, W_sign: {0, 0.01, 0.1}, g_phi_diff: {500, 1000, 1500}, f_theta_msg_diff: {0, 10, 100} |
+| 6 | **Architecture + noise** | `hidden_dim`, `embedding_dim`, `noise_model_level` | hidden_dim: {48, 64, 80}, embedding_dim: {2, 4} (update input_size accordingly), noise: {0, 0.05, 0.5} |
 | 7 | **Free exploration I** | Any parameter | Consolidate best from blocks 1-6, test novel combinations, attempt to break R2 ceiling |
 | 8 | **Free exploration II** | Any parameter | Continue ceiling-breaking attempts, confirm final robust config |
 
-### What NOT to explore (established from prior 124-iteration CX exploration)
+### Low-rank context
 
-These axes were thoroughly tested and found harmful or suboptimal:
-- `batch_size` other than 2 (2 is optimal; 1 too noisy, 4 too few steps)
-- `w_init_mode=randn` or `randn_scaled` (zeros is best)
+These biological connectomes produce **low-rank activity** (ring attractor dynamics, structured connectivity). From prior low-rank exploration (NeuralGraph, 100-1000 neurons):
+- **W_L1 calibration is critical**: L1=1E-6 unlocks near-perfect dynamics recovery; L1=1E-5 gives good W but partial rollout. Too much L1 destroys the low-rank structure.
+- **W initialization matters**: `randn` outperforms `zeros` for low-rank regimes (opposite of chaotic regime). Must be tested — Block 2.
+- **Fully connected training is the default** (`use_gt_edges=false`): the GNN trains on all-to-all edges and must learn which are zero via L1 sparsity. Block 4 compares GT edges vs fully connected.
+
+### What NOT to explore
+
 - `lr_scheduler` (all schedules hurt W recovery)
 - `regul_annealing_rate` (unnecessary; rate=0 matches annealed)
 - `n_epochs > 4` (3rd+ epoch degrades W)
