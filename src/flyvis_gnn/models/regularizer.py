@@ -407,30 +407,21 @@ class LossRegularizer:
         n_neurons = self.n_neurons
         total_regul = torch.tensor(0.0, device=device)
 
-        # update_diff: for 'generic' update_type only (requires g_phi, f_theta, a)
-        if (self._coeffs['f_theta_diff'] > 0) and (model.update_type == 'generic') and (x is not None) and hasattr(model, 'f_theta'):
-            in_features_edge, in_features_edge_next = get_in_features_g_phi(
-                x, model, mc, xnorm, n_neurons, device)
-            if mc.g_phi_positive:
-                msg0 = model.g_phi(in_features_edge[ids].clone().detach()) ** 2
-                msg1 = model.g_phi(in_features_edge_next[ids].clone().detach()) ** 2
-            else:
-                msg0 = model.g_phi(in_features_edge[ids].clone().detach())
-                msg1 = model.g_phi(in_features_edge_next[ids].clone().detach())
-            in_feature_update = torch.cat((torch.zeros((n_neurons, 1), device=device),
-                                           model.a[:n_neurons], msg0,
-                                           torch.ones((n_neurons, 1), device=device)), dim=1)
-            in_feature_update = in_feature_update[ids]
-            in_feature_update_next = torch.cat((torch.zeros((n_neurons, 1), device=device),
-                                                model.a[:n_neurons], msg1,
-                                                torch.ones((n_neurons, 1), device=device)), dim=1)
-            in_feature_update_next = in_feature_update_next[ids]
-            regul_term = torch.relu(model.f_theta(in_feature_update) - model.f_theta(in_feature_update_next)).norm(2) * self._coeffs['f_theta_diff']
-            total_regul = total_regul + regul_term
-            self._add('f_theta_diff', regul_term)
-
         if in_features is None:
             return total_regul
+
+        # f_theta_diff: enforce negative slope w.r.t. state v_i (column 0)
+        # Leaky integrator: f_theta should decrease when v_i increases (df/dv < 0)
+        if self._coeffs['f_theta_diff'] > 0 and hasattr(model, 'f_theta'):
+            pred_v = model.f_theta(in_features.clone().detach())
+            in_features_v_next = in_features.clone().detach()
+            delta_v = 0.05 * max(float(xnorm), 1e-6) if xnorm is not None else 1e-6
+            in_features_v_next[:, 0] = in_features_v_next[:, 0] + delta_v
+            pred_v_next = model.f_theta(in_features_v_next)
+            # penalize positive slope: relu(f(v+dv) - f(v))
+            regul_term = torch.relu(pred_v_next[ids_batch] - pred_v[ids_batch]).norm(2) * self._coeffs['f_theta_diff']
+            total_regul = total_regul + regul_term
+            self._add('f_theta_diff', regul_term)
 
         if self._coeffs['f_theta_msg_diff'] > 0:
             pred_msg = model.f_theta(in_features.clone().detach())
