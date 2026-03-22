@@ -74,7 +74,7 @@ def _is_connconstr_model(signal_model_name: str) -> bool:
 
 def _plot_connconstr_diagnostics(
     voltage_history, stimulus_history, ode_params, edge_index,
-    model_name, n_neurons, dt, config, device,
+    model_name, n_neurons, dt, config, device, frame_indices=None,
 ):
     """Generate traces, connectivity, and g_phi plots for connconstr models.
 
@@ -122,6 +122,15 @@ def _plot_connconstr_diagnostics(
     style.xlabel(ax, 'time (frames)')
     style.ylabel(ax, f'{n_neurons} neurons')
     ax.set_yticks([])
+    if frame_indices is not None:
+        # Map subsampled index to true frame numbers on x-axis
+        n_samples = len(frame_indices)
+        n_ticks = 5
+        tick_step = max(1, n_samples // n_ticks)
+        tick_pos = list(range(0, n_samples, tick_step))
+        tick_labels = [str(frame_indices[i]) for i in tick_pos]
+        ax.set_xticks(tick_pos)
+        ax.set_xticklabels(tick_labels, fontsize=style.tick_font_size)
     ax.set_xlim([0, n_frames])
     y_bottom = offset[0].min() - step_v * 4
     ax.set_ylim([y_bottom, offset[-1].max() + 2])
@@ -247,6 +256,17 @@ def _plot_connconstr_diagnostics(
     )
     imshow_kw = dict(aspect='auto', cmap='viridis', origin='lower', interpolation='nearest')
 
+    # Compute true-frame x-axis ticks for kinograph
+    n_samples = voltage_arr.shape[0]
+    if frame_indices is not None and len(frame_indices) == n_samples:
+        n_ticks = 6
+        tick_step = max(1, n_samples // n_ticks)
+        tick_pos = list(range(0, n_samples, tick_step))
+        tick_labels = [str(frame_indices[i]) for i in tick_pos]
+    else:
+        tick_pos = None
+        tick_labels = None
+
     # Top: activity kinograph
     ax = axes[0]
     vmax_act = np.percentile(np.abs(voltage_arr), 99)
@@ -256,7 +276,11 @@ def _plot_connconstr_diagnostics(
     cb = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
     cb.ax.tick_params(labelsize=style.tick_font_size)
     style.ylabel(ax, 'neurons')
-    ax.set_xticks([])
+    if tick_pos is not None:
+        ax.set_xticks(tick_pos)
+        ax.set_xticklabels([])  # labels on bottom panel only
+    else:
+        ax.set_xticks([])
     ax.set_yticks([0, n_neurons - 1])
     ax.set_yticklabels([1, n_neurons], fontsize=style.tick_font_size)
 
@@ -270,6 +294,9 @@ def _plot_connconstr_diagnostics(
     cb.ax.tick_params(labelsize=style.tick_font_size)
     style.ylabel(ax, 'stimulus')
     style.xlabel(ax, 'time (frames)')
+    if tick_pos is not None:
+        ax.set_xticks(tick_pos)
+        ax.set_xticklabels(tick_labels, fontsize=style.tick_font_size)
     ax.set_yticks([0, n_neurons - 1])
     ax.set_yticklabels([1, n_neurons], fontsize=style.tick_font_size)
 
@@ -358,6 +385,7 @@ def data_generate_connconstr(config, visualize=True, device=None, save=True):
     # Collect voltage history for visualization (train split only)
     voltage_history = [] if visualize else None
     stimulus_history = [] if visualize else None
+    frame_index_history = [] if visualize else None
 
     for split, (frame_start, frame_end) in [("train", (0, n_train)), ("test", (n_train, n_frames_total))]:
         n_split = frame_end - frame_start
@@ -398,6 +426,7 @@ def data_generate_connconstr(config, visualize=True, device=None, save=True):
                 if visualize and split == "train" and (t - frame_start) % max(1, n_split // 5000) == 0:
                     voltage_history.append(to_numpy(x.voltage.clone()))
                     stimulus_history.append(to_numpy(x.stimulus.clone()))
+                    frame_index_history.append(t)
 
                 # Euler step
                 dv = pde(x, edge_index)
@@ -425,6 +454,7 @@ def data_generate_connconstr(config, visualize=True, device=None, save=True):
         _plot_connconstr_diagnostics(
             voltage_history, stimulus_history, ode_params, edge_index,
             model_name, n_neurons, dt, config, device,
+            frame_indices=frame_index_history,
         )
 
     logger.info("connconstr data generation complete")

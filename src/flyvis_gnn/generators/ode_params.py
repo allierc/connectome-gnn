@@ -816,7 +816,7 @@ class ZebrafishODEParams(ODEParamsBase):
     def generate_stimulus(self, n_frames, sim, device=None):
         """Returns per-neuron stimulus tensor (T, N)."""
         from flyvis_gnn.generators.connconstr_data import generate_zebrafish_stimulus
-        I = generate_zebrafish_stimulus(n_frames)
+        I = generate_zebrafish_stimulus(n_frames, seed=sim.seed)
         # Broadcast scalar stimulus to all neurons (ODE uses v_in internally)
         I_t = torch.tensor(I, dtype=torch.float32, device=device)
         return I_t.unsqueeze(1).expand(-1, self.n_neurons)  # (T, N)
