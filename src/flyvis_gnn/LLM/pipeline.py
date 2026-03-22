@@ -482,7 +482,7 @@ def generate_data_locally(state: ExplorationState, batch: BatchInfo):
         data_generate(
             config=config,
             device=state.device,
-            visualize=False,
+            visualize=True,
             run_vizualized=0,
             style="color",
             alpha=1,
@@ -708,7 +708,7 @@ def run_local_pipeline(state: ExplorationState, batch: BatchInfo):
             data_generate(
                 config=config,
                 device=state.device,
-                visualize=False,
+                visualize=True,
                 run_vizualized=0,
                 style="color",
                 alpha=1,
