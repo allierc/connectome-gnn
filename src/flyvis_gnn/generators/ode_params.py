@@ -1388,62 +1388,52 @@ class LarvaODEParams(ODEParamsBase):
     def generate_stimulus(self, n_frames, sim, device=None):
         """Returns per-neuron stimulus tensor (T, N_total).
 
-        Generates a continuous stream of forward/backward locomotion commands
-        with randomized timing and amplitude. No blank gaps between commands —
-        biologically, a larva continuously receives motor drive.
+        Generates continuous, per-neuron stimulus using the wsp projection
+        matrix to define spatial correlation structure:
 
-        The paper used trial-based stimulus with silent gaps + state resets.
-        We remove both: continuous stimulus + no state reset.
+        - 2 independent slow OU-process signals (forward/backward channels)
+        - Projected onto premotor neurons via wsp.T → correlated neurons
+          that share a channel, anti-correlated across channels
+        - Motor neurons receive no direct stimulus (driven by premotor→motor)
+        - Amplitude varies smoothly (no blank gaps)
+
+        Biologically: descending commands + proprioceptive feedback provide
+        continuous drive to the locomotion CPG.
         """
-        from flyvis_gnn.generators.connconstr_data import (
-            generate_larva_stimulus, load_larva_connectome,
-        )
-        conn_data = load_larva_connectome(sim.connconstr_datapath)
-        # Get the base pulse shapes from the paper's generator
-        mtarg, s_stim = generate_larva_stimulus(
-            conn_data["mnorder"], B=2, S=2, dt=self.dt
-        )
-        # s_stim: (T_trial, B, S) — extract active portion of each condition
-        T_trial = s_stim.shape[0]
-        N_total = self.n_premotor + self.n_motor
-
-        # Project each condition's stimulus onto premotor neurons
-        # to get the pulse shape templates
-        wsp_t = self.wsp.t()  # (N_premotor, S)
-        pulse_templates = []
-        for bi in range(2):
-            s_raw = torch.tensor(s_stim[:, bi, :], dtype=torch.float32, device=device)
-            projected = torch.zeros(T_trial, N_total, dtype=torch.float32, device=device)
-            for t_idx in range(T_trial):
-                projected[t_idx, :self.n_premotor] = wsp_t @ s_raw[t_idx]
-            # Trim to active portion (nonzero rows)
-            active = projected.abs().sum(dim=1) > 1e-8
-            if active.any():
-                first = active.nonzero(as_tuple=True)[0][0].item()
-                last = active.nonzero(as_tuple=True)[0][-1].item() + 1
-                pulse_templates.append(projected[first:last])
-            else:
-                pulse_templates.append(projected[:1])
-
-        # Build continuous stimulus by placing commands back-to-back
-        # with randomized gaps (short, 5-20 frames) and random amplitude
         rng = np.random.RandomState(sim.seed)
+        N_total = self.n_premotor + self.n_motor
+        S = self.wsp.shape[0]  # 2 channels (forward/backward)
+
+        # Generate S independent slow OU-process signals
+        # Correlation time ~40 frames (2s at dt=0.05) for smooth undulations
+        signal_tau = 40
+        signal_filter = np.exp(-np.arange(signal_tau * 4) / signal_tau)
+        signal_filter /= signal_filter.sum()
+
+        channels = np.zeros((n_frames, S), dtype=np.float32)
+        for si in range(S):
+            noise = rng.randn(n_frames + len(signal_filter))
+            channels[:, si] = np.convolve(noise, signal_filter, mode='full')[:n_frames]
+
+        # Slow amplitude envelope per channel (~80 frames correlation)
+        env_tau = 80
+        env_filter = np.exp(-np.arange(env_tau * 4) / env_tau)
+        env_filter /= env_filter.sum()
+        for si in range(S):
+            env_noise = rng.randn(n_frames + len(env_filter))
+            envelope = np.convolve(env_noise, env_filter, mode='full')[:n_frames]
+            envelope = (envelope - envelope.min()) / (envelope.max() - envelope.min() + 1e-12)
+            channels[:, si] *= envelope
+
+        # Project channels onto premotor neurons via wsp
+        # wsp: (S, N_premotor) — each column defines how a premotor neuron
+        # mixes the S channels. This creates natural correlation (same channel)
+        # and anti-correlation (opposite channels) structure.
+        channels_t = torch.tensor(channels, dtype=torch.float32, device=device)  # (T, S)
+        wsp_t = self.wsp.t()  # (N_premotor, S)
+
         stim_all = torch.zeros(n_frames, N_total, dtype=torch.float32, device=device)
-        t = rng.randint(5, 20)  # small initial delay
-        while t < n_frames:
-            # Random condition (forward or backward)
-            bi = rng.randint(0, 2)
-            pulse = pulse_templates[bi]
-            plen = pulse.shape[0]
-
-            # Random amplitude modulation (0.3 to 1.5)
-            amp = rng.uniform(0.3, 1.5)
-
-            end = min(t + plen, n_frames)
-            stim_all[t:end] = amp * pulse[:end - t]
-
-            # Short gap before next command (5-20 frames)
-            t = end + rng.randint(5, 20)
+        stim_all[:, :self.n_premotor] = channels_t @ self.wsp  # (T, S) @ (S, N) = (T, N)
 
         return stim_all
 
