@@ -325,8 +325,14 @@ def data_generate_connconstr(config, visualize=True, device=None, save=True):
         n_split = frame_end - frame_start
         logger.info(f"generating {split} split: frames [{frame_start}, {frame_end}) ({n_split} frames)")
 
+        # Test data must be noise-free: the model learns deterministic dynamics,
+        # so rollout comparison against noisy ground truth is meaningless.
         if split == "test":
             x.voltage[:] = 0
+            _saved_noise_model = sim.noise_model_level
+            _saved_noise_meas = sim.measurement_noise_level
+            sim.noise_model_level = 0.0
+            sim.measurement_noise_level = 0.0
 
         x_writer = ZarrSimulationWriterV3(
             path=graphs_data_path(config.dataset, f"x_list_{split}"),
@@ -371,6 +377,11 @@ def data_generate_connconstr(config, visualize=True, device=None, save=True):
         n_written = x_writer.finalize()
         y_writer.finalize()
         logger.info(f"generated {n_written} {split} frames")
+
+        # Restore noise levels after test split
+        if split == "test":
+            sim.noise_model_level = _saved_noise_model
+            sim.measurement_noise_level = _saved_noise_meas
 
     if visualize and voltage_history:
         _plot_connconstr_diagnostics(
@@ -1594,6 +1605,13 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
         _compute_noisy_derivatives(config, sim, n_neurons, split='train')
 
     # --- Generate TEST split ---
+    # Test data must be noise-free: the model learns deterministic dynamics,
+    # so rollout comparison against noisy ground truth is meaningless.
+    _saved_noise_model = sim.noise_model_level
+    _saved_noise_meas = sim.measurement_noise_level
+    sim.noise_model_level = 0.0
+    sim.measurement_noise_level = 0.0
+
     # Reset neural state to avoid train→test leakage
     if is_hh:
         hh_state = pde.init_state(n_neurons)
@@ -1639,9 +1657,9 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
     y_writer.finalize()
     logger.info(f"generated {n_frames_test} TEST frames (saved as .zarr)")
 
-    # --- Compute noisy derivatives for TEST split ---
-    if sim.measurement_noise_level > 0:
-        _compute_noisy_derivatives(config, sim, n_neurons, split='test')
+    # Restore noise levels after test generation
+    sim.noise_model_level = _saved_noise_model
+    sim.measurement_noise_level = _saved_noise_meas
 
     # restore gradient computation now (before any early-return paths)
     torch.set_grad_enabled(True)
