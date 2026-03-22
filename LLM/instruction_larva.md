@@ -21,7 +21,7 @@ Informational (not for optimization): onestep_pearson, f_theta_R2, g_phi_R2, tau
 Strict **hypothesize -> test -> validate/falsify** cycle:
 
 1. **Hypothesize**: Form a specific, testable prediction
-2. **Design experiment**: Change ONE parameter at a time (at most two) to understand causality — IF YOU CHANGE MORE, YOU CANNOT ATTRIBUTE THE EFFECT
+2. **Design experiment**: Change ONE parameter at a time to understand causality — IF YOU CHANGE MORE THAN ONE, YOU CANNOT ATTRIBUTE THE EFFECT
 3. **Run training**: 4 seeds — you cannot predict the outcome
 4. **Analyze results**: Use metrics AND cross-seed variance
 5. **Update understanding**: Revise hypotheses based on evidence
@@ -103,16 +103,18 @@ Example: embedding_dim=2 -> input_size=3, input_size_update=5.
 
 ## Parallel Mode — 4 Slots Per Batch
 
-All 4 slots run the **same config** (different seeds applied automatically).
-Edit all 4 configs identically: `{name}_00.yaml` through `{name}_03.yaml`.
+Each batch runs 4 slots with different seeds (forced by pipeline). You choose the strategy:
 
-### Robustness Assessment
+- **Exploration** (default): use DIFFERENT configs across 4 slots to test more parameter variations per batch. Vary 1 parameter per slot.
+- **Robustness test**: set ALL 4 slots to the SAME config to measure seed robustness. Use this when a config looks promising and you want to confirm it holds across seeds.
+
+State your choice (exploration vs robustness test) in the log entry.
+
+### Robustness Assessment (when running same config across 4 slots)
 
 - **Robust**: all 4 slots connectivity_R2 > 0.7
 - **Partially robust**: 2-3 slots > 0.7
 - **Fragile**: 0-1 slots > 0.7
-
-Compute mean, std, CV for connectivity_R2 across 4 slots every batch.
 
 ## Block Partition
 
