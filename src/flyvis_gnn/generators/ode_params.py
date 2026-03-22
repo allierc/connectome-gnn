@@ -1388,32 +1388,63 @@ class LarvaODEParams(ODEParamsBase):
     def generate_stimulus(self, n_frames, sim, device=None):
         """Returns per-neuron stimulus tensor (T, N_total).
 
-        Concatenates both B=2 conditions (forward + backward) and repeats
-        to produce enough training data.
+        Generates a continuous stream of forward/backward locomotion commands
+        with randomized timing and amplitude. No blank gaps between commands —
+        biologically, a larva continuously receives motor drive.
+
+        The paper used trial-based stimulus with silent gaps + state resets.
+        We remove both: continuous stimulus + no state reset.
         """
         from flyvis_gnn.generators.connconstr_data import (
             generate_larva_stimulus, load_larva_connectome,
         )
         conn_data = load_larva_connectome(sim.connconstr_datapath)
+        # Get the base pulse shapes from the paper's generator
         mtarg, s_stim = generate_larva_stimulus(
             conn_data["mnorder"], B=2, S=2, dt=self.dt
         )
-        # s_stim: (T_trial, B, S)
+        # s_stim: (T_trial, B, S) — extract active portion of each condition
         T_trial = s_stim.shape[0]
         N_total = self.n_premotor + self.n_motor
 
-        # Build one cycle: condition 0 then condition 1
-        stim_cycle = torch.zeros(2 * T_trial, N_total, dtype=torch.float32, device=device)
+        # Project each condition's stimulus onto premotor neurons
+        # to get the pulse shape templates
+        wsp_t = self.wsp.t()  # (N_premotor, S)
+        pulse_templates = []
         for bi in range(2):
             s_raw = torch.tensor(s_stim[:, bi, :], dtype=torch.float32, device=device)
-            offset = bi * T_trial
+            projected = torch.zeros(T_trial, N_total, dtype=torch.float32, device=device)
             for t_idx in range(T_trial):
-                stim_cycle[offset + t_idx, :self.n_premotor] = self.wsp.t() @ s_raw[t_idx]
+                projected[t_idx, :self.n_premotor] = wsp_t @ s_raw[t_idx]
+            # Trim to active portion (nonzero rows)
+            active = projected.abs().sum(dim=1) > 1e-8
+            if active.any():
+                first = active.nonzero(as_tuple=True)[0][0].item()
+                last = active.nonzero(as_tuple=True)[0][-1].item() + 1
+                pulse_templates.append(projected[first:last])
+            else:
+                pulse_templates.append(projected[:1])
 
-        # Repeat cycle to fill n_frames
-        n_cycle = stim_cycle.shape[0]
-        n_repeats = (n_frames + n_cycle - 1) // n_cycle
-        stim_all = stim_cycle.repeat(n_repeats, 1)[:n_frames]
+        # Build continuous stimulus by placing commands back-to-back
+        # with randomized gaps (short, 5-20 frames) and random amplitude
+        rng = np.random.RandomState(sim.seed)
+        stim_all = torch.zeros(n_frames, N_total, dtype=torch.float32, device=device)
+        t = rng.randint(5, 20)  # small initial delay
+        while t < n_frames:
+            # Random condition (forward or backward)
+            bi = rng.randint(0, 2)
+            pulse = pulse_templates[bi]
+            plen = pulse.shape[0]
+
+            # Random amplitude modulation (0.3 to 1.5)
+            amp = rng.uniform(0.3, 1.5)
+
+            end = min(t + plen, n_frames)
+            stim_all[t:end] = amp * pulse[:end - t]
+
+            # Short gap before next command (5-20 frames)
+            t = end + rng.randint(5, 20)
+
         return stim_all
 
     def get_trial_length(self):
