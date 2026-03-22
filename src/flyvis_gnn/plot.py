@@ -247,11 +247,11 @@ def plot_f_theta(ax, model, config, n_neurons, type_list, cmap, device, step=20,
     ax.axvline(0, color='#aaa', linewidth=0.5, linestyle='--')
     ax.set_xlim(xlim)
     ax.set_ylim(config.plotting.ylim)
-    ax.set_xlabel('$v_i$', fontsize=14)
-    ax.set_ylabel(r'$f_\theta(\mathbf{a}_i, v_i)$', fontsize=14)
+    ax.set_xlabel('$v_i$', fontsize=24)
+    ax.set_ylabel(r'$f_\theta(\mathbf{a}_i, v_i)$', fontsize=24)
     if len(unique_types) <= 10:
-        ax.legend(fontsize=8, frameon=False, loc='upper right')
-    ax.tick_params(axis='both', which='major', labelsize=10)
+        ax.legend(fontsize=16, frameon=False, loc='upper right')
+    ax.tick_params(axis='both', which='major', labelsize=18)
 
 
 def plot_g_phi(ax, model, config, n_neurons, type_list, cmap, device, step=20,
@@ -315,11 +315,11 @@ def plot_g_phi(ax, model, config, n_neurons, type_list, cmap, device, step=20,
     ax.axvline(0, color='#aaa', linewidth=0.5, linestyle='--')
     ax.set_xlim(config.plotting.xlim)
     ax.set_ylim([-config.plotting.xlim[1] / 10, config.plotting.xlim[1] * 1.2])
-    ax.set_xlabel('$v_j$', fontsize=14)
-    ax.set_ylabel(r'$g_\phi(\mathbf{a}_j, v_j)$', fontsize=14)
+    ax.set_xlabel('$v_j$', fontsize=24)
+    ax.set_ylabel(r'$g_\phi(\mathbf{a}_j, v_j)$', fontsize=24)
     if len(unique_types) <= 10:
-        ax.legend(fontsize=8, frameon=False, loc='upper left')
-    ax.tick_params(axis='both', which='major', labelsize=10)
+        ax.legend(fontsize=16, frameon=False, loc='upper left')
+    ax.tick_params(axis='both', which='major', labelsize=18)
 
 
 def plot_weight_scatter(ax, gt_weights, learned_weights, corrected=False,
@@ -1494,6 +1494,43 @@ def plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_li
         except Exception:
             pass
         _type_names = getattr(ode_params, 'type_names', None)
+
+    # Plot 3b: Connectivity matrix heatmap (small networks only)
+    if n_neurons < 1000 and ode_params is not None:
+        ei = to_numpy(edges)
+        gt_W = to_numpy(gt_weights)
+        learned_W = raw_W
+
+        # GT connectivity matrix
+        J_gt = np.zeros((n_neurons, n_neurons), dtype=np.float32)
+        J_gt[ei[1], ei[0]] = gt_W  # J[post, pre]
+        vmax_gt = np.percentile(np.abs(gt_W[np.abs(gt_W) > 0]), 98) if np.any(gt_W != 0) else 1.0
+
+        # Learned connectivity matrix
+        J_learned = np.zeros((n_neurons, n_neurons), dtype=np.float32)
+        J_learned[ei[1], ei[0]] = learned_W
+        vmax_lr = max(vmax_gt, 1e-6)
+
+        fig, axes = plt.subplots(1, 2, figsize=(16, 7))
+        im0 = axes[0].imshow(J_gt, cmap='bwr_r', vmin=-vmax_gt, vmax=vmax_gt,
+                             aspect='auto', interpolation='nearest', origin='upper')
+        fig.colorbar(im0, ax=axes[0], fraction=0.046, pad=0.04)
+        axes[0].set_xlabel('presynaptic', fontsize=18)
+        axes[0].set_ylabel('postsynaptic', fontsize=18)
+        axes[0].set_title('GT $W$', fontsize=20)
+        axes[0].tick_params(labelsize=14)
+
+        im1 = axes[1].imshow(J_learned, cmap='bwr_r', vmin=-vmax_lr, vmax=vmax_lr,
+                             aspect='auto', interpolation='nearest', origin='upper')
+        fig.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04)
+        axes[1].set_xlabel('presynaptic', fontsize=18)
+        axes[1].set_ylabel('postsynaptic', fontsize=18)
+        axes[1].set_title('learned $W$', fontsize=20)
+        axes[1].tick_params(labelsize=14)
+
+        plt.tight_layout()
+        plt.savefig(f"{log_dir}/tmp_training/matrix/connectivity_{epoch}_{N}.png", dpi=87)
+        plt.close()
 
     # Plot 4: Edge function visualization (g_phi)
     fig, ax = plt.subplots(figsize=(8, 8))
