@@ -594,24 +594,25 @@ def generate_zebrafish_stimulus(n_frames, seed=42):
     """
     rng = np.random.RandomState(seed)
 
-    # Same exponential filter as paper (simulate_series lines 157-158)
-    # This sets the temporal correlation scale (~100 frames)
-    input_filter = 0.001 * np.exp(-np.linspace(0, 10, 101))
+    # Slow signal: exponential filter with ~1500 frame correlation time
+    # (paper used ~100 frames which is too fast for 21000 frame trajectories)
+    signal_tau = 1500
+    signal_filter = np.exp(-np.arange(signal_tau * 3) / signal_tau)
+    signal_filter /= signal_filter.sum()
 
-    # Generate white noise and convolve for smooth continuous signal
-    noise = rng.randn(n_frames + len(input_filter))
-    I_smooth = np.convolve(noise, input_filter, mode='full')[:n_frames]
+    noise = rng.randn(n_frames + len(signal_filter))
+    I_smooth = np.convolve(noise, signal_filter, mode='full')[:n_frames]
 
-    # Amplitude envelope: slow random modulation (0 to 1)
-    # Use heavily filtered noise for a smooth, non-periodic envelope
-    max_amplitude = 1e5
-    slow_filter = np.exp(-np.linspace(0, 3, 1001))
-    slow_filter /= slow_filter.sum()
-    env_noise = rng.randn(n_frames + len(slow_filter))
-    envelope = np.convolve(env_noise, slow_filter, mode='full')[:n_frames]
+    # Slow amplitude envelope (correlation ~3000 frames)
+    env_tau = 3000
+    env_filter = np.exp(-np.arange(env_tau * 3) / env_tau)
+    env_filter /= env_filter.sum()
+    env_noise = rng.randn(n_frames + len(env_filter))
+    envelope = np.convolve(env_noise, env_filter, mode='full')[:n_frames]
     # Normalize to [0, 1]
     envelope = (envelope - envelope.min()) / (envelope.max() - envelope.min() + 1e-12)
 
+    max_amplitude = 1e5
     I = I_smooth * max_amplitude * envelope
 
     return I
