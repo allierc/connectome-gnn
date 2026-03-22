@@ -261,3 +261,72 @@ def save_checkpoint(model, optimizer, path):
         'model_state_dict': model.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
     }, path)
+
+
+def enforce_dale_law(model, edge_index):
+    """Enforce Dale's law: for each source neuron, force all outgoing W to the dominant sign.
+
+    For each presynaptic neuron j, compute the sum of W over all its outgoing edges.
+    Then set W_ij = |W_ij| * sign(sum_j) for all postsynaptic i.
+    Edges where the sum is exactly zero are left unchanged.
+
+    Call this with torch.no_grad() — it modifies W in-place.
+    """
+    with torch.no_grad():
+        W = model.W  # (n_edges, 1)
+        src = edge_index[0]  # presynaptic neuron index per edge
+        n_neurons = int(src.max().item()) + 1
+
+        # sum of W per source neuron
+        w_sum = torch.zeros(n_neurons, device=W.device, dtype=W.dtype)
+        w_sum.scatter_add_(0, src, W[:, 0])
+
+        # dominant sign per source neuron (+1 or -1), 0 stays 0
+        dominant_sign = w_sum.sign()
+
+        # apply: |W| * dominant_sign[src]
+        per_edge_sign = dominant_sign[src].unsqueeze(1)
+        mask = per_edge_sign != 0
+        W.data[mask] = W.data[mask].abs() * per_edge_sign[mask]
+
+
+def dale_law_score(model, edge_index):
+    """Compute Dale's law compliance score in [0, 1].
+
+    For each source neuron j with at least 2 outgoing edges, compute the fraction
+    of edges that match the dominant sign. Average across all such neurons.
+    Returns 1.0 if every neuron has consistent sign, 0.5 for random signs.
+    """
+    with torch.no_grad():
+        W = model.W[:, 0]  # (n_edges,)
+        src = edge_index[0]
+        n_neurons = int(src.max().item()) + 1
+
+        # dominant sign per source
+        w_sum = torch.zeros(n_neurons, device=W.device, dtype=W.dtype)
+        w_sum.scatter_add_(0, src, W)
+        dominant_sign = w_sum.sign()
+
+        # per-edge: does this edge match its source's dominant sign?
+        edge_sign = W.sign()
+        edge_dominant = dominant_sign[src]
+        matches = (edge_sign == edge_dominant).float()
+
+        # exclude zero-weight edges from scoring
+        nonzero = W.abs() > 1e-12
+        if nonzero.sum() == 0:
+            return 0.0
+
+        # count per source neuron
+        match_count = torch.zeros(n_neurons, device=W.device)
+        total_count = torch.zeros(n_neurons, device=W.device)
+        match_count.scatter_add_(0, src[nonzero], matches[nonzero])
+        total_count.scatter_add_(0, src[nonzero], torch.ones_like(matches[nonzero]))
+
+        # only neurons with >= 2 nonzero edges
+        valid = total_count >= 2
+        if valid.sum() == 0:
+            return 1.0
+
+        per_neuron_score = match_count[valid] / total_count[valid]
+        return per_neuron_score.mean().item()

@@ -28,7 +28,7 @@ from flyvis_gnn.models.neural_ode_wrapper import (
 )
 from flyvis_gnn.models.recurrent_step import recurrent_loss
 from flyvis_gnn.models.registry import create_model
-from flyvis_gnn.models.training_utils import build_lr_scheduler, build_model, determine_load_fields, load_flyvis_data
+from flyvis_gnn.models.training_utils import build_lr_scheduler, build_model, dale_law_score, determine_load_fields, enforce_dale_law, load_flyvis_data
 from flyvis_gnn.models.utils import (
     LossRegularizer,
     _batch_frames,
@@ -350,6 +350,11 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
         field_R2 = None
         field_slope = None
         pbar = trange(Niter, ncols=150)
+        # Dale's law enforcement: 3 evenly spaced interventions per epoch
+        dale_enabled = getattr(tc, 'dale_law', False)
+        if dale_enabled:
+            dale_checkpoints = {int(Niter * f) for f in (0.25, 0.5, 0.75)}
+            dale_checkpoints.discard(0)
         # === LLM-MODIFIABLE: TRAINING LOOP START ===
         # Main training loop. Suggested changes: loss function, gradient clipping,
         # data sampling strategy, LR scheduler steps, early stopping.
@@ -381,6 +386,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                     if model.W.grad is not None:
                         torch.nn.utils.clip_grad_norm_([model.W], max_norm=tc.grad_clip_W)
                 optimizer.step()
+                if dale_enabled and N in dale_checkpoints:
+                    enforce_dale_law(model, edges)
                 lr_scheduler.step()
                 total_loss += loss.item()
                 total_loss_regul += regul_val
@@ -609,6 +616,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                         torch.nn.utils.clip_grad_norm_([model.W], max_norm=tc.grad_clip_W)
 
                 optimizer.step()
+                if dale_enabled and N in dale_checkpoints:
+                    enforce_dale_law(model, edges)
                 lr_scheduler.step()
                 # === LLM-MODIFIABLE: BACKWARD AND STEP END ===
 
@@ -822,6 +831,9 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
         log_file.write(f"coeff_f_theta_weight_L1: {tc.coeff_f_theta_weight_L1}\n")
         log_file.write(f"coeff_f_theta_weight_L2: {tc.coeff_f_theta_weight_L2}\n")
         log_file.write(f"coeff_W_L1: {tc.coeff_W_L1}\n")
+        log_file.write(f"dale_law: {getattr(tc, 'dale_law', False)}\n")
+        dale_score = dale_law_score(model, edges)
+        log_file.write(f"dale_law_score: {dale_score:.4f}\n")
         if field_R2 is not None:
             log_file.write(f"field_R2: {field_R2:.4f}\n")
             log_file.write(f"field_slope: {field_slope:.4f}\n")
