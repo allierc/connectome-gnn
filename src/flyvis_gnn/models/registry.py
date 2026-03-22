@@ -23,6 +23,7 @@ def _discover_models():
     _discovered = True
     import flyvis_gnn.models.flyvis_gnn  # noqa: F401 — triggers @register_model
     import flyvis_gnn.models.flyvis_linear  # noqa: F401 — triggers @register_model
+    import flyvis_gnn.models.flyvis_rnn  # noqa: F401 — triggers @register_model
 
 
 def register_model(*names: str):

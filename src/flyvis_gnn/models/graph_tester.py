@@ -229,7 +229,9 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
                 x.stimulus[:model.n_input_neurons] = visual_input.squeeze(-1)
                 x.stimulus[model.n_input_neurons:] = 0
 
-            if 'MLP' in model_config.signal_model_name:
+            if 'rnn' in model_config.signal_model_name.lower():
+                pred = model(x.to_packed(), return_all=False)
+            elif 'MLP' in model_config.signal_model_name:
                 batched_state, _ = _batch_frames([x], edges)
                 x_packed = batched_state.to_packed()
                 pred = model(x_packed, data_id=data_id, return_all=False)
@@ -305,9 +307,9 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
                 x.stimulus[model.n_input_neurons:] = 0
 
             # Model prediction
-            if 'RNN' in model_config.signal_model_name:
+            if 'rnn' in model_config.signal_model_name.lower():
                 y, h_state = model(x.to_packed(), h=h_state, return_all=True)
-            elif 'LSTM' in model_config.signal_model_name:
+            elif 'lstm' in model_config.signal_model_name.lower():
                 y, h_state, c_state = model(x.to_packed(), h=h_state, c=c_state, return_all=True)
             elif 'MLP_ODE' in model_config.signal_model_name:
                 v = x.voltage.unsqueeze(-1)
@@ -806,9 +808,10 @@ def data_test_gnn_special(
     x_generated_modified = x.clone()
 
     # Initialize RNN hidden state
-    if 'RNN' in model_config.signal_model_name:
+    _smn_lower = model_config.signal_model_name.lower()
+    if 'rnn' in _smn_lower:
         h_state = None
-    if 'LSTM' in model_config.signal_model_name:
+    if 'lstm' in _smn_lower:
         h_state = None
         c_state = None
 
@@ -825,7 +828,7 @@ def data_test_gnn_special(
 
     edges = ode_params.edge_index
 
-    if ('test_ablation' in test_mode) & ('MLP' not in model_config.signal_model_name) & ('RNN' not in model_config.signal_model_name) & ('LSTM' not in model_config.signal_model_name):
+    if ('test_ablation' in test_mode) & ('MLP' not in model_config.signal_model_name) & ('rnn' not in _smn_lower) & ('lstm' not in _smn_lower):
         #  test_mode="test_ablation_100"
         ablation_ratio = int(test_mode.split('_')[-1]) / 100
         if ablation_ratio > 0:
@@ -1046,9 +1049,9 @@ def data_test_gnn_special(
                     # Prediction step
                     if tc.training_selected_neurons:
                         x_selected.stimulus = x.stimulus[selected_neuron_ids].clone().detach()
-                        if 'RNN' in model_config.signal_model_name:
+                        if 'rnn' in _smn_lower:
                             y, h_state = model(x_selected.to_packed(), h=h_state, return_all=True)
-                        elif 'LSTM' in model_config.signal_model_name:
+                        elif 'lstm' in _smn_lower:
                             y, h_state, c_state = model(x_selected.to_packed(), h=h_state, c=c_state, return_all=True)
                         elif 'MLP_ODE' in model_config.signal_model_name:
                             v = x_selected.voltage.unsqueeze(-1)
@@ -1058,9 +1061,9 @@ def data_test_gnn_special(
                             y = model(x_selected.to_packed(), data_id=None, return_all=False)
 
                     else:
-                        if 'RNN' in model_config.signal_model_name:
+                        if 'rnn' in _smn_lower:
                             y, h_state = model(x.to_packed(), h=h_state, return_all=True)
-                        elif 'LSTM' in model_config.signal_model_name:
+                        elif 'lstm' in _smn_lower:
                             y, h_state, c_state = model(x.to_packed(), h=h_state, c=c_state, return_all=True)
                         elif 'MLP_ODE' in model_config.signal_model_name:
                             v = x.voltage.unsqueeze(-1)
@@ -1124,14 +1127,14 @@ def data_test_gnn_special(
                             x_selected.voltage = x_selected.voltage + y.squeeze(-1)  # y already contains full update
                         else:
                             x_selected.voltage = x_selected.voltage + sim.delta_t * y.squeeze(-1)
-                        if (it <= warm_up_length) and ('RNN' in model_config.signal_model_name or 'LSTM' in model_config.signal_model_name):
+                        if (it <= warm_up_length) and ('rnn' in _smn_lower or 'lstm' in _smn_lower):
                             x_selected.voltage = x_generated.voltage[selected_neuron_ids].clone()
                     else:
                         if 'MLP_ODE' in model_config.signal_model_name:
                             x.voltage = x.voltage + y.squeeze(-1)  # y already contains full update
                         else:
                             x.voltage = x.voltage + sim.delta_t * y.squeeze(-1)
-                        if (it <= warm_up_length) and ('RNN' in model_config.signal_model_name):
+                        if (it <= warm_up_length) and ('rnn' in _smn_lower):
                             x.voltage = x_generated.voltage.clone()
 
                     # Guard against NaN / divergence from a poorly trained model
