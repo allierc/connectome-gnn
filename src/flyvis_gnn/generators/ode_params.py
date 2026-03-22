@@ -1537,6 +1537,29 @@ class LarvaODEParams(ODEParamsBase):
     def f_theta_param_names(self):
         return [r"$\tau_i$"]
 
+    def effective_true_weights(self, gt_weights, edges, n_neurons):
+        """True effective weight = W_true * gain[dst].
+
+        The larva ODE applies gain at the destination:
+            dup/dt = (-up + gp_i * sum_j W[i,j] * softplus(v_j) + ...) / taup
+            dum/dt = (-um + gm_i * sum_j W[i,j] * softplus(v_j) + ...) / taum
+
+        The GNN can't separate destination gain from W, so the effective
+        true weight for comparison is gp[dst] * W (premotor destinations)
+        or gm[dst-N] * W (motor destinations).
+        """
+        if self.gp is None or self.gm is None:
+            return gt_weights
+        N = self.n_premotor
+        gp_np = torch.clamp(self.gp, 0.5, 5.0).cpu().numpy()
+        gm_np = torch.clamp(self.gm, 0.5, 5.0).cpu().numpy()
+        # Build per-neuron gain array
+        gains = np.zeros(n_neurons)
+        gains[:N] = gp_np[:min(N, n_neurons)]
+        gains[N:] = gm_np[:max(0, n_neurons - N)]
+        dst = edges[1]
+        return gt_weights * gains[dst]
+
     def clustering_features(self):
         return ["a", r"$\tau$", "W"]
 
