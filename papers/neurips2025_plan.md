@@ -28,12 +28,12 @@ LLM/instruction_{biomodel}_{experiment}.md
 
 | File | Bio model | Experiment | Status |
 |------|-----------|------------|--------|
-| `instruction_flyvis_baseline.md` | flyvis | clean, known topology | Rename from `instruction_flyvis_noise_free.md` |
-| `instruction_flyvis_noise005.md` | flyvis | intrinsic noise 0.05 | Rename from `instruction_flyvis_noise_005.md` |
-| `instruction_flyvis_noise05.md` | flyvis | intrinsic noise 0.5 | Exists |
-| `instruction_cx_baseline.md` | CX | clean, fully connected | Rename from `instruction_drosophila_cx.md` |
-| `instruction_larva_baseline.md` | larva | clean, fully connected | **To write** |
-| `instruction_zebrafish_baseline.md` | zebrafish | clean, fully connected | **To write** |
+| `instruction_flyvis_noise_free.md` | flyvis | clean, known topology | Exists |
+| `instruction_flyvis_noise_005.md` | flyvis | intrinsic noise 0.05 | Exists |
+| `instruction_flyvis_noise_05.md` | flyvis | intrinsic noise 0.5 | Exists |
+| `instruction_drosophila_cx.md` | drosophila_cx | clean, fully connected | Exists |
+| `instruction_larva.md` | larva | clean, fully connected | **To write** |
+| `instruction_zebrafish.md` | zebrafish | clean, fully connected | **To write** |
 | `instruction_flyvis_missing_time_80.md` | flyvis | keep 20% timepoints | **To write** |
 | `instruction_flyvis_remove_edges_20.md` | flyvis | remove 20% edges | **To write** |
 | `instruction_flyvis_calcium.md` | flyvis | calcium indicator | **To write** (colleague) |
