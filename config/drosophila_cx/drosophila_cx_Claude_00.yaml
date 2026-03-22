@@ -15,7 +15,7 @@ simulation:
   baseline_value: 0
   noise_model_level: 0.0
   derivative_smoothing_window: 1
-  seed: 125000
+  seed: 137000
   connconstr_datapath: papers/Code_NN/Code_NN/Data/Figure5
   connconstr_model: drosophila_cx
   connconstr_n_trials: 50
@@ -74,7 +74,7 @@ training:
   lr_scheduler_T0: 1000
   lr_scheduler_T_mult: 2
   lr_scheduler_eta_min_ratio: 0.01
-  seed: 125500
+  seed: 137500
 claude:
   n_epochs: 2
   data_augmentation_loop: 100
