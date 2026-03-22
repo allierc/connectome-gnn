@@ -10,7 +10,16 @@ config/
 *.pth
 *.backup
 paper/
-papers/
+# Ignore papers/ except Code_NN (biomodel data generation scripts)
+papers/*
+!papers/Code_NN/
+!papers/*.md
+papers/Code_NN/Code_NN/Data/Figure[1-4]/
+papers/Code_NN/Code_NN/Data/Figure5/*.npz
+papers/Code_NN/Code_NN/Data/Figure5/*.pt
+papers/Code_NN/Code_NN/.png
+papers/Code_NN/Code_NN/**/.DS_Store
+papers/Code_NN/__MACOSX/
 
 # Log folder — nothing tracked
 log/
