@@ -634,6 +634,7 @@ class TrainingConfig(BaseModel):
     ode_state_clamp: float = 10.0
     ode_stab_lambda: float = 0.0
     grad_clip_W: float = 0.0
+    use_gt_edges: bool = True  # True = use ground truth edge_index; False = fully connected graph
     w_init_mode: WInitMode = WInitMode.RANDN  # randn=std=1, randn_scaled=std=scale/sqrt(N), zeros
     w_init_scale: float = 1.0  # scaling factor for 'randn_scaled' mode
     coeff_W_L1_proximal: float = 0.0  # proximal L1 soft-thresholding on W after optimizer step, 0 = disabled
