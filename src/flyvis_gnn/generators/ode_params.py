@@ -1454,16 +1454,27 @@ class LarvaODEParams(ODEParamsBase):
         return tau[:n_neurons]
 
     def gt_g_phi_func(self, v):
-        """Softplus activation (gain-modulated per neuron)."""
-        if self.gp is not None:
-            gp = self.gp.cpu().numpy()
-            # For premotor: g_phi = gp * softplus(v)
-            # Simplified: just show softplus shape (gain applied as scalar)
-            return np.log1p(np.exp(v))
-        return np.log1p(np.exp(v))
+        """Softplus activation (gain-modulated per neuron).
+        Returns (N, n_pts) where N = n_premotor + n_motor.
+        Premotor: gp_i * softplus(v), Motor: gm_i * softplus(v).
+        """
+        sp = np.log1p(np.exp(v))  # softplus(v), shape (n_pts,) or (1, n_pts)
+        N = self.n_premotor + self.n_motor
+        if self.gp is not None and self.gm is not None:
+            gains = np.zeros(N)
+            gains[:self.n_premotor] = self.gp.cpu().numpy()
+            gains[self.n_premotor:] = self.gm.cpu().numpy()
+            return gains[:, None] * sp[None, :]  # (N, n_pts)
+        return np.broadcast_to(sp, (N, len(v)))
 
     def g_phi_label(self):
-        return r"$\mathrm{softplus}(v_j)$"
+        return r"$g_i \, \mathrm{softplus}(v_j)$"
+
+    def gt_f_theta_func(self, v, n_neurons):
+        """Ground truth f_theta(v) = -v / tau per neuron. Shape: (n_neurons, n_pts)."""
+        tau = self.gt_tau(n_neurons)
+        if tau is None: return None
+        return -v / tau[:, None]
 
     def f_theta_label(self):
         return r"$-v_i / \tau_i$"

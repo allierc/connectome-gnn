@@ -173,32 +173,70 @@ def _plot_connconstr_diagnostics(
     style.savefig(fig, os.path.join(folder, "connectivity.png"))
     logger.info("saved connectivity.png")
 
-    # --- 3. g_phi plot (teacher activation function, flyvis-gnn style) ---
+    # --- 3. g_phi plot (per-neuron-type teacher activation function) ---
     v_range = np.linspace(-2, 5, 500)
+    g_phi_vals = ode_params.gt_g_phi_func(v_range)  # (N, n_pts) or (n_pts,)
+
+    neuron_types_np = ode_params.neuron_types.cpu().numpy() if ode_params.neuron_types is not None else np.zeros(n_neurons, dtype=int)
+    unique_types = np.unique(neuron_types_np)
+
+    # Type name labels
+    type_names = getattr(ode_params, 'type_names', None)
+    if type_names is None:
+        type_names = [f"type {t}" for t in unique_types]
+
+    cmap = plt.cm.get_cmap('tab10', max(len(unique_types), 1))
 
     fig, ax = style.figure(aspect=1.2)
-    if model_name == "drosophila_cx":
-        beta = 5.0
-        phi = np.log1p(np.exp(beta * v_range)) / beta
-        ax.plot(v_range, phi, linewidth=style.line_width, color=style.foreground,
-                label=f'softplus($\\beta$={int(beta)})')
-    elif model_name == "larva":
-        phi = np.log1p(np.exp(v_range))
-        ax.plot(v_range, phi, linewidth=style.line_width, color=style.foreground,
-                label='softplus($\\beta$=1)')
-    elif model_name in ("zebrafish", "zebrafish_oculomotor"):
-        phi = v_range.copy()
-        ax.plot(v_range, phi, linewidth=style.line_width, color=style.foreground,
-                label='linear (identity)')
+    if g_phi_vals.ndim == 1:
+        # Neuron-independent (e.g. zebrafish identity)
+        ax.plot(v_range, g_phi_vals, linewidth=style.line_width, color=style.foreground,
+                label=ode_params.g_phi_label())
+    else:
+        # Per-neuron curves — plot mean per type with shaded std
+        for idx, t in enumerate(unique_types):
+            mask = neuron_types_np == t
+            curves = g_phi_vals[mask]  # (n_type, n_pts)
+            mean = curves.mean(axis=0)
+            std = curves.std(axis=0)
+            color = cmap(idx)
+            label = type_names[idx] if idx < len(type_names) else f"type {t}"
+            ax.plot(v_range, mean, linewidth=style.line_width, color=color, label=label)
+            if std.max() > 1e-6:
+                ax.fill_between(v_range, mean - std, mean + std, color=color, alpha=0.15)
 
     ax.axhline(0, color='#aaa', linewidth=0.5, linestyle='--')
     ax.axvline(0, color='#aaa', linewidth=0.5, linestyle='--')
     style.xlabel(ax, '$v$ (presynaptic)')
     style.ylabel(ax, r'$g_\phi(v)$')
-    ax.legend(fontsize=style.tick_font_size, frameon=False)
+    ax.legend(fontsize=style.tick_font_size - 1, frameon=False, loc='upper left')
 
     style.savefig(fig, os.path.join(folder, "g_phi.png"))
     logger.info("saved g_phi.png")
+
+    # --- 3b. f_theta plot (per-neuron-type update function) ---
+    f_theta_vals = ode_params.gt_f_theta_func(v_range, n_neurons)  # (N, n_pts) or None
+    if f_theta_vals is not None:
+        fig, ax = style.figure(aspect=1.2)
+        for idx, t in enumerate(unique_types):
+            mask = neuron_types_np == t
+            curves = f_theta_vals[mask]
+            mean = curves.mean(axis=0)
+            std = curves.std(axis=0)
+            color = cmap(idx)
+            label = type_names[idx] if idx < len(type_names) else f"type {t}"
+            ax.plot(v_range, mean, linewidth=style.line_width, color=color, label=label)
+            if std.max() > 1e-6:
+                ax.fill_between(v_range, mean - std, mean + std, color=color, alpha=0.15)
+
+        ax.axhline(0, color='#aaa', linewidth=0.5, linestyle='--')
+        ax.axvline(0, color='#aaa', linewidth=0.5, linestyle='--')
+        style.xlabel(ax, '$v_i$ (postsynaptic)')
+        style.ylabel(ax, r'$f_\theta(v_i)$')
+        ax.legend(fontsize=style.tick_font_size - 1, frameon=False, loc='upper right')
+
+        style.savefig(fig, os.path.join(folder, "f_theta.png"))
+        logger.info("saved f_theta.png")
 
     # --- 4. Kinograph (neurons x time heatmap, viridis LUT) ---
     fig, axes = plt.subplots(
