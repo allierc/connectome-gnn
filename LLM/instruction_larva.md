@@ -1,4 +1,4 @@
-# Connconstr Drosophila Larva — LLM Exploration
+# Drosophila Larva — LLM Exploration
 
 ## Goal
 
@@ -41,11 +41,13 @@ Seeds are **forced by the pipeline** — DO NOT modify them in config files.
 ## Larva Two-Population Motor Model
 
 ### Premotor neurons (N=178):
+
 ```
 dup/dt = (-up + gp * softplus(up @ Jpp) + bp + wsp @ stim) / taup
 ```
 
 ### Motor neurons (M=52):
+
 ```
 dum/dt = (-um + gm * softplus(up @ Jpm) + bm) / taum
 ```
@@ -67,6 +69,7 @@ dum/dt = (-um + gm * softplus(up @ Jpm) + bm) / taum
 - **Embedding a_i**: learnable per-neuron type vector.
 
 **CRITICAL — coupled parameters**: When changing `embedding_dim`, you MUST also update:
+
 - `input_size = 1 + embedding_dim`
 - `input_size_update = 3 + embedding_dim`
 
@@ -74,23 +77,24 @@ Example: embedding_dim=2 -> input_size=3, input_size_update=5.
 
 ## Training Parameters
 
-| Parameter | Default | Description |
-|---|---|---|
-| `lr_W` | 1e-3 | Learning rate for connectivity W |
-| `lr` | 1e-3 | Learning rate for g_phi and f_theta MLPs |
-| `lr_embedding` | 1e-3 | Learning rate for neuron embeddings |
-| `n_epochs` | 2 | Number of training epochs |
-| `batch_size` | 2 | Batch size |
-| `data_augmentation_loop` | 100 | Data augmentation multiplier |
-| `w_init_mode` | zeros | W initialization: "zeros", "randn_scaled" |
-| `coeff_g_phi_diff` | 1500 | Monotonicity penalty on g_phi |
-| `coeff_f_theta_weight_L2` | 0.001 | L2 penalty on f_theta MLP weights |
-| `coeff_f_theta_msg_diff` | 0 | Monotonicity of f_theta w.r.t. message input |
-| `coeff_W_L1` | 0 | L1 sparsity on W |
-| `coeff_W_L2` | 1e-5 | L2 penalty on W |
-| `coeff_W_sign` | 0 | Dale's law penalty |
-| `use_gt_edges` | true | If false, train on fully connected graph |
-| `noise_model_level` | 0.0 | Observation noise std added to trajectories |
+| Parameter                 | Default | Description                                  |
+| ------------------------- | ------- | -------------------------------------------- |
+| `lr_W`                    | 1e-3    | Learning rate for connectivity W             |
+| `lr`                      | 1e-3    | Learning rate for g_phi and f_theta MLPs     |
+| `lr_embedding`            | 1e-3    | Learning rate for neuron embeddings          |
+| `n_epochs`                | 2       | Number of training epochs                    |
+| `batch_size`              | 2       | Batch size                                   |
+| `data_augmentation_loop`  | 100     | Data augmentation multiplier                 |
+| `w_init_mode`             | zeros   | W initialization: "zeros", "randn_scaled"    |
+| `coeff_g_phi_diff`        | 1500    | Monotonicity penalty on g_phi                |
+| `coeff_f_theta_weight_L2` | 0.001   | L2 penalty on f_theta MLP weights            |
+| `coeff_f_theta_msg_diff`  | 0       | Monotonicity of f_theta w.r.t. message input |
+| `coeff_W_L1`              | 0       | L1 sparsity on W                             |
+| `coeff_W_L2`              | 1e-5    | L2 penalty on W                              |
+| `coeff_W_sign`            | 0       | Dale's law penalty                           |
+| `use_gt_edges`            | true    | If false, train on fully connected graph     |
+| `dale_law`                | false   | Enforce Dale's law: force consistent sign per W column 3× per epoch |
+| `noise_model_level`       | 0.0     | Observation noise std added to trajectories  |
 
 ## Training Time Constraint
 
@@ -113,20 +117,21 @@ Compute mean, std, CV for connectivity_R2 across 4 slots every batch.
 
 The blocks below provide a **recommended exploration roadmap**. Follow the block focus as a guide but use your scientific judgment — if early results clearly suggest a detour or shortcut, adapt. The block boundaries are soft: you can revisit earlier axes or combine parameters across blocks when evidence supports it.
 
-| Block | Focus | Parameters to scan | Ranges |
-|---|---|---|---|
-| 1 | **lr_W + W_L1** | `lr_W`, `coeff_W_L1` | lr_W: {1e-4, 3e-4, 6e-4, 1e-3}, W_L1: {0, 1e-6, 1e-5, 5e-5} |
-| 2 | **W initialization** | `w_init_mode` | {zeros, randn, randn_scaled} — low-rank dynamics may favor randn |
-| 3 | **Training volume** | `data_augmentation_loop`, `n_epochs` | DAL: {50, 100, 200}, n_epochs: {2, 4} (halve DAL when doubling epochs) |
-| 4 | **GT edges comparison** | `use_gt_edges` | use_gt_edges: {true, false} — default is fully connected. One block to test if providing GT edges helps or hurts |
-| 5 | **Regularization** | `coeff_W_L2`, `coeff_W_sign`, `coeff_g_phi_diff`, `coeff_f_theta_msg_diff` | W_L2: {5e-6, 1e-5, 2e-5}, W_sign: {0, 0.05, 0.2}, g_phi_diff: {500, 1000, 1500}, f_theta_msg_diff: {0, 10, 50} |
-| 6 | **Architecture + noise** | `hidden_dim`, `embedding_dim`, `noise_model_level` | hidden_dim: {48, 64, 80}, embedding_dim: {2, 4} (update input_size accordingly), noise: {0, 0.05, 0.5} |
-| 7 | **Free exploration I** | Any parameter | Consolidate best from blocks 1-6, test novel combinations, attempt to break R2 ceiling |
-| 8 | **Free exploration II** | Any parameter | Continue ceiling-breaking attempts, confirm final robust config |
+| Block | Focus                    | Parameters to scan                                                         | Ranges                                                                                                           |
+| ----- | ------------------------ | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| 1     | **lr_W + W_L1**          | `lr_W`, `coeff_W_L1`                                                       | lr_W: {1e-4, 3e-4, 6e-4, 1e-3}, W_L1: {0, 1e-6, 1e-5, 5e-5}                                                      |
+| 2     | **W initialization**     | `w_init_mode`                                                              | {zeros, randn, randn_scaled} — low-rank dynamics may favor randn                                                 |
+| 3     | **Training volume**      | `data_augmentation_loop`, `n_epochs`                                       | DAL: {50, 100, 200}, n_epochs: {2, 4} (halve DAL when doubling epochs)                                           |
+| 4     | **GT edges comparison**  | `use_gt_edges`                                                             | use_gt_edges: {true, false} — default is fully connected. One block to test if providing GT edges helps or hurts |
+| 5     | **Regularization + Dale's law** | `coeff_W_L2`, `coeff_W_sign`, `dale_law`, `coeff_g_phi_diff`, `coeff_f_theta_msg_diff` | W_L2: {5e-6, 1e-5, 2e-5}, W_sign: {0, 0.05, 0.2}, dale_law: {false, true}, g_phi_diff: {500, 1000, 1500}, f_theta_msg_diff: {0, 10, 50}. Monitor dale_law_score in all iterations. |
+| 6     | **Architecture + noise** | `hidden_dim`, `embedding_dim`, `noise_model_level`                         | hidden_dim: {48, 64, 80}, embedding_dim: {2, 4} (update input_size accordingly), noise: {0, 0.05, 0.5}           |
+| 7     | **Free exploration I**   | Any parameter                                                              | Consolidate best from blocks 1-6, test novel combinations, attempt to break R2 ceiling                           |
+| 8     | **Free exploration II**  | Any parameter                                                              | Continue ceiling-breaking attempts, confirm final robust config                                                  |
 
 ### Low-rank context
 
 These biological connectomes produce **low-rank activity** (two-population feedforward structure). From prior low-rank exploration (NeuralGraph, 100-1000 neurons):
+
 - **W_L1 calibration is critical**: L1=1E-6 unlocks near-perfect dynamics recovery; L1=1E-5 gives good W but partial rollout. Too much L1 destroys the low-rank structure.
 - **W initialization matters**: `randn` outperforms `zeros` for low-rank regimes (opposite of chaotic regime). Must be tested — Block 2.
 - **Fully connected training is the default** (`use_gt_edges=false`): the GNN trains on all-to-all edges and must learn which are zero via L1 sparsity. Block 4 compares GT edges vs fully connected.
@@ -159,10 +164,10 @@ From `analysis.log`: connectivity_R2, rollout_pearson, cluster_accuracy, trainin
 Node: id=N, parent=P
 Hypothesis tested: "[quoted hypothesis]"
 Config: lr_W=X, lr=Y, lr_emb=Z, DAL=D, n_epochs=E, W_L2=A, hidden_dim=H, batch_size=B
-Slot 0: conn_R2=A, rollout_pearson=B, cluster_acc=C, sim_seed=S, train_seed=T
-Slot 1: conn_R2=A, rollout_pearson=B, cluster_acc=C, sim_seed=S, train_seed=T
-Slot 2: conn_R2=A, rollout_pearson=B, cluster_acc=C, sim_seed=S, train_seed=T
-Slot 3: conn_R2=A, rollout_pearson=B, cluster_acc=C, sim_seed=S, train_seed=T
+Slot 0: conn_R2=A, rollout_pearson=B, cluster_acc=C, dale_score=D, sim_seed=S, train_seed=T
+Slot 1: conn_R2=A, rollout_pearson=B, cluster_acc=C, dale_score=D, sim_seed=S, train_seed=T
+Slot 2: conn_R2=A, rollout_pearson=B, cluster_acc=C, dale_score=D, sim_seed=S, train_seed=T
+Slot 3: conn_R2=A, rollout_pearson=B, cluster_acc=C, dale_score=D, sim_seed=S, train_seed=T
 Seed stats: mean_conn_R2=X, std=Y, CV=Z%
 Mutation: [param]: [old] -> [new]
 Verdict: [supported/falsified/inconclusive]
@@ -184,6 +189,7 @@ Next: parent=P
 ## Start Call
 
 When prompt says `PARALLEL START`:
+
 - Read base config
 - Set all 4 configs identically to baseline
 - First iteration = baseline (no changes)
@@ -205,7 +211,7 @@ When prompt says `PARALLEL START`:
 
 ### Robustness Comparison Table
 
-| Iter | Config summary | conn_R2 (mean+-std) | CV% | rollout_r | cluster_acc | Robust? | Hypothesis |
+| Iter | Config summary | conn_R2 (mean+-std) | CV% | rollout_r | cluster_acc | dale_score | Robust? | Hypothesis |
 | ---- | -------------- | ------------------- | --- | --------- | ----------- | ------- | ---------- |
 
 ### Established Principles
@@ -235,5 +241,6 @@ When prompt says `PARALLEL START`:
 ### Iterations This Block
 
 ### Emerging Observations
+
 **CRITICAL: This section must ALWAYS be at the END of memory file.**
 ```

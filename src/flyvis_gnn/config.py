@@ -633,6 +633,7 @@ class TrainingConfig(BaseModel):
     w_init_mode: WInitMode = WInitMode.RANDN  # randn=std=1, randn_scaled=std=scale/sqrt(N), zeros
     w_init_scale: float = 1.0  # scaling factor for 'randn_scaled' mode
     coeff_W_L1_proximal: float = 0.0  # proximal L1 soft-thresholding on W after optimizer step, 0 = disabled
+    dale_law: bool = False  # enforce Dale's law: force each column of W to a consistent sign, 3 times per epoch
 
     alternate_training: bool = False  # two-stage training: joint warmup then V_rest focus
     alternate_joint_ratio: float = 0.4  # fraction of total iterations for joint phase (all components at full LR)

@@ -870,6 +870,7 @@ def update_ucb_scores(state: ExplorationState, batch: BatchInfo):
                 f"cluster_accuracy={_parse('cluster_accuracy') or '0.0'}",
                 f"spectral_radius_learned={_parse('spectral_radius_learned') or '0.0'}",
                 f"spectral_radius_true={_parse('spectral_radius_true') or '0.0'}",
+                f"dale_law_score={_parse('dale_law_score') or '0.0'}",
             ]
             stimuli_val = _parse('stimuli_R2')
             if stimuli_val:
