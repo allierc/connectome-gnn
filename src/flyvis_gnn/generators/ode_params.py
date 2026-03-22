@@ -1454,7 +1454,7 @@ class LarvaODEParams(ODEParamsBase):
         wsp_t = self.wsp.t()  # (N_premotor, S)
 
         stim_all = torch.zeros(n_frames, N_total, dtype=torch.float32, device=device)
-        stim_all[:, :self.n_premotor] = channels_t @ self.wsp  # (T, S) @ (S, N) = (T, N)
+        stim_all[:, :self.n_premotor] = 0.5 * (channels_t @ self.wsp)  # (T, S) @ (S, N) = (T, N)
 
         return stim_all
 
