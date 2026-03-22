@@ -88,7 +88,8 @@ Example: embedding_dim=2 -> input_size=3, input_size_update=5.
 | `w_init_mode`             | zeros   | W initialization: "zeros", "randn_scaled"    |
 | `coeff_g_phi_diff`        | 1500    | Monotonicity penalty on g_phi                |
 | `coeff_f_theta_weight_L2` | 0.001   | L2 penalty on f_theta MLP weights            |
-| `coeff_f_theta_msg_diff`  | 0       | Monotonicity of f_theta w.r.t. message input |
+| `coeff_f_theta_diff`      | 0       | Negative monotonicity of f_theta w.r.t. state v_i (enforces leak: df/dv < 0) |
+| `coeff_f_theta_msg_diff`  | 0       | Positive monotonicity of f_theta w.r.t. message input |
 | `coeff_W_L1`              | 0       | L1 sparsity on W                             |
 | `coeff_W_L2`              | 1e-5    | L2 penalty on W                              |
 | `coeff_W_sign`            | 0       | Dale's law penalty                           |
@@ -123,7 +124,7 @@ The blocks below provide a **recommended exploration roadmap**. Follow the block
 | 2     | **W initialization**     | `w_init_mode`                                                              | {zeros, randn, randn_scaled} — low-rank dynamics may favor randn                                                 |
 | 3     | **Training volume**      | `data_augmentation_loop`, `n_epochs`                                       | DAL: {50, 100, 200}, n_epochs: {2, 4} (halve DAL when doubling epochs)                                           |
 | 4     | **GT edges comparison**  | `use_gt_edges`                                                             | use_gt_edges: {true, false} — default is fully connected. One block to test if providing GT edges helps or hurts |
-| 5     | **Regularization + Dale's law** | `coeff_W_L2`, `coeff_W_sign`, `dale_law`, `coeff_g_phi_diff`, `coeff_f_theta_msg_diff` | W_L2: {5e-6, 1e-5, 2e-5}, W_sign: {0, 0.05, 0.2}, dale_law: {false, true}, g_phi_diff: {500, 1000, 1500}, f_theta_msg_diff: {0, 10, 50}. Monitor dale_law_score in all iterations. |
+| 5     | **Regularization + Dale's law** | `coeff_W_L2`, `coeff_W_sign`, `dale_law`, `coeff_g_phi_diff`, `coeff_f_theta_diff`, `coeff_f_theta_msg_diff` | W_L2: {5e-6, 1e-5, 2e-5}, W_sign: {0, 0.05, 0.2}, dale_law: {false, true}, g_phi_diff: {500, 1000, 1500}, f_theta_diff: {0, 10, 50} (leak), f_theta_msg_diff: {0, 10, 50}. Monitor dale_law_score in all iterations. |
 | 6     | **Architecture + noise** | `hidden_dim`, `embedding_dim`, `noise_model_level`                         | hidden_dim: {48, 64, 80}, embedding_dim: {2, 4} (update input_size accordingly), noise: {0, 0.05, 0.5}           |
 | 7     | **Free exploration I**   | Any parameter                                                              | Consolidate best from blocks 1-6, test novel combinations, attempt to break R2 ceiling                           |
 | 8     | **Free exploration II**  | Any parameter                                                              | Continue ceiling-breaking attempts, confirm final robust config                                                  |
@@ -135,13 +136,6 @@ These biological connectomes produce **low-rank activity** (two-population feedf
 - **W_L1 calibration is critical**: L1=1E-6 unlocks near-perfect dynamics recovery; L1=1E-5 gives good W but partial rollout. Too much L1 destroys the low-rank structure.
 - **W initialization matters**: `randn` outperforms `zeros` for low-rank regimes (opposite of chaotic regime). Must be tested — Block 2.
 - **Fully connected training is the default** (`use_gt_edges=false`): the GNN trains on all-to-all edges and must learn which are zero via L1 sparsity. Block 4 compares GT edges vs fully connected.
-
-### What NOT to explore
-
-- `lr_scheduler` (all schedules hurt W recovery)
-- `coeff_g_phi_weight_L2` (catastrophic)
-- `n_layers > 3` (fragile)
-- `derivative_smoothing_window > 1` (destroys signal)
 
 ### Model-specific notes for Block 5
 

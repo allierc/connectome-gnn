@@ -561,7 +561,7 @@ class TrainingConfig(BaseModel):
     # Regularization coefficients
     # -- f_theta (neuron update) regularizers --
     coeff_f_theta_zero: float = 0  # Penalize f_theta(0) != 0 (enforce zero-input zero-output)
-    coeff_f_theta_diff: float = 0  # Monotonicity of f_theta w.r.t. voltage (generic update_type only)
+    coeff_f_theta_diff: float = 0  # Negative monotonicity of f_theta w.r.t. state v_i (enforces leak: df/dv < 0)
     coeff_f_theta_msg_diff: float = 0  # Monotonicity of f_theta w.r.t. aggregated message input
     coeff_f_theta_msg_sign: float = 0  # Sign consistency: f_theta output should match message sign
     coeff_func_f_theta: float = 0.0  # Penalize f_theta output at zero input
