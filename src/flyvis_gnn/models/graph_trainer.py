@@ -83,7 +83,7 @@ def data_train(config=None, erase=False, best_model=None, style=None, device=Non
 
     _connconstr = any(x in config.dataset for x in ('drosophila_cx', 'zebrafish_oculomotor', 'larva'))
     if 'fly' in config.dataset or _connconstr:
-        if 'RNN' in config.graph_model.signal_model_name or 'LSTM' in config.graph_model.signal_model_name:
+        if 'rnn' in config.graph_model.signal_model_name.lower() or 'lstm' in config.graph_model.signal_model_name.lower():
             data_train_gnn_RNN(config, erase, best_model, device)
         else:
             data_train_gnn(config, erase, best_model, device, log_file=log_file)
@@ -864,7 +864,7 @@ def data_train_gnn_RNN(config, erase, best_model, device):
     # Create model
     model = create_model(model_config.signal_model_name,
                          aggr_type=model_config.aggr_type, config=config, device=device)
-    use_lstm = 'LSTM' in model_config.signal_model_name
+    use_lstm = 'lstm' in model_config.signal_model_name.lower()
 
     # Count parameters
     n_total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
