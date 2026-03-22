@@ -66,6 +66,9 @@ LLM/*
 !LLM/instruction_flyvis_noise_free.md
 !LLM/instruction_flyvis_noise_005.md
 !LLM/instruction_flyvis_noise_05.md
+!LLM/instruction_drosophila_cx.md
+!LLM/instruction_larva.md
+!LLM/instruction_zebrafish_oculomotor.md
 
 # OS
 .DS_Store
