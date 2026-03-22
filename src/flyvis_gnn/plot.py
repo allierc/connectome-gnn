@@ -552,6 +552,8 @@ def plot_kinograph(
     zoom_size: int = 200,
     zoom_neuron_start: int = 4900,
     style: FigureStyle = default_style,
+    act_labels: list | None = None,
+    stim_labels: list | None = None,
 ) -> None:
     """2x2 kinograph: full activity + zoom, full stimulus + zoom.
 
@@ -566,6 +568,10 @@ def plot_kinograph(
         zoom_size: size of zoom window in neurons and frames.
         zoom_neuron_start: first neuron index for the activity zoom panel.
         style: FigureStyle instance.
+        act_labels: optional list of (label, y_start, y_end) tuples for
+            annotating neuron type bands on the activity panel.
+        stim_labels: optional list of (label, y_start, y_end) tuples for
+            annotating stimulus bands on the stimulus panel.
     """
     n_neurons, n_frames = activity.shape
     n_input, _ = stimulus.shape
@@ -602,6 +608,16 @@ def plot_kinograph(
             transform=ax.transAxes, fontsize=style.annotation_font_size,
             va='top', ha='left')
 
+    # Annotate activity bands if type labels are provided
+    if act_labels is not None:
+        ann_fs = max(4, style.annotation_font_size - 1)
+        for label, y_start, y_end in act_labels:
+            y_mid = (y_start + y_end) / 2.0
+            ax.text(0.99, y_mid / n_neurons, label,
+                    transform=ax.transAxes, fontsize=ann_fs,
+                    va='center', ha='right', color='white',
+                    fontweight='bold', alpha=0.9)
+
     # top-right: zoom activity
     ax = axes[0, 1]
 
@@ -622,7 +638,7 @@ def plot_kinograph(
     im = ax.imshow(stimulus, vmin=-vmax_inp, vmax=vmax_inp, **imshow_kw)
     cb = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
     cb.ax.tick_params(labelsize=style.tick_font_size)
-    ax.set_ylabel('input neurons', fontsize=style.label_font_size)
+    ax.set_ylabel('stimulus', fontsize=style.label_font_size)
     ax.set_xlabel('time (frames)', fontsize=style.label_font_size)
     ax.set_xticks([0, stimulus.shape[1] - 1])
     ax.set_xticklabels([0, stimulus.shape[1]], fontsize=style.tick_font_size)
@@ -631,6 +647,16 @@ def plot_kinograph(
     ax.text(0.02, 0.97, f'rank(90%)={rank_90_inp}  rank(99%)={rank_99_inp}',
             transform=ax.transAxes, fontsize=style.annotation_font_size,
             va='top', ha='left')
+
+    # Annotate stimulus bands if type labels are provided
+    if stim_labels is not None:
+        ann_fs = max(4, style.annotation_font_size - 1)
+        for label, y_start, y_end in stim_labels:
+            y_mid = (y_start + y_end) / 2.0
+            ax.text(0.99, y_mid / n_input, label,
+                    transform=ax.transAxes, fontsize=ann_fs,
+                    va='center', ha='right', color='white',
+                    fontweight='bold', alpha=0.9)
 
     # bottom-right: zoom stimulus
     ax = axes[1, 1]
