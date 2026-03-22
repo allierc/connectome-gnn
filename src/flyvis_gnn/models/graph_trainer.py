@@ -719,8 +719,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                 type_cmap = CustomColorMap(config=config)
                 for n in range(sim.n_neuron_types):
                     pos = torch.argwhere(type_list == n)
-                    plt.scatter(to_numpy(model.a[pos, 0]), to_numpy(model.a[pos, 1]), s=5, color=type_cmap.color(n),
-                                alpha=0.7, edgecolors='none')
+                    plt.scatter(to_numpy(model.a[pos, 0]), to_numpy(model.a[pos, 1]), s=20, color=type_cmap.color(n),
+                                edgecolors='none')
                 plt.xlabel('embedding 0', fontsize=18)
                 plt.ylabel('embedding 1', fontsize=18)
                 plt.xticks([])
@@ -756,8 +756,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                     for n_type in range(sim.n_neuron_types):
                         pos = torch.argwhere(type_list == n_type)
                         pos_np = to_numpy(pos).flatten()
-                        plt.scatter(a_umap[pos_np, 0], a_umap[pos_np, 1], s=5,
-                                    color=type_cmap.color(n_type), alpha=0.7, edgecolors='none')
+                        plt.scatter(a_umap[pos_np, 0], a_umap[pos_np, 1], s=20,
+                                    color=type_cmap.color(n_type), edgecolors='none')
                     plt.xlabel(r'UMAP$_1$', fontsize=12)
                     plt.ylabel(r'UMAP$_2$', fontsize=12)
                     plt.xticks([])
