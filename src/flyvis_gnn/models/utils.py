@@ -910,17 +910,18 @@ def save_exploration_artifacts(root_dir, exploration_dir, config, config_file_, 
     import glob
     import shutil
 
-    import matplotlib.image as mpimg
+    n_neurons = config.simulation.n_neurons
 
-    config_save_dir = f"{exploration_dir}/config"
+    embedding_save_dir = f"{exploration_dir}/embedding"
+    f_theta_save_dir = f"{exploration_dir}/f_theta"
+    g_phi_save_dir = f"{exploration_dir}/g_phi"
+    r2_trajectory_dir = f"{exploration_dir}/r2_trajectory"
+    umap_save_dir = f"{exploration_dir}/UMAP"
+    rollout_save_dir = f"{exploration_dir}/rollout"
     scatter_save_dir = f"{exploration_dir}/connectivity_scatter"
     matrix_save_dir = f"{exploration_dir}/connectivity_matrix"
-    activity_save_dir = f"{exploration_dir}/activity"
-    mlp_save_dir = f"{exploration_dir}/mlp"
-    tree_save_dir = f"{exploration_dir}/exploration_tree"
+    memory_save_dir = f"{exploration_dir}/memory"
     protocol_save_dir = f"{exploration_dir}/protocol"
-    kinograph_save_dir = f"{exploration_dir}/kinograph"
-    embedding_save_dir = f"{exploration_dir}/embedding"
 
     # clear exploration folder on first iteration
     if iteration == 1:
@@ -932,86 +933,81 @@ def save_exploration_artifacts(root_dir, exploration_dir, config, config_file_, 
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         shutil.copy2(src, dst)
 
-    # determine if this is first iteration of a block
     is_block_start = (iter_in_block == 1)
 
-    # save config file only at first iteration of each block
-    if is_block_start:
-        src_config = f"{root_dir}/config/{pre_folder}{config_file_}.yaml"
-        dst_config = f"{config_save_dir}/block_{block_number:03d}.yaml"
-        if os.path.exists(src_config):
-            _copy(src_config, dst_config)
+    results_dir = log_path(f"{pre_folder}{config_file_}", 'results')
+    training_dir = log_path(f"{pre_folder}{config_file_}", 'tmp_training')
 
-    # save connectivity scatterplot (most recent comparison_*.png from matrix folder)
-    matrix_dir = log_path(f"{pre_folder}{config_file_}", 'tmp_training', 'matrix')
+    # --- Per-iteration panels ---
+
+    # embedding (from tmp_training/embedding/)
+    embed_src_dir = f"{training_dir}/embedding"
+    if os.path.isdir(embed_src_dir):
+        embed_files = glob.glob(f"{embed_src_dir}/*.png")
+        if embed_files:
+            latest = max(embed_files, key=os.path.getmtime)
+            _copy(latest, f"{embedding_save_dir}/iter_{iteration:03d}.png")
+
+    # f_theta
+    src_f = f"{results_dir}/f_theta.png"
+    if os.path.exists(src_f):
+        _copy(src_f, f"{f_theta_save_dir}/iter_{iteration:03d}.png")
+
+    # g_phi
+    src_g = f"{results_dir}/g_phi_corrected.png"
+    if not os.path.exists(src_g):
+        src_g = f"{results_dir}/g_phi.png"
+    if os.path.exists(src_g):
+        _copy(src_g, f"{g_phi_save_dir}/iter_{iteration:03d}.png")
+
+    # r2_trajectory (training metrics log)
+    r2_log_src = f"{training_dir}/metrics.log"
+    if os.path.exists(r2_log_src):
+        _copy(r2_log_src, f"{r2_trajectory_dir}/iter_{iteration:03d}.log")
+
+    # UMAP (embedding_augmented from results/)
+    umap_files = glob.glob(f"{results_dir}/embedding_augmented_*.png")
+    if umap_files:
+        latest = max(umap_files, key=os.path.getmtime)
+        _copy(latest, f"{umap_save_dir}/iter_{iteration:03d}.png")
+
+    # rollout traces
+    rollout_files = glob.glob(f"{results_dir}/rollout_*.png")
+    for rf in rollout_files:
+        fname = os.path.basename(rf)
+        _copy(rf, f"{rollout_save_dir}/iter_{iteration:03d}_{fname}")
+
+    # connectivity scatter (comparison plot from matrix folder)
+    matrix_dir = f"{training_dir}/matrix"
     scatter_files = glob.glob(f"{matrix_dir}/comparison_*.png")
     if scatter_files:
-        latest_scatter = max(scatter_files, key=os.path.getmtime)
-        _copy(latest_scatter, f"{scatter_save_dir}/iter_{iteration:03d}.png")
+        latest = max(scatter_files, key=os.path.getmtime)
+        _copy(latest, f"{scatter_save_dir}/iter_{iteration:03d}.png")
 
-    # save learned connectivity matrix (true vs learned heatmap from results/)
-    results_dir_mat = log_path(f"{pre_folder}{config_file_}", 'results')
-    src_learned_matrix = f"{results_dir_mat}/connectivity_matrix.png"
-    if os.path.exists(src_learned_matrix):
-        _copy(src_learned_matrix, f"{matrix_save_dir}/iter_{iteration:03d}.png")
-
-    # save ground-truth connectivity matrix from data folder at block starts
-    data_folder = graphs_data_path(config.dataset)
-    if is_block_start:
-        src_matrix = f"{data_folder}/connectivity_matrix.png"
-        if os.path.exists(src_matrix):
-            _copy(src_matrix, f"{matrix_save_dir}/block_{block_number:03d}_gt.png")
-
-    # save activity plot only at first iteration of each block
-    activity_path = f"{data_folder}/activity.png"
-    if is_block_start:
-        if os.path.exists(activity_path):
-            _copy(activity_path, f"{activity_save_dir}/block_{block_number:03d}.png")
-
-    # save combined MLP plot (f_theta + g_phi side by side) using PNG files from results
-    results_dir = log_path(f"{pre_folder}{config_file_}", 'results')
-    src_mlp0 = f"{results_dir}/f_theta.png"
-    src_mlp1 = f"{results_dir}/g_phi_corrected.png"
-    if os.path.exists(src_mlp0) and os.path.exists(src_mlp1):
-        try:
-            img0 = mpimg.imread(src_mlp0)
-            img1 = mpimg.imread(src_mlp1)
-            fig, axes = default_style.figure(ncols=2, width=14, height=6)
-            axes[0].imshow(img0)
-            axes[0].axis('off')
-            axes[1].imshow(img1)
-            axes[1].axis('off')
-            os.makedirs(mlp_save_dir, exist_ok=True)
-            default_style.savefig(fig, f"{mlp_save_dir}/iter_{iteration:03d}_MLP.png")
-        except Exception as e:
-            logger.warning(f"could not combine MLP plots: {e}")
-
-    # save kinograph montage (every iteration)
-    src_montage = f"{results_dir}/kinograph_montage.png"
-    if os.path.exists(src_montage):
-        _copy(src_montage, f"{kinograph_save_dir}/iter_{iteration:03d}.png")
-
-    # save embedding plot (latest from tmp_training/embedding/)
-    embedding_dir = log_path(f"{pre_folder}{config_file_}", 'tmp_training', 'embedding')
-    if os.path.isdir(embedding_dir):
-        embed_files = glob.glob(f"{embedding_dir}/*.png")
-        if embed_files:
-            latest_embed = max(embed_files, key=os.path.getmtime)
-            _copy(latest_embed, f"{embedding_save_dir}/iter_{iteration:03d}.png")
-            if is_block_start:
-                _copy(latest_embed, f"{embedding_save_dir}/block_{block_number:03d}.png")
+    # connectivity matrix (only if n_neurons < 1000)
+    if n_neurons < 1000:
+        # learned matrix from results/
+        src_mat = f"{results_dir}/connectivity_matrix.png"
+        if os.path.exists(src_mat):
+            _copy(src_mat, f"{matrix_save_dir}/iter_{iteration:03d}.png")
+        # GT matrix at block start
+        if is_block_start:
+            data_folder = graphs_data_path(config.dataset)
+            src_gt = f"{data_folder}/connectivity_matrix.png"
+            if os.path.exists(src_gt):
+                _copy(src_gt, f"{matrix_save_dir}/block_{block_number:03d}_gt.png")
 
     return {
-        'config_save_dir': config_save_dir,
+        'embedding_save_dir': embedding_save_dir,
+        'f_theta_save_dir': f_theta_save_dir,
+        'g_phi_save_dir': g_phi_save_dir,
+        'r2_trajectory_dir': r2_trajectory_dir,
+        'umap_save_dir': umap_save_dir,
+        'rollout_save_dir': rollout_save_dir,
         'scatter_save_dir': scatter_save_dir,
         'matrix_save_dir': matrix_save_dir,
-        'activity_save_dir': activity_save_dir,
-        'mlp_save_dir': mlp_save_dir,
-        'tree_save_dir': tree_save_dir,
-        'protocol_save_dir': protocol_save_dir,
-        'kinograph_save_dir': kinograph_save_dir,
-        'embedding_save_dir': embedding_save_dir,
-        'activity_path': activity_path
+        'memory_save_dir': memory_save_dir,
+        'protocol_save_dir': protocol_save_dir
     }
 
 
