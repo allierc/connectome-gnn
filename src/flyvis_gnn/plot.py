@@ -215,7 +215,7 @@ def plot_f_theta(ax, model, config, n_neurons, type_list, cmap, device, step=20,
         lambda rr_f, emb_f: _build_f_theta_features(rr_f, emb_f),
         device)
 
-    type_np = to_numpy(type_list).astype(int)
+    type_np = to_numpy(type_list).astype(int).ravel()
     x_np = to_numpy(rr_1d)
     func_np = to_numpy(func)
     unique_types = np.unique(type_np)
@@ -279,7 +279,7 @@ def plot_g_phi(ax, model, config, n_neurons, type_list, cmap, device, step=20,
         model.g_phi, model.a[neuron_ids], rr,
         build_fn, device, post_fn=post_fn)
 
-    type_np = to_numpy(type_list).astype(int)
+    type_np = to_numpy(type_list).astype(int).ravel()
     x_np = to_numpy(rr_1d)
     func_np = to_numpy(func)
     unique_types = np.unique(type_np)
