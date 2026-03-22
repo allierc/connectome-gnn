@@ -34,7 +34,7 @@ CAUSALITY RULE (MANDATORY):
 - Each config already has a unique dataset name — do NOT change the dataset field.
 
 {state.sim_constraint}
-IMPORTANT: Training time target is {state.training_time_target_min} min per iteration — keep configurations within this budget.
+IMPORTANT: Training time target is ~{state.training_time_target_min} min per iteration. Adjust data_augmentation_loop (DAL) to hit this target: if training_time_min < 40, increase DAL; if > 70, decrease DAL. Longer training = better W convergence.
 IMPORTANT: Read user_input.md — if there are pending instructions, acknowledge them by appending to the "Acknowledged" section with timestamp and moving them out of "Pending Instructions".
 
 Write the planned mutations to the working memory file."""
@@ -75,6 +75,6 @@ CAUSALITY RULE (MANDATORY):
 
 IMPORTANT: Do NOT change the 'dataset' field in any config — it must stay as-is for each slot.
 {state.sim_constraint}
-IMPORTANT: Training time target is {state.training_time_target_min} min per iteration. Check training_time_min in the metrics and flag any slot that exceeds this limit.
+IMPORTANT: Training time target is ~{state.training_time_target_min} min per iteration. Check training_time_min and adjust DAL for next batch: if < 40 min increase DAL, if > 70 min decrease DAL. Use the full time budget — longer training improves W convergence.
 IMPORTANT: Read user_input.md — if there are pending instructions, acknowledge them by appending to the "Acknowledged" section with a timestamp and moving them out of "Pending Instructions".
 """
