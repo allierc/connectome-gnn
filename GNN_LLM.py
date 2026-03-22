@@ -74,9 +74,7 @@ if __name__ == "__main__":
         if state.interaction_code and batch.is_block_start and batch.block_number > 1:
             run_code_session(state, batch)
 
-        print(f"\n\n\033[94m{'='*60}\033[0m")
-        print(f"\033[94mBATCH: iterations {batch.batch_first}-{batch.batch_last} / {state.n_iterations}  (block {batch.block_number})\033[0m")
-        print(f"\033[94m{'='*60}\033[0m")
+        print(f"\n\033[94mBATCH: iterations {batch.batch_first}-{batch.batch_last} / {state.n_iterations}  (block {batch.block_number})\033[0m")
 
         # Load configs + force seeds
         load_configs_and_seeds(state, batch)
