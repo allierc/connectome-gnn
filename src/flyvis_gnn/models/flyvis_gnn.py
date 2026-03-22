@@ -82,9 +82,9 @@ class NeuralGNN(nn.Module):
         "training_params": {
             "description": "Parameters in the training: section that affect model architecture or loss",
             "tunable": [
-                {"name": "learning_rate_W_start", "description": "Learning rate for per-edge connectivity W", "typical_range": [1e-4, 5e-2]},
-                {"name": "learning_rate_start", "description": "Learning rate for MLPs", "typical_range": [1e-4, 5e-3]},
-                {"name": "learning_rate_embedding_start", "description": "Learning rate for embeddings a", "typical_range": [1e-4, 5e-3]},
+                {"name": "lr_W", "description": "Learning rate for per-edge connectivity W", "typical_range": [1e-4, 5e-2]},
+                {"name": "lr", "description": "Learning rate for MLPs", "typical_range": [1e-4, 5e-3]},
+                {"name": "lr_embedding", "description": "Learning rate for embeddings a", "typical_range": [1e-4, 5e-3]},
                 {"name": "coeff_W_L1", "description": "L1 sparsity penalty on W", "typical_range": [1e-6, 1e-3]},
                 {"name": "coeff_g_phi_diff", "description": "Regularizer: g_phi output variance penalty", "typical_range": [0, 500]},
                 {"name": "coeff_g_phi_norm", "description": "Regularizer: edge weight norm penalty", "typical_range": [0, 10]},

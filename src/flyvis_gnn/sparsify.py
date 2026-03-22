@@ -805,7 +805,7 @@ def umap_cluster_reassign(model, config, x_ts, edges, n_neurons, type_list, devi
 
         # Temporary optimizer: freeze embedding, train only g_phi and f_theta
         relearn_params = list(model.g_phi.parameters()) + list(model.f_theta.parameters())
-        relearn_optimizer = torch.optim.Adam(relearn_params, lr=tc.learning_rate_start)
+        relearn_optimizer = torch.optim.Adam(relearn_params, lr=tc.lr)
 
         for sub_epoch in trange(relearn_epochs, ncols=100, desc='relearn MLP'):
             relearn_optimizer.zero_grad()

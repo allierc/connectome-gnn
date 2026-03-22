@@ -302,7 +302,7 @@ def get_in_features(rr=None, embedding=None, model=[], model_name = [], max_radi
 
     return in_features
 
-def set_trainable_parameters(model=[], lr_embedding=[], lr=[],  lr_update=[], lr_W=[], lr_modulation=[], learning_rate_NNR=[], learning_rate_NNR_f=[], learning_rate_NNR_E=[], learning_rate_NNR_b=[]):
+def set_trainable_parameters(model=[], lr_embedding=[], lr=[],  lr_update=[], lr_W=[], lr_modulation=[], lr_NNR=[], lr_NNR_f=[]):
 
     trainable_params = [param for _, param in model.named_parameters() if param.requires_grad]
     n_total_params = sum(p.numel() for p in trainable_params)
@@ -327,9 +327,9 @@ def set_trainable_parameters(model=[], lr_embedding=[], lr=[],  lr_update=[], lr
             elif 'W' in name:
                 param_groups.append({'params': parameter, 'lr': lr_W, 'name': 'W'})
             elif 'NNR_f' in name:
-                param_groups.append({'params': parameter, 'lr': learning_rate_NNR_f, 'name': 'NNR_f'})
+                param_groups.append({'params': parameter, 'lr': lr_NNR_f, 'name': 'NNR_f'})
             elif 'NNR' in name:
-                param_groups.append({'params': parameter, 'lr': learning_rate_NNR, 'name': 'NNR'})
+                param_groups.append({'params': parameter, 'lr': lr_NNR, 'name': 'NNR'})
             else:
                 param_groups.append({'params': parameter, 'lr': lr, 'name': 'g_phi'})
 

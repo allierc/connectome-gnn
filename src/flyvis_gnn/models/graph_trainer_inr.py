@@ -246,7 +246,7 @@ def data_train_INR(config=None, device=None, total_steps=10000, field_name='stim
     t_period = getattr(model_config, 'nnr_f_T_period', n_frames) / (2 * np.pi)
     xy_period = getattr(model_config, 'nnr_f_xy_period', 1.0) / (2 * np.pi)
     batch_size = getattr(tc, 'inr_batch_size', 8)
-    learning_rate = getattr(tc, 'learning_rate_NNR_f', 1e-6)
+    learning_rate = getattr(tc, 'lr_NNR_f', 1e-6)
 
     # --- build model ---
     if inr_type == 'siren_t':
@@ -296,7 +296,7 @@ def data_train_INR(config=None, device=None, total_steps=10000, field_name='stim
     # --- optimizer ---
     omega_params = [p for name, p in nnr_f.named_parameters() if 'omega' in name]
     other_params = [p for name, p in nnr_f.named_parameters() if 'omega' not in name]
-    lr_omega = getattr(tc, 'learning_rate_omega_f', learning_rate)
+    lr_omega = getattr(tc, 'lr_omega_f', learning_rate)
     if omega_params and omega_f_learning:
         optim = torch.optim.Adam([
             {'params': other_params, 'lr': learning_rate},
