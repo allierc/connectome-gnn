@@ -163,18 +163,41 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
         OdeParamsCls = FlyVisODEParams
     ode_params = OdeParamsCls.load(graphs_data_path(config.dataset), device=device)
     gt_weights = ode_params.W
-    edges = ode_params.edge_index
-    actual_n_edges = edges.shape[1]
-    expected_total = sim.n_edges + sim.n_extra_null_edges
-    if actual_n_edges == expected_total and sim.n_extra_null_edges > 0:
-        # Null edges already baked into saved data — keep n_edges and n_extra_null_edges as-is
-        # so model sizes W = n_edges + n_extra_null_edges = actual_n_edges
-        _logger.info(f'null edges in data: {sim.n_edges} base + {sim.n_extra_null_edges} null = {actual_n_edges}')
-    elif actual_n_edges != sim.n_edges:
-        # Edge removal case: actual < config, override n_edges
-        _logger.info(f'n_edges mismatch: config={sim.n_edges}, actual={actual_n_edges} — using actual')
-        config.simulation.n_edges = actual_n_edges
-    _logger.info(f'{actual_n_edges} edges')
+    gt_edges = ode_params.edge_index
+
+    # Optionally replace GT edges with fully connected graph
+    if not tc.use_gt_edges:
+        src = torch.arange(n_neurons, device=device).repeat_interleave(n_neurons)
+        dst = torch.arange(n_neurons, device=device).repeat(n_neurons)
+        # Remove self-loops
+        mask = src != dst
+        edges = torch.stack([src[mask], dst[mask]], dim=0)
+        _logger.info(f'fully connected edges: {edges.shape[1]} (GT had {gt_edges.shape[1]})')
+        config.simulation.n_edges = edges.shape[1]
+        # Remap GT weights to fully connected edge ordering for R² evaluation
+        gt_weight_map = torch.zeros(edges.shape[1], device=device)
+        gt_edge_set = {}
+        for k in range(gt_edges.shape[1]):
+            gt_edge_set[(gt_edges[0, k].item(), gt_edges[1, k].item())] = gt_weights[k]
+        for k in range(edges.shape[1]):
+            key = (edges[0, k].item(), edges[1, k].item())
+            if key in gt_edge_set:
+                gt_weight_map[k] = gt_edge_set[key]
+        gt_weights = gt_weight_map
+    else:
+        edges = gt_edges
+        actual_n_edges = edges.shape[1]
+        expected_total = sim.n_edges + sim.n_extra_null_edges
+        if actual_n_edges == expected_total and sim.n_extra_null_edges > 0:
+            _logger.info(f'null edges in data: {sim.n_edges} base + {sim.n_extra_null_edges} null = {actual_n_edges}')
+        elif actual_n_edges != sim.n_edges:
+            _logger.info(f'n_edges mismatch: config={sim.n_edges}, actual={actual_n_edges} — using actual')
+            config.simulation.n_edges = actual_n_edges
+    _logger.info(f'{edges.shape[1]} edges')
+
+    # Save training edges so tester uses the same graph
+    torch.save(edges, os.path.join(log_dir, 'training_edges.pt'))
+    torch.save(gt_weights, os.path.join(log_dir, 'gt_weights.pt'))
 
     # Resolve checkpoint path from best_model argument
     checkpoint_path = None

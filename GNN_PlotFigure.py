@@ -575,12 +575,19 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
     else:
         ode_params = OdeParamsCls()  # empty, analysis methods return defaults
 
-    gt_weights = torch.load(graphs_data_path(config.dataset, 'weights.pt'), map_location=device, weights_only=False)
     gt_taus_np = ode_params.gt_tau(n_neurons)
     gt_taus = torch.tensor(gt_taus_np, device=device) if gt_taus_np is not None else torch.zeros(n_neurons, device=device)
     gt_vrest_np = ode_params.gt_vrest(n_neurons)
     gt_V_Rest = torch.tensor(gt_vrest_np, device=device) if gt_vrest_np is not None else torch.zeros(n_neurons, device=device)
-    edges = torch.load(graphs_data_path(config.dataset, 'edge_index.pt'), map_location=device, weights_only=False)
+    # Prefer training edges and gt_weights (handles fully connected mode)
+    training_edges_path = os.path.join(log_dir, 'training_edges.pt')
+    gt_weights_path = os.path.join(log_dir, 'gt_weights.pt')
+    if os.path.exists(training_edges_path):
+        edges = torch.load(training_edges_path, map_location=device, weights_only=False)
+        gt_weights = torch.load(gt_weights_path, map_location=device, weights_only=False)
+    else:
+        edges = torch.load(graphs_data_path(config.dataset, 'edge_index.pt'), map_location=device, weights_only=False)
+        gt_weights = torch.load(graphs_data_path(config.dataset, 'weights.pt'), map_location=device, weights_only=False)
     true_weights = torch.zeros((n_neurons, n_neurons), dtype=torch.float32, device=edges.device)
     true_weights[edges[1], edges[0]] = gt_weights
 

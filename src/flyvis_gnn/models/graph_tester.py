@@ -123,10 +123,14 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     config.simulation.n_neurons = n_neurons
     logger.info(f'\033[94mtest dataset: {test_ds}\033[0m, {n_frames} frames, {n_neurons} neurons')
 
-    # Adjust n_edges to match saved edge_index (edge removal changes the count)
-    edges_for_size = torch.load(
-        graphs_data_path(config.dataset, 'edge_index.pt'),
-        map_location='cpu', weights_only=False)
+    # Adjust n_edges to match training edges
+    training_edges_path = os.path.join(log_dir, 'training_edges.pt')
+    if os.path.exists(training_edges_path):
+        edges_for_size = torch.load(training_edges_path, map_location='cpu', weights_only=False)
+    else:
+        edges_for_size = torch.load(
+            graphs_data_path(config.dataset, 'edge_index.pt'),
+            map_location='cpu', weights_only=False)
     actual_n_edges = edges_for_size.shape[1]
     expected_total = sim.n_edges + sim.n_extra_null_edges
     if actual_n_edges == expected_total and sim.n_extra_null_edges > 0:
@@ -204,10 +208,16 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
         y_ts_eval = y_ts
         n_eval_frames = n_frames
 
-    # Load edges from training dataset (model was trained on these edges)
-    edges = torch.load(
-        graphs_data_path(config.dataset, 'edge_index.pt'),
-        map_location=device, weights_only=False)
+    # Load edges: prefer training_edges.pt (handles fully connected mode),
+    # fall back to data folder edge_index.pt
+    training_edges_path = os.path.join(log_dir, 'training_edges.pt')
+    if os.path.exists(training_edges_path):
+        edges = torch.load(training_edges_path, map_location=device, weights_only=False)
+        logger.info(f'loaded training edges from {training_edges_path} ({edges.shape[1]} edges)')
+    else:
+        edges = torch.load(
+            graphs_data_path(config.dataset, 'edge_index.pt'),
+            map_location=device, weights_only=False)
     ids = np.arange(n_neurons)
     data_id = torch.zeros((n_neurons, 1), dtype=torch.int, device=device)
 
