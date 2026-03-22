@@ -712,9 +712,22 @@ class FlyVisHodgkinHuxleyODEParams(ODEParamsBase):
 class ZebrafishODEParams(ODEParamsBase):
     """Parameters for the zebrafish oculomotor linear integrator ODE.
 
+    The oculomotor integrator converts brief saccade velocity commands from
+    the brainstem into persistent firing rate changes that encode eye position.
+    This is a neural integrator: the network accumulates transient inputs
+    into a sustained internal state.
+
+    Stimulus: I(t) * v_in, where I(t) is a scalar velocity command (saccade
+    signal from brainstem motor planning circuits) and v_in is the input
+    direction vector — a specific combination of leading eigenvectors of W
+    that excites the network along its integration axis. Neurons with large
+    |v_in| are the primary recipients of the velocity command; others respond
+    only through recurrent connectivity.
+
     Ref: papers/Code_NN/Code_NN/nn_fig5_zebrafish_teacher.py
          simulate_series() line 172:
          r[i,:] = r[i-1,:] + dt*(W @ r[i-1,:] - r[i-1,:] + I[i-1]*v_in) / tau
+    Ref: Beiran & Litwin-Kumar (2023) Fig 5g — Goldman lab ConnMatrix
 
     ODE: dr/dt = (-r + W @ r + I * v_in) / tau
     Linear (no nonlinearity). tau=1.0 fixed. dt=0.001.
@@ -724,12 +737,15 @@ class ZebrafishODEParams(ODEParamsBase):
         W: (E,) sparse weights (from dense W scaled to spectral radius 0.9)
 
     Node params:
-        v_in: (N,) input vector (eigenvector combination + noise)
-        neuron_types: (N,) int cell type labels
+        v_in: (N,) input direction vector — combination of leading
+              eigenvectors of W that defines the integration axis
+        neuron_types: (N,) int cell type labels (10 categories from
+                      Goldman lab: integ, Ibnm, Ibni, MO, axlm, axl,
+                      vest, abdm, abdi, vspns)
 
     Scalars:
-        tau: time constant (default 1.0)
-        n_neurons: number of neurons
+        tau: time constant (default 1.0, fixed — not learned)
+        n_neurons: number of neurons (609)
     """
     edge_index: torch.Tensor = None  # (2, E)
     W: torch.Tensor = None           # (E,)
