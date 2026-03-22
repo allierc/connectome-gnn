@@ -749,6 +749,7 @@ class ZebrafishODEParams(ODEParamsBase):
     W: torch.Tensor = None           # (E,)
     v_in: torch.Tensor = None        # (N,) input direction vector
     neuron_types: torch.Tensor = None  # (N,) int type labels
+    type_names: list = None          # unique type name strings
     tau: float = 1.0
     n_neurons: int = 0
 
@@ -780,6 +781,7 @@ class ZebrafishODEParams(ODEParamsBase):
             W=W_sparse.to(device),
             v_in=torch.tensor(data["v_in"], dtype=torch.float32, device=device),
             neuron_types=torch.tensor(type_labels, dtype=torch.long, device=device),
+            type_names=unique_types,
             tau=1.0,
             n_neurons=N,
         )
@@ -830,15 +832,81 @@ class ZebrafishODEParams(ODEParamsBase):
     def generate_stimulus(self, n_frames, sim, device=None):
         """Returns per-neuron stimulus tensor (T, N).
 
-        Pre-multiplies scalar I(t) by v_in so each neuron receives a
-        different stimulus amplitude. The ODE then uses stim directly
-        (no extra v_in multiplication needed).
+        The zebrafish oculomotor integrator receives inputs from multiple
+        brainstem populations: saccade burst neurons (horizontal velocity
+        commands), vestibular neurons (head rotation signals), and tonic
+        neurons (position-related). These arrive along different directions
+        in neural state space.
+
+        We generate K=4 independent temporally-correlated signals, each
+        projected along a different eigenvector direction of W:
+          - Channel 0: primary integration axis (v_in, eigvecs 0-2) — saccade commands
+          - Channel 1: eigenvector 3-5 — vestibular / secondary axis
+          - Channel 2: eigenvector 6-9 — tonic modulation
+          - Channel 3: random direction — broad neuromodulatory input
+
+        This produces stimulus with rank ~4 instead of rank 1, giving the
+        GNN richer dynamics to learn from while remaining biologically sound
+        (multiple input pathways are well documented in zebrafish oculomotor
+        literature: Aksay et al. 2007, Miri et al. 2011, Joshua & Bhatt 2023).
+
+        Ref: paper uses single I(t)*v_in (simulate_series line 172).
+        We extend to multiple input channels for richer training data.
         """
-        from flyvis_gnn.generators.connconstr_data import generate_zebrafish_stimulus
-        I = generate_zebrafish_stimulus(n_frames, seed=sim.seed)
-        I_t = torch.tensor(I, dtype=torch.float32, device=device)
-        v_in = self.v_in  # (N,)
-        return I_t.unsqueeze(1) * v_in.unsqueeze(0)  # (T, 1) * (1, N) = (T, N)
+        from flyvis_gnn.generators.connconstr_data import load_zebrafish_connectome
+        import numpy as np
+
+        rng = np.random.RandomState(sim.seed)
+        N = self.n_neurons
+
+        # Load eigenvectors of W for input direction design
+        # Ref: nn_fig5_zebrafish_teacher.py lines 176-178
+        datapath = sim.connconstr_datapath
+        try:
+            data = load_zebrafish_connectome(datapath)
+            W_dense = data["W"]
+            y_eig, v1 = np.linalg.eig(W_dense)
+            sort_idx = np.flip(np.argsort(np.real(y_eig)))
+            v1 = np.real(v1[:, sort_idx])
+        except Exception:
+            # Fallback: use v_in as sole direction
+            v1 = np.zeros((N, 10))
+            v1[:, 0] = self.v_in.cpu().numpy()
+
+        # Build K=4 spatial input directions
+        v_in_np = self.v_in.cpu().numpy()
+        directions = np.zeros((N, 4))
+        directions[:, 0] = v_in_np  # primary axis (eigvecs 0-2 + noise, from paper)
+        directions[:, 1] = np.sum(v1[:, 3:6], axis=1)  # secondary axis
+        directions[:, 2] = np.sum(v1[:, 6:10], axis=1)  # tertiary axis
+        directions[:, 3] = rng.randn(N)  # broad neuromodulatory
+
+        # Normalize each direction to match v_in magnitude
+        v_in_norm = np.linalg.norm(v_in_np)
+        for k in range(1, 4):
+            dk_norm = np.linalg.norm(directions[:, k])
+            if dk_norm > 1e-12:
+                directions[:, k] *= v_in_norm / dk_norm
+
+        # Generate K independent temporally-correlated signals.
+        # Short correlation times (~100-300 frames) create fast transients
+        # that the integrator must track, producing richer temporal dynamics.
+        K = 4
+        signal_taus = [200, 100, 300, 150]  # fast dynamics for rank
+        amplitudes = [1.0, 0.7, 0.5, 0.3]  # more balanced across channels
+
+        stim = np.zeros((n_frames, N), dtype=np.float32)
+        for k in range(K):
+            tau_k = signal_taus[k]
+            filt = np.exp(-np.arange(tau_k * 3) / tau_k)
+            filt /= filt.sum()
+            noise = rng.randn(n_frames + len(filt))
+            I_k = np.convolve(noise, filt, mode='full')[:n_frames]
+
+            I_k *= amplitudes[k] * 800
+            stim += I_k[:, None] * directions[None, :, k]  # (T,1) * (1,N)
+
+        return torch.tensor(stim, dtype=torch.float32, device=device)
 
     def init_state(self, voltage, datapath=None, device=None):
         pass  # zero init is fine
@@ -1294,6 +1362,7 @@ class LarvaODEParams(ODEParamsBase):
     bm: torch.Tensor = None            # (M,)
     wsp: torch.Tensor = None           # (S, N) stimulus→premotor
     neuron_types: torch.Tensor = None  # (N+M,)
+    type_names: list = None            # ["premotor", "motor"]
     taup: float = 1.0
     taum: float = 1.0
     n_premotor: int = 0
@@ -1344,6 +1413,7 @@ class LarvaODEParams(ODEParamsBase):
             gp=gp, gm=gm, bp=bp, bm=bm,
             wsp=torch.zeros(2, N, dtype=torch.float32, device=device),
             neuron_types=neuron_types,
+            type_names=["premotor", "motor"],
             taup=1.0, taum=1.0,
             n_premotor=N, n_motor=M,
             dt=0.05,  # Ref: setup.py line 224,227
@@ -1390,6 +1460,7 @@ class LarvaODEParams(ODEParamsBase):
             bm=torch.tensor(data["bm"].flatten(), dtype=torch.float32, device=device),
             wsp=torch.tensor(data["wsp"], dtype=torch.float32, device=device),
             neuron_types=neuron_types,
+            type_names=["premotor", "motor"],
             taup=float(data["taup"].item() if hasattr(data["taup"], 'item') else data["taup"]),
             taum=float(data["taum"].item() if hasattr(data["taum"], 'item') else data["taum"]),
             n_premotor=N,

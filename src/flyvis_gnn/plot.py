@@ -192,55 +192,81 @@ def plot_embedding(ax, model, type_list, n_types, cmap):
     ax.yaxis.set_major_formatter(FormatStrFormatter('%.1f'))
 
 
-def plot_f_theta(ax, model, config, n_neurons, type_list, cmap, device, step=20):
-    """Plot f_theta function curves colored by neuron type (vectorized).
+def plot_f_theta(ax, model, config, n_neurons, type_list, cmap, device, step=20,
+                 gt_curves=None, gt_v_range=None, type_names=None):
+    """Plot f_theta: learned mean±std per type, with optional GT overlay.
 
-    Evaluates all selected neurons in one batched MLP pass and draws
-    all curves with a single LineCollection.
+    Args:
+        gt_curves: (N, n_pts) ground truth f_theta values (from ode_params.gt_f_theta_func).
+        gt_v_range: (n_pts,) x values for gt_curves.
+        type_names: list of type name strings for legend.
     """
     n_pts = 1000
     xlim = config.plotting.xlim
 
-    # Plot every neuron for small networks, subsample for large
-    _step = 1 if n_neurons < 1000 else step
-    _alpha = 1.0 if n_neurons < 1000 else 0.2
-    neuron_ids = np.arange(0, n_neurons, _step)
+    neuron_ids = np.arange(0, n_neurons)
     n_sel = len(neuron_ids)
 
-    # Shared x-range, expanded to (n_sel, n_pts)
     rr_1d = torch.linspace(xlim[0], xlim[1], n_pts, device=device)
-    rr = rr_1d.unsqueeze(0).expand(n_sel, -1)  # (n_sel, n_pts)
+    rr = rr_1d.unsqueeze(0).expand(n_sel, -1)
 
-    # Batched MLP evaluation
     func = _batched_mlp_eval(
         model.f_theta, model.a[neuron_ids], rr,
         lambda rr_f, emb_f: _build_f_theta_features(rr_f, emb_f),
         device)
 
-    # Fast plot with LineCollection
     type_np = to_numpy(type_list).astype(int)
-    _plot_curves_fast(ax, to_numpy(rr_1d), to_numpy(func),
-                      type_np[neuron_ids], cmap, linewidth=1, alpha=_alpha)
+    x_np = to_numpy(rr_1d)
+    func_np = to_numpy(func)
+    unique_types = np.unique(type_np)
+    mpl_cmap = plt.cm.get_cmap('tab10', max(len(unique_types), 1))
 
+    for idx, t in enumerate(unique_types):
+        mask = type_np == t
+        curves = func_np[mask]
+        mean = curves.mean(axis=0)
+        std = curves.std(axis=0)
+        color = cmap.color(t) if hasattr(cmap, 'color') else mpl_cmap(idx)
+        label = type_names[idx] if type_names and idx < len(type_names) else f"type {t}"
+        ax.plot(x_np, mean, linewidth=1.5, color=color, label=label)
+        if std.max() > 1e-6:
+            ax.fill_between(x_np, mean - std, mean + std, color=color, alpha=0.15)
+
+    # GT overlay (dashed)
+    if gt_curves is not None and gt_v_range is not None:
+        gt_type_np = type_np[:gt_curves.shape[0]] if gt_curves.shape[0] <= len(type_np) else type_np
+        for idx, t in enumerate(unique_types):
+            mask = gt_type_np == t
+            if not np.any(mask):
+                continue
+            gt_mean = gt_curves[mask].mean(axis=0)
+            color = cmap.color(t) if hasattr(cmap, 'color') else mpl_cmap(idx)
+            ax.plot(gt_v_range, gt_mean, linewidth=1.5, color=color, linestyle='--', alpha=0.7)
+
+    ax.axhline(0, color='#aaa', linewidth=0.5, linestyle='--')
+    ax.axvline(0, color='#aaa', linewidth=0.5, linestyle='--')
     ax.set_xlim(xlim)
     ax.set_ylim(config.plotting.ylim)
-    ax.set_xlabel('$v_i$', fontsize=32)
-    ax.set_ylabel(r'learned $f_\theta(\mathbf{a}_i, v_i)$', fontsize=32)
-    ax.tick_params(axis='both', which='major', labelsize=24)
+    ax.set_xlabel('$v_i$', fontsize=14)
+    ax.set_ylabel(r'$f_\theta(\mathbf{a}_i, v_i)$', fontsize=14)
+    if len(unique_types) <= 10:
+        ax.legend(fontsize=8, frameon=False, loc='upper right')
+    ax.tick_params(axis='both', which='major', labelsize=10)
 
 
-def plot_g_phi(ax, model, config, n_neurons, type_list, cmap, device, step=20):
-    """Plot g_phi function curves colored by neuron type (vectorized).
+def plot_g_phi(ax, model, config, n_neurons, type_list, cmap, device, step=20,
+               gt_curves=None, gt_v_range=None, type_names=None):
+    """Plot g_phi: learned mean±std per type, with optional GT overlay.
 
-    Evaluates all selected neurons in one batched MLP pass and draws
-    all curves with a single LineCollection.
+    Args:
+        gt_curves: (N, n_pts) or (n_pts,) ground truth g_phi values.
+        gt_v_range: (n_pts,) x values for gt_curves.
+        type_names: list of type name strings for legend.
     """
     model_config = config.graph_model
     n_pts = 1000
 
-    _step = 1 if n_neurons < 1000 else step
-    _alpha = 1.0 if n_neurons < 1000 else 0.2
-    neuron_ids = np.arange(0, n_neurons, _step)
+    neuron_ids = np.arange(0, n_neurons)
     n_sel = len(neuron_ids)
 
     rr_1d = torch.linspace(config.plotting.xlim[0], config.plotting.xlim[1], n_pts, device=device)
@@ -254,14 +280,46 @@ def plot_g_phi(ax, model, config, n_neurons, type_list, cmap, device, step=20):
         build_fn, device, post_fn=post_fn)
 
     type_np = to_numpy(type_list).astype(int)
-    _plot_curves_fast(ax, to_numpy(rr_1d), to_numpy(func),
-                      type_np[neuron_ids], cmap, linewidth=1, alpha=_alpha)
+    x_np = to_numpy(rr_1d)
+    func_np = to_numpy(func)
+    unique_types = np.unique(type_np)
+    mpl_cmap = plt.cm.get_cmap('tab10', max(len(unique_types), 1))
 
+    for idx, t in enumerate(unique_types):
+        mask = type_np == t
+        curves = func_np[mask]
+        mean = curves.mean(axis=0)
+        std = curves.std(axis=0)
+        color = cmap.color(t) if hasattr(cmap, 'color') else mpl_cmap(idx)
+        label = type_names[idx] if type_names and idx < len(type_names) else f"type {t}"
+        ax.plot(x_np, mean, linewidth=1.5, color=color, label=label)
+        if std.max() > 1e-6:
+            ax.fill_between(x_np, mean - std, mean + std, color=color, alpha=0.15)
+
+    # GT overlay (dashed)
+    if gt_curves is not None and gt_v_range is not None:
+        if gt_curves.ndim == 1:
+            ax.plot(gt_v_range, gt_curves, linewidth=1.5, color='black',
+                    linestyle='--', alpha=0.7, label='GT')
+        else:
+            gt_type_np = type_np[:gt_curves.shape[0]] if gt_curves.shape[0] <= len(type_np) else type_np
+            for idx, t in enumerate(unique_types):
+                mask = gt_type_np == t
+                if not np.any(mask):
+                    continue
+                gt_mean = gt_curves[mask].mean(axis=0)
+                color = cmap.color(t) if hasattr(cmap, 'color') else mpl_cmap(idx)
+                ax.plot(gt_v_range, gt_mean, linewidth=1.5, color=color, linestyle='--', alpha=0.7)
+
+    ax.axhline(0, color='#aaa', linewidth=0.5, linestyle='--')
+    ax.axvline(0, color='#aaa', linewidth=0.5, linestyle='--')
     ax.set_xlim(config.plotting.xlim)
     ax.set_ylim([-config.plotting.xlim[1] / 10, config.plotting.xlim[1] * 1.2])
-    ax.set_xlabel('$v_j$', fontsize=32)
-    ax.set_ylabel(r'learned $g_\phi(\mathbf{a}_j, v_j)$', fontsize=32)
-    ax.tick_params(axis='both', which='major', labelsize=24)
+    ax.set_xlabel('$v_j$', fontsize=14)
+    ax.set_ylabel(r'$g_\phi(\mathbf{a}_j, v_j)$', fontsize=14)
+    if len(unique_types) <= 10:
+        ax.legend(fontsize=8, frameon=False, loc='upper left')
+    ax.tick_params(axis='both', which='major', labelsize=10)
 
 
 def plot_weight_scatter(ax, gt_weights, learned_weights, corrected=False,
@@ -1365,7 +1423,8 @@ def plot_loss_from_file(log_dir):
 # ================================================================== #
 
 def plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_list,
-                         gt_weights, edges, n_neurons=None, n_neuron_types=None):
+                         gt_weights, edges, n_neurons=None, n_neuron_types=None,
+                         ode_params=None):
     from flyvis_gnn.plot import (
         plot_embedding,
         plot_f_theta,
@@ -1421,16 +1480,33 @@ def plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_li
                 dpi=87, bbox_inches='tight', pad_inches=0)
     plt.close()
 
+    # Compute GT curves and type names from ode_params if available
+    gt_g_phi = gt_f_theta = gt_v_range = _type_names = None
+    if ode_params is not None:
+        _v = np.linspace(config.plotting.xlim[0], config.plotting.xlim[1], 500)
+        gt_v_range = _v
+        try:
+            gt_g_phi = ode_params.gt_g_phi_func(_v)
+        except Exception:
+            pass
+        try:
+            gt_f_theta = ode_params.gt_f_theta_func(_v, n_neurons)
+        except Exception:
+            pass
+        _type_names = getattr(ode_params, 'type_names', None)
+
     # Plot 4: Edge function visualization (g_phi)
     fig, ax = plt.subplots(figsize=(8, 8))
-    plot_g_phi(ax, model, config, n_neurons, type_list, cmap, device)
+    plot_g_phi(ax, model, config, n_neurons, type_list, cmap, device,
+               gt_curves=gt_g_phi, gt_v_range=gt_v_range, type_names=_type_names)
     plt.tight_layout()
     plt.savefig(f"{log_dir}/tmp_training/function/g_phi/func_{epoch}_{N}.png", dpi=87)
     plt.close()
 
     # Plot 5: Phi function visualization (f_theta)
     fig, ax = plt.subplots(figsize=(8, 8))
-    plot_f_theta(ax, model, config, n_neurons, type_list, cmap, device)
+    plot_f_theta(ax, model, config, n_neurons, type_list, cmap, device,
+                 gt_curves=gt_f_theta, gt_v_range=gt_v_range, type_names=_type_names)
     plt.tight_layout()
     plt.savefig(f"{log_dir}/tmp_training/function/f_theta/func_{epoch}_{N}.png", dpi=87)
     plt.close()
