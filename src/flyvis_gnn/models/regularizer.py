@@ -282,6 +282,8 @@ class LossRegularizer:
         # --- W_sign (Dale's Law) regularization ---
         if self._coeffs['W_sign'] > 0 and self.epoch > 0:
             W_sign_temp = getattr(tc, 'W_sign_temperature', 10.0)
+            from flyvis_gnn.metrics import get_model_W
+            model_W = get_model_W(model)
 
             if self.trainer_type == 'signal' and index_weight is not None:
                 # Signal version: uses index_weight
