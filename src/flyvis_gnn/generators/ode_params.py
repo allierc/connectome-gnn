@@ -1157,19 +1157,13 @@ class DrosophilaCxODEParams(ODEParamsBase):
         if not os.path.exists(os.path.join(hemibrain_dir, "traced-neurons.csv")):
             hemibrain_dir = os.path.join(hemibrain_dir, "exported-traced-adjacencies-v1.2")
         cx_data = load_drosophila_cx_connectome(hemibrain_dir)
-        dt = self.get_dt()
-        T_trial = 6.0
-        frames_per_trial = int(T_trial / dt)
-        # Generate enough trials to fill n_frames of continuous stimulus
-        n_trials = max(1, (n_frames + frames_per_trial - 1) // frames_per_trial)
-        _, _, cx_inps, _ = generate_cx_stimulus(
-            n_trials, T_trial, dt,
-            cx_data["epg_ix"], cx_data["W_16to46"], cx_data["W_46to3"],
+        cx_inps = generate_cx_stimulus(
+            n_frames,
+            cx_data["epg_ix"], cx_data["W_16to46"],
             seed=sim.seed,
         )
-        cx_inps_flat = cx_inps.reshape(-1, 48)[:n_frames]
         winp_np = to_numpy(self.winp)
-        stim_projected = cx_inps_flat @ winp_np
+        stim_projected = cx_inps @ winp_np
         # Scale to produce activity in [-10, 10] range (baseline gives ±4)
         return torch.tensor(2.5 * stim_projected, dtype=torch.float32, device=device)
 

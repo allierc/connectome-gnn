@@ -501,74 +501,122 @@ def load_zebrafish_pretrained(datapath):
 # Stimulus generation
 # ---------------------------------------------------------------------------
 
-def generate_cx_stimulus(n_trials, T, dt, epg_ix, W_16to46, W_46to3, seed=None):
-    """Generate ring attractor stimulus (bump + velocity integration).
+def _ou_process(n, dt, tau, sigma, rng):
+    """Ornstein-Uhlenbeck process for angular velocity generation.
 
-    Ref: papers/Code_NN/Code_NN/nn_fig5_drosophilaCx_teacher.py
-         generate_targets() lines 46-86
+    Ref: Rouault, eLife 2017 (ang_veloc_integr/Ornstein_Uhlenbeck.py)
+         Vafidis et al., eLife 2022 (LearnPI/utilities.py)
 
-    Creates initial bump at random orientation and velocity inputs that
-    rotate the bump around the ring.
+    dv = -v/tau * dt + sigma * sqrt(2/tau) * dW
+
+    Stationary distribution: Gaussian with std = sigma.
 
     Args:
-        n_trials: number of stimulus trials
-        T: total time
+        n: number of time steps
         dt: time step
+        tau: relaxation time (in same units as dt)
+        sigma: stationary standard deviation
+        rng: numpy RandomState
+
+    Returns:
+        v: (n,) velocity trace
+    """
+    sigma_bis = sigma * np.sqrt(2.0 / tau)
+    alpha = dt / tau
+    sqrtdt = np.sqrt(dt)
+    v = np.zeros(n)
+    noise = rng.randn(n - 1)
+    for i in range(n - 1):
+        v[i + 1] = (1 - alpha) * v[i] + sigma_bis * sqrtdt * noise[i]
+    return v
+
+
+def generate_cx_stimulus(n_frames, epg_ix, W_16to46, seed=None):
+    """Generate continuous ring attractor stimulus with landmark cues and velocity.
+
+    The CX head direction circuit receives two biological input streams:
+
+    1. Visual landmark cues (channels 0-45): periodic EPG bump injections at
+       varying orientations, simulating visual features that anchor the compass.
+       Each cue is a Gaussian bump at a specific orientation, presented for
+       ~20 frames with smooth onset/offset.  Cues arrive at random intervals
+       (exponential, mean ~100 frames) with varying gain.
+
+    2. Angular velocity (channels 46-47): continuous bilateral PEN signal.
+       Generated as an Ornstein-Uhlenbeck process following Rouault (eLife
+       2017) and Vafidis et al. (eLife 2022).  Both left and right PEN
+       populations carry a baseline firing rate, modulated in opposite
+       directions by the velocity signal (push-pull).
+
+    Args:
+        n_frames: total number of frames to generate
         epg_ix: EPG glomerulus mapping (46 → 16)
         W_16to46: (46, 16) expansion matrix
-        W_46to3: (3, 46) readout matrix
         seed: random seed
 
     Returns:
-        targets: (n_trials, n_frames, 3+46) — target EPG activity
-        inputs: (n_trials, n_frames, 48) — 46 EPG init + 2 velocity
-        masks: (n_trials, n_frames, 3+46) — loss mask
-        ts: (n_frames,) — time array
+        inps: (n_frames, 48) — 46 EPG landmark + 2 velocity channels
     """
-    if seed is not None:
-        np.random.seed(seed)
+    rng = np.random.RandomState(seed)
 
+    inps = np.zeros((n_frames, 48))
+    dt = 0.1  # simulation dt (time units)
+
+    # --- Bump template ---
     x = np.linspace(-1, 1, 1000)
-    bump = np.exp(-(x / (3 / 16)) ** 2)
+    bump_template = np.exp(-(x / (3 / 16)) ** 2)
+    n_glom = len(np.unique(epg_ix))
+    x_new = np.linspace(0, 1, n_glom)
+    x_old = np.linspace(0, 1, len(bump_template))
 
-    ts = np.arange(0, T, dt)
-    n_frames = len(ts)
-    startMask = 3
+    # --- Visual landmark cues (channels 0-45) ---
+    # Periodic bumps at random orientations with smooth onset/offset.
+    # The fly encounters visual landmarks as it moves through the world.
+    bump_dur = 20        # frames per cue (~2 time units)
+    mean_interval = 100  # mean inter-cue interval (frames, ~10 time units)
+    t = 0
+    while t < n_frames:
+        gap = int(rng.exponential(mean_interval))
+        t += gap
+        if t >= n_frames:
+            break
 
-    iMask = np.argmin(np.abs(ts - startMask))
-    y = np.zeros((n_trials, n_frames, 3 + 46))
-    m = np.zeros((n_trials, n_frames, 3 + 46))
-    x_new = np.linspace(0, 1, len(np.unique(epg_ix)))
-    x_old = np.linspace(0, 1, len(bump))
-    inps = np.zeros((n_trials, n_frames, 46 + 2))
-
-    wbump = 0.1
-    s_amp = 0.2
-    mu_amp = 1.0
-
-    for tr in range(n_trials):
-        # Random initial orientation
-        # Ref: line 65
-        ori = np.random.rand() * 2 * np.pi - np.pi
+        # Random orientation for this landmark
+        ori = rng.rand() * 2 * np.pi - np.pi
         i_ori = int((len(x) / 2) * ori / np.pi)
-        bump_shift = np.roll(bump, i_ori)
+        bump_shift = np.roll(bump_template, i_ori)
         subbump = np.interp(x_new, x_old, bump_shift)
         subbump = subbump / np.mean(subbump)
-
         subbump46 = W_16to46.dot(subbump)
-        y[tr, :, 3:] = subbump46
-        y[tr, :, 0] = W_46to3[0, :].dot(subbump46)
-        y[tr, :, 1] = W_46to3[1, :].dot(subbump46)
-        y[tr, :, 2] = W_46to3[2, :].dot(subbump46)
 
-        m[tr, iMask:, :] = 1.0
-        m[tr, iMask:, 2] = 1.0
-        m[tr, iMask:, 3:] = wbump * (1 / 46.0) * m[tr, iMask:, 3:]
-        inps[tr, 0:5, 0:46] = subbump46
-        # Ref: line 85 — scale input with random gain
-        inps[tr, 0:5, 0:46] = max(0.2, mu_amp + s_amp * np.random.randn()) * inps[tr, 0:5, 0:46]
+        # Random gain per cue
+        gain = max(0.2, 1.0 + 0.3 * rng.randn())
 
-    return y, m, inps, ts
+        # Smooth onset/offset envelope (half-cosine)
+        dur = min(bump_dur, n_frames - t)
+        env = 0.5 * (1 - np.cos(2 * np.pi * np.arange(dur) / bump_dur))
+        inps[t:t + dur, :46] += gain * env[:, None] * subbump46[None, :]
+
+        t += dur
+
+    # --- Angular velocity (channels 46-47): OU process ---
+    # Ref: Rouault (eLife 2017): tau=0.12s, sigma~204 deg/s
+    #      Vafidis et al. (eLife 2022): tau=0.5s, sigma=225 deg/s
+    # Our time unit ≈ 100ms (Ashok Tau=1.0), so tau_ou=5.0 ≈ 0.5s.
+    # Sigma is in dimensionless units matching Ashok's give_velInp
+    # amplitudes of 0.5-1.0.
+    tau_ou = 5.0   # OU relaxation time (time units, ≈0.5s)
+    sigma_ou = 0.5  # stationary std of velocity signal
+
+    vel = _ou_process(n_frames, dt, tau_ou, sigma_ou, rng)
+
+    # Bilateral push-pull: baseline ± velocity
+    # PEN neurons are tonically active; turning modulates them oppositely.
+    baseline = 0.3
+    inps[:, 46] = baseline + vel    # right PEN
+    inps[:, 47] = baseline - vel    # left PEN
+
+    return inps
 
 
 def generate_zebrafish_stimulus(n_frames, seed=42):
