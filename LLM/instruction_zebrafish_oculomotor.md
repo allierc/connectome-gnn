@@ -21,12 +21,21 @@ Informational (not for optimization): onestep_pearson, f_theta_R2, g_phi_R2, spe
 Strict **hypothesize -> test -> validate/falsify** cycle:
 
 1. **Hypothesize**: Form a specific, testable prediction
-2. **Design experiment**: Change ONE parameter at a time to understand causality — IF YOU CHANGE MORE THAN ONE, YOU CANNOT ATTRIBUTE THE EFFECT
+2. **Design experiment**: Change **EXACTLY ONE** parameter at a time to understand causality
 3. **Run training**: 4 seeds — you cannot predict the outcome
 4. **Analyze results**: Use metrics AND cross-seed variance
 5. **Update understanding**: Revise hypotheses based on evidence
 
 **CRITICAL**: You can only hypothesize. Only training results validate or falsify.
+
+### CAUSALITY RULE (MANDATORY — READ THIS)
+
+**If you change more than one parameter per slot, you CANNOT attribute the effect. This is a fatal experimental design error.**
+
+- In EXPLORATION mode: Slot 0 = parent/baseline (unchanged control). Slots 1-3 each change **exactly one** parameter from the parent.
+- Do NOT change parameters outside the current block focus (e.g. do not touch w_init_mode, W_L2, batch_size, hidden_dim unless the block explicitly includes them).
+- Do NOT skip the baseline — always keep one slot as an unchanged control.
+- In ROBUSTNESS mode: all 4 slots use the same config (different seeds test robustness).
 
 ## Data Generation
 
@@ -99,8 +108,8 @@ Example: embedding_dim=2 -> input_size=3, input_size_update=5.
 
 Each batch runs 4 slots with different seeds (forced by pipeline). You choose the strategy:
 
-- **Exploration** (default): use DIFFERENT configs across 4 slots to test more parameter variations per batch. Vary 1 parameter per slot.
-- **Robustness test**: set ALL 4 slots to the SAME config to measure seed robustness. Use this when a config looks promising and you want to confirm it holds across seeds.
+- **Exploration** (default): Slot 0 = parent/control (unchanged). Slots 1-3 each change **exactly one** parameter. This gives 3 causal tests per batch.
+- **Robustness test**: ALL 4 slots use the SAME config. The pipeline forces different seeds, so this measures seed robustness. Use this when a config looks promising.
 
 State your choice (exploration vs robustness test) in the log entry.
 
@@ -182,9 +191,9 @@ Next: parent=P
 
 When prompt says `PARALLEL START`:
 
-- Read base config
-- Set all 4 configs identically to baseline
-- First iteration = baseline (no changes)
+- Read base config — this IS the baseline. Do NOT change any default values.
+- Slot 0 = baseline (no changes at all).
+- Slots 1-3: each changes EXACTLY ONE parameter from the block focus. Keep everything else at baseline.
 - Hypothesis: "The baseline config achieves connectivity_R2 > 0.5 robustly across seeds"
 
 ---

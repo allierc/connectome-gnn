@@ -414,6 +414,56 @@ def run_code_session(state: ExplorationState, batch: BatchInfo):
 # Phase 1: Load configs + force seeds
 # ---------------------------------------------------------------------------
 
+def _check_causality(state: ExplorationState, batch: BatchInfo):
+    """Warn if LLM changed more than one training parameter per slot vs slot 0."""
+    # Keys to compare (training params the LLM controls)
+    COMPARE_KEYS = [
+        'lr_W', 'lr', 'lr_embedding', 'n_epochs', 'batch_size',
+        'data_augmentation_loop', 'coeff_g_phi_diff', 'coeff_f_theta_weight_L2',
+        'coeff_f_theta_diff', 'coeff_f_theta_msg_diff',
+        'coeff_W_L1', 'coeff_W_L2', 'coeff_W_sign',
+        'w_init_mode', 'w_init_scale', 'dale_law',
+    ]
+    COMPARE_GRAPH_KEYS = [
+        'hidden_dim', 'hidden_dim_update', 'embedding_dim',
+        'input_size', 'input_size_update', 'g_phi_positive',
+    ]
+    COMPARE_SIM_KEYS = ['noise_model_level']
+
+    ref_yaml_path = state.config_paths[0]
+    with open(ref_yaml_path, 'r') as f:
+        ref = yaml.safe_load(f)
+
+    violations = []
+    for slot in range(1, batch.n_slots):
+        with open(state.config_paths[slot], 'r') as f:
+            cfg = yaml.safe_load(f)
+        diffs = []
+        for k in COMPARE_KEYS:
+            v0 = ref.get('training', {}).get(k)
+            v1 = cfg.get('training', {}).get(k)
+            if v0 != v1:
+                diffs.append(f"training.{k}: {v0} -> {v1}")
+        for k in COMPARE_GRAPH_KEYS:
+            v0 = ref.get('graph_model', {}).get(k)
+            v1 = cfg.get('graph_model', {}).get(k)
+            if v0 != v1:
+                diffs.append(f"graph_model.{k}: {v0} -> {v1}")
+        for k in COMPARE_SIM_KEYS:
+            v0 = ref.get('simulation', {}).get(k)
+            v1 = cfg.get('simulation', {}).get(k)
+            if v0 != v1:
+                diffs.append(f"simulation.{k}: {v0} -> {v1}")
+        if len(diffs) > 1:
+            violations.append((slot, diffs))
+
+    if violations:
+        print(f"\n\033[91mCAUSALITY WARNING: Slots with >1 parameter changed vs slot 0:\033[0m")
+        for slot, diffs in violations:
+            print(f"\033[91m  Slot {slot}: {len(diffs)} changes — {', '.join(diffs)}\033[0m")
+        print(f"\033[91m  This violates the one-parameter-per-slot rule.\033[0m\n")
+
+
 def load_configs_and_seeds(state: ExplorationState, batch: BatchInfo):
     """PHASE 1: Load configs, force seeds, write seeds back to YAML."""
     if state.generate_data:
@@ -456,6 +506,9 @@ def load_configs_and_seeds(state: ExplorationState, batch: BatchInfo):
         for s in range(batch.n_slots)
     )
     print(f"\033[90mSeeds (forced by pipeline):\n{seed_info}\033[0m")
+
+    # Validate causality: warn if LLM changed >1 training param per slot vs slot 0
+    _check_causality(state, batch)
 
     # Handle UCB reset at block boundary (if code session didn't already do it)
     if batch.batch_first > 1 and (batch.batch_first - 1) % state.n_iter_block == 0:

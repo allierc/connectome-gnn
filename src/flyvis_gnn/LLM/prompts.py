@@ -24,10 +24,14 @@ Seeds (forced by pipeline — DO NOT modify simulation.seed or training.seed in 
 {seed_info}
 Log these seed values in your iteration entries.
 
-Read the instructions and the base config, then create {state.n_parallel} diverse initial training
-parameter variations. Each config already has a unique dataset name — do NOT change the
-dataset field. Vary training parameters (e.g. lr_W, lr, coeff_g_phi_diff, coeff_W_L1, batch_size)
-across the {state.n_parallel} slots to explore different starting points.
+Read the instructions and the base config, then set up {state.n_parallel} experiments.
+
+CAUSALITY RULE (MANDATORY):
+- Slot 0 = BASELINE (identical to base config, no changes).
+- Slots 1-{state.n_parallel - 1}: each changes EXACTLY ONE parameter from baseline.
+- If you change more than one parameter per slot, you CANNOT attribute the effect. This is a fatal experimental design error.
+- Do NOT change parameters not listed in the current block focus (e.g. do not change w_init_mode, W_L2, batch_size unless the block says so).
+- Each config already has a unique dataset name — do NOT change the dataset field.
 
 {state.sim_constraint}
 IMPORTANT: Training time target is {state.training_time_target_min} min per iteration — keep configurations within this budget.
@@ -60,10 +64,14 @@ Analyze all {batch.n_slots} results. For each successful slot, write a separate 
 (## Iter N: ...) to the full log and memory file. Then edit all {state.n_parallel} config files
 to set up the next batch of {state.n_parallel} experiments.
 
-STRATEGY: By default, use DIFFERENT configs across the {state.n_parallel} slots to maximize exploration
-(vary 1 parameter per slot). When you want to confirm robustness of a promising config, set ALL
-{state.n_parallel} slots to the SAME config — the pipeline forces different seeds, so this tests
-seed robustness. State your choice (exploration vs robustness test) in the log entry.
+CAUSALITY RULE (MANDATORY):
+- Pick a PARENT config (best so far or baseline).
+- Slot 0 = PARENT config unchanged (control).
+- Slots 1-{state.n_parallel - 1}: each changes EXACTLY ONE parameter from the parent.
+- If you change more than one parameter per slot, you CANNOT attribute the effect. This is a fatal experimental design error.
+- Do NOT change parameters outside the current block focus unless the block says so.
+- Exception: ROBUSTNESS TEST — set ALL {state.n_parallel} slots to the SAME config (pipeline forces different seeds). Use this only to confirm a promising config.
+- State your choice (exploration vs robustness test) in the log entry.
 
 IMPORTANT: Do NOT change the 'dataset' field in any config — it must stay as-is for each slot.
 {state.sim_constraint}
