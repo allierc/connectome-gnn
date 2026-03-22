@@ -324,9 +324,7 @@ def make_batch_info(state: ExplorationState, batch_start: int) -> BatchInfo:
 
 def run_batch_0(state: ExplorationState):
     """BATCH 0: Claude start call to initialize N config variations."""
-    print(f"\n\033[94m{'='*60}\033[0m")
-    print(f"\033[94mBATCH 0: Claude initializing {state.n_parallel} config variations\033[0m")
-    print(f"\033[94m{'='*60}\033[0m")
+    print(f"\n\033[94mBATCH 0: Claude initializing {state.n_parallel} config variations\033[0m")
 
     slot_list = "\n".join(
         f"  Slot {s}: {state.config_paths[s]}"
@@ -959,12 +957,8 @@ def run_claude_analysis(state: ExplorationState, batch: BatchInfo):
     output_text = run_claude_cli(prompt, state.root_dir)
 
     if 'OAuth token has expired' in output_text or 'authentication_error' in output_text:
-        print(f"\n\033[91m{'='*60}\033[0m")
-        print(f"\033[91mOAuth token expired at batch {batch.batch_first}-{batch.batch_last}\033[0m")
-        print("\033[93mTo resume:\033[0m")
-        print("\033[93m  1. Run: claude /login\033[0m")
-        print("\033[93m  2. Then re-run with --resume\033[0m")
-        print(f"\033[91m{'='*60}\033[0m")
+        print(f"\n\033[91mOAuth token expired at batch {batch.batch_first}-{batch.batch_last}\033[0m")
+        print("\033[93mTo resume: 1. Run: claude /login  2. Then re-run with --resume\033[0m")
         sys.exit(1)
 
     if output_text.strip():
