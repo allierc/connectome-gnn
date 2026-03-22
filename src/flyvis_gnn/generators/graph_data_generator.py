@@ -112,12 +112,13 @@ def _plot_connconstr_diagnostics(
     fig, ax = style.figure(aspect=2.5)
     ax.plot(offset.T, linewidth=0.3, alpha=0.6, color=style.foreground)
 
-    # Red stimulus trace at bottom
+    # Red stimulus trace at bottom — scale proportional to neuron count
     stim_mean = stimulus_arr.mean(axis=1)  # mean across neurons per timestep
     if np.abs(stim_mean).max() > 1e-12:
         stim_scaled = stim_mean / np.abs(stim_mean).max()
-        stim_y = offset[0].min() - step_v * 2 + stim_scaled * step_v * 3
-        ax.plot(stim_y, linewidth=0.8, alpha=0.9, color='red')
+        stim_height = max(step_v * 8, n_neurons * step_v * 0.08)
+        stim_y = offset[0].min() - stim_height * 0.6 + stim_scaled * stim_height * 0.4
+        ax.plot(stim_y, linewidth=1.5, alpha=0.9, color='red')
 
     style.xlabel(ax, 'time (frames)')
     style.ylabel(ax, f'{n_neurons} neurons')
