@@ -60,6 +60,11 @@ Analyze all {batch.n_slots} results. For each successful slot, write a separate 
 (## Iter N: ...) to the full log and memory file. Then edit all {state.n_parallel} config files
 to set up the next batch of {state.n_parallel} experiments.
 
+STRATEGY: By default, use DIFFERENT configs across the {state.n_parallel} slots to maximize exploration
+(vary 1 parameter per slot). When you want to confirm robustness of a promising config, set ALL
+{state.n_parallel} slots to the SAME config — the pipeline forces different seeds, so this tests
+seed robustness. State your choice (exploration vs robustness test) in the log entry.
+
 IMPORTANT: Do NOT change the 'dataset' field in any config — it must stay as-is for each slot.
 {state.sim_constraint}
 IMPORTANT: Training time target is {state.training_time_target_min} min per iteration. Check training_time_min in the metrics and flag any slot that exceeds this limit.
