@@ -1845,6 +1845,30 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
     logger.info(f'activity rank(90%)={rank_90_act}  rank(99%)={rank_99_act}  centered rank(90%)={rank_90_mc}  rank(99%)={rank_99_mc}')
     logger.info(f'visual input rank(90%)={rank_90_inp}  rank(99%)={rank_99_inp}')
 
+    # Build neuron-type labels for kinograph annotations
+    act_labels = None
+    stim_labels = None
+    if hasattr(ode_params, 'neuron_types') and ode_params.neuron_types is not None:
+        nt = to_numpy(ode_params.neuron_types)
+        tnames = getattr(ode_params, 'type_names', None)
+        if tnames is not None:
+            act_labels = []
+            for ti, name in enumerate(tnames):
+                idx = np.where(nt == ti)[0]
+                if len(idx) > 0:
+                    act_labels.append((name, int(idx.min()), int(idx.max()) + 1))
+            # Stimulus labels: find which neurons receive non-zero stimulus
+            stim_np = x_ts.stimulus[:, :sim.n_input_neurons].numpy()
+            stim_power = np.sum(stim_np ** 2, axis=0)  # (N,)
+            stim_labels = []
+            for ti, name in enumerate(tnames):
+                idx = np.where(nt == ti)[0]
+                active_idx = idx[stim_power[idx] > 1e-6] if idx.max() < len(stim_power) else np.array([])
+                if len(active_idx) > 0:
+                    stim_labels.append((name, int(active_idx.min()), int(active_idx.max()) + 1))
+            if not stim_labels:
+                stim_labels = None
+
     logger.info('plotting kinograph ...')
     plot_kinograph(
         activity=activity_full.T,
@@ -1858,6 +1882,8 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
         rank_99_mc=rank_99_mc,
         zoom_size=200,
         style=fig_style,
+        act_labels=act_labels,
+        stim_labels=stim_labels,
     )
 
     # Skip warmup frames (100ms / dt) and show 400ms window for all plots
