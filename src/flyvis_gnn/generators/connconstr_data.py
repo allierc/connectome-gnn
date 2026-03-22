@@ -602,12 +602,15 @@ def generate_zebrafish_stimulus(n_frames, seed=42):
     noise = rng.randn(n_frames + len(input_filter))
     I_smooth = np.convolve(noise, input_filter, mode='full')[:n_frames]
 
-    # Amplitude envelope: ramp from 0 to max over trajectory
-    # This ensures the network sees a range of stimulus intensities
+    # Amplitude envelope: slow random modulation (0 to 1)
+    # Use heavily filtered noise for a smooth, non-periodic envelope
     max_amplitude = 1e5
-    envelope = np.linspace(0, 1, n_frames)
-    # Add slow sinusoidal modulation for varied amplitude
-    envelope = envelope * (0.5 + 0.5 * np.sin(2 * np.pi * np.arange(n_frames) / 3000))
+    slow_filter = np.exp(-np.linspace(0, 3, 1001))
+    slow_filter /= slow_filter.sum()
+    env_noise = rng.randn(n_frames + len(slow_filter))
+    envelope = np.convolve(env_noise, slow_filter, mode='full')[:n_frames]
+    # Normalize to [0, 1]
+    envelope = (envelope - envelope.min()) / (envelope.max() - envelope.min() + 1e-12)
 
     I = I_smooth * max_amplitude * envelope
 
