@@ -555,7 +555,7 @@ def _auto_repair_failed_jobs(state: ExplorationState, batch: BatchInfo):
         if not err_content:
             continue
 
-        print(f"\033[91m  slot {slot_idx}: TRAINING ERROR detected — attempting auto-repair\033[0m")
+        print(f"\033[91m  slot {slot_idx} (iter {batch.iterations[slot_idx]}): TRAINING ERROR detected — attempting auto-repair\033[0m")
 
         code_files = [
             'src/flyvis_gnn/models/graph_trainer.py',
@@ -565,13 +565,13 @@ def _auto_repair_failed_jobs(state: ExplorationState, batch: BatchInfo):
         modified_code = get_modified_code_files(state.root_dir, code_files) if is_git_repo(state.root_dir) else []
 
         if not modified_code:
-            print(f"\033[93m  slot {slot_idx}: no modified code files to repair — skipping\033[0m")
+            print(f"\033[93m  slot {slot_idx} (iter {batch.iterations[slot_idx]}): no modified code files to repair — skipping\033[0m")
             continue
 
         max_repair_attempts = 3
         repaired = False
         for attempt in range(max_repair_attempts):
-            print(f"\033[93m  slot {slot_idx}: repair attempt {attempt + 1}/{max_repair_attempts}\033[0m")
+            print(f"\033[93m  slot {slot_idx} (iter {batch.iterations[slot_idx]}): repair attempt {attempt + 1}/{max_repair_attempts}\033[0m")
             repair_prompt = f"""TRAINING CRASHED - Please fix the code error.
 
 Error traceback:
@@ -590,10 +590,10 @@ Fix the bug. Do NOT make other changes."""
             ]
             repair_result = subprocess.run(repair_cmd, cwd=state.root_dir, capture_output=True, text=True)
             if 'CANNOT_FIX' in repair_result.stdout:
-                print(f"\033[91m  slot {slot_idx}: Claude cannot fix — stopping repair\033[0m")
+                print(f"\033[91m  slot {slot_idx} (iter {batch.iterations[slot_idx]}): Claude cannot fix — stopping repair\033[0m")
                 break
 
-            print(f"\033[96m  slot {slot_idx}: resubmitting after repair\033[0m")
+            print(f"\033[96m  slot {slot_idx} (iter {batch.iterations[slot_idx]}): resubmitting after repair\033[0m")
             check_cluster_repo()
             config = batch.configs[slot_idx]
             jid = submit_cluster_job(
@@ -615,7 +615,7 @@ Fix the bug. Do NOT make other changes."""
                 if retry_results.get(slot_idx):
                     batch.job_results[slot_idx] = True
                     repaired = True
-                    print(f"\033[92m  slot {slot_idx}: repair successful!\033[0m")
+                    print(f"\033[92m  slot {slot_idx} (iter {batch.iterations[slot_idx]}): repair successful!\033[0m")
                     break
                 for ef_path in [err_file, lsf_err_file]:
                     if os.path.exists(ef_path):
@@ -627,7 +627,7 @@ Fix the bug. Do NOT make other changes."""
                             pass
 
         if not repaired:
-            print(f"\033[91m  slot {slot_idx}: repair failed after {max_repair_attempts} attempts — skipping\033[0m")
+            print(f"\033[91m  slot {slot_idx} (iter {batch.iterations[slot_idx]}): repair failed after {max_repair_attempts} attempts — skipping\033[0m")
             if is_git_repo(state.root_dir):
                 for fp in code_files:
                     try:
@@ -645,7 +645,7 @@ def run_local_test_plot(state: ExplorationState, batch: BatchInfo):
     for slot_idx, iteration in enumerate(batch.iterations):
         slot = slot_idx
         if not batch.job_results.get(slot, False):
-            print(f"\033[90m  slot {slot}: skipping test+plot (training failed)\033[0m")
+            print(f"\033[90m  slot {slot} (iter {iteration}): skipping test+plot (training failed)\033[0m")
             continue
         config = batch.configs[slot]
         print(f"\033[90m  slot {slot} (iter {iteration}): testing and plotting locally...\033[0m")
@@ -704,7 +704,7 @@ def run_local_pipeline(state: ExplorationState, batch: BatchInfo):
         # Generate data if requested
         if state.generate_data:
             from flyvis_gnn.generators.graph_data_generator import data_generate
-            print(f"\033[90m  slot {slot}: generating data with seed={batch.slot_seeds[slot]['simulation']}\033[0m")
+            print(f"\033[90m  slot {slot} (iter {iteration}): generating data with seed={batch.slot_seeds[slot]['simulation']}\033[0m")
             data_generate(
                 config=config,
                 device=state.device,
@@ -816,9 +816,9 @@ def save_artifacts(state: ExplorationState, batch: BatchInfo):
             if time_m:
                 training_time = float(time_m.group(1))
                 if training_time > state.training_time_target_min:
-                    print(f"\033[91m  WARNING: slot {slot} training took {training_time:.1f} min (>{state.training_time_target_min} min target)\033[0m")
+                    print(f"\033[91m  WARNING: slot {slot} (iter {iteration}) training took {training_time:.1f} min (>{state.training_time_target_min} min target)\033[0m")
                 else:
-                    print(f"\033[92m  slot {slot}: training time {training_time:.1f} min\033[0m")
+                    print(f"\033[92m  slot {slot} (iter {iteration}): training time {training_time:.1f} min\033[0m")
 
 
 # ---------------------------------------------------------------------------

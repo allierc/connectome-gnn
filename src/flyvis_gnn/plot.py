@@ -518,10 +518,18 @@ def plot_kinograph(
     zoom_n_act = min(zoom_size, n_neurons - zoom_neuron_start)
     zoom_n_inp = min(zoom_size, n_input)
 
+    # Override rcParams to white text for kinograph (dark bg)
+    _saved_rc = {k: plt.rcParams[k] for k in [
+        'text.color', 'axes.labelcolor', 'xtick.color', 'ytick.color']}
+    plt.rcParams.update({
+        'text.color': 'white', 'axes.labelcolor': 'white',
+        'xtick.color': 'white', 'ytick.color': 'white',
+    })
+
     fig, axes = plt.subplots(
         2, 2,
         figsize=(style.figure_height * 3.5, style.figure_height * 2.5),
-        facecolor=style.background,
+        facecolor='black',
         gridspec_kw={'width_ratios': [2, 1]},
     )
 
@@ -529,23 +537,29 @@ def plot_kinograph(
 
     # top-left: full activity
     ax = axes[0, 0]
+    ax.set_facecolor('black')
     im = ax.imshow(activity, vmin=-vmax_act, vmax=vmax_act, **imshow_kw)
-    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04).ax.tick_params(labelsize=style.tick_font_size)
-    style.ylabel(ax, 'neurons')
-    style.xlabel(ax, 'time (frames)')
+    cb = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    cb.ax.tick_params(labelsize=style.tick_font_size)
+    ax.set_ylabel('neurons', fontsize=style.label_font_size)
+    ax.set_xlabel('time (frames)', fontsize=style.label_font_size)
     ax.set_xticks([0, n_frames - 1])
     ax.set_xticklabels([0, n_frames], fontsize=style.tick_font_size)
     ax.set_yticks([0, n_neurons - 1])
     ax.set_yticklabels([1, n_neurons], fontsize=style.tick_font_size)
-    style.annotate(ax, f'rank(90%)={rank_90_act}  rank(99%)={rank_99_act}', (0.02, 0.97), va='top', ha='left')
+    ax.text(0.02, 0.97, f'rank(90%)={rank_90_act}  rank(99%)={rank_99_act}',
+            transform=ax.transAxes, fontsize=style.annotation_font_size,
+            color='white', va='top', ha='left')
 
     # top-right: zoom activity
     ax = axes[0, 1]
+    ax.set_facecolor('black')
     zoom_neuron_end = zoom_neuron_start + zoom_n_act
     im = ax.imshow(activity[zoom_neuron_start:zoom_neuron_end, :zoom_f], vmin=-vmax_act, vmax=vmax_act, **imshow_kw)
-    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04).ax.tick_params(labelsize=style.tick_font_size)
-    style.ylabel(ax, 'neurons')
-    style.xlabel(ax, 'time (frames)')
+    cb = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    cb.ax.tick_params(labelsize=style.tick_font_size)
+    ax.set_ylabel('neurons', fontsize=style.label_font_size)
+    ax.set_xlabel('time (frames)', fontsize=style.label_font_size)
     ax.set_xticks([0, zoom_f - 1])
     ax.set_xticklabels([0, zoom_f], fontsize=style.tick_font_size)
     ax.set_yticks([0, zoom_n_act - 1])
@@ -553,22 +567,28 @@ def plot_kinograph(
 
     # bottom-left: full stimulus
     ax = axes[1, 0]
+    ax.set_facecolor('black')
     im = ax.imshow(stimulus, vmin=-vmax_inp, vmax=vmax_inp, **imshow_kw)
-    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04).ax.tick_params(labelsize=style.tick_font_size)
-    style.ylabel(ax, 'input neurons')
-    style.xlabel(ax, 'time (frames)')
+    cb = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    cb.ax.tick_params(labelsize=style.tick_font_size)
+    ax.set_ylabel('input neurons', fontsize=style.label_font_size)
+    ax.set_xlabel('time (frames)', fontsize=style.label_font_size)
     ax.set_xticks([0, stimulus.shape[1] - 1])
     ax.set_xticklabels([0, stimulus.shape[1]], fontsize=style.tick_font_size)
     ax.set_yticks([0, n_input - 1])
     ax.set_yticklabels([1, n_input], fontsize=style.tick_font_size)
-    style.annotate(ax, f'rank(90%)={rank_90_inp}  rank(99%)={rank_99_inp}', (0.02, 0.97), va='top', ha='left')
+    ax.text(0.02, 0.97, f'rank(90%)={rank_90_inp}  rank(99%)={rank_99_inp}',
+            transform=ax.transAxes, fontsize=style.annotation_font_size,
+            color='white', va='top', ha='left')
 
     # bottom-right: zoom stimulus
     ax = axes[1, 1]
+    ax.set_facecolor('black')
     im = ax.imshow(stimulus[:zoom_n_inp, :zoom_f], vmin=-vmax_inp, vmax=vmax_inp, **imshow_kw)
-    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04).ax.tick_params(labelsize=style.tick_font_size)
-    style.ylabel(ax, 'input neurons')
-    style.xlabel(ax, 'time (frames)')
+    cb = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    cb.ax.tick_params(labelsize=style.tick_font_size)
+    ax.set_ylabel('input neurons', fontsize=style.label_font_size)
+    ax.set_xlabel('time (frames)', fontsize=style.label_font_size)
     ax.set_xticks([0, zoom_f - 1])
     ax.set_xticklabels([0, zoom_f], fontsize=style.tick_font_size)
     ax.set_yticks([0, zoom_n_inp - 1])
@@ -576,6 +596,9 @@ def plot_kinograph(
 
     plt.tight_layout()
     style.savefig(fig, output_path)
+
+    # Restore rcParams
+    plt.rcParams.update(_saved_rc)
 
 
 def plot_activity_traces(

@@ -16,6 +16,7 @@ from flyvis_gnn.neuron_state import NeuronState
 from flyvis_gnn.plot import (
     plot_activity_traces,
     plot_hh_debug,
+    plot_kinograph,
     plot_selected_neuron_traces,
     plot_spatial_activity_grid,
     plot_spiking_traces,
@@ -75,6 +76,7 @@ def _is_connconstr_model(signal_model_name: str) -> bool:
 def _plot_connconstr_diagnostics(
     voltage_history, stimulus_history, ode_params, edge_index,
     model_name, n_neurons, dt, config, device, frame_indices=None,
+    rank_info=None,
 ):
     """Generate traces, connectivity, and g_phi plots for connconstr models.
 
@@ -249,10 +251,18 @@ def _plot_connconstr_diagnostics(
         logger.info("saved f_theta.png")
 
     # --- 4. Kinograph (neurons x time heatmap, viridis LUT) ---
+    # Override rcParams to white text for kinograph (viridis on dark bg)
+    _saved_rc = {k: plt.rcParams[k] for k in [
+        'text.color', 'axes.labelcolor', 'xtick.color', 'ytick.color']}
+    plt.rcParams.update({
+        'text.color': 'white', 'axes.labelcolor': 'white',
+        'xtick.color': 'white', 'ytick.color': 'white',
+    })
+
     fig, axes = plt.subplots(
         2, 1,
         figsize=(style.figure_height * 3.0, style.figure_height * 2.0),
-        facecolor=style.background,
+        facecolor='black',
         gridspec_kw={'height_ratios': [3, 1]},
     )
     imshow_kw = dict(aspect='auto', cmap='viridis', origin='lower', interpolation='nearest')
@@ -270,13 +280,19 @@ def _plot_connconstr_diagnostics(
 
     # Top: activity kinograph
     ax = axes[0]
+    ax.set_facecolor('black')
     vmax_act = np.percentile(np.abs(voltage_arr), 99)
     if vmax_act < 1e-12:
         vmax_act = 1.0
     im = ax.imshow(voltage_arr.T, vmin=-vmax_act, vmax=vmax_act, **imshow_kw)
     cb = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
     cb.ax.tick_params(labelsize=style.tick_font_size)
-    style.ylabel(ax, 'neurons')
+    ax.set_ylabel('neurons', fontsize=style.label_font_size)
+    if rank_info is not None:
+        ax.set_title(
+            f"activity  rank(90%)={rank_info['rank_90_act']}  rank(99%)={rank_info['rank_99_act']}",
+            fontsize=style.tick_font_size, pad=4,
+        )
     if tick_pos is not None:
         ax.set_xticks(tick_pos)
         ax.set_xticklabels([])  # labels on bottom panel only
@@ -287,14 +303,20 @@ def _plot_connconstr_diagnostics(
 
     # Bottom: stimulus kinograph
     ax = axes[1]
+    ax.set_facecolor('black')
     vmax_stim = np.percentile(np.abs(stimulus_arr), 99)
     if vmax_stim < 1e-12:
         vmax_stim = 1.0
     im = ax.imshow(stimulus_arr.T, vmin=-vmax_stim, vmax=vmax_stim, **imshow_kw)
     cb = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
     cb.ax.tick_params(labelsize=style.tick_font_size)
-    style.ylabel(ax, 'stimulus')
-    style.xlabel(ax, 'time (frames)')
+    ax.set_ylabel('stimulus', fontsize=style.label_font_size)
+    ax.set_xlabel('time (frames)', fontsize=style.label_font_size)
+    if rank_info is not None:
+        ax.set_title(
+            f"stimulus  rank(90%)={rank_info['rank_90_stim']}  rank(99%)={rank_info['rank_99_stim']}",
+            fontsize=style.tick_font_size, pad=4,
+        )
     if tick_pos is not None:
         ax.set_xticks(tick_pos)
         ax.set_xticklabels(tick_labels, fontsize=style.tick_font_size)
@@ -303,6 +325,9 @@ def _plot_connconstr_diagnostics(
 
     plt.tight_layout()
     style.savefig(fig, os.path.join(folder, "kinograph.png"))
+
+    # Restore rcParams
+    plt.rcParams.update(_saved_rc)
     logger.info("saved kinograph.png")
 
 
@@ -451,11 +476,68 @@ def data_generate_connconstr(config, visualize=True, device=None, save=True):
             sim.noise_model_level = _saved_noise_model
             sim.measurement_noise_level = _saved_noise_meas
 
+    # --- Compute effective ranks (W matrix, activity, stimulus) ---
+    logger.info('computing effective rank ...')
+    from sklearn.utils.extmath import randomized_svd
+
+    # W matrix rank from dense reconstruction
+    ei_np = to_numpy(edge_index)
+    W_np = to_numpy(ode_params.W)
+    W_dense = np.zeros((n_neurons, n_neurons), dtype=np.float32)
+    W_dense[ei_np[0], ei_np[1]] = W_np
+    n_comp_w = min(50, min(W_dense.shape) - 1)
+    _, S_w, _ = randomized_svd(W_dense, n_components=n_comp_w, random_state=0)
+    cumvar_w = np.cumsum(S_w**2) / np.sum(S_w**2)
+    rank_90_w = int(np.searchsorted(cumvar_w, 0.90) + 1)
+    rank_99_w = int(np.searchsorted(cumvar_w, 0.99) + 1)
+    logger.info(f'W matrix rank(90%)={rank_90_w}  rank(99%)={rank_99_w}')
+
+    # Activity rank from train zarr
+    from flyvis_gnn.zarr_io import load_simulation_data
+    x_ts = load_simulation_data(graphs_data_path(config.dataset, "x_list_train"))
+    activity_full = x_ts.voltage.numpy()
+    n_comp_a = min(50, min(activity_full.shape) - 1)
+    _, S_act, _ = randomized_svd(activity_full, n_components=n_comp_a, random_state=0)
+    cumvar_act = np.cumsum(S_act**2) / np.sum(S_act**2)
+    rank_90_act = int(np.searchsorted(cumvar_act, 0.90) + 1)
+    rank_99_act = int(np.searchsorted(cumvar_act, 0.99) + 1)
+    logger.info(f'activity rank(90%)={rank_90_act}  rank(99%)={rank_99_act}')
+
+    # Stimulus rank
+    stim_full = x_ts.stimulus.numpy()
+    n_comp_s = min(50, min(stim_full.shape) - 1)
+    if n_comp_s > 0 and np.abs(stim_full).max() > 1e-12:
+        _, S_stim, _ = randomized_svd(stim_full, n_components=n_comp_s, random_state=0)
+        cumvar_stim = np.cumsum(S_stim**2) / np.sum(S_stim**2)
+        rank_90_stim = int(np.searchsorted(cumvar_stim, 0.90) + 1)
+        rank_99_stim = int(np.searchsorted(cumvar_stim, 0.99) + 1)
+    else:
+        rank_90_stim = rank_99_stim = 0
+    logger.info(f'stimulus rank(90%)={rank_90_stim}  rank(99%)={rank_99_stim}')
+
+    # Write rank info to logfile in dataset folder
+    rank_log_path = os.path.join(folder, "rank_info.txt")
+    with open(rank_log_path, 'w') as f:
+        f.write(f"model: {model_name}\n")
+        f.write(f"n_neurons: {n_neurons}\n")
+        f.write(f"n_edges: {edge_index.shape[1]}\n")
+        f.write(f"W matrix rank(90%): {rank_90_w}  rank(99%): {rank_99_w}\n")
+        f.write(f"activity rank(90%): {rank_90_act}  rank(99%): {rank_99_act}\n")
+        f.write(f"stimulus rank(90%): {rank_90_stim}  rank(99%): {rank_99_stim}\n")
+    logger.info(f"saved rank info to {rank_log_path}")
+
+    rank_info = {
+        'rank_90_w': rank_90_w, 'rank_99_w': rank_99_w,
+        'rank_90_act': rank_90_act, 'rank_99_act': rank_99_act,
+        'rank_90_stim': rank_90_stim, 'rank_99_stim': rank_99_stim,
+    }
+
     if visualize and voltage_history:
         _plot_connconstr_diagnostics(
             voltage_history, stimulus_history, ode_params, edge_index,
             model_name, n_neurons, dt, config, device,
             frame_indices=frame_index_history,
+            rank_info=rank_info,
         )
 
     logger.info("connconstr data generation complete")
@@ -1758,18 +1840,18 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
     logger.info(f'activity rank(90%)={rank_90_act}  rank(99%)={rank_99_act}')
     logger.info(f'visual input rank(90%)={rank_90_inp}  rank(99%)={rank_99_inp}')
 
-    # print('plot kinograph ...')
-    # plot_kinograph(
-    #     activity=activity_full.T,
-    #     stimulus=x_ts.stimulus[:, :sim.n_input_neurons].numpy().T,
-    #     output_path=graphs_data_path(config.dataset, 'kinograph.png'),
-    #     rank_90_act=rank_90_act,
-    #     rank_99_act=rank_99_act,
-    #     rank_90_inp=rank_90_inp,
-    #     rank_99_inp=rank_99_inp,
-    #     zoom_size=200,
-    #     style=fig_style,
-    # )
+    logger.info('plotting kinograph ...')
+    plot_kinograph(
+        activity=activity_full.T,
+        stimulus=x_ts.stimulus[:, :sim.n_input_neurons].numpy().T,
+        output_path=graphs_data_path(config.dataset, 'kinograph.png'),
+        rank_90_act=rank_90_act,
+        rank_99_act=rank_99_act,
+        rank_90_inp=rank_90_inp,
+        rank_99_inp=rank_99_inp,
+        zoom_size=200,
+        style=fig_style,
+    )
 
     # Skip warmup frames (100ms / dt) and show 400ms window for all plots
     warmup_ms = 100.0

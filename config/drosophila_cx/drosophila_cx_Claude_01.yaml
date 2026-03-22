@@ -15,7 +15,7 @@ simulation:
   baseline_value: 0
   noise_model_level: 0.0
   derivative_smoothing_window: 1
-  seed: 114001
+  seed: 126001
   connconstr_datapath: papers/Code_NN/Code_NN/Data/Figure5
   connconstr_model: drosophila_cx
   connconstr_n_trials: 50
@@ -23,15 +23,15 @@ simulation:
 graph_model:
   signal_model_name: drosophila_cx
   prediction: first_derivative
-  input_size: 4
+  input_size: 5
   n_layers: 3
   hidden_dim: 80
   output_size: 1
-  input_size_update: 6
+  input_size_update: 7
   n_layers_update: 3
   hidden_dim_update: 80
   aggr_type: add
-  embedding_dim: 3
+  embedding_dim: 4
   update_type: generic
   g_phi_positive: true
 plotting:
@@ -58,7 +58,7 @@ training:
   coeff_g_phi_diff: 1500
   coeff_f_theta_msg_diff: 0
   coeff_g_phi_norm: 0
-  coeff_g_phi_weight_L1: 0.0
+  coeff_g_phi_weight_L1: 0.001
   coeff_f_theta_weight_L1: 0
   coeff_g_phi_weight_L2: 0
   coeff_f_theta_weight_L2: 0.001
@@ -73,7 +73,7 @@ training:
   lr_scheduler_T0: 1000
   lr_scheduler_T_mult: 2
   lr_scheduler_eta_min_ratio: 0.01
-  seed: 114501
+  seed: 126501
 claude:
   n_epochs: 2
   data_augmentation_loop: 100
