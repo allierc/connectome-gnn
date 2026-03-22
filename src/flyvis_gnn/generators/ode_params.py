@@ -208,10 +208,8 @@ class ODEParamsBase:
         """
         # Default: linear slope (suitable for ReLU-like g_phi)
         from flyvis_gnn.metrics import _vectorized_linear_fit
-        v_t = torch.tensor(v_ranges, dtype=torch.float32)
-        c_t = torch.tensor(learned_curves, dtype=torch.float32)
-        slopes, offsets = _vectorized_linear_fit(v_t, c_t)
-        slopes = slopes.numpy()
+        slopes, offsets = _vectorized_linear_fit(v_ranges, learned_curves)
+        slopes = np.asarray(slopes)
         slopes[np.abs(slopes) < 1e-8] = 1.0
         return {'correction': slopes, 'slopes': slopes}
 
