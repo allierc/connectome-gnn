@@ -229,30 +229,38 @@ Use best GNN config from agentic exploration (no re-exploration needed).
 
 ## Config Migration Plan
 
-Current naming is organic/messy. For the paper benchmark, create clean configs under:
+Keep flat per-biomodel structure (matches `graphs_data/` and `log/` layout). Benchmark configs live alongside existing configs, distinguished by naming convention.
 
 ```
-config/benchmark/
-  flyvis/
-    flyvis_gnn_baseline_{00-04}.yaml
-    flyvis_linear_baseline_{00-04}.yaml
-    flyvis_rnn_baseline_{00-04}.yaml
-    flyvis_neuralode_baseline_{00-04}.yaml
-    flyvis_gnn_noise005_{00-04}.yaml
-    flyvis_gnn_missing_time_80_{00-04}.yaml
-    flyvis_gnn_remove_edges_20_{00-04}.yaml
-    flyvis_gnn_null_edges_200_{00-04}.yaml
-  cx/
-    cx_gnn_baseline_{00-04}.yaml
-    cx_linear_baseline_{00-04}.yaml
-    ...
-  larva/
-    ...
-  zebrafish/
-    ...
+config/fly/
+  flyvis_gnn_baseline_00.yaml      ->  graphs_data/flyvis_gnn_baseline_00/  log/flyvis_gnn_baseline_00/
+  flyvis_linear_baseline_00.yaml   ->  graphs_data/flyvis_linear_baseline_00/  ...
+  flyvis_rnn_baseline_00.yaml
+  flyvis_neuralode_baseline_00.yaml
+  flyvis_gnn_noise005_00.yaml
+  flyvis_gnn_missing_time_80_00.yaml
+  flyvis_gnn_remove_edges_20_00.yaml
+  flyvis_gnn_null_edges_200_00.yaml
+  ... (existing organic configs remain)
+
+config/drosophila_cx/
+  cx_gnn_baseline_00.yaml
+  cx_linear_baseline_00.yaml
+  cx_rnn_baseline_00.yaml
+  cx_neuralode_baseline_00.yaml
+  cx_gnn_noise005_00.yaml
+  ...
+
+config/larva/
+  larva_gnn_baseline_00.yaml
+  ...
+
+config/zebrafish_oculomotor/
+  zebrafish_gnn_baseline_00.yaml
+  ...
 ```
 
-Keep existing configs for agentic exploration. Benchmark configs are frozen snapshots of best agentic results.
+Existing agentic configs (`*_Claude_*.yaml`) remain untouched. Benchmark configs are frozen snapshots of best agentic results.
 
 ---
 
