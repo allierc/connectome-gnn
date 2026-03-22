@@ -1145,14 +1145,21 @@ class DrosophilaCxODEParams(ODEParamsBase):
 
     def gt_g_phi_func(self, v):
         """Ground truth g_phi(v) = exp(g) * softplus(v + b, beta=5) per neuron.
-        Returns (n_neurons, n_pts) array."""
+        Returns (n_neurons, n_pts) array.
+
+        Args:
+            v: (n_pts,) shared range or (N, n_pts) per-neuron ranges.
+        """
         if self.g is None or self.b is None:
             return np.maximum(v, 0.0)  # fallback to ReLU
         g_np = self.g.cpu().numpy()
         b_np = self.b.cpu().numpy()
         beta = self.beta
         # softplus(x, beta) = (1/beta) * log(1 + exp(beta * x))
-        x = v + b_np[:, None]  # (N, n_pts)
+        if v.ndim == 1:
+            x = v[None, :] + b_np[:, None]  # (N, n_pts)
+        else:
+            x = v + b_np[:, None]  # (N, n_pts) + (N, 1) = (N, n_pts)
         sp = np.where(beta * x > 20, x, np.log1p(np.exp(beta * x)) / beta)
         return np.exp(g_np[:, None]) * sp
 
@@ -1499,15 +1506,23 @@ class LarvaODEParams(ODEParamsBase):
         """Softplus activation (gain-modulated per neuron).
         Returns (N, n_pts) where N = n_premotor + n_motor.
         Premotor: gp_i * softplus(v), Motor: gm_i * softplus(v).
+
+        Args:
+            v: (n_pts,) shared range or (N, n_pts) per-neuron ranges.
         """
-        sp = np.log1p(np.exp(v))  # softplus(v), shape (n_pts,) or (1, n_pts)
+        sp = np.log1p(np.exp(v))  # same shape as v
         N = self.n_premotor + self.n_motor
         if self.gp is not None and self.gm is not None:
             gains = np.zeros(N)
             gains[:self.n_premotor] = self.gp.cpu().numpy()
             gains[self.n_premotor:] = self.gm.cpu().numpy()
-            return gains[:, None] * sp[None, :]  # (N, n_pts)
-        return np.broadcast_to(sp, (N, len(v)))
+            if sp.ndim == 1:
+                return gains[:, None] * sp[None, :]  # (N, n_pts)
+            else:
+                return gains[:, None] * sp  # (N, 1) * (N, n_pts) = (N, n_pts)
+        if sp.ndim == 1:
+            return np.broadcast_to(sp, (N, len(v)))
+        return sp
 
     def g_phi_label(self):
         return r"$g_i \, \mathrm{softplus}(v_j)$"
