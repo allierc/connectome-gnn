@@ -571,32 +571,51 @@ def generate_cx_stimulus(n_trials, T, dt, epg_ix, W_16to46, W_46to3, seed=None):
     return y, m, inps, ts
 
 
-def generate_zebrafish_stimulus(n_frames):
-    """Generate zebrafish pulse input stimulus.
+def generate_zebrafish_stimulus(n_frames, seed=42):
+    """Generate zebrafish velocity-command stimulus (filtered pulses).
+
+    The zebrafish oculomotor integrator receives brief velocity commands
+    (saccades) that the network must integrate into persistent firing rate
+    changes representing eye position.
 
     Ref: papers/Code_NN/Code_NN/nn_fig5_zebrafish_teacher.py
-         simulate_series() lines 157-163
+         simulate_series() lines 157-163 — original uses 3 identical pulses.
 
-    Creates a filtered impulse repeated 3 times:
-      input_filter = 0.001 * exp(-linspace(0,10,101))
-      I1[995:1005] = 1e5
-      I1 = convolve(I1, input_filter)
+    We extend this with higher-frequency, amplitude-modulated pulses to
+    provide richer dynamics for GNN training. The pulse shape (exponential
+    filter) matches the original paper.
 
     Args:
-        n_frames: total number of frames (should be 21000 for 3 repeats)
+        n_frames: total number of frames
+        seed: random seed for reproducible pulse timing and amplitude
 
     Returns:
         I: (n_frames,) stimulus signal
     """
-    # Ref: simulate_series() lines 157-163
-    input_filter = 0.001 * np.exp(-np.linspace(0, 10, 101))
-    I1 = np.zeros(7000)
-    I1[995:1005] = 1e5
-    I1 = np.convolve(I1, input_filter)[0:7000]
+    rng = np.random.RandomState(seed)
 
-    I = np.zeros(n_frames)
-    for k in range(min(3, n_frames // 7000)):
-        I[k * 7000:(k + 1) * 7000] = I1[:min(7000, n_frames - k * 7000)]
+    # Same exponential filter as paper (simulate_series lines 157-158)
+    input_filter = 0.001 * np.exp(-np.linspace(0, 10, 101))
+
+    # Generate pulses every ~500 frames with random amplitude
+    # Paper uses interval=7000, amplitude=1e5. We use ~500 frame intervals
+    # with amplitude uniformly sampled from 0 to 1e5 (both positive and negative
+    # to exercise both integration directions).
+    pulse_interval = 500
+    pulse_width = 10  # same as paper (frames 995:1005)
+    max_amplitude = 1e5
+
+    I_raw = np.zeros(n_frames + len(input_filter))
+    t = rng.randint(200, pulse_interval)  # first pulse after short delay
+    while t + pulse_width < n_frames:
+        # Random amplitude from 0 to max, random sign (positive or negative saccade)
+        amp = rng.uniform(0.1, 1.0) * max_amplitude * rng.choice([-1, 1])
+        I_raw[t:t + pulse_width] = amp
+        # Next pulse: random interval around pulse_interval
+        t += rng.randint(pulse_interval // 2, pulse_interval * 2)
+
+    # Convolve with exponential filter (same as paper)
+    I = np.convolve(I_raw, input_filter)[:n_frames]
 
     return I
 
