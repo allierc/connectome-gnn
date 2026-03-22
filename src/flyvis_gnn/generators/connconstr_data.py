@@ -612,7 +612,7 @@ def generate_zebrafish_stimulus(n_frames, seed=42):
     # Normalize to [0, 1]
     envelope = (envelope - envelope.min()) / (envelope.max() - envelope.min() + 1e-12)
 
-    max_amplitude = 1e5
+    max_amplitude = 400
     I = I_smooth * max_amplitude * envelope
 
     return I
