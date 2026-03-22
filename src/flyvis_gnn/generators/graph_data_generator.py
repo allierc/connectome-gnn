@@ -139,7 +139,6 @@ def _plot_connconstr_diagnostics(
     ax.set_ylim([y_bottom, offset[-1].max() + 2])
 
     style.savefig(fig, os.path.join(folder, "activity_traces.png"))
-    logger.info("saved activity_traces.png")
 
     # --- 2. Connectivity heatmap (flyvis-gnn style, optimal contrast) ---
     # W_dense[pre, post] from edge_index convention; transpose to J[post, pre]
@@ -183,7 +182,6 @@ def _plot_connconstr_diagnostics(
     style.ylabel(ax, 'postsynaptic neuron')
 
     style.savefig(fig, os.path.join(folder, "connectivity.png"))
-    logger.info("saved connectivity.png")
 
     # --- 3. g_phi plot (per-neuron-type teacher activation function) ---
     v_range = np.linspace(-2, 5, 500)
@@ -224,7 +222,6 @@ def _plot_connconstr_diagnostics(
     ax.legend(fontsize=style.tick_font_size - 1, frameon=False, loc='upper left')
 
     style.savefig(fig, os.path.join(folder, "g_phi.png"))
-    logger.info("saved g_phi.png")
 
     # --- 3b. f_theta plot (per-neuron-type update function) ---
     f_theta_vals = ode_params.gt_f_theta_func(v_range, n_neurons)  # (N, n_pts) or None
@@ -248,21 +245,11 @@ def _plot_connconstr_diagnostics(
         ax.legend(fontsize=style.tick_font_size - 1, frameon=False, loc='upper right')
 
         style.savefig(fig, os.path.join(folder, "f_theta.png"))
-        logger.info("saved f_theta.png")
 
     # --- 4. Kinograph (neurons x time heatmap, viridis LUT) ---
-    # Override rcParams to white text for kinograph (viridis on dark bg)
-    _saved_rc = {k: plt.rcParams[k] for k in [
-        'text.color', 'axes.labelcolor', 'xtick.color', 'ytick.color']}
-    plt.rcParams.update({
-        'text.color': 'white', 'axes.labelcolor': 'white',
-        'xtick.color': 'white', 'ytick.color': 'white',
-    })
-
     fig, axes = plt.subplots(
         2, 1,
         figsize=(style.figure_height * 3.0, style.figure_height * 2.0),
-        facecolor='black',
         gridspec_kw={'height_ratios': [3, 1]},
     )
     imshow_kw = dict(aspect='auto', cmap='viridis', origin='lower', interpolation='nearest')
@@ -280,7 +267,6 @@ def _plot_connconstr_diagnostics(
 
     # Top: activity kinograph
     ax = axes[0]
-    ax.set_facecolor('black')
     vmax_act = np.percentile(np.abs(voltage_arr), 99)
     if vmax_act < 1e-12:
         vmax_act = 1.0
@@ -290,7 +276,8 @@ def _plot_connconstr_diagnostics(
     ax.set_ylabel('neurons', fontsize=style.label_font_size)
     if rank_info is not None:
         ax.set_title(
-            f"activity  rank(90%)={rank_info['rank_90_act']}  rank(99%)={rank_info['rank_99_act']}",
+            f"activity  rank(90%)={rank_info['rank_90_act']}  rank(99%)={rank_info['rank_99_act']}"
+            f"  |  centered rank(90%)={rank_info['rank_90_mc']}  rank(99%)={rank_info['rank_99_mc']}",
             fontsize=style.tick_font_size, pad=4,
         )
     if tick_pos is not None:
@@ -303,7 +290,6 @@ def _plot_connconstr_diagnostics(
 
     # Bottom: stimulus kinograph
     ax = axes[1]
-    ax.set_facecolor('black')
     vmax_stim = np.percentile(np.abs(stimulus_arr), 99)
     if vmax_stim < 1e-12:
         vmax_stim = 1.0
@@ -325,10 +311,6 @@ def _plot_connconstr_diagnostics(
 
     plt.tight_layout()
     style.savefig(fig, os.path.join(folder, "kinograph.png"))
-
-    # Restore rcParams
-    plt.rcParams.update(_saved_rc)
-    logger.info("saved kinograph.png")
 
 
 def data_generate_connconstr(config, visualize=True, device=None, save=True):
@@ -501,7 +483,19 @@ def data_generate_connconstr(config, visualize=True, device=None, save=True):
     cumvar_act = np.cumsum(S_act**2) / np.sum(S_act**2)
     rank_90_act = int(np.searchsorted(cumvar_act, 0.90) + 1)
     rank_99_act = int(np.searchsorted(cumvar_act, 0.99) + 1)
-    logger.info(f'activity rank(90%)={rank_90_act}  rank(99%)={rank_99_act}')
+
+    # Mean-centered rank: subtract per-neuron temporal mean to remove static bias pattern.
+    # This captures dynamic information content (what the GNN must learn beyond a constant offset).
+    activity_centered = activity_full - activity_full.mean(axis=0, keepdims=True)
+    centered_var = np.sum(activity_centered**2)
+    if centered_var > 1e-12:
+        _, S_mc, _ = randomized_svd(activity_centered, n_components=n_comp_a, random_state=0)
+        cumvar_mc = np.cumsum(S_mc**2) / centered_var
+        rank_90_mc = int(np.searchsorted(cumvar_mc, 0.90) + 1)
+        rank_99_mc = int(np.searchsorted(cumvar_mc, 0.99) + 1)
+    else:
+        rank_90_mc = rank_99_mc = 0
+    logger.info(f'activity rank(90%)={rank_90_act}  rank(99%)={rank_99_act}  mean-centered rank(90%)={rank_90_mc}  rank(99%)={rank_99_mc}')
 
     # Stimulus rank
     stim_full = x_ts.stimulus.numpy()
@@ -523,12 +517,13 @@ def data_generate_connconstr(config, visualize=True, device=None, save=True):
         f.write(f"n_edges: {edge_index.shape[1]}\n")
         f.write(f"W matrix rank(90%): {rank_90_w}  rank(99%): {rank_99_w}\n")
         f.write(f"activity rank(90%): {rank_90_act}  rank(99%): {rank_99_act}\n")
+        f.write(f"activity mean-centered rank(90%): {rank_90_mc}  rank(99%): {rank_99_mc}\n")
         f.write(f"stimulus rank(90%): {rank_90_stim}  rank(99%): {rank_99_stim}\n")
-    logger.info(f"saved rank info to {rank_log_path}")
 
     rank_info = {
         'rank_90_w': rank_90_w, 'rank_99_w': rank_99_w,
         'rank_90_act': rank_90_act, 'rank_99_act': rank_99_act,
+        'rank_90_mc': rank_90_mc, 'rank_99_mc': rank_99_mc,
         'rank_90_stim': rank_90_stim, 'rank_99_stim': rank_99_stim,
     }
 
@@ -540,7 +535,6 @@ def data_generate_connconstr(config, visualize=True, device=None, save=True):
             rank_info=rank_info,
         )
 
-    logger.info("connconstr data generation complete")
 
 
 def data_generate(
@@ -1830,6 +1824,17 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
     rank_90_act = int(np.searchsorted(cumvar_act, 0.90) + 1)
     rank_99_act = int(np.searchsorted(cumvar_act, 0.99) + 1)
 
+    # Mean-centered rank: subtract per-neuron temporal mean to remove static bias pattern.
+    activity_centered = activity_full - activity_full.mean(axis=0, keepdims=True)
+    centered_var = np.sum(activity_centered**2)
+    if centered_var > 1e-12:
+        _, S_mc, _ = randomized_svd(activity_centered, n_components=n_comp, random_state=0)
+        cumvar_mc = np.cumsum(S_mc**2) / centered_var
+        rank_90_mc = int(np.searchsorted(cumvar_mc, 0.90) + 1)
+        rank_99_mc = int(np.searchsorted(cumvar_mc, 0.99) + 1)
+    else:
+        rank_90_mc = rank_99_mc = 0
+
     input_for_svd = x_ts.stimulus[:, :sim.n_input_neurons].numpy()
     n_comp_input = min(50, min(input_for_svd.shape) - 1)
     _, S_inp, _ = randomized_svd(input_for_svd, n_components=n_comp_input, random_state=0)
@@ -1837,7 +1842,7 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
     rank_90_inp = int(np.searchsorted(cumvar_inp, 0.90) + 1)
     rank_99_inp = int(np.searchsorted(cumvar_inp, 0.99) + 1)
 
-    logger.info(f'activity rank(90%)={rank_90_act}  rank(99%)={rank_99_act}')
+    logger.info(f'activity rank(90%)={rank_90_act}  rank(99%)={rank_99_act}  centered rank(90%)={rank_90_mc}  rank(99%)={rank_99_mc}')
     logger.info(f'visual input rank(90%)={rank_90_inp}  rank(99%)={rank_99_inp}')
 
     logger.info('plotting kinograph ...')
@@ -1849,6 +1854,8 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
         rank_99_act=rank_99_act,
         rank_90_inp=rank_90_inp,
         rank_99_inp=rank_99_inp,
+        rank_90_mc=rank_90_mc,
+        rank_99_mc=rank_99_mc,
         zoom_size=200,
         style=fig_style,
     )

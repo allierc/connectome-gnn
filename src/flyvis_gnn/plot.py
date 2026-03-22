@@ -175,18 +175,15 @@ def plot_embedding(ax, model, type_list, n_types, cmap):
     embedding = to_numpy(model.a)
     type_np = to_numpy(type_list).squeeze()
     n_neurons = len(type_np)
-    _dot_s = max(6, min(80, 3000 / max(n_neurons, 1)))
+    _dot_s = max(20, min(120, 5000 / max(n_neurons, 1)))
     if n_neurons < 100:
-        _dot_s = max(40, _dot_s)
-        _dot_alpha = 1.0
-    else:
-        _dot_alpha = max(0.25, min(0.9, 100 / max(n_neurons, 1)))
+        _dot_s = max(60, _dot_s)
 
     for n in range(n_types):
         mask = (type_np == n)
         if np.any(mask):
             ax.scatter(embedding[mask, 0], embedding[mask, 1],
-                       c=cmap.color(n), s=_dot_s, alpha=_dot_alpha, edgecolors='none')
+                       c=cmap.color(n), s=_dot_s, edgecolors='none')
 
     ax.set_xlabel('$a_0$', fontsize=32)
     ax.set_ylabel('$a_1$', fontsize=32)
@@ -492,6 +489,8 @@ def plot_kinograph(
     rank_99_act: int = 0,
     rank_90_inp: int = 0,
     rank_99_inp: int = 0,
+    rank_90_mc: int = 0,
+    rank_99_mc: int = 0,
     zoom_size: int = 200,
     zoom_neuron_start: int = 4900,
     style: FigureStyle = default_style,
@@ -518,18 +517,9 @@ def plot_kinograph(
     zoom_n_act = min(zoom_size, n_neurons - zoom_neuron_start)
     zoom_n_inp = min(zoom_size, n_input)
 
-    # Override rcParams to white text for kinograph (dark bg)
-    _saved_rc = {k: plt.rcParams[k] for k in [
-        'text.color', 'axes.labelcolor', 'xtick.color', 'ytick.color']}
-    plt.rcParams.update({
-        'text.color': 'white', 'axes.labelcolor': 'white',
-        'xtick.color': 'white', 'ytick.color': 'white',
-    })
-
     fig, axes = plt.subplots(
         2, 2,
         figsize=(style.figure_height * 3.5, style.figure_height * 2.5),
-        facecolor='black',
         gridspec_kw={'width_ratios': [2, 1]},
     )
 
@@ -537,7 +527,7 @@ def plot_kinograph(
 
     # top-left: full activity
     ax = axes[0, 0]
-    ax.set_facecolor('black')
+
     im = ax.imshow(activity, vmin=-vmax_act, vmax=vmax_act, **imshow_kw)
     cb = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
     cb.ax.tick_params(labelsize=style.tick_font_size)
@@ -547,13 +537,16 @@ def plot_kinograph(
     ax.set_xticklabels([0, n_frames], fontsize=style.tick_font_size)
     ax.set_yticks([0, n_neurons - 1])
     ax.set_yticklabels([1, n_neurons], fontsize=style.tick_font_size)
-    ax.text(0.02, 0.97, f'rank(90%)={rank_90_act}  rank(99%)={rank_99_act}',
+    rank_label = f'rank(90%)={rank_90_act}  rank(99%)={rank_99_act}'
+    if rank_90_mc > 0:
+        rank_label += f'  |  centered(90%)={rank_90_mc}  (99%)={rank_99_mc}'
+    ax.text(0.02, 0.97, rank_label,
             transform=ax.transAxes, fontsize=style.annotation_font_size,
-            color='white', va='top', ha='left')
+            va='top', ha='left')
 
     # top-right: zoom activity
     ax = axes[0, 1]
-    ax.set_facecolor('black')
+
     zoom_neuron_end = zoom_neuron_start + zoom_n_act
     im = ax.imshow(activity[zoom_neuron_start:zoom_neuron_end, :zoom_f], vmin=-vmax_act, vmax=vmax_act, **imshow_kw)
     cb = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
@@ -567,7 +560,7 @@ def plot_kinograph(
 
     # bottom-left: full stimulus
     ax = axes[1, 0]
-    ax.set_facecolor('black')
+
     im = ax.imshow(stimulus, vmin=-vmax_inp, vmax=vmax_inp, **imshow_kw)
     cb = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
     cb.ax.tick_params(labelsize=style.tick_font_size)
@@ -579,11 +572,11 @@ def plot_kinograph(
     ax.set_yticklabels([1, n_input], fontsize=style.tick_font_size)
     ax.text(0.02, 0.97, f'rank(90%)={rank_90_inp}  rank(99%)={rank_99_inp}',
             transform=ax.transAxes, fontsize=style.annotation_font_size,
-            color='white', va='top', ha='left')
+            va='top', ha='left')
 
     # bottom-right: zoom stimulus
     ax = axes[1, 1]
-    ax.set_facecolor('black')
+
     im = ax.imshow(stimulus[:zoom_n_inp, :zoom_f], vmin=-vmax_inp, vmax=vmax_inp, **imshow_kw)
     cb = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
     cb.ax.tick_params(labelsize=style.tick_font_size)
@@ -596,9 +589,6 @@ def plot_kinograph(
 
     plt.tight_layout()
     style.savefig(fig, output_path)
-
-    # Restore rcParams
-    plt.rcParams.update(_saved_rc)
 
 
 def plot_activity_traces(
