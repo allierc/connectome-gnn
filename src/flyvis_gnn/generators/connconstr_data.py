@@ -459,12 +459,19 @@ def load_zebrafish_connectome(datapath):
     ymax = np.real(y_eig[0])
     W_scaled = 0.9 * W / ymax
 
+    # Build integer type labels from cellLocations boolean masks
+    neuron_type_labels = np.zeros(N, dtype=np.int64)
+    for i in range(len(cellNames)):
+        mask = cellLocations[i].flatten()[:N]
+        neuron_type_labels[mask] = i
+
     return {
         "W": W_scaled,
         "v_in": my_v_in,
         "N": N,
         "cell_types": cellIDs,
         "cell_type_names": cellNames,
+        "neuron_type_labels": neuron_type_labels,
         "cdf": lb_cdf,
     }
 

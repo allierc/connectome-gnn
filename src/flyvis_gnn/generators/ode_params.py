@@ -766,22 +766,14 @@ class ZebrafishODEParams(ODEParamsBase):
 
         data = load_zebrafish_connectome(datapath)
         edge_index, W_sparse = dense_to_sparse(data["W"])
-
-        # Build integer type labels from cell_types
-        cell_types = data["cell_types"]
         N = data["N"]
-        unique_types = list(data["cell_type_names"])
-        type_labels = np.zeros(N, dtype=np.int64)
-        for i, name in enumerate(unique_types):
-            mask = (cell_types == name).flatten()
-            type_labels[mask] = i
 
         return cls(
             edge_index=edge_index.to(device),
             W=W_sparse.to(device),
             v_in=torch.tensor(data["v_in"], dtype=torch.float32, device=device),
-            neuron_types=torch.tensor(type_labels, dtype=torch.long, device=device),
-            type_names=unique_types,
+            neuron_types=torch.tensor(data["neuron_type_labels"], dtype=torch.long, device=device),
+            type_names=list(data["cell_type_names"]),
             tau=1.0,
             n_neurons=N,
         )
@@ -806,11 +798,25 @@ class ZebrafishODEParams(ODEParamsBase):
         N = W_dense.shape[0]
         edge_index, W_sparse = dense_to_sparse(W_dense)
 
+        # Load neuron type labels from Goldman MATLAB data
+        try:
+            from flyvis_gnn.generators.connconstr_data import load_zebrafish_connectome
+            goldman_dir = os.path.join(datapath, "goldman_data")
+            if not os.path.isdir(goldman_dir):
+                goldman_dir = os.path.join(os.path.dirname(datapath), "goldman_data")
+            zf_data = load_zebrafish_connectome(goldman_dir)
+            neuron_types = torch.tensor(zf_data["neuron_type_labels"], dtype=torch.long, device=device)
+            type_names = list(zf_data["cell_type_names"])
+        except Exception:
+            neuron_types = torch.zeros(N, dtype=torch.long, device=device)
+            type_names = None
+
         return cls(
             edge_index=edge_index.to(device),
             W=W_sparse.to(device),
             v_in=torch.tensor(data["v_in"], dtype=torch.float32, device=device),
-            neuron_types=torch.zeros(N, dtype=torch.long, device=device),
+            neuron_types=neuron_types,
+            type_names=type_names,
             tau=1.0,
             n_neurons=N,
         )
