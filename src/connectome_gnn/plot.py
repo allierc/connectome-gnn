@@ -1841,3 +1841,342 @@ def render_visual_field_video(model, x_ts, sim, log_dir, epoch, N, logger):
 
     return field_R2, field_slope
 
+
+def plot_connconstr_diagnostics(
+    voltage_history, stimulus_history, ode_params, edge_index,
+    model_name, n_neurons, dt, config, device, frame_indices=None,
+    rank_info=None,
+):
+    """Generate traces, connectivity, and g_phi plots for connconstr models.
+
+    Uses the same FigureStyle as the connectome-gnn pipeline:
+    - flat design (no spines), 14pt labels, 12pt ticks, 200dpi
+    - activity_traces: all neurons stacked, auto-scaled amplitude
+    - connectivity: weight matrix heatmap with optimal contrast (percentile clamp)
+    - g_phi: teacher activation function
+    """
+    from connectome_gnn.figure_style import default_style as style
+    from connectome_gnn.utils import graphs_data_path
+
+    style.apply_globally()
+    folder = graphs_data_path(config.dataset)
+    os.makedirs(folder, exist_ok=True)
+
+    voltage_arr = np.array(voltage_history)   # (T_sampled, N)
+    stimulus_arr = np.array(stimulus_history)  # (T_sampled, N)
+
+    # --- 1. Activity traces (all neurons, auto-scaled) ---
+    # Follows plot_activity_traces pattern: stacked traces, black on white
+    activity = voltage_arr.T  # (N, T_sampled)
+    n_frames = activity.shape[1]
+
+    # Auto-scale: subtract per-neuron mean, normalize by global amplitude
+    mu = activity.mean(axis=1, keepdims=True)
+    activity_centered = activity - mu
+    amp = np.percentile(np.abs(activity_centered), 99)
+    if amp < 1e-12:
+        amp = 1.0
+    activity_scaled = activity_centered / amp
+
+    step_v = 2.0
+    offset = activity_scaled + step_v * np.arange(n_neurons)[:, None]
+
+    fig, ax = style.figure(aspect=2.5)
+    ax.plot(offset.T, linewidth=0.3, alpha=0.6, color=style.foreground)
+
+    # Red stimulus trace at bottom — scale proportional to neuron count
+    stim_mean = stimulus_arr.mean(axis=1)  # mean across neurons per timestep
+    if np.abs(stim_mean).max() > 1e-12:
+        stim_scaled = stim_mean / np.abs(stim_mean).max()
+        stim_height = max(step_v * 8, n_neurons * step_v * 0.08)
+        stim_y = offset[0].min() - stim_height * 0.6 + stim_scaled * stim_height * 0.4
+        ax.plot(stim_y, linewidth=1.5, alpha=0.9, color='red')
+
+    style.xlabel(ax, 'time (frames)')
+    style.ylabel(ax, f'{n_neurons} neurons')
+    ax.set_yticks([])
+    if frame_indices is not None:
+        # Map subsampled index to true frame numbers on x-axis
+        n_samples = len(frame_indices)
+        n_ticks = 5
+        tick_step = max(1, n_samples // n_ticks)
+        tick_pos = list(range(0, n_samples, tick_step))
+        tick_labels = [str(frame_indices[i]) for i in tick_pos]
+        ax.set_xticks(tick_pos)
+        ax.set_xticklabels(tick_labels, fontsize=style.tick_font_size)
+    ax.set_xlim([0, n_frames])
+    y_bottom = offset[0].min() - step_v * 4
+    ax.set_ylim([y_bottom, offset[-1].max() + 2])
+
+    style.savefig(fig, os.path.join(folder, "activity_traces.png"))
+
+    # --- 2. Connectivity heatmap (optimal contrast) ---
+    # W_dense[pre, post] from edge_index convention; transpose to J[post, pre]
+    # to match neuroscience convention: rows=postsynaptic, cols=presynaptic
+    ei = to_numpy(edge_index)
+    W = to_numpy(ode_params.W)
+    W_dense = np.zeros((n_neurons, n_neurons), dtype=np.float32)
+    W_dense[ei[0], ei[1]] = W
+    J = W_dense.T  # J[post, pre] — paper convention
+
+    # Zebrafish: remove disconnected neurons, sort by total outgoing weight
+    # CX/larva: keep natural cell-type ordering (EPG/PEN/Δ7/PEG or PMN/MN)
+    if model_name in ("zebrafish", "zebrafish_oculomotor"):
+        # Remove neurons with no connections (zeroed by final_adjustments)
+        has_conn = (np.abs(J).sum(axis=0) + np.abs(J).sum(axis=1)) > 0
+        J_active = J[has_conn, :][:, has_conn]
+        # Sort by total outgoing weight (column sum, strongest first)
+        col_sum = np.sum(J_active, axis=0)
+        sort_idx = np.argsort(col_sum)[::-1]
+        W_plot = J_active[sort_idx, :][:, sort_idx]
+    else:
+        W_plot = J
+
+    # Optimal contrast: use percentile-based clamp instead of global min/max
+    nonzero_W = W[np.abs(W) > 0]
+    if len(nonzero_W) > 0:
+        vmax = np.percentile(np.abs(nonzero_W), 98)
+    else:
+        vmax = 1.0
+    vmax = max(vmax, 1e-6)
+
+    fig, ax = style.figure(aspect=1.0)
+    im = ax.imshow(
+        W_plot, cmap='bwr_r', vmin=-vmax, vmax=vmax,
+        aspect='auto', interpolation='nearest', origin='upper',
+    )
+    cb = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    cb.ax.tick_params(labelsize=style.tick_font_size)
+    style.xlabel(ax, 'presynaptic neuron')
+    style.ylabel(ax, 'postsynaptic neuron')
+
+    style.savefig(fig, os.path.join(folder, "connectivity.png"))
+
+    # --- 3. g_phi plot (per-neuron-type teacher activation function) ---
+    v_range = np.linspace(-2, 5, 500)
+    g_phi_vals = ode_params.gt_g_phi_func(v_range)  # (N, n_pts) or (n_pts,)
+
+    neuron_types_np = ode_params.neuron_types.cpu().numpy() if ode_params.neuron_types is not None else np.zeros(n_neurons, dtype=int)
+    unique_types = np.unique(neuron_types_np)
+
+    # Type name labels
+    type_names = getattr(ode_params, 'type_names', None)
+    if type_names is None:
+        type_names = [f"type {t}" for t in unique_types]
+
+    cmap = plt.cm.get_cmap('tab10', max(len(unique_types), 1))
+
+    fig, ax = style.figure(aspect=1.2)
+    if g_phi_vals.ndim == 1:
+        # Neuron-independent (e.g. zebrafish identity)
+        ax.plot(v_range, g_phi_vals, linewidth=style.line_width, color=style.foreground,
+                label=ode_params.g_phi_label())
+    else:
+        # Per-neuron curves — plot mean per type with shaded std
+        for idx, t in enumerate(unique_types):
+            mask = neuron_types_np == t
+            curves = g_phi_vals[mask]  # (n_type, n_pts)
+            mean = curves.mean(axis=0)
+            std = curves.std(axis=0)
+            color = cmap(idx)
+            label = type_names[idx] if idx < len(type_names) else f"type {t}"
+            ax.plot(v_range, mean, linewidth=style.line_width, color=color, label=label)
+            if std.max() > 1e-6:
+                ax.fill_between(v_range, mean - std, mean + std, color=color, alpha=0.15)
+
+    ax.axhline(0, color='#aaa', linewidth=0.5, linestyle='--')
+    ax.axvline(0, color='#aaa', linewidth=0.5, linestyle='--')
+    style.xlabel(ax, '$v$ (presynaptic)')
+    style.ylabel(ax, r'$g_\phi(v)$')
+    ax.legend(fontsize=style.tick_font_size - 1, frameon=False, loc='upper left')
+
+    style.savefig(fig, os.path.join(folder, "g_phi.png"))
+
+    # --- 3b. f_theta plot (per-neuron-type update function) ---
+    v_range = np.linspace(-2, 5, 500)
+    f_theta_vals = ode_params.gt_f_theta_func(v_range, n_neurons)  # (N, n_pts) or None
+    if f_theta_vals is not None:
+        fig, ax = style.figure(aspect=1.2)
+        for idx, t in enumerate(unique_types):
+            mask = neuron_types_np == t
+            curves = f_theta_vals[mask]
+            mean = curves.mean(axis=0)
+            std = curves.std(axis=0)
+            color = cmap(idx)
+            label = type_names[idx] if idx < len(type_names) else f"type {t}"
+            ax.plot(v_range, mean, linewidth=style.line_width, color=color, label=label)
+            if std.max() > 1e-6:
+                ax.fill_between(v_range, mean - std, mean + std, color=color, alpha=0.15)
+
+        ax.axhline(0, color='#aaa', linewidth=0.5, linestyle='--')
+        ax.axvline(0, color='#aaa', linewidth=0.5, linestyle='--')
+        style.xlabel(ax, '$v_i$ (postsynaptic)')
+        style.ylabel(ax, r'$f_\theta(v_i)$')
+        ax.legend(fontsize=style.tick_font_size - 1, frameon=False, loc='upper right')
+
+        style.savefig(fig, os.path.join(folder, "f_theta.png"))
+
+    # --- 4. Kinograph (neurons x time heatmap, viridis LUT) ---
+    fig, axes = plt.subplots(
+        2, 1,
+        figsize=(style.figure_height * 3.0, style.figure_height * 2.0),
+        gridspec_kw={'height_ratios': [3, 1]},
+    )
+    imshow_kw = dict(aspect='auto', cmap='viridis', origin='lower', interpolation='nearest')
+
+    # Compute true-frame x-axis ticks for kinograph
+    n_samples = voltage_arr.shape[0]
+    if frame_indices is not None and len(frame_indices) == n_samples:
+        n_ticks = 6
+        tick_step = max(1, n_samples // n_ticks)
+        tick_pos = list(range(0, n_samples, tick_step))
+        tick_labels = [str(frame_indices[i]) for i in tick_pos]
+    else:
+        tick_pos = None
+        tick_labels = None
+
+    # Build neuron-type labels from ode_params
+    type_labels = None
+    if hasattr(ode_params, 'neuron_types') and ode_params.neuron_types is not None:
+        tnames = getattr(ode_params, 'type_names', None)
+        if tnames is not None:
+            nt = to_numpy(ode_params.neuron_types)
+            type_labels = []
+            for ti, name in enumerate(tnames):
+                idx = np.where(nt == ti)[0]
+                if len(idx) > 0:
+                    type_labels.append((name, int(idx.min()), int(idx.max()) + 1))
+
+    ann_fs = max(4, style.tick_font_size - 2)
+
+    # Top: activity kinograph
+    ax = axes[0]
+    vmax_act = np.percentile(np.abs(voltage_arr), 99)
+    if vmax_act < 1e-12:
+        vmax_act = 1.0
+    im = ax.imshow(voltage_arr.T, vmin=-vmax_act, vmax=vmax_act, **imshow_kw)
+    cb = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    cb.ax.tick_params(labelsize=style.tick_font_size)
+    ax.set_ylabel('neurons', fontsize=style.label_font_size)
+    if rank_info is not None:
+        ax.set_title(
+            f"activity  rank(90%)={rank_info['rank_90_act']}  rank(99%)={rank_info['rank_99_act']}"
+            f"  |  centered rank(90%)={rank_info['rank_90_mc']}  rank(99%)={rank_info['rank_99_mc']}",
+            fontsize=style.tick_font_size, pad=4,
+        )
+    if tick_pos is not None:
+        ax.set_xticks(tick_pos)
+        ax.set_xticklabels([])  # labels on bottom panel only
+    else:
+        ax.set_xticks([])
+    ax.set_yticks([0, n_neurons - 1])
+    ax.set_yticklabels([1, n_neurons], fontsize=style.tick_font_size)
+
+    if type_labels is not None:
+        for label, y_start, y_end in type_labels:
+            y_mid = (y_start + y_end) / 2.0
+            ax.text(0.99, y_mid / n_neurons, label,
+                    transform=ax.transAxes, fontsize=ann_fs,
+                    va='center', ha='right', color='white',
+                    fontweight='bold', alpha=0.9)
+
+    # Bottom: stimulus kinograph
+    ax = axes[1]
+    vmax_stim = np.percentile(np.abs(stimulus_arr), 99)
+    if vmax_stim < 1e-12:
+        vmax_stim = 1.0
+    im = ax.imshow(stimulus_arr.T, vmin=-vmax_stim, vmax=vmax_stim, **imshow_kw)
+    cb = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    cb.ax.tick_params(labelsize=style.tick_font_size)
+    ax.set_ylabel('stimulus', fontsize=style.label_font_size)
+    ax.set_xlabel('time (frames)', fontsize=style.label_font_size)
+    if rank_info is not None:
+        ax.set_title(
+            f"stimulus  rank(90%)={rank_info['rank_90_stim']}  rank(99%)={rank_info['rank_99_stim']}",
+            fontsize=style.tick_font_size, pad=4,
+        )
+    if tick_pos is not None:
+        ax.set_xticks(tick_pos)
+        ax.set_xticklabels(tick_labels, fontsize=style.tick_font_size)
+    ax.set_yticks([0, n_neurons - 1])
+    ax.set_yticklabels([1, n_neurons], fontsize=style.tick_font_size)
+
+    if type_labels is not None:
+        # Only label types that receive non-zero stimulus
+        stim_power = np.sum(stimulus_arr ** 2, axis=0)
+        for label, y_start, y_end in type_labels:
+            band_idx = np.arange(y_start, min(y_end, len(stim_power)))
+            if len(band_idx) > 0 and np.sum(stim_power[band_idx]) > 1e-6:
+                y_mid = (y_start + y_end) / 2.0
+                ax.text(0.99, y_mid / n_neurons, label,
+                        transform=ax.transAxes, fontsize=ann_fs,
+                        va='center', ha='right', color='white',
+                        fontweight='bold', alpha=0.9)
+
+    plt.tight_layout()
+    style.savefig(fig, os.path.join(folder, "kinograph.png"))
+
+
+def plot_sequence_preview(sequences, hex_x, hex_y, title, save_path, fig_style,
+                          metadata=None, logger=None):
+    """Plot first frame of first N sequences as hex maps.
+
+    Args:
+        metadata: optional list of (name, flip_ax, n_rot) tuples per sequence.
+        logger: optional logger for info/warning messages.
+    """
+    try:
+        # Compute cumulative frame offsets from actual sequence lengths
+        cum_offsets = []
+        offset = 0
+        for seq in sequences:
+            n_fr = seq["lum"].shape[0]
+            cum_offsets.append((offset, offset + n_fr))
+            offset += n_fr
+
+        n_cols = 8
+        n_preview = min(n_cols * 8, len(sequences))
+        n_rows = (n_preview + n_cols - 1) // n_cols
+        fig_preview, axes_preview = plt.subplots(n_rows, n_cols, figsize=(n_cols * 1.8, n_rows * 1.8))
+        axes_preview = np.atleast_2d(axes_preview)
+        for i in range(n_preview):
+            row, col = divmod(i, n_cols)
+            lum = sequences[i]["lum"]
+            vals = lum[0].squeeze().cpu().numpy() if isinstance(lum, torch.Tensor) else lum[0].squeeze()
+            start, stop = cum_offsets[i]
+            ax = axes_preview[row, col]
+            ax.scatter(hex_x, hex_y, c=vals,
+                       s=fig_style.hex_stimulus_marker_size,
+                       marker=fig_style.hex_marker,
+                       cmap=fig_style.cmap,
+                       vmin=fig_style.hex_stimulus_range[0],
+                       vmax=fig_style.hex_stimulus_range[1],
+                       alpha=1.0, linewidths=0)
+            ax.set_facecolor(fig_style.background)
+            if metadata is not None and i < len(metadata):
+                name, flip, rot = metadata[i][:3]
+                short = str(name).split('_split_')[0].split('sequence_')[-1] if 'sequence_' in str(name) else str(name)
+                ax.set_title(f"{short}\nf{flip} r{rot} [{start}:{stop}]", fontsize=4)
+            else:
+                ax.set_title(f"seq {i} [{start}:{stop}]", fontsize=6)
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.set_aspect('equal')
+            for spine in ax.spines.values():
+                spine.set_visible(False)
+        for ax in axes_preview.flat:
+            if not ax.has_data():
+                ax.set_visible(False)
+        fig_preview.suptitle(title, fontsize=9)
+        fig_preview.tight_layout()
+        fig_preview.savefig(save_path, dpi=200)
+        plt.close(fig_preview)
+        if logger is not None:
+            logger.info(f"saved: {save_path}")
+    except Exception as e:
+        if logger is not None:
+            logger.warning(f"could not save sequence preview: {e}")
+        import traceback
+        traceback.print_exc()
+        plt.close("all")
+
