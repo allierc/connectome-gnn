@@ -66,7 +66,6 @@ flyvis_gnn_code_review*.pdf
 code_review_deepmind_v*.py
 
 # LLM exploration (cluster-specific scripts, not tracked)
-GNN_LLM.py
 INR_LLM.py
 src/flyvis_gnn/LLM/cluster.py
 
