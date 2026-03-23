@@ -1484,6 +1484,9 @@ def plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_li
     plt.tight_layout()
     plt.savefig(f"{log_dir}/tmp_training/matrix/raw_{epoch}_{N}.png",
                 dpi=87, bbox_inches='tight', pad_inches=0)
+    os.makedirs(f"{log_dir}/results", exist_ok=True)
+    plt.savefig(f"{log_dir}/results/weights_comparison_raw.png",
+                dpi=87, bbox_inches='tight', pad_inches=0)
     plt.close()
 
     # Compute corrected weights
@@ -1503,6 +1506,8 @@ def plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_li
     )
     plt.tight_layout()
     plt.savefig(f"{log_dir}/tmp_training/matrix/comparison_{epoch}_{N}.png",
+                dpi=87, bbox_inches='tight', pad_inches=0)
+    plt.savefig(f"{log_dir}/results/weights_comparison_corrected.png",
                 dpi=87, bbox_inches='tight', pad_inches=0)
     plt.close()
 
@@ -1556,6 +1561,7 @@ def plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_li
 
         plt.tight_layout()
         plt.savefig(f"{log_dir}/tmp_training/matrix/connectivity_{epoch}_{N}.png", dpi=87)
+        plt.savefig(f"{log_dir}/results/connectivity_matrix.png", dpi=87)
         plt.close()
 
     # Plot 4: Edge function visualization (g_phi)
@@ -1564,6 +1570,7 @@ def plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_li
                gt_curves=gt_g_phi, gt_v_range=gt_v_range, type_names=_type_names)
     plt.tight_layout()
     plt.savefig(f"{log_dir}/tmp_training/function/g_phi/func_{epoch}_{N}.png", dpi=87)
+    plt.savefig(f"{log_dir}/results/g_phi_func.png", dpi=87)
     plt.close()
 
     # Plot 5: Phi function visualization (f_theta)
@@ -1572,6 +1579,7 @@ def plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_li
                  gt_curves=gt_f_theta, gt_v_range=gt_v_range, type_names=_type_names)
     plt.tight_layout()
     plt.savefig(f"{log_dir}/tmp_training/function/f_theta/func_{epoch}_{N}.png", dpi=87)
+    plt.savefig(f"{log_dir}/results/f_theta_func.png", dpi=87)
     plt.close()
 
     return r_squared

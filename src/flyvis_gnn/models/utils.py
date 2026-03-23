@@ -1049,6 +1049,7 @@ def save_exploration_artifacts_flyvis(root_dir, exploration_dir, config, config_
     protocol_save_dir = f"{exploration_dir}/protocol"
     memory_save_dir = f"{exploration_dir}/memory"
     r2_trajectory_dir = f"{exploration_dir}/r2_trajectory"
+    rollout_dir = f"{exploration_dir}/rollout"
 
     # clear exploration folder on first iteration
     if iteration == 1:
@@ -1099,8 +1100,10 @@ def save_exploration_artifacts_flyvis(root_dir, exploration_dir, config, config_
         latest = max(vrest_files, key=os.path.getmtime)
         _copy(latest, f"{v_rest_scatter_dir}/iter_{iteration:03d}.png")
 
-    # f_theta: f_theta_{indices}.png (all neurons overlay)
-    mlp0_src = f"{results_dir}/f_theta_{config_indices}.png"
+    # f_theta: prefer function curve plot, fall back to scatter
+    mlp0_src = f"{results_dir}/f_theta_func.png"
+    if not os.path.exists(mlp0_src):
+        mlp0_src = f"{results_dir}/f_theta_{config_indices}.png"
     if os.path.exists(mlp0_src):
         _copy(mlp0_src, f"{mlp0_dir}/iter_{iteration:03d}.png")
     else:
@@ -1111,12 +1114,16 @@ def save_exploration_artifacts_flyvis(root_dir, exploration_dir, config, config_
             latest = max(mlp0_files, key=os.path.getmtime)
             _copy(latest, f"{mlp0_dir}/iter_{iteration:03d}.png")
 
-    # g_phi: g_phi_{indices}.png
-    mlp1_files = glob.glob(f"{results_dir}/g_phi_*.png")
-    mlp1_files = [f for f in mlp1_files if '_domain' not in f and '_slope' not in f]
-    if mlp1_files:
-        latest = max(mlp1_files, key=os.path.getmtime)
-        _copy(latest, f"{mlp1_dir}/iter_{iteration:03d}.png")
+    # g_phi: prefer function curve plot, fall back to scatter
+    mlp1_src = f"{results_dir}/g_phi_func.png"
+    if os.path.exists(mlp1_src):
+        _copy(mlp1_src, f"{mlp1_dir}/iter_{iteration:03d}.png")
+    else:
+        mlp1_files = glob.glob(f"{results_dir}/g_phi_*.png")
+        mlp1_files = [f for f in mlp1_files if '_domain' not in f and '_slope' not in f]
+        if mlp1_files:
+            latest = max(mlp1_files, key=os.path.getmtime)
+            _copy(latest, f"{mlp1_dir}/iter_{iteration:03d}.png")
 
     # UMAP: embedding_augmented_{indices}.png
     umap_files = glob.glob(f"{results_dir}/embedding_augmented_*.png")
@@ -1134,6 +1141,12 @@ def save_exploration_artifacts_flyvis(root_dir, exploration_dir, config, config_
     src_learned_matrix = f"{results_dir}/connectivity_matrix.png"
     if os.path.exists(src_learned_matrix):
         _copy(src_learned_matrix, f"{connectivity_matrix_dir}/iter_{iteration:03d}.png")
+
+    # rollout traces
+    rollout_files = glob.glob(f"{results_dir}/rollout_*.png")
+    if rollout_files:
+        latest = max(rollout_files, key=os.path.getmtime)
+        _copy(latest, f"{rollout_dir}/iter_{iteration:03d}.png")
 
     # --- Per-block panels (block start only) ---
 
