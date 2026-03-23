@@ -40,37 +40,15 @@ from flyvis_gnn.generators.utils import (
     generate_compressed_video_mp4,
     get_equidistant_points,
     greedy_blue_mask,
+    is_adex_model,
+    is_connconstr_model,
+    is_hodgkin_huxley_model,
     mseq_bits,
 )
 from flyvis_gnn.utils import get_datavis_root_dir, graphs_data_path, to_numpy
 
 logger = get_logger(__name__)
 
-
-def _is_spiking_model(signal_model_name: str) -> bool:
-    """Check if signal_model_name maps to a spiking ODE params class via the registry."""
-    from flyvis_gnn.generators.ode_params import FlyVisAdExODEParams, get_ode_params_class
-    try:
-        cls = get_ode_params_class(signal_model_name)
-        return cls is FlyVisAdExODEParams
-    except KeyError:
-        return False
-
-
-def _is_connconstr_model(signal_model_name: str) -> bool:
-    """Check if signal_model_name maps to a connconstr ODE params class."""
-    from flyvis_gnn.generators.ode_params import (
-        DrosophilaCxODEParams,
-        LarvaODEParams,
-        ZebrafishODEParams,
-        get_ode_params_class,
-    )
-    connconstr_classes = (ZebrafishODEParams, DrosophilaCxODEParams, LarvaODEParams)
-    try:
-        cls = get_ode_params_class(signal_model_name)
-        return cls in connconstr_classes
-    except KeyError:
-        return False
 
 
 def _plot_connconstr_diagnostics(
@@ -598,15 +576,26 @@ def data_generate(
 
     if config.data_folder_name != "none":
         generate_from_data(config=config, device=device, visualize=visualize, style=style, step=step)
-    elif _is_connconstr_model(config.graph_model.signal_model_name):
+    elif is_connconstr_model(config.graph_model.signal_model_name):
         data_generate_connconstr(
             config,
             visualize=visualize,
             device=device,
             save=save,
         )
-    elif _is_spiking_model(config.graph_model.signal_model_name):
+    elif is_adex_model(config.graph_model.signal_model_name):
         data_generate_spiking(
+            config,
+            visualize=visualize,
+            run_vizualized=run_vizualized,
+            style=style,
+            erase=erase,
+            step=step,
+            device=device,
+            save=save,
+        )
+    elif is_hodgkin_huxley_model(config.graph_model.signal_model_name):
+        data_generate_voltage(
             config,
             visualize=visualize,
             run_vizualized=run_vizualized,
@@ -1392,12 +1381,7 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
     from flyvis_gnn.generators.ode_params import FlyVisHodgkinHuxleyODEParams, FlyVisODEParams, get_ode_params_class
     from flyvis_gnn.utils import setup_flyvis_model_path
 
-    is_hh = False
-    try:
-        ode_cls = get_ode_params_class(model_config.signal_model_name)
-        is_hh = (ode_cls is FlyVisHodgkinHuxleyODEParams)
-    except KeyError:
-        pass
+    is_hh = is_hodgkin_huxley_model(model_config.signal_model_name)
 
     logging.getLogger().setLevel(logging.WARNING)
     setup_flyvis_model_path()
