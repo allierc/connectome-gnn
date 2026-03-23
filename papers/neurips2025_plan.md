@@ -330,9 +330,102 @@ Each noise instruction file:
 
 ---
 
+## Low-Rank Decomposition Analysis (U/V Asymmetry Story)
+
+### Background: NeuralGraph finding
+
+In the NeuralGraph project (case-low-rank.qmd), ground-truth W = U·V (rank-20, 100 neurons). Key finding: **W R² can be low while U R² is surprisingly good.** Example: W R²=0.364, U R²=0.946, V R²=0.427. The failure is always asymmetric — U (output modes, which neurons co-activate) recovers well because it is directly constrained by observed dynamics; V (input selection, which neurons drive which) is less observable.
+
+This matches the theoretical prediction of **Mastrogiuseppe & Ostojic (2018)** ["Linking connectivity, dynamics, and computations in low-rank recurrent neural networks", *Neuron* 99(3), 609-623]: in low-rank networks, right-connectivity vectors (our U columns) determine the **output pattern** of activity and are directly constrained by observed dynamics, while left-connectivity vectors (our V rows) implement **input selection** — an implicit filtering operation that is less directly observable from activity data alone.
+
+### Application to bio-models (no ground-truth UV)
+
+The bio connectomes are full-rank — there is no ground-truth W = UV factorization. However, **this is not a problem**: SVD on any matrix gives U·S·V^T factors, and Procrustes alignment (orthogonal rotation minimizing Frobenius distance) resolves the rotation/sign/permutation ambiguity. The truncation rank r is chosen from the singular value spectrum (99% variance explained) rather than known a priori.
+
+**Implementation** (already in `GNN_PlotFigure.py`):
+1. Full SVD on both W_true and W_learned
+2. Truncate to rank r (from 99% cumulative variance of true W)
+3. Scale: U ← U·diag(S), keep V unscaled
+4. Procrustes-align U_learned → U_true and V_learned → V_true
+5. Compute R² on aligned factors separately
+6. Sweep across multiple truncation ranks to show stability
+
+### Preliminary results
+
+**Drosophila CX** (152 neurons, rank_99=63):
+```
+Procrustes SVD (rank=63) — U R²: 0.8982   V R²: 0.5130   W_recon R²: 0.7477
+Per-rank sweep:
+  rank=  5   U_R2=0.9031   V_R2=0.7028   W_R2=0.6960
+  rank= 10   U_R2=0.8969   V_R2=0.5398   W_R2=0.6943
+  rank= 18   U_R2=0.8996   V_R2=0.4395   W_R2=0.6930
+  rank= 20   U_R2=0.9000   V_R2=0.4271   W_R2=0.6946
+  rank= 50   U_R2=0.8980   V_R2=0.4566   W_R2=0.7210
+  rank= 63   U_R2=0.8982   V_R2=0.5130   W_R2=0.7477
+```
+
+**Key observations**:
+- **Same asymmetry as NeuralGraph**: U R²≈0.90 vs V R²≈0.51, confirming Mastrogiuseppe & Ostojic (2018)
+- **U is stable across ranks**: ~0.90 from rank=5 to rank=63 — output modes are uniformly well recovered
+- **V is best at low rank**: V R²=0.70 at rank=5, degrades to 0.43 at rank=18-20. The GNN captures top ~5 input selection modes well but finer V structure is lost
+- **W_recon R² (0.75) > raw W R² (0.74)**: low-rank projection cleans up noise in learned W
+
+### Paper narrative
+
+This analysis connects our GNN results to the theoretical framework of low-rank recurrent networks:
+1. The GNN reliably recovers **output connectivity modes** (U) even when overall W R² appears modest
+2. **Input selection modes** (V) are harder — consistent with theory that input filtering is less constrained by observed dynamics
+3. The asymmetry is a property of recurrent dynamics (Mastrogiuseppe & Ostojic 2018), not of the GNN method — any inverse method should show this pattern
+4. The rank sweep provides a richer characterization than scalar W R² alone
+
+**Zebrafish oculomotor** (609 neurons, rank_99=93):
+```
+Procrustes SVD (rank=93) — U R²: 0.3072   V R²: -0.3166   W_recon R²: -0.0928
+Per-rank sweep:
+  rank=  5   U_R2=0.2956   V_R2=-0.7536   W_R2=-0.4715
+  rank= 10   U_R2=0.3439   V_R2=-0.7104   W_R2=-0.3905
+  rank= 20   U_R2=0.3405   V_R2=-0.6499   W_R2=-0.2657
+  rank= 50   U_R2=0.3189   V_R2=-0.5041   W_R2=-0.1563
+  rank= 54   U_R2=0.3165   V_R2=-0.4881   W_R2=-0.1518
+  rank= 93   U_R2=0.3072   V_R2=-0.3166   W_R2=-0.0928
+```
+
+**Key observations (zebrafish)**:
+- **U R²≈0.30-0.34**: the GNN captures some output mode structure, far less than CX (0.90)
+- **V R² negative everywhere**: learned V is worse than predicting the mean — input selection completely unrecovered
+- **W_recon R² negative**: low-rank reconstruction fails entirely
+- The **U > V hierarchy is preserved** even in total failure: U always ≥ V
+- This is the **linear integrator** (no tanh, gain=1) — dynamics are low-rank and degenerate, many different W produce identical activity. Neither factor is well-constrained.
+- **Strongest evidence for noise-may-help hypothesis**: process noise would break the linear degeneracy by enriching activity covariance, potentially making W identifiable
+
+**Comparison across bio-models (U/V asymmetry)**:
+
+| Bio model | W R² | U R² | V R² | U-V gap | Regime |
+|-----------|------|------|------|---------|--------|
+| Drosophila CX (152) | 0.74 | 0.90 | 0.51 | +0.39 | Nonlinear (tanh), ring attractor |
+| Zebrafish (609) | 0.02 | 0.31 | -0.32 | +0.63 | Linear, degenerate integrator |
+| Larva (230) | 0.55 | ? | ? | ? | Nonlinear (softplus), locomotor |
+
+The U-V gap is **larger** when recovery is harder — consistent with theory that V degrades first and fastest.
+
+**Planned**: Run same analysis on larva. Expect intermediate results (nonlinear but softplus, moderate W R²).
+
+### Proposed figure
+
+**Fig 6** (or supplementary): 3×3 grid (one column per bio-model)
+- Row 1: Singular value spectra (true vs learned)
+- Row 2: U scatter (Procrustes-aligned) with R²
+- Row 3: V scatter (Procrustes-aligned) with R²
+
+Caption: "The GNN recovers output connectivity modes (U) better than input selection modes (V), consistent with theoretical predictions for recurrent networks (Mastrogiuseppe & Ostojic 2018)."
+
+---
+
 ## Key References
 
 1. Cosyne flyvis-gnn: https://saalfeldlab.github.io/flyvis-gnn/
 2. Beiran & Litwin-Kumar (2023): "Connectivity-constrained neural networks" Nature Neuroscience 28, 2561-2574. https://doi.org/10.1038/s41593-025-02080-4
 3. flyvis package: Lappalainen et al.
 4. Hard reset finding: all major RNN neuroscience papers use trial resets inherited from seq2seq/LSTM training — biologically unrealistic
+5. Mastrogiuseppe & Ostojic (2018): "Linking connectivity, dynamics, and computations in low-rank recurrent neural networks", *Neuron* 99(3), 609-623. https://doi.org/10.1016/j.neuron.2018.07.003 — Theory: right-connectivity vectors (output modes) are directly constrained by dynamics; left-connectivity vectors (input selection) are not.
+6. NeuralGraph low-rank case study: https://saalfeldlab.github.io/NeuralGraph/case-low-rank.html — Empirical confirmation of U/V asymmetry in GNN connectivity recovery.
