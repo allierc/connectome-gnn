@@ -375,7 +375,7 @@ def add_pre_folder(config_file_):
     return config_file, pre_folder
 
 
-def create_log_dir(config=[], erase=True):
+def create_log_dir(config=[], erase=True, erase_results=False):
 
     log_dir = log_path(config.config_file)
     print('log_dir: {}'.format(log_dir))
@@ -397,11 +397,6 @@ def create_log_dir(config=[], erase=True):
         files = glob.glob(f"{log_dir}/models/*")
         for f in files:
             os.remove(f)
-        # erase entire results folder and recreate
-        results_dir = os.path.join(log_dir, 'results')
-        if os.path.exists(results_dir):
-            shutil.rmtree(results_dir)
-        os.makedirs(results_dir, exist_ok=True)
         # erase entire tmp_training folder and recreate
         tmp_training_dir = os.path.join(log_dir, 'tmp_training')
         if os.path.exists(tmp_training_dir):
@@ -414,6 +409,13 @@ def create_log_dir(config=[], erase=True):
         os.makedirs(os.path.join(log_dir, 'tmp_training/embedding'), exist_ok=True)
         if config.training.n_ghosts > 0:
             os.makedirs(os.path.join(log_dir, 'tmp_training/ghost'), exist_ok=True)
+
+    if erase_results:
+        # erase entire results folder and recreate
+        results_dir = os.path.join(log_dir, 'results')
+        if os.path.exists(results_dir):
+            shutil.rmtree(results_dir)
+        os.makedirs(results_dir, exist_ok=True)
     os.makedirs(os.path.join(log_dir, 'tmp_recons'), exist_ok=True)
 
     logging.basicConfig(filename=os.path.join(log_dir, 'training.log'),

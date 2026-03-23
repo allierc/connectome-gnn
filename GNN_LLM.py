@@ -106,5 +106,7 @@ if __name__ == "__main__":
         finalize_batch(state, batch)
 
 # python GNN_LLM.py -o generate_train_test_plot_Claude drosophila_cx iterations=128 --cluster
+# python GNN_LLM.py -o generate_train_test_plot_Claude drosophila_cx_noise005 iterations=128 --cluster
 # python GNN_LLM.py -o generate_train_test_plot_Claude larva iterations=128 --cluster
 # python GNN_LLM.py -o generate_train_test_plot_Claude zebrafish_oculomotor iterations=128 --cluster
+# python GNN_LLM.py -o generate_train_test_plot_Claude zebrafish_oculomotor_gt_edges iterations=128 --cluster

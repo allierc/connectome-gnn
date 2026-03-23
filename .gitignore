@@ -78,6 +78,9 @@ LLM/*
 !LLM/instruction_larva.md
 !LLM/instruction_zebrafish_oculomotor.md
 !LLM/instruction_zebrafish_oculomotor_gt_edges.md
+!LLM/instruction_drosophila_cx_noise005.md
+!LLM/instruction_larva_noise005.md
+!LLM/instruction_zebrafish_oculomotor_noise005.md
 
 # OS
 .DS_Store

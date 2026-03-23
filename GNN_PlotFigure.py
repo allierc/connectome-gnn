@@ -1232,6 +1232,37 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 plt.close(fig_mat)
                 logger.info("saved connectivity_matrix.png")
 
+                # Zebrafish: extra two-panel figure with full learned matrix + cropped/sorted
+                if 'zebrafish_oculomotor' in config.dataset:
+                    # J convention: J[post, pre] — transpose of W_dense[src, dst]
+                    J_true_T = J_true.T
+                    J_learned_T = J_learned.T
+                    # Remove disconnected neurons (zeroed by final_adjustments)
+                    has_conn = (np.abs(J_true_T).sum(axis=0) + np.abs(J_true_T).sum(axis=1)) > 0
+                    J_true_active = J_true_T[has_conn, :][:, has_conn]
+                    J_learned_active = J_learned_T[has_conn, :][:, has_conn]
+                    # Sort by total outgoing weight of ground truth (column sum, strongest first)
+                    col_sum = np.sum(J_true_active, axis=0)
+                    sort_idx = np.argsort(col_sum)[::-1]
+                    J_true_sorted = J_true_active[sort_idx, :][:, sort_idx]
+                    J_learned_sorted = J_learned_active[sort_idx, :][:, sort_idx]
+
+                    fig_zf, (ax_full, ax_sorted) = plt.subplots(1, 2, figsize=(14, 6))
+                    im_full = ax_full.imshow(J_learned_T, cmap='bwr_r', vmin=-vmax, vmax=vmax,
+                                             aspect='auto', interpolation='nearest', origin='upper')
+                    ax_full.set_title(f'Learned ({n_neurons} neurons)')
+                    fig_zf.colorbar(im_full, ax=ax_full, fraction=0.046, pad=0.04)
+
+                    im_sort = ax_sorted.imshow(J_learned_sorted, cmap='bwr_r', vmin=-vmax, vmax=vmax,
+                                               aspect='auto', interpolation='nearest', origin='upper')
+                    ax_sorted.set_title(f'Learned cropped & sorted ({J_learned_sorted.shape[0]} neurons)')
+                    fig_zf.colorbar(im_sort, ax=ax_sorted, fraction=0.046, pad=0.04)
+
+                    plt.tight_layout()
+                    plt.savefig(f'{log_dir}/results/connectivity_matrix_zebrafish_sorted.png', dpi=200)
+                    plt.close(fig_zf)
+                    logger.info("saved connectivity_matrix_zebrafish_sorted.png")
+
             # eigenvalue and singular value analysis using sparse matrices
             print('plot eigenvalue spectrum and eigenvector comparison ...')
 
@@ -2118,7 +2149,7 @@ def data_plot(config, config_file, epoch_list, style, extended, device, apply_we
 
     fig_style.apply_globally()
 
-    log_dir, logger = create_log_dir(config=config, erase=False)
+    log_dir, logger = create_log_dir(config=config, erase=False, erase_results=True)
 
     os.makedirs(os.path.join(log_dir, 'results'), exist_ok=True)
 
