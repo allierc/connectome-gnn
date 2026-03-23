@@ -31,9 +31,15 @@ LLM/instruction_{biomodel}_{experiment}.md
 | `instruction_flyvis_noise_free.md` | flyvis | clean, known topology | Exists |
 | `instruction_flyvis_noise_005.md` | flyvis | intrinsic noise 0.05 | Exists |
 | `instruction_flyvis_noise_05.md` | flyvis | intrinsic noise 0.5 | Exists |
-| `instruction_drosophila_cx.md` | drosophila_cx | clean, fully connected | Exists |
-| `instruction_larva.md` | larva | clean, fully connected | **To write** |
-| `instruction_zebrafish_oculomotor.md` | zebrafish_oculomotor | clean, fully connected | **To write** |
+| `instruction_drosophila_cx.md` | drosophila_cx | clean, known topology | Exists (running, 24 iters) |
+| `instruction_larva.md` | larva | clean, known topology | Exists (running, 36 iters) |
+| `instruction_zebrafish_oculomotor.md` | zebrafish_oculomotor | clean, known topology | Exists (running, 24 iters) |
+| `instruction_drosophila_cx_noise005.md` | drosophila_cx | intrinsic noise 0.05 | **To write** |
+| `instruction_drosophila_cx_noise05.md` | drosophila_cx | intrinsic noise 0.5 | **To write** |
+| `instruction_larva_noise005.md` | larva | intrinsic noise 0.05 | **To write** |
+| `instruction_larva_noise05.md` | larva | intrinsic noise 0.5 | **To write** |
+| `instruction_zebrafish_oculomotor_noise005.md` | zebrafish_oculomotor | intrinsic noise 0.05 | **To write** |
+| `instruction_zebrafish_oculomotor_noise05.md` | zebrafish_oculomotor | intrinsic noise 0.5 | **To write** |
 | `instruction_flyvis_missing_time_80.md` | flyvis | keep 20% timepoints | **To write** |
 | `instruction_flyvis_remove_edges_20.md` | flyvis | remove 20% edges | **To write** |
 | `instruction_flyvis_calcium.md` | flyvis | calcium indicator | **To write** (colleague) |
@@ -105,9 +111,9 @@ Primary metric. Higher = better.
 | Bio model | GNN (ours) | Linear ODE | RNN | Neural ODE |
 |-----------|------------|------------|-----|------------|
 | Flyvis (13.7K neurons) | **0.93** | ? | ? | ? |
-| Drosophila CX (152) | 0.57 (WIP) | ? | ? | ? |
-| Larva (~100) | TBD | ? | ? | ? |
-| Zebrafish (~500) | TBD | ? | ? | ? |
+| Drosophila CX (152) | 0.74 (partial, FC, high CV) | ? | ? | ? |
+| Larva (230) | 0.55 (partial, GT edges) | ? | ? | ? |
+| Zebrafish (609) | 0.02 (partial, FC, near zero) | ? | ? | ? |
 
 *5 seeds each. Report mean +/- std.*
 
@@ -130,7 +136,7 @@ All 4 bio models. Report mean R2_conn over 5 seeds.
 
 | Condition | Flyvis | Drosophila CX | Larva | Zebrafish |
 |-----------|--------|---------------|-------|-----------|
-| Baseline (clean) | 0.93 | ? | ? | ? |
+| Baseline (clean) | 0.93 | 0.74 (partial) | 0.55 (partial) | 0.02 (partial) |
 | Intrinsic noise (sigma=0.05) | 0.96 | ? | ? | ? |
 | Intrinsic noise (sigma=0.5) | ? | ? | ? | ? |
 | Measurement noise (sigma=0.05) | ? | ? | ? | ? |
@@ -141,7 +147,12 @@ All 4 bio models. Report mean R2_conn over 5 seeds.
 | Remove 20% edges | ? | ? | ? | ? |
 | Add 200% null edges (unknown topology) | ? | N/A | N/A | N/A |
 
-Note: flyvis trains with known topology; drosophila_cx, larva, zebrafish_oculomotor train fully connected.
+Note: flyvis trains with known topology; drosophila_cx and zebrafish_oculomotor train fully connected; larva trains with GT edges.
+
+**Partial results status** (as of Mar 23):
+- **Drosophila CX**: 24 iterations, best single-seed 0.742 (W_L1=3e-6). FC training only — GT edges untested. Extreme seed variance (CV>50%). n_epochs=2 breakthrough (0.71) but fragile.
+- **Larva**: 36 iterations, best single-seed 0.552 (W_sign=0.1, GT edges). FC caps at 0.19. GT edges essential but fragile (CV~50%); W_sign=0.05-0.1 stabilizes.
+- **Zebrafish**: 24 iterations, best 0.017. Near zero — linear degeneracy makes FC intractable. GT edges untested (most promising next step).
 
 ### Supplementary Table: Topology ablation (flyvis only)
 
@@ -173,9 +184,9 @@ Note: flyvis trains with known topology; drosophila_cx, larva, zebrafish_oculomo
 | Bio model | Status | Est. iterations | Est. GPU-hours |
 |-----------|--------|-----------------|----------------|
 | Flyvis | ~144 iters done | Done (maybe refine) | Done |
-| Drosophila CX | Running (Block 1) | 48-96 more | ~50h (A100) |
-| Larva | Not started | 48-96 | ~20h (A100) |
-| Zebrafish oculomotor | Not started | 48-96 | ~30h (A100) |
+| Drosophila CX | Running (Block 4, 24 iters, best 0.74) | 48-72 more | ~50h (A100) |
+| Larva | Running (Block 7, 36 iters, best 0.55) | 24-48 more | ~20h (A100) |
+| Zebrafish oculomotor | Running (Block 3, 24 iters, best 0.02) | 48-72 more | ~30h (A100) |
 
 ### Baselines (no agentic — manual HP sweep)
 
@@ -209,11 +220,12 @@ Use best GNN config from agentic exploration (no re-exploration needed).
 
 ### Must Run
 
-- [ ] **Larva GNN** — write instruction file, start agentic exploration
-- [ ] **Zebrafish oculomotor GNN** — write instruction file, start agentic exploration
-- [ ] **Drosophila CX GNN** — finish current exploration (Dale's law, n_types=6)
+- [x] **Larva GNN** — running (Block 7, 36 iters, best 0.55)
+- [x] **Zebrafish oculomotor GNN** — running (Block 3, 24 iters, best 0.02)
+- [ ] **Drosophila CX GNN** — continue exploration (GT edges next, Block 4)
+- [ ] **Noise ablations (3 bio models x 2 noise levels)** — write instruction files, start agentic exploration (see plan below)
 - [ ] **All baselines** on all 4 bio models (linear, rnn, neuralode)
-- [ ] **Robustness ablations** on all 4 bio models (intrinsic noise, measurement noise, missing timepoints, missing neurons, calcium, edge removal, edge addition)
+- [ ] **Robustness ablations** on all 4 bio models (measurement noise, missing timepoints, missing neurons, calcium, edge removal, edge addition)
 - [ ] **Calcium ablation** — colleague handles implementation
 
 ### Must Write
@@ -276,6 +288,45 @@ config/zebrafish_oculomotor/
 ```
 
 Existing agentic configs (`*_Claude_*.yaml`) remain untouched. Benchmark configs are frozen snapshots of best agentic results.
+
+---
+
+## Noise Instruction Files Plan
+
+Six new instruction files for intrinsic noise experiments on the three bio models.
+These start from the **best config found** in the clean exploration and explore whether noise changes the optimal hyperparameters.
+
+### General approach
+
+Each noise instruction file:
+1. **Inherits** the best config from the clean exploration as baseline
+2. **Sets** `noise_model_level` to 0.05 or 0.5 in the simulation section
+3. **Reduces block partition** — skip Blocks 1-3 (lr_W, W_L1, w_init already established) and focus on:
+   - Block 1: Baseline validation (4 seeds, robustness test with best clean config + noise)
+   - Block 2: Regularization re-tune (noise may require different W_L1, W_L2, W_sign)
+   - Block 3: Training volume re-tune (noise may require more DAL or epochs)
+   - Block 4: Architecture (hidden_dim may need increase for noisy data)
+   - Block 5: Free exploration
+4. **Same metrics** as clean: connectivity_R2 (primary), rollout_pearson, cluster_accuracy
+5. **Same parallel mode**: 4 slots, exploration vs robustness
+
+### Files to create
+
+| File | Parent config (best clean) | noise_model_level | Notes |
+|------|---------------------------|-------------------|-------|
+| `instruction_drosophila_cx_noise005.md` | W_L1=3e-6, lr_W=3e-4, w_init=zeros, n_epochs=2, DAL=300 | 0.05 | From flyvis experience: noise 0.05 actually helps (0.96 vs 0.93 clean). May improve CX too. |
+| `instruction_drosophila_cx_noise05.md` | same | 0.5 | High noise — may need stronger regularization or more training |
+| `instruction_larva_noise005.md` | W_sign=0.05, use_gt_edges=true, lr_W=1e-4, W_L1=1e-6, DAL=2800 | 0.05 | Larva has softplus activation — noise robustness depends on nonlinearity |
+| `instruction_larva_noise05.md` | same | 0.5 | May need W_sign increase to stabilize under high noise |
+| `instruction_zebrafish_oculomotor_noise005.md` | lr_W=1e-4, W_L1=1e-5, DAL=160, w_init=randn_scaled | 0.05 | Linear system — noise may actually help break degeneracy by providing richer excitation |
+| `instruction_zebrafish_oculomotor_noise05.md` | same | 0.5 | High noise on linear system — unclear if helpful or destructive |
+
+### Key considerations
+
+- **Noise may help zebrafish**: The linear integrator has degenerate W solutions because clean dynamics are low-rank. Process noise enriches the activity covariance, potentially making W more identifiable. This is the most scientifically interesting noise experiment.
+- **Noise may hurt larva**: The softplus nonlinearity already provides some identifiability. Adding noise may just increase variance without helping W recovery.
+- **CX with noise**: From flyvis experience, mild noise (0.05) improved connectivity recovery. The ring attractor dynamics may similarly benefit from richer exploration of state space.
+- **Parent config may need GT edges first**: For CX and zebrafish, the clean exploration hasn't tested GT edges yet. The noise instruction files should use the best config available at time of creation — update parent config if GT edges prove beneficial before starting noise runs.
 
 ---
 
