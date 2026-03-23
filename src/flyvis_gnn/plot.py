@@ -1525,7 +1525,7 @@ def plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_li
     if n_neurons < 1000 and ode_params is not None:
         ei = to_numpy(edges)
         gt_W = to_numpy(gt_weights)
-        learned_W = raw_W
+        learned_W = to_numpy(corrected_W.squeeze())
 
         # GT connectivity matrix
         J_gt = np.zeros((n_neurons, n_neurons), dtype=np.float32)
@@ -1551,7 +1551,7 @@ def plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_li
         fig.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04)
         axes[1].set_xlabel('presynaptic', fontsize=18)
         axes[1].set_ylabel('postsynaptic', fontsize=18)
-        axes[1].set_title('learned $W$', fontsize=20)
+        axes[1].set_title('learned $W^*$', fontsize=20)
         axes[1].tick_params(labelsize=14)
 
         plt.tight_layout()

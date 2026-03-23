@@ -60,9 +60,11 @@ User input (read and acknowledge any pending instructions): {state.user_input_pa
 Seeds are forced by pipeline (DO NOT modify simulation.seed or training.seed in configs).
 The seed values for this batch are shown in each slot above. Log them in your iteration entries.
 
-Analyze all {batch.n_slots} results. For each successful slot, write a separate iteration entry
-(## Iter N: ...) to the full log and memory file. Then edit all {state.n_parallel} config files
-to set up the next batch of {state.n_parallel} experiments.
+Analyze all {batch.n_slots} results. For each successful slot:
+1. Read the metrics from the analysis log.
+2. Look at the connectivity matrix heatmap in tmp_training/matrix/connectivity_*.png — compare GT vs learned W visually. Note in your log entry: is the learned W sparse enough? Are signs correct? Is the structure emerging?
+3. Write a separate iteration entry (## Iter N: ...) to the full log and memory file.
+Then edit all {state.n_parallel} config files to set up the next batch of {state.n_parallel} experiments.
 
 CAUSALITY RULE (MANDATORY):
 - Pick a PARENT config (best so far or baseline).
