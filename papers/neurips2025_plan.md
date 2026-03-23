@@ -35,11 +35,11 @@ LLM/instruction_{biomodel}_{experiment}.md
 | `instruction_larva.md` | larva | clean, GT edges | Exists (running, 36 iters) |
 | `instruction_zebrafish_oculomotor.md` | zebrafish_oculomotor | clean, fully connected | Exists (running, 24 iters) |
 | `instruction_zebrafish_oculomotor_gt_edges.md` | zebrafish_oculomotor | clean, GT edges | **Exists** |
-| `instruction_drosophila_cx_noise005.md` | drosophila_cx | intrinsic noise 0.05 | **To write** |
+| `instruction_drosophila_cx_noise005.md` | drosophila_cx | intrinsic noise 0.05 | **Exists** |
 | `instruction_drosophila_cx_noise05.md` | drosophila_cx | intrinsic noise 0.5 | **To write** |
-| `instruction_larva_noise005.md` | larva | intrinsic noise 0.05 | **To write** |
+| `instruction_larva_noise005.md` | larva | intrinsic noise 0.05 | **Exists** |
 | `instruction_larva_noise05.md` | larva | intrinsic noise 0.5 | **To write** |
-| `instruction_zebrafish_oculomotor_noise005.md` | zebrafish_oculomotor | intrinsic noise 0.05 | **To write** |
+| `instruction_zebrafish_oculomotor_noise005.md` | zebrafish_oculomotor | intrinsic noise 0.05 | **Exists** |
 | `instruction_zebrafish_oculomotor_noise05.md` | zebrafish_oculomotor | intrinsic noise 0.5 | **To write** |
 | `instruction_flyvis_missing_time_80.md` | flyvis | keep 20% timepoints | **To write** |
 | `instruction_flyvis_remove_edges_20.md` | flyvis | remove 20% edges | **To write** |

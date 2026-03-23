@@ -1,0 +1,262 @@
+# Drosophila CX (Noise 0.05) — LLM Exploration
+
+## Goal
+
+Maximize **connectivity_R2** for the **Drosophila central complex ring attractor** (Beiran & Litwin-Kumar 2023, Figure 5) under **intrinsic noise (sigma=0.05)**.
+
+This exploration starts from the **best clean config** and tests whether noise changes the optimal hyperparameters. From flyvis experience, noise 0.05 actually improved connectivity recovery (0.96 vs 0.93 clean) — mild noise may enrich state-space exploration and help the GNN.
+
+Data is **re-generated each iteration** with a different seed to verify seed independence.
+
+### Parent config (best clean)
+
+```
+lr_W: 3e-4
+lr: 1e-3
+lr_embedding: 1e-3
+n_epochs: 2
+data_augmentation_loop: 300
+w_init_mode: zeros
+coeff_W_L1: 3e-6
+coeff_W_L2: 1e-5
+coeff_g_phi_diff: 1500
+coeff_f_theta_weight_L2: 0.001
+use_gt_edges: true
+noise_model_level: 0.05
+```
+
+### Metrics (ranked by importance)
+
+1. **connectivity_R2** (PRIMARY) — R² between learned effective W and ground-truth effective W
+2. **rollout_pearson** (SECONDARY) — autoregressive rollout Pearson r on noise-free data
+3. **cluster_accuracy** (THIRD) — neuron type clustering accuracy from learned embeddings
+
+Informational (not for optimization): onestep_pearson, f_theta_R2, g_phi_R2, spectral_radius_learned vs spectral_radius_true.
+
+**NOTE**: V_rest_R2 is always 0.0 (no resting potential). tau_R2 is unreliable (slope ~ -0.05, noise-amplified).
+
+## Scientific Method
+
+Strict **hypothesize -> test -> validate/falsify** cycle:
+
+1. **Hypothesize**: Form a specific, testable prediction
+2. **Design experiment**: Change **EXACTLY ONE** parameter at a time to understand causality
+3. **Run training**: 4 seeds — you cannot predict the outcome
+4. **Analyze results**: Use metrics AND cross-seed variance
+5. **Update understanding**: Revise hypotheses based on evidence
+
+**CRITICAL**: You can only hypothesize. Only training results validate or falsify.
+
+### CAUSALITY RULE (MANDATORY — READ THIS)
+
+**If you change more than one parameter per slot, you CANNOT attribute the effect. This is a fatal experimental design error.**
+
+- In EXPLORATION mode: Slot 0 = parent/baseline (unchanged control). Slots 1-3 each change **exactly one** parameter from the parent.
+- Do NOT change parameters outside the current block focus.
+- Do NOT skip the baseline — always keep one slot as an unchanged control.
+- In ROBUSTNESS mode: all 4 slots use the same config (different seeds test robustness).
+
+## Data Generation
+
+Each slot re-generates data with a **different random seed**.
+Seeds are **forced by the pipeline** — DO NOT modify them in config files.
+
+- `simulation.seed = iteration * 1000 + slot`
+- `training.seed = iteration * 1000 + slot + 500`
+
+**DO NOT change `simulation:` parameters** except seed (managed automatically).
+
+**IMPORTANT**: `noise_model_level` is set to **0.05** in the base config. Do NOT change it — this file is specifically for the noise=0.05 experiment.
+
+## CX Ring Attractor Model
+
+```
+dh/dt = alpha * (-h + exp(g_i) * softplus(h_j + b_j, beta=5) @ J^T + input) / tau_i
+```
+
+- **152 neurons**, 6 cell types (EPG, EPGt, PEN_a, PEN_b, Delta7, PEG), **9,722 edges**
+- tau bounded [0.2, 5.0], alpha=0.2, beta=5 (softplus sharpness)
+- Pretrained teacher weights from hemibrain connectivity
+- 10,000 frames, delta_t=0.1, bump + velocity stimuli, **noise_model_level=0.05**
+- Softplus activation -> g_phi should learn softplus-like curves
+- No V_rest -> f_theta learns pure decay slope ~ -alpha/tau_i
+- 6 cell types -> embedding should separate 6 clusters
+- Delta7 = inhibitory (negative W), others = excitatory (positive W)
+
+## GNN Architecture
+
+- **g_phi**: Edge message MLP. Maps (v_j, a_j) -> message. `g_phi_positive=true`.
+- **f_theta**: Node update MLP. Maps (v_i, a_i, aggregated_msg, I_i) -> dv_i/dt.
+- **Embedding a_i**: learnable per-neuron type vector.
+
+**CRITICAL — coupled parameters**: When changing `embedding_dim`, you MUST also update:
+
+- `input_size = 1 + embedding_dim`
+- `input_size_update = 3 + embedding_dim`
+
+Example: embedding_dim=4 -> input_size=5, input_size_update=7.
+
+## Training Parameters
+
+| Parameter                 | Default | Description                                            |
+| ------------------------- | ------- | ------------------------------------------------------ |
+| `lr_W`                    | 3e-4    | Learning rate for connectivity W                       |
+| `lr`                      | 1e-3    | Learning rate for g_phi and f_theta MLPs               |
+| `lr_embedding`            | 1e-3    | Learning rate for neuron embeddings                    |
+| `n_epochs`                | 2       | Number of training epochs                              |
+| `batch_size`              | 2       | Batch size                                             |
+| `data_augmentation_loop`  | 300     | Data augmentation multiplier                           |
+| `w_init_mode`             | zeros   | W initialization: "zeros", "randn_scaled"              |
+| `coeff_g_phi_diff`        | 1500    | Monotonicity penalty on g_phi                          |
+| `coeff_f_theta_weight_L2` | 0.001   | L2 penalty on f_theta MLP weights                      |
+| `coeff_f_theta_diff`      | 0       | Negative monotonicity of f_theta w.r.t. state v_i      |
+| `coeff_f_theta_msg_diff`  | 0       | Positive monotonicity of f_theta w.r.t. message input  |
+| `coeff_W_L1`              | 3e-6    | L1 sparsity on W                                       |
+| `coeff_W_L2`              | 1e-5    | L2 penalty on W                                        |
+| `coeff_W_sign`            | 0       | Dale's law penalty                                     |
+| `use_gt_edges`            | true    | If false, train on fully connected graph               |
+| `dale_law`                | false   | Enforce Dale's law                                     |
+| `noise_model_level`       | 0.05    | **FIXED** — intrinsic noise level for this experiment  |
+
+## Training Time Constraint
+
+**Target ~60 min per iteration.** Use `data_augmentation_loop` (DAL) to control training time. After each batch, check `training_time_min` in the metrics and adjust DAL for the next batch:
+
+- If training_time_min < 40 min: **increase** DAL (e.g. multiply by 1.5-2x)
+- If training_time_min > 70 min: **decrease** DAL (e.g. divide by 1.5-2x)
+- DAL scales training time linearly — doubling DAL ~ doubles training time
+
+Longer training gives W more time to converge. Always use the full time budget.
+
+## Parallel Mode — 4 Slots Per Batch
+
+Each batch runs 4 slots with different seeds (forced by pipeline). You choose the strategy:
+
+- **Exploration** (default): Slot 0 = parent/control (unchanged). Slots 1-3 each change **exactly one** parameter. This gives 3 causal tests per batch.
+- **Robustness test**: ALL 4 slots use the SAME config. The pipeline forces different seeds, so this measures seed robustness. Use this when a config looks promising.
+
+State your choice (exploration vs robustness test) in the log entry.
+
+### Robustness Assessment (when running same config across 4 slots)
+
+- **Robust**: all 4 slots connectivity_R2 > 0.7
+- **Partially robust**: 2-3 slots > 0.7
+- **Fragile**: 0-1 slots > 0.7
+
+## Block Partition
+
+These blocks assume lr_W, W_L1, and w_init are already established from the clean exploration. The focus is on whether noise changes the optimal regularization, training volume, or architecture.
+
+| Block | Focus                          | Parameters to scan                                                         | Ranges                                                                                                           |
+| ----- | ------------------------------ | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| 1     | **Baseline validation**        | None (robustness test)                                                     | Run best clean config + noise=0.05 across 4 seeds. Establish baseline connectivity_R2 under noise.               |
+| 2     | **Regularization re-tune**     | `coeff_W_L1`, `coeff_W_L2`, `coeff_W_sign`                                | W_L1: {1e-6, 3e-6, 1e-5}, W_L2: {5e-6, 1e-5, 2e-5}, W_sign: {0, 0.01, 0.1}. Noise may require different sparsity. |
+| 3     | **Training volume re-tune**    | `data_augmentation_loop`, `n_epochs`                                       | DAL: {200, 300, 500}, n_epochs: {2, 4}. Noise may require more training to average out.                          |
+| 4     | **Architecture**               | `hidden_dim`, `embedding_dim`                                              | hidden_dim: {48, 64, 80}, embedding_dim: {2, 4}. Noisy data may need larger hidden_dim.                          |
+| 5     | **Monotonicity + Dale's law**  | `coeff_g_phi_diff`, `coeff_f_theta_diff`, `coeff_f_theta_msg_diff`, `dale_law` | g_phi_diff: {500, 1000, 1500, 2000}, f_theta_diff: {0, 10, 100}, dale_law: {false, true}. Noise may benefit from stronger constraints. |
+| 6     | **Free exploration I**         | Any parameter                                                              | Consolidate best from blocks 1-5, test novel combinations                                                        |
+| 7     | **Free exploration II**        | Any parameter                                                              | Continue ceiling-breaking attempts                                                                               |
+| 8     | **Free exploration III**       | Any parameter                                                              | Final refinement and robustness confirmation                                                                     |
+
+### Noise-specific considerations
+
+- **Noise may help CX**: From flyvis experience, noise 0.05 improved connectivity recovery (0.96 vs 0.93 clean). The ring attractor dynamics may similarly benefit from richer state-space exploration under noise.
+- **W_L1 may need adjustment**: Noise adds variance to gradients — L1 sparsity that was optimal for clean data may be too aggressive or too weak under noise.
+- **More training may help**: Noise reduces signal-to-noise ratio per gradient step — more DAL or epochs may be needed to average out noise effects.
+- **Stronger monotonicity constraints may help**: Noise can cause g_phi to learn spurious non-monotonic features — higher coeff_g_phi_diff may stabilize.
+
+## Iteration Workflow
+
+### Step 1: Read Working Memory + User Input
+
+### Step 2: Analyze Results (4 slots)
+
+From `analysis.log`: connectivity_R2, rollout_pearson, cluster_accuracy, training_time_min.
+
+### Step 3: Write Log Entries + Update Memory
+
+```
+## Iter N: [robust/partially robust/fragile]
+Node: id=N, parent=P
+Hypothesis tested: "[quoted hypothesis]"
+Config: lr_W=X, lr=Y, lr_emb=Z, DAL=D, n_epochs=E, W_L1=A, W_L2=B, hidden_dim=H, batch_size=B
+Slot 0: conn_R2=A, rollout_pearson=B, cluster_acc=C, dale_score=D, sim_seed=S, train_seed=T
+Slot 1: conn_R2=A, rollout_pearson=B, cluster_acc=C, dale_score=D, sim_seed=S, train_seed=T
+Slot 2: conn_R2=A, rollout_pearson=B, cluster_acc=C, dale_score=D, sim_seed=S, train_seed=T
+Slot 3: conn_R2=A, rollout_pearson=B, cluster_acc=C, dale_score=D, sim_seed=S, train_seed=T
+Seed stats: mean_conn_R2=X, std=Y, CV=Z%
+Mutation: [param]: [old] -> [new]
+W matrix: [visual comment from connectivity heatmap]
+Verdict: [supported/falsified/inconclusive]
+Next: parent=P
+```
+
+### Step 4: Acknowledge User Input
+
+### Step 5: Formulate Next Hypothesis + Edit 4 Config Files
+
+## Block Boundaries
+
+1. Update "Paper Summary"
+2. Summarize block findings
+3. Update "Established Principles"
+4. Clear "Current Block"
+5. Carry forward best config
+
+## Start Call
+
+When prompt says `PARALLEL START`:
+
+- Read base config — the parent clean config + noise_model_level=0.05 IS the baseline.
+- Block 1 is a **robustness test**: all 4 slots use the same config (different seeds).
+- Hypothesis: "The best clean config with noise=0.05 achieves connectivity_R2 >= clean baseline (0.74) robustly across seeds"
+
+---
+
+# Working Memory Structure
+
+```markdown
+# Working Memory: drosophila_cx_noise005
+
+## Paper Summary (update at every block boundary)
+
+- **GNN optimization**: [pending]
+- **LLM-driven exploration**: [pending]
+
+## Knowledge Base
+
+### Robustness Comparison Table
+
+| Iter | Config summary | conn_R2 (mean+-std) | CV% | rollout_r | cluster_acc | dale_score | Robust? | Hypothesis |
+| ---- | -------------- | ------------------- | --- | --------- | ----------- | ------- | ---------- |
+
+### Established Principles
+
+### Falsified Hypotheses
+
+### Open Questions
+
+---
+
+## Previous Block Summary
+
+---
+
+## Current Block
+
+### Block Info
+
+### Current Hypothesis
+
+**Hypothesis**: [specific, testable prediction]
+**Rationale**: [why]
+**Test**: [what config change]
+**Expected outcome**: [support vs falsify]
+**Status**: untested / supported / falsified
+
+### Iterations This Block
+
+### Emerging Observations
+
+**CRITICAL: This section must ALWAYS be at the END of memory file.**
+```
