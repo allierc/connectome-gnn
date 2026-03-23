@@ -1869,6 +1869,11 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
             if not stim_labels:
                 stim_labels = None
 
+    if act_labels:
+        logger.info(f'kinograph act_labels: {act_labels}')
+    if stim_labels:
+        logger.info(f'kinograph stim_labels: {stim_labels}')
+
     logger.info('plotting kinograph ...')
     plot_kinograph(
         activity=activity_full.T,
