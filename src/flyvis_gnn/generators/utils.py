@@ -598,3 +598,39 @@ def generate_compressed_video_mp4(output_dir, run=0, framerate=10, output_name=N
     except FileNotFoundError:
         print("ffmpeg not found. Please install ffmpeg to generate videos.")
 
+
+def is_adex_model(signal_model_name: str) -> bool:
+    """Check if signal_model_name maps to the AdEx spiking ODE params class."""
+    from flyvis_gnn.generators.ode_params import FlyVisAdExODEParams, get_ode_params_class
+    try:
+        cls = get_ode_params_class(signal_model_name)
+        return cls is FlyVisAdExODEParams
+    except KeyError:
+        return False
+
+
+def is_hodgkin_huxley_model(signal_model_name: str) -> bool:
+    """Check if signal_model_name maps to the Hodgkin-Huxley ODE params class."""
+    from flyvis_gnn.generators.ode_params import FlyVisHodgkinHuxleyODEParams, get_ode_params_class
+    try:
+        cls = get_ode_params_class(signal_model_name)
+        return cls is FlyVisHodgkinHuxleyODEParams
+    except KeyError:
+        return False
+
+
+def is_connconstr_model(signal_model_name: str) -> bool:
+    """Check if signal_model_name maps to a connconstr ODE params class."""
+    from flyvis_gnn.generators.ode_params import (
+        DrosophilaCxODEParams,
+        LarvaODEParams,
+        ZebrafishODEParams,
+        get_ode_params_class,
+    )
+    connconstr_classes = (ZebrafishODEParams, DrosophilaCxODEParams, LarvaODEParams)
+    try:
+        cls = get_ode_params_class(signal_model_name)
+        return cls in connconstr_classes
+    except KeyError:
+        return False
+
