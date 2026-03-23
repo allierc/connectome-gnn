@@ -447,35 +447,68 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     # --- Rollout trace plots ---
     neuron_types = to_numpy(type_list).astype(int).squeeze()
     n_neuron_types = sim.n_neuron_types
-    index_to_name = INDEX_TO_NAME
+    n_neurons = len(neuron_types)
+
+    # Model-specific type names
+    from flyvis_gnn.generators.ode_params import get_ode_params_class
+    try:
+        _OdeCls = get_ode_params_class(config.graph_model.signal_model_name)
+        _ode_p = _OdeCls.load(graphs_data_path(config.dataset), device='cpu')
+        if hasattr(_ode_p, 'type_names') and _ode_p.type_names:
+            index_to_name = {i: name for i, name in enumerate(_ode_p.type_names)}
+        else:
+            index_to_name = {i: f'Type{i}' for i in range(n_neuron_types)}
+    except Exception:
+        index_to_name = INDEX_TO_NAME if n_neuron_types >= 65 else {i: f'Type{i}' for i in range(n_neuron_types)}
 
     start_frame = 0
     end_frame = activity_true.shape[1]
 
-    filename_ = config.dataset.split('flyvis_')[1] if 'flyvis_' in config.dataset else 'test'
+    filename_ = config.dataset.split('flyvis_')[1] if 'flyvis_' in config.dataset else config.dataset.rstrip('_0123456789')
+
+    # Neurons per type for "all" plot: more for small models
+    if n_neuron_types <= 10:
+        neurons_per_type = max(1, min(5, n_neurons // (n_neuron_types * 2)))
+    else:
+        neurons_per_type = 1
+
+    # Build selected types: for flyvis use curated list, for small models use all types
+    if n_neuron_types > 10:
+        _selected_types = [55, 15, 43, 39, 35, 31, 23, 19, 12, 5]
+        _selected_types = [t for t in _selected_types if t < n_neuron_types]
+    else:
+        _selected_types = list(range(n_neuron_types))
 
     for fig_name, selected_types in [
-        ("selected", [55, 15, 43, 39, 35, 31, 23, 19, 12, 5]),
+        ("selected", _selected_types),
         ("all", np.arange(0, n_neuron_types)),
     ]:
         neuron_indices = []
+        neuron_labels = []
+        _n_per_type = neurons_per_type if fig_name == "all" else 1
         for stype in selected_types:
             indices = np.where(neuron_types == stype)[0]
             if len(indices) > 0:
-                neuron_indices.append(indices[0])
+                for j in range(min(_n_per_type, len(indices))):
+                    neuron_indices.append(indices[j])
+                    type_name = index_to_name.get(int(stype), f'Type{stype}')
+                    neuron_labels.append(type_name if j == 0 else '')
 
         if not neuron_indices:
             continue
 
-        fig, ax = plt.subplots(1, 1, figsize=(15, 10))
+        fig, ax = plt.subplots(1, 1, figsize=(15, max(6, len(neuron_indices) * 0.4 + 2)))
 
         true_slice = activity_true[neuron_indices, start_frame:end_frame]
         stim_slice = stimulus_arr[neuron_indices, start_frame:end_frame]
         pred_slice = activity_pred[neuron_indices, start_frame:end_frame]
-        step_v = 2.5
+
+        # Auto-adjust step_v based on activity amplitude
+        activity_std = np.std(true_slice)
+        step_v = max(0.5, 3.0 * activity_std) if activity_std > 0 else 2.5
         lw = 2
 
-        name_fontsize = 10 if len(selected_types) > 50 else 18
+        name_fontsize = 10 if len(neuron_indices) > 50 else 18
 
         # ground truth (green, thick)
         baselines = {}
@@ -495,16 +528,16 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
                     label='prediction' if i == 0 else None, c='black')
 
         for i in range(len(neuron_indices)):
-            type_idx = selected_types[i]
-            ax.text(-50, i * step_v, f'{index_to_name[type_idx]}', fontsize=name_fontsize,
-                    va='bottom', ha='right', color='black')
+            if neuron_labels[i]:
+                ax.text(-end_frame * 0.025, i * step_v, neuron_labels[i],
+                        fontsize=name_fontsize, va='bottom', ha='right', color='black')
 
         ax.set_ylim([-step_v, len(neuron_indices) * (step_v + 0.25 + 0.15 * (len(neuron_indices) // 50))])
         ax.set_yticks([])
         ax.set_xticks([0, (end_frame - start_frame) // 2, end_frame - start_frame])
         ax.set_xticklabels([start_frame, end_frame // 2, end_frame], fontsize=16)
         ax.set_xlabel('frame', fontsize=20)
-        ax.set_xlim([-50, end_frame - start_frame + 100])
+        ax.set_xlim([-end_frame * 0.03, end_frame + end_frame * 0.05])
 
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
@@ -1204,7 +1237,7 @@ def data_test_gnn_special(
     if visualize:
         logger.info('generating lossless video ...')
 
-        output_name = config.dataset.split('flyvis_')[1] if 'flyvis_' in config.dataset else 'no_id'
+        output_name = config.dataset.split('flyvis_')[1] if 'flyvis_' in config.dataset else config.dataset.rstrip('_0123456789')
         src = f"{log_dir}/tmp_recons/Fig_0_000000.png"
         dst = f"{log_dir}/results/input_{output_name}.png"
         with open(src, "rb") as fsrc, open(dst, "wb") as fdst:
@@ -1268,7 +1301,7 @@ def data_test_gnn_special(
         if len(selected_neuron_ids)==1:
             pred_slice = pred_slice[None,:]
 
-        filename_ = config.dataset.split('flyvis_')[1] if 'flyvis_' in config.dataset else 'no_id'
+        filename_ = config.dataset.split('flyvis_')[1] if 'flyvis_' in config.dataset else config.dataset.rstrip('_0123456789')
 
         # Determine which figures to create
         if len(selected_neuron_ids) > 50:
@@ -1355,7 +1388,7 @@ def data_test_gnn_special(
             # log_file.write(f"test_R2: {np.nanmean(r2_all):.4f}\n")
             log_file.write(f"test_pearson: {np.nanmean(pearson_all):.4f}\n")
 
-        filename_ = config.dataset.split('flyvis_')[1] if 'flyvis_' in config.dataset else 'no_id'
+        filename_ = config.dataset.split('flyvis_')[1] if 'flyvis_' in config.dataset else config.dataset.rstrip('_0123456789')
 
         # Create two figures with different neuron type selections
         for fig_name, selected_types in [

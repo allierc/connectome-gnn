@@ -1068,7 +1068,7 @@ def save_exploration_artifacts_flyvis(root_dir, exploration_dir, config, config_
 
     # Extract config indices for filename matching
     dataset = config.dataset if hasattr(config, 'dataset') else config_file_
-    config_indices = dataset.split('flyvis_')[1] if 'flyvis_' in dataset else 'evolution'
+    config_indices = dataset.split('flyvis_')[1] if 'flyvis_' in dataset else dataset.rstrip('_0123456789')
 
     # --- Per-iteration panels ---
 
