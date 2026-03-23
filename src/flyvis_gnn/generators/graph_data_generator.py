@@ -265,6 +265,20 @@ def _plot_connconstr_diagnostics(
         tick_pos = None
         tick_labels = None
 
+    # Build neuron-type labels from ode_params
+    type_labels = None
+    if hasattr(ode_params, 'neuron_types') and ode_params.neuron_types is not None:
+        tnames = getattr(ode_params, 'type_names', None)
+        if tnames is not None:
+            nt = to_numpy(ode_params.neuron_types)
+            type_labels = []
+            for ti, name in enumerate(tnames):
+                idx = np.where(nt == ti)[0]
+                if len(idx) > 0:
+                    type_labels.append((name, int(idx.min()), int(idx.max()) + 1))
+
+    ann_fs = max(4, style.tick_font_size - 2)
+
     # Top: activity kinograph
     ax = axes[0]
     vmax_act = np.percentile(np.abs(voltage_arr), 99)
@@ -288,6 +302,14 @@ def _plot_connconstr_diagnostics(
     ax.set_yticks([0, n_neurons - 1])
     ax.set_yticklabels([1, n_neurons], fontsize=style.tick_font_size)
 
+    if type_labels is not None:
+        for label, y_start, y_end in type_labels:
+            y_mid = (y_start + y_end) / 2.0
+            ax.text(0.99, y_mid / n_neurons, label,
+                    transform=ax.transAxes, fontsize=ann_fs,
+                    va='center', ha='right', color='white',
+                    fontweight='bold', alpha=0.9)
+
     # Bottom: stimulus kinograph
     ax = axes[1]
     vmax_stim = np.percentile(np.abs(stimulus_arr), 99)
@@ -308,6 +330,18 @@ def _plot_connconstr_diagnostics(
         ax.set_xticklabels(tick_labels, fontsize=style.tick_font_size)
     ax.set_yticks([0, n_neurons - 1])
     ax.set_yticklabels([1, n_neurons], fontsize=style.tick_font_size)
+
+    if type_labels is not None:
+        # Only label types that receive non-zero stimulus
+        stim_power = np.sum(stimulus_arr ** 2, axis=0)
+        for label, y_start, y_end in type_labels:
+            band_idx = np.arange(y_start, min(y_end, len(stim_power)))
+            if len(band_idx) > 0 and np.sum(stim_power[band_idx]) > 1e-6:
+                y_mid = (y_start + y_end) / 2.0
+                ax.text(0.99, y_mid / n_neurons, label,
+                        transform=ax.transAxes, fontsize=ann_fs,
+                        va='center', ha='right', color='white',
+                        fontweight='bold', alpha=0.9)
 
     plt.tight_layout()
     style.savefig(fig, os.path.join(folder, "kinograph.png"))
