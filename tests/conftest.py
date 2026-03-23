@@ -149,5 +149,5 @@ def minimal_config_dict():
 @pytest.fixture
 def minimal_config(minimal_config_dict):
     """A NeuralGraphConfig object with small sizes for CPU testing."""
-    from flyvis_gnn.config import NeuralGraphConfig
+    from connectome_gnn.config import NeuralGraphConfig
     return NeuralGraphConfig(**minimal_config_dict)

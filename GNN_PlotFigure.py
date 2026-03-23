@@ -44,13 +44,13 @@ def _rmse_color(val, good=0.05, bad=0.2):
     """Blue for all RMSE values."""
     return _ANSI_BLUE
 
-from flyvis_gnn.figure_style import default_style as fig_style
-from flyvis_gnn.zarr_io import load_simulation_data, load_raw_array
-from flyvis_gnn.sparsify import clustering_gmm
-from flyvis_gnn.models.flyvis_gnn import NeuralGNN  # noqa: F401 — kept for backwards compat
-from flyvis_gnn.models.registry import create_model
-from flyvis_gnn.config import NeuralGraphConfig
-from flyvis_gnn.metrics import (
+from connectome_gnn.figure_style import default_style as fig_style
+from connectome_gnn.zarr_io import load_simulation_data, load_raw_array
+from connectome_gnn.sparsify import clustering_gmm
+from connectome_gnn.models.neural_gnn import NeuralGNN  # noqa: F401 — kept for backwards compat
+from connectome_gnn.models.registry import create_model
+from connectome_gnn.config import NeuralGraphConfig
+from connectome_gnn.metrics import (
     get_model_W,
     compute_r_squared,
     compute_r_squared_filtered,
@@ -67,8 +67,8 @@ from flyvis_gnn.metrics import (
     _build_g_phi_features,
     _build_f_theta_features,
 )
-from flyvis_gnn.plot import _plot_curves_fast
-from flyvis_gnn.utils import (
+from connectome_gnn.plot import _plot_curves_fast
+from connectome_gnn.utils import (
     to_numpy,
     CustomColorMap,
     sort_key,
@@ -82,7 +82,7 @@ from flyvis_gnn.utils import (
 
 # Optional imports
 try:
-    from flyvis_gnn.models.Ising_analysis import analyze_ising_model
+    from connectome_gnn.models.Ising_analysis import analyze_ising_model
 except ImportError:
     analyze_ising_model = None
 
@@ -563,7 +563,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
     n_neurons = x_ts.n_neurons
 
     # Load ODE params for model-specific analysis
-    from flyvis_gnn.generators.ode_params import get_ode_params_class, FlyVisODEParams
+    from connectome_gnn.generators.ode_params import get_ode_params_class, FlyVisODEParams
     signal_model = model_config.signal_model_name
     try:
         OdeParamsCls = get_ode_params_class(signal_model)

@@ -17,8 +17,8 @@ if os.path.isdir('/scratch'):
     os.environ['TMPDIR'] = '/scratch/allierc'
     os.makedirs('/scratch/allierc', exist_ok=True)
 
-from flyvis_gnn.config import NeuralGraphConfig
-from flyvis_gnn.models.graph_trainer import data_train
+from connectome_gnn.config import NeuralGraphConfig
+from connectome_gnn.models.graph_trainer import data_train
 
 
 if __name__ == '__main__':

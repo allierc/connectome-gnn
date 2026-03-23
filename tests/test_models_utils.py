@@ -1,9 +1,9 @@
-"""Tests for flyvis_gnn.models.utils — batch_frames and compute_normalization_value."""
+"""Tests for connectome_gnn.models.utils — batch_frames and compute_normalization_value."""
 import pytest
 import torch
 
-from flyvis_gnn.models.utils import _batch_frames, compute_normalization_value
-from flyvis_gnn.neuron_state import NeuronState
+from connectome_gnn.models.utils import _batch_frames, compute_normalization_value
+from connectome_gnn.neuron_state import NeuronState
 
 pytestmark = pytest.mark.tier2
 

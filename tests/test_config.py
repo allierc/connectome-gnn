@@ -1,7 +1,7 @@
-"""Tests for flyvis_gnn.config — Enum values and NeuralGraphConfig construction."""
+"""Tests for connectome_gnn.config — Enum values and NeuralGraphConfig construction."""
 import pytest
 
-from flyvis_gnn.config import (
+from connectome_gnn.config import (
     Boundary,
     CalciumType,
     Integration,
@@ -61,4 +61,4 @@ class TestNeuralGraphConfig:
         assert minimal_config.simulation.delta_t == 0.02
 
     def test_description_default(self, minimal_config):
-        assert minimal_config.description == "flyvis_gnn"
+        assert minimal_config.description == "connectome_gnn"

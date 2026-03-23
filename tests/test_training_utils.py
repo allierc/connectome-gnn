@@ -1,8 +1,8 @@
-"""Tests for flyvis_gnn.models.training_utils — config-driven logic."""
+"""Tests for connectome_gnn.models.training_utils — config-driven logic."""
 import pytest
 
-from flyvis_gnn.config import NeuralGraphConfig
-from flyvis_gnn.models.training_utils import determine_load_fields
+from connectome_gnn.config import NeuralGraphConfig
+from connectome_gnn.models.training_utils import determine_load_fields
 
 pytestmark = pytest.mark.tier2
 

@@ -17,8 +17,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
-from flyvis_gnn.generators.flyvis_hodgkin_huxley_ode import FlyVisHodgkinHuxleyODE
-from flyvis_gnn.generators.ode_params import FlyVisHodgkinHuxleyODEParams
+from connectome_gnn.generators.flyvis_hodgkin_huxley_ode import FlyVisHodgkinHuxleyODE
+from connectome_gnn.generators.ode_params import FlyVisHodgkinHuxleyODEParams
 
 
 def build_network():

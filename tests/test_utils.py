@@ -1,9 +1,9 @@
-"""Tests for flyvis_gnn.utils — utility functions."""
+"""Tests for connectome_gnn.utils — utility functions."""
 import numpy as np
 import pytest
 import torch
 
-from flyvis_gnn.utils import (
+from connectome_gnn.utils import (
     choose_boundary_values,
     compute_feve,
     get_equidistant_points,

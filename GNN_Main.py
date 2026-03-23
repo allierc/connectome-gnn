@@ -1,7 +1,7 @@
 import sys
 import os
 
-# Ensure src/ is on the path so flyvis_gnn is always importable
+# Ensure src/ is on the path so connectome_gnn is always importable
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
 import matplotlib
@@ -14,14 +14,14 @@ if os.path.isdir('/scratch'):
     os.makedirs('/scratch/allierc', exist_ok=True)
 
 
-from flyvis_gnn.config import NeuralGraphConfig
-from flyvis_gnn.generators.graph_data_generator import data_generate
-from flyvis_gnn.models.graph_trainer import data_train, data_test, data_train_INR
-from flyvis_gnn.utils import set_device, add_pre_folder, log_path, config_path
+from connectome_gnn.config import NeuralGraphConfig
+from connectome_gnn.generators.graph_data_generator import data_generate
+from connectome_gnn.models.graph_trainer import data_train, data_test, data_train_INR
+from connectome_gnn.utils import set_device, add_pre_folder, log_path, config_path
 
 # Optional imports (not available in flyvis-gnn spinoff)
 try:
-    from flyvis_gnn.models.NGP_trainer import data_train_NGP
+    from connectome_gnn.models.NGP_trainer import data_train_NGP
 except ImportError:
     data_train_NGP = None
 from GNN_PlotFigure import data_plot
@@ -31,7 +31,7 @@ warnings.filterwarnings("ignore", message="pkg_resources is deprecated as an API
 
 if __name__ == "__main__":
     warnings.filterwarnings("ignore", category=FutureWarning)
-    parser = argparse.ArgumentParser(description="flyvis_gnn")
+    parser = argparse.ArgumentParser(description="connectome_gnn")
     parser.add_argument(
         "-o", "--option", nargs="+", help="option that takes multiple values"
     )

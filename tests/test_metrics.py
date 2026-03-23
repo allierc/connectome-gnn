@@ -1,9 +1,9 @@
-"""Tests for flyvis_gnn.metrics — pure math, no I/O."""
+"""Tests for connectome_gnn.metrics — pure math, no I/O."""
 import numpy as np
 import pytest
 import torch
 
-from flyvis_gnn.metrics import (
+from connectome_gnn.metrics import (
     ANATOMICAL_ORDER,
     INDEX_TO_NAME,
     _torch_linear_fit,
@@ -203,14 +203,14 @@ class TestTorchLinearFit:
 
 class TestComputeActivityStats:
     def test_shape(self):
-        from flyvis_gnn.neuron_state import NeuronTimeSeries
+        from connectome_gnn.neuron_state import NeuronTimeSeries
         ts = NeuronTimeSeries(voltage=torch.randn(20, 10))
         mu, sigma = compute_activity_stats(ts)
         assert mu.shape == (10,)
         assert sigma.shape == (10,)
 
     def test_known_values(self):
-        from flyvis_gnn.neuron_state import NeuronTimeSeries
+        from connectome_gnn.neuron_state import NeuronTimeSeries
         # constant voltage => std = 0
         v = torch.ones(50, 5) * 3.0
         ts = NeuronTimeSeries(voltage=v)

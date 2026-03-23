@@ -5,9 +5,9 @@ These tests exercise the training infrastructure without requiring real data or 
 import pytest
 import torch
 
-from flyvis_gnn.models.flyvis_gnn import NeuralGNN
-from flyvis_gnn.models.regularizer import LossRegularizer
-from flyvis_gnn.neuron_state import NeuronState
+from connectome_gnn.models.neural_gnn import NeuralGNN
+from connectome_gnn.models.regularizer import LossRegularizer
+from connectome_gnn.neuron_state import NeuronState
 
 pytestmark = pytest.mark.tier3
 
@@ -77,7 +77,7 @@ class TestLossRegularizerSmoke:
 
     def test_backward_compat_import(self):
         """Verify LossRegularizer can still be imported from models.utils."""
-        from flyvis_gnn.models.utils import LossRegularizer as LR
+        from connectome_gnn.models.utils import LossRegularizer as LR
         assert LR is LossRegularizer
 
 

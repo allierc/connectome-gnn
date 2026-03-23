@@ -1,9 +1,9 @@
-"""Tests for flyvis_gnn.models.flyvis_gnn — NeuralGNN forward pass shapes."""
+"""Tests for connectome_gnn.models.neural_gnn — NeuralGNN forward pass shapes."""
 import pytest
 import torch
 
-from flyvis_gnn.models.flyvis_gnn import NeuralGNN
-from flyvis_gnn.neuron_state import NeuronState
+from connectome_gnn.models.neural_gnn import NeuralGNN
+from connectome_gnn.neuron_state import NeuronState
 
 pytestmark = pytest.mark.tier3
 

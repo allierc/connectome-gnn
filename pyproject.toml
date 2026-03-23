@@ -1,5 +1,5 @@
 [project]
-name = "flyvis_gnn"
+name = "connectome_gnn"
 version = "0.1.0"
 dependencies = [
     "numpy",

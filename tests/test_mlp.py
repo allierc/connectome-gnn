@@ -1,8 +1,8 @@
-"""Tests for flyvis_gnn.models.MLP — shape validation."""
+"""Tests for connectome_gnn.models.MLP — shape validation."""
 import pytest
 import torch
 
-from flyvis_gnn.models.MLP import MLP
+from connectome_gnn.models.MLP import MLP
 
 pytestmark = pytest.mark.tier3
 

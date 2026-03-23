@@ -35,8 +35,8 @@ import sys
 import time
 from datetime import datetime
 
-from flyvis_gnn.config import NeuralGraphConfig
-from flyvis_gnn.utils import set_device, add_pre_folder, log_path
+from connectome_gnn.config import NeuralGraphConfig
+from connectome_gnn.utils import set_device, add_pre_folder, log_path
 
 
 # ------------------------------------------------------------------ #
@@ -195,7 +195,7 @@ def format_comparison_table(rows):
 
 def run_training_local(config, device):
     """Run training locally (same as GNN_Main.py -o train)."""
-    from flyvis_gnn.models.graph_trainer import data_train
+    from connectome_gnn.models.graph_trainer import data_train
     data_train(config=config, erase=False, best_model=None, style='color', device=device)
 
 
@@ -255,7 +255,7 @@ def run_training_cluster(config_name, root_dir, log_dir):
 
 def run_test_plot(config, config_file, device):
     """Run test + plot (same as GNN_Main.py -o test_plot)."""
-    from flyvis_gnn.models.graph_trainer import data_test
+    from connectome_gnn.models.graph_trainer import data_test
     from GNN_PlotFigure import data_plot
 
     config.simulation.noise_model_level = 0.0
