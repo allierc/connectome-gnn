@@ -181,6 +181,7 @@ Slot 2: conn_R2=A, rollout_pearson=B, cluster_acc=C, dale_score=D, sim_seed=S, t
 Slot 3: conn_R2=A, rollout_pearson=B, cluster_acc=C, dale_score=D, sim_seed=S, train_seed=T
 Seed stats: mean_conn_R2=X, std=Y, CV=Z%
 Mutation: [param]: [old] -> [new]
+W matrix: [visual comment from connectivity heatmap — sparsity, sign structure, convergence]
 Verdict: [supported/falsified/inconclusive]
 Next: parent=P
 ```

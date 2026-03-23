@@ -992,13 +992,15 @@ def run_claude_analysis(state: ExplorationState, batch: BatchInfo):
         slot = slot_idx
         status = "COMPLETED" if batch.job_results.get(slot, False) else "FAILED"
         act_path = batch.activity_paths.get(slot, "N/A")
+        slot_log_dir = os.path.join('log', state.pre_folder + state.slot_names[slot])
         slot_info_lines.append(
             f"Slot {slot} (iteration {iteration}) [{status}]:\n"
             f"  Seeds: simulation={batch.slot_seeds[slot]['simulation']}, "
             f"training={batch.slot_seeds[slot]['training']}\n"
             f"  Metrics: {state.analysis_log_paths[slot]}\n"
             f"  Activity: {act_path}\n"
-            f"  Config: {state.config_paths[slot]}"
+            f"  Config: {state.config_paths[slot]}\n"
+            f"  Training plots: {slot_log_dir}/tmp_training/"
         )
     slot_info = "\n\n".join(slot_info_lines)
 
