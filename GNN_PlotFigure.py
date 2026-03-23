@@ -495,7 +495,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
     sim = config.simulation
     model_config = config.graph_model
     tc = config.training
-    config_indices = config.dataset.split('flyvis_')[1] if 'flyvis_' in config.dataset else 'evolution'
+    config_indices = config.dataset.split('flyvis_')[1] if 'flyvis_' in config.dataset else config.dataset.rstrip('_0123456789')
 
 
     colors_65 = sns.color_palette("Set3", 12) * 6  # pastel, repeat until 65
@@ -627,38 +627,61 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
         analyze_ising_model(x_ts, sim.delta_t, log_dir, logger, to_numpy(edges))
 
     # Activity plots
-    config_indices = config.dataset.split('flyvis_')[1] if 'flyvis_' in config.dataset else 'evolution'
+    config_indices = config.dataset.split('flyvis_')[1] if 'flyvis_' in config.dataset else config.dataset.rstrip('_0123456789')
     neuron_types = to_numpy(type_list).astype(int).squeeze()
 
     # Get activity traces for all frames — voltage is (T, N), transpose to (N, T)
-    activity_true = to_numpy(x_ts.voltage).T     # (n_neurons, sim.n_frames)
-    visual_input_true = to_numpy(x_ts.stimulus).T  # (n_neurons, sim.n_frames)
+    activity_true = to_numpy(x_ts.voltage).T     # (n_neurons, n_frames_actual)
+    visual_input_true = to_numpy(x_ts.stimulus).T  # (n_neurons, n_frames_actual)
+    n_frames_actual = activity_true.shape[1]
 
     start_frame = 0
 
+    # Determine neurons per type for "all" plot based on model size
+    n_types_model = sim.n_neuron_types
+    if n_types_model <= 10:
+        neurons_per_type = max(1, min(5, n_neurons // (n_types_model * 2)))
+    else:
+        neurons_per_type = 1
+
+    # Build selected types: for flyvis use curated list, for small models use all types
+    if n_types_model > 10:
+        _selected_types = [5, 15, 43, 39, 35, 31, 23, 19, 12, 55]
+        _selected_types = [t for t in _selected_types if t < n_types_model]
+    else:
+        _selected_types = list(range(n_types_model))
+
     # Create two figures: all types and selected types
     for fig_name, selected_types in [
-        ("selected", [5, 15, 43, 39, 35, 31, 23, 19, 12, 55]),  # L1, Mi12, Tm1, T5a, T4a, T1, R1, Mi2, Mi1, Tm9
-        ("all", np.arange(0, sim.n_neuron_types))
+        ("selected", _selected_types),
+        ("all", np.arange(0, n_types_model))
     ]:
         neuron_indices = []
+        neuron_labels = []
+        _n_per_type = neurons_per_type if fig_name == "all" else 1
         for stype in selected_types:
             indices = np.where(neuron_types == stype)[0]
             if len(indices) > 0:
-                neuron_indices.append(indices[0])
+                for j in range(min(_n_per_type, len(indices))):
+                    neuron_indices.append(indices[j])
+                    type_name = index_to_name.get(int(stype), f'Type{stype}')
+                    neuron_labels.append(type_name if j == 0 else '')
 
         if len(neuron_indices) == 0:
             continue
 
-        fig, ax = plt.subplots(1, 1, figsize=(15, 10))
+        fig, ax = plt.subplots(1, 1, figsize=(15, max(6, len(neuron_indices) * 0.4 + 2)))
 
-        true_slice = activity_true[neuron_indices, start_frame:sim.n_frames]
-        visual_input_slice = visual_input_true[neuron_indices, start_frame:sim.n_frames]
-        step_v = 2.5
+        true_slice = activity_true[neuron_indices, start_frame:n_frames_actual]
+        visual_input_slice = visual_input_true[neuron_indices, start_frame:n_frames_actual]
+
+        # Auto-adjust step_v based on activity amplitude
+        activity_std = np.std(true_slice)
+        step_v = max(0.5, 3.0 * activity_std) if activity_std > 0 else 2.5
         lw = 1
 
         # Adjust fontsize based on number of neurons
-        name_fontsize = 10 if len(selected_types) > 50 else 18
+        name_fontsize = 10 if len(neuron_indices) > 50 else 18
 
         _stim_color = 'red' if _connconstr else 'yellow'
         _stim_label = 'stimuli' if _connconstr else 'visual input'
@@ -673,15 +696,17 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                         c=_stim_color, alpha=0.9, linestyle='--', label=_stim_label)
 
         for i in range(len(neuron_indices)):
-            type_idx = selected_types[i] if isinstance(selected_types, list) else selected_types[i]
-            ax.text(-50, i * step_v, f'{index_to_name[type_idx]}', fontsize=name_fontsize, va='bottom', ha='right', color=mc)
+            if neuron_labels[i]:
+                ax.text(-n_frames_actual * 0.025, i * step_v, neuron_labels[i],
+                        fontsize=name_fontsize, va='bottom', ha='right', color=mc)
 
         ax.set_ylim([-step_v, len(neuron_indices) * (step_v + 0.25 + 0.15 * (len(neuron_indices)//50))])
         ax.set_yticks([])
-        ax.set_xticks([0, 1000, 2000])
-        ax.set_xticklabels([0, 1000, 2000], fontsize=16)
+        _mid = n_frames_actual // 2
+        ax.set_xticks([0, _mid, n_frames_actual])
+        ax.set_xticklabels([0, _mid, n_frames_actual], fontsize=16)
         ax.set_xlabel('frame', fontsize=20)
-        ax.set_xlim([0, 2000])
+        ax.set_xlim([0, n_frames_actual])
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
         ax.spines['left'].set_visible(False)
@@ -696,7 +721,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
         plt.close()
 
     if epoch_list[0] != 'all':
-        config_indices = config.dataset.split('flyvis_')[1] if 'flyvis_' in config.dataset else 'evolution'
+        config_indices = config.dataset.split('flyvis_')[1] if 'flyvis_' in config.dataset else config.dataset.rstrip('_0123456789')
         files, file_id_list = get_training_files(log_dir, tc.n_runs)
 
         for epoch in epoch_list:
@@ -754,9 +779,9 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 plt.close()
 
             # Adaptive dot size and alpha for different neuron counts
-            _dot_s = max(2, min(48, 2000 / max(n_neurons, 1)))
-            _dot_alpha = max(0.1, min(0.9, 100 / max(n_neurons, 1)))
-            _curve_alpha = max(0.1, min(0.8, 50 / max(n_neurons, 1)))
+            _dot_s = max(10, min(48, 2000 / max(n_neurons, 1))) if n_neurons > 500 else max(30, min(80, 5000 / max(n_neurons, 1)))
+            _dot_alpha = max(0.3, min(0.9, 100 / max(n_neurons, 1))) if n_neurons > 500 else 1.0
+            _curve_alpha = max(0.1, min(0.8, 50 / max(n_neurons, 1))) if n_neurons > 500 else max(0.3, min(0.9, 100 / max(n_neurons, 1)))
 
             # Plot 2: Embedding using model.a
             fig = plt.figure(figsize=(10, 9))
@@ -965,12 +990,30 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 _param_arrays.append((r'$V^{\mathrm{rest}}_i$', learned_V_rest))
 
             if _param_arrays:
+                # Build GT arrays for overlay
+                _gt_arrays = []
+                if ode_params.has_tau() and gt_taus_np is not None:
+                    _gt_arrays.append(gt_taus_np)
+                else:
+                    _gt_arrays.append(None)
+                if ode_params.has_vrest() and gt_vrest_np is not None:
+                    _gt_arrays.append(gt_vrest_np)
+                else:
+                    _gt_arrays.append(None)
+                _gt_arrays = _gt_arrays[:len(_param_arrays)]
+
                 fig = plt.figure(figsize=(10, 4.5 * len(_param_arrays)))
                 for pi, (plabel, pdata) in enumerate(_param_arrays):
                     ax = plt.subplot(len(_param_arrays), 1, pi + 1)
+                    # GT as grey crosses if available
+                    if pi < len(_gt_arrays) and _gt_arrays[pi] is not None:
+                        plt.scatter(np.arange(n_neurons), _gt_arrays[pi],
+                                    c='grey', s=_dot_s * 1.5, alpha=0.4, marker='x', label='ground truth')
                     plt.scatter(np.arange(n_neurons), pdata,
-                                c=cmap.color(to_numpy(type_list).astype(int)), s=_dot_s, alpha=_dot_alpha)
+                                c=cmap.color(to_numpy(type_list).astype(int)), s=_dot_s, alpha=_dot_alpha, label='learned')
                     plt.ylabel(plabel, fontsize=48)
+                    if pi == 0:
+                        plt.legend(fontsize=14, loc='upper right')
                     if pi < len(_param_arrays) - 1:
                         plt.xticks([])
                     else:
@@ -1219,13 +1262,89 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             V_true = svd_true.components_
             V_learned = svd_learned.components_
 
-            # compute alignment matrix
+            # compute alignment matrix (right singular vectors V)
             alignment = np.abs(V_true @ V_learned.T)
-            best_alignment = np.max(alignment, axis=1)
+
+            # compute left singular vectors U and their alignment
+            n_show = min(100, n_components)
+            U_true = svd_true.transform(true_sparse)[:, :n_show]
+            U_learned = svd_learned.transform(learned_sparse)[:, :n_show]
+            U_true = U_true / (np.linalg.norm(U_true, axis=0, keepdims=True) + 1e-10)
+            U_learned = U_learned / (np.linalg.norm(U_learned, axis=0, keepdims=True) + 1e-10)
+            alignment_L = np.abs(U_true.T @ U_learned)
+
+            # --- Procrustes-aligned SVD decomposition (NeuralGraph-style) ---
+            # Pick truncation rank from 90% and 99% variance thresholds
+            cumvar = np.cumsum(sv_true**2) / np.sum(sv_true**2)
+            rank_90 = int(np.searchsorted(cumvar, 0.90)) + 1
+            rank_99 = int(np.searchsorted(cumvar, 0.99)) + 1
+            rank_r = min(rank_99, n_components)  # use 99% rank for Procrustes
+
+            # Full SVD on dense matrices for Procrustes (feasible for N < ~2000)
+            W_true_dense = true_sparse.toarray()
+            W_learned_dense = learned_sparse.toarray()
+
+            try:
+                U_t, S_t, Vt_t = np.linalg.svd(W_true_dense, full_matrices=False)
+                U_l, S_l, Vt_l = np.linalg.svd(W_learned_dense, full_matrices=False)
+
+                # Truncate to rank_r
+                U_t_r = U_t[:, :rank_r] * S_t[:rank_r]     # N x r, scaled
+                V_t_r = Vt_t[:rank_r, :]                     # r x N
+                U_l_r = U_l[:, :rank_r] * S_l[:rank_r]
+                V_l_r = Vt_l[:rank_r, :]
+
+                # Procrustes alignment: find orthogonal R that minimizes ||A - B @ R||
+                # For U: align U_learned to U_true
+                from scipy.linalg import orthogonal_procrustes
+                R_U, _ = orthogonal_procrustes(U_l_r, U_t_r)
+                U_l_aligned = U_l_r @ R_U
+
+                # For V: align V_learned to V_true (transpose: work with r x N -> N x r)
+                R_V, _ = orthogonal_procrustes(V_l_r.T, V_t_r.T)
+                V_l_aligned = (V_l_r.T @ R_V).T  # back to r x N
+
+                # Compute R² for Procrustes-aligned factors
+                def _r2(y_true, y_pred):
+                    ss_res = np.sum((y_true - y_pred)**2)
+                    ss_tot = np.sum((y_true - y_true.mean())**2)
+                    return 1.0 - ss_res / ss_tot if ss_tot > 0 else 0.0
+
+                U_r2 = _r2(U_t_r.ravel(), U_l_aligned.ravel())
+                V_r2 = _r2(V_t_r.ravel(), V_l_aligned.ravel())
+
+                # Reconstruct W from aligned low-rank factors
+                W_recon_true = U_t_r @ V_t_r      # rank-r approx of true W
+                W_recon_learned = U_l_aligned @ V_l_aligned
+                W_recon_r2 = _r2(W_recon_true.ravel(), W_recon_learned.ravel())
+
+                # Also compute subspace R² at multiple ranks
+                rank_list = sorted(set([rank_90, rank_99, min(5, n_components),
+                                        min(10, n_components), min(20, n_components),
+                                        min(50, n_components)]))
+                rank_list = [r for r in rank_list if r <= n_components]
+                U_r2_per_rank = []
+                V_r2_per_rank = []
+                W_r2_per_rank = []
+                for rr in rank_list:
+                    Ut_rr = U_t[:, :rr] * S_t[:rr]
+                    Vt_rr = Vt_t[:rr, :]
+                    Ul_rr = U_l[:, :rr] * S_l[:rr]
+                    Vl_rr = Vt_l[:rr, :]
+                    Ru, _ = orthogonal_procrustes(Ul_rr, Ut_rr)
+                    Rv, _ = orthogonal_procrustes(Vl_rr.T, Vt_rr.T)
+                    Ul_a = Ul_rr @ Ru
+                    Vl_a = (Vl_rr.T @ Rv).T
+                    U_r2_per_rank.append(_r2(Ut_rr.ravel(), Ul_a.ravel()))
+                    V_r2_per_rank.append(_r2(Vt_rr.ravel(), Vl_a.ravel()))
+                    W_r2_per_rank.append(_r2((Ut_rr @ Vt_rr).ravel(), (Ul_a @ Vl_a).ravel()))
+
+                procrustes_ok = True
+            except Exception as e:
+                logger.warning(f"Procrustes SVD analysis failed: {e}")
+                procrustes_ok = False
 
             # compute eigenvalues using sparse eigensolver for complex plane plot
-            # 200 largest-magnitude eigenvalues captures spectral structure;
-            # 500 was very slow for N>10000 (ARPACK scales poorly with k)
             n_eigs = min(200, n_neurons - 2)
             eig_true = eig_learned = None
             try:
@@ -1242,10 +1361,10 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                     logger.warning(f"eigenvalue computation failed (learned W may be all zeros): {e}")
                     eig_true = eig_learned = None
 
-            # create 2x3 figure
-            fig, axes = plt.subplots(2, 3, figsize=(30, 20))
+            # create 3x3 figure
+            fig, axes = plt.subplots(3, 3, figsize=(30, 30))
 
-            # Row 1: Eigenvalues/Singular values
+            # === Row 1: Spectral overview ===
             # (0,0) eigenvalues in complex plane
             if eig_true is not None and eig_learned is not None:
                 axes[0, 0].scatter(eig_true.real, eig_true.imag, s=100, c='green', alpha=0.7, label='true')
@@ -1265,69 +1384,122 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             axes[0, 0].tick_params(labelsize=20)
             axes[0, 0].set_title('eigenvalues in complex plane', fontsize=28)
 
-            # (0,1) singular value magnitude comparison (scatter)
+            # (0,1) singular value scatter
             n_compare = min(len(sv_true), len(sv_learned))
+            sv_r2 = _r2(sv_true[:n_compare], sv_learned[:n_compare]) if procrustes_ok else 0.0
             axes[0, 1].scatter(sv_true[:n_compare], sv_learned[:n_compare], s=100, c='black', edgecolors='black', alpha=0.7)
             max_val = max(sv_true.max(), sv_learned.max())
             axes[0, 1].plot([0, max_val], [0, max_val], 'g--', linewidth=2)
             axes[0, 1].set_xlabel('true singular value', fontsize=32)
             axes[0, 1].set_ylabel('learned singular value', fontsize=32)
             axes[0, 1].tick_params(labelsize=20)
-            axes[0, 1].set_title('singular value comparison', fontsize=28)
+            axes[0, 1].set_title(f'singular value comparison  R²={sv_r2:.3f}', fontsize=28)
 
-            # (0,2) singular value spectrum (log scale)
+            # (0,2) singular value spectrum (log scale) with rank markers
             axes[0, 2].plot(sv_true, color='green', linewidth=2, label='true')
             axes[0, 2].plot(sv_learned, color='black', linewidth=2, label='learned')
+            axes[0, 2].axvline(x=rank_90, color='orange', linestyle='--', linewidth=1.5, label=f'rank@90%={rank_90}')
+            axes[0, 2].axvline(x=rank_99, color='red', linestyle='--', linewidth=1.5, label=f'rank@99%={rank_99}')
             axes[0, 2].set_xlabel('index', fontsize=32)
             axes[0, 2].set_ylabel('singular value', fontsize=32)
             axes[0, 2].set_yscale('log')
-            axes[0, 2].legend(fontsize=20)
+            axes[0, 2].legend(fontsize=18)
             axes[0, 2].tick_params(labelsize=20)
             axes[0, 2].set_title('singular value spectrum (log scale)', fontsize=28)
 
-            # Row 2: Singular vectors
-            # (1,0) right singular vector alignment matrix
-            n_show = min(100, n_components)
-            im = axes[1, 0].imshow(alignment[:n_show, :n_show], cmap='hot', vmin=0, vmax=1)
-            axes[1, 0].set_xlabel('learned eigenvector index', fontsize=28)
-            axes[1, 0].set_ylabel('true eigenvector index', fontsize=28)
-            axes[1, 0].set_title('right eigenvector alignment', fontsize=28)
-            axes[1, 0].tick_params(labelsize=16)
-            plt.colorbar(im, ax=axes[1, 0], fraction=0.046)
+            # === Row 2: Procrustes-aligned SVD (U, V, W_recon) ===
+            if procrustes_ok:
+                # (1,0) U scatter: true vs learned (Procrustes-aligned)
+                u_flat_t = U_t_r.ravel()
+                u_flat_l = U_l_aligned.ravel()
+                axes[1, 0].scatter(u_flat_t, u_flat_l, s=1, c='black', alpha=0.15, rasterized=True)
+                umax = max(np.abs(u_flat_t).max(), np.abs(u_flat_l).max())
+                axes[1, 0].plot([-umax, umax], [-umax, umax], 'g--', linewidth=2)
+                axes[1, 0].set_xlabel('true U (output modes)', fontsize=28)
+                axes[1, 0].set_ylabel('learned U (Procrustes-aligned)', fontsize=28)
+                axes[1, 0].tick_params(labelsize=20)
+                axes[1, 0].set_title(f'U (rank={rank_r})  R²={U_r2:.3f}', fontsize=28)
+                axes[1, 0].set_aspect('equal')
 
-            # (1,1) left eigenvector alignment (placeholder - SVD doesn't give left eigenvectors directly)
-            # For consistency with plot_signal, compute left singular vectors alignment
-            U_true = svd_true.transform(true_sparse)[:, :n_show]
-            U_learned = svd_learned.transform(learned_sparse)[:, :n_show]
-            # Normalize columns
-            U_true = U_true / (np.linalg.norm(U_true, axis=0, keepdims=True) + 1e-10)
-            U_learned = U_learned / (np.linalg.norm(U_learned, axis=0, keepdims=True) + 1e-10)
-            alignment_L = np.abs(U_true.T @ U_learned)
-            best_alignment_L = np.max(alignment_L, axis=1)
-            im_L = axes[1, 1].imshow(alignment_L, cmap='hot', vmin=0, vmax=1)
-            axes[1, 1].set_xlabel('learned eigenvector index', fontsize=28)
-            axes[1, 1].set_ylabel('true eigenvector index', fontsize=28)
-            axes[1, 1].set_title('left eigenvector alignment', fontsize=28)
-            axes[1, 1].tick_params(labelsize=16)
-            plt.colorbar(im_L, ax=axes[1, 1], fraction=0.046)
+                # (1,1) V scatter: true vs learned (Procrustes-aligned)
+                v_flat_t = V_t_r.ravel()
+                v_flat_l = V_l_aligned.ravel()
+                axes[1, 1].scatter(v_flat_t, v_flat_l, s=1, c='black', alpha=0.15, rasterized=True)
+                vmax = max(np.abs(v_flat_t).max(), np.abs(v_flat_l).max())
+                axes[1, 1].plot([-vmax, vmax], [-vmax, vmax], 'g--', linewidth=2)
+                axes[1, 1].set_xlabel('true V (input selection)', fontsize=28)
+                axes[1, 1].set_ylabel('learned V (Procrustes-aligned)', fontsize=28)
+                axes[1, 1].tick_params(labelsize=20)
+                axes[1, 1].set_title(f'V (rank={rank_r})  R²={V_r2:.3f}', fontsize=28)
+                axes[1, 1].set_aspect('equal')
 
-            # (1,2) best alignment scores
-            best_alignment_R = np.max(alignment[:n_show, :n_show], axis=1)
-            axes[1, 2].scatter(range(len(best_alignment_R)), best_alignment_R, s=50, c='green', alpha=0.7, label=f'right (mean={np.mean(best_alignment_R):.2f})')
-            axes[1, 2].scatter(range(len(best_alignment_L)), best_alignment_L, s=50, c='black', alpha=0.7, label=f'left (mean={np.mean(best_alignment_L):.2f})')
-            axes[1, 2].axhline(y=1/np.sqrt(n_show), color='gray', linestyle='--', linewidth=2, label=f'random ({1/np.sqrt(n_show):.2f})')
-            axes[1, 2].set_xlabel('eigenvector index (sorted by singular value)', fontsize=28)
-            axes[1, 2].set_ylabel('best alignment score', fontsize=28)
-            axes[1, 2].set_title('best alignment per eigenvector', fontsize=28)
-            axes[1, 2].set_ylim([0, 1.05])
-            axes[1, 2].legend(fontsize=20)
-            axes[1, 2].tick_params(labelsize=16)
+                # (1,2) W_recon scatter: low-rank reconstruction
+                w_flat_t = W_recon_true.ravel()
+                w_flat_l = W_recon_learned.ravel()
+                axes[1, 2].scatter(w_flat_t, w_flat_l, s=1, c='black', alpha=0.05, rasterized=True)
+                wmax = max(np.abs(w_flat_t).max(), np.abs(w_flat_l).max())
+                axes[1, 2].plot([-wmax, wmax], [-wmax, wmax], 'g--', linewidth=2)
+                axes[1, 2].set_xlabel('true W (rank-r approx)', fontsize=28)
+                axes[1, 2].set_ylabel('learned W (rank-r approx)', fontsize=28)
+                axes[1, 2].tick_params(labelsize=20)
+                axes[1, 2].set_title(f'W_recon (rank={rank_r})  R²={W_recon_r2:.3f}', fontsize=28)
+                axes[1, 2].set_aspect('equal')
+            else:
+                for j in range(3):
+                    axes[1, j].text(0.5, 0.5, 'Procrustes failed\n(N too large or singular)',
+                                   transform=axes[1, j].transAxes, ha='center', va='center', fontsize=20, color='red')
+
+            # === Row 3: Alignment matrices + subspace R² per rank ===
+            # (2,0) right singular vector alignment matrix
+            im = axes[2, 0].imshow(alignment[:n_show, :n_show], cmap='hot', vmin=0, vmax=1)
+            axes[2, 0].set_xlabel('learned SV index', fontsize=28)
+            axes[2, 0].set_ylabel('true SV index', fontsize=28)
+            axes[2, 0].set_title('right SV alignment (V)', fontsize=28)
+            axes[2, 0].tick_params(labelsize=16)
+            plt.colorbar(im, ax=axes[2, 0], fraction=0.046)
+
+            # (2,1) left singular vector alignment matrix
+            im_L = axes[2, 1].imshow(alignment_L, cmap='hot', vmin=0, vmax=1)
+            axes[2, 1].set_xlabel('learned SV index', fontsize=28)
+            axes[2, 1].set_ylabel('true SV index', fontsize=28)
+            axes[2, 1].set_title('left SV alignment (U)', fontsize=28)
+            axes[2, 1].tick_params(labelsize=16)
+            plt.colorbar(im_L, ax=axes[2, 1], fraction=0.046)
+
+            # (2,2) subspace R² as function of truncation rank
+            if procrustes_ok:
+                axes[2, 2].plot(rank_list, U_r2_per_rank, 'o-', color='green', linewidth=2, markersize=8, label='U R²')
+                axes[2, 2].plot(rank_list, V_r2_per_rank, 's-', color='black', linewidth=2, markersize=8, label='V R²')
+                axes[2, 2].plot(rank_list, W_r2_per_rank, '^-', color='blue', linewidth=2, markersize=8, label='W_recon R²')
+                axes[2, 2].axvline(x=rank_90, color='orange', linestyle='--', linewidth=1.5, label=f'rank@90%={rank_90}')
+                axes[2, 2].axvline(x=rank_99, color='red', linestyle='--', linewidth=1.5, label=f'rank@99%={rank_99}')
+                axes[2, 2].set_xlabel('truncation rank', fontsize=28)
+                axes[2, 2].set_ylabel('R²', fontsize=28)
+                axes[2, 2].set_title('Procrustes R² vs truncation rank', fontsize=28)
+                axes[2, 2].set_ylim([-0.05, 1.05])
+                axes[2, 2].legend(fontsize=18)
+                axes[2, 2].tick_params(labelsize=20)
+            else:
+                best_alignment_R = np.max(alignment[:n_show, :n_show], axis=1)
+                best_alignment_L = np.max(alignment_L, axis=1)
+                axes[2, 2].scatter(range(len(best_alignment_R)), best_alignment_R, s=50, c='green', alpha=0.7, label=f'right (mean={np.mean(best_alignment_R):.2f})')
+                axes[2, 2].scatter(range(len(best_alignment_L)), best_alignment_L, s=50, c='black', alpha=0.7, label=f'left (mean={np.mean(best_alignment_L):.2f})')
+                axes[2, 2].axhline(y=1/np.sqrt(n_show), color='gray', linestyle='--', linewidth=2, label=f'random ({1/np.sqrt(n_show):.2f})')
+                axes[2, 2].set_xlabel('SV index (sorted by singular value)', fontsize=28)
+                axes[2, 2].set_ylabel('best alignment score', fontsize=28)
+                axes[2, 2].set_title('best alignment per SV', fontsize=28)
+                axes[2, 2].set_ylim([0, 1.05])
+                axes[2, 2].legend(fontsize=20)
+                axes[2, 2].tick_params(labelsize=16)
 
             plt.tight_layout()
             plt.savefig(f'{log_dir}/results/eigen_comparison.png', dpi=87)
             plt.close()
 
-            # print spectral analysis results (consistent with plot_signal)
+            # --- Print and log all spectral/SVD metrics ---
+            best_alignment_R = np.max(alignment[:n_show, :n_show], axis=1)
+            best_alignment_L = np.max(alignment_L, axis=1)
+
             if eig_true is not None and eig_learned is not None:
                 true_spectral_radius = np.max(np.abs(eig_true))
                 learned_spectral_radius = np.max(np.abs(eig_learned))
@@ -1336,15 +1508,42 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             else:
                 print('spectral radius - skipped (eigenvalue computation failed)')
                 logger.warning('spectral radius computation skipped')
-            print(f'eigenvector alignment - right: {np.mean(best_alignment_R):.3f}  left: {np.mean(best_alignment_L):.3f}')
-            logger.info(f'eigenvector alignment - right: {np.mean(best_alignment_R):.3f}  left: {np.mean(best_alignment_L):.3f}')
+
+            print(f'SV alignment - right (V): {np.mean(best_alignment_R):.3f}  left (U): {np.mean(best_alignment_L):.3f}')
+            logger.info(f'SV alignment - right (V): {np.mean(best_alignment_R):.3f}  left (U): {np.mean(best_alignment_L):.3f}')
+            print(f'SV R² (singular values): {sv_r2:.4f}')
+            logger.info(f'SV R² (singular values): {sv_r2:.4f}')
+            print(f'effective rank - 90%: {rank_90}  99%: {rank_99}')
+            logger.info(f'effective rank - 90%: {rank_90}  99%: {rank_99}')
+
+            if procrustes_ok:
+                print(f'Procrustes SVD (rank={rank_r}) - U R²: {U_r2:.4f}  V R²: {V_r2:.4f}  W_recon R²: {W_recon_r2:.4f}')
+                logger.info(f'Procrustes SVD (rank={rank_r}) - U R²: {U_r2:.4f}  V R²: {V_r2:.4f}  W_recon R²: {W_recon_r2:.4f}')
+                print(f'Procrustes R² per rank:')
+                logger.info(f'Procrustes R² per rank:')
+                for i_rk, rr in enumerate(rank_list):
+                    line = f'  rank={rr:3d}  U_R2={U_r2_per_rank[i_rk]:.4f}  V_R2={V_r2_per_rank[i_rk]:.4f}  W_R2={W_r2_per_rank[i_rk]:.4f}'
+                    print(line)
+                    logger.info(line)
 
             if log_file:
                 if eig_true is not None and eig_learned is not None:
                     log_file.write(f"spectral_radius_true: {true_spectral_radius:.4f}\n")
                     log_file.write(f"spectral_radius_learned: {learned_spectral_radius:.4f}\n")
-                log_file.write(f"eigenvector_alignment_R: {np.mean(best_alignment_R):.4f}\n")
-                log_file.write(f"eigenvector_alignment_L: {np.mean(best_alignment_L):.4f}\n")
+                log_file.write(f"sv_alignment_R: {np.mean(best_alignment_R):.4f}\n")
+                log_file.write(f"sv_alignment_L: {np.mean(best_alignment_L):.4f}\n")
+                log_file.write(f"sv_r2: {sv_r2:.4f}\n")
+                log_file.write(f"effective_rank_90: {rank_90}\n")
+                log_file.write(f"effective_rank_99: {rank_99}\n")
+                if procrustes_ok:
+                    log_file.write(f"procrustes_rank: {rank_r}\n")
+                    log_file.write(f"procrustes_U_r2: {U_r2:.4f}\n")
+                    log_file.write(f"procrustes_V_r2: {V_r2:.4f}\n")
+                    log_file.write(f"procrustes_W_recon_r2: {W_recon_r2:.4f}\n")
+                    for i_rk, rr in enumerate(rank_list):
+                        log_file.write(f"procrustes_rank_{rr}_U_r2: {U_r2_per_rank[i_rk]:.4f}\n")
+                        log_file.write(f"procrustes_rank_{rr}_V_r2: {V_r2_per_rank[i_rk]:.4f}\n")
+                        log_file.write(f"procrustes_rank_{rr}_W_r2: {W_r2_per_rank[i_rk]:.4f}\n")
 
             # plot analyze_neuron_type_reconstruction
             results_per_neuron = analyze_neuron_type_reconstruction(
