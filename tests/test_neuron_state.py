@@ -1,9 +1,9 @@
-"""Tests for flyvis_gnn.neuron_state — NeuronState and NeuronTimeSeries dataclasses."""
+"""Tests for connectome_gnn.neuron_state — NeuronState and NeuronTimeSeries dataclasses."""
 import numpy as np
 import pytest
 import torch
 
-from flyvis_gnn.neuron_state import NeuronState, NeuronTimeSeries
+from connectome_gnn.neuron_state import NeuronState, NeuronTimeSeries
 
 pytestmark = pytest.mark.tier1
 

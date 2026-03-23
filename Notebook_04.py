@@ -44,8 +44,8 @@ import warnings
 
 from IPython.display import Image, Markdown, display
 
-from flyvis_gnn.config import NeuralGraphConfig
-from flyvis_gnn.utils import set_device, add_pre_folder, graphs_data_path, log_path
+from connectome_gnn.config import NeuralGraphConfig
+from connectome_gnn.utils import set_device, add_pre_folder, graphs_data_path, log_path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)) if '__file__' in dir() else '.')
 from GNN_PlotFigure import data_plot

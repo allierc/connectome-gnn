@@ -1,9 +1,9 @@
-"""Tests for flyvis_gnn.generators.utils — sequence and graph utilities."""
+"""Tests for connectome_gnn.generators.utils — sequence and graph utilities."""
 import numpy as np
 import pytest
 import torch
 
-from flyvis_gnn.generators.utils import (
+from connectome_gnn.generators.utils import (
     apply_pairwise_knobs_torch,
     build_neighbor_graph,
     compute_column_labels,

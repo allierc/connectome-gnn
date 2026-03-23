@@ -53,9 +53,9 @@ import warnings
 
 from IPython.display import Image, display
 
-from flyvis_gnn.config import NeuralGraphConfig
-from flyvis_gnn.generators.graph_data_generator import data_generate
-from flyvis_gnn.utils import set_device, add_pre_folder, load_and_display, graphs_data_path
+from connectome_gnn.config import NeuralGraphConfig
+from connectome_gnn.generators.graph_data_generator import data_generate
+from connectome_gnn.utils import set_device, add_pre_folder, load_and_display, graphs_data_path
 
 warnings.filterwarnings("ignore", message="pkg_resources is deprecated as an API")
 warnings.filterwarnings("ignore", category=FutureWarning)

@@ -1,8 +1,8 @@
-"""Tests for flyvis_gnn.fitting_models — pure math functions."""
+"""Tests for connectome_gnn.fitting_models — pure math functions."""
 import numpy as np
 import pytest
 
-from flyvis_gnn.fitting_models import linear_fit, linear_model, power_model
+from connectome_gnn.fitting_models import linear_fit, linear_model, power_model
 
 pytestmark = pytest.mark.tier1
 

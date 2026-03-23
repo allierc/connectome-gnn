@@ -1,8 +1,8 @@
-"""Tests for flyvis_gnn.models.Siren_Network — SIREN shape validation."""
+"""Tests for connectome_gnn.models.Siren_Network — SIREN shape validation."""
 import pytest
 import torch
 
-from flyvis_gnn.models.Siren_Network import SineLayer, Siren
+from connectome_gnn.models.Siren_Network import SineLayer, Siren
 
 pytestmark = pytest.mark.tier3
 

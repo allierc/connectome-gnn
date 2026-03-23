@@ -1,7 +1,7 @@
-"""Tests for flyvis_gnn.models.registry — model registration and lookup."""
+"""Tests for connectome_gnn.models.registry — model registration and lookup."""
 import pytest
 
-from flyvis_gnn.models.registry import create_model, list_models
+from connectome_gnn.models.registry import create_model, list_models
 
 pytestmark = pytest.mark.tier2
 

@@ -1,11 +1,11 @@
-"""Tests for flyvis_gnn.models.flyvis_dataset — Dataset and Sampler interfaces."""
+"""Tests for connectome_gnn.models.flyvis_dataset — Dataset and Sampler interfaces."""
 import numpy as np
 import pytest
 import torch
 
-from flyvis_gnn.config import NeuralGraphConfig
-from flyvis_gnn.models.flyvis_dataset import GNNDataset, GNNFrameSampler
-from flyvis_gnn.neuron_state import NeuronState, NeuronTimeSeries
+from connectome_gnn.config import NeuralGraphConfig
+from connectome_gnn.models.flyvis_dataset import GNNDataset, GNNFrameSampler
+from connectome_gnn.neuron_state import NeuronState, NeuronTimeSeries
 
 pytestmark = pytest.mark.tier3
 

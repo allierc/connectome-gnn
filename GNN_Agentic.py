@@ -17,7 +17,7 @@ import argparse
 import os
 import warnings
 
-from flyvis_gnn.LLM import (
+from connectome_gnn.LLM import (
     setup_exploration,
     init_slot_configs,
     init_shared_files,
