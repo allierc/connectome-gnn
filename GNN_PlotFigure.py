@@ -1339,6 +1339,28 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                     V_r2_per_rank.append(_r2(Vt_rr.ravel(), Vl_a.ravel()))
                     W_r2_per_rank.append(_r2((Ut_rr @ Vt_rr).ravel(), (Ul_a @ Vl_a).ravel()))
 
+                # Extract rank-20 values for tracking across exploration iterations
+                # rank 20 chosen to match NeuralGraph ground truth, enabling cross-project comparison
+                _rank20 = min(20, n_components)
+                if _rank20 in rank_list:
+                    _idx20 = rank_list.index(_rank20)
+                    U_r2_rank20 = U_r2_per_rank[_idx20]
+                    V_r2_rank20 = V_r2_per_rank[_idx20]
+                    W_r2_rank20 = W_r2_per_rank[_idx20]
+                else:
+                    # compute directly if not in sweep list
+                    Ut_20 = U_t[:, :_rank20] * S_t[:_rank20]
+                    Vt_20 = Vt_t[:_rank20, :]
+                    Ul_20 = U_l[:, :_rank20] * S_l[:_rank20]
+                    Vl_20 = Vt_l[:_rank20, :]
+                    Ru20, _ = orthogonal_procrustes(Ul_20, Ut_20)
+                    Rv20, _ = orthogonal_procrustes(Vl_20.T, Vt_20.T)
+                    Ul_20a = Ul_20 @ Ru20
+                    Vl_20a = (Vl_20.T @ Rv20).T
+                    U_r2_rank20 = _r2(Ut_20.ravel(), Ul_20a.ravel())
+                    V_r2_rank20 = _r2(Vt_20.ravel(), Vl_20a.ravel())
+                    W_r2_rank20 = _r2((Ut_20 @ Vt_20).ravel(), (Ul_20a @ Vl_20a).ravel())
+
                 procrustes_ok = True
             except Exception as e:
                 logger.warning(f"Procrustes SVD analysis failed: {e}")
@@ -1519,6 +1541,8 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             if procrustes_ok:
                 print(f'Procrustes SVD (rank={rank_r}) - U R²: {U_r2:.4f}  V R²: {V_r2:.4f}  W_recon R²: {W_recon_r2:.4f}')
                 logger.info(f'Procrustes SVD (rank={rank_r}) - U R²: {U_r2:.4f}  V R²: {V_r2:.4f}  W_recon R²: {W_recon_r2:.4f}')
+                print(f'Procrustes rank-20: U R²: {U_r2_rank20:.4f}  V R²: {V_r2_rank20:.4f}  W R²: {W_r2_rank20:.4f}')
+                logger.info(f'Procrustes rank-20: U R²: {U_r2_rank20:.4f}  V R²: {V_r2_rank20:.4f}  W R²: {W_r2_rank20:.4f}')
                 print(f'Procrustes R² per rank:')
                 logger.info(f'Procrustes R² per rank:')
                 for i_rk, rr in enumerate(rank_list):
@@ -1544,6 +1568,10 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                         log_file.write(f"procrustes_rank_{rr}_U_r2: {U_r2_per_rank[i_rk]:.4f}\n")
                         log_file.write(f"procrustes_rank_{rr}_V_r2: {V_r2_per_rank[i_rk]:.4f}\n")
                         log_file.write(f"procrustes_rank_{rr}_W_r2: {W_r2_per_rank[i_rk]:.4f}\n")
+                    # Dedicated rank-20 keys for exploration tracking
+                    log_file.write(f"U_r2_rank20: {U_r2_rank20:.4f}\n")
+                    log_file.write(f"V_r2_rank20: {V_r2_rank20:.4f}\n")
+                    log_file.write(f"W_r2_rank20: {W_r2_rank20:.4f}\n")
 
             # plot analyze_neuron_type_reconstruction
             results_per_neuron = analyze_neuron_type_reconstruction(

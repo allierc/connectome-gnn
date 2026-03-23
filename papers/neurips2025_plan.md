@@ -31,9 +31,10 @@ LLM/instruction_{biomodel}_{experiment}.md
 | `instruction_flyvis_noise_free.md` | flyvis | clean, known topology | Exists |
 | `instruction_flyvis_noise_005.md` | flyvis | intrinsic noise 0.05 | Exists |
 | `instruction_flyvis_noise_05.md` | flyvis | intrinsic noise 0.5 | Exists |
-| `instruction_drosophila_cx.md` | drosophila_cx | clean, known topology | Exists (running, 24 iters) |
-| `instruction_larva.md` | larva | clean, known topology | Exists (running, 36 iters) |
-| `instruction_zebrafish_oculomotor.md` | zebrafish_oculomotor | clean, known topology | Exists (running, 24 iters) |
+| `instruction_drosophila_cx.md` | drosophila_cx | clean, GT edges | Exists (running, 24 iters) |
+| `instruction_larva.md` | larva | clean, GT edges | Exists (running, 36 iters) |
+| `instruction_zebrafish_oculomotor.md` | zebrafish_oculomotor | clean, fully connected | Exists (running, 24 iters) |
+| `instruction_zebrafish_oculomotor_gt_edges.md` | zebrafish_oculomotor | clean, GT edges | **Exists** |
 | `instruction_drosophila_cx_noise005.md` | drosophila_cx | intrinsic noise 0.05 | **To write** |
 | `instruction_drosophila_cx_noise05.md` | drosophila_cx | intrinsic noise 0.5 | **To write** |
 | `instruction_larva_noise005.md` | larva | intrinsic noise 0.05 | **To write** |
@@ -147,12 +148,12 @@ All 4 bio models. Report mean R2_conn over 5 seeds.
 | Remove 20% edges | ? | ? | ? | ? |
 | Add 200% null edges (unknown topology) | ? | N/A | N/A | N/A |
 
-Note: flyvis trains with known topology; drosophila_cx and zebrafish_oculomotor train fully connected; larva trains with GT edges.
+Note: flyvis trains with known topology; drosophila_cx trains with GT edges; larva trains with GT edges; zebrafish_oculomotor trains fully connected (GT edges variant in separate instruction file).
 
 **Partial results status** (as of Mar 23):
 - **Drosophila CX**: 24 iterations, best single-seed 0.742 (W_L1=3e-6). FC training only — GT edges untested. Extreme seed variance (CV>50%). n_epochs=2 breakthrough (0.71) but fragile.
 - **Larva**: 36 iterations, best single-seed 0.552 (W_sign=0.1, GT edges). FC caps at 0.19. GT edges essential but fragile (CV~50%); W_sign=0.05-0.1 stabilizes.
-- **Zebrafish**: 24 iterations, best 0.017. Near zero — linear degeneracy makes FC intractable. GT edges untested (most promising next step).
+- **Zebrafish**: 24 iterations, best 0.017. Near zero — linear degeneracy makes FC intractable. GT edges variant created (`instruction_zebrafish_oculomotor_gt_edges.md`) — most promising next step.
 
 ### Supplementary Table: Topology ablation (flyvis only)
 
