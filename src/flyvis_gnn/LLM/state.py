@@ -18,7 +18,7 @@ class ExplorationState:
     # Claude settings (from YAML)
     n_epochs: int = 1
     data_augmentation_loop: int = 25
-    n_iter_block: int = 12
+    n_iter_block: int = 16
     ucb_c: float = 0
     node_name: str = "h100"
     n_parallel: int = 4
@@ -31,7 +31,7 @@ class ExplorationState:
     # Runtime mode
     cluster_enabled: bool = False
     start_iteration: int = 1
-    n_iterations: int = 144
+    n_iterations: int = 128
 
     # Slot paths (keyed by slot index 0..N-1)
     config_paths: dict = field(default_factory=dict)

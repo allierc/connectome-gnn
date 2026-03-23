@@ -1,8 +1,10 @@
-# Zebrafish Oculomotor — LLM Exploration
+# Zebrafish Oculomotor (GT Edges) — LLM Exploration
 
 ## Goal
 
-Maximize **connectivity_R2** for the **zebrafish oculomotor integrator** (Beiran & Litwin-Kumar 2023, Figure 5g-i).
+Maximize **connectivity_R2** for the **zebrafish oculomotor integrator** (Beiran & Litwin-Kumar 2023, Figure 5g-i) using **ground-truth edge topology**.
+
+This is a variant of the fully-connected zebrafish exploration (`instruction_zebrafish_oculomotor.md`) where `use_gt_edges=true` is **hardcoded** — the GNN only trains on known edges from the connectome. This drastically reduces the search space (from N^2-N to ~10,665 edges) and may help the linear integrator recover W by removing degenerate solutions.
 
 Data is **re-generated each iteration** with a different seed to verify seed independence.
 
@@ -65,6 +67,8 @@ dr/dt = (-r + W @ r + I(t) * v_in) / tau
 
 **Key challenge**: Linear ODE means W must be precisely recovered from linear dynamics alone — no nonlinearity to disambiguate.
 
+**GT edges advantage**: With known topology (~10,665 edges vs 370,872 FC edges), the GNN only needs to learn edge weights, not edge existence. This removes the combinatorial search over topology and may break the degeneracy that makes FC training intractable for this linear model.
+
 ## GNN Architecture
 
 - **g_phi**: Edge message MLP. Maps (v_j, a_j) -> message. `g_phi_positive=false` (linear model needs negative pass-through).
@@ -96,17 +100,21 @@ Example: embedding_dim=2 -> input_size=3, input_size_update=5.
 | `coeff_W_L1`              | 0       | L1 sparsity on W                             |
 | `coeff_W_L2`              | 1e-5    | L2 penalty on W                              |
 | `coeff_W_sign`            | 0       | Dale's law penalty                           |
-| `use_gt_edges`            | false   | If true, train on ground-truth edges only    |
-| `dale_law`                | false   | Enforce Dale's law: force consistent sign per W column 3× per epoch |
+| `use_gt_edges`            | true    | **HARDCODED** — always true in this variant  |
+| `dale_law`                | false   | Enforce Dale's law: force consistent sign per W column 3x per epoch |
 | `noise_model_level`       | 0.0     | Observation noise std added to trajectories  |
+
+**DO NOT change `use_gt_edges`** — this file is specifically for the GT edges variant. For fully-connected training, use `instruction_zebrafish_oculomotor.md`.
 
 ## Training Time Constraint
 
 **Target ~60 min per iteration.** Use `data_augmentation_loop` (DAL) to control training time. After each batch, check `training_time_min` in the metrics and adjust DAL for the next batch:
 
-- If training_time_min < 40 min: **increase** DAL (e.g. multiply by 1.5-2×)
-- If training_time_min > 70 min: **decrease** DAL (e.g. divide by 1.5-2×)
-- DAL scales training time linearly — doubling DAL ≈ doubles training time
+- If training_time_min < 40 min: **increase** DAL (e.g. multiply by 1.5-2x)
+- If training_time_min > 70 min: **decrease** DAL (e.g. divide by 1.5-2x)
+- DAL scales training time linearly — doubling DAL ~ doubles training time
+
+**Note**: GT edges training is significantly faster than FC (35x fewer edges), so DAL will need to be much higher than FC to fill the 60 min budget.
 
 Longer training gives W more time to converge. Always use the full time budget.
 
@@ -146,14 +154,13 @@ These biological connectomes produce **low-rank activity** (linear integrator, d
 
 - **W_L1 calibration is critical**: L1=1E-6 unlocks near-perfect dynamics recovery; L1=1E-5 gives good W but partial rollout. Too much L1 destroys the low-rank structure.
 - **W initialization matters**: `randn` outperforms `zeros` for low-rank regimes (opposite of chaotic regime). Must be tested — Block 2.
-- **Fully connected training is the default** (`use_gt_edges=false`): the GNN trains on all-to-all edges and must learn which are zero via L1 sparsity. See `instruction_zebrafish_oculomotor_gt_edges.md` for the GT edges variant.
+- **GT edges removes topology search**: With known edges, L1 sparsity is less critical for edge selection but may still help regularize edge weights. The main benefit is removing degenerate W solutions that exist in FC training.
 
 ### Model-specific notes for Block 4
 
 - **Linear model**: f_theta_msg_diff is physically well-motivated here — f_theta should be monotonically increasing in message (it learns -v + msg + stim, which IS monotonic in msg). Values up to 100 may help.
 - g_phi_diff may be less important since g_phi learns identity — lower values (500) may suffice.
 - W_sign: zebrafish connectome has mixed excitatory/inhibitory types but some populations are zeroed — gentle W_sign ({0.01, 0.05}) only.
-- W_L1 sparsity: many zero'd populations mean true W is relatively sparse — L1 may help here.
 - **Spectral radius**: the true W has spectral_radius=0.9. If learned spectral_radius diverges far from 0.9, W recovery fails. Monitor this diagnostic.
 
 ## Iteration Workflow
@@ -201,14 +208,14 @@ When prompt says `PARALLEL START`:
 - Read base config — this IS the baseline. Do NOT change any default values.
 - Slot 0 = baseline (no changes at all).
 - Slots 1-3: each changes EXACTLY ONE parameter from the block focus. Keep everything else at baseline.
-- Hypothesis: "The baseline config achieves connectivity_R2 > 0.5 robustly across seeds"
+- Hypothesis: "The baseline config with GT edges achieves connectivity_R2 > 0.5 robustly across seeds"
 
 ---
 
 # Working Memory Structure
 
 ```markdown
-# Working Memory: zebrafish_oculomotor
+# Working Memory: zebrafish_oculomotor_gt_edges
 
 ## Paper Summary (update at every block boundary)
 

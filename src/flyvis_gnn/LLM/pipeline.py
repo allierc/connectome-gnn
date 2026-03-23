@@ -58,9 +58,9 @@ def setup_exploration(args, root_dir: str) -> ExplorationState:
         best_model = ''
         task = 'generate_train_test_plot_Claude'
         config_list = ['flyvis_62_0']
-        task_params = {'iterations': 144}
+        task_params = {'iterations': 128}
 
-    n_iterations = task_params.get('iterations', 144)
+    n_iterations = task_params.get('iterations', 128)
     base_config_name = config_list[0] if config_list else 'flyvis_62_0'
     instruction_name = task_params.get('instruction', f'instruction_{base_config_name}')
     llm_task_name = task_params.get('llm_task', f'{base_config_name}_Claude')
@@ -104,7 +104,7 @@ def setup_exploration(args, root_dir: str) -> ExplorationState:
         pre_folder=pre,
         n_epochs=claude_cfg.get('n_epochs', 1),
         data_augmentation_loop=claude_cfg.get('data_augmentation_loop', 25),
-        n_iter_block=claude_cfg.get('n_iter_block', 12),
+        n_iter_block=claude_cfg.get('n_iter_block', 16),
         ucb_c=claude_cfg.get('ucb_c', 0),
         node_name=claude_cfg.get('node_name', 'h100'),
         n_parallel=claude_cfg.get('n_parallel', 4),

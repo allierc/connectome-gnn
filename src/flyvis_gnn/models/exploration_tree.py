@@ -706,7 +706,7 @@ def generate_summary_stats(nodes: list[ExperimentNode]) -> dict:
     return stats
 
 
-def compute_ucb_scores(analysis_path, ucb_path, c=1.0, current_log_path=None, current_iteration=None, block_size=12, reward_key='connectivity_R2'):
+def compute_ucb_scores(analysis_path, ucb_path, c=1.0, current_log_path=None, current_iteration=None, block_size=16, reward_key='connectivity_R2'):
     """
     Parse analysis file, build exploration tree, compute UCB scores.
 
@@ -831,7 +831,7 @@ def compute_ucb_scores(analysis_path, ucb_path, c=1.0, current_log_path=None, cu
             extra_metrics = {}
             for extra_key in ['test_pearson', 'cluster_accuracy', 'tau_R2', 'V_rest_R2',
                               'connectivity_R2', 'final_r2', 'best_r2', 'r2_drop', 'final_loss', 'training_time_min',
-                              'stimuli_R2']:
+                              'stimuli_R2', 'U_r2_rank20', 'V_r2_rank20', 'W_r2_rank20']:
                 if extra_key == reward_key:
                     continue
                 extra_match = re.search(rf'{re.escape(extra_key)}[=:]\s*([\d.]+|nan)', log_content)
@@ -933,7 +933,7 @@ def compute_ucb_scores(analysis_path, ucb_path, c=1.0, current_log_path=None, cu
         # Include all extra metrics present in the node
         for extra_key in ['test_pearson', 'cluster_accuracy', 'training_time_min',
                           'tau_R2', 'V_rest_R2', 'connectivity_R2', 'final_r2', 'best_r2', 'r2_drop', 'final_loss',
-                          'stimuli_R2']:
+                          'stimuli_R2', 'U_r2_rank20', 'V_r2_rank20', 'W_r2_rank20']:
             if extra_key != reward_key and extra_key in node:
                 score_entry[extra_key] = node[extra_key]
         ucb_scores.append(score_entry)
@@ -965,7 +965,8 @@ def compute_ucb_scores(analysis_path, ucb_path, c=1.0, current_log_path=None, cu
                                      ('tau_R2', 'tau_R2'), ('V_rest_R2', 'V_rest_R2'),
                                      ('test_pearson', 'Pearson'), ('cluster_accuracy', 'Cluster'),
                                      ('training_time_min', 'Time'), ('final_r2', 'final_R2'),
-                                     ('best_r2', 'best_R2'), ('r2_drop', 'R2drop'), ('final_loss', 'Loss')]:
+                                     ('best_r2', 'best_R2'), ('r2_drop', 'R2drop'), ('final_loss', 'Loss'),
+                                     ('U_r2_rank20', 'U_R2@20'), ('V_r2_rank20', 'V_R2@20'), ('W_r2_rank20', 'W_R2@20')]:
                 if extra_key == reward_key:
                     continue
                 val = score.get(extra_key, -1.0)
