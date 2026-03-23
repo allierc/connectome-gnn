@@ -15,7 +15,9 @@ from connectome_gnn.log import get_logger
 from connectome_gnn.neuron_state import NeuronState
 from connectome_gnn.plot import (
     plot_activity_traces,
+    plot_connconstr_diagnostics,
     plot_hh_debug,
+    plot_sequence_preview,
     plot_kinograph,
     plot_selected_neuron_traces,
     plot_spatial_activity_grid,
@@ -51,278 +53,75 @@ logger = get_logger(__name__)
 
 
 
-def _plot_connconstr_diagnostics(
-    voltage_history, stimulus_history, ode_params, edge_index,
-    model_name, n_neurons, dt, config, device, frame_indices=None,
-    rank_info=None,
+def data_generate(
+    config,
+    visualize=True,
+    run_vizualized=0,
+    style="color",
+    erase=False,
+    step=5,
+    alpha=0.2,
+    ratio=1,
+    scenario="none",
+    best_model=None,
+    device=None,
+    save=True,
+    log_file=None,
 ):
-    """Generate traces, connectivity, and g_phi plots for connconstr models.
 
-    Uses the same FigureStyle as the flyvis-gnn pipeline:
-    - flat design (no spines), 14pt labels, 12pt ticks, 200dpi
-    - activity_traces: all neurons stacked, auto-scaled amplitude
-    - connectivity: weight matrix heatmap with optimal contrast (percentile clamp)
-    - g_phi: teacher activation function
-    """
-    from connectome_gnn.figure_style import default_style as style
+    logger.info(f"dataset: {config.dataset}")
 
-    style.apply_globally()
-    folder = graphs_data_path(config.dataset)
-    os.makedirs(folder, exist_ok=True)
+    if (os.path.isdir(graphs_data_path(config.dataset, "x_list_train"))
+        or os.path.isfile(graphs_data_path(config.dataset, "x_list_0.npy"))
+        or os.path.isfile(graphs_data_path(config.dataset, "x_list_0.pt"))
+    ):
+        logger.warning("watch out: data already generated")
+        # return
 
-    voltage_arr = np.array(voltage_history)   # (T_sampled, N)
-    stimulus_arr = np.array(stimulus_history)  # (T_sampled, N)
-
-    # --- 1. Activity traces (all neurons, auto-scaled) ---
-    # Follows plot_activity_traces pattern: stacked traces, black on white
-    activity = voltage_arr.T  # (N, T_sampled)
-    n_frames = activity.shape[1]
-
-    # Auto-scale: subtract per-neuron mean, normalize by global amplitude
-    mu = activity.mean(axis=1, keepdims=True)
-    activity_centered = activity - mu
-    amp = np.percentile(np.abs(activity_centered), 99)
-    if amp < 1e-12:
-        amp = 1.0
-    activity_scaled = activity_centered / amp
-
-    step_v = 2.0
-    offset = activity_scaled + step_v * np.arange(n_neurons)[:, None]
-
-    fig, ax = style.figure(aspect=2.5)
-    ax.plot(offset.T, linewidth=0.3, alpha=0.6, color=style.foreground)
-
-    # Red stimulus trace at bottom — scale proportional to neuron count
-    stim_mean = stimulus_arr.mean(axis=1)  # mean across neurons per timestep
-    if np.abs(stim_mean).max() > 1e-12:
-        stim_scaled = stim_mean / np.abs(stim_mean).max()
-        stim_height = max(step_v * 8, n_neurons * step_v * 0.08)
-        stim_y = offset[0].min() - stim_height * 0.6 + stim_scaled * stim_height * 0.4
-        ax.plot(stim_y, linewidth=1.5, alpha=0.9, color='red')
-
-    style.xlabel(ax, 'time (frames)')
-    style.ylabel(ax, f'{n_neurons} neurons')
-    ax.set_yticks([])
-    if frame_indices is not None:
-        # Map subsampled index to true frame numbers on x-axis
-        n_samples = len(frame_indices)
-        n_ticks = 5
-        tick_step = max(1, n_samples // n_ticks)
-        tick_pos = list(range(0, n_samples, tick_step))
-        tick_labels = [str(frame_indices[i]) for i in tick_pos]
-        ax.set_xticks(tick_pos)
-        ax.set_xticklabels(tick_labels, fontsize=style.tick_font_size)
-    ax.set_xlim([0, n_frames])
-    y_bottom = offset[0].min() - step_v * 4
-    ax.set_ylim([y_bottom, offset[-1].max() + 2])
-
-    style.savefig(fig, os.path.join(folder, "activity_traces.png"))
-
-    # --- 2. Connectivity heatmap (flyvis-gnn style, optimal contrast) ---
-    # W_dense[pre, post] from edge_index convention; transpose to J[post, pre]
-    # to match neuroscience convention: rows=postsynaptic, cols=presynaptic
-    ei = to_numpy(edge_index)
-    W = to_numpy(ode_params.W)
-    W_dense = np.zeros((n_neurons, n_neurons), dtype=np.float32)
-    W_dense[ei[0], ei[1]] = W
-    J = W_dense.T  # J[post, pre] — paper convention
-
-    # Zebrafish: remove disconnected neurons, sort by total outgoing weight
-    # Ref: nn_fig5_plots_ghi.py lines 156-161
-    # CX/larva: keep natural cell-type ordering (EPG/PEN/Δ7/PEG or PMN/MN)
-    if model_name in ("zebrafish", "zebrafish_oculomotor"):
-        # Remove neurons with no connections (zeroed by final_adjustments)
-        has_conn = (np.abs(J).sum(axis=0) + np.abs(J).sum(axis=1)) > 0
-        J_active = J[has_conn, :][:, has_conn]
-        # Sort by total outgoing weight (column sum, strongest first)
-        col_sum = np.sum(J_active, axis=0)
-        sort_idx = np.argsort(col_sum)[::-1]
-        W_plot = J_active[sort_idx, :][:, sort_idx]
-    else:
-        W_plot = J
-
-    # Optimal contrast: use percentile-based clamp instead of global min/max
-    nonzero_W = W[np.abs(W) > 0]
-    if len(nonzero_W) > 0:
-        vmax = np.percentile(np.abs(nonzero_W), 98)
-    else:
-        vmax = 1.0
-    vmax = max(vmax, 1e-6)
-
-    fig, ax = style.figure(aspect=1.0)
-    im = ax.imshow(
-        W_plot, cmap='bwr_r', vmin=-vmax, vmax=vmax,
-        aspect='auto', interpolation='nearest', origin='upper',
-    )
-    cb = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-    cb.ax.tick_params(labelsize=style.tick_font_size)
-    style.xlabel(ax, 'presynaptic neuron')
-    style.ylabel(ax, 'postsynaptic neuron')
-
-    style.savefig(fig, os.path.join(folder, "connectivity.png"))
-
-    # --- 3. g_phi plot (per-neuron-type teacher activation function) ---
-    v_range = np.linspace(-2, 5, 500)
-    g_phi_vals = ode_params.gt_g_phi_func(v_range)  # (N, n_pts) or (n_pts,)
-
-    neuron_types_np = ode_params.neuron_types.cpu().numpy() if ode_params.neuron_types is not None else np.zeros(n_neurons, dtype=int)
-    unique_types = np.unique(neuron_types_np)
-
-    # Type name labels
-    type_names = getattr(ode_params, 'type_names', None)
-    if type_names is None:
-        type_names = [f"type {t}" for t in unique_types]
-
-    cmap = plt.cm.get_cmap('tab10', max(len(unique_types), 1))
-
-    fig, ax = style.figure(aspect=1.2)
-    if g_phi_vals.ndim == 1:
-        # Neuron-independent (e.g. zebrafish identity)
-        ax.plot(v_range, g_phi_vals, linewidth=style.line_width, color=style.foreground,
-                label=ode_params.g_phi_label())
-    else:
-        # Per-neuron curves — plot mean per type with shaded std
-        for idx, t in enumerate(unique_types):
-            mask = neuron_types_np == t
-            curves = g_phi_vals[mask]  # (n_type, n_pts)
-            mean = curves.mean(axis=0)
-            std = curves.std(axis=0)
-            color = cmap(idx)
-            label = type_names[idx] if idx < len(type_names) else f"type {t}"
-            ax.plot(v_range, mean, linewidth=style.line_width, color=color, label=label)
-            if std.max() > 1e-6:
-                ax.fill_between(v_range, mean - std, mean + std, color=color, alpha=0.15)
-
-    ax.axhline(0, color='#aaa', linewidth=0.5, linestyle='--')
-    ax.axvline(0, color='#aaa', linewidth=0.5, linestyle='--')
-    style.xlabel(ax, '$v$ (presynaptic)')
-    style.ylabel(ax, r'$g_\phi(v)$')
-    ax.legend(fontsize=style.tick_font_size - 1, frameon=False, loc='upper left')
-
-    style.savefig(fig, os.path.join(folder, "g_phi.png"))
-
-    # --- 3b. f_theta plot (per-neuron-type update function) ---
-    f_theta_vals = ode_params.gt_f_theta_func(v_range, n_neurons)  # (N, n_pts) or None
-    if f_theta_vals is not None:
-        fig, ax = style.figure(aspect=1.2)
-        for idx, t in enumerate(unique_types):
-            mask = neuron_types_np == t
-            curves = f_theta_vals[mask]
-            mean = curves.mean(axis=0)
-            std = curves.std(axis=0)
-            color = cmap(idx)
-            label = type_names[idx] if idx < len(type_names) else f"type {t}"
-            ax.plot(v_range, mean, linewidth=style.line_width, color=color, label=label)
-            if std.max() > 1e-6:
-                ax.fill_between(v_range, mean - std, mean + std, color=color, alpha=0.15)
-
-        ax.axhline(0, color='#aaa', linewidth=0.5, linestyle='--')
-        ax.axvline(0, color='#aaa', linewidth=0.5, linestyle='--')
-        style.xlabel(ax, '$v_i$ (postsynaptic)')
-        style.ylabel(ax, r'$f_\theta(v_i)$')
-        ax.legend(fontsize=style.tick_font_size - 1, frameon=False, loc='upper right')
-
-        style.savefig(fig, os.path.join(folder, "f_theta.png"))
-
-    # --- 4. Kinograph (neurons x time heatmap, viridis LUT) ---
-    fig, axes = plt.subplots(
-        2, 1,
-        figsize=(style.figure_height * 3.0, style.figure_height * 2.0),
-        gridspec_kw={'height_ratios': [3, 1]},
-    )
-    imshow_kw = dict(aspect='auto', cmap='viridis', origin='lower', interpolation='nearest')
-
-    # Compute true-frame x-axis ticks for kinograph
-    n_samples = voltage_arr.shape[0]
-    if frame_indices is not None and len(frame_indices) == n_samples:
-        n_ticks = 6
-        tick_step = max(1, n_samples // n_ticks)
-        tick_pos = list(range(0, n_samples, tick_step))
-        tick_labels = [str(frame_indices[i]) for i in tick_pos]
-    else:
-        tick_pos = None
-        tick_labels = None
-
-    # Build neuron-type labels from ode_params
-    type_labels = None
-    if hasattr(ode_params, 'neuron_types') and ode_params.neuron_types is not None:
-        tnames = getattr(ode_params, 'type_names', None)
-        if tnames is not None:
-            nt = to_numpy(ode_params.neuron_types)
-            type_labels = []
-            for ti, name in enumerate(tnames):
-                idx = np.where(nt == ti)[0]
-                if len(idx) > 0:
-                    type_labels.append((name, int(idx.min()), int(idx.max()) + 1))
-
-    ann_fs = max(4, style.tick_font_size - 2)
-
-    # Top: activity kinograph
-    ax = axes[0]
-    vmax_act = np.percentile(np.abs(voltage_arr), 99)
-    if vmax_act < 1e-12:
-        vmax_act = 1.0
-    im = ax.imshow(voltage_arr.T, vmin=-vmax_act, vmax=vmax_act, **imshow_kw)
-    cb = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-    cb.ax.tick_params(labelsize=style.tick_font_size)
-    ax.set_ylabel('neurons', fontsize=style.label_font_size)
-    if rank_info is not None:
-        ax.set_title(
-            f"activity  rank(90%)={rank_info['rank_90_act']}  rank(99%)={rank_info['rank_99_act']}"
-            f"  |  centered rank(90%)={rank_info['rank_90_mc']}  rank(99%)={rank_info['rank_99_mc']}",
-            fontsize=style.tick_font_size, pad=4,
+    if config.data_folder_name != "none":
+        generate_from_data(config=config, device=device, visualize=visualize, style=style, step=step)
+    elif is_connconstr_model(config.graph_model.signal_model_name):
+        data_generate_connconstr(
+            config,
+            visualize=visualize,
+            device=device,
+            save=save,
         )
-    if tick_pos is not None:
-        ax.set_xticks(tick_pos)
-        ax.set_xticklabels([])  # labels on bottom panel only
-    else:
-        ax.set_xticks([])
-    ax.set_yticks([0, n_neurons - 1])
-    ax.set_yticklabels([1, n_neurons], fontsize=style.tick_font_size)
-
-    if type_labels is not None:
-        for label, y_start, y_end in type_labels:
-            y_mid = (y_start + y_end) / 2.0
-            ax.text(0.99, y_mid / n_neurons, label,
-                    transform=ax.transAxes, fontsize=ann_fs,
-                    va='center', ha='right', color='white',
-                    fontweight='bold', alpha=0.9)
-
-    # Bottom: stimulus kinograph
-    ax = axes[1]
-    vmax_stim = np.percentile(np.abs(stimulus_arr), 99)
-    if vmax_stim < 1e-12:
-        vmax_stim = 1.0
-    im = ax.imshow(stimulus_arr.T, vmin=-vmax_stim, vmax=vmax_stim, **imshow_kw)
-    cb = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-    cb.ax.tick_params(labelsize=style.tick_font_size)
-    ax.set_ylabel('stimulus', fontsize=style.label_font_size)
-    ax.set_xlabel('time (frames)', fontsize=style.label_font_size)
-    if rank_info is not None:
-        ax.set_title(
-            f"stimulus  rank(90%)={rank_info['rank_90_stim']}  rank(99%)={rank_info['rank_99_stim']}",
-            fontsize=style.tick_font_size, pad=4,
+    elif is_adex_model(config.graph_model.signal_model_name):
+        data_generate_spiking(
+            config,
+            visualize=visualize,
+            run_vizualized=run_vizualized,
+            style=style,
+            erase=erase,
+            step=step,
+            device=device,
+            save=save,
         )
-    if tick_pos is not None:
-        ax.set_xticks(tick_pos)
-        ax.set_xticklabels(tick_labels, fontsize=style.tick_font_size)
-    ax.set_yticks([0, n_neurons - 1])
-    ax.set_yticklabels([1, n_neurons], fontsize=style.tick_font_size)
+    elif is_hodgkin_huxley_model(config.graph_model.signal_model_name):
+        data_generate_voltage(
+            config,
+            visualize=visualize,
+            run_vizualized=run_vizualized,
+            style=style,
+            erase=erase,
+            step=step,
+            device=device,
+            save=save,
+        )
+    else:
+        data_generate_voltage(
+            config,
+            visualize=visualize,
+            run_vizualized=run_vizualized,
+            style=style,
+            erase=erase,
+            step=step,
+            device=device,
+            save=save,
+        )
 
-    if type_labels is not None:
-        # Only label types that receive non-zero stimulus
-        stim_power = np.sum(stimulus_arr ** 2, axis=0)
-        for label, y_start, y_end in type_labels:
-            band_idx = np.arange(y_start, min(y_end, len(stim_power)))
-            if len(band_idx) > 0 and np.sum(stim_power[band_idx]) > 1e-6:
-                y_mid = (y_start + y_end) / 2.0
-                ax.text(0.99, y_mid / n_neurons, label,
-                        transform=ax.transAxes, fontsize=ann_fs,
-                        va='center', ha='right', color='white',
-                        fontweight='bold', alpha=0.9)
-
-    plt.tight_layout()
-    style.savefig(fig, os.path.join(folder, "kinograph.png"))
+    default_style.apply_globally()
 
 
 def data_generate_connconstr(config, visualize=True, device=None, save=True):
@@ -540,84 +339,12 @@ def data_generate_connconstr(config, visualize=True, device=None, save=True):
     }
 
     if visualize and voltage_history:
-        _plot_connconstr_diagnostics(
+        plot_connconstr_diagnostics(
             voltage_history, stimulus_history, ode_params, edge_index,
             model_name, n_neurons, dt, config, device,
             frame_indices=frame_index_history,
             rank_info=rank_info,
         )
-
-
-
-def data_generate(
-    config,
-    visualize=True,
-    run_vizualized=0,
-    style="color",
-    erase=False,
-    step=5,
-    alpha=0.2,
-    ratio=1,
-    scenario="none",
-    best_model=None,
-    device=None,
-    save=True,
-    log_file=None,
-):
-
-    logger.info(f"dataset: {config.dataset}")
-
-    if (os.path.isdir(graphs_data_path(config.dataset, "x_list_train"))
-        or os.path.isfile(graphs_data_path(config.dataset, "x_list_0.npy"))
-        or os.path.isfile(graphs_data_path(config.dataset, "x_list_0.pt"))
-    ):
-        logger.warning("watch out: data already generated")
-        # return
-
-    if config.data_folder_name != "none":
-        generate_from_data(config=config, device=device, visualize=visualize, style=style, step=step)
-    elif is_connconstr_model(config.graph_model.signal_model_name):
-        data_generate_connconstr(
-            config,
-            visualize=visualize,
-            device=device,
-            save=save,
-        )
-    elif is_adex_model(config.graph_model.signal_model_name):
-        data_generate_spiking(
-            config,
-            visualize=visualize,
-            run_vizualized=run_vizualized,
-            style=style,
-            erase=erase,
-            step=step,
-            device=device,
-            save=save,
-        )
-    elif is_hodgkin_huxley_model(config.graph_model.signal_model_name):
-        data_generate_voltage(
-            config,
-            visualize=visualize,
-            run_vizualized=run_vizualized,
-            style=style,
-            erase=erase,
-            step=step,
-            device=device,
-            save=save,
-        )
-    else:
-        data_generate_voltage(
-            config,
-            visualize=visualize,
-            run_vizualized=run_vizualized,
-            style=style,
-            erase=erase,
-            step=step,
-            device=device,
-            save=save,
-        )
-
-    default_style.apply_globally()
 
 
 def generate_from_data(config, device, visualize=True, step=None, cmap=None, style=None):
@@ -632,428 +359,6 @@ def generate_from_data(config, device, visualize=True, step=None, cmap=None, sty
         load_zebrafish_data(config, device, visualize, step, cmap, style)
     else:
         raise ValueError(f"Unknown data folder name {data_folder_name}")
-
-def _plot_sequence_preview(sequences, hex_x, hex_y, title, save_path, fig_style,
-                           metadata=None):
-    """Plot first frame of first N sequences as hex maps.
-
-    Args:
-        metadata: optional list of (name, flip_ax, n_rot) tuples per sequence.
-    """
-    try:
-        # Compute cumulative frame offsets from actual sequence lengths
-        cum_offsets = []
-        offset = 0
-        for seq in sequences:
-            n_fr = seq["lum"].shape[0]
-            cum_offsets.append((offset, offset + n_fr))
-            offset += n_fr
-
-        n_cols = 8
-        n_preview = min(n_cols * 8, len(sequences))
-        n_rows = (n_preview + n_cols - 1) // n_cols
-        fig_preview, axes_preview = plt.subplots(n_rows, n_cols, figsize=(n_cols * 1.8, n_rows * 1.8))
-        axes_preview = np.atleast_2d(axes_preview)
-        for i in range(n_preview):
-            row, col = divmod(i, n_cols)
-            lum = sequences[i]["lum"]
-            vals = lum[0].squeeze().cpu().numpy() if isinstance(lum, torch.Tensor) else lum[0].squeeze()
-            start, stop = cum_offsets[i]
-            ax = axes_preview[row, col]
-            ax.scatter(hex_x, hex_y, c=vals,
-                       s=fig_style.hex_stimulus_marker_size,
-                       marker=fig_style.hex_marker,
-                       cmap=fig_style.cmap,
-                       vmin=fig_style.hex_stimulus_range[0],
-                       vmax=fig_style.hex_stimulus_range[1],
-                       alpha=1.0, linewidths=0)
-            ax.set_facecolor(fig_style.background)
-            if metadata is not None and i < len(metadata):
-                name, flip, rot = metadata[i][:3]
-                short = str(name).split('_split_')[0].split('sequence_')[-1] if 'sequence_' in str(name) else str(name)
-                ax.set_title(f"{short}\nf{flip} r{rot} [{start}:{stop}]", fontsize=4)
-            else:
-                ax.set_title(f"seq {i} [{start}:{stop}]", fontsize=6)
-            ax.set_xticks([])
-            ax.set_yticks([])
-            ax.set_aspect('equal')
-            for spine in ax.spines.values():
-                spine.set_visible(False)
-        for ax in axes_preview.flat:
-            if not ax.has_data():
-                ax.set_visible(False)
-        fig_preview.suptitle(title, fontsize=9)
-        fig_preview.tight_layout()
-        fig_preview.savefig(save_path, dpi=200)
-        plt.close(fig_preview)
-        logger.info(f"saved: {save_path}")
-    except Exception as e:
-        logger.warning(f"could not save sequence preview: {e}")
-        import traceback
-        traceback.print_exc()
-        plt.close("all")
-
-
-def _run_ode_generation(stimulus_sequences, net, pde, x, edge_index, initial_state,
-                        sim, x_writer, y_writer, target_frames, num_passes,
-                        n_neurons, device, to_numpy_fn,
-                        visualize=False, run=0, run_vizualized=0, step=5,
-                        id_fig_start=0, it_start=0, fig_style=None,
-                        config=None, davis_dataset=None,
-                        X1=None, u_coords=None, v_coords=None):
-    """Run ODE simulation over stimulus sequences, writing frames to zarr.
-
-    This is the inner loop extracted so it can be called for both train and test.
-    Returns (it, id_fig) — the final frame counter and figure counter.
-    """
-    it = it_start
-    id_fig = id_fig_start
-
-    tile_labels = None
-    tile_codes_torch = None
-    tile_period = None
-    tile_idx = 0
-    n_columns = sim.n_input_neurons // 8
-
-    # Mixed sequence setup
-    mixed_types_list = None
-    if "mixed" in sim.visual_input_type:
-        mixed_types_list = ["sintel", "davis", "blank", "noise"]
-        mixed_cycle_lengths = [60, 60, 30, 60]
-        mixed_current_type = 0
-        mixed_frame_count = 0
-        current_cycle_length = mixed_cycle_lengths[mixed_current_type]
-        sintel_iter = iter(stimulus_sequences)
-        davis_iter = iter(davis_dataset) if davis_dataset else iter(stimulus_sequences)
-        current_sintel_seq = None
-        current_davis_seq = None
-        sintel_frame_idx = 0
-        davis_frame_idx = 0
-
-    # Collect HH traces for diagnostic plot (hh_debug_seq0.png)
-    _hh_debug_buffers = None
-    _hh_debug_n_seqs = 30  # capture enough sequences for 400ms window
-    if hasattr(pde, 'step_gates'):
-        _hh_debug_buffers = {'volt': [], 'stim': [], 'm': [], 'h': [], 'n': []}
-
-    with torch.no_grad():
-        for pass_num in range(num_passes):
-            for data_idx, data in enumerate(tqdm(stimulus_sequences, desc="processing stimulus data", ncols=100)):
-                if sim.simulation_initial_state:
-                    x.voltage[:] = initial_state
-                    if sim.only_noise_visual_input > 0:
-                        x.stimulus[:sim.n_input_neurons] = torch.clamp(torch.relu(
-                            0.5 + torch.rand(sim.n_input_neurons, dtype=torch.float32,
-                                             device=device) * sim.only_noise_visual_input / 2), 0, 1)
-
-                sequences = data["lum"]
-
-                if "flash" in sim.visual_input_type:
-                    flash_duration_options = [1, 2, 5]
-                    flash_cycle_frames = flash_duration_options[
-                        torch.randint(0, len(flash_duration_options), (1,), device=device).item()
-                    ]
-                    flash_intensity = torch.abs(torch.rand(sim.n_input_neurons, device=device) * 0.5 + 0.5)
-
-                if mixed_types_list is not None:
-                    if mixed_frame_count >= current_cycle_length:
-                        mixed_current_type = (mixed_current_type + 1) % 4
-                        mixed_frame_count = 0
-                        current_cycle_length = mixed_cycle_lengths[mixed_current_type]
-                    current_type = mixed_types_list[mixed_current_type]
-
-                    if current_type == "sintel":
-                        if current_sintel_seq is None or sintel_frame_idx >= current_sintel_seq["lum"].shape[0]:
-                            try:
-                                current_sintel_seq = next(sintel_iter)
-                                sintel_frame_idx = 0
-                            except StopIteration:
-                                sintel_iter = iter(stimulus_sequences)
-                                current_sintel_seq = next(sintel_iter)
-                                sintel_frame_idx = 0
-                        sequences = current_sintel_seq["lum"]
-                        start_frame = sintel_frame_idx
-                    elif current_type == "davis":
-                        if current_davis_seq is None or davis_frame_idx >= current_davis_seq["lum"].shape[0]:
-                            try:
-                                current_davis_seq = next(davis_iter)
-                                davis_frame_idx = 0
-                            except StopIteration:
-                                davis_iter = iter(davis_dataset) if davis_dataset else iter(stimulus_sequences)
-                                current_davis_seq = next(davis_iter)
-                                davis_frame_idx = 0
-                        sequences = current_davis_seq["lum"]
-                        start_frame = davis_frame_idx
-                    else:
-                        start_frame = 0
-
-                if "flash" in sim.visual_input_type:
-                    sequence_length = 60
-                else:
-                    sequence_length = sequences.shape[0]
-
-                for frame_id in range(sequence_length):
-                    if "flash" in sim.visual_input_type:
-                        current_flash_frame = frame_id % (flash_cycle_frames * 2)
-                        x.stimulus[:] = 0
-                        if current_flash_frame < flash_cycle_frames:
-                            x.stimulus[:sim.n_input_neurons] = flash_intensity
-                    elif mixed_types_list is not None:
-                        current_type = mixed_types_list[mixed_current_type]
-                        if current_type == "blank":
-                            x.stimulus[:] = 0
-                        elif current_type == "noise":
-                            x.stimulus[:sim.n_input_neurons] = torch.relu(
-                                0.5 + torch.rand(sim.n_input_neurons, dtype=torch.float32, device=device) * 0.5)
-                        else:
-                            actual_frame_id = (start_frame + frame_id) % sequences.shape[0]
-                            frame = sequences[actual_frame_id][None, None]
-                            net.stimulus.add_input(frame)
-                            x.stimulus[:] = net.stimulus().squeeze()
-                            if current_type == "sintel":
-                                sintel_frame_idx += 1
-                            elif current_type == "davis":
-                                davis_frame_idx += 1
-                        mixed_frame_count += 1
-                    elif "tile_mseq" in sim.visual_input_type:
-                        if tile_codes_torch is None:
-                            tile_labels_np = assign_columns_from_uv(
-                                u_coords, v_coords, n_columns, random_state=sim.seed
-                            )
-                            base = mseq_bits(p=8, seed=sim.seed).astype(np.float32)
-                            rng = np.random.RandomState(sim.seed)
-                            phases = rng.randint(0, base.shape[0], size=n_columns)
-                            tile_codes_np = np.stack([np.roll(base, ph) for ph in phases], axis=0)
-                            tile_codes_torch = torch.from_numpy(tile_codes_np).to(device, dtype=torch.float32)
-                            tile_labels = torch.from_numpy(tile_labels_np).to(device, dtype=torch.long)
-                            tile_period = tile_codes_torch.shape[1]
-                            tile_idx = 0
-
-                        x.stimulus[:] = 0.5
-                        col_vals_pm1 = tile_codes_torch[:, tile_idx % tile_period]
-                        col_vals_pm1 = apply_pairwise_knobs_torch(
-                            code_pm1=col_vals_pm1,
-                            corr_strength=float(sim.tile_corr_strength),
-                            flip_prob=float(sim.tile_flip_prob),
-                            seed=int(sim.seed) + int(tile_idx)
-                        )
-                        col_vals_01 = 0.5 + (sim.tile_contrast * 0.5) * col_vals_pm1
-                        x.stimulus[:sim.n_input_neurons] = col_vals_01[tile_labels]
-                        tile_idx += 1
-                    elif "tile_blue_noise" in sim.visual_input_type:
-                        if tile_codes_torch is None:
-                            tile_labels_np, col_centers = compute_column_labels(u_coords, v_coords, n_columns, seed=sim.seed)
-                            try:
-                                adj = build_neighbor_graph(col_centers, k=6)
-                            except Exception:
-                                from scipy.spatial.distance import pdist, squareform
-                                D = squareform(pdist(col_centers))
-                                nn = np.partition(D + np.eye(D.shape[0]) * 1e9, 1, axis=1)[:, 1]
-                                radius = 1.3 * np.median(nn)
-                                adj = [set(np.where((D[i] > 0) & (D[i] <= radius))[0].tolist()) for i in
-                                       range(len(col_centers))]
-
-                            tile_labels = torch.from_numpy(tile_labels_np).to(device, dtype=torch.long)
-                            tile_period = 257
-                            tile_idx = 0
-
-                            tile_codes_torch = torch.empty((n_columns, tile_period), dtype=torch.float32, device=device)
-                            rng = np.random.RandomState(sim.seed)
-                            for t in range(tile_period):
-                                mask = greedy_blue_mask(adj, n_columns, target_density=0.5, rng=rng)
-                                vals = np.where(mask, 1.0, -1.0).astype(np.float32)
-                                tile_codes_torch[:, t] = torch.from_numpy(vals).to(device, dtype=torch.float32)
-
-                        x.stimulus[:] = 0.5
-                        col_vals_pm1 = tile_codes_torch[:, tile_idx % tile_period]
-                        col_vals_pm1 = apply_pairwise_knobs_torch(
-                            code_pm1=col_vals_pm1,
-                            corr_strength=float(sim.tile_corr_strength),
-                            flip_prob=float(sim.tile_flip_prob),
-                            seed=int(sim.seed) + int(tile_idx)
-                        )
-                        col_vals_01 = 0.5 + (sim.tile_contrast * 0.5) * col_vals_pm1
-                        x.stimulus[:sim.n_input_neurons] = col_vals_01[tile_labels]
-                        tile_idx += 1
-                    else:
-                        frame = sequences[frame_id][None, None]
-                        net.stimulus.add_input(frame)
-                        if (sim.only_noise_visual_input > 0):
-                            if (sim.visual_input_type == "") | (it == 0) | ("50/50" in sim.visual_input_type):
-                                x.stimulus[:sim.n_input_neurons] = torch.relu(
-                                    0.5 + torch.rand(sim.n_input_neurons, dtype=torch.float32,
-                                                     device=device) * sim.only_noise_visual_input / 2)
-                        else:
-                            if 'blank' in sim.visual_input_type:
-                                if (data_idx % sim.blank_freq > 0):
-                                    x.stimulus[:] = net.stimulus().squeeze()
-                                else:
-                                    x.stimulus[:] = 0
-                            else:
-                                x.stimulus[:] = net.stimulus().squeeze()
-                            if sim.noise_visual_input > 0:
-                                x.stimulus[:sim.n_input_neurons] = x.stimulus[:sim.n_input_neurons] + torch.randn(sim.n_input_neurons,
-                                                                                                  dtype=torch.float32,
-                                                                                                  device=device) * sim.noise_visual_input
-
-                    prev_calcium = x.calcium.clone() if x.calcium is not None else None
-
-                    # HH models use substeps for numerical stability
-                    hh_substeps = getattr(sim, 'hh_substeps', 1)
-                    has_gates = hasattr(pde, 'step_gates')
-
-                    if has_gates and hh_substeps > 1:
-                        # Multiple substeps per stimulus frame (HH)
-                        sub_dt = sim.delta_t / hh_substeps
-                        for _sub in range(hh_substeps):
-                            y = pde(x, edge_index, has_field=False)
-                            dv = y.squeeze()
-                            if sim.noise_model_level > 0:
-                                x.voltage = x.voltage + sub_dt * dv + torch.randn(n_neurons, dtype=torch.float32, device=device) * sim.noise_model_level / (hh_substeps ** 0.5)
-                            else:
-                                x.voltage = x.voltage + sub_dt * dv
-                            pde.step_gates(x, sub_dt)
-                        # y for recording is the last substep's derivative
-                        y = pde(x, edge_index, has_field=False)
-                    else:
-                        y = pde(x, edge_index, has_field=False)
-                        dv_step = y.squeeze()
-                        if sim.noise_model_level > 0:
-                            x.voltage = x.voltage + sim.delta_t * dv_step + torch.randn(n_neurons, dtype=torch.float32, device=device) * sim.noise_model_level
-                        else:
-                            x.voltage = x.voltage + sim.delta_t * dv_step
-                        if has_gates:
-                            pde.step_gates(x, sim.delta_t)
-
-                    # Collect traces for first N sequences (for hh_debug plot)
-                    if _hh_debug_buffers is not None and data_idx < _hh_debug_n_seqs and pass_num == 0:
-                        _hh_debug_buffers['volt'].append(x.voltage.cpu().numpy().copy())
-                        _hh_debug_buffers['stim'].append(x.stimulus.cpu().numpy().copy())
-                        _hh_debug_buffers['m'].append(x.hh_m.cpu().numpy().copy())
-                        _hh_debug_buffers['h'].append(x.hh_h.cpu().numpy().copy())
-                        _hh_debug_buffers['n'].append(x.hh_n.cpu().numpy().copy())
-
-                    # Generate measurement noise for this timestep
-                    if sim.measurement_noise_level > 0:
-                        x.noise = torch.randn(n_neurons, dtype=torch.float32, device=device) * sim.measurement_noise_level
-                    else:
-                        x.noise = torch.zeros(n_neurons, dtype=torch.float32, device=device)
-
-                    x_writer.append_state(x)
-
-                    if sim.calcium_type == "leaky":
-                        if sim.calcium_activation == "softplus":
-                            s = torch.nn.functional.softplus(x.voltage)
-                        elif sim.calcium_activation == "relu":
-                            s = torch.nn.functional.relu(x.voltage)
-                        elif sim.calcium_activation == "tanh":
-                            s = 1 + torch.tanh(x.voltage)
-                        elif sim.calcium_activation == "identity":
-                            s = x.voltage.clone()
-
-                        x.calcium = x.calcium + (sim.delta_t / sim.calcium_tau) * (-x.calcium + s)
-                        x.fluorescence = sim.calcium_alpha * x.calcium + sim.calcium_beta
-                        y = ((x.calcium - prev_calcium) / sim.delta_t).unsqueeze(-1)
-
-                    y_writer.append(to_numpy_fn(y.clone().detach()))
-
-                    if (visualize & (run == run_vizualized) & (it > 0) & (it % step == 0) & (it <= 50 * step)):
-                        num = f"{id_fig:06}"
-                        id_fig += 1
-                        plot_spatial_activity_grid(
-                            positions=to_numpy_fn(X1),
-                            voltages=to_numpy_fn(x.voltage),
-                            stimulus=to_numpy_fn(x.stimulus[:sim.n_input_neurons]),
-                            neuron_types=to_numpy_fn(x.neuron_type).astype(int),
-                            output_path=graphs_data_path(config.dataset, "Fig", f"Fig_{run}_{num}.png"),
-                            calcium=to_numpy_fn(x.calcium) if sim.calcium_type != "none" else None,
-                            n_input_neurons=sim.n_input_neurons,
-                            style=fig_style,
-                        )
-
-                    it = it + 1
-                    if it >= target_frames:
-                        break
-                # Save HH diagnostic plot after collecting enough sequences
-                if _hh_debug_buffers is not None and data_idx == _hh_debug_n_seqs - 1 and pass_num == 0 and _hh_debug_buffers['volt']:
-                    logger.info(f"saving hh_debug_seq0.png ({len(_hh_debug_buffers['volt'])} frames)")
-                    # Build HH params dict for current decomposition plot
-                    _hh_plot_params = None
-                    if hasattr(pde, 'ode_params'):
-                        _pp = pde.ode_params
-                        _hh_plot_params = {
-                            k: getattr(_pp, k).cpu().numpy()
-                            for k in ('g_L', 'E_L', 'g_Na', 'E_Na', 'g_K', 'E_K', 'C', 'I_bias', 'stim_scale')
-                            if hasattr(_pp, k) and getattr(_pp, k) is not None
-                        }
-                    _warmup_f = int(100.0 / sim.delta_t)  # 100ms warmup
-                    _window_f = int(800.0 / sim.delta_t)  # 800ms window
-                    plot_hh_debug(
-                        voltage_history=np.stack(_hh_debug_buffers['volt']),
-                        stimulus_history=np.stack(_hh_debug_buffers['stim']),
-                        gate_m_history=np.stack(_hh_debug_buffers['m']),
-                        gate_h_history=np.stack(_hh_debug_buffers['h']),
-                        gate_n_history=np.stack(_hh_debug_buffers['n']),
-                        type_list=to_numpy_fn(x.neuron_type).astype(int),
-                        output_path=graphs_data_path(config.dataset, 'hh_debug_seq0.png'),
-                        dt_ms=sim.delta_t,
-                        hh_substeps=getattr(sim, 'hh_substeps', 1),
-                        hh_params=_hh_plot_params,
-                        style=fig_style,
-                        warmup_frames=_warmup_f,
-                        max_frames=_window_f,
-                    )
-                    _hh_debug_buffers = None  # free memory
-
-                if it >= target_frames:
-                    break
-            if it >= target_frames:
-                break
-
-    return it, id_fig
-
-
-def _compute_noisy_derivatives(config, sim, n_neurons, split='train'):
-    """Compute noisy derivatives from saved clean derivatives and noise.
-
-    noisy_y[t] = y_clean[t] + (noise[t+1] - noise[t]) / dt
-    Last frame uses clean derivative (no future noise available).
-    """
-    from connectome_gnn.utils import graphs_data_path
-    from connectome_gnn.zarr_io import ZarrArrayWriter, load_raw_array, load_simulation_data
-
-    y_clean = load_raw_array(graphs_data_path(config.dataset, f"y_list_{split}"))  # (T, N, 1)
-    noise_ts = load_simulation_data(
-        graphs_data_path(config.dataset, f"x_list_{split}"), fields=['noise']
-    )
-    noise = noise_ts.noise.numpy()  # (T, N)
-
-    # Compute noise derivative: (noise[t+1] - noise[t]) / dt
-    noise_diff = np.zeros_like(noise)
-    noise_diff[:-1] = (noise[1:] - noise[:-1]) / sim.delta_t  # last frame: 0
-
-    noisy_y = y_clean + noise_diff[:, :, np.newaxis]  # broadcast to (T, N, 1)
-
-    # Temporal smoothing of noisy derivatives (reduces derivative noise by sqrt(window))
-    window = sim.derivative_smoothing_window
-    if window > 1:
-        from scipy.ndimage import uniform_filter1d
-        # Apply centered moving average along time axis (axis=0)
-        # mode='nearest' pads boundaries with edge values
-        noisy_y = uniform_filter1d(noisy_y, size=window, axis=0, mode='nearest')
-        logger.debug(f"  applied derivative smoothing: window={window} (noise reduction ~{1/np.sqrt(window):.2f}x)")
-
-    noisy_y_writer = ZarrArrayWriter(
-        path=graphs_data_path(config.dataset, f"noisy_y_list_{split}"),
-        n_neurons=n_neurons,
-        n_features=1,
-        time_chunks=2000,
-    )
-    for t in range(noisy_y.shape[0]):
-        noisy_y_writer.append(noisy_y[t])
-    noisy_y_writer.finalize()
-    logger.info(f"computed noisy derivatives for {split}: {noisy_y.shape[0]} frames "
-                f"(measurement_noise_level={sim.measurement_noise_level})")
 
 
 def data_generate_spiking(config, visualize=True, run_vizualized=0, style="color", erase=False, step=5, device=None,
@@ -1713,14 +1018,14 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
     n_hexals = stimulus_dataset[0]["lum"].shape[-1]
     hex_x = x_coords[:n_hexals]
     hex_y = y_coords[:n_hexals]
-    _plot_sequence_preview(train_sequences, hex_x, hex_y,
-                           f"TRAIN: {len(train_sequences)} seqs from {n_train_vids} videos",
-                           os.path.join(folder, "shuffle_first_frames_train.png"), fig_style,
-                           metadata=train_meta)
-    _plot_sequence_preview(test_sequences, hex_x, hex_y,
-                           f"TEST: {len(test_sequences)} seqs from {len(test_video_set)} videos",
-                           os.path.join(folder, "shuffle_first_frames_test.png"), fig_style,
-                           metadata=test_meta)
+    plot_sequence_preview(train_sequences, hex_x, hex_y,
+                          f"TRAIN: {len(train_sequences)} seqs from {n_train_vids} videos",
+                          os.path.join(folder, "shuffle_first_frames_train.png"), fig_style,
+                          metadata=train_meta, logger=logger)
+    plot_sequence_preview(test_sequences, hex_x, hex_y,
+                          f"TEST: {len(test_sequences)} seqs from {len(test_video_set)} videos",
+                          os.path.join(folder, "shuffle_first_frames_test.png"), fig_style,
+                          metadata=test_meta, logger=logger)
 
     # --- Generate TRAIN split ---
     total_frames_per_pass = len(train_sequences) * frames_per_sequence
@@ -2106,4 +1411,364 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
             os.remove(f)
 
 
+def _run_ode_generation(stimulus_sequences, net, pde, x, edge_index, initial_state,
+                        sim, x_writer, y_writer, target_frames, num_passes,
+                        n_neurons, device, to_numpy_fn,
+                        visualize=False, run=0, run_vizualized=0, step=5,
+                        id_fig_start=0, it_start=0, fig_style=None,
+                        config=None, davis_dataset=None,
+                        X1=None, u_coords=None, v_coords=None):
+    """Run ODE simulation over stimulus sequences, writing frames to zarr.
+
+    This is the inner loop extracted so it can be called for both train and test.
+    Returns (it, id_fig) — the final frame counter and figure counter.
+    """
+    it = it_start
+    id_fig = id_fig_start
+
+    tile_labels = None
+    tile_codes_torch = None
+    tile_period = None
+    tile_idx = 0
+    n_columns = sim.n_input_neurons // 8
+
+    # Mixed sequence setup
+    mixed_types_list = None
+    if "mixed" in sim.visual_input_type:
+        mixed_types_list = ["sintel", "davis", "blank", "noise"]
+        mixed_cycle_lengths = [60, 60, 30, 60]
+        mixed_current_type = 0
+        mixed_frame_count = 0
+        current_cycle_length = mixed_cycle_lengths[mixed_current_type]
+        sintel_iter = iter(stimulus_sequences)
+        davis_iter = iter(davis_dataset) if davis_dataset else iter(stimulus_sequences)
+        current_sintel_seq = None
+        current_davis_seq = None
+        sintel_frame_idx = 0
+        davis_frame_idx = 0
+
+    # Collect HH traces for diagnostic plot (hh_debug_seq0.png)
+    _hh_debug_buffers = None
+    _hh_debug_n_seqs = 30  # capture enough sequences for 400ms window
+    if hasattr(pde, 'step_gates'):
+        _hh_debug_buffers = {'volt': [], 'stim': [], 'm': [], 'h': [], 'n': []}
+
+    with torch.no_grad():
+        for pass_num in range(num_passes):
+            for data_idx, data in enumerate(tqdm(stimulus_sequences, desc="processing stimulus data", ncols=100)):
+                if sim.simulation_initial_state:
+                    x.voltage[:] = initial_state
+                    if sim.only_noise_visual_input > 0:
+                        x.stimulus[:sim.n_input_neurons] = torch.clamp(torch.relu(
+                            0.5 + torch.rand(sim.n_input_neurons, dtype=torch.float32,
+                                             device=device) * sim.only_noise_visual_input / 2), 0, 1)
+
+                sequences = data["lum"]
+
+                if "flash" in sim.visual_input_type:
+                    flash_duration_options = [1, 2, 5]
+                    flash_cycle_frames = flash_duration_options[
+                        torch.randint(0, len(flash_duration_options), (1,), device=device).item()
+                    ]
+                    flash_intensity = torch.abs(torch.rand(sim.n_input_neurons, device=device) * 0.5 + 0.5)
+
+                if mixed_types_list is not None:
+                    if mixed_frame_count >= current_cycle_length:
+                        mixed_current_type = (mixed_current_type + 1) % 4
+                        mixed_frame_count = 0
+                        current_cycle_length = mixed_cycle_lengths[mixed_current_type]
+                    current_type = mixed_types_list[mixed_current_type]
+
+                    if current_type == "sintel":
+                        if current_sintel_seq is None or sintel_frame_idx >= current_sintel_seq["lum"].shape[0]:
+                            try:
+                                current_sintel_seq = next(sintel_iter)
+                                sintel_frame_idx = 0
+                            except StopIteration:
+                                sintel_iter = iter(stimulus_sequences)
+                                current_sintel_seq = next(sintel_iter)
+                                sintel_frame_idx = 0
+                        sequences = current_sintel_seq["lum"]
+                        start_frame = sintel_frame_idx
+                    elif current_type == "davis":
+                        if current_davis_seq is None or davis_frame_idx >= current_davis_seq["lum"].shape[0]:
+                            try:
+                                current_davis_seq = next(davis_iter)
+                                davis_frame_idx = 0
+                            except StopIteration:
+                                davis_iter = iter(davis_dataset) if davis_dataset else iter(stimulus_sequences)
+                                current_davis_seq = next(davis_iter)
+                                davis_frame_idx = 0
+                        sequences = current_davis_seq["lum"]
+                        start_frame = davis_frame_idx
+                    else:
+                        start_frame = 0
+
+                if "flash" in sim.visual_input_type:
+                    sequence_length = 60
+                else:
+                    sequence_length = sequences.shape[0]
+
+                for frame_id in range(sequence_length):
+                    if "flash" in sim.visual_input_type:
+                        current_flash_frame = frame_id % (flash_cycle_frames * 2)
+                        x.stimulus[:] = 0
+                        if current_flash_frame < flash_cycle_frames:
+                            x.stimulus[:sim.n_input_neurons] = flash_intensity
+                    elif mixed_types_list is not None:
+                        current_type = mixed_types_list[mixed_current_type]
+                        if current_type == "blank":
+                            x.stimulus[:] = 0
+                        elif current_type == "noise":
+                            x.stimulus[:sim.n_input_neurons] = torch.relu(
+                                0.5 + torch.rand(sim.n_input_neurons, dtype=torch.float32, device=device) * 0.5)
+                        else:
+                            actual_frame_id = (start_frame + frame_id) % sequences.shape[0]
+                            frame = sequences[actual_frame_id][None, None]
+                            net.stimulus.add_input(frame)
+                            x.stimulus[:] = net.stimulus().squeeze()
+                            if current_type == "sintel":
+                                sintel_frame_idx += 1
+                            elif current_type == "davis":
+                                davis_frame_idx += 1
+                        mixed_frame_count += 1
+                    elif "tile_mseq" in sim.visual_input_type:
+                        if tile_codes_torch is None:
+                            tile_labels_np = assign_columns_from_uv(
+                                u_coords, v_coords, n_columns, random_state=sim.seed
+                            )
+                            base = mseq_bits(p=8, seed=sim.seed).astype(np.float32)
+                            rng = np.random.RandomState(sim.seed)
+                            phases = rng.randint(0, base.shape[0], size=n_columns)
+                            tile_codes_np = np.stack([np.roll(base, ph) for ph in phases], axis=0)
+                            tile_codes_torch = torch.from_numpy(tile_codes_np).to(device, dtype=torch.float32)
+                            tile_labels = torch.from_numpy(tile_labels_np).to(device, dtype=torch.long)
+                            tile_period = tile_codes_torch.shape[1]
+                            tile_idx = 0
+
+                        x.stimulus[:] = 0.5
+                        col_vals_pm1 = tile_codes_torch[:, tile_idx % tile_period]
+                        col_vals_pm1 = apply_pairwise_knobs_torch(
+                            code_pm1=col_vals_pm1,
+                            corr_strength=float(sim.tile_corr_strength),
+                            flip_prob=float(sim.tile_flip_prob),
+                            seed=int(sim.seed) + int(tile_idx)
+                        )
+                        col_vals_01 = 0.5 + (sim.tile_contrast * 0.5) * col_vals_pm1
+                        x.stimulus[:sim.n_input_neurons] = col_vals_01[tile_labels]
+                        tile_idx += 1
+                    elif "tile_blue_noise" in sim.visual_input_type:
+                        if tile_codes_torch is None:
+                            tile_labels_np, col_centers = compute_column_labels(u_coords, v_coords, n_columns, seed=sim.seed)
+                            try:
+                                adj = build_neighbor_graph(col_centers, k=6)
+                            except Exception:
+                                from scipy.spatial.distance import pdist, squareform
+                                D = squareform(pdist(col_centers))
+                                nn = np.partition(D + np.eye(D.shape[0]) * 1e9, 1, axis=1)[:, 1]
+                                radius = 1.3 * np.median(nn)
+                                adj = [set(np.where((D[i] > 0) & (D[i] <= radius))[0].tolist()) for i in
+                                       range(len(col_centers))]
+
+                            tile_labels = torch.from_numpy(tile_labels_np).to(device, dtype=torch.long)
+                            tile_period = 257
+                            tile_idx = 0
+
+                            tile_codes_torch = torch.empty((n_columns, tile_period), dtype=torch.float32, device=device)
+                            rng = np.random.RandomState(sim.seed)
+                            for t in range(tile_period):
+                                mask = greedy_blue_mask(adj, n_columns, target_density=0.5, rng=rng)
+                                vals = np.where(mask, 1.0, -1.0).astype(np.float32)
+                                tile_codes_torch[:, t] = torch.from_numpy(vals).to(device, dtype=torch.float32)
+
+                        x.stimulus[:] = 0.5
+                        col_vals_pm1 = tile_codes_torch[:, tile_idx % tile_period]
+                        col_vals_pm1 = apply_pairwise_knobs_torch(
+                            code_pm1=col_vals_pm1,
+                            corr_strength=float(sim.tile_corr_strength),
+                            flip_prob=float(sim.tile_flip_prob),
+                            seed=int(sim.seed) + int(tile_idx)
+                        )
+                        col_vals_01 = 0.5 + (sim.tile_contrast * 0.5) * col_vals_pm1
+                        x.stimulus[:sim.n_input_neurons] = col_vals_01[tile_labels]
+                        tile_idx += 1
+                    else:
+                        frame = sequences[frame_id][None, None]
+                        net.stimulus.add_input(frame)
+                        if (sim.only_noise_visual_input > 0):
+                            if (sim.visual_input_type == "") | (it == 0) | ("50/50" in sim.visual_input_type):
+                                x.stimulus[:sim.n_input_neurons] = torch.relu(
+                                    0.5 + torch.rand(sim.n_input_neurons, dtype=torch.float32,
+                                                     device=device) * sim.only_noise_visual_input / 2)
+                        else:
+                            if 'blank' in sim.visual_input_type:
+                                if (data_idx % sim.blank_freq > 0):
+                                    x.stimulus[:] = net.stimulus().squeeze()
+                                else:
+                                    x.stimulus[:] = 0
+                            else:
+                                x.stimulus[:] = net.stimulus().squeeze()
+                            if sim.noise_visual_input > 0:
+                                x.stimulus[:sim.n_input_neurons] = x.stimulus[:sim.n_input_neurons] + torch.randn(sim.n_input_neurons,
+                                                                                                  dtype=torch.float32,
+                                                                                                  device=device) * sim.noise_visual_input
+
+                    prev_calcium = x.calcium.clone() if x.calcium is not None else None
+
+                    # HH models use substeps for numerical stability
+                    hh_substeps = getattr(sim, 'hh_substeps', 1)
+                    has_gates = hasattr(pde, 'step_gates')
+
+                    if has_gates and hh_substeps > 1:
+                        # Multiple substeps per stimulus frame (HH)
+                        sub_dt = sim.delta_t / hh_substeps
+                        for _sub in range(hh_substeps):
+                            y = pde(x, edge_index, has_field=False)
+                            dv = y.squeeze()
+                            if sim.noise_model_level > 0:
+                                x.voltage = x.voltage + sub_dt * dv + torch.randn(n_neurons, dtype=torch.float32, device=device) * sim.noise_model_level / (hh_substeps ** 0.5)
+                            else:
+                                x.voltage = x.voltage + sub_dt * dv
+                            pde.step_gates(x, sub_dt)
+                        # y for recording is the last substep's derivative
+                        y = pde(x, edge_index, has_field=False)
+                    else:
+                        y = pde(x, edge_index, has_field=False)
+                        dv_step = y.squeeze()
+                        if sim.noise_model_level > 0:
+                            x.voltage = x.voltage + sim.delta_t * dv_step + torch.randn(n_neurons, dtype=torch.float32, device=device) * sim.noise_model_level
+                        else:
+                            x.voltage = x.voltage + sim.delta_t * dv_step
+                        if has_gates:
+                            pde.step_gates(x, sim.delta_t)
+
+                    # Collect traces for first N sequences (for hh_debug plot)
+                    if _hh_debug_buffers is not None and data_idx < _hh_debug_n_seqs and pass_num == 0:
+                        _hh_debug_buffers['volt'].append(x.voltage.cpu().numpy().copy())
+                        _hh_debug_buffers['stim'].append(x.stimulus.cpu().numpy().copy())
+                        _hh_debug_buffers['m'].append(x.hh_m.cpu().numpy().copy())
+                        _hh_debug_buffers['h'].append(x.hh_h.cpu().numpy().copy())
+                        _hh_debug_buffers['n'].append(x.hh_n.cpu().numpy().copy())
+
+                    # Generate measurement noise for this timestep
+                    if sim.measurement_noise_level > 0:
+                        x.noise = torch.randn(n_neurons, dtype=torch.float32, device=device) * sim.measurement_noise_level
+                    else:
+                        x.noise = torch.zeros(n_neurons, dtype=torch.float32, device=device)
+
+                    x_writer.append_state(x)
+
+                    if sim.calcium_type == "leaky":
+                        if sim.calcium_activation == "softplus":
+                            s = torch.nn.functional.softplus(x.voltage)
+                        elif sim.calcium_activation == "relu":
+                            s = torch.nn.functional.relu(x.voltage)
+                        elif sim.calcium_activation == "tanh":
+                            s = 1 + torch.tanh(x.voltage)
+                        elif sim.calcium_activation == "identity":
+                            s = x.voltage.clone()
+
+                        x.calcium = x.calcium + (sim.delta_t / sim.calcium_tau) * (-x.calcium + s)
+                        x.fluorescence = sim.calcium_alpha * x.calcium + sim.calcium_beta
+                        y = ((x.calcium - prev_calcium) / sim.delta_t).unsqueeze(-1)
+
+                    y_writer.append(to_numpy_fn(y.clone().detach()))
+
+                    if (visualize & (run == run_vizualized) & (it > 0) & (it % step == 0) & (it <= 50 * step)):
+                        num = f"{id_fig:06}"
+                        id_fig += 1
+                        plot_spatial_activity_grid(
+                            positions=to_numpy_fn(X1),
+                            voltages=to_numpy_fn(x.voltage),
+                            stimulus=to_numpy_fn(x.stimulus[:sim.n_input_neurons]),
+                            neuron_types=to_numpy_fn(x.neuron_type).astype(int),
+                            output_path=graphs_data_path(config.dataset, "Fig", f"Fig_{run}_{num}.png"),
+                            calcium=to_numpy_fn(x.calcium) if sim.calcium_type != "none" else None,
+                            n_input_neurons=sim.n_input_neurons,
+                            style=fig_style,
+                        )
+
+                    it = it + 1
+                    if it >= target_frames:
+                        break
+                # Save HH diagnostic plot after collecting enough sequences
+                if _hh_debug_buffers is not None and data_idx == _hh_debug_n_seqs - 1 and pass_num == 0 and _hh_debug_buffers['volt']:
+                    logger.info(f"saving hh_debug_seq0.png ({len(_hh_debug_buffers['volt'])} frames)")
+                    # Build HH params dict for current decomposition plot
+                    _hh_plot_params = None
+                    if hasattr(pde, 'ode_params'):
+                        _pp = pde.ode_params
+                        _hh_plot_params = {
+                            k: getattr(_pp, k).cpu().numpy()
+                            for k in ('g_L', 'E_L', 'g_Na', 'E_Na', 'g_K', 'E_K', 'C', 'I_bias', 'stim_scale')
+                            if hasattr(_pp, k) and getattr(_pp, k) is not None
+                        }
+                    _warmup_f = int(100.0 / sim.delta_t)  # 100ms warmup
+                    _window_f = int(800.0 / sim.delta_t)  # 800ms window
+                    plot_hh_debug(
+                        voltage_history=np.stack(_hh_debug_buffers['volt']),
+                        stimulus_history=np.stack(_hh_debug_buffers['stim']),
+                        gate_m_history=np.stack(_hh_debug_buffers['m']),
+                        gate_h_history=np.stack(_hh_debug_buffers['h']),
+                        gate_n_history=np.stack(_hh_debug_buffers['n']),
+                        type_list=to_numpy_fn(x.neuron_type).astype(int),
+                        output_path=graphs_data_path(config.dataset, 'hh_debug_seq0.png'),
+                        dt_ms=sim.delta_t,
+                        hh_substeps=getattr(sim, 'hh_substeps', 1),
+                        hh_params=_hh_plot_params,
+                        style=fig_style,
+                        warmup_frames=_warmup_f,
+                        max_frames=_window_f,
+                    )
+                    _hh_debug_buffers = None  # free memory
+
+                if it >= target_frames:
+                    break
+            if it >= target_frames:
+                break
+
+    return it, id_fig
+
+
+def _compute_noisy_derivatives(config, sim, n_neurons, split='train'):
+    """Compute noisy derivatives from saved clean derivatives and noise.
+
+    noisy_y[t] = y_clean[t] + (noise[t+1] - noise[t]) / dt
+    Last frame uses clean derivative (no future noise available).
+    """
+    from connectome_gnn.utils import graphs_data_path
+    from connectome_gnn.zarr_io import ZarrArrayWriter, load_raw_array, load_simulation_data
+
+    y_clean = load_raw_array(graphs_data_path(config.dataset, f"y_list_{split}"))  # (T, N, 1)
+    noise_ts = load_simulation_data(
+        graphs_data_path(config.dataset, f"x_list_{split}"), fields=['noise']
+    )
+    noise = noise_ts.noise.numpy()  # (T, N)
+
+    # Compute noise derivative: (noise[t+1] - noise[t]) / dt
+    noise_diff = np.zeros_like(noise)
+    noise_diff[:-1] = (noise[1:] - noise[:-1]) / sim.delta_t  # last frame: 0
+
+    noisy_y = y_clean + noise_diff[:, :, np.newaxis]  # broadcast to (T, N, 1)
+
+    # Temporal smoothing of noisy derivatives (reduces derivative noise by sqrt(window))
+    window = sim.derivative_smoothing_window
+    if window > 1:
+        from scipy.ndimage import uniform_filter1d
+        # Apply centered moving average along time axis (axis=0)
+        # mode='nearest' pads boundaries with edge values
+        noisy_y = uniform_filter1d(noisy_y, size=window, axis=0, mode='nearest')
+        logger.debug(f"  applied derivative smoothing: window={window} (noise reduction ~{1/np.sqrt(window):.2f}x)")
+
+    noisy_y_writer = ZarrArrayWriter(
+        path=graphs_data_path(config.dataset, f"noisy_y_list_{split}"),
+        n_neurons=n_neurons,
+        n_features=1,
+        time_chunks=2000,
+    )
+    for t in range(noisy_y.shape[0]):
+        noisy_y_writer.append(noisy_y[t])
+    noisy_y_writer.finalize()
+    logger.info(f"computed noisy derivatives for {split}: {noisy_y.shape[0]} frames "
+                f"(measurement_noise_level={sim.measurement_noise_level})")
 
