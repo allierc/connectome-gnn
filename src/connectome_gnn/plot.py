@@ -1606,16 +1606,15 @@ def plot_training_linear(model, config, epoch, N, log_dir, device,
     # Compute all R² values via shared metrics function
     vrest_r2, tau_r2, conn_r2 = compute_dynamics_r2_linear(model, config, device, n_neurons)
 
-    # Extract learned parameters for plotting
-    learned_tau = to_numpy(F.softplus(model.raw_tau[:n_neurons]).detach())
-    learned_vrest = to_numpy(model.V_rest[:n_neurons].detach())
-
-    # Load ground-truth tau and V_rest for scatter plots
-    from connectome_gnn.generators.ode_params import FlyVisODEParams
+    # Load ground-truth ODE params (use correct class for connconstr models)
+    from connectome_gnn.generators.ode_params import FlyVisODEParams, get_ode_params_class
     from connectome_gnn.utils import graphs_data_path
-    ode_params = FlyVisODEParams.load(graphs_data_path(config.dataset), device=device)
-    gt_tau_np = to_numpy(ode_params.tau_i[:n_neurons])
-    gt_vrest_np = to_numpy(ode_params.V_i_rest[:n_neurons])
+    signal_model = config.graph_model.signal_model_name
+    try:
+        OdeParamsCls = get_ode_params_class(signal_model)
+    except KeyError:
+        OdeParamsCls = FlyVisODEParams
+    ode_params = OdeParamsCls.load(graphs_data_path(config.dataset), device=device)
 
     # Plot 1: Raw W scatter
     fig, ax = plt.subplots(figsize=(8, 8))
@@ -1632,26 +1631,33 @@ def plot_training_linear(model, config, epoch, N, log_dir, device,
                 dpi=87, bbox_inches='tight', pad_inches=0)
     plt.close()
 
-    # Plot 2: tau scatter
-    fig, ax = plt.subplots(figsize=(8, 8))
-    plot_weight_scatter(ax, gt_weights=gt_tau_np, learned_weights=learned_tau, corrected=False)
-    ax.set_xlabel(r'true $\tau$', fontsize=24)
-    ax.set_ylabel(r'learned $\tau$', fontsize=24)
-    plt.tight_layout()
-    os.makedirs(f"{log_dir}/tmp_training/dynamics", exist_ok=True)
-    plt.savefig(f"{log_dir}/tmp_training/dynamics/tau_{epoch}_{N}.png",
-                dpi=87, bbox_inches='tight', pad_inches=0)
-    plt.close()
+    # Plot 2: tau scatter (only for models with tau_i)
+    if hasattr(ode_params, 'tau_i') and ode_params.tau_i is not None:
+        learned_tau = to_numpy(F.softplus(model.raw_tau[:n_neurons]).detach())
+        gt_tau_np = to_numpy(ode_params.tau_i[:n_neurons])
+        fig, ax = plt.subplots(figsize=(8, 8))
+        plot_weight_scatter(ax, gt_weights=gt_tau_np, learned_weights=learned_tau, corrected=False)
+        ax.set_xlabel(r'true $\tau$', fontsize=24)
+        ax.set_ylabel(r'learned $\tau$', fontsize=24)
+        plt.tight_layout()
+        os.makedirs(f"{log_dir}/tmp_training/dynamics", exist_ok=True)
+        plt.savefig(f"{log_dir}/tmp_training/dynamics/tau_{epoch}_{N}.png",
+                    dpi=87, bbox_inches='tight', pad_inches=0)
+        plt.close()
 
-    # Plot 3: V_rest scatter
-    fig, ax = plt.subplots(figsize=(8, 8))
-    plot_weight_scatter(ax, gt_weights=gt_vrest_np, learned_weights=learned_vrest, corrected=False)
-    ax.set_xlabel(r'true $V_{rest}$', fontsize=24)
-    ax.set_ylabel(r'learned $V_{rest}$', fontsize=24)
-    plt.tight_layout()
-    plt.savefig(f"{log_dir}/tmp_training/dynamics/vrest_{epoch}_{N}.png",
-                dpi=87, bbox_inches='tight', pad_inches=0)
-    plt.close()
+    # Plot 3: V_rest scatter (only for models with V_i_rest)
+    if hasattr(ode_params, 'V_i_rest') and ode_params.V_i_rest is not None:
+        learned_vrest = to_numpy(model.V_rest[:n_neurons].detach())
+        gt_vrest_np = to_numpy(ode_params.V_i_rest[:n_neurons])
+        fig, ax = plt.subplots(figsize=(8, 8))
+        plot_weight_scatter(ax, gt_weights=gt_vrest_np, learned_weights=learned_vrest, corrected=False)
+        ax.set_xlabel(r'true $V_{rest}$', fontsize=24)
+        ax.set_ylabel(r'learned $V_{rest}$', fontsize=24)
+        plt.tight_layout()
+        os.makedirs(f"{log_dir}/tmp_training/dynamics", exist_ok=True)
+        plt.savefig(f"{log_dir}/tmp_training/dynamics/vrest_{epoch}_{N}.png",
+                    dpi=87, bbox_inches='tight', pad_inches=0)
+        plt.close()
 
     return conn_r2, tau_r2, vrest_r2
 
