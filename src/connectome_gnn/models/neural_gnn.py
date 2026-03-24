@@ -224,11 +224,12 @@ class NeuralGNN(nn.Module):
         n_edges_batch = edge_index.shape[1]
         edge_W_idx = torch.arange(n_edges_batch, device=self.device) % (self.n_edges + self.n_extra_null_edges)
 
-        # build per-edge features
+        # build per-edge features (ensure 2D even when embedding_dim=1)
+        emb = embedding if embedding.dim() == 2 else embedding.unsqueeze(-1)
         if self.model == 'flyvis_B':
-            in_features = torch.cat([v[dst], v[src], embedding[dst], embedding[src]], dim=1)
+            in_features = torch.cat([v[dst], v[src], emb[dst], emb[src]], dim=1)
         else:
-            in_features = torch.cat([v[src], embedding[src]], dim=1)
+            in_features = torch.cat([v[src], emb[src]], dim=1)
 
         # edge function
         g_phi_out = self.g_phi(in_features)
@@ -262,7 +263,9 @@ class NeuralGNN(nn.Module):
         v = state.observable(self.calcium_type)
         excitation = state.stimulus.unsqueeze(-1)
         particle_id = state.index.long()
-        embedding = self.a[particle_id].squeeze()
+        embedding = self.a[particle_id]
+        if embedding.dim() == 1:
+            embedding = embedding.unsqueeze(-1)
 
         msg = self._compute_messages(v, embedding, edge_index)
 
