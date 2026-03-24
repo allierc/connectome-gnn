@@ -541,28 +541,37 @@ def compute_dynamics_r2_linear(model, config, device, n_neurons):
     """
     import torch.nn.functional as F
 
-    from connectome_gnn.generators.ode_params import FlyVisODEParams
-    ode_params = FlyVisODEParams.load(graphs_data_path(config.dataset), device=device)
-    gt_V_rest = to_numpy(ode_params.V_i_rest[:n_neurons])
-    gt_tau = to_numpy(ode_params.tau_i[:n_neurons])
+    from connectome_gnn.generators.ode_params import get_ode_params_class, FlyVisODEParams
+    signal_model = config.graph_model.signal_model_name
+    try:
+        OdeParamsCls = get_ode_params_class(signal_model)
+    except KeyError:
+        OdeParamsCls = FlyVisODEParams
+    ode_params = OdeParamsCls.load(graphs_data_path(config.dataset), device=device)
     gt_weights = to_numpy(ode_params.W)
-
-    learned_tau = to_numpy(F.softplus(model.raw_tau[:n_neurons]).detach())
-    learned_vrest = to_numpy(model.V_rest[:n_neurons].detach())
     learned_W = to_numpy(get_model_W(model).squeeze())
 
-    try:
-        vrest_r2, _ = compute_r_squared(gt_V_rest, learned_vrest)
-    except Exception:
-        vrest_r2 = 0.0
-    try:
-        tau_r2, _ = compute_r_squared(gt_tau, learned_tau)
-    except Exception:
-        tau_r2 = 0.0
+    vrest_r2 = 0.0
+    tau_r2 = 0.0
+    conn_r2 = 0.0
+
+    # tau and V_rest only exist for FlyVis models
+    if hasattr(ode_params, 'V_i_rest') and ode_params.V_i_rest is not None:
+        try:
+            learned_vrest = to_numpy(model.V_rest[:n_neurons].detach())
+            vrest_r2, _ = compute_r_squared(to_numpy(ode_params.V_i_rest[:n_neurons]), learned_vrest)
+        except Exception:
+            pass
+    if hasattr(ode_params, 'tau_i') and ode_params.tau_i is not None:
+        try:
+            learned_tau = to_numpy(F.softplus(model.raw_tau[:n_neurons]).detach())
+            tau_r2, _ = compute_r_squared(to_numpy(ode_params.tau_i[:n_neurons]), learned_tau)
+        except Exception:
+            pass
     try:
         conn_r2, _ = compute_r_squared(gt_weights, learned_W)
     except Exception:
-        conn_r2 = 0.0
+        pass
 
     return vrest_r2, tau_r2, conn_r2
 
