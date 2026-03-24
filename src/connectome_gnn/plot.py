@@ -179,14 +179,23 @@ def plot_embedding(ax, model, type_list, n_types, cmap):
     if n_neurons < 100:
         _dot_s = max(60, _dot_s)
 
-    for n in range(n_types):
-        mask = (type_np == n)
-        if np.any(mask):
-            ax.scatter(embedding[mask, 0], embedding[mask, 1],
-                       c=cmap.color(n), s=_dot_s, edgecolors='none')
-
-    ax.set_xlabel('$a_0$', fontsize=32)
-    ax.set_ylabel('$a_1$', fontsize=32)
+    if embedding.shape[1] < 2:
+        # 1D embedding: plot as histogram-like strip
+        for n in range(n_types):
+            mask = (type_np == n)
+            if np.any(mask):
+                ax.scatter(embedding[mask, 0], np.zeros(mask.sum()),
+                           c=cmap.color(n), s=_dot_s, edgecolors='none')
+        ax.set_xlabel('$a_0$', fontsize=32)
+        ax.set_ylabel('')
+    else:
+        for n in range(n_types):
+            mask = (type_np == n)
+            if np.any(mask):
+                ax.scatter(embedding[mask, 0], embedding[mask, 1],
+                           c=cmap.color(n), s=_dot_s, edgecolors='none')
+        ax.set_xlabel('$a_0$', fontsize=32)
+        ax.set_ylabel('$a_1$', fontsize=32)
     ax.tick_params(axis='both', which='major', labelsize=24)
     ax.xaxis.set_major_formatter(FormatStrFormatter('%.1f'))
     ax.yaxis.set_major_formatter(FormatStrFormatter('%.1f'))
