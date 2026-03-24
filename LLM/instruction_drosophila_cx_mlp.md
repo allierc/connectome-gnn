@@ -103,8 +103,12 @@ Each batch runs 4 slots with different seeds (forced by pipeline). You choose th
 | ----- | ------------------------ | ------------------------------------------- | --------------------------------------------------------------- |
 | 1     | **lr + architecture**    | `lr`, `hidden_dim`, `n_layers`              | lr: {1e-4, 5e-4, 1e-3, 3e-3}, hidden_dim: {128, 256, 512}, n_layers: {3, 4, 5} |
 | 2     | **Training volume**      | `data_augmentation_loop`, `n_epochs`        | DAL: {200, 500, 1000}, n_epochs: {5, 10, 20}                   |
-| 3     | **Capacity vs regularization** | `hidden_dim`, weight decay via lr     | Test if larger MLPs overfit or if more capacity helps Jacobian recovery |
-| 4     | **Free exploration**     | Any parameter                               | Consolidate best, confirm robustness                            |
+| 3     | **Batch size**           | `batch_size`                                | batch_size: {1, 2, 4, 8}. Smaller batches = noisier gradients but more updates per epoch. Larger batches = smoother gradients, may help Jacobian structure. |
+| 4     | **Capacity vs regularization** | `hidden_dim`, weight decay via lr     | Test if larger MLPs overfit or if more capacity helps Jacobian recovery |
+| 5     | **Free exploration I**   | Any parameter                               | Consolidate best from blocks 1-4, test novel combinations       |
+| 6     | **Free exploration II**  | Any parameter                               | Continue ceiling-breaking attempts                              |
+| 7     | **Free exploration III** | Any parameter                               | Continue ceiling-breaking attempts                              |
+| 8     | **Free exploration IV**  | Any parameter                               | Final refinement and robustness confirmation                    |
 
 ## Iteration Workflow
 
