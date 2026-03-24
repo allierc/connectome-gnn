@@ -55,6 +55,12 @@ training:
   sparsity: none
   data_augmentation_loop: 100  # data passes per epoch
 
+  # Data split (matching EED latent_1step.yaml)
+  train_start: 4000   # skip burn-in
+  train_end: 54000
+  val_start: 54000
+  val_end: 64000
+
   lr: 0.00001
   lr_embedding: 0
   lr_W: 0
