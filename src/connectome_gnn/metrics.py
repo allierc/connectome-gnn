@@ -577,6 +577,46 @@ def compute_dynamics_r2_linear(model, config, device, n_neurons):
 
 
 # ------------------------------------------------------------------ #
+#  Jacobian-based connectivity R2 for MLP baseline
+# ------------------------------------------------------------------ #
+
+def compute_jacobian_connectivity_r2(model, x_ts, ode_params, n_neurons, device,
+                                     n_samples=100, seed=0):
+    """Compute connectivity R2 by comparing Jacobian dF/dv to GT weight matrix.
+
+    The MLP baseline has no explicit W. We extract the effective connectivity
+    from the Jacobian dF/dv averaged over multiple frames, then compare to
+    the GT weight matrix (dense, n_neurons x n_neurons).
+
+    Returns:
+        conn_r2: float R² value
+    """
+    import numpy as np
+
+    model.eval()
+    with torch.no_grad():
+        pass  # just to set eval mode
+    # Need gradients for Jacobian computation
+    J_mean = model.compute_jacobian_batched(x_ts, n_samples=n_samples, seed=seed)
+    model.train()
+
+    # Build GT dense weight matrix
+    ei = to_numpy(ode_params.edge_index)
+    gt_W = to_numpy(ode_params.W)
+    W_dense_gt = np.zeros((n_neurons, n_neurons), dtype=np.float32)
+    W_dense_gt[ei[0], ei[1]] = gt_W
+
+    J_np = to_numpy(J_mean)
+
+    try:
+        conn_r2, _ = compute_r_squared(W_dense_gt.flatten(), J_np.flatten())
+    except Exception:
+        conn_r2 = 0.0
+
+    return conn_r2
+
+
+# ------------------------------------------------------------------ #
 #  Gradient of f_theta w.r.t. msg
 # ------------------------------------------------------------------ #
 
