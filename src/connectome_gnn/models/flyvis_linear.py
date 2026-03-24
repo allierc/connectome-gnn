@@ -18,7 +18,10 @@ from connectome_gnn.models.registry import register_model
 from connectome_gnn.neuron_state import NeuronState
 
 
-@register_model("flyvis_linear", "flyvis_linear_tanh")
+@register_model(
+    "flyvis_linear", "flyvis_linear_tanh",
+    "drosophila_cx_linear", "larva_linear", "zebrafish_oculomotor_linear",
+)
 class LinearODE(nn.Module):
     """Linear ODE baseline for neural signal dynamics.
 

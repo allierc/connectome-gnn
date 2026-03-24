@@ -20,7 +20,10 @@ import torch.nn as nn
 from connectome_gnn.models.registry import register_model
 
 
-@register_model("flyvis_rnn")
+@register_model(
+    "flyvis_rnn",
+    "drosophila_cx_rnn", "larva_rnn", "zebrafish_oculomotor_rnn",
+)
 class NeuralRNN(nn.Module):
     """GRU-based RNN baseline for neural dynamics prediction.
 
