@@ -72,7 +72,7 @@ Architecture parameters (explorable):
 - `hidden_dim_update` / `n_layers_update`: f_theta MLP width/depth (default: 80 / 3)
 - `embedding_dim`: embedding dimension (default: 2)
 
-**CRITICAL — coupled parameters**: When changing `embedding_dim`, you MUST also update:
+**CRITICAL — coupled parameters**: `embedding_dim` must be >= 2 (embedding_dim=1 crashes plotting). When changing `embedding_dim`, you MUST also update:
 
 - `input_size = 1 + embedding_dim` (v_j + a_j for g_phi)
 - `input_size_update = 3 + embedding_dim` (v_i + a_i + msg + I_i for f_theta)
