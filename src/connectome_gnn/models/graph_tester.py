@@ -241,10 +241,9 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
 
             if 'rnn' in model_config.signal_model_name.lower():
                 pred = model(x.to_packed(), return_all=False)
-            elif 'MLP' in model_config.signal_model_name:
+            elif 'mlp' in model_config.signal_model_name.lower():
                 batched_state, _ = _batch_frames([x], edges)
-                x_packed = batched_state.to_packed()
-                pred = model(x_packed, data_id=data_id, return_all=False)
+                pred = model(batched_state, data_id=data_id, return_all=False)
             else:
                 batched_state, batched_edges = _batch_frames([x], edges)
                 pred, _, _ = model(
@@ -321,15 +320,15 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
                 y, h_state = model(x.to_packed(), h=h_state, return_all=True)
             elif 'lstm' in model_config.signal_model_name.lower():
                 y, h_state, c_state = model(x.to_packed(), h=h_state, c=c_state, return_all=True)
-            elif 'MLP_ODE' in model_config.signal_model_name:
+            elif 'mlp_ode' in model_config.signal_model_name.lower():
                 v = x.voltage.unsqueeze(-1)
                 if tc.training_selected_neurons:
                     I = x.stimulus.unsqueeze(-1)
                 else:
                     I = x.stimulus[:sim.n_input_neurons].unsqueeze(-1)
                 y = model.rollout_step(v, I, dt=sim.delta_t, method='rk4') - v
-            elif 'MLP' in model_config.signal_model_name:
-                y = model(x.to_packed(), data_id=data_id, return_all=False)
+            elif 'mlp' in model_config.signal_model_name.lower():
+                y = model(x, data_id=data_id, return_all=False)
             elif hasattr(tc, 'neural_ODE_training') and tc.neural_ODE_training:
                 v0 = x.voltage.flatten()
                 v_final, _ = integrate_neural_ode(
@@ -349,7 +348,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
                 y = model(x, edges, data_id=data_id, return_all=False)
 
             # Integration step
-            if 'MLP_ODE' in model_config.signal_model_name:
+            if 'mlp_ode' in model_config.signal_model_name.lower():
                 x.voltage = x.voltage + y.squeeze(-1)
             else:
                 x.voltage = x.voltage + sim.delta_t * y.squeeze(-1)
@@ -443,6 +442,23 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
         log_file.write(f'rollout_RMSE_std: {np.std(rmse_ro):.4f}\n')
         if stimuli_R2 is not None:
             log_file.write(f'stimuli_R2: {stimuli_R2:.4f}\n')
+
+    # --- MLP Jacobian connectivity R2 ---
+    if 'mlp' in model_config.signal_model_name.lower() and hasattr(model, 'compute_jacobian_batched'):
+        from connectome_gnn.metrics import compute_jacobian_connectivity_r2
+        from connectome_gnn.generators.ode_params import get_ode_params_class
+        try:
+            _OdeCls = get_ode_params_class(config.graph_model.signal_model_name)
+            _ode_p = _OdeCls.load(graphs_data_path(config.dataset), device=device)
+        except Exception:
+            _ode_p = None
+        if _ode_p is not None:
+            jac_r2 = compute_jacobian_connectivity_r2(
+                model, x_ts_eval, _ode_p, n_neurons=n_neurons, device=device)
+            logger.info(f'Jacobian connectivity R2: {jac_r2:.4f}')
+            if log_file:
+                log_file.write(f'\n--- Jacobian connectivity ---\n')
+                log_file.write(f'connectivity_R2: {jac_r2:.4f}\n')
 
     # --- Rollout trace plots ---
     neuron_types = to_numpy(type_list).astype(int).squeeze()
@@ -1096,11 +1112,11 @@ def data_test_gnn_special(
                             y, h_state = model(x_selected.to_packed(), h=h_state, return_all=True)
                         elif 'lstm' in _smn_lower:
                             y, h_state, c_state = model(x_selected.to_packed(), h=h_state, c=c_state, return_all=True)
-                        elif 'MLP_ODE' in model_config.signal_model_name:
+                        elif 'mlp_ode' in model_config.signal_model_name.lower():
                             v = x_selected.voltage.unsqueeze(-1)
                             I = x_selected.stimulus.unsqueeze(-1)
                             y = model.rollout_step(v, I, dt=sim.delta_t, method='rk4') - v  # Return as delta
-                        elif 'MLP' in model_config.signal_model_name:
+                        elif 'mlp' in model_config.signal_model_name.lower():
                             y = model(x_selected.to_packed(), data_id=None, return_all=False)
 
                     else:
@@ -1108,11 +1124,11 @@ def data_test_gnn_special(
                             y, h_state = model(x.to_packed(), h=h_state, return_all=True)
                         elif 'lstm' in _smn_lower:
                             y, h_state, c_state = model(x.to_packed(), h=h_state, c=c_state, return_all=True)
-                        elif 'MLP_ODE' in model_config.signal_model_name:
+                        elif 'mlp_ode' in model_config.signal_model_name.lower():
                             v = x.voltage.unsqueeze(-1)
                             I = x.stimulus[:sim.n_input_neurons].unsqueeze(-1)
                             y = model.rollout_step(v, I, dt=sim.delta_t, method='rk4') - v  # Return as delta
-                        elif 'MLP' in model_config.signal_model_name:
+                        elif 'mlp' in model_config.signal_model_name.lower():
                             y = model(x.to_packed(), data_id=None, return_all=False)
                         elif tc.neural_ODE_training:
                             data_id = torch.zeros((x.n_neurons, 1), dtype=torch.int, device=device)
@@ -1166,14 +1182,14 @@ def data_test_gnn_special(
                         x_generated_modified.voltage = x_generated_modified.voltage + sim.delta_t * y_generated_modified.squeeze(-1)
 
                     if tc.training_selected_neurons:
-                        if 'MLP_ODE' in model_config.signal_model_name:
+                        if 'mlp_ode' in model_config.signal_model_name.lower():
                             x_selected.voltage = x_selected.voltage + y.squeeze(-1)  # y already contains full update
                         else:
                             x_selected.voltage = x_selected.voltage + sim.delta_t * y.squeeze(-1)
                         if (it <= warm_up_length) and ('rnn' in _smn_lower or 'lstm' in _smn_lower):
                             x_selected.voltage = x_generated.voltage[selected_neuron_ids].clone()
                     else:
-                        if 'MLP_ODE' in model_config.signal_model_name:
+                        if 'mlp_ode' in model_config.signal_model_name.lower():
                             x.voltage = x.voltage + y.squeeze(-1)  # y already contains full update
                         else:
                             x.voltage = x.voltage + sim.delta_t * y.squeeze(-1)
