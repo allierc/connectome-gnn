@@ -557,7 +557,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
                     label='ground truth' if i == 0 else None)
             if ((neuron_indices[i] == 0) or (len(neuron_indices) < 50)) and stim_slice[i].mean() > 0:
                 ax.plot(stim_slice[i] - baseline + i * step_v, linewidth=0.7, c='red', alpha=0.9,
-                        linestyle='--', label='visual input' if i == 0 else None)
+                        linestyle='--', label='stimuli' if i == 0 else None)
 
         # predictions (black, thin)
         for i in range(len(neuron_indices)):
@@ -1373,7 +1373,7 @@ def data_test_gnn_special(
                 # Plot visual input only for neuron_id = 0
                 if ((selected_neuron_ids[neuron_idx] == 0) | (len(neuron_plot_indices) < 50)) and visual_input_slice[neuron_idx].mean() > 0:
                     ax.plot(visual_input_slice[neuron_idx] - baseline + plot_idx * step_v, linewidth=1, c='yellow', alpha=0.9,
-                            linestyle='--', label='visual input')
+                            linestyle='--', label='stimuli')
 
             # Plot predictions (black, thin) — on top
             for plot_idx, i in enumerate(range(len(neuron_plot_indices))):
@@ -1460,7 +1460,7 @@ def data_test_gnn_special(
                 # Plot visual input for neuron 0 OR when fewer than 50 neurons
                 if ((neuron_indices[i] == 0) | (len(neuron_indices) < 50)) and visual_input_slice[i].mean() > 0:
                     ax.plot(visual_input_slice[i] - baseline + i * step_v, linewidth=0.7, c='red', alpha=0.9,
-                            linestyle='--', label='visual input')
+                            linestyle='--', label='stimuli')
 
             # Plot predictions (black, thin) — on top
             for i in range(len(neuron_indices)):
