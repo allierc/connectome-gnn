@@ -92,7 +92,11 @@ def data_train(config=None, erase=False, best_model=None, style=None, device=Non
 
     _connconstr = any(x in config.dataset for x in ('drosophila_cx', 'zebrafish_oculomotor', 'larva'))
     if 'fly' in config.dataset or _connconstr:
-        if 'rnn' in config.graph_model.signal_model_name.lower() or 'lstm' in config.graph_model.signal_model_name.lower():
+        model_name = config.graph_model.signal_model_name.lower()
+        if 'mlp' in model_name and 'rnn' not in model_name:
+            from connectome_gnn.models.data_train_mlp import data_train_mlp
+            data_train_mlp(config, erase, best_model, device, log_file=log_file)
+        elif 'rnn' in model_name or 'lstm' in model_name:
             data_train_gnn_RNN(config, erase, best_model, device)
         else:
             data_train_gnn(config, erase, best_model, device, log_file=log_file)
