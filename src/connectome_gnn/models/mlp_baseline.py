@@ -134,10 +134,10 @@ class MLPBaseline(nn.Module):
         Returns:
             J_mean: (n_neurons, n_neurons) mean Jacobian
         """
+        n_frames = x_ts.voltage.shape[0]
         rng = torch.Generator(device='cpu')
         rng.manual_seed(seed)
-        n_frames = x_ts.voltage.shape[0]
-        frame_indices = torch.randint(0, n_frames, (n_samples,), generator=rng)
+        frame_indices = torch.randint(0, n_frames, (n_samples,), generator=rng, device='cpu')
 
         J_sum = torch.zeros(self.n_neurons, self.n_neurons, device=self.device)
         for k in frame_indices:
