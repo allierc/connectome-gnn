@@ -432,7 +432,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                 is_regular_r2 = (N > 0) and (N % connectivity_plot_frequency == 0)
                 is_early_r2 = (N > 0) and (N < connectivity_plot_frequency) and (N % early_r2_frequency == 0)
                 model_name = model_config.signal_model_name
-                if (is_regular_r2 or is_early_r2) and 'MLP' not in model_name:
+                if (is_regular_r2 or is_early_r2) and 'mlp' not in model_name.lower():
                     last_connectivity_r2 = plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_list, gt_weights, edges, n_neurons=n_neurons, n_neuron_types=sim.n_neuron_types, ode_params=ode_params)
                     last_vrest_r2, last_tau_r2 = compute_dynamics_r2(model, x_ts, config, device, n_neurons)
                     with open(metrics_log_path, 'a') as f:
@@ -539,14 +539,14 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                     loss = loss + (visual_input_batch - y_batch).norm(2)
 
 
-                elif 'MLP_ODE' in model_config.signal_model_name:
+                elif 'mlp_ode' in model_config.signal_model_name.lower():
                     batched_state, _ = _batch_frames(state_batch, edges)
                     batched_x = batched_state.to_packed()
                     pred = model(batched_x, data_id=data_id, return_all=False)
 
                     loss = loss + (pred[ids_batch] - y_batch[ids_batch]).norm(2)
 
-                elif 'MLP' in model_config.signal_model_name:
+                elif 'mlp' in model_config.signal_model_name.lower():
                     batched_state, _ = _batch_frames(state_batch, edges)
                     batched_x = batched_state.to_packed()
                     pred = model(batched_x, data_id=data_id, return_all=False)
@@ -703,7 +703,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                         model, config, epoch, N, log_dir, device, gt_weights, n_neurons=n_neurons)
                     with open(metrics_log_path, 'a') as f:
                         f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f}\n')
-                elif (is_regular_r2 or is_early_r2) and not test_neural_field and 'MLP' not in model_name:
+                elif (is_regular_r2 or is_early_r2) and not test_neural_field and 'mlp' not in model_name.lower():
                     last_connectivity_r2 = plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_list, gt_weights, edges, n_neurons=n_neurons, n_neuron_types=sim.n_neuron_types, ode_params=ode_params)
                     last_vrest_r2, last_tau_r2 = compute_dynamics_r2(model, x_ts, config, device, n_neurons)
                     with open(metrics_log_path, 'a') as f:

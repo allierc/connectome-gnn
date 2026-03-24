@@ -2169,7 +2169,7 @@ def data_plot(config, config_file, epoch_list, style, extended, device, apply_we
 
     fig_style.apply_globally()
 
-    log_dir, logger = create_log_dir(config=config, erase=False, erase_results=True)
+    log_dir, logger = create_log_dir(config=config, erase=False, erase_results=False)
 
     os.makedirs(os.path.join(log_dir, 'results'), exist_ok=True)
 
