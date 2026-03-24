@@ -460,6 +460,28 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
                 log_file.write(f'\n--- Jacobian connectivity ---\n')
                 log_file.write(f'connectivity_R2: {jac_r2:.4f}\n')
 
+            # W scatter plot: true W vs Jacobian dF/dv
+            model.eval()
+            J_mean = model.compute_jacobian_batched(x_ts_eval, n_samples=50, seed=0)
+            model.train()
+            ei = to_numpy(_ode_p.edge_index)
+            gt_W = to_numpy(_ode_p.W)
+            J_np = to_numpy(J_mean)
+            learned_at_edges = J_np[ei[0], ei[1]]
+
+            from connectome_gnn.plot import plot_weight_scatter
+            fig, ax = plt.subplots(figsize=(8, 8))
+            plot_weight_scatter(ax, gt_weights=gt_W, learned_weights=learned_at_edges,
+                                corrected=False, outlier_threshold=5)
+            ax.set_xlabel('true $W$', fontsize=24)
+            ax.set_ylabel('Jacobian $\\partial F / \\partial v$', fontsize=24)
+            ax.set_title(f'Jacobian connectivity $R^2$ = {jac_r2:.4f}', fontsize=18)
+            plt.tight_layout()
+            _idx = config.dataset.rstrip('_0123456789')
+            plt.savefig(f"{results_dir}/weights_comparison_{_idx}.png", dpi=300)
+            plt.close()
+            logger.info(f'saved weights_comparison_{_idx}.png')
+
     # --- Rollout trace plots ---
     neuron_types = to_numpy(type_list).astype(int).squeeze()
     n_neuron_types = sim.n_neuron_types
