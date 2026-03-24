@@ -2,7 +2,7 @@
 
 ## Goal
 
-Maximize **connectivity_R2** for the **MLP baseline** on the Drosophila central complex ring attractor.
+Maximize **rollout_pearson** (primary) and **connectivity_R2** (secondary) for the **MLP baseline** on the Drosophila central complex ring attractor.
 
 The MLP baseline is a **flat, graph-free model**: `dv/dt = MLP([v_all; stimulus_all])`. No edges, no message passing — just a black-box MLP mapping all neuron states and stimuli to all derivatives. Connectivity is extracted post-hoc via the **Jacobian dF/dv**.
 
@@ -12,8 +12,8 @@ Data is **re-generated each iteration** with a different seed to verify seed ind
 
 ### Metrics (ranked by importance)
 
-1. **connectivity_R2** (PRIMARY) — R² between Jacobian dF/dv and ground-truth W (dense matrix comparison)
-2. **rollout_pearson** (SECONDARY) — autoregressive rollout Pearson r on noise-free data
+1. **rollout_pearson** (PRIMARY) — autoregressive rollout Pearson r on noise-free data
+2. **connectivity_R2** (SECONDARY) — R² between Jacobian dF/dv and ground-truth W (dense matrix comparison)
 3. **cluster_accuracy** (THIRD) — not applicable (no embeddings), always 0
 
 Informational: onestep_pearson, spectral_radius_learned vs spectral_radius_true, training_time_min.
@@ -150,7 +150,7 @@ When prompt says `PARALLEL START`:
 - Read base config — this IS the baseline. Do NOT change any default values.
 - Slot 0 = baseline (no changes at all).
 - Slots 1-3: each changes EXACTLY ONE parameter from the block focus.
-- Hypothesis: "The MLP baseline achieves connectivity_R2 > 0.1 via Jacobian extraction"
+- Hypothesis: "The MLP baseline achieves rollout_pearson > 0.5 and connectivity_R2 > 0.1 via Jacobian extraction"
 
 ---
 
