@@ -28,7 +28,7 @@ LABEL_CALCIUM = r"$[\mathrm{Ca}^{2+}]$"
 LABEL_TIME = "time (frames)"
 LABEL_NEURONS = "neurons"
 LABEL_FRAME = "frame"
-LABEL_INPUT = "visual input"
+LABEL_INPUT = "stimuli"
 LABEL_LOSS = "loss"
 LABEL_EPOCH = "epoch"
 

@@ -684,7 +684,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
         name_fontsize = 10 if len(neuron_indices) > 50 else 18
 
         _stim_color = 'red' if _connconstr else 'yellow'
-        _stim_label = 'stimuli' if _connconstr else 'visual input'
+        _stim_label = 'stimuli'
         _stim_scale = 0.3 if _connconstr else 1.0
 
         for i in range(len(neuron_indices)):
