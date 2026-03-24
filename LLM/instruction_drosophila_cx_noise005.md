@@ -89,7 +89,7 @@ dh/dt = alpha * (-h + exp(g_i) * softplus(h_j + b_j, beta=5) @ J^T + input) / ta
 - **f_theta**: Node update MLP. Maps (v_i, a_i, aggregated_msg, I_i) -> dv_i/dt.
 - **Embedding a_i**: learnable per-neuron type vector.
 
-**CRITICAL — coupled parameters**: When changing `embedding_dim`, you MUST also update:
+**CRITICAL — coupled parameters**: `embedding_dim` must be >= 2 (embedding_dim=1 crashes plotting). When changing `embedding_dim`, you MUST also update:
 
 - `input_size = 1 + embedding_dim`
 - `input_size_update = 3 + embedding_dim`
