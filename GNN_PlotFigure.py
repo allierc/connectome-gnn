@@ -746,16 +746,20 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 continue
 
             # print learnable parameters table
-            mlp0_params = sum(p.numel() for p in model.f_theta.parameters())
-            mlp1_params = sum(p.numel() for p in model.g_phi.parameters())
-            a_params = model.a.numel()
-            w_params = get_model_W(model).numel()
-            print('learnable parameters:')
-            print(f'  f_theta: {mlp0_params:,}')
-            print(f'  g_phi: {mlp1_params:,}')
-            print(f'  a (embeddings): {a_params:,}')
-            print(f'  W (connectivity): {w_params:,}')
-            total_params = mlp0_params + mlp1_params + a_params + w_params
+            if hasattr(model, 'f_theta') and hasattr(model, 'g_phi'):
+                mlp0_params = sum(p.numel() for p in model.f_theta.parameters())
+                mlp1_params = sum(p.numel() for p in model.g_phi.parameters())
+                a_params = model.a.numel()
+                w_params = get_model_W(model).numel()
+                print('learnable parameters:')
+                print(f'  f_theta: {mlp0_params:,}')
+                print(f'  g_phi: {mlp1_params:,}')
+                print(f'  a (embeddings): {a_params:,}')
+                print(f'  W (connectivity): {w_params:,}')
+                total_params = mlp0_params + mlp1_params + a_params + w_params
+            else:
+                total_params = sum(p.numel() for p in model.parameters())
+                print(f'learnable parameters: {total_params:,} (flat model)')
             if hasattr(model, 'NNR_f') and model.NNR_f is not None:
                 nnr_f_params = sum(p.numel() for p in model.NNR_f.parameters())
                 print(f'  INR (NNR_f): {nnr_f_params:,}')
@@ -782,6 +786,17 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             _dot_s = max(10, min(48, 2000 / max(n_neurons, 1))) if n_neurons > 500 else max(30, min(80, 5000 / max(n_neurons, 1)))
             _dot_alpha = max(0.3, min(0.9, 100 / max(n_neurons, 1))) if n_neurons > 500 else 1.0
             _curve_alpha = max(0.1, min(0.8, 50 / max(n_neurons, 1))) if n_neurons > 500 else max(0.3, min(0.9, 100 / max(n_neurons, 1)))
+
+            _is_mlp = 'mlp' in model_config.signal_model_name.lower() and not hasattr(model, 'f_theta')
+
+            # --- Skip GNN-specific plots for MLP baseline ---
+            if _is_mlp:
+                print('skipping GNN-specific plots (embedding, g_phi, f_theta) for MLP baseline')
+                if log_file:
+                    log_file.write(f"\n--- MLP baseline (no GNN parameter extraction) ---\n")
+                    log_file.write(f"model_type: MLP\n")
+                    log_file.write(f"total_params: {total_params}\n")
+                continue  # skip to next epoch in epoch_list
 
             # Plot 2: Embedding using model.a
             fig = plt.figure(figsize=(10, 9))
