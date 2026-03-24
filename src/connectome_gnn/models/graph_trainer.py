@@ -548,8 +548,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
 
                 elif 'mlp' in model_config.signal_model_name.lower():
                     batched_state, _ = _batch_frames(state_batch, edges)
-                    batched_x = batched_state.to_packed()
-                    pred = model(batched_x, data_id=data_id, return_all=False)
+                    pred = model(batched_state, data_id=data_id, return_all=False)
 
                     loss = loss + (pred[ids_batch] - y_batch[ids_batch]).norm(2)
 
