@@ -953,7 +953,7 @@ class ZebrafishODEParams(ODEParamsBase):
 # Drosophila adult central complex ring attractor (Beiran & Litwin-Kumar 2023, Fig 5)
 # ---------------------------------------------------------------------------
 
-@register_ode_params("drosophila_cx", "drosophila_cx_linear", "drosophila_cx_rnn")
+@register_ode_params("drosophila_cx", "drosophila_cx_linear", "drosophila_cx_rnn", "drosophila_cx_mlp")
 @dataclass
 class DrosophilaCxODEParams(ODEParamsBase):
     """Parameters for the Drosophila central complex ring attractor ODE.

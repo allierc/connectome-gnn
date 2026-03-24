@@ -65,6 +65,35 @@ def r2_color(val, thresholds=(0.9, 0.7, 0.3)):
     return ANSI_GREEN if val > t0 else ANSI_YELLOW if val > t1 else ANSI_ORANGE if val > t2 else ANSI_RED
 
 
+def _plot_jacobian_w_scatter(model, x_ts, ode_params, gt_weights, n_neurons,
+                             log_dir, epoch, N, device):
+    """Plot W scatter using Jacobian-extracted effective connectivity."""
+    import numpy as np
+    from connectome_gnn.plot import plot_weight_scatter
+
+    model.eval()
+    J_mean = model.compute_jacobian_batched(x_ts, n_samples=50, seed=0)
+    model.train()
+
+    ei = to_numpy(ode_params.edge_index)
+    gt_W = to_numpy(ode_params.W)
+
+    # Compare Jacobian entries at GT edge locations
+    J_np = to_numpy(J_mean)
+    learned_at_edges = J_np[ei[0], ei[1]]
+
+    fig, ax = plt.subplots(figsize=(8, 8))
+    plot_weight_scatter(ax, gt_weights=gt_W, learned_weights=learned_at_edges,
+                        corrected=False, outlier_threshold=5)
+    ax.set_xlabel('true $W$', fontsize=24)
+    ax.set_ylabel('Jacobian $\\partial F / \\partial v$', fontsize=24)
+    plt.tight_layout()
+    os.makedirs(f"{log_dir}/tmp_training/matrix", exist_ok=True)
+    plt.savefig(f"{log_dir}/tmp_training/matrix/raw_{epoch}_{N}.png",
+                dpi=87, bbox_inches='tight', pad_inches=0)
+    plt.close()
+
+
 def data_train(config=None, erase=False, best_model=None, style=None, device=None, log_file=None):
     # plt.rcParams['text.usetex'] = False  # LaTeX disabled - use mathtext instead
     # rc('font', **{'family': 'serif', 'serif': ['Times New Roman', 'Liberation Serif', 'DejaVu Serif', 'serif']})
@@ -658,7 +687,18 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                 is_regular_r2 = (N > 0) and (N % connectivity_plot_frequency == 0)
                 is_early_r2 = (N > 0) and (N < connectivity_plot_frequency) and (N % early_r2_frequency == 0)
                 model_name = model_config.signal_model_name
-                if (is_regular_r2 or is_early_r2) and not test_neural_field and 'linear' in model_name:
+                if (is_regular_r2 or is_early_r2) and not test_neural_field and '_mlp' in model_name:
+                    from connectome_gnn.metrics import compute_jacobian_connectivity_r2
+                    last_connectivity_r2 = compute_jacobian_connectivity_r2(
+                        model, x_ts, ode_params, n_neurons=n_neurons, device=device)
+                    last_tau_r2 = 0.0
+                    last_vrest_r2 = 0.0
+                    with open(metrics_log_path, 'a') as f:
+                        f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f}\n')
+                    # W scatter plot using Jacobian
+                    _plot_jacobian_w_scatter(model, x_ts, ode_params, gt_weights, n_neurons,
+                                            log_dir, epoch, N, device)
+                elif (is_regular_r2 or is_early_r2) and not test_neural_field and 'linear' in model_name:
                     last_connectivity_r2, last_tau_r2, last_vrest_r2 = plot_training_linear(
                         model, config, epoch, N, log_dir, device, gt_weights, n_neurons=n_neurons)
                     with open(metrics_log_path, 'a') as f:
