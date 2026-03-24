@@ -42,7 +42,13 @@ if __name__ == "__main__":
 
     if args.option:
         print(f"Options: {args.option}")
-    CONFIG_LISTS = {}
+    CONFIG_LISTS = {
+        'drosophila_cx_baselines': [
+            'drosophila_cx_linear_00',
+            'drosophila_cx_rnn_00',
+            'drosophila_cx_neuralode_00',
+        ],
+    }
 
     if args.option is not None:
         task = args.option[0]
