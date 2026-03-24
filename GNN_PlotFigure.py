@@ -1247,16 +1247,21 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                     J_true_sorted = J_true_active[sort_idx, :][:, sort_idx]
                     J_learned_sorted = J_learned_active[sort_idx, :][:, sort_idx]
 
-                    fig_zf, (ax_full, ax_sorted) = plt.subplots(1, 2, figsize=(14, 6))
-                    im_full = ax_full.imshow(J_learned_T, cmap='bwr_r', vmin=-vmax, vmax=vmax,
-                                             aspect='auto', interpolation='nearest', origin='upper')
-                    ax_full.set_title(f'Learned ({n_neurons} neurons)')
-                    fig_zf.colorbar(im_full, ax=ax_full, fraction=0.046, pad=0.04)
+                    n_active = J_true_sorted.shape[0]
+                    fig_zf, (ax_gt, ax_learned) = plt.subplots(1, 2, figsize=(14, 6))
+                    im_gt = ax_gt.imshow(J_true_sorted, cmap='bwr_r', vmin=-vmax, vmax=vmax,
+                                         aspect='auto', interpolation='nearest', origin='upper')
+                    ax_gt.set_title(f'True sorted ({n_active} neurons)')
+                    ax_gt.set_xlabel('presynaptic neuron')
+                    ax_gt.set_ylabel('postsynaptic neuron')
+                    fig_zf.colorbar(im_gt, ax=ax_gt, fraction=0.046, pad=0.04)
 
-                    im_sort = ax_sorted.imshow(J_learned_sorted, cmap='bwr_r', vmin=-vmax, vmax=vmax,
-                                               aspect='auto', interpolation='nearest', origin='upper')
-                    ax_sorted.set_title(f'Learned cropped & sorted ({J_learned_sorted.shape[0]} neurons)')
-                    fig_zf.colorbar(im_sort, ax=ax_sorted, fraction=0.046, pad=0.04)
+                    im_learned = ax_learned.imshow(J_learned_sorted, cmap='bwr_r', vmin=-vmax, vmax=vmax,
+                                                   aspect='auto', interpolation='nearest', origin='upper')
+                    ax_learned.set_title(f'Learned sorted ({n_active} neurons)')
+                    ax_learned.set_xlabel('presynaptic neuron')
+                    ax_learned.set_ylabel('postsynaptic neuron')
+                    fig_zf.colorbar(im_learned, ax=ax_learned, fraction=0.046, pad=0.04)
 
                     plt.tight_layout()
                     plt.savefig(f'{log_dir}/results/connectivity_matrix_zebrafish_sorted.png', dpi=200)
