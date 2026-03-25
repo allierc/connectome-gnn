@@ -89,7 +89,7 @@ Each row = one `GNN_LLM.py` run with its own instruction file.
 | **Drosophila CX** | | | |
 | `instruction_drosophila_cx.md` | 0.681 | 96 | running (Block 9) — FC ceiling ~0.68 |
 | `instruction_drosophila_cx_noise005.md` | -- | 0 | restarting (prev run used GT edges by mistake) |
-| `instruction_drosophila_cx_mlp.md` | 0.003 | 4 | running (Block 1) |
+| `instruction_drosophila_cx_mlp.md` | 0.005 | 8 | running (Block 1) — conn_R2~0, extreme seed variance |
 | **Larva** | | | |
 | `instruction_larva_gt_edges.md` | 0.908 | 100 | running (Block 10) — 0% blow-ups with bs=4 |
 | `instruction_larva_noise005.md` | -- | 0 | exists, not started |
@@ -130,7 +130,7 @@ LLM/instruction_{biomodel}_{experiment}.md
 | `instruction_flyvis_noise_05.md`               | flyvis               | intrinsic noise 0.5    | 0.990     | 204   | done                       |
 | `instruction_drosophila_cx.md`                 | drosophila_cx        | clean, FC              | 0.681     | 96    | running (Block 9)          |
 | `instruction_drosophila_cx_noise005.md`        | drosophila_cx        | noise 0.05, FC         | --        | 0     | restarting (prev used GT edges) |
-| `instruction_drosophila_cx_mlp.md`             | drosophila_cx        | MLP baseline           | 0.003     | 4     | running (Block 1)          |
+| `instruction_drosophila_cx_mlp.md`             | drosophila_cx        | MLP baseline           | 0.005     | 8     | running (Block 1)          |
 | `instruction_larva_gt_edges.md`                | larva                | clean, GT edges        | 0.908     | 100   | running (Block 10)         |
 | `instruction_larva_noise005.md`                | larva                | intrinsic noise 0.05   | --        | 0     | exists, not started        |
 | `instruction_zebrafish_oculomotor.md`          | zebrafish_oculomotor | clean, fully connected | 0.018     | 80    | running (Block 8)          |
