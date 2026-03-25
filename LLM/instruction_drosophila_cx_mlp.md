@@ -133,6 +133,39 @@ Seed stats: mean_conn_R2=X, std=Y, CV=Z%
 Mutation: [param]: [old] -> [new]
 Verdict: [supported/falsified/inconclusive]
 Next: parent=P
+
+## Winner Config (COMPULSORY)
+
+**At every block boundary**, you MUST save the current best config as a winner file.
+This is a COMPULSORY task — do not skip it.
+
+1. Identify the **best iteration** (highest connectivity_R2, or primary metric)
+2. Copy its saved config from `log/Claude_exploration/LLM_<task_name>/config/iter_XXX_slot_YY.yaml`
+3. Save it to `config/drosophila_cx/drosophila_cx_mlp_winner.yaml` with a YAML comment header:
+
+```yaml
+# Winner config: drosophila_cx_mlp_winner.yaml
+# Source: iter_XXX_slot_YY (connectivity_R2 = X.XXX)
+# Exploration: N iterations, M blocks
+# Date: YYYY-MM-DD
+#
+# Why this is the winner:
+#   - [1-2 sentence narrative: what made this config the best]
+#   - [key hyperparameter choices and why they matter]
+#
+# Metrics:
+#   connectivity_R2: X.XXX (best single seed)
+#   robust_mean:     X.XXX +/- X.XXX (N seeds, CV=X.X%)
+#   rollout_pearson: X.XXX
+#   cluster_accuracy: X.XXX
+#   spectral_radius: X.XXX (true: X.XXX)
+#
+# Key config differences from baseline:
+#   - [list the parameters that differ from the initial baseline]
+```
+
+Destination: `config/drosophila_cx/drosophila_cx_mlp_winner.yaml`
+
 ```
 
 ### Step 4: Acknowledge User Input
