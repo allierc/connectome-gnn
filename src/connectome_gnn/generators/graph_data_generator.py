@@ -1509,7 +1509,7 @@ def _run_ode_generation(stimulus_sequences, net, pde, x, edge_index, initial_sta
                 else:
                     sequence_length = sequences.shape[0]
 
-                for frame_id in trange(sequence_length, ncols=25):
+                for frame_id in range(sequence_length):
                     if "flash" in sim.visual_input_type:
                         current_flash_frame = frame_id % (flash_cycle_frames * 2)
                         x.stimulus[:] = 0
