@@ -69,18 +69,9 @@ code_review_deepmind_v*.py
 INR_LLM.py
 src/flyvis_gnn/LLM/cluster.py
 
-# LLM instruction directory — track only the main instruction files
+# LLM instruction directory — track all instruction files
 LLM/*
-!LLM/instruction_flyvis_noise_free.md
-!LLM/instruction_flyvis_noise_005.md
-!LLM/instruction_flyvis_noise_05.md
-!LLM/instruction_drosophila_cx.md
-!LLM/instruction_larva.md
-!LLM/instruction_zebrafish_oculomotor.md
-!LLM/instruction_zebrafish_oculomotor_gt_edges.md
-!LLM/instruction_drosophila_cx_noise005.md
-!LLM/instruction_larva_noise005.md
-!LLM/instruction_zebrafish_oculomotor_noise005.md
+!LLM/instruction_*.md
 
 # OS
 .DS_Store
