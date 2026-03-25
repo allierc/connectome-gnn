@@ -108,6 +108,24 @@ def _compute_loss(model, x_t, stim_t, x_target, dt):
     return F.mse_loss(x_pred, x_target)
 
 
+def _compute_loss_multistep(model, voltage, stimulus, t_indices, dt, rollout_steps):
+    """Compute MSE loss averaged over a multi-step rollout.
+
+    Unrolls for rollout_steps steps from t_indices, accumulating MSE at each step.
+    Backprop through the full rollout penalizes error compounding.
+    """
+    x = voltage[t_indices]  # (B, N)
+    loss = torch.tensor(0.0, device=x.device)
+    for k in range(rollout_steps):
+        stim_k = stimulus[t_indices + k]              # (B, n_input)
+        mlp_input = torch.cat([x, stim_k], dim=1)
+        dvdt = model._mlp_forward(mlp_input)
+        x = x + dt * dvdt
+        target = voltage[t_indices + k + 1]           # (B, N)
+        loss = loss + F.mse_loss(x, target)
+    return loss / rollout_steps
+
+
 _compute_loss_compiled = torch.compile(
     _compute_loss, fullgraph=True, mode="reduce-overhead"
 )
@@ -188,13 +206,15 @@ def data_train_mlp(config, erase, best_model, device, log_file=None):
     batch_size = tc.batch_size
     data_passes_per_epoch = tc.data_augmentation_loop
     n_epochs = tc.n_epochs
+    rollout_train_steps = getattr(tc, 'rollout_train_steps', 1)
 
-    # Valid frame range: need t and t+1, so max index is n_train_frames - 2
-    max_frame = n_train_frames - 2
+    # Valid frame range: need t through t+rollout_train_steps
+    max_frame = n_train_frames - rollout_train_steps - 1
     batches_per_epoch = int(max_frame * data_passes_per_epoch / batch_size)
 
     _logger.info(f'batch_size: {batch_size}, data_passes_per_epoch: {data_passes_per_epoch}')
     _logger.info(f'batches_per_epoch: {batches_per_epoch}, n_epochs: {n_epochs}')
+    _logger.info(f'rollout_train_steps: {rollout_train_steps}')
 
     net_path = os.path.join(log_dir, 'models')
     os.makedirs(net_path, exist_ok=True)
@@ -210,9 +230,6 @@ def data_train_mlp(config, erase, best_model, device, log_file=None):
     if has_val:
         _logger.info(f'constant model baseline val MSE: {constant_val_loss:.4e}')
 
-    # Select compiled vs uncompiled loss function
-    compute_loss = _compute_loss_compiled if device.type == "cuda" else _compute_loss
-
     # --- Training loop ---
     model.train()
     training_start = time.time()
@@ -227,12 +244,10 @@ def data_train_mlp(config, erase, best_model, device, log_file=None):
         for _ in pbar:
             t_indices = torch.randint(0, max_frame + 1, (batch_size,), device=device)
 
-            x_t = voltage[t_indices]           # (B, N)
-            stim_t = stimulus[t_indices]       # (B, n_input_neurons)
-            x_target = voltage[t_indices + 1]  # (B, N)
-
             optimizer.zero_grad()
-            loss = compute_loss(model, x_t, stim_t, x_target, dt)
+            loss = _compute_loss_multistep(
+                model, voltage, stimulus, t_indices, dt, rollout_train_steps,
+            )
             loss.backward()
             optimizer.step()
 
