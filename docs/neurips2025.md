@@ -19,7 +19,7 @@ Primary metric. Higher = better.
 <tr><td><b>Flyvis noise=0.05 (13.7K, GT)</b></td><td style="background:#2ea04360"><b>0.985</b> (0.982±0.003, CV=0.30%)</td><td>?</td><td>?</td><td>?</td><td>?</td><td>?</td></tr>
 <tr><td><b>Flyvis noise=0.5 (13.7K, GT)</b></td><td style="background:#2ea04360"><b>0.990</b> (0.996±0.006, CV=0.64%)</td><td>?</td><td>?</td><td>?</td><td>?</td><td>?</td></tr>
 <tr><td><b>Drosophila CX (152, FC)</b></td><td style="background:#d2992260"><b>0.681</b> (0.574, 20 seeds, 15% fail)</td><td style="background:#cf222e60">0.003</td><td>?</td><td>?</td><td>?</td><td>?</td></tr>
-<tr><td>Drosophila CX noise=0.05 (152, FC)</td><td style="background:#2ea04360"><b>0.990</b> (0.777±0.164, CV=21.1%)</td><td>--</td><td>--</td><td>--</td><td>--</td><td>--</td></tr>
+<tr><td>Drosophila CX noise=0.05 (152, FC)</td><td>? (restarting — prev run used GT edges by mistake)</td><td>--</td><td>--</td><td>--</td><td>--</td><td>--</td></tr>
 <tr><td>Drosophila CX noise=0.5 (152, FC)</td><td>?</td><td>--</td><td>--</td><td>--</td><td>--</td><td>--</td></tr>
 <tr><td><b>Larva (230, GT edges)</b></td><td style="background:#d2992260"><b>0.908</b> (0.600±0.186, CV=31%, 0% blow-ups)</td><td>?</td><td>?</td><td>?</td><td>?</td><td>?</td></tr>
 <tr><td>Larva noise=0.05 (230, GT edges)</td><td>?</td><td>--</td><td>--</td><td>--</td><td>--</td><td>--</td></tr>
@@ -42,7 +42,7 @@ Secondary metric — autoregressive prediction quality. For noisy models, rollou
 <tr><td>Flyvis noise=0.05 (13.7K)</td><td>8527</td><td style="background:#2ea04360"><b>0.991</b> ± 0.069</td><td>?</td><td>?</td><td>?</td><td>?</td><td>?</td></tr>
 <tr><td>Flyvis noise=0.5 (13.7K)</td><td>8527</td><td style="background:#2ea04360"><b>0.984</b> ± 0.162</td><td>?</td><td>?</td><td>?</td><td>?</td><td>?</td></tr>
 <tr><td>Drosophila CX (152, FC)</td><td>2000</td><td style="background:#d2992260">0.71</td><td style="background:#d2992260">0.70</td><td>?</td><td>?</td><td>?</td><td>?</td></tr>
-<tr><td>Drosophila CX noise=0.05 (152, FC)</td><td>2000</td><td style="background:#d2992260">0.56</td><td>--</td><td>--</td><td>--</td><td>--</td><td>--</td></tr>
+<tr><td>Drosophila CX noise=0.05 (152, FC)</td><td>2000</td><td>?</td><td>--</td><td>--</td><td>--</td><td>--</td><td>--</td></tr>
 <tr><td>Larva (230, GT edges)</td><td>480</td><td style="background:#2ea04360"><b>1.00</b></td><td>?</td><td>?</td><td>?</td><td>?</td><td>?</td></tr>
 <tr><td>Larva noise=0.05 (230, GT edges)</td><td>480</td><td>?</td><td>--</td><td>--</td><td>--</td><td>--</td><td>--</td></tr>
 <tr><td>Zebrafish (609, FC)</td><td>4200</td><td style="background:#2ea04360"><b>1.00</b></td><td>?</td><td>?</td><td>?</td><td>?</td><td>?</td></tr>
@@ -59,7 +59,7 @@ All 4 bio models. Report mean W R2 over 5 seeds.
 <table>
 <tr><th>Condition</th><th>Flyvis (13.7K)</th><th>Drosophila CX (152)</th><th>Larva (230)</th><th>Zebrafish (609)</th></tr>
 <tr><td><b>Baseline (clean)</b></td><td style="background:#2ea04360"><b>0.926</b></td><td style="background:#d2992260">0.681 (FC)</td><td style="background:#d2992260">0.908 (GT)</td><td><span style="background:#cf222e60">0.018 (FC)</span>, <span style="background:#d2992260">0.777 (GT)</span></td></tr>
-<tr><td><b>Intrinsic noise (σ=0.05)</b></td><td style="background:#2ea04360"><b>0.985</b></td><td style="background:#2ea04360">0.990 (FC)</td><td>?</td><td style="background:#2ea04360">0.918 (FC)</td></tr>
+<tr><td><b>Intrinsic noise (σ=0.05)</b></td><td style="background:#2ea04360"><b>0.985</b></td><td>? (restarting)</td><td>?</td><td style="background:#2ea04360">0.918 (FC)</td></tr>
 <tr><td><b>Intrinsic noise (σ=0.5)</b></td><td style="background:#2ea04360"><b>0.990</b></td><td>?</td><td>?</td><td>?</td></tr>
 <tr><td>Measurement noise (σ=0.04)</td><td style="background:#2ea04360"><b>0.925</b></td><td>?</td><td>?</td><td>?</td></tr>
 <tr><td>Measurement noise (σ=0.10)</td><td style="background:#d2992260"><b>0.756</b></td><td>?</td><td>?</td><td>?</td></tr>
@@ -88,7 +88,7 @@ Each row = one `GNN_LLM.py` run with its own instruction file.
 | `instruction_flyvis_noise_05.md` | 0.990 | 204 | done |
 | **Drosophila CX** | | | |
 | `instruction_drosophila_cx.md` | 0.681 | 96 | running (Block 9) — FC ceiling ~0.68 |
-| `instruction_drosophila_cx_noise005.md` | 0.990 | 92 | running (Block 7) — CV reduced to 21% |
+| `instruction_drosophila_cx_noise005.md` | -- | 0 | restarting (prev run used GT edges by mistake) |
 | `instruction_drosophila_cx_mlp.md` | 0.003 | 4 | running (Block 1) |
 | **Larva** | | | |
 | `instruction_larva.md` | 0.908 | 100 | running (Block 10) — 0% blow-ups with bs=4 |
@@ -337,7 +337,7 @@ Maps each experiment to its config files, instruction file, and LLM exploration 
 <tr><td>?</td><td>flyvis — MLP/Known ODE/RNN/NeuralODE/SSM</td><td>--</td><td>--</td><td>--</td><td>TODO (×5)</td></tr>
 <tr><td colspan="6"><b>Drosophila CX (152, FC)</b></td></tr>
 <tr><td style="background:#d2992260">0.681</td><td>drosophila_cx</td><td>pending</td><td>iter_092</td><td>instruction_drosophila_cx.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude drosophila_cx iterations=128 --cluster</code></td></tr>
-<tr><td style="background:#2ea04360">0.990</td><td>drosophila_cx_noise005</td><td>pending</td><td>iter_071</td><td>instruction_drosophila_cx_noise005.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude drosophila_cx_noise005 iterations=128 --cluster</code></td></tr>
+<tr><td>?</td><td>drosophila_cx_noise005</td><td>--</td><td>--</td><td>instruction_drosophila_cx_noise005.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude drosophila_cx_noise005 iterations=128 --cluster</code></td></tr>
 <tr><td>?</td><td>drosophila_cx_noise05</td><td>--</td><td>--</td><td>--</td><td>TODO: create</td></tr>
 <tr><td>?</td><td>drosophila_cx_gt_edges</td><td>--</td><td>--</td><td>--</td><td>TODO: create</td></tr>
 <tr><td style="background:#cf222e60">0.003</td><td>drosophila_cx — MLP</td><td>pending</td><td>iter_001</td><td>instruction_drosophila_cx_mlp.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude drosophila_cx_mlp iterations=128 --cluster</code></td></tr>
