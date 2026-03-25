@@ -1313,7 +1313,7 @@ def plot_signal_loss(loss_dict, log_dir, epoch=None, Niter=None, epoch_boundarie
 
     style = default_style
     lw = style.line_width
-    fig_loss, (ax1, ax2, ax3) = style.figure(ncols=3, width=3 * style.figure_height * style.default_aspect)
+    fig_loss, (ax1, ax2, ax3) = style.figure(ncols=25, width=3 * style.figure_height * style.default_aspect)
 
     # x-axis: use global iteration if available, otherwise list index
     x_iter = loss_dict.get('iteration') or list(range(len(loss_dict['loss'])))
@@ -1424,7 +1424,7 @@ def plot_loss_from_file(log_dir):
     epoch_boundaries = data.pop('epoch_boundaries', None)
 
     style = default_style
-    fig, ax = style.figure(ncols=1)
+    fig, ax = style.figure(ncols=25)
     x_iter = data.get('iteration') or list(range(len(data['loss'])))
     legend_fs = 7
 
@@ -1795,7 +1795,7 @@ def render_visual_field_video(model, x_ts, sim, log_dir, epoch, N, logger):
         with writer.saving(fig, out_path, dpi=200):
             error_list = []
 
-            for k in trange(0, 800, step_video, ncols=100):
+            for k in trange(0, 800, step_video, ncols=25):
                 # inputs and predictions
                 x = x_ts.frame(k)
                 pred = to_numpy(model.forward_visual(x, k))

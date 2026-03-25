@@ -315,7 +315,7 @@ def init_mesh(config, device):
     face_longest_edge = np.zeros((face.shape[0], 1))
 
     sleep(0.5)
-    for k in trange(face.shape[0], ncols=100):
+    for k in trange(face.shape[0], ncols=25):
         # compute edge distances
         x1 = pos[face[k, 0], :]
         x2 = pos[face[k, 1], :]

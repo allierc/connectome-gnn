@@ -378,7 +378,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
         last_tau_r2 = 0.0
         field_R2 = None
         field_slope = None
-        pbar = trange(Niter, ncols=150)
+        pbar = trange(Niter, ncols=25)
         # Dale's law enforcement: 3 evenly spaced interventions per epoch
         dale_enabled = getattr(tc, 'dale_law', False)
         if dale_enabled:
@@ -901,7 +901,7 @@ def data_train_gnn_RNN(config, erase, best_model, device):
     _logger.info(f"Loading data from {config.dataset}...")
     x_list = []
     y_list = []
-    for run in trange(0, tc.n_runs, ncols=50):
+    for run in trange(0, tc.n_runs, ncols=25):
         x = np.load(graphs_data_path(config.dataset, f'x_list_{run}.npy'))
         y = np.load(graphs_data_path(config.dataset, f'y_list_{run}.npy'))
 
@@ -969,7 +969,7 @@ def data_train_gnn_RNN(config, erase, best_model, device):
         total_loss = 0
         model.train()
 
-        for seq_idx in trange(n_sequences, ncols=150, desc=f"Epoch {epoch}"):
+        for seq_idx in trange(n_sequences, ncols=25, desc=f"Epoch {epoch}"):
 
             optimizer.zero_grad()
 
