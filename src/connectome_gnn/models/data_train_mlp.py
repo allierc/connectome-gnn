@@ -79,11 +79,10 @@ def plot_rollout_mse(model_mse, constant_mse, epoch, log_dir, dt_value):
     """Save rollout MSE vs time step plot."""
     fig, ax = plt.subplots(figsize=(8, 4))
     steps = np.arange(len(model_mse))
-    time_axis = steps * dt_value
-    ax.plot(time_axis, model_mse, linewidth=1, label='MLP')
-    ax.plot(time_axis, constant_mse, color='gray', linestyle='--', linewidth=0.8, label='constant (x=x₀)')
+    ax.plot(steps, model_mse, linewidth=1, label='MLP')
+    ax.plot(steps, constant_mse, color='gray', linestyle='--', linewidth=0.8, label='constant (x=x₀)')
     ax.legend()
-    ax.set_xlabel('rollout time')
+    ax.set_xlabel('Rollout Time Steps')
     ax.set_ylabel('MSE')
     ax.set_title(f'Validation rollout MSE — epoch {epoch+1}')
     ax.set_yscale('log')
