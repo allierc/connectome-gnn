@@ -737,7 +737,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             logger.info(f'net: {net}')
 
             # --- Linear model branch ---
-            if 'linear' in model_config.signal_model_name:
+            if 'linear' in model_config.signal_model_name or 'known_ode' in model_config.signal_model_name:
                 _plot_synaptic_linear(
                     model, config, config_indices, log_dir, logger, mc,
                     edges, gt_weights, gt_taus, gt_V_Rest,

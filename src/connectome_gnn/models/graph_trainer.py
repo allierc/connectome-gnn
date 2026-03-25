@@ -697,7 +697,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                     # W scatter plot using Jacobian
                     _plot_jacobian_w_scatter(model, x_ts, ode_params, gt_weights, n_neurons,
                                             log_dir, epoch, N, device)
-                elif (is_regular_r2 or is_early_r2) and not test_neural_field and 'linear' in model_name:
+                elif (is_regular_r2 or is_early_r2) and not test_neural_field and ('linear' in model_name or 'known_ode' in model_name):
                     last_connectivity_r2, last_tau_r2, last_vrest_r2 = plot_training_linear(
                         model, config, epoch, N, log_dir, device, gt_weights, n_neurons=n_neurons)
                     with open(metrics_log_path, 'a') as f:

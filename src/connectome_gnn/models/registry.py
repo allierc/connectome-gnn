@@ -22,7 +22,7 @@ def _discover_models():
         return
     _discovered = True
     import connectome_gnn.models.neural_gnn  # noqa: F401 — triggers @register_model
-    import connectome_gnn.models.flyvis_linear  # noqa: F401 — triggers @register_model
+    import connectome_gnn.models.known_ode  # noqa: F401 — triggers @register_model
     import connectome_gnn.models.neural_rnn  # noqa: F401 — triggers @register_model
     import connectome_gnn.models.mlp_baseline  # noqa: F401 — triggers @register_model
 
