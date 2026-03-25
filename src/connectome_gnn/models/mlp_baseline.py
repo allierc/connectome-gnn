@@ -66,9 +66,9 @@ class MLPBaseline(nn.Module):
         self.W = nn.Parameter(torch.zeros(max(n_w, 1), 1, device=device), requires_grad=False)
 
     def _mlp_forward(self, x):
-        """Forward through the MLP layers with Tanh activation."""
+        """Forward through the MLP layers with ReLU activation."""
         for layer in self.layers[:-1]:
-            x = torch.tanh(layer(x))
+            x = F.relu(layer(x))
         return self.layers[-1](x)
 
     def forward(self, state: NeuronState, edge_index: torch.Tensor = None,

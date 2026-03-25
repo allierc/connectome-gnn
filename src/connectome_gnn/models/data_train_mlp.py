@@ -48,7 +48,8 @@ def rollout_mse(model, voltage, stimulus, dt, n_windows=10, window_len=1000):
     total_needed = n_windows * window_len
     if total_needed > n_frames:
         window_len = n_frames // n_windows
-    starts = torch.linspace(0, n_frames - window_len, n_windows).long()
+    # -1 because we need frame_idx+1 as target inside the window loop
+    starts = torch.linspace(0, n_frames - window_len - 1, n_windows).long()
 
     model_mse_sum = torch.zeros(window_len, device=voltage.device)
     const_mse_sum = torch.zeros(window_len, device=voltage.device)
@@ -127,6 +128,9 @@ def data_train_mlp(config, erase, best_model, device, log_file=None):
     """
     sim = config.simulation
     tc = config.training
+
+    if isinstance(device, str):
+        device = torch.device(device)
 
     torch.manual_seed(tc.seed)
     np.random.seed(tc.seed)
@@ -247,6 +251,7 @@ def data_train_mlp(config, erase, best_model, device, log_file=None):
         val_str = ''
         val_loss = None
         if has_val:
+            val_start = time.time()
             model.eval()
             with torch.no_grad():
                 # 1-step validation loss
@@ -265,8 +270,10 @@ def data_train_mlp(config, erase, best_model, device, log_file=None):
                     model, val_voltage, val_stimulus, dt,
                 )
             model.train()
+            val_duration = time.time() - val_start
 
-            val_str = f' | val: {val_loss:.4e}'
+            mean_rollout_mse = float(model_rollout_mse.mean())
+            val_str = f' | val: {val_loss:.4e} | rollout: {mean_rollout_mse:.4e} ({val_duration:.1f}s)'
             plot_rollout_mse(model_rollout_mse, const_rollout_mse, epoch, log_dir, sim.delta_t)
 
             if val_loss < best_val_loss:
