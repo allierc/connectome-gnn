@@ -328,7 +328,8 @@ Maps each experiment to its config files, instruction file, and LLM exploration 
 <tr><td style="background:#d2992260">0.756</td><td>flyvis_noise_005+meas_010</td><td>--</td><td>iter_009</td><td>--</td><td>--</td></tr>
 <tr><td style="background:#2ea04360">0.982</td><td>flyvis_noise_005+null_100%</td><td>--</td><td>--</td><td>--</td><td>-- (single seed)</td></tr>
 <tr><td style="background:#2ea04360">0.982</td><td>flyvis_noise_005+null_200%</td><td>--</td><td>--</td><td>--</td><td>-- (single seed)</td></tr>
-<tr><td style="background:#2ea04360">0.942</td><td>flyvis_noise_005+INR</td><td>--</td><td>iter_037</td><td>--</td><td>--</td></tr>
+<tr><td style="background:#2ea04360">0.942</td><td>flyvis_noise_005+INR (joint GNN+SIREN)</td><td>flyvis_noise_005_INR_winner.yaml</td><td>iter_021</td><td>instruction_flyvis_noise_005_INR.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_INR iterations=128 --cluster</code></td></tr>
+<tr><td style="background:#d2992260">0.813</td><td>flyvis_noise_005+meas_010 recurrent</td><td>flyvis_noise_005_010_rc_winner.yaml</td><td>iter_045</td><td>instruction_flyvis_noise_005_010_rc.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_010_rc iterations=128 --cluster</code></td></tr>
 <tr><td>?</td><td>flyvis_missing_time_5x</td><td>--</td><td>--</td><td>--</td><td>TODO</td></tr>
 <tr><td>?</td><td>flyvis_missing_time_10x</td><td>--</td><td>--</td><td>--</td><td>TODO</td></tr>
 <tr><td>?</td><td>flyvis_missing_neurons_20</td><td>--</td><td>--</td><td>--</td><td>TODO</td></tr>
