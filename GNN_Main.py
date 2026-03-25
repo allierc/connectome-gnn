@@ -69,8 +69,8 @@ if __name__ == "__main__":
                 test_config_name = None
     else:
         best_model = ''
-        task = task = 'traimn'
-        config_list = ['flyvis_noise_005']
+        task = task = 'generate_train'
+        config_list = ['flyvis_noise_free_known_ode']
         test_config_name = None
 
     for config_file_ in config_list:

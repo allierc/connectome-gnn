@@ -378,6 +378,32 @@ def plot_weight_scatter(ax, gt_weights, learned_weights, corrected=False,
     return r_squared, slope
 
 
+def plot_jacobian_w_scatter(model, x_ts, ode_params, gt_weights, n_neurons,
+                            log_dir, epoch, N, device):
+    """Plot W scatter using Jacobian-extracted effective connectivity."""
+    model.eval()
+    J_mean = model.compute_jacobian_batched(x_ts, n_samples=50, seed=0)
+    model.train()
+
+    ei = to_numpy(ode_params.edge_index)
+    gt_W = to_numpy(ode_params.W)
+
+    # Compare Jacobian entries at GT edge locations
+    J_np = to_numpy(J_mean)
+    learned_at_edges = J_np[ei[0], ei[1]]
+
+    fig, ax = plt.subplots(figsize=(8, 8))
+    plot_weight_scatter(ax, gt_weights=gt_W, learned_weights=learned_at_edges,
+                        corrected=False, outlier_threshold=5)
+    ax.set_xlabel('true $W$', fontsize=24)
+    ax.set_ylabel('Jacobian $\\partial F / \\partial v$', fontsize=24)
+    plt.tight_layout()
+    os.makedirs(f"{log_dir}/tmp_training/matrix", exist_ok=True)
+    plt.savefig(f"{log_dir}/tmp_training/matrix/raw_{epoch}_{N}.png",
+                dpi=87, bbox_inches='tight', pad_inches=0)
+    plt.close()
+
+
 def plot_tau(ax, slopes_f_theta, gt_taus, n_neurons, mc=None):
     """Plot learned tau vs ground truth tau.
 
@@ -1795,7 +1821,7 @@ def render_visual_field_video(model, x_ts, sim, log_dir, epoch, N, logger):
         with writer.saving(fig, out_path, dpi=200):
             error_list = []
 
-            for k in trange(0, 800, step_video, ncols=25):
+            for k in trange(0, 800, step_video, ncols=100):
                 # inputs and predictions
                 x = x_ts.frame(k)
                 pred = to_numpy(model.forward_visual(x, k))

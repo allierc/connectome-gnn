@@ -77,7 +77,7 @@ def _generate_inr_video(gt_np, predict_frame_fn, pos_np, field_name,
 
     with writer.saving(fig, video_path, dpi=200):
         error_list = []
-        for k in trange(0, n_video_frames, step_video, ncols=25, desc='video'):
+        for k in trange(0, n_video_frames, step_video, ncols=100, desc='video'):
             gt_vec = gt_np[k]
             pred_vec = predict_frame_fn(k)
             pred_corrected = a_coeff * pred_vec + b_coeff
@@ -357,7 +357,7 @@ def data_train_INR(config=None, device=None, total_steps=10000, field_name='stim
     print(f'  training for {total_steps} steps, batch_size={batch_size}, lr={learning_rate}')
     print(f'  saving plot every {viz_interval} steps, R² eval every {report_interval} steps')
 
-    pbar = trange(total_steps + 1, ncols=25, desc=f'INR {field_name}')
+    pbar = trange(total_steps + 1, ncols=100, desc=f'INR {field_name}')
     for step in pbar:
         optim.zero_grad()
         sample_ids = np.random.choice(n_frames, batch_size, replace=(batch_size > n_frames))

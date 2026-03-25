@@ -28,13 +28,8 @@ log/
 **/edge_index.pt
 **/mask.pt
 
-# graphs_data: include connectivity.pt, exclude generated files
-graphs_data/**/*.npy
-graphs_data/**/*.backup
-graphs_data/**/*.png
-graphs_data/**/analysis.log
-graphs_data/**/X1.pt
-graphs_data/**/X_msg.pt
+# graphs_data: large generated data, not tracked
+graphs_data/
 
 # Python
 __pycache__/
