@@ -232,7 +232,7 @@ def data_generate_connconstr(config, visualize=True, device=None, save=True):
         )
 
         with torch.no_grad():
-            for t in tqdm(range(frame_start, frame_end), desc=f"connconstr {split}", ncols=100):
+            for t in tqdm(range(frame_start, frame_end), desc=f"connconstr {split}", ncols=25):
                 # Reset state at trial boundaries if model has trial structure
                 if trial_len > 0 and t % trial_len == 0:
                     ode_params.init_state(x.voltage, datapath=datapath, device=device)
@@ -534,7 +534,7 @@ def data_generate_spiking(config, visualize=True, run_vizualized=0, style="color
 
         it = 0
         with torch.no_grad():
-            for data_idx, data in enumerate(tqdm(sequences, desc=f"spiking {split_name}", ncols=100)):
+            for data_idx, data in enumerate(tqdm(sequences, desc=f"spiking {split_name}", ncols=25)):
                 lum = data["lum"]
                 sequence_length = lum.shape[0]
 
@@ -1455,7 +1455,7 @@ def _run_ode_generation(stimulus_sequences, net, pde, x, edge_index, initial_sta
 
     with torch.no_grad():
         for pass_num in range(num_passes):
-            for data_idx, data in enumerate(tqdm(stimulus_sequences, desc="processing stimulus data", ncols=100)):
+            for data_idx, data in enumerate(tqdm(stimulus_sequences, desc="processing stimulus data", ncols=25)):
                 if sim.simulation_initial_state:
                     x.voltage[:] = initial_state
                     if sim.only_noise_visual_input > 0:
