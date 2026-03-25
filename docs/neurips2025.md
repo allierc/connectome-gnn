@@ -319,42 +319,42 @@ Caption: "The GNN recovers output connectivity modes (U) better than input selec
 Maps each experiment to its config files, instruction file, and LLM exploration command.
 
 <table>
-<tr><th>W R2</th><th>Experiment</th><th>Config</th><th>Best LLM config</th><th>Instruction</th><th>LLM command</th></tr>
+<tr><th>W R2</th><th>Experiment</th><th>Winner config</th><th>Best LLM iter</th><th>Instruction</th><th>LLM command</th></tr>
 <tr><td colspan="6"><b>Flyvis (13.7K, GT edges)</b></td></tr>
-<tr><td style="background:#2ea04360">0.926</td><td>flyvis_noise_free</td><td>config/fly/flyvis_noise_free.yaml</td><td>LLM_flyvis_noise_free/.../iter_137</td><td>instruction_flyvis_noise_free.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_free iterations=128 --cluster</code></td></tr>
-<tr><td style="background:#2ea04360">0.985</td><td>flyvis_noise_005</td><td>config/fly/flyvis_noise_005.yaml</td><td>LLM_flyvis_noise_005/.../iter_161</td><td>instruction_flyvis_noise_005.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005 iterations=128 --cluster</code></td></tr>
-<tr><td style="background:#2ea04360">0.990</td><td>flyvis_noise_05</td><td>config/fly/flyvis_noise_05.yaml</td><td>LLM_flyvis_noise_05/.../iter_097</td><td>instruction_flyvis_noise_05.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_05 iterations=128 --cluster</code></td></tr>
-<tr><td style="background:#2ea04360">0.925</td><td>flyvis_noise_005+meas_004</td><td>config/fly/flyvis_noise_005_004.yaml</td><td>LLM_flyvis_noise_005_004/.../iter_033</td><td>--</td><td>--</td></tr>
-<tr><td style="background:#d2992260">0.756</td><td>flyvis_noise_005+meas_010</td><td>config/fly/flyvis_noise_005_010.yaml</td><td>LLM_flyvis_noise_005_010/.../iter_009</td><td>--</td><td>--</td></tr>
+<tr><td style="background:#2ea04360">0.926</td><td>flyvis_noise_free</td><td>flyvis_noise_free_winner.yaml</td><td>iter_137</td><td>instruction_flyvis_noise_free.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_free iterations=128 --cluster</code></td></tr>
+<tr><td style="background:#2ea04360">0.985</td><td>flyvis_noise_005</td><td>flyvis_noise_005_winner.yaml</td><td>iter_161</td><td>instruction_flyvis_noise_005.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005 iterations=128 --cluster</code></td></tr>
+<tr><td style="background:#2ea04360">0.990</td><td>flyvis_noise_05</td><td>flyvis_noise_05_winner.yaml</td><td>iter_097</td><td>instruction_flyvis_noise_05.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_05 iterations=128 --cluster</code></td></tr>
+<tr><td style="background:#2ea04360">0.925</td><td>flyvis_noise_005+meas_004</td><td>--</td><td>iter_033</td><td>--</td><td>--</td></tr>
+<tr><td style="background:#d2992260">0.756</td><td>flyvis_noise_005+meas_010</td><td>--</td><td>iter_009</td><td>--</td><td>--</td></tr>
 <tr><td style="background:#2ea04360">0.982</td><td>flyvis_noise_005+null_100%</td><td>--</td><td>--</td><td>--</td><td>-- (single seed)</td></tr>
 <tr><td style="background:#2ea04360">0.982</td><td>flyvis_noise_005+null_200%</td><td>--</td><td>--</td><td>--</td><td>-- (single seed)</td></tr>
-<tr><td style="background:#2ea04360">0.942</td><td>flyvis_noise_005+INR</td><td>--</td><td>LLM_flyvis_noise_005_INR/.../iter_037</td><td>--</td><td>--</td></tr>
+<tr><td style="background:#2ea04360">0.942</td><td>flyvis_noise_005+INR</td><td>--</td><td>iter_037</td><td>--</td><td>--</td></tr>
 <tr><td>?</td><td>flyvis_missing_time_5x</td><td>--</td><td>--</td><td>--</td><td>TODO</td></tr>
 <tr><td>?</td><td>flyvis_missing_time_10x</td><td>--</td><td>--</td><td>--</td><td>TODO</td></tr>
 <tr><td>?</td><td>flyvis_missing_neurons_20</td><td>--</td><td>--</td><td>--</td><td>TODO</td></tr>
 <tr><td>?</td><td>flyvis_flywire_edges</td><td>--</td><td>--</td><td>--</td><td>TODO</td></tr>
-<tr><td>?</td><td>flyvis — MLP/Linear/RNN/NeuralODE/SSM</td><td>--</td><td>--</td><td>--</td><td>TODO (×5)</td></tr>
+<tr><td>?</td><td>flyvis — MLP/Known ODE/RNN/NeuralODE/SSM</td><td>--</td><td>--</td><td>--</td><td>TODO (×5)</td></tr>
 <tr><td colspan="6"><b>Drosophila CX (152, FC)</b></td></tr>
-<tr><td style="background:#d2992260">0.681</td><td>drosophila_cx</td><td>config/drosophila_cx/drosophila_cx.yaml</td><td>LLM_drosophila_cx/.../iter_049</td><td>instruction_drosophila_cx.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude drosophila_cx iterations=128 --cluster</code></td></tr>
-<tr><td style="background:#2ea04360">0.990</td><td>drosophila_cx_noise005</td><td>config/drosophila_cx/drosophila_cx_noise005.yaml</td><td>LLM_drosophila_cx_noise005/.../iter_049</td><td>instruction_drosophila_cx_noise005.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude drosophila_cx_noise005 iterations=128 --cluster</code></td></tr>
+<tr><td style="background:#d2992260">0.681</td><td>drosophila_cx</td><td>pending</td><td>iter_092</td><td>instruction_drosophila_cx.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude drosophila_cx iterations=128 --cluster</code></td></tr>
+<tr><td style="background:#2ea04360">0.990</td><td>drosophila_cx_noise005</td><td>pending</td><td>iter_071</td><td>instruction_drosophila_cx_noise005.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude drosophila_cx_noise005 iterations=128 --cluster</code></td></tr>
 <tr><td>?</td><td>drosophila_cx_noise05</td><td>--</td><td>--</td><td>--</td><td>TODO: create</td></tr>
 <tr><td>?</td><td>drosophila_cx_gt_edges</td><td>--</td><td>--</td><td>--</td><td>TODO: create</td></tr>
-<tr><td style="background:#cf222e60">0.003</td><td>drosophila_cx — MLP</td><td>config/drosophila_cx/drosophila_cx_mlp.yaml</td><td>LLM_drosophila_cx_mlp/.../iter_001</td><td>instruction_drosophila_cx_mlp.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude drosophila_cx_mlp iterations=128 --cluster</code></td></tr>
-<tr><td>?</td><td>drosophila_cx — Known ODE</td><td>config/drosophila_cx/drosophila_cx_known_ode.yaml</td><td>--</td><td>--</td><td>TODO</td></tr>
-<tr><td>?</td><td>drosophila_cx — RNN</td><td>config/drosophila_cx/drosophila_cx_rnn.yaml</td><td>--</td><td>--</td><td>TODO</td></tr>
-<tr><td>?</td><td>drosophila_cx — NeuralODE</td><td>config/drosophila_cx/drosophila_cx_neuralode.yaml</td><td>--</td><td>--</td><td>TODO</td></tr>
+<tr><td style="background:#cf222e60">0.003</td><td>drosophila_cx — MLP</td><td>pending</td><td>iter_001</td><td>instruction_drosophila_cx_mlp.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude drosophila_cx_mlp iterations=128 --cluster</code></td></tr>
+<tr><td>?</td><td>drosophila_cx — Known ODE</td><td>--</td><td>--</td><td>--</td><td>TODO</td></tr>
+<tr><td>?</td><td>drosophila_cx — RNN</td><td>--</td><td>--</td><td>--</td><td>TODO</td></tr>
+<tr><td>?</td><td>drosophila_cx — NeuralODE</td><td>--</td><td>--</td><td>--</td><td>TODO</td></tr>
 <tr><td>?</td><td>drosophila_cx — SSM</td><td>--</td><td>--</td><td>--</td><td>TODO</td></tr>
 <tr><td colspan="6"><b>Larva (230, GT edges)</b></td></tr>
-<tr><td style="background:#d2992260">0.908</td><td>larva</td><td>config/larva/larva.yaml</td><td>LLM_larva/.../iter_057</td><td>instruction_larva.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude larva iterations=128 --cluster</code></td></tr>
-<tr><td>?</td><td>larva_noise005</td><td>config/larva/larva_noise005.yaml</td><td>--</td><td>instruction_larva_noise005.md</td><td>TODO</td></tr>
+<tr><td style="background:#d2992260">0.908</td><td>larva</td><td>pending</td><td>iter_093</td><td>instruction_larva.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude larva iterations=128 --cluster</code></td></tr>
+<tr><td>?</td><td>larva_noise005</td><td>--</td><td>--</td><td>instruction_larva_noise005.md</td><td>TODO</td></tr>
 <tr><td>?</td><td>larva_noise05</td><td>--</td><td>--</td><td>--</td><td>TODO: create</td></tr>
 <tr><td>?</td><td>larva_fc</td><td>--</td><td>--</td><td>--</td><td>TODO: create</td></tr>
-<tr><td>?</td><td>larva — MLP/Linear/RNN/NeuralODE/SSM</td><td>--</td><td>--</td><td>--</td><td>TODO (×5)</td></tr>
+<tr><td>?</td><td>larva — MLP/Known ODE/RNN/NeuralODE/SSM</td><td>--</td><td>--</td><td>--</td><td>TODO (×5)</td></tr>
 <tr><td colspan="6"><b>Zebrafish oculomotor (609)</b></td></tr>
-<tr><td style="background:#cf222e60">0.018</td><td>zebrafish_oculomotor (FC)</td><td>config/zebrafish_oculomotor/zebrafish_oculomotor.yaml</td><td>LLM_zebrafish_oculomotor/.../iter_041</td><td>instruction_zebrafish_oculomotor.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude zebrafish_oculomotor iterations=128 --cluster</code></td></tr>
-<tr><td style="background:#d2992260">0.777</td><td>zebrafish_oculomotor_gt_edges</td><td>config/zebrafish_oculomotor/zebrafish_oculomotor_gt_edges.yaml</td><td>LLM_zebrafish_oculomotor_gt_edges/.../iter_045</td><td>instruction_zebrafish_oculomotor_gt_edges.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude zebrafish_oculomotor_gt_edges iterations=128 --cluster</code></td></tr>
-<tr><td style="background:#2ea04360">0.918</td><td>zebrafish_oculomotor_noise005 (FC)</td><td>config/zebrafish_oculomotor/zebrafish_oculomotor_noise005.yaml</td><td>LLM_zebrafish_oculomotor_noise005/.../iter_005</td><td>instruction_zebrafish_oculomotor_noise005.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude zebrafish_oculomotor_noise005 iterations=128 --cluster</code></td></tr>
+<tr><td style="background:#cf222e60">0.018</td><td>zebrafish_oculomotor (FC)</td><td>pending</td><td>iter_080</td><td>instruction_zebrafish_oculomotor.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude zebrafish_oculomotor iterations=128 --cluster</code></td></tr>
+<tr><td style="background:#d2992260">0.777</td><td>zebrafish_oculomotor_gt_edges</td><td>pending</td><td>iter_092</td><td>instruction_zebrafish_oculomotor_gt_edges.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude zebrafish_oculomotor_gt_edges iterations=128 --cluster</code></td></tr>
+<tr><td style="background:#2ea04360">0.918</td><td>zebrafish_oculomotor_noise005 (FC)</td><td>pending</td><td>iter_019</td><td>instruction_zebrafish_oculomotor_noise005.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude zebrafish_oculomotor_noise005 iterations=128 --cluster</code></td></tr>
 <tr><td>?</td><td>zebrafish_oculomotor_noise05</td><td>--</td><td>--</td><td>--</td><td>TODO: create</td></tr>
 <tr><td>?</td><td>zebrafish_oculomotor_gt_noise005</td><td>--</td><td>--</td><td>--</td><td>TODO: create</td></tr>
-<tr><td>?</td><td>zebrafish — MLP/Linear/RNN/NeuralODE/SSM</td><td>--</td><td>--</td><td>--</td><td>TODO (×5)</td></tr>
+<tr><td>?</td><td>zebrafish — MLP/Known ODE/RNN/NeuralODE/SSM</td><td>--</td><td>--</td><td>--</td><td>TODO (×5)</td></tr>
 </table>
