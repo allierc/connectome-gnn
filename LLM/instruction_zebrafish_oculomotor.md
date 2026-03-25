@@ -33,7 +33,7 @@ Strict **hypothesize -> test -> validate/falsify** cycle:
 **If you change more than one parameter per slot, you CANNOT attribute the effect. This is a fatal experimental design error.**
 
 - In EXPLORATION mode: Slot 0 = parent/baseline (unchanged control). Slots 1-3 each change **exactly one** parameter from the parent.
-- Do NOT change parameters outside the current block focus (e.g. do not touch w_init_mode, W_L2, batch_size, hidden_dim unless the block explicitly includes them).
+- Do NOT change parameters outside the current block focus (e.g. do not touch w_init_mode, W_L2, hidden_dim unless the block explicitly includes them).
 - Do NOT skip the baseline — always keep one slot as an unchanged control.
 - In ROBUSTNESS mode: all 4 slots use the same config (different seeds test robustness).
 
@@ -135,10 +135,10 @@ The blocks below provide a **recommended exploration roadmap**. Follow the block
 | 2     | **W initialization**     | `w_init_mode`                                                              | {zeros, randn, randn_scaled} — low-rank dynamics may favor randn                                                 |
 | 3     | **Training volume**      | `data_augmentation_loop`, `n_epochs`                                       | DAL: {50, 100, 200}, n_epochs: {2, 4} (halve DAL when doubling epochs)                                           |
 | 4     | **Regularization + Dale's law** | `coeff_W_L2`, `coeff_W_sign`, `dale_law`, `coeff_g_phi_diff`, `coeff_f_theta_diff`, `coeff_f_theta_msg_diff` | W_L2: {5e-6, 1e-5, 2e-5}, W_sign: {0, 0.01, 0.05}, dale_law: {false, true}, g_phi_diff: {500, 1000, 1500}, f_theta_diff: {0, 10, 100} (leak), f_theta_msg_diff: {0, 10, 100}. Monitor dale_law_score in all iterations. |
-| 5     | **Architecture**         | `hidden_dim`, `embedding_dim`                                              | hidden_dim: {48, 64, 80}, embedding_dim: {2, 4} (update input_size accordingly)                                   |
+| 5     | **Architecture + batch_size** | `hidden_dim`, `embedding_dim`, `batch_size`                               | hidden_dim: {48, 64, 80}, embedding_dim: {2, 4}, batch_size: {2, 4, 8}. From flyvis: bs=4 eliminated catastrophic failures. |
 | 6     | **Free exploration I**   | Any parameter                                                              | Consolidate best from blocks 1-5, test novel combinations, attempt to break R2 ceiling                           |
 | 7     | **Free exploration II**  | Any parameter                                                              | Continue ceiling-breaking attempts, confirm final robust config                                                  |
-| 8     | **Free exploration III** | Any parameter                                                              | Final refinement and robustness confirmation                                                                     |
+| 8     | **Final robustness**     | None (robustness test)                                                     | 4-seed robustness test of best config from blocks 1-7                                                            |
 
 ### Low-rank context
 
