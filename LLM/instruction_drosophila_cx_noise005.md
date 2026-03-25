@@ -21,7 +21,7 @@ coeff_W_L1: 3e-6
 coeff_W_L2: 1e-5
 coeff_g_phi_diff: 1500
 coeff_f_theta_weight_L2: 0.001
-use_gt_edges: true
+use_gt_edges: false
 noise_model_level: 0.05
 ```
 
@@ -114,7 +114,7 @@ Example: embedding_dim=4 -> input_size=5, input_size_update=7.
 | `coeff_W_L1`              | 3e-6    | L1 sparsity on W                                       |
 | `coeff_W_L2`              | 1e-5    | L2 penalty on W                                        |
 | `coeff_W_sign`            | 0       | Dale's law penalty                                     |
-| `use_gt_edges`            | true    | If false, train on fully connected graph               |
+| `use_gt_edges`            | false   | Fully connected graph (N^2-N = 22,952 edges)           |
 | `dale_law`                | false   | Enforce Dale's law                                     |
 | `noise_model_level`       | 0.05    | **FIXED** — intrinsic noise level for this experiment  |
 

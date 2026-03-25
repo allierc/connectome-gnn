@@ -93,7 +93,7 @@ Example: embedding_dim=4 -> input_size=5, input_size_update=7.
 | `coeff_W_L1`              | 0       | L1 sparsity on W                                       |
 | `coeff_W_L2`              | 1e-5    | L2 penalty on W                                        |
 | `coeff_W_sign`            | 0       | Dale's law penalty                                     |
-| `use_gt_edges`            | true    | If false, train on fully connected graph (N^2-N edges) |
+| `use_gt_edges`            | false   | Fully connected graph (N^2-N = 22,952 edges)           |
 | `dale_law`                | false   | Enforce Dale's law: force consistent sign per W column 3× per epoch |
 | `noise_model_level`       | 0.0     | Observation noise std added to trajectories            |
 
