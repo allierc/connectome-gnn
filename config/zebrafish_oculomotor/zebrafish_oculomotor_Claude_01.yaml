@@ -1,5 +1,5 @@
 description: designed by Claude (parallel flyvis)
-dataset: zebrafish_oculomotor_03
+dataset: zebrafish_oculomotor_01
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ''
@@ -16,7 +16,7 @@ simulation:
   noise_model_level: 0.0
   measurement_noise_level: 0.0
   derivative_smoothing_window: 1
-  seed: 100003
+  seed: 98001
   connconstr_datapath: papers/Code_NN/Code_NN/Data/Figure5/goldman_data
   connconstr_model: zebrafish
   connconstr_use_pretrained: true
@@ -69,7 +69,7 @@ training:
   w_init_mode: randn_scaled
   w_init_scale: 1
   lr_scheduler: none
-  seed: 100503
+  seed: 98501
 claude:
   n_epochs: 1
   data_augmentation_loop: 140
