@@ -91,7 +91,7 @@ Each row = one `GNN_LLM.py` run with its own instruction file.
 | `instruction_drosophila_cx_noise005.md` | -- | 0 | restarting (prev run used GT edges by mistake) |
 | `instruction_drosophila_cx_mlp.md` | 0.003 | 4 | running (Block 1) |
 | **Larva** | | | |
-| `instruction_larva.md` | 0.908 | 100 | running (Block 10) — 0% blow-ups with bs=4 |
+| `instruction_larva_gt_edges.md` | 0.908 | 100 | running (Block 10) — 0% blow-ups with bs=4 |
 | `instruction_larva_noise005.md` | -- | 0 | exists, not started |
 | **Zebrafish** | | | |
 | `instruction_zebrafish_oculomotor.md` | 0.018 | 80 | running (Block 8) — FC ceiling definitive |
@@ -131,7 +131,7 @@ LLM/instruction_{biomodel}_{experiment}.md
 | `instruction_drosophila_cx.md`                 | drosophila_cx        | clean, FC              | 0.681     | 96    | running (Block 9)          |
 | `instruction_drosophila_cx_noise005.md`        | drosophila_cx        | intrinsic noise 0.05   | 0.990     | 92    | running (Block 7)          |
 | `instruction_drosophila_cx_mlp.md`             | drosophila_cx        | MLP baseline           | 0.003     | 4     | running (Block 1)          |
-| `instruction_larva.md`                         | larva                | clean, GT edges        | 0.908     | 100   | running (Block 10)         |
+| `instruction_larva_gt_edges.md`                | larva                | clean, GT edges        | 0.908     | 100   | running (Block 10)         |
 | `instruction_larva_noise005.md`                | larva                | intrinsic noise 0.05   | --        | 0     | exists, not started        |
 | `instruction_zebrafish_oculomotor.md`          | zebrafish_oculomotor | clean, fully connected | 0.018     | 80    | running (Block 8)          |
 | `instruction_zebrafish_oculomotor_gt_edges.md` | zebrafish_oculomotor | clean, GT edges        | 0.777     | 92    | running (Block 7)          |
@@ -346,7 +346,7 @@ Maps each experiment to its config files, instruction file, and LLM exploration 
 <tr><td>?</td><td>drosophila_cx — NeuralODE</td><td>--</td><td>--</td><td>--</td><td>TODO</td></tr>
 <tr><td>?</td><td>drosophila_cx — SSM</td><td>--</td><td>--</td><td>--</td><td>TODO</td></tr>
 <tr><td colspan="6"><b>Larva (230, GT edges)</b></td></tr>
-<tr><td style="background:#d2992260">0.908</td><td>larva</td><td>pending</td><td>iter_093</td><td>instruction_larva.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude larva iterations=128 --cluster</code></td></tr>
+<tr><td style="background:#d2992260">0.908</td><td>larva_gt_edges</td><td>pending</td><td>iter_093</td><td>instruction_larva_gt_edges.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude larva_gt_edges iterations=128 --cluster --resume</code></td></tr>
 <tr><td>?</td><td>larva_noise005</td><td>--</td><td>--</td><td>instruction_larva_noise005.md</td><td>TODO</td></tr>
 <tr><td>?</td><td>larva_noise05</td><td>--</td><td>--</td><td>--</td><td>TODO: create</td></tr>
 <tr><td>?</td><td>larva_fc</td><td>--</td><td>--</td><td>--</td><td>TODO: create</td></tr>
