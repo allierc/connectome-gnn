@@ -1455,7 +1455,7 @@ def _run_ode_generation(stimulus_sequences, net, pde, x, edge_index, initial_sta
 
     with torch.no_grad():
         for pass_num in range(num_passes):
-            for data_idx, data in enumerate(tqdm(stimulus_sequences, desc="processing stimulus data", ncols=25)):
+            for data_idx, data in enumerate(tqdm(stimulus_sequences, desc="processing stimulus data")):
                 if sim.simulation_initial_state:
                     x.voltage[:] = initial_state
                     if sim.only_noise_visual_input > 0:
