@@ -32,7 +32,7 @@ except ImportError:
     CombinedVideoDataset = None
 import os
 
-from tqdm import tqdm
+from tqdm import tqdm, trange
 
 from connectome_gnn.generators.utils import (
     apply_pairwise_knobs_torch,
