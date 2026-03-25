@@ -152,11 +152,11 @@ These blocks assume lr_W, W_L1, and w_init are already established from the clea
 | 1     | **Baseline validation**        | None (robustness test)                                                     | Run best clean config + noise=0.05 across 4 seeds. Establish baseline connectivity_R2 under noise.               |
 | 2     | **Regularization re-tune**     | `coeff_W_L1`, `coeff_W_L2`, `coeff_W_sign`                                | W_L1: {1e-6, 3e-6, 1e-5}, W_L2: {5e-6, 1e-5, 2e-5}, W_sign: {0, 0.01, 0.1}. Noise may require different sparsity. |
 | 3     | **Training volume re-tune**    | `data_augmentation_loop`, `n_epochs`                                       | DAL: {200, 300, 500}, n_epochs: {2, 4}. Noise may require more training to average out.                          |
-| 4     | **Architecture**               | `hidden_dim`, `embedding_dim`                                              | hidden_dim: {48, 64, 80}, embedding_dim: {2, 4}. Noisy data may need larger hidden_dim.                          |
+| 4     | **Architecture + batch_size**  | `hidden_dim`, `embedding_dim`, `batch_size`                                | hidden_dim: {48, 64, 80}, embedding_dim: {2, 4}, batch_size: {2, 4, 8}. From flyvis: bs=4 eliminated catastrophic failures. Noisy data may need larger hidden_dim. |
 | 5     | **Monotonicity + Dale's law**  | `coeff_g_phi_diff`, `coeff_f_theta_diff`, `coeff_f_theta_msg_diff`, `dale_law` | g_phi_diff: {500, 1000, 1500, 2000}, f_theta_diff: {0, 10, 100}, dale_law: {false, true}. Noise may benefit from stronger constraints. |
 | 6     | **Free exploration I**         | Any parameter                                                              | Consolidate best from blocks 1-5, test novel combinations                                                        |
 | 7     | **Free exploration II**        | Any parameter                                                              | Continue ceiling-breaking attempts                                                                               |
-| 8     | **Free exploration III**       | Any parameter                                                              | Final refinement and robustness confirmation                                                                     |
+| 8     | **Final robustness**           | None (robustness test)                                                     | 4-seed robustness test of best config from blocks 1-7                                                            |
 
 ### Noise-specific considerations
 
