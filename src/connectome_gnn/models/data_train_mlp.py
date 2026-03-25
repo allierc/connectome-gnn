@@ -206,7 +206,7 @@ def data_train_mlp(config, erase, best_model, device, log_file=None):
     batch_size = tc.batch_size
     data_passes_per_epoch = tc.data_augmentation_loop
     n_epochs = tc.n_epochs
-    rollout_train_steps = getattr(tc, 'rollout_train_steps', 1)
+    rollout_train_steps = tc.rollout_train_steps
 
     # Valid frame range: need t through t+rollout_train_steps
     max_frame = n_train_frames - rollout_train_steps - 1

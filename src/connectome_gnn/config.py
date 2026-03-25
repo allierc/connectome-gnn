@@ -621,6 +621,8 @@ class TrainingConfig(BaseModel):
 
     data_augmentation_loop: int = 40
 
+    rollout_train_steps: int = 1  # multi-step rollout training: unroll K steps and backprop
+
     recurrent_training: bool = False
     recurrent_training_start_epoch: int = 0
     recurrent_loop: int = 0
