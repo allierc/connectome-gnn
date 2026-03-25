@@ -1247,6 +1247,21 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 plt.close(fig_mat)
                 logger.info("saved connectivity_matrix.png")
 
+                # Edge mask: binary adjacency (red=edge, white=no edge)
+                edge_mask = np.zeros((n_neurons, n_neurons), dtype=np.float32)
+                edge_mask[edges_np[0], edges_np[1]] = 1.0
+                fig_mask, ax_mask = plt.subplots(1, 1, figsize=(7, 6))
+                ax_mask.imshow(edge_mask.T, cmap='Reds', vmin=0, vmax=1,
+                               aspect='auto', interpolation='nearest', origin='upper')
+                n_edges_actual = int(edge_mask.sum())
+                n_possible = n_neurons * (n_neurons - 1)
+                density = n_edges_actual / n_possible * 100 if n_possible > 0 else 0
+                ax_mask.set_title(f'Edge mask ({n_edges_actual} edges, {density:.1f}% density)')
+                plt.tight_layout()
+                plt.savefig(f'{log_dir}/results/edge_mask.png', dpi=200)
+                plt.close(fig_mask)
+                logger.info("saved edge_mask.png")
+
                 # Zebrafish: extra two-panel figure with full learned matrix + cropped/sorted
                 if 'zebrafish_oculomotor' in config.dataset:
                     # J convention: J[post, pre] — transpose of W_dense[src, dst]
