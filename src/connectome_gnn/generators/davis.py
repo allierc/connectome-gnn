@@ -296,7 +296,7 @@ class RenderedDavis(Directory):
 
         logger.info(f"Found {len(sequence_dirs)} sequence directories")
 
-        for i, seq_dir in enumerate(tqdm(sequence_dirs, desc="Rendering sequences", ncols=25)):
+        for i, seq_dir in enumerate(tqdm(sequence_dirs, desc="Rendering sequences", ncols=100)):
             try:
                 # Load full image sequence
                 frames = load_image_sequence(seq_dir, end_frame=None)

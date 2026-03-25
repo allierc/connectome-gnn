@@ -227,7 +227,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     all_true = []
 
     with torch.no_grad():
-        for k in trange(n_eval_frames - 1, ncols=25, desc="one-step"):
+        for k in trange(n_eval_frames - 1, ncols=100, desc="one-step"):
             x = x_ts_eval.frame(k)
             y = torch.tensor(y_ts_eval[k], device=device)
 
@@ -299,7 +299,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     stimuli_pred_list = []   # SIREN predicted stimulus (input neurons only)
 
     with torch.no_grad():
-        for k in trange(n_eval_frames - 1, ncols=25, desc="rollout"):
+        for k in trange(n_eval_frames - 1, ncols=100, desc="rollout"):
             # Collect state before integration
             rollout_pred_list.append(to_numpy(x.voltage))
             rollout_true_list.append(to_numpy(x_ts_eval.frame(k).voltage))
@@ -940,7 +940,7 @@ def data_test_gnn_special(
 
     with torch.no_grad():
         for pass_num in range(num_passes_needed):
-            for data_idx, data in enumerate(tqdm(stimulus_dataset, desc="processing stimulus data", ncols=25)):
+            for data_idx, data in enumerate(tqdm(stimulus_dataset, desc="processing stimulus data", ncols=100)):
 
                 sequences = data["lum"]
                 # Sample flash parameters for each subsequence if flash stimulus is requested
@@ -1364,7 +1364,7 @@ def data_test_gnn_special(
 
             # Plot ground truth (green, thick) — all traces first
             baselines = {}
-            for plot_idx, i in enumerate(trange(len(neuron_plot_indices), ncols=25, desc=f"plotting {fig_suffix}")):
+            for plot_idx, i in enumerate(trange(len(neuron_plot_indices), ncols=100, desc=f"plotting {fig_suffix}")):
                 neuron_idx = neuron_plot_indices[i]
                 baseline = np.mean(true_slice[neuron_idx])
                 baselines[plot_idx] = baseline

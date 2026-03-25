@@ -36,6 +36,7 @@ from connectome_gnn.models.utils import (
     set_trainable_parameters,
 )
 from connectome_gnn.plot import (
+    plot_jacobian_w_scatter,
     plot_signal_loss,
     plot_training_flyvis,
     plot_training_linear,
@@ -63,35 +64,6 @@ def r2_color(val, thresholds=(0.9, 0.7, 0.3)):
     """ANSI color for an R² value: green > t0, yellow > t1, orange > t2, red otherwise."""
     t0, t1, t2 = thresholds
     return ANSI_GREEN if val > t0 else ANSI_YELLOW if val > t1 else ANSI_ORANGE if val > t2 else ANSI_RED
-
-
-def _plot_jacobian_w_scatter(model, x_ts, ode_params, gt_weights, n_neurons,
-                             log_dir, epoch, N, device):
-    """Plot W scatter using Jacobian-extracted effective connectivity."""
-    import numpy as np
-    from connectome_gnn.plot import plot_weight_scatter
-
-    model.eval()
-    J_mean = model.compute_jacobian_batched(x_ts, n_samples=50, seed=0)
-    model.train()
-
-    ei = to_numpy(ode_params.edge_index)
-    gt_W = to_numpy(ode_params.W)
-
-    # Compare Jacobian entries at GT edge locations
-    J_np = to_numpy(J_mean)
-    learned_at_edges = J_np[ei[0], ei[1]]
-
-    fig, ax = plt.subplots(figsize=(8, 8))
-    plot_weight_scatter(ax, gt_weights=gt_W, learned_weights=learned_at_edges,
-                        corrected=False, outlier_threshold=5)
-    ax.set_xlabel('true $W$', fontsize=24)
-    ax.set_ylabel('Jacobian $\\partial F / \\partial v$', fontsize=24)
-    plt.tight_layout()
-    os.makedirs(f"{log_dir}/tmp_training/matrix", exist_ok=True)
-    plt.savefig(f"{log_dir}/tmp_training/matrix/raw_{epoch}_{N}.png",
-                dpi=87, bbox_inches='tight', pad_inches=0)
-    plt.close()
 
 
 def data_train(config=None, erase=False, best_model=None, style=None, device=None, log_file=None):
@@ -378,7 +350,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
         last_tau_r2 = 0.0
         field_R2 = None
         field_slope = None
-        pbar = trange(Niter, ncols=25)
+        pbar = trange(Niter, ncols=100)
         # Dale's law enforcement: 3 evenly spaced interventions per epoch
         dale_enabled = getattr(tc, 'dale_law', False)
         if dale_enabled:
@@ -695,7 +667,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                     with open(metrics_log_path, 'a') as f:
                         f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f}\n')
                     # W scatter plot using Jacobian
-                    _plot_jacobian_w_scatter(model, x_ts, ode_params, gt_weights, n_neurons,
+                    plot_jacobian_w_scatter(model, x_ts, ode_params, gt_weights, n_neurons,
                                             log_dir, epoch, N, device)
                 elif (is_regular_r2 or is_early_r2) and not test_neural_field and ('linear' in model_name or 'known_ode' in model_name):
                     last_connectivity_r2, last_tau_r2, last_vrest_r2 = plot_training_linear(
@@ -901,7 +873,7 @@ def data_train_gnn_RNN(config, erase, best_model, device):
     _logger.info(f"Loading data from {config.dataset}...")
     x_list = []
     y_list = []
-    for run in trange(0, tc.n_runs, ncols=25):
+    for run in trange(0, tc.n_runs, ncols=100):
         x = np.load(graphs_data_path(config.dataset, f'x_list_{run}.npy'))
         y = np.load(graphs_data_path(config.dataset, f'y_list_{run}.npy'))
 
@@ -969,7 +941,7 @@ def data_train_gnn_RNN(config, erase, best_model, device):
         total_loss = 0
         model.train()
 
-        for seq_idx in trange(n_sequences, ncols=25, desc=f"Epoch {epoch}"):
+        for seq_idx in trange(n_sequences, ncols=100, desc=f"Epoch {epoch}"):
 
             optimizer.zero_grad()
 

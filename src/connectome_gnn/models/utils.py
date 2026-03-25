@@ -731,7 +731,7 @@ def analyze_data_svd(data, output_folder, config=None, max_components=100, logge
     bg_color = fig_style.background
 
     # prepare figure — wide layout so each subplot is landscape
-    fig, axes = fig_style.figure(nrows=2, ncols=25, width=14)
+    fig, axes = fig_style.figure(nrows=2, ncols=100, width=14)
 
     # 1. analyze activity (u)
     activity = activity_sampled  # shape: (n_frames_sampled, n_neurons)

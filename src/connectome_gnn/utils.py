@@ -370,7 +370,8 @@ def add_pre_folder(config_file_):
     elif 'mouse' in config_file_:
         config_file = os.path.join('mouse_city', config_file_)
         pre_folder = 'mouse_city/'
-
+    else:
+        raise ValueError(f"Config file '{config_file_}' does not exist or is not recognized. Check for typos.")
 
     return config_file, pre_folder
 
