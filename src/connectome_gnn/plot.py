@@ -1424,7 +1424,7 @@ def plot_loss_from_file(log_dir):
     epoch_boundaries = data.pop('epoch_boundaries', None)
 
     style = default_style
-    fig, ax = style.figure(ncols=25)
+    fig, ax = style.figure(ncols=1)
     x_iter = data.get('iteration') or list(range(len(data['loss'])))
     legend_fs = 7
 
