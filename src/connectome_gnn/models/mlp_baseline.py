@@ -50,26 +50,38 @@ class MLPBaseline(nn.Module):
         hidden_dim = model_config.hidden_dim
         n_layers = model_config.n_layers
 
-        layers = []
-        layers.append(nn.Linear(input_size, hidden_dim, device=device))
-        for _ in range(n_layers - 2):
-            layers.append(nn.Linear(hidden_dim, hidden_dim, device=device))
-        layers.append(nn.Linear(hidden_dim, output_size, device=device))
-        self.layers = nn.ModuleList(layers)
+        # Encoder: input → hidden
+        self.encoder = nn.Linear(input_size, hidden_dim, device=device)
 
-        # Zero-init final layer so model starts as dv/dt = 0
-        nn.init.zeros_(self.layers[-1].weight)
-        nn.init.zeros_(self.layers[-1].bias)
+        # Evolver: hidden → hidden (with residual connection)
+        evolver_layers = []
+        for _ in range(n_layers - 2):
+            evolver_layers.append(nn.Linear(hidden_dim, hidden_dim, device=device))
+        self.evolver = nn.ModuleList(evolver_layers)
+
+        # Zero-init evolver's final layer so residual starts as identity
+        if len(self.evolver) > 0:
+            nn.init.zeros_(self.evolver[-1].weight)
+            nn.init.zeros_(self.evolver[-1].bias)
+
+        # Decoder: hidden → output
+        self.decoder_layer = nn.Linear(hidden_dim, output_size, device=device)
 
         # Dummy W parameter for compatibility with regularizer/trainer
         n_w = self.n_edges + self.n_extra_null_edges
         self.W = nn.Parameter(torch.zeros(max(n_w, 1), 1, device=device), requires_grad=False)
 
     def _mlp_forward(self, x):
-        """Forward through the MLP layers with ReLU activation."""
-        for layer in self.layers[:-1]:
-            x = F.relu(layer(x))
-        return self.layers[-1](x)
+        """Forward: encoder → evolver (with residual) → decoder."""
+        h = F.relu(self.encoder(x))
+        # Evolver with residual: h = h + evolver(h)
+        e = h
+        for layer in self.evolver[:-1]:
+            e = F.relu(layer(e))
+        if len(self.evolver) > 0:
+            e = self.evolver[-1](e)  # no activation on last evolver layer
+            h = h + e
+        return self.decoder_layer(h)
 
     def forward(self, state: NeuronState, edge_index: torch.Tensor = None,
                 data_id=[], k=[], return_all=False, **kwargs):
