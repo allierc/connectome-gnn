@@ -42,7 +42,7 @@ Secondary metric — autoregressive prediction quality. For noisy models, rollou
 <tr><td>Flyvis noise=0.05 (13.7K)</td><td>8527</td><td style="background:#2ea04360"><b>0.991</b> ± 0.069</td><td>?</td><td>?</td><td>?</td><td>?</td><td>?</td></tr>
 <tr><td>Flyvis noise=0.5 (13.7K)</td><td>8527</td><td style="background:#2ea04360"><b>0.984</b> ± 0.162</td><td>?</td><td>?</td><td>?</td><td>?</td><td>?</td></tr>
 <tr><td>Drosophila CX (152, FC)</td><td>2000</td><td style="background:#d2992260">0.71</td><td style="background:#d2992260">0.70</td><td>?</td><td>?</td><td>?</td><td>?</td></tr>
-<tr><td>Drosophila CX noise=0.05 (152, FC)</td><td>2000</td><td style="background:#d2992260">0.76</td><td>--</td><td>--</td><td>--</td><td>--</td><td>--</td></tr>
+<tr><td>Drosophila CX noise=0.05 (152, FC)</td><td>2000</td><td style="background:#d2992260">0.56</td><td>--</td><td>--</td><td>--</td><td>--</td><td>--</td></tr>
 <tr><td>Larva (230, GT edges)</td><td>480</td><td style="background:#2ea04360"><b>1.00</b></td><td>?</td><td>?</td><td>?</td><td>?</td><td>?</td></tr>
 <tr><td>Larva noise=0.05 (230, GT edges)</td><td>480</td><td>?</td><td>--</td><td>--</td><td>--</td><td>--</td><td>--</td></tr>
 <tr><td>Zebrafish (609, FC)</td><td>4200</td><td style="background:#2ea04360"><b>1.00</b></td><td>?</td><td>?</td><td>?</td><td>?</td><td>?</td></tr>
@@ -123,24 +123,28 @@ Each row = one `GNN_LLM.py` run with its own instruction file.
 LLM/instruction_{biomodel}_{experiment}.md
 ```
 
-| File                                           | Bio model            | Experiment             | Status                     |
-| ---------------------------------------------- | -------------------- | ---------------------- | -------------------------- |
-| `instruction_flyvis_noise_free.md`             | flyvis               | clean, known topology  | Exists                     |
-| `instruction_flyvis_noise_005.md`              | flyvis               | intrinsic noise 0.05   | Exists                     |
-| `instruction_flyvis_noise_05.md`               | flyvis               | intrinsic noise 0.5    | Exists                     |
-| `instruction_drosophila_cx.md`                 | drosophila_cx        | clean, GT edges        | Exists (running, 24 iters) |
-| `instruction_larva.md`                         | larva                | clean, GT edges        | Exists (running, 36 iters) |
-| `instruction_zebrafish_oculomotor.md`          | zebrafish_oculomotor | clean, fully connected | Exists (running, 24 iters) |
-| `instruction_zebrafish_oculomotor_gt_edges.md` | zebrafish_oculomotor | clean, GT edges        | **Exists**                 |
-| `instruction_drosophila_cx_noise005.md`        | drosophila_cx        | intrinsic noise 0.05   | **Exists**                 |
-| `instruction_drosophila_cx_noise05.md`         | drosophila_cx        | intrinsic noise 0.5    | **To write**               |
-| `instruction_larva_noise005.md`                | larva                | intrinsic noise 0.05   | **Exists**                 |
-| `instruction_larva_noise05.md`                 | larva                | intrinsic noise 0.5    | **To write**               |
-| `instruction_zebrafish_oculomotor_noise005.md` | zebrafish_oculomotor | intrinsic noise 0.05   | **Exists**                 |
-| `instruction_zebrafish_oculomotor_noise05.md`  | zebrafish_oculomotor | intrinsic noise 0.5    | **To write**               |
-| `instruction_flyvis_missing_time_80.md`        | flyvis               | keep 20% timepoints    | **To write**               |
-| `instruction_flyvis_remove_edges_20.md`        | flyvis               | remove 20% edges       | **To write**               |
-| `instruction_flyvis_calcium.md`                | flyvis               | calcium indicator      | **To write** (colleague)   |
+| File                                           | Bio model            | Experiment             | Best W R2 | Iters | Status                     |
+| ---------------------------------------------- | -------------------- | ---------------------- | --------- | ----- | -------------------------- |
+| `instruction_flyvis_noise_free.md`             | flyvis               | clean, known topology  | 0.926     | 156   | done                       |
+| `instruction_flyvis_noise_005.md`              | flyvis               | intrinsic noise 0.05   | 0.985     | 253   | done                       |
+| `instruction_flyvis_noise_05.md`               | flyvis               | intrinsic noise 0.5    | 0.990     | 204   | done                       |
+| `instruction_drosophila_cx.md`                 | drosophila_cx        | clean, FC              | 0.681     | 96    | running (Block 9)          |
+| `instruction_drosophila_cx_noise005.md`        | drosophila_cx        | intrinsic noise 0.05   | 0.990     | 92    | running (Block 7)          |
+| `instruction_drosophila_cx_mlp.md`             | drosophila_cx        | MLP baseline           | 0.003     | 4     | running (Block 1)          |
+| `instruction_larva.md`                         | larva                | clean, GT edges        | 0.908     | 100   | running (Block 10)         |
+| `instruction_larva_noise005.md`                | larva                | intrinsic noise 0.05   | --        | 0     | exists, not started        |
+| `instruction_zebrafish_oculomotor.md`          | zebrafish_oculomotor | clean, fully connected | 0.018     | 80    | running (Block 8)          |
+| `instruction_zebrafish_oculomotor_gt_edges.md` | zebrafish_oculomotor | clean, GT edges        | 0.777     | 92    | running (Block 7)          |
+| `instruction_zebrafish_oculomotor_noise005.md` | zebrafish_oculomotor | intrinsic noise 0.05   | 0.918     | 40    | running (Block 4)          |
+| `instruction_drosophila_cx_noise05.md`         | drosophila_cx        | intrinsic noise 0.5    | --        | --    | TODO               |
+| `instruction_drosophila_cx_gt_edges.md`        | drosophila_cx        | clean, GT edges        | --        | --    | TODO               |
+| `instruction_larva_noise05.md`                 | larva                | intrinsic noise 0.5    | --        | --    | TODO               |
+| `instruction_larva_fc.md`                      | larva                | clean, FC              | --        | --    | TODO               |
+| `instruction_zebrafish_oculomotor_noise05.md`  | zebrafish_oculomotor | intrinsic noise 0.5    | --        | --    | TODO               |
+| `instruction_flyvis_missing_time_80.md`        | flyvis               | keep 20% timepoints    | --        | --    | TODO               |
+| `instruction_flyvis_missing_neurons_20.md`     | flyvis               | remove 20% neurons     | --        | --    | TODO               |
+| `instruction_flyvis_remove_edges_20.md`        | flyvis               | remove 20% edges       | --        | --    | TODO               |
+| `instruction_flyvis_calcium.md`                | flyvis               | calcium indicator      | --        | --    | TODO (colleague)   |
 
 Each instruction file contains: model description, metrics, hyperparameter search space, block partition.
 The agentic pipeline reads the instruction file to guide exploration.
