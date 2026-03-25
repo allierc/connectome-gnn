@@ -545,7 +545,7 @@ def generate_data_locally(state: ExplorationState, batch: BatchInfo):
 
 def run_cluster_training(state: ExplorationState, batch: BatchInfo):
     """PHASE 2-3: Submit cluster jobs, wait, auto-repair failed jobs."""
-    print(f"\n\033[93mPHASE 2: Submitting {batch.n_slots} flyvis training jobs to cluster\033[0m")
+    print(f"\n\033[93mPHASE 2: Submitting {batch.n_slots} flyvis training jobs to cluster (gpu_{state.node_name})\033[0m")
 
     # Guardrail: verify cluster repo is clean before submitting
     if not check_cluster_repo():
