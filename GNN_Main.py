@@ -44,9 +44,9 @@ if __name__ == "__main__":
         print(f"Options: {args.option}")
     CONFIG_LISTS = {
         'drosophila_cx_baselines': [
-            'drosophila_cx_linear_00',
-            'drosophila_cx_rnn_00',
-            'drosophila_cx_neuralode_00',
+            'drosophila_cx_known_ode',
+            'drosophila_cx_rnn',
+            'drosophila_cx_neuralode',
         ],
     }
 

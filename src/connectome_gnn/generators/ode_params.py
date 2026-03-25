@@ -260,7 +260,7 @@ class ODEParamsBase:
     "flyvis_A_multiple_ReLU", "flyvis_B_multiple_ReLU", "flyvis_C_multiple_ReLU",
     "flyvis_A_tanh", "flyvis_B_tanh", "flyvis_C_tanh",
     "flyvis_A_NULL", "flyvis_B_NULL", "flyvis_C_NULL",
-    "flyvis_linear", "flyvis_linear_tanh",
+    "flyvis_known_ode",
 )
 @dataclass
 class FlyVisODEParams(ODEParamsBase):
@@ -705,7 +705,7 @@ class FlyVisHodgkinHuxleyODEParams(ODEParamsBase):
 # Zebrafish oculomotor integrator (Beiran & Litwin-Kumar 2023, Fig 5)
 # ---------------------------------------------------------------------------
 
-@register_ode_params("zebrafish", "zebrafish_oculomotor")
+@register_ode_params("zebrafish", "zebrafish_oculomotor", "zebrafish_known_ode", "zebrafish_oculomotor_known_ode")
 @dataclass
 class ZebrafishODEParams(ODEParamsBase):
     """Parameters for the zebrafish oculomotor linear integrator ODE.
@@ -953,7 +953,7 @@ class ZebrafishODEParams(ODEParamsBase):
 # Drosophila adult central complex ring attractor (Beiran & Litwin-Kumar 2023, Fig 5)
 # ---------------------------------------------------------------------------
 
-@register_ode_params("drosophila_cx", "drosophila_cx_linear", "drosophila_cx_rnn", "drosophila_cx_mlp")
+@register_ode_params("drosophila_cx", "drosophila_cx_rnn", "drosophila_cx_mlp", "drosophila_cx_known_ode")
 @dataclass
 class DrosophilaCxODEParams(ODEParamsBase):
     """Parameters for the Drosophila central complex ring attractor ODE.
@@ -1317,7 +1317,7 @@ class DrosophilaCxODEParams(ODEParamsBase):
 # Drosophila larva two-population model (Beiran & Litwin-Kumar 2023, Fig 5)
 # ---------------------------------------------------------------------------
 
-@register_ode_params("larva")
+@register_ode_params("larva", "larva_known_ode")
 @dataclass
 class LarvaODEParams(ODEParamsBase):
     """Parameters for the Drosophila larva two-population ODE.

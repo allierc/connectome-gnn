@@ -14,7 +14,7 @@ Color code: <span style="color:#2ea043">green</span> &gt; 0.9, <span style="colo
 Primary metric. Higher = better.
 
 <table>
-<tr><th>Bio model</th><th>GNN (ours)</th><th>MLP</th><th>Linear ODE</th><th>RNN</th><th>Neural ODE</th><th>SSM</th></tr>
+<tr><th>Bio model</th><th>GNN (ours)</th><th>MLP</th><th>Known ODE</th><th>RNN</th><th>Neural ODE</th><th>SSM</th></tr>
 <tr><td><b>Flyvis noise-free (13.7K, GT)</b></td><td style="background:#2ea04360"><b>0.926</b> (0.923±0.008, CV=0.82%)</td><td>?</td><td>?</td><td>?</td><td>?</td><td>?</td></tr>
 <tr><td><b>Flyvis noise=0.05 (13.7K, GT)</b></td><td style="background:#2ea04360"><b>0.985</b> (0.982±0.003, CV=0.30%)</td><td>?</td><td>?</td><td>?</td><td>?</td><td>?</td></tr>
 <tr><td><b>Flyvis noise=0.5 (13.7K, GT)</b></td><td style="background:#2ea04360"><b>0.990</b> (0.996±0.006, CV=0.64%)</td><td>?</td><td>?</td><td>?</td><td>?</td><td>?</td></tr>
@@ -37,7 +37,7 @@ _Format: best single-seed (robust mean±std, CV%). 4 seeds for robustness tests.
 Secondary metric — autoregressive prediction quality. For noisy models, rollout is evaluated on noise-free test data.
 
 <table>
-<tr><th>Bio model</th><th>Frames</th><th>GNN (ours)</th><th>MLP</th><th>Linear ODE</th><th>RNN</th><th>Neural ODE</th><th>SSM</th></tr>
+<tr><th>Bio model</th><th>Frames</th><th>GNN (ours)</th><th>MLP</th><th>Known ODE</th><th>RNN</th><th>Neural ODE</th><th>SSM</th></tr>
 <tr><td>Flyvis noise-free (13.7K)</td><td>8527</td><td style="background:#2ea04360"><b>0.997</b> ± 0.015</td><td>?</td><td>?</td><td>?</td><td>?</td><td>?</td></tr>
 <tr><td>Flyvis noise=0.05 (13.7K)</td><td>8527</td><td style="background:#2ea04360"><b>0.991</b> ± 0.069</td><td>?</td><td>?</td><td>?</td><td>?</td><td>?</td></tr>
 <tr><td>Flyvis noise=0.5 (13.7K)</td><td>8527</td><td style="background:#2ea04360"><b>0.984</b> ± 0.162</td><td>?</td><td>?</td><td>?</td><td>?</td><td>?</td></tr>
@@ -108,7 +108,7 @@ Each row = one `GNN_LLM.py` run with its own instruction file.
 | instruction_flyvis_missing_neurons.md | -- | -- | TODO |
 | instruction_flyvis_flywire_edges.md | -- | -- | TODO |
 | instruction_*_mlp.md (×4 models) | -- | -- | TODO |
-| instruction_*_linear.md (×4 models) | -- | -- | TODO |
+| instruction_*_known_ode.md (×4 models) | -- | -- | TODO |
 | instruction_*_rnn.md (×4 models) | -- | -- | TODO |
 | instruction_*_neuralode.md (×4 models) | -- | -- | TODO |
 | instruction_*_ssm.md (×4 models) | -- | -- | TODO |
@@ -172,7 +172,7 @@ No experiment suffix = baseline (clean data, known/fully-connected topology).
 | ----------- | -------------------- | ----------------------- | ---------------------------------------------------------------- |
 | `gnn`       | GNN (ours)           | `neural_gnn.py`         | Done                                                             |
 | `mlp`       | MLP baseline         | `mlp_baseline.py`       | Done — registered for drosophila_cx, larva, zebrafish_oculomotor |
-| `linear`    | Linear ODE           | `flyvis_linear.py`      | Done — registered for all bio models                             |
+| `known_ode` | Known ODE (GT structure) | `known_ode.py`       | Done — per-model activation (ReLU/softplus/identity)             |
 | `neuralode` | Neural ODE (adjoint) | `neural_ode_wrapper.py` | Done — GNN + `neural_ODE_training: true`                         |
 | `rnn`       | RNN (GRU)            | `neural_rnn.py`         | Done — registered for all bio models                             |
 
@@ -340,7 +340,7 @@ Maps each experiment to its config files, instruction file, and LLM exploration 
 <tr><td>?</td><td>drosophila_cx_noise05</td><td>--</td><td>--</td><td>--</td><td>TODO: create</td></tr>
 <tr><td>?</td><td>drosophila_cx_gt_edges</td><td>--</td><td>--</td><td>--</td><td>TODO: create</td></tr>
 <tr><td style="background:#cf222e60">0.003</td><td>drosophila_cx — MLP</td><td>config/drosophila_cx/drosophila_cx_mlp.yaml</td><td>LLM_drosophila_cx_mlp/.../iter_001</td><td>instruction_drosophila_cx_mlp.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude drosophila_cx_mlp iterations=128 --cluster</code></td></tr>
-<tr><td>?</td><td>drosophila_cx — Linear</td><td>config/drosophila_cx/drosophila_cx_linear_00.yaml</td><td>--</td><td>--</td><td>TODO</td></tr>
+<tr><td>?</td><td>drosophila_cx — Known ODE</td><td>config/drosophila_cx/drosophila_cx_known_ode.yaml</td><td>--</td><td>--</td><td>TODO</td></tr>
 <tr><td>?</td><td>drosophila_cx — RNN</td><td>config/drosophila_cx/drosophila_cx_rnn.yaml</td><td>--</td><td>--</td><td>TODO</td></tr>
 <tr><td>?</td><td>drosophila_cx — NeuralODE</td><td>config/drosophila_cx/drosophila_cx_neuralode.yaml</td><td>--</td><td>--</td><td>TODO</td></tr>
 <tr><td>?</td><td>drosophila_cx — SSM</td><td>--</td><td>--</td><td>--</td><td>TODO</td></tr>
