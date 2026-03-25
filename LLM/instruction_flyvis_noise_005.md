@@ -380,7 +380,9 @@ If `user_input.md` has content in "Pending Instructions":
 | 5     | W regularization       | coeff_W_L1, coeff_W_L2, w_init_mode                                      |
 | 6     | Architecture           | hidden_dim, n_layers, hidden_dim_update, n_layers_update, embedding_dim  |
 | 7     | Combined best          | Best parameters from blocks 1–6                                          |
-| 8     | Validation             | Re-run best config with more seeds / longer training                     |
+| 8     | CV minimization I      | Fine-tune parameters that showed highest seed variance in blocks 1–7. Target CV < 3% while keeping mean conn_R2 > 0.9. Focus on parameters where small changes reduced CV without hurting mean. |
+| 9     | CV minimization II     | Continue CV reduction. Test interaction effects: pairs of parameters that individually reduced CV. If CV < 3% achieved, push for CV < 2% or raise the mean. |
+| 10    | Validation             | Re-run best config with more seeds / longer training                     |
 
 ## Block Boundaries
 
