@@ -257,7 +257,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
 
             if 'rnn' in model_config.signal_model_name.lower():
                 pred = model(x.to_packed(), return_all=False)
-            elif 'mlp' in model_config.signal_model_name.lower():
+            elif 'mlp' in model_config.signal_model_name.lower() or 'eed' in model_config.signal_model_name.lower():
                 batched_state, _ = _batch_frames([x], edges)
                 pred = model(batched_state, data_id=data_id, return_all=False)
             else:
@@ -343,7 +343,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
                 else:
                     I = x.stimulus[:sim.n_input_neurons].unsqueeze(-1)
                 y = model.rollout_step(v, I, dt=sim.delta_t, method='rk4') - v
-            elif 'mlp' in model_config.signal_model_name.lower():
+            elif 'mlp' in model_config.signal_model_name.lower() or 'eed' in model_config.signal_model_name.lower():
                 y = model(x, data_id=data_id, return_all=False)
             elif hasattr(tc, 'neural_ODE_training') and tc.neural_ODE_training:
                 v0 = x.voltage.flatten()
@@ -460,7 +460,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
             log_file.write(f'stimuli_R2: {stimuli_R2:.4f}\n')
 
     # --- MLP Jacobian connectivity R2 ---
-    if 'mlp' in model_config.signal_model_name.lower() and hasattr(model, 'compute_jacobian_batched'):
+    if ('mlp' in model_config.signal_model_name.lower() or 'eed' in model_config.signal_model_name.lower()) and hasattr(model, 'compute_jacobian_batched'):
         from connectome_gnn.metrics import compute_jacobian_connectivity_r2
         from connectome_gnn.generators.ode_params import get_ode_params_class
         try:
@@ -1154,7 +1154,7 @@ def data_test_gnn_special(
                             v = x_selected.voltage.unsqueeze(-1)
                             I = x_selected.stimulus.unsqueeze(-1)
                             y = model.rollout_step(v, I, dt=sim.delta_t, method='rk4') - v  # Return as delta
-                        elif 'mlp' in model_config.signal_model_name.lower():
+                        elif 'mlp' in model_config.signal_model_name.lower() or 'eed' in model_config.signal_model_name.lower():
                             y = model(x_selected.to_packed(), data_id=None, return_all=False)
 
                     else:
@@ -1166,7 +1166,7 @@ def data_test_gnn_special(
                             v = x.voltage.unsqueeze(-1)
                             I = x.stimulus[:sim.n_input_neurons].unsqueeze(-1)
                             y = model.rollout_step(v, I, dt=sim.delta_t, method='rk4') - v  # Return as delta
-                        elif 'mlp' in model_config.signal_model_name.lower():
+                        elif 'mlp' in model_config.signal_model_name.lower() or 'eed' in model_config.signal_model_name.lower():
                             y = model(x.to_packed(), data_id=None, return_all=False)
                         elif tc.neural_ODE_training:
                             data_id = torch.zeros((x.n_neurons, 1), dtype=torch.int, device=device)
