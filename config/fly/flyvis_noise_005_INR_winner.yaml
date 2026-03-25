@@ -1,0 +1,104 @@
+# Winner config: flyvis_noise_005_INR_winner.yaml
+# Source: iter_021_slot_00 (connectivity_R2 = 0.942, field_R2 = 0.709)
+# Exploration: 40 iterations, 4 blocks
+# Date: 2026-03-25
+#
+# Why this is the winner:
+#   - 4-layer SIREN eliminates 25% catastrophic failure rate (3L had bimodal failures)
+#   - dim=2048 is Pareto-optimal (same conn_R2 as dim=4096, 2x faster training)
+#   - SIREN LR has sharp cliffs on both sides: only 1e-8 is safe
+#   - alternate_training with ratio=0.05 prevents GNN degradation in later epochs
+#
+# Metrics:
+#   connectivity_R2: 0.942 +/- 0.008 (4 seeds, CV=0.90%)
+#   field_R2:        0.709 (mean), min=0.622
+#   rollout_pearson: ~0.99
+#   tau_R2:          ~0.99
+#   V_rest_R2:       ~0.15
+#
+# Key config differences from baseline:
+#   - hidden_dim_nnr_f: 4096 -> 2048 (Pareto-optimal, 2x faster)
+#   - n_layers_nnr_f: 3 -> 4 (eliminates catastrophic failures)
+#   - learning_rate_NNR_f: 1e-8 (only safe value, cliffs at 5e-9 and 3e-8)
+#   - alternate_training: true, alternate_lr_ratio: 0.05
+
+description: "flyvis noise 0.05 + INR — LLM exploration winner (W R2=0.942, field R2=0.709)"
+dataset: fly/flyvis_noise_005_INR
+simulation:
+  connectivity_file: to be specified
+  adjacency_matrix: ''
+  params:
+  - - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+  n_neurons: 13741
+  n_input_neurons: 1736
+  n_neuron_types: 65
+  n_edges: 434112
+  n_frames: 64000
+  delta_t: 0.02
+  baseline_value: 0
+  visual_input_type: DAVIS
+  noise_model_level: 0.05
+  seed: 42
+graph_model:
+  signal_model_name: flyvis_A
+  prediction: first_derivative
+  field_type: visual
+  input_size: 3
+  n_layers: 3
+  hidden_dim: 64
+  output_size: 1
+  input_size_update: 5
+  n_layers_update: 3
+  hidden_dim_update: 64
+  aggr_type: add
+  embedding_dim: 2
+  update_type: generic
+  g_phi_positive: true
+  inr_type: siren_txy
+  input_size_nnr_f: 3
+  hidden_dim_nnr_f: 2048
+  n_layers_nnr_f: 4
+  outermost_linear_nnr_f: true
+  output_size_nnr_f: 1
+  nnr_f_xy_period: 1.0
+  nnr_f_T_period: 64000
+  omega_f: 4096
+plotting:
+  colormap: tab20
+  arrow_length: 1
+  xlim:
+  - -2.5
+  - 2.5
+  ylim:
+  - -100
+  - 100
+training:
+  n_epochs: 3
+  n_runs: 1
+  device: auto
+  recurrent_training: false
+  batch_size: 1
+  batch_ratio: 1
+  sparsity: none
+  data_augmentation_loop: 25
+  learning_rate_W_start: 0.0005
+  learning_rate_start: 0.0012
+  learning_rate_embedding_start: 0.0015
+  learning_rate_NNR_f: 1.0e-08
+  coeff_g_phi_diff: 750
+  coeff_f_theta_msg_diff: 0
+  coeff_g_phi_norm: 1.0
+  coeff_g_phi_weight_L1: 0.5
+  coeff_f_theta_weight_L1: 0.5
+  coeff_g_phi_weight_L2: 0
+  coeff_f_theta_weight_L2: 0.001
+  coeff_W_L1: 5.0e-05
+  coeff_W_L1_rate: 0.5
+  w_init_mode: zeros
+  regul_annealing_rate: 0.5
+  alternate_training: true
+  alternate_lr_ratio: 0.05
+  seed: 42
