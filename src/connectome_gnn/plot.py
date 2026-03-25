@@ -1313,7 +1313,7 @@ def plot_signal_loss(loss_dict, log_dir, epoch=None, Niter=None, epoch_boundarie
 
     style = default_style
     lw = style.line_width
-    fig_loss, (ax1, ax2, ax3) = style.figure(ncols=25, width=3 * style.figure_height * style.default_aspect)
+    fig_loss, (ax1, ax2, ax3) = style.figure(ncols=3, width=3 * style.figure_height * style.default_aspect)
 
     # x-axis: use global iteration if available, otherwise list index
     x_iter = loss_dict.get('iteration') or list(range(len(loss_dict['loss'])))
