@@ -234,6 +234,7 @@ def data_train_mlp(config, erase, best_model, device, log_file=None):
     model.train()
     training_start = time.time()
     best_val_loss = float('inf')
+    best_rollout_mse = float('inf')
 
     for epoch in range(n_epochs):
         epoch_start = time.time()
@@ -290,10 +291,10 @@ def data_train_mlp(config, erase, best_model, device, log_file=None):
             val_str = f' | val: {val_loss:.4e} | rollout: {mean_rollout_mse:.4e} ({val_duration:.1f}s)'
             plot_rollout_mse(model_rollout_mse, const_rollout_mse, epoch, log_dir, sim.delta_t)
 
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
+            if mean_rollout_mse < best_rollout_mse:
+                best_rollout_mse = mean_rollout_mse
                 torch.save(model.state_dict(), os.path.join(net_path, 'best_model.pt'))
-                _logger.info(f'  saved best model (val_loss={best_val_loss:.4e})')
+                _logger.info(f'  saved best model (rollout_mse={best_rollout_mse:.4e})')
         else:
             # No validation — save best by train loss
             if mean_loss < best_val_loss:
@@ -317,5 +318,5 @@ def data_train_mlp(config, erase, best_model, device, log_file=None):
         }, os.path.join(net_path, 'latest_checkpoint.pt'))
 
     total_time = time.time() - training_start
-    _logger.info(f'training complete: {n_epochs} epochs in {total_time:.1f}s, best loss: {best_val_loss:.4e}')
+    _logger.info(f'training complete: {n_epochs} epochs in {total_time:.1f}s, best rollout_mse: {best_rollout_mse:.4e}')
     _logger.info(f'constant model baseline: {constant_model_loss:.4e}')
