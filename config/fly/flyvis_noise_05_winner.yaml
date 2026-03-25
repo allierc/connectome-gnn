@@ -1,0 +1,98 @@
+# Winner config: flyvis_noise_05_winner.yaml
+# Source: iter_097_slot_00 (connectivity_R2 = 0.993, best single seed)
+# Exploration: 204 iterations, 17 blocks
+# Date: 2026-03-25
+#
+# Why this is the winner:
+#   - 1.5x learning rates overcome kinetic escape barrier under high noise
+#   - aug_loop=15 is the non-monotonic optimum (aug=10 has 50% failure, aug=20 is safe)
+#   - batch_size=2 (unlike noise_005 which needs bs=4) — high noise provides natural averaging
+#   - ~12.5% irreducible catastrophic failure rate (8-seed validation)
+#   - 25% of runs fall into alternative basins regardless of hyperparameters
+#
+# Metrics:
+#   connectivity_R2: 0.993 (best single seed)
+#   robust_mean:     0.993 +/- 0.010 (4 seeds, CV=0.98%)
+#   actual_8seed:    0.958 (12.5% catastrophic failure rate)
+#   rollout_pearson: 0.984 (on noise-free test data)
+#   tau_R2:          ~1.00
+#   V_rest_R2:       ~0.79
+#
+# Key config differences from baseline:
+#   - lr_W: 0.0006 -> 0.0009 (1.5x)
+#   - lr: 0.0012 -> 0.0018 (1.5x)
+#   - lr_emb: 0.00155 -> 0.002325 (1.5x)
+#   - batch_size: 2 (unchanged — high noise provides natural averaging)
+#   - data_augmentation_loop: 20 -> 15 (non-monotonic optimum)
+#   - coeff_g_phi_diff: 750 (same as noise_005)
+#   - coeff_g_phi_norm: 0 -> 0.9
+#   - coeff_W_L1: 0 -> 7.5e-5
+#   - coeff_f_theta_weight_L1: 0 -> 0.5
+
+description: "flyvis noise 0.5 — LLM exploration winner (W R2=0.993, CV=0.98%)"
+dataset: fly/flyvis_noise_05
+simulation:
+  connectivity_file: to be specified
+  adjacency_matrix: ''
+  params:
+  - - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+  n_neurons: 13741
+  n_input_neurons: 1736
+  n_neuron_types: 65
+  n_edges: 434112
+  n_frames: 64000
+  delta_t: 0.02
+  baseline_value: 0
+  visual_input_type: DAVIS
+  noise_model_level: 0.5
+  seed: 42
+graph_model:
+  signal_model_name: flyvis_A
+  prediction: first_derivative
+  input_size: 3
+  n_layers: 3
+  hidden_dim: 80
+  output_size: 1
+  input_size_update: 5
+  n_layers_update: 3
+  hidden_dim_update: 80
+  aggr_type: add
+  embedding_dim: 2
+  update_type: generic
+  g_phi_positive: true
+plotting:
+  colormap: tab20
+  arrow_length: 1
+  xlim:
+  - -2.5
+  - 2.5
+  ylim:
+  - -100
+  - 100
+training:
+  n_epochs: 1
+  n_runs: 1
+  device: auto
+  recurrent_training: false
+  batch_size: 2
+  batch_ratio: 1
+  small_init_batch_size: false
+  sparsity: none
+  data_augmentation_loop: 15
+  learning_rate_W_start: 0.0009
+  learning_rate_start: 0.0018
+  learning_rate_embedding_start: 0.002325
+  coeff_g_phi_diff: 750
+  coeff_f_theta_msg_diff: 0
+  coeff_g_phi_norm: 0.9
+  coeff_g_phi_weight_L1: 0.28
+  coeff_f_theta_weight_L1: 0.5
+  coeff_g_phi_weight_L2: 0
+  coeff_f_theta_weight_L2: 0.001
+  coeff_W_L1: 7.5e-05
+  coeff_W_L2: 1.5e-06
+  w_init_mode: randn_scaled
+  seed: 42
