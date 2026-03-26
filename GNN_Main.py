@@ -48,6 +48,11 @@ if __name__ == "__main__":
             'drosophila_cx_rnn',
             'drosophila_cx_neuralode',
         ],
+        'known_ode': [
+            'flyvis_noise_free_known_ode',
+            'flyvis_noise_005_known_ode',
+            'flyvis_noise_05_known_ode',
+        ],
     }
 
     if args.option is not None:
@@ -69,8 +74,8 @@ if __name__ == "__main__":
                 test_config_name = None
     else:
         best_model = ''
-        task = task = 'generate_train'
-        config_list = ['flyvis_noise_free_known_ode']
+        task = task = 'train'
+        config_list = ['flyvis_noise_05']
         test_config_name = None
 
     for config_file_ in config_list:
