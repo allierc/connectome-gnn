@@ -191,6 +191,10 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
         expected_total = sim.n_edges + sim.n_extra_null_edges
         if actual_n_edges == expected_total and sim.n_extra_null_edges > 0:
             _logger.info(f'null edges in data: {sim.n_edges} base + {sim.n_extra_null_edges} null = {actual_n_edges}')
+            # Model W must cover all edges (real + null); update n_edges so build_model
+            # allocates W of size actual_n_edges, not just the base n_edges.
+            config.simulation.n_edges = actual_n_edges
+            config.simulation.n_extra_null_edges = 0
         elif actual_n_edges != sim.n_edges:
             _logger.info(f'n_edges mismatch: config={sim.n_edges}, actual={actual_n_edges} — using actual')
             config.simulation.n_edges = actual_n_edges
