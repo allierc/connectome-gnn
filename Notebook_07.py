@@ -60,6 +60,7 @@ sys.path.insert(0, sys_path)
 
 from GNN_PlotFigure import data_plot
 from connectome_gnn.config import NeuralGraphConfig
+from connectome_gnn.generators.graph_data_generator import data_generate
 from connectome_gnn.models.graph_trainer import data_test
 from connectome_gnn.plot import plot_loss_from_file
 from connectome_gnn.utils import set_device, add_pre_folder, graphs_data_path, log_path
@@ -117,23 +118,33 @@ device = set_device(configs[datasets[0][0]].training.device)
 
 # %%
 #| output: false
-# Check that data exists
-missing_data = []
-for config_name, table_label, label in datasets:
-    gdir = graphs_dirs[config_name]
-    has_data = (os.path.isfile(os.path.join(gdir, "x_list_train.pt"))
-                or os.path.isfile(os.path.join(gdir, "x_list_train.npy"))
-                or os.path.isdir(os.path.join(gdir, "x_list_train")))
-    if not has_data:
-        missing_data.append(label)
+print()
+print("=" * 80)
+print("GENERATE - Simulating fly visual system (edge-removal variants)")
+print("=" * 80)
 
-if missing_data:
-    msg = ", ".join(missing_data)
-    raise RuntimeError(
-        f"Training data not found for: {msg}. "
-        f"Please run Notebook_00 first to generate the data, then train "
-        f"with: python GNN_Main.py -o generate_train <config_name>"
-    )
+for config_name, table_label, label in datasets:
+    config = configs[config_name]
+    graphs_dir = graphs_dirs[config_name]
+    print()
+    print(f"--- {label} ---")
+    data_exists = os.path.isdir(os.path.join(graphs_dir, 'x_list_train'))
+    if data_exists:
+        print(f"  data already exists at {graphs_dir}/")
+        print("  skipping simulation...")
+    else:
+        print(f"  generating data at {graphs_dir}/")
+        data_generate(
+            config,
+            device=device,
+            visualize=False,
+            run_vizualized=0,
+            style="color",
+            alpha=1,
+            erase=False,
+            save=True,
+            step=100,
+        )
 
 # Check that trained models exist
 missing_models = []
