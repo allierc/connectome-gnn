@@ -1,15 +1,19 @@
 # Winner config: zebrafish_oculomotor_noise005_winner.yaml
 # Source: iter_019_slot_02 (connectivity_R2 = 0.918)
-# Exploration: 64 iterations, 6 blocks
-# Date: 2026-03-25
+# Exploration: 112 iterations, 9 blocks
+# Date: 2026-03-27
 #
 # Why this is the winner:
 #   - DAL=93 with W_L1=1e-4 maximizes training volume while avoiding overtraining
 #   - Noise=0.05 breaks linear degeneracy, lifting conn_R2 from ~0.02 (clean) to 0.918
+#   - 112 iterations exhaustively tested 37+ parameters — none reliably beat this config
+#   - 16-seed robustness at DAL=35: mean=0.371, 0/16>0.7 (FRAGILE at budget)
+#   - 5-seed robustness at DAL=70: mean=0.688, 4/5>0.7 (PARTIALLY ROBUST)
 #
 # Metrics:
-#   connectivity_R2: 0.918 (best single seed)
+#   connectivity_R2: 0.918 (best single seed, Iter 19 DAL=93)
 #   robust_mean:     0.688 +/- 0.146 (5 seeds @ DAL=70, CV=22.5%)
+#   DAL=35_mean:     0.371 (16 seeds, range 0.176-0.678, CV~34%)
 #   rollout_pearson: 0.999
 #   cluster_accuracy: 0.294
 #   spectral_radius: 0.919 (true: 0.900)
