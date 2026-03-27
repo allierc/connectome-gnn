@@ -85,7 +85,7 @@ def display_image(path, width=700):
 # neuron pairs not already connected.  The GNN architecture and
 # training hyperparameters are otherwise identical across conditions.
 #
-# The GNN is remarkably robust to null-edge contamination: even
+# The GNN is robust to null-edge contamination: even
 # with 4x as many spurious edges as real ones, it recovers
 # synaptic weights, biophysical parameters, and neuron-type
 # identity with only modest degradation.  The model effectively
