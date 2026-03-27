@@ -128,13 +128,22 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     if os.path.exists(training_edges_path):
         edges_for_size = torch.load(training_edges_path, map_location='cpu', weights_only=False)
     else:
-        edges_for_size = torch.load(
-            graphs_data_path(config.dataset, 'edge_index.pt'),
-            map_location='cpu', weights_only=False)
+        edge_index_path = graphs_data_path(config.dataset, 'edge_index.pt')
+        ode_params_path = graphs_data_path(config.dataset, 'ode_params.pt')
+        if os.path.exists(edge_index_path):
+            edges_for_size = torch.load(edge_index_path, map_location='cpu', weights_only=False)
+        else:
+            # edge_index.pt not written by data_generate_voltage — fall back to ode_params
+            from connectome_gnn.generators.ode_params import get_ode_params_class
+            _cls = get_ode_params_class(config.graph_model.signal_model_name)
+            _op = _cls.load(graphs_data_path(config.dataset), device='cpu')
+            edges_for_size = _op.edge_index
     actual_n_edges = edges_for_size.shape[1]
     expected_total = sim.n_edges + sim.n_extra_null_edges
     if actual_n_edges == expected_total and sim.n_extra_null_edges > 0:
         logger.info(f'null edges in data: {sim.n_edges} base + {sim.n_extra_null_edges} null = {actual_n_edges}')
+        config.simulation.n_edges = actual_n_edges
+        config.simulation.n_extra_null_edges = 0
     elif actual_n_edges != sim.n_edges:
         logger.info(f'n_edges mismatch: config={sim.n_edges}, actual={actual_n_edges} — using actual')
         config.simulation.n_edges = actual_n_edges
