@@ -119,20 +119,39 @@ def run_cv(config_name, seeds):
             all_metrics[key].append(val)
             print(f"    {key}: {val:.4f}" if not np.isnan(val) else f"    {key}: —")
 
-    # --- Summary log ---
+        # --- Append per-run line to log immediately ---
+        summary_path = os.path.join(cv_out_dir, "cv_summary.txt")
+        with open(summary_path, 'a') as f:
+            if i == 0:
+                f.write(f"CV log: {config_name}\n")
+                f.write(f"seeds: {seeds}\n")
+                f.write("=" * 80 + "\n")
+                header = f"{'run':<6} {'seed':<6}" + "".join(f" {k:<22}" for k, _ in METRICS)
+                f.write(header + "\n")
+                f.write("-" * len(header) + "\n")
+            vals_str = "".join(
+                f" {all_metrics[key][-1]:>22.4f}" if not np.isnan(all_metrics[key][-1])
+                else f" {'—':>22}"
+                for key, _ in METRICS
+            )
+            f.write(f"{i:<6} {seed:<6}{vals_str}\n")
+
+    # --- Append summary statistics to log ---
     summary_path = os.path.join(cv_out_dir, "cv_summary.txt")
-    with open(summary_path, 'w') as f:
-        f.write(f"CV summary: {config_name}\n")
-        f.write(f"seeds: {seeds}\n\n")
-        f.write(f"{'Metric':<30} {'Mean':>8} {'SD':>8}  values\n")
-        f.write("-" * 70 + "\n")
-        for key, label in METRICS:
+    with open(summary_path, 'a') as f:
+        f.write("=" * 80 + "\n")
+        f.write(f"{'Metric':<30} {'Mean':>8} {'SD':>8} {'CV%':>7} {'Min':>8} {'Max':>8}\n")
+        f.write("-" * 80 + "\n")
+        for key, _ in METRICS:
             vals = [v for v in all_metrics[key] if not np.isnan(v)]
             if vals:
-                mean, sd = np.mean(vals), np.std(vals)
-                f.write(f"{key:<30} {mean:>8.4f} {sd:>8.4f}  {[f'{v:.4f}' for v in all_metrics[key]]}\n")
+                mean = np.mean(vals)
+                sd = np.std(vals)
+                cv_pct = (sd / mean * 100) if mean != 0 else float('nan')
+                mn, mx = np.min(vals), np.max(vals)
+                f.write(f"{key:<30} {mean:>8.4f} {sd:>8.4f} {cv_pct:>6.1f}% {mn:>8.4f} {mx:>8.4f}\n")
             else:
-                f.write(f"{key:<30} {'—':>8} {'—':>8}\n")
+                f.write(f"{key:<30} {'—':>8} {'—':>8} {'—':>7} {'—':>8} {'—':>8}\n")
     print(f"\nCV summary saved to {summary_path}")
 
     # --- Bar plot ---
