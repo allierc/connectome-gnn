@@ -1,24 +1,27 @@
 # Winner config: drosophila_cx_mlp_winner.yaml
-# Source: iter_010_slot_01 (connectivity_R2 = 0.000, rollout_pearson = 0.666)
-# Exploration: 16 iterations, 1 block
-# Date: 2026-03-25
+# Source: iter_035_slot_02 (rollout_pearson = 0.738, best robust config)
+# Exploration: 52 iterations, 4 blocks (in progress)
+# Date: 2026-03-27
 #
 # Why this is the winner:
-#   - lr=5e-4 with DAL=1400 produced best single-seed rollout (0.666) and onestep (0.794)
-#   - Robustness test (4 seeds) confirmed mean rollout=0.472 with CV=32% — extreme seed variance
+#   - batch_size=4 provides smoother gradients, yielding highest robust mean rollout
+#   - Multi-epoch training (n_epochs=15) with lr=5e-4 balances convergence and generalization
+#   - Best single seed: 0.819 (bs=8, Iter 41) but bs=4 wins on robust mean
 #
 # Metrics:
-#   connectivity_R2: 0.000 (best single seed: 0.005)
-#   robust_mean:     0.472 +/- 0.150 (4 seeds, CV=31.8%)
-#   rollout_pearson: 0.666 (best single seed)
-#   cluster_accuracy: 0.000
-#   spectral_radius: N/A (MLP baseline)
+#   connectivity_R2: 0.002 (Jacobian fundamentally limited — ~0 across all 48 iters)
+#   robust_mean:     0.599 +/- 0.172 (7 seeds, CV=28.7%)
+#   rollout_pearson: 0.738 (best single seed for this config, Iter 35)
+#   cluster_accuracy: 0.0 (not applicable — no embeddings)
+#   spectral_radius: N/A (MLP, no explicit W)
 #
 # Key config differences from baseline:
-#   - lr: 1e-3 -> 5e-4 (halved learning rate, compensated by adequate training budget)
-#   - DAL: 500 -> 1400 (increased to fill 60 min time budget)
+#   - lr: 1e-3 -> 5e-4 (lower lr for stability with multi-epoch training)
+#   - n_epochs: 1 -> 15 (multi-epoch training is the single biggest lever)
+#   - batch_size: 2 -> 4 (smoother gradients improve rollout mean by 13%)
+#   - data_augmentation_loop: 500 -> 44 (adjusted for time budget with bs=4, 15 epochs)
 description: designed by Claude (parallel flyvis)
-dataset: drosophila_cx_mlp_01
+dataset: drosophila_cx_mlp_00
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ''
@@ -33,7 +36,7 @@ simulation:
   delta_t: 0.1
   baseline_value: 0
   noise_model_level: 0.0
-  seed: 10001
+  seed: 35002
   connconstr_datapath: papers/Code_NN/Code_NN/Data/Figure5
   connconstr_model: drosophila_cx
   connconstr_n_trials: 50
@@ -62,14 +65,14 @@ plotting:
   - -5
   - 5
 training:
-  n_epochs: 1
+  n_epochs: 15
   n_runs: 1
   device: auto
-  batch_size: 2
+  batch_size: 4
   batch_ratio: 1
   small_init_batch_size: false
   sparsity: none
-  data_augmentation_loop: 1400
+  data_augmentation_loop: 44
   lr_W: 0
   lr: 0.0005
   lr_embedding: 0
@@ -85,13 +88,13 @@ training:
   coeff_W_sign: 0.0
   regul_annealing_rate: 0
   w_init_mode: zeros
-  seed: 10501
+  seed: 35502
 claude:
-  n_epochs: 1
-  data_augmentation_loop: 1400
+  n_epochs: 15
+  data_augmentation_loop: 44
   n_iter_block: 16
   ucb_c: 0
   n_parallel: 4
-  node_name: h100
+  node_name: l4
   generate_data: true
   training_time_target_min: 60

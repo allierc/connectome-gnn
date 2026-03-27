@@ -1,22 +1,23 @@
 # Winner config: zebrafish_oculomotor_winner.yaml
 # Source: iter_001_slot_00 (baseline — no single config beats baseline)
-# Exploration: 96 iterations, 10 blocks (8 exploration + 2 robustness)
-# Date: 2026-03-25
+# Exploration: 128 iterations, 11 blocks (8 exploration + 3 robustness)
+# Date: 2026-03-26
 #
 # Why this is the winner:
-#   - FC mode (370K edges) is structurally intractable — conn_R2 ceiling ~0.005
+#   - FC mode (370K edges) is structurally intractable — conn_R2 ceiling ~0.006
 #   - ALL 30+ parameters exhaustively tested across 84 exploration iterations; none break the ceiling
+#   - 48-seed robustness test confirms baseline is optimal
 #   - Baseline config is optimal: no parameter change improves conn_R2 beyond seed noise
 #
 # Metrics:
 #   connectivity_R2: 0.022 (best single seed, Iter 53 — spectral blow-up artifact)
-#   robust_mean:     0.005 +/- 0.002 (16 seeds, CV=40%)
+#   robust_mean:     0.006 +/- 0.003 (48 seeds, CV=50%)
 #   rollout_pearson: 1.000
-#   cluster_accuracy: 0.348 (mean across 16 seeds)
-#   spectral_radius: 0.827-2.209 (true: 0.900)
+#   cluster_accuracy: 0.383 (mean across 48 seeds)
+#   spectral_radius: 0.791-2.662 (true: 0.900)
 #
 # Key config differences from baseline:
-#   - DAL reduced from 160 to 140 (training time optimization)
+#   - DAL reduced from 160 to 80 (training time optimization — no effect on conn_R2)
 #   - All other parameters at initial baseline values
 #   - FC mode fundamentally limited; GT edges variant reaches conn_R2=0.639
 #
@@ -73,7 +74,7 @@ training:
   batch_ratio: 1
   small_init_batch_size: false
   sparsity: none
-  data_augmentation_loop: 140
+  data_augmentation_loop: 80
   lr_W: 0.0001
   lr: 0.001
   lr_embedding: 0.001
@@ -94,7 +95,7 @@ training:
   seed: 1500
 claude:
   n_epochs: 1
-  data_augmentation_loop: 140
+  data_augmentation_loop: 80
   n_iter_block: 12
   ucb_c: 0
   n_parallel: 4

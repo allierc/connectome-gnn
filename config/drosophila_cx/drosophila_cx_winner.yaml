@@ -1,13 +1,13 @@
 # Winner config: drosophila_cx_winner.yaml
 # Source: iter_104_slot_03 (connectivity_R2 = 0.804, lucky seed)
-# Robust baseline: DAL=200 mean conn_R2 = 0.574 +/- 0.18 (22 seeds)
-# Exploration: 108 iterations, 10 blocks
-# Date: 2026-03-25
+# Robust baseline: DAL=200 mean conn_R2 = 0.574 +/- 0.18 (22+ seeds)
+# Exploration: 128 iterations (COMPLETE), 11 blocks, 50 mutations tested
+# Date: 2026-03-26
 #
 # Why this is the winner:
 #   - FC mode with optimized hyperparams: lr_W=5e-5 (slow W convergence),
 #     W_L1=3e-6 (sparsity), W_sign=0.01 (spectral stabilizer), emb=2+hd=64
-#   - 39 parameter mutations tested — this config survived exhaustive search
+#   - 46 parameter mutations tested — this config survived exhaustive search
 #
 # Metrics (best single seed, Iter 104):
 #   connectivity_R2: 0.804
