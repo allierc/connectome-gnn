@@ -16,8 +16,7 @@
 # ## Robustness to Edge Removal
 #
 # In a real experimental setting, the connectome may contain false
-# negatives: true synaptic connections that are missed during
-# reconstruction.  To test robustness to such incomplete adjacency
+# negatives: true synaptic connections that are missed.  To test robustness to such incomplete adjacency
 # matrices, we randomly removed a fraction of edges from the true
 # connectome (434,112 edges) before training the GNN.  The model
 # must recover the circuit parameters using only the remaining
