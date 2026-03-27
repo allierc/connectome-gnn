@@ -293,13 +293,19 @@ def data_train_mlp(config, erase, best_model, device, log_file=None):
 
             if mean_rollout_mse < best_rollout_mse:
                 best_rollout_mse = mean_rollout_mse
-                torch.save(model.state_dict(), os.path.join(net_path, 'best_model.pt'))
+                torch.save(
+                    {'model_state_dict': model.state_dict()},
+                    os.path.join(net_path, f'best_model_with_{tc.n_runs - 1}_graphs_{epoch}.pt'),
+                )
                 _logger.info(f'  saved best model (rollout_mse={best_rollout_mse:.4e})')
         else:
             # No validation — save best by train loss
             if mean_loss < best_val_loss:
                 best_val_loss = mean_loss
-                torch.save(model.state_dict(), os.path.join(net_path, 'best_model.pt'))
+                torch.save(
+                    {'model_state_dict': model.state_dict()},
+                    os.path.join(net_path, f'best_model_with_{tc.n_runs - 1}_graphs_{epoch}.pt'),
+                )
                 _logger.info(f'  saved best model (train_loss={best_val_loss:.4e})')
 
         _logger.info(
