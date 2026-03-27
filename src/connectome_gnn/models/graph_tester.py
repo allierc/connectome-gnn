@@ -23,7 +23,7 @@ from connectome_gnn.generators.graph_data_generator import (
     greedy_blue_mask,
     mseq_bits,
 )
-from connectome_gnn.generators.ode_params import FlyVisODEParams
+from connectome_gnn.generators.ode_params import FlyVisODEParams, load_edge_index
 from connectome_gnn.generators.utils import generate_compressed_video_mp4
 from connectome_gnn.log import get_logger
 from connectome_gnn.metrics import INDEX_TO_NAME
@@ -128,16 +128,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     if os.path.exists(training_edges_path):
         edges_for_size = torch.load(training_edges_path, map_location='cpu', weights_only=False)
     else:
-        edge_index_path = graphs_data_path(config.dataset, 'edge_index.pt')
-        ode_params_path = graphs_data_path(config.dataset, 'ode_params.pt')
-        if os.path.exists(edge_index_path):
-            edges_for_size = torch.load(edge_index_path, map_location='cpu', weights_only=False)
-        else:
-            # edge_index.pt not written by data_generate_voltage — fall back to ode_params
-            from connectome_gnn.generators.ode_params import get_ode_params_class
-            _cls = get_ode_params_class(config.graph_model.signal_model_name)
-            _op = _cls.load(graphs_data_path(config.dataset), device='cpu')
-            edges_for_size = _op.edge_index
+        edges_for_size = load_edge_index(graphs_data_path(config.dataset), device='cpu')
     actual_n_edges = edges_for_size.shape[1]
     expected_total = sim.n_edges + sim.n_extra_null_edges
     if actual_n_edges == expected_total and sim.n_extra_null_edges > 0:
@@ -218,12 +209,13 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
         n_eval_frames = n_frames
 
     # Load edges: prefer training_edges.pt (handles fully connected mode),
-    # fall back to data folder edge_index.pt
+    # fall back to data folder edge_index.pt / ode_params.pt
     training_edges_path = os.path.join(log_dir, 'training_edges.pt')
     if os.path.exists(training_edges_path):
         edges = torch.load(training_edges_path, map_location=device, weights_only=False)
         logger.info(f'loaded training edges from {training_edges_path} ({edges.shape[1]} edges)')
     else:
+<<<<<<< HEAD
         edge_index_path = graphs_data_path(config.dataset, 'edge_index.pt')
         if os.path.exists(edge_index_path):
             edges = torch.load(edge_index_path, map_location=device, weights_only=False)
@@ -234,6 +226,9 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
             _op = _cls.load(graphs_data_path(config.dataset), device=device)
             edges = _op.edge_index.to(device)
             logger.info(f'loaded edge_index from ode_params ({edges.shape[1]} edges)')
+=======
+        edges = load_edge_index(graphs_data_path(config.dataset), device=device)
+>>>>>>> 99b1336 (fix: backwards compatability for edge index)
     ids = np.arange(n_neurons)
     data_id = torch.zeros((n_neurons, 1), dtype=torch.int, device=device)
 

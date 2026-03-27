@@ -60,6 +60,30 @@ def get_ode_params_class(name: str) -> type:
     return _ODE_PARAMS_REGISTRY[name]
 
 
+def load_edge_index(folder: str, device: torch.device | str = "cpu") -> torch.Tensor:
+    """Load edge_index from edge_index.pt, falling back to ode_params.pt."""
+    path = os.path.join(folder, "edge_index.pt")
+    if os.path.exists(path):
+        return torch.load(path, map_location=device, weights_only=True)
+    ode_path = os.path.join(folder, "ode_params.pt")
+    if os.path.exists(ode_path):
+        state = torch.load(ode_path, map_location=device, weights_only=True)
+        return state["edge_index"]
+    raise FileNotFoundError(f"No edge_index.pt or ode_params.pt in {folder}")
+
+
+def load_weights(folder: str, device: torch.device | str = "cpu") -> torch.Tensor:
+    """Load synaptic weights from weights.pt, falling back to ode_params.pt."""
+    path = os.path.join(folder, "weights.pt")
+    if os.path.exists(path):
+        return torch.load(path, map_location=device, weights_only=True)
+    ode_path = os.path.join(folder, "ode_params.pt")
+    if os.path.exists(ode_path):
+        state = torch.load(ode_path, map_location=device, weights_only=True)
+        return state["W"]
+    raise FileNotFoundError(f"No weights.pt or ode_params.pt in {folder}")
+
+
 def list_ode_params() -> list[str]:
     """Return sorted list of all registered ODE params names."""
     return sorted(_ODE_PARAMS_REGISTRY.keys())
