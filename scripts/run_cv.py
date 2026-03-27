@@ -52,6 +52,39 @@ def parse_metrics(path):
     return metrics
 
 
+def _save_barplot(all_metrics, config_name, seeds, cv_out_dir, n_done):
+    x = np.arange(len(METRICS))
+    labels = [lbl for _, lbl in METRICS]
+    means, sds = [], []
+    for key, _ in METRICS:
+        vals = [v for v in all_metrics[key] if not np.isnan(v)]
+        means.append(np.mean(vals) if vals else 0.0)
+        sds.append(np.std(vals) if len(vals) > 1 else 0.0)
+
+    fig, ax = plt.subplots(figsize=(7, 4))
+    ax.bar(x, means, yerr=sds, capsize=5, color='steelblue', alpha=0.7,
+           error_kw=dict(elinewidth=1.5, ecolor='black'))
+
+    rng = np.random.default_rng(0)
+    for xi, (key, _) in enumerate(METRICS):
+        vals = [v for v in all_metrics[key] if not np.isnan(v)]
+        jitter = rng.uniform(-0.15, 0.15, size=len(vals))
+        ax.scatter(xi + jitter, vals, color='black', s=30, zorder=5, alpha=0.8)
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, fontsize=10)
+    ax.set_ylabel('$R^2$ / accuracy')
+    ax.set_ylim(0, 1.05)
+    ax.set_title(f'CV results — {config_name} ({n_done}/{len(seeds)} seeds done)')
+    ax.axhline(1.0, color='gray', linestyle='--', linewidth=0.8)
+    plt.tight_layout()
+
+    plot_path = os.path.join(cv_out_dir, "cv_barplot.png")
+    fig.savefig(plot_path, dpi=150)
+    plt.close(fig)
+    print(f"  bar plot updated: {plot_path}")
+
+
 def run_cv(config_name, seeds):
     config_file, pre_folder = add_pre_folder(config_name)
     base_config = NeuralGraphConfig.from_yaml(f"./config/{config_file}.yaml")
@@ -119,6 +152,9 @@ def run_cv(config_name, seeds):
             all_metrics[key].append(val)
             print(f"    {key}: {val:.4f}" if not np.isnan(val) else f"    {key}: —")
 
+        # --- Update bar plot after every run ---
+        _save_barplot(all_metrics, config_name, seeds, cv_out_dir, n_done=i + 1)
+
         # --- Append per-run line to log immediately ---
         summary_path = os.path.join(cv_out_dir, "cv_summary.txt")
         with open(summary_path, 'a') as f:
@@ -153,41 +189,7 @@ def run_cv(config_name, seeds):
             else:
                 f.write(f"{key:<30} {'—':>8} {'—':>8} {'—':>7} {'—':>8} {'—':>8}\n")
     print(f"\nCV summary saved to {summary_path}")
-
-    # --- Bar plot ---
-    fig, ax = plt.subplots(figsize=(7, 4))
-    n_metrics = len(METRICS)
-    x = np.arange(n_metrics)
-    labels = [lbl for _, lbl in METRICS]
-
-    means, sds = [], []
-    for key, _ in METRICS:
-        vals = [v for v in all_metrics[key] if not np.isnan(v)]
-        means.append(np.mean(vals) if vals else 0.0)
-        sds.append(np.std(vals) if len(vals) > 1 else 0.0)
-
-    ax.bar(x, means, yerr=sds, capsize=5, color='steelblue', alpha=0.7,
-           error_kw=dict(elinewidth=1.5, ecolor='black'))
-
-    # Overlay individual seed dots
-    rng = np.random.default_rng(0)
-    for xi, (key, _) in enumerate(METRICS):
-        vals = [v for v in all_metrics[key] if not np.isnan(v)]
-        jitter = rng.uniform(-0.15, 0.15, size=len(vals))
-        ax.scatter(xi + jitter, vals, color='black', s=30, zorder=5, alpha=0.8)
-
-    ax.set_xticks(x)
-    ax.set_xticklabels(labels, fontsize=10)
-    ax.set_ylabel('$R^2$ / accuracy')
-    ax.set_ylim(0, 1.05)
-    ax.set_title(f'CV results — {config_name} (N={len(seeds)} seeds)')
-    ax.axhline(1.0, color='gray', linestyle='--', linewidth=0.8)
-    plt.tight_layout()
-
-    plot_path = os.path.join(cv_out_dir, "cv_barplot.png")
-    fig.savefig(plot_path, dpi=150)
-    plt.close(fig)
-    print(f"Bar plot saved to {plot_path}")
+    print(f"Bar plot: {os.path.join(cv_out_dir, 'cv_barplot.png')}")
 
 
 if __name__ == "__main__":
