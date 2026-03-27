@@ -25,7 +25,7 @@ graph_model:
 
   # MLP architecture — matched to EED encoder(1)+evolver(1)+decoder(1) = 3 hidden layers of 256
   n_layers: 5 # 5 Linear layers = 3 hidden layers
-  hidden_dim: 256
+  hidden_dim: 64
 
   input_size: 3
   output_size: 1
@@ -43,7 +43,7 @@ plotting:
   ylim: [-100, 100]
 
 training:
-  n_epochs: 10
+  n_epochs: 2
   n_runs: 1
   device: auto
 
@@ -53,7 +53,7 @@ training:
   small_init_batch_size: false
 
   sparsity: none
-  data_augmentation_loop: 100 # data passes per epoch
+  data_augmentation_loop: 1 # data passes per epoch
 
   # Data split (matching EED latent_1step.yaml)
   train_start: 4000 # skip burn-in
