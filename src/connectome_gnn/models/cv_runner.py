@@ -4,9 +4,9 @@ Runs generate + train + test + plot for a given config across N seeds,
 then saves a summary log and a bar plot (mean ± SD, dots per seed) to
 log/results/<config_name>/.
 
-Usage:
-    python scripts/run_cv.py flyvis_noise_005 --n_seeds 5
-    python scripts/run_cv.py flyvis_noise_005 --seeds 42,43,44,45,46
+Usage (run from repo root):
+    python src/connectome_gnn/models/cv_runner.py flyvis_noise_005 --n_seeds 5
+    python src/connectome_gnn/models/cv_runner.py flyvis_noise_005 --seeds 42,43,44,45,46
 """
 
 import argparse
@@ -18,7 +18,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-sys_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# repo root: src/connectome_gnn/models/ -> src/connectome_gnn/ -> src/ -> repo root
+sys_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 sys.path.insert(0, sys_path)
 
 from GNN_PlotFigure import data_plot
