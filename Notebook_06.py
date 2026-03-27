@@ -61,7 +61,7 @@ sys.path.insert(0, sys_path)
 from GNN_PlotFigure import data_plot
 from connectome_gnn.config import NeuralGraphConfig
 from connectome_gnn.generators.graph_data_generator import data_generate
-from connectome_gnn.models.graph_trainer import data_test
+from connectome_gnn.models.graph_trainer import data_test, data_train
 from connectome_gnn.plot import plot_loss_from_file
 from connectome_gnn.utils import set_device, add_pre_folder, graphs_data_path, log_path
 
@@ -145,20 +145,29 @@ for config_name, table_label, label in datasets:
             step=100,
         )
 
-# Check that trained models exist
-missing_models = []
-for config_name, table_label, label in datasets:
-    log_dir = log_path(configs[config_name].config_file)
-    model_files = glob.glob(f"{log_dir}/models/best_model_with_*.pt")
-    if not model_files:
-        missing_models.append(f"{label} ({config_name})")
+print()
+print("=" * 80)
+print("TRAIN - GNN on fly visual system (null-edge variants)")
+print("=" * 80)
 
-if missing_models:
-    msg = ", ".join(missing_models)
-    raise RuntimeError(
-        f"No trained models found for: {msg}. "
-        f"Please train with: python GNN_Main.py -o generate_train <config_name>"
-    )
+for config_name, table_label, label in datasets:
+    config = configs[config_name]
+    log_dir = log_path(config.config_file)
+    model_dir = os.path.join(log_dir, "models")
+    model_exists = os.path.isdir(model_dir) and any(
+        f.startswith("best_model") for f in os.listdir(model_dir)
+    ) if os.path.isdir(model_dir) else False
+    print()
+    print(f"--- {label} ---")
+    if model_exists:
+        print(f"  trained model already present in {model_dir}/")
+        print("  skipping training. To retrain, delete the log folder:")
+        print(f"    rm -rf {log_dir}")
+    else:
+        print(f"  training on {config.simulation.n_frames} frames")
+        print(f"  {config.training.n_epochs} epochs, batch_size={config.training.batch_size}")
+        print()
+        data_train(config, device=device)
 
 # %%
 def parse_plot_results(log_dir):
