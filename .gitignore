@@ -52,8 +52,9 @@ build/
 *.swp
 *.swo
 
-# Benchmark / one-off run scripts
+# Benchmark / one-off run scripts (root level only)
 run_*.py
+!scripts/run_*.py
 test_edge_removal.py
 test_null_edges.py
 plot_benchmark*.py

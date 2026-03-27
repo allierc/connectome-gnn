@@ -1,0 +1,188 @@
+"""Cross-validation runner for connectome-GNN.
+
+Runs generate + train + test + plot for a given config across N seeds,
+then saves a summary log and a bar plot (mean ± SD, dots per seed) to
+log/results/<config_name>/.
+
+Usage:
+    python scripts/run_cv.py flyvis_noise_005 --n_seeds 5
+    python scripts/run_cv.py flyvis_noise_005 --seeds 42,43,44,45,46
+"""
+
+import argparse
+import os
+import sys
+
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import numpy as np
+
+sys_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, sys_path)
+
+from GNN_PlotFigure import data_plot
+from connectome_gnn.config import NeuralGraphConfig
+from connectome_gnn.generators.graph_data_generator import data_generate
+from connectome_gnn.models.graph_trainer import data_test, data_train
+from connectome_gnn.utils import add_pre_folder, graphs_data_path, log_path, set_device
+
+
+METRICS = [
+    ('W_corrected_R2',   '$R^2$ conn ($W$)'),
+    ('tau_R2',           '$R^2$ $\\tau$'),
+    ('V_rest_R2',        '$R^2$ $V^{\\mathrm{rest}}$'),
+    ('clustering_accuracy', 'Clustering acc.'),
+]
+
+
+def parse_metrics(path):
+    metrics = {}
+    if not os.path.isfile(path):
+        return metrics
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if ':' in line:
+                key, val = line.split(':', 1)
+                try:
+                    metrics[key.strip()] = float(val.strip())
+                except ValueError:
+                    pass
+    return metrics
+
+
+def run_cv(config_name, seeds):
+    config_file, pre_folder = add_pre_folder(config_name)
+    base_config = NeuralGraphConfig.from_yaml(f"./config/{config_file}.yaml")
+    device = set_device(base_config.training.device)
+
+    # Output directory for CV summary
+    cv_out_dir = os.path.join("log", "results", config_name)
+    os.makedirs(cv_out_dir, exist_ok=True)
+
+    all_metrics = {key: [] for key, _ in METRICS}
+
+    for i, seed in enumerate(seeds):
+        run_name = f"{config_name}_cv{i:02d}"
+        print()
+        print("=" * 80)
+        print(f"CV run {i+1}/{len(seeds)}  seed={seed}  ({run_name})")
+        print("=" * 80)
+
+        # Build per-seed config
+        config_file_i, pre_folder_i = add_pre_folder(run_name)
+        config = NeuralGraphConfig.from_yaml(f"./config/{config_file}.yaml")
+        config.training.seed = seed
+        config.dataset = pre_folder + f"{config_name}_cv{i:02d}"
+        config.config_file = pre_folder + run_name
+
+        graphs_dir = graphs_data_path(config.dataset)
+
+        # --- Generate ---
+        data_exists = os.path.isdir(os.path.join(graphs_dir, 'x_list_train'))
+        if data_exists:
+            print(f"  data already exists at {graphs_dir}/  (skipping generation)")
+        else:
+            print(f"  generating data at {graphs_dir}/")
+            data_generate(config, device=device, visualize=False, run_vizualized=0,
+                          style="color", alpha=1, erase=False, save=True, step=100)
+
+        # --- Train ---
+        log_dir = log_path(config.config_file)
+        model_dir = os.path.join(log_dir, "models")
+        model_exists = (os.path.isdir(model_dir) and
+                        any(f.startswith("best_model") for f in os.listdir(model_dir))
+                        ) if os.path.isdir(model_dir) else False
+        if model_exists:
+            print(f"  trained model already present in {model_dir}/  (skipping training)")
+        else:
+            print(f"  training (seed={seed})...")
+            data_train(config, device=device)
+
+        # --- Test ---
+        print(f"  testing...")
+        data_test(config=config, visualize=True, style="color name continuous_slice",
+                  verbose=False, best_model='best', run=0, step=10,
+                  n_rollout_frames=250, device=device)
+
+        # --- Plot / analyse ---
+        print(f"  analysing...")
+        data_plot(config=config, config_file=config.config_file,
+                  epoch_list=['best'], style='color', extended='plots',
+                  device=device)
+
+        # --- Collect metrics ---
+        m = parse_metrics(os.path.join(log_dir, "results", "metrics.txt"))
+        for key, _ in METRICS:
+            val = m.get(key, float('nan'))
+            all_metrics[key].append(val)
+            print(f"    {key}: {val:.4f}" if not np.isnan(val) else f"    {key}: —")
+
+    # --- Summary log ---
+    summary_path = os.path.join(cv_out_dir, "cv_summary.txt")
+    with open(summary_path, 'w') as f:
+        f.write(f"CV summary: {config_name}\n")
+        f.write(f"seeds: {seeds}\n\n")
+        f.write(f"{'Metric':<30} {'Mean':>8} {'SD':>8}  values\n")
+        f.write("-" * 70 + "\n")
+        for key, label in METRICS:
+            vals = [v for v in all_metrics[key] if not np.isnan(v)]
+            if vals:
+                mean, sd = np.mean(vals), np.std(vals)
+                f.write(f"{key:<30} {mean:>8.4f} {sd:>8.4f}  {[f'{v:.4f}' for v in all_metrics[key]]}\n")
+            else:
+                f.write(f"{key:<30} {'—':>8} {'—':>8}\n")
+    print(f"\nCV summary saved to {summary_path}")
+
+    # --- Bar plot ---
+    fig, ax = plt.subplots(figsize=(7, 4))
+    n_metrics = len(METRICS)
+    x = np.arange(n_metrics)
+    labels = [lbl for _, lbl in METRICS]
+
+    means, sds = [], []
+    for key, _ in METRICS:
+        vals = [v for v in all_metrics[key] if not np.isnan(v)]
+        means.append(np.mean(vals) if vals else 0.0)
+        sds.append(np.std(vals) if len(vals) > 1 else 0.0)
+
+    ax.bar(x, means, yerr=sds, capsize=5, color='steelblue', alpha=0.7,
+           error_kw=dict(elinewidth=1.5, ecolor='black'))
+
+    # Overlay individual seed dots
+    rng = np.random.default_rng(0)
+    for xi, (key, _) in enumerate(METRICS):
+        vals = [v for v in all_metrics[key] if not np.isnan(v)]
+        jitter = rng.uniform(-0.15, 0.15, size=len(vals))
+        ax.scatter(xi + jitter, vals, color='black', s=30, zorder=5, alpha=0.8)
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, fontsize=10)
+    ax.set_ylabel('$R^2$ / accuracy')
+    ax.set_ylim(0, 1.05)
+    ax.set_title(f'CV results — {config_name} (N={len(seeds)} seeds)')
+    ax.axhline(1.0, color='gray', linestyle='--', linewidth=0.8)
+    plt.tight_layout()
+
+    plot_path = os.path.join(cv_out_dir, "cv_barplot.png")
+    fig.savefig(plot_path, dpi=150)
+    plt.close(fig)
+    print(f"Bar plot saved to {plot_path}")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="CV benchmark for connectome-GNN")
+    parser.add_argument("config_name", help="Config name, e.g. flyvis_noise_005")
+    parser.add_argument("--n_seeds", type=int, default=5,
+                        help="Number of seeds (uses 42, 43, ..., 42+N-1)")
+    parser.add_argument("--seeds", type=str, default=None,
+                        help="Comma-separated seed list, e.g. 42,43,44 (overrides --n_seeds)")
+    args = parser.parse_args()
+
+    if args.seeds is not None:
+        seeds = [int(s.strip()) for s in args.seeds.split(',')]
+    else:
+        seeds = list(range(42, 42 + args.n_seeds))
+
+    run_cv(args.config_name, seeds)
