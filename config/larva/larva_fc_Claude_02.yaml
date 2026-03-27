@@ -1,11 +1,11 @@
-description: "Drosophila larva — fully connected (from best GT-edges config)"
-dataset: larva_fc
+description: "Drosophila larva \u2014 fully connected (from best GT-edges config)"
+dataset: larva_fc_02
 simulation:
   connectivity_file: to be specified
-  adjacency_matrix: ""
+  adjacency_matrix: ''
   params:
-    - - 1.0
-      - 1.0
+  - - 1.0
+    - 1.0
   n_neurons: 230
   n_input_neurons: 0
   n_neuron_types: 2
@@ -15,8 +15,8 @@ simulation:
   baseline_value: 0
   noise_model_level: 0.0
   measurement_noise_level: 0.0
-  seed: 42
-  connconstr_datapath: "papers/Code_NN/Code_NN/Data/Figure5"
+  seed: 3002
+  connconstr_datapath: papers/Code_NN/Code_NN/Data/Figure5
   connconstr_model: larva
   connconstr_n_trials: 10
   connconstr_use_pretrained: true
@@ -38,13 +38,13 @@ plotting:
   colormap: tab10
   arrow_length: 1
   xlim:
-    - -2.5
-    - 2.5
+  - -2.5
+  - 2.5
   ylim:
-    - -5
-    - 5
+  - -5
+  - 5
 training:
-  n_epochs: 20
+  n_epochs: 1
   n_runs: 1
   device: auto
   batch_size: 4
@@ -67,10 +67,10 @@ training:
   coeff_W_L2: 1.5e-06
   coeff_W_sign: 0.05
   regul_annealing_rate: 0
-  w_init_mode: "zeros"
+  w_init_mode: zeros
   w_init_scale: 1.0
   use_gt_edges: false
-  seed: 42
+  seed: 3502
 claude:
   n_epochs: 1
   data_augmentation_loop: 1400

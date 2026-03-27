@@ -1,26 +1,27 @@
 # Winner config: zebrafish_oculomotor_noise005_winner.yaml
 # Source: iter_019_slot_02 (connectivity_R2 = 0.918)
-# Exploration: 112 iterations, 9 blocks
+# Exploration: 128 iterations, 10 blocks (COMPLETE)
 # Date: 2026-03-27
 #
 # Why this is the winner:
-#   - DAL=93 with W_L1=1e-4 maximizes training volume while avoiding overtraining
-#   - Noise=0.05 breaks linear degeneracy, lifting conn_R2 from ~0.02 (clean) to 0.918
-#   - 112 iterations exhaustively tested 37+ parameters — none reliably beat this config
-#   - 16-seed robustness at DAL=35: mean=0.371, 0/16>0.7 (FRAGILE at budget)
-#   - 5-seed robustness at DAL=70: mean=0.688, 4/5>0.7 (PARTIALLY ROBUST)
+#   - Noise=0.05 breaks linear degeneracy of zebrafish oculomotor integrator (clean R2~0.02)
+#   - DAL=93 gives sufficient training volume for 609-neuron FC W recovery (mean R2~0.83, 3 seeds)
+#   - W_L1=1e-4 is the key regularization lever (10x baseline), enforcing sparsity on 370K FC edges
+#   - 128 iterations exhaustively tested 24+ hyperparameters — 41 hypotheses falsified, 35 principles established
 #
 # Metrics:
 #   connectivity_R2: 0.918 (best single seed, Iter 19 DAL=93)
-#   robust_mean:     0.688 +/- 0.146 (5 seeds @ DAL=70, CV=22.5%)
-#   DAL=35_mean:     0.371 (16 seeds, range 0.176-0.678, CV~34%)
-#   rollout_pearson: 0.999
+#   robust_mean:     0.826 +/- 0.095 (3 seeds @ DAL=93, CV=11.5%)
+#   DAL=70_mean:     0.688 +/- 0.146 (5 seeds, CV=21.2%, PARTIALLY ROBUST)
+#   DAL=40_mean:     0.450 +/- 0.149 (8 seeds, CV=33.1%, budget-matched)
+#   DAL=35_mean:     0.371 +/- 0.126 (16 seeds, CV=34%, FRAGILE)
+#   rollout_pearson: 0.9997
 #   cluster_accuracy: 0.294
 #   spectral_radius: 0.919 (true: 0.900)
 #
 # Key config differences from baseline:
 #   - coeff_W_L1: 1e-5 -> 1e-4 (10x stronger sparsity)
-#   - data_augmentation_loop: 160 -> 93 (reduced to avoid overtraining)
+#   - data_augmentation_loop: 160 -> 93 (reduced to avoid overtraining at DAL=150)
 #   - coeff_W_sign: 0 (Dale's law hurts)
 description: designed by Claude (parallel flyvis)
 dataset: zebrafish_oculomotor_noise005_02

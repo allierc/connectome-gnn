@@ -143,19 +143,18 @@ Each row = one `GNN_LLM.py` run with its own instruction file.
 | `instruction_drosophila_cx.md` | 0.804 | 128 | done — FC ceiling ~0.574 mean, 22 seeds |
 | `instruction_drosophila_cx_noise005.md` | 0.882 | 64 | running (Block 6) — dale_law=true breakthrough, mean=0.786 |
 | `instruction_drosophila_cx_mlp.md` | 0.005 | 44 | running (Block 3) — W R2~0, rollout=0.738 |
+| `instruction_drosophila_cx_gt_edges.md` | -- | 0 | running — just launched |
 | **Larva** | | | |
 | `instruction_larva_gt_edges.md` | 0.908 | 128 | done — 28-seed mean=0.540, CV=35% |
-| `instruction_larva_noise005.md` | -- | 0 | exists, not started |
+| `instruction_larva_noise005.md` | -- | 0 | running — just launched |
+| `instruction_larva_fc.md` | -- | 0 | running — just launched |
 | **Zebrafish** | | | |
 | `instruction_zebrafish_oculomotor.md` | 0.022 | 128 | done — FC ceiling definitive (0.006 mean, 48 seeds) |
 | `instruction_zebrafish_oculomotor_gt_edges.md` | 0.777 | 128 | done — bimodal convergence, 75% seeds ~0.71 |
 | `instruction_zebrafish_oculomotor_noise005.md` | 0.918 | 128 | done — noise breaks linear degeneracy |
+| `instruction_zebrafish_oculomotor_noise05.md` | -- | 0 | running — just launched |
 | **TODO: create** | | | |
 | instruction_drosophila_cx_noise05.md | -- | -- | TODO |
-| instruction_drosophila_cx_gt_edges.md | -- | -- | TODO |
-| instruction_larva_noise05.md | -- | -- | TODO |
-| instruction_larva_fc.md | -- | -- | TODO |
-| instruction_zebrafish_oculomotor_noise05.md | -- | -- | TODO |
 | instruction_zebrafish_oculomotor_gt_noise005.md | -- | -- | TODO |
 | instruction_flyvis_missing_time.md | -- | -- | TODO |
 | instruction_flyvis_missing_neurons.md | -- | -- | TODO |
@@ -185,15 +184,15 @@ LLM/instruction_{biomodel}_{experiment}.md
 | `instruction_drosophila_cx_noise005.md`        | drosophila_cx        | noise 0.05, FC         | 0.882     | 64    | running (Block 6)          |
 | `instruction_drosophila_cx_mlp.md`             | drosophila_cx        | MLP baseline           | 0.005     | 44    | running (Block 3)          |
 | `instruction_larva_gt_edges.md`                | larva                | clean, GT edges        | 0.908     | 128   | done                       |
-| `instruction_larva_noise005.md`                | larva                | intrinsic noise 0.05   | --        | 0     | exists, not started        |
+| `instruction_larva_noise005.md`                | larva                | intrinsic noise 0.05   | --        | 0     | running                    |
+| `instruction_larva_fc.md`                      | larva                | clean, FC              | --        | 0     | running                    |
 | `instruction_zebrafish_oculomotor.md`          | zebrafish_oculomotor | clean, fully connected | 0.022     | 128   | done                       |
 | `instruction_zebrafish_oculomotor_gt_edges.md` | zebrafish_oculomotor | clean, GT edges        | 0.777     | 128   | done                       |
 | `instruction_zebrafish_oculomotor_noise005.md` | zebrafish_oculomotor | intrinsic noise 0.05   | 0.918     | 128   | done                       |
+| `instruction_zebrafish_oculomotor_noise05.md`  | zebrafish_oculomotor | intrinsic noise 0.5    | --        | 0     | running                    |
+| `instruction_drosophila_cx_gt_edges.md`        | drosophila_cx        | clean, GT edges        | --        | 0     | running                    |
 | `instruction_drosophila_cx_noise05.md`         | drosophila_cx        | intrinsic noise 0.5    | --        | --    | TODO               |
-| `instruction_drosophila_cx_gt_edges.md`        | drosophila_cx        | clean, GT edges        | --        | --    | TODO               |
 | `instruction_larva_noise05.md`                 | larva                | intrinsic noise 0.5    | --        | --    | TODO               |
-| `instruction_larva_fc.md`                      | larva                | clean, FC              | --        | --    | TODO               |
-| `instruction_zebrafish_oculomotor_noise05.md`  | zebrafish_oculomotor | intrinsic noise 0.5    | --        | --    | TODO               |
 | `instruction_flyvis_missing_time_80.md`        | flyvis               | keep 20% timepoints    | --        | --    | TODO               |
 | `instruction_flyvis_missing_neurons_20.md`     | flyvis               | remove 20% neurons     | --        | --    | TODO               |
 | `instruction_flyvis_remove_edges_20.md`        | flyvis               | remove 20% edges       | --        | --    | TODO               |
@@ -392,7 +391,7 @@ Maps each experiment to its config files, instruction file, and LLM exploration 
 <tr><td style="background:#d2992260">0.804</td><td>drosophila_cx</td><td>pending</td><td>iter_104</td><td>instruction_drosophila_cx.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude drosophila_cx iterations=128 --cluster --resume</code></td></tr>
 <tr><td style="background:#d2992260">0.882</td><td>drosophila_cx_noise005</td><td>pending</td><td>iter_064</td><td>instruction_drosophila_cx_noise005.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude drosophila_cx_noise005 iterations=128 --cluster --resume</code></td></tr>
 <tr><td>?</td><td>drosophila_cx_noise05</td><td>--</td><td>--</td><td>--</td><td>TODO: create</td></tr>
-<tr><td>?</td><td>drosophila_cx_gt_edges</td><td>--</td><td>--</td><td>--</td><td>TODO: create</td></tr>
+<tr><td>?</td><td>drosophila_cx_gt_edges</td><td>--</td><td>iter_000</td><td>instruction_drosophila_cx_gt_edges.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude drosophila_cx_gt_edges iterations=128 --cluster --resume</code></td></tr>
 <tr><td style="background:#cf222e60">0.005</td><td>drosophila_cx — MLP</td><td>pending</td><td>iter_035</td><td>instruction_drosophila_cx_mlp.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude drosophila_cx_mlp iterations=128 --cluster --resume</code></td></tr>
 <tr><td>?</td><td>drosophila_cx — Known ODE</td><td>--</td><td>--</td><td>--</td><td>TODO</td></tr>
 <tr><td>?</td><td>drosophila_cx — RNN</td><td>--</td><td>--</td><td>--</td><td>TODO</td></tr>
@@ -401,15 +400,15 @@ Maps each experiment to its config files, instruction file, and LLM exploration 
 <tr><td colspan="6"><b>Larva (230, GT edges)</b></td></tr>
 <tr><td style="background:#d2992260">0.908</td><td>larva_gt_edges</td><td>pending</td><td>iter_093</td><td>instruction_larva_gt_edges.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude larva_gt_edges iterations=128 --cluster --resume</code></td></tr>
 
-<tr><td>?</td><td>larva_noise005</td><td>--</td><td>--</td><td>instruction_larva_noise005.md</td><td>TODO</td></tr>
+<tr><td>?</td><td>larva_noise005</td><td>--</td><td>iter_000</td><td>instruction_larva_noise005.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude larva_noise005 iterations=128 --cluster --resume</code></td></tr>
 <tr><td>?</td><td>larva_noise05</td><td>--</td><td>--</td><td>--</td><td>TODO: create</td></tr>
-<tr><td>?</td><td>larva_fc</td><td>--</td><td>--</td><td>--</td><td>TODO: create</td></tr>
+<tr><td>?</td><td>larva_fc</td><td>--</td><td>iter_000</td><td>instruction_larva_fc.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude larva_fc iterations=128 --cluster --resume</code></td></tr>
 <tr><td>?</td><td>larva — MLP/Known ODE/RNN/NeuralODE/SSM</td><td>--</td><td>--</td><td>--</td><td>TODO (×5)</td></tr>
 <tr><td colspan="6"><b>Zebrafish oculomotor (609)</b></td></tr>
 <tr><td style="background:#cf222e60">0.022</td><td>zebrafish_oculomotor (FC)</td><td>pending</td><td>iter_080</td><td>instruction_zebrafish_oculomotor.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude zebrafish_oculomotor iterations=128 --cluster --resume</code></td></tr>
 <tr><td style="background:#d2992260">0.777</td><td>zebrafish_oculomotor_gt_edges</td><td>pending</td><td>iter_092</td><td>instruction_zebrafish_oculomotor_gt_edges.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude zebrafish_oculomotor_gt_edges iterations=128 --cluster --resume</code></td></tr>
 <tr><td style="background:#2ea04360">0.918</td><td>zebrafish_oculomotor_noise005 (FC)</td><td>pending</td><td>iter_019</td><td>instruction_zebrafish_oculomotor_noise005.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude zebrafish_oculomotor_noise005 iterations=128 --cluster --resume</code></td></tr>
-<tr><td>?</td><td>zebrafish_oculomotor_noise05</td><td>--</td><td>--</td><td>--</td><td>TODO: create</td></tr>
+<tr><td>?</td><td>zebrafish_oculomotor_noise05</td><td>--</td><td>iter_000</td><td>instruction_zebrafish_oculomotor_noise05.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude zebrafish_oculomotor_noise05 iterations=128 --cluster --resume</code></td></tr>
 <tr><td>?</td><td>zebrafish_oculomotor_gt_noise005</td><td>--</td><td>--</td><td>--</td><td>TODO: create</td></tr>
 <tr><td>?</td><td>zebrafish — MLP/Known ODE/RNN/NeuralODE/SSM</td><td>--</td><td>--</td><td>--</td><td>TODO (×5)</td></tr>
 </table>
