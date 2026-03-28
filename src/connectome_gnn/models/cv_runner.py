@@ -2,7 +2,11 @@
 
 Runs generate + train + test + plot for a given config across N seeds,
 then saves a summary log and a bar plot (mean ± SD, dots per seed) to
-log/results/<config_name>/.
+the cv00 log folder (e.g. log/<pre_folder>/<config_name>_cv00/).
+
+Each CV fold uses a different simulation seed (for data generation) and a
+different training seed (sim_seed + 1000), so data and model randomness are
+independent.
 
 Usage (run from repo root):
     python src/connectome_gnn/models/cv_runner.py flyvis_noise_005 --n_seeds 5
@@ -91,25 +95,27 @@ def run_cv(config_name, seeds):
     base_config = NeuralGraphConfig.from_yaml(f"./config/{config_file}.yaml")
     device = set_device(base_config.training.device)
 
-    # Output directory for CV summary
-    cv_out_dir = os.path.join("log", "results", config_name)
+    # Summary goes into the cv00 log folder
+    cv_out_dir = log_path(pre_folder + f"{config_name}_cv00")
     os.makedirs(cv_out_dir, exist_ok=True)
 
     all_metrics = {key: [] for key, _ in METRICS}
 
     for i, seed in enumerate(seeds):
         run_name = f"{config_name}_cv{i:02d}"
+        sim_seed = seed               # simulation / data-generation seed
+        train_seed = seed + 1000      # training seed (different from sim)
         print()
         print("=" * 80)
-        print(f"CV run {i+1}/{len(seeds)}  seed={seed}  ({run_name})")
+        print(f"CV run {i+1}/{len(seeds)}  sim_seed={sim_seed}  train_seed={train_seed}  ({run_name})")
         print("=" * 80)
 
-        # Build per-seed config
-        config_file_i, pre_folder_i = add_pre_folder(run_name)
+        # Per-run dataset and log dir
         config = NeuralGraphConfig.from_yaml(f"./config/{config_file}.yaml")
-        config.training.seed = seed
-        config.dataset = pre_folder + f"{config_name}_cv{i:02d}"
-        config.config_file = pre_folder + run_name
+        config.simulation.seed = sim_seed       # each run generates its own data
+        config.training.seed = train_seed       # different seed for training
+        config.dataset = pre_folder + run_name  # per-run graphs_data dir
+        config.config_file = pre_folder + run_name  # per-run log dir
 
         graphs_dir = graphs_data_path(config.dataset)
 
@@ -131,7 +137,7 @@ def run_cv(config_name, seeds):
         if model_exists:
             print(f"  trained model already present in {model_dir}/  (skipping training)")
         else:
-            print(f"  training (seed={seed})...")
+            print(f"  training (train_seed={train_seed})...")
             data_train(config, device=device)
 
         # --- Test ---
@@ -161,9 +167,9 @@ def run_cv(config_name, seeds):
         with open(summary_path, 'a') as f:
             if i == 0:
                 f.write(f"CV log: {config_name}\n")
-                f.write(f"seeds: {seeds}\n")
+                f.write(f"seeds (sim / train): {seeds} / {[s+1000 for s in seeds]}\n")
                 f.write("=" * 80 + "\n")
-                header = f"{'run':<6} {'seed':<6}" + "".join(f" {k:<22}" for k, _ in METRICS)
+                header = f"{'run':<6} {'sim':<6} {'train':<6}" + "".join(f" {k:<22}" for k, _ in METRICS)
                 f.write(header + "\n")
                 f.write("-" * len(header) + "\n")
             vals_str = "".join(
@@ -171,7 +177,7 @@ def run_cv(config_name, seeds):
                 else f" {'—':>22}"
                 for key, _ in METRICS
             )
-            f.write(f"{i:<6} {seed:<6}{vals_str}\n")
+            f.write(f"{i:<6} {sim_seed:<6} {train_seed:<6}{vals_str}\n")
 
     # --- Append summary statistics to log ---
     summary_path = os.path.join(cv_out_dir, "cv_summary.txt")
@@ -189,8 +195,8 @@ def run_cv(config_name, seeds):
                 f.write(f"{key:<30} {mean:>8.4f} {sd:>8.4f} {cv_pct:>6.1f}% {mn:>8.4f} {mx:>8.4f}\n")
             else:
                 f.write(f"{key:<30} {'—':>8} {'—':>8} {'—':>7} {'—':>8} {'—':>8}\n")
-    print(f"\nCV summary saved to {summary_path}")
-    print(f"Bar plot: {os.path.join(cv_out_dir, 'cv_barplot.png')}")
+    print(f"\nCV summary: {summary_path}")
+    print(f"Bar plot:   {os.path.join(cv_out_dir, 'cv_barplot.png')}")
 
 
 if __name__ == "__main__":
