@@ -213,7 +213,31 @@ def init_slot_configs(state: ExplorationState, is_resume: bool):
                     yaml.dump(config_data, f, default_flow_style=False, sort_keys=False)
                 print(f"\033[93m  slot {slot}: created {target} from source (dataset='{config_data['dataset']}')\033[0m")
         else:
-            print(f"\033[93m  slot {slot}: preserving {target} (resuming)\033[0m")
+            if not os.path.exists(target):
+                # Resuming but slot config missing — create from source
+                shutil.copy2(state.source_config, target)
+                with open(target, 'r') as f:
+                    config_data = yaml.safe_load(f)
+                if state.generate_data:
+                    config_data['dataset'] = f"{state.base_config_name}_{slot:02d}"
+                config_data['training']['n_epochs'] = state.n_epochs
+                config_data['training']['data_augmentation_loop'] = state.data_augmentation_loop
+                config_data['description'] = 'designed by Claude (parallel flyvis)'
+                config_data['claude'] = {
+                    'n_epochs': state.n_epochs,
+                    'data_augmentation_loop': state.data_augmentation_loop,
+                    'n_iter_block': state.n_iter_block,
+                    'ucb_c': state.ucb_c,
+                    'n_parallel': state.n_parallel,
+                    'node_name': state.node_name,
+                    'generate_data': state.generate_data,
+                    'training_time_target_min': state.training_time_target_min,
+                }
+                with open(target, 'w') as f:
+                    yaml.dump(config_data, f, default_flow_style=False, sort_keys=False)
+                print(f"\033[93m  slot {slot}: created {target} from source (resume+missing)\033[0m")
+            else:
+                print(f"\033[93m  slot {slot}: preserving {target} (resuming)\033[0m")
 
 
 def init_shared_files(state: ExplorationState, is_resume: bool):

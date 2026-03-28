@@ -66,6 +66,7 @@ training:
   coeff_W_L2: 1.0e-05
   coeff_W_sign: 0.05
   regul_annealing_rate: 0
+  use_gt_edges: true
   w_init_mode: "zeros"
   w_init_scale: 1.0
   seed: 42
@@ -75,6 +76,6 @@ claude:
   n_iter_block: 16
   ucb_c: 0
   n_parallel: 4
-  node_name: a100
+  node_name: l4
   generate_data: true
   training_time_target_min: 60
