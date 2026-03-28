@@ -274,6 +274,7 @@ class SimulationConfig(BaseModel):
     calcium_saturation_kd: float = 1.0  # for nonlinear saturation models
     calcium_num_compartments: int = 1
     calcium_down_sample: int = 1  # down-sample [Ca] time series by this factor
+    save_calcium: bool = False  # whether to save calcium/fluorescence in zarr output
 
     pos_init: str = "uniform"
     dpos_init: float = 0

@@ -775,7 +775,7 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
             net, device=device, overrides=hh_overrides or None)
     else:
         ode_params = FlyVisODEParams.from_flyvis_network(net, device=device)
-    edge_index = ode_params.edge_index
+    edge_index = ode_params.edge_index.to(device)
 
     if sim.n_extra_null_edges > 0:
         logger.info(f"adding {sim.n_extra_null_edges} extra null edges (mode={sim.null_edges_mode})...")
@@ -926,7 +926,7 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
     X1 = torch.cat((X1, pos[torch.randperm(pos.size(0))]), dim=0)
 
     state = net.steady_state(t_pre=2.0, dt=sim.delta_t, batch_size=1)
-    initial_state = state.nodes.activity.squeeze()
+    initial_state = state.nodes.activity.squeeze().to(device)
     n_neurons = len(initial_state)
 
     sequences = stimulus_dataset[0]["lum"]
@@ -958,8 +958,8 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
         x = NeuronState(
             index=torch.arange(n_neurons, dtype=torch.long, device=device),
             pos=X1,
-            voltage=initial_state,
-            stimulus=net.stimulus().squeeze(),
+            voltage=initial_state.to(device),
+            stimulus=net.stimulus().squeeze().to(device),
             group_type=torch.tensor(grouped_types, dtype=torch.long, device=device),
             neuron_type=torch.tensor(node_types_int, dtype=torch.long, device=device),
             calcium=_init_calcium,
@@ -1044,6 +1044,7 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
         path=graphs_data_path(config.dataset, "x_list_train"),
         n_neurons=n_neurons,
         time_chunks=2000,
+        save_calcium=sim.save_calcium,
     )
     y_writer = ZarrArrayWriter(
         path=graphs_data_path(config.dataset, "y_list_train"),
@@ -1101,6 +1102,7 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
         path=graphs_data_path(config.dataset, "x_list_test"),
         n_neurons=n_neurons,
         time_chunks=2000,
+        save_calcium=sim.save_calcium,
     )
     y_writer = ZarrArrayWriter(
         path=graphs_data_path(config.dataset, "y_list_test"),
@@ -1635,6 +1637,17 @@ def _run_ode_generation(stimulus_sequences, net, pde, x, edge_index, initial_sta
                     else:
                         y = pde(x, edge_index, has_field=False)
                         dv_step = y.squeeze()
+
+                    # Generate measurement noise for this timestep
+                    if sim.measurement_noise_level > 0:
+                        x.noise = torch.randn(n_neurons, dtype=torch.float32, device=device) * sim.measurement_noise_level
+                    else:
+                        x.noise = torch.zeros(n_neurons, dtype=torch.float32, device=device)
+
+                    # Save x[t] BEFORE updating voltage to x[t+1]
+                    x_writer.append_state(x)
+
+                    if not (has_gates and hh_substeps > 1):
                         if sim.noise_model_level > 0:
                             x.voltage = x.voltage + sim.delta_t * dv_step + torch.randn(n_neurons, dtype=torch.float32, device=device) * sim.noise_model_level
                         else:
@@ -1649,14 +1662,6 @@ def _run_ode_generation(stimulus_sequences, net, pde, x, edge_index, initial_sta
                         _hh_debug_buffers['m'].append(x.hh_m.cpu().numpy().copy())
                         _hh_debug_buffers['h'].append(x.hh_h.cpu().numpy().copy())
                         _hh_debug_buffers['n'].append(x.hh_n.cpu().numpy().copy())
-
-                    # Generate measurement noise for this timestep
-                    if sim.measurement_noise_level > 0:
-                        x.noise = torch.randn(n_neurons, dtype=torch.float32, device=device) * sim.measurement_noise_level
-                    else:
-                        x.noise = torch.zeros(n_neurons, dtype=torch.float32, device=device)
-
-                    x_writer.append_state(x)
 
                     if sim.calcium_type == "leaky":
                         if sim.calcium_activation == "softplus":
