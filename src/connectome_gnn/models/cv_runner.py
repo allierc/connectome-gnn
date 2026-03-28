@@ -30,7 +30,7 @@ from GNN_PlotFigure import data_plot
 from connectome_gnn.config import NeuralGraphConfig
 from connectome_gnn.generators.graph_data_generator import data_generate
 from connectome_gnn.models.graph_trainer import data_test, data_train
-from connectome_gnn.utils import add_pre_folder, graphs_data_path, log_path, set_device
+from connectome_gnn.utils import add_pre_folder, config_path, graphs_data_path, log_path, set_device
 
 
 METRICS = [
@@ -92,7 +92,7 @@ def _save_barplot(all_metrics, config_name, seeds, cv_out_dir, n_done):
 
 def run_cv(config_name, seeds):
     config_file, pre_folder = add_pre_folder(config_name)
-    base_config = NeuralGraphConfig.from_yaml(f"./config/{config_file}.yaml")
+    base_config = NeuralGraphConfig.from_yaml(config_path(f"{config_file}.yaml"))
     device = set_device(base_config.training.device)
 
     # Summary goes into the cv00 log folder
@@ -111,7 +111,7 @@ def run_cv(config_name, seeds):
         print("=" * 80)
 
         # Per-run dataset and log dir
-        config = NeuralGraphConfig.from_yaml(f"./config/{config_file}.yaml")
+        config = NeuralGraphConfig.from_yaml(config_path(f"{config_file}.yaml"))
         config.simulation.seed = sim_seed       # each run generates its own data
         config.training.seed = train_seed       # different seed for training
         config.dataset = pre_folder + run_name  # per-run graphs_data dir

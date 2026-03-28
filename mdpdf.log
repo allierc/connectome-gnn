@@ -1,0 +1,405 @@
+    INFO: 2026-03-24 06:54:43,019:               log.py:   20: Logging to /workspace/connectome-gnn/mdpdf.log
+   DEBUG: 2026-03-24 06:54:43,019:               cli.py:  103: docs/adding_a_model.md
+    INFO: 2026-03-24 06:54:43,023:         converter.py:   14: docs/adding_a_model.md
+   DEBUG: 2026-03-24 06:54:43,033:      pdf_renderer.py:  470: printSegment: Adding a New Training Model
+   DEBUG: 2026-03-24 06:54:43,051:      pdf_renderer.py:  470: printSegment: This guide explains how to add a new model to the connectome-gnn training pipeline. The codebase uses a registry
+   DEBUG: 2026-03-24 06:54:43,056:      pdf_renderer.py:  470: printSegment: pattern: you write a model class, register it under a name, and create a YAML config referencing that name. The
+   DEBUG: 2026-03-24 06:54:43,058:      pdf_renderer.py:  470: printSegment: trainer picks it up automatically.
+   DEBUG: 2026-03-24 06:54:43,059:      pdf_renderer.py:  470: printSegment: Architecture Overview
+   DEBUG: 2026-03-24 06:54:43,060:      pdf_renderer.py:  470: printSegment: The pipeline has three layers. The 
+   DEBUG: 2026-03-24 06:54:43,061:      pdf_renderer.py:  470: printSegment: config
+   DEBUG: 2026-03-24 06:54:43,063:      pdf_renderer.py:  470: printSegment:  (
+   DEBUG: 2026-03-24 06:54:43,065:      pdf_renderer.py:  470: printSegment: config/{biomodel}/{name}.yaml
+   DEBUG: 2026-03-24 06:54:43,067:      pdf_renderer.py:  470: printSegment: ) defines the dataset and
+   DEBUG: 2026-03-24 06:54:43,068:      pdf_renderer.py:  470: printSegment: model name. The 
+   DEBUG: 2026-03-24 06:54:43,069:      pdf_renderer.py:  470: printSegment: registry
+   DEBUG: 2026-03-24 06:54:43,070:      pdf_renderer.py:  470: printSegment:  (
+   DEBUG: 2026-03-24 06:54:43,072:      pdf_renderer.py:  470: printSegment: src/connectome_gnn/models/registry.py:42
+   DEBUG: 2026-03-24 06:54:43,073:      pdf_renderer.py:  470: printSegment: ) maps 
+   DEBUG: 2026-03-24 06:54:43,075:      pdf_renderer.py:  470: printSegment: signal_model_name
+   DEBUG: 2026-03-24 06:54:43,076:      pdf_renderer.py:  470: printSegment:  strings to model classes. The 
+   DEBUG: 2026-03-24 06:54:43,077:      pdf_renderer.py:  470: printSegment: trainer
+   DEBUG: 2026-03-24 06:54:43,078:      pdf_renderer.py:  470: printSegment:  (
+   DEBUG: 2026-03-24 06:54:43,080:      pdf_renderer.py:  470: printSegment: src/connectome_gnn/models/graph_trainer.py:84-91
+   DEBUG: 2026-03-24 06:54:43,082:      pdf_renderer.py:  470: printSegment: ) dispatches to the right training loop based
+   DEBUG: 2026-03-24 06:54:43,082:      pdf_renderer.py:  470: printSegment: on the model name.
+   DEBUG: 2026-03-24 06:54:43,085:      pdf_renderer.py:  470: printSegment: Two training loops exist. 
+   DEBUG: 2026-03-24 06:54:43,086:      pdf_renderer.py:  470: printSegment: data_train_gnn
+   DEBUG: 2026-03-24 06:54:43,087:      pdf_renderer.py:  470: printSegment:  (line 96) handles GNN and Linear ODE models that take 
+   DEBUG: 2026-03-24 06:54:43,088:      pdf_renderer.py:  470: printSegment: (NeuronState, edge_index)
+   DEBUG: 2026-03-24 06:54:43,090:      pdf_renderer.py:  470: printSegment:  as input. 
+   DEBUG: 2026-03-24 06:54:43,091:      pdf_renderer.py:  470: printSegment: data_train_gnn_RNN
+   DEBUG: 2026-03-24 06:54:43,102:      pdf_renderer.py:  470: printSegment:  (line 853) handles sequential models
+   DEBUG: 2026-03-24 06:54:43,104:      pdf_renderer.py:  470: printSegment: (RNN, LSTM) that take a packed state tensor and maintain hidden state across time steps. The dispatcher at line 86
+   DEBUG: 2026-03-24 06:54:43,105:      pdf_renderer.py:  470: printSegment: checks if 
+   DEBUG: 2026-03-24 06:54:43,107:      pdf_renderer.py:  470: printSegment: 'rnn'
+   DEBUG: 2026-03-24 06:54:43,108:      pdf_renderer.py:  470: printSegment:  or 
+   DEBUG: 2026-03-24 06:54:43,109:      pdf_renderer.py:  470: printSegment: 'lstm'
+   DEBUG: 2026-03-24 06:54:43,111:      pdf_renderer.py:  470: printSegment:  appears in the signal model name to decide which loop to use.
+   DEBUG: 2026-03-24 06:54:43,112:      pdf_renderer.py:  470: printSegment: Step 1: Write the Model Class
+   DEBUG: 2026-03-24 06:54:43,114:      pdf_renderer.py:  470: printSegment: Create a new file in 
+   DEBUG: 2026-03-24 06:54:43,115:      pdf_renderer.py:  470: printSegment: src/connectome_gnn/models/
+   DEBUG: 2026-03-24 06:54:43,116:      pdf_renderer.py:  470: printSegment: , for example 
+   DEBUG: 2026-03-24 06:54:43,118:      pdf_renderer.py:  470: printSegment: my_model.py
+   DEBUG: 2026-03-24 06:54:43,120:      pdf_renderer.py:  470: printSegment: . Your model must be an 
+   DEBUG: 2026-03-24 06:54:43,121:      pdf_renderer.py:  470: printSegment: nn.Module
+   DEBUG: 2026-03-24 06:54:43,122:      pdf_renderer.py:  470: printSegment:  with a 
+   DEBUG: 2026-03-24 06:54:43,124:      pdf_renderer.py:  470: printSegment: forward
+   DEBUG: 2026-03-24 06:54:43,126:      pdf_renderer.py:  470: printSegment:  method. The forward signature depends on which training loop you target.
+   DEBUG: 2026-03-24 06:54:43,127:      pdf_renderer.py:  470: printSegment: For the GNN-style loop (
+   DEBUG: 2026-03-24 06:54:43,128:      pdf_renderer.py:  470: printSegment: data_train_gnn
+   DEBUG: 2026-03-24 06:54:43,129:      pdf_renderer.py:  470: printSegment: ), the forward method receives a 
+   DEBUG: 2026-03-24 06:54:43,130:      pdf_renderer.py:  470: printSegment: NeuronState
+   DEBUG: 2026-03-24 06:54:43,132:      pdf_renderer.py:  470: printSegment:  object and an 
+   DEBUG: 2026-03-24 06:54:43,133:      pdf_renderer.py:  470: printSegment: edge_index
+   DEBUG: 2026-03-24 06:54:43,134:      pdf_renderer.py:  470: printSegment:  tensor. 
+   DEBUG: 2026-03-24 06:54:43,136:      pdf_renderer.py:  470: printSegment: NeuronState
+   DEBUG: 2026-03-24 06:54:43,137:      pdf_renderer.py:  470: printSegment:  (defined in 
+   DEBUG: 2026-03-24 06:54:43,139:      pdf_renderer.py:  470: printSegment: src/connectome_gnn/neuron_state.py
+   DEBUG: 2026-03-24 06:54:43,140:      pdf_renderer.py:  470: printSegment: ) holds
+   DEBUG: 2026-03-24 06:54:43,141:      pdf_renderer.py:  470: printSegment: per-neuron fields: 
+   DEBUG: 2026-03-24 06:54:43,142:      pdf_renderer.py:  470: printSegment: voltage
+   DEBUG: 2026-03-24 06:54:43,144:      pdf_renderer.py:  470: printSegment: , 
+   DEBUG: 2026-03-24 06:54:43,146:      pdf_renderer.py:  470: printSegment: stimulus
+   DEBUG: 2026-03-24 06:54:43,147:      pdf_renderer.py:  470: printSegment: , 
+   DEBUG: 2026-03-24 06:54:43,149:      pdf_renderer.py:  470: printSegment: index
+   DEBUG: 2026-03-24 06:54:43,150:      pdf_renderer.py:  470: printSegment: , 
+   DEBUG: 2026-03-24 06:54:43,151:      pdf_renderer.py:  470: printSegment: neuron_type
+   DEBUG: 2026-03-24 06:54:43,153:      pdf_renderer.py:  470: printSegment: , etc. Your model should return 
+   DEBUG: 2026-03-24 06:54:43,155:      pdf_renderer.py:  470: printSegment: dv/dt
+   DEBUG: 2026-03-24 06:54:43,156:      pdf_renderer.py:  470: printSegment:  as a 
+   DEBUG: 2026-03-24 06:54:43,157:      pdf_renderer.py:  470: printSegment: (N, 1)
+   DEBUG: 2026-03-24 06:54:43,159:      pdf_renderer.py:  470: printSegment:  tensor. See 
+   DEBUG: 2026-03-24 06:54:43,160:      pdf_renderer.py:  470: printSegment: flyvis_linear.py
+   DEBUG: 2026-03-24 06:54:43,162:      pdf_renderer.py:  470: printSegment:  for a minimal example (124 lines) or 
+   DEBUG: 2026-03-24 06:54:43,163:      pdf_renderer.py:  470: printSegment: neural_gnn.py
+   DEBUG: 2026-03-24 06:54:43,164:      pdf_renderer.py:  470: printSegment:  for the full
+   DEBUG: 2026-03-24 06:54:43,165:      pdf_renderer.py:  470: printSegment: GNN.
+   DEBUG: 2026-03-24 06:54:43,167:      pdf_renderer.py:  470: printSegment: For the RNN-style loop (
+   DEBUG: 2026-03-24 06:54:43,168:      pdf_renderer.py:  470: printSegment: data_train_gnn_RNN
+   DEBUG: 2026-03-24 06:54:43,170:      pdf_renderer.py:  470: printSegment: ), the forward method receives a packed state tensor 
+   DEBUG: 2026-03-24 06:54:43,171:      pdf_renderer.py:  470: printSegment: x
+   DEBUG: 2026-03-24 06:54:43,172:      pdf_renderer.py:  470: printSegment:  of shape 
+   DEBUG: 2026-03-24 06:54:43,174:      pdf_renderer.py:  470: printSegment: (N, features)
+   DEBUG: 2026-03-24 06:54:43,175:      pdf_renderer.py:  470: printSegment:  where voltage is at column 3 and stimulus at column 4. It also receives a hidden state 
+   DEBUG: 2026-03-24 06:54:43,176:      pdf_renderer.py:  470: printSegment: h
+   DEBUG: 2026-03-24 06:54:43,178:      pdf_renderer.py:  470: printSegment:  and
+   DEBUG: 2026-03-24 06:54:43,179:      pdf_renderer.py:  470: printSegment: returns 
+   DEBUG: 2026-03-24 06:54:43,181:      pdf_renderer.py:  470: printSegment: (dv_dt, h_next)
+   DEBUG: 2026-03-24 06:54:43,182:      pdf_renderer.py:  470: printSegment:  when 
+   DEBUG: 2026-03-24 06:54:43,183:      pdf_renderer.py:  470: printSegment: return_all=True
+   DEBUG: 2026-03-24 06:54:43,184:      pdf_renderer.py:  470: printSegment: . See 
+   DEBUG: 2026-03-24 06:54:43,186:      pdf_renderer.py:  470: printSegment: neural_rnn.py
+   DEBUG: 2026-03-24 06:54:43,187:      pdf_renderer.py:  470: printSegment:  for the GRU-based
+   DEBUG: 2026-03-24 06:54:43,188:      pdf_renderer.py:  470: printSegment: implementation.
+   DEBUG: 2026-03-24 06:54:43,190:      pdf_renderer.py:  470: printSegment: Both model types must expose two attributes for connectivity benchmarking: 
+   DEBUG: 2026-03-24 06:54:43,191:      pdf_renderer.py:  470: printSegment: self.W
+   DEBUG: 2026-03-24 06:54:43,192:      pdf_renderer.py:  470: printSegment:  (an 
+   DEBUG: 2026-03-24 06:54:43,194:      pdf_renderer.py:  470: printSegment: nn.Parameter
+   DEBUG: 2026-03-24 06:54:43,195:      pdf_renderer.py:  470: printSegment:  of
+   DEBUG: 2026-03-24 06:54:43,196:      pdf_renderer.py:  470: printSegment: shape 
+   DEBUG: 2026-03-24 06:54:43,198:      pdf_renderer.py:  470: printSegment: (n_edges, 1)
+   DEBUG: 2026-03-24 06:54:43,199:      pdf_renderer.py:  470: printSegment:  representing per-edge synaptic weights) and 
+   DEBUG: 2026-03-24 06:54:43,200:      pdf_renderer.py:  470: printSegment: self.a
+   DEBUG: 2026-03-24 06:54:43,202:      pdf_renderer.py:  470: printSegment:  (an 
+   DEBUG: 2026-03-24 06:54:43,203:      pdf_renderer.py:  470: printSegment: nn.Parameter
+   DEBUG: 2026-03-24 06:54:43,204:      pdf_renderer.py:  470: printSegment:  of shape 
+   DEBUG: 2026-03-24 06:54:43,206:      pdf_renderer.py:  470: printSegment: (n_neurons, embedding_dim)
+   DEBUG: 2026-03-24 06:54:43,208:      pdf_renderer.py:  470: printSegment:  representing per-neuron embeddings). These are compared against ground
+   DEBUG: 2026-03-24 06:54:43,209:      pdf_renderer.py:  470: printSegment: truth in 
+   DEBUG: 2026-03-24 06:54:43,211:      pdf_renderer.py:  470: printSegment: GNN_PlotFigure.py
+   DEBUG: 2026-03-24 06:54:43,212:      pdf_renderer.py:  470: printSegment:  to compute 
+   DEBUG: 2026-03-24 06:54:43,213:      pdf_renderer.py:  470: printSegment: connectivity_R2
+   DEBUG: 2026-03-24 06:54:43,214:      pdf_renderer.py:  470: printSegment:  and 
+   DEBUG: 2026-03-24 06:54:43,216:      pdf_renderer.py:  470: printSegment: cluster_accuracy
+   DEBUG: 2026-03-24 06:54:43,217:      pdf_renderer.py:  470: printSegment: . If your model
+   DEBUG: 2026-03-24 06:54:43,219:      pdf_renderer.py:  470: printSegment: doesn
+   DEBUG: 2026-03-24 06:54:43,220:      pdf_renderer.py:  470: printSegment: '
+   DEBUG: 2026-03-24 06:54:43,222:      pdf_renderer.py:  470: printSegment: t naturally learn per-edge weights, initialize 
+   DEBUG: 2026-03-24 06:54:43,223:      pdf_renderer.py:  470: printSegment: self.W
+   DEBUG: 2026-03-24 06:54:43,225:      pdf_renderer.py:  470: printSegment:  as a learnable parameter anyway (see 
+   DEBUG: 2026-03-24 06:54:43,226:      pdf_renderer.py:  470: printSegment: neural_rnn.py:71-83
+   DEBUG: 2026-03-24 06:54:43,227:      pdf_renderer.py:  470: printSegment:  for how the RNN does this).
+   DEBUG: 2026-03-24 06:54:43,229:      pdf_renderer.py:  470: printSegment: The constructor receives 
+   DEBUG: 2026-03-24 06:54:43,230:      pdf_renderer.py:  470: printSegment: (aggr_type, config, device)
+   DEBUG: 2026-03-24 06:54:43,231:      pdf_renderer.py:  470: printSegment:  where 
+   DEBUG: 2026-03-24 06:54:43,233:      pdf_renderer.py:  470: printSegment: config
+   DEBUG: 2026-03-24 06:54:43,235:      pdf_renderer.py:  470: printSegment:  is the full config object. Extract
+   DEBUG: 2026-03-24 06:54:43,236:      pdf_renderer.py:  470: printSegment: what you need from 
+   DEBUG: 2026-03-24 06:54:43,238:      pdf_renderer.py:  470: printSegment: config.simulation
+   DEBUG: 2026-03-24 06:54:43,239:      pdf_renderer.py:  470: printSegment: , 
+   DEBUG: 2026-03-24 06:54:43,241:      pdf_renderer.py:  470: printSegment: config.graph_model
+   DEBUG: 2026-03-24 06:54:43,242:      pdf_renderer.py:  470: printSegment: , and 
+   DEBUG: 2026-03-24 06:54:43,244:      pdf_renderer.py:  470: printSegment: config.training
+   DEBUG: 2026-03-24 06:54:43,245:      pdf_renderer.py:  470: printSegment: . Key fields: 
+   DEBUG: 2026-03-24 06:54:43,246:      pdf_renderer.py:  470: printSegment: n_neurons
+   DEBUG: 2026-03-24 06:54:43,247:      pdf_renderer.py:  470: printSegment: , 
+   DEBUG: 2026-03-24 06:54:43,249:      pdf_renderer.py:  470: printSegment: n_edges
+   DEBUG: 2026-03-24 06:54:43,252:      pdf_renderer.py:  470: printSegment: , 
+   DEBUG: 2026-03-24 06:54:43,256:      pdf_renderer.py:  470: printSegment: n_extra_null_edges
+   DEBUG: 2026-03-24 06:54:43,259:      pdf_renderer.py:  470: printSegment:  (from simulation), 
+   DEBUG: 2026-03-24 06:54:43,260:      pdf_renderer.py:  470: printSegment: hidden_dim
+   DEBUG: 2026-03-24 06:54:43,261:      pdf_renderer.py:  470: printSegment: , 
+   DEBUG: 2026-03-24 06:54:43,263:      pdf_renderer.py:  470: printSegment: n_layers
+   DEBUG: 2026-03-24 06:54:43,264:      pdf_renderer.py:  470: printSegment: , 
+   DEBUG: 2026-03-24 06:54:43,266:      pdf_renderer.py:  470: printSegment: embedding_dim
+   DEBUG: 2026-03-24 06:54:43,268:      pdf_renderer.py:  470: printSegment:  (from graph
+   DEBUG: 2026-03-24 06:54:43,270:      pdf_renderer.py:  470: printSegment: _
+   DEBUG: 2026-03-24 06:54:43,271:      pdf_renderer.py:  470: printSegment: model), 
+   DEBUG: 2026-03-24 06:54:43,272:      pdf_renderer.py:  470: printSegment: w_init_mode
+   DEBUG: 2026-03-24 06:54:43,274:      pdf_renderer.py:  470: printSegment: , 
+   DEBUG: 2026-03-24 06:54:43,275:      pdf_renderer.py:  470: printSegment: batch_size
+   DEBUG: 2026-03-24 06:54:43,277:      pdf_renderer.py:  470: printSegment:  (from training).
+   DEBUG: 2026-03-24 06:54:43,278:      pdf_renderer.py:  470: printSegment: Step 2: Register the Model
+   DEBUG: 2026-03-24 06:54:43,279:      pdf_renderer.py:  470: printSegment: Add the 
+   DEBUG: 2026-03-24 06:54:43,280:      pdf_renderer.py:  470: printSegment: @register_model
+   DEBUG: 2026-03-24 06:54:43,282:      pdf_renderer.py:  470: printSegment:  decorator to your class with one or more name strings. These names will match the 
+   DEBUG: 2026-03-24 06:54:43,283:      pdf_renderer.py:  470: printSegment: signal_model_name
+   DEBUG: 2026-03-24 06:54:43,285:      pdf_renderer.py:  470: printSegment:  field in YAML configs.
+   DEBUG: 2026-03-24 06:54:43,286:      pdf_renderer.py:  470: printSegment: from connectome_gnn.models.registry import register_model
+   DEBUG: 2026-03-24 06:54:43,288:      pdf_renderer.py:  470: printSegment: @register_model("my_model", "drosophila_cx_mymodel",
+   DEBUG: 2026-03-24 06:54:43,289:      pdf_renderer.py:  470: printSegment: "larva_mymodel")
+   DEBUG: 2026-03-24 06:54:43,290:      pdf_renderer.py:  470: printSegment: class MyModel(nn.Module):
+   DEBUG: 2026-03-24 06:54:43,292:      pdf_renderer.py:  470: printSegment:     ...
+   DEBUG: 2026-03-24 06:54:43,293:      pdf_renderer.py:  470: printSegment: Then add the import to the discovery function in 
+   DEBUG: 2026-03-24 06:54:43,294:      pdf_renderer.py:  470: printSegment: src/connectome_gnn/models/registry.py:18-26
+   DEBUG: 2026-03-24 06:54:43,295:      pdf_renderer.py:  470: printSegment: :
+   DEBUG: 2026-03-24 06:54:43,297:      pdf_renderer.py:  470: printSegment: def _discover_models():
+   DEBUG: 2026-03-24 06:54:43,298:      pdf_renderer.py:  470: printSegment:     global _discovered
+   DEBUG: 2026-03-24 06:54:43,299:      pdf_renderer.py:  470: printSegment:     if _discovered:
+   DEBUG: 2026-03-24 06:54:43,301:      pdf_renderer.py:  470: printSegment:         return
+   DEBUG: 2026-03-24 06:54:43,302:      pdf_renderer.py:  470: printSegment:     _discovered = True
+   DEBUG: 2026-03-24 06:54:43,304:      pdf_renderer.py:  470: printSegment:     import connectome_gnn.models.neural_gnn
+   DEBUG: 2026-03-24 06:54:43,305:      pdf_renderer.py:  470: printSegment:     import connectome_gnn.models.flyvis_linear
+   DEBUG: 2026-03-24 06:54:43,307:      pdf_renderer.py:  470: printSegment:     import connectome_gnn.models.neural_rnn
+   DEBUG: 2026-03-24 06:54:43,308:      pdf_renderer.py:  470: printSegment:     import connectome_gnn.models.my_model  # <-- add this line
+   DEBUG: 2026-03-24 06:54:43,310:      pdf_renderer.py:  470: printSegment: Step 3: Create a Config YAML
+   DEBUG: 2026-03-24 06:54:43,311:      pdf_renderer.py:  470: printSegment: Create a config file in 
+   DEBUG: 2026-03-24 06:54:43,312:      pdf_renderer.py:  470: printSegment: config/{biomodel}/
+   DEBUG: 2026-03-24 06:54:43,314:      pdf_renderer.py:  470: printSegment: . The critical field is 
+   DEBUG: 2026-03-24 06:54:43,315:      pdf_renderer.py:  470: printSegment: graph_model.signal_model_name
+   DEBUG: 2026-03-24 06:54:43,318:      pdf_renderer.py:  470: printSegment: 
+   DEBUG: 2026-03-24 06:54:43,319:      pdf_renderer.py:  470: printSegment: which must match one of your registered names. Here is a minimal example for drosophila
+   DEBUG: 2026-03-24 06:54:43,320:      pdf_renderer.py:  470: printSegment: _
+   DEBUG: 2026-03-24 06:54:43,322:      pdf_renderer.py:  470: printSegment: cx:
+   DEBUG: 2026-03-24 06:54:43,323:      pdf_renderer.py:  470: printSegment: description: "My model baseline on drosophila_cx"
+   DEBUG: 2026-03-24 06:54:43,324:      pdf_renderer.py:  470: printSegment: dataset: drosophila_cx_mymodel
+   DEBUG: 2026-03-24 06:54:43,326:      pdf_renderer.py:  470: printSegment: simulation:
+   DEBUG: 2026-03-24 06:54:43,328:      pdf_renderer.py:  470: printSegment:   # ... copy from drosophila_cx.yaml (keep identical)
+   DEBUG: 2026-03-24 06:54:43,329:      pdf_renderer.py:  470: printSegment: graph_model:
+   DEBUG: 2026-03-24 06:54:43,331:      pdf_renderer.py:  470: printSegment:   signal_model_name: drosophila_cx_mymodel   # <-- matches
+   DEBUG: 2026-03-24 06:54:43,332:      pdf_renderer.py:  470: printSegment: @register_model
+   DEBUG: 2026-03-24 06:54:43,333:      pdf_renderer.py:  470: printSegment:   prediction: first_derivative
+   DEBUG: 2026-03-24 06:54:43,334:      pdf_renderer.py:  470: printSegment:   hidden_dim: 64
+   DEBUG: 2026-03-24 06:54:43,336:      pdf_renderer.py:  470: printSegment:   n_layers: 3
+   DEBUG: 2026-03-24 06:54:43,337:      pdf_renderer.py:  470: printSegment:   embedding_dim: 2
+   DEBUG: 2026-03-24 06:54:43,339:      pdf_renderer.py:  470: printSegment:   # ... other architecture params
+   DEBUG: 2026-03-24 06:54:43,340:      pdf_renderer.py:  470: printSegment: training:
+   DEBUG: 2026-03-24 06:54:43,341:      pdf_renderer.py:  470: printSegment:   n_epochs: 20
+   DEBUG: 2026-03-24 06:54:43,342:      pdf_renderer.py:  470: printSegment:   batch_size: 2
+   DEBUG: 2026-03-24 06:54:43,344:      pdf_renderer.py:  470: printSegment:   data_augmentation_loop: 500
+   DEBUG: 2026-03-24 06:54:43,345:      pdf_renderer.py:  470: printSegment:   lr_W: 0.001
+   DEBUG: 2026-03-24 06:54:43,347:      pdf_renderer.py:  470: printSegment:   lr: 0.001
+   DEBUG: 2026-03-24 06:54:43,348:      pdf_renderer.py:  470: printSegment:   w_init_mode: zeros
+   DEBUG: 2026-03-24 06:54:43,349:      pdf_renderer.py:  470: printSegment:   # ... other training params
+   DEBUG: 2026-03-24 06:54:43,350:      pdf_renderer.py:  470: printSegment: The 
+   DEBUG: 2026-03-24 06:54:43,352:      pdf_renderer.py:  470: printSegment: dataset
+   DEBUG: 2026-03-24 06:54:43,358:      pdf_renderer.py:  470: printSegment:  field determines where data is loaded from and where logs are saved. If your model uses the same
+   DEBUG: 2026-03-24 06:54:43,359:      pdf_renderer.py:  470: printSegment: data as the GNN (same connectome, same stimulus), point 
+   DEBUG: 2026-03-24 06:54:43,361:      pdf_renderer.py:  470: printSegment: dataset
+   DEBUG: 2026-03-24 06:54:43,362:      pdf_renderer.py:  470: printSegment:  to an existing dataset name like 
+   DEBUG: 2026-03-24 06:54:43,364:      pdf_renderer.py:  470: printSegment: drosophila_cx
+   DEBUG: 2026-03-24 06:54:43,366:      pdf_renderer.py:  470: printSegment:  and the trainer will load the pre-generated data. If you use a new dataset name (e.g. 
+   DEBUG: 2026-03-24 06:54:43,367:      pdf_renderer.py:  470: printSegment: drosophila_cx_mymodel
+   DEBUG: 2026-03-24 06:54:43,369:      pdf_renderer.py:  470: printSegment: ), data generation will create a new folder under 
+   DEBUG: 2026-03-24 06:54:43,370:      pdf_renderer.py:  470: printSegment: graphs_data/
+   DEBUG: 2026-03-24 06:54:43,372:      pdf_renderer.py:  470: printSegment: .
+   DEBUG: 2026-03-24 06:54:43,373:      pdf_renderer.py:  470: printSegment: The routing function 
+   DEBUG: 2026-03-24 06:54:43,374:      pdf_renderer.py:  470: printSegment: add_pre_folder
+   DEBUG: 2026-03-24 06:54:43,376:      pdf_renderer.py:  470: printSegment:  in 
+   DEBUG: 2026-03-24 06:54:43,378:      pdf_renderer.py:  470: printSegment: src/connectome_gnn/utils.py:314
+   DEBUG: 2026-03-24 06:54:43,381:      pdf_renderer.py:  470: printSegment:  maps dataset names to
+   DEBUG: 2026-03-24 06:54:43,383:      pdf_renderer.py:  470: printSegment: config directories using prefix matching. Any dataset starting with 
+   DEBUG: 2026-03-24 06:54:43,384:      pdf_renderer.py:  470: printSegment: drosophila_cx
+   DEBUG: 2026-03-24 06:54:43,385:      pdf_renderer.py:  470: printSegment:  routes to 
+   DEBUG: 2026-03-24 06:54:43,387:      pdf_renderer.py:  470: printSegment: config/drosophila_cx/
+   DEBUG: 2026-03-24 06:54:43,388:      pdf_renderer.py:  470: printSegment: . Same for 
+   DEBUG: 2026-03-24 06:54:43,389:      pdf_renderer.py:  470: printSegment: larva
+   DEBUG: 2026-03-24 06:54:43,391:      pdf_renderer.py:  470: printSegment:  and 
+   DEBUG: 2026-03-24 06:54:43,392:      pdf_renderer.py:  470: printSegment: zebrafish_oculomotor
+   DEBUG: 2026-03-24 06:54:43,394:      pdf_renderer.py:  470: printSegment: .
+   DEBUG: 2026-03-24 06:54:43,395:      pdf_renderer.py:  470: printSegment: Step 4: Training
+   DEBUG: 2026-03-24 06:54:43,397:      pdf_renderer.py:  470: printSegment: If your model is a GNN-style model (not RNN), the trainer at 
+   DEBUG: 2026-03-24 06:54:43,398:      pdf_renderer.py:  470: printSegment: graph_trainer.py:527
+   DEBUG: 2026-03-24 06:54:43,399:      pdf_renderer.py:  470: printSegment:  calls:
+   DEBUG: 2026-03-24 06:54:43,402:      pdf_renderer.py:  470: printSegment: pred, in_features, msg = model(batched_state, batched_edges,
+   DEBUG: 2026-03-24 06:54:43,403:      pdf_renderer.py:  470: printSegment: data_id=data_id, return_all=True)
+   DEBUG: 2026-03-24 06:54:43,404:      pdf_renderer.py:  470: printSegment: If it
+   DEBUG: 2026-03-24 06:54:43,405:      pdf_renderer.py:  470: printSegment: '
+   DEBUG: 2026-03-24 06:54:43,406:      pdf_renderer.py:  470: printSegment: s an RNN-style model, the trainer at 
+   DEBUG: 2026-03-24 06:54:43,408:      pdf_renderer.py:  470: printSegment: graph_trainer.py:902
+   DEBUG: 2026-03-24 06:54:43,409:      pdf_renderer.py:  470: printSegment:  calls:
+   DEBUG: 2026-03-24 06:54:43,411:      pdf_renderer.py:  470: printSegment: pred, h = model(x, h=h, return_all=True)
+   DEBUG: 2026-03-24 06:54:43,412:      pdf_renderer.py:  470: printSegment: To route your model to the RNN loop, include 
+   DEBUG: 2026-03-24 06:54:43,413:      pdf_renderer.py:  470: printSegment: 'rnn'
+   DEBUG: 2026-03-24 06:54:43,414:      pdf_renderer.py:  470: printSegment:  or 
+   DEBUG: 2026-03-24 06:54:43,416:      pdf_renderer.py:  470: printSegment: 'lstm'
+   DEBUG: 2026-03-24 06:54:43,417:      pdf_renderer.py:  470: printSegment:  in the signal
+   DEBUG: 2026-03-24 06:54:43,418:      pdf_renderer.py:  470: printSegment: _
+   DEBUG: 2026-03-24 06:54:43,420:      pdf_renderer.py:  470: printSegment: model
+   DEBUG: 2026-03-24 06:54:43,421:      pdf_renderer.py:  470: printSegment: _
+   DEBUG: 2026-03-24 06:54:43,423:      pdf_renderer.py:  470: printSegment: name. Otherwise it goes
+   DEBUG: 2026-03-24 06:54:43,423:      pdf_renderer.py:  470: printSegment: through the GNN loop.
+   DEBUG: 2026-03-24 06:54:43,425:      pdf_renderer.py:  470: printSegment: Run training with:
+   DEBUG: 2026-03-24 06:54:43,427:      pdf_renderer.py:  470: printSegment: python GNN_train.py -o generate_train_test_plot
+   DEBUG: 2026-03-24 06:54:43,428:      pdf_renderer.py:  470: printSegment: drosophila_cx_mymodel
+   DEBUG: 2026-03-24 06:54:43,429:      pdf_renderer.py:  470: printSegment: Or through the LLM exploration pipeline:
+   DEBUG: 2026-03-24 06:54:43,432:      pdf_renderer.py:  470: printSegment: python GNN_LLM.py -o generate_train_test_plot_Claude
+   DEBUG: 2026-03-24 06:54:43,433:      pdf_renderer.py:  470: printSegment: drosophila_cx_mymodel iterations=128 --cluster
+   DEBUG: 2026-03-24 06:54:43,434:      pdf_renderer.py:  470: printSegment: Step 5: Analysis and Plotting
+   DEBUG: 2026-03-24 06:54:43,436:      pdf_renderer.py:  470: printSegment: GNN_PlotFigure.py
+   DEBUG: 2026-03-24 06:54:43,437:      pdf_renderer.py:  470: printSegment:  handles all post-training analysis. It extracts 
+   DEBUG: 2026-03-24 06:54:43,438:      pdf_renderer.py:  470: printSegment: model.W
+   DEBUG: 2026-03-24 06:54:43,439:      pdf_renderer.py:  470: printSegment:  to compute 
+   DEBUG: 2026-03-24 06:54:43,441:      pdf_renderer.py:  470: printSegment: connectivity_R2
+   DEBUG: 2026-03-24 06:54:43,442:      pdf_renderer.py:  470: printSegment: 
+   DEBUG: 2026-03-24 06:54:43,443:      pdf_renderer.py:  470: printSegment: against ground truth, 
+   DEBUG: 2026-03-24 06:54:43,445:      pdf_renderer.py:  470: printSegment: model.a
+   DEBUG: 2026-03-24 06:54:43,446:      pdf_renderer.py:  470: printSegment:  for clustering, and runs rollout prediction. The analysis code checks 
+   DEBUG: 2026-03-24 06:54:43,447:      pdf_renderer.py:  470: printSegment: signal_model_name
+   DEBUG: 2026-03-24 06:54:43,449:      pdf_renderer.py:  470: printSegment:  for routing at several points (lines 661, 666, 740) — if your model name contains 
+   DEBUG: 2026-03-24 06:54:43,460:      pdf_renderer.py:  470: printSegment: 'linear'
+   DEBUG: 2026-03-24 06:54:43,461:      pdf_renderer.py:  470: printSegment: , 
+   DEBUG: 2026-03-24 06:54:43,463:      pdf_renderer.py:  470: printSegment: 'MLP'
+   DEBUG: 2026-03-24 06:54:43,464:      pdf_renderer.py:  470: printSegment: , or 
+   DEBUG: 2026-03-24 06:54:43,465:      pdf_renderer.py:  470: printSegment: 'rnn'
+   DEBUG: 2026-03-24 06:54:43,467:      pdf_renderer.py:  470: printSegment: , it uses model-specific plotting paths. Otherwise it falls through to the GNN plotting path.
+   DEBUG: 2026-03-24 06:54:43,468:      pdf_renderer.py:  470: printSegment: Existing Models
+   DEBUG: 2026-03-24 06:54:43,470:      pdf_renderer.py:  470: printSegment: | signal
+   DEBUG: 2026-03-24 06:54:43,471:      pdf_renderer.py:  470: printSegment: _
+   DEBUG: 2026-03-24 06:54:43,472:      pdf_renderer.py:  470: printSegment: model
+   DEBUG: 2026-03-24 06:54:43,474:      pdf_renderer.py:  470: printSegment: _
+   DEBUG: 2026-03-24 06:54:43,476:      pdf_renderer.py:  470: printSegment: name | Class | File | Training loop | Description |
+   DEBUG: 2026-03-24 06:54:43,477:      pdf_renderer.py:  470: printSegment:  
+   DEBUG: 2026-03-24 06:54:43,478:      pdf_renderer.py:  470: printSegment: |---|---|---|---|---|
+   DEBUG: 2026-03-24 06:54:43,480:      pdf_renderer.py:  470: printSegment:  
+   DEBUG: 2026-03-24 06:54:43,481:      pdf_renderer.py:  470: printSegment: | 
+   DEBUG: 2026-03-24 06:54:43,483:      pdf_renderer.py:  470: printSegment: drosophila_cx
+   DEBUG: 2026-03-24 06:54:43,484:      pdf_renderer.py:  470: printSegment: , 
+   DEBUG: 2026-03-24 06:54:43,486:      pdf_renderer.py:  470: printSegment: larva
+   DEBUG: 2026-03-24 06:54:43,488:      pdf_renderer.py:  470: printSegment: , 
+   DEBUG: 2026-03-24 06:54:43,489:      pdf_renderer.py:  470: printSegment: zebrafish_oculomotor
+   DEBUG: 2026-03-24 06:54:43,490:      pdf_renderer.py:  470: printSegment: , 
+   DEBUG: 2026-03-24 06:54:43,492:      pdf_renderer.py:  470: printSegment: flyvis_A
+   DEBUG: 2026-03-24 06:54:43,493:      pdf_renderer.py:  470: printSegment:  | 
+   DEBUG: 2026-03-24 06:54:43,495:      pdf_renderer.py:  470: printSegment: NeuralGNN
+   DEBUG: 2026-03-24 06:54:43,497:      pdf_renderer.py:  470: printSegment:  | 
+   DEBUG: 2026-03-24 06:54:43,498:      pdf_renderer.py:  470: printSegment: neural_gnn.py
+   DEBUG: 2026-03-24 06:54:43,500:      pdf_renderer.py:  470: printSegment:  | GNN | Message-passing GNN with
+   DEBUG: 2026-03-24 06:54:43,501:      pdf_renderer.py:  470: printSegment: learnable g
+   DEBUG: 2026-03-24 06:54:43,503:      pdf_renderer.py:  470: printSegment: _
+   DEBUG: 2026-03-24 06:54:43,505:      pdf_renderer.py:  470: printSegment: phi and f
+   DEBUG: 2026-03-24 06:54:43,506:      pdf_renderer.py:  470: printSegment: _
+   DEBUG: 2026-03-24 06:54:43,508:      pdf_renderer.py:  470: printSegment: theta MLPs |
+   DEBUG: 2026-03-24 06:54:43,509:      pdf_renderer.py:  470: printSegment:  
+   DEBUG: 2026-03-24 06:54:43,511:      pdf_renderer.py:  470: printSegment: | 
+   DEBUG: 2026-03-24 06:54:43,512:      pdf_renderer.py:  470: printSegment: flyvis_linear
+   DEBUG: 2026-03-24 06:54:43,513:      pdf_renderer.py:  470: printSegment: , 
+   DEBUG: 2026-03-24 06:54:43,515:      pdf_renderer.py:  470: printSegment: drosophila_cx_linear
+   DEBUG: 2026-03-24 06:54:43,516:      pdf_renderer.py:  470: printSegment: , etc. | 
+   DEBUG: 2026-03-24 06:54:43,517:      pdf_renderer.py:  470: printSegment: LinearODE
+   DEBUG: 2026-03-24 06:54:43,519:      pdf_renderer.py:  470: printSegment:  | 
+   DEBUG: 2026-03-24 06:54:43,520:      pdf_renderer.py:  470: printSegment: flyvis_linear.py
+   DEBUG: 2026-03-24 06:54:43,522:      pdf_renderer.py:  470: printSegment:  | GNN | Linear ODE: dv/dt = (-v + W
+   DEBUG: 2026-03-24 06:54:43,523:      pdf_renderer.py:  470: printSegment: *
+   DEBUG: 2026-03-24 06:54:43,525:      pdf_renderer.py:  470: printSegment: relu(v) + I + V
+   DEBUG: 2026-03-24 06:54:43,526:      pdf_renderer.py:  470: printSegment: _
+   DEBUG: 2026-03-24 06:54:43,527:      pdf_renderer.py:  470: printSegment: rest) / tau |
+   DEBUG: 2026-03-24 06:54:43,529:      pdf_renderer.py:  470: printSegment:  
+   DEBUG: 2026-03-24 06:54:43,530:      pdf_renderer.py:  470: printSegment: | 
+   DEBUG: 2026-03-24 06:54:43,531:      pdf_renderer.py:  470: printSegment: flyvis_rnn
+   DEBUG: 2026-03-24 06:54:43,533:      pdf_renderer.py:  470: printSegment: , 
+   DEBUG: 2026-03-24 06:54:43,534:      pdf_renderer.py:  470: printSegment: drosophila_cx_rnn
+   DEBUG: 2026-03-24 06:54:43,535:      pdf_renderer.py:  470: printSegment: , etc. | 
+   DEBUG: 2026-03-24 06:54:43,536:      pdf_renderer.py:  470: printSegment: NeuralRNN
+   DEBUG: 2026-03-24 06:54:43,538:      pdf_renderer.py:  470: printSegment:  | 
+   DEBUG: 2026-03-24 06:54:43,539:      pdf_renderer.py:  470: printSegment: neural_rnn.py
+   DEBUG: 2026-03-24 06:54:43,541:      pdf_renderer.py:  470: printSegment:  | RNN | GRU-based RNN, flat input (no graph
+   DEBUG: 2026-03-24 06:54:43,542:      pdf_renderer.py:  470: printSegment: structure) |
+   DEBUG: 2026-03-24 06:54:43,544:      pdf_renderer.py:  470: printSegment: The GNN model also supports Neural ODE training via the flag 
+   DEBUG: 2026-03-24 06:54:43,545:      pdf_renderer.py:  470: printSegment: training.neural_ODE_training: true
+   DEBUG: 2026-03-24 06:54:43,548:      pdf_renderer.py:  470: printSegment: 
+   DEBUG: 2026-03-24 06:54:43,549:      pdf_renderer.py:  470: printSegment: in the config. This wraps the GNN forward pass with 
+   DEBUG: 2026-03-24 06:54:43,551:      pdf_renderer.py:  470: printSegment: torchdiffeq.odeint_adjoint
+   DEBUG: 2026-03-24 06:54:43,554:      pdf_renderer.py:  470: printSegment:  for O(1) memory
+   DEBUG: 2026-03-24 06:54:43,555:      pdf_renderer.py:  470: printSegment: rollout training. The wrapper lives in 
+   DEBUG: 2026-03-24 06:54:43,556:      pdf_renderer.py:  470: printSegment: neural_ode_wrapper.py
+   DEBUG: 2026-03-24 06:54:43,557:      pdf_renderer.py:  470: printSegment:  and is invoked at 
+   DEBUG: 2026-03-24 06:54:43,558:      pdf_renderer.py:  470: printSegment: graph_trainer.py:536-564
+   DEBUG: 2026-03-24 06:54:43,560:      pdf_renderer.py:  470: printSegment: .
+   DEBUG: 2026-03-24 06:54:43,561:      pdf_renderer.py:  470: printSegment: Key Files
+   DEBUG: 2026-03-24 06:54:43,562:      pdf_renderer.py:  470: printSegment: | File | Purpose |
+   DEBUG: 2026-03-24 06:54:43,564:      pdf_renderer.py:  470: printSegment:  
+   DEBUG: 2026-03-24 06:54:43,565:      pdf_renderer.py:  470: printSegment: |---|---|
+   DEBUG: 2026-03-24 06:54:43,566:      pdf_renderer.py:  470: printSegment:  
+   DEBUG: 2026-03-24 06:54:43,568:      pdf_renderer.py:  470: printSegment: | 
+   DEBUG: 2026-03-24 06:54:43,569:      pdf_renderer.py:  470: printSegment: src/connectome_gnn/models/registry.py
+   DEBUG: 2026-03-24 06:54:43,570:      pdf_renderer.py:  470: printSegment:  | Model registry: 
+   DEBUG: 2026-03-24 06:54:43,572:      pdf_renderer.py:  470: printSegment: @register_model
+   DEBUG: 2026-03-24 06:54:43,573:      pdf_renderer.py:  470: printSegment:  decorator and 
+   DEBUG: 2026-03-24 06:54:43,575:      pdf_renderer.py:  470: printSegment: create_model()
+   DEBUG: 2026-03-24 06:54:43,576:      pdf_renderer.py:  470: printSegment:  lookup |
+   DEBUG: 2026-03-24 06:54:43,577:      pdf_renderer.py:  470: printSegment:  
+   DEBUG: 2026-03-24 06:54:43,579:      pdf_renderer.py:  470: printSegment: | 
+   DEBUG: 2026-03-24 06:54:43,580:      pdf_renderer.py:  470: printSegment: src/connectome_gnn/models/graph_trainer.py
+   DEBUG: 2026-03-24 06:54:43,581:      pdf_renderer.py:  470: printSegment:  | Training loops: 
+   DEBUG: 2026-03-24 06:54:43,583:      pdf_renderer.py:  470: printSegment: data_train_gnn
+   DEBUG: 2026-03-24 06:54:43,585:      pdf_renderer.py:  470: printSegment:  (line 96) and 
+   DEBUG: 2026-03-24 06:54:43,586:      pdf_renderer.py:  470: printSegment: data_train_gnn_RNN
+   DEBUG: 2026-03-24 06:54:43,587:      pdf_renderer.py:  470: printSegment:  (line 853) |
+   DEBUG: 2026-03-24 06:54:43,589:      pdf_renderer.py:  470: printSegment:  
+   DEBUG: 2026-03-24 06:54:43,590:      pdf_renderer.py:  470: printSegment: | 
+   DEBUG: 2026-03-24 06:54:43,592:      pdf_renderer.py:  470: printSegment: src/connectome_gnn/models/neural_ode_wrapper.py
+   DEBUG: 2026-03-24 06:54:43,594:      pdf_renderer.py:  470: printSegment:  |
+   DEBUG: 2026-03-24 06:54:43,595:      pdf_renderer.py:  470: printSegment: Neural ODE adjoint wrapper for any model |
+   DEBUG: 2026-03-24 06:54:43,596:      pdf_renderer.py:  470: printSegment:  
+   DEBUG: 2026-03-24 06:54:43,597:      pdf_renderer.py:  470: printSegment: | 
+   DEBUG: 2026-03-24 06:54:43,599:      pdf_renderer.py:  470: printSegment: src/connectome_gnn/neuron_state.py
+   DEBUG: 2026-03-24 06:54:43,600:      pdf_renderer.py:  470: printSegment:  | 
+   DEBUG: 2026-03-24 06:54:43,602:      pdf_renderer.py:  470: printSegment: NeuronState
+   DEBUG: 2026-03-24 06:54:43,604:      pdf_renderer.py:  470: printSegment: 
+   DEBUG: 2026-03-24 06:54:43,604:      pdf_renderer.py:  470: printSegment: dataclass (voltage, stimulus, index, etc.) |
+   DEBUG: 2026-03-24 06:54:43,606:      pdf_renderer.py:  470: printSegment:  
+   DEBUG: 2026-03-24 06:54:43,608:      pdf_renderer.py:  470: printSegment: | 
+   DEBUG: 2026-03-24 06:54:43,610:      pdf_renderer.py:  470: printSegment: src/connectome_gnn/config.py
+   DEBUG: 2026-03-24 06:54:43,612:      pdf_renderer.py:  470: printSegment:  | Config dataclasses
+   DEBUG: 2026-03-24 06:54:43,613:      pdf_renderer.py:  470: printSegment: (SimulationConfig, GraphModelConfig, TrainingConfig) |
+   DEBUG: 2026-03-24 06:54:43,614:      pdf_renderer.py:  470: printSegment:  
+   DEBUG: 2026-03-24 06:54:43,616:      pdf_renderer.py:  470: printSegment: | 
+   DEBUG: 2026-03-24 06:54:43,618:      pdf_renderer.py:  470: printSegment: src/connectome_gnn/utils.py:314
+   DEBUG: 2026-03-24 06:54:43,619:      pdf_renderer.py:  470: printSegment:  | 
+   DEBUG: 2026-03-24 06:54:43,620:      pdf_renderer.py:  470: printSegment: add_pre_folder
+   DEBUG: 2026-03-24 06:54:43,622:      pdf_renderer.py:  470: printSegment: : dataset name to config directory routing |
+   DEBUG: 2026-03-24 06:54:43,623:      pdf_renderer.py:  470: printSegment:  
+   DEBUG: 2026-03-24 06:54:43,624:      pdf_renderer.py:  470: printSegment: | 
+   DEBUG: 2026-03-24 06:54:43,626:      pdf_renderer.py:  470: printSegment: GNN_PlotFigure.py
+   DEBUG: 2026-03-24 06:54:43,628:      pdf_renderer.py:  470: printSegment:  | Post-training analysis:
+   DEBUG: 2026-03-24 06:54:43,629:      pdf_renderer.py:  470: printSegment: connectivity R2, rollout, clustering |
+   DEBUG: 2026-03-24 06:54:43,630:      pdf_renderer.py:  470: printSegment:  
+   DEBUG: 2026-03-24 06:54:43,632:      pdf_renderer.py:  470: printSegment: | 
+   DEBUG: 2026-03-24 06:54:43,633:      pdf_renderer.py:  470: printSegment: GNN_train.py
+   DEBUG: 2026-03-24 06:54:43,634:      pdf_renderer.py:  470: printSegment:  | Entry point for standalone training |
+   DEBUG: 2026-03-24 06:54:43,635:      pdf_renderer.py:  470: printSegment:  
+   DEBUG: 2026-03-24 06:54:43,637:      pdf_renderer.py:  470: printSegment: | 
+   DEBUG: 2026-03-24 06:54:43,638:      pdf_renderer.py:  470: printSegment: GNN_LLM.py
+   DEBUG: 2026-03-24 06:54:43,640:      pdf_renderer.py:  470: printSegment:  |
+   DEBUG: 2026-03-24 06:54:43,642:      pdf_renderer.py:  470: printSegment: Entry point for LLM-guided exploration |
+   DEBUG: 2026-03-24 06:54:43,644:      pdf_renderer.py:   53: 0, [1, 'Adding a New Training Model', 1, 68.0]
+   DEBUG: 2026-03-24 06:54:43,645:      pdf_renderer.py:   53: 1, [2, 'Architecture Overview', 1, 148.0]
+   DEBUG: 2026-03-24 06:54:43,646:      pdf_renderer.py:   53: 2, [2, 'Step 1: Write the Model Class', 1, 301.6]
+   DEBUG: 2026-03-24 06:54:43,647:      pdf_renderer.py:   53: 3, [2, 'Step 2: Register the Model', 1, 617.2]
+   DEBUG: 2026-03-24 06:54:43,649:      pdf_renderer.py:   53: 4, [2, 'Step 3: Create a Config YAML', 2, 242.8]
+   DEBUG: 2026-03-24 06:54:43,650:      pdf_renderer.py:   53: 5, [2, 'Step 4: Training', 2, 654.4]
+   DEBUG: 2026-03-24 06:54:43,652:      pdf_renderer.py:   53: 6, [2, 'Step 5: Analysis and Plotting', 3, 284.8]
+   DEBUG: 2026-03-24 06:54:43,653:      pdf_renderer.py:   53: 7, [2, 'Existing Models', 3, 372.40000000000003]
+   DEBUG: 2026-03-24 06:54:43,655:      pdf_renderer.py:   53: 8, [2, 'Key Files', 3, 538.0]

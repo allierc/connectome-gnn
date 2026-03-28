@@ -1,11 +1,12 @@
-description: "Zebrafish oculomotor integrator — intrinsic noise 0.5 (from best noise005 config)"
+description: "Zebrafish oculomotor integrator \u2014 intrinsic noise 0.5 (from best\
+  \ noise005 config)"
 dataset: zebrafish_oculomotor_noise05
 simulation:
   connectivity_file: to be specified
-  adjacency_matrix: ""
+  adjacency_matrix: ''
   params:
-    - - 1.0
-      - 1.0
+  - - 1.0
+    - 1.0
   n_neurons: 609
   n_input_neurons: 0
   n_neuron_types: 10
@@ -15,8 +16,8 @@ simulation:
   baseline_value: 0
   noise_model_level: 0.5
   measurement_noise_level: 0.0
-  seed: 42
-  connconstr_datapath: "papers/Code_NN/Code_NN/Data/Figure5/goldman_data"
+  seed: 7002
+  connconstr_datapath: papers/Code_NN/Code_NN/Data/Figure5/goldman_data
   connconstr_model: zebrafish
   connconstr_use_pretrained: true
 graph_model:
@@ -37,11 +38,11 @@ plotting:
   colormap: tab10
   arrow_length: 1
   xlim:
-    - -2.5
-    - 2.5
+  - -2.5
+  - 2.5
   ylim:
-    - -5
-    - 5
+  - -5
+  - 5
 training:
   n_epochs: 20
   n_runs: 1
@@ -61,18 +62,18 @@ training:
   coeff_f_theta_weight_L1: 0
   coeff_g_phi_weight_L2: 0
   coeff_f_theta_weight_L2: 0.001
-  coeff_W_L1: 1.0e-04
+  coeff_W_L1: 0.0005
   coeff_W_L2: 1.0e-05
   coeff_W_sign: 0.0
   coeff_f_theta_diff: 0
   dale_law: false
   regul_annealing_rate: 0
-  w_init_mode: "randn_scaled"
+  w_init_mode: randn_scaled
   w_init_scale: 1.0
-  seed: 42
+  seed: 7502
 claude:
   n_epochs: 2
-  data_augmentation_loop: 35
+  data_augmentation_loop: 40
   n_iter_block: 16
   ucb_c: 0
   n_parallel: 4

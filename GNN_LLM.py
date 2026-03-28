@@ -105,18 +105,30 @@ if __name__ == "__main__":
         # Finalize: tree viz, protocol/memory snapshots
         finalize_batch(state, batch)
 
+# --- LLM explorations --- conda activate neural-graph-linux
+#
+# == done ==
+# python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_free iterations=120 --cluster --resume
+# python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005 iterations=120 --cluster --resume
+# python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_05 iterations=120 --cluster --resume
+# python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_INR iterations=120 --cluster --resume
 # python GNN_LLM.py -o generate_train_test_plot_Claude drosophila_cx iterations=128 --cluster --resume
-# python GNN_LLM.py -o generate_train_test_plot_Claude drosophila_cx_noise005 iterations=128 --cluster --resume
 # python GNN_LLM.py -o generate_train_test_plot_Claude larva_gt_edges iterations=128 --cluster --resume
 # python GNN_LLM.py -o generate_train_test_plot_Claude zebrafish_oculomotor iterations=128 --cluster --resume
 # python GNN_LLM.py -o generate_train_test_plot_Claude zebrafish_oculomotor_gt_edges iterations=128 --cluster --resume
 # python GNN_LLM.py -o generate_train_test_plot_Claude zebrafish_oculomotor_noise005 iterations=128 --cluster --resume
+# python GNN_LLM.py -o generate_train_test_plot_Claude drosophila_cx_noise005 iterations=128 --cluster --resume
+#
+# == ongoing ==
 # python GNN_LLM.py -o generate_train_test_plot_Claude drosophila_cx_mlp iterations=128 --cluster --resume
-# python GNN_LLM.py -o generate_train_test_plot_Claude larva_noise005 iterations=128 --cluster --resume
-# python GNN_LLM.py -o generate_train_test_plot_Claude zebrafish_oculomotor_noise05 iterations=128 --cluster --resume
 # python GNN_LLM.py -o generate_train_test_plot_Claude drosophila_cx_gt_edges iterations=128 --cluster --resume
+# python GNN_LLM.py -o generate_train_test_plot_Claude drosophila_cx_noise05 iterations=128 --cluster --resume
+# python GNN_LLM.py -o generate_train_test_plot_Claude larva_noise005 iterations=128 --cluster --resume
 # python GNN_LLM.py -o generate_train_test_plot_Claude larva_fc iterations=128 --cluster --resume
+# python GNN_LLM.py -o generate_train_test_plot_Claude zebrafish_oculomotor_noise05 iterations=128 --cluster --resume
+# python GNN_LLM.py -o generate_train_test_plot_Claude larva_noise05 iterations=128 --cluster --resume
 
-# python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_free iterations=120 --cluster --resume
+# python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_null_edges_pc_100 iterations=128 --cluster --resume
+# python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_removed_pc_10 iterations=128 --cluster --resume
 
-# conda activate neural-graph-linux
+
