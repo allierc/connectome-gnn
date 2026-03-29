@@ -59,8 +59,11 @@ if __name__ == "__main__":
             'flyvis_noise_005_INR_known_ode',
         ],
         'retest_noisy_rollouts': [
-            *[f'flyvis_noise_005_cv{i:02d}' for i in range(7)],
-            *[f'flyvis_noise_05_cv{i:02d}' for i in range(7)],
+            *[f'flyvis_noise_005_cv{i:02d}' for i in range(10)],
+            *[f'flyvis_noise_05_cv{i:02d}' for i in range(10)],
+            *[f'flyvis_noise_free_default_cv{i:02d}' for i in range(10)],
+            *[f'flyvis_noise_005_default_cv{i:02d}' for i in range(10)],
+            *[f'flyvis_noise_05_default_cv{i:02d}' for i in range(10)],
         ],
     }
 
