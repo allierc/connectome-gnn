@@ -58,6 +58,10 @@ if __name__ == "__main__":
             'flyvis_noise_05_known_ode',
             'flyvis_noise_005_INR_known_ode',
         ],
+        'retest_noisy_rollouts': [
+            *[f'flyvis_noise_005_cv{i:02d}' for i in range(7)],
+            *[f'flyvis_noise_05_cv{i:02d}' for i in range(7)],
+        ],
     }
 
     if args.option is not None:
