@@ -57,13 +57,13 @@ The null space dimension is $\dim\ker(\mathbf{H}_i) = d_i - \text{rank}(\mathbf{
 
 **Global bound from SVD.** An SVD of the full population activity reveals that the entire circuit's activity lives in a low-dimensional subspace. The computation subsamples to 982 neurons (every 14th of 13,741) and 8,000 timesteps (every 8th of 64,000), then computes the full SVD (all 982 singular values):
 
-| Metric                         | Value          |
-| ------------------------------ | -------------- |
-| Neurons (subsampled)           | 982 / 13,741   |
-| Timesteps (subsampled)         | 8,000 / 64,000 |
+| Metric                         | Value                      |
+| ------------------------------ | -------------------------- |
+| Neurons (subsampled)           | 982 / 13,741               |
+| Timesteps (subsampled)         | 8,000 / 64,000             |
 | SVD                            | full (982 singular values) |
-| Effective rank at 90% variance | 1              |
-| Effective rank at 99% variance | **45**         |
+| Effective rank at 90% variance | 1                          |
+| Effective rank at 99% variance | **45**                     |
 
 Since each neuron $i$'s presynaptic activity $\mathbf{H}_i$ is a submatrix of the global activity, $\text{rank}(\mathbf{H}_i) \leq 45$ regardless of the in-degree $d_i$. This gives a per-neuron bound:
 
@@ -135,9 +135,7 @@ For the flyvis connectome (13,741 neurons, 434,112 edges, 65 cell types):
 | Fraction of all edges in null space            | **~28%**     |
 | Identifiable edge parameters                   | ~313,000     |
 
-This means **121,100 weight parameters can be changed freely without any effect on the dynamics**. The solution manifold is not a point but a ~121,100-dimensional affine subspace of $\mathbb{R}^E$. Since each null direction admits a continuous scaling $\boldsymbol{\delta} \to \lambda \boldsymbol{\delta}$ for $\lambda \in \mathbb{R}$, the set of solutions is **uncountably infinite**.
-
-**Comparing the two estimates.** The SVD-based bound from Step 2 gives **115,223** null dimensions at activity rank 45. The structural within-type count gives **~121,100**. The within-type count is slightly larger because it assumes rank $\approx 1$ per type group (Step 3's idealization), while the SVD-based bound uses the global rank 45 which is less conservative for types with fewer than 45 same-type inputs. The two estimates are within ~5% of each other, confirming that within-type degeneracy is the dominant mechanism.
+The null space has **~121,100 dimensions**, meaning that many degrees of freedom in $\mathbf{W}$ are unconstrained by the dynamics. Within each group of $k$ same-type edges targeting the same neuron, any perturbation satisfying the sum-zero constraint ($\sum \delta_{j_m} = 0$, Step 3) leaves the dynamics unchanged. Weight can be freely _redistributed_ among same-type inputs, but the total to each neuron from each type is fixed. Since each null direction admits a continuous scaling $\boldsymbol{\delta} \to \lambda \boldsymbol{\delta}$ for $\lambda \in \mathbb{R}$, the set of solutions is **uncountably infinite**: a ~121,100-dimensional affine subspace of $\mathbb{R}^E$.
 
 ## Empirical Verification
 
@@ -327,7 +325,7 @@ Alternatively, to break the strong within-type correlations experimentally, one 
 
 ## Summary
 
-Recovering the connectome from neural dynamics is fundamentally ill-posed: the columnar organization of the flyvis circuit forces same-type neurons across columns to produce strongly correlated activity, making their individual synaptic contributions indistinguishable. This structural degeneracy creates a ~115,000-dimensional null space (26.5% of all 434,112 edge weights), confirmed empirically by generating 780 perturbed connectivity matrices where weights change drastically (conn. $R^2$ as low as 0.28) while dynamics remain nearly identical (rollout $R^2 > 0.96$). Adding independent process noise breaks the within-type correlations and increases the effective activity rank from 45 (noise-free) to 781 ($\sigma = 0.5$), eliminating the null space entirely and enabling the GNN to achieve $R^2_{\mathbf{W}} = 0.997$. The analysis provides both a theoretical framework (SVD-based null space bounds) and a mechanistic explanation for why biological noise — intrinsic to neural circuits — naturally improves connectome identifiability.
+Recovering the connectome from neural dynamics is fundamentally ill-posed: the columnar organization of the flyvis circuit forces same-type neurons across columns to produce strongly correlated activity, making their individual synaptic contributions indistinguishable. Two independent estimates of the null space — a global SVD bound (115,223 dimensions) and a per-type structural count (~121,100 dimensions) — agree to within 5%, confirming that within-type degeneracy is the dominant mechanism; the global bound captures all correlations (within- and cross-type) but is coarse, while the per-type count precisely measures within-type redundancy but misses cross-type correlations. This structural degeneracy affects 26.5% of all 434,112 edge weights, confirmed empirically by generating 780 perturbed connectivity matrices where weights change drastically (conn. $R^2$ as low as 0.28) while dynamics remain nearly identical (rollout $R^2 > 0.96$). Adding independent process noise breaks the within-type correlations and increases the effective activity rank from 45 (noise-free) to 781 ($\sigma = 0.5$), eliminating the null space entirely and enabling the GNN to achieve $R^2_{\mathbf{W}} = 0.997$. The analysis provides both a theoretical framework (SVD-based null space bounds) and a mechanistic explanation for why biological noise — intrinsic to neural circuits — naturally improves connectome identifiability.
 
 ## Scripts
 
