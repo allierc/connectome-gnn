@@ -65,40 +65,49 @@ The null space dimension is $\dim\ker(\mathbf{H}_i) = d_i - \text{rank}(\mathbf{
 | Effective rank at 90% variance | 1                          |
 | Effective rank at 99% variance | **45**                     |
 
-Since each neuron $i$'s presynaptic activity $\mathbf{H}_i$ is a submatrix of the global activity, $\text{rank}(\mathbf{H}_i) \leq 45$ regardless of the in-degree $d_i$. This gives a per-neuron bound:
+The matrix $\mathbf{H}_i$ has $d_i$ columns (one per presynaptic neuron). By the rank-nullity theorem, these $d_i$ columns split into two groups:
 
 $$
-\dim\ker(\mathbf{H}_i) \geq \max(0, \; d_i - 45)
+d_i = \underbrace{\text{rank}(\mathbf{H}_i)}_{\text{identifiable weights}} + \underbrace{\dim\ker(\mathbf{H}_i)}_{\text{free (null) weights}}
 $$
 
-and a global bound by summing over all 13,697 postsynaptic neurons:
+Since each neuron $i$'s presynaptic activity $\mathbf{H}_i$ is a submatrix of the global activity, its rank is bounded by the global effective rank: $\text{rank}_{\text{eff}}(\mathbf{H}_i) \leq 45$. This is an _approximate_ bound — the 99% variance threshold is a convention, and the true mathematical rank (number of nonzero singular values) may be higher. Replacing exact rank with effective rank gives an approximate null space:
+
+$$
+\dim\ker_{\text{eff}}(\mathbf{H}_i) \approx \max(0, \; d_i - r)
+$$
+
+where $r$ is the effective activity rank. This approximation predicts that perturbations along the neglected singular directions have negligible effect on dynamics. The Empirical Verification section tests this prediction directly.
+
+Summing over all 13,697 postsynaptic neurons gives a global estimate:
 
 $$
 \text{total null dim} = \sum_{i=1}^{N_{\text{post}}} \max(0, \; d_i - r)
 $$
 
-where $r$ is the effective activity rank. The in-degree distribution determines which neurons contribute:
+**Sensitivity to the variance threshold.** Since the 99% threshold is a convention, we report the null space estimate across several thresholds:
 
-| In-degree range | Neurons | Null space contribution at rank 45 |
-| --------------- | ------- | ---------------------------------- |
-| 1 -- 10         | 3,182   | 0 (fully identifiable)             |
-| 11 -- 20        | 3,917   | 0 (fully identifiable)             |
-| 21 -- 45        | 3,196   | 0 (fully identifiable)             |
-| 46 -- 100       | 2,843   | bulk of null space                 |
-| 101 -- 208      | 559     | largest per-neuron null dimensions |
+| Variance threshold | Effective rank $r$ | Null space dim | % identifiable |
+| ------------------ | ------------------ | -------------- | -------------- |
+| 90%                | 1                  | 420,415        | 3.2%           |
+| 95%                | 2                  | 407,427        | 6.1%           |
+| **99%**            | **45**             | **115,223**    | **73.5%**      |
+| 99.5%              | 90                 | 26,413         | 93.9%          |
+| 99.9%              | 238                | 0              | 100.0%         |
 
-Since the mean in-degree is only 32 and the activity rank is 45, most neurons have $d_i \leq 45$, making their null space contribution zero -- their incoming weights are fully identifiable. The null space comes entirely from the minority of highly connected neurons (in-degree > 45). Why are some in-degrees so high? The 217 columns are not independent pipelines -- they are laterally interconnected. A medulla neuron integrating signals from its spatial neighborhood receives edges from the same cell type in many surrounding columns (e.g., Mi1 in column 5 receives input from L1 in columns 4, 5, 6, and nearby neighbors). A neuron with in-degree 100 might receive input from 50 copies of one cell type spread across 50 columns. Of the 13,741 total neurons, 44 are source-only (they send but never receive edges), leaving 13,697 postsynaptic neurons. These 44 source-only neurons belong to 4 cell types at the boundary of the 217-column retinotopic subset:
+At 99.9% the rank (238) exceeds the maximum in-degree (208), so the null space vanishes by this metric alone. The 99% threshold ($r = 45$) gives the most informative estimate: it predicts a large but finite null space, whose reality is confirmed by the Empirical Verification below.
 
-| Cell type | Source-only | Neurons of this type (1 per column) | Notes         |
-| --------- | ----------- | ----------------------------------- | ------------- |
-| C3        | 1 / 217     | centrifugal neuron                  | 0.5% boundary |
-| L1        | 9 / 217     | lamina monopolar cell               | 4.1% boundary |
-| R4        | 17 / 217    | photoreceptor                       | 7.8% boundary |
-| Tm9       | 17 / 217    | transmedullary neuron               | 7.8% boundary |
+The in-degree $d_i$ (number of incoming edges) determines which neurons have degenerate incoming weights at $r = 45$. Neurons with $d_i \leq 45$ have enough independent activity dimensions to constrain all their incoming weights — they are "fully identifiable" and their weights can in principle be recovered from dynamics. Neurons with $d_i > 45$ have more incoming edges than independent activity dimensions, so $d_i - 45$ of their weights are free to vary without affecting the output — these are the null space dimensions where weight recovery is impossible:
 
-These are boundary neurons whose presynaptic partners lie outside the 217-column region. They project into the network but have in-degree zero themselves, so no weight vector $\mathbf{w}_i$ needs to be recovered for them.
+| In-degree range | Neurons | Null space contribution |
+| --------------- | ------- | ----------------------- |
+| 1 -- 10         | 3,182   | 0 (fully identifiable)  |
+| 11 -- 20        | 3,917   | 0 (fully identifiable)  |
+| 21 -- 45        | 3,196   | 0 (fully identifiable)  |
+| 46 -- 100       | 2,843   | bulk of null space      |
+| 101 -- 208      | 559     | largest per-neuron null |
 
-Among the 13,697 postsynaptic neurons, 10,295 have in-degree $\leq$ 45 and contribute nothing to the degeneracy. The remaining 3,402 neurons (2,843 with in-degree 46--100 and 559 with in-degree 101--208) account for all **115,223** null dimensions. This means 26.5% of the 434,112 edge weights can be changed freely without affecting the dynamics, while the remaining 318,889 (73.5%) are identifiable.
+High in-degrees arise because the 217 columns are laterally interconnected: a neuron integrating signals from its spatial neighborhood receives edges from the same cell type in many surrounding columns. Of the 13,741 neurons, 44 are source-only (in-degree zero, boundary neurons that project into the network but receive no edges). Summing over the remaining 13,697 postsynaptic neurons, **the SVD analysis predicts 115,223 null dimensions — 26.5% of all 434,112 edge weights are unconstrained by the dynamics.**
 
 ### Step 3: Within-type degeneracy (the dominant mechanism)
 
@@ -137,9 +146,11 @@ For the flyvis connectome (13,741 neurons, 434,112 edges, 65 cell types):
 
 The null space has **~121,100 dimensions**, meaning that many degrees of freedom in $\mathbf{W}$ are unconstrained by the dynamics. Within each group of $k$ same-type edges targeting the same neuron, any perturbation satisfying the sum-zero constraint ($\sum \delta_{j_m} = 0$, Step 3) leaves the dynamics unchanged. Weight can be freely _redistributed_ among same-type inputs, but the total to each neuron from each type is fixed. Since each null direction admits a continuous scaling $\boldsymbol{\delta} \to \lambda \boldsymbol{\delta}$ for $\lambda \in \mathbb{R}$, the set of solutions is **uncountably infinite**: a ~121,100-dimensional affine subspace of $\mathbb{R}^E$.
 
+This per-type structural count (~121,100) agrees to within 5% with the global SVD bound from Step 2 (115,223). The global SVD captures all correlations (within- and cross-type) but is coarse; the per-type count precisely measures within-type redundancy but misses cross-type correlations. Their close agreement confirms that within-type degeneracy is the dominant mechanism.
+
 ## Empirical Verification
 
-**If** the null space analysis (Steps 2--4) is correct, **then** we can change individual weights substantially while preserving the dynamics — as long as the perturbation $\boldsymbol{\delta}$ satisfies the sum-zero constraint ($\sum_{m=1}^{k} \delta_{j_m} = 0$) within each same-type group. Concretely: a perturbed matrix $\mathbf{W} + \boldsymbol{\delta}$ with low connectivity $R^2$ (weights look very different) should still produce high rollout $R^2$ (dynamics look the same).
+The null space estimate in Step 2 relies on the effective rank at 99% variance — a conventional threshold, not an exact quantity. To test whether the predicted null directions are real (i.e., perturbations along them truly preserve dynamics), we verify empirically: **if** the null space analysis (Steps 2--4) is correct, **then** a perturbed matrix $\mathbf{W} + \boldsymbol{\delta}$ with low connectivity $R^2$ (weights look very different) should still produce high rollout $R^2$ (dynamics look the same), as long as $\boldsymbol{\delta}$ satisfies the sum-zero constraint ($\sum_{m=1}^{k} \delta_{j_m} = 0$) within each same-type group.
 
 The flyvis connectome has 65 cell types, of which 52 are non-retina types that receive lateral inputs from same-type neurons across columns. Step 3 predicts two regimes depending on how correlated the same-type activity is:
 
