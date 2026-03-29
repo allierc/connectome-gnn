@@ -232,6 +232,40 @@ def main():
           f"(types: {sorted(input_types)})")
 
     # -----------------------------------------------------------------------
+    # Step 2b: SVD-based null space estimate (global bound)
+    #   The effective rank of the population activity upper-bounds rank(H_i)
+    #   for every neuron i. Combined with per-neuron in-degrees, this gives
+    #   a tighter null space estimate than within-type counting alone.
+    # -----------------------------------------------------------------------
+    from collections import Counter
+
+    in_degree = Counter(dst.tolist())
+    post_neurons = sorted(in_degree.keys())
+    degrees = np.array([in_degree[i] for i in post_neurons])
+    n_post = len(post_neurons)
+
+    print(f"\n  Postsynaptic neurons: {n_post}")
+    print(f"  In-degree: mean={degrees.mean():.1f}, median={np.median(degrees):.0f}, "
+          f"min={degrees.min()}, max={degrees.max()}")
+    pcts = np.percentile(degrees, [25, 75, 95])
+    print(f"  Percentiles: 25%={pcts[0]:.0f}  75%={pcts[1]:.0f}  95%={pcts[2]:.0f}")
+
+    print(f"\n  In-degree distribution:")
+    for lo, hi in [(1, 10), (11, 20), (21, 41), (42, 100), (101, 500), (501, 5000)]:
+        count = int(((degrees >= lo) & (degrees <= hi)).sum())
+        if count > 0:
+            print(f"    {lo:4d}-{hi:4d}: {count:5d} neurons")
+
+    print(f"\n  SVD-based null space estimates (rank-nullity bound):")
+    print(f"  {'rank':>6} {'null_dim':>10} {'% edges':>8} {'identifiable':>12} {'degen_neurons':>14}")
+    for rank, label in [(1, "90% var"), (19, "99% raw"), (41, "99% sub"), (51, "centered")]:
+        null_dims = np.array([max(0, d - rank) for d in degrees])
+        total_null = int(null_dims.sum())
+        n_degen = int((null_dims > 0).sum())
+        print(f"  {rank:6d} {total_null:10,d} {100*total_null/E:7.1f}% {E - total_null:12,d} "
+              f"{n_degen:8d} / {n_post}")
+
+    # -----------------------------------------------------------------------
     # Step 3: Rank non-retina types by null space dimension
     # -----------------------------------------------------------------------
     ranked_types = rank_types_by_fan_out(src, dst, neuron_types, input_types)
@@ -359,6 +393,17 @@ def main():
     print(f"  Seed:             {SEED}")
     print(f"\n  Each variant perturbs a SINGLE neuron type at one scale.")
     print(f"  Perturbations are sum-preserving within (dst, src_type) groups.")
+
+    # Structural vs SVD null space comparison
+    structural_null = sum(
+        sum(len(v) - 1 for v in tg.values())
+        for tg in type_groups.values()
+    )
+    svd_null_41 = int(sum(max(0, d - 41) for d in degrees))
+    print(f"\n  Null space estimates:")
+    print(f"    Structural (within-type):      {structural_null:>10,d} / {E:,d} ({100*structural_null/E:.1f}%)")
+    print(f"    SVD-based (activity rank=41):  {svd_null_41:>10,d} / {E:,d} ({100*svd_null_41/E:.1f}%)")
+    print(f"    Cross-type contribution:       {svd_null_41 - structural_null:>10,d} ({100*(svd_null_41 - structural_null)/E:.1f}%)")
     print(f"{'='*70}")
 
 
