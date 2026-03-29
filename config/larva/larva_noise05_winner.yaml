@@ -1,24 +1,29 @@
 # Winner config: larva_noise05_winner.yaml
-# Source: iter_003_slot_02 (connectivity_R2 = 0.756)
-# Exploration: 4 iterations, 1 block
+# Source: iter_050_slot_01 (connectivity_R2 = 0.989)
+# Exploration: 56 iterations, 5 blocks
 # Date: 2026-03-28
 #
 # Why this is the winner:
-#   - Best single seed from robustness test of noise=0.05 best config adapted to noise=0.5
-#   - Baseline config — no modifications yet from noise=0.05 optimal
+#   - g_phi_norm=0.005 is the breakthrough lever — constrains g_phi output scale, allowing W to recover
+#     correct magnitudes. Eliminates the ~29% blowup rate that plagued g_phi_norm=0.01.
+#   - Combined with dale_law=true, W_L2=1e-4, W_L1=1e-5, f_theta_msg_diff=150 for full regularization stack.
 #
 # Metrics:
-#   connectivity_R2: 0.756 (best single seed)
-#   robust_mean:     0.609 +/- 0.101 (4 seeds, CV=16.5%)
+#   connectivity_R2: 0.989 (best single seed)
+#   robust_mean:     0.873 +/- 0.077 (5 seeds, CV=8.8%)
 #   rollout_pearson: 1.000
-#   cluster_accuracy: 0.365
-#   spectral_radius: 0.650 (true: 1.316)
+#   cluster_accuracy: 0.430
+#   spectral_radius: 1.316 (true: 1.316) — exact match at best seed
 #
-# Key config differences from baseline:
-#   - noise_model_level: 0.5 (was 0.05 in parent)
-#   - All other params inherited from noise=0.05 best (W_L2=2e-5)
+# Key config differences from baseline (noise=0.05 best):
+#   - coeff_W_L2: 2e-5 -> 1e-4 (5x increase — prevents W collapse under strong noise)
+#   - coeff_W_L1: 1e-6 -> 1e-5 (10x increase — more sparsity pressure)
+#   - dale_law: false -> true (sign enforcement stabilizes recovery)
+#   - coeff_g_phi_norm: 0 -> 0.005 (constrains g_phi output scale, eliminates blowups)
+#   - coeff_f_theta_msg_diff: 50 -> 150 (stronger monotonicity on message input)
+#   - data_augmentation_loop: 600 -> 450 (adjusted to ~60 min training time)
 description: designed by Claude (parallel flyvis)
-dataset: larva_noise05_02
+dataset: larva_noise05_01
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ''
@@ -34,7 +39,7 @@ simulation:
   baseline_value: 0
   noise_model_level: 0.5
   measurement_noise_level: 0.0
-  seed: 3002
+  seed: 50001
   connconstr_datapath: papers/Code_NN/Code_NN/Data/Figure5
   connconstr_model: larva
   connconstr_n_trials: 10
@@ -70,28 +75,29 @@ training:
   batch_ratio: 1
   small_init_batch_size: false
   sparsity: none
-  data_augmentation_loop: 600
+  data_augmentation_loop: 450
   lr_W: 0.0001
   lr: 0.001
   lr_embedding: 0.001
   coeff_g_phi_diff: 1500
-  coeff_f_theta_msg_diff: 50
-  coeff_g_phi_norm: 0
+  coeff_f_theta_msg_diff: 150
+  coeff_g_phi_norm: 0.005
   coeff_g_phi_weight_L1: 0.0
   coeff_f_theta_weight_L1: 0
   coeff_g_phi_weight_L2: 0
   coeff_f_theta_weight_L2: 0.001
-  coeff_W_L1: 1.0e-06
-  coeff_W_L2: 2.0e-05
+  coeff_W_L1: 1.0e-05
+  coeff_W_L2: 0.0001
   coeff_W_sign: 0.05
+  dale_law: true
   regul_annealing_rate: 0
   w_init_mode: zeros
   w_init_scale: 1.0
   use_gt_edges: true
-  seed: 3502
+  seed: 50501
 claude:
   n_epochs: 2
-  data_augmentation_loop: 600
+  data_augmentation_loop: 450
   n_iter_block: 16
   ucb_c: 0
   n_parallel: 4

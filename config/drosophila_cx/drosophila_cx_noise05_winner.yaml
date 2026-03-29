@@ -1,25 +1,26 @@
 # Winner config: drosophila_cx_noise05_winner.yaml
-# Source: iter_016_slot_03 (connectivity_R2 = 0.9997, ties iter_007_slot_02)
-# Exploration: 16 iterations, 2 blocks
-# Date: 2026-03-27
+# Source: g_phi_norm=0.01 robustness test (6/6+1 seeds near-perfect)
+# Exploration: 128 iterations, 12 blocks (COMPLETE)
+# Date: 2026-03-29
 #
 # Why this is the winner:
-#   - W_L2 doubled (5e-5 → 1e-4) constrains W magnitude at noise=0.5, yielding near-perfect recovery
+#   - g_phi_norm=0.01 ELIMINATES bimodal convergence — ALL 6 seeds near-perfect (was ~50% mid-range)
+#   - W_L2=1e-4 constrains W magnitude, g_phi_norm=0.01 constrains activation output scale
 #   - Noise=0.5 exceeds noise=0.05 (0.972) and clean (0.574) — monotonic noise dose-response
-#   - Combinations with other regularizers (W_sign, W_L1) are anti-synergistic — single lever is optimal
-#   - ROBUST: 6/6 seeds converged, no epoch-2 collapse (vs 25% at baseline)
+#   - g_phi_norm therapeutic window is narrow: 0.005 catastrophic, 0.01 optimal, 0.03 degrades rollout
+#   - ROBUST: 6/6 seeds converged near-perfect, 0% failure, CV=0.09%
 #
 # Metrics:
-#   connectivity_R2: 0.9997 (best single seed, Iters 7 & 16)
-#   robust_mean:     0.974 +/- 0.026 (6 seeds, CV=2.7%)
-#   rollout_pearson: 0.999 (mean over 6 seeds)
-#   cluster_accuracy: 0.429 (mean over 6 seeds)
-#   spectral_radius: 2.517 (true: 2.545, 99% recovery, best seed)
+#   connectivity_R2: 0.9997 (best single seed, Iters 95, 103)
+#   robust_mean:     0.999 +/- 0.001 (6 seeds, CV=0.09%)
+#   rollout_pearson: 0.997 (mean over 6 seeds)
+#   cluster_accuracy: 0.491 (mean over 6 seeds)
+#   spectral_radius: 2.538 (true: 2.545, 99.7% recovery, best seed)
 #
 # Key config differences from baseline:
-#   - coeff_W_L2: 1e-4 (was 5e-5) — the key lever
+#   - coeff_W_L2: 1e-4 (was 5e-5) — constrains W magnitude
+#   - coeff_g_phi_norm: 0.01 (was 0) — constrains activation output scale, eliminates bimodal convergence
 #   - noise_model_level=0.5 (vs 0.05 in parent exploration)
-#   - All other parameters unchanged from best noise005 config
 description: "Drosophila adult central complex ring attractor \u2014 intrinsic noise\
   \ 0.5 (from best noise005 config)"
 dataset: drosophila_cx_noise05_00
@@ -82,7 +83,7 @@ training:
   coeff_g_phi_diff: 1500
   coeff_f_theta_diff: 0
   coeff_f_theta_msg_diff: 50
-  coeff_g_phi_norm: 0
+  coeff_g_phi_norm: 0.01
   coeff_g_phi_weight_L1: 0.0
   coeff_f_theta_weight_L1: 0
   coeff_g_phi_weight_L2: 0

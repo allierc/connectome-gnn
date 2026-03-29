@@ -15,7 +15,7 @@ simulation:
   delta_t: 0.1
   baseline_value: 0
   noise_model_level: 0.5
-  seed: 73000
+  seed: 125000
   connconstr_datapath: papers/Code_NN/Code_NN/Data/Figure5
   connconstr_model: drosophila_cx
   connconstr_n_trials: 50
@@ -61,10 +61,10 @@ training:
   coeff_f_theta_diff: 0
   coeff_f_theta_msg_diff: 50
   derivative_smoothing_window: 1
-  coeff_g_phi_norm: 0
+  coeff_g_phi_norm: 0.01
   coeff_g_phi_weight_L1: 0.0
-  coeff_f_theta_weight_L1: 0
-  coeff_g_phi_weight_L2: 0
+  coeff_f_theta_weight_L1: 0.0
+  coeff_g_phi_weight_L2: 0.0
   coeff_f_theta_weight_L2: 0.001
   coeff_W_L1: 3.0e-06
   coeff_W_L2: 0.0001
@@ -78,7 +78,7 @@ training:
   lr_scheduler_T0: 1000
   lr_scheduler_T_mult: 2
   lr_scheduler_eta_min_ratio: 0.01
-  seed: 73500
+  seed: 125500
 claude:
   n_epochs: 2
   data_augmentation_loop: 105

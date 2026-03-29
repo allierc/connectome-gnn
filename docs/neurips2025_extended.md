@@ -13,17 +13,6 @@ Color code: <span style="color:#2ea043">green</span> &gt; 0.9, <span style="colo
 
 Primary metric: W R2. Secondary: rollout r. Format: best single-seed (robust mean±std, CV%).
 
-#### Flyvis (13,741 neurons, GT edges)
-
-<table>
-<tr><th>Experiment</th><th>W R2 — GNN (ours)</th><th>Rollout r</th><th>MLP</th><th>Known ODE</th><th>RNN</th><th>Neural ODE</th><th>SSM</th></tr>
-<tr><td><b>Noise-free</b></td><td style="background:#2ea04360"><b>0.926</b> (0.923±0.008, CV=0.82%)</td><td style="background:#2ea04360">0.997 ± 0.015</td><td>?</td><td>?</td><td>?</td><td>?</td><td>?</td></tr>
-<tr><td><b>Noise=0.05</b></td><td style="background:#2ea04360"><b>0.985</b> (0.982±0.003, CV=0.30%)</td><td style="background:#2ea04360">0.991 ± 0.069</td><td>?</td><td>?</td><td>?</td><td>?</td><td>?</td></tr>
-<tr><td><b>Noise=0.5</b></td><td style="background:#2ea04360"><b>0.990</b> (0.996±0.006, CV=0.64%)</td><td style="background:#2ea04360">0.984 ± 0.162</td><td>?</td><td>?</td><td>?</td><td>?</td><td>?</td></tr>
-</table>
-
-_Rollout r = mean ± std over 13,741 neurons (8527 frames). Noisy models evaluated on noise-free test data._
-
 #### Drosophila CX (152 neurons)
 
 <table>
@@ -31,8 +20,9 @@ _Rollout r = mean ± std over 13,741 neurons (8527 frames). Noisy models evaluat
 <tr><td><b>FC (noise-free)</b></td><td style="background:#d2992260"><b>0.804</b> (0.574±0.027, 22 seeds, 15% fail)</td><td style="background:#d2992260">0.71</td><td style="background:#cf222e60">~0 / <span style="background:#d2992260">0.70</span></td><td>?</td><td>?</td><td>?</td><td>?</td></tr>
 <tr><td><b>FC noise=0.05</b></td><td style="background:#2ea04360"><b>0.982</b> (0.619±0.271, 24 seeds, 54% success)</td><td style="background:#d2992260">0.84</td><td>--</td><td>--</td><td>--</td><td>--</td><td>--</td></tr>
 <tr><td><b>FC noise=0.5</b></td><td style="background:#2ea04360"><b>0.9997</b> (0.974±0.026, 6 seeds, CV=2.7%)</td><td style="background:#2ea04360">1.00</td><td>--</td><td>--</td><td>--</td><td>--</td><td>--</td></tr>
-<tr><td><b>GT edges (noise-free)</b></td><td style="background:#d2992260"><b>0.813</b> (0.651, 6 seeds, CV=12.9%)</td><td style="background:#2ea04360">0.95</td><td>--</td><td>--</td><td>--</td><td>--</td><td>--</td></tr>
+<tr><td><b>GT edges (noise-free)</b></td><td style="background:#2ea04360"><b>0.893</b> (0.710±0.107, ~80% converged, CV~15%)</td><td style="background:#2ea04360">1.00</td><td>--</td><td>--</td><td>--</td><td>--</td><td>--</td></tr>
 <tr><td><b>GT edges noise=0.05</b></td><td>?</td><td>?</td><td>--</td><td>--</td><td>--</td><td>--</td><td>--</td></tr>
+<tr><td><b>GT edges noise=0.5</b></td><td>?</td><td>?</td><td>--</td><td>--</td><td>--</td><td>--</td><td>--</td></tr>
 </table>
 
 _MLP column: W R2 / rollout r (W R2 ≈ 0 always — Jacobian extraction fundamentally limited). 2000 frames._
@@ -41,10 +31,10 @@ _MLP column: W R2 / rollout r (W R2 ≈ 0 always — Jacobian extraction fundame
 
 <table>
 <tr><th>Experiment</th><th>W R2 — GNN (ours)</th><th>Rollout r</th><th>MLP</th><th>Known ODE</th><th>RNN</th><th>Neural ODE</th><th>SSM</th></tr>
-<tr><td><b>FC (noise-free)</b></td><td style="background:#cf222e60"><b>0.405</b> (0.182, 5 seeds, CV=86%)</td><td style="background:#2ea04360">1.00</td><td>--</td><td>--</td><td>--</td><td>--</td><td>--</td></tr>
+<tr><td><b>FC (noise-free)</b></td><td style="background:#cf222e60"><b>0.435</b> (0.268±0.106, 10 seeds, CV=40%)</td><td style="background:#2ea04360">1.00</td><td>--</td><td>--</td><td>--</td><td>--</td><td>--</td></tr>
 <tr><td><b>FC noise=0.05</b></td><td>?</td><td>?</td><td>--</td><td>--</td><td>--</td><td>--</td><td>--</td></tr>
 <tr><td><b>FC noise=0.5</b></td><td>?</td><td>?</td><td>--</td><td>--</td><td>--</td><td>--</td><td>--</td></tr>
-<tr><td><b>GT edges noise=0.05</b></td><td style="background:#d2992260"><b>0.801</b> (0.596±0.119, 4 seeds, CV=20%)</td><td>?</td><td>--</td><td>--</td><td>--</td><td>--</td><td>--</td></tr>
+<tr><td><b>GT edges noise=0.05</b></td><td style="background:#d2992260"><b>0.870</b> (0.683, 2-seed mean)</td><td>?</td><td>--</td><td>--</td><td>--</td><td>--</td><td>--</td></tr>
 <tr><td><b>GT edges noise=0.5</b></td><td>?</td><td>?</td><td>--</td><td>--</td><td>--</td><td>--</td><td>--</td></tr>
 <tr><td><b>GT edges (noise-free)</b></td><td style="background:#d2992260"><b>0.908</b> (0.540, 28 seeds, CV=35%)</td><td style="background:#2ea04360">1.00</td><td>?</td><td>?</td><td>?</td><td>?</td><td>?</td></tr>
 </table>
@@ -60,6 +50,7 @@ _480 frames. Default topology = GT edges._
 <tr><td><b>FC noise=0.5</b></td><td style="background:#2ea04360"><b>0.988</b> (0.506±0.539, 4 seeds, 50% fail)</td><td style="background:#2ea04360">0.93</td><td>--</td><td>--</td><td>--</td><td>--</td><td>--</td></tr>
 <tr><td><b>GT edges (noise-free)</b></td><td style="background:#d2992260"><b>0.777</b> (0.710±0.035, CV=5.0%, ~25% bimodal failure)</td><td style="background:#2ea04360">1.00</td><td>--</td><td>?</td><td>?</td><td>?</td><td>?</td></tr>
 <tr><td><b>GT edges noise=0.05</b></td><td>?</td><td>?</td><td>--</td><td>--</td><td>--</td><td>--</td><td>--</td></tr>
+<tr><td><b>GT edges noise=0.5</b></td><td>?</td><td>?</td><td>--</td><td>--</td><td>--</td><td>--</td><td>--</td></tr>
 </table>
 
 _4200 frames. FC is intractable due to linear degeneracy — noise or GT edges required._
@@ -68,25 +59,6 @@ _4200 frames. FC is intractable due to linear degeneracy — noise or GT edges r
 
 Best single-seed W R2 per condition.
 
-#### Flyvis (13.7K, GT edges)
-
-<table>
-<tr><th>Condition</th><th>W R2</th></tr>
-<tr><td><b>Baseline (noise-free)</b></td><td style="background:#2ea04360"><b>0.926</b></td></tr>
-<tr><td><b>Intrinsic noise (σ=0.05)</b></td><td style="background:#2ea04360"><b>0.985</b></td></tr>
-<tr><td><b>Intrinsic noise (σ=0.5)</b></td><td style="background:#2ea04360"><b>0.990</b></td></tr>
-<tr><td>Measurement noise (σ=0.04)</td><td style="background:#2ea04360"><b>0.925</b></td></tr>
-<tr><td>Measurement noise (σ=0.10)</td><td style="background:#d2992260"><b>0.756</b></td></tr>
-<tr><td>Measurement noise (σ=0.05)</td><td>?</td></tr>
-<tr><td>Measurement noise (σ=0.5)</td><td>?</td></tr>
-<tr><td>Missing timepoints (keep 20%)</td><td>?</td></tr>
-<tr><td>Missing neurons (remove 20%)</td><td>?</td></tr>
-<tr><td>Calcium (not voltage)</td><td>?</td></tr>
-<tr><td>Remove 20% edges</td><td>?</td></tr>
-<tr><td>Add 100% null edges</td><td style="background:#2ea04360"><b>0.982</b></td></tr>
-<tr><td>Add 200% null edges</td><td style="background:#2ea04360"><b>0.982</b></td></tr>
-</table>
-
 #### Drosophila CX (152)
 
 <table>
@@ -94,18 +66,19 @@ Best single-seed W R2 per condition.
 <tr><td><b>FC (noise-free)</b></td><td style="background:#d2992260"><b>0.804</b></td></tr>
 <tr><td><b>FC noise=0.05</b></td><td style="background:#2ea04360"><b>0.982</b></td></tr>
 <tr><td><b>FC noise=0.5</b></td><td style="background:#2ea04360"><b>0.9997</b></td></tr>
-<tr><td><b>GT edges (noise-free)</b></td><td style="background:#d2992260"><b>0.813</b></td></tr>
+<tr><td><b>GT edges (noise-free)</b></td><td style="background:#2ea04360"><b>0.893</b></td></tr>
 <tr><td><b>GT edges noise=0.05</b></td><td>?</td></tr>
+<tr><td><b>GT edges noise=0.5</b></td><td>?</td></tr>
 </table>
 
 #### Larva (230)
 
 <table>
 <tr><th>Condition</th><th>W R2</th></tr>
-<tr><td><b>FC (noise-free)</b></td><td style="background:#cf222e60"><b>0.405</b></td></tr>
+<tr><td><b>FC (noise-free)</b></td><td style="background:#cf222e60"><b>0.435</b></td></tr>
 <tr><td><b>FC noise=0.05</b></td><td>?</td></tr>
 <tr><td><b>FC noise=0.5</b></td><td>?</td></tr>
-<tr><td><b>GT edges noise=0.05</b></td><td style="background:#d2992260"><b>0.801</b></td></tr>
+<tr><td><b>GT edges noise=0.05</b></td><td style="background:#d2992260"><b>0.870</b></td></tr>
 <tr><td><b>GT edges noise=0.5</b></td><td>?</td></tr>
 <tr><td><b>GT edges (noise-free)</b></td><td style="background:#d2992260"><b>0.908</b></td></tr>
 </table>
@@ -119,26 +92,14 @@ Best single-seed W R2 per condition.
 <tr><td><b>FC noise=0.5</b></td><td style="background:#2ea04360"><b>0.988</b></td></tr>
 <tr><td><b>GT edges (noise-free)</b></td><td style="background:#d2992260"><b>0.777</b></td></tr>
 <tr><td><b>GT edges noise=0.05</b></td><td>?</td></tr>
+<tr><td><b>GT edges noise=0.5</b></td><td>?</td></tr>
 </table>
 
-_Flyvis trains with known (GT) topology. CX and zebrafish default to FC. Larva defaults to GT edges._
+_CX and zebrafish default to FC. Larva defaults to GT edges. Flyvis results in flyvis_results._
 
 ### Table 3b: Parameter Extraction (R2 per parameter, GNN only)
 
 Each bio model has a different ODE structure with different extractable parameters. W is always learned directly; other parameters (tau, V_rest) are extracted from learned f_theta slopes/offsets. Cluster accuracy measures neuron-type discrimination from learned embeddings.
-
-#### Flyvis (13,741 neurons — graded-voltage model: dv/dt = (-v + V_rest)/tau + ReLU(v) @ W)
-
-Extractable parameters: **W** (synaptic weights), **tau** (time constants, from f_theta slope), **V_rest** (resting potentials, from f_theta offset), **cluster_acc** (neuron type clustering).
-
-<table>
-<tr><th>Condition</th><th>W R2</th><th>tau R2</th><th>V_rest R2</th><th>Cluster acc</th></tr>
-<tr><td>Noise-free</td><td style="background:#2ea04360"><b>0.920</b></td><td style="background:#d2992260">0.664</td><td style="background:#cf222e60">0.033</td><td style="background:#cf222e60">0.497</td></tr>
-<tr><td>Noise=0.05 (champion, 8 seeds)</td><td style="background:#2ea04360"><b>0.969</b> ±0.011</td><td style="background:#2ea04360"><b>0.985</b></td><td style="background:#cf222e60">0.505</td><td style="background:#d2992260">0.843</td></tr>
-<tr><td>Noise=0.5</td><td style="background:#2ea04360"><b>0.990</b></td><td style="background:#2ea04360"><b>1.000</b></td><td style="background:#d2992260">0.789</td><td>?</td></tr>
-</table>
-
-_Noise dramatically improves tau and V_rest extraction. At noise=0.5: tau perfectly recovered, V_rest reaches 0.79. V_rest is bimodally distributed across seeds — some seeds achieve >0.95, others fail._
 
 #### Drosophila CX (152 neurons — ring attractor: dh/dt = (-h + g*softplus(h+b) @ W + I)/tau)
 
@@ -149,7 +110,7 @@ Extractable parameters: **W** (synaptic weights), **tau** (time constants). Tau 
 <tr><td>Clean (FC)</td><td style="background:#d2992260"><b>0.804</b> (0.574 mean)</td><td style="background:#cf222e60">0.0</td><td style="background:#cf222e60">0.351</td><td style="background:#d2992260">0.690</td></tr>
 <tr><td>Noise=0.05 (FC, dale_law)</td><td style="background:#2ea04360"><b>0.982</b> (0.619±0.271, 24 seeds)</td><td style="background:#cf222e60">0.0</td><td style="background:#cf222e60">0.386</td><td style="background:#d2992260">0.660</td></tr>
 <tr><td>Noise=0.5 (FC)</td><td style="background:#2ea04360"><b>0.9997</b> (0.974±0.026, 6 seeds)</td><td style="background:#cf222e60">0.0</td><td style="background:#cf222e60">0.429</td><td>?</td></tr>
-<tr><td>Clean (GT edges, dale_law)</td><td style="background:#d2992260"><b>0.813</b> (0.651, 6 seeds)</td><td style="background:#cf222e60">0.0</td><td style="background:#cf222e60">0.436</td><td>?</td></tr>
+<tr><td>Clean (GT edges, dale_law)</td><td style="background:#2ea04360"><b>0.893</b> (0.710±0.107 mean)</td><td style="background:#cf222e60">0.0</td><td style="background:#cf222e60">0.421</td><td>?</td></tr>
 </table>
 
 _Tau is not extractable for CX (always R2=0.0). Dale's law constraint dramatically improves robustness (CV from >20% to 8.8%). Noise helps W recovery (+30% over clean)._
@@ -185,30 +146,28 @@ Each row = one `GNN_LLM.py` run with its own instruction file.
 
 | Instruction file | Best W R2 | Iters | Status |
 |-----------------|-----------|-------|--------|
-| **Flyvis** | | | |
-| `instruction_flyvis_noise_free.md` | 0.926 | 156 | done |
-| `instruction_flyvis_noise_005.md` | 0.985 | 253 | done |
-| `instruction_flyvis_noise_05.md` | 0.990 | 204 | done |
 | **Drosophila CX** | | | |
 | `instruction_drosophila_cx.md` | 0.804 | 128 | done — FC ceiling ~0.574 mean, 22 seeds |
 | `instruction_drosophila_cx_noise005.md` | 0.982 | 128 | done — dale_law=true, 24-seed mean=0.619, 54% success |
-| `instruction_drosophila_cx_mlp.md` | ~0 | 88/128 | stopped — W R2≈0 always (Jacobian fundamentally limited), rollout mean=0.53 |
-| `instruction_drosophila_cx_gt_edges.md` | 0.813 | 52 | running (Block 5) — dale_law=true +34%, mean=0.651 |
-| `instruction_drosophila_cx_noise05.md` | 0.9997 | 56 | running (Block 6) — near-perfect, 6-seed mean=0.974 |
+| `instruction_drosophila_cx_mlp.md` | ~0 | 128 | done — W R2≈0 always, Jacobian fundamentally limited, rollout mean=0.53 |
+| `instruction_drosophila_cx_gt_edges.md` | 0.893 | 128 | done — dale_law+g_phi_wL1=0.003, mean=0.710, ~20% catastrophic |
+| `instruction_drosophila_cx_noise05.md` | 0.999 | 128 | done — g_phi_norm=0.01, 6-seed mean=0.999±0.001, CV=0.09% |
+| `instruction_drosophila_cx_gt_edges_noise005.md` | -- | -- | ready to launch |
+| `instruction_drosophila_cx_gt_edges_noise05.md` | -- | -- | ready to launch |
 | **Larva** | | | |
 | `instruction_larva_gt_edges.md` | 0.908 | 128 | done — 28-seed mean=0.540, CV=35% |
-| `instruction_larva_noise005.md` | 0.801 | 8 | running (Block 2) — W_L2=2e-5 best, 4-seed mean=0.596 |
-| `instruction_larva_fc.md` | 0.405 | 56 | running (Block 6) — 5-seed mean=0.182, CV=86% |
+| `instruction_larva_noise005.md` | 0.870 | 128 | done — W_L1+W_L2 synergy, 2-seed mean=0.683 |
+| `instruction_larva_fc.md` | 0.435 | 128 | done — g_phi_norm=0.01, 10-seed mean=0.268, CV=40% |
+| `instruction_larva_fc_noise005.md` | -- | -- | ready to launch |
+| `instruction_larva_fc_noise05.md` | -- | -- | ready to launch |
 | **Zebrafish** | | | |
 | `instruction_zebrafish_oculomotor.md` | 0.022 | 128 | done — FC ceiling definitive (0.006 mean, 48 seeds) |
 | `instruction_zebrafish_oculomotor_gt_edges.md` | 0.777 | 128 | done — bimodal convergence, 75% seeds ~0.71 |
 | `instruction_zebrafish_oculomotor_noise005.md` | 0.918 | 128 | done — noise breaks linear degeneracy |
 | `instruction_zebrafish_oculomotor_noise05.md` | 0.988 | 4 | running (Block 2) — 50% fail, mean=0.506 |
+| `instruction_zebrafish_oculomotor_gt_edges_noise005.md` | -- | -- | ready to launch |
+| `instruction_zebrafish_oculomotor_gt_edges_noise05.md` | -- | -- | ready to launch |
 | **TODO: create** | | | |
-| instruction_zebrafish_oculomotor_gt_noise005.md | -- | -- | TODO |
-| instruction_flyvis_missing_time.md | -- | -- | TODO |
-| instruction_flyvis_missing_neurons.md | -- | -- | TODO |
-| instruction_flyvis_flywire_edges.md | -- | -- | TODO |
 | instruction_*_mlp.md (×4 models) | -- | -- | TODO |
 | instruction_*_known_ode.md (×4 models) | -- | -- | TODO |
 | instruction_*_rnn.md (×4 models) | -- | -- | TODO |
@@ -227,27 +186,25 @@ LLM/instruction_{biomodel}_{experiment}.md
 
 | File                                           | Bio model            | Experiment             | Best W R2 | Iters | Status                     |
 | ---------------------------------------------- | -------------------- | ---------------------- | --------- | ----- | -------------------------- |
-| `instruction_flyvis_noise_free.md`             | flyvis               | clean, known topology  | 0.926     | 156   | done                       |
-| `instruction_flyvis_noise_005.md`              | flyvis               | intrinsic noise 0.05   | 0.985     | 253   | done                       |
-| `instruction_flyvis_noise_05.md`               | flyvis               | intrinsic noise 0.5    | 0.990     | 204   | done                       |
 | `instruction_drosophila_cx.md`                 | drosophila_cx        | clean, FC              | 0.804     | 128   | done                       |
 | `instruction_drosophila_cx_noise005.md`        | drosophila_cx        | noise 0.05, FC         | 0.982     | 128   | done                       |
-| `instruction_drosophila_cx_mlp.md`             | drosophila_cx        | MLP baseline           | ~0        | 88/128 | stopped — W R2≈0 always   |
+| `instruction_drosophila_cx_mlp.md`             | drosophila_cx        | MLP baseline           | ~0        | 128   | done — W R2≈0 always      |
 | `instruction_larva_gt_edges.md`                | larva                | clean, GT edges        | 0.908     | 128   | done                       |
-| `instruction_larva_noise005.md`                | larva                | intrinsic noise 0.05   | 0.801     | 8     | running (Block 2)          |
-| `instruction_larva_fc.md`                      | larva                | clean, FC              | 0.405     | 56    | running (Block 6)          |
+| `instruction_larva_noise005.md`                | larva                | intrinsic noise 0.05   | 0.870     | 128   | done                       |
+| `instruction_larva_fc.md`                      | larva                | clean, FC              | 0.435     | 128   | done                       |
 | `instruction_zebrafish_oculomotor.md`          | zebrafish_oculomotor | clean, fully connected | 0.022     | 128   | done                       |
 | `instruction_zebrafish_oculomotor_gt_edges.md` | zebrafish_oculomotor | clean, GT edges        | 0.777     | 128   | done                       |
 | `instruction_zebrafish_oculomotor_noise005.md` | zebrafish_oculomotor | intrinsic noise 0.05   | 0.918     | 128   | done                       |
 | `instruction_zebrafish_oculomotor_noise05.md`  | zebrafish_oculomotor | intrinsic noise 0.5    | 0.988     | 4     | running (Block 2)          |
-| `instruction_drosophila_cx_gt_edges.md`        | drosophila_cx        | clean, GT edges        | 0.813     | 52    | running (Block 5)          |
-| `instruction_drosophila_cx_noise05.md`         | drosophila_cx        | intrinsic noise 0.5    | 0.9997    | 56    | running (Block 6)          |
+| `instruction_drosophila_cx_gt_edges.md`        | drosophila_cx        | clean, GT edges        | 0.893     | 128   | done                       |
+| `instruction_drosophila_cx_noise05.md`         | drosophila_cx        | intrinsic noise 0.5    | 0.999     | 128   | done                       |
+| `instruction_drosophila_cx_gt_edges_noise005.md` | drosophila_cx     | GT edges, noise 0.05   | --        | --    | ready to launch            |
+| `instruction_drosophila_cx_gt_edges_noise05.md`  | drosophila_cx     | GT edges, noise 0.5    | --        | --    | ready to launch            |
+| `instruction_larva_fc_noise005.md`             | larva                | FC, noise 0.05         | --        | --    | ready to launch            |
+| `instruction_larva_fc_noise05.md`              | larva                | FC, noise 0.5          | --        | --    | ready to launch            |
+| `instruction_zebrafish_oculomotor_gt_edges_noise005.md` | zebrafish_oculomotor | GT edges, noise 0.05 | --    | --    | ready to launch            |
+| `instruction_zebrafish_oculomotor_gt_edges_noise05.md`  | zebrafish_oculomotor | GT edges, noise 0.5  | --    | --    | ready to launch            |
 | `instruction_larva_noise05.md`                 | larva                | intrinsic noise 0.5    | --        | 0     | ready to launch            |
-| `instruction_flyvis_missing_time_80.md`        | flyvis               | keep 20% timepoints    | --        | --    | TODO               |
-| `instruction_flyvis_missing_neurons_20.md`     | flyvis               | remove 20% neurons     | --        | --    | TODO               |
-| `instruction_flyvis_remove_edges_20.md`        | flyvis               | remove 20% edges       | --        | --    | TODO               |
-| `instruction_flyvis_calcium.md`                | flyvis               | calcium indicator      | --        | --    | TODO (colleague)   |
-
 Each instruction file contains: model description, metrics, hyperparameter search space, block partition.
 The agentic pipeline reads the instruction file to guide exploration.
 
@@ -263,7 +220,6 @@ No experiment suffix = baseline (clean data, known/fully-connected topology).
 
 | Code                   | Full name                        | N neurons | N edges | Source              |
 | ---------------------- | -------------------------------- | --------- | ------- | ------------------- |
-| `flyvis`               | Drosophila optic lobe            | 13,741    | 434,112 | flyvis package      |
 | `drosophila_cx`        | Drosophila adult central complex | 152       | 9,722   | Beiran 2023, Fig 5d |
 | `larva`                | Drosophila larva motor           | 230       | 4,222   | Beiran 2023, Fig 5a |
 | `zebrafish_oculomotor` | Zebrafish oculomotor             | 609       | ~10,665 | Beiran 2023, Fig 5g |
@@ -291,7 +247,6 @@ No experiment suffix = baseline (clean data, known/fully-connected topology).
 | `missing_neurons_20` | Remove 20% of neurons from observation | all                                        |
 | `calcium`            | Calcium indicator (not voltage)        | all                                        |
 | `remove_edges_20`    | Remove 20% of true edges               | all                                        |
-| `null_edges_200`     | Add 200% null edges (unknown topology) | flyvis only                                |
 | `fully_connected`    | Train on fully connected graph         | drosophila_cx, larva, zebrafish_oculomotor |
 
 ---
@@ -407,12 +362,10 @@ Caption: "The GNN recovers output connectivity modes (U) better than input selec
 
 ## Key References
 
-1. Cosyne flyvis-gnn: https://saalfeldlab.github.io/flyvis-gnn/
-2. Beiran & Litwin-Kumar (2023): "Connectivity-constrained neural networks" Nature Neuroscience 28, 2561-2574. https://doi.org/10.1038/s41593-025-02080-4
-3. flyvis package: Lappalainen et al.
-4. Hard reset finding: all major RNN neuroscience papers use trial resets inherited from seq2seq/LSTM training — biologically unrealistic
-5. Mastrogiuseppe & Ostojic (2018): "Linking connectivity, dynamics, and computations in low-rank recurrent neural networks", _Neuron_ 99(3), 609-623. https://doi.org/10.1016/j.neuron.2018.07.003 — Theory: right-connectivity vectors (output modes) are directly constrained by dynamics; left-connectivity vectors (input selection) are not.
-6. NeuralGraph low-rank case study: https://saalfeldlab.github.io/NeuralGraph/case-low-rank.html — Empirical confirmation of U/V asymmetry in GNN connectivity recovery.
+1. Beiran & Litwin-Kumar (2023): "Connectivity-constrained neural networks" Nature Neuroscience 28, 2561-2574. https://doi.org/10.1038/s41593-025-02080-4
+2. Hard reset finding: all major RNN neuroscience papers use trial resets inherited from seq2seq/LSTM training — biologically unrealistic
+3. Mastrogiuseppe & Ostojic (2018): "Linking connectivity, dynamics, and computations in low-rank recurrent neural networks", _Neuron_ 99(3), 609-623. https://doi.org/10.1016/j.neuron.2018.07.003 — Theory: right-connectivity vectors (output modes) are directly constrained by dynamics; left-connectivity vectors (input selection) are not.
+4. NeuralGraph low-rank case study: https://saalfeldlab.github.io/NeuralGraph/case-low-rank.html — Empirical confirmation of U/V asymmetry in GNN connectivity recovery.
 
 ---
 
@@ -422,27 +375,14 @@ Maps each experiment to its config files, instruction file, and LLM exploration 
 
 <table>
 <tr><th>W R2</th><th>Experiment</th><th>Winner config</th><th>Best LLM iter</th><th>Instruction</th><th>LLM command</th></tr>
-<tr><td colspan="6"><b>Flyvis (13.7K, GT edges)</b></td></tr>
-<tr><td style="background:#2ea04360">0.926</td><td>flyvis_noise_free</td><td>flyvis_noise_free_winner.yaml</td><td>iter_137</td><td>instruction_flyvis_noise_free.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_free iterations=128 --cluster</code></td></tr>
-<tr><td style="background:#2ea04360">0.985</td><td>flyvis_noise_005</td><td>flyvis_noise_005_winner.yaml</td><td>iter_161</td><td>instruction_flyvis_noise_005.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005 iterations=128 --cluster</code></td></tr>
-<tr><td style="background:#2ea04360">0.990</td><td>flyvis_noise_05</td><td>flyvis_noise_05_winner.yaml</td><td>iter_097</td><td>instruction_flyvis_noise_05.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_05 iterations=128 --cluster</code></td></tr>
-<tr><td style="background:#2ea04360">0.925</td><td>flyvis_noise_005+meas_004</td><td>--</td><td>iter_033</td><td>--</td><td>--</td></tr>
-<tr><td style="background:#d2992260">0.756</td><td>flyvis_noise_005+meas_010</td><td>--</td><td>iter_009</td><td>--</td><td>--</td></tr>
-<tr><td style="background:#2ea04360">0.982</td><td>flyvis_noise_005+null_100%</td><td>--</td><td>--</td><td>--</td><td>-- (single seed)</td></tr>
-<tr><td style="background:#2ea04360">0.982</td><td>flyvis_noise_005+null_200%</td><td>--</td><td>--</td><td>--</td><td>-- (single seed)</td></tr>
-<tr><td style="background:#2ea04360">0.942</td><td>flyvis_noise_005+INR (joint GNN+SIREN)</td><td>flyvis_noise_005_INR_winner.yaml</td><td>iter_021</td><td>instruction_flyvis_noise_005_INR.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_INR iterations=128 --cluster</code></td></tr>
-<tr><td style="background:#d2992260">0.813</td><td>flyvis_noise_005+meas_010 recurrent</td><td>flyvis_noise_005_010_rc_winner.yaml</td><td>iter_045</td><td>instruction_flyvis_noise_005_010_rc.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_010_rc iterations=128 --cluster</code></td></tr>
-<tr><td>?</td><td>flyvis_missing_time_5x</td><td>--</td><td>--</td><td>--</td><td>TODO</td></tr>
-<tr><td>?</td><td>flyvis_missing_time_10x</td><td>--</td><td>--</td><td>--</td><td>TODO</td></tr>
-<tr><td>?</td><td>flyvis_missing_neurons_20</td><td>--</td><td>--</td><td>--</td><td>TODO</td></tr>
-<tr><td>?</td><td>flyvis_flywire_edges</td><td>--</td><td>--</td><td>--</td><td>TODO</td></tr>
-<tr><td>?</td><td>flyvis — MLP/Known ODE/RNN/NeuralODE/SSM</td><td>--</td><td>--</td><td>--</td><td>TODO (×5)</td></tr>
 <tr><td colspan="6"><b>Drosophila CX (152, FC)</b></td></tr>
 <tr><td style="background:#d2992260">0.804</td><td>drosophila_cx</td><td>pending</td><td>iter_104</td><td>instruction_drosophila_cx.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude drosophila_cx iterations=128 --cluster --resume</code></td></tr>
 <tr><td style="background:#2ea04360">0.982</td><td>drosophila_cx_noise005</td><td>pending</td><td>iter_009</td><td>instruction_drosophila_cx_noise005.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude drosophila_cx_noise005 iterations=128 --cluster --resume</code></td></tr>
-<tr><td style="background:#2ea04360">0.9997</td><td>drosophila_cx_noise05</td><td>pending</td><td>iter_007</td><td>instruction_drosophila_cx_noise05.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude drosophila_cx_noise05 iterations=128 --cluster --resume</code></td></tr>
-<tr><td style="background:#d2992260">0.813</td><td>drosophila_cx_gt_edges</td><td>pending</td><td>iter_024</td><td>instruction_drosophila_cx_gt_edges.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude drosophila_cx_gt_edges iterations=128 --cluster --resume</code></td></tr>
-<tr><td style="background:#cf222e60">~0</td><td>drosophila_cx — MLP</td><td>pending</td><td>iter_035</td><td>instruction_drosophila_cx_mlp.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude drosophila_cx_mlp iterations=128 --cluster --resume</code></td></tr>
+<tr><td style="background:#2ea04360">0.999</td><td>drosophila_cx_noise05</td><td>drosophila_cx_noise05_winner.yaml</td><td>iter_007</td><td>instruction_drosophila_cx_noise05.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude drosophila_cx_noise05 iterations=128 --cluster --resume</code></td></tr>
+<tr><td style="background:#2ea04360">0.893</td><td>drosophila_cx_gt_edges</td><td>drosophila_cx_gt_edges_winner.yaml</td><td>iter_104</td><td>instruction_drosophila_cx_gt_edges.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude drosophila_cx_gt_edges iterations=128 --cluster --resume</code></td></tr>
+<tr><td style="background:#cf222e60">~0</td><td>drosophila_cx — MLP</td><td>drosophila_cx_mlp_winner.yaml</td><td>iter_035</td><td>instruction_drosophila_cx_mlp.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude drosophila_cx_mlp iterations=128 --cluster --resume</code></td></tr>
+<tr><td>?</td><td>drosophila_cx_gt_edges_noise005</td><td>--</td><td>--</td><td>instruction_drosophila_cx_gt_edges_noise005.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude drosophila_cx_gt_edges_noise005 iterations=128 --cluster --resume</code></td></tr>
+<tr><td>?</td><td>drosophila_cx_gt_edges_noise05</td><td>--</td><td>--</td><td>instruction_drosophila_cx_gt_edges_noise05.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude drosophila_cx_gt_edges_noise05 iterations=128 --cluster --resume</code></td></tr>
 <tr><td>?</td><td>drosophila_cx — Known ODE</td><td>--</td><td>--</td><td>--</td><td>TODO</td></tr>
 <tr><td>?</td><td>drosophila_cx — RNN</td><td>--</td><td>--</td><td>--</td><td>TODO</td></tr>
 <tr><td>?</td><td>drosophila_cx — NeuralODE</td><td>--</td><td>--</td><td>--</td><td>TODO</td></tr>
@@ -450,15 +390,18 @@ Maps each experiment to its config files, instruction file, and LLM exploration 
 <tr><td colspan="6"><b>Larva (230, GT edges)</b></td></tr>
 <tr><td style="background:#d2992260">0.908</td><td>larva_gt_edges</td><td>pending</td><td>iter_093</td><td>instruction_larva_gt_edges.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude larva_gt_edges iterations=128 --cluster --resume</code></td></tr>
 
-<tr><td style="background:#d2992260">0.801</td><td>larva_noise005</td><td>pending</td><td>iter_007</td><td>instruction_larva_noise005.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude larva_noise005 iterations=128 --cluster --resume</code></td></tr>
+<tr><td style="background:#d2992260">0.870</td><td>larva_noise005</td><td>larva_noise005_winner.yaml</td><td>iter_031</td><td>instruction_larva_noise005.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude larva_noise005 iterations=128 --cluster --resume</code></td></tr>
 <tr><td>?</td><td>larva_noise05</td><td>--</td><td>--</td><td>instruction_larva_noise05.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude larva_noise05 iterations=128 --cluster --resume</code></td></tr>
-<tr><td style="background:#cf222e60">0.405</td><td>larva_fc</td><td>pending</td><td>iter_041</td><td>instruction_larva_fc.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude larva_fc iterations=128 --cluster --resume</code></td></tr>
+<tr><td style="background:#cf222e60">0.435</td><td>larva_fc</td><td>larva_fc_winner.yaml</td><td>iter_109</td><td>instruction_larva_fc.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude larva_fc iterations=128 --cluster --resume</code></td></tr>
+<tr><td>?</td><td>larva_fc_noise005</td><td>--</td><td>--</td><td>instruction_larva_fc_noise005.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude larva_fc_noise005 iterations=128 --cluster --resume</code></td></tr>
+<tr><td>?</td><td>larva_fc_noise05</td><td>--</td><td>--</td><td>instruction_larva_fc_noise05.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude larva_fc_noise05 iterations=128 --cluster --resume</code></td></tr>
 <tr><td>?</td><td>larva — MLP/Known ODE/RNN/NeuralODE/SSM</td><td>--</td><td>--</td><td>--</td><td>TODO (×5)</td></tr>
 <tr><td colspan="6"><b>Zebrafish oculomotor (609)</b></td></tr>
 <tr><td style="background:#cf222e60">0.022</td><td>zebrafish_oculomotor (FC)</td><td>pending</td><td>iter_080</td><td>instruction_zebrafish_oculomotor.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude zebrafish_oculomotor iterations=128 --cluster --resume</code></td></tr>
 <tr><td style="background:#d2992260">0.777</td><td>zebrafish_oculomotor_gt_edges</td><td>pending</td><td>iter_092</td><td>instruction_zebrafish_oculomotor_gt_edges.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude zebrafish_oculomotor_gt_edges iterations=128 --cluster --resume</code></td></tr>
 <tr><td style="background:#2ea04360">0.918</td><td>zebrafish_oculomotor_noise005 (FC)</td><td>pending</td><td>iter_019</td><td>instruction_zebrafish_oculomotor_noise005.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude zebrafish_oculomotor_noise005 iterations=128 --cluster --resume</code></td></tr>
 <tr><td style="background:#2ea04360">0.988</td><td>zebrafish_oculomotor_noise05</td><td>pending</td><td>iter_003</td><td>instruction_zebrafish_oculomotor_noise05.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude zebrafish_oculomotor_noise05 iterations=128 --cluster --resume</code></td></tr>
-<tr><td>?</td><td>zebrafish_oculomotor_gt_noise005</td><td>--</td><td>--</td><td>--</td><td>TODO: create</td></tr>
+<tr><td>?</td><td>zebrafish_oculomotor_gt_edges_noise005</td><td>--</td><td>--</td><td>instruction_zebrafish_oculomotor_gt_edges_noise005.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude zebrafish_oculomotor_gt_edges_noise005 iterations=128 --cluster --resume</code></td></tr>
+<tr><td>?</td><td>zebrafish_oculomotor_gt_edges_noise05</td><td>--</td><td>--</td><td>instruction_zebrafish_oculomotor_gt_edges_noise05.md</td><td><code>python GNN_LLM.py -o generate_train_test_plot_Claude zebrafish_oculomotor_gt_edges_noise05 iterations=128 --cluster --resume</code></td></tr>
 <tr><td>?</td><td>zebrafish — MLP/Known ODE/RNN/NeuralODE/SSM</td><td>--</td><td>--</td><td>--</td><td>TODO (×5)</td></tr>
 </table>
