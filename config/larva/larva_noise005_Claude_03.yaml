@@ -15,7 +15,7 @@ simulation:
   baseline_value: 0
   noise_model_level: 0.05
   measurement_noise_level: 0.0
-  seed: 32003
+  seed: 52003
   connconstr_datapath: papers/Code_NN/Code_NN/Data/Figure5
   connconstr_model: larva
   connconstr_n_trials: 10
@@ -53,7 +53,7 @@ training:
   sparsity: none
   data_augmentation_loop: 500
   lr_W: 0.0002
-  lr: 0.001
+  lr: 0.002
   lr_embedding: 0.001
   coeff_g_phi_diff: 1500
   coeff_f_theta_msg_diff: 0
@@ -63,14 +63,14 @@ training:
   coeff_g_phi_weight_L2: 0
   coeff_f_theta_weight_L2: 0.001
   coeff_W_L1: 3.0e-06
-  coeff_W_L2: 2.0e-05
-  coeff_W_sign: 0.1
+  coeff_W_L2: 0.0001
+  coeff_W_sign: 0.2
   dale_law: true
   regul_annealing_rate: 0
   w_init_mode: zeros
   w_init_scale: 1.0
   use_gt_edges: true
-  seed: 32503
+  seed: 52503
 claude:
   n_epochs: 2
   data_augmentation_loop: 500

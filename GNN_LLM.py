@@ -118,15 +118,23 @@ if __name__ == "__main__":
 # python GNN_LLM.py -o generate_train_test_plot_Claude zebrafish_oculomotor_gt_edges iterations=128 --cluster --resume
 # python GNN_LLM.py -o generate_train_test_plot_Claude zebrafish_oculomotor_noise005 iterations=128 --cluster --resume
 # python GNN_LLM.py -o generate_train_test_plot_Claude drosophila_cx_noise005 iterations=128 --cluster --resume
+# python GNN_LLM.py -o generate_train_test_plot_Claude drosophila_cx_mlp iterations=128 --cluster --resume         # W R2≈0 always, rollout mean=0.53, MLP Jacobian fundamentally limited
+# python GNN_LLM.py -o generate_train_test_plot_Claude drosophila_cx_gt_edges iterations=128 --cluster --resume    # W R2=0.893 (ATB), 128 iters, dale_law+g_phi_wL1=0.003, converged mean=0.710
+# python GNN_LLM.py -o generate_train_test_plot_Claude drosophila_cx_noise05 iterations=128 --cluster --resume     # W R2=0.999±0.001 (6 seeds), g_phi_norm=0.01 eliminates bimodal convergence
+# python GNN_LLM.py -o generate_train_test_plot_Claude larva_noise005 iterations=128 --cluster --resume            # W R2=0.870 (lucky seed), champion mean=0.683, W_L1=3e-6+W_L2=1e-4 synergy
+# python GNN_LLM.py -o generate_train_test_plot_Claude larva_fc iterations=128 --cluster --resume                  # W R2=0.435 (ATB), g_phi_norm=0.01, 10-seed mean=0.268, FC ceiling ~0.435
 #
 # == ongoing ==
-# python GNN_LLM.py -o generate_train_test_plot_Claude drosophila_cx_mlp iterations=128 --cluster --resume
-# python GNN_LLM.py -o generate_train_test_plot_Claude drosophila_cx_gt_edges iterations=128 --cluster --resume
-# python GNN_LLM.py -o generate_train_test_plot_Claude drosophila_cx_noise05 iterations=128 --cluster --resume
-# python GNN_LLM.py -o generate_train_test_plot_Claude larva_noise005 iterations=128 --cluster --resume
-# python GNN_LLM.py -o generate_train_test_plot_Claude larva_fc iterations=128 --cluster --resume
 # python GNN_LLM.py -o generate_train_test_plot_Claude zebrafish_oculomotor_noise05 iterations=128 --cluster --resume
 # python GNN_LLM.py -o generate_train_test_plot_Claude larva_noise05 iterations=128 --cluster --resume
+#
+# == new: complete noise × topology grid ==
+# python GNN_LLM.py -o generate_train_test_plot_Claude drosophila_cx_gt_edges_noise005 iterations=128 --cluster --resume
+# python GNN_LLM.py -o generate_train_test_plot_Claude drosophila_cx_gt_edges_noise05 iterations=128 --cluster --resume
+# python GNN_LLM.py -o generate_train_test_plot_Claude larva_fc_noise005 iterations=128 --cluster --resume
+# python GNN_LLM.py -o generate_train_test_plot_Claude larva_fc_noise05 iterations=128 --cluster --resume
+# python GNN_LLM.py -o generate_train_test_plot_Claude zebrafish_oculomotor_gt_edges_noise005 iterations=128 --cluster --resume
+# python GNN_LLM.py -o generate_train_test_plot_Claude zebrafish_oculomotor_gt_edges_noise05 iterations=128 --cluster --resume
 
 # python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_null_edges_pc_100 iterations=128 --cluster --resume
 # python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_removed_pc_10 iterations=128 --cluster --resume
