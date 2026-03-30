@@ -58,51 +58,54 @@ _480 frames. Default topology = GT edges._
 
 _4200 frames. FC is intractable due to linear degeneracy — noise or GT edges required._
 
-### Table 3: Parameter Extraction (R2 per parameter, GNN only)
+### Table 3: Parameter Extraction (R2 per parameter)
 
-Each bio model has a different ODE structure with different extractable parameters. W is always learned directly; other parameters (tau, V_rest) are extracted from learned f_theta slopes/offsets. Cluster accuracy measures neuron-type discrimination from learned embeddings.
+Each bio model has a different ODE structure with different extractable parameters. For GNN: W is learned directly, tau/V_rest are derived from f_theta slopes/offsets, gain/bias are entangled with W and not separately extractable. For known_ode: all parameters (W, tau, gain, bias) are directly learned with the correct ODE structure. Cluster accuracy measures neuron-type discrimination from learned embeddings (GNN only).
 
-#### Drosophila CX (152 neurons — ring attractor: dh/dt = (-h + g*softplus(h+b) @ W + I)/tau)
+#### Drosophila CX (152 neurons — ring attractor: dh/dt = (-h + exp(g)*softplus(h+b, β=5) @ W + I)/tau)
 
-Extractable parameters: **W** (synaptic weights), **tau** (time constants). Tau extraction fails (R2=0.0) because the CX model has no resting potential — f_theta slope is too weak (~-0.05) to extract tau reliably. Gain (g) and bias (b) are entangled with W.
+GT parameters: **W** (9,722 edges), **tau** (bounded [0.2, 5.0] via 2.6+2.4·tanh), **g** (log-gain per neuron), **b** (bias per neuron in activation).
 
 <table>
-<tr><th>Condition</th><th>W R2</th><th>tau R2</th><th>Cluster acc</th><th>Dale score</th></tr>
-<tr><td>Clean (FC)</td><td style="background:#d2992260"><b>0.804</b> (0.574 mean)</td><td style="background:#cf222e60">0.0</td><td style="background:#cf222e60">0.351</td><td style="background:#d2992260">0.690</td></tr>
-<tr><td>Noise=0.05 (FC, dale_law)</td><td style="background:#2ea04360"><b>0.982</b> (0.619±0.271, 24 seeds)</td><td style="background:#cf222e60">0.0</td><td style="background:#cf222e60">0.386</td><td style="background:#d2992260">0.660</td></tr>
-<tr><td>Noise=0.5 (FC)</td><td style="background:#2ea04360"><b>0.999</b> (0.999±0.001, 6 seeds)</td><td style="background:#cf222e60">0.0</td><td style="background:#cf222e60">0.429</td><td>?</td></tr>
-<tr><td>Clean (GT edges, dale_law)</td><td style="background:#d2992260"><b>0.893</b> (0.710±0.180 mean)</td><td style="background:#cf222e60">0.0</td><td style="background:#cf222e60">0.421</td><td>?</td></tr>
-<tr><td>Noise=0.05 (GT edges)</td><td style="background:#2ea04360"><b>0.969</b> (0.768±0.172, 25 seeds)</td><td style="background:#cf222e60">0.0</td><td>?</td><td>?</td></tr>
-<tr><td>Noise=0.5 (GT edges)</td><td style="background:#2ea04360"><b>0.999+</b> (24/24 ≥0.998)</td><td style="background:#cf222e60">0.0</td><td>?</td><td>?</td></tr>
+<tr><th rowspan="2">Condition</th><th colspan="4">GNN</th><th colspan="4">Known ODE</th></tr>
+<tr><th>W R2</th><th>tau R2</th><th>Cluster acc</th><th>Dale score</th><th>W R2</th><th>tau R2</th><th>gain R2</th><th>bias R2</th></tr>
+<tr><td>Clean (FC)</td><td style="background:#d2992260"><b>0.804</b> (0.574 mean)</td><td style="background:#cf222e60">0.0</td><td style="background:#cf222e60">0.351</td><td style="background:#d2992260">0.690</td><td>?</td><td>?</td><td>?</td><td>?</td></tr>
+<tr><td>Noise=0.05 (FC)</td><td style="background:#2ea04360"><b>0.982</b> (0.619±0.271)</td><td style="background:#cf222e60">0.0</td><td style="background:#cf222e60">0.386</td><td style="background:#d2992260">0.660</td><td>?</td><td>?</td><td>?</td><td>?</td></tr>
+<tr><td>Noise=0.5 (FC)</td><td style="background:#2ea04360"><b>0.999</b> (0.999±0.001)</td><td style="background:#cf222e60">0.0</td><td style="background:#cf222e60">0.429</td><td>?</td><td>?</td><td>?</td><td>?</td><td>?</td></tr>
+<tr><td>Clean (GT edges)</td><td style="background:#d2992260"><b>0.893</b> (0.710±0.180)</td><td style="background:#cf222e60">0.0</td><td style="background:#cf222e60">0.421</td><td>?</td><td>?</td><td>?</td><td>?</td><td>?</td></tr>
+<tr><td>Noise=0.05 (GT edges)</td><td style="background:#2ea04360"><b>0.969</b> (0.768±0.172)</td><td style="background:#cf222e60">0.0</td><td>?</td><td>?</td><td>?</td><td>?</td><td>?</td><td>?</td></tr>
+<tr><td>Noise=0.5 (GT edges)</td><td style="background:#2ea04360"><b>0.999+</b></td><td style="background:#cf222e60">0.0</td><td>?</td><td>?</td><td>?</td><td>?</td><td>?</td><td>?</td></tr>
 </table>
 
-_Tau is not extractable for CX (always R2=0.0). Dale's law constraint dramatically improves robustness (CV from >20% to 8.8%). Noise helps W recovery (+30% over clean)._
+_GNN tau R2=0.0 always — CX has no resting potential, so f_theta slope is too weak to extract tau. GNN gain/bias are entangled with W. Known_ode learns all 4 parameters directly with the correct activation structure._
 
-#### Larva (230 neurons — two-population: premotor softplus + motor softplus, W with gain correction)
+#### Larva (230 neurons — two-population: premotor softplus + motor softplus)
 
-Extractable parameters: **W** (synaptic weights, gain-corrected). Tau is fixed (=1.0) in the larva model, not learned. Gain (gp, gm) is entangled with W at destination.
+GT parameters: **W** (4,222 edges), **tau** (taup for premotor, taum for motor), **gain** (gp per premotor, gm per motor), **bias** (bp per premotor, bm per motor).
 
 <table>
-<tr><th>Condition</th><th>W R2</th><th>tau R2</th></tr>
-<tr><td>Clean (GT edges)</td><td style="background:#2ea04360"><b>0.908</b> (0.540 mean, CV=35%)</td><td style="background:#cf222e60">0.0 (fixed)</td></tr>
+<tr><th rowspan="2">Condition</th><th colspan="2">GNN</th><th colspan="4">Known ODE</th></tr>
+<tr><th>W R2</th><th>tau R2</th><th>W R2</th><th>tau R2</th><th>gain R2</th><th>bias R2</th></tr>
+<tr><td>Clean (GT edges)</td><td style="background:#2ea04360"><b>0.908</b> (0.540 mean, CV=35%)</td><td style="background:#cf222e60">0.0 (fixed)</td><td>?</td><td>?</td><td>?</td><td>?</td></tr>
 </table>
 
 _High seed variance dominates (CV=35%). Best single seed reaches 0.908 but robust mean is only 0.540. f_theta_msg_diff=50 is the strongest regularizer (+38% improvement)._
 
 #### Zebrafish oculomotor (609 neurons — linear integrator: dr/dt = -r + W @ r + I*v_in, tau=1)
 
-Extractable parameters: **W** (synaptic weights) only. No nonlinearity, no tau/V_rest to extract. Linear dynamics create degeneracy — many W produce identical activity.
+GT parameters: **W** only. No nonlinearity (identity activation), tau=1 fixed, no gain/bias. Linear dynamics create degeneracy — many W produce identical activity.
 
 <table>
-<tr><th>Condition</th><th>W R2</th><th>Cluster acc</th><th>Dale score</th></tr>
-<tr><td>Clean (FC)</td><td style="background:#cf222e60">0.022 (ceiling)</td><td style="background:#cf222e60">0.383</td><td style="background:#d2992260">0.571</td></tr>
-<tr><td>Clean (GT edges)</td><td style="background:#d2992260"><b>0.777</b> (0.697±0.029)</td><td style="background:#d2992260">0.68-0.71</td><td style="background:#d2992260">0.88-0.91</td></tr>
-<tr><td>Noise=0.05 (FC)</td><td style="background:#2ea04360"><b>0.918</b> (0.826, 3 seeds at DAL=93)</td><td style="background:#cf222e60">0.35-0.52</td><td>--</td></tr>
-<tr><td>Noise=0.5 (FC)</td><td style="background:#2ea04360"><b>0.9999</b> (running, ~0.989 mean at budget)</td><td style="background:#cf222e60">0.448</td><td>--</td></tr>
-<tr><td>Noise=0.05 (GT edges)</td><td style="background:#2ea04360"><b>0.983</b> (mean=0.983, CV=3.4%)</td><td style="background:#d2992260">0.68-0.71</td><td>--</td></tr>
+<tr><th rowspan="2">Condition</th><th colspan="3">GNN</th><th>Known ODE</th></tr>
+<tr><th>W R2</th><th>Cluster acc</th><th>Dale score</th><th>W R2</th></tr>
+<tr><td>Clean (FC)</td><td style="background:#cf222e60">0.022 (ceiling)</td><td style="background:#cf222e60">0.383</td><td style="background:#d2992260">0.571</td><td>?</td></tr>
+<tr><td>Clean (GT edges)</td><td style="background:#d2992260"><b>0.777</b> (0.697±0.029)</td><td style="background:#d2992260">0.68-0.71</td><td style="background:#d2992260">0.88-0.91</td><td>?</td></tr>
+<tr><td>Noise=0.05 (FC)</td><td style="background:#2ea04360"><b>0.918</b> (0.826, 3 seeds)</td><td style="background:#cf222e60">0.35-0.52</td><td>--</td><td>?</td></tr>
+<tr><td>Noise=0.5 (FC)</td><td style="background:#2ea04360"><b>0.9999</b> (running)</td><td style="background:#cf222e60">0.448</td><td>--</td><td>?</td></tr>
+<tr><td>Noise=0.05 (GT edges)</td><td style="background:#2ea04360"><b>0.983</b> (mean=0.983)</td><td style="background:#d2992260">0.68-0.71</td><td>--</td><td>?</td></tr>
 </table>
 
-_Linear degeneracy makes FC mode intractable. GT edges provide ~100x improvement. Noise=0.05 breaks the degeneracy, enabling 0.918 best single-seed even on FC — strongest evidence for noise-helps hypothesis._
+_Linear degeneracy makes FC mode intractable. GT edges provide ~100x improvement. Noise=0.05 breaks the degeneracy. Known_ode has only W to learn (identity activation, tau=1 fixed)._
 
 ### Table 4: LLM exploration runs
 

@@ -148,8 +148,9 @@ def get_training_files(log_dir, n_runs):
 def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
                           edges, gt_weights, gt_taus, gt_V_Rest,
                           type_list, n_types, n_neurons, cmap, device,
-                          extended, log_file, mu_activity, sigma_activity):
-    """Analysis plots for LinearODE: W, tau, V_rest R² + clustering."""
+                          extended, log_file, mu_activity, sigma_activity,
+                          ode_params=None):
+    """Analysis plots for LinearODE: W, tau, V_rest, gain, bias R² + clustering."""
     import torch.nn.functional as F
     sim = config.simulation
 
@@ -195,6 +196,12 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     else:
         learned_V_rest = np.zeros(n_neurons)
     learned_weights = to_numpy(get_model_W(model).squeeze())
+
+    # Gain and bias extraction (known_ode models)
+    gt_gain_np = ode_params.gt_gain(n_neurons) if ode_params is not None else None
+    gt_bias_np = ode_params.gt_bias(n_neurons) if ode_params is not None else None
+    learned_gain = to_numpy(model.get_learned_gain()[:n_neurons]) if hasattr(model, 'get_learned_gain') and model.get_learned_gain() is not None else None
+    learned_bias = to_numpy(model.get_learned_bias()[:n_neurons]) if hasattr(model, 'get_learned_bias') and model.get_learned_bias() is not None else None
 
     # --- Plot 1: Loss curve ---
     if os.path.exists(os.path.join(log_dir, 'loss.pt')):
@@ -280,11 +287,51 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     plt.savefig(f"{log_dir}/results/dynamics_params_{config_indices}.png", dpi=300)
     plt.close()
 
+    # --- Plot 6: Gain comparison (if available) ---
+    r_squared_gain = 0.0
+    if gt_gain_np is not None and learned_gain is not None:
+        fig = plt.figure(figsize=(10, 9))
+        plt.scatter(gt_gain_np, learned_gain, c=mc, s=1, alpha=0.3)
+        r_squared_gain, slope_gain = compute_r_squared(gt_gain_np, learned_gain)
+        plt.text(0.05, 0.95, f'R²: {r_squared_gain:.2f}\nslope: {slope_gain:.2f}',
+                 transform=plt.gca().transAxes, verticalalignment='top', fontsize=32)
+        plt.xlabel(r'true gain', fontsize=48)
+        plt.ylabel(r'learned gain', fontsize=48)
+        plt.xticks(fontsize=24)
+        plt.yticks(fontsize=24)
+        plt.tight_layout()
+        plt.savefig(f'{log_dir}/results/gain_comparison_{config_indices}.png', dpi=300)
+        plt.close()
+        print(f"gain R²: {_r2_color(r_squared_gain)}{r_squared_gain:.3f}{_ANSI_RESET}  slope: {slope_gain:.2f}")
+        logger.info(f"gain R²: {r_squared_gain:.3f}  slope: {slope_gain:.2f}")
+
+    # --- Plot 7: Bias comparison (if available) ---
+    r_squared_bias = 0.0
+    if gt_bias_np is not None and learned_bias is not None:
+        fig = plt.figure(figsize=(10, 9))
+        plt.scatter(gt_bias_np, learned_bias, c=mc, s=1, alpha=0.3)
+        r_squared_bias, slope_bias = compute_r_squared(gt_bias_np, learned_bias)
+        plt.text(0.05, 0.95, f'R²: {r_squared_bias:.2f}\nslope: {slope_bias:.2f}',
+                 transform=plt.gca().transAxes, verticalalignment='top', fontsize=32)
+        plt.xlabel(r'true bias', fontsize=48)
+        plt.ylabel(r'learned bias', fontsize=48)
+        plt.xticks(fontsize=24)
+        plt.yticks(fontsize=24)
+        plt.tight_layout()
+        plt.savefig(f'{log_dir}/results/bias_comparison_{config_indices}.png', dpi=300)
+        plt.close()
+        print(f"bias R²: {_r2_color(r_squared_bias)}{r_squared_bias:.3f}{_ANSI_RESET}  slope: {slope_bias:.2f}")
+        logger.info(f"bias R²: {r_squared_bias:.3f}  slope: {slope_bias:.2f}")
+
     # --- Write R² to log file ---
     if log_file:
         log_file.write(f"connectivity_R2: {r_squared_W:.4f}\n")
         log_file.write(f"tau_R2: {r_squared_tau:.4f}\n")
         log_file.write(f"V_rest_R2: {r_squared_V_rest:.4f}\n")
+        if gt_gain_np is not None and learned_gain is not None:
+            log_file.write(f"gain_R2: {r_squared_gain:.4f}\n")
+        if gt_bias_np is not None and learned_bias is not None:
+            log_file.write(f"bias_R2: {r_squared_bias:.4f}\n")
 
     # --- Eigenvalue / SVD analysis ---
     print('plot eigenvalue spectrum and eigenvector comparison ...')
@@ -771,7 +818,8 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                     model, config, config_indices, log_dir, logger, mc,
                     edges, gt_weights, gt_taus, gt_V_Rest,
                     type_list, n_types, n_neurons, cmap, device,
-                    extended, log_file, mu_activity, sigma_activity)
+                    extended, log_file, mu_activity, sigma_activity,
+                    ode_params=ode_params)
                 continue
 
             # print learnable parameters table

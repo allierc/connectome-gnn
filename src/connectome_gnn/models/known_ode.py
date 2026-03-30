@@ -57,7 +57,15 @@ class KnownODEBase(nn.Module):
         return None
 
     def get_learned_vrest(self):
-        """Return learned V_rest / bias. Override in subclass."""
+        """Return learned V_rest. Override in subclass."""
+        return None
+
+    def get_learned_gain(self):
+        """Return learned gain. Override in subclass."""
+        return None
+
+    def get_learned_bias(self):
+        """Return learned bias. Override in subclass."""
         return None
 
     def _activation(self, v):
@@ -171,6 +179,12 @@ class DrosophilaCxKnownODE(KnownODEBase):
     def get_learned_tau(self):
         return (2.6 + 2.4 * torch.tanh(self.raw_tau)).detach()
 
+    def get_learned_gain(self):
+        return torch.exp(self.g).detach()
+
+    def get_learned_bias(self):
+        return self.bias.detach()
+
     def _update(self, v, msg, excitation, particle_id):
         # tau = 2.6 + 2.4 * tanh(tau_raw) -> bounded [0.2, 5.0]
         tau = (2.6 + 2.4 * torch.tanh(self.raw_tau[particle_id])).unsqueeze(-1)
@@ -215,6 +229,12 @@ class LarvaKnownODE(KnownODEBase):
 
     def get_learned_tau(self):
         return F.softplus(self.raw_tau).detach()
+
+    def get_learned_gain(self):
+        return self.gain.detach()
+
+    def get_learned_bias(self):
+        return self.bias.detach()
 
     def _update(self, v, msg, excitation, particle_id):
         tau = F.softplus(self.raw_tau[particle_id]).unsqueeze(-1)
