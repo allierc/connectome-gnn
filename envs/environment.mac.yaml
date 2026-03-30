@@ -1,4 +1,4 @@
-name: flyvis-gnn-mac
+name: connectome-gnn
 channels:
   - pytorch
   - conda-forge

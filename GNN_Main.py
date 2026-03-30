@@ -8,12 +8,6 @@ import matplotlib
 matplotlib.use('Agg')  # set non-interactive backend before other imports
 import argparse
 
-# redirect PyTorch JIT cache to /scratch instead of /tmp (per IT request)
-if os.path.isdir('/scratch'):
-    os.environ['TMPDIR'] = '/scratch/allierc'
-    os.makedirs('/scratch/allierc', exist_ok=True)
-
-
 from connectome_gnn.config import NeuralGraphConfig
 from connectome_gnn.generators.graph_data_generator import data_generate
 from connectome_gnn.models.graph_trainer import data_train, data_test, data_train_INR

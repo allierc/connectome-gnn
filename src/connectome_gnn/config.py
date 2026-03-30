@@ -318,6 +318,7 @@ class GraphModelConfig(BaseModel):
     output_size: int = 1
     hidden_dim: int = 1
     n_layers: int = 1
+    use_residual_connection: bool = False
 
     input_size_2: int = 1
     output_size_2: int = 1
@@ -472,6 +473,12 @@ class TrainingConfig(BaseModel):
     batch_size: int = 1
     inr_batch_size: int = 8
     n_training_frames: int = 0  # 0 = use all frames; >0 = crop centered window
+
+    # Data split (frame indices). 0 = use defaults (all frames for train, no validation).
+    train_start: int = 0       # first usable frame (e.g. skip burn-in)
+    train_end: int = 0         # exclusive upper bound; 0 = n_frames
+    val_start: int = 0         # validation start; 0 = no validation
+    val_end: int = 0           # validation end; 0 = no validation
     batch_ratio: float = 1
     small_init_batch_size: bool = True
     embedding_step: int = 1000
@@ -614,6 +621,8 @@ class TrainingConfig(BaseModel):
     test_dataset: str = ""  # dataset for testing; empty = same as training dataset
 
     data_augmentation_loop: int = 40
+
+    rollout_train_steps: int = 1  # multi-step rollout training: unroll K steps and backprop
 
     recurrent_training: bool = False
     recurrent_training_start_epoch: int = 0
