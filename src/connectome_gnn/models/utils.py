@@ -302,7 +302,7 @@ def get_in_features(rr=None, embedding=None, model=[], model_name = [], max_radi
 
     return in_features
 
-def set_trainable_parameters(model=[], lr_embedding=[], lr=[],  lr_update=[], lr_W=[], lr_modulation=[], lr_NNR=[], lr_NNR_f=[]):
+def set_trainable_parameters(model=[], lr_embedding=[], lr=[],  lr_update=[], lr_W=[], lr_NNR=[], lr_NNR_f=[]):
 
     trainable_params = [param for _, param in model.named_parameters() if param.requires_grad]
     n_total_params = sum(p.numel() for p in trainable_params)
@@ -320,8 +320,6 @@ def set_trainable_parameters(model=[], lr_embedding=[], lr=[],  lr_update=[], lr
         if parameter.requires_grad:
             if name == 'a':
                 param_groups.append({'params': parameter, 'lr': lr_embedding, 'name': 'embedding'})
-            elif (name=='b') or ('lin_modulation' in name):
-                param_groups.append({'params': parameter, 'lr': lr_modulation, 'name': 'modulation'})
             elif 'f_theta' in name:
                 param_groups.append({'params': parameter, 'lr': lr_update, 'name': 'f_theta'})
             elif 'W' in name:

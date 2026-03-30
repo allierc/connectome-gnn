@@ -1,5 +1,5 @@
-description: "Drosophila CX — Linear ODE baseline, seed 00"
-dataset: drosophila_cx
+description: "Drosophila CX — Known ODE baseline, GT edges"
+dataset: drosophila_cx_known_ode_gt_edges
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ""
@@ -51,6 +51,7 @@ training:
   small_init_batch_size: false
   sparsity: none
   data_augmentation_loop: 500
+  use_gt_edges: true
   lr_W: 0.001
   lr: 0.001
   lr_embedding: 0.001

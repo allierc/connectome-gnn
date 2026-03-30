@@ -127,7 +127,7 @@ class DrosophilaCxKnownODE(KnownODEBase):
             torch.zeros(self.n_neurons, device=device, dtype=torch.float32))
         self.g = nn.Parameter(
             torch.zeros(self.n_neurons, device=device, dtype=torch.float32))
-        self.b = nn.Parameter(
+        self.bias = nn.Parameter(
             torch.zeros(self.n_neurons, device=device, dtype=torch.float32))
         self.alpha = 1.0
         self.beta = 5.0
@@ -146,7 +146,7 @@ class DrosophilaCxKnownODE(KnownODEBase):
 
         src_mod = src % self.n_neurons
         gain = torch.exp(self.g[src_mod]).unsqueeze(-1)
-        bias = self.b[src_mod].unsqueeze(-1)
+        bias = self.bias[src_mod].unsqueeze(-1)
         activated = gain * F.softplus(v[src] + bias, beta=self.beta)
         edge_msg = self.W[edge_W_idx] * activated
 
