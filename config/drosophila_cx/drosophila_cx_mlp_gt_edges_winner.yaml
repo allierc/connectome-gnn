@@ -75,5 +75,6 @@ claude:
   ucb_c: 0
   n_parallel: 4
   node_name: l4
+  n_cpus: 1
   generate_data: true
   training_time_target_min: 60
