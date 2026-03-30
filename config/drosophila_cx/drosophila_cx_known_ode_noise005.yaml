@@ -7,7 +7,7 @@ simulation:
     - - 1.0
       - 1.0
   n_neurons: 152
-  n_input_neurons: 0
+  n_input_neurons: 152
   n_neuron_types: 6
   n_edges: 0
   n_frames: 10000
@@ -43,14 +43,14 @@ plotting:
     - -5
     - 5
 training:
-  n_epochs: 20
+  n_epochs: 1
   n_runs: 1
   device: cpu
   batch_size: 2
   batch_ratio: 1
   small_init_batch_size: false
   sparsity: none
-  data_augmentation_loop: 500
+  data_augmentation_loop: 50
   lr_W: 0.001
   lr: 0.001
   lr_embedding: 0.001
