@@ -155,23 +155,45 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
 
     # --- Parameter table ---
     w_params = get_model_W(model).numel()
-    tau_params = model.raw_tau.numel()
-    vrest_params = model.V_rest.numel()
+    tau_params = model.raw_tau.numel() if hasattr(model, 'raw_tau') else 0
+    has_V_rest = hasattr(model, 'V_rest')
+    has_bias = hasattr(model, 'bias') and not has_V_rest
+    vrest_params = model.V_rest.numel() if has_V_rest else (model.bias.numel() if has_bias else 0)
     total_params = w_params + tau_params + vrest_params
+    if hasattr(model, 'g'):
+        total_params += model.g.numel()
+    if hasattr(model, 'gain'):
+        total_params += model.gain.numel()
     if hasattr(model, 's'):
         total_params += model.s.numel()
     print('learnable parameters:')
     print(f'  W (connectivity): {w_params:,}')
-    print(f'  tau (time constant): {tau_params:,}')
-    print(f'  V_rest (resting potential): {vrest_params:,}')
+    if tau_params > 0:
+        print(f'  tau (time constant): {tau_params:,}')
+    if has_V_rest:
+        print(f'  V_rest (resting potential): {vrest_params:,}')
+    elif has_bias:
+        print(f'  bias: {vrest_params:,}')
     print(f'  total: {total_params:,}')
 
     gt_taus_np = to_numpy(gt_taus[:n_neurons])
     gt_V_rest_np = to_numpy(gt_V_Rest[:n_neurons])
     gt_w_np = to_numpy(gt_weights)
 
-    learned_tau = to_numpy(F.softplus(model.raw_tau[:n_neurons]).detach())
-    learned_V_rest = to_numpy(model.V_rest[:n_neurons].detach())
+    if hasattr(model, 'get_learned_tau') and model.get_learned_tau() is not None:
+        learned_tau = to_numpy(model.get_learned_tau()[:n_neurons])
+    elif hasattr(model, 'raw_tau'):
+        learned_tau = to_numpy(F.softplus(model.raw_tau[:n_neurons]).detach())
+    else:
+        learned_tau = np.zeros(n_neurons)
+    if hasattr(model, 'get_learned_vrest') and model.get_learned_vrest() is not None:
+        learned_V_rest = to_numpy(model.get_learned_vrest()[:n_neurons])
+    elif has_V_rest:
+        learned_V_rest = to_numpy(model.V_rest[:n_neurons].detach())
+    elif has_bias:
+        learned_V_rest = to_numpy(model.bias[:n_neurons].detach())
+    else:
+        learned_V_rest = np.zeros(n_neurons)
     learned_weights = to_numpy(get_model_W(model).squeeze())
 
     # --- Plot 1: Loss curve ---
