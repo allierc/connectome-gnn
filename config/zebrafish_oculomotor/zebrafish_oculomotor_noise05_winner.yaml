@@ -1,22 +1,24 @@
 # Winner config: zebrafish_oculomotor_noise05_winner.yaml
-# Source: iter_003_slot_02 (connectivity_R2 = 0.988)
-# Exploration: 4 iterations, 1 block
-# Date: 2026-03-27
+# Source: iter_005_slot_00 (connectivity_R2 = 0.9999)
+# Exploration: 44 iterations, 6 blocks
+# Date: 2026-03-30
 #
 # Why this is the winner:
-#   - Noise=0.5 with noise005 winner config achieves near-perfect W recovery on favorable seeds
-#   - 10x stronger noise exceeds noise=0.05 peak (0.988 vs 0.918) but is fragile (50% failure rate)
+#   - Near-perfect W recovery at noise=0.5 with extended training (n_epochs=20, DAL=160)
+#   - Training volume eliminates bimodal convergence (100% success at 4/4 seeds vs 50% at budget)
 #
 # Metrics:
-#   connectivity_R2: 0.988 (best single seed)
-#   robust_mean:     0.506 +/- 0.539 (4 seeds, CV=106%)
-#   rollout_pearson: 0.999
-#   cluster_accuracy: 0.419
-#   spectral_radius: 0.830 (true: 0.900)
+#   connectivity_R2: 0.9999 (best single seed)
+#   robust_mean:     0.9999 +/- 0.0001 (4 seeds, CV=0.005%)
+#   rollout_pearson: 1.000
+#   cluster_accuracy: 0.585
+#   spectral_radius: 0.898 (true: 0.900)
 #
 # Key config differences from baseline:
 #   - noise_model_level: 0.5 (vs 0.05 in noise005 winner)
-#   - All other params identical to noise005 winner
+#   - n_epochs: 20 (vs 2 in noise005 winner) — key lever for robustness
+#   - data_augmentation_loop: 160 (vs 35 in noise005 winner) — extended training
+#   - Training time: ~2500 min (vs ~55 min at budget) — seeking minimum viable volume
 
 description: "Zebrafish oculomotor integrator — intrinsic noise 0.5 (from best noise005 config)"
 dataset: zebrafish_oculomotor_noise05
@@ -65,7 +67,7 @@ plotting:
 training:
   n_epochs: 20
   n_runs: 1
-  device: auto
+  device: cpu
   batch_size: 2
   batch_ratio: 1
   small_init_batch_size: false
@@ -91,8 +93,8 @@ training:
   w_init_scale: 1.0
   seed: 42
 claude:
-  n_epochs: 2
-  data_augmentation_loop: 35
+  n_epochs: 20
+  data_augmentation_loop: 160
   n_iter_block: 16
   ucb_c: 0
   n_parallel: 4

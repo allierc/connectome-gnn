@@ -15,7 +15,7 @@ simulation:
   baseline_value: 0
   noise_model_level: 0.5
   measurement_noise_level: 0.0
-  seed: 88003
+  seed: 128003
   connconstr_datapath: papers/Code_NN/Code_NN/Data/Figure5
   connconstr_model: larva
   connconstr_n_trials: 10
@@ -46,12 +46,12 @@ plotting:
 training:
   n_epochs: 2
   n_runs: 1
-  device: auto
+  device: cpu
   batch_size: 2
   batch_ratio: 1
   small_init_batch_size: false
   sparsity: none
-  data_augmentation_loop: 400
+  data_augmentation_loop: 450
   lr_W: 0.0001
   lr: 0.001
   lr_embedding: 0.001
@@ -61,7 +61,7 @@ training:
   coeff_g_phi_weight_L1: 0.0
   coeff_f_theta_weight_L1: 0
   coeff_g_phi_weight_L2: 0
-  coeff_f_theta_weight_L2: 0.003
+  coeff_f_theta_weight_L2: 0.001
   coeff_W_L1: 1.0e-05
   dale_law: true
   coeff_W_L2: 0.0001
@@ -70,10 +70,10 @@ training:
   w_init_mode: zeros
   w_init_scale: 1.0
   use_gt_edges: true
-  seed: 88503
+  seed: 128503
 claude:
   n_epochs: 2
-  data_augmentation_loop: 400
+  data_augmentation_loop: 450
   n_iter_block: 16
   ucb_c: 0
   n_parallel: 4

@@ -1,4 +1,4 @@
-description: 'Iter 2 Slot 2: lr_W=3e-3 (3x higher)'
+description: 'Iter 7 Slot 2: lr_W=5e-5 (test lower lr_W)'
 dataset: drosophila_cx_known_ode_noise005_02
 simulation:
   connectivity_file: to be specified
@@ -14,7 +14,7 @@ simulation:
   delta_t: 0.1
   baseline_value: 0
   noise_model_level: 0.05
-  seed: 3002
+  seed: 7002
   connconstr_datapath: papers/Code_NN/Code_NN/Data/Figure5
   connconstr_model: drosophila_cx
   connconstr_n_trials: 50
@@ -45,13 +45,13 @@ plotting:
 training:
   n_epochs: 2
   n_runs: 1
-  device: auto
+  device: cpu
   batch_size: 2
   batch_ratio: 1
   small_init_batch_size: false
   sparsity: none
   data_augmentation_loop: 500
-  lr_W: 0.003
+  lr_W: 5.0e-05
   lr: 0.001
   lr_embedding: 0.001
   coeff_g_phi_diff: 0
@@ -66,7 +66,7 @@ training:
   coeff_W_sign: 0.0
   regul_annealing_rate: 0
   w_init_mode: zeros
-  seed: 3502
+  seed: 7502
 claude:
   n_epochs: 2
   data_augmentation_loop: 500
