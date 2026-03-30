@@ -35,7 +35,7 @@ class LossRegularizer:
         'W_L1', 'W_L2', 'W_sign',
         'g_phi_diff', 'g_phi_norm', 'g_phi_weight', 'f_theta_weight',
         'f_theta_zero', 'f_theta_diff', 'f_theta_msg_diff', 'f_theta_msg_sign',
-        'missing_activity', 'model_a', 'model_b', 'modulation',
+        'missing_activity', 'model_a', 'model_b',
         'f_theta_linearity', 'f_theta_centering'
     ]
 
@@ -136,7 +136,6 @@ class LossRegularizer:
         self._coeffs['missing_activity'] = tc.coeff_missing_activity
         self._coeffs['model_a'] = tc.coeff_model_a
         self._coeffs['model_b'] = tc.coeff_model_b
-        self._coeffs['modulation'] = tc.coeff_lin_modulation
         self._coeffs['f_theta_linearity'] = getattr(tc, 'coeff_f_theta_linearity', 0.0)
         self._coeffs['f_theta_centering'] = getattr(tc, 'coeff_f_theta_centering', 0.0)
 

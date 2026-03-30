@@ -538,7 +538,6 @@ class TrainingConfig(BaseModel):
     lr: float = 0.001
     lr_embedding: float = 0.001
     lr_update: float = 0.0
-    lr_modulation: float = 0.0001
     lr_W: float = 0.0001
 
     lr_missing_activity: float = 0.0001
@@ -586,7 +585,6 @@ class TrainingConfig(BaseModel):
     coeff_missing_activity: float = 0  # Penalty for missing activity patterns
     coeff_model_a: float = 0  # Regularizer on embedding a
     coeff_model_b: float = 0  # Regularizer on bias b
-    coeff_lin_modulation: float = 0  # Regularizer on modulation network
 
     # -- f_theta linearity regularizer (unsupervised V_rest recovery) --
     coeff_f_theta_linearity: float = 0.0           # Penalize f_theta nonlinearity (0 = disabled)
