@@ -591,6 +591,7 @@ def run_cluster_training(state: ExplorationState, batch: BatchInfo):
             erase=True,
             node_name=state.node_name,
             n_cpus=state.n_cpus,
+            device=config.training.device,
             exploration_dir=state.exploration_dir,
             iteration=iteration
         )
@@ -683,6 +684,7 @@ Fix the bug. Do NOT make other changes."""
                 erase=True,
                 node_name=state.node_name,
                 n_cpus=state.n_cpus,
+                device=config.training.device,
                 exploration_dir=state.exploration_dir,
                 iteration=batch.iterations[slot_idx]
             )

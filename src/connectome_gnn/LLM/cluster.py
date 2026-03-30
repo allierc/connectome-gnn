@@ -55,7 +55,7 @@ def check_cluster_repo():
 
 def submit_cluster_job(slot, config_path, analysis_log_path, config_file_field,
                        log_dir, root_dir, erase=True, node_name='a100',
-                       n_cpus=2, exploration_dir=None, iteration=None):
+                       n_cpus=2, device='cuda', exploration_dir=None, iteration=None):
     """Submit a single flyvis training job to the cluster WITHOUT -K (non-blocking).
 
     Data generation and test/plot are handled locally in GNN_LLM.py.
@@ -68,7 +68,7 @@ def submit_cluster_job(slot, config_path, analysis_log_path, config_file_field,
     cluster_analysis_log = local_to_cluster(analysis_log_path, root_dir)
     cluster_error_log = local_to_cluster(error_details_path, root_dir)
 
-    cluster_train_cmd = f"python train_subprocess.py --config '{cluster_config_path}' --device cuda"
+    cluster_train_cmd = f"python train_subprocess.py --config '{cluster_config_path}' --device {device}"
     cluster_train_cmd += f" --log_file '{cluster_analysis_log}'"
     cluster_train_cmd += f" --config_file '{config_file_field}'"
     cluster_train_cmd += f" --error_log '{cluster_error_log}'"
