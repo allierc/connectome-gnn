@@ -1340,7 +1340,7 @@ def data_test_gnn_special(
             pred_slice = pred_slice[None,:]
 
         _dataset_base = os.path.basename(config.dataset)  # strip pre_folder (e.g. 'drosophila_cx/')
-    filename_ = _dataset_base.split('flyvis_')[1] if 'flyvis_' in _dataset_base else re.sub(r'_\d{2}$', '', _dataset_base)
+        filename_ = _dataset_base.split('flyvis_')[1] if 'flyvis_' in _dataset_base else re.sub(r'_\d{2}$', '', _dataset_base)
 
         # Determine which figures to create
         if len(selected_neuron_ids) > 50:
@@ -1428,7 +1428,7 @@ def data_test_gnn_special(
             log_file.write(f"test_pearson: {np.nanmean(pearson_all):.4f}\n")
 
         _dataset_base = os.path.basename(config.dataset)  # strip pre_folder (e.g. 'drosophila_cx/')
-    filename_ = _dataset_base.split('flyvis_')[1] if 'flyvis_' in _dataset_base else re.sub(r'_\d{2}$', '', _dataset_base)
+        filename_ = _dataset_base.split('flyvis_')[1] if 'flyvis_' in _dataset_base else re.sub(r'_\d{2}$', '', _dataset_base)
 
         # Create two figures with different neuron type selections
         for fig_name, selected_types in [
