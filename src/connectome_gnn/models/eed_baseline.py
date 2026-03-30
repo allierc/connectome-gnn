@@ -146,6 +146,21 @@ class EEDBaseline(nn.Module):
 
         return (x_next - v) / self.dt
 
+    def predict_dvdt(self, v, stim):
+        """Model-agnostic interface: (v, stim) → dvdt.
+
+        Args:
+            v: (B, n_neurons) or (n_neurons,) voltage tensor
+            stim: (B, n_input_neurons) or (n_input_neurons,) stimulus tensor
+        Returns:
+            dvdt with same batch shape as v
+        """
+        mlp_input = torch.cat([v, stim], dim=-1)
+        if mlp_input.dim() == 1:
+            mlp_input = mlp_input.unsqueeze(0)
+            return self._mlp_forward(mlp_input).squeeze(0)
+        return self._mlp_forward(mlp_input)
+
     def forward(self, state: NeuronState, edge_index: torch.Tensor = None,
                 data_id=[], k=[], return_all=False, **kwargs):
         """Compute dv/dt from neuron state. Same interface as MLPBaseline."""

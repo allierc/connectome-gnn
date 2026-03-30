@@ -94,8 +94,8 @@ def data_train(config=None, erase=False, best_model=None, style=None, device=Non
     if 'fly' in config.dataset or _connconstr:
         model_name = config.graph_model.signal_model_name.lower()
         if ('mlp' in model_name or 'eed' in model_name) and 'rnn' not in model_name:
-            from connectome_gnn.models.data_train_mlp import data_train_mlp
-            data_train_mlp(config, erase, best_model, device, log_file=log_file)
+            from connectome_gnn.models.data_train_rollout import data_train_rollout
+            data_train_rollout(config, erase, best_model, device, log_file=log_file)
         elif 'rnn' in model_name or 'lstm' in model_name:
             data_train_gnn_RNN(config, erase, best_model, device)
         else:

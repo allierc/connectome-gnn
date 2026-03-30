@@ -1,13 +1,10 @@
-"""MLP baseline trainer — EED-aligned training loop.
+"""Data-driven training loop for models with a predict_dvdt interface.
 
-Trains the MLP baseline model with:
-- dv/dt = MLP([v; stim]), integrated as x_{t+1} = x_t + dt * MLP(...)
-- MSE loss on predicted dv/dt vs finite-difference target (x_{t+1} - x_t) / dt
-- Random batch sampling of time frames
+Trains any model implementing predict_dvdt(v, stim) → dvdt using:
+- Euler integration: x_{t+1} = x_t + dt * predict_dvdt(x_t, stim_t)
+- MSE loss against ground-truth next state
+- Random batch sampling of time frames, optional multi-step rollout
 - Adam optimizer, TF32 precision
-
-This mirrors the training loop in NeuralGraph/LatentEvolution/latent.py,
-adapted for the flat MLP (no encoder/decoder, no latent space).
 """
 
 import os
@@ -27,8 +24,6 @@ from connectome_gnn.utils import create_log_dir
 
 _logger = get_logger(__name__)
 
-
-# --- Rollout evaluation ---
 
 def rollout_mse(model, voltage, stimulus, dt, n_windows=10, window_len=1000):
     """Compute mean rollout MSE over evenly-spaced windows.
@@ -61,8 +56,7 @@ def rollout_mse(model, voltage, stimulus, dt, n_windows=10, window_len=1000):
             frame_idx = s + t
             stim_t = stimulus[frame_idx]  # (n_input_neurons,)
 
-            mlp_input = torch.cat([v, stim_t], dim=0).unsqueeze(0)  # (1, N + n_input)
-            dvdt = model._mlp_forward(mlp_input).squeeze(0)         # (N,)
+            dvdt = model.predict_dvdt(v, stim_t)                     # (N,)
             v = v + dt * dvdt
 
             target = voltage[frame_idx + 1]
@@ -79,7 +73,7 @@ def plot_rollout_mse(model_mse, constant_mse, epoch, log_dir, dt_value):
     """Save rollout MSE vs time step plot."""
     fig, ax = plt.subplots(figsize=(8, 4))
     steps = np.arange(len(model_mse))
-    ax.plot(steps, model_mse, linewidth=1, label='MLP')
+    ax.plot(steps, model_mse, linewidth=1, label='model')
     ax.plot(steps, constant_mse, color='gray', linestyle='--', linewidth=0.8, label='constant (x=x₀)')
     ax.legend()
     ax.set_xlabel('Rollout Time Steps')
@@ -94,16 +88,13 @@ def plot_rollout_mse(model_mse, constant_mse, epoch, log_dir, dt_value):
     plt.close(fig)
 
 
-# --- Compiled training step ---
-
 def _compute_loss(model, x_t, stim_t, x_target, dt):
     """Compute MSE loss for one-step prediction.
 
-    x_pred = x_t + dt * MLP([x_t; stim_t])
+    x_pred = x_t + dt * predict_dvdt(x_t, stim_t)
     loss = MSE(x_pred, x_{t+1})
     """
-    mlp_input = torch.cat([x_t, stim_t], dim=1)  # (B, n_neurons + n_input_neurons)
-    dvdt = model._mlp_forward(mlp_input)          # (B, n_neurons)
+    dvdt = model.predict_dvdt(x_t, stim_t)         # (B, n_neurons)
     x_pred = x_t + dt * dvdt
     return F.mse_loss(x_pred, x_target)
 
@@ -118,8 +109,7 @@ def _compute_loss_multistep(model, voltage, stimulus, t_indices, dt, rollout_ste
     loss = torch.tensor(0.0, device=x.device)
     for k in range(rollout_steps):
         stim_k = stimulus[t_indices + k]              # (B, n_input)
-        mlp_input = torch.cat([x, stim_k], dim=1)
-        dvdt = model._mlp_forward(mlp_input)
+        dvdt = model.predict_dvdt(x, stim_k)
         x = x + dt * dvdt
         target = voltage[t_indices + k + 1]           # (B, N)
         loss = loss + F.mse_loss(x, target)
@@ -131,10 +121,8 @@ _compute_loss_compiled = torch.compile(
 )
 
 
-# --- Training loop ---
-
-def data_train_mlp(config, erase, best_model, device, log_file=None):
-    """Train MLP baseline with EED-aligned training loop.
+def data_train_rollout(config, erase, best_model, device, log_file=None):
+    """Train a predict_dvdt-compatible model with Euler integration.
 
     Args:
         config: NeuralGraphConfig
@@ -152,13 +140,11 @@ def data_train_mlp(config, erase, best_model, device, log_file=None):
     torch.manual_seed(tc.seed)
     np.random.seed(tc.seed)
 
-    # TF32 precision for faster matmuls on Ampere+ GPUs
     if device.type == "cuda":
         torch.set_float32_matmul_precision("high")
 
     log_dir, logger = create_log_dir(config, erase)
 
-    # --- Load data ---
     load_fields = determine_load_fields(config)
     x_ts, _y_ts, type_list = load_flyvis_data(
         config.dataset, split='train', fields=load_fields, device=device,
@@ -171,7 +157,6 @@ def data_train_mlp(config, erase, best_model, device, log_file=None):
     sim.n_frames = n_frames
     _logger.info(f'dataset: {n_frames} frames, {n_neurons} neurons, {n_input_neurons} input neurons')
 
-    # --- Data split ---
     all_voltage = x_ts.voltage                          # (T, N)
     all_stimulus = x_ts.stimulus[:, :n_input_neurons]   # (T, n_input_neurons)
 
@@ -190,19 +175,20 @@ def data_train_mlp(config, erase, best_model, device, log_file=None):
         n_val_frames = val_voltage.shape[0]
         _logger.info(f'val split: frames [{tc.val_start}, {tc.val_end}) = {n_val_frames} frames')
 
-    # --- Build model ---
     checkpoint_path = None
     if tc.pretrained_model != '':
         checkpoint_path = tc.pretrained_model
     model, start_epoch = build_model(config, device, checkpoint_path=checkpoint_path)
+    assert hasattr(model, 'predict_dvdt'), (
+        f"{type(model).__name__} must implement predict_dvdt(v, stim) → dvdt "
+        "to be used with data_train_rollout"
+    )
 
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     _logger.info(f'total parameters: {n_params:,}')
 
-    # --- Optimizer (Adam, single LR — following EED) ---
     optimizer = torch.optim.Adam(model.parameters(), lr=tc.lr)
 
-    # --- Training parameters ---
     batch_size = tc.batch_size
     data_passes_per_epoch = tc.data_augmentation_loop
     n_epochs = tc.n_epochs
