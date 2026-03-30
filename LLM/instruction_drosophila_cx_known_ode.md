@@ -4,7 +4,7 @@
 
 Maximize **connectivity_R2** (PRIMARY) for the **Drosophila central complex ring attractor** using the **known_ode model** — the exact ground-truth ODE structure with learned parameters.
 
-The known_ode model uses the **exact activation function**: `g_phi = exp(g) * softplus(v + b, beta=5)` and **exact dynamics**: `dv/dt = alpha * (-v + msg + I) / tau`. All parameters are **learned from data**: W (synaptic weights), tau (time constants), g (gain), b (bias). This is an **upper bound** on what is achievable with perfect structural knowledge — unlike the GNN, the activation function form is given (not learned via MLP).
+The known_ode model uses the **exact activation function**: `g_phi = exp(g) * softplus(v + b, beta=5)` and **exact dynamics**: `dv/dt = alpha * (-v + msg + I) / tau`. All parameters are **learned from data**: W (synaptic weights), tau (time constants), g (gain), bias (per-neuron bias in activation). This is an **upper bound** on what is achievable with perfect structural knowledge — unlike the GNN, the activation function form is given (not learned via MLP).
 
 **Starting hypothesis**: "Known ODE with perfect structural knowledge achieves higher W R2 than GNN (GNN best: 0.804)"
 
@@ -67,7 +67,7 @@ dh/dt = alpha * (-h + exp(g_i) * softplus(h_j + b_j, beta=5) @ J^T + input) / ta
 
 The model is registered as `drosophila_cx_known_ode`. Unlike the GNN:
 
-- **No learned MLP curves**: The activation function `g_phi = exp(g) * softplus(v + b, beta=5)` is hardcoded with the exact ground-truth form. Parameters g (gain) and b (bias) are learned per neuron.
+- **No learned MLP curves**: The activation function `g_phi = exp(g) * softplus(v + b, beta=5)` is hardcoded with the exact ground-truth form. Parameters g (gain) and bias are learned per neuron.
 - **No embeddings**: No per-neuron type embedding vectors.
 - **Direct W learning**: Synaptic weight matrix W is learned directly on the graph edges.
 - **Direct tau learning**: Time constants tau are learned per neuron.

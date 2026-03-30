@@ -4,7 +4,7 @@
 
 Maximize **connectivity_R2** (PRIMARY) for the **Drosophila central complex ring attractor** using the **known_ode model** with **ground-truth edge topology** (9,722 edges instead of 22,952 FC edges).
 
-The known_ode model uses the **exact activation function**: `g_phi = exp(g) * softplus(v + b, beta=5)` and **exact dynamics**: `dv/dt = alpha * (-v + msg + I) / tau`. All parameters are **learned from data**: W (synaptic weights), tau (time constants), g (gain), b (bias). This is an **upper bound** on what is achievable with perfect structural knowledge.
+The known_ode model uses the **exact activation function**: `g_phi = exp(g) * softplus(v + b, beta=5)` and **exact dynamics**: `dv/dt = alpha * (-v + msg + I) / tau`. All parameters are **learned from data**: W (synaptic weights), tau (time constants), g (gain), bias (per-neuron bias in activation). This is an **upper bound** on what is achievable with perfect structural knowledge.
 
 With GT edges, the model only needs to learn W values on the **correct edges** — no need to zero out non-existent connections. This removes the sparsity recovery problem entirely.
 

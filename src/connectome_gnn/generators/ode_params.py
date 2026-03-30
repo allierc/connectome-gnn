@@ -151,12 +151,28 @@ class ODEParamsBase:
         """Whether this model has per-neuron resting potentials to recover."""
         return False
 
+    def has_gain(self) -> bool:
+        """Whether this model has per-neuron gain parameters to recover."""
+        return False
+
+    def has_bias(self) -> bool:
+        """Whether this model has per-neuron bias parameters to recover."""
+        return False
+
     def gt_tau(self, n_neurons: int) -> np.ndarray | None:
         """Ground truth tau array (n_neurons,). None if not applicable."""
         return None
 
     def gt_vrest(self, n_neurons: int) -> np.ndarray | None:
         """Ground truth V_rest array (n_neurons,). None if not applicable."""
+        return None
+
+    def gt_gain(self, n_neurons: int) -> np.ndarray | None:
+        """Ground truth gain array (n_neurons,). None if not applicable."""
+        return None
+
+    def gt_bias(self, n_neurons: int) -> np.ndarray | None:
+        """Ground truth bias array (n_neurons,). None if not applicable."""
         return None
 
     def derive_tau(self, slopes_f_theta: np.ndarray, n_neurons: int) -> np.ndarray:
@@ -1187,6 +1203,8 @@ class DrosophilaCxODEParams(ODEParamsBase):
     # --- Analysis interface ---
     def has_tau(self): return True
     def has_vrest(self): return False
+    def has_gain(self): return True
+    def has_bias(self): return True
 
     def gt_tau(self, n_neurons):
         """CX tau = 2.6 + 2.4 * tanh(tau_raw), bounded [0.2, 5.0]."""
@@ -1196,6 +1214,16 @@ class DrosophilaCxODEParams(ODEParamsBase):
 
     def gt_vrest(self, n_neurons):
         return None  # CX ODE has no resting potential term
+
+    def gt_gain(self, n_neurons):
+        """CX gain = exp(g) per neuron."""
+        if self.g is None: return None
+        return np.exp(self.g[:n_neurons].cpu().numpy())
+
+    def gt_bias(self, n_neurons):
+        """CX bias b in softplus(v + b)."""
+        if self.b is None: return None
+        return self.b[:n_neurons].cpu().numpy()
 
     def derive_tau(self, slopes_f_theta, n_neurons):
         """CX f_theta slope = -alpha/tau → tau = alpha/(-slope)."""
@@ -1775,6 +1803,8 @@ class LarvaODEParams(ODEParamsBase):
     # --- Analysis interface ---
     def has_tau(self): return True  # two distinct tau values (premotor/motor)
     def has_vrest(self): return False
+    def has_gain(self): return True
+    def has_bias(self): return True
 
     def gt_tau(self, n_neurons):
         """Premotor neurons have taup, motor neurons have taum."""
@@ -1782,6 +1812,22 @@ class LarvaODEParams(ODEParamsBase):
         tau[:self.n_premotor] = self.taup
         tau[self.n_premotor:self.n_premotor + self.n_motor] = self.taum
         return tau[:n_neurons]
+
+    def gt_gain(self, n_neurons):
+        """Per-neuron gain: gp for premotor, gm for motor."""
+        if self.gp is None or self.gm is None: return None
+        gain = np.zeros(n_neurons)
+        gain[:self.n_premotor] = self.gp[:self.n_premotor].cpu().numpy()
+        gain[self.n_premotor:self.n_premotor + self.n_motor] = self.gm[:self.n_motor].cpu().numpy()
+        return gain[:n_neurons]
+
+    def gt_bias(self, n_neurons):
+        """Per-neuron bias: bp for premotor, bm for motor."""
+        if self.bp is None or self.bm is None: return None
+        bias = np.zeros(n_neurons)
+        bias[:self.n_premotor] = self.bp[:self.n_premotor].cpu().numpy()
+        bias[self.n_premotor:self.n_premotor + self.n_motor] = self.bm[:self.n_motor].cpu().numpy()
+        return bias[:n_neurons]
 
     def gt_g_phi_func(self, v):
         """Softplus activation (gain-modulated per neuron).
