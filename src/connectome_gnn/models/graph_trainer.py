@@ -77,7 +77,7 @@ def data_train(config=None, erase=False, best_model=None, style=None, device=Non
         num_threads = int(num_proc)
         torch.set_num_threads(num_threads)
         print(f"CPU threads: {num_threads} (from LSB_DJOB_NUMPROC)")
-        _logger.info(f"CPU threads: {num_threads} (from LSB_DJOB_NUMPROC)")
+    print(f"device: {device}")
 
     seed = config.training.seed
 
