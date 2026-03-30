@@ -1,0 +1,102 @@
+# Winner config: flyvis_noise_005_null_edges_pc_100_winner.yaml
+# Source: iter_007_slot_02 (connectivity_R2 = 0.969)
+# Exploration: 8 iterations, 2 blocks
+# Date: 2026-03-29
+#
+# Why this is the winner:
+#   - Best single seed from Block 2 March config robustness test. Block 2 overall DISQUALIFIED (mean=0.835, CV=11.7%).
+#   - March MLP penalties with n_epochs=2 annealing. g_phi_L1=0.28 effective=0.110 in epoch 1 — above 0.1 threshold, degrades 2/4 seeds.
+#   - DAL=60 was 4x over time budget — needs correction to ~15.
+#
+# Metrics:
+#   connectivity_R2: 0.835 (mean +/- 0.098, 4 seeds, CV=11.7%) — single seed: 0.969
+#   tau_R2:          0.992
+#   V_rest_R2:       0.081
+#   cluster_accuracy: 0.751
+#
+# Key differences from baseline (all penalties=0):
+#   - n_epochs: 1 -> 2
+#   - coeff_g_phi_weight_L1: 0 -> 0.28
+#   - coeff_f_theta_weight_L1: 0 -> 0.05
+#   - coeff_f_theta_weight_L2: 0 -> 0.001
+#   - coeff_W_L2: 0 -> 1.5e-6
+description: designed by Claude (parallel flyvis)
+dataset: fly/flyvis_noise_005_null_edges_pc_100_02
+simulation:
+  connectivity_file: to be specified
+  adjacency_matrix: ''
+  params:
+  - - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+  n_neurons: 13741
+  n_input_neurons: 1736
+  n_neuron_types: 65
+  n_edges: 434112
+  n_extra_null_edges: 434112
+  null_edges_mode: per_column
+  n_frames: 64000
+  delta_t: 0.02
+  baseline_value: 0
+  visual_input_type: DAVIS
+  noise_model_level: 0.05
+  seed: 7002
+graph_model:
+  signal_model_name: flyvis_A
+  prediction: first_derivative
+  input_size: 3
+  n_layers: 3
+  hidden_dim: 80
+  output_size: 1
+  input_size_update: 5
+  n_layers_update: 3
+  hidden_dim_update: 80
+  aggr_type: add
+  embedding_dim: 2
+  update_type: generic
+  g_phi_positive: true
+plotting:
+  colormap: tab20
+  arrow_length: 1
+  xlim:
+  - -2.5
+  - 2.5
+  ylim:
+  - -100
+  - 100
+training:
+  n_epochs: 2
+  n_runs: 1
+  device: auto
+  recurrent_training: false
+  batch_size: 4
+  batch_ratio: 1
+  small_init_batch_size: false
+  sparsity: none
+  data_augmentation_loop: 60
+  lr_W: 0.0009
+  lr: 0.0018
+  lr_embedding: 0.002325
+  coeff_g_phi_diff: 750
+  coeff_f_theta_msg_diff: 0
+  coeff_g_phi_norm: 0.9
+  coeff_g_phi_weight_L1: 0.28
+  coeff_f_theta_weight_L1: 0.05
+  coeff_g_phi_weight_L2: 0
+  coeff_f_theta_weight_L2: 0.001
+  coeff_W_L1: 0
+  coeff_W_L2: 1.5e-06
+  w_init_mode: randn_scaled
+  use_gt_edges: true
+  regul_annealing_rate: 0.5
+  seed: 7502
+claude:
+  n_epochs: 2
+  data_augmentation_loop: 60
+  n_iter_block: 12
+  ucb_c: 1.414
+  n_parallel: 4
+  node_name: a100
+  generate_data: true
+  training_time_target_min: 100
