@@ -52,6 +52,14 @@ class KnownODEBase(nn.Module):
             W_init = torch.randn(n_w, device=device, dtype=torch.float32)
         self.W = nn.Parameter(W_init[:, None], requires_grad=True)
 
+    def get_learned_tau(self):
+        """Return learned tau with the correct transform. Override in subclass."""
+        return None
+
+    def get_learned_vrest(self):
+        """Return learned V_rest / bias. Override in subclass."""
+        return None
+
     def _activation(self, v):
         """Apply g_phi activation to source voltages. Override in subclass."""
         raise NotImplementedError
@@ -106,6 +114,12 @@ class FlyvisKnownODE(KnownODEBase):
     def _activation(self, v):
         return F.relu(v)
 
+    def get_learned_tau(self):
+        return F.softplus(self.raw_tau).detach()
+
+    def get_learned_vrest(self):
+        return self.V_rest.detach()
+
     def _update(self, v, msg, excitation, particle_id):
         tau = F.softplus(self.raw_tau[particle_id]).unsqueeze(-1)
         v_rest = self.V_rest[particle_id].unsqueeze(-1)
@@ -154,6 +168,9 @@ class DrosophilaCxKnownODE(KnownODEBase):
         msg.scatter_add_(0, dst.unsqueeze(1).expand_as(edge_msg), edge_msg)
         return msg
 
+    def get_learned_tau(self):
+        return (2.6 + 2.4 * torch.tanh(self.raw_tau)).detach()
+
     def _update(self, v, msg, excitation, particle_id):
         # tau = 2.6 + 2.4 * tanh(tau_raw) -> bounded [0.2, 5.0]
         tau = (2.6 + 2.4 * torch.tanh(self.raw_tau[particle_id])).unsqueeze(-1)
@@ -195,6 +212,12 @@ class LarvaKnownODE(KnownODEBase):
 
     def _activation(self, v):
         return F.softplus(v)
+
+    def get_learned_tau(self):
+        return F.softplus(self.raw_tau).detach()
+
+    def get_learned_vrest(self):
+        return self.bias.detach()
 
     def _update(self, v, msg, excitation, particle_id):
         tau = F.softplus(self.raw_tau[particle_id]).unsqueeze(-1)
