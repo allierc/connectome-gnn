@@ -45,6 +45,8 @@ class MLPBaseline(nn.Module):
         self.update_type = model_config.update_type
         self.calcium_type = simulation_config.calcium_type
 
+        self.use_residual_connection = model_config.use_residual_connection
+
         input_size = self.n_neurons + self.n_input_neurons  # [v; stim_input_neurons]
         output_size = self.n_neurons
         hidden_dim = model_config.hidden_dim
@@ -53,14 +55,14 @@ class MLPBaseline(nn.Module):
         # Encoder: input → hidden
         self.encoder = nn.Linear(input_size, hidden_dim, device=device)
 
-        # Evolver: hidden → hidden (with residual connection)
+        # Evolver: hidden → hidden
         evolver_layers = []
         for _ in range(n_layers - 2):
             evolver_layers.append(nn.Linear(hidden_dim, hidden_dim, device=device))
         self.evolver = nn.ModuleList(evolver_layers)
 
         # Zero-init evolver's final layer so residual starts as identity
-        if len(self.evolver) > 0:
+        if self.use_residual_connection and len(self.evolver) > 0:
             nn.init.zeros_(self.evolver[-1].weight)
             nn.init.zeros_(self.evolver[-1].bias)
 
@@ -72,15 +74,18 @@ class MLPBaseline(nn.Module):
         self.W = nn.Parameter(torch.zeros(max(n_w, 1), 1, device=device), requires_grad=False)
 
     def _mlp_forward(self, x):
-        """Forward: encoder → evolver (with residual) → decoder."""
+        """Forward: encoder → evolver → decoder."""
         h = F.relu(self.encoder(x))
-        # Evolver with residual: h = h + evolver(h)
-        e = h
-        for layer in self.evolver[:-1]:
-            e = F.relu(layer(e))
-        if len(self.evolver) > 0:
-            e = self.evolver[-1](e)  # no activation on last evolver layer
-            h = h + e
+        if self.use_residual_connection:
+            e = h
+            for layer in self.evolver[:-1]:
+                e = F.relu(layer(e))
+            if len(self.evolver) > 0:
+                e = self.evolver[-1](e)
+                h = h + e
+        else:
+            for layer in self.evolver:
+                h = F.relu(layer(h))
         return self.decoder_layer(h)
 
     def predict_dvdt(self, v, stim):

@@ -25,6 +25,7 @@ graph_model:
 
   n_layers: 5
   hidden_dim: 256
+  use_residual_connection: true
 
   input_size: 3
   output_size: 1

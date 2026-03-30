@@ -318,6 +318,7 @@ class GraphModelConfig(BaseModel):
     output_size: int = 1
     hidden_dim: int = 1
     n_layers: int = 1
+    use_residual_connection: bool = False
 
     input_size_2: int = 1
     output_size_2: int = 1
