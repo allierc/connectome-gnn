@@ -216,9 +216,6 @@ class LarvaKnownODE(KnownODEBase):
     def get_learned_tau(self):
         return F.softplus(self.raw_tau).detach()
 
-    def get_learned_vrest(self):
-        return self.bias.detach()
-
     def _update(self, v, msg, excitation, particle_id):
         tau = F.softplus(self.raw_tau[particle_id]).unsqueeze(-1)
         b = self.bias[particle_id].unsqueeze(-1)
