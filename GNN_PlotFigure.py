@@ -1,5 +1,6 @@
 import os
 import glob
+import re
 import time
 import logging
 import warnings
@@ -565,7 +566,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
     sim = config.simulation
     model_config = config.graph_model
     tc = config.training
-    config_indices = config.dataset.split('flyvis_')[1] if 'flyvis_' in config.dataset else config.dataset.rstrip('_0123456789')
+    config_indices = os.path.basename(config.dataset).split('flyvis_')[1] if 'flyvis_' in config.dataset else re.sub(r'_\d{2}$', '', os.path.basename(config.dataset))
 
 
     colors_65 = sns.color_palette("Set3", 12) * 6  # pastel, repeat until 65
@@ -698,7 +699,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
         analyze_ising_model(x_ts, sim.delta_t, log_dir, logger, to_numpy(edges))
 
     # Activity plots
-    config_indices = config.dataset.split('flyvis_')[1] if 'flyvis_' in config.dataset else config.dataset.rstrip('_0123456789')
+    config_indices = os.path.basename(config.dataset).split('flyvis_')[1] if 'flyvis_' in config.dataset else re.sub(r'_\d{2}$', '', os.path.basename(config.dataset))
     neuron_types = to_numpy(type_list).astype(int).squeeze()
 
     # Get activity traces for all frames — voltage is (T, N), transpose to (N, T)
@@ -792,7 +793,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
         plt.close()
 
     if epoch_list[0] != 'all':
-        config_indices = config.dataset.split('flyvis_')[1] if 'flyvis_' in config.dataset else config.dataset.rstrip('_0123456789')
+        config_indices = os.path.basename(config.dataset).split('flyvis_')[1] if 'flyvis_' in config.dataset else re.sub(r'_\d{2}$', '', os.path.basename(config.dataset))
         files, file_id_list = get_training_files(log_dir, tc.n_runs)
 
         for epoch in epoch_list:

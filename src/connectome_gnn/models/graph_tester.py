@@ -8,6 +8,7 @@ Contains:
 
 import glob
 import os
+import re
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -475,7 +476,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
             ax.set_ylabel('Jacobian $\\partial F / \\partial v$', fontsize=24)
             ax.set_title(f'Jacobian connectivity $R^2$ = {jac_r2:.4f}', fontsize=18)
             plt.tight_layout()
-            _idx = config.dataset.rstrip('_0123456789')
+            _idx = re.sub(r'_\d{2}$', '', os.path.basename(config.dataset))
             plt.savefig(f"{results_dir}/weights_comparison_{_idx}.png", dpi=300)
             plt.close()
             logger.info(f'saved weights_comparison_{_idx}.png')
@@ -500,7 +501,8 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     start_frame = 0
     end_frame = activity_true.shape[1]
 
-    filename_ = config.dataset.split('flyvis_')[1] if 'flyvis_' in config.dataset else config.dataset.rstrip('_0123456789')
+    _dataset_base = os.path.basename(config.dataset)  # strip pre_folder (e.g. 'drosophila_cx/')
+    filename_ = _dataset_base.split('flyvis_')[1] if 'flyvis_' in _dataset_base else re.sub(r'_\d{2}$', '', _dataset_base)
 
     # Neurons per type for "all" plot: more for small models
     if n_neuron_types <= 10:
@@ -1273,7 +1275,7 @@ def data_test_gnn_special(
     if visualize:
         logger.info('generating lossless video ...')
 
-        output_name = config.dataset.split('flyvis_')[1] if 'flyvis_' in config.dataset else config.dataset.rstrip('_0123456789')
+        output_name = os.path.basename(config.dataset).split('flyvis_')[1] if 'flyvis_' in config.dataset else re.sub(r'_\d{2}$', '', os.path.basename(config.dataset))
         src = f"{log_dir}/tmp_recons/Fig_0_000000.png"
         dst = f"{log_dir}/results/input_{output_name}.png"
         with open(src, "rb") as fsrc, open(dst, "wb") as fdst:
@@ -1337,7 +1339,8 @@ def data_test_gnn_special(
         if len(selected_neuron_ids)==1:
             pred_slice = pred_slice[None,:]
 
-        filename_ = config.dataset.split('flyvis_')[1] if 'flyvis_' in config.dataset else config.dataset.rstrip('_0123456789')
+        _dataset_base = os.path.basename(config.dataset)  # strip pre_folder (e.g. 'drosophila_cx/')
+    filename_ = _dataset_base.split('flyvis_')[1] if 'flyvis_' in _dataset_base else re.sub(r'_\d{2}$', '', _dataset_base)
 
         # Determine which figures to create
         if len(selected_neuron_ids) > 50:
@@ -1424,7 +1427,8 @@ def data_test_gnn_special(
             # log_file.write(f"test_R2: {np.nanmean(r2_all):.4f}\n")
             log_file.write(f"test_pearson: {np.nanmean(pearson_all):.4f}\n")
 
-        filename_ = config.dataset.split('flyvis_')[1] if 'flyvis_' in config.dataset else config.dataset.rstrip('_0123456789')
+        _dataset_base = os.path.basename(config.dataset)  # strip pre_folder (e.g. 'drosophila_cx/')
+    filename_ = _dataset_base.split('flyvis_')[1] if 'flyvis_' in _dataset_base else re.sub(r'_\d{2}$', '', _dataset_base)
 
         # Create two figures with different neuron type selections
         for fig_name, selected_types in [
