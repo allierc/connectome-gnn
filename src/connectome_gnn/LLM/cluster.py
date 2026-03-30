@@ -55,7 +55,7 @@ def check_cluster_repo():
 
 def submit_cluster_job(slot, config_path, analysis_log_path, config_file_field,
                        log_dir, root_dir, erase=True, node_name='a100',
-                       exploration_dir=None, iteration=None):
+                       n_cpus=2, exploration_dir=None, iteration=None):
     """Submit a single flyvis training job to the cluster WITHOUT -K (non-blocking).
 
     Data generation and test/plot are handled locally in GNN_LLM.py.
@@ -93,7 +93,7 @@ def submit_cluster_job(slot, config_path, analysis_log_path, config_file_field,
 
     ssh_cmd = (
         f"ssh {CLUSTER_SSH} \"cd {CLUSTER_ROOT_DIR} && "
-        f"bsub -n 8 -gpu 'num=1' -q gpu_{node_name} -W 6000 "
+        f"bsub -n {n_cpus} -gpu 'num=1' -q gpu_{node_name} -W 6000 "
         f"-o '{cluster_stdout}' -e '{cluster_stderr}' "
         f"'bash {cluster_script}'\""
     )
