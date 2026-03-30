@@ -64,6 +64,10 @@ def submit_cluster_job(slot, config_path, analysis_log_path, config_file_field,
     cluster_script_path = f"{log_dir}/cluster_train_{slot:02d}.sh"
     error_details_path = f"{log_dir}/training_error_{slot:02d}.log"
 
+    # Resolve 'auto' → 'cuda' for cluster (PyTorch doesn't accept 'auto' as device string)
+    if device == 'auto':
+        device = 'cuda'
+
     cluster_config_path = local_to_cluster(config_path, root_dir)
     cluster_analysis_log = local_to_cluster(analysis_log_path, root_dir)
     cluster_error_log = local_to_cluster(error_details_path, root_dir)
