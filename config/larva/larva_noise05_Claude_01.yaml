@@ -15,7 +15,7 @@ simulation:
   baseline_value: 0
   noise_model_level: 0.5
   measurement_noise_level: 0.0
-  seed: 86001
+  seed: 126001
   connconstr_datapath: papers/Code_NN/Code_NN/Data/Figure5
   connconstr_model: larva
   connconstr_n_trials: 10
@@ -46,7 +46,7 @@ plotting:
 training:
   n_epochs: 2
   n_runs: 1
-  device: auto
+  device: cpu
   batch_size: 2
   batch_ratio: 1
   small_init_batch_size: false
@@ -70,7 +70,7 @@ training:
   w_init_mode: zeros
   w_init_scale: 1.0
   use_gt_edges: true
-  seed: 86501
+  seed: 126501
 claude:
   n_epochs: 2
   data_augmentation_loop: 450

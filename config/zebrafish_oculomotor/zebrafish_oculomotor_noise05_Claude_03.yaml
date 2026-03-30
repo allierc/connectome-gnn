@@ -16,7 +16,7 @@ simulation:
   baseline_value: 0
   noise_model_level: 0.5
   measurement_noise_level: 0.0
-  seed: 8003
+  seed: 48003
   connconstr_datapath: papers/Code_NN/Code_NN/Data/Figure5/goldman_data
   connconstr_model: zebrafish
   connconstr_use_pretrained: true
@@ -44,14 +44,14 @@ plotting:
   - -5
   - 5
 training:
-  n_epochs: 20
+  n_epochs: 2
   n_runs: 1
-  device: auto
+  device: cpu
   batch_size: 2
   batch_ratio: 1
   small_init_batch_size: false
   sparsity: none
-  data_augmentation_loop: 160
+  data_augmentation_loop: 40
   lr_W: 0.0001
   lr: 0.001
   lr_embedding: 0.001
@@ -61,22 +61,25 @@ training:
   coeff_g_phi_weight_L1: 0.0
   coeff_f_theta_weight_L1: 0
   coeff_g_phi_weight_L2: 0
-  coeff_f_theta_weight_L2: 0.001
+  coeff_f_theta_weight_L2: 0.01
   coeff_W_L1: 0.0001
-  coeff_W_L2: 5.0e-05
+  coeff_W_L2: 1.0e-05
   coeff_W_sign: 0.0
-  coeff_f_theta_diff: 0
+  coeff_f_theta_diff: 0.0
   dale_law: false
   regul_annealing_rate: 0
   w_init_mode: randn_scaled
   w_init_scale: 1.0
-  seed: 8503
+  seed: 48503
 claude:
   n_epochs: 2
   data_augmentation_loop: 40
+  block: 6
+  role: f_theta_weight_L2=0.01
   n_iter_block: 16
+  iteration: 48
   ucb_c: 0
   n_parallel: 4
-  node_name: l4
+  node_name: l5
   generate_data: true
   training_time_target_min: 60

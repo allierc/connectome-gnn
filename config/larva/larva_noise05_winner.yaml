@@ -1,27 +1,29 @@
 # Winner config: larva_noise05_winner.yaml
-# Source: iter_050_slot_01 (connectivity_R2 = 0.989)
-# Exploration: 56 iterations, 5 blocks
-# Date: 2026-03-28
+# Source: iter_086_slot_01 (connectivity_R2 = 0.965)
+# Exploration: 128 iterations, 8 blocks — COMPLETE
+# Date: 2026-03-29
 #
 # Why this is the winner:
-#   - g_phi_norm=0.005 is the breakthrough lever — constrains g_phi output scale, allowing W to recover
-#     correct magnitudes. Eliminates the ~29% blowup rate that plagued g_phi_norm=0.01.
-#   - Combined with dale_law=true, W_L2=1e-4, W_L1=1e-5, f_theta_msg_diff=150 for full regularization stack.
+#   - DAL=450 with full regularization stack eliminates blowups (2.9% vs 23% at DAL=400)
+#   - g_phi_norm=0.005 + dale_law=true + W_L2=1e-4 is the optimal combination for noise=0.5
+#   - ALL single-parameter levers exhaustively tested (65+ principles, 35+ falsified hypotheses)
 #
-# Metrics:
-#   connectivity_R2: 0.989 (best single seed)
-#   robust_mean:     0.873 +/- 0.077 (5 seeds, CV=8.8%)
-#   rollout_pearson: 1.000
-#   cluster_accuracy: 0.430
-#   spectral_radius: 1.316 (true: 1.316) — exact match at best seed
+# Metrics (35-seed FINAL):
+#   connectivity_R2: 0.965 (best single seed, Iter 86)
+#   robust_mean:     0.793 +/- 0.126 (35 seeds, CV=15.8%)
+#   success_rate:    82.9% (29/35 >= 0.7)
+#   blowup_rate:     2.9% (1/35)
+#   rollout_pearson: ~1.000
+#   spectral_radius: 51-191% of true (1.316)
 #
 # Key config differences from baseline (noise=0.05 best):
-#   - coeff_W_L2: 2e-5 -> 1e-4 (5x increase — prevents W collapse under strong noise)
-#   - coeff_W_L1: 1e-6 -> 1e-5 (10x increase — more sparsity pressure)
-#   - dale_law: false -> true (sign enforcement stabilizes recovery)
-#   - coeff_g_phi_norm: 0 -> 0.005 (constrains g_phi output scale, eliminates blowups)
-#   - coeff_f_theta_msg_diff: 50 -> 150 (stronger monotonicity on message input)
-#   - data_augmentation_loop: 600 -> 450 (adjusted to ~60 min training time)
+#   - dale_law: false -> true (Block 2 breakthrough)
+#   - coeff_W_L2: 2e-5 -> 1e-4 (Block 2 breakthrough)
+#   - coeff_W_L1: 1e-6 -> 1e-5 (Block 3 optimization)
+#   - coeff_f_theta_msg_diff: 50 -> 150 (Block 4 adoption)
+#   - coeff_g_phi_norm: 0 -> 0.005 (Block 5 winner)
+#   - data_augmentation_loop: 600 -> 450 (Block 7 adoption, near-eliminates blowups)
+#
 description: designed by Claude (parallel flyvis)
 dataset: larva_noise05_01
 simulation:
@@ -39,7 +41,7 @@ simulation:
   baseline_value: 0
   noise_model_level: 0.5
   measurement_noise_level: 0.0
-  seed: 50001
+  seed: 86001
   connconstr_datapath: papers/Code_NN/Code_NN/Data/Figure5
   connconstr_model: larva
   connconstr_n_trials: 10
@@ -70,7 +72,7 @@ plotting:
 training:
   n_epochs: 2
   n_runs: 1
-  device: auto
+  device: cpu
   batch_size: 2
   batch_ratio: 1
   small_init_batch_size: false
@@ -94,7 +96,7 @@ training:
   w_init_mode: zeros
   w_init_scale: 1.0
   use_gt_edges: true
-  seed: 50501
+  seed: 86501
 claude:
   n_epochs: 2
   data_augmentation_loop: 450

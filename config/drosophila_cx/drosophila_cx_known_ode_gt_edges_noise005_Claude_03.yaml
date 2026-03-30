@@ -1,4 +1,4 @@
-description: 'Iter 0 Slot 3: lr_W=3e-3 (baseline=1e-3)'
+description: "Iter 8 Slot 3: lr=3e-3 (parent lr=1e-3) \u2014 parent=iter2"
 dataset: drosophila_cx_known_ode_gt_edges_noise005_03
 simulation:
   connectivity_file: to be specified
@@ -14,7 +14,7 @@ simulation:
   delta_t: 0.1
   baseline_value: 0
   noise_model_level: 0.05
-  seed: 4003
+  seed: 8003
   connconstr_datapath: papers/Code_NN/Code_NN/Data/Figure5
   connconstr_model: drosophila_cx
   connconstr_n_trials: 50
@@ -45,16 +45,16 @@ plotting:
 training:
   n_epochs: 2
   n_runs: 1
-  device: auto
+  device: cpu
   batch_size: 2
   batch_ratio: 1
   small_init_batch_size: false
   sparsity: none
   data_augmentation_loop: 500
   use_gt_edges: true
-  lr_W: 0.003
-  lr: 0.001
-  lr_embedding: 0.001
+  lr_W: 0.0001
+  lr: 0.003
+  lr_embedding: 0.003
   coeff_g_phi_diff: 0
   coeff_f_theta_msg_diff: 0
   coeff_g_phi_norm: 0
@@ -67,7 +67,7 @@ training:
   coeff_W_sign: 0.0
   regul_annealing_rate: 0
   w_init_mode: zeros
-  seed: 4503
+  seed: 8503
 claude:
   n_epochs: 2
   data_augmentation_loop: 500
