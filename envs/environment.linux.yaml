@@ -1,4 +1,4 @@
-name: flyvis-gnn
+name: connectome-gnn
 channels:
   - conda-forge
   - defaults

@@ -78,6 +78,7 @@ build/
 .vscode/
 *.swp
 *.swo
+.env
 
 # Benchmark / one-off run scripts (root level only)
 run_*.py
