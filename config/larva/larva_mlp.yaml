@@ -7,7 +7,7 @@ simulation:
     - - 1.0
       - 1.0
   n_neurons: 230 # 178 premotor + 52 motor (from h5 data)
-  n_input_neurons: 0
+  n_input_neurons: 230
   n_neuron_types: 2 # premotor, motor
   n_edges: 4222 # Jpp=2390 + Jpm=1832
   n_frames: 2400 # 10 repeats x 2 conditions x 120 frames

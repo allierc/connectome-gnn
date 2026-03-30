@@ -43,7 +43,7 @@ simulation:
   - - 1.0
     - 1.0
   n_neurons: 152
-  n_input_neurons: 0
+  n_input_neurons: 152
   n_neuron_types: 6
   n_edges: 0
   n_frames: 10000

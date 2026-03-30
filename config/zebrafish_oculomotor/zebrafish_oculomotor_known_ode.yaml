@@ -7,7 +7,7 @@ simulation:
     - - 1.0
       - 1.0
   n_neurons: 609  # from Goldman lab ConnMatrix
-  n_input_neurons: 0
+  n_input_neurons: 609
   n_neuron_types: 10  # integ, Ibnm, Ibni, MO, axlm, axl, vest, abdm, abdi, vspns (code uses 10 categories)
   n_edges: 0  # determined from connectome (nonzero entries after processing)
   n_frames: 21000  # 3 pulse repeats x 7000 frames
