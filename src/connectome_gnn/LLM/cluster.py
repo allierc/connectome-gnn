@@ -91,13 +91,19 @@ def submit_cluster_job(slot, config_path, analysis_log_path, config_file_field,
     cluster_stdout = f"{cluster_log_dir}/cluster_train_{slot:02d}.out"
     cluster_stderr = f"{cluster_log_dir}/cluster_train_{slot:02d}.err"
 
+    if device == 'cpu':
+        bsub_resources = f"bsub -n {n_cpus} -W 6000"
+        queue_label = "cpu"
+    else:
+        bsub_resources = f"bsub -n {n_cpus} -gpu 'num=1' -q gpu_{node_name} -W 6000"
+        queue_label = f"gpu_{node_name}"
     ssh_cmd = (
         f"ssh {CLUSTER_SSH} \"cd {CLUSTER_ROOT_DIR} && "
-        f"bsub -n {n_cpus} -gpu 'num=1' -q gpu_{node_name} -W 6000 "
+        f"{bsub_resources} "
         f"-o '{cluster_stdout}' -e '{cluster_stderr}' "
         f"'bash {cluster_script}'\""
     )
-    print(f"\033[96m  slot {slot}: submitting to gpu_{node_name} via SSH\033[0m", flush=True)
+    print(f"\033[96m  slot {slot}: submitting to {queue_label} via SSH\033[0m", flush=True)
     result = subprocess.run(ssh_cmd, shell=True, capture_output=True, text=True)
 
     match = re.search(r'Job <(\d+)>', result.stdout)
