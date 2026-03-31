@@ -1,0 +1,105 @@
+# Winner config: zebrafish_oculomotor_noise005_winner.yaml
+# Source: iter_019_slot_02 (connectivity_R2 = 0.918)
+# Exploration: 128 iterations, 10 blocks (COMPLETE)
+# Date: 2026-03-27
+#
+# Why this is the winner:
+#   - Noise=0.05 breaks linear degeneracy of zebrafish oculomotor integrator (clean R2~0.02)
+#   - DAL=93 gives sufficient training volume for 609-neuron FC W recovery (mean R2~0.83, 3 seeds)
+#   - W_L1=1e-4 is the key regularization lever (10x baseline), enforcing sparsity on 370K FC edges
+#   - 128 iterations exhaustively tested 24+ hyperparameters — 41 hypotheses falsified, 35 principles established
+#
+# Metrics:
+#   connectivity_R2: 0.918 (best single seed, Iter 19 DAL=93)
+#   robust_mean:     0.826 +/- 0.095 (3 seeds @ DAL=93, CV=11.5%)
+#   DAL=70_mean:     0.688 +/- 0.146 (5 seeds, CV=21.2%, PARTIALLY ROBUST)
+#   DAL=40_mean:     0.450 +/- 0.149 (8 seeds, CV=33.1%, budget-matched)
+#   DAL=35_mean:     0.371 +/- 0.126 (16 seeds, CV=34%, FRAGILE)
+#   rollout_pearson: 0.9997
+#   cluster_accuracy: 0.294
+#   spectral_radius: 0.919 (true: 0.900)
+#
+# Key config differences from baseline:
+#   - coeff_W_L1: 1e-5 -> 1e-4 (10x stronger sparsity)
+#   - data_augmentation_loop: 160 -> 93 (reduced to avoid overtraining at DAL=150)
+#   - coeff_W_sign: 0 (Dale's law hurts)
+description: designed by Claude (parallel flyvis)
+dataset: zebrafish_oculomotor_noise005_02
+simulation:
+  connectivity_file: to be specified
+  adjacency_matrix: ''
+  params:
+  - - 1.0
+    - 1.0
+  n_neurons: 609
+  n_input_neurons: 609
+  n_neuron_types: 10
+  n_edges: 0
+  n_frames: 21000
+  delta_t: 0.001
+  baseline_value: 0
+  noise_model_level: 0.05
+  measurement_noise_level: 0.0
+  seed: 19002
+  connconstr_datapath: papers/Code_NN/Code_NN/Data/Figure5/goldman_data
+  connconstr_model: zebrafish
+  connconstr_use_pretrained: true
+graph_model:
+  signal_model_name: zebrafish_oculomotor
+  prediction: first_derivative
+  input_size: 3
+  n_layers: 3
+  hidden_dim: 64
+  output_size: 1
+  input_size_update: 5
+  n_layers_update: 3
+  hidden_dim_update: 64
+  aggr_type: add
+  embedding_dim: 2
+  update_type: generic
+  g_phi_positive: false
+plotting:
+  colormap: tab10
+  arrow_length: 1
+  xlim:
+  - -2.5
+  - 2.5
+  ylim:
+  - -5
+  - 5
+training:
+  n_epochs: 2
+  n_runs: 1
+  device: cpu
+  batch_size: 2
+  batch_ratio: 1
+  small_init_batch_size: false
+  sparsity: none
+  data_augmentation_loop: 93
+  lr_W: 0.0001
+  lr: 0.001
+  lr_embedding: 0.001
+  coeff_g_phi_diff: 1500
+  coeff_f_theta_msg_diff: 0
+  coeff_g_phi_norm: 0
+  coeff_g_phi_weight_L1: 0.0
+  coeff_f_theta_weight_L1: 0
+  coeff_g_phi_weight_L2: 0
+  coeff_f_theta_weight_L2: 0.001
+  coeff_W_L1: 0.0001
+  coeff_W_L2: 1.0e-05
+  coeff_W_sign: 0.0
+  regul_annealing_rate: 0
+  w_init_mode: randn_scaled
+  w_init_scale: 1.0
+  seed: 19502
+claude:
+  n_epochs: 2
+  data_augmentation_loop: 93
+  n_iter_block: 16
+  ucb_c: 0
+  n_parallel: 4
+  node_name: a100
+  n_cpus: 1
+  generate_data: true
+  training_time_target_min: 60
