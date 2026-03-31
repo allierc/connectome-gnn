@@ -3,10 +3,10 @@ data_paths.json
 
 # Track only biomodel config folders (fly, drosophila_cx, larva, zebrafish_oculomotor)
 config/*
-!config/fly/
-!config/drosophila_cx/
-!config/larva/
-!config/zebrafish_oculomotor/
+# !config/fly/
+# !config/drosophila_cx/
+# !config/larva/
+# !config/zebrafish_oculomotor/
 config/fly/archive/
 config/fly/archive_2/
 
