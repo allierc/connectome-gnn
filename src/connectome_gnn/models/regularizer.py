@@ -198,7 +198,7 @@ class LossRegularizer:
         tc = self.train_config
         mc = self.model_config
         n_neurons = self.n_neurons
-        total_regul = torch.tensor(0.0, device=device)
+        total_regul = torch.zeros((), device=device)
 
         # Get model W (handle multi-run case not working here)
         # For low_rank_factorization, compute W from WL @ WR to allow gradient flow
@@ -403,7 +403,7 @@ class LossRegularizer:
         mc = self.model_config
         embedding_dim = mc.embedding_dim
         n_neurons = self.n_neurons
-        total_regul = torch.tensor(0.0, device=device)
+        total_regul = torch.zeros((), device=device)
 
         if in_features is None:
             return total_regul

@@ -267,7 +267,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
     _logger.info(f'network: {net}')
     _logger.info(f'initial tc.batch_size: {tc.batch_size}')
 
-    ids = np.arange(n_neurons)
+    ids = torch.arange(n_neurons, device=device)
 
     if tc.coeff_W_sign > 0:
         index_weight = []
@@ -300,6 +300,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
         dataset=config.dataset,
     )
     regularizer.set_activity_stats(x_ts, device)
+
+    model = torch.compile(model, mode='reduce-overhead', fullgraph=True)
 
     loss_components = {'loss': []}
 
@@ -386,12 +388,12 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
         # Main training loop. Suggested changes: loss function, gradient clipping,
         # data sampling strategy, LR scheduler steps, early stopping.
         # Do NOT change: function signature, model construction, data loading, return values.
-        _prof_wait, _prof_warmup, _prof_active = 3, 2, 3
+        _prof_wait, _prof_warmup, _prof_active = 10, 2, 3
         if _profiling:
             _prof = torch.profiler.profile(
                 activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
                 schedule=torch.profiler.schedule(wait=_prof_wait, warmup=_prof_warmup, active=_prof_active, repeat=1),
-                on_trace_ready=torch.profiler.tensorboard_trace_handler(_profiler_trace_dir),
+                on_trace_ready=torch.profiler.tensorboard_trace_handler(_profiler_trace_dir, use_gzip=True),
                 record_shapes=True,
                 with_stack=True,
                 profile_memory=True,
@@ -464,8 +466,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
             visual_input_list = []
             ids_index = 0
 
-            loss = torch.zeros(1, device=device)
-            regularizer.reset_iteration()
+            loss = torch.zeros((), device=device)
+            regularizer.reset_iteration(device=device)
 
             # Consecutive batch: pick one random start, use batch_size consecutive frames
             if tc.consecutive_batch:
@@ -537,7 +539,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
 
                 data_id = torch.zeros((ids_index, 1), dtype=torch.int, device=device)
                 y_batch = torch.cat(y_list, dim=0)
-                ids_batch = np.concatenate(ids_list, axis=0)
+                ids_batch = torch.cat(ids_list, dim=0)
                 k_batch = torch.cat(k_list, dim=0)
 
                 total_loss_regul += loss.item()
