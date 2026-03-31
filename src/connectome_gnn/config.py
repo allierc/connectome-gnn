@@ -664,6 +664,9 @@ class TrainingConfig(BaseModel):
     sub_batches: int = 1
     sequence: list[str] = ["to track", "to cell"]
 
+    max_iterations_per_epoch: int = 0  # 0 = use default (n_frames * aug / batch * 0.2); >0 = cap Niter
+    profiling: bool = False  # print per-iteration timing + write Chrome trace
+
     MPM_trainer : str = "F"
 
 
