@@ -1,0 +1,707 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb,amsfonts,mathrsfs}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{hyperref}
+\usepackage[dvipsnames]{xcolor}
+\hypersetup{colorlinks=true,linkcolor=BrickRed,citecolor=ForestGreen,urlcolor=NavyBlue}
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\C}{\mathbb{C}}
+\renewcommand{\H}{\mathbb{H}}
+\newcommand{\Weff}{W^{\text{eff}}}
+\newcommand{\Wc}{W^{\mathbb{C}}}
+\newcommand{\re}{\operatorname{Re}}
+\newcommand{\im}{\operatorname{Im}}
+\newcommand{\tr}{\operatorname{tr}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Z}{\mathbb{Z}}
+
+\title{Complex numbers in neural circuit representation}
+\author{Working Notes -- C.\ Allier}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\vspace{1em}
+\noindent\textit{Feynman showed that light through glass emerges from the interference of complex amplitudes $e^{i\phi}$: paths cancel or reinforce, and macroscopic optics falls out. Can the same mechanism operate in neural circuits? We construct the path integral for recurrent neural dynamics and show that it does not: the Onsager--Machlup action yields real, positive weights $e^{-\mathcal{A}/D}$ that concentrate but never cancel. Nor does the data help: GCaMP and Neuropixels signals are non-oscillatory, closing the standard route to $\C$ via carrier frequencies. The $\R$-valued representation has no interference, and the data offer no obvious way in.}
+
+\vspace{0.5em}
+\noindent\textit{Yet the need for complex numbers re-enters through a different door---and Feynman's interference returns. Biological circuits are anatomically fixed but must perform multiple tasks; a single real $W \in \R^{N\times N}$ cannot serve all contexts. Promoting the connectivity $W_{ij} \to W_{ij}^{\C} = |W_{ij}|\,e^{i\varphi_{ij}}$ while keeping $x_i \in \R$ rescues interference at the message-passing step: synaptic signals $M_i = \sum_j |W_{ij}|\,e^{i\varphi_{ij}}\psi(x_j)$ can now constructively and destructively combine, just as scattered wavelets do in Feynman's glass. Imposing maximal constraint yields a $U(1)$ framework: one scalar $\alpha \in [0,2\pi)$ reconfigures all $N^2$ connections via $\Weff(\alpha) = \re(\Wc\, e^{-i\alpha})$, with three falsifiable predictions. Relaxing global to local symmetry---gauging $U(1)$---generates a hierarchy of models from one parameter to $N^2$, with direct biological interpretation at each level.}
+
+\tableofcontents
+\newpage
+
+%##############################################################################
+\part{Neural dynamics: the $\R$-representation}
+%##############################################################################
+
+Consider a recurrent network of $N$ neurons with state variables $x_i(t) \in \R$, where $i = 1,\ldots,N$ indexes neurons and $t \in [0,T]$ denotes time. The dynamics follow
+\begin{equation}
+\tau_i\,\dot{x}_i = -(x_i - V_{\text{rest},i}) + \sum_{j=1}^{N} W_{ij}\,\psi(x_j) + \eta_i(t)\,,
+\label{eq:real_dynamics}
+\end{equation}
+where $\tau_i > 0$ is the membrane time constant of neuron $i$, $V_{\text{rest},i} \in \R$ is its resting potential, $W_{ij} \in \R$ is the synaptic weight from neuron $j$ to neuron $i$ (with $W_{ii} = 0$), $\psi: \R \to \R$ is a nonlinear transfer function (typically $\psi = \tanh$), and $\eta_i(t)$ is Gaussian white noise with zero mean and variance $\sigma^2$.
+
+
+
+%##############################################################################
+\part{The photon analogy and why it fails}
+%##############################################################################
+
+Neural activity traces out trajectories $\mathbf{x}(t)$ through state space, 
+just as photons trace paths through spacetime. It is natural to ask whether 
+the path integral formalism that governs light propagation can also describe 
+neural dynamics---and in particular, whether interference between trajectories 
+plays any role.
+
+%==============================================================================
+\section{Feynman's path integral for light}
+\label{sec:feynman}
+%==============================================================================
+
+
+A photon propagates from spacetime event $A$ to event $B$. Feynman assigns to each path $P$ a unit-length complex amplitude
+\begin{equation}
+a(P) = e^{i\omega\, T(P)},
+\label{eq:feynman_amplitude}
+\end{equation}
+where $\omega > 0$ is the angular frequency of the photon and $T(P)$ is the total travel time along path $P$,
+\begin{equation}
+T(P) = \int_P \frac{dl}{v(\mathbf{r})},
+\label{eq:travel_time}
+\end{equation}
+with $dl$ denoting the arc-length element and $v(\mathbf{r})$ the local speed of light at position $\mathbf{r}$ (in vacuum, $v = c$; in a medium with refractive index $n(\mathbf{r})$, $v = c/n(\mathbf{r})$). The total amplitude from $A$ to $B$ is the sum over all paths:
+\begin{equation}
+\mathcal{A}_{A\to B} = \sum_{\text{all paths } P} e^{i\omega\, T(P)}.
+\label{eq:total_amplitude}
+\end{equation}
+The detection probability is $|\mathcal{A}_{A\to B}|^2$. No action $S$, no $\hbar$---only $\omega$ and travel time. The key mechanism is cancellation: each amplitude $a(P) = e^{i\omega T(P)}$ is a unit vector in $\C$ (an ``arrow'' in Feynman's language). For most paths, neighboring paths have substantially different travel times, so their arrows point in random directions and cancel upon summation. The dominant contribution comes from paths in the neighborhood of the \textbf{stationary-phase point}, where
+\begin{equation}
+\delta T(P) = 0.
+\label{eq:fermat}
+\end{equation}
+This is Fermat's principle of least time. The condition $\delta T = 0$ means that infinitesimally displaced paths have the same travel time to first order, so their complex amplitudes $e^{i\omega T}$ point in nearly the same direction and add constructively. Formally, this constructive interference occurs because $e^{i\omega(T + \delta T)} \approx e^{i\omega T}$ when $\delta T \approx 0$, i.e., the phasor does not rotate under small path variations. For light passing through a glass slab of thickness $d$ and refractive index $n$, the travel time is
+\begin{equation}
+T = \frac{d_{\text{vacuum}}}{c} + \frac{d_{\text{glass}}}{c/n} = \frac{1}{c}\bigl(d_{\text{vacuum}} + n\,d_{\text{glass}}\bigr).
+\end{equation}
+Snell's law $n_1\sin\theta_1 = n_2\sin\theta_2$ emerges from $\delta T = 0$ at the vacuum--glass interface.
+
+
+%==============================================================================
+\section{Neural path integral, where the analogy breaks}
+\label{sec:neural_path}
+%==============================================================================
+
+Consider the neural dynamics $\tau\dot{x}_i = f_i(\mathbf{x}) + \sigma\,\xi_i(t)$ 
+with deterministic drift 
+$f_i(\mathbf{x}) = -x_i + V_{\text{rest},i} + g\sum_j W_{ij}\psi(x_j)$ 
+and Gaussian white noise $\xi_i(t) \sim \mathcal{N}(0,1)$ 
+The probability of observing a trajectory $\mathbf{x}(t)$ connecting state 
+$\mathbf{x}_A$ at time $t_A$ to state $\mathbf{x}_B$ at time $t_B$ is 
+given by the path integral
+\begin{equation}
+P(\mathbf{x}_B, t_B \mid \mathbf{x}_A, t_A) = \int \mathcal{D}\mathbf{x}\; 
+e^{-\mathcal{A}[\mathbf{x}]/\sigma^2},
+\label{eq:onsager_machlup}
+\end{equation}
+where the path integral measure is defined by time-slicing: partition 
+$[t_A, t_B]$ into $M$ intervals of width $\Delta t$, then
+\begin{equation}
+\int \mathcal{D}\mathbf{x} \;(\cdot) \;=\; 
+\lim_{M\to\infty} \prod_{k=1}^{M-1} 
+\left(\frac{1}{2\pi\sigma^2\Delta t/\tau}\right)^{N/2}
+\int d\mathbf{x}(t_k) \;(\cdot),
+\label{eq:path_measure}
+\end{equation}
+with $\mathbf{x}(t_0) = \mathbf{x}_A$ and $\mathbf{x}(t_M) = \mathbf{x}_B$ 
+fixed. Each factor integrates over all $N$ neuron states at time slice $t_k$; 
+the prefactor is the Gaussian normalization ensuring $\int P\, 
+d\mathbf{x}_B = 1$. The Onsager--Machlup action functional is
+\begin{equation}
+\mathcal{A}[\mathbf{x}] = \frac{1}{2}\sum_{i=1}^{N} \int_{t_A}^{t_B} 
+\bigl(\tau\dot{x}_i(t) - f_i(\mathbf{x}(t))\bigr)^2\, dt.
+\label{eq:om_action}
+\end{equation}
+The dominant trajectory satisfies $\delta\mathcal{A} = 0$, which recovers 
+the deterministic dynamics $\tau\dot{x}_i = f_i(\mathbf{x})$. This is the 
+exact analog of Fermat's principle: the most probable neural trajectory is 
+the one that maximizes the probability, hence minimizes the action.
+
+\begin{center}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Feynman optics} & \textbf{Neural path integral} \\
+\midrule
+path weight $e^{i\omega T}$ & path weight $e^{-\mathcal{A}/D}$ \\
+oscillatory, $|e^{i\omega T}| = 1$ & decaying, $0 < e^{-\mathcal{A}/D} \leq 1$ \\
+$\sum e^{i\phi}$ $\to$ \textbf{cancellation} & $\sum e^{-\mathcal{A}/D}$ $\to$ \textbf{concentration} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The translation table reveals one critical asymmetry. In Feynman's optics, two paths with phases $\phi_1$ and $\phi_2 = \phi_1 + \pi$ produce amplitudes that exactly cancel:
+\begin{equation}
+e^{i\phi_1} + e^{i\phi_2} = e^{i\phi_1}(1 + e^{i\pi}) = 0.
+\end{equation}
+This destructive interference is the mechanism behind opacity, diffraction minima, and all wavelike phenomena. In the neural path integral, the corresponding sum is
+\begin{equation}
+e^{-\mathcal{A}_1/D} + e^{-\mathcal{A}_2/D} > 0 \qquad \text{for all } \mathcal{A}_1, \mathcal{A}_2 \geq 0.
+\label{eq:no_cancellation}
+\end{equation}
+Because $e^{-\mathcal{A}/D} > 0$ for all finite actions, \textbf{paths cannot cancel}. They can only \emph{concentrate}: as $D \to 0$, the path with minimal $\mathcal{A}$ dominates exponentially. There is no interference, no phase cancellation, no complex structure. \textbf{The analogy demands complex numbers that the real neural representation does not provide.} For the Feynman picture to hold at the neural level---for synaptic messages to interfere constructively and destructively---we would need to promote some quantity from $\R$ to $\C$. The question is: what, and why?
+
+
+%##############################################################################
+\part{The case for complex numbers}
+%##############################################################################
+
+%==============================================================================
+\section{Complex numbers in analysis}
+\label{sec:complex_analysis}
+%==============================================================================
+
+The dynamics of Eq.~\eqref{eq:real_dynamics} are entirely real-valued: $x_i(t) \in \R$ and $W_{ij} \in \R$. Nevertheless, the {analysis of these dynamics unavoidably introduces complex numbers at three levels. We then ask whether the \emph{data} support promoting the dynamics themselves to $\C$.
+\\
+\\
+\textbf{Eigenspectrum of $W$.}
+The weight matrix $W \in \R^{N\times N}$ is generically asymmetric ($W_{ij} \neq W_{ji}$) and non-normal ($WW^T \neq W^T W$). Its eigenvalues $\{\lambda_k\}_{k=1}^{N}$ therefore lie in $\C$, not $\R$. For i.i.d.\ entries drawn with zero mean and variance $\sigma^2/N$, Girko's circular law states that as $N \to \infty$ the empirical spectral distribution converges to the uniform measure on the disk
+\begin{equation}
+\lambda_k \sim \text{Uniform}\bigl(\{z \in \C : |z| \leq \sigma\}\bigr).
+\label{eq:girko}
+\end{equation}
+The spectral radius $\rho(W) = \max_k |\lambda_k|$ converges to $\sigma$. The transition to chaos (Sompolinsky, Crisanti \& Sommers, 1988) occurs when the effective coupling $g\sigma$ crosses unity: for $g\sigma < 1$ the fixed point $x_i = V_{\text{rest},i}$ is stable; for $g\sigma > 1$ the network enters a chaotic regime with positive maximal Lyapunov exponent. The complex eigenvalues are thus diagnostic of the \emph{dynamical regime} of a real network.
+\\
+\\
+\textbf{Stability analysis.}
+Linearizing Eq.~\eqref{eq:real_dynamics} around the fixed point $x_i^* = V_{\text{rest},i}$ (absorbing $V_{\text{rest}}$ into a shift) and defining the perturbation $\delta x_i = x_i - x_i^*$, we obtain
+\begin{equation}
+\tau\,\dot{\delta x}_i = -\delta x_i + g\sum_{j=1}^{N} W_{ij}\,\psi'(0)\,\delta x_j\,,
+\label{eq:linearized}
+\end{equation}
+where $\psi'(0) = d\psi/dx|_{x=0}$ is the slope of the transfer function at the fixed point (for $\psi = \tanh$, $\psi'(0) = 1$). The Jacobian is $J_{ij} = \tau^{-1}(-\delta_{ij} + g\,\psi'(0)\,W_{ij})$ with eigenvalues
+\begin{equation}
+\mu_k = \frac{1}{\tau}\bigl(-1 + g\,\psi'(0)\,\lambda_k\bigr), \qquad \lambda_k \in \C.
+\label{eq:jacobian_eig}
+\end{equation}
+An eigenvalue $\mu_k = a_k + i b_k$ with $a_k > 0$ indicates instability; $b_k = g\,\psi'(0)\,\im(\lambda_k)/\tau$ sets the oscillation frequency of that mode. Thus $\re(\lambda_k)$ controls \emph{amplitude} instabilities and $\im(\lambda_k)$ controls \emph{oscillatory} instabilities---both emerging from the analysis of a purely real system.
+\\
+\\
+\textbf{DMFT autocorrelation.}
+In the thermodynamic limit $N \to \infty$, DMFT replaces the $N$-dimensional system by a single effective neuron driven by self-consistent Gaussian noise. The Fourier-domain self-consistency equation for the autocorrelation reads
+\begin{equation}
+(1 + \omega^2\tau^2)\,|\delta h(\omega)|^2 = g^2\,C(\omega),
+\label{eq:dmft}
+\end{equation}
+where $C(\omega)$ is the power spectral density of $C(\tau) = \langle \psi(x(t))\,\psi(x(t+\tau))\rangle$. The complex poles of the resolvent $(\omega^2\tau^2 + 1 - g^2\,\chi(\omega))^{-1}$ shape the spectral density of the chaotic flow. These complex poles are an analytic artifact: the underlying dynamics remain real.
+
+\subsection{Does the data support $\C$ in the dynamics?}
+\label{sec:data_problem}
+
+The eigenspectrum, Jacobian, and DMFT all introduce $\C$ as an \emph{analysis tool} for real dynamics. The natural question: should the dynamics \emph{themselves} be complex? The most direct route would be through oscillatory activity---if neurons oscillate at frequency $\omega_0$, promote $x_i(t)$ to the analytic signal $z_i(t) = r_i(t)\,e^{i(\omega_0 t + \theta_i(t))} \in \C$ and define synaptic phases $\phi_{ij} = \omega_0\,\delta_{ij}$ (axonal delays). However the dominant recording modalities do not support this. \textbf{Calcium imaging (GCaMP).} GCaMP reports intracellular calcium concentration---slow ($\sim$100\,ms decay), non-negative transients with no carrier frequency $\omega_0$. There is no phase to extract. \textbf{Extracellular electrophysiology (Neuropixels).} Spike trains are approximately Poisson---broadband, irregular, lacking a well-defined $\omega_0$. While LFP exhibits oscillations (theta, gamma), single-neuron firing is typically aperiodic. Still we could consider to associate a phase $\phi_{ij}$ to represent time delay between two neurons. But for non-oscillatory signals, a single phase is meaningless and the correct form is \textbf{delay kernels}:
+\begin{equation}
+\tau\dot{x}_i = -x_i + g\sum_{j=1}^{N} \int_0^\infty K_{ij}(s)\,\psi(x_j(t-s))\,ds,
+\label{eq:delay_kernel}
+\end{equation}
+where $\hat{K}_{ij}(\omega) = |\hat{K}_{ij}(\omega)|\,e^{i\phi_{ij}(\omega)}$ gives a \emph{frequency-dependent} phase---the language of Green's functions, not Feynman's single-frequency picture.
+\\
+\textbf{Verdict:} complex numbers appear in the analysis of real dynamics (eigenvalues, poles) but the \emph{oscillatory route} to complex dynamics is closed for GCaMP/Neuropixels. If $\C$ enters the dynamics, it must do so through a mechanism that does not rely on a carrier frequency.
+
+
+%==============================================================================
+\section{Rationale for complex numbers: multi-task circuits}
+\label{sec:rationale}
+%==============================================================================
+
+The motivation for $\C$ comes not from the oscillatory structure of the data but from the \textbf{multi-task / single-circuit problem}: biological circuits must perform multiple computations using one set of anatomical connections. Consider a network with fixed $W \in \R^{N\times N}$ that must perform $K$ tasks. For each task $k$, the optimal connectivity is $W^{*(k)} = \arg\min_W \mathcal{L}_k(W)$. Generically $W^{*(1)} \neq W^{*(2)}$: a single real matrix $W$ cannot simultaneously satisfy all tasks---the circuit is \textbf{underparameterized} relative to its behavioral repertoire.
+\\
+\\
+\textbf{Example: the fly optic lobe.} The \emph{Drosophila} visual system provides a concrete instance. The optic lobe contains a connectome-constrained circuit whose synaptic weights are anatomically fixed. Yet this circuit must simultaneously support:
+(i) \textbf{motion direction selectivity} via T4/T5 neurons (Borst, Haag \& Mauss, 2020);
+(ii) \textbf{ON/OFF edge detection} via L1/L2 pathways (Joesch et al., 2010);
+(iii) \textbf{looming detection} via LC cells (Klapoetke et al., 2017);
+(iv) \textbf{figure--ground discrimination} (Aptekar et al., 2012). Lappalainen et al.\ (Nature, 2024) trained ensembles of connectome-constrained networks on optic flow tasks and found that different ensemble members---sharing the same graph but differing in learned weights---produce different tuning. The same anatomical circuit, optimized for different objectives, yields different effective connectivity matrices. A single real $W$ is insufficient.
+\\
+\\
+\textbf{The multi-task problem} demands a structure that stores multiple effective connectivity patterns in a single object. The minimal such structure is $\C$, namely $W_{ij}^{\C} = W_{ij}^R + iW_{ij}^I$. A context variable $\alpha \in [0, 2\pi)$ selects the effective connectivity via projection onto the real axis:
+\begin{equation}
+W_{ij}^{\text{eff}}(\alpha) = W_{ij}^R\cos\alpha 
+- W_{ij}^I\sin\alpha = \re\!\left(W_{ij}^{\C}\, 
+e^{-i\alpha}\right).
+\label{eq:weff_preview}
+\end{equation}
+Rewriting the complex weight in polar form, 
+$W_{ij}^{\C} = |W_{ij}|\,e^{i\varphi_{ij}}$, separates anatomy 
+from modulation:
+\begin{equation}
+|W_{ij}| = \sqrt{(W_{ij}^R)^2 + (W_{ij}^I)^2}, \qquad 
+\varphi_{ij} = \arctan\!\left(\frac{W_{ij}^I}{W_{ij}^R}\right).
+\end{equation}
+Substituting into Eq.~\eqref{eq:weff_preview} gives the polar form:
+\begin{equation}
+W_{ij}^{\text{eff}}(\alpha) = |W_{ij}|\cos(\varphi_{ij} - \alpha).
+\label{eq:weff_polar}
+\end{equation}
+The interpretation is the following. $|W_{ij}|$ is the anatomical synapse strength---set by the connectome, fixed across contexts. $\varphi_{ij}$ is the neuromodulatory sensitivity of that synapse. 
+And $\alpha$ is a circuit-wide state: one number encoding the current 
+level of a single neuromodulator. When the animal switches context, 
+$\alpha$ shifts, and all $N^2$ synapses update simultaneously---but 
+not identically. Each synapse responds to the broadcast $\alpha$ 
+through its own variable $\varphi_{ij}$, selecting how much of its 
+anatomical capacity is expressed.
+The anatomical strength $|W_{ij}|$ is fixed; the cosine selects how 
+much of it is expressed. Three regimes arise depending on the 
+alignment between the broadcast $\alpha$ and the synapse's antenna 
+$\varphi_{ij}$:
+\begin{itemize}
+\item $\alpha = \varphi_{ij}$: full expression, 
+$W_{ij}^{\text{eff}} = +|W_{ij}|$. The synapse operates at maximum 
+anatomical capacity.
+\item $\alpha = \varphi_{ij} + \pi/2$: silent, 
+$W_{ij}^{\text{eff}} = 0$. The synapse exists anatomically but 
+contributes nothing to the dynamics---it is gated off by the 
+neuromodulatory state.
+\item $\alpha = \varphi_{ij} + \pi$: sign-flipped, 
+$W_{ij}^{\text{eff}} = -|W_{ij}|$. An excitatory synapse becomes 
+effectively inhibitory, or vice versa.
+\end{itemize}
+A circuit with diverse phases $\varphi_{ij}$ therefore contains 
+synapses in all three regimes at any given $\alpha$: some fully 
+expressed, some silent, some sign-flipped. A shift in circuit state  $\alpha$ does 
+not uniformly strengthen or weaken the circuit---it 
+\emph{reconfigures} it, activating some pathways while silencing or reversing others, all from a single scalar signal.
+\\
+\\
+\textbf{Complex messages: where the Feynman analogy holds.}
+The aggregate synaptic input to neuron $i$ is
+\begin{equation}
+M_i = \sum_{j=1}^{N} |W_{ij}|\,e^{i\varphi_{ij}}\,\psi(x_j) 
+\in \C,
+\label{eq:complex_message}
+\end{equation}
+with only $\re(M_i)$ driving the dynamics: 
+$\tau\dot{x}_i = -x_i + g\,\re(M_i) + \eta_i(t)$. This is 
+structurally identical to Feynman's sum over scattered wavelets 
+$E = \sum_k a_k\,e^{i\phi_k}$, with $|W_{ij}|\,\psi(x_j)$ as 
+scattering amplitude and $\varphi_{ij}$ as optical path phase: 
+synaptic messages from different presynaptic neurons can 
+constructively or destructively interfere depending on their 
+phase differences, rescuing the Feynman mechanism at the 
+message-passing step.
+\\
+\\
+
+\newpage
+%==============================================================================
+\section{Global $U(1)$: dynamics and falsifiability}
+\label{sec:u1}
+%==============================================================================
+
+Section~\ref{sec:rationale} established that 
+$W_{ij}^{\text{eff}}(\alpha) = |W_{ij}|\cos(\varphi_{ij} - \alpha)$ 
+reconfigures a fixed anatomical circuit from a single neuromodulatory 
+parameter $\alpha$. Equivalently, the effective connectivity is 
+$\Weff(\alpha) = \re(\Wc\, e^{-i\alpha})$: a rotation of the 
+complex weight matrix $\Wc = W^R + iW^I$ projected onto the real 
+axis. The set of all such rotations, parameterized by $\alpha 
+\in [0, 2\pi)$, forms the unit circle $S^1 \subset \R^2$; viewed 
+as a group under addition of angles, this is $U(1)$. The full 
+dynamics are
+\begin{equation}
+\tau\dot{x}_i = -(x_i - V_{\text{rest},i}) + \sum_{j=1}^{N} 
+\re\!\left(W_{ij}^{\C}\, e^{-i\alpha(t)}\right)\psi(x_j) 
++ \eta_i(t),
+\label{eq:u1_dynamics}
+\end{equation}
+where $x_i(t) \in \R$ throughout. The task-to-circuit parameter 
+ratio is $1/N^2$: for $N = 100$, one scalar controls $10{,}000$ 
+weights. Two questions arise: why is this complex formulation 
+preferable to a more general real alternative, and what does it 
+predict?
+
+%----------------------------------------------------------------------
+\subsection{Why complex and not two real matrices?}
+\label{sec:why_complex}
+%----------------------------------------------------------------------
+
+The simplest alternative is linear interpolation between two real 
+matrices:
+\begin{equation}
+\Weff = \alpha\, W_1 + (1-\alpha)\, W_2, \qquad \alpha \in \R.
+\label{eq:linear}
+\end{equation}
+This traces a line through $W_1$ and $W_2$ in $\R^{N\times N}$: 
+one parameter, unbounded, no periodicity. A more general alternative 
+uses two unconstrained coefficients:
+\begin{equation}
+\Weff = c_1\, W_1 + c_2\, W_2, \qquad (c_1, c_2) \in \R^2.
+\label{eq:real_alternative}
+\end{equation}
+This spans a plane through $W_1$ and $W_2$---two free parameters 
+the same two basis matrices. The question is empirical: does the 
+effective connectivity travel along a \emph{line}, an \emph{arc}, 
+or freely in a \emph{plane} between task contexts?
+
+\begin{center}
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+& \textbf{Line} & \textbf{$U(1)$ arc} & \textbf{$\R^2$ plane} \\
+\midrule
+Parameters & $1$ & $1$ & $2$ \\
+Manifold & $\R$ & $S^1$ & $\R^2$ \\
+Prediction at $\alpha_3$ & 
+linear & Eq.~\eqref{eq:prediction1} (trig.) & none \\
+Antipodal & no constraint & 
+$\Weff(\alpha{+}\pi) = -\Weff(\alpha)$ & no constraint \\
+Norm & unbounded & approximately constant & unbounded \\
+Topology & open & closed, periodic & open \\
+Falsifiable & weakly & \textbf{strongly} & no \\
+\bottomrule
+\end{tabular}
+\end{center}
+\\
+\\
+The norm constraint is the sharpest discriminator: on the circle, 
+the Frobenius norm is $\|W^{eff}(\alpha)|_F^2 = \|W^R\|_F^2\cos^2\alpha 
++ \|W^I\|_F^2\sin^2\alpha - 2\langle W^R, W^I\rangle_F 
+\sin\alpha\cos\alpha$, which is bounded and periodic. On the line, 
+$\|\Weff\|$ grows without bound as $|\alpha| \to \infty$; on the 
+plane, $\|\Weff\|$ is unconstrained in two directions. If the 
+effective connectivity recovered across multiple tasks has 
+approximately constant Frobenius norm, the data favor the arc; if 
+the norm scales linearly with the task parameter, they favor the 
+line. 
+\\
+In Eq.~\eqref{eq:real_alternative}, $c_1$ and $c_2$ can be 
+interpreted as two neuromodulator concentrations (e.g., dopamine and serotonin). This is legitimate but describes a different situation: a circuit modulated by two independent molecules requires $U(1)^2$, which has its own predictions and is developed in Section~\ref{sec:beyond}.
+
+%---------------------------------------------------------------------
+\subsection{$U(1)$: falsifiable predictions}
+\label{sec:predictions}
+%----------------------------------------------------------------------
+
+\textbf{Prediction 1: Two tasks determine all others.}
+If $U(1)$ is the correct symmetry, the effective connectivity at any third angle $\alpha_3$ is determined by the connectivities at two reference angles $\alpha_1, \alpha_2$ (provided $\alpha_1 \neq \alpha_2 \mod \pi$):
+\begin{equation}
+\boxed{\Weff(\alpha_3) = \frac{\sin(\alpha_2 - \alpha_3)}{\sin(\alpha_2 - \alpha_1)}\,\Weff(\alpha_1) + \frac{\sin(\alpha_3 - \alpha_1)}{\sin(\alpha_2 - \alpha_1)}\,\Weff(\alpha_2).}
+\label{eq:prediction1}
+\end{equation}
+Expanding $\Weff(\alpha_k) = W^R\cos\alpha_k - W^I\sin\alpha_k$ for $k=1,2$ yields two linear equations in $W^R$ and $W^I$. Solving and substituting gives Eq.~\eqref{eq:prediction1}. This is a strong constraint: it follows directly from the data living on $S^1$ rather than $\R^2$.
+\\
+\textbf{Prediction 2: Antipodal circuits.}
+Tasks separated by $\pi$ on the circle produce sign-reversed connectivity:
+\begin{equation}
+\Weff(\alpha + \pi) = -\Weff(\alpha).
+\label{eq:antipodal}
+\end{equation}
+Every excitatory connection becomes inhibitory and vice versa. The behavioral repertoire at the antipodal context is the exact functional negation of the original.
+\\
+\textbf{Prediction 3: Smooth behavioral transitions on $S^1$.}
+Switching from task $k=1$ (at $\alpha_1$) to task $k=2$ (at $\alpha_2$) requires traversing an arc on the unit circle. At the midpoint $\bar{\alpha} = (\alpha_1 + \alpha_2)/2$:
+\begin{equation}
+\Weff(\bar{\alpha}) = \cos\!\left(\frac{\alpha_2 - \alpha_1}{2}\right)\left[W^R\cos\bar{\alpha} - W^I\sin\bar{\alpha}\right].
+\label{eq:midpoint}
+\end{equation}
+The prefactor $\cos((\alpha_2-\alpha_1)/2) \leq 1$ predicts specific transient dynamics during task switching: not random interpolation, but geometrically structured transitions along the circle.
+
+
+%----------------------------------------------------------------------
+\subsection{Comparison with existing approaches}
+\label{sec:comparison}
+%----------------------------------------------------------------------
+
+We compare global $U(1)$ with existing methods for context-dependent connectivity.
+\\
+\\
+\textbf{Separate $W$ per task} ($N^2$ parameters per task) is the unconstrained baseline: no compression, no shared structure, no predictions about unseen tasks.
+\\
+\\
+\textbf{Context-dependent RNNs} (Yang et al., Nat.\ Neurosci.\ 2019) train a single RNN with fixed recurrent weights $W_{\text{rec}}$ on multiple cognitive tasks. Task identity enters via an input rule vector $\mathbf{r}_k$:
+\begin{equation}
+h_{t+1} = \tanh(W_{\text{rec}}\, h_t + W_{\text{stim}}\, s_t + W_{\text{rule}}\, \mathbf{r}_k + b).
+\end{equation}
+This uses $N$ parameters per task and reveals compositional task structure: tasks sharing sensory or motor demands cluster in rule space. However, $W_{\text{rec}}$ is identical across tasks---context modulates the \emph{input}, not the \emph{connectivity}. The effective Jacobian $J = W_{\text{rec}} \cdot \text{diag}(\psi'(h))$ changes only indirectly through the operating point $h$: a synapse cannot flip sign unless $h$ crosses a nonlinearity threshold.
+\\
+\\
+\textbf{Low-rank modulation} (Beiran, Dubreuil et al., Neural Comput.\ 2021) decomposes connectivity into rank-$R$ structure:
+\begin{equation}
+J_{ij} = \frac{1}{N}\sum_{r=1}^{R} m_i^{(r)} n_j^{(r)},
+\end{equation}
+where the connectivity patterns $\mathbf{m}^{(r)}, \mathbf{n}^{(r)}$ are drawn from a gaussian mixture with $P$ populations. The rank $R$ sets the dimensionality of collective dynamics; the population structure shapes the effective circuit within that subspace. Task-dependent modulation enters additively:
+\begin{equation}
+\Weff = W + \sum_{l=1}^{k} \alpha_l\, \mathbf{m}_l\,\mathbf{n}_l^T,
+\end{equation}
+using $k(2N+1)$ parameters per task. The perturbation is \emph{additive} and unconstrained in direction---the task manifold is a $k$-dimensional affine subspace, not a rotation. There is no constraint linking different tasks and no analog of Prediction~1.
+\\
+\\
+\textbf{Gain modulation} (Salinas \& Abbott, 1997) scales each neuron's output independently:
+\begin{equation}
+\Weff = \text{diag}(\mathbf{g})\cdot W, \qquad g_i > 0.
+\end{equation}
+This uses $N$ parameters per task and is biologically grounded, but cannot flip signs: if $W_{ij} > 0$, then $g_i W_{ij} > 0$ for all $g_i > 0$. Structurally, gain modulation traces a ray in $\R^{N^2}$; $U(1)$ traces a circle.
+\\
+\\
+\textbf{Global $U(1)$} uses 1 parameter per task. Unlike Yang et al., it modulates the circuit directly, not the input. Unlike low-rank, it imposes a rotational constraint that yields Prediction~1. Unlike gain modulation, it can flip synapse signs. The parameter-to-circuit ratio $1/N^2$ is the smallest of any method. The limitation of global $U(1)$---``too rigid if neurons differ''---is addressed by the extensions in next Section~\ref{sec:beyond}.
+
+\begin{center}
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{@{}lccccl@{}}
+\toprule
+\textbf{Approach} & \textbf{Params} & \textbf{Sign-flip} & \textbf{Modulates} & \textbf{Falsifiable} & \textbf{Limitation} \\
+\midrule
+Separate $W$ & $N^2$ & yes & circuit & no & no compression \\
+Context RNN & $N$ & indirect & input & partially & $W_{\text{rec}}$ fixed \\
+Low-rank & $k(2N{+}1)$ & yes & circuit & partially & additive, no rotation \\
+Gain modulation & $N$ & no & output & yes & no sign-flip \\[3pt]
+\textbf{Global $U(1)$} & $\mathbf{1}$ & \textbf{yes} & \textbf{circuit} & \textbf{strongly} & too rigid if neurons differ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+
+
+\label{sec:beyond}
+% Placeholder: Direction 1 (spatial heterogeneity) and Direction 2 (task dimensionality) to be developed here.
+
+\newpage
+%==============================================================================
+\section{Beyond global $U(1)$}
+\label{sec:beyond}
+%==============================================================================
+
+When global $U(1)$ proves insufficient, two independent directions 
+of generalization are available. They address different failure modes 
+and can be combined.
+
+%----------------------------------------------------------------------
+\subsection{Direction 1: Spatial heterogeneity 
+($\alpha \to \alpha_i \to \alpha_{ij}$)}
+%----------------------------------------------------------------------
+
+Promote the global rotation to a per-neuron or per-synapse rotation:
+
+\begin{center}
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{@{}llcl@{}}
+\toprule
+\textbf{Level} & \textbf{Transform} & \textbf{Params} & 
+\textbf{Biological mechanism} \\
+\midrule
+Global $U(1)$ & $\re(\Wc\, e^{-i\alpha})$ & $1$ & 
+uniform neuromodulatory bath \\
+Local $U(1)_{\text{post}}$ & 
+$\re(\text{diag}(e^{-i\alpha_i})\,\Wc)$ & $N$ & 
+spatial gradient $+$ receptor profile \\
+Pre $\times$ post & 
+$\re(\text{diag}(e^{-i\alpha_i})\,\Wc\,
+\text{diag}(e^{-i\beta_j}))$ & $2N$ & 
+$+$ presynaptic autoreceptors \\
+Per-synapse & $\re(e^{-i\alpha_{ij}}\,W_{ij}^{\C})$ & $N^2$ & 
+unconstrained \\
+\bottomrule
+\end{tabular}
+\end{center}
+\\
+\\
+The task manifold stays one-dimensional throughout this direction, 
+but different neurons are allowed to rotate by different amounts.
+\\
+\\
+\textbf{Global $U(1)$} (1 parameter) assumes all synapses respond 
+identically to a neuromodulatory shift. \emph{Diagnostic:} for each 
+task $k$, compute the per-neuron residual
+\begin{equation}
+\epsilon_{ik} = \hat{W}^{(k)}_{i\cdot} 
+- \re\!\left(\hat{W}^{\C}_{i\cdot}\, e^{-i\hat{\alpha}_k}\right).
+\end{equation}
+If global $U(1)$ holds, $\epsilon_{ik}$ is unstructured noise. If 
+it fails, the same neurons show consistently large residuals across 
+tasks---neuron $i$ is systematically over- or under-rotated. A 
+per-neuron offset $\delta_i$ with $\alpha_{i,k} = \hat{\alpha}_k 
++ \delta_i$ should collapse the residuals, pointing to local 
+$U(1)_{\text{post}}$.
+\\
+\\
+\textbf{Local $U(1)_{\text{post}}$} ($N$ parameters) allows each 
+postsynaptic neuron $i$ to rotate by its own angle $\alpha_i$. 
+Biologically, a single neuromodulator (e.g., dopamine) is delivered 
+with spatial gradients across brain regions, and each neuron filters 
+this signal through its receptor profile---the D1/D2 receptor ratio 
+(D1 enhances, D2 suppresses synaptic transmission). The circuit is 
+modulated directly, and synapse signs can flip when $\alpha_i$ 
+crosses $\varphi_{ij} + \pi/2$. \emph{Diagnostic:} fit per-neuron 
+angles $\hat{\alpha}_i$ and compute the per-synapse residual
+\begin{equation}
+\epsilon_{ij,k} = \hat{W}^{(k)}_{ij} 
+- \re\!\left(e^{-i\hat{\alpha}_i}\, \hat{W}^{\C}_{ij}\right).
+\end{equation}
+If local $U(1)_{\text{post}}$ holds, $\epsilon_{ij,k}$ is 
+unstructured. If it fails, the residual shows sender-dependence: 
+for fixed $i$, the error correlates with $j$. The residual matrix 
+has rank-1 structure $\epsilon_{ij,k} \approx f_i\, g_j$, 
+indicating that the presynaptic neuron also needs its own phase 
+$\beta_j$, pointing to the pre $\times$ post level.
+\\
+\\
+\textbf{Pre $\times$ post} ($2N$ parameters) adds presynaptic 
+modulation: $e^{-i\beta_j}$ models presynaptic autoreceptors 
+(e.g., D2 autoreceptors on dopaminergic terminals). The effective 
+phase at synapse $ij$ becomes $\alpha_i + \beta_j$, a rank-2 
+structure. \emph{Diagnostic:} fit $\hat{\alpha}_i$ and 
+$\hat{\beta}_j$ and compute
+\begin{equation}
+\epsilon_{ij,k} = \hat{W}^{(k)}_{ij} 
+- \re\!\left(e^{-i\hat{\alpha}_i}\, 
+\hat{W}^{\C}_{ij}\, e^{-i\hat{\beta}_j}\right).
+\end{equation}
+If it fails, the residual is non-factorizable: it cannot be 
+decomposed as $f_i\, g_j$. The rotational structure itself is 
+insufficient.
+\\
+\\
+\textbf{Per-synapse $\alpha_{ij}$} ($N^2$ parameters) recovers 
+full freedom. It provides no compression and no predictions---the 
+unfalsifiable ceiling of the hierarchy.
+
+
+%----------------------------------------------------------------------
+\subsection{Direction 2: Task dimensionality 
+($U(1) \to U(1)^k$)}
+%----------------------------------------------------------------------
+
+Direction~1 keeps the task manifold one-dimensional and relaxes 
+spatial uniformity. Direction~2 does the opposite: it keeps global 
+modulation but increases the number of independent neuromodulatory 
+axes.
+
+\begin{center}
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{@{}lclc@{}}
+\toprule
+\textbf{Symmetry} & \textbf{Weight space} & 
+\textbf{Task manifold} & \textbf{Params} \\
+\midrule
+$U(1)$ & $W^R, W^I$ ($2N^2$ real) & circle $S^1$ & 1 \\
+$U(1)^2$ & $W^{(1)}, \ldots, W^{(4)}$ ($4N^2$ real) & 
+torus $T^2$ & 2 \\
+$SU(2)$ & $W \in \H^{N\times N}$ ($4N^2$ real) & 
+sphere $S^3$ & 3 \\
+\bottomrule
+\end{tabular}
+\end{center}
+\\
+\\
+Each additional angle $\alpha_l$ introduces an independent rotation 
+axis, requiring two new basis matrices per axis. The effective 
+connectivity becomes
+\begin{equation}
+\Weff(\boldsymbol{\alpha}) = \sum_{m=1}^{M} W^{(m)}\, 
+c_m(\boldsymbol{\alpha}),
+\end{equation}
+where the coefficient functions $c_m$ are determined by the group 
+structure (trigonometric for $U(1)^k$, Wigner matrices for $SU(2)$). 
+The rotational constraint is preserved on each axis: Prediction~1 
+holds independently along each $\alpha_l$, so any two tasks that 
+differ along only one neuromodulatory axis still determine a third. 
+The number of major cortical neuromodulators (dopamine, serotonin, 
+acetylcholine, norepinephrine) is four, suggestive of $k \leq 4$.
+\\
+\emph{Diagnostic:} Prediction~1 violated with structured residuals 
+---the residual matrix $\Weff(\alpha_3) - 
+\widehat{W}^{\text{eff}}(\alpha_3)$ from 
+Eq.~\eqref{eq:prediction1} has rank $\leq 2(k-1)$, pointing 
+directly to the required number of additional axes. The two directions combine: local $U(1)_{\text{post}}^k$ with 
+per-neuron angles $\alpha_{i,1}, \ldots, \alpha_{i,k}$ gives $kN$ 
+parameters---still far below $N^2$.
+
+
+%----------------------------------------------------------------------
+\subsection{Why the $U(1)$ hierarchy and not $\R^k$}
+\label{sec:why_hierarchy}
+%----------------------------------------------------------------------
+
+Every biological scenario considered above maps onto a specific 
+level of the $U(1)$ hierarchy:
+
+\begin{center}
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Biology} & \textbf{Model} \\
+\midrule
+One neuromodulator, uniform delivery & 
+global $U(1)$: one $\alpha$ \\
+Same neuromodulator, spatial gradient & 
+local $U(1)_{\text{post}}$: per-neuron $\alpha_i$ \\
+Two neuromodulators & 
+$U(1)^2$: two angles on $T^2$ \\
+Two neuromodulators, spatial gradients & 
+local $U(1)^2_{\text{post}}$: $2N$ angles \\[3pt]
+$c_1 W_1 + c_2 W_2$, unconstrained & ? \\
+\bottomrule
+\end{tabular}
+\end{center}
+\\
+\\
+Every row has a biological name except the last. $\alpha$ is a 
+dopamine level. $\alpha_i$ is that level filtered through neuron 
+$i$'s receptor profile. $(\alpha_1, \alpha_2)$ are dopamine and 
+serotonin concentrations. Each is measurable, each is manipulable 
+(optogenetics, pharmacology, volume transmission), each makes the 
+model testable.
+\\
+The unconstrained coefficients $c_1$ and $c_2$ correspond to 
+nothing. They are not concentrations, not receptor states, not 
+firing rates. They are free parameters that absorb any pattern 
+in the data without constraining the next observation.
+\\
+This is not a proof that $\R^k$ is wrong---it is an argument 
+for the starting hypothesis. The $U(1)$ hierarchy is more 
+constrained (fewer parameters at every level), maps onto known 
+biology at every level of relaxation, and makes falsifiable 
+predictions that the unconstrained formulation does not. 
+Critically, when $U(1)$ fails, the \emph{pattern} of failure 
+is diagnostic: per-neuron residuals $\to$ promote to local 
+$U(1)_{\text{post}}$; structured rank deficiency $\to$ add 
+a rotation axis via $U(1)^k$; non-factorizable residuals $\to$ 
+the rotational structure itself is insufficient. When the 
+unconstrained $\R^k$ fails, there is no diagnostic---the model 
+simply failed, and no principled next step exists.
+\\
+The choice between $U(1)$ and $\R^k$ is ultimately empirical. 
+But one framework generates a research program; the other 
+generates a fit.
+\\
+\\
+\textbf{Comparison with existing approaches.} The same 
+diagnostic asymmetry distinguishes $U(1)$ from existing methods. 
+Gain modulation (Salinas \& Abbott, 1997) uses $N$ parameters 
+per task but cannot flip synapse signs and traces a ray in 
+$\R^{N^2}$, not a circle---failure is simply poor fit. 
+Context-dependent RNNs (Yang et al., 2019) modulate the input, 
+not the circuit---if the fixed $W_{\text{rec}}$ is insufficient, 
+there is no structured path to a richer model. Low-rank 
+perturbation (Beiran, Dubreuil et al., 2021) adds 
+$k$-dimensional affine corrections $\Weff = W + \sum_l 
+\alpha_l \mathbf{m}_l \mathbf{n}_l^T$, which can change signs 
+and shape dynamics through population vectors, but the 
+perturbation is additive and unconstrained in direction---there 
+is no inter-task constraint analogous to Prediction~1, and 
+failure does not point to a specific relaxation.
+\\
+\\
+The $U(1)$ hierarchy is the only framework in which: 
+(i)~the modulation acts on the circuit directly, 
+(ii)~synapse signs can flip, 
+(iii)~a single parameter controls $N^2$ weights, 
+(iv)~each level of relaxation has a biological interpretation, 
+and (v)~the pattern of failure at one level diagnoses the next. 
+No existing method satisfies all five.
+
+\end{document}
+
+

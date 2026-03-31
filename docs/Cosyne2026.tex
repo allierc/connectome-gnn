@@ -1,0 +1,379 @@
+\documentclass[12pt,twocolumn]{article}
+
+% === tighten title/author spacing ===
+\usepackage{titling}
+\setlength{\droptitle}{-2.0em} % move title up
+\pretitle{\vspace*{-0.5em}\centering\large\bfseries}
+\posttitle{\par\vspace*{-0.6em}}
+\preauthor{} % no extra vertical space when authors are empty
+\postauthor{\par\vspace*{-0.6em}}
+\predate{}
+\postdate{\par\vspace*{-0.6em}}
+
+
+\raggedbottom
+
+% === allow flexible linebreaking to avoid white holes ===
+\emergencystretch=2em
+
+% === compact bibliography spacing ===
+\usepackage{etoolbox}
+\AtBeginEnvironment{thebibliography}{%
+  \setlength{\itemsep}{0pt}%
+  \setlength{\parskip}{0pt}%
+}
+
+% === aggressive float placement to reduce blank areas ===
+\makeatletter
+\setcounter{topnumber}{9}
+\setcounter{bottomnumber}{9}
+\setcounter{totalnumber}{20}
+\renewcommand{\topfraction}{0.95}
+\renewcommand{\bottomfraction}{0.85}
+\renewcommand{\textfraction}{0.05}
+\renewcommand{\floatpagefraction}{0.85}
+\renewcommand{\dbltopfraction}{0.95}
+\renewcommand{\dblfloatpagefraction}{0.85}
+\makeatother
+
+\usepackage[top=0.5in,bottom=0.5in,left=0.5in,right=0.5in]{geometry}
+\setlength{\columnsep}{0.75em}
+\setlength{\parskip}{0pt}
+\setlength{\parindent}{0.5em}
+% tighter figure spacing
+\setlength{\abovecaptionskip}{2pt}    % space above caption
+\setlength{\belowcaptionskip}{-2pt}   % space below caption
+\setlength{\textfloatsep}{6pt plus 2pt minus 2pt}  % space below figures
+\setlength{\intextsep}{4pt plus 1pt minus 1pt}     % for figures inside text
+
+\usepackage[labelfont=bf]{caption}
+
+
+% TODO: check formatting!!! replace NeurIPS format by other
+% Font size must be at least 12-point, figure captions and references can be typeset using a smaller font size (10 pt). Margins should be at least 0.5". This two-page PDF will be the only document seen by reviewers. (Abstracts exceeding two pages will have additional pages removed). Submissions that do not meet these guidelines may be rejected before review.
+
+
+
+\usepackage{mathpazo,helvet,inconsolata,bbding}
+
+\usepackage[utf8]{inputenc}
+\usepackage[autolanguage,np]{numprint}
+
+%\usepackage{nopageno}
+\usepackage[english]{babel}
+\usepackage{csquotes}
+\usepackage{graphicx}
+\usepackage{textcomp,gensymb}
+\usepackage{amsmath}
+\usepackage{amssymb}
+%\usepackage{algorithm}
+%\usepackage{algpseudocode}
+\usepackage{xspace}
+%\usepackage{relsize}
+\usepackage{stackengine}
+\usepackage{tabularx}
+%\usepackage{pgfplots}
+\usepackage{authblk}
+%\pgfplotsset{width=10cm,compat=1.9}
+%\usepgfplotslibrary{external}
+%\tikzexternalize
+
+% \usepackage[
+% style=authoryear-comp,
+% giveninits=true,
+% uniquename=init,
+% citestyle=authoryear,
+% natbib=true,
+% %backend=biber
+% ]{biblatex}
+% \bibliography{ref}
+
+
+\usepackage[
+  style=numeric,
+  citestyle=numeric,
+  sorting=none,
+  giveninits=true,
+  natbib=true
+]{biblatex}
+\bibliography{ref}
+
+
+
+
+% \usepackage[
+% style=numeric,
+% sorting=none,
+% style=authoryear-icomp,
+% giveninits=true,
+% uniquename=init,
+% citestyle=numeric,
+% natbib=true,
+% uniquelist=false,
+% isbn=false
+% ]{biblatex}
+
+\bibliography{ref}
+\renewcommand*{\bibfont}{\footnotesize}
+\AtEveryBibitem{\clearlist{language}}
+%\AtEveryBibitem{\clearfield{url}\clearfield{urlyear}}
+\AtEveryBibitem{\iffieldundef{doi}{}{\clearfield{url}\clearfield{urlyear}}}
+\AtEveryBibitem{\clearfield{month}}
+\AtEveryBibitem{\clearlist{publisher}}
+\AtEveryBibitem{\clearlist{location}}
+\AtEveryBibitem{\clearfield{note}}
+\AtEveryBibitem{\clearname{editor}}
+\AtEveryBibitem{\clearfield{series}}
+\AtEveryBibitem{\clearfield{isbn}}
+\AtEveryBibitem{\clearfield{issn}}
+\AtEveryCitekey{\clearfield{issn}}
+\renewbibmacro*{url+urldate}{}
+
+\stackMath
+\setstackgap{S}{2pt}
+
+\DeclareMathOperator*{\argmax}{arg\,max}
+\DeclareMathOperator*{\argmin}{arg\,min}
+\DeclareMathOperator*{\argminA}{arg\,min} % Jan Hlavacek
+\DeclareMathOperator*{\fr}{\overrightarrow{r}}
+\DeclareMathOperator*{\frp}{{\overrightarrow{r}}'}
+\DeclareMathOperator*{\fmu}{\overrightarrow{\mu}}
+\DeclareMathOperator*{\E}{\mathbb{E}}
+\DeclareMathOperator*{\Agg}{\sum_{j=1}^{N}}
+\DeclareMathOperator*{\Gagg}{\bigodot}
+\DeclareMathOperator*{\gnn}{GNN}
+\DeclareMathOperator*{\inr}{INR}
+\DeclareMathOperator*{\mlp}{MLP}
+\DeclareMathOperator*{\relu}{ReLu}
+\newcommand{\dt}{\Delta t \:}
+
+\newcommand{\force}{\textrm{Force}}
+\newcommand{\loss}{L}
+
+\renewcommand\Vec[1]{\ensuremath{\boldsymbol{#1}}}
+\newcommand\Mat[1]{\ensuremath{\boldsymbol{#1}}}
+\newcommand\trnsp{\ensuremath{\mathsf{T}}}
+
+\usepackage[dvipsnames]{xcolor}
+\usepackage{hyperref}
+\hypersetup{%
+	colorlinks=true,%
+	linkcolor=BrickRed,%
+	citecolor=ForestGreen,
+	urlcolor=NavyBlue
+}
+\usepackage[capitalize,noabbrev,nameinlink]{cleveref}
+\crefname{figure}{Fig.}{Figs.}
+\crefname{appendixfigure}{Supplementary Figure}{Supplementary Figures}
+\crefname{table}{Table}{Tables}
+\crefname{appendixtable}{Supplementary Table}{Supplementary Tables}
+\creflabelformat{equation}{#2#1#3}
+
+\usepackage{caption}
+\captionsetup{font=footnotesize}
+\captionsetup[figure]{labelfont=bf,name={Fig.}}
+
+
+\def\etc{etc.\@\xspace}
+\def\eg{e.g.\@\xspace}
+\def\Etc{Etc.\@\xspace}
+\def\Eg{E.g.\@\xspace}
+
+\setlength{\fboxsep}{0pt} % Adjust the padding
+\setlength{\fboxrule}{0.25pt} % Adjust the border width
+\setlength{\belowcaptionskip}{-2pt}
+\setlength{\abovedisplayskip}{5pt}
+\setlength{\belowdisplayskip}{5pt}
+
+\newcommand{\ftile}[1]{\raisebox{-\height+2ex}{\fbox{\includegraphics[width=\linewidth]{#1}}}}
+%\title{Graph neural networks can uncover the hidden structure and function underlying the observed temporal activity in heterogeneous neural assemblies}
+\title{Graph neural networks recover interpretable circuit models from neural activity}
+\author{}
+\date{} 
+
+\begin{document}
+
+\twocolumn[ 
+\begin{@twocolumnfalse}
+\maketitle
+\vspace*{1em}
+% \begin{abstract}
+% Recently, synapse-level connectomes have become available, but they cannot directly reveal brain function. Complementing connectomic reconstructions, large-scale measurements of neural activity are also becoming available. However, no computational approach exists to directly infer structurally and functionally interpretable models from functional data. We ask whether combining binary connectivity constraints and recorded neural activity can support such models. Using a simulation of the Drosophila visual system (13,741 neurons, 65 cell types, $434{,}112$ connections) as an in-silico testbed, we train a graph neural network (GNN) to forecast its simulated activity. With access to the adjacency matrix (which neurons are connected) and input stimuli, the model recovers effective connectivity weights, neuron types, and nonlinear activation functions without relying on synapse counts as direct proxies. The framework is powerful enough to handle  additional connections ($800{,}000$) and to generalize to unseen network configurations. Most importantly, the trained model allows to decompose complex heterogeneous neural assemblies into simple and interpretable representations. Our results show that machine-learning models can go beyond descriptive statistics or black-box predictions. They can provide a principled understanding of neural activity from data alone. Compared to prior machine-learning approaches, our formulation is simple, flexible and interpretable.
+%
+%Explaining how neural circuits implement activity and behavior is a central goal of neuroscience.
+Synapse-level connectomes describe the structure of circuits, but not the electrical and chemical dynamics.  Conversely, large-scale recordings of neural activity capture these dynamics, but not the circuit structure.  We asked whether combining binary connectivity and recorded neural activity can be used to infer mechanistic models of neural circuits.  We trained a graph neural network model (GNN) to forecast the activity of \emph{Drosophila} visual system simulations.  Trained on activity trajectories in response to visual inputs, the model recovers effective connectivity weights, neuron types, and nonlinear activation functions, even when 200\% random connections are added to the adjacency matrix.  Moreover, it correctly predicts causal effects of connection removal, demonstrating the ability to infer mechanistic dependencies directly from activity data.
+%
+%Our work demonstrates an interpretable machine-learning framework trained on activity that can recover circuit structure and dynamics. This approach fills a critical gap between small mechanistic circuit models, large connectome-constrained models, and data-driven black-box models of neural circuits.
+%
+---Our simple, flexible, and interpretable method recovers both structure and dynamics from incomplete anatomical reconstructions and activity.
+
+% \end{abstract}
+\vspace*{0.5em}
+
+\end{@twocolumnfalse} 
+]
+
+\subsubsection*{Simulation}
+We simulated neural activity in the \emph{Drosophila} visual system using \textit{flyvis}' pretrained models \cite{lappalainen_connectome-constrained_2024}.  The recurrent neural network contains $13,741$ neurons from $65$ cell types and $434,122$ synaptic connections, corresponding to real neurons and their synapses. Each neuron is modeled as a non-spiking compartment governed by
+%
+\small%
+\begin{equation*}
+\tau_i\frac{dv_i(t)}{dt} = -v_i(t) + V_i^{\text{rest}}
++ \sum_{j\in\mathcal{N}_i}\mathbf{W}_{ij}\,
+  \text{ReLU}\!\big(v_j(t)\big)
++ I_i(t),
+\label{eq:simulated_update}
+\end{equation*}
+\normalsize%
+where $\tau_i$ and $V_i^{\mathrm{rest}}$ are cell-type parameters, $\mathbf{W}_{ij}$ is the connectome-constrained synaptic weight, and $I_i(t)$ the visual input.  We restricted the original system of $721$ retinotopic columns to the central subset of $217$ columns. 
+
+%Membrane voltages were integrated forward using the explicit Euler method with timestep $\Delta t = 0.02\,$s.
+
+% reflecting the compound eye lattice. The simulation 
+
+% $1{,}736$ photoreceptors arranged in $217$ retinotopic columns .  for 
+\vspace*{-1.em}
+\subsubsection*{Graph neural network model}
+We approximate the simulated voltage dynamics by a message-passing GNN \cite{gilmer_neural_2017}
+\small%
+\begin{equation*}
+\frac{\widehat{dv}_i(t)}{dt}
+=f_\theta\Big(
+v_i(t),\mathbf{a}_i,
+\sum_{j\in\mathcal{N}_i} \widehat{\mathbf{W}}_{ij}\,g_\phi\!\big(v_j(t),\mathbf{a}_j\big)^2,
+I_i(t)\Big)\mathrm{.}
+\label{eq:gnn_ct}
+\end{equation*}
+\normalsize%
+Nodes of the GNN correspond to neurons and edges correspond to functional synaptic connections. The GNN learns a latent embedding $\mathbf{a}_i\in\mathbb{R}^2$ for each neuron $i$, giving each neuron a compact latent identity to capture cell-type specific properties (like time constants and nonlinearities).  Neuron update $f_\theta=\text{MLP}_0$ and edge message $g_\phi=\text{MLP}_1$ are three-layer perceptrons (width $64$, ReLU, linear output). $g_\phi$ maps presynaptic inputs $v_j$ to nonnegative messages (via squaring) depending on neural embedding $\mathbf{a}_j$, which are weighted by $\widehat{\mathbf{W}}_{ij}$. $f_\theta$ processes the postsynaptic voltage $v_i$, aggregated input, and external input $I_i(t)$ to predict $\widehat{dv}_i(t)/d t$, depending on neural embedding $\mathbf{a}_i$. During training, inputs $I_i(t)$, adjacency $\mathcal{N}_i$, and activity $v_i(t)$ are given. The $\mathrm{MLP}$s, $\widehat{\mathbf{W}}_{ij}$, and $\mathbf{a}_i$ 
+are optimized by minimizing $\mathcal{L}_{\mathrm{pred}}
+= \sum_{i,t}
+\|
+\widehat{y}_i(t) - y_i(t)
+\|_2$ between simulator 
+$y_i(t)=dv_i(t)/dt$ and GNN predictions $\widehat{y}_i(t) = \widehat{dv}_i(t)/dt$.
+% {\small
+% \begin{equation*}
+% \mathcal{L}_{\mathrm{pred}}
+% = \sum_{i}
+% \big\|
+% \widehat{y}_i(t) - y_i(t)
+% \big\|_2.
+% \label{eq:prediction_loss}
+% \end{equation*}
+% }
+\vspace*{-1.em}
+
+
+\subsubsection*{Results}
+%
+\begin{figure}[b]
+\centering%
+\includegraphics[width=\columnwidth]{Fig1.pdf}
+\caption{Long roll-out of the GNN (black) and validation ground-truth (green) on DAVIS. Ten representative neurons, frames 85,000--85,500. (\textbf{a}) Generalization test with the original connectivity. (\textbf{b}) Causal invariance with 50\% connections removed. (\textbf{c}) GNN trained with noisy data, reproduces the noise-free rollout shown in \textbf{a}. 
+}
+\label{fig:comparison}
+\end{figure}
+\vspace*{-0.6em}
+%
+For training, we simulated voltage traces for 90{,}000 frames at 50~FPS with Sintel videos~\cite{butler_naturalistic_2012} as visual inputs.
+The GNN was trained for 50~epochs ($\approx$10\,h, A100 GPU).
+For validation, we used DAVIS~\cite{perazzi_benchmark_2016} as visual inputs. 
+% on the full objective
+% $\mathcal{L}=\|\widehat{\mathbf y}-\mathbf y\|_2^2 +\Omega_{\ell} +\Omega_{\mu},$
+% where regularization includes sparsity \(\Omega_{\ell_1}
+% =\lambda_0\|\theta_{f_\theta}\|_1
+% +\lambda_1\|\theta_{g_\theta}\|_1
+% +\lambda_2\|\widehat{\mathbf W}\|_1\), magnitude \(\Omega_{\ell_2}
+% =\gamma_0\|\theta_{f_\theta}\|_2^2
+% +\gamma_1\|\theta_{g_\theta}\|_2^2\), monotonicity \(\Omega_{\mu_0}
+% =\mu_0\|\operatorname{ReLU}(-\partial_v g_\theta)\|_2\), and normalization \(\Omega_{\mu_1}
+% =\mu_1\|g_\theta(v_\star,\mathbf a)-v_\star\|_2\) penalties on trainable parameters to aid recovery, while keeping the framework generally applicable.
+The GNN generalized well on validation roll-outs (mean RMSE \(0.006 \pm 0.005\); \cref{fig:comparison}a). Next, we probed \emph{causal invariance} by pruning 50\% of the connections in a new simulation, asking whether a GNN trained on the original network could predict the outcome of such structural perturbation. The GNN achieved good roll-out accuracy (RMSE \(0.15 \pm 0.23\), \cref{fig:comparison}b), with errors dominated by constant offsets. High Pearson correlation (mean \(r = 0.91 \pm 0.20\)) demonstrates that the GNN captured causal relationships between circuit structure and dynamics.
+
+%The trained GNN provides an estimate of the true connectivity matrix with predicted weight magnitudes $\widehat{\mathbf{W}}_{ij}$ and neuron latent embeddings $\mathbf{a}_i$ that can be visualized to get a principled understanding of the true neural network (Fig.~\ref{fig:results_51_2}). 
+The trained GNN recovered functional connectivity ($R^2_\mathbf{W}=0.87$), and neuron type information (clustering accuracy over $\mathbf{a}=0.42$).  MLP$_1$ learned to reproduce the ReLU synaptic nonlinearity and MLP$_0$ reproduced a leaky integrator with matching time constants $\tau_i$ ($R^2_{\tau}=0.69$).  However, the resting potentials $V^{rest}_i$ ($R^2_{V^{\mathrm{rest}}}=0.08$) were not well recovered.  That means, we achieved excellent rollout performance with imperfect parameter recovery, indicating an under-determined inverse problem.
+
+We explored several strategies to overcome these ambiguities.  Mixing dynamic videos (Sintel/DAVIS) and randomized patterns (pseudo-random binary sequence, blue noise) yielded only minor improvements.  However, using DAVIS as visual inputs and augmenting the objective
+\small
+\begin{equation*}
+\begin{aligned}
+\mathcal{L} &=
+\|\widehat{\mathbf y}-\mathbf y\|_2
++ \lambda_0\|\theta\|_{1}
++ \lambda_1\|\phi\|_{1}
++ \lambda_2\|\widehat{\mathbf W}\|_{1} \\
+&\quad
++ \gamma_0\|\theta\|_{2}
++ \gamma_1\|\phi\|_{2} \\
+&\quad
++ \mu_0\,
+\big\|\operatorname{ReLU}\!\big(-\tfrac{\partial\, g_\phi(v,\mathbf{a})}{\partial v}\big)\big\|_2
++ \mu_1\,
+\|g_\phi(v_\star,\mathbf{a})-v_\star\|_2
+\end{aligned}
+\label{eq:regularization}
+\end{equation*}
+\normalsize%
+substantially improved the results.
+The L$_1$ terms promote sparsity, while the L$_2$ penalties stabilize the learned functions.  
+The derivative term enforces monotonic increase of the edge message with voltage, the last term normalizes with respect to reference voltage $v_\star$. This improved parameter recovery (\cref{fig:results_51_2}), $R^2_{\mathbf{W}}=0.95$, clustering accuracy over $\mathbf{a}=0.37$, 
+$R^2_{\tau}=0.80$, \mbox{$R^2_{V^{\mathrm{rest}}}=0.40$}.
+When we injected noise into the simulation (Gaussian noise with $\sigma^2=0.5$, Sintel visual inputs), we achieved almost perfect recovery scores (\mbox{$R^2_{\mathbf{W}}=0.99$}, clustering accuracy over $\mathbf{a}=0.86$, \mbox{$R^2_{\tau}=1.00$}, \mbox{$R^2_{V^\mathrm{rest}} = 0.85$}).  We believe that noise helps parameter recovery because the range of membrane voltages presented during training is significantly wider, thereby better constraining the optimization. The GNN trained on noise-injected data reproduced noise free simulations (mean \(r=0.99 \pm 0.03\); \cref{fig:comparison}c), and had bad rollout performance when compared to noisy ground truth (mean \(r=0.16 \pm 0.13\)).  Poor predictive power does not preclude good modeling.  
+% \\
+% \subsubsection*{Visual input representation}
+% When the stimulus is unknown, we parameterize it as a SIREN implicit neural representation~\cite{sitzmann_implicit_2020}.  Each photoreceptor~$i$ at retinotopic position $(u_i,v_i)$ receives
+% \small%
+% \begin{equation*}
+% \widehat{I}_i(t) = \mathcal{S}_\psi\!\!\left(\tfrac{u_i}{\omega_{xy}},\,\tfrac{v_i}{\omega_{xy}},\,\tfrac{t}{\omega_T}\right)^{\!2},
+% \end{equation*}
+% \normalsize%
+% where $\mathcal{S}_\psi$ is a sinusoidal network~\cite{sitzmann_implicit_2020}, $\omega_{xy}$ and $\omega_T$ are spatial and temporal scaling factors, and squaring enforces non-negative luminance.  The parameters $\psi$ are optimized jointly with the GNN.
+
+
+% \subsubsection*{LLM in the loop}
+% We optimized hyperparameters of our GNN architectures and training procedures\citep{allier_graph_2026} with an LLM (Claude) in the loop. In each iteration, the LLM is prompted to interpret, compare, and summarize previous experiments into a structured log file, and then to create, record, and execute a hypothesis for the next experiment to be done.
+
+% We extend our graph neural network framework with a large language model. In this new setup, the role of the graph neural network framework is to perform experiments and deliver quantified results. The role of the large language model is to interpret, compare and finally compress the experiment results into structured logfile. On the basis thereof, the large language model is next prompted to mutate selectively the graph neural network training scheme.
+
+% (Fig.~\ref{fig:results_51_2}) 
+
+
+% While it is known that circuit identifiability increases with the scale of ground truth measurement (here full observability for $\sim$30\;min) [CITE], it remained unclear whether imperfect knowledge of the binary connectivity would allow accurate predictions. We therefore added up to 1000\% random connections to the GNN adjacency matrix, making the inverse problem substantially more ill-posed. We found that a GNN with up to 200\% additional random connections (800,000 edges) recovers the original circuit equivalently well as the GNN with ground truth adjacency (\(R^2_{\text{weights}} = 0.82\)), with a sharp drop off afterwards [FIG percentage vs. R2].
+
+% Last, we wanted to know whether we could improve the identification of the ground-truth network by adjusting the training algorithm. Several works have shown that intrinsic noise can be beneficial for parameter identification in dynamical systems [CITE; Zimmer 2015 et al?]. We found that injecting Gaussian noise into the simulation enables near perfect identification of the ground-truth circuit. We perturbed each neuron by independently sampled, temporally uncorrelated Gaussian noise $\mathcal N(0,\sigma^2)$ ($\sigma = 0.5$). Recovery reached near ceiling: 
+% \(R^2_{W_{ij}} = 0.99\), \(R^2_{\tau} = 1.00\), \(R^2_{V^{\mathrm{rest}}} = 0.85\), 
+% clustering accuracy of \(0.86\), and mean roll-out prediction accuracy of noise-free ground-truth of \(r = 0.99 \pm 0.03\). While intrinsice noise aids identifiability, it remains to be demonstrated how this insight could be used in practical applications.
+%We suggest that noise helps parameter recovery because the range of membrane voltages explored is larger, thereby better constraining the GNN model.
+
+% Rollout inferred with the GNN trained on noisy data, does not agree with the true traces (mean \(r = 0.16 \pm 0.13\)) but matches the dynamics of the simulated noise-free network (mean \(r = 0.99 \pm 0.03\)).
+
+
+% \vspace*{-1.em}
+% \subsubsection*{GNN training algorithm}
+
+\begin{figure}[htbp]
+\centering%
+\includegraphics[width=\columnwidth]{Fig2.pdf}
+\caption{GNN trained with DAVIS as visual inputs and augmented objective. (\textbf{a}) Weight recovery \(\widehat{\mathbf W}^{*}_{ij}=-\,\widehat{\mathbf W}_{ij}\,\gamma_i r_j \widehat{\tau}_i\),
+with \(\gamma_i=\partial\,f_\theta/\partial m\) ($m$ sum in GNN equation),
+\(r_j=\partial\,g_\phi/\partial v_j\big|_{v_j>0}\),
+and \(\widehat{\tau}_i\) recovered time constant. 
+(\textbf{b}) Neuron embeddings \(\mathbf a_i\) with hierarchical clustering accuracy, colored by ground-truth cell-type.
+(\textbf{c}) Edge message \(g_\phi\) over $v_i$.
+(\textbf{d}) Neuron updates \(f_\theta\) over $v_i$.
+(\textbf{e}) \(\tau_i\) and (\textbf{f}) \(V_i^{\mathrm{rest}}\) from linear fits of \(f_\theta\). Colors denote true neuron types.}
+\label{fig:results_51_2}
+\end{figure}
+% \vspace*{-1.0em}
+
+
+\paragraph{Discussion and conclusion}
+The GNN model recovered neuron-specific dynamics and parameters, linked single-cell heterogeneity to neuron types and enabled causal ``what-if'' predictions even without perfect knowledge of connectivity. While several limitations remain to be addressed (non-spiking, high frame-rate, time-invariant model) before application to real datasets in follow-up work, the model fills a critical gap complementing existing machine learning \cite{mi_connectome-constrained_2021,pospisil_fly_2024, wang_foundation_2025} approaches with a fully data-driven, flexible, and interpretable approach.
+
+\printbibliography[heading=none]
+
+\end{document}
+
+
+
