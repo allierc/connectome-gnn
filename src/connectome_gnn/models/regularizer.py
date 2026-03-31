@@ -202,7 +202,6 @@ class LossRegularizer:
 
         # Get model W (handle multi-run case not working here)
         # For low_rank_factorization, compute W from WL @ WR to allow gradient flow
-
         # --- W regularization ---
 
         low_rank = getattr(model, 'low_rank_factorization', False)
