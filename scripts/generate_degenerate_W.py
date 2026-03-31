@@ -92,9 +92,6 @@ SCALE_FACTORS = [0.05, 0.1, 0.2, 0.35, 0.5, 0.75, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 
 SEED = 42
 # Use ALL non-retina types — one variant per (type, scale) pair
 
-# ---------------------------------------------------------------------------
-# Helper functions
-# ---------------------------------------------------------------------------
 
 def infer_neuron_types(tau, vrest, decimals=6):
     """Infer neuron type indices from (tau, V_rest) pairs.
@@ -186,10 +183,6 @@ def generate_sum_preserving_perturbation(group_size, rng):
         delta /= norm
     return delta
 
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
 
 def main():
     rng = np.random.RandomState(SEED)

@@ -13,7 +13,7 @@ $$
 
 where $\tau_i$ and $V_i^{\mathrm{rest}}$ are cell-type parameters, $\mathbf{W}_{ij}$ is the connectome-constrained synaptic weight from neuron $j$ to $i$, and $I_i(t)$ is the external stimulus.
 
-**The inverse problem**: given observed trajectories $\{v_i(t)\}_{t=0}^{T}$ and stimuli $\{I_i(t)\}$, recover the connectivity matrix $\mathbf{W}$, time constants $\tau$, and resting potentials $V^{\text{rest}}$.
+**The inverse problem**: given observed trajectories $\{v_i(t)\}_{t=0}^{T}$, stimuli $\{I_i(t)\}$, and the binary adjacency matrix $\mathbf{A}$ (which edges exist), recover the connectivity weights $\mathbf{W}$, time constants $\tau$, and resting potentials $V^{\text{rest}}$.
 
 ## Where the Degeneracy is Hard-Coded
 
@@ -53,7 +53,11 @@ $$
 \mathbf{H}_i (\mathbf{w}_i + \boldsymbol{\delta}) = \mathbf{H}_i \mathbf{w}_i + \underbrace{\mathbf{H}_i \boldsymbol{\delta}}_{= \mathbf{0}} = \mathbf{b}_i
 $$
 
-The null space dimension is $\dim\ker(\mathbf{H}_i) = d_i - \text{rank}(\mathbf{H}_i)$.
+So any perturbation in the kernel of $\mathbf{H}_i$ is invisible to the dynamics. How many such directions exist? The matrix $\mathbf{H}_i$ has $d_i$ columns (one per presynaptic neuron, $d_i \in [1, 208]$). By the rank-nullity theorem (for any matrix with $n$ columns: $\text{rank} + \text{nullity} = n$), these $d_i$ columns split into two groups:
+
+$$
+d_i = \underbrace{\text{rank}(\mathbf{H}_i)}_{\text{identifiable weights}} + \underbrace{\dim\ker(\mathbf{H}_i)}_{\text{free (null) weights}}
+$$
 
 **Global bound from SVD.** An SVD of the full population activity reveals that the entire circuit's activity lives in a low-dimensional subspace. The computation subsamples to 982 neurons (every 14th of 13,741) and 8,000 timesteps (every 8th of 64,000), then computes the full SVD (all 982 singular values):
 
@@ -65,27 +69,19 @@ The null space dimension is $\dim\ker(\mathbf{H}_i) = d_i - \text{rank}(\mathbf{
 | Effective rank at 90% variance | 1                          |
 | Effective rank at 99% variance | **45**                     |
 
-The matrix $\mathbf{H}_i$ has $d_i$ columns (one per presynaptic neuron, $d_i \in [1, 208]$). By the rank-nullity theorem (for any matrix with $n$ columns: $\text{rank} + \text{nullity} = n$), these $d_i$ columns split into two groups:
-
-$$
-d_i = \underbrace{\text{rank}(\mathbf{H}_i)}_{\text{identifiable weights}} + \underbrace{\dim\ker(\mathbf{H}_i)}_{\text{free (null) weights}}
-$$
-
-Since each neuron $i$'s presynaptic activity $\mathbf{H}_i$ is a submatrix of the global activity, its rank is bounded by the global effective rank: $\text{rank}_{\text{eff}}(\mathbf{H}_i) \leq 45$. This is an _approximate_ bound, the 99% variance threshold is arbitrary, and the true mathematical rank (number of nonzero singular values) may be higher. Replacing exact rank with effective rank gives an approximate null space:
+Since each neuron $i$'s presynaptic activity $\mathbf{H}_i$ is a submatrix of the global activity, its rank is upper-bounded by the global effective rank: $\text{rank}_{\text{eff}}(\mathbf{H}_i) \leq 45$. This is an _approximate_ bound, the 99% variance threshold is arbitrary, and the true mathematical rank (number of nonzero singular values) may be higher. Replacing exact rank with effective rank gives an approximate null space:
 
 $$
 \dim\ker_{\text{eff}}(\mathbf{H}_i) \approx \max(0, \; d_i - r)
 $$
 
-where $r$ is the effective activity rank. This approximation predicts that perturbations along the neglected singular directions have negligible effect on dynamics. The Empirical Verification section tests this prediction directly.
-
-Summing over all 13,697 postsynaptic neurons gives a global estimate:
+where $r$ is $\text{rank}_{\text{eff}}(\mathbf{H}_i)$, the effective activity rank. This approximation predicts that perturbations along the neglected singular directions have negligible effect on dynamics. Summing over all 13,697 postsynaptic neurons gives a global estimate:
 
 $$
 \text{total null dim} = \sum_{i=1}^{N_{\text{post}}} \max(0, \; d_i - r)
 $$
 
-**Sensitivity to the variance threshold.** Since the 99% threshold is a convention, we report the null space estimate across several thresholds:
+**Sensitivity to the variance threshold.** Since the 99% threshold is arbitrary chosen, we report the null space estimate across several thresholds:
 
 | Variance threshold | Effective rank $r$ | Null space dim | % identifiable |
 | ------------------ | ------------------ | -------------- | -------------- |
@@ -95,9 +91,7 @@ $$
 | 99.5%              | 90                 | 26,413         | 93.9%          |
 | 99.9%              | 238                | 0              | 100.0%         |
 
-At 99.9% the rank (238) exceeds the maximum in-degree (208), so the null space vanishes by this metric alone. The 99% threshold ($r = 45$) gives the most informative estimate: it predicts a large but finite null space, whose reality is confirmed by the Empirical Verification below.
-
-The in-degree $d_i$ (number of incoming edges) determines which neurons have degenerate incoming weights at $r = 45$. Neurons with $d_i \leq 45$ have enough independent activity dimensions to constrain all their incoming weights — they are "fully identifiable" and their weights can in principle be recovered from dynamics. Neurons with $d_i > 45$ have more incoming edges than independent activity dimensions, so $d_i - 45$ of their weights are free to vary without affecting the output — these are the null space dimensions where weight recovery is impossible:
+At 99.9% the rank (238) exceeds the maximum in-degree (208), so the null space vanishes by this metric alone. The 99% threshold ($r = 45$) gives the most informative estimate: it predicts a large but finite null space. The in-degree $d_i$ (number of incoming edges) determines which neurons have degenerate incoming weights at $r = 45$. Neurons with $d_i \leq 45$ have enough independent activity dimensions to constrain all their incoming weights — they are "fully identifiable" and their weights can in principle be recovered from dynamics. Neurons with $d_i > 45$ have more incoming edges than independent activity dimensions, so $d_i - 45$ of their weights are free to vary without affecting the output — these are the null space dimensions where weight recovery is impossible:
 
 | In-degree range | Neurons | Null space contribution |
 | --------------- | ------- | ----------------------- |
@@ -236,7 +230,7 @@ Each perturbation is $\mathbf{W} + \lambda \boldsymbol{\delta}$, where $\boldsym
 
 Recovering the connectivity matrix $\mathbf{W}$ from dynamics alone is ill-posed, even with perfect noise-free observations, known $\tau_i$, $V_i^{\text{rest}}$, known activation function, and known graph topology.
 
-The null space analysis (Steps 2--4) quantifies the ill-posedness: **~121,100 out of 434,112 edge weights** (~28%) can be changed freely without affecting the dynamics. The empirical verification confirms this across all 52 non-retina cell types: at $\lambda = 8.0$, connectivity $R^2$ drops as low as 0.28 while rollout $R^2$ stays above 0.96.
+The null space analysis (Steps 2--4) quantifies the ill-posedness: the weight space has **~121,100 null dimensions** out of 434,112 edges (~28%), along which weights can be redistributed within same-type groups without affecting the dynamics. The empirical verification confirms this across all 52 non-retina cell types: at $\lambda = 8.0$, connectivity $R^2$ drops as low as 0.28 while rollout $R^2$ stays above 0.96.
 
 The set of valid solutions is **uncountably infinite**. For each of the 52 cell types independently, the perturbation $\boldsymbol{\delta}$ can be scaled by any $\lambda \in \mathbb{R}$, and different types can use different $\lambda$ values. The solution manifold is not a point but a ~121,100-dimensional continuous subspace of $\mathbb{R}^{434,112}$.
 
@@ -338,7 +332,7 @@ Alternatively, to break the strong within-type correlations experimentally, one 
 
 Recovering the connectome from neural dynamics is fundamentally ill-posed: the columnar organization of the flyvis circuit forces same-type neurons across columns to produce strongly correlated activity, making their individual synaptic contributions indistinguishable. Two independent estimates of the null space — a global SVD bound (115,223 dimensions) and a per-type structural count (~121,100 dimensions) — agree to within 5%, confirming that within-type degeneracy is the dominant mechanism; the global bound captures all correlations (within- and cross-type) but is coarse, while the per-type count precisely measures within-type redundancy but misses cross-type correlations. This structural degeneracy affects 26.5% of all 434,112 edge weights, supported empirically by generating 780 perturbed connectivity matrices where weights change measurably (conn. $R^2$ ranging from 0.28 to 1.0, most between 0.93 and 0.99) while dynamics remain nearly identical (rollout $R^2 > 0.96$). Adding independent process noise breaks the within-type correlations and increases the effective activity rank from 45 (noise-free) to 781 ($\sigma = 0.5$), eliminating the null space entirely and enabling the GNN to achieve $R^2_{\mathbf{W}} = 0.997$.
 
-The entire analysis rests on a single classical result from linear algebra — the rank-nullity theorem ($d_i = \text{rank}(\mathbf{H}_i) + \dim\ker(\mathbf{H}_i)$) — applied to the linearized ODE at each neuron: a neuron's incoming weights are fully recoverable if and only if the activity rank exceeds its in-degree ($\text{rank}(\mathbf{H}_i) \geq d_i$). The only approximation is bounding rank by effective rank at a chosen variance threshold; everything else follows exactly. **This provides a principled criterion for when connectome recovery from dynamics is well-posed or ill-posed.**
+The entire analysis rests on the rank-nullity theorem: a neuron's incoming weights are recoverable when the activity rank exceeds its in-degree. Since the per-neuron rank cannot be measured directly, we upper-bound it by the global effective rank of the population activity (computed once by SVD); the only approximation is choosing the variance threshold that defines this effective rank. **The condition $r_{\text{global}} \geq d_i$ provides a principled, per-neuron criterion for when connectome recovery from dynamics is well-posed or ill-posed.**
 
 ## Scripts
 
