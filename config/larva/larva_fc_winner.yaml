@@ -1,0 +1,114 @@
+# Winner config: larva_fc_winner.yaml
+# Source: iter_109_slot_00 (connectivity_R2 = 0.435)
+# Exploration: 128 iterations, 11 blocks — COMPLETE
+# Date: 2026-03-29
+#
+# Why this is the winner:
+#   - g_phi_norm=0.01 constrains g_phi output scale, forcing dynamics learning into W
+#   - Combined with regul_annealing_rate=0.7, embedding_dim=4, n_epochs=2, W_L1=4e-3
+#   - Most robust FC larva config: 0% blow-ups (0/10 seeds), 10-seed CV=39.7%
+#   - 14/14 mutations tested on this parent — ALL worse. Exhaustively optimized.
+#   - FC structurally limited: 52,670 edges vs 4,222 true (12.5x search space)
+#
+# Metrics:
+#   connectivity_R2: 0.435 (best single seed, all-time best)
+#   robust_mean:     0.268 +/- 0.106 (10 seeds, CV=39.7%)
+#   rollout_pearson: 0.999
+#   cluster_accuracy: 0.313
+#   spectral_radius: 0.910 (true: 1.277)
+#   procrustes_W:    0.490 (all-time best)
+#
+# Key config differences from baseline:
+#   - coeff_W_L1: 3e-6 -> 4e-3 (667x stronger sparsity for FC mode)
+#   - n_epochs: 1 -> 2 (critical for W convergence)
+#   - embedding_dim: 2 -> 4 (richer neuron identity)
+#   - regul_annealing_rate: 0 -> 0.7 (gradual L1 ramp-up)
+#   - coeff_g_phi_norm: 0 -> 0.01 (constrains g_phi, biggest single lever)
+#   - lr_W: 5e-4 -> 1e-3 (faster edge regrowth against L1)
+#   - data_augmentation_loop: 1400 -> 630 (FC trains faster per step)
+#
+description: "Drosophila larva \u2014 fully connected (from best GT-edges config)"
+dataset: larva_fc_00
+simulation:
+  connectivity_file: to be specified
+  adjacency_matrix: ''
+  params:
+  - - 1.0
+    - 1.0
+  n_neurons: 230
+  n_input_neurons: 230
+  n_neuron_types: 2
+  n_edges: 4222
+  n_frames: 2400
+  delta_t: 0.05
+  baseline_value: 0
+  noise_model_level: 0.0
+  measurement_noise_level: 0.0
+  seed: 109000
+  connconstr_datapath: papers/Code_NN/Code_NN/Data/Figure5
+  connconstr_model: larva
+  connconstr_n_trials: 10
+  connconstr_use_pretrained: true
+graph_model:
+  signal_model_name: larva
+  prediction: first_derivative
+  input_size: 5
+  n_layers: 3
+  hidden_dim: 64
+  output_size: 1
+  input_size_update: 7
+  n_layers_update: 3
+  hidden_dim_update: 64
+  aggr_type: add
+  embedding_dim: 4
+  update_type: generic
+  g_phi_positive: false
+plotting:
+  colormap: tab10
+  arrow_length: 1
+  xlim:
+  - -2.5
+  - 2.5
+  ylim:
+  - -5
+  - 5
+training:
+  n_epochs: 2
+  n_runs: 1
+  device: cpu
+  batch_size: 4
+  batch_ratio: 1
+  small_init_batch_size: false
+  sparsity: none
+  data_augmentation_loop: 630
+  lr_W: 0.001
+  lr: 0.001
+  lr_embedding: 0.001
+  coeff_g_phi_diff: 1500
+  coeff_f_theta_diff: 10
+  coeff_f_theta_msg_diff: 50
+  coeff_g_phi_norm: 0.01
+  coeff_g_phi_weight_L1: 0.0
+  coeff_f_theta_weight_L1: 0
+  coeff_g_phi_weight_L2: 0
+  coeff_f_theta_weight_L2: 0.001
+  dale_law: false
+  coeff_W_L1: 0.004
+  coeff_W_L2: 1.5e-06
+  coeff_W_sign: 0.05
+  regul_annealing_rate: 0.7
+  w_init_mode: zeros
+  w_init_scale: 1.0
+  use_gt_edges: false
+  seed: 109500
+claude:
+  n_epochs: 2
+  data_augmentation_loop: 630
+  n_iter_block: 12
+  mutation: g_phi_norm=0.01 winner (FINAL - 128/128 iterations)
+  ucb_c: 0
+  n_parallel: 4
+  node_name: l4
+  n_cpus: 1
+  generate_data: true
+  training_time_target_min: 60
