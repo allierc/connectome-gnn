@@ -317,15 +317,22 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
     embedding_frozen = False
     unfreeze_at_iteration = -1
 
+    _profiling = tc.profiling
+    _profiler_trace_dir = os.path.join(log_dir, 'profiler_traces')
+    if _profiling:
+        os.makedirs(_profiler_trace_dir, exist_ok=True)
+
     for epoch in range(start_epoch, tc.n_epochs):
 
         Niter = int(sim.n_frames * tc.data_augmentation_loop // tc.batch_size * 0.2)
-        plot_frequency = int(Niter // 20)
-        connectivity_plot_frequency = int(Niter // 10)
+        if tc.max_iterations_per_epoch > 0:
+            Niter = min(Niter, tc.max_iterations_per_epoch)
+        plot_frequency = max(1, int(Niter // 20))
+        connectivity_plot_frequency = max(1, int(Niter // 10))
         # Early-phase R2: 4 extra checkpoints in [1, connectivity_plot_frequency)
         early_r2_frequency = connectivity_plot_frequency // 5
         n_plots_per_epoch = 4
-        plot_iterations = set(int(x) for x in np.linspace(Niter // n_plots_per_epoch, Niter - 1, n_plots_per_epoch))
+        plot_iterations = set(int(x) for x in np.linspace(Niter // n_plots_per_epoch, Niter - 1, n_plots_per_epoch)) if n_plots_per_epoch > 0 else set()
         print(f'every {connectivity_plot_frequency} iterations: {Niter} iterations per epoch, plot '
               f'(early-phase every {early_r2_frequency} iterations)')
 
@@ -376,6 +383,17 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
         # Main training loop. Suggested changes: loss function, gradient clipping,
         # data sampling strategy, LR scheduler steps, early stopping.
         # Do NOT change: function signature, model construction, data loading, return values.
+        _prof_wait, _prof_warmup, _prof_active = 3, 2, 3
+        if _profiling:
+            _prof = torch.profiler.profile(
+                activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
+                schedule=torch.profiler.schedule(wait=_prof_wait, warmup=_prof_warmup, active=_prof_active, repeat=1),
+                on_trace_ready=torch.profiler.tensorboard_trace_handler(_profiler_trace_dir),
+                record_shapes=True,
+                with_stack=True,
+                profile_memory=True,
+            )
+            _prof.start()
         for N in pbar:
 
             # Unfreeze embedding at the midpoint after UMAP clustering froze it
@@ -496,7 +514,6 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                         y = x_ts.stimulus[k, :sim.n_input_neurons].unsqueeze(-1)
                     else:
                         y = torch.tensor(y_ts[k], device=device) / ynorm     # loss on activity derivative
-
 
                     if loss_noise_level>0:
                         y = y + torch.randn(y.shape, device=device) * loss_noise_level
@@ -718,6 +735,13 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                             os.path.join(log_dir, 'models', f'best_model_with_{tc.n_runs - 1}_graphs_{epoch}_{N}.pt'))
 
             # check_and_clear_memory(device=device, iteration_number=N, every_n_iterations=Niter // 50, memory_percentage_threshold=0.6)
+            if _profiling:
+                _prof.step()
+
+        if _profiling:
+            _prof.stop()
+            print(f'[Profiler] Trace saved to {_profiler_trace_dir}/')
+            print(f'  View with: tensorboard --logdir {_profiler_trace_dir}')
 
         # === LLM-MODIFIABLE: TRAINING LOOP END ===
 
