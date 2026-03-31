@@ -158,10 +158,12 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
     torch.save(xnorm, os.path.join(log_dir, 'xnorm.pt'))
     _logger.info(f'xnorm: {to_numpy(xnorm):0.3f}')
     logger.info(f'xnorm: {to_numpy(xnorm)}')
+    xnorm = float(xnorm)  # Python float so compiled functions avoid .item()
     ynorm = torch.tensor(1.0, device=device)
     torch.save(ynorm, os.path.join(log_dir, 'ynorm.pt'))
     _logger.info(f'ynorm: {to_numpy(ynorm):0.3f}')
     logger.info(f'ynorm: {to_numpy(ynorm)}')
+    ynorm = float(ynorm)
 
     # SVD analysis of activity and visual stimuli (skip if already exists)
     svd_plot_path = os.path.join(log_dir, 'results', 'svd_analysis.png')
@@ -302,6 +304,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
     regularizer.set_activity_stats(x_ts, device)
 
     model = torch.compile(model, mode='reduce-overhead', fullgraph=True)
+    regularizer.compute = torch.compile(regularizer.compute, mode='reduce-overhead', fullgraph=True)
+    regularizer.compute_update_regul = torch.compile(regularizer.compute_update_regul, mode='reduce-overhead', fullgraph=True)
 
     loss_components = {'loss': []}
 
