@@ -147,8 +147,9 @@ def data_train_rollout(config, erase, best_model, device, log_file=None):
 
     load_fields = determine_load_fields(config)
     x_ts, _y_ts, type_list = load_flyvis_data(
-        config.dataset, split='train', fields=load_fields, device=device,
+        config.dataset, split='train', fields=load_fields,
     )
+    x_ts = x_ts.to(device)
 
     n_neurons = x_ts.n_neurons
     n_frames = x_ts.n_frames

@@ -138,7 +138,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
 
     load_fields = determine_load_fields(config)
     x_ts, y_ts, type_list = load_flyvis_data(
-        config.dataset, split='train', fields=load_fields, device=device,
+        config.dataset, split='train', fields=load_fields,
         training_selected_neurons=tc.training_selected_neurons,
         selected_neuron_ids=tc.selected_neuron_ids if tc.training_selected_neurons else None,
         measurement_noise_level=sim.measurement_noise_level,
@@ -151,7 +151,10 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
     _logger.info(f'dataset: {x_ts.n_frames} frames,  n neurons: {n_neurons}')
     logger.info(f'n neurons: {n_neurons}')
 
+    # Compute xnorm on CPU before moving to GPU (avoids OOM from temporary
+    # boolean mask + filtered copy needing ~2x voltage memory)
     xnorm = x_ts.xnorm
+    x_ts = x_ts.to(device)
     torch.save(xnorm, os.path.join(log_dir, 'xnorm.pt'))
     _logger.info(f'xnorm: {to_numpy(xnorm):0.3f}')
     logger.info(f'xnorm: {to_numpy(xnorm)}')
