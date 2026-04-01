@@ -73,10 +73,12 @@ def data_train(config=None, erase=False, best_model=None, style=None, device=Non
 
     # Limit CPU threads to match cluster allocation (LSB_DJOB_NUMPROC set by bsub -n)
     num_proc = os.environ.get("LSB_DJOB_NUMPROC")
-    if num_proc is not None:
-        num_threads = int(num_proc)
-        torch.set_num_threads(num_threads)
-        print(f"CPU threads: {num_threads} (from LSB_DJOB_NUMPROC)")
+    # Limit torch.compile's Triton compilation workers to cluster allocation
+    os.environ.setdefault("TORCHINDUCTOR_COMPILE_THREADS", num_proc or "12")
+
+    if num_proc is not None and (device is None or device.type == "cpu"):
+        torch.set_num_threads(int(num_proc))
+        print(f"CPU threads: {num_proc} (from LSB_DJOB_NUMPROC)")
     print(f"device: {device}")
 
     seed = config.training.seed
