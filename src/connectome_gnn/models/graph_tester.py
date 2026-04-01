@@ -9,6 +9,7 @@ Contains:
 import glob
 import os
 import re
+from scipy.stats import pearsonr
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -432,6 +433,28 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
         if stimuli_R2 is not None:
             f.write(f"stimuli_R2: {stimuli_R2:.4f}\n")
     logger.debug(f'rollout metrics saved to {rollout_log_path}')
+
+    # RMSE and Pearson r as a function of rollout step (every 500 frames), saved as CSV
+    checkpoint_interval = 500
+    n_total = rollout_pred_arr.shape[0]
+    checkpoints = list(range(checkpoint_interval, n_total, checkpoint_interval)) + [n_total]
+    rollout_csv_path = os.path.join(log_dir, f'results_rollout_by_step{test_suffix}.csv')
+    with open(rollout_csv_path, 'w') as f:
+        f.write("frame_start,frame_end,RMSE,pearson\n")
+        prev = 0
+        for cp in checkpoints:
+            w_true = rollout_true_arr[prev:cp]   # (window, n_neurons)
+            w_pred = rollout_pred_arr[prev:cp]
+            rmse_w = float(np.sqrt(np.mean((w_true - w_pred) ** 2)))
+            with np.errstate(invalid='ignore'):
+                pearson_w = float(np.nanmean([
+                    pearsonr(w_true[:, i], w_pred[:, i])[0]
+                    for i in range(w_true.shape[1])
+                    if np.std(w_true[:, i]) > 1e-8 and np.std(w_pred[:, i]) > 1e-8
+                ]))
+            f.write(f"{prev},{cp},{rmse_w:.4f},{pearson_w:.4f}\n")
+            prev = cp
+    logger.debug(f'rollout-by-step metrics saved to {rollout_csv_path}')
 
     if log_file:
         log_file.write('\n--- Rollout results ---\n')

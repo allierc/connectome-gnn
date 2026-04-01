@@ -42,7 +42,7 @@ plotting:
     - -100
     - 100
 training:
-  n_epochs: 1
+  n_epochs: 20
   n_runs: 1
   device: auto
   recurrent_training: false
@@ -59,7 +59,7 @@ training:
   lr: 0.00001
   lr_embedding: 0
   lr_update: 0
-  rollout_train_steps: 20
+  rollout_train_steps: 5
   coeff_g_phi_diff: 0
   coeff_f_theta_msg_diff: 0
   coeff_g_phi_norm: 0
