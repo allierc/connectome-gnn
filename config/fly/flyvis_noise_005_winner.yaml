@@ -116,3 +116,4 @@ training:
   lr_scheduler_eta_min_ratio: 0.01
   lr_scheduler_warmup_iters: 100
   seed: 42
+  profiling: true
