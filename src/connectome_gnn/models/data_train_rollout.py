@@ -106,7 +106,7 @@ def _compute_loss_multistep(model, voltage, stimulus, t_indices, dt, rollout_ste
     Backprop through the full rollout penalizes error compounding.
     """
     x = voltage[t_indices]  # (B, N)
-    loss = torch.tensor(0.0, device=x.device)
+    loss = torch.zeros((), device=x.device)
     for k in range(rollout_steps):
         stim_k = stimulus[t_indices + k]              # (B, n_input)
         dvdt = model.predict_dvdt(x, stim_k)

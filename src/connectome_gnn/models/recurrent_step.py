@@ -132,7 +132,7 @@ def _standard_recurrent_loss(
     data_id = torch.zeros((ids_index, 1), dtype=torch.int, device=device)
 
     # Regularisation (computed once on initial state)
-    regularizer.reset_iteration()
+    regularizer.reset_iteration(device=device)
     regul_loss = regularizer.compute(
         model=model, x=state_batch[0], in_features=None,
         ids=ids, ids_batch=None, edges=edges, device=device, xnorm=xnorm,
@@ -201,7 +201,7 @@ def _multi_start_loss(
     x0 = x_ts.frame(T - time_step)
     if x0.noise is not None and sim.measurement_noise_level > 0:
         x0.voltage = x0.voltage + x0.noise
-    regularizer.reset_iteration()
+    regularizer.reset_iteration(device=device)
     regul_loss = regularizer.compute(
         model=model, x=x0, in_features=None,
         ids=ids, ids_batch=None, edges=edges, device=device, xnorm=xnorm,
