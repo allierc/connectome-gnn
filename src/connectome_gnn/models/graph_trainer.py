@@ -392,7 +392,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
         # Main training loop. Suggested changes: loss function, gradient clipping,
         # data sampling strategy, LR scheduler steps, early stopping.
         # Do NOT change: function signature, model construction, data loading, return values.
-        _prof_wait, _prof_warmup, _prof_active = 10, 2, 3
+        _prof_wait, _prof_warmup, _prof_active = 3, 2, 3
         if _profiling:
             _prof = torch.profiler.profile(
                 activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
