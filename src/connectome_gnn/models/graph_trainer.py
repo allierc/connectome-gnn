@@ -107,6 +107,9 @@ def data_train(config=None, erase=False, best_model=None, style=None, device=Non
 
 
 def data_train_gnn(config, erase, best_model, device, log_file=None):
+    if torch.cuda.is_available():
+        torch.set_float32_matmul_precision('high')
+
     sim = config.simulation
     tc = config.training
     model_config = config.graph_model
