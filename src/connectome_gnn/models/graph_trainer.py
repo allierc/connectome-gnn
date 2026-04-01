@@ -159,7 +159,10 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
     # Compute xnorm on CPU before moving to GPU (avoids OOM from temporary
     # boolean mask + filtered copy needing ~2x voltage memory)
     xnorm = x_ts.xnorm
+    assert not torch.isnan(x_ts.voltage).any(), "voltage contains NaN — cannot train"
+    assert not np.isnan(y_ts).any(), "derivative targets contain NaN — cannot train"
     x_ts = x_ts.to(device)
+    y_ts_gpu = torch.from_numpy(y_ts).float().to(device)  # pre-convert once; avoids per-iter cudaStreamSynchronize
     torch.save(xnorm, os.path.join(log_dir, 'xnorm.pt'))
     _logger.info(f'xnorm: {to_numpy(xnorm):0.3f}')
     logger.info(f'xnorm: {to_numpy(xnorm)}')
@@ -314,8 +317,6 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
 
     loss_components = {'loss': []}
 
-    time.sleep(0.2)
-
     training_start_time = time.time()
 
     # Metrics log: tracks R2 evolution over training iterations
@@ -339,8 +340,6 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
     for epoch in range(start_epoch, tc.n_epochs):
 
         Niter = int(sim.n_frames * tc.data_augmentation_loop // tc.batch_size * 0.2)
-        if tc.max_iterations_per_epoch > 0:
-            Niter = min(Niter, tc.max_iterations_per_epoch)
         plot_frequency = max(1, int(Niter // 20))
         connectivity_plot_frequency = max(1, int(Niter // 10))
         # Early-phase R2: 4 extra checkpoints in [1, connectivity_plot_frequency)
@@ -350,6 +349,9 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
         print(f'every {connectivity_plot_frequency} iterations: {Niter} iterations per epoch, plot '
               f'(early-phase every {early_r2_frequency} iterations)')
 
+        # TRUNCATE ITERATIONS but only if config parameter says so.
+        if tc.max_iterations_per_epoch > 0:
+            Niter = min(Niter, tc.max_iterations_per_epoch)
         # Compute unfreeze point for this epoch if embedding was frozen by UMAP clustering
         if embedding_frozen and tc.umap_cluster_fix_embedding_ratio > 0:
             unfreeze_at_iteration = int(Niter * tc.umap_cluster_fix_embedding_ratio)
@@ -358,6 +360,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
 
         total_loss = 0
         total_loss_regul = 0
+        _total_loss_gpu = torch.zeros((), device=device)      # GPU accumulators — avoids per-iter .item() sync
+        _total_regul_gpu = torch.zeros((), device=device)
         k = 0
 
         loss_noise_level = tc.loss_noise_level * (0.95 ** epoch)
@@ -438,12 +442,13 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                 if dale_enabled and N in dale_checkpoints:
                     enforce_dale_law(model, edges)
                 lr_scheduler.step()
-                total_loss += loss.item()
+                _total_loss_gpu = _total_loss_gpu + loss.detach()
                 total_loss_regul += regul_val
                 regularizer.finalize_iteration()
 
                 if regularizer.should_record():
-                    loss_components['loss'].append((loss.item() - regul_val) / n_neurons)
+                    _current_loss = loss.item()  # single sync per plot_frequency iters
+                    loss_components['loss'].append((_current_loss - regul_val) / n_neurons)
                     plot_dict = {**regularizer.get_history(), 'loss': loss_components['loss']}
                     plot_signal_loss(plot_dict, log_dir, epoch=epoch, Niter=Niter,
                                     epoch_boundaries=regularizer.epoch_boundaries)
@@ -507,145 +512,138 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                     x.stimulus[:model.n_input_neurons] = visual_input.squeeze(-1)
                     x.stimulus[model.n_input_neurons:] = 0
 
-                if not (torch.isnan(x.voltage).any()):
+                if batch==0:  # apply regularization only once
+                    regul_loss = regularizer.compute(
+                        model=model,
+                        x=x,
+                        in_features=None,
+                        ids=ids,
+                        ids_batch=None,
+                        edges=edges,
+                        device=device,
+                        xnorm=xnorm
+                    )
+                    loss = loss + regul_loss
 
-                    if batch==0:  # apply regularization only once
-                        regul_loss = regularizer.compute(
-                            model=model,
-                            x=x,
-                            in_features=None,
-                            ids=ids,
-                            ids_batch=None,
-                            edges=edges,
-                            device=device,
-                            xnorm=xnorm
-                        )
-                        loss = loss + regul_loss
+                if tc.recurrent_training or tc.neural_ODE_training:
+                    y = x_ts.voltage[k + tc.time_step].unsqueeze(-1)
+                elif test_neural_field:
+                    y = x_ts.stimulus[k, :sim.n_input_neurons].unsqueeze(-1)
+                else:
+                    y = y_ts_gpu[k] / ynorm
 
-                    if tc.recurrent_training or tc.neural_ODE_training:
-                        y = x_ts.voltage[k + tc.time_step].unsqueeze(-1)
-                    elif test_neural_field:
-                        y = x_ts.stimulus[k, :sim.n_input_neurons].unsqueeze(-1)
-                    else:
-                        y = torch.tensor(y_ts[k], device=device) / ynorm     # loss on activity derivative
+                if loss_noise_level>0:
+                    y = y + torch.randn(y.shape, device=device) * loss_noise_level
 
-                    if loss_noise_level>0:
-                        y = y + torch.randn(y.shape, device=device) * loss_noise_level
-
-                    if not (torch.isnan(y).any()):
-
-                        state_batch.append(x)
-                        n = x.n_neurons
-                        y_list.append(y)
-                        ids_list.append(ids + ids_index)
-                        k_list.append(torch.ones((n, 1), dtype=torch.int, device=device) * k)
-                        if test_neural_field:
-                            visual_input_list.append(visual_input)
-                        ids_index += n
-
-
-            if state_batch:
-
-                data_id = torch.zeros((ids_index, 1), dtype=torch.int, device=device)
-                y_batch = torch.cat(y_list, dim=0)
-                ids_batch = torch.cat(ids_list, dim=0)
-                k_batch = torch.cat(k_list, dim=0)
-
-                total_loss_regul += loss.item()
-
+                state_batch.append(x)
+                n = x.n_neurons
+                y_list.append(y)
+                ids_list.append(ids + ids_index)
+                k_list.append(torch.ones((n, 1), dtype=torch.int, device=device) * k)
                 if test_neural_field:
-                    visual_input_batch = torch.cat(visual_input_list, dim=0)
-                    loss = loss + (visual_input_batch - y_batch).norm(2)
+                    visual_input_list.append(visual_input)
+                ids_index += n
 
 
-                elif 'mlp_ode' in model_config.signal_model_name.lower():
-                    batched_state, _ = _batch_frames(state_batch, edges)
-                    batched_x = batched_state.to_packed()
-                    pred = model(batched_x, data_id=data_id, return_all=False)
+            data_id = torch.zeros((ids_index, 1), dtype=torch.int, device=device)
+            y_batch = torch.cat(y_list, dim=0)
+            ids_batch = torch.cat(ids_list, dim=0)
+            k_batch = torch.cat(k_list, dim=0)
+
+            _total_regul_gpu = _total_regul_gpu + loss.detach()  # regul-only at this point
+
+            if test_neural_field:
+                visual_input_batch = torch.cat(visual_input_list, dim=0)
+                loss = loss + (visual_input_batch - y_batch).norm(2)
+
+
+            elif 'mlp_ode' in model_config.signal_model_name.lower():
+                batched_state, _ = _batch_frames(state_batch, edges)
+                batched_x = batched_state.to_packed()
+                pred = model(batched_x, data_id=data_id, return_all=False)
+
+                loss = loss + (pred[ids_batch] - y_batch[ids_batch]).norm(2)
+
+            elif 'mlp' in model_config.signal_model_name.lower():
+                batched_state, _ = _batch_frames(state_batch, edges)
+                pred = model(batched_state, data_id=data_id, return_all=False)
+
+                loss = loss + (pred[ids_batch] - y_batch[ids_batch]).norm(2)
+
+            else: # 'GNN' branch
+
+                batched_state, batched_edges = _batch_frames(state_batch, edges)
+                pred, in_features, msg = model(batched_state, batched_edges, data_id=data_id, return_all=True)
+
+                update_regul = regularizer.compute_update_regul(model, in_features, ids_batch, device)
+                loss = loss + update_regul
+
+
+                if tc.neural_ODE_training:
+
+                    ode_state_clamp = getattr(tc, 'ode_state_clamp', 10.0)
+                    ode_stab_lambda = getattr(tc, 'ode_stab_lambda', 0.0)
+                    ode_loss, pred_x = neural_ode_loss(
+                        model=model,
+                        dataset_batch=state_batch,
+                        edge_index=edges,
+                        x_ts=x_ts,
+                        k_batch=k_batch,
+                        time_step=tc.time_step,
+                        batch_size=tc.batch_size,
+                        n_neurons=n_neurons,
+                        ids_batch=ids_batch,
+                        delta_t=sim.delta_t,
+                        device=device,
+                        data_id=data_id,
+                        has_visual_field=has_visual_field,
+                        y_batch=y_batch,
+                        noise_level=tc.noise_recurrent_level,
+                        ode_method=tc.ode_method,
+                        rtol=tc.ode_rtol,
+                        atol=tc.ode_atol,
+                        adjoint=tc.ode_adjoint,
+                        iteration=N,
+                        state_clamp=ode_state_clamp,
+                        stab_lambda=ode_stab_lambda
+                    )
+                    loss = loss + ode_loss
+
+
+                elif tc.recurrent_training:
+
+                    pred_x = batched_state.voltage.unsqueeze(-1) + sim.delta_t * pred + tc.noise_recurrent_level * torch.randn_like(pred)
+
+                    if tc.time_step > 1:
+                        for step in range(tc.time_step - 1):
+                            neurons_per_sample = state_batch[0].n_neurons
+
+                            for b in range(tc.batch_size):
+                                start_idx = b * neurons_per_sample
+                                end_idx = (b + 1) * neurons_per_sample
+
+                                state_batch[b].voltage = pred_x[start_idx:end_idx].squeeze()
+
+                                k_current = k_batch[start_idx, 0].item() + step + 1
+
+                                if has_visual_field:
+                                    visual_input_next = model.forward_visual(state_batch[b], k_current)
+                                    state_batch[b].stimulus[:model.n_input_neurons] = visual_input_next.squeeze(-1)
+                                    state_batch[b].stimulus[model.n_input_neurons:] = 0
+                                else:
+                                    x_next = x_ts.frame(k_current)
+                                    state_batch[b].stimulus = x_next.stimulus
+
+                            batched_state, batched_edges = _batch_frames(state_batch, edges)
+                            pred, in_features, msg = model(batched_state, batched_edges, data_id=data_id, return_all=True)
+
+                            pred_x = pred_x + sim.delta_t * pred + tc.noise_recurrent_level * torch.randn_like(pred)
+
+                    loss = loss + ((pred_x[ids_batch] - y_batch[ids_batch]) / (sim.delta_t * tc.time_step)).norm(2)
+
+                else:
 
                     loss = loss + (pred[ids_batch] - y_batch[ids_batch]).norm(2)
-
-                elif 'mlp' in model_config.signal_model_name.lower():
-                    batched_state, _ = _batch_frames(state_batch, edges)
-                    pred = model(batched_state, data_id=data_id, return_all=False)
-
-                    loss = loss + (pred[ids_batch] - y_batch[ids_batch]).norm(2)
-
-                else: # 'GNN' branch
-
-                    batched_state, batched_edges = _batch_frames(state_batch, edges)
-                    pred, in_features, msg = model(batched_state, batched_edges, data_id=data_id, return_all=True)
-
-                    update_regul = regularizer.compute_update_regul(model, in_features, ids_batch, device)
-                    loss = loss + update_regul
-
-
-                    if tc.neural_ODE_training:
-
-                        ode_state_clamp = getattr(tc, 'ode_state_clamp', 10.0)
-                        ode_stab_lambda = getattr(tc, 'ode_stab_lambda', 0.0)
-                        ode_loss, pred_x = neural_ode_loss(
-                            model=model,
-                            dataset_batch=state_batch,
-                            edge_index=edges,
-                            x_ts=x_ts,
-                            k_batch=k_batch,
-                            time_step=tc.time_step,
-                            batch_size=tc.batch_size,
-                            n_neurons=n_neurons,
-                            ids_batch=ids_batch,
-                            delta_t=sim.delta_t,
-                            device=device,
-                            data_id=data_id,
-                            has_visual_field=has_visual_field,
-                            y_batch=y_batch,
-                            noise_level=tc.noise_recurrent_level,
-                            ode_method=tc.ode_method,
-                            rtol=tc.ode_rtol,
-                            atol=tc.ode_atol,
-                            adjoint=tc.ode_adjoint,
-                            iteration=N,
-                            state_clamp=ode_state_clamp,
-                            stab_lambda=ode_stab_lambda
-                        )
-                        loss = loss + ode_loss
-
-
-                    elif tc.recurrent_training:
-
-                        pred_x = batched_state.voltage.unsqueeze(-1) + sim.delta_t * pred + tc.noise_recurrent_level * torch.randn_like(pred)
-
-                        if tc.time_step > 1:
-                            for step in range(tc.time_step - 1):
-                                neurons_per_sample = state_batch[0].n_neurons
-
-                                for b in range(tc.batch_size):
-                                    start_idx = b * neurons_per_sample
-                                    end_idx = (b + 1) * neurons_per_sample
-
-                                    state_batch[b].voltage = pred_x[start_idx:end_idx].squeeze()
-
-                                    k_current = k_batch[start_idx, 0].item() + step + 1
-
-                                    if has_visual_field:
-                                        visual_input_next = model.forward_visual(state_batch[b], k_current)
-                                        state_batch[b].stimulus[:model.n_input_neurons] = visual_input_next.squeeze(-1)
-                                        state_batch[b].stimulus[model.n_input_neurons:] = 0
-                                    else:
-                                        x_next = x_ts.frame(k_current)
-                                        state_batch[b].stimulus = x_next.stimulus
-
-                                batched_state, batched_edges = _batch_frames(state_batch, edges)
-                                pred, in_features, msg = model(batched_state, batched_edges, data_id=data_id, return_all=True)
-
-                                pred_x = pred_x + sim.delta_t * pred + tc.noise_recurrent_level * torch.randn_like(pred)
-
-                        loss = loss + ((pred_x[ids_batch] - y_batch[ids_batch]) / (sim.delta_t * tc.time_step)).norm(2)
-
-
-                    else:
-
-                        loss = loss + (pred[ids_batch] - y_batch[ids_batch]).norm(2)
 
 
                 # === LLM-MODIFIABLE: BACKWARD AND STEP START ===
@@ -668,8 +666,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                 lr_scheduler.step()
                 # === LLM-MODIFIABLE: BACKWARD AND STEP END ===
 
-                total_loss += loss.item()
-                total_loss_regul += regularizer.get_iteration_total()
+                _total_loss_gpu = _total_loss_gpu + loss.detach()
+                _total_regul_gpu = _total_regul_gpu + regularizer.get_iteration_total_tensor().detach()
 
                 # finalize iteration to record history
                 regularizer.finalize_iteration()
@@ -677,8 +675,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
 
                 if regularizer.should_record():
                     # get history from regularizer and add loss component
-                    current_loss = loss.item()
-                    regul_total_this_iter = regularizer.get_iteration_total()
+                    current_loss = loss.item()  # single sync per plot_frequency iters
+                    regul_total_this_iter = regularizer.get_iteration_total()  # free after sync
                     loss_components['loss'].append((current_loss - regul_total_this_iter) / n_neurons)
 
                     # merge loss_components with regularizer history for plotting
@@ -759,7 +757,9 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
 
         # === LLM-MODIFIABLE: TRAINING LOOP END ===
 
-        # Calculate epoch-level losses
+        # Calculate epoch-level losses — two syncs per epoch, not per iteration
+        total_loss = _total_loss_gpu.item()
+        total_loss_regul = _total_regul_gpu.item()
         epoch_total_loss = total_loss / n_neurons
         epoch_regul_loss = total_loss_regul / n_neurons
         epoch_pred_loss = (total_loss - total_loss_regul) / n_neurons

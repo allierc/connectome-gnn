@@ -336,8 +336,8 @@ def set_trainable_parameters(model=[], lr_embedding=[], lr=[],  lr_update=[], lr
     for pg in param_groups:
         pg['base_lr'] = pg['lr']
 
-    # Use foreach=False to avoid CUDA device mismatch issues with multi-GPU setups
-    optimizer = torch.optim.Adam(param_groups, foreach=False)
+    # fused=True collapses per-param kernel launches into one CUDA kernel per group
+    optimizer = torch.optim.Adam(param_groups, fused=True)
 
     return optimizer, n_total_params
 
