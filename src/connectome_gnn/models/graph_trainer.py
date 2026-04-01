@@ -339,8 +339,6 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
     for epoch in range(start_epoch, tc.n_epochs):
 
         Niter = int(sim.n_frames * tc.data_augmentation_loop // tc.batch_size * 0.2)
-        if tc.max_iterations_per_epoch > 0:
-            Niter = min(Niter, tc.max_iterations_per_epoch)
         plot_frequency = max(1, int(Niter // 20))
         connectivity_plot_frequency = max(1, int(Niter // 10))
         # Early-phase R2: 4 extra checkpoints in [1, connectivity_plot_frequency)
@@ -349,6 +347,10 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
         plot_iterations = set(int(x) for x in np.linspace(Niter // n_plots_per_epoch, Niter - 1, n_plots_per_epoch)) if n_plots_per_epoch > 0 else set()
         print(f'every {connectivity_plot_frequency} iterations: {Niter} iterations per epoch, plot '
               f'(early-phase every {early_r2_frequency} iterations)')
+
+        # TRUNCATE ITERATIONS but only if config parameter says so.
+        if tc.max_iterations_per_epoch > 0:
+            Niter = min(Niter, tc.max_iterations_per_epoch)
 
         # Compute unfreeze point for this epoch if embedding was frozen by UMAP clustering
         if embedding_frozen and tc.umap_cluster_fix_embedding_ratio > 0:
