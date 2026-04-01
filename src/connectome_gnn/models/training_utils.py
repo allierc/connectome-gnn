@@ -36,27 +36,27 @@ def determine_load_fields(config):
     return fields
 
 
-def load_flyvis_data(dataset_name, split='train', fields=None, device=None,
+def load_flyvis_data(dataset_name, split='train', fields=None,
                      training_selected_neurons=False, selected_neuron_ids=None,
                      measurement_noise_level=0.0):
     """Load NeuronTimeSeries + derivative targets for a given split.
 
-    Handles backwards compatibility: falls back to x_list_0 / y_list_0
-    if the requested split (x_list_train / x_list_test) does not exist.
+    Data is returned on CPU. Callers are responsible for moving to GPU
+    (this avoids OOM when computing derived quantities like xnorm that
+    need temporary memory proportional to the voltage tensor).
 
     Args:
         dataset_name: dataset identifier (e.g. 'fly/flyvis_noise_005')
         split: 'train' or 'test'
         fields: list of field names to load (from determine_load_fields)
-        device: torch device to move data to
         training_selected_neurons: if True, subset neurons
         selected_neuron_ids: list of neuron indices to keep
         measurement_noise_level: if > 0, load noisy_y_list instead of y_list
 
     Returns:
-        x_ts: NeuronTimeSeries on device
+        x_ts: NeuronTimeSeries on CPU
         y_ts: numpy array of derivative targets, shape (T, N, 1)
-        type_list: (N, 1) float tensor of neuron type labels
+        type_list: (N, 1) float tensor of neuron type labels (CPU)
     """
     split_name = f'x_list_{split}'
     path = graphs_data_path(dataset_name, split_name)
@@ -65,19 +65,19 @@ def load_flyvis_data(dataset_name, split='train', fields=None, device=None,
     y_prefix = 'noisy_y_list' if measurement_noise_level > 0 else 'y_list'
 
     if os.path.exists(path):
-        x_ts = load_simulation_data(path, fields=fields).to(device)
+        x_ts = load_simulation_data(path, fields=fields)
         y_ts = load_raw_array(graphs_data_path(dataset_name, f'{y_prefix}_{split}'))
     else:
         print(f"warning: {split_name} not found, falling back to x_list_0")
         x_ts = load_simulation_data(
             graphs_data_path(dataset_name, 'x_list_0'), fields=fields
-        ).to(device)
+        )
         y_ts = load_raw_array(graphs_data_path(dataset_name, 'y_list_0'))
 
     # Extract type_list, then construct index (not loaded from disk)
     type_list = x_ts.neuron_type.float().unsqueeze(-1)
     x_ts.neuron_type = None
-    x_ts.index = torch.arange(x_ts.n_neurons, dtype=torch.long, device=device)
+    x_ts.index = torch.arange(x_ts.n_neurons, dtype=torch.long)
 
     if training_selected_neurons and selected_neuron_ids is not None:
         selected = np.array(selected_neuron_ids).astype(int)
