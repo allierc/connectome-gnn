@@ -162,6 +162,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
     assert not torch.isnan(x_ts.voltage).any(), "voltage contains NaN — cannot train"
     assert not np.isnan(y_ts).any(), "derivative targets contain NaN — cannot train"
     x_ts = x_ts.to(device)
+    y_ts_gpu = torch.from_numpy(y_ts).float().to(device)  # pre-convert once; avoids per-iter cudaStreamSynchronize
     torch.save(xnorm, os.path.join(log_dir, 'xnorm.pt'))
     _logger.info(f'xnorm: {to_numpy(xnorm):0.3f}')
     logger.info(f'xnorm: {to_numpy(xnorm)}')
@@ -529,7 +530,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                 elif test_neural_field:
                     y = x_ts.stimulus[k, :sim.n_input_neurons].unsqueeze(-1)
                 else:
-                    y = torch.tensor(y_ts[k], device=device) / ynorm     # loss on activity derivative
+                    y = y_ts_gpu[k] / ynorm
 
                 if loss_noise_level>0:
                     y = y + torch.randn(y.shape, device=device) * loss_noise_level
