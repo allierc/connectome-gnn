@@ -73,10 +73,12 @@ def data_train(config=None, erase=False, best_model=None, style=None, device=Non
 
     # Limit CPU threads to match cluster allocation (LSB_DJOB_NUMPROC set by bsub -n)
     num_proc = os.environ.get("LSB_DJOB_NUMPROC")
-    if num_proc is not None:
-        num_threads = int(num_proc)
-        torch.set_num_threads(num_threads)
-        print(f"CPU threads: {num_threads} (from LSB_DJOB_NUMPROC)")
+    # Limit torch.compile's Triton compilation workers to cluster allocation
+    os.environ.setdefault("TORCHINDUCTOR_COMPILE_THREADS", num_proc or "12")
+
+    if num_proc is not None and (device is None or 'cpu' in str(device)):
+        torch.set_num_threads(int(num_proc))
+        print(f"CPU threads: {num_proc} (from LSB_DJOB_NUMPROC)")
     print(f"device: {device}")
 
     seed = config.training.seed
@@ -107,6 +109,9 @@ def data_train(config=None, erase=False, best_model=None, style=None, device=Non
 
 
 def data_train_gnn(config, erase, best_model, device, log_file=None):
+    if torch.cuda.is_available():
+        torch.set_float32_matmul_precision('high')
+
     sim = config.simulation
     tc = config.training
     model_config = config.graph_model
@@ -158,10 +163,12 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
     torch.save(xnorm, os.path.join(log_dir, 'xnorm.pt'))
     _logger.info(f'xnorm: {to_numpy(xnorm):0.3f}')
     logger.info(f'xnorm: {to_numpy(xnorm)}')
+    xnorm = float(xnorm)  # Python float so compiled functions avoid .item()
     ynorm = torch.tensor(1.0, device=device)
     torch.save(ynorm, os.path.join(log_dir, 'ynorm.pt'))
     _logger.info(f'ynorm: {to_numpy(ynorm):0.3f}')
     logger.info(f'ynorm: {to_numpy(ynorm)}')
+    ynorm = float(ynorm)
 
     # SVD analysis of activity and visual stimuli (skip if already exists)
     svd_plot_path = os.path.join(log_dir, 'results', 'svd_analysis.png')
@@ -267,7 +274,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
     _logger.info(f'network: {net}')
     _logger.info(f'initial tc.batch_size: {tc.batch_size}')
 
-    ids = np.arange(n_neurons)
+    ids = torch.arange(n_neurons, device=device)
 
     if tc.coeff_W_sign > 0:
         index_weight = []
@@ -300,6 +307,10 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
         dataset=config.dataset,
     )
     regularizer.set_activity_stats(x_ts, device)
+
+    model = torch.compile(model, mode='reduce-overhead', fullgraph=True)
+    regularizer.compute = torch.compile(regularizer.compute, mode='reduce-overhead', fullgraph=True)
+    regularizer.compute_update_regul = torch.compile(regularizer.compute_update_regul, mode='reduce-overhead', fullgraph=True)
 
     loss_components = {'loss': []}
 
@@ -391,7 +402,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
             _prof = torch.profiler.profile(
                 activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
                 schedule=torch.profiler.schedule(wait=_prof_wait, warmup=_prof_warmup, active=_prof_active, repeat=1),
-                on_trace_ready=torch.profiler.tensorboard_trace_handler(_profiler_trace_dir),
+                on_trace_ready=torch.profiler.tensorboard_trace_handler(_profiler_trace_dir, use_gzip=True),
                 record_shapes=True,
                 with_stack=True,
                 profile_memory=True,
@@ -464,8 +475,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
             visual_input_list = []
             ids_index = 0
 
-            loss = torch.zeros(1, device=device)
-            regularizer.reset_iteration()
+            loss = torch.zeros((), device=device)
+            regularizer.reset_iteration(device=device)
 
             # Consecutive batch: pick one random start, use batch_size consecutive frames
             if tc.consecutive_batch:
@@ -537,7 +548,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
 
                 data_id = torch.zeros((ids_index, 1), dtype=torch.int, device=device)
                 y_batch = torch.cat(y_list, dim=0)
-                ids_batch = np.concatenate(ids_list, axis=0)
+                ids_batch = torch.cat(ids_list, dim=0)
                 k_batch = torch.cat(k_list, dim=0)
 
                 total_loss_regul += loss.item()

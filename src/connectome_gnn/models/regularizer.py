@@ -65,9 +65,10 @@ class LossRegularizer:
         # Iteration counter
         self.iter_count = 0
 
-        # Per-iteration accumulator
-        self._iter_total = 0.0
+        # Per-iteration accumulator (GPU scalar tensors, flushed to Python floats
+        # in finalize_iteration). Initialized properly in reset_iteration().
         self._iter_tracker = {}
+        self._device = None
 
         # Epoch boundary tracking (cumulative iter_count at each epoch start)
         self.epoch_boundaries = []
@@ -150,10 +151,15 @@ class LossRegularizer:
         if epoch > 0:
             self.epoch_boundaries.append(self.iter_count)
 
-    def reset_iteration(self):
-        """Reset per-iteration accumulator (called once per batch, NOT per N iteration)."""
-        self._iter_total = 0.0
-        self._iter_tracker = {comp: 0.0 for comp in self.COMPONENTS}
+    def reset_iteration(self, device=None):
+        """Reset per-iteration accumulator (called once per batch, NOT per N iteration).
+
+        Args:
+            device: torch device. Required on first call, cached afterwards.
+        """
+        if device is not None:
+            self._device = device
+        self._iter_tracker = {comp: torch.zeros((), device=self._device) for comp in self.COMPONENTS}
         # Flag to ensure W_L1 is only applied once per iteration (not per batch item)
         self._W_L1_applied_this_iter = False
 
@@ -168,13 +174,14 @@ class LossRegularizer:
                 self._coeffs['f_theta_msg_sign'] > 0)
 
     def _add(self, name: str, term):
-        """Internal: accumulate a regularization term."""
+        """Internal: accumulate a regularization term into a GPU scalar.
+
+        No .item() call here — values stay as tensors so this method
+        is safe to call inside torch.compiled functions.
+        """
         if term is None:
             return
-        val = term.item() if hasattr(term, 'item') else float(term)
-        self._iter_total += val
-        if name in self._iter_tracker:
-            self._iter_tracker[name] += val
+        self._iter_tracker[name] = self._iter_tracker[name] + term.detach()
 
     def compute(self, model, x, in_features, ids, ids_batch, edges, device,
                 xnorm=1.0, index_weight=None):
@@ -198,7 +205,7 @@ class LossRegularizer:
         tc = self.train_config
         mc = self.model_config
         n_neurons = self.n_neurons
-        total_regul = torch.tensor(0.0, device=device)
+        total_regul = torch.zeros((), device=device)
 
         # Get model W (handle multi-run case not working here)
         # For low_rank_factorization, compute W from WL @ WR to allow gradient flow
@@ -374,12 +381,13 @@ class LossRegularizer:
         return total_regul
 
     def _record_to_history(self):
-        """Append current iteration values to history."""
+        """Append current iteration values to history. Calls .item() to extract scalars."""
         n = self.n_neurons
-        self._history['regul_total'].append(self._iter_total / n)
+        total = sum(v.item() for v in self._iter_tracker.values())
+        self._history['regul_total'].append(total / n)
         self._history['iteration'].append(self.iter_count)
         for comp in self.COMPONENTS:
-            self._history[comp].append(self._iter_tracker.get(comp, 0) / n)
+            self._history[comp].append(self._iter_tracker[comp].item() / n)
 
     def compute_update_regul(self, model, in_features, ids_batch, device,
                               x=None, xnorm=None, ids=None):
@@ -403,7 +411,7 @@ class LossRegularizer:
         mc = self.model_config
         embedding_dim = mc.embedding_dim
         n_neurons = self.n_neurons
-        total_regul = torch.tensor(0.0, device=device)
+        total_regul = torch.zeros((), device=device)
 
         if in_features is None:
             return total_regul
@@ -455,7 +463,7 @@ class LossRegularizer:
 
     def get_iteration_total(self) -> float:
         """Get total regularization for current iteration."""
-        return self._iter_total
+        return sum(v.item() for v in self._iter_tracker.values())
 
     def get_history(self) -> dict:
         """Get history dictionary for plotting."""

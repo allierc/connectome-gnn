@@ -809,8 +809,8 @@ def umap_cluster_reassign(model, config, x_ts, edges, n_neurons, type_list, devi
 
         for sub_epoch in trange(relearn_epochs, ncols=100, desc='relearn MLP'):
             relearn_optimizer.zero_grad()
-            loss_edge = torch.tensor(0.0, device=device)
-            loss_phi = torch.tensor(0.0, device=device)
+            loss_edge = torch.zeros((), device=device)
+            loss_phi = torch.zeros((), device=device)
 
             batch_size = 500
             for start in range(0, n_neurons, batch_size):
