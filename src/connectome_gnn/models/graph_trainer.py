@@ -359,6 +359,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
 
         total_loss = 0
         total_loss_regul = 0
+        _total_loss_gpu = torch.zeros((), device=device)      # GPU accumulators — avoids per-iter .item() sync
+        _total_regul_gpu = torch.zeros((), device=device)
         k = 0
 
         loss_noise_level = tc.loss_noise_level * (0.95 ** epoch)
@@ -439,12 +441,13 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                 if dale_enabled and N in dale_checkpoints:
                     enforce_dale_law(model, edges)
                 lr_scheduler.step()
-                total_loss += loss.item()
+                _total_loss_gpu = _total_loss_gpu + loss.detach()
                 total_loss_regul += regul_val
                 regularizer.finalize_iteration()
 
                 if regularizer.should_record():
-                    loss_components['loss'].append((loss.item() - regul_val) / n_neurons)
+                    _current_loss = loss.item()  # single sync per plot_frequency iters
+                    loss_components['loss'].append((_current_loss - regul_val) / n_neurons)
                     plot_dict = {**regularizer.get_history(), 'loss': loss_components['loss']}
                     plot_signal_loss(plot_dict, log_dir, epoch=epoch, Niter=Niter,
                                     epoch_boundaries=regularizer.epoch_boundaries)
@@ -546,7 +549,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
             ids_batch = torch.cat(ids_list, dim=0)
             k_batch = torch.cat(k_list, dim=0)
 
-            total_loss_regul += loss.item()
+            _total_regul_gpu = _total_regul_gpu + loss.detach()  # regul-only at this point
 
             if test_neural_field:
                 visual_input_batch = torch.cat(visual_input_list, dim=0)
@@ -662,8 +665,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                 lr_scheduler.step()
                 # === LLM-MODIFIABLE: BACKWARD AND STEP END ===
 
-                total_loss += loss.item()
-                total_loss_regul += regularizer.get_iteration_total()
+                _total_loss_gpu = _total_loss_gpu + loss.detach()
+                _total_regul_gpu = _total_regul_gpu + regularizer.get_iteration_total_tensor().detach()
 
                 # finalize iteration to record history
                 regularizer.finalize_iteration()
@@ -671,8 +674,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
 
                 if regularizer.should_record():
                     # get history from regularizer and add loss component
-                    current_loss = loss.item()
-                    regul_total_this_iter = regularizer.get_iteration_total()
+                    current_loss = loss.item()  # single sync per plot_frequency iters
+                    regul_total_this_iter = regularizer.get_iteration_total()  # free after sync
                     loss_components['loss'].append((current_loss - regul_total_this_iter) / n_neurons)
 
                     # merge loss_components with regularizer history for plotting
@@ -753,7 +756,9 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
 
         # === LLM-MODIFIABLE: TRAINING LOOP END ===
 
-        # Calculate epoch-level losses
+        # Calculate epoch-level losses — two syncs per epoch, not per iteration
+        total_loss = _total_loss_gpu.item()
+        total_loss_regul = _total_regul_gpu.item()
         epoch_total_loss = total_loss / n_neurons
         epoch_regul_loss = total_loss_regul / n_neurons
         epoch_pred_loss = (total_loss - total_loss_regul) / n_neurons

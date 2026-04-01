@@ -465,6 +465,10 @@ class LossRegularizer:
         """Get total regularization for current iteration."""
         return sum(v.item() for v in self._iter_tracker.values())
 
+    def get_iteration_total_tensor(self) -> torch.Tensor:
+        """Return total regularization as a GPU tensor (no .item() sync)."""
+        return torch.stack(list(self._iter_tracker.values())).sum()
+
     def get_history(self) -> dict:
         """Get history dictionary for plotting."""
         return self._history
