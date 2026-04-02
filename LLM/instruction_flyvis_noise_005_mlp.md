@@ -2,6 +2,10 @@
 
 ## Goal
 
+# TODO: add metric in the top-line itself
+
+# TODO: explain stable, use a metric always
+
 Optimize the **MLP baseline** hyperparameters for stable autoregressive rollout on the **Drosophila optic lobe** with noise level σ=0.05.
 
 The MLP is a flat, graph-free model: `dv/dt = MLP([v_all; stimulus_all])`. No edges, no message passing.
