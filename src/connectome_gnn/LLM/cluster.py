@@ -68,7 +68,8 @@ def check_cluster_repo():
 
 def submit_cluster_job(slot, config_path, analysis_log_path, config_file_field,
                        log_dir, root_dir, erase=True, node_name='a100',
-                       n_cpus=2, device='cuda', exploration_dir=None, iteration=None):
+                       conda_env='neural-graph', n_cpus=2, device='cuda',
+                       exploration_dir=None, iteration=None):
     """Submit a single flyvis training job to the cluster WITHOUT -K (non-blocking).
 
     Data generation and test/plot are handled locally in GNN_LLM.py.
@@ -100,7 +101,7 @@ def submit_cluster_job(slot, config_path, analysis_log_path, config_file_field,
     with open(cluster_script_path, 'w') as f:
         f.write("#!/bin/bash\n")
         f.write(f"cd {CLUSTER_ROOT_DIR}\n")
-        f.write(f"conda run -n neural-graph {cluster_train_cmd}\n")
+        f.write(f"conda run -n {conda_env} {cluster_train_cmd}\n")
     os.chmod(cluster_script_path, 0o755)
 
     cluster_script = local_to_cluster(cluster_script_path, root_dir)

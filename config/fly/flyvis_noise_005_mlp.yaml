@@ -78,6 +78,7 @@ claude:
   n_iter_block: 12
   ucb_c: 1.414
   node_name: l4
+  conda_env: connectome-gnn
   n_cpus: 2
   generate_data: true
   training_time_target_min: 60
