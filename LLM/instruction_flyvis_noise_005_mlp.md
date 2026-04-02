@@ -2,23 +2,29 @@
 
 ## Goal
 
-# TODO: add metric in the top-line itself
+Optimize the **MLP baseline** hyperparameters for stable autoregressive rollout
+on the flyvis model with noise level σ=0.05.
 
-# TODO: explain stable, use a metric always
+The MLP is a flat, graph-free model: `dv/dt = MLP([v_all; stimulus_all])`. No
+edges, no message passing.
 
-Optimize the **MLP baseline** hyperparameters for stable autoregressive rollout on the flyvis model with noise level σ=0.05.
-Our goal is to generate the longest possible rollout with the lowest possible MSE.
+We are given the simulated neural activity traces as matrix (T, N). Given the activity
+at time t plus the input stimulus, the MLP can be used to compute the activity
+at the next time point (via Euler integration). We
+continue this process to generate an autoregressive rollout from the initial activity.
+We call this rollout training and the number of steps is `rollout_train_steps` in
+the config. We apply an MSE loss to train the MLP to produce the exact correct
+1-step update so that the rollout agrees with the ground truth data.
 
-The MLP is a flat, graph-free model: `dv/dt = MLP([v_all; stimulus_all])`. No edges, no message passing.
-
-The activity traces are (T, N). Training involves evolving a batch of initial conditions
-(t_1, ..., t_B) that are randomly sampled. We predict t_i -> (t_i+1, t_i+2, ..., t_i+R)
-in an autoregressive manner from the previously generated time point. This is "rollout training"
-and R = `rollout_train_steps` in the config. We apply an MSE loss between expected and predicted.
-
-**Always use metrics defined to guide decision making**
+The GNN models in this repo can learn the underlying mechanistic update and
+consequently can generate an accurate rollout for over 8000 steps. The MLPs here
+are not meant to be mechanistic, but instead serve as function approximators to
+the true 1-step update. Since the system is input driven we want to find a regime
+of parameters where we can predict ~ 8000 steps ahead accurately.
 
 ## Metrics
+
+**Always use metrics defined to guide decision making**
 
 - Training. We compute the following two rollout metrics during training that are
   printed to the stdout in this format:
@@ -28,8 +34,12 @@ and R = `rollout_train_steps` in the config. We apply an MSE loss between expect
   ```
 
   - `train`: this is the rollout loss mentioned above
-  - `div_time`: the time step at which the rollout MSE reaches 1.0
+  - `div_time`: the time step at which the rollout MSE reaches 1.0 - a proxy
+    for divergence.
   - `rollout_mse`: the MSE over neurons and time steps up until `div_time`
+    The extra rollout metrics - though computed on training data - will nevertheless
+    be important factors in guiding parameter loss. If a model fails to produce a
+    stable rollout on training data, it is very unlikely to do so on new data.
 
 - Constant baseling: as a baseline we compute the voltage(t) - voltage(t+1) MSE. We ideally want
   this MSE over the entire 8k step rollout in validation/test.
@@ -78,12 +88,15 @@ input  = [v_1, ..., v_13741, stim_1, ..., stim_1736]   (15,477 dims)
 output = [dv_1/dt, ..., dv_13741/dt]                    (13,741 dims)
 ```
 
-- This is a simple way to think about the MLP - Encoder → hidden layers (ReLU) → Decoder
-- `use_residual_connection`: adds a residual connection across the hidden layers of the MLP for better gradient flow. It also zero-initializes the final hidden layer to
-  keep the rollout stable.
+- `use_residual_connection`: adds a residual connection across the hidden layers
+  of the MLP for better gradient flow. It also zero-initializes the final hidden
+  layer to keep the rollout stable. We do not have evidence for this assertion.
 - No graph structure, no per-edge weights
+- We want to find the smallest architecture that achieves our goal
 
-**Architecture parameters:**
+**YOU ARE ONLY ALLOWED TO MODIFY THE PARAMETERS BELOW TO ACHIEVE THE GOAL**
+
+## Architecture parameters
 
 | Parameter                 | Default | Description                         |
 | ------------------------- | ------- | ----------------------------------- |
@@ -91,26 +104,23 @@ output = [dv_1/dt, ..., dv_13741/dt]                    (13,741 dims)
 | `n_layers`                | 5       | Number of layers (including in/out) |
 | `use_residual_connection` | true    | Zero-init final layer for stability |
 
-**Parameters NOT used by MLP** (always 0, do not modify):
-`lr_W`, `lr_embedding`, `coeff_W_L1`, `coeff_W_L2`, `coeff_g_phi_diff`, `coeff_f_theta_msg_diff`, `coeff_g_phi_norm`, `coeff_g_phi_weight_L1`, `coeff_g_phi_weight_L2`, `coeff_f_theta_weight_L1`, `coeff_f_theta_weight_L2`, `embedding_dim`.
-
 ## Training Parameters
 
-| Parameter                | Default | Description                                         |
-| ------------------------ | ------- | --------------------------------------------------- |
-| `lr`                     | 0.00001 | Learning rate for MLP weights                       |
-| `n_epochs`               | 20      | Training epochs                                     |
-| `batch_size`             | 256     | Frames per batch                                    |
-| `data_augmentation_loop` | 100     | Passes over data per epoch                          |
-| `rollout_train_steps`    | 5       | Multi-step rollout unroll during training (K steps) |
-| `train_start`            | 4000    | First training frame (skip burn-in)                 |
-| `train_end`              | 54000   | Last training frame                                 |
-| `val_start`              | 54000   | Validation start frame                              |
-| `val_end`                | 64000   | Validation end frame                                |
+| Parameter                    | Default | Description                                         |
+| ---------------------------- | ------- | --------------------------------------------------- |
+| `lr`                         | 0.00001 | Learning rate for MLP weights                       |
+| `n_epochs`                   | 20      | Training epochs                                     |
+| `batch_size`                 | 256     | Frames per batch                                    |
+| `data_augmentation_loop`     | 10      | Passes over data per epoch                          |
+| `rollout_train_steps`        | 20      | Multi-step rollout unroll during training (K steps) |
+| `early_stop_patience_epochs` | 5       | Stop if rollout doesn't improve for N epochs        |
+| `seed`                       | 42      | Random seed - test for robustness to init.          |
+| ------------------------     | ------- | --------------------------------------------------- |
 
-### Key insight: rollout_train_steps
+## Comments
 
-`rollout_train_steps` controls how many Euler steps are unrolled during training and backpropagated through. This directly penalizes error compounding:
+`rollout_train_steps` controls how many Euler steps are unrolled during training and
+backpropagated through. This directly penalizes error compounding:
 
 - `rollout_train_steps=1`: one-step MSE only — fast but errors compound at test time
 - `rollout_train_steps=5`: unroll 5 steps — teaches the model to be stable over short horizons
@@ -119,9 +129,23 @@ output = [dv_1/dt, ..., dv_13741/dt]                    (13,741 dims)
 - Manual experimentation has shown that we can get stable rollouts of ~ 1000+ steps
 - But it seems difficult to reach ~ 8500 steps which would be needed
 
+Note that with T starts per epoch, if you apply a rollout, each data point is actually
+visited `rollout_train_steps` times. So with epochs=10, DAL=1, rollout_train_steps=2 we are training
+on T*10*2 datapoints.
+
+The `data_augmentation_loop` just controls how long each epoch is. We pay a fixed time
+cost (~ few secs) to run the rollout after each epoch, and we want to keep 1 epoch training time
+greater epoch validation cost.
+
+We have observed that as training proceeds the rollout divergence time gets longer and in some
+cases starts to get worse. That's why we have the early stop. But if this is detrimental you should
+remove early stopping. For example, if you find that epochs=20, but at 10 epochs you hit the
+lowest rollout mse, you can consider to reduce the epoch count from 20 -> 15 say.
+
 ## Training Time Constraint
 
-**Target ~60 min per iteration.** Use `data_augmentation_loop` (DAL) and `n_epochs` to control training time.
+**Target <=60 min per iteration.**
+Use `data_augmentation_loop` (DAL) and `n_epochs` to control training time.
 
 - If `training_time_min` < 40 min: **increase** DAL or n_epochs
 - If `training_time_min` > 70 min: **decrease** DAL or n_epochs
@@ -183,16 +207,13 @@ Each slot re-generates data with a **different random seed** (forced by pipeline
 
 ## Block Partition
 
-| Block | Focus                   | Parameters to scan                   | Ranges                                           |
-| ----- | ----------------------- | ------------------------------------ | ------------------------------------------------ |
-| 1     | **rollout_train_steps** | `rollout_train_steps`                | {1, 5, 10, 20}                                   |
-| 2     | **learning rate**       | `lr`                                 | {1e-5, 5e-5, 1e-4, 5e-4}                         |
-| 3     | **architecture**        | `hidden_dim`, `n_layers`             | hidden_dim: {128, 256, 512}, n_layers: {3, 5, 7} |
-| 4     | **training volume**     | `data_augmentation_loop`, `n_epochs` | DAL: {50, 100, 200}, n_epochs: {10, 20, 40}      |
-| 5     | **batch size**          | `batch_size`                         | {64, 128, 256, 512}                              |
-| 6     | **free exploration I**  | Any parameter                        | Consolidate best from blocks 1-5                 |
-| 7     | **free exploration II** | Any parameter                        | Push toward target, robustness confirmation      |
-| 8     | **robustness**          | Best config, all 4 slots same        | Confirm CV < 10% across seeds                    |
+| Block | Focus                   | Parameters to scan            | Ranges                                                        |
+| ----- | ----------------------- | ----------------------------- | ------------------------------------------------------------- |
+| 1     | **lr + batch size**     | `lr`, `batch_size`            | lr: {1e-5, 5e-5, 1e-4, 5e-4}, batch_size: {64, 128, 256, 512} |
+| 2     | **rollout_train_steps** | `rollout_train_steps`         | {10, 20, 50}                                                  |
+| 3     | **free exploration I**  | Any parameter                 | Consolidate best from blocks 1-2, test novel combinations     |
+| 4     | **free exploration II** | Any parameter                 | Continue pushing toward target                                |
+| 5     | **robustness**          | Best config, all 4 slots same | Confirm CV < 10% across seeds                                 |
 
 ## Iteration Workflow
 
@@ -202,10 +223,11 @@ Each slot re-generates data with a **different random seed** (forced by pipeline
 
 For each slot:
 
-1. Read `rollout_RMSE` and `rollout_RMSE_std` from metrics log
-2. Read `results_rollout_by_step.csv` — note divergence point (first window with RMSE > 1.0)
-3. Read `onestep_pearson` as sanity check
-4. Note `training_time_min`
+1. Read training stdout log — note `div_time` and `rollout_mse` progression across epochs (is divergence time increasing or plateauing?)
+2. Read `rollout_RMSE` and `rollout_RMSE_std` from metrics log
+3. Read `results_rollout_by_step.csv` — note first window where RMSE exceeds 1.0 (divergence point)
+4. Read `onestep_pearson` as sanity check — if poor, model hasn't learned dynamics at all
+5. Note `training_time_min` and adjust DAL for next batch if needed
 
 ### Step 3: Write Log Entry + Update Memory
 
@@ -214,11 +236,11 @@ For each slot:
 Node: id=N, parent=P
 Hypothesis tested: "[quoted hypothesis]"
 Config: lr=X, rollout_train_steps=K, DAL=D, n_epochs=E, hidden_dim=H, n_layers=L, batch_size=B
-Slot 0: rollout_RMSE=X, divergence_at=frame_Y, onestep_pearson=Z, sim_seed=S, train_seed=T
-Slot 1: rollout_RMSE=X, divergence_at=frame_Y, onestep_pearson=Z, sim_seed=S, train_seed=T
-Slot 2: rollout_RMSE=X, divergence_at=frame_Y, onestep_pearson=Z, sim_seed=S, train_seed=T
-Slot 3: rollout_RMSE=X, divergence_at=frame_Y, onestep_pearson=Z, sim_seed=S, train_seed=T
-Seed stats: mean_RMSE=X, std=Y, CV=Z%
+Slot 0: rollout_RMSE=X, divergence_at=frame_Y, best_div_time=Z (epoch W), onestep_pearson=P, sim_seed=S, train_seed=T
+Slot 1: rollout_RMSE=X, divergence_at=frame_Y, best_div_time=Z (epoch W), onestep_pearson=P, sim_seed=S, train_seed=T
+Slot 2: rollout_RMSE=X, divergence_at=frame_Y, best_div_time=Z (epoch W), onestep_pearson=P, sim_seed=S, train_seed=T
+Slot 3: rollout_RMSE=X, divergence_at=frame_Y, best_div_time=Z (epoch W), onestep_pearson=P, sim_seed=S, train_seed=T
+Seed stats: mean_RMSE=X, std=Y, CV=Z%, mean_div_time=Z
 Mutation: [param]: [old] -> [new]
 Verdict: [supported/falsified/inconclusive]
 Next: parent=P
@@ -262,8 +284,8 @@ When prompt says `PARALLEL START`:
 
 ### Robustness Comparison Table
 
-| Iter | Config summary | rollout_RMSE (mean±std) | CV% | divergence_at | Verdict | Hypothesis |
-| ---- | -------------- | ----------------------- | --- | ------------- | ------- | ---------- |
+| Iter | Config summary | rollout_RMSE (mean±std) | CV% | div_time (mean) | divergence_at | Verdict | Hypothesis |
+| ---- | -------------- | ----------------------- | --- | --------------- | ------------- | ------- | ---------- |
 
 ### Established Principles
 
