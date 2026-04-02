@@ -99,7 +99,7 @@ def submit_cluster_job(slot, config_path, analysis_log_path, config_file_field,
         cluster_train_cmd += f" --slot {slot}"
 
     with open(cluster_script_path, 'w') as f:
-        f.write("#!/bin/bash\n")
+        f.write("#!/bin/bash -l\n")
         f.write(f"cd {CLUSTER_ROOT_DIR}\n")
         f.write(f"conda run -n {conda_env} {cluster_train_cmd}\n")
     os.chmod(cluster_script_path, 0o755)
@@ -143,7 +143,7 @@ def wait_for_cluster_jobs(job_ids, log_dir=None, poll_interval=60):
 
     while pending:
         ids_str = ' '.join(pending.values())
-        ssh_cmd = f'ssh {CLUSTER_SSH} "bjobs {ids_str} 2>/dev/null"'
+        ssh_cmd = f"ssh {CLUSTER_SSH} \"bash -l -c 'bjobs {ids_str} 2>/dev/null'\""
         out = subprocess.run(ssh_cmd, shell=True, capture_output=True, text=True)
 
         for slot, jid in list(pending.items()):
