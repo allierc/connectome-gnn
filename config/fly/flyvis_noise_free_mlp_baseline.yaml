@@ -79,3 +79,6 @@ training:
   regul_annealing_rate: 0
   w_init_mode: zeros
   seed: 42
+
+  # uncomment to profile
+  # profiling: true
