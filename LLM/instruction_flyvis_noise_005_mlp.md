@@ -6,12 +6,36 @@
 
 # TODO: explain stable, use a metric always
 
-Optimize the **MLP baseline** hyperparameters for stable autoregressive rollout on the **Drosophila optic lobe** with noise level σ=0.05.
+Optimize the **MLP baseline** hyperparameters for stable autoregressive rollout on the flyvis model with noise level σ=0.05.
+Our goal is to generate the longest possible rollout with the lowest possible MSE.
 
 The MLP is a flat, graph-free model: `dv/dt = MLP([v_all; stimulus_all])`. No edges, no message passing.
 
-**PRIMARY METRIC: `rollout_RMSE`** (lower is better).
-**TARGET: rollout_RMSE < 0.1, want rollout_RMSE to remain bounded for different seeds**
+The activity traces are (T, N). Training involves evolving a batch of initial conditions
+(t_1, ..., t_B) that are randomly sampled. We predict t_i -> (t_i+1, t_i+2, ..., t_i+R)
+in an autoregressive manner from the previously generated time point. This is "rollout training"
+and R = `rollout_train_steps` in the config. We apply an MSE loss between expected and predicted.
+
+**Always use metrics defined to guide decision making**
+
+## Metrics
+
+- Training. We compute the following two rollout metrics during training that are
+  printed to the stdout in this format:
+
+  ```
+  epoch 7/20 | train: 4.4128e-02 | div_time=1262 rollout_mse=3.9962e-01 (3.0s) | duration: 41.1s (total: 327.8s)
+  ```
+
+  - `train`: this is the rollout loss mentioned above
+  - `div_time`: the time step at which the rollout MSE reaches 1.0
+  - `rollout_mse`: the MSE over neurons and time steps up until `div_time`
+
+- Constant baseling: as a baseline we compute the voltage(t) - voltage(t+1) MSE. We ideally want
+  this MSE over the entire 8k step rollout in validation/test.
+- During test/validation:
+  - **PRIMARY METRIC: `rollout_RMSE`** (lower is better).
+  - **TARGET: rollout_RMSE < 0.1, want rollout_RMSE to remain bounded for different seeds**
 
 Data is **re-generated each iteration** with a different seed to verify seed independence.
 
@@ -54,7 +78,7 @@ input  = [v_1, ..., v_13741, stim_1, ..., stim_1736]   (15,477 dims)
 output = [dv_1/dt, ..., dv_13741/dt]                    (13,741 dims)
 ```
 
-- Encoder → hidden layers (ReLU) → Decoder
+- This is a simple way to think about the MLP - Encoder → hidden layers (ReLU) → Decoder
 - `use_residual_connection`: adds a residual connection across the hidden layers of the MLP for better gradient flow. It also zero-initializes the final hidden layer to
   keep the rollout stable.
 - No graph structure, no per-edge weights
