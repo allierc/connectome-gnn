@@ -13,10 +13,6 @@ matplotlib.use('Agg')
 import argparse
 import traceback
 
-if os.path.isdir('/scratch'):
-    os.environ['TMPDIR'] = '/scratch/allierc'
-    os.makedirs('/scratch/allierc', exist_ok=True)
-
 from connectome_gnn.config import NeuralGraphConfig
 from connectome_gnn.models.graph_trainer import data_train
 
