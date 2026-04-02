@@ -53,7 +53,7 @@ def check_cluster_repo():
     """
     ssh_cmd = (
         f"ssh {CLUSTER_SSH} "
-        f"\"cd {CLUSTER_ROOT_DIR} && git diff HEAD --stat -- . ':!config/'\""
+        f"\"bash -l -c 'cd {CLUSTER_ROOT_DIR} && git diff HEAD --stat -- . \\\":!config/\\\"'\""
     )
     result = subprocess.run(ssh_cmd, shell=True, capture_output=True, text=True)
     diff_output = result.stdout.strip()
@@ -116,10 +116,10 @@ def submit_cluster_job(slot, config_path, analysis_log_path, config_file_field,
         bsub_resources = f"bsub -n {n_cpus} -gpu 'num=1' -q gpu_{node_name} -W 6000"
         queue_label = f"gpu_{node_name}"
     ssh_cmd = (
-        f"ssh {CLUSTER_SSH} \"cd {CLUSTER_ROOT_DIR} && "
+        f"ssh {CLUSTER_SSH} \"bash -l -c 'cd {CLUSTER_ROOT_DIR} && "
         f"{bsub_resources} "
-        f"-o '{cluster_stdout}' -e '{cluster_stderr}' "
-        f"'bash {cluster_script}'\""
+        f"-o {cluster_stdout!r} -e {cluster_stderr!r} "
+        f"bash {cluster_script}'\""
     )
     print(f"\033[96m  slot {slot}: submitting to {queue_label} via SSH\033[0m", flush=True)
     result = subprocess.run(ssh_cmd, shell=True, capture_output=True, text=True)
