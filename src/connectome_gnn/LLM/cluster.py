@@ -119,7 +119,7 @@ def submit_cluster_job(slot, config_path, analysis_log_path, config_file_field,
         f"ssh {CLUSTER_SSH} \"bash -l -c 'cd {CLUSTER_ROOT_DIR} && "
         f"{bsub_resources} "
         f"-o {cluster_stdout!r} -e {cluster_stderr!r} "
-        f"bash {cluster_script}'\""
+        f"bash -l {cluster_script}'\""
     )
     print(f"\033[96m  slot {slot}: submitting to {queue_label} via SSH\033[0m", flush=True)
     result = subprocess.run(ssh_cmd, shell=True, capture_output=True, text=True)
