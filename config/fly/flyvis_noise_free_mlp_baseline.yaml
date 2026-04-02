@@ -53,12 +53,11 @@ training:
   small_init_batch_size: false
 
   sparsity: none
-  data_augmentation_loop: 100
-
-  train_start: 4000
-  train_end: 54000
-  val_start: 54000
-  val_end: 64000
+  data_augmentation_loop: 10
+  # early stopping
+  early_stop_patience_epochs: 5
+  train_start: 0
+  train_end: 0
 
   lr: 0.00001
   lr_embedding: 0
@@ -80,3 +79,6 @@ training:
   regul_annealing_rate: 0
   w_init_mode: zeros
   seed: 42
+
+  # uncomment to profile
+  # profiling: true

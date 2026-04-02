@@ -477,8 +477,6 @@ class TrainingConfig(BaseModel):
     # Data split (frame indices). 0 = use defaults (all frames for train, no validation).
     train_start: int = 0       # first usable frame (e.g. skip burn-in)
     train_end: int = 0         # exclusive upper bound; 0 = n_frames
-    val_start: int = 0         # validation start; 0 = no validation
-    val_end: int = 0           # validation end; 0 = no validation
     batch_ratio: float = 1
     small_init_batch_size: bool = True
     embedding_step: int = 1000
@@ -623,6 +621,7 @@ class TrainingConfig(BaseModel):
     data_augmentation_loop: int = 40
 
     rollout_train_steps: int = 1  # multi-step rollout training: unroll K steps and backprop
+    early_stop_patience_epochs: int = 0  # 0 = no early stopping
 
     recurrent_training: bool = False
     recurrent_training_start_epoch: int = 0
