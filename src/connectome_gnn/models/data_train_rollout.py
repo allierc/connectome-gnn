@@ -217,6 +217,30 @@ def data_train_rollout(config, erase, best_model, device, log_file=None):
     if has_val:
         _logger.info(f'constant model baseline val MSE: {constant_val_loss:.4e}')
 
+    # --- Profiler setup ---
+    trace_dir = os.path.join(log_dir, 'profiler')
+    os.makedirs(trace_dir, exist_ok=True)
+
+    _PROF_WAIT, _PROF_WARMUP, _PROF_ACTIVE = 5, 2, 3
+
+    activities = [torch.profiler.ProfilerActivity.CPU]
+    if device.type == 'cuda':
+        activities.append(torch.profiler.ProfilerActivity.CUDA)
+
+    prof = torch.profiler.profile(
+        activities=activities,
+        schedule=torch.profiler.schedule(
+            wait=_PROF_WAIT, warmup=_PROF_WARMUP, active=_PROF_ACTIVE, repeat=1,
+        ),
+        on_trace_ready=torch.profiler.tensorboard_trace_handler(trace_dir),
+        record_shapes=True,
+        with_stack=True,
+    )
+    prof.start()
+    _logger.info(f'profiler started; trace will be written to {trace_dir}')
+    _prof_stop_after = _PROF_WAIT + _PROF_WARMUP + _PROF_ACTIVE  # 10 steps
+    _global_step = 0
+
     # --- Training loop ---
     model.train()
     training_start = time.time()
@@ -241,6 +265,14 @@ def data_train_rollout(config, erase, best_model, device, log_file=None):
 
             epoch_loss += loss.item()
             n_batches += 1
+
+            if prof is not None:
+                _global_step += 1
+                prof.step()
+                if _global_step == _prof_stop_after:
+                    prof.stop()
+                    prof = None
+                    _logger.info('profiler stopped; trace written')
 
             if n_batches % 100 == 0:
                 pbar.set_postfix_str(f'loss={epoch_loss / n_batches:.4e}')
