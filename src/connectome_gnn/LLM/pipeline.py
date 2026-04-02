@@ -17,7 +17,7 @@ from connectome_gnn.models.exploration_tree import compute_ucb_scores
 from connectome_gnn.models.graph_trainer import data_test, data_train
 from connectome_gnn.models.plot_exploration_tree import parse_ucb_scores, plot_ucb_tree
 from connectome_gnn.models.utils import save_exploration_artifacts_flyvis
-from connectome_gnn.utils import add_pre_folder, log_path, set_device
+from connectome_gnn.utils import add_pre_folder, config_path, log_path, set_device
 
 from .claude_cli import run_claude_cli
 from .cluster import (
@@ -66,7 +66,7 @@ def setup_exploration(args, root_dir: str) -> ExplorationState:
     llm_task_name = task_params.get('llm_task', f'{base_config_name}_Claude')
     exploration_name = task_params.get('exploration_name', f'LLM_{base_config_name}')
 
-    config_root = root_dir + "/config"
+    config_root = config_path()
     llm_dir = f"{root_dir}/LLM"
     exploration_dir = os.path.abspath(log_path('Claude_exploration', exploration_name))
 
