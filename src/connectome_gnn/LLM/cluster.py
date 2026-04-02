@@ -1,18 +1,31 @@
+import json
 import os
 import re
 import subprocess
 import time
 
 # ---------------------------------------------------------------------------
-# Cluster constants
+# Cluster constants (loaded from data_paths.json)
 # ---------------------------------------------------------------------------
 
-CLUSTER_USER = "allierc"
-CLUSTER_LOGIN = "login1"
-CLUSTER_HOME = "/groups/saalfeld/home/allierc"
-CLUSTER_ROOT_DIR = f"{CLUSTER_HOME}/GraphCluster/connectome-gnn"
-CLUSTER_DATA_DIR = f"{CLUSTER_HOME}/GraphData"
-CLUSTER_SSH = f"{CLUSTER_USER}@{CLUSTER_LOGIN}"
+def _load_cluster_config() -> dict:
+    candidates = [
+        os.path.join(os.getcwd(), 'data_paths.json'),
+        os.path.join(os.path.dirname(__file__), '..', '..', '..', 'data_paths.json'),
+    ]
+    for path in candidates:
+        path = os.path.normpath(path)
+        if os.path.isfile(path):
+            with open(path) as f:
+                return json.load(f)
+    return {}
+
+_cluster_cfg = _load_cluster_config()
+CLUSTER_USER     = _cluster_cfg.get('cluster_user', 'allierc')
+CLUSTER_LOGIN    = _cluster_cfg.get('cluster_login', 'login1')
+CLUSTER_ROOT_DIR = _cluster_cfg.get('cluster_root_dir', '/groups/saalfeld/home/allierc/GraphCluster/connectome-gnn')
+CLUSTER_DATA_DIR = _cluster_cfg.get('cluster_data_dir', '/groups/saalfeld/home/allierc/GraphData')
+CLUSTER_SSH      = f"{CLUSTER_USER}@{CLUSTER_LOGIN}"
 
 
 # ---------------------------------------------------------------------------

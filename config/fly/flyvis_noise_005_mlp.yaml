@@ -81,5 +81,5 @@ claude:
   generate_data: true
   training_time_target_min: 60
   interaction_code: false
-  case_study: "CV_robustness"
-  case_study_brief: "Achieve low CV over 8 seeds. Best config: aug=35, bs=4, 1.5x LRs (conn_R2=0.982, CV=0.3% over 4 seeds). Catastrophic failure rate ~1/5 historically. Target: CV<3%, mean conn_R2>0.95 over 8 consecutive seeds. At most 1 catastrophic out of 8. Run best candidate across 8 seeds (2 batches of 4)."
+  case_study: "mlp_rollout"
+  case_study_brief: "Optimize MLP hyperparameters for stable autoregressive rollout on flyvis noise_005. Primary metric: rollout_RMSE (lower is better). Target: rollout_RMSE < 0.1, stable across seeds (CV < 10%). Key levers: rollout_train_steps, hidden_dim, n_layers, lr, batch_size, data_augmentation_loop."
