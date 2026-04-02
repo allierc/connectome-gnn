@@ -88,17 +88,6 @@ def plot_rollout_mse(model_mse, constant_mse, epoch, log_dir, dt_value):
     plt.close(fig)
 
 
-def _compute_loss(model, x_t, stim_t, x_target, dt):
-    """Compute MSE loss for one-step prediction.
-
-    x_pred = x_t + dt * predict_dvdt(x_t, stim_t)
-    loss = MSE(x_pred, x_{t+1})
-    """
-    dvdt = model.predict_dvdt(x_t, stim_t)         # (B, n_neurons)
-    x_pred = x_t + dt * dvdt
-    return F.mse_loss(x_pred, x_target)
-
-
 def _compute_loss_multistep(model, voltage, stimulus, t_indices, dt, rollout_steps):
     """Compute MSE loss averaged over a multi-step rollout.
 
@@ -116,8 +105,8 @@ def _compute_loss_multistep(model, voltage, stimulus, t_indices, dt, rollout_ste
     return loss / rollout_steps
 
 
-_compute_loss_compiled = torch.compile(
-    _compute_loss, fullgraph=True, mode="reduce-overhead"
+_compute_loss_multistep_compiled = torch.compile(
+    _compute_loss_multistep, fullgraph=True, mode="reduce-overhead"
 )
 
 
@@ -221,7 +210,7 @@ def data_train_rollout(config, erase, best_model, device, log_file=None):
     trace_dir = os.path.join(log_dir, 'profiler')
     os.makedirs(trace_dir, exist_ok=True)
 
-    _PROF_WAIT, _PROF_WARMUP, _PROF_ACTIVE = 5, 2, 3
+    _PROF_WAIT, _PROF_WARMUP, _PROF_ACTIVE = 20, 5, 10
 
     activities = [torch.profiler.ProfilerActivity.CPU]
     if device.type == 'cuda':
@@ -232,7 +221,7 @@ def data_train_rollout(config, erase, best_model, device, log_file=None):
         schedule=torch.profiler.schedule(
             wait=_PROF_WAIT, warmup=_PROF_WARMUP, active=_PROF_ACTIVE, repeat=1,
         ),
-        on_trace_ready=torch.profiler.tensorboard_trace_handler(trace_dir),
+        on_trace_ready=torch.profiler.tensorboard_trace_handler(trace_dir, use_gzip=True),
         record_shapes=True,
         with_stack=True,
     )
@@ -249,7 +238,7 @@ def data_train_rollout(config, erase, best_model, device, log_file=None):
 
     for epoch in range(n_epochs):
         epoch_start = time.time()
-        epoch_loss = 0.0
+        epoch_loss = torch.zeros((), device=device)
         n_batches = 0
 
         pbar = trange(batches_per_epoch, ncols=120, desc=f'epoch {epoch+1}/{n_epochs}')
@@ -257,13 +246,13 @@ def data_train_rollout(config, erase, best_model, device, log_file=None):
             t_indices = torch.randint(0, max_frame + 1, (batch_size,), device=device)
 
             optimizer.zero_grad()
-            loss = _compute_loss_multistep(
+            loss = _compute_loss_multistep_compiled(
                 model, voltage, stimulus, t_indices, dt, rollout_train_steps,
             )
             loss.backward()
             optimizer.step()
 
-            epoch_loss += loss.item()
+            epoch_loss += loss.detach()
             n_batches += 1
 
             if prof is not None:
@@ -277,7 +266,7 @@ def data_train_rollout(config, erase, best_model, device, log_file=None):
             if n_batches % 100 == 0:
                 pbar.set_postfix_str(f'loss={epoch_loss / n_batches:.4e}')
 
-        mean_loss = epoch_loss / max(n_batches, 1)
+        mean_loss = epoch_loss.item() / max(n_batches, 1)
         epoch_duration = time.time() - epoch_start
         total_elapsed = time.time() - training_start
 
@@ -288,17 +277,6 @@ def data_train_rollout(config, erase, best_model, device, log_file=None):
             val_start = time.time()
             model.eval()
             with torch.no_grad():
-                # 1-step validation loss
-                val_max = n_val_frames - 2
-                val_indices = torch.randint(0, val_max + 1, (batch_size,), device=device)
-                val_loss = _compute_loss(
-                    model,
-                    val_voltage[val_indices],
-                    val_stimulus[val_indices],
-                    val_voltage[val_indices + 1],
-                    dt,
-                ).item()
-
                 # Rollout evaluation on validation data
                 model_rollout_mse, const_rollout_mse = rollout_mse(
                     model, val_voltage, val_stimulus, dt,
@@ -307,7 +285,7 @@ def data_train_rollout(config, erase, best_model, device, log_file=None):
             val_duration = time.time() - val_start
 
             mean_rollout_mse = float(model_rollout_mse.mean())
-            val_str = f' | val: {val_loss:.4e} | rollout: {mean_rollout_mse:.4e} ({val_duration:.1f}s)'
+            val_str = f' | rollout: {mean_rollout_mse:.4e} ({val_duration:.1f}s)'
             plot_rollout_mse(model_rollout_mse, const_rollout_mse, epoch, log_dir, sim.delta_t)
 
             if mean_rollout_mse < best_rollout_mse:
