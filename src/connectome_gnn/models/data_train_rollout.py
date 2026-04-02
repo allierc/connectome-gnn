@@ -24,62 +24,76 @@ from connectome_gnn.utils import create_log_dir
 
 _logger = get_logger(__name__)
 
+_VAL_ROLLOUT_LEN = 8000
+_VAL_BLOCK_SIZE = 64
 
-def rollout_mse(model, voltage, stimulus, dt, n_windows=10, window_len=1000):
-    """Compute mean rollout MSE over evenly-spaced windows.
 
-    Divides the data into n_windows of window_len frames each.
-    For each window, starts from the true initial state and rolls out
-    autoregressively, feeding in the true stimulus at each step.
+def _rollout_block(model, v, stim_block, target_block, dt):
+    """Roll out model for _VAL_BLOCK_SIZE steps.
 
-    Also computes the constant model baseline: x_{t+1} = x_0 (predict
-    initial state forever). This grows as the true trajectory drifts.
+    Args:
+        v: (N,) current state
+        stim_block: (_VAL_BLOCK_SIZE, n_input)
+        target_block: (_VAL_BLOCK_SIZE, N) ground-truth next states
 
     Returns:
-        model_mse: (window_len,) array of model MSE averaged over windows
-        constant_mse: (window_len,) array of constant-model MSE averaged over windows
+        v: (N,) state after the block
+        out_mses: (_VAL_BLOCK_SIZE,) per-step MSE
     """
-    n_frames = voltage.shape[0]
-    total_needed = n_windows * window_len
-    if total_needed > n_frames:
-        window_len = n_frames // n_windows
-    # -1 because we need frame_idx+1 as target inside the window loop
-    starts = torch.linspace(0, n_frames - window_len - 1, n_windows).long()
-
-    model_mse_sum = torch.zeros(window_len, device=voltage.device)
-    const_mse_sum = torch.zeros(window_len, device=voltage.device)
-
-    for s in starts:
-        v = voltage[s]  # (N,) — initial state
-        v0 = v          # constant model prediction
-        for t in range(window_len):
-            frame_idx = s + t
-            stim_t = stimulus[frame_idx]  # (n_input_neurons,)
-
-            dvdt = model.predict_dvdt(v, stim_t)                     # (N,)
-            v = v + dt * dvdt
-
-            target = voltage[frame_idx + 1]
-            model_mse_sum[t] += F.mse_loss(v, target).item()
-            const_mse_sum[t] += F.mse_loss(v0, target).item()
-
-    return (
-        (model_mse_sum / n_windows).cpu().numpy(),
-        (const_mse_sum / n_windows).cpu().numpy(),
-    )
+    out_mses = torch.empty(_VAL_BLOCK_SIZE, device=v.device)
+    for t in range(_VAL_BLOCK_SIZE):
+        dvdt = model.predict_dvdt(v, stim_block[t])
+        v = v + dt * dvdt
+        out_mses[t] = F.mse_loss(v, target_block[t])
+    return v, out_mses
 
 
-def plot_rollout_mse(model_mse, constant_mse, epoch, log_dir, dt_value):
-    """Save rollout MSE vs time step plot."""
+_rollout_block_compiled = torch.compile(_rollout_block, mode="default")
+
+
+def val_rollout(model, voltage, stimulus, val_start_idx, dt):
+    """Single-start rollout validation on training data.
+
+    Runs _VAL_ROLLOUT_LEN steps from val_start_idx using compiled _VAL_BLOCK_SIZE-step blocks.
+
+    Returns:
+        mse_curve: (_VAL_ROLLOUT_LEN,) numpy array of per-step MSE
+        div_time: first step index where MSE > 1, or _VAL_ROLLOUT_LEN if never
+        rollout_mse: mean MSE over steps [0, div_time)
+    """
+    all_mse = torch.empty(_VAL_ROLLOUT_LEN, device=voltage.device)
+    v = voltage[val_start_idx].clone()
+
+    n_blocks = _VAL_ROLLOUT_LEN // _VAL_BLOCK_SIZE
+    for b in range(n_blocks):
+        t0 = val_start_idx + b * _VAL_BLOCK_SIZE
+        stim_block = stimulus[t0:t0 + _VAL_BLOCK_SIZE]
+        target_block = voltage[t0 + 1:t0 + _VAL_BLOCK_SIZE + 1]
+        v, block_mse = _rollout_block_compiled(model, v, stim_block, target_block, dt)
+        all_mse[b * _VAL_BLOCK_SIZE:(b + 1) * _VAL_BLOCK_SIZE] = block_mse
+
+    mse_np = all_mse.cpu().numpy()
+    above = np.where(mse_np > 1.0)[0]
+    div_time = int(above[0]) if len(above) > 0 else _VAL_ROLLOUT_LEN
+    rollout_mse_val = float(mse_np[:max(div_time, 1)].mean())
+    return mse_np, div_time, rollout_mse_val
+
+
+def plot_rollout_mse(mse_curve, div_time, epoch, log_dir):
+    """Save rollout MSE vs time step plot, marking divergence time."""
     fig, ax = plt.subplots(figsize=(8, 4))
-    steps = np.arange(len(model_mse))
-    ax.plot(steps, model_mse, linewidth=1, label='model')
-    ax.plot(steps, constant_mse, color='gray', linestyle='--', linewidth=0.8, label='constant (x=x₀)')
+    steps = np.arange(len(mse_curve))
+    ax.plot(steps, mse_curve, linewidth=1, label='model')
+    ax.axhline(1.0, color='gray', linestyle='--', linewidth=0.8, label='MSE=1')
+    if div_time < _VAL_ROLLOUT_LEN:
+        ax.axvline(div_time, color='red', linestyle=':', linewidth=0.8,
+                   label=f'div_time={div_time}')
     ax.legend()
     ax.set_xlabel('Rollout Time Steps')
     ax.set_ylabel('MSE')
-    ax.set_title(f'Validation rollout MSE — epoch {epoch+1}')
+    ax.set_title(f'Validation rollout MSE — epoch {epoch+1} | div_time={div_time}')
     ax.set_yscale('log')
+    ax.set_ylim(1e-4, 1.0)
     fig.tight_layout()
 
     plot_dir = os.path.join(log_dir, 'tmp_training')
@@ -158,12 +172,11 @@ def data_train_rollout(config, erase, best_model, device, log_file=None):
     n_train_frames = voltage.shape[0]
     _logger.info(f'train split: frames [{train_start}, {train_end}) = {n_train_frames} frames')
 
-    has_val = tc.val_start > 0 or tc.val_end > 0
-    if has_val:
-        val_voltage = all_voltage[tc.val_start:tc.val_end]
-        val_stimulus = all_stimulus[tc.val_start:tc.val_end]
-        n_val_frames = val_voltage.shape[0]
-        _logger.info(f'val split: frames [{tc.val_start}, {tc.val_end}) = {n_val_frames} frames')
+    # Fixed validation start: one random point, held constant for the whole run.
+    # Need _VAL_ROLLOUT_LEN steps of look-ahead room.
+    max_val_start = n_train_frames - _VAL_ROLLOUT_LEN - 1
+    val_start_idx = int(torch.randint(0, max_val_start + 1, (1,)).item())
+    _logger.info(f'val_start_idx: {val_start_idx} (fixed for this run)')
 
     checkpoint_path = None
     if tc.pretrained_model != '':
@@ -200,41 +213,43 @@ def data_train_rollout(config, erase, best_model, device, log_file=None):
     # Constant model baseline: MSE(x_t, x_{t+1}) — predicting no change
     with torch.no_grad():
         constant_model_loss = F.mse_loss(voltage[:-1], voltage[1:]).item()
-        if has_val:
-            constant_val_loss = F.mse_loss(val_voltage[:-1], val_voltage[1:]).item()
     _logger.info(f'constant model baseline MSE: {constant_model_loss:.4e}')
-    if has_val:
-        _logger.info(f'constant model baseline val MSE: {constant_val_loss:.4e}')
 
     # --- Profiler setup ---
-    trace_dir = os.path.join(log_dir, 'profiler')
-    os.makedirs(trace_dir, exist_ok=True)
-
-    _PROF_WAIT, _PROF_WARMUP, _PROF_ACTIVE = 20, 5, 10
-
-    activities = [torch.profiler.ProfilerActivity.CPU]
-    if device.type == 'cuda':
-        activities.append(torch.profiler.ProfilerActivity.CUDA)
-
-    prof = torch.profiler.profile(
-        activities=activities,
-        schedule=torch.profiler.schedule(
-            wait=_PROF_WAIT, warmup=_PROF_WARMUP, active=_PROF_ACTIVE, repeat=1,
-        ),
-        on_trace_ready=torch.profiler.tensorboard_trace_handler(trace_dir, use_gzip=True),
-        record_shapes=True,
-        with_stack=True,
-    )
-    prof.start()
-    _logger.info(f'profiler started; trace will be written to {trace_dir}')
-    _prof_stop_after = _PROF_WAIT + _PROF_WARMUP + _PROF_ACTIVE  # 10 steps
+    prof = None
+    _prof_stop_after = 0
     _global_step = 0
+    if tc.profiling:
+        trace_dir = os.path.join(log_dir, 'profiler')
+        os.makedirs(trace_dir, exist_ok=True)
+
+        _PROF_WAIT, _PROF_WARMUP, _PROF_ACTIVE = 20, 5, 10
+
+        activities = [torch.profiler.ProfilerActivity.CPU]
+        if device.type == 'cuda':
+            activities.append(torch.profiler.ProfilerActivity.CUDA)
+
+        prof = torch.profiler.profile(
+            activities=activities,
+            schedule=torch.profiler.schedule(
+                wait=_PROF_WAIT, warmup=_PROF_WARMUP, active=_PROF_ACTIVE, repeat=1,
+            ),
+            on_trace_ready=torch.profiler.tensorboard_trace_handler(trace_dir, use_gzip=True),
+            record_shapes=True,
+            with_stack=True,
+        )
+        prof.start()
+        _prof_stop_after = _PROF_WAIT + _PROF_WARMUP + _PROF_ACTIVE
+        _logger.info(f'profiler started; trace will be written to {trace_dir}')
 
     # --- Training loop ---
     model.train()
     training_start = time.time()
-    best_val_loss = float('inf')
-    best_rollout_mse = float('inf')
+    # Best model key: (-div_time // 100, rollout_mse).
+    # Minimising this first maximises div_time (in buckets of 10 steps),
+    # then breaks ties by minimising rollout_mse.
+    best_val_key = (float('inf'), float('inf'))
+    epochs_without_improvement = 0
 
     for epoch in range(n_epochs):
         epoch_start = time.time()
@@ -271,39 +286,29 @@ def data_train_rollout(config, erase, best_model, device, log_file=None):
         total_elapsed = time.time() - training_start
 
         # --- Validation ---
-        val_str = ''
-        val_loss = None
-        if has_val:
-            val_start = time.time()
-            model.eval()
-            with torch.no_grad():
-                # Rollout evaluation on validation data
-                model_rollout_mse, const_rollout_mse = rollout_mse(
-                    model, val_voltage, val_stimulus, dt,
-                )
-            model.train()
-            val_duration = time.time() - val_start
+        val_start_t = time.time()
+        model.eval()
+        with torch.no_grad():
+            mse_curve, div_time, mean_rollout_mse = val_rollout(
+                model, voltage, stimulus, val_start_idx, dt,
+            )
+        model.train()
+        val_duration = time.time() - val_start_t
 
-            mean_rollout_mse = float(model_rollout_mse.mean())
-            val_str = f' | rollout: {mean_rollout_mse:.4e} ({val_duration:.1f}s)'
-            plot_rollout_mse(model_rollout_mse, const_rollout_mse, epoch, log_dir, sim.delta_t)
+        val_str = f' | div_time={div_time} rollout_mse={mean_rollout_mse:.4e} ({val_duration:.1f}s)'
+        plot_rollout_mse(mse_curve, div_time, epoch, log_dir)
 
-            if mean_rollout_mse < best_rollout_mse:
-                best_rollout_mse = mean_rollout_mse
-                torch.save(
-                    {'model_state_dict': model.state_dict()},
-                    os.path.join(net_path, f'best_model_with_{tc.n_runs - 1}_graphs_{epoch}.pt'),
-                )
-                _logger.info(f'  saved best model (rollout_mse={best_rollout_mse:.4e})')
+        val_key = (-div_time // 100, mean_rollout_mse)
+        if val_key < best_val_key:
+            best_val_key = val_key
+            epochs_without_improvement = 0
+            torch.save(
+                {'model_state_dict': model.state_dict()},
+                os.path.join(net_path, f'best_model_with_{tc.n_runs - 1}_graphs_{epoch}.pt'),
+            )
+            _logger.info(f'  saved best model (div_time={div_time} rollout_mse={mean_rollout_mse:.4e})')
         else:
-            # No validation — save best by train loss
-            if mean_loss < best_val_loss:
-                best_val_loss = mean_loss
-                torch.save(
-                    {'model_state_dict': model.state_dict()},
-                    os.path.join(net_path, f'best_model_with_{tc.n_runs - 1}_graphs_{epoch}.pt'),
-                )
-                _logger.info(f'  saved best model (train_loss={best_val_loss:.4e})')
+            epochs_without_improvement += 1
 
         _logger.info(
             f'epoch {epoch+1}/{n_epochs} | '
@@ -311,15 +316,20 @@ def data_train_rollout(config, erase, best_model, device, log_file=None):
             f'duration: {epoch_duration:.1f}s (total: {total_elapsed:.1f}s)'
         )
 
+        if tc.early_stop_patience_epochs > 0 and epochs_without_improvement >= tc.early_stop_patience_epochs:
+            _logger.info(f'early stopping: no improvement for {epochs_without_improvement} epochs')
+            break
+
         # Save periodic checkpoint
         torch.save({
             'epoch': epoch,
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
             'train_loss': mean_loss,
-            'val_loss': val_loss if has_val else mean_loss,
+            'rollout_mse': mean_rollout_mse,
+            'div_time': div_time,
         }, os.path.join(net_path, 'latest_checkpoint.pt'))
 
     total_time = time.time() - training_start
-    _logger.info(f'training complete: {n_epochs} epochs in {total_time:.1f}s, best rollout_mse: {best_rollout_mse:.4e}')
+    _logger.info(f'training complete: {n_epochs=} in {total_time=:.1f}s, {div_time=:,d}, {mean_rollout_mse=:.3e}')
     _logger.info(f'constant model baseline: {constant_model_loss:.4e}')
