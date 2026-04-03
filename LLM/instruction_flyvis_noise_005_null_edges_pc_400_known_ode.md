@@ -1,8 +1,8 @@
-# FlyVis known_ode Training Exploration — flyvis_noise_005_removed_pc_10
+# FlyVis known_ode Training Exploration — flyvis_noise_005_null_edges_pc_400
 
 ## Goal
 
-Test **known_ode robustness to incomplete connectivity** for the **Drosophila visual system** with noise_model_level=0.05 and 10% missing edges (removed uniformly). The goal is to find a **incomplete-connectivity-robust config** that achieves **connectivity_R2 > 0.85 on ALL 4 seeds with CV < 4%**, demonstrating resilience to sparse/incomplete structural information. Data is thus **re-generated each iteration** with a different seed. This variant tests known_ode when the true connectivity is partially unknown (e.g., due to incomplete connectome mapping or experimental dropout), requiring the model to infer missing connections. A config with mean connectivity_R2=0.90 and CV=2% demonstrates robust performance despite incomplete ground truth.
+Test **known_ode performance when learning edge weights under structured sparsity** for the **Drosophila visual system** with noise_model_level=0.05 and 400% null edges per column (structured missing connectivity). The goal is to find a **edge-learning config** that achieves **connectivity_R2 > 0.8 on ALL 4 seeds with CV < 4%**, demonstrating the ability to recover connectivity despite constrained edge structure. Data is thus **re-generated each iteration** with a different seed. This variant tests known_ode when the true connectivity structure has enforced zero constraints (e.g., anatomically prevented connections), requiring the model to learn within these structural bounds. A config with mean connectivity_R2=0.85 and CV=2% demonstrates effective constraint-aware learning.
 
 Primary metric: **connectivity_R2** (R² between learned W and ground-truth W).
 **Stability metric: CV (coefficient of variation) of connectivity_R2 across 4 seeds — target CV < 4%.**
@@ -46,7 +46,7 @@ dv_i/dt = f_theta(v_i, a_i, sum_j W_ij * g_phi(v_j, a_j)^2, I_i)
 
 - 13,741 neurons, 65 cell types, 434,112 edges
 - 1,736 input neurons (photoreceptors)
-- DAVIS visual input, **noise_model_level=0.05 + 10% missing edges** (incomplete connectivity)
+- DAVIS visual input, **noise_model_level=0.05 + 400% null edges per column** (structured sparsity)
 - 64,000 frames, delta_t=0.02
 
 ## known_ode ML model
@@ -79,9 +79,9 @@ Each batch runs 4 slots with different seeds (forced by pipeline). You choose th
 
 ### Robustness Assessment (when running same config across 4 slots)
 
-- **Robust**: all 4 slots connectivity_R2 > 0.85
-- **Partially robust**: 2-3 slots > 0.8
-- **Fragile**: 0-1 slots < 0.75
+- **Robust**: all 4 slots connectivity_R2 > 0.8
+- **Partially robust**: 2-3 slots > 0.75
+- **Fragile**: 0-1 slots < 0.7
 
 ## Block Partition
 
@@ -126,10 +126,10 @@ This is a COMPULSORY task — do not skip it.
 
 1. Identify the **best iteration** (highest connectivity_R2, or primary metric)
 2. Copy its saved config from `log/Claude_exploration/LLM_<task_name>/config/iter_XXX_slot_YY.yaml`
-3. Save it to `config/drosophila_cx/drosophila_cx_known_ode_winner.yaml` with a YAML comment header:
+3. Save it to `config/fly/flyvis_noise_005_null_edges_pc_400_known_ode_winner.yaml` with a YAML comment header:
 
 ```yaml
-# Winner config: drosophila_cx_known_ode_winner.yaml
+# Winner config: flyvis_noise_005_null_edges_pc_400_known_ode_winner.yaml
 # Source: iter_XXX_slot_YY (connectivity_R2 = X.XXX)
 # Exploration: N iterations, M blocks
 # Date: YYYY-MM-DD
@@ -149,7 +149,7 @@ This is a COMPULSORY task — do not skip it.
 #   - [list the parameters that differ from the initial baseline]
 ```
 
-Destination: `config/fly/fly_noise_005_removed_pc_10_known_ode_winner.yaml`
+Destination: `config/fly/flyvis_noise_005_null_edges_pc_400_known_ode_winner.yaml`
 
 ### Step 4: Acknowledge User Input
 
@@ -170,18 +170,18 @@ When prompt says `PARALLEL START`:
 - Read base config — this IS the baseline. Do NOT change any default values.
 - Slot 0 = baseline (no changes at all).
 - Slots 1-3: each changes EXACTLY ONE parameter from the block focus.
-- Hypothesis: "Known ODE with 10% missing edges can still achieve connectivity_R2 > 0.85 with appropriate regularization"
+- Hypothesis: "Known ODE can learn connectivity under structured constraints despite 400% null edges per column"
 
 ---
 
 # Working Memory Structure
 
 ```markdown
-# Working Memory: flyvis_noise_005_removed_pc_10_known_ode
+# Working Memory: flyvis_noise_005_null_edges_pc_400_known_ode
 
 ## Paper Summary (update at every block boundary)
 
-- **Known ODE robustness to incomplete connectivity**: [pending]
+- **Known ODE with structured edge learning**: [pending]
 - **LLM-driven exploration**: [pending]
 
 ## Knowledge Base
