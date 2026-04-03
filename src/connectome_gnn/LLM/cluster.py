@@ -68,7 +68,7 @@ def check_cluster_repo():
 
 def submit_cluster_job(slot, config_path, analysis_log_path, config_file_field,
                        log_dir, root_dir, erase=True, node_name='a100',
-                       conda_env='neural-graph', n_cpus=2, device='cuda',
+                       conda_env='connectome-gnn', n_cpus=2, device='cuda',
                        exploration_dir=None, iteration=None):
     """Submit a single flyvis training job to the cluster WITHOUT -K (non-blocking).
 
