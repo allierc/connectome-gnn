@@ -35,7 +35,7 @@ if __name__ == '__main__':
         if args.config_file:
             config.config_file = args.config_file
 
-        log_file = open(args.log_file, 'w') if args.log_file else None
+        log_file = open(args.log_file, 'w', buffering=1) if args.log_file else None
         try:
             data_train(
                 config=config,
@@ -45,7 +45,10 @@ if __name__ == '__main__':
             )
         finally:
             if log_file:
-                log_file.close()
+                try:
+                    log_file.close()
+                except OSError:
+                    pass  # Stale NFS handle — training completed, ignore close error
     except Exception:
         tb = traceback.format_exc()
         print(tb, file=sys.stderr)
