@@ -292,7 +292,7 @@ You maintain **THREE** files:
 
 **3a. Append to Full Log** (`{llm_task_name}_analysis.md`) and **Current Block** in memory.md:
 
-```
+````
 ## Iter N: [robust/partially robust/fragile]
 Node: id=N, parent=P
 Hypothesis tested: "[quoted hypothesis being tested]"
@@ -336,11 +336,11 @@ This is a COMPULSORY task — do not skip it.
 #
 # Key config differences from baseline:
 #   - [list the parameters that differ from the initial baseline]
-```
+````
 
 Destination: `config/fly/flyvis_noise_005_winner.yaml`
 
-```
+````
 
 **CRITICAL**: The `Mutation:` line is parsed by the UCB tree builder — always include exact parameter change.
 **CRITICAL**: `Next: parent=P` — P must be from a previous batch or current batch, NEVER `id+1`.
@@ -501,7 +501,7 @@ Iterations: M to M+n_iter_block
 
 [Running notes on what patterns are emerging across seeds and iterations]
 **CRITICAL: This section must ALWAYS be at the END of memory file.**
-```
+````
 
 ---
 
