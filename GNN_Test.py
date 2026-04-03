@@ -274,7 +274,7 @@ def run_test_plot(config, config_file, device):
     folder_name = log_path(pre_folder, 'tmp_results') + '/'
     os.makedirs(folder_name, exist_ok=True)
     data_plot(
-        config=config, config_file=config_file,
+        config=config,
         epoch_list=['best'], style='color',
         extended='plots', device=device,
         apply_weight_correction=True,

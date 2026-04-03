@@ -21,38 +21,56 @@ warnings.filterwarnings('ignore')
 import tensorstore as ts
 
 # ---------------------------------------------------------------------------
+# Repo root — always derived from this file's location, never configurable.
+# src/connectome_gnn/utils.py is two levels below the repo root.
+# ---------------------------------------------------------------------------
+
+def get_repo_root() -> str:
+    """Return the repository root directory (contains GNN_Main.py, config/, etc.)."""
+    return os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
+
+
+# ---------------------------------------------------------------------------
 # Configurable data root (graphs_data/ and log/ location)
 # ---------------------------------------------------------------------------
 
-_DATA_ROOT_CACHE = None
+_data_root = '.'
 
 
 def get_data_root() -> str:
-    """Return the data root directory from data_paths.json, or '.' if not found.
+    """Return the data root directory. Defaults to '.'; override with set_data_root()."""
+    return _data_root
 
-    Searches for data_paths.json in two locations (first match wins):
-      1. Current working directory
-      2. Two levels up from this file (repo root when running from source)
+
+def set_data_root(path: str) -> None:
+    """Set the data root for log_path() and graphs_data_path().
+
+    Call early in main before any path functions are used.
+    GNN_Main: set from --output_root CLI arg.
+    GNN_LLM cluster mode: set from load_data_root_from_json().
     """
-    global _DATA_ROOT_CACHE
-    if _DATA_ROOT_CACHE is not None:
-        return _DATA_ROOT_CACHE
+    global _data_root
+    _data_root = path
+
+
+def load_data_root_from_json() -> str:
+    """Read cluster_data_dir from data_paths.json. Used by GNN_LLM cluster mode only."""
     _this_dir = os.path.dirname(os.path.abspath(__file__))
     candidates = [
         os.path.join(os.getcwd(), 'data_paths.json'),
-        os.path.normpath(os.path.join(_this_dir, '..', 'data_paths.json')),       # src/data_paths.json
-        os.path.normpath(os.path.join(_this_dir, '..', '..', 'data_paths.json')), # repo root
+        os.path.normpath(os.path.join(_this_dir, '..', 'data_paths.json')),
+        os.path.normpath(os.path.join(_this_dir, '..', '..', 'data_paths.json')),
     ]
     for json_path in candidates:
-        print(f"[get_data_root] checking {json_path}  exists={os.path.isfile(json_path)}")
         if os.path.isfile(json_path):
             with open(json_path) as f:
-                _DATA_ROOT_CACHE = json.load(f)['data_root']
-            print(f"[get_data_root] loaded data_root = {_DATA_ROOT_CACHE!r}")
-            return _DATA_ROOT_CACHE
-    _DATA_ROOT_CACHE = '.'
-    print("[get_data_root] data_paths.json not found, using '.'")
-    return _DATA_ROOT_CACHE
+                data = json.load(f)
+            assert 'data_root' not in data, (
+                "data_paths.json contains deprecated 'data_root' key. "
+                "Remove it and use 'cluster_data_dir' instead (or --output_root CLI arg)."
+            )
+            return data['cluster_data_dir']
+    raise FileNotFoundError("data_paths.json not found (required for cluster mode)")
 
 
 def graphs_data_path(*parts: str) -> str:
@@ -66,8 +84,28 @@ def log_path(*parts: str) -> str:
 
 
 def config_path(*parts):
-    """Build path under config/: config_path('fly', 'x.yaml') -> '{data_root}/config/fly/x.yaml'"""
-    return os.path.join(get_data_root(), 'config', *parts)
+    """Build path under config/: config_path('fly', 'x.yaml') -> '{repo_root}/config/fly/x.yaml'
+
+    Configs are always loaded from the repo root, never from the configurable
+    data root. Use a fully qualified filesystem path to load configs from elsewhere.
+    """
+    return os.path.join(get_repo_root(), 'config', *parts)
+
+
+# Known subdirectories under config/. Each corresponds to a simulation domain.
+# Add new entries here when a new config subdirectory is created.
+_VALID_PRE_FOLDERS = {'fly', 'drosophila_cx', 'larva', 'zebrafish_oculomotor'}
+
+
+def validate_pre_folder(pre_folder: str) -> None:
+    """Assert that pre_folder (with or without trailing slash) is a known config subdir."""
+    if not pre_folder:
+        return
+    name = pre_folder.rstrip('/')
+    assert name in _VALID_PRE_FOLDERS, (
+        f"pre_folder '{pre_folder}' is not a known config subdirectory "
+        f"(expected one of: {', '.join(sorted(_VALID_PRE_FOLDERS))})"
+    )
 
 
 def setup_flyvis_model_path():
@@ -403,6 +441,7 @@ def add_pre_folder(config_file_):
     else:
         raise ValueError(f"Config file '{config_file_}' does not exist or is not recognized. Check for typos.")
 
+    validate_pre_folder(pre_folder)
     return config_file, pre_folder
 
 

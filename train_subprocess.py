@@ -15,7 +15,7 @@ import traceback
 
 from connectome_gnn.config import NeuralGraphConfig
 from connectome_gnn.models.graph_trainer import data_train
-from connectome_gnn.utils import config_path
+from connectome_gnn.utils import set_data_root
 
 
 if __name__ == '__main__':
@@ -29,17 +29,16 @@ if __name__ == '__main__':
     parser.add_argument('--exploration_dir', default=None)
     parser.add_argument('--iteration', type=int, default=None)
     parser.add_argument('--slot', type=int, default=None)
+    parser.add_argument('--output_root', default=None, help='root directory for log/ and graphs_data/')
     args = parser.parse_args()
 
+    if args.output_root:
+        assert os.path.isdir(args.output_root), f"--output_root does not exist: {args.output_root}"
+        assert os.access(args.output_root, os.W_OK), f"--output_root is not writable: {args.output_root}"
+        set_data_root(args.output_root)
+
     try:
-        # Load config from data_root if config_file is provided (uses get_data_root() from data_paths.json)
-        # Otherwise use the path passed directly (for backwards compatibility)
-        if args.config_file:
-            config_full_path = config_path(args.config_file + '.yaml')
-            config = NeuralGraphConfig.from_yaml(config_full_path)
-            config.config_file = args.config_file
-        else:
-            config = NeuralGraphConfig.from_yaml(args.config)
+        config = NeuralGraphConfig.from_yaml(args.config)
 
         log_file = open(args.log_file, 'w', buffering=1) if args.log_file else None
         try:
@@ -55,6 +54,12 @@ if __name__ == '__main__':
                     log_file.close()
                 except OSError:
                     pass  # Stale NFS handle — training completed, ignore close error
+
+        # Mark run as complete
+        from connectome_gnn.utils import log_path
+        run_log_dir = log_path(config.config_file)
+        with open(os.path.join(run_log_dir, '_complete'), 'w') as f:
+            f.write(f"argv={sys.argv}\n")
     except Exception:
         tb = traceback.format_exc()
         print(tb, file=sys.stderr)
