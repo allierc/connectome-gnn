@@ -559,13 +559,14 @@ def generate_data_locally(state: ExplorationState, batch: BatchInfo):
         data_generate(
             config=config,
             device=state.device,
-            visualize=True,
+            visualize=False,
             run_vizualized=0,
             style="color",
             alpha=1,
             erase=True,
             save=True,
             step=100,
+            compute_ranks=False,
         )
 
 

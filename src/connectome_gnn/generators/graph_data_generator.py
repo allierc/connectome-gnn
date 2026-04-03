@@ -67,6 +67,7 @@ def data_generate(
     device=None,
     save=True,
     log_file=None,
+    compute_ranks=True,
 ):
 
     logger.info(f"dataset: {config.dataset}")
@@ -97,6 +98,7 @@ def data_generate(
             step=step,
             device=device,
             save=save,
+            compute_ranks=compute_ranks,
         )
     elif is_hodgkin_huxley_model(config.graph_model.signal_model_name):
         data_generate_voltage(
@@ -108,6 +110,7 @@ def data_generate(
             step=step,
             device=device,
             save=save,
+            compute_ranks=compute_ranks,
         )
     else:
         data_generate_voltage(
@@ -119,6 +122,7 @@ def data_generate(
             step=step,
             device=device,
             save=save,
+            compute_ranks=compute_ranks,
         )
 
     default_style.apply_globally()
@@ -362,7 +366,7 @@ def generate_from_data(config, device, visualize=True, step=None, cmap=None, sty
 
 
 def data_generate_spiking(config, visualize=True, run_vizualized=0, style="color", erase=False, step=5, device=None,
-                              save=True):
+                              save=True, compute_ranks=True):
     """Generate spiking (AdEx) simulation data using the flyvis connectome.
 
     Uses the same visual stimulus pipeline as data_generate_voltage,
@@ -640,7 +644,7 @@ def data_generate_spiking(config, visualize=True, run_vizualized=0, style="color
 
 
 def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color", erase=False, step=5, device=None,
-                              save=True):
+                              save=True, compute_ranks=True):
 
     fig_style = dark_style if "black" in style else default_style
     fig_style.apply_globally()
@@ -1140,93 +1144,95 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
     y_list = load_raw_array(graphs_data_path(config.dataset, "y_list_train"))
 
     # Compute ranks (used in kinographs and traces)
-    logger.info('computing effective rank ...')
-    from sklearn.utils.extmath import randomized_svd
-    activity_full = x_ts.voltage.numpy()  # (n_frames, n_neurons)
-    n_comp = min(50, min(activity_full.shape) - 1)
-    _, S_act, _ = randomized_svd(activity_full, n_components=n_comp, random_state=0)
-    cumvar_act = np.cumsum(S_act**2) / np.sum(S_act**2)
-    rank_90_act = int(np.searchsorted(cumvar_act, 0.90) + 1)
-    rank_99_act = int(np.searchsorted(cumvar_act, 0.99) + 1)
+    if compute_ranks:
+        logger.info('computing effective rank ...')
+        from sklearn.utils.extmath import randomized_svd
+        activity_full = x_ts.voltage.numpy()  # (n_frames, n_neurons)
+        n_comp = min(50, min(activity_full.shape) - 1)
+        _, S_act, _ = randomized_svd(activity_full, n_components=n_comp, random_state=0)
+        cumvar_act = np.cumsum(S_act**2) / np.sum(S_act**2)
+        rank_90_act = int(np.searchsorted(cumvar_act, 0.90) + 1)
+        rank_99_act = int(np.searchsorted(cumvar_act, 0.99) + 1)
 
-    # Mean-centered rank: subtract per-neuron temporal mean to remove static bias pattern.
-    activity_centered = activity_full - activity_full.mean(axis=0, keepdims=True)
-    centered_var = np.sum(activity_centered**2)
-    if centered_var > 1e-12:
-        _, S_mc, _ = randomized_svd(activity_centered, n_components=n_comp, random_state=0)
-        cumvar_mc = np.cumsum(S_mc**2) / centered_var
-        rank_90_mc = int(np.searchsorted(cumvar_mc, 0.90) + 1)
-        rank_99_mc = int(np.searchsorted(cumvar_mc, 0.99) + 1)
-    else:
-        rank_90_mc = rank_99_mc = 0
+        # Mean-centered rank: subtract per-neuron temporal mean to remove static bias pattern.
+        activity_centered = activity_full - activity_full.mean(axis=0, keepdims=True)
+        centered_var = np.sum(activity_centered**2)
+        if centered_var > 1e-12:
+            _, S_mc, _ = randomized_svd(activity_centered, n_components=n_comp, random_state=0)
+            cumvar_mc = np.cumsum(S_mc**2) / centered_var
+            rank_90_mc = int(np.searchsorted(cumvar_mc, 0.90) + 1)
+            rank_99_mc = int(np.searchsorted(cumvar_mc, 0.99) + 1)
+        else:
+            rank_90_mc = rank_99_mc = 0
 
-    input_for_svd = x_ts.stimulus[:, :sim.n_input_neurons].numpy()
-    n_comp_input = min(50, min(input_for_svd.shape) - 1)
-    _, S_inp, _ = randomized_svd(input_for_svd, n_components=n_comp_input, random_state=0)
-    cumvar_inp = np.cumsum(S_inp**2) / np.sum(S_inp**2)
-    rank_90_inp = int(np.searchsorted(cumvar_inp, 0.90) + 1)
-    rank_99_inp = int(np.searchsorted(cumvar_inp, 0.99) + 1)
+        input_for_svd = x_ts.stimulus[:, :sim.n_input_neurons].numpy()
+        n_comp_input = min(50, min(input_for_svd.shape) - 1)
+        _, S_inp, _ = randomized_svd(input_for_svd, n_components=n_comp_input, random_state=0)
+        cumvar_inp = np.cumsum(S_inp**2) / np.sum(S_inp**2)
+        rank_90_inp = int(np.searchsorted(cumvar_inp, 0.90) + 1)
+        rank_99_inp = int(np.searchsorted(cumvar_inp, 0.99) + 1)
 
-    logger.info(f'activity rank(90%)={rank_90_act}  rank(99%)={rank_99_act}  centered rank(90%)={rank_90_mc}  rank(99%)={rank_99_mc}')
-    logger.info(f'visual input rank(90%)={rank_90_inp}  rank(99%)={rank_99_inp}')
+        logger.info(f'activity rank(90%)={rank_90_act}  rank(99%)={rank_99_act}  centered rank(90%)={rank_90_mc}  rank(99%)={rank_99_mc}')
+        logger.info(f'visual input rank(90%)={rank_90_inp}  rank(99%)={rank_99_inp}')
 
-    # Build neuron-type labels for kinograph annotations
-    act_labels = None
-    stim_labels = None
-    if hasattr(ode_params, 'neuron_types') and ode_params.neuron_types is not None:
-        nt = to_numpy(ode_params.neuron_types)
-        tnames = getattr(ode_params, 'type_names', None)
-        if tnames is not None:
-            act_labels = []
-            for ti, name in enumerate(tnames):
-                idx = np.where(nt == ti)[0]
-                if len(idx) > 0:
-                    act_labels.append((name, int(idx.min()), int(idx.max()) + 1))
-            # Stimulus labels: find which neurons receive non-zero stimulus
-            stim_np = x_ts.stimulus[:, :sim.n_input_neurons].numpy()
-            stim_power = np.sum(stim_np ** 2, axis=0)  # (N,)
-            stim_labels = []
-            for ti, name in enumerate(tnames):
-                idx = np.where(nt == ti)[0]
-                active_idx = idx[stim_power[idx] > 1e-6] if idx.max() < len(stim_power) else np.array([])
-                if len(active_idx) > 0:
-                    stim_labels.append((name, int(active_idx.min()), int(active_idx.max()) + 1))
-            if not stim_labels:
-                stim_labels = None
+        # Build neuron-type labels for kinograph annotations
+        act_labels = None
+        stim_labels = None
+        if hasattr(ode_params, 'neuron_types') and ode_params.neuron_types is not None:
+            nt = to_numpy(ode_params.neuron_types)
+            tnames = getattr(ode_params, 'type_names', None)
+            if tnames is not None:
+                act_labels = []
+                for ti, name in enumerate(tnames):
+                    idx = np.where(nt == ti)[0]
+                    if len(idx) > 0:
+                        act_labels.append((name, int(idx.min()), int(idx.max()) + 1))
+                # Stimulus labels: find which neurons receive non-zero stimulus
+                stim_np = x_ts.stimulus[:, :sim.n_input_neurons].numpy()
+                stim_power = np.sum(stim_np ** 2, axis=0)  # (N,)
+                stim_labels = []
+                for ti, name in enumerate(tnames):
+                    idx = np.where(nt == ti)[0]
+                    active_idx = idx[stim_power[idx] > 1e-6] if idx.max() < len(stim_power) else np.array([])
+                    if len(active_idx) > 0:
+                        stim_labels.append((name, int(active_idx.min()), int(active_idx.max()) + 1))
+                if not stim_labels:
+                    stim_labels = None
 
-    if act_labels:
-        logger.info(f'kinograph act_labels: {act_labels}')
-    if stim_labels:
-        logger.info(f'kinograph stim_labels: {stim_labels}')
+        if act_labels:
+            logger.info(f'kinograph act_labels: {act_labels}')
+        if stim_labels:
+            logger.info(f'kinograph stim_labels: {stim_labels}')
 
-    logger.info('plotting kinograph ...')
-    plot_kinograph(
-        activity=activity_full.T,
-        stimulus=x_ts.stimulus[:, :sim.n_input_neurons].numpy().T,
-        output_path=graphs_data_path(config.dataset, 'kinograph.png'),
-        rank_90_act=rank_90_act,
-        rank_99_act=rank_99_act,
-        rank_90_inp=rank_90_inp,
-        rank_99_inp=rank_99_inp,
-        rank_90_mc=rank_90_mc,
-        rank_99_mc=rank_99_mc,
-        zoom_size=200,
-        style=fig_style,
-        act_labels=act_labels,
-        stim_labels=stim_labels,
-    )
+        logger.info('plotting kinograph ...')
+        plot_kinograph(
+            activity=activity_full.T,
+            stimulus=x_ts.stimulus[:, :sim.n_input_neurons].numpy().T,
+            output_path=graphs_data_path(config.dataset, 'kinograph.png'),
+            rank_90_act=rank_90_act,
+            rank_99_act=rank_99_act,
+            rank_90_inp=rank_90_inp,
+            rank_99_inp=rank_99_inp,
+            rank_90_mc=rank_90_mc,
+            rank_99_mc=rank_99_mc,
+            zoom_size=200,
+            style=fig_style,
+            act_labels=act_labels,
+            stim_labels=stim_labels,
+        )
 
     # Skip warmup frames (100ms / dt) and show 400ms window for all plots
-    warmup_ms = 100.0
-    window_ms = 800.0
-    warmup_frames = int(warmup_ms / sim.delta_t)
-    window_frames = int(window_ms / sim.delta_t)
-    activity_plot = activity_full[warmup_frames:] if activity_full.shape[0] > warmup_frames + 10 else activity_full
-    stim_plot = x_ts.stimulus[warmup_frames:, :sim.n_input_neurons].numpy() if x_ts.stimulus.shape[0] > warmup_frames + 10 else x_ts.stimulus[:, :sim.n_input_neurons].numpy()
-    logger.info(f'plotting traces (warmup_skip={warmup_frames} frames={warmup_ms}ms, window={window_frames} frames={window_ms}ms, {activity_plot.shape[0]} frames available)')
+    if visualize:
+        warmup_ms = 100.0
+        window_ms = 800.0
+        warmup_frames = int(warmup_ms / sim.delta_t)
+        window_frames = int(window_ms / sim.delta_t)
+        activity_plot = activity_full[warmup_frames:] if activity_full.shape[0] > warmup_frames + 10 else activity_full
+        stim_plot = x_ts.stimulus[warmup_frames:, :sim.n_input_neurons].numpy() if x_ts.stimulus.shape[0] > warmup_frames + 10 else x_ts.stimulus[:, :sim.n_input_neurons].numpy()
+        logger.info(f'plotting traces (warmup_skip={warmup_frames} frames={warmup_ms}ms, window={window_frames} frames={window_ms}ms, {activity_plot.shape[0]} frames available)')
 
     # HH-specific spiking plots (detect spikes from voltage threshold crossings)
-    if is_hh:
+    if visualize and is_hh:
         logger.info('plotting HH spiking traces ...')
         # Use warmup-skipped data: (T, N) -> (N, T)
         voltage_NT = activity_plot.T
@@ -1262,17 +1268,18 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
         noise_data = x_ts.noise.numpy() if x_ts.noise is not None else None
         if noise_data is not None:
             noisy_activity = activity_full + noise_data  # (T, N)
-            plot_activity_traces(
-                activity=noisy_activity.T,
-                output_path=graphs_data_path(config.dataset, 'activity_traces_noisy.png'),
-                n_traces=100,
-                max_frames=10000,
-                n_input_neurons=sim.n_input_neurons,
-                style=fig_style,
-                type_list=node_types_int,
-                dpi=300,
-                title='noisy voltage traces (measurement noise)',
-            )
+            if visualize:
+                plot_activity_traces(
+                    activity=noisy_activity.T,
+                    output_path=graphs_data_path(config.dataset, 'activity_traces_noisy.png'),
+                    n_traces=100,
+                    max_frames=10000,
+                    n_input_neurons=sim.n_input_neurons,
+                    style=fig_style,
+                    type_list=node_types_int,
+                    dpi=300,
+                    title='noisy voltage traces (measurement noise)',
+                )
 
             # --- SNR analysis (per neuron) ---
             # Voltage SNR: std(clean_voltage) / std(measurement_noise) per neuron
@@ -1324,11 +1331,12 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
             logger.info('--------------------------------------')
 
     # SVD analysis (4-panel plot)
-    logger.info('svd analysis ...')
-    from connectome_gnn.models.utils import analyze_data_svd
-    folder = graphs_data_path(config.dataset)
-    svd_results = analyze_data_svd(x_ts, folder, config=config, is_flyvis=True,
-                                   save_in_subfolder=False, logger=logger)
+    if visualize:
+        logger.info('svd analysis ...')
+        from connectome_gnn.models.utils import analyze_data_svd
+        folder = graphs_data_path(config.dataset)
+        svd_results = analyze_data_svd(x_ts, folder, config=config, is_flyvis=True,
+                                       save_in_subfolder=False, logger=logger)
 
     # Save ranks to log file
     gen_log_path = graphs_data_path(config.dataset, 'generation_log.txt')
