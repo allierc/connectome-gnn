@@ -62,6 +62,8 @@ dv_i/dt = f_theta(v_i, a_i, sum_j W_ij * g_phi(v_j, a_j)^2, I_i)
 | -------------- | ------- | ------------------------------------------- |
 | `lr_W`         | 0.0009  | Learning rate for W (synaptic weights)      |
 | `lr`           | 0.0018  | Learning rate for other params (tau, Vrest) |
+| `w_init_mode`  | RANDN   | W initialization mode: RANDN (std=1), RANDN_SCALED (std=scale/sqrt(N)), or ZEROS |
+| `w_init_scale` | 1.0     | Scaling factor for RANDN_SCALED mode        |
 | `batch_size`   | 4       | Batch size                                  |
 | `coeff_W_L1`   | 0       | L1 sparsity on W                            |
 | `coeff_W_L2`   | 0.00015 | L2 penalty on W                             |
@@ -86,10 +88,11 @@ Each batch runs 4 slots with different seeds (forced by pipeline). You choose th
 | Block | Focus | Parameters | range  
 | 1 | **learning rate sweep** | `lr_W`, `lr` | lr_W: {1e-5 to 1e-3}, lr: {1e-4 to 1e-2}  
 | 2 | **W regularization** | `coeff_W_L1`, `coeff_W_L2`, `coeff_W_sign` | {1e-6 to 1e-4}.  
-| 3 | **Batch size + lr** | `batch_size`, `lr_W`, `lr` | batch_size: {1, 2, 4, 8}.
-| 4 | **Free exploration I** | Any parameter |  
-| 5 | **Free exploration II** | Any parameter |
-| 6 | **Final robustness** | None (robustness test) | 4-seed robustness test of best config from blocks
+| 3 | **W initialization + lr** | `w_init_mode`, `w_init_scale`, `lr_W`, `lr` | w_init_mode: {RANDN, RANDN_SCALED, ZEROS}, w_init_scale: {0.5, 1.0, 2.0}  
+| 4 | **Batch size + lr** | `batch_size`, `lr_W`, `lr` | batch_size: {1, 2, 4, 8}.
+| 5 | **Free exploration I** | Any parameter |  
+| 6 | **Free exploration II** | Any parameter |
+| 7 | **Final robustness** | None (robustness test) | 4-seed robustness test of best config from blocks
 
 ## Iteration Workflow
 
