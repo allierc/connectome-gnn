@@ -161,7 +161,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     logger.info(f'loading {netname} ...')
     state_dict = torch.load(netname, map_location=device, weights_only=False)
     migrate_state_dict(state_dict)
-    model.load_state_dict(state_dict['model_state_dict'])
+    model.load_state_dict(state_dict['model_state_dict'], strict=False)
 
     # Load INR model if visual field is learned
     if has_visual_field and hasattr(model, 'NNR_f'):
