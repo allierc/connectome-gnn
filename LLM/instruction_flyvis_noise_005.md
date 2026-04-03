@@ -207,10 +207,20 @@ When a config is validated as robust (all 4 seeds > 0.9), you may switch to expl
 
 ### Config Files
 
-- Edit all 4 config files: `{name}_00.yaml` through `{name}_03.yaml`
+- Edit all 4 config files: `config/fly/{base_config_name}_Claude_00.yaml` through `config/fly/{base_config_name}_Claude_03.yaml`
 - **All 4 configs should be identical** (only seeds differ, set automatically)
 - Only modify `training:` and `graph_model:` parameters (and `claude:` where allowed)
 - **DO NOT change `simulation:` parameters** (except that seed is managed automatically)
+
+## Variable Names (for clarity)
+
+Throughout this instruction, we use:
+- **`{base_config_name}`**: The base config name you pass to the CLI (e.g., `flyvis_noise_005_known_ode`)
+- **`{llm_task_name}`**: The auto-generated LLM task name = `{base_config_name}_Claude` (e.g., `flyvis_noise_005_known_ode_Claude`)
+
+**Config file paths** (these are the FULL PATHS — use these exactly when editing):
+- **Config slot files**: `config/fly/{base_config_name}_Claude_00.yaml`, `config/fly/{base_config_name}_Claude_01.yaml`, `config/fly/{base_config_name}_Claude_02.yaml`, `config/fly/{base_config_name}_Claude_03.yaml`
+- **Winner file**: `config/fly/{base_config_name}_winner.yaml` (note: no "_Claude" in winner, use full path)`
 
 ## Iteration Loop Structure
 
@@ -315,10 +325,10 @@ This is a COMPULSORY task — do not skip it.
 
 1. Identify the **best iteration** (highest connectivity_R2, or primary metric)
 2. Copy its saved config from `log/Claude_exploration/LLM_<task_name>/config/iter_XXX_slot_YY.yaml`
-3. Save it to `config/fly/flyvis_noise_005_winner.yaml` with a YAML comment header:
+3. Copy the best config file (from the slot config files listed above) to `config/fly/{base_config_name}_winner.yaml` with a YAML comment header:
 
 ```yaml
-# Winner config: flyvis_noise_005_winner.yaml
+# Winner config: {base_config_name}_winner.yaml
 # Source: iter_XXX_slot_YY (connectivity_R2 = X.XXX)
 # Exploration: N iterations, M blocks
 # Date: YYYY-MM-DD
@@ -338,7 +348,7 @@ This is a COMPULSORY task — do not skip it.
 #   - [list the parameters that differ from the initial baseline]
 ````
 
-Destination: `config/fly/flyvis_noise_005_winner.yaml`
+Destination: `config/fly/{base_config_name}_winner.yaml`
 
 ````
 
@@ -428,7 +438,7 @@ When prompt says `PARALLEL START`:
 
 # Working Memory Structure
 
-The memory file (`{llm_task_name}_memory.md`) must follow this structure:
+The memory file (`{base_config_name}_Claude_memory.md`) must follow this structure:
 
 ```markdown
 # Working Memory: flyvis_noise_005
