@@ -119,7 +119,7 @@ def build_model(config, device, checkpoint_path=None, reset_epoch=False):
         print(f'loading state_dict from {checkpoint_path} ...')
         state_dict = torch.load(checkpoint_path, map_location=device, weights_only=False)
         migrate_state_dict(state_dict)
-        model.load_state_dict(state_dict['model_state_dict'])
+        model.load_state_dict(state_dict['model_state_dict'], strict=False)
 
         # Try to extract epoch from filename (e.g. best_model_with_1_graphs_5.pt → epoch 5)
         basename = os.path.basename(checkpoint_path)
