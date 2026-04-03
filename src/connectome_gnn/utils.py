@@ -128,20 +128,11 @@ def open_gcs_zarr(url: str):
 
 
 def migrate_state_dict(state_dict: dict) -> dict:
-    """Migrate legacy checkpoint keys and remove torch.compile/_orig_mod wrapper prefixes.
-
-    Handles:
-    - lin_edge -> g_phi, lin_phi -> f_theta (legacy naming)
-    - _orig_mod.* prefix removal (from torch.compile or DataParallel)
-    """
-    migrated = {}
-    for k, v in state_dict['model_state_dict'].items():
-        # Remove _orig_mod prefix (from torch.compile)
-        k_clean = k.replace('_orig_mod.', '')
-        # Apply legacy renames
-        k_clean = k_clean.replace('lin_edge.', 'g_phi.').replace('lin_phi.', 'f_theta.')
-        migrated[k_clean] = v
-    state_dict['model_state_dict'] = migrated
+    """Migrate legacy checkpoint keys (lin_edge->g_phi, lin_phi->f_theta)."""
+    state_dict['model_state_dict'] = {
+        k.replace('lin_edge.', 'g_phi.').replace('lin_phi.', 'f_theta.'): v
+        for k, v in state_dict['model_state_dict'].items()
+    }
     return state_dict
 
 
