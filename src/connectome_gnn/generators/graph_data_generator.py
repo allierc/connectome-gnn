@@ -1173,12 +1173,12 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
     from connectome_gnn.zarr_io import load_raw_array, load_simulation_data
     x_ts = load_simulation_data(graphs_data_path(config.dataset, "x_list_train"))
     y_list = load_raw_array(graphs_data_path(config.dataset, "y_list_train"))
+    activity_full = x_ts.voltage.numpy()  # (n_frames, n_neurons) — needed for noise plotting
 
     # Compute ranks (used in kinographs and traces)
     if compute_ranks:
         logger.info('computing effective rank ...')
         from sklearn.utils.extmath import randomized_svd
-        activity_full = x_ts.voltage.numpy()  # (n_frames, n_neurons)
         n_comp = min(50, min(activity_full.shape) - 1)
         _, S_act, _ = randomized_svd(activity_full, n_components=n_comp, random_state=0)
         cumvar_act = np.cumsum(S_act**2) / np.sum(S_act**2)
