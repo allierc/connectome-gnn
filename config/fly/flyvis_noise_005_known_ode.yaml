@@ -78,3 +78,4 @@ claude:
   n_iter_block: 12
   ucb_c: 1.414
   generate_data: true
+  n_parallel: 4
