@@ -1331,6 +1331,7 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
             logger.info('--------------------------------------')
 
     # SVD analysis (4-panel plot)
+    svd_results = {}
     if visualize:
         logger.info('svd analysis ...')
         from connectome_gnn.models.utils import analyze_data_svd
@@ -1358,10 +1359,11 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
         log_f.write(f'model_id: {sim.model_id}\n')
         log_f.write(f'ensemble_id: {sim.ensemble_id}\n')
         log_f.write('\n')
-        log_f.write(f'activity_rank_90: {rank_90_act}\n')
-        log_f.write(f'activity_rank_99: {rank_99_act}\n')
-        log_f.write(f'input_rank_90: {rank_90_inp}\n')
-        log_f.write(f'input_rank_99: {rank_99_inp}\n')
+        if compute_ranks:
+            log_f.write(f'activity_rank_90: {rank_90_act}\n')
+            log_f.write(f'activity_rank_99: {rank_99_act}\n')
+            log_f.write(f'input_rank_90: {rank_90_inp}\n')
+            log_f.write(f'input_rank_99: {rank_99_inp}\n')
         if svd_results.get('activity'):
             log_f.write(f'svd_activity_rank_90: {svd_results["activity"]["rank_90"]}\n')
             log_f.write(f'svd_activity_rank_99: {svd_results["activity"]["rank_99"]}\n')
