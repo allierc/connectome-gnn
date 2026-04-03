@@ -146,9 +146,8 @@ lowest rollout mse, you can consider to reduce the epoch count from 20 -> 15 say
 
 **Target <=60 min per iteration.**
 Use `data_augmentation_loop` (DAL) and `n_epochs` to control training time.
-
-- If `training_time_min` < 40 min: **increase** DAL or n_epochs
-- If `training_time_min` > 70 min: **decrease** DAL or n_epochs
+If the training time is much less than 60min you can consider running for more epochs to
+explore any further reduction in rollout performance.
 
 ## Metrics
 
@@ -207,13 +206,17 @@ Each slot re-generates data with a **different random seed** (forced by pipeline
 
 ## Block Partition
 
-| Block | Focus                   | Parameters to scan            | Ranges                                                        |
-| ----- | ----------------------- | ----------------------------- | ------------------------------------------------------------- |
-| 1     | **lr + batch size**     | `lr`, `batch_size`            | lr: {1e-5, 5e-5, 1e-4, 5e-4}, batch_size: {64, 128, 256, 512} |
-| 2     | **rollout_train_steps** | `rollout_train_steps`         | {10, 20, 50}                                                  |
-| 3     | **free exploration I**  | Any parameter                 | Consolidate best from blocks 1-2, test novel combinations     |
-| 4     | **free exploration II** | Any parameter                 | Continue pushing toward target                                |
-| 5     | **robustness**          | Best config, all 4 slots same | Confirm CV < 10% across seeds                                 |
+| Block | Focus                   | Parameters to scan            | Ranges                                                    |
+| ----- | ----------------------- | ----------------------------- | --------------------------------------------------------- |
+| 1     | **batch size**          | `batch_size`                  | {32, 64, 128, 256}                                        |
+| 2     | **learning rate**       | `lr`                          | {1e-5, 5e-5, 1e-4, 5e-4}                                  |
+| 3     | **rollout_train_steps** | `rollout_train_steps`         | {10, 20, 50}                                              |
+| 4     | **model capacity**      | `hidden_dim`, `n_layers`      | hidden_dim: {64, 128, 256, 512}; n_layers: {3, 4, 5, 7}   |
+| 5     | **free exploration I**  | Any parameter                 | Consolidate best from blocks 1-4, test novel combinations |
+| 6     | **free exploration II** | Any parameter                 | Continue pushing toward target with simplest viable model |
+| 7     | **robustness**          | Best config, all 4 slots same | Confirm CV < 10% across seeds                             |
+
+**Block 4 notes**: Goal is the _smallest_ model that achieves rollout_RMSE < 0.1. Start from best config of blocks 1-3. First find the minimum `hidden_dim` that achieves the target, then verify with the minimum `n_layers`. Prefer smaller models: a model with half the parameters that hits the target beats a larger model.
 
 ## Iteration Workflow
 
@@ -223,7 +226,7 @@ Each slot re-generates data with a **different random seed** (forced by pipeline
 
 For each slot:
 
-1. Read training stdout log — note `div_time` and `rollout_mse` progression across epochs (is divergence time increasing or plateauing?)
+1. Read `train_div_time`, `train_rollout_mse`, and `train_best_epoch` from the analysis log (these are computed on training data — a hard fail if `train_div_time` is < 1000)
 2. Read `rollout_RMSE` and `rollout_RMSE_std` from metrics log
 3. Read `results_rollout_by_step.csv` — note first window where RMSE exceeds 1.0 (divergence point)
 4. Read `onestep_pearson` as sanity check — if poor, model hasn't learned dynamics at all
@@ -236,11 +239,11 @@ For each slot:
 Node: id=N, parent=P
 Hypothesis tested: "[quoted hypothesis]"
 Config: lr=X, rollout_train_steps=K, DAL=D, n_epochs=E, hidden_dim=H, n_layers=L, batch_size=B
-Slot 0: rollout_RMSE=X, divergence_at=frame_Y, best_div_time=Z (epoch W), onestep_pearson=P, sim_seed=S, train_seed=T
-Slot 1: rollout_RMSE=X, divergence_at=frame_Y, best_div_time=Z (epoch W), onestep_pearson=P, sim_seed=S, train_seed=T
-Slot 2: rollout_RMSE=X, divergence_at=frame_Y, best_div_time=Z (epoch W), onestep_pearson=P, sim_seed=S, train_seed=T
-Slot 3: rollout_RMSE=X, divergence_at=frame_Y, best_div_time=Z (epoch W), onestep_pearson=P, sim_seed=S, train_seed=T
-Seed stats: mean_RMSE=X, std=Y, CV=Z%, mean_div_time=Z
+Slot 0: rollout_RMSE=X, divergence_at=frame_Y, train_div_time=Z, train_best_epoch=W/E, onestep_pearson=P, sim_seed=S, train_seed=T
+Slot 1: rollout_RMSE=X, divergence_at=frame_Y, train_div_time=Z, train_best_epoch=W/E, onestep_pearson=P, sim_seed=S, train_seed=T
+Slot 2: rollout_RMSE=X, divergence_at=frame_Y, train_div_time=Z, train_best_epoch=W/E, onestep_pearson=P, sim_seed=S, train_seed=T
+Slot 3: rollout_RMSE=X, divergence_at=frame_Y, train_div_time=Z, train_best_epoch=W/E, onestep_pearson=P, sim_seed=S, train_seed=T
+Seed stats: mean_RMSE=X, std=Y, CV=Z%, mean_train_div_time=Z, mean_best_epoch=W
 Mutation: [param]: [old] -> [new]
 Verdict: [supported/falsified/inconclusive]
 Next: parent=P
