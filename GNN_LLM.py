@@ -42,8 +42,12 @@ import warnings
 
 # redirect PyTorch JIT cache to /scratch instead of /tmp (per IT request)
 if os.path.isdir('/scratch'):
-    os.environ['TMPDIR'] = '/scratch/allierc'
-    os.makedirs('/scratch/allierc', exist_ok=True)
+    try:
+        os.environ['TMPDIR'] = '/scratch/allierc'
+        os.makedirs('/scratch/allierc', exist_ok=True)
+    except PermissionError:
+        # If /scratch/allierc is not writable, fall back to /tmp
+        pass
 
 from connectome_gnn.LLM import (
     setup_exploration,
