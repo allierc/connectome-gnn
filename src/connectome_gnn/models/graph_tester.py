@@ -821,7 +821,7 @@ def data_test_gnn_special(
     logger.info(f'load {netname} ...')
     state_dict = torch.load(netname, map_location=device, weights_only=False)
     migrate_state_dict(state_dict)
-    model.load_state_dict(state_dict['model_state_dict'])
+    model.load_state_dict(state_dict['model_state_dict'], strict=False)
 
     x_coords, y_coords, u_coords, v_coords = get_photoreceptor_positions_from_net(net)
 

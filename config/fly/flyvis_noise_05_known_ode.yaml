@@ -1,9 +1,9 @@
-# Known ODE baseline with noise_005
+# Known ODE baseline with noise_05
 # Model: flyvis_known_ode — linear ODE with learnable tau, V_rest, W
 #   dv/dt = (-v + W @ ReLU(v) + stimulus + V_rest) / tau
 
-description: "flyvis noise 0.05 known_ode"
-dataset: fly/flyvis_noise_005
+description: "flyvis noise 0.5 known_ode"
+dataset: fly/flyvis_noise_05
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ""
@@ -20,8 +20,7 @@ simulation:
   delta_t: 0.02
   baseline_value: 0
   visual_input_type: DAVIS
-  noise_model_level: 0.05
-  derivative_smoothing_window: 1
+  noise_model_level: 0.5
   seed: 42
 graph_model:
   signal_model_name: flyvis_known_ode
@@ -51,13 +50,13 @@ training:
   n_runs: 1
   device: auto
   recurrent_training: false
-  batch_size: 4
+  batch_size: 2
   batch_ratio: 1
   small_init_batch_size: false
   sparsity: none
-  data_augmentation_loop: 35
-  lr_W: 0.0009
-  lr: 0.0018
+  data_augmentation_loop: 20
+  lr_W: 0.0006
+  lr: 0.0012
   lr_embedding: 0.0
   coeff_g_phi_diff: 0
   coeff_f_theta_msg_diff: 0
@@ -66,15 +65,16 @@ training:
   coeff_f_theta_weight_L1: 0
   coeff_g_phi_weight_L2: 0
   coeff_f_theta_weight_L2: 0
-  coeff_W_L1: 0.00015
+  coeff_W_L1: 7.5e-05
   coeff_W_L2: 1.5e-06
   w_init_mode: randn_scaled
   use_gt_edges: true
+  w_init_scale: 0.25
   regul_annealing_rate: 0
   seed: 42
 claude:
   n_epochs: 1
-  data_augmentation_loop: 35
+  data_augmentation_loop: 20
   n_iter_block: 12
   ucb_c: 1.414
   generate_data: true
