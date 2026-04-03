@@ -1085,6 +1085,14 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
     sim.noise_model_level = 0.0
     sim.measurement_noise_level = 0.0
 
+    # Delete old test data to ensure clean regeneration with noise=0
+    import shutil
+    for test_file in ['x_list_test', 'y_list_test']:
+        test_path = graphs_data_path(config.dataset, test_file)
+        if os.path.exists(test_path):
+            shutil.rmtree(test_path)
+            logger.info(f"deleted old {test_file} to regenerate noise-free")
+
     # Reset neural state to avoid train→test leakage
     if is_hh:
         hh_state = pde.init_state(n_neurons)
