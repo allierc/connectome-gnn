@@ -21,6 +21,7 @@ class ExplorationState:
     n_iter_block: int = 16
     ucb_c: float = 0
     node_name: str = "h100"
+    conda_env: str = "neural-graph"
     n_cpus: int = 2
     n_parallel: int = 4
     generate_data: bool = False

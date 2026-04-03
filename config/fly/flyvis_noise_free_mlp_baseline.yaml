@@ -43,6 +43,8 @@ plotting:
   ylim: [-100, 100]
 
 training:
+  seed: 42
+
   n_epochs: 20
   n_runs: 1
   device: auto
@@ -66,6 +68,7 @@ training:
 
   rollout_train_steps: 20
 
+  # these parameters are all for GNNs and are irrelevant for MLP
   coeff_g_phi_diff: 0
   coeff_f_theta_msg_diff: 0
   coeff_g_phi_norm: 0
@@ -78,7 +81,6 @@ training:
   coeff_W_sign: 0
   regul_annealing_rate: 0
   w_init_mode: zeros
-  seed: 42
 
   # uncomment to profile
   # profiling: true

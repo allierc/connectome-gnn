@@ -159,7 +159,7 @@ def to_numpy(tensor: torch.Tensor) -> np.ndarray:
     return tensor.detach().cpu().numpy()
 
 
-def set_device(device: str = 'auto') -> str:
+def set_device_pick_freest_gpu(device: str = 'auto') -> str:
     """
     Set the device to use for computations. If 'auto' is specified, the device is chosen automatically:
      * if GPUs are available, the GPU with the most free memory is chosen
@@ -167,6 +167,10 @@ def set_device(device: str = 'auto') -> str:
      * otherwise, the CPU is used
     :param device: The device to use for computations. Automatically chosen if 'auto' is specified (default).
     :return: The torch.device object that is used for computations.
+
+    NOTE: This function clears CUDA_VISIBLE_DEVICES, overriding any caller-set GPU restriction,
+    and picks the GPU with the most free memory at startup. Prefer set_device() unless you
+    specifically need this behaviour.
     """
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ.pop('CUDA_VISIBLE_DEVICES', None)  # Unset CUDA_VISIBLE_DEVICES
@@ -220,6 +224,23 @@ def set_device(device: str = 'auto') -> str:
         else:
             device = 'cpu'
             print(f"using device: {device}")
+    return device
+
+
+def set_device(device: str = 'auto') -> str:
+    """Return a device string for PyTorch.
+
+    Respects CUDA_VISIBLE_DEVICES if set by the caller. With 'auto', picks
+    cuda > mps > cpu in that order.
+    """
+    if device == 'auto':
+        if torch.cuda.is_available():
+            device = 'cuda'
+        elif torch.backends.mps.is_available():
+            device = 'mps'
+        else:
+            device = 'cpu'
+    print(f"using device: {device}")
     return device
 
 
