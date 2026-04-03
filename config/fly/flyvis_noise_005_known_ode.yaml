@@ -78,4 +78,5 @@ claude:
   n_iter_block: 12
   ucb_c: 1.414
   generate_data: true
-  n_parallel: 4
+  node_name: "l4"
+  n_parallel: 1
