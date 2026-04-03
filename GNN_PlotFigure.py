@@ -803,7 +803,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                                  aggr_type=model_config.aggr_type, config=config, device=device)
             state_dict = torch.load(net, map_location=device, weights_only=False)
             migrate_state_dict(state_dict)
-            model.load_state_dict(state_dict['model_state_dict'])
+            model.load_state_dict(state_dict['model_state_dict'], strict=False)
             model.edges = edges
 
             logger.info(f'net: {net}')
