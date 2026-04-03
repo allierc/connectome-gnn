@@ -87,6 +87,7 @@ def data_generate(
             visualize=visualize,
             device=device,
             save=save,
+            erase=erase,
         )
     elif is_adex_model(config.graph_model.signal_model_name):
         data_generate_spiking(
@@ -128,7 +129,7 @@ def data_generate(
     default_style.apply_globally()
 
 
-def data_generate_connconstr(config, visualize=True, device=None, save=True):
+def data_generate_connconstr(config, visualize=True, device=None, save=True, erase=False):
     """Generate simulation data from a connconstr biological connectome model.
 
     Ref: Beiran & Litwin-Kumar (2023), Fig 5
@@ -136,6 +137,16 @@ def data_generate_connconstr(config, visualize=True, device=None, save=True):
     Model-agnostic: uses registry methods on ODE params classes
     (create_ode, generate_stimulus, init_state, etc.)
     """
+    # Erase old data if requested (prevents appending to old runs)
+    if erase:
+        import shutil
+        for split in ['train', 'test', '0']:  # '0' for fallback compat
+            for data_file in ['x_list', 'y_list']:
+                old_path = graphs_data_path(config.dataset, f"{data_file}_{split}")
+                if os.path.exists(old_path):
+                    shutil.rmtree(old_path)
+                    logger.info(f"erased old {data_file}_{split}")
+
     from connectome_gnn.generators.ode_params import get_ode_params_class
 
     sim = config.simulation
@@ -385,6 +396,16 @@ def data_generate_spiking(config, visualize=True, run_vizualized=0, style="color
 
     sim = config.simulation
     model_config = config.graph_model
+
+    # Erase old data if requested (prevents appending to old runs)
+    if erase:
+        import shutil
+        for split in ['train', 'test', '0']:  # '0' for fallback compat
+            for data_file in ['x_list', 'y_list']:
+                old_path = graphs_data_path(config.dataset, f"{data_file}_{split}")
+                if os.path.exists(old_path):
+                    shutil.rmtree(old_path)
+                    logger.info(f"erased old {data_file}_{split}")
 
     torch.random.fork_rng(devices=device)
     if sim.seed != 42:
@@ -652,6 +673,16 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
     sim = config.simulation
     tc = config.training
     model_config = config.graph_model
+
+    # Erase old data if requested (prevents appending to old runs)
+    if erase:
+        import shutil
+        for split in ['train', 'test']:
+            for data_file in ['x_list', 'y_list']:
+                old_path = graphs_data_path(config.dataset, f"{data_file}_{split}")
+                if os.path.exists(old_path):
+                    shutil.rmtree(old_path)
+                    logger.info(f"erased old {data_file}_{split}")
 
     torch.random.fork_rng(devices=device)
     if sim.seed != 42:

@@ -1,9 +1,9 @@
-# Known ODE baseline with noise_005
+# Known ODE baseline with null edges (100% extra per column)
 # Model: flyvis_known_ode — linear ODE with learnable tau, V_rest, W
 #   dv/dt = (-v + W @ ReLU(v) + stimulus + V_rest) / tau
 
-description: "flyvis noise 0.05 known_ode"
-dataset: fly/flyvis_noise_005
+description: "flyvis noise_005 + 100% extra null edges per column known_ode"
+dataset: flyvis_noise_005_null_edges_pc_100
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ""
@@ -16,12 +16,13 @@ simulation:
   n_input_neurons: 1736
   n_neuron_types: 65
   n_edges: 434112
+  n_extra_null_edges: 434112
+  null_edges_mode: "per_column"
   n_frames: 64000
   delta_t: 0.02
   baseline_value: 0
   visual_input_type: DAVIS
   noise_model_level: 0.05
-  derivative_smoothing_window: 1
   seed: 42
 graph_model:
   signal_model_name: flyvis_known_ode
@@ -71,7 +72,7 @@ training:
   w_init_mode: randn_scaled
   use_gt_edges: true
   regul_annealing_rate: 0
-  seed: 42
+  seed: 43
 claude:
   n_epochs: 1
   data_augmentation_loop: 35

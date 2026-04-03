@@ -1,11 +1,11 @@
-# FlyVis known_ode Training Exploration — flyvis_noise_005
+# FlyVis known_ode Training Exploration — flyvis_noise_005_010
 
 ## Goal
 
-Test **robustness of known_ode model training** for the **Drosophila visual system** with noise level 0.05 (DAVIS input). The goal is to find a **stabilized config** that achieves **connectivity_R2 > 0.9 on ALL 4 seeds with CV < 3%**, demonstrating that the result are not sensitive to seed. Data is thus **re-generated each iteration** with a different seed. The user currently observes occasional runs with connectivity_R2 < 0.9,— the goal is to eliminate this failure mode entirely. A config with mean connectivity_R2=0.95 and CV=1% is BETTER than a config with mean=0.98 and CV=8%.
+Test **known_ode performance with combined noise sources** for the **Drosophila visual system** with noise_model_level=0.05 and measurement_noise_level=0.10. The goal is to find a **combined-noise-robust config** that achieves **connectivity_R2 > 0.85 on ALL 4 seeds with CV < 4%**, demonstrating resilience to realistic multi-source noise. Data is thus **re-generated each iteration** with a different seed. This variant tests known_ode when both the neural simulation and measurement contain noise, simulating realistic biological recording conditions. A config with mean connectivity_R2=0.90 and CV=2% demonstrates excellent robustness in practical scenarios.
 
 Primary metric: **connectivity_R2** (R² between learned W and ground-truth W).
-**Stability metric: CV (coefficient of variation) of connectivity_R2 across 4 seeds — target CV < 3%.**
+**Stability metric: CV (coefficient of variation) of connectivity_R2 across 4 seeds — target CV < 4%.**
 Secondary metrics: **tau_R2** (time constant recovery), **V_rest_R2** (resting potential recovery), **cluster_accuracy** (neuron type clustering from embeddings).
 
 ## Scientific Method
@@ -46,7 +46,7 @@ dv_i/dt = f_theta(v_i, a_i, sum_j W_ij * g_phi(v_j, a_j)^2, I_i)
 
 - 13,741 neurons, 65 cell types, 434,112 edges
 - 1,736 input neurons (photoreceptors)
-- DAVIS visual input, **noise_model_level=0.05**
+- DAVIS visual input, **noise_model_level=0.05 + measurement_noise_level=0.10** (combined noise)
 - 64,000 frames, delta_t=0.02
 
 ## known_ode ML model
@@ -58,16 +58,16 @@ dv_i/dt = f_theta(v_i, a_i, sum_j W_ij * g_phi(v_j, a_j)^2, I_i)
 
 ## Training Parameters TO BE SWEEPED
 
-| Parameter      | Default | Description                                 |
-| -------------- | ------- | ------------------------------------------- |
-| `lr_W`         | 0.0009  | Learning rate for W (synaptic weights)      |
-| `lr`           | 0.0018  | Learning rate for other params (tau, Vrest) |
+| Parameter      | Default | Description                                                                      |
+| -------------- | ------- | -------------------------------------------------------------------------------- |
+| `lr_W`         | 0.0009  | Learning rate for W (synaptic weights)                                           |
+| `lr`           | 0.0018  | Learning rate for other params (tau, Vrest)                                      |
 | `w_init_mode`  | RANDN   | W initialization mode: RANDN (std=1), RANDN_SCALED (std=scale/sqrt(N)), or ZEROS |
-| `w_init_scale` | 1.0     | Scaling factor for RANDN_SCALED mode        |
-| `batch_size`   | 4       | Batch size                                  |
-| `coeff_W_L1`   | 0       | L1 sparsity on W                            |
-| `coeff_W_L2`   | 0.00015 | L2 penalty on W                             |
-| `coeff_W_sign` | 1.5e-06 | Dale's law penalty on W                     |
+| `w_init_scale` | 1.0     | Scaling factor for RANDN_SCALED mode                                             |
+| `batch_size`   | 4       | Batch size                                                                       |
+| `coeff_W_L1`   | 0       | L1 sparsity on W                                                                 |
+| `coeff_W_L2`   | 0.00015 | L2 penalty on W                                                                  |
+| `coeff_W_sign` | 1.5e-06 | Dale's law penalty on W                                                          |
 
 ## Parallel Mode — 4 Slots Per Batch
 
@@ -79,9 +79,9 @@ Each batch runs 4 slots with different seeds (forced by pipeline). You choose th
 
 ### Robustness Assessment (when running same config across 4 slots)
 
-- **Robust**: all 4 slots connectivity_R2 > 0.9
-- **Partially robust**: 2-3 slots > 0.9
-- **Fragile**: 0-1 slots > 0.7
+- **Robust**: all 4 slots connectivity_R2 > 0.85
+- **Partially robust**: 2-3 slots > 0.8
+- **Fragile**: 0-1 slots < 0.75
 
 ## Block Partition
 
@@ -90,9 +90,8 @@ Each batch runs 4 slots with different seeds (forced by pipeline). You choose th
 | 2 | **W regularization** | `coeff_W_L1`, `coeff_W_L2`, `coeff_W_sign` | {1e-6 to 1e-4}.  
 | 3 | **W initialization + lr** | `w_init_mode`, `w_init_scale`, `lr_W`, `lr` | w_init_mode: {RANDN, RANDN_SCALED, ZEROS}, w_init_scale: {0.5, 1.0, 2.0}  
 | 4 | **Batch size + lr** | `batch_size`, `lr_W`, `lr` | batch_size: {1, 2, 4, 8}.
-| 5 | **Free exploration I** | Any parameter |  
-| 6 | **Free exploration II** | Any parameter |
-| 7 | **Final robustness** | None (robustness test) | 4-seed robustness test of best config from blocks
+| 5 | **free exploration** | Any parameter |  
+| 6 | **Final robustness** | None (robustness test) | 4-seed robustness test of best config from blocks
 
 ## Iteration Workflow
 
@@ -150,7 +149,7 @@ This is a COMPULSORY task — do not skip it.
 #   - [list the parameters that differ from the initial baseline]
 ```
 
-Destination: `config/fly/fly_noise_005_known_ode_winner.yaml`
+Destination: `config/fly/fly_noise_005_010_known_ode_winner.yaml`
 
 ### Step 4: Acknowledge User Input
 
@@ -171,18 +170,18 @@ When prompt says `PARALLEL START`:
 - Read base config — this IS the baseline. Do NOT change any default values.
 - Slot 0 = baseline (no changes at all).
 - Slots 1-3: each changes EXACTLY ONE parameter from the block focus.
-- Hypothesis: "Known ODE with perfect structural knowledge achieves connectivity_R2 > 0.5 with default parameters"
+- Hypothesis: "Known ODE with combined noise sources can achieve connectivity_R2 > 0.85 with optimized regularization"
 
 ---
 
 # Working Memory Structure
 
 ```markdown
-# Working Memory: drosophila_cx_known_ode
+# Working Memory: flyvis_noise_005_010_known_ode
 
 ## Paper Summary (update at every block boundary)
 
-- **Known ODE optimization**: [pending]
+- **Known ODE optimization with combined noise**: [pending]
 - **LLM-driven exploration**: [pending]
 
 ## Knowledge Base
