@@ -82,6 +82,11 @@ def submit_cluster_job(slot, config_path, analysis_log_path, config_file_field,
     if device == 'auto':
         device = 'cuda'
 
+    # Convert relative paths to absolute (important for local_to_cluster to work correctly)
+    config_path = os.path.abspath(config_path)
+    analysis_log_path = os.path.abspath(analysis_log_path)
+    error_details_path = os.path.abspath(error_details_path)
+
     cluster_config_path = local_to_cluster(config_path, root_dir)
     cluster_analysis_log = local_to_cluster(analysis_log_path, root_dir)
     cluster_error_log = local_to_cluster(error_details_path, root_dir)
