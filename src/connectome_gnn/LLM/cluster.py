@@ -101,6 +101,8 @@ def submit_cluster_job(slot, config_path, analysis_log_path, config_file_field,
     with open(cluster_script_path, 'w') as f:
         f.write("#!/bin/bash -l\n")
         f.write(f"cd {CLUSTER_ROOT_DIR}\n")
+        # Disable Triton compiler to avoid GCC compilation errors on cluster
+        f.write("export TRITON_INTERPRET_MODE=1\n")
         f.write(f"conda run -n {conda_env} {cluster_train_cmd}\n")
     os.chmod(cluster_script_path, 0o755)
 
