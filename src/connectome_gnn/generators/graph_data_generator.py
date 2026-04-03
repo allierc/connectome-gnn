@@ -1110,7 +1110,7 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
 
     # --- Generate TEST split ---
     # Test data must be noise-free: the model learns deterministic dynamics,
-    # so rollout comparison against noisy ground truth is meaningless.
+    # so rollout comparison against noisy ground truth is not meaningfull.
     _saved_noise_model = sim.noise_model_level
     _saved_noise_meas = sim.measurement_noise_level
     sim.noise_model_level = 0.0
@@ -1131,7 +1131,7 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
 
     # Test: single pass through test sequences
     test_target = len(test_sequences) * frames_per_sequence
-    logger.info(f"generating TEST data ({test_target} frames from {len(test_sequences)} sequences)...")
+    logger.info(f"generating TEST data ({test_target} frames without noise from {len(test_sequences)} sequences)...")
 
     x_writer = ZarrSimulationWriterV3(
         path=graphs_data_path(config.dataset, "x_list_test"),
@@ -1160,7 +1160,7 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
 
     n_frames_test = x_writer.finalize()
     y_writer.finalize()
-    logger.info(f"generated {n_frames_test} TEST frames (saved as .zarr)")
+    logger.info(f"generated {n_frames_test} TEST frames without noise (saved as .zarr)")
 
     # Restore noise levels after test generation
     sim.noise_model_level = _saved_noise_model
