@@ -5,6 +5,32 @@ interactive code modification sessions at block boundaries.
 
 Pipeline structure:
   setup → batch_0 → loop { code_session? → load → train → artifacts → UCB → analysis → finalize }
+
+Command-line examples for known_ode LLM exploration:
+
+  # FlyVis noise_005 (baseline known_ode exploration)
+  python GNN_LLM.py -o llm_exploration flyvis_noise_005_known_ode --cluster
+
+  # FlyVis noise_free (clean data test)
+  python GNN_LLM.py -o llm_exploration flyvis_noise_free_known_ode --cluster
+
+  # FlyVis noise_05 (high-noise robustness)
+  python GNN_LLM.py -o llm_exploration flyvis_noise_05_known_ode --cluster
+
+  # FlyVis noise_005 + measurement_noise_010 (combined noise)
+  python GNN_LLM.py -o llm_exploration flyvis_noise_005_010_known_ode --cluster
+
+  # FlyVis noise_005 + null_edges_pc_100 (edge learning challenge)
+  python GNN_LLM.py -o llm_exploration flyvis_noise_005_null_edges_pc_100_known_ode --cluster
+
+  # FlyVis noise_005 + removed_pc_10 (incomplete connectivity)
+  python GNN_LLM.py -o llm_exploration flyvis_noise_005_removed_pc_10_known_ode --cluster
+
+Options:
+  -o/--option: task option names (e.g., llm_exploration, train_test_plot)
+  --cluster: submit training to LSF cluster (default: local)
+  --fresh: start from iteration 1 (ignore auto-resume)
+  --resume: auto-resume from last completed batch
 """
 
 import matplotlib
@@ -114,6 +140,6 @@ if __name__ == "__main__":
 # python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_INR iterations=120 --cluster --resume
 #
 # == ongoing ==
-# python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_known_ode iterations=96 --cluster --resume
+# python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_known_ode iterations=72 --cluster --resume
 
 
