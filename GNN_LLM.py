@@ -114,6 +114,6 @@ if __name__ == "__main__":
 # python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_INR iterations=120 --cluster --resume
 #
 # == ongoing ==
-# python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_know_ode iterations=96 --cluster --resume
+# python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_known_ode iterations=96 --cluster --resume
 
 
