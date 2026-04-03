@@ -1459,21 +1459,30 @@ def data_test_gnn_special(
             ("all", np.arange(0, n_neuron_types))
         ]:
             neuron_indices = []
+            neuron_labels = []
             for stype in selected_types:
                 indices = np.where(neuron_types == stype)[0]
                 if len(indices) > 0:
                     neuron_indices.append(indices[0])
+                    type_name = index_to_name.get(int(stype), f'Type{stype}')
+                    neuron_labels.append(type_name)
 
-            fig, ax = plt.subplots(1, 1, figsize=(15, 10))
+            if not neuron_indices:
+                continue
+
+            fig, ax = plt.subplots(1, 1, figsize=(15, max(6, len(neuron_indices) * 0.4 + 2)))
 
             true_slice = activity_true[neuron_indices, start_frame:end_frame]
             visual_input_slice = visual_input_true[neuron_indices, start_frame:end_frame]
             pred_slice = activity_pred[neuron_indices, start_frame:end_frame]
-            step_v = 2.5
+
+            # Auto-adjust step_v based on activity amplitude
+            activity_std = np.std(true_slice)
+            step_v = max(0.5, 3.0 * activity_std) if activity_std > 0 else 2.5
             lw = 2
 
-            # Adjust fontsize based on number of neurons
-            name_fontsize = 10 if len(selected_types) > 50 else 18
+            # Adjust fontsize based on number of neurons plotted
+            name_fontsize = 10 if len(neuron_indices) > 50 else 18
 
             # Plot ground truth (green, thick) — all traces first
             baselines = {}
@@ -1492,17 +1501,16 @@ def data_test_gnn_special(
                 baseline = baselines[i]
                 ax.plot(pred_slice[i] - baseline + i * step_v, linewidth=0.7, label='prediction' if i == 0 else None, c=mc)
 
-
+            # Add neuron type labels
             for i in range(len(neuron_indices)):
-                type_idx = selected_types[i]
-                ax.text(-50, i * step_v, f'{index_to_name[type_idx]}', fontsize=name_fontsize, va='bottom', ha='right', color='black')
+                ax.text(-end_frame * 0.025, i * step_v, neuron_labels[i], fontsize=name_fontsize, va='bottom', ha='right', color='black')
 
             ax.set_ylim([-step_v, len(neuron_indices) * (step_v + 0.25 + 0.15 * (len(neuron_indices)//50))])
             ax.set_yticks([])
             ax.set_xticks([0, (end_frame - start_frame) // 2, end_frame - start_frame])
             ax.set_xticklabels([start_frame, end_frame//2, end_frame], fontsize=16)
-            ax.set_xlabel('time (frames)', fontsize=20)
-            ax.set_xlim([-50, end_frame - start_frame + 100])
+            ax.set_xlabel('frame', fontsize=20)
+            ax.set_xlim([-end_frame * 0.03, end_frame + end_frame * 0.05])
 
             ax.spines['top'].set_visible(False)
             ax.spines['right'].set_visible(False)
