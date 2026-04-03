@@ -48,7 +48,11 @@ def _rollout_block(model, v, stim_block, target_block, dt):
     return v, out_mses
 
 
-_rollout_block_compiled = torch.compile(_rollout_block, mode="default")
+try:
+    _rollout_block_compiled = torch.compile(_rollout_block, mode="default")
+except Exception:
+    # Fall back to non-compiled version if Triton compilation fails
+    _rollout_block_compiled = _rollout_block
 
 
 def val_rollout(model, voltage, stimulus, val_start_idx, dt):
@@ -119,9 +123,13 @@ def _compute_loss_multistep(model, voltage, stimulus, t_indices, dt, rollout_ste
     return loss / rollout_steps
 
 
-_compute_loss_multistep_compiled = torch.compile(
-    _compute_loss_multistep, fullgraph=True, mode="reduce-overhead"
-)
+try:
+    _compute_loss_multistep_compiled = torch.compile(
+        _compute_loss_multistep, fullgraph=True, mode="reduce-overhead"
+    )
+except Exception:
+    # Fall back to non-compiled version if Triton compilation fails
+    _compute_loss_multistep_compiled = _compute_loss_multistep
 
 
 def data_train_rollout(config, erase, best_model, device, log_file=None):

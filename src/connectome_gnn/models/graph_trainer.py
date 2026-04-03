@@ -311,9 +311,14 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
     )
     regularizer.set_activity_stats(x_ts, device)
 
-    model = torch.compile(model, mode='reduce-overhead', fullgraph=True)
-    regularizer.compute = torch.compile(regularizer.compute, mode='reduce-overhead', fullgraph=True)
-    regularizer.compute_update_regul = torch.compile(regularizer.compute_update_regul, mode='reduce-overhead', fullgraph=True)
+    # Try to compile with torch.compile, but fall back to non-compiled if Triton fails
+    try:
+        model = torch.compile(model, mode='reduce-overhead', fullgraph=True)
+        regularizer.compute = torch.compile(regularizer.compute, mode='reduce-overhead', fullgraph=True)
+        regularizer.compute_update_regul = torch.compile(regularizer.compute_update_regul, mode='reduce-overhead', fullgraph=True)
+    except Exception as e:
+        logger.warning(f"torch.compile failed (likely Triton compilation issue): {e}")
+        logger.warning("Continuing without torch.compile (models will run in eager mode)")
 
     loss_components = {'loss': []}
 

@@ -1,5 +1,5 @@
 description: "Flyvis noise 0.05 — RNN (GRU) baseline, seed 00"
-dataset: flyvis_noise_005
+dataset: flyvis_noise_005_rnn
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ""
