@@ -17,7 +17,7 @@ from connectome_gnn.models.exploration_tree import compute_ucb_scores
 from connectome_gnn.models.graph_trainer import data_test, data_train
 from connectome_gnn.models.plot_exploration_tree import parse_ucb_scores, plot_ucb_tree
 from connectome_gnn.models.utils import save_exploration_artifacts_flyvis
-from connectome_gnn.utils import add_pre_folder, log_path, set_device
+from connectome_gnn.utils import add_pre_folder, config_path, log_path, set_device
 
 from .claude_cli import run_claude_cli
 from .cluster import (
@@ -66,7 +66,7 @@ def setup_exploration(args, root_dir: str) -> ExplorationState:
     llm_task_name = task_params.get('llm_task', f'{base_config_name}_Claude')
     exploration_name = task_params.get('exploration_name', f'LLM_{base_config_name}')
 
-    config_root = root_dir + "/config"
+    config_root = config_path()
     llm_dir = f"{root_dir}/LLM"
     exploration_dir = os.path.abspath(log_path('Claude_exploration', exploration_name))
 
@@ -107,6 +107,7 @@ def setup_exploration(args, root_dir: str) -> ExplorationState:
         n_iter_block=claude_cfg.get('n_iter_block', 16),
         ucb_c=claude_cfg.get('ucb_c', 0),
         node_name=claude_cfg.get('node_name', 'h100'),
+        conda_env=claude_cfg.get('conda_env', 'neural-graph'),
         n_cpus=claude_cfg.get('n_cpus', 2),
         n_parallel=claude_cfg.get('n_parallel', 4),
         generate_data=generate_data,
@@ -590,6 +591,7 @@ def run_cluster_training(state: ExplorationState, batch: BatchInfo):
             root_dir=state.root_dir,
             erase=True,
             node_name=state.node_name,
+            conda_env=state.conda_env,
             n_cpus=state.n_cpus,
             device=config.training.device,
             exploration_dir=state.exploration_dir,
@@ -683,6 +685,7 @@ Fix the bug. Do NOT make other changes."""
                 root_dir=state.root_dir,
                 erase=True,
                 node_name=state.node_name,
+                conda_env=state.conda_env,
                 n_cpus=state.n_cpus,
                 device=config.training.device,
                 exploration_dir=state.exploration_dir,

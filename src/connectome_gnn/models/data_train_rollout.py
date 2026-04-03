@@ -249,6 +249,7 @@ def data_train_rollout(config, erase, best_model, device, log_file=None):
     # Minimising this first maximises div_time (in buckets of 10 steps),
     # then breaks ties by minimising rollout_mse.
     best_val_key = (float('inf'), float('inf'))
+    best_epoch = 0
     epochs_without_improvement = 0
 
     for epoch in range(n_epochs):
@@ -301,6 +302,7 @@ def data_train_rollout(config, erase, best_model, device, log_file=None):
         val_key = (-div_time // 100, mean_rollout_mse)
         if val_key < best_val_key:
             best_val_key = val_key
+            best_epoch = epoch + 1
             epochs_without_improvement = 0
             torch.save(
                 {'model_state_dict': model.state_dict()},
@@ -333,3 +335,10 @@ def data_train_rollout(config, erase, best_model, device, log_file=None):
     total_time = time.time() - training_start
     _logger.info(f'training complete: {n_epochs=} in {total_time=:.1f}s, {div_time=:,d}, {mean_rollout_mse=:.3e}')
     _logger.info(f'constant model baseline: {constant_model_loss:.4e}')
+
+    if log_file:
+        log_file.write('\n--- Training rollout results (computed on training data) ---\n')
+        log_file.write(f'train_div_time: {div_time}\n')
+        log_file.write(f'train_rollout_mse: {mean_rollout_mse:.4e}\n')
+        log_file.write(f'train_best_epoch: {best_epoch}\n')
+        log_file.write(f'train_constant_baseline_mse: {constant_model_loss:.4e}\n')
