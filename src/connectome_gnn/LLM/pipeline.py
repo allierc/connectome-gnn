@@ -107,7 +107,7 @@ def setup_exploration(args, root_dir: str) -> ExplorationState:
         n_iter_block=claude_cfg.get('n_iter_block', 16),
         ucb_c=claude_cfg.get('ucb_c', 0),
         node_name=claude_cfg.get('node_name', 'h100'),
-        conda_env=claude_cfg.get('conda_env', 'neural-graph'),
+        conda_env=claude_cfg.get('conda_env', 'connectome-gnn'),
         n_cpus=claude_cfg.get('n_cpus', 2),
         n_parallel=claude_cfg.get('n_parallel', 4),
         generate_data=generate_data,
