@@ -79,16 +79,34 @@ def parse_args():
                         help="auto-resume from last completed batch")
     parser.add_argument("--cluster", action="store_true",
                         help="submit training to LSF cluster (default: run locally)")
+    parser.add_argument("--batch-configs", nargs="+",
+                        help="list of config names to run sequentially (e.g., flyvis_noise_free_known_ode flyvis_noise_05_known_ode)")
+    parser.add_argument("--skip-confirm", action="store_true",
+                        help="skip confirmation prompt when starting fresh (use with --batch-configs)")
+    parser.add_argument("--batch-iterations", type=int, default=84,
+                        help="number of iterations for batch run (default: 84)")
     return parser.parse_args()
 
 
-if __name__ == "__main__":
-    warnings.filterwarnings("ignore", category=FutureWarning)
-    args = parse_args()
-    root_dir = os.path.dirname(os.path.abspath(__file__))
+def run_single_exploration(task, config_name, iterations, args, root_dir, skip_confirm=False):
+    """Run a single LLM exploration with the given config."""
+    # Build option args for this config
+    option_args = [task, config_name, f"iterations={iterations}"]
+    if args.cluster:
+        option_args.append("--cluster")
+
+    # Create a modified args object
+    class ModifiedArgs:
+        def __init__(self, original_args, option_args):
+            self.option = option_args
+            self.resume = original_args.resume
+            self.fresh = original_args.fresh
+            self.cluster = original_args.cluster
+
+    modified_args = ModifiedArgs(args, option_args)
 
     # --- Setup ---
-    state = setup_exploration(args, root_dir)
+    state = setup_exploration(modified_args, root_dir, skip_confirm=skip_confirm)
     init_slot_configs(state, is_resume=args.resume)
     init_shared_files(state, is_resume=args.resume)
 
@@ -134,6 +152,70 @@ if __name__ == "__main__":
 
         # Finalize: tree viz, protocol/memory snapshots
         finalize_batch(state, batch)
+
+
+if __name__ == "__main__":
+    warnings.filterwarnings("ignore", category=FutureWarning)
+    args = parse_args()
+    root_dir = os.path.dirname(os.path.abspath(__file__))
+
+    # Handle batch config processing
+    if args.batch_configs:
+        print(f"\033[94mRunning batch of {len(args.batch_configs)} explorations\033[0m")
+        task = args.option[0] if args.option else "generate_train_test_plot_Claude"
+        for i, config in enumerate(args.batch_configs):
+            print(f"\033[96m--- Config {i+1}/{len(args.batch_configs)}: {config} ---\033[0m")
+            skip_confirm = args.skip_confirm
+            run_single_exploration(task, config, args.batch_iterations, args, root_dir, skip_confirm=skip_confirm)
+    else:
+        # Single config mode
+        # --- Setup ---
+        state = setup_exploration(args, root_dir, skip_confirm=args.skip_confirm)
+        init_slot_configs(state, is_resume=args.resume)
+        init_shared_files(state, is_resume=args.resume)
+
+        # --- Batch 0: initialize config variations (fresh start only) ---
+        if state.start_iteration == 1 and not args.resume:
+            run_batch_0(state)
+
+        # --- Main batch loop ---
+        for batch_start in range(state.start_iteration, state.n_iterations + 1, state.n_parallel):
+            batch = make_batch_info(state, batch_start)
+
+            # Code session: interactive code modification at block boundaries
+            if state.interaction_code and batch.is_block_start and batch.block_number > 1:
+                run_code_session(state, batch)
+
+            print(f"\n\033[94mBATCH: iterations {batch.batch_first}-{batch.batch_last} / {state.n_iterations}  (block {batch.block_number})\033[0m")
+
+            # Load configs + force seeds
+            load_configs_and_seeds(state, batch)
+
+            # Training (cluster or local)
+            if "train" in state.task:
+                if state.cluster_enabled:
+                    if state.generate_data:
+                        generate_data_locally(state, batch)
+                    run_cluster_training(state, batch)
+                    run_local_test_plot(state, batch)
+                else:
+                    run_local_pipeline(state, batch)
+            else:
+                # No training — mark all slots as successful
+                for slot in range(batch.n_slots):
+                    batch.job_results[slot] = True
+
+            # Save exploration artifacts
+            save_artifacts(state, batch)
+
+            # Compute UCB scores
+            update_ucb_scores(state, batch)
+
+            # Claude analysis + next mutations
+            run_claude_analysis(state, batch)
+
+            # Finalize: tree viz, protocol/memory snapshots
+            finalize_batch(state, batch)
 
 # --- LLM explorations --- conda activate neural-graph-linux
 #
