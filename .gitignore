@@ -10,6 +10,10 @@ config/*
 config/fly/archive/
 config/fly/archive_2/
 
+# Ignore LLM-generated config files (environment-specific, stored in GraphData)
+config/**/*_Claude_*.yaml
+config/**/*_winner.yaml
+
 # Data files (large simulation data)
 *.npy
 *.npz
