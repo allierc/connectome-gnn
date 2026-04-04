@@ -695,8 +695,17 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
 
     torch.random.fork_rng(devices=device)
     if sim.seed != 42:
-        torch.random.manual_seed(sim.seed)
-        np.random.seed(sim.seed)  # Ensure numpy random state is also seeded for reproducibility
+        # Ensure seed is within valid range [0, 2^32-1] for numpy
+        seed_to_use = sim.seed
+        if seed_to_use < 0:
+            logger.warning(f"Seed {seed_to_use} is negative, clamping to 0")
+            seed_to_use = 0
+        elif seed_to_use >= 2**32:
+            logger.warning(f"Seed {seed_to_use} exceeds 2^32-1, taking modulo")
+            seed_to_use = seed_to_use % (2**32)
+
+        torch.random.manual_seed(seed_to_use)
+        np.random.seed(seed_to_use)  # Ensure numpy random state is also seeded for reproducibility
 
     n_frames = sim.n_frames
     n_neurons = sim.n_neurons

@@ -321,6 +321,12 @@ def init_shared_files(state: ExplorationState, is_resume: bool):
 
 def make_batch_info(state: ExplorationState, batch_start: int) -> BatchInfo:
     """Compute BatchInfo for a batch starting at batch_start."""
+    # Ensure batch_start is at least 1 (iterations must be positive for valid seeds)
+    if batch_start < 1:
+        import logging
+        logging.warning(f"batch_start {batch_start} < 1, clamping to 1")
+        batch_start = 1
+
     iterations = [batch_start + s for s in range(state.n_parallel)
                   if batch_start + s <= state.n_iterations]
 
@@ -509,6 +515,10 @@ def load_configs_and_seeds(state: ExplorationState, batch: BatchInfo):
         config.config_file = state.pre_folder + state.slot_names[slot]
 
         # Force seeds (pipeline-controlled — LLM cannot override)
+        # Ensure iteration is always positive (must be >= 1 for valid seeds)
+        if iteration < 1:
+            iteration = 1
+            logger.warning(f"iteration {batch.iterations[slot_idx]} < 1, using iteration=1 for seed computation")
         sim_seed = iteration * 1000 + slot
         train_seed = iteration * 1000 + slot + 500
         config.simulation.seed = sim_seed
