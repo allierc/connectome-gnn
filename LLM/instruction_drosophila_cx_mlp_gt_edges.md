@@ -97,7 +97,7 @@ Each batch runs 4 slots with different seeds (forced by pipeline). You choose th
 - **Exploration** (default): Slot 0 = parent/control. Slots 1-3 each change one parameter.
 - **Robustness test**: ALL 4 slots use the SAME config. Measures seed robustness.
 
-## Block Partition
+## Block Structure
 
 | Block | Focus                    | Parameters to scan                          | Ranges                                                          |
 | ----- | ------------------------ | ------------------------------------------- | --------------------------------------------------------------- |
@@ -153,6 +153,52 @@ Destination: `config/drosophila_cx/drosophila_cx_mlp_gt_edges_winner.yaml`
 3. Update "Established Principles"
 4. Clear "Current Block"
 5. Carry forward best config
+
+## File Structure
+
+You maintain THREE files:
+
+1. **Full Log (append-only)**: `drosophila_cx_mlp_gt_edges_Claude_analysis.md`
+   - Append every iteration's log entry (4 entries per batch)
+   - Never read — human record only
+
+2. **Working Memory (read + update every batch)**: `drosophila_cx_mlp_gt_edges_Claude_memory.md`
+   - Read at start, update at end
+   - Contains: robustness comparison table, hypotheses, established principles, current block iterations
+
+3. **User Input (read every batch, acknowledge pending items)**: `user_input.md`
+   - Read at every batch
+   - If "Pending Instructions" section has content: act on it, then move entries to "Acknowledged" section
+
+## Knowledge Base Guidelines
+
+### What to Add to Established Principles
+
+A principle must satisfy ALL of:
+- Observed consistently across 3+ iterations
+- Consistent across all 4 seeds (not just mean, but low variance)
+- States a causal relationship (not just a correlation)
+
+Example: "lr=1e-3 with hidden_dim=256 on GT edges achieves rollout_pearson > 0.6 with performance equivalent to FC (CV < 5%, all seeds > 0.55)"
+
+### What to Add to Open Questions
+
+- Patterns observed 1-2 times
+- Seed-dependent effects (works for some seeds but not others)
+- Contradictions between iterations
+- Theoretical predictions not yet verified
+
+Example: "Does GT edges topology affect MLP training dynamics? Only iter 1 tested for direct comparison."
+
+### What to Add to Falsified Hypotheses
+
+When a hypothesis is falsified:
+- State the original hypothesis
+- State the contradicting evidence (iteration number, metrics)
+- State what was learned from the falsification
+- Propose a revised hypothesis if applicable
+
+Example: "Hypothesis: 'MLP performance is completely topology-independent' — Partially falsified by iter 2 (slight CV increase with GT edges). Revised: 'MLP is largely topology-independent, but data alignment might have minor effects.'"
 
 ## Start Call
 

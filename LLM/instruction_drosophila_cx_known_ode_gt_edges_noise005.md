@@ -8,8 +8,6 @@ The known_ode model uses the **exact activation function**: `g_phi = exp(g) * so
 
 **Starting hypothesis**: "Known ODE + GT edges + noise=0.05 achieves near-perfect W R2 (GNN: 0.969)"
 
-Data is **re-generated each iteration** with a different seed to verify seed independence.
-
 ### Metrics (ranked by importance)
 
 1. **connectivity_R2** (PRIMARY) — R² between learned W and ground-truth W
@@ -20,7 +18,23 @@ Informational: onestep_pearson, spectral_radius_learned vs spectral_radius_true,
 
 ## Scientific Method
 
-Strict **hypothesize -> test -> validate/falsify** cycle. Change **EXACTLY ONE** parameter at a time.
+This exploration follows a strict **hypothesize → test → validate/falsify** cycle:
+
+1. **Hypothesize**: Based on available data (metrics, seed variance, prior results), form a specific, testable hypothesis about which parameter controls robustness
+2. **Design experiment**: Choose a mutation that specifically tests the hypothesis — change **exactly ONE parameter at a time**
+3. **Run training**: The experiment runs across 4 seeds — you cannot predict the outcome
+4. **Analyze results**: Use both metrics AND cross-seed variance to evaluate whether the hypothesis was supported or contradicted
+5. **Update understanding**: Revise hypotheses based on evidence. A falsified hypothesis is valuable information.
+
+**CRITICAL**: You can only hypothesize. Only training results can validate or falsify your hypotheses. Never assume a hypothesis is correct without experimental evidence.
+
+**Evidence hierarchy:**
+
+| Level | Criterion | Action |
+| --- | --- | --- |
+| **Established** | Consistent across 3+ iterations AND 4/4 seeds | Add to Principles |
+| **Tentative** | Observed 1-2 times or inconsistent across seeds | Add to Open Questions |
+| **Contradicted** | Conflicting evidence across iterations/seeds | Note in Open Questions |
 
 ### CAUSALITY RULE (MANDATORY)
 
@@ -29,11 +43,29 @@ Strict **hypothesize -> test -> validate/falsify** cycle. Change **EXACTLY ONE**
 - In EXPLORATION mode: Slot 0 = parent/baseline. Slots 1-3 each change **exactly one** parameter.
 - In ROBUSTNESS mode: all 4 slots use the same config (different seeds).
 
-## Data Generation
+## CRITICAL: Data is RE-GENERATED per slot
 
-Seeds are **forced by the pipeline** — DO NOT modify them in config files.
+Each slot re-generates its data with a **different random seed**.
+Both `simulation.seed` and `training.seed` are **forced by the pipeline** — DO NOT modify them in config files.
+
+Seed formula (set automatically by GNN_LLM.py):
+- `simulation.seed = iteration * 1000 + slot` (controls data generation)
+- `training.seed = iteration * 1000 + slot + 500` (controls weight init & training randomness)
+
+The actual seed values are provided in the prompt for each slot — **log them in your iteration entries**.
+
+Simulation parameters (n_neurons, n_frames, etc.) stay fixed — **DO NOT change them**.
 
 **IMPORTANT**: `use_gt_edges=true` and `noise_model_level=0.05` are FIXED. Do NOT change them.
+
+## Noise Model
+
+Two independent noise sources in the training data:
+
+1. **Dynamics noise** (`noise_model_level=0.05`): `v(t+1) = v(t) + dt * f(v, W, I) + epsilon_dyn(t)`, epsilon_dyn ~ N(0, 0.05)
+2. **Measurement noise** (`measurement_noise_level=0.0`): Clean observations
+
+At mild noise with GT edges and perfect structure, known_ode should achieve excellent parameter recovery.
 
 ## CX Ring Attractor Model
 
@@ -103,7 +135,7 @@ Example: `block 1, iterations 1-4/12 within block` means:
 
 **Your role**: Plan a coherent hypothesis for the entire block (12 iterations = 3 batches of 4 slots). The 4 slots per batch let you test multiple parameters in parallel, while the 12 iterations per block give you 3 rounds to refine based on evidence.
 
-## Block Partition
+## Block Structure
 
 | Block | Focus                          | Parameters to scan                          | Ranges                                                                     |
 | ----- | ------------------------------ | ------------------------------------------- | -------------------------------------------------------------------------- |
@@ -146,6 +178,52 @@ Destination: `config/drosophila_cx/drosophila_cx_known_ode_gt_edges_noise005_win
 #   rollout_pearson: X.XXX
 #   tau_R2:          X.XXX
 ```
+
+## File Structure
+
+You maintain THREE files:
+
+1. **Full Log (append-only)**: `drosophila_cx_known_ode_gt_edges_noise005_Claude_analysis.md`
+   - Append every iteration's log entry (4 entries per batch)
+   - Never read — human record only
+
+2. **Working Memory (read + update every batch)**: `drosophila_cx_known_ode_gt_edges_noise005_Claude_memory.md`
+   - Read at start, update at end
+   - Contains: robustness comparison table, hypotheses, established principles, current block iterations
+
+3. **User Input (read every batch, acknowledge pending items)**: `user_input.md`
+   - Read at every batch
+   - If "Pending Instructions" section has content: act on it, then move entries to "Acknowledged" section
+
+## Knowledge Base Guidelines
+
+### What to Add to Established Principles
+
+A principle must satisfy ALL of:
+- Observed consistently across 3+ iterations
+- Consistent across all 4 seeds (not just mean, but low variance)
+- States a causal relationship (not just a correlation)
+
+Example: "lr_W=1e-3 with GT edges + noise=0.05 achieves connectivity_R2 > 0.8 robustly (3/3 iterations, all seeds > 0.75, CV < 3%)"
+
+### What to Add to Open Questions
+
+- Patterns observed 1-2 times
+- Seed-dependent effects (works for some seeds but not others)
+- Contradictions between iterations
+- Theoretical predictions not yet verified
+
+Example: "Does moderate noise help parameter convergence with GT edges? Only iter 1 tested."
+
+### What to Add to Falsified Hypotheses
+
+When a hypothesis is falsified:
+- State the original hypothesis
+- State the contradicting evidence (iteration number, metrics)
+- State what was learned from the falsification
+- Propose a revised hypothesis if applicable
+
+Example: "Hypothesis: 'GT edges + noise=0.05 achieves near-perfect recovery (>0.95)' — Falsified by iter 1 (best 0.82). Revised: 'Even with GT edges and favorable noise, parameter estimation requires careful tuning.'"
 
 ## Start Call
 

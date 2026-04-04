@@ -68,6 +68,15 @@ Seeds are **forced by the pipeline** — DO NOT modify them in config files.
 
 **IMPORTANT**: `noise_model_level` is set to **0.05** in the base config. Do NOT change it — this file is specifically for the noise=0.05 experiment.
 
+## Noise Model
+
+Two independent noise sources in the training data:
+
+1. **Dynamics noise** (`noise_model_level=0.05`): `v(t+1) = v(t) + dt * f(v, W, I) + epsilon_dyn(t)`, epsilon_dyn ~ N(0, 0.05)
+2. **Measurement noise** (`measurement_noise_level=0.0`): Clean observations
+
+At this mild noise level, the signal is largely recoverable but noise still presents challenges. This regime tests whether the learning rates and regularization found in noisier regimes generalize, or if mild noise requires different hyperparameters.
+
 ## CX Ring Attractor Model
 
 ```
@@ -143,7 +152,7 @@ State your choice (exploration vs robustness test) in the log entry.
 - **Partially robust**: 2-3 slots > 0.7
 - **Fragile**: 0-1 slots > 0.7
 
-## Block Partition
+## Block Structure
 
 These blocks assume lr_W, W_L1, and w_init are already established from the clean exploration. The focus is on whether noise changes the optimal regularization, training volume, or architecture.
 
@@ -235,6 +244,52 @@ Destination: `config/drosophila_cx/drosophila_cx_noise005_winner.yaml`
 3. Update "Established Principles"
 4. Clear "Current Block"
 5. Carry forward best config
+
+## File Structure
+
+You maintain THREE files:
+
+1. **Full Log (append-only)**: `drosophila_cx_noise005_Claude_analysis.md`
+   - Append every iteration's log entry (4 entries per batch)
+   - Never read — human record only
+
+2. **Working Memory (read + update every batch)**: `drosophila_cx_noise005_Claude_memory.md`
+   - Read at start, update at end
+   - Contains: robustness comparison table, hypotheses, established principles, current block iterations
+
+3. **User Input (read every batch, acknowledge pending items)**: `user_input.md`
+   - Read at every batch
+   - If "Pending Instructions" section has content: act on it, then move entries to "Acknowledged" section
+
+## Knowledge Base Guidelines
+
+### What to Add to Established Principles
+
+A principle must satisfy ALL of:
+- Observed consistently across 3+ iterations
+- Consistent across all 4 seeds (not just mean, but low variance)
+- States a causal relationship (not just a correlation)
+
+Example: "lr_W=3e-4 with W_L2=1e-5 achieves connectivity_R2 > 0.8 robustly on noise=0.05 (3/3 iterations, all seeds > 0.75, CV < 5%)"
+
+### What to Add to Open Questions
+
+- Patterns observed 1-2 times
+- Seed-dependent effects (works for some seeds but not others)
+- Contradictions between iterations
+- Theoretical predictions not yet verified
+
+Example: "Does higher W_L1 improve robustness at noise=0.05? Only iter 2 tested with mixed results."
+
+### What to Add to Falsified Hypotheses
+
+When a hypothesis is falsified:
+- State the original hypothesis
+- State the contradicting evidence (iteration number, metrics)
+- State what was learned from the falsification
+- Propose a revised hypothesis if applicable
+
+Example: "Hypothesis: 'Mild noise improves W recovery via state-space enrichment' — Falsified by iter 1 (noise=0.05 gave CV=7%, worse than clean CV=3%). Revised: 'Mild noise adds variance; clean data or stronger regularization needed.'"
 
 ## Start Call
 

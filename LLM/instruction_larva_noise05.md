@@ -49,6 +49,12 @@ Strict **hypothesize -> test -> validate/falsify** cycle:
 
 **CRITICAL**: You can only hypothesize. Only training results validate or falsify.
 
+## Noise Model
+
+Single noise source in the training data:
+
+**Dynamics noise** (`noise_model_level=0.5`): `v(t+1) = v(t) + dt * f(v, W, I) + epsilon_dyn(t)`, epsilon_dyn ~ N(0, 0.5)
+
 ### CAUSALITY RULE (MANDATORY — READ THIS)
 
 **If you change more than one parameter per slot, you CANNOT attribute the effect. This is a fatal experimental design error.**
@@ -57,6 +63,10 @@ Strict **hypothesize -> test -> validate/falsify** cycle:
 - Do NOT change parameters outside the current block focus.
 - Do NOT skip the baseline — always keep one slot as an unchanged control.
 - In ROBUSTNESS mode: all 4 slots use the same config (different seeds test robustness).
+
+## Scientific Context
+
+The larva **two-population motor model** (Beiran & Litwin-Kumar 2023) under **strong noise (sigma=0.5)** tests whether the previous cross-model pattern holds: does strong noise dramatically improve connectivity_R2 even for low-rank dynamics? FlyVis, CX, and zebrafish all improved to >0.98 at noise=0.5. However, zebrafish showed bimodal convergence (50% failure). For larva, the question is whether softplus nonlinearity prevents the failure mode or whether noise=0.5 introduces seed-dependent instability that requires careful hyperparameter tuning to avoid.
 
 ## Data Generation
 
@@ -107,7 +117,7 @@ dum/dt = (-um + gm * softplus(up @ Jpm) + bm) / taum
 
 Example: embedding_dim=2 -> input_size=3, input_size_update=5.
 
-## Training Parameters
+## Explorable Parameters
 
 | Parameter                 | Default | Description                                  |
 | ------------------------- | ------- | -------------------------------------------- |
@@ -154,7 +164,7 @@ State your choice (exploration vs robustness test) in the log entry.
 - **Partially robust**: 2-3 slots > 0.7
 - **Fragile**: 0-1 slots > 0.7
 
-## Block Partition
+## Block Structure
 
 These blocks incorporate learnings from larva noise=0.05 (W_L2=2e-5 best lever, seed sensitivity dominant) and cross-model noise=0.5 results (CX: W_L2=1e-4 critical; zebrafish: 50% failure from W collapse).
 
@@ -249,6 +259,52 @@ Destination: `config/larva/larva_noise05_winner.yaml`
 3. Update "Established Principles"
 4. Clear "Current Block"
 5. Carry forward best config
+
+## File Structure
+
+You maintain THREE files:
+
+1. **Full Log (append-only)**: `larva_noise05_Claude_analysis.md`
+   - Append every iteration's log entry (4 entries per batch)
+   - Never read — human record only
+
+2. **Working Memory (read + update every batch)**: `larva_noise05_Claude_memory.md`
+   - Read at start, update at end
+   - Contains: robustness comparison table, hypotheses, established principles, current block iterations
+
+3. **User Input (read every batch, acknowledge pending items)**: `user_input.md`
+   - Read at every batch
+   - If "Pending Instructions" section has content: act on it, then move entries to "Acknowledged" section
+
+## Knowledge Base Guidelines
+
+### What to Add to Established Principles
+
+A principle must satisfy ALL of:
+- Observed consistently across 3+ iterations
+- Consistent across all 4 seeds (not just mean, but low variance)
+- States a causal relationship (not just a correlation)
+
+Example: "Strong noise (sigma=0.5) breaks weight degeneracy robustly for larva (3/3 iterations, all seeds > 0.85, CV < 3%)"
+
+### What to Add to Open Questions
+
+- Patterns observed 1-2 times
+- Seed-dependent effects (works for some seeds but not others)
+- Contradictions between iterations
+- Theoretical predictions not yet verified
+
+Example: "Does noise=0.5 introduce bimodal convergence like zebrafish? Early results show wide seed variance but unclear pattern."
+
+### What to Add to Falsified Hypotheses
+
+When a hypothesis is falsified:
+- State the original hypothesis
+- State the contradicting evidence (iteration number, metrics)
+- State what was learned from the falsification
+- Propose a revised hypothesis if applicable
+
+Example: "Hypothesis: 'noise=0.5 universally improves W recovery without cost' — Falsified by iter 3 (seed 2 collapsed, connectivity_R2=0.15). Revised: 'noise=0.5 improves mean but introduces seed variance; regularization must stabilize.'"
 
 ## Start Call
 

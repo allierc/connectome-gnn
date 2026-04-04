@@ -30,6 +30,10 @@ Strict **hypothesize -> test -> validate/falsify** cycle:
 
 **CRITICAL**: You can only hypothesize. Only training results validate or falsify.
 
+## Scientific Context
+
+The zebrafish **oculomotor integrator** with **ground-truth edges** tests whether knowing the true connectivity topology helps the GNN recover weights in a linear ODE. This is a crucial intermediate case: FC mode (fully connected) failed catastrophically (R2=0.022), and this GT-edges variant removes the combinatorial search over 370K possible edges, reducing it to learning 10,665 known edges. The question is: does GT topology break the degeneracy and enable high-performance weight learning?
+
 ### CAUSALITY RULE (MANDATORY — READ THIS)
 
 **If you change more than one parameter per slot, you CANNOT attribute the effect. This is a fatal experimental design error.**
@@ -82,7 +86,7 @@ dr/dt = (-r + W @ r + I(t) * v_in) / tau
 
 Example: embedding_dim=2 -> input_size=3, input_size_update=5.
 
-## Training Parameters
+## Explorable Parameters
 
 | Parameter                 | Default | Description                                  |
 | ------------------------- | ------- | -------------------------------------------- |
@@ -133,7 +137,7 @@ State your choice (exploration vs robustness test) in the log entry.
 - **Partially robust**: 2-3 slots > 0.7
 - **Fragile**: 0-1 slots > 0.7
 
-## Block Partition
+## Block Structure
 
 The blocks below provide a **recommended exploration roadmap**. Follow the block focus as a guide but use your scientific judgment — if early results clearly suggest a detour or shortcut, adapt. The block boundaries are soft: you can revisit earlier axes or combine parameters across blocks when evidence supports it.
 
@@ -233,6 +237,52 @@ Destination: `config/zebrafish_oculomotor/zebrafish_oculomotor_gt_edges_winner.y
 3. Update "Established Principles"
 4. Clear "Current Block"
 5. Carry forward best config
+
+## File Structure
+
+You maintain THREE files:
+
+1. **Full Log (append-only)**: `zebrafish_oculomotor_gt_edges_Claude_analysis.md`
+   - Append every iteration's log entry (4 entries per batch)
+   - Never read — human record only
+
+2. **Working Memory (read + update every batch)**: `zebrafish_oculomotor_gt_edges_Claude_memory.md`
+   - Read at start, update at end
+   - Contains: robustness comparison table, hypotheses, established principles, current block iterations
+
+3. **User Input (read every batch, acknowledge pending items)**: `user_input.md`
+   - Read at every batch
+   - If "Pending Instructions" section has content: act on it, then move entries to "Acknowledged" section
+
+## Knowledge Base Guidelines
+
+### What to Add to Established Principles
+
+A principle must satisfy ALL of:
+- Observed consistently across 3+ iterations
+- Consistent across all 4 seeds (not just mean, but low variance)
+- States a causal relationship (not just a correlation)
+
+Example: "GT edges + careful lr_W tuning achieves connectivity_R2 > 0.77 robustly (3/3 iterations, all seeds > 0.75, CV < 2%)"
+
+### What to Add to Open Questions
+
+- Patterns observed 1-2 times
+- Seed-dependent effects (works for some seeds but not others)
+- Contradictions between iterations
+- Theoretical predictions not yet verified
+
+Example: "Does GT topology suffice to break zebrafish linear degeneracy? Early results promising but variability high; more iterations needed."
+
+### What to Add to Falsified Hypotheses
+
+When a hypothesis is falsified:
+- State the original hypothesis
+- State the contradicting evidence (iteration number, metrics)
+- State what was learned from the falsification
+- Propose a revised hypothesis if applicable
+
+Example: "Hypothesis: 'GT topology enables high R2 without fine-tuning' — Falsified by iter 2 (L2=1e-5 gave CV=6%, only 2/4 seeds > 0.73). Revised: 'GT topology helps but regularization still crucial; L2 tuning essential.'"
 
 ## Start Call
 

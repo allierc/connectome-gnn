@@ -49,6 +49,17 @@ Seeds are **forced by the pipeline** — DO NOT modify them in config files.
 
 **DO NOT change `simulation:` parameters** except seed (managed automatically).
 
+**IMPORTANT**: `noise_model_level` is set to **0.5** in the base config. Do NOT change it — this file is specifically for the noise=0.5 experiment.
+
+## Noise Model
+
+Two independent noise sources in the training data:
+
+1. **Dynamics noise** (`noise_model_level=0.5`): `v(t+1) = v(t) + dt * f(v, W, I) + epsilon_dyn(t)`, epsilon_dyn ~ N(0, 0.5)
+2. **Measurement noise** (`measurement_noise_level=0.0`): Clean observations
+
+At this high noise level, the Jacobian may benefit from enriched activity covariance or may be entirely corrupted. Test whether MLP at high noise shows improved or degraded connectivity detection compared to clean data.
+
 ## CX Ring Attractor Model
 
 ```
@@ -98,7 +109,7 @@ Each batch runs 4 slots with different seeds (forced by pipeline). You choose th
 - **Exploration** (default): Slot 0 = parent/control. Slots 1-3 each change one parameter.
 - **Robustness test**: ALL 4 slots use the SAME config. Measures seed robustness.
 
-## Block Partition
+## Block Structure
 
 | Block | Focus                    | Parameters to scan                          | Ranges                                                          |
 | ----- | ------------------------ | ------------------------------------------- | --------------------------------------------------------------- |
@@ -154,6 +165,52 @@ Destination: `config/drosophila_cx/drosophila_cx_mlp_noise05_winner.yaml`
 3. Update "Established Principles"
 4. Clear "Current Block"
 5. Carry forward best config
+
+## File Structure
+
+You maintain THREE files:
+
+1. **Full Log (append-only)**: `drosophila_cx_mlp_noise05_Claude_analysis.md`
+   - Append every iteration's log entry (4 entries per batch)
+   - Never read — human record only
+
+2. **Working Memory (read + update every batch)**: `drosophila_cx_mlp_noise05_Claude_memory.md`
+   - Read at start, update at end
+   - Contains: robustness comparison table, hypotheses, established principles, current block iterations
+
+3. **User Input (read every batch, acknowledge pending items)**: `user_input.md`
+   - Read at every batch
+   - If "Pending Instructions" section has content: act on it, then move entries to "Acknowledged" section
+
+## Knowledge Base Guidelines
+
+### What to Add to Established Principles
+
+A principle must satisfy ALL of:
+- Observed consistently across 3+ iterations
+- Consistent across all 4 seeds (not just mean, but low variance)
+- States a causal relationship (not just a correlation)
+
+Example: "lr=1e-3 with hidden_dim=256 on noise=0.5 achieves rollout_pearson > 0.60 robustly (3/3 iterations, all seeds > 0.55, CV < 5%)"
+
+### What to Add to Open Questions
+
+- Patterns observed 1-2 times
+- Seed-dependent effects (works for some seeds but not others)
+- Contradictions between iterations
+- Theoretical predictions not yet verified
+
+Example: "Does n_layers=5 improve Jacobian structure at high noise? Only iter 1 tested."
+
+### What to Add to Falsified Hypotheses
+
+When a hypothesis is falsified:
+- State the original hypothesis
+- State the contradicting evidence (iteration number, metrics)
+- State what was learned from the falsification
+- Propose a revised hypothesis if applicable
+
+Example: "Hypothesis: 'High noise enriches activity covariance, improving Jacobian detection' — Falsified by iter 2 (noise=0.5 connectivity_R2 lower than clean). Revised: 'High noise corrupts Jacobian regardless of activity richness; graph structure (GNN) is essential.'"
 
 ## Start Call
 

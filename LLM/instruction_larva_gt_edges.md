@@ -28,7 +28,11 @@ Strict **hypothesize -> test -> validate/falsify** cycle:
 
 **CRITICAL**: You can only hypothesize. Only training results validate or falsify.
 
-### CAUSALITY RULE (MANDATORY — READ THIS)
+## Scientific Context
+
+The larva **two-population motor model** (Beiran & Litwin-Kumar 2023) implements a sensorimotor circuit with known connectivity (4,222 edges). This exploration tests the GNN's ability to **recover synaptic weights and neuron embeddings from voltage dynamics when the connectivity graph is given**. This is the upper-bound baseline for larva: if the GNN cannot achieve high connectivity_R2 with ground-truth edges, then FC mode (discovering edges) becomes intractable. The question is: can we find a config robust across seeds?
+
+## CAUSALITY RULE (MANDATORY — READ THIS)
 
 **If you change more than one parameter per slot, you CANNOT attribute the effect. This is a fatal experimental design error.**
 
@@ -84,7 +88,7 @@ dum/dt = (-um + gm * softplus(up @ Jpm) + bm) / taum
 
 Example: embedding_dim=2 -> input_size=3, input_size_update=5.
 
-## Training Parameters
+## Explorable Parameters
 
 | Parameter                 | Default | Description                                  |
 | ------------------------- | ------- | -------------------------------------------- |
@@ -131,7 +135,7 @@ State your choice (exploration vs robustness test) in the log entry.
 - **Partially robust**: 2-3 slots > 0.7
 - **Fragile**: 0-1 slots > 0.7
 
-## Block Partition
+## Block Structure
 
 The blocks below provide a **recommended exploration roadmap**. Follow the block focus as a guide but use your scientific judgment — if early results clearly suggest a detour or shortcut, adapt. The block boundaries are soft: you can revisit earlier axes or combine parameters across blocks when evidence supports it.
 
@@ -229,6 +233,52 @@ Destination: `config/larva/larva_gt_edges_winner.yaml`
 3. Update "Established Principles"
 4. Clear "Current Block"
 5. Carry forward best config
+
+## File Structure
+
+You maintain THREE files:
+
+1. **Full Log (append-only)**: `larva_gt_edges_Claude_analysis.md`
+   - Append every iteration's log entry (4 entries per batch)
+   - Never read — human record only
+
+2. **Working Memory (read + update every batch)**: `larva_gt_edges_Claude_memory.md`
+   - Read at start, update at end
+   - Contains: robustness comparison table, hypotheses, established principles, current block iterations
+
+3. **User Input (read every batch, acknowledge pending items)**: `user_input.md`
+   - Read at every batch
+   - If "Pending Instructions" section has content: act on it, then move entries to "Acknowledged" section
+
+## Knowledge Base Guidelines
+
+### What to Add to Established Principles
+
+A principle must satisfy ALL of:
+- Observed consistently across 3+ iterations
+- Consistent across all 4 seeds (not just mean, but low variance)
+- States a causal relationship (not just a correlation)
+
+Example: "lr_W=5e-4 achieves connectivity_R2 > 0.85 robustly on larva GT edges (3/3 iterations, all seeds > 0.83, CV < 2%)"
+
+### What to Add to Open Questions
+
+- Patterns observed 1-2 times
+- Seed-dependent effects (works for some seeds but not others)
+- Contradictions between iterations
+- Theoretical predictions not yet verified
+
+Example: "Does W initialization matter for low-rank larva dynamics? Only iter 2 tested, randn showed promise but inconclusive."
+
+### What to Add to Falsified Hypotheses
+
+When a hypothesis is falsified:
+- State the original hypothesis
+- State the contradicting evidence (iteration number, metrics)
+- State what was learned from the falsification
+- Propose a revised hypothesis if applicable
+
+Example: "Hypothesis: 'randn initialization accelerates convergence for low-rank larva' — Falsified by iter 5 (randn CV=8%, only 2/4 seeds > 0.82). Revised: 'Initialization matters but must be paired with careful lr_W tuning.'"
 
 ## Start Call
 

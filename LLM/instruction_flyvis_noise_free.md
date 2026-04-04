@@ -10,6 +10,18 @@ Data is **re-generated each iteration** with a different seed to verify seed ind
 Primary metric: **connectivity_R2** (R² between learned W and ground-truth W).
 Secondary metrics: **tau_R2** (time constant recovery), **V_rest_R2** (resting potential recovery), **cluster_accuracy** (neuron type clustering from embeddings).
 
+## Scientific Context
+
+This exploration tests GNN optimization in the ideal case: clean, noise-free stimulus and dynamics. Without intrinsic noise, the optimization landscape should be smoother and the learning problem simpler than at noise levels of 0.05. The research question is: **Can removing noise from the training data further simplify hyperparameter tuning and enable faster convergence to high connectivity recovery?** Additionally, this condition serves as a reference case to understand how noise affects the optimization difficulty. By comparing noise-free results to noise_005 results, we can isolate the impact of noise on learning dynamics and regularization effectiveness.
+
+## Noise Model
+
+The FlyVis model in the noise-free regime applies no stochastic noise to the voltage dynamics:
+
+$$v_i(t+1) = v_i(t) + dt \cdot f_\theta(v_i, a_i, \sum_j W_{ij} g_\phi(v_j, a_j)^2, I_i)$$
+
+where $\epsilon_{\text{dyn}} = 0$. The GNN learns to predict deterministic dynamics directly from clean observations, which may reduce the need for strong regularization compared to the noisy regime.
+
 ## Scientific Method
 
 This exploration follows a strict **hypothesize → test → validate/falsify** cycle:
@@ -127,7 +139,7 @@ Alternatively, set `regul_annealing_rate: 0` to disable annealing entirely (full
 
 **Non-annealed coefficients**: `coeff_g_phi_diff`, `coeff_g_phi_norm`, and `coeff_f_theta_msg_diff` apply at full strength from epoch 0 regardless of annealing settings.
 
-## Training Parameters (explorable)
+## Explorable Parameters
 
 | Parameter                       | Default      | Description                                  |
 | ------------------------------- | ------------ | -------------------------------------------- |
@@ -401,6 +413,65 @@ If a slot is `[FAILED]`:
 - `coeff_g_phi_diff` (monotonicity) is among the most important regularizers — too low causes non-monotonic messages
 - No noise should allow faster convergence and potentially higher connectivity_R2 than noise=0.05
 
+## File Structure
+
+You maintain **THREE** files:
+
+### 1. Full Log (append-only)
+
+**File**: `{llm_task_name}_analysis.md`
+
+- Append every iteration's log entry (4 entries per batch)
+- Append block summaries at block boundaries
+- **Never read** — human record only
+
+### 2. Working Memory (read + update every batch)
+
+**File**: `{llm_task_name}_memory.md`
+
+- Read at start, update at end
+- Contains: robustness comparison table, hypotheses, established principles, current block iterations
+- Keep ≤ 500 lines
+
+### 3. User Input (read every batch, acknowledge pending items)
+
+**File**: `user_input.md`
+
+- Read at every batch
+- If "Pending Instructions" section has content: act on it, then move entries to "Acknowledged" section with timestamp
+- Do not remove acknowledged entries — append them with `[ACK {batch}]` marker
+
+## Knowledge Base Guidelines
+
+### What to Add to Established Principles
+
+A principle must satisfy ALL of:
+
+1. Observed consistently across **3+ iterations**
+2. Consistent across **all 4 seeds** (not just mean, but low variance)
+3. States a **causal relationship** (not just a correlation)
+
+Examples:
+- ✓ "coeff_g_phi_diff ≥ 500 is necessary for robust convergence (3/3 iterations, all seeds > 0.9)"
+- ✓ "lr_W > 1e-3 causes seed-dependent failures (CV > 20% in 2 iterations)"
+- ✗ "lr_W=6e-4 worked in iteration 3" (too specific, not a principle)
+
+### What to Add to Open Questions
+
+- Patterns observed 1-2 times
+- Seed-dependent effects (works for some seeds but not others)
+- Contradictions between iterations
+- Theoretical predictions not yet verified
+
+### What to Add to Falsified Hypotheses
+
+When a hypothesis is falsified:
+
+1. State the original hypothesis
+2. State the contradicting evidence (iteration number, metrics)
+3. State what was learned from the falsification
+4. Propose a revised hypothesis if applicable
+
 ## Start Call
 
 When prompt says `PARALLEL START`:
@@ -490,30 +561,3 @@ Iterations: M to M+n_iter_block
 **CRITICAL: This section must ALWAYS be at the END of memory file.**
 ```
 
----
-
-## Knowledge Base Guidelines
-
-### What to Add to Established Principles
-
-A principle must satisfy ALL of:
-
-1. Observed consistently across **3+ iterations**
-2. Consistent across **all 4 seeds** (not just mean, but low variance)
-3. States a **causal relationship** (not just a correlation)
-
-### What to Add to Open Questions
-
-- Patterns observed 1-2 times
-- Seed-dependent effects (works for some seeds but not others)
-- Contradictions between iterations
-- Theoretical predictions not yet verified
-
-### What to Add to Falsified Hypotheses
-
-When a hypothesis is falsified:
-
-1. State the original hypothesis
-2. State the contradicting evidence (iteration number, metrics)
-3. State what was learned from the falsification
-4. Propose a revised hypothesis if applicable

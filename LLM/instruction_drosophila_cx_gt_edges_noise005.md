@@ -77,6 +77,15 @@ Seeds are **forced by the pipeline** — DO NOT modify them in config files.
 
 **IMPORTANT**: `use_gt_edges` is set to **true** in the base config. Do NOT change it — this file is specifically for the GT edges experiment.
 
+## Noise Model
+
+Two independent noise sources in the training data:
+
+1. **Dynamics noise** (`noise_model_level=0.05`): `v(t+1) = v(t) + dt * f(v, W, I) + epsilon_dyn(t)`, epsilon_dyn ~ N(0, 0.05)
+2. **Measurement noise** (`measurement_noise_level=0.0`): Clean observations
+
+At this mild noise level with GT edges (reduced search space), signal-to-noise ratio should be favorable for W recovery. This regime tests whether GT edges' advantage persists under noise.
+
 ## CX Ring Attractor Model
 
 ```
@@ -155,7 +164,7 @@ State your choice (exploration vs robustness test) in the log entry.
 - **Partially robust**: 2-3 slots > 0.8
 - **Fragile**: 0-1 slots > 0.8
 
-## Block Partition
+## Block Structure
 
 These blocks start from the best GT edges noise-free config (dale_law=true, lr_W=2e-5, g_phi_wL1=0.003, hidden_dim=96, embedding_dim=2). The focus is on whether adding noise=0.05 changes the optimal configuration that was tuned for clean GT edges, and whether the GT+noise combination exceeds the FC+noise result (0.982).
 
@@ -248,6 +257,52 @@ Destination: `config/drosophila_cx/drosophila_cx_gt_edges_noise005_winner.yaml`
 3. Update "Established Principles"
 4. Clear "Current Block"
 5. Carry forward best config
+
+## File Structure
+
+You maintain THREE files:
+
+1. **Full Log (append-only)**: `drosophila_cx_gt_edges_noise005_Claude_analysis.md`
+   - Append every iteration's log entry (4 entries per batch)
+   - Never read — human record only
+
+2. **Working Memory (read + update every batch)**: `drosophila_cx_gt_edges_noise005_Claude_memory.md`
+   - Read at start, update at end
+   - Contains: robustness comparison table, hypotheses, established principles, current block iterations
+
+3. **User Input (read every batch, acknowledge pending items)**: `user_input.md`
+   - Read at every batch
+   - If "Pending Instructions" section has content: act on it, then move entries to "Acknowledged" section
+
+## Knowledge Base Guidelines
+
+### What to Add to Established Principles
+
+A principle must satisfy ALL of:
+- Observed consistently across 3+ iterations
+- Consistent across all 4 seeds (not just mean, but low variance)
+- States a causal relationship (not just a correlation)
+
+Example: "lr_W=2e-5 with GT edges + noise=0.05 achieves connectivity_R2 > 0.75 robustly (3/3 iterations, all seeds > 0.70, CV < 5%)"
+
+### What to Add to Open Questions
+
+- Patterns observed 1-2 times
+- Seed-dependent effects (works for some seeds but not others)
+- Contradictions between iterations
+- Theoretical predictions not yet verified
+
+Example: "Does g_phi_wL1 require adjustment at noise=0.05? Only iter 1 tested."
+
+### What to Add to Falsified Hypotheses
+
+When a hypothesis is falsified:
+- State the original hypothesis
+- State the contradicting evidence (iteration number, metrics)
+- State what was learned from the falsification
+- Propose a revised hypothesis if applicable
+
+Example: "Hypothesis: 'Noise=0.05 improves GT edges as much as FC' — Falsified by iter 2 (GT+noise CV=8%, worse than FC+noise CV=4%). Revised: 'GT edges benefit from noise less than FC due to reduced search space.'"
 
 ## Start Call
 
