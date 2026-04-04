@@ -31,6 +31,7 @@ The flyvis graded-voltage ODE for each postsynaptic neuron $i$ reads:
   \text{ReLU}\!\big(v_j(t)\big)
 + I_i(t)
 \end{equation}
+\label{Eq:ODE}
 where $\tau_i$ and $V_i^{\mathrm{rest}}$ are cell-type parameters, $\mathbf{W}_{ij}$ is the connectome-constrained synaptic weight from neuron $j$ to $i$, and $I_i(t)$ is the external stimulus.
 
 \textbf{The inverse problem}: given observed trajectories $\{v_i(t)\}_{t=0}^{T}$, stimuli $\{I_i(t)\}$, and the binary adjacency matrix $\mathbf{A}$ (which edges exist), recover the connectivity weights $\mathbf{W}$, time constants $\tau$, and resting potentials $V^{\text{rest}}$.
@@ -39,23 +40,22 @@ where $\tau_i$ and $V_i^{\mathrm{rest}}$ are cell-type parameters, $\mathbf{W}_{
 
 \subsection{Step 1: Rearrange to a linear system per neuron}
 
-For each postsynaptic neuron $i$, define the presynaptic activity vector at time $t$:
+Rearranging Eq.~\ref{Eq:ODE} to isolate the incoming synaptic weights, we move them to the left-hand side:
 \begin{equation}
-h_j(t) = \text{ReLU}\!\big(v_j(t)\big)
+\sum_{j\in\mathcal{N}_i} \mathbf{W}_{ij}\, \text{ReLU}\!\big(v_j(t)\big) = \tau_i \frac{dv_i(t)}{dt} + v_i(t) - V_i^{\text{rest}} - I_i(t)
 \end{equation}
-and the right-hand side:
-\begin{equation}
-b_i(t) = \tau_i \frac{dv_i(t)}{dt} + v_i(t) - V_i^{\text{rest}} - I_i(t)
-\end{equation}
-Let $d_i = |\mathcal{N}_i|$ denote the in-degree of neuron $i$. Then the ODE becomes a linear constraint on the incoming weights $\mathbf{w}_i = (\mathbf{W}_{i1}, \mathbf{W}_{i2}, \dots, \mathbf{W}_{id_i})$:
+
+Define the presynaptic activity $h_j(t) = \text{ReLU}\!\big(v_j(t)\big)$ and the residual $b_i(t) = \tau_i \frac{dv_i(t)}{dt} + v_i(t) - V_i^{\text{rest}} - I_i(t)$. The constraint is then:
 \begin{equation}
 \sum_{j \in \mathcal{N}_i} \mathbf{W}_{ij}\, h_j(t) = b_i(t) \qquad \forall\; t \in \{1, \dots, T\}
 \end{equation}
-Stacking over $T$ timesteps yields a \textbf{linear system}:
+
+Stack these $T$ timepoint constraints into a linear system: Let $\mathbf{H}_i \in \mathbb{R}^{T \times d_i}$ be the activity matrix (rows = time, columns = the $d_i$ presynaptic neurons), $\mathbf{w}_i \in \mathbb{R}^{d_i}$ the incoming weight vector, and $\mathbf{b}_i \in \mathbb{R}^T$ the stacked residuals. Then:
 \begin{equation}
 \mathbf{H}_i\, \mathbf{w}_i = \mathbf{b}_i
 \end{equation}
-where $\mathbf{H}_i \in \mathbb{R}^{T \times d_i}$ is the activity matrix (columns = presynaptic neuron activations over time).
+
+This equation holds independently for each postsynaptic neuron $i = 1, \ldots, N_{\text{post}}$, where $N_{\text{post}} = 13{,}697$ and $d_i$ ranges from 1 to 208 (the in-degree distribution of the flyvis connectome).
 
 \subsection{Step 2: The null space}
 

@@ -147,6 +147,6 @@ if __name__ == "__main__":
 # python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_free_known_ode iterations=84 --cluster --resume
 # python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_05_known_ode iterations=84 --cluster --resume
 # python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_known_ode iterations=84 --cluster --resume
-# python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_removed_pc_10_known_ode --cluster --resume
-# python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_null_edges_pc_100_known_ode --cluster --resume
+# python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_removed_pc_20_known_ode --cluster --resume
+# python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_null_edges_pc_400_known_ode --cluster --resume
 # python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_010_known_ode --cluster --resume
