@@ -490,7 +490,7 @@ def data_generate_spiking(config, visualize=True, run_vizualized=0, style="color
     X1 = torch.tensor(np.stack((x_coords, y_coords), axis=1), dtype=torch.float32, device=device)
     xc, yc = get_equidistant_points(n_points=n_neurons - x_coords.shape[0])
     pos = torch.tensor(np.stack((xc, yc), axis=1), dtype=torch.float32, device=device) / 2
-    X1 = torch.cat((X1, pos[torch.randperm(pos.size(0))]), dim=0)
+    X1 = torch.cat((X1, pos[torch.randperm(pos.size(0), device=device)]), dim=0)
 
     # Initialize spiking neuron state
     x = pde.init_state(n_neurons)
@@ -958,7 +958,7 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
 
     xc, yc = get_equidistant_points(n_points=n_neurons - x_coords.shape[0])
     pos = torch.tensor(np.stack((xc, yc), axis=1), dtype=torch.float32, device=device) / 2
-    X1 = torch.cat((X1, pos[torch.randperm(pos.size(0))]), dim=0)
+    X1 = torch.cat((X1, pos[torch.randperm(pos.size(0), device=device)]), dim=0)
 
     state = net.steady_state(t_pre=2.0, dt=sim.delta_t, batch_size=1)
     initial_state = state.nodes.activity.squeeze().to(device)
