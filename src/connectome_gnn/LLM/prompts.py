@@ -24,6 +24,13 @@ Seeds (forced by pipeline — DO NOT modify simulation.seed or training.seed in 
 {seed_info}
 Log these seed values in your iteration entries.
 
+METRICS TO TRACK: When you analyze results and populate the Robustness Comparison Table in memory.md, include these key metrics as columns:
+- connectivity_R2 (primary metric)
+- CV% (stability metric)
+- onestep_pearson (one-step prediction correlation)
+- rollout_pearson (multi-step rollout correlation)
+- tau_R2 (time constant recovery)
+
 Read the instructions and the base config, then set up {state.n_parallel} experiments.
 
 CAUSALITY RULE (MANDATORY):
@@ -61,9 +68,10 @@ Seeds are forced by pipeline (DO NOT modify simulation.seed or training.seed in 
 The seed values for this batch are shown in each slot above. Log them in your iteration entries.
 
 Analyze all {batch.n_slots} results. For each successful slot:
-1. Read the metrics from the analysis log.
+1. Read the metrics from the analysis log (pay special attention to: connectivity_R2, onestep_pearson, rollout_pearson, tau_R2).
 2. Look at the connectivity matrix heatmap in tmp_training/matrix/connectivity_*.png — compare GT vs learned W visually. Note in your log entry: is the learned W sparse enough? Are signs correct? Is the structure emerging?
 3. Write a separate iteration entry (## Iter N: ...) to the full log and memory file.
+   - IMPORTANT: When updating the Robustness Comparison Table in memory, include ALL key metrics as columns: connectivity_R2, CV%, onestep_pearson, rollout_pearson, tau_R2.
 Then edit all {state.n_parallel} config files to set up the next batch of {state.n_parallel} experiments.
 
 CAUSALITY RULE (MANDATORY):
