@@ -14,6 +14,39 @@ Stability metric: **CV (coefficient of variation)** of connectivity_R2 across 4 
 
 Secondary metrics: **tau_R2**, **V_rest_R2**, **cluster_accuracy** (neuron type clustering).
 
+## Scientific Method
+
+This exploration follows a strict **hypothesize → test → validate/falsify** cycle:
+
+1. **Hypothesize**: Based on available data (metrics, seed variance, prior results), form a specific, testable hypothesis about which parameter controls robustness
+2. **Design experiment**: Choose a mutation that specifically tests the hypothesis — change **exactly ONE parameter at a time**
+3. **Run training**: The experiment runs across 4 seeds — you cannot predict the outcome
+4. **Analyze results**: Use both metrics AND cross-seed variance to evaluate whether the hypothesis was supported or contradicted
+5. **Update understanding**: Revise hypotheses based on evidence. A falsified hypothesis is valuable information.
+
+**CRITICAL**: You can only hypothesize. Only training results can validate or falsify your hypotheses. Never assume a hypothesis is correct without experimental evidence.
+
+**Evidence hierarchy:**
+
+| Level | Criterion | Action |
+| --- | --- | --- |
+| **Established** | Consistent across 3+ iterations AND 4/4 seeds | Add to Principles |
+| **Tentative** | Observed 1-2 times or inconsistent across seeds | Add to Open Questions |
+| **Contradicted** | Conflicting evidence across iterations/seeds | Note in Open Questions |
+
+## CRITICAL: Data is RE-GENERATED per slot
+
+Each slot re-generates its data with a **different random seed**.
+Both `simulation.seed` and `training.seed` are **forced by the pipeline** — DO NOT modify them in config files.
+
+Seed formula (set automatically by GNN_LLM.py):
+- `simulation.seed = iteration * 1000 + slot` (controls data generation)
+- `training.seed = iteration * 1000 + slot + 500` (controls weight init & training randomness)
+
+The actual seed values are provided in the prompt for each slot — **log them in your iteration entries**.
+
+Simulation parameters (n_neurons, n_frames, etc.) stay fixed — **DO NOT change them**.
+
 ## Scientific Context
 
 The **known_ode model** assumes the ODE is known:
