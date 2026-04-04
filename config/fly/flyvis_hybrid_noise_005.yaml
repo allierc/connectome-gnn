@@ -45,7 +45,7 @@ plotting:
 training:
   n_epochs: 1
   n_runs: 1
-  device: auto
+  device: cpu
   recurrent_training: false
   time_step: 1
   batch_size: 4
