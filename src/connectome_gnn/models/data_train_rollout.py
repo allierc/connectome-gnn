@@ -49,10 +49,19 @@ def _rollout_block(model, v, stim_block, target_block, dt):
 
 
 try:
-    _rollout_block_compiled = torch.compile(_rollout_block, mode="default")
+    import torch.backends.mps
+    _skip_compile = torch.backends.mps.is_available()
 except Exception:
-    # Fall back to non-compiled version if Triton compilation fails
+    _skip_compile = False
+
+if _skip_compile:
     _rollout_block_compiled = _rollout_block
+else:
+    try:
+        _rollout_block_compiled = torch.compile(_rollout_block, mode="default")
+    except Exception:
+        # Fall back to non-compiled version if Triton compilation fails
+        _rollout_block_compiled = _rollout_block
 
 
 def val_rollout(model, voltage, stimulus, val_start_idx, dt):
@@ -123,13 +132,16 @@ def _compute_loss_multistep(model, voltage, stimulus, t_indices, dt, rollout_ste
     return loss / rollout_steps
 
 
-try:
-    _compute_loss_multistep_compiled = torch.compile(
-        _compute_loss_multistep, fullgraph=True, mode="reduce-overhead"
-    )
-except Exception:
-    # Fall back to non-compiled version if Triton compilation fails
+if _skip_compile:
     _compute_loss_multistep_compiled = _compute_loss_multistep
+else:
+    try:
+        _compute_loss_multistep_compiled = torch.compile(
+            _compute_loss_multistep, fullgraph=True, mode="reduce-overhead"
+        )
+    except Exception:
+        # Fall back to non-compiled version if Triton compilation fails
+        _compute_loss_multistep_compiled = _compute_loss_multistep
 
 
 def data_train_rollout(config, erase, best_model, device, log_file=None):
