@@ -1373,7 +1373,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
 
             # eigenvalue and singular value analysis using sparse matrices
             if not skip_svd:
-                    print('plot eigenvalue spectrum and eigenvector comparison ...')
+                print('plot eigenvalue spectrum and eigenvector comparison ...')
 
                 # build sparse matrices for true and learned weights
                 edges_np = to_numpy(edges)
