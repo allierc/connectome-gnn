@@ -1,7 +1,8 @@
 #!/bin/bash
 
-# Batch run of known_ode LLM explorations
-# Run 6 known_ode configurations sequentially with iterations=84, --cluster, and --resume
+# Batch run of known_ode LLM explorations on cuda:1
+# Run 2 known_ode configurations sequentially with iterations=84, --cluster, and --resume
+# Device: cuda:1
 
 python GNN_LLM.py -o generate_train_test_plot_Claude \
   --batch-configs \
@@ -10,4 +11,5 @@ python GNN_LLM.py -o generate_train_test_plot_Claude \
   --batch-iterations 84 \
   --cluster \
   --resume \
-  --skip-confirm
+  --skip-confirm \
+  --device cuda:1
