@@ -634,3 +634,8 @@ def is_connconstr_model(signal_model_name: str) -> bool:
     except KeyError:
         return False
 
+
+def is_flyvis_hybrid_model(signal_model_name: str) -> bool:
+    """Check if signal_model_name is a flywirevis hybrid model."""
+    return signal_model_name == "flyvis_hybrid"
+

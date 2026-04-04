@@ -44,6 +44,7 @@ from connectome_gnn.generators.utils import (
     greedy_blue_mask,
     is_adex_model,
     is_connconstr_model,
+    is_flyvis_hybrid_model,
     is_hodgkin_huxley_model,
     mseq_bits,
 )
@@ -798,12 +799,32 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
     # Suppress noisy flyvis "epe not in ... Falling back to loss" warning
     import logging as _logging
     _logging.getLogger("flyvis.utils.logging_utils").setLevel(_logging.ERROR)
-    config_net = get_default_config(overrides=[], path=f"{CONFIG_PATH}/network/network.yaml")
-    config_net.connectome.extent = extent
-    net = Network(**config_net)
-    nnv = NetworkView(f"flow/{sim.ensemble_id}/{sim.model_id}")
-    trained_net = nnv.init_network(checkpoint=0)
-    net.load_state_dict(trained_net.state_dict())
+
+    if is_flyvis_hybrid_model(model_config.signal_model_name):
+        # --- Flywirevis hybrid: use FlyvisToFlywire pipeline ---
+        from flywirevis.flyvis_to_flywire import FlyvisToFlywire
+        logger.info("building flywirevis hybrid network...")
+        reg = FlyvisToFlywire(extent=extent)
+        reg = (
+            reg.register_nodes()
+            .add_flywire_edges()
+            .filter_flywire_edges(min_n_columns=3)
+            .populate_xyz()
+            .merge_flywire_edges_into_flyvis()
+            .drop_flywire_only_conn_types()
+            .scale_adaptation()
+        )
+        flyvis_model_id = f"flow/{sim.ensemble_id}/{sim.model_id}"
+        net, _orig_net = reg.to_network(model=flyvis_model_id, heterogeneous=True)
+        logger.info(f"hybrid network: {len(reg.nodes)} nodes, {len(reg.edges)} edges")
+    else:
+        # --- Standard flyvis network ---
+        config_net = get_default_config(overrides=[], path=f"{CONFIG_PATH}/network/network.yaml")
+        config_net.connectome.extent = extent
+        net = Network(**config_net)
+        nnv = NetworkView(f"flow/{sim.ensemble_id}/{sim.model_id}")
+        trained_net = nnv.init_network(checkpoint=0)
+        net.load_state_dict(trained_net.state_dict())
     torch.set_grad_enabled(False)
 
     # Extract ground-truth parameters from flyvis connectome.
