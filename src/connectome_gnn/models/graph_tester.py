@@ -67,6 +67,15 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
                      (test data loaded from test_config.dataset)
     """
 
+    # Set CUDA device if specified (prevents slow cross-device kernel launches and implicit transfers)
+    if device is not None and 'cuda' in str(device):
+        device_str = str(device)
+        if ':' in device_str:
+            device_id = int(device_str.split(':')[1])
+        else:
+            device_id = 0
+        torch.cuda.set_device(device_id)
+
     sim = config.simulation
     tc = config.training
     model_config = config.graph_model
@@ -634,6 +643,14 @@ def data_test_gnn_special(
         log_file=None,
 ):
 
+    # Set CUDA device if specified (prevents slow cross-device kernel launches and implicit transfers)
+    if device is not None and 'cuda' in str(device):
+        device_str = str(device)
+        if ':' in device_str:
+            device_id = int(device_str.split(':')[1])
+        else:
+            device_id = 0
+        torch.cuda.set_device(device_id)
 
     if "black" in style:
         plt.style.use("dark_background")
