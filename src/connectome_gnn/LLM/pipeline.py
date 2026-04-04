@@ -725,10 +725,8 @@ Fix the bug. Do NOT make other changes."""
 
 
 def run_local_test_plot(state: ExplorationState, batch: BatchInfo):
-    """PHASE 3.5: Run test and plot locally (cluster mode — cluster only did training)."""
-    from GNN_PlotFigure import data_plot
-
-    print(f"\n\033[93mPHASE 3.5: Running test and plot locally for {batch.n_slots} slots\033[0m")
+    """PHASE 3.5: Run test locally (cluster mode — cluster only did training)."""
+    print(f"\n\033[93mPHASE 3.5: Running test locally for {batch.n_slots} slots\033[0m")
     for slot_idx, iteration in enumerate(batch.iterations):
         slot = slot_idx
         if not batch.job_results.get(slot, False):
@@ -757,27 +755,13 @@ def run_local_test_plot(state: ExplorationState, batch: BatchInfo):
             log_file=log_file,
         )
 
-        # Plot (skip SVD analysis to reduce memory and time during parallel runs)
-        slot_config_file = state.pre_folder + state.slot_names[slot]
-        folder_name = log_path(state.pre_folder, 'tmp_results') + '/'
-        os.makedirs(folder_name, exist_ok=True)
-        data_plot(
-            config=config,
-            config_file=slot_config_file,
-            epoch_list=['best'],
-            style='color',
-            extended='plots',
-            device=state.device,
-            log_file=log_file,
-            skip_svd=True,
-        )
+        # Skip plotting during LLM exploration to avoid OOM
+        # (metrics are already captured during data_test above)
         log_file.close()
 
 
 def run_local_pipeline(state: ExplorationState, batch: BatchInfo):
-    """PHASE 2 local: Generate + train + test + plot sequentially."""
-    from GNN_PlotFigure import data_plot
-
+    """PHASE 2 local: Generate + train + test sequentially."""
     print(f"\n\033[93mPHASE 2: Training {batch.n_slots} flyvis models locally (sequential)\033[0m")
 
     for slot_idx, iteration in enumerate(batch.iterations):
@@ -834,20 +818,8 @@ def run_local_pipeline(state: ExplorationState, batch: BatchInfo):
             log_file=log_file,
         )
 
-        # Plot (skip SVD analysis to reduce memory and time during parallel runs)
-        slot_config_file = state.pre_folder + state.slot_names[slot]
-        folder_name = log_path(state.pre_folder, 'tmp_results') + '/'
-        os.makedirs(folder_name, exist_ok=True)
-        data_plot(
-            config=config,
-            config_file=slot_config_file,
-            epoch_list=['best'],
-            style='color',
-            extended='plots',
-            device=state.device,
-            log_file=log_file,
-            skip_svd=True
-        )
+        # Skip plotting during LLM exploration to avoid OOM
+        # (metrics are already captured during data_test above)
 
         # Copy models to exploration dir
         slot_log_dir = os.path.join('log', config.config_file)
