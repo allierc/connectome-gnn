@@ -757,7 +757,7 @@ def run_local_test_plot(state: ExplorationState, batch: BatchInfo):
             log_file=log_file,
         )
 
-        # Plot
+        # Plot (skip SVD analysis to reduce memory and time during parallel runs)
         slot_config_file = state.pre_folder + state.slot_names[slot]
         folder_name = log_path(state.pre_folder, 'tmp_results') + '/'
         os.makedirs(folder_name, exist_ok=True)
@@ -769,6 +769,7 @@ def run_local_test_plot(state: ExplorationState, batch: BatchInfo):
             extended='plots',
             device=state.device,
             log_file=log_file,
+            skip_svd=True,
         )
         log_file.close()
 
@@ -833,7 +834,7 @@ def run_local_pipeline(state: ExplorationState, batch: BatchInfo):
             log_file=log_file,
         )
 
-        # Plot
+        # Plot (skip SVD analysis to reduce memory and time during parallel runs)
         slot_config_file = state.pre_folder + state.slot_names[slot]
         folder_name = log_path(state.pre_folder, 'tmp_results') + '/'
         os.makedirs(folder_name, exist_ok=True)
@@ -844,7 +845,8 @@ def run_local_pipeline(state: ExplorationState, batch: BatchInfo):
             style='color',
             extended='plots',
             device=state.device,
-            log_file=log_file
+            log_file=log_file,
+            skip_svd=True
         )
 
         # Copy models to exploration dir
