@@ -85,6 +85,8 @@ def parse_args():
                         help="skip confirmation prompt when starting fresh (use with --batch-configs)")
     parser.add_argument("--batch-iterations", type=int, default=84,
                         help="number of iterations for batch run (default: 84)")
+    parser.add_argument("--skip-svd", action="store_true", default=True,
+                        help="skip SVD analysis during plotting to reduce memory usage (default: True for LLM explorations)")
     return parser.parse_args()
 
 
