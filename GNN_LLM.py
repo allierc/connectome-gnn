@@ -165,6 +165,9 @@ if __name__ == "__main__":
     args = parse_args()
     root_dir = os.path.dirname(os.path.abspath(__file__))
 
+    # Print device info
+    print(f"\033[92mUsing device: {args.device}\033[0m")
+
     # Handle batch config processing
     if args.batch_configs:
         print(f"\033[94mRunning batch of {len(args.batch_configs)} explorations\033[0m")
