@@ -147,7 +147,7 @@ State your choice (exploration vs robustness test) in the log entry.
 - **Partially robust**: 2-3 slots > 0.8
 - **Fragile**: 0-1 slots > 0.8
 
-## Block Partition
+## Block Structure
 
 These blocks focus on whether GT edges change the optimal hyperparameters compared to the FC baseline. The reduced search space (9,722 vs 22,952 edges) may shift optimal regularization and learning rates.
 
@@ -239,6 +239,52 @@ Destination: `config/drosophila_cx/drosophila_cx_gt_edges_winner.yaml`
 3. Update "Established Principles"
 4. Clear "Current Block"
 5. Carry forward best config
+
+## File Structure
+
+You maintain THREE files:
+
+1. **Full Log (append-only)**: `drosophila_cx_gt_edges_Claude_analysis.md`
+   - Append every iteration's log entry (4 entries per batch)
+   - Never read — human record only
+
+2. **Working Memory (read + update every batch)**: `drosophila_cx_gt_edges_Claude_memory.md`
+   - Read at start, update at end
+   - Contains: robustness comparison table, hypotheses, established principles, current block iterations
+
+3. **User Input (read every batch, acknowledge pending items)**: `user_input.md`
+   - Read at every batch
+   - If "Pending Instructions" section has content: act on it, then move entries to "Acknowledged" section
+
+## Knowledge Base Guidelines
+
+### What to Add to Established Principles
+
+A principle must satisfy ALL of:
+- Observed consistently across 3+ iterations
+- Consistent across all 4 seeds (not just mean, but low variance)
+- States a causal relationship (not just a correlation)
+
+Example: "lr_W=5e-5 with GT edges achieves connectivity_R2 > 0.7 robustly (3/3 iterations, all seeds > 0.65, CV < 5%)"
+
+### What to Add to Open Questions
+
+- Patterns observed 1-2 times
+- Seed-dependent effects (works for some seeds but not others)
+- Contradictions between iterations
+- Theoretical predictions not yet verified
+
+Example: "Does lower W_L2 help GT edges further? Only iter 1 tested with mixed results."
+
+### What to Add to Falsified Hypotheses
+
+When a hypothesis is falsified:
+- State the original hypothesis
+- State the contradicting evidence (iteration number, metrics)
+- State what was learned from the falsification
+- Propose a revised hypothesis if applicable
+
+Example: "Hypothesis: 'GT edges + aggressive lr_W (1e-4) improve over baseline' — Falsified by iter 2 (CV=9%, only 1/4 seeds > 0.7). Revised: 'GT edges require careful lr tuning; aggressive LR increases variance.'"
 
 ## Start Call
 

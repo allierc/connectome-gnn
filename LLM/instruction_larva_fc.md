@@ -63,6 +63,10 @@ Strict **hypothesize -> test -> validate/falsify** cycle:
 - Do NOT skip the baseline — always keep one slot as an unchanged control.
 - In ROBUSTNESS mode: all 4 slots use the same config (different seeds test robustness).
 
+## Scientific Context
+
+The larva **two-population motor model** (Beiran & Litwin-Kumar 2023) simulates a feedforward sensorimotor circuit. The question is whether the GNN can recover synaptic connectivity **without** knowing the true graph structure (FC mode). The GT-edges exploration demonstrated connectivity_R2=0.908 (mean=0.540), establishing an upper bound. In FC mode, the GNN must simultaneously discover 4,222 true edges among 52,670 candidates while learning their weights — a much harder inverse problem testing whether nonlinearity and dynamics provide enough signal for edge discovery.
+
 ## Data Generation
 
 Each slot re-generates data with a **different random seed**.
@@ -113,7 +117,7 @@ dum/dt = (-um + gm * softplus(up @ Jpm) + bm) / taum
 
 Example: embedding_dim=2 -> input_size=3, input_size_update=5.
 
-## Training Parameters
+## Explorable Parameters
 
 | Parameter                 | Default | Description                                  |
 | ------------------------- | ------- | -------------------------------------------- |
@@ -161,7 +165,7 @@ State your choice (exploration vs robustness test) in the log entry.
 - **Partially robust**: 2-3 slots > 0.5
 - **Fragile**: 0-1 slots > 0.5
 
-## Block Partition
+## Block Structure
 
 These blocks start from the best GT-edges config with use_gt_edges=false. The focus is on whether FC mode requires different regularization and whether the edge search space is tractable.
 
@@ -254,6 +258,52 @@ Destination: `config/larva/larva_fc_winner.yaml`
 3. Update "Established Principles"
 4. Clear "Current Block"
 5. Carry forward best config
+
+## File Structure
+
+You maintain THREE files:
+
+1. **Full Log (append-only)**: `larva_fc_Claude_analysis.md`
+   - Append every iteration's log entry (4 entries per batch)
+   - Never read — human record only
+
+2. **Working Memory (read + update every batch)**: `larva_fc_Claude_memory.md`
+   - Read at start, update at end
+   - Contains: robustness comparison table, hypotheses, established principles, current block iterations
+
+3. **User Input (read every batch, acknowledge pending items)**: `user_input.md`
+   - Read at every batch
+   - If "Pending Instructions" section has content: act on it, then move entries to "Acknowledged" section
+
+## Knowledge Base Guidelines
+
+### What to Add to Established Principles
+
+A principle must satisfy ALL of:
+- Observed consistently across 3+ iterations
+- Consistent across all 4 seeds (not just mean, but low variance)
+- States a causal relationship (not just a correlation)
+
+Example: "coeff_W_L1=5e-5 achieves connectivity_R2 > 0.5 robustly on larva FC (3/3 iterations, all seeds > 0.48, CV < 5%)"
+
+### What to Add to Open Questions
+
+- Patterns observed 1-2 times
+- Seed-dependent effects (works for some seeds but not others)
+- Contradictions between iterations
+- Theoretical predictions not yet verified
+
+Example: "Does stronger g_phi_diff improve stability? Only iter 2 tested with mixed results."
+
+### What to Add to Falsified Hypotheses
+
+When a hypothesis is falsified:
+- State the original hypothesis
+- State the contradicting evidence (iteration number, metrics)
+- State what was learned from the falsification
+- Propose a revised hypothesis if applicable
+
+Example: "Hypothesis: 'Aggressive W_L1 prunes edges without losing signal' — Falsified by iter 3 (W_L1=1e-4 caused CV=15%, only 2/4 seeds > 0.45). Revised: 'FC mode needs balanced L1; too strong L1 over-prunes before gradients stabilize.'"
 
 ## Start Call
 

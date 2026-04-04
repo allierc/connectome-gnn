@@ -26,6 +26,17 @@ Strict **hypothesize -> test -> validate/falsify** cycle. Change **EXACTLY ONE**
 
 Seeds are **forced by the pipeline** — DO NOT modify them in config files.
 
+**IMPORTANT**: `noise_model_level` is set to **0.5** in the base config. Do NOT change it — this file is specifically for the noise=0.5 experiment.
+
+## Noise Model
+
+Two independent noise sources in the training data:
+
+1. **Dynamics noise** (`noise_model_level=0.5`): `v(t+1) = v(t) + dt * f(v, W, I) + epsilon_dyn(t)`, epsilon_dyn ~ N(0, 0.5)
+2. **Measurement noise** (`measurement_noise_level=0.0`): Clean observations
+
+At high noise with GT edges, test whether strong noise helps or hinders MLP Jacobian extraction compared to GNN advantage.
+
 ## CX Ring Attractor Model
 
 ```
@@ -67,7 +78,7 @@ output = [dv_1/dt, ..., dv_152/dt]                     (152 dims)
 - **Exploration** (default): Slot 0 = parent/control. Slots 1-3 each change one parameter.
 - **Robustness test**: ALL 4 slots use the SAME config (different seeds).
 
-## Block Partition
+## Block Structure
 
 | Block | Focus                    | Parameters to scan                          | Ranges                                                          |
 | ----- | ------------------------ | ------------------------------------------- | --------------------------------------------------------------- |
@@ -80,6 +91,52 @@ output = [dv_1/dt, ..., dv_152/dt]                     (152 dims)
 ## Winner Config
 
 Destination: `config/drosophila_cx/drosophila_cx_mlp_gt_edges_noise05_winner.yaml`
+
+## File Structure
+
+You maintain THREE files:
+
+1. **Full Log (append-only)**: `drosophila_cx_mlp_gt_edges_noise05_Claude_analysis.md`
+   - Append every iteration's log entry (4 entries per batch)
+   - Never read — human record only
+
+2. **Working Memory (read + update every batch)**: `drosophila_cx_mlp_gt_edges_noise05_Claude_memory.md`
+   - Read at start, update at end
+   - Contains: robustness comparison table, hypotheses, established principles, current block iterations
+
+3. **User Input (read every batch, acknowledge pending items)**: `user_input.md`
+   - Read at every batch
+   - If "Pending Instructions" section has content: act on it, then move entries to "Acknowledged" section
+
+## Knowledge Base Guidelines
+
+### What to Add to Established Principles
+
+A principle must satisfy ALL of:
+- Observed consistently across 3+ iterations
+- Consistent across all 4 seeds (not just mean, but low variance)
+- States a causal relationship (not just a correlation)
+
+Example: "lr=1e-3 with hidden_dim=256 on GT edges + noise=0.5 achieves rollout_pearson > 0.65 (3/3 iterations, all seeds > 0.60, CV < 5%)"
+
+### What to Add to Open Questions
+
+- Patterns observed 1-2 times
+- Seed-dependent effects (works for some seeds but not others)
+- Contradictions between iterations
+- Theoretical predictions not yet verified
+
+Example: "Does MLP benefit more from high noise at reduced edge space? Only iter 1 tested."
+
+### What to Add to Falsified Hypotheses
+
+When a hypothesis is falsified:
+- State the original hypothesis
+- State the contradicting evidence (iteration number, metrics)
+- State what was learned from the falsification
+- Propose a revised hypothesis if applicable
+
+Example: "Hypothesis: 'High noise enriches Jacobian activity covariance, improving W R2' — Falsified by iter 2 (noise=0.5 connectivity_R2 lower than expected). Revised: 'Noise magnitude dominates; structured W (GNN) needed for robust recovery.'"
 
 ## Start Call
 

@@ -1,5 +1,20 @@
 # FlyVis GNN Training Exploration — flyvis_noise_005
 
+## Scientific Context
+
+The research question asks: **Can a GNN-based inverse problem solver achieve stable, seed-robust circuit recovery from noisy neural recordings?** Standard machine learning emphasizes test accuracy; here, we emphasize **stability across random initializations and data resamples**. Even if mean connectivity_R2=0.98, occasional failures at connectivity_R2 < 0.87 are unacceptable because they indicate the learned model is unstable and unreliable. This exploration uses agentic LLM-driven hyperparameter search to find regimes where the GNN learning is fundamentally robust — not lucky.
+
+## Noise Model
+
+The FlyVis simulation includes realistic dynamics noise:
+
+```
+v_i(t+1) = v_i(t) + dt * f(v_i(t), W, a_i, I_i(t)) + epsilon_i(t)
+epsilon_i ~ N(0, 0.05)  [dynamics noise]
+```
+
+Training data is corrupted with this noise at every time step. The GNN must learn to invert the noisy dynamics and recover the true connectivity W despite this signal corruption. Seed robustness is challenging because noise-fitting solutions can emerge at different points depending on random initialization and batch composition.
+
 ## Goal
 
 Test **robustness of GNN training** for the **Drosophila visual system** with noise level 0.05 (DAVIS input).
@@ -369,7 +384,7 @@ If `user_input.md` has content in "Pending Instructions":
 3. All 4 configs should be **identical** — the pipeline assigns different seeds automatically
 4. Write the hypothesis to memory.md before editing configs
 
-## Block Partition (suggested)
+## Block Structure (suggested)
 
 | Block | Focus                  | Parameters                                                               |
 | ----- | ---------------------- | ------------------------------------------------------------------------ |

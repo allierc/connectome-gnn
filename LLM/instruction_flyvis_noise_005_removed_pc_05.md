@@ -218,6 +218,65 @@ At each block boundary:
 4. Clear "Current Block Iterations"
 5. Carry forward best config as parent for next block
 
+## File Structure
+
+You maintain **THREE** files:
+
+### 1. Full Log (append-only)
+
+**File**: `{llm_task_name}_analysis.md`
+
+- Append every iteration's log entry (4 entries per batch)
+- Append block summaries at block boundaries
+- **Never read** — human record only
+
+### 2. Working Memory (read + update every batch)
+
+**File**: `{llm_task_name}_memory.md`
+
+- Read at start, update at end
+- Contains: robustness comparison table, hypotheses, established principles, current block iterations
+- Keep ≤ 500 lines
+
+### 3. User Input (read every batch, acknowledge pending items)
+
+**File**: `user_input.md`
+
+- Read at every batch
+- If "Pending Instructions" section has content: act on it, then move entries to "Acknowledged" section with timestamp
+- Do not remove acknowledged entries — append them with `[ACK {batch}]` marker
+
+## Knowledge Base Guidelines
+
+### What to Add to Established Principles
+
+A principle must satisfy ALL of:
+
+1. Observed consistently across **3+ iterations**
+2. Consistent across **all 4 seeds** (not just mean, but low variance)
+3. States a **causal relationship** (not just a correlation)
+
+Examples:
+- ✓ "W_L1 with annealing (n_epochs=2) safely enables sparsification without collapsing connectivity (3/3 iterations, CV < 5%)"
+- ✓ "Direct W_L1 (n_epochs=1, rate=0) drives conn_R2→0 on pruned graphs — incompatible with edge removal"
+- ✗ "LR tuning helps" (too vague, needs specifics)
+
+### What to Add to Open Questions
+
+- Patterns observed 1-2 times
+- Seed-dependent effects (works for some seeds but not others)
+- Contradictions between iterations
+- Theoretical predictions not yet verified
+
+### What to Add to Falsified Hypotheses
+
+When a hypothesis is falsified:
+
+1. State the original hypothesis
+2. State the contradicting evidence (iteration number, metrics)
+3. State what was learned from the falsification
+4. Propose a revised hypothesis if applicable
+
 ## Start Call
 
 When prompt says `PARALLEL START`:

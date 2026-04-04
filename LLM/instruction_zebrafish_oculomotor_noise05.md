@@ -48,6 +48,12 @@ Strict **hypothesize -> test -> validate/falsify** cycle:
 
 **CRITICAL**: You can only hypothesize. Only training results validate or falsify.
 
+## Noise Model
+
+Single noise source in the training data:
+
+**Dynamics noise** (`noise_model_level=0.5`): `v(t+1) = v(t) + dt * f(v, W, I) + epsilon_dyn(t)`, epsilon_dyn ~ N(0, 0.5)
+
 ### CAUSALITY RULE (MANDATORY — READ THIS)
 
 **If you change more than one parameter per slot, you CANNOT attribute the effect. This is a fatal experimental design error.**
@@ -56,6 +62,10 @@ Strict **hypothesize -> test -> validate/falsify** cycle:
 - Do NOT change parameters outside the current block focus.
 - Do NOT skip the baseline — always keep one slot as an unchanged control.
 - In ROBUSTNESS mode: all 4 slots use the same config (different seeds test robustness).
+
+## Scientific Context
+
+The zebrafish **oculomotor integrator** under **strong noise (sigma=0.5)** maps the high end of the noise dose-response curve. The noise=0.05 exploration (128 iterations) proved process noise breaks linear degeneracy (R2=0.918 best, mean=0.371, 46× improvement). At sigma=0.5, the question is whether stronger noise further improves identifiability or creates a signal-to-noise tradeoff that degrades performance. The bimodal convergence observed at this noise level (50% failure) suggests the SNR limit may be reached — too much noise adds measurement error that contradicts the structural constraints of the linear integrator.
 
 ## Data Generation
 
@@ -100,7 +110,7 @@ dr/dt = (-r + W @ r + I(t) * v_in) / tau
 
 Example: embedding_dim=2 -> input_size=3, input_size_update=5.
 
-## Training Parameters
+## Explorable Parameters
 
 | Parameter                 | Default      | Description                                  |
 | ------------------------- | ------------ | -------------------------------------------- |
@@ -147,7 +157,7 @@ State your choice (exploration vs robustness test) in the log entry.
 - **Partially robust**: 2-3 slots > 0.7
 - **Fragile**: 0-1 slots > 0.7
 
-## Block Partition
+## Block Structure
 
 These blocks build on the noise=0.05 exploration results. The parent config already incorporates the best hyperparameters found there (lr_W=1e-4, W_L1=1e-4, W_L2=1e-5, W_sign=0). The focus is on whether 10x stronger noise changes the optimal operating point.
 
@@ -242,6 +252,52 @@ Destination: `config/zebrafish_oculomotor/zebrafish_oculomotor_noise05_winner.ya
 3. Update "Established Principles"
 4. Clear "Current Block"
 5. Carry forward best config
+
+## File Structure
+
+You maintain THREE files:
+
+1. **Full Log (append-only)**: `zebrafish_oculomotor_noise05_Claude_analysis.md`
+   - Append every iteration's log entry (4 entries per batch)
+   - Never read — human record only
+
+2. **Working Memory (read + update every batch)**: `zebrafish_oculomotor_noise05_Claude_memory.md`
+   - Read at start, update at end
+   - Contains: robustness comparison table, hypotheses, established principles, current block iterations
+
+3. **User Input (read every batch, acknowledge pending items)**: `user_input.md`
+   - Read at every batch
+   - If "Pending Instructions" section has content: act on it, then move entries to "Acknowledged" section
+
+## Knowledge Base Guidelines
+
+### What to Add to Established Principles
+
+A principle must satisfy ALL of:
+- Observed consistently across 3+ iterations
+- Consistent across all 4 seeds (not just mean, but low variance)
+- States a causal relationship (not just a correlation)
+
+Example: "Strong noise (sigma=0.5) maintains high connectivity_R2 > 0.95 robustly (3/3 iterations, all seeds > 0.93, CV < 2%)" OR "Signal-to-noise tradeoff emerges at sigma=0.5; R2 plateaus or declines despite stronger noise (3/3 iterations, all seeds < 0.92)"
+
+### What to Add to Open Questions
+
+- Patterns observed 1-2 times
+- Seed-dependent effects (works for some seeds but not others)
+- Contradictions between iterations
+- Theoretical predictions not yet verified
+
+Example: "Is there an optimal noise level between 0.05 and 0.5? Dose-response curve unclear — may peak and decline."
+
+### What to Add to Falsified Hypotheses
+
+When a hypothesis is falsified:
+- State the original hypothesis
+- State the contradicting evidence (iteration number, metrics)
+- State what was learned from the falsification
+- Propose a revised hypothesis if applicable
+
+Example: "Hypothesis: 'Stronger noise always improves identifiability' — Falsified by iter 3 (noise=0.5 showed 50% failure rate, mean CV=12%). Revised: 'Noise helps but has SNR limits; strong noise can create new failure modes.'"
 
 ## Start Call
 

@@ -8,8 +8,6 @@ The known_ode model uses the **exact activation function**: `g_phi = exp(g) * so
 
 **Starting hypothesis**: "Known ODE + noise=0.5 matches or exceeds GNN (GNN: 0.999)"
 
-Data is **re-generated each iteration** with a different seed to verify seed independence.
-
 ### Metrics (ranked by importance)
 
 1. **connectivity_R2** (PRIMARY) — R² between learned W and ground-truth W
@@ -22,15 +20,23 @@ Informational: onestep_pearson, spectral_radius_learned vs spectral_radius_true,
 
 ## Scientific Method
 
-Strict **hypothesize -> test -> validate/falsify** cycle:
+This exploration follows a strict **hypothesize → test → validate/falsify** cycle:
 
-1. **Hypothesize**: Form a specific, testable prediction
-2. **Design experiment**: Change **EXACTLY ONE** parameter at a time to understand causality
-3. **Run training**: 4 seeds — you cannot predict the outcome
-4. **Analyze results**: Use metrics AND cross-seed variance
-5. **Update understanding**: Revise hypotheses based on evidence
+1. **Hypothesize**: Based on available data (metrics, seed variance, prior results), form a specific, testable hypothesis about which parameter controls robustness
+2. **Design experiment**: Choose a mutation that specifically tests the hypothesis — change **exactly ONE parameter at a time**
+3. **Run training**: The experiment runs across 4 seeds — you cannot predict the outcome
+4. **Analyze results**: Use both metrics AND cross-seed variance to evaluate whether the hypothesis was supported or contradicted
+5. **Update understanding**: Revise hypotheses based on evidence. A falsified hypothesis is valuable information.
 
-**CRITICAL**: You can only hypothesize. Only training results validate or falsify.
+**CRITICAL**: You can only hypothesize. Only training results can validate or falsify your hypotheses. Never assume a hypothesis is correct without experimental evidence.
+
+**Evidence hierarchy:**
+
+| Level | Criterion | Action |
+| --- | --- | --- |
+| **Established** | Consistent across 3+ iterations AND 4/4 seeds | Add to Principles |
+| **Tentative** | Observed 1-2 times or inconsistent across seeds | Add to Open Questions |
+| **Contradicted** | Conflicting evidence across iterations/seeds | Note in Open Questions |
 
 ### CAUSALITY RULE (MANDATORY — READ THIS)
 
@@ -39,12 +45,29 @@ Strict **hypothesize -> test -> validate/falsify** cycle:
 - In EXPLORATION mode: Slot 0 = parent/baseline (unchanged control). Slots 1-3 each change **exactly one** parameter from the parent.
 - In ROBUSTNESS mode: all 4 slots use the same config (different seeds test robustness).
 
-## Data Generation
+## CRITICAL: Data is RE-GENERATED per slot
 
-Each slot re-generates data with a **different random seed**.
-Seeds are **forced by the pipeline** — DO NOT modify them in config files.
+Each slot re-generates its data with a **different random seed**.
+Both `simulation.seed` and `training.seed` are **forced by the pipeline** — DO NOT modify them in config files.
+
+Seed formula (set automatically by GNN_LLM.py):
+- `simulation.seed = iteration * 1000 + slot` (controls data generation)
+- `training.seed = iteration * 1000 + slot + 500` (controls weight init & training randomness)
+
+The actual seed values are provided in the prompt for each slot — **log them in your iteration entries**.
+
+Simulation parameters (n_neurons, n_frames, etc.) stay fixed — **DO NOT change them**.
 
 **IMPORTANT**: `noise_model_level` is set to **0.5** in the base config. Do NOT change it — this file is specifically for the noise=0.5 experiment.
+
+## Noise Model
+
+Two independent noise sources in the training data:
+
+1. **Dynamics noise** (`noise_model_level=0.5`): `v(t+1) = v(t) + dt * f(v, W, I) + epsilon_dyn(t)`, epsilon_dyn ~ N(0, 0.5)
+2. **Measurement noise** (`measurement_noise_level=0.0`): Clean observations
+
+At high noise, even with perfect ODE structure, parameter estimation becomes very difficult. Testing whether known_ode can exceed GNN performance under strong noise.
 
 ## CX Ring Attractor Model
 
@@ -177,6 +200,52 @@ Destination: `config/drosophila_cx/drosophila_cx_known_ode_noise05_winner.yaml`
 # Key config differences from baseline:
 #   - [list]
 ```
+
+## File Structure
+
+You maintain THREE files:
+
+1. **Full Log (append-only)**: `drosophila_cx_known_ode_noise05_Claude_analysis.md`
+   - Append every iteration's log entry (4 entries per batch)
+   - Never read — human record only
+
+2. **Working Memory (read + update every batch)**: `drosophila_cx_known_ode_noise05_Claude_memory.md`
+   - Read at start, update at end
+   - Contains: robustness comparison table, hypotheses, established principles, current block iterations
+
+3. **User Input (read every batch, acknowledge pending items)**: `user_input.md`
+   - Read at every batch
+   - If "Pending Instructions" section has content: act on it, then move entries to "Acknowledged" section
+
+## Knowledge Base Guidelines
+
+### What to Add to Established Principles
+
+A principle must satisfy ALL of:
+- Observed consistently across 3+ iterations
+- Consistent across all 4 seeds (not just mean, but low variance)
+- States a causal relationship (not just a correlation)
+
+Example: "lr_W=1e-3 with lr=1e-3 on noise=0.5 achieves connectivity_R2 > 0.8 robustly (3/3 iterations, all seeds > 0.75, CV < 3%)"
+
+### What to Add to Open Questions
+
+- Patterns observed 1-2 times
+- Seed-dependent effects (works for some seeds but not others)
+- Contradictions between iterations
+- Theoretical predictions not yet verified
+
+Example: "Does higher batch_size stabilize W recovery at extreme noise? Only iter 2 tested."
+
+### What to Add to Falsified Hypotheses
+
+When a hypothesis is falsified:
+- State the original hypothesis
+- State the contradicting evidence (iteration number, metrics)
+- State what was learned from the falsification
+- Propose a revised hypothesis if applicable
+
+Example: "Hypothesis: 'Strong noise enriches state-space, improving known_ode recovery' — Falsified by iter 1 (noise=0.5 gave lower R2 than clean). Revised: 'Noise magnitude dominates; known structure insufficient without careful regularization.'"
 
 ## Start Call
 

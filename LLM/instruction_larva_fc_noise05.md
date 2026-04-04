@@ -61,6 +61,12 @@ Strict **hypothesize -> test -> validate/falsify** cycle:
 
 **CRITICAL**: You can only hypothesize. Only training results validate or falsify.
 
+## Noise Model
+
+Single noise source in the training data:
+
+**Dynamics noise** (`noise_model_level=0.5`): `v(t+1) = v(t) + dt * f(v, W, I) + epsilon_dyn(t)`, epsilon_dyn ~ N(0, 0.5)
+
 ### CAUSALITY RULE (MANDATORY — READ THIS)
 
 **If you change more than one parameter per slot, you CANNOT attribute the effect. This is a fatal experimental design error.**
@@ -69,6 +75,10 @@ Strict **hypothesize -> test -> validate/falsify** cycle:
 - Do NOT change parameters outside the current block focus.
 - Do NOT skip the baseline — always keep one slot as an unchanged control.
 - In ROBUSTNESS mode: all 4 slots use the same config (different seeds test robustness).
+
+## Scientific Context
+
+The larva **two-population motor model** (Beiran & Litwin-Kumar 2023) under **strong noise (sigma=0.5)** tests whether noise alone can solve the FC degeneracy problem without relying on strong explicit regularization. Evidence from CX and zebrafish FC modes shows dramatic improvement: CX from 0.804 to 0.999, zebrafish from 0.022 to 0.988. For larva FC, the question is whether strong noise (sigma=0.5) makes the 52,670-edge search space tractable, and whether the parent config's regularization needs reduction because noise provides implicit regularization.
 
 ## Data Generation
 
@@ -122,7 +132,7 @@ dum/dt = (-um + gm * softplus(up @ Jpm) + bm) / taum
 
 Example: embedding_dim=4 -> input_size=5, input_size_update=7.
 
-## Training Parameters
+## Explorable Parameters
 
 | Parameter                 | Default | Description                                  |
 | ------------------------- | ------- | -------------------------------------------- |
@@ -174,7 +184,7 @@ State your choice (exploration vs robustness test) in the log entry.
 - **Partially robust**: 2-3 slots > 0.7
 - **Fragile**: 0-1 slots > 0.7
 
-## Block Partition
+## Block Structure
 
 These blocks start from the best FC noise-free config with noise_model_level=0.5. Strong noise is expected to dramatically improve FC performance (CX: 0.999, zebrafish: 0.988 at noise=0.5). The focus is on re-tuning regularization (noise already regularizes), preventing W collapse (observed in zebrafish at noise=0.5), and maximizing the noise benefit.
 
@@ -270,6 +280,52 @@ Destination: `config/larva/larva_fc_noise05_winner.yaml`
 3. Update "Established Principles"
 4. Clear "Current Block"
 5. Carry forward best config
+
+## File Structure
+
+You maintain THREE files:
+
+1. **Full Log (append-only)**: `larva_fc_noise05_Claude_analysis.md`
+   - Append every iteration's log entry (4 entries per batch)
+   - Never read — human record only
+
+2. **Working Memory (read + update every batch)**: `larva_fc_noise05_Claude_memory.md`
+   - Read at start, update at end
+   - Contains: robustness comparison table, hypotheses, established principles, current block iterations
+
+3. **User Input (read every batch, acknowledge pending items)**: `user_input.md`
+   - Read at every batch
+   - If "Pending Instructions" section has content: act on it, then move entries to "Acknowledged" section
+
+## Knowledge Base Guidelines
+
+### What to Add to Established Principles
+
+A principle must satisfy ALL of:
+- Observed consistently across 3+ iterations
+- Consistent across all 4 seeds (not just mean, but low variance)
+- States a causal relationship (not just a correlation)
+
+Example: "coeff_W_L1=1e-4 achieves connectivity_R2 > 0.8 robustly on larva FC noise=0.5 (3/3 iterations, all seeds > 0.78, CV < 3%)"
+
+### What to Add to Open Questions
+
+- Patterns observed 1-2 times
+- Seed-dependent effects (works for some seeds but not others)
+- Contradictions between iterations
+- Theoretical predictions not yet verified
+
+Example: "Strong noise breaks degeneracy, but regularization still required? Evidence mixed so far."
+
+### What to Add to Falsified Hypotheses
+
+When a hypothesis is falsified:
+- State the original hypothesis
+- State the contradicting evidence (iteration number, metrics)
+- State what was learned from the falsification
+- Propose a revised hypothesis if applicable
+
+Example: "Hypothesis: 'Strong noise eliminates need for L1 sparsity' — Falsified by iter 4 (L1=0 caused CV=18%, only 1/4 seeds > 0.75). Revised: 'Strong noise helps but moderate L1 still necessary for generalization.'"
 
 ## Start Call
 

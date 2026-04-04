@@ -308,6 +308,7 @@ Slot 3: config=[params] → conn_R2=X, tau_R2=Y, Vrest_R2=Z, rollout_r=W, time=T
 Best slot: [which] with conn_R2=X
 Verdict: [supported/falsified/inconclusive]
 Next: [what to test in next batch]
+```
 
 ## Winner Config (COMPULSORY)
 
@@ -341,8 +342,6 @@ This is a COMPULSORY task — do not skip it.
 
 Destination: `config/fly/flyvis_noise_005_010_rc_winner.yaml`
 
-```
-
 ### Step 4: Acknowledge User Input
 
 ### Step 5: Design Next 4 Configs
@@ -363,6 +362,32 @@ Based on results, design 4 configs for the next batch. Each config should test a
 4. Move falsified hypotheses to "Falsified Hypotheses"
 5. Clear "Current Block"
 6. Note best config found so far
+
+## Knowledge Base Guidelines
+
+### What to Add to Established Principles
+
+A principle must satisfy ALL of:
+
+1. Observed consistently across **3+ iterations**
+2. Consistent across **all 4 slots** (not just mean, but low variance)
+3. States a **causal relationship** (not just a correlation)
+
+### What to Add to Open Questions
+
+- Patterns observed 1-2 times
+- Slot-dependent effects (works for some slots but not others)
+- Contradictions between iterations
+- Theoretical predictions not yet verified
+
+### What to Add to Falsified Hypotheses
+
+When a hypothesis is falsified:
+
+1. State the original hypothesis
+2. State the contradicting evidence (iteration number, metrics)
+3. State what was learned from the falsification
+4. Propose a revised hypothesis if applicable
 
 ## Start Call
 
