@@ -139,11 +139,11 @@ This gives **3 independent causal tests** per batch while maintaining slot-0 bas
 - **Partially robust**: 2-3 slots > 0.80
 - **Fragile**: ≤1 slots > 0.75
 
-## Block Structure — 7 Blocks × 12 Iterations Each
+## Block Structure — 10 Blocks × 8 Iterations Each
 
-With `n_iter_block=12` and `iterations=84`, the exploration spans 7 hypothesis-driven blocks:
+With `n_iter_block=8` and `iterations=80`, the exploration spans 10 hypothesis-driven blocks:
 
-### Block 1 (iter 1-12): Learning Rate Sweep
+### Block 1 (iter 1-8): Learning Rate Sweep
 **Hypothesis**: "Incomplete connectivity requires careful learning rates. Optimal LR will achieve connectivity_R2 > 0.80 while maintaining stability across seeds"
 
 **Test**: Sweep `lr_W` and `lr` systematically
@@ -154,7 +154,7 @@ With `n_iter_block=12` and `iterations=84`, the exploration spans 7 hypothesis-d
 
 **Expected outcome**: Identify LR range for incomplete connectivity.
 
-### Block 2 (iter 13-24): W Regularization
+### Block 2 (iter 9-16): W Regularization
 **Hypothesis**: "Missing edges may require different regularization balance. Test whether reduced L2 helps infer missing connectivity."
 
 **Test**: Sweep `coeff_W_L1, coeff_W_L2, coeff_W_sign`
@@ -165,7 +165,7 @@ With `n_iter_block=12` and `iterations=84`, the exploration spans 7 hypothesis-d
 
 **Expected outcome**: Validate regularization trade-off with missing edges.
 
-### Block 3 (iter 25-36): W Initialization + LR
+### Block 3 (iter 17-24): W Initialization + LR
 **Hypothesis**: "Sparse initialization may be better for incomplete connectivity. Test whether zero-initialization helps."
 
 **Test**: Sweep `w_init_mode, w_init_scale` with optimized `lr_W, lr` from Block 1
@@ -176,7 +176,7 @@ With `n_iter_block=12` and `iterations=84`, the exploration spans 7 hypothesis-d
 
 **Expected outcome**: Determine whether initialization strategy changes with incomplete connectivity.
 
-### Block 4 (iter 37-48): Batch Size + LR
+### Block 4 (iter 25-32): Batch Size + LR
 **Hypothesis**: "Incomplete connectivity may benefit from larger batch sizes for stable gradient estimates."
 
 **Test**: Sweep `batch_size` with LRs from Block 1-3
@@ -187,20 +187,35 @@ With `n_iter_block=12` and `iterations=84`, the exploration spans 7 hypothesis-d
 
 **Expected outcome**: Quantify batch size effect with missing edges.
 
-### Block 5 (iter 49-60): Free Exploration
+### Block 5 (iter 33-40): Free Exploration
 **Hypothesis**: Form based on Blocks 1-4 results. Explore parameter combinations not yet tested.
 
 Test combinations of best settings from previous blocks.
 
-### Block 6 (iter 61-72): Refinement
+### Block 6 (iter 41-48): Refinement
 **Hypothesis**: Polish the best config to maximize connectivity_R2.
 
 Fine-tune learning rates and regularization around the best config found.
 
-### Block 7 (iter 73-84): Robustness Validation
+### Block 7 (iter 49-56): Robustness Validation I
 **Strategy**: Switch to **robustness mode** (all 4 slots same config, different seeds).
 
-**Final test**: Run the best config from Blocks 1-6 on 4 independent seeds to validate connectivity_R2 > 0.85 with CV < 4%.
+**Test**: Run the best config from Blocks 1-6 on 4 independent seeds to validate connectivity_R2 > 0.85 with CV < 4%.
+
+### Block 8 (iter 57-64): Parameter Interaction
+**Hypothesis**: Test interactions between parameters that individually showed promise. Combine best findings from Blocks 1-7.
+
+Test combinations of best parameters from previous blocks.
+
+### Block 9 (iter 65-72): Fine-Tuning
+**Hypothesis**: Polish and refine the best config to maximize connectivity_R2 and minimize CV.
+
+Fine-tune learning rates and regularization around the current best.
+
+### Block 10 (iter 73-80): Final Robustness Validation
+**Strategy**: Final robustness check on best config found.
+
+**Final test**: Run the best config from Blocks 1-9 on 4 independent seeds to validate connectivity_R2 > 0.85 with CV < 4%.
 
 ## File Structure
 
@@ -296,7 +311,7 @@ For next batch, design 4 configs based on current results.
 
 ## Block Boundaries — Winner Config (COMPULSORY)
 
-**At every block end** (iterations 12, 24, 36, 48, 60, 72, 84), you MUST save the best config as a winner file:
+**At every block end** (iterations 8, 16, 24, 32, 40, 48, 56, 64, 72, 80), you MUST save the best config as a winner file:
 
 1. Identify best iteration (highest connectivity_R2)
 2. Copy config from `log/Claude_exploration/LLM_flyvis_noise_005_removed_pc_20_known_ode/config/iter_XXX_slot_YY.yaml`
