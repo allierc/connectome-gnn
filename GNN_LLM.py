@@ -87,6 +87,8 @@ def parse_args():
                         help="number of iterations for batch run (default: 84)")
     parser.add_argument("--skip-svd", action="store_true", default=True,
                         help="skip SVD analysis during plotting to reduce memory usage (default: True for LLM explorations)")
+    parser.add_argument("--device", type=str, default="cuda",
+                        help="PyTorch device to use (e.g., 'cuda', 'cuda:0', 'cuda:1', 'cpu'; default: 'cuda')")
     return parser.parse_args()
 
 
@@ -104,11 +106,13 @@ def run_single_exploration(task, config_name, iterations, args, root_dir, skip_c
             self.resume = original_args.resume
             self.fresh = original_args.fresh
             self.cluster = original_args.cluster
+            self.device = original_args.device
 
     modified_args = ModifiedArgs(args, option_args)
 
     # --- Setup ---
     state = setup_exploration(modified_args, root_dir, skip_confirm=skip_confirm)
+    state.device = args.device  # Override device from command line if provided
     init_slot_configs(state, is_resume=args.resume)
     init_shared_files(state, is_resume=args.resume)
 
@@ -173,6 +177,7 @@ if __name__ == "__main__":
         # Single config mode
         # --- Setup ---
         state = setup_exploration(args, root_dir, skip_confirm=args.skip_confirm)
+        state.device = args.device  # Override device from command line if provided
         init_slot_configs(state, is_resume=args.resume)
         init_shared_files(state, is_resume=args.resume)
 
