@@ -152,8 +152,8 @@ When prompt says `PARALLEL START`:
 
 ### Robustness Comparison Table
 
-| Iter | Config summary | conn_R2 (mean+-std) | CV% | onestep_pearson | rollout_pearson | tau_R2 | Robust? | Hypothesis |
-| ---- | -------------- | ------------------- | --- | --------------- | --------------- | ------ | ------- | ---------- |
+| Iter | Config summary | conn_R2 (mean+-std) | CV% | onestep_pearson | rollout_pearson | tau_R2 | V_rest_R2 | Robust? | Hypothesis |
+| ---- | -------------- | ------------------- | --- | --------------- | --------------- | ------ | --------- | ------- | ---------- |
 
 ### Established Principles
 

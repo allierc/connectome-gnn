@@ -34,7 +34,7 @@ from .state import BatchInfo, ExplorationState
 # Setup
 # ---------------------------------------------------------------------------
 
-def setup_exploration(args, root_dir: str) -> ExplorationState:
+def setup_exploration(args, root_dir: str, skip_confirm: bool = False) -> ExplorationState:
     """Parse CLI args, load config, create ExplorationState.
 
     Args:
@@ -141,10 +141,13 @@ def setup_exploration(args, root_dir: str) -> ExplorationState:
             print("\033[91mWARNING: fresh start will erase existing results in:\033[0m")
             print(f"\033[91m  {_analysis_check}\033[0m")
             print(f"\033[91m  {exploration_dir}/{llm_task_name}_memory.md\033[0m")
-            answer = input("\033[91mContinue? (y/n): \033[0m").strip().lower()
-            if answer != 'y':
-                print("Aborted.")
-                sys.exit(0)
+            if not skip_confirm:
+                answer = input("\033[91mContinue? (y/n): \033[0m").strip().lower()
+                if answer != 'y':
+                    print("Aborted.")
+                    sys.exit(0)
+            else:
+                print("\033[91m(skipping confirmation, proceeding with fresh start)\033[0m")
         print("\033[93mfresh start\033[0m")
 
     mode = "cluster" if state.cluster_enabled else "local (sequential)"
