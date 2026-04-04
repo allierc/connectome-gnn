@@ -118,6 +118,25 @@ State your choice (exploration vs robustness test) in the log entry.
 - **Partially robust**: 2-3 slots > 0.7
 - **Fragile**: 0-1 slots > 0.7
 
+## Block Structure
+
+**CRITICAL**: The exploration is organized into blocks for hypothesis testing. Each block contains `n_iter_block` iterations (from config file, typically 12).
+
+With `iterations=84` and `n_iter_block=12`:
+- **Total blocks**: 7 (iterations 1-12, 13-24, 25-36, 37-48, 49-60, 61-72, 73-84)
+- **Per batch**: 4 parallel slots (determined by `n_parallel`, typically 4)
+- **Per block**: 3 batches of 4 slots each = 12 iterations
+
+**How to read the prompt**:
+The prompt will say: `Block info: block {N}, iterations {X}-{Y}/{n_iter_block} within block`
+
+Example: `block 1, iterations 1-4/12 within block` means:
+- You are in block 1 (first hypothesis test)
+- Current batch is iterations 1-4
+- Block 1 will eventually run iterations 1-12
+
+**Your role**: Plan a coherent hypothesis for the entire block (12 iterations = 3 batches of 4 slots). The 4 slots per batch let you test multiple parameters in parallel, while the 12 iterations per block give you 3 rounds to refine based on evidence.
+
 ## Block Partition
 
 | Block | Focus                          | Parameters to scan                          | Ranges                                                                                                           |
