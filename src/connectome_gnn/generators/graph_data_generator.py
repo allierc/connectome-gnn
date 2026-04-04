@@ -70,6 +70,15 @@ def data_generate(
     compute_ranks=True,
 ):
 
+    # Set CUDA device if specified (prevents slow cross-device kernel launches and implicit transfers)
+    if device is not None and 'cuda' in str(device):
+        device_str = str(device)
+        if ':' in device_str:
+            device_id = int(device_str.split(':')[1])
+        else:
+            device_id = 0
+        torch.cuda.set_device(device_id)
+
     logger.info(f"dataset: {config.dataset}")
 
     if (os.path.isdir(graphs_data_path(config.dataset, "x_list_train"))
