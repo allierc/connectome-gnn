@@ -755,8 +755,21 @@ def run_local_test_plot(state: ExplorationState, batch: BatchInfo):
             log_file=log_file,
         )
 
-        # Skip plotting during LLM exploration to avoid OOM
-        # (metrics are already captured during data_test above)
+        # Plot with skip_svd=True to skip expensive SVD analysis and avoid OOM
+        from GNN_PlotFigure import data_plot
+        slot_config_file = state.pre_folder + state.slot_names[slot]
+        folder_name = log_path(state.pre_folder, 'tmp_results') + '/'
+        os.makedirs(folder_name, exist_ok=True)
+        data_plot(
+            config=config,
+            config_file=slot_config_file,
+            epoch_list=['best'],
+            style='color',
+            extended='plots',
+            device=state.device,
+            log_file=log_file,
+            skip_svd=True,
+        )
         log_file.close()
 
 
@@ -818,8 +831,21 @@ def run_local_pipeline(state: ExplorationState, batch: BatchInfo):
             log_file=log_file,
         )
 
-        # Skip plotting during LLM exploration to avoid OOM
-        # (metrics are already captured during data_test above)
+        # Plot with skip_svd=True to skip expensive SVD analysis and avoid OOM
+        from GNN_PlotFigure import data_plot
+        slot_config_file = state.pre_folder + state.slot_names[slot]
+        folder_name = log_path(state.pre_folder, 'tmp_results') + '/'
+        os.makedirs(folder_name, exist_ok=True)
+        data_plot(
+            config=config,
+            config_file=slot_config_file,
+            epoch_list=['best'],
+            style='color',
+            extended='plots',
+            device=state.device,
+            log_file=log_file,
+            skip_svd=True,
+        )
 
         # Copy models to exploration dir
         slot_log_dir = os.path.join('log', config.config_file)
