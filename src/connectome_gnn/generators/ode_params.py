@@ -301,6 +301,7 @@ class ODEParamsBase:
     "flyvis_A_tanh", "flyvis_B_tanh", "flyvis_C_tanh",
     "flyvis_A_NULL", "flyvis_B_NULL", "flyvis_C_NULL",
     "flyvis_known_ode",
+    "flyvis_hybrid",
 )
 @dataclass
 class FlyVisODEParams(ODEParamsBase):
