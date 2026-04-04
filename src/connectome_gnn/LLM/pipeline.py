@@ -130,7 +130,14 @@ def setup_exploration(args, root_dir: str, skip_confirm: bool = False) -> Explor
         state.start_iteration = detect_last_iteration(
             analysis_path_probe, config_save_dir_probe, state.n_parallel
         )
-        if state.start_iteration > 1:
+        # Ensure start_iteration is always >= 1 (iterations must be positive)
+        if state.start_iteration < 1:
+            print(f"\033[91mWARNING: detect_last_iteration returned {state.start_iteration} < 1\033[0m")
+            print(f"\033[91m  Analysis path: {analysis_path_probe}\033[0m")
+            print(f"\033[91m  Config dir: {config_save_dir_probe}\033[0m")
+            print(f"\033[93m  Clamping to 1 (fresh start)\033[0m")
+            state.start_iteration = 1
+        elif state.start_iteration > 1:
             print(f"\033[93mAuto-resume: resuming from batch starting at {state.start_iteration}\033[0m")
         else:
             print("\033[93mfresh start (no previous iterations found)\033[0m")
