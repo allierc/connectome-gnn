@@ -1,0 +1,113 @@
+# Winner config: drosophila_cx_noise05_winner.yaml
+# Source: g_phi_norm=0.01 robustness test (6/6+1 seeds near-perfect)
+# Exploration: 128 iterations, 12 blocks (COMPLETE)
+# Date: 2026-03-29
+#
+# Why this is the winner:
+#   - g_phi_norm=0.01 ELIMINATES bimodal convergence — ALL 6 seeds near-perfect (was ~50% mid-range)
+#   - W_L2=1e-4 constrains W magnitude, g_phi_norm=0.01 constrains activation output scale
+#   - Noise=0.5 exceeds noise=0.05 (0.972) and clean (0.574) — monotonic noise dose-response
+#   - g_phi_norm therapeutic window is narrow: 0.005 catastrophic, 0.01 optimal, 0.03 degrades rollout
+#   - ROBUST: 6/6 seeds converged near-perfect, 0% failure, CV=0.09%
+#
+# Metrics:
+#   connectivity_R2: 0.9997 (best single seed, Iters 95, 103)
+#   robust_mean:     0.999 +/- 0.001 (6 seeds, CV=0.09%)
+#   rollout_pearson: 0.997 (mean over 6 seeds)
+#   cluster_accuracy: 0.491 (mean over 6 seeds)
+#   spectral_radius: 2.538 (true: 2.545, 99.7% recovery, best seed)
+#
+# Key config differences from baseline:
+#   - coeff_W_L2: 1e-4 (was 5e-5) — constrains W magnitude
+#   - coeff_g_phi_norm: 0.01 (was 0) — constrains activation output scale, eliminates bimodal convergence
+#   - noise_model_level=0.5 (vs 0.05 in parent exploration)
+description: "Drosophila adult central complex ring attractor \u2014 intrinsic noise\
+  \ 0.5 (from best noise005 config)"
+dataset: drosophila_cx_noise05_00
+simulation:
+  connectivity_file: to be specified
+  adjacency_matrix: ''
+  params:
+  - - 1.0
+    - 1.0
+  n_neurons: 152
+  n_input_neurons: 152
+  n_neuron_types: 6
+  n_edges: 0
+  n_frames: 10000
+  delta_t: 0.1
+  baseline_value: 0
+  noise_model_level: 0.5
+  seed: 7002
+  connconstr_datapath: papers/Code_NN/Code_NN/Data/Figure5
+  connconstr_model: drosophila_cx
+  connconstr_n_trials: 50
+  connconstr_use_pretrained: true
+graph_model:
+  signal_model_name: drosophila_cx
+  prediction: first_derivative
+  input_size: 5
+  n_layers: 3
+  hidden_dim: 96
+  output_size: 1
+  input_size_update: 7
+  n_layers_update: 3
+  hidden_dim_update: 96
+  aggr_type: add
+  embedding_dim: 4
+  update_type: generic
+  g_phi_positive: true
+plotting:
+  colormap: tab10
+  arrow_length: 1
+  xlim:
+  - -2.5
+  - 2.5
+  ylim:
+  - -5
+  - 5
+training:
+  n_epochs: 2
+  n_runs: 1
+  device: cpu
+  batch_size: 2
+  batch_ratio: 1
+  small_init_batch_size: false
+  sparsity: none
+  data_augmentation_loop: 105
+  recurrent_training: false
+  use_gt_edges: false
+  lr_W: 0.0003
+  lr: 0.001
+  lr_embedding: 0.001
+  coeff_g_phi_diff: 1500
+  coeff_f_theta_diff: 0
+  coeff_f_theta_msg_diff: 50
+  coeff_g_phi_norm: 0.01
+  coeff_g_phi_weight_L1: 0.0
+  coeff_f_theta_weight_L1: 0
+  coeff_g_phi_weight_L2: 0
+  coeff_f_theta_weight_L2: 0.001
+  coeff_W_L1: 3.0e-06
+  coeff_W_L2: 0.0001
+  coeff_W_sign: 0.0
+  dale_law: true
+  regul_annealing_rate: 0
+  w_init_mode: zeros
+  w_init_scale: 0.01
+  lr_scheduler: none
+  lr_scheduler_warmup_iters: 100
+  lr_scheduler_T0: 1000
+  lr_scheduler_T_mult: 2
+  lr_scheduler_eta_min_ratio: 0.01
+  seed: 7502
+claude:
+  n_epochs: 2
+  data_augmentation_loop: 105
+  n_iter_block: 12
+  ucb_c: 0
+  n_parallel: 4
+  node_name: l4
+  n_cpus: 1
+  generate_data: true
+  training_time_target_min: 60

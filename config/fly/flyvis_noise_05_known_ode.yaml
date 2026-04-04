@@ -78,4 +78,4 @@ claude:
   n_iter_block: 12
   ucb_c: 1.414
   generate_data: true
-  node_name: l4
+  node_name: a100
