@@ -62,12 +62,17 @@ dv_i/dt = f_theta(v_i, a_i, sum_j W_ij * g_phi(v_j, a_j)^2, I_i)
 | -------------- | ------- | -------------------------------------------------------------------------------- |
 | `lr_W`         | 0.0009  | Learning rate for W (synaptic weights)                                           |
 | `lr`           | 0.0018  | Learning rate for other params (tau, Vrest)                                      |
-| `w_init_mode`  | RANDN   | W initialization mode: RANDN (std=1), RANDN_SCALED (std=scale/sqrt(N)), or ZEROS |
+| `w_init_mode`  | randn   | W initialization mode: MUST BE LOWERCASE: `randn` (std=1), `randn_scaled` (std=scale/sqrt(N)), or `zeros` |
 | `w_init_scale` | 1.0     | Scaling factor for RANDN_SCALED mode                                             |
 | `batch_size`   | 4       | Batch size                                                                       |
 | `coeff_W_L1`   | 0       | L1 sparsity on W                                                                 |
 | `coeff_W_L2`   | 0.00015 | L2 penalty on W                                                                  |
 | `coeff_W_sign` | 1.5e-06 | Dale's law penalty on W                                                          |
+
+**CRITICAL CONSTRAINTS:**
+- `batch_size` MUST be an INTEGER (1, 2, 4, 8, etc.)
+- `n_epochs` (in both claude and training sections) MUST be an INTEGER (1, 2, 3, etc.) — NOT floats like 0.5
+- `w_init_mode` MUST be LOWERCASE: `randn`, `randn_scaled`, or `zeros` (NOT uppercase)
 
 ## Parallel Mode — 4 Slots Per Batch
 
