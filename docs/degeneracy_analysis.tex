@@ -89,6 +89,7 @@ Neurons (subsampled) & 982 / 13,741 \\
 Timesteps (subsampled) & 8,000 / 64,000 \\
 SVD & full (982 singular values) \\
 Effective rank at 99\% variance (noise-free) & \textbf{45} \\
+Effective rank at 99\% variance (noise-0.05) & \textbf{134} \\
 Effective rank at 99\% variance (noise-0.5) & 781 \\
 \bottomrule
 \end{tabular}
@@ -129,6 +130,22 @@ noise-0.5 & 781 & 0 & \textbf{0.0\%} \\
 \end{tabular}
 \end{center}
 
+\noindent\textbf{Breakdown across variance thresholds (noise-free):}
+
+\begin{center}
+\begin{tabular}{rrrr}
+\toprule
+Variance threshold & Effective rank $r$ & Null space dim & \% identifiable \\
+\midrule
+90\%  & 1 & 420,415 & 3.2\% \\
+95\%  & 2 & 407,427 & 6.1\% \\
+\textbf{99\%}  & \textbf{45}  & \textbf{115,223} & \textbf{73.5\%} \\
+99.5\% & 90 & 26,413 & 93.9\% \\
+99.9\% & 238 & 0 & 100.0\% \\
+\bottomrule
+\end{tabular}
+\end{center}
+
 \noindent\textbf{Interpretation:} The global rank reveals a clear monotonic trend: as noise increases, the effective rank of the population activity rises (45 → 134 → 781), shrinking the null space and improving identifiability (115,223 → 10,227 → 0). At the noise-free threshold, the global rank 45 is lower than the mean per-neuron rank (17.5), which appears counterintuitive but reflects that the global rank measures the rank of the \emph{full population}, whereas per-neuron rank measures individual neurons' activity matrices---neurons with high in-degree can have lower individual ranks due to correlated inputs. The global SVD provides an \emph{upper bound} on each neuron's rank assuming the global correlations apply uniformly, but this bound is tight for the noise-free case.
 
 \subsection{Step 2: Per-neuron SVD approach (empirical measurement)}
@@ -149,14 +166,14 @@ where $r_i$ is the smallest integer such that the top $r_i$ singular values of $
 \toprule
 Noise condition & Effective rank (mean) & Null space dim & \textbf{Degree of degeneracy} \\
 \midrule
-noise-free & 17.5 & 193,824 & \textbf{44.6\%} \\
-noise-0.05 & 17.5 & 193,824 & \textbf{44.6\%} \\
-noise-0.5 & 26.7 & 68,601 & \textbf{15.8\%} \\
+noise-free & 6.2 & 348,545 & \textbf{80.3\%} \\
+noise-0.05 & 11.1 & 282,273 & \textbf{65.0\%} \\
+noise-0.5 & 26.7 & 69,047 & \textbf{15.9\%} \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-\noindent\textbf{Note:} The noise-free and noise-0.05 rows are identical, suggesting the noise level $\sigma = 0.05$ is too small to noticeably affect the per-neuron singular value spectrum. This requires verification: the data loading and noise injection should be checked to ensure different noise levels are being analyzed. The noise-0.5 data clearly shows the effect of stronger noise: mean rank increases to 26.7, shrinking the null space by 65\%.
+\noindent\textbf{Note:} These results use training data (x\_list\_train/voltage.zarr, 64,000 frames subsampled to 8,000), which is 7.5× larger than test data and reveals much stronger degeneracy. The mean per-neuron effective rank is very low (6.2 for noise-free), indicating strong within-type correlations at the individual neuron level. Noise dramatically reduces degeneracy: rank increases 6.2 → 11.1 → 26.7 as $\sigma$ increases, shrinking null space from 80.3\% to 15.9\%.
 
 The per-neuron null space exceeds the global SVD bound (115,223) by a factor of 1.2--2.7, indicating that per-neuron analysis reveals stronger degeneracy than the population-level upper bound. Noise at $\sigma = 0.5$ monotonically increases the effective rank per neuron, reducing the null space and improving identifiability: in noise-free data, $r_i$ averages $17.5 \pm 18.4$, but with added process noise (noise-0.5), the rank increases significantly, shrinking the null space.
 
@@ -211,21 +228,31 @@ noise-0.5 & 0 & 0 & \textbf{0.0\%} \\
 
 \subsection*{Unified view: Degree of degeneracy across all three approaches}
 
-The three approaches measure degeneracy at different scales. At the 99\% variance threshold:
+The three approaches measure degeneracy at different scales and data regimes. At the 99\% variance threshold:
 
 \begin{center}
 \begin{tabular}{lrr}
 \toprule
 Approach & Null space dim & \textbf{Degree of degeneracy} \\
 \midrule
-Global SVD & 0 & \textbf{0.0\%} \\
-Per-neuron SVD & 193,824 & \textbf{44.6\%} \\
+Global SVD & 115,223 & \textbf{26.5\%} \\
+Per-neuron SVD & 348,545 & \textbf{80.3\%} \\
 Structural per-type & 121,100 & \textbf{27.9\%} \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-\noindent\textbf{Why the estimates diverge.} The global SVD (0\%) is extremely optimistic: it assumes every neuron's rank is capped by the population-wide effective rank (400), which exceeds the maximum in-degree (208), leaving zero null space. However, this misses the \emph{within-neuron} degeneracy created by correlated presynaptic populations. The per-neuron SVD (44.6\%) directly measures each neuron's singular value spectrum and reveals the actual rank deficit: on average, neurons have effective rank $\sim 17.5$ despite in-degrees up to 208, creating 193,824 null dimensions. The structural count (27.9\%) explains the mechanical source: same-type neurons across columns produce correlated activity, contributing exactly 121,100 null dimensions. The per-neuron SVD exceeds the structural count because it captures both within-type (121,100) and cross-type (73,000) correlations.
+\noindent\textbf{Why the estimates diverge.} The three methods reveal different aspects of the degeneracy:
+
+\begin{itemize}[nosep]
+\item \textbf{Global SVD (26.5\%):} Computes the rank of the full $8000 \times 13741$ population activity matrix by subsampling. This coarse bound assumes the population-level rank applies uniformly to all neurons, missing strong within-neuron correlations.
+
+\item \textbf{Per-neuron SVD (80.3\%):} Measures the rank of each individual neuron's $8000 \times d_i$ activity matrix $\mathbf{H}_i$. Mean per-neuron rank is very low ($6.2$) despite in-degrees up to 208, revealing that individual neurons see highly correlated presynaptic activity. This is the \emph{most direct empirical measurement} of true degeneracy.
+
+\item \textbf{Structural per-type (27.9\%):} Counts exact null dimensions from connectome structure (same-type edges with $k>1$ contributing $k-1$ dimensions). This mechanistic bound explains the within-type portion but misses cross-type correlations.
+\end{itemize}
+
+The per-neuron SVD (80.3%) is substantially higher than both the global SVD and structural counts because it reveals that individual neurons experience much stronger input correlations than the population-level analysis suggests.
 
 \noindent\textbf{Reconciliation:} These three estimates are \emph{not} contradictory---they measure different aspects:
 \begin{itemize}[nosep]
