@@ -6,9 +6,9 @@
 
 python GNN_LLM.py -o generate_train_test_plot_Claude \
   --batch-configs \
-    flyvis_noise_005_removed_pc_20_known_ode \
     flyvis_noise_005_null_edges_pc_400_known_ode \
-  --batch-iterations 84 \
+    flyvis_noise_005_removed_pc_20_known_ode \
+  --batch-iterations 64 \
   --cluster \
   --resume \
   --skip-confirm \
