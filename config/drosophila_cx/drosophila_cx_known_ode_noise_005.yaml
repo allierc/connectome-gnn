@@ -1,5 +1,5 @@
 description: "Drosophila CX — Known ODE baseline, intrinsic noise 0.05"
-dataset: drosophila_cx_known_ode_noise005
+dataset: drosophila_cx_known_ode_noise_005
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ""

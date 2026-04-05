@@ -1,5 +1,5 @@
-description: "Zebrafish oculomotor integrator — intrinsic noise 0.5 (from best noise005 config)"
-dataset: zebrafish_oculomotor_noise05
+description: "Zebrafish oculomotor integrator — intrinsic noise 0.5 (from best noise_005 config)"
+dataset: zebrafish_oculomotor_noise_05
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ""

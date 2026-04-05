@@ -231,10 +231,10 @@ This is a COMPULSORY task — do not skip it.
 
 1. Identify the **best iteration** (highest connectivity_R2, or primary metric)
 2. Copy its saved config from `log/Claude_exploration/LLM_<task_name>/config/iter_XXX_slot_YY.yaml`
-3. Save it to `config/zebrafish_oculomotor/zebrafish_oculomotor_gt_edges_noise05_winner.yaml` with a YAML comment header:
+3. Save it to `config/zebrafish_oculomotor/zebrafish_oculomotor_gt_edges_noise_05_winner.yaml` with a YAML comment header:
 
 ```yaml
-# Winner config: zebrafish_oculomotor_gt_edges_noise05_winner.yaml
+# Winner config: zebrafish_oculomotor_gt_edges_noise_05_winner.yaml
 # Source: iter_XXX_slot_YY (connectivity_R2 = X.XXX)
 # Exploration: N iterations, M blocks
 # Date: YYYY-MM-DD
@@ -254,7 +254,7 @@ This is a COMPULSORY task — do not skip it.
 #   - [list the parameters that differ from the initial baseline]
 ```
 
-Destination: `config/zebrafish_oculomotor/zebrafish_oculomotor_gt_edges_noise05_winner.yaml`
+Destination: `config/zebrafish_oculomotor/zebrafish_oculomotor_gt_edges_noise_05_winner.yaml`
 
 ### Step 4: Acknowledge User Input
 
@@ -272,11 +272,11 @@ Destination: `config/zebrafish_oculomotor/zebrafish_oculomotor_gt_edges_noise05_
 
 You maintain THREE files:
 
-1. **Full Log (append-only)**: `zebrafish_oculomotor_gt_edges_noise05_Claude_analysis.md`
+1. **Full Log (append-only)**: `zebrafish_oculomotor_gt_edges_noise_05_Claude_analysis.md`
    - Append every iteration's log entry (4 entries per batch)
    - Never read — human record only
 
-2. **Working Memory (read + update every batch)**: `zebrafish_oculomotor_gt_edges_noise05_Claude_memory.md`
+2. **Working Memory (read + update every batch)**: `zebrafish_oculomotor_gt_edges_noise_05_Claude_memory.md`
    - Read at start, update at end
    - Contains: robustness comparison table, hypotheses, established principles, current block iterations
 
@@ -327,7 +327,7 @@ When prompt says `PARALLEL START`:
 # Working Memory Structure
 
 ```markdown
-# Working Memory: zebrafish_oculomotor_gt_edges_noise05
+# Working Memory: zebrafish_oculomotor_gt_edges_noise_05
 
 ## Paper Summary (update at every block boundary)
 

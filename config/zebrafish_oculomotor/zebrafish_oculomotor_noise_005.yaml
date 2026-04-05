@@ -1,5 +1,5 @@
-description: "Zebrafish oculomotor integrator — GT edges + intrinsic noise 0.05 (from best GT edges config)"
-dataset: zebrafish_oculomotor_gt_edges_noise005
+description: "Zebrafish oculomotor integrator — intrinsic noise 0.05 (from best clean config)"
+dataset: zebrafish_oculomotor_noise_005
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ""
@@ -46,13 +46,13 @@ training:
   n_epochs: 20
   n_runs: 1
   device: cpu
-  batch_size: 4
+  batch_size: 2
   batch_ratio: 1
   small_init_batch_size: false
   sparsity: none
   data_augmentation_loop: 160
-  lr_W: 0.0003
-  lr: 0.0003
+  lr_W: 0.0001
+  lr: 0.001
   lr_embedding: 0.001
   coeff_g_phi_diff: 1500
   coeff_f_theta_msg_diff: 0
@@ -62,13 +62,11 @@ training:
   coeff_g_phi_weight_L2: 0
   coeff_f_theta_weight_L2: 0.001
   coeff_W_L1: 1.0e-05
-  coeff_W_L2: 1.5e-06
+  coeff_W_L2: 1.0e-05
   coeff_W_sign: 0.0
   regul_annealing_rate: 0
   w_init_mode: "randn_scaled"
   w_init_scale: 1.0
-  use_gt_edges: true
-  dale_law: true
   seed: 42
 claude:
   n_epochs: 2

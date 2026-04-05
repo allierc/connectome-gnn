@@ -1,28 +1,30 @@
-# Zebrafish Oculomotor (Noise 0.05) — LLM Exploration
+# Drosophila Larva (Noise 0.5) — LLM Exploration
 
 ## Goal
 
-Maximize **connectivity_R2** for the **zebrafish oculomotor integrator** (Beiran & Litwin-Kumar 2023, Figure 5g-i) under **intrinsic noise (sigma=0.05)**.
+Maximize **connectivity_R2** for the **Drosophila larva two-population motor model** (Beiran & Litwin-Kumar 2023, Figure 5a-c) under **intrinsic noise (sigma=0.5)**.
 
-This exploration starts from the **best clean config** and tests whether noise changes the optimal hyperparameters. **This is the most scientifically interesting noise experiment**: the linear integrator has degenerate W solutions because clean dynamics are low-rank. Process noise enriches the activity covariance, potentially making W more identifiable and breaking the degeneracy that makes clean FC training intractable (best clean R2 ~ 0.02).
+This exploration starts from the **best noise=0.05 config** (W_L2=2e-5 gave best single-seed 0.801). Cross-model evidence strongly suggests noise=0.5 improves W recovery: flyvis 0.990, CX 0.9997, zebrafish 0.988. However, noise=0.5 also introduces bimodal convergence (50% failure in zebrafish) — the larva softplus model may show similar instability.
 
 Data is **re-generated each iteration** with a different seed to verify seed independence.
 
-### Parent config (best clean)
+### Parent config (best noise=0.05)
 
 ```
 lr_W: 1e-4
 lr: 1e-3
 lr_embedding: 1e-3
 n_epochs: 2
-data_augmentation_loop: 160
-w_init_mode: randn_scaled
-coeff_W_L1: 1e-5
-coeff_W_L2: 1e-5
+data_augmentation_loop: 600
+w_init_mode: zeros
+coeff_W_L1: 1e-6
+coeff_W_L2: 2e-5
+coeff_W_sign: 0.05
 coeff_g_phi_diff: 1500
 coeff_f_theta_weight_L2: 0.001
-use_gt_edges: false
-noise_model_level: 0.05
+coeff_f_theta_msg_diff: 50
+use_gt_edges: true
+noise_model_level: 0.5
 ```
 
 ### Metrics (ranked by importance)
@@ -31,9 +33,9 @@ noise_model_level: 0.05
 2. **rollout_pearson** (SECONDARY) — autoregressive rollout Pearson r on noise-free data
 3. **cluster_accuracy** (THIRD) — neuron type clustering accuracy from learned embeddings
 
-Informational (not for optimization): onestep_pearson, f_theta_R2, g_phi_R2, spectral_radius_learned vs spectral_radius_true.
+Informational (not for optimization): onestep_pearson, f_theta_R2, g_phi_R2, tau_R2.
 
-**NOTE**: tau_R2 and V_rest_R2 are not applicable (fixed tau=1, no resting potential).
+**NOTE**: V_rest_R2 is not applicable (no resting potential). tau_R2 is 0.0 (fixed tau=1.0).
 
 ## Scientific Method
 
@@ -51,7 +53,7 @@ Strict **hypothesize -> test -> validate/falsify** cycle:
 
 Single noise source in the training data:
 
-**Dynamics noise** (`noise_model_level=0.05`): `v(t+1) = v(t) + dt * f(v, W, I) + epsilon_dyn(t)`, epsilon_dyn ~ N(0, 0.05)
+**Dynamics noise** (`noise_model_level=0.5`): `v(t+1) = v(t) + dt * f(v, W, I) + epsilon_dyn(t)`, epsilon_dyn ~ N(0, 0.5)
 
 ### CAUSALITY RULE (MANDATORY — READ THIS)
 
@@ -64,7 +66,7 @@ Single noise source in the training data:
 
 ## Scientific Context
 
-The zebrafish **oculomotor integrator** under **moderate noise (sigma=0.05)** tests the most scientifically critical hypothesis: can noise break the W degeneracy that makes clean linear integrator training fail? Clean FC achieved only R2~0.02, but FC noise=0.05 jumped to 0.918 — a 46× improvement. This demonstrates that noise enriches the activity covariance to make W identifiable. The question here is: can we understand which hyperparameters enable this noise-induced identifiability, and does the mechanism transfer across noise levels?
+The larva **two-population motor model** (Beiran & Litwin-Kumar 2023) under **strong noise (sigma=0.5)** tests whether the previous cross-model pattern holds: does strong noise dramatically improve connectivity_R2 even for low-rank dynamics? FlyVis, CX, and zebrafish all improved to >0.98 at noise=0.5. However, zebrafish showed bimodal convergence (50% failure). For larva, the question is whether softplus nonlinearity prevents the failure mode or whether noise=0.5 introduces seed-dependent instability that requires careful hyperparameter tuning to avoid.
 
 ## Data Generation
 
@@ -76,29 +78,35 @@ Seeds are **forced by the pipeline** — DO NOT modify them in config files.
 
 **DO NOT change `simulation:` parameters** except seed (managed automatically).
 
-**IMPORTANT**: `noise_model_level` is set to **0.05** in the base config. Do NOT change it — this file is specifically for the noise=0.05 experiment.
+**IMPORTANT**: `noise_model_level` is set to **0.5** in the base config. Do NOT change it — this file is specifically for the noise=0.5 experiment.
 
-## Zebrafish Oculomotor Integrator Model
+## Larva Two-Population Motor Model
+
+### Premotor neurons (N=178):
 
 ```
-dr/dt = (-r + W @ r + I(t) * v_in) / tau
+dup/dt = (-up + gp * softplus(up @ Jpp) + bp + wsp @ stim) / taup
 ```
 
-- **609 neurons**, 6 cell types (_Int_, _DOs_, _Axl_, ABD_m, ABD_i, vSPNs), from Goldman lab connectome
-- **LINEAR**: no activation function (identity g_phi)
-- tau=1.0 (fixed), dt=0.001
-- W scaled to spectral radius = 0.9
-- Stimulus: 4-channel multi-direction input along eigenvectors of W
-- 21,000 frames (3 pulse repeats x 7,000), **noise_model_level=0.05**
-- g_phi should learn identity (slope=1), f_theta should learn f(v)=-v (slope=-1)
-- Dynamics purely determined by W eigenstructure
-- Some populations have zeroed connections (ABD, axial, vSPNs)
+### Motor neurons (M=52):
 
-**Key challenge**: Linear ODE means W must be precisely recovered from linear dynamics alone — no nonlinearity to disambiguate. **But noise enriches the activity covariance, potentially breaking the degeneracy.**
+```
+dum/dt = (-um + gm * softplus(up @ Jpm) + bm) / taum
+```
+
+- **230 neurons** total (178 premotor + 52 motor), **2 cell types**, **4,222 edges** (Jpp=2,390 + Jpm=1,832)
+- Activation: **Softplus** (log(1 + exp(x)))
+- Gains gp, gm clamped to [0.5, 5.0]
+- taup, taum ~ 1.0, dt=0.05
+- 2 stimulus conditions (forward/backward), 2 stimulus channels
+- Inhibitory neurons get negative weights (Dale's law in connectome)
+- 2,400 frames, delta_t=0.05, **noise_model_level=0.5**
+- Feedforward: premotor->motor only, plus premotor recurrence
+- Only 2 neuron types -> embedding should separate 2 clusters
 
 ## GNN Architecture
 
-- **g_phi**: Edge message MLP. Maps (v_j, a_j) -> message. `g_phi_positive=false` (linear model needs negative pass-through).
+- **g_phi**: Edge message MLP. Maps (v_j, a_j) -> message. `g_phi_positive=true`.
 - **f_theta**: Node update MLP. Maps (v_i, a_i, aggregated_msg, I_i) -> dv_i/dt.
 - **Embedding a_i**: learnable per-neuron type vector.
 
@@ -111,25 +119,25 @@ Example: embedding_dim=2 -> input_size=3, input_size_update=5.
 
 ## Explorable Parameters
 
-| Parameter                 | Default      | Description                                  |
-| ------------------------- | ------------ | -------------------------------------------- |
-| `lr_W`                    | 1e-4         | Learning rate for connectivity W             |
-| `lr`                      | 1e-3         | Learning rate for g_phi and f_theta MLPs     |
-| `lr_embedding`            | 1e-3         | Learning rate for neuron embeddings          |
-| `n_epochs`                | 2            | Number of training epochs                    |
-| `batch_size`              | 2            | Batch size                                   |
-| `data_augmentation_loop`  | 160          | Data augmentation multiplier                 |
-| `w_init_mode`             | randn_scaled | W initialization: "zeros", "randn_scaled"    |
-| `coeff_g_phi_diff`        | 1500         | Monotonicity penalty on g_phi                |
-| `coeff_f_theta_weight_L2` | 0.001        | L2 penalty on f_theta MLP weights            |
-| `coeff_f_theta_diff`      | 0            | Negative monotonicity of f_theta w.r.t. state v_i |
-| `coeff_f_theta_msg_diff`  | 0            | Positive monotonicity of f_theta w.r.t. message input |
-| `coeff_W_L1`              | 1e-5         | L1 sparsity on W                             |
-| `coeff_W_L2`              | 1e-5         | L2 penalty on W                              |
-| `coeff_W_sign`            | 0            | Dale's law penalty                           |
-| `use_gt_edges`            | false        | If true, train on ground-truth edges only    |
-| `dale_law`                | false        | Enforce Dale's law                           |
-| `noise_model_level`       | 0.05         | **FIXED** — intrinsic noise level for this experiment |
+| Parameter                 | Default | Description                                  |
+| ------------------------- | ------- | -------------------------------------------- |
+| `lr_W`                    | 1e-4    | Learning rate for connectivity W             |
+| `lr`                      | 1e-3    | Learning rate for g_phi and f_theta MLPs     |
+| `lr_embedding`            | 1e-3    | Learning rate for neuron embeddings          |
+| `n_epochs`                | 2       | Number of training epochs                    |
+| `batch_size`              | 2       | Batch size                                   |
+| `data_augmentation_loop`  | 600     | Data augmentation multiplier                 |
+| `w_init_mode`             | zeros   | W initialization: "zeros", "randn_scaled"    |
+| `coeff_g_phi_diff`        | 1500    | Monotonicity penalty on g_phi                |
+| `coeff_f_theta_weight_L2` | 0.001   | L2 penalty on f_theta MLP weights            |
+| `coeff_f_theta_diff`      | 0       | Negative monotonicity of f_theta w.r.t. state v_i |
+| `coeff_f_theta_msg_diff`  | 50      | Positive monotonicity of f_theta w.r.t. message input |
+| `coeff_W_L1`              | 1e-6    | L1 sparsity on W                             |
+| `coeff_W_L2`              | 2e-5    | L2 penalty on W                              |
+| `coeff_W_sign`            | 0.05    | Dale's law penalty                           |
+| `use_gt_edges`            | true    | If false, train on fully connected graph     |
+| `dale_law`                | false   | Enforce Dale's law                           |
+| `noise_model_level`       | 0.5     | **FIXED** — intrinsic noise level for this experiment |
 
 ## Training Time Constraint
 
@@ -158,26 +166,28 @@ State your choice (exploration vs robustness test) in the log entry.
 
 ## Block Structure
 
-These blocks assume lr_W, W_L1, and w_init are already established from the clean exploration. The focus is on whether noise changes the optimal regularization, training volume, or architecture — and critically, whether noise breaks the linear degeneracy.
+These blocks incorporate learnings from larva noise=0.05 (W_L2=2e-5 best lever, seed sensitivity dominant) and cross-model noise=0.5 results (CX: W_L2=1e-4 critical; zebrafish: 50% failure from W collapse).
 
 | Block | Focus                          | Parameters to scan                                                         | Ranges                                                                                                           |
 | ----- | ------------------------------ | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| 1     | **Baseline validation**        | None (robustness test)                                                     | Run best clean config + noise=0.05 across 4 seeds. Does noise improve R2 above the clean 0.02 baseline?          |
-| 2     | **Regularization re-tune**     | `coeff_W_L1`, `coeff_W_L2`, `coeff_W_sign`                                | W_L1: {1e-6, 1e-5, 5e-5}, W_L2: {5e-6, 1e-5, 2e-5}, W_sign: {0, 0.01, 0.05}. Noise changes the gradient landscape — optimal regularization likely shifts. |
-| 3     | **Training volume re-tune**    | `data_augmentation_loop`, `n_epochs`                                       | DAL: {100, 160, 300}, n_epochs: {2, 4}. With richer dynamics from noise, more training may help.                  |
-| 4     | **Architecture + batch_size**  | `hidden_dim`, `embedding_dim`, `batch_size`                                | hidden_dim: {48, 64, 80}, embedding_dim: {2, 4}, batch_size: {2, 4, 8}. From flyvis: bs=4 eliminated catastrophic failures. Noisy data may need larger hidden_dim. |
-| 5     | **Monotonicity + f_theta**     | `coeff_g_phi_diff`, `coeff_f_theta_diff`, `coeff_f_theta_msg_diff`         | g_phi_diff: {500, 1000, 1500}, f_theta_diff: {0, 10, 100}, f_theta_msg_diff: {0, 10, 100}. Linear model: f_theta_msg_diff is well-motivated. |
+| 1     | **Baseline validation**        | None (robustness test)                                                     | Run noise=0.05 best config + noise=0.5 across 4 seeds. Establish baseline under strong noise.                    |
+| 2     | **Regularization re-tune**     | `coeff_W_L1`, `coeff_W_L2`, `coeff_W_sign`                                | W_L2: {1e-5, 2e-5, 5e-5, 1e-4} (CX needed 1e-4 at noise=0.5). W_L1: {1e-7, 1e-6, 5e-6}. W_sign: {0.01, 0.05, 0.1}. |
+| 3     | **Training volume re-tune**    | `data_augmentation_loop`, `n_epochs`                                       | DAL: {400, 600, 900}, n_epochs: {2, 3}. Strong noise may need more training.                                     |
+| 4     | **Architecture + batch_size**  | `hidden_dim`, `embedding_dim`, `batch_size`                                | hidden_dim: {48, 64, 80, 96}, batch_size: {2, 4}. Noisy data may need larger capacity.                           |
+| 5     | **Monotonicity + Dale's law**  | `coeff_g_phi_diff`, `coeff_f_theta_diff`, `coeff_f_theta_msg_diff`, `dale_law` | g_phi_diff: {500, 1000, 1500, 2000}, f_theta_msg_diff: {0, 50, 100}, dale_law: {false, true}. CX found dale_law was key lever. |
 | 6     | **Free exploration I**         | Any parameter                                                              | Consolidate best from blocks 1-5, test novel combinations                                                        |
 | 7     | **Free exploration II**        | Any parameter                                                              | Continue ceiling-breaking attempts                                                                               |
-| 8     | **Final robustness**           | None (robustness test)                                                     | 4-seed robustness test of best config from blocks 1-7                                                            |
+| 8     | **Final robustness**           | None (robustness test)                                                     | Multi-seed robustness confirmation of best config                                                                |
 
-### Noise-specific considerations
+### Noise=0.5 specific considerations (from cross-model evidence)
 
-- **Noise may help zebrafish (KEY HYPOTHESIS)**: The linear integrator has degenerate W solutions because clean dynamics are low-rank. Process noise enriches the activity covariance, potentially making W more identifiable. If noise=0.05 boosts R2 significantly above 0.02, this is a major finding.
-- **Spectral radius monitoring is critical**: The true W has spectral_radius=0.9. Under noise, if the learned spectral radius diverges, W recovery fails. Monitor this diagnostic.
-- **g_phi_diff may be less important**: g_phi learns identity for this linear model — lower values (500) may suffice, freeing capacity for W learning.
-- **f_theta_msg_diff is physically motivated**: f_theta should be monotonically increasing in message (-v + msg + stim). Values up to 100 may help.
-- **W_L1 sparsity may help more under noise**: Many populations are zeroed in the true W — L1 can enforce this structure even when noise obscures it.
+- **Strong noise dramatically helps W recovery in other models**: CX went from 0.804 (clean) to 0.9997 (noise=0.5). Zebrafish from 0.022 to 0.988. Flyvis from 0.926 to 0.990. Expect larva improvement.
+- **W_L2 is the critical lever at noise=0.5**: CX required 10x increase (1e-5 -> 1e-4) to prevent epoch-2 collapse. Start scanning W_L2 early.
+- **Bimodal convergence is common**: Zebrafish had 50% failure (W collapse to near-zero). Watch for spectral radius collapse as diagnostic. Failed seeds show spec_rad << true.
+- **W_L1 may cause W collapse**: At noise=0.5, gradient variance is high. Strong L1 can drive W to zero before signal accumulates. Consider reducing L1.
+- **dale_law=true was breakthrough for CX noise=0.05**: May also help larva stabilize signs under noise.
+- **Feedforward structure limits noise propagation**: Motor neurons receive noisy premotor output but don't feed back — noise effect is asymmetric.
+- **f_theta_msg_diff=50 was strongest regularizer for clean larva**: Keep it and test further.
 
 ## Iteration Workflow
 
@@ -193,7 +203,7 @@ From `analysis.log`: connectivity_R2, rollout_pearson, cluster_accuracy, trainin
 ## Iter N: [robust/partially robust/fragile]
 Node: id=N, parent=P
 Hypothesis tested: "[quoted hypothesis]"
-Config: lr_W=X, lr=Y, lr_emb=Z, DAL=D, n_epochs=E, W_L1=A, W_L2=B, hidden_dim=H, batch_size=B
+Config: lr_W=X, lr=Y, lr_emb=Z, DAL=D, n_epochs=E, W_L1=A, W_L2=B, W_sign=C, hidden_dim=H, batch_size=B
 Slot 0: conn_R2=A, rollout_pearson=B, cluster_acc=C, dale_score=D, sim_seed=S, train_seed=T
 Slot 1: conn_R2=A, rollout_pearson=B, cluster_acc=C, dale_score=D, sim_seed=S, train_seed=T
 Slot 2: conn_R2=A, rollout_pearson=B, cluster_acc=C, dale_score=D, sim_seed=S, train_seed=T
@@ -212,10 +222,10 @@ This is a COMPULSORY task — do not skip it.
 
 1. Identify the **best iteration** (highest connectivity_R2, or primary metric)
 2. Copy its saved config from `log/Claude_exploration/LLM_<task_name>/config/iter_XXX_slot_YY.yaml`
-3. Save it to `config/zebrafish_oculomotor/zebrafish_oculomotor_noise005_winner.yaml` with a YAML comment header:
+3. Save it to `config/larva/larva_noise_05_winner.yaml` with a YAML comment header:
 
 ```yaml
-# Winner config: zebrafish_oculomotor_noise005_winner.yaml
+# Winner config: larva_noise_05_winner.yaml
 # Source: iter_XXX_slot_YY (connectivity_R2 = X.XXX)
 # Exploration: N iterations, M blocks
 # Date: YYYY-MM-DD
@@ -235,7 +245,7 @@ This is a COMPULSORY task — do not skip it.
 #   - [list the parameters that differ from the initial baseline]
 ```
 
-Destination: `config/zebrafish_oculomotor/zebrafish_oculomotor_noise005_winner.yaml`
+Destination: `config/larva/larva_noise_05_winner.yaml`
 
 ```
 
@@ -255,11 +265,11 @@ Destination: `config/zebrafish_oculomotor/zebrafish_oculomotor_noise005_winner.y
 
 You maintain THREE files:
 
-1. **Full Log (append-only)**: `zebrafish_oculomotor_noise005_Claude_analysis.md`
+1. **Full Log (append-only)**: `larva_noise_05_Claude_analysis.md`
    - Append every iteration's log entry (4 entries per batch)
    - Never read — human record only
 
-2. **Working Memory (read + update every batch)**: `zebrafish_oculomotor_noise005_Claude_memory.md`
+2. **Working Memory (read + update every batch)**: `larva_noise_05_Claude_memory.md`
    - Read at start, update at end
    - Contains: robustness comparison table, hypotheses, established principles, current block iterations
 
@@ -276,7 +286,7 @@ A principle must satisfy ALL of:
 - Consistent across all 4 seeds (not just mean, but low variance)
 - States a causal relationship (not just a correlation)
 
-Example: "Process noise (sigma=0.05) breaks linear degeneracy; achieves connectivity_R2 > 0.9 (3/3 iterations, all seeds > 0.88, CV < 2%)"
+Example: "Strong noise (sigma=0.5) breaks weight degeneracy robustly for larva (3/3 iterations, all seeds > 0.85, CV < 3%)"
 
 ### What to Add to Open Questions
 
@@ -285,7 +295,7 @@ Example: "Process noise (sigma=0.05) breaks linear degeneracy; achieves connecti
 - Contradictions between iterations
 - Theoretical predictions not yet verified
 
-Example: "What is the critical noise level where degeneracy breaking begins? Unclear whether 0.01 would suffice or 0.05 is minimal."
+Example: "Does noise=0.5 introduce bimodal convergence like zebrafish? Early results show wide seed variance but unclear pattern."
 
 ### What to Add to Falsified Hypotheses
 
@@ -295,22 +305,22 @@ When a hypothesis is falsified:
 - State what was learned from the falsification
 - Propose a revised hypothesis if applicable
 
-Example: "Hypothesis: 'noise=0.05 alone fixes linear degeneracy without hyperparameter tuning' — Falsified by iter 2 (parent config CV=8%, 2/4 seeds < 0.85). Revised: 'noise breaks degeneracy but regularization balance still critical.'"
+Example: "Hypothesis: 'noise=0.5 universally improves W recovery without cost' — Falsified by iter 3 (seed 2 collapsed, connectivity_R2=0.15). Revised: 'noise=0.5 improves mean but introduces seed variance; regularization must stabilize.'"
 
 ## Start Call
 
 When prompt says `PARALLEL START`:
 
-- Read base config — the parent clean config + noise_model_level=0.05 IS the baseline.
+- Read base config — the parent noise=0.05 best config + noise_model_level=0.5 IS the baseline.
 - Block 1 is a **robustness test**: all 4 slots use the same config (different seeds).
-- Hypothesis: "Process noise (0.05) breaks the linear degeneracy and improves connectivity_R2 significantly above the clean baseline (0.02)"
+- Hypothesis: "The best noise=0.05 config with noise=0.5 achieves connectivity_R2 >= noise=0.05 baseline (0.60) robustly across seeds"
 
 ---
 
 # Working Memory Structure
 
 ```markdown
-# Working Memory: zebrafish_oculomotor_noise005
+# Working Memory: larva_noise_05
 
 ## Paper Summary (update at every block boundary)
 

@@ -1,35 +1,28 @@
-# Drosophila CX GT Edges (Noise 0.5) — LLM Exploration
+# Drosophila CX (Noise 0.05) — LLM Exploration
 
 ## Goal
 
-Maximize **connectivity_R2** for the **Drosophila central complex ring attractor** (Beiran & Litwin-Kumar 2023, Figure 5) using **ground-truth edges** under **intrinsic noise (sigma=0.5)**.
+Maximize **connectivity_R2** for the **Drosophila central complex ring attractor** (Beiran & Litwin-Kumar 2023, Figure 5) under **intrinsic noise (sigma=0.05)**.
 
-This exploration combines GT edges with strong noise (sigma=0.5). CX with FC already achieved near-perfect 0.999 at noise=0.5, and GT edges already provide strong constraints (0.893 best noise-free). The combination should push even higher. The key question is whether GT edges + strong noise achieves near-perfect recovery and eliminates the ~20% catastrophic failure rate seen in noise-free GT edges. The parent config (dale_law=true, g_phi_wL1=0.003) was optimal for noise-free GT — strong noise may substantially change the optimal regularization balance.
+This exploration starts from the **best clean config** and tests whether noise changes the optimal hyperparameters. From flyvis experience, noise 0.05 actually improved connectivity recovery (0.96 vs 0.93 clean) — mild noise may enrich state-space exploration and help the GNN.
 
 Data is **re-generated each iteration** with a different seed to verify seed independence.
 
-### Parent config (best GT edges noise-free, from 104-iter exploration)
+### Parent config (best clean)
 
 ```
-lr_W: 2e-5
-lr: 7e-4
+lr_W: 3e-4
+lr: 1e-3
 lr_embedding: 1e-3
 n_epochs: 2
-data_augmentation_loop: 105
+data_augmentation_loop: 300
 w_init_mode: zeros
-hidden_dim: 96
-embedding_dim: 2
-coeff_g_phi_diff: 1500
-coeff_g_phi_weight_L1: 0.003
-coeff_f_theta_weight_L2: 0.001
-coeff_f_theta_msg_diff: 0
 coeff_W_L1: 3e-6
 coeff_W_L2: 1e-5
-coeff_W_sign: 0.01
-dale_law: true
-use_gt_edges: true
-batch_size: 2
-noise_model_level: 0.5
+coeff_g_phi_diff: 1500
+coeff_f_theta_weight_L2: 0.001
+use_gt_edges: false
+noise_model_level: 0.05
 ```
 
 ### Metrics (ranked by importance)
@@ -73,18 +66,16 @@ Seeds are **forced by the pipeline** — DO NOT modify them in config files.
 
 **DO NOT change `simulation:` parameters** except seed (managed automatically).
 
-**IMPORTANT**: `noise_model_level` is set to **0.5** in the base config. Do NOT change it — this file is specifically for the noise=0.5 experiment.
-
-**IMPORTANT**: `use_gt_edges` is set to **true** in the base config. Do NOT change it — this file is specifically for the GT edges experiment.
+**IMPORTANT**: `noise_model_level` is set to **0.05** in the base config. Do NOT change it — this file is specifically for the noise=0.05 experiment.
 
 ## Noise Model
 
 Two independent noise sources in the training data:
 
-1. **Dynamics noise** (`noise_model_level=0.5`): `v(t+1) = v(t) + dt * f(v, W, I) + epsilon_dyn(t)`, epsilon_dyn ~ N(0, 0.5)
+1. **Dynamics noise** (`noise_model_level=0.05`): `v(t+1) = v(t) + dt * f(v, W, I) + epsilon_dyn(t)`, epsilon_dyn ~ N(0, 0.05)
 2. **Measurement noise** (`measurement_noise_level=0.0`): Clean observations
 
-At this high noise level, even with GT edges' reduced search space, noise becomes a dominant challenge. The question is whether GT edges can overcome the noise-induced uncertainty better than FC.
+At this mild noise level, the signal is largely recoverable but noise still presents challenges. This regime tests whether the learning rates and regularization found in noisier regimes generalize, or if mild noise requires different hyperparameters.
 
 ## CX Ring Attractor Model
 
@@ -92,10 +83,10 @@ At this high noise level, even with GT edges' reduced search space, noise become
 dh/dt = alpha * (-h + exp(g_i) * softplus(h_j + b_j, beta=5) @ J^T + input) / tau_i
 ```
 
-- **152 neurons**, 6 cell types (EPG, EPGt, PEN_a, PEN_b, Delta7, PEG), **9,722 edges** (GT)
+- **152 neurons**, 6 cell types (EPG, EPGt, PEN_a, PEN_b, Delta7, PEG), **9,722 edges**
 - tau bounded [0.2, 5.0], alpha=0.2, beta=5 (softplus sharpness)
 - Pretrained teacher weights from hemibrain connectivity
-- 10,000 frames, delta_t=0.1, bump + velocity stimuli, **noise_model_level=0.5**
+- 10,000 frames, delta_t=0.1, bump + velocity stimuli, **noise_model_level=0.05**
 - Softplus activation -> g_phi should learn softplus-like curves
 - No V_rest -> f_theta learns pure decay slope ~ -alpha/tau_i
 - 6 cell types -> embedding should separate 6 clusters
@@ -118,26 +109,23 @@ Example: embedding_dim=4 -> input_size=5, input_size_update=7.
 
 | Parameter                 | Default | Description                                            |
 | ------------------------- | ------- | ------------------------------------------------------ |
-| `lr_W`                    | 2e-5    | Learning rate for connectivity W                       |
-| `lr`                      | 7e-4    | Learning rate for g_phi and f_theta MLPs               |
+| `lr_W`                    | 3e-4    | Learning rate for connectivity W                       |
+| `lr`                      | 1e-3    | Learning rate for g_phi and f_theta MLPs               |
 | `lr_embedding`            | 1e-3    | Learning rate for neuron embeddings                    |
 | `n_epochs`                | 2       | Number of training epochs                              |
 | `batch_size`              | 2       | Batch size                                             |
-| `data_augmentation_loop`  | 105     | Data augmentation multiplier                           |
+| `data_augmentation_loop`  | 300     | Data augmentation multiplier                           |
 | `w_init_mode`             | zeros   | W initialization: "zeros", "randn_scaled"              |
-| `hidden_dim`              | 96      | MLP hidden dimension (from GT edges winner)            |
-| `embedding_dim`           | 2       | Embedding dimension (from GT edges winner)             |
 | `coeff_g_phi_diff`        | 1500    | Monotonicity penalty on g_phi                          |
-| `coeff_g_phi_weight_L1`   | 0.003   | L1 penalty on g_phi weights (from GT edges winner)     |
 | `coeff_f_theta_weight_L2` | 0.001   | L2 penalty on f_theta MLP weights                      |
 | `coeff_f_theta_diff`      | 0       | Negative monotonicity of f_theta w.r.t. state v_i      |
 | `coeff_f_theta_msg_diff`  | 0       | Positive monotonicity of f_theta w.r.t. message input  |
 | `coeff_W_L1`              | 3e-6    | L1 sparsity on W                                       |
 | `coeff_W_L2`              | 1e-5    | L2 penalty on W                                        |
-| `coeff_W_sign`            | 0.01    | Dale's law penalty                                     |
-| `use_gt_edges`            | true    | **FIXED** — ground-truth edges for this experiment     |
-| `dale_law`                | true    | **Enforce Dale's law** (from GT edges winner — critical stabilizer, +34% improvement) |
-| `noise_model_level`       | 0.5     | **FIXED** — intrinsic noise level for this experiment  |
+| `coeff_W_sign`            | 0       | Dale's law penalty                                     |
+| `use_gt_edges`            | false   | Fully connected graph (N^2-N = 22,952 edges)           |
+| `dale_law`                | false   | Enforce Dale's law                                     |
+| `noise_model_level`       | 0.05    | **FIXED** — intrinsic noise level for this experiment  |
 
 ## Training Time Constraint
 
@@ -160,34 +148,31 @@ State your choice (exploration vs robustness test) in the log entry.
 
 ### Robustness Assessment (when running same config across 4 slots)
 
-- **Robust**: all 4 slots connectivity_R2 > 0.8
-- **Partially robust**: 2-3 slots > 0.8
-- **Fragile**: 0-1 slots > 0.8
+- **Robust**: all 4 slots connectivity_R2 > 0.7
+- **Partially robust**: 2-3 slots > 0.7
+- **Fragile**: 0-1 slots > 0.7
 
 ## Block Structure
 
-These blocks start from the best GT edges noise-free config (dale_law=true, lr_W=2e-5, g_phi_wL1=0.003, hidden_dim=96, embedding_dim=2). The focus is on whether strong noise (sigma=0.5) changes the optimal configuration, and whether the GT+noise combination achieves near-perfect recovery while eliminating catastrophic failures.
+These blocks assume lr_W, W_L1, and w_init are already established from the clean exploration. The focus is on whether noise changes the optimal regularization, training volume, or architecture.
 
 | Block | Focus                          | Parameters to scan                                                         | Ranges                                                                                                           |
 | ----- | ------------------------------ | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| 1     | **Baseline validation**        | None (robustness test)                                                     | Run best GT edges noise-free config with noise=0.5 across 4 seeds. Does strong noise improve above the noise-free baseline (0.893 best, 0.710 mean) and eliminate catastrophic failures? |
-| 2     | **Regularization re-tune**     | `coeff_W_L1`, `coeff_W_L2`, `coeff_g_phi_weight_L1`                       | W_L1: {1e-6, 3e-6, 1e-5, 5e-5}, W_L2: {5e-6, 1e-5, 3e-5, 1e-4}, g_phi_wL1: {0.001, 0.003, 0.01}. Strong noise dramatically changes gradients — regularization may need major re-tuning. |
-| 3     | **Training volume re-tune**    | `data_augmentation_loop`, `n_epochs`, `batch_size`                         | DAL: {70, 105, 200}, n_epochs: {2, 4}, batch_size: {2, 4}. Higher noise = noisier gradients — more averaging (DAL/epochs/bs) may be critical. |
-| 4     | **Architecture**               | `hidden_dim`, `embedding_dim`                                              | hidden_dim: {64, 96, 128}, embedding_dim: {2, 4}. Stronger noise may need more capacity to extract signal.       |
-| 5     | **Monotonicity + f_theta**     | `coeff_g_phi_diff`, `coeff_f_theta_diff`, `coeff_f_theta_msg_diff`         | g_phi_diff: {500, 1000, 1500, 2000}, f_theta_diff: {0, 10, 50}, f_theta_msg_diff: {0, 25, 50, 100}. Strong noise may corrupt learned nonlinearities — stronger constraints may help. |
+| 1     | **Baseline validation**        | None (robustness test)                                                     | Run best clean config + noise=0.05 across 4 seeds. Establish baseline connectivity_R2 under noise.               |
+| 2     | **Regularization re-tune**     | `coeff_W_L1`, `coeff_W_L2`, `coeff_W_sign`                                | W_L1: {1e-6, 3e-6, 1e-5}, W_L2: {5e-6, 1e-5, 2e-5}, W_sign: {0, 0.01, 0.1}. Noise may require different sparsity. |
+| 3     | **Training volume re-tune**    | `data_augmentation_loop`, `n_epochs`                                       | DAL: {200, 300, 500}, n_epochs: {2, 4}. Noise may require more training to average out.                          |
+| 4     | **Architecture + batch_size**  | `hidden_dim`, `embedding_dim`, `batch_size`                                | hidden_dim: {48, 64, 80}, embedding_dim: {2, 4}, batch_size: {2, 4, 8}. From flyvis: bs=4 eliminated catastrophic failures. Noisy data may need larger hidden_dim. |
+| 5     | **Monotonicity + Dale's law**  | `coeff_g_phi_diff`, `coeff_f_theta_diff`, `coeff_f_theta_msg_diff`, `dale_law` | g_phi_diff: {500, 1000, 1500, 2000}, f_theta_diff: {0, 10, 100}, dale_law: {false, true}. Noise may benefit from stronger constraints. |
 | 6     | **Free exploration I**         | Any parameter                                                              | Consolidate best from blocks 1-5, test novel combinations                                                        |
 | 7     | **Free exploration II**        | Any parameter                                                              | Continue ceiling-breaking attempts                                                                               |
 | 8     | **Final robustness**           | None (robustness test)                                                     | 4-seed robustness test of best config from blocks 1-7                                                            |
 
 ### Noise-specific considerations
 
-- **Strong noise dramatically helped CX FC**: noise-free=0.804 -> noise005=0.982 -> noise05=0.999 (monotonically improving, near-perfect at 0.5). GT edges should benefit similarly or more.
-- **GT edges + strong noise is the strongest constraint combination**: GT edges remove 58% spurious edges, strong noise enriches state-space exploration. Together they maximally constrain the inverse problem.
-- **dale_law=true is established**: The GT edges exploration proved this is the single biggest lever (+34%). Keep it unless evidence clearly says otherwise.
-- **g_phi_weight_L1=0.003 is established**: Key regularizer for GT edges. Strong noise may substantially shift the optimal value — noise provides implicit regularization that may reduce need for explicit L1.
-- **~20% catastrophic failure rate is the target to eliminate**: The noise-free GT exploration showed ~80% convergence. Strong noise should smooth the loss landscape and reduce catastrophic failures, as seen in all other noise experiments.
-- **Signal-to-noise ratio drops dramatically**: At sigma=0.5, noise is comparable to signal amplitude. But GT edges (9,722 vs 22,952 FC) mean each edge gets cleaner gradient signal — GT may partially compensate for noise-induced gradient variance.
-- **Spectral radius monitoring**: Noise-free GT edges achieved spectral_radius close to true (2.545). Monitor whether noise=0.5 disrupts this.
+- **Noise may help CX**: From flyvis experience, noise 0.05 improved connectivity recovery (0.96 vs 0.93 clean). The ring attractor dynamics may similarly benefit from richer state-space exploration under noise.
+- **W_L1 may need adjustment**: Noise adds variance to gradients — L1 sparsity that was optimal for clean data may be too aggressive or too weak under noise.
+- **More training may help**: Noise reduces signal-to-noise ratio per gradient step — more DAL or epochs may be needed to average out noise effects.
+- **Stronger monotonicity constraints may help**: Noise can cause g_phi to learn spurious non-monotonic features — higher coeff_g_phi_diff may stabilize.
 
 ## Iteration Workflow
 
@@ -222,10 +207,10 @@ This is a COMPULSORY task — do not skip it.
 
 1. Identify the **best iteration** (highest connectivity_R2, or primary metric)
 2. Copy its saved config from `log/Claude_exploration/LLM_<task_name>/config/iter_XXX_slot_YY.yaml`
-3. Save it to `config/drosophila_cx/drosophila_cx_gt_edges_noise05_winner.yaml` with a YAML comment header:
+3. Save it to `config/drosophila_cx/drosophila_cx_noise_005_winner.yaml` with a YAML comment header:
 
 ```yaml
-# Winner config: drosophila_cx_gt_edges_noise05_winner.yaml
+# Winner config: drosophila_cx_noise_005_winner.yaml
 # Source: iter_XXX_slot_YY (connectivity_R2 = X.XXX)
 # Exploration: N iterations, M blocks
 # Date: YYYY-MM-DD
@@ -245,7 +230,7 @@ This is a COMPULSORY task — do not skip it.
 #   - [list the parameters that differ from the initial baseline]
 ```
 
-Destination: `config/drosophila_cx/drosophila_cx_gt_edges_noise05_winner.yaml`
+Destination: `config/drosophila_cx/drosophila_cx_noise_005_winner.yaml`
 
 ### Step 4: Acknowledge User Input
 
@@ -263,11 +248,11 @@ Destination: `config/drosophila_cx/drosophila_cx_gt_edges_noise05_winner.yaml`
 
 You maintain THREE files:
 
-1. **Full Log (append-only)**: `drosophila_cx_gt_edges_noise05_Claude_analysis.md`
+1. **Full Log (append-only)**: `drosophila_cx_noise_005_Claude_analysis.md`
    - Append every iteration's log entry (4 entries per batch)
    - Never read — human record only
 
-2. **Working Memory (read + update every batch)**: `drosophila_cx_gt_edges_noise05_Claude_memory.md`
+2. **Working Memory (read + update every batch)**: `drosophila_cx_noise_005_Claude_memory.md`
    - Read at start, update at end
    - Contains: robustness comparison table, hypotheses, established principles, current block iterations
 
@@ -284,7 +269,7 @@ A principle must satisfy ALL of:
 - Consistent across all 4 seeds (not just mean, but low variance)
 - States a causal relationship (not just a correlation)
 
-Example: "GT edges + noise=0.5 with dale_law=true achieves connectivity_R2 > 0.95 robustly (3/3 iterations, all seeds > 0.93, CV < 2%)"
+Example: "lr_W=3e-4 with W_L2=1e-5 achieves connectivity_R2 > 0.8 robustly on noise=0.05 (3/3 iterations, all seeds > 0.75, CV < 5%)"
 
 ### What to Add to Open Questions
 
@@ -293,7 +278,7 @@ Example: "GT edges + noise=0.5 with dale_law=true achieves connectivity_R2 > 0.9
 - Contradictions between iterations
 - Theoretical predictions not yet verified
 
-Example: "Does reduced W_L2 further improve robustness at high noise? Only iter 2 tested."
+Example: "Does higher W_L1 improve robustness at noise=0.05? Only iter 2 tested with mixed results."
 
 ### What to Add to Falsified Hypotheses
 
@@ -303,22 +288,22 @@ When a hypothesis is falsified:
 - State what was learned from the falsification
 - Propose a revised hypothesis if applicable
 
-Example: "Hypothesis: 'Strong noise eliminates all failure modes in GT edges' — Falsified by iter 3 (noise=0.5 still showed 1/4 seed < 0.90). Revised: 'Some failure modes persist even at high noise; require hyperparameter adjustment.'"
+Example: "Hypothesis: 'Mild noise improves W recovery via state-space enrichment' — Falsified by iter 1 (noise=0.05 gave CV=7%, worse than clean CV=3%). Revised: 'Mild noise adds variance; clean data or stronger regularization needed.'"
 
 ## Start Call
 
 When prompt says `PARALLEL START`:
 
-- Read base config — the parent GT edges noise-free config + noise_model_level=0.5 IS the baseline.
+- Read base config — the parent clean config + noise_model_level=0.05 IS the baseline.
 - Block 1 is a **robustness test**: all 4 slots use the same config (different seeds).
-- Hypothesis: "Adding noise=0.5 to the best GT edges config achieves connectivity_R2 > 0.95 robustly, eliminating the ~20% catastrophic failure rate of noise-free GT edges"
+- Hypothesis: "The best clean config with noise=0.05 achieves connectivity_R2 >= clean baseline (0.74) robustly across seeds"
 
 ---
 
 # Working Memory Structure
 
 ```markdown
-# Working Memory: drosophila_cx_gt_edges_noise05
+# Working Memory: drosophila_cx_noise_005
 
 ## Paper Summary (update at every block boundary)
 
