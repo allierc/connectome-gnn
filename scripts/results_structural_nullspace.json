@@ -1,0 +1,20 @@
+{
+  "noise-free": {
+    "degenerate_groups": 0,
+    "null_space_dim": 0,
+    "degree_of_degeneracy": "0.0",
+    "total_edges": 434112
+  },
+  "noise-0.05": {
+    "degenerate_groups": 0,
+    "null_space_dim": 0,
+    "degree_of_degeneracy": "0.0",
+    "total_edges": 434112
+  },
+  "noise-0.5": {
+    "degenerate_groups": 0,
+    "null_space_dim": 0,
+    "degree_of_degeneracy": "0.0",
+    "total_edges": 434112
+  }
+}
