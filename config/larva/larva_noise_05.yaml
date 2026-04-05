@@ -1,4 +1,4 @@
-description: "Drosophila larva motor — intrinsic noise 0.5 (from best noise_005 config, W_L2=2e-5)"
+description: "Drosophila larva — FC + intrinsic noise 0.5 (from best FC config)"
 dataset: larva_noise_05
 simulation:
   connectivity_file: to be specified
@@ -23,15 +23,15 @@ simulation:
 graph_model:
   signal_model_name: larva
   prediction: first_derivative
-  input_size: 3
+  input_size: 5
   n_layers: 3
   hidden_dim: 64
   output_size: 1
-  input_size_update: 5
+  input_size_update: 7
   n_layers_update: 3
   hidden_dim_update: 64
   aggr_type: add
-  embedding_dim: 2
+  embedding_dim: 4
   update_type: generic
   g_phi_positive: false
 plotting:
@@ -47,33 +47,34 @@ training:
   n_epochs: 20
   n_runs: 1
   device: cpu
-  batch_size: 2
+  batch_size: 4
   batch_ratio: 1
   small_init_batch_size: false
   sparsity: none
-  data_augmentation_loop: 600
-  lr_W: 0.0001
+  data_augmentation_loop: 630
+  lr_W: 0.001
   lr: 0.001
   lr_embedding: 0.001
   coeff_g_phi_diff: 1500
+  coeff_f_theta_diff: 10
   coeff_f_theta_msg_diff: 50
-  coeff_g_phi_norm: 0
+  coeff_g_phi_norm: 0.01
   coeff_g_phi_weight_L1: 0.0
   coeff_f_theta_weight_L1: 0
   coeff_g_phi_weight_L2: 0
   coeff_f_theta_weight_L2: 0.001
-  coeff_W_L1: 1.0e-06
-  coeff_W_L2: 2.0e-05
+  coeff_W_L1: 0.004
+  coeff_W_L2: 1.5e-06
   coeff_W_sign: 0.05
-  regul_annealing_rate: 0
-  use_gt_edges: true
+  regul_annealing_rate: 0.7
   w_init_mode: "zeros"
   w_init_scale: 1.0
+  use_gt_edges: false
   seed: 42
 claude:
   n_epochs: 2
-  data_augmentation_loop: 600
-  n_iter_block: 16
+  data_augmentation_loop: 630
+  n_iter_block: 12
   ucb_c: 0
   n_parallel: 4
   node_name: l4
