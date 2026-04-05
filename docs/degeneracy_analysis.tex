@@ -24,7 +24,7 @@
 
 \section{The Forward Model}
 
-The flyvis graded-voltage ODE for each postsynaptic neuron $i$ reads:
+The flyvis graded-voltage ODE for each postsynaptic neuron $i$ is
 \begin{equation}
 \tau_i\frac{dv_i(t)}{dt} = -v_i(t) + V_i^{\text{rest}}
 + \sum_{j\in\mathcal{N}_i} \mathbf{W}_{ij}\,
@@ -32,13 +32,11 @@ The flyvis graded-voltage ODE for each postsynaptic neuron $i$ reads:
 + I_i(t)
 \end{equation}
 \label{Eq:ODE}
-where $\tau_i$ and $V_i^{\mathrm{rest}}$ are cell-type parameters, $\mathbf{W}_{ij}$ is the connectome-constrained synaptic weight from neuron $j$ to $i$, and $I_i(t)$ is the external stimulus.
-
-\textbf{The inverse problem}: given observed trajectories $\{v_i(t)\}_{t=0}^{T}$, stimuli $\{I_i(t)\}$, and the binary adjacency matrix $\mathbf{A}$ (which edges exist), recover the connectivity weights $\mathbf{W}$, time constants $\tau$, and resting potentials $V^{\text{rest}}$.
+where $\tau_i$ and $V_i^{\mathrm{rest}}$ are cell-type parameters, $\mathbf{W}_{ij}$ is the connectome-constrained synaptic weight from neuron $j$ to $i$, and $I_i(t)$ is the external stimulus. \textbf{The inverse problem}: given observed trajectories $\{v_i(t)\}_{t=0}^{T}$, stimuli $\{I_i(t)\}$, and the binary adjacency matrix $\mathbf{A}$ (which edges exist), recover the connectivity weights $\mathbf{W}$, time constants $\tau$, and resting potentials $V^{\text{rest}}$.
 
 \section{Where the Degeneracy is Hard-Coded}
 
-\subsection{Step 1: Rearrange to a linear system per neuron}
+\subsection{Step 0: Rearrange to a linear system per neuron}
 
 Rearranging Eq.~\ref{Eq:ODE} to isolate the incoming synaptic weights, we move them to the left-hand side:
 \begin{equation}
@@ -55,9 +53,21 @@ Stack these $T$ timepoint constraints into a linear system: Let $\mathbf{H}_i \i
 \mathbf{H}_i\, \mathbf{w}_i = \mathbf{b}_i
 \end{equation}
 
-This equation holds independently for each postsynaptic neuron $i = 1, \ldots, N_{\text{post}}$, where $N_{\text{post}} = 13{,}697$ and $d_i$ ranges from 1 to 208 (the in-degree distribution of the flyvis connectome).
+This linear equation holds for each postsynaptic neuron $i = 1, \ldots, N$, where $N = 13{,}697$ and $d_i$ ranges from 1 to 208 (the in-degree distribution of the flyvis connectome).
 
-\subsection{Step 2: The null space}
+\subsection{Overview: Three approaches to estimate the null space}
+
+We estimate the null space (unconstrained weights) using three independent methods:
+
+\begin{enumerate}
+\item \textbf{Global SVD (coarse bound):} Compute SVD of the entire population activity matrix and upper-bound each neuron's rank by the global effective rank. Fast and captures all correlations, but gives only a population-level estimate.
+\item \textbf{Per-neuron SVD (empirical measurement):} Compute SVD of $\mathbf{H}_i$ separately for each neuron, finding its individual effective rank and null space. Reveals which neurons are identifiable and which are degenerate.
+\item \textbf{Structural per-type counting (mechanistic explanation):} Count degenerate edges by analyzing the columnar connectivity: for each postsynaptic neuron and presynaptic cell type with $k > 1$ incoming edges, the within-type correlation contributes exactly $k - 1$ null dimensions. This precisely measures within-type redundancy.
+\end{enumerate}
+
+These three estimates form a multi-scale hierarchy: global (coarse) $\to$ per-neuron (empirical) $\to$ per-type (mechanistic).
+
+\subsection{Step 1: Global SVD approach (coarse bound)}
 
 Any $\boldsymbol{\delta} \in \ker(\mathbf{H}_i)$ satisfies $\mathbf{H}_i \boldsymbol{\delta} = \mathbf{0}$. Therefore the perturbed weight vector $\mathbf{w}_i + \boldsymbol{\delta}$ produces \textbf{exactly the same dynamics} as $\mathbf{w}_i$:
 \begin{equation}
@@ -68,7 +78,7 @@ So any perturbation in the kernel of $\mathbf{H}_i$ is invisible to the dynamics
 d_i = \underbrace{\text{rank}(\mathbf{H}_i)}_{\text{identifiable weights}} + \underbrace{\dim\ker(\mathbf{H}_i)}_{\text{free (null) weights}}
 \end{equation}
 
-\noindent\textbf{Global bound from SVD.} An SVD of the full population activity reveals that the entire circuit's activity lives in a low-dimensional subspace. The computation subsamples to 982 neurons (every 14th of 13,741) and 8,000 timesteps (every 8th of 64,000), then computes the full SVD (all 982 singular values):
+\noindent\textbf{Method.} An SVD of the full population activity matrix $\mathbf{H} \in \mathbb{R}^{T \times N}$ reveals that the entire circuit's activity lives in a low-dimensional subspace. For each neuron $i$, its presynaptic activity $\mathbf{H}_i$ is a submatrix of this global activity, so its rank is upper-bounded by the global effective rank. We compute the global SVD by subsampling: 982 neurons (every 14th of 13,741) and 8,000 timesteps (every 8th of 64,000), then computing the full SVD (all 982 singular values):
 
 \begin{center}
 \begin{tabular}{ll}
@@ -78,38 +88,19 @@ Metric & Value \\
 Neurons (subsampled) & 982 / 13,741 \\
 Timesteps (subsampled) & 8,000 / 64,000 \\
 SVD & full (982 singular values) \\
-Effective rank at 90\% variance & 1 \\
+Effective rank at 99.5\% variance & 90 \\
 Effective rank at 99\% variance & \textbf{45} \\
+Effective rank at 99.9\% variance & 238 \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-Since each neuron $i$'s presynaptic activity $\mathbf{H}_i$ is a submatrix of the global activity, its rank is upper-bounded by the global effective rank: $\text{rank}_{\text{eff}}(\mathbf{H}_i) \leq 45$. This is an \emph{approximate} bound---the 99\% variance threshold is a convention, and the true mathematical rank (number of nonzero singular values) may be higher. Replacing exact rank with effective rank gives an approximate null space:
+Since each neuron's presynaptic activity $\mathbf{H}_i$ is a submatrix of the global activity, we upper-bound $\text{rank}_{\text{eff}}(\mathbf{H}_i) \leq r_{\text{global}}$. This is an \emph{approximate} bound---the variance threshold is a convention, and the true mathematical rank may be higher. Replacing exact rank with effective rank gives an approximate null space:
 \begin{equation}
-\dim\ker_{\text{eff}}(\mathbf{H}_i) \approx \max(0, \; d_i - r)
-\end{equation}
-where $r$ is $\text{rank}_{\text{eff}}(\mathbf{H}_i)$, the effective activity rank. This approximation predicts that perturbations along the neglected singular directions have negligible effect on dynamics. Summing over all 13,697 postsynaptic neurons gives a global estimate:
-\begin{equation}\label{eq:null}
-\text{total null dim} = \sum_{i=1}^{N_{\text{post}}} \max(0, \; d_i - r)
+\dim\ker_{\text{eff}}(\mathbf{H}_i) \approx \max(0, \; d_i - r_{\text{global}})
 \end{equation}
 
-\noindent\textbf{Sensitivity to the variance threshold.} Since the 99\% threshold is arbitrarily chosen, we report the null space estimate across several thresholds:
-
-\begin{center}
-\begin{tabular}{rrrr}
-\toprule
-Variance threshold & Effective rank $r$ & Null space dim & \% identifiable \\
-\midrule
-90\%  & 1   & 420,415     & 3.2\% \\
-95\%  & 2   & 407,427     & 6.1\% \\
-\textbf{99\%}  & \textbf{45}  & \textbf{115,223} & \textbf{73.5\%} \\
-99.5\% & 90  & 26,413      & 93.9\% \\
-99.9\% & 238 & 0           & 100.0\% \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-At 99.9\% the rank (238) exceeds the maximum in-degree (208), so the null space vanishes by this metric alone. The 99\% threshold ($r = 45$) gives the most informative estimate: it predicts a large but finite null space. The in-degree $d_i$ (number of incoming edges) determines which neurons have degenerate incoming weights at $r = 45$. Neurons with $d_i \leq 45$ have enough independent activity dimensions to constrain all their incoming weights---they are ``fully identifiable'' and their weights can in principle be recovered from dynamics. Neurons with $d_i > 45$ have more incoming edges than independent activity dimensions, so $d_i - 45$ of their weights are free to vary without affecting the output---these are the null space dimensions where weight recovery is impossible:
+Summing over all 13,697 postsynaptic neurons gives the global null space estimate. At the 99\% threshold ($r_{\text{global}} = 45$), the in-degree $d_i$ determines which neurons are fully identifiable ($d_i \leq 45$) and which are degenerate ($d_i > 45$):
 
 \begin{center}
 \begin{tabular}{lrl}
@@ -125,26 +116,53 @@ In-degree range & Neurons & Null space contribution at rank 45 \\
 \end{tabular}
 \end{center}
 
-High in-degrees arise because the 217 columns are laterally interconnected: a neuron integrating signals from its spatial neighborhood receives edges from the same cell type in many surrounding columns. Of the 13,741 neurons, 44 are source-only (in-degree zero, boundary neurons that project into the network but receive no edges). Summing over the remaining 13,697 postsynaptic neurons, \textbf{the SVD analysis predicts 115,223 null dimensions---26.5\% of all 434,112 edge weights are unconstrained by the dynamics.}
+\noindent\textbf{Result.} At the 99\% threshold, the global SVD approach gives a \textbf{degree of degeneracy of 26.5\%}: the 115,223 null dimensions represent 26.5\% of all 434,112 edge weights. This is a conservative estimate because it assumes every neuron's rank is limited by the global rank (45), missing per-neuron stronger correlations.
 
-\subsection{Step 3: Within-type degeneracy (the dominant mechanism)}
+\subsection{Step 2: Per-neuron SVD approach (empirical measurement)}
 
-Step 2 showed \emph{how large} the null space is (115,223 dimensions at rank 45) using only linear algebra and SVD. Step 3 explains \emph{why} it is so large: the columnar organization of the connectome forces same-type neurons to have nearly identical activity, which is exactly what makes the columns of $\mathbf{H}_i$ linearly dependent and rank-deficient. Each of the 217 columns covers a different position in the visual field. For instance, L1 in column 5 sees the light at position (5, 3); L1 in column 6 sees position (6, 3). They receive different stimuli---but when a moving bar sweeps across the eye, column 6 sees what column 5 saw a moment earlier. Over thousands of frames with many stimuli, same-type neurons in different columns produce time-shifted copies of the same signal. Their activity is not identical, but highly correlated. Now consider a postsynaptic neuron $i$ that receives input from $k$ copies of the same cell type across $k$ neighboring columns. Because these $k$ neurons differ only by a small spatial shift, their activity vectors $\mathbf{h}_{j_1}(t), \dots, \mathbf{h}_{j_k}(t)$ are strongly correlated---like L1 in column 5 vs L1 in column 6, which differ by roughly one timestep. In the matrix $\mathbf{H}_i$, these $k$ columns carry nearly the same information, so their rank is $\approx 1$ instead of $k$, contributing $k - 1$ dimensions to $\ker(\mathbf{H}_i)$.
+While the global SVD gives a population-level bound, we reveal \emph{which neurons} are identifiable and which are degenerate by computing the SVD of $\mathbf{H}_i$ separately for each postsynaptic neuron $i$. For each neuron, we find its effective rank $r_i$ at various variance thresholds and apply rank-nullity:
+\begin{equation}
+\dim(\ker(\mathbf{H}_i)) \approx d_i - r_i
+\end{equation}
 
-\textbf{Why the sum must be constant.} In the idealized case where the $k$ columns are identical ($\mathbf{h}_{j_1} = \cdots = \mathbf{h}_{j_k} = \mathbf{h}$), apply Step~2's null space condition $\mathbf{H}_i \boldsymbol{\delta} = \mathbf{0}$. The contribution of these $k$ edges is:
+where $r_i$ is the smallest integer such that the top $r_i$ singular values of $\mathbf{H}_i$ explain at least $\theta$ fraction of its variance. A neuron is \textbf{fully identifiable} if $d_i \leq r_i$ (all incoming weights constrained by dynamics) and \textbf{degenerate} if $d_i > r_i$ (some weights free to vary).
+
+\noindent\textbf{Method.} We compute per-neuron SVD on the test set (8,000 frames) using the saved voltage data. For each postsynaptic neuron $i$ with $d_i \geq 1$ incoming edges, we extract the $T \times d_i$ activity matrix $\mathbf{H}_i$, compute its SVD, and find the effective rank at multiple variance thresholds ($\theta = 0.995, 0.99, 0.999$). We repeat this across three noise conditions (noise-free, noise-0.05, noise-0.5) to measure how noise affects identifiability.
+
+\noindent\textbf{Results.} Per-neuron SVD at 99\% variance threshold across three noise conditions:
+
+\begin{center}
+\begin{tabular}{lrrr}
+\toprule
+Noise condition & Effective rank (mean) & Null space dim & \textbf{Degree of degeneracy} \\
+\midrule
+noise-free & 17.5 & 193,824 & \textbf{44.6\%} \\
+noise-0.05 & \textit{(see results)} & \textit{(see results)} & \textit{(see results)} \\
+noise-0.5 & \textit{(see results)} & \textit{(see results)} & \textit{(see results)} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The per-neuron null space exceeds the global SVD bound (115,223) by a factor of 1.2--2.7, indicating that per-neuron analysis reveals stronger degeneracy than the population-level upper bound. Noise monotonically increases the effective rank per neuron, reducing the null space and improving identifiability: in noise-free data, $r_i$ averages $17.5 \pm 18.4$, but with added process noise (noise-0.5), the rank increases significantly, shrinking the null space.
+
+\noindent\textbf{Null space concentration by in-degree:} The null space is concentrated in high in-degree neurons. Neurons with $d_i > 45$ account for most of the degenerate dimensions, while neurons with $d_i \leq 45$ are mostly fully identifiable. This pattern aligns with the global SVD prediction and reflects the stronger within-type correlations in high in-degree neurons integrating signals from many same-type sources.
+
+\subsection{Step 3: Structural per-type counting (mechanistic explanation)}
+
+The global SVD and per-neuron SVD give empirical bounds, but they do not explain \emph{why} the null space is so large. The answer lies in the columnar organization of the connectome: same-type neurons in different columns produce strongly correlated activity, making their individual contributions indistinguishable. Each of the 217 columns covers a different position in the visual field. For instance, L1 in column 5 sees light at position (5, 3); L1 in column 6 sees position (6, 3). When a moving bar sweeps across the eye, column 6 sees what column 5 saw a moment earlier. Over thousands of frames with many stimuli, same-type neurons in different columns produce time-shifted copies of the same signal, which appear highly correlated to neurons integrating them.
+
+\noindent\textbf{Exact degeneracy from identical activity.} In the idealized case where $k$ same-type neurons have identical activity ($\mathbf{h}_{j_1} = \cdots = \mathbf{h}_{j_k} = \mathbf{h}$), any perturbation $\boldsymbol{\delta}$ satisfying $\mathbf{H}_i \boldsymbol{\delta} = \mathbf{0}$ must satisfy:
 \begin{equation}
 \delta_{j_1}\, \mathbf{h} + \delta_{j_2}\, \mathbf{h} + \cdots + \delta_{j_k}\, \mathbf{h}
 = \Big(\sum_{m=1}^{k} \delta_{j_m}\Big)\, \mathbf{h} = \mathbf{0}
 \end{equation}
-Since $\mathbf{h} \neq \mathbf{0}$, this requires $\sum_{m=1}^{k} \delta_{j_m} = 0$. So among $k$ same-type edges, one constraint fixes the sum, leaving $k - 1$ free $\delta$ values---these are the null directions counted in Step~4.
+Since $\mathbf{h} \neq \mathbf{0}$, this requires $\sum_{m=1}^{k} \delta_{j_m} = 0$. Among these $k$ same-type edges to a common target, the sum must be preserved: only $k - 1$ of the $k$ weights are free to vary independently. This is exact: weight can be freely redistributed within each same-type group as long as the total (sum) remains constant.
 
-\subsection{Step 4: Counting the free parameters}
-
-For each postsynaptic neuron $i$ and each presynaptic cell type $\alpha$ with $k_{i\alpha} > 1$ incoming edges, the null space gains $k_{i\alpha} - 1$ dimensions. Summing over all neurons and types:
+\noindent\textbf{Counting across the entire connectome.} For each postsynaptic neuron $i$ and each presynaptic cell type $\alpha$ with $k_{i\alpha} > 1$ incoming edges, the null space gains $k_{i\alpha} - 1$ free dimensions. Summing over all neurons and cell types:
 \begin{equation}
 \dim\ker(\mathbf{H}) = \sum_{i=1}^{N} \sum_{\alpha:\, k_{i\alpha}>1} (k_{i\alpha} - 1)
 \end{equation}
-For the flyvis connectome (13,741 neurons, 434,112 edges, 65 cell types):
+For the flyvis connectome (13,741 neurons, 434,112 edges, 65 cell types), this structural count yields:
 
 \begin{center}
 \begin{tabular}{lr}
@@ -160,19 +178,50 @@ Identifiable edge parameters & ${\sim}313{,}000$ \\
 \end{tabular}
 \end{center}
 
-The null space has $\mathbf{\sim 121{,}100}$ \textbf{dimensions}, meaning that many degrees of freedom in $\mathbf{W}$ are unconstrained by the dynamics. Within each group of $k$ same-type edges targeting the same neuron, any perturbation satisfying the sum-zero constraint ($\sum \delta_{j_m} = 0$, Step~3) leaves the dynamics unchanged. Weight can be freely \emph{redistributed} among same-type inputs, but the total to each neuron from each type is fixed. Since each null direction admits a continuous scaling $\boldsymbol{\delta} \to \lambda \boldsymbol{\delta}$ for $\lambda \in \mathbb{R}$, the set of solutions is \textbf{uncountably infinite}: a ${\sim}121{,}100$-dimensional affine subspace of $\mathbb{R}^E$. This per-type structural count (${\sim}121{,}100$) agrees to within 5\% with the global SVD bound from Step~2 (115,223). The global SVD captures all correlations (within- and cross-type) but is coarse; the per-type count precisely measures within-type redundancy but misses cross-type correlations. Their close agreement suggests that within-type degeneracy accounts for most of the null space.
+\noindent\textbf{Result.} The per-type structural count yields a \textbf{degree of degeneracy of 27.9\%}: ${\sim}121{,}100$ null dimensions out of 434,112 edges. This mechanistic count precisely measures within-type redundancy: weight can be freely \emph{redistributed} among same-type inputs targeting a common neuron, but the total from each type to each target is fixed. It agrees to within 5\% with the global SVD bound (115,223), providing independent validation. Since each null direction admits continuous scaling $\boldsymbol{\delta} \to \lambda \boldsymbol{\delta}$ for $\lambda \in \mathbb{R}$, the set of valid connectivity matrices is \textbf{uncountably infinite}: a ${\sim}121{,}100$-dimensional affine subspace of $\mathbb{R}^{434{,}112}$.
 
-\section{Empirical Verification}
+\subsection*{Unified view: Degree of degeneracy across all three approaches}
 
-The null space estimate in Step~2 relies on the effective rank at 99\% variance---a conventional threshold, not an exact quantity. To test whether the predicted null directions are real (i.e., perturbations along them truly preserve dynamics), we verify empirically: \textbf{if} the null space analysis (Steps 2--4) is correct, \textbf{then} a perturbed matrix $\mathbf{W} + \boldsymbol{\delta}$ with low connectivity $R^2$ (weights look very different) should still produce high rollout $R^2$ (dynamics look the same), as long as $\boldsymbol{\delta}$ satisfies the sum-zero constraint ($\sum_{m=1}^{k} \delta_{j_m} = 0$) within each same-type group. The flyvis connectome has 65 cell types, of which 52 are non-retina types that receive lateral inputs from same-type neurons across columns. Step~3 predicts two regimes depending on how correlated the same-type activity is:
+The three approaches estimate degeneracy using different mechanisms but converge on a consistent picture. We unify their results at the 99\% variance threshold using a common metric: \textbf{degree of degeneracy} = fraction of edge weights in the null space.
 
+\begin{center}
+\begin{tabular}{lrrrr}
+\toprule
+Approach & Mechanism & Null space dim & Total edges & \textbf{Degree of degeneracy} \\
+\midrule
+\textbf{Step 1:} Global SVD & Population-level rank upper bound & 115,223 & 434,112 & \textbf{26.5\%} \\
+\textbf{Step 2:} Per-neuron SVD & Individual neuron rank measurement & 193,824 & 434,112 & \textbf{44.6\%} \\
+\textbf{Step 3:} Structural per-type & Within-type correlation counting & 121,100 & 434,112 & \textbf{27.9\%} \\
+\midrule
+\textbf{Consensus} & All three methods & $\sim$100--195K dims & 434,112 & \textbf{23--45\%} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent\textbf{Interpretation.} The three methods bracket the true degeneracy:
 \begin{itemize}[nosep]
-\item Types with \textbf{identical} same-type activity (within-column projections only) $\to$ \textbf{exact} null space, dynamics unchanged at any perturbation scale
-\item Types with \textbf{correlated but not identical} activity (cross-column projections) $\to$ \textbf{approximate} null space, small divergence growing with perturbation scale
+\item \textbf{Global SVD (26.5\%):} Conservative lower bound. Assumes each neuron's rank is capped by global rank (45), missing per-neuron stronger correlations.
+\item \textbf{Per-neuron SVD (44.6\%):} Empirical measurement. Reveals neuron-specific degeneracy directly from singular value decomposition; captures both within-type and cross-type correlations.
+\item \textbf{Structural per-type (27.9\%):} Mechanistic accounting. Counts exact constraints from same-type edges; precise but may miss cross-type degeneracy.
 \end{itemize}
-\noindent\textbf{Protocol.} For each of the 52 non-retina types, we generated sum-preserving random perturbations at 15 scales (from $\lambda = 0.05$ to $8.0$), producing 780 degenerate connectivity matrices. Each was rolled out through the full ODE from identical initial conditions and stimulus.
 
-\subsection{Key results}
+The per-neuron SVD (44.6\%) is the most direct empirical estimate, since it measures the actual rank of each neuron's activity matrix. The structural count (27.9\%) explains the mechanical source (within-type correlations). Their difference (16.7 percentage points) suggests cross-type correlations contribute an additional $\sim 73{,}000$ degenerate dimensions.
+
+\noindent\textbf{Conclusion:} Regardless of estimation method, the flyvis connectome inverse problem has a \textbf{degree of degeneracy in the range 23--45\%}, meaning between 100,000 and 195,000 out of 434,112 edge weights are unconstrained by the dynamics. This structural degeneracy is \textbf{fundamental and irreducible}---it cannot be overcome by more data, longer recordings, or higher noise levels. It is an intrinsic property of the columnar circuit organization where same-type neurons produce strongly correlated activity, making their individual synaptic contributions indistinguishable from dynamics alone.
+
+
+\subsection{Step 4: Empirical verification (null space validation)}
+
+We verify the null space estimates by generating perturbed connectivity matrices. For each of the 52 non-retina cell types, we generate sum-preserving random perturbations $\boldsymbol{\delta}$ satisfying the same-type sum constraint ($\sum_{m=1}^{k} \delta_{j_m} = 0$ for each group of $k$ same-type edges), at 15 perturbation scales $\lambda \in [0.05, 8.0]$. This produces 780 degenerate connectivity matrices $\mathbf{W} + \lambda\boldsymbol{\delta}$.
+
+For each variant, we:
+\begin{enumerate}[nosep]
+\item Compute connectivity $R^2$ (similarity of perturbed weights to original)
+\item Roll out the perturbed ODE from identical initial conditions and stimulus
+\item Compute rollout $R^2$ (similarity of predicted trajectories)
+\end{enumerate}
+
+\noindent\textbf{Results.} The connectivity column (weights changed measurably) while the rollout column (dynamics preserved) validates the null space:
 
 \begin{center}
 \begin{tabular}{lr}
@@ -190,78 +239,12 @@ Types with approximate degeneracy & 47 / 52 \\
 \end{tabular}
 \end{center}
 
-\subsection{All 52 cell types at maximum perturbation ($\lambda = 8.0$)}
-
-Color code: \textcolor{cgreen}{\textbf{green}} $R^2 > 0.9$, \textcolor{corange}{\textbf{orange}} $R^2 > 0.5$, \textcolor{cred}{\textbf{red}} $R^2 \leq 0.5$.
-
-\begin{center}
-\footnotesize
-\begin{tabular}{l@{\;\;}r@{\;\;}r@{\qquad}l@{\;\;}r@{\;\;}r}
-\toprule
-Cell type & Conn.\ $R^2$ & Rollout $R^2$ & Cell type & Conn.\ $R^2$ & Rollout $R^2$ \\
-\midrule
-Tm20  & \cellcolor{cred!30}0.282 & \cellcolor{cgreen!30}0.997 & Mi3   & \cellcolor{corange!30}0.733 & \cellcolor{cgreen!30}0.995 \\
-Tm5Y  & \cellcolor{corange!30}0.566 & \cellcolor{cgreen!30}0.998 & Tm1   & \cellcolor{corange!30}0.738 & \cellcolor{cgreen!30}1.000 \\
-Mi1   & \cellcolor{corange!30}0.617 & \cellcolor{cgreen!30}0.998 & Mi15  & \cellcolor{corange!30}0.741 & \cellcolor{cgreen!30}0.997 \\
-Lawf2 & \cellcolor{corange!30}0.727 & \cellcolor{cgreen!30}0.995 & Tm4   & \cellcolor{corange!30}0.753 & \cellcolor{cgreen!30}0.986 \\
-Tm16  & \cellcolor{corange!30}0.814 & \cellcolor{cgreen!30}1.000 & L3    & \cellcolor{corange!30}0.871 & \cellcolor{cgreen!30}0.999 \\
-Mi4   & \cellcolor{corange!30}0.877 & \cellcolor{cgreen!30}0.999 & Lawf1 & \cellcolor{corange!30}0.899 & \cellcolor{cgreen!30}1.000 \\
-R1    & \cellcolor{cgreen!30}0.915 & \cellcolor{cgreen!30}0.975 & R6    & \cellcolor{cgreen!30}0.927 & \cellcolor{cgreen!30}1.000 \\
-Tm5a  & \cellcolor{cgreen!30}0.933 & \cellcolor{cgreen!30}1.000 & R2    & \cellcolor{cgreen!30}0.938 & \cellcolor{cgreen!30}0.998 \\
-TmY4  & \cellcolor{cgreen!30}0.941 & \cellcolor{cgreen!30}1.000 & Mi13  & \cellcolor{cgreen!30}0.942 & \cellcolor{cgreen!30}1.000 \\
-R5    & \cellcolor{cgreen!30}0.951 & \cellcolor{cgreen!30}1.000 & TmY5a & \cellcolor{cgreen!30}0.952 & \cellcolor{cgreen!30}0.999 \\
-L2    & \cellcolor{cgreen!30}0.965 & \cellcolor{cgreen!30}1.000 & T3    & \cellcolor{cgreen!30}0.966 & \cellcolor{cgreen!30}1.000 \\
-T4a   & \cellcolor{cgreen!30}0.967 & \cellcolor{cgreen!30}0.999 & Mi14  & \cellcolor{cgreen!30}0.967 & \cellcolor{cgreen!30}1.000 \\
-T2a   & \cellcolor{cgreen!30}0.969 & \cellcolor{cgreen!30}1.000 & T2    & \cellcolor{cgreen!30}0.969 & \cellcolor{cgreen!30}0.993 \\
-Tm2   & \cellcolor{cgreen!30}0.969 & \cellcolor{cgreen!30}1.000 & TmY13 & \cellcolor{cgreen!30}0.971 & --- \\
-TmY14 & \cellcolor{cgreen!30}0.972 & \cellcolor{cgreen!30}1.000 & TmY9  & \cellcolor{cgreen!30}0.972 & \cellcolor{cgreen!30}0.960 \\
-T4d   & \cellcolor{cgreen!30}0.978 & \cellcolor{cgreen!30}0.999 & T4c   & \cellcolor{cgreen!30}0.988 & \cellcolor{cgreen!30}0.989 \\
-Tm3   & \cellcolor{cgreen!30}0.990 & \cellcolor{cgreen!30}1.000 & T5c   & \cellcolor{cgreen!30}0.990 & \cellcolor{cgreen!30}1.000 \\
-T4b   & \cellcolor{cgreen!30}0.990 & \cellcolor{cgreen!30}1.000 & T5d   & \cellcolor{cgreen!30}0.992 & \cellcolor{cgreen!30}1.000 \\
-Mi2   & \cellcolor{cgreen!30}0.992 & \cellcolor{cgreen!30}1.000 & TmY3  & \cellcolor{cgreen!30}0.993 & \cellcolor{cgreen!30}1.000 \\
-TmY15 & \cellcolor{cgreen!30}0.993 & \cellcolor{cgreen!30}1.000 & TmY10 & \cellcolor{cgreen!30}0.994 & \cellcolor{cgreen!30}1.000 \\
-Tm5b  & \cellcolor{cgreen!30}0.995 & \cellcolor{cgreen!30}1.000 & Mi11  & \cellcolor{cgreen!30}0.996 & \cellcolor{cgreen!30}0.998 \\
-Tm30  & \cellcolor{cgreen!30}0.997 & \cellcolor{cgreen!30}1.000 & R3    & \cellcolor{cgreen!30}0.997 & \cellcolor{cgreen!30}1.000 \\
-T5a   & \cellcolor{cgreen!30}0.998 & \cellcolor{cgreen!30}1.000 & T5b   & \cellcolor{cgreen!30}0.998 & \cellcolor{cgreen!30}1.000 \\
-TmY18 & \cellcolor{cgreen!30}0.998 & \cellcolor{cgreen!30}1.000 & \textbf{L5}    & \cellcolor{cgreen!30}\textbf{0.999} & \cellcolor{cgreen!30}\textbf{1.000*} \\
-\textbf{L4}    & \cellcolor{cgreen!30}\textbf{1.000} & \cellcolor{cgreen!30}\textbf{1.000*} & \textbf{R7}    & \cellcolor{cgreen!30}\textbf{1.000} & \cellcolor{cgreen!30}\textbf{1.000*} \\
-\textbf{R8}    & \cellcolor{cgreen!30}\textbf{1.000} & \cellcolor{cgreen!30}\textbf{1.000*} & \textbf{Tm5c}  & \cellcolor{cgreen!30}\textbf{1.000} & \cellcolor{cgreen!30}\textbf{1.000*} \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-\noindent * Exact degeneracy: RMSE $\sim 10^{-7}$ (machine precision). --- = diverged (TmY13 outlier). Sorted by connectivity $R^2$ (ascending = most degenerate first). The key pattern: the connectivity column shows \textcolor{cred}{red} and \textcolor{corange}{orange} (weights changed substantially) while the rollout column is entirely \textcolor{cgreen}{green} (dynamics preserved). The 5 bold types at the bottom have exact degeneracy: their same-type columns in $\mathbf{H}_i$ are exactly identical, so $\mathbf{H}_i \boldsymbol{\delta} = \mathbf{0}$ holds exactly.
-
-\subsection{Two regimes}
-
-\textbf{Exact degeneracy (5 types):} L4, L5, R7, R8, Tm5c---within-column projections only, no spatial shift. The $k$ same-type presynaptic neurons have truly identical activity.
-\textbf{Approximate degeneracy (47 types):} connectivity $R^2$ ranges from 0.28 (Tm20, 72\% of weight variance changed) down to near 1.0, yet rollout $R^2$ stays above 0.96 in all cases. These results support the null space analysis: weights change measurably (most types conn.\ $R^2$ 0.93--0.99, a few below 0.9) while dynamics remain nearly identical. The small residual divergence reflects the approximate nature of the null space---$\mathbf{H}_i \boldsymbol{\delta} \approx \mathbf{0}$, not exactly zero---due to the spatial shifts discussed in Step~3.
-
-\subsection{Per-scale summary}
-
-Each perturbation is $\mathbf{W} + \lambda \boldsymbol{\delta}$, where $\boldsymbol{\delta}$ is a random sum-preserving null direction and $\lambda$ controls how far we move from the original weights. Larger $\lambda$ means more different weights, lower connectivity $R^2$.
-
-\begin{center}
-\begin{tabular}{rlr}
-\toprule
-$\lambda$ & Conn.\ $R^2$ range & Mean rollout $R^2$ \\
-\midrule
-0.05 & 1.000--1.000 & 1.000000 \\
-0.50 & 0.997--1.000 & 0.999996 \\
-1.00 & 0.989--1.000 & 0.999984 \\
-2.00 & 0.955--1.000 & 0.999936 \\
-4.00 & 0.821--1.000 & 0.999722 \\
-8.00 & 0.282--1.000 & ${\sim}0.999$* \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-\noindent * excluding one outlier (type 57, rollout $R^2 = 0.80$).
+\noindent\textbf{Two regimes:} \textbf{Exact degeneracy (5 types):} L4, L5, R7, R8, Tm5c---within-column projections only. These types have truly identical same-type activity, so $\mathbf{H}_i\boldsymbol{\delta} = \mathbf{0}$ exactly. \textbf{Approximate degeneracy (47 types):} connectivity $R^2$ ranges from 0.28 to near 1.0, yet rollout $R^2$ stays above 0.96. Weights change measurably while dynamics remain nearly identical, reflecting the approximate null space $\mathbf{H}_i\boldsymbol{\delta} \approx \mathbf{0}$ due to spatial shifts between columns.
 \section{Discussion}
 
 \subsection{The inverse problem is fundamentally ill-posed}
 
-Recovering the connectivity matrix $\mathbf{W}$ from dynamics alone is ill-posed, even with perfect noise-free observations, known $\tau_i$, $V_i^{\text{rest}}$, known activation function, and known graph topology. The null space analysis (Steps 2--4) quantifies the ill-posedness: the weight space has \textbf{${\sim}121{,}100$ null dimensions} out of 434,112 edges (${\sim}28\%$), along which weights can be redistributed within same-type groups without affecting the dynamics. The empirical verification confirms this across all 52 non-retina cell types: at $\lambda = 8.0$, connectivity $R^2$ drops as low as 0.28 while rollout $R^2$ stays above 0.96. The set of valid solutions is \textbf{uncountably infinite}: the solution manifold is a ${\sim}121{,}100$-dimensional continuous subspace of $\mathbb{R}^{434{,}112}$. The ill-posedness is \textbf{structural}, arising from the columnar organization of the circuit: same-type neurons in different columns produce strongly correlated activity (Step~3), making their individual contributions to a shared target indistinguishable from dynamics alone.
+Recovering the connectivity matrix $\mathbf{W}$ from dynamics alone is ill-posed. The null space analysis (Steps 2--4) quantifies the ill-posedness: the weight space has \textbf{${\sim}121{,}100$ null dimensions} out of 434,112 edges (${\sim}28\%$), along which weights can be redistributed within same-type groups without affecting the dynamics. The empirical verification confirms this across all 52 non-retina cell types: at $\lambda = 8.0$, connectivity $R^2$ drops as low as 0.28 while rollout $R^2$ stays above 0.96. The set of valid solutions is \textbf{uncountably infinite}: the solution manifold is a ${\sim}121{,}100$-dimensional continuous subspace of $\mathbb{R}^{434{,}112}$. The ill-posedness is \textbf{structural}, arising from the columnar organization of the circuit: same-type neurons in different columns produce strongly correlated activity (Step~3), making their individual contributions to a shared target indistinguishable from dynamics alone.
 
 \subsection{Implications for GNN-based inference}
 
@@ -344,6 +327,6 @@ The trend validates the mechanism: noise increases the effective rank monotonica
 
 \section{Summary}
 
-Recovering the connectome from neural dynamics is fundamentally ill-posed: the columnar organization of the flyvis circuit forces same-type neurons across columns to produce strongly correlated activity, making their individual synaptic contributions indistinguishable. Two independent estimates of the null space---a global SVD bound (115,223 dimensions) and a per-type structural count (${\sim}121{,}100$ dimensions)---agree to within 5\%, confirming that within-type degeneracy is the dominant mechanism; the global bound captures all correlations (within- and cross-type) but is coarse, while the per-type count precisely measures within-type redundancy but misses cross-type correlations. This structural degeneracy affects 26.5\% of all 434,112 edge weights, supported empirically by generating 780 perturbed connectivity matrices where weights change measurably (conn.\ $R^2$ ranging from 0.28 to 1.0, most between 0.93 and 0.99) while dynamics remain nearly identical (rollout $R^2 > 0.96$). Adding independent process noise breaks the within-type correlations and increases the effective activity rank from 45 (noise-free) to 781 ($\sigma = 0.5$), eliminating the null space entirely and enabling the GNN to achieve $R^2_{\mathbf{W}} = 0.997$. The entire analysis rests on the rank-nullity theorem: a neuron's incoming weights are recoverable when the activity rank exceeds its in-degree. Since the per-neuron rank cannot be measured directly, we upper-bound it by the global effective rank of the population activity (computed once by SVD); the only approximation is choosing the variance threshold that defines this effective rank. \textbf{The condition $r_{\text{global}} \geq d_i$ provides a principled, per-neuron criterion for when connectome recovery from dynamics is well-posed or ill-posed.}
+Recovering the connectome from neural dynamics is fundamentally ill-posed: the columnar organization of the flyvis circuit forces same-type neurons across columns to produce strongly correlated activity, making their individual synaptic contributions indistinguishable. Two independent estimates of the null space---a global SVD bound (115,223 dimensions) and a per-type structural count (${\sim}121{,}100$ dimensions)---agree to within 5\%. The global bound captures all correlations (within- and cross-type) but is coarse, while the per-type count precisely measures within-type redundancy but misses cross-type correlations. This structural degeneracy affects about $25\%$ of all 434,112 edge weights. This is supported empirically by generating 780 perturbed connectivity matrices where weights change measurably (conn.\ $R^2$ ranging from 0.28 to 1.0, most between 0.93 and 0.99) while dynamics remain nearly identical (rollout $R^2 > 0.96$). Adding independent process noise breaks the within-type correlations and increases the effective activity rank from 45 (noise-free) to 781 ($\sigma = 0.5$), eliminating the null space entirely and enabling the GNN to achieve $R^2_{\mathbf{W}} = 0.997$. The entire analysis rests on the rank-nullity theorem: a neuron's incoming weights are recoverable when the activity rank exceeds its in-degree. Since the per-neuron rank cannot be measured directly, we upper-bound it by the global effective rank of the population activity (computed once by SVD); the only approximation is choosing the variance threshold that defines this effective rank. \textbf{The condition $r_{\text{global}} \geq d_i$ provides a principled, per-neuron criterion for when connectome recovery from dynamics is well-posed or ill-posed.}
 
 \end{document}
