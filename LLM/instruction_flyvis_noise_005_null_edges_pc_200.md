@@ -111,13 +111,6 @@ To keep total training time constant when switching from 1 to 2 epochs, **halve 
 
 **Setting `regul_annealing_rate: 0`** with `n_epochs=1` makes coefficients apply at **full strength from epoch 0**. Use this to test direct (non-annealed) penalties.
 
-## Training Time Constraint
-
-**~150 min per slot on A100** (1.3M edges — 50% more than 100% null edges). Data generation: ~20 min/slot. Total budget: ~170 min/slot.
-
-With `n_epochs=2`, halve `data_augmentation_loop` (35 → 17) to stay within budget.
-
-Use `training_time_min` from metrics after each batch to verify you're on budget.
 
 ## Parallel Mode — 4 Slots Per Batch
 

@@ -105,12 +105,6 @@ The model is registered as `drosophila_cx_known_ode`. Unlike the GNN:
 | `use_gt_edges`            | false   | Fully connected graph (22,952 edges)                   |
 | `noise_model_level`       | 0.5     | **FIXED** — strong noise level for this experiment     |
 
-## Training Time Constraint
-
-**Target ~60 min per iteration.** Use `data_augmentation_loop` (DAL) to control training time.
-
-- If training_time_min < 40 min: **increase** DAL
-- If training_time_min > 70 min: **decrease** DAL
 
 ## Parallel Mode — 4 Slots Per Batch
 

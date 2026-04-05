@@ -169,9 +169,6 @@ This means the default config relies entirely on the monotonicity constraint (`c
 | `w_init_mode` | randn_scaled | W initialization |
 | `regul_annealing_rate` | 0.5 | Annealing rate (irrelevant at 1 epoch) |
 
-## Training Time Constraint
-
-Target: **≤ 60 min/iteration** (1 epoch).  The noise_005 champion at aug=35 took ~69 min; noise_05 with aug=20 should be well within budget.
 
 ## Parallel Mode — 4 Slots Per Batch
 
