@@ -179,10 +179,10 @@ Next: parent=P
 
 **At every block boundary**, save the best config.
 
-Destination: `config/drosophila_cx/drosophila_cx_known_ode_gt_edges_winner.yaml`
+Destination: `config/drosophila_cx/drosophila_cx_known_ode_gt_edges_noise_free_winner.yaml`
 
 ```yaml
-# Winner config: drosophila_cx_known_ode_gt_edges_winner.yaml
+# Winner config: drosophila_cx_known_ode_gt_edges_noise_free_winner.yaml
 # Source: iter_XXX_slot_YY (connectivity_R2 = X.XXX)
 # Exploration: N iterations, M blocks
 # Date: YYYY-MM-DD

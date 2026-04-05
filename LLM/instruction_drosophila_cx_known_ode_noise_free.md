@@ -208,10 +208,10 @@ This is a COMPULSORY task — do not skip it.
 
 1. Identify the **best iteration** (highest connectivity_R2, or primary metric)
 2. Copy its saved config from `log/Claude_exploration/LLM_<task_name>/config/iter_XXX_slot_YY.yaml`
-3. Save it to `config/drosophila_cx/drosophila_cx_known_ode_winner.yaml` with a YAML comment header:
+3. Save it to `config/drosophila_cx/drosophila_cx_known_ode_noise_free_winner.yaml` with a YAML comment header:
 
 ```yaml
-# Winner config: drosophila_cx_known_ode_winner.yaml
+# Winner config: drosophila_cx_known_ode_noise_free_winner.yaml
 # Source: iter_XXX_slot_YY (connectivity_R2 = X.XXX)
 # Exploration: N iterations, M blocks
 # Date: YYYY-MM-DD
@@ -231,7 +231,7 @@ This is a COMPULSORY task — do not skip it.
 #   - [list the parameters that differ from the initial baseline]
 ```
 
-Destination: `config/drosophila_cx/drosophila_cx_known_ode_winner.yaml`
+Destination: `config/drosophila_cx/drosophila_cx_known_ode_noise_free_winner.yaml`
 
 ### Step 4: Acknowledge User Input
 
