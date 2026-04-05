@@ -193,6 +193,7 @@ Mutation: [param]: [old] -> [new]
 W matrix: [visual comment from connectivity heatmap]
 Verdict: [supported/falsified/inconclusive]
 Next: parent=P
+```
 
 ## Winner Config (COMPULSORY)
 

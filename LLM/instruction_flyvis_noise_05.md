@@ -252,6 +252,7 @@ noise_005 comparison: [same config at noise_005 gave X — noise rescued by Y%]
 Mutation: [param]: [old] -> [new]
 Verdict: [robust/degraded/broken] — [one line interpretation]
 Next: parent=P
+```
 
 ## Winner Config (COMPULSORY)
 
