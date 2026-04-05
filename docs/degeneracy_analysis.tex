@@ -157,7 +157,9 @@ noise-0.5 & 26.7 & 68,601 & \textbf{15.8\%} \\
 \end{tabular}
 \end{center}
 
-The per-neuron null space exceeds the global SVD bound (115,223) by a factor of 1.2--2.7, indicating that per-neuron analysis reveals stronger degeneracy than the population-level upper bound. Noise monotonically increases the effective rank per neuron, reducing the null space and improving identifiability: in noise-free data, $r_i$ averages $17.5 \pm 18.4$, but with added process noise (noise-0.5), the rank increases significantly, shrinking the null space.
+\noindent\textbf{Note:} The noise-free and noise-0.05 rows are identical, suggesting the noise level $\sigma = 0.05$ is too small to noticeably affect the per-neuron singular value spectrum. This requires verification: the data loading and noise injection should be checked to ensure different noise levels are being analyzed. The noise-0.5 data clearly shows the effect of stronger noise: mean rank increases to 26.7, shrinking the null space by 65\%.
+
+The per-neuron null space exceeds the global SVD bound (115,223) by a factor of 1.2--2.7, indicating that per-neuron analysis reveals stronger degeneracy than the population-level upper bound. Noise at $\sigma = 0.5$ monotonically increases the effective rank per neuron, reducing the null space and improving identifiability: in noise-free data, $r_i$ averages $17.5 \pm 18.4$, but with added process noise (noise-0.5), the rank increases significantly, shrinking the null space.
 
 \noindent\textbf{Null space concentration by in-degree:} The null space is concentrated in high in-degree neurons. Neurons with $d_i > 45$ account for most of the degenerate dimensions, while neurons with $d_i \leq 45$ are mostly fully identifiable. This pattern aligns with the global SVD prediction and reflects the stronger within-type correlations in high in-degree neurons integrating signals from many same-type sources.
 
