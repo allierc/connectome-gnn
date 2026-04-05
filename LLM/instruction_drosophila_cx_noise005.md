@@ -198,6 +198,7 @@ Mutation: [param]: [old] -> [new]
 W matrix: [visual comment from connectivity heatmap]
 Verdict: [supported/falsified/inconclusive]
 Next: parent=P
+```
 
 ## Winner Config (COMPULSORY)
 
@@ -230,8 +231,6 @@ This is a COMPULSORY task — do not skip it.
 ```
 
 Destination: `config/drosophila_cx/drosophila_cx_noise005_winner.yaml`
-
-```
 
 ### Step 4: Acknowledge User Input
 

@@ -1,10 +1,8 @@
-# Zebrafish Oculomotor (GT Edges) — LLM Exploration
+# Zebrafish Oculomotor — LLM Exploration
 
 ## Goal
 
-Maximize **connectivity_R2** for the **zebrafish oculomotor integrator** (Beiran & Litwin-Kumar 2023, Figure 5g-i) using **ground-truth edge topology**.
-
-This is a variant of the fully-connected zebrafish exploration (`instruction_zebrafish_oculomotor.md`) where `use_gt_edges=true` is **hardcoded** — the GNN only trains on known edges from the connectome. This drastically reduces the search space (from N^2-N to ~10,665 edges) and may help the linear integrator recover W by removing degenerate solutions.
+Maximize **connectivity_R2** for the **zebrafish oculomotor integrator** (Beiran & Litwin-Kumar 2023, Figure 5g-i).
 
 Data is **re-generated each iteration** with a different seed to verify seed independence.
 
@@ -32,9 +30,9 @@ Strict **hypothesize -> test -> validate/falsify** cycle:
 
 ## Scientific Context
 
-The zebrafish **oculomotor integrator** with **ground-truth edges** tests whether knowing the true connectivity topology helps the GNN recover weights in a linear ODE. This is a crucial intermediate case: FC mode (fully connected) failed catastrophically (R2=0.022), and this GT-edges variant removes the combinatorial search over 370K possible edges, reducing it to learning 10,665 known edges. The question is: does GT topology break the degeneracy and enable high-performance weight learning?
+The zebrafish **oculomotor integrator** (Goldman lab connectome, 609 neurons) is a **linear neural integrator** — no nonlinearity, purely determined by eigenstructure of W. This is the hardest case for the GNN: without activation function nonlinearity to provide implicit regularization, the GNN must rely entirely on explicit regularization to recover W from linear dynamics. The question is: can explicit regularization (L1, L2, g_phi_diff, spectral radius constraints) enable recovery of the linear dynamics matrix?
 
-### CAUSALITY RULE (MANDATORY — READ THIS)
+## CAUSALITY RULE (MANDATORY — READ THIS)
 
 **If you change more than one parameter per slot, you CANNOT attribute the effect. This is a fatal experimental design error.**
 
@@ -71,8 +69,6 @@ dr/dt = (-r + W @ r + I(t) * v_in) / tau
 
 **Key challenge**: Linear ODE means W must be precisely recovered from linear dynamics alone — no nonlinearity to disambiguate.
 
-**GT edges advantage**: With known topology (~10,665 edges vs 370,872 FC edges), the GNN only needs to learn edge weights, not edge existence. This removes the combinatorial search over topology and may break the degeneracy that makes FC training intractable for this linear model.
-
 ## GNN Architecture
 
 - **g_phi**: Edge message MLP. Maps (v_j, a_j) -> message. `g_phi_positive=false` (linear model needs negative pass-through).
@@ -88,37 +84,33 @@ Example: embedding_dim=2 -> input_size=3, input_size_update=5.
 
 ## Explorable Parameters
 
-| Parameter                 | Default | Description                                  |
-| ------------------------- | ------- | -------------------------------------------- |
-| `lr_W`                    | 1e-3    | Learning rate for connectivity W             |
-| `lr`                      | 1e-3    | Learning rate for g_phi and f_theta MLPs     |
-| `lr_embedding`            | 1e-3    | Learning rate for neuron embeddings          |
-| `n_epochs`                | 2       | Number of training epochs                    |
-| `batch_size`              | 2       | Batch size                                   |
-| `data_augmentation_loop`  | 100     | Data augmentation multiplier                 |
-| `w_init_mode`             | zeros   | W initialization: "zeros", "randn_scaled"    |
-| `coeff_g_phi_diff`        | 1500    | Monotonicity penalty on g_phi                |
-| `coeff_f_theta_weight_L2` | 0.001   | L2 penalty on f_theta MLP weights            |
+| Parameter                 | Default | Description                                                                  |
+| ------------------------- | ------- | ---------------------------------------------------------------------------- |
+| `lr_W`                    | 1e-3    | Learning rate for connectivity W                                             |
+| `lr`                      | 1e-3    | Learning rate for g_phi and f_theta MLPs                                     |
+| `lr_embedding`            | 1e-3    | Learning rate for neuron embeddings                                          |
+| `n_epochs`                | 2       | Number of training epochs                                                    |
+| `batch_size`              | 2       | Batch size                                                                   |
+| `data_augmentation_loop`  | 100     | Data augmentation multiplier                                                 |
+| `w_init_mode`             | zeros   | W initialization: "zeros", "randn_scaled"                                    |
+| `coeff_g_phi_diff`        | 1500    | Monotonicity penalty on g_phi                                                |
+| `coeff_f_theta_weight_L2` | 0.001   | L2 penalty on f_theta MLP weights                                            |
 | `coeff_f_theta_diff`      | 0       | Negative monotonicity of f_theta w.r.t. state v_i (enforces leak: df/dv < 0) |
-| `coeff_f_theta_msg_diff`  | 0       | Positive monotonicity of f_theta w.r.t. message input |
-| `coeff_W_L1`              | 0       | L1 sparsity on W                             |
-| `coeff_W_L2`              | 1e-5    | L2 penalty on W                              |
-| `coeff_W_sign`            | 0       | Dale's law penalty                           |
-| `use_gt_edges`            | true    | **HARDCODED** — always true in this variant  |
-| `dale_law`                | false   | Enforce Dale's law: force consistent sign per W column 3x per epoch |
-| `noise_model_level`       | 0.0     | Observation noise std added to trajectories  |
-
-**DO NOT change `use_gt_edges`** — this file is specifically for the GT edges variant. For fully-connected training, use `instruction_zebrafish_oculomotor.md`.
+| `coeff_f_theta_msg_diff`  | 0       | Positive monotonicity of f_theta w.r.t. message input                        |
+| `coeff_W_L1`              | 0       | L1 sparsity on W                                                             |
+| `coeff_W_L2`              | 1e-5    | L2 penalty on W                                                              |
+| `coeff_W_sign`            | 0       | Dale's law penalty                                                           |
+| `use_gt_edges`            | false   | If true, train on ground-truth edges only                                    |
+| `dale_law`                | false   | Enforce Dale's law: force consistent sign per W column 3× per epoch          |
+| `noise_model_level`       | 0.0     | Observation noise std added to trajectories                                  |
 
 ## Training Time Constraint
 
 **Target ~60 min per iteration.** Use `data_augmentation_loop` (DAL) to control training time. After each batch, check `training_time_min` in the metrics and adjust DAL for the next batch:
 
-- If training_time_min < 40 min: **increase** DAL (e.g. multiply by 1.5-2x)
-- If training_time_min > 70 min: **decrease** DAL (e.g. divide by 1.5-2x)
-- DAL scales training time linearly — doubling DAL ~ doubles training time
-
-**Note**: GT edges training is significantly faster than FC (35x fewer edges), so DAL will need to be much higher than FC to fill the 60 min budget.
+- If training_time_min < 40 min: **increase** DAL (e.g. multiply by 1.5-2×)
+- If training_time_min > 70 min: **decrease** DAL (e.g. divide by 1.5-2×)
+- DAL scales training time linearly — doubling DAL ≈ doubles training time
 
 Longer training gives W more time to converge. Always use the full time budget.
 
@@ -141,16 +133,16 @@ State your choice (exploration vs robustness test) in the log entry.
 
 The blocks below provide a **recommended exploration roadmap**. Follow the block focus as a guide but use your scientific judgment — if early results clearly suggest a detour or shortcut, adapt. The block boundaries are soft: you can revisit earlier axes or combine parameters across blocks when evidence supports it.
 
-| Block | Focus                    | Parameters to scan                                                         | Ranges                                                                                                           |
-| ----- | ------------------------ | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| 1     | **lr_W + W_L1**          | `lr_W`, `coeff_W_L1`                                                       | lr_W: {1e-4, 3e-4, 6e-4, 1e-3}, W_L1: {0, 1e-6, 1e-5, 5e-5}                                                      |
-| 2     | **W initialization**     | `w_init_mode`                                                              | {zeros, randn, randn_scaled} — low-rank dynamics may favor randn                                                 |
-| 3     | **Training volume**      | `data_augmentation_loop`, `n_epochs`                                       | DAL: {50, 100, 200}, n_epochs: {2, 4} (halve DAL when doubling epochs)                                           |
+| Block | Focus                           | Parameters to scan                                                                                           | Ranges                                                                                                                                                                                                                  |
+| ----- | ------------------------------- | ------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | **lr_W + W_L1**                 | `lr_W`, `coeff_W_L1`                                                                                         | lr_W: {1e-4, 3e-4, 6e-4, 1e-3}, W_L1: {0, 1e-6, 1e-5, 5e-5}                                                                                                                                                             |
+| 2     | **W initialization**            | `w_init_mode`                                                                                                | {zeros, randn, randn_scaled} — low-rank dynamics may favor randn                                                                                                                                                        |
+| 3     | **Training volume**             | `data_augmentation_loop`, `n_epochs`                                                                         | DAL: {50, 100, 200}, n_epochs: {2, 4} (halve DAL when doubling epochs)                                                                                                                                                  |
 | 4     | **Regularization + Dale's law** | `coeff_W_L2`, `coeff_W_sign`, `dale_law`, `coeff_g_phi_diff`, `coeff_f_theta_diff`, `coeff_f_theta_msg_diff` | W_L2: {5e-6, 1e-5, 2e-5}, W_sign: {0, 0.01, 0.05}, dale_law: {false, true}, g_phi_diff: {500, 1000, 1500}, f_theta_diff: {0, 10, 100} (leak), f_theta_msg_diff: {0, 10, 100}. Monitor dale_law_score in all iterations. |
-| 5     | **Architecture + batch_size** | `hidden_dim`, `embedding_dim`, `batch_size`                               | hidden_dim: {48, 64, 80}, embedding_dim: {2, 4}, batch_size: {2, 4, 8}. From flyvis: bs=4 eliminated catastrophic failures. |
-| 6     | **Free exploration I**   | Any parameter                                                              | Consolidate best from blocks 1-5, test novel combinations, attempt to break R2 ceiling                           |
-| 7     | **Free exploration II**  | Any parameter                                                              | Continue ceiling-breaking attempts, confirm final robust config                                                  |
-| 8     | **Final robustness**     | None (robustness test)                                                     | 4-seed robustness test of best config from blocks 1-7                                                            |
+| 5     | **Architecture + batch_size**   | `hidden_dim`, `embedding_dim`, `batch_size`                                                                  | hidden_dim: {48, 64, 80}, embedding_dim: {2, 4}, batch_size: {2, 4, 8}. From flyvis: bs=4 eliminated catastrophic failures.                                                                                             |
+| 6     | **Free exploration I**          | Any parameter                                                                                                | Consolidate best from blocks 1-5, test novel combinations, attempt to break R2 ceiling                                                                                                                                  |
+| 7     | **Free exploration II**         | Any parameter                                                                                                | Continue ceiling-breaking attempts, confirm final robust config                                                                                                                                                         |
+| 8     | **Final robustness**            | None (robustness test)                                                                                       | 4-seed robustness test of best config from blocks 1-7                                                                                                                                                                   |
 
 ### Low-rank context
 
@@ -158,13 +150,14 @@ These biological connectomes produce **low-rank activity** (linear integrator, d
 
 - **W_L1 calibration is critical**: L1=1E-6 unlocks near-perfect dynamics recovery; L1=1E-5 gives good W but partial rollout. Too much L1 destroys the low-rank structure.
 - **W initialization matters**: `randn` outperforms `zeros` for low-rank regimes (opposite of chaotic regime). Must be tested — Block 2.
-- **GT edges removes topology search**: With known edges, L1 sparsity is less critical for edge selection but may still help regularize edge weights. The main benefit is removing degenerate W solutions that exist in FC training.
+- **Fully connected training is the default** (`use_gt_edges=false`): the GNN trains on all-to-all edges and must learn which are zero via L1 sparsity. See `instruction_zebrafish_oculomotor_gt_edges.md` for the GT edges variant.
 
 ### Model-specific notes for Block 4
 
 - **Linear model**: f_theta_msg_diff is physically well-motivated here — f_theta should be monotonically increasing in message (it learns -v + msg + stim, which IS monotonic in msg). Values up to 100 may help.
 - g_phi_diff may be less important since g_phi learns identity — lower values (500) may suffice.
 - W_sign: zebrafish connectome has mixed excitatory/inhibitory types but some populations are zeroed — gentle W_sign ({0.01, 0.05}) only.
+- W_L1 sparsity: many zero'd populations mean true W is relatively sparse — L1 may help here.
 - **Spectral radius**: the true W has spectral_radius=0.9. If learned spectral_radius diverges far from 0.9, W recovery fails. Monitor this diagnostic.
 
 ## Iteration Workflow
@@ -177,7 +170,7 @@ From `analysis.log`: connectivity_R2, rollout_pearson, cluster_accuracy, trainin
 
 ### Step 3: Write Log Entries + Update Memory
 
-```
+````
 ## Iter N: [robust/partially robust/fragile]
 Node: id=N, parent=P
 Hypothesis tested: "[quoted hypothesis]"
@@ -191,7 +184,6 @@ Mutation: [param]: [old] -> [new]
 W matrix: [visual comment from connectivity heatmap — sparsity, sign structure, convergence]
 Verdict: [supported/falsified/inconclusive]
 Next: parent=P
-```
 
 ## Winner Config (COMPULSORY)
 
@@ -200,10 +192,10 @@ This is a COMPULSORY task — do not skip it.
 
 1. Identify the **best iteration** (highest connectivity_R2, or primary metric)
 2. Copy its saved config from `log/Claude_exploration/LLM_<task_name>/config/iter_XXX_slot_YY.yaml`
-3. Save it to `config/zebrafish_oculomotor/zebrafish_oculomotor_gt_edges_winner.yaml` with a YAML comment header:
+3. Save it to `config/zebrafish_oculomotor/zebrafish_oculomotor_winner.yaml` with a YAML comment header:
 
 ```yaml
-# Winner config: zebrafish_oculomotor_gt_edges_winner.yaml
+# Winner config: zebrafish_oculomotor_winner.yaml
 # Source: iter_XXX_slot_YY (connectivity_R2 = X.XXX)
 # Exploration: N iterations, M blocks
 # Date: YYYY-MM-DD
@@ -221,11 +213,11 @@ This is a COMPULSORY task — do not skip it.
 #
 # Key config differences from baseline:
 #   - [list the parameters that differ from the initial baseline]
-```
+````
 
-Destination: `config/zebrafish_oculomotor/zebrafish_oculomotor_gt_edges_winner.yaml`
+Destination: `config/zebrafish_oculomotor/zebrafish_oculomotor_noise_free_winner.yaml`
 
-```
+````
 
 ### Step 4: Acknowledge User Input
 
@@ -243,11 +235,11 @@ Destination: `config/zebrafish_oculomotor/zebrafish_oculomotor_gt_edges_winner.y
 
 You maintain THREE files:
 
-1. **Full Log (append-only)**: `zebrafish_oculomotor_gt_edges_Claude_analysis.md`
+1. **Full Log (append-only)**: `zebrafish_oculomotor_Claude_analysis.md`
    - Append every iteration's log entry (4 entries per batch)
    - Never read — human record only
 
-2. **Working Memory (read + update every batch)**: `zebrafish_oculomotor_gt_edges_Claude_memory.md`
+2. **Working Memory (read + update every batch)**: `zebrafish_oculomotor_Claude_memory.md`
    - Read at start, update at end
    - Contains: robustness comparison table, hypotheses, established principles, current block iterations
 
@@ -264,7 +256,7 @@ A principle must satisfy ALL of:
 - Consistent across all 4 seeds (not just mean, but low variance)
 - States a causal relationship (not just a correlation)
 
-Example: "GT edges + careful lr_W tuning achieves connectivity_R2 > 0.77 robustly (3/3 iterations, all seeds > 0.75, CV < 2%)"
+Example: "Spectral radius constraint + strong g_phi_diff achieves connectivity_R2 > 0.7 robustly on zebrafish (3/3 iterations, all seeds > 0.68, CV < 3%)"
 
 ### What to Add to Open Questions
 
@@ -273,7 +265,7 @@ Example: "GT edges + careful lr_W tuning achieves connectivity_R2 > 0.77 robustl
 - Contradictions between iterations
 - Theoretical predictions not yet verified
 
-Example: "Does GT topology suffice to break zebrafish linear degeneracy? Early results promising but variability high; more iterations needed."
+Example: "Does W_L1 help or hurt zebrafish linear dynamics? Preliminary data (iter 1) suggests modest benefit, needs more testing."
 
 ### What to Add to Falsified Hypotheses
 
@@ -283,7 +275,7 @@ When a hypothesis is falsified:
 - State what was learned from the falsification
 - Propose a revised hypothesis if applicable
 
-Example: "Hypothesis: 'GT topology enables high R2 without fine-tuning' — Falsified by iter 2 (L2=1e-5 gave CV=6%, only 2/4 seeds > 0.73). Revised: 'GT topology helps but regularization still crucial; L2 tuning essential.'"
+Example: "Hypothesis: 'Linear ODE requires minimal regularization' — Falsified by iter 3 (W_L2=1e-6 caused CV=15%, only 1/4 seeds > 0.65). Revised: 'Linear ODE actually needs MORE regularization than nonlinear models; zero initialization crucial.'"
 
 ## Start Call
 
@@ -292,14 +284,14 @@ When prompt says `PARALLEL START`:
 - Read base config — this IS the baseline. Do NOT change any default values.
 - Slot 0 = baseline (no changes at all).
 - Slots 1-3: each changes EXACTLY ONE parameter from the block focus. Keep everything else at baseline.
-- Hypothesis: "The baseline config with GT edges achieves connectivity_R2 > 0.5 robustly across seeds"
+- Hypothesis: "The baseline config achieves connectivity_R2 > 0.5 robustly across seeds"
 
 ---
 
 # Working Memory Structure
 
 ```markdown
-# Working Memory: zebrafish_oculomotor_gt_edges
+# Working Memory: zebrafish_oculomotor
 
 ## Paper Summary (update at every block boundary)
 
@@ -342,4 +334,4 @@ When prompt says `PARALLEL START`:
 ### Emerging Observations
 
 **CRITICAL: This section must ALWAYS be at the END of memory file.**
-```
+````

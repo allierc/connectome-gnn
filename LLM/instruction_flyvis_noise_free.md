@@ -307,6 +307,7 @@ Mutation: [param]: [old] -> [new]
 Verdict: [supported/falsified/inconclusive] — [one line explanation]
 Observation: [one line about seed sensitivity or robustness pattern]
 Next: parent=P
+```
 
 ## Winner Config (COMPULSORY)
 

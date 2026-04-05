@@ -269,6 +269,7 @@ SIREN stats: mean_field_R2=X, std=Y, min=W
 Mutation: [param]: [old] -> [new]
 Verdict: [supported/falsified/inconclusive] — [one line]
 Next: parent=P
+```
 
 ## Winner Config (COMPULSORY)
 
