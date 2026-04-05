@@ -15,6 +15,7 @@ Loops over multiple noise conditions to reveal how noise affects identifiability
 
 import os
 import sys
+import json
 import numpy as np
 from collections import defaultdict
 import torch
@@ -26,28 +27,24 @@ from matplotlib.patches import Rectangle
 import seaborn as sns
 
 
-def load_saved_activity(test_zarr_path, n_frames=None):
-    """Load voltage traces from saved test.zarr."""
-    print(f"  Loading from {test_zarr_path}...")
-    zarr_root = zarr.open(test_zarr_path, mode='r')
+def load_training_activity(data_dir, subsample_t=8):
+    """Load voltage from x_list_train/voltage.zarr (full 64K training data, subsampled).
 
-    # zarr_root is an Array, load directly
-    if hasattr(zarr_root, 'shape'):
-        # It's an array
-        v = zarr_root[:]
-    else:
-        # It's a group, load chunks
-        chunks = []
-        keys = sorted(zarr_root.keys(), key=lambda x: int(x.split('.')[0]))
-        for key in tqdm(keys, desc="  Loading chunks", ncols=100, leave=False):
-            chunk = zarr_root[key][:]
-            chunks.append(chunk)
-        v = np.concatenate(chunks, axis=0)
+    Uses training data for robust per-neuron rank estimation (64,000 frames is better
+    than test's 8,528 frames for determining individual neuron ranks).
+    """
+    from pathlib import Path
+    data_path = Path(data_dir) / "x_list_train" / "voltage.zarr"
+    print(f"  Loading training data from {data_path}...")
 
-    if n_frames is not None:
-        v = v[:n_frames]
+    voltage_zarr = zarr.open_array(str(data_path), mode='r')
+    print(f"    Full shape: {voltage_zarr.shape}")
 
-    return v
+    # Subsample timesteps for tractable computation (64000 / 8 = 8000)
+    voltage = np.array(voltage_zarr[::subsample_t, :])
+    print(f"    Subsampled (every {subsample_t}th frame): {voltage.shape}")
+
+    return voltage
 
 
 def compute_per_neuron_svd(h, edge_index, tau_i, v_rest, variance_thresholds=(0.995, 0.99, 0.999)):
@@ -105,15 +102,15 @@ def compute_per_neuron_svd(h, edge_index, tau_i, v_rest, variance_thresholds=(0.
     return results
 
 
-def analyze_noise_condition(noise_label, ode_path, test_zarr_path):
-    """Analyze per-neuron SVD for a single noise condition."""
+def analyze_noise_condition(noise_label, ode_path, data_dir):
+    """Analyze per-neuron SVD for a single noise condition.
+
+    Uses training data (x_list_train/voltage.zarr) with 64,000 frames subsampled to 8,000,
+    which is more robust than test data (8,528 frames only).
+    """
 
     if not os.path.exists(ode_path):
         print(f"ERROR: ODE params not found at {ode_path}")
-        return None
-
-    if not os.path.exists(test_zarr_path):
-        print(f"ERROR: Test data not found at {test_zarr_path}")
         return None
 
     print(f"\n{'='*80}")
@@ -128,12 +125,9 @@ def analyze_noise_condition(noise_label, ode_path, test_zarr_path):
     N = len(state['tau_i'])
     E = len(state['W'])
 
-    # Load saved voltage traces (test set = 8K frames)
-    print(f"\nLoading voltage traces from test.zarr (8,000 frames)...")
-    v = load_saved_activity(test_zarr_path, n_frames=8000)
-
-    if v.ndim > 2:
-        v = v.squeeze()
+    # Load training voltage traces (64K frames subsampled to 8K)
+    print(f"\nLoading voltage traces from x_list_train/voltage.zarr...")
+    v = load_training_activity(data_dir, subsample_t=8)
 
     print(f"  ✓ Voltage matrix v shape: {v.shape}")
     print(f"    v: mean={v.mean():.4f}, std={v.std():.4f}, range=[{v.min():.4f}, {v.max():.4f}]")
@@ -367,15 +361,15 @@ def main():
     noise_conditions = {
         "noise-free": {
             "ode_path": "../graphs_data/fly/flyvis_noise_free/ode_params.pt",
-            "test_zarr_path": "../graphs_data/fly/flyvis_noise_free/y_list_test.zarr"
+            "data_dir": "../graphs_data/fly/flyvis_noise_free"
         },
         "noise-0.05": {
             "ode_path": "../graphs_data/fly/flyvis_noise_005/ode_params.pt",
-            "test_zarr_path": "../graphs_data/fly/flyvis_noise_005/y_list_test.zarr"
+            "data_dir": "../graphs_data/fly/flyvis_noise_005"
         },
         "noise-0.5": {
             "ode_path": "../graphs_data/fly/flyvis_noise_05/ode_params.pt",
-            "test_zarr_path": "../graphs_data/fly/flyvis_noise_05/y_list_test.zarr"
+            "data_dir": "../graphs_data/fly/flyvis_noise_05"
         },
     }
 
@@ -384,9 +378,9 @@ def main():
     # Analyze each noise condition
     for noise_label, paths in noise_conditions.items():
         ode_path = os.path.join(script_dir, paths["ode_path"])
-        test_zarr_path = os.path.join(script_dir, paths["test_zarr_path"])
+        data_dir = os.path.join(script_dir, paths["data_dir"])
 
-        result = analyze_noise_condition(noise_label, ode_path, test_zarr_path)
+        result = analyze_noise_condition(noise_label, ode_path, data_dir)
         if result is not None:
             all_results[noise_label] = result
 
@@ -464,7 +458,43 @@ def main():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     visualize_per_neuron_svd(all_results, script_dir)
 
+    # Write results to JSON file
+    results_file = os.path.join(script_dir, "results_per_neuron_svd.json")
+    write_results_json(all_results, results_file)
+
     return all_results
+
+
+def write_results_json(all_results, output_file):
+    """Write results to JSON file for tex auto-update."""
+    results_dict = {}
+
+    for noise_label in ["noise-free", "noise-0.05", "noise-0.5"]:
+        if noise_label not in all_results:
+            continue
+
+        results, degrees, E, N, n_post, state = all_results[noise_label]
+
+        results_dict[noise_label] = {}
+        for theta in [0.995, 0.99, 0.999]:
+            if theta not in results["effective_rank"]:
+                continue
+
+            r = np.array(results["effective_rank"][theta])
+            null_dims = np.array(results["null_dim"][theta])
+            total_null = int(null_dims.sum())
+
+            results_dict[noise_label][f"{theta:.1%}"] = {
+                "mean_effective_rank": f"{r.mean():.1f}",
+                "null_space_dim": total_null,
+                "degree_of_degeneracy": f"{100*total_null/E:.1f}",
+                "fully_identifiable_neurons": int((null_dims == 0).sum()),
+            }
+
+    with open(output_file, 'w') as f:
+        json.dump(results_dict, f, indent=2)
+
+    print(f"\n✓ Results written to {output_file}")
 
 
 if __name__ == "__main__":
