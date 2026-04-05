@@ -54,7 +54,7 @@ training:
 claude:
   n_epochs: 1
   data_augmentation_loop: 35
-  n_iter_block: 12
+  n_iter_block: 8
   ucb_c: 1.414
   generate_data: true
-  node_name: a100
+  node_name: h100
