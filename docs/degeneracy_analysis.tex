@@ -123,14 +123,14 @@ In-degree range & Neurons & Null space contribution at rank 45 \\
 \toprule
 Noise condition & Global rank & Null space dim & \textbf{Degree of degeneracy} \\
 \midrule
-noise-free & 400 & 115,223 & \textbf{26.5\%} \\
-noise-0.05 & 400 & 115,223 & \textbf{26.5\%} \\
+noise-free & 400 & 0 & \textbf{0.0\%} \\
+noise-0.05 & 400 & 0 & \textbf{0.0\%} \\
 noise-0.5 & 774 & 0 & \textbf{0.0\%} \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-This is a conservative estimate because it assumes every neuron's rank is limited by the global rank, missing per-neuron stronger correlations. With strong noise (σ=0.5), the global rank (774) exceeds the maximum in-degree (208), making all weights identifiable.
+\noindent\textbf{Interpretation:} The global rank (400 at 99\% variance) exceeds the maximum in-degree (208) even in noise-free conditions. This means \emph{every neuron's} incoming weights are fully identifiable under this global rank bound---the null space vanishes. However, this is overly optimistic for the noise-free case: the global rank averages correlations across all neurons, missing the strong within-type correlations that create per-neuron degeneracy. The global SVD provides an \emph{upper bound} on each neuron's rank, but individual neurons can have much lower ranks due to correlated presynaptic populations.
 
 \subsection{Step 2: Per-neuron SVD approach (empirical measurement)}
 
@@ -210,32 +210,32 @@ noise-0.5 & 0 & 0 & \textbf{0.0\%} \\
 
 \subsection*{Unified view: Degree of degeneracy across all three approaches}
 
-The three approaches estimate degeneracy using different mechanisms but converge on a consistent picture. At the 99\% variance threshold, their estimates differ by a factor of 1.2--1.7x but all agree that the null space is substantial:
+The three approaches measure degeneracy at different scales. At the 99\% variance threshold:
 
 \begin{center}
 \begin{tabular}{lrr}
 \toprule
 Approach & Null space dim & \textbf{Degree of degeneracy} \\
 \midrule
-Global SVD & 115,223 & \textbf{26.5\%} \\
+Global SVD & 0 & \textbf{0.0\%} \\
 Per-neuron SVD & 193,824 & \textbf{44.6\%} \\
 Structural per-type & 121,100 & \textbf{27.9\%} \\
-\midrule
-Consensus range & 100--195K & \textbf{23--45\%} \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-\noindent\textbf{Interpretation.} The three methods bracket the true degeneracy:
+\noindent\textbf{Why the estimates diverge.} The global SVD (0\%) is extremely optimistic: it assumes every neuron's rank is capped by the population-wide effective rank (400), which exceeds the maximum in-degree (208), leaving zero null space. However, this misses the \emph{within-neuron} degeneracy created by correlated presynaptic populations. The per-neuron SVD (44.6\%) directly measures each neuron's singular value spectrum and reveals the actual rank deficit: on average, neurons have effective rank $\sim 17.5$ despite in-degrees up to 208, creating 193,824 null dimensions. The structural count (27.9\%) explains the mechanical source: same-type neurons across columns produce correlated activity, contributing exactly 121,100 null dimensions. The per-neuron SVD exceeds the structural count because it captures both within-type (121,100) and cross-type (73,000) correlations.
+
+\noindent\textbf{Reconciliation:} These three estimates are \emph{not} contradictory---they measure different aspects:
 \begin{itemize}[nosep]
-\item \textbf{Global SVD (26.5\%):} Conservative lower bound. Assumes each neuron's rank is capped by global rank (45), missing per-neuron stronger correlations.
-\item \textbf{Per-neuron SVD (44.6\%):} Empirical measurement. Reveals neuron-specific degeneracy directly from singular value decomposition; captures both within-type and cross-type correlations.
-\item \textbf{Structural per-type (27.9\%):} Mechanistic accounting. Counts exact constraints from same-type edges; precise but may miss cross-type degeneracy.
+\item \textbf{Global SVD (0\%):} Upper bound assuming population-level rank applies uniformly. Overly optimistic because neurons with high in-degrees but low per-neuron effective rank are fully degenerate.
+\item \textbf{Per-neuron SVD (44.6\%):} Empirical measurement of actual rank deficits. Most direct and reliable since it measures the singular value spectrum of each neuron individually.
+\item \textbf{Structural per-type (27.9\%):} Mechanistic explanation of the source (within-type correlations only). Conservative relative to per-neuron because it misses cross-type correlations.
 \end{itemize}
 
-The per-neuron SVD (44.6\%) is the most direct empirical estimate, since it measures the actual rank of each neuron's activity matrix. The structural count (27.9\%) explains the mechanical source (within-type correlations). Their difference (16.7 percentage points) suggests cross-type correlations contribute an additional $\sim 73{,}000$ degenerate dimensions.
+The \textbf{per-neuron SVD (44.6\%) is the most accurate estimate} of true degeneracy, since it directly measures the rank of $\mathbf{H}_i$ for each neuron. The structural count (27.9\%) provides independent mechanistic validation for the within-type portion. Their difference ($16.7$ percentage points $\approx 73{,}000$ dimensions) quantifies the contribution from cross-type correlations.
 
-\noindent\textbf{Conclusion:} Regardless of estimation method, the flyvis connectome inverse problem has a \textbf{degree of degeneracy in the range 23--45\%}, meaning between 100,000 and 195,000 out of 434,112 edge weights are unconstrained by the dynamics. This structural degeneracy is \textbf{fundamental and irreducible}---it cannot be overcome by more data, longer recordings, or higher noise levels. It is an intrinsic property of the columnar circuit organization where same-type neurons produce strongly correlated activity, making their individual synaptic contributions indistinguishable from dynamics alone.
+\noindent\textbf{Conclusion:} The flyvis connectome inverse problem has a \textbf{degree of degeneracy of $\sim$44.6\%} from per-neuron SVD analysis, meaning approximately 193,824 out of 434,112 edge weights are unconstrained by the dynamics. Of these, $\sim$121,100 arise from same-type correlations (mechanistically explained by the columnar structure), and $\sim$73,000 from cross-type correlations (revealed empirically by per-neuron analysis). This structural degeneracy is \textbf{fundamental and irreducible}---it cannot be overcome by more data or longer recordings. It is an intrinsic property of the columnar circuit organization where same-type neurons across columns produce strongly correlated activity, making their individual synaptic contributions indistinguishable from dynamics alone.
 
 
 \subsection{Step 4: Empirical verification (null space validation)}
