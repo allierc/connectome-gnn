@@ -127,7 +127,7 @@ def analyze_noise_condition(noise_label, ode_path, data_dir):
     # Compute global SVD
     print(f"\nComputing global SVD...")
     results, sigma, cumsum_var = compute_global_svd(
-        h, state['edge_index'], variance_thresholds=(0.995, 0.99, 0.999)
+        h, state['edge_index'], variance_thresholds=(0.90, 0.95, 0.99, 0.995, 0.999)
     )
 
     # Get in-degree distribution
@@ -285,7 +285,7 @@ def main():
 
         results, in_deg, sigma, cumsum_var, E, N, n_post, state = all_results[noise_label]
 
-        for theta in [0.995, 0.99, 0.999]:
+        for theta in [0.90, 0.95, 0.99, 0.995, 0.999]:
             if theta not in results["effective_ranks"]:
                 continue
 
@@ -296,9 +296,9 @@ def main():
 
             print(f"{noise_label:>16} {theta:10.1%} {r:12d} {degree_degen:14.1f}%")
 
-    # Per-noise summary at 99%
+    # Per-noise summary with all thresholds
     print(f"\n{'='*80}")
-    print(f"DETAILED SUMMARY AT 99% VARIANCE THRESHOLD")
+    print(f"DETAILED SUMMARY: EFFECTIVE RANKS AT ALL VARIANCE THRESHOLDS")
     print(f"{'='*80}")
 
     for noise_label in ["noise-free", "noise-0.05", "noise-0.5"]:
@@ -309,21 +309,29 @@ def main():
 
         print(f"\n{noise_label.upper()}")
         print(f"{'─'*60}")
+        print(f"  Total edges: {E:,d}")
+        print(f"  Postsynaptic neurons: {n_post:,d}")
+        print(f"\n  Effective ranks across variance thresholds:")
+        print(f"  {'Threshold':>12} {'Rank':>8} {'Null dims':>12} {'Degeneracy':>12}")
+        print(f"  {'-'*50}")
 
+        for theta in [0.90, 0.95, 0.99, 0.995, 0.999]:
+            if theta in results["effective_ranks"]:
+                r = results["effective_ranks"][theta]
+                null_dims = estimate_null_space_from_global_rank(r, in_deg, E)
+                total_null = int(null_dims.sum())
+                degree_degen = 100 * total_null / E
+                print(f"  {theta:11.1%} {r:8d} {total_null:12,d} {degree_degen:11.1f}%")
+
+        # Use 99% for in-degree breakdown
         r99 = results["effective_ranks"][0.99]
         null99 = estimate_null_space_from_global_rank(r99, in_deg, E)
 
-        print(f"  Global effective rank (99%): {r99}")
-        print(f"  Total edges: {E:,d}")
-        print(f"  Postsynaptic neurons: {n_post:,d}")
-        print(f"  Null space dimension: {null99.sum():,.0f}")
-        print(f"  Degree of degeneracy: {100*null99.sum()/E:.1f}%")
-
         n_fully_id = int((null99 == 0).sum())
-        print(f"  Fully identifiable neurons: {n_fully_id:,d} ({100*n_fully_id/n_post:.1f}%)")
+        print(f"\n  Fully identifiable neurons (at 99%): {n_fully_id:,d} ({100*n_fully_id/n_post:.1f}%)")
 
         # In-degree breakdown
-        print(f"\n  Null space by in-degree (using global rank {r99}):")
+        print(f"\n  Null space by in-degree (at 99%, rank {r99}):")
         for lo, hi in [(1, 10), (11, 20), (21, 45), (46, 100), (101, 208)]:
             mask = (in_deg >= lo) & (in_deg <= hi)
             count = int(mask.sum())
@@ -354,7 +362,7 @@ def write_results_json(all_results, output_file):
         results, in_deg, sigma, cumsum_var, E, N, n_post, state = all_results[noise_label]
 
         results_dict[noise_label] = {}
-        for theta in [0.995, 0.99, 0.999]:
+        for theta in [0.90, 0.95, 0.99, 0.995, 0.999]:
             if theta not in results["effective_ranks"]:
                 continue
 
