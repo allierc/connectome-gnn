@@ -1,12 +1,12 @@
-# Drosophila CX (Noise 0.5) — Known ODE Exploration
+# Drosophila CX (GT Edges, Noise 0.5) — Known ODE Exploration
 
 ## Goal
 
-Maximize **connectivity_R2** (PRIMARY) for the **Drosophila central complex ring attractor** using the **known_ode model** under **strong intrinsic noise (sigma=0.5)**.
+Maximize **connectivity_R2** (PRIMARY) for the **Drosophila central complex ring attractor** using the **known_ode model** with **GT edge topology** (9,722 edges) and **strong intrinsic noise (sigma=0.5)**.
 
-The known_ode model uses the **exact activation function**: `g_phi = exp(g) * softplus(v + b, beta=5)` and **exact dynamics**: `dv/dt = alpha * (-v + msg + I) / tau`. All parameters are **learned from data**: W, tau, g, b. This is an **upper bound** on what is achievable with perfect structural knowledge.
+The known_ode model uses the **exact activation function**: `g_phi = exp(g) * softplus(v + b, beta=5)` and **exact dynamics**: `dv/dt = alpha * (-v + msg + I) / tau`. All parameters are **learned from data**: W, tau, g, b. This is the most favorable setting: perfect ODE structure, known topology, and strong noise for state-space enrichment.
 
-**Starting hypothesis**: "Known ODE + noise=0.5 matches or exceeds GNN (GNN: 0.999)"
+**Starting hypothesis**: "Known ODE + GT edges + noise=0.5 achieves W R2 approximately 1.0 (GNN: 0.999+)"
 
 ### Metrics (ranked by importance)
 
@@ -15,8 +15,6 @@ The known_ode model uses the **exact activation function**: `g_phi = exp(g) * so
 3. **tau_R2** (TERTIARY) — R² between learned tau and ground-truth tau
 
 Informational: onestep_pearson, spectral_radius_learned vs spectral_radius_true, training_time_min.
-
-**NOTE**: V_rest_R2 is always 0.0. cluster_accuracy is not applicable (no learned embeddings).
 
 ## Scientific Method
 
@@ -38,12 +36,12 @@ This exploration follows a strict **hypothesize → test → validate/falsify** 
 | **Tentative** | Observed 1-2 times or inconsistent across seeds | Add to Open Questions |
 | **Contradicted** | Conflicting evidence across iterations/seeds | Note in Open Questions |
 
-### CAUSALITY RULE (MANDATORY — READ THIS)
+### CAUSALITY RULE (MANDATORY)
 
-**If you change more than one parameter per slot, you CANNOT attribute the effect. This is a fatal experimental design error.**
+**If you change more than one parameter per slot, you CANNOT attribute the effect.**
 
-- In EXPLORATION mode: Slot 0 = parent/baseline (unchanged control). Slots 1-3 each change **exactly one** parameter from the parent.
-- In ROBUSTNESS mode: all 4 slots use the same config (different seeds test robustness).
+- In EXPLORATION mode: Slot 0 = parent/baseline. Slots 1-3 each change **exactly one** parameter.
+- In ROBUSTNESS mode: all 4 slots use the same config (different seeds).
 
 ## CRITICAL: Data is RE-GENERATED per slot
 
@@ -58,7 +56,7 @@ The actual seed values are provided in the prompt for each slot — **log them i
 
 Simulation parameters (n_neurons, n_frames, etc.) stay fixed — **DO NOT change them**.
 
-**IMPORTANT**: `noise_model_level` is set to **0.5** in the base config. Do NOT change it — this file is specifically for the noise=0.5 experiment.
+**IMPORTANT**: `use_gt_edges=true` and `noise_model_level=0.5` are FIXED. Do NOT change them.
 
 ## Noise Model
 
@@ -67,7 +65,7 @@ Two independent noise sources in the training data:
 1. **Dynamics noise** (`noise_model_level=0.5`): `v(t+1) = v(t) + dt * f(v, W, I) + epsilon_dyn(t)`, epsilon_dyn ~ N(0, 0.5)
 2. **Measurement noise** (`measurement_noise_level=0.0`): Clean observations
 
-At high noise, even with perfect ODE structure, parameter estimation becomes very difficult. Testing whether known_ode can exceed GNN performance under strong noise.
+At high noise with GT edges and perfect structure, strong state-space enrichment should enable near-perfect parameter recovery.
 
 ## CX Ring Attractor Model
 
@@ -75,47 +73,42 @@ At high noise, even with perfect ODE structure, parameter estimation becomes ver
 dh/dt = alpha * (-h + exp(g_i) * softplus(h_j + b_j, beta=5) @ J^T + input) / tau_i
 ```
 
-- **152 neurons**, 6 cell types, **9,722 GT edges**, **22,952 FC edges**
-- tau bounded [0.2, 5.0], alpha=0.2, beta=5 (softplus sharpness)
-- 10,000 frames, delta_t=0.1, bump + velocity stimuli, **noise_model_level=0.5**
+- **152 neurons**, 6 cell types, **9,722 GT edges**, **noise_model_level=0.5**
 
 ## Known ODE Architecture
 
-The model is registered as `drosophila_cx_known_ode`. Unlike the GNN:
+Registered as `drosophila_cx_known_ode`:
 
-- **No learned MLP curves**: Activation function `g_phi = exp(g) * softplus(v + b, beta=5)` is hardcoded. Parameters g and b are learned per neuron.
-- **No embeddings**: No per-neuron type embedding vectors.
-- **Direct W learning**: Synaptic weight matrix W is learned directly on graph edges.
-- **Direct tau learning**: Time constants tau are learned per neuron.
+- **Hardcoded activation**: `g_phi = exp(g) * softplus(v + b, beta=5)` — g, b learned per neuron.
+- **Direct W learning** on 9,722 GT edges only.
+- **Direct tau learning** per neuron.
+- **No embeddings, no MLP curves.**
 
-**Parameters NOT used by known_ode** (do not modify): coeff_g_phi_diff, coeff_f_theta_msg_diff, coeff_g_phi_norm, coeff_g_phi_weight_L1/L2, coeff_f_theta_weight_L1/L2, embedding_dim, lr_embedding.
+**Parameters NOT used**: coeff_g_phi_diff, coeff_f_theta_msg_diff, coeff_g_phi_norm, coeff_g_phi_weight_L1/L2, coeff_f_theta_weight_L1/L2, embedding_dim, lr_embedding.
 
 ## Training Parameters
 
 | Parameter                 | Default | Description                                            |
 | ------------------------- | ------- | ------------------------------------------------------ |
-| `lr_W`                    | 1e-3    | Learning rate for W (synaptic weights)                 |
-| `lr`                      | 1e-3    | Learning rate for other params (tau, g, b)             |
+| `lr_W`                    | 1e-3    | Learning rate for W                                    |
+| `lr`                      | 1e-3    | Learning rate for tau, g, b                            |
 | `n_epochs`                | 2       | Number of training epochs                              |
 | `batch_size`              | 2       | Batch size                                             |
 | `data_augmentation_loop`  | 100     | Data augmentation multiplier                           |
 | `coeff_W_L1`              | 0       | L1 sparsity on W                                       |
 | `coeff_W_L2`              | 0       | L2 penalty on W                                        |
 | `coeff_W_sign`            | 0       | Dale's law penalty on W                                |
-| `use_gt_edges`            | false   | Fully connected graph (22,952 edges)                   |
-| `noise_model_level`       | 0.5     | **FIXED** — strong noise level for this experiment     |
+| `use_gt_edges`            | true    | **FIXED** — GT edge topology                           |
+| `noise_model_level`       | 0.5     | **FIXED** — strong noise level                         |
 
 ## Training Time Constraint
 
-**Target ~60 min per iteration.** Use `data_augmentation_loop` (DAL) to control training time.
-
-- If training_time_min < 40 min: **increase** DAL
-- If training_time_min > 70 min: **decrease** DAL
+**Target ~60 min per iteration.** GT edges are faster — increase DAL to fill the time budget.
 
 ## Parallel Mode — 4 Slots Per Batch
 
-- **Exploration** (default): Slot 0 = parent/control. Slots 1-3 each change **exactly one** parameter.
-- **Robustness test**: ALL 4 slots use the SAME config (different seeds test robustness).
+- **Exploration**: Slot 0 = control. Slots 1-3 each change one parameter.
+- **Robustness test**: all 4 slots same config.
 
 ### Robustness Assessment
 
@@ -142,25 +135,23 @@ Example: `block 1, iterations 1-4/12 within block` means:
 
 **Your role**: Plan a coherent hypothesis for the entire block (12 iterations = 3 batches of 4 slots). The 4 slots per batch let you test multiple parameters in parallel, while the 12 iterations per block give you 3 rounds to refine based on evidence.
 
-## Block Partition
+## Block Structure
 
-| Block | Focus                          | Parameters to scan                          | Ranges                                                                                                           |
-| ----- | ------------------------------ | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| 1     | **lr_W + lr sweep**            | `lr_W`, `lr`                                | lr_W: {1e-4, 5e-4, 1e-3, 3e-3}, lr: {1e-4, 5e-4, 1e-3, 3e-3}. Strong noise may need lower lr for stability.    |
-| 2     | **Training volume**            | `data_augmentation_loop`, `n_epochs`        | DAL: {50, 100, 200, 500}, n_epochs: {2, 4, 8}. Strong noise needs more data to average out variance.            |
-| 3     | **W regularization**           | `coeff_W_L1`, `coeff_W_L2`, `coeff_W_sign` | W_L1: {0, 1e-6, 1e-5, 1e-4}, W_L2: {0, 1e-6, 1e-5, 1e-4}, W_sign: {0, 0.01, 0.1}.                             |
-| 4     | **Batch size**                 | `batch_size`                                | batch_size: {1, 2, 4, 8}. Larger batches smooth noisy gradients under strong noise.                             |
-| 5-8   | **Free exploration**           | Any parameter                               | Consolidate best, ceiling-breaking, final robustness test.                                                       |
+| Block | Focus                          | Parameters to scan                          | Ranges                                                                     |
+| ----- | ------------------------------ | ------------------------------------------- | -------------------------------------------------------------------------- |
+| 1     | **lr_W + lr sweep**            | `lr_W`, `lr`                                | lr_W: {1e-4, 5e-4, 1e-3, 3e-3}, lr: {1e-4, 5e-4, 1e-3, 3e-3}            |
+| 2     | **Training volume**            | `data_augmentation_loop`, `n_epochs`        | DAL: {100, 200, 500, 1000}, n_epochs: {2, 4, 8}                           |
+| 3     | **W regularization**           | `coeff_W_L1`, `coeff_W_L2`, `coeff_W_sign` | W_L1: {0, 1e-6, 1e-5}, W_L2: {0, 1e-6, 1e-5}, W_sign: {0, 0.01, 0.1}    |
+| 4     | **Batch size**                 | `batch_size`                                | batch_size: {1, 2, 4, 8}                                                  |
+| 5-8   | **Free exploration**           | Any parameter                               | Consolidate, ceiling-breaking, final robustness                            |
 
-### Noise-specific considerations
+### Context
 
-- **Strong noise (0.5) greatly enriches state space**: From GNN experience, noise=0.5 pushed CX connectivity R2 to 0.999. Known ODE should achieve similar or better.
-- **Gradient noise is high**: sigma=0.5 is large relative to signal — may need larger batches or more training to converge.
-- **W recovery may be near-perfect**: With known structure + strong noise, the inverse problem becomes well-conditioned.
+- **This is the theoretical ceiling**: Known ODE + GT edges + strong noise = maximum information. If W R2 < 1.0 here, some fundamental identifiability issue exists.
+- **GNN achieves 0.999+**: The GNN already nearly saturates under these conditions. Known ODE should match — if it does not, the GNN's flexible MLP may be compensating for some systematic mismatch.
+- **Strong noise + GT edges**: High gradient variance but rich state coverage on only true connections.
 
 ## Iteration Workflow
-
-### Step 1-5: Same as base known_ode instruction
 
 From `analysis.log`: connectivity_R2, rollout_pearson, tau_R2, training_time_min.
 
@@ -169,47 +160,35 @@ From `analysis.log`: connectivity_R2, rollout_pearson, tau_R2, training_time_min
 Node: id=N, parent=P
 Hypothesis tested: "[quoted hypothesis]"
 Config: lr_W=X, lr=Y, DAL=D, n_epochs=E, W_L1=A, W_L2=B, W_sign=C, batch_size=B
-Slot 0-3: conn_R2=A, rollout_pearson=B, tau_R2=C, sim_seed=S, train_seed=T
+Slot 0-3: conn_R2=A, rollout_pearson=B, tau_R2=C
 Seed stats: mean_conn_R2=X, std=Y, CV=Z%
-Mutation: [param]: [old] -> [new]
 Verdict: [supported/falsified/inconclusive]
-Next: parent=P
 ```
 
 ## Winner Config (COMPULSORY)
 
 **At every block boundary**, save the best config.
 
-Destination: `config/drosophila_cx/drosophila_cx_known_ode_noise05_winner.yaml`
+Destination: `config/drosophila_cx/drosophila_cx_known_ode_gt_edges_noise_05_winner.yaml`
 
 ```yaml
-# Winner config: drosophila_cx_known_ode_noise05_winner.yaml
+# Winner config: drosophila_cx_known_ode_gt_edges_noise_05_winner.yaml
 # Source: iter_XXX_slot_YY (connectivity_R2 = X.XXX)
-# Exploration: N iterations, M blocks
-# Date: YYYY-MM-DD
-#
-# Why this is the winner:
-#   - [1-2 sentence narrative]
-#
 # Metrics:
-#   connectivity_R2: X.XXX (best single seed)
-#   robust_mean:     X.XXX +/- X.XXX (N seeds, CV=X.X%)
+#   connectivity_R2: X.XXX
 #   rollout_pearson: X.XXX
 #   tau_R2:          X.XXX
-#
-# Key config differences from baseline:
-#   - [list]
 ```
 
 ## File Structure
 
 You maintain THREE files:
 
-1. **Full Log (append-only)**: `drosophila_cx_known_ode_noise05_Claude_analysis.md`
+1. **Full Log (append-only)**: `drosophila_cx_known_ode_gt_edges_noise_05_Claude_analysis.md`
    - Append every iteration's log entry (4 entries per batch)
    - Never read — human record only
 
-2. **Working Memory (read + update every batch)**: `drosophila_cx_known_ode_noise05_Claude_memory.md`
+2. **Working Memory (read + update every batch)**: `drosophila_cx_known_ode_gt_edges_noise_05_Claude_memory.md`
    - Read at start, update at end
    - Contains: robustness comparison table, hypotheses, established principles, current block iterations
 
@@ -226,7 +205,7 @@ A principle must satisfy ALL of:
 - Consistent across all 4 seeds (not just mean, but low variance)
 - States a causal relationship (not just a correlation)
 
-Example: "lr_W=1e-3 with lr=1e-3 on noise=0.5 achieves connectivity_R2 > 0.8 robustly (3/3 iterations, all seeds > 0.75, CV < 3%)"
+Example: "lr_W=1e-3 with GT edges + noise=0.5 achieves connectivity_R2 > 0.9 robustly (3/3 iterations, all seeds > 0.85, CV < 2%)"
 
 ### What to Add to Open Questions
 
@@ -235,7 +214,7 @@ Example: "lr_W=1e-3 with lr=1e-3 on noise=0.5 achieves connectivity_R2 > 0.8 rob
 - Contradictions between iterations
 - Theoretical predictions not yet verified
 
-Example: "Does higher batch_size stabilize W recovery at extreme noise? Only iter 2 tested."
+Example: "Does known_ode match GNN performance at this optimal setting? Still exploring."
 
 ### What to Add to Falsified Hypotheses
 
@@ -245,7 +224,7 @@ When a hypothesis is falsified:
 - State what was learned from the falsification
 - Propose a revised hypothesis if applicable
 
-Example: "Hypothesis: 'Strong noise enriches state-space, improving known_ode recovery' — Falsified by iter 1 (noise=0.5 gave lower R2 than clean). Revised: 'Noise magnitude dominates; known structure insufficient without careful regularization.'"
+Example: "Hypothesis: 'Known ODE + GT edges + noise=0.5 achieves R2 ≈ 1.0' — Falsified by iter 1 (best 0.91). Revised: 'Even with perfect structure and favorable noise, parameter estimation has fundamental limits.'"
 
 ## Start Call
 
@@ -254,19 +233,18 @@ When prompt says `PARALLEL START`:
 - Read base config — this IS the baseline. Do NOT change any default values.
 - Slot 0 = baseline (no changes at all).
 - Slots 1-3: each changes EXACTLY ONE parameter from the block focus.
-- Hypothesis: "Known ODE + noise=0.5 achieves connectivity_R2 > 0.8 with default parameters due to strong state-space enrichment"
+- Hypothesis: "Known ODE + GT edges + noise=0.5 achieves connectivity_R2 > 0.95 with default parameters"
 
 ---
 
 # Working Memory Structure
 
 ```markdown
-# Working Memory: drosophila_cx_known_ode_noise05
+# Working Memory: drosophila_cx_known_ode_gt_edges_noise_05
 
 ## Paper Summary (update at every block boundary)
 
-- **Known ODE optimization**: [pending]
-- **LLM-driven exploration**: [pending]
+- **Known ODE + GT edges + noise=0.5**: [pending]
 
 ## Knowledge Base
 

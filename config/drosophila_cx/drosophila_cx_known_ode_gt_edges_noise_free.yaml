@@ -1,5 +1,5 @@
 description: "Drosophila CX — Known ODE baseline, GT edges"
-dataset: drosophila_cx_known_ode_gt_edges
+dataset: drosophila_cx_known_ode_gt_edges_noise_free
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ""

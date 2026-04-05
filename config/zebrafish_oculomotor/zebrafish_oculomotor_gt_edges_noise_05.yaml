@@ -1,5 +1,5 @@
 description: "Zebrafish oculomotor integrator — GT edges + intrinsic noise 0.5 (from best GT edges config)"
-dataset: zebrafish_oculomotor_gt_edges_noise05
+dataset: zebrafish_oculomotor_gt_edges_noise_05
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ""

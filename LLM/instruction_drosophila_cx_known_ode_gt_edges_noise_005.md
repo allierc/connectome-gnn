@@ -168,10 +168,10 @@ Verdict: [supported/falsified/inconclusive]
 
 **At every block boundary**, save the best config.
 
-Destination: `config/drosophila_cx/drosophila_cx_known_ode_gt_edges_noise005_winner.yaml`
+Destination: `config/drosophila_cx/drosophila_cx_known_ode_gt_edges_noise_005_winner.yaml`
 
 ```yaml
-# Winner config: drosophila_cx_known_ode_gt_edges_noise005_winner.yaml
+# Winner config: drosophila_cx_known_ode_gt_edges_noise_005_winner.yaml
 # Source: iter_XXX_slot_YY (connectivity_R2 = X.XXX)
 # Metrics:
 #   connectivity_R2: X.XXX
@@ -183,11 +183,11 @@ Destination: `config/drosophila_cx/drosophila_cx_known_ode_gt_edges_noise005_win
 
 You maintain THREE files:
 
-1. **Full Log (append-only)**: `drosophila_cx_known_ode_gt_edges_noise005_Claude_analysis.md`
+1. **Full Log (append-only)**: `drosophila_cx_known_ode_gt_edges_noise_005_Claude_analysis.md`
    - Append every iteration's log entry (4 entries per batch)
    - Never read — human record only
 
-2. **Working Memory (read + update every batch)**: `drosophila_cx_known_ode_gt_edges_noise005_Claude_memory.md`
+2. **Working Memory (read + update every batch)**: `drosophila_cx_known_ode_gt_edges_noise_005_Claude_memory.md`
    - Read at start, update at end
    - Contains: robustness comparison table, hypotheses, established principles, current block iterations
 
@@ -239,7 +239,7 @@ When prompt says `PARALLEL START`:
 # Working Memory Structure
 
 ```markdown
-# Working Memory: drosophila_cx_known_ode_gt_edges_noise005
+# Working Memory: drosophila_cx_known_ode_gt_edges_noise_005
 
 ## Paper Summary (update at every block boundary)
 

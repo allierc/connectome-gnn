@@ -1,42 +1,29 @@
-# Drosophila Larva FC (Noise 0.5) — LLM Exploration
+# Drosophila Larva (Noise 0.05) — LLM Exploration
 
 ## Goal
 
-Maximize **connectivity_R2** for the **Drosophila larva two-population motor model** (Beiran & Litwin-Kumar 2023, Figure 5a-c) using a **fully connected graph** under **intrinsic noise (sigma=0.5)**.
+Maximize **connectivity_R2** for the **Drosophila larva two-population motor model** (Beiran & Litwin-Kumar 2023, Figure 5a-c) under **intrinsic noise (sigma=0.05)**.
 
-This exploration starts from the **best FC noise-free config** (conn_R2=0.435 best, mean=0.268+-0.106, CV=40%). Strong noise is the most powerful degeneracy breaker for FC modes across all models tested:
-- **CX FC**: noise-free=0.804 -> noise05=0.999 (near-perfect)
-- **Zebrafish FC**: noise-free=0.022 -> noise05=0.988 (45x improvement)
-- **Larva GT**: noise-free=0.908 -> noise05 exploration achieved strong results
-
-For larva FC, the 12.5x edge search space (52,670 edges vs 4,222 true) should become much more tractable under strong noise, as noise forces the dynamics to uniquely identify the true connectivity matrix. The parent config's strong W_L1=4e-3 and g_phi_norm=0.01 may need reduction since noise already provides powerful implicit regularization.
+This exploration starts from the **best clean config** and tests whether noise changes the optimal hyperparameters. The larva has softplus activation — noise robustness depends on the nonlinearity. Noise may just increase variance without helping W recovery.
 
 Data is **re-generated each iteration** with a different seed to verify seed independence.
 
-### Parent config (best FC noise-free)
+### Parent config (best clean)
 
 ```
-lr_W: 1e-3
+lr_W: 1e-4
 lr: 1e-3
 lr_embedding: 1e-3
 n_epochs: 2
-data_augmentation_loop: 630
+data_augmentation_loop: 2800
 w_init_mode: zeros
-hidden_dim: 64
-embedding_dim: 4
-coeff_g_phi_diff: 1500
-coeff_g_phi_norm: 0.01
-coeff_f_theta_diff: 10
-coeff_f_theta_msg_diff: 50
-coeff_f_theta_weight_L2: 0.001
-coeff_W_L1: 0.004
-coeff_W_L2: 1.5e-6
+coeff_W_L1: 1e-6
+coeff_W_L2: 1e-5
 coeff_W_sign: 0.05
-dale_law: false
-use_gt_edges: false
-batch_size: 4
-regul_annealing_rate: 0.7
-noise_model_level: 0.5
+coeff_g_phi_diff: 1500
+coeff_f_theta_weight_L2: 0.001
+use_gt_edges: true
+noise_model_level: 0.05
 ```
 
 ### Metrics (ranked by importance)
@@ -47,7 +34,7 @@ noise_model_level: 0.5
 
 Informational (not for optimization): onestep_pearson, f_theta_R2, g_phi_R2, tau_R2.
 
-**NOTE**: V_rest_R2 is not applicable (no resting potential). tau_R2 is 0.0 (fixed tau=1.0).
+**NOTE**: V_rest_R2 is not applicable (no resting potential).
 
 ## Scientific Method
 
@@ -65,7 +52,7 @@ Strict **hypothesize -> test -> validate/falsify** cycle:
 
 Single noise source in the training data:
 
-**Dynamics noise** (`noise_model_level=0.5`): `v(t+1) = v(t) + dt * f(v, W, I) + epsilon_dyn(t)`, epsilon_dyn ~ N(0, 0.5)
+**Dynamics noise** (`noise_model_level=0.05`): `v(t+1) = v(t) + dt * f(v, W, I) + epsilon_dyn(t)`, epsilon_dyn ~ N(0, 0.05)
 
 ### CAUSALITY RULE (MANDATORY — READ THIS)
 
@@ -78,7 +65,7 @@ Single noise source in the training data:
 
 ## Scientific Context
 
-The larva **two-population motor model** (Beiran & Litwin-Kumar 2023) under **strong noise (sigma=0.5)** tests whether noise alone can solve the FC degeneracy problem without relying on strong explicit regularization. Evidence from CX and zebrafish FC modes shows dramatic improvement: CX from 0.804 to 0.999, zebrafish from 0.022 to 0.988. For larva FC, the question is whether strong noise (sigma=0.5) makes the 52,670-edge search space tractable, and whether the parent config's regularization needs reduction because noise provides implicit regularization.
+The larva **two-population motor model** (Beiran & Litwin-Kumar 2023) under **moderate noise (sigma=0.05)** tests whether the softplus nonlinearity provides robustness or whether noise degrades the W recovery signal. Noise adds stochasticity to the dynamics, which could either help break degeneracy or simply add error to the learning signal. The question is: does the clean-data best config (lr_W=1e-4, W_L1=1e-6, L2=1e-5) need adjustment under noise, or is it robust?
 
 ## Data Generation
 
@@ -90,9 +77,7 @@ Seeds are **forced by the pipeline** — DO NOT modify them in config files.
 
 **DO NOT change `simulation:` parameters** except seed (managed automatically).
 
-**IMPORTANT**: `noise_model_level` is set to **0.5** in the base config. Do NOT change it — this file is specifically for the noise=0.5 experiment.
-
-**IMPORTANT**: `use_gt_edges` is set to **false** in the base config. Do NOT change it — this file is specifically for the FC experiment.
+**IMPORTANT**: `noise_model_level` is set to **0.05** in the base config. Do NOT change it — this file is specifically for the noise=0.05 experiment.
 
 ## Larva Two-Population Motor Model
 
@@ -108,20 +93,19 @@ dup/dt = (-up + gp * softplus(up @ Jpp) + bp + wsp @ stim) / taup
 dum/dt = (-um + gm * softplus(up @ Jpm) + bm) / taum
 ```
 
-- **230 neurons** total (178 premotor + 52 motor), **2 cell types**, **4,222 true edges** (Jpp=2,390 + Jpm=1,832)
-- **FC edge count**: 230x229 = 52,670 edges (12.5x more than GT)
+- **230 neurons** total (178 premotor + 52 motor), **2 cell types**, **4,222 edges** (Jpp=2,390 + Jpm=1,832)
 - Activation: **Softplus** (log(1 + exp(x)))
 - Gains gp, gm clamped to [0.5, 5.0]
 - taup, taum ~ 1.0, dt=0.05
 - 2 stimulus conditions (forward/backward), 2 stimulus channels
 - Inhibitory neurons get negative weights (Dale's law in connectome)
-- 2,400 frames, delta_t=0.05, **noise_model_level=0.5**
+- 2,400 frames, delta_t=0.05, **noise_model_level=0.05**
 - Feedforward: premotor->motor only, plus premotor recurrence
 - Only 2 neuron types -> embedding should separate 2 clusters
 
 ## GNN Architecture
 
-- **g_phi**: Edge message MLP. Maps (v_j, a_j) -> message. `g_phi_positive=false` (needs to pass softplus shape).
+- **g_phi**: Edge message MLP. Maps (v_j, a_j) -> message. `g_phi_positive=true`.
 - **f_theta**: Node update MLP. Maps (v_i, a_i, aggregated_msg, I_i) -> dv_i/dt.
 - **Embedding a_i**: learnable per-neuron type vector.
 
@@ -130,33 +114,29 @@ dum/dt = (-um + gm * softplus(up @ Jpm) + bm) / taum
 - `input_size = 1 + embedding_dim`
 - `input_size_update = 3 + embedding_dim`
 
-Example: embedding_dim=4 -> input_size=5, input_size_update=7.
+Example: embedding_dim=2 -> input_size=3, input_size_update=5.
 
 ## Explorable Parameters
 
 | Parameter                 | Default | Description                                  |
 | ------------------------- | ------- | -------------------------------------------- |
-| `lr_W`                    | 1e-3    | Learning rate for connectivity W             |
+| `lr_W`                    | 1e-4    | Learning rate for connectivity W             |
 | `lr`                      | 1e-3    | Learning rate for g_phi and f_theta MLPs     |
 | `lr_embedding`            | 1e-3    | Learning rate for neuron embeddings          |
 | `n_epochs`                | 2       | Number of training epochs                    |
-| `batch_size`              | 4       | Batch size                                   |
-| `data_augmentation_loop`  | 630     | Data augmentation multiplier                 |
+| `batch_size`              | 2       | Batch size                                   |
+| `data_augmentation_loop`  | 2800    | Data augmentation multiplier                 |
 | `w_init_mode`             | zeros   | W initialization: "zeros", "randn_scaled"    |
-| `hidden_dim`              | 64      | Hidden dimension for MLPs                    |
-| `embedding_dim`           | 4       | Neuron embedding dimension                   |
 | `coeff_g_phi_diff`        | 1500    | Monotonicity penalty on g_phi                |
-| `coeff_g_phi_norm`        | 0.01    | Norm penalty on g_phi output                 |
 | `coeff_f_theta_weight_L2` | 0.001   | L2 penalty on f_theta MLP weights            |
-| `coeff_f_theta_diff`      | 10      | Negative monotonicity of f_theta w.r.t. state v_i |
-| `coeff_f_theta_msg_diff`  | 50      | Positive monotonicity of f_theta w.r.t. message input |
-| `coeff_W_L1`              | 0.004   | L1 sparsity on W (667x stronger than GT baseline) |
-| `coeff_W_L2`              | 1.5e-6  | L2 penalty on W                              |
+| `coeff_f_theta_diff`      | 0       | Negative monotonicity of f_theta w.r.t. state v_i |
+| `coeff_f_theta_msg_diff`  | 0       | Positive monotonicity of f_theta w.r.t. message input |
+| `coeff_W_L1`              | 1e-6    | L1 sparsity on W                             |
+| `coeff_W_L2`              | 1e-5    | L2 penalty on W                              |
 | `coeff_W_sign`            | 0.05    | Dale's law penalty                           |
-| `regul_annealing_rate`    | 0.7     | Regularization annealing rate                |
-| `use_gt_edges`            | false   | **FIXED** — fully connected graph            |
+| `use_gt_edges`            | true    | If false, train on fully connected graph     |
 | `dale_law`                | false   | Enforce Dale's law                           |
-| `noise_model_level`       | 0.5     | **FIXED** — intrinsic noise level for this experiment |
+| `noise_model_level`       | 0.05    | **FIXED** — intrinsic noise level for this experiment |
 
 ## Training Time Constraint
 
@@ -165,7 +145,6 @@ Example: embedding_dim=4 -> input_size=5, input_size_update=7.
 - If training_time_min < 40 min: **increase** DAL (e.g. multiply by 1.5-2x)
 - If training_time_min > 70 min: **decrease** DAL (e.g. divide by 1.5-2x)
 - DAL scales training time linearly — doubling DAL ~ doubles training time
-- **NOTE**: FC has 12.5x more edges than GT — expect slower per-step training. Initial DAL may need reduction.
 
 Longer training gives W more time to converge. Always use the full time budget.
 
@@ -186,30 +165,25 @@ State your choice (exploration vs robustness test) in the log entry.
 
 ## Block Structure
 
-These blocks start from the best FC noise-free config with noise_model_level=0.5. Strong noise is expected to dramatically improve FC performance (CX: 0.999, zebrafish: 0.988 at noise=0.5). The focus is on re-tuning regularization (noise already regularizes), preventing W collapse (observed in zebrafish at noise=0.5), and maximizing the noise benefit.
+These blocks assume lr_W, W_L1, w_init, and W_sign are already established from the clean exploration. The focus is on whether noise changes the optimal regularization, training volume, or architecture.
 
 | Block | Focus                          | Parameters to scan                                                         | Ranges                                                                                                           |
 | ----- | ------------------------------ | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| 1     | **Baseline validation**        | None (robustness test)                                                     | Run best FC noise-free config + noise=0.5 across 4 seeds. Establish baseline under strong noise.                 |
-| 2     | **Regularization re-tune**     | `coeff_W_L1`, `coeff_W_L2`, `coeff_g_phi_norm`                            | W_L1: {1e-3, 4e-3, 1e-2} (strong noise may make L1 redundant — test reduction). W_L2: {1e-6, 1.5e-6, 1e-5, 1e-4} (CX needed W_L2=1e-4 at noise=0.5). g_phi_norm: {0, 0.01, 0.05}. |
-| 3     | **Training volume re-tune**    | `data_augmentation_loop`, `n_epochs`                                       | DAL: {400, 630, 900}, n_epochs: {2, 3}. Strong noise may need more training to average out stochastic gradients. |
-| 4     | **Architecture + batch_size**  | `hidden_dim`, `embedding_dim`, `batch_size`                                | hidden_dim: {48, 64, 80, 96}, batch_size: {2, 4, 8}. Noisy data may need larger capacity.                        |
-| 5     | **Monotonicity + Dale's law**  | `coeff_g_phi_diff`, `coeff_f_theta_diff`, `coeff_f_theta_msg_diff`, `dale_law` | g_phi_diff: {500, 1000, 1500, 2000}, f_theta_msg_diff: {0, 50, 100}, dale_law: {false, true}. CX found dale_law was key lever. |
+| 1     | **Baseline validation**        | None (robustness test)                                                     | Run best clean config + noise=0.05 across 4 seeds. Establish baseline connectivity_R2 under noise.               |
+| 2     | **Regularization re-tune**     | `coeff_W_L1`, `coeff_W_L2`, `coeff_W_sign`                                | W_L1: {1e-7, 1e-6, 5e-6}, W_L2: {5e-6, 1e-5, 2e-5}, W_sign: {0.01, 0.05, 0.1, 0.2}. Noise may need stronger W_sign to stabilize. |
+| 3     | **Training volume re-tune**    | `data_augmentation_loop`, `n_epochs`                                       | DAL: {2000, 2800, 4000}, n_epochs: {2, 4}. Noise may require more training to average out.                       |
+| 4     | **Architecture**               | `hidden_dim`, `embedding_dim`                                              | hidden_dim: {48, 64, 80}, embedding_dim: {2, 4}. Noisy data may need larger hidden_dim.                          |
+| 5     | **Monotonicity + Dale's law**  | `coeff_g_phi_diff`, `coeff_f_theta_diff`, `coeff_f_theta_msg_diff`, `dale_law` | g_phi_diff: {500, 1000, 1500, 2000}, f_theta_diff: {0, 10, 50}, dale_law: {false, true}. Noise may benefit from stronger constraints. |
 | 6     | **Free exploration I**         | Any parameter                                                              | Consolidate best from blocks 1-5, test novel combinations                                                        |
 | 7     | **Free exploration II**        | Any parameter                                                              | Continue ceiling-breaking attempts                                                                               |
-| 8     | **Final robustness**           | None (robustness test)                                                     | Multi-seed robustness confirmation of best config                                                                |
+| 8     | **Free exploration III**       | Any parameter                                                              | Final refinement and robustness confirmation                                                                     |
 
-### Noise=0.5 + FC specific considerations
+### Noise-specific considerations
 
-- **Strong noise is the most powerful FC degeneracy breaker**: CX FC achieved near-perfect 0.999 and zebrafish FC reached 0.988 at noise=0.5. The mechanism is that stochastic dynamics force the network to explore the full state space, making the inverse problem well-posed even with 12.5x excess edges.
-- **W_L1=4e-3 may need significant reduction**: The parent FC config uses extremely strong L1 (667x GT baseline) to prune 48K null edges. At noise=0.5, the noise signal itself identifies true edges — L1 may over-sparsify before the noise information accumulates. Consider reducing to 1e-3 or lower.
-- **W_L2 may need increase (CX precedent)**: CX required 10x increase in W_L2 (1e-5 -> 1e-4) at noise=0.5 to prevent epoch-2 W collapse. Start scanning W_L2 early.
-- **Bimodal convergence is a risk**: Zebrafish had 50% failure at noise=0.5 (W collapse to near-zero). Watch for spectral radius collapse as diagnostic — failed seeds show spec_rad << true. This may affect robustness scores.
-- **g_phi_norm=0.01 was the biggest single lever for noise-free FC**: Under strong noise, g_phi input statistics change dramatically. The norm penalty may need re-tuning.
-- **regul_annealing_rate=0.7 interacts with noise**: If noise already provides strong implicit regularization, the annealing schedule may be too aggressive or even counterproductive.
-- **Feedforward structure limits noise propagation**: Motor neurons receive noisy premotor output but don't feed back — noise effect is asymmetric across the two populations.
-- **f_theta_msg_diff=50 was strongest regularizer for clean larva**: Keep it and test further.
-- **dale_law=true was breakthrough for CX noise=0.05**: May also help larva stabilize signs under strong noise.
+- **Noise may hurt larva**: The softplus nonlinearity already provides some identifiability. Adding noise may just increase variance without helping W recovery.
+- **W_sign may need increase**: Noise destabilizes gradient-based sign learning — stronger Dale's law penalty (W_sign=0.1-0.2) may be needed to maintain excitatory/inhibitory structure.
+- **Feedforward structure is a constraint**: Premotor->motor only, so noise on motor neurons doesn't feed back — noise effect is asymmetric across the two populations.
+- **More training may help**: Noise reduces signal-to-noise ratio per gradient step — more DAL may be needed.
 
 ## Iteration Workflow
 
@@ -225,14 +199,14 @@ From `analysis.log`: connectivity_R2, rollout_pearson, cluster_accuracy, trainin
 ## Iter N: [robust/partially robust/fragile]
 Node: id=N, parent=P
 Hypothesis tested: "[quoted hypothesis]"
-Config: lr_W=X, lr=Y, lr_emb=Z, DAL=D, n_epochs=E, W_L1=A, W_L2=B, W_sign=C, g_phi_norm=G, hidden_dim=H, batch_size=B
+Config: lr_W=X, lr=Y, lr_emb=Z, DAL=D, n_epochs=E, W_L1=A, W_L2=B, W_sign=C, hidden_dim=H, batch_size=B
 Slot 0: conn_R2=A, rollout_pearson=B, cluster_acc=C, dale_score=D, sim_seed=S, train_seed=T
 Slot 1: conn_R2=A, rollout_pearson=B, cluster_acc=C, dale_score=D, sim_seed=S, train_seed=T
 Slot 2: conn_R2=A, rollout_pearson=B, cluster_acc=C, dale_score=D, sim_seed=S, train_seed=T
 Slot 3: conn_R2=A, rollout_pearson=B, cluster_acc=C, dale_score=D, sim_seed=S, train_seed=T
 Seed stats: mean_conn_R2=X, std=Y, CV=Z%
 Mutation: [param]: [old] -> [new]
-W matrix: [visual comment from connectivity heatmap — sparsity, sign structure, convergence]
+W matrix: [visual comment from connectivity heatmap]
 Verdict: [supported/falsified/inconclusive]
 Next: parent=P
 ```
@@ -244,10 +218,10 @@ This is a COMPULSORY task — do not skip it.
 
 1. Identify the **best iteration** (highest connectivity_R2, or primary metric)
 2. Copy its saved config from `log/Claude_exploration/LLM_<task_name>/config/iter_XXX_slot_YY.yaml`
-3. Save it to `config/larva/larva_fc_noise05_winner.yaml` with a YAML comment header:
+3. Save it to `config/larva/larva_noise_005_winner.yaml` with a YAML comment header:
 
 ```yaml
-# Winner config: larva_fc_noise05_winner.yaml
+# Winner config: larva_noise_005_winner.yaml
 # Source: iter_XXX_slot_YY (connectivity_R2 = X.XXX)
 # Exploration: N iterations, M blocks
 # Date: YYYY-MM-DD
@@ -267,7 +241,9 @@ This is a COMPULSORY task — do not skip it.
 #   - [list the parameters that differ from the initial baseline]
 ```
 
-Destination: `config/larva/larva_fc_noise05_winner.yaml`
+Destination: `config/larva/larva_noise_005_winner.yaml`
+
+```
 
 ### Step 4: Acknowledge User Input
 
@@ -285,11 +261,11 @@ Destination: `config/larva/larva_fc_noise05_winner.yaml`
 
 You maintain THREE files:
 
-1. **Full Log (append-only)**: `larva_fc_noise05_Claude_analysis.md`
+1. **Full Log (append-only)**: `larva_noise_005_Claude_analysis.md`
    - Append every iteration's log entry (4 entries per batch)
    - Never read — human record only
 
-2. **Working Memory (read + update every batch)**: `larva_fc_noise05_Claude_memory.md`
+2. **Working Memory (read + update every batch)**: `larva_noise_005_Claude_memory.md`
    - Read at start, update at end
    - Contains: robustness comparison table, hypotheses, established principles, current block iterations
 
@@ -306,7 +282,7 @@ A principle must satisfy ALL of:
 - Consistent across all 4 seeds (not just mean, but low variance)
 - States a causal relationship (not just a correlation)
 
-Example: "coeff_W_L1=1e-4 achieves connectivity_R2 > 0.8 robustly on larva FC noise=0.5 (3/3 iterations, all seeds > 0.78, CV < 3%)"
+Example: "The clean-data config (lr_W=1e-4, W_L1=1e-6) generalizes to noise=0.05 with connectivity_R2 > 0.70 robustly (3/3 iterations, all seeds > 0.68, CV < 3%)"
 
 ### What to Add to Open Questions
 
@@ -315,7 +291,7 @@ Example: "coeff_W_L1=1e-4 achieves connectivity_R2 > 0.8 robustly on larva FC no
 - Contradictions between iterations
 - Theoretical predictions not yet verified
 
-Example: "Strong noise breaks degeneracy, but regularization still required? Evidence mixed so far."
+Example: "Does noise require stronger W_L1? Preliminary data (iter 2) suggests maybe, but only 1 iteration tested."
 
 ### What to Add to Falsified Hypotheses
 
@@ -325,22 +301,22 @@ When a hypothesis is falsified:
 - State what was learned from the falsification
 - Propose a revised hypothesis if applicable
 
-Example: "Hypothesis: 'Strong noise eliminates need for L1 sparsity' — Falsified by iter 4 (L1=0 caused CV=18%, only 1/4 seeds > 0.75). Revised: 'Strong noise helps but moderate L1 still necessary for generalization.'"
+Example: "Hypothesis: 'Noise does not change optimal regularization' — Falsified by iter 4 (W_L1=1e-6 caused CV=6%, only 2/4 seeds > 0.68). Revised: 'Noise requires slightly adjusted W_L1; wider search range needed.'"
 
 ## Start Call
 
 When prompt says `PARALLEL START`:
 
-- Read base config — the parent FC noise-free best config + noise_model_level=0.5 IS the baseline.
+- Read base config — the parent clean config + noise_model_level=0.05 IS the baseline.
 - Block 1 is a **robustness test**: all 4 slots use the same config (different seeds).
-- Hypothesis: "Adding noise=0.5 to the best FC config achieves connectivity_R2 > 0.7 robustly, breaking the noise-free FC ceiling (0.435), consistent with CX and zebrafish FC noise=0.5 results"
+- Hypothesis: "The best clean config with noise=0.05 achieves connectivity_R2 >= clean baseline (0.55) robustly across seeds"
 
 ---
 
 # Working Memory Structure
 
 ```markdown
-# Working Memory: larva_fc_noise05
+# Working Memory: larva_noise_005
 
 ## Paper Summary (update at every block boundary)
 

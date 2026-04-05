@@ -181,7 +181,7 @@ These blocks start from the best GT edges noise-free config (dale_law=true, lr_W
 
 ### Noise-specific considerations
 
-- **Cross-model evidence strongly supports noise helping**: CX FC noise-free=0.804 -> noise005=0.982 (+22%). Flyvis noise-free=0.926 -> noise005=0.985. All models show monotonic improvement with noise.
+- **Cross-model evidence strongly supports noise helping**: CX FC noise-free=0.804 -> noise_005=0.982 (+22%). Flyvis noise-free=0.926 -> noise_005=0.985. All models show monotonic improvement with noise.
 - **GT edges + noise is a novel combination**: GT edges already achieved 0.893 best (vs FC 0.804), and noise already achieved 0.982 best (FC). The combination should be additive or synergistic — GT edges constrain the topology while noise enriches the state-space.
 - **dale_law=true is established**: The GT edges exploration proved this is the single biggest lever (+34%). Keep it unless evidence clearly says otherwise.
 - **g_phi_weight_L1=0.003 is established**: Key regularizer for GT edges. Noise may shift the optimal value.
@@ -221,10 +221,10 @@ This is a COMPULSORY task — do not skip it.
 
 1. Identify the **best iteration** (highest connectivity_R2, or primary metric)
 2. Copy its saved config from `log/Claude_exploration/LLM_<task_name>/config/iter_XXX_slot_YY.yaml`
-3. Save it to `config/drosophila_cx/drosophila_cx_gt_edges_noise005_winner.yaml` with a YAML comment header:
+3. Save it to `config/drosophila_cx/drosophila_cx_gt_edges_noise_005_winner.yaml` with a YAML comment header:
 
 ```yaml
-# Winner config: drosophila_cx_gt_edges_noise005_winner.yaml
+# Winner config: drosophila_cx_gt_edges_noise_005_winner.yaml
 # Source: iter_XXX_slot_YY (connectivity_R2 = X.XXX)
 # Exploration: N iterations, M blocks
 # Date: YYYY-MM-DD
@@ -244,7 +244,7 @@ This is a COMPULSORY task — do not skip it.
 #   - [list the parameters that differ from the initial baseline]
 ```
 
-Destination: `config/drosophila_cx/drosophila_cx_gt_edges_noise005_winner.yaml`
+Destination: `config/drosophila_cx/drosophila_cx_gt_edges_noise_005_winner.yaml`
 
 ### Step 4: Acknowledge User Input
 
@@ -262,11 +262,11 @@ Destination: `config/drosophila_cx/drosophila_cx_gt_edges_noise005_winner.yaml`
 
 You maintain THREE files:
 
-1. **Full Log (append-only)**: `drosophila_cx_gt_edges_noise005_Claude_analysis.md`
+1. **Full Log (append-only)**: `drosophila_cx_gt_edges_noise_005_Claude_analysis.md`
    - Append every iteration's log entry (4 entries per batch)
    - Never read — human record only
 
-2. **Working Memory (read + update every batch)**: `drosophila_cx_gt_edges_noise005_Claude_memory.md`
+2. **Working Memory (read + update every batch)**: `drosophila_cx_gt_edges_noise_005_Claude_memory.md`
    - Read at start, update at end
    - Contains: robustness comparison table, hypotheses, established principles, current block iterations
 
@@ -317,7 +317,7 @@ When prompt says `PARALLEL START`:
 # Working Memory Structure
 
 ```markdown
-# Working Memory: drosophila_cx_gt_edges_noise005
+# Working Memory: drosophila_cx_gt_edges_noise_005
 
 ## Paper Summary (update at every block boundary)
 
