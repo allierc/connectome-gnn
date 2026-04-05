@@ -88,9 +88,9 @@ Metric & Value \\
 Neurons (subsampled) & 982 / 13,741 \\
 Timesteps (subsampled) & 8,000 / 64,000 \\
 SVD & full (982 singular values) \\
-Effective rank at 99\% variance & \textbf{45} \\
-Effective rank at 99.5\% variance & 90 \\
-Effective rank at 99.9\% variance & 238 \\
+Effective rank at 99\% variance & \textbf{400} \\
+Effective rank at 99.5\% variance & 480 \\
+Effective rank at 99.9\% variance & 634 \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -100,18 +100,18 @@ Since each neuron's presynaptic activity $\mathbf{H}_i$ is a submatrix of the gl
 \dim\ker_{\text{eff}}(\mathbf{H}_i) \approx \max(0, \; d_i - r_{\text{global}})
 \end{equation}
 
-Summing over all 13,697 postsynaptic neurons gives the global null space estimate. At the 99\% threshold ($r_{\text{global}} = 45$), the in-degree $d_i$ determines which neurons are fully identifiable ($d_i \leq 45$) and which are degenerate ($d_i > 45$):
+Summing over all 13,697 postsynaptic neurons gives the global null space estimate. At the 99\% threshold ($r_{\text{global}} = 400$), this exceeds the maximum in-degree (208), so all neurons are fully identifiable:
 
 \begin{center}
 \begin{tabular}{lrl}
 \toprule
-In-degree range & Neurons & Null space contribution at rank 45 \\
+In-degree range & Neurons & Null space contribution at rank 400 \\
 \midrule
 1--10   & 3,182 & 0 (fully identifiable) \\
 11--20  & 3,917 & 0 (fully identifiable) \\
 21--45  & 3,196 & 0 (fully identifiable) \\
-46--100 & 2,843 & bulk of null space \\
-101--208 & 559  & largest per-neuron null dimensions \\
+46--100 & 2,843 & 0 (fully identifiable) \\
+101--208 & 559  & 0 (fully identifiable) \\
 \bottomrule
 \end{tabular}
 \end{center}
