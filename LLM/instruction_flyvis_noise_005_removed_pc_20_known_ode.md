@@ -153,6 +153,20 @@ The known_ode model **directly learns parameters** from voltage dynamics because
 - `n_epochs` MUST be INTEGER (1, 2, 3, etc.) — NOT 0.5
 - `w_init_mode` MUST be LOWERCASE: `randn`, `randn_scaled`, `zeros`
 
+## Training Time Budget — FIXED for Fair Comparison
+
+**LOCKED PARAMETERS** (DO NOT MODIFY):
+- `n_epochs: 1` — Single epoch training only
+- `data_augmentation_loop (DAL): 35` — Fixed data augmentation
+
+**Why these are locked**:
+
+To fairly compare different LLM explorations across noise levels and biomodels, all known_ode variants must use the same training budget. This ensures observed differences in connectivity_R2 reflect parameter choices, not training time variation.
+
+**Target training time**: ~12 minutes per iteration (consistent, cluster-efficient).
+
+**If you believe n_epochs or DAL should be varied** to test a specific hypothesis, first post in `user_input.md` for authorization. Do NOT change these without explicit user approval.
+
 ## Parallel Mode — 4 Slots Per Batch
 
 Each batch runs **4 slots simultaneously**, each with a different config (forced seeds differ automatically):
