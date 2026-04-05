@@ -311,14 +311,18 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
     )
     regularizer.set_activity_stats(x_ts, device)
 
-    # Try to compile with torch.compile, but fall back to non-compiled if Triton fails
-    try:
-        model = torch.compile(model, mode='reduce-overhead', fullgraph=True)
-        regularizer.compute = torch.compile(regularizer.compute, mode='reduce-overhead', fullgraph=True)
-        regularizer.compute_update_regul = torch.compile(regularizer.compute_update_regul, mode='reduce-overhead', fullgraph=True)
-    except Exception as e:
-        logger.warning(f"torch.compile failed (likely Triton compilation issue): {e}")
-        logger.warning("Continuing without torch.compile (models will run in eager mode)")
+    # Try to compile with torch.compile if enabled, but fall back to non-compiled if Triton fails
+    if tc.torch_compile:
+        try:
+            model = torch.compile(model, mode='reduce-overhead', fullgraph=True)
+            regularizer.compute = torch.compile(regularizer.compute, mode='reduce-overhead', fullgraph=True)
+            regularizer.compute_update_regul = torch.compile(regularizer.compute_update_regul, mode='reduce-overhead', fullgraph=True)
+            logger.info("torch.compile enabled")
+        except Exception as e:
+            logger.warning(f"torch.compile failed (likely Triton compilation issue): {e}")
+            logger.warning("Continuing without torch.compile (models will run in eager mode)")
+    else:
+        logger.info("torch.compile disabled via config (torch_compile: false)")
 
     loss_components = {'loss': []}
 
