@@ -88,9 +88,8 @@ Metric & Value \\
 Neurons (subsampled) & 982 / 13,741 \\
 Timesteps (subsampled) & 8,000 / 64,000 \\
 SVD & full (982 singular values) \\
-Effective rank at 99\% variance & \textbf{400} \\
-Effective rank at 99.5\% variance & 480 \\
-Effective rank at 99.9\% variance & 634 \\
+Effective rank at 99\% variance (noise-free) & \textbf{45} \\
+Effective rank at 99\% variance (noise-0.5) & 781 \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -123,14 +122,14 @@ In-degree range & Neurons & Null space contribution at rank 400 \\
 \toprule
 Noise condition & Global rank & Null space dim & \textbf{Degree of degeneracy} \\
 \midrule
-noise-free & 400 & 0 & \textbf{0.0\%} \\
-noise-0.05 & 400 & 0 & \textbf{0.0\%} \\
-noise-0.5 & 774 & 0 & \textbf{0.0\%} \\
+noise-free & 45 & 115,223 & \textbf{26.5\%} \\
+noise-0.05 & 134 & 10,227 & \textbf{2.4\%} \\
+noise-0.5 & 781 & 0 & \textbf{0.0\%} \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-\noindent\textbf{Interpretation:} The global rank (400 at 99\% variance) exceeds the maximum in-degree (208) even in noise-free conditions. This means \emph{every neuron's} incoming weights are fully identifiable under this global rank bound---the null space vanishes. However, this is overly optimistic for the noise-free case: the global rank averages correlations across all neurons, missing the strong within-type correlations that create per-neuron degeneracy. The global SVD provides an \emph{upper bound} on each neuron's rank, but individual neurons can have much lower ranks due to correlated presynaptic populations.
+\noindent\textbf{Interpretation:} The global rank reveals a clear monotonic trend: as noise increases, the effective rank of the population activity rises (45 → 134 → 781), shrinking the null space and improving identifiability (115,223 → 10,227 → 0). At the noise-free threshold, the global rank 45 is lower than the mean per-neuron rank (17.5), which appears counterintuitive but reflects that the global rank measures the rank of the \emph{full population}, whereas per-neuron rank measures individual neurons' activity matrices---neurons with high in-degree can have lower individual ranks due to correlated inputs. The global SVD provides an \emph{upper bound} on each neuron's rank assuming the global correlations apply uniformly, but this bound is tight for the noise-free case.
 
 \subsection{Step 2: Per-neuron SVD approach (empirical measurement)}
 
@@ -327,7 +326,7 @@ breaks the exact within-type degeneracy because:
 \begin{enumerate}[nosep]
 \item Each neuron receives independent noise realizations, even if same-type
 \item This injects independent variation into the columns of $\mathbf{H}_i$, breaking the within-type correlations from Step~3
-\item The effective rank of $\mathbf{H}_i$ increases from 45 (noise-free) toward $d_i$
+\item The effective rank of $\mathbf{H}_i$ increases from 17.5 (noise-free, mean per-neuron rank) toward $d_i$
 \item The null space $\dim\ker(\mathbf{H}_i) = d_i - \text{rank}(\mathbf{H}_i)$ shrinks, making more edge weights identifiable
 \end{enumerate}
 \textbf{Quantitative measurement.} We measure how noise changes the effective rank of the population activity, and thus the null space dimension, using the same formula as Step~2: $\text{total null} = \sum_{i=1}^{N_{\text{post}}} \max(0, \; d_i - r)$. For each noise level ($\sigma = 0$, $0.05$, $0.5$), we:
@@ -357,6 +356,6 @@ The trend validates the mechanism: noise increases the effective rank monotonica
 
 \section{Summary}
 
-Recovering the connectome from neural dynamics is fundamentally ill-posed: the columnar organization of the flyvis circuit forces same-type neurons across columns to produce strongly correlated activity, making their individual synaptic contributions indistinguishable. Two independent estimates of the null space---a global SVD bound (115,223 dimensions) and a per-type structural count (${\sim}121{,}100$ dimensions)---agree to within 5\%. The global bound captures all correlations (within- and cross-type) but is coarse, while the per-type count precisely measures within-type redundancy but misses cross-type correlations. This structural degeneracy affects about $25\%$ of all 434,112 edge weights. This is supported empirically by generating 780 perturbed connectivity matrices where weights change measurably (conn.\ $R^2$ ranging from 0.28 to 1.0, most between 0.93 and 0.99) while dynamics remain nearly identical (rollout $R^2 > 0.96$). Adding independent process noise breaks the within-type correlations and increases the effective activity rank from 45 (noise-free) to 781 ($\sigma = 0.5$), eliminating the null space entirely and enabling the GNN to achieve $R^2_{\mathbf{W}} = 0.997$. The entire analysis rests on the rank-nullity theorem: a neuron's incoming weights are recoverable when the activity rank exceeds its in-degree. Since the per-neuron rank cannot be measured directly, we upper-bound it by the global effective rank of the population activity (computed once by SVD); the only approximation is choosing the variance threshold that defines this effective rank. \textbf{The condition $r_{\text{global}} \geq d_i$ provides a principled, per-neuron criterion for when connectome recovery from dynamics is well-posed or ill-posed.}
+Recovering the connectome from neural dynamics is fundamentally ill-posed: the columnar organization of the flyvis circuit forces same-type neurons across columns to produce strongly correlated activity, making their individual synaptic contributions indistinguishable. Three independent estimates bracket the true degeneracy: (1) global SVD bound (115,223 dimensions, 26.5\%); (2) per-neuron SVD empirical measurement (193,824 dimensions, 44.6\%); and (3) structural per-type count (121,100 dimensions, 27.9\%). All three agree the null space is substantial (23--45\%). This structural degeneracy affects between 28\%--45\% of all 434,112 edge weights. This is supported empirically by generating 780 perturbed connectivity matrices where weights change measurably (conn.\ $R^2$ ranging from 0.28 to 1.0, most between 0.93 and 0.99) while dynamics remain nearly identical (rollout $R^2 > 0.96$). Adding independent process noise breaks the within-type correlations and increases the effective activity rank from 45 (noise-free global bound) to 781 ($\sigma = 0.5$), eliminating the null space entirely and enabling the GNN to achieve $R^2_{\mathbf{W}} = 0.997$. The entire analysis rests on the rank-nullity theorem: a neuron's incoming weights are recoverable when the activity rank exceeds its in-degree. The per-neuron SVD directly measures this; the global SVD provides an upper bound. \textbf{The condition $r \geq d_i$ provides a principled, per-neuron criterion for when connectome recovery from dynamics is well-posed or ill-posed.}
 
 \end{document}
