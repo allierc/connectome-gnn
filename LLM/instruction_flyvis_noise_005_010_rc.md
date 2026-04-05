@@ -105,37 +105,6 @@ dv_i/dt = f_theta(v_i, a_i, sum_j W_ij * g_phi(v_j, a_j)^2, I_i)
 
 **Note**: `regul_annealing_rate=0` disables annealing, so ALL regularizers are active at full strength from epoch 0. Do not change `regul_annealing_rate`.
 
-## Training Time Constraint
-
-Target: **<= 2 hours per slot** on H100.
-
-Factors that increase training time:
-- Larger `time_step` (roughly proportional)
-- Smaller `batch_size` (more gradient steps per epoch)
-- Larger `data_augmentation_loop`
-
-**When increasing time_step or decreasing batch_size**, reduce `data_augmentation_loop` to stay within the time budget. When decreasing time_step or increasing batch_size, you may increase `data_augmentation_loop`.
-
-Rough guideline (H100, 64K frames, 2 epochs):
-- time_step=5, batch_size=6, aug_loop=30: ~60 min
-- time_step=10, batch_size=6, aug_loop=30: ~120 min
-- time_step=5, batch_size=16, aug_loop=30: ~40 min
-- time_step=5, batch_size=24, aug_loop=30: ~30 min
-
-Adjust `data_augmentation_loop` to fill the 2-hour budget when using faster configs.
-
-### GPU Memory Limits (H100 80GB)
-
-**CRITICAL — do NOT exceed these batch_size limits or the job will OOM:**
-
-| time_step | Max batch_size |
-| --- | --- |
-| 2 | 64 |
-| 3 | 48 |
-| 5 | 32 |
-| 10 | 16 |
-
-These are hard limits on H100 (80GB). Memory scales roughly as `time_step × batch_size × n_edges`. Exceeding them causes CUDA OOM and wastes the entire slot.
 
 ## Slot Strategy — 4 Different Configs Per Batch
 

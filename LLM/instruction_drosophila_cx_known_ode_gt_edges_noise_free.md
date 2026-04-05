@@ -112,14 +112,6 @@ The model is registered as `drosophila_cx_known_ode`. Unlike the GNN:
 | `use_gt_edges`            | true    | **FIXED** — GT edge topology (9,722 edges)             |
 | `noise_model_level`       | 0.0     | No observation noise                                   |
 
-## Training Time Constraint
-
-**Target ~60 min per iteration.** Use `data_augmentation_loop` (DAL) to control training time.
-
-- If training_time_min < 40 min: **increase** DAL
-- If training_time_min > 70 min: **decrease** DAL
-
-Note: GT edges (9,722) are ~2.4x fewer than FC (22,952), so training is faster per epoch. Increase DAL accordingly.
 
 ## Parallel Mode — 4 Slots Per Batch
 

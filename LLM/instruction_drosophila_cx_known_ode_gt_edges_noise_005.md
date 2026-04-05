@@ -101,9 +101,6 @@ Registered as `drosophila_cx_known_ode`:
 | `use_gt_edges`            | true    | **FIXED** — GT edge topology                           |
 | `noise_model_level`       | 0.05    | **FIXED** — intrinsic noise level                      |
 
-## Training Time Constraint
-
-**Target ~60 min per iteration.** GT edges are faster — increase DAL to fill the time budget.
 
 ## Parallel Mode — 4 Slots Per Batch
 

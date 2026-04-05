@@ -194,11 +194,6 @@ This is beneficial for alternate training: epoch 0 lets GNN+SIREN learn freely w
 | `data_augmentation_loop` | 25 | Data augmentation multiplier |
 | `w_init_mode` | zeros | W initialization |
 
-## Training Time Constraint
-
-With 3 epochs, batch_size=1, and 4096-hidden SIREN: **target <= 360 min/iteration**.
-Each epoch processes 64K x aug_loop frames. The large SIREN adds significant overhead per iteration.
-Monitor `training_time_min` and adjust if over budget.
 
 ## Parallel Mode — 4 Slots Per Batch
 

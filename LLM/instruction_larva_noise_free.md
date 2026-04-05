@@ -140,16 +140,6 @@ Example: embedding_dim=2 -> input_size=3, input_size_update=5.
 | `dale_law`                | false   | Enforce Dale's law                                    |
 | `noise_model_level`       | 0.0     | Clean data                                            |
 
-## Training Time Constraint
-
-**Target ~60 min per iteration.** Use `data_augmentation_loop` (DAL) to control training time. After each batch, check `training_time_min` in the metrics and adjust DAL for the next batch:
-
-- If training_time_min < 40 min: **increase** DAL (e.g. multiply by 1.5-2×)
-- If training_time_min > 70 min: **decrease** DAL (e.g. divide by 1.5-2×)
-- DAL scales training time linearly — doubling DAL ≈ doubles training time
-- **NOTE**: FC has 12.5× more edges than GT — expect slower per-step training. Initial DAL may need reduction.
-
-Longer training gives W more time to converge. Always use the full time budget.
 
 ## Parallel Mode — 4 Slots Per Batch
 

@@ -159,56 +159,6 @@ cases starts to get worse. That's why we have the early stop. But if this is det
 remove early stopping. For example, if you find that epochs=20, but at 10 epochs you hit the
 lowest rollout mse, you can consider to reduce the epoch count from 20 -> 15 say.
 
-## Training Time Constraint
-
-**Target <=60 min per iteration.**
-Use `data_augmentation_loop` (DAL) and `n_epochs` to control training time.
-If the training time is much less than 60min you can consider running for more epochs to
-explore any further reduction in rollout performance.
-
-### Primary: `rollout_RMSE`
-
-From `results_rollout.log` (and written to `analysis.log`):
-
-```
-rollout_RMSE: X.XXXX
-rollout_RMSE_std: X.XXXX
-```
-
-**Target: rollout_RMSE < 0.1**
-
-Classification:
-
-- **Excellent**: rollout_RMSE < 0.1
-- **Good**: 0.1 – 0.5
-- **Poor**: 0.5 – 5.0
-- **Diverged**: > 5.0 (model explodes)
-
-### Divergence profile: `results_rollout_by_step.csv`
-
-**This is the most informative diagnostic.** Read this CSV to understand _when_ the model diverges:
-
-```
-frame_start,frame_end,RMSE,pearson
-0,500,0.05,0.92
-500,1000,0.12,0.75
-1000,1500,2.3,0.10
-...
-```
-
-- If RMSE is low early but spikes later: model diverges gradually — try more `rollout_train_steps`
-- If RMSE spikes immediately (first window): model is unstable from the start — try lower `lr` or `use_residual_connection`
-- If RMSE stays flat and low: rollout is stable
-
-**Always read and report the per-step CSV for each slot.** Note the first window where RMSE exceeds 1.0 (divergence point).
-
-### Secondary: `onestep_pearson`, `onestep_RMSE`
-
-One-step prediction quality. A model can have good one-step metrics but diverge in rollout. Use these as sanity checks — if one-step quality is bad, the model hasn't learned the dynamics at all.
-
-### Informational: `training_time_min`
-
-Monitor training time and adjust DAL to stay within budget.
 
 ## Data Generation
 
