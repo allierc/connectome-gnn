@@ -1,5 +1,5 @@
 description: "Larva — MLP baseline, seed 00"
-dataset: larva
+dataset: larva_mlp_noise_free
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ""
