@@ -191,7 +191,7 @@ This is a COMPULSORY task — do not skip it.
 #   - [list the parameters that differ from the initial baseline]
 ```
 
-Destination: `config/drosophila_cx/drosophila_cx_winner.yaml`
+Destination: `config/drosophila_cx/drosophila_cx_noise_free_winner.yaml`
 
 ````
 
