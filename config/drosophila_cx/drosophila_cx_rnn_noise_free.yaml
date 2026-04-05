@@ -1,5 +1,5 @@
-description: "Drosophila CX — Known ODE baseline, GT edges"
-dataset: drosophila_cx_known_ode_gt_edges
+description: "Drosophila CX — RNN (GRU) baseline, seed 00"
+dataset: drosophila_cx_rnn_noise_free
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ""
@@ -20,15 +20,15 @@ simulation:
   connconstr_n_trials: 50
   connconstr_use_pretrained: true
 graph_model:
-  signal_model_name: drosophila_cx_known_ode
+  signal_model_name: drosophila_cx_rnn
   prediction: first_derivative
   input_size: 5
   n_layers: 3
-  hidden_dim: 80
+  hidden_dim: 128
   output_size: 1
   input_size_update: 7
   n_layers_update: 3
-  hidden_dim_update: 80
+  hidden_dim_update: 128
   aggr_type: add
   embedding_dim: 4
   update_type: generic
@@ -51,7 +51,6 @@ training:
   small_init_batch_size: false
   sparsity: none
   data_augmentation_loop: 500
-  use_gt_edges: true
   lr_W: 0.001
   lr: 0.001
   lr_embedding: 0.001
@@ -68,13 +67,3 @@ training:
   regul_annealing_rate: 0
   w_init_mode: "zeros"
   seed: 42
-claude:
-  n_epochs: 2
-  data_augmentation_loop: 500
-  n_iter_block: 16
-  ucb_c: 0
-  n_parallel: 4
-  node_name: t4
-  n_cpus: 1
-  generate_data: true
-  training_time_target_min: 60

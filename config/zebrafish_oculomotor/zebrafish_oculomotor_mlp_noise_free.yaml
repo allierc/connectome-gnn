@@ -1,16 +1,16 @@
-description: "Zebrafish — RNN (GRU) baseline, seed 00"
-dataset: zebrafish_oculomotor
+description: "Zebrafish — MLP baseline, seed 00"
+dataset: zebrafish_oculomotor_mlp_noise_free
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ""
   params:
     - - 1.0
       - 1.0
-  n_neurons: 609  # from Goldman lab ConnMatrix
+  n_neurons: 609 # from Goldman lab ConnMatrix
   n_input_neurons: 609
-  n_neuron_types: 10  # integ, Ibnm, Ibni, MO, axlm, axl, vest, abdm, abdi, vspns (code uses 10 categories)
-  n_edges: 0  # determined from connectome (nonzero entries after processing)
-  n_frames: 21000  # 3 pulse repeats x 7000 frames
+  n_neuron_types: 10 # integ, Ibnm, Ibni, MO, axlm, axl, vest, abdm, abdi, vspns (code uses 10 categories)
+  n_edges: 0 # determined from connectome (nonzero entries after processing)
+  n_frames: 21000 # 3 pulse repeats x 7000 frames
   delta_t: 0.001
   baseline_value: 0
   noise_model_level: 0.0
@@ -20,11 +20,12 @@ simulation:
   connconstr_model: zebrafish
   connconstr_use_pretrained: true
 graph_model:
-  signal_model_name: zebrafish_oculomotor_rnn
+  signal_model_name: zebrafish_oculomotor_mlp
   prediction: first_derivative
   input_size: 3
   n_layers: 3
   hidden_dim: 64
+  use_residual_connection: false
   output_size: 1
   input_size_update: 5
   n_layers_update: 3

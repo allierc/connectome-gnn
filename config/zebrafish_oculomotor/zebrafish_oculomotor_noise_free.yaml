@@ -1,27 +1,26 @@
-description: "Larva — Known ODE baseline, seed 00"
-dataset: larva
+description: "Zebrafish oculomotor integrator (Beiran & Litwin-Kumar 2023, Fig 5)"
+dataset: zebrafish_oculomotor_noise_free
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ""
   params:
     - - 1.0
       - 1.0
-  n_neurons: 230 # 178 premotor + 52 motor (from h5 data)
-  n_input_neurons: 230
-  n_neuron_types: 2 # premotor, motor
-  n_edges: 4222 # Jpp=2390 + Jpm=1832
-  n_frames: 2400 # 10 repeats x 2 conditions x 120 frames
-  delta_t: 0.05
+  n_neurons: 609 # from Goldman lab ConnMatrix
+  n_input_neurons: 609
+  n_neuron_types: 10 # integ, Ibnm, Ibni, MO, axlm, axl, vest, abdm, abdi, vspns (code uses 10 categories)
+  n_edges: 0 # determined from connectome (nonzero entries after processing)
+  n_frames: 21000 # 3 pulse repeats x 7000 frames
+  delta_t: 0.001
   baseline_value: 0
   noise_model_level: 0.0
   measurement_noise_level: 0.0
   seed: 42
-  connconstr_datapath: "papers/Code_NN/Code_NN/Data/Figure5"
-  connconstr_model: larva
-  connconstr_n_trials: 10
+  connconstr_datapath: "papers/Code_NN/Code_NN/Data/Figure5/goldman_data"
+  connconstr_model: zebrafish
   connconstr_use_pretrained: true
 graph_model:
-  signal_model_name: larva_known_ode
+  signal_model_name: zebrafish_oculomotor
   prediction: first_derivative
   input_size: 3
   n_layers: 3
@@ -71,11 +70,11 @@ training:
   seed: 42
 claude:
   n_epochs: 1
-  data_augmentation_loop: 2800
+  data_augmentation_loop: 500
   n_iter_block: 12
   ucb_c: 0
   n_parallel: 4
-  node_name: a100
+  node_name: l4
   n_cpus: 1
   generate_data: true
   training_time_target_min: 60

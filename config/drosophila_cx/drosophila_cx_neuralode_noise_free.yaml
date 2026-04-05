@@ -1,5 +1,5 @@
 description: "Drosophila CX — Neural ODE (GNN + adjoint) baseline, seed 00"
-dataset: drosophila_cx
+dataset: drosophila_cx_neuralode_noise_free
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ""
