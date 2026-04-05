@@ -1,11 +1,11 @@
-description: "Drosophila CX — Known ODE baseline, GT edges"
+description: "Drosophila CX \u2014 Known ODE baseline, GT edges"
 dataset: drosophila_cx_known_ode_gt_edges_noise_free
 simulation:
   connectivity_file: to be specified
-  adjacency_matrix: ""
+  adjacency_matrix: ''
   params:
-    - - 1.0
-      - 1.0
+  - - 1.0
+    - 1.0
   n_neurons: 152
   n_input_neurons: 152
   n_neuron_types: 6
@@ -15,7 +15,7 @@ simulation:
   baseline_value: 0
   noise_model_level: 0.0
   seed: 42
-  connconstr_datapath: "papers/Code_NN/Code_NN/Data/Figure5"
+  connconstr_datapath: papers/Code_NN/Code_NN/Data/Figure5
   connconstr_model: drosophila_cx
   connconstr_n_trials: 50
   connconstr_use_pretrained: true
@@ -37,11 +37,11 @@ plotting:
   colormap: tab10
   arrow_length: 1
   xlim:
-    - -2.5
-    - 2.5
+  - -2.5
+  - 2.5
   ylim:
-    - -5
-    - 5
+  - -5
+  - 5
 training:
   n_epochs: 20
   n_runs: 1
@@ -66,15 +66,16 @@ training:
   coeff_W_L2: 1.5e-06
   coeff_W_sign: 0.0
   regul_annealing_rate: 0
-  w_init_mode: "zeros"
+  w_init_mode: zeros
   seed: 42
+  torch_compile: false
 claude:
   n_epochs: 2
   data_augmentation_loop: 500
   n_iter_block: 16
   ucb_c: 0
   n_parallel: 4
-  node_name: t4
+  node_name: l4
   n_cpus: 1
   generate_data: true
   training_time_target_min: 60

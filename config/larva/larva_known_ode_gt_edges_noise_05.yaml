@@ -5,7 +5,7 @@ claude:
   n_epochs: 2
   n_iter_block: 16
   n_parallel: 4
-  node_name: t4
+  node_name: l4
   training_time_target_min: 60
   ucb_c: 0
 dataset: larva_known_ode_gt_edges_noise_05
@@ -78,3 +78,4 @@ training:
   sparsity: none
   use_gt_edges: true
   w_init_mode: zeros
+  torch_compile: false

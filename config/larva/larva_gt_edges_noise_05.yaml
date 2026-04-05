@@ -88,3 +88,4 @@ training:
   use_gt_edges: true
   w_init_mode: zeros
   w_init_scale: 0.01
+  torch_compile: false

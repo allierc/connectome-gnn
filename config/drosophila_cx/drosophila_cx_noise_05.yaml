@@ -1,11 +1,12 @@
-description: "Drosophila adult central complex ring attractor — intrinsic noise 0.5 (from best noise_005 config)"
+description: "Drosophila adult central complex ring attractor \u2014 intrinsic noise\
+  \ 0.5 (from best noise_005 config)"
 dataset: drosophila_cx_noise_05
 simulation:
   connectivity_file: to be specified
-  adjacency_matrix: ""
+  adjacency_matrix: ''
   params:
-    - - 1.0
-      - 1.0
+  - - 1.0
+    - 1.0
   n_neurons: 152
   n_input_neurons: 152
   n_neuron_types: 6
@@ -15,7 +16,7 @@ simulation:
   baseline_value: 0
   noise_model_level: 0.5
   seed: 42
-  connconstr_datapath: "papers/Code_NN/Code_NN/Data/Figure5"
+  connconstr_datapath: papers/Code_NN/Code_NN/Data/Figure5
   connconstr_model: drosophila_cx
   connconstr_n_trials: 50
   connconstr_use_pretrained: true
@@ -37,11 +38,11 @@ plotting:
   colormap: tab10
   arrow_length: 1
   xlim:
-    - -2.5
-    - 2.5
+  - -2.5
+  - 2.5
   ylim:
-    - -5
-    - 5
+  - -5
+  - 5
 training:
   n_epochs: 20
   n_runs: 1
@@ -69,7 +70,7 @@ training:
   coeff_W_sign: 0.0
   dale_law: true
   regul_annealing_rate: 0
-  w_init_mode: "zeros"
+  w_init_mode: zeros
   w_init_scale: 0.01
   lr_scheduler: none
   lr_scheduler_warmup_iters: 100
@@ -77,6 +78,7 @@ training:
   lr_scheduler_T_mult: 2
   lr_scheduler_eta_min_ratio: 0.01
   seed: 42
+  torch_compile: false
 claude:
   n_epochs: 2
   data_augmentation_loop: 105
