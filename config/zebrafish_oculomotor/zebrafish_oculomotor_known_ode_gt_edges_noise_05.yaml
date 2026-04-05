@@ -1,0 +1,79 @@
+claude:
+  data_augmentation_loop: 500
+  generate_data: true
+  n_cpus: 1
+  n_epochs: 2
+  n_iter_block: 16
+  n_parallel: 4
+  node_name: t4
+  training_time_target_min: 60
+  ucb_c: 0
+dataset: zebrafish_oculomotor_known_ode_gt_edges_noise_05
+description: "Zebrafish_Oculomotor \u2014 Known ODE baseline, GT edges"
+graph_model:
+  aggr_type: add
+  embedding_dim: 2
+  g_phi_positive: false
+  hidden_dim: 64
+  hidden_dim_update: 64
+  input_size: 3
+  input_size_update: 5
+  n_layers: 3
+  n_layers_update: 3
+  output_size: 1
+  prediction: first_derivative
+  signal_model_name: zebrafish_oculomotor_known_ode
+  update_type: generic
+plotting:
+  arrow_length: 1
+  colormap: tab10
+  xlim:
+  - -2.5
+  - 2.5
+  ylim:
+  - -5
+  - 5
+simulation:
+  adjacency_matrix: ''
+  baseline_value: 0
+  connconstr_datapath: papers/Code_NN/Code_NN/Data/Figure5/goldman_data
+  connconstr_model: zebrafish
+  connconstr_use_pretrained: true
+  connectivity_file: to be specified
+  delta_t: 0.001
+  n_edges: 0
+  n_frames: 21000
+  n_input_neurons: 609
+  n_neuron_types: 10
+  n_neurons: 609
+  noise_model_level: 0.5
+  params:
+  - - 1.0
+    - 1.0
+  seed: 42
+training:
+  batch_ratio: 1
+  batch_size: 4
+  coeff_W_L1: 0
+  coeff_W_L2: 1.5e-06
+  coeff_W_sign: 0.0
+  coeff_f_theta_msg_diff: 0
+  coeff_f_theta_weight_L1: 0
+  coeff_f_theta_weight_L2: 0
+  coeff_g_phi_diff: 0
+  coeff_g_phi_norm: 0
+  coeff_g_phi_weight_L1: 0.0
+  coeff_g_phi_weight_L2: 0
+  data_augmentation_loop: 500
+  device: cpu
+  lr: 0.001
+  lr_W: 0.001
+  lr_embedding: 0.001
+  n_epochs: 20
+  n_runs: 1
+  regul_annealing_rate: 0
+  seed: 42
+  small_init_batch_size: false
+  sparsity: none
+  use_gt_edges: true
+  w_init_mode: zeros
