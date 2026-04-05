@@ -1,18 +1,9 @@
 # Data root config (per-environment, not tracked)
 data_paths.json
 
-# Track only biomodel config folders (fly, drosophila_cx, larva, zebrafish_oculomotor)
-config/*
-!config/fly/
-!config/drosophila_cx/
-!config/larva/
-!config/zebrafish_oculomotor/
-config/fly/archive/
-config/fly/archive_2/
-
-# Ignore LLM-generated config files (environment-specific, stored in GraphData)
-config/**/*_Claude_*.yaml
-config/**/*_winner.yaml
+# Ignore all config files (generated per-environment, not tracked in version control)
+config/**/*.yaml
+config/**/*.yml
 
 # Data files (large simulation data)
 *.npy
