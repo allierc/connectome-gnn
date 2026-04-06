@@ -41,7 +41,6 @@ from connectome_gnn.utils import (
     graphs_data_path,
     log_path,
     migrate_state_dict,
-    sort_key,
     to_numpy,
 )
 from connectome_gnn.zarr_io import load_raw_array, load_simulation_data
@@ -152,8 +151,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     if best_model == 'best':
         files = glob.glob(f"{log_dir}/models/*.pt")
         assert len(files), 'no model checkpoints found in models/ directory — using untrained model'
-        files.sort(key=sort_key)
-        best_model = files[-1]
+        best_model = max(files, key=os.path.getmtime)
         logger.info(f'best model: {best_model}')
 
     if best_model is not None:
@@ -895,14 +893,16 @@ def data_test_gnn_special(
 
 
     if best_model == 'best':
-        files = glob.glob(f"{log_dir}/models/best_model_with_*.pt")
-        files.sort(key=sort_key)
-        filename = files[-1]
-        filename = filename.split('/')[-1]
-        filename = filename.split('graphs')[-1][1:-3]
-        best_model = filename
+        files = glob.glob(f"{log_dir}/models/*.pt")
+        assert len(files), 'no model checkpoints found in models/ directory'
+        best_model = max(files, key=os.path.getmtime)
         logger.info(f'best model: {best_model}')
-    netname = f"{log_dir}/models/best_model_with_0_graphs_{best_model}.pt"
+
+    # If it's a relative path (no slashes), assume it's in models/ directory
+    if '/' not in best_model:
+        netname = f"{log_dir}/models/{best_model}"
+    else:
+        netname = best_model
     logger.info(f'load {netname} ...')
     state_dict = torch.load(netname, map_location=device, weights_only=False)
     migrate_state_dict(state_dict)
