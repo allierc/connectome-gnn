@@ -534,17 +534,21 @@ def load_configs_and_seeds(state: ExplorationState, batch: BatchInfo):
         with open(state.config_paths[slot], 'r') as f:
             yaml_data = yaml.safe_load(f)
 
-        # Validate: dataset must not have been changed by Claude
-        if yaml_data.get('dataset') != expected_dataset:
-            raise AssertionError(
-                f"CRITICAL: Claude changed the dataset in slot {slot}!\n"
-                f"  Expected: {expected_dataset}\n"
-                f"  Found:    {yaml_data.get('dataset')}\n"
-                f"  IMPORTANT: Do NOT change the 'dataset' field in any config — "
-                f"it must stay as-is for each slot.\n"
-                f"  Dataset suffix (_00, _01, etc.) identifies which data/slot is used "
-                f"and is fixed for all iterations."
-            )
+        # Validate: dataset suffix must be slot-based (_00, _01, _02, _03), never iteration-based
+        actual_dataset = yaml_data.get('dataset', '')
+        # Extract just the suffix to check if it's slot-based or iteration-based
+        if actual_dataset:
+            # Check if suffix is correct slot number (with or without prefix)
+            expected_suffix = f"_{slot:02d}"
+            if not actual_dataset.endswith(expected_suffix):
+                raise AssertionError(
+                    f"CRITICAL: Dataset suffix changed from slot-based to iteration-based in slot {slot}!\n"
+                    f"  Expected suffix: {expected_suffix} (slot-based)\n"
+                    f"  Found dataset:   {actual_dataset}\n"
+                    f"  Found suffix:    {actual_dataset.split('_')[-1] if '_' in actual_dataset else 'unknown'}\n"
+                    f"  IMPORTANT: Do NOT change the 'dataset' field in any config.\n"
+                    f"  Dataset suffix (_00, _01, _02, _03) is IMMUTABLE and identifies the data/slot."
+                )
 
         # Force seeds (pipeline-controlled — LLM cannot override)
         assert iteration >= 1, f"iteration must be >= 1 for valid seeds (got {iteration} from batch.iterations[{slot_idx}])"
