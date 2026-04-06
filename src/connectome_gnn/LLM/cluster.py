@@ -127,8 +127,12 @@ def wait_for_cluster_jobs(job_ids, log_dir=None, poll_interval=60):
 
     while pending:
         ids_str = ' '.join(pending.values())
-        ssh_cmd = f"ssh {CLUSTER_SSH} \"bash -c 'bjobs {ids_str} 2>/dev/null'\""
+        ssh_cmd = f"ssh {CLUSTER_SSH} \"bash -l -c 'bjobs {ids_str}'\""
         out = subprocess.run(ssh_cmd, shell=True, capture_output=True, text=True)
+        if out.returncode != 0 and not out.stdout.strip():
+            raise RuntimeError(
+                f"bjobs failed (rc={out.returncode}): {out.stderr.strip() or '(no output)'}"
+            )
 
         for slot, jid in list(pending.items()):
             for line in out.stdout.splitlines():
