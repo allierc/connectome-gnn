@@ -47,7 +47,7 @@ def load_training_activity(data_dir, subsample_t=8):
     return voltage
 
 
-def compute_per_neuron_svd(h, edge_index, tau_i, v_rest, variance_thresholds=(0.995, 0.99, 0.999)):
+def compute_per_neuron_svd(h, edge_index, tau_i, v_rest, variance_thresholds=(0.90, 0.95, 0.99, 0.995, 0.999)):
     """Compute per-neuron effective rank and null space dimension."""
     T, N = h.shape
     src, dst = edge_index[0].numpy(), edge_index[1].numpy()
@@ -142,7 +142,7 @@ def analyze_noise_condition(noise_label, ode_path, data_dir):
     print(f"\nComputing per-neuron SVD...")
     results = compute_per_neuron_svd(
         h, state['edge_index'], state['tau_i'], state['V_i_rest'],
-        variance_thresholds=(0.995, 0.99, 0.999)
+        variance_thresholds=(0.90, 0.95, 0.99, 0.995, 0.999)
     )
 
     n_post = len(results["neuron_id"])
@@ -403,7 +403,7 @@ def main():
 
         results, degrees, E, N, n_post, state = all_results[noise_label]
 
-        for theta in [0.995, 0.99, 0.999]:
+        for theta in [0.90, 0.95, 0.99, 0.995, 0.999]:
             if theta not in results["effective_rank"]:
                 continue
 
@@ -476,7 +476,7 @@ def write_results_json(all_results, output_file):
         results, degrees, E, N, n_post, state = all_results[noise_label]
 
         results_dict[noise_label] = {}
-        for theta in [0.995, 0.99, 0.999]:
+        for theta in [0.90, 0.95, 0.99, 0.995, 0.999]:
             if theta not in results["effective_rank"]:
                 continue
 
