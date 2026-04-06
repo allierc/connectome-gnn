@@ -1,16 +1,28 @@
 {
   "noise-free": {
-    "99.5%": {
-      "mean_effective_rank": "8.9",
-      "null_space_dim": 312396,
-      "degree_of_degeneracy": "72.0",
-      "fully_identifiable_neurons": 1053
+    "90.0%": {
+      "mean_effective_rank": "1.2",
+      "null_space_dim": 417563,
+      "degree_of_degeneracy": "96.2",
+      "fully_identifiable_neurons": 710
+    },
+    "95.0%": {
+      "mean_effective_rank": "2.0",
+      "null_space_dim": 406901,
+      "degree_of_degeneracy": "93.7",
+      "fully_identifiable_neurons": 717
     },
     "99.0%": {
       "mean_effective_rank": "6.2",
       "null_space_dim": 348545,
       "degree_of_degeneracy": "80.3",
       "fully_identifiable_neurons": 859
+    },
+    "99.5%": {
+      "mean_effective_rank": "8.9",
+      "null_space_dim": 312396,
+      "degree_of_degeneracy": "72.0",
+      "fully_identifiable_neurons": 1053
     },
     "99.9%": {
       "mean_effective_rank": "15.4",
@@ -20,17 +32,29 @@
     }
   },
   "noise-0.05": {
-    "99.5%": {
-      "mean_effective_rank": "15.2",
-      "null_space_dim": 226149,
-      "degree_of_degeneracy": "52.1",
-      "fully_identifiable_neurons": 1198
+    "90.0%": {
+      "mean_effective_rank": "1.5",
+      "null_space_dim": 413884,
+      "degree_of_degeneracy": "95.3",
+      "fully_identifiable_neurons": 709
+    },
+    "95.0%": {
+      "mean_effective_rank": "3.1",
+      "null_space_dim": 391354,
+      "degree_of_degeneracy": "90.2",
+      "fully_identifiable_neurons": 717
     },
     "99.0%": {
       "mean_effective_rank": "11.1",
       "null_space_dim": 282273,
       "degree_of_degeneracy": "65.0",
       "fully_identifiable_neurons": 1020
+    },
+    "99.5%": {
+      "mean_effective_rank": "15.2",
+      "null_space_dim": 226149,
+      "degree_of_degeneracy": "52.1",
+      "fully_identifiable_neurons": 1198
     },
     "99.9%": {
       "mean_effective_rank": "24.2",
@@ -40,17 +64,29 @@
     }
   },
   "noise-0.5": {
-    "99.5%": {
-      "mean_effective_rank": "28.4",
-      "null_space_dim": 44951,
-      "degree_of_degeneracy": "10.4",
-      "fully_identifiable_neurons": 3139
+    "90.0%": {
+      "mean_effective_rank": "12.4",
+      "null_space_dim": 263693,
+      "degree_of_degeneracy": "60.7",
+      "fully_identifiable_neurons": 944
+    },
+    "95.0%": {
+      "mean_effective_rank": "18.3",
+      "null_space_dim": 182895,
+      "degree_of_degeneracy": "42.1",
+      "fully_identifiable_neurons": 1510
     },
     "99.0%": {
       "mean_effective_rank": "26.7",
       "null_space_dim": 69047,
       "degree_of_degeneracy": "15.9",
       "fully_identifiable_neurons": 2016
+    },
+    "99.5%": {
+      "mean_effective_rank": "28.4",
+      "null_space_dim": 44951,
+      "degree_of_degeneracy": "10.4",
+      "fully_identifiable_neurons": 3139
     },
     "99.9%": {
       "mean_effective_rank": "30.2",

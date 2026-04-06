@@ -20,8 +20,6 @@ import numpy as np
 import torch
 import zarr
 from tqdm import tqdm
-import matplotlib.pyplot as plt
-import seaborn as sns
 
 
 def load_training_activity(data_dir, subsample_t=8):
@@ -148,91 +146,6 @@ def analyze_noise_condition(noise_label, ode_path, data_dir):
     return results, in_degrees_post, sigma, cumsum_var, E, N, n_post, state
 
 
-def visualize_global_svd(all_results, output_dir="./svg_global_svd_plots"):
-    """Create visualizations of global SVD analysis."""
-    os.makedirs(output_dir, exist_ok=True)
-
-    print(f"\nGenerating visualizations...")
-
-    # Figure 1: Scree plot (singular values by threshold)
-    fig, axes = plt.subplots(1, 3, figsize=(16, 5))
-
-    for idx, (noise_label, (results, in_deg, sigma, cumsum_var, E, N, n_post, state)) in enumerate(all_results.items()):
-        ax = axes[idx]
-
-        # Plot singular values
-        ax.semilogy(range(len(sigma)), sigma, 'o-', markersize=4, linewidth=1.5, alpha=0.7)
-
-        # Mark thresholds
-        thresholds = [0.995, 0.99, 0.999]
-        colors = ['red', 'blue', 'green']
-        for theta, color in zip(thresholds, colors):
-            r = results["effective_ranks"][theta]
-            ax.axvline(r, color=color, linestyle='--', alpha=0.5, label=f'{theta:.1%}: r={r}')
-
-        ax.set_xlabel('Singular value index', fontweight='bold')
-        ax.set_ylabel('Singular value (log scale)', fontweight='bold')
-        ax.set_title(f'{noise_label}\n(Subsampled: 982 neurons × {len(sigma)} singular values)',
-                     fontsize=11, fontweight='bold')
-        ax.legend(fontsize=9)
-        ax.grid(True, alpha=0.3)
-
-    plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, "01_scree_plot.png"), dpi=150, bbox_inches='tight')
-    plt.close()
-
-    # Figure 2: Cumulative variance explained
-    fig, axes = plt.subplots(1, 3, figsize=(16, 5))
-
-    for idx, (noise_label, (results, in_deg, sigma, cumsum_var, E, N, n_post, state)) in enumerate(all_results.items()):
-        ax = axes[idx]
-
-        ax.plot(range(len(cumsum_var)), cumsum_var, 'b-', linewidth=2, label='Cumulative variance')
-        ax.fill_between(range(len(cumsum_var)), 0, cumsum_var, alpha=0.3)
-
-        # Mark thresholds
-        thresholds = [0.995, 0.99, 0.999]
-        colors = ['red', 'blue', 'green']
-        for theta, color in zip(thresholds, colors):
-            r = results["effective_ranks"][theta]
-            ax.axhline(theta, color=color, linestyle='--', alpha=0.5, linewidth=1.5)
-            ax.axvline(r, color=color, linestyle='--', alpha=0.5, linewidth=1.5, label=f'{theta:.1%}: r={r}')
-
-        ax.set_xlabel('Singular value index', fontweight='bold')
-        ax.set_ylabel('Cumulative variance fraction', fontweight='bold')
-        ax.set_ylim([0.8, 1.0])
-        ax.set_title(f'{noise_label}', fontsize=11, fontweight='bold')
-        ax.legend(fontsize=9)
-        ax.grid(True, alpha=0.3)
-
-    plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, "02_cumulative_variance.png"), dpi=150, bbox_inches='tight')
-    plt.close()
-
-    # Figure 3: Null space estimate vs in-degree
-    fig, axes = plt.subplots(1, 3, figsize=(16, 5))
-
-    for idx, (noise_label, (results, in_deg, sigma, cumsum_var, E, N, n_post, state)) in enumerate(all_results.items()):
-        ax = axes[idx]
-
-        r_99 = results["effective_ranks"][0.99]
-        null_dims = estimate_null_space_from_global_rank(r_99, in_deg, E)
-
-        ax.scatter(in_deg, null_dims, alpha=0.4, s=20)
-        ax.plot([0, in_deg.max()], [0, in_deg.max() - r_99], 'r--', linewidth=2,
-                label=f'null = d_i - {r_99} (at 99%)')
-        ax.axhline(0, color='black', linestyle='-', linewidth=0.5)
-        ax.set_xlabel('In-degree ($d_i$)', fontweight='bold')
-        ax.set_ylabel('Estimated null space dim', fontweight='bold')
-        ax.set_title(f'{noise_label}\nGlobal rank: {r_99}', fontsize=11, fontweight='bold')
-        ax.legend(fontsize=9)
-        ax.grid(True, alpha=0.3)
-
-    plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, "03_null_vs_degree.png"), dpi=150, bbox_inches='tight')
-    plt.close()
-
-    print(f"  ✓ Saved 3 visualization PNG files to {output_dir}/")
 
 
 def main():
@@ -340,9 +253,6 @@ def main():
                 print(f"    {lo:4d}--{hi:4d}: {count:6d} neurons → {contribution:8,d} null dims")
 
     print(f"\n{'='*80}\n")
-
-    # Generate visualizations
-    visualize_global_svd(all_results)
 
     # Write results to JSON file
     results_file = os.path.join(script_dir, "results_global_svd.json")

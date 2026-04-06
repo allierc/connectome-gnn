@@ -1,14 +1,24 @@
 {
   "noise-free": {
-    "99.5%": {
-      "global_rank": 90,
-      "null_space_dim": 26413,
-      "degree_of_degeneracy": "6.1"
+    "90.0%": {
+      "global_rank": 1,
+      "null_space_dim": 420415,
+      "degree_of_degeneracy": "96.8"
+    },
+    "95.0%": {
+      "global_rank": 2,
+      "null_space_dim": 407427,
+      "degree_of_degeneracy": "93.9"
     },
     "99.0%": {
       "global_rank": 45,
       "null_space_dim": 115223,
       "degree_of_degeneracy": "26.5"
+    },
+    "99.5%": {
+      "global_rank": 90,
+      "null_space_dim": 26413,
+      "degree_of_degeneracy": "6.1"
     },
     "99.9%": {
       "global_rank": 238,
@@ -17,15 +27,25 @@
     }
   },
   "noise-0.05": {
-    "99.5%": {
-      "global_rank": 274,
-      "null_space_dim": 0,
-      "degree_of_degeneracy": "0.0"
+    "90.0%": {
+      "global_rank": 1,
+      "null_space_dim": 420415,
+      "degree_of_degeneracy": "96.8"
+    },
+    "95.0%": {
+      "global_rank": 4,
+      "null_space_dim": 383375,
+      "degree_of_degeneracy": "88.3"
     },
     "99.0%": {
       "global_rank": 134,
       "null_space_dim": 10227,
       "degree_of_degeneracy": "2.4"
+    },
+    "99.5%": {
+      "global_rank": 274,
+      "null_space_dim": 0,
+      "degree_of_degeneracy": "0.0"
     },
     "99.9%": {
       "global_rank": 632,
@@ -34,13 +54,23 @@
     }
   },
   "noise-0.5": {
-    "99.5%": {
-      "global_rank": 839,
+    "90.0%": {
+      "global_rank": 324,
+      "null_space_dim": 0,
+      "degree_of_degeneracy": "0.0"
+    },
+    "95.0%": {
+      "global_rank": 517,
       "null_space_dim": 0,
       "degree_of_degeneracy": "0.0"
     },
     "99.0%": {
       "global_rank": 781,
+      "null_space_dim": 0,
+      "degree_of_degeneracy": "0.0"
+    },
+    "99.5%": {
+      "global_rank": 839,
       "null_space_dim": 0,
       "degree_of_degeneracy": "0.0"
     },

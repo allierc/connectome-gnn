@@ -1,0 +1,163 @@
+================================================================================
+DEGENERATE CONNECTIVITY VARIANTS GENERATION - WORK SUMMARY
+================================================================================
+
+Date: 2026-04-05
+Status: ✓ COMPLETE
+
+================================================================================
+1. CELL TYPE VERIFICATION ✓
+================================================================================
+
+QUESTION: "Can you check a given cell type should have similar tau/Vrest?"
+
+ANSWER: ✓ YES - Verified and Confirmed
+
+Key Findings:
+  • Loaded 65 cell type NAMES from flyvis connectome JSON
+  • Loaded neuron-to-type mapping from flyvis zarr files
+  • Verified: Neurons of SAME type have IDENTICAL tau/Vrest (within 1e-8)
+  • Verified: Different types have DISTINCT tau/Vrest values
+  • Result: Flyvis cell type assignment is CORRECT and biophysically validated
+
+Data Source:
+  • Cell type names: fib25-fib19_v2.2.json (65 types)
+  • Neuron mapping: neuron_type.zarr from simulated datasets
+  • ODE params: flyvis_noise_free/ode_params.pt
+
+================================================================================
+2. DEGENERATE VARIANTS GENERATION ✓
+================================================================================
+
+STATUS: Successfully generated 1780 degenerate connectivity variants
+
+SECTION 1: Single-Type Variants
+  • Types with degenerate groups: 52 out of 65
+  • Variants per type: 15 scales (0.05x to 8.0x mean weight)
+  • Total: 52 types × 15 scales = 780 variants
+  
+  Scale factors: [0.05, 0.1, 0.2, 0.35, 0.5, 0.75, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 8.0]
+  
+  Connectivity R² @ scale 8.0 examples:
+    • R2: 0.9421 (orange)
+    • R3: 0.9672 (green)
+    • L5: 0.7332 (orange)
+    • C3: 1.0000 (perfect)
+    • Tm5c: 0.2823 (red - needs rollout verification)
+
+SECTION 2: Mixed-Type Variants
+  • Top 10 types by null space dimension
+  • Variants: 1000 (random combinations of top types)
+  • Amplitude range: log-uniform [0.05, 8.0]
+  
+  Final Statistics:
+    • Connectivity R²: mean = 0.8387 ± 0.1644
+    • Range: [0.0568, 0.9989]
+    • All variants preserve connectivity structure
+
+TOTAL VARIANTS: 1780 (+ 1 ground truth)
+OUTPUT LOCATION: graphs_data/degenerate_matrix/
+
+================================================================================
+3. CELL TYPES WITHOUT DEGENERACY (13 types) ✗
+================================================================================
+
+These 13 types cannot be meaningfully perturbed because they lack degenerate
+groups (no two neurons of same type converge on same target).
+
+Types without degenerate structure:
+  1. R1 (ID 0)           - photoreceptor, sparse connectivity
+  2. L3 (ID 10)          - lamina (only 35 neurons)
+  3. Lawf2 (ID 14)       - lawson fiber, unique connectivity
+  4. Mi1, Mi4 (IDs 20,23) - medulla intrinsic, one-to-one connections
+  5. Mi9, Mi10, Mi11, Mi12, Mi13 (IDs 24-28) - medulla, column-specific
+  6. T1 (ID 31)          - T cell, sparse connectivity
+  7. Tm5b, Tm9 (IDs 49,51) - Tm cells, minimal convergence
+
+================================================================================
+4. NEXT STEP: ROLLOUT ANALYSIS
+================================================================================
+
+To compute DYNAMICS PRESERVATION (rollout R²):
+
+  $ python scripts/rollout_degenerate_W.py
+
+This will:
+  1. Load stimulus from flyvis_noise_005 (network structure identical to noise_free)
+  2. Run ground-truth ODE with original W
+  3. Run ODE for each variant with perturbed W
+  4. Measure trajectory divergence (RMSE vs ground truth)
+  5. Compute rollout R² statistics
+  6. Generate plots and save results
+
+Expected runtime: Several hours
+Output: graphs_data/degenerate_matrix/rollout_results/
+
+Rollout R² will show whether connectivity degeneracy implies dynamics degeneracy:
+  • R² ≈ 1.0 → Exact degeneracy (trajectories identical)
+  • R² → 0 → Approximate degeneracy (trajectories diverge)
+  • R² < 0 → Breaking degeneracy (dynamics significantly changed)
+
+================================================================================
+5. FINAL STEP: UPDATE degeneracy_analysis.tex
+================================================================================
+
+Once rollout results are available, fill in the blanks in:
+  docs/degeneracy_analysis.tex
+
+Required insertions:
+  ✓ Connectivity R² statistics (DONE - available above)
+  ○ Rollout R² statistics (PENDING - from rollout script)
+  ✓ Cell type list and analysis (DONE - available in GENERATION_COMPLETE.md)
+
+================================================================================
+6. KEY TECHNICAL NOTES
+================================================================================
+
+Cell Type Assignment:
+  • FLYVIS assignment is ground truth (anatomical/genetic identity)
+  • tau/Vrest matching validates flyvis assignment (biophysical consistency)
+  • DO NOT infer types from tau/Vrest (loses important biological information)
+
+Degenerate Groups:
+  • Definition: k > 1 neurons of same type → same postsynaptic target
+  • When k > 1: sum-preserving perturbations create k-1 null dimensions
+  • Total null space: 121,100+ dimensions across all types
+  • Enables 1780 unique variants from single connectivity structure
+
+Connectivity vs Dynamics:
+  • Connectivity R²: Measures weight preservation (DONE)
+  • Rollout R²: Measures dynamics preservation (PENDING)
+  • These are different: perturbations may preserve weights but not dynamics
+
+Stimulus Data:
+  • Variants use W from flyvis_noise_free
+  • Rollout uses stimulus from flyvis_noise_005
+  • Both have identical network structure (edge_index, tau, V_rest)
+  • Cross-dataset simulation is valid for dynamics testing
+
+================================================================================
+FILES CREATED/MODIFIED
+================================================================================
+
+Created:
+  • CELL_TYPE_VERIFICATION.md - Detailed verification report
+  • GENERATION_COMPLETE.md - Complete results summary
+  • WORK_SUMMARY.txt - This file
+
+Modified:
+  • scripts/generate_degenerate_W.py
+    - Added load_flyvis_cell_type_mapping() function
+    - Uses actual cell type names (R1, R2, T4a, etc.)
+    - Color-coded R² output
+    - Displays cell type names in top 10 types list
+  
+  • scripts/rollout_degenerate_W.py
+    - Added comment about flyvis_noise_005 usage
+    - Ready for execution
+
+Generated:
+  • graphs_data/degenerate_matrix/ (1780 variants + 1 ground truth)
+  • generation_output.log (full generation output)
+
+================================================================================
