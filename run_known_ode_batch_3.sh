@@ -4,4 +4,4 @@
 # Device: cuda:1
 
 export CUDA_VISIBLE_DEVICES=1
-python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_removed_pc_20_known_ode iterations=64 --cluster --resume
+python GNN_LLM.py -o train_test_plot_Claude flyvis_noise_005_removed_pc_20_known_ode iterations=64 --cluster --resume
