@@ -17,7 +17,10 @@ from connectome_gnn.models.exploration_tree import compute_ucb_scores
 from connectome_gnn.models.graph_trainer import data_test, data_train
 from connectome_gnn.models.plot_exploration_tree import parse_ucb_scores, plot_ucb_tree
 from connectome_gnn.models.utils import save_exploration_artifacts_flyvis
-from connectome_gnn.utils import add_pre_folder, config_path, log_path, set_device
+from connectome_gnn.utils import (
+    add_pre_folder, config_path, get_data_root, load_data_root_from_json,
+    log_path, set_data_root, set_device,
+)
 
 from .claude_cli import run_claude_cli
 from .cluster import (
@@ -66,14 +69,25 @@ def setup_exploration(args, root_dir: str, skip_confirm: bool = False) -> Explor
     llm_task_name = task_params.get('llm_task', f'{base_config_name}_Claude')
     exploration_name = task_params.get('exploration_name', f'LLM_{base_config_name}')
 
-    config_root = config_path()
+    # In cluster mode, direct all output (log/, graphs_data/, slot configs) to shared FS.
+    # In local mode, data_root defaults to '.' (repo root when run from there).
+    if args.cluster:
+        set_data_root(load_data_root_from_json())
+
+    config_root = config_path()                                    # repo root — source config lookup only
+    slot_config_root = os.path.join(get_data_root(), 'config')    # data root — slot configs written here
     llm_dir = f"{root_dir}/LLM"
     exploration_dir = os.path.abspath(log_path('Claude_exploration', exploration_name))
 
     # Load source config and claude settings
     for cfg in config_list:
-        cfg_file, pre = add_pre_folder(cfg)
-        source_config = f"{config_root}/{cfg_file}.yaml"
+        if os.path.isfile(cfg):
+            source_config = cfg
+            parent = os.path.basename(os.path.dirname(os.path.abspath(cfg)))
+            pre = parent + "/" if parent else ""
+        else:
+            cfg_file, pre = add_pre_folder(cfg)
+            source_config = f"{config_root}/{cfg_file}.yaml"
 
     with open(source_config, 'r') as f:
         source_data = yaml.safe_load(f)
@@ -96,7 +110,7 @@ def setup_exploration(args, root_dir: str, skip_confirm: bool = False) -> Explor
 
     state = ExplorationState(
         root_dir=root_dir,
-        config_root=config_root,
+        slot_config_root=slot_config_root,
         llm_dir=llm_dir,
         exploration_dir=exploration_dir,
         source_config=source_config,
@@ -173,7 +187,7 @@ def init_slot_configs(state: ExplorationState, is_resume: bool):
         slot_name = f"{state.llm_task_name}_{slot:02d}"
         state.slot_names[slot] = slot_name
         slot_cfg_file, _ = add_pre_folder(slot_name)
-        target = f"{state.config_root}/{slot_cfg_file}.yaml"
+        target = f"{state.slot_config_root}/{slot_cfg_file}.yaml"
         state.config_paths[slot] = target
         state.analysis_log_paths[slot] = f"{state.exploration_dir}/{slot_name}_analysis.log"
 
@@ -600,14 +614,14 @@ def run_cluster_training(state: ExplorationState, batch: BatchInfo):
             analysis_log_path=state.analysis_log_paths[slot],
             config_file_field=config.config_file,
             log_dir=state.log_dir,
-            root_dir=state.root_dir,
             erase=True,
             node_name=state.node_name,
             conda_env=state.conda_env,
             n_cpus=state.n_cpus,
             device=config.training.device,
             exploration_dir=state.exploration_dir,
-            iteration=iteration
+            iteration=iteration,
+            output_root=get_data_root(),
         )
         if jid:
             job_ids[slot] = jid
@@ -616,7 +630,7 @@ def run_cluster_training(state: ExplorationState, batch: BatchInfo):
 
     if job_ids:
         print(f"\n\033[93mPHASE 3: Waiting for {len(job_ids)} cluster jobs to complete\033[0m")
-        cluster_results = wait_for_cluster_jobs(job_ids, log_dir=state.log_dir, poll_interval=60)
+        cluster_results = wait_for_cluster_jobs(job_ids, log_dir=state.log_dir, poll_interval=300)
         batch.job_results.update(cluster_results)
 
     # Auto-repair for failed jobs
@@ -694,18 +708,18 @@ Fix the bug. Do NOT make other changes."""
                 analysis_log_path=state.analysis_log_paths[slot_idx],
                 config_file_field=config.config_file,
                 log_dir=state.log_dir,
-                root_dir=state.root_dir,
                 erase=True,
                 node_name=state.node_name,
                 conda_env=state.conda_env,
                 n_cpus=state.n_cpus,
                 device=config.training.device,
                 exploration_dir=state.exploration_dir,
-                iteration=batch.iterations[slot_idx]
+                iteration=batch.iterations[slot_idx],
+                output_root=get_data_root(),
             )
             if jid:
                 retry_results = wait_for_cluster_jobs(
-                    {slot_idx: jid}, log_dir=state.log_dir, poll_interval=60
+                    {slot_idx: jid}, log_dir=state.log_dir, poll_interval=300
                 )
                 if retry_results.get(slot_idx):
                     batch.job_results[slot_idx] = True
@@ -770,7 +784,6 @@ def run_local_test_plot(state: ExplorationState, batch: BatchInfo):
         os.makedirs(folder_name, exist_ok=True)
         data_plot(
             config=config,
-            config_file=slot_config_file,
             epoch_list=['best'],
             style='color',
             extended='plots',
@@ -846,7 +859,6 @@ def run_local_pipeline(state: ExplorationState, batch: BatchInfo):
         os.makedirs(folder_name, exist_ok=True)
         data_plot(
             config=config,
-            config_file=slot_config_file,
             epoch_list=['best'],
             style='color',
             extended='plots',

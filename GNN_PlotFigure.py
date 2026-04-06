@@ -2247,8 +2247,7 @@ def plot_ground_truth_distributions(edges, true_weights, gt_taus, gt_V_Rest, typ
     plt.close()
 
 
-def data_plot(config, config_file, epoch_list, style, extended, device, apply_weight_correction=False, log_file=None, skip_svd=False):
-
+def data_plot(config, epoch_list, style, extended, device, apply_weight_correction=False, log_file=None, skip_svd=False):
     if 'black' in style:
         plt.style.use('dark_background')
         mc = 'w'
@@ -2328,9 +2327,9 @@ if __name__ == '__main__':
         print(f'\033[94mconfig_file  {config.config_file}\033[0m')
         folder_name = log_path(pre_folder, 'tmp_results') + '/'
         os.makedirs(folder_name, exist_ok=True)
-        data_plot(config=config, config_file=config_file, epoch_list=['best'], style='black color', extended='plots', device=device, apply_weight_correction=True)
-        # data_plot(config=config, config_file=config_file, epoch_list=['all'], style='black color', extended='plots', device=device, apply_weight_correction=False)
-        # data_plot(config=config, config_file=config_file, epoch_list=['all'], style='black color', extended='plots', device=device, apply_weight_correction=True)
+        data_plot(config=config, epoch_list=['best'], style='black color', extended='plots', device=device, apply_weight_correction=True)
+        # data_plot(config=config, epoch_list=['all'], style='black color', extended='plots', device=device, apply_weight_correction=False)
+        # data_plot(config=config, epoch_list=['all'], style='black color', extended='plots', device=device, apply_weight_correction=True)
 
 
     print("analysis completed")

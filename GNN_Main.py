@@ -7,11 +7,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 import matplotlib
 matplotlib.use('Agg')  # set non-interactive backend before other imports
 import argparse
+import re
 
 from connectome_gnn.config import NeuralGraphConfig
 from connectome_gnn.generators.graph_data_generator import data_generate
 from connectome_gnn.models.graph_trainer import data_train, data_test, data_train_INR
-from connectome_gnn.utils import set_device, add_pre_folder, log_path, config_path
+from connectome_gnn.utils import set_device, add_pre_folder, log_path, config_path, validate_pre_folder, set_data_root
 
 # Optional imports (not available in flyvis-gnn spinoff)
 try:
@@ -33,10 +34,17 @@ if __name__ == "__main__":
                         help="CV: number of seeds (default 5, uses 42..42+N-1)")
     parser.add_argument("--seeds", type=str, default=None,
                         help="CV: comma-separated seeds, e.g. 42,43,44 (overrides --n_seeds)")
+    parser.add_argument("--output_root", type=str, default=None,
+                        help="Root directory for log/ and graphs_data/ (default: cwd)")
 
     print()
     device = []
     args = parser.parse_args()
+
+    if args.output_root:
+        assert os.path.isdir(args.output_root), f"--output_root does not exist: {args.output_root}"
+        assert os.access(args.output_root, os.W_OK), f"--output_root is not writable: {args.output_root}"
+        set_data_root(args.output_root)
 
     if args.option:
         print(f"Options: {args.option}")
@@ -95,26 +103,37 @@ if __name__ == "__main__":
 
     for config_file_ in config_list:
         print(" ")
-        config_file, pre_folder = add_pre_folder(config_file_)
 
-        # load config — if YAML not found, try stripping _cvNN suffix (CV folds
-        # share a base config; the cv_runner overrides dataset/config_file at runtime)
-        import re
-        yaml_path = config_path(f"{config_file}.yaml")
-        cv_match = re.search(r'_cv(\d+)$', config_file_)
-        if not os.path.isfile(yaml_path) and cv_match:
-            base_name = config_file_[:cv_match.start()]
-            base_file, _ = add_pre_folder(base_name)
-            print(f"  CV fold detected: loading base config {base_name}.yaml, "
-                  f"dataset/log -> {config_file_}")
-            config = NeuralGraphConfig.from_yaml(config_path(f"{base_file}.yaml"))
-            config.dataset = pre_folder + config_file_
-            config.config_file = pre_folder + config_file_
-        else:
-            config = NeuralGraphConfig.from_yaml(yaml_path)
+        if os.path.isfile(config_file_):
+            # config_file_ is a direct filesystem path — load without repo lookup.
+            # pre_folder is derived from the parent directory name.
+            # config.config_file is left as-is from the YAML.
+            parent = os.path.basename(os.path.dirname(os.path.abspath(config_file_)))
+            pre_folder = parent + "/" if parent else ""
+            validate_pre_folder(pre_folder)
+            config = NeuralGraphConfig.from_yaml(config_file_)
             if not config.dataset.startswith(pre_folder):
                 config.dataset = pre_folder + config.dataset
-            config.config_file = pre_folder + config_file_
+        else:
+            config_file, pre_folder = add_pre_folder(config_file_)
+
+            # load config — if YAML not found, try stripping _cvNN suffix (CV folds
+            # share a base config; the cv_runner overrides dataset/config_file at runtime)
+            yaml_path = config_path(f"{config_file}.yaml")
+            cv_match = re.search(r'_cv(\d+)$', config_file_)
+            if not os.path.isfile(yaml_path) and cv_match:
+                base_name = config_file_[:cv_match.start()]
+                base_file, _ = add_pre_folder(base_name)
+                print(f"  CV fold detected: loading base config {base_name}.yaml, "
+                      f"dataset/log -> {config_file_}")
+                config = NeuralGraphConfig.from_yaml(config_path(f"{base_file}.yaml"))
+                config.dataset = pre_folder + config_file_
+                config.config_file = pre_folder + config_file_
+            else:
+                config = NeuralGraphConfig.from_yaml(yaml_path)
+                if not config.dataset.startswith(pre_folder):
+                    config.dataset = pre_folder + config.dataset
+                config.config_file = pre_folder + config_file_
 
         if device == []:
             device = set_device(config.training.device)
@@ -158,11 +177,20 @@ if __name__ == "__main__":
             # Optional: load a second config for cross-dataset test data
             test_config = None
             if test_config_name:
-                tc_file, tc_pre = add_pre_folder(test_config_name)
-                test_config = NeuralGraphConfig.from_yaml(f"{config_root}/{tc_file}.yaml")
-                if not test_config.dataset.startswith(tc_pre):
-                    test_config.dataset = tc_pre + test_config.dataset
-                test_config.config_file = tc_pre + test_config_name
+                if os.path.isfile(test_config_name):
+                    tc_parent = os.path.basename(os.path.dirname(os.path.abspath(test_config_name)))
+                    tc_pre = tc_parent + "/" if tc_parent else ""
+                    validate_pre_folder(tc_pre)
+                    test_config = NeuralGraphConfig.from_yaml(test_config_name)
+                    if not test_config.dataset.startswith(tc_pre):
+                        test_config.dataset = tc_pre + test_config.dataset
+                    # test_config.config_file left as-is from the YAML
+                else:
+                    tc_file, tc_pre = add_pre_folder(test_config_name)
+                    test_config = NeuralGraphConfig.from_yaml(f"{config_root}/{tc_file}.yaml")
+                    if not test_config.dataset.startswith(tc_pre):
+                        test_config.dataset = tc_pre + test_config.dataset
+                    test_config.config_file = tc_pre + test_config_name
                 print(f'cross-dataset test: model from {config.dataset}, test data from {test_config.dataset}')
 
             data_test(
@@ -186,7 +214,12 @@ if __name__ == "__main__":
         if 'plot' in task:
             folder_name = log_path(pre_folder, 'tmp_results') + '/'
             os.makedirs(folder_name, exist_ok=True)
-            data_plot(config=config, config_file=config_file, epoch_list=['best'], style='color', extended='plots', device=device, apply_weight_correction=True)
+            data_plot(config=config, epoch_list=['best'], style='color', extended='plots', device=device, apply_weight_correction=True)
+
+        # Mark this config's run as complete
+        run_log_dir = log_path(config.config_file)
+        with open(os.path.join(run_log_dir, '_complete'), 'w') as f:
+            f.write(f"argv={sys.argv}\n")
 
 
 # python GNN_Main.py -o test flyvis_noise_005 best flyvis_noise_free

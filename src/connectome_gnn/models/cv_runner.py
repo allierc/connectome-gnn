@@ -148,7 +148,7 @@ def run_cv(config_name, seeds):
 
         # --- Plot / analyse ---
         print(f"  analysing...")
-        data_plot(config=config, config_file=config.config_file,
+        data_plot(config=config,
                   epoch_list=['best'], style='color', extended='plots',
                   device=device)
 
