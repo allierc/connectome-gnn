@@ -526,13 +526,25 @@ def load_configs_and_seeds(state: ExplorationState, batch: BatchInfo):
         config = NeuralGraphConfig.from_yaml(state.config_paths[slot])
         config.training.n_epochs = 1
 
-        # IMPORTANT: Preserve the original slot-based dataset (never change the slot suffix _00, _01, etc.)
-        # Extract slot suffix from base_config_name and re-apply it to ensure dataset is always _XX where XX is the slot
-        original_dataset_base = state.base_config_name
-        original_dataset = f"{original_dataset_base}_{slot:02d}"
-        if not original_dataset.startswith(state.pre_folder):
-            original_dataset = state.pre_folder + original_dataset
-        config.dataset = original_dataset
+        # CRITICAL: Dataset suffix must always be _XX where XX is the slot number (_00, _01, _02, _03)
+        # This is set once in init_slot_configs() and should NEVER change, even if Claude modifies the config.
+        expected_dataset = f"{state.base_config_name}_{slot:02d}"
+        if not expected_dataset.startswith(state.pre_folder):
+            expected_dataset = state.pre_folder + expected_dataset
+
+        # Validate: dataset must not have been changed by Claude
+        if config.dataset != expected_dataset:
+            raise AssertionError(
+                f"CRITICAL: Claude changed the dataset in slot {slot}!\n"
+                f"  Expected: {expected_dataset}\n"
+                f"  Found:    {config.dataset}\n"
+                f"  IMPORTANT: Do NOT change the 'dataset' field in any config — "
+                f"it must stay as-is for each slot.\n"
+                f"  Dataset suffix (_00, _01, etc.) identifies which data/slot is used "
+                f"and is fixed for all iterations."
+            )
+
+        config.dataset = expected_dataset
         config.config_file = state.pre_folder + state.slot_names[slot]
 
         # Force seeds (pipeline-controlled — LLM cannot override)
