@@ -536,19 +536,20 @@ def load_configs_and_seeds(state: ExplorationState, batch: BatchInfo):
 
         # Validate: dataset suffix must be slot-based (_00, _01, _02, _03), never iteration-based
         actual_dataset = yaml_data.get('dataset', '')
-        # Extract just the suffix to check if it's slot-based or iteration-based
-        if actual_dataset:
-            # Check if suffix is correct slot number (with or without prefix)
-            expected_suffix = f"_{slot:02d}"
-            if not actual_dataset.endswith(expected_suffix):
-                raise AssertionError(
-                    f"CRITICAL: Dataset suffix changed from slot-based to iteration-based in slot {slot}!\n"
-                    f"  Expected suffix: {expected_suffix} (slot-based)\n"
-                    f"  Found dataset:   {actual_dataset}\n"
-                    f"  Found suffix:    {actual_dataset.split('_')[-1] if '_' in actual_dataset else 'unknown'}\n"
-                    f"  IMPORTANT: Do NOT change the 'dataset' field in any config.\n"
-                    f"  Dataset suffix (_00, _01, _02, _03) is IMMUTABLE and identifies the data/slot."
-                )
+        expected_suffix = f"_{slot:02d}"
+
+        if actual_dataset and not actual_dataset.endswith(expected_suffix):
+            # Claude changed the dataset suffix — warn and fix it
+            found_suffix = actual_dataset.split('_')[-1] if '_' in actual_dataset else 'unknown'
+            print(
+                f"\033[91mWARNING: Claude changed dataset suffix in slot {slot}!\033[0m\n"
+                f"\033[91m  Expected suffix: {expected_suffix} (slot-based, IMMUTABLE)\033[0m\n"
+                f"\033[91m  Found dataset:   {actual_dataset}\033[0m\n"
+                f"\033[91m  Found suffix:    {found_suffix}\033[0m\n"
+                f"\033[93m  Restoring to correct slot-based suffix...\033[0m"
+            )
+            # Reconstruct dataset with correct slot suffix
+            yaml_data['dataset'] = expected_dataset
 
         # Force seeds (pipeline-controlled — LLM cannot override)
         assert iteration >= 1, f"iteration must be >= 1 for valid seeds (got {iteration} from batch.iterations[{slot_idx}])"
