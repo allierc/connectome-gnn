@@ -523,8 +523,6 @@ def load_configs_and_seeds(state: ExplorationState, batch: BatchInfo):
 
     for slot_idx, iteration in enumerate(batch.iterations):
         slot = slot_idx
-        config = NeuralGraphConfig.from_yaml(state.config_paths[slot])
-        config.training.n_epochs = 1
 
         # CRITICAL: Dataset suffix must always be _XX where XX is the slot number (_00, _01, _02, _03)
         # This is set once in init_slot_configs() and should NEVER change, even if Claude modifies the config.
@@ -532,39 +530,41 @@ def load_configs_and_seeds(state: ExplorationState, batch: BatchInfo):
         if not expected_dataset.startswith(state.pre_folder):
             expected_dataset = state.pre_folder + expected_dataset
 
+        # Read YAML once (avoid duplicate reads)
+        with open(state.config_paths[slot], 'r') as f:
+            yaml_data = yaml.safe_load(f)
+
         # Validate: dataset must not have been changed by Claude
-        if config.dataset != expected_dataset:
+        if yaml_data.get('dataset') != expected_dataset:
             raise AssertionError(
                 f"CRITICAL: Claude changed the dataset in slot {slot}!\n"
                 f"  Expected: {expected_dataset}\n"
-                f"  Found:    {config.dataset}\n"
+                f"  Found:    {yaml_data.get('dataset')}\n"
                 f"  IMPORTANT: Do NOT change the 'dataset' field in any config — "
                 f"it must stay as-is for each slot.\n"
                 f"  Dataset suffix (_00, _01, etc.) identifies which data/slot is used "
                 f"and is fixed for all iterations."
             )
 
-        config.dataset = expected_dataset
-        config.config_file = state.pre_folder + state.slot_names[slot]
-
         # Force seeds (pipeline-controlled — LLM cannot override)
         assert iteration >= 1, f"iteration must be >= 1 for valid seeds (got {iteration} from batch.iterations[{slot_idx}])"
         sim_seed = iteration * 1000 + slot
         train_seed = iteration * 1000 + slot + 500
-        config.simulation.seed = sim_seed
-        config.training.seed = train_seed
         batch.slot_seeds[slot] = {'simulation': sim_seed, 'training': train_seed}
 
-        # Write forced seeds + slot-based dataset back to YAML (cluster reads from file)
-        # Read YAML once, update only the fields we need to change
-        with open(state.config_paths[slot], 'r') as f:
-            yaml_data = yaml.safe_load(f)
+        # Update YAML with forced seeds and slot-based dataset
         yaml_data['simulation']['seed'] = sim_seed
         yaml_data['training']['seed'] = train_seed
-        yaml_data['dataset'] = expected_dataset  # Enforce slot-based dataset (never iteration-based)
+        yaml_data['dataset'] = expected_dataset
+        yaml_data['training']['n_epochs'] = 1
+
+        # Write updated YAML back to file (cluster reads from file)
         with open(state.config_paths[slot], 'w') as f:
             yaml.dump(yaml_data, f, default_flow_style=False, sort_keys=False)
 
+        # Load config object for in-memory use and storage
+        config = NeuralGraphConfig.from_yaml(state.config_paths[slot])
+        config.config_file = state.pre_folder + state.slot_names[slot]
         batch.configs[slot] = config
 
         if state.device is None:
