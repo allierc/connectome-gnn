@@ -525,8 +525,14 @@ def load_configs_and_seeds(state: ExplorationState, batch: BatchInfo):
         slot = slot_idx
         config = NeuralGraphConfig.from_yaml(state.config_paths[slot])
         config.training.n_epochs = 1
-        if not config.dataset.startswith(state.pre_folder):
-            config.dataset = state.pre_folder + config.dataset
+
+        # IMPORTANT: Preserve the original slot-based dataset (never change the slot suffix _00, _01, etc.)
+        # Extract slot suffix from base_config_name and re-apply it to ensure dataset is always _XX where XX is the slot
+        original_dataset_base = state.base_config_name
+        original_dataset = f"{original_dataset_base}_{slot:02d}"
+        if not original_dataset.startswith(state.pre_folder):
+            original_dataset = state.pre_folder + original_dataset
+        config.dataset = original_dataset
         config.config_file = state.pre_folder + state.slot_names[slot]
 
         # Force seeds (pipeline-controlled — LLM cannot override)
@@ -537,12 +543,12 @@ def load_configs_and_seeds(state: ExplorationState, batch: BatchInfo):
         config.training.seed = train_seed
         batch.slot_seeds[slot] = {'simulation': sim_seed, 'training': train_seed}
 
-        # Write forced seeds + prefixed dataset back to YAML (cluster reads from file)
+        # Write forced seeds + slot-based dataset back to YAML (cluster reads from file)
         with open(state.config_paths[slot], 'r') as f:
             yaml_data = yaml.safe_load(f)
         yaml_data['simulation']['seed'] = sim_seed
         yaml_data['training']['seed'] = train_seed
-        yaml_data['dataset'] = config.dataset  # include pre_folder prefix so cluster finds data
+        yaml_data['dataset'] = original_dataset  # Restore slot-based dataset (never iteration-based)
         with open(state.config_paths[slot], 'w') as f:
             yaml.dump(yaml_data, f, default_flow_style=False, sort_keys=False)
 
