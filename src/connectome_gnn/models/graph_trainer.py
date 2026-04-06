@@ -1090,16 +1090,6 @@ def data_test(config=None, config_file=None, visualize=False, style='color frame
               ratio=1, run=0, test_mode='', sample_embedding=False, particle_of_interest=1, new_params = None, device=[],
               rollout_without_noise: bool = False, log_file=None, test_config=None):
 
-    # Set CUDA device if specified (prevents slow cross-device kernel launches and implicit transfers)
-    if device is not None and device != [] and 'cuda' in str(device):
-        device_str = str(device)
-        if ':' in device_str:
-            device_id = int(device_str.split(':')[1])
-        else:
-            device_id = 0
-        import torch
-        torch.cuda.set_device(device_id)
-
     dataset_name = config.dataset
     _logger.info(f"dataset_name: {dataset_name}")
     _logger.info(f"{config.description}")

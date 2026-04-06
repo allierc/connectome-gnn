@@ -563,16 +563,6 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
 
 
 def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, device, log_file=None, skip_svd=False):
-    # Set CUDA device if specified (prevents slow cross-device kernel launches and implicit transfers)
-    if device is not None and 'cuda' in str(device):
-        device_str = str(device)
-        if ':' in device_str:
-            device_id = int(device_str.split(':')[1])
-        else:
-            device_id = 0
-        import torch
-        torch.cuda.set_device(device_id)
-
     sim = config.simulation
     model_config = config.graph_model
     tc = config.training
@@ -2258,16 +2248,6 @@ def plot_ground_truth_distributions(edges, true_weights, gt_taus, gt_V_Rest, typ
 
 
 def data_plot(config, config_file, epoch_list, style, extended, device, apply_weight_correction=False, log_file=None, skip_svd=False):
-
-    # Set CUDA device if specified (prevents slow cross-device kernel launches and implicit transfers)
-    if device is not None and 'cuda' in str(device):
-        device_str = str(device)
-        if ':' in device_str:
-            device_id = int(device_str.split(':')[1])
-        else:
-            device_id = 0
-        import torch
-        torch.cuda.set_device(device_id)
 
     if 'black' in style:
         plt.style.use('dark_background')
