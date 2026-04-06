@@ -154,7 +154,11 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
         best_model = max(files, key=os.path.getmtime)
         logger.info(f'best model: {best_model}')
 
-    netname = f"{log_dir}/models/{best_model}"
+    # best_model is already a full path from glob, or a filename to prepend log_dir/models/ to
+    if os.path.isabs(best_model) or '/' in best_model:
+        netname = best_model
+    else:
+        netname = f"{log_dir}/models/{best_model}"
     logger.info(f'loading {netname} ...')
     state_dict = torch.load(netname, map_location=device, weights_only=False)
     migrate_state_dict(state_dict)
