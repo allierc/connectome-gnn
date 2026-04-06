@@ -39,6 +39,8 @@ if __name__ == '__main__':
 
     try:
         config = NeuralGraphConfig.from_yaml(args.config)
+        if args.config_file:
+            config.config_file = args.config_file
 
         log_file = open(args.log_file, 'w', buffering=1) if args.log_file else None
         try:
