@@ -135,7 +135,7 @@ def setup_exploration(args, root_dir: str, skip_confirm: bool = False) -> Explor
             f"  Analysis path: {analysis_path_probe}\n"
             f"  Config dir: {config_save_dir_probe}"
         )
-        elif state.start_iteration > 1:
+        if state.start_iteration > 1:
             print(f"\033[93mAuto-resume: resuming from batch starting at {state.start_iteration}\033[0m")
         else:
             print("\033[93mfresh start (no previous iterations found)\033[0m")
