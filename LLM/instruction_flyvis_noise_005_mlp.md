@@ -22,6 +22,23 @@ are not meant to be mechanistic, but instead serve as function approximators to
 the true 1-step update. Since the system is input driven we want to find a regime
 of parameters where we can predict ~ 8000 steps ahead accurately.
 
+## Scientific Context
+
+The core research question is: **Can a flat, graph-free MLP function approximator achieve stable autoregressive rollout on the FlyVis Drosophila visual system model under realistic noise (σ=0.05)?** 
+
+This explores whether the mechanistic, GNN-based approaches used elsewhere in the codebase are necessary, or whether a simpler statistical model can approximate the true 1-step dynamics well enough to sustain multi-thousand-step predictions. The MLP is not expected to learn causal structure, but rather to memorize the input-output manifold of the true system. The key challenge is error compounding in autoregressive mode — small per-step errors accumulate rapidly unless the model learns a regime where errors remain bounded.
+
+## Noise Model
+
+The FlyVis simulation includes realistic noise:
+
+```
+v_i(t+1) = v_i(t) + dt * f(v_i(t), W, a_i, I_i(t)) + epsilon_i(t)
+epsilon_i ~ N(0, 0.05)  [dynamics noise]
+```
+
+The MLP must learn to predict `dv_i/dt` from the observed activity traces, which are corrupted by this noise. Larger rollout windows expose the model to accumulated noise, making training with longer `rollout_train_steps` (unrolling 20+ steps) essential for stability.
+
 ## Metrics
 
 **Always use metrics defined to guide decision making**
@@ -142,58 +159,6 @@ cases starts to get worse. That's why we have the early stop. But if this is det
 remove early stopping. For example, if you find that epochs=20, but at 10 epochs you hit the
 lowest rollout mse, you can consider to reduce the epoch count from 20 -> 15 say.
 
-## Training Time Constraint
-
-**Target <=60 min per iteration.**
-Use `data_augmentation_loop` (DAL) and `n_epochs` to control training time.
-If the training time is much less than 60min you can consider running for more epochs to
-explore any further reduction in rollout performance.
-
-## Metrics
-
-### Primary: `rollout_RMSE`
-
-From `results_rollout.log` (and written to `analysis.log`):
-
-```
-rollout_RMSE: X.XXXX
-rollout_RMSE_std: X.XXXX
-```
-
-**Target: rollout_RMSE < 0.1**
-
-Classification:
-
-- **Excellent**: rollout_RMSE < 0.1
-- **Good**: 0.1 – 0.5
-- **Poor**: 0.5 – 5.0
-- **Diverged**: > 5.0 (model explodes)
-
-### Divergence profile: `results_rollout_by_step.csv`
-
-**This is the most informative diagnostic.** Read this CSV to understand _when_ the model diverges:
-
-```
-frame_start,frame_end,RMSE,pearson
-0,500,0.05,0.92
-500,1000,0.12,0.75
-1000,1500,2.3,0.10
-...
-```
-
-- If RMSE is low early but spikes later: model diverges gradually — try more `rollout_train_steps`
-- If RMSE spikes immediately (first window): model is unstable from the start — try lower `lr` or `use_residual_connection`
-- If RMSE stays flat and low: rollout is stable
-
-**Always read and report the per-step CSV for each slot.** Note the first window where RMSE exceeds 1.0 (divergence point).
-
-### Secondary: `onestep_pearson`, `onestep_RMSE`
-
-One-step prediction quality. A model can have good one-step metrics but diverge in rollout. Use these as sanity checks — if one-step quality is bad, the model hasn't learned the dynamics at all.
-
-### Informational: `training_time_min`
-
-Monitor training time and adjust DAL to stay within budget.
 
 ## Data Generation
 
@@ -204,7 +169,7 @@ Each slot re-generates data with a **different random seed** (forced by pipeline
 
 **DO NOT modify simulation parameters** (n_neurons, n_frames, n_edges, delta_t, noise_model_level).
 
-## Block Partition
+## Block Structure
 
 | Block | Focus                   | Parameters to scan            | Ranges                                                    |
 | ----- | ----------------------- | ----------------------------- | --------------------------------------------------------- |
@@ -217,6 +182,48 @@ Each slot re-generates data with a **different random seed** (forced by pipeline
 | 7     | **robustness**          | Best config, all 4 slots same | Confirm CV < 10% across seeds                             |
 
 **Block 4 notes**: Goal is the _smallest_ model that achieves rollout_RMSE < 0.1. Start from best config of blocks 1-3. First find the minimum `hidden_dim` that achieves the target, then verify with the minimum `n_layers`. Prefer smaller models: a model with half the parameters that hits the target beats a larger model.
+
+## File Structure
+
+You maintain **THREE** files:
+
+### 1. Full Log (append-only)
+
+**File**: `{llm_task_name}_analysis.md`
+
+### 2. Working Memory (read + update every batch)
+
+**File**: `{llm_task_name}_memory.md`
+
+### 3. User Input (read every batch, acknowledge pending items)
+
+**File**: `user_input.md`
+
+## Knowledge Base Guidelines
+
+### What to Add to Established Principles
+
+A principle must satisfy ALL of:
+
+1. Observed consistently across **3+ iterations**
+2. Consistent across **all 4 seeds** (not just mean, but low variance)
+3. States a **causal relationship** (not just a correlation)
+
+### What to Add to Open Questions
+
+- Patterns observed 1-2 times
+- Seed-dependent effects (works for some seeds but not others)
+- Contradictions between iterations
+- Theoretical predictions not yet verified
+
+### What to Add to Falsified Hypotheses
+
+When a hypothesis is falsified:
+
+1. State the original hypothesis
+2. State the contradicting evidence (iteration number, metrics)
+3. State what was learned from the falsification
+4. Propose a revised hypothesis if applicable
 
 ## Iteration Workflow
 

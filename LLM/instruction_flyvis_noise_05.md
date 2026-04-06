@@ -4,6 +4,20 @@
 
 Explore the **optimization landscape** of GNN training for the **Drosophila visual system** at high noise ($\sigma{=}0.5$, DAVIS input).
 
+## Scientific Context
+
+This exploration operates under dramatically different conditions than noise_005. At noise_model_level=0.5 (10x higher noise), the default configuration already achieves near-perfect recovery: $R^2_W \approx 0.99$, $R^2_\tau \approx 1.00$, $R^2_{V^{\text{rest}}} \approx 0.85$. The mechanism is clear: high intrinsic noise widens the distribution of membrane voltages explored during training, providing richer coverage of the system's dynamical regime. The question shifts from "how do we make it work?" to "what does this tell us about the optimization landscape?" We investigate three research directions: (1) the width of the basin of attraction (are "bad" hyperparameters that fail at noise_005 rescued by noise_05?), (2) the minimal configuration required for recovery, and (3) whether secondary metrics like $V^{\text{rest}}$ recovery can be improved. The most scientifically valuable results are degraded or broken configurations—they map the boundaries of the basin of attraction.
+
+## Noise Model
+
+The FlyVis model at high noise applies substantial additive Gaussian noise:
+
+$$v_i(t+1) = v_i(t) + dt \cdot f_\theta(v_i, a_i, \sum_j W_{ij} g_\phi(v_j, a_j)^2, I_i) + \epsilon_{\text{dyn}}(t)$$
+
+where $\epsilon_{\text{dyn}}(t) \sim \mathcal{N}(0, \sigma^2)$ with $\sigma = \text{noise\_model\_level} = 0.5$. This high noise level acts as an implicit regularizer, smoothing the optimization landscape and providing strong signal diversity across the state space. The GNN learns a noise-free deterministic model that explains noisy observations, which is fundamentally easier than learning under low noise.
+
+## Goal (continued)
+
 ### Context: Noise as a Leveler
 
 At $\sigma{=}0.5$, the GNN already achieves near-perfect parameter recovery with the default configuration:
@@ -155,9 +169,6 @@ This means the default config relies entirely on the monotonicity constraint (`c
 | `w_init_mode` | randn_scaled | W initialization |
 | `regul_annealing_rate` | 0.5 | Annealing rate (irrelevant at 1 epoch) |
 
-## Training Time Constraint
-
-Target: **≤ 60 min/iteration** (1 epoch).  The noise_005 champion at aug=35 took ~69 min; noise_05 with aug=20 should be well within budget.
 
 ## Parallel Mode — 4 Slots Per Batch
 
@@ -238,6 +249,7 @@ noise_005 comparison: [same config at noise_005 gave X — noise rescued by Y%]
 Mutation: [param]: [old] -> [new]
 Verdict: [robust/degraded/broken] — [one line interpretation]
 Next: parent=P
+```
 
 ## Winner Config (COMPULSORY)
 
@@ -375,6 +387,65 @@ Use this table to look up the noise_005 result for any config you test. The **no
 **Bold rows** = failure modes prescribed for testing in blocks 1-4.
 
 **Sibling memory file**: `./log/Claude_exploration/LLM_flyvis_noise_005/flyvis_noise_005_Claude_memory.md` — read at block boundaries for full context.
+
+## File Structure
+
+You maintain **THREE** files:
+
+### 1. Full Log (append-only)
+
+**File**: `{llm_task_name}_analysis.md`
+
+- Append every iteration's log entry (4 entries per batch)
+- Append block summaries at block boundaries
+- **Never read** — human record only
+
+### 2. Working Memory (read + update every batch)
+
+**File**: `{llm_task_name}_memory.md`
+
+- Read at start, update at end
+- Contains: comparative landscape table, hypotheses, established principles, current block iterations
+- Keep ≤ 500 lines
+
+### 3. User Input (read every batch, acknowledge pending items)
+
+**File**: `user_input.md`
+
+- Read at every batch
+- If "Pending Instructions" section has content: act on it, then move entries to "Acknowledged" section with timestamp
+- Do not remove acknowledged entries — append them with `[ACK {batch}]` marker
+
+## Knowledge Base Guidelines
+
+### What to Add to Established Principles
+
+A principle must satisfy ALL of:
+
+1. Observed consistently across **3+ iterations**
+2. Consistent across **all 4 seeds** (not just mean, but low variance)
+3. States a **causal relationship** about the noise_05 landscape
+
+Examples:
+- ✓ "Noise rescues architecture failures: n_layers=4 achieves conn_R2 > 0.95 at noise_05 despite FRAGILE (0.837) at noise_005"
+- ✓ "LR schedulers catastrophically fail at noise_005 but may work at noise_05 — need evidence across seeds"
+- ✗ "Baseline is robust at noise_05" (too vague, needs specifics)
+
+### What to Add to Open Questions
+
+- Patterns observed 1-2 times
+- Seed-dependent effects at noise_05
+- Contradictions between noise_05 and noise_005 results
+- Theoretical predictions about the landscape width
+
+### What to Add to Falsified Hypotheses
+
+When a hypothesis is falsified:
+
+1. State the original hypothesis about noise_05
+2. State the contradicting evidence (iteration number, metrics, noise_005 comparison)
+3. State what the landscape tells us (e.g., "basin wider than expected" or "noise insufficient to rescue")
+4. Propose a revised hypothesis if applicable
 
 ## Start Call
 

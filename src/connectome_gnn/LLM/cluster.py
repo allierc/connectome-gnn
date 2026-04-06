@@ -110,7 +110,7 @@ def submit_cluster_job(slot, config_path, analysis_log_path, config_file_field,
     cluster_stderr = f"{cluster_log_dir}/cluster_train_{slot:02d}.err"
 
     if device == 'cpu':
-        bsub_resources = f"bsub -n {n_cpus} -W 6000"
+        bsub_resources = f"bsub -n {n_cpus} -W 1440"
         queue_label = "cpu"
     else:
         bsub_resources = f"bsub -n {n_cpus} -gpu 'num=1' -q gpu_{node_name} -W 6000"

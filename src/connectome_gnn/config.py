@@ -611,6 +611,9 @@ class TrainingConfig(BaseModel):
 
     loss_noise_level: float = 0.0
 
+    # Compilation flag for torch.compile optimization
+    torch_compile: bool = True
+
     # external input learning
     learn_external_input: bool = False
 

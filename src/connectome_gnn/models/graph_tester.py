@@ -41,7 +41,6 @@ from connectome_gnn.utils import (
     graphs_data_path,
     log_path,
     migrate_state_dict,
-    sort_key,
     to_numpy,
 )
 from connectome_gnn.zarr_io import load_raw_array, load_simulation_data
@@ -150,18 +149,17 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     model = model.to(device)
 
     if best_model == 'best':
-        files = glob.glob(f"{log_dir}/models/best_model_with_*.pt")
-        files.sort(key=sort_key)
-        filename = files[-1]
-        filename = filename.split('/')[-1]
-        filename = filename.split('graphs')[-1][1:-3]
-        best_model = filename
+        files = glob.glob(f"{log_dir}/models/*.pt")
+        assert len(files), 'no model checkpoints found in models/ directory — using untrained model'
+        best_model = max(files, key=os.path.getmtime)
         logger.info(f'best model: {best_model}')
-    netname = f"{log_dir}/models/best_model_with_{tc.n_runs - 1}_graphs_{best_model}.pt"
+
+    netname = f"{log_dir}/models/{best_model}"
     logger.info(f'loading {netname} ...')
     state_dict = torch.load(netname, map_location=device, weights_only=False)
     migrate_state_dict(state_dict)
     model.load_state_dict(state_dict['model_state_dict'], strict=False)
+    logger.info(f'loaded checkpoint successfully')
 
     # Load INR model if visual field is learned
     if has_visual_field and hasattr(model, 'NNR_f'):
@@ -472,7 +470,8 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
         try:
             _OdeCls = get_ode_params_class(config.graph_model.signal_model_name)
             _ode_p = _OdeCls.load(graphs_data_path(config.dataset), device=device)
-        except Exception:
+        except Exception as e:
+            logger.error(f'Failed to load ODE params for Jacobian connectivity R2: {e}')
             _ode_p = None
         if _ode_p is not None:
             jac_r2 = compute_jacobian_connectivity_r2(
@@ -503,6 +502,79 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
             plt.savefig(f"{results_dir}/weights_comparison_{_idx}.png", dpi=300)
             plt.close()
             logger.info(f'saved weights_comparison_{_idx}.png')
+
+    # --- Known-ODE connectivity R2 ---
+    if 'known_ode' in model_config.signal_model_name.lower():
+        from connectome_gnn.generators.ode_params import get_ode_params_class
+        try:
+            _OdeCls = get_ode_params_class(config.graph_model.signal_model_name)
+            _ode_p = _OdeCls.load(graphs_data_path(config.dataset), device=device)
+            logger.info('loaded ODE params for known_ode evaluation')
+
+            # Extract learned W, tau, V_rest from model
+            learned_W = to_numpy(model.W.squeeze())  # shape: (n_edges,)
+            gt_W = to_numpy(_ode_p.W)  # shape: (n_edges,)
+
+            # Compute connectivity R2
+            ss_res = np.sum((gt_W - learned_W) ** 2)
+            ss_tot = np.sum((gt_W - np.mean(gt_W)) ** 2)
+            connectivity_r2 = float(1 - ss_res / (ss_tot + 1e-16))
+            logger.info(f'connectivity_R2: {connectivity_r2:.4f}')
+            if log_file:
+                log_file.write(f'connectivity_R2: {connectivity_r2:.4f}\n')
+
+            # Compute tau_R2 if available
+            learned_tau = model.get_learned_tau()
+            if learned_tau is not None and hasattr(_ode_p, 'tau'):
+                learned_tau_np = to_numpy(learned_tau.squeeze())
+                gt_tau = to_numpy(_ode_p.tau.squeeze())
+                ss_res_tau = np.sum((gt_tau - learned_tau_np) ** 2)
+                ss_tot_tau = np.sum((gt_tau - np.mean(gt_tau)) ** 2)
+                tau_r2 = float(1 - ss_res_tau / (ss_tot_tau + 1e-16))
+                logger.info(f'tau_R2: {tau_r2:.4f}')
+                if log_file:
+                    log_file.write(f'tau_R2: {tau_r2:.4f}\n')
+
+            # Compute V_rest_R2 if available
+            learned_vrest = model.get_learned_vrest()
+            if learned_vrest is not None and hasattr(_ode_p, 'V_rest'):
+                learned_vrest_np = to_numpy(learned_vrest.squeeze())
+                gt_vrest = to_numpy(_ode_p.V_rest.squeeze())
+                ss_res_vrest = np.sum((gt_vrest - learned_vrest_np) ** 2)
+                ss_tot_vrest = np.sum((gt_vrest - np.mean(gt_vrest)) ** 2)
+                vrest_r2 = float(1 - ss_res_vrest / (ss_tot_vrest + 1e-16))
+                logger.info(f'V_rest_R2: {vrest_r2:.4f}')
+                if log_file:
+                    log_file.write(f'V_rest_R2: {vrest_r2:.4f}\n')
+
+            # Connectivity matrix heatmap
+            ei = to_numpy(_ode_p.edge_index)
+            results_dir = os.path.join(log_dir, 'results')
+            os.makedirs(results_dir, exist_ok=True)
+
+            from connectome_gnn.plot import plot_weight_comparison
+            fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+
+            # GT connectivity matrix at edges
+            gt_W_full = np.zeros((n_neurons, n_neurons))
+            gt_W_full[ei[0], ei[1]] = gt_W
+            plot_weight_comparison(axes[0], gt_W_full, title='Ground-truth W')
+
+            # Learned connectivity matrix at edges
+            learned_W_full = np.zeros((n_neurons, n_neurons))
+            learned_W_full[ei[0], ei[1]] = learned_W
+            plot_weight_comparison(axes[1], learned_W_full, title='Learned W')
+
+            plt.suptitle(f'Known-ODE Connectivity (R² = {connectivity_r2:.4f})', fontsize=16)
+            plt.tight_layout()
+            plt.savefig(f"{results_dir}/connectivity_heatmap.png", dpi=300)
+            plt.close()
+            logger.info('saved connectivity_heatmap.png')
+
+        except Exception as e:
+            logger.error(f'Failed to compute known_ode metrics: {e}')
+            if log_file:
+                log_file.write(f'ERROR: {type(e).__name__}: {e}\n')
 
     # --- Rollout trace plots ---
     neuron_types = to_numpy(type_list).astype(int).squeeze()
@@ -633,7 +705,6 @@ def data_test_gnn_special(
         rollout_without_noise: bool = False,
         log_file=None,
 ):
-
 
     if "black" in style:
         plt.style.use("dark_background")
@@ -810,14 +881,16 @@ def data_test_gnn_special(
 
 
     if best_model == 'best':
-        files = glob.glob(f"{log_dir}/models/best_model_with_*.pt")
-        files.sort(key=sort_key)
-        filename = files[-1]
-        filename = filename.split('/')[-1]
-        filename = filename.split('graphs')[-1][1:-3]
-        best_model = filename
+        files = glob.glob(f"{log_dir}/models/*.pt")
+        assert len(files), 'no model checkpoints found in models/ directory'
+        best_model = max(files, key=os.path.getmtime)
         logger.info(f'best model: {best_model}')
-    netname = f"{log_dir}/models/best_model_with_0_graphs_{best_model}.pt"
+
+    # If it's a relative path (no slashes), assume it's in models/ directory
+    if '/' not in best_model:
+        netname = f"{log_dir}/models/{best_model}"
+    else:
+        netname = best_model
     logger.info(f'load {netname} ...')
     state_dict = torch.load(netname, map_location=device, weights_only=False)
     migrate_state_dict(state_dict)

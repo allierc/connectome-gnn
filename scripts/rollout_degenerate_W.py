@@ -58,7 +58,7 @@ from tqdm import tqdm
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO_ROOT, "src"))
 
-SOURCE_DATASET = "graphs_data/fly/flyvis_noise_005"
+SOURCE_DATASET = "graphs_data/fly/flyvis_noise_005"  # For stimulus/voltage zarr files (network structure is identical to noise_free)
 DEGENERATE_ROOT = "graphs_data/degenerate_matrix"
 OUTPUT_DIR = "graphs_data/degenerate_matrix/rollout_results"
 
@@ -342,11 +342,11 @@ def main():
     print("\n[3/4] Running variant rollouts...")
     variant_dirs = sorted([
         d for d in os.listdir(degenerate_path)
-        if d.startswith("type_")
+        if (d.startswith("type_") or d.startswith("mixed_types_var_"))
         and os.path.isdir(os.path.join(degenerate_path, d))
         and os.path.exists(os.path.join(degenerate_path, d, "ode_params.pt"))
     ])
-    print(f"  Found {len(variant_dirs)} variants")
+    print(f"  Found {len(variant_dirs)} variants (single-type + mixed-type)")
 
     all_results = {}
     for vi, vdir in enumerate(variant_dirs):
@@ -413,15 +413,15 @@ def main():
     # Summary table
     # ------------------------------------------------------------------
     # Summary table to console and text file
-    header = (f"{'Variant':<35} {'Scale':>6} {'R2(W)':>7} {'RMSE_final':>11} "
-              f"{'R2_final':>9} {'R2_min':>9} {'Pearson_final':>14}")
-    sep = "=" * 95
-    lines = [sep, header, "-" * 95]
+    header = (f"{'Variant':<35} {'Type':>8} {'R2(W)':>7} {'RMSE_final':>11} "
+              f"{'R2_final':>9} {'R2_min':>9}")
+    sep = "=" * 90
+    lines = [sep, header, "-" * 90]
     for vdir, s in summary.items():
+        variant_type = "single" if vdir.startswith("type_") else "mixed"
         lines.append(
-            f"{vdir:<35} {s['scale_factor']:6.2f} {s['connectivity_R2_vs_gt']:7.4f} "
-            f"{s['rmse_final']:11.2e} {s['r2_final']:9.6f} {s['r2_min']:9.6f} "
-            f"{s['pearson_final']:14.6f}"
+            f"{vdir:<35} {variant_type:>8} {s['connectivity_R2_vs_gt']:7.4f} "
+            f"{s['rmse_final']:11.2e} {s['r2_final']:9.6f} {s['r2_min']:9.6f}"
         )
     lines.append(sep)
 
