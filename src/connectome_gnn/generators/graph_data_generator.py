@@ -490,7 +490,7 @@ def data_generate_spiking(config, visualize=True, run_vizualized=0, style="color
     X1 = torch.tensor(np.stack((x_coords, y_coords), axis=1), dtype=torch.float32, device=device)
     xc, yc = get_equidistant_points(n_points=n_neurons - x_coords.shape[0])
     pos = torch.tensor(np.stack((xc, yc), axis=1), dtype=torch.float32, device=device) / 2
-    X1 = torch.cat((X1, pos[torch.randperm(pos.size(0))]), dim=0)
+    X1 = torch.cat((X1, pos[torch.randperm(pos.size(0), device=device)]), dim=0)
 
     # Initialize spiking neuron state
     x = pde.init_state(n_neurons)
@@ -686,8 +686,17 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
 
     torch.random.fork_rng(devices=device)
     if sim.seed != 42:
-        torch.random.manual_seed(sim.seed)
-        np.random.seed(sim.seed)  # Ensure numpy random state is also seeded for reproducibility
+        # Ensure seed is within valid range [0, 2^32-1] for numpy
+        seed_to_use = sim.seed
+        if seed_to_use < 0:
+            logger.warning(f"Seed {seed_to_use} is negative, clamping to 0")
+            seed_to_use = 0
+        elif seed_to_use >= 2**32:
+            logger.warning(f"Seed {seed_to_use} exceeds 2^32-1, taking modulo")
+            seed_to_use = seed_to_use % (2**32)
+
+        torch.random.manual_seed(seed_to_use)
+        np.random.seed(seed_to_use)  # Ensure numpy random state is also seeded for reproducibility
 
     n_frames = sim.n_frames
     n_neurons = sim.n_neurons
@@ -958,7 +967,7 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
 
     xc, yc = get_equidistant_points(n_points=n_neurons - x_coords.shape[0])
     pos = torch.tensor(np.stack((xc, yc), axis=1), dtype=torch.float32, device=device) / 2
-    X1 = torch.cat((X1, pos[torch.randperm(pos.size(0))]), dim=0)
+    X1 = torch.cat((X1, pos[torch.randperm(pos.size(0), device=device)]), dim=0)
 
     state = net.steady_state(t_pre=2.0, dt=sim.delta_t, batch_size=1)
     initial_state = state.nodes.activity.squeeze().to(device)

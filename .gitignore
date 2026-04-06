@@ -3,12 +3,12 @@ data_paths.json
 
 # Track only biomodel config folders (fly, drosophila_cx, larva, zebrafish_oculomotor)
 config/*
-!config/fly/
-!config/drosophila_cx/
-!config/larva/
-!config/zebrafish_oculomotor/
 config/fly/archive/
 config/fly/archive_2/
+
+# Ignore LLM-generated config files (environment-specific, stored in GraphData)
+config/**/*_Claude_*.yaml
+config/**/*_winner.yaml
 
 # Data files (large simulation data)
 *.npy
@@ -91,3 +91,12 @@ _site/
 # Assets (LFS-tracked PNGs/HTMLs)
 assets/*.png
 assets/*.html
+
+# Docs (latex, pdf, md)
+
+/docs/*.aux
+/docs/*.fdb_latexmk
+/docs/*.fls
+/docs/*.log
+/docs/*.out
+/docs/*.gz

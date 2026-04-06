@@ -14,6 +14,18 @@ Primary metric: **connectivity_R2** (R² between learned W and ground-truth W).
 **Hard floor: min(connectivity_R2) across all 4 seeds must be > 0.90. Any seed < 0.87 disqualifies the config.**
 Secondary metrics: **tau_R2** (time constant recovery), **V_rest_R2** (resting potential recovery), **cluster_accuracy** (neuron type clustering from embeddings).
 
+## Scientific Context
+
+This exploration tests GNN robustness under moderate noise (noise_model_level=0.05), a realistic condition that represents signal-dependent noise in biological recording systems. At this noise level, the optimization landscape is tight and treacherous: small hyperparameter changes cause large swings in seed-dependent variance. The core research question is: **Can we find hyperparameters that stabilize learning across different random seeds while maintaining high connectivity recovery?** This requires understanding the interaction between regularization strength, learning rates, and data augmentation, and how these parameters affect both the mean performance and the cross-seed variance. A robust solution must eliminate the bimodal failure mode observed in preliminary runs where some seeds achieve connectivity_R2 > 0.9 while others drop below 0.87.
+
+## Noise Model
+
+The FlyVis model includes additive Gaussian noise applied independently to each compartment's voltage update:
+
+$$v_i(t+1) = v_i(t) + dt \cdot f_\theta(v_i, a_i, \sum_j W_{ij} g_\phi(v_j, a_j)^2, I_i) + \epsilon_{\text{dyn}}(t)$$
+
+where $\epsilon_{\text{dyn}}(t) \sim \mathcal{N}(0, \sigma^2)$ with $\sigma = \text{noise\_model\_level} = 0.05$. The noise is applied during data generation (simulation), creating richer voltage distributions across the state space. The GNN trains to predict deterministic dynamics (no noise in the learned model), so robustness under noise reflects the model's ability to extract signal from noisy observations.
+
 ## Scientific Method
 
 This exploration follows a strict **hypothesize → test → validate/falsify** cycle:
@@ -132,7 +144,7 @@ Alternatively, set `regul_annealing_rate: 0` to disable annealing entirely (full
 
 **Non-annealed coefficients**: `coeff_g_phi_diff`, `coeff_g_phi_norm`, and `coeff_f_theta_msg_diff` apply at full strength from epoch 0 regardless of annealing settings.
 
-## Training Parameters (explorable)
+## Explorable Parameters
 
 | Parameter                       | Default      | Description                                                         |
 | ------------------------------- | ------------ | ------------------------------------------------------------------- |
@@ -157,18 +169,6 @@ When `lr_scheduler="none"` (default), per-iteration LR is constant and the legac
 
 **Recommended exploration**: `cosine_warm_restarts` with `T0=500-2000` provides periodic LR restarts that can help escape local minima. `linear_warmup_cosine` adds a warmup ramp for stability with large initial LR. The `T0` parameter controls how frequently the LR resets — smaller T0 means more frequent restarts.
 
-## Training Time Constraint
-
-Baseline (batch_size=2, 64K frames, hidden_dim=80): **~90 min/epoch on H100**, **~120 min on A100**.
-Data generation adds **~10-15 min** per slot.
-Keep total training time (generation + training) ≤ 100 min/iteration. Monitor `training_time_min`.
-
-Factors that increase training time:
-
-- Larger `hidden_dim` / `n_layers`
-- Larger `data_augmentation_loop`
-- Smaller `batch_size`
-- `recurrent_training=true` with large `time_step`
 
 ## Parallel Mode — 4 Slots Per Batch
 
@@ -207,10 +207,22 @@ When a config is validated as robust (all 4 seeds > 0.9), you may switch to expl
 
 ### Config Files
 
-- Edit all 4 config files: `{name}_00.yaml` through `{name}_03.yaml`
+- Edit all 4 config files: `config/fly/{base_config_name}_Claude_00.yaml` through `config/fly/{base_config_name}_Claude_03.yaml`
 - **All 4 configs should be identical** (only seeds differ, set automatically)
 - Only modify `training:` and `graph_model:` parameters (and `claude:` where allowed)
 - **DO NOT change `simulation:` parameters** (except that seed is managed automatically)
+
+## Variable Names (for clarity)
+
+Throughout this instruction, we use:
+
+- **`{base_config_name}`**: The base config name you pass to the CLI (e.g., `flyvis_noise_005_known_ode`)
+- **`{llm_task_name}`**: The auto-generated LLM task name = `{base_config_name}_Claude` (e.g., `flyvis_noise_005_known_ode_Claude`)
+
+**Config file paths** (these are the FULL PATHS — use these exactly when editing):
+
+- **Config slot files**: `config/fly/{base_config_name}_Claude_00.yaml`, `config/fly/{base_config_name}_Claude_01.yaml`, `config/fly/{base_config_name}_Claude_02.yaml`, `config/fly/{base_config_name}_Claude_03.yaml`
+- **Winner file**: `config/fly/{base_config_name}_winner.yaml` (note: no "\_Claude" in winner, use full path)`
 
 ## Iteration Loop Structure
 
@@ -292,8 +304,8 @@ You maintain **THREE** files:
 
 **3a. Append to Full Log** (`{llm_task_name}_analysis.md`) and **Current Block** in memory.md:
 
-````
 ## Iter N: [robust/partially robust/fragile]
+
 Node: id=N, parent=P
 Hypothesis tested: "[quoted hypothesis being tested]"
 Config (same for all slots): lr_W=X, lr=Y, lr_emb=Z, coeff_g_phi_diff=A, coeff_W_L1=B, batch_size=C, hidden_dim=D
@@ -307,6 +319,7 @@ Mutation: [param]: [old] -> [new]
 Verdict: [supported/falsified/inconclusive] — [one line explanation]
 Observation: [one line about seed sensitivity or robustness pattern]
 Next: parent=P
+```
 
 ## Winner Config (COMPULSORY)
 
@@ -315,10 +328,10 @@ This is a COMPULSORY task — do not skip it.
 
 1. Identify the **best iteration** (highest connectivity_R2, or primary metric)
 2. Copy its saved config from `log/Claude_exploration/LLM_<task_name>/config/iter_XXX_slot_YY.yaml`
-3. Save it to `config/fly/flyvis_noise_005_winner.yaml` with a YAML comment header:
+3. Copy the best config file (from the slot config files listed above) to `config/fly/{base_config_name}_winner.yaml` with a YAML comment header:
 
 ```yaml
-# Winner config: flyvis_noise_005_winner.yaml
+# Winner config: {base_config_name}_winner.yaml
 # Source: iter_XXX_slot_YY (connectivity_R2 = X.XXX)
 # Exploration: N iterations, M blocks
 # Date: YYYY-MM-DD
@@ -336,11 +349,9 @@ This is a COMPULSORY task — do not skip it.
 #
 # Key config differences from baseline:
 #   - [list the parameters that differ from the initial baseline]
-````
+```
 
-Destination: `config/fly/flyvis_noise_005_winner.yaml`
-
-````
+Destination: `config/fly/{base_config_name}_winner.yaml`
 
 **CRITICAL**: The `Mutation:` line is parsed by the UCB tree builder — always include exact parameter change.
 **CRITICAL**: `Next: parent=P` — P must be from a previous batch or current batch, NEVER `id+1`.
@@ -428,7 +439,7 @@ When prompt says `PARALLEL START`:
 
 # Working Memory Structure
 
-The memory file (`{llm_task_name}_memory.md`) must follow this structure:
+The memory file (`{base_config_name}_Claude_memory.md`) must follow this structure:
 
 ```markdown
 # Working Memory: flyvis_noise_005
@@ -501,32 +512,5 @@ Iterations: M to M+n_iter_block
 
 [Running notes on what patterns are emerging across seeds and iterations]
 **CRITICAL: This section must ALWAYS be at the END of memory file.**
-````
+```
 
----
-
-## Knowledge Base Guidelines
-
-### What to Add to Established Principles
-
-A principle must satisfy ALL of:
-
-1. Observed consistently across **3+ iterations**
-2. Consistent across **all 4 seeds** (not just mean, but low variance)
-3. States a **causal relationship** (not just a correlation)
-
-### What to Add to Open Questions
-
-- Patterns observed 1-2 times
-- Seed-dependent effects (works for some seeds but not others)
-- Contradictions between iterations
-- Theoretical predictions not yet verified
-
-### What to Add to Falsified Hypotheses
-
-When a hypothesis is falsified:
-
-1. State the original hypothesis
-2. State the contradicting evidence (iteration number, metrics)
-3. State what was learned from the falsification
-4. Propose a revised hypothesis if applicable

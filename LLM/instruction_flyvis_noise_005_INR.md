@@ -1,5 +1,22 @@
 # FlyVis GNN + SIREN Joint Training Exploration — flyvis_noise_005_INR
 
+## Scientific Context
+
+The research question explores whether jointly learning neural connectivity and visual stimulus representation can improve circuit recovery. Standard GNN training takes ground-truth visual stimulus as input; here, we replace that with a learned SIREN model that reconstructs the stimulus field from spatiotemporal coordinates. This forces the GNN to learn connectivity that works with imperfect stimulus reconstruction, potentially improving robustness and revealing degeneracies. The dual objectives (connectivity R2 > 0.9 and field R2 > 0.7) test whether both components can converge simultaneously.
+
+## Noise Model
+
+The training data includes realistic measurement noise on the visual stimulus:
+
+```
+v_i(t+1) = v_i(t) + dt * f(v_i(t), W, a_i, I_observed(t)) + epsilon_i(t)
+I_observed(x,y,t) = I_true(x,y,t) + delta(x,y,t)
+epsilon_i ~ N(0, 0.05)  [dynamics noise on neurons]
+delta ~ N(0, varies by spatial position)  [implicit in stimulus data]
+```
+
+The SIREN learns I_true(x,y,t) from observed (noisy) samples, while the GNN learns to invert the mapping from this reconstructed stimulus to neural dynamics.
+
 ## Goal
 
 Jointly optimize a **GNN** and a **SIREN implicit neural representation (INR)** for the **Drosophila visual system** with noise level 0.05 (DAVIS input).
@@ -177,11 +194,6 @@ This is beneficial for alternate training: epoch 0 lets GNN+SIREN learn freely w
 | `data_augmentation_loop` | 25 | Data augmentation multiplier |
 | `w_init_mode` | zeros | W initialization |
 
-## Training Time Constraint
-
-With 3 epochs, batch_size=1, and 4096-hidden SIREN: **target <= 360 min/iteration**.
-Each epoch processes 64K x aug_loop frames. The large SIREN adds significant overhead per iteration.
-Monitor `training_time_min` and adjust if over budget.
 
 ## Parallel Mode — 4 Slots Per Batch
 
@@ -214,22 +226,6 @@ All 4 slots should run the **same config** (different seeds are applied automati
 ## Iteration Loop Structure
 
 Each block = `n_iter_block` iterations (default 12).
-
-## File Structure
-
-You maintain **THREE** files:
-
-### 1. Full Log (append-only)
-
-**File**: `{llm_task_name}_analysis.md`
-
-### 2. Working Memory (read + update every batch)
-
-**File**: `{llm_task_name}_memory.md`
-
-### 3. User Input (read every batch, acknowledge pending items)
-
-**File**: `user_input.md`
 
 ## Iteration Workflow (every batch)
 
@@ -268,6 +264,7 @@ SIREN stats: mean_field_R2=X, std=Y, min=W
 Mutation: [param]: [old] -> [new]
 Verdict: [supported/falsified/inconclusive] — [one line]
 Next: parent=P
+```
 
 ## Winner Config (COMPULSORY)
 
@@ -345,6 +342,48 @@ Two sibling explorations have accumulated knowledge available to you. **Read the
 Use their established principles and best configs as starting points:
 - From noise_005: best GNN hyperparameters (LRs, regularization, architecture)
 - From noise_005_INR_siren: best SIREN hyperparameters (hidden_dim, n_layers, omega, LR, batch_size)
+
+## File Structure
+
+You maintain **THREE** files:
+
+### 1. Full Log (append-only)
+
+**File**: `{llm_task_name}_analysis.md`
+
+### 2. Working Memory (read + update every batch)
+
+**File**: `{llm_task_name}_memory.md`
+
+### 3. User Input (read every batch, acknowledge pending items)
+
+**File**: `user_input.md`
+
+## Knowledge Base Guidelines
+
+### What to Add to Established Principles
+
+A principle must satisfy ALL of:
+
+1. Observed consistently across **3+ iterations**
+2. Consistent across **all 4 seeds** (not just mean, but low variance)
+3. States a **causal relationship** (not just a correlation)
+
+### What to Add to Open Questions
+
+- Patterns observed 1-2 times
+- Seed-dependent effects (works for some seeds but not others)
+- Contradictions between iterations
+- Theoretical predictions not yet verified
+
+### What to Add to Falsified Hypotheses
+
+When a hypothesis is falsified:
+
+1. State the original hypothesis
+2. State the contradicting evidence (iteration number, metrics)
+3. State what was learned from the falsification
+4. Propose a revised hypothesis if applicable
 
 ## Start Call
 

@@ -15,6 +15,7 @@ import traceback
 
 from connectome_gnn.config import NeuralGraphConfig
 from connectome_gnn.models.graph_trainer import data_train
+from connectome_gnn.utils import config_path
 
 
 if __name__ == '__main__':
@@ -31,9 +32,14 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     try:
-        config = NeuralGraphConfig.from_yaml(args.config)
+        # Load config from data_root if config_file is provided (uses get_data_root() from data_paths.json)
+        # Otherwise use the path passed directly (for backwards compatibility)
         if args.config_file:
+            config_full_path = config_path(args.config_file + '.yaml')
+            config = NeuralGraphConfig.from_yaml(config_full_path)
             config.config_file = args.config_file
+        else:
+            config = NeuralGraphConfig.from_yaml(args.config)
 
         log_file = open(args.log_file, 'w', buffering=1) if args.log_file else None
         try:

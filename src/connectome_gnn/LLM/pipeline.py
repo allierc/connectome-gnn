@@ -34,7 +34,7 @@ from .state import BatchInfo, ExplorationState
 # Setup
 # ---------------------------------------------------------------------------
 
-def setup_exploration(args, root_dir: str) -> ExplorationState:
+def setup_exploration(args, root_dir: str, skip_confirm: bool = False) -> ExplorationState:
     """Parse CLI args, load config, create ExplorationState.
 
     Args:
@@ -130,7 +130,12 @@ def setup_exploration(args, root_dir: str) -> ExplorationState:
         state.start_iteration = detect_last_iteration(
             analysis_path_probe, config_save_dir_probe, state.n_parallel
         )
-        if state.start_iteration > 1:
+        assert state.start_iteration >= 1, (
+            f"detect_last_iteration returned invalid value: {state.start_iteration} < 1\n"
+            f"  Analysis path: {analysis_path_probe}\n"
+            f"  Config dir: {config_save_dir_probe}"
+        )
+        elif state.start_iteration > 1:
             print(f"\033[93mAuto-resume: resuming from batch starting at {state.start_iteration}\033[0m")
         else:
             print("\033[93mfresh start (no previous iterations found)\033[0m")
@@ -141,10 +146,13 @@ def setup_exploration(args, root_dir: str) -> ExplorationState:
             print("\033[91mWARNING: fresh start will erase existing results in:\033[0m")
             print(f"\033[91m  {_analysis_check}\033[0m")
             print(f"\033[91m  {exploration_dir}/{llm_task_name}_memory.md\033[0m")
-            answer = input("\033[91mContinue? (y/n): \033[0m").strip().lower()
-            if answer != 'y':
-                print("Aborted.")
-                sys.exit(0)
+            if not skip_confirm:
+                answer = input("\033[91mContinue? (y/n): \033[0m").strip().lower()
+                if answer != 'y':
+                    print("Aborted.")
+                    sys.exit(0)
+            else:
+                print("\033[91m(skipping confirmation, proceeding with fresh start)\033[0m")
         print("\033[93mfresh start\033[0m")
 
     mode = "cluster" if state.cluster_enabled else "local (sequential)"
@@ -318,6 +326,8 @@ def init_shared_files(state: ExplorationState, is_resume: bool):
 
 def make_batch_info(state: ExplorationState, batch_start: int) -> BatchInfo:
     """Compute BatchInfo for a batch starting at batch_start."""
+    assert batch_start >= 1, f"batch_start must be >= 1 (got {batch_start})"
+
     iterations = [batch_start + s for s in range(state.n_parallel)
                   if batch_start + s <= state.n_iterations]
 
@@ -506,6 +516,7 @@ def load_configs_and_seeds(state: ExplorationState, batch: BatchInfo):
         config.config_file = state.pre_folder + state.slot_names[slot]
 
         # Force seeds (pipeline-controlled — LLM cannot override)
+        assert iteration >= 1, f"iteration must be >= 1 for valid seeds (got {iteration} from batch.iterations[{slot_idx}])"
         sim_seed = iteration * 1000 + slot
         train_seed = iteration * 1000 + slot + 500
         config.simulation.seed = sim_seed
@@ -722,10 +733,8 @@ Fix the bug. Do NOT make other changes."""
 
 
 def run_local_test_plot(state: ExplorationState, batch: BatchInfo):
-    """PHASE 3.5: Run test and plot locally (cluster mode — cluster only did training)."""
-    from GNN_PlotFigure import data_plot
-
-    print(f"\n\033[93mPHASE 3.5: Running test and plot locally for {batch.n_slots} slots\033[0m")
+    """PHASE 3.5: Run test locally (cluster mode — cluster only did training)."""
+    print(f"\n\033[93mPHASE 3.5: Running test locally for {batch.n_slots} slots\033[0m")
     for slot_idx, iteration in enumerate(batch.iterations):
         slot = slot_idx
         if not batch.job_results.get(slot, False):
@@ -754,7 +763,8 @@ def run_local_test_plot(state: ExplorationState, batch: BatchInfo):
             log_file=log_file,
         )
 
-        # Plot
+        # Plot with skip_svd=True to skip expensive SVD analysis and avoid OOM
+        from GNN_PlotFigure import data_plot
         slot_config_file = state.pre_folder + state.slot_names[slot]
         folder_name = log_path(state.pre_folder, 'tmp_results') + '/'
         os.makedirs(folder_name, exist_ok=True)
@@ -766,14 +776,13 @@ def run_local_test_plot(state: ExplorationState, batch: BatchInfo):
             extended='plots',
             device=state.device,
             log_file=log_file,
+            skip_svd=True,
         )
         log_file.close()
 
 
 def run_local_pipeline(state: ExplorationState, batch: BatchInfo):
-    """PHASE 2 local: Generate + train + test + plot sequentially."""
-    from GNN_PlotFigure import data_plot
-
+    """PHASE 2 local: Generate + train + test sequentially."""
     print(f"\n\033[93mPHASE 2: Training {batch.n_slots} flyvis models locally (sequential)\033[0m")
 
     for slot_idx, iteration in enumerate(batch.iterations):
@@ -830,7 +839,8 @@ def run_local_pipeline(state: ExplorationState, batch: BatchInfo):
             log_file=log_file,
         )
 
-        # Plot
+        # Plot with skip_svd=True to skip expensive SVD analysis and avoid OOM
+        from GNN_PlotFigure import data_plot
         slot_config_file = state.pre_folder + state.slot_names[slot]
         folder_name = log_path(state.pre_folder, 'tmp_results') + '/'
         os.makedirs(folder_name, exist_ok=True)
@@ -841,7 +851,8 @@ def run_local_pipeline(state: ExplorationState, batch: BatchInfo):
             style='color',
             extended='plots',
             device=state.device,
-            log_file=log_file
+            log_file=log_file,
+            skip_svd=True,
         )
 
         # Copy models to exploration dir

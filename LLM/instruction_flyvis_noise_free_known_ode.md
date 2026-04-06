@@ -2,175 +2,365 @@
 
 ## Goal
 
-Test **robustness of known_ode model training** for the **Drosophila visual system** with noise-free data (noise_model_level=0.0). The goal is to establish a **clean baseline config** that achieves **connectivity_R2 > 0.95 on ALL 4 seeds with CV < 2%**, demonstrating optimal performance on perfect data. Data is thus **re-generated each iteration** with a different seed. This variant explores whether known_ode can recover ground-truth connectivity without noise corruption. A config with mean connectivity_R2=0.98 and CV=1% establishes the upper-bound performance ceiling.
+Test **known_ode model robustness on clean (noise-free) data** for the **Drosophila visual system** with `noise_model_level=0.0` and `measurement_noise_level=0.0`. 
+
+**Primary objective**: Establish a **clean baseline config** that achieves **connectivity_R2 > 0.95 on ALL 4 seeds with CV < 2%**, demonstrating optimal performance when noise is absent.
+
+**Why this matters**: known_ode is an inverse problem — we have the ODE dynamics `f(v, W)` known, and we learn connectivity W and biophysical parameters (tau_i, V_rest_i) directly from noisy neural observations. Noise-free data provides an upper bound on achievable performance, helping us understand how much performance loss is due to noise vs. optimization difficulty.
+
+**Data regeneration**: Each iteration generates data with a **different random seed** (controlled by pipeline), ensuring robustness across different random initializations of ground-truth connectivity.
 
 Primary metric: **connectivity_R2** (R² between learned W and ground-truth W).
-**Stability metric: CV (coefficient of variation) of connectivity_R2 across 4 seeds — target CV < 2%.**
-Secondary metrics: **tau_R2** (time constant recovery), **V_rest_R2** (resting potential recovery), **cluster_accuracy** (neuron type clustering from embeddings).
+
+Stability metric: **CV (coefficient of variation)** of connectivity_R2 across 4 seeds — target CV < 2%.
+
+Secondary metrics: **tau_R2**, **V_rest_R2**, **cluster_accuracy** (neuron type clustering).
 
 ## Scientific Method
 
-You can only hypothesize. Only training results validate or falsify.
-**If you change more than one parameter per slot, you CANNOT attribute the effect. This is a fatal experimental design error.**
+This exploration follows a strict **hypothesize → test → validate/falsify** cycle:
 
-1. **Hypothesize**: Form a specific, testable prediction
-2. **Design experiment**: Change **EXACTLY ONE** parameter at a time to understand causality
-3. **Run training**: 4 seeds — you cannot predict the outcome
-4. **Analyze results**: Use metrics AND cross-seed variance
-5. **Update understanding**: Revise hypotheses based on evidence
+1. **Hypothesize**: Based on available data (metrics, seed variance, prior results), form a specific, testable hypothesis about which parameter controls robustness
+2. **Design experiment**: Choose a mutation that specifically tests the hypothesis — change **exactly ONE parameter at a time**
+3. **Run training**: The experiment runs across 4 seeds — you cannot predict the outcome
+4. **Analyze results**: Use both metrics AND cross-seed variance to evaluate whether the hypothesis was supported or contradicted
+5. **Update understanding**: Revise hypotheses based on evidence. A falsified hypothesis is valuable information.
+
+**CRITICAL**: You can only hypothesize. Only training results can validate or falsify your hypotheses. Never assume a hypothesis is correct without experimental evidence.
 
 **Evidence hierarchy:**
+
 | Level | Criterion | Action |
-| ---------------- | ----------------------------------------------- | ---------------------- |
+| --- | --- | --- |
 | **Established** | Consistent across 3+ iterations AND 4/4 seeds | Add to Principles |
 | **Tentative** | Observed 1-2 times or inconsistent across seeds | Add to Open Questions |
 | **Contradicted** | Conflicting evidence across iterations/seeds | Note in Open Questions |
 
-## Data Generation
+## CRITICAL: Data is RE-GENERATED per slot
 
-Each slot re-generates data with a **different random seed**.
-Seeds are **forced by the pipeline**
+Each slot re-generates its data with a **different random seed**.
+Both `simulation.seed` and `training.seed` are **forced by the pipeline** — DO NOT modify them in config files.
 
+Seed formula (set automatically by GNN_LLM.py):
+- `simulation.seed = iteration * 1000 + slot` (controls data generation)
+- `training.seed = iteration * 1000 + slot + 500` (controls weight init & training randomness)
+
+The actual seed values are provided in the prompt for each slot — **log them in your iteration entries**.
+
+Simulation parameters (n_neurons, n_frames, etc.) stay fixed — **DO NOT change them**.
+
+## Scientific Context
+
+The **known_ode model** assumes the ODE is known:
+```
+tau_i * dv_i/dt = -v_i + V_rest_i + sum_j W_ij * g_phi(v_j)^2 + I_i
+```
+
+Given noise-free voltage observations, the inverse problem is to recover:
+1. **Connectivity matrix W_ij** (synaptic strengths, 434K+ parameters)
+2. **Time constants tau_i** (13.7K parameters)
+3. **Resting potentials V_rest_i** (13.7K parameters)
+
+On clean data (zero noise), optimization should be straightforward — no gradient noise, no regularization artifacts. This is the **performance ceiling**.
+
+## Data
+
+**Pre-generated, fixed across all iterations**:
+- Dataset: `fly/flyvis_noise_free` (DAVIS visual input, 64,000 frames)
+- Noise model: `noise_model_level=0.0, measurement_noise_level=0.0` (no noise added)
+- Re-generation: **YES** — each iteration generates new data with different `simulation.seed` to test robustness
+
+**DO NOT change**: `simulation.n_neurons`, `simulation.n_edges`, `simulation.n_frames`, `simulation.delta_t`, dataset name, or visual input type.
+
+Seeds are managed by pipeline:
 - `simulation.seed = iteration * 1000 + slot`
 - `training.seed = iteration * 1000 + slot + 500`
-  **DO NOT change `simulation:` parameters** except seed (managed automatically).
 
-## FlyVis Model
+## FlyVis Neuronal Dynamics Model
 
 Non-spiking compartment model of the Drosophila optic lobe:
 
 ```
 tau_i * dv_i(t)/dt = -v_i(t) + V_i^rest + sum_j W_ij * g_phi(v_j, a_j)^2 + I_i(t)
-dv_i/dt = f_theta(v_i, a_i, sum_j W_ij * g_phi(v_j, a_j)^2, I_i)
 ```
 
+Where:
+- `tau_i`: membrane time constant (learned)
+- `V_i^rest`: resting potential (learned)
+- `W_ij`: synaptic weight (connectivity, learned)
+- `g_phi`: edge activation function (fixed, typically ReLU)
+- `a_j`: learnable neuron type embedding
+
+**Model specs**:
 - 13,741 neurons, 65 cell types, 434,112 edges
 - 1,736 input neurons (photoreceptors)
-- DAVIS visual input, **noise_model_level=0.0** (clean data, no noise)
-- 64,000 frames, delta_t=0.02
+- DAVIS visual input stimulus
+- 64,000 frames, delta_t=0.02 (time resolution)
 
-## known_ode ML model
+## known_ode Learning Task
 
-- the ODE of the neural dynamics is given,
-- hence known_ode learnes directly the parameters tau_i, Vrest_i and W_ij
+The known_ode model **directly learns parameters** from voltage dynamics because the ODE is known:
 
-**Parameters NOT used by known_ode** (do not modify): coeff_g_phi_diff, coeff_f_theta_msg_diff, coeff_g_phi_norm, coeff_g_phi_weight_L1, coeff_g_phi_weight_L2, coeff_f_theta_weight_L1, coeff_f_theta_weight_L2, embedding_dim, lr_embedding.
+**Learned parameters**:
+- `W_ij`: connectivity (synaptic weights) — PRIMARY TARGET
+- `tau_i`: time constants
+- `V_rest_i`: resting potentials
+- Neuron type embeddings (if used)
 
-## Training Parameters TO BE SWEEPED
+**Not learned** (frozen):
+- ODE structure (f and g_phi are given)
+- Network architecture (graph structure)
+- Visual input mapping
+- Measurement model
 
-| Parameter      | Default | Description                                                                      |
-| -------------- | ------- | -------------------------------------------------------------------------------- |
-| `lr_W`         | 0.0009  | Learning rate for W (synaptic weights)                                           |
-| `lr`           | 0.0018  | Learning rate for other params (tau, Vrest)                                      |
-| `w_init_mode`  | RANDN   | W initialization mode: RANDN (std=1), RANDN_SCALED (std=scale/sqrt(N)), or ZEROS |
-| `w_init_scale` | 1.0     | Scaling factor for RANDN_SCALED mode                                             |
-| `batch_size`   | 4       | Batch size                                                                       |
-| `coeff_W_L1`   | 0       | L1 sparsity on W                                                                 |
-| `coeff_W_L2`   | 0.00015 | L2 penalty on W                                                                  |
-| `coeff_W_sign` | 1.5e-06 | Dale's law penalty on W                                                          |
+**CRITICAL**: Do NOT modify `coeff_g_phi_diff, coeff_f_theta_msg_diff, coeff_g_phi_norm, coeff_g_phi_weight_L1, coeff_g_phi_weight_L2, coeff_f_theta_weight_L1, coeff_f_theta_weight_L2, embedding_dim, lr_embedding` — these are not used by known_ode.
+
+## Explorable Parameters
+
+### Learning Rates (PRIMARY SWEEP IN BLOCK 1)
+
+| Parameter | Default | Range | Description |
+| --- | --- | --- | --- |
+| `lr_W` | 0.0009 | [1e-5, 1e-3] | Learning rate for connectivity matrix W |
+| `lr` | 0.0018 | [1e-4, 1e-2] | Learning rate for tau_i, V_rest_i, embeddings |
+
+**Key insight**: Learning rates control convergence stability. Too high → divergence. Too low → slow convergence. On clean data, larger LRs are often safe.
+
+### Weight Initialization (SWEEP IN BLOCK 3)
+
+| Parameter | Default | Options | Description |
+| --- | --- | --- | --- |
+| `w_init_mode` | `randn` | `randn`, `randn_scaled`, `zeros` | Initialization distribution for W |
+| `w_init_scale` | 1.0 | [0.5, 1.0, 2.0] | Scaling factor for `randn_scaled` mode |
+
+**Modes**:
+- `randn`: Standard normal, std=1
+- `randn_scaled`: Scaled normal, std = w_init_scale / sqrt(fan_in)
+- `zeros`: Start from W=0 (no synapses initially)
+
+### Batch Size & Regularization (SWEEPS IN BLOCKS 2, 4)
+
+| Parameter | Default | Description |
+| --- | --- | --- |
+| `batch_size` | 4 | Number of time windows per gradient step (INTEGER) |
+| `coeff_W_L1` | 0 | L1 sparsity penalty on W (0 = no sparsity) |
+| `coeff_W_L2` | 0.00015 | L2 penalty on W (weight decay) |
+| `coeff_W_sign` | 1.5e-06 | Dale's law penalty (enforce sign consistency) |
+
+**Trade-off**: Regularization helps on noisy data but can hurt on clean data. Balance: just enough to stabilize, not so much that it biases W.
+
+**CRITICAL CONSTRAINTS**:
+- `batch_size` MUST be INTEGER (1, 2, 4, 8, etc.)
+- `n_epochs` MUST be INTEGER (1, 2, 3, etc.) — NOT 0.5
+- `w_init_mode` MUST be LOWERCASE: `randn`, `randn_scaled`, `zeros`
+
+## Training Time Budget — FIXED for Fair Comparison
+
+**LOCKED PARAMETERS** (DO NOT MODIFY):
+- `n_epochs: 1` — Single epoch training only
+- `data_augmentation_loop (DAL): 35` — Fixed data augmentation
+
+**Why these are locked**:
+
+To fairly compare different LLM explorations across noise levels and biomodels, all known_ode variants must use the same training budget. This ensures observed differences in connectivity_R2 reflect parameter choices, not training time variation.
+
+**Target training time**: ~12 minutes per iteration (consistent, cluster-efficient).
+
+**If you believe n_epochs or DAL should be varied** to test a specific hypothesis, first post in `user_input.md` for authorization. Do NOT change these without explicit user approval.
 
 ## Parallel Mode — 4 Slots Per Batch
 
-Each batch runs 4 slots with different seeds (forced by pipeline). You choose the strategy:
+Each batch runs **4 slots simultaneously**, each with a different config (forced seeds differ automatically):
 
-- **Exploration** (default): Slots 0-3 each change **exactly one** parameter. This gives 3 causal tests per batch.
-- **Robustness test**: ALL 4 slots use the SAME config. The pipeline forces different seeds, so this measures seed robustness. Use this when a config looks promising.
-  State your choice (exploration vs robustness test) in the log entry.
+### Exploration Mode (default)
+- Slot 0: Baseline (no changes)
+- Slots 1-3: Each changes **exactly ONE parameter** from the block focus
 
-### Robustness Assessment (when running same config across 4 slots)
+This gives **3 independent causal tests** per batch while maintaining slot-0 baseline for reference.
 
+### Robustness Mode (when validating a promising config)
+- All 4 slots: Same config, different seeds
+- Measures stability across seed variation
+
+**Robustness criteria** (noise-free data):
 - **Robust**: all 4 slots connectivity_R2 > 0.95
-- **Partially robust**: 2-3 slots > 0.9
-- **Fragile**: 0-1 slots < 0.85
+- **Partially robust**: 2-3 slots > 0.90
+- **Fragile**: ≤1 slots > 0.85
 
-## Block Partition
+## Block Structure — 7 Blocks × 12 Iterations Each
 
-| Block | Focus | Parameters | range  
-| 1 | **learning rate sweep** | `lr_W`, `lr` | lr_W: {1e-5 to 1e-3}, lr: {1e-4 to 1e-2}  
-| 2 | **W regularization** | `coeff_W_L1`, `coeff_W_L2`, `coeff_W_sign` | {1e-6 to 1e-4}.  
-| 3 | **W initialization + lr** | `w_init_mode`, `w_init_scale`, `lr_W`, `lr` | w_init_mode: {RANDN, RANDN_SCALED, ZEROS}, w_init_scale: {0.5, 1.0, 2.0}  
-| 4 | **Batch size + lr** | `batch_size`, `lr_W`, `lr` | batch_size: {1, 2, 4, 8}.
-| 5 | **free exploration** | Any parameter |  
-| 6 | **Final robustness** | None (robustness test) | 4-seed robustness test of best config from blocks
+With `n_iter_block=12` and `iterations=84`, the exploration spans 7 hypothesis-driven blocks:
+
+### Block 1 (iter 1-12): Learning Rate Sweep
+**Hypothesis**: "Larger learning rates accelerate convergence on clean data without instability"
+
+**Test**: Sweep `lr_W` and `lr` systematically
+- Slot 0: lr_W=0.0009, lr=0.0018 (baseline)
+- Slot 1: lr_W=0.0005, lr=0.0009 (conservative)
+- Slot 2: lr_W=0.002, lr=0.004 (aggressive)
+- Slot 3: lr_W=0.0001, lr=0.0002 (very conservative)
+
+**Expected outcome**: Identify range where convergence is fastest and stable.
+
+### Block 2 (iter 13-24): W Regularization
+**Hypothesis**: "On clean data, regularization hurts because no noise requires damping. Minimal regularization is optimal."
+
+**Test**: Sweep `coeff_W_L1, coeff_W_L2, coeff_W_sign`
+- Slot 0: coeff_W_L1=0, coeff_W_L2=0.00015, coeff_W_sign=1.5e-6 (baseline)
+- Slot 1: coeff_W_L1=1e-4, coeff_W_L2=5e-5, coeff_W_sign=1e-6 (reduced)
+- Slot 2: coeff_W_L1=0, coeff_W_L2=0, coeff_W_sign=0 (no regularization)
+- Slot 3: coeff_W_L1=5e-4, coeff_W_L2=3e-4, coeff_W_sign=5e-6 (increased)
+
+**Expected outcome**: Validate that clean data needs minimal regularization.
+
+### Block 3 (iter 25-36): W Initialization + LR
+**Hypothesis**: "Initialization mode and LR scale interact. Proper initialization + good LR yields fastest convergence."
+
+**Test**: Sweep `w_init_mode, w_init_scale` with optimized `lr_W, lr` from Block 1
+- Slot 0: w_init_mode=randn, w_init_scale=1.0, optimized LRs
+- Slot 1: w_init_mode=randn_scaled, w_init_scale=0.5, optimized LRs
+- Slot 2: w_init_mode=randn_scaled, w_init_scale=2.0, optimized LRs
+- Slot 3: w_init_mode=zeros, optimized LRs
+
+**Expected outcome**: Determine best initialization for clean data.
+
+### Block 4 (iter 37-48): Batch Size + LR
+**Hypothesis**: "Larger batch sizes reduce gradient noise (even though data is clean, stochasticity helps). Interact with LR."
+
+**Test**: Sweep `batch_size` with LRs from Block 1-3
+- Slot 0: batch_size=4, optimized LRs
+- Slot 1: batch_size=1, conservative LRs
+- Slot 2: batch_size=8, optimized LRs
+- Slot 3: batch_size=16, conservative LRs
+
+**Expected outcome**: Quantify batch size effect on convergence.
+
+### Block 5 (iter 49-60): Free Exploration
+**Hypothesis**: Form based on Blocks 1-4 results. Explore parameter combinations not yet tested.
+
+Test combinations of best settings from previous blocks.
+
+### Block 6 (iter 61-72): Refinement
+**Hypothesis**: Polish the best config to maximize connectivity_R2.
+
+Fine-tune learning rates and regularization around the best config found.
+
+### Block 7 (iter 73-84): Robustness Validation
+**Strategy**: Switch to **robustness mode** (all 4 slots same config, different seeds).
+
+**Final test**: Run the best config from Blocks 1-6 on 4 independent seeds to validate connectivity_R2 > 0.95 with CV < 2%.
 
 ## Iteration Workflow
 
-### Step 1: Read Working Memory + User Input
+### Step 1: Read Working Memory + Analyze Previous Batch
 
-### Step 2: Analyze Results (4 slots)
+Review the "Emerging Observations" section and "Results Comparison Table" to understand progress.
 
-From `analysis.log`: connectivity_R2, rollout_pearson, tau_R2, training_time_min.
+### Step 2: Analyze Current Batch Results (4 slots)
 
-### Step 3: Write Log Entries + Update Memory
+For each slot, extract from `analysis.log`:
+- `connectivity_R2` (primary metric)
+- `tau_R2, V_rest_R2` (secondary)
+- `rollout_pearson_r` (dynamics quality)
+- `training_time_min`
+
+**Compare across 4 slots**: Which parameter change helped? Which hurt?
+
+### Step 3: Write Log Entry
 
 ```
-## Iter N: [robust/partially robust/fragile]
-Node: id=N, parent=P
+## Iter N: [mode: exploration/robustness]
 Hypothesis tested: "[quoted hypothesis]"
-Config: lr_W=X, lr=Y, DAL=D, n_epochs=E, W_L1=A, W_L2=B, W_sign=C, batch_size=B
-Slot 0: conn_R2=A, rollout_pearson=B, tau_R2=C, sim_seed=S, train_seed=T
-Slot 1: conn_R2=A, rollout_pearson=B, tau_R2=C, sim_seed=S, train_seed=T
-Slot 2: conn_R2=A, rollout_pearson=B, tau_R2=C, sim_seed=S, train_seed=T
-Slot 3: conn_R2=A, rollout_pearson=B, tau_R2=C, sim_seed=S, train_seed=T
-Seed stats: mean_conn_R2=X, std=Y, CV=Z%
-Mutation: [param]: [old] -> [new]
-W matrix: [visual comment from connectivity heatmap — sparsity, sign structure, convergence]
+Slot 0: config=[params] → connectivity_R2=X.XXX, tau_R2=Y.YYY, V_rest_R2=Z.ZZZ, time=T min
+Slot 1: config=[params] → connectivity_R2=X.XXX, tau_R2=Y.YYY, V_rest_R2=Z.ZZZ, time=T min
+Slot 2: config=[params] → connectivity_R2=X.XXX, tau_R2=Y.YYY, V_rest_R2=Z.ZZZ, time=T min
+Slot 3: config=[params] → connectivity_R2=X.XXX, tau_R2=Y.YYY, V_rest_R2=Z.ZZZ, time=T min
+Best: Slot [X], connectivity_R2=X.XXX
 Verdict: [supported/falsified/inconclusive]
-Next: parent=P
+Next: [what to test next]
 ```
 
-## Winner Config (COMPULSORY)
+### Step 4: Update Working Memory
 
-**At every block boundary**, you MUST save the current best config as a winner file.
-This is a COMPULSORY task — do not skip it.
+Add row to "Results Comparison Table", update "Emerging Observations" section.
 
-1. Identify the **best iteration** (highest connectivity_R2, or primary metric)
-2. Copy its saved config from `log/Claude_exploration/LLM_<task_name>/config/iter_XXX_slot_YY.yaml`
-3. Save it to `config/drosophila_cx/drosophila_cx_known_ode_winner.yaml` with a YAML comment header:
+### Step 5: Design Next 4 Configs
+
+For next batch, design 4 configs based on current results.
+
+## Block Boundaries — Winner Config (COMPULSORY)
+
+**At every block end** (iterations 12, 24, 36, 48, 60, 72, 84), you MUST save the best config as a winner file:
+
+1. Identify best iteration (highest connectivity_R2)
+2. Copy config from `log/Claude_exploration/LLM_flyvis_noise_free_known_ode/config/iter_XXX_slot_YY.yaml`
+3. Save to `config/fly/flyvis_noise_free_known_ode_winner.yaml` with header:
 
 ```yaml
-# Winner config: drosophila_cx_known_ode_winner.yaml
+# Winner config: flyvis_noise_free_known_ode_winner.yaml
 # Source: iter_XXX_slot_YY (connectivity_R2 = X.XXX)
 # Exploration: N iterations, M blocks
 # Date: YYYY-MM-DD
 #
 # Why this is the winner:
-#   - [1-2 sentence narrative: what made this config the best]
-#   - [key hyperparameter choices and why they matter]
+#   - [1-2 sentence narrative]
+#   - [key hyperparameter choices]
 #
 # Metrics:
-#   connectivity_R2: X.XXX (best single seed)
-#   robust_mean:     X.XXX +/- X.XXX (N seeds, CV=X.X%)
+#   connectivity_R2: X.XXX
+#   tau_R2: X.XXX
+#   V_rest_R2: X.XXX
 #   rollout_pearson: X.XXX
-#   tau_R2:          X.XXX
-#   spectral_radius: X.XXX (true: X.XXX)
 #
 # Key config differences from baseline:
-#   - [list the parameters that differ from the initial baseline]
+#   - [list parameter changes]
 ```
 
-Destination: `config/fly/fly_noise_free_known_ode_winner.yaml`
+## File Structure
 
-### Step 4: Acknowledge User Input
+1. **Full Log** (append-only): `flyvis_noise_free_known_ode_Claude_analysis.md`
+2. **Working Memory** (read + update): `flyvis_noise_free_known_ode_Claude_memory.md`
+3. **Winner Config**: `config/fly/flyvis_noise_free_known_ode_winner.yaml`
 
-### Step 5: Formulate Next Hypothesis + Edit 4 Config Files
+## Knowledge Base Guidelines
 
-## Block Boundaries
+### What to Add to Established Principles
 
-1. Update "Paper Summary"
-2. Summarize block findings
-3. Update "Established Principles"
-4. Clear "Current Block"
-5. Carry forward best config
+A principle must satisfy ALL of:
+- Observed consistently across 3+ iterations
+- Consistent across all 4 seeds (not just mean, but low variance)
+- States a causal relationship (not just a correlation)
+
+Example: "lr_W=0.0009 with batch_size=4 achieves connectivity_R2 > 0.95 robustly across all seeds (3/3 iterations, CV < 2%)"
+
+### What to Add to Open Questions
+
+- Patterns observed 1-2 times
+- Seed-dependent effects (works for some seeds but not others)
+- Contradictions between iterations
+- Theoretical predictions not yet verified
+
+Example: "Does w_init_mode=zeros improve convergence speed? Only 1 iteration tested so far."
+
+### What to Add to Falsified Hypotheses
+
+When a hypothesis is falsified:
+- State the original hypothesis
+- State the contradicting evidence (iteration number, metrics)
+- State what was learned from the falsification
+- Propose a revised hypothesis if applicable
+
+Example: "Hypothesis: 'Larger learning rates always accelerate convergence' — Falsified by iter 5 (lr_W=0.002 diverged on 2/4 seeds). Revised: 'Larger LRs help on clean data but require careful tuning; lr_W > 0.0015 becomes unstable.'"
 
 ## Start Call
 
 When prompt says `PARALLEL START`:
 
-- Read base config — this IS the baseline. Do NOT change any default values.
-- Slot 0 = baseline (no changes at all).
-- Slots 1-3: each changes EXACTLY ONE parameter from the block focus.
-- Hypothesis: "Known ODE with perfect structural knowledge achieves connectivity_R2 > 0.95 with default parameters on clean data"
+- Read base config — note `noise_model_level=0.0` (clean data)
+- Initialize 4 slot configs for Block 1 (learning rate sweep)
+- **Initial hypothesis**: "On clean data, larger learning rates enable faster convergence without instability; optimal LR will achieve connectivity_R2 > 0.9 within 1 epoch"
+- Set Slot 0 = baseline (lr_W=0.0009, lr=0.0018)
+- Slots 1-3 = three different LR values to test the hypothesis
 
 ---
 
@@ -181,43 +371,65 @@ When prompt says `PARALLEL START`:
 
 ## Paper Summary (update at every block boundary)
 
-- **Known ODE optimization on noise-free data**: [pending]
-- **LLM-driven exploration**: [pending]
+- **known_ode on clean data**: [What makes known_ode special for noise-free learning, which parameters matter most, best connectivity_R2 achieved]
+- **Robustness findings**: [How stable is the best config across seeds?]
+- **Optimization dynamics**: [Convergence behavior, learning rate sensitivity]
 
 ## Knowledge Base
 
-### Robustness Comparison Table
+### Results Comparison Table
 
-| Iter | Config summary | conn_R2 (mean+-std) | CV% | rollout_r | tau_R2 | Robust? | Hypothesis |
-| ---- | -------------- | ------------------- | --- | --------- | ------ | ------- | ---------- |
+| Iter | Slot | lr_W | lr | w_init_mode | w_init_scale | batch_size | coeff_W_L1 | coeff_W_L2 | coeff_W_sign | conn_R2 | tau_R2 | Vrest_R2 | rollout_r | time_min |
+| ---- | ---- | ---- | --- | ----------- | ------------ | ---------- | ---------- | ---------- | ------------ | ------- | ------ | -------- | --------- | -------- |
 
 ### Established Principles
 
+[Rules that have been proven across 3+ iterations and 4/4 seeds]
+
 ### Falsified Hypotheses
 
+[Hypotheses disproven by evidence]
+
 ### Open Questions
+
+[Uncertainties still under investigation]
 
 ---
 
 ## Previous Block Summary
 
+[Summary of findings from the last completed block]
+
 ---
 
-## Current Block
+## Current Block (Block N)
 
 ### Block Info
+- Iterations: N-N+12
+- Focus: [Block focus — learning rates, regularization, initialization, batch size, etc.]
 
 ### Current Hypothesis
-
 **Hypothesis**: [specific, testable prediction]
-**Rationale**: [why]
-**Test**: [what config change]
-**Expected outcome**: [support vs falsify]
+**Rationale**: [why this matters]
+**Test**: [what the 4 configs test]
+**Expected outcome**: [what supports vs falsifies]
 **Status**: untested / supported / falsified
 
 ### Iterations This Block
+[List iterations completed in this block with summary of each]
 
 ### Emerging Observations
 
+[Key findings emerging from this block. Update this as iterations complete.]
+
 **CRITICAL: This section must ALWAYS be at the END of memory file.**
 ```
+
+## Notes for Claude
+
+- **Only hypothesize**. Results validate or falsify.
+- **Change ONE parameter per slot** to isolate causality.
+- **Trust the metrics**: connectivity_R2 is primary. CV measures robustness.
+- **On clean data**: You should expect connectivity_R2 > 0.9 on a good config. If not, something is wrong (learning rate, initialization, etc.).
+- **Save winner configs at block ends** — this is not optional.
+- **Update working memory religiously** — it's your memory across batches.

@@ -1,5 +1,20 @@
 # FlyVis GNN Training Exploration — flyvis_noise_005
 
+## Scientific Context
+
+The research question asks: **Can a GNN-based inverse problem solver achieve stable, seed-robust circuit recovery from noisy neural recordings?** Standard machine learning emphasizes test accuracy; here, we emphasize **stability across random initializations and data resamples**. Even if mean connectivity_R2=0.98, occasional failures at connectivity_R2 < 0.87 are unacceptable because they indicate the learned model is unstable and unreliable. This exploration uses agentic LLM-driven hyperparameter search to find regimes where the GNN learning is fundamentally robust — not lucky.
+
+## Noise Model
+
+The FlyVis simulation includes realistic dynamics noise:
+
+```
+v_i(t+1) = v_i(t) + dt * f(v_i(t), W, a_i, I_i(t)) + epsilon_i(t)
+epsilon_i ~ N(0, 0.05)  [dynamics noise]
+```
+
+Training data is corrupted with this noise at every time step. The GNN must learn to invert the noisy dynamics and recover the true connectivity W despite this signal corruption. Seed robustness is challenging because noise-fitting solutions can emerge at different points depending on random initialization and batch composition.
+
 ## Goal
 
 Test **robustness of GNN training** for the **Drosophila visual system** with noise level 0.05 (DAVIS input).
@@ -157,18 +172,6 @@ When `lr_scheduler="none"` (default), per-iteration LR is constant and the legac
 
 **Recommended exploration**: `cosine_warm_restarts` with `T0=500-2000` provides periodic LR restarts that can help escape local minima. `linear_warmup_cosine` adds a warmup ramp for stability with large initial LR. The `T0` parameter controls how frequently the LR resets — smaller T0 means more frequent restarts.
 
-## Training Time Constraint
-
-Baseline (batch_size=2, 64K frames, hidden_dim=80): **~90 min/epoch on H100**, **~120 min on A100**.
-Data generation adds **~10-15 min** per slot.
-Keep total training time (generation + training) ≤ 100 min/iteration. Monitor `training_time_min`.
-
-Factors that increase training time:
-
-- Larger `hidden_dim` / `n_layers`
-- Larger `data_augmentation_loop`
-- Smaller `batch_size`
-- `recurrent_training=true` with large `time_step`
 
 ## Parallel Mode — 4 Slots Per Batch
 
@@ -307,6 +310,7 @@ Mutation: [param]: [old] -> [new]
 Verdict: [supported/falsified/inconclusive] — [one line explanation]
 Observation: [one line about seed sensitivity or robustness pattern]
 Next: parent=P
+```
 
 ## Winner Config (COMPULSORY)
 
@@ -369,7 +373,7 @@ If `user_input.md` has content in "Pending Instructions":
 3. All 4 configs should be **identical** — the pipeline assigns different seeds automatically
 4. Write the hypothesis to memory.md before editing configs
 
-## Block Partition (suggested)
+## Block Structure (suggested)
 
 | Block | Focus                  | Parameters                                                               |
 | ----- | ---------------------- | ------------------------------------------------------------------------ |

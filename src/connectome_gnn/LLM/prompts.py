@@ -17,25 +17,13 @@ Working memory: {state.memory_path}
 Full log (append only): {state.analysis_path}
 User input (read and acknowledge any pending instructions): {state.user_input_path}
 
-Config files to edit (all {state.n_parallel}):
-{slot_list}
+Config files to edit (all {state.n_parallel}): {slot_list}
 
 Seeds (forced by pipeline — DO NOT modify simulation.seed or training.seed in configs):
 {seed_info}
 Log these seed values in your iteration entries.
 
 Read the instructions and the base config, then set up {state.n_parallel} experiments.
-
-CAUSALITY RULE (MANDATORY):
-- Slot 0 = BASELINE (identical to base config, no changes).
-- Slots 1-{state.n_parallel - 1}: each changes EXACTLY ONE parameter from baseline.
-- If you change more than one parameter per slot, you CANNOT attribute the effect. This is a fatal experimental design error.
-- Do NOT change parameters not listed in the current block focus (e.g. do not change w_init_mode, W_L2, batch_size unless the block says so).
-- Each config already has a unique dataset name — do NOT change the dataset field.
-
-{state.sim_constraint}
-IMPORTANT: Training time target is ~{state.training_time_target_min} min per iteration. Adjust data_augmentation_loop (DAL) to hit this target: if training_time_min < 40, increase DAL; if > 70, decrease DAL. Longer training = better W convergence.
-IMPORTANT: Read user_input.md — if there are pending instructions, acknowledge them by appending to the "Acknowledged" section with timestamp and moving them out of "Pending Instructions".
 
 Write the planned mutations to the working memory file."""
 
@@ -61,9 +49,10 @@ Seeds are forced by pipeline (DO NOT modify simulation.seed or training.seed in 
 The seed values for this batch are shown in each slot above. Log them in your iteration entries.
 
 Analyze all {batch.n_slots} results. For each successful slot:
-1. Read the metrics from the analysis log.
+1. Read the metrics from the analysis log (pay special attention to: connectivity_R2, onestep_pearson, rollout_pearson, tau_R2, V_rest_R2).
 2. Look at the connectivity matrix heatmap in tmp_training/matrix/connectivity_*.png — compare GT vs learned W visually. Note in your log entry: is the learned W sparse enough? Are signs correct? Is the structure emerging?
 3. Write a separate iteration entry (## Iter N: ...) to the full log and memory file.
+   - IMPORTANT: When updating the Robustness Comparison Table in memory, include ALL key metrics as columns: connectivity_R2, CV%, onestep_pearson, rollout_pearson, tau_R2, V_rest_R2.
 Then edit all {state.n_parallel} config files to set up the next batch of {state.n_parallel} experiments.
 
 CAUSALITY RULE (MANDATORY):
