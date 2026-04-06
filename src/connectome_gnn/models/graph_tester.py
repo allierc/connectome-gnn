@@ -154,24 +154,12 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
         best_model = max(files, key=os.path.getmtime)
         logger.info(f'best model: {best_model}')
 
-    if best_model is not None:
-        # If it's a relative path (no slashes), assume it's in models/ directory
-        if '/' not in best_model:
-            netname = f"{log_dir}/models/{best_model}"
-        else:
-            netname = best_model
-
-        logger.info(f'loading {netname} ...')
-        try:
-            state_dict = torch.load(netname, map_location=device, weights_only=False)
-            migrate_state_dict(state_dict)
-            model.load_state_dict(state_dict['model_state_dict'], strict=False)
-            logger.info(f'loaded checkpoint successfully')
-        except FileNotFoundError as e:
-            logger.error(f'checkpoint not found: {netname}')
-            logger.warning('continuing with untrained model (evaluation will likely show zeros)')
-    else:
-        logger.warning('no model checkpoint to load — using untrained model (evaluation will likely show zeros)')
+    netname = f"{log_dir}/models/{best_model}"
+    logger.info(f'loading {netname} ...')
+    state_dict = torch.load(netname, map_location=device, weights_only=False)
+    migrate_state_dict(state_dict)
+    model.load_state_dict(state_dict['model_state_dict'], strict=False)
+    logger.info(f'loaded checkpoint successfully')
 
     # Load INR model if visual field is learned
     if has_visual_field and hasattr(model, 'NNR_f'):
