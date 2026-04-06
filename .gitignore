@@ -91,3 +91,12 @@ _site/
 # Assets (LFS-tracked PNGs/HTMLs)
 assets/*.png
 assets/*.html
+
+# Docs (latex, pdf, md)
+
+/docs/*.aux
+/docs/*.fdb_latexmk
+/docs/*.fls
+/docs/*.log
+/docs/*.out
+/docs/*.gz
