@@ -556,11 +556,12 @@ def load_configs_and_seeds(state: ExplorationState, batch: BatchInfo):
         batch.slot_seeds[slot] = {'simulation': sim_seed, 'training': train_seed}
 
         # Write forced seeds + slot-based dataset back to YAML (cluster reads from file)
+        # Read YAML once, update only the fields we need to change
         with open(state.config_paths[slot], 'r') as f:
             yaml_data = yaml.safe_load(f)
         yaml_data['simulation']['seed'] = sim_seed
         yaml_data['training']['seed'] = train_seed
-        yaml_data['dataset'] = original_dataset  # Restore slot-based dataset (never iteration-based)
+        yaml_data['dataset'] = expected_dataset  # Enforce slot-based dataset (never iteration-based)
         with open(state.config_paths[slot], 'w') as f:
             yaml.dump(yaml_data, f, default_flow_style=False, sort_keys=False)
 
