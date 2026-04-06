@@ -8,7 +8,7 @@ class ExplorationState:
 
     # Directories
     root_dir: str = ""
-    config_root: str = ""
+    slot_config_root: str = ""
     llm_dir: str = ""
     exploration_dir: str = ""
     source_config: str = ""

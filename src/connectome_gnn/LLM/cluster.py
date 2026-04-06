@@ -24,26 +24,12 @@ _cluster_cfg = _load_cluster_config()
 CLUSTER_USER     = _cluster_cfg.get('cluster_user', 'allierc')
 CLUSTER_LOGIN    = _cluster_cfg.get('cluster_login', 'login1')
 CLUSTER_ROOT_DIR = _cluster_cfg.get('cluster_root_dir', '/groups/saalfeld/home/allierc/GraphCluster/connectome-gnn')
-CLUSTER_DATA_DIR = _cluster_cfg.get('cluster_data_dir', '/groups/saalfeld/home/allierc/GraphData')
 CLUSTER_SSH      = f"{CLUSTER_USER}@{CLUSTER_LOGIN}"
 
 
 # ---------------------------------------------------------------------------
 # Cluster helpers
 # ---------------------------------------------------------------------------
-
-def local_to_cluster(path: str, root_dir: str) -> str:
-    """Map a local workspace path to the correct cluster path.
-
-    Mounted directories (config, log, graphs_data) live under GraphData on the
-    cluster, not under GraphCluster/flyvis-gnn. Everything else maps to CLUSTER_ROOT_DIR.
-    """
-    for sub in ('config', 'log', 'graphs_data'):
-        local_sub = os.path.join(root_dir, sub)
-        if path.startswith(local_sub):
-            return os.path.join(CLUSTER_DATA_DIR, sub) + path[len(local_sub):]
-    return path.replace(root_dir, CLUSTER_ROOT_DIR)
-
 
 def check_cluster_repo():
     """Check that GraphCluster/flyvis-gnn has no uncommitted source changes.
@@ -67,11 +53,12 @@ def check_cluster_repo():
 
 
 def submit_cluster_job(slot, config_path, analysis_log_path, config_file_field,
-                       log_dir, root_dir, erase=True, node_name='a100',
+                       log_dir, erase=True, node_name='a100',
                        conda_env='connectome-gnn', n_cpus=2, device='cuda',
-                       exploration_dir=None, iteration=None):
+                       exploration_dir=None, iteration=None, output_root=None):
     """Submit a single flyvis training job to the cluster WITHOUT -K (non-blocking).
 
+    All paths are on a shared filesystem accessible from both local and cluster.
     Data generation and test/plot are handled locally in GNN_LLM.py.
     The cluster job runs training only.
     """
@@ -82,19 +69,18 @@ def submit_cluster_job(slot, config_path, analysis_log_path, config_file_field,
     if device == 'auto':
         device = 'cuda'
 
-    cluster_config_path = local_to_cluster(config_path, root_dir)
-    cluster_analysis_log = local_to_cluster(analysis_log_path, root_dir)
-    cluster_error_log = local_to_cluster(error_details_path, root_dir)
+    assert os.path.isfile(config_path), f"Config file not found: {config_path}"
 
-    cluster_train_cmd = f"python train_subprocess.py --config '{cluster_config_path}' --device {device}"
-    cluster_train_cmd += f" --log_file '{cluster_analysis_log}'"
+    cluster_train_cmd = f"python train_subprocess.py --config '{config_path}' --device {device}"
+    if output_root:
+        cluster_train_cmd += f" --output_root '{output_root}'"
+    cluster_train_cmd += f" --log_file '{analysis_log_path}'"
     cluster_train_cmd += f" --config_file '{config_file_field}'"
-    cluster_train_cmd += f" --error_log '{cluster_error_log}'"
+    cluster_train_cmd += f" --error_log '{error_details_path}'"
     if erase:
         cluster_train_cmd += " --erase"
     if exploration_dir is not None and iteration is not None:
-        cluster_exploration_dir = local_to_cluster(exploration_dir, root_dir)
-        cluster_train_cmd += f" --exploration_dir '{cluster_exploration_dir}'"
+        cluster_train_cmd += f" --exploration_dir '{exploration_dir}'"
         cluster_train_cmd += f" --iteration {iteration}"
         cluster_train_cmd += f" --slot {slot}"
 
@@ -104,10 +90,8 @@ def submit_cluster_job(slot, config_path, analysis_log_path, config_file_field,
         f.write(f"conda run -n {conda_env} {cluster_train_cmd}\n")
     os.chmod(cluster_script_path, 0o755)
 
-    cluster_script = local_to_cluster(cluster_script_path, root_dir)
-    cluster_log_dir = local_to_cluster(log_dir, root_dir)
-    cluster_stdout = f"{cluster_log_dir}/cluster_train_{slot:02d}.out"
-    cluster_stderr = f"{cluster_log_dir}/cluster_train_{slot:02d}.err"
+    cluster_stdout = f"{log_dir}/cluster_train_{slot:02d}.out"
+    cluster_stderr = f"{log_dir}/cluster_train_{slot:02d}.err"
 
     if device == 'cpu':
         bsub_resources = f"bsub -n {n_cpus} -W 1440"
@@ -119,7 +103,7 @@ def submit_cluster_job(slot, config_path, analysis_log_path, config_file_field,
         f"ssh {CLUSTER_SSH} \"bash -l -c 'cd {CLUSTER_ROOT_DIR} && "
         f"{bsub_resources} "
         f"-o {cluster_stdout!r} -e {cluster_stderr!r} "
-        f"bash -l {cluster_script}'\""
+        f"bash -l {cluster_script_path}'\""
     )
     print(f"\033[96m  slot {slot}: submitting to {queue_label} via SSH\033[0m", flush=True)
     result = subprocess.run(ssh_cmd, shell=True, capture_output=True, text=True)
@@ -143,7 +127,7 @@ def wait_for_cluster_jobs(job_ids, log_dir=None, poll_interval=60):
 
     while pending:
         ids_str = ' '.join(pending.values())
-        ssh_cmd = f"ssh {CLUSTER_SSH} \"bash -l -c 'bjobs {ids_str} 2>/dev/null'\""
+        ssh_cmd = f"ssh {CLUSTER_SSH} \"bash -c 'bjobs {ids_str} 2>/dev/null'\""
         out = subprocess.run(ssh_cmd, shell=True, capture_output=True, text=True)
 
         for slot, jid in list(pending.items()):

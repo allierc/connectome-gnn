@@ -37,13 +37,7 @@ import matplotlib
 matplotlib.use('Agg')  # set non-interactive backend before other imports
 import argparse
 import os
-import sys
 import warnings
-
-# redirect PyTorch JIT cache to /scratch instead of /tmp (per IT request)
-if os.path.isdir('/scratch'):
-    os.environ['TMPDIR'] = '/scratch/allierc'
-    os.makedirs('/scratch/allierc', exist_ok=True)
 
 from connectome_gnn.LLM import (
     setup_exploration,
