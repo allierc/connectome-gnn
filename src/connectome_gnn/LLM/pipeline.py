@@ -130,13 +130,11 @@ def setup_exploration(args, root_dir: str, skip_confirm: bool = False) -> Explor
         state.start_iteration = detect_last_iteration(
             analysis_path_probe, config_save_dir_probe, state.n_parallel
         )
-        # Ensure start_iteration is always >= 1 (iterations must be positive)
-        if state.start_iteration < 1:
-            print(f"\033[91mWARNING: detect_last_iteration returned {state.start_iteration} < 1\033[0m")
-            print(f"\033[91m  Analysis path: {analysis_path_probe}\033[0m")
-            print(f"\033[91m  Config dir: {config_save_dir_probe}\033[0m")
-            print(f"\033[93m  Clamping to 1 (fresh start)\033[0m")
-            state.start_iteration = 1
+        assert state.start_iteration >= 1, (
+            f"detect_last_iteration returned invalid value: {state.start_iteration} < 1\n"
+            f"  Analysis path: {analysis_path_probe}\n"
+            f"  Config dir: {config_save_dir_probe}"
+        )
         elif state.start_iteration > 1:
             print(f"\033[93mAuto-resume: resuming from batch starting at {state.start_iteration}\033[0m")
         else:
@@ -328,11 +326,7 @@ def init_shared_files(state: ExplorationState, is_resume: bool):
 
 def make_batch_info(state: ExplorationState, batch_start: int) -> BatchInfo:
     """Compute BatchInfo for a batch starting at batch_start."""
-    # Ensure batch_start is at least 1 (iterations must be positive for valid seeds)
-    if batch_start < 1:
-        import logging
-        logging.warning(f"batch_start {batch_start} < 1, clamping to 1")
-        batch_start = 1
+    assert batch_start >= 1, f"batch_start must be >= 1 (got {batch_start})"
 
     iterations = [batch_start + s for s in range(state.n_parallel)
                   if batch_start + s <= state.n_iterations]
@@ -522,10 +516,7 @@ def load_configs_and_seeds(state: ExplorationState, batch: BatchInfo):
         config.config_file = state.pre_folder + state.slot_names[slot]
 
         # Force seeds (pipeline-controlled — LLM cannot override)
-        # Ensure iteration is always positive (must be >= 1 for valid seeds)
-        if iteration < 1:
-            iteration = 1
-            logger.warning(f"iteration {batch.iterations[slot_idx]} < 1, using iteration=1 for seed computation")
+        assert iteration >= 1, f"iteration must be >= 1 for valid seeds (got {iteration} from batch.iterations[{slot_idx}])"
         sim_seed = iteration * 1000 + slot
         train_seed = iteration * 1000 + slot + 500
         config.simulation.seed = sim_seed
