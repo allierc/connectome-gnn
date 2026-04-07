@@ -100,3 +100,7 @@ assets/*.html
 /docs/*.log
 /docs/*.out
 /docs/*.gz
+
+.github/skills/
+docs/repo_overview.md
+hpc-config.json

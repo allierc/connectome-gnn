@@ -654,9 +654,16 @@ def analyze_data_svd(data, output_folder, config=None, max_components=100, logge
     Returns:
         dict with SVD analysis results
     """
-    from sklearn.utils.extmath import randomized_svd
+    import torch
 
     from connectome_gnn.neuron_state import NeuronTimeSeries
+
+    def _svd_lowrank_np(matrix_np, n_components):
+        """Randomized SVD via torch.svd_lowrank (GPU when available)."""
+        dev = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        t = torch.as_tensor(matrix_np, dtype=torch.float32, device=dev)
+        U, S, V = torch.svd_lowrank(t, q=n_components + 10, niter=4)
+        return U[:, :n_components].cpu().numpy(), S[:n_components].cpu().numpy(), V[:, :n_components].cpu().numpy().T
 
     # Extract activity and stimulus as (T, N) numpy arrays
     if isinstance(data, NeuronTimeSeries):
@@ -743,7 +750,7 @@ def analyze_data_svd(data, output_folder, config=None, max_components=100, logge
     k = min(max_components, min(n_frames_sampled, n_neurons) - 1)
 
     if use_randomized:
-        U_act, S_act, Vt_act = randomized_svd(activity, n_components=k, random_state=42)
+        U_act, S_act, Vt_act = _svd_lowrank_np(activity, k)
     else:
         U_act, S_act, Vt_act = np.linalg.svd(activity, full_matrices=False)
         S_act = S_act[:k]
@@ -813,7 +820,7 @@ def analyze_data_svd(data, output_folder, config=None, max_components=100, logge
             log_print(f"  range: [{external_input.min():.3f}, {external_input.max():.3f}]")
 
             if use_randomized:
-                U_ext, S_ext, Vt_ext = randomized_svd(external_input, n_components=k, random_state=42)
+                U_ext, S_ext, Vt_ext = _svd_lowrank_np(external_input, k)
             else:
                 U_ext, S_ext, Vt_ext = np.linalg.svd(external_input, full_matrices=False)
                 S_ext = S_ext[:k]
