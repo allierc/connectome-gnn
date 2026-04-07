@@ -110,7 +110,10 @@ def _standard_recurrent_loss(
         if x.noise is not None and sim.measurement_noise_level > 0:
             x.voltage = x.voltage + x.noise
         if hidden_ids is not None:
-            x.voltage[hidden_ids] = 0.0
+            if model.NNR_hidden is not None:
+                x.voltage[hidden_ids] = model.forward_hidden(x, k, hidden_ids)
+            else:
+                x.voltage[hidden_ids] = 0.0
 
         if has_visual_field:
             visual_input = model.forward_visual(x, k)
@@ -160,7 +163,12 @@ def _standard_recurrent_loss(
             s, e = b_idx * neurons_per_sample, (b_idx + 1) * neurons_per_sample
             state_batch[b_idx].voltage = pred_x[s:e].squeeze()
             if hidden_ids is not None:
-                state_batch[b_idx].voltage[hidden_ids] = 0.0
+                k_current_h = int(frame_indices[iter_idx * batch_size + b_idx])
+                k_current_h = k_current_h - k_current_h % time_step + step + 1
+                if model.NNR_hidden is not None:
+                    state_batch[b_idx].voltage[hidden_ids] = model.forward_hidden(state_batch[b_idx], k_current_h, hidden_ids)
+                else:
+                    state_batch[b_idx].voltage[hidden_ids] = 0.0
             k_current = int(frame_indices[iter_idx * batch_size + b_idx])
             k_current = k_current - k_current % time_step + step + 1
             if has_visual_field:
@@ -225,6 +233,11 @@ def _multi_start_loss(
         x = x_ts.frame(start_k)
         if x.noise is not None and sim.measurement_noise_level > 0:
             x.voltage = x.voltage + x.noise
+        if hidden_ids is not None:
+            if model.NNR_hidden is not None:
+                x.voltage[hidden_ids] = model.forward_hidden(x, start_k, hidden_ids)
+            else:
+                x.voltage[hidden_ids] = 0.0
 
         if torch.isnan(x.voltage).any():
             continue
@@ -246,6 +259,12 @@ def _multi_start_loss(
                 loss = loss + update_regul
 
             x.voltage = (x.voltage.unsqueeze(-1) + sim.delta_t * pred + tc.noise_recurrent_level * torch.randn_like(pred)).squeeze(-1)
+            if hidden_ids is not None:
+                k_cur = start_k + step + 1
+                if model.NNR_hidden is not None:
+                    x.voltage[hidden_ids] = model.forward_hidden(x, k_cur, hidden_ids)
+                else:
+                    x.voltage[hidden_ids] = 0.0
 
             # Update stimulus for next step
             k_next = start_k + step + 1

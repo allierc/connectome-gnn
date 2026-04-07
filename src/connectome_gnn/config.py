@@ -369,6 +369,17 @@ class GraphModelConfig(BaseModel):
     nnr_f_xy_period: float = 1.0
     nnr_f_T_period: float = 1.0
 
+    # Hidden neuron SIREN — learns voltages of silenced neurons jointly with GNN.
+    # "none"      : zero-silencing (original behaviour, no SIREN)
+    # "siren_t"   : SIREN(t) -> (n_hidden,)  — independent signal per neuron
+    # "siren_txy" : SIREN(x,y,t) -> scalar   — spatially-correlated field
+    inr_type_hidden: str = "none"
+    hidden_dim_nnr_hidden: int = 2048
+    n_layers_nnr_hidden: int = 4
+    omega_hidden: float = 4096.0
+    outermost_linear_nnr_hidden: bool = True
+    nnr_hidden_T_period: float = 64000.0  # time normalisation (raw frame index)
+
     # INR type for external input learning
     # siren_t: input=t, output=n_neurons (current implementation, works for n_neurons < 100)
     # siren_id: input=(t, id), output=1 (scales better for large n_neurons)

@@ -325,6 +325,8 @@ def set_trainable_parameters(model=[], lr_embedding=[], lr=[],  lr_update=[], lr
                 param_groups.append({'params': parameter, 'lr': lr_update, 'name': 'f_theta'})
             elif 'W' in name:
                 param_groups.append({'params': parameter, 'lr': lr_W, 'name': 'W'})
+            elif 'NNR_hidden' in name:
+                param_groups.append({'params': parameter, 'lr': lr_NNR_f, 'name': 'NNR_hidden'})
             elif 'NNR_f' in name:
                 param_groups.append({'params': parameter, 'lr': lr_NNR_f, 'name': 'NNR_f'})
             elif 'NNR' in name:
