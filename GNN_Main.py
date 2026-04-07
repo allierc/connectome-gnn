@@ -67,6 +67,12 @@ if __name__ == "__main__":
             *[f'flyvis_noise_005_default_cv{i:02d}' for i in range(10)],
             *[f'flyvis_noise_05_default_cv{i:02d}' for i in range(10)],
         ],
+        'null_edges_cross': [
+            '/groups/saalfeld/home/allierc/GraphData/config/fly/flyvis_noise_005_null_edges_pc_400_cross.yaml',
+            '/groups/saalfeld/home/allierc/GraphData/config/fly/flyvis_noise_005_null_edges_pc_400_cross_removed_pc_20.yaml',
+            '/groups/saalfeld/home/allierc/GraphData/config/fly/flyvis_noise_005_null_edges_pc_400_cross_noise_05.yaml',
+            '/groups/saalfeld/home/allierc/GraphData/config/fly/flyvis_noise_005_null_edges_pc_400_cross_noise_free.yaml',
+        ],
     }
 
     if args.option is not None:
@@ -224,4 +230,5 @@ if __name__ == "__main__":
 
 # python GNN_Main.py -o test flyvis_noise_005 best flyvis_noise_free
 # python GNN_Main.py -o cv flyvis_noise_005 --n_seeds 10
+# bsub -n 2 -gpu "num=1" -q gpu_a100 -W 6000 "python GNN_Main.py -o train null_edges_cross --output_root /groups/saalfeld/home/allierc/GraphData"
 # bsub -n 2 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o train /groups/saalfeld/home/allierc/Graph/connectome-gnn/config/fly/flyvis_noise_005"
