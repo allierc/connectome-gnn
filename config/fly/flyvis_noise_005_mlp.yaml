@@ -45,19 +45,19 @@ plotting:
     - 100
 training:
   seed: 43
-  n_epochs: 60
-  n_runs: 1
-  device: auto
-  recurrent_training: false
+  n_epochs: 100
   batch_size: 256
-  batch_ratio: 1
-  small_init_batch_size: false
-  sparsity: none
   data_augmentation_loop: 100
   train_start: 0
   train_end: 0
-  lr: 0.00001
+  lr: 1e-5
   rollout_train_steps: 1
+  n_runs: 1
+  device: auto
+  recurrent_training: false
+  batch_ratio: 1
+  small_init_batch_size: false
+  sparsity: none
   # these are all GNN parameters and irrelevant to the MLP
   lr_W: 0
   lr_embedding: 0
@@ -77,7 +77,7 @@ training:
 
 claude:
   n_epochs: 100
-  data_augmentation_loop: 5
+  data_augmentation_loop: 100
   n_iter_block: 8
   ucb_c: 1.414
   node_name: gpu_a100
