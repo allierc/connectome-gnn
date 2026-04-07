@@ -174,7 +174,7 @@ def setup_exploration(args, root_dir: str, skip_confirm: bool = False) -> Explor
     mode = "cluster" if state.cluster_enabled else "local (sequential)"
     ic_str = f", interaction_code: {state.case_study}" if state.interaction_code else ""
     print(f"\033[94mMode: {mode}, node: gpu_{state.node_name}, n_cpus: {state.n_cpus}, n_parallel: {state.n_parallel}, "
-          f"generate_data: {state.generate_data}, training_time_target_min: {state.training_time_target_min}{ic_str}\033[0m")
+          f"generate_data: {state.generate_data}{ic_str}\033[0m")
 
     return state
 
