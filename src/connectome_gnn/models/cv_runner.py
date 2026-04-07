@@ -117,10 +117,7 @@ def run_cv(config_name, seeds):
         run_name = f"{base_name}_cv{i:02d}"
         sim_seed = seed               # simulation / data-generation seed
         train_seed = seed + 1000      # training seed (different from sim)
-        print()
-        print("=" * 80)
-        print(f"CV run {i+1}/{len(seeds)}  sim_seed={sim_seed}  train_seed={train_seed}  ({run_name})")
-        print("=" * 80)
+        print(f"\n\033[94mCV run {i+1}/{len(seeds)}  sim_seed={sim_seed}  train_seed={train_seed}  ({run_name})\033[0m")
 
         # Per-run dataset and log dir
         config = yaml_loader()
@@ -134,9 +131,9 @@ def run_cv(config_name, seeds):
         # --- Generate ---
         data_exists = os.path.isdir(os.path.join(graphs_dir, 'x_list_train'))
         if data_exists:
-            print(f"  data already exists at {graphs_dir}/  (skipping generation)")
+            print(f"\033[90m  data already exists at {graphs_dir}/  (skipping generation)\033[0m")
         else:
-            print(f"  generating data at {graphs_dir}/")
+            print(f"\033[96m  generating data ...\033[0m")
             data_generate(config, device=device, visualize=False, run_vizualized=0,
                           style="color", alpha=1, erase=False, save=True, step=100)
 
@@ -147,19 +144,19 @@ def run_cv(config_name, seeds):
                         any(f.startswith("best_model") for f in os.listdir(model_dir))
                         ) if os.path.isdir(model_dir) else False
         if model_exists:
-            print(f"  trained model already present in {model_dir}/  (skipping training)")
+            print(f"\033[90m  trained model already present  (skipping training)\033[0m")
         else:
-            print(f"  training (train_seed={train_seed})...")
+            print(f"\033[96m  training ...\033[0m")
             data_train(config, device=device)
 
         # --- Test ---
-        print(f"  testing...")
+        print(f"\033[96m  testing ...\033[0m")
         data_test(config=config, visualize=True, style="color name continuous_slice",
                   verbose=False, best_model='best', run=0, step=10,
                   n_rollout_frames=250, device=device)
 
         # --- Plot / analyse ---
-        print(f"  analysing...")
+        print(f"\033[96m  analysing ...\033[0m")
         data_plot(config=config,
                   epoch_list=['best'], style='color', extended='plots',
                   device=device)
@@ -169,7 +166,7 @@ def run_cv(config_name, seeds):
         for key, _ in METRICS:
             val = m.get(key, float('nan'))
             all_metrics[key].append(val)
-            print(f"    {key}: {val:.4f}" if not np.isnan(val) else f"    {key}: —")
+            print(f"\033[92m    {key}: {val:.4f}\033[0m" if not np.isnan(val) else f"\033[91m    {key}: —\033[0m")
 
         # --- Update bar plot after every run ---
         _save_barplot(all_metrics, config_name, seeds, cv_out_dir, n_done=i + 1)
