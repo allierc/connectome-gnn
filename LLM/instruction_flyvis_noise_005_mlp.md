@@ -24,7 +24,7 @@ of parameters where we can predict ~ 8000 steps ahead accurately.
 
 ## Scientific Context
 
-The core research question is: **Can a flat, graph-free MLP function approximator achieve stable autoregressive rollout on the FlyVis Drosophila visual system model under realistic noise (σ=0.05)?** 
+The core research question is: **Can a flat, graph-free MLP function approximator achieve stable autoregressive rollout on the FlyVis Drosophila visual system model under realistic noise (σ=0.05)?**
 
 This explores whether the mechanistic, GNN-based approaches used elsewhere in the codebase are necessary, or whether a simpler statistical model can approximate the true 1-step dynamics well enough to sustain multi-thousand-step predictions. The MLP is not expected to learn causal structure, but rather to memorize the input-output manifold of the true system. The key challenge is error compounding in autoregressive mode — small per-step errors accumulate rapidly unless the model learns a regime where errors remain bounded.
 
@@ -105,9 +105,6 @@ input  = [v_1, ..., v_13741, stim_1, ..., stim_1736]   (15,477 dims)
 output = [dv_1/dt, ..., dv_13741/dt]                    (13,741 dims)
 ```
 
-- `use_residual_connection`: adds a residual connection across the hidden layers
-  of the MLP for better gradient flow. It also zero-initializes the final hidden
-  layer to keep the rollout stable. We do not have evidence for this assertion.
 - No graph structure, no per-edge weights
 - We want to find the smallest architecture that achieves our goal
 
@@ -115,11 +112,10 @@ output = [dv_1/dt, ..., dv_13741/dt]                    (13,741 dims)
 
 ## Architecture parameters
 
-| Parameter                 | Default | Description                         |
-| ------------------------- | ------- | ----------------------------------- |
-| `hidden_dim`              | 256     | Hidden layer width                  |
-| `n_layers`                | 5       | Number of layers (including in/out) |
-| `use_residual_connection` | true    | Zero-init final layer for stability |
+| Parameter    | Default | Description                         |
+| ------------ | ------- | ----------------------------------- |
+| `hidden_dim` | 256     | Hidden layer width                  |
+| `n_layers`   | 5       | Number of layers (including in/out) |
 
 ## Training Parameters
 
@@ -158,7 +154,6 @@ We have observed that as training proceeds the rollout divergence time gets long
 cases starts to get worse. That's why we have the early stop. But if this is detrimental you should
 remove early stopping. For example, if you find that epochs=20, but at 10 epochs you hit the
 lowest rollout mse, you can consider to reduce the epoch count from 20 -> 15 say.
-
 
 ## Data Generation
 
