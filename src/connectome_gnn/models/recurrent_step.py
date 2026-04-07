@@ -37,7 +37,6 @@ Modes 1 and 2 are implemented in this module. Mode 3 is a sampling
 change in graph_trainer.py (no dedicated function needed).
 """
 
-import numpy as np
 import torch
 
 from connectome_gnn.models.utils import _batch_frames
@@ -128,7 +127,7 @@ def _standard_recurrent_loss(
         return torch.zeros(1, device=device, requires_grad=True), 0.0
 
     y_batch = torch.cat(y_list, dim=0)
-    ids_batch = np.concatenate(ids_list, axis=0)
+    ids_batch = torch.cat(ids_list, dim=0)
     data_id = torch.zeros((ids_index, 1), dtype=torch.int, device=device)
 
     # Regularisation (computed once on initial state)
