@@ -10,6 +10,8 @@
 OUTPUT_ROOT=/groups/saalfeld/home/allierc/GraphData
 N_SEEDS=5
 
+CONFIG_DIR=/groups/saalfeld/home/allierc/Graph/connectome-gnn/config/fly
+
 configs=(
     flyvis_noise_005_null_edges_pc_400_cross
     flyvis_noise_005_null_edges_pc_400_cross_removed_pc_20
@@ -18,9 +20,5 @@ configs=(
 )
 
 for cfg in "${configs[@]}"; do
-    echo ""
-    echo "=============================="
-    echo "CV: $cfg"
-    echo "=============================="
-    python GNN_Main.py -o cv "$cfg" --n_seeds "$N_SEEDS" --output_root "$OUTPUT_ROOT"
+    python GNN_Main.py -o cv "$CONFIG_DIR/$cfg" --n_seeds "$N_SEEDS" --output_root "$OUTPUT_ROOT"
 done

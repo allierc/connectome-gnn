@@ -91,18 +91,30 @@ def _save_barplot(all_metrics, config_name, seeds, cv_out_dir, n_done):
 
 
 def run_cv(config_name, seeds):
-    config_file, pre_folder = add_pre_folder(config_name)
-    base_config = NeuralGraphConfig.from_yaml(config_path(f"{config_file}.yaml"))
+    # Support absolute paths (e.g. configs stored outside the repo)
+    if os.path.isabs(config_name) or os.path.isfile(config_name) or os.path.isfile(config_name + '.yaml'):
+        yaml_file = config_name if config_name.endswith('.yaml') else config_name + '.yaml'
+        parent = os.path.basename(os.path.dirname(os.path.abspath(yaml_file)))
+        pre_folder = parent + "/" if parent else ""
+        base_name = os.path.splitext(os.path.basename(yaml_file))[0]
+        config_file = base_name
+        yaml_loader = lambda: NeuralGraphConfig.from_yaml(yaml_file)
+    else:
+        config_file, pre_folder = add_pre_folder(config_name)
+        base_name = os.path.basename(config_name)
+        yaml_loader = lambda: NeuralGraphConfig.from_yaml(config_path(f"{config_file}.yaml"))
+
+    base_config = yaml_loader()
     device = set_device(base_config.training.device)
 
     # Summary goes into the base config's results folder
-    cv_out_dir = os.path.join(log_path(pre_folder + config_name), "results")
+    cv_out_dir = os.path.join(log_path(pre_folder + base_name), "results")
     os.makedirs(cv_out_dir, exist_ok=True)
 
     all_metrics = {key: [] for key, _ in METRICS}
 
     for i, seed in enumerate(seeds):
-        run_name = f"{config_name}_cv{i:02d}"
+        run_name = f"{base_name}_cv{i:02d}"
         sim_seed = seed               # simulation / data-generation seed
         train_seed = seed + 1000      # training seed (different from sim)
         print()
@@ -111,7 +123,7 @@ def run_cv(config_name, seeds):
         print("=" * 80)
 
         # Per-run dataset and log dir
-        config = NeuralGraphConfig.from_yaml(config_path(f"{config_file}.yaml"))
+        config = yaml_loader()
         config.simulation.seed = sim_seed       # each run generates its own data
         config.training.seed = train_seed       # different seed for training
         config.dataset = pre_folder + run_name  # per-run graphs_data dir
