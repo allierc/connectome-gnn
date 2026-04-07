@@ -27,12 +27,12 @@ graph_model:
   #   decoder:          MLPWithSkips(latent_dim -> n_neurons, hidden=latent_dim, layers=n_layers_encoder)  [symmetric with encoder]
   #   evolver:          MLPWithSkips(latent_dim+stim_latent_dims -> latent_dim, hidden=latent_dim, layers=n_layers_evolver)  [zero-init + residual]
   #   stimulus_encoder: MLPWithSkips(n_input_neurons -> stim_latent_dims, hidden=hidden_dim_stim_encoder, layers=n_layers_stim_encoder)
-  latent_dim: 256            # latent space dimensionality (also hidden dim for encoder/decoder/evolver)
-  n_layers_encoder: 1        # hidden layers in encoder and decoder
-  n_layers_evolver: 1        # hidden layers in evolver
-  stim_latent_dims: 64       # stimulus encoder output dimensionality
-  hidden_dim_stim_encoder: 64  # stimulus encoder hidden width
-  n_layers_stim_encoder: 3   # hidden layers in stimulus encoder
+  latent_dim: 256 # latent space dimensionality (also hidden dim for encoder/decoder/evolver)
+  n_layers_encoder: 1 # hidden layers in encoder and decoder
+  n_layers_evolver: 1 # hidden layers in evolver
+  stim_latent_dims: 64 # stimulus encoder output dimensionality
+  hidden_dim_stim_encoder: 64 # stimulus encoder hidden width
+  n_layers_stim_encoder: 3 # hidden layers in stimulus encoder
   # Unused by EED but required by config schema
   input_size: 3
   n_layers: 3
@@ -55,7 +55,7 @@ plotting:
     - 100
 training:
   seed: 43
-  n_epochs: 30
+  n_epochs: 100
   batch_size: 256
   data_augmentation_loop: 100
   train_start: 4000
