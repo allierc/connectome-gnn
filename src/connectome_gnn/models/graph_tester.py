@@ -91,7 +91,8 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     # Determine which fields to load
     load_fields = ['voltage', 'stimulus', 'neuron_type']
     has_visual_field = 'visual' in model_config.field_type
-    if has_visual_field or 'test' in model_config.field_type:
+    _inr_hidden = getattr(model_config, 'inr_type_hidden', 'none')
+    if has_visual_field or 'test' in model_config.field_type or _inr_hidden == 'siren_txy':
         load_fields.append('pos')
     if sim.calcium_type != 'none':
         load_fields.append('calcium')
@@ -164,6 +165,14 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     migrate_state_dict(state_dict)
     model.load_state_dict(state_dict['model_state_dict'], strict=False)
     logger.info(f'loaded checkpoint successfully')
+
+    # Confirm hidden SIREN was loaded from checkpoint (weights are in main state_dict)
+    if getattr(model, 'NNR_hidden', None) is not None:
+        _nnr_keys = [k for k in state_dict['model_state_dict'] if k.startswith('NNR_hidden')]
+        if _nnr_keys:
+            logger.info(f'NNR_hidden loaded from checkpoint ({len(_nnr_keys)} tensors)')
+        else:
+            logger.warning('NNR_hidden not found in checkpoint — using random initialisation')
 
     # Load INR model if visual field is learned
     if has_visual_field and hasattr(model, 'NNR_f'):

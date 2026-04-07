@@ -34,7 +34,7 @@ graph_model:
   update_type: generic
   g_phi_positive: true
   # Hidden neuron SIREN: learns hidden voltages via spatial field (x,y,t) -> v
-  inr_type_hidden: siren_txy
+  inr_type_hidden: siren_t
   hidden_dim_nnr_hidden: 2048
   n_layers_nnr_hidden: 4
   omega_hidden: 4096.0
