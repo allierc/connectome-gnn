@@ -195,24 +195,18 @@ class NeuralGNN(nn.Module):
                 # self.NNR_f_xy_period = model_config.nnr_f_xy_period
                 # self.NNR_f_T_period = model_config.nnr_f_T_period
 
-        # Hidden-neuron SIREN: learns voltages of silenced neurons jointly with GNN
+        # Hidden-neuron SIREN: learns voltages of silenced neurons jointly with GNN.
+        # siren_txy is built immediately (output=1, size independent of n_hidden).
+        # siren_t output size = n_hidden, which is only known at runtime after
+        # hidden_ids are loaded — call setup_hidden_siren(n_hidden) before first use.
         self.NNR_hidden = None
         self._inr_hidden_type = getattr(model_config, 'inr_type_hidden', 'none')
-        if self._inr_hidden_type != 'none':
-            _is_txy = (self._inr_hidden_type == 'siren_txy')
-            if _is_txy:
-                _in_feats = 3   # (x, y, t)
-                _out_feats = 1
-            else:              # siren_t → one output per hidden neuron
-                _in_feats = 1
-                _n_hidden = int(
-                    (config.simulation.n_neurons - config.simulation.n_input_neurons)
-                    * getattr(config.training, 'hidden_neuron_fraction', 0.0)
-                )
-                _out_feats = max(1, _n_hidden)
+        self._hidden_siren_mc = model_config  # kept for setup_hidden_siren()
+        self.NNR_hidden_T_period = getattr(model_config, 'nnr_hidden_T_period', 64000.0) / (2 * np.pi)
+        self.NNR_hidden_xy_period = getattr(model_config, 'nnr_f_xy_period', 1.0) / (2 * np.pi)
+        if self._inr_hidden_type == 'siren_txy':
             self.NNR_hidden = Siren(
-                in_features=_in_feats,
-                out_features=_out_feats,
+                in_features=3, out_features=1,
                 hidden_features=getattr(model_config, 'hidden_dim_nnr_hidden', 2048),
                 hidden_layers=getattr(model_config, 'n_layers_nnr_hidden', 4),
                 first_omega_0=getattr(model_config, 'omega_hidden', 4096.0),
@@ -220,9 +214,28 @@ class NeuralGNN(nn.Module):
                 outermost_linear=getattr(model_config, 'outermost_linear_nnr_hidden', True),
             )
             self.NNR_hidden.to(self.device)
-            self.NNR_hidden_T_period = getattr(model_config, 'nnr_hidden_T_period', 64000.0) / (2 * np.pi)
-            # spatial period reuses visual SIREN setting (same coordinate system)
-            self.NNR_hidden_xy_period = getattr(model_config, 'nnr_f_xy_period', 1.0) / (2 * np.pi)
+        # siren_t: NNR_hidden stays None until setup_hidden_siren(n_hidden) is called
+
+    def setup_hidden_siren(self, n_hidden: int):
+        """Build NNR_hidden for siren_t with the exact runtime output size.
+
+        Must be called after hidden_ids are known (trainer: after loading/generating
+        hidden_neuron_ids.pt; tester: before load_state_dict so weights can be
+        restored).  No-op for siren_txy (already built in __init__) or 'none'.
+        """
+        if self._inr_hidden_type != 'siren_t':
+            return
+        mc = self._hidden_siren_mc
+        self.NNR_hidden = Siren(
+            in_features=1,
+            out_features=n_hidden,
+            hidden_features=getattr(mc, 'hidden_dim_nnr_hidden', 2048),
+            hidden_layers=getattr(mc, 'n_layers_nnr_hidden', 4),
+            first_omega_0=getattr(mc, 'omega_hidden', 4096.0),
+            hidden_omega_0=getattr(mc, 'omega_hidden', 4096.0),
+            outermost_linear=getattr(mc, 'outermost_linear_nnr_hidden', True),
+        )
+        self.NNR_hidden.to(self.device)
 
     def forward_hidden(self, state: NeuronState, k: int, hidden_ids: torch.Tensor) -> torch.Tensor:
         """Predict voltages for hidden neurons at frame k via the hidden SIREN.
