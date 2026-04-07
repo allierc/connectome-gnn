@@ -36,6 +36,8 @@ if __name__ == "__main__":
                         help="CV: comma-separated seeds, e.g. 42,43,44 (overrides --n_seeds)")
     parser.add_argument("--output_root", type=str, default=None,
                         help="Root directory for log/ and graphs_data/ (default: cwd)")
+    parser.add_argument("--force", action="store_true",
+                        help="Force regeneration of data even if it already exists")
 
     print()
     device = []
@@ -154,7 +156,7 @@ if __name__ == "__main__":
                 run_vizualized=0,
                 style="color",
                 alpha=1,
-                erase=True,
+                erase=args.force,
                 save=True,
                 step=100,
             )

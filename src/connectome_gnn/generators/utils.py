@@ -709,6 +709,15 @@ def is_connconstr_model(signal_model_name: str) -> bool:
         return False
 
 
+_FLYVIS_HYBRID_MODELS = {
+    "flyvis_hybrid",              # v1: merged flyvis+FlyWire edges, template-averaged RF
+    "flyvis_hybrid_flywireRF",    # v2: drop eligible flyvis edges → per-column FlyWire RF
+    "flyvis_hybrid_placeholder",  # v3: placeholder for future variant
+    "flyvis_hybrid_zeroedge",     # v4: v1 + zero-weight edges from spatial neighbors
+    "flyvis_hybrid_flywireRF_zeroedge",  # v5: v2 + zero-weight edges from spatial neighbors
+}
+
+
 def is_flyvis_hybrid_model(signal_model_name: str) -> bool:
     """Check if signal_model_name is a flywirevis hybrid model."""
-    return signal_model_name == "flyvis_hybrid"
+    return signal_model_name in _FLYVIS_HYBRID_MODELS

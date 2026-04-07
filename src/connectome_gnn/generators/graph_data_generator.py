@@ -77,8 +77,10 @@ def data_generate(
         or os.path.isfile(graphs_data_path(config.dataset, "x_list_0.npy"))
         or os.path.isfile(graphs_data_path(config.dataset, "x_list_0.pt"))
     ):
-        logger.warning("watch out: data already generated")
-        # return
+        if not erase:
+            logger.info("data already generated, skipping (use --force to regenerate)")
+            return
+        logger.warning("data already exists, erasing and regenerating (--force)")
 
     if config.data_folder_name != "none":
         generate_from_data(config=config, device=device, visualize=visualize, style=style, step=step)
@@ -291,7 +293,15 @@ def data_generate_connconstr(config, visualize=True, device=None, save=True, era
 
     # --- Compute effective ranks (W matrix, activity, stimulus) ---
     logger.info("computing effective rank ...")
-    from sklearn.utils.extmath import randomized_svd
+
+    def _svd_lowrank(matrix_np, n_components, dev):
+        """Randomized SVD via torch.svd_lowrank (GPU-accelerated when available)."""
+        t = torch.as_tensor(matrix_np, dtype=torch.float32, device=dev)
+        _, S, _ = torch.svd_lowrank(t, q=n_components + 10, niter=4)
+        return S[:n_components].cpu().numpy()
+
+    _svd_device = torch.device(device) if (device and device != 'cpu' and torch.cuda.is_available()) else torch.device('cpu')
+    logger.info(f"  SVD device: {_svd_device}")
 
     # W matrix rank from dense reconstruction
     ei_np = to_numpy(edge_index)
@@ -299,7 +309,7 @@ def data_generate_connconstr(config, visualize=True, device=None, save=True, era
     W_dense = np.zeros((n_neurons, n_neurons), dtype=np.float32)
     W_dense[ei_np[0], ei_np[1]] = W_np
     n_comp_w = min(50, min(W_dense.shape) - 1)
-    _, S_w, _ = randomized_svd(W_dense, n_components=n_comp_w, random_state=0)
+    S_w = _svd_lowrank(W_dense, n_comp_w, _svd_device)
     cumvar_w = np.cumsum(S_w**2) / np.sum(S_w**2)
     rank_90_w = int(np.searchsorted(cumvar_w, 0.90) + 1)
     rank_99_w = int(np.searchsorted(cumvar_w, 0.99) + 1)
@@ -311,7 +321,7 @@ def data_generate_connconstr(config, visualize=True, device=None, save=True, era
     x_ts = load_simulation_data(graphs_data_path(config.dataset, "x_list_train"))
     activity_full = x_ts.voltage.numpy()
     n_comp_a = min(50, min(activity_full.shape) - 1)
-    _, S_act, _ = randomized_svd(activity_full, n_components=n_comp_a, random_state=0)
+    S_act = _svd_lowrank(activity_full, n_comp_a, _svd_device)
     cumvar_act = np.cumsum(S_act**2) / np.sum(S_act**2)
     rank_90_act = int(np.searchsorted(cumvar_act, 0.90) + 1)
     rank_99_act = int(np.searchsorted(cumvar_act, 0.99) + 1)
@@ -321,7 +331,7 @@ def data_generate_connconstr(config, visualize=True, device=None, save=True, era
     activity_centered = activity_full - activity_full.mean(axis=0, keepdims=True)
     centered_var = np.sum(activity_centered**2)
     if centered_var > 1e-12:
-        _, S_mc, _ = randomized_svd(activity_centered, n_components=n_comp_a, random_state=0)
+        S_mc = _svd_lowrank(activity_centered, n_comp_a, _svd_device)
         cumvar_mc = np.cumsum(S_mc**2) / centered_var
         rank_90_mc = int(np.searchsorted(cumvar_mc, 0.90) + 1)
         rank_99_mc = int(np.searchsorted(cumvar_mc, 0.99) + 1)
@@ -335,7 +345,7 @@ def data_generate_connconstr(config, visualize=True, device=None, save=True, era
     stim_full = x_ts.stimulus.numpy()
     n_comp_s = min(50, min(stim_full.shape) - 1)
     if n_comp_s > 0 and np.abs(stim_full).max() > 1e-12:
-        _, S_stim, _ = randomized_svd(stim_full, n_components=n_comp_s, random_state=0)
+        S_stim = _svd_lowrank(stim_full, n_comp_s, _svd_device)
         cumvar_stim = np.cumsum(S_stim**2) / np.sum(S_stim**2)
         rank_90_stim = int(np.searchsorted(cumvar_stim, 0.90) + 1)
         rank_99_stim = int(np.searchsorted(cumvar_stim, 0.99) + 1)
@@ -853,7 +863,8 @@ def data_generate_voltage(
         # --- Flywirevis hybrid: use FlyvisToFlywire pipeline ---
         from flywirevis.flyvis_to_flywire import FlyvisToFlywire
 
-        logger.info("building flywirevis hybrid network...")
+        signal_name = model_config.signal_model_name
+        logger.info(f"building flywirevis hybrid network ({signal_name})...")
         reg = FlyvisToFlywire(extent=extent)
         reg = (
             reg.register_nodes()
@@ -862,8 +873,31 @@ def data_generate_voltage(
             .populate_xyz()
             .merge_flywire_edges_into_flyvis()
             .drop_flywire_only_conn_types()
-            .scale_adaptation()
+            .scale_adaptation(mode="mean")
         )
+
+        # Variant-specific modifications
+        needs_zero_edges = signal_name.endswith("_zeroedge")
+        needs_drop = "flywireRF" in signal_name
+
+        if needs_drop:
+            reg = reg.drop_eligible_flyvis_edges()
+            logger.info("flywireRF variant: dropped eligible flyvis edges")
+
+        if needs_zero_edges:
+            # Synapse pipeline for virtual positioning
+            reg = (
+                reg.populate_synapse_xyz()
+                .compute_virtual_node_positions()
+                .cluster_virtual_positions()
+            )
+            reg = reg.add_zero_edges(edge_uncertainty=1, positioning="virtual")
+            n_zero = (reg.edges["edge_source"] == "zero").sum()
+            logger.info(f"zero-edge variant: +{n_zero:,} zero edges")
+
+        if signal_name == "flyvis_hybrid_placeholder":
+            logger.info("placeholder variant: using v1 pipeline (no modifications)")
+
         flyvis_model_id = f"flow/{sim.ensemble_id}/{sim.model_id}"
         net, _orig_net = reg.to_network(model=flyvis_model_id, heterogeneous=True)
         logger.info(f"hybrid network: {len(reg.nodes)} nodes, {len(reg.edges)} edges")
@@ -1316,10 +1350,18 @@ def data_generate_voltage(
     # Compute ranks (used in kinographs and traces)
     if compute_ranks:
         logger.info("computing effective rank ...")
-        from sklearn.utils.extmath import randomized_svd
+
+        def _svd_lowrank(matrix_np, n_components, dev):
+            """Randomized SVD via torch.svd_lowrank (GPU when available)."""
+            t = torch.as_tensor(matrix_np, dtype=torch.float32, device=dev)
+            _, S, _ = torch.svd_lowrank(t, q=n_components + 10, niter=4)
+            return S[:n_components].cpu().numpy()
+
+        _svd_device = torch.device(device) if (device and device != 'cpu' and torch.cuda.is_available()) else torch.device('cpu')
+        logger.info(f"  SVD device: {_svd_device}")
 
         n_comp = min(50, min(activity_full.shape) - 1)
-        _, S_act, _ = randomized_svd(activity_full, n_components=n_comp, random_state=0)
+        S_act = _svd_lowrank(activity_full, n_comp, _svd_device)
         cumvar_act = np.cumsum(S_act**2) / np.sum(S_act**2)
         rank_90_act = int(np.searchsorted(cumvar_act, 0.90) + 1)
         rank_99_act = int(np.searchsorted(cumvar_act, 0.99) + 1)
@@ -1328,7 +1370,7 @@ def data_generate_voltage(
         activity_centered = activity_full - activity_full.mean(axis=0, keepdims=True)
         centered_var = np.sum(activity_centered**2)
         if centered_var > 1e-12:
-            _, S_mc, _ = randomized_svd(activity_centered, n_components=n_comp, random_state=0)
+            S_mc = _svd_lowrank(activity_centered, n_comp, _svd_device)
             cumvar_mc = np.cumsum(S_mc**2) / centered_var
             rank_90_mc = int(np.searchsorted(cumvar_mc, 0.90) + 1)
             rank_99_mc = int(np.searchsorted(cumvar_mc, 0.99) + 1)
@@ -1337,7 +1379,7 @@ def data_generate_voltage(
 
         input_for_svd = x_ts.stimulus[:, : sim.n_input_neurons].numpy()
         n_comp_input = min(50, min(input_for_svd.shape) - 1)
-        _, S_inp, _ = randomized_svd(input_for_svd, n_components=n_comp_input, random_state=0)
+        S_inp = _svd_lowrank(input_for_svd, n_comp_input, _svd_device)
         cumvar_inp = np.cumsum(S_inp**2) / np.sum(S_inp**2)
         rank_90_inp = int(np.searchsorted(cumvar_inp, 0.90) + 1)
         rank_99_inp = int(np.searchsorted(cumvar_inp, 0.99) + 1)
