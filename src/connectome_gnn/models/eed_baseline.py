@@ -69,22 +69,15 @@ class MLPWithSkips(nn.Module):
 
 @register_model("flyvis_eed")
 class EEDBaseline(nn.Module):
-    """Encode-Evolve-Decode baseline with hardcoded reference hyperparameters.
+    """Encode-Evolve-Decode model with configurable architecture.
 
-    Architecture (all MLPWithSkips):
-        encoder:          n_neurons → 256,  1 hidden of 256, ReLU
-        decoder:          256 → n_neurons,  1 hidden of 256, ReLU
-        stimulus_encoder: n_input_neurons → 64, 3 hidden of 64, ReLU
-        evolver:          256+64=320 → 256,  1 hidden of 256, ReLU
-                          zero-init final layer, residual connection
+    All sub-networks use MLPWithSkips. Evolver has residual connection
+    and zero-initialized final layer. Returns dv/dt so the existing
+    Euler-step test/plot pipeline works unchanged.
 
-    Returns dv/dt so the existing Euler-step trainer works unchanged.
+    Architecture is configured via graph_model fields — see EED mapping
+    comment in config.py GraphModelConfig.
     """
-
-    LATENT_DIMS = 256
-    HIDDEN_UNITS = 256
-    STIM_LATENT = 64
-    STIM_HIDDEN_LAYERS = 3
 
     def __init__(self, aggr_type='add', config=None, device=None):
         super().__init__()
@@ -104,22 +97,30 @@ class EEDBaseline(nn.Module):
         self.calcium_type = simulation_config.calcium_type
         self.dt = simulation_config.delta_t
 
-        # Sub-networks
+        # Read EED architecture from config
+        latent_dims = model_config.latent_dim
+        n_layers_enc_dec = model_config.n_layers_encoder
+        n_layers_evolver = model_config.n_layers_evolver
+        stim_latent_dims = model_config.stim_latent_dims
+        hidden_dim_stim = model_config.hidden_dim_stim_encoder
+        n_layers_stim = model_config.n_layers_stim_encoder
+
+        # Sub-networks (all use latent_dims as hidden dim, except stimulus encoder)
         self.encoder = MLPWithSkips(
-            self.n_neurons, self.LATENT_DIMS,
-            self.HIDDEN_UNITS, num_hidden_layers=1,
+            self.n_neurons, latent_dims,
+            latent_dims, num_hidden_layers=n_layers_enc_dec,
         )
         self.decoder = MLPWithSkips(
-            self.LATENT_DIMS, self.n_neurons,
-            self.HIDDEN_UNITS, num_hidden_layers=1,
+            latent_dims, self.n_neurons,
+            latent_dims, num_hidden_layers=n_layers_enc_dec,
         )
         self.stimulus_encoder = MLPWithSkips(
-            self.n_input_neurons, self.STIM_LATENT,
-            self.STIM_LATENT, num_hidden_layers=self.STIM_HIDDEN_LAYERS,
+            self.n_input_neurons, stim_latent_dims,
+            hidden_dim_stim, num_hidden_layers=n_layers_stim,
         )
         self.evolver = MLPWithSkips(
-            self.LATENT_DIMS + self.STIM_LATENT, self.LATENT_DIMS,
-            self.HIDDEN_UNITS, num_hidden_layers=1,
+            latent_dims + stim_latent_dims, latent_dims,
+            latent_dims, num_hidden_layers=n_layers_evolver,
         )
 
         # Zero-init evolver's output layer so residual starts as identity
@@ -134,18 +135,6 @@ class EEDBaseline(nn.Module):
         n_w = self.n_edges + self.n_extra_null_edges
         self.W = nn.Parameter(torch.zeros(max(n_w, 1), 1, device=device), requires_grad=False)
 
-    def _mlp_forward(self, x):
-        """Forward pass: x is (B, n_neurons + n_input_neurons), returns dv/dt (B, n_neurons)."""
-        v = x[:, :self.n_neurons]
-        stim = x[:, self.n_neurons:]
-
-        z = self.encoder(v)
-        s = self.stimulus_encoder(stim)
-        z_next = z + self.evolver(torch.cat([z, s], dim=1))
-        x_next = self.decoder(z_next)
-
-        return (x_next - v) / self.dt
-
     def predict_dvdt(self, v, stim):
         """Model-agnostic interface: (v, stim) → dvdt.
 
@@ -155,11 +144,16 @@ class EEDBaseline(nn.Module):
         Returns:
             dvdt with same batch shape as v
         """
-        mlp_input = torch.cat([v, stim], dim=-1)
-        if mlp_input.dim() == 1:
-            mlp_input = mlp_input.unsqueeze(0)
-            return self._mlp_forward(mlp_input).squeeze(0)
-        return self._mlp_forward(mlp_input)
+        squeeze = v.dim() == 1
+        if squeeze:
+            v = v.unsqueeze(0)
+            stim = stim.unsqueeze(0)
+        z = self.encoder(v)
+        s = self.stimulus_encoder(stim)
+        z_next = z + self.evolver(torch.cat([z, s], dim=1))
+        x_pred = self.decoder(z_next)
+        dvdt = (x_pred - v) / self.dt
+        return dvdt.squeeze(0) if squeeze else dvdt
 
     def forward(self, state: NeuronState, edge_index: torch.Tensor = None,
                 data_id=[], k=[], return_all=False, **kwargs):
@@ -174,10 +168,7 @@ class EEDBaseline(nn.Module):
         v_batched = v.view(batch_size, self.n_neurons)
         stim_batched = stim.view(batch_size, self.n_neurons)[:, :self.n_input_neurons]
 
-        mlp_input = torch.cat([v_batched, stim_batched], dim=1)
-        mlp_output = self._mlp_forward(mlp_input)
-
-        pred = mlp_output.view(n_total, 1)
+        pred = self.predict_dvdt(v_batched, stim_batched).view(n_total, 1)
 
         if return_all:
             return pred, None, None

@@ -412,6 +412,15 @@ class GraphModelConfig(BaseModel):
     hidden_dim_encoder: int = 256
     latent_n_layers_update: int = 2
     latent_hidden_dim_update: int = 64
+    # EED (Encode-Evolve-Decode) sub-network mapping:
+    #   encoder:          MLPWithSkips(n_neurons -> latent_dim, hidden=latent_dim, layers=n_layers_encoder)
+    #   decoder:          MLPWithSkips(latent_dim -> n_neurons, hidden=latent_dim, layers=n_layers_encoder)  [symmetric]
+    #   evolver:          MLPWithSkips(latent_dim+stim_latent_dims -> latent_dim, hidden=latent_dim, layers=n_layers_evolver)
+    #   stimulus_encoder: MLPWithSkips(n_input_neurons -> stim_latent_dims, hidden=hidden_dim_stim_encoder, layers=n_layers_stim_encoder)
+    n_layers_evolver: int = 1
+    hidden_dim_stim_encoder: int = 64
+    n_layers_stim_encoder: int = 3
+    stim_latent_dims: int = 64
     output_size_decoder: int = 1      # set to n_neurons in your YAML
     n_layers_decoder: int = 3
     hidden_dim_decoder:  int = 256

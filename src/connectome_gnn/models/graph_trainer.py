@@ -95,7 +95,10 @@ def data_train(config=None, erase=False, best_model=None, style=None, device=Non
     _connconstr = any(x in config.dataset for x in ('drosophila_cx', 'zebrafish_oculomotor', 'larva'))
     if 'fly' in config.dataset or _connconstr:
         model_name = config.graph_model.signal_model_name.lower()
-        if ('mlp' in model_name or 'eed' in model_name) and 'rnn' not in model_name:
+        if 'eed' in model_name and 'rnn' not in model_name:
+            from connectome_gnn.models.data_train_eed import data_train_eed
+            data_train_eed(config, erase, best_model, device, log_file=log_file)
+        elif ('mlp' in model_name) and 'rnn' not in model_name:
             from connectome_gnn.models.data_train_rollout import data_train_rollout
             data_train_rollout(config, erase, best_model, device, log_file=log_file)
         elif 'rnn' in model_name or 'lstm' in model_name:
