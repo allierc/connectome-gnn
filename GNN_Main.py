@@ -224,3 +224,4 @@ if __name__ == "__main__":
 
 # python GNN_Main.py -o test flyvis_noise_005 best flyvis_noise_free
 # python GNN_Main.py -o cv flyvis_noise_005 --n_seeds 10
+# bsub -n 2 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o train /groups/saalfeld/home/allierc/Graph/connectome-gnn/config/fly/flyvis_noise_005"
