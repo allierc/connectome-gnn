@@ -234,3 +234,9 @@ if __name__ == "__main__":
 # python GNN_Main.py -o cv flyvis_noise_005 --n_seeds 10
 # bsub -n 2 -gpu "num=1" -q gpu_a100 -W 6000 "python GNN_Main.py -o train null_edges_cross --output_root /groups/saalfeld/home/allierc/GraphData"
 # bsub -n 2 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o train /groups/saalfeld/home/allierc/Graph/connectome-gnn/config/fly/flyvis_noise_005"
+
+# bsub -n 2 -gpu "num=1" -q gpu_a100 -W 6000 \
+#   -o logs/cv_cross.out -e logs/cv_cross.err \
+#   "bash run_cv_null_edges_cross.sh"
+
+# bsub -n 2 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o train_test_plot null_edges_cross --output_root /groups/saalfeld/home/allierc/GraphData"
