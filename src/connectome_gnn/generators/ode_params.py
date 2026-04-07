@@ -392,7 +392,7 @@ class FlyVisODEParams(ODEParamsBase):
         return [r"$\tau_i$", r"$V^{rest}_i$"]
 
     def clustering_features(self):
-        return ["a", r"$\tau$", "V", "W", r"($\tau$,V)", r"($\tau$,V,W)", r"(a,$\tau$,V,W)"]
+        return ["a", "τ", "V", "W", "(τ,V)", "(τ,V,W)", "(a,τ,V,W)"]
 
     def neuron_type_rmse_panels(self):
         return ["weights", "tau", "vrest"]
@@ -1359,7 +1359,7 @@ class DrosophilaCxODEParams(ODEParamsBase):
         return gt_weights * np.exp(g_np[src])
 
     def clustering_features(self):
-        return ["a", r"$\tau$", "W", r"(a,$\tau$,W)"]
+        return ["a", "τ", "W", "(a,τ,W)"]
 
     def neuron_type_rmse_panels(self):
         return ["weights", "tau"]
@@ -1914,7 +1914,7 @@ class LarvaODEParams(ODEParamsBase):
         return gt_weights * gains[dst]
 
     def clustering_features(self):
-        return ["a", r"$\tau$", "W"]
+        return ["a", "τ", "W"]
 
     def neuron_type_rmse_panels(self):
         return ["weights", "tau"]
