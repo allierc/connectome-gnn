@@ -33,10 +33,9 @@ times. If the Jacobian has eigenvalues > 1 (which happens near the spectral radi
 flyvis), gradients can explode. Learning rates must be scaled down and gradient clipping may be
 required.
 
-**Risk: fewer effective training pairs.** With stride=5 and data_augmentation_loop=35, each epoch
-sees T/5 × 35 = 448,000 training pairs (vs T × 35 = 2,240,000 for stride=1). This is a 5×
-reduction in the number of weight update steps. Larger data_augmentation_loop or more epochs may
-be needed to compensate.
+**Risk: fewer effective training pairs.** With stride=5, each epoch sees T/5 training pairs (vs T
+for stride=1) — a 5× reduction in weight update steps. `data_augmentation_loop` and `n_epochs` are
+fixed in this experiment.
 
 ## CRITICAL: Data is PRE-GENERATED at startup (fixed across iterations)
 
@@ -95,7 +94,7 @@ different offsets — not applicable here.
 |---|---|---|
 | `time_step` | 5 | Stride: unroll this many Euler steps per training sample |
 | `recurrent_training` | true | Must stay true (defines this experiment) |
-| `recurrent_training_start_epoch` | 0 | Epoch fraction at which to switch to recurrent; 0 = immediate (Block 5) |
+| `recurrent_training_start_epoch` | 0 | **Must stay 0** — immediate recurrent training from epoch 0 |
 | `noise_recurrent_level` | 0.0 | Add Gaussian noise at each recurrent step (prevents error compounding) |
 
 ### Learning Rates (scale down from stride-1 by ~k)
@@ -111,17 +110,9 @@ different offsets — not applicable here.
 | Parameter | Default | Description |
 |---|---|---|
 | `grad_clip_W` | 0.0 | Gradient clipping for W (0 = disabled); try 0.1–1.0 |
-| `lr_scheduler` | none | `cosine_warm_restarts` or `linear_warmup_cosine` — stabilize BPTT convergence (Block 8) |
+| `lr_scheduler` | none | `cosine_warm_restarts` or `linear_warmup_cosine` — stabilize BPTT convergence (Block 6) |
 | `lr_scheduler_T0` | 1000 | Period for cosine warm restarts (if scheduler enabled) |
 | `lr_scheduler_warmup_iters` | 100 | Linear warmup before cosine (if scheduler enabled) |
-
-### Training Volume (compensate for stride-5 reduction in steps)
-
-| Parameter | Default | Description |
-|---|---|---|
-| `data_augmentation_loop` | 35 | Increase to compensate for 5× fewer step-pairs |
-| `batch_size` | 4 | Reduce if OOM due to BPTT memory; increase for stability |
-| `n_epochs` | 1 | Stride-5 may benefit from n_epochs=2 |
 
 ### Regularization (may need rebalancing with recurrent signal)
 
@@ -147,8 +138,7 @@ different offsets — not applicable here.
 ## Regularization Annealing
 
 All L1/L2 coefficients are multiplied by `(1 - exp(-rate * epoch))`.
-With `n_epochs=1`, **all L1/L2 regularizers are inactive** (annealing multiplier = 0).
-→ Use `n_epochs: 2` + halve `data_augmentation_loop` OR set `regul_annealing_rate: 0`.
+With `n_epochs=1` (fixed in this experiment), **all L1/L2 regularizers are inactive** (annealing multiplier = 0) unless `regul_annealing_rate: 0` is set.
 
 Non-annealed: `coeff_g_phi_diff`, `coeff_g_phi_norm`, `coeff_f_theta_msg_diff` — active from epoch 0.
 
@@ -173,29 +163,10 @@ Use all 4 slots for seed robustness testing.
 | 2 | **LR rescaling** | lr_W, lr, lr_emb — find stable range for BPTT gradient magnitude |
 | 3 | **Noise injection** | noise_recurrent_level = 0.0, 0.01, 0.03, 0.1 — prevent error compounding in BPTT rollout |
 | 4 | **Gradient clipping** | grad_clip_W = 0, 0.1, 0.5, 1.0 — stabilize BPTT |
-| 5 | **Curriculum** | recurrent_training_start_epoch = 0, 0.1, 0.3, 0.5 fraction — warm up with stride=1 first |
-| 6 | **Training volume** | data_augmentation_loop, n_epochs — compensate for 5× fewer step-pairs |
-| 7 | **Regularization** | coeff_g_phi_diff, coeff_W_L1 — rebalance with recurrent gradient signal |
-| 8 | **LR scheduler** | lr_scheduler = cosine_warm_restarts vs none, warmup tuning — stabilize BPTT convergence |
-| 9 | **Combined best** | Best parameters from blocks 1–8 |
-| 10 | **Validation** | Best stride-5 config vs stride-1 winner — final comparison |
-
-### Block Focus Notes
-
-**Block 1** is the most important: if stride-5 does NOT improve over stride-1 baseline (0.980),
-the null-space hypothesis is falsified and the exploration should pivot to understanding why.
-
-**Block 3** tests `noise_recurrent_level`: injecting small Gaussian noise at each BPTT step prevents
-the model from overfitting to the exact noiseless rollout trajectory and may reduce error compounding
-across the 5 unrolled steps. Try 0.0 (baseline), 0.01, 0.03, 0.1.
-
-**Block 5** tests curriculum learning: start training with stride=1 to learn the basic dynamics,
-then switch to stride=5 to refine with BPTT. `recurrent_training_start_epoch` controls the switch.
-Note: with `n_epochs=1`, this parameter has no effect — needs `n_epochs ≥ 2`.
-
-**Block 8** tests LR scheduler: with BPTT gradients being noisier than 1-step gradients, a cosine
-warm restart schedule (`lr_scheduler: cosine_warm_restarts`) or linear warmup + cosine decay
-(`linear_warmup_cosine`) may stabilize convergence better than a constant LR.
+| 5 | **Regularization** | coeff_g_phi_diff, coeff_W_L1 — rebalance with recurrent gradient signal |
+| 6 | **LR scheduler** | lr_scheduler = cosine_warm_restarts vs none, warmup tuning — stabilize BPTT convergence |
+| 7 | **Combined best** | Best parameters from blocks 1–6 |
+| 8 | **Validation** | Best stride-5 config vs stride-1 winner — final comparison |
 
 ## Variable Names
 
@@ -241,7 +212,7 @@ warm restart schedule (`lr_scheduler: cosine_warm_restarts`) or linear warmup + 
 
 Node: id=N, parent=P
 Hypothesis tested: "[quoted hypothesis]"
-Config: time_step=K, lr_W=X, lr=Y, lr_emb=Z, grad_clip_W=G, data_aug=D, epochs=E
+Config: time_step=5, lr_W=X, lr=Y, lr_emb=Z, grad_clip_W=G, noise_rec=N, lr_sched=S
 Slot 0: connectivity_R2=A, tau_R2=B, V_rest_R2=C, cluster_accuracy=D, sim_seed=S, train_seed=T
 Slot 1: connectivity_R2=A, tau_R2=B, V_rest_R2=C, cluster_accuracy=D, sim_seed=S, train_seed=T
 Slot 2: connectivity_R2=A, tau_R2=B, V_rest_R2=C, cluster_accuracy=D, sim_seed=S, train_seed=T
