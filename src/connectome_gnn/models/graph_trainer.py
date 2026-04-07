@@ -281,6 +281,28 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
 
     ids = torch.arange(n_neurons, device=device)
 
+    # --- Hidden neuron setup ---
+    hidden_ids = None
+    visible_ids = ids  # default: all neurons visible
+    _hidden_frac = getattr(tc, 'hidden_neuron_fraction', 0.0)
+    if _hidden_frac > 0.0:
+        _hidden_path = os.path.join(log_dir, 'hidden_neuron_ids.pt')
+        if os.path.exists(_hidden_path):
+            hidden_ids = torch.load(_hidden_path, map_location=device, weights_only=True)
+            logger.info(f'loaded {len(hidden_ids)} hidden neurons from checkpoint')
+        else:
+            _rng = np.random.RandomState(sim.seed)
+            _candidates = np.arange(sim.n_input_neurons, n_neurons)
+            _n_hidden = int(len(_candidates) * _hidden_frac)
+            _hidden_np = np.sort(_rng.choice(_candidates, size=_n_hidden, replace=False))
+            hidden_ids = torch.from_numpy(_hidden_np).long().to(device)
+            torch.save(hidden_ids, _hidden_path)
+            logger.info(f'sampled {len(hidden_ids)} hidden neurons ({_hidden_frac*100:.1f}%), saved')
+        _hidden_mask = torch.zeros(n_neurons, dtype=torch.bool, device=device)
+        _hidden_mask[hidden_ids] = True
+        visible_ids = ids[~_hidden_mask]
+        logger.info(f'hidden neurons: {len(hidden_ids)}/{n_neurons}, visible for loss: {len(visible_ids)}')
+
     if tc.coeff_W_sign > 0:
         index_weight = []
         for i in range(n_neurons):
@@ -436,10 +458,11 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
             # Recurrent training (standard or multi-start) — delegated to recurrent_step
             if tc.recurrent_training and not tc.neural_ODE_training:
                 loss, regul_val = recurrent_loss(
-                    model=model, x_ts=x_ts, y_ts=y_ts, edges=edges, ids=ids,
+                    model=model, x_ts=x_ts, y_ts=y_ts, edges=edges, ids=visible_ids,
                     frame_indices=frame_indices, iter_idx=N, config=config,
                     device=device, xnorm=xnorm, ynorm=ynorm,
                     regularizer=regularizer, has_visual_field=has_visual_field,
+                    hidden_ids=hidden_ids,
                 )
                 loss.backward()
                 if hasattr(tc, 'grad_clip_W') and tc.grad_clip_W > 0 and hasattr(model, 'W'):
@@ -510,6 +533,10 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                 if x.noise is not None and sim.measurement_noise_level > 0:
                     x.voltage = x.voltage + x.noise
 
+                # Silence hidden neurons: zero their voltage before any forward pass
+                if hidden_ids is not None:
+                    x.voltage[hidden_ids] = 0.0
+
                 if tc.time_window > 0:
                     x_temporal = x_ts.voltage[k - tc.time_window + 1: k + 1].T
                     # x stays as NeuronState; x_temporal passed separately to temporal model
@@ -545,7 +572,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                 state_batch.append(x)
                 n = x.n_neurons
                 y_list.append(y)
-                ids_list.append(ids + ids_index)
+                ids_list.append(visible_ids + ids_index)
                 k_list.append(torch.ones((n, 1), dtype=torch.int, device=device) * k)
                 if test_neural_field:
                     visual_input_list.append(visual_input)
@@ -630,6 +657,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                                 end_idx = (b + 1) * neurons_per_sample
 
                                 state_batch[b].voltage = pred_x[start_idx:end_idx].squeeze()
+                                if hidden_ids is not None:
+                                    state_batch[b].voltage[hidden_ids] = 0.0
 
                                 k_current = k_batch[start_idx, 0].item() + step + 1
 

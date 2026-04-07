@@ -640,6 +640,8 @@ class TrainingConfig(BaseModel):
     recurrent_loop: int = 0
     noise_recurrent_level: float = 0.0
 
+    hidden_neuron_fraction: float = 0.0  # fraction of non-input neurons to silence (0 = disabled); seed = simulation.seed
+
     neural_ODE_training: bool = False
     ode_method: OdeMethod = OdeMethod.DOPRI5
     ode_rtol: float = 1e-4

@@ -56,6 +56,7 @@ def recurrent_loss(
     ynorm,
     regularizer,
     has_visual_field=False,
+    hidden_ids=None,
 ):
     """Compute one training iteration of recurrent (possibly multi-start) loss.
 
@@ -73,11 +74,13 @@ def recurrent_loss(
         return _multi_start_loss(
             model, x_ts, edges, ids, frame_indices, iter_idx,
             time_step, sim, tc, device, xnorm, regularizer, has_visual_field,
+            hidden_ids=hidden_ids,
         )
     else:
         return _standard_recurrent_loss(
             model, x_ts, edges, ids, frame_indices, iter_idx,
             time_step, sim, tc, device, xnorm, regularizer, has_visual_field,
+            hidden_ids=hidden_ids,
         )
 
 
@@ -88,6 +91,7 @@ def recurrent_loss(
 def _standard_recurrent_loss(
     model, x_ts, edges, ids, frame_indices, iter_idx,
     time_step, sim, tc, device, xnorm, regularizer, has_visual_field,
+    hidden_ids=None,
 ):
     batch_size = tc.batch_size
     n_neurons = sim.n_neurons
@@ -105,6 +109,8 @@ def _standard_recurrent_loss(
         x = x_ts.frame(k)
         if x.noise is not None and sim.measurement_noise_level > 0:
             x.voltage = x.voltage + x.noise
+        if hidden_ids is not None:
+            x.voltage[hidden_ids] = 0.0
 
         if has_visual_field:
             visual_input = model.forward_visual(x, k)
@@ -153,6 +159,8 @@ def _standard_recurrent_loss(
         for b_idx in range(len(state_batch)):
             s, e = b_idx * neurons_per_sample, (b_idx + 1) * neurons_per_sample
             state_batch[b_idx].voltage = pred_x[s:e].squeeze()
+            if hidden_ids is not None:
+                state_batch[b_idx].voltage[hidden_ids] = 0.0
             k_current = int(frame_indices[iter_idx * batch_size + b_idx])
             k_current = k_current - k_current % time_step + step + 1
             if has_visual_field:
@@ -177,6 +185,7 @@ def _standard_recurrent_loss(
 def _multi_start_loss(
     model, x_ts, edges, ids, frame_indices, iter_idx,
     time_step, sim, tc, device, xnorm, regularizer, has_visual_field,
+    hidden_ids=None,
 ):
     """Launch time_step rollouts of decreasing length, all targeting frame T.
 
