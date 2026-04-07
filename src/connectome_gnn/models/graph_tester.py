@@ -223,6 +223,13 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     ids = np.arange(n_neurons)
     data_id = torch.zeros((n_neurons, 1), dtype=torch.int, device=device)
 
+    # Load hidden neuron list if this model was trained with hidden neurons
+    hidden_ids = None
+    _hidden_path = os.path.join(log_dir, 'hidden_neuron_ids.pt')
+    if os.path.exists(_hidden_path):
+        hidden_ids = torch.load(_hidden_path, map_location=device, weights_only=True)
+        logger.info(f'hidden neurons: {len(hidden_ids)} — zeroing during rollout')
+
     # Run model on all frames (one-step prediction)
     logger.info(f'one-step prediction on {n_eval_frames} frames ...')
     all_pred = []
@@ -290,6 +297,8 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     os.makedirs(results_dir, exist_ok=True)
 
     x = x_ts_eval.frame(0)
+    if hidden_ids is not None:
+        x.voltage[hidden_ids] = 0.0
 
     h_state = None
     c_state = None
@@ -354,6 +363,10 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
                 x.voltage = x.voltage + y.squeeze(-1)
             else:
                 x.voltage = x.voltage + sim.delta_t * y.squeeze(-1)
+
+            # Keep hidden neurons silent throughout the rollout
+            if hidden_ids is not None:
+                x.voltage[hidden_ids] = 0.0
 
             # Guard against NaN / divergence from a poorly trained model
             if torch.isnan(x.voltage).any() or torch.isinf(x.voltage).any():
