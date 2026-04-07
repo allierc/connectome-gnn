@@ -616,6 +616,16 @@ def plot_kinograph(
     zoom_n_act = min(zoom_size, n_neurons - zoom_neuron_start)
     zoom_n_inp = min(zoom_size, n_input)
 
+    # Downsample full-panel arrays to avoid OOM on large datasets
+    # (zoom panels use small fixed-size slices and don't need this)
+    MAX_DISPLAY_NEURONS = 2000
+    MAX_DISPLAY_FRAMES = 4000
+    step_n = max(1, n_neurons // MAX_DISPLAY_NEURONS)
+    step_f = max(1, n_frames // MAX_DISPLAY_FRAMES)
+    step_inp = max(1, n_input // MAX_DISPLAY_NEURONS)
+    activity_ds = activity[::step_n, ::step_f]
+    stimulus_ds = stimulus[::step_inp, ::step_f]
+
     fig, axes = plt.subplots(
         2, 2,
         figsize=(style.figure_height * 3.5, style.figure_height * 2.5),
@@ -627,14 +637,14 @@ def plot_kinograph(
     # top-left: full activity
     ax = axes[0, 0]
 
-    im = ax.imshow(activity, vmin=-vmax_act, vmax=vmax_act, **imshow_kw)
+    im = ax.imshow(activity_ds, vmin=-vmax_act, vmax=vmax_act, **imshow_kw)
     cb = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
     cb.ax.tick_params(labelsize=style.tick_font_size)
     ax.set_ylabel('neurons', fontsize=style.label_font_size)
     ax.set_xlabel('time (frames)', fontsize=style.label_font_size)
-    ax.set_xticks([0, n_frames - 1])
+    ax.set_xticks([0, activity_ds.shape[1] - 1])
     ax.set_xticklabels([0, n_frames], fontsize=style.tick_font_size)
-    ax.set_yticks([0, n_neurons - 1])
+    ax.set_yticks([0, activity_ds.shape[0] - 1])
     ax.set_yticklabels([1, n_neurons], fontsize=style.tick_font_size)
     rank_label = f'rank(90%)={rank_90_act}  rank(99%)={rank_99_act}'
     if rank_90_mc > 0:
@@ -670,14 +680,14 @@ def plot_kinograph(
     # bottom-left: full stimulus
     ax = axes[1, 0]
 
-    im = ax.imshow(stimulus, vmin=-vmax_inp, vmax=vmax_inp, **imshow_kw)
+    im = ax.imshow(stimulus_ds, vmin=-vmax_inp, vmax=vmax_inp, **imshow_kw)
     cb = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
     cb.ax.tick_params(labelsize=style.tick_font_size)
     ax.set_ylabel('stimulus', fontsize=style.label_font_size)
     ax.set_xlabel('time (frames)', fontsize=style.label_font_size)
-    ax.set_xticks([0, stimulus.shape[1] - 1])
-    ax.set_xticklabels([0, stimulus.shape[1]], fontsize=style.tick_font_size)
-    ax.set_yticks([0, n_input - 1])
+    ax.set_xticks([0, stimulus_ds.shape[1] - 1])
+    ax.set_xticklabels([0, n_frames], fontsize=style.tick_font_size)
+    ax.set_yticks([0, stimulus_ds.shape[0] - 1])
     ax.set_yticklabels([1, n_input], fontsize=style.tick_font_size)
     ax.text(0.02, 0.97, f'rank(90%)={rank_90_inp}  rank(99%)={rank_99_inp}',
             transform=ax.transAxes, fontsize=style.annotation_font_size,
@@ -1506,9 +1516,10 @@ def plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_li
     plt.savefig(f"{log_dir}/tmp_training/embedding/{epoch}_{N}.png", dpi=87)
     plt.close()
 
-    # Compute visible-edge mask (exclude edges touching hidden neurons)
+    # Compute visible-edge mask (exclude edges touching hidden neurons).
+    # Only applies when zero-silencing; when SIREN is active all edges are meaningful.
     _visible_mask = None
-    if hidden_ids is not None:
+    if hidden_ids is not None and getattr(model, 'NNR_hidden', None) is None:
         _hidden_set = set(hidden_ids.cpu().numpy().tolist())
         _e = edges.cpu().numpy()
         _visible_mask = np.array([
