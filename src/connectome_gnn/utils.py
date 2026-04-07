@@ -242,7 +242,6 @@ def set_device_pick_freest_gpu(device: str = 'auto') -> str:
                 if num_gpus != len(free_mem_list):
                     print(f"mismatch in GPU count between PyTorch ({num_gpus}) and nvidia-smi ({len(free_mem_list)})")
                     device = 'cpu'
-                    print(f"using device: {device}")
                 else:
                     # Find the GPU with the most free memory
                     max_free_memory = -1
@@ -264,13 +263,10 @@ def set_device_pick_freest_gpu(device: str = 'auto') -> str:
             except Exception as e:
                 print(f"Failed to get GPU information: {e}")
                 device = 'cpu'
-                print(f"using device: {device}")
         elif torch.backends.mps.is_available():
             device = 'mps'
-            print(f"using device: {device}")
         else:
             device = 'cpu'
-            print(f"using device: {device}")
     return device
 
 
@@ -287,7 +283,6 @@ def set_device(device: str = 'auto') -> str:
             device = 'mps'
         else:
             device = 'cpu'
-    print(f"using device: {device}")
     return device
 
 
