@@ -195,6 +195,57 @@ class NeuralGNN(nn.Module):
                 # self.NNR_f_xy_period = model_config.nnr_f_xy_period
                 # self.NNR_f_T_period = model_config.nnr_f_T_period
 
+        # Hidden-neuron SIREN: learns voltages of silenced neurons jointly with GNN
+        self.NNR_hidden = None
+        self._inr_hidden_type = getattr(model_config, 'inr_type_hidden', 'none')
+        if self._inr_hidden_type != 'none':
+            _is_txy = (self._inr_hidden_type == 'siren_txy')
+            if _is_txy:
+                _in_feats = 3   # (x, y, t)
+                _out_feats = 1
+            else:              # siren_t → one output per hidden neuron
+                _in_feats = 1
+                _n_hidden = int(
+                    (config.simulation.n_neurons - config.simulation.n_input_neurons)
+                    * getattr(config.training, 'hidden_neuron_fraction', 0.0)
+                )
+                _out_feats = max(1, _n_hidden)
+            self.NNR_hidden = Siren(
+                in_features=_in_feats,
+                out_features=_out_feats,
+                hidden_features=getattr(model_config, 'hidden_dim_nnr_hidden', 2048),
+                hidden_layers=getattr(model_config, 'n_layers_nnr_hidden', 4),
+                first_omega_0=getattr(model_config, 'omega_hidden', 4096.0),
+                hidden_omega_0=getattr(model_config, 'omega_hidden', 4096.0),
+                outermost_linear=getattr(model_config, 'outermost_linear_nnr_hidden', True),
+            )
+            self.NNR_hidden.to(self.device)
+            self.NNR_hidden_T_period = getattr(model_config, 'nnr_hidden_T_period', 64000.0) / (2 * np.pi)
+            # spatial period reuses visual SIREN setting (same coordinate system)
+            self.NNR_hidden_xy_period = getattr(model_config, 'nnr_f_xy_period', 1.0) / (2 * np.pi)
+
+    def forward_hidden(self, state: NeuronState, k: int, hidden_ids: torch.Tensor) -> torch.Tensor:
+        """Predict voltages for hidden neurons at frame k via the hidden SIREN.
+
+        Returns:
+            (n_hidden,) tensor — can be assigned directly to x.voltage[hidden_ids].
+            Gradients flow back into NNR_hidden so it is trained jointly with the GNN.
+        """
+        if self.NNR_hidden is None:
+            raise RuntimeError("forward_hidden called but NNR_hidden is not initialised")
+
+        if self._inr_hidden_type == 'siren_txy':
+            # One SIREN query per hidden neuron: input (x_i, y_i, t)
+            pos_h = state.pos[hidden_ids, :self.dimension]                      # (n_hidden, 2)
+            t_vec = torch.full((len(hidden_ids), 1), float(k) / self.NNR_hidden_T_period,
+                               device=self.device, dtype=torch.float32)
+            in_feats = torch.cat([pos_h / self.NNR_hidden_xy_period, t_vec], dim=1)  # (n_hidden, 3)
+            return self.NNR_hidden(in_feats).squeeze(-1)                        # (n_hidden,)
+        else:  # siren_t
+            t_in = torch.tensor([[float(k) / self.NNR_hidden_T_period]],
+                                device=self.device, dtype=torch.float32)        # (1, 1)
+            return self.NNR_hidden(t_in).squeeze(0)                             # (n_hidden,)
+
     def forward_visual(self, state: NeuronState, k):
         """Reconstruct visual field from neuron positions and time step k."""
         if 'instantNGP' in self.field_type:

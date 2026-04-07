@@ -298,7 +298,10 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
 
     x = x_ts_eval.frame(0)
     if hidden_ids is not None:
-        x.voltage[hidden_ids] = 0.0
+        if model.NNR_hidden is not None:
+            x.voltage[hidden_ids] = model.forward_hidden(x, 0, hidden_ids).detach()
+        else:
+            x.voltage[hidden_ids] = 0.0
 
     h_state = None
     c_state = None
@@ -364,9 +367,12 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
             else:
                 x.voltage = x.voltage + sim.delta_t * y.squeeze(-1)
 
-            # Keep hidden neurons silent throughout the rollout
+            # Update hidden neuron voltages via SIREN or keep silent
             if hidden_ids is not None:
-                x.voltage[hidden_ids] = 0.0
+                if model.NNR_hidden is not None:
+                    x.voltage[hidden_ids] = model.forward_hidden(x, k + 1, hidden_ids).detach()
+                else:
+                    x.voltage[hidden_ids] = 0.0
 
             # Guard against NaN / divergence from a poorly trained model
             if torch.isnan(x.voltage).any() or torch.isinf(x.voltage).any():

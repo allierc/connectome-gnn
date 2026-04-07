@@ -488,7 +488,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                 is_early_r2 = (N > 0) and (N < connectivity_plot_frequency) and (N % early_r2_frequency == 0)
                 model_name = model_config.signal_model_name
                 if (is_regular_r2 or is_early_r2) and 'mlp' not in model_name.lower():
-                    last_connectivity_r2 = plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_list, gt_weights, edges, n_neurons=n_neurons, n_neuron_types=sim.n_neuron_types, ode_params=ode_params, hidden_ids=hidden_ids)
+                    _r2_hidden = None if model.NNR_hidden is not None else hidden_ids
+                    last_connectivity_r2 = plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_list, gt_weights, edges, n_neurons=n_neurons, n_neuron_types=sim.n_neuron_types, ode_params=ode_params, hidden_ids=_r2_hidden)
                     last_vrest_r2, last_tau_r2 = compute_dynamics_r2(model, x_ts, config, device, n_neurons)
                     with open(metrics_log_path, 'a') as f:
                         f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f}\n')
@@ -533,9 +534,12 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                 if x.noise is not None and sim.measurement_noise_level > 0:
                     x.voltage = x.voltage + x.noise
 
-                # Silence hidden neurons: zero their voltage before any forward pass
+                # Hidden neurons: predict via SIREN or zero-silence
                 if hidden_ids is not None:
-                    x.voltage[hidden_ids] = 0.0
+                    if model.NNR_hidden is not None:
+                        x.voltage[hidden_ids] = model.forward_hidden(x, k, hidden_ids)
+                    else:
+                        x.voltage[hidden_ids] = 0.0
 
                 if tc.time_window > 0:
                     x_temporal = x_ts.voltage[k - tc.time_window + 1: k + 1].T
@@ -756,7 +760,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                     with open(metrics_log_path, 'a') as f:
                         f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f}\n')
                 elif (is_regular_r2 or is_early_r2) and not test_neural_field and 'mlp' not in model_name.lower():
-                    last_connectivity_r2 = plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_list, gt_weights, edges, n_neurons=n_neurons, n_neuron_types=sim.n_neuron_types, ode_params=ode_params, hidden_ids=hidden_ids)
+                    _r2_hidden = None if model.NNR_hidden is not None else hidden_ids
+                    last_connectivity_r2 = plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_list, gt_weights, edges, n_neurons=n_neurons, n_neuron_types=sim.n_neuron_types, ode_params=ode_params, hidden_ids=_r2_hidden)
                     last_vrest_r2, last_tau_r2 = compute_dynamics_r2(model, x_ts, config, device, n_neurons)
                     with open(metrics_log_path, 'a') as f:
                         f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f}\n')
