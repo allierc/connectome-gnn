@@ -121,9 +121,9 @@ def data_train_eed(config, erase, best_model, device, log_file=None):
     if tc.pretrained_model != '':
         checkpoint_path = tc.pretrained_model
     model, start_epoch = build_model(config, device, checkpoint_path=checkpoint_path)
-    assert hasattr(model, 'forward_eed'), (
-        f"{type(model).__name__} must implement forward_eed(v, stim) → (x_recon, x_pred) "
-        "to be used with data_train_eed"
+    assert hasattr(model, 'encoder') and hasattr(model, 'evolver'), (
+        f"{type(model).__name__} must have encoder/decoder/evolver/stimulus_encoder "
+        "sub-networks to be used with data_train_eed"
     )
 
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -169,7 +169,7 @@ def data_train_eed(config, erase, best_model, device, log_file=None):
             t_indices = torch.randint(0, max_frame + 1, (batch_size,), device=device)
 
             optimizer.zero_grad()
-            total_loss, recon_loss, evolve_loss = _compute_eed_loss_compiled(
+            total_loss, recon_loss, evolve_loss = compute_eed_loss_compiled(
                 model, voltage, stimulus, t_indices,
             )
             total_loss.backward()
