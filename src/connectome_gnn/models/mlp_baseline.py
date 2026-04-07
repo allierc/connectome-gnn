@@ -49,16 +49,26 @@ class MLPBaseline(nn.Module):
         hidden_dim = model_config.hidden_dim
         n_layers = model_config.n_layers
 
-        # MLP: input → hidden → ... → output
-        layers = [nn.Linear(input_size, hidden_dim, device=device), nn.ReLU()]
+        # Optional skip: linear projection of input concatenated at final layer
+        self.add_final_layer_skip = getattr(model_config, 'add_final_layer_skip', False)
+        if self.add_final_layer_skip and n_layers >= 2:
+            self.skip_proj = nn.Linear(input_size, hidden_dim, device=device)
+
+        # MLP hidden layers
+        self.hidden_layers = nn.ModuleList()
+        self.hidden_layers.append(nn.Linear(input_size, hidden_dim, device=device))
         for _ in range(n_layers - 2):
-            layers += [nn.Linear(hidden_dim, hidden_dim, device=device), nn.ReLU()]
-        final_layer = nn.Linear(hidden_dim, output_size, device=device)
+            self.hidden_layers.append(nn.Linear(hidden_dim, hidden_dim, device=device))
+        self.activation = nn.ReLU()
+
+        # Output layer
+        final_input_dim = hidden_dim
+        if self.add_final_layer_skip and n_layers >= 2:
+            final_input_dim = hidden_dim * 2
+        self.final_layer = nn.Linear(final_input_dim, output_size, device=device)
         if model_config.zero_init_output:
-            nn.init.zeros_(final_layer.weight)
-            nn.init.zeros_(final_layer.bias)
-        layers.append(final_layer)
-        self.mlp = nn.Sequential(*layers)
+            nn.init.zeros_(self.final_layer.weight)
+            nn.init.zeros_(self.final_layer.bias)
 
         # Dummy W parameter for compatibility with regularizer/trainer
         n_w = self.n_edges + self.n_extra_null_edges
@@ -74,10 +84,20 @@ class MLPBaseline(nn.Module):
             dvdt with same batch shape as v
         """
         mlp_input = torch.cat([v, stim], dim=-1)
-        if mlp_input.dim() == 1:
+        squeezed = mlp_input.dim() == 1
+        if squeezed:
             mlp_input = mlp_input.unsqueeze(0)
-            return self.mlp(mlp_input).squeeze(0)
-        return self.mlp(mlp_input)
+
+        h = mlp_input
+        for layer in self.hidden_layers:
+            h = self.activation(layer(h))
+
+        if self.add_final_layer_skip and len(self.hidden_layers) >= 1:
+            skip = self.skip_proj(mlp_input)
+            h = torch.cat([h, skip], dim=-1)
+
+        out = self.final_layer(h)
+        return out.squeeze(0) if squeezed else out
 
     def forward(self, state: NeuronState, edge_index: torch.Tensor = None,
                 data_id=[], k=[], return_all=False, **kwargs):
@@ -117,8 +137,7 @@ class MLPBaseline(nn.Module):
         stim_flat = stim[:self.n_input_neurons]                       # (n_input_neurons,)
 
         v_input = v_flat.clone().requires_grad_(True)
-        mlp_input = torch.cat([v_input, stim_flat], dim=0).unsqueeze(0)  # (1, n_neurons + n_input_neurons)
-        mlp_output = self.mlp(mlp_input).squeeze(0)             # (n_neurons,)
+        mlp_output = self.predict_dvdt(v_input, stim_flat)      # (n_neurons,)
 
         J = torch.zeros(self.n_neurons, self.n_neurons, device=self.device)
         for i in range(self.n_neurons):
