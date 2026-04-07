@@ -160,6 +160,13 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
         netname = best_model
     else:
         netname = f"{log_dir}/models/{best_model}"
+    # Setup siren_t before load_state_dict so NNR_hidden exists to receive weights
+    _early_hidden_path = os.path.join(log_dir, 'hidden_neuron_ids.pt')
+    if os.path.exists(_early_hidden_path) and getattr(model, '_inr_hidden_type', 'none') == 'siren_t':
+        _early_hidden_ids = torch.load(_early_hidden_path, map_location=device, weights_only=True)
+        model.setup_hidden_siren(len(_early_hidden_ids))
+        logger.info(f'siren_t setup: {len(_early_hidden_ids)} hidden neurons')
+
     logger.info(f'loading {netname} ...')
     state_dict = torch.load(netname, map_location=device, weights_only=False)
     migrate_state_dict(state_dict)
@@ -232,12 +239,12 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     ids = np.arange(n_neurons)
     data_id = torch.zeros((n_neurons, 1), dtype=torch.int, device=device)
 
-    # Load hidden neuron list if this model was trained with hidden neurons
+    # Load hidden neuron list (already done above for siren_t, re-load here for rollout)
     hidden_ids = None
     _hidden_path = os.path.join(log_dir, 'hidden_neuron_ids.pt')
     if os.path.exists(_hidden_path):
         hidden_ids = torch.load(_hidden_path, map_location=device, weights_only=True)
-        logger.info(f'hidden neurons: {len(hidden_ids)} — zeroing during rollout')
+        logger.info(f'hidden neurons: {len(hidden_ids)} — using during rollout')
 
     # Run model on all frames (one-step prediction)
     logger.info(f'one-step prediction on {n_eval_frames} frames ...')

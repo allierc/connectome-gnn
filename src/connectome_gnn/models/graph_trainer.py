@@ -303,6 +303,15 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
         visible_ids = ids[~_hidden_mask]
         logger.info(f'hidden neurons: {len(hidden_ids)}/{n_neurons}, visible for loss: {len(visible_ids)}')
 
+    # siren_t output size = n_hidden (runtime value) — build now, then rebuild optimizer
+    if hidden_ids is not None and getattr(model, '_inr_hidden_type', 'none') == 'siren_t':
+        model.setup_hidden_siren(len(hidden_ids))
+        _logger.info(f'siren_t hidden SIREN: output={len(hidden_ids)}, rebuilding optimizer')
+        optimizer, n_total_params = set_trainable_parameters(
+            model=model, lr_embedding=lr_embedding, lr=lr,
+            lr_update=lr_update, lr_W=lr_W, lr_NNR=lr_NNR, lr_NNR_f=lr_NNR_f)
+        lr_scheduler = build_lr_scheduler(optimizer, config)
+
     if tc.coeff_W_sign > 0:
         index_weight = []
         for i in range(n_neurons):
