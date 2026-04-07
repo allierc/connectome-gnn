@@ -6,6 +6,7 @@ with optional interactive code modification sessions at block boundaries.
 
 from .pipeline import (
     finalize_batch,
+    should_generate_data,
     generate_data_locally,
     init_shared_files,
     init_slot_configs,
@@ -33,6 +34,7 @@ __all__ = [
     'run_batch_0',
     'run_code_session',
     'load_configs_and_seeds',
+    'should_generate_data',
     'generate_data_locally',
     'run_cluster_training',
     'run_local_test_plot',
