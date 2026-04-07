@@ -68,10 +68,10 @@ if __name__ == "__main__":
             *[f'flyvis_noise_05_default_cv{i:02d}' for i in range(10)],
         ],
         'null_edges_cross': [
-            '/groups/saalfeld/home/allierc/GraphData/config/fly/flyvis_noise_005_null_edges_pc_400_cross.yaml',
-            '/groups/saalfeld/home/allierc/GraphData/config/fly/flyvis_noise_005_null_edges_pc_400_cross_removed_pc_20.yaml',
-            '/groups/saalfeld/home/allierc/GraphData/config/fly/flyvis_noise_005_null_edges_pc_400_cross_noise_05.yaml',
-            '/groups/saalfeld/home/allierc/GraphData/config/fly/flyvis_noise_005_null_edges_pc_400_cross_noise_free.yaml',
+            '/groups/saalfeld/home/allierc/GraphData/config/fly/flyvis_noise_005_null_edges_pc_400_cross',
+            '/groups/saalfeld/home/allierc/GraphData/config/fly/flyvis_noise_005_null_edges_pc_400_cross_removed_pc_20',
+            '/groups/saalfeld/home/allierc/GraphData/config/fly/flyvis_noise_005_null_edges_pc_400_cross_noise_05',
+            '/groups/saalfeld/home/allierc/GraphData/config/fly/flyvis_noise_005_null_edges_pc_400_cross_noise_free',
         ],
     }
 
@@ -110,14 +110,16 @@ if __name__ == "__main__":
     for config_file_ in config_list:
         print(" ")
 
-        if os.path.isfile(config_file_):
+        if os.path.isfile(config_file_) or os.path.isabs(config_file_):
             # config_file_ is a direct filesystem path — load without repo lookup.
+            # Append .yaml if not already present.
             # pre_folder is derived from the parent directory name.
             # config.config_file is left as-is from the YAML.
-            parent = os.path.basename(os.path.dirname(os.path.abspath(config_file_)))
+            yaml_file = config_file_ if config_file_.endswith('.yaml') else config_file_ + '.yaml'
+            parent = os.path.basename(os.path.dirname(os.path.abspath(yaml_file)))
             pre_folder = parent + "/" if parent else ""
             validate_pre_folder(pre_folder)
-            config = NeuralGraphConfig.from_yaml(config_file_)
+            config = NeuralGraphConfig.from_yaml(yaml_file)
             if not config.dataset.startswith(pre_folder):
                 config.dataset = pre_folder + config.dataset
         else:
