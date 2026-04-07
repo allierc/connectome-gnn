@@ -58,7 +58,7 @@ training:
   train_start: 0
   train_end: 0
   lr: 0.00001
-  rollout_train_steps: 5
+  rollout_train_steps: 1
   # these are all GNN parameters and irrelevant to the MLP
   lr_W: 0
   lr_embedding: 0
