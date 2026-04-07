@@ -191,7 +191,8 @@ When prompt says `PARALLEL START`:
 
 ## Paper Summary (update at every block boundary)
 
-- **Known ODE + strong noise**: [pending]
+- **GNN optimization**: [pending]
+- **LLM-driven exploration**: [pending]
 
 ## Knowledge Base
 

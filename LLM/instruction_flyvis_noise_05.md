@@ -468,9 +468,8 @@ When prompt says `PARALLEL START`:
 
 ## Paper Summary (update at every block boundary)
 
-- **Noise_05 landscape**: [...]
-- **LLM-driven exploration**: [...]
-- **Comparison with noise_005**: [...]
+- **GNN optimization**: [pending]
+- **LLM-driven exploration**: [pending]
 
 ## Knowledge Base
 
@@ -490,7 +489,21 @@ When prompt says `PARALLEL START`:
 
 ---
 
-## Previous Block Summary
+## Previous Block Summaries
+
+**RULE: Keep summaries for the last 4 completed blocks, sorted oldest→newest. This section MUST appear before ## Current Block.**
+
+### Block 1 Summary
+[Summary of findings from block 1]
+
+### Block 2 Summary
+[Summary of findings from block 2]
+
+### Block 3 Summary
+[Summary of findings from block 3]
+
+### Block 4 Summary
+[Summary of findings from block 4]
 
 ---
 

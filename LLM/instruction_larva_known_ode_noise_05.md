@@ -233,7 +233,7 @@ When prompt says `PARALLEL START`:
 
 ## Paper Summary (update at every block boundary)
 
-- **Known ODE optimization**: [pending]
+- **GNN optimization**: [pending]
 - **LLM-driven exploration**: [pending]
 
 ## Knowledge Base
@@ -251,7 +251,21 @@ When prompt says `PARALLEL START`:
 
 ---
 
-## Previous Block Summary
+## Previous Block Summaries
+
+**RULE: Keep summaries for the last 4 completed blocks, sorted oldest→newest. This section MUST appear before ## Current Block.**
+
+### Block 1 Summary
+[Summary of findings from block 1]
+
+### Block 2 Summary
+[Summary of findings from block 2]
+
+### Block 3 Summary
+[Summary of findings from block 3]
+
+### Block 4 Summary
+[Summary of findings from block 4]
 
 ---
 

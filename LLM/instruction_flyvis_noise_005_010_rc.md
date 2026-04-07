@@ -377,9 +377,8 @@ When prompt says `PARALLEL START`:
 
 ## Paper Summary (update at every block boundary)
 
-- **Recurrent training as implicit denoising**: [How multi-step rollout loss acts as an implicit low-pass filter for noisy GNN training. Best connectivity_R2 achieved, which recurrent parameters matter most, interaction between time_step and batch_size.]
-- **LLM-driven exploration**: [Exploration progress, key discoveries]
-- **Future works**: [Suggestions for further improvements]
+- **GNN optimization**: [pending]
+- **LLM-driven exploration**: [pending]
 
 ## Knowledge Base
 
@@ -396,7 +395,21 @@ When prompt says `PARALLEL START`:
 
 ---
 
-## Previous Block Summary
+## Previous Block Summaries
+
+**RULE: Keep summaries for the last 4 completed blocks, sorted oldest→newest. This section MUST appear before ## Current Block.**
+
+### Block 1 Summary
+[Summary of findings from block 1]
+
+### Block 2 Summary
+[Summary of findings from block 2]
+
+### Block 3 Summary
+[Summary of findings from block 3]
+
+### Block 4 Summary
+[Summary of findings from block 4]
 
 ---
 
