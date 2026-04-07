@@ -95,8 +95,8 @@ def run_cv(config_name, seeds):
     base_config = NeuralGraphConfig.from_yaml(config_path(f"{config_file}.yaml"))
     device = set_device(base_config.training.device)
 
-    # Summary goes into the cv00 log folder
-    cv_out_dir = log_path(pre_folder + f"{config_name}_cv00")
+    # Summary goes into the base config's results folder
+    cv_out_dir = os.path.join(log_path(pre_folder + config_name), "results")
     os.makedirs(cv_out_dir, exist_ok=True)
 
     all_metrics = {key: [] for key, _ in METRICS}

@@ -44,6 +44,7 @@ plotting:
     - -100
     - 100
 training:
+  use_gt_edges: true
   seed: 43
   n_epochs: 100
   batch_size: 256
