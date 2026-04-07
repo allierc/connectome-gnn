@@ -54,11 +54,10 @@ def check_cluster_repo():
     # Strip -dirty from local since the devcontainer is allowed to be dirty
     local_clean = local_desc.removesuffix('-dirty')
 
-    # HEAD mismatch check disabled — devcontainer and cluster may be on different commits
-    # if cluster_desc != local_clean:
-    #     print(f"\033[91mERROR: HEAD mismatch — local {local_desc} ≠ cluster {cluster_desc}\033[0m")
-    #     print("\033[91m  Push your commits and pull on cluster (or vice versa) before running\033[0m")
-    #     return False
+    if cluster_desc != local_clean:
+        print(f"\033[91mERROR: HEAD mismatch — local {local_desc} ≠ cluster {cluster_desc}\033[0m")
+        print("\033[91m  Push your commits and pull on cluster (or vice versa) before running\033[0m")
+        return False
 
     if local_desc.endswith('-dirty'):
         print(f"\033[93mWARNING: Local repo is dirty ({local_desc}) — uncommitted changes will NOT run on cluster\033[0m")
