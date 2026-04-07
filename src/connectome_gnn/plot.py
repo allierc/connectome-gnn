@@ -1485,7 +1485,7 @@ def plot_loss_from_file(log_dir):
 
 def plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_list,
                          gt_weights, edges, n_neurons=None, n_neuron_types=None,
-                         ode_params=None):
+                         ode_params=None, hidden_ids=None):
     from connectome_gnn.plot import (
         plot_embedding,
         plot_f_theta,
@@ -1506,12 +1506,26 @@ def plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_li
     plt.savefig(f"{log_dir}/tmp_training/embedding/{epoch}_{N}.png", dpi=87)
     plt.close()
 
+    # Compute visible-edge mask (exclude edges touching hidden neurons)
+    _visible_mask = None
+    if hidden_ids is not None:
+        _hidden_set = set(hidden_ids.cpu().numpy().tolist())
+        _e = edges.cpu().numpy()
+        _visible_mask = np.array([
+            _e[0, i] not in _hidden_set and _e[1, i] not in _hidden_set
+            for i in range(_e.shape[1])
+        ])
+
     # Plot 2: Raw W scatter (no correction)
     fig, ax = plt.subplots(figsize=(8, 8))
+    _gt_w = to_numpy(gt_weights)
     raw_W = to_numpy(get_model_W(model).squeeze())
+    if _visible_mask is not None:
+        _gt_w = _gt_w[_visible_mask]
+        raw_W = raw_W[_visible_mask]
     r_squared_raw, _ = plot_weight_scatter(
         ax,
-        gt_weights=to_numpy(gt_weights),
+        gt_weights=_gt_w,
         learned_weights=raw_W,
         corrected=False,
         outlier_threshold=5,
@@ -1530,10 +1544,15 @@ def plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_li
 
     # Plot 3: Corrected weight comparison scatter plot
     fig, ax = plt.subplots(figsize=(8, 8))
+    _gt_w_c = to_numpy(gt_weights)
+    _corr_w = to_numpy(corrected_W.squeeze())
+    if _visible_mask is not None:
+        _gt_w_c = _gt_w_c[_visible_mask]
+        _corr_w = _corr_w[_visible_mask]
     r_squared, _ = plot_weight_scatter(
         ax,
-        gt_weights=to_numpy(gt_weights),
-        learned_weights=to_numpy(corrected_W.squeeze()),
+        gt_weights=_gt_w_c,
+        learned_weights=_corr_w,
         corrected=True,
         xlim=[-1, 2],
         ylim=[-1, 2],
