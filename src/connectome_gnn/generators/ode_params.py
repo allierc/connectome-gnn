@@ -38,15 +38,16 @@ _ODE_PARAMS_REGISTRY: dict[str, type] = {}
 
 def register_ode_params(*names: str):
     """Class decorator that registers an ODE params class under config names."""
+
     def decorator(cls):
         for name in names:
             if name in _ODE_PARAMS_REGISTRY:
                 raise ValueError(
-                    f"ODE params name '{name}' already registered to "
-                    f"{_ODE_PARAMS_REGISTRY[name].__name__}"
+                    f"ODE params name '{name}' already registered to {_ODE_PARAMS_REGISTRY[name].__name__}"
                 )
             _ODE_PARAMS_REGISTRY[name] = cls
         return cls
+
     return decorator
 
 
@@ -54,9 +55,7 @@ def get_ode_params_class(name: str) -> type:
     """Look up ODE params class by config signal_model_name."""
     if name not in _ODE_PARAMS_REGISTRY:
         available = sorted(_ODE_PARAMS_REGISTRY.keys())
-        raise KeyError(
-            f"Unknown ODE params '{name}'. Available: {available}"
-        )
+        raise KeyError(f"Unknown ODE params '{name}'. Available: {available}")
     return _ODE_PARAMS_REGISTRY[name]
 
 
@@ -92,6 +91,7 @@ def list_ode_params() -> list[str]:
 # ---------------------------------------------------------------------------
 # Base class
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class ODEParamsBase:
@@ -157,10 +157,7 @@ class ODEParamsBase:
     @classmethod
     def _load_legacy(cls, folder: str, device: torch.device | str = "cpu"):
         """Override in subclass to support legacy per-file loading."""
-        raise FileNotFoundError(
-            f"No ode_params.pt found at {folder} and no legacy loader defined "
-            f"for {cls.__name__}"
-        )
+        raise FileNotFoundError(f"No ode_params.pt found at {folder} and no legacy loader defined for {cls.__name__}")
 
     # ------------------------------------------------------------------
     # Analysis interface — override in subclasses for model-specific
@@ -205,8 +202,7 @@ class ODEParamsBase:
         derived = np.where(slopes != 0, 1.0 / -slopes, 1.0)
         return np.clip(derived, 0, 10)
 
-    def derive_vrest(self, slopes_f_theta: np.ndarray, offsets_f_theta: np.ndarray,
-                     n_neurons: int) -> np.ndarray:
+    def derive_vrest(self, slopes_f_theta: np.ndarray, offsets_f_theta: np.ndarray, n_neurons: int) -> np.ndarray:
         """Derive resting potentials from f_theta slopes/offsets. Default: V = -offset/slope."""
         slopes = slopes_f_theta[:n_neurons]
         offsets = offsets_f_theta[:n_neurons]
@@ -233,8 +229,7 @@ class ODEParamsBase:
     # g_phi curve fitting and W correction
     # ------------------------------------------------------------------
 
-    def fit_g_phi_curves(self, v_ranges: np.ndarray, learned_curves: np.ndarray
-                         ) -> dict:
+    def fit_g_phi_curves(self, v_ranges: np.ndarray, learned_curves: np.ndarray) -> dict:
         """Fit learned g_phi curves to extract model-specific parameters.
 
         Args:
@@ -248,10 +243,11 @@ class ODEParamsBase:
         """
         # Default: linear slope (suitable for ReLU-like g_phi)
         from connectome_gnn.metrics import _vectorized_linear_fit
+
         slopes, offsets = _vectorized_linear_fit(v_ranges, learned_curves)
         slopes = np.asarray(slopes)
         slopes[np.abs(slopes) < 1e-8] = 1.0
-        return {'correction': slopes, 'slopes': slopes}
+        return {"correction": slopes, "slopes": slopes}
 
     def gt_g_phi_params(self, n_neurons: int) -> dict | None:
         """Ground truth g_phi parameters for R² comparison.
@@ -263,8 +259,7 @@ class ODEParamsBase:
         """Names of extractable g_phi parameters (for printing)."""
         return ["slope"]
 
-    def effective_true_weights(self, gt_weights: np.ndarray, edges: np.ndarray,
-                               n_neurons: int) -> np.ndarray:
+    def effective_true_weights(self, gt_weights: np.ndarray, edges: np.ndarray, n_neurons: int) -> np.ndarray:
         """Adjust true weights to include the g_phi amplitude factor.
 
         For ReLU models (slope=1), returns gt_weights unchanged.
@@ -295,11 +290,21 @@ class ODEParamsBase:
 # FlyVis graded-voltage model params
 # ---------------------------------------------------------------------------
 
+
 @register_ode_params(
-    "flyvis_A", "flyvis_B", "flyvis_C", "flyvis_D",
-    "flyvis_A_multiple_ReLU", "flyvis_B_multiple_ReLU", "flyvis_C_multiple_ReLU",
-    "flyvis_A_tanh", "flyvis_B_tanh", "flyvis_C_tanh",
-    "flyvis_A_NULL", "flyvis_B_NULL", "flyvis_C_NULL",
+    "flyvis_A",
+    "flyvis_B",
+    "flyvis_C",
+    "flyvis_D",
+    "flyvis_A_multiple_ReLU",
+    "flyvis_B_multiple_ReLU",
+    "flyvis_C_multiple_ReLU",
+    "flyvis_A_tanh",
+    "flyvis_B_tanh",
+    "flyvis_C_tanh",
+    "flyvis_A_NULL",
+    "flyvis_B_NULL",
+    "flyvis_C_NULL",
     "flyvis_known_ode",
     "flyvis_hybrid",
 )
@@ -315,10 +320,11 @@ class FlyVisODEParams(ODEParamsBase):
         edge_index: (2, E) source/destination indices
         w:          (E,) effective synaptic weights
     """
-    tau_i: torch.Tensor = None       # (N,)
-    V_i_rest: torch.Tensor = None    # (N,)
+
+    tau_i: torch.Tensor = None  # (N,)
+    V_i_rest: torch.Tensor = None  # (N,)
     edge_index: torch.Tensor = None  # (2, E)
-    W: torch.Tensor = None           # (E,) effective synaptic weights
+    W: torch.Tensor = None  # (E,) effective synaptic weights
 
     @classmethod
     def from_flyvis_network(cls, net, device: torch.device | str = "cpu"):
@@ -327,10 +333,13 @@ class FlyVisODEParams(ODEParamsBase):
         tau_i = params.nodes.time_const
         V_i_rest = params.nodes.bias
         W = params.edges.syn_strength * params.edges.syn_count * params.edges.sign
-        edge_index = torch.stack([
-            torch.tensor(net.connectome.edges.source_index[:]),
-            torch.tensor(net.connectome.edges.target_index[:]),
-        ], dim=0)
+        edge_index = torch.stack(
+            [
+                torch.tensor(net.connectome.edges.source_index[:]),
+                torch.tensor(net.connectome.edges.target_index[:]),
+            ],
+            dim=0,
+        )
         return cls(
             tau_i=tau_i.to(device),
             V_i_rest=V_i_rest.to(device),
@@ -341,6 +350,7 @@ class FlyVisODEParams(ODEParamsBase):
     @classmethod
     def _load_legacy(cls, folder: str, device: torch.device | str = "cpu"):
         """Load from legacy individual .pt files (taus.pt, V_i_rest.pt, etc.)."""
+
         def _load(name):
             path = os.path.join(folder, name)
             if os.path.exists(path):
@@ -353,23 +363,26 @@ class FlyVisODEParams(ODEParamsBase):
         edge_index = _load("edge_index.pt")
 
         if tau_i is None and V_i_rest is None and W is None and edge_index is None:
-            raise FileNotFoundError(
-                f"No ode_params.pt or legacy .pt files found at {folder}"
-            )
+            raise FileNotFoundError(f"No ode_params.pt or legacy .pt files found at {folder}")
 
         logger.info(f"loaded legacy ODE params from {folder}")
         return cls(tau_i=tau_i, V_i_rest=V_i_rest, edge_index=edge_index, W=W)
 
     # --- Analysis interface ---
-    def has_tau(self): return True
-    def has_vrest(self): return True
+    def has_tau(self):
+        return True
+
+    def has_vrest(self):
+        return True
 
     def gt_tau(self, n_neurons):
-        if self.tau_i is None: return None
+        if self.tau_i is None:
+            return None
         return self.tau_i[:n_neurons].cpu().numpy()
 
     def gt_vrest(self, n_neurons):
-        if self.V_i_rest is None: return None
+        if self.V_i_rest is None:
+            return None
         return self.V_i_rest[:n_neurons].cpu().numpy()
 
     def gt_g_phi_func(self, v):
@@ -407,34 +420,34 @@ class FlyVisODEParams(ODEParamsBase):
 # Units: mV, pF, nS, pA, ms, Hz.  Stored as dimensionless floats in those units.
 ADEX_DEFAULTS = dict(
     # Membrane
-    C=200.0,             # pF  — membrane capacitance
-    g_L=10.0,            # nS  — leak conductance
-    v_rest=-65.0,        # mV  — resting (leak reversal) potential
-    v_thresh=-50.0,      # mV  — spike initiation threshold (exp onset)
-    delta_T=2.0,         # mV  — exponential nonlinearity sharpness
-    v_cut=0.0,           # mV  — hard spike cutoff for detection
-    v_reset=-65.0,       # mV  — post-spike reset voltage
-    t_refrac=5.0,        # ms  — absolute refractory period
+    C=200.0,  # pF  — membrane capacitance
+    g_L=10.0,  # nS  — leak conductance
+    v_rest=-65.0,  # mV  — resting (leak reversal) potential
+    v_thresh=-50.0,  # mV  — spike initiation threshold (exp onset)
+    delta_T=2.0,  # mV  — exponential nonlinearity sharpness
+    v_cut=0.0,  # mV  — hard spike cutoff for detection
+    v_reset=-65.0,  # mV  — post-spike reset voltage
+    t_refrac=5.0,  # ms  — absolute refractory period
     # Adaptation
-    a=4.0,               # nS  — subthreshold adaptation coupling
-    b=20.0,              # pA  — spike-triggered adaptation increment
-    tau_w=500.0,         # ms  — adaptation time constant
+    a=4.0,  # nS  — subthreshold adaptation coupling
+    b=20.0,  # pA  — spike-triggered adaptation increment
+    tau_w=500.0,  # ms  — adaptation time constant
     # Synaptic (COBA)
-    E_ge=0.0,            # mV  — excitatory reversal potential
-    E_gi=-80.0,          # mV  — inhibitory reversal potential
-    Q_ge=1.0,            # nS  — excitatory quantal conductance
-    Q_gi=5.0,            # nS  — inhibitory quantal conductance
-    tau_ge=5.0,          # ms  — excitatory conductance decay
-    tau_gi=5.0,          # ms  — inhibitory conductance decay
+    E_ge=0.0,  # mV  — excitatory reversal potential
+    E_gi=-80.0,  # mV  — inhibitory reversal potential
+    Q_ge=1.0,  # nS  — excitatory quantal conductance
+    Q_gi=5.0,  # nS  — inhibitory quantal conductance
+    tau_ge=5.0,  # ms  — excitatory conductance decay
+    tau_gi=5.0,  # ms  — inhibitory conductance decay
     # Synaptic (CUBA) — no defaults from Zerlaut, set to 0 as placeholder
-    J_exc=0.0,           # mV  — excitatory spike kick
-    J_inh=0.0,           # mV  — inhibitory spike kick
+    J_exc=0.0,  # mV  — excitatory spike kick
+    J_inh=0.0,  # mV  — inhibitory spike kick
     # External input
-    I_bias=0.0,          # pA  — constant bias current
-    stim_scale=1.0,      # pA per unit stimulus — converts visual input to current
+    I_bias=0.0,  # pA  — constant bias current
+    stim_scale=1.0,  # pA per unit stimulus — converts visual input to current
     # Initial conditions
-    v_0_mean=0.0,        # mV  — mean offset from v_rest for initial v
-    v_0_std=4.0,         # mV  — std of initial v perturbation
+    v_0_mean=0.0,  # mV  — mean offset from v_rest for initial v
+    v_0_std=4.0,  # mV  — std of initial v perturbation
 )
 
 
@@ -461,6 +474,7 @@ class FlyVisAdExODEParams(ODEParamsBase):
     Synapse model selector:
         synapse_model: "COBA" or "CUBA"
     """
+
     # Membrane — (N,) per neuron
     C: torch.Tensor = None
     g_L: torch.Tensor = None
@@ -497,17 +511,22 @@ class FlyVisAdExODEParams(ODEParamsBase):
     v_0_std: float = 4.0
 
     # Topology
-    edge_index: torch.Tensor = None       # (2, E)
-    is_excitatory: torch.Tensor = None    # (N,) bool
+    edge_index: torch.Tensor = None  # (2, E)
+    is_excitatory: torch.Tensor = None  # (N,) bool
 
     # Synapse model selector
     synapse_model: str = "COBA"
 
     @classmethod
-    def from_defaults(cls, n_neurons: int, is_excitatory: torch.Tensor,
-                      edge_index: torch.Tensor, synapse_model: str = "COBA",
-                      device: torch.device | str = "cpu",
-                      overrides: dict | None = None) -> FlyVisAdExODEParams:
+    def from_defaults(
+        cls,
+        n_neurons: int,
+        is_excitatory: torch.Tensor,
+        edge_index: torch.Tensor,
+        synapse_model: str = "COBA",
+        device: torch.device | str = "cpu",
+        overrides: dict | None = None,
+    ) -> FlyVisAdExODEParams:
         """Construct from Zerlaut defaults with per-neuron expansion.
 
         Args:
@@ -555,9 +574,9 @@ class FlyVisAdExODEParams(ODEParamsBase):
         )
 
     @classmethod
-    def from_flyvis_network(cls, net, synapse_model: str = "COBA",
-                            device: torch.device | str = "cpu",
-                            overrides: dict | None = None) -> FlyVisAdExODEParams:
+    def from_flyvis_network(
+        cls, net, synapse_model: str = "COBA", device: torch.device | str = "cpu", overrides: dict | None = None
+    ) -> FlyVisAdExODEParams:
         """Construct from a flyvis Network, using Zerlaut defaults for AdEx params.
 
         E/I identity is inferred from the sign of synaptic weights:
@@ -567,10 +586,17 @@ class FlyVisAdExODEParams(ODEParamsBase):
         W = (params.edges.syn_strength * params.edges.syn_count * params.edges.sign).detach().to(device).float()
         src_raw = net.connectome.edges.source_index[:]
         dst_raw = net.connectome.edges.target_index[:]
-        edge_index = torch.stack([
-            torch.tensor(src_raw, dtype=torch.long, device=device) if not isinstance(src_raw, torch.Tensor) else src_raw.to(device).long(),
-            torch.tensor(dst_raw, dtype=torch.long, device=device) if not isinstance(dst_raw, torch.Tensor) else dst_raw.to(device).long(),
-        ], dim=0)
+        edge_index = torch.stack(
+            [
+                torch.tensor(src_raw, dtype=torch.long, device=device)
+                if not isinstance(src_raw, torch.Tensor)
+                else src_raw.to(device).long(),
+                torch.tensor(dst_raw, dtype=torch.long, device=device)
+                if not isinstance(dst_raw, torch.Tensor)
+                else dst_raw.to(device).long(),
+            ],
+            dim=0,
+        )
 
         n_neurons = len(params.nodes.time_const)
         src = edge_index[0]
@@ -578,7 +604,7 @@ class FlyVisAdExODEParams(ODEParamsBase):
         # Infer E/I from net outgoing weight sign per neuron
         sum_w = torch.zeros(n_neurons, device=device)
         sum_w.scatter_add_(0, src, W)
-        is_excitatory = (sum_w >= 0)
+        is_excitatory = sum_w >= 0
 
         return cls.from_defaults(
             n_neurons=n_neurons,
@@ -598,25 +624,25 @@ class FlyVisAdExODEParams(ODEParamsBase):
 # Units: mV, uF/cm^2, mS/cm^2, uA/cm^2, ms.
 HH_DEFAULTS = dict(
     # Membrane capacitance
-    C=1.0,               # uF/cm^2
+    C=1.0,  # uF/cm^2
     # Leak
-    g_L=0.3,             # mS/cm^2
-    E_L=-54.387,         # mV — leak reversal potential
+    g_L=0.3,  # mS/cm^2
+    E_L=-54.387,  # mV — leak reversal potential
     # Sodium
-    g_Na=120.0,          # mS/cm^2
-    E_Na=50.0,           # mV — sodium reversal potential
+    g_Na=120.0,  # mS/cm^2
+    E_Na=50.0,  # mV — sodium reversal potential
     # Potassium
-    g_K=36.0,            # mS/cm^2
-    E_K=-77.0,           # mV — potassium reversal potential
+    g_K=36.0,  # mS/cm^2
+    E_K=-77.0,  # mV — potassium reversal potential
     # Synaptic coupling (continuous, voltage-dependent)
-    syn_tau=5.0,         # ms — synaptic activation time constant
-    syn_slope=5.0,       # mV — sigmoid slope for presynaptic activation
-    syn_v_half=-45.0,    # mV — sigmoid midpoint (allows subthreshold transmission)
+    syn_tau=5.0,  # ms — synaptic activation time constant
+    syn_slope=5.0,  # mV — sigmoid slope for presynaptic activation
+    syn_v_half=-45.0,  # mV — sigmoid midpoint (allows subthreshold transmission)
     # External input
-    I_bias=3.0,          # uA/cm^2 — tonic drive (depolarises to ~-44mV, subthreshold)
-    stim_scale=50.0,     # uA/cm^2 per unit stimulus
+    I_bias=3.0,  # uA/cm^2 — tonic drive (depolarises to ~-44mV, subthreshold)
+    stim_scale=50.0,  # uA/cm^2 per unit stimulus
     # Weight scaling (flyvis connectome weights calibrated for graded model)
-    w_scale=2.0,         # global multiplier on connectome W for HH dynamics
+    w_scale=2.0,  # global multiplier on connectome W for HH dynamics
 )
 
 
@@ -638,6 +664,7 @@ class FlyVisHodgkinHuxleyODEParams(ODEParamsBase):
         edge_index: (2, E) source/destination indices
         W: (E,) effective synaptic weights (from flyvis connectome)
     """
+
     # Membrane — (N,) per neuron
     C: torch.Tensor = None
     g_L: torch.Tensor = None
@@ -658,13 +685,17 @@ class FlyVisHodgkinHuxleyODEParams(ODEParamsBase):
 
     # Topology
     edge_index: torch.Tensor = None  # (2, E)
-    W: torch.Tensor = None           # (E,) effective synaptic weights
+    W: torch.Tensor = None  # (E,) effective synaptic weights
 
     @classmethod
-    def from_defaults(cls, n_neurons: int, edge_index: torch.Tensor,
-                      W: torch.Tensor,
-                      device: torch.device | str = "cpu",
-                      overrides: dict | None = None) -> FlyVisHodgkinHuxleyODEParams:
+    def from_defaults(
+        cls,
+        n_neurons: int,
+        edge_index: torch.Tensor,
+        W: torch.Tensor,
+        device: torch.device | str = "cpu",
+        overrides: dict | None = None,
+    ) -> FlyVisHodgkinHuxleyODEParams:
         """Construct from HH defaults with per-neuron expansion."""
         d = {**HH_DEFAULTS}
         if overrides:
@@ -691,8 +722,9 @@ class FlyVisHodgkinHuxleyODEParams(ODEParamsBase):
         )
 
     @classmethod
-    def from_flyvis_network(cls, net, device: torch.device | str = "cpu",
-                            overrides: dict | None = None) -> FlyVisHodgkinHuxleyODEParams:
+    def from_flyvis_network(
+        cls, net, device: torch.device | str = "cpu", overrides: dict | None = None
+    ) -> FlyVisHodgkinHuxleyODEParams:
         """Construct from a flyvis Network.
 
         Per-type params derived from flyvis connectome:
@@ -706,10 +738,17 @@ class FlyVisHodgkinHuxleyODEParams(ODEParamsBase):
         W = (params.edges.syn_strength * params.edges.syn_count * params.edges.sign).detach().to(device).float()
         src_raw = net.connectome.edges.source_index[:]
         dst_raw = net.connectome.edges.target_index[:]
-        edge_index = torch.stack([
-            torch.tensor(src_raw, dtype=torch.long, device=device) if not isinstance(src_raw, torch.Tensor) else src_raw.to(device).long(),
-            torch.tensor(dst_raw, dtype=torch.long, device=device) if not isinstance(dst_raw, torch.Tensor) else dst_raw.to(device).long(),
-        ], dim=0)
+        edge_index = torch.stack(
+            [
+                torch.tensor(src_raw, dtype=torch.long, device=device)
+                if not isinstance(src_raw, torch.Tensor)
+                else src_raw.to(device).long(),
+                torch.tensor(dst_raw, dtype=torch.long, device=device)
+                if not isinstance(dst_raw, torch.Tensor)
+                else dst_raw.to(device).long(),
+            ],
+            dim=0,
+        )
 
         n_neurons = len(params.nodes.time_const)
 
@@ -745,6 +784,7 @@ class FlyVisHodgkinHuxleyODEParams(ODEParamsBase):
 # ---------------------------------------------------------------------------
 # Zebrafish oculomotor integrator (Beiran & Litwin-Kumar 2023, Fig 5)
 # ---------------------------------------------------------------------------
+
 
 @register_ode_params("zebrafish", "zebrafish_oculomotor", "zebrafish_known_ode", "zebrafish_oculomotor_known_ode")
 @dataclass
@@ -786,11 +826,12 @@ class ZebrafishODEParams(ODEParamsBase):
         tau: time constant (default 1.0, fixed — not learned)
         n_neurons: number of neurons (609)
     """
+
     edge_index: torch.Tensor = None  # (2, E)
-    W: torch.Tensor = None           # (E,)
-    v_in: torch.Tensor = None        # (N,) input direction vector
+    W: torch.Tensor = None  # (E,)
+    v_in: torch.Tensor = None  # (N,) input direction vector
     neuron_types: torch.Tensor = None  # (N,) int type labels
-    type_names: list = None          # unique type name strings
+    type_names: list = None  # unique type name strings
     tau: float = 1.0
     n_neurons: int = 0
 
@@ -802,7 +843,8 @@ class ZebrafishODEParams(ODEParamsBase):
         Uses load_zebrafish_connectome() from connconstr_data.py.
         """
         from connectome_gnn.generators.connconstr_data import (
-            dense_to_sparse, load_zebrafish_connectome,
+            dense_to_sparse,
+            load_zebrafish_connectome,
         )
 
         data = load_zebrafish_connectome(datapath)
@@ -826,7 +868,8 @@ class ZebrafishODEParams(ODEParamsBase):
         Ref: nn_fig5_zebrafish_teacher.py line 394
         """
         from connectome_gnn.generators.connconstr_data import (
-            dense_to_sparse, load_zebrafish_pretrained,
+            dense_to_sparse,
+            load_zebrafish_pretrained,
         )
 
         # zebrafish.npz may be in parent directory
@@ -842,6 +885,7 @@ class ZebrafishODEParams(ODEParamsBase):
         # Load neuron type labels from Goldman MATLAB data
         try:
             from connectome_gnn.generators.connconstr_data import load_zebrafish_connectome
+
             goldman_dir = os.path.join(datapath, "goldman_data")
             if not os.path.isdir(goldman_dir):
                 goldman_dir = os.path.join(os.path.dirname(datapath), "goldman_data")
@@ -864,6 +908,7 @@ class ZebrafishODEParams(ODEParamsBase):
 
     def create_ode(self, device=None):
         from connectome_gnn.generators.connconstr_zebrafish_ode import ZebrafishODE
+
         return ZebrafishODE(ode_params=self, device=device)
 
     def get_dt(self):
@@ -948,7 +993,7 @@ class ZebrafishODEParams(ODEParamsBase):
             filt = np.exp(-np.arange(tau_k * 3) / tau_k)
             filt /= filt.sum()
             noise = rng.randn(n_frames + len(filt))
-            I_k = np.convolve(noise, filt, mode='full')[:n_frames]
+            I_k = np.convolve(noise, filt, mode="full")[:n_frames]
 
             I_k *= amplitudes[k] * 800
             stim += I_k[:, None] * directions[None, :, k]  # (T,1) * (1,N)
@@ -965,8 +1010,11 @@ class ZebrafishODEParams(ODEParamsBase):
         return 0
 
     # --- Analysis interface ---
-    def has_tau(self): return False  # fixed tau=1
-    def has_vrest(self): return False
+    def has_tau(self):
+        return False  # fixed tau=1
+
+    def has_vrest(self):
+        return False
 
     def gt_g_phi_func(self, v):
         return v  # identity — linear ODE, no activation
@@ -993,6 +1041,7 @@ class ZebrafishODEParams(ODEParamsBase):
 # ---------------------------------------------------------------------------
 # Drosophila adult central complex ring attractor (Beiran & Litwin-Kumar 2023, Fig 5)
 # ---------------------------------------------------------------------------
+
 
 @register_ode_params("drosophila_cx", "drosophila_cx_rnn", "drosophila_cx_mlp", "drosophila_cx_known_ode")
 @dataclass
@@ -1027,16 +1076,17 @@ class DrosophilaCxODEParams(ODEParamsBase):
         noise_std: noise magnitude (default 0.0)
         n_neurons: total neuron count
     """
-    edge_index: torch.Tensor = None    # (2, E)
-    W: torch.Tensor = None             # (E,)
-    g: torch.Tensor = None             # (N,) log gain
-    b: torch.Tensor = None             # (N,) bias
-    h0: torch.Tensor = None            # (N,) initial state
-    tau_raw: torch.Tensor = None       # (N,) raw time constant
+
+    edge_index: torch.Tensor = None  # (2, E)
+    W: torch.Tensor = None  # (E,)
+    g: torch.Tensor = None  # (N,) log gain
+    b: torch.Tensor = None  # (N,) bias
+    h0: torch.Tensor = None  # (N,) initial state
+    tau_raw: torch.Tensor = None  # (N,) raw time constant
     neuron_types: torch.Tensor = None  # (N,) int type labels
-    winp: torch.Tensor = None          # (input_size, N)
-    wout: torch.Tensor = None          # (N, output_size)
-    type_names: list = None             # unique type name strings
+    winp: torch.Tensor = None  # (input_size, N)
+    wout: torch.Tensor = None  # (N, output_size)
+    type_names: list = None  # unique type name strings
     alpha: float = 1.0
     beta: float = 5.0
     noise_std: float = 0.0
@@ -1050,7 +1100,8 @@ class DrosophilaCxODEParams(ODEParamsBase):
         Uses load_drosophila_cx_connectome() from connconstr_data.py.
         """
         from connectome_gnn.generators.connconstr_data import (
-            dense_to_sparse, load_drosophila_cx_connectome,
+            dense_to_sparse,
+            load_drosophila_cx_connectome,
         )
 
         # Accept either parent dir or hemibrain subdir
@@ -1104,7 +1155,8 @@ class DrosophilaCxODEParams(ODEParamsBase):
           arr_7 = si_  (48, 152) input scaling
         """
         from connectome_gnn.generators.connconstr_data import (
-            dense_to_sparse, load_drosophila_cx_connectome,
+            dense_to_sparse,
+            load_drosophila_cx_connectome,
         )
 
         # Prefer the .pt state dict (has taus), fallback to .npz
@@ -1113,36 +1165,35 @@ class DrosophilaCxODEParams(ODEParamsBase):
 
         if os.path.exists(pt_path):
             # Load full state dict — has all trained params including taus
-            sd = torch.load(pt_path, map_location='cpu', weights_only=False)
-            wrec_t = sd['wrec'].numpy()
-            mwrec_t = sd['mwrec'].numpy()
+            sd = torch.load(pt_path, map_location="cpu", weights_only=False)
+            wrec_t = sd["wrec"].numpy()
+            mwrec_t = sd["mwrec"].numpy()
             JJ = np.exp(wrec_t) * mwrec_t  # effective J (line 184)
-            g = sd['g'].numpy().flatten()   # log gain (ODE uses exp(g))
-            bb = sd['b'].numpy().flatten()
-            hh0 = sd['h0'].numpy().flatten()
-            tau_raw = sd['taus'].numpy().flatten()
-            wI = sd['wi'].numpy()           # (48, N)
-            si_ = sd['si'].numpy()          # (48, 1)
-            wOut = sd['wout'].numpy()       # (N, 49)
+            g = sd["g"].numpy().flatten()  # log gain (ODE uses exp(g))
+            bb = sd["b"].numpy().flatten()
+            hh0 = sd["h0"].numpy().flatten()
+            tau_raw = sd["taus"].numpy().flatten()
+            wI = sd["wi"].numpy()  # (48, N)
+            si_ = sd["si"].numpy()  # (48, 1)
+            wOut = sd["wout"].numpy()  # (N, 49)
             alpha_ = 0.2  # Ref: RNN.__init__ default alpha=0.2
             N = JJ.shape[0]
         elif os.path.exists(npz_path):
             AA = np.load(npz_path)
-            JJ = AA['arr_0']       # effective J
-            gg = AA['arr_1']       # exp(g), already exponentiated
-            bb = AA['arr_2']       # bias
-            hh0 = AA['arr_3']      # initial state
-            wI = AA['arr_4']       # (48, N) input weights
-            wOut = AA['arr_5']     # (N, 49) output weights
-            alpha_ = float(AA['arr_6'])
-            si_ = AA['arr_7']      # (48, N) or (48, 1) input scaling
+            JJ = AA["arr_0"]  # effective J
+            gg = AA["arr_1"]  # exp(g), already exponentiated
+            bb = AA["arr_2"]  # bias
+            hh0 = AA["arr_3"]  # initial state
+            wI = AA["arr_4"]  # (48, N) input weights
+            wOut = AA["arr_5"]  # (N, 49) output weights
+            alpha_ = float(AA["arr_6"])
+            si_ = AA["arr_7"]  # (48, N) or (48, 1) input scaling
             N = JJ.shape[0]
             g = np.log(np.maximum(gg, 1e-12))  # log it back
             tau_raw = np.zeros(N, dtype=np.float32)  # default
         else:
             raise FileNotFoundError(
-                f"CX pretrained not found at {pt_path} or {npz_path}\n"
-                "Run nn_fig5_drosophilaCx_teacher.py first."
+                f"CX pretrained not found at {pt_path} or {npz_path}\nRun nn_fig5_drosophilaCx_teacher.py first."
             )
 
         edge_index, W_sparse = dense_to_sparse(JJ)
@@ -1181,6 +1232,7 @@ class DrosophilaCxODEParams(ODEParamsBase):
 
     def create_ode(self, device=None):
         from connectome_gnn.generators.connconstr_cx_ode import DrosophilaCxODE
+
         return DrosophilaCxODE(ode_params=self, device=device)
 
     def get_dt(self):
@@ -1196,9 +1248,11 @@ class DrosophilaCxODEParams(ODEParamsBase):
     def generate_stimulus(self, n_frames, sim, device=None):
         """Returns per-neuron stimulus tensor (T, N)."""
         from connectome_gnn.generators.connconstr_data import (
-            generate_cx_stimulus, load_drosophila_cx_connectome,
+            generate_cx_stimulus,
+            load_drosophila_cx_connectome,
         )
         from connectome_gnn.utils import to_numpy
+
         # Accept either parent dir or hemibrain subdir
         hemibrain_dir = sim.connconstr_datapath
         if not os.path.exists(os.path.join(hemibrain_dir, "traced-neurons.csv")):
@@ -1206,7 +1260,8 @@ class DrosophilaCxODEParams(ODEParamsBase):
         cx_data = load_drosophila_cx_connectome(hemibrain_dir)
         cx_inps = generate_cx_stimulus(
             n_frames,
-            cx_data["epg_ix"], cx_data["W_16to46"],
+            cx_data["epg_ix"],
+            cx_data["W_16to46"],
             seed=sim.seed,
         )
         winp_np = to_numpy(self.winp)
@@ -1226,14 +1281,22 @@ class DrosophilaCxODEParams(ODEParamsBase):
         return 0
 
     # --- Analysis interface ---
-    def has_tau(self): return True
-    def has_vrest(self): return False
-    def has_gain(self): return True
-    def has_bias(self): return True
+    def has_tau(self):
+        return True
+
+    def has_vrest(self):
+        return False
+
+    def has_gain(self):
+        return True
+
+    def has_bias(self):
+        return True
 
     def gt_tau(self, n_neurons):
         """CX tau = 2.6 + 2.4 * tanh(tau_raw), bounded [0.2, 5.0]."""
-        if self.tau_raw is None: return None
+        if self.tau_raw is None:
+            return None
         tau = 2.6 + 2.4 * np.tanh(self.tau_raw[:n_neurons].cpu().numpy())
         return tau
 
@@ -1242,12 +1305,14 @@ class DrosophilaCxODEParams(ODEParamsBase):
 
     def gt_gain(self, n_neurons):
         """CX gain = exp(g) per neuron."""
-        if self.g is None: return None
+        if self.g is None:
+            return None
         return np.exp(self.g[:n_neurons].cpu().numpy())
 
     def gt_bias(self, n_neurons):
         """CX bias b in softplus(v + b)."""
-        if self.b is None: return None
+        if self.b is None:
+            return None
         return self.b[:n_neurons].cpu().numpy()
 
     def derive_tau(self, slopes_f_theta, n_neurons):
@@ -1260,7 +1325,8 @@ class DrosophilaCxODEParams(ODEParamsBase):
     def gt_f_theta_func(self, v, n_neurons):
         """Ground truth f_theta(v) = -alpha * v / tau per neuron."""
         tau = self.gt_tau(n_neurons)
-        if tau is None: return None
+        if tau is None:
+            return None
         return -self.alpha * v / tau[:, None]
 
     def gt_g_phi_func(self, v):
@@ -1310,6 +1376,7 @@ class DrosophilaCxODEParams(ODEParamsBase):
             bias: (N,) fitted bias b ≈ b_true (shape param, disentangled)
         """
         from scipy.optimize import curve_fit
+
         beta = self.beta
         n_neurons = learned_curves.shape[0]
         gains = np.ones(n_neurons)
@@ -1324,8 +1391,7 @@ class DrosophilaCxODEParams(ODEParamsBase):
             y = learned_curves[j]
             A0 = max(np.max(np.abs(y)), 0.1)
             try:
-                popt, _ = curve_fit(_softplus_model, v_j, y,
-                                    p0=[A0, 0.0], maxfev=2000)
+                popt, _ = curve_fit(_softplus_model, v_j, y, p0=[A0, 0.0], maxfev=2000)
                 gains[j] = popt[0]
                 biases[j] = popt[1]
             except (RuntimeError, ValueError):
@@ -1334,7 +1400,7 @@ class DrosophilaCxODEParams(ODEParamsBase):
 
         correction = gains.copy()
         correction[np.abs(correction) < 1e-8] = 1.0
-        return {'correction': correction, 'gain': gains, 'bias': biases}
+        return {"correction": correction, "gain": gains, "bias": biases}
 
     def gt_g_phi_params(self, n_neurons):
         """Ground truth bias b for R² comparison.
@@ -1342,7 +1408,7 @@ class DrosophilaCxODEParams(ODEParamsBase):
         if self.b is None:
             return None
         b_np = self.b[:n_neurons].cpu().numpy()
-        return {'bias': b_np}
+        return {"bias": b_np}
 
     def g_phi_param_names(self):
         return ["bias"]
@@ -1369,6 +1435,7 @@ class DrosophilaCxODEParams(ODEParamsBase):
 # ---------------------------------------------------------------------------
 # Drosophila larva two-population model (Beiran & Litwin-Kumar 2023, Fig 5)
 # ---------------------------------------------------------------------------
+
 
 @register_ode_params("larva", "larva_known_ode")
 @dataclass
@@ -1408,15 +1475,16 @@ class LarvaODEParams(ODEParamsBase):
         n_motor: M
         dt: integration time step
     """
-    edge_index: torch.Tensor = None    # (2, E)
-    W: torch.Tensor = None             # (E,)
-    gp: torch.Tensor = None            # (N,)
-    gm: torch.Tensor = None            # (M,)
-    bp: torch.Tensor = None            # (N,)
-    bm: torch.Tensor = None            # (M,)
-    wsp: torch.Tensor = None           # (S, N) stimulus→premotor
+
+    edge_index: torch.Tensor = None  # (2, E)
+    W: torch.Tensor = None  # (E,)
+    gp: torch.Tensor = None  # (N,)
+    gm: torch.Tensor = None  # (M,)
+    bp: torch.Tensor = None  # (N,)
+    bm: torch.Tensor = None  # (M,)
+    wsp: torch.Tensor = None  # (S, N) stimulus→premotor
     neuron_types: torch.Tensor = None  # (N+M,)
-    type_names: list = None            # ["premotor", "motor"]
+    type_names: list = None  # ["premotor", "motor"]
     taup: float = 1.0
     taum: float = 1.0
     n_premotor: int = 0
@@ -1431,7 +1499,8 @@ class LarvaODEParams(ODEParamsBase):
         Uses load_larva_connectome() from connconstr_data.py.
         """
         from connectome_gnn.generators.connconstr_data import (
-            dense_to_sparse, load_larva_connectome,
+            dense_to_sparse,
+            load_larva_connectome,
         )
 
         data = load_larva_connectome(datapath)
@@ -1456,20 +1525,27 @@ class LarvaODEParams(ODEParamsBase):
         bm = torch.zeros(M, dtype=torch.float32, device=device)
 
         # Type labels: 0=premotor, 1=motor
-        neuron_types = torch.cat([
-            torch.zeros(N, dtype=torch.long),
-            torch.ones(M, dtype=torch.long),
-        ]).to(device)
+        neuron_types = torch.cat(
+            [
+                torch.zeros(N, dtype=torch.long),
+                torch.ones(M, dtype=torch.long),
+            ]
+        ).to(device)
 
         return cls(
             edge_index=edge_index.to(device),
             W=W.to(device),
-            gp=gp, gm=gm, bp=bp, bm=bm,
+            gp=gp,
+            gm=gm,
+            bp=bp,
+            bm=bm,
             wsp=torch.zeros(2, N, dtype=torch.float32, device=device),
             neuron_types=neuron_types,
             type_names=["premotor", "motor"],
-            taup=1.0, taum=1.0,
-            n_premotor=N, n_motor=M,
+            taup=1.0,
+            taum=1.0,
+            n_premotor=N,
+            n_motor=M,
             dt=0.05,  # Ref: setup.py line 224,227
         )
 
@@ -1480,7 +1556,8 @@ class LarvaODEParams(ODEParamsBase):
         Ref: nn_fig5_plots_abc.py lines 31-41
         """
         from connectome_gnn.generators.connconstr_data import (
-            dense_to_sparse, load_larva_pretrained,
+            dense_to_sparse,
+            load_larva_pretrained,
         )
 
         data = load_larva_pretrained(datapath)
@@ -1500,10 +1577,12 @@ class LarvaODEParams(ODEParamsBase):
         edge_index = torch.cat([ei_pp, ei_pm], dim=1)
         W = torch.cat([w_pp, w_pm])
 
-        neuron_types = torch.cat([
-            torch.zeros(N, dtype=torch.long),
-            torch.ones(M, dtype=torch.long),
-        ]).to(device)
+        neuron_types = torch.cat(
+            [
+                torch.zeros(N, dtype=torch.long),
+                torch.ones(M, dtype=torch.long),
+            ]
+        ).to(device)
 
         return cls(
             edge_index=edge_index.to(device),
@@ -1515,8 +1594,8 @@ class LarvaODEParams(ODEParamsBase):
             wsp=torch.tensor(data["wsp"], dtype=torch.float32, device=device),
             neuron_types=neuron_types,
             type_names=["premotor", "motor"],
-            taup=float(data["taup"].item() if hasattr(data["taup"], 'item') else data["taup"]),
-            taum=float(data["taum"].item() if hasattr(data["taum"], 'item') else data["taum"]),
+            taup=float(data["taup"].item() if hasattr(data["taup"], "item") else data["taup"]),
+            taum=float(data["taum"].item() if hasattr(data["taum"], "item") else data["taum"]),
             n_premotor=N,
             n_motor=M,
             dt=0.05,  # Ref: setup.py line 224,227
@@ -1524,6 +1603,7 @@ class LarvaODEParams(ODEParamsBase):
 
     def create_ode(self, device=None):
         from connectome_gnn.generators.connconstr_larva_ode import LarvaODE
+
         return LarvaODE(ode_params=self, device=device)
 
     def get_dt(self):
@@ -1640,6 +1720,7 @@ class LarvaODEParams(ODEParamsBase):
         connections, matching the biological architecture).
         """
         import re
+
         rng = np.random.RandomState(sim.seed)
         N_total = self.n_premotor + self.n_motor
         N_pre = self.n_premotor
@@ -1663,7 +1744,7 @@ class LarvaODEParams(ODEParamsBase):
         signal_filter /= signal_filter.sum()
 
         noise = rng.randn(n_frames + len(signal_filter))
-        base_signal = np.convolve(noise, signal_filter, mode='full')[:n_frames]
+        base_signal = np.convolve(noise, signal_filter, mode="full")[:n_frames]
 
         # Slow amplitude envelope — models episodic locomotion bouts
         # Ref: Lemon et al. 2015 observed epochs of fictive locomotion
@@ -1672,7 +1753,7 @@ class LarvaODEParams(ODEParamsBase):
         env_filter = np.exp(-np.arange(env_tau * 4) / env_tau)
         env_filter /= env_filter.sum()
         env_noise = rng.randn(n_frames + len(env_filter))
-        envelope = np.convolve(env_noise, env_filter, mode='full')[:n_frames]
+        envelope = np.convolve(env_noise, env_filter, mode="full")[:n_frames]
         envelope = (envelope - envelope.min()) / (envelope.max() - envelope.min() + 1e-12)
         base_signal *= envelope
 
@@ -1710,7 +1791,7 @@ class LarvaODEParams(ODEParamsBase):
         dir_filter = np.exp(-np.arange(dir_tau * 4) / dir_tau)
         dir_filter /= dir_filter.sum()
         dir_noise = rng.randn(n_frames + len(dir_filter))
-        direction = np.convolve(dir_noise, dir_filter, mode='full')[:n_frames]
+        direction = np.convolve(dir_noise, dir_filter, mode="full")[:n_frames]
         # Soft sign: +1 = forward (posterior→anterior), -1 = backward
         direction = np.tanh(direction * 2)
 
@@ -1733,9 +1814,9 @@ class LarvaODEParams(ODEParamsBase):
         # Ref: Vaadia et al. 2019 — "Basin neurons integrate nociceptive
         #      and mechanoreceptive inputs."
         noise2 = rng.randn(n_frames + len(signal_filter))
-        base_signal2 = np.convolve(noise2, signal_filter, mode='full')[:n_frames]
+        base_signal2 = np.convolve(noise2, signal_filter, mode="full")[:n_frames]
         env_noise2 = rng.randn(n_frames + len(env_filter))
-        envelope2 = np.convolve(env_noise2, env_filter, mode='full')[:n_frames]
+        envelope2 = np.convolve(env_noise2, env_filter, mode="full")[:n_frames]
         envelope2 = (envelope2 - envelope2.min()) / (envelope2.max() - envelope2.min() + 1e-12)
         base_signal2 *= envelope2
 
@@ -1760,10 +1841,7 @@ class LarvaODEParams(ODEParamsBase):
             seg = seg_indices[ni]
             # Channel 0 × direction-modulated segment wave
             # Channel 1 × second independent segment wave
-            stim_premotor[:, ni] = (
-                wsp_np[0, ni] * per_segment_mixed[:, seg] +
-                wsp_np[1, ni] * per_segment2[:, seg]
-            )
+            stim_premotor[:, ni] = wsp_np[0, ni] * per_segment_mixed[:, seg] + wsp_np[1, ni] * per_segment2[:, seg]
 
         # Motor neurons receive no direct stimulus — they are driven
         # exclusively by premotor→motor connections (Jpm).
@@ -1771,8 +1849,7 @@ class LarvaODEParams(ODEParamsBase):
         stim_all = torch.zeros(n_frames, N_total, dtype=torch.float32, device=device)
         # Scale factor: paper's effective stimulus std ≈ 4.9 per neuron.
         # 5.0 matches paper training amplitude for meaningful dynamic rank.
-        stim_all[:, :N_pre] = torch.tensor(
-            5.0 * stim_premotor, dtype=torch.float32, device=device)
+        stim_all[:, :N_pre] = torch.tensor(5.0 * stim_premotor, dtype=torch.float32, device=device)
 
         return stim_all
 
@@ -1782,19 +1859,20 @@ class LarvaODEParams(ODEParamsBase):
         Segments: t3=0, a1=1, a2=2, a3=3 (anterior to posterior).
         """
         import re
+
         try:
             from connectome_gnn.generators.connconstr_data import load_larva_connectome
+
             data = load_larva_connectome(datapath)
-            pnames = [p.decode() if isinstance(p, bytes) else str(p)
-                      for p in data["pnames"]]
+            pnames = [p.decode() if isinstance(p, bytes) else str(p) for p in data["pnames"]]
         except Exception:
             # Fallback: assign uniform segment index
             return np.zeros(self.n_premotor, dtype=int)
 
-        seg_order = {'t3': 0, 'a1': 1, 'a2': 2, 'a3': 3}
+        seg_order = {"t3": 0, "a1": 1, "a2": 2, "a3": 3}
         indices = np.zeros(len(pnames), dtype=int)
         for i, name in enumerate(pnames):
-            m = re.search(r'_([at]\d+)$', name)
+            m = re.search(r"_([at]\d+)$", name)
             if m:
                 indices[i] = seg_order.get(m.group(1), 0)
         return indices
@@ -1809,49 +1887,61 @@ class LarvaODEParams(ODEParamsBase):
     def init_state(self, voltage, datapath=None, device=None):
         try:
             from connectome_gnn.generators.connconstr_data import load_larva_pretrained
+
             pretrained = load_larva_pretrained(datapath)
             if "p0" in pretrained and pretrained["p0"] is not None:
                 p0 = pretrained["p0"]
                 if p0.ndim == 3:
                     p0 = p0[0, 0, :]
-                voltage[:self.n_premotor] = torch.tensor(
-                    p0.flatten()[:self.n_premotor], dtype=torch.float32, device=device)
+                voltage[: self.n_premotor] = torch.tensor(
+                    p0.flatten()[: self.n_premotor], dtype=torch.float32, device=device
+                )
             if "m0" in pretrained and pretrained["m0"] is not None:
                 m0 = pretrained["m0"]
                 if m0.ndim == 3:
                     m0 = m0[0, 0, :]
-                voltage[self.n_premotor:] = torch.tensor(
-                    m0.flatten()[:self.n_motor], dtype=torch.float32, device=device)
+                voltage[self.n_premotor :] = torch.tensor(
+                    m0.flatten()[: self.n_motor], dtype=torch.float32, device=device
+                )
         except (FileNotFoundError, KeyError):
             pass
 
     # --- Analysis interface ---
-    def has_tau(self): return True  # two distinct tau values (premotor/motor)
-    def has_vrest(self): return False
-    def has_gain(self): return True
-    def has_bias(self): return True
+    def has_tau(self):
+        return True  # two distinct tau values (premotor/motor)
+
+    def has_vrest(self):
+        return False
+
+    def has_gain(self):
+        return True
+
+    def has_bias(self):
+        return True
 
     def gt_tau(self, n_neurons):
         """Premotor neurons have taup, motor neurons have taum."""
         tau = np.zeros(n_neurons)
-        tau[:self.n_premotor] = self.taup
-        tau[self.n_premotor:self.n_premotor + self.n_motor] = self.taum
+        tau[: self.n_premotor] = self.taup
+        tau[self.n_premotor : self.n_premotor + self.n_motor] = self.taum
         return tau[:n_neurons]
 
     def gt_gain(self, n_neurons):
         """Per-neuron gain: gp for premotor, gm for motor."""
-        if self.gp is None or self.gm is None: return None
+        if self.gp is None or self.gm is None:
+            return None
         gain = np.zeros(n_neurons)
-        gain[:self.n_premotor] = self.gp[:self.n_premotor].cpu().numpy()
-        gain[self.n_premotor:self.n_premotor + self.n_motor] = self.gm[:self.n_motor].cpu().numpy()
+        gain[: self.n_premotor] = self.gp[: self.n_premotor].cpu().numpy()
+        gain[self.n_premotor : self.n_premotor + self.n_motor] = self.gm[: self.n_motor].cpu().numpy()
         return gain[:n_neurons]
 
     def gt_bias(self, n_neurons):
         """Per-neuron bias: bp for premotor, bm for motor."""
-        if self.bp is None or self.bm is None: return None
+        if self.bp is None or self.bm is None:
+            return None
         bias = np.zeros(n_neurons)
-        bias[:self.n_premotor] = self.bp[:self.n_premotor].cpu().numpy()
-        bias[self.n_premotor:self.n_premotor + self.n_motor] = self.bm[:self.n_motor].cpu().numpy()
+        bias[: self.n_premotor] = self.bp[: self.n_premotor].cpu().numpy()
+        bias[self.n_premotor : self.n_premotor + self.n_motor] = self.bm[: self.n_motor].cpu().numpy()
         return bias[:n_neurons]
 
     def gt_g_phi_func(self, v):
@@ -1866,8 +1956,8 @@ class LarvaODEParams(ODEParamsBase):
         N = self.n_premotor + self.n_motor
         if self.gp is not None and self.gm is not None:
             gains = np.zeros(N)
-            gains[:self.n_premotor] = self.gp.cpu().numpy()
-            gains[self.n_premotor:] = self.gm.cpu().numpy()
+            gains[: self.n_premotor] = self.gp.cpu().numpy()
+            gains[self.n_premotor :] = self.gm.cpu().numpy()
             if sp.ndim == 1:
                 return gains[:, None] * sp[None, :]  # (N, n_pts)
             else:
@@ -1882,7 +1972,8 @@ class LarvaODEParams(ODEParamsBase):
     def gt_f_theta_func(self, v, n_neurons):
         """Ground truth f_theta(v) = -v / tau per neuron. Shape: (n_neurons, n_pts)."""
         tau = self.gt_tau(n_neurons)
-        if tau is None: return None
+        if tau is None:
+            return None
         return -v / tau[:, None]
 
     def f_theta_label(self):
@@ -1909,8 +2000,8 @@ class LarvaODEParams(ODEParamsBase):
         gm_np = torch.clamp(self.gm, 0.5, 5.0).cpu().numpy()
         # Build per-neuron gain array
         gains = np.zeros(n_neurons)
-        gains[:N] = gp_np[:min(N, n_neurons)]
-        gains[N:] = gm_np[:max(0, n_neurons - N)]
+        gains[:N] = gp_np[: min(N, n_neurons)]
+        gains[N:] = gm_np[: max(0, n_neurons - N)]
         dst = edges[1]
         return gt_weights * gains[dst]
 
