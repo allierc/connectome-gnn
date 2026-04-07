@@ -1792,12 +1792,12 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             # Atomic feature pools (learned and true)
             _learned_atoms = {
                 'a': to_numpy(model.a),
-                r'$\tau$': learned_tau.reshape(-1, 1),
+                'τ': learned_tau.reshape(-1, 1),
                 'V': learned_V_rest.reshape(-1, 1),
                 'W': W_learned,
             }
             _true_atoms = {
-                r'$\tau$': _gt_taus_np.reshape(-1, 1),
+                'τ': _gt_taus_np.reshape(-1, 1),
                 'V': _gt_vrest_np.reshape(-1, 1),
                 'W': W_true,
             }
@@ -1892,7 +1892,13 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             print(f"GMM (n_components={n_gmm}): accuracy={_r2_color(cluster_acc)}{cluster_acc:.3f}{_ANSI_RESET}, ARI={results['ari']:.3f}, NMI={results['nmi']:.3f}")
             logger.info(f"GMM n_components={n_gmm}, accuracy={cluster_acc:.3f}, ARI={results['ari']:.3f}, NMI={results['nmi']:.3f}")
 
-            # Write cluster accuracy to analysis log file for Claude
+            # Write cluster accuracy to metrics.txt and analysis log
+            metrics_path = os.path.join(log_dir, 'results', 'metrics.txt')
+            try:
+                with open(metrics_path, 'a') as mf:
+                    mf.write(f"clustering_accuracy: {cluster_acc:.4f}\n")
+            except OSError:
+                pass
             if log_file:
                 log_file.write(f"cluster_accuracy: {cluster_acc:.4f}\n")
 
@@ -2079,11 +2085,6 @@ def analyze_neuron_type_reconstruction(config, model, edges, true_weights, gt_ta
                 mf.write(f"tau_R2: {r_squared_tau:.4f}\n")
             if "vrest" in panels:
                 mf.write(f"V_rest_R2: {r_squared_V_rest:.4f}\n")
-    try:
-        with open(metrics_path, 'a') as mf:
-            mf.write(f"clustering_accuracy: {cluster_acc:.4f}\n")
-    except NameError:
-        pass
 
     return {
         'rmse_weights_per_neuron': rmse_weights_per_neuron,
