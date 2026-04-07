@@ -1,4 +1,4 @@
-description: "flyvis noise=0.05 — 20% hidden neurons (1/5 of non-retina neurons silenced, voltage=0)"
+description: "flyvis noise=0.05 — 20% hidden neurons with SIREN(x,y,t) voltage reconstruction"
 dataset: flyvis_noise_005
 simulation:
   connectivity_file: to be specified
@@ -33,6 +33,13 @@ graph_model:
   embedding_dim: 2
   update_type: generic
   g_phi_positive: true
+  inr_type_hidden: siren_txy
+  hidden_dim_nnr_hidden: 2048
+  n_layers_nnr_hidden: 4
+  omega_hidden: 4096.0
+  outermost_linear_nnr_hidden: true
+  nnr_hidden_T_period: 64000.0
+  nnr_f_xy_period: 1.0
 plotting:
   colormap: tab20
   arrow_length: 1
@@ -53,7 +60,8 @@ training:
   small_init_batch_size: false
   sparsity: none
   data_augmentation_loop: 35
-  hidden_neuron_fraction: 0.20   # silence 20% of non-retina neurons (seed = simulation.seed)
+  hidden_neuron_fraction: 0.20   # 20% of non-retina neurons hidden
+  lr_NNR_f: 1.0e-08              # SIREN hidden learning rate
   lr_W: 0.0009
   lr: 0.0018
   lr_embedding: 0.002325
