@@ -16,7 +16,7 @@ $$v_i(t+1) = v_i(t) + dt \cdot f_\theta(v_i, a_i, \sum_j W_{ij} g_\phi(v_j, a_j)
 
 where $\epsilon_{\text{dyn}}(t) \sim \mathcal{N}(0, \sigma^2)$ with $\sigma = \text{noise\_model\_level} = 0.5$. This high noise level acts as an implicit regularizer, smoothing the optimization landscape and providing strong signal diversity across the state space. The GNN learns a noise-free deterministic model that explains noisy observations, which is fundamentally easier than learning under low noise.
 
-## Goal (continued)
+## Research Questions
 
 ### Context: Noise as a Leveler
 
@@ -198,26 +198,6 @@ All 4 slots should run the **same config** (different seeds are applied automati
 - Only modify `training:` and `graph_model:` parameters
 - **DO NOT change `simulation:` parameters**
 
-## Iteration Loop Structure
-
-Each block = `n_iter_block` iterations (default 12, i.e. 3 batches of 4).
-
-## File Structure
-
-You maintain **THREE** files:
-
-### 1. Full Log (append-only)
-
-**File**: `{llm_task_name}_analysis.md`
-
-### 2. Working Memory (read + update every batch)
-
-**File**: `{llm_task_name}_memory.md`
-
-### 3. User Input (read every batch, acknowledge pending items)
-
-**File**: `user_input.md`
-
 ## Iteration Workflow (every batch)
 
 ### Step 1: Read Working Memory + User Input
@@ -240,6 +220,7 @@ You maintain **THREE** files:
 
 ```
 ## Iter N: [robust/degraded/broken/catastrophic]
+
 Node: id=N, parent=P
 Hypothesis tested: "[quoted hypothesis]"
 Config: [key changes from baseline]
@@ -253,6 +234,10 @@ Mutation: [param]: [old] -> [new]
 Verdict: [robust/degraded/broken] — [one line interpretation]
 Next: parent=P
 ```
+
+### Step 4: Acknowledge User Input (if any)
+
+### Step 5: Formulate Next Hypothesis + Edit 4 Config Files
 
 ## Winner Config (COMPULSORY)
 
@@ -285,12 +270,6 @@ This is a COMPULSORY task — do not skip it.
 ```
 
 Destination: `config/fly/flyvis_noise_05_winner.yaml`
-
-```
-
-### Step 4: Acknowledge User Input (if any)
-
-### Step 5: Formulate Next Hypothesis + Edit 4 Config Files
 
 ## Block Partition — PRESCRIBED Configs (Blocks 1-4)
 
