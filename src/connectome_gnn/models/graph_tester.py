@@ -711,6 +711,16 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     np.save(f"{results_dir}/activity_true{test_suffix}.npy", activity_true)
     np.save(f"{results_dir}/activity_pred{test_suffix}.npy", activity_pred)
 
+    # Hidden-neuron SIREN trace comparison
+    if hidden_ids is not None and getattr(model, 'NNR_hidden', None) is not None:
+        from connectome_gnn.plot import plot_hidden_siren_traces
+        siren_r2 = plot_hidden_siren_traces(
+            model, x_ts_eval, hidden_ids, log_dir,
+            epoch=0, N=0, device=device,
+            n_traces=10, n_frames=min(800, n_eval_frames),
+        )
+        logger.info(f'hidden SIREN R²: {siren_r2:.4f}')
+
     logger.debug(f'rollout plots saved to {results_dir}/')
 
 

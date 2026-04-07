@@ -1565,6 +1565,10 @@ def plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_li
                 dpi=87, bbox_inches='tight', pad_inches=0)
     plt.close()
 
+    # Hidden-neuron SIREN trace comparison (only when SIREN is active)
+    if getattr(model, 'NNR_hidden', None) is not None and hidden_ids is not None:
+        plot_hidden_siren_traces(model, x_ts, hidden_ids, log_dir, epoch, N, device)
+
     # Compute GT curves and type names from ode_params if available
     gt_g_phi = gt_f_theta = gt_v_range = _type_names = None
     if ode_params is not None:
@@ -1753,6 +1757,92 @@ import warnings
 from tqdm import trange
 
 warnings.filterwarnings('ignore')
+
+
+def plot_hidden_siren_traces(model, x_ts, hidden_ids, log_dir, epoch, N, device,
+                             n_traces=10, n_frames=800):
+    """Plot GT voltage vs SIREN-predicted voltage for a sample of hidden neurons.
+
+    Evaluates model.forward_hidden() from scratch on the first n_frames frames
+    (no rollout state — pure SIREN prediction), compares to x_ts ground truth.
+
+    Saves:
+        log_dir/tmp_training/hidden_siren/{epoch}_{N}.png  (checkpoint copy)
+        log_dir/results/hidden_siren_traces.png            (latest copy)
+
+    Returns:
+        r2 (float) — R² of raw SIREN predictions vs GT voltages
+    """
+    import torch as _torch
+
+    n_hidden = len(hidden_ids)
+    n_traces = min(n_traces, n_hidden)
+    n_frames = min(n_frames, x_ts.n_frames)
+
+    # Pick evenly-spaced hidden neurons to display
+    sel = np.linspace(0, n_hidden - 1, n_traces, dtype=int)
+    local_ids = hidden_ids[sel]  # (n_traces,) — global neuron indices
+
+    gt_arr = np.zeros((n_traces, n_frames), dtype=np.float32)
+    pred_arr = np.zeros((n_traces, n_frames), dtype=np.float32)
+
+    model.eval()
+    with _torch.no_grad():
+        for k in range(n_frames):
+            x = x_ts.frame(k)
+            pred_h = model.forward_hidden(x, k, hidden_ids)   # (n_hidden,)
+            gt_h   = x_ts.voltage[k, hidden_ids]              # (n_hidden,)
+            gt_arr[:, k]   = to_numpy(gt_h[sel])
+            pred_arr[:, k] = to_numpy(pred_h[sel])
+    model.train()
+
+    # R² (raw, no linear correction)
+    ss_res = float(np.sum((gt_arr - pred_arr) ** 2))
+    ss_tot = float(np.sum((gt_arr - gt_arr.mean()) ** 2))
+    r2 = 1.0 - ss_res / (ss_tot + 1e-16)
+
+    # ---- plot ----
+    fig, ax = plt.subplots(figsize=(15, max(4, n_traces * 0.5 + 2)))
+
+    activity_std = float(np.std(gt_arr))
+    step_v = max(0.5, 3.0 * activity_std) if activity_std > 0 else 2.5
+
+    baselines = {}
+    for i in range(n_traces):
+        bl = float(np.mean(gt_arr[i]))
+        baselines[i] = bl
+        ax.plot(gt_arr[i] - bl + i * step_v, lw=3, c='#66cc66', alpha=0.9,
+                label='GT' if i == 0 else None)
+    for i in range(n_traces):
+        ax.plot(pred_arr[i] - baselines[i] + i * step_v, lw=0.9, c='black', alpha=0.9,
+                label='SIREN' if i == 0 else None)
+    for i in range(n_traces):
+        ax.text(-n_frames * 0.025, i * step_v, f'n{local_ids[i].item()}',
+                fontsize=9, va='bottom', ha='right', color='black')
+
+    ax.set_ylim([-step_v, n_traces * step_v + step_v])
+    ax.set_yticks([])
+    ax.set_xticks([0, n_frames // 2, n_frames])
+    ax.set_xticklabels([0, n_frames // 2, n_frames], fontsize=13)
+    ax.set_xlabel('frame', fontsize=15)
+    ax.set_xlim([-n_frames * 0.03, n_frames * 1.05])
+    ax.set_title(f'Hidden-neuron SIREN  (epoch {epoch}  iter {N})   R²={r2:.3f}', fontsize=13)
+    ax.legend(loc='upper right', fontsize=12, frameon=False)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.spines['left'].set_visible(False)
+
+    out_dir = os.path.join(log_dir, 'tmp_training', 'hidden_siren')
+    os.makedirs(out_dir, exist_ok=True)
+    results_dir = os.path.join(log_dir, 'results')
+    os.makedirs(results_dir, exist_ok=True)
+    plt.tight_layout()
+    plt.savefig(os.path.join(out_dir, f'{epoch}_{N}.png'), dpi=87, bbox_inches='tight')
+    plt.savefig(os.path.join(results_dir, 'hidden_siren_traces.png'), dpi=87, bbox_inches='tight')
+    plt.close()
+
+    return r2
+
 
 def render_visual_field_video(model, x_ts, sim, log_dir, epoch, N, logger):
     """Render a 3-panel visual field video (GT hex, predicted hex, rolling traces).

@@ -1,4 +1,4 @@
-description: "flyvis noise=0.05 — 10% hidden neurons with SIREN(x,y,t) voltage reconstruction"
+description: "flyvis noise=0.05 — 5% hidden neurons with SIREN(x,y,t) voltage reconstruction"
 dataset: flyvis_noise_005
 simulation:
   connectivity_file: to be specified
@@ -60,7 +60,7 @@ training:
   small_init_batch_size: false
   sparsity: none
   data_augmentation_loop: 35
-  hidden_neuron_fraction: 0.10   # 10% of non-retina neurons hidden
+  hidden_neuron_fraction: 0.05   # 5% of non-retina neurons hidden
   lr_NNR_f: 1.0e-08              # SIREN hidden learning rate
   lr_W: 0.0009
   lr: 0.0018
