@@ -390,9 +390,8 @@ When prompt says `PARALLEL START`:
 
 ## Paper Summary (update at every block boundary)
 
-- **known_ode on high-noise data**: [What makes known_ode perform on noise_model_level=0.5, which parameters matter most, best connectivity_R2 achieved, how much is noise vs optimization difficulty]
-- **Robustness findings**: [How stable is the best config across seeds? Key insights about regularization and learning rate interactions in high-noise regime.]
-- **Optimization dynamics**: [Convergence behavior, learning rate sensitivity, effect of regularization]
+- **GNN optimization**: [pending]
+- **LLM-driven exploration**: [pending]
 
 ## Knowledge Base
 
@@ -415,9 +414,21 @@ When prompt says `PARALLEL START`:
 
 ---
 
-## Previous Block Summary
+## Previous Block Summaries
 
-[Summary of findings from the last completed block]
+**RULE: Keep summaries for the last 4 completed blocks, sorted oldest→newest. This section MUST appear before ## Current Block.**
+
+### Block 1 Summary
+[Summary of findings from block 1]
+
+### Block 2 Summary
+[Summary of findings from block 2]
+
+### Block 3 Summary
+[Summary of findings from block 3]
+
+### Block 4 Summary
+[Summary of findings from block 4]
 
 ---
 

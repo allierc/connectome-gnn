@@ -438,11 +438,8 @@ The memory file (`{llm_task_name}_memory.md`) must follow this structure:
 
 ## Paper Summary (update at every block boundary)
 
-Brief paragraph for a scientific paper summarizing the current state of this exploration:
-
-- **GNN optimization**: [What has been learned about training GNN to recover Drosophila visual system connectivity from noisy DAVIS data. Best connectivity_R2 achieved, which regularization/learning rate regimes work, key challenges.]
-- **LLM-driven exploration**: [How the LLM-in-the-loop approach performed as an automated hyperparameter search strategy. Number of iterations run, how hypothesis-driven exploration compared to random search, whether the LLM discovered non-obvious parameter interactions.]
-- **Future works**: [what would a google deepmind senior ML suggest as structural change in the code to break ceiling with good rationale, this can include modified GNN class, innovative training scheme, use recent innovations. Cite references of scientific publications, blog, youtube channel. Limit to 10 suggestions.]
+- **GNN optimization**: [pending]
+- **LLM-driven exploration**: [pending]
 
 ## Knowledge Base (accumulated across all blocks)
 
@@ -472,11 +469,21 @@ Examples of good principles:
 
 ---
 
-## Previous Block Summary (Block N-1)
+## Previous Block Summaries
 
-[Short summary: 2-3 lines. NOT individual iterations.
-Example: "Block 1 (baseline): Default config achieves conn_R2=0.93±0.04, CV=4.3%.
-3/4 seeds > 0.9. Key finding: baseline is partially robust, lr_W may need tuning for full robustness."]
+**RULE: Keep summaries for the last 4 completed blocks, sorted oldest→newest. This section MUST appear before ## Current Block.**
+
+### Block 1 Summary
+[Summary of findings from block 1]
+
+### Block 2 Summary
+[Summary of findings from block 2]
+
+### Block 3 Summary
+[Summary of findings from block 3]
+
+### Block 4 Summary
+[Summary of findings from block 4]
 
 ---
 
