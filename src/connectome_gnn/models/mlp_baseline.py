@@ -49,21 +49,31 @@ class MLPBaseline(nn.Module):
         hidden_dim = model_config.hidden_dim
         n_layers = model_config.n_layers
 
-        # Optional skip: linear projection of input concatenated at final layer
-        self.add_final_layer_skip = getattr(model_config, 'add_final_layer_skip', False)
-        if self.add_final_layer_skip and n_layers >= 2:
-            self.skip_proj = nn.Linear(input_size, hidden_dim, device=device)
+        # Optional: linear skip connection at each hidden layer
+        self.add_skip_layers = getattr(model_config, 'add_skip_layers', False)
+        if self.add_skip_layers:
+            if n_layers < 2:
+                raise NotImplementedError("Skip only works with 2 layers min")
+            self.skip_layers = nn.ModuleList()
+            self.skip_layers.append(nn.Linear(input_size, hidden_dim, device=device))
+            for _ in range(n_layers - 2):
+                self.skip_layers.append(nn.Linear(hidden_dim*2, hidden_dim, device=device))
 
+        # x ->   Mx.    ]-|.     |--> M xx
+        #.  |             |-> xx-|
+        #.  |-> phi(Mx) ]-|      |--> phi(M xx)
         # MLP hidden layers
         self.hidden_layers = nn.ModuleList()
         self.hidden_layers.append(nn.Linear(input_size, hidden_dim, device=device))
         for _ in range(n_layers - 2):
-            self.hidden_layers.append(nn.Linear(hidden_dim, hidden_dim, device=device))
+            # with skip connections we have a concatenation
+            hidden_dim2 = hidden_dim + int(self.add_skip_layers)*hidden_dim
+            self.hidden_layers.append(nn.Linear(hidden_dim2, hidden_dim, device=device))
         self.activation = nn.ReLU()
 
         # Output layer
         final_input_dim = hidden_dim
-        if self.add_final_layer_skip and n_layers >= 2:
+        if self.add_skip_layers and n_layers >= 2:
             final_input_dim = hidden_dim * 2
         self.final_layer = nn.Linear(final_input_dim, output_size, device=device)
         if model_config.zero_init_output:
@@ -89,12 +99,14 @@ class MLPBaseline(nn.Module):
             mlp_input = mlp_input.unsqueeze(0)
 
         h = mlp_input
-        for layer in self.hidden_layers:
-            h = self.activation(layer(h))
-
-        if self.add_final_layer_skip and len(self.hidden_layers) >= 1:
-            skip = self.skip_proj(mlp_input)
-            h = torch.cat([h, skip], dim=-1)
+        if self.add_skip_layers and len(self.hidden_layers) >= 1:
+            for layer, skip_layer in zip(self.hidden_layers, self.skip_layers):
+                h1 = skip_layer(h)
+                h2 = self.activation(layer(h))
+                h = torch.cat([h1, h2], dim=-1)
+        else:
+            for layer in self.hidden_layers:
+                h = self.activation(layer(h))
 
         out = self.final_layer(h)
         return out.squeeze(0) if squeezed else out
