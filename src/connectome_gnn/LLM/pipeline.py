@@ -73,8 +73,6 @@ def setup_exploration(args, root_dir: str, skip_confirm: bool = False) -> Explor
     # In local mode, data_root defaults to '.' (repo root when run from there).
     if args.cluster:
         set_data_root(load_data_root_from_json())
-        if not check_cluster_repo():
-            sys.exit(1)
 
     config_root = config_path()                                    # repo root — source config lookup only
     slot_config_root = os.path.join(get_data_root(), 'config')    # data root — slot configs written here
