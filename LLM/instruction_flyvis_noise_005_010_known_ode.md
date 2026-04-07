@@ -34,16 +34,18 @@ This exploration follows a strict **hypothesize → test → validate/falsify** 
 | **Tentative** | Observed 1-2 times or inconsistent across seeds | Add to Open Questions |
 | **Contradicted** | Conflicting evidence across iterations/seeds | Note in Open Questions |
 
-## CRITICAL: Data is RE-GENERATED per slot
+## CRITICAL: Data is PRE-GENERATED at startup (fixed across iterations)
 
-Each slot re-generates its data with a **different random seed**.
+At startup, data is generated **once** for all 4 slots with **different random seeds** (one per slot). These datasets are **reused across all iterations** — data is NOT re-generated each iteration.
 Both `simulation.seed` and `training.seed` are **forced by the pipeline** — DO NOT modify them in config files.
 
 Seed formula (set automatically by GNN_LLM.py):
-- `simulation.seed = iteration * 1000 + slot` (controls data generation)
+- `simulation.seed = 1000 + slot` (controls data generation — fixed at startup, slot 0–3)
 - `training.seed = iteration * 1000 + slot + 500` (controls weight init & training randomness)
 
 The actual seed values are provided in the prompt for each slot — **log them in your iteration entries**.
+
+**Seed robustness testing**: To re-generate data with new seeds and test robustness, set `claude.test_robustness_seed: true` in all 4 slot configs. The pipeline will re-generate data for that batch only, then reset the flag automatically.
 
 Simulation parameters (n_neurons, n_frames, etc.) stay fixed — **DO NOT change them**.
 
@@ -75,7 +77,7 @@ Combined noise std ~ sqrt(0.005^2 + 0.010^2) ~ 0.0112 in observations.
 **Pre-generated, fixed across all iterations**:
 - Dataset: `fly/flyvis_noise_005_010` (DAVIS visual input, 64,000 frames)
 - Noise model: `noise_model_level=0.005, measurement_noise_level=0.010`
-- Re-generation: **YES** — each iteration generates new data with different `simulation.seed` to test robustness
+- Re-generation: **NO** — data is fixed at startup. To test seed robustness, set `claude.test_robustness_seed: true` in slot configs (pipeline re-generates for that batch only, then resets the flag).
 
 **DO NOT change**: `simulation.n_neurons`, `simulation.n_edges`, `simulation.n_frames`, `simulation.delta_t`, dataset name, or visual input type.
 
