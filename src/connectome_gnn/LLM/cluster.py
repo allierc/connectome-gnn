@@ -32,37 +32,23 @@ CLUSTER_SSH      = f"{CLUSTER_USER}@{CLUSTER_LOGIN}"
 # ---------------------------------------------------------------------------
 
 def check_cluster_repo():
-    """Verify cluster repo is clean and its HEAD matches the local HEAD.
+    """Check that GraphCluster/flyvis-gnn has no uncommitted source changes.
 
-    Uses git describe --always --dirty on both sides (single SSH call).
-    The local repo is allowed to be dirty; the cluster repo is not.
+    Runs `git diff HEAD` on the cluster via SSH, excluding config/ (which is
+    expected to be modified by the LLM).  Returns True if clean, False if dirty.
     """
     ssh_cmd = (
         f"ssh {CLUSTER_SSH} "
-        f"\"cd {CLUSTER_ROOT_DIR} && git describe --always --dirty\""
+        f"\"bash -l -c 'cd {CLUSTER_ROOT_DIR} && git diff HEAD --stat -- . \\\":!config/\\\"'\""
     )
     result = subprocess.run(ssh_cmd, shell=True, capture_output=True, text=True)
-    cluster_desc = result.stdout.strip()
-
-    if cluster_desc.endswith('-dirty'):
-        print(f"\033[91mERROR: Cluster repo is dirty ({cluster_desc}) — commit or stash before running\033[0m")
+    diff_output = result.stdout.strip()
+    if diff_output:
+        print("\033[91mERROR: GraphCluster repo has uncommitted changes — commit and push before running\033[0m")
+        for line in diff_output.splitlines():
+            print(f"  \033[91m{line}\033[0m")
         return False
-
-    local_desc = subprocess.run(
-        ['git', 'describe', '--always', '--dirty'], capture_output=True, text=True
-    ).stdout.strip()
-    # Strip -dirty from local since the devcontainer is allowed to be dirty
-    local_clean = local_desc.removesuffix('-dirty')
-
-    if cluster_desc != local_clean:
-        print(f"\033[91mERROR: HEAD mismatch — local {local_desc} ≠ cluster {cluster_desc}\033[0m")
-        print("\033[91m  Push your commits and pull on cluster (or vice versa) before running\033[0m")
-        return False
-
-    if local_desc.endswith('-dirty'):
-        print(f"\033[93mWARNING: Local repo is dirty ({local_desc}) — uncommitted changes will NOT run on cluster\033[0m")
-
-    print(f"\033[92mCluster repo: clean, HEAD in sync ({cluster_desc})\033[0m")
+    print("\033[92mCluster repo: git diff clean (no uncommitted source changes)\033[0m")
     return True
 
 
