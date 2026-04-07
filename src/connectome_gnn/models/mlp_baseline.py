@@ -7,7 +7,6 @@ Effective connectivity is extracted post-hoc via Jacobian dF/dv.
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 from connectome_gnn.models.registry import register_model
 from connectome_gnn.neuron_state import NeuronState
@@ -45,48 +44,25 @@ class MLPBaseline(nn.Module):
         self.update_type = model_config.update_type
         self.calcium_type = simulation_config.calcium_type
 
-        self.use_residual_connection = model_config.use_residual_connection
-
         input_size = self.n_neurons + self.n_input_neurons  # [v; stim_input_neurons]
         output_size = self.n_neurons
         hidden_dim = model_config.hidden_dim
         n_layers = model_config.n_layers
 
-        # Encoder: input → hidden
-        self.encoder = nn.Linear(input_size, hidden_dim, device=device)
-
-        # Evolver: hidden → hidden
-        evolver_layers = []
+        # MLP: input → hidden → ... → output
+        layers = [nn.Linear(input_size, hidden_dim, device=device), nn.ReLU()]
         for _ in range(n_layers - 2):
-            evolver_layers.append(nn.Linear(hidden_dim, hidden_dim, device=device))
-        self.evolver = nn.ModuleList(evolver_layers)
-
-        # Zero-init evolver's final layer so residual starts as identity
-        if self.use_residual_connection and len(self.evolver) > 0:
-            nn.init.zeros_(self.evolver[-1].weight)
-            nn.init.zeros_(self.evolver[-1].bias)
-
-        # Decoder: hidden → output
-        self.decoder_layer = nn.Linear(hidden_dim, output_size, device=device)
+            layers += [nn.Linear(hidden_dim, hidden_dim, device=device), nn.ReLU()]
+        final_layer = nn.Linear(hidden_dim, output_size, device=device)
+        if model_config.zero_init_output:
+            nn.init.zeros_(final_layer.weight)
+            nn.init.zeros_(final_layer.bias)
+        layers.append(final_layer)
+        self.mlp = nn.Sequential(*layers)
 
         # Dummy W parameter for compatibility with regularizer/trainer
         n_w = self.n_edges + self.n_extra_null_edges
         self.W = nn.Parameter(torch.zeros(max(n_w, 1), 1, device=device), requires_grad=False)
-
-    def _mlp_forward(self, x):
-        """Forward: encoder → evolver → decoder."""
-        h = F.relu(self.encoder(x))
-        if self.use_residual_connection:
-            e = h
-            for layer in self.evolver[:-1]:
-                e = F.relu(layer(e))
-            if len(self.evolver) > 0:
-                e = self.evolver[-1](e)
-                h = h + e
-        else:
-            for layer in self.evolver:
-                h = F.relu(layer(h))
-        return self.decoder_layer(h)
 
     def predict_dvdt(self, v, stim):
         """Model-agnostic interface: (v, stim) → dvdt.
@@ -100,8 +76,8 @@ class MLPBaseline(nn.Module):
         mlp_input = torch.cat([v, stim], dim=-1)
         if mlp_input.dim() == 1:
             mlp_input = mlp_input.unsqueeze(0)
-            return self._mlp_forward(mlp_input).squeeze(0)
-        return self._mlp_forward(mlp_input)
+            return self.mlp(mlp_input).squeeze(0)
+        return self.mlp(mlp_input)
 
     def forward(self, state: NeuronState, edge_index: torch.Tensor = None,
                 data_id=[], k=[], return_all=False, **kwargs):
@@ -121,10 +97,7 @@ class MLPBaseline(nn.Module):
         v_batched = v.view(batch_size, self.n_neurons)                            # (B, n_neurons)
         stim_batched = stim.view(batch_size, self.n_neurons)[:, :self.n_input_neurons]  # (B, n_input_neurons)
 
-        mlp_input = torch.cat([v_batched, stim_batched], dim=1)  # (B, n_neurons + n_input_neurons)
-        mlp_output = self._mlp_forward(mlp_input)                # (B, n_neurons)
-
-        pred = mlp_output.view(n_total, 1)  # (N, 1)
+        pred = self.predict_dvdt(v_batched, stim_batched).view(n_total, 1)  # (N, 1)
 
         if return_all:
             return pred, None, None
@@ -145,7 +118,7 @@ class MLPBaseline(nn.Module):
 
         v_input = v_flat.clone().requires_grad_(True)
         mlp_input = torch.cat([v_input, stim_flat], dim=0).unsqueeze(0)  # (1, n_neurons + n_input_neurons)
-        mlp_output = self._mlp_forward(mlp_input).squeeze(0)             # (n_neurons,)
+        mlp_output = self.mlp(mlp_input).squeeze(0)             # (n_neurons,)
 
         J = torch.zeros(self.n_neurons, self.n_neurons, device=self.device)
         for i in range(self.n_neurons):

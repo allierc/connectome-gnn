@@ -319,7 +319,6 @@ class GraphModelConfig(BaseModel):
     output_size: int = 1
     hidden_dim: int = 1
     n_layers: int = 1
-    use_residual_connection: bool = False
 
     input_size_2: int = 1
     output_size_2: int = 1
@@ -342,6 +341,7 @@ class GraphModelConfig(BaseModel):
     update_type: UpdateType = UpdateType.NONE
 
     MLP_activation: MLPActivation = MLPActivation.RELU
+    zero_init_output: bool = False  # zero-init final layer so model starts predicting dvdt=0
 
 
     input_size_update: int = 3
@@ -625,7 +625,6 @@ class TrainingConfig(BaseModel):
     data_augmentation_loop: int = 40
 
     rollout_train_steps: int = 1  # multi-step rollout training: unroll K steps and backprop
-    early_stop_patience_epochs: int = 0  # 0 = no early stopping
 
     recurrent_training: bool = False
     recurrent_training_start_epoch: int = 0

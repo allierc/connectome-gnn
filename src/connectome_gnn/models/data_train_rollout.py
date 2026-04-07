@@ -253,12 +253,7 @@ def data_train_rollout(config, erase, best_model, device, log_file=None):
     # --- Training loop ---
     model.train()
     training_start = time.time()
-    # Best model key: (-div_time // 100, rollout_mse).
-    # Minimising this first maximises div_time (in buckets of 10 steps),
-    # then breaks ties by minimising rollout_mse.
-    best_val_key = (float('inf'), float('inf'))
     best_epoch = 0
-    epochs_without_improvement = 0
 
     for epoch in range(n_epochs):
         epoch_start = time.time()
@@ -307,28 +302,18 @@ def data_train_rollout(config, erase, best_model, device, log_file=None):
         val_str = f' | div_time={div_time} rollout_mse={mean_rollout_mse:.4e} ({val_duration:.1f}s)'
         plot_rollout_mse(mse_curve, div_time, epoch, log_dir)
 
-        val_key = (-div_time // 100, mean_rollout_mse)
-        if val_key < best_val_key:
-            best_val_key = val_key
-            best_epoch = epoch + 1
-            epochs_without_improvement = 0
-            torch.save(
-                {'model_state_dict': model.state_dict()},
-                os.path.join(net_path, f'best_model_with_{tc.n_runs - 1}_graphs_{epoch}.pt'),
-            )
-            _logger.info(f'  saved best model (div_time={div_time} rollout_mse={mean_rollout_mse:.4e})')
-        else:
-            epochs_without_improvement += 1
+        # Save current model as "best" (always overwritten — last epoch wins)
+        best_epoch = epoch + 1
+        torch.save(
+            {'model_state_dict': model.state_dict()},
+            os.path.join(net_path, f'best_model_with_{tc.n_runs - 1}_graphs_{epoch}.pt'),
+        )
 
         _logger.info(
             f'epoch {epoch+1}/{n_epochs} | '
             f'train: {mean_loss:.4e}{val_str} | '
             f'duration: {epoch_duration:.1f}s (total: {total_elapsed:.1f}s)'
         )
-
-        if tc.early_stop_patience_epochs > 0 and epochs_without_improvement >= tc.early_stop_patience_epochs:
-            _logger.info(f'early stopping: no improvement for {epochs_without_improvement} epochs')
-            break
 
         # Save periodic checkpoint
         torch.save({
