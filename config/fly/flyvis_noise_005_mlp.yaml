@@ -24,9 +24,9 @@ graph_model:
   signal_model_name: flyvis_mlp
   prediction: first_derivative
   input_size: 3
-  n_layers: 5
+  n_layers: 3
   hidden_dim: 256
-  use_residual_connection: false
+  zero_init_output: false
   output_size: 1
   input_size_update: 5
   n_layers_update: 3
@@ -45,16 +45,15 @@ plotting:
     - 100
 training:
   seed: 43
-  n_epochs: 100
+  n_epochs: 60
   n_runs: 1
   device: auto
   recurrent_training: false
-  batch_size: 128
+  batch_size: 256
   batch_ratio: 1
   small_init_batch_size: false
   sparsity: none
-  data_augmentation_loop: 5
-  early_stop_patience_epochs: 0
+  data_augmentation_loop: 100
   train_start: 0
   train_end: 0
   lr: 0.00001

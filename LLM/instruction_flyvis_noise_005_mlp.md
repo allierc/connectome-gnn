@@ -119,16 +119,15 @@ output = [dv_1/dt, ..., dv_13741/dt]                    (13,741 dims)
 
 ## Training Parameters
 
-| Parameter                    | Default | Description                                         |
-| ---------------------------- | ------- | --------------------------------------------------- |
-| `lr`                         | 0.00001 | Learning rate for MLP weights                       |
-| `n_epochs`                   | 20      | Training epochs                                     |
-| `batch_size`                 | 256     | Frames per batch                                    |
-| `data_augmentation_loop`     | 10      | Passes over data per epoch                          |
-| `rollout_train_steps`        | 20      | Multi-step rollout unroll during training (K steps) |
-| `early_stop_patience_epochs` | 5       | Stop if rollout doesn't improve for N epochs        |
-| `seed`                       | 42      | Random seed - test for robustness to init.          |
-| ------------------------     | ------- | --------------------------------------------------- |
+| Parameter                | Default | Description                                         |
+| ------------------------ | ------- | --------------------------------------------------- |
+| `lr`                     | 0.00001 | Learning rate for MLP weights                       |
+| `n_epochs`               | 20      | Training epochs                                     |
+| `batch_size`             | 256     | Frames per batch                                    |
+| `data_augmentation_loop` | 10      | Passes over data per epoch                          |
+| `rollout_train_steps`    | 20      | Multi-step rollout unroll during training (K steps) |
+| `seed`                   | 42      | Random seed - test for robustness to init.          |
+| ------------------------ | ------- | --------------------------------------------------- |
 
 ## Comments
 
