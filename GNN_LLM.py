@@ -47,6 +47,7 @@ from connectome_gnn.LLM import (
     run_batch_0,
     run_code_session,
     load_configs_and_seeds,
+    should_generate_data,
     generate_data_locally,
     run_cluster_training,
     run_local_test_plot,
@@ -102,7 +103,7 @@ if __name__ == "__main__":
         # Training (cluster or local)
         if "train" in state.task:
             if state.cluster_enabled:
-                if state.generate_data:
+                if should_generate_data(state, batch):
                     generate_data_locally(state, batch)
                 run_cluster_training(state, batch)
                 run_local_test_plot(state, batch)

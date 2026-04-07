@@ -598,6 +598,41 @@ def load_configs_and_seeds(state: ExplorationState, batch: BatchInfo):
 # Phase 1.5 + 2 + 3: Training
 # ---------------------------------------------------------------------------
 
+def should_generate_data(state: ExplorationState, batch: BatchInfo) -> bool:
+    """Return True if data should be generated for this batch.
+
+    Logic (generate_data: false — new default):
+      - Always generate on the very first batch (batch_first == 1) so each slot
+        gets a different-seed dataset at startup.
+      - On subsequent batches, only generate if the agent set
+        claude.test_robustness_seed: true in any slot config (then reset the flag).
+    Legacy (generate_data: true): generate every batch as before.
+    """
+    if state.generate_data:
+        return True  # legacy mode: re-generate every batch
+    if batch.batch_first == 1:
+        return True  # new mode: generate once at startup
+    # Check if agent requested robustness re-seeding
+    for slot in range(batch.n_slots):
+        with open(state.config_paths[slot], 'r') as f:
+            cfg = yaml.safe_load(f)
+        if cfg.get('claude', {}).get('test_robustness_seed', False):
+            print(f"\033[93m  slot {slot}: test_robustness_seed=true — triggering data re-generation\033[0m")
+            return True
+    return False
+
+
+def _reset_robustness_seed_flag(state: ExplorationState, batch: BatchInfo):
+    """Clear test_robustness_seed in all slot configs after re-generation."""
+    for slot in range(batch.n_slots):
+        with open(state.config_paths[slot], 'r') as f:
+            cfg = yaml.safe_load(f)
+        if cfg.get('claude', {}).get('test_robustness_seed', False):
+            cfg['claude']['test_robustness_seed'] = False
+            with open(state.config_paths[slot], 'w') as f:
+                yaml.dump(cfg, f, default_flow_style=False, sort_keys=False)
+
+
 def generate_data_locally(state: ExplorationState, batch: BatchInfo):
     """PHASE 1.5: Generate data locally for all slots."""
     print(f"\n\033[93mPHASE 1.5: Generating data locally for {batch.n_slots} slots\033[0m")
@@ -619,6 +654,7 @@ def generate_data_locally(state: ExplorationState, batch: BatchInfo):
             step=100,
             compute_ranks=False,
         )
+    _reset_robustness_seed_flag(state, batch)
 
 
 def run_cluster_training(state: ExplorationState, batch: BatchInfo):
@@ -833,8 +869,8 @@ def run_local_pipeline(state: ExplorationState, batch: BatchInfo):
 
         log_file = open(state.analysis_log_paths[slot], 'w')
 
-        # Generate data if requested
-        if state.generate_data:
+        # Generate data on first batch or when agent requests robustness re-seeding
+        if should_generate_data(state, batch):
             from connectome_gnn.generators.graph_data_generator import data_generate
             print(f"\033[90m  slot {slot} (iter {iteration}): generating data with seed={batch.slot_seeds[slot]['simulation']}\033[0m")
             data_generate(
