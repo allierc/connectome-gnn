@@ -341,6 +341,7 @@ class GraphModelConfig(BaseModel):
     update_type: UpdateType = UpdateType.NONE
 
     MLP_activation: MLPActivation = MLPActivation.RELU
+    zero_init_output: bool = False  # zero-init final layer so model starts predicting dvdt=0
 
 
     input_size_update: int = 3

@@ -53,7 +53,11 @@ class MLPBaseline(nn.Module):
         layers = [nn.Linear(input_size, hidden_dim, device=device), nn.ReLU()]
         for _ in range(n_layers - 2):
             layers += [nn.Linear(hidden_dim, hidden_dim, device=device), nn.ReLU()]
-        layers.append(nn.Linear(hidden_dim, output_size, device=device))
+        final_layer = nn.Linear(hidden_dim, output_size, device=device)
+        if model_config.zero_init_output:
+            nn.init.zeros_(final_layer.weight)
+            nn.init.zeros_(final_layer.bias)
+        layers.append(final_layer)
         self.mlp = nn.Sequential(*layers)
 
         # Dummy W parameter for compatibility with regularizer/trainer
