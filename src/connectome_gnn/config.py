@@ -292,6 +292,7 @@ class ClaudeConfig(BaseModel):
     n_parallel: int = 4  # number of parallel config slots per batch (GNN_LLM_parallel.py)
     node_name: str = "a100"  # cluster GPU node: h100, a100, or l4
     generate_data: bool = False  # generate new simulation data before each training iteration
+    test_robustness_seed: bool = False  # agent-triggered: re-generate data with new seeds for this batch only (pipeline resets after use)
     training_time_target_min: int = 60  # target training time per iteration in minutes (for LLM guidance)
     total_steps: int = 20000  # INR training iterations (used by INR_LLM.py)
     interaction_code: bool = False  # enable Phase A interactive code sessions at block boundaries
