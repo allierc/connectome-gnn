@@ -34,7 +34,7 @@ The GNN learns the neural connectivity (W, g_phi, f_theta) while the SIREN(t) re
 
 The SIREN has output size = n_hidden = ~1200 neurons. This is much larger than the visual SIREN output (1 scalar). Each output neuron gets its own independent time series learned by the same shared network.
 
-**SIREN LR**: `lr_NNR_f` controls NNR_hidden (same parameter group as visual NNR_f). The indirect gradient signal means optimal LR may differ significantly from visual INR.
+**SIREN LR**: `lr_NNR_f` controls NNR_hidden (same parameter group as visual NNR_f). Baseline is `1e-6` — 100x higher than visual INR (1e-8), because the indirect gradient pathway is much weaker. The optimal range is unknown and is the primary axis of block 2.
 
 ## Training Scheme
 
@@ -75,7 +75,7 @@ The hidden SIREN LR (`lr_NNR_f`) is **not affected** by alternate training — i
 | Alternate training | Critical (GNN converges fast) | Also used — same rationale applies |
 | SIREN LR cliff | Sharp: viable band 1e-8 to 2.5e-8 | Unknown — first key exploration axis |
 
-**Critical SIREN LR warning from visual INR**: The viable LR band was only 3.5x wide (7e-9 to 2.5e-8). Total collapse occurred at 3e-8. The hidden SIREN has a different gradient pathway and different output dimensionality — the safe range must be determined from scratch. Do NOT assume the same cliff positions.
+**Critical SIREN LR warning from visual INR**: The viable LR band for visual INR was only 3.5x wide (7e-9 to 2.5e-8). The hidden SIREN has a different gradient pathway (indirect, 100x weaker) and different output dimensionality (1200 outputs vs 1) — baseline is 1e-6, confirmed flat at 1e-8. The safe range must be determined from scratch. Do NOT assume the same cliff positions.
 
 ## FlyVis Model
 
@@ -215,7 +215,7 @@ At every block boundary, save best config to `config/fly/flyvis_noise_005_hidden
 | Block | Focus | Parameters |
 |-------|-------|-----------|
 | 1 | Baseline | Establish baseline — what conn_R2 and hidden_siren_R2 do we get with current config? |
-| 2 | SIREN LR | `lr_NNR_f`: sweep {1e-9, 1e-8, 1e-7, 1e-6} — find viable range (no prior data) |
+| 2 | SIREN LR | `lr_NNR_f`: sweep {1e-7, 1e-6, 1e-5, 1e-4} — find viable range (1e-8 confirmed flat; indirect gradient needs higher LR) |
 | 3 | SIREN architecture | `hidden_dim_nnr_hidden` {512, 1024, 2048, 4096} — does output size of 1200 neurons need a large network? |
 | 4 | batch_size vs DAL | Slots: (bs=1,DAL=25), (bs=2,DAL=13), (bs=4,DAL=7), (bs=4,DAL=12) — same wall time, test if larger batches help SIREN gradient quality |
 | 5 | alternate_training on/off | 2 slots with `alternate_training=true, ratio=0.05`, 2 slots with `alternate_training=false` — does GNN freeze help or hurt the hidden SIREN? |
@@ -263,7 +263,7 @@ When prompt says `PARALLEL START`:
 - Set all 4 configs identically to baseline
 - Write planned config and initial hypothesis to working memory
 - First iteration establishes baseline — do NOT change hyperparameters yet
-- Baseline hypothesis: "The current config (lr_NNR_f=1e-8, 3 epochs, alternate_training=true, ratio=0.05) achieves conn_R2 > 0.8 while hidden_siren_R2 > 0 (SIREN learns something from indirect gradients)"
+- Baseline hypothesis: "The current config (lr_NNR_f=1e-6, 3 epochs, alternate_training=true, ratio=0.05) achieves conn_R2 > 0.8 while hidden_siren_R2 > 0 (SIREN learns something from indirect gradients)"
 
 ---
 

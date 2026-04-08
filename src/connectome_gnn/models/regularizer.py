@@ -214,7 +214,7 @@ class LossRegularizer:
         low_rank = getattr(model, 'low_rank_factorization', False)
         if low_rank and hasattr(model, 'WL') and hasattr(model, 'WR'):
 
-            if self._coeffs['W_L1'] > 0 and not self._W_L1_applied_this_iter:
+            if not self._W_L1_applied_this_iter:
                 regul_term = (model.WL.norm(1) + model.WR) * self._coeffs['W_L1']
                 total_regul = total_regul + regul_term
                 self._add('W_L1', regul_term)
@@ -222,25 +222,24 @@ class LossRegularizer:
         else:
 
             # W_L1: Apply only once per iteration (not per batch item)
-            if self._coeffs['W_L1'] > 0 and not self._W_L1_applied_this_iter:
+            if not self._W_L1_applied_this_iter:
                 regul_term = model.W.norm(1) * self._coeffs['W_L1']
                 total_regul = total_regul + regul_term
                 self._add('W_L1', regul_term)
                 self._W_L1_applied_this_iter = True
 
-            if self._coeffs['W_L2'] > 0 and not self._W_L1_applied_this_iter:
                 regul_term = model.W.norm(2) * self._coeffs['W_L2']
                 total_regul = total_regul + regul_term
                 self._add('W_L2', regul_term)
 
         # --- g_phi / f_theta weight regularization ---
-        if (self._coeffs['g_phi_weight_L1'] + self._coeffs['g_phi_weight_L2']) > 0 and hasattr(model, 'g_phi'):
+        if hasattr(model, 'g_phi'):
             for param in model.g_phi.parameters():
                 regul_term = param.norm(1) * self._coeffs['g_phi_weight_L1'] + param.norm(2) * self._coeffs['g_phi_weight_L2']
                 total_regul = total_regul + regul_term
                 self._add('g_phi_weight', regul_term)
 
-        if (self._coeffs['f_theta_weight_L1'] + self._coeffs['f_theta_weight_L2']) > 0 and hasattr(model, 'f_theta'):
+        if hasattr(model, 'f_theta'):
             for param in model.f_theta.parameters():
                 regul_term = param.norm(1) * self._coeffs['f_theta_weight_L1'] + param.norm(2) * self._coeffs['f_theta_weight_L2']
                 total_regul = total_regul + regul_term
