@@ -69,7 +69,14 @@ class MLPBaseline(nn.Module):
             # with skip connections we have a concatenation
             hidden_dim2 = hidden_dim + int(self.add_skip_layers)*hidden_dim
             self.hidden_layers.append(nn.Linear(hidden_dim2, hidden_dim, device=device))
-        self.activation = nn.ReLU()
+        _activations = {
+            'relu': nn.ReLU(),
+            'tanh': nn.Tanh(),
+            'sigmoid': nn.Sigmoid(),
+            'leaky_relu': nn.LeakyReLU(),
+            'soft_relu': nn.Softplus(),
+        }
+        self.activation = _activations[model_config.MLP_activation]
 
         # Output layer
         final_input_dim = hidden_dim
