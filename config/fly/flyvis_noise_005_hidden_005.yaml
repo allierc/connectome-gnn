@@ -35,7 +35,7 @@ graph_model:
   update_type: generic
   g_phi_positive: true
   inr_type_hidden: siren_t
-  hidden_neuron_fraction: 0.05   # 5% of non-retina neurons hidden
+  hidden_neuron_fraction: 0.05 # 5% of non-retina neurons hidden
   hidden_dim_nnr_hidden: 2048
   n_layers_nnr_hidden: 4
   omega_hidden: 4096.0
@@ -63,11 +63,11 @@ training:
   small_init_batch_size: false
   sparsity: none
   data_augmentation_loop: 25
-  lr_NNR_f: 1.0e-08              # SIREN hidden learning rate
+  lr_NNR_f: 1.0e-08 # SIREN hidden learning rate
   lr_W: 0.0001
   lr: 0.001
   lr_embedding: 0.001
-  alternate_training: false
+  alternate_training: true
   alternate_lr_ratio: 0.05
   coeff_g_phi_diff: 750
   coeff_f_theta_msg_diff: 0
@@ -100,4 +100,4 @@ claude:
   data_augmentation_loop: 25
   n_iter_block: 12
   ucb_c: 1.414
-  training_time_target_min: 60
+  node_name: a100

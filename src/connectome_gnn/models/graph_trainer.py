@@ -263,7 +263,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
     lr_NNR = tc.lr_NNR
     lr_NNR_f = tc.lr_NNR_f
 
-    _logger.info(f'learning rates: lr_W {lr_W}, lr {lr}, lr_update {lr_update}, lr_embedding {lr_embedding}, lr_NNR {lr_NNR}')
+    _logger.info(f'learning rates: lr_W {lr_W}, lr {lr}, lr_update {lr_update}, lr_embedding {lr_embedding}, lr_NNR_f {lr_NNR_f}')
 
     optimizer, n_total_params = set_trainable_parameters(model=model, lr_embedding=lr_embedding, lr=lr,
                                                          lr_update=lr_update, lr_W=lr_W, lr_NNR=lr_NNR, lr_NNR_f = lr_NNR_f)
