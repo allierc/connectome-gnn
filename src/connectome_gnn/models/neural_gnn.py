@@ -239,8 +239,8 @@ class NeuralGNN(nn.Module):
             in_feats = torch.cat([pos_h / self.NNR_hidden_xy_period, t_vec], dim=1)  # (n_hidden, 3)
             return self.NNR_hidden(in_feats).squeeze(-1)                        # (n_hidden,)
         else:  # siren_t
-            t_in = torch.tensor([[float(k) / self.NNR_hidden_T_period]],
-                                device=self.device, dtype=torch.float32)        # (1, 1)
+            t_in = torch.full((1, 1), float(k) / self.NNR_hidden_T_period,
+                              device=self.device, dtype=torch.float32)          # (1, 1)
             return self.NNR_hidden(t_in).squeeze(0)                             # (n_hidden,)
 
     def forward_visual(self, state: NeuronState, k):

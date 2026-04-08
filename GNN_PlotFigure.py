@@ -1209,6 +1209,8 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 corrected_W_ = torch.nan_to_num(corrected_W_, nan=0.0, posinf=0.0, neginf=0.0)
 
                 learned_in_ = to_numpy(corrected_W_.squeeze())
+                if visible_edge_mask is not None:
+                    learned_in_ = learned_in_[visible_edge_mask]
                 learned_in_ = learned_in_[mask]
 
                 fig = plt.figure(figsize=(10, 9))
