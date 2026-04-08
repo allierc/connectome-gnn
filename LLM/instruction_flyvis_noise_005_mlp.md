@@ -154,6 +154,8 @@ cases starts to get worse. That's why we have the early stop. But if this is det
 remove early stopping. For example, if you find that epochs=20, but at 10 epochs you hit the
 lowest rollout mse, you can consider to reduce the epoch count from 20 -> 15 say.
 
+> **YAML rule**: Always wrap the `description` field value in double quotes — colons inside unquoted YAML strings cause parse errors (e.g., `description: "Block 7 Slot 1: testing W_L2"`).
+
 ## Data Generation
 
 Each slot re-generates data with a **different random seed** (forced by pipeline):

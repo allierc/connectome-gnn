@@ -106,6 +106,8 @@ dv_i/dt = f_theta(v_i, a_i, sum_j W_ij * g_phi(v_j, a_j)^2, I_i)
 **Note**: `regul_annealing_rate=0` disables annealing, so ALL regularizers are active at full strength from epoch 0. Do not change `regul_annealing_rate`.
 
 
+> **YAML rule**: Always wrap the `description` field value in double quotes — colons inside unquoted YAML strings cause parse errors (e.g., `description: "Block 7 Slot 1: testing W_L2"`).
+
 ## Slot Strategy — 4 Different Configs Per Batch
 
 Each batch runs **4 different configurations** simultaneously. Unlike other explorations where all slots test the same config with different seeds, here each slot tests a **different parameter setting** to maximize exploration speed.

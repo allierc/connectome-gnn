@@ -6,6 +6,7 @@ Test whether **recurrent (BPTT) training with temporal stride=5** improves conne
 compared to 1-step training on the same flyvis noise_005 dataset.
 
 The core scientific question is:
+
 > **Can BPTT through k=5 Euler steps reduce the effective null space of the inverse problem,
 > yielding higher connectivity_R2 than standard 1-step training?**
 
@@ -18,24 +19,25 @@ per-neuron null-space structure, especially for high-degree neurons.
 **Hard floor**: connectivity_R2 > 0.90 on all 4 seeds.
 **Secondary metrics**: `tau_R2`, `V_rest_R2`, `cluster_accuracy`, `rollout_pearson`.
 
-## Scientific Context
+## Scientific Method
 
-**Why recurrent training might help:**
-The inverse problem — recovering W from voltage trajectories — suffers from a per-neuron null space:
-if neurons j and k are always co-active (same cell type), their incoming weights W_ij and W_ik
-are unidentifiable from 1-step observations. With stride=5, each training sample requires the model
-to predict v(t+5dt) from v(t), unrolling 5 Euler steps. This creates gradient signal that is
-sensitive to the *interaction* of weights over time — two weight configurations that look identical
-at t+1dt may diverge at t+5dt, providing discriminating signal.
+This exploration follows a strict **hypothesize → test → validate/falsify** cycle:
 
-**Risk: gradient instability.** BPTT through k steps multiplies the gradient by the Jacobian k
-times. If the Jacobian has eigenvalues > 1 (which happens near the spectral radius ≈ 1.72 for
-flyvis), gradients can explode. Learning rates must be scaled down and gradient clipping may be
-required.
+1. **Hypothesize**: Based on available data (metrics, seed variance, prior results), form a specific, testable hypothesis about which parameter controls robustness
+2. **Design experiment**: Choose a mutation that specifically tests the hypothesis — change **exactly ONE parameter at a time**
+3. **Run training**: The experiment runs across 4 seeds — you cannot predict the outcome
+4. **Analyze results**: Use both metrics AND cross-seed variance to evaluate whether the hypothesis was supported or contradicted
+5. **Update understanding**: Revise hypotheses based on evidence. A falsified hypothesis is valuable information.
 
-**Risk: fewer effective training pairs.** With stride=5, each epoch sees T/5 training pairs (vs T
-for stride=1) — a 5× reduction in weight update steps. `data_augmentation_loop` and `n_epochs` are
-fixed in this experiment.
+**CRITICAL**: You can only hypothesize. Only training results can validate or falsify your hypotheses. Never assume a hypothesis is correct without experimental evidence.
+
+**Evidence hierarchy:**
+
+| Level            | Criterion                                       | Action                 |
+| ---------------- | ----------------------------------------------- | ---------------------- |
+| **Established**  | Consistent across 3+ iterations AND 4/4 seeds   | Add to Principles      |
+| **Tentative**    | Observed 1-2 times or inconsistent across seeds | Add to Open Questions  |
+| **Contradicted** | Conflicting evidence across iterations/seeds    | Note in Open Questions |
 
 ## CRITICAL: Data is PRE-GENERATED at startup (fixed across iterations)
 
@@ -44,6 +46,7 @@ These datasets are **reused across all iterations** — data is NOT re-generated
 Both `simulation.seed` and `training.seed` are **forced by the pipeline** — DO NOT modify them.
 
 Seed formula (set automatically by GNN_LLM.py):
+
 - `simulation.seed = 1000 + slot` (controls data generation — fixed at startup, slot 0–3)
 - `training.seed = iteration * 1000 + slot + 500` (controls weight init & training randomness)
 
@@ -90,48 +93,49 @@ different offsets — not applicable here.
 
 ### Core Recurrent Parameters
 
-| Parameter | Default | Description |
-|---|---|---|
-| `time_step` | 5 | Stride: unroll this many Euler steps per training sample |
-| `recurrent_training` | true | Must stay true (defines this experiment) |
-| `recurrent_training_start_epoch` | 0 | **Must stay 0** — immediate recurrent training from epoch 0 |
-| `noise_recurrent_level` | 0.0 | Add Gaussian noise at each recurrent step (prevents error compounding) |
+| Parameter                        | Default | Description                                                            |
+| -------------------------------- | ------- | ---------------------------------------------------------------------- |
+| `time_step`                      | 5       | Stride: unroll this many Euler steps per training sample               |
+| `recurrent_training`             | true    | Must stay true (defines this experiment)                               |
+| `recurrent_training_start_epoch` | 0       | **Must stay 0** — immediate recurrent training from epoch 0            |
+| `noise_recurrent_level`          | 0.0     | Add Gaussian noise at each recurrent step (prevents error compounding) |
 
 ### Learning Rates (scale down from stride-1 by ~k)
 
-| Parameter | Stride-1 baseline | Stride-5 starting point |
-|---|---|---|
-| `lr_W` | 0.0009 | 0.0002 (÷5 rule of thumb) |
-| `lr` | 0.0018 | 0.0004 |
-| `lr_embedding` | 0.002325 | 0.0005 |
+| Parameter      | Stride-1 baseline | Stride-5 starting point   |
+| -------------- | ----------------- | ------------------------- |
+| `lr_W`         | 0.0009            | 0.0002 (÷5 rule of thumb) |
+| `lr`           | 0.0018            | 0.0004                    |
+| `lr_embedding` | 0.002325          | 0.0005                    |
 
 ### Gradient Stability
 
-| Parameter | Default | Description |
-|---|---|---|
-| `grad_clip_W` | 0.0 | Gradient clipping for W (0 = disabled); try 0.1–1.0 |
-| `lr_scheduler` | none | `cosine_warm_restarts` or `linear_warmup_cosine` — stabilize BPTT convergence (Block 6) |
-| `lr_scheduler_T0` | 1000 | Period for cosine warm restarts (if scheduler enabled) |
-| `lr_scheduler_warmup_iters` | 100 | Linear warmup before cosine (if scheduler enabled) |
+| Parameter                   | Default | Description                                                                             |
+| --------------------------- | ------- | --------------------------------------------------------------------------------------- |
+| `grad_clip_W`               | 0.0     | Gradient clipping for W (0 = disabled); try 0.1–1.0                                     |
+| `lr_scheduler`              | none    | `cosine_warm_restarts` or `linear_warmup_cosine` — stabilize BPTT convergence (Block 6) |
+| `lr_scheduler_T0`           | 1000    | Period for cosine warm restarts (if scheduler enabled)                                  |
+| `lr_scheduler_warmup_iters` | 100     | Linear warmup before cosine (if scheduler enabled)                                      |
 
 ### Regularization (may need rebalancing with recurrent signal)
 
-| Parameter | Default | Description |
-|---|---|---|
-| `coeff_g_phi_diff` | 750 | Monotonicity of g_phi — critical for rollout stability |
-| `coeff_W_L1` | 0.00015 | L1 on W — recurrent training may prefer lighter regularization |
-| `coeff_W_L2` | 1.5e-6 | L2 on W |
-| `coeff_g_phi_weight_L1` | 0.28 | L1 on g_phi weights |
+| Parameter               | Default | Description                                                    |
+| ----------------------- | ------- | -------------------------------------------------------------- |
+| `coeff_g_phi_diff`      | 750     | Monotonicity of g_phi — critical for rollout stability         |
+| `coeff_W_L1`            | 0.00015 | L1 on W — recurrent training may prefer lighter regularization |
+| `coeff_W_L2`            | 1.5e-6  | L2 on W                                                        |
+| `coeff_g_phi_weight_L1` | 0.28    | L1 on g_phi weights                                            |
 
 ### Architecture
 
-| Parameter | Default | Note |
-|---|---|---|
-| `embedding_dim` | 2 | Keep fixed — changing requires updating input_size, input_size_update |
-| `hidden_dim` | 80 | g_phi width |
-| `hidden_dim_update` | 80 | f_theta width |
+| Parameter           | Default | Note                                                                  |
+| ------------------- | ------- | --------------------------------------------------------------------- |
+| `embedding_dim`     | 2       | Keep fixed — changing requires updating input_size, input_size_update |
+| `hidden_dim`        | 80      | g_phi width                                                           |
+| `hidden_dim_update` | 80      | f_theta width                                                         |
 
 **CRITICAL — coupled parameters**: if you change `embedding_dim`:
+
 - `input_size = 1 + embedding_dim`
 - `input_size_update = 3 + embedding_dim`
 
@@ -141,6 +145,8 @@ All L1/L2 coefficients are multiplied by `(1 - exp(-rate * epoch))`.
 With `n_epochs=1` (fixed in this experiment), **all L1/L2 regularizers are inactive** (annealing multiplier = 0) unless `regul_annealing_rate: 0` is set.
 
 Non-annealed: `coeff_g_phi_diff`, `coeff_g_phi_norm`, `coeff_f_theta_msg_diff` — active from epoch 0.
+
+> **YAML rule**: Always wrap the `description` field value in double quotes — colons inside unquoted YAML strings cause parse errors (e.g., `description: "Block 7 Slot 1: testing W_L2"`).
 
 ## Parallel Mode — 4 Slots Per Batch
 
@@ -157,16 +163,16 @@ Use all 4 slots for seed robustness testing.
 
 ## Block Partition
 
-| Block | Focus | Key parameters |
-|---|---|---|
-| 1 | **Baseline comparison** | stride-5 default vs stride-1 winner — does BPTT help at all? |
-| 2 | **LR rescaling** | lr_W, lr, lr_emb — find stable range for BPTT gradient magnitude |
-| 3 | **Noise injection** | noise_recurrent_level = 0.0, 0.01, 0.03, 0.1 — prevent error compounding in BPTT rollout |
-| 4 | **Gradient clipping** | grad_clip_W = 0, 0.1, 0.5, 1.0 — stabilize BPTT |
-| 5 | **Regularization** | coeff_g_phi_diff, coeff_W_L1 — rebalance with recurrent gradient signal |
-| 6 | **LR scheduler** | lr_scheduler = cosine_warm_restarts vs none, warmup tuning — stabilize BPTT convergence |
-| 7 | **Combined best** | Best parameters from blocks 1–6 |
-| 8 | **Validation** | Best stride-5 config vs stride-1 winner — final comparison |
+| Block | Focus                   | Key parameters                                                                           |
+| ----- | ----------------------- | ---------------------------------------------------------------------------------------- |
+| 1     | **Baseline comparison** | stride-5 default vs stride-1 winner — does BPTT help at all?                             |
+| 2     | **LR rescaling**        | lr_W, lr, lr_emb — find stable range for BPTT gradient magnitude                         |
+| 3     | **Noise injection**     | noise_recurrent_level = 0.0, 0.01, 0.03, 0.1 — prevent error compounding in BPTT rollout |
+| 4     | **Gradient clipping**   | grad_clip_W = 0, 0.1, 0.5, 1.0 — stabilize BPTT                                          |
+| 5     | **Regularization**      | coeff_g_phi_diff, coeff_W_L1 — rebalance with recurrent gradient signal                  |
+| 6     | **LR scheduler**        | lr_scheduler = cosine_warm_restarts vs none, warmup tuning — stabilize BPTT convergence  |
+| 7     | **Combined best**       | Best parameters from blocks 1–6                                                          |
+| 8     | **Validation**          | Best stride-5 config vs stride-1 winner — final comparison                               |
 
 ## Variable Names
 
@@ -174,18 +180,22 @@ Use all 4 slots for seed robustness testing.
 - **`{llm_task_name}`**: `flyvis_noise_005_stride_5_Claude`
 
 **Config file paths:**
+
 - `config/fly/flyvis_noise_005_stride_5_Claude_00.yaml` through `_03.yaml`
 - `config/fly/flyvis_noise_005_stride_5_winner.yaml`
 
 ## File Structure
 
 ### 1. Full Log (append-only)
+
 **File**: `flyvis_noise_005_stride_5_Claude_analysis.md`
 
 ### 2. Working Memory (read + update every batch)
+
 **File**: `flyvis_noise_005_stride_5_Claude_memory.md`
 
 ### 3. User Input
+
 **File**: `user_input.md`
 
 ## Iteration Workflow (every batch)
@@ -195,11 +205,13 @@ Use all 4 slots for seed robustness testing.
 ### Step 2: Analyze Results (4 slots)
 
 **Metrics from `analysis.log`:**
+
 - `connectivity_R2`: R² of learned vs true W (PRIMARY — compare to stride-1 baseline 0.980)
 - `tau_R2`, `V_rest_R2`, `cluster_accuracy`, `rollout_pearson`
 - `training_time_min`: BPTT is ~k× slower per iteration than stride-1
 
 **BPTT-specific observations to track:**
+
 - Did training diverge (NaN loss, connectivity_R2 ≈ 0)?
 - Is connectivity_R2 above or below the stride-1 baseline (0.980)?
 - Is training time scaling as expected (~5× longer per epoch vs stride-1)?
@@ -303,8 +315,8 @@ When prompt says `PARALLEL START`:
 
 ### vs Stride-1 Comparison Table
 
-| Iter | time_step | LR scale | conn_R2 (mean±std) | CV% | min | vs baseline | Stability | Note |
-|------|-----------|----------|--------------------|-----|-----|-------------|-----------|------|
+| Iter | time_step | LR scale | conn_R2 (mean±std) | CV% | min | vs baseline | Stability | Note     |
+| ---- | --------- | -------- | ------------------ | --- | --- | ----------- | --------- | -------- |
 | 1    | 5         | default  | ?                  | ?   | ?   | ?           | ?         | baseline |
 
 ### Established Principles
@@ -343,5 +355,6 @@ Iterations: M to M+n_iter_block
 ### Iterations This Block
 
 ### Emerging Observations
+
 **CRITICAL: This section must ALWAYS be at the END of memory file.**
 ```

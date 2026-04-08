@@ -114,7 +114,6 @@ if __name__ == "__main__":
             # config_file_ is a direct filesystem path — load without repo lookup.
             # Append .yaml if not already present.
             # pre_folder is derived from the parent directory name.
-            # config.config_file is left as-is from the YAML.
             yaml_file = config_file_ if config_file_.endswith('.yaml') else config_file_ + '.yaml'
             parent = os.path.basename(os.path.dirname(os.path.abspath(yaml_file)))
             pre_folder = parent + "/" if parent else ""
@@ -122,6 +121,11 @@ if __name__ == "__main__":
             config = NeuralGraphConfig.from_yaml(yaml_file)
             if not config.dataset.startswith(pre_folder):
                 config.dataset = pre_folder + config.dataset
+            # If config_file is still the default "none", derive it from the YAML path
+            # so logs go to log/<domain>/<config_name>/ not log/none/
+            if config.config_file == "none":
+                stem = os.path.splitext(os.path.basename(yaml_file))[0]
+                config.config_file = pre_folder + stem
         else:
             config_file, pre_folder = add_pre_folder(config_file_)
 
@@ -240,3 +244,4 @@ if __name__ == "__main__":
 #   "bash run_cv_null_edges_cross.sh"
 
 # bsub -n 2 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o train_test_plot null_edges_cross --output_root /groups/saalfeld/home/allierc/GraphData"
+# bsub -n 2 -gpu "num=1" -q gpu_a100 -W 6000 -Is  -o logs/cv_cross.out -e logs/cv_cross.err   "bash run_cv_null_edges_cross.sh"

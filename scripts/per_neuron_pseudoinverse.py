@@ -74,7 +74,7 @@ def compute_rhs(v, dv_dt, stim, tau_i, V_rest):
     return b
 
 
-def recover_weights_pseudoinverse(h, b, edge_index, variance_threshold=1.0):
+def recover_weights_pseudoinverse(h, b, edge_index, variance_threshold=1.0):  # use all singular values
     """Recover weights w_i = H_i^+ b_i for each neuron using SVD pseudoinverse.
 
     Args:
@@ -158,6 +158,179 @@ def recover_weights_pseudoinverse(h, b, edge_index, variance_threshold=1.0):
         per_neuron_info["neuron_r2"].append(None)  # Will fill after GT comparison
 
     return w_recovered, per_neuron_info
+
+
+# ---------------------------------------------------------------------------
+# Multi-method recovery (single SVD pass per neuron)
+# ---------------------------------------------------------------------------
+
+CV_LAMBDAS_DEFAULT = np.logspace(-4, 4, 30)
+METHODS_DEFAULT = ("truncated_svd", "ridge", "cv_ridge")
+
+
+def recover_weights_multimethod(h, b, edge_index,
+                                 methods=METHODS_DEFAULT,
+                                 variance_threshold=1.0,
+                                 ridge_lambda=1.0,
+                                 cv_lambdas=None,
+                                 cv_frac=0.2):
+    """Recover weights using multiple methods in a single per-neuron SVD pass.
+
+    For each neuron the full SVD is computed once and reused across methods.
+    cv_ridge adds a second SVD on the training split to select lambda per neuron.
+
+    Args:
+        h: (T, N) presynaptic activity (ReLU(v))
+        b: (T, N) right-hand side
+        edge_index: (2, E) edge list [src, dst]
+        methods: iterable of method names
+        variance_threshold: cumulative variance cutoff for truncated_svd
+        ridge_lambda: fixed regularization for "ridge"
+        cv_lambdas: lambda grid for "cv_ridge" (default: logspace(-4,4,30))
+        cv_frac: fraction of time points held out for cv_ridge validation
+
+    Returns:
+        w_all: dict[method] -> (E,) recovered weights
+        info_all: dict[method] -> per-neuron info dict
+    """
+    if cv_lambdas is None:
+        cv_lambdas = CV_LAMBDAS_DEFAULT
+
+    T, N = h.shape
+    src, dst = edge_index[0].numpy(), edge_index[1].numpy()
+    E = len(src)
+
+    in_edges = defaultdict(list)
+    edge_indices = defaultdict(list)
+    for e_idx in range(E):
+        dn = int(dst[e_idx])
+        in_edges[dn].append(int(src[e_idx]))
+        edge_indices[dn].append(e_idx)
+
+    def _empty_info():
+        return {"neuron_id": [], "in_degree": [], "effective_rank": [],
+                "null_dim": [], "neuron_r2": []}
+
+    w_all = {m: np.zeros(E) for m in methods}
+    info_all = {m: _empty_info() for m in methods}
+
+    n_val = max(1, int(cv_frac * T))
+    n_train = T - n_val
+
+    desc = "Multi-method (" + "+".join(methods) + ")"
+    for i in tqdm(sorted(in_edges.keys()), desc=desc, ncols=100):
+        presynaptic = np.array(in_edges[i])
+        edge_idxs = np.array(edge_indices[i])
+        d_i = len(presynaptic)
+        H_i = h[:, presynaptic]
+        b_i = b[:, i]
+
+        # Full SVD — shared by truncated_svd, ridge, cv_ridge (refit step)
+        U, sigma, Vt = np.linalg.svd(H_i, full_matrices=False)
+        UtB = U.T @ b_i
+        total_var = float(np.sum(sigma ** 2))
+        has_activity = total_var > 1e-16
+
+        for method in methods:
+            if method == "truncated_svd":
+                if has_activity:
+                    r_i = int(np.searchsorted(
+                        np.cumsum(sigma ** 2) / total_var, variance_threshold)) + 1
+                    r_i = min(r_i, len(sigma))
+                else:
+                    r_i = 1
+                null_dim_i = max(0, d_i - r_i)
+                s_inv = np.where(sigma[:r_i] > 1e-12, 1.0 / sigma[:r_i], 0.0)
+                w_i = Vt[:r_i].T @ (s_inv * UtB[:r_i])
+
+            elif method == "ridge":
+                sf = sigma / (sigma ** 2 + ridge_lambda)
+                w_i = Vt.T @ (sf * UtB)
+                r_i, null_dim_i = len(sigma), 0
+
+            elif method == "cv_ridge":
+                H_tr, b_tr = H_i[:n_train], b_i[:n_train]
+                H_val, b_val = H_i[n_train:], b_i[n_train:]
+                U_tr, sig_tr, Vt_tr = np.linalg.svd(H_tr, full_matrices=False)
+                UtB_tr = U_tr.T @ b_tr
+                best_lam, best_err = cv_lambdas[0], np.inf
+                for lam in cv_lambdas:
+                    sf_tr = sig_tr / (sig_tr ** 2 + lam)
+                    w_try = Vt_tr.T @ (sf_tr * UtB_tr)
+                    err = float(np.mean((H_val @ w_try - b_val) ** 2))
+                    if err < best_err:
+                        best_lam, best_err = lam, err
+                sf = sigma / (sigma ** 2 + best_lam)
+                w_i = Vt.T @ (sf * UtB)
+                r_i, null_dim_i = len(sigma), 0
+
+            else:
+                raise ValueError(f"Unknown method: {method!r}")
+
+            w_all[method][edge_idxs] = w_i
+            info = info_all[method]
+            info["neuron_id"].append(i)
+            info["in_degree"].append(d_i)
+            info["effective_rank"].append(r_i)
+            info["null_dim"].append(null_dim_i)
+            info["neuron_r2"].append(None)
+
+    return w_all, info_all
+
+
+def analyze_pseudoinverse_multimethod(noise_label, ode_path, data_dir,
+                                       methods=METHODS_DEFAULT,
+                                       variance_threshold=1.0,
+                                       ridge_lambda=1.0,
+                                       cv_lambdas=None):
+    """Load data, recover weights with all methods, compute connectivity R² for each."""
+    if not os.path.exists(ode_path):
+        print(f"ERROR: ODE params not found at {ode_path}")
+        return None
+
+    print(f"multi-method pseudoinverse: {noise_label}")
+    state = torch.load(ode_path, map_location="cpu", weights_only=True)
+    N = len(state['tau_i'])
+    E = len(state['W'])
+    print(f"  neurons: {N:,d}, edges: {E:,d}")
+
+    v = load_training_activity(data_dir, subsample_t=8)
+    dv_dt = load_training_derivatives(data_dir, subsample_t=8)
+    stim = load_stimulus(data_dir, subsample_t=8)
+
+    h = np.maximum(0, v)
+    tau_i = state['tau_i'].numpy()
+    V_rest = state['V_i_rest'].numpy()
+    b = compute_rhs(v, dv_dt, stim, tau_i, V_rest)
+
+    edge_index = state['edge_index']
+    w_gt = state['W'].numpy()
+
+    w_all, info_all = recover_weights_multimethod(
+        h, b, edge_index, methods=methods,
+        variance_threshold=variance_threshold,
+        ridge_lambda=ridge_lambda, cv_lambdas=cv_lambdas
+    )
+
+    results = {}
+    for method in methods:
+        w_rec = w_all[method]
+        info = info_all[method]
+        info = compute_per_neuron_r2(w_gt, w_rec, edge_index, info)
+        global_r2 = compute_connectivity_r2(w_gt, w_rec)
+        results[method] = {
+            "noise_label": noise_label,
+            "method": method,
+            "global_r2": global_r2,
+            "per_neuron_r2": np.array(info["neuron_r2"]),
+            "per_neuron_info": info,
+            "w_gt": w_gt,
+            "w_recovered": w_rec,
+            "edge_index": edge_index,
+        }
+        print(f"  [{method}] global conn R²: {global_r2:.6f}")
+
+    return results
 
 
 def compute_connectivity_r2(w_gt, w_recovered):
@@ -259,7 +432,7 @@ def analyze_pseudoinverse(noise_label, ode_path, data_dir):
     print(f"recovering weights using pseudoinverse...")
     edge_index = state['edge_index']
     w_recovered, per_neuron_info = recover_weights_pseudoinverse(
-        h, b, edge_index, variance_threshold=0.999
+        h, b, edge_index, variance_threshold=1.0
     )
 
     # Ground truth weights

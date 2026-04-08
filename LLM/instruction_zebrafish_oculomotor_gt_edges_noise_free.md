@@ -111,6 +111,8 @@ Example: embedding_dim=2 -> input_size=3, input_size_update=5.
 **DO NOT change `use_gt_edges`** — this file is specifically for the GT edges variant. For fully-connected training, use `instruction_zebrafish_oculomotor.md`.
 
 
+> **YAML rule**: Always wrap the `description` field value in double quotes — colons inside unquoted YAML strings cause parse errors (e.g., `description: "Block 7 Slot 1: testing W_L2"`).
+
 ## Parallel Mode — 4 Slots Per Batch
 
 Each batch runs 4 slots with different seeds (forced by pipeline). You choose the strategy:

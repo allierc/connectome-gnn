@@ -108,6 +108,8 @@ The model is registered as `drosophila_cx_known_ode`. Unlike the GNN:
 | `noise_model_level`       | 0.5     | **FIXED** — strong noise level for this experiment     |
 
 
+> **YAML rule**: Always wrap the `description` field value in double quotes — colons inside unquoted YAML strings cause parse errors (e.g., `description: "Block 7 Slot 1: testing W_L2"`).
+
 ## Parallel Mode — 4 Slots Per Batch
 
 - **Exploration** (default): Slot 0 = parent/control. Slots 1-3 each change **exactly one** parameter.

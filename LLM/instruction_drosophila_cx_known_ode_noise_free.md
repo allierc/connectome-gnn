@@ -124,6 +124,8 @@ Key difference from MLP: uses graph structure and per-edge weights, not a flat b
 | `noise_model_level`       | 0.0     | No observation noise                                   |
 
 
+> **YAML rule**: Always wrap the `description` field value in double quotes — colons inside unquoted YAML strings cause parse errors (e.g., `description: "Block 7 Slot 1: testing W_L2"`).
+
 ## Parallel Mode — 4 Slots Per Batch
 
 Each batch runs 4 slots with different seeds (forced by pipeline). You choose the strategy:
