@@ -27,7 +27,7 @@ graph_model:
   n_layers: 3
   hidden_dim: 256
   zero_init_output: true
-  add_final_layer_skip: false
+  add_skip_layers: false
   output_size: 1
   input_size_update: 5
   n_layers_update: 3
