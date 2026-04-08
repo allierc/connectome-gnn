@@ -232,7 +232,7 @@ At every block boundary, save best config to `config/fly/flyvis_noise_005_hidden
 - SIREN LR cliff on BOTH sides: viable band 7e-9 to 2.5e-8. Only 1e-8 confirmed safe.
 - 4L SIREN eliminates catastrophic failures. 4L chosen for hidden SIREN as well.
 - 2048 hidden dim is Pareto-optimal (same quality, 43% faster than 4096).
-- alternate_training critical for visual SIREN; NOT used for hidden SIREN.
+- alternate_training critical for visual SIREN; also used for hidden SIREN (same rationale: GNN converges fast and must be frozen in epochs 1-2 to allow SIREN to refine).
 
 **From noise_005 GNN-only champion**:
 - Best GNN: conn_R2=0.982±0.003 with lr_W=9e-4, lr=1.8e-3, lr_emb=2.325e-3, aug=35, 1 epoch.
@@ -263,7 +263,7 @@ When prompt says `PARALLEL START`:
 - Set all 4 configs identically to baseline
 - Write planned config and initial hypothesis to working memory
 - First iteration establishes baseline — do NOT change hyperparameters yet
-- Baseline hypothesis: "The current config (lr_NNR_f=1e-8, 3 epochs, no alternate training) achieves conn_R2 > 0.8 while hidden_siren_R2 > 0 (SIREN learns something from indirect gradients)"
+- Baseline hypothesis: "The current config (lr_NNR_f=1e-8, 3 epochs, alternate_training=true, ratio=0.05) achieves conn_R2 > 0.8 while hidden_siren_R2 > 0 (SIREN learns something from indirect gradients)"
 
 ---
 
