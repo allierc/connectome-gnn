@@ -7,6 +7,7 @@ import torch.nn as nn
 from connectome_gnn.models.MLP import MLP
 from connectome_gnn.models.registry import register_model
 from connectome_gnn.models.Siren_Network import Siren
+from connectome_gnn.models.MultiResGrid_Network import MultiResTemporalGrid
 from connectome_gnn.neuron_state import NeuronState
 
 
@@ -195,15 +196,17 @@ class NeuralGNN(nn.Module):
                 # self.NNR_f_xy_period = model_config.nnr_f_xy_period
                 # self.NNR_f_T_period = model_config.nnr_f_T_period
 
-        # Hidden-neuron SIREN: learns voltages of silenced neurons jointly with GNN.
+        # Hidden-neuron INR: learns voltages of silenced neurons jointly with GNN.
         # Built in __init__ (like NNR_f) using hidden_neuron_fraction from model_config.
         # "siren_t"   : SIREN(t) -> (n_hidden,)  — independent signal per neuron
         # "siren_txy" : SIREN(x,y,t) -> scalar   — spatially-correlated field
-        # "none"      : zero-silencing, no SIREN
+        # "ngp_t"     : MultiResTemporalGrid(t) -> (n_hidden,)  — local, no waterbed
+        # "none"      : zero-silencing, no INR
         self.NNR_hidden = None
         self._inr_hidden_type = getattr(model_config, 'inr_type_hidden', 'none')
         self.NNR_hidden_T_period = getattr(model_config, 'nnr_hidden_T_period', 64000.0) / (2 * np.pi)
         self.NNR_hidden_xy_period = getattr(model_config, 'nnr_f_xy_period', 1.0) / (2 * np.pi)
+        self.NNR_hidden_n_frames = float(simulation_config.n_frames)  # for NGP [0,1] normalisation
         _hidden_frac = getattr(model_config, 'hidden_neuron_fraction', 0.0)
         if self._inr_hidden_type in ('siren_t', 'siren_txy') and _hidden_frac > 0.0:
             n_non_retina = simulation_config.n_neurons - simulation_config.n_input_neurons
@@ -218,6 +221,19 @@ class NeuralGNN(nn.Module):
                 first_omega_0=getattr(model_config, 'omega_hidden', 4096.0),
                 hidden_omega_0=getattr(model_config, 'omega_hidden', 4096.0),
                 outermost_linear=getattr(model_config, 'outermost_linear_nnr_hidden', True),
+            )
+            self.NNR_hidden.to(self.device)
+        elif self._inr_hidden_type == 'ngp_t' and _hidden_frac > 0.0:
+            n_non_retina = simulation_config.n_neurons - simulation_config.n_input_neurons
+            n_hidden = int(n_non_retina * _hidden_frac)
+            self.NNR_hidden = MultiResTemporalGrid(
+                n_levels=getattr(model_config, 'ngp_hidden_n_levels', 24),
+                n_features_per_level=getattr(model_config, 'ngp_hidden_n_features_per_level', 4),
+                base_resolution=getattr(model_config, 'ngp_hidden_base_resolution', 16),
+                per_level_scale=getattr(model_config, 'ngp_hidden_per_level_scale', 1.4),
+                n_output=n_hidden,
+                mlp_width=getattr(model_config, 'ngp_hidden_mlp_width', 512),
+                mlp_layers=getattr(model_config, 'ngp_hidden_mlp_layers', 4),
             )
             self.NNR_hidden.to(self.device)
 
@@ -238,6 +254,11 @@ class NeuralGNN(nn.Module):
                                device=self.device, dtype=torch.float32)
             in_feats = torch.cat([pos_h / self.NNR_hidden_xy_period, t_vec], dim=1)  # (n_hidden, 3)
             return self.NNR_hidden(in_feats).squeeze(-1)                        # (n_hidden,)
+        elif self._inr_hidden_type == 'ngp_t':
+            # MultiResTemporalGrid: t normalized to [0, 1]
+            t_in = torch.full((1, 1), float(k) / self.NNR_hidden_n_frames,
+                              device=self.device, dtype=torch.float32)          # (1, 1)
+            return self.NNR_hidden(t_in).squeeze(0)                             # (n_hidden,)
         else:  # siren_t
             t_in = torch.full((1, 1), float(k) / self.NNR_hidden_T_period,
                               device=self.device, dtype=torch.float32)          # (1, 1)

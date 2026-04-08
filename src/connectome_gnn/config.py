@@ -371,17 +371,26 @@ class GraphModelConfig(BaseModel):
     nnr_f_xy_period: float = 1.0
     nnr_f_T_period: float = 1.0
 
-    # Hidden neuron SIREN — learns voltages of silenced neurons jointly with GNN.
-    # "none"      : zero-silencing (original behaviour, no SIREN)
+    # Hidden neuron INR — learns voltages of silenced neurons jointly with GNN.
+    # "none"      : zero-silencing (original behaviour, no INR)
     # "siren_t"   : SIREN(t) -> (n_hidden,)  — independent signal per neuron
     # "siren_txy" : SIREN(x,y,t) -> scalar   — spatially-correlated field
+    # "ngp_t"     : MultiResTemporalGrid(t) -> (n_hidden,)  — no waterbed, faster
     inr_type_hidden: str = "none"
     hidden_neuron_fraction: float = 0.0  # fraction of non-retina neurons to hide; 0 = disabled
+    # SIREN hidden params
     hidden_dim_nnr_hidden: int = 2048
     n_layers_nnr_hidden: int = 4
     omega_hidden: float = 4096.0
     outermost_linear_nnr_hidden: bool = True
-    nnr_hidden_T_period: float = 64000.0  # time normalisation (raw frame index)
+    nnr_hidden_T_period: float = 64000.0  # time normalisation for SIREN (raw frame index)
+    # NGP hidden params (MultiResTemporalGrid) — used when inr_type_hidden = "ngp_t"
+    ngp_hidden_n_levels: int = 24
+    ngp_hidden_n_features_per_level: int = 4
+    ngp_hidden_base_resolution: int = 16
+    ngp_hidden_per_level_scale: float = 1.4
+    ngp_hidden_mlp_width: int = 512
+    ngp_hidden_mlp_layers: int = 4
 
     # INR type for external input learning
     # siren_t: input=t, output=n_neurons (current implementation, works for n_neurons < 100)
