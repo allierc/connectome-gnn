@@ -945,7 +945,9 @@ def data_test_gnn_special(
 
 
     if best_model == 'best':
-        files = glob.glob(f"{log_dir}/models/*.pt")
+        files = glob.glob(f"{log_dir}/models/best_model_with_*.pt")
+        if not files:
+            files = glob.glob(f"{log_dir}/models/*.pt")
         assert len(files), 'no model checkpoints found in models/ directory'
         best_model = max(files, key=os.path.getmtime)
         logger.info(f'best model: {best_model}')
