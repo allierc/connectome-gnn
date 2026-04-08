@@ -1808,15 +1808,22 @@ def plot_hidden_siren_traces(model, x_ts, hidden_ids, log_dir, epoch, N, device,
             pred_arr[:, k] = to_numpy(pred_h[sel])
     model.train()
 
-    # R² with linear correction (ax+b fit, same as rollout traces)
-    gt_flat = gt_arr.ravel()
-    pred_flat = pred_arr.ravel()
-    p = np.polyfit(pred_flat, gt_flat, 1)          # fit: gt = a*pred + b
-    pred_corr = p[0] * pred_flat + p[1]
-    ss_res = float(np.sum((gt_flat - pred_corr) ** 2))
-    ss_tot = float(np.sum((gt_flat - gt_flat.mean()) ** 2))
-    r2 = 1.0 - ss_res / (ss_tot + 1e-16)
-    pred_corr_arr = (p[0] * pred_arr + p[1]).astype(np.float32)
+    # Per-neuron R² with global linear correction — same as train_ngp_voltage.py _linear_fit.
+    # gt_arr/pred_arr are (n_traces, n_frames); _linear_fit expects (T, N) so transpose.
+    gt_T = gt_arr.T      # (n_frames, n_traces)
+    pred_T = pred_arr.T  # (n_frames, n_traces)
+    gt_f, pred_f = gt_T.ravel(), pred_T.ravel()
+    cov = ((pred_f - pred_f.mean()) * (gt_f - gt_f.mean())).mean()
+    var = ((pred_f - pred_f.mean()) ** 2).mean()
+    a = float(cov / (var + 1e-12))
+    b = float(gt_f.mean() - a * pred_f.mean())
+    pred_corr_T = a * pred_T + b                   # (n_frames, n_traces)
+    gt_mean_n = gt_T.mean(axis=0)                  # (n_traces,) per-neuron mean
+    ss_res_n = ((gt_T - pred_corr_T) ** 2).sum(axis=0)
+    ss_tot_n = ((gt_T - gt_mean_n) ** 2).sum(axis=0)
+    r2 = float((1.0 - ss_res_n / (ss_tot_n + 1e-12)).mean())
+    p = [a, b]                                     # keep p[0], p[1] for plot title
+    pred_corr_arr = pred_corr_T.T.astype(np.float32)  # back to (n_traces, n_frames)
 
     # ---- plot ----
     fig, ax = plt.subplots(figsize=(15, max(4, n_traces * 0.5 + 2)))
