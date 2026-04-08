@@ -1,21 +1,27 @@
-"""Standalone InstantNGP voltage trainer.
+"""Standalone multi-resolution temporal grid voltage trainer.
 
-Trains HashEncodingMLP (InstantNGP-style hash grid + MLP) on ground-truth
-voltages of a random neuron subset. Parallel alternative to train_siren_voltage.py.
+Trains a multi-resolution feature grid (InstantNGP-style, pure PyTorch) on
+ground-truth voltages of a random neuron subset.  Unlike SIREN, the grid is
+local in time — updating one time bucket leaves other frames untouched (no
+waterbed problem).  Can use small batches (96 frames) with high LR (1e-3).
 
-Hash grid is local in time — no waterbed problem. Can use small batches (96 frames)
-with high LR (1e-3). Based on working config from neural-gnn/config/signal/signal_N4_5.yaml.
+Architecture:
+    t ∈ [0,1]  →  multi-resolution 1-D grid (24 levels × 2 features = 48-dim,
+                   linear interp within each level)
+               →  PyTorch MLP (256 × 4)  →  (n_neurons,)
 
-Architecture: t (normalized [0,1]) -> HashGrid (24 levels x 2 features = 48-dim)
-              -> float() -> PyTorch MLP (256 x 4 layers) -> (n_neurons,)
-Note: tinycudann requires input in [0,1] and at least 2D — 1D time is padded [t]->[t,t].
+100% pure PyTorch — no tinycudann required.
 
 Usage:
     python train_ngp_voltage.py config/fly/flyvis_noise_005_hidden_010.yaml
-    python train_ngp_voltage.py config/fly/flyvis_noise_005_hidden_010.yaml --n_neurons 1000 --steps 50000 --output_root /groups/saalfeld/home/allierc/GraphData
+    python train_ngp_voltage.py config/fly/flyvis_noise_005_hidden_010.yaml \\
+        --n_neurons 1000 --steps 50000 --output_root /groups/saalfeld/home/allierc/GraphData
 
 Cluster:
-    bsub -n 2 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python train_ngp_voltage.py config/fly/flyvis_noise_005_hidden_010.yaml --n_neurons 1000 --steps 50000 --lr 1e-3 --batch_size 96 --output_root /groups/saalfeld/home/allierc/GraphData"
+    bsub -n 2 -gpu "num=1" -q gpu_a100 -W 6000 -Is \\
+      "python train_ngp_voltage.py config/fly/flyvis_noise_005_hidden_010.yaml \\
+       --n_neurons 1000 --steps 50000 --lr 1e-3 --batch_size 96 \\
+       --output_root /groups/saalfeld/home/allierc/GraphData"
 """
 
 import argparse
@@ -25,31 +31,89 @@ import sys
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import trange
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
-# Add sibling repos so HashEncodingMLP is importable
-_repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-for _repo in ('cell-gnn', 'neural-gnn'):
-    _p = os.path.join(_repo_root, _repo, 'src')
-    if os.path.isdir(_p):
-        sys.path.insert(0, _p)
-
 from connectome_gnn.config import NeuralGraphConfig
 from connectome_gnn.utils import graphs_data_path, set_data_root
 from connectome_gnn.zarr_io import load_simulation_data
 
-try:
-    from cell_gnn.models.HashEncoding_Network import HashEncodingMLP
-    NGP_AVAILABLE = True
-except ImportError:
-    try:
-        from neural_gnn.models.HashEncoding_Network import HashEncodingMLP
-        NGP_AVAILABLE = True
-    except ImportError:
-        NGP_AVAILABLE = False
+
+# ── multi-resolution 1-D feature grid (pure PyTorch, no tinycudann) ───────────
+class MultiResTemporalGrid(nn.Module):
+    """Multi-resolution 1-D temporal feature grid + MLP.
+
+    Mirrors InstantNGP locality: each level is a 1-D grid of learnable feature
+    vectors.  Forward pass does linear interpolation between the two nearest
+    grid points, then concatenates features across all levels and runs an MLP.
+
+    Because each level only reads two neighbouring grid points, updating a time
+    sample only changes those two entries — no waterbed problem.
+
+    Args:
+        n_levels: number of grid levels (default 24, as in NGP)
+        n_features_per_level: features per grid cell (default 2)
+        base_resolution: coarsest grid resolution (default 16)
+        per_level_scale: resolution multiplier per level (default 1.4)
+        n_output: output neurons
+        mlp_width: hidden width of MLP after encoding
+        mlp_layers: number of hidden MLP layers
+    """
+
+    def __init__(
+        self,
+        n_levels: int = 24,
+        n_features_per_level: int = 2,
+        base_resolution: int = 16,
+        per_level_scale: float = 1.4,
+        n_output: int = 1000,
+        mlp_width: int = 256,
+        mlp_layers: int = 4,
+    ):
+        super().__init__()
+
+        self.n_levels = n_levels
+        self.n_features_per_level = n_features_per_level
+
+        # Build one nn.Embedding per level
+        self.grids = nn.ModuleList()
+        self.resolutions: list[int] = []
+        res = float(base_resolution)
+        for _ in range(n_levels):
+            r = max(2, int(res))
+            # r+1 entries so that index r is valid (upper boundary)
+            emb = nn.Embedding(r + 1, n_features_per_level)
+            nn.init.uniform_(emb.weight, -1e-4, 1e-4)
+            self.grids.append(emb)
+            self.resolutions.append(r)
+            res *= per_level_scale
+
+        n_enc = n_levels * n_features_per_level
+
+        # MLP
+        layers: list[nn.Module] = [nn.Linear(n_enc, mlp_width), nn.ReLU()]
+        for _ in range(mlp_layers - 1):
+            layers += [nn.Linear(mlp_width, mlp_width), nn.ReLU()]
+        layers.append(nn.Linear(mlp_width, n_output))
+        self.mlp = nn.Sequential(*layers)
+
+    def forward(self, t: torch.Tensor) -> torch.Tensor:
+        """t: (B, 1) normalized in [0, 1]"""
+        t = t.squeeze(1)   # (B,)
+        features = []
+        for emb, res in zip(self.grids, self.resolutions):
+            pos = t * res                                   # (B,)
+            i0  = pos.long().clamp(0, res - 1)             # lower index
+            i1  = (i0 + 1).clamp(0, res)                   # upper index
+            w1  = (pos - pos.floor()).unsqueeze(1)          # (B, 1)
+            w0  = 1.0 - w1
+            feat = w0 * emb(i0) + w1 * emb(i1)            # (B, n_feat)
+            features.append(feat)
+        enc = torch.cat(features, dim=1)                   # (B, n_enc)
+        return self.mlp(enc)
 
 
 # ── ANSI color helpers ─────────────────────────────────────────────────────────
@@ -96,7 +160,7 @@ def _plot_traces(gt_arr, pred_arr, sel_ids, step, r2, a, b, out_path, n_show=10)
         ax.plot(gt_i   + i * step_v, lw=2.0, c='#66cc66', alpha=0.9,
                 label='GT' if i == 0 else None)
         ax.plot(pred_i + i * step_v, lw=0.9, c='black', alpha=0.9,
-                label='NGP (corrected)' if i == 0 else None)
+                label='Grid+MLP (corrected)' if i == 0 else None)
         ax.text(-n_frames * 0.025, i * step_v, f'n{sel_ids[ni]}',
                 fontsize=8, va='bottom', ha='right')
 
@@ -104,7 +168,8 @@ def _plot_traces(gt_arr, pred_arr, sel_ids, step, r2, a, b, out_path, n_show=10)
     ax.set_ylim([-step_v, n_show * step_v + step_v])
     ax.set_yticks([])
     ax.set_xlabel('frame', fontsize=13)
-    ax.set_title(f'InstantNGP voltage  step {step}   R²={r2:.3f}   a={a:.3f} b={b:.3f}', fontsize=12)
+    ax.set_title(f'MultiResGrid voltage  step {step}   R²={r2:.3f}   a={a:.3f} b={b:.3f}',
+                 fontsize=12)
     ax.legend(loc='upper right', fontsize=10, frameon=False)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
@@ -116,20 +181,20 @@ def _plot_traces(gt_arr, pred_arr, sel_ids, step, r2, a, b, out_path, n_show=10)
 
 # ── main ───────────────────────────────────────────────────────────────────────
 def main():
-    parser = argparse.ArgumentParser(description='Standalone InstantNGP voltage trainer')
+    parser = argparse.ArgumentParser(
+        description='Standalone multi-resolution temporal grid voltage trainer')
     parser.add_argument('config', help='Path to YAML config file')
     parser.add_argument('--n_neurons', type=int, default=1000,
                         help='Number of neurons to select randomly (default: 1000)')
     parser.add_argument('--steps', type=int, default=50000,
                         help='Training steps (default: 50000)')
     parser.add_argument('--batch_size', type=int, default=96,
-                        help='Frames per step (default: 96 — NGP is local, small batches work)')
+                        help='Frames per step (default: 96 — grid is local, small batches ok)')
     parser.add_argument('--lr', type=float, default=1e-3,
-                        help='Learning rate (default: 1e-3 — NGP converges fast)')
-    # NGP architecture — from neural-gnn/config/signal/signal_N4_5.yaml
+                        help='Learning rate (default: 1e-3)')
+    # Grid architecture — mirrors NGP signal_N4_5.yaml
     parser.add_argument('--n_levels', type=int, default=24)
     parser.add_argument('--n_features_per_level', type=int, default=2)
-    parser.add_argument('--log2_hashmap_size', type=int, default=22)
     parser.add_argument('--base_resolution', type=int, default=16)
     parser.add_argument('--per_level_scale', type=float, default=1.4)
     parser.add_argument('--mlp_width', type=int, default=256)
@@ -138,10 +203,6 @@ def main():
     parser.add_argument('--plot_every', type=int, default=5000)
     parser.add_argument('--seed', type=int, default=42)
     args = parser.parse_args()
-
-    if not NGP_AVAILABLE:
-        print('ERROR: tinycudann not available. Install from https://github.com/NVlabs/tiny-cuda-nn')
-        sys.exit(1)
 
     # ── config ────────────────────────────────────────────────────────────────
     config = NeuralGraphConfig.from_yaml(args.config)
@@ -169,7 +230,7 @@ def main():
 
     voltage_np = x_ts.voltage.numpy()          # (T, N)
     n_frames, n_neurons_total = voltage_np.shape
-    t_period = float(n_frames)                  # normalize t to [0, 1]
+    t_period = float(n_frames)                  # normalize t -> [0, 1]
 
     print(f'data: {n_frames} frames, {n_neurons_total} neurons total')
 
@@ -200,24 +261,21 @@ def main():
     print(f'output: {out_dir}')
 
     # ── model ─────────────────────────────────────────────────────────────────
-    encoding_dim = args.n_levels * args.n_features_per_level
-    model = HashEncodingMLP(
-        n_input_dims=1,
-        n_output_dims=n_select,
+    model = MultiResTemporalGrid(
         n_levels=args.n_levels,
         n_features_per_level=args.n_features_per_level,
-        log2_hashmap_size=args.log2_hashmap_size,
         base_resolution=args.base_resolution,
         per_level_scale=args.per_level_scale,
-        n_neurons=args.mlp_width,
-        n_hidden_layers=args.mlp_layers,
-        output_activation='none',
+        n_output=n_select,
+        mlp_width=args.mlp_width,
+        mlp_layers=args.mlp_layers,
     ).to(device)
 
     total_params = sum(p.numel() for p in model.parameters())
+    n_enc = args.n_levels * args.n_features_per_level
     compression = (n_frames * n_select) / total_params
-    print(f'NGP: {args.n_levels}L x {args.n_features_per_level}f = {encoding_dim}-dim encoding')
-    print(f'MLP: {encoding_dim} -> {args.mlp_width}x{args.mlp_layers} -> {n_select}')
+    print(f'MultiResGrid: {args.n_levels}L x {args.n_features_per_level}f = {n_enc}-dim enc')
+    print(f'MLP: {n_enc} -> {args.mlp_width}x{args.mlp_layers} -> {n_select}')
     print(f'params: {total_params:,}  compression: {compression:.1f}x  lr={args.lr}')
 
     optim = torch.optim.Adam(model.parameters(), lr=args.lr)
@@ -230,14 +288,12 @@ def main():
 
     for step in pbar:
         frame_ids = np.random.randint(0, n_frames, size=args.batch_size)
-        t_in  = torch.tensor(frame_ids / t_period, dtype=torch.float32, device=device).unsqueeze(1)
+        t_in     = torch.tensor(frame_ids / t_period, dtype=torch.float32,
+                                device=device).unsqueeze(1)
         gt_batch = ground_truth[frame_ids]          # (bs, n_select)
 
         pred = model(t_in)                          # (bs, n_select)
-
-        # Relative L2 loss (from neural-gnn working config — more stable than MSE)
-        rel_l2 = (pred - gt_batch) ** 2 / (pred.detach() ** 2 + 0.01)
-        loss = rel_l2.mean()
+        loss = F.mse_loss(pred, gt_batch)
 
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
@@ -248,7 +304,8 @@ def main():
         if step % eval_interval == 0 and step > 0:
             sample_ids = np.linspace(0, n_frames - 1, 200, dtype=int)
             with torch.no_grad():
-                t_s = torch.tensor(sample_ids / t_period, dtype=torch.float32, device=device).unsqueeze(1)
+                t_s = torch.tensor(sample_ids / t_period, dtype=torch.float32,
+                                   device=device).unsqueeze(1)
                 pred_s = model(t_s).cpu().numpy()
             gt_s = voltage_sel[sample_ids]
             a, b, r2 = _linear_fit(gt_s, pred_s)
@@ -260,7 +317,8 @@ def main():
         if step % args.plot_every == 0 and step > 0:
             sample_ids = np.linspace(0, n_frames - 1, 800, dtype=int)
             with torch.no_grad():
-                t_s = torch.tensor(sample_ids / t_period, dtype=torch.float32, device=device).unsqueeze(1)
+                t_s = torch.tensor(sample_ids / t_period, dtype=torch.float32,
+                                   device=device).unsqueeze(1)
                 pred_plot = model(t_s).cpu().numpy()
             gt_plot = voltage_sel[sample_ids]
             _plot_traces(gt_plot.T, pred_plot.T, sel_ids, step, r2, a, b,
@@ -271,7 +329,8 @@ def main():
     # ── final eval ────────────────────────────────────────────────────────────
     sample_ids = np.linspace(0, n_frames - 1, 500, dtype=int)
     with torch.no_grad():
-        t_s = torch.tensor(sample_ids / t_period, dtype=torch.float32, device=device).unsqueeze(1)
+        t_s = torch.tensor(sample_ids / t_period, dtype=torch.float32,
+                           device=device).unsqueeze(1)
         pred_final = model(t_s).cpu().numpy()
     gt_final = voltage_sel[sample_ids]
     a, b, r2 = _linear_fit(gt_final, pred_final)
@@ -292,7 +351,8 @@ def main():
         f.write(f'batch_size: {args.batch_size}\n')
         f.write(f'n_levels: {args.n_levels}\n')
         f.write(f'n_features_per_level: {args.n_features_per_level}\n')
-        f.write(f'log2_hashmap_size: {args.log2_hashmap_size}\n')
+        f.write(f'base_resolution: {args.base_resolution}\n')
+        f.write(f'per_level_scale: {args.per_level_scale}\n')
         f.write(f'mlp_width: {args.mlp_width}\n')
         f.write(f'mlp_layers: {args.mlp_layers}\n')
         f.write(f'total_params: {total_params}\n')
