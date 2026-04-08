@@ -344,6 +344,7 @@ class GraphModelConfig(BaseModel):
     zero_init_output: bool = False  # zero-init final layer so model starts predicting dvdt=0
     add_skip_layers: bool = False  # linear skip connection at each hidden layer
     add_diagonal: bool = False  # learnable per-neuron diagonal term: dv_i/dt += alpha_i * v_i
+    add_residual: bool = False  # ResNet-style residual connections across hidden layers
 
 
     input_size_update: int = 3
