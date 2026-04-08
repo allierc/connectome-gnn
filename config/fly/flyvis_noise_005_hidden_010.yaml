@@ -63,7 +63,7 @@ training:
   small_init_batch_size: false
   sparsity: none
   data_augmentation_loop: 25
-  lr_NNR_f: 1.0e-04 # SIREN hidden learning rate
+  lr_NNR_f: 1.0e-02 # SIREN hidden learning rate
   lr_W: 0.0001
   lr: 0.001
   lr_embedding: 0.001
@@ -87,7 +87,7 @@ training:
   V_rest_rampup_iters: 200
   V_rest_eval_every: 10
   regul_annealing_rate: 0.5
-  w_init_mode: zeros
+  w_init_mode: randn_scaled
   use_gt_edges: true
   lr_scheduler: none
   lr_scheduler_T0: 1000
