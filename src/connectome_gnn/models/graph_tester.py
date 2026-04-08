@@ -731,6 +731,8 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
             n_traces=10, n_frames=min(800, n_eval_frames),
         )
         logger.info(f'hidden SIREN R²: {siren_r2:.4f}')
+        if log_file:
+            log_file.write(f'hidden_siren_R2: {siren_r2:.4f}\n')
 
     logger.debug(f'rollout plots saved to {results_dir}/')
 
