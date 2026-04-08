@@ -224,7 +224,20 @@ At every block boundary, save best config to `config/fly/flyvis_noise_005_hidden
 
 **Block 4 note**: `data_augmentation_loop` (DAL) × `batch_size` ≈ constant keeps wall time fixed. Larger batches give smoother gradients into the SIREN but fewer weight updates per epoch. The 4th slot (bs=4, DAL=12) tests whether more updates per frame (half time, same batches as bs=2) is better than fewer updates with larger batches.
 
-**Block 1 priority**: Establish whether the SIREN learns at all with `lr_NNR_f=1e-8`. If `hidden_siren_R2 ≈ 0`, the LR is too small and the gradient is too indirect — block 2 should then test much higher LRs (1e-6, 1e-5).
+**Block 1 priority**: Establish whether the SIREN learns at all with `lr_NNR_f=1e-2`. If `hidden_siren_R2 ≈ 0`, the gradient may still be too indirect — block 2 should sweep a wider range.
+
+## Training Time Budget
+
+**Hard constraint: total training time ≤ 120 minutes per iteration** (3 epochs on A100).
+
+`data_augmentation_loop` (DAL) is the primary knob — it controls how many random frames are sampled per epoch. DAL scales linearly with wall time: DAL=25 → ~40 min/epoch → ~120 min total (3 epochs). **Never exceed DAL=25** unless you are reducing `n_epochs` proportionally.
+
+When increasing `batch_size`, reduce DAL accordingly to keep wall time constant:
+- bs=1, DAL=25 → baseline (~120 min)
+- bs=2, DAL=13 → same wall time
+- bs=4, DAL=7  → same wall time
+
+If testing `n_epochs=1`, DAL can go up to 75 for the same wall time budget.
 
 ## Known Prior Results
 
