@@ -264,7 +264,16 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
                 x.stimulus[:model.n_input_neurons] = visual_input.squeeze(-1)
                 x.stimulus[model.n_input_neurons:] = 0
 
-            if 'rnn' in model_config.signal_model_name.lower():
+            if 'stimulus' in model_config.signal_model_name.lower():
+                tw = tc.time_window
+                if k < tw:
+                    continue
+                stim_ctx = x_ts_eval.stimulus[k-tw:k, :sim.n_input_neurons].unsqueeze(0)
+                pred = model.predict_voltage(stim_ctx).squeeze(0)
+                all_pred.append(to_numpy(pred))
+                all_true.append(to_numpy(x_ts_eval.voltage[k]))
+                continue
+            elif 'rnn' in model_config.signal_model_name.lower():
                 pred = model(x.to_packed(), return_all=False)
             elif 'mlp' in model_config.signal_model_name.lower() or 'eed' in model_config.signal_model_name.lower():
                 batched_state, _ = _batch_frames([x], edges)
@@ -346,7 +355,13 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
                 x.stimulus[model.n_input_neurons:] = 0
 
             # Model prediction
-            if 'rnn' in model_config.signal_model_name.lower():
+            if 'stimulus' in model_config.signal_model_name.lower():
+                tw = tc.time_window
+                if k >= tw:
+                    stim_ctx = x_ts_eval.stimulus[k-tw:k, :sim.n_input_neurons].unsqueeze(0)
+                    x.voltage = model.predict_voltage(stim_ctx).squeeze(0)
+                # No Euler integration — voltage set directly
+            elif 'rnn' in model_config.signal_model_name.lower():
                 y, h_state = model(x.to_packed(), h=h_state, return_all=True)
             elif 'lstm' in model_config.signal_model_name.lower():
                 y, h_state, c_state = model(x.to_packed(), h=h_state, c=c_state, return_all=True)
@@ -377,11 +392,12 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
             else:
                 y = model(x, edges, data_id=data_id, return_all=False)
 
-            # Integration step
-            if 'mlp_ode' in model_config.signal_model_name.lower():
-                x.voltage = x.voltage + y.squeeze(-1)
-            else:
-                x.voltage = x.voltage + sim.delta_t * y.squeeze(-1)
+            # Integration step (skip for stimulus baseline — voltage set directly above)
+            if 'stimulus' not in model_config.signal_model_name.lower():
+                if 'mlp_ode' in model_config.signal_model_name.lower():
+                    x.voltage = x.voltage + y.squeeze(-1)
+                else:
+                    x.voltage = x.voltage + sim.delta_t * y.squeeze(-1)
 
             # Update hidden neuron voltages via SIREN or keep silent
             if hidden_ids is not None:

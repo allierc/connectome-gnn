@@ -860,7 +860,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             _dot_alpha = max(0.3, min(0.9, 100 / max(n_neurons, 1))) if n_neurons > 500 else 1.0
             _curve_alpha = max(0.1, min(0.8, 50 / max(n_neurons, 1))) if n_neurons > 500 else max(0.3, min(0.9, 100 / max(n_neurons, 1)))
 
-            skip_gnn_plots = ('mlp' in model_config.signal_model_name.lower() or 'eed' in model_config.signal_model_name.lower()) and not hasattr(model, 'f_theta')
+            skip_gnn_plots = ('mlp' in model_config.signal_model_name.lower() or 'eed' in model_config.signal_model_name.lower() or 'stimulus' in model_config.signal_model_name.lower()) and not hasattr(model, 'f_theta')
 
             # --- Skip GNN-specific plots for MLP/EED baselines ---
             if skip_gnn_plots:
