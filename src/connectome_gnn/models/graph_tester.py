@@ -150,7 +150,9 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     model = model.to(device)
 
     if best_model == 'best':
-        files = glob.glob(f"{log_dir}/models/*.pt")
+        files = glob.glob(f"{log_dir}/models/best_model_with_*.pt")
+        if not files:
+            files = glob.glob(f"{log_dir}/models/*.pt")
         assert len(files), 'no model checkpoints found in models/ directory — using untrained model'
         best_model = max(files, key=os.path.getmtime)
         logger.info(f'best model: {best_model}')
