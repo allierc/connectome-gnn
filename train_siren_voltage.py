@@ -8,6 +8,9 @@ setting.
 Usage:
     python train_siren_voltage.py config/fly/flyvis_noise_005_hidden_010.yaml
     python train_siren_voltage.py config/fly/flyvis_noise_005_hidden_010.yaml --n_neurons 1000 --steps 50000 --output_root /groups/saalfeld/home/allierc/GraphData
+
+Cluster:
+    bsub -n 2 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python train_siren_voltage.py config/fly/flyvis_noise_005_hidden_010.yaml --n_neurons 1000 --steps 50000 --lr 1e-8 --batch_size 512 --output_root /groups/saalfeld/home/allierc/GraphData"
 """
 
 import argparse
