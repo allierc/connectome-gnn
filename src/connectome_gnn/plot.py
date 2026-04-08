@@ -1807,10 +1807,15 @@ def plot_hidden_siren_traces(model, x_ts, hidden_ids, log_dir, epoch, N, device,
             pred_arr[:, k] = to_numpy(pred_h[sel])
     model.train()
 
-    # R² (raw, no linear correction)
-    ss_res = float(np.sum((gt_arr - pred_arr) ** 2))
-    ss_tot = float(np.sum((gt_arr - gt_arr.mean()) ** 2))
+    # R² with linear correction (ax+b fit, same as rollout traces)
+    gt_flat = gt_arr.ravel()
+    pred_flat = pred_arr.ravel()
+    p = np.polyfit(pred_flat, gt_flat, 1)          # fit: gt = a*pred + b
+    pred_corr = p[0] * pred_flat + p[1]
+    ss_res = float(np.sum((gt_flat - pred_corr) ** 2))
+    ss_tot = float(np.sum((gt_flat - gt_flat.mean()) ** 2))
     r2 = 1.0 - ss_res / (ss_tot + 1e-16)
+    pred_corr_arr = (p[0] * pred_arr + p[1]).astype(np.float32)
 
     # ---- plot ----
     fig, ax = plt.subplots(figsize=(15, max(4, n_traces * 0.5 + 2)))
@@ -1825,8 +1830,9 @@ def plot_hidden_siren_traces(model, x_ts, hidden_ids, log_dir, epoch, N, device,
         ax.plot(gt_arr[i] - bl + i * step_v, lw=3, c='#66cc66', alpha=0.9,
                 label='GT' if i == 0 else None)
     for i in range(n_traces):
-        ax.plot(pred_arr[i] - baselines[i] + i * step_v, lw=0.9, c='black', alpha=0.9,
-                label='SIREN' if i == 0 else None)
+        bl_corr = float(np.mean(pred_corr_arr[i]))
+        ax.plot(pred_corr_arr[i] - bl_corr + i * step_v, lw=0.9, c='black', alpha=0.9,
+                label='SIREN (corrected)' if i == 0 else None)
     for i in range(n_traces):
         ax.text(-n_frames * 0.025, i * step_v, f'n{local_ids[i].item()}',
                 fontsize=9, va='bottom', ha='right', color='black')
@@ -1837,7 +1843,7 @@ def plot_hidden_siren_traces(model, x_ts, hidden_ids, log_dir, epoch, N, device,
     ax.set_xticklabels([0, n_frames // 2, n_frames], fontsize=13)
     ax.set_xlabel('frame', fontsize=15)
     ax.set_xlim([-n_frames * 0.03, n_frames * 1.05])
-    ax.set_title(f'Hidden-neuron SIREN  (epoch {epoch}  iter {N})   R²={r2:.3f}', fontsize=13)
+    ax.set_title(f'Hidden-neuron SIREN  (epoch {epoch}  iter {N})   R²={r2:.3f}   a={p[0]:.3f} b={p[1]:.3f}', fontsize=13)
     ax.legend(loc='upper right', fontsize=12, frameon=False)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
