@@ -7,9 +7,6 @@ No dependence on past voltage/activity — each prediction is independent.
 import os
 import time
 
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -21,8 +18,6 @@ from connectome_gnn.utils import create_log_dir
 
 _logger = get_logger(__name__)
 
-_VAL_LEN = 8000
-
 
 def _gather_stim_context(stimulus_unfolded, t_indices, tw):
     """Gather stimulus context windows for a batch of time indices.
@@ -30,54 +25,12 @@ def _gather_stim_context(stimulus_unfolded, t_indices, tw):
     Args:
         stimulus_unfolded: (T - tw + 1, tw, n_input) from stimulus.unfold(0, tw, 1).transpose(1,2)
         t_indices: (B,) time indices (each >= tw)
-        tw: time window size
+        tw: time window size (scalar tensor on same device)
 
     Returns:
         stim_context: (B, tw, n_input)
     """
-    # Index into unfolded view: frame t maps to unfolded index t - tw
-    return stimulus_unfolded[t_indices - tw]  # tw should be a scalar tensor on same device
-
-
-def val_stimulus(model, voltage, stimulus_unfolded, val_start, tw, val_len):
-    """Non-autoregressive validation: predict voltage for a contiguous window.
-
-    Returns:
-        mse_curve: (val_len,) numpy array of per-step MSE
-        mean_mse: scalar mean MSE over the window
-    """
-    mse_list = []
-    # Predict in chunks to avoid OOM
-    chunk = 256
-    for i in range(0, val_len, chunk):
-        end = min(i + chunk, val_len)
-        t_indices = torch.arange(val_start + i, val_start + end,
-                                 device=voltage.device)
-        stim_ctx = _gather_stim_context(stimulus_unfolded, t_indices, tw)
-        pred = model.predict_voltage(stim_ctx)
-        target = voltage[t_indices]
-        # Per-step MSE
-        mse = ((pred - target) ** 2).mean(dim=1)  # (chunk_size,)
-        mse_list.append(mse)
-
-    mse_curve = torch.cat(mse_list).cpu().numpy()
-    return mse_curve, float(mse_curve.mean())
-
-
-def plot_val_mse(mse_curve, epoch, log_dir):
-    """Save validation MSE vs time step plot."""
-    fig, ax = plt.subplots(figsize=(8, 4))
-    ax.plot(np.arange(len(mse_curve)), mse_curve, linewidth=1)
-    ax.set_xlabel('Validation Time Steps')
-    ax.set_ylabel('MSE')
-    ax.set_title(f'Stimulus baseline validation MSE — epoch {epoch+1}')
-    ax.set_yscale('log')
-    fig.tight_layout()
-
-    plot_dir = os.path.join(log_dir, 'tmp_training')
-    os.makedirs(plot_dir, exist_ok=True)
-    fig.savefig(os.path.join(plot_dir, f'val_mse_epoch_{epoch+1:03d}.png'), dpi=100)
-    plt.close(fig)
+    return stimulus_unfolded[t_indices - tw]
 
 
 def _compute_loss(model, voltage, stimulus_unfolded, t_indices, tw):
@@ -156,12 +109,6 @@ def data_train_stimulus(config, erase, best_model, device, log_file=None):
     # stimulus.unfold(0, tw_int, 1) -> (T - tw_int + 1, n_input, tw_int), transpose to (T - tw_int + 1, tw_int, n_input)
     stimulus_unfolded = stimulus.unfold(0, tw_int, 1).transpose(1, 2).contiguous()
 
-    # Validation start: need tw_int + _VAL_LEN frames of look-ahead
-    max_val_start = n_train_frames - _VAL_LEN - 1
-    assert max_val_start >= tw_int, f'not enough frames for validation (need {tw_int + _VAL_LEN + 1}, have {n_train_frames})'
-    val_start_idx = max(tw_int, int(torch.randint(tw_int, max_val_start + 1, (1,)).item()))
-    _logger.info(f'val_start_idx: {val_start_idx} (fixed for this run)')
-
     checkpoint_path = None
     if tc.pretrained_model != '':
         checkpoint_path = tc.pretrained_model
@@ -226,18 +173,6 @@ def data_train_stimulus(config, erase, best_model, device, log_file=None):
         epoch_duration = time.time() - epoch_start
         total_elapsed = time.time() - training_start
 
-        # --- Validation ---
-        val_start_t = time.time()
-        model.eval()
-        with torch.no_grad():
-            mse_curve, mean_val_mse = val_stimulus(
-                model, voltage, stimulus_unfolded, val_start_idx, tw, _VAL_LEN,
-            )
-        model.train()
-        val_duration = time.time() - val_start_t
-
-        plot_val_mse(mse_curve, epoch, log_dir)
-
         # Save model
         best_epoch = epoch + 1
         torch.save(
@@ -248,7 +183,6 @@ def data_train_stimulus(config, erase, best_model, device, log_file=None):
         _logger.info(
             f'epoch {epoch+1}/{n_epochs} | '
             f'train: {mean_loss:.4e} | '
-            f'val_mse={mean_val_mse:.4e} ({val_duration:.1f}s) | '
             f'duration: {epoch_duration:.1f}s (total: {total_elapsed:.1f}s)'
         )
 
@@ -258,15 +192,13 @@ def data_train_stimulus(config, erase, best_model, device, log_file=None):
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
             'train_loss': mean_loss,
-            'val_mse': mean_val_mse,
         }, os.path.join(net_path, 'latest_checkpoint.pt'))
 
     total_time = time.time() - training_start
-    _logger.info(f'training complete: {n_epochs=} in {total_time=:.1f}s, {mean_val_mse=:.3e}')
+    _logger.info(f'training complete: {n_epochs=} in {total_time=:.1f}s')
     _logger.info(f'constant model baseline: {constant_model_loss:.4e}')
 
     if log_file:
         log_file.write('\n--- Training stimulus baseline results ---\n')
-        log_file.write(f'train_val_mse: {mean_val_mse:.4e}\n')
         log_file.write(f'train_best_epoch: {best_epoch}\n')
         log_file.write(f'train_constant_baseline_mse: {constant_model_loss:.4e}\n')
