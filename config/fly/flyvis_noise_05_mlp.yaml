@@ -1,5 +1,4 @@
-# 04/03/2026
-description: "Flyvis noise 0.05 — MLP baseline, seed 00"
+description: "Flyvis noise 0.5 — MLP baseline, seed 00"
 dataset: flyvis_noise_05
 simulation:
   connectivity_file: to be specified
@@ -28,6 +27,7 @@ graph_model:
   hidden_dim: 256
   zero_init_output: true
   add_skip_layers: false
+  add_diagonal: true
   output_size: 1
   input_size_update: 5
   n_layers_update: 3
@@ -47,13 +47,13 @@ plotting:
 training:
   use_gt_edges: true
   seed: 43
-  n_epochs: 100
+  n_epochs: 20
   batch_size: 256
-  data_augmentation_loop: 1
+  data_augmentation_loop: 100
   train_start: 0
   train_end: 0
   lr: 1e-5
-  rollout_train_steps: 200
+  rollout_train_steps: 1
   n_runs: 1
   device: auto
   recurrent_training: false
@@ -78,7 +78,7 @@ training:
   regul_annealing_rate: 0
 
 claude:
-  n_epochs: 100
+  n_epochs: 20
   data_augmentation_loop: 100
   n_iter_block: 8
   ucb_c: 1.414
@@ -88,4 +88,4 @@ claude:
   generate_data: false
   interaction_code: false
   case_study: "mlp_rollout"
-  case_study_brief: "Optimize MLP hyperparameters for stable autoregressive rollout on flyvis noise_005. Primary metric: rollout_RMSE (lower is better). Target: rollout_RMSE < 0.1, stable across seeds (CV < 10%). Key levers: rollout_train_steps, hidden_dim, n_layers, lr, batch_size, data_augmentation_loop."
+  case_study_brief: "Optimize MLP hyperparameters for stable autoregressive rollout on flyvis_noise_05. Primary metric: rollout_RMSE (lower is better). Target: rollout_RMSE < 0.1, stable across seeds (CV < 10%). Key levers: rollout_train_steps, hidden_dim, n_layers, lr, batch_size, data_augmentation_loop."
