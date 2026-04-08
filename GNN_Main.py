@@ -169,10 +169,14 @@ if __name__ == "__main__":
 
         elif 'train_INR' in task:
             # train INR (SIREN/NGP) on a field from x_list_train
+            # usage: -o train_INR [field_name] [inr_type]
+            # field_name: stimulus (default), voltage, calcium, fluorescence
+            # inr_type: siren_txy (default for stimulus), siren_t (for voltage)
             field_name = args.option[2] if len(args.option) > 2 else 'stimulus'
+            inr_type_arg = args.option[3] if len(args.option) > 3 else None
             data_train_INR(config=config, device=device, total_steps=100000,
-                           field_name=field_name, n_training_frames=1000,
-                           inr_type='siren_txy')
+                           field_name=field_name, n_training_frames=0,
+                           inr_type=inr_type_arg)
 
         elif "train" in task:
             data_train(
