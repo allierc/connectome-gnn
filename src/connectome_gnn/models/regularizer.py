@@ -117,7 +117,7 @@ class LossRegularizer:
         # rate > 0: coeff ramps up over epochs (zero at epoch 0)
         # rate = 0: full coeff from epoch 0 (no annealing)
         def anneal(coeff):
-            return coeff * (1 - np.exp(-rate * epoch)) if rate > 0 else coeff
+            return float(coeff * (1 - np.exp(-rate * epoch))) if rate > 0 else float(coeff)
 
         self._coeffs['W_L1'] = anneal(tc.coeff_W_L1)
         self._coeffs['W_L2'] = anneal(tc.coeff_W_L2)
