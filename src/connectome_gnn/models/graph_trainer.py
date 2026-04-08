@@ -260,13 +260,12 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
         lr_update = tc.lr_update
     lr_embedding = tc.lr_embedding
     lr_W = tc.lr_W
-    lr_NNR = tc.lr_NNR
     lr_NNR_f = tc.lr_NNR_f
 
     _logger.info(f'learning rates: lr_W {lr_W}, lr {lr}, lr_update {lr_update}, lr_embedding {lr_embedding}, lr_NNR_f {lr_NNR_f}')
 
     optimizer, n_total_params = set_trainable_parameters(model=model, lr_embedding=lr_embedding, lr=lr,
-                                                         lr_update=lr_update, lr_W=lr_W, lr_NNR=lr_NNR, lr_NNR_f = lr_NNR_f)
+                                                         lr_update=lr_update, lr_W=lr_W, lr_NNR_f=lr_NNR_f)
 
     lr_scheduler = build_lr_scheduler(optimizer, config)
     scheduler_type = getattr(tc, 'lr_scheduler', 'none')
@@ -406,7 +405,6 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                 lr=lr * phase_mult,
                 lr_update=lr_update * phase_mult,
                 lr_W=lr_W * phase_mult,
-                lr_NNR=lr_NNR,
                 lr_NNR_f=lr_NNR_f,
             )
             lr_scheduler = build_lr_scheduler(optimizer, config)
@@ -450,8 +448,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                 lr_embedding = tc.lr_embedding
                 optimizer, n_total_params = set_trainable_parameters(
                     model=model, lr_embedding=lr_embedding, lr=lr,
-                    lr_update=lr_update, lr_W=lr_W,
-                    lr_NNR=lr_NNR)
+                    lr_update=lr_update, lr_W=lr_W)
                 _logger.debug(f'unfreezing embedding at iteration {N}/{Niter}')
 
             optimizer.zero_grad()
@@ -872,11 +869,9 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                 lr = tc.lr
                 lr_embedding = tc.lr_embedding
                 lr_W = tc.lr_W
-                lr_NNR = tc.lr_NNR
 
-            logger.info(f'learning rates: lr_W {lr_W}, lr {lr}, lr_update {lr_update}, lr_embedding {lr_embedding}, lr_NNR {lr_NNR}')
-            optimizer, n_total_params = set_trainable_parameters(model=model, lr_embedding=lr_embedding, lr=lr, lr_update=lr_update, lr_W=lr_W,
-                                                                 lr_NNR=lr_NNR)
+            logger.info(f'learning rates: lr_W {lr_W}, lr {lr}, lr_update {lr_update}, lr_embedding {lr_embedding}')
+            optimizer, n_total_params = set_trainable_parameters(model=model, lr_embedding=lr_embedding, lr=lr, lr_update=lr_update, lr_W=lr_W)
 
         if umap_cluster_active:
             if (epoch % tc.umap_cluster_freq == tc.umap_cluster_freq - 1) & (epoch < tc.n_epochs - 1):
@@ -908,8 +903,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                 # rebuild optimizer to reset momentum and relearn f_theta/g_phi
                 optimizer, n_total_params = set_trainable_parameters(
                     model=model, lr_embedding=lr_embedding, lr=lr,
-                    lr_update=lr_update, lr_W=lr_W,
-                    lr_NNR=lr_NNR)
+                    lr_update=lr_update, lr_W=lr_W)
 
         plt.tight_layout()
         plt.savefig(f"{log_dir}/tmp_training/epoch_{epoch}.png", bbox_inches='tight', pad_inches=0.1)

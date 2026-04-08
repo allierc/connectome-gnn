@@ -568,7 +568,6 @@ class TrainingConfig(BaseModel):
     lr_W: float = 0.0001
 
     lr_missing_activity: float = 0.0001
-    lr_NNR: float = 0.0001
     lr_NNR_f_start: float = 0.0
     lr_NNR_f: float = 0.0001
     lr_omega_f: float = 0.0001
