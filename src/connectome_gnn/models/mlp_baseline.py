@@ -49,16 +49,41 @@ class MLPBaseline(nn.Module):
         hidden_dim = model_config.hidden_dim
         n_layers = model_config.n_layers
 
-        # MLP: input → hidden → ... → output
-        layers = [nn.Linear(input_size, hidden_dim, device=device), nn.ReLU()]
+        # Optional: linear skip connection at each hidden layer
+        self.add_skip_layers = getattr(model_config, 'add_skip_layers', False)
+        if self.add_skip_layers:
+            if n_layers < 2:
+                raise NotImplementedError("Skip only works with 2 layers min")
+            self.skip_layers = nn.ModuleList()
+            self.skip_layers.append(nn.Linear(input_size, hidden_dim, device=device))
+            for _ in range(n_layers - 2):
+                self.skip_layers.append(nn.Linear(hidden_dim*2, hidden_dim, device=device))
+
+        # x ->   Mx.    ]-|.     |--> M xx
+        #.  |             |-> xx-|
+        #.  |-> phi(Mx) ]-|      |--> phi(M xx)
+        # MLP hidden layers
+        self.hidden_layers = nn.ModuleList()
+        self.hidden_layers.append(nn.Linear(input_size, hidden_dim, device=device))
         for _ in range(n_layers - 2):
-            layers += [nn.Linear(hidden_dim, hidden_dim, device=device), nn.ReLU()]
-        final_layer = nn.Linear(hidden_dim, output_size, device=device)
+            # with skip connections we have a concatenation
+            hidden_dim2 = hidden_dim + int(self.add_skip_layers)*hidden_dim
+            self.hidden_layers.append(nn.Linear(hidden_dim2, hidden_dim, device=device))
+        self.activation = nn.ReLU()
+
+        # Output layer
+        final_input_dim = hidden_dim
+        if self.add_skip_layers and n_layers >= 2:
+            final_input_dim = hidden_dim * 2
+        self.final_layer = nn.Linear(final_input_dim, output_size, device=device)
         if model_config.zero_init_output:
-            nn.init.zeros_(final_layer.weight)
-            nn.init.zeros_(final_layer.bias)
-        layers.append(final_layer)
-        self.mlp = nn.Sequential(*layers)
+            nn.init.zeros_(self.final_layer.weight)
+            nn.init.zeros_(self.final_layer.bias)
+
+        # Optional learnable per-neuron diagonal term: dv_i/dt = alpha_i * v_i + MLP(v, stim)_i
+        self.add_diagonal = getattr(model_config, 'add_diagonal', False)
+        if self.add_diagonal:
+            self.alpha = nn.Parameter(torch.zeros(self.n_neurons, device=device))
 
         # Dummy W parameter for compatibility with regularizer/trainer
         n_w = self.n_edges + self.n_extra_null_edges
@@ -74,10 +99,24 @@ class MLPBaseline(nn.Module):
             dvdt with same batch shape as v
         """
         mlp_input = torch.cat([v, stim], dim=-1)
-        if mlp_input.dim() == 1:
+        squeezed = mlp_input.dim() == 1
+        if squeezed:
             mlp_input = mlp_input.unsqueeze(0)
-            return self.mlp(mlp_input).squeeze(0)
-        return self.mlp(mlp_input)
+
+        h = mlp_input
+        if self.add_skip_layers and len(self.hidden_layers) >= 1:
+            for layer, skip_layer in zip(self.hidden_layers, self.skip_layers):
+                h1 = skip_layer(h)
+                h2 = self.activation(layer(h))
+                h = torch.cat([h1, h2], dim=-1)
+        else:
+            for layer in self.hidden_layers:
+                h = self.activation(layer(h))
+
+        out = self.final_layer(h)
+        if self.add_diagonal:
+            out = out + self.alpha * v
+        return out.squeeze(0) if squeezed else out
 
     def forward(self, state: NeuronState, edge_index: torch.Tensor = None,
                 data_id=[], k=[], return_all=False, **kwargs):
@@ -117,8 +156,7 @@ class MLPBaseline(nn.Module):
         stim_flat = stim[:self.n_input_neurons]                       # (n_input_neurons,)
 
         v_input = v_flat.clone().requires_grad_(True)
-        mlp_input = torch.cat([v_input, stim_flat], dim=0).unsqueeze(0)  # (1, n_neurons + n_input_neurons)
-        mlp_output = self.mlp(mlp_input).squeeze(0)             # (n_neurons,)
+        mlp_output = self.predict_dvdt(v_input, stim_flat)      # (n_neurons,)
 
         J = torch.zeros(self.n_neurons, self.n_neurons, device=self.device)
         for i in range(self.n_neurons):
