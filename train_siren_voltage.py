@@ -126,8 +126,16 @@ def main():
     if args.output_root:
         set_data_root(args.output_root)
 
+    # Prepend parent folder prefix (e.g. "fly/") to dataset — same logic as GNN_Main.py
+    config_path_abs = os.path.abspath(args.config)
+    parent = os.path.basename(os.path.dirname(config_path_abs))
+    pre_folder = parent + '/' if parent else ''
+    if pre_folder and not config.dataset.startswith(pre_folder):
+        config.dataset = pre_folder + config.dataset
+
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f'device: {device}')
+    print(f'dataset: {config.dataset}')
 
     # ── load data ─────────────────────────────────────────────────────────────
     train_path = graphs_data_path(config.dataset, 'x_list_train')
