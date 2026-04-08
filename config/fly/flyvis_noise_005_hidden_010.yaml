@@ -59,7 +59,7 @@ training:
   torch_compile: true
   recurrent_training: false
   time_step: 1
-  batch_size: 1
+  batch_size: 16
   batch_ratio: 1
   small_init_batch_size: false
   sparsity: none

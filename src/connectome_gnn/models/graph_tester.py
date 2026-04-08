@@ -740,7 +740,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     np.save(f"{results_dir}/activity_true{test_suffix}.npy", activity_true)
     np.save(f"{results_dir}/activity_pred{test_suffix}.npy", activity_pred)
 
-    # Hidden-neuron SIREN trace comparison
+    # Hidden-neuron INR trace comparison
     if has_hidden_neurons and getattr(model, 'NNR_hidden', None) is not None:
         from connectome_gnn.plot import plot_hidden_siren_traces
         siren_r2 = plot_hidden_siren_traces(
@@ -748,7 +748,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
             epoch=0, N=0, device=device,
             n_traces=10, n_frames=min(800, n_eval_frames),
         )
-        logger.info(f'hidden SIREN R²: {siren_r2:.4f}')
+        logger.info(f'hidden INR R²: {siren_r2:.4f}')
         if log_file:
             log_file.write(f'hidden_siren_R2: {siren_r2:.4f}\n')
 

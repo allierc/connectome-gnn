@@ -1772,17 +1772,17 @@ warnings.filterwarnings('ignore')
 
 def plot_hidden_siren_traces(model, x_ts, hidden_ids, log_dir, epoch, N, device,
                              n_traces=10, n_frames=800):
-    """Plot GT voltage vs SIREN-predicted voltage for a sample of hidden neurons.
+    """Plot GT voltage vs hidden-INR-predicted voltage for a sample of hidden neurons.
 
     Evaluates model.forward_hidden() from scratch on the first n_frames frames
-    (no rollout state — pure SIREN prediction), compares to x_ts ground truth.
+    (no rollout state — pure INR prediction), compares to x_ts ground truth.
 
     Saves:
-        log_dir/tmp_training/hidden_siren/{epoch}_{N}.png  (checkpoint copy)
-        log_dir/results/hidden_siren_traces.png            (latest copy)
+        log_dir/tmp_training/hidden_{inr_type}/{epoch}_{N}.png  (checkpoint copy)
+        log_dir/results/hidden_inr_traces.png                   (latest copy)
 
     Returns:
-        r2 (float) — R² of raw SIREN predictions vs GT voltages
+        r2 (float) — R² of raw INR predictions vs GT voltages
     """
     import torch as _torch
 
@@ -1829,10 +1829,13 @@ def plot_hidden_siren_traces(model, x_ts, hidden_ids, log_dir, epoch, N, device,
         baselines[i] = bl
         ax.plot(gt_arr[i] - bl + i * step_v, lw=3, c='#66cc66', alpha=0.9,
                 label='GT' if i == 0 else None)
+    inr_type = getattr(model, '_inr_hidden_type', 'siren_t')
+    inr_label = inr_type.upper().replace('_', '-')
+
     for i in range(n_traces):
         bl_corr = float(np.mean(pred_corr_arr[i]))
         ax.plot((pred_corr_arr[i] - bl_corr) * 8 + i * step_v, lw=0.9, c='black', alpha=0.9,
-                label='SIREN (corrected)' if i == 0 else None)
+                label=f'{inr_label} (corrected)' if i == 0 else None)
     for i in range(n_traces):
         ax.text(-n_frames * 0.025, i * step_v, f'n{local_ids[i].item()}',
                 fontsize=9, va='bottom', ha='right', color='black')
@@ -1843,19 +1846,19 @@ def plot_hidden_siren_traces(model, x_ts, hidden_ids, log_dir, epoch, N, device,
     ax.set_xticklabels([0, n_frames // 2, n_frames], fontsize=13)
     ax.set_xlabel('frame', fontsize=15)
     ax.set_xlim([-n_frames * 0.03, n_frames * 1.05])
-    ax.set_title(f'Hidden-neuron SIREN  (epoch {epoch}  iter {N})   R²={r2:.3f}   a={p[0]:.3f} b={p[1]:.3f}', fontsize=13)
+    ax.set_title(f'Hidden-neuron {inr_label}  (epoch {epoch}  iter {N})   R²={r2:.3f}   a={p[0]:.3f} b={p[1]:.3f}', fontsize=13)
     ax.legend(loc='upper right', fontsize=12, frameon=False)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     ax.spines['left'].set_visible(False)
 
-    out_dir = os.path.join(log_dir, 'tmp_training', 'hidden_siren')
+    out_dir = os.path.join(log_dir, 'tmp_training', f'hidden_{inr_type}')
     os.makedirs(out_dir, exist_ok=True)
     results_dir = os.path.join(log_dir, 'results')
     os.makedirs(results_dir, exist_ok=True)
     plt.tight_layout()
     plt.savefig(os.path.join(out_dir, f'{epoch}_{N}.png'), dpi=87, bbox_inches='tight')
-    plt.savefig(os.path.join(results_dir, 'hidden_siren_traces.png'), dpi=87, bbox_inches='tight')
+    plt.savefig(os.path.join(results_dir, 'hidden_inr_traces.png'), dpi=87, bbox_inches='tight')
     plt.close()
 
     return r2
