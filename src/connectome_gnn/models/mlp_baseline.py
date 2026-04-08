@@ -80,6 +80,11 @@ class MLPBaseline(nn.Module):
             nn.init.zeros_(self.final_layer.weight)
             nn.init.zeros_(self.final_layer.bias)
 
+        # Optional learnable per-neuron diagonal term: dv_i/dt = alpha_i * v_i + MLP(v, stim)_i
+        self.add_diagonal = getattr(model_config, 'add_diagonal', False)
+        if self.add_diagonal:
+            self.alpha = nn.Parameter(torch.zeros(self.n_neurons, device=device))
+
         # Dummy W parameter for compatibility with regularizer/trainer
         n_w = self.n_edges + self.n_extra_null_edges
         self.W = nn.Parameter(torch.zeros(max(n_w, 1), 1, device=device), requires_grad=False)
@@ -109,6 +114,8 @@ class MLPBaseline(nn.Module):
                 h = self.activation(layer(h))
 
         out = self.final_layer(h)
+        if self.add_diagonal:
+            out = out + self.alpha * v
         return out.squeeze(0) if squeezed else out
 
     def forward(self, state: NeuronState, edge_index: torch.Tensor = None,
