@@ -38,20 +38,31 @@ The SIREN has output size = n_hidden = ~1200 neurons. This is much larger than t
 
 ## Training Scheme
 
-No `alternate_training` — set to `false`. The hidden SIREN has no independent signal in epoch 0; it needs the GNN to learn the dynamics first before it can refine hidden voltages. Alternate training would freeze the GNN when the SIREN needs it most.
+`alternate_training: true` with `alternate_lr_ratio: 0.05` — same as visual INR. The GNN converges fast (epoch 0 peak) and without LR reduction in epochs 1-2 it overfits and destroys the connectivity it learned. Reducing GNN LRs by 20x freezes the GNN while the hidden SIREN continues refining.
 
-Instead: single-phase joint training, `n_epochs=3`, SIREN LR kept constant throughout.
+The hidden SIREN LR (`lr_NNR_f`) is **not affected** by alternate training — it stays constant across all epochs.
 
 | Epoch | GNN LRs | SIREN LR | Purpose |
 |-------|---------|----------|---------|
-| 0-2 | Full throughout | `lr_NNR_f` (constant) | GNN + SIREN learn together |
+| 0 | Full: lr_W=1e-4, lr=1e-3, lr_emb=1e-3 | `lr_NNR_f` | Joint warmup — GNN learns connectivity, SIREN starts learning hidden voltages |
+| 1-2 | Reduced 20x: lr_W=5e-6, lr=5e-5, lr_emb=5e-5 | `lr_NNR_f` (unchanged) | GNN stabilizes, hidden SIREN refines on reduced gradient noise |
 
-**Regularization annealing** (`regul_annealing_rate=0.5`) ramps up from epoch 0 to 2:
-| Epoch | Multiplier |
-|-------|-----------|
-| 0 | 0.00 |
-| 1 | 0.39 |
-| 2 | 0.63 |
+**Regularization annealing** (`regul_annealing_rate=0.5`) ramps up the weight penalty coefficients from epoch 0 to 2. Only the annealed coefficients are affected — the structural penalties (`coeff_g_phi_diff`, `coeff_g_phi_norm`) are always at full strength:
+
+| Coefficient | Annealed? |
+|-------------|-----------|
+| `coeff_W_L1` | **Yes** — L1 sparsity on W |
+| `coeff_g_phi_weight_L1` | **Yes** — L1 on g_phi MLP weights |
+| `coeff_f_theta_weight_L1` | **Yes** — L1 on f_theta MLP weights |
+| `coeff_f_theta_weight_L2` | **Yes** — L2 on f_theta MLP weights |
+| `coeff_g_phi_diff` | No — monotonicity penalty, always active |
+| `coeff_g_phi_norm` | No — norm penalty, always active |
+
+| Epoch | Multiplier | Effect on annealed coefficients |
+|-------|-----------|--------------------------------|
+| 0 | 0.00 | No weight regularization — free learning |
+| 1 | 0.39 | ~39% strength |
+| 2 | 0.63 | ~63% strength |
 
 ## Key Difference from Visual INR Exploration
 
@@ -61,7 +72,7 @@ Instead: single-phase joint training, `n_epochs=3`, SIREN LR kept constant throu
 | SIREN output | 1 scalar (stimulus) | ~1200 voltages simultaneously |
 | SIREN supervision | Indirect (through GNN loss) | Indirect only (no direct GT loss) |
 | Connectivity R2 mask | Edges NOT touching retina only | ALL edges (SIREN fills hidden gaps) |
-| Alternate training | Critical (GNN converges fast) | Not used (GNN convergence needed) |
+| Alternate training | Critical (GNN converges fast) | Also used — same rationale applies |
 | SIREN LR cliff | Sharp: viable band 1e-8 to 2.5e-8 | Unknown — first key exploration axis |
 
 **Critical SIREN LR warning from visual INR**: The viable LR band was only 3.5x wide (7e-9 to 2.5e-8). Total collapse occurred at 3e-8. The hidden SIREN has a different gradient pathway and different output dimensionality — the safe range must be determined from scratch. Do NOT assume the same cliff positions.
@@ -205,12 +216,13 @@ At every block boundary, save best config to `config/fly/flyvis_noise_005_hidden
 |-------|-------|-----------|
 | 1 | Baseline | Establish baseline — what conn_R2 and hidden_siren_R2 do we get with current config? |
 | 2 | SIREN LR | `lr_NNR_f`: sweep {1e-9, 1e-8, 1e-7, 1e-6} — find viable range (no prior data) |
-| 3 | SIREN LR fine | Narrow sweep around block 2 winner — find cliff positions |
-| 4 | n_epochs | Test 1 vs 3 vs 5 — how many epochs does SIREN need to converge? |
-| 5 | GNN LRs | Test lower LRs (like INR baseline) vs current — does GNN LR affect SIREN learning? |
-| 6 | SIREN architecture | `hidden_dim_nnr_hidden` {512, 1024, 2048, 4096} — output is 1200 neurons, small enough? |
-| 7 | Regularization | `regul_annealing_rate`, `coeff_W_L1` — does L1 on W hurt hidden-edge learning? |
-| 8 | Combined best | Integrate findings |
+| 3 | SIREN architecture | `hidden_dim_nnr_hidden` {512, 1024, 2048, 4096} — does output size of 1200 neurons need a large network? |
+| 4 | batch_size vs DAL | Slots: (bs=1,DAL=25), (bs=2,DAL=13), (bs=4,DAL=7), (bs=4,DAL=12) — same wall time, test if larger batches help SIREN gradient quality |
+| 5 | alternate_training on/off | 2 slots with `alternate_training=true, ratio=0.05`, 2 slots with `alternate_training=false` — does GNN freeze help or hurt the hidden SIREN? |
+| 6 | alternate_lr_ratio | If block 5 favours alternate_training: sweep ratio {0.01, 0.05, 0.1, 0.2} — optimal freeze level |
+| 7 | Combined best | Integrate findings from blocks 1-6 |
+
+**Block 4 note**: `data_augmentation_loop` (DAL) × `batch_size` ≈ constant keeps wall time fixed. Larger batches give smoother gradients into the SIREN but fewer weight updates per epoch. The 4th slot (bs=4, DAL=12) tests whether more updates per frame (half time, same batches as bs=2) is better than fewer updates with larger batches.
 
 **Block 1 priority**: Establish whether the SIREN learns at all with `lr_NNR_f=1e-8`. If `hidden_siren_R2 ≈ 0`, the LR is too small and the gradient is too indirect — block 2 should then test much higher LRs (1e-6, 1e-5).
 
