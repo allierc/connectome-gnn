@@ -49,11 +49,11 @@ training:
   seed: 43
   n_epochs: 100
   batch_size: 256
-  data_augmentation_loop: 10
+  data_augmentation_loop: 1
   train_start: 0
   train_end: 0
   lr: 1e-5
-  rollout_train_steps: 100
+  rollout_train_steps: 200
   n_runs: 1
   device: auto
   recurrent_training: false
