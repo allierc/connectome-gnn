@@ -257,7 +257,10 @@ def main():
     from connectome_gnn.utils import create_log_dir
     log_dir, _ = create_log_dir(config, erase=False)
     out_dir = os.path.join(log_dir, 'tmp_training', 'ngp_voltage')
-    os.makedirs(out_dir, exist_ok=True)
+    if os.path.isdir(out_dir):
+        import shutil
+        shutil.rmtree(out_dir)
+    os.makedirs(out_dir)
     print(f'output: {out_dir}')
 
     # ── model ─────────────────────────────────────────────────────────────────
