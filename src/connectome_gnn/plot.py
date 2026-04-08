@@ -1831,7 +1831,7 @@ def plot_hidden_siren_traces(model, x_ts, hidden_ids, log_dir, epoch, N, device,
                 label='GT' if i == 0 else None)
     for i in range(n_traces):
         bl_corr = float(np.mean(pred_corr_arr[i]))
-        ax.plot(pred_corr_arr[i] - bl_corr + i * step_v, lw=0.9, c='black', alpha=0.9,
+        ax.plot((pred_corr_arr[i] - bl_corr) * 8 + i * step_v, lw=0.9, c='black', alpha=0.9,
                 label='SIREN (corrected)' if i == 0 else None)
     for i in range(n_traces):
         ax.text(-n_frames * 0.025, i * step_v, f'n{local_ids[i].item()}',
