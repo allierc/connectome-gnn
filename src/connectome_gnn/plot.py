@@ -1576,9 +1576,10 @@ def plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_li
                 dpi=87, bbox_inches='tight', pad_inches=0)
     plt.close()
 
-    # Hidden-neuron SIREN trace comparison (only when SIREN is active)
+    # Hidden-neuron INR trace comparison (only when NNR_hidden is active)
+    hidden_inr_r2 = None
     if getattr(model, 'NNR_hidden', None) is not None and hidden_ids is not None:
-        plot_hidden_siren_traces(model, x_ts, hidden_ids, log_dir, epoch, N, device)
+        hidden_inr_r2 = plot_hidden_siren_traces(model, x_ts, hidden_ids, log_dir, epoch, N, device)
 
     # Compute GT curves and type names from ode_params if available
     gt_g_phi = gt_f_theta = gt_v_range = _type_names = None
@@ -1651,7 +1652,7 @@ def plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_li
     plt.savefig(f"{log_dir}/results/f_theta_func.png", dpi=87)
     plt.close()
 
-    return r_squared
+    return r_squared, hidden_inr_r2
 
 
 def plot_training_linear(model, config, epoch, N, log_dir, device,
