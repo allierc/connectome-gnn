@@ -1042,9 +1042,9 @@ def update_ucb_scores(state: ExplorationState, batch: BatchInfo):
             stimuli_val = _parse('stimuli_R2')
             if stimuli_val:
                 parts.append(f"stimuli_R2={stimuli_val}")
-            hidden_siren_val = _parse('hidden_siren_R2')
+            hidden_siren_val = _parse('hidden_nnr_R2')
             if hidden_siren_val:
-                parts.append(f"hidden_siren_R2={hidden_siren_val}")
+                parts.append(f"hidden_nnr_R2={hidden_siren_val}")
             bias_val = _parse('g_phi_bias_R2')
             if bias_val:
                 parts.append(f"g_phi_bias_R2={bias_val}")
