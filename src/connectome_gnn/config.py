@@ -692,6 +692,7 @@ class TrainingConfig(BaseModel):
     time_step: int = 1
     multi_start_recurrent: bool = False
     consecutive_batch: bool = False
+    coeff_hidden_voltage: float = 0.0  # loss weight on GNN-predicted hidden voltages in recurrent training
     recurrent_sequence: str = ""
     recurrent_parameters: list[float] = [0, 0]
 
