@@ -689,6 +689,13 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                 else:
 
                     loss = loss + (pred[ids_batch] - y_batch[ids_batch]).norm(2)
+                    # Hidden voltage loss: GNN-predicted v(k+1) vs GT (bypasses g_phi via -v/tau)
+                    if has_hidden_neurons and getattr(tc, 'coeff_hidden_voltage', 0.0) > 0:
+                        n_per = state_batch[0].n_neurons
+                        h_ids_b = torch.cat([hidden_ids + b * n_per for b in range(len(state_batch))]).to(device)
+                        pred_h = batched_state.voltage[h_ids_b].unsqueeze(-1) + sim.delta_t * pred[h_ids_b]
+                        gt_h = torch.cat([x_ts.voltage[int(k_batch[b * n_per, 0].item()) + 1, hidden_ids].unsqueeze(-1) for b in range(len(state_batch))], dim=0)
+                        loss = loss + tc.coeff_hidden_voltage * (pred_h - gt_h).norm(2)
 
 
                 # === LLM-MODIFIABLE: BACKWARD AND STEP START ===
