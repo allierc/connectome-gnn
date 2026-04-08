@@ -113,10 +113,10 @@ def main():
                         help='Number of neurons to select randomly (default: 1000)')
     parser.add_argument('--steps', type=int, default=50000,
                         help='Training steps (default: 50000)')
-    parser.add_argument('--batch_size', type=int, default=8,
-                        help='Frames per step (default: 8)')
-    parser.add_argument('--lr', type=float, default=1e-4,
-                        help='Learning rate (default: 1e-4)')
+    parser.add_argument('--batch_size', type=int, default=512,
+                        help='Frames per step (default: 512) — SIREN needs large batches to avoid waterbed problem: fitting few frames breaks all others')
+    parser.add_argument('--lr', type=float, default=1e-8,
+                        help='Learning rate (default: 1e-8)')
     parser.add_argument('--hidden_dim', type=int, default=2048,
                         help='SIREN hidden dim (default: 2048)')
     parser.add_argument('--n_layers', type=int, default=4,
