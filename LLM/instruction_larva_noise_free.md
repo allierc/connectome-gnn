@@ -141,6 +141,8 @@ Example: embedding_dim=2 -> input_size=3, input_size_update=5.
 | `noise_model_level`       | 0.0     | Clean data                                            |
 
 
+> **YAML rule**: Always wrap the `description` field value in double quotes — colons inside unquoted YAML strings cause parse errors (e.g., `description: "Block 7 Slot 1: testing W_L2"`).
+
 ## Parallel Mode — 4 Slots Per Batch
 
 Each batch runs 4 slots with different seeds (forced by pipeline). You choose the strategy:

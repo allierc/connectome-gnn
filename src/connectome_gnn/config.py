@@ -374,6 +374,7 @@ class GraphModelConfig(BaseModel):
     # "siren_t"   : SIREN(t) -> (n_hidden,)  — independent signal per neuron
     # "siren_txy" : SIREN(x,y,t) -> scalar   — spatially-correlated field
     inr_type_hidden: str = "none"
+    hidden_neuron_fraction: float = 0.0  # fraction of non-retina neurons to hide; 0 = disabled
     hidden_dim_nnr_hidden: int = 2048
     n_layers_nnr_hidden: int = 4
     omega_hidden: float = 4096.0

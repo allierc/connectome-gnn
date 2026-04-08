@@ -134,4 +134,7 @@ if __name__ == "__main__":
 # python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_05 iterations=120 --cluster --resume
 # python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_INR iterations=120 --cluster --resume
 #
-# CUDA_VISIBLE_DEVICES="1" python GNN_LLM.py ...
+# CUDA_VISIBLE_DEVICES=1 python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_stride_5 iteration=96 --cluster
+# bsub -n 2 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o train /groups/saalfeld/home/allierc/Graph/connectome-gnn/config/fly/flyvis_noise_005_stride_5"
+# bsub -n 2 -gpu "num=1" -q gpu_h100 -W 6000 -Is "python GNN_Main.py -o train_test_plot /groups/saalfeld/home/allierc/Graph/connectome-gnn/config/fly/flyvis_noise_005_hidden_005"
+# bsub -n 2 -gpu "num=1" -q gpu_h100 -W 6000 -Is "python GNN_Main.py -o train_test_plot /groups/saalfeld/home/allierc/Graph/connectome-gnn/config/fly/flyvis_noise_005_hidden_010 --output_root /groups/saalfeld/home/allierc/GraphData"

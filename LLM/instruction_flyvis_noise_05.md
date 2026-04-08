@@ -173,6 +173,8 @@ This means the default config relies entirely on the monotonicity constraint (`c
 | `regul_annealing_rate` | 0.5 | Annealing rate (irrelevant at 1 epoch) |
 
 
+> **YAML rule**: Always wrap the `description` field value in double quotes — colons inside unquoted YAML strings cause parse errors (e.g., `description: "Block 7 Slot 1: testing W_L2"`).
+
 ## Parallel Mode — 4 Slots Per Batch
 
 You receive **4 results per batch** and propose **4 mutations** for the next batch.

@@ -160,13 +160,6 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
         netname = best_model
     else:
         netname = f"{log_dir}/models/{best_model}"
-    # Setup siren_t before load_state_dict so NNR_hidden exists to receive weights
-    _early_hidden_path = os.path.join(log_dir, 'hidden_neuron_ids.pt')
-    if os.path.exists(_early_hidden_path) and getattr(model, '_inr_hidden_type', 'none') == 'siren_t':
-        _early_hidden_ids = torch.load(_early_hidden_path, map_location=device, weights_only=True)
-        model.setup_hidden_siren(len(_early_hidden_ids))
-        logger.info(f'siren_t setup: {len(_early_hidden_ids)} hidden neurons')
-
     logger.info(f'loading {netname} ...')
     state_dict = torch.load(netname, map_location=device, weights_only=False)
     migrate_state_dict(state_dict)
@@ -239,12 +232,14 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     ids = np.arange(n_neurons)
     data_id = torch.zeros((n_neurons, 1), dtype=torch.int, device=device)
 
-    # Load hidden neuron list (already done above for siren_t, re-load here for rollout)
+    # Load hidden neuron list for rollout
+    has_hidden_neurons = getattr(model_config, 'hidden_neuron_fraction', 0.0) > 0.0
     hidden_ids = None
-    _hidden_path = os.path.join(log_dir, 'hidden_neuron_ids.pt')
-    if os.path.exists(_hidden_path):
-        hidden_ids = torch.load(_hidden_path, map_location=device, weights_only=True)
-        logger.info(f'hidden neurons: {len(hidden_ids)} — using during rollout')
+    if has_hidden_neurons:
+        _hidden_path = os.path.join(log_dir, 'hidden_neuron_ids.pt')
+        if os.path.exists(_hidden_path):
+            hidden_ids = torch.load(_hidden_path, map_location=device, weights_only=True)
+            logger.info(f'hidden neurons: {len(hidden_ids)} — using during rollout')
 
     # Run model on all frames (one-step prediction)
     logger.info(f'one-step prediction on {n_eval_frames} frames ...')
@@ -313,7 +308,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     os.makedirs(results_dir, exist_ok=True)
 
     x = x_ts_eval.frame(0)
-    if hidden_ids is not None:
+    if has_hidden_neurons:
         if model.NNR_hidden is not None:
             x.voltage[hidden_ids] = model.forward_hidden(x, 0, hidden_ids).detach()
         else:
@@ -384,7 +379,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
                 x.voltage = x.voltage + sim.delta_t * y.squeeze(-1)
 
             # Update hidden neuron voltages via SIREN or keep silent
-            if hidden_ids is not None:
+            if has_hidden_neurons:
                 if model.NNR_hidden is not None:
                     x.voltage[hidden_ids] = model.forward_hidden(x, k + 1, hidden_ids).detach()
                 else:
@@ -728,7 +723,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     np.save(f"{results_dir}/activity_pred{test_suffix}.npy", activity_pred)
 
     # Hidden-neuron SIREN trace comparison
-    if hidden_ids is not None and getattr(model, 'NNR_hidden', None) is not None:
+    if has_hidden_neurons and getattr(model, 'NNR_hidden', None) is not None:
         from connectome_gnn.plot import plot_hidden_siren_traces
         siren_r2 = plot_hidden_siren_traces(
             model, x_ts_eval, hidden_ids, log_dir,

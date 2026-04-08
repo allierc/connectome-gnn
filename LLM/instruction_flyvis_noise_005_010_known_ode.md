@@ -170,6 +170,8 @@ To fairly compare different LLM explorations across noise levels and biomodels, 
 
 **If you believe n_epochs or DAL should be varied** to test a specific hypothesis, first post in `user_input.md` for authorization. Do NOT change these without explicit user approval.
 
+> **YAML rule**: Always wrap the `description` field value in double quotes — colons inside unquoted YAML strings cause parse errors (e.g., `description: "Block 7 Slot 1: testing W_L2"`).
+
 ## Parallel Mode — 4 Slots Per Batch
 
 Each batch runs **4 slots simultaneously**, each with a different config (forced seeds differ automatically):

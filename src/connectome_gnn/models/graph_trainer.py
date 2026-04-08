@@ -284,8 +284,9 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
     # --- Hidden neuron setup ---
     hidden_ids = None
     visible_ids = ids  # default: all neurons visible
-    _hidden_frac = getattr(tc, 'hidden_neuron_fraction', 0.0)
-    if _hidden_frac > 0.0:
+    _hidden_frac = getattr(model_config, 'hidden_neuron_fraction', 0.0)
+    has_hidden_neurons = _hidden_frac > 0.0
+    if has_hidden_neurons:
         _hidden_path = os.path.join(log_dir, 'hidden_neuron_ids.pt')
         if os.path.exists(_hidden_path):
             hidden_ids = torch.load(_hidden_path, map_location=device, weights_only=True)
@@ -302,15 +303,6 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
         _hidden_mask[hidden_ids] = True
         visible_ids = ids[~_hidden_mask]
         logger.info(f'hidden neurons: {len(hidden_ids)}/{n_neurons}, visible for loss: {len(visible_ids)}')
-
-    # siren_t output size = n_hidden (runtime value) — build now, then rebuild optimizer
-    if hidden_ids is not None and getattr(model, '_inr_hidden_type', 'none') == 'siren_t':
-        model.setup_hidden_siren(len(hidden_ids))
-        _logger.info(f'siren_t hidden SIREN: output={len(hidden_ids)}, rebuilding optimizer')
-        optimizer, n_total_params = set_trainable_parameters(
-            model=model, lr_embedding=lr_embedding, lr=lr,
-            lr_update=lr_update, lr_W=lr_W, lr_NNR=lr_NNR, lr_NNR_f=lr_NNR_f)
-        lr_scheduler = build_lr_scheduler(optimizer, config)
 
     if tc.coeff_W_sign > 0:
         index_weight = []
@@ -497,8 +489,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                 is_early_r2 = (N > 0) and (N < connectivity_plot_frequency) and (N % early_r2_frequency == 0)
                 model_name = model_config.signal_model_name
                 if (is_regular_r2 or is_early_r2) and 'mlp' not in model_name.lower():
-                    _r2_hidden = None if model.NNR_hidden is not None else hidden_ids
-                    last_connectivity_r2 = plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_list, gt_weights, edges, n_neurons=n_neurons, n_neuron_types=sim.n_neuron_types, ode_params=ode_params, hidden_ids=_r2_hidden)
+                    last_connectivity_r2 = plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_list, gt_weights, edges, n_neurons=n_neurons, n_neuron_types=sim.n_neuron_types, ode_params=ode_params, hidden_ids=hidden_ids)
                     last_vrest_r2, last_tau_r2 = compute_dynamics_r2(model, x_ts, config, device, n_neurons)
                     with open(metrics_log_path, 'a') as f:
                         f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f}\n')
@@ -544,7 +535,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                     x.voltage = x.voltage + x.noise
 
                 # Hidden neurons: predict via SIREN or zero-silence
-                if hidden_ids is not None:
+                if has_hidden_neurons:
                     if model.NNR_hidden is not None:
                         x.voltage[hidden_ids] = model.forward_hidden(x, k, hidden_ids)
                     else:
@@ -670,7 +661,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                                 end_idx = (b + 1) * neurons_per_sample
 
                                 state_batch[b].voltage = pred_x[start_idx:end_idx].squeeze()
-                                if hidden_ids is not None:
+                                if has_hidden_neurons:
                                     state_batch[b].voltage[hidden_ids] = 0.0
 
                                 k_current = k_batch[start_idx, 0].item() + step + 1
@@ -769,8 +760,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                     with open(metrics_log_path, 'a') as f:
                         f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f}\n')
                 elif (is_regular_r2 or is_early_r2) and not test_neural_field and 'mlp' not in model_name.lower():
-                    _r2_hidden = None if model.NNR_hidden is not None else hidden_ids
-                    last_connectivity_r2 = plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_list, gt_weights, edges, n_neurons=n_neurons, n_neuron_types=sim.n_neuron_types, ode_params=ode_params, hidden_ids=_r2_hidden)
+                    last_connectivity_r2 = plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_list, gt_weights, edges, n_neurons=n_neurons, n_neuron_types=sim.n_neuron_types, ode_params=ode_params, hidden_ids=hidden_ids)
                     last_vrest_r2, last_tau_r2 = compute_dynamics_r2(model, x_ts, config, device, n_neurons)
                     with open(metrics_log_path, 'a') as f:
                         f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f}\n')

@@ -123,6 +123,8 @@ Example: embedding_dim=4 -> input_size=5, input_size_update=7.
 | `embedding_dim`           | 2       | Embedding dimension per neuron type                    |
 
 
+> **YAML rule**: Always wrap the `description` field value in double quotes — colons inside unquoted YAML strings cause parse errors (e.g., `description: "Block 7 Slot 1: testing W_L2"`).
+
 ## Parallel Mode — 4 Slots Per Batch
 
 Each batch runs 4 slots with different seeds (forced by pipeline). You choose the strategy:
