@@ -38,7 +38,13 @@ def _col(r2):
 
 # ── linear fit helper ──────────────────────────────────────────────────────────
 def _linear_fit(gt, pred):
-    """Fit gt = a*pred + b, return (a, b, r2)."""
+    """Fit gt = a*pred + b globally, return (a, b, r2_temporal).
+
+    gt, pred: (T, N) — frames x neurons
+    a, b: global linear correction (fit across all neurons and frames)
+    r2_temporal: mean per-neuron R² after linear correction — measures how
+                 well temporal dynamics are captured, not just DC offsets.
+    """
     gt_f, pred_f = gt.ravel(), pred.ravel()
     pred_mean = pred_f.mean()
     gt_mean   = gt_f.mean()
@@ -46,10 +52,15 @@ def _linear_fit(gt, pred):
     var  = ((pred_f - pred_mean) ** 2).mean()
     a = float(cov / (var + 1e-12))
     b = float(gt_mean - a * pred_mean)
-    corrected = a * pred_f + b
-    ss_res = float(((gt_f - corrected) ** 2).sum())
-    ss_tot = float(((gt_f - gt_mean) ** 2).sum())
-    r2 = 1.0 - ss_res / (ss_tot + 1e-12)
+
+    # Per-neuron R² (temporal fit within each neuron after global a*pred+b)
+    # gt, pred shape: (T, N)
+    pred_corr = a * pred + b          # (T, N)
+    gt_mean_n = gt.mean(axis=0)       # (N,) per-neuron mean
+    ss_res = ((gt - pred_corr) ** 2).sum(axis=0)   # (N,)
+    ss_tot = ((gt - gt_mean_n) ** 2).sum(axis=0)   # (N,)
+    r2_per_neuron = 1.0 - ss_res / (ss_tot + 1e-12)
+    r2 = float(r2_per_neuron.mean())
     return a, b, r2
 
 
