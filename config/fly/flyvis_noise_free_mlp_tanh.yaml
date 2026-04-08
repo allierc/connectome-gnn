@@ -28,7 +28,7 @@ graph_model:
   MLP_activation: "tanh"
   zero_init_output: true
   add_skip_layers: false
-  add_diagonal: true
+  add_diagonal: false
   output_size: 1
   input_size_update: 5
   n_layers_update: 3
