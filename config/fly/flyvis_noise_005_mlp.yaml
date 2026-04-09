@@ -49,7 +49,7 @@ plotting:
 training:
   use_gt_edges: true
   seed: 43
-  n_epochs: 20
+  n_epochs: 30
   batch_size: 256
   data_augmentation_loop: 100
   train_start: 0
