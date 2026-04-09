@@ -6,9 +6,8 @@ The previous exploration (`flyvis_noise_005_stride_5`, 36 iterations) was fundam
 
 **Fix applied here**: YouTube-VOS dataset (`datavis_roots` pointing to YouTube-VOS) with `n_frames=0` (single pass through all sequences) generates a much larger corpus. **`n_frames` in the config is fixed to 320,000** (= 64,000 × 5), giving **64,000 unique stride-5 starting positions** — exactly matching the training diversity of the stride-1 champion.
 
-**DAL is reduced from 35 → 8** to keep wall time within 120 min:
-- Old: `Niter = int(64000 × 35 // 4 × 0.2) = 112,000` iterations (~90 min)
-- New: `Niter = int(320000 × 8 // 4 × 0.2) = 128,000` iterations (~105 min, within budget ✓)
+**DAL=35 unchanged** — after subsampling 320K → 64K frames at load time, Niter matches the original stride_5:
+- `Niter = int(64000 × 35 // 4 × 0.2) = 112,000` iterations (~90 min) ✓
 
 **Wall time unchanged. Gradient diversity: 5× higher.**
 
@@ -108,8 +107,8 @@ Full baseline:
 training:
   recurrent_training: true
   time_step: 5
-  batch_size: 4
-  data_augmentation_loop: 8
+  batch_size: 1
+  data_augmentation_loop: 35
   lr_W: 0.0009
   lr: 0.0018
   lr_embedding: 0.003
@@ -132,7 +131,7 @@ training:
 |-----------|----------|-------------------|-------|
 | `lr_embedding` | 0.003 | 0.002–0.005 | Confirm + fine-tune |
 | `data_augmentation_loop` | 7 | 5–14 | More steps per unique position |
-| `batch_size` | 4 | 4–8 | Larger batches = smoother BPTT gradients |
+| `batch_size` | 1 | 1–4 | A100 memory constraint; increase if using H100 |
 | `lr_W` | 0.0009 | 0.0005–0.0015 | May shift with more data diversity |
 | `grad_clip_W` | 0.0 | 0.1–1.0 | Stabilize BPTT with spectral radius > 1 |
 | `lr_scheduler` | none | `cosine_warm_restarts` | Stabilize BPTT convergence |
@@ -168,8 +167,8 @@ Note: the hard floor for this exploration is > 0.70 (already beating stride_5 ro
 
 | Block | Focus | Key parameters | Goal |
 |-------|-------|----------------|------|
-| 1 | **Diversity-parity baseline** | 320K frames, DAL=7, lr_emb=0.003 | Does 5× data diversity close the stride_5 gap? |
-| 2 | **DAL scaling** | DAL ∈ {5, 6, 8} or bs=8 + DAL=16 | More gradient steps per unique position vs larger batches |
+| 1 | **Diversity-parity baseline** | 320K→64K frames, DAL=35, bs=1, lr_emb=0.003 | Does full-dataset diversity close the stride_5 gap? |
+| 2 | **DAL scaling** | DAL ∈ {25, 35, 50} | More gradient steps vs wall-time budget |
 | 3 | **Gradient clipping** | grad_clip_W ∈ {0.1, 0.3, 0.5, 1.0} | Stabilize BPTT with spectral radius > 1 |
 | 4 | **lr_W fine-tuning** | lr_W ∈ {0.0005, 0.0009, 0.0012, 0.0015} | Does optimal lr_W shift with 5× more data? |
 | 5 | **LR scheduler** | cosine_warm_restarts vs linear_warmup_cosine | Stabilize BPTT convergence |
@@ -181,25 +180,19 @@ Note: the hard floor for this exploration is > 0.70 (already beating stride_5 ro
 
 ## Training Time Budget
 
-**Hard constraint: ≤ 90 minutes per iteration** (1 epoch, batch_size=4).
+**Hard constraint: ≤ 120 minutes per iteration** (1 epoch, batch_size=1, A100).
 
 `Niter = int(n_frames × DAL // batch_size × 0.2)`
 
-With **n_frames=320,000**, **batch_size=4**:
+With **n_frames=64,000** (after subsampling), **batch_size=1**:
 
 | DAL | Niter | Est. time (min) | Status |
 |-----|-------|-----------------|--------|
-| 6 | 96,000 | ~80 | under-budget |
-| 8 | 128,000 | ~105 | ← **baseline** ✓ |
-| 10 | 160,000 | ~130 | **EXCEEDS BUDGET** |
-| 12 | 192,000 | ~160 | **WAY OVER** |
+| 25 | 320,000 | ~? | under-budget |
+| 35 | 448,000 | ~110 | ← **baseline** ✓ |
+| 50 | 640,000 | ~160 | **EXCEEDS BUDGET** |
 
-**Hard cap: DAL ≤ 8 at batch_size=4 with 320K frames.** To test higher DAL, reduce n_frames or increase batch_size.
-
-**Batch size scaling (DAL=8 baseline)**:
-- bs=4, DAL=8 → Niter=128K, ~105 min ← baseline
-- bs=8, DAL=8 → Niter=64K, ~55 min → allows DAL=16 for same time (smoother gradients)
-- bs=8, DAL=16 → Niter=128K, ~105 min → same Niter, larger batches
+**Hard cap: DAL ≤ 35 at batch_size=1 on A100.**
 
 ## Metrics to Track
 
@@ -267,7 +260,7 @@ With **n_frames=320,000**, **batch_size=4**:
 
 Node: id=N, parent=P
 Hypothesis tested: "[quoted hypothesis]"
-Config: time_step=5, n_frames=320K, DAL=X, lr_W=X, lr=X, lr_emb=X, grad_clip=X, bs=X
+Config: time_step=5, n_frames=320K→64K, DAL=X, bs=X, lr_W=X, lr=X, lr_emb=X, grad_clip=X
 Slot 0: conn_R2=A, raw_W_R2=B, tau_R2=C, V_rest_R2=D, rollout_p=E, time=Fmin
 Slot 1: conn_R2=A, raw_W_R2=B, tau_R2=C, V_rest_R2=D, rollout_p=E, time=Fmin
 Slot 2: conn_R2=A, raw_W_R2=B, tau_R2=C, V_rest_R2=D, rollout_p=E, time=Fmin
@@ -329,7 +322,7 @@ Save to `config/fly/flyvis_noise_005_stride_5_yt_winner.yaml`:
 |--------|---------------------|-----|------------------|-------------|
 | stride-1 winner | **0.980** | <1% | 0.984 | baseline |
 | stride_5 (64K frames, DAL=35) | 0.563 | 2.6% | 0.6596 | −0.417 |
-| stride_5_yt (320K frames, DAL=7) | **?** | ? | ? | ? |
+| stride_5_yt (320K→64K frames, DAL=35, bs=1) | **?** | ? | ? | ? |
 
 Pseudoinverse analysis (noise_005): global conn_R2 = 0.71 — linear upper bound without dynamics.
 
@@ -338,7 +331,7 @@ Pseudoinverse analysis (noise_005): global conn_R2 = 0.71 — linear upper bound
 When prompt says `PARALLEL START`:
 
 - Read base config `config/fly/flyvis_noise_005_stride_5_yt_Claude_00.yaml`
-- Set all 4 configs identically to the diversity-parity baseline (320K frames, DAL=7, lr_emb=0.003)
+- Set all 4 configs identically to the diversity-parity baseline (320K→64K frames subsampled, DAL=35, bs=1, lr_emb=0.003)
 - Write to working memory:
   - **Hypothesis**: "5× data diversity (320K frames, 64K unique stride-5 positions) closes the BPTT gap: robust mean conn_R2 > 0.70 (floor), ideally > 0.90"
   - **Null hypothesis**: "The stride_5 ceiling (0.563) is spectral-radius limited, not data-diversity limited — 320K frames yields similar robust mean ≈ 0.563"
@@ -360,9 +353,9 @@ When prompt says `PARALLEL START`:
 
 ### Comparison Table
 
-| Iter | n_frames | DAL | lr_W | lr_emb | grad_clip | conn_R2 (mean±std) | CV% | min | vs stride_5 | vs stride-1 | Stability | Note |
+| Iter | n_frames | DAL | bs | lr_W | lr_emb | grad_clip | conn_R2 (mean±std) | CV% | min | vs stride_5 | vs stride-1 | Stability | Note |
 | ---- | -------- | --- | ---- | ------- | --------- | ------------------ | --- | --- | ----------- | ----------- | --------- | ---- |
-| 1    | 320K     | 8   | 0.0009 | 0.003 | 0.0     | ?                  | ?   | ?   | ?           | ?           | ?         | baseline |
+| 1    | 320K→64K | 35  | 1 | 0.0009 | 0.003 | 0.0     | ?                  | ?   | ?   | ?           | ?           | ?         | baseline |
 
 ### Established Principles (from stride_5 — do not re-test)
 
