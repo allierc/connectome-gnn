@@ -1138,9 +1138,14 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
     x.calcium = _init_calcium
     x.fluorescence = sim.calcium_alpha * _init_calcium + sim.calcium_beta
 
-    # Test: single pass through test sequences
+    # Test: single pass through test sequences, optionally capped by sim.n_frames_test
+    _n_frames_test_cap = getattr(sim, 'n_frames_test', 0)
+    test_target_frames = float('inf') if _n_frames_test_cap <= 0 else _n_frames_test_cap
     test_target = len(test_sequences) * frames_per_sequence
-    logger.info(f"generating TEST data ({test_target} frames without noise from {len(test_sequences)} sequences)...")
+    if test_target_frames < float('inf'):
+        logger.info(f"generating TEST data (capped at {_n_frames_test_cap} frames from {len(test_sequences)} sequences)...")
+    else:
+        logger.info(f"generating TEST data ({test_target} frames without noise from {len(test_sequences)} sequences)...")
 
     x_writer = ZarrSimulationWriterV3(
         path=graphs_data_path(config.dataset, "x_list_test"),
@@ -1159,7 +1164,7 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
         stimulus_sequences=test_sequences, net=net, pde=pde, x=x,
         edge_index=edge_index, initial_state=initial_state, sim=sim,
         x_writer=x_writer, y_writer=y_writer,
-        target_frames=float('inf'), num_passes=1,  # single pass, all test sequences
+        target_frames=test_target_frames, num_passes=1,
         n_neurons=n_neurons, device=device, to_numpy_fn=to_numpy,
         visualize=False, run=run, run_vizualized=run_vizualized,
         step=step, id_fig_start=id_fig, it_start=0,

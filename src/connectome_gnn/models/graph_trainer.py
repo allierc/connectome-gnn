@@ -157,9 +157,27 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
     # get n_neurons and n_frames from data, not config file
     n_neurons = x_ts.n_neurons
     config.simulation.n_neurons = n_neurons
-    sim.n_frames = x_ts.n_frames
-    _logger.info(f'dataset: {x_ts.n_frames} frames,  n neurons: {n_neurons}')
+    n_frames_raw = x_ts.n_frames
+    sim.n_frames = n_frames_raw
+    _logger.info(f'dataset: {n_frames_raw} frames,  n neurons: {n_neurons}')
     logger.info(f'n neurons: {n_neurons}')
+
+    # Subsample every time_step frames for recurrent training to reduce GPU memory.
+    # After subsampling, consecutive frames in x_ts are time_step original steps apart,
+    # so the BPTT unroll of time_step steps spans exactly the same physical duration
+    # as before, but GPU memory scales with n_frames/time_step instead of n_frames.
+    stride = tc.time_step if (tc.recurrent_training and tc.time_step > 1) else 1
+    if stride > 1:
+        from tqdm import tqdm as _tqdm
+        _fields_to_stride = ['voltage', 'stimulus', 'calcium', 'fluorescence', 'noise']
+        print(f"\033[93msubsampling dataset: {n_frames_raw} frames → {n_frames_raw // stride} frames "
+              f"(1 every {stride} steps for recurrent training with time_step={stride})\033[0m")
+        for _field in _tqdm(_fields_to_stride, desc='subsampling x_ts', ncols=150):
+            _val = getattr(x_ts, _field)
+            if _val is not None:
+                setattr(x_ts, _field, _val[::stride])
+        y_ts = y_ts[::stride]
+        sim.n_frames = x_ts.n_frames  # update after subsampling
 
     # Compute xnorm on CPU before moving to GPU (avoids OOM from temporary
     # boolean mask + filtered copy needing ~2x voltage memory)
@@ -358,7 +376,9 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
 
     # Valid frame range for sampling (matches np.random.randint logic it replaces)
     _frame_min_k = tc.time_window
-    _frame_max_k = sim.n_frames - 4 - tc.time_step  # exclusive upper bound
+    _stride_subsample = tc.recurrent_training and tc.time_step > 1
+    _target_offset = 1 if _stride_subsample else tc.time_step
+    _frame_max_k = sim.n_frames - 4 - _target_offset  # exclusive upper bound
     _frame_range = max(_frame_max_k - _frame_min_k, 1)
 
     embedding_frozen = False
@@ -530,9 +550,6 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                 else:
                     k = int(frame_indices[N * tc.batch_size + batch])
 
-                if tc.recurrent_training or tc.neural_ODE_training:
-                    k = k - k % tc.time_step
-
                 x = x_ts.frame(k)
 
                 # Add measurement noise to observed voltage
@@ -569,7 +586,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                     loss = loss + regul_loss
 
                 if tc.recurrent_training or tc.neural_ODE_training:
-                    y = x_ts.voltage[k + tc.time_step].unsqueeze(-1)
+                    y = x_ts.voltage[k + 1 if _stride_subsample else k + tc.time_step].unsqueeze(-1)
                 elif test_neural_field:
                     y = x_ts.stimulus[k, :sim.n_input_neurons].unsqueeze(-1)
                 else:
