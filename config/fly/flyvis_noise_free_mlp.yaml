@@ -25,9 +25,11 @@ graph_model:
   input_size: 3
   n_layers: 3
   hidden_dim: 256
-  zero_init_output: true
+  MLP_activation: "relu"
+  add_residual: true
+  zero_init_output: false
   add_skip_layers: false
-  add_diagonal: true
+  add_diagonal: false
   output_size: 1
   input_size_update: 5
   n_layers_update: 3

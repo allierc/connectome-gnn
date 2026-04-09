@@ -69,7 +69,14 @@ class MLPBaseline(nn.Module):
             # with skip connections we have a concatenation
             hidden_dim2 = hidden_dim + int(self.add_skip_layers)*hidden_dim
             self.hidden_layers.append(nn.Linear(hidden_dim2, hidden_dim, device=device))
-        self.activation = nn.ReLU()
+        _activations = {
+            'relu': nn.ReLU(),
+            'tanh': nn.Tanh(),
+            'sigmoid': nn.Sigmoid(),
+            'leaky_relu': nn.LeakyReLU(),
+            'soft_relu': nn.Softplus(),
+        }
+        self.activation = _activations[model_config.MLP_activation]
 
         # Output layer
         final_input_dim = hidden_dim
@@ -79,6 +86,12 @@ class MLPBaseline(nn.Module):
         if model_config.zero_init_output:
             nn.init.zeros_(self.final_layer.weight)
             nn.init.zeros_(self.final_layer.bias)
+
+        # Optional residual: linear projection from input to hidden dim,
+        # skip from first hidden output to last hidden output
+        self.add_residual = getattr(model_config, 'add_residual', False)
+        if self.add_residual:
+            self.residual_proj = nn.Linear(input_size, hidden_dim, device=device)
 
         # Optional learnable per-neuron diagonal term: dv_i/dt = alpha_i * v_i + MLP(v, stim)_i
         self.add_diagonal = getattr(model_config, 'add_diagonal', False)
@@ -110,8 +123,13 @@ class MLPBaseline(nn.Module):
                 h2 = self.activation(layer(h))
                 h = torch.cat([h1, h2], dim=-1)
         else:
-            for layer in self.hidden_layers:
+            for i, layer in enumerate(self.hidden_layers):
                 h = self.activation(layer(h))
+                if self.add_residual and i == 0:
+                    h = h + self.residual_proj(mlp_input)
+                    h_first = h
+            if self.add_residual and len(self.hidden_layers) > 1:
+                h = h + h_first
 
         out = self.final_layer(h)
         if self.add_diagonal:
