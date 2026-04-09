@@ -109,7 +109,6 @@ def _standard_recurrent_loss(
 
     for b in range(batch_size):
         k = int(frame_indices[iter_idx * batch_size + b])
-        k = k - k % time_step  # align to time_step boundary
 
         x = x_ts.frame(k)
         if x.noise is not None and sim.measurement_noise_level > 0:
@@ -128,7 +127,7 @@ def _standard_recurrent_loss(
         if torch.isnan(x.voltage).any():
             continue
 
-        y = x_ts.voltage[k + time_step].unsqueeze(-1)
+        y = x_ts.voltage[k + (1 if time_step > 1 else time_step)].unsqueeze(-1)
         if torch.isnan(y).any():
             continue
 
@@ -196,7 +195,7 @@ def _standard_recurrent_loss(
                 state_batch[b_idx].stimulus[:model.n_input_neurons] = vi.squeeze(-1)
                 state_batch[b_idx].stimulus[model.n_input_neurons:] = 0
             else:
-                state_batch[b_idx].stimulus = x_ts.frame(k_current).stimulus
+                pass  # stimulus held constant during unroll (subsampled x_ts; intermediate frames not available)
 
         batched_state, batched_edges = _batch_frames(state_batch, edges)
         pred, _, _ = model(batched_state, batched_edges, data_id=data_id, return_all=True)
@@ -294,7 +293,7 @@ def _multi_start_loss(
                     x.stimulus[:model.n_input_neurons] = vi.squeeze(-1)
                     x.stimulus[model.n_input_neurons:] = 0
                 else:
-                    x.stimulus = x_ts.frame(k_next).stimulus
+                    pass  # stimulus held constant during unroll (subsampled x_ts; intermediate frames not available)
 
         # Loss: predicted voltage vs target at T
         pred_v = x.voltage.unsqueeze(-1)
