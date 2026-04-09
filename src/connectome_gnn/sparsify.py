@@ -577,8 +577,17 @@ def clustering_gmm(data, type_list, n_components=None):
     if n_components is None:
         n_components = len(np.unique(true_labels))
 
-    gmm = GaussianMixture(n_components=n_components, covariance_type='full', random_state=42)
-    cluster_labels = gmm.fit_predict(data)
+    cluster_labels = None
+    for cov_type in ('full', 'diag', 'spherical'):
+        try:
+            gmm = GaussianMixture(n_components=n_components, covariance_type=cov_type, reg_covar=1e-3, random_state=42)
+            cluster_labels = gmm.fit_predict(data)
+            break
+        except Exception as e:
+            print(f"clustering_gmm: covariance_type='{cov_type}' failed ({e}), trying next...")
+    if cluster_labels is None:
+        print("clustering_gmm: all GMM variants failed, returning dummy result")
+        return {'n_components': n_components, 'accuracy': 0.0, 'ari': 0.0, 'nmi': 0.0, 'silhouette': 0.0}
 
     # Fix: Ensure cluster labels are contiguous starting from 0
     unique_clusters = np.unique(cluster_labels)
