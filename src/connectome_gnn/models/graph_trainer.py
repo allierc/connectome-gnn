@@ -186,6 +186,13 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
     assert not np.isnan(y_ts).any(), "derivative targets contain NaN — cannot train"
     x_ts = x_ts.to(device)
     y_ts_gpu = torch.from_numpy(y_ts).float().to(device)  # pre-convert once; avoids per-iter cudaStreamSynchronize
+    if device.type == 'cuda':
+        _data_bytes = (x_ts.voltage.nelement() * x_ts.voltage.element_size()
+                       + (x_ts.stimulus.nelement() * x_ts.stimulus.element_size() if x_ts.stimulus is not None else 0)
+                       + y_ts_gpu.nelement() * y_ts_gpu.element_size())
+        _alloc_gb = torch.cuda.memory_allocated(device) / 1024**3
+        print(f"\033[93mGPU data: requested {_data_bytes/1024**3:.2f} GB — allocated {_alloc_gb:.2f} GB "
+              f"/ {torch.cuda.get_device_properties(device).total_memory/1024**3:.0f} GB total\033[0m")
     torch.save(xnorm, os.path.join(log_dir, 'xnorm.pt'))
     _logger.info(f'xnorm: {to_numpy(xnorm):0.3f}')
     logger.info(f'xnorm: {to_numpy(xnorm)}')
