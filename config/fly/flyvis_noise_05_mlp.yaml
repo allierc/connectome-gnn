@@ -90,4 +90,4 @@ claude:
   generate_data: false
   interaction_code: false
   case_study: "mlp_rollout"
-  case_study_brief: "Optimize MLP hyperparameters for stable autoregressive rollout on flyvis_noise_free. Primary metric: rollout_RMSE (lower is better). Target: rollout_RMSE < 0.1, stable across seeds (CV < 10%). Key levers: rollout_train_steps, hidden_dim, n_layers, lr, batch_size, data_augmentation_loop."
+  case_study_brief: "Optimize MLP hyperparameters for stable autoregressive rollout on flyvis_noise_05. Primary metric: rollout_RMSE (lower is better). Target: rollout_RMSE < 0.1, stable across seeds (CV < 10%). Key levers: rollout_train_steps, hidden_dim, n_layers, lr, batch_size, data_augmentation_loop."
