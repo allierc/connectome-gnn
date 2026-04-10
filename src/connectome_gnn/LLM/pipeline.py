@@ -1093,7 +1093,7 @@ def save_artifacts(state: ExplorationState, batch: BatchInfo):
             if time_m:
                 training_time = float(time_m.group(1))
                 if training_time > state.training_time_target_min:
-                    print(f"\033[91m  WARNING: slot {slot} (iter {iteration}) training took {training_time:.1f} min (>{state.training_time_target_min} min target)\033[0m")
+                    print(f"\033[93m  WARNING: slot {slot} (iter {iteration}) training took {training_time:.1f} min (>{state.training_time_target_min} min target)\033[0m")
                 else:
                     print(f"\033[92m  slot {slot} (iter {iteration}): training time {training_time:.1f} min\033[0m")
 
