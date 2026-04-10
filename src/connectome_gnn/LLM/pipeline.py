@@ -563,7 +563,9 @@ def load_configs_and_seeds(state: ExplorationState, batch: BatchInfo):
         yaml_data['simulation']['seed'] = sim_seed
         yaml_data['training']['seed'] = train_seed
         yaml_data['dataset'] = expected_dataset
-        yaml_data['training']['n_epochs'] = 1
+        # Restore intended n_epochs from claude section (training section gets
+        # overwritten by yaml.dump round-trips, claude section is authoritative)
+        yaml_data['training']['n_epochs'] = yaml_data.get('claude', {}).get('n_epochs', 1)
 
         # Write updated YAML back to file (cluster reads from file)
         with open(state.config_paths[slot], 'w') as f:
