@@ -161,6 +161,7 @@ if __name__ == "__main__":
                 erase=True,
                 save=True,
                 step=100,
+                compute_ranks=False,
             )
 
         if 'train_NGP' in task:
@@ -238,7 +239,12 @@ if __name__ == "__main__":
             f.write(f"argv={sys.argv}\n")
 
 
-# python GNN_Main.py -o test flyvis_noise_005 best flyvis_noise_free
+
+
+# bsub -n 8 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o train /groups/saalfeld/home/allierc/Graph/connectome-gnn/config/fly/flyvis_noise_005 --output_root /groups/saalfeld/home/allierc/GraphData"
+# bsub -n 8 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o cv /groups/saalfeld/home/allierc/Graph/connectome-gnn/config/fly/flyvis_noise_005 --n_seeds 5 --output_root /groups/saalfeld/home/allierc/GraphData "
+
+
 # python GNN_Main.py -o cv flyvis_noise_005 --n_seeds 10
 # bsub -n 2 -gpu "num=1" -q gpu_a100 -W 6000 "python GNN_Main.py -o train null_edges_cross --output_root /groups/saalfeld/home/allierc/GraphData"
 # bsub -n 2 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o train /groups/saalfeld/home/allierc/Graph/connectome-gnn/config/fly/flyvis_noise_005"
@@ -249,3 +255,4 @@ if __name__ == "__main__":
 
 # bsub -n 2 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o train_test_plot null_edges_cross --output_root /groups/saalfeld/home/allierc/GraphData"
 # bsub -n 2 -gpu "num=1" -q gpu_a100 -W 6000 -Is  -o logs/cv_cross.out -e logs/cv_cross.err   "bash run_cv_null_edges_cross.sh"
+# bsub -n 8 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o cv /groups/saalfeld/home/allierc/GraphData/config/fly/flyvis_noise_005 --n_seeds 5 --output_root /groups/saalfeld/home/allierc/GraphData "
