@@ -26,6 +26,7 @@ from .claude_cli import run_claude_cli
 from .cluster import (
     check_cluster_repo,
     submit_cluster_job,
+    submit_cluster_test_plot_job,
     wait_for_cluster_jobs,
 )
 from .interactive_code import generate_code_brief, interactive_code_session
@@ -689,7 +690,7 @@ def run_cluster_training(state: ExplorationState, batch: BatchInfo):
             batch.job_results[slot] = False
 
     if job_ids:
-        print(f"\n\033[93mPHASE 3: Waiting for {len(job_ids)} cluster jobs to complete\033[0m")
+        print(f"\n\033[93mPHASE 3.1: Waiting for {len(job_ids)} training jobs to complete\033[0m")
         cluster_results = wait_for_cluster_jobs(job_ids, log_dir=state.log_dir, poll_interval=300)
         batch.job_results.update(cluster_results)
 
@@ -852,6 +853,115 @@ def run_local_test_plot(state: ExplorationState, batch: BatchInfo):
             skip_svd=True,
         )
         log_file.close()
+
+
+def _color_metric(val_str, green_thresh, orange_thresh):
+    """Return ANSI-colored string: green >= green_thresh, orange >= orange_thresh, else red."""
+    try:
+        val = float(val_str)
+        if val >= green_thresh:
+            return f"\033[92m{val:.3f}\033[0m"
+        elif val >= orange_thresh:
+            return f"\033[93m{val:.3f}\033[0m"
+        else:
+            return f"\033[91m{val:.3f}\033[0m"
+    except (ValueError, TypeError):
+        return f"\033[90m{val_str}\033[0m"
+
+
+def _print_batch_results(state: ExplorationState, batch: BatchInfo):
+    """Print per-slot metrics with red/orange/green color coding."""
+    print(f"\n\033[94m{'='*60}\033[0m")
+    print(f"\033[94mBATCH RESULTS: iterations {batch.batch_first}-{batch.batch_last}\033[0m")
+    print(f"\033[94m{'='*60}\033[0m")
+
+    for slot_idx, iteration in enumerate(batch.iterations):
+        slot = slot_idx
+        if not batch.job_results.get(slot, False):
+            print(f"  Slot {slot} (iter {iteration}):  \033[91mFAILED\033[0m")
+            continue
+
+        slot_log = state.analysis_log_paths[slot]
+        if not os.path.exists(slot_log):
+            print(f"  Slot {slot} (iter {iteration}):  \033[90mno log\033[0m")
+            continue
+
+        with open(slot_log, 'r') as f:
+            log_content = f.read()
+
+        def _p(key):
+            m = re.search(rf'{key}[=:]\s*([\d.eE+-]+|nan)', log_content)
+            return m.group(1) if m else None
+
+        conn_r2   = _p('connectivity_R2')
+        tau_r2    = _p('tau_R2')
+        vrest_r2  = _p('V_rest_R2')
+        clust_acc = _p('cluster_accuracy')
+        rollout_r = _p('rollout_pearson')
+        onestep_r = _p('onestep_pearson')
+        train_min = _p('training_time_min')
+
+        parts = []
+        if conn_r2:
+            parts.append(f"conn_R2={_color_metric(conn_r2, 0.6, 0.3)}")
+        if tau_r2:
+            parts.append(f"tau_R2={_color_metric(tau_r2, 0.5, 0.2)}")
+        if vrest_r2:
+            parts.append(f"Vrest_R2={_color_metric(vrest_r2, 0.5, 0.2)}")
+        if clust_acc:
+            parts.append(f"clust_acc={_color_metric(clust_acc, 0.7, 0.4)}")
+        if rollout_r:
+            parts.append(f"rollout_r={_color_metric(rollout_r, 0.7, 0.4)}")
+        elif onestep_r:
+            parts.append(f"onestep_r={_color_metric(onestep_r, 0.7, 0.4)}")
+        if train_min:
+            parts.append(f"\033[90mtrain={float(train_min):.1f}min\033[0m")
+
+        metrics_str = "  ".join(parts) if parts else "\033[90mno metrics yet\033[0m"
+        print(f"  Slot {slot} (iter {iteration}):  {metrics_str}")
+
+
+def run_cluster_test_plot(state: ExplorationState, batch: BatchInfo):
+    """PHASE 3.2: Submit test+plot jobs to cluster for all successful slots, then print results."""
+    successful_slots = [s for s in range(batch.n_slots) if batch.job_results.get(s, False)]
+    print(f"\n\033[93mPHASE 3.2: Submitting {len(successful_slots)} test+plot jobs to cluster (gpu_{state.node_name})\033[0m")
+
+    job_ids = {}
+    for slot_idx, iteration in enumerate(batch.iterations):
+        slot = slot_idx
+        if not batch.job_results.get(slot, False):
+            print(f"\033[90m  slot {slot} (iter {iteration}): skipping test+plot (training failed)\033[0m")
+            continue
+        config = batch.configs[slot]
+        jid = submit_cluster_test_plot_job(
+            slot=slot,
+            config_path=state.config_paths[slot],
+            analysis_log_path=state.analysis_log_paths[slot],
+            config_file_field=config.config_file,
+            log_dir=state.log_dir,
+            node_name=state.node_name,
+            conda_env=state.conda_env,
+            n_cpus=state.n_cpus,
+            device=config.training.device,
+            iteration=iteration,
+            output_root=get_data_root(),
+        )
+        if jid:
+            job_ids[slot] = jid
+        else:
+            batch.job_results[slot] = False
+
+    if job_ids:
+        print(f"\n\033[93mPHASE 3.2: Waiting for {len(job_ids)} test+plot jobs to complete\033[0m")
+        test_plot_results = wait_for_cluster_jobs(
+            job_ids, log_dir=state.log_dir, poll_interval=60, job_prefix='cluster_test_plot'
+        )
+        for slot, success in test_plot_results.items():
+            if not success:
+                batch.job_results[slot] = False
+                print(f"\033[91m  slot {slot}: test+plot FAILED\033[0m")
+
+    _print_batch_results(state, batch)
 
 
 def run_local_pipeline(state: ExplorationState, batch: BatchInfo):
