@@ -33,6 +33,7 @@ graph_model:
   stim_latent_dims: 64 # stimulus encoder output dimensionality
   hidden_dim_stim_encoder: 64 # stimulus encoder hidden width
   n_layers_stim_encoder: 3 # hidden layers in stimulus encoder
+  MLP_activation: "relu" # activation for all sub-networks: "relu", "tanh", "sigmoid", "leaky_relu", "soft_relu"
   # Unused by EED but required by config schema
   input_size: 3
   n_layers: 3

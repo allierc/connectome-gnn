@@ -166,6 +166,7 @@ latent representation before the evolver can learn to evolve it.
 | `stim_latent_dims`         | 64      | Stimulus encoder output dimensionality                                              |
 | `hidden_dim_stim_encoder`  | 64      | Stimulus encoder hidden width                                                       |
 | `n_layers_stim_encoder`    | 3       | Hidden layers in stimulus encoder                                                   |
+| `MLP_activation`           | "relu"  | Activation for all sub-networks: "relu", "tanh", "sigmoid", "leaky_relu", "soft_relu" |
 
 ## Training Parameters
 
@@ -204,7 +205,7 @@ Data is re-generated each iteration with pipeline-controlled seeds (see Note abo
 | Block | Focus                | Parameters to scan                                                              | Ranges                                                                                                             |
 | ----- | -------------------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | 1     | **Training I**       | `lr`, `batch_size`, `rollout_train_steps`                                       | lr: {5e-6, 1e-5, 5e-5, 1e-4}; batch_size: {64, 128, 256, 512}; rollout_train_steps: {1, 5, 10, 20}                 |
-| 2     | **Architecture I**   | `latent_dim`, `n_layers_encoder`, `n_layers_evolver`                            | latent_dim: {64, 128, 256, 512}; n_layers_encoder: {1, 2, 3, 5}; n_layers_evolver: {1, 2, 3, 5}                    |
+| 2     | **Architecture I**   | `latent_dim`, `n_layers_encoder`, `n_layers_evolver`, `MLP_activation`          | latent_dim: {64, 128, 256, 512}; n_layers_encoder: {1, 2, 3, 5}; n_layers_evolver: {1, 2, 3, 5}; activation: {relu, tanh, leaky_relu, soft_relu} |
 | 3     | **Training II**      | Refine best training params for Block 2 architecture                            | Narrow ranges around Block 1 winner, re-tune for best architecture from Block 2                                     |
 | 4     | **Architecture II**  | Any architecture parameter                                                      | Re-explore architecture with optimized training from Block 3; refine stimulus encoder, latent capacity              |
 | 5     | **Free exploration** | Any parameter                                                                   | Consolidate best from Blocks 1-4, test novel combinations                                                           |
@@ -281,7 +282,7 @@ For each slot:
 ## Iter N: [excellent/good/poor/diverged]
 Node: id=N, parent=P
 Hypothesis tested: "[quoted hypothesis]"
-Config: lr=X, n_epochs=E, batch_size=B, rollout_train_steps=K, latent_dim=L, n_layers_encoder=NE, n_layers_evolver=NV, stim_latent_dims=SL, hidden_dim_stim_encoder=HS, n_layers_stim_encoder=NS
+Config: lr=X, n_epochs=E, batch_size=B, rollout_train_steps=K, latent_dim=L, n_layers_encoder=NE, n_layers_evolver=NV, stim_latent_dims=SL, hidden_dim_stim_encoder=HS, n_layers_stim_encoder=NS, MLP_activation=A
 Slot 0: rollout_RMSE=X, divergence_at=frame_Y, train_div_time=Z, train_best_epoch=W/E, onestep_pearson=P, recon=R, evolve=V, sim_seed=S, train_seed=T
 Slot 1: rollout_RMSE=X, divergence_at=frame_Y, train_div_time=Z, train_best_epoch=W/E, onestep_pearson=P, recon=R, evolve=V, sim_seed=S, train_seed=T
 Slot 2: rollout_RMSE=X, divergence_at=frame_Y, train_div_time=Z, train_best_epoch=W/E, onestep_pearson=P, recon=R, evolve=V, sim_seed=S, train_seed=T
