@@ -617,10 +617,15 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
         x_path = graphs_data_path(config.dataset, 'x_list_0')
     x_ts = load_simulation_data(x_path,
                                 fields=['index', 'voltage', 'stimulus', 'neuron_type', 'group_type'])
-    y_path = graphs_data_path(config.dataset, 'y_list_train')
-    if not os.path.exists(y_path) and not os.path.exists(y_path + '.zarr'):
-        y_path = graphs_data_path(config.dataset, 'y_list_0')
-    y_data = load_raw_array(y_path)
+
+    # Apply same stride as training to reduce memory for recurrent models with time_step > 1
+    _stride = tc.time_step if (tc.recurrent_training and tc.time_step > 1) else 1
+    if _stride > 1:
+        print(f"\033[93msubsampling plot data: {x_ts.n_frames} → {x_ts.n_frames // _stride} frames (stride={_stride})\033[0m")
+        for _field in ['voltage', 'stimulus']:
+            _val = getattr(x_ts, _field)
+            if _val is not None:
+                setattr(x_ts, _field, _val[::_stride])
 
     xnorm_path = os.path.join(log_dir, 'xnorm.pt')
     if os.path.exists(xnorm_path):
