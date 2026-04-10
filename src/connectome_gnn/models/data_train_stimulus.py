@@ -137,10 +137,10 @@ def data_train_stimulus(config, erase, best_model, device, log_file=None):
     net_path = os.path.join(log_dir, 'models')
     os.makedirs(net_path, exist_ok=True)
 
-    # Constant model baseline: MSE(v_t, v_{t+1}) — predicting no change
+    # Constant model baseline: RMSE(v_t, v_{t+1}) — predicting no change
     with torch.no_grad():
-        constant_model_loss = F.mse_loss(voltage[:-1], voltage[1:]).item()
-    _logger.info(f'constant model baseline MSE: {constant_model_loss:.4e}')
+        constant_model_rmse = float(np.sqrt(F.mse_loss(voltage[:-1], voltage[1:]).item()))
+    _logger.info(f'constant model baseline RMSE: {constant_model_rmse:.4e}')
 
     # --- Training loop ---
     model.train()
@@ -196,9 +196,9 @@ def data_train_stimulus(config, erase, best_model, device, log_file=None):
 
     total_time = time.time() - training_start
     _logger.info(f'training complete: {n_epochs=} in {total_time=:.1f}s')
-    _logger.info(f'constant model baseline: {constant_model_loss:.4e}')
+    _logger.info(f'constant model baseline RMSE: {constant_model_rmse:.4e}')
 
     if log_file:
         log_file.write('\n--- Training stimulus baseline results ---\n')
         log_file.write(f'train_best_epoch: {best_epoch}\n')
-        log_file.write(f'train_constant_baseline_mse: {constant_model_loss:.4e}\n')
+        log_file.write(f'train_constant_baseline_rmse: {constant_model_rmse:.4e}\n')

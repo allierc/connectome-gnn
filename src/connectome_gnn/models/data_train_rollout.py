@@ -63,7 +63,7 @@ def val_rollout(model, voltage, stimulus, val_start_idx, dt):
     Returns:
         mse_curve: (_VAL_ROLLOUT_LEN,) numpy array of per-step MSE
         div_time: first step index where MSE > 1, or _VAL_ROLLOUT_LEN if never
-        rollout_mse: mean MSE over steps [0, div_time)
+        rollout_rmse: RMSE = sqrt(mean MSE) over steps [0, div_time)
     """
     all_mse = torch.empty(_VAL_ROLLOUT_LEN, device=voltage.device)
     v = voltage[val_start_idx].clone()
@@ -79,30 +79,31 @@ def val_rollout(model, voltage, stimulus, val_start_idx, dt):
     mse_np = all_mse.cpu().numpy()
     above = np.where(mse_np > 1.0)[0]
     div_time = int(above[0]) if len(above) > 0 else _VAL_ROLLOUT_LEN
-    rollout_mse_val = float(mse_np[:max(div_time, 1)].mean())
-    return mse_np, div_time, rollout_mse_val
+    rollout_rmse_val = float(np.sqrt(mse_np[:max(div_time, 1)].mean()))
+    return mse_np, div_time, rollout_rmse_val
 
 
 def plot_rollout_mse(mse_curve, div_time, epoch, log_dir):
-    """Save rollout MSE vs time step plot, marking divergence time."""
+    """Save rollout RMSE vs time step plot, marking divergence time."""
+    rmse_curve = np.sqrt(mse_curve)
     fig, ax = plt.subplots(figsize=(8, 4))
-    steps = np.arange(len(mse_curve))
-    ax.plot(steps, mse_curve, linewidth=1, label='model')
-    ax.axhline(1.0, color='gray', linestyle='--', linewidth=0.8, label='MSE=1')
+    steps = np.arange(len(rmse_curve))
+    ax.plot(steps, rmse_curve, linewidth=1, label='model')
+    ax.axhline(1.0, color='gray', linestyle='--', linewidth=0.8, label='RMSE=1')
     if div_time < _VAL_ROLLOUT_LEN:
         ax.axvline(div_time, color='red', linestyle=':', linewidth=0.8,
                    label=f'div_time={div_time}')
     ax.legend()
     ax.set_xlabel('Rollout Time Steps')
-    ax.set_ylabel('MSE')
-    ax.set_title(f'Validation rollout MSE — epoch {epoch+1} | div_time={div_time}')
+    ax.set_ylabel('RMSE')
+    ax.set_title(f'Validation rollout RMSE — epoch {epoch+1} | div_time={div_time}')
     ax.set_yscale('log')
-    ax.set_ylim(1e-4, 1.0)
+    ax.set_ylim(1e-2, 1.0)
     fig.tight_layout()
 
     plot_dir = os.path.join(log_dir, 'tmp_training')
     os.makedirs(plot_dir, exist_ok=True)
-    fig.savefig(os.path.join(plot_dir, f'rollout_mse_epoch_{epoch+1:03d}.png'), dpi=100)
+    fig.savefig(os.path.join(plot_dir, f'rollout_rmse_epoch_{epoch+1:03d}.png'), dpi=100)
     plt.close(fig)
 
 
@@ -218,10 +219,10 @@ def data_train_rollout(config, erase, best_model, device, log_file=None):
 
     dt = torch.tensor(sim.delta_t, device=device)
 
-    # Constant model baseline: MSE(x_t, x_{t+1}) — predicting no change
+    # Constant model baseline: RMSE(x_t, x_{t+1}) — predicting no change
     with torch.no_grad():
-        constant_model_loss = F.mse_loss(voltage[:-1], voltage[1:]).item()
-    _logger.info(f'constant model baseline MSE: {constant_model_loss:.4e}')
+        constant_model_rmse = float(np.sqrt(F.mse_loss(voltage[:-1], voltage[1:]).item()))
+    _logger.info(f'constant model baseline RMSE: {constant_model_rmse:.4e}')
 
     # --- Profiler setup ---
     prof = None
@@ -293,13 +294,13 @@ def data_train_rollout(config, erase, best_model, device, log_file=None):
         val_start_t = time.time()
         model.eval()
         with torch.no_grad():
-            mse_curve, div_time, mean_rollout_mse = val_rollout(
+            mse_curve, div_time, mean_rollout_rmse = val_rollout(
                 model, voltage, stimulus, val_start_idx, dt,
             )
         model.train()
         val_duration = time.time() - val_start_t
 
-        val_str = f' | div_time={div_time} rollout_mse={mean_rollout_mse:.4e} ({val_duration:.1f}s)'
+        val_str = f' | div_time={div_time} rollout_rmse={mean_rollout_rmse:.4e} ({val_duration:.1f}s)'
         plot_rollout_mse(mse_curve, div_time, epoch, log_dir)
 
         # Save current model as "best" (always overwritten — last epoch wins)
@@ -321,17 +322,17 @@ def data_train_rollout(config, erase, best_model, device, log_file=None):
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
             'train_loss': mean_loss,
-            'rollout_mse': mean_rollout_mse,
+            'rollout_rmse': mean_rollout_rmse,
             'div_time': div_time,
         }, os.path.join(net_path, 'latest_checkpoint.pt'))
 
     total_time = time.time() - training_start
-    _logger.info(f'training complete: {n_epochs=} in {total_time=:.1f}s, {div_time=:,d}, {mean_rollout_mse=:.3e}')
-    _logger.info(f'constant model baseline: {constant_model_loss:.4e}')
+    _logger.info(f'training complete: {n_epochs=} in {total_time=:.1f}s, {div_time=:,d}, {mean_rollout_rmse=:.3e}')
+    _logger.info(f'constant model baseline RMSE: {constant_model_rmse:.4e}')
 
     if log_file:
         log_file.write('\n--- Training rollout results (computed on training data) ---\n')
         log_file.write(f'train_div_time: {div_time}\n')
-        log_file.write(f'train_rollout_mse: {mean_rollout_mse:.4e}\n')
+        log_file.write(f'train_rollout_rmse: {mean_rollout_rmse:.4e}\n')
         log_file.write(f'train_best_epoch: {best_epoch}\n')
-        log_file.write(f'train_constant_baseline_mse: {constant_model_loss:.4e}\n')
+        log_file.write(f'train_constant_baseline_rmse: {constant_model_rmse:.4e}\n')
