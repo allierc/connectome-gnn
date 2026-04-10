@@ -135,6 +135,7 @@ def setup_exploration(args, root_dir: str, skip_confirm: bool = False) -> Explor
         task=task,
         sim_constraint=sim_constraint,
         llm_task_name=llm_task_name,
+        instruction_name=instruction_name,
         best_model=best_model,
     )
 
@@ -270,7 +271,7 @@ def init_shared_files(state: ExplorationState, is_resume: bool):
     state.analysis_path = f"{state.exploration_dir}/{state.llm_task_name}_analysis.md"
     state.memory_path = f"{state.exploration_dir}/{state.llm_task_name}_memory.md"
     state.ucb_path = f"{state.exploration_dir}/{state.llm_task_name}_ucb_scores.txt"
-    instruction_name = f'instruction_{state.base_config_name}'
+    instruction_name = state.instruction_name or f'instruction_{state.base_config_name}'
     state.instruction_path = f"{state.llm_dir}/{instruction_name}.md"
     state.reasoning_log_path = f"{state.exploration_dir}/{state.llm_task_name}_reasoning.log"
     state.user_input_path = f"{state.exploration_dir}/user_input.md"
