@@ -16,7 +16,7 @@ simulation:
   delta_t: 0.02
   baseline_value: 0
   visual_input_type: DAVIS
-  noise_model_level: 0.05
+  noise_model_level: 0.5
   seed: 42
 graph_model:
   signal_model_name: flyvis_stimulus
