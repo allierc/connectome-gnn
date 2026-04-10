@@ -149,8 +149,8 @@ def data_train_eed(config, erase, best_model, device, log_file=None):
 
     # Constant model baseline
     with torch.no_grad():
-        constant_model_loss = F.mse_loss(voltage[:-1], voltage[1:]).item()
-    _logger.info(f'constant model baseline MSE: {constant_model_loss:.4e}')
+        constant_model_rmse = float(np.sqrt(F.mse_loss(voltage[:-1], voltage[1:]).item()))
+    _logger.info(f'constant model baseline RMSE: {constant_model_rmse:.4e}')
 
     # --- Training loop ---
     model.train()
@@ -197,7 +197,7 @@ def data_train_eed(config, erase, best_model, device, log_file=None):
         val_start_t = time.time()
         model.eval()
         with torch.no_grad():
-            mse_curve, div_time, mean_rollout_mse = val_rollout(
+            mse_curve, div_time, mean_rollout_rmse = val_rollout(
                 model, voltage, stimulus, val_start_idx, dt,
             )
         model.train()
@@ -215,7 +215,7 @@ def data_train_eed(config, erase, best_model, device, log_file=None):
         _logger.info(
             f'epoch {epoch+1}/{n_epochs} | '
             f'total: {mean_total:.4e} recon: {mean_recon:.4e} evolve: {mean_evolve:.4e} | '
-            f'div_time={div_time} rollout_mse={mean_rollout_mse:.4e} ({val_duration:.1f}s) | '
+            f'div_time={div_time} rollout_rmse={mean_rollout_rmse:.4e} ({val_duration:.1f}s) | '
             f'duration: {epoch_duration:.1f}s (total: {total_elapsed:.1f}s)'
         )
 
@@ -227,19 +227,19 @@ def data_train_eed(config, erase, best_model, device, log_file=None):
             'train_loss': mean_total,
             'recon_loss': mean_recon,
             'evolve_loss': mean_evolve,
-            'rollout_mse': mean_rollout_mse,
+            'rollout_rmse': mean_rollout_rmse,
             'div_time': div_time,
         }, os.path.join(net_path, 'latest_checkpoint.pt'))
 
     total_time = time.time() - training_start
-    _logger.info(f'training complete: {n_epochs=} in {total_time=:.1f}s, {div_time=:,d}, {mean_rollout_mse=:.3e}')
-    _logger.info(f'constant model baseline: {constant_model_loss:.4e}')
+    _logger.info(f'training complete: {n_epochs=} in {total_time=:.1f}s, {div_time=:,d}, {mean_rollout_rmse=:.3e}')
+    _logger.info(f'constant model baseline RMSE: {constant_model_rmse:.4e}')
 
     if log_file:
         log_file.write('\n--- Training EED results (computed on training data) ---\n')
         log_file.write(f'train_div_time: {div_time}\n')
-        log_file.write(f'train_rollout_mse: {mean_rollout_mse:.4e}\n')
+        log_file.write(f'train_rollout_rmse: {mean_rollout_rmse:.4e}\n')
         log_file.write(f'train_best_epoch: {best_epoch}\n')
-        log_file.write(f'train_constant_baseline_mse: {constant_model_loss:.4e}\n')
+        log_file.write(f'train_constant_baseline_rmse: {constant_model_rmse:.4e}\n')
         log_file.write(f'train_final_recon_loss: {mean_recon:.4e}\n')
         log_file.write(f'train_final_evolve_loss: {mean_evolve:.4e}\n')
