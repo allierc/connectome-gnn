@@ -26,40 +26,48 @@ from connectome_gnn.utils import create_log_dir
 _logger = get_logger(__name__)
 
 
-def compute_eed_loss(model, voltage, stimulus, t_indices):
-    """Compute reconstruction + evolution loss for a batch.
+def compute_eed_loss(model, voltage, stimulus, t_indices, dt, rollout_steps):
+    """Compute reconstruction + multi-step rollout loss for a batch.
 
-    Calls encoder/decoder/evolver sub-networks directly to get both
-    reconstruction (decoder(encoder(x_t))) and prediction losses.
+    Reconstruction loss at t=0: MSE(decoder(encoder(x_t)), x_t).
+    Rollout loss at t=1..rollout_steps: Euler-integrate using predict_dvdt,
+    accumulate MSE at each step (same as MLP rollout training).
 
     Args:
         model: EEDBaseline with encoder, decoder, stimulus_encoder, evolver
         voltage: (T, N) full voltage tensor
         stimulus: (T, n_input) full stimulus tensor
         t_indices: (B,) random time indices
+        dt: scalar time step
+        rollout_steps: number of Euler steps to unroll
 
     Returns:
         total_loss, recon_loss, evolve_loss
     """
     x_t = voltage[t_indices]           # (B, N)
-    stim_t = stimulus[t_indices]       # (B, n_input)
-    x_t1 = voltage[t_indices + 1]     # (B, N)
 
+    # Reconstruction loss at t=0
     z = model.encoder(x_t)
-    s = model.stimulus_encoder(stim_t)
-    z_next = z + model.evolver(torch.cat([z, s], dim=1))
     x_recon = model.decoder(z)
-    x_pred = model.decoder(z_next)
-
     recon_loss = F.mse_loss(x_recon, x_t)
-    evolve_loss = F.mse_loss(x_pred, x_t1)
+
+    # Multi-step rollout loss (same as MLP)
+    x = x_t
+    evolve_loss = torch.zeros((), device=x.device)
+    for k in range(rollout_steps):
+        stim_k = stimulus[t_indices + k]
+        dvdt = model.predict_dvdt(x, stim_k)
+        x = x + dt * dvdt
+        target = voltage[t_indices + k + 1]
+        evolve_loss = evolve_loss + F.mse_loss(x, target)
+    evolve_loss = evolve_loss / rollout_steps
+
     total_loss = recon_loss + evolve_loss
     return total_loss, recon_loss, evolve_loss
 
 
-
 compute_eed_loss_compiled = torch.compile(
-        compute_eed_loss, fullgraph=True, mode="reduce-overhead"
+    compute_eed_loss, fullgraph=True, mode="reduce-overhead"
 )
 
 
@@ -135,8 +143,9 @@ def data_train_eed(config, erase, best_model, device, log_file=None):
     data_passes_per_epoch = tc.data_augmentation_loop
     n_epochs = tc.n_epochs
 
-    # Valid frame range: need t and t+1
-    max_frame = n_train_frames - 2
+    rollout_steps = tc.rollout_train_steps
+    # Valid frame range: need t through t+rollout_steps
+    max_frame = n_train_frames - rollout_steps - 1
     batches_per_epoch = int(max_frame * data_passes_per_epoch / batch_size)
 
     _logger.info(f'batch_size: {batch_size}, data_passes_per_epoch: {data_passes_per_epoch}')
@@ -170,7 +179,7 @@ def data_train_eed(config, erase, best_model, device, log_file=None):
 
             optimizer.zero_grad()
             total_loss, recon_loss, evolve_loss = compute_eed_loss_compiled(
-                model, voltage, stimulus, t_indices,
+                model, voltage, stimulus, t_indices, dt, rollout_steps,
             )
             total_loss.backward()
             optimizer.step()
