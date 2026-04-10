@@ -903,17 +903,17 @@ def _print_batch_results(state: ExplorationState, batch: BatchInfo):
 
         parts = []
         if conn_r2:
-            parts.append(f"conn_R2={_color_metric(conn_r2, 0.6, 0.3)}")
+            parts.append(f"conn_R2={_color_metric(conn_r2, 0.9, 0.5)}")
         if tau_r2:
-            parts.append(f"tau_R2={_color_metric(tau_r2, 0.5, 0.2)}")
+            parts.append(f"tau_R2={_color_metric(tau_r2, 0.9, 0.5)}")
         if vrest_r2:
-            parts.append(f"Vrest_R2={_color_metric(vrest_r2, 0.5, 0.2)}")
+            parts.append(f"Vrest_R2={_color_metric(vrest_r2, 0.9, 0.5)}")
         if clust_acc:
-            parts.append(f"clust_acc={_color_metric(clust_acc, 0.7, 0.4)}")
+            parts.append(f"clust_acc={_color_metric(clust_acc, 0.9, 0.5)}")
         if rollout_r:
-            parts.append(f"rollout_r={_color_metric(rollout_r, 0.7, 0.4)}")
+            parts.append(f"rollout_r={_color_metric(rollout_r, 0.9, 0.5)}")
         elif onestep_r:
-            parts.append(f"onestep_r={_color_metric(onestep_r, 0.7, 0.4)}")
+            parts.append(f"onestep_r={_color_metric(onestep_r, 0.9, 0.5)}")
         if train_min:
             parts.append(f"\033[90mtrain={float(train_min):.1f}min\033[0m")
 
