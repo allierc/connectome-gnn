@@ -483,6 +483,7 @@ def data_generate_spiking(config, visualize=True, run_vizualized=0, style="color
     x_coords, y_coords, u_coords, v_coords = get_photoreceptor_positions_from_net(net)
     node_types = np.array(net.connectome.nodes["type"])
     node_types_str = [t.decode("utf-8") if isinstance(t, bytes) else str(t) for t in node_types]
+    # available node types: {'T5d', 'R3', 'T2a', 'TmY14', 'R7', 'CT1(Lo1)', 'Tm4', 'TmY10', 'T4d', 'L1', 'R1', 'R6', 'Am', 'T2', 'Tm5Y', 'L5', 'Tm20', 'L2', 'Mi4', 'Mi12', 'T4c', 'TmY4', 'CT1(M10)', 'TmY15', 'Lawf1', 'T1', 'TmY13', 'Tm5b', 'Tm28', 'L3', 'R8', 'L4', 'C3', 'Mi14', 'Tm2', 'R5', 'R2', 'Mi15', 'Tm9', 'Tm16', 'T5a', 'Mi3', 'TmY9', 'T4b', 'Mi9', 'Mi1', 'T5b', 'Tm1', 'Lawf2', 'C2', 'T4a', 'TmY3', 'Mi2', 'T3', 'TmY5a', 'Mi11', 'Tm5a', 'TmY18', 'Tm30', 'R4', 'Mi13', 'Tm5c', 'T5c', 'Mi10', 'Tm3'}
     grouped_types = np.array([group_by_direction_and_function(t) for t in node_types_str])
     _, node_types_int = np.unique(node_types, return_inverse=True)
 
@@ -960,6 +961,7 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
 
     node_types = np.array(net.connectome.nodes["type"])
     node_types_str = [t.decode("utf-8") if isinstance(t, bytes) else str(t) for t in node_types]
+    # available node types: {'T5d', 'R3', 'T2a', 'TmY14', 'R7', 'CT1(Lo1)', 'Tm4', 'TmY10', 'T4d', 'L1', 'R1', 'R6', 'Am', 'T2', 'Tm5Y', 'L5', 'Tm20', 'L2', 'Mi4', 'Mi12', 'T4c', 'TmY4', 'CT1(M10)', 'TmY15', 'Lawf1', 'T1', 'TmY13', 'Tm5b', 'Tm28', 'L3', 'R8', 'L4', 'C3', 'Mi14', 'Tm2', 'R5', 'R2', 'Mi15', 'Tm9', 'Tm16', 'T5a', 'Mi3', 'TmY9', 'T4b', 'Mi9', 'Mi1', 'T5b', 'Tm1', 'Lawf2', 'C2', 'T4a', 'TmY3', 'Mi2', 'T3', 'TmY5a', 'Mi11', 'Tm5a', 'TmY18', 'Tm30', 'R4', 'Mi13', 'Tm5c', 'T5c', 'Mi10', 'Tm3'}
     grouped_types = np.array([group_by_direction_and_function(t) for t in node_types_str])
     _ , node_types_int = np.unique(node_types, return_inverse=True)
 
