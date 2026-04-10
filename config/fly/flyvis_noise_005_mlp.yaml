@@ -84,7 +84,7 @@ claude:
   data_augmentation_loop: 100
   n_iter_block: 8
   ucb_c: 1.414
-  node_name: gpu_a100
+  node_name: a100
   conda_env: connectome-gnn
   n_cpus: 2
   generate_data: true
