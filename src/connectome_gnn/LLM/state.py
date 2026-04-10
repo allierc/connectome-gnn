@@ -53,6 +53,7 @@ class ExplorationState:
     task: str = ""  # e.g. "generate_train_test_plot_Claude"
     sim_constraint: str = ""
     llm_task_name: str = ""
+    instruction_name: str = ""
     config_file: str = ""
 
     # Runtime (set during execution)
