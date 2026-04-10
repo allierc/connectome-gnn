@@ -47,9 +47,8 @@ plotting:
     - -100
     - 100
 training:
-  use_gt_edges: true
   seed: 43
-  n_epochs: 30
+  n_epochs: 20
   batch_size: 256
   data_augmentation_loop: 100
   train_start: 0
@@ -63,6 +62,7 @@ training:
   small_init_batch_size: false
   sparsity: none
   # these are all GNN parameters and irrelevant to the MLP
+  use_gt_edges: true
   lr_W: 0
   lr_embedding: 0
   lr_update: 0
@@ -90,4 +90,4 @@ claude:
   generate_data: false
   interaction_code: false
   case_study: "mlp_rollout"
-  case_study_brief: "Optimize MLP hyperparameters for stable autoregressive rollout on flyvis_noise_005. Primary metric: rollout_RMSE (lower is better). Target: rollout_RMSE < 0.1, stable across seeds (CV < 10%). Key levers: rollout_train_steps, hidden_dim, n_layers, lr, batch_size, data_augmentation_loop."
+  case_study_brief: "Optimize MLP hyperparameters for stable autoregressive rollout on flyvis_noise_005. Primary metric: rollout_RMSE (lower is better). Target: rollout_RMSE < 2e-2, stable across seeds (CV < 10%). Key levers: rollout_train_steps, hidden_dim, n_layers, lr, batch_size."

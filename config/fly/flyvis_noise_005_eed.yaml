@@ -33,6 +33,7 @@ graph_model:
   stim_latent_dims: 64 # stimulus encoder output dimensionality
   hidden_dim_stim_encoder: 64 # stimulus encoder hidden width
   n_layers_stim_encoder: 3 # hidden layers in stimulus encoder
+  MLP_activation: "relu" # activation for all sub-networks: "relu", "tanh", "sigmoid", "leaky_relu", "soft_relu"
   # Unused by EED but required by config schema
   input_size: 3
   n_layers: 3
@@ -83,3 +84,16 @@ training:
   coeff_W_sign: 0
   w_init_mode: zeros
   regul_annealing_rate: 0
+
+claude:
+  n_epochs: 20
+  data_augmentation_loop: 100
+  n_iter_block: 8
+  ucb_c: 1.414
+  node_name: gpu_a100
+  conda_env: connectome-gnn
+  n_cpus: 2
+  generate_data: false
+  interaction_code: false
+  case_study: "eed_rollout"
+  case_study_brief: "Optimize EED hyperparameters for stable autoregressive rollout on flyvis_noise_005. Primary metric: rollout_RMSE (lower is better). Target: rollout_RMSE < 2e-2, stable across seeds (CV < 10%). Key levers: latent_dim, n_layers_encoder, n_layers_evolver, lr, batch_size."
