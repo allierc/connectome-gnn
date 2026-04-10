@@ -1,9 +1,9 @@
-# FlyVis MLP Baseline — flyvis_noise_005 Rollout Optimization
+# FlyVis MLP Baseline — Rollout Optimization
 
 ## Goal
 
 Optimize the **MLP baseline** hyperparameters for lowest possible autoregressive rollout error ~
-O(1e-2) or lower on the flyvis model with noise level σ=0.05. Two sub-goals:
+O(1e-2) or lower on the flyvis model. Two sub-goals:
 
 - minimize the overall RMSE
 - maintain a roughly constant RMSE during rollout. An increase in the RMSE during rollout is an
@@ -29,8 +29,7 @@ not be feasible, but that is the goal.
 ## Scientific Context
 
 The core research question is: **Can a flat, graph-free MLP function approximator achieve stable
-autoregressive rollout on the simulated FlyVis model of the Drosophila visual system model under
-realistic noise (σ=0.05)?**
+autoregressive rollout on the simulated FlyVis model of the Drosophila visual system?**
 
 Here we are exploring:
 
@@ -43,15 +42,17 @@ Here we are exploring:
 
 ## Noise Model
 
-The FlyVis simulation includes realistic noise:
+The FlyVis simulation may include dynamics noise depending on the config:
 
 ```
 v_i(t+1) = v_i(t) + dt * f(v_i(t), W, a_i, I_i(t)) + epsilon_i(t)
-epsilon_i ~ N(0, 0.05)  [dynamics noise]
+epsilon_i ~ N(0, sigma)  where sigma = noise_model_level from the config
 ```
 
-The MLP must learn to predict `dv_i/dt` from the observed activity traces, which are corrupted by
-this noise.
+**Important**: Noise is only added to the **training data**. Test/validation rollouts are computed on
+noise-free data. This means the training-data rollout RMSE (`train_rollout_rmse`) will be affected
+by noise, but the test metric (`rollout_RMSE`) reflects pure model quality. Do not compare training
+and test RMSE directly when noise is present — the training RMSE has an irreducible noise floor.
 
 ## Metrics
 
@@ -80,8 +81,8 @@ this noise.
 - During test/validation:
   - **PRIMARY METRIC: `rollout_RMSE`** (lower is better).
   - **TARGET: rollout_RMSE < 2e-2**
-  - Use the `results_rollout_by_step.csv` with a snapshot pasted below from a real run. Notice that
-    the RMSE degrades from ~ 0.13 to 0.27. One of your goals is to reduce this gap.
+  - Use the `results_rollout_by_step.csv` to track how RMSE evolves across the rollout. One of your
+    goals is to minimize the gap between early and late rollout RMSE. Example output:
 
 ```
 frame_start,frame_end,RMSE,pearson
@@ -127,7 +128,7 @@ tau_i * dv_i/dt = -v_i + V_rest_i + sum_j W_ij * g(v_j) + I_i(t)
 
 - **13,741 neurons**, 65 cell types, **434,112 edges**
 - **1,736 input neurons** (photoreceptors, DAVIS visual input)
-- **noise_model_level = 0.05** (Gaussian noise added during simulation)
+- Noise level as specified in the config file (`noise_model_level`)
 - 64,000 frames, delta_t = 0.02
 
 ## MLP Architecture
@@ -147,20 +148,20 @@ output = [dv_1/dt, ..., dv_13741/dt]                    (13,741 dims)
 | Parameter         | Default | Description                                                                                                                                                                                                                                                                                                                                  |
 | ----------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `hidden_dim`      | 256     | Hidden layer width                                                                                                                                                                                                                                                                                                                           |
-| `n_layers`        | 3       | Total linear layers: 1 input-to-hidden + (n_layers-2) hidden-to-hidden + 1 output. Minimum 2                                                                                                                                                                                                                                                                                                   |
+| `n_layers`        | 3       | Total linear layers: 1 input-to-hidden + (n_layers-2) hidden-to-hidden + 1 output. Minimum 2                                                                                                                                                                                                                                                |
 | `MLP_activation`  | "relu"  | Activation: "relu", "tanh", "sigmoid", "leaky_relu", "soft_relu"                                                                                                                                                                                                                                                                             |
 | `add_residual`    | true    | Residual: projects input to hidden dim, adds to first hidden output and skips to last hidden output                                                                                                                                                                                                                                          |
 | `add_skip_layers` | false   | Per-layer linear skip: at each hidden layer, a parallel linear projection is concatenated with the activated output. **Mutually exclusive with `add_residual`** — do not set both to true. `add_residual` is a single input→output skip; `add_skip_layers` provides a linear shortcut at every layer (doubles hidden dim fed to next layer). |
 
 ## Training Parameters
 
-| Parameter             | Default | Description                                         |
-| --------------------- | ------- | --------------------------------------------------- |
-| `lr`                  | 0.00001 | Learning rate for MLP weights                       |
-| `n_epochs`            | 20      | Training epochs (use to control training time — see note below) |
-| `batch_size`          | 256     | Frames per batch                                    |
-| `rollout_train_steps` | 1       | Multi-step rollout unroll during training (K steps) |
-| `zero_init_output`    | false   | Zero-initialize final layer weights                 |
+| Parameter             | Default | Description                                                            |
+| --------------------- | ------- | ---------------------------------------------------------------------- |
+| `lr`                  | 0.00001 | Learning rate for MLP weights                                          |
+| `n_epochs`            | 20      | Training epochs (use to control training time — see note below)        |
+| `batch_size`          | 256     | Frames per batch                                                       |
+| `rollout_train_steps` | 1       | Multi-step rollout unroll during training (K steps)                    |
+| `zero_init_output`    | false   | Zero-initialize final layer weights                                    |
 
 **Training time budget**: Each training run should take ~60 minutes. Use `n_epochs` to stay within
 this budget. When increasing parameters that scale training time (e.g., `rollout_train_steps`,
@@ -183,14 +184,14 @@ Data is re-generated each iteration with pipeline-controlled seeds (see Note abo
 
 ## Block Structure
 
-| Block | Focus                | Parameters to scan                                 | Ranges                                                                                                   |
-| ----- | -------------------- | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| 1     | **Training I**       | `lr`, `batch_size`, `rollout_train_steps`, `zero_init_output` | lr: {5e-6, 1e-5, 5e-5, 1e-4}; batch_size: {64, 128, 256, 512}; rollout_train_steps: {1, 5, 10, 20}     |
-| 2     | **Architecture I**   | `hidden_dim`, `n_layers`, `MLP_activation`                    | hidden_dim: {128, 256, 512, 1024}; n_layers: {2, 3, 5, 7}; activation: {relu, tanh, leaky_relu, soft_relu} |
-| 3     | **Training II**      | Refine best training params for Block 2 architecture | Narrow ranges around Block 1 winner, re-tune for best architecture from Block 2                          |
-| 4     | **Architecture II**  | Any architecture parameter                         | Re-explore architecture with optimized training from Block 3; refine capacity, skip connections, activation |
-| 5     | **Free exploration** | Any parameter                                      | Consolidate best from Blocks 1-4, test novel combinations                                                |
-| 6     | **Robustness**       | Best config, all 4 slots same                      | Confirm CV < 10% across seeds                                                                            |
+| Block | Focus                | Parameters to scan                                                | Ranges                                                                                                      |
+| ----- | -------------------- | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| 1     | **Training I**       | `lr`, `batch_size`, `rollout_train_steps`, `zero_init_output`     | lr: {5e-6, 1e-5, 5e-5, 1e-4}; batch_size: {64, 128, 256, 512}; rollout_train_steps: {1, 5, 10, 20}         |
+| 2     | **Architecture I**   | `hidden_dim`, `n_layers`, `MLP_activation`                        | hidden_dim: {128, 256, 512, 1024}; n_layers: {2, 3, 5, 7}; activation: {relu, tanh, leaky_relu, soft_relu}  |
+| 3     | **Training II**      | Refine best training params for Block 2 architecture              | Narrow ranges around Block 1 winner, re-tune for best architecture from Block 2                              |
+| 4     | **Architecture II**  | Any architecture parameter                                        | Re-explore architecture with optimized training from Block 3; refine capacity, skip connections, activation  |
+| 5     | **Free exploration** | Any parameter                                                     | Consolidate best from Blocks 1-4, test novel combinations                                                    |
+| 6     | **Robustness**       | Best config, all 4 slots same                                     | Confirm CV < 10% across seeds                                                                                |
 
 ## File Structure
 
@@ -292,7 +293,7 @@ When prompt says `PARALLEL START`:
 
 - Slot 0 = baseline (no changes from base config)
 - Slots 1-3: each changes EXACTLY ONE parameter per block focus
-- Hypothesis: "The MLP baseline can achieve stable rollout (RMSE < 2e-2) on flyvis noise_005 with
+- Hypothesis: "The MLP baseline can achieve stable rollout (RMSE < 2e-2) on flyvis with
   appropriate training parameters (lr, batch_size, rollout_train_steps)"
 
 ---
@@ -300,7 +301,7 @@ When prompt says `PARALLEL START`:
 # Working Memory Structure
 
 ```markdown
-# Working Memory: flyvis_noise_005_mlp
+# Working Memory: {llm_task_name}
 
 ## Paper Summary (update at every block boundary)
 
