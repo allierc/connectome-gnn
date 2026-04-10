@@ -38,7 +38,7 @@ Here we are exploring:
   initial config already demonstrates that we can train on t->t+1 and achieve long rollout.
 - The key challenge is error compounding in autoregressive mode — small per-step errors accumulate
   rapidly unless the model learns a regime where errors remain bounded.
-- How low can we drive the RMSE without the inductive biases of the underylying connectivity
+- How low can we drive the RMSE without the inductive biases of the underlying connectivity
   structure and activation functions & weights?
 
 ## Noise Model
@@ -64,16 +64,18 @@ this noise.
   epoch 7/20 | train: 4.4128e-02 | div_time=1262 rollout_mse=3.9962e-01 (3.0s) | duration: 41.1s (total: 327.8s)
   ```
 
-  - `train`: this is the rollout loss mentioned above
+  - `train`: this is the rollout loss mentioned above, which is initially just a trivial rollout of
+    1 step. **The `train` loss magnitude is not comparable across different `rollout_train_steps`
+    values** — increasing rollout steps changes what is being measured, so a jump in `train` loss
+    after changing `rollout_train_steps` is expected, not a regression.
   - `div_time`: the time step at which the rollout MSE reaches 1.0 - a proxy for divergence.
   - `rollout_mse`: the MSE over neurons and time steps up until `div_time` The extra rollout
     metrics - though computed on training data - will nevertheless be important factors in guiding
     parameter loss. If a model fails to produce a stable rollout on training data, it is very
     unlikely to do so on new data. **IMPORTANT** these metrics are computed over the training data.
 
-- Constant baseline: as a baseline we compute the voltage(t) - voltage(t+1) MSE. We ideally want
-  this MSE over the entire 8k step rollout in validation/test. Keep this baseline in mind. Fast
-  learning rates can drive us to the trivial local minimum of predicting v(t) = constant.
+- Constant baseline RMSE ≈ **0.25**. If rollout_RMSE is near 0.25, the model has collapsed to
+  predicting v(t) ≈ constant. Fast learning rates can drive to this trivial local minimum.
 
 - During test/validation:
   - **PRIMARY METRIC: `rollout_RMSE`** (lower is better).
@@ -85,7 +87,9 @@ this noise.
 frame_start,frame_end,RMSE,pearson
 0,500,0.1238,0.7808
 500,1000,0.1474,0.7689
-...
+
+...middle rows omitted for brevity...
+
 8000,8500,0.2710,0.7778
 8500,8527,0.2681,0.6372
 ```
@@ -98,7 +102,7 @@ Strict **hypothesize → test → validate/falsify** cycle:
 
 1. **Hypothesize**: Form a specific, testable prediction about what affects rollout stability
 2. **Design experiment**: Change **EXACTLY ONE** parameter at a time (causality rule)
-3. **Run training**: 4 seeds — you cannot predict the outcome
+3. **Run training**: 4 slots (1 control + 3 experiments in EXPLORATION; 4 identical configs with different seeds in ROBUSTNESS) — you cannot predict the outcome
 4. **Analyze results**: Use rollout_RMSE AND the per-step CSV to understand divergence timing
 5. **Update understanding**: Revise hypotheses based on evidence
 
@@ -140,63 +144,53 @@ output = [dv_1/dt, ..., dv_13741/dt]                    (13,741 dims)
 
 ## Architecture parameters
 
-| Parameter        | Default | Description                                                      |
-| ---------------- | ------- | ---------------------------------------------------------------- |
-| `hidden_dim`     | 256     | Hidden layer width                                               |
-| `n_layers`       | 5       | Number of layers (including in/out)                              |
-| `MLP_activation` | "relu"  | Activation: "relu", "tanh", "sigmoid", "leaky_relu", "soft_relu" |
-| `add_residual`   | true    | Add residual/skip connection                                     |
+| Parameter         | Default | Description                                                                                                                                                                                                                                                                                                                                  |
+| ----------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `hidden_dim`      | 256     | Hidden layer width                                                                                                                                                                                                                                                                                                                           |
+| `n_layers`        | 3       | Total linear layers: 1 input-to-hidden + (n_layers-2) hidden-to-hidden + 1 output. Minimum 2                                                                                                                                                                                                                                                                                                   |
+| `MLP_activation`  | "relu"  | Activation: "relu", "tanh", "sigmoid", "leaky_relu", "soft_relu"                                                                                                                                                                                                                                                                             |
+| `add_residual`    | true    | Residual: projects input to hidden dim, adds to first hidden output and skips to last hidden output                                                                                                                                                                                                                                          |
+| `add_skip_layers` | false   | Per-layer linear skip: at each hidden layer, a parallel linear projection is concatenated with the activated output. **Mutually exclusive with `add_residual`** — do not set both to true. `add_residual` is a single input→output skip; `add_skip_layers` provides a linear shortcut at every layer (doubles hidden dim fed to next layer). |
 
 ## Training Parameters
 
-| Parameter                | Default | Description                                         |
-| ------------------------ | ------- | --------------------------------------------------- |
-| `lr`                     | 0.00001 | Learning rate for MLP weights                       |
-| `n_epochs`               | 20      | Training epochs                                     |
-| `batch_size`             | 256     | Frames per batch                                    |
-| `rollout_train_steps`    | 20      | Multi-step rollout unroll during training (K steps) |
-| `seed`                   | 42      | Random seed - test for robustness to init.          |
-| `zero_init_output`       | false   | Zero-initialize final layer weights                 |
-| ------------------------ | ------- | --------------------------------------------------- |
+| Parameter             | Default | Description                                         |
+| --------------------- | ------- | --------------------------------------------------- |
+| `lr`                  | 0.00001 | Learning rate for MLP weights                       |
+| `n_epochs`            | 20      | Training epochs (use to control training time — see note below) |
+| `batch_size`          | 256     | Frames per batch                                    |
+| `rollout_train_steps` | 1       | Multi-step rollout unroll during training (K steps) |
+| `zero_init_output`    | false   | Zero-initialize final layer weights                 |
 
-## Comments
+**Training time budget**: Each training run should take ~60 minutes. Use `n_epochs` to stay within
+this budget. When increasing parameters that scale training time (e.g., `rollout_train_steps`,
+`hidden_dim`), reduce `n_epochs` pre-emptively to compensate. For example, doubling
+`rollout_train_steps` roughly doubles epoch time, so halve `n_epochs`. Check `training_time_min` in
+results and adjust for the next iteration.
 
-`rollout_train_steps` controls how many Euler steps are unrolled during training and backpropagated
-through. This directly penalizes error compounding:
-
-- `rollout_train_steps=1`: one-step MSE only — fast but errors may compound
-- `rollout_train_steps=5`: unroll 5 steps — teaches the model to be stable over short horizons
-- `rollout_train_steps=20`: longer horizon — more expensive computationally, ONLY USE IF ABSOLUTELY
-  NECESSARY.
-- Higher values increase training time roughly linearly
-
-Note that with T starts per epoch, if you apply a rollout, each data point is actually visited
-`rollout_train_steps` times. So it is possible that when increasing `rollout_time_steps` you can
-reduce n_epochs to maintain a reasonable training time.
+**Note**: Seeds are pipeline-controlled and overwritten before each run
+(`simulation.seed = iteration * 1000 + slot`, `training.seed = iteration * 1000 + slot + 500`). Do
+not set seeds in config files.
 
 > **YAML rule**: Always wrap the `description` field value in double quotes — colons inside unquoted
 > YAML strings cause parse errors (e.g., `description: "Block 7 Slot 1: testing W_L2"`).
 
 ## Data Generation
 
-Each slot re-generates data with a **different random seed** (forced by pipeline):
-
-- `simulation.seed = iteration * 1000 + slot`
-- `training.seed = iteration * 1000 + slot + 500`
+Data is re-generated each iteration with pipeline-controlled seeds (see Note above).
 
 **DO NOT modify simulation parameters** (n_neurons, n_frames, n_edges, delta_t, noise_model_level).
 
 ## Block Structure
 
-| Block | Focus                   | Parameters to scan            | Ranges                                                    |
-| ----- | ----------------------- | ----------------------------- | --------------------------------------------------------- |
-| 1     | **batch size**          | `batch_size`                  | {32, 64, 128, 256}                                        |
-| 2     | **learning rate**       | `lr`                          | {1e-5, 5e-5, 1e-4, 5e-4}                                  |
-| 3     | **rollout_train_steps** | `rollout_train_steps`         | {10, 20, 50}                                              |
-| 4     | **model capacity**      | `hidden_dim`, `n_layers`      | hidden_dim: {64, 128, 256, 512}; n_layers: {3, 4, 5, 7}   |
-| 5     | **free exploration I**  | Any parameter                 | Consolidate best from blocks 1-4, test novel combinations |
-| 6     | **free exploration II** | Any parameter                 | Continue pushing toward target with simplest viable model |
-| 7     | **robustness**          | Best config, all 4 slots same | Confirm CV < 10% across seeds                             |
+| Block | Focus                | Parameters to scan                                 | Ranges                                                                                                   |
+| ----- | -------------------- | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| 1     | **Training I**       | `lr`, `batch_size`, `rollout_train_steps`, `zero_init_output` | lr: {5e-6, 1e-5, 5e-5, 1e-4}; batch_size: {64, 128, 256, 512}; rollout_train_steps: {1, 5, 10, 20}     |
+| 2     | **Architecture I**   | `hidden_dim`, `n_layers`, `MLP_activation`                    | hidden_dim: {128, 256, 512, 1024}; n_layers: {2, 3, 5, 7}; activation: {relu, tanh, leaky_relu, soft_relu} |
+| 3     | **Training II**      | Refine best training params for Block 2 architecture | Narrow ranges around Block 1 winner, re-tune for best architecture from Block 2                          |
+| 4     | **Architecture II**  | Any architecture parameter                         | Re-explore architecture with optimized training from Block 3; refine capacity, skip connections, activation |
+| 5     | **Free exploration** | Any parameter                                      | Consolidate best from Blocks 1-4, test novel combinations                                                |
+| 6     | **Robustness**       | Best config, all 4 slots same                      | Confirm CV < 10% across seeds                                                                            |
 
 ## File Structure
 
@@ -254,6 +248,11 @@ For each slot:
 3. Read `results_rollout_by_step.csv` — note first window where RMSE exceeds 1.0 (divergence point)
 4. Read `onestep_pearson` as sanity check — if poor, model hasn't learned dynamics at all
 5. Note `training_time_min` and adjust n_epochs for next batch if needed
+6. **Convergence check**: Compare `train_rollout_mse` across the last 3 epochs. If it is still
+   consistently decreasing at the final epoch, the model has not converged — note
+   `convergence: not_reached` in the log entry. Do NOT extend training beyond the ~60 min budget;
+   instead, flag the config as a candidate for longer training in the analysis
+   (e.g., "Config may benefit from more epochs — train_rollout_mse still decreasing at epoch 20/20")
 
 ### Step 3: Write Log Entry + Update Memory
 
@@ -261,13 +260,14 @@ For each slot:
 ## Iter N: [excellent/good/poor/diverged]
 Node: id=N, parent=P
 Hypothesis tested: "[quoted hypothesis]"
-Config: lr=X, rollout_train_steps=K, n_epochs=E, hidden_dim=H, n_layers=L, batch_size=B
+Config: lr=X, rollout_train_steps=K, n_epochs=E, batch_size=B, zero_init_output=Z, hidden_dim=H, n_layers=L, MLP_activation=A, add_residual=R, add_skip_layers=S
 Slot 0: rollout_RMSE=X, divergence_at=frame_Y, train_div_time=Z, train_best_epoch=W/E, onestep_pearson=P, sim_seed=S, train_seed=T
 Slot 1: rollout_RMSE=X, divergence_at=frame_Y, train_div_time=Z, train_best_epoch=W/E, onestep_pearson=P, sim_seed=S, train_seed=T
 Slot 2: rollout_RMSE=X, divergence_at=frame_Y, train_div_time=Z, train_best_epoch=W/E, onestep_pearson=P, sim_seed=S, train_seed=T
 Slot 3: rollout_RMSE=X, divergence_at=frame_Y, train_div_time=Z, train_best_epoch=W/E, onestep_pearson=P, sim_seed=S, train_seed=T
 Seed stats: mean_RMSE=X, std=Y, CV=Z%, mean_train_div_time=Z, mean_best_epoch=W
 Mutation: [param]: [old] -> [new]
+Convergence: [converged/not_reached] — if not_reached, note "may benefit from more epochs"
 Verdict: [supported/falsified/inconclusive]
 Next: parent=P
 ```
@@ -292,8 +292,8 @@ When prompt says `PARALLEL START`:
 
 - Slot 0 = baseline (no changes from base config)
 - Slots 1-3: each changes EXACTLY ONE parameter per block focus
-- Hypothesis: "The MLP baseline can achieve stable rollout (RMSE < 0.1) on flyvis noise_005 with
-  appropriate rollout_train_steps"
+- Hypothesis: "The MLP baseline can achieve stable rollout (RMSE < 2e-2) on flyvis noise_005 with
+  appropriate training parameters (lr, batch_size, rollout_train_steps)"
 
 ---
 
@@ -327,21 +327,9 @@ When prompt says `PARALLEL START`:
 **RULE: Keep summaries for the last 4 completed blocks, sorted oldest→newest. This section MUST
 appear before ## Current Block.**
 
-### Block 1 Summary
+### Block N Summary
 
-[Summary of findings from block 1]
-
-### Block 2 Summary
-
-[Summary of findings from block 2]
-
-### Block 3 Summary
-
-[Summary of findings from block 3]
-
-### Block 4 Summary
-
-[Summary of findings from block 4]
+[Summary of findings from block N]
 
 ---
 
