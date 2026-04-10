@@ -18,9 +18,9 @@ the activity at time t plus the input stimulus, the EED predicts the activity at
 (via Euler integration). We continue this process to generate an autoregressive rollout from the
 initial activity.
 
-Our initial starting point EED is trained with a loss on the 1-step update, i.e., t -> t+1. And
-this EED is able to generate a rollout over 8000 steps with RMSE < 0.2 on the test dataset that is
-not used during training at all.
+Our initial starting point EED is trained with a loss on the 1-step update, i.e., t -> t+1. And this
+EED is able to generate a rollout over 8000 steps with RMSE < 0.2 on the test dataset that is not
+used during training at all.
 
 The dynamic range of voltages in the simulation is bounded, therefore, if a model were to predict
 v(t) = v(t=0), i.e., a constant, the RMSE is bounded and is between 0.2 and 0.3. To be a convincing
@@ -51,10 +51,11 @@ v_i(t+1) = v_i(t) + dt * f(v_i(t), W, a_i, I_i(t)) + epsilon_i(t)
 epsilon_i ~ N(0, sigma)  where sigma = noise_model_level from the config
 ```
 
-**Important**: Noise is only added to the **training data**. Test/validation rollouts are computed on
-noise-free data. This means the training-data rollout RMSE (`train_rollout_rmse`) will be affected
-by noise, but the test metric (`rollout_RMSE`) reflects pure model quality. Do not compare training
-and test RMSE directly when noise is present — the training RMSE has an irreducible noise floor.
+**Important**: Noise is only added to the **training data**. Test/validation rollouts are computed
+on noise-free data. This means the training-data rollout RMSE (`train_rollout_rmse`) will be
+affected by noise, but the test metric (`rollout_RMSE`) reflects pure model quality. Do not compare
+training and test RMSE directly when noise is present — the training RMSE has an irreducible noise
+floor.
 
 ## Metrics
 
@@ -68,10 +69,10 @@ and test RMSE directly when noise is present — the training RMSE has an irredu
   ```
 
   - `total`: sum of reconstruction and evolution losses
-  - `recon`: reconstruction loss — MSE(decoder(encoder(v_t)), v_t). Measures autoencoder quality.
-    If poor, the latent space does not faithfully represent the full state.
-  - `evolve`: evolution loss — MSE(decoder(encoder(v_t) + evolver(encoder(v_t), stim_encode(stim_t))), v_{t+1}).
-    Measures one-step prediction quality.
+  - `recon`: reconstruction loss — MSE(decoder(encoder(v_t)), v_t). Measures autoencoder quality. If
+    poor, the latent space does not faithfully represent the full state.
+  - `evolve`: evolution loss — MSE(decoder(encoder(v*t) + evolver(encoder(v_t),
+    stim_encode(stim_t))), v*{t+1}). Measures one-step prediction quality.
   - `div_time`: the time step at which the rollout MSE reaches 1.0 - a proxy for divergence.
   - `rollout_rmse`: the RMSE over neurons and time steps up until `div_time`. The extra rollout
     metrics - though computed on training data - will nevertheless be important factors in guiding
@@ -106,7 +107,8 @@ Strict **hypothesize → test → validate/falsify** cycle:
 
 1. **Hypothesize**: Form a specific, testable prediction about what affects rollout stability
 2. **Design experiment**: Change **EXACTLY ONE** parameter at a time (causality rule)
-3. **Run training**: 4 slots (1 control + 3 experiments in EXPLORATION; 4 identical configs with different seeds in ROBUSTNESS) — you cannot predict the outcome
+3. **Run training**: 4 slots (1 control + 3 experiments in EXPLORATION; 4 identical configs with
+   different seeds in ROBUSTNESS) — you cannot predict the outcome
 4. **Analyze results**: Use rollout_RMSE AND the per-step CSV to understand divergence timing
 5. **Update understanding**: Revise hypotheses based on evidence
 
@@ -147,8 +149,8 @@ evolver:          [z(t);s(t)] -> dz          [latent_dim+stim_latent_dims -> lat
 decoder:          z(t+1)    -> v_pred(t+1)  [latent_dim -> n_neurons]
 ```
 
-Forward pass: `z(t+1) = encoder(v(t)) + evolver([encoder(v(t)), stim_encode(stim(t))])`
-then `v_pred(t+1) = decoder(z(t+1))`, and `dv/dt = (v_pred(t+1) - v(t)) / dt`.
+Forward pass: `z(t+1) = encoder(v(t)) + evolver([encoder(v(t)), stim_encode(stim(t))])` then
+`v_pred(t+1) = decoder(z(t+1))`, and `dv/dt = (v_pred(t+1) - v(t)) / dt`.
 
 The evolver output layer is **zero-initialized**, so it starts as an identity mapping
 (`z(t+1) = z(t) + 0`). The encoder and decoder form an autoencoder that must first learn a faithful
@@ -158,29 +160,29 @@ latent representation before the evolver can learn to evolve it.
 
 ## Architecture Parameters
 
-| Parameter                  | Default | Description                                                                         |
-| -------------------------- | ------- | ----------------------------------------------------------------------------------- |
-| `latent_dim`               | 256     | Latent space dimensionality; also hidden width for encoder, decoder, and evolver    |
-| `n_layers_encoder`         | 1       | Hidden layers in encoder and decoder (symmetric)                                    |
-| `n_layers_evolver`         | 1       | Hidden layers in evolver                                                            |
-| `stim_latent_dims`         | 64      | Stimulus encoder output dimensionality                                              |
-| `hidden_dim_stim_encoder`  | 64      | Stimulus encoder hidden width                                                       |
-| `n_layers_stim_encoder`    | 3       | Hidden layers in stimulus encoder                                                   |
-| `MLP_activation`           | "relu"  | Activation for all sub-networks: "relu", "tanh", "sigmoid", "leaky_relu", "soft_relu" |
+| Parameter                 | Default | Description                                                                           |
+| ------------------------- | ------- | ------------------------------------------------------------------------------------- |
+| `latent_dim`              | 256     | Latent space dimensionality; also hidden width for encoder, decoder, and evolver      |
+| `n_layers_encoder`        | 1       | Hidden layers in encoder and decoder (symmetric)                                      |
+| `n_layers_evolver`        | 1       | Hidden layers in evolver                                                              |
+| `stim_latent_dims`        | 64      | Stimulus encoder output dimensionality                                                |
+| `hidden_dim_stim_encoder` | 64      | Stimulus encoder hidden width                                                         |
+| `n_layers_stim_encoder`   | 3       | Hidden layers in stimulus encoder                                                     |
+| `MLP_activation`          | "relu"  | Activation for all sub-networks: "relu", "tanh", "sigmoid", "leaky_relu", "soft_relu" |
 
 ## Training Parameters
 
-| Parameter             | Default | Description                                                            |
-| --------------------- | ------- | ---------------------------------------------------------------------- |
-| `lr`                  | 0.00001 | Learning rate for all EED weights                                      |
-| `n_epochs`            | 20      | Training epochs (use to control training time — see note below)        |
-| `batch_size`          | 256     | Frames per batch                                                       |
-| `rollout_train_steps` | 1       | Multi-step rollout unroll during training (K steps)                    |
+| Parameter             | Default | Description                                                     |
+| --------------------- | ------- | --------------------------------------------------------------- |
+| `lr`                  | 0.00001 | Learning rate for all EED weights                               |
+| `n_epochs`            | 20      | Training epochs (use to control training time — see note below) |
+| `batch_size`          | 256     | Frames per batch                                                |
+| `rollout_train_steps` | 1       | Multi-step rollout unroll during training (K steps)             |
 
 **Note**: The EED loss has two components: (1) **reconstruction loss** at t=0 —
-MSE(decoder(encoder(v_t)), v_t), ensuring the autoencoder faithfully represents the state; and
-(2) **rollout loss** over K steps using `predict_dvdt` + Euler integration, identical to the MLP
-rollout training. The reconstruction loss is always computed regardless of `rollout_train_steps`.
+MSE(decoder(encoder(v_t)), v_t), ensuring the autoencoder faithfully represents the state; and (2)
+**rollout loss** over K steps using `predict_dvdt` + Euler integration, identical to the MLP rollout
+training. The reconstruction loss is always computed regardless of `rollout_train_steps`.
 
 **Training time budget**: Each training run should take ~60 minutes. Use `n_epochs` to stay within
 this budget. When increasing parameters that scale training time (e.g., `latent_dim`), reduce
@@ -202,14 +204,14 @@ Data is re-generated each iteration with pipeline-controlled seeds (see Note abo
 
 ## Block Structure
 
-| Block | Focus                | Parameters to scan                                                              | Ranges                                                                                                             |
-| ----- | -------------------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| 1     | **Training I**       | `lr`, `batch_size`, `rollout_train_steps`                                       | lr: {5e-6, 1e-5, 5e-5, 1e-4}; batch_size: {64, 128, 256, 512}; rollout_train_steps: {1, 5, 10, 20}                 |
-| 2     | **Architecture I**   | `latent_dim`, `n_layers_encoder`, `n_layers_evolver`, `MLP_activation`          | latent_dim: {64, 128, 256, 512}; n_layers_encoder: {1, 2, 3, 5}; n_layers_evolver: {1, 2, 3, 5}; activation: {relu, tanh, leaky_relu, soft_relu} |
-| 3     | **Training II**      | Refine best training params for Block 2 architecture                            | Narrow ranges around Block 1 winner, re-tune for best architecture from Block 2                                     |
-| 4     | **Architecture II**  | Any architecture parameter                                                      | Re-explore architecture with optimized training from Block 3; refine stimulus encoder, latent capacity              |
-| 5     | **Free exploration** | Any parameter                                                                   | Consolidate best from Blocks 1-4, test novel combinations                                                           |
-| 6     | **Robustness**       | Best config, all 4 slots same                                                   | Confirm CV < 10% across seeds                                                                                       |
+| Block | Focus                | Parameters to scan                                                     | Ranges                                                                                                                                           |
+| ----- | -------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1     | **Training I**       | `lr`, `batch_size`, `rollout_train_steps`                              | lr: {5e-6, 1e-5, 5e-5, 1e-4}; batch_size: {64, 128, 256, 512}; rollout_train_steps: {1, 5, 10, 20}                                               |
+| 2     | **Architecture I**   | `latent_dim`, `n_layers_encoder`, `n_layers_evolver`, `MLP_activation` | latent_dim: {64, 128, 256, 512}; n_layers_encoder: {1, 2, 3, 5}; n_layers_evolver: {1, 2, 3, 5}; activation: {relu, tanh, leaky_relu, soft_relu} |
+| 3     | **Training II**      | Refine best training params for Block 2 architecture                   | Narrow ranges around Block 1 winner, re-tune for best architecture from Block 2                                                                  |
+| 4     | **Architecture II**  | Any architecture parameter                                             | Re-explore architecture with optimized training from Block 3; refine stimulus encoder, latent capacity                                           |
+| 5     | **Free exploration** | Any parameter                                                          | Consolidate best from Blocks 1-4, test novel combinations                                                                                        |
+| 6     | **Robustness**       | Best config, all 4 slots same                                          | Confirm CV < 10% across seeds                                                                                                                    |
 
 ## File Structure
 
@@ -270,8 +272,8 @@ For each slot:
 6. **Convergence check**: Compare `train_rollout_rmse` across the last 3 epochs. If it is still
    consistently decreasing at the final epoch, the model has not converged — note
    `convergence: not_reached` in the log entry. Do NOT extend training beyond the ~60 min budget;
-   instead, flag the config as a candidate for longer training in the analysis
-   (e.g., "Config may benefit from more epochs — train_rollout_rmse still decreasing at epoch 20/20")
+   instead, flag the config as a candidate for longer training in the analysis (e.g., "Config may
+   benefit from more epochs — train_rollout_rmse still decreasing at epoch 20/20")
 7. **Reconstruction check**: If `recon` loss is much larger than `evolve` loss, the autoencoder is
    the bottleneck — consider increasing `latent_dim` or `n_layers_encoder`. If `recon` is very small
    but rollout diverges, the evolver is the bottleneck.
@@ -314,8 +316,8 @@ When prompt says `PARALLEL START`:
 
 - Slot 0 = baseline (no changes from base config)
 - Slots 1-3: each changes EXACTLY ONE parameter per block focus
-- Hypothesis: "The EED baseline can achieve stable rollout (RMSE < 2e-2) on flyvis with
-  appropriate training parameters (lr, batch_size, rollout_train_steps)"
+- Hypothesis: "The EED baseline can achieve stable rollout (RMSE < 2e-2) on flyvis with appropriate
+  training parameters (lr, batch_size, rollout_train_steps)"
 
 ---
 
