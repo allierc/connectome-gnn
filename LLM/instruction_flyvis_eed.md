@@ -192,6 +192,8 @@ compensate. Check `training_time_min` in results and adjust for the next iterati
 
 **Do NOT modify `n_epochs`** — keep it at 20. Multiple epochs give us visibility into how losses change during training, which is essential for diagnosing convergence.
 
+**Hard runtime limit**: Jobs have a hard wall-clock limit enforced by the cluster. If a slot fails, check `cluster_train_XX.out` (where XX is the slot number) for `TERM_RUNLIMIT: job killed after reaching LSF run time limit.` — this means the job exceeded the time budget. Reduce DAL for that config in the next batch.
+
 **Note**: Seeds are pipeline-controlled and overwritten before each run
 (`simulation.seed = iteration * 1000 + slot`, `training.seed = iteration * 1000 + slot + 500`). Do
 not set seeds in config files.
