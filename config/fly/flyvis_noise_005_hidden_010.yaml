@@ -87,7 +87,7 @@ training:
   V_rest_warmup_fraction: 0.3
   V_rest_rampup_iters: 200
   V_rest_eval_every: 10
-  regul_annealing_rate: 0.5
+  regul_annealing_rate: 0
   w_init_mode: randn_scaled
   use_gt_edges: true
   lr_scheduler: none

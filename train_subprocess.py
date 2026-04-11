@@ -32,10 +32,11 @@ if __name__ == '__main__':
     parser.add_argument('--output_root', default=None, help='root directory for log/ and graphs_data/')
     args = parser.parse_args()
 
-    if args.output_root:
-        assert os.path.isdir(args.output_root), f"--output_root does not exist: {args.output_root}"
-        assert os.access(args.output_root, os.W_OK), f"--output_root is not writable: {args.output_root}"
-        set_data_root(args.output_root)
+    output_root = args.output_root or os.environ.get('GNN_OUTPUT_ROOT')
+    if output_root:
+        assert os.path.isdir(output_root), f"--output_root does not exist: {output_root}"
+        assert os.access(output_root, os.W_OK), f"--output_root is not writable: {output_root}"
+        set_data_root(output_root)
 
     try:
         config = NeuralGraphConfig.from_yaml(args.config)

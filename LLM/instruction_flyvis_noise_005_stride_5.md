@@ -65,7 +65,7 @@ tau_i * dv_i(t)/dt = -v_i(t) + V_i^rest + sum_j W_ij * g_phi(v_j, a_j)^2 + I_i(t
 - 1,736 input neurons (photoreceptors)
 - DAVIS visual input, **noise_model_level=0.05**
 - 64,000 frames, delta_t=0.02
-- **Spectral radius ≈ 1.72** — relevant for gradient explosion risk in BPTT
+- **Spectral radius ≈ 1.72** — property of the TRUE GT connectivity W. Do NOT add spectral radius regularization — it would push the learned W away from the ground truth answer. The effective Jacobian is naturally dampened by the g_phi^2 nonlinearity, g_phi_norm=0.1, and g_phi_diff=9000 (already the dominant levers). The real bottleneck is gradient NOISE from 5× fewer training pairs per epoch, not gradient explosion per se.
 
 ## Recurrent Training Mechanism
 
@@ -173,6 +173,13 @@ Use all 4 slots for seed robustness testing.
 | 6     | **LR scheduler**        | lr_scheduler = cosine_warm_restarts vs none, warmup tuning — stabilize BPTT convergence  |
 | 7     | **Combined best**       | Best parameters from blocks 1–6                                                          |
 | 8     | **Validation**          | Best stride-5 config vs stride-1 winner — final comparison                               |
+| 9     | **Remaining axes**      | dale_law, coeff_f_theta_msg_diff, coeff_W_L2 — last untested single-parameter knobs     |
+| 10    | **Batch size**          | batch_size ∈ {1, 2, 4} at half/quarter DAL — BPTT has no waterbed problem; smoother gradients may help |
+| 11    | **Best-of combination** | Combine Block 9 winners with batch_size winner; if no winner from 9–10, escalate to warm initialization |
+
+**Block 9 expectation note**: These are the last 3 untested single-parameter axes. No individual parameter is expected to close the −0.609 gap (vs stride-1). Criterion for moving on: if no axis gives > +0.05 conn_R2 over the Block 8 champion (0.371), single-parameter tuning has reached its limit. Move to Block 10 (batch size) regardless of Block 9 outcome.
+
+**Block 10 rationale**: Unlike SIREN (which requires bs=1 due to the waterbed problem), BPTT training does not share model parameters across time — each batch item is an independent trajectory window. Larger batch sizes give smoother gradient estimates for the same wall time (bs=2 / DAL=40 ≈ same as bs=1 / DAL=80 in compute). Reference: bs=1, DAL=80, n_epochs=2 → ~103 min. Scale DAL inversely with batch_size to maintain the same budget.
 
 ## Variable Names
 
@@ -285,7 +292,7 @@ Save to `config/fly/flyvis_noise_005_stride_5_winner.yaml` with header:
 - Pseudoinverse analysis (noise_005): global connectivity_R2 = 0.71 (linear, no dynamics)
 - Pseudoinverse breakdown: high-degree neurons (61-208 inputs) reach R²=0.83; low-degree (1-5) only 0.51
 - BPTT rule of thumb: scale lr down by ~k to maintain similar gradient magnitude
-- Spectral radius of true W ≈ 1.72 — Jacobian eigenvalues > 1 are possible → exploding gradients
+- Spectral radius of true W ≈ 1.72 — this is a fixed property of the GT system, NOT a training artifact. Do NOT regularize spectral radius: it would push W away from the correct answer. Effective Jacobian is dampened by g_phi^2 + g_phi_norm=0.1 + g_phi_diff=9000 (already exploited). The real bottleneck is gradient NOISE from 5× fewer training pairs/epoch vs stride-1.
 - `coeff_g_phi_diff` is critical for rollout stability; too low causes diverging rollouts
 
 ## Start Call
