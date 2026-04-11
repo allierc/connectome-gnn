@@ -158,16 +158,18 @@ output = [dv_1/dt, ..., dv_13741/dt]                    (13,741 dims)
 | Parameter             | Default | Description                                                            |
 | --------------------- | ------- | ---------------------------------------------------------------------- |
 | `lr`                  | 0.00001 | Learning rate for MLP weights                                          |
-| `n_epochs`            | 20      | Training epochs (use to control training time — see note below)        |
+| `data_augmentation_loop` | 100  | Number of data augmentation loops per epoch (controls training time)   |
 | `batch_size`          | 256     | Frames per batch                                                       |
 | `rollout_train_steps` | 1       | Multi-step rollout unroll during training (K steps)                    |
 | `zero_init_output`    | false   | Zero-initialize final layer weights                                    |
 
-**Training time budget**: Each training run should take ~60 minutes. Use `n_epochs` to stay within
-this budget. When increasing parameters that scale training time (e.g., `rollout_train_steps`,
-`hidden_dim`), reduce `n_epochs` pre-emptively to compensate. For example, doubling
-`rollout_train_steps` roughly doubles epoch time, so halve `n_epochs`. Check `training_time_min` in
-results and adjust for the next iteration.
+**Caution on `rollout_train_steps`**: Increasing this value may degrade one-step prediction performance (`onestep_pearson`), which is also an important metric. Do not increase `rollout_train_steps` unless you can show experimentally that one-step performance is unaffected.
+
+**Training time budget**: Each training run should take ~60 minutes. Use `data_augmentation_loop` (DAL) to stay within
+this budget. When increasing parameters that scale training time, reduce DAL pre-emptively to
+compensate. Check `training_time_min` in results and adjust for the next iteration.
+
+**Do NOT modify `n_epochs`** — keep it at 20. Multiple epochs give us visibility into how losses change during training, which is essential for diagnosing convergence.
 
 **Note**: Seeds are pipeline-controlled and overwritten before each run
 (`simulation.seed = iteration * 1000 + slot`, `training.seed = iteration * 1000 + slot + 500`). Do
@@ -248,7 +250,7 @@ For each slot:
 2. Read `rollout_RMSE` and `rollout_RMSE_std` from metrics log
 3. Read `results_rollout_by_step.csv` — note first window where RMSE exceeds 1.0 (divergence point)
 4. Read `onestep_pearson` as sanity check — if poor, model hasn't learned dynamics at all
-5. Note `training_time_min` and adjust n_epochs for next batch if needed
+5. Note `training_time_min` and adjust DAL for next batch if needed
 6. **Convergence check**: Compare `train_rollout_rmse` across the last 3 epochs. If it is still
    consistently decreasing at the final epoch, the model has not converged — note
    `convergence: not_reached` in the log entry. Do NOT extend training beyond the ~60 min budget;
@@ -261,7 +263,7 @@ For each slot:
 ## Iter N: [excellent/good/poor/diverged]
 Node: id=N, parent=P
 Hypothesis tested: "[quoted hypothesis]"
-Config: lr=X, rollout_train_steps=K, n_epochs=E, batch_size=B, zero_init_output=Z, hidden_dim=H, n_layers=L, MLP_activation=A, add_residual=R, add_skip_layers=S
+Config: lr=X, rollout_train_steps=K, DAL=D, batch_size=B, zero_init_output=Z, hidden_dim=H, n_layers=L, MLP_activation=A, add_residual=R, add_skip_layers=S
 Slot 0: rollout_RMSE=X, divergence_at=frame_Y, train_div_time=Z, train_best_epoch=W/E, onestep_pearson=P, sim_seed=S, train_seed=T
 Slot 1: rollout_RMSE=X, divergence_at=frame_Y, train_div_time=Z, train_best_epoch=W/E, onestep_pearson=P, sim_seed=S, train_seed=T
 Slot 2: rollout_RMSE=X, divergence_at=frame_Y, train_div_time=Z, train_best_epoch=W/E, onestep_pearson=P, sim_seed=S, train_seed=T

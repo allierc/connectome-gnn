@@ -175,19 +175,22 @@ latent representation before the evolver can learn to evolve it.
 | Parameter             | Default | Description                                                     |
 | --------------------- | ------- | --------------------------------------------------------------- |
 | `lr`                  | 0.00001 | Learning rate for all EED weights                               |
-| `n_epochs`            | 20      | Training epochs (use to control training time — see note below) |
+| `data_augmentation_loop` | 100  | Number of data augmentation loops per epoch (controls training time) |
 | `batch_size`          | 256     | Frames per batch                                                |
 | `rollout_train_steps` | 1       | Multi-step rollout unroll during training (K steps)             |
+
+**Caution on `rollout_train_steps`**: Increasing this value may degrade one-step prediction performance (`onestep_pearson`), which is also an important metric. Do not increase `rollout_train_steps` unless you can show experimentally that one-step performance is unaffected.
 
 **Note**: The EED loss has two components: (1) **reconstruction loss** at t=0 —
 MSE(decoder(encoder(v_t)), v_t), ensuring the autoencoder faithfully represents the state; and (2)
 **rollout loss** over K steps using `predict_dvdt` + Euler integration, identical to the MLP rollout
 training. The reconstruction loss is always computed regardless of `rollout_train_steps`.
 
-**Training time budget**: Each training run should take ~60 minutes. Use `n_epochs` to stay within
-this budget. When increasing parameters that scale training time (e.g., `latent_dim`), reduce
-`n_epochs` pre-emptively to compensate. Check `training_time_min` in results and adjust for the next
-iteration.
+**Training time budget**: Each training run should take ~60 minutes. Use `data_augmentation_loop` (DAL) to stay within
+this budget. When increasing parameters that scale training time, reduce DAL pre-emptively to
+compensate. Check `training_time_min` in results and adjust for the next iteration.
+
+**Do NOT modify `n_epochs`** — keep it at 20. Multiple epochs give us visibility into how losses change during training, which is essential for diagnosing convergence.
 
 **Note**: Seeds are pipeline-controlled and overwritten before each run
 (`simulation.seed = iteration * 1000 + slot`, `training.seed = iteration * 1000 + slot + 500`). Do
@@ -268,7 +271,7 @@ For each slot:
 2. Read `rollout_RMSE` and `rollout_RMSE_std` from metrics log
 3. Read `results_rollout_by_step.csv` — note first window where RMSE exceeds 1.0 (divergence point)
 4. Read `onestep_pearson` as sanity check — if poor, model hasn't learned dynamics at all
-5. Note `training_time_min` and adjust n_epochs for next batch if needed
+5. Note `training_time_min` and adjust DAL for next batch if needed
 6. **Convergence check**: Compare `train_rollout_rmse` across the last 3 epochs. If it is still
    consistently decreasing at the final epoch, the model has not converged — note
    `convergence: not_reached` in the log entry. Do NOT extend training beyond the ~60 min budget;
@@ -284,7 +287,7 @@ For each slot:
 ## Iter N: [excellent/good/poor/diverged]
 Node: id=N, parent=P
 Hypothesis tested: "[quoted hypothesis]"
-Config: lr=X, n_epochs=E, batch_size=B, rollout_train_steps=K, latent_dim=L, n_layers_encoder=NE, n_layers_evolver=NV, stim_latent_dims=SL, hidden_dim_stim_encoder=HS, n_layers_stim_encoder=NS, MLP_activation=A
+Config: lr=X, DAL=D, batch_size=B, rollout_train_steps=K, latent_dim=L, n_layers_encoder=NE, n_layers_evolver=NV, stim_latent_dims=SL, hidden_dim_stim_encoder=HS, n_layers_stim_encoder=NS, MLP_activation=A
 Slot 0: rollout_RMSE=X, divergence_at=frame_Y, train_div_time=Z, train_best_epoch=W/E, onestep_pearson=P, recon=R, evolve=V, sim_seed=S, train_seed=T
 Slot 1: rollout_RMSE=X, divergence_at=frame_Y, train_div_time=Z, train_best_epoch=W/E, onestep_pearson=P, recon=R, evolve=V, sim_seed=S, train_seed=T
 Slot 2: rollout_RMSE=X, divergence_at=frame_Y, train_div_time=Z, train_best_epoch=W/E, onestep_pearson=P, recon=R, evolve=V, sim_seed=S, train_seed=T
