@@ -357,23 +357,20 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     sv_true = svd_true.singular_values_
     sv_learned = svd_learned.singular_values_
 
+    n_eigs = min(200, n_neurons - 2)
     eig_true = eig_learned = None
-    if n_neurons <= 5000:
-        n_eigs = min(200, n_neurons - 2)
+    try:
+        eig_true, _ = scipy.sparse.linalg.eigs(true_sparse.astype(np.float64), k=n_eigs, which='LM')
+        eig_learned, _ = scipy.sparse.linalg.eigs(learned_sparse.astype(np.float64), k=n_eigs, which='LM')
+    except Exception:
         try:
-            eig_true, _ = scipy.sparse.linalg.eigs(true_sparse.astype(np.float64), k=n_eigs, which='LM', maxiter=500)
-            eig_learned, _ = scipy.sparse.linalg.eigs(learned_sparse.astype(np.float64), k=n_eigs, which='LM', maxiter=500)
-        except Exception:
-            try:
-                n_eigs = min(50, n_neurons - 2)
-                if eig_true is None:
-                    eig_true, _ = scipy.sparse.linalg.eigs(true_sparse.astype(np.float64), k=n_eigs, which='LM', maxiter=500)
-                if eig_learned is None:
-                    eig_learned, _ = scipy.sparse.linalg.eigs(learned_sparse.astype(np.float64), k=n_eigs, which='LM', maxiter=500)
-            except Exception as e:
-                logger.warning(f"eigenvalue computation failed: {e}")
-    else:
-        logger.info(f"eigenvalue computation skipped for large graph (n_neurons={n_neurons} > 5000)")
+            n_eigs = min(50, n_neurons - 2)
+            if eig_true is None:
+                eig_true, _ = scipy.sparse.linalg.eigs(true_sparse.astype(np.float64), k=n_eigs, which='LM')
+            if eig_learned is None:
+                eig_learned, _ = scipy.sparse.linalg.eigs(learned_sparse.astype(np.float64), k=n_eigs, which='LM')
+        except Exception as e:
+            logger.warning(f"eigenvalue computation failed: {e}")
 
     V_true = svd_true.components_
     V_learned = svd_learned.components_
@@ -1549,24 +1546,21 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                     procrustes_ok = False
 
                 # compute eigenvalues using sparse eigensolver for complex plane plot
+                n_eigs = min(200, n_neurons - 2)
                 eig_true = eig_learned = None
-                if n_neurons <= 5000:
-                    n_eigs = min(200, n_neurons - 2)
+                try:
+                    eig_true, _ = scipy.sparse.linalg.eigs(true_sparse.astype(np.float64), k=n_eigs, which='LM')
+                    eig_learned, _ = scipy.sparse.linalg.eigs(learned_sparse.astype(np.float64), k=n_eigs, which='LM')
+                except Exception:
                     try:
-                        eig_true, _ = scipy.sparse.linalg.eigs(true_sparse.astype(np.float64), k=n_eigs, which='LM', maxiter=500)
-                        eig_learned, _ = scipy.sparse.linalg.eigs(learned_sparse.astype(np.float64), k=n_eigs, which='LM', maxiter=500)
-                    except Exception:
-                        try:
-                            n_eigs = min(50, n_neurons - 2)
-                            if eig_true is None:
-                                eig_true, _ = scipy.sparse.linalg.eigs(true_sparse.astype(np.float64), k=n_eigs, which='LM', maxiter=500)
-                            if eig_learned is None:
-                                eig_learned, _ = scipy.sparse.linalg.eigs(learned_sparse.astype(np.float64), k=n_eigs, which='LM', maxiter=500)
-                        except Exception as e:
-                            logger.warning(f"eigenvalue computation failed (learned W may be all zeros): {e}")
-                            eig_true = eig_learned = None
-                else:
-                    logger.info(f"eigenvalue computation skipped for large graph (n_neurons={n_neurons} > 5000)")
+                        n_eigs = min(50, n_neurons - 2)
+                        if eig_true is None:
+                            eig_true, _ = scipy.sparse.linalg.eigs(true_sparse.astype(np.float64), k=n_eigs, which='LM')
+                        if eig_learned is None:
+                            eig_learned, _ = scipy.sparse.linalg.eigs(learned_sparse.astype(np.float64), k=n_eigs, which='LM')
+                    except Exception as e:
+                        logger.warning(f"eigenvalue computation failed (learned W may be all zeros): {e}")
+                        eig_true = eig_learned = None
 
                 # create 3x3 figure
                 fig, axes = plt.subplots(3, 3, figsize=(30, 30))
