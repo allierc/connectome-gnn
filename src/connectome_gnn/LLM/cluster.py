@@ -55,7 +55,8 @@ def check_cluster_repo():
 def submit_cluster_job(slot, config_path, analysis_log_path, config_file_field,
                        log_dir, erase=True, node_name='a100',
                        conda_env='connectome-gnn', n_cpus=2, device='cuda',
-                       exploration_dir=None, iteration=None, output_root=None):
+                       exploration_dir=None, iteration=None, output_root=None,
+                       hard_runtime_limit_min=120):
     """Submit a single flyvis training job to the cluster WITHOUT -K (non-blocking).
 
     All paths are on a shared filesystem accessible from both local and cluster.
@@ -94,10 +95,10 @@ def submit_cluster_job(slot, config_path, analysis_log_path, config_file_field,
     cluster_stderr = f"{log_dir}/cluster_train_{slot:02d}.err"
 
     if device == 'cpu':
-        bsub_resources = f"bsub -n {n_cpus} -W 1440"
+        bsub_resources = f"bsub -n {n_cpus} -W {hard_runtime_limit_min}"
         queue_label = "cpu"
     else:
-        bsub_resources = f"bsub -n {n_cpus} -gpu 'num=1' -q gpu_{node_name} -W 6000"
+        bsub_resources = f"bsub -n {n_cpus} -gpu 'num=1' -q gpu_{node_name} -W {hard_runtime_limit_min}"
         queue_label = f"gpu_{node_name}"
     ssh_cmd = (
         f"ssh {CLUSTER_SSH} \"bash -l -c 'cd {CLUSTER_ROOT_DIR} && "
@@ -127,7 +128,7 @@ def wait_for_cluster_jobs(job_ids, log_dir=None, poll_interval=60, job_prefix='c
 
     while pending:
         ids_str = ' '.join(pending.values())
-        ssh_cmd = f"ssh {CLUSTER_SSH} \"bash -l -c 'bjobs {ids_str}'\""
+        ssh_cmd = f"ssh {CLUSTER_SSH} \"source /etc/profile.d/profile.lsf.sh && bjobs {ids_str}\""
         out = subprocess.run(ssh_cmd, shell=True, capture_output=True, text=True)
         if out.returncode != 0 and not out.stdout.strip():
             raise RuntimeError(
@@ -175,7 +176,8 @@ def wait_for_cluster_jobs(job_ids, log_dir=None, poll_interval=60, job_prefix='c
 def submit_cluster_test_plot_job(slot, config_path, analysis_log_path, config_file_field,
                                   log_dir, node_name='a100',
                                   conda_env='connectome-gnn', n_cpus=2, device='cuda',
-                                  iteration=None, output_root=None):
+                                  iteration=None, output_root=None,
+                                  hard_runtime_limit_min=120):
     """Submit a single test+plot job to the cluster WITHOUT -K (non-blocking).
 
     Runs test_plot_subprocess.py on the cluster after training completes.
@@ -208,10 +210,10 @@ def submit_cluster_test_plot_job(slot, config_path, analysis_log_path, config_fi
     cluster_stderr = f"{log_dir}/cluster_test_plot_{slot:02d}.err"
 
     if device == 'cpu':
-        bsub_resources = f"bsub -n {n_cpus} -W 1440"
+        bsub_resources = f"bsub -n {n_cpus} -W {hard_runtime_limit_min}"
         queue_label = "cpu"
     else:
-        bsub_resources = f"bsub -n {n_cpus} -gpu 'num=1' -q gpu_{node_name} -W 6000"
+        bsub_resources = f"bsub -n {n_cpus} -gpu 'num=1' -q gpu_{node_name} -W {hard_runtime_limit_min}"
         queue_label = f"gpu_{node_name}"
 
     ssh_cmd = (
