@@ -128,7 +128,7 @@ def wait_for_cluster_jobs(job_ids, log_dir=None, poll_interval=60, job_prefix='c
 
     while pending:
         ids_str = ' '.join(pending.values())
-        ssh_cmd = f"ssh {CLUSTER_SSH} \"bash -l -c 'bjobs {ids_str}'\""
+        ssh_cmd = f"ssh {CLUSTER_SSH} \"source /etc/profile.d/profile.lsf.sh && bjobs {ids_str}\""
         out = subprocess.run(ssh_cmd, shell=True, capture_output=True, text=True)
         if out.returncode != 0 and not out.stdout.strip():
             raise RuntimeError(
