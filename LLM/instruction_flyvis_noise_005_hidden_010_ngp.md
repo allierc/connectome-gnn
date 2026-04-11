@@ -233,10 +233,154 @@ At every block boundary, save best config to `config/fly/flyvis_noise_005_hidden
 | 5 | alternate_training on/off | 2 slots with `alternate_training=true, ratio=0.05`, 2 slots with `alternate_training=false` — does GNN freeze help or hurt NGP-T? |
 | 6 | alternate_lr_ratio | If block 5 favours alternate_training: sweep ratio {0.01, 0.05, 0.1, 0.2} |
 | 7 | Combined best | Integrate findings from blocks 1-6 |
+| 11 | NGP architecture | `ngp_hidden_n_levels` {16, 24, 32} and `ngp_hidden_mlp_width` {256, 512, 1024} — does architecture affect gradient quality under indirect supervision? |
+| 12 | Recurrent training | `recurrent_training=True`, `time_step` ∈ {1, 2, 3} — does multi-step unrolling provide richer gradient signal to NGP-T? |
+| 13 | Best-of combination | Combine Block 11 winner × Block 12 winner × best GNN config from Block 10 |
+| 14 | Multi-seed validation | Run 4+ fresh seeds on the Block 13 winner — quantify true mean±std and CV% for nnr and conn_R2 |
+| 15 | Local search around champion | Fine-grained sweep of top-2 impactful parameters near the Block 14 winner (e.g. ±20% lr_NNR_f, coeff_g_phi_diff, or time_step) |
 
 **Block 4 note**: `data_augmentation_loop` (DAL) × `batch_size` ≈ constant keeps wall time fixed. The NGP-T is local, so larger batches are NOT required for stability (no waterbed), but they may give smoother indirect gradients.
 
 **Block 1 priority**: Establish whether the NGP-T learns at all with `lr_NNR_f=1e-3`. Standalone training (train_ngp_voltage.py) achieved R²~0.31 on 1000 hidden neurons with direct supervision — indirect supervision in the joint loop will likely yield lower R².
+
+---
+
+## Block 11: NGP Architecture Sweep
+
+### Scientific Rationale
+
+All iterations in Blocks 1–10 used the default NGP-T architecture (n_levels=24, n_features=4, mlp_width=512, mlp_layers=4). Standalone tests with direct supervision showed `n_features_per_level=4 vs 16` makes no difference (rank_99=26, capacity not bottleneck). However, under **indirect supervision** the gradient landscape is fundamentally different — architecture may affect how well gradient signal propagates from the GNN loss back into the grid cells.
+
+Hypotheses tested:
+1. **Fewer levels (n_levels=16)**: 16×4=64-dim encoding, still above rank_99=26. Simpler grid → fewer parameters → potentially cleaner gradient accumulation per cell.
+2. **More levels (n_levels=32)**: 32×4=128-dim encoding. Finer resolution may capture fast voltage dynamics that the 24-level grid cannot resolve.
+3. **Wider MLP (mlp_width=1024)**: With indirect gradients the final MLP projection (grid_dim → 1200 neurons) may be the capacity bottleneck. More width allows more expressive mapping.
+
+### Implementation Notes
+
+- `ngp_hidden_n_levels` changes grid encoding output dim: output = n_levels × 4. MLP input size adjusts automatically.
+- `ngp_hidden_mlp_width` changes only MLP hidden width — input and output dims are fixed.
+- Keep `ngp_hidden_n_features_per_level=4` and `ngp_hidden_mlp_layers=4` fixed.
+- Use `recurrent_training=False` to isolate architecture from recurrent effects.
+
+### Experimental Design
+
+| Slot | n_levels | mlp_width | Hypothesis |
+|------|----------|-----------|-----------|
+| CTRL | 24 | 512 | Baseline architecture (Blocks 1–10) |
+| Slot 1 | 16 | 512 | Simpler grid: fewer cells, cleaner gradient per cell |
+| Slot 2 | 32 | 512 | Finer resolution: captures fast dynamics |
+| Slot 3 | 24 | 1024 | Wider MLP: more expressive final projection |
+
+### Parent Config
+
+Best config from Block 10. Keep: n_epochs=6, DAL=4, bs=16, alt=true, ratio=0.4, coeff_hv=3000, lr_NNR_f=1e-3. Use `recurrent_training=False`.
+
+---
+
+## Block 12: Recurrent Training for NGP-T Gradient Enrichment
+
+### Scientific Rationale
+
+With `recurrent_training=False` (all Blocks 1–10), only 1 GNN step separates NGP-T output from the training loss. With `recurrent_training=True` and `time_step=T`, the gradient path becomes:
+
+```
+loss at frames k+1 ... k+T  →  T GNN steps  →  NGP-T at frames k ... k+T-1
+```
+
+This forces **temporal consistency**: NGP predictions at k must be coherent enough for the GNN to propagate T steps and match GT at k+T. Implemented in `recurrent_step.py` lines 186–191 — at each unroll step the NGP is queried independently for that frame's hidden voltages.
+
+### Training Time Warning
+
+Each recurrent step performs T full GNN forward passes per batch item. Wall time ≈ time_step × non-recurrent time.
+
+**Reference**: bs=16, DAL=4, n_epochs=6, time_step=1 → ~68 min (established iters 86–100).
+
+| time_step | DAL required for ≤ 120 min | Estimated time |
+|-----------|---------------------------|----------------|
+| 1 | 4 | ~68 min |
+| 2 | 2 | ~68 min |
+| 3 | 2 | ~102 min |
+
+**NEVER use time_step=3 with DAL=4** (→ ~200 min, exceeds budget).
+
+### Experimental Design
+
+| Slot | recurrent | time_step | DAL | Notes |
+|------|-----------|-----------|-----|-------|
+| CTRL | False | 1 | 4 | Non-recurrent baseline |
+| Slot 1 | True | 1 | 4 | Recurrent 1-step: does recurrent loss formulation alone help? |
+| Slot 2 | True | 2 | 2 | 2-step unroll, same wall time as CTRL |
+| Slot 3 | True | 3 | 2 | 3-step unroll, primary test (~102 min) |
+
+If Slot 3 wins: validate with 2nd seed before proceeding to Block 13.
+
+### Parent Config
+
+Use Block 11 CTRL config (or Block 11 winner if architecture improved nnr). Test recurrent independently before combining with architecture changes.
+
+---
+
+## Block 13: Best-of Combination
+
+### Scientific Rationale
+
+Combine the winning changes from Blocks 11 (architecture) and 12 (recurrent). The combination may be additive, synergistic, or interfering.
+
+### Experimental Design
+
+| Slot | Config | Purpose |
+|------|--------|---------|
+| CTRL | Best single-axis winner from Blocks 11–12 | Anchor |
+| Slot 1 | Block 11 winner architecture only | Isolate architecture gain |
+| Slot 2 | Block 12 winner recurrent only | Isolate recurrent gain |
+| Slot 3 | Block 11 + Block 12 winners combined | Full combination |
+
+If neither Block 11 nor Block 12 improved nnr: Block 13 = 4-seed validation of the best historical config (nnr=-4.44, iter 85) to establish its true mean and CV.
+
+---
+
+## Block 14: Multi-Seed Robustness Validation
+
+### Scientific Rationale
+
+The exploration history shows extreme seed variance: single seeds can show nnr=-4 to -70 at the same config. Block 14 runs the Block 13 winner on 4+ fresh seeds to measure true mean±std and CV%.
+
+This is not an exploration block — it is a **validation block**. Run the same config 4× with distinct (sim_seed, train_seed) pairs. Report:
+- mean hidden_nnr_R2 ± std, CV%
+- mean conn_R2 ± std, CV%
+- count of seeds with rollout_pearson > 0.75
+
+**Decision rule**: If CV% < 30% and mean nnr > -20, the config is reproducible. If CV% > 60%, the best seed was lucky — report the mean as the true performance.
+
+### Experimental Design
+
+Run 4 slots with the Block 13 winner config, different seeds each. No parameter changes. Seed formula: iteration × 1000 + slot offset (standard).
+
+---
+
+## Block 15: Local Search Around Champion
+
+### Scientific Rationale
+
+After confirming the champion in Block 14, do a fine-grained sweep of the top-2 most impactful parameters found across the entire exploration. The goal is to push nnr toward 0 from the champion's position.
+
+Candidate axes (LLM should choose based on evidence at the time):
+- `lr_NNR_f`: try ×0.5, ×2 around champion value
+- `coeff_g_phi_diff`: try ×0.5, ×2 (if diff=375 effect validated)
+- `time_step` neighborhood (if recurrent helps): try time_step ±1
+- `coeff_hidden_voltage` interaction with best architecture
+
+### Experimental Design
+
+| Slot | Config | Purpose |
+|------|--------|---------|
+| CTRL | Block 14 champion (exact) | Anchor |
+| Slot 1 | Top param −20% | Downward perturbation |
+| Slot 2 | Top param +20% | Upward perturbation |
+| Slot 3 | 2nd param best level | Cross-check second axis |
+
+**Termination criterion**: If nnr remains ≤ -4 across Blocks 11–15 with best configs, indirect gradient is fundamentally insufficient. The next research direction is auxiliary supervision (anchor neurons, partial hidden set, or pre-training phase with direct voltage supervision).
 
 ## Training Time Budget
 
