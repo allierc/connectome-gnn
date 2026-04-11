@@ -656,9 +656,10 @@ def data_generate_spiking(config, visualize=True, run_vizualized=0, style="color
     x_test.fluorescence = torch.zeros(n_neurons, dtype=torch.float32, device=device)
     x_test.noise = torch.zeros(n_neurons, dtype=torch.float32, device=device)
 
+    MAX_TEST_FRAMES = 8000
     test_target = len(test_sequences) * frames_per_sequence
-    logger.info(f"generating spiking TEST data ({test_target} frames from {len(test_sequences)} sequences)...")
-    n_frames_test, _ = _run_spiking_generation(test_sequences, x_test, "test", float('inf'))
+    logger.info(f"generating spiking TEST data (capped at {MAX_TEST_FRAMES} frames from {len(test_sequences)} sequences)...")
+    n_frames_test, _ = _run_spiking_generation(test_sequences, x_test, "test", MAX_TEST_FRAMES)
     logger.info(f"generated {n_frames_test} spiking TEST frames")
 
     torch.set_grad_enabled(True)
@@ -1140,14 +1141,12 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
     x.calcium = _init_calcium
     x.fluorescence = sim.calcium_alpha * _init_calcium + sim.calcium_beta
 
-    # Test: single pass through test sequences, optionally capped by sim.n_frames_test
+    # Test: single pass through test sequences, capped at MAX_TEST_FRAMES (or sim.n_frames_test if set)
+    MAX_TEST_FRAMES = 8000
     _n_frames_test_cap = getattr(sim, 'n_frames_test', 0)
-    test_target_frames = float('inf') if _n_frames_test_cap <= 0 else _n_frames_test_cap
+    test_target_frames = (_n_frames_test_cap if _n_frames_test_cap > 0 else MAX_TEST_FRAMES)
     test_target = len(test_sequences) * frames_per_sequence
-    if test_target_frames < float('inf'):
-        logger.info(f"generating TEST data (capped at {_n_frames_test_cap} frames from {len(test_sequences)} sequences)...")
-    else:
-        logger.info(f"generating TEST data ({test_target} frames without noise from {len(test_sequences)} sequences)...")
+    logger.info(f"generating TEST data (capped at {test_target_frames} frames from {len(test_sequences)} sequences)...")
 
     x_writer = ZarrSimulationWriterV3(
         path=graphs_data_path(config.dataset, "x_list_test"),
