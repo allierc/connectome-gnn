@@ -618,6 +618,12 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
     x_ts = load_simulation_data(x_path,
                                 fields=['index', 'voltage', 'stimulus', 'neuron_type', 'group_type'])
 
+    # Cap plot data to avoid loading huge datasets (e.g. 320K YouTube-VOS frames)
+    MAX_PLOT_FRAMES = 64000
+    if x_ts.n_frames > MAX_PLOT_FRAMES:
+        print(f"\033[93mcapping plot data: {x_ts.n_frames} → {MAX_PLOT_FRAMES} frames\033[0m")
+        x_ts = x_ts.truncate_frames(MAX_PLOT_FRAMES)
+
     # Apply same stride as training to reduce memory for recurrent models with time_step > 1
     _stride = tc.time_step if (tc.recurrent_training and tc.time_step > 1) else 1
     if _stride > 1:
