@@ -1,5 +1,6 @@
 import sys
 import os
+import subprocess
 
 # Ensure src/ is on the path so connectome_gnn is always importable
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
@@ -8,6 +9,17 @@ import matplotlib
 matplotlib.use('Agg')  # set non-interactive backend before other imports
 import argparse
 import re
+
+
+def _git_sha():
+    try:
+        return subprocess.check_output(
+            ['git', 'rev-parse', 'HEAD'],
+            cwd=os.path.dirname(os.path.abspath(__file__)),
+            stderr=subprocess.DEVNULL,
+        ).decode().strip()
+    except Exception:
+        return 'unknown'
 
 from connectome_gnn.config import NeuralGraphConfig
 from connectome_gnn.generators.graph_data_generator import data_generate
@@ -151,6 +163,9 @@ if __name__ == "__main__":
         if device == []:
             device = set_device(config.training.device)
 
+        run_log_dir = log_path(config.config_file)
+        sha = _git_sha()
+
         if "generate" in task:
             data_generate(
                 config,
@@ -164,10 +179,15 @@ if __name__ == "__main__":
                 step=100,
                 compute_ranks=False,
             )
+            os.makedirs(run_log_dir, exist_ok=True)
+            with open(os.path.join(run_log_dir, '_completed_generate'), 'w') as f:
+                f.write(f"commit={sha}\nargv={sys.argv}\n")
 
         if 'train_NGP' in task:
             # use new modular NGP trainer pipeline
             data_train_NGP(config=config, device=device)
+            with open(os.path.join(run_log_dir, '_completed_train'), 'w') as f:
+                f.write(f"commit={sha}\nargv={sys.argv}\n")
 
         elif 'train_INR' in task:
             # train INR (SIREN/NGP) on a field from x_list_train
@@ -179,6 +199,8 @@ if __name__ == "__main__":
             data_train_INR(config=config, device=device, total_steps=100000,
                            field_name=field_name, n_training_frames=0,
                            inr_type=inr_type_arg)
+            with open(os.path.join(run_log_dir, '_completed_train'), 'w') as f:
+                f.write(f"commit={sha}\nargv={sys.argv}\n")
 
         elif "train" in task:
             data_train(
@@ -188,6 +210,8 @@ if __name__ == "__main__":
                 style='color',
                 device=device,
             )
+            with open(os.path.join(run_log_dir, '_completed_train'), 'w') as f:
+                f.write(f"commit={sha}\nargv={sys.argv}\n")
 
         if "test" in task:
             config.simulation.noise_model_level = 0.0
@@ -228,16 +252,21 @@ if __name__ == "__main__":
                 rollout_without_noise=False,
                 test_config=test_config,
             )
+            with open(os.path.join(run_log_dir, '_completed_test'), 'w') as f:
+                f.write(f"commit={sha}\nargv={sys.argv}\n")
 
         if 'plot' in task:
             folder_name = log_path(pre_folder, 'tmp_results') + '/'
             os.makedirs(folder_name, exist_ok=True)
             data_plot(config=config, epoch_list=['best'], style='color', extended='plots', device=device, apply_weight_correction=True, skip_svd=True)
+            with open(os.path.join(run_log_dir, '_completed_plot'), 'w') as f:
+                f.write(f"commit={sha}\nargv={sys.argv}\n")
 
-        # Mark this config's run as complete
-        run_log_dir = log_path(config.config_file)
+        # Write commit SHA and completion marker for this run
+        with open(os.path.join(run_log_dir, '_commit'), 'w') as f:
+            f.write(f"{sha}\n")
         with open(os.path.join(run_log_dir, '_complete'), 'w') as f:
-            f.write(f"argv={sys.argv}\n")
+            f.write(f"commit={sha}\nargv={sys.argv}\n")
 
 
 
