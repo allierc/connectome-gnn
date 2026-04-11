@@ -88,6 +88,7 @@ claude:
   conda_env: connectome-gnn
   n_cpus: 2
   generate_data: true
+  hard_runtime_limit_min: 120
   interaction_code: false
   case_study: "mlp_rollout"
   case_study_brief: "Optimize MLP hyperparameters for stable autoregressive rollout on flyvis_noise_05. Primary metric: rollout_RMSE (lower is better). Target: rollout_RMSE < 2e-2, stable across seeds (CV < 10%). Key levers: rollout_train_steps, hidden_dim, n_layers, lr, batch_size."

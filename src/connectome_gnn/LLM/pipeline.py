@@ -127,6 +127,7 @@ def setup_exploration(args, root_dir: str, skip_confirm: bool = False) -> Explor
         n_parallel=claude_cfg.get('n_parallel', 4),
         generate_data=generate_data,
         training_time_target_min=claude_cfg.get('training_time_target_min', 60),
+        hard_runtime_limit_min=claude_cfg.get('hard_runtime_limit_min', 6000),
         interaction_code=claude_cfg.get('interaction_code', False),
         case_study=claude_cfg.get('case_study', ''),
         case_study_brief=claude_cfg.get('case_study_brief', ''),
@@ -686,6 +687,7 @@ def run_cluster_training(state: ExplorationState, batch: BatchInfo):
             exploration_dir=state.exploration_dir,
             iteration=iteration,
             output_root=get_data_root(),
+            hard_runtime_limit_min=state.hard_runtime_limit_min,
         )
         if jid:
             job_ids[slot] = jid
@@ -780,6 +782,7 @@ Fix the bug. Do NOT make other changes."""
                 exploration_dir=state.exploration_dir,
                 iteration=batch.iterations[slot_idx],
                 output_root=get_data_root(),
+                hard_runtime_limit_min=state.hard_runtime_limit_min,
             )
             if jid:
                 retry_results = wait_for_cluster_jobs(
@@ -948,6 +951,7 @@ def run_cluster_test_plot(state: ExplorationState, batch: BatchInfo):
             device=config.training.device,
             iteration=iteration,
             output_root=get_data_root(),
+            hard_runtime_limit_min=state.hard_runtime_limit_min,
         )
         if jid:
             job_ids[slot] = jid

@@ -9,6 +9,7 @@ so the test/plot pipeline works unchanged.
 """
 
 import os
+import signal
 import time
 
 import matplotlib
@@ -162,6 +163,13 @@ def data_train_eed(config, erase, best_model, device, log_file=None):
     _logger.info(f'constant model baseline RMSE: {constant_model_rmse:.4e}')
 
     # --- Training loop ---
+    _sigusr2_received = False
+    def _handle_sigusr2(signum, frame):
+        nonlocal _sigusr2_received
+        _sigusr2_received = True
+        _logger.info('SIGUSR2 received — will stop training after current batch')
+    signal.signal(signal.SIGUSR2, _handle_sigusr2)
+
     model.train()
     training_start = time.time()
     best_epoch = 0
@@ -189,6 +197,9 @@ def data_train_eed(config, erase, best_model, device, log_file=None):
             epoch_evolve += evolve_loss.detach()
             n_batches += 1
 
+            if _sigusr2_received:
+                break
+
             if n_batches % 100 == 0:
                 pbar.set_postfix_str(
                     f'total={epoch_total / n_batches:.4e} '
@@ -201,6 +212,11 @@ def data_train_eed(config, erase, best_model, device, log_file=None):
         mean_evolve = epoch_evolve.item() / max(n_batches, 1)
         epoch_duration = time.time() - epoch_start
         total_elapsed = time.time() - training_start
+
+        if _sigusr2_received:
+            _logger.info(f'training interrupted at epoch {epoch+1}/{n_epochs}, batch {n_batches}/{batches_per_epoch}')
+            best_epoch = epoch + 1
+            break
 
         # --- Validation rollout (uses predict_dvdt + Euler) ---
         val_start_t = time.time()
@@ -241,7 +257,14 @@ def data_train_eed(config, erase, best_model, device, log_file=None):
         }, os.path.join(net_path, 'latest_checkpoint.pt'))
 
     total_time = time.time() - training_start
-    _logger.info(f'training complete: {n_epochs=} in {total_time=:.1f}s, {div_time=:,d}, {mean_rollout_rmse=:.3e}')
+
+    if _sigusr2_received:
+        _logger.info(f'training interrupted: {best_epoch}/{n_epochs} epochs in {total_time:.1f}s')
+        with open(os.path.join(log_dir, '_interrupted'), 'w') as f:
+            f.write(f'SIGUSR2 at epoch {best_epoch}/{n_epochs}, batch {n_batches}/{batches_per_epoch}, training_time={total_time:.1f}s\n')
+    else:
+        _logger.info(f'training complete: {n_epochs=} in {total_time=:.1f}s, {div_time=:,d}, {mean_rollout_rmse=:.3e}')
+
     _logger.info(f'constant model baseline RMSE: {constant_model_rmse:.4e}')
 
     if log_file:

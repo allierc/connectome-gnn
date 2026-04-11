@@ -26,6 +26,7 @@ class ExplorationState:
     n_parallel: int = 4
     generate_data: bool = False
     training_time_target_min: int = 60
+    hard_runtime_limit_min: int = 6000
     interaction_code: bool = False
     case_study: str = ""
     case_study_brief: str = ""
