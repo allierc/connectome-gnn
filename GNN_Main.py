@@ -166,7 +166,15 @@ if __name__ == "__main__":
         run_log_dir = log_path(config.config_file)
         sha = _git_sha()
 
+        # Reset _complete at the start of each run
+        _complete_path = os.path.join(run_log_dir, '_complete')
+        if os.path.exists(_complete_path):
+            os.remove(_complete_path)
+
         if "generate" in task:
+            _marker = os.path.join(run_log_dir, '_completed_generate')
+            if os.path.exists(_marker):
+                os.remove(_marker)
             data_generate(
                 config,
                 device=device,
@@ -180,16 +188,22 @@ if __name__ == "__main__":
                 compute_ranks=False,
             )
             os.makedirs(run_log_dir, exist_ok=True)
-            with open(os.path.join(run_log_dir, '_completed_generate'), 'w') as f:
+            with open(_marker, 'w') as f:
                 f.write(f"commit={sha}\nargv={sys.argv}\n")
 
         if 'train_NGP' in task:
+            _marker = os.path.join(run_log_dir, '_completed_train')
+            if os.path.exists(_marker):
+                os.remove(_marker)
             # use new modular NGP trainer pipeline
             data_train_NGP(config=config, device=device)
-            with open(os.path.join(run_log_dir, '_completed_train'), 'w') as f:
+            with open(_marker, 'w') as f:
                 f.write(f"commit={sha}\nargv={sys.argv}\n")
 
         elif 'train_INR' in task:
+            _marker = os.path.join(run_log_dir, '_completed_train')
+            if os.path.exists(_marker):
+                os.remove(_marker)
             # train INR (SIREN/NGP) on a field from x_list_train
             # usage: -o train_INR [field_name] [inr_type]
             # field_name: stimulus (default), voltage, calcium, fluorescence
@@ -199,10 +213,13 @@ if __name__ == "__main__":
             data_train_INR(config=config, device=device, total_steps=100000,
                            field_name=field_name, n_training_frames=0,
                            inr_type=inr_type_arg)
-            with open(os.path.join(run_log_dir, '_completed_train'), 'w') as f:
+            with open(_marker, 'w') as f:
                 f.write(f"commit={sha}\nargv={sys.argv}\n")
 
         elif "train" in task:
+            _marker = os.path.join(run_log_dir, '_completed_train')
+            if os.path.exists(_marker):
+                os.remove(_marker)
             data_train(
                 config=config,
                 erase=True,
@@ -210,10 +227,13 @@ if __name__ == "__main__":
                 style='color',
                 device=device,
             )
-            with open(os.path.join(run_log_dir, '_completed_train'), 'w') as f:
+            with open(_marker, 'w') as f:
                 f.write(f"commit={sha}\nargv={sys.argv}\n")
 
         if "test" in task:
+            _marker = os.path.join(run_log_dir, '_completed_test')
+            if os.path.exists(_marker):
+                os.remove(_marker)
             config.simulation.noise_model_level = 0.0
 
             # Optional: load a second config for cross-dataset test data
@@ -252,14 +272,17 @@ if __name__ == "__main__":
                 rollout_without_noise=False,
                 test_config=test_config,
             )
-            with open(os.path.join(run_log_dir, '_completed_test'), 'w') as f:
+            with open(_marker, 'w') as f:
                 f.write(f"commit={sha}\nargv={sys.argv}\n")
 
         if 'plot' in task:
+            _marker = os.path.join(run_log_dir, '_completed_plot')
+            if os.path.exists(_marker):
+                os.remove(_marker)
             folder_name = log_path(pre_folder, 'tmp_results') + '/'
             os.makedirs(folder_name, exist_ok=True)
             data_plot(config=config, epoch_list=['best'], style='color', extended='plots', device=device, apply_weight_correction=True, skip_svd=True)
-            with open(os.path.join(run_log_dir, '_completed_plot'), 'w') as f:
+            with open(_marker, 'w') as f:
                 f.write(f"commit={sha}\nargv={sys.argv}\n")
 
         # Write commit SHA and completion marker for this run
