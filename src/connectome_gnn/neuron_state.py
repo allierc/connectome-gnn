@@ -265,6 +265,19 @@ class NeuronTimeSeries:
                 kwargs[f.name] = val[ids]
         return NeuronTimeSeries(**kwargs)
 
+    def truncate_frames(self, n: int) -> NeuronTimeSeries:
+        """Return a new NeuronTimeSeries with at most n time frames."""
+        kwargs = {}
+        for f in dc_fields(self):
+            val = getattr(self, f.name)
+            if val is None:
+                kwargs[f.name] = None
+            elif f.name in DYNAMIC_FIELDS:
+                kwargs[f.name] = val[:n]
+            else:
+                kwargs[f.name] = val
+        return NeuronTimeSeries(**kwargs)
+
     @classmethod
     def from_numpy(cls, arr: np.ndarray) -> NeuronTimeSeries:
         """Create from legacy (T, N, 9) numpy array.
