@@ -196,6 +196,7 @@ def run_cv(config_name, seeds):
         train_seed = seed + 1000
         print(f"\n\033[94m{'='*70}\033[0m")
         print(f"\033[94mCV fold {i+1}/{len(seeds)}  sim_seed={sim_seed}  train_seed={train_seed}  ({run_name})\033[0m")
+        print(f"\033[94m  Steps: [1] generate YouTube-VOS  [2] train on YT  [3] DAVIS→YT rollout  [4] YT model params\033[0m")
 
         fold_config = yaml_loader()
         fold_config.simulation.seed  = sim_seed
@@ -236,7 +237,8 @@ def run_cv(config_name, seeds):
         # Step 3: Generalisation — DAVIS model tested on YouTube-VOS data
         # ---------------------------------------------------------------
         print(f"\033[96m  [3/4] generalisation test (DAVIS model → YouTube-VOS) ...\033[0m")
-        davis_config = yaml_loader()  # base DAVIS config: model lives here
+        davis_config = yaml_loader()
+        davis_config.config_file = pre_folder + base_name  # points to the trained DAVIS model
         data_test(config=davis_config, visualize=False, best_model='best', run=0,
                   step=10, n_rollout_frames=250, device=device,
                   test_config=fold_config)   # test data from YouTube-VOS fold
