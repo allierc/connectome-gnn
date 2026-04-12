@@ -244,3 +244,24 @@ Color code: <span style="color:#2ea043">green</span> &gt; 0.9, <span style="colo
 - GNN (LLM-optimized): 10 (Noise-free), 10 (Noise=0.05), 10 (Noise=0.5)
 - GNN (default): 10 (Noise-free), 10 (Noise=0.05), 10 (Noise=0.5)
 - Known-ODE: 10 (Noise-free), 10 (Noise=0.05), 10 (Noise=0.5)
+
+---
+
+## LLM Exploration Status — 2026-04-12
+
+| Exploration | Iters | Status | Pre-LLM baseline | Block 1 result | Current best (robust) | Best single seed | Δ robust | Key levers found |
+|---|---|---|---|---|---|---|---|---|
+| **flyvis_noise_005_stride_5** | 128/128 | **COMPLETE** | conn=0.282 (new-code 4-seed) | 0.282 | **0.387** (8-seed) | 0.427 (tau-lucky) | **+0.105** | g_phi_diff=9000, g_phi_norm=0.1, n_epochs=2 |
+| **flyvis_noise_005_stride_5_yt** | 52/128 | **ACTIVE** (Block 6) | stride-5 DAVIS=0.563 | 0.262 (yt worse than DAVIS) | **0.298** (4-seed) | 0.333 (iter 46) | **+0.036** | cosine T0=1000 (+0.048), g_phi_diff=375 (tentative) |
+| **flyvis_noise_005_hidden_010_ngp** | 128/128 | **COMPLETE** | conn=0.606±0.163, nnr≈−38 | same | conn **0.834** (robust), nnr −4.44 (lucky) | conn 0.855 (iter 86) | conn **+0.228** | coeff_hv=3000, alt_ratio=0.4, n_epochs=6 — nnr goal NOT achieved |
+| **flyvis_noise_005_hidden_010_siren** | 128/128 | **COMPLETE** | conn≈0.4–0.66 (bimodal) | same | conn **0.768** (good seed only) | nnr −11.67 (outlier) | conn **+0.37** (good seeds) | omega=1024, n_epochs=3 — nnr NEGATIVE RESULT (7% good seeds) |
+| **flyvis_noise_005_010_rc** | ~120/128 | **ACTIVE** (Batch 31) | **0.739** (1-step pre-LLM) | 0.786 | **0.803** (5-seed, CV=0.18%) | 0.812 (iter 45) | **+0.064** | dale_law, g_phi_diff=600, W_L1=1e-4, aug=120 — **target >0.80 ✓** |
+
+**Reference**: stride-1 champion = **0.980**
+
+### Key takeaways
+- `rc` is the success story: +0.064 gain, crossed the 0.80 target, very low seed variance (CV=0.18%)
+- `stride_5` made solid gains (+0.105) but remains far from stride-1 (gap = −0.593); BPTT ceiling confirmed fundamental
+- `stride_5_yt`: yt data is actually harder than DAVIS (0.262 vs 0.563 block 1) — more diversity did not close the gap; only +0.036 after 52 iters
+- `ngp hidden`: good conn gains (+0.228) but nnr goal completely failed across 128 iters (0% success rate)
+- `siren hidden`: good seeds achieved 0.768 conn but only 7% of seeds are "good"; nnr definitively unachievable
