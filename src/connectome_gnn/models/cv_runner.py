@@ -147,16 +147,10 @@ def run_cv(config_name, seeds):
                       style="color", alpha=1, erase=True, save=True, step=100)
 
         # --- Train ---
-        log_dir = log_path(config.config_file)
-        model_dir = os.path.join(log_dir, "models")
-        model_exists = (os.path.isdir(model_dir) and
-                        any(f.startswith("best_model") for f in os.listdir(model_dir))
-                        ) if os.path.isdir(model_dir) else False
-        if model_exists:
-            print(f"\033[90m  trained model already present  (skipping training)\033[0m")
-        else:
-            print(f"\033[96m  training ...\033[0m")
-            data_train(config, device=device)
+        # Always retrain: the data was just regenerated from YouTube-VOS,
+        # so any previously cached model was trained on different (DAVIS) data.
+        print(f"\033[96m  training ...\033[0m")
+        data_train(config, device=device, erase=True)
 
         # --- Test ---
         print(f"\033[96m  testing ...\033[0m")

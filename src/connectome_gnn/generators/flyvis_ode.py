@@ -66,8 +66,7 @@ def get_photoreceptor_positions_from_net(net):
     node_types_str = [t.decode('utf-8') if isinstance(t, bytes) else str(t) for t in node_types]
     node_roles_str = [r.decode('utf-8') if isinstance(r, bytes) else str(r) for r in node_roles]
 
-    print(f"available node types: {set(node_types_str)}")
-    print(f"available node roles: {set(node_roles_str)}")
+    # node types / roles are stable across runs; skip verbose print
 
     photoreceptor_types = ['R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7', 'R8']
     photoreceptor_mask = np.array([t in photoreceptor_types for t in node_types_str])
