@@ -248,6 +248,7 @@ simultaneously perturb the top 10 cell types by total equivalence class dimensio
 generating 1{,}000 additional variants.
 
 \subsection{Results}
+\label{subsec:results}
 
 Single-type variants: mean connectivity $R^2 = 0.980 \pm 0.076$, rollout $R^2 =
 0.997 \pm 0.045$. Mixed-type variants: $0.839 \pm 0.164$ and $0.997 \pm 0.004$
@@ -444,6 +445,35 @@ fluctuation swamps the signal.  By contrast, R8, CT1(Lo1), and Mi4 recover
 consistently (SNR $\geq 60$) despite varying $\bar{k}$, showing that strong
 synaptic weights dominate even moderate null-space noise.  Complete per-type
 values are provided in the supplementary CSV ({\tt scripts/type\_identifiability.csv}).
+
+\paragraph{Edge-level validation of the partition.}
+The identifiable/duplicate-type classification is properly a property of each
+\emph{edge} $W_{ij}$, determined by the group size $k_{i,\alpha}$ of the
+specific (postsynaptic neuron $i$, presynaptic type $\alpha$) pair --- not of
+cell types as a whole.  Of the 434,112 edges, 61,673 (14.2\%) are identifiable
+($k_{i,\alpha}=1$) and 372,439 (85.8\%) are duplicate-type ($k_{i,\alpha}>1$).
+Most source types have \emph{both} kinds of outgoing edges: 52 of 65 types
+project to targets with mixed $k$ values.  Eleven types send only identifiable
+outputs ($f_\text{ident}=1$: Am, R1--R6, Mi3, Lawf1, T1, Tm5Y), while seven
+types are near-pure duplicate ($f_\text{ident}<0.05$, e.g.\ Mi2, Mi13, T3,
+TmY15).
+
+A direct edge-level test of the theory confirms the correct direction but with
+a small effect: identifiable edges have higher cross-seed SNR than duplicate-type
+edges with AUROC $= P(\mathrm{SNR}_{k=1} > \mathrm{SNR}_{k>1}) = 0.511$
+(Mann-Whitney $p < 10^{-17}$, Cohen's $d = 0.08$ on log-SNR).  The marginal
+separation arises because $\mathrm{SNR} = |\bar{W}_e|/\sigma_e$ conflates two
+factors: the \emph{null-space noise} $\sigma_e$ (elevated for $k>1$ edges by
+the $k-1$ redistributive degrees of freedom) and the \emph{weight magnitude}
+$|\bar{W}_e|$ (an independent biological property).  A within-type controlled
+comparison eliminates this confound: for the 52 mixed source types, identifiable
+outgoing edges have higher mean SNR than duplicate-type outgoing edges in 41 of
+52 cases (79\%).  The 11 exceptions arise either when identifiable edges of a
+type carry near-zero weights (e.g.\ T5d: $\mathrm{SNR}_{k=1}=0.6$ vs
+$\mathrm{SNR}_{k>1}=24$), or when a duplicate-type group has exceptionally
+strong mean weights that dominate the null-space variance (e.g.\ R8:
+$\mathrm{SNR}_{k=1}=63$ vs $\mathrm{SNR}_{k>1}=143$).
+Edge-level results are tabulated in {\tt scripts/edge\_partition\_snr.csv}.
 
 %------------------------------------------------------------------------------
 \subsection{Minimum-support member of the equivalence class}
