@@ -62,6 +62,12 @@ if __name__ == "__main__":
     if args.option:
         print(f"Options: {args.option}")
     CONFIG_LISTS = {
+        'flyvis_baselines': [
+            '/groups/saalfeld/home/allierc/GraphData/config/fly/flyvis_noise_005_baseline_00',
+            '/groups/saalfeld/home/allierc/GraphData/config/fly/flyvis_noise_005_010_baseline_00',
+            '/groups/saalfeld/home/allierc/GraphData/config/fly/flyvis_noise_005_stride_5_baseline_00',
+            '/groups/saalfeld/home/allierc/GraphData/config/fly/flyvis_noise_005_stride_5_yt_baseline_00',
+        ],
         'drosophila_cx_baselines': [
             'drosophila_cx_known_ode',
             'drosophila_cx_rnn',
