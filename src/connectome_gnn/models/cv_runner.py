@@ -136,18 +136,15 @@ def run_cv(config_name, seeds):
         graphs_dir = graphs_data_path(config.dataset)
 
         # --- Generate ---
-        # Override video source: use a held-out dataset (YouTube-VOS) so CV
+        # Always regenerate using the held-out video dataset (YouTube-VOS) so CV
         # data is never seen during training (which uses DAVIS or the config default).
+        # erase=True ensures stale DAVIS data is replaced with YouTube-VOS data.
         config.simulation.datavis_roots = CV_DATAVIS_ROOTS
         config.simulation.skip_short_videos = CV_SKIP_SHORT_VIDEOS
 
-        data_exists = os.path.isdir(os.path.join(graphs_dir, 'x_list_train'))
-        if data_exists:
-            print(f"\033[90m  data already exists at {graphs_dir}/  (skipping generation)\033[0m")
-        else:
-            print(f"\033[96m  generating data (YouTube-VOS) ...\033[0m")
-            data_generate(config, device=device, visualize=False, run_vizualized=0,
-                          style="color", alpha=1, erase=False, save=True, step=100)
+        print(f"\033[96m  generating data (YouTube-VOS, erase=True) ...\033[0m")
+        data_generate(config, device=device, visualize=False, run_vizualized=0,
+                      style="color", alpha=1, erase=True, save=True, step=100)
 
         # --- Train ---
         log_dir = log_path(config.config_file)
