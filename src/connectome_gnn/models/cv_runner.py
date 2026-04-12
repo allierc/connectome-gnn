@@ -146,6 +146,8 @@ def run_cv(config_name, seeds, retrain: bool = False):
         data_generate(config, device=device, visualize=False, run_vizualized=0,
                       style="color", alpha=1, erase=True, save=True, step=100)
 
+        log_dir = log_path(config.config_file)
+
         # --- Train ---
         if retrain:
             print(f"\033[96m  training ...\033[0m")
