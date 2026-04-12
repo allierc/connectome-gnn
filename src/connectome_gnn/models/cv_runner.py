@@ -97,7 +97,7 @@ def _save_barplot(all_metrics, config_name, seeds, cv_out_dir, n_done):
     print(f"  bar plot updated: {plot_path}")
 
 
-def run_cv(config_name, seeds):
+def run_cv(config_name, seeds, retrain: bool = False):
     # Support absolute paths (e.g. configs stored outside the repo)
     if os.path.isabs(config_name) or os.path.isfile(config_name) or os.path.isfile(config_name + '.yaml'):
         yaml_file = config_name if config_name.endswith('.yaml') else config_name + '.yaml'
@@ -147,10 +147,11 @@ def run_cv(config_name, seeds):
                       style="color", alpha=1, erase=True, save=True, step=100)
 
         # --- Train ---
-        # Always retrain: the data was just regenerated from YouTube-VOS,
-        # so any previously cached model was trained on different (DAVIS) data.
-        print(f"\033[96m  training ...\033[0m")
-        data_train(config, device=device, erase=True)
+        if retrain:
+            print(f"\033[96m  training ...\033[0m")
+            data_train(config, device=device, erase=True)
+        else:
+            print(f"\033[90m  skipping training (use -o cv_train to retrain)\033[0m")
 
         # --- Test ---
         print(f"\033[96m  testing ...\033[0m")
@@ -267,6 +268,8 @@ if __name__ == "__main__":
                         help="Number of seeds (uses 42, 43, ..., 42+N-1)")
     parser.add_argument("--seeds", type=str, default=None,
                         help="Comma-separated seed list, e.g. 42,43,44 (overrides --n_seeds)")
+    parser.add_argument("--retrain", action="store_true",
+                        help="Retrain from scratch on each fold (default: test only)")
     args = parser.parse_args()
 
     if args.seeds is not None:
@@ -274,4 +277,4 @@ if __name__ == "__main__":
     else:
         seeds = list(range(42, 42 + args.n_seeds))
 
-    run_cv(args.config_name, seeds)
+    run_cv(args.config_name, seeds, retrain=args.retrain)
