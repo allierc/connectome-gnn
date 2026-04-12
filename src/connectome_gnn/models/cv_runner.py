@@ -14,6 +14,8 @@ Usage (run from repo root):
 """
 
 import argparse
+import datetime
+import glob as _glob
 import os
 import sys
 
@@ -30,7 +32,12 @@ from GNN_PlotFigure import data_plot
 from connectome_gnn.config import NeuralGraphConfig
 from connectome_gnn.generators.graph_data_generator import data_generate
 from connectome_gnn.models.graph_trainer import data_test, data_train
-from connectome_gnn.utils import add_pre_folder, config_path, graphs_data_path, log_path, set_device
+from connectome_gnn.utils import add_pre_folder, config_path, git_sha, graphs_data_path, log_path, set_device
+
+# Video dataset used for CV data generation (never seen during training).
+# Must contain JPEGImages/480p/<video>/*.jpg
+CV_DATAVIS_ROOTS = ["/groups/saalfeld/home/kumarv4/web_datasets/YouTube-VOS"]
+CV_SKIP_SHORT_VIDEOS = False  # YouTube-VOS has many short clips
 
 
 METRICS = [
@@ -129,11 +136,16 @@ def run_cv(config_name, seeds):
         graphs_dir = graphs_data_path(config.dataset)
 
         # --- Generate ---
+        # Override video source: use a held-out dataset (YouTube-VOS) so CV
+        # data is never seen during training (which uses DAVIS or the config default).
+        config.simulation.datavis_roots = CV_DATAVIS_ROOTS
+        config.simulation.skip_short_videos = CV_SKIP_SHORT_VIDEOS
+
         data_exists = os.path.isdir(os.path.join(graphs_dir, 'x_list_train'))
         if data_exists:
             print(f"\033[90m  data already exists at {graphs_dir}/  (skipping generation)\033[0m")
         else:
-            print(f"\033[96m  generating data ...\033[0m")
+            print(f"\033[96m  generating data (YouTube-VOS) ...\033[0m")
             data_generate(config, device=device, visualize=False, run_vizualized=0,
                           style="color", alpha=1, erase=False, save=True, step=100)
 
@@ -204,6 +216,55 @@ def run_cv(config_name, seeds):
                 f.write(f"{key:<30} {mean:>8.4f} {sd:>8.4f} {cv_pct:>6.1f}% {mn:>8.4f} {mx:>8.4f}\n")
             else:
                 f.write(f"{key:<30} {'—':>8} {'—':>8} {'—':>7} {'—':>8} {'—':>8}\n")
+    # --- Append to persistent results_cv.txt ---
+    results_cv_path = os.path.join(log_path(pre_folder + base_name), "results_cv.txt")
+    now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    sha = git_sha()
+
+    # Resolve config YAML path
+    if os.path.isabs(config_name) or os.path.isfile(config_name) or os.path.isfile(config_name + '.yaml'):
+        config_yaml_path = config_name if config_name.endswith('.yaml') else config_name + '.yaml'
+    else:
+        config_yaml_path = config_path(f"{config_file}.yaml")
+    config_yaml_path = os.path.abspath(config_yaml_path)
+    try:
+        config_mtime = datetime.datetime.fromtimestamp(
+            os.path.getmtime(config_yaml_path)).strftime('%Y-%m-%d %H:%M:%S')
+    except OSError:
+        config_mtime = 'unknown'
+
+    with open(results_cv_path, 'a') as f:
+        f.write(f"\n{'='*80}\n")
+        f.write(f"date:          {now_str}\n")
+        f.write(f"git commit:    {sha}\n")
+        f.write(f"config:        {config_yaml_path}  [{config_mtime}]\n")
+        f.write(f"seeds:         {seeds}\n")
+        # Per-fold best model paths
+        for i, seed in enumerate(seeds):
+            run_name = f"{base_name}_cv{i:02d}"
+            model_dir = os.path.join(log_path(pre_folder + run_name), "models")
+            candidates = sorted(_glob.glob(os.path.join(model_dir, "best_model_with_*.pt")))
+            if candidates:
+                best = candidates[-1]
+                try:
+                    mtime = datetime.datetime.fromtimestamp(
+                        os.path.getmtime(best)).strftime('%Y-%m-%d %H:%M:%S')
+                except OSError:
+                    mtime = 'unknown'
+                f.write(f"model[cv{i:02d}]:  {best}  [{mtime}]\n")
+            else:
+                f.write(f"model[cv{i:02d}]:  {model_dir}  [not found]\n")
+        f.write(f"\n{'Metric':<30} {'Mean':>8} {'SD':>8}\n")
+        f.write(f"{'-'*50}\n")
+        for key, _ in METRICS:
+            vals = [v for v in all_metrics[key] if not np.isnan(v)]
+            if vals:
+                mean, sd = np.mean(vals), np.std(vals)
+                f.write(f"{key:<30} {mean:>8.4f} {sd:>8.4f}\n")
+            else:
+                f.write(f"{key:<30} {'—':>8} {'—':>8}\n")
+    print(f"CV results:  {results_cv_path}")
+
     print(f"\nCV summary: {summary_path}")
     print(f"Bar plot:   {os.path.join(cv_out_dir, 'cv_barplot.png')}")
 

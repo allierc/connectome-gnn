@@ -1,6 +1,5 @@
 import sys
 import os
-import subprocess
 
 # Ensure src/ is on the path so connectome_gnn is always importable
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
@@ -10,21 +9,10 @@ matplotlib.use('Agg')  # set non-interactive backend before other imports
 import argparse
 import re
 
-
-def _git_sha():
-    try:
-        return subprocess.check_output(
-            ['git', 'rev-parse', 'HEAD'],
-            cwd=os.path.dirname(os.path.abspath(__file__)),
-            stderr=subprocess.DEVNULL,
-        ).decode().strip()
-    except Exception:
-        return 'unknown'
-
 from connectome_gnn.config import NeuralGraphConfig
 from connectome_gnn.generators.graph_data_generator import data_generate
 from connectome_gnn.models.graph_trainer import data_train, data_test, data_train_INR
-from connectome_gnn.utils import set_device, add_pre_folder, log_path, config_path, validate_pre_folder, set_data_root
+from connectome_gnn.utils import set_device, add_pre_folder, log_path, config_path, validate_pre_folder, set_data_root, git_sha
 
 # Optional imports (not available in flyvis-gnn spinoff)
 try:
@@ -170,7 +158,7 @@ if __name__ == "__main__":
             device = set_device(config.training.device)
 
         run_log_dir = log_path(config.config_file)
-        sha = _git_sha()
+        sha = git_sha()
 
         # Reset _complete at the start of each run
         _complete_path = os.path.join(run_log_dir, '_complete')

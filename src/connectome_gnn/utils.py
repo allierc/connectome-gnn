@@ -30,6 +30,18 @@ def get_repo_root() -> str:
     return os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
 
 
+def git_sha() -> str:
+    """Return the current git commit SHA, or 'unknown' if not in a git repo."""
+    try:
+        return subprocess.check_output(
+            ['git', 'rev-parse', 'HEAD'],
+            cwd=get_repo_root(),
+            stderr=subprocess.DEVNULL,
+        ).decode().strip()
+    except Exception:
+        return 'unknown'
+
+
 # ---------------------------------------------------------------------------
 # Configurable data root (graphs_data/ and log/ location)
 # ---------------------------------------------------------------------------
