@@ -105,13 +105,13 @@ if __name__ == "__main__":
         config_list = ['flyvis_noise_005_null_edges_pc_100']
         test_config_name = None
 
-    if task in ('cv', 'cv_train'):
+    if task == 'cv':
         from connectome_gnn.models.cv_runner import run_cv
         if args.seeds is not None:
             seeds = [int(s.strip()) for s in args.seeds.split(',')]
         else:
             seeds = list(range(42, 42 + args.n_seeds))
-        run_cv(config_name, seeds, retrain=(task == 'cv_train'))
+        run_cv(config_name, seeds)
         sys.exit(0)
 
     for config_file_ in config_list:
