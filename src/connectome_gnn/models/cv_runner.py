@@ -81,6 +81,18 @@ def parse_metrics(path):
     return metrics
 
 
+def _yt_data_exists(graphs_dir):
+    """Return True if graphs_dir has YouTube-VOS data already generated."""
+    if not os.path.isdir(os.path.join(graphs_dir, 'x_list_train')):
+        return False
+    log = os.path.join(graphs_dir, 'generation_log.txt')
+    if not os.path.isfile(log):
+        return False
+    with open(log) as f:
+        content = f.read()
+    return any(root in content for root in CV_DATAVIS_ROOTS)
+
+
 def parse_pearson_from_log(path):
     """Return the first 'Pearson r: <value>' found in a .log file."""
     if not os.path.isfile(path):
@@ -197,17 +209,28 @@ def run_cv(config_name, seeds):
         base_log_dir  = log_path(pre_folder + base_name)
 
         # ---------------------------------------------------------------
-        # Step 1: Generate YouTube-VOS data
+        # Step 1: Generate YouTube-VOS data (skip if already from YouTube-VOS)
         # ---------------------------------------------------------------
-        print(f"\033[96m  [1/4] generating YouTube-VOS data (erase=True) ...\033[0m")
-        data_generate(fold_config, device=device, visualize=False, run_vizualized=0,
-                      style="color", alpha=1, erase=True, save=True, step=100)
+        graphs_dir = graphs_data_path(fold_config.dataset)
+        if _yt_data_exists(graphs_dir):
+            print(f"\033[90m  [1/4] YouTube-VOS data already exists — skipping generation\033[0m")
+        else:
+            print(f"\033[96m  [1/4] generating YouTube-VOS data ...\033[0m")
+            data_generate(fold_config, device=device, visualize=False, run_vizualized=0,
+                          style="color", alpha=1, erase=True, save=True, step=100)
 
         # ---------------------------------------------------------------
-        # Step 2: Train new model on YouTube-VOS data
+        # Step 2: Train new model on YouTube-VOS data (skip if model exists)
         # ---------------------------------------------------------------
-        print(f"\033[96m  [2/4] training on YouTube-VOS data ...\033[0m")
-        data_train(fold_config, device=device, erase=True)
+        model_dir = os.path.join(fold_log_dir, "models")
+        model_exists = (os.path.isdir(model_dir) and
+                        any(f.startswith("best_model") for f in os.listdir(model_dir))
+                        ) if os.path.isdir(model_dir) else False
+        if model_exists:
+            print(f"\033[90m  [2/4] trained model already exists — skipping training\033[0m")
+        else:
+            print(f"\033[96m  [2/4] training on YouTube-VOS data ...\033[0m")
+            data_train(fold_config, device=device, erase=True)
 
         # ---------------------------------------------------------------
         # Step 3: Generalisation — DAVIS model tested on YouTube-VOS data
