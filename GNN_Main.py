@@ -76,12 +76,6 @@ if __name__ == "__main__":
             *[f'flyvis_noise_005_default_cv{i:02d}' for i in range(10)],
             *[f'flyvis_noise_05_default_cv{i:02d}' for i in range(10)],
         ],
-        'null_edges_cross': [
-            '/groups/saalfeld/home/allierc/Graph/connectome-gnn/config/fly/flyvis_noise_005_null_edges_pc_400_cross',
-            '/groups/saalfeld/home/allierc/Graph/connectome-gnn/config/fly/flyvis_noise_005_null_edges_pc_400_cross_removed_pc_20',
-            '/groups/saalfeld/home/allierc/Graph/connectome-gnn/config/fly/flyvis_noise_005_null_edges_pc_400_cross_noise_05',
-            '/groups/saalfeld/home/allierc/Graph/connectome-gnn/config/fly/flyvis_noise_005_null_edges_pc_400_cross_noise_free',
-        ],
     }
 
     if args.option is not None:
