@@ -1510,6 +1510,7 @@ def plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_li
     cmap = CustomColorMap(config=config)
 
     # Plot 1: Embedding scatter plot
+    os.makedirs(f"{log_dir}/tmp_training/embedding", exist_ok=True)
     fig, ax = plt.subplots(figsize=(8, 8))
     plot_embedding(ax, model, type_list, n_neuron_types, cmap)
     plt.tight_layout()

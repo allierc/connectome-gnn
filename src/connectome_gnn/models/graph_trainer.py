@@ -794,7 +794,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
 
                 # R2 checkpoint: regular interval + early-phase extra points
                 is_regular_r2 = (N > 0) and (N % connectivity_plot_frequency == 0)
-                is_early_r2 = (N > 0) and (N < connectivity_plot_frequency) and (N % early_r2_frequency == 0)
+                is_early_r2 = (N < connectivity_plot_frequency) and (N % early_r2_frequency == 0)
                 model_name = model_config.signal_model_name
                 if (is_regular_r2 or is_early_r2) and not test_neural_field and '_mlp' in model_name:
                     from connectome_gnn.metrics import compute_jacobian_connectivity_r2
