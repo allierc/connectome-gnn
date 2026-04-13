@@ -36,6 +36,8 @@ if __name__ == "__main__":
                         help="CV: comma-separated seeds, e.g. 42,43,44 (overrides --n_seeds)")
     parser.add_argument("--output_root", type=str, default=None,
                         help="Root directory for log/ and graphs_data/ (default: cwd)")
+    parser.add_argument("--skip_phase2", action="store_true", default=False,
+                        help="CV: skip phase 2 (zero-shot DAVIS→YouTube test). Use when no pre-trained DAVIS model exists.")
 
     print()
     device = []
@@ -111,7 +113,7 @@ if __name__ == "__main__":
             seeds = [int(s.strip()) for s in args.seeds.split(',')]
         else:
             seeds = list(range(42, 42 + args.n_seeds))
-        run_cv(config_name, seeds)
+        run_cv(config_name, seeds, skip_phase2=args.skip_phase2)
         sys.exit(0)
 
     for config_file_ in config_list:

@@ -165,8 +165,18 @@ def _save_barplot(all_metrics, config_name, seeds, cv_out_dir, n_done):
 # Main CV runner
 # ---------------------------------------------------------------------------
 
-def run_cv(config_name, seeds):
-    """Run the 3-phase CV pipeline for all seeds and append to results_cv.txt."""
+def run_cv(config_name, seeds, skip_phase2=False):
+    """Run the 3-phase CV pipeline for all seeds and append to results_cv.txt.
+
+    Args:
+        config_name:  Config name or absolute YAML path.
+        seeds:        List of simulation seeds.
+        skip_phase2:  If True, skip phase 2 (zero-shot DAVIS→YouTube test).
+                      Use this when no pre-trained DAVIS model exists for the
+                      config (e.g. freshly created comparison configs).
+                      Phase 2 metrics (one_step_r, rollout_r) will be absent
+                      from the results.
+    """
 
     # Resolve config path and loader
     if os.path.isabs(config_name) or os.path.isfile(config_name) or os.path.isfile(config_name + '.yaml'):
@@ -223,33 +233,38 @@ def run_cv(config_name, seeds):
     # ===================================================================
     # PHASE 2 — Zero-shot generalisation: DAVIS model → YouTube-VOS folds
     # ===================================================================
-    print(f"\n\033[94m{'='*70}\033[0m")
-    print(f"\033[94mPHASE 2/3 — Zero-shot rollout (DAVIS model → YouTube-VOS) for all {len(seeds)} folds\033[0m")
-    print(f"\033[94m{'='*70}\033[0m")
-    for i, (seed, fold_config) in enumerate(zip(seeds, fold_configs)):
-        print(f"\033[96m  fold {i+1}/{len(seeds)} (seed={seed}) — testing DAVIS model on YouTube-VOS fold ...\033[0m")
-        davis_config = yaml_loader()
-        davis_config.config_file = pre_folder + base_name  # load DAVIS trained model
-        data_test(config=davis_config, visualize=False, best_model='best', run=0,
-                  step=10, n_rollout_frames=250, device=device,
-                  test_config=fold_config)   # test data from YouTube-VOS fold
+    if skip_phase2:
+        print(f"\n\033[93m{'='*70}\033[0m")
+        print(f"\033[93mPHASE 2/3 — SKIPPED (--skip_phase2): no pre-trained DAVIS model required\033[0m")
+        print(f"\033[93m{'='*70}\033[0m")
+    else:
+        print(f"\n\033[94m{'='*70}\033[0m")
+        print(f"\033[94mPHASE 2/3 — Zero-shot rollout (DAVIS model → YouTube-VOS) for all {len(seeds)} folds\033[0m")
+        print(f"\033[94m{'='*70}\033[0m")
+        for i, (seed, fold_config) in enumerate(zip(seeds, fold_configs)):
+            print(f"\033[96m  fold {i+1}/{len(seeds)} (seed={seed}) — testing DAVIS model on YouTube-VOS fold ...\033[0m")
+            davis_config = yaml_loader()
+            davis_config.config_file = pre_folder + base_name  # load DAVIS trained model
+            data_test(config=davis_config, visualize=False, best_model='best', run=0,
+                      step=10, n_rollout_frames=250, device=device,
+                      test_config=fold_config)   # test data from YouTube-VOS fold
 
-        # Determine test_suffix used by data_test_gnn
-        test_ds_short = fold_config.dataset.replace('flyvis_', '').replace('fly/', '')
-        test_suffix   = f'_on_{test_ds_short}'
-        one_step_r = parse_pearson_from_log(
-            os.path.join(base_log_dir, f'results_test{test_suffix}.log'))
-        rollout_r  = parse_pearson_from_log(
-            os.path.join(base_log_dir, f'results_rollout{test_suffix}.log'))
-        all_metrics['one_step_r'].append(one_step_r)
-        all_metrics['rollout_r'].append(rollout_r)
-        # Pad recovery metrics so lengths stay consistent for bar plot
-        for key, _ in RECOVERY_METRICS:
-            if len(all_metrics[key]) < i + 1:
-                all_metrics[key].append(float('nan'))
-        print(f"\033[92m    one_step_r={one_step_r:.4f}  rollout_r={rollout_r:.4f}\033[0m")
+            # Determine test_suffix used by data_test_gnn
+            test_ds_short = fold_config.dataset.replace('flyvis_', '').replace('fly/', '')
+            test_suffix   = f'_on_{test_ds_short}'
+            one_step_r = parse_pearson_from_log(
+                os.path.join(base_log_dir, f'results_test{test_suffix}.log'))
+            rollout_r  = parse_pearson_from_log(
+                os.path.join(base_log_dir, f'results_rollout{test_suffix}.log'))
+            all_metrics['one_step_r'].append(one_step_r)
+            all_metrics['rollout_r'].append(rollout_r)
+            # Pad recovery metrics so lengths stay consistent for bar plot
+            for key, _ in RECOVERY_METRICS:
+                if len(all_metrics[key]) < i + 1:
+                    all_metrics[key].append(float('nan'))
+            print(f"\033[92m    one_step_r={one_step_r:.4f}  rollout_r={rollout_r:.4f}\033[0m")
 
-        _save_barplot(all_metrics, config_name, seeds, cv_out_dir, n_done=i + 1)
+            _save_barplot(all_metrics, config_name, seeds, cv_out_dir, n_done=i + 1)
 
     # ===================================================================
     # PHASE 3 — Train new models + parameter extraction for all folds
@@ -401,6 +416,99 @@ def run_cv(config_name, seeds):
     print(f"Bar plot:           {os.path.join(cv_out_dir, 'cv_barplot.png')}")
 
 
+# ---------------------------------------------------------------------------
+# Comparison table across multiple conditions
+# ---------------------------------------------------------------------------
+
+# Metrics shown in the comparison table (Phase 3 only — no DAVIS model needed)
+COMPARISON_METRICS = [
+    ('yt_one_step_r',     'One-step r'),
+    ('yt_rollout_r',      'Rollout r'),
+    ('W_corrected_R2',    'W R²'),
+    ('tau_R2',            'τ R²'),
+    ('V_rest_R2',         'V_rest R²'),
+    ('clustering_accuracy', 'Clust. acc'),
+]
+
+
+def _parse_cv_summary_stats(summary_path):
+    """Parse mean and SD for each metric from the stats block of cv_summary.txt."""
+    stats = {}
+    if not os.path.isfile(summary_path):
+        return stats
+    in_stats = False
+    with open(summary_path) as f:
+        for line in f:
+            line = line.rstrip()
+            if line.startswith('Metric') and 'Mean' in line:
+                in_stats = True
+                continue
+            if in_stats and line.startswith('-'):
+                continue
+            if in_stats and line.startswith('='):
+                break
+            if in_stats and line.strip():
+                parts = line.split()
+                if len(parts) >= 3:
+                    key = parts[0]
+                    try:
+                        mean = float(parts[1]) if parts[1] != '—' else float('nan')
+                        sd   = float(parts[2]) if parts[2] != '—' else float('nan')
+                        stats[key] = (mean, sd)
+                    except ValueError:
+                        pass
+    return stats
+
+
+def compare_cv_results(condition_labels, config_names, pre_folder='fly/', output_path=None):
+    """Print a comparison table across multiple CV conditions.
+
+    Args:
+        condition_labels: List of short display names (table row labels).
+        config_names:     List of base config names (matching the log dir names).
+        pre_folder:       Pre-folder prefix (default 'fly/').
+        output_path:      If given, also write the table to this file.
+    """
+    rows = []
+    for label, cfg in zip(condition_labels, config_names):
+        summary_path = os.path.join(log_path(pre_folder + cfg), "results", "cv_summary.txt")
+        stats = _parse_cv_summary_stats(summary_path)
+        rows.append((label, stats))
+
+    # Build table
+    col_w = 18
+    header = f"{'Condition':<28}" + "".join(f"{lbl:>{col_w}}" for _, lbl in COMPARISON_METRICS)
+    sep    = "-" * len(header)
+    lines  = [sep, header, sep]
+    for label, stats in rows:
+        row = f"{label:<28}"
+        for key, _ in COMPARISON_METRICS:
+            if key in stats:
+                mean, sd = stats[key]
+                if not np.isnan(mean):
+                    row += f"{'%.3f±%.3f' % (mean, sd):>{col_w}}"
+                else:
+                    row += f"{'—':>{col_w}}"
+            else:
+                row += f"{'—':>{col_w}}"
+        lines.append(row)
+    lines.append(sep)
+    table = "\n".join(lines)
+
+    print(f"\n{'='*80}")
+    print("CV COMPARISON TABLE")
+    print(f"{'='*80}")
+    print(table)
+
+    if output_path:
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        with open(output_path, 'a') as f:
+            f.write(f"\n{table}\n")
+        print(f"Table appended to: {output_path}")
+
+    return table
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="CV benchmark for connectome-GNN")
     parser.add_argument("config_name", help="Config name or absolute YAML path")
@@ -408,6 +516,8 @@ if __name__ == "__main__":
                         help="Number of seeds (uses 42, 43, ..., 42+N-1)")
     parser.add_argument("--seeds", type=str, default=None,
                         help="Comma-separated seed list, e.g. 42,43,44 (overrides --n_seeds)")
+    parser.add_argument("--skip_phase2", action="store_true", default=False,
+                        help="Skip phase 2 (zero-shot DAVIS→YouTube test)")
     args = parser.parse_args()
 
     if args.seeds is not None:
@@ -415,4 +525,4 @@ if __name__ == "__main__":
     else:
         seeds = list(range(42, 42 + args.n_seeds))
 
-    run_cv(args.config_name, seeds)
+    run_cv(args.config_name, seeds, skip_phase2=args.skip_phase2)
