@@ -9,11 +9,9 @@
 
 set -euo pipefail
 
-# When submitted via "bsub < run_cv_batch.sh", LSF copies the script to
-# ~/.lsbatch/ and runs it there, so BASH_SOURCE[0] points to the wrong place.
-# LS_SUBCWD is set by LSF to the directory where bsub was invoked — use that
-# as the primary source, with a fallback for direct bash execution.
-REPO_DIR="${LS_SUBCWD:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+# Hardcoded cluster path — avoids LS_SUBCWD/BASH_SOURCE issues when LSF
+# copies the script to ~/.lsbatch/ or bsub is run from a different directory.
+REPO_DIR="/groups/saalfeld/home/allierc/Graph/connectome-gnn"
 CONFIGS=(
     "${REPO_DIR}/config/fly/flyvis_noise_free"
     "${REPO_DIR}/config/fly/flyvis_noise_005"
