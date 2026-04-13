@@ -12,6 +12,7 @@ set -euo pipefail
 # Hardcoded cluster path — avoids LS_SUBCWD/BASH_SOURCE issues when LSF
 # copies the script to ~/.lsbatch/ or bsub is run from a different directory.
 REPO_DIR="/groups/saalfeld/home/allierc/Graph/connectome-gnn"
+DATA_ROOT="/groups/saalfeld/home/allierc/GraphData"
 CONFIGS=(
     "${REPO_DIR}/config/fly/flyvis_noise_free"
     "${REPO_DIR}/config/fly/flyvis_noise_005"
@@ -34,7 +35,7 @@ for cfg in "${CONFIGS[@]}"; do
     echo "Starting CV: ${cfg}"
     echo "Start time: $(date)"
     echo "------------------------------------------------------------"
-    python "${REPO_DIR}/GNN_Main.py" -o cv "${cfg}" --n_seeds "${N_SEEDS}"
+    python "${REPO_DIR}/GNN_Main.py" -o cv "${cfg}" --n_seeds "${N_SEEDS}" --output_root "${DATA_ROOT}"
     echo "Done: ${cfg}  ($(date))"
 done
 
