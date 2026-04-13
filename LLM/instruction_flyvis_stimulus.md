@@ -138,7 +138,7 @@ changing it affects both sub-networks.
 | ------------------------ | ------- | -------------------------------------------------------------------- |
 | `lr`                     | 1e-4    | Learning rate for all weights (Adam optimizer)                       |
 | `batch_size`             | 256     | Frames per batch                                                     |
-| `data_augmentation_loop` | 10      | Number of data augmentation loops per epoch (controls training time) |
+| `data_augmentation_loop` | 50      | Number of data augmentation loops per epoch (controls training time) |
 | `time_window`            | 5       | Number of stimulus frames used as input context (ending at t)        |
 
 ### Parameter Interactions
