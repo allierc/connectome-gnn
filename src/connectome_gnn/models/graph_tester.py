@@ -319,6 +319,12 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
         log_file.write(f'onestep_RMSE: {np.mean(rmse):.4f}\n')
         log_file.write(f'onestep_RMSE_std: {np.std(rmse):.4f}\n')
 
+    # Stimulus baseline: each prediction is independent (no recurrence),
+    # so rollout is meaningless — return after one-step metrics.
+    if 'stimulus' in model_config.signal_model_name.lower():
+        logger.info('stimulus model — skipping rollout (no recurrence)')
+        return
+
     # --- Rollout evaluation ---
     # Start from initial voltages at t=0, predict autoregressively
     logger.info('running rollout evaluation ...')
@@ -359,13 +365,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
                 x.stimulus[model.n_input_neurons:] = 0
 
             # Model prediction
-            if 'stimulus' in model_config.signal_model_name.lower():
-                tw = tc.time_window
-                if k >= tw - 1:
-                    stim_ctx = x_ts_eval.stimulus[k-tw+1:k+1, :sim.n_input_neurons].unsqueeze(0)
-                    x.voltage = model.predict_voltage(stim_ctx).squeeze(0)
-                # No Euler integration — voltage set directly
-            elif 'rnn' in model_config.signal_model_name.lower():
+            if 'rnn' in model_config.signal_model_name.lower():
                 y, h_state = model(x.to_packed(), h=h_state, return_all=True)
             elif 'lstm' in model_config.signal_model_name.lower():
                 y, h_state, c_state = model(x.to_packed(), h=h_state, c=c_state, return_all=True)
@@ -396,12 +396,11 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
             else:
                 y = model(x, edges, data_id=data_id, return_all=False)
 
-            # Integration step (skip for stimulus baseline — voltage set directly above)
-            if 'stimulus' not in model_config.signal_model_name.lower():
-                if 'mlp_ode' in model_config.signal_model_name.lower():
-                    x.voltage = x.voltage + y.squeeze(-1)
-                else:
-                    x.voltage = x.voltage + sim.delta_t * y.squeeze(-1)
+            # Integration step
+            if 'mlp_ode' in model_config.signal_model_name.lower():
+                x.voltage = x.voltage + y.squeeze(-1)
+            else:
+                x.voltage = x.voltage + sim.delta_t * y.squeeze(-1)
 
             # Update hidden neuron voltages via SIREN or keep silent
             if has_hidden_neurons:
