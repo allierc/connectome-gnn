@@ -17,7 +17,7 @@
 \newcommand{\comment}[1]{\textcolor{orange}{[#1]}}
 
 
-\title{Graph neural networks recover interpretable circuit models from neural activity}
+\title{Graph neural networks recover interpretable \comment{quantitative} circuit models from neural activity}
 
 \author{%
   First Author \\
@@ -55,7 +55,7 @@ Synapse-level connectomes describe the structure of circuits, but not the electr
 Prior studies were successful in retrieving functional connectivity, functional properties of neurons, or predictive models of neural activity at the population level, but a method to infer an interpretable mechanistic model of complex neural assemblies is yet missing. \citet{mi_connectome-constrained_2021} infer the hidden voltage dynamics and functional connectivity from calcium recordings of parts of the \emph{C. elegans} nervous system using a simple biophysical neuron model.  While its predictive performance is modest, it demonstrates that integrating real activity recordings with connectivity can yield experimentally testable predictions beyond simulation.  \citet{pospisil_fly_2024} used the connectome of \emph{Drosophila melanogaster} \citep{dorkenwald_neuronal_2024} to create simulations of full brain activity and inferred effective connectivity from known perturbations of individual neurons with a simple linear model.  Lacking information about connectivity, \citet{wang_foundation_2025} trained a foundation model of mouse visual cortex activity on real two-photon recordings from 135,000 neurons, which predicts responses to both natural videos and out-of-distribution stimuli across animals.
 \citet{prasse_predicting_2022} focus on accurate prediction without recovering connectivity while \citet{yu_discovering_2025} infer symbolic dynamical equations without validating connectivity weights. Both work with simulated data and do not learn neuronal heterogeneity.
 
-Our method learns the functional properties of individual neurons and their connections, enabling transfer of the learned dynamics to different network configurations with modified connectivity or different neuron type compositions.
+Our method learns the functional properties of individual neurons and their relative connectivity weights, enabling transfer of the learned dynamics to different network configurations with modified connectivity or different neuron type compositions.
 
 \subsubsection*{Simulations}
 We simulated neural activity in the \emph{Drosophila} visual system using \textit{flyvis}' pretrained models \cite{lappalainen_connectome-constrained_2024}. The recurrent neural network contains $13{,}741$ neurons from $65$ cell types and $434{,}122$ synaptic connections. We restricted the original $721$ retinotopic columns to the central subset of $217$. Each neuron is modeled as a non-spiking compartment governed by
@@ -65,7 +65,7 @@ We simulated neural activity in the \emph{Drosophila} visual system using \texti
 + I_i(t) + \sigma\,\xi_i(t),
 \label{eq:simulated_update}
 \end{equation}
-where $\tau_i$ and $V_i^{\mathrm{rest}}$ are cell-type parameters, $\mathbf{W}_{ij}$ is the connectome-constrained synaptic weight, $I_i(t)$ the visual input, and $\xi_i(t)\sim\mathcal{N}(0,1)$ is independent Gaussian noise scaled by $\sigma$. Unlike measurement noise added post hoc, this intrinsic noise perturbs the dynamical trajectory of $v_i(t)$ and propagates through $\mathbf{W}$, widening the distribution of visited voltages and enriching the training signal. We generated data at three noise levels: $\sigma\in\{0,\,0.05,\,0.5\}$.
+where $\tau_i$ and $V_i^{\mathrm{rest}}$ are cell-type parameters, $\mathbf{W}_{ij}$ is the connectome-constrained synaptic weight, $I_i(t)$ the visual input, and $\xi_i(t)\sim\mathcal{N}(0,1)$ is independent Gaussian noise scaled by $\sigma$. Unlike measurement noise added post hoc, this intrinsic noise perturbs the dynamical trajectory of $v_i(t)$ and propagates through $\mathbf{W}$, widening the distribution of visited voltages and enriching the training signal. We generated data at three intrinsic noise levels: $\sigma\in\{0,\,0.05,\,0.5\}$.
 
 \comment{Janne complete with Flywirte model}
 
