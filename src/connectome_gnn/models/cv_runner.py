@@ -353,38 +353,50 @@ def run_cv(config_name, seeds):
         os.path.join(base_log_dir, "models", "best_model_with_*.pt")))
     davis_model = davis_model_candidates[-1] if davis_model_candidates else f"{base_log_dir}/models/ [not found]"
 
+    # Build audit content once — written to both per-config and master files
+    audit_lines = []
+    audit_lines.append(f"\n{'='*80}\n")
+    audit_lines.append(f"date:             {now_str}\n")
+    audit_lines.append(f"git commit:       {sha}\n")
+    audit_lines.append(f"config:           {config_yaml_path}  [{_mtime_str(config_yaml_path)}]\n")
+    audit_lines.append(f"cv_datavis:       {CV_DATAVIS_ROOTS[0]}\n")
+    audit_lines.append(f"seeds (sim/train):{seeds} / {[s+1000 for s in seeds]}\n")
+    audit_lines.append(f"\n-- DAVIS model (phase 2: zero-shot generalisation) --\n")
+    audit_lines.append(f"davis_model:      {davis_model}  [{_mtime_str(davis_model)}]\n")
+    audit_lines.append(f"\n-- Re-trained YouTube-VOS models (phase 3: parameter recovery) --\n")
+    for i, seed in enumerate(seeds):
+        run_name  = f"{base_name}_cv{i:02d}"
+        model_dir = os.path.join(log_path(pre_folder + run_name), "models")
+        candidates = sorted(_glob.glob(os.path.join(model_dir, "best_model_with_*.pt")))
+        best = candidates[-1] if candidates else f"{model_dir} [not found]"
+        audit_lines.append(f"model[cv{i:02d}]:      {best}  [{_mtime_str(best)}]\n")
+    audit_lines.append(f"\n{'Metric':<35} {'Mean':>8} {'SD':>8}   group\n")
+    audit_lines.append(f"{'-'*65}\n")
+    for key, label in GENERALIZATION_METRICS:
+        vals = [v for v in all_metrics[key] if not np.isnan(v)]
+        if vals:
+            audit_lines.append(f"{key:<35} {np.mean(vals):>8.4f} {np.std(vals):>8.4f}   generalisation\n")
+        else:
+            audit_lines.append(f"{key:<35} {'—':>8} {'—':>8}   generalisation\n")
+    for key, label in RECOVERY_METRICS:
+        vals = [v for v in all_metrics[key] if not np.isnan(v)]
+        if vals:
+            audit_lines.append(f"{key:<35} {np.mean(vals):>8.4f} {np.std(vals):>8.4f}   parameter recovery\n")
+        else:
+            audit_lines.append(f"{key:<35} {'—':>8} {'—':>8}   parameter recovery\n")
+    audit_content = "".join(audit_lines)
+
+    # Per-config results file
     with open(results_cv_path, 'a') as f:
-        f.write(f"\n{'='*80}\n")
-        f.write(f"date:             {now_str}\n")
-        f.write(f"git commit:       {sha}\n")
-        f.write(f"config:           {config_yaml_path}  [{_mtime_str(config_yaml_path)}]\n")
-        f.write(f"cv_datavis:       {CV_DATAVIS_ROOTS[0]}\n")
-        f.write(f"seeds (sim/train):{seeds} / {[s+1000 for s in seeds]}\n")
-        f.write(f"\n-- DAVIS model (phase 2: zero-shot generalisation) --\n")
-        f.write(f"davis_model:      {davis_model}  [{_mtime_str(davis_model)}]\n")
-        f.write(f"\n-- Re-trained YouTube-VOS models (phase 3: parameter recovery) --\n")
-        for i, seed in enumerate(seeds):
-            run_name  = f"{base_name}_cv{i:02d}"
-            model_dir = os.path.join(log_path(pre_folder + run_name), "models")
-            candidates = sorted(_glob.glob(os.path.join(model_dir, "best_model_with_*.pt")))
-            best = candidates[-1] if candidates else f"{model_dir} [not found]"
-            f.write(f"model[cv{i:02d}]:      {best}  [{_mtime_str(best)}]\n")
-        f.write(f"\n{'Metric':<35} {'Mean':>8} {'SD':>8}   group\n")
-        f.write(f"{'-'*65}\n")
-        for key, label in GENERALIZATION_METRICS:
-            vals = [v for v in all_metrics[key] if not np.isnan(v)]
-            if vals:
-                f.write(f"{key:<35} {np.mean(vals):>8.4f} {np.std(vals):>8.4f}   generalisation\n")
-            else:
-                f.write(f"{key:<35} {'—':>8} {'—':>8}   generalisation\n")
-        for key, label in RECOVERY_METRICS:
-            vals = [v for v in all_metrics[key] if not np.isnan(v)]
-            if vals:
-                f.write(f"{key:<35} {np.mean(vals):>8.4f} {np.std(vals):>8.4f}   parameter recovery\n")
-            else:
-                f.write(f"{key:<35} {'—':>8} {'—':>8}   parameter recovery\n")
+        f.write(audit_content)
+
+    # Master results file at {data_root}/log/results_cv.txt — collects all configs
+    master_cv_path = log_path("results_cv.txt")
+    with open(master_cv_path, 'a') as f:
+        f.write(audit_content)
 
     print(f"\nCV results (audit): {results_cv_path}")
+    print(f"CV results (master): {master_cv_path}")
     print(f"CV summary:         {summary_path}")
     print(f"Bar plot:           {os.path.join(cv_out_dir, 'cv_barplot.png')}")
 
