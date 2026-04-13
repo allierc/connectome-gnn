@@ -49,8 +49,10 @@ GENERALIZATION_METRICS = [
     ('rollout_r',  'Rollout r  (DAVIS→YT)'),
 ]
 
-# Metrics from step 4: parameter recovery (model re-trained on YouTube-VOS)
+# Metrics from step 4: rollout + parameter recovery (model re-trained on YouTube-VOS)
 RECOVERY_METRICS = [
+    ('yt_one_step_r',     'One-step r (YT model→YT)'),
+    ('yt_rollout_r',      'Rollout r  (YT model→YT)'),
     ('W_corrected_R2',    '$R^2$ $W$ (re-train YT)'),
     ('tau_R2',            '$R^2$ $\\tau$ (re-train YT)'),
     ('V_rest_R2',         '$R^2$ $V^{\\mathrm{rest}}$ (re-train YT)'),
@@ -255,15 +257,25 @@ def run_cv(config_name, seeds):
         print(f"\033[92m    generalisation — one_step_r={one_step_r:.4f}  rollout_r={rollout_r:.4f}\033[0m")
 
         # ---------------------------------------------------------------
-        # Step 4: Parameter recovery — analyse re-trained YouTube-VOS model
-        # (data_plot only: W R², tau R², V_rest R², clustering from model params)
+        # Step 4: Re-trained YouTube-VOS model — rollout test + parameter extraction
         # ---------------------------------------------------------------
-        print(f"\033[96m  [4/4] extracting parameters from re-trained YouTube-VOS model ...\033[0m")
+        print(f"\033[96m  [4/4] rollout + parameter extraction on re-trained YouTube-VOS model ...\033[0m")
+        data_test(config=fold_config, visualize=False, best_model='best', run=0,
+                  step=10, n_rollout_frames=250, device=device)
         data_plot(config=fold_config, epoch_list=['best'], style='color', extended='plots',
                   device=device, apply_weight_correction=True, skip_svd=True)
 
+        # Parse rollout metrics (no test_suffix: fold model tested on its own data)
+        yt_one_step_r = parse_pearson_from_log(os.path.join(fold_log_dir, 'results_test.log'))
+        yt_rollout_r  = parse_pearson_from_log(os.path.join(fold_log_dir, 'results_rollout.log'))
+        all_metrics['yt_one_step_r'].append(yt_one_step_r)
+        all_metrics['yt_rollout_r'].append(yt_rollout_r)
+        print(f"\033[92m    yt model — one_step_r={yt_one_step_r:.4f}  rollout_r={yt_rollout_r:.4f}\033[0m")
+
         m = parse_metrics(os.path.join(fold_log_dir, "results", "metrics.txt"))
         for key, _ in RECOVERY_METRICS:
+            if key in ('yt_one_step_r', 'yt_rollout_r'):
+                continue  # already collected above
             val = m.get(key, float('nan'))
             all_metrics[key].append(val)
             if not np.isnan(val):
