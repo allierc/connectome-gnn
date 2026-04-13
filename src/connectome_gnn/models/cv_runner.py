@@ -263,17 +263,10 @@ def run_cv(config_name, seeds):
 
     for i, (seed, fold_config) in enumerate(zip(seeds, fold_configs)):
         fold_log_dir = log_path(fold_config.config_file)
-        model_dir    = os.path.join(fold_log_dir, "models")
-        model_exists = (os.path.isdir(model_dir) and
-                        any(f.startswith("best_model") for f in os.listdir(model_dir))
-                        ) if os.path.isdir(model_dir) else False
 
-        if model_exists:
-            print(f"\033[90m  fold {i+1}/{len(seeds)} (seed={seed}) — trained model already exists, skipping training\033[0m")
-        else:
-            print(f"\033[96m  fold {i+1}/{len(seeds)} (seed={seed}) — training on YouTube-VOS data ...\033[0m")
-            data_train(fold_config, device=device, erase=True)
-            print(f"\033[92m  fold {i+1}/{len(seeds)} — training done\033[0m")
+        print(f"\033[96m  fold {i+1}/{len(seeds)} (seed={seed}) — training on YouTube-VOS data ...\033[0m")
+        data_train(fold_config, device=device, erase=True)
+        print(f"\033[92m  fold {i+1}/{len(seeds)} — training done\033[0m")
 
         print(f"\033[96m  fold {i+1}/{len(seeds)} (seed={seed}) — rollout test + parameter extraction ...\033[0m")
         data_test(config=fold_config, visualize=False, best_model='best', run=0,
