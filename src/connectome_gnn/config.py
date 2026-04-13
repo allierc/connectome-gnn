@@ -552,6 +552,7 @@ class TrainingConfig(BaseModel):
     sparsity: Sparsity = Sparsity.NONE
     fix_cluster_embedding: bool = False
     embedding_cell_type_init: bool = False  # init model.a with equidistant points per cell type
+    embedding_cell_type_scale: float = 1.0  # scale factor applied to equidistant points radius
     fix_embedding: bool = False  # freeze model.a throughout training (requires_grad=False)
     cluster_method: ClusterMethod = ClusterMethod.DISTANCE_PLOT
     cluster_distance_threshold: float = 0.1
@@ -625,6 +626,7 @@ class TrainingConfig(BaseModel):
     coeff_missing_activity: float = 0  # Penalty for missing activity patterns
     coeff_model_a: float = 0  # Regularizer on embedding a
     coeff_model_b: float = 0  # Regularizer on bias b
+    coeff_embedding_cluster: float = 0.0  # pull same-cell-type embeddings toward their per-type centroid (L2)
 
     # -- f_theta linearity regularizer (unsupervised V_rest recovery) --
     coeff_f_theta_linearity: float = 0.0           # Penalize f_theta nonlinearity (0 = disabled)

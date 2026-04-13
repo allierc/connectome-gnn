@@ -272,8 +272,9 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
         if emb_dim != 2:
             _logger.warning(f'embedding_cell_type_init requires embedding_dim=2, got {emb_dim} — skipping')
         else:
+            scale = tc.embedding_cell_type_scale
             ex, ey = get_equidistant_points(n_types)
-            equidist_pts = np.stack([ex, ey], axis=1)  # (n_types, 2)
+            equidist_pts = np.stack([ex, ey], axis=1) * scale  # (n_types, 2)
             type_ids = type_list.squeeze(-1).long().cpu().numpy()  # (n_neurons,)
             with torch.no_grad():
                 model.a.copy_(torch.tensor(equidist_pts[type_ids], dtype=torch.float32, device=device))
@@ -376,8 +377,11 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
         n_neurons=n_neurons,
         trainer_type='flyvis',
         dataset=config.dataset,
+        type_list=type_list,
+        n_neuron_types=sim.n_neuron_types,
     )
     regularizer.set_activity_stats(x_ts, device)
+    regularizer.move_type_list_to_device(device)
 
     # Try to compile with torch.compile if enabled, but fall back to non-compiled if Triton fails
     if tc.torch_compile:

@@ -36,12 +36,13 @@ class LossRegularizer:
         'g_phi_diff', 'g_phi_norm', 'g_phi_weight', 'f_theta_weight',
         'f_theta_zero', 'f_theta_diff', 'f_theta_msg_diff', 'f_theta_msg_sign',
         'missing_activity', 'model_a', 'model_b',
-        'f_theta_linearity', 'f_theta_centering'
+        'f_theta_linearity', 'f_theta_centering',
+        'embedding_cluster',
     ]
 
     def __init__(self, train_config, model_config, activity_column: int,
                  plot_frequency: int, n_neurons: int, trainer_type: str = 'signal',
-                 dataset: str = None):
+                 dataset: str = None, type_list=None, n_neuron_types: int = 0):
         """
         Args:
             train_config: TrainingConfig with coeff_* values
@@ -57,6 +58,9 @@ class LossRegularizer:
         self.plot_frequency = plot_frequency
         self.n_neurons = n_neurons
         self.trainer_type = trainer_type
+        # type_list: (n_neurons,) long tensor on device — set by move_type_list_to_device()
+        self._type_ids_device = None if type_list is None else type_list.squeeze(-1).long()
+        self._n_neuron_types = n_neuron_types
 
         # Current epoch
         self.epoch = 0
@@ -91,6 +95,11 @@ class LossRegularizer:
         # f_theta linearity loss state (unsupervised — no gt V_rest needed)
         self._mu_activity = None
         self._sigma_activity = None
+
+    def move_type_list_to_device(self, device):
+        """Move type_ids to the training device. Call once after device is known."""
+        if self._type_ids_device is not None:
+            self._type_ids_device = self._type_ids_device.to(device)
 
     def set_activity_stats(self, x_ts, device):
         """Cache per-neuron activity statistics for linearity loss.
@@ -145,6 +154,7 @@ class LossRegularizer:
         self._coeffs['model_b'] = tc.coeff_model_b
         self._coeffs['f_theta_linearity'] = getattr(tc, 'coeff_f_theta_linearity', 0.0)
         self._coeffs['f_theta_centering'] = getattr(tc, 'coeff_f_theta_centering', 0.0)
+        self._coeffs['embedding_cluster'] = getattr(tc, 'coeff_embedding_cluster', 0.0)
 
     def set_epoch(self, epoch: int, plot_frequency: int = None, Niter: int = None):
         """Set current epoch and update coefficients."""
@@ -397,6 +407,26 @@ class LossRegularizer:
                 cent_term = cent_loss * _ct['f_theta_centering'] * rampup_weight
                 total_regul = total_regul + cent_term
                 self._add('f_theta_centering', cent_term)
+
+        # --- embedding cluster regularization ---
+        # Pull each neuron's embedding toward the centroid of its cell type.
+        # Centroid is computed on-the-fly from model.a so it drifts freely during training.
+        if (self._coeffs['embedding_cluster'] > 0
+                and self._type_ids_device is not None
+                and hasattr(model, 'a')
+                and model.a.requires_grad):
+            a = model.a  # (n_neurons, emb_dim)
+            t = self._type_ids_device  # (n_neurons,) long
+            emb_dim = a.shape[1]
+            n_types = self._n_neuron_types
+            sum_emb = torch.zeros(n_types, emb_dim, device=device)
+            sum_emb.scatter_add_(0, t.unsqueeze(-1).expand(-1, emb_dim), a)
+            count = torch.bincount(t, minlength=n_types).float().clamp(min=1).unsqueeze(-1)
+            mean_emb = sum_emb / count  # (n_types, emb_dim)
+            neuron_means = mean_emb[t]  # (n_neurons, emb_dim)
+            regul_term = (a - neuron_means).norm(2) * _ct['embedding_cluster']
+            total_regul = total_regul + regul_term
+            self._add('embedding_cluster', regul_term)
 
         return total_regul
 
