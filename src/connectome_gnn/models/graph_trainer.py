@@ -264,7 +264,6 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
     list_loss = []
 
     # Initialize embedding with equidistant points per cell type
-    print(f'[DEBUG] embedding_cell_type_init={tc.embedding_cell_type_init}, fix_embedding={tc.fix_embedding}')
     if tc.embedding_cell_type_init:
         from connectome_gnn.utils import get_equidistant_points
         n_types = sim.n_neuron_types
@@ -278,8 +277,6 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
             type_ids = type_list.squeeze(-1).long().cpu().numpy()  # (n_neurons,)
             with torch.no_grad():
                 model.a.copy_(torch.tensor(equidist_pts[type_ids], dtype=torch.float32, device=device))
-            print(f'[DEBUG] embedding init done: model.a min={model.a.min().item():.4f} max={model.a.max().item():.4f} mean={model.a.mean().item():.4f}')
-            print(f'[DEBUG] type_ids unique={np.unique(type_ids)}, equidist_pts[0]={equidist_pts[0]}')
             _logger.info(f'embedding initialized with equidistant points for {n_types} cell types')
 
     # Freeze embedding if requested (must be done before optimizer build)
