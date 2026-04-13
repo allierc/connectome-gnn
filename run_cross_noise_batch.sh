@@ -78,7 +78,7 @@ echo "============================================================"
 echo "All CV runs complete — printing comparison table"
 echo "============================================================"
 
-python "${REPO_DIR}/print_cv_comparison.py" \
+python "${REPO_DIR}/scripts/print_cv_comparison.py" \
     --output_root "${DATA_ROOT}" \
     --labels  "${LABELS[@]}" \
     --configs "${BASE_NAMES[@]}"
