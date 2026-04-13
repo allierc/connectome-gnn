@@ -263,6 +263,29 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
     model, start_epoch = build_model(config, device, checkpoint_path=checkpoint_path, reset_epoch=reset_epoch)
     list_loss = []
 
+    # Initialize embedding with equidistant points per cell type
+    print(f'[DEBUG] embedding_cell_type_init={tc.embedding_cell_type_init}, fix_embedding={tc.fix_embedding}')
+    if tc.embedding_cell_type_init:
+        from connectome_gnn.utils import get_equidistant_points
+        n_types = sim.n_neuron_types
+        emb_dim = config.graph_model.embedding_dim
+        if emb_dim != 2:
+            _logger.warning(f'embedding_cell_type_init requires embedding_dim=2, got {emb_dim} — skipping')
+        else:
+            ex, ey = get_equidistant_points(n_types)
+            equidist_pts = np.stack([ex, ey], axis=1)  # (n_types, 2)
+            type_ids = type_list.squeeze(-1).long().cpu().numpy()  # (n_neurons,)
+            with torch.no_grad():
+                model.a.copy_(torch.tensor(equidist_pts[type_ids], dtype=torch.float32, device=device))
+            print(f'[DEBUG] embedding init done: model.a min={model.a.min().item():.4f} max={model.a.max().item():.4f} mean={model.a.mean().item():.4f}')
+            print(f'[DEBUG] type_ids unique={np.unique(type_ids)}, equidist_pts[0]={equidist_pts[0]}')
+            _logger.info(f'embedding initialized with equidistant points for {n_types} cell types')
+
+    # Freeze embedding if requested (must be done before optimizer build)
+    if tc.fix_embedding:
+        model.a.requires_grad_(False)
+        _logger.info('embedding is fixed (requires_grad=False, excluded from optimizer)')
+
     # W init mode info
     w_init_mode = getattr(tc, 'w_init_mode', 'randn')
     if w_init_mode != 'randn':
