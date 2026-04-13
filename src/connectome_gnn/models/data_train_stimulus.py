@@ -1,7 +1,8 @@
 """Training loop for the stimulus-only baseline model.
 
-Predicts voltage at time t from the past tw frames of stimulus alone.
-No dependence on past voltage/activity — each prediction is independent.
+Predicts voltage at time t from tw frames of stimulus ending at t (inclusive):
+stim[t-tw+1 : t+1]. No dependence on past voltage/activity — each prediction
+is independent.
 """
 
 import os
@@ -22,15 +23,17 @@ _logger = get_logger(__name__)
 def _gather_stim_context(stimulus_unfolded, t_indices, tw):
     """Gather stimulus context windows for a batch of time indices.
 
+    For target v(t), returns stim[t-tw+1 : t+1] (tw frames ending at t inclusive).
+
     Args:
         stimulus_unfolded: (T - tw + 1, tw, n_input) from stimulus.unfold(0, tw, 1).transpose(1,2)
-        t_indices: (B,) time indices (each >= tw)
+        t_indices: (B,) time indices (each >= tw - 1)
         tw: time window size (scalar tensor on same device)
 
     Returns:
         stim_context: (B, tw, n_input)
     """
-    return stimulus_unfolded[t_indices - tw]
+    return stimulus_unfolded[t_indices - tw + 1]
 
 
 def _compute_loss(model, voltage, stimulus_unfolded, t_indices, tw):
@@ -41,12 +44,10 @@ def _compute_loss(model, voltage, stimulus_unfolded, t_indices, tw):
     return F.mse_loss(pred, target)
 
 
-try:
-    _compute_loss_compiled = torch.compile(
-        _compute_loss, fullgraph=True, mode="reduce-overhead"
-    )
-except Exception:
-    _compute_loss_compiled = _compute_loss
+
+_compute_loss_compiled = torch.compile(
+    _compute_loss, fullgraph=True, mode="reduce-overhead"
+)
 
 
 def data_train_stimulus(config, erase, best_model, device, log_file=None):
@@ -127,9 +128,11 @@ def data_train_stimulus(config, erase, best_model, device, log_file=None):
     data_passes_per_epoch = tc.data_augmentation_loop
     n_epochs = tc.n_epochs
 
-    # Valid frame range: tw_int <= t < n_train_frames
+    # Valid frame range: (tw_int - 1) <= t < n_train_frames
+    # With context window stim[t-tw+1 : t+1], need t-tw+1 >= 0 i.e. t >= tw-1
     max_frame = n_train_frames - 1
-    batches_per_epoch = int((n_train_frames - tw_int) * data_passes_per_epoch / batch_size)
+    min_frame = tw_int - 1
+    batches_per_epoch = int((n_train_frames - min_frame) * data_passes_per_epoch / batch_size)
 
     _logger.info(f'batch_size: {batch_size}, data_passes_per_epoch: {data_passes_per_epoch}')
     _logger.info(f'batches_per_epoch: {batches_per_epoch}, n_epochs: {n_epochs}')
@@ -154,7 +157,7 @@ def data_train_stimulus(config, erase, best_model, device, log_file=None):
 
         pbar = trange(batches_per_epoch, ncols=120, desc=f'epoch {epoch+1}/{n_epochs}')
         for _ in pbar:
-            t_indices = torch.randint(tw_int, max_frame + 1, (batch_size,), device=device)
+            t_indices = torch.randint(min_frame, max_frame + 1, (batch_size,), device=device)
 
             optimizer.zero_grad()
             loss = _compute_loss_compiled(
