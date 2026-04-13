@@ -256,11 +256,9 @@ def run_cv(config_name, seeds):
 
         # ---------------------------------------------------------------
         # Step 4: Parameter recovery — analyse re-trained YouTube-VOS model
+        # (data_plot only: W R², tau R², V_rest R², clustering from model params)
         # ---------------------------------------------------------------
-        print(f"\033[96m  [4/4] analysing re-trained YouTube-VOS model ...\033[0m")
-        data_test(config=fold_config, visualize=True, style="color name continuous_slice",
-                  verbose=False, best_model='best', run=0, step=10,
-                  n_rollout_frames=250, device=device)
+        print(f"\033[96m  [4/4] extracting parameters from re-trained YouTube-VOS model ...\033[0m")
         data_plot(config=fold_config, epoch_list=['best'], style='color', extended='plots',
                   device=device, apply_weight_correction=True, skip_svd=True)
 
