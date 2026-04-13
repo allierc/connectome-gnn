@@ -61,6 +61,7 @@ class LossRegularizer:
         # type_list: (n_neurons,) long tensor on device — set by move_type_list_to_device()
         self._type_ids_device = None if type_list is None else type_list.squeeze(-1).long()
         self._n_neuron_types = n_neuron_types
+        self._type_count = None  # (n_types, 1) float, precomputed in move_type_list_to_device
 
         # Current epoch
         self.epoch = 0
@@ -100,6 +101,12 @@ class LossRegularizer:
         """Move type_ids to the training device. Call once after device is known."""
         if self._type_ids_device is not None:
             self._type_ids_device = self._type_ids_device.to(device)
+            # Precompute per-type neuron counts — static shape, avoids bincount at runtime
+            t = self._type_ids_device
+            n = self._n_neuron_types
+            self._type_count = torch.zeros(n, 1, device=device).scatter_add_(
+                0, t.unsqueeze(-1), torch.ones(t.shape[0], 1, device=device)
+            ).clamp(min=1)  # (n_types, 1)
 
     def set_activity_stats(self, x_ts, device):
         """Cache per-neuron activity statistics for linearity loss.
@@ -421,8 +428,7 @@ class LossRegularizer:
             n_types = self._n_neuron_types
             sum_emb = torch.zeros(n_types, emb_dim, device=device)
             sum_emb.scatter_add_(0, t.unsqueeze(-1).expand(-1, emb_dim), a)
-            count = torch.bincount(t, minlength=n_types).float().clamp(min=1).unsqueeze(-1)
-            mean_emb = sum_emb / count  # (n_types, emb_dim)
+            mean_emb = sum_emb / self._type_count  # (n_types, emb_dim)
             neuron_means = mean_emb[t]  # (n_neurons, emb_dim)
             regul_term = (a - neuron_means).norm(2) * _ct['embedding_cluster']
             total_regul = total_regul + regul_term
