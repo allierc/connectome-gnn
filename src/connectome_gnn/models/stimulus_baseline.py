@@ -5,6 +5,7 @@ any model that cannot beat this is not learning dynamics beyond what the
 stimulus trajectory already encodes.
 
 Architecture:
+    v(t) = Predictor(flatten(StimEncoder(stim[t-tw+1 : t+1])))
     stimulus_encoder: MLP(n_input_neurons -> stim_latent_dims)  [per-frame]
     predictor:        MLP(tw * stim_latent_dims -> n_neurons)
 """

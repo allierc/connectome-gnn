@@ -270,9 +270,9 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
 
             if 'stimulus' in model_config.signal_model_name.lower():
                 tw = tc.time_window
-                if k < tw:
+                if k < tw - 1:
                     continue
-                stim_ctx = x_ts_eval.stimulus[k-tw:k, :sim.n_input_neurons].unsqueeze(0)
+                stim_ctx = x_ts_eval.stimulus[k-tw+1:k+1, :sim.n_input_neurons].unsqueeze(0)
                 pred = model.predict_voltage(stim_ctx).squeeze(0)
                 all_pred.append(to_numpy(pred))
                 all_true.append(to_numpy(x_ts_eval.voltage[k]))
@@ -361,8 +361,8 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
             # Model prediction
             if 'stimulus' in model_config.signal_model_name.lower():
                 tw = tc.time_window
-                if k >= tw:
-                    stim_ctx = x_ts_eval.stimulus[k-tw:k, :sim.n_input_neurons].unsqueeze(0)
+                if k >= tw - 1:
+                    stim_ctx = x_ts_eval.stimulus[k-tw+1:k+1, :sim.n_input_neurons].unsqueeze(0)
                     x.voltage = model.predict_voltage(stim_ctx).squeeze(0)
                 # No Euler integration — voltage set directly
             elif 'rnn' in model_config.signal_model_name.lower():
