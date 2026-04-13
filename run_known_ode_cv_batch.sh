@@ -13,11 +13,11 @@
 #   flyvis_noise_005_null_edges_pc_400_known_ode_winner  0.05  434 112+1.7M null  0.8934 / 0.8722 mean (4-seed)
 #   flyvis_noise_005_removed_pc_20_known_ode_winner 0.05    425 430 (−2%)     0.9682 / 0.9542 mean (4-seed)
 #
-# Phase 2 (zero-shot DAVIS→YouTube test) is SKIPPED: no pre-trained DAVIS
-# known_ode models exist for these winner configs.
+# Phase 2 (zero-shot DAVIS→YouTube test) runs automatically when a pre-trained
+# DAVIS model is found; skipped automatically if no model exists.
 #
 # Submit to cluster:
-#   bsub -n 8 -gpu "num=1" -q gpu_a100 -W 72000 < run_known_ode_cv_batch.sh
+#   bsub -n 2 -gpu "num=1" -q gpu_a100 -W 600 -Is   < run_known_ode_cv_batch.sh
 #
 # Or run interactively:
 #   bash run_known_ode_cv_batch.sh
@@ -54,7 +54,6 @@ for cfg in "${CONFIGS[@]}"; do
     python "${REPO_DIR}/GNN_Main.py" \
         -o cv "${cfg}" \
         --n_seeds "${N_SEEDS}" \
-        --skip_phase2 \
         --output_root "${DATA_ROOT}"
     echo "Done: $(basename ${cfg})  ($(date))"
 done
