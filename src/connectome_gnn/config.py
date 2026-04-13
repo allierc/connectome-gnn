@@ -551,6 +551,8 @@ class TrainingConfig(BaseModel):
     sparsity_freq: int = 5
     sparsity: Sparsity = Sparsity.NONE
     fix_cluster_embedding: bool = False
+    embedding_cell_type_init: bool = False  # init model.a with equidistant points per cell type
+    fix_embedding: bool = False  # freeze model.a throughout training (requires_grad=False)
     cluster_method: ClusterMethod = ClusterMethod.DISTANCE_PLOT
     cluster_distance_threshold: float = 0.1
     cluster_connectivity: ClusterConnectivity = ClusterConnectivity.SINGLE
