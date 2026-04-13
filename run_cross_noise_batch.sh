@@ -12,9 +12,9 @@
 #   null_edges_pc_400        0.05   +400%       434 112 + 1 736 448
 #   flyvis_cmp_removed_pc_20  0.05  none        347 290  (20% removed)
 #
-# Phase 2 (zero-shot DAVIS→YouTube test) is SKIPPED: no pre-trained DAVIS
-# models exist for the new cmp_* configs.  Only Phase 1 (generate YouTube-VOS
-# data) and Phase 3 (retrain + parameter extraction) are run.
+# Phase 2 (zero-shot DAVIS→YouTube test) runs automatically when a pre-trained
+# DAVIS model is found; it is skipped gracefully otherwise (e.g. cmp_* configs
+# that have not yet been trained on DAVIS data).
 #
 # At the end a comparison table is printed and saved to
 #   {DATA_ROOT}/log/cv_comparison_table.txt
@@ -51,7 +51,7 @@ BASE_NAMES=(
 )
 
 echo "============================================================"
-echo "CV comparison (Phase 1+3 only) — $(date)"
+echo "CV comparison — $(date)"
 echo "Repo:      ${REPO_DIR}"
 echo "Data root: ${DATA_ROOT}"
 echo "Conditions: ${#CONFIGS[@]}   Seeds per condition: ${N_SEEDS}"
@@ -68,7 +68,6 @@ for i in "${!CONFIGS[@]}"; do
     python "${REPO_DIR}/GNN_Main.py" \
         -o cv "${cfg}" \
         --n_seeds "${N_SEEDS}" \
-        --skip_phase2 \
         --output_root "${DATA_ROOT}"
     echo "Done: ${label}  ($(date))"
 done

@@ -233,9 +233,15 @@ def run_cv(config_name, seeds, skip_phase2=False):
     # ===================================================================
     # PHASE 2 — Zero-shot generalisation: DAVIS model → YouTube-VOS folds
     # ===================================================================
-    if skip_phase2:
+    # Auto-detect whether a DAVIS model exists (skip phase 2 gracefully if not)
+    davis_models_dir = os.path.join(base_log_dir, 'models')
+    davis_model_exists = os.path.isdir(davis_models_dir) and any(
+        f.endswith('.pt') for f in os.listdir(davis_models_dir)
+    )
+    if skip_phase2 or not davis_model_exists:
+        reason = "--skip_phase2" if skip_phase2 else "no pre-trained DAVIS model found"
         print(f"\n\033[93m{'='*70}\033[0m")
-        print(f"\033[93mPHASE 2/3 — SKIPPED (--skip_phase2): no pre-trained DAVIS model required\033[0m")
+        print(f"\033[93mPHASE 2/3 — SKIPPED ({reason})\033[0m")
         print(f"\033[93m{'='*70}\033[0m")
     else:
         print(f"\n\033[94m{'='*70}\033[0m")
