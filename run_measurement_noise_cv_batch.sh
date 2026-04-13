@@ -11,7 +11,7 @@
 #   flyvis_noise_005_010_known_ode_winner 0.05       0.10        0.784 (4-seed CV=0.38%)
 #
 # Submit to cluster:
-#   bsub -n 8 -gpu "num=1" -q gpu_a100 -W 36000 < run_measurement_noise_cv_batch.sh
+#   bsub -n 8 -gpu "num=1" -q gpu_a100 -W 6000 -Is < run_measurement_noise_cv_batch.sh
 #
 # Or run interactively:
 #   bash run_measurement_noise_cv_batch.sh

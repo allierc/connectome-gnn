@@ -2,7 +2,7 @@
 # Sequential CV pipeline for multiple flyvis configs.
 #
 # Submit to cluster (adjust walltime as needed):
-#   bsub -n 8 -gpu "num=1" -q gpu_a100 -W 36000 < run_cv_batch.sh
+#   bsub -n 2 -gpu "num=1" -q gpu_a100 -W 600 -Is  < run_cv_batch.sh
 #
 # Or run interactively:
 #   bash run_cv_batch.sh

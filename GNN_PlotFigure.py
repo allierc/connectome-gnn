@@ -602,6 +602,11 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
     # Prevent propagation to root logger (which might have console handlers)
     logger.propagate = False
 
+    # Clear metrics.txt at the start so all subsequent append-writes start fresh
+    _metrics_path = os.path.join(log_dir, 'results', 'metrics.txt')
+    if os.path.exists(_metrics_path):
+        os.remove(_metrics_path)
+
     print(f'experiment description: {config.description}')
     logger.info(f'experiment description: {config.description}')
 
@@ -2120,10 +2125,11 @@ def analyze_neuron_type_reconstruction(config, model, edges, true_weights, gt_ta
     if "vrest" in panels:
         logger.info(f"mean V_rest RMSE: {np.mean(rmse_vrests):.3f} ± {np.std(rmse_vrests):.3f}")
 
-    # Write clean key-value metrics file
+    # Write key-value metrics — use append so clustering_accuracy written
+    # earlier by _plot_synaptic_linear / plot_synaptic is not overwritten.
     metrics_path = os.path.join(log_dir, 'results', 'metrics.txt')
     if r_squared is not None:
-        with open(metrics_path, 'w') as mf:
+        with open(metrics_path, 'a') as mf:
             mf.write(f"W_corrected_R2: {r_squared:.4f}\n")
             mf.write(f"W_corrected_slope: {slope_corrected:.4f}\n")
             if "tau" in panels:

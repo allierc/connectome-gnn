@@ -20,7 +20,7 @@
 #   {DATA_ROOT}/log/cv_comparison_table.txt
 #
 # Submit to cluster:
-#   bsub -n 8 -gpu "num=1" -q gpu_a100 -W 36000 < run_cross_noise_batch.sh
+#   bsub -n 2 -gpu "num=1" -q gpu_a100 -W 600 -Is < run_cross_noise_batch.sh
 #
 # Or run interactively:
 #   bash run_cross_noise_batch.sh

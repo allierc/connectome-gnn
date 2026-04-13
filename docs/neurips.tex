@@ -1,0 +1,211 @@
+\documentclass{article}
+
+\usepackage{neurips_2026}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{nicefrac}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{graphicx}
+
+\newcommand{\comment}[1]{\textcolor{orange}{[#1]}}
+
+
+\title{Graph neural networks recover interpretable circuit models from neural activity}
+
+\author{%
+  First Author \\
+  Department / Institution \\
+  \texttt{first@example.com} \\
+  % \And
+  % Second Author \\
+  % Department / Institution \\
+  % \texttt{second@example.com} \\
+}
+
+\begin{document}
+
+
+\maketitle
+
+
+\begin{abstract}
+
+Synapse-level connectomes describe the structure of circuits, but not the electrical and chemical dynamics.  Conversely, large-scale recordings of neural activity capture these dynamics, but not the circuit structure.  We asked whether combining binary connectivity and recorded neural activity can be used to infer mechanistic models of neural circuits.  We trained a graph neural network model (GNN) to forecast the activity of \emph{Drosophila} visual system simulations.  Trained on activity trajectories in response to visual inputs, the model recovers effective connectivity weights, neuron types, and nonlinear activation functions, even when 400\% random connections are added to the adjacency matrix.  Moreover, it correctly predicts causal effects of connection removal, demonstrating the ability to infer mechanistic dependencies directly from activity data.
+
+\section{Introduction}
+\begin{itemize}
+\item Learning dynamics from neural data
+\item build on previous GNN framework tested on case studies, not biologically realistic 
+\item Flyvis and Flywire more realistic (sparse, Dale law, structured, large, ...)
+\item landscape of simulations -> many conditions, solutions, parameters -> agent in the loop HPO
+\item benchmark shows good activity prediction but is not learning mechanistic model
+\end{itemize}
+
+
+\section{Related work}
+
+
+Prior studies were successful in retrieving functional connectivity, functional properties of neurons, or predictive models of neural activity at the population level, but a method to infer an interpretable mechanistic model of complex neural assemblies is yet missing. \citet{mi_connectome-constrained_2021} infer the hidden voltage dynamics and functional connectivity from calcium recordings of parts of the \emph{C. elegans} nervous system using a simple biophysical neuron model.  While its predictive performance is modest, it demonstrates that integrating real activity recordings with connectivity can yield experimentally testable predictions beyond simulation.  \citet{pospisil_fly_2024} used the connectome of \emph{Drosophila melanogaster} \citep{dorkenwald_neuronal_2024} to create simulations of full brain activity and inferred effective connectivity from known perturbations of individual neurons with a simple linear model.  Lacking information about connectivity, \citet{wang_foundation_2025} trained a foundation model of mouse visual cortex activity on real two-photon recordings from 135,000 neurons, which predicts responses to both natural videos and out-of-distribution stimuli across animals.
+\citet{prasse_predicting_2022} focus on accurate prediction without recovering connectivity while \citet{yu_discovering_2025} infer symbolic dynamical equations without validating connectivity weights. Both work with simulated data and do not learn neuronal heterogeneity.
+
+Our method learns the functional properties of individual neurons and their connections, enabling transfer of the learned dynamics to different network configurations with modified connectivity or different neuron type compositions.
+
+\subsubsection*{Simulations}
+We simulated neural activity in the \emph{Drosophila} visual system using \textit{flyvis}' pretrained models \cite{lappalainen_connectome-constrained_2024}. The recurrent neural network contains $13{,}741$ neurons from $65$ cell types and $434{,}122$ synaptic connections. We restricted the original $721$ retinotopic columns to the central subset of $217$. Each neuron is modeled as a non-spiking compartment governed by
+\begin{equation}
+\tau_i\frac{dv_i(t)}{dt} = -v_i(t) + V_i^{\text{rest}}
++ \sum_{j\in\mathcal{N}_i}\mathbf{W}_{ij}\,\text{ReLU}\!\big(v_j(t)\big)
++ I_i(t) + \sigma\,\xi_i(t),
+\label{eq:simulated_update}
+\end{equation}
+where $\tau_i$ and $V_i^{\mathrm{rest}}$ are cell-type parameters, $\mathbf{W}_{ij}$ is the connectome-constrained synaptic weight, $I_i(t)$ the visual input, and $\xi_i(t)\sim\mathcal{N}(0,1)$ is independent Gaussian noise scaled by $\sigma$. Unlike measurement noise added post hoc, this intrinsic noise perturbs the dynamical trajectory of $v_i(t)$ and propagates through $\mathbf{W}$, widening the distribution of visited voltages and enriching the training signal. We generated data at three noise levels: $\sigma\in\{0,\,0.05,\,0.5\}$.
+
+\comment{Janne complete with Flywirte model}
+
+Visual inputs are derived from the DAVIS dataset \cite{davis1,davis2} \comment{Vijay add YouTube-VOS, discuss training/test/validation}, natural video sequences center-cropped to $60\%$, converted to grayscale, and resampled onto the hexagonal photoreceptor lattice of $217$ columns via a Gaussian box-eye filter, giving $1{,}736$ input neurons ($8$ photoreceptor types R1--R8 per column). Sequences are augmented with horizontal/vertical flips and four rotations ($0°, 90°, 180°, 270°$), and split $80/20$ into train/validation without leakage. 
+
+
+
+\subsubsection*{Graph neural network model}
+We approximate the simulated voltage dynamics by a message-passing GNN \cite{gilmer_neural_2017}
+\begin{equation}
+\frac{d\hat{v}_i(t)}{dt}
+= f_\theta\!\Big(v_i(t),\,\mathbf{a}_i,\,
+\sum_{j\in\mathcal{N}_i} \widehat{\mathbf{W}}_{ij}\,
+g_\phi\!\big(v_j(t),\mathbf{a}_j\big)^2,\,
+I_i(t)\Big).
+\label{eq:gnn_ct}
+\end{equation}
+Nodes of the GNN correspond to neurons and edges correspond to functional synaptic connections. The GNN learns a latent embedding $\mathbf{a}_i\in\mathbb{R}^2$ for each neuron $i$, giving each neuron a compact latent identity to capture cell-type-specific properties (like time constants and nonlinearities). Neuron update $f_\theta=\text{MLP}_0$ and edge message $g_\phi=\text{MLP}_1$ are three-layer perceptrons (width $64$, ReLU, linear output). $g_\phi$ maps presynaptic inputs $v_j$ to nonnegative messages (via squaring) depending on neural embedding $\mathbf{a}_j$, weighted by $\widehat{\mathbf{W}}_{ij}$. $f_\theta$ processes the postsynaptic voltage $v_i$, aggregated input, and external input $I_i(t)$ to predict $d\hat{v}_i(t)/dt$, depending on neural embedding $\mathbf{a}_i$. During training, inputs $I_i(t)$, adjacency $\mathcal{N}_i$, and activity $v_i(t)$ are given. The MLPs, $\widehat{\mathbf{W}}_{ij}$, and $\mathbf{a}_i$ are optimized by minimizing
+\begin{equation}
+\mathcal{L}_{\mathrm{pred}} = \sum_{i,t}\|\hat{y}_i(t) - y_i(t)\|_2
+\label{eq:loss_pred}
+\end{equation}
+between simulator $y_i(t)=dv_i(t)/dt$ and GNN predictions $\hat{y}_i(t)=d\hat{v}_i(t)/dt$.
+
+\subsubsection*{Regularization}
+Many synaptic weight configurations give rise to identical neural activity, making the recovery of $\widehat{\mathbf{W}}$ from voltage traces alone fundamentally non-unique. We constrain the solution space by adding regularization terms to $\mathcal{L}_{\mathrm{pred}}$ 
+\begin{eqnarray}
+\mathcal{L} &=& \mathcal{L}_{\mathrm{pred}}
++ \lambda_0\|\theta\|_1 + \lambda_1\|\phi\|_1
++ \gamma_0\|\widehat{\mathbf{W}}\|_1 + \gamma_1\|\widehat{\mathbf{W}}\|_2 \nonumber\\
+&& +\; \mu_0\!\left\|\mathrm{ReLU}\!\left(-\tfrac{\partial\,g_\phi(v,\mathbf{a})}{\partial v}\right)\right\|_2
++ \mu_1\|g_\phi(v_\star,\mathbf{a})-v_\star\|_2.
+\label{eq:loss_full}
+\end{eqnarray}
+The $\ell_1$ penalties on $\theta$ and $\phi$ promote sparsity in the MLP weights, biasing $f_\theta$ and $g_\phi$ toward simpler functions. The $\ell_2$ penalties prevent weight explosion and stabilize training. The $\ell_1$ term $\gamma_0$ promotes sparse effective connectivity, while the $\ell_2$ term $\gamma_1$ penalizes large synaptic weights. The monotonicity term penalizes negative slopes of $g_\phi$ with respect to $v$, encoding the prior that synaptic drive increases with presynaptic voltage. The normalization term anchors $g_\phi$ at a reference voltage $v_\star$, removing the scale degeneracy between $g_\phi$ and $\widehat{\mathbf{W}}$. The coefficients $\lambda_0,\lambda_1,\gamma_0,\gamma_1,\mu_0,\mu_1$ are hyperparameters tuned via the agentic optimization procedure described below.
+
+\subsubsection*{Agent in the loop hyper-parameters optimization}
+The combined space of simulations and training parameters is too large to be explored 
+with a grid search. Instead we deployed a closed-loop system 
+where a Claude Code agent interpreted experiment results, maintained a structured 
+research summary, and proposed next intervention on the simulation and/or machine learning parameters. The primary optimization target is either identifiability of the connectivity weights or rollout prediction accuracy. The agent is instructed to perform scientific reasoning: testable hypotheses must be drawn, repeatable experiments are conducted to validate or falsify them. The agent can only hypothesize, he can not predict the outcome of a model training. Only training results can validate or falsify the hypotheses. 
+
+
+\subsubsection*{Benchmark}
+
+In the \texttt{Known-ODE} baseline, both the ODE and the ReLU activation are fixed to the ground-truth form (Eq.~\ref{eq:simulated_update}). The per-neuron time constants
+$\hat{\tau}_i$, resting potentials $\hat{V}_i^{\mathrm{rest}}$, and synaptic
+weights $\widehat{W}_{ij}$ are learnable.  In comparison with the GNN form Eq.~\ref{eq:gnn_ct}), there are no MLP modules and no
+latent embeddings.
+
+
+
+
+
+\section{Results}
+
+\begin{itemize}
+\item noise free, noise 0.05, noise 0.5
+\item rollout with without noise
+\item ablation edges -> mechanistic test
+\item parameter extraction - embedding type given \textbf{NEW}
+\item unique config (400K extra edges) test on all conditions
+\item ablation test
+\item joint learning GNN + stimuli
+\item extra edges +1.6M
+\item missing edges 20\%
+\item measurement noise \textbf{NEW}
+\item partial data 1/5 frames only \textbf{NEW}
+\item partial data 10\% neurons removed \textbf{NEW}
+\item benchmark Known-ODE MLP EED  \textbf{NEW}
+\end{itemize}
+
+\newcommand{\good}[1]{\textcolor{green!50!black}{#1}}
+
+\begin{table}[h]
+\centering
+\caption{Five-fold cross-validation results across noise levels and connectivity
+conditions (mean~$\pm$~SD, $n{=}5$ seeds).
+Prediction: the DAVIS-trained model tested zero-shot on held-out
+YouTube-VOS folds; one-step and rollout Pearson~$r$ computed over 8\,000 test frames.
+Parameter recovery: model re-trained on each fold; $R^2_{\widehat{W}}$
+computed over all edges ($434\,112$ or more), $R^2_{\tau}$ and
+$R^2_{V^{\mathrm{rest}}}$ over $13\,741$ neurons, and GMM clustering accuracy
+over $65$ cell types.
+\textcolor{green!50!black}{Green}: value $>0.9$.}
+\label{tab:cv_results}
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lccrrrrrr}
+\toprule
+& & & \multicolumn{2}{c}{prediction} & \multicolumn{4}{c}{parameter recovery} \\
+\cmidrule(lr){4-5}\cmidrule(lr){6-9}
+condition & $\sigma$ & edges
+  & one-step $r$ & rollout $r$
+  & $R^2_{\widehat{W}}$ & $R^2_{\tau}$ & $R^2_{V^{\mathrm{rest}}}$ & cluster\ acc. \\
+\midrule
+noise-free   & $0$    & 434\,112
+  & \good{$0.99{\pm}0.00$} & \good{$0.99{\pm}0.00$}
+  & \good{$0.92{\pm}0.01$} & $0.43{\pm}0.34$ & $0.07{\pm}0.02$ & $0.78{\pm}0.02$ \\
+noise $0.05$ & $0.05$ & 434\,112
+  & \good{$0.98{\pm}0.00$} & \good{$0.98{\pm}0.00$}
+  & \good{$0.96{\pm}0.04$} & \good{$0.99{\pm}0.00$} & $0.44{\pm}0.18$ & $0.84{\pm}0.03$ \\
+noise $0.5$  & $0.5$  & 434\,112
+  & \good{$0.99{\pm}0.00$} & \good{$0.99{\pm}0.00$}
+  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \good{$0.98{\pm}0.01$} & \good{$0.90{\pm}0.01$} \\
+$+400\%$ null edges & $0.05$ & 2\,170\,560
+  & & & & & & \\[2pt]
+$-20\%$ edges removed & $0.05$ & 347\,290
+  & & & & & & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+\section{Discussion}
+\begin{itemize}
+\item The present framework propose a set of neural activity data, ML models and standardized test to developp and assess learning neural dynamics from data
+\item prediction activity together with parameters extraction is a necessary (standard) to assess dynamics learning: good prediction but not good model, not good prediction but good model
+\item we stress that measurement noise, partial data are current bottlenecks of the approach
+\end{itemize}
+
+\section{Conclusion}
+
+\begin{ack}
+  % Remove this section for anonymous submission.
+\end{ack}
+
+% \section*{References}
+
+{\small
+\bibliographystyle{plainnat}
+\bibliography{references}
+}
+
+\appendix
+
+\section{Additional results}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\newpage
+\input{checklist.tex}
+
+\end{document}
