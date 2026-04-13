@@ -245,6 +245,7 @@ def run_cv(config_name, seeds, skip_phase2=False):
             print(f"\033[96m  fold {i+1}/{len(seeds)} (seed={seed}) — testing DAVIS model on YouTube-VOS fold ...\033[0m")
             davis_config = yaml_loader()
             davis_config.config_file = pre_folder + base_name  # load DAVIS trained model
+            davis_config.dataset     = pre_folder + base_config.dataset  # ensure fly/ prefix
             data_test(config=davis_config, visualize=False, best_model='best', run=0,
                       step=10, n_rollout_frames=250, device=device,
                       test_config=fold_config)   # test data from YouTube-VOS fold
