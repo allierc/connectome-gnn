@@ -524,6 +524,12 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     print(f"GMM (n_components={n_gmm}): accuracy={_r2_color(cluster_acc)}{cluster_acc:.3f}{_ANSI_RESET}, ARI={results['ari']:.3f}, NMI={results['nmi']:.3f}")
     logger.info(f"GMM n_components={n_gmm}, accuracy={cluster_acc:.3f}, ARI={results['ari']:.3f}, NMI={results['nmi']:.3f}")
 
+    metrics_path = os.path.join(log_dir, 'results', 'metrics.txt')
+    try:
+        with open(metrics_path, 'a') as mf:
+            mf.write(f"clustering_accuracy: {cluster_acc:.4f}\n")
+    except OSError:
+        pass
     if log_file:
         log_file.write(f"cluster_accuracy: {cluster_acc:.4f}\n")
 
