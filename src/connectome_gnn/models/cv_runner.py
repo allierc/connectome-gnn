@@ -1,13 +1,11 @@
 """Cross-validation runner for connectome-GNN.
 
-Four-step pipeline per fold:
-  1. Generate YouTube-VOS data (held-out, never seen during training)
-  2. Train a new model on that YouTube-VOS data
-  3. Test the ORIGINAL DAVIS-trained model on YouTube-VOS
-     → measures zero-shot generalisation (rollout r, one-step r)
-  4. Extract parameters from the re-trained YouTube-VOS model
-     → measures parameter recovery when trained on unseen data
-     (W R², tau R², V_rest R², clustering accuracy)
+Three-phase pipeline (run across all seeds before advancing):
+  Phase 1 — Generate YouTube-VOS data for every fold.
+  Phase 2 — Zero-shot generalisation: test the ORIGINAL DAVIS-trained model on
+             each YouTube-VOS fold  (one_step_r, rollout_r).
+  Phase 3 — Train a new model on each fold then run rollout + parameter
+             extraction  (yt_one_step_r, yt_rollout_r, W R², tau R², …).
 
 All results are appended to results_cv.txt (paper audit log).
 
@@ -43,13 +41,13 @@ CV_DATAVIS_ROOTS = ["/groups/saalfeld/home/kumarv4/web_datasets/YouTube-VOS"]
 CV_SKIP_SHORT_VIDEOS = False  # YouTube-VOS has many short clips
 
 
-# Metrics from step 3: zero-shot generalisation (DAVIS model → YouTube-VOS data)
+# Metrics from phase 2: zero-shot generalisation (DAVIS model → YouTube-VOS data)
 GENERALIZATION_METRICS = [
     ('one_step_r', 'One-step r (DAVIS→YT)'),
     ('rollout_r',  'Rollout r  (DAVIS→YT)'),
 ]
 
-# Metrics from step 4: rollout + parameter recovery (model re-trained on YouTube-VOS)
+# Metrics from phase 3: rollout + parameter recovery (model re-trained on YouTube-VOS)
 RECOVERY_METRICS = [
     ('yt_one_step_r',     'One-step r (YT model→YT)'),
     ('yt_rollout_r',      'Rollout r  (YT model→YT)'),
@@ -124,7 +122,6 @@ def _mtime_str(path):
 def _save_barplot(all_metrics, config_name, seeds, cv_out_dir, n_done):
     n_gen = len(GENERALIZATION_METRICS)
     n_rec = len(RECOVERY_METRICS)
-    n_total = n_gen + n_rec
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 4),
                              gridspec_kw={'width_ratios': [n_gen, n_rec]})
@@ -169,7 +166,7 @@ def _save_barplot(all_metrics, config_name, seeds, cv_out_dir, n_done):
 # ---------------------------------------------------------------------------
 
 def run_cv(config_name, seeds):
-    """Run the 4-step CV pipeline for all seeds and append to results_cv.txt."""
+    """Run the 3-phase CV pipeline for all seeds and append to results_cv.txt."""
 
     # Resolve config path and loader
     if os.path.isabs(config_name) or os.path.isfile(config_name) or os.path.isfile(config_name + '.yaml'):
@@ -190,62 +187,54 @@ def run_cv(config_name, seeds):
     cv_out_dir = os.path.join(log_path(pre_folder + base_name), "results")
     os.makedirs(cv_out_dir, exist_ok=True)
 
+    base_log_dir = log_path(pre_folder + base_name)
+
     all_metrics = {key: [] for key, _ in ALL_METRICS}
 
+    # Build per-fold configs once — reused across all phases
+    fold_configs = []
     for i, seed in enumerate(seeds):
         run_name = f"{base_name}_cv{i:02d}"
-        sim_seed   = seed
-        train_seed = seed + 1000
-        print(f"\n\033[94m{'='*70}\033[0m")
-        print(f"\033[94mCV fold {i+1}/{len(seeds)}  sim_seed={sim_seed}  train_seed={train_seed}  ({run_name})\033[0m")
-        print(f"\033[94m  Steps: [1] generate YouTube-VOS  [2] train on YT  [3] DAVIS→YT rollout  [4] YT model params\033[0m")
+        fc = yaml_loader()
+        fc.simulation.seed           = seed
+        fc.training.seed             = seed + 1000
+        fc.dataset                   = pre_folder + run_name
+        fc.config_file               = pre_folder + run_name
+        fc.simulation.datavis_roots  = CV_DATAVIS_ROOTS
+        fc.simulation.skip_short_videos = CV_SKIP_SHORT_VIDEOS
+        fold_configs.append(fc)
 
-        fold_config = yaml_loader()
-        fold_config.simulation.seed  = sim_seed
-        fold_config.training.seed    = train_seed
-        fold_config.dataset          = pre_folder + run_name
-        fold_config.config_file      = pre_folder + run_name
-        fold_config.simulation.datavis_roots    = CV_DATAVIS_ROOTS
-        fold_config.simulation.skip_short_videos = CV_SKIP_SHORT_VIDEOS
-
-        fold_log_dir  = log_path(fold_config.config_file)
-        base_log_dir  = log_path(pre_folder + base_name)
-
-        # ---------------------------------------------------------------
-        # Step 1: Generate YouTube-VOS data (skip if already from YouTube-VOS)
-        # ---------------------------------------------------------------
+    # ===================================================================
+    # PHASE 1 — Generate YouTube-VOS data for all folds
+    # ===================================================================
+    print(f"\n\033[94m{'='*70}\033[0m")
+    print(f"\033[94mPHASE 1/3 — Generating YouTube-VOS data for all {len(seeds)} folds\033[0m")
+    print(f"\033[94m{'='*70}\033[0m")
+    for i, (seed, fold_config) in enumerate(zip(seeds, fold_configs)):
         graphs_dir = graphs_data_path(fold_config.dataset)
         if _yt_data_exists(graphs_dir):
-            print(f"\033[90m  [1/4] YouTube-VOS data already exists — skipping generation\033[0m")
+            print(f"\033[90m  fold {i+1}/{len(seeds)} (seed={seed}) — YouTube-VOS data already exists, skipping\033[0m")
         else:
-            print(f"\033[96m  [1/4] generating YouTube-VOS data ...\033[0m")
+            print(f"\033[96m  fold {i+1}/{len(seeds)} (seed={seed}) — generating YouTube-VOS data ...\033[0m")
             data_generate(fold_config, device=device, visualize=False, run_vizualized=0,
                           style="color", alpha=1, erase=True, save=True, step=100)
+            print(f"\033[92m  fold {i+1}/{len(seeds)} — generation done\033[0m")
 
-        # ---------------------------------------------------------------
-        # Step 2: Train new model on YouTube-VOS data (skip if model exists)
-        # ---------------------------------------------------------------
-        model_dir = os.path.join(fold_log_dir, "models")
-        model_exists = (os.path.isdir(model_dir) and
-                        any(f.startswith("best_model") for f in os.listdir(model_dir))
-                        ) if os.path.isdir(model_dir) else False
-        if model_exists:
-            print(f"\033[90m  [2/4] trained model already exists — skipping training\033[0m")
-        else:
-            print(f"\033[96m  [2/4] training on YouTube-VOS data ...\033[0m")
-            data_train(fold_config, device=device, erase=True)
-
-        # ---------------------------------------------------------------
-        # Step 3: Generalisation — DAVIS model tested on YouTube-VOS data
-        # ---------------------------------------------------------------
-        print(f"\033[96m  [3/4] generalisation test (DAVIS model → YouTube-VOS) ...\033[0m")
+    # ===================================================================
+    # PHASE 2 — Zero-shot generalisation: DAVIS model → YouTube-VOS folds
+    # ===================================================================
+    print(f"\n\033[94m{'='*70}\033[0m")
+    print(f"\033[94mPHASE 2/3 — Zero-shot rollout (DAVIS model → YouTube-VOS) for all {len(seeds)} folds\033[0m")
+    print(f"\033[94m{'='*70}\033[0m")
+    for i, (seed, fold_config) in enumerate(zip(seeds, fold_configs)):
+        print(f"\033[96m  fold {i+1}/{len(seeds)} (seed={seed}) — testing DAVIS model on YouTube-VOS fold ...\033[0m")
         davis_config = yaml_loader()
-        davis_config.config_file = pre_folder + base_name  # points to the trained DAVIS model
+        davis_config.config_file = pre_folder + base_name  # load DAVIS trained model
         data_test(config=davis_config, visualize=False, best_model='best', run=0,
                   step=10, n_rollout_frames=250, device=device,
                   test_config=fold_config)   # test data from YouTube-VOS fold
 
-        # Determine the test_suffix that data_test_gnn used
+        # Determine test_suffix used by data_test_gnn
         test_ds_short = fold_config.dataset.replace('flyvis_', '').replace('fly/', '')
         test_suffix   = f'_on_{test_ds_short}'
         one_step_r = parse_pearson_from_log(
@@ -254,12 +243,39 @@ def run_cv(config_name, seeds):
             os.path.join(base_log_dir, f'results_rollout{test_suffix}.log'))
         all_metrics['one_step_r'].append(one_step_r)
         all_metrics['rollout_r'].append(rollout_r)
-        print(f"\033[92m    generalisation — one_step_r={one_step_r:.4f}  rollout_r={rollout_r:.4f}\033[0m")
+        # Pad recovery metrics so lengths stay consistent for bar plot
+        for key, _ in RECOVERY_METRICS:
+            if len(all_metrics[key]) < i + 1:
+                all_metrics[key].append(float('nan'))
+        print(f"\033[92m    one_step_r={one_step_r:.4f}  rollout_r={rollout_r:.4f}\033[0m")
 
-        # ---------------------------------------------------------------
-        # Step 4: Re-trained YouTube-VOS model — rollout test + parameter extraction
-        # ---------------------------------------------------------------
-        print(f"\033[96m  [4/4] rollout + parameter extraction on re-trained YouTube-VOS model ...\033[0m")
+        _save_barplot(all_metrics, config_name, seeds, cv_out_dir, n_done=i + 1)
+
+    # ===================================================================
+    # PHASE 3 — Train new models + parameter extraction for all folds
+    # ===================================================================
+    print(f"\n\033[94m{'='*70}\033[0m")
+    print(f"\033[94mPHASE 3/3 — Training + parameter extraction for all {len(seeds)} folds\033[0m")
+    print(f"\033[94m{'='*70}\033[0m")
+    # Reset recovery metrics (were padded with nan during phase 2)
+    for key, _ in RECOVERY_METRICS:
+        all_metrics[key] = []
+
+    for i, (seed, fold_config) in enumerate(zip(seeds, fold_configs)):
+        fold_log_dir = log_path(fold_config.config_file)
+        model_dir    = os.path.join(fold_log_dir, "models")
+        model_exists = (os.path.isdir(model_dir) and
+                        any(f.startswith("best_model") for f in os.listdir(model_dir))
+                        ) if os.path.isdir(model_dir) else False
+
+        if model_exists:
+            print(f"\033[90m  fold {i+1}/{len(seeds)} (seed={seed}) — trained model already exists, skipping training\033[0m")
+        else:
+            print(f"\033[96m  fold {i+1}/{len(seeds)} (seed={seed}) — training on YouTube-VOS data ...\033[0m")
+            data_train(fold_config, device=device, erase=True)
+            print(f"\033[92m  fold {i+1}/{len(seeds)} — training done\033[0m")
+
+        print(f"\033[96m  fold {i+1}/{len(seeds)} (seed={seed}) — rollout test + parameter extraction ...\033[0m")
         data_test(config=fold_config, visualize=False, best_model='best', run=0,
                   step=10, n_rollout_frames=250, device=device)
         data_plot(config=fold_config, epoch_list=['best'], style='color', extended='plots',
@@ -283,27 +299,29 @@ def run_cv(config_name, seeds):
             else:
                 print(f"\033[91m    {key}: —\033[0m")
 
-        # ---------------------------------------------------------------
-        # Update bar plot and per-run summary after each fold
-        # ---------------------------------------------------------------
         _save_barplot(all_metrics, config_name, seeds, cv_out_dir, n_done=i + 1)
 
+        # Append per-fold row to cv_summary.txt
         summary_path = os.path.join(cv_out_dir, "cv_summary.txt")
         with open(summary_path, 'a') as f:
             if i == 0:
-                f.write(f"CV log: {config_name}\n")
+                f.write(f"\nCV log: {config_name}\n")
                 f.write(f"seeds (sim / train): {seeds} / {[s+1000 for s in seeds]}\n")
                 f.write("=" * 90 + "\n")
                 header = f"{'fold':<6} {'sim':<6} {'train':<6}" + \
                          "".join(f" {k:<22}" for k, _ in ALL_METRICS)
                 f.write(header + "\n")
                 f.write("-" * len(header) + "\n")
+            gen_r1 = all_metrics['one_step_r'][i] if i < len(all_metrics['one_step_r']) else float('nan')
+            gen_r2 = all_metrics['rollout_r'][i]   if i < len(all_metrics['rollout_r'])   else float('nan')
+            row_vals = [gen_r1, gen_r2] + [
+                all_metrics[k][-1] for k, _ in RECOVERY_METRICS
+            ]
             vals_str = "".join(
-                f" {all_metrics[key][-1]:>22.4f}" if not np.isnan(all_metrics[key][-1])
-                else f" {'—':>22}"
-                for key, _ in ALL_METRICS
+                f" {v:>22.4f}" if not np.isnan(v) else f" {'—':>22}"
+                for v in row_vals
             )
-            f.write(f"{i:<6} {sim_seed:<6} {train_seed:<6}{vals_str}\n")
+            f.write(f"{i:<6} {seed:<6} {seed+1000:<6}{vals_str}\n")
 
     # -------------------------------------------------------------------
     # Final summary statistics → cv_summary.txt
@@ -337,7 +355,7 @@ def run_cv(config_name, seeds):
     else:
         config_yaml_path = os.path.abspath(config_path(f"{config_file}.yaml"))
 
-    # DAVIS base model (used in step 3)
+    # DAVIS base model (used in phase 2)
     davis_model_candidates = sorted(_glob.glob(
         os.path.join(base_log_dir, "models", "best_model_with_*.pt")))
     davis_model = davis_model_candidates[-1] if davis_model_candidates else f"{base_log_dir}/models/ [not found]"
@@ -349,9 +367,9 @@ def run_cv(config_name, seeds):
         f.write(f"config:           {config_yaml_path}  [{_mtime_str(config_yaml_path)}]\n")
         f.write(f"cv_datavis:       {CV_DATAVIS_ROOTS[0]}\n")
         f.write(f"seeds (sim/train):{seeds} / {[s+1000 for s in seeds]}\n")
-        f.write(f"\n-- DAVIS model (step 3: zero-shot generalisation) --\n")
+        f.write(f"\n-- DAVIS model (phase 2: zero-shot generalisation) --\n")
         f.write(f"davis_model:      {davis_model}  [{_mtime_str(davis_model)}]\n")
-        f.write(f"\n-- Re-trained YouTube-VOS models (step 4: parameter recovery) --\n")
+        f.write(f"\n-- Re-trained YouTube-VOS models (phase 3: parameter recovery) --\n")
         for i, seed in enumerate(seeds):
             run_name  = f"{base_name}_cv{i:02d}"
             model_dir = os.path.join(log_path(pre_folder + run_name), "models")

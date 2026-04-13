@@ -1400,6 +1400,8 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
         log_f.write(f'train_videos: {train_video_names}\n')
         log_f.write(f'test_videos: {test_video_names}\n')
         log_f.write(f'visual_input_type: {sim.visual_input_type}\n')
+        if sim.datavis_roots:
+            log_f.write(f'datavis_roots: {sim.datavis_roots}\n')
         log_f.write(f'noise_model_level: {sim.noise_model_level}\n')
         log_f.write(f'measurement_noise_level: {sim.measurement_noise_level}\n')
         log_f.write(f'model_id: {sim.model_id}\n')
