@@ -233,17 +233,19 @@ if __name__ == "__main__":
             # Optional: load a second config for cross-dataset test data
             test_config = None
             if test_config_name:
-                if os.path.isfile(test_config_name):
-                    tc_parent = os.path.basename(os.path.dirname(os.path.abspath(test_config_name)))
+                # Accept paths with or without .yaml extension
+                tc_yaml = test_config_name if test_config_name.endswith('.yaml') else test_config_name + '.yaml'
+                if os.path.isfile(tc_yaml):
+                    tc_parent = os.path.basename(os.path.dirname(os.path.abspath(tc_yaml)))
                     tc_pre = tc_parent + "/" if tc_parent else ""
                     validate_pre_folder(tc_pre)
-                    test_config = NeuralGraphConfig.from_yaml(test_config_name)
+                    test_config = NeuralGraphConfig.from_yaml(tc_yaml)
                     if not test_config.dataset.startswith(tc_pre):
                         test_config.dataset = tc_pre + test_config.dataset
                     # test_config.config_file left as-is from the YAML
                 else:
                     tc_file, tc_pre = add_pre_folder(test_config_name)
-                    test_config = NeuralGraphConfig.from_yaml(f"{config_root}/{tc_file}.yaml")
+                    test_config = NeuralGraphConfig.from_yaml(config_path(f"{tc_file}.yaml"))
                     if not test_config.dataset.startswith(tc_pre):
                         test_config.dataset = tc_pre + test_config.dataset
                     test_config.config_file = tc_pre + test_config_name
