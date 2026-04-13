@@ -530,8 +530,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                                     epoch_boundaries=regularizer.epoch_boundaries)
 
                 # R2 checkpoint
-                is_regular_r2 = (N > 0) and (N % connectivity_plot_frequency == 0)
-                is_early_r2 = (N > 0) and (N < connectivity_plot_frequency) and (N % early_r2_frequency == 0)
+                is_regular_r2 = (N % connectivity_plot_frequency == 0)
+                is_early_r2 = (N < connectivity_plot_frequency) and (N % early_r2_frequency == 0)
                 model_name = model_config.signal_model_name
                 if (is_regular_r2 or is_early_r2) and 'mlp' not in model_name.lower():
                     last_connectivity_r2, _h_r2 = plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_list, gt_weights, edges, n_neurons=n_neurons, n_neuron_types=sim.n_neuron_types, ode_params=ode_params, hidden_ids=hidden_ids)
