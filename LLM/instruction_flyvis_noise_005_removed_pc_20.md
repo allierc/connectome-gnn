@@ -119,9 +119,9 @@ edges.
 
 | Parameter                 | Default  | Description                                                                      |
 | ------------------------- | -------- | -------------------------------------------------------------------------------- |
-| `lr_W`                    | 9e-4     | Learning rate for W matrix (synaptic weights)                                    |
-| `lr`                      | 1.8e-3   | Learning rate for g_phi and f_theta MLP weights                                  |
-| `lr_embedding`            | 2.5e-3   | Learning rate for per-neuron embeddings                                          |
+| `lr_W`                    | 6e-4     | Learning rate for W matrix (synaptic weights)                                    |
+| `lr`                      | 1.2e-3   | Learning rate for g_phi and f_theta MLP weights                                  |
+| `lr_embedding`            | 1.55e-3  | Learning rate for per-neuron embeddings                                          |
 | `data_augmentation_loop`  | 35       | Augmentation loops per epoch (DAL)                                               |
 | `batch_size`              | 4        | Samples per batch                                                                |
 | `coeff_g_phi_diff`        | 750      | Monotonicity penalty on g_phi (**critical — do not zero**)                       |
@@ -196,7 +196,7 @@ edge_removal_ratio, edge_removal_seed).
 | Block | Focus                      | Parameters to scan                                               | Ranges                                                                              |
 | ----- | -------------------------- | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
 | 1     | **Baseline robustness**    | All 4 slots = default config (ROBUSTNESS)                       | Verify default config works with 20% removal; diagnose W_L1 failure risk           |
-| 2     | **Learning rates**         | `lr_W`, `lr`, `lr_embedding`                                    | lr_W: {3e-4, 6e-4, 9e-4, 1.2e-3}; lr: {9e-4, 1.8e-3, 3.6e-3}; lr_W/lr ratio     |
+| 2     | **Learning rates**         | `lr_W`, `lr`, `lr_embedding`                                    | lr_W: {3e-4, 6e-4, 9e-4, 1.2e-3}; lr: {6e-4, 1.2e-3, 2.4e-3}; lr_W/lr ratio     |
 | 3     | **g_phi regularization**   | `coeff_g_phi_diff`, `coeff_g_phi_norm`, `coeff_g_phi_weight_L1` | diff: {375, 750, 1500}; norm: {0, 0.5, 0.9, 1.5}; g_L1: {0, 0.1, 0.28, 0.5}     |
 | 4     | **f_theta regularization** | `coeff_f_theta_weight_L1`, `coeff_f_theta_weight_L2`            | f_L1: {0, 0.01, 0.05, 0.2}; f_L2: {0, 0.001, 0.01}                               |
 | 5     | **W reg + annealing**      | `coeff_W_L1`, `coeff_W_L2`, `regul_annealing_rate`, `n_epochs`  | W_L1: {0, 5e-5, 1.5e-4, 5e-4}; W_L2: {0, 1.5e-6}; rate: {0, 0.5, 1.0}; ep: {1, 2} |
