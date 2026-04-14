@@ -288,6 +288,44 @@ $-20\%$ edges removed           & $0.05$ & $347\,000$
 
 
 
+\begin{table}[h]
+\centering
+\caption{The agentic loop tuned the GNN+INR training parameters for the joint
+GNN+SIREN model (mean~$\pm$~SD, $n{=}5$ seeds).
+The SIREN implicit neural representation (INR) is trained jointly with the GNN
+to reconstruct the visual stimuli.
+Prediction (DAVIS): DAVIS-trained model tested zero-shot on held-out YouTube-VOS
+folds; one-step and rollout Pearson~$r$ over $8{,}000$ test frames.
+Prediction (re-train): GNN re-trained on each YouTube-VOS fold and tested
+within that fold.
+Stimuli $r$: Pearson~$r$ between INR-predicted and true visual stimuli (slope-corrected).
+Parameter recovery: model re-trained on five folds;
+$R^2_{\widehat{W}}$ over all edges,
+$R^2_{\tau}$ and $R^2_{V^{\mathrm{rest}}}$ over $13{,}741$ neurons,
+GMM clustering accuracy over $65$ cell types.
+\textcolor{green!50!black}{Green}: value $>0.9$.}
+\label{tab:cv_inr}
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{lccrrrrrrrrr}
+\toprule
+& & & \multicolumn{3}{c}{prediction} & \multicolumn{4}{c}{parameter recovery} \\
+\cmidrule(lr){4-6}\cmidrule(lr){7-10}
+condition & $\sigma$ & edges
+  & one-step $r$ & rollout $r$ & stimuli $r$
+  & $R^2_{\widehat{W}}$ & $R^2_{\tau}$ & $R^2_{V^{\mathrm{rest}}}$ & cluster\ acc. \\
+\midrule
+noise $0.05$ (DAVIS)    & $0.05$ & $434\,112$
+  & \comment{pending} & \comment{pending} & \comment{pending}
+  & \comment{pending} & \comment{pending} & \comment{pending} & \comment{pending} \\
+noise $0.05$ (re-train) & $0.05$ & $434\,112$
+  & \good{$0.943{\pm}0.003$} & $0.42{\pm}0.13$ & $0.61{\pm}0.26$
+  & $0.89{\pm}0.05$ & $0.84{\pm}0.09$ & $0.16{\pm}0.04$ & $0.78{\pm}0.05$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
 \section{Discussion}
 \begin{itemize}
 \item The present framework propose a set of neural activity data, ML models and standardized test to developp and assess learning neural dynamics from data
