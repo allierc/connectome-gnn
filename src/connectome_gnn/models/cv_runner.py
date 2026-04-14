@@ -42,6 +42,14 @@ def _free_gpu():
     """Release GPU memory and CUDA Graph pools between CV folds."""
     gc.collect()
     if torch.cuda.is_available():
+        for obj in gc.get_objects():
+            try:
+                if torch.is_tensor(obj) and obj.is_cuda:
+                    mb = obj.element_size() * obj.nelement() / 1e6
+                    if mb > 1:
+                        print(f"  LEAKED: {obj.shape}\t{obj.dtype}\t{mb:.1f}MB")
+            except Exception:
+                pass
         torch.cuda.empty_cache()
         torch._dynamo.reset()
 
