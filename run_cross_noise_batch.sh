@@ -35,10 +35,10 @@ N_SEEDS=5
 # Parallel arrays: display label | absolute config path (no .yaml)
 LABELS=( "noise_free" "noise_005" "noise_05" "null_edges_pc_400" "removed_pc_20" )
 CONFIGS=(
-    "${CFG_DIR}/flyvis_cmp_noise_free"
-    "${CFG_DIR}/flyvis_cmp_noise_005"
-    "${CFG_DIR}/flyvis_cmp_noise_05"
-    "${CFG_DIR}/flyvis_noise_005_null_edges_pc_400"
+    # "${CFG_DIR}/flyvis_cmp_noise_free"
+    # "${CFG_DIR}/flyvis_cmp_noise_005"
+    # "${CFG_DIR}/flyvis_cmp_noise_05"
+    # "${CFG_DIR}/flyvis_noise_005_null_edges_pc_400"
     "${CFG_DIR}/flyvis_cmp_removed_pc_20"
 )
 # Base config names (for the comparison table — must match log/fly/<name>)
