@@ -45,11 +45,6 @@ def _compute_loss(model, voltage, stimulus_unfolded, t_indices, tw):
 
 
 
-_compute_loss_compiled = torch.compile(
-    _compute_loss, fullgraph=True, mode="reduce-overhead"
-)
-
-
 def data_train_stimulus(config, erase, best_model, device, log_file=None):
     """Train the stimulus-only baseline model.
 
@@ -119,6 +114,11 @@ def data_train_stimulus(config, erase, best_model, device, log_file=None):
         "to be used with data_train_stimulus"
     )
 
+    # Compile per-call so CUDA Graph pools can be freed between CV folds
+    _compute_loss_compiled = torch.compile(
+        _compute_loss, fullgraph=True, mode="reduce-overhead"
+    )
+
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     _logger.info(f'total parameters: {n_params:,}')
 
@@ -140,9 +140,11 @@ def data_train_stimulus(config, erase, best_model, device, log_file=None):
     net_path = os.path.join(log_dir, 'models')
     os.makedirs(net_path, exist_ok=True)
 
-    # Constant model baseline: RMSE(v_t, v_{t+1}) — predicting no change
+    # Constant model baseline (computed on CPU to avoid large GPU intermediate)
     with torch.no_grad():
-        constant_model_rmse = float(np.sqrt(F.mse_loss(voltage[:-1], voltage[1:]).item()))
+        v_cpu = voltage.cpu()
+        constant_model_rmse = float(np.sqrt(F.mse_loss(v_cpu[:-1], v_cpu[1:]).item()))
+        del v_cpu
     _logger.info(f'constant model baseline RMSE: {constant_model_rmse:.4e}')
 
     # --- Training loop ---
