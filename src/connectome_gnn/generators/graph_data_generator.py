@@ -438,9 +438,6 @@ def data_generate_spiking(config, visualize=True, run_vizualized=0, style="color
 
     synapse_model = "COBA" if "coba" in model_config.signal_model_name else "CUBA"
     logger.info(f"generating spiking data ... {model_config.signal_model_name}  synapse_model: {synapse_model}  seed: {sim.seed}")
-    print(f"  n_neurons:       {sim.n_neurons}")
-    print(f"  n_input_neurons: {sim.n_input_neurons}")
-    print(f"  n_edges:         {sim.n_edges}")
 
     os.makedirs(graphs_data_path("fly"), exist_ok=True)
     folder = graphs_data_path(config.dataset) + "/"
@@ -486,6 +483,11 @@ def data_generate_spiking(config, visualize=True, run_vizualized=0, style="color
     trained_net = nnv.init_network(checkpoint=0)
     net.load_state_dict(trained_net.state_dict())
     torch.set_grad_enabled(False)
+
+    n_input_neurons_net = int(np.sum(net.connectome.nodes["role"][:] == "input"))
+    print(f"  n_neurons:       {net.n_nodes}")
+    print(f"  n_input_neurons: {n_input_neurons_net}")
+    print(f"  n_edges:         {net.n_edges}")
 
     # Build spiking ODE params from flyvis connectome
     adex_overrides = {}
@@ -729,9 +731,6 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
     n_neurons = sim.n_neurons
 
     logger.info(f"generating data ... {model_config.signal_model_name}  dynamics_noise: {sim.noise_model_level}  measurement_noise: {sim.measurement_noise_level}  seed: {sim.seed}")
-    print(f"  n_neurons:       {sim.n_neurons}")
-    print(f"  n_input_neurons: {sim.n_input_neurons}")
-    print(f"  n_edges:         {sim.n_edges}")
 
     run = 0
 
@@ -836,6 +835,11 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
     trained_net = nnv.init_network(checkpoint=0)
     net.load_state_dict(trained_net.state_dict())
     torch.set_grad_enabled(False)
+
+    n_input_neurons_net = int(np.sum(net.connectome.nodes["role"][:] == "input"))
+    print(f"  n_neurons:       {net.n_nodes}")
+    print(f"  n_input_neurons: {n_input_neurons_net}")
+    print(f"  n_edges:         {net.n_edges}")
 
     # Extract ground-truth parameters from flyvis connectome.
     if is_hh:
