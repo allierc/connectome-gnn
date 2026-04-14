@@ -94,8 +94,8 @@ class NeuralGNN(nn.Module):
                 {"name": "coeff_f_theta_weight_L2", "description": "L2 penalty on f_theta weights", "typical_range": [0, 0.01]},
                 {"name": "batch_size", "description": "Number of time frames per batch", "typical_range": [1, 4]},
                 {"name": "data_augmentation_loop", "description": "Number of augmentation iterations per epoch", "typical_range": [10, 50]},
-                {"name": "w_init_mode", "description": "W initialization: 'zeros' (default), 'randn', or 'randn_scaled'"},
-                {"name": "w_init_scale", "description": "Scale factor for randn_scaled init (W * scale/sqrt(n_edges))", "default": 1.0},
+                {"name": "w_init_mode", "description": "W initialization: 'zeros' (default), 'randn', 'randn_scaled', or 'uniform_scaled'"},
+                {"name": "w_init_scale", "description": "Scale factor for randn_scaled/uniform_scaled init (bound = scale/sqrt(n_edges))", "default": 1.0},
             ],
         },
     }
@@ -171,6 +171,10 @@ class NeuralGNN(nn.Module):
         elif w_init_mode == 'randn_scaled':
             w_init_scale = getattr(train_config, 'w_init_scale', 1.0)
             W_init = torch.randn(n_w, device=self.device, dtype=torch.float32) * (w_init_scale / math.sqrt(n_w))
+        elif w_init_mode == 'uniform_scaled':
+            w_init_scale = getattr(train_config, 'w_init_scale', 1.0)
+            bound = w_init_scale / math.sqrt(n_w)
+            W_init = (torch.rand(n_w, device=self.device, dtype=torch.float32) * 2 - 1) * bound
         else:  # 'randn'
             W_init = torch.randn(n_w, device=self.device, dtype=torch.float32)
         self.W = nn.Parameter(W_init[:, None], requires_grad=True)

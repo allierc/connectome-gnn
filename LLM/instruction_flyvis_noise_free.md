@@ -141,6 +141,7 @@ f_theta(v_i, agg_i, embed_i) → dv_i/dt   (node update MLP)
 | `coeff_W_L2`              | 0.0      | L2 regularization on W (0 for noise-free)                                       |
 | `regul_annealing_rate`    | 0.0      | Regularization annealing: **MUST be 0.0 with n_epochs=1** (otherwise all L1/L2 = 0) |
 | `w_init_mode`             | randn_scaled | W initialization: `randn_scaled`, `zeros`, `uniform_scaled`                |
+| `w_init_scale`            | 1.0          | Scale for randn_scaled/uniform_scaled init (bound = scale/sqrt(n_edges))   |
 
 **Training time budget**: Target ~60 min per run. Adjust DAL to stay within budget. Check
 `training_time_min` in results after each iteration.

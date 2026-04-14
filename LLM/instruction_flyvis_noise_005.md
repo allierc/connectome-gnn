@@ -137,6 +137,7 @@ f_theta(v_i, agg_i, embed_i) → dv_i/dt   (node update MLP)
 | `coeff_W_L2`              | 1.5e-6   | L2 regularization on W                                                           |
 | `regul_annealing_rate`    | 0.0      | Regularization annealing: **MUST be 0.0 with n_epochs=1** (otherwise all L1/L2 = 0) |
 | `w_init_mode`             | randn_scaled | W initialization: `randn_scaled`, `zeros`, `uniform_scaled`                |
+| `w_init_scale`            | 1.0          | Scale for randn_scaled/uniform_scaled init (bound = scale/sqrt(n_edges))   |
 
 **Training time budget**: Target ~60 min per run. Adjust DAL to stay within budget. Check
 `training_time_min` in results after each iteration.
@@ -167,7 +168,7 @@ f_theta(v_i, agg_i, embed_i) → dv_i/dt   (node update MLP)
 | 2     | **Learning rates**      | `lr_W`, `lr`, `lr_embedding`                                    | lr_W: {3e-4, 6e-4, 9e-4, 1.2e-3}; lr: {6e-4, 1.2e-3, 2.4e-3}; lr_W/lr ratio |
 | 3     | **g_phi terms**         | `coeff_g_phi_diff`, `coeff_g_phi_norm`, `coeff_g_phi_weight_L1` | diff: {375, 750, 1500}; norm: {0, 0.5, 0.9, 1.5}; g_L1: {0, 0.1, 0.28, 0.5} |
 | 4     | **f_theta reg**         | `coeff_f_theta_weight_L1`, `coeff_f_theta_weight_L2`            | f_L1: {0, 0.01, 0.05, 0.2}; f_L2: {0, 0.001, 0.01}                            |
-| 5     | **W reg + init**        | `coeff_W_L1`, `coeff_W_L2`, `w_init_mode`                      | W_L1: {0, 5e-5, 1.5e-4, 5e-4}; W_L2: {0, 1.5e-6}; init: {randn_scaled, zeros} |
+| 5     | **W reg + init**        | `coeff_W_L1`, `coeff_W_L2`, `w_init_mode`                      | W_L1: {0, 5e-5, 1.5e-4, 5e-4}; W_L2: {0, 1.5e-6}; init: {randn_scaled, zeros, uniform_scaled} |
 | 6     | **Training regime**     | `batch_size`, `data_augmentation_loop`                           | bs: {2, 4, 8}; DAL: {20, 30, 35, 50}; note cliff hypothesis at DAL=35          |
 | 7     | **Free exploration**    | Any parameter — combine best from Blocks 2-6                    | Novel combinations; test surprising interactions                                 |
 | 8     | **Final robustness**    | Best config, all 4 slots same (ROBUSTNESS, `generate_data: false`) | Confirm CV < 3%, zero catastrophic failures; same data across seeds          |

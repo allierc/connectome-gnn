@@ -125,6 +125,7 @@ class OdeMethod(StrEnum):
 class WInitMode(StrEnum):
     RANDN = "randn"
     RANDN_SCALED = "randn_scaled"
+    UNIFORM_SCALED = "uniform_scaled"
     ZEROS = "zeros"
 
 class GPhiMode(StrEnum):
