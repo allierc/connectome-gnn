@@ -32,9 +32,9 @@ N_SEEDS=5
 CONFIGS=(
     # "${CFG_DIR}/flyvis_noise_free_known_ode_winner"
     # "${CFG_DIR}/flyvis_noise_005_known_ode_winner"
-    "${CFG_DIR}/flyvis_noise_05_known_ode_winner"
-    "${CFG_DIR}/flyvis_noise_005_010_known_ode_winner"
-    "${CFG_DIR}/flyvis_noise_005_null_edges_pc_400_known_ode_winner"
+    # "${CFG_DIR}/flyvis_noise_05_known_ode_winner"
+    # "${CFG_DIR}/flyvis_noise_005_010_known_ode_winner"
+    # "${CFG_DIR}/flyvis_noise_005_null_edges_pc_400_known_ode_winner"
     "${CFG_DIR}/flyvis_noise_005_removed_pc_20_known_ode_winner"
 )
 
