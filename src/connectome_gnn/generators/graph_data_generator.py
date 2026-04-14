@@ -935,6 +935,12 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
         pde = FlyVisODE(ode_params=ode_params, g_phi=torch.nn.functional.relu, params=sim.params,
                         model_type=model_config.signal_model_name, n_neuron_types=sim.n_neuron_types, device=device)
 
+    _G = '\033[92m'  # green
+    _R = '\033[91m'  # red
+    _X = '\033[0m'   # reset
+
+    print(f"{_G}[GENERATE] before removal: edge_index={edge_index.shape}  W={ode_params.W.shape}{_X}")
+
     # Edge removal: drop a fraction of edges before saving
     # (simulation already ran with the full graph)
     if sim.edge_removal_ratio > 0:
@@ -947,14 +953,18 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
         edge_mask_path = getattr(sim, 'edge_mask_path', '')
         if edge_mask_path and os.path.exists(edge_mask_path):
             kept_indices = torch.load(edge_mask_path, weights_only=True).numpy()
-            logger.info(
-                f"edge removal: loaded precomputed mask from {edge_mask_path} "
-                f"({len(kept_indices)}/{n_total} edges kept)"
-            )
+            print(f"{_G}[GENERATE] mask loaded from {edge_mask_path}: "
+                  f"{len(kept_indices)}/{n_total} edges kept{_X}")
         else:
+            if edge_mask_path:
+                print(f"{_R}[GENERATE] edge_mask_path set but NOT FOUND: {edge_mask_path} "
+                      f"— computing new mask{_X}")
+            else:
+                print(f"{_G}[GENERATE] no edge_mask_path — computing new mask "
+                      f"(mode={getattr(sim,'edge_removal_mode','random')}, "
+                      f"ratio={sim.edge_removal_ratio}){_X}")
             rng_rm = np.random.RandomState(sim.edge_removal_seed)
             removal_mode = getattr(sim, 'edge_removal_mode', 'random')
-            logger.info(f"edge removal mode: {removal_mode}, ratio: {sim.edge_removal_ratio}")
 
             if removal_mode == 'per_column':
                 # Remove a consistent fraction of outgoing edges per pre-synaptic neuron
@@ -976,14 +986,22 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
         edge_index = edge_index[:, kept_indices]
         ode_params.edge_index = edge_index
         ode_params.W = ode_params.W[kept_indices]
-        logger.info(f"edge removal: kept {len(kept_indices)}/{n_total} edges "
-                     f"({(1 - len(kept_indices)/n_total)*100:.1f}% removed)")
+        pct_removed = (1 - len(kept_indices) / n_total) * 100
+        expected_pct = sim.edge_removal_ratio * 100
+        color = _G if abs(pct_removed - expected_pct) < 2 else _R
+        print(f"{color}[GENERATE] after removal: edge_index={edge_index.shape}  "
+              f"W={ode_params.W.shape}  removed={pct_removed:.1f}% "
+              f"(expected {expected_pct:.0f}%){_X}")
         if save:
             torch.save(torch.tensor(kept_indices),
                         graphs_data_path(config.dataset, "kept_edge_indices.pt"))
+    else:
+        print(f"{_G}[GENERATE] no edge removal (ratio=0){_X}")
 
     if save:
         ode_params.save(folder)
+        print(f"{_G}[GENERATE] saved ode_params: edge_index={ode_params.edge_index.shape}  "
+              f"W={ode_params.W.shape}  → {folder}{_X}")
         if ablation_mask is not None:
             torch.save(ablation_mask, graphs_data_path(config.dataset, "ablation_mask.pt"))
 

@@ -214,6 +214,12 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
     gt_weights = ode_params.W
     gt_edges = ode_params.edge_index
 
+    _G = '\033[92m'; _R = '\033[91m'; _X = '\033[0m'
+    _match = gt_edges.shape[1] == sim.n_edges
+    _c = _G if _match else _R
+    print(f"{_c}[TRAIN] loaded ode_params: edge_index={gt_edges.shape}  W={gt_weights.shape}  "
+          f"config.n_edges={sim.n_edges}  {'OK' if _match else 'MISMATCH'}{_X}")
+
     # Optionally replace GT edges with fully connected graph
     if not tc.use_gt_edges:
         src = torch.arange(n_neurons, device=device).repeat_interleave(n_neurons)
@@ -245,12 +251,15 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
             config.simulation.n_extra_null_edges = 0
         elif actual_n_edges != sim.n_edges:
             _logger.info(f'n_edges mismatch: config={sim.n_edges}, actual={actual_n_edges} — using actual')
+            print(f"{_R}[TRAIN] n_edges override: config={sim.n_edges} → actual={actual_n_edges}{_X}")
             config.simulation.n_edges = actual_n_edges
     _logger.info(f'{edges.shape[1]} edges')
+    print(f"{_G}[TRAIN] edges for model: {edges.shape}  config.n_edges now={config.simulation.n_edges}{_X}")
 
     # Save training edges so tester uses the same graph
     torch.save(edges, os.path.join(log_dir, 'training_edges.pt'))
     torch.save(gt_weights, os.path.join(log_dir, 'gt_weights.pt'))
+    print(f"{_G}[TRAIN] saved training_edges.pt: {edges.shape}  gt_weights.pt: {gt_weights.shape}{_X}")
 
     # Resolve checkpoint path from best_model argument
     checkpoint_path = None
@@ -261,6 +270,12 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
 
     reset_epoch = (tc.pretrained_model != '' and not best_model)
     model, start_epoch = build_model(config, device, checkpoint_path=checkpoint_path, reset_epoch=reset_epoch)
+    _w = model.W if hasattr(model, 'W') else None
+    _w_match = _w is not None and _w.shape[0] == config.simulation.n_edges
+    _c = _G if _w_match else _R
+    print(f"{_c}[TRAIN] model.W={_w.shape if _w is not None else 'N/A'}  "
+          f"config.n_edges={config.simulation.n_edges}  "
+          f"{'OK' if _w_match else 'MISMATCH'}{_X}")
     list_loss = []
 
     # Initialize embedding with equidistant points per cell type
