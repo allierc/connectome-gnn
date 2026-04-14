@@ -24,8 +24,8 @@ graph_model:
   aggr_type: add
   # Stimulus encoder
   stim_latent_dims: 64
-  hidden_dim_stim_encoder: 64
-  n_layers_stim_encoder: 3
+  hidden_dim_stim_encoder: 128
+  n_layers_stim_encoder: 2
   # Predictor MLP
   hidden_dim: 512
   n_layers: 3
@@ -51,11 +51,11 @@ training:
   seed: 43
   n_epochs: 20
   batch_size: 256
-  data_augmentation_loop: 50
+  data_augmentation_loop: 70
   train_start: 0
   train_end: 0
-  time_window: 5
-  lr: 1e-4
+  time_window: 15
+  lr: 5e-5
   n_runs: 1
   device: auto
   recurrent_training: false
