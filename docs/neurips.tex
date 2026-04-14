@@ -181,6 +181,39 @@ $-20\%$ edges removed & $0.05$ & 347\,290
 \end{table}
 
 
+\begin{table}[h]
+\centering
+\caption{Five-fold cross-validation results for the \textbf{Known-ODE baseline} across noise levels
+(mean~$\pm$~SD, $n{=}5$ seeds).
+The ODE form and ReLU activation are fixed to Eq.~\ref{eq:simulated_update}; learnable
+parameters are $\hat{\tau}_i$, $\hat{V}_i^{\mathrm{rest}}$, and $\widehat{W}_{ij}$ only
+(no MLP modules, no latent embeddings).
+Prediction: model re-trained on each YouTube-VOS fold and tested on that same fold
+(no pre-trained DAVIS model available; zero-shot transfer columns not applicable).
+Parameter recovery columns as in Table~\ref{tab:cv_results}.
+\textcolor{green!50!black}{Green}: value $>0.9$.}
+\label{tab:cv_known_ode}
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lccrrrrrr}
+\toprule
+& & & \multicolumn{2}{c}{prediction (re-train)} & \multicolumn{4}{c}{parameter recovery} \\
+\cmidrule(lr){4-5}\cmidrule(lr){6-9}
+condition & $\sigma$ & edges
+  & one-step $r$ & rollout $r$
+  & $R^2_{\widehat{W}}$ & $R^2_{\tau}$ & $R^2_{V^{\mathrm{rest}}}$ & cluster\ acc. \\
+\midrule
+noise-free   & $0$    & 434\,112
+  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
+  & \good{$0.97{\pm}0.00$} & $0.004{\pm}0.000$ & \good{$0.92{\pm}0.00$} & $0.61{\pm}0.00$ \\
+noise $0.05$ & $0.05$ & 434\,112
+  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
+  & \good{$0.99{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \good{$0.97{\pm}0.00$} & $0.63{\pm}0.01$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
 \section{Discussion}
 \begin{itemize}
 \item The present framework propose a set of neural activity data, ML models and standardized test to developp and assess learning neural dynamics from data
