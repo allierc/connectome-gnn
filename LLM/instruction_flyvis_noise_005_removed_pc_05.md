@@ -279,6 +279,26 @@ When prompt says `PARALLEL START`:
 - Block 1 is a **robustness test**: all 4 slots use the baseline config (all MLP/W penalties = 0, n_epochs=1).
 - Hypothesis: "The March 2026 working condition (conn_R2 > 0.9) is reproducible with 5% edges removed, all penalties=0, across 4 training seeds."
 
+## Final Summary (write at exploration completion)
+
+When the exploration is complete (all blocks done or budget exhausted), append to
+`/home/node/.claude/projects/-workspace--devcontainer/memory/exploration_results.md`
+a section with header `## flyvis_noise_005_removed_pc_05 — Key Discoveries (YYYY-MM-DD)` containing
+exactly **8 bullet points**:
+
+1. **Best metric**: conn_R2 = X.XXX ± std (N seeds, CV=X.X%), winner config = [key params]
+2–8. **Key causal discoveries** — report findings of this kind:
+   - Which HP had the largest single-parameter impact, and its optimal value
+   - Which failure mode was confirmed across 3+ iterations (cite iteration numbers)
+   - Which HP interaction produced an unexpected or surprising result
+   - Which hypothesis was falsified and what was learned from it
+   - Whether regularization helped/hurt and under what conditions
+   - What training regime (n_epochs, DAL, batch_size) proved optimal and why
+   - Any fundamental limit encountered (e.g., metric plateau despite HP variation)
+
+Each bullet must state the **finding**, the **evidence** (iteration count or specific iterations),
+and whether it is **established** (3+ iterations, all 4 seeds) or **tentative** (1–2 iterations).
+
 ---
 
 # Working Memory Structure
@@ -288,8 +308,13 @@ When prompt says `PARALLEL START`:
 
 ## Paper Summary (update at every block boundary)
 
-- **GNN optimization**: [pending]
-- **LLM-driven exploration**: [pending]
+**GNN optimization** (2 sentences on HPO findings):
+Sentence 1: Best hyperparameter configuration found and the connectivity_R2 it achieves (cite mean ± std, CV%, N seeds).
+Sentence 2: Which hyperparameters were most critical to stability — what worked and what failed (cite values).
+
+**LLM-driven exploration** (2 sentences on exploration findings):
+Sentence 1: What the systematic exploration revealed about the optimization landscape (basin width, failure modes, critical interactions).
+Sentence 2: Main causal principle established from hypothesis testing — what this tells us about GNN training for connectome recovery with missing edges.
 
 ## Knowledge Base
 
