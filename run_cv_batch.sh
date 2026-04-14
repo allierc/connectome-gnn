@@ -14,10 +14,10 @@ set -euo pipefail
 REPO_DIR="/groups/saalfeld/home/allierc/Graph/connectome-gnn"
 DATA_ROOT="/groups/saalfeld/home/allierc/GraphData"
 CONFIGS=(
-    "${REPO_DIR}/config/fly/flyvis_noise_free"
-    "${REPO_DIR}/config/fly/flyvis_noise_005"
-    "${REPO_DIR}/config/fly/flyvis_noise_05"
-    "${REPO_DIR}/config/fly/flyvis_noise_005_null_edges_pc_400"
+    # "${REPO_DIR}/config/fly/flyvis_noise_free"
+    # "${REPO_DIR}/config/fly/flyvis_noise_005"
+    # "${REPO_DIR}/config/fly/flyvis_noise_05"
+    # "${REPO_DIR}/config/fly/flyvis_noise_005_null_edges_pc_400"
     "${REPO_DIR}/config/fly/flyvis_noise_005_removed_pc_20"
 )
 N_SEEDS=5
