@@ -177,6 +177,7 @@ class SimulationConfig(BaseModel):
     edge_removal_ratio: float = 0.0  # fraction of edges to remove before saving (0.0-1.0)
     edge_removal_mode: str = "random"  # "random" or "per_column"
     edge_removal_seed: int = 42      # RNG seed for reproducible removal
+    edge_mask_path: str = ""         # path to precomputed kept_edge_indices.pt; if set and exists, reused instead of recomputing
     ablation_ratio: float = 0.0   # fraction of edges to ablate (0.0-1.0)
     ablation_seed: int = 42       # RNG seed for reproducible ablation
 
