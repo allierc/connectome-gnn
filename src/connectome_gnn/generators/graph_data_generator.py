@@ -1187,7 +1187,7 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
         n_total = edge_index.shape[1]
         edge_mask_path = getattr(sim, 'edge_mask_path', '')
         if edge_mask_path and os.path.exists(edge_mask_path):
-            kept_indices = torch.load(edge_mask_path, weights_only=True).numpy()
+            kept_indices = torch.load(edge_mask_path, weights_only=True)
             print(f"{_G}[GENERATE] mask loaded from {edge_mask_path}: "
                   f"{len(kept_indices)}/{n_total} edges kept{_X}")
         else:
@@ -1225,7 +1225,7 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
               f"W={ode_params.W.shape}  removed={pct_removed:.1f}% "
               f"(expected {expected_pct:.0f}%){_X}")
         if save:
-            torch.save(torch.tensor(kept_indices),
+            torch.save(torch.tensor(kept_indices, device=device),
                        graphs_data_path(config.dataset, "kept_edge_indices.pt"))
     else:
         print(f"{_G}[GENERATE] no edge removal (ratio=0){_X}")
