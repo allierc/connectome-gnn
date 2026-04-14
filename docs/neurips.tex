@@ -65,7 +65,7 @@ We simulated neural activity in the \emph{Drosophila} visual system using \texti
 + I_i(t) + \sigma\,\xi_i(t),
 \label{eq:simulated_update}
 \end{equation}
-where $\tau_i$ and $V_i^{\mathrm{rest}}$ are cell-type parameters, $\mathbf{W}_{ij}$ is the connectome-constrained synaptic weight, $I_i(t)$ the visual input, and $\xi_i(t)\sim\mathcal{N}(0,1)$ is independent Gaussian noise scaled by $\sigma$. Unlike measurement noise added post hoc, this intrinsic noise perturbs the dynamical trajectory of $v_i(t)$ and propagates through $\mathbf{W}$, widening the distribution of visited voltages and enriching the training signal. We generated data at three intrinsic noise levels: $\sigma\in\{0,\,0.05,\,0.5\}$.
+where $\tau_i$ and $V_i^{\mathrm{rest}}$ are cell-type parameters, $\mathbf{W}_{ij}$ is the connectome-constrained synaptic weight, $I_i(t)$ the visual input, and $\xi_i(t)\sim\mathcal{N}(0,1)$ is independent Gaussian noise scaled by $\sigma$. Unlike measurement noise added post hoc, this intrinsic noise perturbs the dynamical trajectory of $v_i(t)$ and propagates through the network signalinm. We generated data at three intrinsic noise levels: $\sigma\in\{0,\,0.05,\,0.5\}$.
 
 \comment{Janne complete with Flywirte model}
 
@@ -106,15 +106,12 @@ The $\ell_1$ penalties on $\theta$ and $\phi$ promote sparsity in the MLP weight
 The combined space of simulations and training parameters is too large to be explored 
 with a grid search. Instead we deployed a closed-loop system 
 where a Claude Code agent interpreted experiment results, maintained a structured 
-research summary, and proposed next intervention on the simulation and/or machine learning parameters. The primary optimization target is either identifiability of the connectivity weights or rollout prediction accuracy. The agent is instructed to perform scientific reasoning: testable hypotheses must be drawn, repeatable experiments are conducted to validate or falsify them. The agent can only hypothesize, he can not predict the outcome of a model training. Only training results can validate or falsify the hypotheses. 
+research summary, and proposed next intervention on the simulation and/or machine learning parameters. The primary optimization target is either identifiability of the connectivity weights or rollout prediction accuracy. The agent is instructed to perform scientific reasoning: testable hypotheses must be drawn, repeatable experiments are conducted to validate or falsify them. The agent is told not to predict the outcome of a model training. Only training results can validate or falsify its hypotheses. 
 
 
 \subsubsection*{Benchmark}
 
-In the \texttt{Known-ODE} baseline, both the ODE and the ReLU activation are fixed to the ground-truth form (Eq.~\ref{eq:simulated_update}). The per-neuron time constants
-$\hat{\tau}_i$, resting potentials $\hat{V}_i^{\mathrm{rest}}$, and synaptic
-weights $\widehat{W}_{ij}$ are learnable.  In comparison with the GNN form Eq.~\ref{eq:gnn_ct}), there are no MLP modules and no
-latent embeddings.
+In the Known-ODE baseline, both the ordinary differential equation (ODE) and the ReLU activation are fixed to the ground-truth form (Eq.~\ref{eq:simulated_update}). We test the ability to learn per-neuron time constants $\hat{\tau}_i$, resting potentials $\hat{V}_i^{\mathrm{rest}}$, and synaptic weights $\widehat{W}_{ij}$ if the model is given.
 
 
 
@@ -132,6 +129,19 @@ latent embeddings.
 \item joint learning GNN + stimuli
 \item extra edges +1.6M
 \item missing edges 20\%
+
+\paragraph{Robustness to erroneous adjacency matrices.}
+In practice, annotated connectome reconstructions contain both false negatives (missing
+connections) and false positives (spurious connections). To test robustness to
+both error types, we \textit{(i)} augmented the ground-truth adjacency matrix
+with randomly added null edges ($+400\%$; $434{,}112 \to 2{,}170{,}560$ edges)
+and \textit{(ii)} randomly removed edges ($-20\%$; $434{,}112 \to 347{,}000$
+edges). In both cases the GNN was trained on the corrupted connectivity while
+neural activity was simulated with the full ground-truth connectome
+($434{,}112$ edges).
+
+
+
 \item measurement noise \textbf{NEW}
 \item partial data 1/5 frames only \textbf{NEW}
 \item partial data 10\% neurons removed \textbf{NEW}
@@ -140,18 +150,22 @@ latent embeddings.
 
 \newcommand{\good}[1]{\textcolor{green!50!black}{#1}}
 
+
 \begin{table}[h]
 \centering
-\caption{Five-fold cross-validation results across noise levels and connectivity
-conditions (mean~$\pm$~SD, $n{=}5$ seeds).
-Prediction: the DAVIS-trained model tested zero-shot on held-out
-YouTube-VOS folds; one-step and rollout Pearson~$r$ computed over 8\,000 test frames.
-Parameter recovery: model re-trained on each fold; $R^2_{\widehat{W}}$
-computed over all edges ($434\,112$ or more), $R^2_{\tau}$ and
-$R^2_{V^{\mathrm{rest}}}$ over $13\,741$ neurons, and GMM clustering accuracy
-over $65$ cell types.
+\caption{The agentic loop tuned the GNN training parameters specifically for each
+noise level and connectivity setting.
+The GNN evaluation results are given over five-fold cross-validation
+(mean~$\pm$~SD, $n{=}5$ seeds).
+Prediction: DAVIS-trained model tested on held-out YouTube-VOS folds;
+one-step and rollout Pearson~$r$ over 8\,000 test frames.
+Parameter recovery: model re-trained on five folds; $R^2_{\widehat{W}}$ over all edges,
+$R^2_{\tau}$ and $R^2_{V^{\mathrm{rest}}}$ over $13\,741$ neurons,
+GMM clustering accuracy over $65$ cell types.
 \textcolor{green!50!black}{Green}: value $>0.9$.}
-\label{tab:cv_results}
+\label{tab:cv_per_condition}
+
+\label{tab:cv_per_condition}
 \footnotesize
 \setlength{\tabcolsep}{4pt}
 \begin{tabular}{lccrrrrrr}
@@ -174,8 +188,51 @@ noise $0.5$  & $0.5$  & 434\,112
 $+400\%$ null edges & $0.05$ & 2\,170\,560
   & \good{$0.98{\pm}0.00$} & \good{$0.98{\pm}0.00$}
   & \good{$0.97{\pm}0.01$} & $0.78{\pm}0.39$ & $0.02{\pm}0.01$ & $0.57{\pm}0.04$ \\[2pt]
-$-20\%$ edges removed & $0.05$ & 347\,290
-  & \comment{pending} & \comment{pending} & \comment{pending} & \comment{pending} & \comment{pending} & \comment{pending} \\
+$-20\%$ edges removed & $0.05$ & $347\,000$
+  & \good{$0.99{\pm}0.01$} & \good{$0.99{\pm}0.01$}
+  & $0.83{\pm}0.07$ & \good{$0.91{\pm}0.10$} & $0.39{\pm}0.11$ & $0.55{\pm}0.04$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\newcommand{\good}[1]{\textcolor{green!50!black}{#1}}
+\newcommand{\comment}[1]{\textcolor{gray}{\textit{#1}}}
+
+\begin{table}[h]
+\centering
+\caption{A single GNN training parameter set tuned by the agentic loop on the
+$+400\%$ null-edges condition was applied unchanged to all five conditions.
+Prediction: model trained on $+400\%$ null-edges tested on held-out
+YouTube-VOS folds. Parameter recovery: model re-trained on five folds with $+400\%$ training parameters. Gaps relative to Table~\ref{tab:cv_per_condition} reflect the effect of not
+adapting the GNN training parameters to each condition.}
+\label{tab:cv_cross_noise}
+
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lccrrrrrr}
+\toprule
+& & & \multicolumn{2}{c}{prediction} & \multicolumn{4}{c}{parameter recovery} \\
+\cmidrule(lr){4-5}\cmidrule(lr){6-9}
+condition & $\sigma$ & edges
+  & one-step $r$ & rollout $r$
+  & $R^2_{\widehat{W}}$ & $R^2_{\tau}$ & $R^2_{V^{\mathrm{rest}}}$ & cluster.\ acc. \\
+\midrule
+noise-free          & $0$    & $434\,112$
+  & \good{$0.99{\pm}0.00$} & $0.66{\pm}0.40$
+  & $0.86{\pm}0.02$ & $0.05{\pm}0.04$ & $0.11{\pm}0.03$ & $0.73{\pm}0.04$ \\
+noise $0.05$        & $0.05$ & $434\,112$
+  & \good{$0.99{\pm}0.01$} & \good{$0.98{\pm}0.01$}
+  & \good{$0.95{\pm}0.04$} & \good{$0.98{\pm}0.01$} & $0.42{\pm}0.12$ & $0.83{\pm}0.04$ \\
+noise $0.5$         & $0.5$  & $434\,112$
+  & \good{$0.99{\pm}0.01$} & \good{$0.99{\pm}0.01$}
+  & \good{$0.99{\pm}0.01$} & \good{$1.00{\pm}0.00$} & $0.71{\pm}0.36$ & \good{$0.93{\pm}0.03$} \\
+$+400\%$ null edges & $0.05$ & $2\,170\,560$
+  & \good{$0.98{\pm}0.00$} & \good{$0.98{\pm}0.00$}
+  & \good{$0.97{\pm}0.01$} & $0.78{\pm}0.39$ & $0.02{\pm}0.01$ & $0.57{\pm}0.04$ \\[2pt]
+$-20\%$ edges removed & $0.05$ & $347\,000$
+  & \good{$0.96{\pm}0.00$} & \good{$0.92{\pm}0.00$}
+  & $0.85{\pm}0.00$ & \good{$0.94{\pm}0.01$} & $0.24{\pm}0.05$ & $0.53{\pm}0.01$ \\
+
 \bottomrule
 \end{tabular}
 \end{table}
@@ -183,14 +240,17 @@ $-20\%$ edges removed & $0.05$ & 347\,290
 
 \begin{table}[h]
 \centering
-\caption{Five-fold cross-validation results for the \textbf{Known-ODE baseline} across noise levels
+\caption{The agentic loop tuned the Known-ODE training parameters specifically for
+each noise level and connectivity setting
 (mean~$\pm$~SD, $n{=}5$ seeds).
-The ODE form and ReLU activation are fixed to Eq.~\ref{eq:simulated_update}; learnable
-parameters are $\hat{\tau}_i$, $\hat{V}_i^{\mathrm{rest}}$, and $\widehat{W}_{ij}$ only
-(no MLP modules, no latent embeddings).
-Prediction: model re-trained on each YouTube-VOS fold and tested on that same fold
-(no pre-trained DAVIS model available; zero-shot transfer columns not applicable).
-Parameter recovery columns as in Table~\ref{tab:cv_results}.
+The Known-ODE baseline fixes the ODE form and ReLU activation to
+Eq.~\ref{eq:simulated_update}; only $\hat{\tau}_i$, $\hat{V}_i^{\mathrm{rest}}$, and
+$\widehat{W}_{ij}$ are learned.
+No DAVIS model is trained; prediction (re-train): model re-trained on each
+YouTube-VOS fold and tested within that same fold.
+Parameter recovery: model re-trained on five folds; $R^2_{\widehat{W}}$ over all
+edges, $R^2_{\tau}$ and $R^2_{V^{\mathrm{rest}}}$ over $13\,741$ neurons,
+GMM clustering accuracy over $65$ cell types.
 \textcolor{green!50!black}{Green}: value $>0.9$.}
 \label{tab:cv_known_ode}
 \footnotesize
@@ -203,18 +263,29 @@ condition & $\sigma$ & edges
   & one-step $r$ & rollout $r$
   & $R^2_{\widehat{W}}$ & $R^2_{\tau}$ & $R^2_{V^{\mathrm{rest}}}$ & cluster\ acc. \\
 \midrule
-noise-free   & $0$    & 434\,112
+noise-free                      & $0$    & $434\,112$
   & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
   & \good{$0.97{\pm}0.00$} & $0.004{\pm}0.000$ & \good{$0.92{\pm}0.00$} & $0.61{\pm}0.00$ \\
-noise $0.05$ & $0.05$ & 434\,112
+noise $0.05$                    & $0.05$ & $434\,112$
   & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
   & \good{$0.99{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \good{$0.97{\pm}0.00$} & $0.63{\pm}0.01$ \\
-noise $0.5$  & $0.5$  & 434\,112
+noise $0.5$                     & $0.5$  & $434\,112$
   & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
   & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & $0.61{\pm}0.01$ \\
+noise $0.05$ + meas.\ $0.10$   & $0.05$ & $434\,112$
+  & \good{$0.95{\pm}0.00$} & \good{$0.93{\pm}0.00$}
+  & $0.79{\pm}0.00$ & $0.81{\pm}0.00$ & $0.18{\pm}0.00$ & $0.42{\pm}0.00$ \\[2pt]
+$+400\%$ null edges             & $0.05$ & $2\,170\,560$
+  & \good{$0.99{\pm}0.00$} & \good{$0.99{\pm}0.00$}
+  & \good{$0.93{\pm}0.00$} & \good{$0.99{\pm}0.00$} & $0.72{\pm}0.00$ & $0.37{\pm}0.01$ \\
+$-20\%$ edges removed           & $0.05$ & $347\,000$
+  & \comment{pending} & \comment{pending}
+  & \comment{pending} & \comment{pending} & \comment{pending} & \comment{pending} \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+
 
 
 \section{Discussion}

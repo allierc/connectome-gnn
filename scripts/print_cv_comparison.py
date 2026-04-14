@@ -16,7 +16,13 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
-from connectome_gnn.utils import set_data_root, log_path
+from connectome_gnn.utils import log_path
+try:
+    from connectome_gnn.utils import set_data_root
+except ImportError:
+    import connectome_gnn.utils as _utils
+    def set_data_root(path: str) -> None:  # noqa: E306
+        _utils._data_root = path
 from connectome_gnn.models.cv_runner import compare_cv_results
 
 # Default values used when called without arguments
