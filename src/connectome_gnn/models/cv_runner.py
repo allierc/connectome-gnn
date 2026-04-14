@@ -16,6 +16,7 @@ Usage (run from repo root):
 
 import argparse
 import datetime
+import gc
 import glob as _glob
 import os
 import sys
@@ -30,10 +31,20 @@ sys_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.pa
 sys.path.insert(0, sys_path)
 
 from GNN_PlotFigure import data_plot
+import torch
+
 from connectome_gnn.config import NeuralGraphConfig
 from connectome_gnn.generators.graph_data_generator import data_generate
 from connectome_gnn.models.graph_trainer import data_test, data_train
 from connectome_gnn.utils import add_pre_folder, config_path, git_sha, graphs_data_path, log_path, set_device
+
+def _free_gpu():
+    """Release GPU memory and CUDA Graph pools between CV folds."""
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        torch._dynamo.reset()
+
 
 # Video dataset used for CV data generation (never seen during training).
 # Must contain JPEGImages/480p/<video>/*.jpg
@@ -282,6 +293,7 @@ def run_cv(config_name, seeds, skip_phase2=False):
 
         print(f"\033[96m  fold {i+1}/{len(seeds)} (seed={seed}) — training on YouTube-VOS data ...\033[0m")
         data_train(fold_config, device=device, erase=True)
+        _free_gpu()
         print(f"\033[92m  fold {i+1}/{len(seeds)} — training done\033[0m")
 
         print(f"\033[96m  fold {i+1}/{len(seeds)} (seed={seed}) — rollout test + parameter extraction ...\033[0m")
@@ -289,6 +301,7 @@ def run_cv(config_name, seeds, skip_phase2=False):
                   step=10, n_rollout_frames=250, device=device)
         data_plot(config=fold_config, epoch_list=['best'], style='color', extended='plots',
                   device=device, apply_weight_correction=True, skip_svd=True)
+        _free_gpu()
 
         # Parse rollout metrics (no test_suffix: fold model tested on its own data)
         yt_one_step_r = parse_pearson_from_log(os.path.join(fold_log_dir, 'results_test.log'))

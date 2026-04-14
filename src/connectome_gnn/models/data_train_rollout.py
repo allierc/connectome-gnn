@@ -49,13 +49,6 @@ def _rollout_block(model, v, stim_block, target_block, dt):
     return v, out_mses
 
 
-try:
-    _rollout_block_compiled = torch.compile(_rollout_block, mode="default")
-except Exception:
-    # Fall back to non-compiled version if Triton compilation fails
-    _rollout_block_compiled = _rollout_block
-
-
 def val_rollout(model, voltage, stimulus, val_start_idx, dt):
     """Single-start rollout validation on training data.
 
@@ -66,6 +59,8 @@ def val_rollout(model, voltage, stimulus, val_start_idx, dt):
         div_time: first step index where MSE > 1, or _VAL_ROLLOUT_LEN if never
         rollout_rmse: RMSE = sqrt(mean MSE) over steps [0, div_time)
     """
+    _rollout_block_compiled = torch.compile(_rollout_block, mode="default")
+
     all_mse = torch.empty(_VAL_ROLLOUT_LEN, device=voltage.device)
     v = voltage[val_start_idx].clone()
 
@@ -123,15 +118,6 @@ def _compute_loss_multistep(model, voltage, stimulus, t_indices, dt, rollout_ste
         target = voltage[t_indices + k + 1]           # (B, N)
         loss = loss + F.mse_loss(x, target)
     return loss / rollout_steps
-
-
-try:
-    _compute_loss_multistep_compiled = torch.compile(
-        _compute_loss_multistep, fullgraph=True, mode="reduce-overhead"
-    )
-except Exception:
-    # Fall back to non-compiled version if Triton compilation fails
-    _compute_loss_multistep_compiled = _compute_loss_multistep
 
 
 def data_train_rollout(config, erase, best_model, device, log_file=None):
@@ -197,6 +183,11 @@ def data_train_rollout(config, erase, best_model, device, log_file=None):
         "to be used with data_train_rollout"
     )
 
+    # Compile per-call so CUDA Graph pools can be freed between CV folds
+    _compute_loss_multistep_compiled = torch.compile(
+        _compute_loss_multistep, fullgraph=True, mode="reduce-overhead"
+    )
+
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     _logger.info(f'total parameters: {n_params:,}')
 
@@ -220,9 +211,11 @@ def data_train_rollout(config, erase, best_model, device, log_file=None):
 
     dt = torch.tensor(sim.delta_t, device=device)
 
-    # Constant model baseline: RMSE(x_t, x_{t+1}) — predicting no change
+    # Constant model baseline (computed on CPU to avoid large GPU intermediate)
     with torch.no_grad():
-        constant_model_rmse = float(np.sqrt(F.mse_loss(voltage[:-1], voltage[1:]).item()))
+        v_cpu = voltage.cpu()
+        constant_model_rmse = float(np.sqrt(F.mse_loss(v_cpu[:-1], v_cpu[1:]).item()))
+        del v_cpu
     _logger.info(f'constant model baseline RMSE: {constant_model_rmse:.4e}')
 
     # --- Profiler setup ---
