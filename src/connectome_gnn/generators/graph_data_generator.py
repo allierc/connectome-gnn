@@ -1,4 +1,6 @@
 import glob
+import shutil
+import subprocess
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -24,6 +26,20 @@ from connectome_gnn.plot import (
     plot_spiking_traces,
 )
 from connectome_gnn.zarr_io import ZarrArrayWriter, ZarrSimulationWriterV3
+
+
+def _rmtree(path):
+    """Remove a directory tree robustly on network filesystems (Lustre/GPFS).
+
+    Python's shutil.rmtree uses openat/unlinkat via _rmtree_safe_fd on Linux,
+    which can fail with 'Directory not empty' on network filesystems. Fall back
+    to subprocess rm -rf when that happens.
+    """
+    try:
+        shutil.rmtree(path)
+    except OSError:
+        subprocess.run(['rm', '-rf', str(path)], check=True)
+
 
 try:
     from connectome_gnn.generators.davis import AugmentedVideoDataset, CombinedVideoDataset
@@ -139,12 +155,11 @@ def data_generate_connconstr(config, visualize=True, device=None, save=True, era
     """
     # Erase old data if requested (prevents appending to old runs)
     if erase:
-        import shutil
         for split in ['train', 'test', '0']:  # '0' for fallback compat
             for data_file in ['x_list', 'y_list']:
                 old_path = graphs_data_path(config.dataset, f"{data_file}_{split}")
                 if os.path.exists(old_path):
-                    shutil.rmtree(old_path)
+                    _rmtree(old_path)
                     logger.info(f"erased old {data_file}_{split}")
 
     from connectome_gnn.generators.ode_params import get_ode_params_class
@@ -399,12 +414,11 @@ def data_generate_spiking(config, visualize=True, run_vizualized=0, style="color
 
     # Erase old data if requested (prevents appending to old runs)
     if erase:
-        import shutil
         for split in ['train', 'test', '0']:  # '0' for fallback compat
             for data_file in ['x_list', 'y_list']:
                 old_path = graphs_data_path(config.dataset, f"{data_file}_{split}")
                 if os.path.exists(old_path):
-                    shutil.rmtree(old_path)
+                    _rmtree(old_path)
                     logger.info(f"erased old {data_file}_{split}")
 
     torch.random.fork_rng(devices=device)
@@ -678,19 +692,11 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
 
     # Erase old data if requested (prevents appending to old runs)
     if erase:
-        import shutil
-        import subprocess
         for split in ['train', 'test']:
             for data_file in ['x_list', 'y_list']:
                 old_path = graphs_data_path(config.dataset, f"{data_file}_{split}")
                 if os.path.exists(old_path):
-                    try:
-                        shutil.rmtree(old_path)
-                    except OSError:
-                        # shutil.rmtree can fail on network filesystems (Lustre/GPFS)
-                        # because _rmtree_safe_fd uses openat/unlinkat which are
-                        # unreliable on those systems. Fall back to rm -rf.
-                        subprocess.run(['rm', '-rf', str(old_path)], check=True)
+                    _rmtree(old_path)
                     logger.info(f"erased old {data_file}_{split}")
 
     torch.random.fork_rng(devices=device)
