@@ -67,11 +67,6 @@ def compute_eed_loss(model, voltage, stimulus, t_indices, dt, rollout_steps):
     return total_loss, recon_loss, evolve_loss
 
 
-compute_eed_loss_compiled = torch.compile(
-    compute_eed_loss, fullgraph=True, mode="reduce-overhead"
-)
-
-
 def data_train_eed(config, erase, best_model, device, log_file=None):
     """Train an EED model with native encode-evolve-decode losses.
 
@@ -135,6 +130,11 @@ def data_train_eed(config, erase, best_model, device, log_file=None):
         "sub-networks to be used with data_train_eed"
     )
 
+    # Compile per-call so CUDA Graph pools can be freed between CV folds
+    compute_eed_loss_compiled = torch.compile(
+        compute_eed_loss, fullgraph=True, mode="reduce-overhead"
+    )
+
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     _logger.info(f'total parameters: {n_params:,}')
 
@@ -157,9 +157,11 @@ def data_train_eed(config, erase, best_model, device, log_file=None):
 
     dt = torch.tensor(sim.delta_t, device=device)
 
-    # Constant model baseline
+    # Constant model baseline (computed on CPU to avoid large GPU intermediate)
     with torch.no_grad():
-        constant_model_rmse = float(np.sqrt(F.mse_loss(voltage[:-1], voltage[1:]).item()))
+        v_cpu = voltage.cpu()
+        constant_model_rmse = float(np.sqrt(F.mse_loss(v_cpu[:-1], v_cpu[1:]).item()))
+        del v_cpu
     _logger.info(f'constant model baseline RMSE: {constant_model_rmse:.4e}')
 
     # --- Training loop ---
