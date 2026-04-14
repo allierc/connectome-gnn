@@ -11,7 +11,7 @@
 #   flyvis_noise_005_010_known_ode_winner           0.05+   434 112           0.7838 (4-seed CV=0.38%)
 #   flyvis_noise_05_known_ode_winner                0.5     434 112           0.9996 ± 0.0000 (12-seed)
 #   flyvis_noise_005_null_edges_pc_400_known_ode_winner  0.05  434 112+1.7M null  0.8934 / 0.8722 mean (4-seed)
-#   flyvis_noise_005_removed_pc_20_known_ode_winner 0.05    425 430 (−2%)     0.9682 / 0.9542 mean (4-seed)
+#   flyvis_noise_005_removed_pc_20_known_ode_winner 0.05    347 000 (−20%)    0.9682 / 0.9542 mean (4-seed)
 #
 # Phase 2 (zero-shot DAVIS→YouTube test) runs automatically when a pre-trained
 # DAVIS model is found; skipped automatically if no model exists.
