@@ -42,6 +42,23 @@ def git_sha() -> str:
         return 'unknown'
 
 
+def git_dirty_files() -> list:
+    """Return `git status --porcelain` lines for tracked, modified files
+    (staged or unstaged). Untracked files are excluded. Each entry is
+    'XY path' where XY is the two-character status code.
+    Returns an empty list on a clean tree or if not in a git repo.
+    """
+    try:
+        out = subprocess.check_output(
+            ['git', 'status', '--porcelain', '--untracked-files=no'],
+            cwd=get_repo_root(),
+            stderr=subprocess.DEVNULL,
+        ).decode()
+    except Exception:
+        return []
+    return [line for line in out.splitlines() if line.strip()]
+
+
 # ---------------------------------------------------------------------------
 # Configurable data root (graphs_data/ and log/ location)
 # ---------------------------------------------------------------------------

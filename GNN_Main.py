@@ -1,5 +1,6 @@
 import sys
 import os
+import shutil
 
 # Ensure src/ is on the path so connectome_gnn is always importable
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
@@ -12,7 +13,7 @@ import re
 from connectome_gnn.config import NeuralGraphConfig
 from connectome_gnn.generators.graph_data_generator import data_generate
 from connectome_gnn.models.graph_trainer import data_train, data_test, data_train_INR
-from connectome_gnn.utils import set_device, add_pre_folder, log_path, config_path, validate_pre_folder, set_data_root, git_sha
+from connectome_gnn.utils import set_device, add_pre_folder, log_path, config_path, validate_pre_folder, set_data_root, git_sha, git_dirty_files
 
 # Optional imports (not available in flyvis-gnn spinoff)
 try:
@@ -141,11 +142,13 @@ if __name__ == "__main__":
                 base_file, _ = add_pre_folder(base_name)
                 print(f"  CV fold detected: loading base config {base_name}.yaml, "
                       f"dataset/log -> {config_file_}")
-                config = NeuralGraphConfig.from_yaml(config_path(f"{base_file}.yaml"))
+                yaml_file = config_path(f"{base_file}.yaml")
+                config = NeuralGraphConfig.from_yaml(yaml_file)
                 config.dataset = pre_folder + config_file_
                 config.config_file = pre_folder + config_file_
             else:
-                config = NeuralGraphConfig.from_yaml(yaml_path)
+                yaml_file = yaml_path
+                config = NeuralGraphConfig.from_yaml(yaml_file)
                 if not config.dataset.startswith(pre_folder):
                     config.dataset = pre_folder + config.dataset
                 config.config_file = pre_folder + config_file_
@@ -155,6 +158,13 @@ if __name__ == "__main__":
 
         run_log_dir = log_path(config.config_file)
         sha = git_sha()
+        dirty = git_dirty_files()
+        if dirty:
+            sha = sha + '-dirty'
+
+        # Snapshot the source config yaml into the run directory so the run is self-describing
+        os.makedirs(run_log_dir, exist_ok=True)
+        shutil.copy2(yaml_file, os.path.join(run_log_dir, 'config.yaml'))
 
         # Reset _complete at the start of each run
         _complete_path = os.path.join(run_log_dir, '_complete')
@@ -280,6 +290,10 @@ if __name__ == "__main__":
         # Write commit SHA and completion marker for this run
         with open(os.path.join(run_log_dir, '_commit'), 'w') as f:
             f.write(f"{sha}\n")
+            if dirty:
+                f.write("dirty_files:\n")
+                for line in dirty:
+                    f.write(f"  {line}\n")
         with open(os.path.join(run_log_dir, '_complete'), 'w') as f:
             f.write(f"commit={sha}\nargv={sys.argv}\n")
 
