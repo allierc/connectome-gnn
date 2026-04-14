@@ -840,10 +840,18 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
         for epoch in epoch_list:
 
             net = f'{log_dir}/models/best_model_with_{tc.n_runs - 1}_graphs_{epoch}.pt'
-            model = create_model(model_config.signal_model_name,
-                                 aggr_type=model_config.aggr_type, config=config, device=device)
+            # Load checkpoint first so we can use its W shape as the authoritative n_edges
+            # (config yaml n_edges is an estimate; actual removal may differ by a few edges)
             state_dict = torch.load(net, map_location=device, weights_only=False)
             migrate_state_dict(state_dict)
+            if 'W' in state_dict.get('model_state_dict', {}):
+                ckpt_n_edges = state_dict['model_state_dict']['W'].shape[0]
+                if ckpt_n_edges != config.simulation.n_edges:
+                    logger.info(f'n_edges from checkpoint: {ckpt_n_edges} '
+                                f'(config: {config.simulation.n_edges}) — using checkpoint')
+                    config.simulation.n_edges = ckpt_n_edges
+            model = create_model(model_config.signal_model_name,
+                                 aggr_type=model_config.aggr_type, config=config, device=device)
             model.load_state_dict(state_dict['model_state_dict'], strict=False)
             model.edges = edges
 

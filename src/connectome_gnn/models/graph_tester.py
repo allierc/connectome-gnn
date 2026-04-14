@@ -132,13 +132,30 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     config.simulation.n_neurons = n_neurons
     logger.info(f'\033[94mtest dataset: {test_ds}\033[0m, {n_frames} frames, {n_neurons} neurons')
 
-    # Adjust n_edges to match training edges
+    # Adjust n_edges to match training edges.
+    # Priority: (1) training_edges.pt, (2) checkpoint W shape, (3) data edge_index.
     training_edges_path = os.path.join(log_dir, 'training_edges.pt')
     if os.path.exists(training_edges_path):
         edges_for_size = torch.load(training_edges_path, map_location='cpu', weights_only=False)
+        actual_n_edges = edges_for_size.shape[1]
     else:
-        edges_for_size = load_edge_index(graphs_data_path(config.dataset), device='cpu')
-    actual_n_edges = edges_for_size.shape[1]
+        data_n_edges = load_edge_index(graphs_data_path(config.dataset), device='cpu').shape[1]
+        if data_n_edges != sim.n_edges:
+            # Data edge count doesn't match config — peek at checkpoint W for authoritative size
+            _ckpt_files = (glob.glob(f"{log_dir}/models/best_model_with_*.pt") or
+                           glob.glob(f"{log_dir}/models/*.pt"))
+            _ckpt_n_edges = None
+            if _ckpt_files:
+                _sd = torch.load(max(_ckpt_files, key=os.path.getmtime),
+                                 map_location='cpu', weights_only=False)
+                migrate_state_dict(_sd)
+                if 'W' in _sd.get('model_state_dict', {}):
+                    _ckpt_n_edges = _sd['model_state_dict']['W'].shape[0]
+                    logger.info(f'n_edges from checkpoint W: {_ckpt_n_edges} '
+                                f'(data: {data_n_edges}, config: {sim.n_edges})')
+            actual_n_edges = _ckpt_n_edges if _ckpt_n_edges is not None else data_n_edges
+        else:
+            actual_n_edges = data_n_edges
     expected_total = sim.n_edges + sim.n_extra_null_edges
     if actual_n_edges == expected_total and sim.n_extra_null_edges > 0:
         logger.info(f'null edges in data: {sim.n_edges} base + {sim.n_extra_null_edges} null = {actual_n_edges}')
