@@ -170,7 +170,16 @@ f_theta(v_i, agg_i, embed_i) → dv_i/dt   (node update MLP)
 | 5     | **W reg + init**        | `coeff_W_L1`, `coeff_W_L2`, `w_init_mode`                      | W_L1: {0, 5e-5, 1.5e-4, 5e-4}; W_L2: {0, 1.5e-6}; init: {randn_scaled, zeros} |
 | 6     | **Training regime**     | `batch_size`, `data_augmentation_loop`                           | bs: {2, 4, 8}; DAL: {20, 30, 35, 50}; note cliff hypothesis at DAL=35          |
 | 7     | **Free exploration**    | Any parameter — combine best from Blocks 2-6                    | Novel combinations; test surprising interactions                                 |
-| 8     | **Final robustness**    | Best config, all 4 slots same (ROBUSTNESS)                      | Confirm CV < 3%, zero catastrophic failures                                     |
+| 8     | **Final robustness**    | Best config, all 4 slots same (ROBUSTNESS, `generate_data: false`) | Confirm CV < 3%, zero catastrophic failures; same data across seeds          |
+| 9     | **CV robustness**       | Best config, 8 seeds over 2 iterations (ROBUSTNESS, `generate_data: true`) | True seed independence: data regenerated per slot; target CV < 3%  |
+
+**Extra blocks** (optional, use if Block 7 did not converge to a clear winner):
+append additional EXPLORATION iterations on any block focus before proceeding to Blocks 8-9.
+
+> **generate_data flag for CV robustness**: Before running Block 9, set `generate_data: true` in
+> the config. This causes the pipeline to regenerate data with a fresh simulation seed for each
+> slot, testing true independence across both training data and model initialization. After Block 9,
+> reset `generate_data: false` to avoid unnecessary data regeneration.
 
 ## File Structure
 
