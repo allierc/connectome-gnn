@@ -438,6 +438,9 @@ def data_generate_spiking(config, visualize=True, run_vizualized=0, style="color
 
     synapse_model = "COBA" if "coba" in model_config.signal_model_name else "CUBA"
     logger.info(f"generating spiking data ... {model_config.signal_model_name}  synapse_model: {synapse_model}  seed: {sim.seed}")
+    print(f"  n_neurons:       {sim.n_neurons}")
+    print(f"  n_input_neurons: {sim.n_input_neurons}")
+    print(f"  n_edges:         {sim.n_edges}")
 
     os.makedirs(graphs_data_path("fly"), exist_ok=True)
     folder = graphs_data_path(config.dataset) + "/"
@@ -726,6 +729,9 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
     n_neurons = sim.n_neurons
 
     logger.info(f"generating data ... {model_config.signal_model_name}  dynamics_noise: {sim.noise_model_level}  measurement_noise: {sim.measurement_noise_level}  seed: {sim.seed}")
+    print(f"  n_neurons:       {sim.n_neurons}")
+    print(f"  n_input_neurons: {sim.n_input_neurons}")
+    print(f"  n_edges:         {sim.n_edges}")
 
     run = 0
 
