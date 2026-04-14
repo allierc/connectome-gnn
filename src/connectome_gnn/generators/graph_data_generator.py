@@ -679,11 +679,18 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
     # Erase old data if requested (prevents appending to old runs)
     if erase:
         import shutil
+        import subprocess
         for split in ['train', 'test']:
             for data_file in ['x_list', 'y_list']:
                 old_path = graphs_data_path(config.dataset, f"{data_file}_{split}")
                 if os.path.exists(old_path):
-                    shutil.rmtree(old_path)
+                    try:
+                        shutil.rmtree(old_path)
+                    except OSError:
+                        # shutil.rmtree can fail on network filesystems (Lustre/GPFS)
+                        # because _rmtree_safe_fd uses openat/unlinkat which are
+                        # unreliable on those systems. Fall back to rm -rf.
+                        subprocess.run(['rm', '-rf', str(old_path)], check=True)
                     logger.info(f"erased old {data_file}_{split}")
 
     torch.random.fork_rng(devices=device)
@@ -922,27 +929,35 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
             torch.save(ode_params.W.clone(), graphs_data_path(config.dataset, "weights_full.pt"))
             torch.save(edge_index.clone(), graphs_data_path(config.dataset, "edge_index_full.pt"))
 
-        rng_rm = np.random.RandomState(sim.edge_removal_seed)
         n_total = edge_index.shape[1]
-        removal_mode = getattr(sim, 'edge_removal_mode', 'random')
-        logger.info(f"edge removal mode: {removal_mode}, ratio: {sim.edge_removal_ratio}")
-
-        if removal_mode == 'per_column':
-            # Remove a consistent fraction of outgoing edges per pre-synaptic neuron
-            src_np = edge_index[0].cpu().numpy()
-            keep_mask = np.ones(n_total, dtype=bool)
-            for source in np.unique(src_np):
-                source_edges = np.where(src_np == source)[0]
-                n_remove = max(1, int(round(len(source_edges) * sim.edge_removal_ratio)))
-                if n_remove >= len(source_edges):
-                    n_remove = len(source_edges) - 1  # keep at least one
-                remove_idx = rng_rm.choice(source_edges, n_remove, replace=False)
-                keep_mask[remove_idx] = False
-            kept_indices = np.where(keep_mask)[0]
+        edge_mask_path = getattr(sim, 'edge_mask_path', '')
+        if edge_mask_path and os.path.exists(edge_mask_path):
+            kept_indices = torch.load(edge_mask_path, weights_only=True).numpy()
+            logger.info(
+                f"edge removal: loaded precomputed mask from {edge_mask_path} "
+                f"({len(kept_indices)}/{n_total} edges kept)"
+            )
         else:
-            # Random removal across the full edge set
-            n_keep = int(n_total * (1 - sim.edge_removal_ratio))
-            kept_indices = np.sort(rng_rm.choice(n_total, n_keep, replace=False))
+            rng_rm = np.random.RandomState(sim.edge_removal_seed)
+            removal_mode = getattr(sim, 'edge_removal_mode', 'random')
+            logger.info(f"edge removal mode: {removal_mode}, ratio: {sim.edge_removal_ratio}")
+
+            if removal_mode == 'per_column':
+                # Remove a consistent fraction of outgoing edges per pre-synaptic neuron
+                src_np = edge_index[0].cpu().numpy()
+                keep_mask = np.ones(n_total, dtype=bool)
+                for source in np.unique(src_np):
+                    source_edges = np.where(src_np == source)[0]
+                    n_remove = max(1, int(round(len(source_edges) * sim.edge_removal_ratio)))
+                    if n_remove >= len(source_edges):
+                        n_remove = len(source_edges) - 1  # keep at least one
+                    remove_idx = rng_rm.choice(source_edges, n_remove, replace=False)
+                    keep_mask[remove_idx] = False
+                kept_indices = np.where(keep_mask)[0]
+            else:
+                # Random removal across the full edge set
+                n_keep = int(n_total * (1 - sim.edge_removal_ratio))
+                kept_indices = np.sort(rng_rm.choice(n_total, n_keep, replace=False))
 
         edge_index = edge_index[:, kept_indices]
         ode_params.edge_index = edge_index
