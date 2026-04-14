@@ -459,21 +459,8 @@ def data_generate_spiking(config, visualize=True, run_vizualized=0, style="color
     logging.getLogger().setLevel(logging.WARNING)
     setup_flyvis_model_path()
 
-    # Initialize stimulus dataset (same as graded model)
-    sintel_config = {
-        "n_frames": 19,
-        "flip_axes": [0, 1],
-        "n_rotations": [0, 1, 2, 3, 4, 5],
-        "temporal_split": True,
-        "dt": sim.delta_t,
-        "interpolate": True,
-        "boxfilter": dict(extent=extent, kernel_size=13),
-        "vertical_splits": 3,
-        "center_crop_fraction": 0.7,
-    }
-    stimulus_dataset = AugmentedSintel(**sintel_config)
-
-    # Initialize flyvis network (for connectome topology and stimulus processing)
+    # Initialize the flyvis network first (fast) so we can print actual network stats before
+    # the slow stimulus rendering begins.
     import logging as _logging
     _logging.getLogger("flyvis.utils.logging_utils").setLevel(_logging.ERROR)
     config_net = get_default_config(overrides=[], path=f"{CONFIG_PATH}/network/network.yaml")
@@ -488,6 +475,20 @@ def data_generate_spiking(config, visualize=True, run_vizualized=0, style="color
     print(f"  n_neurons:       {net.n_nodes}")
     print(f"  n_input_neurons: {n_input_neurons_net}")
     print(f"  n_edges:         {net.n_edges}")
+
+    # Initialize stimulus dataset
+    sintel_config = {
+        "n_frames": 19,
+        "flip_axes": [0, 1],
+        "n_rotations": [0, 1, 2, 3, 4, 5],
+        "temporal_split": True,
+        "dt": sim.delta_t,
+        "interpolate": True,
+        "boxfilter": dict(extent=extent, kernel_size=13),
+        "vertical_splits": 3,
+        "center_crop_fraction": 0.7,
+    }
+    stimulus_dataset = AugmentedSintel(**sintel_config)
 
     # Build spiking ODE params from flyvis connectome
     adex_overrides = {}
@@ -765,6 +766,23 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
     logging.getLogger().setLevel(logging.WARNING)
     setup_flyvis_model_path()
 
+    # Initialize the flyvis network first (fast) so we can print actual network stats before
+    # the slow stimulus rendering begins.
+    import logging as _logging
+    _logging.getLogger("flyvis.utils.logging_utils").setLevel(_logging.ERROR)
+    config_net = get_default_config(overrides=[], path=f"{CONFIG_PATH}/network/network.yaml")
+    config_net.connectome.extent = extent
+    net = Network(**config_net)
+    nnv = NetworkView(f"flow/{sim.ensemble_id}/{sim.model_id}")
+    trained_net = nnv.init_network(checkpoint=0)
+    net.load_state_dict(trained_net.state_dict())
+    torch.set_grad_enabled(False)
+
+    n_input_neurons_net = int(np.sum(net.connectome.nodes["role"][:] == "input"))
+    print(f"  n_neurons:       {net.n_nodes}")
+    print(f"  n_input_neurons: {n_input_neurons_net}")
+    print(f"  n_edges:         {net.n_edges}")
+
     # Initialize datasets
     if "DAVIS" in sim.visual_input_type or "mixed" in sim.visual_input_type:
 
@@ -820,26 +838,6 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
             "center_crop_fraction": 0.7
         }
         stimulus_dataset = AugmentedSintel(**sintel_config)
-
-    # Initialize the ground-truth flyvis network from a pre-trained checkpoint.
-    # This loads the biological connectome (neuron types, synaptic weights, time constants)
-    # from the flyvis library, using ensemble_id/model_id to select a specific trained model.
-    # The network is then used as the "simulator" to generate voltage traces via its PDE dynamics.
-    # Suppress noisy flyvis "epe not in ... Falling back to loss" warning
-    import logging as _logging
-    _logging.getLogger("flyvis.utils.logging_utils").setLevel(_logging.ERROR)
-    config_net = get_default_config(overrides=[], path=f"{CONFIG_PATH}/network/network.yaml")
-    config_net.connectome.extent = extent
-    net = Network(**config_net)
-    nnv = NetworkView(f"flow/{sim.ensemble_id}/{sim.model_id}")
-    trained_net = nnv.init_network(checkpoint=0)
-    net.load_state_dict(trained_net.state_dict())
-    torch.set_grad_enabled(False)
-
-    n_input_neurons_net = int(np.sum(net.connectome.nodes["role"][:] == "input"))
-    print(f"  n_neurons:       {net.n_nodes}")
-    print(f"  n_input_neurons: {n_input_neurons_net}")
-    print(f"  n_edges:         {net.n_edges}")
 
     # Extract ground-truth parameters from flyvis connectome.
     if is_hh:
