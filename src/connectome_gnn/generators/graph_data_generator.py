@@ -939,71 +939,14 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
     _R = '\033[91m'  # red
     _X = '\033[0m'   # reset
 
-    print(f"{_G}[GENERATE] before removal: edge_index={edge_index.shape}  W={ode_params.W.shape}{_X}")
-
-    # Edge removal: drop a fraction of edges before saving
-    # (simulation already ran with the full graph)
-    if sim.edge_removal_ratio > 0:
-        # Save full edges first (for reference / analysis)
-        if save:
-            torch.save(ode_params.W.clone(), graphs_data_path(config.dataset, "weights_full.pt"))
-            torch.save(edge_index.clone(), graphs_data_path(config.dataset, "edge_index_full.pt"))
-
-        n_total = edge_index.shape[1]
-        edge_mask_path = getattr(sim, 'edge_mask_path', '')
-        if edge_mask_path and os.path.exists(edge_mask_path):
-            kept_indices = torch.load(edge_mask_path, weights_only=True).numpy()
-            print(f"{_G}[GENERATE] mask loaded from {edge_mask_path}: "
-                  f"{len(kept_indices)}/{n_total} edges kept{_X}")
-        else:
-            if edge_mask_path:
-                print(f"{_R}[GENERATE] edge_mask_path set but NOT FOUND: {edge_mask_path} "
-                      f"— computing new mask{_X}")
-            else:
-                print(f"{_G}[GENERATE] no edge_mask_path — computing new mask "
-                      f"(mode={getattr(sim,'edge_removal_mode','random')}, "
-                      f"ratio={sim.edge_removal_ratio}){_X}")
-            rng_rm = np.random.RandomState(sim.edge_removal_seed)
-            removal_mode = getattr(sim, 'edge_removal_mode', 'random')
-
-            if removal_mode == 'per_column':
-                # Remove a consistent fraction of outgoing edges per pre-synaptic neuron
-                src_np = edge_index[0].cpu().numpy()
-                keep_mask = np.ones(n_total, dtype=bool)
-                for source in np.unique(src_np):
-                    source_edges = np.where(src_np == source)[0]
-                    n_remove = max(1, int(round(len(source_edges) * sim.edge_removal_ratio)))
-                    if n_remove >= len(source_edges):
-                        n_remove = len(source_edges) - 1  # keep at least one
-                    remove_idx = rng_rm.choice(source_edges, n_remove, replace=False)
-                    keep_mask[remove_idx] = False
-                kept_indices = np.where(keep_mask)[0]
-            else:
-                # Random removal across the full edge set
-                n_keep = int(n_total * (1 - sim.edge_removal_ratio))
-                kept_indices = np.sort(rng_rm.choice(n_total, n_keep, replace=False))
-
-        edge_index = edge_index[:, kept_indices]
-        ode_params.edge_index = edge_index
-        ode_params.W = ode_params.W[kept_indices]
-        pct_removed = (1 - len(kept_indices) / n_total) * 100
-        expected_pct = sim.edge_removal_ratio * 100
-        color = _G if abs(pct_removed - expected_pct) < 2 else _R
-        print(f"{color}[GENERATE] after removal: edge_index={edge_index.shape}  "
-              f"W={ode_params.W.shape}  removed={pct_removed:.1f}% "
-              f"(expected {expected_pct:.0f}%){_X}")
-        if save:
-            torch.save(torch.tensor(kept_indices),
-                        graphs_data_path(config.dataset, "kept_edge_indices.pt"))
-    else:
-        print(f"{_G}[GENERATE] no edge removal (ratio=0){_X}")
-
-    if save:
-        ode_params.save(folder)
-        print(f"{_G}[GENERATE] saved ode_params: edge_index={ode_params.edge_index.shape}  "
-              f"W={ode_params.W.shape}  → {folder}{_X}")
-        if ablation_mask is not None:
-            torch.save(ablation_mask, graphs_data_path(config.dataset, "ablation_mask.pt"))
+    # Activity will be generated with the FULL connectivity below.
+    # Edge removal (if any) is applied AFTER generation so that x_list/y_list
+    # reflect the full-network dynamics. Only ode_params (the connectivity seen
+    # by the GNN) is pruned, giving the GNN an incomplete adjacency matrix to
+    # work with while the ground-truth activity it must predict is from the
+    # full connectome. This tests whether the GNN can recover parameters
+    # despite missing edges.
+    print(f"{_G}[GENERATE] full connectivity: edge_index={edge_index.shape}  W={ode_params.W.shape}{_X}")
 
     x_coords, y_coords, u_coords, v_coords = get_photoreceptor_positions_from_net(net)
 
@@ -1230,6 +1173,69 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
 
     # restore gradient computation now (before any early-return paths)
     torch.set_grad_enabled(True)
+
+    # --- Edge removal: applied AFTER activity generation ---
+    # Activity data (x_list, y_list) was generated with the full connectome above.
+    # Now prune ode_params so the GNN only sees the incomplete adjacency matrix.
+    print(f"{_G}[GENERATE] activity generated with full connectivity: "
+          f"edge_index={edge_index.shape}  W={ode_params.W.shape}{_X}")
+    if sim.edge_removal_ratio > 0:
+        if save:
+            torch.save(ode_params.W.clone(), graphs_data_path(config.dataset, "weights_full.pt"))
+            torch.save(edge_index.clone(), graphs_data_path(config.dataset, "edge_index_full.pt"))
+
+        n_total = edge_index.shape[1]
+        edge_mask_path = getattr(sim, 'edge_mask_path', '')
+        if edge_mask_path and os.path.exists(edge_mask_path):
+            kept_indices = torch.load(edge_mask_path, weights_only=True).numpy()
+            print(f"{_G}[GENERATE] mask loaded from {edge_mask_path}: "
+                  f"{len(kept_indices)}/{n_total} edges kept{_X}")
+        else:
+            if edge_mask_path:
+                print(f"{_R}[GENERATE] edge_mask_path set but NOT FOUND: {edge_mask_path} "
+                      f"— computing new mask{_X}")
+            else:
+                print(f"{_G}[GENERATE] no edge_mask_path — computing new mask "
+                      f"(mode={getattr(sim,'edge_removal_mode','random')}, "
+                      f"ratio={sim.edge_removal_ratio}){_X}")
+            rng_rm = np.random.RandomState(sim.edge_removal_seed)
+            removal_mode = getattr(sim, 'edge_removal_mode', 'random')
+            if removal_mode == 'per_column':
+                src_np = edge_index[0].cpu().numpy()
+                keep_mask = np.ones(n_total, dtype=bool)
+                for source in np.unique(src_np):
+                    source_edges = np.where(src_np == source)[0]
+                    n_remove = max(1, int(round(len(source_edges) * sim.edge_removal_ratio)))
+                    if n_remove >= len(source_edges):
+                        n_remove = len(source_edges) - 1
+                    remove_idx = rng_rm.choice(source_edges, n_remove, replace=False)
+                    keep_mask[remove_idx] = False
+                kept_indices = np.where(keep_mask)[0]
+            else:
+                n_keep = int(n_total * (1 - sim.edge_removal_ratio))
+                kept_indices = np.sort(rng_rm.choice(n_total, n_keep, replace=False))
+
+        edge_index = edge_index[:, kept_indices]
+        ode_params.edge_index = edge_index
+        ode_params.W = ode_params.W[kept_indices]
+        pct_removed = (1 - len(kept_indices) / n_total) * 100
+        expected_pct = sim.edge_removal_ratio * 100
+        color = _G if abs(pct_removed - expected_pct) < 2 else _R
+        print(f"{color}[GENERATE] ode_params pruned: edge_index={edge_index.shape}  "
+              f"W={ode_params.W.shape}  removed={pct_removed:.1f}% "
+              f"(expected {expected_pct:.0f}%){_X}")
+        if save:
+            torch.save(torch.tensor(kept_indices),
+                       graphs_data_path(config.dataset, "kept_edge_indices.pt"))
+    else:
+        print(f"{_G}[GENERATE] no edge removal (ratio=0){_X}")
+
+    if save:
+        ode_params.save(folder)
+        print(f"{_G}[GENERATE] saved ode_params: edge_index={ode_params.edge_index.shape}  "
+              f"W={ode_params.W.shape}  → {folder}{_X}")
+        if ablation_mask is not None:
+            torch.save(ablation_mask, graphs_data_path(config.dataset, "ablation_mask.pt"))
 
     # --- Always run diagnostics after data generation ---
     from connectome_gnn.zarr_io import load_raw_array, load_simulation_data
