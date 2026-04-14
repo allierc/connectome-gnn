@@ -1,6 +1,5 @@
 import glob
 import shutil
-import subprocess
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -31,14 +30,23 @@ from connectome_gnn.zarr_io import ZarrArrayWriter, ZarrSimulationWriterV3
 def _rmtree(path):
     """Remove a directory tree robustly on network filesystems (Lustre/GPFS).
 
-    Python's shutil.rmtree uses openat/unlinkat via _rmtree_safe_fd on Linux,
-    which can fail with 'Directory not empty' on network filesystems. Fall back
-    to subprocess rm -rf when that happens.
+    Python 3.12 changed shutil.rmtree on Linux to use _rmtree_safe_fd, which
+    calls openat()/unlinkat() relative to a directory fd.  On Lustre/GPFS
+    these syscalls can raise ENOTEMPTY on rmdir() even after all child files
+    were successfully unlinked, because Lustre's metadata propagation lags
+    behind the unlinkat() calls.  This is a known Python 3.12 + Lustre
+    incompatibility, not a bug in our code.
+
+    Workaround: use os.walk() bottom-up with plain path-based unlink()/rmdir(),
+    which go through Lustre's regular code path and do not exhibit the race.
     """
-    try:
-        shutil.rmtree(path)
-    except OSError:
-        subprocess.run(['rm', '-rf', str(path)], check=True)
+    path = str(path)
+    for root, dirs, files in os.walk(path, topdown=False):
+        for f in files:
+            os.unlink(os.path.join(root, f))
+        for d in dirs:
+            os.rmdir(os.path.join(root, d))
+    os.rmdir(path)
 
 
 try:
