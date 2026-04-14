@@ -447,7 +447,8 @@ def data_generate_spiking(config, visualize=True, run_vizualized=0, style="color
     for f in files:
         os.remove(f)
 
-    extent = 8
+    # extent=15 → 721 retinotopic columns (5768 photoreceptors); extent=8 → 217 columns (1736 photoreceptors)
+    extent = 15 if getattr(sim, 'all_columns', False) else 8
 
     import logging
 
@@ -736,7 +737,8 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
     for f in files:
         os.remove(f)
 
-    extent = 8
+    # extent=15 → 721 retinotopic columns (5768 photoreceptors); extent=8 → 217 columns (1736 photoreceptors)
+    extent = 15 if getattr(sim, 'all_columns', False) else 8
 
     # flyvis.__init__ sets root logger to INFO via basicConfig — restore to WARNING
     import logging

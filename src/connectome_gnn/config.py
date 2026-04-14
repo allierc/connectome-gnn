@@ -193,6 +193,7 @@ class SimulationConfig(BaseModel):
     max_train_sequences: int = 0  # limit train sequences (0 = use all); reduces generation time proportionally
     blank_freq: int = 2  # Frequency of blank frames in visual input
     simulation_initial_state: bool = False
+    all_columns: bool = False  # if True, use all 721 retinotopic columns (extent=15); default uses 217 (extent=8)
 
 
     # external input configuration
