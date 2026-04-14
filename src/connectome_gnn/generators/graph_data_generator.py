@@ -471,7 +471,9 @@ def data_generate_spiking(config, visualize=True, run_vizualized=0, style="color
     net.load_state_dict(trained_net.state_dict())
     torch.set_grad_enabled(False)
 
-    n_input_neurons_net = int(np.sum(net.connectome.nodes["role"][:] == "input"))
+    _node_types_str = [t.decode('utf-8') if isinstance(t, bytes) else str(t) for t in net.connectome.nodes["type"][:]]
+    _photoreceptor_types = {'R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7', 'R8'}
+    n_input_neurons_net = int(np.sum([t in _photoreceptor_types for t in _node_types_str]))
     print(f"  n_neurons:       {net.n_nodes}")
     print(f"  n_input_neurons: {n_input_neurons_net}")
     print(f"  n_edges:         {net.n_edges}")
@@ -778,7 +780,9 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
     net.load_state_dict(trained_net.state_dict())
     torch.set_grad_enabled(False)
 
-    n_input_neurons_net = int(np.sum(net.connectome.nodes["role"][:] == "input"))
+    _node_types_str = [t.decode('utf-8') if isinstance(t, bytes) else str(t) for t in net.connectome.nodes["type"][:]]
+    _photoreceptor_types = {'R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7', 'R8'}
+    n_input_neurons_net = int(np.sum([t in _photoreceptor_types for t in _node_types_str]))
     print(f"  n_neurons:       {net.n_nodes}")
     print(f"  n_input_neurons: {n_input_neurons_net}")
     print(f"  n_edges:         {net.n_edges}")
