@@ -932,8 +932,8 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
     if sim.edge_removal_ratio > 0:
         # Save full edges first (for reference / analysis)
         if save:
-            torch.save(ode_params.W.clone(), graphs_data_path(config.dataset, "weights_full.pt"))
-            torch.save(edge_index.clone(), graphs_data_path(config.dataset, "edge_index_full.pt"))
+            torch.save(ode_params.W.cpu().clone(), graphs_data_path(config.dataset, "weights_full.pt"))
+            torch.save(edge_index.cpu().clone(), graphs_data_path(config.dataset, "edge_index_full.pt"))
 
         n_total = edge_index.shape[1]
         edge_mask_path = getattr(sim, 'edge_mask_path', '')
