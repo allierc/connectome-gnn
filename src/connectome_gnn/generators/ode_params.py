@@ -325,14 +325,14 @@ class FlyVisODEParams(ODEParamsBase):
         params = net._param_api()
         tau_i = params.nodes.time_const
         V_i_rest = params.nodes.bias
-        W = params.edges.syn_strength * params.edges.syn_count * params.edges.sign
+        W = (params.edges.syn_strength * params.edges.syn_count * params.edges.sign).detach().float()
         edge_index = torch.stack([
             torch.tensor(net.connectome.edges.source_index[:]),
             torch.tensor(net.connectome.edges.target_index[:]),
         ], dim=0)
         return cls(
-            tau_i=tau_i.to(device),
-            V_i_rest=V_i_rest.to(device),
+            tau_i=tau_i.detach().float().to(device),
+            V_i_rest=V_i_rest.detach().float().to(device),
             edge_index=edge_index.to(device),
             W=W.to(device),
         )
