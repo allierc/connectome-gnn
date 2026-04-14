@@ -451,7 +451,8 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
         ss_res = np.sum((stim_true_2d - pred_corrected) ** 2)
         ss_tot = np.sum((stim_true_2d - np.mean(stim_true_2d)) ** 2)
         stimuli_R2 = float(1 - ss_res / (ss_tot + 1e-16))
-        logger.info(f'stimuli_R2 (corrected a={a_coeff:.4f} b={b_coeff:.4f}): {stimuli_R2:.4f}')
+        stimuli_r  = float(stimuli_R2 ** 0.5) if stimuli_R2 >= 0 else 0.0
+        logger.info(f'stimuli_R2 (corrected a={a_coeff:.4f} b={b_coeff:.4f}): {stimuli_R2:.4f}  stimuli_r={stimuli_r:.4f}')
 
         # Generate stimuli GT vs Pred video
         if hasattr(x_ts_eval.frame(0), 'pos') and x_ts_eval.frame(0).pos is not None:
@@ -488,6 +489,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
             f.write("Rollout data source: training (INR learned on training data)\n")
         if stimuli_R2 is not None:
             f.write(f"stimuli_R2: {stimuli_R2:.4f}\n")
+            f.write(f"stimuli_r: {stimuli_r:.4f}\n")
     logger.debug(f'rollout metrics saved to {rollout_log_path}')
 
     # RMSE and Pearson r as a function of rollout step (every 500 frames), saved as CSV
@@ -520,6 +522,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
         log_file.write(f'rollout_RMSE_std: {np.std(rmse_ro):.4f}\n')
         if stimuli_R2 is not None:
             log_file.write(f'stimuli_R2: {stimuli_R2:.4f}\n')
+            log_file.write(f'stimuli_r: {stimuli_r:.4f}\n')
 
     # --- MLP Jacobian connectivity R2 ---
     if ('mlp' in model_config.signal_model_name.lower() or 'eed' in model_config.signal_model_name.lower()) and hasattr(model, 'compute_jacobian_batched'):
