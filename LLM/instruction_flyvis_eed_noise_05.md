@@ -1,9 +1,10 @@
-# FlyVis EED Baseline — Rollout Optimization
+# FlyVis EED Baseline — Rollout Optimization (noise=0.5)
 
 ## Goal
 
 Optimize the **EED (Encode-Evolve-Decode) baseline** hyperparameters for lowest possible
-autoregressive rollout error ~ O(1e-2) or lower on the flyvis model. Two sub-goals:
+autoregressive rollout error ~ O(1e-2) or lower on the flyvis model with **high noise** (sigma=0.5).
+Two sub-goals:
 
 - minimize the overall RMSE
 - maintain a roughly constant RMSE during rollout. An increase in the RMSE during rollout is an
@@ -24,13 +25,13 @@ used during training at all.
 
 The dynamic range of voltages in the simulation is bounded, therefore, if a model were to predict
 v(t) = v(t=0), i.e., a constant, the RMSE is bounded and is between 0.2 and 0.3. To be a convincing
-demonstration the EED should produce an RMSE that is ~ 2e-2, or about 10x better. This may or may
+demonstration the EED should produce an RMSE that is ~ 1e-2, or about 10x better. This may or may
 not be feasible, but that is the goal.
 
 ## Scientific Context
 
 The core research question is: **Can a latent-space EED model achieve stable autoregressive rollout
-on the simulated FlyVis model of the Drosophila visual system?**
+on the simulated FlyVis model of the Drosophila visual system when trained on highly noisy data?**
 
 Here we are exploring:
 
@@ -41,21 +42,26 @@ Here we are exploring:
 - The key challenge is error compounding in autoregressive mode — small per-step errors accumulate
   rapidly unless the model learns a regime where errors remain bounded.
 - How does the latent bottleneck compare to a flat MLP in terms of rollout stability?
+- The latent bottleneck may act as an implicit denoiser — compressing 13,741 dimensions into a
+  low-dimensional manifold could filter out noise that doesn't lie on the manifold.
 
 ## Noise Model
 
-The FlyVis simulation may include dynamics noise depending on the config:
+The FlyVis forward simulation is an SDE — noise is injected at each Euler integration step,
+making the training trajectories stochastic realizations:
 
 ```
-v_i(t+1) = v_i(t) + dt * f(v_i(t), W, a_i, I_i(t)) + epsilon_i(t)
-epsilon_i ~ N(0, sigma)  where sigma = noise_model_level from the config
+v_i(t+1) = v_i(t) + dt * f(v_i(t), W, a_i, I_i(t)) + sigma * z_i(t)
+z_i ~ N(0, 1),  sigma = 0.5 (noise_model_level)
 ```
+
+The EED sees trajectories sampled from this SDE and must learn the deterministic drift f(v, W, a, I)
+despite the additive noise. The per-step noise on voltages has std=0.5, while the clean dynamics
+step dt * f(...) is typically O(dt) ~ O(0.02).
 
 **Important**: Noise is only added to the **training data**. Test/validation rollouts are computed
-on noise-free data. This means the training-data rollout RMSE (`train_rollout_rmse`) will be
-affected by noise, but the test metric (`rollout_RMSE`) reflects pure model quality. Do not compare
-training and test RMSE directly when noise is present — the training RMSE has an irreducible noise
-floor.
+using the deterministic ODE (sigma=0). The test metric (`rollout_RMSE`) reflects pure model quality.
+Do not compare training and test RMSE directly — the training RMSE has an irreducible noise floor.
 
 ## Metrics
 
@@ -79,12 +85,12 @@ floor.
     parameter choices. If a model fails to produce a stable rollout on training data, it is very
     unlikely to do so on new data. **IMPORTANT** these metrics are computed over the training data.
 
-- Constant baseline RMSE ≈ **0.25**. If rollout_RMSE is near 0.25, the model has collapsed to
-  predicting v(t) ≈ constant. Fast learning rates can drive to this trivial local minimum.
+- Constant baseline RMSE ~ **0.25**. If rollout_RMSE is near 0.25, the model has collapsed to
+  predicting v(t) ~ constant. Fast learning rates can drive to this trivial local minimum.
 
 - During test/validation:
   - **PRIMARY METRIC: `rollout_RMSE`** (lower is better).
-  - **TARGET: rollout_RMSE < 2e-2**
+  - **TARGET: rollout_RMSE < 1e-2**
   - Use the `results_rollout_by_step.csv` to track how RMSE evolves across the rollout. One of your
     goals is to minimize the gap between early and late rollout RMSE. Example output:
 
@@ -103,7 +109,7 @@ Data is **re-generated each iteration** with a different seed to verify seed ind
 
 ## Scientific Method
 
-Strict **hypothesize → test → validate/falsify** cycle:
+Strict **hypothesize -> test -> validate/falsify** cycle:
 
 1. **Hypothesize**: Form a specific, testable prediction about what affects rollout stability
 2. **Design experiment**: Change **EXACTLY ONE** parameter at a time (causality rule)
@@ -133,7 +139,7 @@ tau_i * dv_i/dt = -v_i + V_rest_i + sum_j W_ij * g(v_j) + I_i(t)
 
 - **13,741 neurons**, 65 cell types, **434,112 edges**
 - **1,736 input neurons** (photoreceptors, DAVIS visual input)
-- Noise level as specified in the config file (`noise_model_level`)
+- Noise level: sigma=0.5 per time step (10x higher than noise=0.05)
 - 64,000 frames, delta_t = 0.02
 
 ## EED Architecture
@@ -321,7 +327,7 @@ When prompt says `PARALLEL START`:
 
 - Slot 0 = baseline (no changes from base config)
 - Slots 1-3: each changes EXACTLY ONE parameter per block focus
-- Hypothesis: "The EED baseline can achieve stable rollout (RMSE < 2e-2) on flyvis with appropriate
+- Hypothesis: "The EED baseline can achieve stable rollout (RMSE < 1e-2) on flyvis with appropriate
   training parameters (lr, batch_size, rollout_train_steps)"
 
 ---
@@ -340,7 +346,7 @@ When prompt says `PARALLEL START`:
 
 ### Robustness Comparison Table
 
-| Iter | Config summary | rollout_RMSE (mean±std) | CV% | div_time (mean) | divergence_at | Verdict | Hypothesis |
+| Iter | Config summary | rollout_RMSE (mean+/-std) | CV% | div_time (mean) | divergence_at | Verdict | Hypothesis |
 | ---- | -------------- | ----------------------- | --- | --------------- | ------------- | ------- | ---------- |
 
 ### Established Principles
@@ -353,7 +359,7 @@ When prompt says `PARALLEL START`:
 
 ## Previous Block Summaries
 
-**RULE: Keep summaries for the last 4 completed blocks, sorted oldest→newest. This section MUST
+**RULE: Keep summaries for the last 4 completed blocks, sorted oldest->newest. This section MUST
 appear before ## Current Block.**
 
 ### Block N Summary

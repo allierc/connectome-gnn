@@ -1,9 +1,9 @@
-# FlyVis MLP Baseline — Rollout Optimization
+# FlyVis MLP Baseline — Rollout Optimization (noise=0.5)
 
 ## Goal
 
 Optimize the **MLP baseline** hyperparameters for lowest possible autoregressive rollout error ~
-O(1e-2) or lower on the flyvis model. Two sub-goals:
+O(1e-2) or lower on the flyvis model with **high noise** (sigma=0.5). Two sub-goals:
 
 - minimize the overall RMSE
 - maintain a roughly constant RMSE during rollout. An increase in the RMSE during rollout is an
@@ -17,42 +17,54 @@ the activity at time t plus the input stimulus, the MLP can be used to compute t
 next time point (via Euler integration). We continue this process to generate an autoregressive
 rollout from the initial activity.
 
-Our initial starting point MLP is trained with a loss on the 1-step update, i.e., t -> t+1. And this
-MLP is able to generate a rollout over 8000 steps with RMSE < 0.2 on the test dataset that is not
-used during training at all.
-
 The dynamic range of voltages in the simulation is bounded, therefore, if a model were to predict
 v(t) = v(t=0), i.e., a constant, the RMSE is bounded and is between 0.2 and 0.3. To be a convincing
-demonstration the MLP should produce an RMSE that is ~ 2e-2, or about 10x better. This may or may
+demonstration the MLP should produce an RMSE that is ~ 1e-2, or about 10x better. This may or may
 not be feasible, but that is the goal.
+
+## Prior Optimization Results
+
+**Reference**: The noise-free condition achieves RMSE=0.0799 with:
+hidden_dim=640, n_layers=2, relu, add_residual=true, lr=1e-5, DAL=100, bs=256, rollout_train_steps=1.
+
+Applying that same noise-free config to noise=0.5 data yields RMSE=0.4877, Pearson r=-0.002 — the
+model has learned nothing useful. This is **worse than a constant predictor** (baseline ~0.25),
+meaning the model actively diverges. **Noise is added only to the training data; test/validation
+rollouts are noise-free.** The goal is to match or beat the noise-free RMSE (0.0799) despite
+training on highly noisy data.
 
 ## Scientific Context
 
 The core research question is: **Can a flat, graph-free MLP function approximator achieve stable
-autoregressive rollout on the simulated FlyVis model of the Drosophila visual system?**
+autoregressive rollout on the simulated FlyVis model when trained on highly noisy data?**
 
-Here we are exploring:
+At sigma=0.5, the noise magnitude is large relative to the signal. This creates fundamentally
+different challenges compared to the noise-free case:
 
-- can black-box models for neural activity predict long rollout beyond the training horizon? The
-  initial config already demonstrates that we can train on t->t+1 and achieve long rollout.
-- The key challenge is error compounding in autoregressive mode — small per-step errors accumulate
-  rapidly unless the model learns a regime where errors remain bounded.
-- How low can we drive the RMSE without the inductive biases of the underlying connectivity
-  structure and activation functions & weights?
+- **Training derivatives are corrupted**: The dv/dt targets contain noise that may dominate the
+  clean dynamics signal
+- The optimal hyperparameters are unknown and may differ substantially from noise-free
+- Which parameters matter most (architecture, training, or both) must be determined experimentally
+- Be mindful of the 60-minute training time budget when exploring parameters that increase compute
+  (e.g., higher rollout_train_steps scales training time linearly)
 
 ## Noise Model
 
-The FlyVis simulation may include dynamics noise depending on the config:
+The FlyVis forward simulation is an SDE — noise is injected at each Euler integration step,
+making the training trajectories stochastic realizations:
 
 ```
-v_i(t+1) = v_i(t) + dt * f(v_i(t), W, a_i, I_i(t)) + epsilon_i(t)
-epsilon_i ~ N(0, sigma)  where sigma = noise_model_level from the config
+v_i(t+1) = v_i(t) + dt * f(v_i(t), W, a_i, I_i(t)) + sigma * z_i(t)
+z_i ~ N(0, 1),  sigma = 0.5 (noise_model_level)
 ```
 
-**Important**: Noise is only added to the **training data**. Test/validation rollouts are computed on
-noise-free data. This means the training-data rollout RMSE (`train_rollout_rmse`) will be affected
-by noise, but the test metric (`rollout_RMSE`) reflects pure model quality. Do not compare training
-and test RMSE directly when noise is present — the training RMSE has an irreducible noise floor.
+The MLP sees trajectories sampled from this SDE and must learn the deterministic drift f(v, W, a, I)
+despite the additive noise. The per-step noise on voltages has std=0.5, while the clean dynamics
+step dt * f(...) is typically O(dt) ~ O(0.02).
+
+**Important**: Noise is only added to the **training data**. Test/validation rollouts are computed
+using the deterministic ODE (sigma=0). The test metric (`rollout_RMSE`) reflects pure model quality.
+Do not compare training and test RMSE directly — the training RMSE has an irreducible noise floor.
 
 ## Metrics
 
@@ -74,13 +86,15 @@ and test RMSE directly when noise is present — the training RMSE has an irredu
     metrics - though computed on training data - will nevertheless be important factors in guiding
     parameter loss. If a model fails to produce a stable rollout on training data, it is very
     unlikely to do so on new data. **IMPORTANT** these metrics are computed over the training data.
+  - **At noise=0.5, training rollout RMSE will be much higher than test** due to the large noise
+    floor. Focus on `div_time` and test `rollout_RMSE` as the true quality signals.
 
-- Constant baseline RMSE ≈ **0.25**. If rollout_RMSE is near 0.25, the model has collapsed to
-  predicting v(t) ≈ constant. Fast learning rates can drive to this trivial local minimum.
+- Constant baseline RMSE ~ **0.25**. If rollout_RMSE is near 0.25, the model has collapsed to
+  predicting v(t) ~ constant. Fast learning rates can drive to this trivial local minimum.
 
 - During test/validation:
   - **PRIMARY METRIC: `rollout_RMSE`** (lower is better).
-  - **TARGET: rollout_RMSE < 2e-2**
+  - **TARGET: rollout_RMSE < 1e-2**
   - Use the `results_rollout_by_step.csv` to track how RMSE evolves across the rollout. One of your
     goals is to minimize the gap between early and late rollout RMSE. Example output:
 
@@ -99,7 +113,7 @@ Data is **re-generated each iteration** with a different seed to verify seed ind
 
 ## Scientific Method
 
-Strict **hypothesize → test → validate/falsify** cycle:
+Strict **hypothesize -> test -> validate/falsify** cycle:
 
 1. **Hypothesize**: Form a specific, testable prediction about what affects rollout stability
 2. **Design experiment**: Change **EXACTLY ONE** parameter at a time (causality rule)
@@ -128,7 +142,7 @@ tau_i * dv_i/dt = -v_i + V_rest_i + sum_j W_ij * g(v_j) + I_i(t)
 
 - **13,741 neurons**, 65 cell types, **434,112 edges**
 - **1,736 input neurons** (photoreceptors, DAVIS visual input)
-- Noise level as specified in the config file (`noise_model_level`)
+- Noise level: sigma=0.5 per time step (10x higher than noise=0.05)
 - 64,000 frames, delta_t = 0.02
 
 ## MLP Architecture
@@ -151,7 +165,7 @@ output = [dv_1/dt, ..., dv_13741/dt]                    (13,741 dims)
 | `n_layers`        | 3       | Total linear layers: 1 input-to-hidden + (n_layers-2) hidden-to-hidden + 1 output. Minimum 2                                                                                                                                                                                                                                                |
 | `MLP_activation`  | "relu"  | Activation: "relu", "tanh", "sigmoid", "leaky_relu", "soft_relu"                                                                                                                                                                                                                                                                             |
 | `add_residual`    | true    | Residual: projects input to hidden dim, adds to first hidden output and skips to last hidden output                                                                                                                                                                                                                                          |
-| `add_skip_layers` | false   | Per-layer linear skip: at each hidden layer, a parallel linear projection is concatenated with the activated output. **Mutually exclusive with `add_residual`** — do not set both to true. `add_residual` is a single input→output skip; `add_skip_layers` provides a linear shortcut at every layer (doubles hidden dim fed to next layer). |
+| `add_skip_layers` | false   | Per-layer linear skip: at each hidden layer, a parallel linear projection is concatenated with the activated output. **Mutually exclusive with `add_residual`** — do not set both to true. `add_residual` is a single input->output skip; `add_skip_layers` provides a linear shortcut at every layer (doubles hidden dim fed to next layer). |
 
 ## Training Parameters
 
@@ -297,7 +311,7 @@ When prompt says `PARALLEL START`:
 
 - Slot 0 = baseline (no changes from base config)
 - Slots 1-3: each changes EXACTLY ONE parameter per block focus
-- Hypothesis: "The MLP baseline can achieve stable rollout (RMSE < 2e-2) on flyvis with
+- Hypothesis: "The MLP baseline can achieve stable rollout (RMSE < 1e-2) on flyvis with
   appropriate training parameters (lr, batch_size, rollout_train_steps)"
 
 ---
@@ -316,7 +330,7 @@ When prompt says `PARALLEL START`:
 
 ### Robustness Comparison Table
 
-| Iter | Config summary | rollout_RMSE (mean±std) | CV% | div_time (mean) | divergence_at | Verdict | Hypothesis |
+| Iter | Config summary | rollout_RMSE (mean+/-std) | CV% | div_time (mean) | divergence_at | Verdict | Hypothesis |
 | ---- | -------------- | ----------------------- | --- | --------------- | ------------- | ------- | ---------- |
 
 ### Established Principles
@@ -329,7 +343,7 @@ When prompt says `PARALLEL START`:
 
 ## Previous Block Summaries
 
-**RULE: Keep summaries for the last 4 completed blocks, sorted oldest→newest. This section MUST
+**RULE: Keep summaries for the last 4 completed blocks, sorted oldest->newest. This section MUST
 appear before ## Current Block.**
 
 ### Block N Summary
