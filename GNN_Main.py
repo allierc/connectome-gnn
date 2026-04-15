@@ -77,6 +77,13 @@ if __name__ == "__main__":
             *[f'flyvis_noise_005_default_cv{i:02d}' for i in range(10)],
             *[f'flyvis_noise_05_default_cv{i:02d}' for i in range(10)],
         ],
+        'flyvis_blank_sweep': [
+            'flyvis_noise_005_blank01',
+            'flyvis_noise_005_blank05',
+            'flyvis_noise_005_blank10',
+            'flyvis_noise_005_blank25',
+            'flyvis_noise_005_blank50',
+        ],
     }
 
     if args.option is not None:
