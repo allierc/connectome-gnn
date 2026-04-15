@@ -4,13 +4,14 @@
 # All 5 conditions use IDENTICAL training hyperparameters (from
 # flyvis_noise_005_null_edges_pc_400) and only differ in their data settings:
 #
-#   Condition               noise   null_edges  edges
-#   ─────────────────────────────────────────────────────────────
-#   flyvis_cmp_noise_free    0.0    none        434 112  (full graph)
-#   flyvis_cmp_noise_005     0.05   none        434 112  (full graph)
-#   flyvis_cmp_noise_05      0.5    none        434 112  (full graph)
-#   null_edges_pc_400        0.05   +400%       434 112 + 1 736 448
-#   flyvis_cmp_removed_pc_20  0.05  none        347 290  (20% removed)
+#   Condition                    noise_dyn  noise_meas  null_edges  edges
+#   ─────────────────────────────────────────────────────────────────────────
+#   flyvis_cmp_noise_free         0.0       0.0         none        434 112  (full graph)  DONE
+#   flyvis_cmp_noise_005          0.05      0.0         none        434 112  (full graph)  DONE
+#   flyvis_cmp_noise_05           0.5       0.0         none        434 112  (full graph)  DONE
+#   null_edges_pc_400             0.05      0.0         +400%       434 112 + 1 736 448    DONE
+#   flyvis_cmp_removed_pc_20      0.05      0.0         none        347 290  (20% removed) DONE
+#   flyvis_noise_005_010_rc_winner 0.05     0.10        none        434 112  (meas noise, RC GNN)
 #
 # Phase 2 (zero-shot DAVIS→YouTube test) runs automatically when a pre-trained
 # DAVIS model is found; it is skipped gracefully otherwise (e.g. cmp_* configs
@@ -33,13 +34,14 @@ CFG_DIR="${REPO_DIR}/config/fly"
 N_SEEDS=5
 
 # Parallel arrays: display label | absolute config path (no .yaml)
-LABELS=( "noise_free" "noise_005" "noise_05" "null_edges_pc_400" "removed_pc_20" )
+LABELS=( "noise_free" "noise_005" "noise_05" "null_edges_pc_400" "removed_pc_20" "noise_005_010_rc" )
 CONFIGS=(
-    # "${CFG_DIR}/flyvis_cmp_noise_free"
-    # "${CFG_DIR}/flyvis_cmp_noise_005"
-    # "${CFG_DIR}/flyvis_cmp_noise_05"
-    # "${CFG_DIR}/flyvis_noise_005_null_edges_pc_400"
-    "${CFG_DIR}/flyvis_cmp_removed_pc_20"
+    # "${CFG_DIR}/flyvis_cmp_noise_free"          # DONE
+    # "${CFG_DIR}/flyvis_cmp_noise_005"            # DONE
+    # "${CFG_DIR}/flyvis_cmp_noise_05"             # DONE
+    # "${CFG_DIR}/flyvis_noise_005_null_edges_pc_400" # DONE
+    # "${CFG_DIR}/flyvis_cmp_removed_pc_20"        # DONE
+    "${CFG_DIR}/flyvis_noise_005_010_rc_winner"
 )
 # Base config names (for the comparison table — must match log/fly/<name>)
 BASE_NAMES=(
@@ -48,6 +50,7 @@ BASE_NAMES=(
     "flyvis_cmp_noise_05"
     "flyvis_noise_005_null_edges_pc_400"
     "flyvis_cmp_removed_pc_20"
+    "flyvis_noise_005_010_rc_winner"
 )
 
 echo "============================================================"
