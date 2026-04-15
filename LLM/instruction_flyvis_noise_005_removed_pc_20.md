@@ -115,6 +115,14 @@ edges.
 | `n_layers`      | 3       | Depth of g_phi and f_theta networks                     |
 | `embedding_dim` | 2       | Per-neuron learnable embedding dimension                |
 
+**IMPORTANT — derived parameters (never set independently):**
+When changing `embedding_dim`, you MUST also update both derived fields:
+- `input_size = 1 + embedding_dim`  (g_phi input: v_j + a_j)
+- `input_size_update = 3 + embedding_dim`  (f_theta input: v_i + a_i + msg + I_i)
+
+Example: `embedding_dim=8` → `input_size=9`, `input_size_update=11`.
+Changing only `embedding_dim` without updating both will cause a dimension mismatch crash.
+
 ## Training Parameters
 
 | Parameter                 | Default  | Description                                                                      |
