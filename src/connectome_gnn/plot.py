@@ -1239,13 +1239,15 @@ def _draw_hex_panel(
     ax, type_idx, positions, voltages, stimulus, neuron_types,
     n_input_neurons, names, cmap, vmin, vmax,
     stim_cmap, stim_vmin, stim_vmax, style,
-
+        
+):
+    
     if n_input_neurons > 2000:
         s = style.hex_stimulus_marker_size // 3 
     else:
         s = style.hex_stimulus_marker_size
-        
-):
+
+
     """Draw a single hex scatter panel (voltage or stimulus)."""
     if type_idx is None:
         ax.scatter(
