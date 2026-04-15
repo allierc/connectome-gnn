@@ -89,8 +89,20 @@ if __name__ == "__main__":
     if args.option is not None:
         task = args.option[0]
         config_name = args.option[1]
-        if config_name in CONFIG_LISTS:
-            config_list = CONFIG_LISTS[config_name]
+        # Support passing a full path whose basename is a CONFIG_LISTS key,
+        # e.g. /groups/.../config/fly/flyvis_blank_sweep
+        _list_key = config_name if config_name in CONFIG_LISTS else os.path.basename(config_name)
+        if _list_key in CONFIG_LISTS:
+            _entries = CONFIG_LISTS[_list_key]
+            # If config_name was an absolute path, expand relative entries to that directory
+            if os.path.isabs(config_name):
+                _dir = os.path.dirname(config_name)
+                config_list = [
+                    os.path.join(_dir, e) if not os.path.isabs(e) else e
+                    for e in _entries
+                ]
+            else:
+                config_list = _entries
             best_model = None
             test_config_name = None
         else:
