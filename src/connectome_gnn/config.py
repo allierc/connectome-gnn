@@ -192,6 +192,7 @@ class SimulationConfig(BaseModel):
     skip_short_videos: bool = True  # skip videos with fewer frames than chunk size (n_frames in video_config)
     max_train_sequences: int = 0  # limit train sequences (0 = use all); reduces generation time proportionally
     blank_freq: int = 2  # Frequency of blank frames in visual input
+    blank_prefix_fraction: float = 0.0  # fraction of each sequence to blank at the start (e.g. 0.1 = first 10% frames zero stimulus)
     simulation_initial_state: bool = False
     all_columns: bool = False  # if True, use all 721 retinotopic columns (extent=15); default uses 217 (extent=8)
 

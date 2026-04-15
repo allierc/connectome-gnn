@@ -1636,6 +1636,8 @@ def _run_ode_generation(stimulus_sequences, net, pde, x, edge_index, initial_sta
                 else:
                     sequence_length = sequences.shape[0]
 
+                blank_prefix_frames = int(sequence_length * getattr(sim, 'blank_prefix_fraction', 0.0))
+
                 for frame_id in range(sequence_length):
                     if "flash" in sim.visual_input_type:
                         current_flash_frame = frame_id % (flash_cycle_frames * 2)
@@ -1739,6 +1741,10 @@ def _run_ode_generation(stimulus_sequences, net, pde, x, edge_index, initial_sta
                                 x.stimulus[:sim.n_input_neurons] = x.stimulus[:sim.n_input_neurons] + torch.randn(sim.n_input_neurons,
                                                                                                   dtype=torch.float32,
                                                                                                   device=device) * sim.noise_visual_input
+
+                    # Blank prefix: force zero stimulus for the first N frames of each sequence
+                    if blank_prefix_frames > 0 and frame_id < blank_prefix_frames:
+                        x.stimulus[:sim.n_input_neurons] = 0
 
                     prev_calcium = x.calcium.clone() if x.calcium is not None else None
 
