@@ -1,4 +1,4 @@
-description: "flyvis noise=0.05 — embedding fixed to equidistant cell-type init (65 types, Fibonacci spiral)"
+description: "flyvis noise=0.05 — equidistant cell-type embedding init + cluster regularizer (centroids free to drift)"
 dataset: flyvis_noise_005
 simulation:
   connectivity_file: to be specified
@@ -55,9 +55,11 @@ training:
   data_augmentation_loop: 35
   lr_W: 0.0009
   lr: 0.0018
-  lr_embedding: 0.0  # frozen — equidistant init via embedding_cell_type_init; excluded from optimizer by fix_embedding
+  lr_embedding: 0.002325
   embedding_cell_type_init: true
-  fix_embedding: true
+  embedding_cell_type_scale: 2.0
+  fix_embedding: false
+  coeff_embedding_cluster: 1.0
   coeff_g_phi_diff: 750
   coeff_f_theta_msg_diff: 0
   coeff_g_phi_norm: 0.9
@@ -86,3 +88,5 @@ claude:
   n_iter_block: 12
   ucb_c: 1.414
   training_time_target_min: 60
+  node_name: a100
+  generate_data: false

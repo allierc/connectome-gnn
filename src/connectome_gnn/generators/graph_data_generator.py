@@ -1812,7 +1812,7 @@ def _run_ode_generation(stimulus_sequences, net, pde, x, edge_index, initial_sta
 
                     y_writer.append(to_numpy_fn(y.clone().detach()))
 
-                    if (visualize & (run == run_vizualized) & (it > 0) & (it % 4 == 0) & (it <= 4000)):
+                    if (visualize & (run == run_vizualized) & (it > 0) & (it % 4 == 0) & (it <= 400)):
                         num = f"{id_fig:06}"
                         id_fig += 1
                         plot_spatial_activity_grid(
