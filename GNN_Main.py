@@ -99,7 +99,7 @@ if __name__ == "__main__":
     else:
         best_model = ''
         task = task = 'generate'
-        config_list = ['flyvis_noise_005_null_edges_pc_100']
+        config_list = ['flyvis_noise_005_blank10']
         test_config_name = None
 
     if task == 'cv':

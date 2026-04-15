@@ -867,8 +867,14 @@ def plot_selected_neuron_traces(
     ax.set_ylim([-step_v, n_sel * step_v])
     style.ylabel(ax, 'neuron')
 
-    ax.set_xticks([0, end_frame - start_frame])
-    ax.set_xticklabels([start_frame, end_frame], fontsize=14)
+    n_frames_shown = end_frame - start_frame
+    tick_step = max(1, round(n_frames_shown / 8 / 1000) * 1000) if n_frames_shown > 2000 else n_frames_shown
+    tick_positions = list(range(0, n_frames_shown + 1, tick_step))
+    if tick_positions[-1] != n_frames_shown:
+        tick_positions.append(n_frames_shown)
+    tick_labels = [start_frame + t for t in tick_positions]
+    ax.set_xticks(tick_positions)
+    ax.set_xticklabels(tick_labels, fontsize=14)
     style.xlabel(ax, 'time (frames)', fontsize=16)
 
     plt.tight_layout()

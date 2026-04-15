@@ -1518,6 +1518,8 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
         activity=to_numpy(activity),
         type_list=to_numpy(type_list.squeeze()),
         output_path=graphs_data_path(config.dataset, 'activity.png'),
+        start_frame=0,
+        end_frame=activity.shape[1],
         style=fig_style,
     )
 
@@ -1531,7 +1533,7 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
             fdst.write(fsrc.read())
 
         generate_compressed_video_mp4(output_dir=graphs_data_path(config.dataset), run=run,
-                                      output_name=output_name,framerate=20)
+                                      output_name=output_name, framerate=10)
 
         files = glob.glob(graphs_data_path(config.dataset, 'Fig', '*'))
         for f in files:
@@ -1810,7 +1812,7 @@ def _run_ode_generation(stimulus_sequences, net, pde, x, edge_index, initial_sta
 
                     y_writer.append(to_numpy_fn(y.clone().detach()))
 
-                    if (visualize & (run == run_vizualized) & (it > 0) & (it % step == 0) & (it <= 50 * step)):
+                    if (visualize & (run == run_vizualized) & (it > 0) & (it % 4 == 0) & (it <= 4000)):
                         num = f"{id_fig:06}"
                         id_fig += 1
                         plot_spatial_activity_grid(
