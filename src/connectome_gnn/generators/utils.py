@@ -719,5 +719,5 @@ _FLYVIS_HYBRID_MODELS = {
 
 
 def is_flyvis_hybrid_model(signal_model_name: str) -> bool:
-    """Check if signal_model_name is a flywirevis hybrid model."""
+    """Check if signal_model_name is a flyrewire hybrid model."""
     return signal_model_name in _FLYVIS_HYBRID_MODELS

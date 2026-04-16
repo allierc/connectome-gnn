@@ -34,7 +34,7 @@ log/
 **/edge_index.pt
 **/mask.pt
 
-# Hybrid connectome tables (download from release artifact or regenerate via flywirevis)
+# Hybrid connectome tables
 data/hybrid_connectomes/
 
 # graphs_data: large generated data, not tracked
