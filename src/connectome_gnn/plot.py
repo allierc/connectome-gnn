@@ -867,8 +867,14 @@ def plot_selected_neuron_traces(
     ax.set_ylim([-step_v, n_sel * step_v])
     style.ylabel(ax, 'neuron')
 
-    ax.set_xticks([0, end_frame - start_frame])
-    ax.set_xticklabels([start_frame, end_frame], fontsize=14)
+    n_frames_shown = end_frame - start_frame
+    tick_step = max(1, round(n_frames_shown / 8 / 1000) * 1000) if n_frames_shown > 2000 else n_frames_shown
+    tick_positions = list(range(0, n_frames_shown + 1, tick_step))
+    if tick_positions[-1] != n_frames_shown:
+        tick_positions.append(n_frames_shown)
+    tick_labels = [start_frame + t for t in tick_positions]
+    ax.set_xticks(tick_positions)
+    ax.set_xticklabels(tick_labels, fontsize=14)
     style.xlabel(ax, 'time (frames)', fontsize=16)
 
     plt.tight_layout()
@@ -1233,12 +1239,20 @@ def _draw_hex_panel(
     ax, type_idx, positions, voltages, stimulus, neuron_types,
     n_input_neurons, names, cmap, vmin, vmax,
     stim_cmap, stim_vmin, stim_vmax, style,
+        
 ):
+    
+    if n_input_neurons > 2000:
+        s = style.hex_stimulus_marker_size // 3 
+    else:
+        s = style.hex_stimulus_marker_size
+
+
     """Draw a single hex scatter panel (voltage or stimulus)."""
     if type_idx is None:
         ax.scatter(
             positions[:n_input_neurons, 0], positions[:n_input_neurons, 1],
-            s=style.hex_stimulus_marker_size, c=stimulus,
+            s=s, c=stimulus,
             cmap=stim_cmap, vmin=stim_vmin, vmax=stim_vmax,
             marker=style.hex_marker, alpha=1.0, linewidths=0,
         )
@@ -1250,7 +1264,7 @@ def _draw_hex_panel(
         if count > 0:
             ax.scatter(
                 positions[:count, 0], positions[:count, 1],
-                s=style.hex_marker_size, c=voltages[mask],
+                s=s, c=voltages[mask],
                 cmap=cmap, vmin=vmin, vmax=vmax,
                 marker=style.hex_marker, alpha=1, linewidths=0,
             )
@@ -1510,6 +1524,7 @@ def plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_li
     cmap = CustomColorMap(config=config)
 
     # Plot 1: Embedding scatter plot
+    os.makedirs(f"{log_dir}/tmp_training/embedding", exist_ok=True)
     fig, ax = plt.subplots(figsize=(8, 8))
     plot_embedding(ax, model, type_list, n_neuron_types, cmap)
     plt.tight_layout()
@@ -1576,9 +1591,10 @@ def plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_li
                 dpi=87, bbox_inches='tight', pad_inches=0)
     plt.close()
 
-    # Hidden-neuron SIREN trace comparison (only when SIREN is active)
+    # Hidden-neuron INR trace comparison (only when NNR_hidden is active)
+    hidden_inr_r2 = None
     if getattr(model, 'NNR_hidden', None) is not None and hidden_ids is not None:
-        plot_hidden_siren_traces(model, x_ts, hidden_ids, log_dir, epoch, N, device)
+        hidden_inr_r2 = plot_hidden_siren_traces(model, x_ts, hidden_ids, log_dir, epoch, N, device)
 
     # Compute GT curves and type names from ode_params if available
     gt_g_phi = gt_f_theta = gt_v_range = _type_names = None
@@ -1651,7 +1667,7 @@ def plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_li
     plt.savefig(f"{log_dir}/results/f_theta_func.png", dpi=87)
     plt.close()
 
-    return r_squared
+    return r_squared, hidden_inr_r2
 
 
 def plot_training_linear(model, config, epoch, N, log_dir, device,
@@ -1772,17 +1788,17 @@ warnings.filterwarnings('ignore')
 
 def plot_hidden_siren_traces(model, x_ts, hidden_ids, log_dir, epoch, N, device,
                              n_traces=10, n_frames=800):
-    """Plot GT voltage vs SIREN-predicted voltage for a sample of hidden neurons.
+    """Plot GT voltage vs hidden-INR-predicted voltage for a sample of hidden neurons.
 
     Evaluates model.forward_hidden() from scratch on the first n_frames frames
-    (no rollout state — pure SIREN prediction), compares to x_ts ground truth.
+    (no rollout state — pure INR prediction), compares to x_ts ground truth.
 
     Saves:
-        log_dir/tmp_training/hidden_siren/{epoch}_{N}.png  (checkpoint copy)
-        log_dir/results/hidden_siren_traces.png            (latest copy)
+        log_dir/tmp_training/hidden_{inr_type}/{epoch}_{N}.png  (checkpoint copy)
+        log_dir/results/hidden_inr_traces.png                   (latest copy)
 
     Returns:
-        r2 (float) — R² of raw SIREN predictions vs GT voltages
+        r2 (float) — R² of raw INR predictions vs GT voltages
     """
     import torch as _torch
 
@@ -1807,10 +1823,22 @@ def plot_hidden_siren_traces(model, x_ts, hidden_ids, log_dir, epoch, N, device,
             pred_arr[:, k] = to_numpy(pred_h[sel])
     model.train()
 
-    # R² (raw, no linear correction)
-    ss_res = float(np.sum((gt_arr - pred_arr) ** 2))
-    ss_tot = float(np.sum((gt_arr - gt_arr.mean()) ** 2))
-    r2 = 1.0 - ss_res / (ss_tot + 1e-16)
+    # Per-neuron R² with global linear correction — same as train_ngp_voltage.py _linear_fit.
+    # gt_arr/pred_arr are (n_traces, n_frames); _linear_fit expects (T, N) so transpose.
+    gt_T = gt_arr.T      # (n_frames, n_traces)
+    pred_T = pred_arr.T  # (n_frames, n_traces)
+    gt_f, pred_f = gt_T.ravel(), pred_T.ravel()
+    cov = ((pred_f - pred_f.mean()) * (gt_f - gt_f.mean())).mean()
+    var = ((pred_f - pred_f.mean()) ** 2).mean()
+    a = float(cov / (var + 1e-12))
+    b = float(gt_f.mean() - a * pred_f.mean())
+    pred_corr_T = a * pred_T + b                   # (n_frames, n_traces)
+    gt_mean_n = gt_T.mean(axis=0)                  # (n_traces,) per-neuron mean
+    ss_res_n = ((gt_T - pred_corr_T) ** 2).sum(axis=0)
+    ss_tot_n = ((gt_T - gt_mean_n) ** 2).sum(axis=0)
+    r2 = float((1.0 - ss_res_n / (ss_tot_n + 1e-12)).mean())
+    p = [a, b]                                     # keep p[0], p[1] for plot title
+    pred_corr_arr = pred_corr_T.T.astype(np.float32)  # back to (n_traces, n_frames)
 
     # ---- plot ----
     fig, ax = plt.subplots(figsize=(15, max(4, n_traces * 0.5 + 2)))
@@ -1824,9 +1852,13 @@ def plot_hidden_siren_traces(model, x_ts, hidden_ids, log_dir, epoch, N, device,
         baselines[i] = bl
         ax.plot(gt_arr[i] - bl + i * step_v, lw=3, c='#66cc66', alpha=0.9,
                 label='GT' if i == 0 else None)
+    inr_type = getattr(model, '_inr_hidden_type', 'siren_t')
+    inr_label = inr_type.upper().replace('_', '-')
+
     for i in range(n_traces):
-        ax.plot(pred_arr[i] - baselines[i] + i * step_v, lw=0.9, c='black', alpha=0.9,
-                label='SIREN' if i == 0 else None)
+        bl_corr = float(np.mean(pred_corr_arr[i]))
+        ax.plot((pred_corr_arr[i] - bl_corr) * 8 + i * step_v, lw=0.9, c='black', alpha=0.9,
+                label=f'{inr_label} (corrected)' if i == 0 else None)
     for i in range(n_traces):
         ax.text(-n_frames * 0.025, i * step_v, f'n{local_ids[i].item()}',
                 fontsize=9, va='bottom', ha='right', color='black')
@@ -1837,19 +1869,19 @@ def plot_hidden_siren_traces(model, x_ts, hidden_ids, log_dir, epoch, N, device,
     ax.set_xticklabels([0, n_frames // 2, n_frames], fontsize=13)
     ax.set_xlabel('frame', fontsize=15)
     ax.set_xlim([-n_frames * 0.03, n_frames * 1.05])
-    ax.set_title(f'Hidden-neuron SIREN  (epoch {epoch}  iter {N})   R²={r2:.3f}', fontsize=13)
+    ax.set_title(f'Hidden-neuron {inr_label}  (epoch {epoch}  iter {N})   R²={r2:.3f}   a={p[0]:.3f} b={p[1]:.3f}', fontsize=13)
     ax.legend(loc='upper right', fontsize=12, frameon=False)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     ax.spines['left'].set_visible(False)
 
-    out_dir = os.path.join(log_dir, 'tmp_training', 'hidden_siren')
+    out_dir = os.path.join(log_dir, 'tmp_training', f'hidden_{inr_type}')
     os.makedirs(out_dir, exist_ok=True)
     results_dir = os.path.join(log_dir, 'results')
     os.makedirs(results_dir, exist_ok=True)
     plt.tight_layout()
     plt.savefig(os.path.join(out_dir, f'{epoch}_{N}.png'), dpi=87, bbox_inches='tight')
-    plt.savefig(os.path.join(results_dir, 'hidden_siren_traces.png'), dpi=87, bbox_inches='tight')
+    plt.savefig(os.path.join(results_dir, 'hidden_inr_traces.png'), dpi=87, bbox_inches='tight')
     plt.close()
 
     return r2

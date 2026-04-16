@@ -169,6 +169,8 @@ To fairly compare different LLM explorations across noise levels and biomodels, 
 
 **If you believe n_epochs or DAL should be varied** to test a specific hypothesis, first post in `user_input.md` for authorization. Do NOT change these without explicit user approval.
 
+> **YAML rule**: Always wrap the `description` field value in double quotes — colons inside unquoted YAML strings cause parse errors (e.g., `description: "Block 7 Slot 1: testing W_L2"`).
+
 ## Parallel Mode — 4 Slots Per Batch
 
 Each batch runs **4 slots simultaneously**, each with a different config (forced seeds differ automatically):
@@ -396,6 +398,26 @@ When prompt says `PARALLEL START`:
 - Set Slot 0 = baseline (lr_W=0.0009, lr=0.0018)
 - Slots 1-3 = three different LR values to test the hypothesis
 
+## Final Summary (write at exploration completion)
+
+When the exploration is complete (all blocks done or budget exhausted), append to
+`/home/node/.claude/projects/-workspace--devcontainer/memory/exploration_results.md`
+a section with header `## flyvis_noise_005_removed_pc_20_known_ode — Key Discoveries (YYYY-MM-DD)` containing
+exactly **8 bullet points**:
+
+1. **Best metric**: conn_R2 = X.XXX ± std (N seeds, CV=X.X%), winner config = [key params]
+2–8. **Key causal discoveries** — report findings of this kind:
+   - Which HP had the largest single-parameter impact, and its optimal value
+   - Which failure mode was confirmed across 3+ iterations (cite iteration numbers)
+   - Which HP interaction produced an unexpected or surprising result
+   - Which hypothesis was falsified and what was learned from it
+   - Whether W_init mode (zeros vs randn) affected recovery with missing edges
+   - What batch_size / DAL combination proved optimal for incomplete connectivity
+   - Any fundamental limit encountered (e.g., conn_R2 ceiling due to 20% missing edges)
+
+Each bullet must state the **finding**, the **evidence** (iteration count or specific iterations),
+and whether it is **established** (3+ iterations, all 4 seeds) or **tentative** (1–2 iterations).
+
 ---
 
 # Working Memory Structure
@@ -405,8 +427,13 @@ When prompt says `PARALLEL START`:
 
 ## Paper Summary (update at every block boundary)
 
-- **GNN optimization**: [pending]
-- **LLM-driven exploration**: [pending]
+**GNN optimization** (2 sentences on HPO findings):
+Sentence 1: Best hyperparameter configuration found and the connectivity_R2 it achieves (cite mean ± std, CV%, N seeds).
+Sentence 2: Which hyperparameters were most critical to parameter recovery under incomplete connectivity — what worked and what failed (cite values).
+
+**LLM-driven exploration** (2 sentences on exploration findings):
+Sentence 1: What the systematic exploration revealed about known_ode robustness to missing edges (how much degradation vs. full connectivity, key failure modes).
+Sentence 2: Main causal principle established — what this tells us about recovering W, tau, V_rest when 20% of edges are absent.
 
 ## Knowledge Base
 

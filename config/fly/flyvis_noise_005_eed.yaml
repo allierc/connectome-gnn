@@ -27,12 +27,13 @@ graph_model:
   #   decoder:          MLPWithSkips(latent_dim -> n_neurons, hidden=latent_dim, layers=n_layers_encoder)  [symmetric with encoder]
   #   evolver:          MLPWithSkips(latent_dim+stim_latent_dims -> latent_dim, hidden=latent_dim, layers=n_layers_evolver)  [zero-init + residual]
   #   stimulus_encoder: MLPWithSkips(n_input_neurons -> stim_latent_dims, hidden=hidden_dim_stim_encoder, layers=n_layers_stim_encoder)
-  latent_dim: 256 # latent space dimensionality (also hidden dim for encoder/decoder/evolver)
+  latent_dim: 512 # latent space dimensionality (also hidden dim for encoder/decoder/evolver)
   n_layers_encoder: 1 # hidden layers in encoder and decoder
   n_layers_evolver: 1 # hidden layers in evolver
-  stim_latent_dims: 64 # stimulus encoder output dimensionality
+  stim_latent_dims: 128 # stimulus encoder output dimensionality
   hidden_dim_stim_encoder: 64 # stimulus encoder hidden width
   n_layers_stim_encoder: 3 # hidden layers in stimulus encoder
+  MLP_activation: "relu" # activation for all sub-networks: "relu", "tanh", "sigmoid", "leaky_relu", "soft_relu"
   # Unused by EED but required by config schema
   input_size: 3
   n_layers: 3
@@ -55,11 +56,11 @@ plotting:
     - 100
 training:
   seed: 43
-  n_epochs: 100
+  n_epochs: 20
   batch_size: 256
   data_augmentation_loop: 100
-  train_start: 4000
-  train_end: 54000
+  train_start: 0
+  train_end: 0
   lr: 1e-5
   rollout_train_steps: 1
   n_runs: 1
@@ -83,3 +84,17 @@ training:
   coeff_W_sign: 0
   w_init_mode: zeros
   regul_annealing_rate: 0
+
+claude:
+  n_epochs: 20
+  data_augmentation_loop: 100
+  n_iter_block: 8
+  ucb_c: 1.414
+  node_name: a100
+  conda_env: connectome-gnn
+  n_cpus: 2
+  generate_data: true
+  hard_runtime_limit_min: 120
+  interaction_code: false
+  case_study: "eed_rollout"
+  case_study_brief: "Optimize EED hyperparameters for stable autoregressive rollout on flyvis_noise_005. Primary metric: rollout_RMSE (lower is better). Target: rollout_RMSE < 2e-2, stable across seeds (CV < 10%). Key levers: latent_dim, n_layers_encoder, n_layers_evolver, lr, batch_size."

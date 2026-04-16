@@ -1,0 +1,3 @@
+k_class,n_edges,snr_mean,snr_median,snr_p25,snr_p75,w_abs_median,sigma_median
+identifiable,61673,34.6838,6.9277,0.8019,42.0323,0.0605,0.0035
+duplicate_type,372439,23.1107,8.5748,1.1088,23.5178,0.0276,0.0024

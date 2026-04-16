@@ -151,7 +151,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
                           edges, gt_weights, gt_taus, gt_V_Rest,
                           type_list, n_types, n_neurons, cmap, device,
                           extended, log_file, mu_activity, sigma_activity,
-                          ode_params=None):
+                          ode_params=None, visible_edge_mask=None):
     """Analysis plots for LinearODE: W, tau, V_rest, gain, bias R² + clustering."""
     import torch.nn.functional as F
     sim = config.simulation
@@ -182,6 +182,11 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     gt_taus_np = to_numpy(gt_taus[:n_neurons])
     gt_V_rest_np = to_numpy(gt_V_Rest[:n_neurons])
     gt_w_np = to_numpy(gt_weights)
+    learned_weights = to_numpy(get_model_W(model).squeeze())
+    # Apply visible-edge mask (exclude edges involving hidden neurons)
+    if visible_edge_mask is not None:
+        gt_w_np = gt_w_np[visible_edge_mask]
+        learned_weights = learned_weights[visible_edge_mask]
 
     if hasattr(model, 'get_learned_tau') and model.get_learned_tau() is not None:
         learned_tau = to_numpy(model.get_learned_tau()[:n_neurons])
@@ -197,7 +202,6 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
         learned_V_rest = to_numpy(model.bias[:n_neurons].detach())
     else:
         learned_V_rest = np.zeros(n_neurons)
-    learned_weights = to_numpy(get_model_W(model).squeeze())
 
     # Gain and bias extraction (known_ode models)
     gt_gain_np = ode_params.gt_gain(n_neurons) if ode_params is not None else None
@@ -520,6 +524,12 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     print(f"GMM (n_components={n_gmm}): accuracy={_r2_color(cluster_acc)}{cluster_acc:.3f}{_ANSI_RESET}, ARI={results['ari']:.3f}, NMI={results['nmi']:.3f}")
     logger.info(f"GMM n_components={n_gmm}, accuracy={cluster_acc:.3f}, ARI={results['ari']:.3f}, NMI={results['nmi']:.3f}")
 
+    metrics_path = os.path.join(log_dir, 'results', 'metrics.txt')
+    try:
+        with open(metrics_path, 'a') as mf:
+            mf.write(f"clustering_accuracy: {cluster_acc:.4f}\n")
+    except OSError:
+        pass
     if log_file:
         log_file.write(f"cluster_accuracy: {cluster_acc:.4f}\n")
 
@@ -592,6 +602,11 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
     # Prevent propagation to root logger (which might have console handlers)
     logger.propagate = False
 
+    # Clear metrics.txt at the start so all subsequent append-writes start fresh
+    _metrics_path = os.path.join(log_dir, 'results', 'metrics.txt')
+    if os.path.exists(_metrics_path):
+        os.remove(_metrics_path)
+
     print(f'experiment description: {config.description}')
     logger.info(f'experiment description: {config.description}')
 
@@ -613,10 +628,21 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
         x_path = graphs_data_path(config.dataset, 'x_list_0')
     x_ts = load_simulation_data(x_path,
                                 fields=['index', 'voltage', 'stimulus', 'neuron_type', 'group_type'])
-    y_path = graphs_data_path(config.dataset, 'y_list_train')
-    if not os.path.exists(y_path) and not os.path.exists(y_path + '.zarr'):
-        y_path = graphs_data_path(config.dataset, 'y_list_0')
-    y_data = load_raw_array(y_path)
+
+    # Apply same stride as training to reduce memory for recurrent models with time_step > 1
+    _stride = tc.time_step if (tc.recurrent_training and tc.time_step > 1) else 1
+    if _stride > 1:
+        print(f"\033[93msubsampling plot data: {x_ts.n_frames} → {x_ts.n_frames // _stride} frames (stride={_stride})\033[0m")
+        for _field in ['voltage', 'stimulus']:
+            _val = getattr(x_ts, _field)
+            if _val is not None:
+                setattr(x_ts, _field, _val[::_stride])
+
+    # Cap plot data after stride (e.g. non-recurrent 320K YouTube-VOS → 64K)
+    MAX_PLOT_FRAMES = 64000
+    if x_ts.n_frames > MAX_PLOT_FRAMES:
+        print(f"\033[93mcapping plot data: {x_ts.n_frames} → {MAX_PLOT_FRAMES} frames\033[0m")
+        x_ts = x_ts.truncate_frames(MAX_PLOT_FRAMES)
 
     xnorm_path = os.path.join(log_dir, 'xnorm.pt')
     if os.path.exists(xnorm_path):
@@ -662,6 +688,21 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
         gt_weights = load_weights(data_folder, device=device)
     true_weights = torch.zeros((n_neurons, n_neurons), dtype=torch.float32, device=edges.device)
     true_weights[edges[1], edges[0]] = gt_weights
+
+    # Hidden neuron edge mask: exclude edges where source OR target was silenced during training
+    _hidden_ids_path = os.path.join(log_dir, 'hidden_neuron_ids.pt')
+    visible_edge_mask = None  # None = all edges visible
+    if os.path.exists(_hidden_ids_path):
+        _hidden_ids = torch.load(_hidden_ids_path, map_location='cpu', weights_only=True).numpy()
+        _hidden_set = set(_hidden_ids.tolist())
+        _e = edges.cpu().numpy()
+        visible_edge_mask = np.array([
+            _e[0, i] not in _hidden_set and _e[1, i] not in _hidden_set
+            for i in range(_e.shape[1])
+        ])
+        n_hidden_edges = (~visible_edge_mask).sum()
+        print(f"hidden neuron mask: {len(_hidden_ids)} hidden neurons, "
+              f"{n_hidden_edges}/{len(visible_edge_mask)} edges excluded from R²")
 
     _connconstr = any(x in config.dataset for x in ('drosophila_cx', 'zebrafish_oculomotor', 'larva'))
 
@@ -799,10 +840,18 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
         for epoch in epoch_list:
 
             net = f'{log_dir}/models/best_model_with_{tc.n_runs - 1}_graphs_{epoch}.pt'
-            model = create_model(model_config.signal_model_name,
-                                 aggr_type=model_config.aggr_type, config=config, device=device)
+            # Load checkpoint first so we can use its W shape as the authoritative n_edges
+            # (config yaml n_edges is an estimate; actual removal may differ by a few edges)
             state_dict = torch.load(net, map_location=device, weights_only=False)
             migrate_state_dict(state_dict)
+            if 'W' in state_dict.get('model_state_dict', {}):
+                ckpt_n_edges = state_dict['model_state_dict']['W'].shape[0]
+                if ckpt_n_edges != config.simulation.n_edges:
+                    logger.info(f'n_edges from checkpoint: {ckpt_n_edges} '
+                                f'(config: {config.simulation.n_edges}) — using checkpoint')
+                    config.simulation.n_edges = ckpt_n_edges
+            model = create_model(model_config.signal_model_name,
+                                 aggr_type=model_config.aggr_type, config=config, device=device)
             model.load_state_dict(state_dict['model_state_dict'], strict=False)
             model.edges = edges
 
@@ -815,7 +864,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                     edges, gt_weights, gt_taus, gt_V_Rest,
                     type_list, n_types, n_neurons, cmap, device,
                     extended, log_file, mu_activity, sigma_activity,
-                    ode_params=ode_params)
+                    ode_params=ode_params, visible_edge_mask=visible_edge_mask)
                 continue
 
             # print learnable parameters table
@@ -860,7 +909,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             _dot_alpha = max(0.3, min(0.9, 100 / max(n_neurons, 1))) if n_neurons > 500 else 1.0
             _curve_alpha = max(0.1, min(0.8, 50 / max(n_neurons, 1))) if n_neurons > 500 else max(0.3, min(0.9, 100 / max(n_neurons, 1)))
 
-            skip_gnn_plots = ('mlp' in model_config.signal_model_name.lower() or 'eed' in model_config.signal_model_name.lower()) and not hasattr(model, 'f_theta')
+            skip_gnn_plots = ('mlp' in model_config.signal_model_name.lower() or 'eed' in model_config.signal_model_name.lower() or 'stimulus' in model_config.signal_model_name.lower()) and not hasattr(model, 'f_theta')
 
             # --- Skip GNN-specific plots for MLP/EED baselines ---
             if skip_gnn_plots:
@@ -1128,10 +1177,13 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             fig = plt.figure(figsize=(10, 9))
             learned_weights = to_numpy(get_model_W(model).squeeze())
             true_weights = to_numpy(gt_weights)
-            _edge_s = max(0.1, min(10, 2000 / max(len(true_weights), 1)))
-            _edge_alpha = max(0.05, min(0.8, 500 / max(len(true_weights), 1)))
-            plt.scatter(true_weights, learned_weights, c=mc, s=_edge_s, alpha=_edge_alpha)
-            r_squared, slope_raw = compute_r_squared(true_weights, learned_weights)
+            # Apply visible-edge mask (exclude hidden neuron edges)
+            _tw = true_weights[visible_edge_mask] if visible_edge_mask is not None else true_weights
+            _lw = learned_weights[visible_edge_mask] if visible_edge_mask is not None else learned_weights
+            _edge_s = max(0.1, min(10, 2000 / max(len(_tw), 1)))
+            _edge_alpha = max(0.05, min(0.8, 500 / max(len(_tw), 1)))
+            plt.scatter(_tw, _lw, c=mc, s=_edge_s, alpha=_edge_alpha)
+            r_squared, slope_raw = compute_r_squared(_tw, _lw)
             plt.text(0.05, 0.95, f'R²: {r_squared:.3f}\nslope: {slope_raw:.2f}',
                      transform=plt.gca().transAxes, verticalalignment='top', fontsize=24)
 
@@ -1167,12 +1219,16 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             true_weights = ode_params.effective_true_weights(
                 to_numpy(gt_weights), to_numpy(edges), n_neurons)
 
+            # Apply visible-edge mask before corrected R² (exclude hidden neuron edges)
+            _tw_c = true_weights[visible_edge_mask] if visible_edge_mask is not None else true_weights
+            _lw_c = learned_weights[visible_edge_mask] if visible_edge_mask is not None else learned_weights
+
             # Outlier removal + R² via metrics
             r_squared, slope_corrected, mask = compute_r_squared_filtered(
-                true_weights, learned_weights, outlier_threshold=5.0)
-            residuals = learned_weights - true_weights
-            true_in = true_weights[mask]
-            learned_in = learned_weights[mask]
+                _tw_c, _lw_c, outlier_threshold=5.0)
+            residuals = _lw_c - _tw_c
+            true_in = _tw_c[mask]
+            learned_in = _lw_c[mask]
 
             if extended:
                 # Partial correction (without g_phi factor) for diagnostic plot
@@ -1183,6 +1239,8 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 corrected_W_ = torch.nan_to_num(corrected_W_, nan=0.0, posinf=0.0, neginf=0.0)
 
                 learned_in_ = to_numpy(corrected_W_.squeeze())
+                if visible_edge_mask is not None:
+                    learned_in_ = learned_in_[visible_edge_mask]
                 learned_in_ = learned_in_[mask]
 
                 fig = plt.figure(figsize=(10, 9))
@@ -2075,10 +2133,11 @@ def analyze_neuron_type_reconstruction(config, model, edges, true_weights, gt_ta
     if "vrest" in panels:
         logger.info(f"mean V_rest RMSE: {np.mean(rmse_vrests):.3f} ± {np.std(rmse_vrests):.3f}")
 
-    # Write clean key-value metrics file
+    # Write key-value metrics — use append so clustering_accuracy written
+    # earlier by _plot_synaptic_linear / plot_synaptic is not overwritten.
     metrics_path = os.path.join(log_dir, 'results', 'metrics.txt')
     if r_squared is not None:
-        with open(metrics_path, 'w') as mf:
+        with open(metrics_path, 'a') as mf:
             mf.write(f"W_corrected_R2: {r_squared:.4f}\n")
             mf.write(f"W_corrected_slope: {slope_corrected:.4f}\n")
             if "tau" in panels:

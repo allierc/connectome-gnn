@@ -26,6 +26,7 @@ class ExplorationState:
     n_parallel: int = 4
     generate_data: bool = False
     training_time_target_min: int = 60
+    hard_runtime_limit_min: int = 6000
     interaction_code: bool = False
     case_study: str = ""
     case_study_brief: str = ""
@@ -53,6 +54,7 @@ class ExplorationState:
     task: str = ""  # e.g. "generate_train_test_plot_Claude"
     sim_constraint: str = ""
     llm_task_name: str = ""
+    instruction_name: str = ""
     config_file: str = ""
 
     # Runtime (set during execution)

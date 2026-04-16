@@ -125,6 +125,7 @@ class OdeMethod(StrEnum):
 class WInitMode(StrEnum):
     RANDN = "randn"
     RANDN_SCALED = "randn_scaled"
+    UNIFORM_SCALED = "uniform_scaled"
     ZEROS = "zeros"
 
 class GPhiMode(StrEnum):
@@ -177,6 +178,7 @@ class SimulationConfig(BaseModel):
     edge_removal_ratio: float = 0.0  # fraction of edges to remove before saving (0.0-1.0)
     edge_removal_mode: str = "random"  # "random" or "per_column"
     edge_removal_seed: int = 42      # RNG seed for reproducible removal
+    edge_mask_path: str = ""         # path to precomputed kept_edge_indices.pt; if set and exists, reused instead of recomputing
     ablation_ratio: float = 0.0   # fraction of edges to ablate (0.0-1.0)
     ablation_seed: int = 42       # RNG seed for reproducible ablation
 
@@ -190,7 +192,9 @@ class SimulationConfig(BaseModel):
     skip_short_videos: bool = True  # skip videos with fewer frames than chunk size (n_frames in video_config)
     max_train_sequences: int = 0  # limit train sequences (0 = use all); reduces generation time proportionally
     blank_freq: int = 2  # Frequency of blank frames in visual input
+    blank_prefix_fraction: float = 0.0  # fraction of each sequence to blank at the start (e.g. 0.1 = first 10% frames zero stimulus)
     simulation_initial_state: bool = False
+    all_columns: bool = False  # if True, use all 721 retinotopic columns (extent=15); default uses 217 (extent=8)
 
 
     # external input configuration
@@ -342,6 +346,9 @@ class GraphModelConfig(BaseModel):
 
     MLP_activation: MLPActivation = MLPActivation.RELU
     zero_init_output: bool = False  # zero-init final layer so model starts predicting dvdt=0
+    add_skip_layers: bool = False  # linear skip connection at each hidden layer
+    add_diagonal: bool = False  # learnable per-neuron diagonal term: dv_i/dt += alpha_i * v_i
+    add_residual: bool = False  # ResNet-style residual connections across hidden layers
 
 
     input_size_update: int = 3
@@ -369,16 +376,26 @@ class GraphModelConfig(BaseModel):
     nnr_f_xy_period: float = 1.0
     nnr_f_T_period: float = 1.0
 
-    # Hidden neuron SIREN — learns voltages of silenced neurons jointly with GNN.
-    # "none"      : zero-silencing (original behaviour, no SIREN)
+    # Hidden neuron INR — learns voltages of silenced neurons jointly with GNN.
+    # "none"      : zero-silencing (original behaviour, no INR)
     # "siren_t"   : SIREN(t) -> (n_hidden,)  — independent signal per neuron
     # "siren_txy" : SIREN(x,y,t) -> scalar   — spatially-correlated field
+    # "ngp_t"     : MultiResTemporalGrid(t) -> (n_hidden,)  — no waterbed, faster
     inr_type_hidden: str = "none"
+    hidden_neuron_fraction: float = 0.0  # fraction of non-retina neurons to hide; 0 = disabled
+    # SIREN hidden params
     hidden_dim_nnr_hidden: int = 2048
     n_layers_nnr_hidden: int = 4
     omega_hidden: float = 4096.0
     outermost_linear_nnr_hidden: bool = True
-    nnr_hidden_T_period: float = 64000.0  # time normalisation (raw frame index)
+    nnr_hidden_T_period: float = 64000.0  # time normalisation for SIREN (raw frame index)
+    # NGP hidden params (MultiResTemporalGrid) — used when inr_type_hidden = "ngp_t"
+    ngp_hidden_n_levels: int = 24
+    ngp_hidden_n_features_per_level: int = 4
+    ngp_hidden_base_resolution: int = 16
+    ngp_hidden_per_level_scale: float = 1.4
+    ngp_hidden_mlp_width: int = 512
+    ngp_hidden_mlp_layers: int = 4
 
     # INR type for external input learning
     # siren_t: input=t, output=n_neurons (current implementation, works for n_neurons < 100)
@@ -538,6 +555,9 @@ class TrainingConfig(BaseModel):
     sparsity_freq: int = 5
     sparsity: Sparsity = Sparsity.NONE
     fix_cluster_embedding: bool = False
+    embedding_cell_type_init: bool = False  # init model.a with equidistant points per cell type
+    embedding_cell_type_scale: float = 1.0  # scale factor applied to equidistant points radius
+    fix_embedding: bool = False  # freeze model.a throughout training (requires_grad=False)
     cluster_method: ClusterMethod = ClusterMethod.DISTANCE_PLOT
     cluster_distance_threshold: float = 0.1
     cluster_connectivity: ClusterConnectivity = ClusterConnectivity.SINGLE
@@ -567,7 +587,6 @@ class TrainingConfig(BaseModel):
     lr_W: float = 0.0001
 
     lr_missing_activity: float = 0.0001
-    lr_NNR: float = 0.0001
     lr_NNR_f_start: float = 0.0
     lr_NNR_f: float = 0.0001
     lr_omega_f: float = 0.0001
@@ -611,6 +630,7 @@ class TrainingConfig(BaseModel):
     coeff_missing_activity: float = 0  # Penalty for missing activity patterns
     coeff_model_a: float = 0  # Regularizer on embedding a
     coeff_model_b: float = 0  # Regularizer on bias b
+    coeff_embedding_cluster: float = 0.0  # pull same-cell-type embeddings toward their per-type centroid (L2)
 
     # -- f_theta linearity regularizer (unsupervised V_rest recovery) --
     coeff_f_theta_linearity: float = 0.0           # Penalize f_theta nonlinearity (0 = disabled)
@@ -681,6 +701,7 @@ class TrainingConfig(BaseModel):
     time_step: int = 1
     multi_start_recurrent: bool = False
     consecutive_batch: bool = False
+    coeff_hidden_voltage: float = 0.0  # loss weight on GNN-predicted hidden voltages in recurrent training
     recurrent_sequence: str = ""
     recurrent_parameters: list[float] = [0, 0]
 

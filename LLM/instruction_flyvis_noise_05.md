@@ -1,374 +1,188 @@
-# FlyVis GNN Training Exploration — flyvis_noise_05
+# FlyVis GNN — Connectome Recovery (noise=0.5)
 
 ## Goal
 
-Explore the **optimization landscape** of GNN training for the **Drosophila visual system** at high noise ($\sigma{=}0.5$, DAVIS input).
+Optimize GNN hyperparameters for maximum **connectivity matrix recovery (conn_R2)** on FlyVis with
+high noise level σ=0.5. Two sub-goals:
+
+- Maximize conn_R2 (primary): recover synaptic weight matrix W under 10× higher noise than noise_005
+- Minimize catastrophic failures: achieve CV < 5%, ≤1 catastrophic/8 seeds, mean conn_R2 > 0.95
+
+The exploration starts from the **default config** below to enable before/after comparison with
+the prior winner (conn_R2=0.987, CV=1.3%, 0/4 catastrophic).
+
+Active case study: **CV_robustness** — target CV<5%, mean conn_R2>0.95, ≤1 catastrophic/8 seeds.
 
 ## Scientific Context
 
-This exploration operates under dramatically different conditions than noise_005. At noise_model_level=0.5 (10x higher noise), the default configuration already achieves near-perfect recovery: $R^2_W \approx 0.99$, $R^2_\tau \approx 1.00$, $R^2_{V^{\text{rest}}} \approx 0.85$. The mechanism is clear: high intrinsic noise widens the distribution of membrane voltages explored during training, providing richer coverage of the system's dynamical regime. The question shifts from "how do we make it work?" to "what does this tell us about the optimization landscape?" We investigate three research directions: (1) the width of the basin of attraction (are "bad" hyperparameters that fail at noise_005 rescued by noise_05?), (2) the minimal configuration required for recovery, and (3) whether secondary metrics like $V^{\text{rest}}$ recovery can be improved. The most scientifically valuable results are degraded or broken configurations—they map the boundaries of the basin of attraction.
+**Core research question: How does 10× higher noise (σ=0.5 vs σ=0.05) change the optimization
+landscape for connectome recovery from Drosophila optic lobe activity?**
+
+At σ=0.5, noise masks the neural signal, making W recovery fundamentally harder. Key challenges:
+- Catastrophic failures (conn_R2 < 0.5) appear randomly across seeds — root cause unknown
+- w_init_scale=0.25 (smaller W initialization) was found to reduce catastrophic rate — explore why
+- Higher f_theta regularization (L1=0.5 vs 0.05 at noise_005) may prevent over-fitting to noise
+- The optimization landscape is wider but has deep failure basins — understand which HPs prevent falls
+- Compare landscape width vs noise_005: does high noise regularize or destabilize training?
 
 ## Noise Model
 
-The FlyVis model at high noise applies substantial additive Gaussian noise:
+```
+v_i(t+1) = v_i(t) + dt * f(v_i(t), W, a_i, I_i(t)) + epsilon_i(t)
+epsilon_i ~ N(0, sigma)  where sigma = 0.5 (noise_model_level)
+```
 
-$$v_i(t+1) = v_i(t) + dt \cdot f_\theta(v_i, a_i, \sum_j W_{ij} g_\phi(v_j, a_j)^2, I_i) + \epsilon_{\text{dyn}}(t)$$
+**Important**: Noise is added to **training data only**. Test rollouts use noise-free data. Do not
+compare training and test metrics directly — training has an irreducible noise floor.
 
-where $\epsilon_{\text{dyn}}(t) \sim \mathcal{N}(0, \sigma^2)$ with $\sigma = \text{noise\_model\_level} = 0.5$. This high noise level acts as an implicit regularizer, smoothing the optimization landscape and providing strong signal diversity across the state space. The GNN learns a noise-free deterministic model that explains noisy observations, which is fundamentally easier than learning under low noise.
+## Metrics
 
-## Research Questions
+**Always use metrics defined to guide decision making**
 
-### Context: Noise as a Leveler
+During training (stdout):
+```
+epoch 0/1 | train: ... | conn_R2=0.XXX tau_R2=0.XXX Vr_R2=0.XXX | duration: XXs
+```
 
-At $\sigma{=}0.5$, the GNN already achieves near-perfect parameter recovery with the default configuration:
-- $R^2_W \approx 0.99$, $R^2_\tau \approx 1.00$, $R^2_{V^{\text{rest}}} \approx 0.85$, clustering accuracy $> 0.86$
+During test/validation:
+- **PRIMARY METRIC: `conn_R2`** (higher is better; R² of learned W vs ground-truth W)
+- `tau_R2`: R² of τ (time constant) recovery
+- `V_rest_R2`: R² of V_rest (resting potential) recovery — at σ=0.5 this may be partially recoverable
+- `cluster_accuracy`: cell-type clustering accuracy from neuron embeddings
+- `rollout_pearson_r`: Pearson r of autoregressive rollout vs ground truth
 
-This is dramatically better than the noise_005 ($\sigma{=}0.05$) condition, where 220 iterations of careful optimization were needed to reach $R^2_W{=}0.982$.  The mechanism is clear: high intrinsic noise widens the distribution of membrane voltages explored during training, providing richer coverage of the system's dynamical regime.  The GNN learns a **noise-free** dynamical model — when evaluated on clean test data, it tracks the deterministic ground truth with high fidelity.
+**Robustness classification** (4 seeds per iteration):
+- **Stable-Robust**: all 4 seeds conn_R2 ≥ 0.90, CV < 5% (relaxed threshold vs noise_005 due to high noise)
+- **Stable**: mean conn_R2 ≥ 0.85, CV < 10%
+- **Unstable**: mean < 0.85 OR CV ≥ 10%
+- **Catastrophic**: any seed conn_R2 < 0.50
 
-**This changes the nature of the exploration.**  We are NOT trying to "make it work" — it already works.  Instead, we ask:
+**Extended robustness (Block 8)**: 8-seed CV_robustness validation. Target: CV < 5%, mean > 0.95,
+≤1 catastrophic/8 seeds.
 
-### Three Research Questions
+**Note on τ_R2 and V_rest_R2**: Model `flyvis_A` absorbs τ and V_rest implicitly into f_theta.
+These metrics show 0.00 or N/A — this is expected behavior, not a failure.
 
-**Q1 — How wide is the basin of attraction?**
-At noise_005, the optimization landscape is narrow and treacherous: a single step in `data_augmentation_loop` (35→36) causes a 30x CV increase; all 3 LR components sit at sharp optima where ±11-17% perturbations degrade performance.  Does noise_05 flatten this landscape?  Can we use "bad" hyperparameters that catastrophically fail at noise_005 and still succeed at noise_05?
-
-**Approach**: Deliberately test configurations that FAILED at noise_005 and measure whether noise_05 rescues them.  Known failure modes from noise_005:
-- `n_layers=4`: FRAGILE (0.837, all seeds < 0.9)
-- `embedding_dim=4`: Partial (0.914, high variance)
-- `coeff_f_theta_msg_diff=100`: Catastrophic (0.662)
-- `n_epochs=2`: Consistently harmful (FRAGILE)
-- LR schedulers: Catastrophic failures
-- `batch_size=2` with default LRs: High variance (CV=10.6%)
-
-If noise_05 rescues these, we learn that noise acts as an implicit regularizer that smooths the optimization landscape.  If some still fail, we learn which failure modes are fundamental vs. noise-dependent.
-
-**Q2 — What is the minimal configuration?**
-With noise providing such strong signal, how much can we strip away?  Can we:
-- Remove all regularization (`coeff_g_phi_diff=0`, all L1/L2=0)?
-- Use tiny networks (`hidden_dim=32`, `n_layers=2`)?
-- Use minimal augmentation (`data_augmentation_loop=5` or even 1)?
-- Use a single batch_size=1?
-
-This maps the **necessary vs. sufficient** conditions for circuit recovery under high noise.
-
-**Q3 — Can we push V_rest beyond 0.85?**
-$V^{\text{rest}}$ recovery is the weakest metric even at noise_05.  Is this a fundamental limit of the 1-epoch training paradigm, or can we push it higher with targeted optimization?  The noise_005 exploration found that V_rest is orthogonal to connectivity optimization and bimodally distributed — is the same true at noise_05, or does the wider voltage exploration help?
-
-### Metrics and Assessment
-
-Primary metric: **connectivity_R2** — but since it's already near 0.99, the interesting signal is in the **secondary metrics** and **failure modes**.
-
-| Rating | Criterion | Interpretation |
-|--------|-----------|----------------|
-| **Robust** | All 4 seeds conn_R2 > 0.95, CV < 3% | Normal for noise_05 — expected baseline |
-| **Degraded** | conn_R2 > 0.9 but < 0.95, or CV > 3% | Interesting — this config stresses the system |
-| **Broken** | Any seed conn_R2 < 0.9 | Very interesting — found a failure mode that survives noise |
-| **Catastrophic** | Mean conn_R2 < 0.8 | Found a fundamental failure — noise can't rescue this |
-
-**The most scientifically valuable results are "Degraded" and "Broken"** — they map the boundaries of the basin.
-
-For each iteration, also report: tau_R2, V_rest_R2, cluster_accuracy, training_time.
+Data is **NOT re-generated** each iteration (`generate_data: false`).
 
 ## Scientific Method
 
-This exploration follows a strict **hypothesize → test → validate/falsify** cycle:
+Strict **hypothesize → test → validate/falsify** cycle:
 
-1. **Hypothesize**: Form a specific, testable prediction about the noise_05 landscape
-2. **Design experiment**: Choose a mutation that tests the hypothesis — change ONE parameter at a time
-3. **Run training**: 4 seeds — you cannot predict the outcome
-4. **Analyze results**: Compare to both the noise_05 baseline AND the noise_005 result for the same config
-5. **Update understanding**: Build a comparative landscape map
+1. **Hypothesize**: Form a specific, testable prediction
+2. **Design experiment**: Change **EXACTLY ONE** parameter at a time (causality rule)
+3. **Run training**: 4 slots (1 control + 3 experiments in EXPLORATION; 4 same config in ROBUSTNESS)
+4. **Analyze results**: Use conn_R2 AND catastrophic rate to understand stability
+5. **Update understanding**: Revise hypotheses based on evidence
 
-**CRITICAL**: You can only hypothesize.  Only training results can validate or falsify.  The most interesting findings will be SURPRISES — configs that fail despite the noise advantage, or configs that work despite being "wrong".
+**CRITICAL**: You can only hypothesize. Only training results validate or falsify.
 
-**Evidence hierarchy:**
+### CAUSALITY RULE (MANDATORY)
 
-| Level | Criterion | Action |
-|-------|-----------|--------|
-| **Established** | Consistent across 3+ iterations AND 4/4 seeds | Add to Principles |
-| **Tentative** | Observed 1-2 times or inconsistent across seeds | Add to Open Questions |
-| **Contradicted** | Conflicting evidence across iterations/seeds | Note in Open Questions |
+**If you change more than one parameter per slot, you CANNOT attribute the effect. Fatal
+experimental design error.**
 
-## CRITICAL: Data is PRE-GENERATED at startup (fixed across iterations)
-
-At startup, data is generated **once** for all 4 slots with **different random seeds** (one per slot). These datasets are **reused across all iterations** — data is NOT re-generated each iteration.
-Both `simulation.seed` and `training.seed` are **forced by the pipeline** — DO NOT modify them in config files.
-
-Seed formula (set automatically by GNN_LLM.py):
-- `simulation.seed = 1000 + slot` (controls data generation — fixed at startup, slot 0–3)
-- `training.seed = iteration * 1000 + slot + 500` (controls weight init & training randomness)
-
-The actual seed values are provided in the prompt for each slot — **log them in your iteration entries**.
-
-**Seed robustness testing**: To re-generate data with new seeds and test robustness, set `claude.test_robustness_seed: true` in all 4 slot configs. The pipeline will re-generate data for that batch only, then reset the flag automatically.
-
-Simulation parameters (n_neurons, n_frames, etc.) stay fixed — **DO NOT change them**.
+- In EXPLORATION mode: Slot 0 = parent/baseline (unchanged control). Slots 1-3 each change
+  **exactly one** parameter from the parent.
+- In ROBUSTNESS mode: all 4 slots use the same config (different seeds test robustness).
 
 ## FlyVis Model
 
 Non-spiking compartment model of the Drosophila optic lobe:
 
 ```
-tau_i * dv_i(t)/dt = -v_i(t) + V_i^rest + sum_j W_ij * g_phi(v_j, a_j)^2 + I_i(t) + sigma * xi_i(t)
-dv_i/dt = f_theta(v_i, a_i, sum_j W_ij * g_phi(v_j, a_j)^2, I_i)
+tau_i * dv_i/dt = -v_i + V_rest_i + sum_j W_ij * g(v_j) + I_i(t)
 ```
 
-- 13,741 neurons, 65 cell types, 434,112 edges
-- 1,736 input neurons (photoreceptors)
-- DAVIS visual input, **noise_model_level=0.5** (10x higher than noise_005)
-- 64,000 frames, delta_t=0.02
+- **13,741 neurons**, 65 cell types, **434,112 edges**
+- **1,736 input neurons** (photoreceptors, DAVIS visual input)
+- Noise level: σ=0.5 per time step (10× higher than noise_005)
+- 64,000 frames, delta_t = 0.02
+- Model `flyvis_A`: f_theta absorbs τ and V_rest implicitly (τ_R2=0, Vr_R2=0 is expected)
 
 ## GNN Architecture
 
-Two MLPs learn the neural dynamics:
-
-- **g_phi** (MLP1): Edge message function. Maps (v_j, a_j) → message. `g_phi_positive=true` squares output to enforce positivity.
-- **f_theta** (MLP0): Node update function. Maps (v_i, a_i, aggregated_messages, I_i) → dv_i/dt.
-- **Embedding a_i**: learnable low-dimensional embedding per neuron type.
-
-Architecture parameters (explorable):
-
-- `hidden_dim` / `n_layers`: g_phi MLP width/depth (default: 80 / 3)
-- `hidden_dim_update` / `n_layers_update`: f_theta MLP width/depth (default: 80 / 3)
-- `embedding_dim`: embedding dimension (default: 2)
-
-**CRITICAL — coupled parameters**: `embedding_dim` must be >= 2 (embedding_dim=1 crashes plotting). When changing `embedding_dim`, you MUST also update:
-
-- `input_size = 1 + embedding_dim` (v_j + a_j for g_phi)
-- `input_size_update = 3 + embedding_dim` (v_i + a_i + msg + I_i for f_theta)
-
-## Regularization Parameters
-
-| Config parameter | Role | Default | Annealed? |
-|-----------------|------|---------|-----------|
-| `coeff_g_phi_diff` | Monotonicity penalty on g_phi | 750 | No |
-| `coeff_g_phi_norm` | Normalization penalty at saturation | 0.9 | No |
-| `coeff_g_phi_weight_L1` | L1 on g_phi MLP weights | 0.28 | **Yes** |
-| `coeff_g_phi_weight_L2` | L2 on g_phi MLP weights | 0 | **Yes** |
-| `coeff_f_theta_weight_L1` | L1 on f_theta MLP weights | 0.5 | **Yes** |
-| `coeff_f_theta_weight_L2` | L2 on f_theta MLP weights | 0.001 | **Yes** |
-| `coeff_f_theta_msg_diff` | Monotonicity of f_theta w.r.t. messages | 0 | No |
-| `coeff_W_L1` | L1 sparsity penalty on W | 7.5e-5 | **Yes** |
-| `coeff_W_L2` | L2 penalty on W | 1.5e-6 | **Yes** |
-
-### Regularization Annealing
-
-**Formula**: `effective_coeff = coeff * (1 - exp(-rate * epoch))`
-
-**CRITICAL — 1-epoch training**: With `n_epochs=1`, training only runs epoch 0, where the annealing multiplier is exactly **0.00**.  ALL L1/L2 regularizers are completely inactive.  Only the non-annealed coefficients (`coeff_g_phi_diff`, `coeff_g_phi_norm`, `coeff_f_theta_msg_diff`) apply.
-
-This means the default config relies entirely on the monotonicity constraint (`coeff_g_phi_diff=750`) and the noise itself as regularizers.
-
-## Training Parameters (explorable)
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `learning_rate_W_start` | 6e-4 | LR for connectivity W |
-| `learning_rate_start` | 1.2e-3 | LR for g_phi and f_theta |
-| `learning_rate_embedding_start` | 1.55e-3 | LR for embeddings |
-| `n_epochs` | 1 | Epochs (explore 2-3 for V_rest) |
-| `batch_size` | 2 | Batch size |
-| `data_augmentation_loop` | 20 | Data augmentation multiplier |
-| `w_init_mode` | randn_scaled | W initialization |
-| `regul_annealing_rate` | 0.5 | Annealing rate (irrelevant at 1 epoch) |
-
-
-## Parallel Mode — 4 Slots Per Batch
-
-You receive **4 results per batch** and propose **4 mutations** for the next batch.
-Each slot runs with a **different random seed** for robustness assessment.
-
-### Robustness Assessment
-
-| Rating | Criterion | Action |
-|--------|-----------|--------|
-| **Robust** | All 4 seeds > 0.95, CV < 3% | Expected baseline for noise_05 |
-| **Degraded** | 0.9 < mean < 0.95 or CV > 3% | Interesting — stress point found |
-| **Broken** | Any seed < 0.9 | Very interesting — noise can't rescue |
-| **Catastrophic** | Mean < 0.8 | Fundamental failure |
-
-### Slot Strategy
-
-All 4 slots should run the **same config** (different seeds are applied automatically).
-
-### Config Files
-
-- Edit all 4 config files: `{name}_00.yaml` through `{name}_03.yaml`
-- **All 4 configs should be identical** (only seeds differ)
-- Only modify `training:` and `graph_model:` parameters
-- **DO NOT change `simulation:` parameters**
-
-## Iteration Workflow (every batch)
-
-### Step 1: Read Working Memory + User Input
-
-### Step 2: Analyze Results (4 slots)
-
-**Metrics from `analysis.log`:**
-
-- `connectivity_R2`: R² of learned vs true W (**PRIMARY METRIC**)
-- `tau_R2`: R² of learned vs true time constants
-- `V_rest_R2`: R² of learned vs true resting potentials
-- `cluster_accuracy`: neuron type clustering accuracy from embeddings
-- `training_time_min`: training duration
-
-**Dual comparison**: For each config tested, compare to:
-1. The noise_05 baseline (how much did this perturbation degrade/improve?)
-2. The noise_005 result for the same config (how much does noise rescue?)
-
-### Step 3: Write Log Entries + Update Memory
-
 ```
-## Iter N: [robust/degraded/broken/catastrophic]
-
-Node: id=N, parent=P
-Hypothesis tested: "[quoted hypothesis]"
-Config: [key changes from baseline]
-Slot 0: conn_R2=A, tau_R2=B, V_rest_R2=C, cluster_acc=D, sim_seed=S, train_seed=T
-Slot 1: conn_R2=A, tau_R2=B, V_rest_R2=C, cluster_acc=D, sim_seed=S, train_seed=T
-Slot 2: conn_R2=A, tau_R2=B, V_rest_R2=C, cluster_acc=D, sim_seed=S, train_seed=T
-Slot 3: conn_R2=A, tau_R2=B, V_rest_R2=C, cluster_acc=D, sim_seed=S, train_seed=T
-Seed stats: mean_conn_R2=X, std=Y, CV=Z%, min=W
-noise_005 comparison: [same config at noise_005 gave X — noise rescued by Y%]
-Mutation: [param]: [old] -> [new]
-Verdict: [robust/degraded/broken] — [one line interpretation]
-Next: parent=P
+g_phi(v_j, embed_j) → message_ij          (edge MLP, per-edge messages)
+sum_j W_ij * g_phi(v_j) → agg_i           (weighted aggregation)
+f_theta(v_i, agg_i, embed_i) → dv_i/dt   (node update MLP)
 ```
 
-### Step 4: Acknowledge User Input (if any)
+- Per-neuron embedding: learnable `embedding_dim`-dimensional vector (concatenated to inputs)
+- `g_phi_positive=true`: g_phi output clipped to [0, ∞) (Dale's law approximation)
 
-### Step 5: Formulate Next Hypothesis + Edit 4 Config Files
+**YOU ARE ONLY ALLOWED TO MODIFY THE PARAMETERS BELOW TO ACHIEVE THE GOAL**
 
-## Winner Config (COMPULSORY)
+## GNN Architecture Parameters
 
-**At every block boundary**, you MUST save the current best config as a winner file.
-This is a COMPULSORY task — do not skip it.
+| Parameter       | Default | Description                                             |
+| --------------- | ------- | ------------------------------------------------------- |
+| `hidden_dim`    | 80      | Width of hidden layers in g_phi and f_theta             |
+| `n_layers`      | 3       | Depth of g_phi and f_theta networks                     |
+| `embedding_dim` | 2       | Per-neuron learnable embedding dimension                |
 
-1. Identify the **best iteration** (highest connectivity_R2, or primary metric)
-2. Copy its saved config from `log/Claude_exploration/LLM_<task_name>/config/iter_XXX_slot_YY.yaml`
-3. Save it to `config/fly/flyvis_noise_05_winner.yaml` with a YAML comment header:
+## Training Parameters
 
-```yaml
-# Winner config: flyvis_noise_05_winner.yaml
-# Source: iter_XXX_slot_YY (connectivity_R2 = X.XXX)
-# Exploration: N iterations, M blocks
-# Date: YYYY-MM-DD
-#
-# Why this is the winner:
-#   - [1-2 sentence narrative: what made this config the best]
-#   - [key hyperparameter choices and why they matter]
-#
-# Metrics:
-#   connectivity_R2: X.XXX (best single seed)
-#   robust_mean:     X.XXX +/- X.XXX (N seeds, CV=X.X%)
-#   rollout_pearson: X.XXX
-#   cluster_accuracy: X.XXX
-#   spectral_radius: X.XXX (true: X.XXX)
-#
-# Key config differences from baseline:
-#   - [list the parameters that differ from the initial baseline]
-```
+| Parameter                 | Default  | Description                                                                      |
+| ------------------------- | -------- | -------------------------------------------------------------------------------- |
+| `lr_W`                    | 0.0006   | Learning rate for W matrix (synaptic weights)                                    |
+| `lr`                      | 0.0012   | Learning rate for g_phi and f_theta MLP weights                                  |
+| `lr_embedding`            | 0.00155  | Learning rate for per-neuron embeddings                                          |
+| `data_augmentation_loop`  | 20       | Augmentation loops per epoch — controls training time (DAL)                      |
+| `batch_size`              | 2        | Samples per batch (smaller than noise_005 due to higher per-sample cost)         |
+| `coeff_g_phi_diff`        | 750      | L2 penalty driving g_phi toward non-trivial activations (**critical!**)          |
+| `coeff_g_phi_norm`        | 0.9      | L2 norm regularization on g_phi output values                                    |
+| `coeff_g_phi_weight_L1`   | 0.28     | L1 weight regularization on g_phi network                                        |
+| `coeff_f_theta_weight_L1` | 0.5      | L1 weight regularization on f_theta network (higher than noise_005 to resist noise) |
+| `coeff_f_theta_weight_L2` | 0.001    | L2 weight regularization on f_theta network                                      |
+| `coeff_W_L1`              | 7.5e-5   | L1 regularization on W (lower than noise_005 — noise itself acts as regularizer) |
+| `coeff_W_L2`              | 1.5e-6   | L2 regularization on W                                                           |
+| `regul_annealing_rate`    | 0.0      | Regularization annealing: **MUST be 0.0 with n_epochs=1** (otherwise all L1/L2 = 0) |
+| `w_init_mode`             | randn_scaled | W initialization: `randn_scaled`, `zeros`, `uniform_scaled`                |
+| `w_init_scale`            | 1.0      | Scale for randn_scaled W initialization (default; prior winner used 0.25)        |
 
-Destination: `config/fly/flyvis_noise_05_winner.yaml`
+**Training time budget**: Target ~60 min per run. Adjust DAL to stay within budget. Check
+`training_time_min` in results after each iteration.
 
-## Block Partition — PRESCRIBED Configs (Blocks 1-4)
+**Hard runtime limit (120 min)**: Cluster enforces 120-min wall-clock limit. Check for
+`_interrupted` in slot log directories. If interrupted, reduce DAL for next iteration.
 
-Blocks 1-4 are **prescribed**: you MUST run these exact configs in order. This ensures a direct, systematic comparison with the noise_005 exploration. After block 4, you are free to explore based on findings.
+**Fixed: n_epochs=1** — do not change. With n_epochs=1, `regul_annealing_rate` MUST be 0.0
+(annealing formula: effective_coeff = coeff × (1 − exp(−rate × epoch)) = 0 at epoch 0).
 
-### Block 1 (Iters 1-12): Baseline + Architecture Stress Tests
+**Note**: Seeds are pipeline-controlled (`sim_seed = iter × 1000 + slot`,
+`train_seed = iter × 1000 + slot + 500`). Do not set seeds in config files.
 
-| Batch | Config | noise_005 result | What we learn |
-|-------|--------|-----------------|---------------|
-| 1-4 | **Baseline** (default config, no changes) | 0.888±0.094 (Partial) | noise_05 starting point |
-| 5-8 | **n_layers=4** (4-layer MLPs) | 0.837±0.030 (FRAGILE 0/4) | Does noise rescue depth failure? |
-| 9-12 | **embedding_dim=4** (input_size=5, input_size_update=7) | 0.914±0.071 (Partial 3/4) | Does noise rescue over-parameterization? |
+> **YAML rule**: Always wrap the `description` field value in double quotes — colons inside
+> unquoted YAML strings cause parse errors.
 
-### Block 2 (Iters 13-24): Training Regime Stress Tests
+## Data Generation
 
-| Batch | Config | noise_005 result | What we learn |
-|-------|--------|-----------------|---------------|
-| 13-16 | **n_epochs=2, aug=10** (same total training time) | 0.831±0.181 (FRAGILE 2/4) | Does noise rescue epoch boundary? |
-| 17-20 | **f_theta_msg_diff=100** (f_theta monotonicity) | 0.662±0.194 (Catastrophic 0/4) | Does noise rescue wrong constraint? |
-| 21-24 | **cosine_warm_restarts** LR scheduler | 0.909±0.097 (Partial 3/4) | Does noise rescue LR scheduling? |
+`generate_data: false` — data is pre-generated and NOT regenerated each iteration.
 
-### Block 3 (Iters 25-36): Minimal Configuration Tests
+**DO NOT modify simulation parameters** (n_neurons, n_frames, n_edges, delta_t, noise_model_level).
 
-| Batch | Config | noise_005 result | What we learn |
-|-------|--------|-----------------|---------------|
-| 25-28 | **g_phi_diff=0** (remove monotonicity entirely) | Not tested at noise_005 | Is monotonicity necessary at high noise? |
-| 29-32 | **hidden_dim=32, n_layers=2** (minimal network) | Not tested at noise_005 | Minimum network for recovery |
-| 33-36 | **aug=5** (minimal augmentation) | Not tested at noise_005 | Minimum data for recovery |
+## Block Structure
 
-### Block 4 (Iters 37-48): LR Landscape + V_rest
+| Block | Focus                      | Parameters to scan                                               | Ranges                                                                           |
+| ----- | -------------------------- | ---------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| 1     | **Baseline robustness**    | All 4 slots = default config (ROBUSTNESS)                       | Establish pre-optimization baseline; measure catastrophic failure rate           |
+| 2     | **W initialization**       | `w_init_scale`, `w_init_mode`                                   | scale: {0.1, 0.25, 0.5, 1.0}; mode: {randn_scaled, zeros, uniform_scaled}      |
+| 3     | **Learning rates**         | `lr_W`, `lr`, `lr_embedding`                                    | lr_W: {3e-4, 6e-4, 9e-4, 1.2e-3}; lr: {6e-4, 1.2e-3, 2.4e-3}; lr_W/lr ratio  |
+| 4     | **g_phi terms**            | `coeff_g_phi_diff`, `coeff_g_phi_norm`, `coeff_g_phi_weight_L1` | diff: {375, 750, 1500}; norm: {0, 0.5, 0.9, 1.5}; g_L1: {0, 0.1, 0.28, 0.5}  |
+| 5     | **f_theta reg**            | `coeff_f_theta_weight_L1`, `coeff_f_theta_weight_L2`            | f_L1: {0.1, 0.3, 0.5, 1.0}; f_L2: {0, 0.001, 0.01}                            |
+| 6     | **W reg + training**       | `coeff_W_L1`, `batch_size`, `data_augmentation_loop`            | W_L1: {0, 3e-5, 7.5e-5, 2e-4}; bs: {1, 2, 4}; DAL: {15, 20, 30}               |
+| 7     | **Free exploration**       | Any parameter — combine best, target catastrophic failure rate  | Focus: reduce catastrophic rate; compare rescued vs persistent failure modes     |
+| 8     | **Final robustness**       | Best config, all 4 slots same (ROBUSTNESS, `generate_data: false`) | Confirm CV < 5%, zero catastrophic; same data across seeds                 |
+| 9     | **CV robustness (8 seeds)**| Best config, 8 seeds over 2 iterations (ROBUSTNESS, `generate_data: true`) | True seed independence; target CV < 5%, mean > 0.95, ≤1 catastrophic/8 |
 
-| Batch | Config | noise_005 result | What we learn |
-|-------|--------|-----------------|---------------|
-| 37-40 | **1.5x LRs** (noise_005 champion LRs: lr_W=9e-4, lr=1.8e-3, lr_emb=2.325e-3) | 0.982±0.003 (CHAMPION) | noise_005 champion at noise_05 |
-| 41-44 | **aug=36** (cliff edge at noise_005) | 0.898±0.089 (DISQUALIFIED) | Does noise eliminate the cliff? |
-| 45-48 | **n_epochs=2, aug=10, 1.5x LRs** | ~0.945±0.063 (Partial) | V_rest push via multi-epoch |
+**Extra blocks** (optional, use if Block 7 did not converge to a clear winner):
+append additional EXPLORATION iterations on any block focus before proceeding to Blocks 8-9.
 
-### Blocks 5+ (Iters 49+): Free Exploration — CV Elimination Priority
-
-**PRIMARY OBJECTIVE**: Eliminate the bimodal catastrophic failure mode. ~25% of seeds fail with conn_R2 < 0.20 under the default config. Find a configuration where ALL 5 seeds achieve conn_R2 > 0.90 with CV < 10%.
-
-Known failed interventions: n_layers=4 (replication failure), zeros init, 1.5x LRs, augmentation changes, LR schedulers. Explore fundamentally different approaches: gradient clipping, alternative initializations (xavier, kaiming), LR warmup, higher embedding_dim, larger batch sizes, stronger g_phi_diff.
-
-Secondary priorities:
-- Deepen understanding of any SURPRISING results (configs that failed or succeeded unexpectedly)
-- Map the boundary between "rescued" and "not rescued" more precisely
-- Push V_rest_R2 beyond 0.85 using the best approach found
-
-## Complete noise_005 Reference Table (220 iterations, 45 perturbations)
-
-Use this table to look up the noise_005 result for any config you test. The **noise_005 champion** is: aug=35, bs=4, 1.5x LRs, hidden=80, 3L, emb=2, W_L1=1.5e-4 → conn_R2=0.982±0.003.
-
-| Config | noise_005 conn_R2 | CV% | min | Status | Category |
-|--------|-------------------|-----|-----|--------|----------|
-| defaults (bs=2) | 0.938 | N/A | — | single seed | baseline |
-| 1.5x LRs (bs=2) | 0.971 | N/A | — | single seed | LR |
-| g_phi_diff=1500 | 0.924 | N/A | — | single seed | regularization |
-| bs=4, W_L1=1.5e-4, default LRs | 0.888±0.094 | 10.6 | 0.766 | Partial (2/4) | batch+sparsity |
-| **bs=4, W_L1=1.5e-4, 1.5x LRs** | **0.952±0.022** | 2.3 | 0.927 | **ROBUST** | LR compensation |
-| bs=4, W_L1=1.5e-4, 2x LRs | 0.949±0.020 | 2.1 | 0.921 | ROBUST | LR |
-| lr_W=2x, lr/emb=1.5x | 0.963±0.010 | 1.1 | 0.953 | ROBUST | LR differential |
-| lr_W=1.5x, lr/emb=2x | 0.953±0.022 | 2.3 | 0.921 | ROBUST | LR differential |
-| g_phi_L1=0.14 (halved) | 0.912±0.050 | 5.5 | 0.841 | Partial (3/4) | regularization |
-| g_phi_norm=1.8 (doubled) | 0.945±0.028 | 3.0 | 0.902 | ROBUST | regularization |
-| g_phi_L1=0.42 (1.5x) | 0.942±0.022 | 2.3 | 0.917 | ROBUST | regularization |
-| **n_epochs=2, bs=4, 1.5x LRs** | **0.831±0.181** | **21.8** | **0.566** | **FRAGILE (2/4)** | **epoch boundary** |
-| **f_theta_msg_diff=100** | **0.662±0.194** | **29.4** | **0.398** | **CATASTROPHIC (0/4)** | **wrong constraint** |
-| W_L1=7.5e-5 (default) | 0.867±0.091 | 10.5 | 0.777 | Partial (2/4) | regularization |
-| W_L1=3e-4 (doubled) | 0.939±0.020 | 2.1 | 0.908 | ROBUST | regularization |
-| W_L2=1.5e-5 (10x) | 0.937±0.010 | 1.1 | 0.922 | ROBUST | regularization |
-| hidden_dim=120 | 0.951±0.011 | 1.2 | 0.935 | ROBUST | architecture |
-| **n_layers=4** | **0.837±0.030** | **3.6** | **0.796** | **FRAGILE (0/4)** | **architecture** |
-| **embedding_dim=4** | **0.914±0.071** | **7.8** | **0.809** | **Partial (3/4)** | **architecture** |
-| w_init_mode=zeros | 0.957±0.023 | 2.4 | 0.924 | ROBUST | initialization |
-| f_theta_L1=0.025 (halved) | 0.937±0.054 | 5.8 | 0.858 | Partial (3/4) | regularization |
-| f_theta_L2=0.002 (doubled) | 0.928±0.050 | 5.4 | 0.849 | Partial (3/4) | regularization |
-| regul_anneal=2.0 | 0.949±0.044 | 4.6 | 0.884 | Partial (3/4) | annealing |
-| regul_anneal=1.0 | 0.942±0.034 | 3.6 | 0.890 | Partial (3/4) | annealing |
-| **cosine_warm_restarts** | **0.909±0.097** | **10.7** | **0.742** | **Partial (3/4)** | **LR scheduler** |
-| **linear_warmup_cosine** | **0.853±0.186** | **21.8** | **0.575** | **Partial (3/4)** | **LR scheduler** |
-| data_aug=25 | 0.962±0.015 | 1.6 | 0.950 | ROBUST | augmentation |
-| data_aug=30 | 0.969±0.011 | 1.2 | 0.956 | ROBUST | augmentation |
-| **data_aug=35 (CHAMPION)** | **0.982±0.003** | **0.3** | **0.977** | **CHAMPION** | **augmentation** |
-| **data_aug=36 (cliff)** | **0.898±0.089** | **9.9** | **0.782** | **DISQUALIFIED** | **augmentation cliff** |
-| data_aug=40 | 0.928±0.072 | 7.7 | 0.804 | Partial (3/4) | augmentation |
-| data_aug=34 | 0.978±0.002 | 0.3 | 0.975 | Stable-Robust | augmentation plateau |
-| lr_W=1.0e-3 (+11%) at aug=35 | 0.951±0.031 | 3.3 | 0.917 | Robust | LR fine-tuning |
-| lr_W=8e-4 (-11%) at aug=35 | 0.972±0.012 | 1.3 | 0.958 | Stable-Robust | LR fine-tuning |
-| **lr=2.1e-3 (+17%) at aug=35** | **0.904±0.058** | **6.4** | **0.817** | **DISQUALIFIED** | **LR overshoot** |
-| lr=1.5e-3 (-17%) at aug=35 | 0.955±0.028 | 2.9 | 0.915 | Robust | LR fine-tuning |
-| lr_emb=2.72e-3 (+17%) | 0.963±0.021 | 2.1 | 0.942 | Robust (degraded) | LR fine-tuning |
-| **lr_emb=1.93e-3 (-17%)** | **0.927±0.076** | **8.1** | **0.797** | **DISQUALIFIED** | **embedding bottleneck** |
-| g_phi_diff=500 at aug=35 | 0.963±0.014 | 1.4 | 0.950 | Stable-Robust (degraded) | regularization |
-| batch_size=8 at aug=35 | 0.968±0.009 | 1.0 | 0.955 | Stable-Robust (degraded) | batch size |
-| g_phi_norm=0.45 (halved) | 0.962±0.005 | 0.5 | 0.955 | Stable-Robust (degraded) | regularization |
-
-**Bold rows** = failure modes prescribed for testing in blocks 1-4.
-
-**Sibling memory file**: `./log/Claude_exploration/LLM_flyvis_noise_005/flyvis_noise_005_Claude_memory.md` — read at block boundaries for full context.
+> **generate_data flag for CV robustness**: Before running Block 9, set `generate_data: true` in
+> the config. This causes the pipeline to regenerate data with a fresh simulation seed for each
+> slot, testing true independence across both training data and model initialization. After Block 9,
+> reset `generate_data: false` to avoid unnecessary data regeneration.
 
 ## File Structure
 
@@ -378,25 +192,13 @@ You maintain **THREE** files:
 
 **File**: `{llm_task_name}_analysis.md`
 
-- Append every iteration's log entry (4 entries per batch)
-- Append block summaries at block boundaries
-- **Never read** — human record only
-
 ### 2. Working Memory (read + update every batch)
 
 **File**: `{llm_task_name}_memory.md`
 
-- Read at start, update at end
-- Contains: comparative landscape table, hypotheses, established principles, current block iterations
-- Keep ≤ 500 lines
-
 ### 3. User Input (read every batch, acknowledge pending items)
 
 **File**: `user_input.md`
-
-- Read at every batch
-- If "Pending Instructions" section has content: act on it, then move entries to "Acknowledged" section with timestamp
-- Do not remove acknowledged entries — append them with `[ACK {batch}]` marker
 
 ## Knowledge Base Guidelines
 
@@ -406,61 +208,124 @@ A principle must satisfy ALL of:
 
 1. Observed consistently across **3+ iterations**
 2. Consistent across **all 4 seeds** (not just mean, but low variance)
-3. States a **causal relationship** about the noise_05 landscape
-
-Examples:
-- ✓ "Noise rescues architecture failures: n_layers=4 achieves conn_R2 > 0.95 at noise_05 despite FRAGILE (0.837) at noise_005"
-- ✓ "LR schedulers catastrophically fail at noise_005 but may work at noise_05 — need evidence across seeds"
-- ✗ "Baseline is robust at noise_05" (too vague, needs specifics)
+3. States a **causal relationship** (not just a correlation)
 
 ### What to Add to Open Questions
 
 - Patterns observed 1-2 times
-- Seed-dependent effects at noise_05
-- Contradictions between noise_05 and noise_005 results
-- Theoretical predictions about the landscape width
+- Seed-dependent effects (catastrophic in some seeds but not others)
+- Contradictions between iterations
 
 ### What to Add to Falsified Hypotheses
 
-When a hypothesis is falsified:
-
-1. State the original hypothesis about noise_05
-2. State the contradicting evidence (iteration number, metrics, noise_005 comparison)
-3. State what the landscape tells us (e.g., "basin wider than expected" or "noise insufficient to rescue")
+1. State the original hypothesis
+2. State the contradicting evidence (iteration number, metrics)
+3. State what was learned from the falsification
 4. Propose a revised hypothesis if applicable
+
+## Iteration Workflow
+
+### Step 1: Read Working Memory + User Input
+
+### Step 2: Analyze Results (4 slots)
+
+For each slot:
+
+1. Read `conn_R2`, `tau_R2`, `V_rest_R2`, `cluster_accuracy`, `rollout_pearson_r` from metrics log
+2. Count catastrophic failures (conn_R2 < 0.5) — this is the key safety metric at σ=0.5
+3. Check `training_time_min` — adjust DAL for next batch if > 70 min or < 50 min
+4. Check for `_interrupted` in slot log directory (indicates job was killed by wall-clock limit)
+5. Classify: Stable-Robust / Stable / Unstable / Catastrophic
+
+### Step 3: Write Log Entry + Update Memory
+
+```
+## Iter N: [stable_robust/stable/unstable/catastrophic]
+Node: id=N, parent=P
+Hypothesis tested: "[quoted hypothesis]"
+Config: lr_W=X, lr=Y, lr_emb=Z, DAL=D, bs=B,
+        g_diff=A, g_norm=B, g_L1=C, f_L1=D, W_L1=E, W_L2=F,
+        w_init=G, w_scale=H, emb_dim=I
+Slot 0: conn_R2=X, tau_R2=Y, Vr_R2=Z, cluster_acc=W, rollout_r=P, sim_seed=S, train_seed=T
+Slot 1: conn_R2=X, tau_R2=Y, Vr_R2=Z, cluster_acc=W, rollout_r=P, sim_seed=S, train_seed=T
+Slot 2: conn_R2=X, tau_R2=Y, Vr_R2=Z, cluster_acc=W, rollout_r=P, sim_seed=S, train_seed=T
+Slot 3: conn_R2=X, tau_R2=Y, Vr_R2=Z, cluster_acc=W, rollout_r=P, sim_seed=S, train_seed=T
+Seed stats: mean_conn_R2=X, std=Y, CV=Z%, catastrophic=N/4
+Mutation: [param]: [old] -> [new]
+Verdict: [supported/falsified/inconclusive]
+Next: parent=P
+```
+
+### Step 4: Acknowledge User Input
+
+### Step 5: Formulate Next Hypothesis + Edit 4 Config Files
+
+## Block Boundaries
+
+At every block boundary:
+
+1. Update "Paper Summary" in memory
+2. Summarize block findings (including catastrophic failure rate trend)
+3. Update "Established Principles" and "Falsified Hypotheses"
+4. Clear "Current Block"
+5. Carry forward best config as parent for next block
 
 ## Start Call
 
 When prompt says `PARALLEL START`:
 
-- Read base config
-- Set all 4 configs **identically** to the baseline
-- First iteration = baseline — do not change hyperparameters
-- Baseline hypothesis: "The default noise_05 config achieves connectivity_R2 > 0.95 on all 4 seeds with CV < 2%, establishing a robust baseline that exceeds noise_005 performance with simpler hyperparameters"
+- Slot 0 = **default config** (before-exploration baseline):
+  `lr_W=0.0006, lr=0.0012, lr_embedding=0.00155, batch_size=2, DAL=20`
+  `coeff_g_phi_diff=750, coeff_g_phi_norm=0.9, coeff_g_phi_weight_L1=0.28`
+  `coeff_f_theta_weight_L1=0.5, coeff_W_L1=7.5e-5, w_init_mode=randn_scaled, w_init_scale=1.0, embedding_dim=2`
+- Block 1 is ROBUSTNESS mode: Slots 1-3 also use the same default config (different seeds)
+- Hypothesis: "The default GNN config at σ=0.5 achieves conn_R2 ≥ 0.80 but may show catastrophic
+  failures. Prior winner: conn_R2=0.987, CV=1.3%, 0/4 catastrophic (used w_init_scale=0.25)."
+- Launch: `python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_05 iterations=80 --cluster --resume`
+
+---
+
+## Final Summary
+
+At exploration completion (after Block 8), append to
+`/home/node/.claude/projects/-workspace--devcontainer/memory/exploration_results.md`:
+
+### flyvis_noise_05 — Key Discoveries (YYYY-MM-DD)
+
+1. **Best metric**: conn_R2 = X.XXX ± std (N seeds, CV=X.X%, catastrophic=N/8), winner config = [key params]
+2. **Rescued**: Which noise_005 failure modes were rescued at σ=0.5 (cite iteration numbers)
+3. **Not rescued**: Which failure modes survived even at high noise (a fundamental constraint)
+4. **HP impact**: Which HP had the largest single-parameter impact on catastrophic failure rate
+5. **Landscape**: How the optimization landscape width at σ=0.5 compares to σ=0.05
+6. **W initialization**: Whether w_init_scale=0.25 consistently prevented catastrophic failure and why
+7. **Minimal config**: What minimal configuration still achieved robust recovery (CV < 5%)
+8. **Fundamental limit**: Any fundamental limit encountered (e.g., catastrophic failure rate floor)
 
 ---
 
 # Working Memory Structure
 
 ```markdown
-# Working Memory: flyvis_noise_05
+# Working Memory: {llm_task_name}
 
 ## Paper Summary (update at every block boundary)
 
-- **GNN optimization**: [pending]
-- **LLM-driven exploration**: [pending]
+**GNN optimization** (2 sentences on HPO findings):
+Sentence 1: Best hyperparameter configuration found and the conn_R2 it achieves (cite mean ± std, CV%, catastrophic/8 seeds).
+Sentence 2: Which hyperparameters were most critical for preventing catastrophic failures — what worked and what failed (cite values).
+
+**LLM-driven exploration** (2 sentences on exploration findings):
+Sentence 1: What the systematic exploration revealed about the high-noise optimization landscape (catastrophic basin structure, rescued vs persistent failure modes).
+Sentence 2: Main causal principle established — what controls catastrophic failure rate at σ=0.5 and how this compares to the σ=0.05 landscape.
 
 ## Knowledge Base
 
-### Comparative Landscape Table
+### Robustness Comparison Table
 
-| Iter | Config summary | noise_05 conn_R2 (mean±std) | CV% | min | noise_005 result | Rescued? | Rating | Question tested |
-| ---- | -------------- | --------------------------- | --- | --- | ---------------- | -------- | ------ | --------------- |
-| 1 | baseline | ? | ? | ? | 0.938 (baseline) | N/A | ? | Q1 baseline |
+| Iter | Config summary | conn_R2 (mean±std) | CV% | catastrophic | Verdict | Hypothesis |
+| ---- | -------------- | ------------------- | --- | ------------ | ------- | ---------- |
 
 ### Established Principles
-
-[What noise_05 reveals about the optimization landscape vs. noise_005]
 
 ### Falsified Hypotheses
 
@@ -470,19 +335,12 @@ When prompt says `PARALLEL START`:
 
 ## Previous Block Summaries
 
-**RULE: Keep summaries for the last 4 completed blocks, sorted oldest→newest. This section MUST appear before ## Current Block.**
+**RULE: Keep summaries for the last 4 completed blocks, sorted oldest→newest. This section MUST
+appear before ## Current Block.**
 
-### Block 1 Summary
-[Summary of findings from block 1]
+### Block N Summary
 
-### Block 2 Summary
-[Summary of findings from block 2]
-
-### Block 3 Summary
-[Summary of findings from block 3]
-
-### Block 4 Summary
-[Summary of findings from block 4]
+[Summary of findings from block N]
 
 ---
 
@@ -491,12 +349,6 @@ When prompt says `PARALLEL START`:
 ### Block Info
 
 ### Current Hypothesis
-
-**Hypothesis**: [specific prediction about noise_05 landscape]
-**Rationale**: [why — reference noise_005 comparison]
-**Test**: [config change]
-**Expected outcome**: [what would support vs falsify]
-**Status**: untested / supported / falsified
 
 ### Iterations This Block
 

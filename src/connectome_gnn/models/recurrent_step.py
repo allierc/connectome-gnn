@@ -100,11 +100,15 @@ def _standard_recurrent_loss(
     state_batch = []
     y_list = []
     ids_list = []
+    hidden_ids_list = []
+    k_list = []
     ids_index = 0
+
+    coeff_hidden = getattr(tc, 'coeff_hidden_voltage', 0.0)
+    use_hidden_loss = (coeff_hidden > 0.0) and (hidden_ids is not None)
 
     for b in range(batch_size):
         k = int(frame_indices[iter_idx * batch_size + b])
-        k = k - k % time_step  # align to time_step boundary
 
         x = x_ts.frame(k)
         if x.noise is not None and sim.measurement_noise_level > 0:
@@ -123,13 +127,16 @@ def _standard_recurrent_loss(
         if torch.isnan(x.voltage).any():
             continue
 
-        y = x_ts.voltage[k + time_step].unsqueeze(-1)
+        y = x_ts.voltage[k + (1 if time_step > 1 else time_step)].unsqueeze(-1)
         if torch.isnan(y).any():
             continue
 
         state_batch.append(x)
         y_list.append(y)
         ids_list.append(ids + ids_index)
+        if use_hidden_loss:
+            hidden_ids_list.append(hidden_ids + ids_index)
+        k_list.append(k)
         ids_index += x.n_neurons
 
     if not state_batch:
@@ -137,6 +144,7 @@ def _standard_recurrent_loss(
 
     y_batch = torch.cat(y_list, dim=0)
     ids_batch = torch.cat(ids_list, dim=0)
+    hidden_ids_batch = torch.cat(hidden_ids_list, dim=0) if use_hidden_loss else None
     data_id = torch.zeros((ids_index, 1), dtype=torch.int, device=device)
 
     # Regularisation (computed once on initial state)
@@ -158,25 +166,36 @@ def _standard_recurrent_loss(
     pred_x = batched_state.voltage.unsqueeze(-1) + sim.delta_t * pred + tc.noise_recurrent_level * torch.randn_like(pred)
 
     for step in range(time_step - 1):
+        # Hidden neuron loss at this intermediate step (before overwriting with NGP)
+        # Gradient path: loss → pred_x[hidden] → v_hidden(k) via -v/tau term → NGP(k)
+        if use_hidden_loss:
+            neurons_per_sample = state_batch[0].n_neurons
+            gt_hidden_parts = []
+            for b_idx in range(len(state_batch)):
+                k_h = k_list[b_idx] + step + 1
+                if k_h < x_ts.n_frames:
+                    gt_hidden_parts.append(x_ts.voltage[k_h, hidden_ids].unsqueeze(-1))
+            if gt_hidden_parts:
+                gt_hidden_batch = torch.cat(gt_hidden_parts, dim=0)
+                loss = loss + coeff_hidden * (pred_x[hidden_ids_batch] - gt_hidden_batch).norm(2)
+
         neurons_per_sample = state_batch[0].n_neurons
         for b_idx in range(len(state_batch)):
             s, e = b_idx * neurons_per_sample, (b_idx + 1) * neurons_per_sample
             state_batch[b_idx].voltage = pred_x[s:e].squeeze()
             if hidden_ids is not None:
-                k_current_h = int(frame_indices[iter_idx * batch_size + b_idx])
-                k_current_h = k_current_h - k_current_h % time_step + step + 1
+                k_current_h = k_list[b_idx] + step + 1
                 if model.NNR_hidden is not None:
                     state_batch[b_idx].voltage[hidden_ids] = model.forward_hidden(state_batch[b_idx], k_current_h, hidden_ids)
                 else:
                     state_batch[b_idx].voltage[hidden_ids] = 0.0
-            k_current = int(frame_indices[iter_idx * batch_size + b_idx])
-            k_current = k_current - k_current % time_step + step + 1
+            k_current = k_list[b_idx] + step + 1
             if has_visual_field:
                 vi = model.forward_visual(state_batch[b_idx], k_current)
                 state_batch[b_idx].stimulus[:model.n_input_neurons] = vi.squeeze(-1)
                 state_batch[b_idx].stimulus[model.n_input_neurons:] = 0
             else:
-                state_batch[b_idx].stimulus = x_ts.frame(k_current).stimulus
+                pass  # stimulus held constant during unroll (subsampled x_ts; intermediate frames not available)
 
         batched_state, batched_edges = _batch_frames(state_batch, edges)
         pred, _, _ = model(batched_state, batched_edges, data_id=data_id, return_all=True)
@@ -274,7 +293,7 @@ def _multi_start_loss(
                     x.stimulus[:model.n_input_neurons] = vi.squeeze(-1)
                     x.stimulus[model.n_input_neurons:] = 0
                 else:
-                    x.stimulus = x_ts.frame(k_next).stimulus
+                    pass  # stimulus held constant during unroll (subsampled x_ts; intermediate frames not available)
 
         # Loss: predicted voltage vs target at T
         pred_v = x.voltage.unsqueeze(-1)

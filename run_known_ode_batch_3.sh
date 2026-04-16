@@ -1,7 +1,0 @@
-#!/bin/bash
-
-# Run known_ode LLM exploration with iterations=64, --cluster, and --resume
-# Device: cuda:1
-
-export CUDA_VISIBLE_DEVICES=1
-python GNN_LLM.py -o train_test_plot_Claude flyvis_noise_005_removed_pc_20_known_ode iterations=64 --cluster

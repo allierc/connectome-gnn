@@ -1,0 +1,366 @@
+# FlyVis MLP Baseline — Rollout Optimization (noise=0.5)
+
+## Goal
+
+Optimize the **MLP baseline** hyperparameters for lowest possible autoregressive rollout error ~
+O(1e-2) or lower on the flyvis model with **high noise** (sigma=0.5). Two sub-goals:
+
+- minimize the overall RMSE
+- maintain a roughly constant RMSE during rollout. An increase in the RMSE during rollout is an
+  indicator of the discrepancy between true and inferred dynamics.
+
+The MLP is a flat, graph-free model: `dv/dt = MLP([v_all; stimulus_all])`. No edges, no message
+passing.
+
+We are given the simulated neural activity traces as matrix (T, N). T=time steps, N=neurons. Given
+the activity at time t plus the input stimulus, the MLP can be used to compute the activity at the
+next time point (via Euler integration). We continue this process to generate an autoregressive
+rollout from the initial activity.
+
+The dynamic range of voltages in the simulation is bounded, therefore, if a model were to predict
+v(t) = v(t=0), i.e., a constant, the RMSE is bounded and is between 0.2 and 0.3. To be a convincing
+demonstration the MLP should produce an RMSE that is ~ 1e-2, or about 10x better. This may or may
+not be feasible, but that is the goal.
+
+## Prior Optimization Results
+
+**Reference**: The noise-free condition achieves RMSE=0.0799 with:
+hidden_dim=640, n_layers=2, relu, add_residual=true, lr=1e-5, DAL=100, bs=256, rollout_train_steps=1.
+
+Applying that same noise-free config to noise=0.5 data yields RMSE=0.4877, Pearson r=-0.002 — the
+model has learned nothing useful. This is **worse than a constant predictor** (baseline ~0.25),
+meaning the model actively diverges. **Noise is added only to the training data; test/validation
+rollouts are noise-free.** The goal is to match or beat the noise-free RMSE (0.0799) despite
+training on highly noisy data.
+
+## Scientific Context
+
+The core research question is: **Can a flat, graph-free MLP function approximator achieve stable
+autoregressive rollout on the simulated FlyVis model when trained on highly noisy data?**
+
+At sigma=0.5, the noise magnitude is large relative to the signal. This creates fundamentally
+different challenges compared to the noise-free case:
+
+- **Training derivatives are corrupted**: The dv/dt targets contain noise that may dominate the
+  clean dynamics signal
+- The optimal hyperparameters are unknown and may differ substantially from noise-free
+- Which parameters matter most (architecture, training, or both) must be determined experimentally
+- Be mindful of the 60-minute training time budget when exploring parameters that increase compute
+  (e.g., higher rollout_train_steps scales training time linearly)
+
+## Noise Model
+
+The FlyVis forward simulation is an SDE — noise is injected at each Euler integration step,
+making the training trajectories stochastic realizations:
+
+```
+v_i(t+1) = v_i(t) + dt * f(v_i(t), W, a_i, I_i(t)) + sigma * z_i(t)
+z_i ~ N(0, 1),  sigma = 0.5 (noise_model_level)
+```
+
+The MLP sees trajectories sampled from this SDE and must learn the deterministic drift f(v, W, a, I)
+despite the additive noise. The per-step noise on voltages has std=0.5, while the clean dynamics
+step dt * f(...) is typically O(dt) ~ O(0.02).
+
+**Important**: Noise is only added to the **training data**. Test/validation rollouts are computed
+using the deterministic ODE (sigma=0). The test metric (`rollout_RMSE`) reflects pure model quality.
+Do not compare training and test RMSE directly — the training RMSE has an irreducible noise floor.
+
+## Metrics
+
+**Always use metrics defined to guide decision making**
+
+- Training. We compute the following two rollout metrics during training that are printed to the
+  stdout in this format:
+
+  ```
+  epoch 7/20 | train: 4.4128e-02 | div_time=1262 rollout_rmse=3.9962e-01 (3.0s) | duration: 41.1s (total: 327.8s)
+  ```
+
+  - `train`: this is the rollout loss mentioned above, which is initially just a trivial rollout of
+    1 step. **The `train` loss magnitude is not comparable across different `rollout_train_steps`
+    values** — increasing rollout steps changes what is being measured, so a jump in `train` loss
+    after changing `rollout_train_steps` is expected, not a regression.
+  - `div_time`: the time step at which the rollout MSE reaches 1.0 - a proxy for divergence.
+  - `rollout_rmse`: the RMSE over neurons and time steps up until `div_time`. The extra rollout
+    metrics - though computed on training data - will nevertheless be important factors in guiding
+    parameter loss. If a model fails to produce a stable rollout on training data, it is very
+    unlikely to do so on new data. **IMPORTANT** these metrics are computed over the training data.
+  - **At noise=0.5, training rollout RMSE will be much higher than test** due to the large noise
+    floor. Focus on `div_time` and test `rollout_RMSE` as the true quality signals.
+
+- Constant baseline RMSE ~ **0.25**. If rollout_RMSE is near 0.25, the model has collapsed to
+  predicting v(t) ~ constant. Fast learning rates can drive to this trivial local minimum.
+
+- During test/validation:
+  - **PRIMARY METRIC: `rollout_RMSE`** (lower is better).
+  - **TARGET: rollout_RMSE < 1e-2**
+  - Use the `results_rollout_by_step.csv` to track how RMSE evolves across the rollout. One of your
+    goals is to minimize the gap between early and late rollout RMSE. Example output:
+
+```
+frame_start,frame_end,RMSE,pearson
+0,500,0.1238,0.7808
+500,1000,0.1474,0.7689
+
+...middle rows omitted for brevity...
+
+8000,8500,0.2710,0.7778
+8500,8527,0.2681,0.6372
+```
+
+Data is **re-generated each iteration** with a different seed to verify seed independence.
+
+## Scientific Method
+
+Strict **hypothesize -> test -> validate/falsify** cycle:
+
+1. **Hypothesize**: Form a specific, testable prediction about what affects rollout stability
+2. **Design experiment**: Change **EXACTLY ONE** parameter at a time (causality rule)
+3. **Run training**: 4 slots (1 control + 3 experiments in EXPLORATION; 4 identical configs with different seeds in ROBUSTNESS) — you cannot predict the outcome
+4. **Analyze results**: Use rollout_RMSE AND the per-step CSV to understand divergence timing
+5. **Update understanding**: Revise hypotheses based on evidence
+
+**CRITICAL**: You can only hypothesize. Only training results validate or falsify.
+
+### CAUSALITY RULE (MANDATORY)
+
+**If you change more than one parameter per slot, you CANNOT attribute the effect. Fatal
+experimental design error.**
+
+- In EXPLORATION mode: Slot 0 = parent/baseline (unchanged control). Slots 1-3 each change **exactly
+  one** parameter from the parent.
+- In ROBUSTNESS mode: all 4 slots use the same config (different seeds test robustness).
+
+## FlyVis Model
+
+Non-spiking compartment model of the Drosophila optic lobe:
+
+```
+tau_i * dv_i/dt = -v_i + V_rest_i + sum_j W_ij * g(v_j) + I_i(t)
+```
+
+- **13,741 neurons**, 65 cell types, **434,112 edges**
+- **1,736 input neurons** (photoreceptors, DAVIS visual input)
+- Noise level: sigma=0.5 per time step (10x higher than noise=0.05)
+- 64,000 frames, delta_t = 0.02
+
+## MLP Architecture
+
+```
+input  = [v_1, ..., v_13741, stim_1, ..., stim_1736]   (15,477 dims)
+output = [dv_1/dt, ..., dv_13741/dt]                    (13,741 dims)
+```
+
+- No graph structure, no per-edge weights
+- We want to find the smallest architecture that achieves our goal
+
+**YOU ARE ONLY ALLOWED TO MODIFY THE PARAMETERS BELOW TO ACHIEVE THE GOAL**
+
+## Architecture parameters
+
+| Parameter         | Default | Description                                                                                                                                                                                                                                                                                                                                  |
+| ----------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `hidden_dim`      | 256     | Hidden layer width                                                                                                                                                                                                                                                                                                                           |
+| `n_layers`        | 3       | Total linear layers: 1 input-to-hidden + (n_layers-2) hidden-to-hidden + 1 output. Minimum 2                                                                                                                                                                                                                                                |
+| `MLP_activation`  | "relu"  | Activation: "relu", "tanh", "sigmoid", "leaky_relu", "soft_relu"                                                                                                                                                                                                                                                                             |
+| `add_residual`    | true    | Residual: projects input to hidden dim, adds to first hidden output and skips to last hidden output                                                                                                                                                                                                                                          |
+| `add_skip_layers` | false   | Per-layer linear skip: at each hidden layer, a parallel linear projection is concatenated with the activated output. **Mutually exclusive with `add_residual`** — do not set both to true. `add_residual` is a single input->output skip; `add_skip_layers` provides a linear shortcut at every layer (doubles hidden dim fed to next layer). |
+
+## Training Parameters
+
+| Parameter             | Default | Description                                                            |
+| --------------------- | ------- | ---------------------------------------------------------------------- |
+| `lr`                  | 0.00001 | Learning rate for MLP weights                                          |
+| `data_augmentation_loop` | 100  | Number of data augmentation loops per epoch (controls training time)   |
+| `batch_size`          | 256     | Frames per batch                                                       |
+| `rollout_train_steps` | 1       | Multi-step rollout unroll during training (K steps)                    |
+| `zero_init_output`    | false   | Zero-initialize final layer weights                                    |
+
+**Caution on `rollout_train_steps`**: Increasing this value may degrade one-step prediction performance (`onestep_pearson`), which is also an important metric. Do not increase `rollout_train_steps` unless you can show experimentally that one-step performance is unaffected.
+
+**Training time budget**: Each training run should take ~60 minutes. Use `data_augmentation_loop` (DAL) to stay within
+this budget. When increasing parameters that scale training time, reduce DAL pre-emptively to
+compensate. Check `training_time_min` in results and adjust for the next iteration.
+
+**Do NOT modify `n_epochs`** — keep it at 20. Multiple epochs give us visibility into how losses change during training, which is essential for diagnosing convergence.
+
+**Hard runtime limit (120 minutes)**: The cluster enforces a hard 120-minute wall-clock limit per job. If training approaches this limit, the job receives SIGUSR2 and writes an `_interrupted` file in the run log directory. When analyzing results, check for `_interrupted` in each slot's log directory — if present, training was cut short and the results are from a partial run. Reduce DAL for that config in the next batch to fit within the 120-minute limit. If the job is killed after the grace period without exiting cleanly, you will see `TERM_RUNLIMIT: job killed after reaching LSF run time limit.` in `cluster_train_XX.out` (where XX is the slot number). Otherwise, you will just see the `_interrupted` flag. Do NOT modify `hard_runtime_limit_min` in the config — adjust DAL instead.
+
+**Note**: Seeds are pipeline-controlled and overwritten before each run
+(`simulation.seed = iteration * 1000 + slot`, `training.seed = iteration * 1000 + slot + 500`). Do
+not set seeds in config files.
+
+> **YAML rule**: Always wrap the `description` field value in double quotes — colons inside unquoted
+> YAML strings cause parse errors (e.g., `description: "Block 7 Slot 1: testing W_L2"`).
+
+## Data Generation
+
+Data is re-generated each iteration with pipeline-controlled seeds (see Note above).
+
+**DO NOT modify simulation parameters** (n_neurons, n_frames, n_edges, delta_t, noise_model_level).
+
+## Block Structure
+
+| Block | Focus                | Parameters to scan                                                | Ranges                                                                                                      |
+| ----- | -------------------- | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| 1     | **Training I**       | `lr`, `batch_size`, `rollout_train_steps`, `zero_init_output`     | lr: {5e-6, 1e-5, 5e-5, 1e-4}; batch_size: {64, 128, 256, 512}; rollout_train_steps: {1, 5, 10, 20}         |
+| 2     | **Architecture I**   | `hidden_dim`, `n_layers`, `MLP_activation`                        | hidden_dim: {128, 256, 512, 1024}; n_layers: {2, 3, 5, 7}; activation: {relu, tanh, leaky_relu, soft_relu}  |
+| 3     | **Training II**      | Refine best training params for Block 2 architecture              | Narrow ranges around Block 1 winner, re-tune for best architecture from Block 2                              |
+| 4     | **Architecture II**  | Any architecture parameter                                        | Re-explore architecture with optimized training from Block 3; refine capacity, skip connections, activation  |
+| 5     | **Free exploration** | Any parameter                                                     | Consolidate best from Blocks 1-4, test novel combinations                                                    |
+| 6     | **Robustness**       | Best config, all 4 slots same                                     | Confirm CV < 10% across seeds                                                                                |
+
+## File Structure
+
+You maintain **THREE** files:
+
+### 1. Full Log (append-only)
+
+**File**: `{llm_task_name}_analysis.md`
+
+### 2. Working Memory (read + update every batch)
+
+**File**: `{llm_task_name}_memory.md`
+
+### 3. User Input (read every batch, acknowledge pending items)
+
+**File**: `user_input.md`
+
+## Knowledge Base Guidelines
+
+### What to Add to Established Principles
+
+A principle must satisfy ALL of:
+
+1. Observed consistently across **3+ iterations**
+2. Consistent across **all 4 seeds** (not just mean, but low variance)
+3. States a **causal relationship** (not just a correlation)
+
+### What to Add to Open Questions
+
+- Patterns observed 1-2 times
+- Seed-dependent effects (works for some seeds but not others)
+- Contradictions between iterations
+- Theoretical predictions not yet verified
+
+### What to Add to Falsified Hypotheses
+
+When a hypothesis is falsified:
+
+1. State the original hypothesis
+2. State the contradicting evidence (iteration number, metrics)
+3. State what was learned from the falsification
+4. Propose a revised hypothesis if applicable
+
+## Iteration Workflow
+
+### Step 1: Read Working Memory + User Input
+
+### Step 2: Analyze Results (4 slots)
+
+For each slot:
+
+1. Read `train_div_time`, `train_rollout_rmse`, and `train_best_epoch` from the analysis log (these
+   are computed on training data — a hard fail if `train_div_time` is < 1000)
+2. Read `rollout_RMSE` and `rollout_RMSE_std` from metrics log
+3. Read `results_rollout_by_step.csv` — note first window where RMSE exceeds 1.0 (divergence point)
+4. Read `onestep_pearson` as sanity check — if poor, model hasn't learned dynamics at all
+5. Note `training_time_min` and adjust DAL for next batch if needed
+6. **Convergence check**: Compare `train_rollout_rmse` across the last 3 epochs. If it is still
+   consistently decreasing at the final epoch, the model has not converged — note
+   `convergence: not_reached` in the log entry. Do NOT extend training beyond the ~60 min budget;
+   instead, flag the config as a candidate for longer training in the analysis
+   (e.g., "Config may benefit from more epochs — train_rollout_rmse still decreasing at epoch 20/20")
+
+### Step 3: Write Log Entry + Update Memory
+
+```
+## Iter N: [excellent/good/poor/diverged]
+Node: id=N, parent=P
+Hypothesis tested: "[quoted hypothesis]"
+Config: lr=X, rollout_train_steps=K, DAL=D, batch_size=B, zero_init_output=Z, hidden_dim=H, n_layers=L, MLP_activation=A, add_residual=R, add_skip_layers=S
+Slot 0: rollout_RMSE=X, divergence_at=frame_Y, train_div_time=Z, train_best_epoch=W/E, onestep_pearson=P, sim_seed=S, train_seed=T
+Slot 1: rollout_RMSE=X, divergence_at=frame_Y, train_div_time=Z, train_best_epoch=W/E, onestep_pearson=P, sim_seed=S, train_seed=T
+Slot 2: rollout_RMSE=X, divergence_at=frame_Y, train_div_time=Z, train_best_epoch=W/E, onestep_pearson=P, sim_seed=S, train_seed=T
+Slot 3: rollout_RMSE=X, divergence_at=frame_Y, train_div_time=Z, train_best_epoch=W/E, onestep_pearson=P, sim_seed=S, train_seed=T
+Seed stats: mean_RMSE=X, std=Y, CV=Z%, mean_train_div_time=Z, mean_best_epoch=W
+Mutation: [param]: [old] -> [new]
+Convergence: [converged/not_reached] — if not_reached, note "may benefit from more epochs"
+Verdict: [supported/falsified/inconclusive]
+Next: parent=P
+```
+
+### Step 4: Acknowledge User Input
+
+### Step 5: Formulate Next Hypothesis + Edit 4 Config Files
+
+## Block Boundaries
+
+At every block boundary:
+
+1. Update "Paper Summary" in memory
+2. Summarize block findings
+3. Update "Established Principles" and "Falsified Hypotheses"
+4. Clear "Current Block"
+5. Carry forward best config as parent for next block
+
+## Start Call
+
+When prompt says `PARALLEL START`:
+
+- Slot 0 = baseline (no changes from base config)
+- Slots 1-3: each changes EXACTLY ONE parameter per block focus
+- Hypothesis: "The MLP baseline can achieve stable rollout (RMSE < 1e-2) on flyvis with
+  appropriate training parameters (lr, batch_size, rollout_train_steps)"
+
+---
+
+# Working Memory Structure
+
+```markdown
+# Working Memory: {llm_task_name}
+
+## Paper Summary (update at every block boundary)
+
+- **GNN optimization**: [pending]
+- **LLM-driven exploration**: [pending]
+
+## Knowledge Base
+
+### Robustness Comparison Table
+
+| Iter | Config summary | rollout_RMSE (mean+/-std) | CV% | div_time (mean) | divergence_at | Verdict | Hypothesis |
+| ---- | -------------- | ----------------------- | --- | --------------- | ------------- | ------- | ---------- |
+
+### Established Principles
+
+### Falsified Hypotheses
+
+### Open Questions
+
+---
+
+## Previous Block Summaries
+
+**RULE: Keep summaries for the last 4 completed blocks, sorted oldest->newest. This section MUST
+appear before ## Current Block.**
+
+### Block N Summary
+
+[Summary of findings from block N]
+
+---
+
+## Current Block
+
+### Block Info
+
+### Current Hypothesis
+
+### Iterations This Block
+
+### Emerging Observations
+
+**CRITICAL: This section must ALWAYS be at the END of memory file.**
+```

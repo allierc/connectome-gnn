@@ -66,6 +66,6 @@ CAUSALITY RULE (MANDATORY):
 
 IMPORTANT: Do NOT change the 'dataset' field in any config — it must stay as-is for each slot.
 {state.sim_constraint}
-IMPORTANT: Training time target is ~{state.training_time_target_min} min per iteration. Check training_time_min and adjust DAL for next batch: if < 40 min increase DAL, if > 70 min decrease DAL. Use the full time budget — longer training improves W convergence.
+IMPORTANT: Training time target is ~{state.training_time_target_min} min per iteration. Check training_time_min and adjust DAL for next batch: if < {int(state.training_time_target_min * 0.65)} min increase DAL, if > {int(state.training_time_target_min * 1.15)} min decrease DAL. Use the full time budget — longer training improves W convergence.
 IMPORTANT: Read user_input.md — if there are pending instructions, acknowledge them by appending to the "Acknowledged" section with a timestamp and moving them out of "Pending Instructions".
 """

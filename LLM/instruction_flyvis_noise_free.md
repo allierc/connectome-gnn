@@ -1,214 +1,190 @@
-# FlyVis GNN Training Exploration — flyvis_noise_free
+# FlyVis GNN — Connectome Recovery (noise-free)
 
 ## Goal
 
-Test **robustness of GNN training** for the **Drosophila visual system** with no noise (noise_model_level=0.0, DAVIS input).
-The goal is to find a config that achieves **connectivity_R2 > 0.9 across different random seeds**, demonstrating that the result is not data-dependent.
+Optimize GNN hyperparameters for maximum **connectivity matrix recovery (conn_R2)** on FlyVis with
+no noise (σ=0.0). Two sub-goals:
 
-Data is **re-generated each iteration** with a different seed to verify seed independence.
+- Maximize conn_R2 (primary): recover synaptic weight matrix W from clean neural activity
+- Understand the noise-free ceiling: why is conn_R2=0.923 (prior winner) lower than noise_005's 0.982?
 
-Primary metric: **connectivity_R2** (R² between learned W and ground-truth W).
-Secondary metrics: **tau_R2** (time constant recovery), **V_rest_R2** (resting potential recovery), **cluster_accuracy** (neuron type clustering from embeddings).
+The exploration starts from the **default config** below to enable before/after comparison with
+the prior winner (conn_R2=0.923, CV=0.82%).
 
 ## Scientific Context
 
-This exploration tests GNN optimization in the ideal case: clean, noise-free stimulus and dynamics. Without intrinsic noise, the optimization landscape should be smoother and the learning problem simpler than at noise levels of 0.05. The research question is: **Can removing noise from the training data further simplify hyperparameter tuning and enable faster convergence to high connectivity recovery?** Additionally, this condition serves as a reference case to understand how noise affects the optimization difficulty. By comparing noise-free results to noise_005 results, we can isolate the impact of noise on learning dynamics and regularization effectiveness.
+**Core research question: Why does noise-free training produce lower connectome recovery (0.923)
+than σ=0.05 training (0.982)? Does noise act as regularization?**
+
+The noise-free case is surprising — removing noise should make W recovery easier, yet the prior winner
+is lower. Key hypotheses to test:
+- Noise acts as implicit regularization (Langevin dynamics): σ=0.05 prevents over-fitting to W
+- The embedding_dim=4 (unique to noise-free) may be under-exploited — extra dims could help or hurt
+- All regularization is 0 in the default config — should some regularization be introduced?
+- coeff_g_phi_diff=1500 is 2× higher than noisy variants — explore if this is optimal
+- The absence of noise sharpens the optimization landscape, potentially creating narrow basins
+
+Key differences from noisy variants:
+- embedding_dim=4 (vs 2 for noise_005 and noise_05)
+- All L1/L2 regularization = 0 (vs non-zero for noisy variants)
+- coeff_g_phi_norm = 0 (vs 0.9 for noisy variants)
+- coeff_g_phi_diff = 1500 (vs 750 for noisy variants)
 
 ## Noise Model
 
-The FlyVis model in the noise-free regime applies no stochastic noise to the voltage dynamics:
+```
+v_i(t+1) = v_i(t) + dt * f(v_i(t), W, a_i, I_i(t))
+sigma = 0.0 (noise_model_level)
+```
 
-$$v_i(t+1) = v_i(t) + dt \cdot f_\theta(v_i, a_i, \sum_j W_{ij} g_\phi(v_j, a_j)^2, I_i)$$
+No noise is added to training data. Train and test conditions are identical.
 
-where $\epsilon_{\text{dyn}} = 0$. The GNN learns to predict deterministic dynamics directly from clean observations, which may reduce the need for strong regularization compared to the noisy regime.
+## Metrics
+
+**Always use metrics defined to guide decision making**
+
+During training (stdout):
+```
+epoch 0/1 | train: ... | conn_R2=0.XXX tau_R2=0.XXX Vr_R2=0.XXX | duration: XXs
+```
+
+During test/validation:
+- **PRIMARY METRIC: `conn_R2`** (higher is better; R² of learned W vs ground-truth W)
+- `tau_R2`: R² of τ (time constant) recovery
+- `V_rest_R2`: R² of V_rest (resting potential) recovery
+- `cluster_accuracy`: cell-type clustering accuracy from neuron embeddings
+- `rollout_pearson_r`: Pearson r of autoregressive rollout vs ground truth
+
+**Robustness classification** (4 seeds per iteration):
+- **Stable-Robust**: all 4 seeds conn_R2 ≥ 0.90, CV < 3%
+- **Stable**: mean conn_R2 ≥ 0.85, CV < 10%
+- **Unstable**: mean < 0.85 OR CV ≥ 10%
+- **Catastrophic**: any seed conn_R2 < 0.50
+
+**Note on τ_R2 and V_rest_R2**: Model `flyvis_A` absorbs τ and V_rest implicitly into f_theta.
+These metrics show 0.00 or N/A — this is expected behavior, not a failure.
+
+Data is **NOT re-generated** each iteration (`generate_data: false`).
 
 ## Scientific Method
 
-This exploration follows a strict **hypothesize → test → validate/falsify** cycle:
+Strict **hypothesize → test → validate/falsify** cycle:
 
-1. **Hypothesize**: Based on available data (metrics, seed variance, prior results), form a hypothesis about what controls robustness (e.g., "Higher coeff_g_phi_diff will reduce seed variance because stronger monotonicity constraints reduce the number of degenerate solutions")
-2. **Design experiment**: Choose a mutation that specifically tests the hypothesis — change ONE parameter at a time
-3. **Run training**: The experiment runs across 4 seeds — you cannot predict the outcome
-4. **Analyze results**: Use both metrics AND cross-seed variance to evaluate whether the hypothesis was supported or contradicted
-5. **Update understanding**: Revise hypotheses based on evidence. A falsified hypothesis is valuable information.
+1. **Hypothesize**: Form a specific, testable prediction
+2. **Design experiment**: Change **EXACTLY ONE** parameter at a time (causality rule)
+3. **Run training**: 4 slots (1 control + 3 experiments in EXPLORATION; 4 same config in ROBUSTNESS)
+4. **Analyze results**: Use conn_R2 AND cluster_accuracy to understand embedding quality
+5. **Update understanding**: Revise hypotheses based on evidence
 
-**CRITICAL**: You can only hypothesize. Only training results can validate or falsify your hypotheses. Never assume a hypothesis is correct without experimental evidence. When results contradict your hypothesis, update it — do not rationalize away the evidence.
+**CRITICAL**: You can only hypothesize. Only training results validate or falsify.
 
-**Evidence hierarchy:**
+### CAUSALITY RULE (MANDATORY)
 
-| Level            | Criterion                                       | Action                 |
-| ---------------- | ----------------------------------------------- | ---------------------- |
-| **Established**  | Consistent across 3+ iterations AND 4/4 seeds   | Add to Principles      |
-| **Tentative**    | Observed 1-2 times or inconsistent across seeds | Add to Open Questions  |
-| **Contradicted** | Conflicting evidence across iterations/seeds    | Note in Open Questions |
+**If you change more than one parameter per slot, you CANNOT attribute the effect. Fatal
+experimental design error.**
 
-## CRITICAL: Data is PRE-GENERATED at startup (fixed across iterations)
-
-At startup, data is generated **once** for all 4 slots with **different random seeds** (one per slot). These datasets are **reused across all iterations** — data is NOT re-generated each iteration.
-Both `simulation.seed` and `training.seed` are **forced by the pipeline** — DO NOT modify them in config files.
-
-Seed formula (set automatically by GNN_LLM.py):
-- `simulation.seed = 1000 + slot` (controls data generation — fixed at startup, slot 0–3)
-- `training.seed = iteration * 1000 + slot + 500` (controls weight init & training randomness)
-
-The actual seed values are provided in the prompt for each slot — **log them in your iteration entries**.
-
-**Seed robustness testing**: To re-generate data with new seeds and test robustness, set `claude.test_robustness_seed: true` in all 4 slot configs. The pipeline will re-generate data for that batch only, then reset the flag automatically.
-
-Simulation parameters (n_neurons, n_frames, etc.) stay fixed — **DO NOT change them**.
+- In EXPLORATION mode: Slot 0 = parent/baseline (unchanged control). Slots 1-3 each change
+  **exactly one** parameter from the parent.
+- In ROBUSTNESS mode: all 4 slots use the same config (different seeds test robustness).
 
 ## FlyVis Model
 
 Non-spiking compartment model of the Drosophila optic lobe:
 
 ```
-tau_i * dv_i(t)/dt = -v_i(t) + V_i^rest + sum_j W_ij * g_phi(v_j, a_j)^2 + I_i(t)
-dv_i/dt = f_theta(v_i, a_i, sum_j W_ij * g_phi(v_j, a_j)^2, I_i)
+tau_i * dv_i/dt = -v_i + V_rest_i + sum_j W_ij * g(v_j) + I_i(t)
 ```
 
-- 13,741 neurons, 65 cell types, 434,112 edges
-- 1,736 input neurons (photoreceptors)
-- DAVIS visual input, **no noise** (noise_model_level=0.0)
-- 64,000 frames, delta_t=0.02
+- **13,741 neurons**, 65 cell types, **434,112 edges**
+- **1,736 input neurons** (photoreceptors, DAVIS visual input)
+- Noise level: σ=0.0 (noise-free)
+- 64,000 frames, delta_t = 0.02
+- Model `flyvis_A`: f_theta absorbs τ and V_rest implicitly (τ_R2=0, Vr_R2=0 is expected)
 
 ## GNN Architecture
 
-Two MLPs learn the neural dynamics:
+```
+g_phi(v_j, embed_j) → message_ij          (edge MLP, per-edge messages)
+sum_j W_ij * g_phi(v_j) → agg_i           (weighted aggregation)
+f_theta(v_i, agg_i, embed_i) → dv_i/dt   (node update MLP)
+```
 
-- **g_phi** (MLP1): Edge message function. Maps (v_j, a_j) → message. `g_phi_positive=true` squares output to enforce positivity.
-- **f_theta** (MLP0): Node update function. Maps (v_i, a_i, aggregated_messages, I_i) → dv_i/dt.
-- **Embedding a_i**: learnable low-dimensional embedding per neuron type.
+- Per-neuron embedding: learnable `embedding_dim`-dimensional vector (concatenated to inputs)
+- **embedding_dim=4** (unique to noise-free; 2× larger than noisy variants — 2 extra input channels)
+- `g_phi_positive=true`: g_phi output clipped to [0, ∞) (Dale's law approximation)
 
-Architecture parameters (explorable):
+**YOU ARE ONLY ALLOWED TO MODIFY THE PARAMETERS BELOW TO ACHIEVE THE GOAL**
 
-- `hidden_dim` / `n_layers`: g_phi MLP width/depth (default: 80 / 3)
-- `hidden_dim_update` / `n_layers_update`: f_theta MLP width/depth (default: 80 / 3)
-- `embedding_dim`: embedding dimension (default: 2)
+## GNN Architecture Parameters
 
-**CRITICAL — coupled parameters**: `embedding_dim` must be >= 2 (embedding_dim=1 crashes plotting). When changing `embedding_dim`, you MUST also update:
+| Parameter       | Default | Description                                                              |
+| --------------- | ------- | ------------------------------------------------------------------------ |
+| `hidden_dim`    | 80      | Width of hidden layers in g_phi and f_theta                              |
+| `n_layers`      | 3       | Depth of g_phi and f_theta networks                                      |
+| `embedding_dim` | 4       | Per-neuron learnable embedding dimension (2× vs noisy variants)          |
 
-- `input_size = 1 + embedding_dim` (v_j + a_j for g_phi)
-- `input_size_update = 3 + embedding_dim` (v_i + a_i + msg + I_i for f_theta)
+## Training Parameters
 
-Example: embedding_dim=4 → input_size=5, input_size_update=7. Shape mismatch crashes otherwise.
+| Parameter                 | Default  | Description                                                                      |
+| ------------------------- | -------- | -------------------------------------------------------------------------------- |
+| `lr_W`                    | 0.0006   | Learning rate for W matrix (synaptic weights)                                    |
+| `lr`                      | 0.0018   | Learning rate for g_phi and f_theta MLP weights                                  |
+| `lr_embedding`            | 0.00155  | Learning rate for per-neuron embeddings                                          |
+| `data_augmentation_loop`  | 30       | Augmentation loops per epoch — controls training time (DAL)                      |
+| `batch_size`              | 4        | Samples per batch                                                                |
+| `coeff_g_phi_diff`        | 1500     | L2 penalty driving g_phi toward non-trivial activations (2× vs noisy variants)  |
+| `coeff_g_phi_norm`        | 0.0      | L2 norm regularization on g_phi (0 for noise-free; contrast with 0.9 at σ=0.05) |
+| `coeff_g_phi_weight_L1`   | 0.0      | L1 weight regularization on g_phi (0 for noise-free)                            |
+| `coeff_f_theta_weight_L1` | 0.0      | L1 weight regularization on f_theta (0 for noise-free)                          |
+| `coeff_f_theta_weight_L2` | 0.0      | L2 weight regularization on f_theta (0 for noise-free)                          |
+| `coeff_W_L1`              | 0.0      | L1 regularization on W (0 for noise-free — clean signal doesn't need sparsity)  |
+| `coeff_W_L2`              | 0.0      | L2 regularization on W (0 for noise-free)                                       |
+| `regul_annealing_rate`    | 0.0      | Regularization annealing: **MUST be 0.0 with n_epochs=1** (otherwise all L1/L2 = 0) |
+| `w_init_mode`             | randn_scaled | W initialization: `randn_scaled`, `zeros`, `uniform_scaled`                |
+| `w_init_scale`            | 1.0          | Scale for randn_scaled/uniform_scaled init (bound = scale/sqrt(n_edges))   |
 
-## Regularization Parameters
+**Training time budget**: Target ~60 min per run. Adjust DAL to stay within budget. Check
+`training_time_min` in results after each iteration.
 
-The training loss includes:
+**Hard runtime limit (120 min)**: Cluster enforces 120-min wall-clock limit. Check for
+`_interrupted` in slot log directories. If interrupted, reduce DAL for next iteration.
 
-| Config parameter          | Role                                                                                | Default | Annealed? |
-| ------------------------- | ----------------------------------------------------------------------------------- | ------- | --------- |
-| `coeff_g_phi_diff`        | Monotonicity penalty on g_phi: ReLU(-dg_phi/dv) → enforces increasing edge messages | 750     | No        |
-| `coeff_g_phi_norm`        | Normalization penalty on g_phi at saturation voltage                                | 0.9     | No        |
-| `coeff_g_phi_weight_L1`   | L1 penalty on g_phi MLP weights                                                     | 0.28    | **Yes**   |
-| `coeff_g_phi_weight_L2`   | L2 penalty on g_phi MLP weights                                                     | 0       | **Yes**   |
-| `coeff_f_theta_weight_L1` | L1 penalty on f_theta MLP weights                                                   | 0.5     | **Yes**   |
-| `coeff_f_theta_weight_L2` | L2 penalty on f_theta MLP weights                                                   | 0.001   | **Yes**   |
-| `coeff_f_theta_msg_diff`  | Monotonicity of f_theta w.r.t. message input                                        | 0       | No        |
-| `coeff_W_L1`              | L1 sparsity penalty on connectivity W                                               | 7.5e-05 | **Yes**   |
-| `coeff_W_L2`              | L2 penalty on W                                                                     | 1.5e-06 | **Yes**   |
+**Fixed: n_epochs=1** — do not change. With n_epochs=1, `regul_annealing_rate` MUST be 0.0
+(annealing formula: effective_coeff = coeff × (1 − exp(−rate × epoch)) = 0 at epoch 0).
 
-### Regularization Annealing
+**Note**: Seeds are pipeline-controlled (`sim_seed = iter × 1000 + slot`,
+`train_seed = iter × 1000 + slot + 500`). Do not set seeds in config files.
 
-All 6 weight regularization coefficients (L1 and L2 for g_phi, f_theta, and W) share a **single exponential ramp-up annealing** controlled by one parameter:
+> **YAML rule**: Always wrap the `description` field value in double quotes — colons inside
+> unquoted YAML strings cause parse errors.
 
-| Config parameter        | Default | Description                                    |
-| ----------------------- | ------- | ---------------------------------------------- |
-| `regul_annealing_rate`  | 0.5     | Shared annealing rate for all L1/L2 regularizers |
+## Data Generation
 
-**Formula**: `effective_coeff = coeff * (1 - exp(-rate * epoch))`
+`generate_data: false` — data is pre-generated and NOT regenerated each iteration.
 
-**Ramp-up schedule** (rate=0.5):
+**DO NOT modify simulation parameters** (n_neurons, n_frames, n_edges, delta_t, noise_model_level).
 
-| Epoch | Multiplier | Meaning                        |
-| ----- | ---------- | ------------------------------ |
-| 0     | 0.00       | No regularization at start     |
-| 1     | 0.39       | ~39% of configured coefficient |
-| 2     | 0.63       | ~63%                           |
-| 5     | 0.92       | ~92% (near full strength)      |
-| 10    | 0.99       | ~full strength                 |
+## Block Structure
 
-**Purpose**: Allows the model to learn dynamics first before regularization pressure is applied. At epoch 0, all L1/L2 penalties are zero regardless of their configured coefficients.
+| Block | Focus                       | Parameters to scan                                               | Ranges                                                                           |
+| ----- | --------------------------- | ---------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| 1     | **Baseline robustness**     | All 4 slots = default config (ROBUSTNESS)                       | Establish pre-optimization baseline; compare to noise_005 baseline               |
+| 2     | **Learning rates**          | `lr_W`, `lr`, `lr_embedding`                                    | lr_W: {3e-4, 6e-4, 9e-4, 1.5e-3}; lr: {9e-4, 1.8e-3, 3.6e-3}; lr_W/lr ratio  |
+| 3     | **g_phi diff + norm**       | `coeff_g_phi_diff`, `coeff_g_phi_norm`                          | diff: {750, 1000, 1500, 2500}; norm: {0, 0.5, 0.9, 1.5}                         |
+| 4     | **Regularization intro**    | `coeff_g_phi_weight_L1`, `coeff_f_theta_weight_L1`, `coeff_W_L1`| g_L1: {0, 0.1, 0.28}; f_L1: {0, 0.05, 0.2}; W_L1: {0, 5e-5, 1.5e-4}          |
+| 5     | **Architecture**            | `embedding_dim`, `hidden_dim`                                    | emb: {2, 4, 6, 8}; hidden: {40, 80, 128}; test if emb=4 is truly optimal        |
+| 6     | **Training regime**         | `batch_size`, `data_augmentation_loop`                           | bs: {2, 4, 8}; DAL: {20, 30, 40, 60}                                            |
+| 7     | **Free exploration**        | Any parameter — combine best from Blocks 2-6                    | Test noise-free-specific interactions; target conn_R2 > 0.95                     |
+| 8     | **Final robustness**        | Best config, all 4 slots same (ROBUSTNESS, `generate_data: false`) | Confirm CV < 3%, conn_R2 > prior winner 0.923; same data across seeds        |
+| 9     | **CV robustness**           | Best config, 8 seeds over 2 iterations (ROBUSTNESS, `generate_data: true`) | True seed independence: data regenerated per slot; target CV < 3%  |
 
-**CRITICAL — 1-epoch training**: With `n_epochs=1`, training only runs epoch 0, where the annealing multiplier is exactly **0.00**. ALL six L1/L2 regularizers are completely inactive — the configured coefficients have NO effect. Only the non-annealed coefficients (`coeff_g_phi_diff`, `coeff_g_phi_norm`, `coeff_f_theta_msg_diff`) apply.
+**Extra blocks** (optional, use if Block 7 did not converge to a clear winner):
+append additional EXPLORATION iterations on any block focus before proceeding to Blocks 8-9.
 
-**Fix**: Use `n_epochs: 2` and halve `data_augmentation_loop` to keep total training time constant. This gives:
-- Epoch 0: L1/L2 = 0 (model learns dynamics freely)
-- Epoch 1: L1/L2 at 39% strength (regularization cleans up weights)
-
-Alternatively, set `regul_annealing_rate: 0` to disable annealing entirely (full strength from epoch 0).
-
-**Non-annealed coefficients**: `coeff_g_phi_diff`, `coeff_g_phi_norm`, and `coeff_f_theta_msg_diff` apply at full strength from epoch 0 regardless of annealing settings.
-
-## Explorable Parameters
-
-| Parameter                       | Default      | Description                                  |
-| ------------------------------- | ------------ | -------------------------------------------- |
-| `learning_rate_W_start`         | 6e-4         | Learning rate for connectivity matrix W      |
-| `learning_rate_start`           | 1.2e-3       | Learning rate for g_phi and f_theta MLPs     |
-| `learning_rate_embedding_start` | 1.55e-3      | Learning rate for neuron embeddings          |
-| `n_epochs`                      | 1 (claude)   | Epochs per iteration (keep ≤ 2 for time)     |
-| `batch_size`                    | 2            | Batch size for training                      |
-| `data_augmentation_loop`        | 20           | Data augmentation multiplier                 |
-| `recurrent_training`            | false        | Enable multi-step rollout training           |
-| `time_step`                     | 1            | Recurrent steps (if recurrent_training=true) |
-| `w_init_mode`                   | randn_scaled | W initialization: "zeros" or "randn_scaled"  |
-| `lr_scheduler`                  | none         | LR schedule: "none", "cosine_warm_restarts", "linear_warmup_cosine" |
-| `lr_scheduler_T0`               | 1000         | First restart period in iterations (cosine schedulers only) |
-| `lr_scheduler_T_mult`           | 2            | Period multiplier after each restart         |
-| `lr_scheduler_eta_min_ratio`    | 0.01         | Min LR as fraction of base LR               |
-| `lr_scheduler_warmup_iters`     | 100          | Linear warmup iterations (linear_warmup_cosine only) |
-
-### LR Scheduler Notes
-
-When `lr_scheduler="none"` (default), per-iteration LR is constant and the legacy epoch-level halving (every 10 epochs) remains active. When a scheduler is enabled, it steps **per iteration** (not per epoch), so the LR oscillates within each epoch.
-
-**Recommended exploration**: `cosine_warm_restarts` with `T0=500-2000` provides periodic LR restarts that can help escape local minima. `linear_warmup_cosine` adds a warmup ramp for stability with large initial LR. The `T0` parameter controls how frequently the LR resets — smaller T0 means more frequent restarts.
-
-
-## Parallel Mode — 4 Slots Per Batch
-
-You receive **4 results per batch** and propose **4 mutations** for the next batch.
-Each slot runs with a **different random seed** for data generation, so you can directly assess seed robustness within a single batch.
-
-### Robustness Assessment
-
-After each batch, evaluate:
-
-- **Robust**: all 4 slots have connectivity_R2 > 0.9
-- **Partially robust**: 2-3 slots have connectivity_R2 > 0.9
-- **Fragile**: 0-1 slots have connectivity_R2 > 0.9
-
-A config is considered **validated** only when it achieves connectivity_R2 > 0.9 on all 4 seeds.
-
-### Slot Strategy
-
-Since the goal is robustness testing, all 4 slots should run the **same config** (different seeds are applied automatically).
-
-| Slot | Role          | Description                            |
-| ---- | ------------- | -------------------------------------- |
-| 0    | **seed test** | Same config, seed varies automatically |
-| 1    | **seed test** | Same config, seed varies automatically |
-| 2    | **seed test** | Same config, seed varies automatically |
-| 3    | **seed test** | Same config, seed varies automatically |
-
-When a config is validated as robust (all 4 seeds > 0.9), you may switch to exploring a variation:
-
-| Slot | Role        | Description                                             |
-| ---- | ----------- | ------------------------------------------------------- |
-| 0-3  | **exploit** | All 4 slots test the next candidate config across seeds |
-
-### Config Files
-
-- Edit all 4 config files: `{name}_00.yaml` through `{name}_03.yaml`
-- **All 4 configs should be identical** (only seeds differ, set automatically)
-- Only modify `training:` and `graph_model:` parameters (and `claude:` where allowed)
-- **DO NOT change `simulation:` parameters** (except that seed is managed automatically)
-
-## Iteration Loop Structure
-
-Each block = `n_iter_block` iterations (default 12).
-The prompt provides: `Block info: block {block_number}, iterations {iter_in_block}/{n_iter_block} within block`
+> **generate_data flag for CV robustness**: Before running Block 9, set `generate_data: true` in
+> the config. This causes the pipeline to regenerate data with a fresh simulation seed for each
+> slot, testing true independence across both training data and model initialization. After Block 9,
+> reset `generate_data: false` to avoid unnecessary data regeneration.
 
 ## File Structure
 
@@ -218,218 +194,13 @@ You maintain **THREE** files:
 
 **File**: `{llm_task_name}_analysis.md`
 
-- Append every iteration's log entry (4 entries per batch)
-- Append block summaries at block boundaries
-- **Never read** — human record only
-
 ### 2. Working Memory (read + update every batch)
 
 **File**: `{llm_task_name}_memory.md`
 
-- Read at start, update at end
-- Contains: robustness comparison table, hypotheses, established principles, current block iterations
-- Keep ≤ 500 lines
-
 ### 3. User Input (read every batch, acknowledge pending items)
 
 **File**: `user_input.md`
-
-- Read at every batch
-- If "Pending Instructions" section has content: act on it, then move entries to "Acknowledged" section with timestamp
-- Do not remove acknowledged entries — append them with `[ACK {batch}]` marker
-
-## Iteration Workflow (every batch)
-
-### Step 1: Read Working Memory + User Input
-
-- Read `{llm_task_name}_memory.md` for context — especially hypotheses and robustness table
-- Read `user_input.md` for any pending user instructions
-
-### Step 2: Analyze Results (4 slots)
-
-**Metrics from `analysis.log`:**
-
-- `connectivity_R2`: R² of learned vs true W (PRIMARY)
-- `tau_R2`: R² of learned vs true time constants
-- `V_rest_R2`: R² of learned vs true resting potentials
-- `cluster_accuracy`: neuron type clustering accuracy from embeddings
-- `test_R2`: one-step prediction R²
-- `training_time_min`: training duration
-
-**Robustness classification (across all 4 seeds):**
-
-- **Robust**: all 4 slots connectivity_R2 > 0.9
-- **Partially robust**: 2-3 slots connectivity_R2 > 0.9
-- **Fragile**: 0-1 slots connectivity_R2 > 0.9
-
-**Per-slot classification:**
-
-- **Converged**: connectivity_R2 > 0.9
-- **Partial**: connectivity_R2 0.3–0.9
-- **Failed**: connectivity_R2 < 0.3
-
-**Seed variance analysis (compute every batch):**
-
-- Compute mean, std, and CV (coefficient of variation = std/mean) for connectivity_R2 across the 4 slots
-- CV < 5% → highly stable; CV 5-15% → moderate variance; CV > 15% → seed-sensitive
-
-**UCB scores from `ucb_scores.txt`:**
-
-- UCB(k) = R²_k + c × sqrt(ln(N) / n_k) where c = `ucb_c` (default 1.414)
-- At block boundaries the UCB file is empty — use `parent=root`
-
-### Step 3: Write Log Entries + Update Hypotheses + Update Memory
-
-**3a. Append to Full Log** (`{llm_task_name}_analysis.md`) and **Current Block** in memory.md:
-
-```
-## Iter N: [robust/partially robust/fragile]
-Node: id=N, parent=P
-Hypothesis tested: "[quoted hypothesis being tested]"
-Config (same for all slots): lr_W=X, lr=Y, lr_emb=Z, coeff_g_phi_diff=A, coeff_W_L1=B, batch_size=C, hidden_dim=D
-Slot 0: connectivity_R2=A, tau_R2=B, V_rest_R2=C, cluster_accuracy=D, test_R2=E, sim_seed=S, train_seed=T
-Slot 1: connectivity_R2=A, tau_R2=B, V_rest_R2=C, cluster_accuracy=D, test_R2=E, sim_seed=S, train_seed=T
-Slot 2: connectivity_R2=A, tau_R2=B, V_rest_R2=C, cluster_accuracy=D, test_R2=E, sim_seed=S, train_seed=T
-Slot 3: connectivity_R2=A, tau_R2=B, V_rest_R2=C, cluster_accuracy=D, test_R2=E, sim_seed=S, train_seed=T
-Seed stats: mean_conn_R2=X, std=Y, CV=Z%
-Mutation: [param]: [old] -> [new]
-Verdict: [supported/falsified/inconclusive] — [one line explanation]
-Observation: [one line about seed sensitivity or robustness pattern]
-Next: parent=P
-```
-
-## Winner Config (COMPULSORY)
-
-**At every block boundary**, you MUST save the current best config as a winner file.
-This is a COMPULSORY task — do not skip it.
-
-1. Identify the **best iteration** (highest connectivity_R2, or primary metric)
-2. Copy its saved config from `log/Claude_exploration/LLM_<task_name>/config/iter_XXX_slot_YY.yaml`
-3. Save it to `config/fly/flyvis_noise_free_winner.yaml` with a YAML comment header:
-
-```yaml
-# Winner config: flyvis_noise_free_winner.yaml
-# Source: iter_XXX_slot_YY (connectivity_R2 = X.XXX)
-# Exploration: N iterations, M blocks
-# Date: YYYY-MM-DD
-#
-# Why this is the winner:
-#   - [1-2 sentence narrative: what made this config the best]
-#   - [key hyperparameter choices and why they matter]
-#
-# Metrics:
-#   connectivity_R2: X.XXX (best single seed)
-#   robust_mean:     X.XXX +/- X.XXX (N seeds, CV=X.X%)
-#   rollout_pearson: X.XXX
-#   cluster_accuracy: X.XXX
-#   spectral_radius: X.XXX (true: X.XXX)
-#
-# Key config differences from baseline:
-#   - [list the parameters that differ from the initial baseline]
-```
-
-Destination: `config/fly/flyvis_noise_free_winner.yaml`
-
-```
-
-**CRITICAL**: The `Mutation:` line is parsed by the UCB tree builder — always include exact parameter change.
-**CRITICAL**: `Next: parent=P` — P must be from a previous batch or current batch, NEVER `id+1`.
-
-**3b. Update Hypotheses in memory.md:**
-
-After analyzing results, update the `## Hypotheses` section:
-
-- If results **support** the hypothesis → increase confidence, note supporting evidence
-- If results **falsify** the hypothesis → mark as falsified, formulate a new hypothesis informed by the contradicting evidence
-- If results are **inconclusive** → note what additional experiment would clarify
-
-**3c. Update Robustness Comparison Table in memory.md** (see Working Memory Structure below).
-
-### Step 4: Acknowledge User Input (if any)
-
-If `user_input.md` has content in "Pending Instructions":
-
-- Edit `user_input.md`: move the pending items to "Acknowledged" with `[ACK batch_{batch_first}-{batch_last}]` prefix
-- Incorporate the instructions into your next config mutations
-
-### Step 5: Formulate Next Hypothesis + Edit 4 Config Files
-
-1. Based on current understanding, formulate the **next hypothesis** to test
-2. Design a config mutation that specifically tests this hypothesis (ONE parameter change)
-3. All 4 configs should be **identical** — the pipeline assigns different seeds automatically
-4. Write the hypothesis to memory.md before editing configs
-
-## Block Partition (suggested)
-
-| Block | Focus                  | Parameters                                                               |
-| ----- | ---------------------- | ------------------------------------------------------------------------ |
-| 1     | Baseline robustness    | Default config across 4 seeds — establish baseline                       |
-| 2     | Learning rates         | lr_W, lr, lr_emb                                                         |
-| 3     | g_phi regularization   | coeff_g_phi_diff, coeff_g_phi_norm, coeff_g_phi_weight_L1                |
-| 4     | f_theta regularization | coeff_f_theta_weight_L1, coeff_f_theta_weight_L2, coeff_f_theta_msg_diff |
-| 5     | W regularization       | coeff_W_L1, coeff_W_L2, w_init_mode                                      |
-| 6     | Architecture           | hidden_dim, n_layers, hidden_dim_update, n_layers_update, embedding_dim  |
-| 7     | Combined best          | Best parameters from blocks 1–6                                          |
-| 8     | CV minimization I      | Fine-tune parameters that showed highest seed variance in blocks 1–7. Target CV < 3% while keeping mean conn_R2 > 0.9. Focus on parameters where small changes reduced CV without hurting mean. |
-| 9     | CV minimization II     | Continue CV reduction. Test interaction effects: pairs of parameters that individually reduced CV. If CV < 3% achieved, push for CV < 2% or raise the mean. |
-| 10    | Validation             | Re-run best config with more seeds / longer training                     |
-
-## Block Boundaries
-
-At the end of each block:
-
-1. Update "Paper Summary" at the top of memory.md — rewrite both bullet points to reflect the current state of knowledge
-2. Summarize findings in memory.md "Previous Block Summary"
-3. Update "Established Principles" with confirmed insights (require 3+ supporting iterations AND cross-seed consistency)
-4. Move falsified hypotheses to "Falsified Hypotheses" with evidence summary
-5. Clear "Current Block" for next block
-6. Carry forward best **robust** config as starting point
-
-## Failed Slots
-
-If a slot is `[FAILED]`:
-
-- Write a brief note in the log entry
-- A single slot failure may indicate seed sensitivity — note this
-- Still propose the next config for the next batch
-- Do not draw conclusions from a single failure
-
-## Known Results (prior experiments)
-
-- `flyvis_62_1` (DAVIS + noise 0.05): connectivity_R2=0.95, tau_R2=0.80, V_rest_R2=0.40 (10 epochs, full regularization)
-- `flyvis_62_1` with Sintel input: R²_W=0.99, tau_R2=1.00, V_rest_R2=0.85
-- W initialization: `randn_scaled` and `zeros` perform similarly; plain `randn` performs poorly
-- Larger MLP (80-dim/3-layer) works better than smaller (32-dim/2-layer)
-- `coeff_g_phi_diff` (monotonicity) is among the most important regularizers — too low causes non-monotonic messages
-- No noise should allow faster convergence and potentially higher connectivity_R2 than noise=0.05
-
-## File Structure
-
-You maintain **THREE** files:
-
-### 1. Full Log (append-only)
-
-**File**: `{llm_task_name}_analysis.md`
-
-- Append every iteration's log entry (4 entries per batch)
-- Append block summaries at block boundaries
-- **Never read** — human record only
-
-### 2. Working Memory (read + update every batch)
-
-**File**: `{llm_task_name}_memory.md`
-
-- Read at start, update at end
-- Contains: robustness comparison table, hypotheses, established principles, current block iterations
-- Keep ≤ 500 lines
-
-### 3. User Input (read every batch, acknowledge pending items)
-
-**File**: `user_input.md`
-
-- Read at every batch
-- If "Pending Instructions" section has content: act on it, then move entries to "Acknowledged" section with timestamp
-- Do not remove acknowledged entries — append them with `[ACK {batch}]` marker
 
 ## Knowledge Base Guidelines
 
@@ -441,120 +212,149 @@ A principle must satisfy ALL of:
 2. Consistent across **all 4 seeds** (not just mean, but low variance)
 3. States a **causal relationship** (not just a correlation)
 
-Examples:
-- ✓ "coeff_g_phi_diff ≥ 500 is necessary for robust convergence (3/3 iterations, all seeds > 0.9)"
-- ✓ "lr_W > 1e-3 causes seed-dependent failures (CV > 20% in 2 iterations)"
-- ✗ "lr_W=6e-4 worked in iteration 3" (too specific, not a principle)
-
 ### What to Add to Open Questions
 
 - Patterns observed 1-2 times
 - Seed-dependent effects (works for some seeds but not others)
 - Contradictions between iterations
-- Theoretical predictions not yet verified
 
 ### What to Add to Falsified Hypotheses
-
-When a hypothesis is falsified:
 
 1. State the original hypothesis
 2. State the contradicting evidence (iteration number, metrics)
 3. State what was learned from the falsification
 4. Propose a revised hypothesis if applicable
 
+## Iteration Workflow
+
+### Step 1: Read Working Memory + User Input
+
+### Step 2: Analyze Results (4 slots)
+
+For each slot:
+
+1. Read `conn_R2`, `tau_R2`, `V_rest_R2`, `cluster_accuracy`, `rollout_pearson_r` from metrics log
+2. Compare conn_R2 to the noise-free baseline (0.923) and to noise_005 (0.982) — note the gap
+3. Check `training_time_min` — adjust DAL for next batch if > 70 min or < 50 min
+4. Check for `_interrupted` in slot log directory (indicates job was killed by wall-clock limit)
+5. Classify: Stable-Robust / Stable / Unstable / Catastrophic
+
+### Step 3: Write Log Entry + Update Memory
+
+```
+## Iter N: [stable_robust/stable/unstable/catastrophic]
+Node: id=N, parent=P
+Hypothesis tested: "[quoted hypothesis]"
+Config: lr_W=X, lr=Y, lr_emb=Z, DAL=D, bs=B,
+        g_diff=A, g_norm=B, g_L1=C, f_L1=D, W_L1=E,
+        w_init=F, emb_dim=G, hidden=H
+Slot 0: conn_R2=X, tau_R2=Y, Vr_R2=Z, cluster_acc=W, rollout_r=P, sim_seed=S, train_seed=T
+Slot 1: conn_R2=X, tau_R2=Y, Vr_R2=Z, cluster_acc=W, rollout_r=P, sim_seed=S, train_seed=T
+Slot 2: conn_R2=X, tau_R2=Y, Vr_R2=Z, cluster_acc=W, rollout_r=P, sim_seed=S, train_seed=T
+Slot 3: conn_R2=X, tau_R2=Y, Vr_R2=Z, cluster_acc=W, rollout_r=P, sim_seed=S, train_seed=T
+Seed stats: mean_conn_R2=X, std=Y, CV=Z%, catastrophic=N/4
+Mutation: [param]: [old] -> [new]
+Verdict: [supported/falsified/inconclusive]
+Next: parent=P
+```
+
+### Step 4: Acknowledge User Input
+
+### Step 5: Formulate Next Hypothesis + Edit 4 Config Files
+
+## Block Boundaries
+
+At every block boundary:
+
+1. Update "Paper Summary" in memory
+2. Summarize block findings (note gap vs noise_005 and whether it narrowed)
+3. Update "Established Principles" and "Falsified Hypotheses"
+4. Clear "Current Block"
+5. Carry forward best config as parent for next block
+
 ## Start Call
 
 When prompt says `PARALLEL START`:
 
-- Read base config to understand training regime
-- Set all 4 configs **identically** to the baseline config
-- Data will be generated with different seeds per slot automatically
-- Write planned config and **initial hypothesis** to working memory
-- First iteration establishes baseline robustness — do not change hyperparameters yet
-- State the baseline hypothesis: "The default config achieves connectivity_R2 > 0.9 robustly across seeds"
+- Slot 0 = **default config** (before-exploration baseline):
+  `lr_W=0.0006, lr=0.0018, lr_embedding=0.00155, batch_size=4, DAL=30`
+  `coeff_g_phi_diff=1500, coeff_g_phi_norm=0.0, coeff_g_phi_weight_L1=0.0`
+  `coeff_f_theta_weight_L1=0.0, coeff_W_L1=0.0, w_init_mode=randn_scaled, embedding_dim=4`
+- Block 1 is ROBUSTNESS mode: Slots 1-3 also use the same default config (different seeds)
+- Hypothesis: "The default noise-free GNN config achieves conn_R2 ≥ 0.90 with CV < 5% but remains
+  below noise_005's winner (0.982). Prior winner: conn_R2=0.923, CV=0.82%."
+- Launch: `python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_free iterations=80 --cluster --resume`
+
+---
+
+## Final Summary
+
+At exploration completion (after Block 8), append to
+`/home/node/.claude/projects/-workspace--devcontainer/memory/exploration_results.md`:
+
+### flyvis_noise_free — Key Discoveries (YYYY-MM-DD)
+
+1. **Best metric**: conn_R2 = X.XXX ± std (N seeds, CV=X.X%), winner config = [key params]
+2. **Noise gap**: Did the exploration close the gap vs noise_005 (0.982)? What was the final delta?
+3. **HP impact**: Which HP had the largest single-parameter impact on conn_R2 in the noise-free case
+4. **Noise as regularizer**: Whether evidence supports or falsifies the hypothesis that noise acts as regularization (compare noise-free optimal reg to noise_005 optimal reg)
+5. **Embedding**: Whether embedding_dim=4 was better/worse/neutral vs emb_dim=2
+6. **g_phi_diff**: Whether coeff_g_phi_diff=1500 was validated or should be different from the 750 used in noisy variants
+7. **Training regime**: What training regime (DAL, batch_size) proved optimal and why
+8. **Fundamental limit**: Any ceiling effect observed — maximum achievable conn_R2 in noise-free case
 
 ---
 
 # Working Memory Structure
 
-The memory file (`{llm_task_name}_memory.md`) must follow this structure:
-
 ```markdown
-# Working Memory: flyvis_noise_free
+# Working Memory: {llm_task_name}
 
 ## Paper Summary (update at every block boundary)
 
-- **GNN optimization**: [pending]
-- **LLM-driven exploration**: [pending]
+**GNN optimization** (2 sentences on HPO findings):
+Sentence 1: Best hyperparameter configuration found and the conn_R2 it achieves (cite mean ± std, CV%, N seeds), vs prior winner 0.923.
+Sentence 2: Which hyperparameters were most critical in the noise-free case — what worked and what failed (cite values and CV impact).
 
-## Knowledge Base (accumulated across all blocks)
+**LLM-driven exploration** (2 sentences on exploration findings):
+Sentence 1: What the systematic exploration revealed about the noise-free optimization landscape vs noisy variants (basin width, regularization needs, embedding role).
+Sentence 2: Main causal principle — whether noise acts as implicit regularization, and what this tells us about GNN training for connectome recovery under clean signal conditions.
+
+## Knowledge Base
 
 ### Robustness Comparison Table
 
-| Iter | Config summary | conn_R2 (mean±std) | CV% | min | max | tau_R2 (mean) | V_rest_R2 (mean) | Robust? | Hypothesis tested |
-| ---- | -------------- | ------------------ | --- | --- | --- | ------------- | ---------------- | ------- | ----------------- |
-| 1    | defaults       | ?                  | ?   | ?   | ?   | ?             | ?                | ?       | baseline          |
+| Iter | Config summary | conn_R2 (mean±std) | CV% | catastrophic | Verdict | Hypothesis |
+| ---- | -------------- | ------------------- | --- | ------------ | ------- | ---------- |
 
 ### Established Principles
 
-[Confirmed patterns — require 3+ supporting iterations AND cross-seed consistency]
-
-Examples of good principles:
-
-- ✓ "coeff_g_phi_diff ≥ 500 is necessary for robust convergence (3/3 iterations, all seeds > 0.9)"
-- ✓ "lr_W > 1e-3 causes seed-dependent failures (CV > 20% in 2 iterations)"
-- ✗ "lr_W=6e-4 worked in iteration 3" (too specific, not a principle)
-
 ### Falsified Hypotheses
 
-[Hypotheses that were contradicted by experimental evidence — keep as record]
-
 ### Open Questions
-
-[Patterns needing more testing, contradictions, seed-dependent observations]
 
 ---
 
 ## Previous Block Summaries
 
-**RULE: Keep summaries for the last 4 completed blocks, sorted oldest→newest. This section MUST appear before ## Current Block.**
+**RULE: Keep summaries for the last 4 completed blocks, sorted oldest→newest. This section MUST
+appear before ## Current Block.**
 
-### Block 1 Summary
-[Summary of findings from block 1]
+### Block N Summary
 
-### Block 2 Summary
-[Summary of findings from block 2]
-
-### Block 3 Summary
-[Summary of findings from block 3]
-
-### Block 4 Summary
-[Summary of findings from block 4]
+[Summary of findings from block N]
 
 ---
 
-## Current Block (Block N)
+## Current Block
 
 ### Block Info
 
-Focus: [which parameter subspace]
-Iterations: M to M+n_iter_block
-
 ### Current Hypothesis
-
-**Hypothesis**: [specific, testable prediction]
-**Rationale**: [why you believe this, based on prior evidence]
-**Test**: [what config change tests this]
-**Expected outcome**: [what would support vs falsify]
-**Status**: untested / supported / falsified / revised
 
 ### Iterations This Block
 
-[Current block iterations — cleared at block boundary]
-
 ### Emerging Observations
 
-[Running notes on what patterns are emerging across seeds and iterations]
 **CRITICAL: This section must ALWAYS be at the END of memory file.**
 ```
-

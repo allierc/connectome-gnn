@@ -7,6 +7,7 @@ import torch.nn as nn
 from connectome_gnn.models.MLP import MLP
 from connectome_gnn.models.registry import register_model
 from connectome_gnn.models.Siren_Network import Siren
+from connectome_gnn.models.MultiResGrid_Network import MultiResTemporalGrid
 from connectome_gnn.neuron_state import NeuronState
 
 
@@ -143,20 +144,9 @@ class NeuralGNN(nn.Module):
                     "typical_range": [0, 0.01],
                 },
                 {"name": "batch_size", "description": "Number of time frames per batch", "typical_range": [1, 4]},
-                {
-                    "name": "data_augmentation_loop",
-                    "description": "Number of augmentation iterations per epoch",
-                    "typical_range": [10, 50],
-                },
-                {
-                    "name": "w_init_mode",
-                    "description": "W initialization: 'zeros' (default), 'randn', or 'randn_scaled'",
-                },
-                {
-                    "name": "w_init_scale",
-                    "description": "Scale factor for randn_scaled init (W * scale/sqrt(n_edges))",
-                    "default": 1.0,
-                },
+                {"name": "data_augmentation_loop", "description": "Number of augmentation iterations per epoch", "typical_range": [10, 50]},
+                {"name": "w_init_mode", "description": "W initialization: 'zeros' (default), 'randn', 'randn_scaled', or 'uniform_scaled'"},
+                {"name": "w_init_scale", "description": "Scale factor for randn_scaled/uniform_scaled init (bound = scale/sqrt(n_edges))", "default": 1.0},
             ],
         },
     }
@@ -235,6 +225,10 @@ class NeuralGNN(nn.Module):
         elif w_init_mode == "randn_scaled":
             w_init_scale = getattr(train_config, "w_init_scale", 1.0)
             W_init = torch.randn(n_w, device=self.device, dtype=torch.float32) * (w_init_scale / math.sqrt(n_w))
+        elif w_init_mode == 'uniform_scaled':
+            w_init_scale = getattr(train_config, 'w_init_scale', 1.0)
+            bound = w_init_scale / math.sqrt(n_w)
+            W_init = (torch.rand(n_w, device=self.device, dtype=torch.float32) * 2 - 1) * bound
         else:  # 'randn'
             W_init = torch.randn(n_w, device=self.device, dtype=torch.float32)
         self.W = nn.Parameter(W_init[:, None], requires_grad=True)
@@ -263,18 +257,26 @@ class NeuralGNN(nn.Module):
                 # self.NNR_f_xy_period = model_config.nnr_f_xy_period
                 # self.NNR_f_T_period = model_config.nnr_f_T_period
 
-        # Hidden-neuron SIREN: learns voltages of silenced neurons jointly with GNN.
-        # siren_txy is built immediately (output=1, size independent of n_hidden).
-        # siren_t output size = n_hidden, which is only known at runtime after
-        # hidden_ids are loaded — call setup_hidden_siren(n_hidden) before first use.
+        # Hidden-neuron INR: learns voltages of silenced neurons jointly with GNN.
+        # Built in __init__ (like NNR_f) using hidden_neuron_fraction from model_config.
+        # "siren_t"   : SIREN(t) -> (n_hidden,)  — independent signal per neuron
+        # "siren_txy" : SIREN(x,y,t) -> scalar   — spatially-correlated field
+        # "ngp_t"     : MultiResTemporalGrid(t) -> (n_hidden,)  — local, no waterbed
+        # "none"      : zero-silencing, no INR
         self.NNR_hidden = None
         self._inr_hidden_type = getattr(model_config, 'inr_type_hidden', 'none')
-        self._hidden_siren_mc = model_config  # kept for setup_hidden_siren()
         self.NNR_hidden_T_period = getattr(model_config, 'nnr_hidden_T_period', 64000.0) / (2 * np.pi)
         self.NNR_hidden_xy_period = getattr(model_config, 'nnr_f_xy_period', 1.0) / (2 * np.pi)
-        if self._inr_hidden_type == 'siren_txy':
+        self.NNR_hidden_n_frames = float(simulation_config.n_frames)  # for NGP [0,1] normalisation
+        _hidden_frac = getattr(model_config, 'hidden_neuron_fraction', 0.0)
+        if self._inr_hidden_type in ('siren_t', 'siren_txy') and _hidden_frac > 0.0:
+            n_non_retina = simulation_config.n_neurons - simulation_config.n_input_neurons
+            n_hidden = int(n_non_retina * _hidden_frac)
+            in_features = 1 if self._inr_hidden_type == 'siren_t' else 3
+            out_features = n_hidden if self._inr_hidden_type == 'siren_t' else 1
             self.NNR_hidden = Siren(
-                in_features=3, out_features=1,
+                in_features=in_features,
+                out_features=out_features,
                 hidden_features=getattr(model_config, 'hidden_dim_nnr_hidden', 2048),
                 hidden_layers=getattr(model_config, 'n_layers_nnr_hidden', 4),
                 first_omega_0=getattr(model_config, 'omega_hidden', 4096.0),
@@ -282,28 +284,19 @@ class NeuralGNN(nn.Module):
                 outermost_linear=getattr(model_config, 'outermost_linear_nnr_hidden', True),
             )
             self.NNR_hidden.to(self.device)
-        # siren_t: NNR_hidden stays None until setup_hidden_siren(n_hidden) is called
-
-    def setup_hidden_siren(self, n_hidden: int):
-        """Build NNR_hidden for siren_t with the exact runtime output size.
-
-        Must be called after hidden_ids are known (trainer: after loading/generating
-        hidden_neuron_ids.pt; tester: before load_state_dict so weights can be
-        restored).  No-op for siren_txy (already built in __init__) or 'none'.
-        """
-        if self._inr_hidden_type != 'siren_t':
-            return
-        mc = self._hidden_siren_mc
-        self.NNR_hidden = Siren(
-            in_features=1,
-            out_features=n_hidden,
-            hidden_features=getattr(mc, 'hidden_dim_nnr_hidden', 2048),
-            hidden_layers=getattr(mc, 'n_layers_nnr_hidden', 4),
-            first_omega_0=getattr(mc, 'omega_hidden', 4096.0),
-            hidden_omega_0=getattr(mc, 'omega_hidden', 4096.0),
-            outermost_linear=getattr(mc, 'outermost_linear_nnr_hidden', True),
-        )
-        self.NNR_hidden.to(self.device)
+        elif self._inr_hidden_type == 'ngp_t' and _hidden_frac > 0.0:
+            n_non_retina = simulation_config.n_neurons - simulation_config.n_input_neurons
+            n_hidden = int(n_non_retina * _hidden_frac)
+            self.NNR_hidden = MultiResTemporalGrid(
+                n_levels=getattr(model_config, 'ngp_hidden_n_levels', 24),
+                n_features_per_level=getattr(model_config, 'ngp_hidden_n_features_per_level', 4),
+                base_resolution=getattr(model_config, 'ngp_hidden_base_resolution', 16),
+                per_level_scale=getattr(model_config, 'ngp_hidden_per_level_scale', 1.4),
+                n_output=n_hidden,
+                mlp_width=getattr(model_config, 'ngp_hidden_mlp_width', 512),
+                mlp_layers=getattr(model_config, 'ngp_hidden_mlp_layers', 4),
+            )
+            self.NNR_hidden.to(self.device)
 
     def forward_hidden(self, state: NeuronState, k: int, hidden_ids: torch.Tensor) -> torch.Tensor:
         """Predict voltages for hidden neurons at frame k via the hidden SIREN.
@@ -322,9 +315,14 @@ class NeuralGNN(nn.Module):
                                device=self.device, dtype=torch.float32)
             in_feats = torch.cat([pos_h / self.NNR_hidden_xy_period, t_vec], dim=1)  # (n_hidden, 3)
             return self.NNR_hidden(in_feats).squeeze(-1)                        # (n_hidden,)
+        elif self._inr_hidden_type == 'ngp_t':
+            # MultiResTemporalGrid: t normalized to [0, 1]
+            t_in = torch.full((1, 1), float(k) / self.NNR_hidden_n_frames,
+                              device=self.device, dtype=torch.float32)          # (1, 1)
+            return self.NNR_hidden(t_in).squeeze(0)                             # (n_hidden,)
         else:  # siren_t
-            t_in = torch.tensor([[float(k) / self.NNR_hidden_T_period]],
-                                device=self.device, dtype=torch.float32)        # (1, 1)
+            t_in = torch.full((1, 1), float(k) / self.NNR_hidden_T_period,
+                              device=self.device, dtype=torch.float32)          # (1, 1)
             return self.NNR_hidden(t_in).squeeze(0)                             # (n_hidden,)
 
     def forward_visual(self, state: NeuronState, k):

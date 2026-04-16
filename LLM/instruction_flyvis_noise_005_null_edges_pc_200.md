@@ -112,6 +112,8 @@ To keep total training time constant when switching from 1 to 2 epochs, **halve 
 **Setting `regul_annealing_rate: 0`** with `n_epochs=1` makes coefficients apply at **full strength from epoch 0**. Use this to test direct (non-annealed) penalties.
 
 
+> **YAML rule**: Always wrap the `description` field value in double quotes — colons inside unquoted YAML strings cause parse errors (e.g., `description: "Block 7 Slot 1: testing W_L2"`).
+
 ## Parallel Mode — 4 Slots Per Batch
 
 Each batch runs 4 slots with different seeds (forced by pipeline). Choose the strategy:

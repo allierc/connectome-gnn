@@ -40,6 +40,9 @@ Training data is **pre-generated and fixed** (`generate_data: false`). All slots
 
 **DO NOT change** simulation parameters, dataset, or test_dataset.
 
+**Seed robustness testing**: To re-generate data with new seeds, set `claude.test_robustness_seed: true`
+in all 4 slot configs. The pipeline resets the flag automatically after one batch.
+
 ## Noise Model
 
 Two independent noise sources in the training data:
@@ -74,37 +77,38 @@ dv_i/dt = f_theta(v_i, a_i, sum_j W_ij * g_phi(v_j, a_j)^2, I_i)
 
 ### Recurrent Training Parameters
 
-| Parameter | Default | Description |
-| --- | --- | --- |
-| `recurrent_training` | true | Enable multi-step rollout loss |
-| `time_step` | 5 | Number of autoregressive integration steps per training sample |
-| `consecutive_batch` | false | Use temporally consecutive frames in each batch |
-| `multi_start_recurrent` | false | Randomize rollout start points within batch window |
-| `batch_size` | 6 | Batch size — larger batches average out noise across samples |
+| Parameter               | Default | Description                                                    |
+| ----------------------- | ------- | -------------------------------------------------------------- |
+| `recurrent_training`    | true    | Enable multi-step rollout loss                                 |
+| `time_step`             | 5       | Number of autoregressive integration steps per training sample |
+| `consecutive_batch`     | false   | Use temporally consecutive frames in each batch                |
+| `multi_start_recurrent` | false   | Randomize rollout start points within batch window             |
+| `batch_size`            | 6       | Batch size — larger batches average out noise across samples   |
 
 ### Learning Rates
 
-| Parameter | Default | Description |
-| --- | --- | --- |
-| `learning_rate_W_start` | 9e-4 | Learning rate for connectivity matrix W |
-| `learning_rate_start` | 1.8e-3 | Learning rate for g_phi and f_theta MLPs |
-| `learning_rate_embedding_start` | 2.325e-3 | Learning rate for neuron embeddings |
+| Parameter                       | Default  | Description                              |
+| ------------------------------- | -------- | ---------------------------------------- |
+| `learning_rate_W_start`         | 9e-4     | Learning rate for connectivity matrix W  |
+| `learning_rate_start`           | 1.8e-3   | Learning rate for g_phi and f_theta MLPs |
+| `learning_rate_embedding_start` | 2.325e-3 | Learning rate for neuron embeddings      |
 
 ### Regularization (active from epoch 0 since regul_annealing_rate=0)
 
-| Parameter | Default | Description | Annealed? |
-| --- | --- | --- | --- |
-| `coeff_g_phi_diff` | 1200 | Monotonicity penalty on g_phi | No |
-| `coeff_g_phi_norm` | 0.9 | Normalization penalty on g_phi | No |
-| `coeff_g_phi_weight_L1` | 0.28 | L1 on g_phi weights | Yes (but rate=0 → active) |
-| `coeff_f_theta_weight_L1` | 0.05 | L1 on f_theta weights | Yes (but rate=0 → active) |
-| `coeff_f_theta_weight_L2` | 0.001 | L2 on f_theta weights | Yes (but rate=0 → active) |
-| `coeff_W_L1` | 5e-4 | L1 sparsity on W | Yes (but rate=0 → active) |
-| `coeff_W_L2` | 1.5e-6 | L2 on W | Yes (but rate=0 → active) |
-| `data_augmentation_loop` | 30 | Data augmentation multiplier |
+| Parameter                 | Default | Description                    | Annealed?                 |
+| ------------------------- | ------- | ------------------------------ | ------------------------- |
+| `coeff_g_phi_diff`        | 1200    | Monotonicity penalty on g_phi  | No                        |
+| `coeff_g_phi_norm`        | 0.9     | Normalization penalty on g_phi | No                        |
+| `coeff_g_phi_weight_L1`   | 0.28    | L1 on g_phi weights            | Yes (but rate=0 → active) |
+| `coeff_f_theta_weight_L1` | 0.05    | L1 on f_theta weights          | Yes (but rate=0 → active) |
+| `coeff_f_theta_weight_L2` | 0.001   | L2 on f_theta weights          | Yes (but rate=0 → active) |
+| `coeff_W_L1`              | 5e-4    | L1 sparsity on W               | Yes (but rate=0 → active) |
+| `coeff_W_L2`              | 1.5e-6  | L2 on W                        | Yes (but rate=0 → active) |
+| `data_augmentation_loop`  | 30      | Data augmentation multiplier   |
 
 **Note**: `regul_annealing_rate=0` disables annealing, so ALL regularizers are active at full strength from epoch 0. Do not change `regul_annealing_rate`.
 
+> **YAML rule**: Always wrap the `description` field value in double quotes — colons inside unquoted YAML strings cause parse errors (e.g., `description: "Block 7 Slot 1: testing W_L2"`).
 
 ## Slot Strategy — 4 Different Configs Per Batch
 
@@ -122,12 +126,14 @@ The LLM should design 4 related but distinct configs for each batch — for exam
 ## Evaluation
 
 After each training run, the pipeline calls `data_test_flyvis()` which:
+
 1. Loads the best model checkpoint
 2. Evaluates connectivity R2, tau R2, V_rest R2 against ground truth
 3. Runs rollout on noise-free test data (`test_dataset: fly/flyvis_noise_free`)
 4. Reports rollout Pearson r and RMSE
 
 Metrics from `analysis.log`:
+
 - `connectivity_R2`: R2 of learned vs true W (**PRIMARY**)
 - `tau_R2`: R2 of learned vs true time constants
 - `V_rest_R2`: R2 of learned vs true resting potentials
@@ -141,51 +147,51 @@ These results were obtained from prior manual experiments. Use them to inform yo
 
 ### Baseline (no recurrent training)
 
-| Model | R2_conn | R2_tau | R2_Vrest |
-| --- | --- | --- | --- |
-| noise_005_010 (baseline, 1-step) | 0.739 | 0.782 | 0.113 |
-| noise_free (gold standard) | 0.924 | 0.844 | 0.079 |
+| Model                            | R2_conn | R2_tau | R2_Vrest |
+| -------------------------------- | ------- | ------ | -------- |
+| noise_005_010 (baseline, 1-step) | 0.739   | 0.782  | 0.113    |
+| noise_free (gold standard)       | 0.924   | 0.844  | 0.079    |
 
 ### Recurrent Training — time_step sweep (batch_size=6)
 
-| time_step | R2_conn | R2_tau | R2_Vrest |
-| --- | --- | --- | --- |
-| 2 | 0.717 | 0.897 | 0.165 |
-| 3 | 0.722 | 0.912 | 0.089 |
-| 4 | 0.718 | 0.953 | 0.073 |
-| 5 | 0.727 | **0.965** | 0.058 |
-| 10 | 0.620 | 0.928 | 0.031 |
+| time_step | R2_conn | R2_tau    | R2_Vrest |
+| --------- | ------- | --------- | -------- |
+| 2         | 0.717   | 0.897     | 0.165    |
+| 3         | 0.722   | 0.912     | 0.089    |
+| 4         | 0.718   | 0.953     | 0.073    |
+| 5         | 0.727   | **0.965** | 0.058    |
+| 10        | 0.620   | 0.928     | 0.031    |
 
 **Key finding**: tau_R2 peaks at time_step=5 (+23% over baseline). Connectivity stays flat. time_step=10 overshoots — connectivity drops to 0.620.
 
 ### Recurrent Training — batch_size sweep (time_step=5)
 
-| batch_size | R2_conn | R2_tau | R2_Vrest |
-| --- | --- | --- | --- |
-| 2 | 0.641 | 0.942 | 0.011 |
-| 4 | 0.682 | 0.964 | 0.034 |
-| 10 | 0.757 | 0.961 | 0.110 |
-| 16 | **0.768** | 0.962 | 0.145 |
+| batch_size | R2_conn   | R2_tau | R2_Vrest |
+| ---------- | --------- | ------ | -------- |
+| 2          | 0.641     | 0.942  | 0.011    |
+| 4          | 0.682     | 0.964  | 0.034    |
+| 10         | 0.757     | 0.961  | 0.110    |
+| 16         | **0.768** | 0.962  | 0.145    |
 
 **Key finding**: Batch size strongly improves connectivity (0.641→0.768). tau_R2 is robust across batch sizes. Trend suggests larger batches may help further.
 
 ### Consecutive Batching (no recurrent, batch_size sweep)
 
 | batch_size | R2_conn | R2_tau | R2_Vrest |
-| --- | --- | --- | --- |
-| 2 | 0.732 | 0.758 | 0.100 |
-| 4 | 0.750 | 0.788 | 0.108 |
-| 8 | 0.742 | 0.787 | 0.113 |
-| 16 | 0.741 | 0.787 | 0.116 |
+| ---------- | ------- | ------ | -------- |
+| 2          | 0.732   | 0.758  | 0.100    |
+| 4          | 0.750   | 0.788  | 0.108    |
+| 8          | 0.742   | 0.787  | 0.113    |
+| 16         | 0.741   | 0.787  | 0.116    |
 
 **Key finding**: Consecutive batching alone provides minimal improvement. The temporal correlation does not help without recurrent rollout.
 
 ### Self-Distillation (GS — train on rollout data)
 
 | recurrent | time_step | R2_conn | R2_tau | R2_Vrest |
-| --- | --- | --- | --- | --- |
-| no | — | 0.516 | 0.092 | 0.102 |
-| yes | 5 | 0.682 | 0.078 | 0.103 |
+| --------- | --------- | ------- | ------ | -------- |
+| no        | —         | 0.516   | 0.092  | 0.102    |
+| yes       | 5         | 0.682   | 0.078  | 0.103    |
 
 **Key finding**: Self-distillation catastrophically destroys tau_R2. Not a viable approach.
 
@@ -205,6 +211,7 @@ These results were obtained from prior manual experiments. Use them to inform yo
 Systematically explore the `time_step × batch_size` space. Each batch tests 4 different (time_step, batch_size) combinations.
 
 Configs to cover:
+
 - time_step=10 with batch_size=2, 4, 10, 16 (can larger batches rescue rc10's connectivity drop?)
 - time_step=5 with batch_size=24, 32, 48 (does the bs trend continue?)
 - Revalidate time_step=5, batch_size=16 (best known) on H100
@@ -216,6 +223,7 @@ Goal: Find the optimal (time_step, batch_size) pair. Establish whether the batch
 Test `multi_start_recurrent: true` — rollout from random starting frames rather than fixed initial frame.
 
 Configs to cover:
+
 - multi_start with time_step=2, 3, 5, 10 at batch_size=6 (compare to standard recurrent)
 - multi_start with best (time_step, batch_size) from Block 1
 
@@ -226,6 +234,7 @@ Goal: Determine whether randomizing rollout start points improves connectivity b
 Test `consecutive_batch: true` combined with `recurrent_training: true`.
 
 Configs to cover:
+
 - consecutive + recurrent with time_step=5, batch_size=2, 4, 6, 8, 10
 - Compare to standard (non-consecutive) recurrent at same settings
 
@@ -236,6 +245,7 @@ Goal: Test whether consecutive batching amplifies the recurrent denoising effect
 Combine consecutive_batch + recurrent at optimal (time_step, batch_size) from Block 1.
 
 Additional configs:
+
 - consecutive + multi_start + recurrent (triple combination)
 - Sweep batch_size for cb_rc at the best time_step
 
@@ -246,12 +256,53 @@ Goal: Find the best combination of all recurrent approaches.
 Explore learning rates and regularization for the best recurrent config found in Blocks 1-4.
 
 Parameters to investigate:
+
 - **Learning rates**: Lower LR may improve stability for long rollouts. Try lr_W in [3e-4, 5e-4, 9e-4], lr in [5e-4, 1e-3, 1.8e-3]
 - **coeff_g_phi_diff**: May need different value for recurrent training (try 600, 1200, 2400)
 - **coeff_W_L1**: Sparsity regularization interaction with recurrent loss (try 0, 2.5e-4, 5e-4, 1e-3)
 - **data_augmentation_loop**: Trade off with batch_size — is it better to have large batches with fewer augmentation passes or small batches with more passes?
 
 Goal: Polish the best recurrent config to maximize connectivity_R2.
+
+### Block 7 (iterations 113+): Multi-Seed Robustness Validation
+
+**Goal**: The Block 6 champion (conn_R2=0.813) was established on a single seed per iteration. Validate reproducibility with 4 fresh seeds before continuing.
+
+Run 4 slots all with the identical Block 6 champion config (ts=5/bs=32/aug=22/lr_W=5e-4/g_phi_L1=0/f_theta_L1=0.05), varying only seeds. Report mean±std and CV%.
+
+**Decision criterion**: If CV% < 10% and mean > 0.80 → champion is robust, proceed to Block 8. If CV% > 20% → result was a lucky seed, the true mean is lower.
+
+### Block 8 (iterations 129+): g_phi_norm and g_phi_diff Re-Sweep at g_phi_L1=0
+
+**Rationale**: The optima g_phi_norm=0.9 and g_phi_diff=1200 were established when g_phi_L1=0.28 was active. With g_phi_L1 now removed (g_phi edge function is fully unregularized except by norm and diff), the optimal values for these penalties may shift. The edge function now has more expressive freedom — it may need stronger or weaker structural constraints.
+
+Sweep:
+
+- `coeff_g_phi_norm` ∈ {0.3, 0.6, 0.9, 1.5} — current 0.9 may be too strong without L1
+- `coeff_g_phi_diff` ∈ {600, 1200, 2400, 4800} — monotonicity penalty may need rescaling
+
+Run these as 4-slot batches comparing each value to the champion CTRL (g_phi_norm=0.9, g_phi_diff=1200).
+
+### Block 9 (iterations 145+): lr_embedding Sweep at g_phi_L1=0
+
+**Rationale**: `lr_embedding` was never explored at the g_phi_L1=0 operating point. The neuron-type embeddings interact with the g_phi edge function; with g_phi now unconstrained by L1, the optimal embedding LR may differ from the 2.325e-3 default found at g_phi_L1=0.28.
+
+Sweep: lr_embedding ∈ {1e-3, 1.5e-3, 2.325e-3, 4e-3} with all other champion params fixed.
+
+### Block 10 (iterations 161+): dale_law + f_theta_msg_diff
+
+**Rationale**: Two parameters never tested in this exploration:
+
+- `dale_law=true`: Was a major lever in CX and larva explorations. Constrains W to obey sign-consistent Dale's law. Under recurrent training it may help stabilize gradients and improve W orientation.
+- `coeff_f_theta_msg_diff`: Was present in the CX noise05 winner. Penalizes inconsistency in message-passing direction. Never tested in this exploration.
+
+Test 4 combinations: CTRL, dale_law only, f_theta_msg_diff=50 only, both combined.
+
+### Block 11 (iterations 177+): Champion Local Search and Final Validation
+
+**Goal**: Fine-grained sweep ±20% around the best parameters found in Blocks 7–10. Then run a final 4-seed validation of the ultimate champion.
+
+Slots: CTRL + top-2 parameter perturbations + combined best. Final iteration: 4-seed robustness of the overall winner with full metrics reported.
 
 ## Iteration Workflow
 
@@ -260,6 +311,7 @@ Goal: Polish the best recurrent config to maximize connectivity_R2.
 ### Step 2: Analyze Results (4 slots — each with different config)
 
 For each slot, report:
+
 - Config: time_step, batch_size, consecutive_batch, multi_start_recurrent, and any other changed params
 - connectivity_R2, tau_R2, V_rest_R2, rollout_pearson_r, training_time_min
 
@@ -320,7 +372,9 @@ Based on results, design 4 configs for the next batch. Each config should test a
 ## File Structure
 
 ### 1. Full Log (append-only): `{llm_task_name}_analysis.md`
+
 ### 2. Working Memory (read + update): `{llm_task_name}_memory.md`
+
 ### 3. User Input: `user_input.md`
 
 ## Block Boundaries
@@ -400,15 +454,19 @@ When prompt says `PARALLEL START`:
 **RULE: Keep summaries for the last 4 completed blocks, sorted oldest→newest. This section MUST appear before ## Current Block.**
 
 ### Block 1 Summary
+
 [Summary of findings from block 1]
 
 ### Block 2 Summary
+
 [Summary of findings from block 2]
 
 ### Block 3 Summary
+
 [Summary of findings from block 3]
 
 ### Block 4 Summary
+
 [Summary of findings from block 4]
 
 ---

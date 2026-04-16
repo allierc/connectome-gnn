@@ -26,6 +26,7 @@ from .claude_cli import run_claude_cli
 from .cluster import (
     check_cluster_repo,
     submit_cluster_job,
+    submit_cluster_test_plot_job,
     wait_for_cluster_jobs,
 )
 from .interactive_code import generate_code_brief, interactive_code_session
@@ -126,6 +127,7 @@ def setup_exploration(args, root_dir: str, skip_confirm: bool = False) -> Explor
         n_parallel=claude_cfg.get('n_parallel', 4),
         generate_data=generate_data,
         training_time_target_min=claude_cfg.get('training_time_target_min', 60),
+        hard_runtime_limit_min=claude_cfg.get('hard_runtime_limit_min', 6000),
         interaction_code=claude_cfg.get('interaction_code', False),
         case_study=claude_cfg.get('case_study', ''),
         case_study_brief=claude_cfg.get('case_study_brief', ''),
@@ -134,6 +136,7 @@ def setup_exploration(args, root_dir: str, skip_confirm: bool = False) -> Explor
         task=task,
         sim_constraint=sim_constraint,
         llm_task_name=llm_task_name,
+        instruction_name=instruction_name,
         best_model=best_model,
     )
 
@@ -269,7 +272,7 @@ def init_shared_files(state: ExplorationState, is_resume: bool):
     state.analysis_path = f"{state.exploration_dir}/{state.llm_task_name}_analysis.md"
     state.memory_path = f"{state.exploration_dir}/{state.llm_task_name}_memory.md"
     state.ucb_path = f"{state.exploration_dir}/{state.llm_task_name}_ucb_scores.txt"
-    instruction_name = f'instruction_{state.base_config_name}'
+    instruction_name = state.instruction_name or f'instruction_{state.base_config_name}'
     state.instruction_path = f"{state.llm_dir}/{instruction_name}.md"
     state.reasoning_log_path = f"{state.exploration_dir}/{state.llm_task_name}_reasoning.log"
     state.user_input_path = f"{state.exploration_dir}/user_input.md"
@@ -561,7 +564,9 @@ def load_configs_and_seeds(state: ExplorationState, batch: BatchInfo):
         yaml_data['simulation']['seed'] = sim_seed
         yaml_data['training']['seed'] = train_seed
         yaml_data['dataset'] = expected_dataset
-        yaml_data['training']['n_epochs'] = 1
+        # Restore intended n_epochs from claude section (training section gets
+        # overwritten by yaml.dump round-trips, claude section is authoritative)
+        yaml_data['training']['n_epochs'] = yaml_data.get('claude', {}).get('n_epochs', 1)
 
         # Write updated YAML back to file (cluster reads from file)
         with open(state.config_paths[slot], 'w') as f:
@@ -682,6 +687,7 @@ def run_cluster_training(state: ExplorationState, batch: BatchInfo):
             exploration_dir=state.exploration_dir,
             iteration=iteration,
             output_root=get_data_root(),
+            hard_runtime_limit_min=state.hard_runtime_limit_min,
         )
         if jid:
             job_ids[slot] = jid
@@ -689,7 +695,7 @@ def run_cluster_training(state: ExplorationState, batch: BatchInfo):
             batch.job_results[slot] = False
 
     if job_ids:
-        print(f"\n\033[93mPHASE 3: Waiting for {len(job_ids)} cluster jobs to complete\033[0m")
+        print(f"\n\033[93mPHASE 3.1: Waiting for {len(job_ids)} training jobs to complete\033[0m")
         cluster_results = wait_for_cluster_jobs(job_ids, log_dir=state.log_dir, poll_interval=300)
         batch.job_results.update(cluster_results)
 
@@ -776,6 +782,7 @@ Fix the bug. Do NOT make other changes."""
                 exploration_dir=state.exploration_dir,
                 iteration=batch.iterations[slot_idx],
                 output_root=get_data_root(),
+                hard_runtime_limit_min=state.hard_runtime_limit_min,
             )
             if jid:
                 retry_results = wait_for_cluster_jobs(
@@ -852,6 +859,116 @@ def run_local_test_plot(state: ExplorationState, batch: BatchInfo):
             skip_svd=True,
         )
         log_file.close()
+
+
+def _color_metric(val_str, green_thresh, orange_thresh):
+    """Return ANSI-colored string: green >= green_thresh, orange >= orange_thresh, else red."""
+    try:
+        val = float(val_str)
+        if val >= green_thresh:
+            return f"\033[92m{val:.3f}\033[0m"
+        elif val >= orange_thresh:
+            return f"\033[93m{val:.3f}\033[0m"
+        else:
+            return f"\033[91m{val:.3f}\033[0m"
+    except (ValueError, TypeError):
+        return f"\033[90m{val_str}\033[0m"
+
+
+def _print_batch_results(state: ExplorationState, batch: BatchInfo):
+    """Print per-slot metrics with red/orange/green color coding."""
+    print(f"\n\033[94m{'='*60}\033[0m")
+    print(f"\033[94mBATCH RESULTS: iterations {batch.batch_first}-{batch.batch_last}\033[0m")
+    print(f"\033[94m{'='*60}\033[0m")
+
+    for slot_idx, iteration in enumerate(batch.iterations):
+        slot = slot_idx
+        if not batch.job_results.get(slot, False):
+            print(f"  Slot {slot} (iter {iteration}):  \033[91mFAILED\033[0m")
+            continue
+
+        slot_log = state.analysis_log_paths[slot]
+        if not os.path.exists(slot_log):
+            print(f"  Slot {slot} (iter {iteration}):  \033[90mno log\033[0m")
+            continue
+
+        with open(slot_log, 'r') as f:
+            log_content = f.read()
+
+        def _p(key):
+            m = re.search(rf'{key}[=:]\s*([\d.eE+-]+|nan)', log_content)
+            return m.group(1) if m else None
+
+        conn_r2   = _p('connectivity_R2')
+        tau_r2    = _p('tau_R2')
+        vrest_r2  = _p('V_rest_R2')
+        clust_acc = _p('cluster_accuracy')
+        rollout_r = _p('rollout_pearson')
+        onestep_r = _p('onestep_pearson')
+        train_min = _p('training_time_min')
+
+        parts = []
+        if conn_r2:
+            parts.append(f"conn_R2={_color_metric(conn_r2, 0.9, 0.5)}")
+        if tau_r2:
+            parts.append(f"tau_R2={_color_metric(tau_r2, 0.9, 0.5)}")
+        if vrest_r2:
+            parts.append(f"Vrest_R2={_color_metric(vrest_r2, 0.9, 0.5)}")
+        if clust_acc:
+            parts.append(f"clust_acc={_color_metric(clust_acc, 0.9, 0.5)}")
+        if rollout_r:
+            parts.append(f"rollout_r={_color_metric(rollout_r, 0.9, 0.5)}")
+        elif onestep_r:
+            parts.append(f"onestep_r={_color_metric(onestep_r, 0.9, 0.5)}")
+        if train_min:
+            parts.append(f"\033[90mtrain={float(train_min):.1f}min\033[0m")
+
+        metrics_str = "  ".join(parts) if parts else "\033[90mno metrics yet\033[0m"
+        print(f"  Slot {slot} (iter {iteration}):  {metrics_str}")
+
+
+def run_cluster_test_plot(state: ExplorationState, batch: BatchInfo):
+    """PHASE 3.2: Submit test+plot jobs to cluster for all successful slots, then print results."""
+    successful_slots = [s for s in range(batch.n_slots) if batch.job_results.get(s, False)]
+    print(f"\n\033[93mPHASE 3.2: Submitting {len(successful_slots)} test+plot jobs to cluster (gpu_{state.node_name})\033[0m")
+
+    job_ids = {}
+    for slot_idx, iteration in enumerate(batch.iterations):
+        slot = slot_idx
+        if not batch.job_results.get(slot, False):
+            print(f"\033[90m  slot {slot} (iter {iteration}): skipping test+plot (training failed)\033[0m")
+            continue
+        config = batch.configs[slot]
+        jid = submit_cluster_test_plot_job(
+            slot=slot,
+            config_path=state.config_paths[slot],
+            analysis_log_path=state.analysis_log_paths[slot],
+            config_file_field=config.config_file,
+            log_dir=state.log_dir,
+            node_name=state.node_name,
+            conda_env=state.conda_env,
+            n_cpus=state.n_cpus,
+            device=config.training.device,
+            iteration=iteration,
+            output_root=get_data_root(),
+            hard_runtime_limit_min=state.hard_runtime_limit_min,
+        )
+        if jid:
+            job_ids[slot] = jid
+        else:
+            batch.job_results[slot] = False
+
+    if job_ids:
+        print(f"\n\033[93mPHASE 3.2: Waiting for {len(job_ids)} test+plot jobs to complete\033[0m")
+        test_plot_results = wait_for_cluster_jobs(
+            job_ids, log_dir=state.log_dir, poll_interval=60, job_prefix='cluster_test_plot'
+        )
+        for slot, success in test_plot_results.items():
+            if not success:
+                batch.job_results[slot] = False
+                print(f"\033[91m  slot {slot}: test+plot FAILED\033[0m")
+
+    _print_batch_results(state, batch)
 
 
 def run_local_pipeline(state: ExplorationState, batch: BatchInfo):
@@ -983,7 +1100,7 @@ def save_artifacts(state: ExplorationState, batch: BatchInfo):
             if time_m:
                 training_time = float(time_m.group(1))
                 if training_time > state.training_time_target_min:
-                    print(f"\033[91m  WARNING: slot {slot} (iter {iteration}) training took {training_time:.1f} min (>{state.training_time_target_min} min target)\033[0m")
+                    print(f"\033[93m  WARNING: slot {slot} (iter {iteration}) training took {training_time:.1f} min (>{state.training_time_target_min} min target)\033[0m")
                 else:
                     print(f"\033[92m  slot {slot} (iter {iteration}): training time {training_time:.1f} min\033[0m")
 
@@ -1042,6 +1159,9 @@ def update_ucb_scores(state: ExplorationState, batch: BatchInfo):
             stimuli_val = _parse('stimuli_R2')
             if stimuli_val:
                 parts.append(f"stimuli_R2={stimuli_val}")
+            hidden_siren_val = _parse('hidden_nnr_R2')
+            if hidden_siren_val:
+                parts.append(f"hidden_nnr_R2={hidden_siren_val}")
             bias_val = _parse('g_phi_bias_R2')
             if bias_val:
                 parts.append(f"g_phi_bias_R2={bias_val}")
