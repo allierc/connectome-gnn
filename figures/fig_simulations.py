@@ -60,7 +60,8 @@ FS_TICK   = int(24 * _S)   # tick labels
 FS_ANNOT  = int(28 * _S)   # type-name annotations in trace panel
 FS_TITLE  = 17             # panel subtitle  (fixed, INSTRUCTIONS.md)
 PANEL_LBL = 20             # a)–f)           (fixed, never scaled)
-FS_CBAR   = int(22 * _S)   # colorbar label
+FS_CBAR   = int(36 * _S)   # colorbar label
+FS_LEGEND = int(26 * _S)   # legend
 
 # ── data ──────────────────────────────────────────────────────────────────────
 DATA_ROOT = '/groups/saalfeld/home/allierc/GraphData'
@@ -72,8 +73,9 @@ CONFIGS = [
 N_HEATMAP_FRAMES = 2000    # frames loaded for the heatmap (zarr subsample)
 
 # ── selected types for trace panels ──────────────────────────────────────────
-# Type indices in the alphabetical list (R1=23, L1=5, L2=6, Mi1=12, T4a=35, T5a=39)
-SELECTED_TYPES = [23, 5, 6, 12, 35, 39]
+# Covers the full visual pathway: photoreceptors → lamina → medulla → T-cells
+# R1=23, L1=5, L2=6, L3=7, Mi1=12, Mi9=22, Tm1=43, Tm9=55, T4a=35, T5a=39, T1=31, Am=0
+SELECTED_TYPES = [23, 5, 6, 7, 12, 22, 43, 55, 35, 39, 31, 0]
 TRACE_START    = 100
 TRACE_END      = 600   # 500-frame window
 
@@ -186,9 +188,10 @@ step_v = max(0.5, 3.0 * float(np.std(free_traces)))
 # Build figure
 # ---------------------------------------------------------------------------
 fig, axes = plt.subplots(
-    2, 3, figsize=(21, 11), dpi=300,
+    2, 3, figsize=(21, 14), dpi=300,
     constrained_layout=True,
-    gridspec_kw={'height_ratios': [3, 2.5]},   # taller heatmap row
+    gridspec_kw={'height_ratios': [3, 4],       # taller trace row
+                 'hspace': 0.35},               # blank gap between rows
 )
 
 n_sorted  = len(sorted_names_ref)
@@ -265,16 +268,16 @@ for col, (hz, (v_win, s_win, type_ids), (_, _, sigma_lbl)) in enumerate(
     if col == 0:
         ax_t.set_ylabel('voltage (a.u.)', fontsize=FS_LABEL)
 
-    # legend only on the rightmost trace panel
-    if col == 2:
+    # legend on panel d) (col 0) only
+    if col == 0:
         ax_t.legend(loc='upper right', bbox_to_anchor=(1.0, 1.0),
                     bbox_transform=ax_t.transAxes,
-                    fontsize=int(20 * _S), frameon=False)
+                    fontsize=FS_LEGEND, frameon=False)
 
 # ── shared colorbar (right of top-right heatmap) ─────────────────────────────
 cbar = fig.colorbar(last_im, ax=axes[0, 2], shrink=0.95, pad=0.02)
 cbar.set_label('z-scored voltage', fontsize=FS_CBAR)
-cbar.ax.tick_params(labelsize=FS_TICK)
+cbar.ax.tick_params(labelsize=FS_CBAR)
 
 # ── panel labels — row 0 aligned together, row 1 aligned together ─────────────
 # (INSTRUCTIONS.md: use y1_max per row so labels within each row share the
@@ -283,17 +286,20 @@ fig.canvas.draw()
 renderer  = fig.canvas.get_renderer()
 inv       = fig.transFigure.inverted()
 
-for row_axes, row_labels in [
-    (axes[0], ['a)', 'b)', 'c)']),
-    (axes[1], ['d)', 'e)', 'f)']),
-]:
-    bboxes = [ax.get_tightbbox(renderer) for ax in row_axes]
-    y1_max = max(inv.transform((bb.x0, bb.y1))[1] for bb in bboxes)
-    for bb, lbl in zip(bboxes, row_labels):
-        x0 = inv.transform((bb.x0, bb.y1))[0]
-        fig.text(x0, y1_max, lbl, fontsize=PANEL_LBL, fontweight='bold',
-                 va='bottom', ha='left', color='black',
-                 transform=fig.transFigure)
+bboxes_row0 = [ax.get_tightbbox(renderer) for ax in axes[0]]
+bboxes_row1 = [ax.get_tightbbox(renderer) for ax in axes[1]]
+y1_max_0 = max(inv.transform((bb.x0, bb.y1))[1] for bb in bboxes_row0)
+y1_max_1 = max(inv.transform((bb.x0, bb.y1))[1] for bb in bboxes_row1)
+
+for col, (lbl0, lbl1) in enumerate(zip(['a)', 'b)', 'c)'], ['d)', 'e)', 'f)'])):
+    # x0 = leftmost edge of this column across both rows — aligns e.g. a) and d)
+    x0_top = inv.transform((bboxes_row0[col].x0, bboxes_row0[col].y1))[0]
+    x0_bot = inv.transform((bboxes_row1[col].x0, bboxes_row1[col].y1))[0]
+    x0_col = min(x0_top, x0_bot)
+    fig.text(x0_col, y1_max_0, lbl0, fontsize=PANEL_LBL, fontweight='bold',
+             va='bottom', ha='left', color='black', transform=fig.transFigure)
+    fig.text(x0_col, y1_max_1, lbl1, fontsize=PANEL_LBL, fontweight='bold',
+             va='bottom', ha='left', color='black', transform=fig.transFigure)
 
 # ── save ─────────────────────────────────────────────────────────────────────
 OUT_DIR  = os.path.dirname(os.path.abspath(__file__))
