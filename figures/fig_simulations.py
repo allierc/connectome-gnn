@@ -3,19 +3,22 @@ Figure: simulated neural activity at three intrinsic-noise levels.
 
 Layout (2 rows × 3 columns)
 ---------------------------
-  Row 1 (a–c): type-mean voltage heatmap — 65 cell types × 7 999 frames,
-               z-scored per type, sorted by anatomical order.
-               Conveys the full scale of the training dataset.
+  Row 1 (a–c): type-mean voltage heatmap — 65 cell types × 2 000 frames,
+               z-scored per type (removes type-specific baseline/amplitude
+               so all types are equally visible), anatomically sorted.
+               Conveys the full dataset scale and type-specific dynamics.
   Row 2 (d–f): stacked voltage traces for 6 representative cell types
                (R1 · L1 · L2 · Mi1 · T4a · T5a) over a 500-frame window.
+               Red dashed line = visual-input stimulus I_i(t).
                Conveys the noise effect on individual neuronal dynamics.
 
 Columns left → right: σ = 0 (noise-free), σ = 0.05, σ = 0.5.
-step_v for traces is fixed from σ = 0 so noise is visually comparable.
+step_v for traces is fixed from σ = 0 data so noise is visually comparable.
 
-Input
------
-Three rollout_bundle.npz produced by GNN_Main -o test (graph_tester.py).
+Data source
+-----------
+x_list_train zarr (fields: voltage, stimulus, neuron_type) — the actual
+training data, not the test rollout bundle.
 
 Usage
 -----
@@ -36,7 +39,11 @@ import numpy as np
 # ── project imports ───────────────────────────────────────────────────────────
 REPO = os.path.join(os.path.dirname(__file__), '..')
 sys.path.insert(0, os.path.join(REPO, 'src'))
-from connectome_gnn.metrics import ANATOMICAL_ORDER
+
+from connectome_gnn.config import NeuralGraphConfig
+from connectome_gnn.metrics import ANATOMICAL_ORDER, INDEX_TO_NAME
+from connectome_gnn.utils import set_data_root, graphs_data_path, add_pre_folder
+from connectome_gnn.zarr_io import load_simulation_data
 
 # ── font style (INSTRUCTIONS.md §style) ──────────────────────────────────────
 plt.rcParams.update({
@@ -46,14 +53,14 @@ plt.rcParams.update({
     'mathtext.fontset': 'dejavusans',
 })
 
-# ── font sizes (col_width ≈ 7 in / 10 → _S = 0.52, INSTRUCTIONS.md §font) ───
+# ── font sizes (col ≈ 7 in, _S = 0.52, INSTRUCTIONS.md §font) ────────────────
 _S        = 0.52
-FS_LABEL  = int(48 * _S)    # axis labels
-FS_TICK   = int(24 * _S)    # tick labels
-FS_ANNOT  = int(28 * _S)    # type-name annotations in trace panel
-FS_TITLE  = 17              # panel subtitle (fixed, INSTRUCTIONS.md)
-PANEL_LBL = 20              # a)–f) (fixed, never scaled)
-FS_CBAR   = int(22 * _S)    # colorbar label / ticks
+FS_LABEL  = int(48 * _S)   # axis labels
+FS_TICK   = int(24 * _S)   # tick labels
+FS_ANNOT  = int(28 * _S)   # type-name annotations in trace panel
+FS_TITLE  = 17             # panel subtitle  (fixed, INSTRUCTIONS.md)
+PANEL_LBL = 20             # a)–f)           (fixed, never scaled)
+FS_CBAR   = int(22 * _S)   # colorbar label
 
 # ── data ──────────────────────────────────────────────────────────────────────
 DATA_ROOT = '/groups/saalfeld/home/allierc/GraphData'
@@ -62,108 +69,139 @@ CONFIGS = [
     ('flyvis_noise_005',  DATA_ROOT, r'$\sigma = 0.05$'),
     ('flyvis_noise_05',   DATA_ROOT, r'$\sigma = 0.5$'),
 ]
+N_HEATMAP_FRAMES = 2000    # frames loaded for the heatmap (zarr subsample)
 
 # ── selected types for trace panels ──────────────────────────────────────────
-# Covers the canonical visual pathway: photoreceptors → lamina → medulla
-# → direction-selective. Type indices from type_names list (alphabetical order).
-#   R1=23, L1=5, L2=6, Mi1=12, T4a=35, T5a=39
+# Type indices in the alphabetical list (R1=23, L1=5, L2=6, Mi1=12, T4a=35, T5a=39)
 SELECTED_TYPES = [23, 5, 6, 12, 35, 39]
-TRACE_START    = 0
-TRACE_END      = 500
+TRACE_START    = 100
+TRACE_END      = 600   # 500-frame window
 
-# ── heatmap style ────────────────────────────────────────────────────────────
-CMAP   = 'RdBu_r'
-VLIM   = 2.0      # ±2 σ clipping
-COLOR  = '#1a5276' # single trace color — consistent across noise levels
+# ── heatmap style ─────────────────────────────────────────────────────────────
+CMAP  = 'RdBu_r'
+VLIM  = 2.0          # ±2 σ clipping for z-scored heatmap
+
+# ── trace colors — match graph_tester.py ─────────────────────────────────────
+COLOR_GT   = '#66cc66'   # green  — voltage trace
+COLOR_STIM = 'red'       # red    — stimulus
+LW_GT      = 1.5
+LW_STIM    = 0.8
+
+
+# ---------------------------------------------------------------------------
+# Data loading
+# ---------------------------------------------------------------------------
+
+def load_training_data(config_name, data_root):
+    """Load voltage, stimulus, and per-neuron type_ids from x_list_train zarr.
+
+    Returns
+    -------
+    voltage  : (n_neurons, N_HEATMAP_FRAMES)  float32
+    stimulus : (n_neurons, N_HEATMAP_FRAMES)  float32
+    type_ids : (n_neurons,)                   int
+    """
+    set_data_root(data_root)
+    cfg_path = os.path.join(REPO, 'config', 'fly', f'{config_name}.yaml')
+    config   = NeuralGraphConfig.from_yaml(cfg_path)
+    _, pre   = add_pre_folder(config_name)
+    if not config.dataset.startswith(pre):
+        config.dataset = pre + config.dataset
+
+    gdata_dir = graphs_data_path(config.dataset)
+    x_ts = load_simulation_data(
+        os.path.join(gdata_dir, 'x_list_train'),
+        fields=['voltage', 'stimulus', 'neuron_type'],
+    )
+    # subsample frames for speed (zarr lazy-loads only what is requested)
+    voltage  = x_ts.voltage[:N_HEATMAP_FRAMES].numpy().T.astype(np.float32)
+    stimulus = x_ts.stimulus[:N_HEATMAP_FRAMES].numpy().T.astype(np.float32)
+    type_ids = x_ts.neuron_type.numpy().astype(int)   # (n_neurons,)
+    return voltage, stimulus, type_ids
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _bundle_path(config_name, data_root):
-    return os.path.join(data_root, 'log', 'fly', config_name,
-                        'results', 'rollout_bundle.npz')
+def _type_heatmap(voltage, type_ids, n_types, anat_order):
+    """Type-mean voltage, z-scored per type, anatomically sorted.
 
+    z-scoring (subtract each type's mean, divide by its std) removes the
+    type-specific voltage baseline and amplitude, making all 65 types
+    equally visible in the heatmap regardless of absolute scale.
 
-def _type_heatmap(activity_true, type_ids, n_types):
-    """Mean voltage per type, z-scored across time. Returns (n_types, n_frames)."""
-    n_frames = activity_true.shape[1]
-    heat = np.zeros((n_types, n_frames), dtype=np.float32)
+    Returns (n_sorted_types, n_frames) array and corresponding name list.
+    """
+    n_frames  = voltage.shape[1]
+    type_mean = np.zeros((n_types, n_frames), dtype=np.float32)
     for t in range(n_types):
         mask = type_ids == t
         if mask.sum() > 0:
-            heat[t] = activity_true[mask].mean(axis=0)
-    mu  = heat.mean(axis=1, keepdims=True)
-    std = heat.std(axis=1,  keepdims=True)
-    return (heat - mu) / (std + 1e-6)
-
-
-def _selected_traces(activity_true, type_ids):
-    """Return dict type_idx → (n_frames,) trace for one neuron per selected type."""
-    out = {}
-    for t in SELECTED_TYPES:
-        rows = np.where(type_ids == t)[0]
-        if len(rows):
-            out[t] = activity_true[rows[0], TRACE_START:TRACE_END]
-    return out
+            type_mean[t] = voltage[mask].mean(axis=0)
+    mu  = type_mean.mean(axis=1, keepdims=True)
+    std = type_mean.std(axis=1,  keepdims=True)
+    z   = (type_mean - mu) / (std + 1e-6)
+    valid = [i for i in anat_order if i is not None and i < n_types]
+    names = [INDEX_TO_NAME.get(i, f'Type{i}') for i in valid]
+    return z[valid], names
 
 
 # ---------------------------------------------------------------------------
-# Load all data (one bundle at a time to limit peak memory)
+# Load all data (one config at a time to keep peak memory low)
 # ---------------------------------------------------------------------------
-# anatomical sort order (filter None and out-of-range indices)
-n_types_ref = 65
-anat_order  = [i for i in ANATOMICAL_ORDER if i is not None and i < n_types_ref]
+anat_order = ANATOMICAL_ORDER   # may contain None at index 0
+n_types    = len(INDEX_TO_NAME) # 65
 
-heatmaps     = []
-trace_sets   = []
-type_names_ref = None
+heatmaps   = []
+trace_data = []   # list of (voltage, stimulus, type_ids) for trace window only
+sorted_names_ref = None
 
-for config_name, data_root, _ in CONFIGS:
-    path = _bundle_path(config_name, data_root)
+for config_name, data_root, sigma_lbl in CONFIGS:
     print(f'loading {config_name} ...')
-    b = np.load(path, allow_pickle=True)
-    act   = b['activity_true']                # (n_neurons, n_frames)
-    tids  = b['type_ids'].astype(int)
-    tname = list(b['type_names'])
-    n_types = len(tname)
-    if type_names_ref is None:
-        type_names_ref = tname
+    voltage, stimulus, type_ids = load_training_data(config_name, data_root)
 
-    hz = _type_heatmap(act, tids, n_types)    # (n_types, n_frames)
-    heatmaps.append(hz[anat_order])           # anatomically sorted
+    # heatmap over all N_HEATMAP_FRAMES
+    hz, snames = _type_heatmap(voltage, type_ids, n_types, anat_order)
+    heatmaps.append(hz)
+    if sorted_names_ref is None:
+        sorted_names_ref = snames
 
-    trace_sets.append(_selected_traces(act, tids))
-    del act                                   # free 400 MB
+    # keep only the trace window to save memory
+    v_win   = voltage[:,  TRACE_START:TRACE_END]   # (n_neurons, 500)
+    s_win   = stimulus[:, TRACE_START:TRACE_END]   # (n_neurons, 500)
+    trace_data.append((v_win, s_win, type_ids))
 
-sorted_names = [type_names_ref[i] for i in anat_order]
+    del voltage, stimulus   # free ~400 MB
 
-# step_v fixed from σ=0 data so noise is visually comparable across columns
-free_traces = np.array(list(trace_sets[0].values()))   # (6, 500)
-activity_std = np.std(free_traces)
-step_v = max(0.5, 3.0 * activity_std)
+# fixed step_v from σ=0 (noise-free) data so noise effect is visually comparable
+v_free, _, tids_free = trace_data[0]
+free_traces = np.stack([v_free[np.where(tids_free == t)[0][0]]
+                        for t in SELECTED_TYPES
+                        if len(np.where(tids_free == t)[0]) > 0])
+step_v = max(0.5, 3.0 * float(np.std(free_traces)))
 
 
 # ---------------------------------------------------------------------------
 # Build figure
 # ---------------------------------------------------------------------------
 fig, axes = plt.subplots(
-    2, 3, figsize=(21, 9.5), dpi=300,
+    2, 3, figsize=(21, 11), dpi=300,
     constrained_layout=True,
-    gridspec_kw={'height_ratios': [2, 3]},
+    gridspec_kw={'height_ratios': [3, 2.5]},   # taller heatmap row
 )
 
-n_types_plot = len(anat_order)
-n_frames     = heatmaps[0].shape[1]
+n_sorted  = len(sorted_names_ref)
+n_frames  = heatmaps[0].shape[1]
+n_tframes = TRACE_END - TRACE_START
 
 last_im = None
-for col, (heat_z, traces, (_, _, sigma_lbl)) in enumerate(
-        zip(heatmaps, trace_sets, CONFIGS)):
+for col, (hz, (v_win, s_win, type_ids), (_, _, sigma_lbl)) in enumerate(
+        zip(heatmaps, trace_data, CONFIGS)):
 
     # ── row 0: heatmap ────────────────────────────────────────────────────────
     ax_h = axes[0, col]
-    im   = ax_h.imshow(heat_z, aspect='auto', interpolation='nearest',
+    im   = ax_h.imshow(hz, aspect='auto', interpolation='nearest',
                        cmap=CMAP, vmin=-VLIM, vmax=VLIM, origin='upper')
     last_im = im
     ax_h.set_title(sigma_lbl, fontsize=FS_TITLE, pad=4)
@@ -172,38 +210,54 @@ for col, (heat_z, traces, (_, _, sigma_lbl)) in enumerate(
                           fontsize=FS_TICK)
     ax_h.set_xlabel('frame', fontsize=FS_LABEL)
     if col == 0:
-        ax_h.set_yticks(range(n_types_plot))
-        ax_h.set_yticklabels(sorted_names, fontsize=6)
+        ax_h.set_yticks(range(n_sorted))
+        ax_h.set_yticklabels(sorted_names_ref, fontsize=7)
         ax_h.set_ylabel('cell type', fontsize=FS_LABEL)
     else:
         ax_h.set_yticks([])
 
     # ── row 1: traces ─────────────────────────────────────────────────────────
-    ax_t  = axes[1, col]
-    row   = 0
+    ax_t = axes[1, col]
+    row  = 0
+    first_gt   = True
+    first_stim = True
     for t_idx in SELECTED_TYPES:
-        if t_idx not in traces:
+        neuron_rows = np.where(type_ids == t_idx)[0]
+        if len(neuron_rows) == 0:
             continue
-        trace = traces[t_idx]
+        nid   = neuron_rows[0]
+        trace = v_win[nid]
+        stim  = s_win[nid]
         bl    = trace.mean()
+
+        # voltage trace (green)
         ax_t.plot(trace - bl + row * step_v,
-                  lw=0.9, color=COLOR, alpha=0.9)
-        ax_t.text(-(TRACE_END - TRACE_START) * 0.025, row * step_v,
-                  type_names_ref[t_idx],
+                  lw=LW_GT, color=COLOR_GT, alpha=0.9,
+                  label='ground truth' if first_gt else None)
+        first_gt = False
+
+        # stimulus trace (red dashed) — only when non-trivial
+        if stim.mean() > 0:
+            ax_t.plot(stim - stim.mean() + row * step_v,
+                      lw=LW_STIM, color=COLOR_STIM, alpha=0.9,
+                      linestyle='--',
+                      label='stimulus' if first_stim else None)
+            first_stim = False
+
+        # type-name label on the left
+        ax_t.text(-n_tframes * 0.025, row * step_v,
+                  INDEX_TO_NAME.get(t_idx, f'Type{t_idx}'),
                   fontsize=FS_ANNOT, va='bottom', ha='right', color='black')
         row += 1
 
-    n_rows   = row
-    n_tframes = TRACE_END - TRACE_START
+    n_rows = row
     ax_t.set_ylim([-step_v, (n_rows - 1) * step_v + step_v])
     ax_t.set_yticks([])
     ax_t.set_xticks([0, n_tframes // 2, n_tframes])
-    ax_t.set_xticklabels([TRACE_START,
-                           (TRACE_START + TRACE_END) // 2,
-                           TRACE_END], fontsize=FS_TICK)
+    ax_t.set_xticklabels([TRACE_START, (TRACE_START + TRACE_END) // 2, TRACE_END],
+                          fontsize=FS_TICK)
     ax_t.set_xlabel('frame', fontsize=FS_LABEL)
-    ax_t.set_xlim([-(TRACE_END - TRACE_START) * 0.08,
-                    (TRACE_END - TRACE_START) * 1.05])
+    ax_t.set_xlim([-n_tframes * 0.08, n_tframes * 1.05])
     ax_t.set_title(sigma_lbl, fontsize=FS_TITLE, pad=4)
     ax_t.spines['top'].set_visible(False)
     ax_t.spines['right'].set_visible(False)
@@ -211,22 +265,35 @@ for col, (heat_z, traces, (_, _, sigma_lbl)) in enumerate(
     if col == 0:
         ax_t.set_ylabel('voltage (a.u.)', fontsize=FS_LABEL)
 
+    # legend only on the rightmost trace panel
+    if col == 2:
+        ax_t.legend(loc='upper right', bbox_to_anchor=(1.0, 1.0),
+                    bbox_transform=ax_t.transAxes,
+                    fontsize=int(20 * _S), frameon=False)
+
 # ── shared colorbar (right of top-right heatmap) ─────────────────────────────
 cbar = fig.colorbar(last_im, ax=axes[0, 2], shrink=0.95, pad=0.02)
 cbar.set_label('z-scored voltage', fontsize=FS_CBAR)
 cbar.ax.tick_params(labelsize=FS_TICK)
 
-# ── panel labels at outer box top-left, all at same y (INSTRUCTIONS.md) ──────
+# ── panel labels — row 0 aligned together, row 1 aligned together ─────────────
+# (INSTRUCTIONS.md: use y1_max per row so labels within each row share the
+#  same y; rows at different heights naturally get their own y level)
 fig.canvas.draw()
-renderer = fig.canvas.get_renderer()
-inv      = fig.transFigure.inverted()
-all_axes = list(axes[0]) + list(axes[1])
-bboxes   = [ax.get_tightbbox(renderer) for ax in all_axes]
-y1_max   = max(inv.transform((bb.x0, bb.y1))[1] for bb in bboxes)
-for bb, lbl in zip(bboxes, ['a)', 'b)', 'c)', 'd)', 'e)', 'f)']):
-    x0 = inv.transform((bb.x0, bb.y1))[0]
-    fig.text(x0, y1_max, lbl, fontsize=PANEL_LBL, fontweight='bold',
-             va='bottom', ha='left', color='black', transform=fig.transFigure)
+renderer  = fig.canvas.get_renderer()
+inv       = fig.transFigure.inverted()
+
+for row_axes, row_labels in [
+    (axes[0], ['a)', 'b)', 'c)']),
+    (axes[1], ['d)', 'e)', 'f)']),
+]:
+    bboxes = [ax.get_tightbbox(renderer) for ax in row_axes]
+    y1_max = max(inv.transform((bb.x0, bb.y1))[1] for bb in bboxes)
+    for bb, lbl in zip(bboxes, row_labels):
+        x0 = inv.transform((bb.x0, bb.y1))[0]
+        fig.text(x0, y1_max, lbl, fontsize=PANEL_LBL, fontweight='bold',
+                 va='bottom', ha='left', color='black',
+                 transform=fig.transFigure)
 
 # ── save ─────────────────────────────────────────────────────────────────────
 OUT_DIR  = os.path.dirname(os.path.abspath(__file__))
