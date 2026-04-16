@@ -68,13 +68,13 @@ from connectome_gnn.generators.utils import (
     greedy_blue_mask,
     is_adex_model,
     is_connconstr_model,
+    is_flyvis_hybrid_model,
     is_hodgkin_huxley_model,
     mseq_bits,
 )
 from connectome_gnn.utils import get_datavis_root_dir, graphs_data_path, to_numpy
 
 logger = get_logger(__name__)
-
 
 
 def data_generate(
@@ -96,12 +96,15 @@ def data_generate(
 
     logger.info(f"dataset: {config.dataset}")
 
-    if (os.path.isdir(graphs_data_path(config.dataset, "x_list_train"))
+    if (
+        os.path.isdir(graphs_data_path(config.dataset, "x_list_train"))
         or os.path.isfile(graphs_data_path(config.dataset, "x_list_0.npy"))
         or os.path.isfile(graphs_data_path(config.dataset, "x_list_0.pt"))
     ):
-        logger.warning("watch out: data already generated")
-        # return
+        if not erase:
+            logger.info("data already generated, skipping (use --force to regenerate)")
+            return
+        logger.warning("data already exists, erasing and regenerating (--force)")
 
     if config.data_folder_name != "none":
         generate_from_data(config=config, device=device, visualize=visualize, style=style, step=step)
@@ -189,7 +192,7 @@ def data_generate_connconstr(config, visualize=True, device=None, save=True, era
     OdeParamsCls = get_ode_params_class(model_name)
     datapath = sim.connconstr_datapath
 
-    if sim.connconstr_use_pretrained and hasattr(OdeParamsCls, 'from_pretrained'):
+    if sim.connconstr_use_pretrained and hasattr(OdeParamsCls, "from_pretrained"):
         try:
             ode_params = OdeParamsCls.from_pretrained(datapath, device=device)
             logger.info(f"loaded pretrained params for {model_name}")
@@ -225,8 +228,9 @@ def data_generate_connconstr(config, visualize=True, device=None, save=True, era
         voltage=torch.zeros(n_neurons, dtype=torch.float32, device=device),
         stimulus=torch.zeros(n_neurons, dtype=torch.float32, device=device),
         group_type=torch.zeros(n_neurons, dtype=torch.long, device=device),
-        neuron_type=ode_params.neuron_types if hasattr(ode_params, 'neuron_types') and ode_params.neuron_types is not None
-                    else torch.zeros(n_neurons, dtype=torch.long, device=device),
+        neuron_type=ode_params.neuron_types
+        if hasattr(ode_params, "neuron_types") and ode_params.neuron_types is not None
+        else torch.zeros(n_neurons, dtype=torch.long, device=device),
         calcium=torch.zeros(n_neurons, dtype=torch.float32, device=device),
         fluorescence=torch.zeros(n_neurons, dtype=torch.float32, device=device),
         noise=torch.zeros(n_neurons, dtype=torch.float32, device=device),
@@ -290,9 +294,11 @@ def data_generate_connconstr(config, visualize=True, device=None, save=True, era
                 dv_squeeze = dv.squeeze()
 
                 if sim.noise_model_level > 0:
-                    x.voltage = x.voltage + dt * dv_squeeze + torch.randn(
-                        n_neurons, dtype=torch.float32, device=device
-                    ) * sim.noise_model_level
+                    x.voltage = (
+                        x.voltage
+                        + dt * dv_squeeze
+                        + torch.randn(n_neurons, dtype=torch.float32, device=device) * sim.noise_model_level
+                    )
                 else:
                     x.voltage = x.voltage + dt * dv_squeeze
 
@@ -308,8 +314,16 @@ def data_generate_connconstr(config, visualize=True, device=None, save=True, era
             sim.measurement_noise_level = _saved_noise_meas
 
     # --- Compute effective ranks (W matrix, activity, stimulus) ---
-    logger.info('computing effective rank ...')
-    from sklearn.utils.extmath import randomized_svd
+    logger.info("computing effective rank ...")
+
+    def _svd_lowrank(matrix_np, n_components, dev):
+        """Randomized SVD via torch.svd_lowrank (GPU-accelerated when available)."""
+        t = torch.as_tensor(matrix_np, dtype=torch.float32, device=dev)
+        _, S, _ = torch.svd_lowrank(t, q=n_components + 10, niter=4)
+        return S[:n_components].cpu().numpy()
+
+    _svd_device = torch.device(device) if (device and device != 'cpu' and torch.cuda.is_available()) else torch.device('cpu')
+    logger.info(f"  SVD device: {_svd_device}")
 
     # W matrix rank from dense reconstruction
     ei_np = to_numpy(edge_index)
@@ -317,18 +331,19 @@ def data_generate_connconstr(config, visualize=True, device=None, save=True, era
     W_dense = np.zeros((n_neurons, n_neurons), dtype=np.float32)
     W_dense[ei_np[0], ei_np[1]] = W_np
     n_comp_w = min(50, min(W_dense.shape) - 1)
-    _, S_w, _ = randomized_svd(W_dense, n_components=n_comp_w, random_state=0)
+    S_w = _svd_lowrank(W_dense, n_comp_w, _svd_device)
     cumvar_w = np.cumsum(S_w**2) / np.sum(S_w**2)
     rank_90_w = int(np.searchsorted(cumvar_w, 0.90) + 1)
     rank_99_w = int(np.searchsorted(cumvar_w, 0.99) + 1)
-    logger.info(f'W matrix rank(90%)={rank_90_w}  rank(99%)={rank_99_w}')
+    logger.info(f"W matrix rank(90%)={rank_90_w}  rank(99%)={rank_99_w}")
 
     # Activity rank from train zarr
     from connectome_gnn.zarr_io import load_simulation_data
+
     x_ts = load_simulation_data(graphs_data_path(config.dataset, "x_list_train"))
     activity_full = x_ts.voltage.numpy()
     n_comp_a = min(50, min(activity_full.shape) - 1)
-    _, S_act, _ = randomized_svd(activity_full, n_components=n_comp_a, random_state=0)
+    S_act = _svd_lowrank(activity_full, n_comp_a, _svd_device)
     cumvar_act = np.cumsum(S_act**2) / np.sum(S_act**2)
     rank_90_act = int(np.searchsorted(cumvar_act, 0.90) + 1)
     rank_99_act = int(np.searchsorted(cumvar_act, 0.99) + 1)
@@ -338,29 +353,31 @@ def data_generate_connconstr(config, visualize=True, device=None, save=True, era
     activity_centered = activity_full - activity_full.mean(axis=0, keepdims=True)
     centered_var = np.sum(activity_centered**2)
     if centered_var > 1e-12:
-        _, S_mc, _ = randomized_svd(activity_centered, n_components=n_comp_a, random_state=0)
+        S_mc = _svd_lowrank(activity_centered, n_comp_a, _svd_device)
         cumvar_mc = np.cumsum(S_mc**2) / centered_var
         rank_90_mc = int(np.searchsorted(cumvar_mc, 0.90) + 1)
         rank_99_mc = int(np.searchsorted(cumvar_mc, 0.99) + 1)
     else:
         rank_90_mc = rank_99_mc = 0
-    logger.info(f'activity rank(90%)={rank_90_act}  rank(99%)={rank_99_act}  mean-centered rank(90%)={rank_90_mc}  rank(99%)={rank_99_mc}')
+    logger.info(
+        f"activity rank(90%)={rank_90_act}  rank(99%)={rank_99_act}  mean-centered rank(90%)={rank_90_mc}  rank(99%)={rank_99_mc}"
+    )
 
     # Stimulus rank
     stim_full = x_ts.stimulus.numpy()
     n_comp_s = min(50, min(stim_full.shape) - 1)
     if n_comp_s > 0 and np.abs(stim_full).max() > 1e-12:
-        _, S_stim, _ = randomized_svd(stim_full, n_components=n_comp_s, random_state=0)
+        S_stim = _svd_lowrank(stim_full, n_comp_s, _svd_device)
         cumvar_stim = np.cumsum(S_stim**2) / np.sum(S_stim**2)
         rank_90_stim = int(np.searchsorted(cumvar_stim, 0.90) + 1)
         rank_99_stim = int(np.searchsorted(cumvar_stim, 0.99) + 1)
     else:
         rank_90_stim = rank_99_stim = 0
-    logger.info(f'stimulus rank(90%)={rank_90_stim}  rank(99%)={rank_99_stim}')
+    logger.info(f"stimulus rank(90%)={rank_90_stim}  rank(99%)={rank_99_stim}")
 
     # Write rank info to logfile in dataset folder
     rank_log_path = os.path.join(folder, "rank_info.txt")
-    with open(rank_log_path, 'w') as f:
+    with open(rank_log_path, "w") as f:
         f.write(f"model: {model_name}\n")
         f.write(f"n_neurons: {n_neurons}\n")
         f.write(f"n_edges: {edge_index.shape[1]}\n")
@@ -370,16 +387,27 @@ def data_generate_connconstr(config, visualize=True, device=None, save=True, era
         f.write(f"stimulus rank(90%): {rank_90_stim}  rank(99%): {rank_99_stim}\n")
 
     rank_info = {
-        'rank_90_w': rank_90_w, 'rank_99_w': rank_99_w,
-        'rank_90_act': rank_90_act, 'rank_99_act': rank_99_act,
-        'rank_90_mc': rank_90_mc, 'rank_99_mc': rank_99_mc,
-        'rank_90_stim': rank_90_stim, 'rank_99_stim': rank_99_stim,
+        "rank_90_w": rank_90_w,
+        "rank_99_w": rank_99_w,
+        "rank_90_act": rank_90_act,
+        "rank_99_act": rank_99_act,
+        "rank_90_mc": rank_90_mc,
+        "rank_99_mc": rank_99_mc,
+        "rank_90_stim": rank_90_stim,
+        "rank_99_stim": rank_99_stim,
     }
 
     if visualize and voltage_history:
         plot_connconstr_diagnostics(
-            voltage_history, stimulus_history, ode_params, edge_index,
-            model_name, n_neurons, dt, config, device,
+            voltage_history,
+            stimulus_history,
+            ode_params,
+            edge_index,
+            model_name,
+            n_neurons,
+            dt,
+            config,
+            device,
             frame_indices=frame_index_history,
             rank_info=rank_info,
         )
@@ -393,14 +421,23 @@ def generate_from_data(config, device, visualize=True, step=None, cmap=None, sty
     elif "NeuroPAL" in data_folder_name:
         # load_neuropal_data(config, device, visualize, step)  # TODO: Function not yet implemented
         raise NotImplementedError("NeuroPAL data loading not yet implemented")
-    elif 'Zapbench' in data_folder_name:
+    elif "Zapbench" in data_folder_name:
         load_zebrafish_data(config, device, visualize, step, cmap, style)
     else:
         raise ValueError(f"Unknown data folder name {data_folder_name}")
 
 
-def data_generate_spiking(config, visualize=True, run_vizualized=0, style="color", erase=False, step=5, device=None,
-                              save=True, compute_ranks=True):
+def data_generate_spiking(
+    config,
+    visualize=True,
+    run_vizualized=0,
+    style="color",
+    erase=False,
+    step=5,
+    device=None,
+    save=True,
+    compute_ranks=True,
+):
     """Generate spiking (AdEx) simulation data using the flyvis connectome.
 
     Uses the same visual stimulus pipeline as data_generate_voltage,
@@ -437,7 +474,9 @@ def data_generate_spiking(config, visualize=True, run_vizualized=0, style="color
     n_frames = sim.n_frames
 
     synapse_model = "COBA" if "coba" in model_config.signal_model_name else "CUBA"
-    logger.info(f"generating spiking data ... {model_config.signal_model_name}  synapse_model: {synapse_model}  seed: {sim.seed}")
+    logger.info(
+        f"generating spiking data ... {model_config.signal_model_name}  synapse_model: {synapse_model}  seed: {sim.seed}"
+    )
 
     os.makedirs(graphs_data_path("fly"), exist_ok=True)
     folder = graphs_data_path(config.dataset) + "/"
@@ -494,13 +533,15 @@ def data_generate_spiking(config, visualize=True, run_vizualized=0, style="color
 
     # Build spiking ODE params from flyvis connectome
     adex_overrides = {}
-    if hasattr(sim, 'adex_stim_scale'):
-        adex_overrides['stim_scale'] = sim.adex_stim_scale
-    if hasattr(sim, 'adex_I_bias'):
-        adex_overrides['I_bias'] = sim.adex_I_bias
+    if hasattr(sim, "adex_stim_scale"):
+        adex_overrides["stim_scale"] = sim.adex_stim_scale
+    if hasattr(sim, "adex_I_bias"):
+        adex_overrides["I_bias"] = sim.adex_I_bias
 
     ode_params = FlyVisAdExODEParams.from_flyvis_network(
-        net, synapse_model=synapse_model, device=device,
+        net,
+        synapse_model=synapse_model,
+        device=device,
         overrides=adex_overrides if adex_overrides else None,
     )
 
@@ -535,14 +576,14 @@ def data_generate_spiking(config, visualize=True, run_vizualized=0, style="color
     x.noise = torch.zeros(n_neurons, dtype=torch.float32, device=device)
 
     # AdEx integration timestep (ms) — much finer than graded model
-    adex_dt = getattr(sim, 'adex_dt', 0.2)  # default 0.2 ms
+    adex_dt = getattr(sim, "adex_dt", 0.2)  # default 0.2 ms
     # Number of AdEx substeps per stimulus frame
     substeps = max(1, int(sim.delta_t / adex_dt))
     logger.info(f"AdEx dt={adex_dt}ms, stimulus dt={sim.delta_t}ms, substeps={substeps}")
 
     # Train/test split (same logic as graded model)
     df = stimulus_dataset.arg_df
-    original_indices = df['original_index'].values
+    original_indices = df["original_index"].values
     unique_videos = sorted(set(original_indices))
     n_train_vids = int(len(unique_videos) * 0.8)
     train_video_set = set(unique_videos[:n_train_vids])
@@ -553,13 +594,14 @@ def data_generate_spiking(config, visualize=True, run_vizualized=0, style="color
     train_sequences = [stimulus_dataset[i] for i in train_indices]
     test_sequences = [stimulus_dataset[i] for i in test_indices]
 
-    logger.info(f"subdirectory split: {n_train_vids} train / {len(unique_videos) - n_train_vids} test videos"
-                f"  ({len(train_indices)} train seqs, {len(test_indices)} test seqs)")
+    logger.info(
+        f"subdirectory split: {n_train_vids} train / {len(unique_videos) - n_train_vids} test videos"
+        f"  ({len(train_indices)} train seqs, {len(test_indices)} test seqs)"
+    )
 
     frames_per_sequence = 35
 
-    def _run_spiking_generation(sequences, x, split_name, target_frames,
-                                record_plot_frames=0):
+    def _run_spiking_generation(sequences, x, split_name, target_frames, record_plot_frames=0):
         """Inner loop: run AdEx simulation over stimulus sequences.
 
         Args:
@@ -600,7 +642,7 @@ def data_generate_spiking(config, visualize=True, run_vizualized=0, style="color
                     frame = lum[frame_id][None, None]
                     net.stimulus.add_input(frame)
                     x.stimulus[:] = 0
-                    x.stimulus[:sim.n_input_neurons] = net.stimulus().squeeze()[:sim.n_input_neurons]
+                    x.stimulus[: sim.n_input_neurons] = net.stimulus().squeeze()[: sim.n_input_neurons]
 
                     # Record state BEFORE integration (same convention as graded model)
                     x_writer.append_state(x)
@@ -614,7 +656,7 @@ def data_generate_spiking(config, visualize=True, run_vizualized=0, style="color
                         if plot_frames_left > 0:
                             v_record.append(to_numpy(x.voltage.clone()))
                             spike_record.append(to_numpy(x.spiked.clone()))
-                            stim_record.append(to_numpy(x.stimulus[:sim.n_input_neurons].clone()))
+                            stim_record.append(to_numpy(x.stimulus[: sim.n_input_neurons].clone()))
 
                     if plot_frames_left > 0:
                         plot_frames_left -= 1
@@ -635,16 +677,16 @@ def data_generate_spiking(config, visualize=True, run_vizualized=0, style="color
         plot_data = None
         if v_record:
             plot_data = {
-                'voltage': np.stack(v_record, axis=1),       # (N, T_substeps)
-                'spike_raster': np.stack(spike_record, axis=1),  # (N, T_substeps)
-                'stimulus': np.stack(stim_record, axis=1),    # (n_input, T_substeps)
+                "voltage": np.stack(v_record, axis=1),  # (N, T_substeps)
+                "spike_raster": np.stack(spike_record, axis=1),  # (N, T_substeps)
+                "stimulus": np.stack(stim_record, axis=1),  # (n_input, T_substeps)
             }
         return n_written, plot_data
 
     # --- Generate TRAIN split ---
     total_frames_per_pass = len(train_sequences) * frames_per_sequence
     if n_frames == 0:
-        target_frames = float('inf')
+        target_frames = float("inf")
     else:
         target_frames = n_frames
 
@@ -652,7 +694,10 @@ def data_generate_spiking(config, visualize=True, run_vizualized=0, style="color
     plot_record_frames = 400
     logger.info(f"generating spiking TRAIN data ({target_frames} frames from {len(train_sequences)} sequences)...")
     n_frames_train, train_plot_data = _run_spiking_generation(
-        train_sequences, x, "train", target_frames,
+        train_sequences,
+        x,
+        "train",
+        target_frames,
         record_plot_frames=plot_record_frames,
     )
     logger.info(f"generated {n_frames_train} spiking TRAIN frames")
@@ -664,9 +709,9 @@ def data_generate_spiking(config, visualize=True, run_vizualized=0, style="color
         os.makedirs(dataset_dir, exist_ok=True)
         is_exc_np = to_numpy(ode_params.is_excitatory)
         plot_spiking_traces(
-            voltage=train_plot_data['voltage'],
-            spike_raster=train_plot_data['spike_raster'],
-            stimulus=train_plot_data['stimulus'],
+            voltage=train_plot_data["voltage"],
+            spike_raster=train_plot_data["spike_raster"],
+            stimulus=train_plot_data["stimulus"],
             is_excitatory=is_exc_np,
             type_list=node_types_int,
             output_path=dataset_dir,
@@ -697,8 +742,17 @@ def data_generate_spiking(config, visualize=True, run_vizualized=0, style="color
     logger.info("spiking data generation complete")
 
 
-def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color", erase=False, step=5, device=None,
-                              save=True, compute_ranks=True):
+def data_generate_voltage(
+    config,
+    visualize=True,
+    run_vizualized=0,
+    style="color",
+    erase=False,
+    step=5,
+    device=None,
+    save=True,
+    compute_ranks=True,
+):
 
     fig_style = dark_style if "black" in style else default_style
     fig_style.apply_globally()
@@ -733,7 +787,9 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
     n_frames = sim.n_frames
     n_neurons = sim.n_neurons
 
-    logger.info(f"generating data ... {model_config.signal_model_name}  dynamics_noise: {sim.noise_model_level}  measurement_noise: {sim.measurement_noise_level}  seed: {sim.seed}")
+    logger.info(
+        f"generating data ... {model_config.signal_model_name}  dynamics_noise: {sim.noise_model_level}  measurement_noise: {sim.measurement_noise_level}  seed: {sim.seed}"
+    )
 
     run = 0
 
@@ -772,12 +828,33 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
     # the slow stimulus rendering begins.
     import logging as _logging
     _logging.getLogger("flyvis.utils.logging_utils").setLevel(_logging.ERROR)
-    config_net = get_default_config(overrides=[], path=f"{CONFIG_PATH}/network/network.yaml")
-    config_net.connectome.extent = extent
-    net = Network(**config_net)
-    nnv = NetworkView(f"flow/{sim.ensemble_id}/{sim.model_id}")
-    trained_net = nnv.init_network(checkpoint=0)
-    net.load_state_dict(trained_net.state_dict())
+
+    if is_flyvis_hybrid_model(model_config.signal_model_name):
+        # --- Flywirevis hybrid: load pre-computed connectome tables ---
+        from connectome_gnn.generators.hybrid_connectome import load_hybrid_network
+
+        signal_name = model_config.signal_model_name
+        edge_uncertainty = getattr(sim, "edge_uncertainty", 1)
+        flyvis_model_id = f"flow/{sim.ensemble_id}/{sim.model_id}"
+        logger.info(f"loading hybrid network ({signal_name}, extent={extent}, u={edge_uncertainty})...")
+        net, _orig_net = load_hybrid_network(
+            signal_name=signal_name,
+            extent=extent,
+            edge_uncertainty=edge_uncertainty,
+            model=flyvis_model_id,
+        )
+        logger.info(
+            f"hybrid network: {net.connectome.nodes.type[:].shape[0]} nodes, "
+            f"{net.connectome.edges.source_index[:].shape[0]} edges"
+        )
+    else:
+        # --- Standard flyvis network ---
+        config_net = get_default_config(overrides=[], path=f"{CONFIG_PATH}/network/network.yaml")
+        config_net.connectome.extent = extent
+        net = Network(**config_net)
+        nnv = NetworkView(f"flow/{sim.ensemble_id}/{sim.model_id}")
+        trained_net = nnv.init_network(checkpoint=0)
+        net.load_state_dict(trained_net.state_dict())
     torch.set_grad_enabled(False)
 
     _node_types_str = [t.decode('utf-8') if isinstance(t, bytes) else str(t) for t in net.connectome.nodes["type"][:]]
@@ -789,7 +866,6 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
 
     # Initialize datasets
     if "DAVIS" in sim.visual_input_type or "mixed" in sim.visual_input_type:
-
         # determine dataset roots: use config list if provided, otherwise fall back to default
         if sim.datavis_roots:
             datavis_root_list = [os.path.join(r, "JPEGImages/480p") for r in sim.datavis_roots]
@@ -839,21 +915,22 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
             "interpolate": True,
             "boxfilter": dict(extent=extent, kernel_size=13),
             "vertical_splits": 3,
-            "center_crop_fraction": 0.7
+            "center_crop_fraction": 0.7,
         }
         stimulus_dataset = AugmentedSintel(**sintel_config)
 
     # Extract ground-truth parameters from flyvis connectome.
     if is_hh:
         hh_overrides = {}
-        if getattr(sim, 'hh_stim_scale', None) is not None:
-            hh_overrides['stim_scale'] = sim.hh_stim_scale
-        if getattr(sim, 'hh_I_bias', None) is not None:
-            hh_overrides['I_bias'] = sim.hh_I_bias
-        if getattr(sim, 'hh_w_scale', None) is not None:
-            hh_overrides['w_scale'] = sim.hh_w_scale
+        if getattr(sim, "hh_stim_scale", None) is not None:
+            hh_overrides["stim_scale"] = sim.hh_stim_scale
+        if getattr(sim, "hh_I_bias", None) is not None:
+            hh_overrides["I_bias"] = sim.hh_I_bias
+        if getattr(sim, "hh_w_scale", None) is not None:
+            hh_overrides["w_scale"] = sim.hh_w_scale
         ode_params = FlyVisHodgkinHuxleyODEParams.from_flyvis_network(
-            net, device=device, overrides=hh_overrides or None)
+            net, device=device, overrides=hh_overrides or None
+        )
     else:
         ode_params = FlyVisODEParams.from_flyvis_network(net, device=device)
     edge_index = ode_params.edge_index.to(device)
@@ -861,15 +938,17 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
     if sim.n_extra_null_edges > 0:
         logger.info(f"adding {sim.n_extra_null_edges} extra null edges (mode={sim.null_edges_mode})...")
         import random
+
         src_np = edge_index[0].cpu().numpy()
         dst_np = edge_index[1].cpu().numpy()
         existing_edges = set(zip(src_np, dst_np))
         extra_edges = []
 
-        if sim.null_edges_mode == 'per_column':
+        if sim.null_edges_mode == "per_column":
             # Per pre-synaptic neuron: add a proportional number of false targets
             # Compute out-degree per source neuron
             from collections import Counter
+
             out_degree = Counter(src_np.tolist())
             total_real = edge_index.shape[1]
             ratio = sim.n_extra_null_edges / total_real
@@ -896,8 +975,10 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
                     extra_edges.append([source, t])
                     existing_targets.add(t)
 
-            logger.info(f"per_column: added {len(extra_edges)} false edges "
-                        f"(requested ratio {ratio:.2f}, effective {len(extra_edges)/total_real:.2f})")
+            logger.info(
+                f"per_column: added {len(extra_edges)} false edges "
+                f"(requested ratio {ratio:.2f}, effective {len(extra_edges) / total_real:.2f})"
+            )
         else:
             # Random: sample uniformly across the full matrix
             max_attempts = sim.n_extra_null_edges * 10
@@ -927,10 +1008,11 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
         ablation_mask = torch.ones(n_edges, dtype=torch.bool, device=device)
         ablation_mask[ablate_indices] = False
         ode_params.W[~ablation_mask] = 0.0
-        logger.info(f"ablated {n_ablate}/{n_edges} edges ({sim.ablation_ratio*100:.0f}%)")
+        logger.info(f"ablated {n_ablate}/{n_edges} edges ({sim.ablation_ratio * 100:.0f}%)")
 
     if is_hh:
         from connectome_gnn.generators.flyvis_hodgkin_huxley_ode import FlyVisHodgkinHuxleyODE
+
         pde = FlyVisHodgkinHuxleyODE(ode_params=ode_params, device=device)
         p = ode_params
         logger.info(
@@ -946,8 +1028,14 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
             f"nonzero={int((p.W != 0).sum())}/{len(p.W)} edges"
         )
     else:
-        pde = FlyVisODE(ode_params=ode_params, g_phi=torch.nn.functional.relu, params=sim.params,
-                        model_type=model_config.signal_model_name, n_neuron_types=sim.n_neuron_types, device=device)
+        pde = FlyVisODE(
+            ode_params=ode_params,
+            g_phi=torch.nn.functional.relu,
+            params=sim.params,
+            model_type=model_config.signal_model_name,
+            n_neuron_types=sim.n_neuron_types,
+            device=device,
+        )
 
     _G = '\033[92m'  # green
     _R = '\033[91m'  # red
@@ -968,7 +1056,7 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
     node_types_str = [t.decode("utf-8") if isinstance(t, bytes) else str(t) for t in node_types]
     # available node types: {'T5d', 'R3', 'T2a', 'TmY14', 'R7', 'CT1(Lo1)', 'Tm4', 'TmY10', 'T4d', 'L1', 'R1', 'R6', 'Am', 'T2', 'Tm5Y', 'L5', 'Tm20', 'L2', 'Mi4', 'Mi12', 'T4c', 'TmY4', 'CT1(M10)', 'TmY15', 'Lawf1', 'T1', 'TmY13', 'Tm5b', 'Tm28', 'L3', 'R8', 'L4', 'C3', 'Mi14', 'Tm2', 'R5', 'R2', 'Mi15', 'Tm9', 'Tm16', 'T5a', 'Mi3', 'TmY9', 'T4b', 'Mi9', 'Mi1', 'T5b', 'Tm1', 'Lawf2', 'C2', 'T4a', 'TmY3', 'Mi2', 'T3', 'TmY5a', 'Mi11', 'Tm5a', 'TmY18', 'Tm30', 'R4', 'Mi13', 'Tm5c', 'T5c', 'Mi10', 'Tm3'}
     grouped_types = np.array([group_by_direction_and_function(t) for t in node_types_str])
-    _ , node_types_int = np.unique(node_types, return_inverse=True)
+    _, node_types_int = np.unique(node_types, return_inverse=True)
 
     X1 = torch.tensor(np.stack((x_coords, y_coords), axis=1), dtype=torch.float32, device=device)
 
@@ -1022,7 +1110,7 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
     # arg_df is aligned with cached_sequences (shuffle applied to both in _build).
     # Split by original_index so all augmentations of the same base video stay together.
     df = stimulus_dataset.arg_df
-    original_indices = df['original_index'].values
+    original_indices = df["original_index"].values
     unique_videos = sorted(set(original_indices))
     n_train_vids = int(len(unique_videos) * 0.8)
     train_video_set = set(unique_videos[:n_train_vids])
@@ -1032,16 +1120,18 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
     test_indices = [i for i, oi in enumerate(original_indices) if oi in test_video_set]
 
     # Extract the actual video subdirectory names for logging
-    train_video_names = sorted(set(df.iloc[train_indices]['name'].values))
-    test_video_names = sorted(set(df.iloc[test_indices]['name'].values))
+    train_video_names = sorted(set(df.iloc[train_indices]["name"].values))
+    test_video_names = sorted(set(df.iloc[test_indices]["name"].values))
 
     # Verify exclusivity
     train_name_set = set(train_video_names)
     test_name_set = set(test_video_names)
     overlap = train_name_set & test_name_set
     assert len(overlap) == 0, f"TRAIN/TEST OVERLAP: {overlap}"
-    logger.info(f"subdirectory split: {n_train_vids} train / {len(unique_videos) - n_train_vids} test videos"
-                f"  ({len(train_indices)} train seqs, {len(test_indices)} test seqs)")
+    logger.info(
+        f"subdirectory split: {n_train_vids} train / {len(unique_videos) - n_train_vids} test videos"
+        f"  ({len(train_indices)} train seqs, {len(test_indices)} test seqs)"
+    )
     logger.info(f"overlap: {overlap} (must be empty)")
 
     # Build sequences lists for ODE generation
@@ -1050,40 +1140,48 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
 
     # Optionally limit number of sequences for faster debugging
     if sim.max_train_sequences > 0:
-        train_sequences = train_sequences[:sim.max_train_sequences]
-        test_sequences = test_sequences[:max(1, sim.max_train_sequences // 4)]
-        logger.info(f"max_train_sequences={sim.max_train_sequences}: using {len(train_sequences)} train, {len(test_sequences)} test sequences")
+        train_sequences = train_sequences[: sim.max_train_sequences]
+        test_sequences = test_sequences[: max(1, sim.max_train_sequences // 4)]
+        logger.info(
+            f"max_train_sequences={sim.max_train_sequences}: using {len(train_sequences)} train, {len(test_sequences)} test sequences"
+        )
 
     # Build metadata labels for preview plots (name, flip_ax, n_rot)
-    train_meta = [
-        (df.iloc[idx]['name'], df.iloc[idx]['flip_ax'], df.iloc[idx]['n_rot'])
-        for idx in train_indices
-    ]
-    test_meta = [
-        (df.iloc[idx]['name'], df.iloc[idx]['flip_ax'], df.iloc[idx]['n_rot'])
-        for idx in test_indices
-    ]
+    train_meta = [(df.iloc[idx]["name"], df.iloc[idx]["flip_ax"], df.iloc[idx]["n_rot"]) for idx in train_indices]
+    test_meta = [(df.iloc[idx]["name"], df.iloc[idx]["flip_ax"], df.iloc[idx]["n_rot"]) for idx in test_indices]
 
     # Plot preview for train and test splits
     frames_per_sequence = 35
     n_hexals = stimulus_dataset[0]["lum"].shape[-1]
     hex_x = x_coords[:n_hexals]
     hex_y = y_coords[:n_hexals]
-    plot_sequence_preview(train_sequences, hex_x, hex_y,
-                          f"TRAIN: {len(train_sequences)} seqs from {n_train_vids} videos",
-                          os.path.join(folder, "shuffle_first_frames_train.png"), fig_style,
-                          metadata=train_meta, logger=logger)
-    plot_sequence_preview(test_sequences, hex_x, hex_y,
-                          f"TEST: {len(test_sequences)} seqs from {len(test_video_set)} videos",
-                          os.path.join(folder, "shuffle_first_frames_test.png"), fig_style,
-                          metadata=test_meta, logger=logger)
+    plot_sequence_preview(
+        train_sequences,
+        hex_x,
+        hex_y,
+        f"TRAIN: {len(train_sequences)} seqs from {n_train_vids} videos",
+        os.path.join(folder, "shuffle_first_frames_train.png"),
+        fig_style,
+        metadata=train_meta,
+        logger=logger,
+    )
+    plot_sequence_preview(
+        test_sequences,
+        hex_x,
+        hex_y,
+        f"TEST: {len(test_sequences)} seqs from {len(test_video_set)} videos",
+        os.path.join(folder, "shuffle_first_frames_test.png"),
+        fig_style,
+        metadata=test_meta,
+        logger=logger,
+    )
 
     # --- Generate TRAIN split ---
     total_frames_per_pass = len(train_sequences) * frames_per_sequence
 
     if n_frames == 0:
         num_passes_needed = 1
-        target_frames = float('inf')
+        target_frames = float("inf")
         logger.info(f"n_frames=0 mode: single pass through {len(train_sequences)} train sequences")
     else:
         target_frames = n_frames
@@ -1105,15 +1203,32 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
     )
 
     it, id_fig = _run_ode_generation(
-        stimulus_sequences=train_sequences, net=net, pde=pde, x=x,
-        edge_index=edge_index, initial_state=initial_state, sim=sim,
-        x_writer=x_writer, y_writer=y_writer,
-        target_frames=target_frames, num_passes=num_passes_needed,
-        n_neurons=n_neurons, device=device, to_numpy_fn=to_numpy,
-        visualize=visualize, run=run, run_vizualized=run_vizualized,
-        step=step, id_fig_start=0, it_start=sim.start_frame,
-        fig_style=fig_style, config=config, davis_dataset=davis_dataset,
-        X1=X1, u_coords=u_coords, v_coords=v_coords,
+        stimulus_sequences=train_sequences,
+        net=net,
+        pde=pde,
+        x=x,
+        edge_index=edge_index,
+        initial_state=initial_state,
+        sim=sim,
+        x_writer=x_writer,
+        y_writer=y_writer,
+        target_frames=target_frames,
+        num_passes=num_passes_needed,
+        n_neurons=n_neurons,
+        device=device,
+        to_numpy_fn=to_numpy,
+        visualize=visualize,
+        run=run,
+        run_vizualized=run_vizualized,
+        step=step,
+        id_fig_start=0,
+        it_start=sim.start_frame,
+        fig_style=fig_style,
+        config=config,
+        davis_dataset=davis_dataset,
+        X1=X1,
+        u_coords=u_coords,
+        v_coords=v_coords,
     )
 
     n_frames_train = x_writer.finalize()
@@ -1122,7 +1237,7 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
 
     # --- Compute noisy derivatives for TRAIN split ---
     if sim.measurement_noise_level > 0:
-        _compute_noisy_derivatives(config, sim, n_neurons, split='train')
+        _compute_noisy_derivatives(config, sim, n_neurons, split="train")
 
     # --- Generate TEST split ---
     # Test data must be noise-free: the model learns deterministic dynamics,
@@ -1253,16 +1368,26 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
 
     # --- Always run diagnostics after data generation ---
     from connectome_gnn.zarr_io import load_raw_array, load_simulation_data
+
     x_ts = load_simulation_data(graphs_data_path(config.dataset, "x_list_train"))
     y_list = load_raw_array(graphs_data_path(config.dataset, "y_list_train"))
     activity_full = x_ts.voltage.numpy()  # (n_frames, n_neurons) — needed for noise plotting
 
     # Compute ranks (used in kinographs and traces)
     if compute_ranks:
-        logger.info('computing effective rank ...')
-        from sklearn.utils.extmath import randomized_svd
+        logger.info("computing effective rank ...")
+
+        def _svd_lowrank(matrix_np, n_components, dev):
+            """Randomized SVD via torch.svd_lowrank (GPU when available)."""
+            t = torch.as_tensor(matrix_np, dtype=torch.float32, device=dev)
+            _, S, _ = torch.svd_lowrank(t, q=n_components + 10, niter=4)
+            return S[:n_components].cpu().numpy()
+
+        _svd_device = torch.device(device) if (device and device != 'cpu' and torch.cuda.is_available()) else torch.device('cpu')
+        logger.info(f"  SVD device: {_svd_device}")
+
         n_comp = min(50, min(activity_full.shape) - 1)
-        _, S_act, _ = randomized_svd(activity_full, n_components=n_comp, random_state=0)
+        S_act = _svd_lowrank(activity_full, n_comp, _svd_device)
         cumvar_act = np.cumsum(S_act**2) / np.sum(S_act**2)
         rank_90_act = int(np.searchsorted(cumvar_act, 0.90) + 1)
         rank_99_act = int(np.searchsorted(cumvar_act, 0.99) + 1)
@@ -1271,29 +1396,31 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
         activity_centered = activity_full - activity_full.mean(axis=0, keepdims=True)
         centered_var = np.sum(activity_centered**2)
         if centered_var > 1e-12:
-            _, S_mc, _ = randomized_svd(activity_centered, n_components=n_comp, random_state=0)
+            S_mc = _svd_lowrank(activity_centered, n_comp, _svd_device)
             cumvar_mc = np.cumsum(S_mc**2) / centered_var
             rank_90_mc = int(np.searchsorted(cumvar_mc, 0.90) + 1)
             rank_99_mc = int(np.searchsorted(cumvar_mc, 0.99) + 1)
         else:
             rank_90_mc = rank_99_mc = 0
 
-        input_for_svd = x_ts.stimulus[:, :sim.n_input_neurons].numpy()
+        input_for_svd = x_ts.stimulus[:, : sim.n_input_neurons].numpy()
         n_comp_input = min(50, min(input_for_svd.shape) - 1)
-        _, S_inp, _ = randomized_svd(input_for_svd, n_components=n_comp_input, random_state=0)
+        S_inp = _svd_lowrank(input_for_svd, n_comp_input, _svd_device)
         cumvar_inp = np.cumsum(S_inp**2) / np.sum(S_inp**2)
         rank_90_inp = int(np.searchsorted(cumvar_inp, 0.90) + 1)
         rank_99_inp = int(np.searchsorted(cumvar_inp, 0.99) + 1)
 
-        logger.info(f'activity rank(90%)={rank_90_act}  rank(99%)={rank_99_act}  centered rank(90%)={rank_90_mc}  rank(99%)={rank_99_mc}')
-        logger.info(f'visual input rank(90%)={rank_90_inp}  rank(99%)={rank_99_inp}')
+        logger.info(
+            f"activity rank(90%)={rank_90_act}  rank(99%)={rank_99_act}  centered rank(90%)={rank_90_mc}  rank(99%)={rank_99_mc}"
+        )
+        logger.info(f"visual input rank(90%)={rank_90_inp}  rank(99%)={rank_99_inp}")
 
         # Build neuron-type labels for kinograph annotations
         act_labels = None
         stim_labels = None
-        if hasattr(ode_params, 'neuron_types') and ode_params.neuron_types is not None:
+        if hasattr(ode_params, "neuron_types") and ode_params.neuron_types is not None:
             nt = to_numpy(ode_params.neuron_types)
-            tnames = getattr(ode_params, 'type_names', None)
+            tnames = getattr(ode_params, "type_names", None)
             if tnames is not None:
                 act_labels = []
                 for ti, name in enumerate(tnames):
@@ -1301,8 +1428,8 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
                     if len(idx) > 0:
                         act_labels.append((name, int(idx.min()), int(idx.max()) + 1))
                 # Stimulus labels: find which neurons receive non-zero stimulus
-                stim_np = x_ts.stimulus[:, :sim.n_input_neurons].numpy()
-                stim_power = np.sum(stim_np ** 2, axis=0)  # (N,)
+                stim_np = x_ts.stimulus[:, : sim.n_input_neurons].numpy()
+                stim_power = np.sum(stim_np**2, axis=0)  # (N,)
                 stim_labels = []
                 for ti, name in enumerate(tnames):
                     idx = np.where(nt == ti)[0]
@@ -1313,15 +1440,15 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
                     stim_labels = None
 
         if act_labels:
-            logger.info(f'kinograph act_labels: {act_labels}')
+            logger.info(f"kinograph act_labels: {act_labels}")
         if stim_labels:
-            logger.info(f'kinograph stim_labels: {stim_labels}')
+            logger.info(f"kinograph stim_labels: {stim_labels}")
 
-        logger.info('plotting kinograph ...')
+        logger.info("plotting kinograph ...")
         plot_kinograph(
             activity=activity_full.T,
-            stimulus=x_ts.stimulus[:, :sim.n_input_neurons].numpy().T,
-            output_path=graphs_data_path(config.dataset, 'kinograph.png'),
+            stimulus=x_ts.stimulus[:, : sim.n_input_neurons].numpy().T,
+            output_path=graphs_data_path(config.dataset, "kinograph.png"),
             rank_90_act=rank_90_act,
             rank_99_act=rank_99_act,
             rank_90_inp=rank_90_inp,
@@ -1341,12 +1468,18 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
         warmup_frames = int(warmup_ms / sim.delta_t)
         window_frames = int(window_ms / sim.delta_t)
         activity_plot = activity_full[warmup_frames:] if activity_full.shape[0] > warmup_frames + 10 else activity_full
-        stim_plot = x_ts.stimulus[warmup_frames:, :sim.n_input_neurons].numpy() if x_ts.stimulus.shape[0] > warmup_frames + 10 else x_ts.stimulus[:, :sim.n_input_neurons].numpy()
-        logger.info(f'plotting traces (warmup_skip={warmup_frames} frames={warmup_ms}ms, window={window_frames} frames={window_ms}ms, {activity_plot.shape[0]} frames available)')
+        stim_plot = (
+            x_ts.stimulus[warmup_frames:, : sim.n_input_neurons].numpy()
+            if x_ts.stimulus.shape[0] > warmup_frames + 10
+            else x_ts.stimulus[:, : sim.n_input_neurons].numpy()
+        )
+        logger.info(
+            f"plotting traces (warmup_skip={warmup_frames} frames={warmup_ms}ms, window={window_frames} frames={window_ms}ms, {activity_plot.shape[0]} frames available)"
+        )
 
     # HH-specific spiking plots (detect spikes from voltage threshold crossings)
     if visualize and is_hh:
-        logger.info('plotting HH spiking traces ...')
+        logger.info("plotting HH spiking traces ...")
         # Use warmup-skipped data: (T, N) -> (N, T)
         voltage_NT = activity_plot.T
         stimulus_NT = stim_plot.T
@@ -1377,35 +1510,35 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
     # Plot noisy activity traces using the same neurons + compute SNR
     snr_stats = None
     if sim.measurement_noise_level > 0:
-        logger.debug('plot noisy activity traces ...')
+        logger.debug("plot noisy activity traces ...")
         noise_data = x_ts.noise.numpy() if x_ts.noise is not None else None
         if noise_data is not None:
             noisy_activity = activity_full + noise_data  # (T, N)
             if visualize:
                 plot_activity_traces(
                     activity=noisy_activity.T,
-                    output_path=graphs_data_path(config.dataset, 'activity_traces_noisy.png'),
+                    output_path=graphs_data_path(config.dataset, "activity_traces_noisy.png"),
                     n_traces=100,
                     max_frames=10000,
                     n_input_neurons=sim.n_input_neurons,
                     style=fig_style,
                     type_list=node_types_int,
                     dpi=300,
-                    title='noisy voltage traces (measurement noise)',
+                    title="noisy voltage traces (measurement noise)",
                 )
 
             # --- SNR analysis (per neuron) ---
             # Voltage SNR: std(clean_voltage) / std(measurement_noise) per neuron
             signal_std = np.std(activity_full, axis=0)  # (N,)
-            noise_std = np.std(noise_data, axis=0)       # (N,)
+            noise_std = np.std(noise_data, axis=0)  # (N,)
             voltage_snr = np.where(noise_std > 0, signal_std / noise_std, np.inf)
             voltage_snr_finite = voltage_snr[np.isfinite(voltage_snr)]
 
             # Derivative SNR: std(clean_derivative) / std(derivative_noise) per neuron
             # derivative noise = (noise[t+1] - noise[t]) / dt
             deriv_noise = np.diff(noise_data, axis=0) / sim.delta_t  # (T-1, N)
-            deriv_noise_std = np.std(deriv_noise, axis=0)             # (N,)
-            y_clean = load_raw_array(graphs_data_path(config.dataset, 'y_list_train'))  # (T, N, 1)
+            deriv_noise_std = np.std(deriv_noise, axis=0)  # (N,)
+            y_clean = load_raw_array(graphs_data_path(config.dataset, "y_list_train"))  # (T, N, 1)
             deriv_signal_std = np.std(y_clean[:, :, 0], axis=0)  # (N,)
             deriv_snr = np.where(deriv_noise_std > 0, deriv_signal_std / deriv_noise_std, np.inf)
             deriv_snr_finite = deriv_snr[np.isfinite(deriv_snr)]
@@ -1414,43 +1547,47 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
             deriv_noise_std_empirical = np.mean(deriv_noise_std)
 
             snr_stats = {
-                'voltage_snr_mean': np.mean(voltage_snr_finite),
-                'voltage_snr_median': np.median(voltage_snr_finite),
-                'voltage_snr_min': np.min(voltage_snr_finite),
-                'voltage_snr_max': np.max(voltage_snr_finite),
-                'derivative_snr_mean': np.mean(deriv_snr_finite),
-                'derivative_snr_median': np.median(deriv_snr_finite),
-                'derivative_snr_min': np.min(deriv_snr_finite),
-                'derivative_snr_max': np.max(deriv_snr_finite),
-                'derivative_noise_std_theoretical': deriv_noise_std_theoretical,
-                'derivative_noise_std_empirical': deriv_noise_std_empirical,
+                "voltage_snr_mean": np.mean(voltage_snr_finite),
+                "voltage_snr_median": np.median(voltage_snr_finite),
+                "voltage_snr_min": np.min(voltage_snr_finite),
+                "voltage_snr_max": np.max(voltage_snr_finite),
+                "derivative_snr_mean": np.mean(deriv_snr_finite),
+                "derivative_snr_median": np.median(deriv_snr_finite),
+                "derivative_snr_min": np.min(deriv_snr_finite),
+                "derivative_snr_max": np.max(deriv_snr_finite),
+                "derivative_noise_std_theoretical": deriv_noise_std_theoretical,
+                "derivative_noise_std_empirical": deriv_noise_std_empirical,
             }
 
-            logger.info('--- Measurement noise SNR analysis ---')
-            logger.info('  voltage SNR (std_signal / std_noise) per neuron:')
-            logger.info(f'    mean: {snr_stats["voltage_snr_mean"]:.2f}  '
-                        f'median: {snr_stats["voltage_snr_median"]:.2f}  '
-                        f'min: {snr_stats["voltage_snr_min"]:.2f}  '
-                        f'max: {snr_stats["voltage_snr_max"]:.2f}')
-            logger.info('  derivative SNR (std_dy/dt / std_noise_dy/dt) per neuron:')
-            logger.info(f'    mean: {snr_stats["derivative_snr_mean"]:.2f}  '
-                        f'median: {snr_stats["derivative_snr_median"]:.2f}  '
-                        f'min: {snr_stats["derivative_snr_min"]:.2f}  '
-                        f'max: {snr_stats["derivative_snr_max"]:.2f}')
-            logger.info(f'  derivative noise std (theoretical): '
-                        f'{snr_stats["derivative_noise_std_theoretical"]:.2f}')
-            logger.info(f'  derivative noise std (empirical mean): '
-                        f'{snr_stats["derivative_noise_std_empirical"]:.2f}')
-            logger.info('--------------------------------------')
+            logger.info("--- Measurement noise SNR analysis ---")
+            logger.info("  voltage SNR (std_signal / std_noise) per neuron:")
+            logger.info(
+                f"    mean: {snr_stats['voltage_snr_mean']:.2f}  "
+                f"median: {snr_stats['voltage_snr_median']:.2f}  "
+                f"min: {snr_stats['voltage_snr_min']:.2f}  "
+                f"max: {snr_stats['voltage_snr_max']:.2f}"
+            )
+            logger.info("  derivative SNR (std_dy/dt / std_noise_dy/dt) per neuron:")
+            logger.info(
+                f"    mean: {snr_stats['derivative_snr_mean']:.2f}  "
+                f"median: {snr_stats['derivative_snr_median']:.2f}  "
+                f"min: {snr_stats['derivative_snr_min']:.2f}  "
+                f"max: {snr_stats['derivative_snr_max']:.2f}"
+            )
+            logger.info(f"  derivative noise std (theoretical): {snr_stats['derivative_noise_std_theoretical']:.2f}")
+            logger.info(f"  derivative noise std (empirical mean): {snr_stats['derivative_noise_std_empirical']:.2f}")
+            logger.info("--------------------------------------")
 
     # SVD analysis (4-panel plot)
     svd_results = {}
     if visualize:
-        logger.info('svd analysis ...')
+        logger.info("svd analysis ...")
         from connectome_gnn.models.utils import analyze_data_svd
+
         folder = graphs_data_path(config.dataset)
-        svd_results = analyze_data_svd(x_ts, folder, config=config, is_flyvis=True,
-                                       save_in_subfolder=False, logger=logger)
+        svd_results = analyze_data_svd(
+            x_ts, folder, config=config, is_flyvis=True, save_in_subfolder=False, logger=logger
+        )
 
     # Save ranks to log file
     gen_log_path = graphs_data_path(config.dataset, 'generation_log.txt')
@@ -1475,45 +1612,112 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
         log_f.write(f'ensemble_id: {sim.ensemble_id}\n')
         log_f.write('\n')
         if compute_ranks:
-            log_f.write(f'activity_rank_90: {rank_90_act}\n')
-            log_f.write(f'activity_rank_99: {rank_99_act}\n')
-            log_f.write(f'input_rank_90: {rank_90_inp}\n')
-            log_f.write(f'input_rank_99: {rank_99_inp}\n')
-        if svd_results.get('activity'):
-            log_f.write(f'svd_activity_rank_90: {svd_results["activity"]["rank_90"]}\n')
-            log_f.write(f'svd_activity_rank_99: {svd_results["activity"]["rank_99"]}\n')
-        if svd_results.get('visual_stimuli'):
-            log_f.write(f'svd_visual_rank_90: {svd_results["visual_stimuli"]["rank_90"]}\n')
-            log_f.write(f'svd_visual_rank_99: {svd_results["visual_stimuli"]["rank_99"]}\n')
+            log_f.write(f"activity_rank_90: {rank_90_act}\n")
+            log_f.write(f"activity_rank_99: {rank_99_act}\n")
+            log_f.write(f"input_rank_90: {rank_90_inp}\n")
+            log_f.write(f"input_rank_99: {rank_99_inp}\n")
+        if svd_results.get("activity"):
+            log_f.write(f"svd_activity_rank_90: {svd_results['activity']['rank_90']}\n")
+            log_f.write(f"svd_activity_rank_99: {svd_results['activity']['rank_99']}\n")
+        if svd_results.get("visual_stimuli"):
+            log_f.write(f"svd_visual_rank_90: {svd_results['visual_stimuli']['rank_90']}\n")
+            log_f.write(f"svd_visual_rank_99: {svd_results['visual_stimuli']['rank_99']}\n")
         if snr_stats is not None:
-            log_f.write('\n')
+            log_f.write("\n")
             for key, val in snr_stats.items():
-                log_f.write(f'{key}: {val:.2f}\n')
-    logger.info(f'generation log saved to {gen_log_path}')
+                log_f.write(f"{key}: {val:.2f}\n")
+    logger.info(f"generation log saved to {gen_log_path}")
 
     if not visualize:
         return
 
     # Neuron type index to name mapping (CamelCase for legacy plot_neuron_activity_analysis)
     index_to_name = {
-        0: 'Am', 1: 'C2', 2: 'C3', 3: 'CT1(Lo1)', 4: 'CT1(M10)', 5: 'L1', 6: 'L2', 7: 'L3', 8: 'L4', 9: 'L5',
-        10: 'Lawf1', 11: 'Lawf2', 12: 'Mi1', 13: 'Mi10', 14: 'Mi11', 15: 'Mi12', 16: 'Mi13', 17: 'Mi14',
-        18: 'Mi15', 19: 'Mi2', 20: 'Mi3', 21: 'Mi4', 22: 'Mi9', 23: 'R1', 24: 'R2', 25: 'R3', 26: 'R4',
-        27: 'R5', 28: 'R6', 29: 'R7', 30: 'R8', 31: 'T1', 32: 'T2', 33: 'T2a', 34: 'T3', 35: 'T4a',
-        36: 'T4b', 37: 'T4c', 38: 'T4d', 39: 'T5a', 40: 'T5b', 41: 'T5c', 42: 'T5d', 43: 'Tm1',
-        44: 'Tm16', 45: 'Tm2', 46: 'Tm20', 47: 'Tm28', 48: 'Tm3', 49: 'Tm30', 50: 'Tm4', 51: 'Tm5Y',
-        52: 'Tm5a', 53: 'Tm5b', 54: 'Tm5c', 55: 'Tm9', 56: 'TmY10', 57: 'TmY13', 58: 'TmY14',
-        59: 'TmY15', 60: 'TmY18', 61: 'TmY3', 62: 'TmY4', 63: 'TmY5a', 64: 'TmY9'
+        0: "Am",
+        1: "C2",
+        2: "C3",
+        3: "CT1(Lo1)",
+        4: "CT1(M10)",
+        5: "L1",
+        6: "L2",
+        7: "L3",
+        8: "L4",
+        9: "L5",
+        10: "Lawf1",
+        11: "Lawf2",
+        12: "Mi1",
+        13: "Mi10",
+        14: "Mi11",
+        15: "Mi12",
+        16: "Mi13",
+        17: "Mi14",
+        18: "Mi15",
+        19: "Mi2",
+        20: "Mi3",
+        21: "Mi4",
+        22: "Mi9",
+        23: "R1",
+        24: "R2",
+        25: "R3",
+        26: "R4",
+        27: "R5",
+        28: "R6",
+        29: "R7",
+        30: "R8",
+        31: "T1",
+        32: "T2",
+        33: "T2a",
+        34: "T3",
+        35: "T4a",
+        36: "T4b",
+        37: "T4c",
+        38: "T4d",
+        39: "T5a",
+        40: "T5b",
+        41: "T5c",
+        42: "T5d",
+        43: "Tm1",
+        44: "Tm16",
+        45: "Tm2",
+        46: "Tm20",
+        47: "Tm28",
+        48: "Tm3",
+        49: "Tm30",
+        50: "Tm4",
+        51: "Tm5Y",
+        52: "Tm5a",
+        53: "Tm5b",
+        54: "Tm5c",
+        55: "Tm9",
+        56: "TmY10",
+        57: "TmY13",
+        58: "TmY14",
+        59: "TmY15",
+        60: "TmY18",
+        61: "TmY3",
+        62: "TmY4",
+        63: "TmY5a",
+        64: "TmY9",
     }
 
     activity = x_ts.voltage.to(device).t()  # (n_neurons, n_frames)
     type_list = x.neuron_type.unsqueeze(-1).to(device)
 
-    target_type_name_list = ['R1', 'R7', 'C2', 'Mi11', 'Tm1', 'Tm4', 'Tm30']
+    target_type_name_list = ["R1", "R7", "C2", "Mi11", "Tm1", "Tm4", "Tm30"]
     from GNN_PlotFigure import plot_neuron_activity_analysis
-    plot_neuron_activity_analysis(activity, target_type_name_list, type_list, index_to_name, n_neurons, n_frames, sim.delta_t, graphs_data_path(config.dataset) + '/')
 
-    logger.info('plot figure activity ...')
+    plot_neuron_activity_analysis(
+        activity,
+        target_type_name_list,
+        type_list,
+        index_to_name,
+        n_neurons,
+        n_frames,
+        sim.delta_t,
+        graphs_data_path(config.dataset) + "/",
+    )
+
+    logger.info("plot figure activity ...")
     plot_selected_neuron_traces(
         activity=to_numpy(activity),
         type_list=to_numpy(type_list.squeeze()),
@@ -1524,9 +1728,9 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
     )
 
     if visualize & (run == run_vizualized):
-        logger.info('generating lossless video ...')
+        logger.info("generating lossless video ...")
 
-        output_name = config.dataset.split('flyvis_')[1] if 'flyvis_' in config.dataset else 'no_id'
+        output_name = config.dataset.split("flyvis_")[1] if "flyvis_" in config.dataset else "no_id"
         src = graphs_data_path(config.dataset, "Fig", "Fig_0_000000.png")
         dst = graphs_data_path(config.dataset, f"input_{output_name}.png")
         with open(src, "rb") as fsrc, open(dst, "wb") as fdst:
@@ -1535,18 +1739,39 @@ def data_generate_voltage(config, visualize=True, run_vizualized=0, style="color
         generate_compressed_video_mp4(output_dir=graphs_data_path(config.dataset), run=run,
                                       output_name=output_name, framerate=10)
 
-        files = glob.glob(graphs_data_path(config.dataset, 'Fig', '*'))
+        files = glob.glob(graphs_data_path(config.dataset, "Fig", "*"))
         for f in files:
             os.remove(f)
 
 
-def _run_ode_generation(stimulus_sequences, net, pde, x, edge_index, initial_state,
-                        sim, x_writer, y_writer, target_frames, num_passes,
-                        n_neurons, device, to_numpy_fn,
-                        visualize=False, run=0, run_vizualized=0, step=5,
-                        id_fig_start=0, it_start=0, fig_style=None,
-                        config=None, davis_dataset=None,
-                        X1=None, u_coords=None, v_coords=None):
+def _run_ode_generation(
+    stimulus_sequences,
+    net,
+    pde,
+    x,
+    edge_index,
+    initial_state,
+    sim,
+    x_writer,
+    y_writer,
+    target_frames,
+    num_passes,
+    n_neurons,
+    device,
+    to_numpy_fn,
+    visualize=False,
+    run=0,
+    run_vizualized=0,
+    step=5,
+    id_fig_start=0,
+    it_start=0,
+    fig_style=None,
+    config=None,
+    davis_dataset=None,
+    X1=None,
+    u_coords=None,
+    v_coords=None,
+):
     """Run ODE simulation over stimulus sequences, writing frames to zarr.
 
     This is the inner loop extracted so it can be called for both train and test.
@@ -1579,8 +1804,8 @@ def _run_ode_generation(stimulus_sequences, net, pde, x, edge_index, initial_sta
     # Collect HH traces for diagnostic plot (hh_debug_seq0.png)
     _hh_debug_buffers = None
     _hh_debug_n_seqs = 30  # capture enough sequences for 400ms window
-    if hasattr(pde, 'step_gates'):
-        _hh_debug_buffers = {'volt': [], 'stim': [], 'm': [], 'h': [], 'n': []}
+    if hasattr(pde, "step_gates"):
+        _hh_debug_buffers = {"volt": [], "stim": [], "m": [], "h": [], "n": []}
 
     with torch.no_grad():
         for pass_num in range(num_passes):
@@ -1588,9 +1813,16 @@ def _run_ode_generation(stimulus_sequences, net, pde, x, edge_index, initial_sta
                 if sim.simulation_initial_state:
                     x.voltage[:] = initial_state
                     if sim.only_noise_visual_input > 0:
-                        x.stimulus[:sim.n_input_neurons] = torch.clamp(torch.relu(
-                            0.5 + torch.rand(sim.n_input_neurons, dtype=torch.float32,
-                                             device=device) * sim.only_noise_visual_input / 2), 0, 1)
+                        x.stimulus[: sim.n_input_neurons] = torch.clamp(
+                            torch.relu(
+                                0.5
+                                + torch.rand(sim.n_input_neurons, dtype=torch.float32, device=device)
+                                * sim.only_noise_visual_input
+                                / 2
+                            ),
+                            0,
+                            1,
+                        )
 
                 sequences = data["lum"]
 
@@ -1645,14 +1877,15 @@ def _run_ode_generation(stimulus_sequences, net, pde, x, edge_index, initial_sta
                         current_flash_frame = frame_id % (flash_cycle_frames * 2)
                         x.stimulus[:] = 0
                         if current_flash_frame < flash_cycle_frames:
-                            x.stimulus[:sim.n_input_neurons] = flash_intensity
+                            x.stimulus[: sim.n_input_neurons] = flash_intensity
                     elif mixed_types_list is not None:
                         current_type = mixed_types_list[mixed_current_type]
                         if current_type == "blank":
                             x.stimulus[:] = 0
                         elif current_type == "noise":
-                            x.stimulus[:sim.n_input_neurons] = torch.relu(
-                                0.5 + torch.rand(sim.n_input_neurons, dtype=torch.float32, device=device) * 0.5)
+                            x.stimulus[: sim.n_input_neurons] = torch.relu(
+                                0.5 + torch.rand(sim.n_input_neurons, dtype=torch.float32, device=device) * 0.5
+                            )
                         else:
                             actual_frame_id = (start_frame + frame_id) % sequences.shape[0]
                             frame = sequences[actual_frame_id][None, None]
@@ -1683,23 +1916,28 @@ def _run_ode_generation(stimulus_sequences, net, pde, x, edge_index, initial_sta
                             code_pm1=col_vals_pm1,
                             corr_strength=float(sim.tile_corr_strength),
                             flip_prob=float(sim.tile_flip_prob),
-                            seed=int(sim.seed) + int(tile_idx)
+                            seed=int(sim.seed) + int(tile_idx),
                         )
                         col_vals_01 = 0.5 + (sim.tile_contrast * 0.5) * col_vals_pm1
-                        x.stimulus[:sim.n_input_neurons] = col_vals_01[tile_labels]
+                        x.stimulus[: sim.n_input_neurons] = col_vals_01[tile_labels]
                         tile_idx += 1
                     elif "tile_blue_noise" in sim.visual_input_type:
                         if tile_codes_torch is None:
-                            tile_labels_np, col_centers = compute_column_labels(u_coords, v_coords, n_columns, seed=sim.seed)
+                            tile_labels_np, col_centers = compute_column_labels(
+                                u_coords, v_coords, n_columns, seed=sim.seed
+                            )
                             try:
                                 adj = build_neighbor_graph(col_centers, k=6)
                             except Exception:
                                 from scipy.spatial.distance import pdist, squareform
+
                                 D = squareform(pdist(col_centers))
                                 nn = np.partition(D + np.eye(D.shape[0]) * 1e9, 1, axis=1)[:, 1]
                                 radius = 1.3 * np.median(nn)
-                                adj = [set(np.where((D[i] > 0) & (D[i] <= radius))[0].tolist()) for i in
-                                       range(len(col_centers))]
+                                adj = [
+                                    set(np.where((D[i] > 0) & (D[i] <= radius))[0].tolist())
+                                    for i in range(len(col_centers))
+                                ]
 
                             tile_labels = torch.from_numpy(tile_labels_np).to(device, dtype=torch.long)
                             tile_period = 257
@@ -1718,31 +1956,36 @@ def _run_ode_generation(stimulus_sequences, net, pde, x, edge_index, initial_sta
                             code_pm1=col_vals_pm1,
                             corr_strength=float(sim.tile_corr_strength),
                             flip_prob=float(sim.tile_flip_prob),
-                            seed=int(sim.seed) + int(tile_idx)
+                            seed=int(sim.seed) + int(tile_idx),
                         )
                         col_vals_01 = 0.5 + (sim.tile_contrast * 0.5) * col_vals_pm1
-                        x.stimulus[:sim.n_input_neurons] = col_vals_01[tile_labels]
+                        x.stimulus[: sim.n_input_neurons] = col_vals_01[tile_labels]
                         tile_idx += 1
                     else:
                         frame = sequences[frame_id][None, None]
                         net.stimulus.add_input(frame)
-                        if (sim.only_noise_visual_input > 0):
+                        if sim.only_noise_visual_input > 0:
                             if (sim.visual_input_type == "") | (it == 0) | ("50/50" in sim.visual_input_type):
-                                x.stimulus[:sim.n_input_neurons] = torch.relu(
-                                    0.5 + torch.rand(sim.n_input_neurons, dtype=torch.float32,
-                                                     device=device) * sim.only_noise_visual_input / 2)
+                                x.stimulus[: sim.n_input_neurons] = torch.relu(
+                                    0.5
+                                    + torch.rand(sim.n_input_neurons, dtype=torch.float32, device=device)
+                                    * sim.only_noise_visual_input
+                                    / 2
+                                )
                         else:
-                            if 'blank' in sim.visual_input_type:
-                                if (data_idx % sim.blank_freq > 0):
+                            if "blank" in sim.visual_input_type:
+                                if data_idx % sim.blank_freq > 0:
                                     x.stimulus[:] = net.stimulus().squeeze()
                                 else:
                                     x.stimulus[:] = 0
                             else:
                                 x.stimulus[:] = net.stimulus().squeeze()
                             if sim.noise_visual_input > 0:
-                                x.stimulus[:sim.n_input_neurons] = x.stimulus[:sim.n_input_neurons] + torch.randn(sim.n_input_neurons,
-                                                                                                  dtype=torch.float32,
-                                                                                                  device=device) * sim.noise_visual_input
+                                x.stimulus[: sim.n_input_neurons] = (
+                                    x.stimulus[: sim.n_input_neurons]
+                                    + torch.randn(sim.n_input_neurons, dtype=torch.float32, device=device)
+                                    * sim.noise_visual_input
+                                )
 
                     # Blank prefix: force zero stimulus for the first N frames of each sequence
                     if blank_prefix_frames > 0 and frame_id < blank_prefix_frames:
@@ -1751,8 +1994,8 @@ def _run_ode_generation(stimulus_sequences, net, pde, x, edge_index, initial_sta
                     prev_calcium = x.calcium.clone() if x.calcium is not None else None
 
                     # HH models use substeps for numerical stability
-                    hh_substeps = getattr(sim, 'hh_substeps', 1)
-                    has_gates = hasattr(pde, 'step_gates')
+                    hh_substeps = getattr(sim, "hh_substeps", 1)
+                    has_gates = hasattr(pde, "step_gates")
 
                     if has_gates and hh_substeps > 1:
                         # Multiple substeps per stimulus frame (HH)
@@ -1761,7 +2004,13 @@ def _run_ode_generation(stimulus_sequences, net, pde, x, edge_index, initial_sta
                             y = pde(x, edge_index, has_field=False)
                             dv = y.squeeze()
                             if sim.noise_model_level > 0:
-                                x.voltage = x.voltage + sub_dt * dv + torch.randn(n_neurons, dtype=torch.float32, device=device) * sim.noise_model_level / (hh_substeps ** 0.5)
+                                x.voltage = (
+                                    x.voltage
+                                    + sub_dt * dv
+                                    + torch.randn(n_neurons, dtype=torch.float32, device=device)
+                                    * sim.noise_model_level
+                                    / (hh_substeps**0.5)
+                                )
                             else:
                                 x.voltage = x.voltage + sub_dt * dv
                             pde.step_gates(x, sub_dt)
@@ -1773,7 +2022,9 @@ def _run_ode_generation(stimulus_sequences, net, pde, x, edge_index, initial_sta
 
                     # Generate measurement noise for this timestep
                     if sim.measurement_noise_level > 0:
-                        x.noise = torch.randn(n_neurons, dtype=torch.float32, device=device) * sim.measurement_noise_level
+                        x.noise = (
+                            torch.randn(n_neurons, dtype=torch.float32, device=device) * sim.measurement_noise_level
+                        )
                     else:
                         x.noise = torch.zeros(n_neurons, dtype=torch.float32, device=device)
 
@@ -1782,7 +2033,11 @@ def _run_ode_generation(stimulus_sequences, net, pde, x, edge_index, initial_sta
 
                     if not (has_gates and hh_substeps > 1):
                         if sim.noise_model_level > 0:
-                            x.voltage = x.voltage + sim.delta_t * dv_step + torch.randn(n_neurons, dtype=torch.float32, device=device) * sim.noise_model_level
+                            x.voltage = (
+                                x.voltage
+                                + sim.delta_t * dv_step
+                                + torch.randn(n_neurons, dtype=torch.float32, device=device) * sim.noise_model_level
+                            )
                         else:
                             x.voltage = x.voltage + sim.delta_t * dv_step
                         if has_gates:
@@ -1790,11 +2045,11 @@ def _run_ode_generation(stimulus_sequences, net, pde, x, edge_index, initial_sta
 
                     # Collect traces for first N sequences (for hh_debug plot)
                     if _hh_debug_buffers is not None and data_idx < _hh_debug_n_seqs and pass_num == 0:
-                        _hh_debug_buffers['volt'].append(x.voltage.cpu().numpy().copy())
-                        _hh_debug_buffers['stim'].append(x.stimulus.cpu().numpy().copy())
-                        _hh_debug_buffers['m'].append(x.hh_m.cpu().numpy().copy())
-                        _hh_debug_buffers['h'].append(x.hh_h.cpu().numpy().copy())
-                        _hh_debug_buffers['n'].append(x.hh_n.cpu().numpy().copy())
+                        _hh_debug_buffers["volt"].append(x.voltage.cpu().numpy().copy())
+                        _hh_debug_buffers["stim"].append(x.stimulus.cpu().numpy().copy())
+                        _hh_debug_buffers["m"].append(x.hh_m.cpu().numpy().copy())
+                        _hh_debug_buffers["h"].append(x.hh_h.cpu().numpy().copy())
+                        _hh_debug_buffers["n"].append(x.hh_n.cpu().numpy().copy())
 
                     if sim.calcium_type == "leaky":
                         if sim.calcium_activation == "softplus":
@@ -1818,7 +2073,7 @@ def _run_ode_generation(stimulus_sequences, net, pde, x, edge_index, initial_sta
                         plot_spatial_activity_grid(
                             positions=to_numpy_fn(X1),
                             voltages=to_numpy_fn(x.voltage),
-                            stimulus=to_numpy_fn(x.stimulus[:sim.n_input_neurons]),
+                            stimulus=to_numpy_fn(x.stimulus[: sim.n_input_neurons]),
                             neuron_types=to_numpy_fn(x.neuron_type).astype(int),
                             output_path=graphs_data_path(config.dataset, "Fig", f"Fig_{run}_{num}.png"),
                             calcium=to_numpy_fn(x.calcium) if sim.calcium_type != "none" else None,
@@ -1830,29 +2085,34 @@ def _run_ode_generation(stimulus_sequences, net, pde, x, edge_index, initial_sta
                     if it >= target_frames:
                         break
                 # Save HH diagnostic plot after collecting enough sequences
-                if _hh_debug_buffers is not None and data_idx == _hh_debug_n_seqs - 1 and pass_num == 0 and _hh_debug_buffers['volt']:
+                if (
+                    _hh_debug_buffers is not None
+                    and data_idx == _hh_debug_n_seqs - 1
+                    and pass_num == 0
+                    and _hh_debug_buffers["volt"]
+                ):
                     logger.info(f"saving hh_debug_seq0.png ({len(_hh_debug_buffers['volt'])} frames)")
                     # Build HH params dict for current decomposition plot
                     _hh_plot_params = None
-                    if hasattr(pde, 'ode_params'):
+                    if hasattr(pde, "ode_params"):
                         _pp = pde.ode_params
                         _hh_plot_params = {
                             k: getattr(_pp, k).cpu().numpy()
-                            for k in ('g_L', 'E_L', 'g_Na', 'E_Na', 'g_K', 'E_K', 'C', 'I_bias', 'stim_scale')
+                            for k in ("g_L", "E_L", "g_Na", "E_Na", "g_K", "E_K", "C", "I_bias", "stim_scale")
                             if hasattr(_pp, k) and getattr(_pp, k) is not None
                         }
                     _warmup_f = int(100.0 / sim.delta_t)  # 100ms warmup
                     _window_f = int(800.0 / sim.delta_t)  # 800ms window
                     plot_hh_debug(
-                        voltage_history=np.stack(_hh_debug_buffers['volt']),
-                        stimulus_history=np.stack(_hh_debug_buffers['stim']),
-                        gate_m_history=np.stack(_hh_debug_buffers['m']),
-                        gate_h_history=np.stack(_hh_debug_buffers['h']),
-                        gate_n_history=np.stack(_hh_debug_buffers['n']),
+                        voltage_history=np.stack(_hh_debug_buffers["volt"]),
+                        stimulus_history=np.stack(_hh_debug_buffers["stim"]),
+                        gate_m_history=np.stack(_hh_debug_buffers["m"]),
+                        gate_h_history=np.stack(_hh_debug_buffers["h"]),
+                        gate_n_history=np.stack(_hh_debug_buffers["n"]),
                         type_list=to_numpy_fn(x.neuron_type).astype(int),
-                        output_path=graphs_data_path(config.dataset, 'hh_debug_seq0.png'),
+                        output_path=graphs_data_path(config.dataset, "hh_debug_seq0.png"),
                         dt_ms=sim.delta_t,
-                        hh_substeps=getattr(sim, 'hh_substeps', 1),
+                        hh_substeps=getattr(sim, "hh_substeps", 1),
                         hh_params=_hh_plot_params,
                         style=fig_style,
                         warmup_frames=_warmup_f,
@@ -1868,7 +2128,7 @@ def _run_ode_generation(stimulus_sequences, net, pde, x, edge_index, initial_sta
     return it, id_fig
 
 
-def _compute_noisy_derivatives(config, sim, n_neurons, split='train'):
+def _compute_noisy_derivatives(config, sim, n_neurons, split="train"):
     """Compute noisy derivatives from saved clean derivatives and noise.
 
     noisy_y[t] = y_clean[t] + (noise[t+1] - noise[t]) / dt
@@ -1878,9 +2138,7 @@ def _compute_noisy_derivatives(config, sim, n_neurons, split='train'):
     from connectome_gnn.zarr_io import ZarrArrayWriter, load_raw_array, load_simulation_data
 
     y_clean = load_raw_array(graphs_data_path(config.dataset, f"y_list_{split}"))  # (T, N, 1)
-    noise_ts = load_simulation_data(
-        graphs_data_path(config.dataset, f"x_list_{split}"), fields=['noise']
-    )
+    noise_ts = load_simulation_data(graphs_data_path(config.dataset, f"x_list_{split}"), fields=["noise"])
     noise = noise_ts.noise.numpy()  # (T, N)
 
     # Compute noise derivative: (noise[t+1] - noise[t]) / dt
@@ -1893,10 +2151,11 @@ def _compute_noisy_derivatives(config, sim, n_neurons, split='train'):
     window = sim.derivative_smoothing_window
     if window > 1:
         from scipy.ndimage import uniform_filter1d
+
         # Apply centered moving average along time axis (axis=0)
         # mode='nearest' pads boundaries with edge values
-        noisy_y = uniform_filter1d(noisy_y, size=window, axis=0, mode='nearest')
-        logger.debug(f"  applied derivative smoothing: window={window} (noise reduction ~{1/np.sqrt(window):.2f}x)")
+        noisy_y = uniform_filter1d(noisy_y, size=window, axis=0, mode="nearest")
+        logger.debug(f"  applied derivative smoothing: window={window} (noise reduction ~{1 / np.sqrt(window):.2f}x)")
 
     noisy_y_writer = ZarrArrayWriter(
         path=graphs_data_path(config.dataset, f"noisy_y_list_{split}"),
@@ -1907,6 +2166,7 @@ def _compute_noisy_derivatives(config, sim, n_neurons, split='train'):
     for t in range(noisy_y.shape[0]):
         noisy_y_writer.append(noisy_y[t])
     noisy_y_writer.finalize()
-    logger.info(f"computed noisy derivatives for {split}: {noisy_y.shape[0]} frames "
-                f"(measurement_noise_level={sim.measurement_noise_level})")
-
+    logger.info(
+        f"computed noisy derivatives for {split}: {noisy_y.shape[0]} frames "
+        f"(measurement_noise_level={sim.measurement_noise_level})"
+    )
