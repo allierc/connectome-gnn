@@ -61,14 +61,14 @@ FS_ANNOT  = int(28 * _S)   # type-name annotations in trace panel
 FS_TITLE  = 17             # panel subtitle  (fixed, INSTRUCTIONS.md)
 PANEL_LBL = 20             # a)–f)           (fixed, never scaled)
 FS_CBAR   = int(36 * _S)   # colorbar label
-FS_LEGEND = int(26 * _S)   # legend
+FS_LEGEND = int(40 * _S)   # legend
 
 # ── data ──────────────────────────────────────────────────────────────────────
 DATA_ROOT = '/groups/saalfeld/home/allierc/GraphData'
 CONFIGS = [
-    ('flyvis_noise_free', DATA_ROOT, r'$\sigma = 0$'),
-    ('flyvis_noise_005',  DATA_ROOT, r'$\sigma = 0.05$'),
-    ('flyvis_noise_05',   DATA_ROOT, r'$\sigma = 0.5$'),
+    ('flyvis_noise_free', DATA_ROOT, 'noise-free'),
+    ('flyvis_noise_005',  DATA_ROOT, 'low intrinsic noise'),
+    ('flyvis_noise_05',   DATA_ROOT, 'high intrinsic noise'),
 ]
 N_HEATMAP_FRAMES = 2000    # frames loaded for the heatmap (zarr subsample)
 
@@ -84,7 +84,7 @@ CMAP  = 'RdBu_r'
 VLIM  = 2.0          # ±2 σ clipping for z-scored heatmap
 
 # ── trace colors — match graph_tester.py ─────────────────────────────────────
-COLOR_GT   = 'black'     # voltage trace
+COLOR_GT   = '#1a5276'   # dark blue — voltage trace
 COLOR_STIM = 'red'       # red    — stimulus
 LW_GT      = 1.5
 LW_STIM    = 0.8
@@ -191,7 +191,7 @@ fig, axes = plt.subplots(
     2, 3, figsize=(21, 14), dpi=300,
     constrained_layout=True,
     gridspec_kw={'height_ratios': [3, 4],       # taller trace row
-                 'hspace': 0.35},               # blank gap between rows
+                 'hspace': 0.12},               # modest gap between rows
 )
 
 n_sorted  = len(sorted_names_ref)
@@ -268,9 +268,9 @@ for col, (hz, (v_win, s_win, type_ids), (_, _, sigma_lbl)) in enumerate(
     if col == 0:
         ax_t.set_ylabel('voltage (a.u.)', fontsize=FS_LABEL)
 
-    # legend on panel d) (col 0) only
-    if col == 0:
-        ax_t.legend(loc='upper right', bbox_to_anchor=(1.0, 1.0),
+    # legend to the right of panel f) (last trace panel)
+    if col == 2:
+        ax_t.legend(loc='center left', bbox_to_anchor=(1.02, 0.5),
                     bbox_transform=ax_t.transAxes,
                     fontsize=FS_LEGEND, frameon=False)
 
