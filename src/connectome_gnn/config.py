@@ -195,6 +195,7 @@ class SimulationConfig(BaseModel):
     blank_prefix_fraction: float = 0.0  # fraction of each sequence to blank at the start (e.g. 0.1 = first 10% frames zero stimulus)
     simulation_initial_state: bool = False
     all_columns: bool = False  # if True, use all 721 retinotopic columns (extent=15); default uses 217 (extent=8)
+    edge_uncertainty: int = 1  # zero-edge radius multiplier (1–3); only used by hybrid zeroedge variants
 
 
     # external input configuration

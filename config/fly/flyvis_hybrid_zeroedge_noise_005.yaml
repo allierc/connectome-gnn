@@ -1,4 +1,4 @@
-description: "flywirevis hybrid + zero edges — v1 base with synapse-derived zero-weight edges for coregistration robustness, noise=0.05"
+description: "flywirevis hybrid -- v4 v1 base + synapse-derived zero-weight edges, uncertainty=1, noise=0.05"
 dataset: flyvis_hybrid_zeroedge_noise_005
 simulation:
   connectivity_file: to be specified
@@ -11,7 +11,7 @@ simulation:
   n_neurons: 13741
   n_input_neurons: 1736
   n_neuron_types: 65
-  n_edges: 612408
+  n_edges: 614241
   n_frames: 64000
   delta_t: 0.02
   baseline_value: 0
