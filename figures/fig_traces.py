@@ -229,9 +229,12 @@ def main():
     out_base = os.path.join(out_dir, 'fig_traces')
     fig.savefig(out_base + '.png', dpi=300, bbox_inches='tight')
     fig.savefig(out_base + '.pdf', bbox_inches='tight')
+    fig.savefig(out_base + '.jpg', dpi=300, bbox_inches='tight',
+                pil_kwargs={'quality': 95})
     plt.close()
     print(f'Saved: {out_base}.png')
     print(f'Saved: {out_base}.pdf')
+    print(f'Saved: {out_base}.jpg')
 
 
 if __name__ == '__main__':
