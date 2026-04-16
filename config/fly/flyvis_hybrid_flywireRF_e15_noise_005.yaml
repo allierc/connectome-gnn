@@ -1,5 +1,5 @@
-description: "flywirevis hybrid -- v2 per-column FlyWire RF (dropped eligible flyvis edges), noise=0.05"
-dataset: flyvis_hybrid_flywireRF_noise_005
+description: "flywirevis hybrid -- v2 per-column FlyWire RF (dropped eligible flyvis edges), all columns (extent=15), noise=0.05"
+dataset: flyvis_hybrid_flywireRF_e15_noise_005
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ""
@@ -8,10 +8,10 @@ simulation:
       - 1.0
       - 1.0
       - 1.0
-  n_neurons: 13741
-  n_input_neurons: 1736
+  n_neurons: 45669
+  n_input_neurons: 5768
   n_neuron_types: 65
-  n_edges: 328092
+  n_edges: 1256695
   n_frames: 64000
   delta_t: 0.02
   baseline_value: 0
@@ -19,6 +19,7 @@ simulation:
   noise_model_level: 0.05
   derivative_smoothing_window: 1
   seed: 42
+  all_columns: true
 graph_model:
   signal_model_name: flyvis_hybrid_flywireRF
   prediction: first_derivative

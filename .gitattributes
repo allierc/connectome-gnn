@@ -7,4 +7,3 @@ assets/*.png filter=lfs diff=lfs merge=lfs -text
 assets/*.html filter=lfs diff=lfs merge=lfs -text
 .quarto/_freeze/**/*.png filter=lfs diff=lfs merge=lfs -text
 log/fly/flyvis_noise_005_INR/models/* filter=lfs diff=lfs merge=lfs -text
-data/hybrid_connectomes/**/*.parquet filter=lfs diff=lfs merge=lfs -text
