@@ -81,6 +81,10 @@ class NeuralRNN(nn.Module):
         elif w_init_mode == 'randn_scaled':
             w_init_scale = getattr(train_config, 'w_init_scale', 1.0)
             W_init = torch.randn(n_w, device=device, dtype=torch.float32) * (w_init_scale / math.sqrt(n_w))
+        elif w_init_mode == 'uniform_scaled':
+            w_init_scale = getattr(train_config, 'w_init_scale', 1.0)
+            bound = w_init_scale / math.sqrt(n_w)
+            W_init = (torch.rand(n_w, device=device, dtype=torch.float32) * 2 - 1) * bound
         else:
             W_init = torch.randn(n_w, device=device, dtype=torch.float32)
         self.W = nn.Parameter(W_init[:, None], requires_grad=True)

@@ -196,6 +196,8 @@ This is beneficial for alternate training: epoch 0 lets GNN+SIREN learn freely w
 | `w_init_mode` | zeros | W initialization |
 
 
+> **YAML rule**: Always wrap the `description` field value in double quotes — colons inside unquoted YAML strings cause parse errors (e.g., `description: "Block 7 Slot 1: testing W_L2"`).
+
 ## Parallel Mode — 4 Slots Per Batch
 
 You receive **4 results per batch** and propose **4 mutations** for the next batch.

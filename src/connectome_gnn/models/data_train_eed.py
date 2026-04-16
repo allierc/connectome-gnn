@@ -9,6 +9,7 @@ so the test/plot pipeline works unchanged.
 """
 
 import os
+import signal
 import time
 
 import matplotlib
@@ -26,41 +27,44 @@ from connectome_gnn.utils import create_log_dir
 _logger = get_logger(__name__)
 
 
-def compute_eed_loss(model, voltage, stimulus, t_indices):
-    """Compute reconstruction + evolution loss for a batch.
+def compute_eed_loss(model, voltage, stimulus, t_indices, dt, rollout_steps):
+    """Compute reconstruction + multi-step rollout loss for a batch.
 
-    Calls encoder/decoder/evolver sub-networks directly to get both
-    reconstruction (decoder(encoder(x_t))) and prediction losses.
+    Reconstruction loss at t=0: MSE(decoder(encoder(x_t)), x_t).
+    Rollout loss at t=1..rollout_steps: Euler-integrate using predict_dvdt,
+    accumulate MSE at each step (same as MLP rollout training).
 
     Args:
         model: EEDBaseline with encoder, decoder, stimulus_encoder, evolver
         voltage: (T, N) full voltage tensor
         stimulus: (T, n_input) full stimulus tensor
         t_indices: (B,) random time indices
+        dt: scalar time step
+        rollout_steps: number of Euler steps to unroll
 
     Returns:
         total_loss, recon_loss, evolve_loss
     """
     x_t = voltage[t_indices]           # (B, N)
-    stim_t = stimulus[t_indices]       # (B, n_input)
-    x_t1 = voltage[t_indices + 1]     # (B, N)
 
+    # Reconstruction loss at t=0
     z = model.encoder(x_t)
-    s = model.stimulus_encoder(stim_t)
-    z_next = z + model.evolver(torch.cat([z, s], dim=1))
     x_recon = model.decoder(z)
-    x_pred = model.decoder(z_next)
-
     recon_loss = F.mse_loss(x_recon, x_t)
-    evolve_loss = F.mse_loss(x_pred, x_t1)
+
+    # Multi-step rollout loss (same as MLP)
+    x = x_t
+    evolve_loss = torch.zeros((), device=x.device)
+    for k in range(rollout_steps):
+        stim_k = stimulus[t_indices + k]
+        dvdt = model.predict_dvdt(x, stim_k)
+        x = x + dt * dvdt
+        target = voltage[t_indices + k + 1]
+        evolve_loss = evolve_loss + F.mse_loss(x, target)
+    evolve_loss = evolve_loss / rollout_steps
+
     total_loss = recon_loss + evolve_loss
     return total_loss, recon_loss, evolve_loss
-
-
-
-compute_eed_loss_compiled = torch.compile(
-        compute_eed_loss, fullgraph=True, mode="reduce-overhead"
-)
 
 
 def data_train_eed(config, erase, best_model, device, log_file=None):
@@ -126,6 +130,11 @@ def data_train_eed(config, erase, best_model, device, log_file=None):
         "sub-networks to be used with data_train_eed"
     )
 
+    # Compile per-call so CUDA Graph pools can be freed between CV folds
+    compute_eed_loss_compiled = torch.compile(
+        compute_eed_loss, fullgraph=True, mode="reduce-overhead"
+    )
+
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     _logger.info(f'total parameters: {n_params:,}')
 
@@ -135,8 +144,9 @@ def data_train_eed(config, erase, best_model, device, log_file=None):
     data_passes_per_epoch = tc.data_augmentation_loop
     n_epochs = tc.n_epochs
 
-    # Valid frame range: need t and t+1
-    max_frame = n_train_frames - 2
+    rollout_steps = tc.rollout_train_steps
+    # Valid frame range: need t through t+rollout_steps
+    max_frame = n_train_frames - rollout_steps - 1
     batches_per_epoch = int(max_frame * data_passes_per_epoch / batch_size)
 
     _logger.info(f'batch_size: {batch_size}, data_passes_per_epoch: {data_passes_per_epoch}')
@@ -147,12 +157,21 @@ def data_train_eed(config, erase, best_model, device, log_file=None):
 
     dt = torch.tensor(sim.delta_t, device=device)
 
-    # Constant model baseline
+    # Constant model baseline (computed on CPU to avoid large GPU intermediate)
     with torch.no_grad():
-        constant_model_loss = F.mse_loss(voltage[:-1], voltage[1:]).item()
-    _logger.info(f'constant model baseline MSE: {constant_model_loss:.4e}')
+        v_cpu = voltage.cpu()
+        constant_model_rmse = float(np.sqrt(F.mse_loss(v_cpu[:-1], v_cpu[1:]).item()))
+        del v_cpu
+    _logger.info(f'constant model baseline RMSE: {constant_model_rmse:.4e}')
 
     # --- Training loop ---
+    _sigusr2_received = False
+    def _handle_sigusr2(signum, frame):
+        nonlocal _sigusr2_received
+        _sigusr2_received = True
+        _logger.info('SIGUSR2 received — will stop training after current batch')
+    signal.signal(signal.SIGUSR2, _handle_sigusr2)
+
     model.train()
     training_start = time.time()
     best_epoch = 0
@@ -170,7 +189,7 @@ def data_train_eed(config, erase, best_model, device, log_file=None):
 
             optimizer.zero_grad()
             total_loss, recon_loss, evolve_loss = compute_eed_loss_compiled(
-                model, voltage, stimulus, t_indices,
+                model, voltage, stimulus, t_indices, dt, rollout_steps,
             )
             total_loss.backward()
             optimizer.step()
@@ -179,6 +198,9 @@ def data_train_eed(config, erase, best_model, device, log_file=None):
             epoch_recon += recon_loss.detach()
             epoch_evolve += evolve_loss.detach()
             n_batches += 1
+
+            if _sigusr2_received:
+                break
 
             if n_batches % 100 == 0:
                 pbar.set_postfix_str(
@@ -193,11 +215,16 @@ def data_train_eed(config, erase, best_model, device, log_file=None):
         epoch_duration = time.time() - epoch_start
         total_elapsed = time.time() - training_start
 
+        if _sigusr2_received:
+            _logger.info(f'training interrupted at epoch {epoch+1}/{n_epochs}, batch {n_batches}/{batches_per_epoch}')
+            best_epoch = epoch + 1
+            break
+
         # --- Validation rollout (uses predict_dvdt + Euler) ---
         val_start_t = time.time()
         model.eval()
         with torch.no_grad():
-            mse_curve, div_time, mean_rollout_mse = val_rollout(
+            mse_curve, div_time, mean_rollout_rmse = val_rollout(
                 model, voltage, stimulus, val_start_idx, dt,
             )
         model.train()
@@ -215,7 +242,7 @@ def data_train_eed(config, erase, best_model, device, log_file=None):
         _logger.info(
             f'epoch {epoch+1}/{n_epochs} | '
             f'total: {mean_total:.4e} recon: {mean_recon:.4e} evolve: {mean_evolve:.4e} | '
-            f'div_time={div_time} rollout_mse={mean_rollout_mse:.4e} ({val_duration:.1f}s) | '
+            f'div_time={div_time} rollout_rmse={mean_rollout_rmse:.4e} ({val_duration:.1f}s) | '
             f'duration: {epoch_duration:.1f}s (total: {total_elapsed:.1f}s)'
         )
 
@@ -227,19 +254,26 @@ def data_train_eed(config, erase, best_model, device, log_file=None):
             'train_loss': mean_total,
             'recon_loss': mean_recon,
             'evolve_loss': mean_evolve,
-            'rollout_mse': mean_rollout_mse,
+            'rollout_rmse': mean_rollout_rmse,
             'div_time': div_time,
         }, os.path.join(net_path, 'latest_checkpoint.pt'))
 
     total_time = time.time() - training_start
-    _logger.info(f'training complete: {n_epochs=} in {total_time=:.1f}s, {div_time=:,d}, {mean_rollout_mse=:.3e}')
-    _logger.info(f'constant model baseline: {constant_model_loss:.4e}')
+
+    if _sigusr2_received:
+        _logger.info(f'training interrupted: {best_epoch}/{n_epochs} epochs in {total_time:.1f}s')
+        with open(os.path.join(log_dir, '_interrupted'), 'w') as f:
+            f.write(f'SIGUSR2 at epoch {best_epoch}/{n_epochs}, batch {n_batches}/{batches_per_epoch}, training_time={total_time:.1f}s\n')
+    else:
+        _logger.info(f'training complete: {n_epochs=} in {total_time=:.1f}s, {div_time=:,d}, {mean_rollout_rmse=:.3e}')
+
+    _logger.info(f'constant model baseline RMSE: {constant_model_rmse:.4e}')
 
     if log_file:
         log_file.write('\n--- Training EED results (computed on training data) ---\n')
         log_file.write(f'train_div_time: {div_time}\n')
-        log_file.write(f'train_rollout_mse: {mean_rollout_mse:.4e}\n')
+        log_file.write(f'train_rollout_rmse: {mean_rollout_rmse:.4e}\n')
         log_file.write(f'train_best_epoch: {best_epoch}\n')
-        log_file.write(f'train_constant_baseline_mse: {constant_model_loss:.4e}\n')
+        log_file.write(f'train_constant_baseline_rmse: {constant_model_rmse:.4e}\n')
         log_file.write(f'train_final_recon_loss: {mean_recon:.4e}\n')
         log_file.write(f'train_final_evolve_loss: {mean_evolve:.4e}\n')

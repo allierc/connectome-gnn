@@ -120,6 +120,13 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
         y_ts = y_ts[:, selected_neuron_ids, :]
         type_list = type_list[selected_neuron_ids]
 
+    # Cap test frames to avoid runaway evaluation on large datasets (e.g. YouTube-VOS)
+    MAX_TEST_FRAMES = 8000
+    if x_ts.n_frames > MAX_TEST_FRAMES:
+        logger.info(f'capping test frames: {x_ts.n_frames} → {MAX_TEST_FRAMES}')
+        x_ts = x_ts.truncate_frames(MAX_TEST_FRAMES)
+        y_ts = y_ts[:MAX_TEST_FRAMES]
+
     n_neurons = x_ts.n_neurons
     n_frames = x_ts.n_frames
     config.simulation.n_neurons = n_neurons
@@ -150,7 +157,9 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     model = model.to(device)
 
     if best_model == 'best':
-        files = glob.glob(f"{log_dir}/models/*.pt")
+        files = glob.glob(f"{log_dir}/models/best_model_with_*.pt")
+        if not files:
+            files = glob.glob(f"{log_dir}/models/*.pt")
         assert len(files), 'no model checkpoints found in models/ directory — using untrained model'
         best_model = max(files, key=os.path.getmtime)
         logger.info(f'best model: {best_model}')
@@ -160,13 +169,6 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
         netname = best_model
     else:
         netname = f"{log_dir}/models/{best_model}"
-    # Setup siren_t before load_state_dict so NNR_hidden exists to receive weights
-    _early_hidden_path = os.path.join(log_dir, 'hidden_neuron_ids.pt')
-    if os.path.exists(_early_hidden_path) and getattr(model, '_inr_hidden_type', 'none') == 'siren_t':
-        _early_hidden_ids = torch.load(_early_hidden_path, map_location=device, weights_only=True)
-        model.setup_hidden_siren(len(_early_hidden_ids))
-        logger.info(f'siren_t setup: {len(_early_hidden_ids)} hidden neurons')
-
     logger.info(f'loading {netname} ...')
     state_dict = torch.load(netname, map_location=device, weights_only=False)
     migrate_state_dict(state_dict)
@@ -239,12 +241,14 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     ids = np.arange(n_neurons)
     data_id = torch.zeros((n_neurons, 1), dtype=torch.int, device=device)
 
-    # Load hidden neuron list (already done above for siren_t, re-load here for rollout)
+    # Load hidden neuron list for rollout
+    has_hidden_neurons = getattr(model_config, 'hidden_neuron_fraction', 0.0) > 0.0
     hidden_ids = None
-    _hidden_path = os.path.join(log_dir, 'hidden_neuron_ids.pt')
-    if os.path.exists(_hidden_path):
-        hidden_ids = torch.load(_hidden_path, map_location=device, weights_only=True)
-        logger.info(f'hidden neurons: {len(hidden_ids)} — using during rollout')
+    if has_hidden_neurons:
+        _hidden_path = os.path.join(log_dir, 'hidden_neuron_ids.pt')
+        if os.path.exists(_hidden_path):
+            hidden_ids = torch.load(_hidden_path, map_location=device, weights_only=True)
+            logger.info(f'hidden neurons: {len(hidden_ids)} — using during rollout')
 
     # Run model on all frames (one-step prediction)
     logger.info(f'one-step prediction on {n_eval_frames} frames ...')
@@ -264,7 +268,16 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
                 x.stimulus[:model.n_input_neurons] = visual_input.squeeze(-1)
                 x.stimulus[model.n_input_neurons:] = 0
 
-            if 'rnn' in model_config.signal_model_name.lower():
+            if 'stimulus' in model_config.signal_model_name.lower():
+                tw = tc.time_window
+                if k < tw - 1:
+                    continue
+                stim_ctx = x_ts_eval.stimulus[k-tw+1:k+1, :sim.n_input_neurons].unsqueeze(0)
+                pred = model.predict_voltage(stim_ctx).squeeze(0)
+                all_pred.append(to_numpy(pred))
+                all_true.append(to_numpy(x_ts_eval.voltage[k]))
+                continue
+            elif 'rnn' in model_config.signal_model_name.lower():
                 pred = model(x.to_packed(), return_all=False)
             elif 'mlp' in model_config.signal_model_name.lower() or 'eed' in model_config.signal_model_name.lower():
                 batched_state, _ = _batch_frames([x], edges)
@@ -306,6 +319,12 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
         log_file.write(f'onestep_RMSE: {np.mean(rmse):.4f}\n')
         log_file.write(f'onestep_RMSE_std: {np.std(rmse):.4f}\n')
 
+    # Stimulus baseline: each prediction is independent (no recurrence),
+    # so rollout is meaningless — return after one-step metrics.
+    if 'stimulus' in model_config.signal_model_name.lower():
+        logger.info('stimulus model — skipping rollout (no recurrence)')
+        return
+
     # --- Rollout evaluation ---
     # Start from initial voltages at t=0, predict autoregressively
     logger.info('running rollout evaluation ...')
@@ -313,7 +332,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     os.makedirs(results_dir, exist_ok=True)
 
     x = x_ts_eval.frame(0)
-    if hidden_ids is not None:
+    if has_hidden_neurons:
         if model.NNR_hidden is not None:
             x.voltage[hidden_ids] = model.forward_hidden(x, 0, hidden_ids).detach()
         else:
@@ -384,7 +403,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
                 x.voltage = x.voltage + sim.delta_t * y.squeeze(-1)
 
             # Update hidden neuron voltages via SIREN or keep silent
-            if hidden_ids is not None:
+            if has_hidden_neurons:
                 if model.NNR_hidden is not None:
                     x.voltage[hidden_ids] = model.forward_hidden(x, k + 1, hidden_ids).detach()
                 else:
@@ -432,7 +451,8 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
         ss_res = np.sum((stim_true_2d - pred_corrected) ** 2)
         ss_tot = np.sum((stim_true_2d - np.mean(stim_true_2d)) ** 2)
         stimuli_R2 = float(1 - ss_res / (ss_tot + 1e-16))
-        logger.info(f'stimuli_R2 (corrected a={a_coeff:.4f} b={b_coeff:.4f}): {stimuli_R2:.4f}')
+        stimuli_r  = float(stimuli_R2 ** 0.5) if stimuli_R2 >= 0 else 0.0
+        logger.info(f'stimuli_R2 (corrected a={a_coeff:.4f} b={b_coeff:.4f}): {stimuli_R2:.4f}  stimuli_r={stimuli_r:.4f}')
 
         # Generate stimuli GT vs Pred video
         if hasattr(x_ts_eval.frame(0), 'pos') and x_ts_eval.frame(0).pos is not None:
@@ -469,6 +489,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
             f.write("Rollout data source: training (INR learned on training data)\n")
         if stimuli_R2 is not None:
             f.write(f"stimuli_R2: {stimuli_R2:.4f}\n")
+            f.write(f"stimuli_r: {stimuli_r:.4f}\n")
     logger.debug(f'rollout metrics saved to {rollout_log_path}')
 
     # RMSE and Pearson r as a function of rollout step (every 500 frames), saved as CSV
@@ -501,6 +522,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
         log_file.write(f'rollout_RMSE_std: {np.std(rmse_ro):.4f}\n')
         if stimuli_R2 is not None:
             log_file.write(f'stimuli_R2: {stimuli_R2:.4f}\n')
+            log_file.write(f'stimuli_r: {stimuli_r:.4f}\n')
 
     # --- MLP Jacobian connectivity R2 ---
     if ('mlp' in model_config.signal_model_name.lower() or 'eed' in model_config.signal_model_name.lower()) and hasattr(model, 'compute_jacobian_batched'):
@@ -727,15 +749,17 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     np.save(f"{results_dir}/activity_true{test_suffix}.npy", activity_true)
     np.save(f"{results_dir}/activity_pred{test_suffix}.npy", activity_pred)
 
-    # Hidden-neuron SIREN trace comparison
-    if hidden_ids is not None and getattr(model, 'NNR_hidden', None) is not None:
+    # Hidden-neuron INR trace comparison
+    if has_hidden_neurons and getattr(model, 'NNR_hidden', None) is not None:
         from connectome_gnn.plot import plot_hidden_siren_traces
         siren_r2 = plot_hidden_siren_traces(
             model, x_ts_eval, hidden_ids, log_dir,
             epoch=0, N=0, device=device,
             n_traces=10, n_frames=min(800, n_eval_frames),
         )
-        logger.info(f'hidden SIREN R²: {siren_r2:.4f}')
+        logger.info(f'hidden INR R²: {siren_r2:.4f}')
+        if log_file:
+            log_file.write(f'hidden_nnr_R2: {siren_r2:.4f}\n')
 
     logger.debug(f'rollout plots saved to {results_dir}/')
 
@@ -930,7 +954,9 @@ def data_test_gnn_special(
 
 
     if best_model == 'best':
-        files = glob.glob(f"{log_dir}/models/*.pt")
+        files = glob.glob(f"{log_dir}/models/best_model_with_*.pt")
+        if not files:
+            files = glob.glob(f"{log_dir}/models/*.pt")
         assert len(files), 'no model checkpoints found in models/ directory'
         best_model = max(files, key=os.path.getmtime)
         logger.info(f'best model: {best_model}')

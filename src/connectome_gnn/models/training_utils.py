@@ -188,13 +188,11 @@ def build_optimizer(model, config):
     lr_update = tc.lr_update if tc.lr_update != 0 else lr
     lr_embedding = tc.lr_embedding
     lr_W = tc.lr_W
-    lr_NNR = tc.lr_NNR
     lr_NNR_f = tc.lr_NNR_f
 
     return set_trainable_parameters(
         model=model, lr_embedding=lr_embedding, lr=lr,
         lr_update=lr_update, lr_W=lr_W,
-        lr_NNR=lr_NNR,
         lr_NNR_f=lr_NNR_f,
     )
 

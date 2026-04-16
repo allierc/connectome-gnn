@@ -43,7 +43,8 @@ Rearranging Eq.~\ref{Eq:ODE} to isolate the incoming synaptic weights, we move t
 \begin{equation}
 \sum_{j\in\mathcal{N}_i} \mathbf{W}_{ij}\, \text{ReLU}\!\big(v_j(t)\big) = \tau_i \frac{dv_i(t)}{dt} + v_i(t) - V_i^{\text{rest}} - I_i(t)
 \end{equation}
-We define the presynaptic activity $h_j(t) = \text{ReLU}\!\big(v_j(t)\big)$ and the residual $b_i(t) = \tau_i \frac{dv_i(t)}{dt} + v_i(t) - V_i^{\text{rest}} - I_i(t)$. The constraint is then:
+\label{Eq:ODE2}
+We define the presynaptic activity $h_j(t) = \text{ReLU}\!\big(v_j(t)\big)$ and the residual $b_i(t) = \tau_i \frac{dv_i(t)}{dt} + v_i(t) - V_i^{\text{rest}} - I_i(t)$:
 \begin{equation}
 \sum_{j \in \mathcal{N}_i} \mathbf{W}_{ij}\, h_j(t) = b_i(t) \qquad \forall\; t \in \{1, \dots, T\}
 \end{equation}
@@ -53,7 +54,7 @@ We stack these $T$ timepoint constraints into a linear system: Let $\mathbf{H}_i
 \end{equation}
 This linear equation holds for each postsynaptic neuron $i = 1, \ldots, N$, where $N = 13{,}697$ and $d_i$ ranges from 1 to 208 (the in-degree distribution of the flyvis connectome).
 
-\subsection{Global SVD approach (coarse bound)}
+\subsection{Global SVD approach (coarse bound)}\label{subsec:global-svd}
 
 Perturbations $\boldsymbol{\delta} \in \ker(\mathbf{H}_i)$ satisfy $\mathbf{H}_i \boldsymbol{\delta} = \mathbf{0}$, preserving dynamics. By rank-nullity:
 \begin{equation}
@@ -89,7 +90,7 @@ While the global SVD provides a population-level upper bound, we reveal which ne
 \begin{equation}
 \dim(\ker(\mathbf{H}_i)) \approx d_i - r_i
 \end{equation}
-where $r_i$ is the smallest integer such that the top $r_i$ singular values of $\mathbf{H}_i$ explain at least $\theta$ fraction of its variance. A neuron is \textbf{fully identifiable} if $d_i \leq r_i$ (all incoming weights constrained by dynamics) and \textbf{degenerate} if $d_i > r_i$ (some weights free to vary). We compute per-neuron SVD using training data (x\_list\_train/voltage.zarr, 64,000 frames subsampled to 8,000). For each postsynaptic neuron $i$ with $d_i \geq 1$ incoming edges, we extract the $T \times d_i$ activity matrix $\mathbf{H}_i$, compute its SVD, and find the effective rank at multiple variance thresholds. Per-neuron SVD reveals substantially stronger degeneracy than the global bound: 80.3\% of edges are unconstrained at 99\% (vs.\ 26.5\% global), reflecting strong individual neuron-level input correlations from same-type inputs across columns.
+where $r_i$ is the smallest integer such that the top $r_i$ singular values of $\mathbf{H}_i$ explain at least $\theta$ fraction of its variance. A neuron is \textbf{fully identifiable} if $d_i \leq r_i$ (all incoming weights constrained by dynamics) and \textbf{degenerate} if $d_i > r_i$ (some weights free to vary). We compute per-neuron SVD using training data (x\_list\_train/voltage.zarr, 64,000 frames subsampled to 8,000). For each postsynaptic neuron $i$ with $d_i \geq 1$ incoming edges, we extract the $T \times d_i$ activity matrix $\mathbf{H}_i$, compute its SVD, and find the effective rank at multiple variance thresholds. Per-neuron SVD reveals substantially stronger degeneracy than the global bound: 80.3\% of edges are unconstrained at 99\% (vs.\ 26.5\% global), reflecting strong individual neuron-level input correlations from same-type inputs across columns. Rank sufficiency ($d_i \leq r_i$) is necessary but not sufficient for accurate recovery; the conditioning of the recoverable subspace governs accuracy within identifiable directions (\S\ref{subsec:pseudoinverse}).
 
 \begin{center}
 \begin{tabular}{rrrr}
@@ -129,7 +130,7 @@ In contrast, 52 cell types with degenerate groups support flexible computation v
 
 \subsection{Results}
 
-For each variant, we compute connectivity $R^2$ (weight preservation) and rollout $R^2$ (ODE trajectory preservation via 1,000-frame simulation). Single-type variants show mean connectivity $R^2 = 0.9802 \pm 0.0761$ and rollout $R^2 = 0.9965 \pm 0.0447$; mixed-type variants show $0.8387 \pm 0.1644$ and $0.9973 \pm 0.0037$ respectively. The striking pattern is the decoupling: mixed-type rollout stays near-perfect despite substantially lower connectivity $R^2$ (seeF igure~\ref{fig:null_space_verification}).
+For each variant, we compute connectivity $R^2$ (weight preservation) and rollout $R^2$ (ODE trajectory preservation via 1,000-frame simulation). Single-type variants show mean connectivity $R^2 = 0.9802 \pm 0.0761$ and rollout $R^2 = 0.9965 \pm 0.0447$; mixed-type variants show $0.8387 \pm 0.1644$ and $0.9973 \pm 0.0037$ respectively. Mixed-type rollout stays near-perfect despite substantially lower connectivity $R^2$ (see Figure~\ref{fig:null_space_verification}).
 Table~\ref{tab:lambda_8} focuses on the limit case ($\lambda = 8.0$) across all 51 degenerate types. Color-coding reveals connectivity strength: green ($R^2 > 0.95$) indicates modest perturbations, orange ($0.50 < R^2 \leq 0.95$) moderate, and red ($R^2 \leq 0.50$) severe. Tm5c achieves the lowest connectivity $R^2$ (0.2823, red) while maintaining rollout $R^2 = 0.9965$. In contrast, C3 and Tm5Y show perfect preservation ($R^2 = 1.0$ both), indicating minimal degenerate structure.
 
 
@@ -169,13 +170,40 @@ C2 & \cellcolor{corange} 0.9270 & 0.9996 & T5b & \cellcolor{cgreen} 0.9977 & 1.0
 \label{tab:lambda_8}
 \end{table}
 
+\subsection{Pseudoinverse recovery}
+\label{subsec:pseudoinverse}
+
+We compare three linear recovery methods. \emph{Truncated SVD}: the standard pseudoinverse $\mathbf{w}_i^+ = \mathbf{H}_i^+ \mathbf{b}_i$ using all singular values above $10^{-12}$. \emph{Ridge}: Tikhonov regularization with fixed $\lambda = 1$, giving filter $\sigma_k / (\sigma_k^2 + \lambda)$ instead of $1/\sigma_k$. \emph{CV-ridge}: per-neuron $\lambda$ selected by time-split cross-validation ($\lambda \in [10^{-4}, 10^{4}]$, 20\% of time points held out).
+
+\begin{center}
+\begin{tabular}{llrrr}
+\toprule
+Method & Condition & Conn $R^2$ & RMSE$(T)$ & Rollout $R^2(T)$ \\
+\midrule
+truncated SVD & $\sigma = 0$    & 0.988 & $9.7 \times 10^{-5}$ & 1.000 \\
+              & $\sigma = 0.05$ & 0.991 & $1.0 \times 10^{-6}$ & 1.000 \\
+              & $\sigma = 0.5$  & 1.000 & $9.2 \times 10^{-7}$ & 1.000 \\
+\midrule
+ridge ($\lambda=1$) & $\sigma = 0$    & 0.879 & $7.1 \times 10^{-3}$ & 1.000 \\
+                    & $\sigma = 0.05$ & 0.989 & $1.9 \times 10^{-3}$ & 1.000 \\
+                    & $\sigma = 0.5$  & 0.999 & $6.4 \times 10^{-4}$ & 1.000 \\
+\midrule
+CV-ridge & $\sigma = 0$    & 0.991 & $2.2 \times 10^{-6}$ & 1.000 \\
+         & $\sigma = 0.05$ & 0.991 & $8.5 \times 10^{-7}$ & 1.000 \\
+         & $\sigma = 0.5$  & 1.000 & $9.4 \times 10^{-7}$ & 1.000 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Three observations. First, the truncated SVD and CV-ridge achieve near-identical results ($R^2 \geq 0.988$ across all conditions), confirming that the optimal per-neuron $\lambda$ selected by CV is near zero for most neurons — the system is well-conditioned enough that no regularization is needed. Second, fixed ridge with $\lambda = 1$ over-regularizes for $\sigma = 0$ (0.879), shrinking large singular-value directions unnecessarily; it recovers at higher noise where the signal-to-noise ratio in $\mathbf{b}_i$ is lower. Third, noise has only a small effect on the pseudoinverse ($0.988 \to 1.000$), in contrast to the large effect on the GNN ($0.899 \to 0.997$, \S\ref{subsec:why-noise}); the pseudoinverse has exact access to $\tau_i$, $V_i^{\mathrm{rest}}$, and $dv_i/dt$, whereas the GNN must approximate all three.
+
+The near-perfect recovery at $\sigma = 0$ (0.988) clarifies the nature of the degeneracy. The global SVD at 99\% variance assigns $\sim$28\% of edges to the null space (\S\ref{subsec:global-svd}), but those directions have very small — not exactly zero — singular values. The full pseudoinverse (threshold $10^{-12}$) exploits these small differences in same-type neuron activities to recover individual weights. The degeneracy is approximate, not exact: same-type neurons across columns are highly correlated but not identical, and the residual variation is sufficient for weight identification.
+
 \section{Discussion}
 
 \subsection{Multiple valid solutions from columnar degeneracy}
 
-The inverse problem admits \textbf{uncountably infinite valid solutions}. The null space analysis quantifies this degeneracy: the weight space has \textbf{${\sim}121{,}100$ null dimensions} out of 434,112 edges (${\sim}28\%$), along which weights can be redistributed within same-type groups without affecting the dynamics. The empirical verification confirms this across all 52 non-retina cell types: at $\lambda = 8.0$, connectivity $R^2$ drops as low as 0.28 while rollout $R^2$ stays above 0.96. The set of valid solutions is \textbf{uncountably infinite}: the solution manifold is a ${\sim}121{,}100$-dimensional continuous subspace of $\mathbb{R}^{434{,}112}$. This degeneracy is \textbf{structural}, arising from the columnar organization of the circuit: same-type neurons in different columns produce strongly correlated activity, making their individual contributions to a shared target indistinguishable from dynamics alone.
-
-\textbf{Critically, recovery of $\mathbf{W}$ remains well-posed:} while multiple weight configurations produce identical dynamics, the dynamics themselves uniquely constrain the solution manifold. Known-ODE models leverage this structure---they solve for weights given the true dynamics. On noise-free data, our LLM-optimized known_ode model achieves $R^2_{\mathbf{W}} = 0.9776 \pm 0.0001$ (extraordinary 4-seed robustness, CV=0.005\%) while perfectly preserving rollout dynamics (Pearson $r = 0.9979 \pm 0.0003$), confirming that the null space is well-characterized and navigable. The degeneracy reflects that nature does not enforce a unique connectome; rather, the neural circuit is robust to weight redistribution within null-space directions. This is not a limitation but a feature of biological systems.
+The inverse problem admits uncountably infinite valid solutions. The null space analysis quantifies this degeneracy: the weight space has ${\sim}121{,}100$ null dimensions out of 434,112 edges (${\sim}28\%$), along which weights can be redistributed within same-type groups without affecting the dynamics. The solution manifold is a ${\sim}121{,}100$-dimensional continuous subspace of $\mathbb{R}^{434{,}112}$. The empirical verification confirms this across all 52 non-retina cell types: at $\lambda = 8.0$, connectivity $R^2$ drops as low as 0.28 while rollout $R^2$ stays above 0.96. \textbf{Yet, recovery of $\mathbf{W}$ remains well-posed:} while multiple weight configurations produce identical dynamics, the dynamics themselves uniquely constrain the solution manifold. On noise-free data, our agent-optimized known-ODE model achieves $R^2_{\mathbf{W}} = 0.98$ while perfectly preserving rollout dynamics (Pearson $r = 0.99$).
 
 \subsection{Implications for GNN-based inference}
 
@@ -213,9 +241,9 @@ between simulator $y_i(t) = dv_i(t)/dt$ and GNN predictions $\widehat{y}_i(t) = 
 \|g_\phi(v_\star,\mathbf{a})-v_\star\|_2
 \end{aligned}
 \end{equation}
-where $\lambda$ terms promote sparsity, $\gamma$ terms stabilize learned functions, $\mu_0$ enforces monotonicity of the edge message, and $\mu_1$ normalizes with respect to reference voltage $v_\star$. When the GNN achieves $R^2_{\mathbf{W}} = 0.997$ (as our LLM-optimized model does at $\sigma = 0.5$), it is recovering the ${\sim}313{,}000$ identifiable parameters well while the ${\sim}121{,}100$ null-space parameters are essentially free. The GNN's implicit inductive bias (message-passing, weight sharing) acts as an implicit regularizer that selects a particular solution from the uncountable solution manifold.
+where $\lambda$ terms promote sparsity, $\gamma$ terms stabilize learned functions, $\mu_0$ enforces monotonicity of the edge message, and $\mu_1$ normalizes with respect to reference voltage $v_\star$. At $\sigma = 0.5$, the agent-optimized GNN achieves $R^2_{\mathbf{W}} = 0.997$. At $\sigma = 0$, the GNN achieves $0.899$ while the pseudoinverse (given exact dynamics) achieves $0.988$, showing that the approximate null space (${\sim}121{,}100$ edges at 99\% variance) does not set a hard limit: its directions have small but nonzero singular values that the exact linear solve exploits. The GNN's implicit inductive bias (message-passing, weight sharing) acts as a regularizer that selects a particular solution from the solution manifold.
 
-\subsection{Why noise helps}
+\subsection{Why noise helps}\label{subsec:why-noise}
 
 Adding process noise $\sigma\eta_i(t)$ to the simulation:
 \begin{equation}
@@ -234,15 +262,17 @@ Noise & Activity rank $r$ & Null space dim & \% identifiable & GNN $R^2_{\mathbf
 \midrule
 $\sigma = 0$    & 45  & 115,223 & 73.5\%  & $0.899 \pm 0.030$ \\
 $\sigma = 0.05$ & 134 & 10,227  & 97.6\%  & $0.962 \pm 0.012$ \\
-$\sigma = 0.5$  & \textbf{781} & \textbf{0} & \textbf{100.0\%} & $\mathbf{0.997 \pm 0.000}$ \\
+$\sigma = 0.5$  & 781 & 0 & 100.0\% & $0.997 \pm 0.000$ \\
 \bottomrule
 \end{tabular}
 \end{center}
-The trend is monotonic: noise increases the effective rank ($45 \to 134 \to 781$), shrinking the null space and improving identifiability. At $\sigma = 0.5$, the rank (781) far exceeds the maximum in-degree (208), so every neuron's weights are fully identifiable---the null space vanishes and $R^2_{\mathbf{W}} = 0.997$. The two noisy conditions show strong agreement between theoretical identifiability and observed recovery (97.6\% identifiable $\to$ 0.962 observed, 100\% $\to$ 0.997). The noise-free case ($0.899$ observed vs.\ 73.5\% identifiable) exceeds the bound, likely because GNN regularization biases null-space weights toward correlated ground-truth values.
+The trend is monotonic: noise increases the effective rank ($45 \to 134 \to 781$), shrinking the null space and improving identifiability. At $\sigma = 0.5$, the rank (781) far exceeds the maximum in-degree (208), so every neuron's weights are fully identifiable and $R^2_{\mathbf{W}} = 0.997$. The two noisy conditions show strong agreement between theoretical identifiability and observed GNN recovery (97.6\% identifiable $\to$ 0.962 observed, 100\% $\to$ 0.997).
+
+The pseudoinverse (\S\ref{subsec:pseudoinverse}) tells a different story: it achieves $R^2 = 0.988$ even at $\sigma = 0$, with only a marginal gain from noise ($0.988 \to 1.000$). This gap between the GNN ($0.899$ noise-free) and the pseudoinverse ($0.988$) isolates the cost of approximating the dynamics: the GNN learns imperfect $\hat{\tau}_i$, $\hat{V}_i^{\mathrm{rest}}$, and $\widehat{dv/dt}$, introducing errors in the effective $\mathbf{b}_i$ that noise helps mitigate. The pseudoinverse, given exact ODE parameters and exact derivatives, is essentially unaffected by noise level.
 To break the within-type correlations experimentally, optogenetics could inject independent perturbations into each neuron of a given type (e.g., stimulate each L1 with a unique light pattern), or selectively ablate same-type neurons across columns (e.g., silence L1 in columns 4 and 6 but not 5). Both approaches would increase $\text{rank}(\mathbf{H}_i)$ and shrink the null space---the same mechanism as noise, but achievable in real tissue.
 
 \section{Summary}
 
-Recovering the connectome from neural dynamics admits multiple valid solutions: the columnar organization forces same-type neurons to produce strongly correlated activity, making their individual contributions indistinguishable within the null space. Yet the dynamics uniquely constrain the solution manifold, and known-ODE models recover the connectome with high fidelity. Two independent null space estimates---a global SVD bound (115,223) and a per-type structural count ($\sim$121,100)---agree to within 5\%, with the former capturing all correlations but coarse, and the latter precisely measuring within-type redundancy. This degeneracy affects about 28\% of all edges. Empirically, 1,960 perturbed connectivity variants show the decoupling: connectivity $R^2$ ranges from 0.28 to 1.0 while rollout $R^2$ stays above 0.96, visualizing the null space directly. Adding process noise increases the effective rank from 45 (noise-free) to 781 ($\sigma = 0.5$), closing the null space and enabling the GNN to achieve $R^2_{\mathbf{W}} = 0.997$. The analysis rests on a simple criterion: a neuron's weights are identifiable when the activity rank exceeds its in-degree. Since per-neuron rank cannot be measured directly, the global effective rank (from SVD at a chosen variance threshold) provides an upper bound. \textbf{The condition $r_{\text{global}} \geq d_i$ is a principled, per-neuron criterion for identifiability.}
+Recovering the connectome from neural dynamics admits multiple valid solutions: the columnar organization forces same-type neurons to produce strongly correlated activity, making their individual contributions indistinguishable within the null space. Yet the dynamics uniquely constrain the solution manifold, and known-ODE models recover the connectome with high fidelity. Two independent null space estimates---a global SVD bound (115,223) and a per-type structural count ($\sim$121,100)---agree to within 5\%, with the former capturing all correlations but coarse, and the latter precisely measuring within-type redundancy. This degeneracy affects about 28\% of all edges. Empirically, 1,960 perturbed connectivity variants show the decoupling: connectivity $R^2$ ranges from 0.28 to 1.0 while rollout $R^2$ stays above 0.96, visualizing the null space directly. Adding process noise increases the effective rank from 45 (noise-free) to 781 ($\sigma = 0.5$), closing the null space and improving GNN recovery from $0.899$ to $0.997$. The pseudoinverse with exact ODE parameters achieves $R^2 = 0.988$ even without noise, revealing that the approximate degeneracy ($\sim$28\% of edges at 99\% variance) does not preclude weight recovery: same-type neuron activities are highly correlated but not identical, and the full pseudoinverse exploits the residual variation. The gap between the GNN ($0.899$ noise-free) and pseudoinverse ($0.988$) quantifies the cost of dynamic approximation rather than fundamental identifiability limits.
 
 \end{document}

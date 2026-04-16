@@ -40,6 +40,7 @@ import os
 import warnings
 
 from connectome_gnn.LLM import (
+    resume,
     setup_exploration,
     init_slot_configs,
     init_shared_files,
@@ -50,7 +51,7 @@ from connectome_gnn.LLM import (
     should_generate_data,
     generate_data_locally,
     run_cluster_training,
-    run_local_test_plot,
+    run_cluster_test_plot,
     run_local_pipeline,
     save_artifacts,
     update_ucb_scores,
@@ -106,7 +107,7 @@ if __name__ == "__main__":
                 if should_generate_data(state, batch):
                     generate_data_locally(state, batch)
                 run_cluster_training(state, batch)
-                run_local_test_plot(state, batch)
+                run_cluster_test_plot(state, batch)
             else:
                 run_local_pipeline(state, batch)
         else:
@@ -134,4 +135,16 @@ if __name__ == "__main__":
 # python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_05 iterations=120 --cluster --resume
 # python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_INR iterations=120 --cluster --resume
 #
-# CUDA_VISIBLE_DEVICES="1" python GNN_LLM.py ...
+# CUDA_VISIBLE_DEVICES=1 python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_stride_5 iteration=96 --cluster
+# bsub -n 2 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o train /groups/saalfeld/home/allierc/Graph/connectome-gnn/config/fly/flyvis_noise_005_stride_5"
+# bsub -n 2 -gpu "num=1" -q gpu_h100 -W 6000 -Is "python GNN_Main.py -o train_test_plot /groups/saalfeld/home/allierc/Graph/connectome-gnn/config/fly/flyvis_noise_005_hidden_005"
+# bsub -n 2 -gpu "num=1" -q gpu_h100 -W 6000 -Is "python GNN_Main.py -o train_test_plot /groups/saalfeld/home/allierc/Graph/connectome-gnn/config/fly/flyvis_noise_005_hidden_010 --output_root /groups/saalfeld/home/allierc/GraphData"
+# CUDA_VISIBLE_DEVICES=0 python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_hidden_010 iteration=128 --cluster
+
+# CUDA_VISIBLE_DEVICES=0 python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_stride_5_yt iteration=128 --cluster --resume
+# CUDA_VISIBLE_DEVICES=0 python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_stride_5 iteration=128 --cluster --resume
+# CUDA_VISIBLE_DEVICES=1 python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_hidden_010_ngp iteration=128 --cluster --resume
+# CUDA_VISIBLE_DEVICES=1 python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_hidden_010_siren iteration=128 --cluster --resume
+
+# CUDA_VISIBLE_DEVICES=0 python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_010_rc iteration=128 --cluster --resume
+# CUDA_VISIBLE_DEVICES=1 python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_emb_given iteration=96 --cluster --resume

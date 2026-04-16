@@ -92,6 +92,8 @@ Registered as `zebrafish_oculomotor_known_ode`:
 | `noise_model_level`       | 0.5     | **FIXED** — strong intrinsic noise level               |
 
 
+> **YAML rule**: Always wrap the `description` field value in double quotes — colons inside unquoted YAML strings cause parse errors (e.g., `description: "Block 7 Slot 1: testing W_L2"`).
+
 ## Parallel Mode — 4 Slots Per Batch
 
 - **Exploration**: Slot 0 = control. Slots 1-3 each change one parameter.

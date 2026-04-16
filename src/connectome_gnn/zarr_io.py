@@ -77,6 +77,9 @@ class ZarrArrayWriter:
             'delete_existing': True,
         }
         self._store = ts.open(spec).result()
+        # Force the directory to be visible on distributed filesystems (GPFS/NFS)
+        # before the first chunk write does its lock→rename sequence.
+        self.path.mkdir(parents=True, exist_ok=True)
         self._initialized = True
 
     def append(self, frame: np.ndarray):
@@ -105,7 +108,20 @@ class ZarrArrayWriter:
                 exclusive_max=[new_size, self.n_neurons, self.n_features]
             ).result()
 
-        self._store[self._total_frames:self._total_frames + n_frames].write(data).result()
+        # Retry on NOT_FOUND: distributed filesystems (GPFS/NFS) occasionally
+        # fail the lock→rename with ENOENT if the directory entry isn't yet
+        # visible to all nodes. Re-stating the mkdir and retrying fixes it.
+        import time
+        for attempt in range(3):
+            try:
+                self._store[self._total_frames:self._total_frames + n_frames].write(data).result()
+                break
+            except (ValueError, Exception) as e:
+                if attempt < 2 and ('NOT_FOUND' in str(e) or 'ENOENT' in str(e)):
+                    self.path.mkdir(parents=True, exist_ok=True)
+                    time.sleep(1.0 * (attempt + 1))
+                else:
+                    raise
         self._total_frames += n_frames
         self._buffer.clear()
 
@@ -226,7 +242,10 @@ class ZarrSimulationWriterV3:
                 'create': True,
                 'delete_existing': True,
             }
-            self._stores[name] = ts.open(spec).result()
+            store = ts.open(spec).result()
+            # Force directory visibility on distributed filesystems before first write.
+            (self.path / f'{name}.zarr').mkdir(parents=True, exist_ok=True)
+            self._stores[name] = store
 
         self._dynamic_initialized = True
 
@@ -273,7 +292,17 @@ class ZarrSimulationWriterV3:
                     exclusive_max=[new_size, self.n_neurons]
                 ).result()
 
-            self._stores[name][self._total_frames:self._total_frames + n_frames].write(data).result()
+            import time
+            for attempt in range(3):
+                try:
+                    self._stores[name][self._total_frames:self._total_frames + n_frames].write(data).result()
+                    break
+                except (ValueError, Exception) as e:
+                    if attempt < 2 and ('NOT_FOUND' in str(e) or 'ENOENT' in str(e)):
+                        (self.path / f'{name}.zarr').mkdir(parents=True, exist_ok=True)
+                        time.sleep(1.0 * (attempt + 1))
+                    else:
+                        raise
             self._buffers[name].clear()
 
         self._total_frames += n_frames

@@ -105,22 +105,29 @@ class EEDBaseline(nn.Module):
         hidden_dim_stim = model_config.hidden_dim_stim_encoder
         n_layers_stim = model_config.n_layers_stim_encoder
 
+        # Map config activation name to nn module name
+        _activation_map = {
+            'relu': 'ReLU', 'tanh': 'Tanh', 'sigmoid': 'Sigmoid',
+            'leaky_relu': 'LeakyReLU', 'soft_relu': 'Softplus',
+        }
+        activation = _activation_map.get(model_config.MLP_activation, 'ReLU')
+
         # Sub-networks (all use latent_dims as hidden dim, except stimulus encoder)
         self.encoder = MLPWithSkips(
             self.n_neurons, latent_dims,
-            latent_dims, num_hidden_layers=n_layers_enc_dec,
+            latent_dims, num_hidden_layers=n_layers_enc_dec, activation=activation,
         )
         self.decoder = MLPWithSkips(
             latent_dims, self.n_neurons,
-            latent_dims, num_hidden_layers=n_layers_enc_dec,
+            latent_dims, num_hidden_layers=n_layers_enc_dec, activation=activation,
         )
         self.stimulus_encoder = MLPWithSkips(
             self.n_input_neurons, stim_latent_dims,
-            hidden_dim_stim, num_hidden_layers=n_layers_stim,
+            hidden_dim_stim, num_hidden_layers=n_layers_stim, activation=activation,
         )
         self.evolver = MLPWithSkips(
             latent_dims + stim_latent_dims, latent_dims,
-            latent_dims, num_hidden_layers=n_layers_evolver,
+            latent_dims, num_hidden_layers=n_layers_evolver, activation=activation,
         )
 
         # Zero-init evolver's output layer so residual starts as identity

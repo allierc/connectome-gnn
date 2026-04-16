@@ -52,6 +52,7 @@ build/
 *.swp
 *.swo
 .env
+.prettierrc.json
 
 # Benchmark / one-off run scripts (root level only)
 run_*.py

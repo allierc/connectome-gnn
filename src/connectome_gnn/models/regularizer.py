@@ -36,12 +36,13 @@ class LossRegularizer:
         'g_phi_diff', 'g_phi_norm', 'g_phi_weight', 'f_theta_weight',
         'f_theta_zero', 'f_theta_diff', 'f_theta_msg_diff', 'f_theta_msg_sign',
         'missing_activity', 'model_a', 'model_b',
-        'f_theta_linearity', 'f_theta_centering'
+        'f_theta_linearity', 'f_theta_centering',
+        'embedding_cluster',
     ]
 
     def __init__(self, train_config, model_config, activity_column: int,
                  plot_frequency: int, n_neurons: int, trainer_type: str = 'signal',
-                 dataset: str = None):
+                 dataset: str = None, type_list=None, n_neuron_types: int = 0):
         """
         Args:
             train_config: TrainingConfig with coeff_* values
@@ -57,6 +58,10 @@ class LossRegularizer:
         self.plot_frequency = plot_frequency
         self.n_neurons = n_neurons
         self.trainer_type = trainer_type
+        # type_list: (n_neurons,) long tensor on device — set by move_type_list_to_device()
+        self._type_ids_device = None if type_list is None else type_list.squeeze(-1).long()
+        self._n_neuron_types = n_neuron_types
+        self._type_count = None  # (n_types, 1) float, precomputed in move_type_list_to_device
 
         # Current epoch
         self.epoch = 0
@@ -78,13 +83,30 @@ class LossRegularizer:
         self._history['regul_total'] = []
         self._history['iteration'] = []
 
-        # Cache coefficients
+        # Cache coefficients (Python floats)
         self._coeffs = {}
         self._update_coeffs()
+
+        # GPU tensor mirrors of _coeffs — created lazily on first reset_iteration(device)
+        # and updated in-place at epoch boundaries.  Using 0-dim GPU tensors prevents
+        # torch.compile from constant-folding zero coefficients at epoch 0 and avoids
+        # DeviceCopy (scalar CPU→GPU copy) when non-zero values appear at epoch 1.
+        self._coeff_tensors: dict = {}
 
         # f_theta linearity loss state (unsupervised — no gt V_rest needed)
         self._mu_activity = None
         self._sigma_activity = None
+
+    def move_type_list_to_device(self, device):
+        """Move type_ids to the training device. Call once after device is known."""
+        if self._type_ids_device is not None:
+            self._type_ids_device = self._type_ids_device.to(device)
+            # Precompute per-type neuron counts — static shape, avoids bincount at runtime
+            t = self._type_ids_device
+            n = self._n_neuron_types
+            self._type_count = torch.zeros(n, 1, device=device).scatter_add_(
+                0, t.unsqueeze(-1), torch.ones(t.shape[0], 1, device=device)
+            ).clamp(min=1)  # (n_types, 1)
 
     def set_activity_stats(self, x_ts, device):
         """Cache per-neuron activity statistics for linearity loss.
@@ -117,7 +139,7 @@ class LossRegularizer:
         # rate > 0: coeff ramps up over epochs (zero at epoch 0)
         # rate = 0: full coeff from epoch 0 (no annealing)
         def anneal(coeff):
-            return coeff * (1 - np.exp(-rate * epoch)) if rate > 0 else coeff
+            return float(coeff * (1 - np.exp(-rate * epoch))) if rate > 0 else float(coeff)
 
         self._coeffs['W_L1'] = anneal(tc.coeff_W_L1)
         self._coeffs['W_L2'] = anneal(tc.coeff_W_L2)
@@ -139,11 +161,17 @@ class LossRegularizer:
         self._coeffs['model_b'] = tc.coeff_model_b
         self._coeffs['f_theta_linearity'] = getattr(tc, 'coeff_f_theta_linearity', 0.0)
         self._coeffs['f_theta_centering'] = getattr(tc, 'coeff_f_theta_centering', 0.0)
+        self._coeffs['embedding_cluster'] = getattr(tc, 'coeff_embedding_cluster', 0.0)
 
     def set_epoch(self, epoch: int, plot_frequency: int = None, Niter: int = None):
         """Set current epoch and update coefficients."""
         self.epoch = epoch
         self._update_coeffs()
+        # Update GPU tensor mirrors in-place so CUDA graphs see the new values
+        # at the same GPU addresses (no guard failure, no DeviceCopy).
+        if self._coeff_tensors:
+            for k, v in self._coeffs.items():
+                self._coeff_tensors[k].fill_(float(v))
         if plot_frequency is not None:
             self.plot_frequency = plot_frequency
         if Niter is not None:
@@ -162,6 +190,12 @@ class LossRegularizer:
         self._iter_tracker = {comp: torch.zeros((), device=self._device) for comp in self.COMPONENTS}
         # Flag to ensure W_L1 is only applied once per iteration (not per batch item)
         self._W_L1_applied_this_iter = False
+        # Lazily create GPU tensor mirrors of _coeffs on first call when device is known.
+        # These stay at fixed GPU addresses so torch.compile CUDA graphs never see a DeviceCopy.
+        if not self._coeff_tensors and self._device is not None:
+            self._coeff_tensors = {
+                k: torch.tensor(float(v), device=self._device) for k, v in self._coeffs.items()
+            }
 
     def should_record(self) -> bool:
         """Check if we should record to history this iteration."""
@@ -211,38 +245,41 @@ class LossRegularizer:
         # For low_rank_factorization, compute W from WL @ WR to allow gradient flow
         # --- W regularization ---
 
+        # _ct: shorthand for coefficient tensors (pre-allocated GPU scalars, updated in-place
+        # at epoch boundaries via set_epoch → no DeviceCopy, no torch.compile guard failures)
+        _ct = self._coeff_tensors
+
         low_rank = getattr(model, 'low_rank_factorization', False)
         if low_rank and hasattr(model, 'WL') and hasattr(model, 'WR'):
 
-            if self._coeffs['W_L1'] > 0 and not self._W_L1_applied_this_iter:
-                regul_term = (model.WL.norm(1) + model.WR) * self._coeffs['W_L1']
+            if not self._W_L1_applied_this_iter:
+                regul_term = (model.WL.norm(1) + model.WR) * _ct['W_L1']
                 total_regul = total_regul + regul_term
                 self._add('W_L1', regul_term)
                 self._W_L1_applied_this_iter = True
         else:
 
             # W_L1: Apply only once per iteration (not per batch item)
-            if self._coeffs['W_L1'] > 0 and not self._W_L1_applied_this_iter:
-                regul_term = model.W.norm(1) * self._coeffs['W_L1']
+            if not self._W_L1_applied_this_iter:
+                regul_term = model.W.norm(1) * _ct['W_L1']
                 total_regul = total_regul + regul_term
                 self._add('W_L1', regul_term)
                 self._W_L1_applied_this_iter = True
 
-            if self._coeffs['W_L2'] > 0 and not self._W_L1_applied_this_iter:
-                regul_term = model.W.norm(2) * self._coeffs['W_L2']
+                regul_term = model.W.norm(2) * _ct['W_L2']
                 total_regul = total_regul + regul_term
                 self._add('W_L2', regul_term)
 
         # --- g_phi / f_theta weight regularization ---
-        if (self._coeffs['g_phi_weight_L1'] + self._coeffs['g_phi_weight_L2']) > 0 and hasattr(model, 'g_phi'):
+        if hasattr(model, 'g_phi'):
             for param in model.g_phi.parameters():
-                regul_term = param.norm(1) * self._coeffs['g_phi_weight_L1'] + param.norm(2) * self._coeffs['g_phi_weight_L2']
+                regul_term = param.norm(1) * _ct['g_phi_weight_L1'] + param.norm(2) * _ct['g_phi_weight_L2']
                 total_regul = total_regul + regul_term
                 self._add('g_phi_weight', regul_term)
 
-        if (self._coeffs['f_theta_weight_L1'] + self._coeffs['f_theta_weight_L2']) > 0 and hasattr(model, 'f_theta'):
+        if hasattr(model, 'f_theta'):
             for param in model.f_theta.parameters():
-                regul_term = param.norm(1) * self._coeffs['f_theta_weight_L1'] + param.norm(2) * self._coeffs['f_theta_weight_L2']
+                regul_term = param.norm(1) * _ct['f_theta_weight_L1'] + param.norm(2) * _ct['f_theta_weight_L2']
                 total_regul = total_regul + regul_term
                 self._add('f_theta_weight', regul_term)
 
@@ -250,7 +287,7 @@ class LossRegularizer:
         if self._coeffs['f_theta_zero'] > 0 and hasattr(model, 'f_theta'):
             in_features_phi = get_in_features_update(rr=None, model=model, device=device)
             func_phi = model.f_theta(in_features_phi[ids].float())
-            regul_term = func_phi.norm(2) * self._coeffs['f_theta_zero']
+            regul_term = func_phi.norm(2) * _ct['f_theta_zero']
             total_regul = total_regul + regul_term
             self._add('f_theta_zero', regul_term)
 
@@ -265,7 +302,7 @@ class LossRegularizer:
                 else:
                     msg0 = model.g_phi(in_features_edge[ids].clone().detach())
                     msg1 = model.g_phi(in_features_edge_next[ids].clone().detach())
-                regul_term = torch.relu(msg0 - msg1).norm(2) * self._coeffs['g_phi_diff']
+                regul_term = torch.relu(msg0 - msg1).norm(2) * _ct['g_phi_diff']
                 total_regul = total_regul + regul_term
                 self._add('g_phi_diff', regul_term)
 
@@ -278,9 +315,9 @@ class LossRegularizer:
                     msg_norm = model.g_phi(in_features_edge_norm[ids].clone().detach())
                 # Different normalization target for signal vs flyvis
                 if self.trainer_type == 'signal':
-                    regul_term = (msg_norm - 1).norm(2) * self._coeffs['g_phi_norm']
+                    regul_term = (msg_norm - 1).norm(2) * _ct['g_phi_norm']
                 else:  # flyvis
-                    regul_term = (msg_norm - 2 * xnorm).norm(2) * self._coeffs['g_phi_norm']
+                    regul_term = (msg_norm - 2 * xnorm).norm(2) * _ct['g_phi_norm']
                 total_regul = total_regul + regul_term
                 self._add('g_phi_norm', regul_term)
 
@@ -302,7 +339,7 @@ class LossRegularizer:
                             std = torch.std(values, unbiased=False)
                             loss_contribs.append(std)
                     if loss_contribs:
-                        regul_term = torch.stack(loss_contribs).norm(2) * self._coeffs['W_sign']
+                        regul_term = torch.stack(loss_contribs).norm(2) * _ct['W_sign']
                         total_regul = total_regul + regul_term
                         self._add('W_sign', regul_term)
             else:
@@ -324,7 +361,7 @@ class LossRegularizer:
                 violation = torch.where(n_total > 0,
                                         (n_pos / n_total) * (n_neg / n_total),
                                         torch.zeros_like(n_total))
-                regul_term = violation.sum() * self._coeffs['W_sign']
+                regul_term = violation.sum() * _ct['W_sign']
                 total_regul = total_regul + regul_term
                 self._add('W_sign', regul_term)
 
@@ -350,7 +387,7 @@ class LossRegularizer:
                     sigma=self._sigma_activity,
                     device=device,
                 )
-                lin_term = lin_loss * self._coeffs['f_theta_linearity'] * rampup_weight
+                lin_term = lin_loss * _ct['f_theta_linearity'] * rampup_weight
                 total_regul = total_regul + lin_term
                 self._add('f_theta_linearity', lin_term)
 
@@ -374,9 +411,28 @@ class LossRegularizer:
                     mu=self._mu_activity,
                     device=device,
                 )
-                cent_term = cent_loss * self._coeffs['f_theta_centering'] * rampup_weight
+                cent_term = cent_loss * _ct['f_theta_centering'] * rampup_weight
                 total_regul = total_regul + cent_term
                 self._add('f_theta_centering', cent_term)
+
+        # --- embedding cluster regularization ---
+        # Pull each neuron's embedding toward the centroid of its cell type.
+        # Centroid is computed on-the-fly from model.a so it drifts freely during training.
+        if (self._coeffs['embedding_cluster'] > 0
+                and self._type_ids_device is not None
+                and hasattr(model, 'a')
+                and model.a.requires_grad):
+            a = model.a  # (n_neurons, emb_dim)
+            t = self._type_ids_device  # (n_neurons,) long
+            emb_dim = a.shape[1]
+            n_types = self._n_neuron_types
+            sum_emb = torch.zeros(n_types, emb_dim, device=device)
+            sum_emb.scatter_add_(0, t.unsqueeze(-1).expand(-1, emb_dim), a)
+            mean_emb = sum_emb / self._type_count  # (n_types, emb_dim)
+            neuron_means = mean_emb[t]  # (n_neurons, emb_dim)
+            regul_term = (a - neuron_means).norm(2) * _ct['embedding_cluster']
+            total_regul = total_regul + regul_term
+            self._add('embedding_cluster', regul_term)
 
         return total_regul
 
@@ -412,6 +468,7 @@ class LossRegularizer:
         embedding_dim = mc.embedding_dim
         n_neurons = self.n_neurons
         total_regul = torch.zeros((), device=device)
+        _ct = self._coeff_tensors
 
         if in_features is None:
             return total_regul
@@ -425,7 +482,7 @@ class LossRegularizer:
             in_features_v_next[:, 0] = in_features_v_next[:, 0] + delta_v
             pred_v_next = model.f_theta(in_features_v_next)
             # penalize positive slope: relu(f(v+dv) - f(v))
-            regul_term = torch.relu(pred_v_next[ids_batch] - pred_v[ids_batch]).norm(2) * self._coeffs['f_theta_diff']
+            regul_term = torch.relu(pred_v_next[ids_batch] - pred_v[ids_batch]).norm(2) * _ct['f_theta_diff']
             total_regul = total_regul + regul_term
             self._add('f_theta_diff', regul_term)
 
@@ -435,7 +492,7 @@ class LossRegularizer:
             delta_msg = 0.05 * max(float(xnorm), 1e-6) if xnorm is not None else 1e-6
             in_features_msg_next[:, embedding_dim + 1] = in_features_msg_next[:, embedding_dim + 1] + delta_msg
             pred_msg_next = model.f_theta(in_features_msg_next)
-            regul_term = torch.relu(pred_msg[ids_batch] - pred_msg_next[ids_batch]).norm(2) * self._coeffs['f_theta_msg_diff']
+            regul_term = torch.relu(pred_msg[ids_batch] - pred_msg_next[ids_batch]).norm(2) * _ct['f_theta_msg_diff']
             total_regul = total_regul + regul_term
             self._add('f_theta_msg_diff', regul_term)
 
@@ -444,7 +501,7 @@ class LossRegularizer:
             in_features_modified[:, 0] = 0
             pred_msg = model.f_theta(in_features_modified)
             msg_col = in_features[:, embedding_dim + 1].clone().detach()
-            regul_term = (torch.tanh(pred_msg / 0.1) - torch.tanh(msg_col.unsqueeze(-1) / 0.1)).norm(2) * self._coeffs['f_theta_msg_sign']
+            regul_term = (torch.tanh(pred_msg / 0.1) - torch.tanh(msg_col.unsqueeze(-1) / 0.1)).norm(2) * _ct['f_theta_msg_sign']
             total_regul = total_regul + regul_term
             self._add('f_theta_msg_sign', regul_term)
 

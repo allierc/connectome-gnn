@@ -1,4 +1,5 @@
 import glob
+import shutil
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -24,6 +25,29 @@ from connectome_gnn.plot import (
     plot_spiking_traces,
 )
 from connectome_gnn.zarr_io import ZarrArrayWriter, ZarrSimulationWriterV3
+
+
+def _rmtree(path):
+    """Remove a directory tree robustly on network filesystems (Lustre/GPFS).
+
+    Python 3.12 changed shutil.rmtree on Linux to use _rmtree_safe_fd, which
+    calls openat()/unlinkat() relative to a directory fd.  On Lustre/GPFS
+    these syscalls can raise ENOTEMPTY on rmdir() even after all child files
+    were successfully unlinked, because Lustre's metadata propagation lags
+    behind the unlinkat() calls.  This is a known Python 3.12 + Lustre
+    incompatibility, not a bug in our code.
+
+    Workaround: use os.walk() bottom-up with plain path-based unlink()/rmdir(),
+    which go through Lustre's regular code path and do not exhibit the race.
+    """
+    path = str(path)
+    for root, dirs, files in os.walk(path, topdown=False):
+        for f in files:
+            os.unlink(os.path.join(root, f))
+        for d in dirs:
+            os.rmdir(os.path.join(root, d))
+    os.rmdir(path)
+
 
 try:
     from connectome_gnn.generators.davis import AugmentedVideoDataset, CombinedVideoDataset
@@ -142,13 +166,11 @@ def data_generate_connconstr(config, visualize=True, device=None, save=True, era
     """
     # Erase old data if requested (prevents appending to old runs)
     if erase:
-        import shutil
-
-        for split in ["train", "test", "0"]:  # '0' for fallback compat
-            for data_file in ["x_list", "y_list"]:
+        for split in ['train', 'test', '0']:  # '0' for fallback compat
+            for data_file in ['x_list', 'y_list']:
                 old_path = graphs_data_path(config.dataset, f"{data_file}_{split}")
                 if os.path.exists(old_path):
-                    shutil.rmtree(old_path)
+                    _rmtree(old_path)
                     logger.info(f"erased old {data_file}_{split}")
 
     from connectome_gnn.generators.ode_params import get_ode_params_class
@@ -437,13 +459,11 @@ def data_generate_spiking(
 
     # Erase old data if requested (prevents appending to old runs)
     if erase:
-        import shutil
-
-        for split in ["train", "test", "0"]:  # '0' for fallback compat
-            for data_file in ["x_list", "y_list"]:
+        for split in ['train', 'test', '0']:  # '0' for fallback compat
+            for data_file in ['x_list', 'y_list']:
                 old_path = graphs_data_path(config.dataset, f"{data_file}_{split}")
                 if os.path.exists(old_path):
-                    shutil.rmtree(old_path)
+                    _rmtree(old_path)
                     logger.info(f"erased old {data_file}_{split}")
 
     torch.random.fork_rng(devices=device)
@@ -466,7 +486,8 @@ def data_generate_spiking(
     for f in files:
         os.remove(f)
 
-    extent = 8
+    # extent=15 → 721 retinotopic columns (5768 photoreceptors); extent=8 → 217 columns (1736 photoreceptors)
+    extent = 15 if getattr(sim, 'all_columns', False) else 8
 
     import logging
 
@@ -477,7 +498,26 @@ def data_generate_spiking(
     logging.getLogger().setLevel(logging.WARNING)
     setup_flyvis_model_path()
 
-    # Initialize stimulus dataset (same as graded model)
+    # Initialize the flyvis network first (fast) so we can print actual network stats before
+    # the slow stimulus rendering begins.
+    import logging as _logging
+    _logging.getLogger("flyvis.utils.logging_utils").setLevel(_logging.ERROR)
+    config_net = get_default_config(overrides=[], path=f"{CONFIG_PATH}/network/network.yaml")
+    config_net.connectome.extent = extent
+    net = Network(**config_net)
+    nnv = NetworkView(f"flow/{sim.ensemble_id}/{sim.model_id}")
+    trained_net = nnv.init_network(checkpoint=0)
+    net.load_state_dict(trained_net.state_dict())
+    torch.set_grad_enabled(False)
+
+    _node_types_str = [t.decode('utf-8') if isinstance(t, bytes) else str(t) for t in net.connectome.nodes["type"][:]]
+    _photoreceptor_types = {'R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7', 'R8'}
+    n_input_neurons_net = int(np.sum([t in _photoreceptor_types for t in _node_types_str]))
+    print(f"  n_neurons:       {net.n_nodes}")
+    print(f"  n_input_neurons: {n_input_neurons_net}")
+    print(f"  n_edges:         {net.n_edges}")
+
+    # Initialize stimulus dataset
     sintel_config = {
         "n_frames": 19,
         "flip_axes": [0, 1],
@@ -490,18 +530,6 @@ def data_generate_spiking(
         "center_crop_fraction": 0.7,
     }
     stimulus_dataset = AugmentedSintel(**sintel_config)
-
-    # Initialize flyvis network (for connectome topology and stimulus processing)
-    import logging as _logging
-
-    _logging.getLogger("flyvis.utils.logging_utils").setLevel(_logging.ERROR)
-    config_net = get_default_config(overrides=[], path=f"{CONFIG_PATH}/network/network.yaml")
-    config_net.connectome.extent = extent
-    net = Network(**config_net)
-    nnv = NetworkView(f"flow/{sim.ensemble_id}/{sim.model_id}")
-    trained_net = nnv.init_network(checkpoint=0)
-    net.load_state_dict(trained_net.state_dict())
-    torch.set_grad_enabled(False)
 
     # Build spiking ODE params from flyvis connectome
     adex_overrides = {}
@@ -527,6 +555,7 @@ def data_generate_spiking(
     x_coords, y_coords, u_coords, v_coords = get_photoreceptor_positions_from_net(net)
     node_types = np.array(net.connectome.nodes["type"])
     node_types_str = [t.decode("utf-8") if isinstance(t, bytes) else str(t) for t in node_types]
+    # available node types: {'T5d', 'R3', 'T2a', 'TmY14', 'R7', 'CT1(Lo1)', 'Tm4', 'TmY10', 'T4d', 'L1', 'R1', 'R6', 'Am', 'T2', 'Tm5Y', 'L5', 'Tm20', 'L2', 'Mi4', 'Mi12', 'T4c', 'TmY4', 'CT1(M10)', 'TmY15', 'Lawf1', 'T1', 'TmY13', 'Tm5b', 'Tm28', 'L3', 'R8', 'L4', 'C3', 'Mi14', 'Tm2', 'R5', 'R2', 'Mi15', 'Tm9', 'Tm16', 'T5a', 'Mi3', 'TmY9', 'T4b', 'Mi9', 'Mi1', 'T5b', 'Tm1', 'Lawf2', 'C2', 'T4a', 'TmY3', 'Mi2', 'T3', 'TmY5a', 'Mi11', 'Tm5a', 'TmY18', 'Tm30', 'R4', 'Mi13', 'Tm5c', 'T5c', 'Mi10', 'Tm3'}
     grouped_types = np.array([group_by_direction_and_function(t) for t in node_types_str])
     _, node_types_int = np.unique(node_types, return_inverse=True)
 
@@ -703,9 +732,10 @@ def data_generate_spiking(
     x_test.fluorescence = torch.zeros(n_neurons, dtype=torch.float32, device=device)
     x_test.noise = torch.zeros(n_neurons, dtype=torch.float32, device=device)
 
+    MAX_TEST_FRAMES = 8000
     test_target = len(test_sequences) * frames_per_sequence
-    logger.info(f"generating spiking TEST data ({test_target} frames from {len(test_sequences)} sequences)...")
-    n_frames_test, _ = _run_spiking_generation(test_sequences, x_test, "test", float("inf"))
+    logger.info(f"generating spiking TEST data (capped at {MAX_TEST_FRAMES} frames from {len(test_sequences)} sequences)...")
+    n_frames_test, _ = _run_spiking_generation(test_sequences, x_test, "test", MAX_TEST_FRAMES)
     logger.info(f"generated {n_frames_test} spiking TEST frames")
 
     torch.set_grad_enabled(True)
@@ -733,13 +763,11 @@ def data_generate_voltage(
 
     # Erase old data if requested (prevents appending to old runs)
     if erase:
-        import shutil
-
-        for split in ["train", "test"]:
-            for data_file in ["x_list", "y_list"]:
+        for split in ['train', 'test']:
+            for data_file in ['x_list', 'y_list']:
                 old_path = graphs_data_path(config.dataset, f"{data_file}_{split}")
                 if os.path.exists(old_path):
-                    shutil.rmtree(old_path)
+                    _rmtree(old_path)
                     logger.info(f"erased old {data_file}_{split}")
 
     torch.random.fork_rng(devices=device)
@@ -773,7 +801,8 @@ def data_generate_voltage(
     for f in files:
         os.remove(f)
 
-    extent = 8
+    # extent=15 → 721 retinotopic columns (5768 photoreceptors); extent=8 → 217 columns (1736 photoreceptors)
+    extent = 15 if getattr(sim, 'all_columns', False) else 8
 
     # flyvis.__init__ sets root logger to INFO via basicConfig — restore to WARNING
     import logging
@@ -794,6 +823,46 @@ def data_generate_voltage(
 
     logging.getLogger().setLevel(logging.WARNING)
     setup_flyvis_model_path()
+
+    # Initialize the flyvis network first (fast) so we can print actual network stats before
+    # the slow stimulus rendering begins.
+    import logging as _logging
+    _logging.getLogger("flyvis.utils.logging_utils").setLevel(_logging.ERROR)
+
+    if is_flyvis_hybrid_model(model_config.signal_model_name):
+        # --- Flywirevis hybrid: load pre-computed connectome tables ---
+        from connectome_gnn.generators.hybrid_connectome import load_hybrid_network
+
+        signal_name = model_config.signal_model_name
+        edge_uncertainty = getattr(sim, "edge_uncertainty", 1)
+        flyvis_model_id = f"flow/{sim.ensemble_id}/{sim.model_id}"
+        logger.info(f"loading hybrid network ({signal_name}, extent={extent}, u={edge_uncertainty})...")
+        net, _orig_net = load_hybrid_network(
+            signal_name=signal_name,
+            extent=extent,
+            edge_uncertainty=edge_uncertainty,
+            model=flyvis_model_id,
+        )
+        logger.info(
+            f"hybrid network: {net.connectome.nodes.type[:].shape[0]} nodes, "
+            f"{net.connectome.edges.source_index[:].shape[0]} edges"
+        )
+    else:
+        # --- Standard flyvis network ---
+        config_net = get_default_config(overrides=[], path=f"{CONFIG_PATH}/network/network.yaml")
+        config_net.connectome.extent = extent
+        net = Network(**config_net)
+        nnv = NetworkView(f"flow/{sim.ensemble_id}/{sim.model_id}")
+        trained_net = nnv.init_network(checkpoint=0)
+        net.load_state_dict(trained_net.state_dict())
+    torch.set_grad_enabled(False)
+
+    _node_types_str = [t.decode('utf-8') if isinstance(t, bytes) else str(t) for t in net.connectome.nodes["type"][:]]
+    _photoreceptor_types = {'R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7', 'R8'}
+    n_input_neurons_net = int(np.sum([t in _photoreceptor_types for t in _node_types_str]))
+    print(f"  n_neurons:       {net.n_nodes}")
+    print(f"  n_input_neurons: {n_input_neurons_net}")
+    print(f"  n_edges:         {net.n_edges}")
 
     # Initialize datasets
     if "DAVIS" in sim.visual_input_type or "mixed" in sim.visual_input_type:
@@ -849,43 +918,6 @@ def data_generate_voltage(
             "center_crop_fraction": 0.7,
         }
         stimulus_dataset = AugmentedSintel(**sintel_config)
-
-    # Initialize the ground-truth flyvis network from a pre-trained checkpoint.
-    # This loads the biological connectome (neuron types, synaptic weights, time constants)
-    # from the flyvis library, using ensemble_id/model_id to select a specific trained model.
-    # The network is then used as the "simulator" to generate voltage traces via its PDE dynamics.
-    # Suppress noisy flyvis "epe not in ... Falling back to loss" warning
-    import logging as _logging
-
-    _logging.getLogger("flyvis.utils.logging_utils").setLevel(_logging.ERROR)
-
-    if is_flyvis_hybrid_model(model_config.signal_model_name):
-        # --- Flywirevis hybrid: load pre-computed connectome tables ---
-        from connectome_gnn.generators.hybrid_connectome import load_hybrid_network
-
-        signal_name = model_config.signal_model_name
-        edge_uncertainty = getattr(sim, "edge_uncertainty", 1)
-        flyvis_model_id = f"flow/{sim.ensemble_id}/{sim.model_id}"
-        logger.info(f"loading hybrid network ({signal_name}, extent={extent}, u={edge_uncertainty})...")
-        net, _orig_net = load_hybrid_network(
-            signal_name=signal_name,
-            extent=extent,
-            edge_uncertainty=edge_uncertainty,
-            model=flyvis_model_id,
-        )
-        logger.info(
-            f"hybrid network: {net.connectome.nodes.type[:].shape[0]} nodes, "
-            f"{net.connectome.edges.source_index[:].shape[0]} edges"
-        )
-    else:
-        # --- Standard flyvis network ---
-        config_net = get_default_config(overrides=[], path=f"{CONFIG_PATH}/network/network.yaml")
-        config_net.connectome.extent = extent
-        net = Network(**config_net)
-        nnv = NetworkView(f"flow/{sim.ensemble_id}/{sim.model_id}")
-        trained_net = nnv.init_network(checkpoint=0)
-        net.load_state_dict(trained_net.state_dict())
-    torch.set_grad_enabled(False)
 
     # Extract ground-truth parameters from flyvis connectome.
     if is_hh:
@@ -1005,55 +1037,24 @@ def data_generate_voltage(
             device=device,
         )
 
-    # Edge removal: drop a fraction of edges before saving
-    # (simulation already ran with the full graph)
-    if sim.edge_removal_ratio > 0:
-        # Save full edges first (for reference / analysis)
-        if save:
-            torch.save(ode_params.W.clone(), graphs_data_path(config.dataset, "weights_full.pt"))
-            torch.save(edge_index.clone(), graphs_data_path(config.dataset, "edge_index_full.pt"))
+    _G = '\033[92m'  # green
+    _R = '\033[91m'  # red
+    _X = '\033[0m'   # reset
 
-        rng_rm = np.random.RandomState(sim.edge_removal_seed)
-        n_total = edge_index.shape[1]
-        removal_mode = getattr(sim, "edge_removal_mode", "random")
-        logger.info(f"edge removal mode: {removal_mode}, ratio: {sim.edge_removal_ratio}")
-
-        if removal_mode == "per_column":
-            # Remove a consistent fraction of outgoing edges per pre-synaptic neuron
-            src_np = edge_index[0].cpu().numpy()
-            keep_mask = np.ones(n_total, dtype=bool)
-            for source in np.unique(src_np):
-                source_edges = np.where(src_np == source)[0]
-                n_remove = max(1, int(round(len(source_edges) * sim.edge_removal_ratio)))
-                if n_remove >= len(source_edges):
-                    n_remove = len(source_edges) - 1  # keep at least one
-                remove_idx = rng_rm.choice(source_edges, n_remove, replace=False)
-                keep_mask[remove_idx] = False
-            kept_indices = np.where(keep_mask)[0]
-        else:
-            # Random removal across the full edge set
-            n_keep = int(n_total * (1 - sim.edge_removal_ratio))
-            kept_indices = np.sort(rng_rm.choice(n_total, n_keep, replace=False))
-
-        edge_index = edge_index[:, kept_indices]
-        ode_params.edge_index = edge_index
-        ode_params.W = ode_params.W[kept_indices]
-        logger.info(
-            f"edge removal: kept {len(kept_indices)}/{n_total} edges "
-            f"({(1 - len(kept_indices) / n_total) * 100:.1f}% removed)"
-        )
-        if save:
-            torch.save(torch.tensor(kept_indices), graphs_data_path(config.dataset, "kept_edge_indices.pt"))
-
-    if save:
-        ode_params.save(folder)
-        if ablation_mask is not None:
-            torch.save(ablation_mask, graphs_data_path(config.dataset, "ablation_mask.pt"))
+    # Activity will be generated with the FULL connectivity below.
+    # Edge removal (if any) is applied AFTER generation so that x_list/y_list
+    # reflect the full-network dynamics. Only ode_params (the connectivity seen
+    # by the GNN) is pruned, giving the GNN an incomplete adjacency matrix to
+    # work with while the ground-truth activity it must predict is from the
+    # full connectome. This tests whether the GNN can recover parameters
+    # despite missing edges.
+    print(f"{_G}[GENERATE] full connectivity: edge_index={edge_index.shape}  W={ode_params.W.shape}{_X}")
 
     x_coords, y_coords, u_coords, v_coords = get_photoreceptor_positions_from_net(net)
 
     node_types = np.array(net.connectome.nodes["type"])
     node_types_str = [t.decode("utf-8") if isinstance(t, bytes) else str(t) for t in node_types]
+    # available node types: {'T5d', 'R3', 'T2a', 'TmY14', 'R7', 'CT1(Lo1)', 'Tm4', 'TmY10', 'T4d', 'L1', 'R1', 'R6', 'Am', 'T2', 'Tm5Y', 'L5', 'Tm20', 'L2', 'Mi4', 'Mi12', 'T4c', 'TmY4', 'CT1(M10)', 'TmY15', 'Lawf1', 'T1', 'TmY13', 'Tm5b', 'Tm28', 'L3', 'R8', 'L4', 'C3', 'Mi14', 'Tm2', 'R5', 'R2', 'Mi15', 'Tm9', 'Tm16', 'T5a', 'Mi3', 'TmY9', 'T4b', 'Mi9', 'Mi1', 'T5b', 'Tm1', 'Lawf2', 'C2', 'T4a', 'TmY3', 'Mi2', 'T3', 'TmY5a', 'Mi11', 'Tm5a', 'TmY18', 'Tm30', 'R4', 'Mi13', 'Tm5c', 'T5c', 'Mi10', 'Tm3'}
     grouped_types = np.array([group_by_direction_and_function(t) for t in node_types_str])
     _, node_types_int = np.unique(node_types, return_inverse=True)
 
@@ -1259,9 +1260,12 @@ def data_generate_voltage(
     x.calcium = _init_calcium
     x.fluorescence = sim.calcium_alpha * _init_calcium + sim.calcium_beta
 
-    # Test: single pass through test sequences
+    # Test: single pass through test sequences, capped at MAX_TEST_FRAMES (or sim.n_frames_test if set)
+    MAX_TEST_FRAMES = 8000
+    _n_frames_test_cap = getattr(sim, 'n_frames_test', 0)
+    test_target_frames = (_n_frames_test_cap if _n_frames_test_cap > 0 else MAX_TEST_FRAMES)
     test_target = len(test_sequences) * frames_per_sequence
-    logger.info(f"generating TEST data ({test_target} frames without noise from {len(test_sequences)} sequences)...")
+    logger.info(f"generating TEST data (capped at {test_target_frames} frames from {len(test_sequences)} sequences)...")
 
     x_writer = ZarrSimulationWriterV3(
         path=graphs_data_path(config.dataset, "x_list_test"),
@@ -1277,32 +1281,15 @@ def data_generate_voltage(
     )
 
     _run_ode_generation(
-        stimulus_sequences=test_sequences,
-        net=net,
-        pde=pde,
-        x=x,
-        edge_index=edge_index,
-        initial_state=initial_state,
-        sim=sim,
-        x_writer=x_writer,
-        y_writer=y_writer,
-        target_frames=float("inf"),
-        num_passes=1,  # single pass, all test sequences
-        n_neurons=n_neurons,
-        device=device,
-        to_numpy_fn=to_numpy,
-        visualize=False,
-        run=run,
-        run_vizualized=run_vizualized,
-        step=step,
-        id_fig_start=id_fig,
-        it_start=0,
-        fig_style=fig_style,
-        config=config,
-        davis_dataset=davis_dataset,
-        X1=X1,
-        u_coords=u_coords,
-        v_coords=v_coords,
+        stimulus_sequences=test_sequences, net=net, pde=pde, x=x,
+        edge_index=edge_index, initial_state=initial_state, sim=sim,
+        x_writer=x_writer, y_writer=y_writer,
+        target_frames=test_target_frames, num_passes=1,
+        n_neurons=n_neurons, device=device, to_numpy_fn=to_numpy,
+        visualize=False, run=run, run_vizualized=run_vizualized,
+        step=step, id_fig_start=id_fig, it_start=0,
+        fig_style=fig_style, config=config, davis_dataset=davis_dataset,
+        X1=X1, u_coords=u_coords, v_coords=v_coords,
     )
 
     n_frames_test = x_writer.finalize()
@@ -1315,6 +1302,69 @@ def data_generate_voltage(
 
     # restore gradient computation now (before any early-return paths)
     torch.set_grad_enabled(True)
+
+    # --- Edge removal: applied AFTER activity generation ---
+    # Activity data (x_list, y_list) was generated with the full connectome above.
+    # Now prune ode_params so the GNN only sees the incomplete adjacency matrix.
+    print(f"{_G}[GENERATE] activity generated with full connectivity: "
+          f"edge_index={edge_index.shape}  W={ode_params.W.shape}{_X}")
+    if sim.edge_removal_ratio > 0:
+        if save:
+            torch.save(ode_params.W.clone(), graphs_data_path(config.dataset, "weights_full.pt"))
+            torch.save(edge_index.clone(), graphs_data_path(config.dataset, "edge_index_full.pt"))
+
+        n_total = edge_index.shape[1]
+        edge_mask_path = getattr(sim, 'edge_mask_path', '')
+        if edge_mask_path and os.path.exists(edge_mask_path):
+            kept_indices = torch.load(edge_mask_path, weights_only=True)
+            print(f"{_G}[GENERATE] mask loaded from {edge_mask_path}: "
+                  f"{len(kept_indices)}/{n_total} edges kept{_X}")
+        else:
+            if edge_mask_path:
+                print(f"{_R}[GENERATE] edge_mask_path set but NOT FOUND: {edge_mask_path} "
+                      f"— computing new mask{_X}")
+            else:
+                print(f"{_G}[GENERATE] no edge_mask_path — computing new mask "
+                      f"(mode={getattr(sim,'edge_removal_mode','random')}, "
+                      f"ratio={sim.edge_removal_ratio}){_X}")
+            rng_rm = np.random.RandomState(sim.edge_removal_seed)
+            removal_mode = getattr(sim, 'edge_removal_mode', 'random')
+            if removal_mode == 'per_column':
+                src_np = edge_index[0].cpu().numpy()
+                keep_mask = np.ones(n_total, dtype=bool)
+                for source in np.unique(src_np):
+                    source_edges = np.where(src_np == source)[0]
+                    n_remove = max(1, int(round(len(source_edges) * sim.edge_removal_ratio)))
+                    if n_remove >= len(source_edges):
+                        n_remove = len(source_edges) - 1
+                    remove_idx = rng_rm.choice(source_edges, n_remove, replace=False)
+                    keep_mask[remove_idx] = False
+                kept_indices = np.where(keep_mask)[0]
+            else:
+                n_keep = int(n_total * (1 - sim.edge_removal_ratio))
+                kept_indices = np.sort(rng_rm.choice(n_total, n_keep, replace=False))
+
+        edge_index = edge_index[:, kept_indices]
+        ode_params.edge_index = edge_index
+        ode_params.W = ode_params.W[kept_indices]
+        pct_removed = (1 - len(kept_indices) / n_total) * 100
+        expected_pct = sim.edge_removal_ratio * 100
+        color = _G if abs(pct_removed - expected_pct) < 2 else _R
+        print(f"{color}[GENERATE] ode_params pruned: edge_index={edge_index.shape}  "
+              f"W={ode_params.W.shape}  removed={pct_removed:.1f}% "
+              f"(expected {expected_pct:.0f}%){_X}")
+        if save:
+            torch.save(torch.tensor(kept_indices, device=device),
+                       graphs_data_path(config.dataset, "kept_edge_indices.pt"))
+    else:
+        print(f"{_G}[GENERATE] no edge removal (ratio=0){_X}")
+
+    if save:
+        ode_params.save(folder)
+        print(f"{_G}[GENERATE] saved ode_params: edge_index={ode_params.edge_index.shape}  "
+              f"W={ode_params.W.shape}  → {folder}{_X}")
+        if ablation_mask is not None:
+            torch.save(ablation_mask, graphs_data_path(config.dataset, "ablation_mask.pt"))
 
     # --- Always run diagnostics after data generation ---
     from connectome_gnn.zarr_io import load_raw_array, load_simulation_data
@@ -1540,25 +1590,27 @@ def data_generate_voltage(
         )
 
     # Save ranks to log file
-    gen_log_path = graphs_data_path(config.dataset, "generation_log.txt")
-    with open(gen_log_path, "w") as log_f:
-        log_f.write(f"dataset: {config.dataset}\n")
-        log_f.write(f"n_neurons: {n_neurons}\n")
-        log_f.write(f"n_input_neurons: {sim.n_input_neurons}\n")
-        log_f.write(f"n_frames_train: {n_frames_train}\n")
-        log_f.write(f"n_frames_test: {n_frames_test}\n")
-        log_f.write(f"n_sequences_train: {len(train_sequences)}\n")
-        log_f.write(f"n_sequences_test: {len(test_sequences)}\n")
-        log_f.write(f"n_train_videos: {n_train_vids}\n")
-        log_f.write(f"n_test_videos: {len(test_video_set)}\n")
-        log_f.write(f"train_videos: {train_video_names}\n")
-        log_f.write(f"test_videos: {test_video_names}\n")
-        log_f.write(f"visual_input_type: {sim.visual_input_type}\n")
-        log_f.write(f"noise_model_level: {sim.noise_model_level}\n")
-        log_f.write(f"measurement_noise_level: {sim.measurement_noise_level}\n")
-        log_f.write(f"model_id: {sim.model_id}\n")
-        log_f.write(f"ensemble_id: {sim.ensemble_id}\n")
-        log_f.write("\n")
+    gen_log_path = graphs_data_path(config.dataset, 'generation_log.txt')
+    with open(gen_log_path, 'w') as log_f:
+        log_f.write(f'dataset: {config.dataset}\n')
+        log_f.write(f'n_neurons: {n_neurons}\n')
+        log_f.write(f'n_input_neurons: {sim.n_input_neurons}\n')
+        log_f.write(f'n_frames_train: {n_frames_train}\n')
+        log_f.write(f'n_frames_test: {n_frames_test}\n')
+        log_f.write(f'n_sequences_train: {len(train_sequences)}\n')
+        log_f.write(f'n_sequences_test: {len(test_sequences)}\n')
+        log_f.write(f'n_train_videos: {n_train_vids}\n')
+        log_f.write(f'n_test_videos: {len(test_video_set)}\n')
+        log_f.write(f'train_videos: {train_video_names}\n')
+        log_f.write(f'test_videos: {test_video_names}\n')
+        log_f.write(f'visual_input_type: {sim.visual_input_type}\n')
+        if sim.datavis_roots:
+            log_f.write(f'datavis_roots: {sim.datavis_roots}\n')
+        log_f.write(f'noise_model_level: {sim.noise_model_level}\n')
+        log_f.write(f'measurement_noise_level: {sim.measurement_noise_level}\n')
+        log_f.write(f'model_id: {sim.model_id}\n')
+        log_f.write(f'ensemble_id: {sim.ensemble_id}\n')
+        log_f.write('\n')
         if compute_ranks:
             log_f.write(f"activity_rank_90: {rank_90_act}\n")
             log_f.write(f"activity_rank_99: {rank_99_act}\n")
@@ -1669,7 +1721,9 @@ def data_generate_voltage(
     plot_selected_neuron_traces(
         activity=to_numpy(activity),
         type_list=to_numpy(type_list.squeeze()),
-        output_path=graphs_data_path(config.dataset, "activity.png"),
+        output_path=graphs_data_path(config.dataset, 'activity.png'),
+        start_frame=0,
+        end_frame=activity.shape[1],
         style=fig_style,
     )
 
@@ -1682,9 +1736,8 @@ def data_generate_voltage(
         with open(src, "rb") as fsrc, open(dst, "wb") as fdst:
             fdst.write(fsrc.read())
 
-        generate_compressed_video_mp4(
-            output_dir=graphs_data_path(config.dataset), run=run, output_name=output_name, framerate=20
-        )
+        generate_compressed_video_mp4(output_dir=graphs_data_path(config.dataset), run=run,
+                                      output_name=output_name, framerate=10)
 
         files = glob.glob(graphs_data_path(config.dataset, "Fig", "*"))
         for f in files:
@@ -1817,6 +1870,8 @@ def _run_ode_generation(
                 else:
                     sequence_length = sequences.shape[0]
 
+                blank_prefix_frames = int(sequence_length * getattr(sim, 'blank_prefix_fraction', 0.0))
+
                 for frame_id in range(sequence_length):
                     if "flash" in sim.visual_input_type:
                         current_flash_frame = frame_id % (flash_cycle_frames * 2)
@@ -1932,6 +1987,10 @@ def _run_ode_generation(
                                     * sim.noise_visual_input
                                 )
 
+                    # Blank prefix: force zero stimulus for the first N frames of each sequence
+                    if blank_prefix_frames > 0 and frame_id < blank_prefix_frames:
+                        x.stimulus[:sim.n_input_neurons] = 0
+
                     prev_calcium = x.calcium.clone() if x.calcium is not None else None
 
                     # HH models use substeps for numerical stability
@@ -2008,7 +2067,7 @@ def _run_ode_generation(
 
                     y_writer.append(to_numpy_fn(y.clone().detach()))
 
-                    if visualize & (run == run_vizualized) & (it > 0) & (it % step == 0) & (it <= 50 * step):
+                    if (visualize & (run == run_vizualized) & (it > 0) & (it % 4 == 0) & (it <= 400)):
                         num = f"{id_fig:06}"
                         id_fig += 1
                         plot_spatial_activity_grid(
