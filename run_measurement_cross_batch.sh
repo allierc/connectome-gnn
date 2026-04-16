@@ -41,7 +41,8 @@ CONFIGS=(
     # "${CFG_DIR}/flyvis_cmp_noise_05"             # DONE
     # "${CFG_DIR}/flyvis_noise_005_null_edges_pc_400" # DONE
     # "${CFG_DIR}/flyvis_cmp_removed_pc_20"        # DONE
-    "${CFG_DIR}/flyvis_noise_005_010_rc_winner"
+    # "${CFG_DIR}/flyvis_noise_005_010_rc_winner"             # DONE
+    "${CFG_DIR}/flyvis_noise_005_010_winner"
 )
 # Base config names (for the comparison table — must match log/fly/<name>)
 BASE_NAMES=(

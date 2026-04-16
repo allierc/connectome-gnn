@@ -527,6 +527,10 @@ def load_configs_and_seeds(state: ExplorationState, batch: BatchInfo):
     for slot_idx, iteration in enumerate(batch.iterations):
         slot = slot_idx
 
+        # Sanitize description field before parsing (Claude may write unquoted
+        # descriptions containing ': ' which breaks yaml.safe_load).
+        _sanitize_description(state.config_paths[slot])
+
         # CRITICAL: Dataset suffix must always be _XX where XX is the slot number (_00, _01, _02, _03)
         # This is set once in init_slot_configs() and should NEVER change, even if Claude modifies the config.
         expected_dataset = f"{state.base_config_name}_{slot:02d}"
@@ -1111,9 +1115,7 @@ def save_artifacts(state: ExplorationState, batch: BatchInfo):
 
 def update_ucb_scores(state: ExplorationState, batch: BatchInfo):
     """PHASE 5: Compute UCB scores from batch results (skipped when ucb_c=0)."""
-    with open(state.config_paths[0], 'r') as f:
-        raw_config = yaml.safe_load(f)
-    ucb_c = raw_config.get('claude', {}).get('ucb_c', 0)
+    ucb_c = state.ucb_c
     if ucb_c == 0:
         print("\033[93mPHASE 5: UCB scores skipped (ucb_c=0)\033[0m")
         return
@@ -1260,6 +1262,42 @@ def run_claude_analysis(state: ExplorationState, batch: BatchInfo):
             f.write(output_text.strip())
             f.write("\n\n")
 
+    # Sanitize config files written by Claude: quote description values that
+    # contain ": " so yaml.safe_load doesn't mistake them for mapping keys.
+    for slot in range(batch.n_slots):
+        _sanitize_description(state.config_paths[slot])
+
+
+def _sanitize_description(path: str):
+    """Fix unquoted description lines written by Claude that contain ': '."""
+    import re
+    try:
+        with open(path, 'r') as f:
+            content = f.read()
+    except FileNotFoundError:
+        return
+    # Match multi-line description: value that spans a continuation line
+    # (the folded form written by Claude when the value is long)
+    # Pattern: description: <text that contains ': '> possibly spanning next indented line
+    def _quote_description(m):
+        raw = m.group(1)
+        # Collapse folded continuation (indented next line) into single string
+        raw = re.sub(r'\n[ \t]+', ' ', raw).rstrip()
+        # Only requote if it contains ': ' (the problematic YAML pattern)
+        if ': ' in raw:
+            escaped = raw.replace("'", "''")
+            return f"description: '{escaped}'"
+        return m.group(0)
+    new_content = re.sub(
+        r'^description: (.*(?:\n[ \t]+.*)*)',
+        _quote_description,
+        content,
+        flags=re.MULTILINE,
+    )
+    if new_content != content:
+        with open(path, 'w') as f:
+            f.write(new_content)
+
 
 # ---------------------------------------------------------------------------
 # Finalize batch
@@ -1267,9 +1305,7 @@ def run_claude_analysis(state: ExplorationState, batch: BatchInfo):
 
 def finalize_batch(state: ExplorationState, batch: BatchInfo):
     """UCB recompute (if enabled), tree visualization, protocol/memory snapshots."""
-    with open(state.config_paths[0], 'r') as f:
-        raw_config = yaml.safe_load(f)
-    ucb_c = raw_config.get('claude', {}).get('ucb_c', 0)
+    ucb_c = state.ucb_c
 
     if ucb_c > 0:
         compute_ucb_scores(state.analysis_path, state.ucb_path, c=ucb_c,
