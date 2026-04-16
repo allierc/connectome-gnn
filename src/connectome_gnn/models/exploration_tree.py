@@ -361,20 +361,18 @@ def plot_exploration_tree(nodes: list[ExperimentNode],
 
 def plot_data_exploration(nodes: list[ExperimentNode],
                           output_path: Optional[str] = None,
-                          title: str = "Data Exploration",
-                          ucb_path: Optional[str] = None):
+                          title: str = "Data Exploration"):
     """
     Visualize data exploration with 2 panels:
 
     Panels:
     - Left: svd_rank vs spectral_radius (colored by R2: red/orange/green)
-    - Right: Parent-child UCB tree structure
+    - Right: Parent-child tree structure (size proportional to connectivity_R2)
 
     Args:
         nodes: List of ExperimentNode objects
         output_path: Path to save the plot
         title: Plot title
-        ucb_path: Path to ucb_scores.txt file (optional)
     """
     if not nodes:
         print("No nodes to plot")
@@ -450,50 +448,15 @@ def plot_data_exploration(nodes: list[ExperimentNode],
         ax1.text(0.5, 0.5, 'No data', ha='center', va='center', transform=ax1.transAxes)
         ax1.set_title('Activity Complexity vs Dynamics Stability', fontsize=12)
 
-    # --- Panel 2: UCB Tree Structure (parent-child relationships) ---
-    # Build tree structure from parent field in analysis log
-    node_map = {n.iteration: n for n in nodes}
-
-    # Parse parent from Node line in analysis (stored during parse_experiment_log)
-    # Build children dict from the parent relationships
+    # --- Panel 2: Parent-child tree structure ---
     children = defaultdict(list)
     parent_map = {}
 
     for node in nodes:
-        # Get parent from the node's parent field (set during build_tree_structure)
         parent_id = node.parent
         parent_map[node.iteration] = parent_id
         if parent_id is not None:
             children[parent_id].append(node.iteration)
-
-    # Compute UCB for display
-    def get_subtree_stats(node_id):
-        if node_id not in node_map:
-            return 0, 0.0
-        visits = 1
-        rewards = node_map[node_id].metrics.get('connectivity_R2', 0.0)
-        for child_id in children[node_id]:
-            child_visits, child_rewards = get_subtree_stats(child_id)
-            visits += child_visits
-            rewards += child_rewards
-        return visits, rewards
-
-    n_total = len(nodes)
-    c = 1.414
-
-    ucb_values = {}
-    for node in nodes:
-        visits, sum_rewards = get_subtree_stats(node.iteration)
-        mean_reward = sum_rewards / visits if visits > 0 else 0.0
-        if visits > 0 and n_total > 1:
-            exploration_term = c * math.sqrt(math.log(n_total) / visits)
-        else:
-            exploration_term = float('inf')
-        ucb = mean_reward + exploration_term
-        ucb_values[node.iteration] = {
-            'ucb': ucb if ucb != float('inf') else 10.0,
-            'visits': visits
-        }
 
     # Compute tree layout: x = depth from root, y = spread within depth level
     depth_map = {}
@@ -503,26 +466,21 @@ def plot_data_exploration(nodes: list[ExperimentNode],
         for child_id in children[node_id]:
             compute_depth(child_id, current_depth + 1)
 
-    # Find root nodes
     root_nodes = [n.iteration for n in nodes if parent_map.get(n.iteration) is None]
     for root in root_nodes:
         compute_depth(root, 0)
 
-    # Assign y positions: leaves get sequential positions, parents center on children
     y_positions = {}
     leaf_counter = [0]
 
     def assign_y_dfs(node_id):
         child_list = sorted(children.get(node_id, []))
         if not child_list:
-            # Leaf node
             y_positions[node_id] = leaf_counter[0]
             leaf_counter[0] += 1
         else:
-            # Process children first
             for child_id in child_list:
                 assign_y_dfs(child_id)
-            # Parent y = center of children
             y_positions[node_id] = np.mean([y_positions[c] for c in child_list])
 
     for root in root_nodes:
@@ -536,10 +494,12 @@ def plot_data_exploration(nodes: list[ExperimentNode],
             x2, y2 = depth_map[node.iteration], y_positions[node.iteration]
             ax2.plot([x1, x2], [y1, y2], color='#34495e', linestyle='-', linewidth=2, alpha=0.7, zorder=1)
 
-    # Draw nodes
-    max_ucb = max(ucb_values[n.iteration]['ucb'] for n in nodes)
-    min_ucb = min(ucb_values[n.iteration]['ucb'] for n in nodes)
-    ucb_range = max_ucb - min_ucb if max_ucb > min_ucb else 1.0
+    # Draw nodes (size proportional to connectivity_R2)
+    all_r2 = [n.metrics.get('connectivity_R2', 0.0) for n in nodes]
+    min_r2 = min(all_r2) if all_r2 else 0.0
+    r2_range = (max(all_r2) - min_r2) if all_r2 else 1.0
+    if r2_range == 0:
+        r2_range = 1.0
 
     for node in nodes:
         if node.iteration not in depth_map:
@@ -547,31 +507,27 @@ def plot_data_exploration(nodes: list[ExperimentNode],
         x = depth_map[node.iteration]
         y = y_positions[node.iteration]
         color = status_colors.get(node.status, '#95a5a6')
-        ucb = ucb_values[node.iteration]['ucb']
-
-        # Size proportional to UCB
-        size = 100 + 150 * (ucb - min_ucb) / ucb_range
+        r2 = node.metrics.get('connectivity_R2', 0.0)
+        size = 100 + 150 * (r2 - min_r2) / r2_range
 
         conn_type = node.config.get('connectivity_type', 'chaotic')
         marker = connectivity_markers.get(conn_type, 'o')
         ax2.scatter(x, y, c=color, s=size, marker=marker, edgecolors='black', linewidths=1, zorder=2)
-
-        # Label: node id on top, UCB below
         ax2.annotate(str(node.iteration), (x, y), ha='center', va='center',
                     fontsize=7, fontweight='bold', color='white')
 
-    # Add UCB values as text next to nodes (closer to dot)
+    # Add R2 labels next to nodes
     for node in nodes:
         if node.iteration not in depth_map:
             continue
         x = depth_map[node.iteration]
         y = y_positions[node.iteration]
-        ucb = ucb_values[node.iteration]['ucb']
-        ax2.annotate(f'{ucb:.1f}', (x, y), ha='left', va='center', fontsize=6, xytext=(8, 0), textcoords='offset points')
+        r2 = node.metrics.get('connectivity_R2', 0.0)
+        ax2.annotate(f'R²={r2:.2f}', (x, y), ha='left', va='center', fontsize=6, xytext=(8, 0), textcoords='offset points')
 
     ax2.set_xlabel('Tree Depth', fontsize=11)
     ax2.set_ylabel('Branch', fontsize=11)
-    ax2.set_title('Parent-Child Tree (size = UCB)', fontsize=12)
+    ax2.set_title('Parent-Child Tree (size = R²)', fontsize=12)
     ax2.set_xlim(-0.5, max(depth_map.values()) + 0.5 if depth_map else 1)
     ax2.grid(True, alpha=0.3)
 
@@ -704,280 +660,6 @@ def generate_summary_stats(nodes: list[ExperimentNode]) -> dict:
     stats['parameters_explored'] = list(stats['parameters_explored'])
 
     return stats
-
-
-def compute_ucb_scores(analysis_path, ucb_path, c=1.0, current_log_path=None, current_iteration=None, block_size=16, reward_key='connectivity_R2'):
-    """
-    Parse analysis file, build exploration tree, compute UCB scores.
-
-    Args:
-        analysis_path: Path to analysis_experiment_*.md file
-        ucb_path: Path to write UCB scores output
-        c: Exploration constant (default sqrt(2) ~= 1.414)
-        current_log_path: Path to current iteration's analysis.log (optional)
-        current_iteration: Current iteration number (optional)
-        block_size: Size of each simulation block (default 12)
-        reward_key: Metric name to use as reward signal (default 'connectivity_R2').
-                    For INR optimization use 'final_r2'.
-
-    Returns:
-        True if UCB scores were computed, False if no nodes found
-
-    Note:
-        When block_size > 0 and current_iteration is provided, only nodes
-        from the current block are included in UCB scores. Block N covers
-        iterations (N*block_size)+1 to (N+1)*block_size.
-    """
-    nodes = {}
-    next_parent_map = {}  # maps iteration N -> parent for iteration N+1 (from "Next: parent=P")
-
-    # parse previous iterations from analysis markdown file
-    if os.path.exists(analysis_path):
-        with open(analysis_path, 'r') as f:
-            content = f.read()
-
-        # Parse nodes from analysis file
-        # Format: Node: id=N, parent=P, V=1, N_total=N
-        # Metrics: ..., connectivity_R2=V, ...
-        # Next: parent=P (specifies parent for next iteration)
-        current_node = None
-
-        lines = content.split('\n')
-        for i, line in enumerate(lines):
-            # Match iteration header: ## Iter N: [status] or ### Iter N: [status]
-            # When we hit a new iteration, save the previous node if complete
-            iter_match = re.match(r'##+ Iter (\d+):', line)
-            if iter_match:
-                # Save previous node if it has required fields
-                if current_node is not None and 'id' in current_node and 'connectivity_R2' in current_node:
-                    nodes[current_node['id']] = current_node
-                current_iter = int(iter_match.group(1))
-                current_node = {'iter': current_iter}
-                continue
-
-            # Match Node line
-            node_match = re.match(r'Node: id=(\d+), parent=(\d+|None|root)', line)
-            if node_match and current_node is not None:
-                current_node['id'] = int(node_match.group(1))
-                parent_str = node_match.group(2)
-                # Treat parent=0, parent=None, or parent=root as root (no parent)
-                if parent_str in ('None', '0', 'root'):
-                    current_node['parent'] = None
-                else:
-                    current_node['parent'] = int(parent_str)
-                continue
-
-            # Match Next line: specifies parent for the NEXT iteration
-            next_match = re.match(r'Next: parent=(\d+|root)', line)
-            if next_match and current_node is not None:
-                next_parent_str = next_match.group(1)
-                if next_parent_str == 'root':
-                    next_parent_map[current_node['iter']] = None
-                else:
-                    next_parent_map[current_node['iter']] = int(next_parent_str)
-                continue
-
-            # Match Mutation line
-            mutation_match = re.match(r'Mutation: (.+)', line)
-            if mutation_match and current_node is not None:
-                current_node['mutation'] = mutation_match.group(1).strip()
-                continue
-
-            # Match Metrics line using reward_key as trigger (e.g. connectivity_R2 or final_r2)
-            metrics_match = re.search(rf'{re.escape(reward_key)}=([\d.]+|nan)', line)
-            if metrics_match and current_node is not None:
-                r2_str = metrics_match.group(1).rstrip('.')  # Strip trailing period
-                current_node[reward_key] = float(r2_str) if r2_str != 'nan' else 0.0
-                # Extract all key=value pairs from the same metrics line
-                for extra_key in ['test_pearson', 'cluster_accuracy', 'tau_R2', 'V_rest_R2',
-                                  'connectivity_R2', 'final_r2', 'best_r2', 'r2_drop', 'final_loss', 'training_time_min',
-                                  'stimuli_R2']:
-                    if extra_key == reward_key:
-                        continue  # already parsed above
-                    extra_match = re.search(rf'{re.escape(extra_key)}=([\d.]+|nan)', line)
-                    if extra_match:
-                        e_str = extra_match.group(1).rstrip('.')
-                        current_node[extra_key] = float(e_str) if e_str != 'nan' else -1.0
-                # Don't store node yet - continue collecting fields (Mutation comes after Metrics)
-                continue
-
-        # Save the last node if complete
-        if current_node is not None and 'id' in current_node and reward_key in current_node:
-            nodes[current_node['id']] = current_node
-
-    # Apply next_parent_map: if iteration N-1 specified "Next: parent=P", use P as parent for node N
-    for node_id, node in nodes.items():
-        prev_iter = node_id - 1
-        if prev_iter in next_parent_map:
-            new_parent = next_parent_map[prev_iter]
-            # Skip self-references (parallel mode: sibling slot pointing to itself)
-            if new_parent == node_id:
-                continue
-            node['parent'] = new_parent
-
-    # Add current iteration from analysis.log if not yet in markdown
-    # Use parent from next_parent_map (from previous iteration's "Next: parent=P")
-    if current_log_path and current_iteration and os.path.exists(current_log_path):
-        with open(current_log_path, 'r') as f:
-            log_content = f.read()
-
-        # parse reward metric from analysis.log (handles both = and : formats)
-        r2_match = re.search(rf'{re.escape(reward_key)}[=:]\s*([\d.]+|nan)', log_content)
-        if r2_match:
-            r2_str = r2_match.group(1)
-            r2_value = float(r2_str) if r2_str != 'nan' else 0.0
-
-            # parse all known extra metrics from analysis.log
-            extra_metrics = {}
-            for extra_key in ['test_pearson', 'cluster_accuracy', 'tau_R2', 'V_rest_R2',
-                              'connectivity_R2', 'final_r2', 'best_r2', 'r2_drop', 'final_loss', 'training_time_min',
-                              'stimuli_R2', 'U_r2_rank20', 'V_r2_rank20', 'W_r2_rank20']:
-                if extra_key == reward_key:
-                    continue
-                extra_match = re.search(rf'{re.escape(extra_key)}[=:]\s*([\d.]+|nan)', log_content)
-                if extra_match:
-                    e_str = extra_match.group(1)
-                    extra_metrics[extra_key] = float(e_str) if e_str != 'nan' else -1.0
-
-            if current_iteration in nodes:
-                # Update existing node's metrics
-                nodes[current_iteration][reward_key] = r2_value
-                for k, v in extra_metrics.items():
-                    nodes[current_iteration][k] = v
-            else:
-                # Create new node using parent from previous iteration's "Next: parent=P"
-                prev_iter = current_iteration - 1
-                parent = next_parent_map.get(prev_iter, prev_iter if prev_iter in nodes else None)
-                node_data = {
-                    'iter': current_iteration,
-                    'id': current_iteration,
-                    'parent': parent,
-                    reward_key: r2_value,
-                }
-                node_data.update(extra_metrics)
-                nodes[current_iteration] = node_data
-
-    if not nodes:
-        return False
-
-    # Filter nodes to current block if block_size > 0 and current_iteration is provided
-    # Block N covers iterations (N*block_size)+1 to (N+1)*block_size
-    if block_size > 0 and current_iteration is not None:
-        current_block = (current_iteration - 1) // block_size
-        block_start = current_block * block_size + 1
-        block_end = (current_block + 1) * block_size
-
-        # Filter nodes to only include those in current block
-        nodes = {node_id: node for node_id, node in nodes.items()
-                 if block_start <= node_id <= block_end}
-
-        # Update parent references: if parent is outside block, set to None (root)
-        for node_id, node in nodes.items():
-            if node['parent'] is not None and node['parent'] not in nodes:
-                node['parent'] = None
-
-    if not nodes:
-        return False
-
-    # Build tree structure: for each node, track children
-    children = defaultdict(list)
-    for node_id, node in nodes.items():
-        if node['parent'] is not None:
-            children[node['parent']].append(node_id)
-
-    # Total number of nodes
-    n_total = len(nodes)
-
-    # Compute visits using PUCT backpropagation semantics:
-    # - Each node starts with V=1 (its own creation visit)
-    # - When a child is created, parent and all ancestors get V += 1
-    # This means V(node) = 1 + number of descendants
-    visits = {node_id: 1 for node_id in nodes}
-
-    # Sort nodes by id to process in creation order (children after parents)
-    sorted_node_ids = sorted(nodes.keys())
-
-    # Backpropagate: for each node, increment all ancestors
-    for node_id in sorted_node_ids:
-        parent_id = nodes[node_id]['parent']
-        visited = set()  # Protect against circular parent references
-        while parent_id is not None and parent_id in nodes and parent_id not in visited:
-            visited.add(parent_id)
-            visits[parent_id] += 1
-            parent_id = nodes[parent_id]['parent']
-        if parent_id in visited:
-            print(f"Warning: circular parent reference detected at node {node_id}")
-
-    # Compute UCB for each node
-    # Google PUCT formula: UCB(u) = RankScore(u) + c * sqrt(N_total) / (1 + V(u))
-    ucb_scores = []
-    for node_id, node in nodes.items():
-        v = visits[node_id]
-        reward = node.get(reward_key, 0.0)
-
-        # PUCT exploration term: c * sqrt(N_total) / (1 + V)
-        exploration_term = c * math.sqrt(n_total) / (1 + v)
-
-        ucb = reward + exploration_term
-
-        score_entry = {
-            'id': node_id,
-            'parent': node['parent'],
-            'visits': v,
-            'mean_R2': reward,
-            'ucb': ucb,
-            reward_key: reward,
-            'mutation': node.get('mutation', ''),
-            'is_current': node_id == current_iteration,
-        }
-        # Include all extra metrics present in the node
-        for extra_key in ['test_pearson', 'cluster_accuracy', 'training_time_min',
-                          'tau_R2', 'V_rest_R2', 'connectivity_R2', 'final_r2', 'best_r2', 'r2_drop', 'final_loss',
-                          'stimuli_R2', 'U_r2_rank20', 'V_r2_rank20', 'W_r2_rank20']:
-            if extra_key != reward_key and extra_key in node:
-                score_entry[extra_key] = node[extra_key]
-        ucb_scores.append(score_entry)
-
-    # Sort by UCB descending (highest UCB = most promising to explore)
-    ucb_scores.sort(key=lambda x: x['ucb'], reverse=True)
-
-    # Write UCB scores to file
-    with open(ucb_path, 'w') as f:
-        # Include block information if block_size > 0
-        if block_size > 0 and current_iteration is not None:
-            current_block = (current_iteration - 1) // block_size
-            block_start = current_block * block_size + 1
-            block_end = (current_block + 1) * block_size
-            f.write(f"=== UCB Scores (Simulation block {current_block}, iters {block_start}-{block_end}, N={n_total}, c={c}) ===\n\n")
-        else:
-            f.write(f"=== UCB Scores (N_total={n_total}, c={c}) ===\n\n")
-        for score in ucb_scores:
-            parent_str = score['parent'] if score['parent'] is not None else 'root'
-            mutation_str = score.get('mutation', '')
-            conn_r2_val = score.get('connectivity_R2', -1.0)
-            conn_str = f", conn_R2={conn_r2_val:.3f}" if conn_r2_val >= 0 else ""
-            line = (f"Node {score['id']}: UCB={score['ucb']:.3f}, "
-                    f"parent={parent_str}, visits={score['visits']}"
-                    f"{conn_str}, "
-                    f"R2={score.get(reward_key, 0.0):.3f}")
-            # Add extra metrics if available
-            for extra_key, label in [('stimuli_R2', 'stimuli_R2'),
-                                     ('tau_R2', 'tau_R2'), ('V_rest_R2', 'V_rest_R2'),
-                                     ('test_pearson', 'Pearson'), ('cluster_accuracy', 'Cluster'),
-                                     ('training_time_min', 'Time'), ('final_r2', 'final_R2'),
-                                     ('best_r2', 'best_R2'), ('r2_drop', 'R2drop'), ('final_loss', 'Loss'),
-                                     ('U_r2_rank20', 'U_R2@20'), ('V_r2_rank20', 'V_R2@20'), ('W_r2_rank20', 'W_R2@20')]:
-                if extra_key == reward_key:
-                    continue
-                val = score.get(extra_key, -1.0)
-                if val >= 0:
-                    fmt = '.1f' if extra_key == 'training_time_min' else '.3f'
-                    line += f", {label}={val:{fmt}}"
-            if mutation_str:
-                line += f", Mutation={mutation_str}"
-            f.write(line + "\n")
-
-    return True
 
 
 def print_recommendations():

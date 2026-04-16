@@ -13,9 +13,7 @@ import sys
 import yaml
 
 from connectome_gnn.config import NeuralGraphConfig
-from connectome_gnn.models.exploration_tree import compute_ucb_scores
 from connectome_gnn.models.graph_trainer import data_test, data_train
-from connectome_gnn.models.plot_exploration_tree import parse_ucb_scores, plot_ucb_tree
 from connectome_gnn.models.utils import save_exploration_artifacts_flyvis
 from connectome_gnn.utils import (
     add_pre_folder, config_path, get_data_root, load_data_root_from_json,
@@ -120,7 +118,6 @@ def setup_exploration(args, root_dir: str, skip_confirm: bool = False) -> Explor
         n_epochs=claude_cfg.get('n_epochs', 1),
         data_augmentation_loop=claude_cfg.get('data_augmentation_loop', 25),
         n_iter_block=claude_cfg.get('n_iter_block', 16),
-        ucb_c=claude_cfg.get('ucb_c', 0),
         node_name=claude_cfg.get('node_name', 'h100'),
         conda_env=claude_cfg.get('conda_env', 'connectome-gnn'),
         n_cpus=claude_cfg.get('n_cpus', 2),
@@ -207,7 +204,6 @@ def init_slot_configs(state: ExplorationState, is_resume: bool):
                     'n_epochs': state.n_epochs,
                     'data_augmentation_loop': state.data_augmentation_loop,
                     'n_iter_block': state.n_iter_block,
-                    'ucb_c': state.ucb_c,
                     'n_parallel': state.n_parallel,
                     'node_name': state.node_name,
                     'generate_data': state.generate_data,
@@ -230,7 +226,6 @@ def init_slot_configs(state: ExplorationState, is_resume: bool):
                     'n_epochs': state.n_epochs,
                     'data_augmentation_loop': state.data_augmentation_loop,
                     'n_iter_block': state.n_iter_block,
-                    'ucb_c': state.ucb_c,
                     'n_parallel': state.n_parallel,
                     'node_name': state.node_name,
                     'generate_data': state.generate_data,
@@ -254,7 +249,6 @@ def init_slot_configs(state: ExplorationState, is_resume: bool):
                     'n_epochs': state.n_epochs,
                     'data_augmentation_loop': state.data_augmentation_loop,
                     'n_iter_block': state.n_iter_block,
-                    'ucb_c': state.ucb_c,
                     'n_parallel': state.n_parallel,
                     'node_name': state.node_name,
                     'generate_data': state.generate_data,
@@ -268,10 +262,9 @@ def init_slot_configs(state: ExplorationState, is_resume: bool):
 
 
 def init_shared_files(state: ExplorationState, is_resume: bool):
-    """Create analysis/memory/UCB files on fresh start, or preserve on resume."""
+    """Create analysis/memory files on fresh start, or preserve on resume."""
     state.analysis_path = f"{state.exploration_dir}/{state.llm_task_name}_analysis.md"
     state.memory_path = f"{state.exploration_dir}/{state.llm_task_name}_memory.md"
-    state.ucb_path = f"{state.exploration_dir}/{state.llm_task_name}_ucb_scores.txt"
     instruction_name = state.instruction_name or f'instruction_{state.base_config_name}'
     state.instruction_path = f"{state.llm_dir}/{instruction_name}.md"
     state.reasoning_log_path = f"{state.exploration_dir}/{state.llm_task_name}_reasoning.log"
@@ -327,9 +320,6 @@ def init_shared_files(state: ExplorationState, is_resume: bool):
             f.write("### Iterations This Block\n\n")
             f.write("### Emerging Observations\n\n")
         print(f"\033[93mcleared {state.memory_path}\033[0m")
-        if os.path.exists(state.ucb_path):
-            os.remove(state.ucb_path)
-            print(f"\033[93mdeleted {state.ucb_path}\033[0m")
     else:
         print(f"\033[93mpreserving shared files (resuming from iter {state.start_iteration})\033[0m")
 
@@ -432,11 +422,6 @@ def run_code_session(state: ExplorationState, batch: BatchInfo):
     if os.path.exists(marker) or os.path.exists(old_marker):
         print(f"\033[93mCode session already completed for block {batch.block_number} — skipping\033[0m")
         return
-
-    # Erase UCB at block boundary
-    if os.path.exists(state.ucb_path):
-        os.remove(state.ucb_path)
-        print(f"\033[93mblock boundary: deleted {state.ucb_path}\033[0m")
 
     brief_path = generate_code_brief(
         state.memory_path, batch.block_number, state.case_study,
@@ -593,12 +578,6 @@ def load_configs_and_seeds(state: ExplorationState, batch: BatchInfo):
 
     # Validate causality: warn if LLM changed >1 training param per slot vs slot 0
     _check_causality(state, batch)
-
-    # Handle UCB reset at block boundary (if code session didn't already do it)
-    if batch.batch_first > 1 and (batch.batch_first - 1) % state.n_iter_block == 0:
-        if os.path.exists(state.ucb_path):
-            os.remove(state.ucb_path)
-            print(f"\033[93mblock boundary: deleted {state.ucb_path}\033[0m")
 
 
 # ---------------------------------------------------------------------------
@@ -1110,87 +1089,7 @@ def save_artifacts(state: ExplorationState, batch: BatchInfo):
 
 
 # ---------------------------------------------------------------------------
-# Phase 5: UCB scores
-# ---------------------------------------------------------------------------
-
-def update_ucb_scores(state: ExplorationState, batch: BatchInfo):
-    """PHASE 5: Compute UCB scores from batch results (skipped when ucb_c=0)."""
-    ucb_c = state.ucb_c
-    if ucb_c == 0:
-        print("\033[93mPHASE 5: UCB scores skipped (ucb_c=0)\033[0m")
-        return
-
-    print("\n\033[93mPHASE 5: Computing UCB scores\033[0m")
-
-    existing_content = ""
-    if os.path.exists(state.analysis_path):
-        with open(state.analysis_path, 'r') as f:
-            existing_content = f.read()
-
-    stub_entries = ""
-    for slot_idx, iteration in enumerate(batch.iterations):
-        if not batch.job_results.get(slot_idx, False):
-            continue
-        slot_log_path = state.analysis_log_paths[slot_idx]
-        if not os.path.exists(slot_log_path):
-            continue
-        with open(slot_log_path, 'r') as f:
-            log_content = f.read()
-        def _parse(key):
-            m = re.search(rf'{key}[=:]\s*([\d.eE+-]+|nan)', log_content)
-            return m.group(1) if m else None
-
-        r2_val = _parse('connectivity_R2')
-        if r2_val:
-            parts = [
-                f"connectivity_R2={r2_val}",
-                f"raw_W_R2={_parse('raw_W_R2') or '0.0'}",
-                f"onestep_pearson={_parse('onestep_pearson') or '0.0'}",
-                f"onestep_RMSE={_parse('onestep_RMSE') or '0.0'}",
-                f"rollout_pearson={_parse('rollout_pearson') or '0.0'}",
-                f"rollout_RMSE={_parse('rollout_RMSE') or '0.0'}",
-                f"f_theta_R2={_parse('f_theta_functional_R2') or '0.0'}",
-                f"g_phi_R2={_parse('g_phi_functional_R2') or '0.0'}",
-                f"tau_R2={_parse('tau_R2') or '0.0'}",
-                f"V_rest_R2={_parse('V_rest_R2') or '0.0'}",
-                f"cluster_accuracy={_parse('cluster_accuracy') or '0.0'}",
-                f"spectral_radius_learned={_parse('spectral_radius_learned') or '0.0'}",
-                f"spectral_radius_true={_parse('spectral_radius_true') or '0.0'}",
-                f"dale_law_score={_parse('dale_law_score') or '0.0'}",
-            ]
-            stimuli_val = _parse('stimuli_R2')
-            if stimuli_val:
-                parts.append(f"stimuli_R2={stimuli_val}")
-            hidden_siren_val = _parse('hidden_nnr_R2')
-            if hidden_siren_val:
-                parts.append(f"hidden_nnr_R2={hidden_siren_val}")
-            bias_val = _parse('g_phi_bias_R2')
-            if bias_val:
-                parts.append(f"g_phi_bias_R2={bias_val}")
-            metrics_line = "Metrics: " + ", ".join(parts)
-            if f'## Iter {iteration}:' not in existing_content:
-                stub_entries += (
-                    f"\n## Iter {iteration}: pending\n"
-                    f"Node: id={iteration}, parent=root\n"
-                    f"{metrics_line}\n"
-                )
-
-    tmp_analysis = state.analysis_path + '.tmp_ucb'
-    with open(tmp_analysis, 'w') as f:
-        f.write(existing_content + stub_entries)
-
-    compute_ucb_scores(
-        tmp_analysis, state.ucb_path, c=ucb_c,
-        current_log_path=None,
-        current_iteration=batch.batch_last,
-        block_size=state.n_iter_block
-    )
-    os.remove(tmp_analysis)
-    print(f"\033[92mUCB scores computed (c={ucb_c}): {state.ucb_path}\033[0m")
-
-
-# ---------------------------------------------------------------------------
-# Phase 6: Claude analysis
+# Phase 5: Claude analysis
 # ---------------------------------------------------------------------------
 
 def build_code_brief_context(state: ExplorationState) -> str:
@@ -1304,35 +1203,7 @@ def _sanitize_description(path: str):
 # ---------------------------------------------------------------------------
 
 def finalize_batch(state: ExplorationState, batch: BatchInfo):
-    """UCB recompute (if enabled), tree visualization, protocol/memory snapshots."""
-    ucb_c = state.ucb_c
-
-    if ucb_c > 0:
-        compute_ucb_scores(state.analysis_path, state.ucb_path, c=ucb_c,
-                           current_log_path=None,
-                           current_iteration=batch.batch_last,
-                           block_size=state.n_iter_block)
-
-        # UCB tree visualization
-        should_save_tree = (batch.block_number == 1) or batch.is_block_end
-        if should_save_tree:
-            tree_save_dir = f"{state.exploration_dir}/exploration_tree"
-            os.makedirs(tree_save_dir, exist_ok=True)
-            ucb_tree_path = f"{tree_save_dir}/ucb_tree_iter_{batch.batch_last:03d}.png"
-            nodes = parse_ucb_scores(state.ucb_path) if os.path.exists(state.ucb_path) else []
-            if nodes:
-                config = batch.configs[0]
-                sim_info = f"n_neurons={config.simulation.n_neurons}"
-                sim_info += f", n_neuron_types={config.simulation.n_neuron_types}"
-                sim_info += f", n_edges={config.simulation.n_edges}"
-                if hasattr(config.simulation, 'visual_input_type'):
-                    sim_info += f", visual_input={config.simulation.visual_input_type}"
-                if hasattr(config.simulation, 'noise_model_level'):
-                    sim_info += f", noise={config.simulation.noise_model_level}"
-                plot_ucb_tree(nodes, ucb_tree_path,
-                              title=f"UCB Tree - Batch {batch.batch_first}-{batch.batch_last}",
-                              simulation_info=sim_info)
-
+    """Tree visualization, protocol/memory snapshots."""
     # Save instruction file at first iteration of each block
     protocol_save_dir = f"{state.exploration_dir}/protocol"
     os.makedirs(protocol_save_dir, exist_ok=True)

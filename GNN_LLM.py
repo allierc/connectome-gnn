@@ -4,7 +4,7 @@ Orchestrates Claude-driven hyperparameter exploration with optional
 interactive code modification sessions at block boundaries.
 
 Pipeline structure:
-  setup → batch_0 → loop { code_session? → load → train → artifacts → UCB → analysis → finalize }
+  setup → batch_0 → loop { code_session? → load → train → artifacts → analysis → finalize }
 
 Command-line examples for known_ode LLM exploration:
 
@@ -54,7 +54,6 @@ from connectome_gnn.LLM import (
     run_cluster_test_plot,
     run_local_pipeline,
     save_artifacts,
-    update_ucb_scores,
     run_claude_analysis,
     finalize_batch,
 )
@@ -117,9 +116,6 @@ if __name__ == "__main__":
 
         # Save exploration artifacts
         save_artifacts(state, batch)
-
-        # Compute UCB scores
-        update_ucb_scores(state, batch)
 
         # Claude analysis + next mutations
         run_claude_analysis(state, batch)

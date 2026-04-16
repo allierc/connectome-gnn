@@ -4,7 +4,7 @@ Lightweight version of GNN_LLM.py for running agentic hyper-parameter
 optimization locally (no SSH, no cluster submission).
 
 Pipeline structure:
-  setup → batch_0 → loop { load → train(local) → artifacts → UCB → analysis → finalize }
+  setup → batch_0 → loop { load → train(local) → artifacts → analysis → finalize }
 
 Usage:
   python GNN_Agentic.py -o generate_train_test_plot_Claude flyvis_noise_005 iterations=168
@@ -26,7 +26,6 @@ from connectome_gnn.LLM import (
     load_configs_and_seeds,
     run_local_pipeline,
     save_artifacts,
-    update_ucb_scores,
     run_claude_analysis,
     finalize_batch,
 )
@@ -84,9 +83,6 @@ if __name__ == "__main__":
 
         # Save exploration artifacts
         save_artifacts(state, batch)
-
-        # Compute UCB scores
-        update_ucb_scores(state, batch)
 
         # Claude analysis + next mutations
         run_claude_analysis(state, batch)
