@@ -215,9 +215,11 @@ def data_train_INR(config=None, device=None, total_steps=10000, field_name='stim
         print(f'  cropped to first {n_training_frames} frames')
 
     # SVD analysis
-    from sklearn.utils.extmath import randomized_svd
     n_comp = min(50, min(field_np.shape) - 1)
-    _, S, _ = randomized_svd(field_np, n_components=n_comp, random_state=0)
+    _dev = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    _t = torch.as_tensor(field_np, dtype=torch.float32, device=_dev)
+    _, S, _ = torch.svd_lowrank(_t, q=n_comp + 10, niter=4)
+    S = S[:n_comp].cpu().numpy()
     cumvar = np.cumsum(S**2) / np.sum(S**2)
     rank_90 = int(np.searchsorted(cumvar, 0.90) + 1)
     rank_99 = int(np.searchsorted(cumvar, 0.99) + 1)

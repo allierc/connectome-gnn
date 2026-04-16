@@ -12,9 +12,21 @@ from connectome_gnn.neuron_state import NeuronState
 
 
 @register_model(
-    "flyvis_A", "flyvis_A_tanh", "flyvis_A_multiple_ReLU", "flyvis_A_NULL",
-    "flyvis_B", "flyvis_C", "flyvis_D",
-    "drosophila_cx", "larva", "zebrafish", "zebrafish_oculomotor",
+    "flyvis_A",
+    "flyvis_A_tanh",
+    "flyvis_A_multiple_ReLU",
+    "flyvis_A_NULL",
+    "flyvis_B",
+    "flyvis_C",
+    "flyvis_D",
+    "flyvis_hybrid",
+    "flyvis_hybrid_flywireRF",
+    "flyvis_hybrid_zeroedge",
+    "flyvis_hybrid_flywireRF_zeroedge",
+    "drosophila_cx",
+    "larva",
+    "zebrafish",
+    "zebrafish_oculomotor",
 )
 class NeuralGNN(nn.Module):
     """GNN for neural signal dynamics with per-edge W.
@@ -30,7 +42,7 @@ class NeuralGNN(nn.Module):
     PARAMS_DOC = {
         "model_name": "NeuralGNN",
         "description": "GNN for neural signal dynamics with per-edge W: "
-                       "du/dt = f_theta(v, a, sum(msg), excitation), msg_j = W[edge] * g_phi(v_j, a_j)",
+        "du/dt = f_theta(v, a, sum(msg), excitation), msg_j = W[edge] * g_phi(v_j, a_j)",
         "key_differences_from_SignalPropagation": {
             "W_shape": "1D per-edge vector W[n_edges + n_extra_null_edges, 1] instead of dense N×N matrix",
             "visual_input": "Supports visual field input (DAVIS/calcium) via excitation channel",
@@ -62,10 +74,19 @@ class NeuralGNN(nn.Module):
                 "n_layers_update": {"description": "Number of MLP layers", "typical_range": [2, 5], "default": 3},
             },
             "embedding": {
-                "embedding_dim": {"description": "Dimension of learnable node embedding a_i", "typical_range": [1, 8], "default": 2},
+                "embedding_dim": {
+                    "description": "Dimension of learnable node embedding a_i",
+                    "typical_range": [1, 8],
+                    "default": 2,
+                },
             },
-            "g_phi_positive": {"description": "If True, square g_phi output to enforce positive messages", "default": True},
-            "field_type": {"description": "Visual field type — determines visual input reconstruction model (e.g. 'visual_NNR')"},
+            "g_phi_positive": {
+                "description": "If True, square g_phi output to enforce positive messages",
+                "default": True,
+            },
+            "field_type": {
+                "description": "Visual field type — determines visual input reconstruction model (e.g. 'visual_NNR')"
+            },
             "MLP_activation": {"description": "Activation function for MLPs", "default": "tanh"},
         },
         "simulation_params": {
@@ -78,20 +99,50 @@ class NeuralGNN(nn.Module):
             "n_frames": {"description": "Number of simulation time frames"},
             "visual_input_type": {"description": "Type of visual stimulus (e.g. 'DAVIS', 'youtube-vos')"},
             "noise_model_level": {"description": "Noise level added to observations", "typical_range": [0.0, 0.1]},
-            "calcium_type": {"description": "If not 'none', use calcium concentration instead of voltage as observable"},
+            "calcium_type": {
+                "description": "If not 'none', use calcium concentration instead of voltage as observable"
+            },
         },
         "training_params": {
             "description": "Parameters in the training: section that affect model architecture or loss",
             "tunable": [
-                {"name": "lr_W", "description": "Learning rate for per-edge connectivity W", "typical_range": [1e-4, 5e-2]},
+                {
+                    "name": "lr_W",
+                    "description": "Learning rate for per-edge connectivity W",
+                    "typical_range": [1e-4, 5e-2],
+                },
                 {"name": "lr", "description": "Learning rate for MLPs", "typical_range": [1e-4, 5e-3]},
-                {"name": "lr_embedding", "description": "Learning rate for embeddings a", "typical_range": [1e-4, 5e-3]},
+                {
+                    "name": "lr_embedding",
+                    "description": "Learning rate for embeddings a",
+                    "typical_range": [1e-4, 5e-3],
+                },
                 {"name": "coeff_W_L1", "description": "L1 sparsity penalty on W", "typical_range": [1e-6, 1e-3]},
-                {"name": "coeff_g_phi_diff", "description": "Regularizer: g_phi output variance penalty", "typical_range": [0, 500]},
-                {"name": "coeff_g_phi_norm", "description": "Regularizer: edge weight norm penalty", "typical_range": [0, 10]},
-                {"name": "coeff_g_phi_weight_L1", "description": "L1 penalty on g_phi weights", "typical_range": [0, 10]},
-                {"name": "coeff_f_theta_weight_L1", "description": "L1 penalty on f_theta weights", "typical_range": [0, 10]},
-                {"name": "coeff_f_theta_weight_L2", "description": "L2 penalty on f_theta weights", "typical_range": [0, 0.01]},
+                {
+                    "name": "coeff_g_phi_diff",
+                    "description": "Regularizer: g_phi output variance penalty",
+                    "typical_range": [0, 500],
+                },
+                {
+                    "name": "coeff_g_phi_norm",
+                    "description": "Regularizer: edge weight norm penalty",
+                    "typical_range": [0, 10],
+                },
+                {
+                    "name": "coeff_g_phi_weight_L1",
+                    "description": "L1 penalty on g_phi weights",
+                    "typical_range": [0, 10],
+                },
+                {
+                    "name": "coeff_f_theta_weight_L1",
+                    "description": "L1 penalty on f_theta weights",
+                    "typical_range": [0, 10],
+                },
+                {
+                    "name": "coeff_f_theta_weight_L2",
+                    "description": "L2 penalty on f_theta weights",
+                    "typical_range": [0, 0.01],
+                },
                 {"name": "batch_size", "description": "Number of time frames per batch", "typical_range": [1, 4]},
                 {"name": "data_augmentation_loop", "description": "Number of augmentation iterations per epoch", "typical_range": [10, 50]},
                 {"name": "w_init_mode", "description": "W initialization: 'zeros' (default), 'randn', 'randn_scaled', or 'uniform_scaled'"},
@@ -100,7 +151,7 @@ class NeuralGNN(nn.Module):
         },
     }
 
-    def __init__(self, aggr_type='add', config=None, device=None):
+    def __init__(self, aggr_type="add", config=None, device=None):
         super().__init__()
 
         simulation_config = config.simulation
@@ -160,16 +211,19 @@ class NeuralGNN(nn.Module):
         self.a = nn.Parameter(
             torch.tensor(
                 np.ones((int(self.n_neurons), self.embedding_dim)),
-                         device=self.device,
-                         requires_grad=True, dtype=torch.float32))
+                device=self.device,
+                requires_grad=True,
+                dtype=torch.float32,
+            )
+        )
 
         train_config = config.training
         n_w = self.n_edges + self.n_extra_null_edges
-        w_init_mode = getattr(train_config, 'w_init_mode', 'zeros')
-        if w_init_mode == 'zeros':
+        w_init_mode = getattr(train_config, "w_init_mode", "zeros")
+        if w_init_mode == "zeros":
             W_init = torch.zeros(n_w, device=self.device, dtype=torch.float32)
-        elif w_init_mode == 'randn_scaled':
-            w_init_scale = getattr(train_config, 'w_init_scale', 1.0)
+        elif w_init_mode == "randn_scaled":
+            w_init_scale = getattr(train_config, "w_init_scale", 1.0)
             W_init = torch.randn(n_w, device=self.device, dtype=torch.float32) * (w_init_scale / math.sqrt(n_w))
         elif w_init_mode == 'uniform_scaled':
             w_init_scale = getattr(train_config, 'w_init_scale', 1.0)
@@ -179,24 +233,27 @@ class NeuralGNN(nn.Module):
             W_init = torch.randn(n_w, device=self.device, dtype=torch.float32)
         self.W = nn.Parameter(W_init[:, None], requires_grad=True)
 
-        if 'visual' in model_config.field_type:
-
-            if 'instantNGP' in model_config.field_type:
+        if "visual" in model_config.field_type:
+            if "instantNGP" in model_config.field_type:
                 # to be implemented
                 pass
             else:
-                print('use NNR for visual field reconstruction')
-                self.NNR_f = Siren(in_features=model_config.input_size_nnr_f, out_features=model_config.output_size_nnr_f,
-                            hidden_features=model_config.hidden_dim_nnr_f,
-                            hidden_layers=model_config.n_layers_nnr_f, first_omega_0=model_config.omega_f,
-                            hidden_omega_0=model_config.omega_f,
-                            outermost_linear=model_config.outermost_linear_nnr_f)
+                print("use NNR for visual field reconstruction")
+                self.NNR_f = Siren(
+                    in_features=model_config.input_size_nnr_f,
+                    out_features=model_config.output_size_nnr_f,
+                    hidden_features=model_config.hidden_dim_nnr_f,
+                    hidden_layers=model_config.n_layers_nnr_f,
+                    first_omega_0=model_config.omega_f,
+                    hidden_omega_0=model_config.omega_f,
+                    outermost_linear=model_config.outermost_linear_nnr_f,
+                )
                 self.NNR_f.to(self.device)
 
                 # Match training normalization (graph_trainer.py divides by raw period).
                 # Previous code divided by 2*pi here — revert if needed:
-                self.NNR_f_xy_period = model_config.nnr_f_xy_period / (2*np.pi)
-                self.NNR_f_T_period = model_config.nnr_f_T_period / (2*np.pi)
+                self.NNR_f_xy_period = model_config.nnr_f_xy_period / (2 * np.pi)
+                self.NNR_f_T_period = model_config.nnr_f_T_period / (2 * np.pi)
                 # self.NNR_f_xy_period = model_config.nnr_f_xy_period
                 # self.NNR_f_T_period = model_config.nnr_f_T_period
 
@@ -270,13 +327,15 @@ class NeuralGNN(nn.Module):
 
     def forward_visual(self, state: NeuronState, k):
         """Reconstruct visual field from neuron positions and time step k."""
-        if 'instantNGP' in self.field_type:
+        if "instantNGP" in self.field_type:
             # to be implemented
             pass
         else:
             kk = torch.full((state.n_neurons, 1), float(k), device=self.device, dtype=torch.float32)
-            in_features = torch.cat((state.pos[:, :self.dimension] / self.NNR_f_xy_period, kk / self.NNR_f_T_period), dim=1)
-            reconstructed_field = self.NNR_f(in_features[:self.n_input_neurons]) ** 2
+            in_features = torch.cat(
+                (state.pos[:, : self.dimension] / self.NNR_f_xy_period, kk / self.NNR_f_T_period), dim=1
+            )
+            reconstructed_field = self.NNR_f(in_features[: self.n_input_neurons]) ** 2
 
         return reconstructed_field
 
@@ -299,7 +358,7 @@ class NeuralGNN(nn.Module):
 
         # build per-edge features (ensure 2D even when embedding_dim=1)
         emb = embedding if embedding.dim() == 2 else embedding.unsqueeze(-1)
-        if self.model == 'flyvis_B':
+        if self.model == "flyvis_B":
             in_features = torch.cat([v[dst], v[src], emb[dst], emb[src]], dim=1)
         else:
             in_features = torch.cat([v[src], emb[src]], dim=1)
@@ -307,7 +366,7 @@ class NeuralGNN(nn.Module):
         # edge function
         g_phi_out = self.g_phi(in_features)
         if self.g_phi_positive:
-            g_phi_out = g_phi_out ** 2
+            g_phi_out = g_phi_out**2
 
         # weight by per-edge W
         edge_msg = self.W[edge_W_idx] * g_phi_out  # (E, 1)
