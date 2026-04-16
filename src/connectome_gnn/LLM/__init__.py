@@ -21,7 +21,6 @@ from .pipeline import (
     run_local_test_plot,
     save_artifacts,
     setup_exploration,
-    update_ucb_scores,
 )
 from .state import BatchInfo, ExplorationState
 
@@ -42,7 +41,6 @@ __all__ = [
     'run_local_test_plot',
     'run_local_pipeline',
     'save_artifacts',
-    'update_ucb_scores',
     'run_claude_analysis',
     'finalize_batch',
 ]

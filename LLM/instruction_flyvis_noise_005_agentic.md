@@ -289,11 +289,6 @@ You maintain **THREE** files:
 - CV < 3% → target stability; CV 3-5% → acceptable; CV > 5% → unstable, investigate
 - **min(connectivity_R2) is as important as the mean** — report it prominently
 
-**UCB scores from `ucb_scores.txt`:**
-
-- UCB(k) = R²_k + c × sqrt(ln(N) / n_k) where c = `ucb_c` (default 1.414)
-- At block boundaries the UCB file is empty — use `parent=root`
-
 ### Step 3: Write Log Entries + Update Hypotheses + Update Memory
 
 **3a. Append to Full Log** (`{llm_task_name}_analysis.md`) and **Current Block** in memory.md:
@@ -349,7 +344,7 @@ Destination: `config/fly/flyvis_noise_005_agentic_winner.yaml`
 
 ```
 
-**CRITICAL**: The `Mutation:` line is parsed by the UCB tree builder — always include exact parameter change.
+**CRITICAL**: The `Mutation:` line must always include exact parameter change.
 **CRITICAL**: `Next: parent=P` — P must be from a previous batch or current batch, NEVER `id+1`.
 
 **3b. Update Hypotheses in memory.md:**

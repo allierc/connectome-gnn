@@ -19,7 +19,6 @@ class ExplorationState:
     n_epochs: int = 1
     data_augmentation_loop: int = 25
     n_iter_block: int = 16
-    ucb_c: float = 0
     node_name: str = "h100"
     conda_env: str = "connectome-gnn"
     n_cpus: int = 2
@@ -44,7 +43,6 @@ class ExplorationState:
     # Shared file paths
     analysis_path: str = ""
     memory_path: str = ""
-    ucb_path: str = ""
     instruction_path: str = ""
     reasoning_log_path: str = ""
     user_input_path: str = ""

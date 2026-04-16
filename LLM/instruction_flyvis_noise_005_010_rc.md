@@ -490,10 +490,6 @@ When prompt says `PARALLEL START`:
 **CRITICAL: This section must ALWAYS be at the END of memory file.**
 ```
 
-## UCB and Exploration Tree
-
-UCB scores track exploration quality based on **connectivity_R2**.
-
 ## Failed Slots
 
 A slot failure indicates the config is unstable — note which parameter caused it and avoid that region of the parameter space.
