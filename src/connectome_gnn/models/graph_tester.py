@@ -54,6 +54,74 @@ except ImportError:
 logger = get_logger(__name__)
 
 
+def _compute_inr_traces(model, x_ts, hidden_ids, device, n_traces=20, n_frames=None):
+    """Evaluate INR hidden-neuron predictions without rollout state.
+
+    Calls model.forward_hidden(x, k, hidden_ids) for each frame independently
+    (pure INR, no GNN dynamics), then applies a global linear correction so
+    that the saved traces are in the same scale as the ground truth.
+
+    Args:
+        model:      trained NeuralGNN with model.NNR_hidden initialised
+        x_ts:       TimeSeries used for ground truth and forward_hidden state
+        hidden_ids: (n_hidden,) tensor of global neuron indices
+        device:     torch device
+        n_traces:   how many evenly-spaced hidden neurons to store
+        n_frames:   number of frames to evaluate (None → all frames in x_ts)
+
+    Returns dict with keys:
+        gt_arr        (n_traces, n_frames)  ground-truth voltages
+        pred_arr      (n_traces, n_frames)  raw INR predictions
+        pred_corr_arr (n_traces, n_frames)  linearly-corrected INR predictions
+        global_ids    (n_traces,)           global neuron indices of stored neurons
+        inr_type      str                   value of model._inr_hidden_type
+        r2            float                 mean R² of corrected predictions
+    """
+    n_hidden = len(hidden_ids)
+    n_traces = min(n_traces, n_hidden)
+    n_frames = min(n_frames, x_ts.n_frames) if n_frames is not None else x_ts.n_frames
+
+    sel = np.linspace(0, n_hidden - 1, n_traces, dtype=int)
+    local_ids = hidden_ids[sel]                          # (n_traces,) global indices
+
+    gt_arr   = np.zeros((n_traces, n_frames), dtype=np.float32)
+    pred_arr = np.zeros((n_traces, n_frames), dtype=np.float32)
+
+    model.eval()
+    with torch.no_grad():
+        for k in range(n_frames):
+            x = x_ts.frame(k)
+            pred_h = model.forward_hidden(x, k, hidden_ids)   # (n_hidden,)
+            gt_h   = x_ts.voltage[k, hidden_ids]              # (n_hidden,)
+            gt_arr[:, k]   = to_numpy(gt_h[sel])
+            pred_arr[:, k] = to_numpy(pred_h[sel])
+    model.train()
+
+    # Global linear correction: pred_corr = a * pred + b  ≈  gt
+    gt_T, pred_T = gt_arr.T, pred_arr.T
+    gt_f, pred_f = gt_T.ravel(), pred_T.ravel()
+    cov = ((pred_f - pred_f.mean()) * (gt_f - gt_f.mean())).mean()
+    var = ((pred_f - pred_f.mean()) ** 2).mean()
+    a_coeff = float(cov / (var + 1e-12))
+    b_coeff = float(gt_f.mean() - a_coeff * pred_f.mean())
+    pred_corr_arr = (a_coeff * pred_T + b_coeff).T.astype(np.float32)
+
+    # Per-neuron R²
+    gt_mean_n = gt_T.mean(axis=0)
+    ss_res = ((gt_T - (a_coeff * pred_T + b_coeff)) ** 2).sum(axis=0)
+    ss_tot = ((gt_T - gt_mean_n) ** 2).sum(axis=0)
+    r2 = float((1.0 - ss_res / (ss_tot + 1e-12)).mean())
+
+    return dict(
+        gt_arr        = gt_arr,
+        pred_arr      = pred_arr,
+        pred_corr_arr = pred_corr_arr,
+        global_ids    = to_numpy(local_ids),
+        inr_type      = getattr(model, '_inr_hidden_type', 'siren_t'),
+        r2            = r2,
+    )
+
+
 def data_test_gnn(config, best_model=None, device=None, log_file=None, test_config=None):
     """Test using pre-generated test data (x_list_test / y_list_test).
 
@@ -650,7 +718,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
         if hasattr(_ode_p, 'type_names') and _ode_p.type_names:
             index_to_name = {i: name for i, name in enumerate(_ode_p.type_names)}
         else:
-            index_to_name = {i: f'Type{i}' for i in range(n_neuron_types)}
+            index_to_name = INDEX_TO_NAME if n_neuron_types >= 65 else {i: f'Type{i}' for i in range(n_neuron_types)}
     except Exception:
         index_to_name = INDEX_TO_NAME if n_neuron_types >= 65 else {i: f'Type{i}' for i in range(n_neuron_types)}
 
@@ -726,7 +794,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
                 ax.text(-end_frame * 0.025, i * step_v, neuron_labels[i],
                         fontsize=name_fontsize, va='bottom', ha='right', color='black')
 
-        ax.set_ylim([-step_v, len(neuron_indices) * (step_v + 0.25 + 0.15 * (len(neuron_indices) // 50))])
+        ax.set_ylim([-step_v, (len(neuron_indices) - 1) * step_v + step_v])
         ax.set_yticks([])
         ax.set_xticks([0, (end_frame - start_frame) // 2, end_frame - start_frame])
         ax.set_xticklabels([start_frame, end_frame // 2, end_frame], fontsize=16)
@@ -737,7 +805,8 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
         ax.spines['right'].set_visible(False)
         ax.spines['left'].set_visible(False)
 
-        ax.legend(loc='upper right', fontsize=14, frameon=False)
+        ax.legend(loc='upper right', bbox_to_anchor=(1.0, 1.0),
+                  bbox_transform=fig.transFigure, fontsize=14, frameon=False)
 
         plt.tight_layout()
         _vis_tag = f"_{sim.visual_input_type}" if sim.visual_input_type else ""
@@ -745,21 +814,48 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
                     dpi=300, bbox_inches='tight')
         plt.close()
 
-    # Save activity arrays
-    np.save(f"{results_dir}/activity_true{test_suffix}.npy", activity_true)
-    np.save(f"{results_dir}/activity_pred{test_suffix}.npy", activity_pred)
+    # ── Save rollout bundle ───────────────────────────────────────────────────
+    bundle = dict(
+        activity_true = activity_true,          # (n_neurons, n_frames)
+        activity_pred = activity_pred,          # (n_neurons, n_frames)
+        stimulus      = stimulus_arr,           # (n_neurons, n_frames)
+        type_ids      = neuron_types,           # (n_neurons,) int
+        type_names    = np.array(
+            [index_to_name.get(i, f'Type{i}') for i in range(n_neuron_types)],
+            dtype=object),
+        config_name   = np.array(config.config_file),
+    )
 
-    # Hidden-neuron INR trace comparison
+    # ── Add INR traces when the model has a hidden-neuron INR ─────────────────
+    siren_r2 = None
+    if has_hidden_neurons and hidden_ids is not None and \
+            getattr(model, 'NNR_hidden', None) is not None:
+        inr = _compute_inr_traces(model, x_ts_eval, hidden_ids, device,
+                                   n_traces=20, n_frames=activity_true.shape[1])
+        bundle['inr_true']       = inr['gt_arr']         # (n_inr, n_frames)
+        bundle['inr_pred_raw']   = inr['pred_arr']       # (n_inr, n_frames)
+        bundle['inr_pred_corr']  = inr['pred_corr_arr']  # (n_inr, n_frames)
+        bundle['inr_global_ids'] = inr['global_ids']     # (n_inr,)
+        bundle['inr_type']       = np.array(inr['inr_type'])
+        siren_r2 = inr['r2']
+        logger.info(f'hidden INR R²: {siren_r2:.4f}')
+        if log_file:
+            log_file.write(f'hidden_nnr_R2: {siren_r2:.4f}\n')
+
+    np.savez(f"{results_dir}/rollout_bundle{test_suffix}.npz", **bundle)
+
+    # ── Hidden-neuron trace plot (uses its own n_traces/n_frames for the PNG) ─
     if has_hidden_neurons and getattr(model, 'NNR_hidden', None) is not None:
         from connectome_gnn.plot import plot_hidden_siren_traces
-        siren_r2 = plot_hidden_siren_traces(
+        _r2 = plot_hidden_siren_traces(
             model, x_ts_eval, hidden_ids, log_dir,
             epoch=0, N=0, device=device,
             n_traces=10, n_frames=min(800, n_eval_frames),
         )
-        logger.info(f'hidden INR R²: {siren_r2:.4f}')
-        if log_file:
-            log_file.write(f'hidden_nnr_R2: {siren_r2:.4f}\n')
+        if siren_r2 is None:
+            logger.info(f'hidden INR R²: {_r2:.4f}')
+            if log_file:
+                log_file.write(f'hidden_nnr_R2: {_r2:.4f}\n')
 
     logger.debug(f'rollout plots saved to {results_dir}/')
 
