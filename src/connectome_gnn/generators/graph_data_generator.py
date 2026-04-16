@@ -860,47 +860,23 @@ def data_generate_voltage(
     _logging.getLogger("flyvis.utils.logging_utils").setLevel(_logging.ERROR)
 
     if is_flyvis_hybrid_model(model_config.signal_model_name):
-        # --- Flywirevis hybrid: use FlyvisToFlywire pipeline ---
-        from flywirevis.flyvis_to_flywire import FlyvisToFlywire
+        # --- Flywirevis hybrid: load pre-computed connectome tables ---
+        from connectome_gnn.generators.hybrid_connectome import load_hybrid_network
 
         signal_name = model_config.signal_model_name
-        logger.info(f"building flywirevis hybrid network ({signal_name})...")
-        reg = FlyvisToFlywire(extent=extent)
-        reg = (
-            reg.register_nodes()
-            .add_flywire_edges()
-            .filter_flywire_edges(min_n_columns=3)
-            .populate_xyz()
-            .merge_flywire_edges_into_flyvis()
-            .drop_flywire_only_conn_types()
-            .scale_adaptation(mode="mean")
-        )
-
-        # Variant-specific modifications
-        needs_zero_edges = signal_name.endswith("_zeroedge")
-        needs_drop = "flywireRF" in signal_name
-
-        if needs_drop:
-            reg = reg.drop_eligible_flyvis_edges()
-            logger.info("flywireRF variant: dropped eligible flyvis edges")
-
-        if needs_zero_edges:
-            # Synapse pipeline for virtual positioning
-            reg = (
-                reg.populate_synapse_xyz()
-                .compute_virtual_node_positions()
-                .cluster_virtual_positions()
-            )
-            reg = reg.add_zero_edges(edge_uncertainty=1, positioning="virtual")
-            n_zero = (reg.edges["edge_source"] == "zero").sum()
-            logger.info(f"zero-edge variant: +{n_zero:,} zero edges")
-
-        if signal_name == "flyvis_hybrid_placeholder":
-            logger.info("placeholder variant: using v1 pipeline (no modifications)")
-
+        edge_uncertainty = getattr(sim, "edge_uncertainty", 1)
         flyvis_model_id = f"flow/{sim.ensemble_id}/{sim.model_id}"
-        net, _orig_net = reg.to_network(model=flyvis_model_id, heterogeneous=True)
-        logger.info(f"hybrid network: {len(reg.nodes)} nodes, {len(reg.edges)} edges")
+        logger.info(f"loading hybrid network ({signal_name}, extent={extent}, u={edge_uncertainty})...")
+        net, _orig_net = load_hybrid_network(
+            signal_name=signal_name,
+            extent=extent,
+            edge_uncertainty=edge_uncertainty,
+            model=flyvis_model_id,
+        )
+        logger.info(
+            f"hybrid network: {net.connectome.nodes.type[:].shape[0]} nodes, "
+            f"{net.connectome.edges.source_index[:].shape[0]} edges"
+        )
     else:
         # --- Standard flyvis network ---
         config_net = get_default_config(overrides=[], path=f"{CONFIG_PATH}/network/network.yaml")
