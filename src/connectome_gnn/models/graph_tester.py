@@ -650,7 +650,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
         if hasattr(_ode_p, 'type_names') and _ode_p.type_names:
             index_to_name = {i: name for i, name in enumerate(_ode_p.type_names)}
         else:
-            index_to_name = {i: f'Type{i}' for i in range(n_neuron_types)}
+            index_to_name = INDEX_TO_NAME if n_neuron_types >= 65 else {i: f'Type{i}' for i in range(n_neuron_types)}
     except Exception:
         index_to_name = INDEX_TO_NAME if n_neuron_types >= 65 else {i: f'Type{i}' for i in range(n_neuron_types)}
 
@@ -726,7 +726,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
                 ax.text(-end_frame * 0.025, i * step_v, neuron_labels[i],
                         fontsize=name_fontsize, va='bottom', ha='right', color='black')
 
-        ax.set_ylim([-step_v, len(neuron_indices) * (step_v + 0.25 + 0.15 * (len(neuron_indices) // 50))])
+        ax.set_ylim([-step_v, (len(neuron_indices) - 1) * step_v + step_v])
         ax.set_yticks([])
         ax.set_xticks([0, (end_frame - start_frame) // 2, end_frame - start_frame])
         ax.set_xticklabels([start_frame, end_frame // 2, end_frame], fontsize=16)
@@ -737,7 +737,8 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
         ax.spines['right'].set_visible(False)
         ax.spines['left'].set_visible(False)
 
-        ax.legend(loc='upper right', fontsize=14, frameon=False)
+        ax.legend(loc='upper right', bbox_to_anchor=(1.0, 1.0),
+                  bbox_transform=fig.transFigure, fontsize=14, frameon=False)
 
         plt.tight_layout()
         _vis_tag = f"_{sim.visual_input_type}" if sim.visual_input_type else ""
