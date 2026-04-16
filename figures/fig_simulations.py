@@ -82,7 +82,7 @@ CMAP  = 'RdBu_r'
 VLIM  = 2.0          # ±2 σ clipping for z-scored heatmap
 
 # ── trace colors — match graph_tester.py ─────────────────────────────────────
-COLOR_GT   = '#66cc66'   # green  — voltage trace
+COLOR_GT   = 'black'     # voltage trace
 COLOR_STIM = 'red'       # red    — stimulus
 LW_GT      = 1.5
 LW_STIM    = 0.8
