@@ -28,7 +28,11 @@ def phase_r_prompt(
     time_budget_sec: int,
 ) -> str:
     urls = "\n".join(f"  - {u}" for u in allowlist_urls) or "  (none)"
-    return f"""You are running Phase R (Research) of the code-change exploration loop.
+    return f"""> **FOCUS**: this is Phase R. Follow the `## [Phase R]` section of the
+> instruction prepended above, together with `## Shared context`. The other
+> phase sections are reference-only — do not act on them.
+
+You are running Phase R (Research) of the code-change exploration loop.
 
 BLOCK: {block_number:02d}
 THEME: {theme}
@@ -92,7 +96,11 @@ def phase_s_prompt(
     staging_block_dir: str,
     time_budget_sec: int,
 ) -> str:
-    return f"""You are running Phase S (Staging) of the code-change exploration loop.
+    return f"""> **FOCUS**: this is Phase S. Follow the `## [Phase S]` section of the
+> instruction prepended above, together with `## Shared context`. The other
+> phase sections are reference-only — do not act on them.
+
+You are running Phase S (Staging) of the code-change exploration loop.
 
 BLOCK: {block_number:02d}
 THEME: {theme}
@@ -159,7 +167,11 @@ def phase_c_prompt(
     time_budget_sec: int,
 ) -> str:
     allow = "\n".join(f"  - {p}" for p in PHASE_C_WIRE_UP_ALLOW_LIST)
-    return f"""You are running Phase C (Wire-up) of the code-change exploration loop.
+    return f"""> **FOCUS**: this is Phase C. Follow the `## [Phase C]` section of the
+> instruction prepended above, together with `## Shared context` and
+> `## [Phase-C hand-off → HPO]`. The other phase sections are reference-only.
+
+You are running Phase C (Wire-up) of the code-change exploration loop.
 
 BLOCK: {block_number:02d}
 THEME: {theme}
