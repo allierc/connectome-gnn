@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -120,6 +121,12 @@ def run_code_session(
         analysis_block_dir=state.analysis_block_dir,
         time_budget_sec=caps["R"],
     )
+    print(
+        f"\n\033[96m[LLM_code] Phase R starting (block {block_number:02d}, "
+        f"theme={theme}, cap {caps['R']}s)\033[0m",
+        flush=True,
+    )
+    t0 = time.time()
     r_out, r_timeout = run_claude_cli_with_timeout(
         prompt=r_prompt,
         root_dir=state.base.root_dir,
@@ -127,6 +134,11 @@ def run_code_session(
         timeout_sec=caps["R"],
         max_turns=80,
         log_prefix=f"[R{block_number:02d}] ",
+    )
+    print(
+        f"\033[96m[LLM_code] Phase R done in {time.time() - t0:.0f}s "
+        f"(timeout={r_timeout})\033[0m",
+        flush=True,
     )
     # The agent is expected to have written research_log_path itself. If not,
     # fall back to dumping the session output.
@@ -147,6 +159,12 @@ def run_code_session(
         staging_block_dir=state.staging_block_dir,
         time_budget_sec=caps["S"],
     )
+    print(
+        f"\n\033[96m[LLM_code] Phase S starting (block {block_number:02d}, "
+        f"cap {caps['S']}s)\033[0m",
+        flush=True,
+    )
+    t0 = time.time()
     s_out, s_timeout = run_claude_cli_with_timeout(
         prompt=s_prompt,
         root_dir=state.base.root_dir,
@@ -154,6 +172,11 @@ def run_code_session(
         timeout_sec=caps["S"],
         max_turns=120,
         log_prefix=f"[S{block_number:02d}] ",
+    )
+    print(
+        f"\033[96m[LLM_code] Phase S done in {time.time() - t0:.0f}s "
+        f"(timeout={s_timeout})\033[0m",
+        flush=True,
     )
 
     # Run the staged tests to see if any passed.
@@ -189,6 +212,12 @@ def run_code_session(
         scratchpad_report=scratch_md,
         time_budget_sec=caps["C"],
     )
+    print(
+        f"\n\033[96m[LLM_code] Phase C starting (block {block_number:02d}, "
+        f"cap {caps['C']}s)\033[0m",
+        flush=True,
+    )
+    t0 = time.time()
     c_out, c_timeout = run_claude_cli_with_timeout(
         prompt=c_prompt,
         root_dir=state.base.root_dir,
@@ -196,6 +225,11 @@ def run_code_session(
         timeout_sec=caps["C"],
         max_turns=60,
         log_prefix=f"[C{block_number:02d}] ",
+    )
+    print(
+        f"\033[96m[LLM_code] Phase C done in {time.time() - t0:.0f}s "
+        f"(timeout={c_timeout})\033[0m",
+        flush=True,
     )
 
     # Commit whatever the agent edited (including the staging files).

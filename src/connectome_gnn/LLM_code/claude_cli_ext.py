@@ -11,6 +11,7 @@ Kept tiny (~60 LOC) and self-contained so the HPO pipeline is not affected.
 
 from __future__ import annotations
 
+import json
 import os
 import signal
 import subprocess
@@ -18,6 +19,66 @@ import time
 from typing import Iterable, Optional, Tuple
 
 TERM_GRACE = 10  # seconds between SIGTERM and SIGKILL
+HEARTBEAT_SEC = 60  # print a "still alive" line if no output for this long
+
+
+def _format_stream_event(ev: dict) -> Optional[str]:
+    """Render one stream-json event as a short human-readable line.
+
+    Returns None for events that don't need a line (e.g. init). Returned
+    strings never end with a newline — the caller adds one.
+    """
+    t = ev.get("type")
+    if t == "system":
+        if ev.get("subtype") == "init":
+            model = ev.get("model") or ev.get("session_id", "")
+            return f"· session init ({model})"
+        return None
+    if t == "assistant":
+        msg = ev.get("message") or {}
+        parts = []
+        for block in msg.get("content") or []:
+            bt = block.get("type")
+            if bt == "text":
+                text = (block.get("text") or "").strip()
+                if text:
+                    parts.append(text)
+            elif bt == "tool_use":
+                name = block.get("name", "?")
+                inp = block.get("input") or {}
+                # Compact input preview: show first useful field.
+                preview = ""
+                for k in ("file_path", "path", "pattern", "command", "url", "prompt"):
+                    if k in inp and isinstance(inp[k], str):
+                        preview = f" {k}={inp[k][:80]}"
+                        break
+                parts.append(f"→ {name}{preview}")
+        return "\n".join(parts) if parts else None
+    if t == "user":
+        msg = ev.get("message") or {}
+        for block in msg.get("content") or []:
+            if block.get("type") == "tool_result":
+                is_err = block.get("is_error")
+                return "↪ tool_result" + (" (error)" if is_err else "")
+        return None
+    if t == "result":
+        sub = ev.get("subtype", "")
+        dur_ms = ev.get("duration_ms") or 0
+        return f"· result ({sub}, {dur_ms / 1000:.1f}s)"
+    return None
+
+
+def _assistant_text(ev: dict) -> str:
+    """Return just the assistant text content of an event (for return value)."""
+    if ev.get("type") != "assistant":
+        return ""
+    out = []
+    for block in (ev.get("message") or {}).get("content") or []:
+        if block.get("type") == "text":
+            text = block.get("text") or ""
+            if text:
+                out.append(text)
+    return "\n".join(out)
 
 
 def run_claude_cli_with_timeout(
@@ -36,7 +97,8 @@ def run_claude_cli_with_timeout(
     cmd = [
         "claude",
         "-p", prompt,
-        "--output-format", "text",
+        "--output-format", "stream-json",
+        "--verbose",
         "--max-turns", str(max_turns),
         "--allowedTools",
         *list(allowed_tools),
@@ -53,29 +115,49 @@ def run_claude_cli_with_timeout(
         preexec_fn=os.setsid,
     )
 
-    out_lines = []
-    deadline = time.time() + timeout_sec
+    text_chunks = []           # accumulated assistant text (return value)
+    started = time.time()
+    deadline = started + timeout_sec
+    last_output = started
     timed_out = False
 
-    # Non-blocking-ish loop: poll the pipe with a small sleep so we can check
-    # the deadline. stdout is line-buffered (bufsize=1).
+    def _emit(line: str) -> None:
+        nonlocal last_output
+        last_output = time.time()
+        elapsed = int(last_output - started)
+        if log_prefix:
+            print(f"{log_prefix}[{elapsed:4d}s] {line}", flush=True)
+        else:
+            print(f"[{elapsed:4d}s] {line}", flush=True)
+
     assert process.stdout is not None
     while True:
-        if time.time() >= deadline:
+        now = time.time()
+        if now >= deadline:
             timed_out = True
             break
+        if now - last_output >= HEARTBEAT_SEC:
+            _emit(f"... still running ({int(now - started)}s elapsed, "
+                  f"{int(deadline - now)}s left)")
         line = process.stdout.readline()
         if not line:
-            # EOF or process exited.
             if process.poll() is not None:
                 break
             time.sleep(0.05)
             continue
-        if log_prefix:
-            print(f"{log_prefix}{line}", end="", flush=True)
-        else:
-            print(line, end="", flush=True)
-        out_lines.append(line)
+        raw = line.rstrip("\n")
+        if not raw.strip():
+            continue
+        try:
+            ev = json.loads(raw)
+        except json.JSONDecodeError:
+            _emit(raw)
+            continue
+        rendered = _format_stream_event(ev)
+        if rendered:
+            for l in rendered.splitlines():
+                _emit(l)
+        text_chunks.append(_assistant_text(ev))
 
     if timed_out:
         try:
@@ -93,11 +175,21 @@ def run_claude_cli_with_timeout(
         # Drain whatever the process emitted before it died.
         try:
             remainder = process.stdout.read() or ""
-            if remainder:
-                print(remainder, end="", flush=True)
-                out_lines.append(remainder)
+            for raw in remainder.splitlines():
+                if not raw.strip():
+                    continue
+                try:
+                    ev = json.loads(raw)
+                except json.JSONDecodeError:
+                    _emit(raw)
+                    continue
+                rendered = _format_stream_event(ev)
+                if rendered:
+                    for l in rendered.splitlines():
+                        _emit(l)
+                text_chunks.append(_assistant_text(ev))
         except Exception:
             pass
 
     process.wait()
-    return "".join(out_lines), timed_out
+    return "\n".join(c for c in text_chunks if c), timed_out
