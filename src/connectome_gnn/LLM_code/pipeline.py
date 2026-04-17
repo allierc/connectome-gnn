@@ -15,9 +15,14 @@ C just committed.
 from __future__ import annotations
 
 import os
-from typing import Dict, List, Optional
+import re
+import subprocess
+import time
+from typing import Dict, List, Optional, Tuple
 
 import yaml
+
+SAFE_STOP_WINDOW_SEC = 120  # pause after each batch so the user can Ctrl-C cleanly
 
 from connectome_gnn.LLM import (
     finalize_batch,
@@ -136,6 +141,114 @@ def _run_dirs_for_block(state: CodeExplorationState, block_number: int) -> List[
     return sorted(set(paths))
 
 
+def _extract_hpo_handoff(
+    commit_sha: str, repo_root: str
+) -> Optional[Tuple[str, List[float]]]:
+    """Parse the Phase C commit for an HPO-HANDOFF directive.
+
+    Returns (coeff_name, sweep_values) or None if unparseable. The instruction
+    file asks the agent to emit e.g.:
+
+        HPO-HANDOFF: new coefficient `coeff_voltage_denoise_alpha` added; default 0.
+                     Seed log-scale sweep across the 4 slots in batch 1
+                     (e.g. 0.1, 0.3, 0.6, 1.0).
+
+    We extract the backticked coeff_<name> and the trailing parenthesised
+    numeric list. Falls back to "all numbers in the block after stripping the
+    default clause" if the parenthesised form is missing.
+    """
+    try:
+        out = subprocess.run(
+            ["git", "show", "--format=%B", "-s", commit_sha],
+            cwd=repo_root, capture_output=True, text=True, check=True,
+        ).stdout
+    except subprocess.CalledProcessError:
+        return None
+
+    m = re.search(r"HPO-HANDOFF:(.+?)(?:\n\s*\n|\Z)", out, re.DOTALL)
+    if not m:
+        return None
+    block = m.group(1)
+
+    name_m = (
+        re.search(r"`(coeff_[A-Za-z0-9_]+)`", block)
+        or re.search(r"\b(coeff_[A-Za-z0-9_]+)\b", block)
+    )
+    if not name_m:
+        return None
+    coeff_name = name_m.group(1)
+
+    num_re = r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?"
+    paren_m = re.search(r"\(\s*(e\.g\.)?\s*([^)]*\d[^)]*)\)", block, re.DOTALL)
+    if paren_m:
+        raw = paren_m.group(2)
+    else:
+        raw = re.sub(r"default\s+" + num_re, "", block, flags=re.IGNORECASE)
+
+    vals = []
+    for n in re.findall(num_re, raw):
+        try:
+            f = float(n)
+        except ValueError:
+            continue
+        if f == int(f) and abs(f) in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10) and "slot" in raw.lower():
+            continue
+        vals.append(f)
+    if not vals:
+        return None
+    return coeff_name, vals
+
+
+def _reseed_slots_after_phase_c(
+    base_state: ExplorationState,
+    phase_c_sha: Optional[str],
+) -> bool:
+    """Seed the new Phase-C coefficient into the 4 slot YAMLs.
+
+    Slot 0 is held at 0.0 (control) per the CAUSALITY rule; slots 1..N-1
+    receive successive values from the parsed sweep. Returns True iff the
+    YAMLs were rewritten.
+    """
+    if not phase_c_sha:
+        return False
+    parsed = _extract_hpo_handoff(phase_c_sha, base_state.root_dir)
+    if parsed is None:
+        print(
+            f"\033[93m[LLM_code] No HPO-HANDOFF directive in Phase C commit "
+            f"{phase_c_sha[:12]} — block will run HPO-only (mechanism inactive).\033[0m",
+            flush=True,
+        )
+        return False
+    coeff_name, values = parsed
+
+    n_slots = base_state.n_parallel
+    if len(values) >= n_slots:
+        slot_values = values[:n_slots]
+        # Force slot 0 to be the control (0.0) regardless.
+        slot_values[0] = 0.0
+    else:
+        slot_values = [0.0] + values[: n_slots - 1]
+        while len(slot_values) < n_slots:
+            slot_values.append(values[-1])
+
+    for slot, cfg_path in base_state.config_paths.items():
+        if not os.path.isfile(cfg_path):
+            continue
+        with open(cfg_path) as f:
+            cfg = yaml.safe_load(f) or {}
+        cfg.setdefault("training", {})[coeff_name] = float(slot_values[slot])
+        with open(cfg_path, "w") as f:
+            yaml.dump(cfg, f, default_flow_style=False, sort_keys=False)
+
+    mapping = ", ".join(f"slot{s}={slot_values[s]:g}" for s in range(n_slots))
+    print(
+        f"\033[92m[LLM_code] Seeded {coeff_name} from HPO-HANDOFF "
+        f"(commit {phase_c_sha[:12]}): {mapping}\033[0m",
+        flush=True,
+    )
+    return True
+
+
 def _append_to_memory(memory_path: str, section: str, body: str) -> None:
     if not memory_path:
         return
@@ -235,6 +348,12 @@ def run_exploration(args, root_dir: str, source_config_path: str) -> None:
                 f"Block {current_block:02d} code-session",
                 cs_result.as_markdown(),
             )
+            # Seed the new Phase-C coefficient into the 4 slot YAMLs so the
+            # block's FIRST training batch actually exercises the new
+            # mechanism. Without this, batch 1 runs on pre-Phase-C configs
+            # and only batches 2+ test the coefficient.
+            if cs_result.phase_c_committed:
+                _reseed_slots_after_phase_c(base_state, cs_result.phase_c_sha)
 
         # ---- per-iteration body (verbatim from GNN_LLM.py) ----
         print(
@@ -265,6 +384,35 @@ def run_exploration(args, root_dir: str, source_config_path: str) -> None:
             m = collect_metrics_from_run_dirs(run_dirs)
             for key, vals in m.items():
                 per_block_metrics[current_block].setdefault(key, []).extend(vals)
+
+        # Safe-to-stop window: metrics are saved, config snapshots written,
+        # cluster jobs finished. Ctrl-C during this window leaves the run in
+        # a clean state — `--resume` will pick up from the next batch.
+        next_batch_start = batch_start + base_state.n_parallel
+        if next_batch_start <= base_state.n_iterations:
+            next_block = (next_batch_start - 1) // base_state.n_iter_block + 1
+            next_is_block_start = next_block > batch.block_number
+            if next_is_block_start:
+                tail = (f"BLOCK {batch.block_number:02d} finished; block "
+                        f"verdict + Phase R/S/C for block {next_block:02d} "
+                        f"start in {SAFE_STOP_WINDOW_SEC}s")
+            else:
+                tail = (f"next batch (iter {next_batch_start}) starts in "
+                        f"{SAFE_STOP_WINDOW_SEC}s")
+            print(
+                f"\n\033[92m[LLM_code] SAFE TO STOP — {tail}. "
+                f"Ctrl-C now for a clean --resume checkpoint.\033[0m",
+                flush=True,
+            )
+            try:
+                time.sleep(SAFE_STOP_WINDOW_SEC)
+            except KeyboardInterrupt:
+                print(
+                    "\n\033[93m[LLM_code] Ctrl-C received during safe-stop "
+                    "window — exiting cleanly. Use --resume to continue.\033[0m",
+                    flush=True,
+                )
+                raise SystemExit(0)
 
     # After the last iteration, close the final block.
     if current_block is not None and current_checkpoint is not None:

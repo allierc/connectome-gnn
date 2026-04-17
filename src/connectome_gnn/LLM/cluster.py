@@ -32,7 +32,7 @@ CLUSTER_SSH      = f"{CLUSTER_USER}@{CLUSTER_LOGIN}"
 # ---------------------------------------------------------------------------
 
 def check_cluster_repo():
-    """Check that GraphCluster/flyvis-gnn has no uncommitted source changes.
+    """Check that the cluster repo has no uncommitted source changes.
 
     Runs `git diff HEAD` on the cluster via SSH, excluding config/ (which is
     expected to be modified by the LLM).  Returns True if clean, False if dirty.
@@ -44,11 +44,11 @@ def check_cluster_repo():
     result = subprocess.run(ssh_cmd, shell=True, capture_output=True, text=True)
     diff_output = result.stdout.strip()
     if diff_output:
-        print("\033[91mERROR: GraphCluster repo has uncommitted changes — commit and push before running\033[0m")
+        print(f"\033[93mWARNING: cluster repo at {CLUSTER_ROOT_DIR} has uncommitted changes — consider commit/push before running\033[0m")
         for line in diff_output.splitlines():
-            print(f"  \033[91m{line}\033[0m")
+            print(f"  \033[93m{line}\033[0m")
         return False
-    print("\033[92mCluster repo: git diff clean (no uncommitted source changes)\033[0m")
+    print(f"\033[92mCluster repo at {CLUSTER_ROOT_DIR}: git diff clean (no uncommitted source changes)\033[0m")
     return True
 
 
