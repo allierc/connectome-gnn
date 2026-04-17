@@ -185,14 +185,6 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
     assert not torch.isnan(x_ts.voltage).any(), "voltage contains NaN — cannot train"
     assert not np.isnan(y_ts).any(), "derivative targets contain NaN — cannot train"
     x_ts = x_ts.to(device)
-    # Block 01 — temporal voltage denoising (pre-compute once, blend into input)
-    _denoise_alpha = getattr(tc, 'coeff_voltage_denoise_alpha', 0.0)
-    if _denoise_alpha > 0:
-        from connectome_gnn.LLM_code.staging.block_01.temporal_voltage_denoise import temporal_voltage_denoise
-        _v_denoised = temporal_voltage_denoise(x_ts.voltage, window=3)
-        x_ts.voltage = (1 - _denoise_alpha) * x_ts.voltage + _denoise_alpha * _v_denoised
-        del _v_denoised
-        _logger.info(f'voltage denoising: alpha={_denoise_alpha}, window=3')
     y_ts_gpu = torch.from_numpy(y_ts).float().to(device)  # pre-convert once; avoids per-iter cudaStreamSynchronize
     torch.save(xnorm, os.path.join(log_dir, 'xnorm.pt'))
     _logger.info(f'xnorm: {to_numpy(xnorm):0.3f}')
