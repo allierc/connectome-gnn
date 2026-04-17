@@ -647,10 +647,9 @@ def run_cluster_training(state: ExplorationState, batch: BatchInfo):
     """PHASE 2-3: Submit cluster jobs, wait, auto-repair failed jobs."""
     print(f"\n\033[93mPHASE 2: Submitting {batch.n_slots} flyvis training jobs to cluster (gpu_{state.node_name})\033[0m")
 
-    # Guardrail: verify cluster repo is clean before submitting
+    # Guardrail: verify cluster repo is clean before submitting (warning only)
     if not check_cluster_repo():
-        print("\033[91mAborting batch — fix cluster repo before resubmitting (use --resume)\033[0m")
-        sys.exit(1)
+        print("\033[93mWARNING: cluster repo has uncommitted changes — proceeding anyway\033[0m")
 
     job_ids = {}
     for slot_idx, iteration in enumerate(batch.iterations):

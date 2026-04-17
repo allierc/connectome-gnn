@@ -510,7 +510,10 @@ class PlottingConfig(BaseModel):
 
 
 class TrainingConfig(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    # allow: LLM_code agents introduce new coeff_<name> keys per block; they
+    # must survive the YAML→pydantic round-trip so getattr(tc, coeff_name)
+    # works from the staged production hook.
+    model_config = ConfigDict(extra="allow")
     device: Annotated[str, Field(pattern=r"^(auto|cpu|cuda:\d+)$")] = "auto"
 
     n_epochs: int = 20

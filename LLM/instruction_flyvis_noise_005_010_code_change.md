@@ -13,24 +13,33 @@ shared context; other phase sections are reference-only.
 
 ### Objective
 
-Raise connectivity **W R² above 0.82** on flyvis_noise_005_010
+Raise connectivity **W R² above 0.76** on flyvis_noise_005_010
 (σ_intrinsic = 0.05, γ_measurement = 0.10) with **≥ 3-seed stability**,
 *without degrading* the other recovered unknowns: τ R², V_rest R²,
 clustering accuracy.
 
-### Pre-block baseline (HPO-only RC winner)
+### Training regime — read first
+
+Baseline for this exploration is the **winner** (non-recurrent, 1 epoch,
+batch_size 6, data_augmentation_loop 20, no pretrained checkpoint, a100,
+~60 min/iteration). Every iteration trains from scratch; there is no
+warm-start plateau. Config:
+`config/fly/flyvis_noise_005_010_code_change.yaml` (training block mirrors
+`config/fly/flyvis_noise_005_010_winner.yaml`).
+
+### Pre-block baseline (winner)
 
 | metric                | mean     | std     |
 |-----------------------|----------|---------|
-| W R² (primary)        | 0.8023   | 0.0014  |
-| τ R²                  | 0.9525   | 0.0010  |
-| V_rest R²             | 0.024    | 0.002   |
-| clustering accuracy   | 0.84     | 0.01    |
-| rollout Pearson r     | 0.939    | —       |
-| one-step Pearson r    | 0.98+    | —       |
+| W R² (primary)        | 0.7457   | 0.0043  |
+| τ R²                  | 0.850    | —       |
+| V_rest R²             | 0.042    | —       |
+| one-step Pearson r    | ~0.93    | —       |
 
-Source: `config/fly/flyvis_noise_005_010_rc_winner.yaml`, 5 seeds, CV = 0.18 %.
-This is the target to beat.
+Source: `config/fly/flyvis_noise_005_010_winner.yaml`, 4 seeds, CV = 0.58 %.
+Key lever in the baseline: `coeff_g_phi_diff = 2000` (the only effective
+HPO lever found under this noise regime). W slope bias ~0.51 (model
+under-estimates weight magnitudes ~2×). This is the target to beat.
 
 ### Inverse-problem frame — DO NOT LOSE SIGHT
 
@@ -46,25 +55,29 @@ fair game (see block 3).
 ### Ground-truth ceilings for calibration
 
 - **Noise-free (γ = 0) W R² ≈ 0.965** — physical ceiling.
-- **Known-ODE oracle under γ = 0.10 → W R² ≈ 0.78.** Exceed this bound; the
-  GNN has more structure (embedding, phi, recurrent loss) and can reject
-  noise in ways a linear fit cannot.
+- **Known-ODE oracle under γ = 0.10 → W R² ≈ 0.78.** This is the tightest
+  bound available at this measurement-noise level; the GNN has more
+  structure (embedding, phi) and can in principle approach or exceed it.
+  Winner baseline 0.7457 sits just below this ceiling — breaking 0.78 is
+  the aspirational target, 0.76 the concrete one.
 
 ### Already-falsified hypotheses — do NOT retry
 
 All found inefficient or catastrophic in prior HPO-only exploration.
-Proposing any of these is a waste of phase time.
+Proposing any of these is a waste of phase time. **Note: entries marked
+(recurrent-only) were falsified under recurrent_training=true; the current
+regime is non-recurrent, so those entries are advisory, not closed.**
 
 - **Derivative smoothing in non-recurrent mode** — catastrophic (W R² → 0.03).
 - **Multi-epoch training > 1** — harmful in both 1-step and recurrent.
-- **Dale's law OFF in recurrent mode** — worse (keep ON).
 - **`coeff_f_theta_msg_diff > 100`** — catastrophic (W R² → 0.58 at 200).
 - **`coeff_g_phi_norm < 0.9`** — strictly worse across 0.5–2.0 sweep.
 - **`coeff_W_L1` above 5e-4 or below 5e-5** — sweet spot sharp; do not widen.
 - **Plain LR / batch / DAL single-variable scaling** — bounded by the
   derivative-noise SNR; HPO has exhausted this surface.
-- **`noise_recurrent_level > 0`** — all tested levels hurt or are neutral.
-- **`coeff_g_phi_weight_L1 > 0`** — hurts W recovery in recurrent mode.
+- **`noise_recurrent_level > 0`** (recurrent-only) — all tested levels hurt.
+- **Dale's law OFF** (recurrent-only) — worse in recurrent mode; not
+  tested in current non-recurrent regime.
 
 ### Scientific method — non-negotiable
 
@@ -270,7 +283,7 @@ At the start of each block's iterations the HPO agent must do **one** of:
    and test tell you what the mechanism does.
 3. Read the Phase-C commit on branch `agentic_code_change` — the commit
    message body contains the Phase-C session output tail.
-4. Diff your slot YAML against `config/fly/flyvis_noise_005_010_rc_winner.yaml`
+4. Diff your slot YAML against `config/fly/flyvis_noise_005_010_winner.yaml`
    — any new `coeff_*` key is the lever this block introduced.
 
 ### First-batch-of-block directive
@@ -299,7 +312,7 @@ baseline — your task reduces to tuning existing levers.
 ### Scope
 
 **Tune coefficients and the existing lever set.** Do NOT touch architecture,
-`batch_size`, `time_step`, `pretrained_model`, or anything under
+`batch_size`, `n_epochs`, `recurrent_training`, or anything under
 `src/connectome_gnn/LLM_code/`. Structural / architectural / new-regularizer
 ideas belong to the NEXT block's Phase R, not here.
 
@@ -311,17 +324,21 @@ ideas belong to the NEXT block's Phase R, not here.
 
 ### Safe ranges for existing levers
 
-| Parameter                 | Current | Safe range | Notes                            |
-|---------------------------|---------|------------|----------------------------------|
-| `coeff_<name>` (this block) | see C   | log-sweep then ±3× | Tune first — why the block exists |
-| `coeff_g_phi_diff`         | 600     | 400–1000   | Known sensitive                  |
-| `coeff_W_L1`               | 1e-4    | 5e-5–5e-4  | Sweet spot sharp                 |
-| `coeff_W_L2`               | 1.5e-6  | 0–3e-6     | Weak effect                      |
-| `coeff_f_theta_weight_L1`  | 0.05    | 0–0.1      |                                  |
-| `coeff_f_theta_weight_L2`  | 1e-3    | 0–3e-3     |                                  |
-| `lr_W`                     | 5e-4    | 3e-4–9e-4  |                                  |
-| `lr`                       | 1.8e-3  | 1e-3–2.5e-3|                                  |
-| `data_augmentation_loop`   | 130     | 80–160     | Trades training time for signal  |
+(Winner baseline defaults shown in "Current".)
+
+| Parameter                  | Current  | Safe range   | Notes                                  |
+|----------------------------|----------|--------------|----------------------------------------|
+| `coeff_<name>` (this block)| see C    | log-sweep then ±3× | Tune first — why the block exists |
+| `coeff_g_phi_diff`         | 2000     | 1200–3000    | Most effective lever; keep ≥ 1200      |
+| `coeff_g_phi_weight_L1`    | 0.28     | 0.1–0.5      | Non-zero here (non-recurrent regime)   |
+| `coeff_W_L1`               | 1.5e-4   | 5e-5–5e-4    | Sweet spot sharp                       |
+| `coeff_W_L2`               | 1.5e-6   | 0–3e-6       | Weak effect                            |
+| `coeff_f_theta_weight_L1`  | 0.05     | 0–0.1        |                                        |
+| `coeff_f_theta_weight_L2`  | 1e-3     | 0–3e-3       |                                        |
+| `lr_W`                     | 9e-4     | 3e-4–1.2e-3  |                                        |
+| `lr`                       | 1.8e-3   | 1e-3–2.5e-3  |                                        |
+| `data_augmentation_loop`   | 20       | 10–40        | Trades training time for signal        |
+| `regul_annealing_rate`     | 0.5      | 0.25–0.75    | Anneal regularizers over training      |
 
 ### What counts as progress this iteration
 
