@@ -107,21 +107,24 @@ def commit_phase_c(
 
     Returns True if a commit was created, False if nothing changed.
 
-    The agent is expected to have edited only files on the wire-up allow-list
-    (enforced upstream by the pre-commit hook). We `git add -u` to pick up
-    modifications to tracked files, plus the specific staging/ path (which
-    may contain newly-added files from Phase S).
+    Stages ONLY the Phase C allow-list files + the block's staging/ dir, so
+    unrelated uncommitted work in the user's tree is never swept into the
+    block's commit (which would get rolled back together if Phase V reverts).
     """
+    from connectome_gnn.LLM_code.prompts import PHASE_C_WIRE_UP_ALLOW_LIST
+
     root = checkpoint.repo_root
-    # Stage modifications to tracked files and newly-added staging files.
     staging_path = os.path.join(
         "src", "connectome_gnn", "LLM_code", "staging",
         f"block_{checkpoint.block_number:02d}",
     )
-    _run(["git", "add", "-u"], cwd=root)
-    # Only add staging/ if it exists (may not for revert/skip paths).
+    # Stage each allow-listed file individually — git add on an unmodified
+    # path is a no-op, so this is safe.
+    for path in PHASE_C_WIRE_UP_ALLOW_LIST:
+        if os.path.isfile(os.path.join(root, path)):
+            _run(["git", "add", "--", path], cwd=root)
     if os.path.isdir(os.path.join(root, staging_path)):
-        _run(["git", "add", staging_path], cwd=root)
+        _run(["git", "add", "--", staging_path], cwd=root)
 
     # Detect whether anything is staged.
     p = _run(["git", "diff", "--cached", "--quiet"], cwd=root, check=False)

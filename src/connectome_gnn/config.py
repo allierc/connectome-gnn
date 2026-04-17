@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Annotated, Optional
+from typing import Annotated, Dict, List, Optional
 
 
 # Python 3.10 compatibility (StrEnum added in 3.11)
@@ -302,6 +302,15 @@ class ClaudeConfig(BaseModel):
     interaction_code: bool = False  # enable Phase A interactive code sessions at block boundaries
     case_study: str = ""  # case study identifier (e.g. "measurement_noise")
     case_study_brief: str = ""  # description of the case study for LLM code briefs
+
+
+class ClaudeCodeConfig(BaseModel):
+    """Block-level code-change exploration config (GNN_LLM_code.py)."""
+    model_config = ConfigDict(extra="ignore")
+
+    block_themes: Optional[List[str]] = None
+    phase_time_limits: Optional[Dict[str, int]] = None
+    primary_metric: Optional[str] = None
 
 
 class GraphModelConfig(BaseModel):
@@ -730,6 +739,7 @@ class NeuralGraphConfig(BaseModel):
     simulation: SimulationConfig
     graph_model: GraphModelConfig
     claude: Optional[ClaudeConfig] = None
+    claude_code: Optional[ClaudeCodeConfig] = None
     plotting: PlottingConfig
     training: TrainingConfig
     zarr: Optional[ZarrConfig] = None
