@@ -126,6 +126,10 @@ class LossRegularizer:
         mu, sigma = compute_activity_stats(x_ts, device)
         self._mu_activity = to_numpy(mu).astype(np.float32)
         self._sigma_activity = to_numpy(sigma).astype(np.float32)
+        # Pre-convert to tensors for use inside torch.compile traced region
+        # (numpy-to-tensor conversion via torch.as_tensor is not safe under Dynamo)
+        self._mu_activity_t = torch.tensor(self._mu_activity, dtype=torch.float32, device=device)
+        self._sigma_activity_t = torch.tensor(self._sigma_activity, dtype=torch.float32, device=device)
 
     def _update_coeffs(self):
         """Recompute coefficients based on current epoch.
@@ -435,8 +439,8 @@ class LossRegularizer:
                 msg_lin_loss = f_theta_msg_linearity_loss(
                     model=model,
                     n_neurons=self.n_neurons,
-                    mu=self._mu_activity,
-                    sigma=self._sigma_activity,
+                    mu=self._mu_activity_t,
+                    sigma=self._sigma_activity_t,
                     device=device,
                 )
                 msg_lin_term = msg_lin_loss * _ct['f_theta_msg_linearity'] * rampup_weight
