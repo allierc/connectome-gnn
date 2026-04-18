@@ -22,13 +22,11 @@ import torch
 # ------------------------------------------------------------------ #
 
 def _vectorized_linspace(
-    starts: np.ndarray, ends: np.ndarray, n_pts: int, device: torch.device
+    starts: torch.Tensor, ends: torch.Tensor, n_pts: int, device: torch.device
 ) -> torch.Tensor:
     """Create (N, n_pts) tensor where row n spans [starts[n], ends[n]]."""
     t = torch.linspace(0, 1, n_pts, device=device)
-    starts_t = torch.as_tensor(starts, dtype=torch.float32, device=device)
-    ends_t = torch.as_tensor(ends, dtype=torch.float32, device=device)
-    return starts_t[:, None] + t[None, :] * (ends_t - starts_t)[:, None]
+    return starts[:, None] + t[None, :] * (ends - starts)[:, None]
 
 
 def _torch_linear_fit(
@@ -53,8 +51,8 @@ def _torch_linear_fit(
 def f_theta_msg_linearity_loss(
     model,
     n_neurons: int,
-    mu: np.ndarray,
-    sigma: np.ndarray,
+    mu: torch.Tensor,
+    sigma: torch.Tensor,
     device: torch.device,
     n_pts: int = 50,
 ) -> torch.Tensor:
@@ -73,8 +71,8 @@ def f_theta_msg_linearity_loss(
     Args:
         model: Object with .f_theta (nn.Module) and .a (N, emb_dim) embedding.
         n_neurons: Number of neurons to evaluate.
-        mu: (N,) numpy array -- per-neuron mean voltage (used to fix v).
-        sigma: (N,) numpy array -- per-neuron voltage std (used to scale msg range).
+        mu: (N,) tensor -- per-neuron mean voltage (used to fix v).
+        sigma: (N,) tensor -- per-neuron voltage std (used to scale msg range).
         device: Torch device.
         n_pts: Number of msg grid points per neuron (default 50).
 
@@ -84,16 +82,16 @@ def f_theta_msg_linearity_loss(
     N = n_neurons
     emb_dim = model.a.shape[1]
 
-    sigma_safe = np.maximum(sigma[:N], 1e-6)
+    # mu and sigma must already be torch tensors on the correct device —
+    # numpy-to-tensor conversion is not safe inside torch.compile's traced region.
+    sigma_safe = torch.clamp(sigma[:N], min=1e-6)
     msg_starts = mu[:N] - 2.0 * sigma_safe
     msg_ends = mu[:N] + 2.0 * sigma_safe
     msg_grid = _vectorized_linspace(msg_starts, msg_ends, n_pts, device)  # (N, n_pts)
-
-    mu_t = torch.as_tensor(mu[:N], dtype=torch.float32, device=device)  # (N,)
     a_detached = model.a[:N].detach()  # (N, emb_dim), block grad to embeddings
 
     # Build input features: v = mu (fixed), emb = a (detached), msg = grid, exc = 0
-    v_flat = mu_t[:, None].expand(-1, n_pts).reshape(-1, 1)         # (N*n_pts, 1)
+    v_flat = mu[:N, None].expand(-1, n_pts).reshape(-1, 1)           # (N*n_pts, 1)
     emb_flat = a_detached[:, None, :].expand(-1, n_pts, -1).reshape(-1, emb_dim)
     msg_flat = msg_grid.reshape(-1, 1)                                # (N*n_pts, 1)
     exc_flat = torch.zeros_like(msg_flat)                             # (N*n_pts, 1)
