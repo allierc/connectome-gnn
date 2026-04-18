@@ -751,13 +751,6 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                 else:
 
                     loss = loss + (pred[ids_batch] - y_batch[ids_batch]).norm(2)
-                    # Block 02: consecutive coherence loss — penalise noisy frame-to-frame jitter
-                    if tc.consecutive_batch and tc.batch_size >= 2 and regularizer._coeffs['consecutive_coherence'] > 0:
-                        from connectome_gnn.LLM_code.staging.block_02.consecutive_coherence import consecutive_coherence_loss
-                        coh_loss = consecutive_coherence_loss(pred, batch_size=tc.batch_size, n_neurons=n_neurons)
-                        coh_term = coh_loss * regularizer._coeff_tensors['consecutive_coherence']
-                        loss = loss + coh_term
-                        regularizer._add('consecutive_coherence', coh_term)
                     # Hidden voltage loss: GNN-predicted v(k+1) vs GT (bypasses g_phi via -v/tau)
                     if has_hidden_neurons and getattr(tc, 'coeff_hidden_voltage', 0.0) > 0:
                         n_per = state_batch[0].n_neurons
