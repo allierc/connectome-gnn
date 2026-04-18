@@ -728,14 +728,31 @@ def _auto_repair_failed_jobs(state: ExplorationState, batch: BatchInfo):
             print(f"\033[93m  slot {slot_idx} (iter {batch.iterations[slot_idx]}): repair attempt {attempt + 1}/{max_repair_attempts}\033[0m")
             repair_prompt = f"""TRAINING CRASHED - Please fix the code error.
 
-Error traceback:
+Error traceback (last 3KB):
 ```
 {err_content[-3000:]}
 ```
 
-Modified files: {chr(10).join(f'- {state.root_dir}/{f}' for f in modified_code)}
+Modified files (these are the suspects):
+{chr(10).join(f'- {state.root_dir}/{f}' for f in modified_code)}
 
-Fix the bug. Do NOT make other changes."""
+Repair rules:
+1. Fix ONLY the bug shown in the traceback. Do not refactor or add features.
+2. Do NOT re-introduce the same pattern that caused the crash. Read the
+   traceback carefully and identify what specifically failed.
+3. **torch.compile + pydantic incompatibility** — if the traceback contains
+   `torch._dynamo.exc.Unsupported`, `__getattribute__`, or mentions Dynamo
+   tracing failures: the cause is almost always `getattr(pydantic_obj, ...)`
+   or `pydantic_obj.attr` reached from a function inside the compiled
+   forward/loss path (typically Regularizer.compute() or compute_update_regul()).
+   FIX: read the config value ONCE in __init__ or _update_coeffs (which run
+   outside the compiled region), store as a plain float on `self._foo`, and
+   reference `self._foo` inside compute(). Never touch the pydantic config
+   from inside compute().
+4. If you genuinely cannot identify or fix the bug, print exactly the token
+   `CANNOT_FIX` and stop.
+
+Attempt {attempt + 1} of {max_repair_attempts}."""
 
             repair_cmd = [
                 'claude', '-p', repair_prompt,
@@ -945,10 +962,44 @@ def run_cluster_test_plot(state: ExplorationState, batch: BatchInfo):
         test_plot_results = wait_for_cluster_jobs(
             job_ids, log_dir=state.log_dir, poll_interval=60, job_prefix='cluster_test_plot'
         )
+
+        # One retry pass for transient test+plot failures (cluster hiccups,
+        # NFS races, etc.). Training already succeeded for these slots.
+        retry_slots = [s for s, ok in test_plot_results.items() if not ok]
+        if retry_slots:
+            print(f"\033[93m  retrying {len(retry_slots)} failed test+plot job(s) once\033[0m")
+            retry_job_ids = {}
+            for slot in retry_slots:
+                config = batch.configs[slot]
+                jid = submit_cluster_test_plot_job(
+                    slot=slot,
+                    config_path=state.config_paths[slot],
+                    analysis_log_path=state.analysis_log_paths[slot],
+                    config_file_field=config.config_file,
+                    log_dir=state.log_dir,
+                    node_name=state.node_name,
+                    conda_env=state.conda_env,
+                    n_cpus=state.n_cpus,
+                    device=config.training.device,
+                    iteration=batch.iterations[slot],
+                    output_root=get_data_root(),
+                    hard_runtime_limit_min=state.hard_runtime_limit_min,
+                )
+                if jid:
+                    retry_job_ids[slot] = jid
+                else:
+                    test_plot_results[slot] = False
+            if retry_job_ids:
+                retry_results = wait_for_cluster_jobs(
+                    retry_job_ids, log_dir=state.log_dir, poll_interval=60,
+                    job_prefix='cluster_test_plot',
+                )
+                test_plot_results.update(retry_results)
+
         for slot, success in test_plot_results.items():
             if not success:
                 batch.job_results[slot] = False
-                print(f"\033[91m  slot {slot}: test+plot FAILED\033[0m")
+                print(f"\033[91m  slot {slot}: test+plot FAILED (after retry)\033[0m")
 
     _print_batch_results(state, batch)
 

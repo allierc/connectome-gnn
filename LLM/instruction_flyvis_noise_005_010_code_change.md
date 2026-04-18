@@ -239,6 +239,27 @@ reason.
 - Add more than one new COMPONENT or one new call site.
 - Remove existing regularizers or edit unrelated logic.
 
+**torch.compile / pydantic safety (HARD RULE)**:
+The training step is wrapped by `torch.compile`. Dynamo cannot trace
+attribute access on Pydantic models (`TrainingConfig`, `NeuralGraphConfig`,
+etc.). Any `getattr(tc, ...)`, `tc.foo`, or `cfg.bar` reached from
+`Regularizer.compute()`, `compute_update_regul()`, or any function called
+inside the compiled forward/loss path will crash with
+`torch._dynamo.exc.Unsupported: __getattribute__`.
+
+Required pattern when wiring a new coefficient that needs config-derived
+constants (warmup_fraction, rampup_iters, etc.):
+
+1. Read every config value ONCE at `__init__` (or inside `_update_coeffs`,
+   which runs outside the compiled region) and store as a plain Python
+   float / int / tensor on `self` — e.g. `self._msg_lin_warmup = float(
+   getattr(tc, 'f_theta_msg_linearity_warmup_fraction', 0.3))`.
+2. Inside `compute()` use ONLY `self._msg_lin_warmup` — never touch `tc`.
+
+If the new coefficient lives only in `self._coeffs[<name>]` (already
+populated by `_update_coeffs`) you are fine. Block 3 of this exploration
+crashed 9/9 runs by violating this rule — do not repeat it.
+
 When done, print a one-paragraph summary covering:
 1. Which production file(s) you edited and how many lines.
 2. The YAML config key (if any) added for the coefficient.
