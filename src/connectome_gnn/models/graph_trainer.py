@@ -192,12 +192,6 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
         x_ts.voltage = (1 - _denoise_alpha) * x_ts.voltage + _denoise_alpha * temporal_voltage_denoise(x_ts.voltage)
         _logger.info(f'voltage denoising applied: alpha={_denoise_alpha}')
     y_ts_gpu = torch.from_numpy(y_ts).float().to(device)  # pre-convert once; avoids per-iter cudaStreamSynchronize
-    # Block 01: derivative SNR reweighting (suppresses noise-dominated derivative targets)
-    _snr_coeff = float(getattr(tc, 'coeff_derivative_snr_reweight', 0.0))
-    _snr_gamma = float(sim.measurement_noise_level) if sim.measurement_noise_level > 0 else 0.0
-    if _snr_coeff > 0 and _snr_gamma > 0:
-        from connectome_gnn.LLM_code.staging.block_01.derivative_snr_reweight import derivative_snr_weights as _snr_weights_fn
-        _logger.info(f'derivative SNR reweighting: coeff={_snr_coeff}, gamma={_snr_gamma}')
     torch.save(xnorm, os.path.join(log_dir, 'xnorm.pt'))
     _logger.info(f'xnorm: {to_numpy(xnorm):0.3f}')
     logger.info(f'xnorm: {to_numpy(xnorm)}')
@@ -756,12 +750,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
 
                 else:
 
-                    _resid = pred[ids_batch] - y_batch[ids_batch]
-                    if _snr_coeff > 0 and _snr_gamma > 0:
-                        _sw = _snr_weights_fn(y_batch[ids_batch], gamma=_snr_gamma)
-                        _sw = ((1.0 - _snr_coeff) + _snr_coeff * _sw).clamp(min=0.01)
-                        _resid = _resid * _sw.sqrt()
-                    loss = loss + _resid.norm(2)
+                    loss = loss + (pred[ids_batch] - y_batch[ids_batch]).norm(2)
                     # Hidden voltage loss: GNN-predicted v(k+1) vs GT (bypasses g_phi via -v/tau)
                     if has_hidden_neurons and getattr(tc, 'coeff_hidden_voltage', 0.0) > 0:
                         n_per = state_batch[0].n_neurons
