@@ -460,6 +460,7 @@ def _check_causality(state: ExplorationState, batch: BatchInfo):
         'data_augmentation_loop', 'coeff_g_phi_diff', 'coeff_f_theta_weight_L2',
         'coeff_f_theta_diff', 'coeff_f_theta_msg_diff',
         'coeff_W_L1', 'coeff_W_L2', 'coeff_W_sign',
+        'coeff_tau_L1', 'coeff_tau_L2', 'coeff_V_rest_L1', 'coeff_V_rest_L2',
         'w_init_mode', 'w_init_scale', 'dale_law',
     ]
     COMPARE_GRAPH_KEYS = [
