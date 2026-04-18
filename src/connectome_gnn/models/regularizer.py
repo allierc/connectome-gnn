@@ -38,6 +38,7 @@ class LossRegularizer:
         'missing_activity', 'model_a', 'model_b',
         'f_theta_linearity', 'f_theta_centering',
         'embedding_cluster',
+        'tau_L1', 'tau_L2', 'V_rest_L1', 'V_rest_L2',
     ]
 
     def __init__(self, train_config, model_config, activity_column: int,
@@ -162,6 +163,11 @@ class LossRegularizer:
         self._coeffs['f_theta_linearity'] = getattr(tc, 'coeff_f_theta_linearity', 0.0)
         self._coeffs['f_theta_centering'] = getattr(tc, 'coeff_f_theta_centering', 0.0)
         self._coeffs['embedding_cluster'] = getattr(tc, 'coeff_embedding_cluster', 0.0)
+        # known_ode biophysical parameter regularizers (annealed like other weight-decay terms)
+        self._coeffs['tau_L1'] = anneal(getattr(tc, 'coeff_tau_L1', 0.0))
+        self._coeffs['tau_L2'] = anneal(getattr(tc, 'coeff_tau_L2', 0.0))
+        self._coeffs['V_rest_L1'] = anneal(getattr(tc, 'coeff_V_rest_L1', 0.0))
+        self._coeffs['V_rest_L2'] = anneal(getattr(tc, 'coeff_V_rest_L2', 0.0))
 
     def set_epoch(self, epoch: int, plot_frequency: int = None, Niter: int = None):
         """Set current epoch and update coefficients."""
@@ -269,6 +275,27 @@ class LossRegularizer:
                 regul_term = model.W.norm(2) * _ct['W_L2']
                 total_regul = total_regul + regul_term
                 self._add('W_L2', regul_term)
+
+        # --- known_ode biophysical parameters (raw_tau, V_rest) ---
+        # Applied once per iteration via the same flag as W_L1/W_L2 (above).
+        # raw_tau is the underlying learnable parameter; V_rest is per-neuron resting potential.
+        if hasattr(model, 'raw_tau'):
+            regul_term = model.raw_tau.norm(1) * _ct['tau_L1']
+            total_regul = total_regul + regul_term
+            self._add('tau_L1', regul_term)
+
+            regul_term = model.raw_tau.norm(2) * _ct['tau_L2']
+            total_regul = total_regul + regul_term
+            self._add('tau_L2', regul_term)
+
+        if hasattr(model, 'V_rest'):
+            regul_term = model.V_rest.norm(1) * _ct['V_rest_L1']
+            total_regul = total_regul + regul_term
+            self._add('V_rest_L1', regul_term)
+
+            regul_term = model.V_rest.norm(2) * _ct['V_rest_L2']
+            total_regul = total_regul + regul_term
+            self._add('V_rest_L2', regul_term)
 
         # --- g_phi / f_theta weight regularization ---
         if hasattr(model, 'g_phi'):

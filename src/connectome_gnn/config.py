@@ -635,6 +635,12 @@ class TrainingConfig(BaseModel):
     # -- W (connectivity) regularizers --
     # coeff_W_L1, coeff_W_L2, coeff_W_sign defined above
 
+    # -- known_ode biophysical parameter regularizers (apply to model.raw_tau / model.V_rest) --
+    coeff_tau_L1: float = 0.0     # L1 penalty on raw_tau (pulls tau toward identity-element of its transform)
+    coeff_tau_L2: float = 0.0     # L2 penalty on raw_tau
+    coeff_V_rest_L1: float = 0.0  # L1 penalty on V_rest (pulls V_rest toward 0)
+    coeff_V_rest_L2: float = 0.0  # L2 penalty on V_rest
+
     # -- Other regularizers --
     coeff_entropy_loss: float = 0  # Entropy penalty on predictions
     coeff_permutation: float = 100  # Permutation invariance penalty
