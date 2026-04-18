@@ -145,20 +145,15 @@ def wait_for_cluster_jobs(job_ids, log_dir=None, poll_interval=60, job_prefix='c
                     elif 'EXIT' in line:
                         results[slot] = False
                         del pending[slot]
-                        print(f"\033[91m  slot {slot} (job {jid}): FAILED (EXIT)\033[0m")
+                        err_hint = ''
                         if log_dir:
                             err_file = f"{log_dir}/{job_prefix}_{slot:02d}.err"
                             if os.path.exists(err_file):
-                                try:
-                                    with open(err_file, 'r') as ef:
-                                        err_content = ef.read().strip()
-                                    if err_content:
-                                        print(f"\033[91m  --- slot {slot} error log ---\033[0m")
-                                        for eline in err_content.splitlines()[-30:]:
-                                            print(f"\033[91m    {eline}\033[0m")
-                                        print("\033[91m  --- end error log ---\033[0m")
-                                except Exception:
-                                    pass
+                                err_hint = f"  (see {err_file})"
+                        print(
+                            f"\033[91m  slot {slot} (job {jid}): FAILED (EXIT)"
+                            f"{err_hint} — auto-repair will read the log\033[0m"
+                        )
 
             if slot in pending and jid not in out.stdout:
                 results[slot] = True

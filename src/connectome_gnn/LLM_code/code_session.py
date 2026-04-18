@@ -190,6 +190,16 @@ def run_code_session(
         f.write(scratch_report.as_markdown())
 
     if not scratch_report.any_passed:
+        print(
+            f"\n\033[93m" + "=" * 70 + "\033[0m\n"
+            f"\033[93m[LLM_code] WARNING — block {block_number:02d}: "
+            f"Phase S produced 0 PASS. Phase C will be SKIPPED.\033[0m\n"
+            f"\033[93m  Scratchpad report: {state.phase_s_report_path()}\033[0m\n"
+            f"\033[93m  Consequence: this block makes no production edit; "
+            f"the verdict will REVERT for the wrong reason.\033[0m\n"
+            f"\033[93m" + "=" * 70 + "\033[0m\n",
+            flush=True,
+        )
         return CodeSessionResult(
             phase_r_timed_out=r_timeout,
             phase_s_timed_out=s_timeout,
