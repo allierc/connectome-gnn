@@ -38,7 +38,6 @@ class LossRegularizer:
         'missing_activity', 'model_a', 'model_b',
         'f_theta_linearity', 'f_theta_centering',
         'embedding_cluster',
-        'consecutive_coherence',
     ]
 
     def __init__(self, train_config, model_config, activity_column: int,
@@ -163,7 +162,6 @@ class LossRegularizer:
         self._coeffs['f_theta_linearity'] = getattr(tc, 'coeff_f_theta_linearity', 0.0)
         self._coeffs['f_theta_centering'] = getattr(tc, 'coeff_f_theta_centering', 0.0)
         self._coeffs['embedding_cluster'] = getattr(tc, 'coeff_embedding_cluster', 0.0)
-        self._coeffs['consecutive_coherence'] = getattr(tc, 'coeff_consecutive_coherence', 0.0)
 
     def set_epoch(self, epoch: int, plot_frequency: int = None, Niter: int = None):
         """Set current epoch and update coefficients."""
