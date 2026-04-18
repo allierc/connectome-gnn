@@ -37,6 +37,7 @@ class LossRegularizer:
         'f_theta_zero', 'f_theta_diff', 'f_theta_msg_diff', 'f_theta_msg_sign',
         'missing_activity', 'model_a', 'model_b',
         'f_theta_linearity', 'f_theta_centering',
+        'f_theta_msg_linearity',
         'embedding_cluster',
     ]
 
@@ -161,6 +162,7 @@ class LossRegularizer:
         self._coeffs['model_b'] = tc.coeff_model_b
         self._coeffs['f_theta_linearity'] = getattr(tc, 'coeff_f_theta_linearity', 0.0)
         self._coeffs['f_theta_centering'] = getattr(tc, 'coeff_f_theta_centering', 0.0)
+        self._coeffs['f_theta_msg_linearity'] = getattr(tc, 'coeff_f_theta_msg_linearity', 0.0)
         self._coeffs['embedding_cluster'] = getattr(tc, 'coeff_embedding_cluster', 0.0)
 
     def set_epoch(self, epoch: int, plot_frequency: int = None, Niter: int = None):
@@ -414,6 +416,33 @@ class LossRegularizer:
                 cent_term = cent_loss * _ct['f_theta_centering'] * rampup_weight
                 total_regul = total_regul + cent_term
                 self._add('f_theta_centering', cent_term)
+
+        # --- f_theta msg linearity loss (penalizes nonlinear msg response) ---
+        if (self._coeffs['f_theta_msg_linearity'] > 0
+                and self._mu_activity is not None
+                and hasattr(model, 'f_theta')):
+            tc = self.train_config
+            warmup_threshold = int(
+                getattr(tc, 'f_theta_msg_linearity_warmup_fraction', 0.3) * self.Niter)
+            if self.iter_count > warmup_threshold:
+                rampup_iters = getattr(tc, 'f_theta_msg_linearity_rampup_iters', 200)
+                rampup_weight = min(
+                    1.0,
+                    (self.iter_count - warmup_threshold) / max(rampup_iters, 1))
+
+                from connectome_gnn.LLM_code.staging.block_03.f_theta_msg_linearity_loss import (
+                    f_theta_msg_linearity_loss,
+                )
+                msg_lin_loss = f_theta_msg_linearity_loss(
+                    model=model,
+                    n_neurons=self.n_neurons,
+                    mu=self._mu_activity,
+                    sigma=self._sigma_activity,
+                    device=device,
+                )
+                msg_lin_term = msg_lin_loss * _ct['f_theta_msg_linearity'] * rampup_weight
+                total_regul = total_regul + msg_lin_term
+                self._add('f_theta_msg_linearity', msg_lin_term)
 
         # --- embedding cluster regularization ---
         # Pull each neuron's embedding toward the centroid of its cell type.
