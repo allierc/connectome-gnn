@@ -36,7 +36,7 @@ class LossRegularizer:
         'g_phi_diff', 'g_phi_norm', 'g_phi_weight', 'f_theta_weight',
         'f_theta_zero', 'f_theta_diff', 'f_theta_msg_diff', 'f_theta_msg_sign',
         'missing_activity', 'model_a', 'model_b',
-        'f_theta_linearity', 'f_theta_centering',
+        'f_theta_linearity', 'f_theta_msg_linearity', 'f_theta_centering',
         'embedding_cluster',
         'tau_L1', 'tau_L2', 'V_rest_L1', 'V_rest_L2',
     ]
@@ -97,6 +97,10 @@ class LossRegularizer:
         # f_theta linearity loss state (unsupervised — no gt V_rest needed)
         self._mu_activity = None
         self._sigma_activity = None
+
+        # torch.compile-safe: pre-compute warmup/rampup for msg linearity
+        self._msg_lin_warmup_frac = float(getattr(train_config, 'f_theta_msg_linearity_warmup_fraction', 0.3))
+        self._msg_lin_rampup_iters = int(getattr(train_config, 'f_theta_msg_linearity_rampup_iters', 200))
 
     def move_type_list_to_device(self, device):
         """Move type_ids to the training device. Call once after device is known."""
@@ -161,6 +165,7 @@ class LossRegularizer:
         self._coeffs['model_a'] = tc.coeff_model_a
         self._coeffs['model_b'] = tc.coeff_model_b
         self._coeffs['f_theta_linearity'] = getattr(tc, 'coeff_f_theta_linearity', 0.0)
+        self._coeffs['f_theta_msg_linearity'] = getattr(tc, 'coeff_f_theta_msg_linearity', 0.0)
         self._coeffs['f_theta_centering'] = getattr(tc, 'coeff_f_theta_centering', 0.0)
         self._coeffs['embedding_cluster'] = getattr(tc, 'coeff_embedding_cluster', 0.0)
         # known_ode biophysical parameter regularizers (annealed like other weight-decay terms)
@@ -417,6 +422,26 @@ class LossRegularizer:
                 lin_term = lin_loss * _ct['f_theta_linearity'] * rampup_weight
                 total_regul = total_regul + lin_term
                 self._add('f_theta_linearity', lin_term)
+
+        # --- f_theta msg linearity loss (penalizes nonlinearity in msg dimension) ---
+        if (self._coeffs['f_theta_msg_linearity'] > 0
+                and self._mu_activity is not None
+                and hasattr(model, 'f_theta')):
+            warmup_threshold = int(self._msg_lin_warmup_frac * self.Niter)
+            if self.iter_count > warmup_threshold:
+                rampup_weight = min(1.0, (self.iter_count - warmup_threshold) / max(self._msg_lin_rampup_iters, 1))
+
+                from connectome_gnn.LLM_code.staging.block_04.f_theta_msg_linearity import f_theta_msg_linearity_loss
+                msg_lin_loss = f_theta_msg_linearity_loss(
+                    model=model,
+                    n_neurons=self.n_neurons,
+                    mu=self._mu_activity,
+                    sigma=self._sigma_activity,
+                    device=device,
+                )
+                msg_lin_term = msg_lin_loss * _ct['f_theta_msg_linearity'] * rampup_weight
+                total_regul = total_regul + msg_lin_term
+                self._add('f_theta_msg_linearity', msg_lin_term)
 
         # --- f_theta centering loss (unsupervised V_rest anchor, requires f_theta + a) ---
         if (self._coeffs['f_theta_centering'] > 0
