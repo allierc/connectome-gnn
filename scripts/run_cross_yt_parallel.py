@@ -75,7 +75,34 @@ CONDITION_BASES = [
 ]
 
 
-def _load(cfg_name):
+def cv_config_dir(output_root):
+    """CV configs (both YT fold YAMLs and DAVIS fold YAMLs) are emitted to
+    <output_root>/config/fly/ — a shared-FS location visible from both the
+    devcontainer AND the cluster. The repo's own config/fly/ is reserved
+    for static, hand-written base configs that are version-controlled."""
+    return os.path.join(output_root, 'config', 'fly')
+
+
+def _load_yaml_either(cfg_name, output_root):
+    """Load a config YAML: prefer <output_root>/config/fly/, fall back to
+    the repo's config/fly/ for static base YAMLs. Returns absolute path."""
+    shared = os.path.join(cv_config_dir(output_root), f'{cfg_name}.yaml')
+    if os.path.isfile(shared):
+        return shared
+    repo_path = config_path('fly', f'{cfg_name}.yaml')
+    return repo_path
+
+
+def _load(cfg_name, output_root=None):
+    if output_root is not None:
+        yaml_path = _load_yaml_either(cfg_name, output_root)
+        cfg = NeuralGraphConfig.from_yaml(yaml_path)
+        # Infer pre_folder from cfg_name (all cross-check configs live under
+        # config/fly/). add_pre_folder returns (cfg_file, 'fly/') for 'flyvis_*'.
+        _, pre = add_pre_folder(cfg_name)
+        cfg.dataset = pre + cfg.dataset
+        cfg.config_file = pre + cfg_name
+        return cfg
     cfg_file, pre = add_pre_folder(cfg_name)
     cfg = NeuralGraphConfig.from_yaml(config_path(f'{cfg_file}.yaml'))
     cfg.dataset = pre + cfg.dataset
@@ -83,13 +110,15 @@ def _load(cfg_name):
     return cfg
 
 
-def emit_davis_cv_yaml(base_name, fold_i, force=False):
-    """Emit config/fly/<base>_cv<i:02d>.yaml — copy of <base>.yaml with
-    simulation.seed = 42 + fold_i and dataset = <base>_cv<i:02d>. Returns
-    True if the file was written."""
+def emit_davis_cv_yaml(base_name, fold_i, output_root, force=False):
+    """Emit <output_root>/config/fly/<base>_cv<i:02d>.yaml — copy of
+    <repo>/config/fly/<base>.yaml with simulation.seed = 42 + fold_i
+    and dataset = <base>_cv<i:02d>. Placed on shared FS so the cluster
+    can read it directly. Returns True if the file was written."""
     src = os.path.join(REPO_ROOT, 'config', 'fly', f'{base_name}.yaml')
-    dst = os.path.join(REPO_ROOT, 'config', 'fly',
-                       f'{base_name}_cv{fold_i:02d}.yaml')
+    out_dir = cv_config_dir(output_root)
+    os.makedirs(out_dir, exist_ok=True)
+    dst = os.path.join(out_dir, f'{base_name}_cv{fold_i:02d}.yaml')
     if os.path.exists(dst) and not force:
         return False
     if not os.path.isfile(src):
@@ -147,6 +176,13 @@ def ensure_yt_data(yt_cfg, device):
                       style='color', alpha=1, erase=True, save=True, step=100)
 
 
+def _shared_cv_yaml_path(config_file, output_root):
+    """Build the shared-FS absolute path for a CV YAML:
+       <output_root>/config/fly/<basename>.yaml"""
+    basename = os.path.basename(config_file) + '.yaml'
+    return os.path.join(cv_config_dir(output_root), basename)
+
+
 def submit_training_wave(yt_cfgs, output_root, node_name, hard_runtime_limit_min,
                           metrics_interval=300):
     """Submit 5 cluster training bsub jobs (one per fold), wait, return.
@@ -164,10 +200,9 @@ def submit_training_wave(yt_cfgs, output_root, node_name, hard_runtime_limit_min
         if _have_model(yt_log_dir):
             print(f'  [skip] fold {slot}: model already trained at {yt_log_dir}/models')
             continue
-        # submit_cluster_job expects the absolute CLUSTER-side config path; our
-        # config files live at <REPO>/config/fly/*.yaml which is shared FS.
-        cfg_basename = os.path.basename(yt_cfg.config_file) + '.yaml'
-        cfg_path = f'{CLUSTER_ROOT_DIR}/config/fly/{cfg_basename}'
+        # CV YAMLs live on the shared FS under <output_root>/config/fly/
+        # so both devcontainer and cluster read the same file.
+        cfg_path = _shared_cv_yaml_path(yt_cfg.config_file, output_root)
         analysis_log = f'{yt_log_dir}/cluster_train.log'
         jid = submit_cluster_job(
             slot=slot,
@@ -247,11 +282,8 @@ def submit_test_plot_wave(yt_cfgs, base_cfgs, output_root, node_name,
     Cache: submit the job unless every <yt_log_dir>/results_rollout_on_<base_j>.log
     already exists AND metrics.txt is present; --force_test wipes them.
     """
-    test_cfg_paths = [
-        f'{CLUSTER_ROOT_DIR}/config/fly/' +
-        os.path.basename(bc.config_file) + '.yaml'
-        for bc in base_cfgs
-    ]
+    test_cfg_paths = [_shared_cv_yaml_path(bc.config_file, output_root)
+                      for bc in base_cfgs]
     test_cfg_fields = [bc.config_file for bc in base_cfgs]
 
     job_ids = {}
@@ -278,8 +310,7 @@ def submit_test_plot_wave(yt_cfgs, base_cfgs, output_root, node_name,
             print(f'\033[91m  [skip] fold {slot}: no trained model, cannot test\033[0m')
             continue
 
-        cfg_basename = os.path.basename(yt_cfg.config_file) + '.yaml'
-        cfg_path = f'{CLUSTER_ROOT_DIR}/config/fly/{cfg_basename}'
+        cfg_path = _shared_cv_yaml_path(yt_cfg.config_file, output_root)
         analysis_log = f'{yt_log_dir}/cluster_cross_test_plot.log'
 
         jid = submit_cluster_cross_test_plot_job(
@@ -349,36 +380,39 @@ def run_condition(base_name, suffix, n_folds, device, output_root,
                   cluster_test_plot=False, metrics_interval=300):
     print(f'\n=== {base_name}  (5-fold YT-train / DAVIS-test, suffix={suffix}) ===')
 
-    # 0. Emit per-fold DAVIS CV YAMLs (<base>_cv<i:02d>.yaml) if missing.
-    #    Each uses simulation.seed = 42 + i so the 5 test sets are
-    #    independent — this is what makes the rollout mean±SD a proper
-    #    5-fold CV rather than 5 models on a single test set.
+    # 0. Emit per-fold DAVIS CV YAMLs (<base>_cv<i:02d>.yaml) into the
+    #    shared-FS CV config dir (<output_root>/config/fly/). Each uses
+    #    simulation.seed = 42 + i so the 5 test sets are independent.
     for i in range(n_folds):
-        if emit_davis_cv_yaml(base_name, i, force=False):
-            print(f'  [emit] config/fly/{base_name}_cv{i:02d}.yaml')
+        if emit_davis_cv_yaml(base_name, i, output_root, force=False):
+            print(f'  [emit] {cv_config_dir(output_root)}/{base_name}_cv{i:02d}.yaml')
 
     # Load 5 DAVIS CV configs (paired one-to-one with YT folds).
     base_cfgs = []
     for i in range(n_folds):
         base_cfg_name = f'{base_name}_cv{i:02d}'
-        if not os.path.isfile(config_path('fly', f'{base_cfg_name}.yaml')):
-            print(f'  [warn] missing DAVIS CV yaml {base_cfg_name}.yaml')
+        shared = os.path.join(cv_config_dir(output_root),
+                              f'{base_cfg_name}.yaml')
+        if not os.path.isfile(shared):
+            print(f'  [warn] missing DAVIS CV yaml {shared}')
             continue
-        base_cfgs.append(_load(base_cfg_name))
+        base_cfgs.append(_load(base_cfg_name, output_root=output_root))
 
     # 1a. Generate 5 DAVIS test datasets (LOCAL, skipped if data exists).
     for base_cfg in base_cfgs:
         ensure_davis_base_data(base_cfg, device)
 
-    # 1b. Load + generate YT fold data (LOCAL, one per fold).
+    # 1b. Load + generate YT fold data (LOCAL, one per fold). YT YAMLs are
+    #     expected on the shared FS (<output_root>/config/fly/) — emitted by
+    #     run_GNN_conditions.py / run_GNN_cross.py before this runs.
     yt_cfgs = []
     for i in range(n_folds):
         yt_cfg_name = f'{base_name}_{suffix}_cv{i:02d}'
-        yt_yaml = config_path('fly', f'{yt_cfg_name}.yaml')
+        yt_yaml = _load_yaml_either(yt_cfg_name, output_root)
         if not os.path.isfile(yt_yaml):
             print(f'  [skip] fold {i}: missing YT YAML {yt_yaml}')
             continue
-        yt_cfgs.append(_load(yt_cfg_name))
+        yt_cfgs.append(_load(yt_cfg_name, output_root=output_root))
     for yt_cfg in yt_cfgs:
         ensure_yt_data(yt_cfg, device)
 

@@ -57,6 +57,7 @@ except ImportError:
 import write_cross_yt_configs as _wcfg      # noqa: E402
 import run_cross_yt_parallel as _runner     # noqa: E402
 import emit_cross_table_rows as _emit       # noqa: E402
+from run_cross_yt_parallel import cv_config_dir  # noqa: E402
 
 
 DATA_ROOT = '/groups/saalfeld/home/allierc/GraphData'
@@ -64,8 +65,14 @@ SUFFIX    = 'yt_per_cond'
 HP_SOURCE = 'per_condition'
 
 
-def emit_yt_yamls(hp_source, suffix, hp_yaml_basename, n_folds, force):
-    """Mirror scripts/write_cross_yt_configs.py main loop, no subprocess."""
+def emit_yt_yamls(hp_source, suffix, hp_yaml_basename, n_folds, force,
+                   output_root):
+    """Mirror scripts/write_cross_yt_configs.py main loop — writes YT CV
+    YAMLs to the shared-FS CV config dir <output_root>/config/fly/ so the
+    cluster can read them. HP-source YAMLs are still pulled from the repo's
+    config/fly/ (static, version-controlled)."""
+    out_dir = cv_config_dir(output_root)
+    os.makedirs(out_dir, exist_ok=True)
     written, skipped = [], []
     for base_name, winner_name in _wcfg.CONDITIONS:
         if hp_source == 'per_condition':
@@ -78,13 +85,11 @@ def emit_yt_yamls(hp_source, suffix, hp_yaml_basename, n_folds, force):
         folds = list(range(n_folds)) if n_folds >= 1 else [None]
         for fold_i in folds:
             if fold_i is None:
-                out_yaml = os.path.join(
-                    _REPO_ROOT, 'config', 'fly',
+                out_yaml = os.path.join(out_dir,
                     f'{base_name}_{suffix}.yaml')
                 sim_seed = train_seed = None
             else:
-                out_yaml = os.path.join(
-                    _REPO_ROOT, 'config', 'fly',
+                out_yaml = os.path.join(out_dir,
                     f'{base_name}_{suffix}_cv{fold_i:02d}.yaml')
                 sim_seed   = 42 + fold_i
                 train_seed = 1042 + fold_i
@@ -97,7 +102,8 @@ def emit_yt_yamls(hp_source, suffix, hp_yaml_basename, n_folds, force):
                                 train_seed=train_seed)
             if ok:
                 written.append(out_yaml)
-    print(f'  wrote {len(written)} YT YAMLs  (skipped {len(skipped)} existing)')
+    print(f'  wrote {len(written)} YT YAMLs -> {out_dir}  '
+          f'(skipped {len(skipped)} existing)')
 
 
 def emit_tex_inplace(suffix, n_folds, output_root, output_tex):
@@ -174,7 +180,8 @@ def main():
     else:
         print('\n[1] emit YT YAMLs  (hp_source=per_condition)')
         emit_yt_yamls(HP_SOURCE, args.suffix, hp_yaml_basename=None,
-                      n_folds=args.n_folds, force=args.force_yaml)
+                      n_folds=args.n_folds, force=args.force_yaml,
+                      output_root=args.output_root)
 
     # Step 2 — per-condition cluster pipeline.
     base_cfg = NeuralGraphConfig.from_yaml(
