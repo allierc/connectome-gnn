@@ -56,6 +56,7 @@ from connectome_gnn.generators.graph_data_generator import data_generate  # noqa
 from connectome_gnn.models.graph_trainer import data_test  # noqa: E402
 from connectome_gnn.LLM.cluster import (  # noqa: E402
     submit_cluster_job, wait_for_cluster_jobs, CLUSTER_ROOT_DIR,
+    submit_cluster_cross_test_plot_job, wait_for_cluster_jobs_with_metrics,
 )
 from GNN_PlotFigure import data_plot  # noqa: E402
 
@@ -118,10 +119,17 @@ def ensure_yt_data(yt_cfg, device):
                       style='color', alpha=1, erase=True, save=True, step=100)
 
 
-def submit_training_wave(yt_cfgs, output_root, node_name, hard_runtime_limit_min):
+def submit_training_wave(yt_cfgs, output_root, node_name, hard_runtime_limit_min,
+                          metrics_interval=300):
     """Submit 5 cluster training bsub jobs (one per fold), wait, return.
-    Skips folds whose model is already on disk."""
+    Skips folds whose model is already on disk.
+
+    Uses wait_for_cluster_jobs_with_metrics: every `metrics_interval` seconds
+    the training conn/Vr/τ R² for each active slot is read from the slot's
+    tmp_training/metrics.log and printed with ANSI color coding.
+    """
     job_ids = {}
+    log_dirs = {}
     for slot, yt_cfg in enumerate(yt_cfgs):
         yt_log_dir = log_path(yt_cfg.config_file)
         os.makedirs(yt_log_dir, exist_ok=True)
@@ -145,11 +153,123 @@ def submit_training_wave(yt_cfgs, output_root, node_name, hard_runtime_limit_min
             hard_runtime_limit_min=hard_runtime_limit_min,
         )
         if jid is not None:
-            job_ids[slot] = jid
+            job_ids[slot]  = jid
+            log_dirs[slot] = yt_log_dir
     if job_ids:
-        print(f'  [wait] {len(job_ids)} cluster job(s): {job_ids}')
-        wait_for_cluster_jobs(job_ids, log_dir=None, poll_interval=60,
-                              job_prefix='cluster_train')
+        print(f'  [wait] {len(job_ids)} cluster job(s): {job_ids}  '
+              f'(metrics every {metrics_interval}s)')
+        wait_for_cluster_jobs_with_metrics(
+            job_ids, log_dirs, poll_interval=60,
+            metrics_interval=metrics_interval,
+            job_prefix='cluster_train',
+        )
+        # After training, warn on any fold where tau or Vrest collapsed to 0.
+        _warn_zero_training_metrics(log_dirs)
+
+
+def _warn_zero_training_metrics(log_dirs):
+    """Read the final line of each slot's tmp_training/metrics.log; print a
+    warning if tau_r2 or vrest_r2 rounds to 0.00 (training didn't learn the
+    dynamics parameter)."""
+    from connectome_gnn.LLM.cluster import _read_latest_training_metrics
+    for slot, ld in sorted(log_dirs.items()):
+        tm = _read_latest_training_metrics(ld)
+        if tm is None:
+            continue
+        _, conn, vr, tau = tm
+        if abs(vr) < 5e-3 or abs(tau) < 5e-3:
+            print(f'\033[91m  [WARN] slot {slot}: post-training V_rest_R²={vr:.3f} '
+                  f'τ_R²={tau:.3f} — dynamics parameter may have collapsed\033[0m')
+
+
+def _warn_zero_plot_metrics(yt_log_dir, slot_tag=''):
+    """After data_plot, read <yt_log_dir>/results/metrics.txt and warn if
+    tau_R2 or V_rest_R2 rounds to 0.00."""
+    path = os.path.join(yt_log_dir, 'results', 'metrics.txt')
+    if not os.path.isfile(path):
+        return
+    vals = {}
+    try:
+        with open(path) as f:
+            for line in f:
+                if ':' in line:
+                    k, v = line.split(':', 1)
+                    try:
+                        vals[k.strip()] = float(v.strip())
+                    except ValueError:
+                        pass
+    except OSError:
+        return
+    tau = vals.get('tau_R2')
+    vr  = vals.get('V_rest_R2')
+    if tau is not None and abs(tau) < 5e-3:
+        print(f'\033[91m  [WARN]{slot_tag} post-plot tau_R2={tau:.3f} '
+              f'— parameter extraction failed / collapsed\033[0m')
+    if vr is not None and abs(vr) < 5e-3:
+        print(f'\033[91m  [WARN]{slot_tag} post-plot V_rest_R2={vr:.3f} '
+              f'— parameter extraction failed / collapsed\033[0m')
+
+
+def submit_test_plot_wave(yt_cfgs, base_cfg, output_root, node_name,
+                           hard_runtime_limit_min, force_test,
+                           metrics_interval=300):
+    """Submit cross-test+plot jobs to the cluster for each fold, wait.
+    Skips folds that already have both the cross-test log and metrics.txt."""
+    base_short = base_cfg.config_file.replace('fly/', '')
+    # Test config path on shared FS (same as training config path convention).
+    base_basename = os.path.basename(base_cfg.config_file) + '.yaml'
+    test_cfg_path = f'{CLUSTER_ROOT_DIR}/config/fly/{base_basename}'
+
+    job_ids = {}
+    log_dirs = {}
+    for slot, yt_cfg in enumerate(yt_cfgs):
+        yt_log_dir = log_path(yt_cfg.config_file)
+        os.makedirs(yt_log_dir, exist_ok=True)
+
+        cross_log    = _cross_log(yt_log_dir, base_short)
+        metrics_path = os.path.join(yt_log_dir, 'results', 'metrics.txt')
+        if force_test:
+            for p_ in (cross_log, metrics_path):
+                if os.path.exists(p_):
+                    os.remove(p_)
+                    print(f'  [force] removed {p_}')
+        if os.path.exists(cross_log) and os.path.exists(metrics_path):
+            print(f'  [skip] fold {slot}: cross-test log + metrics.txt already exist')
+            continue
+        if not _have_model(yt_log_dir):
+            print(f'\033[91m  [skip] fold {slot}: no trained model, cannot test\033[0m')
+            continue
+
+        cfg_basename = os.path.basename(yt_cfg.config_file) + '.yaml'
+        cfg_path = f'{CLUSTER_ROOT_DIR}/config/fly/{cfg_basename}'
+        analysis_log = f'{yt_log_dir}/cluster_cross_test_plot.log'
+
+        jid = submit_cluster_cross_test_plot_job(
+            slot=slot,
+            config_path=cfg_path,
+            test_config_path=test_cfg_path,
+            analysis_log_path=analysis_log,
+            config_file_field=yt_cfg.config_file,
+            test_config_file_field=base_cfg.config_file,
+            log_dir=yt_log_dir,
+            node_name=node_name,
+            output_root=output_root,
+            hard_runtime_limit_min=hard_runtime_limit_min,
+            n_rollout_frames=250,
+        )
+        if jid is not None:
+            job_ids[slot]  = jid
+            log_dirs[slot] = yt_log_dir
+    if job_ids:
+        print(f'  [wait] {len(job_ids)} cross test+plot job(s): {job_ids}')
+        wait_for_cluster_jobs_with_metrics(
+            job_ids, log_dirs, poll_interval=60,
+            metrics_interval=metrics_interval,
+            job_prefix='cluster_cross_test_plot',
+        )
+        # Post-plot: warn on zero tau/Vrest R².
+        for slot, ld in sorted(log_dirs.items()):
+            _warn_zero_plot_metrics(ld, slot_tag=f' slot {slot}:')
 
 
 def run_test_and_plot(yt_cfg, base_cfg, device, force_test):
@@ -176,10 +296,12 @@ def run_test_and_plot(yt_cfg, base_cfg, device, force_test):
         data_plot(config=yt_cfg, epoch_list=['best'], style='color',
                   extended='plots', device=device,
                   apply_weight_correction=True, skip_svd=True)
+    _warn_zero_plot_metrics(yt_log_dir)
 
 
 def run_condition(base_name, suffix, n_folds, device, output_root,
-                  node_name, hard_runtime_limit_min, force_test, emit_tex):
+                  node_name, hard_runtime_limit_min, force_test, emit_tex,
+                  cluster_test_plot=False, metrics_interval=300):
     print(f'\n=== {base_name}  (5-fold YT-train / DAVIS-test, suffix={suffix}) ===')
 
     base_cfg = _load(base_name)
@@ -200,11 +322,17 @@ def run_condition(base_name, suffix, n_folds, device, output_root,
         ensure_yt_data(yt_cfg, device)
 
     # 2/3. submit 5 cluster training jobs + wait for the wave
-    submit_training_wave(yt_cfgs, output_root, node_name, hard_runtime_limit_min)
+    submit_training_wave(yt_cfgs, output_root, node_name, hard_runtime_limit_min,
+                         metrics_interval=metrics_interval)
 
-    # 4/5. cross-test + plot each fold LOCALLY
-    for yt_cfg in yt_cfgs:
-        run_test_and_plot(yt_cfg, base_cfg, device, force_test)
+    # 4/5. cross-test + plot each fold — cluster or local depending on flag.
+    if cluster_test_plot:
+        submit_test_plot_wave(yt_cfgs, base_cfg, output_root, node_name,
+                              hard_runtime_limit_min, force_test,
+                              metrics_interval=metrics_interval)
+    else:
+        for yt_cfg in yt_cfgs:
+            run_test_and_plot(yt_cfg, base_cfg, device, force_test)
 
     # 6. emit TeX after this condition is done
     if emit_tex:
