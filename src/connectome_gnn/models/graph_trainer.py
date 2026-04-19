@@ -521,7 +521,6 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                 _logger.debug(f'unfreezing embedding at iteration {N}/{Niter}')
 
             optimizer.zero_grad()
-            regularizer.update_iteration_annealing(N)
 
             # Recurrent training (standard or multi-start) — delegated to recurrent_step
             if tc.recurrent_training and not tc.neural_ODE_training:
