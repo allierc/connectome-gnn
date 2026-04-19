@@ -31,12 +31,17 @@ from connectome_gnn.utils import (
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='cross test+plot cluster subprocess')
-    parser.add_argument('--config',      required=True, help='YT training YAML path')
-    parser.add_argument('--test_config', required=True, help='DAVIS base YAML path (test_config for rollout)')
+    parser.add_argument('--config',       required=True, help='YT training YAML path')
+    parser.add_argument('--test_configs', required=True, nargs='+',
+                        help='One or more DAVIS CV YAML paths (rollout test sets); '
+                             'the script runs data_test once per entry, then a single data_plot.')
+    parser.add_argument('--test_config_files', nargs='+', default=None,
+                        help='Matching config_file fields for --test_configs '
+                             '(e.g. fly/flyvis_noise_free_cv00). Must be same '
+                             'length as --test_configs if given.')
     parser.add_argument('--device',      default='cuda')
     parser.add_argument('--log_file',    default=None)
     parser.add_argument('--config_file', default=None, help='YT config_file field (e.g. fly/flyvis_..._cv00)')
-    parser.add_argument('--test_config_file', default=None, help='Base config_file field (e.g. fly/flyvis_noise_free)')
     parser.add_argument('--error_log',   default=None)
     parser.add_argument('--iteration',   type=int, default=None)
     parser.add_argument('--slot',        type=int, default=None)
@@ -53,31 +58,38 @@ if __name__ == '__main__':
         assert os.access(output_root, os.W_OK), f'--output_root is not writable: {output_root}'
         set_data_root(output_root)
 
+    if args.test_config_files and len(args.test_config_files) != len(args.test_configs):
+        print(f'ERROR: --test_config_files ({len(args.test_config_files)}) '
+              f'must match --test_configs ({len(args.test_configs)})',
+              file=sys.stderr)
+        sys.exit(2)
+
     try:
         # YT-trained model config (source of weights).
         config = NeuralGraphConfig.from_yaml(args.config)
         if args.config_file:
             config.config_file = args.config_file
 
-        # DAVIS base config (source of rollout test data).
-        test_config = NeuralGraphConfig.from_yaml(args.test_config)
-        if args.test_config_file:
-            test_config.config_file = args.test_config_file
-        else:
-            base_name = os.path.basename(args.test_config).replace('.yaml', '')
-            cfg_file, pre = add_pre_folder(base_name)
-            test_config.dataset     = pre + test_config.dataset
-            test_config.config_file = pre + base_name
-
         log_file = open(args.log_file, 'a', buffering=1) if args.log_file else None
         try:
-            # 1. Cross-test: YT-trained model -> DAVIS held-out.
-            data_test(config=config, visualize=False, best_model='best', run=0,
-                      step=10, n_rollout_frames=args.n_rollout_frames,
-                      device=args.device, test_config=test_config,
-                      log_file=log_file)
+            # 1. Cross-test: loop over every DAVIS CV test set.
+            for j, test_yaml in enumerate(args.test_configs):
+                test_config = NeuralGraphConfig.from_yaml(test_yaml)
+                if args.test_config_files:
+                    test_config.config_file = args.test_config_files[j]
+                else:
+                    base_name = os.path.basename(test_yaml).replace('.yaml', '')
+                    cfg_file, pre = add_pre_folder(base_name)
+                    test_config.dataset     = pre + test_config.dataset
+                    test_config.config_file = pre + base_name
+                print(f'[cross] {config.config_file}  ->  {test_config.config_file}',
+                      flush=True)
+                data_test(config=config, visualize=False, best_model='best', run=0,
+                          step=10, n_rollout_frames=args.n_rollout_frames,
+                          device=args.device, test_config=test_config,
+                          log_file=log_file)
 
-            # 2. Parameter recovery plot.
+            # 2. Parameter recovery plot (once per YT model).
             from GNN_PlotFigure import data_plot
             data_plot(config=config, epoch_list=['best'], style='color',
                       extended='plots', device=args.device, log_file=log_file,

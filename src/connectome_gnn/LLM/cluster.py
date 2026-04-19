@@ -165,9 +165,9 @@ def wait_for_cluster_jobs(job_ids, log_dir=None, poll_interval=60, job_prefix='c
     return results
 
 
-def submit_cluster_cross_test_plot_job(slot, config_path, test_config_path,
+def submit_cluster_cross_test_plot_job(slot, config_path, test_config_paths,
                                         analysis_log_path, config_file_field,
-                                        test_config_file_field,
+                                        test_config_file_fields,
                                         log_dir, node_name='a100',
                                         conda_env='connectome-gnn', n_cpus=2,
                                         device='cuda', iteration=None,
@@ -176,11 +176,18 @@ def submit_cluster_cross_test_plot_job(slot, config_path, test_config_path,
                                         n_rollout_frames=250):
     """Submit cross_test_plot_subprocess.py to the cluster.
 
-    Runs the YT-trained model cross-rolled on DAVIS held-out data (via
-    --test_config) AND a data_plot pass that writes metrics.txt — both on
-    the cluster. Sibling of submit_cluster_test_plot_job, specialised for
-    the cross-check workflow.
+    One cluster job per YT fold. Inside the job, the subprocess loops over
+    every test_config in `test_config_paths` (so 1 YT model × N DAVIS CV
+    folds ⇒ N rollout logs) and then runs a single data_plot.
+
+    Args:
+        test_config_paths:      list of DAVIS CV YAML paths (shared FS).
+        test_config_file_fields: matching config_file fields (same length).
     """
+    assert isinstance(test_config_paths, (list, tuple)) and test_config_paths
+    assert isinstance(test_config_file_fields, (list, tuple))
+    assert len(test_config_file_fields) == len(test_config_paths)
+
     cluster_script_path = f"{log_dir}/cluster_cross_test_plot_{slot:02d}.sh"
     error_details_path = f"{log_dir}/cross_test_plot_error_{slot:02d}.log"
 
@@ -188,19 +195,23 @@ def submit_cluster_cross_test_plot_job(slot, config_path, test_config_path,
         device = 'cuda'
 
     assert os.path.isfile(config_path), f"Config file not found: {config_path}"
-    assert os.path.isfile(test_config_path), f"Test config file not found: {test_config_path}"
+    for p_ in test_config_paths:
+        assert os.path.isfile(p_), f"Test config file not found: {p_}"
+
+    quoted_test_yamls = ' '.join(f"'{p}'" for p in test_config_paths)
+    quoted_test_fields = ' '.join(f"'{f}'" for f in test_config_file_fields)
 
     cluster_cmd = (
         f"python cross_test_plot_subprocess.py "
         f"--config '{config_path}' "
-        f"--test_config '{test_config_path}' "
+        f"--test_configs {quoted_test_yamls} "
+        f"--test_config_files {quoted_test_fields} "
         f"--device {device}"
     )
     if output_root:
         cluster_cmd += f" --output_root '{output_root}'"
     cluster_cmd += f" --log_file '{analysis_log_path}'"
     cluster_cmd += f" --config_file '{config_file_field}'"
-    cluster_cmd += f" --test_config_file '{test_config_file_field}'"
     cluster_cmd += f" --error_log '{error_details_path}'"
     cluster_cmd += f" --n_rollout_frames {n_rollout_frames}"
     if iteration is not None:
