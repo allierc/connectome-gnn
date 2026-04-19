@@ -143,6 +143,13 @@ def main():
     p.add_argument('--metrics_interval', type=int, default=300,
                    help='Print conn/Vr/τ R² for each cluster slot every N '
                         'seconds during the wait (default: 300).')
+    p.add_argument('--mid_rollout', action='store_true',
+                   help='During the cluster-training wait, run a silent '
+                        'local data_test rollout per slot every '
+                        '--metrics_interval seconds (YT model -> DAVIS CV '
+                        'fold 0) and print the Pearson r with r2_color.')
+    p.add_argument('--mid_rollout_frames', type=int, default=100,
+                   help='Frames for the mid-training rollout (default: 100).')
     p.add_argument('--local_test_plot', action='store_true',
                    help='Run test+plot LOCALLY instead of on the cluster.')
     p.add_argument('--force_test', action='store_true',
@@ -203,6 +210,8 @@ def main():
             emit_tex=None,  # handled below in-process
             cluster_test_plot=(not args.local_test_plot),
             metrics_interval=args.metrics_interval,
+            mid_rollout=args.mid_rollout,
+            mid_rollout_frames=args.mid_rollout_frames,
         )
         # In-process TeX refresh after each condition.
         emit_tex_inplace(args.suffix, args.n_folds,

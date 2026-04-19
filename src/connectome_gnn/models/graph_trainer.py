@@ -561,6 +561,12 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                     last_vrest_r2, last_tau_r2 = compute_dynamics_r2(model, x_ts, config, device, n_neurons)
                     with open(metrics_log_path, 'a') as f:
                         f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f}\n')
+                    # Mid-training checkpoint so an external data_test(best_model='best')
+                    # can load the current weights. Overwritten in place each time.
+                    os.makedirs(os.path.join(log_dir, 'models'), exist_ok=True)
+                    torch.save({'model_state_dict': model.state_dict()},
+                               os.path.join(log_dir, 'models',
+                                            f'best_model_with_{tc.n_runs - 1}_graphs_midtrain.pt'))
 
                 if last_connectivity_r2 is not None:
                     c_conn = r2_color(last_connectivity_r2)
@@ -840,6 +846,11 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                     last_vrest_r2, last_tau_r2 = compute_dynamics_r2(model, x_ts, config, device, n_neurons)
                     with open(metrics_log_path, 'a') as f:
                         f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f}\n')
+                    # Mid-training checkpoint (see note above).
+                    os.makedirs(os.path.join(log_dir, 'models'), exist_ok=True)
+                    torch.save({'model_state_dict': model.state_dict()},
+                               os.path.join(log_dir, 'models',
+                                            f'best_model_with_{tc.n_runs - 1}_graphs_midtrain.pt'))
 
                 if last_connectivity_r2 is not None:
                     c_conn = r2_color(last_connectivity_r2)
@@ -1194,7 +1205,33 @@ from connectome_gnn.models.graph_trainer_inr import _generate_inr_video, data_tr
 
 def data_test(config=None, config_file=None, visualize=False, style='color frame', verbose=True, best_model=20, step=15, n_rollout_frames=600,
               ratio=1, run=0, test_mode='', sample_embedding=False, particle_of_interest=1, new_params = None, device=[],
-              rollout_without_noise: bool = False, log_file=None, test_config=None):
+              rollout_without_noise: bool = False, log_file=None, test_config=None, quiet=False):
+
+    # quiet=True: redirect all stdout/stderr and silence logging during the
+    # entire test (used by the cross-check orchestrator's mid-training
+    # rollout). Recurses with quiet=False inside the redirect context.
+    if quiet:
+        import contextlib as _cl
+        import logging as _lg
+        _null = open(os.devnull, 'w')
+        _save_level = _lg.getLogger().level
+        _lg.getLogger().setLevel(_lg.CRITICAL)
+        try:
+            with _cl.redirect_stdout(_null), _cl.redirect_stderr(_null):
+                return data_test(config=config, config_file=config_file,
+                                 visualize=visualize, style=style,
+                                 verbose=False, best_model=best_model,
+                                 step=step, n_rollout_frames=n_rollout_frames,
+                                 ratio=ratio, run=run, test_mode=test_mode,
+                                 sample_embedding=sample_embedding,
+                                 particle_of_interest=particle_of_interest,
+                                 new_params=new_params, device=device,
+                                 rollout_without_noise=rollout_without_noise,
+                                 log_file=log_file, test_config=test_config,
+                                 quiet=False)
+        finally:
+            _lg.getLogger().setLevel(_save_level)
+            _null.close()
 
     dataset_name = config.dataset
     _logger.info(f"dataset_name: {dataset_name}")
