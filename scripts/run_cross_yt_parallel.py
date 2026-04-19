@@ -234,7 +234,9 @@ def _make_mid_rollout_hook(yt_cfgs, base_cfgs, device, n_frames=100):
     graph_trainer (best_model_with_*_midtrain.pt) — if no checkpoint
     exists yet, the test call will abort early and we print "(no model)".
     """
-    from connectome_gnn.LLM.cluster import _r2_color, _ANSI_RESET
+    from connectome_gnn.LLM.cluster import (
+        _r2_color, _ANSI_RESET, _read_clustering_accuracy,
+    )
     test_cfg = base_cfgs[0] if base_cfgs else None
 
     def _parse(path):
@@ -285,6 +287,11 @@ def _make_mid_rollout_hook(yt_cfgs, base_cfgs, device, n_frames=100):
                 parts.append(f'{_r2_color(r_one)}r1={r_one:.3f}{_ANSI_RESET}')
             if r_roll is not None:
                 parts.append(f'{_r2_color(r_roll)}rN={r_roll:.3f}{_ANSI_RESET}')
+            # Clustering accuracy is only written by data_plot (not data_test),
+            # so cl= appears only after a prior plot has dropped metrics.txt.
+            cl = _read_clustering_accuracy(yt_log_dir)
+            if cl is not None:
+                parts.append(f'{_r2_color(cl)}cl={cl:.3f}{_ANSI_RESET}')
             if not parts:
                 print(f'  [rollout] slot {slot}: (no Pearson in logs)')
             else:
