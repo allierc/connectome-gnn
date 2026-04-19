@@ -411,8 +411,6 @@ def wait_for_cluster_jobs_with_metrics(job_ids, log_dirs, poll_interval=60,
             last_metric_print = now
 
         if pending:
-            statuses = [f"slot {s}" for s in pending]
-            print(f"\033[90m  ... waiting for {', '.join(statuses)} ({poll_interval}s)\033[0m")
             time.sleep(poll_interval)
 
     return results
