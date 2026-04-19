@@ -261,7 +261,8 @@ def _make_mid_rollout_hook(yt_cfgs, base_cfgs, device, n_frames=100):
             yt_cfg = yt_cfgs[slot]
             yt_log_dir = log_path(yt_cfg.config_file)
             if not _have_model(yt_log_dir):
-                print(f'  [rollout] slot {slot}: (no model yet)')
+                # Training hasn't finished an epoch yet — silently skip
+                # rather than spamming a `(no model yet)` line per slot.
                 continue
             test_log = os.path.join(yt_log_dir,
                                     f'results_test_on_{test_short}.log')
