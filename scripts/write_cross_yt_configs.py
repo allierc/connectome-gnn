@@ -81,6 +81,15 @@ def emit_one(base_name, hp_yaml_path, out_yaml_path, suffix, yt_root,
     # Stimulus swap to YouTube-VOS.
     merged['simulation']['datavis_roots']     = [yt_root]
     merged['simulation']['skip_short_videos'] = False
+    # Blank 50% of training frames (blank_freq=2 → every other frame is
+    # zero stimulus). Lets neurons decay back to V_rest, which
+    # dramatically improves V_rest parameter recovery during training.
+    # Only applied to the YT *training* configs; DAVIS CV test configs
+    # (see run_cross_yt_parallel.emit_davis_cv_yaml) keep plain stimuli.
+    _vit = str(merged['simulation'].get('visual_input_type', 'DAVIS'))
+    if 'blank' not in _vit:
+        merged['simulation']['visual_input_type'] = _vit + '_blank'
+    merged['simulation']['blank_freq'] = 2
     # Per-fold seeds (CV convention: sim_seed = 42+i, train_seed = 1042+i).
     if sim_seed is not None:
         merged['simulation']['seed'] = sim_seed
