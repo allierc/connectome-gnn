@@ -561,12 +561,6 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                     last_vrest_r2, last_tau_r2 = compute_dynamics_r2(model, x_ts, config, device, n_neurons)
                     with open(metrics_log_path, 'a') as f:
                         f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f}\n')
-                    # Mid-training checkpoint so an external data_test(best_model='best')
-                    # can load the current weights. Overwritten in place each time.
-                    os.makedirs(os.path.join(log_dir, 'models'), exist_ok=True)
-                    torch.save({'model_state_dict': model.state_dict()},
-                               os.path.join(log_dir, 'models',
-                                            f'best_model_with_{tc.n_runs - 1}_graphs_midtrain.pt'))
 
                 if last_connectivity_r2 is not None:
                     c_conn = r2_color(last_connectivity_r2)
@@ -846,11 +840,6 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                     last_vrest_r2, last_tau_r2 = compute_dynamics_r2(model, x_ts, config, device, n_neurons)
                     with open(metrics_log_path, 'a') as f:
                         f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f}\n')
-                    # Mid-training checkpoint (see note above).
-                    os.makedirs(os.path.join(log_dir, 'models'), exist_ok=True)
-                    torch.save({'model_state_dict': model.state_dict()},
-                               os.path.join(log_dir, 'models',
-                                            f'best_model_with_{tc.n_runs - 1}_graphs_midtrain.pt'))
 
                 if last_connectivity_r2 is not None:
                     c_conn = r2_color(last_connectivity_r2)
