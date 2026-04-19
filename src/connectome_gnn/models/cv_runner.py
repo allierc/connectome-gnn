@@ -42,6 +42,14 @@ def _free_gpu():
     """Release GPU memory and CUDA Graph pools between CV folds."""
     gc.collect()
     if torch.cuda.is_available():
+        for obj in gc.get_objects():
+            try:
+                if torch.is_tensor(obj) and obj.is_cuda:
+                    mb = obj.element_size() * obj.nelement() / 1e6
+                    if mb > 1:
+                        print(f"  LEAKED: {obj.shape}\t{obj.dtype}\t{mb:.1f}MB")
+            except Exception:
+                pass
         torch.cuda.empty_cache()
         torch._dynamo.reset()
 
@@ -183,9 +191,10 @@ def run_cv(config_name, seeds, skip_phase2=False):
         config_name:  Config name or absolute YAML path.
         seeds:        List of simulation seeds.
         skip_phase2:  If True, skip phase 2 (zero-shot DAVIS→YouTube test).
-                      When False and no pre-trained DAVIS model exists, phase 2
-                      will first generate DAVIS data (if missing) and train the
-                      base DAVIS model, then run the zero-shot rollout.
+                      Use this when no pre-trained DAVIS model exists for the
+                      config (e.g. freshly created comparison configs).
+                      Phase 2 metrics (one_step_r, rollout_r) will be absent
+                      from the results.
     """
 
     # Resolve config path and loader
@@ -243,33 +252,17 @@ def run_cv(config_name, seeds, skip_phase2=False):
     # ===================================================================
     # PHASE 2 — Zero-shot generalisation: DAVIS model → YouTube-VOS folds
     # ===================================================================
-    # Auto-detect whether a DAVIS model exists; if not, train one (unless skipped)
+    # Auto-detect whether a DAVIS model exists (skip phase 2 gracefully if not)
     davis_models_dir = os.path.join(base_log_dir, 'models')
     davis_model_exists = os.path.isdir(davis_models_dir) and any(
         f.endswith('.pt') for f in os.listdir(davis_models_dir)
     )
-    if skip_phase2:
+    if skip_phase2 or not davis_model_exists:
+        reason = "--skip_phase2" if skip_phase2 else "no pre-trained DAVIS model found"
         print(f"\n\033[93m{'='*70}\033[0m")
-        print(f"\033[93mPHASE 2/3 — SKIPPED (--skip_phase2)\033[0m")
+        print(f"\033[93mPHASE 2/3 — SKIPPED ({reason})\033[0m")
         print(f"\033[93m{'='*70}\033[0m")
     else:
-        if not davis_model_exists:
-            print(f"\n\033[94m{'='*70}\033[0m")
-            print(f"\033[94mPHASE 2/3 — No DAVIS base model found; training one first\033[0m")
-            print(f"\033[94m{'='*70}\033[0m")
-            base_train_config = yaml_loader()
-            base_train_config.dataset     = pre_folder + base_config.dataset
-            base_train_config.config_file = pre_folder + base_name
-            davis_graphs_dir = graphs_data_path(base_train_config.dataset)
-            if not os.path.isdir(os.path.join(davis_graphs_dir, 'x_list_train')):
-                print(f"\033[96m  generating DAVIS training data ...\033[0m")
-                data_generate(base_train_config, device=device, visualize=False, run_vizualized=0,
-                              style="color", alpha=1, erase=True, save=True, step=100)
-            print(f"\033[96m  training DAVIS base model ...\033[0m")
-            data_train(base_train_config, device=device, erase=True)
-            _free_gpu()
-            davis_model_exists = True
-
         print(f"\n\033[94m{'='*70}\033[0m")
         print(f"\033[94mPHASE 2/3 — Zero-shot rollout (DAVIS model → YouTube-VOS) for all {len(seeds)} folds\033[0m")
         print(f"\033[94m{'='*70}\033[0m")

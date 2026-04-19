@@ -1240,15 +1240,12 @@ def data_generate_voltage(
         _compute_noisy_derivatives(config, sim, n_neurons, split="train")
 
     # --- Generate TEST split ---
-    # Default: test data is deterministic (sim.noisy_test_data=False) so that rollout
-    # comparison against ground truth reflects the model's dynamics, not observation
-    # noise. Set sim.noisy_test_data=True to keep train-level noise on the test split
-    # (e.g. for figures that show the noisy stimulus-response trace the model saw).
+    # Test data must be noise-free: the model learns deterministic dynamics,
+    # so rollout comparison against noisy ground truth is not meaningfull.
     _saved_noise_model = sim.noise_model_level
     _saved_noise_meas = sim.measurement_noise_level
-    if not sim.noisy_test_data:
-        sim.noise_model_level = 0.0
-        sim.measurement_noise_level = 0.0
+    sim.noise_model_level = 0.0
+    sim.measurement_noise_level = 0.0
 
     # Reset neural state to avoid train→test leakage
     if is_hh:
@@ -1297,18 +1294,7 @@ def data_generate_voltage(
 
     n_frames_test = x_writer.finalize()
     y_writer.finalize()
-    _noise_tag = (
-        f"noisy (noise_model={sim.noise_model_level:g}, meas={sim.measurement_noise_level:g})"
-        if sim.noisy_test_data else "without noise"
-    )
-    logger.info(f"generated {n_frames_test} TEST frames {_noise_tag} (saved as .zarr)")
-    if sim.noisy_test_data:
-        # Marker for consumers that need to know the test split carries train-level noise
-        open(graphs_data_path(config.dataset, "noisy_test_data.ok"), "w").close()
-
-    # --- Compute noisy derivatives for TEST split (mirrors TRAIN) ---
-    if sim.noisy_test_data and sim.measurement_noise_level > 0:
-        _compute_noisy_derivatives(config, sim, n_neurons, split="test")
+    logger.info(f"generated {n_frames_test} TEST frames without noise (saved as .zarr)")
 
     # Restore noise levels after test generation
     sim.noise_model_level = _saved_noise_model
