@@ -97,16 +97,18 @@ def _load(cfg_name, output_root=None):
     if output_root is not None:
         yaml_path = _load_yaml_either(cfg_name, output_root)
         cfg = NeuralGraphConfig.from_yaml(yaml_path)
-        # Infer pre_folder from cfg_name (all cross-check configs live under
-        # config/fly/). add_pre_folder returns (cfg_file, 'fly/') for 'flyvis_*'.
         _, pre = add_pre_folder(cfg_name)
+    else:
+        cfg_file, pre = add_pre_folder(cfg_name)
+        cfg = NeuralGraphConfig.from_yaml(config_path(f'{cfg_file}.yaml'))
+    # Guard against double-prefixing: CV YAMLs (both YT and DAVIS) now
+    # bake `fly/` into cfg.dataset so the cluster's train_subprocess.py
+    # reads it directly; static base YAMLs still have a bare dataset name
+    # and need the prefix added here.
+    if not cfg.dataset.startswith(pre):
         cfg.dataset = pre + cfg.dataset
+    if not cfg.config_file.startswith(pre):
         cfg.config_file = pre + cfg_name
-        return cfg
-    cfg_file, pre = add_pre_folder(cfg_name)
-    cfg = NeuralGraphConfig.from_yaml(config_path(f'{cfg_file}.yaml'))
-    cfg.dataset = pre + cfg.dataset
-    cfg.config_file = pre + cfg_name
     return cfg
 
 

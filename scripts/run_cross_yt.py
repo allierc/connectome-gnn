@@ -67,8 +67,12 @@ CONDITION_BASES = [
 def _load(cfg_name):
     cfg_file, pre = add_pre_folder(cfg_name)
     cfg = NeuralGraphConfig.from_yaml(config_path(f'{cfg_file}.yaml'))
-    cfg.dataset = pre + cfg.dataset
-    cfg.config_file = pre + cfg_name
+    # Guard against double-prefix when the YAML already bakes `fly/` in
+    # (CV YAMLs do, static base YAMLs don't).
+    if not cfg.dataset.startswith(pre):
+        cfg.dataset = pre + cfg.dataset
+    if not cfg.config_file.startswith(pre):
+        cfg.config_file = pre + cfg_name
     return cfg, pre
 
 

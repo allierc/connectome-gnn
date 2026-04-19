@@ -69,6 +69,11 @@ if __name__ == '__main__':
         config = NeuralGraphConfig.from_yaml(args.config)
         if args.config_file:
             config.config_file = args.config_file
+        # Prepend pre_folder from config_file to dataset (guarded).
+        if args.config_file and '/' in args.config_file:
+            pre = args.config_file.split('/')[0] + '/'
+            if not config.dataset.startswith(pre):
+                config.dataset = pre + config.dataset
 
         log_file = open(args.log_file, 'a', buffering=1) if args.log_file else None
         try:
@@ -77,10 +82,16 @@ if __name__ == '__main__':
                 test_config = NeuralGraphConfig.from_yaml(test_yaml)
                 if args.test_config_files:
                     test_config.config_file = args.test_config_files[j]
+                    # Prepend pre_folder from config_file to dataset (guarded).
+                    if '/' in test_config.config_file:
+                        pre = test_config.config_file.split('/')[0] + '/'
+                        if not test_config.dataset.startswith(pre):
+                            test_config.dataset = pre + test_config.dataset
                 else:
                     base_name = os.path.basename(test_yaml).replace('.yaml', '')
                     cfg_file, pre = add_pre_folder(base_name)
-                    test_config.dataset     = pre + test_config.dataset
+                    if not test_config.dataset.startswith(pre):
+                        test_config.dataset = pre + test_config.dataset
                     test_config.config_file = pre + base_name
                 print(f'[cross] {config.config_file}  ->  {test_config.config_file}',
                       flush=True)

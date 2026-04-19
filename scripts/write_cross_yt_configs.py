@@ -87,7 +87,8 @@ def emit_one(base_name, hp_yaml_path, out_yaml_path, suffix, yt_root,
     if 'training' in merged and train_seed is not None:
         merged['training'] = dict(merged['training'])
         merged['training']['seed'] = train_seed
-    # Identity / dataset naming.
+    # Identity / dataset naming. No `fly/` prefix — train_subprocess.py
+    # derives the pre_folder from config_file and prepends it with a guard.
     if fold_i is not None:
         new_name = f'{base_name}_{suffix}_cv{fold_i:02d}'
     else:
