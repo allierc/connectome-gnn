@@ -36,7 +36,7 @@ class LossRegularizer:
         'g_phi_diff', 'g_phi_norm', 'g_phi_weight', 'f_theta_weight',
         'f_theta_zero', 'f_theta_diff', 'f_theta_msg_diff', 'f_theta_msg_sign',
         'missing_activity', 'model_a', 'model_b',
-        'g_phi_zero_intercept',
+        'g_phi_zero_intercept', 'g_phi_identity',
         'f_theta_linearity', 'f_theta_msg_linearity', 'f_theta_centering',
         'embedding_cluster',
         'tau_L1', 'tau_L2', 'V_rest_L1', 'V_rest_L2',
@@ -170,6 +170,7 @@ class LossRegularizer:
         self._coeffs['model_a'] = tc.coeff_model_a
         self._coeffs['model_b'] = tc.coeff_model_b
         self._coeffs['g_phi_zero_intercept'] = getattr(tc, 'coeff_g_phi_zero_intercept', 0.0)
+        self._coeffs['g_phi_identity'] = getattr(tc, 'coeff_g_phi_identity', 0.0)
         self._coeffs['f_theta_linearity'] = getattr(tc, 'coeff_f_theta_linearity', 0.0)
         self._coeffs['f_theta_msg_linearity'] = getattr(tc, 'coeff_f_theta_msg_linearity', 0.0)
         self._coeffs['f_theta_centering'] = getattr(tc, 'coeff_f_theta_centering', 0.0)
@@ -330,7 +331,7 @@ class LossRegularizer:
             self._add('f_theta_zero', regul_term)
 
         # --- g_phi diff/norm/zero-intercept regularization ---
-        if ((self._coeffs['g_phi_diff'] > 0) | (self._coeffs['g_phi_norm'] > 0) | (self._coeffs['g_phi_zero_intercept'] > 0)) and hasattr(model, 'g_phi'):
+        if ((self._coeffs['g_phi_diff'] > 0) | (self._coeffs['g_phi_norm'] > 0) | (self._coeffs['g_phi_zero_intercept'] > 0) | (self._coeffs['g_phi_identity'] > 0)) and hasattr(model, 'g_phi'):
             in_features_edge, in_features_edge_next = get_in_features_g_phi(x, model, mc, xnorm, n_neurons, device)
 
             if self._coeffs['g_phi_diff'] > 0:
@@ -364,6 +365,12 @@ class LossRegularizer:
                 regul_term = g_phi_zero_intercept_loss(model, in_features_edge, ids, mc.g_phi_positive) * _ct['g_phi_zero_intercept']
                 total_regul = total_regul + regul_term
                 self._add('g_phi_zero_intercept', regul_term)
+
+            if self._coeffs['g_phi_identity'] > 0:
+                from connectome_gnn.LLM_code.staging.block_04.g_phi_identity_loss import g_phi_identity_loss
+                regul_term = g_phi_identity_loss(model, in_features_edge, ids, xnorm, mc.g_phi_positive) * _ct['g_phi_identity']
+                total_regul = total_regul + regul_term
+                self._add('g_phi_identity', regul_term)
 
         # --- W_sign (Dale's Law) regularization ---
         if self._coeffs['W_sign'] > 0 and self.epoch > 0:
