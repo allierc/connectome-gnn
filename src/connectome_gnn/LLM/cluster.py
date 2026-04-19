@@ -384,7 +384,8 @@ def wait_for_cluster_jobs_with_metrics(job_ids, log_dirs, poll_interval=60,
                         results[slot] = True
                         del pending[slot]
                         just_finished.append(slot)
-                        print(f"\033[92m  slot {slot} (job {jid}): DONE\033[0m")
+                        # The [final ] metrics line below reports DONE
+                        # implicitly; skip the redundant status print.
                     elif 'EXIT' in line:
                         results[slot] = False
                         del pending[slot]
@@ -402,7 +403,7 @@ def wait_for_cluster_jobs_with_metrics(job_ids, log_dirs, poll_interval=60,
                 results[slot] = True
                 del pending[slot]
                 just_finished.append(slot)
-                print(f"\033[93m  slot {slot} (job {jid}): no longer in queue (assuming DONE)\033[0m")
+                # [final ] line below reports this too.
 
         # Print metrics for any slot that just finished (final snapshot).
         if just_finished:
