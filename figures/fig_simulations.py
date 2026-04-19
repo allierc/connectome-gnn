@@ -58,9 +58,9 @@ _S        = 0.52
 FS_LABEL  = int(48 * _S)   # axis labels
 FS_TICK   = int(24 * _S)   # tick labels
 FS_ANNOT  = int(28 * _S)   # type-name annotations in trace panel
-FS_TITLE  = 17             # panel subtitle  (fixed, INSTRUCTIONS.md)
+FS_TITLE  = 22             # panel subtitle
 PANEL_LBL = 20             # a)–f)           (fixed, never scaled)
-FS_CBAR   = int(36 * _S)   # colorbar label
+FS_CBAR   = int(48 * _S)   # colorbar label
 FS_LEGEND = int(40 * _S)   # legend
 
 # ── data ──────────────────────────────────────────────────────────────────────
@@ -84,7 +84,7 @@ CMAP  = 'RdBu_r'
 VLIM  = 2.0          # ±2 σ clipping for z-scored heatmap
 
 # ── trace colors — match graph_tester.py ─────────────────────────────────────
-COLOR_GT   = '#1a5276'   # dark blue — voltage trace
+COLOR_GT   = 'black'     # black — voltage trace
 COLOR_STIM = 'red'       # red    — stimulus
 LW_GT      = 1.5
 LW_STIM    = 0.8
@@ -189,10 +189,10 @@ step_v = max(0.5, 3.0 * float(np.std(free_traces)))
 # ---------------------------------------------------------------------------
 fig, axes = plt.subplots(
     2, 3, figsize=(21, 14), dpi=300,
-    constrained_layout=True,
-    gridspec_kw={'height_ratios': [3, 4],       # taller trace row
-                 'hspace': 0.12},               # modest gap between rows
+    gridspec_kw={'height_ratios': [3, 4]},
 )
+plt.subplots_adjust(left=0.08, right=0.88, top=0.96, bottom=0.06,
+                    hspace=0.32, wspace=0.06)
 
 n_sorted  = len(sorted_names_ref)
 n_frames  = heatmaps[0].shape[1]
@@ -235,16 +235,14 @@ for col, (hz, (v_win, s_win, type_ids), (_, _, sigma_lbl)) in enumerate(
 
         # voltage trace (green)
         ax_t.plot(trace - bl + row * step_v,
-                  lw=LW_GT, color=COLOR_GT, alpha=0.9,
-                  label='ground truth' if first_gt else None)
+                  lw=LW_GT, color=COLOR_GT, alpha=0.9)
         first_gt = False
 
         # stimulus trace (red dashed) — only when non-trivial
         if stim.mean() > 0:
             ax_t.plot(stim - stim.mean() + row * step_v,
                       lw=LW_STIM, color=COLOR_STIM, alpha=0.9,
-                      linestyle='--',
-                      label='stimulus' if first_stim else None)
+                      linestyle='--')
             first_stim = False
 
         # type-name label on the left
@@ -266,16 +264,20 @@ for col, (hz, (v_win, s_win, type_ids), (_, _, sigma_lbl)) in enumerate(
     ax_t.spines['right'].set_visible(False)
     ax_t.spines['left'].set_visible(False)
     if col == 0:
-        ax_t.set_ylabel('voltage (a.u.)', fontsize=FS_LABEL)
+        ax_t.set_ylabel('voltage (a.u.)', fontsize=FS_LABEL, labelpad=28)
 
-    # legend to the right of panel f) (last trace panel)
-    if col == 2:
-        ax_t.legend(loc='center left', bbox_to_anchor=(1.02, 0.5),
-                    bbox_transform=ax_t.transAxes,
-                    fontsize=FS_LEGEND, frameon=False)
 
-# ── shared colorbar (right of top-right heatmap) ─────────────────────────────
-cbar = fig.colorbar(last_im, ax=axes[0, 2], shrink=0.95, pad=0.02)
+# ── shared colorbar — placed manually right next to panel c ──────────────────
+# Draw once so subplots_adjust positions are committed.
+fig.canvas.draw()
+_pos = axes[0, 2].get_position()   # [x0, y0, w, h] in figure fraction
+_cax = fig.add_axes([
+    _pos.x1 + 0.008,               # just to the right of panel c
+    _pos.y0 + _pos.height * 0.10,  # 10 % padding bottom
+    0.012,                          # slim width
+    _pos.height * 0.80,            # 80 % of panel height
+])
+cbar = fig.colorbar(last_im, cax=_cax)
 cbar.set_label('z-scored voltage', fontsize=FS_CBAR)
 cbar.ax.tick_params(labelsize=FS_CBAR)
 
