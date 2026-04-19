@@ -58,8 +58,9 @@ def _format_stream_event(ev: dict) -> Optional[str]:
         msg = ev.get("message") or {}
         for block in msg.get("content") or []:
             if block.get("type") == "tool_result":
-                is_err = block.get("is_error")
-                return "↪ tool_result" + (" (error)" if is_err else "")
+                if block.get("is_error"):
+                    return "↪ tool_result (error)"
+                return None  # suppress successful tool_results — too noisy
         return None
     if t == "result":
         sub = ev.get("subtype", "")

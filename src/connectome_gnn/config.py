@@ -275,6 +275,7 @@ class SimulationConfig(BaseModel):
     calcium_noise_level: float = 0.0  # optional Gaussian noise added to [Ca] updates
     noise_model_level: float = 0.0  # process noise added during dynamics simulation
     measurement_noise_level: float = 0.0  # observation noise saved separately in noise.zarr
+    noisy_test_data: bool = False  # if True, test split uses the same noise levels as train; default keeps test deterministic
     derivative_smoothing_window: int = 1  # temporal smoothing window for noisy derivatives (1 = no smoothing)
     calcium_saturation_kd: float = 1.0  # for nonlinear saturation models
     calcium_num_compartments: int = 1
@@ -302,6 +303,7 @@ class ClaudeConfig(BaseModel):
     interaction_code: bool = False  # enable Phase A interactive code sessions at block boundaries
     case_study: str = ""  # case study identifier (e.g. "measurement_noise")
     case_study_brief: str = ""  # description of the case study for LLM code briefs
+    claude_call_timeout_min: int = 4  # hard wall-clock cap per Claude CLI call (BATCH 0 + analysis)
 
 
 class ClaudeCodeConfig(BaseModel):
@@ -628,6 +630,8 @@ class TrainingConfig(BaseModel):
     # -- g_phi (edge message) regularizers --
     coeff_g_phi_diff: float = 0  # Variance penalty on g_phi output across edges
     coeff_g_phi_norm: float = 0  # Norm penalty on g_phi edge messages
+    coeff_g_phi_zero_intercept: float = 0  # Penalize g_phi(v=0) to force origin anchor
+    coeff_g_phi_identity: float = 0  # Multi-point g_phi identity loss: penalizes g_phi(v) != v at k uniform voltages
     coeff_func_g_phi: float = 0.0  # Penalize g_phi output at zero input
     coeff_g_phi_weight_L1: float = 0  # L1 penalty on g_phi MLP weights
     coeff_g_phi_weight_L2: float = 0  # L2 penalty on g_phi MLP weights
@@ -654,6 +658,11 @@ class TrainingConfig(BaseModel):
     coeff_f_theta_linearity: float = 0.0           # Penalize f_theta nonlinearity (0 = disabled)
     f_theta_linearity_warmup_fraction: float = 0.3  # Fraction of iterations before activation
     f_theta_linearity_rampup_iters: int = 200       # Linear ramp-up after warmup ends
+
+    # -- f_theta msg linearity regularizer (W slope bias correction) --
+    coeff_f_theta_msg_linearity: float = 0.0       # Penalize f_theta msg nonlinearity (0 = disabled)
+    f_theta_msg_linearity_warmup_fraction: float = 0.3  # Fraction of iterations before activation
+    f_theta_msg_linearity_rampup_iters: int = 200       # Linear ramp-up after warmup ends
 
     # -- f_theta centering loss (unsupervised V_rest proxy) --
     coeff_f_theta_centering: float = 0.0   # Weight of centering loss (0 = disabled)

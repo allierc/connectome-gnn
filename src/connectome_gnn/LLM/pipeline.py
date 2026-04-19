@@ -21,6 +21,7 @@ from connectome_gnn.utils import (
 )
 
 from .claude_cli import run_claude_cli
+from connectome_gnn.LLM_code.claude_cli_ext import run_claude_cli_with_timeout
 from .cluster import (
     check_cluster_repo,
     submit_cluster_job,
@@ -128,6 +129,7 @@ def setup_exploration(args, root_dir: str, skip_confirm: bool = False) -> Explor
         interaction_code=claude_cfg.get('interaction_code', False),
         case_study=claude_cfg.get('case_study', ''),
         case_study_brief=claude_cfg.get('case_study_brief', ''),
+        claude_call_timeout_min=claude_cfg.get('claude_call_timeout_min', 4),
         cluster_enabled=args.cluster,
         n_iterations=n_iterations,
         task=task,
@@ -381,8 +383,18 @@ def run_batch_0(state: ExplorationState):
 
     prompt = batch_0_prompt(state, slot_list, seed_info)
 
-    print("\033[93mClaude start call...\033[0m")
-    output_text = run_claude_cli(prompt, state.root_dir, max_turns=100)
+    timeout_sec = max(60, state.claude_call_timeout_min * 60)
+    print(
+        f"\033[93mClaude start call (timeout={state.claude_call_timeout_min}min, "
+        f"live feedback below)...\033[0m"
+    )
+    output_text, timed_out = run_claude_cli_with_timeout(
+        prompt, state.root_dir,
+        allowed_tools=['Read', 'Edit', 'Write'],
+        timeout_sec=timeout_sec,
+        max_turns=100,
+        log_prefix='[batch0] ',
+    )
 
     if 'OAuth token has expired' in output_text or 'authentication_error' in output_text:
         print("\n\033[91mOAuth token expired during start call\033[0m")
@@ -390,11 +402,34 @@ def run_batch_0(state: ExplorationState):
         print("\033[93m  2. Then re-run this script\033[0m")
         sys.exit(1)
 
+    if timed_out:
+        print(
+            f"\n\033[93mWARNING: Claude start call timed out after "
+            f"{state.claude_call_timeout_min}min. Slot configs left at "
+            f"pre-seed values; proceeding with batch 0 as a robustness test.\033[0m"
+        )
+
+    # Validate slot YAMLs are still parseable (Edit tool writes atomically, but
+    # confirm explicitly so we never submit broken jobs).
+    for slot, path in state.config_paths.items():
+        try:
+            with open(path) as f:
+                yaml.safe_load(f)
+        except Exception as e:
+            print(
+                f"\033[91mFATAL: slot {slot} YAML at {path} no longer parses "
+                f"({type(e).__name__}: {e}). Restore from {state.source_config} "
+                f"and re-run.\033[0m"
+            )
+            sys.exit(1)
+
     if output_text.strip():
         with open(state.reasoning_log_path, 'a') as f:
             f.write(f"\n{'='*60}\n")
             f.write("=== BATCH 0 (start call) ===\n")
             f.write(f"{'='*60}\n")
+            if timed_out:
+                f.write(f"[NOTE: timed out after {state.claude_call_timeout_min}min]\n")
             f.write(output_text.strip())
             f.write("\n\n")
 
@@ -1196,19 +1231,51 @@ def run_claude_analysis(state: ExplorationState, batch: BatchInfo):
 
     prompt = analysis_prompt(state, batch, slot_info, code_brief_context)
 
-    print("\033[93mClaude analysis...\033[0m")
-    output_text = run_claude_cli(prompt, state.root_dir)
+    timeout_sec = max(60, state.claude_call_timeout_min * 60)
+    print(
+        f"\033[93mClaude analysis (timeout={state.claude_call_timeout_min}min, "
+        f"live feedback below)...\033[0m"
+    )
+    output_text, timed_out = run_claude_cli_with_timeout(
+        prompt, state.root_dir,
+        allowed_tools=['Read', 'Edit', 'Write'],
+        timeout_sec=timeout_sec,
+        max_turns=500,
+        log_prefix=f'[batch{batch.batch_first}] ',
+    )
 
     if 'OAuth token has expired' in output_text or 'authentication_error' in output_text:
         print(f"\n\033[91mOAuth token expired at batch {batch.batch_first}-{batch.batch_last}\033[0m")
         print("\033[93mTo resume: 1. Run: claude /login  2. Then re-run with --resume\033[0m")
         sys.exit(1)
 
+    if timed_out:
+        print(
+            f"\n\033[93mWARNING: Claude analysis timed out after "
+            f"{state.claude_call_timeout_min}min. Slot configs left at their "
+            f"previous-batch values; proceeding with re-test.\033[0m"
+        )
+
+    # Validate slot YAMLs are still parseable.
+    for slot, path in state.config_paths.items():
+        try:
+            with open(path) as f:
+                yaml.safe_load(f)
+        except Exception as e:
+            print(
+                f"\033[91mFATAL: slot {slot} YAML at {path} no longer parses "
+                f"({type(e).__name__}: {e}). Restore from {state.source_config} "
+                f"and re-run.\033[0m"
+            )
+            sys.exit(1)
+
     if output_text.strip():
         with open(state.reasoning_log_path, 'a') as f:
             f.write(f"\n{'='*60}\n")
             f.write(f"=== Batch {batch.batch_first}-{batch.batch_last} ===\n")
             f.write(f"{'='*60}\n")
+            if timed_out:
+                f.write(f"[NOTE: timed out after {state.claude_call_timeout_min}min]\n")
             f.write(output_text.strip())
             f.write("\n\n")
 
