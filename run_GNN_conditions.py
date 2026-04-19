@@ -133,6 +133,11 @@ def main():
                    help='Cluster GPU queue node name (default: a100)')
     p.add_argument('--hard_runtime_limit_min', type=int, default=120,
                    help='bsub -W limit in minutes (default: 120)')
+    p.add_argument('--metrics_interval', type=int, default=300,
+                   help='Print conn/Vr/τ R² for each cluster slot every N '
+                        'seconds during the wait (default: 300).')
+    p.add_argument('--local_test_plot', action='store_true',
+                   help='Run test+plot LOCALLY instead of on the cluster.')
     p.add_argument('--force_test', action='store_true',
                    help='Delete + re-run cross-test log and metrics.txt '
                         '(does NOT re-train).')
@@ -187,6 +192,8 @@ def main():
             hard_runtime_limit_min=args.hard_runtime_limit_min,
             force_test=args.force_test,
             emit_tex=None,  # handled below in-process
+            cluster_test_plot=(not args.local_test_plot),
+            metrics_interval=args.metrics_interval,
         )
         # In-process TeX refresh after each condition.
         emit_tex_inplace(args.suffix, args.n_folds,

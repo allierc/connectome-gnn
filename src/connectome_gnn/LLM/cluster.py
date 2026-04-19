@@ -165,6 +165,248 @@ def wait_for_cluster_jobs(job_ids, log_dir=None, poll_interval=60, job_prefix='c
     return results
 
 
+def submit_cluster_cross_test_plot_job(slot, config_path, test_config_path,
+                                        analysis_log_path, config_file_field,
+                                        test_config_file_field,
+                                        log_dir, node_name='a100',
+                                        conda_env='connectome-gnn', n_cpus=2,
+                                        device='cuda', iteration=None,
+                                        output_root=None,
+                                        hard_runtime_limit_min=60,
+                                        n_rollout_frames=250):
+    """Submit cross_test_plot_subprocess.py to the cluster.
+
+    Runs the YT-trained model cross-rolled on DAVIS held-out data (via
+    --test_config) AND a data_plot pass that writes metrics.txt — both on
+    the cluster. Sibling of submit_cluster_test_plot_job, specialised for
+    the cross-check workflow.
+    """
+    cluster_script_path = f"{log_dir}/cluster_cross_test_plot_{slot:02d}.sh"
+    error_details_path = f"{log_dir}/cross_test_plot_error_{slot:02d}.log"
+
+    if device == 'auto':
+        device = 'cuda'
+
+    assert os.path.isfile(config_path), f"Config file not found: {config_path}"
+    assert os.path.isfile(test_config_path), f"Test config file not found: {test_config_path}"
+
+    cluster_cmd = (
+        f"python cross_test_plot_subprocess.py "
+        f"--config '{config_path}' "
+        f"--test_config '{test_config_path}' "
+        f"--device {device}"
+    )
+    if output_root:
+        cluster_cmd += f" --output_root '{output_root}'"
+    cluster_cmd += f" --log_file '{analysis_log_path}'"
+    cluster_cmd += f" --config_file '{config_file_field}'"
+    cluster_cmd += f" --test_config_file '{test_config_file_field}'"
+    cluster_cmd += f" --error_log '{error_details_path}'"
+    cluster_cmd += f" --n_rollout_frames {n_rollout_frames}"
+    if iteration is not None:
+        cluster_cmd += f" --iteration {iteration}"
+        cluster_cmd += f" --slot {slot}"
+
+    with open(cluster_script_path, 'w') as f:
+        f.write("#!/bin/bash -l\n")
+        f.write(f"cd {CLUSTER_ROOT_DIR}\n")
+        f.write(f"conda run -n {conda_env} {cluster_cmd}\n")
+    os.chmod(cluster_script_path, 0o755)
+
+    cluster_stdout = f"{log_dir}/cluster_cross_test_plot_{slot:02d}.out"
+    cluster_stderr = f"{log_dir}/cluster_cross_test_plot_{slot:02d}.err"
+
+    if device == 'cpu':
+        bsub_resources = f"bsub -n {n_cpus} -W {hard_runtime_limit_min}"
+        queue_label = "cpu"
+    else:
+        bsub_resources = f"bsub -n {n_cpus} -gpu 'num=1' -q gpu_{node_name} -W {hard_runtime_limit_min}"
+        queue_label = f"gpu_{node_name}"
+
+    ssh_cmd = (
+        f"ssh {CLUSTER_SSH} \"bash -l -c 'cd {CLUSTER_ROOT_DIR} && "
+        f"{bsub_resources} "
+        f"-o {cluster_stdout!r} -e {cluster_stderr!r} "
+        f"bash -l {cluster_script_path}'\""
+    )
+    print(f"\033[96m  slot {slot}: submitting cross test+plot to {queue_label} via SSH\033[0m", flush=True)
+    result = subprocess.run(ssh_cmd, shell=True, capture_output=True, text=True)
+
+    match = re.search(r'Job <(\d+)>', result.stdout)
+    if match:
+        job_id = match.group(1)
+        print(f"\033[92m  slot {slot}: cross test+plot job {job_id} submitted to {queue_label}\033[0m")
+        return job_id
+    else:
+        print(f"\033[91m  slot {slot}: cross test+plot submission FAILED\033[0m")
+        print(f"    stdout: {result.stdout.strip()}")
+        print(f"    stderr: {result.stderr.strip()}")
+        return None
+
+
+# ---------------------------------------------------------------------------
+# ANSI color helper for training metrics (mirrors graph_trainer.r2_color).
+# ---------------------------------------------------------------------------
+_ANSI_RESET  = '\033[0m'
+_ANSI_GREEN  = '\033[92m'
+_ANSI_YELLOW = '\033[93m'
+_ANSI_ORANGE = '\033[38;5;208m'
+_ANSI_RED    = '\033[91m'
+
+
+def _r2_color(val, thresholds=(0.9, 0.7, 0.3)):
+    t0, t1, t2 = thresholds
+    return (_ANSI_GREEN if val > t0 else
+            _ANSI_YELLOW if val > t1 else
+            _ANSI_ORANGE if val > t2 else _ANSI_RED)
+
+
+def _read_latest_training_metrics(log_dir):
+    """Return (iter, conn_r2, vr_r2, tau_r2) from the last line of the
+    training metrics log, or None if the file is missing / empty."""
+    path = os.path.join(log_dir, 'tmp_training', 'metrics.log')
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path) as f:
+            # Skip header; return last non-empty data line.
+            last = None
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('iteration'):
+                    continue
+                last = line
+        if last is None:
+            return None
+        parts = last.split(',')
+        if len(parts) < 4:
+            return None
+        it = int(parts[0])
+        conn = float(parts[1])
+        vr   = float(parts[2])
+        tau  = float(parts[3])
+        return (it, conn, vr, tau)
+    except (OSError, ValueError):
+        return None
+
+
+def _read_clustering_accuracy(log_dir):
+    """Return clustering_accuracy float from <log_dir>/results/metrics.txt
+    (written by data_plot), or None if not available yet."""
+    path = os.path.join(log_dir, 'results', 'metrics.txt')
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path) as f:
+            for line in f:
+                if ':' not in line:
+                    continue
+                key, val = line.split(':', 1)
+                if key.strip() == 'clustering_accuracy':
+                    return float(val.strip())
+    except (OSError, ValueError):
+        return None
+    return None
+
+
+def _print_training_metrics(log_dirs, slots_active, prefix='  [metrics]'):
+    """Read latest metrics.log line for each active slot and print colored."""
+    for slot in sorted(slots_active):
+        log_dir = log_dirs.get(slot)
+        if log_dir is None:
+            continue
+        tm = _read_latest_training_metrics(log_dir)
+        if tm is None:
+            print(f"{prefix} slot {slot}: (no metrics.log yet)")
+            continue
+        it, conn, vr, tau = tm
+        cluster_acc = _read_clustering_accuracy(log_dir)  # usually None pre-plot
+        parts = [
+            f"{_r2_color(conn)}conn={conn:.3f}{_ANSI_RESET}",
+            f"{_r2_color(vr)}Vr={vr:.3f}{_ANSI_RESET}",
+            f"{_r2_color(tau)}τ={tau:.3f}{_ANSI_RESET}",
+        ]
+        if cluster_acc is not None:
+            parts.append(f"{_r2_color(cluster_acc)}cl={cluster_acc:.3f}{_ANSI_RESET}")
+        print(f"{prefix} slot {slot}  iter={it:>6}  " + '  '.join(parts))
+
+
+def wait_for_cluster_jobs_with_metrics(job_ids, log_dirs, poll_interval=60,
+                                       metrics_interval=300,
+                                       job_prefix='cluster_train'):
+    """Like wait_for_cluster_jobs, but also reads and prints training metrics
+    from each slot's tmp_training/metrics.log every `metrics_interval` seconds
+    (plus once per slot the moment it reports DONE).
+
+    Args:
+        job_ids: {slot: job_id}
+        log_dirs: {slot: log_dir}   (per-slot log dir; metrics.log is
+                                      <log_dir>/tmp_training/metrics.log)
+        poll_interval:   bjobs poll cadence (sec).  Default 60.
+        metrics_interval: metrics-print cadence (sec). Default 300.
+    """
+    pending = dict(job_ids)
+    results = {}
+    last_metric_print = 0.0  # force an immediate first print
+
+    while pending:
+        now = time.time()
+        # Run bjobs.
+        ids_str = ' '.join(pending.values())
+        ssh_cmd = f"ssh {CLUSTER_SSH} \"source /etc/profile.d/profile.lsf.sh && bjobs {ids_str}\""
+        out = subprocess.run(ssh_cmd, shell=True, capture_output=True, text=True)
+        if out.returncode != 0 and not out.stdout.strip():
+            raise RuntimeError(
+                f"bjobs failed (rc={out.returncode}): {out.stderr.strip() or '(no output)'}"
+            )
+
+        just_finished = []
+        for slot, jid in list(pending.items()):
+            for line in out.stdout.splitlines():
+                if jid in line:
+                    if 'DONE' in line:
+                        results[slot] = True
+                        del pending[slot]
+                        just_finished.append(slot)
+                        print(f"\033[92m  slot {slot} (job {jid}): DONE\033[0m")
+                    elif 'EXIT' in line:
+                        results[slot] = False
+                        del pending[slot]
+                        err_hint = ''
+                        lg = log_dirs.get(slot)
+                        if lg:
+                            err_file = f"{lg}/{job_prefix}_{slot:02d}.err"
+                            if os.path.exists(err_file):
+                                err_hint = f"  (see {err_file})"
+                        print(
+                            f"\033[91m  slot {slot} (job {jid}): FAILED (EXIT)"
+                            f"{err_hint}\033[0m"
+                        )
+            if slot in pending and jid not in out.stdout:
+                results[slot] = True
+                del pending[slot]
+                just_finished.append(slot)
+                print(f"\033[93m  slot {slot} (job {jid}): no longer in queue (assuming DONE)\033[0m")
+
+        # Print metrics for any slot that just finished (final snapshot).
+        if just_finished:
+            _print_training_metrics(log_dirs, just_finished,
+                                    prefix='  [final ]')
+
+        # Periodic metrics print for still-pending slots.
+        if pending and (now - last_metric_print) >= metrics_interval:
+            _print_training_metrics(log_dirs, pending.keys(),
+                                    prefix='  [metrics]')
+            last_metric_print = now
+
+        if pending:
+            statuses = [f"slot {s}" for s in pending]
+            print(f"\033[90m  ... waiting for {', '.join(statuses)} ({poll_interval}s)\033[0m")
+            time.sleep(poll_interval)
+
+    return results
+
+
 def submit_cluster_test_plot_job(slot, config_path, analysis_log_path, config_file_field,
                                   log_dir, node_name='a100',
                                   conda_env='connectome-gnn', n_cpus=2, device='cuda',
