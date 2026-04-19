@@ -44,9 +44,6 @@ def check_cluster_repo():
     result = subprocess.run(ssh_cmd, shell=True, capture_output=True, text=True)
     diff_output = result.stdout.strip()
     if diff_output:
-        print(f"\033[93mWARNING: cluster repo at {CLUSTER_ROOT_DIR} has uncommitted changes — consider commit/push before running\033[0m")
-        for line in diff_output.splitlines():
-            print(f"  \033[93m{line}\033[0m")
         return False
     print(f"\033[92mCluster repo at {CLUSTER_ROOT_DIR}: git diff clean (no uncommitted source changes)\033[0m")
     return True
