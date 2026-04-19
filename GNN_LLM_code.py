@@ -98,8 +98,5 @@ if __name__ == "__main__":
 #
 # Then:
 #
-#   python GNN_LLM_code.py -o generate_train_test_plot_Claude \
-#       flyvis_noise_005_010_code_change --cluster
+#   python GNN_LLM_code.py -o generate_train_test_plot_Claude flyvis_noise_005_010_code_change --cluster
 #
-# The HPO pipeline (GNN_LLM.py) is completely unaffected by this script and
-# can still be used on any branch, for any config.
