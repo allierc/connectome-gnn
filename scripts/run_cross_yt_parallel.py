@@ -141,7 +141,46 @@ def emit_davis_cv_yaml(base_name, fold_i, output_root, force=False):
 
 
 def _have_data(graphs_dir):
-    return os.path.isdir(os.path.join(graphs_dir, 'x_list_train'))
+    """Data is considered complete iff:
+    - <graphs_dir>/x_list_train/ exists (zarr v3 layout written by
+      ZarrSimulationWriterV3).
+    - <graphs_dir>/generation_log.txt exists (written AFTER finalize;
+      its absence means the previous run was interrupted mid-generation).
+    - If generation_log.txt records `n_frames_train: N`, the voltage.zarr
+      shape[0] matches N (verifies the zarr wasn't truncated).
+    """
+    if not os.path.isdir(os.path.join(graphs_dir, 'x_list_train')):
+        return False
+    gen_log = os.path.join(graphs_dir, 'generation_log.txt')
+    if not os.path.isfile(gen_log):
+        print(f'\033[93m  [incomplete] {graphs_dir}: missing generation_log.txt '
+              f'-- will regenerate\033[0m')
+        return False
+    expected = None
+    try:
+        with open(gen_log) as f:
+            for line in f:
+                if line.startswith('n_frames_train:'):
+                    expected = int(line.split(':', 1)[1].strip())
+                    break
+    except (OSError, ValueError):
+        return False
+    if expected is None:
+        return True  # old-format log without count; trust x_list_train
+    try:
+        import zarr
+        v = zarr.open(os.path.join(graphs_dir, 'x_list_train', 'voltage.zarr'),
+                      mode='r')
+        actual = int(v.shape[0])
+    except Exception as _e:
+        print(f'\033[93m  [incomplete] {graphs_dir}: cannot read voltage.zarr '
+              f'({_e.__class__.__name__}) -- will regenerate\033[0m')
+        return False
+    if actual != expected:
+        print(f'\033[93m  [incomplete] {graphs_dir}: voltage.zarr has '
+              f'{actual} frames, expected {expected} -- will regenerate\033[0m')
+        return False
+    return True
 
 
 def _have_model(log_dir):
