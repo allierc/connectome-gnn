@@ -1,0 +1,103 @@
+"""Cluster subprocess for the cross-check workflow.
+
+Runs ONE fold of:
+    1. data_test  (YT-trained model cross-rolled out on DAVIS held-out data,
+                   i.e. config=YT yaml, test_config=base DAVIS yaml)
+       -> writes <log_dir>/results_rollout_on_<short>.log
+    2. data_plot  (parameter extraction on the YT-trained model)
+       -> writes <log_dir>/results/metrics.txt
+
+Sibling of test_plot_subprocess.py (used by the LLM exploration), but wired for
+the cross-test workflow that needs --test_config. Submitted by
+submit_cluster_cross_test_plot_job() in connectome_gnn/LLM/cluster.py.
+"""
+
+import argparse
+import os
+import sys
+import traceback
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'src'))
+
+import matplotlib
+matplotlib.use('Agg')
+
+from connectome_gnn.config import NeuralGraphConfig
+from connectome_gnn.models.graph_trainer import data_test
+from connectome_gnn.utils import (
+    add_pre_folder, log_path, set_data_root,
+)
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='cross test+plot cluster subprocess')
+    parser.add_argument('--config',      required=True, help='YT training YAML path')
+    parser.add_argument('--test_config', required=True, help='DAVIS base YAML path (test_config for rollout)')
+    parser.add_argument('--device',      default='cuda')
+    parser.add_argument('--log_file',    default=None)
+    parser.add_argument('--config_file', default=None, help='YT config_file field (e.g. fly/flyvis_..._cv00)')
+    parser.add_argument('--test_config_file', default=None, help='Base config_file field (e.g. fly/flyvis_noise_free)')
+    parser.add_argument('--error_log',   default=None)
+    parser.add_argument('--iteration',   type=int, default=None)
+    parser.add_argument('--slot',        type=int, default=None)
+    parser.add_argument('--output_root', default=None)
+    parser.add_argument('--n_rollout_frames', type=int, default=250)
+    args = parser.parse_args()
+
+    if args.device == 'auto':
+        args.device = 'cuda'
+
+    output_root = args.output_root or os.environ.get('GNN_OUTPUT_ROOT')
+    if output_root:
+        assert os.path.isdir(output_root), f'--output_root does not exist: {output_root}'
+        assert os.access(output_root, os.W_OK), f'--output_root is not writable: {output_root}'
+        set_data_root(output_root)
+
+    try:
+        # YT-trained model config (source of weights).
+        config = NeuralGraphConfig.from_yaml(args.config)
+        if args.config_file:
+            config.config_file = args.config_file
+
+        # DAVIS base config (source of rollout test data).
+        test_config = NeuralGraphConfig.from_yaml(args.test_config)
+        if args.test_config_file:
+            test_config.config_file = args.test_config_file
+        else:
+            base_name = os.path.basename(args.test_config).replace('.yaml', '')
+            cfg_file, pre = add_pre_folder(base_name)
+            test_config.dataset     = pre + test_config.dataset
+            test_config.config_file = pre + base_name
+
+        log_file = open(args.log_file, 'a', buffering=1) if args.log_file else None
+        try:
+            # 1. Cross-test: YT-trained model -> DAVIS held-out.
+            data_test(config=config, visualize=False, best_model='best', run=0,
+                      step=10, n_rollout_frames=args.n_rollout_frames,
+                      device=args.device, test_config=test_config,
+                      log_file=log_file)
+
+            # 2. Parameter recovery plot.
+            from GNN_PlotFigure import data_plot
+            data_plot(config=config, epoch_list=['best'], style='color',
+                      extended='plots', device=args.device, log_file=log_file,
+                      apply_weight_correction=True, skip_svd=True)
+        finally:
+            if log_file is not None:
+                try:
+                    log_file.close()
+                except OSError:
+                    pass  # stale NFS handle
+
+        run_log_dir = log_path(config.config_file)
+        with open(os.path.join(run_log_dir, '_cross_test_plot_complete'), 'w') as f:
+            f.write(f'argv={sys.argv}\n')
+
+    except Exception:
+        tb = traceback.format_exc()
+        print(tb, file=sys.stderr)
+        if args.error_log:
+            with open(args.error_log, 'a') as f:
+                f.write(f'\n--- iteration {args.iteration} slot {args.slot} ---\n')
+                f.write(tb)
+        sys.exit(1)
