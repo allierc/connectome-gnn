@@ -37,6 +37,7 @@ class LossRegularizer:
         'f_theta_zero', 'f_theta_diff', 'f_theta_msg_diff', 'f_theta_msg_sign',
         'missing_activity', 'model_a', 'model_b',
         'g_phi_zero_intercept',
+        'f_theta_msg_curvature',
         'f_theta_linearity', 'f_theta_msg_linearity', 'f_theta_centering',
         'embedding_cluster',
         'tau_L1', 'tau_L2', 'V_rest_L1', 'V_rest_L2',
@@ -172,6 +173,7 @@ class LossRegularizer:
         self._coeffs['g_phi_zero_intercept'] = getattr(tc, 'coeff_g_phi_zero_intercept', 0.0)
         self._coeffs['f_theta_linearity'] = getattr(tc, 'coeff_f_theta_linearity', 0.0)
         self._coeffs['f_theta_msg_linearity'] = getattr(tc, 'coeff_f_theta_msg_linearity', 0.0)
+        self._coeffs['f_theta_msg_curvature'] = getattr(tc, 'coeff_f_theta_msg_curvature', 0.0)
         self._coeffs['f_theta_centering'] = getattr(tc, 'coeff_f_theta_centering', 0.0)
         self._coeffs['embedding_cluster'] = getattr(tc, 'coeff_embedding_cluster', 0.0)
         # known_ode biophysical parameter regularizers (annealed like other weight-decay terms)
@@ -222,7 +224,8 @@ class LossRegularizer:
         """Check if update regularization is needed (update_diff, update_msg_diff, or update_msg_sign)."""
         return (self._coeffs['f_theta_diff'] > 0 or
                 self._coeffs['f_theta_msg_diff'] > 0 or
-                self._coeffs['f_theta_msg_sign'] > 0)
+                self._coeffs['f_theta_msg_sign'] > 0 or
+                self._coeffs['f_theta_msg_curvature'] > 0)
 
     def _add(self, name: str, term):
         """Internal: accumulate a regularization term into a GPU scalar.
@@ -568,6 +571,13 @@ class LossRegularizer:
             regul_term = (torch.tanh(pred_msg / 0.1) - torch.tanh(msg_col.unsqueeze(-1) / 0.1)).norm(2) * _ct['f_theta_msg_sign']
             total_regul = total_regul + regul_term
             self._add('f_theta_msg_sign', regul_term)
+
+        if self._coeffs['f_theta_msg_curvature'] > 0 and hasattr(model, 'f_theta'):
+            from connectome_gnn.LLM_code.staging.block_06.f_theta_msg_curvature import f_theta_msg_curvature_loss
+            delta_msg = 0.05 * max(float(xnorm), 1e-6) if xnorm is not None else 1e-6
+            regul_term = f_theta_msg_curvature_loss(model, in_features, ids_batch, embedding_dim, delta_msg) * _ct['f_theta_msg_curvature']
+            total_regul = total_regul + regul_term
+            self._add('f_theta_msg_curvature', regul_term)
 
         return total_regul
 
