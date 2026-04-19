@@ -29,7 +29,7 @@ class ExplorationState:
     interaction_code: bool = False
     case_study: str = ""
     case_study_brief: str = ""
-    claude_call_timeout_min: int = 4
+    claude_call_timeout_min: int = 20
 
     # Runtime mode
     cluster_enabled: bool = False
