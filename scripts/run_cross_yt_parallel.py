@@ -222,7 +222,7 @@ def submit_training_wave(yt_cfgs, output_root, node_name, hard_runtime_limit_min
         print(f'  [wait] {len(job_ids)} cluster job(s): {job_ids}  '
               f'(metrics every {metrics_interval}s)')
         wait_for_cluster_jobs_with_metrics(
-            job_ids, log_dirs, poll_interval=60,
+            job_ids, log_dirs, poll_interval=metrics_interval,
             metrics_interval=metrics_interval,
             job_prefix='cluster_train',
         )
@@ -332,7 +332,7 @@ def submit_test_plot_wave(yt_cfgs, base_cfgs, output_root, node_name,
     if job_ids:
         print(f'  [wait] {len(job_ids)} cross test+plot job(s): {job_ids}')
         wait_for_cluster_jobs_with_metrics(
-            job_ids, log_dirs, poll_interval=60,
+            job_ids, log_dirs, poll_interval=metrics_interval,
             metrics_interval=metrics_interval,
             job_prefix='cluster_cross_test_plot',
         )
