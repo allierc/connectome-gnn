@@ -359,7 +359,11 @@ def wait_for_cluster_jobs_with_metrics(job_ids, log_dirs, poll_interval=60,
     """
     pending = dict(job_ids)
     results = {}
-    last_metric_print = 0.0  # force an immediate first print
+    # Wait one full metrics_interval before the first print — otherwise we
+    # might show stale metrics from a previous run that the new cluster job
+    # hasn't truncated yet (graph_trainer opens metrics.log in 'w' mode
+    # only when it hits the first plot_training_flyvis checkpoint).
+    last_metric_print = time.time()
 
     while pending:
         now = time.time()
