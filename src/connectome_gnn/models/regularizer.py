@@ -103,6 +103,23 @@ class LossRegularizer:
         self._msg_lin_warmup_frac = float(getattr(train_config, 'f_theta_msg_linearity_warmup_fraction', 0.3))
         self._msg_lin_rampup_iters = int(getattr(train_config, 'f_theta_msg_linearity_rampup_iters', 200))
 
+        # Step-based annealing (block 05): cache raw coefficients so
+        # update_iteration_annealing can run without touching Pydantic attrs.
+        self._n_epochs = int(train_config.n_epochs)
+        self._annealing_rate = float(train_config.regul_annealing_rate)
+        self._raw_annealed = {
+            'W_L1': float(train_config.coeff_W_L1),
+            'W_L2': float(train_config.coeff_W_L2),
+            'g_phi_weight_L1': float(train_config.coeff_g_phi_weight_L1),
+            'g_phi_weight_L2': float(train_config.coeff_g_phi_weight_L2),
+            'f_theta_weight_L1': float(train_config.coeff_f_theta_weight_L1),
+            'f_theta_weight_L2': float(train_config.coeff_f_theta_weight_L2),
+            'tau_L1': float(getattr(train_config, 'coeff_tau_L1', 0.0)),
+            'tau_L2': float(getattr(train_config, 'coeff_tau_L2', 0.0)),
+            'V_rest_L1': float(getattr(train_config, 'coeff_V_rest_L1', 0.0)),
+            'V_rest_L2': float(getattr(train_config, 'coeff_V_rest_L2', 0.0)),
+        }
+
     def move_type_list_to_device(self, device):
         """Move type_ids to the training device. Call once after device is known."""
         if self._type_ids_device is not None:
@@ -196,6 +213,28 @@ class LossRegularizer:
         if epoch > 0:
             self.epoch_boundaries.append(self.iter_count)
 
+    def update_iteration_annealing(self, iter_in_epoch):
+        """Update annealed coefficients using step-based progress (sub-epoch granularity).
+
+        Call once per training iteration, OUTSIDE the torch.compile region.
+        Replaces epoch-based annealing (dead at epoch=0) with smooth ramp-up.
+        """
+        if self._annealing_rate <= 0 or self.Niter <= 0:
+            return
+        from connectome_gnn.LLM_code.staging.block_05.step_annealing import step_annealing
+        for key, raw_coeff in self._raw_annealed.items():
+            val = step_annealing(
+                epoch=self.epoch,
+                iter_in_epoch=iter_in_epoch,
+                Niter=self.Niter,
+                n_epochs=self._n_epochs,
+                rate=self._annealing_rate,
+                coeff=raw_coeff,
+            )
+            self._coeffs[key] = val
+            if key in self._coeff_tensors:
+                self._coeff_tensors[key].fill_(val)
+
     def reset_iteration(self, device=None):
         """Reset per-iteration accumulator (called once per batch, NOT per N iteration).
 
@@ -232,7 +271,7 @@ class LossRegularizer:
         """
         if term is None:
             return
-        self._iter_tracker[name] = self._iter_tracker[name] + term.detach()
+        self._iter_tracker[name] = self._iter_tracker[name] + term.detach().reshape(())
 
     def compute(self, model, x, in_features, ids, ids_batch, edges, device,
                 xnorm=1.0, index_weight=None):
