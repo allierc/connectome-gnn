@@ -27,6 +27,7 @@ from .cluster import (
     submit_cluster_job,
     submit_cluster_test_plot_job,
     wait_for_cluster_jobs,
+    wait_for_cluster_jobs_with_metrics,
 )
 from .interactive_code import generate_code_brief, interactive_code_session
 from .prompts import analysis_prompt, batch_0_prompt
@@ -714,7 +715,14 @@ def run_cluster_training(state: ExplorationState, batch: BatchInfo):
 
     if job_ids:
         print(f"\n\033[93mPHASE 3.1: Waiting for {len(job_ids)} training jobs to complete\033[0m")
-        cluster_results = wait_for_cluster_jobs(job_ids, log_dir=state.log_dir, poll_interval=300)
+        # Per-slot log_dirs so the metrics-aware waiter can read each slot's
+        # tmp_training/metrics.log and print conn/Vr/τ R² with color coding.
+        # No on_metrics_print hook — rollout output is cross-check-specific.
+        slot_log_dirs = {s: log_path(batch.configs[s].config_file) for s in job_ids}
+        cluster_results = wait_for_cluster_jobs_with_metrics(
+            job_ids, slot_log_dirs, poll_interval=300, metrics_interval=300,
+            job_prefix='cluster_train',
+        )
         batch.job_results.update(cluster_results)
 
     # Auto-repair for failed jobs
@@ -820,8 +828,11 @@ Attempt {attempt + 1} of {max_repair_attempts}."""
                 hard_runtime_limit_min=state.hard_runtime_limit_min,
             )
             if jid:
-                retry_results = wait_for_cluster_jobs(
-                    {slot_idx: jid}, log_dir=state.log_dir, poll_interval=300
+                retry_results = wait_for_cluster_jobs_with_metrics(
+                    {slot_idx: jid},
+                    {slot_idx: log_path(config.config_file)},
+                    poll_interval=300, metrics_interval=300,
+                    job_prefix='cluster_train',
                 )
                 if retry_results.get(slot_idx):
                     batch.job_results[slot_idx] = True
