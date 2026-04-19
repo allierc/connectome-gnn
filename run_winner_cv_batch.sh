@@ -14,7 +14,7 @@ set -euo pipefail
 REPO_DIR="/groups/saalfeld/home/allierc/Graph/connectome-gnn"
 DATA_ROOT="/groups/saalfeld/home/allierc/GraphData"
 CONFIGS=(
-    "${REPO_DIR}/config/fly/flyvis_noise_free_winner"
+    # "${REPO_DIR}/config/fly/flyvis_noise_free_winner"
     "${REPO_DIR}/config/fly/flyvis_noise_005_winner"
     "${REPO_DIR}/config/fly/flyvis_noise_05_winner"
 )
