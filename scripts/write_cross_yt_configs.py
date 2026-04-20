@@ -90,6 +90,16 @@ def emit_one(base_name, hp_yaml_path, out_yaml_path, suffix, yt_root,
     if 'blank' not in _vit:
         merged['simulation']['visual_input_type'] = _vit + '_blank'
     merged['simulation']['blank_freq'] = 2
+    # Fixed training budget across all 8 conditions so run_GNN_conditions.py
+    # is a fair cross-check (not a reflection of each winner's HPO).
+    if 'training' in merged:
+        merged['training'] = dict(merged['training'])
+        merged['training']['n_epochs'] = 1
+        merged['training']['data_augmentation_loop'] = 100
+    if 'claude' in merged:
+        merged['claude'] = dict(merged['claude'])
+        merged['claude']['n_epochs'] = 1
+        merged['claude']['data_augmentation_loop'] = 100
     # Per-fold seeds (CV convention: sim_seed = 42+i, train_seed = 1042+i).
     if sim_seed is not None:
         merged['simulation']['seed'] = sim_seed
