@@ -1194,48 +1194,7 @@ from connectome_gnn.models.graph_trainer_inr import _generate_inr_video, data_tr
 
 def data_test(config=None, config_file=None, visualize=False, style='color frame', verbose=True, best_model=20, step=15, n_rollout_frames=600,
               ratio=1, run=0, test_mode='', sample_embedding=False, particle_of_interest=1, new_params = None, device=[],
-              rollout_without_noise: bool = False, log_file=None, test_config=None, quiet=False):
-
-    # quiet=True: redirect stdout/stderr at the OS level (dup2) so Python
-    # prints, `logging`, tqdm, C-level writes, and matplotlib X11 warnings
-    # are all captured. Recurses with quiet=False inside the redirect.
-    if quiet:
-        import logging as _lg
-        import sys as _sys
-        _null_fd = os.open(os.devnull, os.O_WRONLY)
-        _saved_stdout_fd = os.dup(1)
-        _saved_stderr_fd = os.dup(2)
-        _save_level = _lg.getLogger().level
-        _lg.getLogger().setLevel(_lg.CRITICAL)
-        # Python-level swap too so `print(...)` via buffered sys.stdout hits
-        # the null fd immediately instead of its TTY-bound buffer.
-        _saved_stdout = _sys.stdout
-        _saved_stderr = _sys.stderr
-        os.dup2(_null_fd, 1)
-        os.dup2(_null_fd, 2)
-        _sys.stdout = os.fdopen(1, 'w', buffering=1)
-        _sys.stderr = os.fdopen(2, 'w', buffering=1)
-        try:
-            return data_test(config=config, config_file=config_file,
-                             visualize=visualize, style=style,
-                             verbose=False, best_model=best_model,
-                             step=step, n_rollout_frames=n_rollout_frames,
-                             ratio=ratio, run=run, test_mode=test_mode,
-                             sample_embedding=sample_embedding,
-                             particle_of_interest=particle_of_interest,
-                             new_params=new_params, device=device,
-                             rollout_without_noise=rollout_without_noise,
-                             log_file=log_file, test_config=test_config,
-                             quiet=False)
-        finally:
-            _lg.getLogger().setLevel(_save_level)
-            os.dup2(_saved_stdout_fd, 1)
-            os.dup2(_saved_stderr_fd, 2)
-            os.close(_saved_stdout_fd)
-            os.close(_saved_stderr_fd)
-            os.close(_null_fd)
-            _sys.stdout = _saved_stdout
-            _sys.stderr = _saved_stderr
+              rollout_without_noise: bool = False, log_file=None, test_config=None):
 
     dataset_name = config.dataset
     _logger.info(f"dataset_name: {dataset_name}")

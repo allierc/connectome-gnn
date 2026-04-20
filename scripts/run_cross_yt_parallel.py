@@ -224,87 +224,9 @@ def _shared_cv_yaml_path(config_file, output_root):
     return os.path.join(cv_config_dir(output_root), basename)
 
 
-def _make_mid_rollout_hook(yt_cfgs, base_cfgs, device, n_frames=100):
-    """Returns a callback(log_dirs, slots_active) compatible with
-    wait_for_cluster_jobs_with_metrics' on_metrics_print: for each active
-    slot, call data_test(quiet=True) against base_cfgs[0] (a quick silent
-    rollout on DAVIS CV fold 0) and print the Pearson r with color coding.
-
-    The rollout depends on a mid-training checkpoint written by
-    graph_trainer (best_model_with_*_midtrain.pt) — if no checkpoint
-    exists yet, the test call will abort early and we print "(no model)".
-    """
-    from connectome_gnn.LLM.cluster import (
-        _r2_color, _ANSI_RESET, _read_clustering_accuracy,
-    )
-    test_cfg = base_cfgs[0] if base_cfgs else None
-
-    def _parse(path):
-        if not os.path.exists(path):
-            return None
-        try:
-            with open(path) as f:
-                for line in f:
-                    if line.strip().startswith('Pearson r'):
-                        return float(line.split(':')[1].split('+/-')[0].strip())
-        except (OSError, ValueError, IndexError):
-            pass
-        return None
-
-    def _hook(log_dirs, slots_active):
-        if test_cfg is None:
-            return
-        # Mirror graph_tester.data_test_gnn's short-name derivation
-        # (line ~154): strip both 'flyvis_' and 'fly/' when building the
-        # results_{test,rollout}_on_<short>.log filename.
-        test_short = test_cfg.dataset.replace('flyvis_', '').replace('fly/', '')
-        for slot in sorted(slots_active):
-            if slot >= len(yt_cfgs):
-                continue
-            yt_cfg = yt_cfgs[slot]
-            yt_log_dir = log_path(yt_cfg.config_file)
-            if not _have_model(yt_log_dir):
-                # Training hasn't finished an epoch yet — silently skip
-                # rather than spamming a `(no model yet)` line per slot.
-                continue
-            test_log = os.path.join(yt_log_dir,
-                                    f'results_test_on_{test_short}.log')
-            roll_log = os.path.join(yt_log_dir,
-                                    f'results_rollout_on_{test_short}.log')
-            try:
-                data_test(config=yt_cfg, test_config=test_cfg,
-                          visualize=False, best_model='best', run=0, step=10,
-                          n_rollout_frames=n_frames, device=device,
-                          quiet=True)
-            except Exception as _e:
-                print(f'  [rollout] slot {slot}: failed ({_e.__class__.__name__})')
-                continue
-            r_one  = _parse(test_log)
-            r_roll = _parse(roll_log)
-            # Clean up so the final wave isn't tricked into skipping.
-            for p in (test_log, roll_log):
-                if os.path.exists(p):
-                    try: os.remove(p)
-                    except OSError: pass
-            parts = []
-            if r_one is not None:
-                parts.append(f'{_r2_color(r_one)}r1={r_one:.3f}{_ANSI_RESET}')
-            if r_roll is not None:
-                parts.append(f'{_r2_color(r_roll)}rN={r_roll:.3f}{_ANSI_RESET}')
-            # Clustering accuracy is only written by data_plot (not data_test),
-            # so cl= appears only after a prior plot has dropped metrics.txt.
-            cl = _read_clustering_accuracy(yt_log_dir)
-            if cl is not None:
-                parts.append(f'{_r2_color(cl)}cl={cl:.3f}{_ANSI_RESET}')
-            if not parts:
-                print(f'  [rollout] slot {slot}: (no Pearson in logs)')
-            else:
-                print(f'  [rollout] slot {slot}  ' + '  '.join(parts))
-    return _hook
-
 
 def submit_training_wave(yt_cfgs, output_root, node_name, hard_runtime_limit_min,
-                          metrics_interval=300, mid_rollout_hook=None):
+                          metrics_interval=300):
     """Submit 5 cluster training bsub jobs (one per fold), wait, return.
     Skips folds whose model is already on disk.
 
@@ -345,7 +267,6 @@ def submit_training_wave(yt_cfgs, output_root, node_name, hard_runtime_limit_min
             job_ids, log_dirs, poll_interval=metrics_interval,
             metrics_interval=metrics_interval,
             job_prefix='cluster_train',
-            on_metrics_print=mid_rollout_hook,
         )
         # After training, warn on any fold where tau or Vrest collapsed to 0.
         _warn_zero_training_metrics(log_dirs)
@@ -498,8 +419,7 @@ def run_test_and_plot(yt_cfg, base_cfgs, device, force_test):
 
 def run_condition(base_name, suffix, n_folds, device, output_root,
                   node_name, hard_runtime_limit_min, force_test, emit_tex,
-                  cluster_test_plot=False, metrics_interval=300,
-                  mid_rollout=False, mid_rollout_frames=100):
+                  cluster_test_plot=False, metrics_interval=300):
     print(f'\n=== {base_name}  (5-fold YT-train / DAVIS-test, suffix={suffix}) ===')
 
     # 0. Emit per-fold DAVIS CV YAMLs (<base>_cv<i:02d>.yaml) into the
@@ -545,16 +465,9 @@ def run_condition(base_name, suffix, n_folds, device, output_root,
         base_cfgs = base_cfgs[:n]
         yt_cfgs   = yt_cfgs[:n]
 
-    # 2/3. submit 5 cluster training jobs + wait for the wave. Optionally
-    # attach a silent mid-training rollout hook that runs locally on the
-    # devcontainer at every metrics poll and prints the Pearson r.
-    hook = None
-    if mid_rollout and base_cfgs:
-        hook = _make_mid_rollout_hook(yt_cfgs, base_cfgs, device,
-                                       n_frames=mid_rollout_frames)
+    # 2/3. submit 5 cluster training jobs + wait for the wave.
     submit_training_wave(yt_cfgs, output_root, node_name, hard_runtime_limit_min,
-                         metrics_interval=metrics_interval,
-                         mid_rollout_hook=hook)
+                         metrics_interval=metrics_interval)
 
     # 4/5. cross-test + plot each fold — cluster or local depending on flag.
     if cluster_test_plot:

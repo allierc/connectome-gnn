@@ -344,8 +344,7 @@ def _print_training_metrics(log_dirs, slots_active, prefix='  [metrics]'):
 
 def wait_for_cluster_jobs_with_metrics(job_ids, log_dirs, poll_interval=60,
                                        metrics_interval=300,
-                                       job_prefix='cluster_train',
-                                       on_metrics_print=None):
+                                       job_prefix='cluster_train'):
     """Like wait_for_cluster_jobs, but also reads and prints training metrics
     from each slot's tmp_training/metrics.log every `metrics_interval` seconds
     (plus once per slot the moment it reports DONE).
@@ -414,11 +413,6 @@ def wait_for_cluster_jobs_with_metrics(job_ids, log_dirs, poll_interval=60,
         if pending and (now - last_metric_print) >= metrics_interval:
             _print_training_metrics(log_dirs, pending.keys(),
                                     prefix='  [metrics]')
-            if on_metrics_print is not None:
-                try:
-                    on_metrics_print(log_dirs, list(pending.keys()))
-                except Exception as _e:
-                    print(f'\033[91m  [metrics-hook error] {_e}\033[0m')
             last_metric_print = now
 
         if pending:
