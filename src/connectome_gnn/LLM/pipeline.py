@@ -717,7 +717,6 @@ def run_cluster_training(state: ExplorationState, batch: BatchInfo):
         print(f"\n\033[93mPHASE 3.1: Waiting for {len(job_ids)} training jobs to complete\033[0m")
         # Per-slot log_dirs so the metrics-aware waiter can read each slot's
         # tmp_training/metrics.log and print conn/Vr/τ R² with color coding.
-        # No on_metrics_print hook — rollout output is cross-check-specific.
         slot_log_dirs = {s: log_path(batch.configs[s].config_file) for s in job_ids}
         cluster_results = wait_for_cluster_jobs_with_metrics(
             job_ids, slot_log_dirs, poll_interval=300, metrics_interval=300,
