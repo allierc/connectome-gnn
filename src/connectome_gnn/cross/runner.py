@@ -8,7 +8,7 @@ each fold for testing) and drops the TeX table at
 
 Used by the orchestrator scripts at the repo root:
     run_GNN_conditions.py       (hp_source=per_condition)
-    run_GNN_cross.py            (hp_source=uniform, GNN winner HPs)
+    run_GNN_unique.py           (hp_source=uniform, GNN winner HPs)
     run_KnownODE_conditions.py  (hp_source=uniform, Known_ODE winner HPs)
 
 `generate_all_yt_data(n_folds, ...)` — generate-only entry point used by

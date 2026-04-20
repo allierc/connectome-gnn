@@ -11,7 +11,7 @@ Exposes `run_condition(...)` which for one base condition:
 
 Also exposes `generate_yt_data_for_condition(...)`, a generate-only entry
 point used by `run_generate_YT_data.py` so the three training-runner
-scripts (run_GNN_conditions / run_GNN_cross / run_KnownODE_conditions)
+scripts (run_GNN_conditions / run_GNN_unique / run_KnownODE_conditions)
 can be launched in parallel on the pre-built shared datasets.
 """
 
@@ -272,15 +272,33 @@ def _load_yt_cfgs(base_name, suffix, n_folds, output_root):
     return yt_cfgs
 
 
+def _assert_yt_data_present(yt_cfg):
+    """Fail loud if the expected YT dataset is missing. Data generation is
+    the sole responsibility of run_generate_YT_data.py so the three training
+    runners can safely start in parallel without racing on generation."""
+    yt_gdir = graphs_data_path(yt_cfg.dataset)
+    if not _have_data(yt_gdir):
+        raise RuntimeError(
+            f'YT dataset missing or incomplete: {yt_gdir}\n'
+            f'  Run `python run_generate_YT_data.py` first to pre-build the '
+            f'shared {{base}}_yt_cv{{i:02d}} datasets.')
+    print(f'  [ok ] YT fold data present: {yt_gdir}')
+
+
 def run_condition(base_name, suffix, n_folds, device, output_root,
                   node_name, hard_runtime_limit_min, force_test,
                   cluster_test_plot=True, metrics_interval=300):
-    """Train + test + plot one condition on YouTube-VOS (no DAVIS)."""
+    """Train + test + plot one condition on YouTube-VOS (no DAVIS).
+
+    Requires YT datasets to already exist (built by run_generate_YT_data.py).
+    Does NOT generate data — keeps the three training runners cheap to launch
+    in parallel and avoids redundant 40× rebuilds of the YT augmentation cache.
+    """
     print(f'\n=== {base_name}  ({n_folds}-fold YT-train / YT-test, suffix={suffix}) ===')
 
     yt_cfgs = _load_yt_cfgs(base_name, suffix, n_folds, output_root)
     for yt_cfg in yt_cfgs:
-        ensure_yt_data(yt_cfg, device)
+        _assert_yt_data_present(yt_cfg)
 
     submit_training_wave(yt_cfgs, output_root, node_name,
                          hard_runtime_limit_min,
