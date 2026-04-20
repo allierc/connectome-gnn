@@ -27,7 +27,7 @@ This exploration follows a strict **hypothesize → test → validate/falsify** 
 2. **Design experiment**: Choose a mutation that specifically tests the hypothesis — change **exactly ONE parameter at a time**
 3. **Run training**: The experiment runs across 4 seeds — you cannot predict the outcome
 4. **Analyze results**: Use both metrics AND cross-seed variance to evaluate whether the hypothesis was supported or contradicted
-5. **Update understanding**: Revise hypotheses based on evidence. A falsified hypothesis is valuable information.
+5. **Update understanding**: Revise hypotheses based on evidence. A falsified hypothesis is valuable information. 
 
 **CRITICAL**: You can only hypothesize. Only training results can validate or falsify your hypotheses. Never assume a hypothesis is correct without experimental evidence.
 

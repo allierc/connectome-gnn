@@ -21,11 +21,13 @@ from connectome_gnn.utils import (
 )
 
 from .claude_cli import run_claude_cli
+from connectome_gnn.LLM_code.claude_cli_ext import run_claude_cli_with_timeout
 from .cluster import (
     check_cluster_repo,
     submit_cluster_job,
     submit_cluster_test_plot_job,
     wait_for_cluster_jobs,
+    wait_for_cluster_jobs_with_metrics,
 )
 from .interactive_code import generate_code_brief, interactive_code_session
 from .prompts import analysis_prompt, batch_0_prompt
@@ -128,6 +130,7 @@ def setup_exploration(args, root_dir: str, skip_confirm: bool = False) -> Explor
         interaction_code=claude_cfg.get('interaction_code', False),
         case_study=claude_cfg.get('case_study', ''),
         case_study_brief=claude_cfg.get('case_study_brief', ''),
+        claude_call_timeout_min=claude_cfg.get('claude_call_timeout_min', 20),
         cluster_enabled=args.cluster,
         n_iterations=n_iterations,
         task=task,
@@ -381,8 +384,18 @@ def run_batch_0(state: ExplorationState):
 
     prompt = batch_0_prompt(state, slot_list, seed_info)
 
-    print("\033[93mClaude start call...\033[0m")
-    output_text = run_claude_cli(prompt, state.root_dir, max_turns=100)
+    timeout_sec = max(60, state.claude_call_timeout_min * 60)
+    print(
+        f"\033[93mClaude start call (timeout={state.claude_call_timeout_min}min, "
+        f"live feedback below)...\033[0m"
+    )
+    output_text, timed_out = run_claude_cli_with_timeout(
+        prompt, state.root_dir,
+        allowed_tools=['Read', 'Edit', 'Write'],
+        timeout_sec=timeout_sec,
+        max_turns=100,
+        log_prefix='[batch0] ',
+    )
 
     if 'OAuth token has expired' in output_text or 'authentication_error' in output_text:
         print("\n\033[91mOAuth token expired during start call\033[0m")
@@ -390,11 +403,34 @@ def run_batch_0(state: ExplorationState):
         print("\033[93m  2. Then re-run this script\033[0m")
         sys.exit(1)
 
+    if timed_out:
+        print(
+            f"\n\033[93mWARNING: Claude start call timed out after "
+            f"{state.claude_call_timeout_min}min. Slot configs left at "
+            f"pre-seed values; proceeding with batch 0 as a robustness test.\033[0m"
+        )
+
+    # Validate slot YAMLs are still parseable (Edit tool writes atomically, but
+    # confirm explicitly so we never submit broken jobs).
+    for slot, path in state.config_paths.items():
+        try:
+            with open(path) as f:
+                yaml.safe_load(f)
+        except Exception as e:
+            print(
+                f"\033[91mFATAL: slot {slot} YAML at {path} no longer parses "
+                f"({type(e).__name__}: {e}). Restore from {state.source_config} "
+                f"and re-run.\033[0m"
+            )
+            sys.exit(1)
+
     if output_text.strip():
         with open(state.reasoning_log_path, 'a') as f:
             f.write(f"\n{'='*60}\n")
             f.write("=== BATCH 0 (start call) ===\n")
             f.write(f"{'='*60}\n")
+            if timed_out:
+                f.write(f"[NOTE: timed out after {state.claude_call_timeout_min}min]\n")
             f.write(output_text.strip())
             f.write("\n\n")
 
@@ -460,6 +496,7 @@ def _check_causality(state: ExplorationState, batch: BatchInfo):
         'data_augmentation_loop', 'coeff_g_phi_diff', 'coeff_f_theta_weight_L2',
         'coeff_f_theta_diff', 'coeff_f_theta_msg_diff',
         'coeff_W_L1', 'coeff_W_L2', 'coeff_W_sign',
+        'coeff_tau_L1', 'coeff_tau_L2', 'coeff_V_rest_L1', 'coeff_V_rest_L2',
         'w_init_mode', 'w_init_scale', 'dale_law',
     ]
     COMPARE_GRAPH_KEYS = [
@@ -647,10 +684,9 @@ def run_cluster_training(state: ExplorationState, batch: BatchInfo):
     """PHASE 2-3: Submit cluster jobs, wait, auto-repair failed jobs."""
     print(f"\n\033[93mPHASE 2: Submitting {batch.n_slots} flyvis training jobs to cluster (gpu_{state.node_name})\033[0m")
 
-    # Guardrail: verify cluster repo is clean before submitting
+    # Guardrail: verify cluster repo is clean before submitting (warning only)
     if not check_cluster_repo():
-        print("\033[91mAborting batch — fix cluster repo before resubmitting (use --resume)\033[0m")
-        sys.exit(1)
+        print("\033[93mWARNING: cluster repo has uncommitted changes — proceeding anyway\033[0m")
 
     job_ids = {}
     for slot_idx, iteration in enumerate(batch.iterations):
@@ -679,7 +715,13 @@ def run_cluster_training(state: ExplorationState, batch: BatchInfo):
 
     if job_ids:
         print(f"\n\033[93mPHASE 3.1: Waiting for {len(job_ids)} training jobs to complete\033[0m")
-        cluster_results = wait_for_cluster_jobs(job_ids, log_dir=state.log_dir, poll_interval=300)
+        # Per-slot log_dirs so the metrics-aware waiter can read each slot's
+        # tmp_training/metrics.log and print conn/Vr/τ R² with color coding.
+        slot_log_dirs = {s: log_path(batch.configs[s].config_file) for s in job_ids}
+        cluster_results = wait_for_cluster_jobs_with_metrics(
+            job_ids, slot_log_dirs, poll_interval=300, metrics_interval=300,
+            job_prefix='cluster_train',
+        )
         batch.job_results.update(cluster_results)
 
     # Auto-repair for failed jobs
@@ -729,14 +771,31 @@ def _auto_repair_failed_jobs(state: ExplorationState, batch: BatchInfo):
             print(f"\033[93m  slot {slot_idx} (iter {batch.iterations[slot_idx]}): repair attempt {attempt + 1}/{max_repair_attempts}\033[0m")
             repair_prompt = f"""TRAINING CRASHED - Please fix the code error.
 
-Error traceback:
+Error traceback (last 3KB):
 ```
 {err_content[-3000:]}
 ```
 
-Modified files: {chr(10).join(f'- {state.root_dir}/{f}' for f in modified_code)}
+Modified files (these are the suspects):
+{chr(10).join(f'- {state.root_dir}/{f}' for f in modified_code)}
 
-Fix the bug. Do NOT make other changes."""
+Repair rules:
+1. Fix ONLY the bug shown in the traceback. Do not refactor or add features.
+2. Do NOT re-introduce the same pattern that caused the crash. Read the
+   traceback carefully and identify what specifically failed.
+3. **torch.compile + pydantic incompatibility** — if the traceback contains
+   `torch._dynamo.exc.Unsupported`, `__getattribute__`, or mentions Dynamo
+   tracing failures: the cause is almost always `getattr(pydantic_obj, ...)`
+   or `pydantic_obj.attr` reached from a function inside the compiled
+   forward/loss path (typically Regularizer.compute() or compute_update_regul()).
+   FIX: read the config value ONCE in __init__ or _update_coeffs (which run
+   outside the compiled region), store as a plain float on `self._foo`, and
+   reference `self._foo` inside compute(). Never touch the pydantic config
+   from inside compute().
+4. If you genuinely cannot identify or fix the bug, print exactly the token
+   `CANNOT_FIX` and stop.
+
+Attempt {attempt + 1} of {max_repair_attempts}."""
 
             repair_cmd = [
                 'claude', '-p', repair_prompt,
@@ -768,8 +827,11 @@ Fix the bug. Do NOT make other changes."""
                 hard_runtime_limit_min=state.hard_runtime_limit_min,
             )
             if jid:
-                retry_results = wait_for_cluster_jobs(
-                    {slot_idx: jid}, log_dir=state.log_dir, poll_interval=300
+                retry_results = wait_for_cluster_jobs_with_metrics(
+                    {slot_idx: jid},
+                    {slot_idx: log_path(config.config_file)},
+                    poll_interval=300, metrics_interval=300,
+                    job_prefix='cluster_train',
                 )
                 if retry_results.get(slot_idx):
                     batch.job_results[slot_idx] = True
@@ -892,17 +954,17 @@ def _print_batch_results(state: ExplorationState, batch: BatchInfo):
 
         parts = []
         if conn_r2:
-            parts.append(f"conn_R2={_color_metric(conn_r2, 0.9, 0.5)}")
-        if tau_r2:
-            parts.append(f"tau_R2={_color_metric(tau_r2, 0.9, 0.5)}")
+            parts.append(f"conn={_color_metric(conn_r2, 0.9, 0.5)}")
         if vrest_r2:
-            parts.append(f"Vrest_R2={_color_metric(vrest_r2, 0.9, 0.5)}")
+            parts.append(f"Vr={_color_metric(vrest_r2, 0.9, 0.5)}")
+        if tau_r2:
+            parts.append(f"τ={_color_metric(tau_r2, 0.9, 0.5)}")
         if clust_acc:
-            parts.append(f"clust_acc={_color_metric(clust_acc, 0.9, 0.5)}")
+            parts.append(f"cl={_color_metric(clust_acc, 0.9, 0.5)}")
         if rollout_r:
-            parts.append(f"rollout_r={_color_metric(rollout_r, 0.9, 0.5)}")
+            parts.append(f"rN={_color_metric(rollout_r, 0.9, 0.5)}")
         elif onestep_r:
-            parts.append(f"onestep_r={_color_metric(onestep_r, 0.9, 0.5)}")
+            parts.append(f"r1={_color_metric(onestep_r, 0.9, 0.5)}")
         if train_min:
             parts.append(f"\033[90mtrain={float(train_min):.1f}min\033[0m")
 
@@ -946,10 +1008,44 @@ def run_cluster_test_plot(state: ExplorationState, batch: BatchInfo):
         test_plot_results = wait_for_cluster_jobs(
             job_ids, log_dir=state.log_dir, poll_interval=60, job_prefix='cluster_test_plot'
         )
+
+        # One retry pass for transient test+plot failures (cluster hiccups,
+        # NFS races, etc.). Training already succeeded for these slots.
+        retry_slots = [s for s, ok in test_plot_results.items() if not ok]
+        if retry_slots:
+            print(f"\033[93m  retrying {len(retry_slots)} failed test+plot job(s) once\033[0m")
+            retry_job_ids = {}
+            for slot in retry_slots:
+                config = batch.configs[slot]
+                jid = submit_cluster_test_plot_job(
+                    slot=slot,
+                    config_path=state.config_paths[slot],
+                    analysis_log_path=state.analysis_log_paths[slot],
+                    config_file_field=config.config_file,
+                    log_dir=state.log_dir,
+                    node_name=state.node_name,
+                    conda_env=state.conda_env,
+                    n_cpus=state.n_cpus,
+                    device=config.training.device,
+                    iteration=batch.iterations[slot],
+                    output_root=get_data_root(),
+                    hard_runtime_limit_min=state.hard_runtime_limit_min,
+                )
+                if jid:
+                    retry_job_ids[slot] = jid
+                else:
+                    test_plot_results[slot] = False
+            if retry_job_ids:
+                retry_results = wait_for_cluster_jobs(
+                    retry_job_ids, log_dir=state.log_dir, poll_interval=60,
+                    job_prefix='cluster_test_plot',
+                )
+                test_plot_results.update(retry_results)
+
         for slot, success in test_plot_results.items():
             if not success:
                 batch.job_results[slot] = False
-                print(f"\033[91m  slot {slot}: test+plot FAILED\033[0m")
+                print(f"\033[91m  slot {slot}: test+plot FAILED (after retry)\033[0m")
 
     _print_batch_results(state, batch)
 
@@ -1145,19 +1241,51 @@ def run_claude_analysis(state: ExplorationState, batch: BatchInfo):
 
     prompt = analysis_prompt(state, batch, slot_info, code_brief_context)
 
-    print("\033[93mClaude analysis...\033[0m")
-    output_text = run_claude_cli(prompt, state.root_dir)
+    timeout_sec = max(60, state.claude_call_timeout_min * 60)
+    print(
+        f"\033[93mClaude analysis (timeout={state.claude_call_timeout_min}min, "
+        f"live feedback below)...\033[0m"
+    )
+    output_text, timed_out = run_claude_cli_with_timeout(
+        prompt, state.root_dir,
+        allowed_tools=['Read', 'Edit', 'Write'],
+        timeout_sec=timeout_sec,
+        max_turns=500,
+        log_prefix=f'[batch{batch.batch_first}] ',
+    )
 
     if 'OAuth token has expired' in output_text or 'authentication_error' in output_text:
         print(f"\n\033[91mOAuth token expired at batch {batch.batch_first}-{batch.batch_last}\033[0m")
         print("\033[93mTo resume: 1. Run: claude /login  2. Then re-run with --resume\033[0m")
         sys.exit(1)
 
+    if timed_out:
+        print(
+            f"\n\033[93mWARNING: Claude analysis timed out after "
+            f"{state.claude_call_timeout_min}min. Slot configs left at their "
+            f"previous-batch values; proceeding with re-test.\033[0m"
+        )
+
+    # Validate slot YAMLs are still parseable.
+    for slot, path in state.config_paths.items():
+        try:
+            with open(path) as f:
+                yaml.safe_load(f)
+        except Exception as e:
+            print(
+                f"\033[91mFATAL: slot {slot} YAML at {path} no longer parses "
+                f"({type(e).__name__}: {e}). Restore from {state.source_config} "
+                f"and re-run.\033[0m"
+            )
+            sys.exit(1)
+
     if output_text.strip():
         with open(state.reasoning_log_path, 'a') as f:
             f.write(f"\n{'='*60}\n")
             f.write(f"=== Batch {batch.batch_first}-{batch.batch_last} ===\n")
             f.write(f"{'='*60}\n")
+            if timed_out:
+                f.write(f"[NOTE: timed out after {state.claude_call_timeout_min}min]\n")
             f.write(output_text.strip())
             f.write("\n\n")
 

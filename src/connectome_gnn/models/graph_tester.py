@@ -251,10 +251,15 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
         else:
             logger.warning('NNR_hidden not found in checkpoint — using random initialisation')
 
-    # Load INR model if visual field is learned
+    # Load INR model if visual field is learned.
+    # best_model may be a full path like
+    #   <log_dir>/models/best_model_with_0_graphs_2.pt
+    # The matching INR checkpoint is inr_stimulus_<graphs_N>.pt (same N).
     if has_visual_field and hasattr(model, 'NNR_f'):
-        # Extract epoch from best_model to find matching INR checkpoint
-        epoch_str = best_model.split('_')[0] if best_model else '0'
+        import re as _re
+        _basename = os.path.basename(best_model) if best_model else ''
+        _m = _re.search(r'_graphs_(\d+)\.pt$', _basename)
+        epoch_str = _m.group(1) if _m else '0'
         inr_path = os.path.join(log_dir, 'models', f'inr_stimulus_{epoch_str}.pt')
         if os.path.exists(inr_path):
             model.NNR_f.load_state_dict(torch.load(inr_path, map_location=device, weights_only=False))
@@ -507,6 +512,9 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
 
     # Compute stimuli_R2: SIREN output vs true stimulus (with linear correction ax+b)
     stimuli_R2 = None
+    stim_true_2d = None
+    stim_pred_2d = None
+    stim_pred_corrected_2d = None
     if has_visual_field and stimuli_true_list:
         stim_true_2d = np.array(stimuli_true_list)   # (n_frames, n_input_neurons)
         stim_pred_2d = np.array(stimuli_pred_list)   # (n_frames, n_input_neurons)
@@ -520,6 +528,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
         ss_tot = np.sum((stim_true_2d - np.mean(stim_true_2d)) ** 2)
         stimuli_R2 = float(1 - ss_res / (ss_tot + 1e-16))
         stimuli_r  = float(stimuli_R2 ** 0.5) if stimuli_R2 >= 0 else 0.0
+        stim_pred_corrected_2d = pred_corrected
         logger.info(f'stimuli_R2 (corrected a={a_coeff:.4f} b={b_coeff:.4f}): {stimuli_R2:.4f}  stimuli_r={stimuli_r:.4f}')
 
         # Generate stimuli GT vs Pred video
@@ -825,6 +834,16 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
             dtype=object),
         config_name   = np.array(config.config_file),
     )
+
+    # ── Add INR stimulus arrays (input-neuron resolution) when available ─────
+    # These are the time x n_input_neurons arrays produced during rollout:
+    # GT photoreceptor stimulus and the INR's predicted stimulus (raw +
+    # linear-corrected). Used by figures/fig_stim_rollout_inr.py.
+    if stim_true_2d is not None:
+        bundle['stimulus_input_true'] = stim_true_2d.astype(np.float32)
+        bundle['stimulus_input_pred'] = stim_pred_2d.astype(np.float32)
+        if stim_pred_corrected_2d is not None:
+            bundle['stimulus_input_pred_corrected'] = stim_pred_corrected_2d.astype(np.float32)
 
     # ── Add INR traces when the model has a hidden-neuron INR ─────────────────
     siren_r2 = None
