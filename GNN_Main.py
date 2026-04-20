@@ -320,7 +320,7 @@ if __name__ == "__main__":
 
 
 
-
+# export GNN_OUTPUT_ROOT=graphs_data
 # bsub -n 8 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o train /groups/saalfeld/home/allierc/Graph/connectome-gnn/config/fly/flyvis_noise_005"
 # bsub -n 8 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o cv /groups/saalfeld/home/allierc/Graph/connectome-gnn/config/fly/flyvis_noise_005 --n_seeds 5"
 
