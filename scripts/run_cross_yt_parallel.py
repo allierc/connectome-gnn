@@ -318,50 +318,48 @@ def _warn_zero_plot_metrics(yt_log_dir, slot_tag=''):
 def submit_test_plot_wave(yt_cfgs, base_cfgs, output_root, node_name,
                            hard_runtime_limit_min, force_test,
                            metrics_interval=300):
-    """Submit cross-test+plot jobs to the cluster — ONE job per YT fold, each
-    runs rollouts against ALL base_cfgs (full N_yt × N_davis Cartesian).
+    """Submit cross-test+plot jobs to the cluster — ONE job per YT fold,
+    PAIRED with DAVIS fold of the same index. 5 rollouts total (not 25).
 
-    Cache: submit the job unless every <yt_log_dir>/results_rollout_on_<base_j>.log
-    already exists AND metrics.txt is present; --force_test wipes them.
+    Cache: submit the job unless <yt_log_dir>/results_rollout_on_<base_i>.log
+    AND metrics.txt both exist; --force_test wipes them.
     """
-    test_cfg_paths = [_shared_cv_yaml_path(bc.config_file, output_root)
-                      for bc in base_cfgs]
-    test_cfg_fields = [bc.config_file for bc in base_cfgs]
+    assert len(yt_cfgs) == len(base_cfgs), (
+        f'YT folds ({len(yt_cfgs)}) and DAVIS folds ({len(base_cfgs)}) differ'
+    )
 
     job_ids = {}
     log_dirs = {}
-    for slot, yt_cfg in enumerate(yt_cfgs):
+    for slot, (yt_cfg, base_cfg) in enumerate(zip(yt_cfgs, base_cfgs)):
         yt_log_dir = log_path(yt_cfg.config_file)
         os.makedirs(yt_log_dir, exist_ok=True)
 
-        cross_logs = [
-            _cross_log(yt_log_dir, bc.config_file.replace('fly/', ''))
-            for bc in base_cfgs
-        ]
+        cross_log = _cross_log(yt_log_dir,
+                               base_cfg.config_file.replace('fly/', ''))
         metrics_path = os.path.join(yt_log_dir, 'results', 'metrics.txt')
         if force_test:
-            for p_ in cross_logs + [metrics_path]:
+            for p_ in (cross_log, metrics_path):
                 if os.path.exists(p_):
                     os.remove(p_)
                     print(f'  [force] removed {p_}')
-        all_logs_exist = all(os.path.exists(p_) for p_ in cross_logs)
-        if all_logs_exist and os.path.exists(metrics_path):
-            print(f'  [skip] fold {slot}: all {len(cross_logs)} rollout logs + metrics.txt already exist')
+        if os.path.exists(cross_log) and os.path.exists(metrics_path):
+            print(f'  [skip] fold {slot}: rollout log + metrics.txt already exist')
             continue
         if not _have_model(yt_log_dir):
             print(f'\033[91m  [skip] fold {slot}: no trained model, cannot test\033[0m')
             continue
 
         cfg_path = _shared_cv_yaml_path(yt_cfg.config_file, output_root)
+        test_cfg_path = _shared_cv_yaml_path(base_cfg.config_file, output_root)
         analysis_log = f'{yt_log_dir}/cluster_cross_test_plot.log'
 
         jid = submit_cluster_cross_test_plot_job(
             slot=slot,
             config_path=cfg_path,
-            test_config_paths=test_cfg_paths,
+            test_config_paths=[test_cfg_path],
             analysis_log_path=analysis_log,
             config_file_field=yt_cfg.config_file,
-            test_config_file_fields=test_cfg_fields,
+            test_config_file_fields=[base_cfg.config_file],
             log_dir=yt_log_dir,
             node_name=node_name,
             output_root=output_root,
@@ -383,21 +381,18 @@ def submit_test_plot_wave(yt_cfgs, base_cfgs, output_root, node_name,
             _warn_zero_plot_metrics(ld, slot_tag=f' slot {slot}:')
 
 
-def run_test_and_plot(yt_cfg, base_cfgs, device, force_test):
-    """Local path: for ONE YT fold, rollout against every DAVIS CV fold
-    (Cartesian), then a single data_plot."""
-    if not isinstance(base_cfgs, (list, tuple)):
-        base_cfgs = [base_cfgs]  # legacy single-DAVIS compatibility.
+def run_test_and_plot(yt_cfg, base_cfg, device, force_test):
+    """Local path: for ONE YT fold, rollout against its PAIRED DAVIS fold,
+    then a single data_plot."""
     yt_log_dir = log_path(yt_cfg.config_file)
 
-    for base_cfg in base_cfgs:
-        cross_log = _cross_log(yt_log_dir,
-                               base_cfg.config_file.replace('fly/', ''))
-        if force_test and os.path.exists(cross_log):
-            os.remove(cross_log)
-        if os.path.exists(cross_log):
-            print(f'  [skip] cross-test log exists: {cross_log}')
-            continue
+    cross_log = _cross_log(yt_log_dir,
+                           base_cfg.config_file.replace('fly/', ''))
+    if force_test and os.path.exists(cross_log):
+        os.remove(cross_log)
+    if os.path.exists(cross_log):
+        print(f'  [skip] cross-test log exists: {cross_log}')
+    else:
         print(f'  [run ] data_test YT->DAVIS  ({yt_cfg.dataset} -> {base_cfg.dataset})')
         data_test(config=yt_cfg, visualize=False, best_model='best', run=0,
                   step=10, n_rollout_frames=250, device=device,
@@ -475,8 +470,8 @@ def run_condition(base_name, suffix, n_folds, device, output_root,
                               hard_runtime_limit_min, force_test,
                               metrics_interval=metrics_interval)
     else:
-        for yt_cfg in yt_cfgs:
-            run_test_and_plot(yt_cfg, base_cfgs, device, force_test)
+        for yt_cfg, base_cfg in zip(yt_cfgs, base_cfgs):
+            run_test_and_plot(yt_cfg, base_cfg, device, force_test)
 
     # 6. emit TeX after this condition is done
     if emit_tex:
