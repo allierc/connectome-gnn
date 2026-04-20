@@ -842,11 +842,12 @@ def data_generate_voltage(
     _node_types_str = [t.decode('utf-8') if isinstance(t, bytes) else str(t) for t in net.connectome.nodes["type"][:]]
     _photoreceptor_types = {'R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7', 'R8'}
     n_input_neurons_net = int(np.sum([t in _photoreceptor_types for t in _node_types_str]))
-    print(f"  n_neurons:       {net.n_nodes}")
-    print(f"  n_input_neurons: {n_input_neurons_net}")
-    print(f"  n_edges:         {net.n_edges}")
+    print(f"  n_neurons:       {net.n_nodes}", flush=True)
+    print(f"  n_input_neurons: {n_input_neurons_net}", flush=True)
+    print(f"  n_edges:         {net.n_edges}", flush=True)
 
     # Initialize datasets
+    print(f"[DBG] visual_input_type={sim.visual_input_type!r}  datavis_roots={sim.datavis_roots}", flush=True)
     if "DAVIS" in sim.visual_input_type or "mixed" in sim.visual_input_type:
         # determine dataset roots: use config list if provided, otherwise fall back to default
         if sim.datavis_roots:
@@ -854,8 +855,11 @@ def data_generate_voltage(
         else:
             datavis_root_list = [os.path.join(get_datavis_root_dir(), "JPEGImages/480p")]
 
+        print(f"[DBG] datavis_root_list={datavis_root_list}", flush=True)
         for root in datavis_root_list:
+            print(f"[DBG] checking root exists: {root}", flush=True)
             assert os.path.exists(root), f"video data not found at {root}"
+            print(f"[DBG]   OK exists", flush=True)
 
         video_config = {
             "n_frames": 50,
@@ -874,11 +878,15 @@ def data_generate_voltage(
             "shuffle_sequences": True,
             "shuffle_seed": sim.seed,
         }
+        print(f"[DBG] video_config built (skip_short={sim.skip_short_videos} seed={sim.seed})", flush=True)
 
         # create dataset(s)
         if len(datavis_root_list) == 1:
+            print(f"[DBG] creating AugmentedVideoDataset(root_dir={datavis_root_list[0]}) ...", flush=True)
             davis_dataset = AugmentedVideoDataset(root_dir=datavis_root_list[0], **video_config)
+            print(f"[DBG] AugmentedVideoDataset ready: {len(davis_dataset)} sequences", flush=True)
         else:
+            print(f"[DBG] creating {len(datavis_root_list)} AugmentedVideoDatasets (combined) ...", flush=True)
             datasets = [AugmentedVideoDataset(root_dir=root, **video_config) for root in datavis_root_list]
             davis_dataset = CombinedVideoDataset(datasets)
             logger.info(f"combined {len(datasets)} video datasets: {len(davis_dataset)} total sequences")
@@ -887,6 +895,7 @@ def data_generate_voltage(
 
     if "DAVIS" in sim.visual_input_type:
         stimulus_dataset = davis_dataset
+        print(f"[DBG] using DAVIS-branch dataset: {len(stimulus_dataset)} sequences", flush=True)
     else:
         sintel_config = {
             "n_frames": 19,
@@ -899,9 +908,12 @@ def data_generate_voltage(
             "vertical_splits": 3,
             "center_crop_fraction": 0.7,
         }
+        print(f"[DBG] creating AugmentedSintel(...) ...", flush=True)
         stimulus_dataset = AugmentedSintel(**sintel_config)
+        print(f"[DBG] AugmentedSintel ready: {len(stimulus_dataset)} sequences", flush=True)
 
     # Extract ground-truth parameters from flyvis connectome.
+    print(f"[DBG] extracting ODE params from flyvis network (is_hh={is_hh}) ...", flush=True)
     if is_hh:
         hh_overrides = {}
         if getattr(sim, "hh_stim_scale", None) is not None:
@@ -916,6 +928,7 @@ def data_generate_voltage(
     else:
         ode_params = FlyVisODEParams.from_flyvis_network(net, device=device)
     edge_index = ode_params.edge_index.to(device)
+    print(f"[DBG] ODE params ready (edges={edge_index.shape[1]})", flush=True)
 
     if sim.n_extra_null_edges > 0:
         logger.info(f"adding {sim.n_extra_null_edges} extra null edges (mode={sim.null_edges_mode})...")
