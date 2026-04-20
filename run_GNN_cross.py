@@ -157,8 +157,6 @@ def main():
     p.add_argument('--force_test', action='store_true',
                    help='Delete + re-run cross-test log and metrics.txt '
                         '(does NOT re-train).')
-    p.add_argument('--force_yaml', action='store_true',
-                   help='Overwrite existing <base>_<suffix>_cv*.yaml files.')
     p.add_argument('--skip_yaml', action='store_true',
                    help='Skip the YT YAML emission step (assume YAMLs exist).')
     p.add_argument('--emit_tex', default=None,
@@ -182,7 +180,6 @@ def main():
     print(f'  node:       {args.node_name}')
     print(f'  tex out:    log/{emit_tex_name}')
     print(f'  force_test: {args.force_test}')
-    print(f'  force_yaml: {args.force_yaml}')
     print('=' * 60)
 
     # Step 1 — emit YT-training YAMLs (uniform shared HP YAML).
@@ -191,7 +188,7 @@ def main():
     else:
         print(f'\n[1] emit YT YAMLs  (hp_source=uniform, hp_yaml={args.hp_yaml})')
         emit_yt_yamls(HP_SOURCE, args.suffix, hp_yaml_basename=args.hp_yaml,
-                      n_folds=args.n_folds, force=args.force_yaml,
+                      n_folds=args.n_folds, force=False,
                       output_root=args.output_root)
 
     # Step 2 — per-condition cluster pipeline.
