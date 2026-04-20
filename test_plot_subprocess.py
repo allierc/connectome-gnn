@@ -47,7 +47,6 @@ if __name__ == '__main__':
         log_file = open(args.log_file, 'a', buffering=1) if args.log_file else None
         try:
             # Test
-            config.simulation.noise_model_level = 0.0
             data_test(
                 config=config,
                 visualize=False,
@@ -62,6 +61,7 @@ if __name__ == '__main__':
                 device=args.device,
                 particle_of_interest=0,
                 new_params=None,
+                rollout_without_noise=True,
                 log_file=log_file,
             )
 
