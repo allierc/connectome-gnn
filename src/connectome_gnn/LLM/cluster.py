@@ -331,14 +331,11 @@ def _print_training_metrics(log_dirs, slots_active, prefix='  [metrics]'):
             print(f"{prefix} slot {slot}: (no metrics.log yet)")
             continue
         it, conn, vr, tau = tm
-        cluster_acc = _read_clustering_accuracy(log_dir)  # usually None pre-plot
         parts = [
             f"{_r2_color(conn)}conn={conn:.3f}{_ANSI_RESET}",
             f"{_r2_color(vr)}Vr={vr:.3f}{_ANSI_RESET}",
             f"{_r2_color(tau)}τ={tau:.3f}{_ANSI_RESET}",
         ]
-        if cluster_acc is not None:
-            parts.append(f"{_r2_color(cluster_acc)}cl={cluster_acc:.3f}{_ANSI_RESET}")
         print(f"{prefix} slot {slot}  iter={it:>6}  " + '  '.join(parts))
 
 
