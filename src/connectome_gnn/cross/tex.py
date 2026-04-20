@@ -10,7 +10,6 @@ for each of the 8 conditions and writes the 8-row TeX table to
 
 import os
 import re
-import sys
 
 import numpy as np
 
@@ -75,16 +74,18 @@ def _mean_sd(vals):
 def emit_row(base, label, nsig, ngam, edges, output_root, pre_folder,
              suffix, n_folds):
     """N-fold CV: YT fold i rolled out on its own held-out 20%.
-    Prediction columns aggregate N values; parameter columns also N."""
+    Prediction columns aggregate N values; parameter columns also N.
+
+    Silently emits NaN cells for conditions whose log dirs don't exist yet
+    (expected mid-run when this function is called per completed condition).
+    """
     one_vals, roll_vals = [], []
     W_vals, tau_vals, V_vals, cl_vals = [], [], [], []
-    found = 0
     for i in range(n_folds):
         fold_dir = os.path.join(output_root, 'log', pre_folder,
                                 f'{base}_{suffix}_cv{i:02d}')
         if not os.path.isdir(fold_dir):
             continue
-        found += 1
         test_path = os.path.join(fold_dir, 'results_test.log')
         roll_path = os.path.join(fold_dir, 'results_rollout.log')
         one_vals.append(_parse_pearson(test_path))
@@ -94,9 +95,6 @@ def emit_row(base, label, nsig, ngam, edges, output_root, pre_folder,
         tau_vals.append(m.get('tau_R2',        float('nan')))
         V_vals.append(m.get('V_rest_R2',       float('nan')))
         cl_vals.append(m.get('clustering_accuracy', float('nan')))
-    if found == 0:
-        print(f'WARN: no fold dirs found for {base}_{suffix}_cv*',
-              file=sys.stderr)
     one_m, one_s   = _mean_sd(one_vals)
     roll_m, roll_s = _mean_sd(roll_vals)
     W_m, W_s       = _mean_sd(W_vals)
