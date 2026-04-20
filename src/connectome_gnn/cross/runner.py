@@ -13,22 +13,26 @@ Used by the two 5-line orchestrator scripts at the repo root:
 import os
 
 from connectome_gnn.config import NeuralGraphConfig
-from connectome_gnn.utils import config_path, set_data_root, set_device
+from connectome_gnn.utils import (
+    config_path, load_data_root_from_json, set_data_root, set_device,
+)
 
 from connectome_gnn.cross.pipeline import CONDITION_BASES, run_condition
 from connectome_gnn.cross.yaml_io import emit_yt_yamls
 from connectome_gnn.cross.tex import emit_tex_file
 
 
-DATA_ROOT = '/groups/saalfeld/home/allierc/GraphData'
-
-
 def run_all_conditions(hp_source, suffix, hp_yaml=None,
-                        output_root=DATA_ROOT, n_folds=5,
+                        output_root=None, n_folds=5,
                         node_name='a100', hard_runtime_limit_min=120,
                         metrics_interval=300, cluster_test_plot=True,
                         force_test=False):
     """Run the 8-condition × n_folds cross-check and emit the TeX table.
+
+    `output_root` resolution (highest priority wins):
+        1. explicit kwarg
+        2. $GNN_OUTPUT_ROOT env var
+        3. cluster_data_dir in data_paths.json (same as GNN_LLM)
 
     Args:
         hp_source: 'per_condition' or 'uniform'.
@@ -36,7 +40,12 @@ def run_all_conditions(hp_source, suffix, hp_yaml=None,
         hp_yaml:   HP-source YAML basename (only used when
                    hp_source == 'uniform').
     """
-    assert os.path.isdir(output_root), f'missing {output_root}'
+    if output_root is None:
+        output_root = os.environ.get('GNN_OUTPUT_ROOT') or load_data_root_from_json()
+    assert output_root and os.path.isdir(output_root), (
+        f'output_root not set or missing: {output_root!r}. '
+        f'Set $GNN_OUTPUT_ROOT or cluster_data_dir in data_paths.json.'
+    )
     set_data_root(output_root)
 
     print('=' * 60)
