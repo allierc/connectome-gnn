@@ -254,7 +254,8 @@ class RenderedDavis(Directory):
 
                 # Skip if sequence too short (only if skip_short_videos is True)
                 if skip_short_videos and len(frames) < n_frames:
-                    logger.warning(f"Sequence {seq_dir.name} has only {len(frames)} frames, skipping")
+                    # Silent skip — with YouTube-VOS most sequences have <50
+                    # frames and the per-sequence warning floods the log.
                     continue
 
                 # Apply max_frames cap if requested
