@@ -35,6 +35,25 @@ config files). Do not Glob, list, or Read anything else.
 If you need a "base config" reference and one is not explicitly named:
 **use slot 0's current YAML**. Do not search the directory.
 
+## ⏱ Time budget — SIGTERM at 10 minutes
+
+This Claude call has a **hard wall-clock limit of 10 minutes**. The wrapper
+sends SIGTERM at the deadline — *any unfinished Write / Edit is lost, and
+the next iteration silently runs with this batch's configs **unchanged***.
+A SIGTERMed analysis = a wasted iteration (no HPO progress, no signal).
+
+**Hard rule: finish every YAML Write by the 8-minute mark.** Keep the last
+2 minutes as safety slack for Read/Edit latency on the shared filesystem.
+
+Practical pacing (adapt to the phase of the iteration):
+- 0–6 min: Read results + analyse the last batch.
+- 6–8 min: Decide the next parameter change and Write the 4 slot YAMLs.
+- 8–10 min: Only used if a write failed; otherwise exit cleanly.
+
+If you are still analysing at minute 6, stop: **cut analysis short and
+write the proposal now**. A narrow, committed parameter change is
+infinitely more valuable than a richer analysis that gets killed at 10:00.
+
 ## Goal
 
 Optimize the hyperparameters listed below for maximum **connectivity matrix recovery (conn_R2)**
@@ -158,6 +177,17 @@ Per-neuron embedding: learnable `embedding_dim`-dimensional vector concatenated 
 | `w_init_mode`             | `randn_scaled` | W initialization: `randn_scaled`, `zeros`, `uniform_scaled`                      |
 | `w_init_scale`            | 1.0            | Scale for randn_scaled/uniform_scaled init (bound = scale/sqrt(n_edges))         |
 
+## Simulation Parameters (sweep-only with regenerate)
+
+Changing any parameter in this group **requires re-simulating the ground-truth
+voltage traces** for that slot. The pipeline does this automatically when the
+slot's YAML has `generate_data: true` for one iteration. See the "Data
+Generation" section below for the procedure.
+
+| Parameter                 | Starting value | Description                                                                |
+| ------------------------- | -------------- | -------------------------------------------------------------------------- |
+| `blank_prefix_fraction`   | 0.0            | Fraction of each input sequence blanked at the start (0.0 = no blanks; 0.1 = first 10 % zero stimulus). Sweeping this changes the stimulus statistics the network sees during both training and test, so it must be regenerated. |
+
 Hard facts about the code (not hints — infrastructure):
 
 - `n_epochs=1` is fixed. With `n_epochs=1`, `regul_annealing_rate` must be 0.0 (annealing
@@ -174,9 +204,46 @@ Hard facts about the code (not hints — infrastructure):
 
 ## Data Generation
 
-`generate_data: false` — data is pre-generated and NOT regenerated each iteration.
-**Do not modify simulation parameters** (n_neurons, n_frames, n_edges, delta_t,
-noise_model_level).
+By default `generate_data: false` in every slot — the ground-truth voltage
+traces are simulated once, cached, and reused across iterations. **Never
+touch the frozen simulation parameters**: `n_neurons`, `n_frames`,
+`n_edges`, `delta_t`, `noise_model_level`.
+
+### When to regenerate (`generate_data: true`)
+
+To sweep a **Simulation Parameter** (see the table above — currently only
+`blank_prefix_fraction`), the ground-truth traces must be re-simulated
+with the new value. Procedure for one iteration:
+
+1. In that slot's YAML, set both the new simulation-parameter value **and**
+   `generate_data: true`. Leave the other 3 slots unchanged (control + two
+   other experiments, or 3 controls if you want a clean A/B/C comparison).
+2. Run the iteration. The pipeline regenerates that slot's cached data
+   and then trains; runtime ≈ DAL + ~10–15 min regen.
+3. **Flip `generate_data: false` back in that slot's YAML for the next
+   iteration.** Leaving it on burns ~10 min/iter forever and hides
+   genuine HPO signal behind regen-noise.
+
+### Causality note for simulation sweeps
+
+A `blank_prefix_fraction` change is a **simulation change**, not an HPO
+change — so the comparison is *different data vs. different data*, not
+*same data vs. same data*. To keep causality clean:
+
+- **Control slot (slot 0)**: keep `blank_prefix_fraction = parent value`,
+  `generate_data: false`. This is the baseline the comparison is measured
+  against.
+- **Experiment slot(s)**: new `blank_prefix_fraction`,
+  `generate_data: true`, everything else identical to control.
+- **Seeds** are pipeline-controlled, so slot i's regenerated data uses the
+  iteration's sim_seed — reproducible, but **different** from slot 0's
+  cached data. Report the effect size with care (it is the *combined*
+  effect of stimulus change + sim_seed change).
+
+If you see a large effect from a `blank_prefix_fraction` sweep, run a
+ROBUSTNESS block at the new value (4 slots same config, `generate_data:
+true` for the first iteration only, then back to `false`) before declaring
+a winner.
 
 ## Block Structure
 

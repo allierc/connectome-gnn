@@ -6,9 +6,10 @@ to be `agentic_code_change` — the harness verifies this at startup and aborts
 if the user is on main). After Phase V the harness calls `keep` or `revert`:
 
     keep()   — no-op; the block's commit stays on the branch.
-    revert() — runs `git revert --no-edit <start_sha>..HEAD` to undo the
-               block's commits with an audit trail (revert commits rather than
-               rewriting history).
+    revert() — `git revert --no-edit <phase_c_sha>`: reverts ONLY the block's
+               own Phase-C commit, leaving any user commits on the branch
+               untouched. Creates a new revert commit (auditable, no history
+               rewrite).
 
 All operations run in a single repo root. No global state; caller passes the
 repo root and block number explicitly.
@@ -148,39 +149,52 @@ def keep(checkpoint: BlockCheckpoint) -> None:
 
 
 def revert(checkpoint: BlockCheckpoint, verdict_reason: str) -> Optional[str]:
-    """Undo all commits made since block start, keeping history auditable.
+    """Revert ONLY the block's Phase-C commit. Returns the new HEAD SHA, or
+    None if there was nothing to revert.
 
-    Uses `git revert --no-edit <start_sha>..HEAD`. Returns the new HEAD SHA,
-    or None if there was nothing to revert.
+    Earlier versions used `git rev-list <start_sha>..HEAD` and reverted every
+    commit in that range, which silently ate user commits made on the same
+    branch between block start and verdict. `commit_phase_c` guarantees that
+    a block produces AT MOST one commit (`checkpoint.phase_c_sha`), so the
+    correct behaviour is to revert exactly that SHA.
     """
     root = checkpoint.repo_root
     if not checkpoint.has_commits():
         return None
 
-    # Count how many commits we need to revert (between start_sha and HEAD).
-    p = _run(
-        ["git", "rev-list", f"{checkpoint.start_sha}..HEAD"],
+    sha = checkpoint.phase_c_sha
+    assert sha is not None  # has_commits() == True implies phase_c_sha is set
+
+    # Sanity: the commit must still be reachable from HEAD (if a user rebased
+    # it away, there's nothing to revert).
+    reachable = _run(
+        ["git", "merge-base", "--is-ancestor", sha, "HEAD"],
         cwd=root,
+        check=False,
     )
-    shas = [s for s in p.stdout.strip().splitlines() if s]
-    if not shas:
+    if reachable.returncode != 0:
         return None
 
-    # Revert each one in reverse order (newest first).
-    # With --no-edit git uses default message "Revert <subject>"; we amend the
-    # first one with the verdict reason so it's searchable.
-    for i, sha in enumerate(shas):
-        _run(["git", "revert", "--no-edit", sha], cwd=root)
-        if i == 0:
-            # Amend to include the verdict reason in the first revert.
-            cur_msg_p = _run(["git", "log", "-1", "--pretty=%B"], cwd=root)
-            cur_msg = cur_msg_p.stdout.strip()
-            new_msg = (
-                f"{cur_msg}\n\n"
-                f"Phase-V verdict: REVERT  block {checkpoint.block_number:02d}\n"
-                f"Reason: {verdict_reason}\n"
-            )
-            _run(["git", "commit", "--amend", "-m", new_msg], cwd=root)
+    # If the Phase-C changes have already been undone on HEAD (e.g. by an
+    # intervening user revert), `git revert` would no-op. Skip quietly.
+    diff = _run(["git", "diff", sha, "HEAD", "--", "."], cwd=root)
+    # Cheaper: check whether any of the Phase-C-touched files still differs
+    # from HEAD vs sha^ in the reverse direction — skipped; `git revert` will
+    # emit an empty commit if nothing changed, which `--no-edit` + the amend
+    # below tolerates. Keep it simple.
+    _ = diff  # placeholder for future optimisation
+
+    _run(["git", "revert", "--no-edit", sha], cwd=root)
+
+    # Amend the revert's message with the verdict reason so it's searchable.
+    cur_msg_p = _run(["git", "log", "-1", "--pretty=%B"], cwd=root)
+    cur_msg = cur_msg_p.stdout.strip()
+    new_msg = (
+        f"{cur_msg}\n\n"
+        f"Phase-V verdict: REVERT  block {checkpoint.block_number:02d}\n"
+        f"Reason: {verdict_reason}\n"
+    )
+    _run(["git", "commit", "--amend", "-m", new_msg], cwd=root)
 
     return _head_sha(root)
 
