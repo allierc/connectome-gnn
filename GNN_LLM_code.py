@@ -24,7 +24,7 @@ Command-line example:
 
   git checkout agentic_code_change
   python GNN_LLM_code.py -o generate_train_test_plot_Claude \
-      flyvis_noise_005_010_code_change --cluster --resume
+      <exploration_name> --cluster --resume
 """
 
 import matplotlib
@@ -98,5 +98,5 @@ if __name__ == "__main__":
 #
 # Then:
 #
-#   python GNN_LLM_code.py -o generate_train_test_plot_Claude flyvis_noise_005_010_code_change --cluster
+#   python GNN_LLM_code.py -o generate_train_test_plot_Claude <exploration_name> --cluster
 #

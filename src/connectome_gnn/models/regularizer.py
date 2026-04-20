@@ -36,12 +36,9 @@ class LossRegularizer:
         'g_phi_diff', 'g_phi_norm', 'g_phi_weight', 'f_theta_weight',
         'f_theta_zero', 'f_theta_diff', 'f_theta_msg_diff', 'f_theta_msg_sign',
         'missing_activity', 'model_a', 'model_b',
-        'g_phi_zero_intercept',
-        'f_theta_msg_curvature',
-        'f_theta_linearity', 'f_theta_msg_linearity', 'f_theta_centering',
+        'f_theta_linearity', 'f_theta_centering',
         'embedding_cluster',
         'tau_L1', 'tau_L2', 'V_rest_L1', 'V_rest_L2',
-        'W_type_equivariance',
     ]
 
     def __init__(self, train_config, model_config, activity_column: int,
@@ -101,10 +98,6 @@ class LossRegularizer:
         self._mu_activity = None
         self._sigma_activity = None
 
-        # torch.compile-safe: pre-compute warmup/rampup for msg linearity
-        self._msg_lin_warmup_frac = float(getattr(train_config, 'f_theta_msg_linearity_warmup_fraction', 0.3))
-        self._msg_lin_rampup_iters = int(getattr(train_config, 'f_theta_msg_linearity_rampup_iters', 200))
-
     def move_type_list_to_device(self, device):
         """Move type_ids to the training device. Call once after device is known."""
         if self._type_ids_device is not None:
@@ -129,10 +122,6 @@ class LossRegularizer:
         mu, sigma = compute_activity_stats(x_ts, device)
         self._mu_activity = to_numpy(mu).astype(np.float32)
         self._sigma_activity = to_numpy(sigma).astype(np.float32)
-        # Pre-convert to tensors for use inside torch.compile traced region
-        # (numpy-to-tensor conversion via torch.as_tensor is not safe under Dynamo)
-        self._mu_activity_t = torch.tensor(self._mu_activity, dtype=torch.float32, device=device)
-        self._sigma_activity_t = torch.tensor(self._sigma_activity, dtype=torch.float32, device=device)
 
     def _update_coeffs(self):
         """Recompute coefficients based on current epoch.
@@ -171,10 +160,7 @@ class LossRegularizer:
         self._coeffs['missing_activity'] = tc.coeff_missing_activity
         self._coeffs['model_a'] = tc.coeff_model_a
         self._coeffs['model_b'] = tc.coeff_model_b
-        self._coeffs['g_phi_zero_intercept'] = getattr(tc, 'coeff_g_phi_zero_intercept', 0.0)
         self._coeffs['f_theta_linearity'] = getattr(tc, 'coeff_f_theta_linearity', 0.0)
-        self._coeffs['f_theta_msg_linearity'] = getattr(tc, 'coeff_f_theta_msg_linearity', 0.0)
-        self._coeffs['f_theta_msg_curvature'] = getattr(tc, 'coeff_f_theta_msg_curvature', 0.0)
         self._coeffs['f_theta_centering'] = getattr(tc, 'coeff_f_theta_centering', 0.0)
         self._coeffs['embedding_cluster'] = getattr(tc, 'coeff_embedding_cluster', 0.0)
         # known_ode biophysical parameter regularizers (annealed like other weight-decay terms)
@@ -182,7 +168,6 @@ class LossRegularizer:
         self._coeffs['tau_L2'] = anneal(getattr(tc, 'coeff_tau_L2', 0.0))
         self._coeffs['V_rest_L1'] = anneal(getattr(tc, 'coeff_V_rest_L1', 0.0))
         self._coeffs['V_rest_L2'] = anneal(getattr(tc, 'coeff_V_rest_L2', 0.0))
-        self._coeffs['W_type_equivariance'] = anneal(getattr(tc, 'coeff_W_type_equivariance', 0.0))
 
     def set_epoch(self, epoch: int, plot_frequency: int = None, Niter: int = None):
         """Set current epoch and update coefficients."""
@@ -226,8 +211,7 @@ class LossRegularizer:
         """Check if update regularization is needed (update_diff, update_msg_diff, or update_msg_sign)."""
         return (self._coeffs['f_theta_diff'] > 0 or
                 self._coeffs['f_theta_msg_diff'] > 0 or
-                self._coeffs['f_theta_msg_sign'] > 0 or
-                self._coeffs['f_theta_msg_curvature'] > 0)
+                self._coeffs['f_theta_msg_sign'] > 0)
 
     def _add(self, name: str, term):
         """Internal: accumulate a regularization term into a GPU scalar.
@@ -313,17 +297,6 @@ class LossRegularizer:
             total_regul = total_regul + regul_term
             self._add('V_rest_L2', regul_term)
 
-        # --- W type-equivariance (anchor class 4: structural prior on W) ---
-        if (self._coeffs['W_type_equivariance'] > 0
-                and self._type_ids_device is not None):
-            from connectome_gnn.LLM_code.staging.block_08.w_type_equivariance import w_type_equivariance_loss
-            w_for_eq = model.W
-            regul_term = w_type_equivariance_loss(
-                w_for_eq, edges, self._type_ids_device, self._n_neuron_types
-            ) * _ct['W_type_equivariance']
-            total_regul = total_regul + regul_term
-            self._add('W_type_equivariance', regul_term)
-
         # --- g_phi / f_theta weight regularization ---
         if hasattr(model, 'g_phi'):
             for param in model.g_phi.parameters():
@@ -345,8 +318,8 @@ class LossRegularizer:
             total_regul = total_regul + regul_term
             self._add('f_theta_zero', regul_term)
 
-        # --- g_phi diff/norm/zero-intercept regularization ---
-        if ((self._coeffs['g_phi_diff'] > 0) | (self._coeffs['g_phi_norm'] > 0) | (self._coeffs['g_phi_zero_intercept'] > 0)) and hasattr(model, 'g_phi'):
+        # --- g_phi diff/norm regularization ---
+        if ((self._coeffs['g_phi_diff'] > 0) | (self._coeffs['g_phi_norm'] > 0)) and hasattr(model, 'g_phi'):
             in_features_edge, in_features_edge_next = get_in_features_g_phi(x, model, mc, xnorm, n_neurons, device)
 
             if self._coeffs['g_phi_diff'] > 0:
@@ -374,12 +347,6 @@ class LossRegularizer:
                     regul_term = (msg_norm - 2 * xnorm).norm(2) * _ct['g_phi_norm']
                 total_regul = total_regul + regul_term
                 self._add('g_phi_norm', regul_term)
-
-            if self._coeffs['g_phi_zero_intercept'] > 0:
-                from connectome_gnn.LLM_code.staging.block_04.g_phi_zero_intercept import g_phi_zero_intercept_loss
-                regul_term = g_phi_zero_intercept_loss(model, in_features_edge, ids, mc.g_phi_positive) * _ct['g_phi_zero_intercept']
-                total_regul = total_regul + regul_term
-                self._add('g_phi_zero_intercept', regul_term)
 
         # --- W_sign (Dale's Law) regularization ---
         if self._coeffs['W_sign'] > 0 and self.epoch > 0:
@@ -450,26 +417,6 @@ class LossRegularizer:
                 lin_term = lin_loss * _ct['f_theta_linearity'] * rampup_weight
                 total_regul = total_regul + lin_term
                 self._add('f_theta_linearity', lin_term)
-
-        # --- f_theta msg linearity loss (penalizes nonlinearity in msg dimension) ---
-        if (self._coeffs['f_theta_msg_linearity'] > 0
-                and self._mu_activity is not None
-                and hasattr(model, 'f_theta')):
-            warmup_threshold = int(self._msg_lin_warmup_frac * self.Niter)
-            if self.iter_count > warmup_threshold:
-                rampup_weight = min(1.0, (self.iter_count - warmup_threshold) / max(self._msg_lin_rampup_iters, 1))
-
-                from connectome_gnn.LLM_code.staging.block_04.f_theta_msg_linearity import f_theta_msg_linearity_loss
-                msg_lin_loss = f_theta_msg_linearity_loss(
-                    model=model,
-                    n_neurons=self.n_neurons,
-                    mu=self._mu_activity_t,
-                    sigma=self._sigma_activity_t,
-                    device=device,
-                )
-                msg_lin_term = msg_lin_loss * _ct['f_theta_msg_linearity'] * rampup_weight
-                total_regul = total_regul + msg_lin_term
-                self._add('f_theta_msg_linearity', msg_lin_term)
 
         # --- f_theta centering loss (unsupervised V_rest anchor, requires f_theta + a) ---
         if (self._coeffs['f_theta_centering'] > 0
@@ -584,13 +531,6 @@ class LossRegularizer:
             regul_term = (torch.tanh(pred_msg / 0.1) - torch.tanh(msg_col.unsqueeze(-1) / 0.1)).norm(2) * _ct['f_theta_msg_sign']
             total_regul = total_regul + regul_term
             self._add('f_theta_msg_sign', regul_term)
-
-        if self._coeffs['f_theta_msg_curvature'] > 0 and hasattr(model, 'f_theta'):
-            from connectome_gnn.LLM_code.staging.block_06.f_theta_msg_curvature import f_theta_msg_curvature_loss
-            delta_msg = 0.05 * max(float(xnorm), 1e-6) if xnorm is not None else 1e-6
-            regul_term = f_theta_msg_curvature_loss(model, in_features, ids_batch, embedding_dim, delta_msg) * _ct['f_theta_msg_curvature']
-            total_regul = total_regul + regul_term
-            self._add('f_theta_msg_curvature', regul_term)
 
         return total_regul
 
