@@ -1,9 +1,11 @@
 """
-TeX emission for the cross-check table.
+TeX emission for the YT-only cross-check table.
 
-`emit_tex_file(suffix, output_root, n_folds)` aggregates 5-fold mean±SD
+`emit_tex_file(suffix, output_root, n_folds)` aggregates n_folds mean±SD
 for each of the 8 conditions and writes the 8-row TeX table to
-<output_root>/log/cv_<suffix>_rows.tex.
+<output_root>/log/cv_<suffix>_rows.tex. Reads per-fold results from
+<log_dir>/results_test.log, <log_dir>/results_rollout.log, and
+<log_dir>/results/metrics.txt.
 """
 
 import os
@@ -70,18 +72,10 @@ def _mean_sd(vals):
     return float(arr.mean()), float(arr.std(ddof=0))
 
 
-def _first_existing(paths):
-    for p in paths:
-        if os.path.exists(p):
-            return p
-    return paths[0]
-
-
 def emit_row(base, label, nsig, ngam, edges, output_root, pre_folder,
              suffix, n_folds):
-    """Paired N-fold CV: YT fold i rolled out against DAVIS fold i.
+    """N-fold CV: YT fold i rolled out on its own held-out 20%.
     Prediction columns aggregate N values; parameter columns also N."""
-    short = base.replace('flyvis_', '').replace('fly/', '')
     one_vals, roll_vals = [], []
     W_vals, tau_vals, V_vals, cl_vals = [], [], [], []
     found = 0
@@ -91,16 +85,10 @@ def emit_row(base, label, nsig, ngam, edges, output_root, pre_folder,
         if not os.path.isdir(fold_dir):
             continue
         found += 1
-        test_paths = [
-            os.path.join(fold_dir, f'results_test_on_{short}_cv{i:02d}.log'),
-            os.path.join(fold_dir, f'results_test_on_{short}.log'),
-        ]
-        roll_paths = [
-            os.path.join(fold_dir, f'results_rollout_on_{short}_cv{i:02d}.log'),
-            os.path.join(fold_dir, f'results_rollout_on_{short}.log'),
-        ]
-        one_vals.append(_parse_pearson(_first_existing(test_paths)))
-        roll_vals.append(_parse_pearson(_first_existing(roll_paths)))
+        test_path = os.path.join(fold_dir, 'results_test.log')
+        roll_path = os.path.join(fold_dir, 'results_rollout.log')
+        one_vals.append(_parse_pearson(test_path))
+        roll_vals.append(_parse_pearson(roll_path))
         m = _parse_metrics_txt(os.path.join(fold_dir, 'results', 'metrics.txt'))
         W_vals.append(m.get('W_corrected_R2',  float('nan')))
         tau_vals.append(m.get('tau_R2',        float('nan')))
@@ -135,7 +123,7 @@ def emit_tex_file(suffix, output_root, n_folds=5, pre_folder='fly',
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, out_name)
     with open(out_path, 'w') as f:
-        f.write(f'% --- rows for YT-trained, DAVIS-cross-tested; suffix={suffix} ---\n')
+        f.write(f'% --- rows for YT-trained, YT-held-out-tested; suffix={suffix} ---\n')
         for r in rows:
             f.write(r + '\n')
         f.write('% ' + '-' * 60 + '\n')
