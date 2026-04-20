@@ -78,11 +78,11 @@ def emit_one(base_name, hp_yaml_path, out_yaml_path, suffix, yt_root,
     merged['simulation']['datavis_roots']     = [yt_root]
     merged['simulation']['skip_short_videos'] = False
 
-    # Blank 50% of training frames (improves V_rest recovery).
-    _vit = str(merged['simulation'].get('visual_input_type', 'DAVIS'))
-    if 'blank' not in _vit:
-        merged['simulation']['visual_input_type'] = _vit + '_blank'
-    merged['simulation']['blank_freq'] = 2
+    # Blank 50% of training frames (improves V_rest recovery) — disabled.
+    # _vit = str(merged['simulation'].get('visual_input_type', 'DAVIS'))
+    # if 'blank' not in _vit:
+    #     merged['simulation']['visual_input_type'] = _vit + '_blank'
+    # merged['simulation']['blank_freq'] = 2
 
     # Fixed training budget across all 8 conditions.
     if 'training' in merged:
@@ -100,15 +100,22 @@ def emit_one(base_name, hp_yaml_path, out_yaml_path, suffix, yt_root,
         merged['training'] = dict(merged['training'])
         merged['training']['seed'] = train_seed
 
+    # YAML filename keeps the suffix (drives config_file -> log dir, so
+    # run_GNN_conditions and run_GNN_cross stay in distinct log dirs).
+    # dataset is suffix-free so the underlying YT training data (which
+    # only depends on the base + seed, not on the HP block) is shared
+    # between the two scripts.
     if fold_i is not None:
-        new_name = f'{base_name}_{suffix}_cv{fold_i:02d}'
+        yaml_name    = f'{base_name}_{suffix}_cv{fold_i:02d}'
+        dataset_name = f'{base_name}_yt_cv{fold_i:02d}'
     else:
-        new_name = f'{base_name}_{suffix}'
-    merged['dataset']     = new_name
+        yaml_name    = f'{base_name}_{suffix}'
+        dataset_name = f'{base_name}_yt'
+    merged['dataset']     = dataset_name
     fold_tag = f' fold={fold_i}' if fold_i is not None else ''
     merged['description'] = (
-        f'Cross-check YT-training variant of {base_name}{fold_tag}. '
-        f'sim_seed={sim_seed} train_seed={train_seed}. '
+        f'Cross-check YT-training variant of {base_name}{fold_tag} '
+        f'({suffix}). sim_seed={sim_seed} train_seed={train_seed}. '
         f'HPs: {os.path.basename(hp_yaml_path)}.'
     )
 
