@@ -90,14 +90,6 @@ def emit_one(base_name, hp_yaml_path, out_yaml_path, suffix, yt_root,
     if 'blank' not in _vit:
         merged['simulation']['visual_input_type'] = _vit + '_blank'
     merged['simulation']['blank_freq'] = 2
-    # Training with blank frames needs more epochs to reach the same
-    # effective number of non-blank passes over the data.
-    if 'training' in merged:
-        merged['training'] = dict(merged['training'])
-        merged['training']['n_epochs'] = 5
-    if 'claude' in merged:
-        merged['claude'] = dict(merged['claude'])
-        merged['claude']['n_epochs'] = 5
     # Per-fold seeds (CV convention: sim_seed = 42+i, train_seed = 1042+i).
     if sim_seed is not None:
         merged['simulation']['seed'] = sim_seed
