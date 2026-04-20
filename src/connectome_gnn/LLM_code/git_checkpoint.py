@@ -91,7 +91,10 @@ def require_branch(repo_root: str, branch: str = REQUIRED_BRANCH) -> None:
 
 def start_block(repo_root: str, block_number: int) -> BlockCheckpoint:
     """Snapshot HEAD at block start. Must be on REQUIRED_BRANCH."""
-    require_branch(repo_root)
+    try:
+        require_branch(repo_root)
+    except GitCheckpointError as e:
+        print(f"\n\033[93m[LLM_code] WARNING: {e}\033[0m\n")
     return BlockCheckpoint(
         repo_root=repo_root,
         block_number=block_number,

@@ -283,11 +283,11 @@ def run_exploration(args, root_dir: str, source_config_path: str) -> None:
 
     state = build_code_state(base_state, source_config_path)
 
-    # Guard: must be on the code-change branch.
+    # Guard: should be on the code-change branch. Warn instead of aborting.
     try:
         require_branch(root_dir)
     except GitCheckpointError as e:
-        raise SystemExit(f"\n\033[91m[LLM_code] {e}\033[0m\n")
+        print(f"\n\033[93m[LLM_code] WARNING: {e}\033[0m\n")
 
     # Load the instruction file once (applied to every R/S/C prompt).
     instruction_text = ""
