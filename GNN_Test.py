@@ -258,14 +258,13 @@ def run_test_plot(config, config_file, device):
     from connectome_gnn.models.graph_trainer import data_test
     from GNN_PlotFigure import data_plot
 
-    config.simulation.noise_model_level = 0.0
     data_test(
         config=config, visualize=False,
         style="color name continuous_slice", verbose=False,
         best_model='best', run=0, test_mode="",
         sample_embedding=False, step=1000, n_rollout_frames=10000,
         device=device, particle_of_interest=0,
-        new_params=None, rollout_without_noise=False,
+        new_params=None, rollout_without_noise=True,
     )
 
     pre_folder = os.path.dirname(config.config_file)
