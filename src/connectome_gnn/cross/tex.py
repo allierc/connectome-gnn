@@ -1,25 +1,11 @@
 """
-Emit 8 TeX rows of a 6-column table (same schema as tab:cv_per_condition)
-driven by YT-trained models cross-tested on DAVIS.
+TeX emission for the cross-check table.
 
-For each condition:
-  prediction columns (one-step r, rollout r):
-      from <DATA_ROOT>/log/fly/<base>_<suffix>/results_{test,rollout}_on_<base>.log
-      = YT-trained model rolled out on DAVIS held-out test data.
-  parameter-recovery columns (W, tau, V_rest, cluster):
-      from <DATA_ROOT>/log/fly/<base>_<suffix>/results/metrics.txt
-      = YT-trained model's own learned parameters.
-
-Missing cells render as "$\\cdot$".
-
-Usage:
-    python scripts/emit_cross_table_rows.py \\
-        --suffix yt_per_cond \\
-        --output_tex cv_per_condition_rows.tex \\
-        --output_root /groups/saalfeld/home/allierc/GraphData
+`emit_tex_file(suffix, output_root, n_folds)` aggregates 5-fold mean±SD
+for each of the 8 conditions and writes the 8-row TeX table to
+<output_root>/log/cv_<suffix>_rows.tex.
 """
 
-import argparse
 import os
 import re
 import sys
@@ -27,14 +13,10 @@ import sys
 import numpy as np
 
 
-_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-REPO_ROOT = os.path.dirname(_SCRIPT_DIR)
-
-
 GOOD_THRESHOLD = 0.9
 
 
-# Condition base name -> (label, noise sigma, noise gamma, edges text)
+# (base, label, sigma, gamma, edges) — table-row metadata.
 CONDITIONS = [
     ('flyvis_noise_free',                'noise-free',              '0',    '0',   '434\\,112'),
     ('flyvis_noise_005',                 'low intrinsic noise',     '0.05', '0',   '434\\,112'),
@@ -47,7 +29,7 @@ CONDITIONS = [
 ]
 
 
-def fmt(mean, sd):
+def _fmt(mean, sd):
     if np.isnan(mean):
         return '$\\cdot$'
     body = f"${mean:.2f}{{\\pm}}{sd:.2f}$"
@@ -89,7 +71,6 @@ def _mean_sd(vals):
 
 
 def _first_existing(paths):
-    """Return the first path that exists, else paths[0] for nan-parse."""
     for p in paths:
         if os.path.exists(p):
             return p
@@ -98,18 +79,8 @@ def _first_existing(paths):
 
 def emit_row(base, label, nsig, ngam, edges, output_root, pre_folder,
              suffix, n_folds):
-    """Aggregate mean ± SD for base <suffix>_cv00..cv<N-1>.
-
-    Paired N-fold CV: YT fold i is rolled out against DAVIS fold i, so
-    prediction columns (one-step r, rollout r) aggregate N values from:
-        <fold_i_dir>/results_{test,rollout}_on_<short>_cv{i:02d}.log
-    Falls back to the legacy single-DAVIS log name when the per-fold log
-    is absent:
-        <fold_i_dir>/results_{test,rollout}_on_<short>.log
-
-    Parameter-recovery columns (W, τ, V_rest, cluster) aggregate one
-    value per YT fold (data_plot runs once per YT model).
-    """
+    """Paired N-fold CV: YT fold i rolled out against DAVIS fold i.
+    Prediction columns aggregate N values; parameter columns also N."""
     short = base.replace('flyvis_', '').replace('fly/', '')
     one_vals, roll_vals = [], []
     W_vals, tau_vals, V_vals, cl_vals = [], [], [], []
@@ -120,14 +91,13 @@ def emit_row(base, label, nsig, ngam, edges, output_root, pre_folder,
         if not os.path.isdir(fold_dir):
             continue
         found += 1
-        # Paired: YT fold i × DAVIS fold i.
         test_paths = [
             os.path.join(fold_dir, f'results_test_on_{short}_cv{i:02d}.log'),
-            os.path.join(fold_dir, f'results_test_on_{short}.log'),  # legacy
+            os.path.join(fold_dir, f'results_test_on_{short}.log'),
         ]
         roll_paths = [
             os.path.join(fold_dir, f'results_rollout_on_{short}_cv{i:02d}.log'),
-            os.path.join(fold_dir, f'results_rollout_on_{short}.log'),  # legacy
+            os.path.join(fold_dir, f'results_rollout_on_{short}.log'),
         ]
         one_vals.append(_parse_pearson(_first_existing(test_paths)))
         roll_vals.append(_parse_pearson(_first_existing(roll_paths)))
@@ -147,47 +117,26 @@ def emit_row(base, label, nsig, ngam, edges, output_root, pre_folder,
     cl_m, cl_s     = _mean_sd(cl_vals)
     return (
         f'{label:<22} & ${nsig}$ & ${ngam}$ & ${edges}$\n'
-        f'  & {fmt(one_m, one_s)} & {fmt(roll_m, roll_s)}\n'
-        f'  & {fmt(W_m, W_s)} & {fmt(tau_m, tau_s)} & {fmt(V_m, V_s)} & {fmt(cl_m, cl_s)} \\\\'
+        f'  & {_fmt(one_m, one_s)} & {_fmt(roll_m, roll_s)}\n'
+        f'  & {_fmt(W_m, W_s)} & {_fmt(tau_m, tau_s)} & '
+        f'{_fmt(V_m, V_s)} & {_fmt(cl_m, cl_s)} \\\\'
     )
 
 
-def main():
-    p = argparse.ArgumentParser()
-    p.add_argument('--suffix', required=True,
-                   help='YT training yaml suffix used by run_cross_yt.py.')
-    p.add_argument('--output_tex', default=None,
-                   help='Basename of the output .tex file under <DATA_ROOT>/log/. '
-                        'Default: cv_<suffix>_rows.tex')
-    p.add_argument('--output_root',
-                   default='/groups/saalfeld/home/allierc/GraphData')
-    p.add_argument('--pre_folder', default='fly')
-    p.add_argument('--n_folds', type=int, default=5)
-    args = p.parse_args()
-
-    out_name = args.output_tex or f'cv_{args.suffix}_rows.tex'
-
-    rows = []
-    for base, label, nsig, ngam, edges in CONDITIONS:
-        rows.append(emit_row(base, label, nsig, ngam, edges,
-                             args.output_root, args.pre_folder,
-                             args.suffix, args.n_folds))
-
-    out_dir = os.path.join(args.output_root, 'log')
+def emit_tex_file(suffix, output_root, n_folds=5, pre_folder='fly',
+                   output_tex=None):
+    """Emit the 8-row TeX table to <output_root>/log/cv_<suffix>_rows.tex.
+    Safe to call repeatedly — overwrites in place."""
+    out_name = output_tex or f'cv_{suffix}_rows.tex'
+    rows = [emit_row(base, label, nsig, ngam, edges,
+                     output_root, pre_folder, suffix, n_folds)
+            for base, label, nsig, ngam, edges in CONDITIONS]
+    out_dir = os.path.join(output_root, 'log')
     os.makedirs(out_dir, exist_ok=True)
-    out_tex = os.path.join(out_dir, out_name)
-    with open(out_tex, 'w') as f:
-        f.write(f'% --- rows for YT-trained, DAVIS-cross-tested; suffix={args.suffix} ---\n')
+    out_path = os.path.join(out_dir, out_name)
+    with open(out_path, 'w') as f:
+        f.write(f'% --- rows for YT-trained, DAVIS-cross-tested; suffix={suffix} ---\n')
         for r in rows:
             f.write(r + '\n')
-        f.write('% ------------------------------------------------------------\n')
-
-    print(f'% --- rows for YT-trained, DAVIS-cross-tested; suffix={args.suffix} ---')
-    for r in rows:
-        print(r)
-    print('% ------------------------------------------------------------')
-    print(f'\nwrote {out_tex}')
-
-
-if __name__ == '__main__':
-    main()
+        f.write('% ' + '-' * 60 + '\n')
+    print(f'  [tex ] {out_path}')
