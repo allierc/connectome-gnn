@@ -12,6 +12,14 @@ def batch_0_prompt(state: 'ExplorationState', slot_list: str, seed_info: str) ->
     """Build the BATCH 0 start prompt for initializing N config variations."""
     return f"""PARALLEL START: Initialize {state.n_parallel} config variations for the first batch.
 
+⏱ TIME BUDGET: this Claude call has a hard wall-clock limit of
+{state.claude_call_timeout_min} minutes. The wrapper will SIGTERM you at that
+deadline — any unfinished YAML edits are lost. Plan accordingly:
+  - Read ONLY the files explicitly listed below; do not Glob the directory.
+  - Spend < 1 min on reading, < 1 min on planning, the rest on Edits.
+  - If you run short on time, it is BETTER to leave slot configs at their
+    pre-seed values than to make hasty unjustified mutations.
+
 Instructions (follow all instructions): {state.instruction_path}
 Working memory: {state.memory_path}
 Full log (append only): {state.analysis_path}
@@ -35,6 +43,13 @@ def analysis_prompt(state: 'ExplorationState', batch: 'BatchInfo',
 
     return f"""Batch iterations {batch.batch_first}-{batch.batch_last} / {state.n_iterations}
 Block info: block {batch.block_number}, iterations {batch.iter_in_block_first}-{batch.iter_in_block_last}/{state.n_iter_block} within block{block_end_marker}
+
+⏱ TIME BUDGET: this Claude call has a hard wall-clock limit of
+{state.claude_call_timeout_min} minutes. The wrapper will SIGTERM you at the
+deadline — any unfinished log entries or YAML edits are lost. Plan: read only
+the files named below (no Globs, no other explorations), spend most of the
+budget on log entries + the {state.n_parallel} config edits. If short on time,
+write the {state.n_parallel} configs first (most important), then log entries.
 
 PARALLEL MODE: Analyze {batch.n_slots} results, then propose next {state.n_parallel} mutations.
 

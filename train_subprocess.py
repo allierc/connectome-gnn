@@ -42,6 +42,15 @@ if __name__ == '__main__':
         config = NeuralGraphConfig.from_yaml(args.config)
         if args.config_file:
             config.config_file = args.config_file
+        # Prepend pre_folder (e.g. 'fly/') from config_file to dataset so
+        # data_train finds graphs_data/<pre>/<dataset>/. Guarded — if the
+        # YAML already bakes the prefix in (e.g. GNN_LLM Claude flow), leave
+        # it alone to avoid double-prefixing. Matches what
+        # GNN_LLM/pipeline.py does upstream.
+        if args.config_file and '/' in args.config_file:
+            pre = args.config_file.split('/')[0] + '/'
+            if not config.dataset.startswith(pre):
+                config.dataset = pre + config.dataset
 
         log_file = open(args.log_file, 'w', buffering=1) if args.log_file else None
         try:

@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Annotated, Optional
+from typing import Annotated, Dict, List, Optional
 
 
 # Python 3.10 compatibility (StrEnum added in 3.11)
@@ -275,6 +275,7 @@ class SimulationConfig(BaseModel):
     calcium_noise_level: float = 0.0  # optional Gaussian noise added to [Ca] updates
     noise_model_level: float = 0.0  # process noise added during dynamics simulation
     measurement_noise_level: float = 0.0  # observation noise saved separately in noise.zarr
+    noisy_test_data: bool = False  # if True, test split uses the same noise levels as train; default keeps test deterministic
     derivative_smoothing_window: int = 1  # temporal smoothing window for noisy derivatives (1 = no smoothing)
     calcium_saturation_kd: float = 1.0  # for nonlinear saturation models
     calcium_num_compartments: int = 1
@@ -302,6 +303,16 @@ class ClaudeConfig(BaseModel):
     interaction_code: bool = False  # enable Phase A interactive code sessions at block boundaries
     case_study: str = ""  # case study identifier (e.g. "measurement_noise")
     case_study_brief: str = ""  # description of the case study for LLM code briefs
+    claude_call_timeout_min: int = 4  # hard wall-clock cap per Claude CLI call (BATCH 0 + analysis)
+
+
+class ClaudeCodeConfig(BaseModel):
+    """Block-level code-change exploration config (GNN_LLM_code.py)."""
+    model_config = ConfigDict(extra="ignore")
+
+    block_themes: Optional[List[str]] = None
+    phase_time_limits: Optional[Dict[str, int]] = None
+    primary_metric: Optional[str] = None
 
 
 class GraphModelConfig(BaseModel):
@@ -501,7 +512,10 @@ class PlottingConfig(BaseModel):
 
 
 class TrainingConfig(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    # allow: LLM_code agents introduce new coeff_<name> keys per block; they
+    # must survive the YAML→pydantic round-trip so getattr(tc, coeff_name)
+    # works from the staged production hook.
+    model_config = ConfigDict(extra="allow")
     device: Annotated[str, Field(pattern=r"^(auto|cpu|cuda:\d+)$")] = "auto"
 
     n_epochs: int = 20
@@ -623,6 +637,12 @@ class TrainingConfig(BaseModel):
     # -- W (connectivity) regularizers --
     # coeff_W_L1, coeff_W_L2, coeff_W_sign defined above
 
+    # -- known_ode biophysical parameter regularizers (apply to model.raw_tau / model.V_rest) --
+    coeff_tau_L1: float = 0.0     # L1 penalty on raw_tau (pulls tau toward identity-element of its transform)
+    coeff_tau_L2: float = 0.0     # L2 penalty on raw_tau
+    coeff_V_rest_L1: float = 0.0  # L1 penalty on V_rest (pulls V_rest toward 0)
+    coeff_V_rest_L2: float = 0.0  # L2 penalty on V_rest
+
     # -- Other regularizers --
     coeff_entropy_loss: float = 0  # Entropy penalty on predictions
     coeff_permutation: float = 100  # Permutation invariance penalty
@@ -730,6 +750,7 @@ class NeuralGraphConfig(BaseModel):
     simulation: SimulationConfig
     graph_model: GraphModelConfig
     claude: Optional[ClaudeConfig] = None
+    claude_code: Optional[ClaudeCodeConfig] = None
     plotting: PlottingConfig
     training: TrainingConfig
     zarr: Optional[ZarrConfig] = None
