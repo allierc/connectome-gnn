@@ -100,15 +100,15 @@ def emit_row(base, label, nsig, ngam, edges, output_root, pre_folder,
              suffix, n_folds):
     """Aggregate mean ± SD for base <suffix>_cv00..cv<N-1>.
 
-    Prediction columns (one-step r, rollout r) aggregate up to N×N values
-    from the Cartesian product of YT fold i × DAVIS fold j:
-        <fold_i_dir>/results_{test,rollout}_on_<short>_cv{j:02d}.log
+    Paired N-fold CV: YT fold i is rolled out against DAVIS fold i, so
+    prediction columns (one-step r, rollout r) aggregate N values from:
+        <fold_i_dir>/results_{test,rollout}_on_<short>_cv{i:02d}.log
     Falls back to the legacy single-DAVIS log name when the per-fold log
     is absent:
         <fold_i_dir>/results_{test,rollout}_on_<short>.log
 
-    Parameter-recovery columns (W, τ, V_rest, cluster) still aggregate
-    one value per YT fold (data_plot is run once per YT model).
+    Parameter-recovery columns (W, τ, V_rest, cluster) aggregate one
+    value per YT fold (data_plot runs once per YT model).
     """
     short = base.replace('flyvis_', '').replace('fly/', '')
     one_vals, roll_vals = [], []
@@ -120,21 +120,17 @@ def emit_row(base, label, nsig, ngam, edges, output_root, pre_folder,
         if not os.path.isdir(fold_dir):
             continue
         found += 1
-        for j in range(n_folds):
-            # Preferred: per-fold DAVIS (new behavior). Fallback: legacy
-            # single-DAVIS log (only sensible when j == i, since old runs
-            # had one rollout per YT fold on the shared DAVIS).
-            test_paths = [os.path.join(
-                fold_dir, f'results_test_on_{short}_cv{j:02d}.log')]
-            roll_paths = [os.path.join(
-                fold_dir, f'results_rollout_on_{short}_cv{j:02d}.log')]
-            if j == i:
-                test_paths.append(os.path.join(
-                    fold_dir, f'results_test_on_{short}.log'))
-                roll_paths.append(os.path.join(
-                    fold_dir, f'results_rollout_on_{short}.log'))
-            one_vals.append(_parse_pearson(_first_existing(test_paths)))
-            roll_vals.append(_parse_pearson(_first_existing(roll_paths)))
+        # Paired: YT fold i × DAVIS fold i.
+        test_paths = [
+            os.path.join(fold_dir, f'results_test_on_{short}_cv{i:02d}.log'),
+            os.path.join(fold_dir, f'results_test_on_{short}.log'),  # legacy
+        ]
+        roll_paths = [
+            os.path.join(fold_dir, f'results_rollout_on_{short}_cv{i:02d}.log'),
+            os.path.join(fold_dir, f'results_rollout_on_{short}.log'),  # legacy
+        ]
+        one_vals.append(_parse_pearson(_first_existing(test_paths)))
+        roll_vals.append(_parse_pearson(_first_existing(roll_paths)))
         m = _parse_metrics_txt(os.path.join(fold_dir, 'results', 'metrics.txt'))
         W_vals.append(m.get('W_corrected_R2',  float('nan')))
         tau_vals.append(m.get('tau_R2',        float('nan')))
