@@ -254,7 +254,10 @@ def _make_mid_rollout_hook(yt_cfgs, base_cfgs, device, n_frames=100):
     def _hook(log_dirs, slots_active):
         if test_cfg is None:
             return
-        test_short = test_cfg.config_file.replace('fly/', '')
+        # Mirror graph_tester.data_test_gnn's short-name derivation
+        # (line ~154): strip both 'flyvis_' and 'fly/' when building the
+        # results_{test,rollout}_on_<short>.log filename.
+        test_short = test_cfg.dataset.replace('flyvis_', '').replace('fly/', '')
         for slot in sorted(slots_active):
             if slot >= len(yt_cfgs):
                 continue
