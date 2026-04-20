@@ -143,12 +143,11 @@ def main():
                    help='Print conn/Vr/τ R² for each cluster slot every N '
                         'seconds during the wait (default: 300).')
     p.add_argument('--mid_rollout', action=argparse.BooleanOptionalAction,
-                   default=True,
-                   help='Default: on. During the cluster-training wait, run '
+                   default=False,
+                   help='Default: off. During the cluster-training wait, run '
                         'a silent local data_test rollout per slot every '
                         '--metrics_interval seconds (YT model -> DAVIS CV '
-                        'fold 0) and print the Pearson r with r2_color. '
-                        'Pass --no-mid_rollout to disable.')
+                        'fold 0) and print the Pearson r with r2_color.')
     p.add_argument('--mid_rollout_frames', type=int, default=100,
                    help='Frames for the mid-training rollout (default: 100).')
     p.add_argument('--local_test_plot', action='store_true',
