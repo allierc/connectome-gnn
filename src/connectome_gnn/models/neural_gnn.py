@@ -263,17 +263,29 @@ class NeuralGNN(nn.Module):
         # "siren_txy" : SIREN(x,y,t) -> scalar   — spatially-correlated field
         # "ngp_t"     : MultiResTemporalGrid(t) -> (n_hidden,)  — local, no waterbed
         # "none"      : zero-silencing, no INR
+        # When train_with_anchor_neurons is enabled, the NNR_hidden output is extended by
+        # n_anchor extra slots used only for direct supervision against observed GT voltages.
+        # The first n_hidden slots remain the "hidden" outputs; slots [n_hidden:n_hidden+n_anchor]
+        # are the "anchor" outputs.
         self.NNR_hidden = None
         self._inr_hidden_type = getattr(model_config, 'inr_type_hidden', 'none')
         self.NNR_hidden_T_period = getattr(model_config, 'nnr_hidden_T_period', 64000.0) / (2 * np.pi)
         self.NNR_hidden_xy_period = getattr(model_config, 'nnr_f_xy_period', 1.0) / (2 * np.pi)
         self.NNR_hidden_n_frames = float(simulation_config.n_frames)  # for NGP [0,1] normalisation
         _hidden_frac = getattr(model_config, 'hidden_neuron_fraction', 0.0)
+        _train_anchor = bool(getattr(config.training, 'train_with_anchor_neurons', False))
+        _n_anchor_cfg = int(getattr(config.training, 'n_anchor', 0))
+        self.n_hidden = 0
+        self.n_anchor = 0
         if self._inr_hidden_type in ('siren_t', 'siren_txy') and _hidden_frac > 0.0:
             n_non_retina = simulation_config.n_neurons - simulation_config.n_input_neurons
             n_hidden = int(n_non_retina * _hidden_frac)
+            self.n_hidden = n_hidden
+            # Anchor only supported for siren_t (per-neuron output). siren_txy uses scalar field.
+            if _train_anchor and self._inr_hidden_type == 'siren_t':
+                self.n_anchor = _n_anchor_cfg if _n_anchor_cfg > 0 else n_hidden
             in_features = 1 if self._inr_hidden_type == 'siren_t' else 3
-            out_features = n_hidden if self._inr_hidden_type == 'siren_t' else 1
+            out_features = (n_hidden + self.n_anchor) if self._inr_hidden_type == 'siren_t' else 1
             self.NNR_hidden = Siren(
                 in_features=in_features,
                 out_features=out_features,
@@ -287,12 +299,15 @@ class NeuralGNN(nn.Module):
         elif self._inr_hidden_type == 'ngp_t' and _hidden_frac > 0.0:
             n_non_retina = simulation_config.n_neurons - simulation_config.n_input_neurons
             n_hidden = int(n_non_retina * _hidden_frac)
+            self.n_hidden = n_hidden
+            if _train_anchor:
+                self.n_anchor = _n_anchor_cfg if _n_anchor_cfg > 0 else n_hidden
             self.NNR_hidden = MultiResTemporalGrid(
                 n_levels=getattr(model_config, 'ngp_hidden_n_levels', 24),
                 n_features_per_level=getattr(model_config, 'ngp_hidden_n_features_per_level', 4),
                 base_resolution=getattr(model_config, 'ngp_hidden_base_resolution', 16),
                 per_level_scale=getattr(model_config, 'ngp_hidden_per_level_scale', 1.4),
-                n_output=n_hidden,
+                n_output=n_hidden + self.n_anchor,
                 mlp_width=getattr(model_config, 'ngp_hidden_mlp_width', 512),
                 mlp_layers=getattr(model_config, 'ngp_hidden_mlp_layers', 4),
             )
@@ -319,11 +334,37 @@ class NeuralGNN(nn.Module):
             # MultiResTemporalGrid: t normalized to [0, 1]
             t_in = torch.full((1, 1), float(k) / self.NNR_hidden_n_frames,
                               device=self.device, dtype=torch.float32)          # (1, 1)
-            return self.NNR_hidden(t_in).squeeze(0)                             # (n_hidden,)
+            out = self.NNR_hidden(t_in).squeeze(0)                              # (n_hidden [+ n_anchor],)
+            if self.n_anchor > 0:
+                out = out[:self.n_hidden]
+            return out
         else:  # siren_t
             t_in = torch.full((1, 1), float(k) / self.NNR_hidden_T_period,
                               device=self.device, dtype=torch.float32)          # (1, 1)
-            return self.NNR_hidden(t_in).squeeze(0)                             # (n_hidden,)
+            out = self.NNR_hidden(t_in).squeeze(0)                              # (n_hidden [+ n_anchor],)
+            if self.n_anchor > 0:
+                out = out[:self.n_hidden]
+            return out
+
+    def forward_anchor(self, k: int) -> torch.Tensor:
+        """Predict voltages for anchor neurons at frame k — only the anchor output slots.
+
+        Returns (n_anchor,) tensor. Used exclusively for direct voltage supervision;
+        anchor predictions are NOT injected into x.voltage (the GNN already sees the
+        observed voltage of anchor neurons through the normal visible path).
+        """
+        if self.NNR_hidden is None or self.n_anchor == 0:
+            raise RuntimeError("forward_anchor called but anchor outputs are not enabled")
+        if self._inr_hidden_type == 'ngp_t':
+            t_in = torch.full((1, 1), float(k) / self.NNR_hidden_n_frames,
+                              device=self.device, dtype=torch.float32)
+            return self.NNR_hidden(t_in).squeeze(0)[self.n_hidden:]
+        elif self._inr_hidden_type == 'siren_t':
+            t_in = torch.full((1, 1), float(k) / self.NNR_hidden_T_period,
+                              device=self.device, dtype=torch.float32)
+            return self.NNR_hidden(t_in).squeeze(0)[self.n_hidden:]
+        else:
+            raise RuntimeError(f"anchor outputs not supported for inr_type_hidden={self._inr_hidden_type}")
 
     def forward_visual(self, state: NeuronState, k):
         """Reconstruct visual field from neuron positions and time step k."""
