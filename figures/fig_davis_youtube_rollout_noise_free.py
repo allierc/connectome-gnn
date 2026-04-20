@@ -1,9 +1,9 @@
 """
-Figure: DAVIS-trained GNN rollout on held-out YouTube-VOS sequences.
+Figure: YT-trained GNN rollout on held-out DAVIS sequences.
 
-Model trained on DAVIS stimuli (flyvis_noise_free, the 217-column noise-free
-simulation), evaluated zero-shot on YouTube-VOS fold cv00 data.
-Rollout Pearson r = 0.994 ± 0.034 over 8,000 frames, 13,741 neurons.
+Model trained on YouTube-VOS stimuli (flyvis_noise_free_yt_per_cond_cv00,
+the 434k-edge noise-free simulation with 50%-blank training frames),
+evaluated zero-shot on DAVIS held-out fold cv00.
 
 Layout
 ------
@@ -13,10 +13,11 @@ Layout
 
 Data source
 -----------
-  /log/fly/flyvis_noise_free/results/
-      activity_true_on_noise_free_cv00.npy   (13741, 7999)
-      activity_pred_on_noise_free_cv00.npy   (13741, 7999)
-      rollout_bundle.npz                     (reused for type_ids / type_names)
+  /log/fly/flyvis_noise_free_yt_per_cond_cv00/results/
+      rollout_bundle_on_noise_free_cv00.npz
+        activity_true : (13741, 7999)
+        activity_pred : (13741, 7999)
+        type_ids, type_names
 
 Usage
 -----
@@ -52,8 +53,10 @@ FS_TYPE   = int(26 * _S)
 FS_TITLE  = 22
 
 # ── paths ────────────────────────────────────────────────────────────────────
-RESULTS_DIR = '/groups/saalfeld/home/allierc/GraphData/log/fly/flyvis_noise_free/results'
-FOLD        = 'cv00'
+# YT-trained model, DAVIS test (matches run_GNN_conditions.py convention).
+MODEL_DIR   = '/groups/saalfeld/home/allierc/GraphData/log/fly/flyvis_noise_free_yt_per_cond_cv00'
+RESULTS_DIR = f'{MODEL_DIR}/results'
+TEST_SHORT  = 'noise_free_cv00'   # DAVIS CV fold 0 short-name
 
 # ── trace window + selection (same curated list as fig_traces.py) ────────────
 TRACE_START    = 500
@@ -78,12 +81,14 @@ DT_MS      = 20.0        # flyvis delta_t
 # ---------------------------------------------------------------------------
 # Load data
 # ---------------------------------------------------------------------------
-print(f'loading DAVIS-model → YouTube-VOS fold {FOLD} ...')
-true_arr = np.load(os.path.join(RESULTS_DIR, f'activity_true_on_noise_free_{FOLD}.npy'),
-                   mmap_mode='r')
-pred_arr = np.load(os.path.join(RESULTS_DIR, f'activity_pred_on_noise_free_{FOLD}.npy'),
-                   mmap_mode='r')
-bundle   = np.load(os.path.join(RESULTS_DIR, 'rollout_bundle.npz'), allow_pickle=True)
+print(f'loading YT-trained model → DAVIS fold {TEST_SHORT} ...')
+bundle_path = os.path.join(RESULTS_DIR, f'rollout_bundle_on_{TEST_SHORT}.npz')
+if not os.path.isfile(bundle_path):
+    sys.exit(f'missing rollout bundle: {bundle_path}\n'
+             'Run run_GNN_conditions.py first (cross-test wave writes it).')
+bundle   = np.load(bundle_path, allow_pickle=True)
+true_arr = bundle['activity_true']
+pred_arr = bundle['activity_pred']
 type_ids   = bundle['type_ids'].astype(int)
 type_names = list(bundle['type_names'])
 index_to_name = {i: type_names[i] for i in range(len(type_names))}
@@ -103,8 +108,7 @@ pred_win = np.asarray(pred_arr[neuron_idx, TRACE_START:TRACE_END], dtype=np.floa
 n_traces, n_frames = true_win.shape
 
 # Global rollout r — take from the log so figure reports the exact number
-rollout_log = '/groups/saalfeld/home/allierc/GraphData/log/fly/flyvis_noise_free/' \
-              'results_rollout_on_noise_free_cv00.log'
+rollout_log = f'{MODEL_DIR}/results_rollout_on_{TEST_SHORT}.log'
 pearson_r = None
 if os.path.isfile(rollout_log):
     with open(rollout_log) as f:

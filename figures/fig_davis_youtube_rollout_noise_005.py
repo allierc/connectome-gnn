@@ -1,14 +1,14 @@
 """
-Figure: flyvis_noise_005_winner rollout on YouTube-VOS (cv00) — noisy vs noise-free.
+Figure: YT-trained GNN rollout on DAVIS (cv00) — noisy vs noise-free.
 
 Two stacked panels (12 representative cell types, 1 000 frames each):
-  a) model rollout vs YouTube-VOS test data with σ = 0.05 process noise
-     (noisy cv00: same stimulus + seed as train, simulation.noisy_test_data=true)
-  b) model rollout vs noise-free twin of the same stimulus
-     (same YouTube-VOS videos + seed 42, noise_model_level=0)
+  a) model rollout vs DAVIS test data with σ = 0.05 process noise
+     (noisy cv00: flyvis_noise_005_cv00, emitted by run_GNN_conditions.py)
+  b) model rollout vs noise-free twin of the same DAVIS stimulus
+     (same DAVIS videos + seed 42, noise_model_level=0)
 
 End-to-end pipeline (each step cached by file existence, no manual commands):
-  1. Clone winner.yaml -> {cv00,cv00_nf}.yaml (noisy + noise-free variants)
+  1. Clone <base>.yaml -> {cv00,cv00_nf}.yaml (DAVIS noisy + noise-free)
   2. python GNN_Main.py -o generate <cfg>            — regenerate ODE
   3. python GNN_Main.py -o test <model> best <cfg>   — cross-dataset rollout
   4. Plot both panels.
@@ -39,14 +39,15 @@ from matplotlib.lines import Line2D
 # ── identifiers ──────────────────────────────────────────────────────────────
 REPO_ROOT   = '/workspace/connectome-gnn'
 DATA_ROOT   = '/groups/saalfeld/home/allierc/GraphData'
-YT_VOS_ROOT = '/groups/saalfeld/home/kumarv4/web_datasets/YouTube-VOS'
 
-MODEL_NAME  = 'flyvis_noise_005_winner'              # model log dir name
-CV00_DS     = 'flyvis_noise_005_winner_cv00'         # noisy-test variant (σ=0.05)
-NF_TWIN     = 'flyvis_noise_005_winner_cv00_nf'      # noise-free twin
+BASE        = 'flyvis_noise_005'                     # condition short-name
+MODEL_NAME  = f'{BASE}_yt_per_cond_cv00'             # YT-trained model (fold 0)
+CV00_DS     = f'{BASE}_cv00'                         # DAVIS noisy test (σ=0.05)
+NF_TWIN     = f'{BASE}_cv00_nf'                      # DAVIS noise-free twin
 
-CFG_DIR     = f'{REPO_ROOT}/config/fly'
-WINNER_YAML = f'{CFG_DIR}/{MODEL_NAME}.yaml'
+# YT CV YAMLs live on shared FS; DAVIS base + nf twin live under it too.
+CFG_DIR     = f'{DATA_ROOT}/config/fly'
+BASE_YAML   = f'{REPO_ROOT}/config/fly/{BASE}.yaml'  # static DAVIS base (source of clone)
 CV00_YAML   = f'{CFG_DIR}/{CV00_DS}.yaml'
 NF_YAML     = f'{CFG_DIR}/{NF_TWIN}.yaml'
 
@@ -99,15 +100,16 @@ def _run(*args, tag):
     )
 
 
-def _clone_winner(out_yaml, dataset_name, description, overrides):
-    with open(WINNER_YAML) as f:
+def _clone_base(out_yaml, dataset_name, description, overrides):
+    """Clone the DAVIS base condition YAML, keep DAVIS stimuli, override
+    noise / seeds / dataset name. Used for the cv00 noisy + cv00_nf test
+    twins (both DAVIS-side)."""
+    with open(BASE_YAML) as f:
         cfg = yaml.safe_load(f)
     cfg['description'] = description
     cfg['dataset']     = dataset_name
     sim = cfg['simulation']
-    sim['datavis_roots']      = [YT_VOS_ROOT]
-    sim['skip_short_videos']  = False
-    sim['seed']               = 42   # cv00 seed (cv_runner.py uses range(42, 42+N))
+    sim['seed']        = 42           # matches run_GNN_conditions.py's cv00 seed
     sim.update(overrides)
     with open(out_yaml, 'w') as f:
         yaml.safe_dump(cfg, f, sort_keys=False)
@@ -120,14 +122,14 @@ def ensure_cv00_config():
     if os.path.isfile(CV00_YAML):
         print(f'[top 1/3] cv00 config exists: {CV00_YAML}')
         return
-    print(f'[top 1/3] cloning {WINNER_YAML} -> {CV00_YAML}')
-    _clone_winner(
+    print(f'[top 1/3] cloning {BASE_YAML} -> {CV00_YAML}')
+    _clone_base(
         CV00_YAML, CV00_DS,
         description=(
-            'Noisy cv00 variant of flyvis_noise_005_winner — YouTube-VOS stimulus + '
+            'DAVIS noisy cv00 test variant of flyvis_noise_005 — DAVIS stimulus + '
             'seed 42, noise_model_level=0.05, noisy_test_data=true (so x_list_test '
-            'keeps σ=0.05 process noise). Used only as test data for the '
-            'noise_005_winner model (figures/fig_davis_youtube_rollout_noise_005.py).'
+            'keeps σ=0.05 process noise). Used as test data for the YT-trained '
+            f'{MODEL_NAME} model (figures/fig_davis_youtube_rollout_noise_005.py).'
         ),
         overrides={'noise_model_level': 0.05, 'noisy_test_data': True},
     )
@@ -143,7 +145,7 @@ def ensure_cv00_data():
     if os.path.isdir(CV00_DATA):
         print(f'[top 2/3] removing stale cv00 dataset at {CV00_DATA}')
         shutil.rmtree(CV00_DATA)
-    print(f'[top 2/3] generating noisy cv00 dataset — tens of minutes (YouTube-VOS re-sim)')
+    print(f'[top 2/3] generating noisy cv00 DAVIS dataset — tens of minutes')
     _run('-o', 'generate', CV00_DS, tag='[top 2/3]')
     if not os.path.isfile(marker):
         sys.exit(f'expected marker missing after generation: {marker}')
@@ -169,13 +171,13 @@ def ensure_twin_config():
     if os.path.isfile(NF_YAML):
         print(f'[bot 1/3] twin config exists: {NF_YAML}')
         return
-    print(f'[bot 1/3] cloning {WINNER_YAML} -> {NF_YAML}')
-    _clone_winner(
+    print(f'[bot 1/3] cloning {BASE_YAML} -> {NF_YAML}')
+    _clone_base(
         NF_YAML, NF_TWIN,
         description=(
-            'Noise-free twin of flyvis_noise_005_winner cv00 — same YouTube-VOS videos + '
-            'seed 42, noise_model_level=0. Used only as test data for the noise_005_winner '
-            'model (see figures/fig_davis_youtube_rollout_noise_005.py).'
+            f'DAVIS noise-free twin of flyvis_noise_005 cv00 — same DAVIS videos + '
+            f'seed 42, noise_model_level=0. Used as test data for the YT-trained '
+            f'{MODEL_NAME} model (see figures/fig_davis_youtube_rollout_noise_005.py).'
         ),
         overrides={'noise_model_level': 0.0},
     )
@@ -185,7 +187,7 @@ def ensure_twin_data():
     if os.path.isfile(f'{TWIN_DATA}/ode_params.pt'):
         print(f'[bot 2/3] twin dataset exists: {TWIN_DATA}')
         return
-    print(f'[bot 2/3] generating twin dataset — tens of minutes (YouTube-VOS re-sim)')
+    print(f'[bot 2/3] generating noise-free DAVIS twin dataset — tens of minutes')
     _run('-o', 'generate', NF_TWIN, tag='[bot 2/3]')
 
 
