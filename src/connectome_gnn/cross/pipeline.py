@@ -31,10 +31,10 @@ from connectome_gnn.cross.yaml_io import (
 
 
 CONDITION_BASES = [
-    'flyvis_noise_free',
-    'flyvis_noise_005',
-    'flyvis_noise_05',
-    'flyvis_noise_005_010',
+    # 'flyvis_noise_free',
+    # 'flyvis_noise_005',
+    # 'flyvis_noise_05',
+    # 'flyvis_noise_005_010',
     'flyvis_noise_005_null_edges_pc_400',
     'flyvis_noise_005_removed_pc_20',
     'flyvis_noise_005_stride_5',
