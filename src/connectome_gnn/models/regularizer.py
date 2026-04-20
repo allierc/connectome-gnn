@@ -41,6 +41,7 @@ class LossRegularizer:
         'f_theta_linearity', 'f_theta_msg_linearity', 'f_theta_centering',
         'embedding_cluster',
         'tau_L1', 'tau_L2', 'V_rest_L1', 'V_rest_L2',
+        'W_type_equivariance',
     ]
 
     def __init__(self, train_config, model_config, activity_column: int,
@@ -181,6 +182,7 @@ class LossRegularizer:
         self._coeffs['tau_L2'] = anneal(getattr(tc, 'coeff_tau_L2', 0.0))
         self._coeffs['V_rest_L1'] = anneal(getattr(tc, 'coeff_V_rest_L1', 0.0))
         self._coeffs['V_rest_L2'] = anneal(getattr(tc, 'coeff_V_rest_L2', 0.0))
+        self._coeffs['W_type_equivariance'] = anneal(getattr(tc, 'coeff_W_type_equivariance', 0.0))
 
     def set_epoch(self, epoch: int, plot_frequency: int = None, Niter: int = None):
         """Set current epoch and update coefficients."""
@@ -310,6 +312,17 @@ class LossRegularizer:
             regul_term = model.V_rest.norm(2) * _ct['V_rest_L2']
             total_regul = total_regul + regul_term
             self._add('V_rest_L2', regul_term)
+
+        # --- W type-equivariance (anchor class 4: structural prior on W) ---
+        if (self._coeffs['W_type_equivariance'] > 0
+                and self._type_ids_device is not None):
+            from connectome_gnn.LLM_code.staging.block_08.w_type_equivariance import w_type_equivariance_loss
+            w_for_eq = model.W
+            regul_term = w_type_equivariance_loss(
+                w_for_eq, edges, self._type_ids_device, self._n_neuron_types
+            ) * _ct['W_type_equivariance']
+            total_regul = total_regul + regul_term
+            self._add('W_type_equivariance', regul_term)
 
         # --- g_phi / f_theta weight regularization ---
         if hasattr(model, 'g_phi'):
