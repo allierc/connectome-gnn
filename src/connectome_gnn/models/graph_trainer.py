@@ -995,6 +995,16 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
     _logger.info(f"training completed in {training_time_min:.1f} minutes")
     logger.info(f"training completed in {training_time_min:.1f} minutes")
 
+    # Early-decline diagnostic: detect catastrophic failure mode (conn_R2 drop > 0.02 before step 60k)
+    from connectome_gnn.LLM_code.staging.block_05.validate_blank_prefix_robustness import _has_early_decline, _load_trajectory
+    _traj = _load_trajectory(metrics_log_path)
+    _early_decline = False
+    if _traj is not None:
+        _steps, _r2 = _traj
+        _early_decline, _d_step, _d_mag = _has_early_decline(_steps, _r2)
+        if _early_decline:
+            _logger.warning(f"EARLY DECLINE: conn_R2 dropped {_d_mag:.4f} at step {_d_step} (catastrophic failure mode)")
+
     if log_file is not None:
         log_file.write(f"training_time_min: {training_time_min:.1f}\n")
         log_file.write(f"n_epochs: {tc.n_epochs}\n")
@@ -1013,6 +1023,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
         log_file.write(f"dale_law: {getattr(tc, 'dale_law', False)}\n")
         dale_score = dale_law_score(model, edges)
         log_file.write(f"dale_law_score: {dale_score:.4f}\n")
+        log_file.write(f"early_decline: {_early_decline}\n")
         if field_R2 is not None:
             log_file.write(f"field_R2: {field_R2:.4f}\n")
             log_file.write(f"field_slope: {field_slope:.4f}\n")
