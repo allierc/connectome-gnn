@@ -4,7 +4,7 @@ YAML I/O for the YT-only cross-check pipeline.
 Emits YT-training CV YAMLs (`<base>_<suffix>_cv<i>.yaml`) into the
 shared-FS CV config dir (`<output_root>/config/fly/`). The dataset
 name inside each yaml is suffix-free (`<base>_yt_cv<i>`) so the three
-training runners (run_GNN_conditions / run_GNN_cross /
+training runners (run_GNN_conditions / run_GNN_unique /
 run_KnownODE_conditions) and the pre-gen script all share the same
 YT datasets at <output_root>/graphs_data/fly/<base>_yt_cv<i>/.
 """
@@ -104,7 +104,7 @@ def emit_one(base_name, hp_yaml_path, out_yaml_path, suffix, yt_root,
         merged['training']['seed'] = train_seed
 
     # YAML filename keeps the suffix (drives config_file -> log dir, so
-    # run_GNN_conditions and run_GNN_cross stay in distinct log dirs).
+    # run_GNN_conditions and run_GNN_unique stay in distinct log dirs).
     # dataset is suffix-free so the underlying YT training data (which
     # only depends on the base + seed, not on the HP block) is shared
     # between the two scripts.

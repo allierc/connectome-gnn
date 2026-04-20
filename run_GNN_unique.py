@@ -5,8 +5,9 @@ HPs come from flyvis_noise_005_null_edges_pc_400_winner.yaml. Runs the full
 table at <data_root>/log/cv_yt_cross_rows.tex.
 
 Shares the {base}_yt_cv{i:02d} datasets with run_GNN_conditions.py and
-run_KnownODE_conditions.py — run run_generate_YT_data.py first, then
-launch all three scripts in parallel.
+run_KnownODE_conditions.py. This script does NOT generate data — it
+fails fast if the datasets are missing. Run run_generate_YT_data.py
+first, then launch the three training scripts in parallel.
 
 No CLI flags — edit constants in src/connectome_gnn/cross/ if you need
 to tune behavior.
