@@ -179,9 +179,8 @@ def data_generate_connconstr(config, visualize=True, device=None, save=True, era
     model_name = config.graph_model.signal_model_name
 
     torch.random.fork_rng(devices=device)
-    if sim.seed != 42:
-        torch.random.manual_seed(sim.seed)
-        np.random.seed(sim.seed)
+    torch.random.manual_seed(sim.seed)
+    np.random.seed(sim.seed)
 
     logger.info(f"generating connconstr data ... model={model_name}  datapath={sim.connconstr_datapath}")
 
@@ -467,9 +466,8 @@ def data_generate_spiking(
                     logger.info(f"erased old {data_file}_{split}")
 
     torch.random.fork_rng(devices=device)
-    if sim.seed != 42:
-        torch.random.manual_seed(sim.seed)
-        np.random.seed(sim.seed)
+    torch.random.manual_seed(sim.seed)
+    np.random.seed(sim.seed)
 
     n_frames = sim.n_frames
 
@@ -584,7 +582,8 @@ def data_generate_spiking(
     # Train/test split (same logic as graded model)
     df = stimulus_dataset.arg_df
     original_indices = df["original_index"].values
-    unique_videos = sorted(set(original_indices))
+    unique_videos = np.unique(original_indices)
+    np.random.shuffle(unique_videos)
     n_train_vids = int(len(unique_videos) * 0.8)
     train_video_set = set(unique_videos[:n_train_vids])
     test_video_set = set(unique_videos[n_train_vids:])
@@ -771,18 +770,8 @@ def data_generate_voltage(
                     logger.info(f"erased old {data_file}_{split}")
 
     torch.random.fork_rng(devices=device)
-    if sim.seed != 42:
-        # Ensure seed is within valid range [0, 2^32-1] for numpy
-        seed_to_use = sim.seed
-        if seed_to_use < 0:
-            logger.warning(f"Seed {seed_to_use} is negative, clamping to 0")
-            seed_to_use = 0
-        elif seed_to_use >= 2**32:
-            logger.warning(f"Seed {seed_to_use} exceeds 2^32-1, taking modulo")
-            seed_to_use = seed_to_use % (2**32)
-
-        torch.random.manual_seed(seed_to_use)
-        np.random.seed(seed_to_use)  # Ensure numpy random state is also seeded for reproducibility
+    torch.random.manual_seed(sim.seed)
+    np.random.seed(sim.seed)
 
     n_frames = sim.n_frames
     n_neurons = sim.n_neurons
@@ -1111,7 +1100,8 @@ def data_generate_voltage(
     # Split by original_index so all augmentations of the same base video stay together.
     df = stimulus_dataset.arg_df
     original_indices = df["original_index"].values
-    unique_videos = sorted(set(original_indices))
+    unique_videos = np.unique(original_indices)
+    np.random.shuffle(unique_videos)
     n_train_vids = int(len(unique_videos) * 0.8)
     train_video_set = set(unique_videos[:n_train_vids])
     test_video_set = set(unique_videos[n_train_vids:])

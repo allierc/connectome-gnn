@@ -124,9 +124,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
     replace_with_cluster = 'replace' in tc.sparsity
     umap_cluster_active = tc.umap_cluster_method != 'none'
 
-    if config.training.seed != 42:
-        torch.random.fork_rng(devices=device)
-        torch.random.manual_seed(config.training.seed)
+    torch.random.fork_rng(devices=device)
+    torch.random.manual_seed(config.training.seed)
 
     default_style.apply_globally()
 
@@ -479,7 +478,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
             _logger.info(f'Phase 1 (SIREN focus): W/MLP LRs *= {phase_mult}, NNR_f LR = {lr_NNR_f}')
 
         # Reproducible per-epoch frame sampling (replaces bare np.random.randint)
-        epoch_rng = np.random.RandomState(tc.seed + epoch)
+        epoch_rng = np.random.RandomState((tc.seed + epoch) % (2**32))
         frame_indices = epoch_rng.randint(0, _frame_range, size=Niter * tc.batch_size) + _frame_min_k
 
         last_connectivity_r2 = None

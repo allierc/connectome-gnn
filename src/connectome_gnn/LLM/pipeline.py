@@ -582,8 +582,8 @@ def load_configs_and_seeds(state: ExplorationState, batch: BatchInfo):
 
         # Force seeds (pipeline-controlled — LLM cannot override)
         assert iteration >= 1, f"iteration must be >= 1 for valid seeds (got {iteration} from batch.iterations[{slot_idx}])"
-        sim_seed = iteration * 1000 + slot
-        train_seed = iteration * 1000 + slot + 500
+        sim_seed = (iteration * 1000 + slot) % (2**32)
+        train_seed = (iteration * 1000 + slot + 500) % (2**32)
         batch.slot_seeds[slot] = {'simulation': sim_seed, 'training': train_seed}
 
         # Update YAML with forced seeds and slot-based dataset
