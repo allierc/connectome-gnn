@@ -11,6 +11,11 @@ No CLI flags — edit constants in src/connectome_gnn/cross/ if you need
 to tune behavior (conditions, n_folds, node type, etc.).
 """
 
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+
 from connectome_gnn.cross import run_all_conditions
 
 run_all_conditions(hp_source='per_condition', suffix='yt_per_cond')
