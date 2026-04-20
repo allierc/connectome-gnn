@@ -22,14 +22,25 @@
 #   (also echoed to stdout at the end of the run).
 #
 # Submit to cluster:
-#   bsub -n 8 -gpu "num=1" -q gpu_a100 -W 6000 -Is < run_GNN_INR.sh
+#   bsub -n 8 -gpu "num=1" -q gpu_a100 -W 6000 -Is bash run_GNN_INR.sh
+#   # (piping via `< run_GNN_INR.sh` also works — stdin fallback handled below)
 #
 # Or run interactively:
 #   bash run_GNN_INR.sh
 
 set -euo pipefail
 
-REPO_DIR="/groups/saalfeld/home/allierc/Graph/connectome-gnn"
+# BASH_SOURCE[0] is empty when the script is read from stdin
+# (e.g. `bsub -Is < run_GNN_INR.sh`), so dirname returns "." and cd
+# lands us in ~/.lsbatch. Detect that case and fall back to the
+# cluster_root_dir in data_paths.json.
+if [[ -n "${BASH_SOURCE[0]:-}" && -f "$(dirname "${BASH_SOURCE[0]}")/run_GNN_INR.sh" ]]; then
+    REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+else
+    REPO_DIR="$(python3 -c 'import json,os; print(json.load(open(os.path.expanduser("~/Graph/connectome-gnn/data_paths.json")))["cluster_root_dir"])' 2>/dev/null)"
+    REPO_DIR="${REPO_DIR:-/groups/saalfeld/home/allierc/Graph/connectome-gnn}"
+fi
+cd "${REPO_DIR}"
 DATA_ROOT="/groups/saalfeld/home/allierc/GraphData"
 CFG_DIR="${REPO_DIR}/config/fly"
 CFG_NAME="flyvis_noise_005_INR"
