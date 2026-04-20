@@ -16,6 +16,7 @@ Usage (run from repo root):
 
 import argparse
 import datetime
+import fcntl
 import gc
 import glob as _glob
 import os
@@ -440,10 +441,16 @@ def run_cv(config_name, seeds, skip_phase2=False):
     with open(results_cv_path, 'a') as f:
         f.write(audit_content)
 
-    # Master results file at {data_root}/log/results_cv.txt — collects all configs
+    # Master results file at {data_root}/log/results_cv.txt — collects all configs.
+    # Lock it with flock so parallel `-o cv` jobs don't interleave audit blocks.
     master_cv_path = log_path("results_cv.txt")
     with open(master_cv_path, 'a') as f:
-        f.write(audit_content)
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        try:
+            f.write(audit_content)
+            f.flush()
+        finally:
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
     print(f"\nCV results (audit): {results_cv_path}")
     print(f"CV results (master): {master_cv_path}")
