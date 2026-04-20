@@ -1,9 +1,12 @@
 """
-YAML I/O for the cross-check pipeline.
+YAML I/O for the YT-only cross-check pipeline.
 
-Emits YT-training CV YAMLs (`<base>_<suffix>_cv<i>.yaml`) and DAVIS
-test CV YAMLs (`<base>_cv<i>.yaml`) into the shared-FS CV config dir
-(`<output_root>/config/fly/`). Both sets are visible to the cluster.
+Emits YT-training CV YAMLs (`<base>_<suffix>_cv<i>.yaml`) into the
+shared-FS CV config dir (`<output_root>/config/fly/`). The dataset
+name inside each yaml is suffix-free (`<base>_yt_cv<i>`) so the three
+training runners (run_GNN_conditions / run_GNN_cross /
+run_KnownODE_conditions) and the pre-gen script all share the same
+YT datasets at <output_root>/graphs_data/fly/<base>_yt_cv<i>/.
 """
 
 import os
@@ -152,10 +155,11 @@ def emit_davis_cv_yaml(base_name, fold_i, output_root, force=False):
 
 def emit_yt_yamls(hp_source, suffix, hp_yaml_basename, n_folds, output_root):
     """Emit YT CV YAMLs for all 8 conditions × n_folds, into
-    <output_root>/config/fly/. Existing files are left alone."""
+    <output_root>/config/fly/. Always overwrites existing files so HP
+    tweaks in the source yamls propagate on every run."""
     out_dir = cv_config_dir(output_root)
     os.makedirs(out_dir, exist_ok=True)
-    written, skipped = [], []
+    written = []
     for base_name, winner_name in CONDITIONS:
         if hp_source == 'per_condition':
             hp_yaml_path = os.path.join(
@@ -174,14 +178,10 @@ def emit_yt_yamls(hp_source, suffix, hp_yaml_basename, n_folds, output_root):
                     out_dir, f'{base_name}_{suffix}_cv{fold_i:02d}.yaml')
                 sim_seed   = 42 + fold_i
                 train_seed = 1042 + fold_i
-            if os.path.exists(out_yaml):
-                skipped.append(out_yaml)
-                continue
             ok = emit_one(base_name, hp_yaml_path, out_yaml,
                           suffix, YT_VOS_ROOT,
                           fold_i=fold_i, sim_seed=sim_seed,
                           train_seed=train_seed)
             if ok:
                 written.append(out_yaml)
-    print(f'  wrote {len(written)} YT YAMLs -> {out_dir}  '
-          f'(skipped {len(skipped)} existing)')
+    print(f'  wrote {len(written)} YT YAMLs -> {out_dir}  (always overwrites)')
