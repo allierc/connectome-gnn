@@ -255,8 +255,6 @@ if __name__ == "__main__":
             _marker = os.path.join(run_log_dir, '_completed_test')
             if os.path.exists(_marker):
                 os.remove(_marker)
-            config.simulation.noise_model_level = 0.0
-
             # Optional: load a second config for cross-dataset test data
             test_config = None
             if test_config_name:
@@ -292,7 +290,7 @@ if __name__ == "__main__":
                 device=device,
                 particle_of_interest=0,
                 new_params=None,
-                rollout_without_noise=False,
+                rollout_without_noise=True,
                 test_config=test_config,
             )
             with open(_marker, 'w') as f:

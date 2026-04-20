@@ -251,14 +251,12 @@ def data_generate_connconstr(config, visualize=True, device=None, save=True, era
         n_split = frame_end - frame_start
         logger.info(f"generating {split} split: frames [{frame_start}, {frame_end}) ({n_split} frames)")
 
-        # Test data must be noise-free: the model learns deterministic dynamics,
+        # Test data is noise-free: the model learns deterministic dynamics,
         # so rollout comparison against noisy ground truth is meaningless.
+        noise_level = sim.noise_model_level if split == "train" else 0.0
+
         if split == "test":
             x.voltage[:] = 0
-            _saved_noise_model = sim.noise_model_level
-            _saved_noise_meas = sim.measurement_noise_level
-            sim.noise_model_level = 0.0
-            sim.measurement_noise_level = 0.0
 
         x_writer = ZarrSimulationWriterV3(
             path=graphs_data_path(config.dataset, f"x_list_{split}"),
@@ -292,11 +290,11 @@ def data_generate_connconstr(config, visualize=True, device=None, save=True, era
                 dv = pde(x, edge_index)
                 dv_squeeze = dv.squeeze()
 
-                if sim.noise_model_level > 0:
+                if noise_level > 0:
                     x.voltage = (
                         x.voltage
                         + dt * dv_squeeze
-                        + torch.randn(n_neurons, dtype=torch.float32, device=device) * sim.noise_model_level
+                        + torch.randn(n_neurons, dtype=torch.float32, device=device) * noise_level
                     )
                 else:
                     x.voltage = x.voltage + dt * dv_squeeze
@@ -306,11 +304,6 @@ def data_generate_connconstr(config, visualize=True, device=None, save=True, era
         n_written = x_writer.finalize()
         y_writer.finalize()
         logger.info(f"generated {n_written} {split} frames")
-
-        # Restore noise levels after test split
-        if split == "test":
-            sim.noise_model_level = _saved_noise_model
-            sim.measurement_noise_level = _saved_noise_meas
 
     # --- Compute effective ranks (W matrix, activity, stimulus) ---
     logger.info("computing effective rank ...")
@@ -1207,6 +1200,8 @@ def data_generate_voltage(
         n_neurons=n_neurons,
         device=device,
         to_numpy_fn=to_numpy,
+        noise_model_level=sim.noise_model_level,
+        measurement_noise_level=sim.measurement_noise_level,
         visualize=visualize,
         run=run,
         run_vizualized=run_vizualized,
@@ -1234,11 +1229,8 @@ def data_generate_voltage(
     # comparison against ground truth reflects the model's dynamics, not observation
     # noise. Set sim.noisy_test_data=True to keep train-level noise on the test split
     # (e.g. for figures that show the noisy stimulus-response trace the model saw).
-    _saved_noise_model = sim.noise_model_level
-    _saved_noise_meas = sim.measurement_noise_level
-    if not sim.noisy_test_data:
-        sim.noise_model_level = 0.0
-        sim.measurement_noise_level = 0.0
+    test_noise_model = sim.noise_model_level if sim.noisy_test_data else 0.0
+    test_noise_meas = sim.measurement_noise_level if sim.noisy_test_data else 0.0
 
     # Reset neural state to avoid train→test leakage
     if is_hh:
@@ -1279,6 +1271,8 @@ def data_generate_voltage(
         x_writer=x_writer, y_writer=y_writer,
         target_frames=test_target_frames, num_passes=1,
         n_neurons=n_neurons, device=device, to_numpy_fn=to_numpy,
+        noise_model_level=test_noise_model,
+        measurement_noise_level=test_noise_meas,
         visualize=False, run=run, run_vizualized=run_vizualized,
         step=step, id_fig_start=id_fig, it_start=0,
         fig_style=fig_style, config=config, davis_dataset=davis_dataset,
@@ -1288,7 +1282,7 @@ def data_generate_voltage(
     n_frames_test = x_writer.finalize()
     y_writer.finalize()
     _noise_tag = (
-        f"noisy (noise_model={sim.noise_model_level:g}, meas={sim.measurement_noise_level:g})"
+        f"noisy (noise_model={test_noise_model:g}, meas={test_noise_meas:g})"
         if sim.noisy_test_data else "without noise"
     )
     logger.info(f"generated {n_frames_test} TEST frames {_noise_tag} (saved as .zarr)")
@@ -1299,10 +1293,6 @@ def data_generate_voltage(
     # --- Compute noisy derivatives for TEST split (mirrors TRAIN) ---
     if sim.noisy_test_data and sim.measurement_noise_level > 0:
         _compute_noisy_derivatives(config, sim, n_neurons, split="test")
-
-    # Restore noise levels after test generation
-    sim.noise_model_level = _saved_noise_model
-    sim.measurement_noise_level = _saved_noise_meas
 
     # restore gradient computation now (before any early-return paths)
     torch.set_grad_enabled(True)
@@ -1763,6 +1753,8 @@ def _run_ode_generation(
     n_neurons,
     device,
     to_numpy_fn,
+    noise_model_level: float,
+    measurement_noise_level: float,
     visualize=False,
     run=0,
     run_vizualized=0,
@@ -2007,12 +1999,12 @@ def _run_ode_generation(
                         for _sub in range(hh_substeps):
                             y = pde(x, edge_index, has_field=False)
                             dv = y.squeeze()
-                            if sim.noise_model_level > 0:
+                            if noise_model_level > 0:
                                 x.voltage = (
                                     x.voltage
                                     + sub_dt * dv
                                     + torch.randn(n_neurons, dtype=torch.float32, device=device)
-                                    * sim.noise_model_level
+                                    * noise_model_level
                                     / (hh_substeps**0.5)
                                 )
                             else:
@@ -2025,9 +2017,9 @@ def _run_ode_generation(
                         dv_step = y.squeeze()
 
                     # Generate measurement noise for this timestep
-                    if sim.measurement_noise_level > 0:
+                    if measurement_noise_level > 0:
                         x.noise = (
-                            torch.randn(n_neurons, dtype=torch.float32, device=device) * sim.measurement_noise_level
+                            torch.randn(n_neurons, dtype=torch.float32, device=device) * measurement_noise_level
                         )
                     else:
                         x.noise = torch.zeros(n_neurons, dtype=torch.float32, device=device)
@@ -2036,11 +2028,11 @@ def _run_ode_generation(
                     x_writer.append_state(x)
 
                     if not (has_gates and hh_substeps > 1):
-                        if sim.noise_model_level > 0:
+                        if noise_model_level > 0:
                             x.voltage = (
                                 x.voltage
                                 + sim.delta_t * dv_step
-                                + torch.randn(n_neurons, dtype=torch.float32, device=device) * sim.noise_model_level
+                                + torch.randn(n_neurons, dtype=torch.float32, device=device) * noise_model_level
                             )
                         else:
                             x.voltage = x.voltage + sim.delta_t * dv_step

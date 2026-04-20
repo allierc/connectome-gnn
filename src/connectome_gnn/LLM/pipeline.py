@@ -871,7 +871,6 @@ def run_local_test_plot(state: ExplorationState, batch: BatchInfo):
         log_file = open(state.analysis_log_paths[slot], 'a')
 
         # Test
-        config.simulation.noise_model_level = 0.0
         data_test(
             config=config,
             visualize=False,
@@ -886,6 +885,7 @@ def run_local_test_plot(state: ExplorationState, batch: BatchInfo):
             device=state.device,
             particle_of_interest=0,
             new_params=None,
+            rollout_without_noise=True,
             log_file=log_file,
         )
 
@@ -1090,7 +1090,6 @@ def run_local_pipeline(state: ExplorationState, batch: BatchInfo):
         )
 
         # Test
-        config.simulation.noise_model_level = 0.0
         data_test(
             config=config,
             visualize=False,
@@ -1105,6 +1104,7 @@ def run_local_pipeline(state: ExplorationState, batch: BatchInfo):
             device=state.device,
             particle_of_interest=0,
             new_params=None,
+            rollout_without_noise=True,
             log_file=log_file,
         )
 
