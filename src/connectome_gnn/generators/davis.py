@@ -187,55 +187,6 @@ def temporal_split_cached_samples(cached_sequences: List[Dict], n_frames: int, s
     return split_sequences, np.array(original_repeats)
 
 
-def original_train_and_validation_indices(dataset, seed: int = 42) -> Tuple[List[int], List[int]]:
-    """Get train/validation split at the base-video level.
-
-    All augmented versions (flips, rotations, temporal/vertical splits) of the
-    same base DAVIS video go into the same split to prevent data leakage.
-
-    IMPORTANT: The dataset must be created with ``shuffle_sequences=False``
-    so that ``arg_df`` row *i* corresponds to ``cached_sequences[i]``.
-
-    Args:
-        dataset: AugmentedVideoDataset (must not be shuffled).
-        seed: RNG seed for shuffling within each split.
-
-    Returns:
-        Tuple of (train_indices, validation_indices) — indices into the
-        *unshuffled* dataset, each list shuffled independently.
-    """
-    import random
-
-    if hasattr(dataset, 'arg_df') and dataset.arg_df is not None:
-        original_indices = dataset.arg_df['original_index'].values
-        unique_videos = sorted(set(original_indices))
-
-        train_ratio = 0.8
-        split_point = int(len(unique_videos) * train_ratio)
-
-        train_videos = set(unique_videos[:split_point])
-
-        train_indices = [i for i, oi in enumerate(original_indices) if oi in train_videos]
-        val_indices = [i for i, oi in enumerate(original_indices) if oi not in train_videos]
-
-        n_train_vids = len(train_videos)
-        n_test_vids = len(unique_videos) - n_train_vids
-        print(f"base-video split: {n_train_vids} train / {n_test_vids} test videos "
-              f"→ {len(train_indices)} train / {len(val_indices)} test augmented sequences")
-    else:
-        # Fallback for datasets without arg_df
-        total_sequences = len(dataset)
-        train_ratio = 0.8
-        split_point = int(total_sequences * train_ratio)
-        train_indices = list(range(split_point))
-        val_indices = list(range(split_point, total_sequences))
-
-    # Shuffle within each split for variety during ODE generation
-    rng = random.Random(seed)
-    rng.shuffle(train_indices)
-    rng.shuffle(val_indices)
-
-    return train_indices, val_indices
 
 
 # ============================================================================
@@ -790,14 +741,6 @@ class MultiTaskDavis(MultiTaskDataset):
             if key in splits:
                 return index
         raise ValueError(f"key {key} not found in splits")
-
-    def original_train_and_validation_indices(self) -> Tuple[List[int], List[int]]:
-        """Get original training and validation indices for the dataloader.
-
-        Returns:
-            Tuple containing lists of train and validation indices.
-        """
-        return original_train_and_validation_indices(self)
 
 
 class AugmentedVideoDataset(MultiTaskDavis):

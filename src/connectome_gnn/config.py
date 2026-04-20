@@ -156,7 +156,7 @@ class SimulationConfig(BaseModel):
     dimension: int = 2
     n_frames: int = 1000  # number of simulation time steps; 0 = use each source frame exactly once (no reuse)
     start_frame: int = 0
-    seed: int = 42
+    seed: Annotated[int, Field(ge=0, lt=2**32)] = 42
 
     model_id: str = "000"
     ensemble_id: str = "0000"
@@ -177,10 +177,10 @@ class SimulationConfig(BaseModel):
     null_edges_mode: str = "per_column"  # "random" or "per_column" (per pre-synaptic neuron)
     edge_removal_ratio: float = 0.0  # fraction of edges to remove before saving (0.0-1.0)
     edge_removal_mode: str = "random"  # "random" or "per_column"
-    edge_removal_seed: int = 42      # RNG seed for reproducible removal
+    edge_removal_seed: Annotated[int, Field(ge=0, lt=2**32)] = 42      # RNG seed for reproducible removal
     edge_mask_path: str = ""         # path to precomputed kept_edge_indices.pt; if set and exists, reused instead of recomputing
     ablation_ratio: float = 0.0   # fraction of edges to ablate (0.0-1.0)
-    ablation_seed: int = 42       # RNG seed for reproducible ablation
+    ablation_seed: Annotated[int, Field(ge=0, lt=2**32)] = 42       # RNG seed for reproducible ablation
 
     baseline_value: float = -999.0
     shuffle_neuron_types: bool = False
@@ -221,7 +221,7 @@ class SimulationConfig(BaseModel):
     tile_contrast: float = 0.2
     tile_corr_strength: float = 0.0   # correlation knob for tile_mseq / tile_blue_noise
     tile_flip_prob: float = 0.05      # per-frame random flip probability
-    tile_seed: int = 42
+    tile_seed: Annotated[int, Field(ge=0, lt=2**32)] = 42
 
     n_nodes: Optional[int] = None
     node_value_map: Optional[str] = "input_data/pattern_Null.tif"
@@ -557,7 +557,7 @@ class TrainingConfig(BaseModel):
     time_window: int = 0
 
     n_runs: int = 2
-    seed: int = 42
+    seed: Annotated[int, Field(ge=0, lt=2**32)] = 42
     clamp: float = 0
     pred_limit: float = 1.0e10
 
