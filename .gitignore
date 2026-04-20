@@ -67,6 +67,14 @@ plot_null_edges_all_metrics.py
 plot_two_panel.py
 refactor.md
 
+# Local-only scripts + figure outputs
+scripts/
+figures/
+*.png
+*.pdf
+*.jpg
+*.jpeg
+
 # Code review
 flyvis_gnn_code_review*.pdf
 code_review_deepmind_v*.py
