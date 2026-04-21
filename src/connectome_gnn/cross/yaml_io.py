@@ -81,6 +81,19 @@ def emit_one(base_name, hp_yaml_path, out_yaml_path, suffix, yt_root,
     merged['simulation']['datavis_roots']     = [yt_root]
     merged['simulation']['skip_short_videos'] = False
 
+    # Preserve condition-specific graph_model knobs from the base yaml when
+    # the HP yaml doesn't set them. Without this, uniform-HP runs silently
+    # drop keys like hidden_neuron_fraction, making the "hidden" condition
+    # trivially easy (the model sees all neurons).
+    _base_gm = base.get('graph_model') or {}
+    _hp_gm   = dict(merged.get('graph_model') or {})
+    for _k, _v in _base_gm.items():
+        if _k in _hp_gm:
+            continue
+        if any(tok in _k for tok in ('hidden', 'ngp', 'nnr', 'inr', 'anchor')):
+            _hp_gm[_k] = _v
+    merged['graph_model'] = _hp_gm
+
     # Blank 50% of training frames (improves V_rest recovery) — disabled.
     # _vit = str(merged['simulation'].get('visual_input_type', 'DAVIS'))
     # if 'blank' not in _vit:
@@ -92,6 +105,15 @@ def emit_one(base_name, hp_yaml_path, out_yaml_path, suffix, yt_root,
         merged['training'] = dict(merged['training'])
         merged['training']['n_epochs'] = 1
         merged['training']['data_augmentation_loop'] = 100
+
+    # Condition-defining training knobs always come from the base yaml. These
+    # describe the data regime (e.g. stride_5 BPTT) rather than tunable HPs,
+    # so a uniform HP yaml must not be allowed to silently disable them.
+    _base_tr = base.get('training') or {}
+    if 'training' in merged:
+        for _k in ('recurrent_training', 'time_step'):
+            if _k in _base_tr:
+                merged['training'][_k] = _base_tr[_k]
     if 'claude' in merged:
         merged['claude'] = dict(merged['claude'])
         merged['claude']['n_epochs'] = 1

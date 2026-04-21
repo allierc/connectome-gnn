@@ -560,7 +560,12 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                 is_regular_r2 = (N % connectivity_plot_frequency == 0)
                 is_early_r2 = (N < connectivity_plot_frequency) and (N % early_r2_frequency == 0)
                 model_name = model_config.signal_model_name
-                if (is_regular_r2 or is_early_r2) and 'mlp' not in model_name.lower():
+                if (is_regular_r2 or is_early_r2) and ('linear' in model_name or 'known_ode' in model_name):
+                    last_connectivity_r2, last_tau_r2, last_vrest_r2 = plot_training_linear(
+                        model, config, epoch, N, log_dir, device, gt_weights, n_neurons=n_neurons)
+                    with open(metrics_log_path, 'a') as f:
+                        f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f}\n')
+                elif (is_regular_r2 or is_early_r2) and 'mlp' not in model_name.lower():
                     last_connectivity_r2, _r2_visible, _h_r2, _a_r2 = plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_list, gt_weights, edges, n_neurons=n_neurons, n_neuron_types=sim.n_neuron_types, ode_params=ode_params, hidden_ids=hidden_ids)
                     if _h_r2 is not None:
                         last_hidden_r2 = _h_r2
