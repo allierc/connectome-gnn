@@ -26,4 +26,5 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 from connectome_gnn.cross import run_all_conditions
 
 run_all_conditions(hp_source='uniform', suffix='yt_known_ode',
-                    hp_yaml='flyvis_noise_free_known_ode_reg_winner')
+                    hp_yaml='flyvis_noise_free_known_ode_reg_winner',
+                    hard_runtime_limit_min=480)
