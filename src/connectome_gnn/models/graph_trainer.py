@@ -340,11 +340,6 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
         _diff_warmup_start = float(getattr(tc, 'differential_warmup_start_fraction', 0.01))
         lr_scheduler = apply_differential_warmup(optimizer, config, warmup_steps=_diff_warmup_steps, warmup_start_fraction=_diff_warmup_start)
         _logger.info(f'differential warmup: {_diff_warmup_steps} steps, start_fraction={_diff_warmup_start}')
-    # Block 08: cosine annealing of lr_W from initial value to 0 over training
-    if getattr(tc, 'cosine_lr_w', False):
-        from connectome_gnn.LLM_code.staging.block_08.cosine_lr_w_schedule import apply_cosine_lr_w_schedule
-        lr_scheduler = apply_cosine_lr_w_schedule(optimizer, config)
-        _logger.info('cosine lr_W schedule enabled: decays W LR to 0 over epoch')
     # === LLM-MODIFIABLE: OPTIMIZER SETUP END ===
     model.train()
 
