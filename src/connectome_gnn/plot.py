@@ -1509,7 +1509,7 @@ def plot_loss_from_file(log_dir):
 
 def plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_list,
                          gt_weights, edges, n_neurons=None, n_neuron_types=None,
-                         ode_params=None, hidden_ids=None):
+                         ode_params=None, hidden_ids=None, anchor_ids=None):
     from connectome_gnn.plot import (
         plot_embedding,
         plot_f_theta,
@@ -1531,10 +1531,14 @@ def plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_li
     plt.savefig(f"{log_dir}/tmp_training/embedding/{epoch}_{N}.png", dpi=87)
     plt.close()
 
-    # Compute visible-edge mask (exclude edges touching hidden neurons).
-    # Only applies when zero-silencing; when SIREN is active all edges are meaningful.
+    # Compute visible-edge mask (exclude edges that touch any hidden neuron).
+    # The MAIN R² always uses every edge (both Known_ODE zero-silencing and
+    # NGP-T fill-in paths) so the headline metric is comparable across
+    # conditions. The `_visible_mask` is only used to compute a parallel
+    # r_squared_visible below, for diagnostics.
     _visible_mask = None
-    if hidden_ids is not None and getattr(model, 'NNR_hidden', None) is None:
+    _nnr_active = getattr(model, 'NNR_hidden', None) is not None
+    if hidden_ids is not None:
         _hidden_set = set(hidden_ids.cpu().numpy().tolist())
         _e = edges.cpu().numpy()
         _visible_mask = np.array([
@@ -1542,13 +1546,10 @@ def plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_li
             for i in range(_e.shape[1])
         ])
 
-    # Plot 2: Raw W scatter (no correction)
+    # Plot 2: Raw W scatter (no correction) — all edges.
     fig, ax = plt.subplots(figsize=(8, 8))
     _gt_w = to_numpy(gt_weights)
     raw_W = to_numpy(get_model_W(model).squeeze())
-    if _visible_mask is not None:
-        _gt_w = _gt_w[_visible_mask]
-        raw_W = raw_W[_visible_mask]
     r_squared_raw, _ = plot_weight_scatter(
         ax,
         gt_weights=_gt_w,
@@ -1568,17 +1569,14 @@ def plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_li
     corrected_W, _, _, _, _ = compute_all_corrected_weights(
         model, config, edges, x_ts, device)
 
-    # Plot 3: Corrected weight comparison scatter plot
+    # Plot 3: Corrected weight comparison scatter plot — all edges.
     fig, ax = plt.subplots(figsize=(8, 8))
-    _gt_w_c = to_numpy(gt_weights)
-    _corr_w = to_numpy(corrected_W.squeeze())
-    if _visible_mask is not None:
-        _gt_w_c = _gt_w_c[_visible_mask]
-        _corr_w = _corr_w[_visible_mask]
+    _gt_w_full = to_numpy(gt_weights)
+    _corr_w_full = to_numpy(corrected_W.squeeze())
     r_squared, _ = plot_weight_scatter(
         ax,
-        gt_weights=_gt_w_c,
-        learned_weights=_corr_w,
+        gt_weights=_gt_w_full,
+        learned_weights=_corr_w_full,
         corrected=True,
         xlim=[-1, 2],
         ylim=[-1, 2],
@@ -1591,10 +1589,34 @@ def plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_li
                 dpi=87, bbox_inches='tight', pad_inches=0)
     plt.close()
 
-    # Hidden-neuron INR trace comparison (only when NNR_hidden is active)
-    hidden_inr_r2 = None
-    if getattr(model, 'NNR_hidden', None) is not None and hidden_ids is not None:
-        hidden_inr_r2 = plot_hidden_siren_traces(model, x_ts, hidden_ids, log_dir, epoch, N, device)
+    # Visible-only R² — parallel diagnostic, computed without plotting.
+    # R² over edges that don't touch any hidden neuron; same as r_squared when
+    # no hidden_ids.
+    if _visible_mask is not None:
+        _gt_w_vis = _gt_w_full[_visible_mask]
+        _corr_w_vis = _corr_w_full[_visible_mask]
+        _fig, _ax_tmp = plt.subplots(figsize=(4, 4))
+        r_squared_visible, _ = plot_weight_scatter(
+            _ax_tmp,
+            gt_weights=_gt_w_vis,
+            learned_weights=_corr_w_vis,
+            corrected=True,
+            xlim=[-1, 2],
+            ylim=[-1, 2],
+            outlier_threshold=5,
+        )
+        plt.close(_fig)
+    else:
+        r_squared_visible = r_squared
+
+    # Hidden-neuron INR trace comparison (only when NNR_hidden is active).
+    # Returns (hidden_pearson, anchor_pearson_or_None).
+    hidden_pearson = None
+    anchor_pearson = None
+    if _nnr_active and hidden_ids is not None:
+        hidden_pearson, anchor_pearson = plot_hidden_siren_traces(
+            model, x_ts, hidden_ids, log_dir, epoch, N, device, anchor_ids=anchor_ids,
+        )
 
     # Compute GT curves and type names from ode_params if available
     gt_g_phi = gt_f_theta = gt_v_range = _type_names = None
@@ -1667,7 +1689,7 @@ def plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_li
     plt.savefig(f"{log_dir}/results/f_theta_func.png", dpi=87)
     plt.close()
 
-    return r_squared, hidden_inr_r2
+    return r_squared, r_squared_visible, hidden_pearson, anchor_pearson
 
 
 def plot_training_linear(model, config, epoch, N, log_dir, device,
@@ -1786,29 +1808,14 @@ from tqdm import trange
 warnings.filterwarnings('ignore')
 
 
-def plot_hidden_siren_traces(model, x_ts, hidden_ids, log_dir, epoch, N, device,
-                             n_traces=10, n_frames=800):
-    """Plot GT voltage vs hidden-INR-predicted voltage for a sample of hidden neurons.
-
-    Evaluates model.forward_hidden() from scratch on the first n_frames frames
-    (no rollout state — pure INR prediction), compares to x_ts ground truth.
-
-    Saves:
-        log_dir/tmp_training/hidden_{inr_type}/{epoch}_{N}.png  (checkpoint copy)
-        log_dir/results/hidden_inr_traces.png                   (latest copy)
-
-    Returns:
-        r2 (float) — R² of raw INR predictions vs GT voltages
-    """
+def _sample_ngp_traces(model, x_ts, ids, n_traces, n_frames, use_anchor):
+    """Collect (gt, pred) arrays of shape (n_traces, n_frames) for hidden or anchor ids."""
     import torch as _torch
 
-    n_hidden = len(hidden_ids)
-    n_traces = min(n_traces, n_hidden)
-    n_frames = min(n_frames, x_ts.n_frames)
-
-    # Pick evenly-spaced hidden neurons to display
-    sel = np.linspace(0, n_hidden - 1, n_traces, dtype=int)
-    local_ids = hidden_ids[sel]  # (n_traces,) — global neuron indices
+    n_total = len(ids)
+    n_traces = min(n_traces, n_total)
+    sel = np.linspace(0, n_total - 1, n_traces, dtype=int)
+    local_ids = ids[sel]
 
     gt_arr = np.zeros((n_traces, n_frames), dtype=np.float32)
     pred_arr = np.zeros((n_traces, n_frames), dtype=np.float32)
@@ -1816,50 +1823,47 @@ def plot_hidden_siren_traces(model, x_ts, hidden_ids, log_dir, epoch, N, device,
     model.eval()
     with _torch.no_grad():
         for k in range(n_frames):
-            x = x_ts.frame(k)
-            pred_h = model.forward_hidden(x, k, hidden_ids)   # (n_hidden,)
-            gt_h   = x_ts.voltage[k, hidden_ids]              # (n_hidden,)
-            gt_arr[:, k]   = to_numpy(gt_h[sel])
-            pred_arr[:, k] = to_numpy(pred_h[sel])
+            if use_anchor:
+                pred = model.forward_anchor(k)                 # (n_anchor,)
+            else:
+                x = x_ts.frame(k)
+                pred = model.forward_hidden(x, k, ids)         # (n_hidden,)
+            gt = x_ts.voltage[k, ids]
+            gt_arr[:, k] = to_numpy(gt[sel])
+            pred_arr[:, k] = to_numpy(pred[sel])
     model.train()
+    return gt_arr, pred_arr, local_ids
 
-    # Per-neuron R² with global linear correction — same as train_ngp_voltage.py _linear_fit.
-    # gt_arr/pred_arr are (n_traces, n_frames); _linear_fit expects (T, N) so transpose.
-    gt_T = gt_arr.T      # (n_frames, n_traces)
-    pred_T = pred_arr.T  # (n_frames, n_traces)
-    gt_f, pred_f = gt_T.ravel(), pred_T.ravel()
-    cov = ((pred_f - pred_f.mean()) * (gt_f - gt_f.mean())).mean()
-    var = ((pred_f - pred_f.mean()) ** 2).mean()
-    a = float(cov / (var + 1e-12))
-    b = float(gt_f.mean() - a * pred_f.mean())
-    pred_corr_T = a * pred_T + b                   # (n_frames, n_traces)
-    gt_mean_n = gt_T.mean(axis=0)                  # (n_traces,) per-neuron mean
-    ss_res_n = ((gt_T - pred_corr_T) ** 2).sum(axis=0)
-    ss_tot_n = ((gt_T - gt_mean_n) ** 2).sum(axis=0)
-    r2 = float((1.0 - ss_res_n / (ss_tot_n + 1e-12)).mean())
-    p = [a, b]                                     # keep p[0], p[1] for plot title
-    pred_corr_arr = pred_corr_T.T.astype(np.float32)  # back to (n_traces, n_frames)
 
-    # ---- plot ----
-    fig, ax = plt.subplots(figsize=(15, max(4, n_traces * 0.5 + 2)))
+def _mean_pearson(gt_arr, pred_arr):
+    """Mean per-neuron Pearson correlation between rows of gt_arr and pred_arr."""
+    n = gt_arr.shape[0]
+    corrs = np.zeros(n, dtype=np.float32)
+    for i in range(n):
+        g = gt_arr[i] - gt_arr[i].mean()
+        p = pred_arr[i] - pred_arr[i].mean()
+        denom = float(np.sqrt((g * g).sum()) * np.sqrt((p * p).sum()))
+        corrs[i] = float((g * p).sum() / (denom + 1e-12)) if denom > 0 else 0.0
+    return float(corrs.mean())
 
+
+def _plot_trace_panel(ax, gt_arr, pred_arr, local_ids, pearson, title, n_frames):
+    """Render one stacked-trace panel (GT green + prediction black, per-neuron pearson)."""
+    n_traces = gt_arr.shape[0]
     activity_std = float(np.std(gt_arr))
-    step_v = max(0.5, 3.0 * activity_std) if activity_std > 0 else 2.5
+    step_v = max(0.25, 1.2 * activity_std) if activity_std > 0 else 1.0
 
-    baselines = {}
+    # Per-neuron linear rescale so prediction can be drawn on the same stacked axis
     for i in range(n_traces):
-        bl = float(np.mean(gt_arr[i]))
-        baselines[i] = bl
-        ax.plot(gt_arr[i] - bl + i * step_v, lw=3, c='#66cc66', alpha=0.9,
+        bl_gt = float(np.mean(gt_arr[i]))
+        ax.plot(gt_arr[i] - bl_gt + i * step_v, lw=3, c='#66cc66', alpha=0.9,
                 label='GT' if i == 0 else None)
-    inr_type = getattr(model, '_inr_hidden_type', 'siren_t')
-    inr_label = inr_type.upper().replace('_', '-')
-
-    for i in range(n_traces):
-        bl_corr = float(np.mean(pred_corr_arr[i]))
-        ax.plot((pred_corr_arr[i] - bl_corr) * 8 + i * step_v, lw=0.9, c='black', alpha=0.9,
-                label=f'{inr_label} (corrected)' if i == 0 else None)
-    for i in range(n_traces):
+        g = gt_arr[i] - bl_gt
+        p = pred_arr[i] - float(np.mean(pred_arr[i]))
+        denom = float((p * p).sum())
+        a_i = float((g * p).sum() / (denom + 1e-12)) if denom > 0 else 0.0
+        ax.plot(a_i * p + i * step_v, lw=0.9, c='black', alpha=0.9,
+                label='NGP' if i == 0 else None)
         ax.text(-n_frames * 0.025, i * step_v, f'n{local_ids[i].item()}',
                 fontsize=9, va='bottom', ha='right', color='black')
 
@@ -1869,11 +1873,52 @@ def plot_hidden_siren_traces(model, x_ts, hidden_ids, log_dir, epoch, N, device,
     ax.set_xticklabels([0, n_frames // 2, n_frames], fontsize=13)
     ax.set_xlabel('frame', fontsize=15)
     ax.set_xlim([-n_frames * 0.03, n_frames * 1.05])
-    ax.set_title(f'Hidden-neuron {inr_label}  (epoch {epoch}  iter {N})   R²={r2:.3f}   a={p[0]:.3f} b={p[1]:.3f}', fontsize=13)
+    ax.set_title(f'{title}   pearson={pearson:.3f}', fontsize=13)
     ax.legend(loc='upper right', fontsize=12, frameon=False)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     ax.spines['left'].set_visible(False)
+
+
+def plot_hidden_siren_traces(model, x_ts, hidden_ids, log_dir, epoch, N, device,
+                             n_traces=40, n_frames=2000, anchor_ids=None):
+    """Plot GT voltage vs NGP-predicted voltage for a sample of hidden neurons.
+
+    When anchor_ids is provided AND the model has anchor outputs, adds a right panel
+    showing GT voltage vs NGP anchor prediction for a sample of anchor neurons.
+
+    Saves:
+        log_dir/tmp_training/hidden_{inr_type}/{epoch}_{N}.png  (checkpoint copy)
+        log_dir/results/hidden_inr_traces.png                   (latest copy)
+
+    Returns:
+        (hidden_pearson, anchor_pearson)
+        anchor_pearson is None when anchor_ids is not provided.
+    """
+    n_frames = min(n_frames, x_ts.n_frames)
+    inr_type = getattr(model, '_inr_hidden_type', 'siren_t')
+    inr_label = inr_type.upper().replace('_', '-')
+
+    # Hidden traces (always)
+    gt_h, pred_h, local_h = _sample_ngp_traces(model, x_ts, hidden_ids, n_traces, n_frames, use_anchor=False)
+    pearson_h = _mean_pearson(gt_h, pred_h)
+
+    anchor_active = (anchor_ids is not None) and (getattr(model, 'n_anchor', 0) > 0)
+
+    if anchor_active:
+        gt_a, pred_a, local_a = _sample_ngp_traces(model, x_ts, anchor_ids, n_traces, n_frames, use_anchor=True)
+        pearson_a = _mean_pearson(gt_a, pred_a)
+
+        fig, axes = plt.subplots(1, 2, figsize=(30, max(4, n_traces * 0.25 + 2)))
+        _plot_trace_panel(axes[0], gt_h, pred_h, local_h, pearson_h,
+                          f'Hidden {inr_label}  (epoch {epoch}  iter {N})', n_frames)
+        _plot_trace_panel(axes[1], gt_a, pred_a, local_a, pearson_a,
+                          f'Anchor {inr_label}  (epoch {epoch}  iter {N})', n_frames)
+    else:
+        pearson_a = None
+        fig, ax = plt.subplots(figsize=(15, max(4, n_traces * 0.25 + 2)))
+        _plot_trace_panel(ax, gt_h, pred_h, local_h, pearson_h,
+                          f'Hidden {inr_label}  (epoch {epoch}  iter {N})', n_frames)
 
     out_dir = os.path.join(log_dir, 'tmp_training', f'hidden_{inr_type}')
     os.makedirs(out_dir, exist_ok=True)
@@ -1884,7 +1929,7 @@ def plot_hidden_siren_traces(model, x_ts, hidden_ids, log_dir, epoch, N, device,
     plt.savefig(os.path.join(results_dir, 'hidden_inr_traces.png'), dpi=87, bbox_inches='tight')
     plt.close()
 
-    return r2
+    return pearson_h, pearson_a
 
 
 def render_visual_field_video(model, x_ts, sim, log_dir, epoch, N, logger):
