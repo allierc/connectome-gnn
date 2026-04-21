@@ -142,6 +142,13 @@ def emit_one(base_name, hp_yaml_path, out_yaml_path, suffix, yt_root,
         yaml_name    = f'{base_name}_{suffix}'
         dataset_name = f'{base_name}_{dataset_tag}'
     merged['dataset']     = dataset_name
+    # Always point config_file at this emitted YAML. Some winner yamls carry
+    # a stale config_file pointing at the base condition (e.g.
+    # flyvis_noise_005_hidden_010_ngp_winner.yaml embeds
+    # `config_file: fly/flyvis_noise_005_hidden_010_ngp`). Without this line,
+    # that stale value survives the merge and submit_cluster_job can't find
+    # the emitted YAML in the shared-FS config dir.
+    merged['config_file'] = f'fly/{yaml_name}'
     fold_tag = f' fold={fold_i}' if fold_i is not None else ''
     merged['description'] = (
         f'Cross-check YT-training variant of {base_name}{fold_tag} '
