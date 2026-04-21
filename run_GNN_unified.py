@@ -29,4 +29,4 @@ from connectome_gnn.cross import run_all_conditions
 
 run_all_conditions(hp_source='uniform', suffix='yt_unified',
                     hp_yaml='flyvis_unified_winner',
-                    hard_runtime_limit_min=960)
+                    hard_runtime_limit_min=480)
