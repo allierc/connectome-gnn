@@ -161,10 +161,10 @@ the architecture block on the hashtable first.
 | `alternate_training`    | true     | alternate-phase training (W vs MLP)                            |
 | `alternate_lr_ratio`    | 0.4      | LR ratio during alternate phase                                |
 
-## Parallel Mode — 4 Slots Per Batch
+## Parallel Mode — 8 Slots Per Batch
 
-All 4 slots run with different random seeds (assigned automatically).
-Use all 4 slots for seed robustness testing.
+All 8 slots run with different random seeds (assigned automatically).
+Use all 8 slots for seed robustness testing. Each block contains 24 iterations.
 
 Data is **pre-generated at startup** (`claude.generate_data: false`) and
 re-used across iterations. `simulation.seed` and `training.seed` are set by
@@ -176,10 +176,10 @@ Seed formula (automatic):
 
 **Robustness classification (primary = conn_R²; secondary = hidden_rollout_pearson):**
 
-- **Stable-Robust**: all 4 seeds conn_R2 > 0.90 AND hidden_rollout_pearson > 0.5 AND CV < 5%
-- **Robust**: all 4 seeds conn_R2 > 0.85 AND hidden_rollout_pearson > 0.3, CV 5-10%
-- **Partially robust**: 2-3 seeds meet criteria above
-- **Fragile**: 0-1 seeds meet criteria — reject
+- **Stable-Robust**: ≥7/8 seeds conn_R2 > 0.90 AND hidden_rollout_pearson > 0.5 AND CV < 5%
+- **Robust**: ≥6/8 seeds conn_R2 > 0.85 AND hidden_rollout_pearson > 0.3, CV 5-10%
+- **Partially robust**: 4-5/8 seeds meet criteria above
+- **Fragile**: ≤3/8 seeds meet criteria — reject
 - **DISQUALIFIED**: any seed conn_R2 < 0.70, OR any seed hidden_rollout_pearson < 0
 
 ## Multi-parameter Exploration
@@ -210,7 +210,7 @@ Calibrate `n_epochs` × `data_augmentation_loop` to stay within budget:
 | 6     | **Batch size**             | `batch_size` ∈ {8, 16, 32, 64} — retest with anchor loss                 |
 | 7     | **Hashtable encoding**     | `n_levels`, `features_per_level`, `base_res`, `per_level_scale`          |
 | 8     | **Combined best**          | Best of blocks 2–7                                                       |
-| 9     | **Validation**             | Best config × 4 seeds, cross-check at n_epochs×DAL budget multipliers    |
+| 9     | **Validation**             | Best config × 8 seeds, cross-check at n_epochs×DAL budget multipliers    |
 
 ## YAML Rules
 
@@ -224,7 +224,7 @@ Calibrate `n_epochs` × `data_augmentation_loop` to stay within budget:
 
 **Config file paths:**
 
-- `config/fly/flyvis_noise_005_hidden_010_ngp_anchors_Claude_00.yaml` through `_03.yaml`
+- `config/fly/flyvis_noise_005_hidden_010_ngp_anchors_Claude_00.yaml` through `_07.yaml`
 - `config/fly/flyvis_noise_005_hidden_010_ngp_anchors_winner.yaml`
 
 ## File Structure
@@ -242,7 +242,7 @@ Calibrate `n_epochs` × `data_augmentation_loop` to stay within budget:
 
 ### Step 1: Read Working Memory + User Input
 
-### Step 2: Analyze Results (4 slots)
+### Step 2: Analyze Results (8 slots)
 
 **Metrics from `analysis.log` / `metrics.txt`:**
 
@@ -277,6 +277,10 @@ Slot 0: conn_R2=A, hid_pear=B, anc_pear=C, tau_R2=D, V_rest_R2=E, cluster=F, hid
 Slot 1: ...
 Slot 2: ...
 Slot 3: ...
+Slot 4: ...
+Slot 5: ...
+Slot 6: ...
+Slot 7: ...
 Seed stats: mean_conn_R2=X, std=Y, CV=Z%, min=W
            mean_hid_pear=X, std=Y, mean_anc_pear=X, std=Y
 Stability: [Stable-Robust / Robust / Partially robust / Fragile / DISQUALIFIED]
@@ -303,7 +307,7 @@ Save to `config/fly/flyvis_noise_005_hidden_010_ngp_anchors_winner.yaml` with he
 # Why this is the winner:
 #   - [narrative on what the anchor / consistency balance contributed]
 #
-# Metrics (4-seed):
+# Metrics (8-seed):
 #   conn_R2:              X.XXX +/- X.XXX (CV=X.X%)
 #   hidden_nnr_pearson:   X.XXX +/- X.XXX
 #   anchor_nnr_pearson:   X.XXX +/- X.XXX
@@ -340,11 +344,11 @@ Save to `config/fly/flyvis_noise_005_hidden_010_ngp_anchors_winner.yaml` with he
 When prompt says `PARALLEL START`:
 
 - Read base config `config/fly/flyvis_noise_005_hidden_010_ngp_anchors_Claude_00.yaml`
-- Set all 4 configs identically to the baseline
+- Set all 8 configs identically to the baseline
 - **Initial hypothesis**: "Consistency + anchor losses push hidden_nnr_pearson above 0.3 at iter 1 with default coefficients (3000/3000, n_anchor=3600)"
 - **Null hypothesis**: "Default coefficients leave hidden_nnr_pearson < 0.2 — anchor trunk supervision alone doesn't rescue hidden slots"
 - Write both hypotheses to working memory
-- Block 1 tests the null hypothesis — no mutation yet, just 4 seeds of baseline
+- Block 1 tests the null hypothesis — no mutation yet, just 8 seeds of baseline
 
 ---
 
