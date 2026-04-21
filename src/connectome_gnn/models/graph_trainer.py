@@ -372,6 +372,41 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
         visible_ids = ids[~_hidden_mask]
         _logger.info(f'hidden neurons: {len(hidden_ids)}/{n_neurons}, visible for loss: {len(visible_ids)}')
 
+    # --- Anchor neuron setup ---
+    # Anchors are OBSERVED neurons whose GT voltages directly supervise the
+    # NGP-T / SIREN-T backbone. Not cheating: anchors are sampled from the
+    # visible (non-hidden) set.
+    anchor_ids = None
+    _inr_type_hidden = getattr(model_config, 'inr_type_hidden', 'none')
+    _anchor_inner_model = model._orig_mod if hasattr(model, '_orig_mod') else model
+    has_anchor_neurons = (
+        has_hidden_neurons
+        and bool(getattr(tc, 'train_with_anchor_neurons', False))
+        and _inr_type_hidden in ('siren_t', 'ngp_t')
+        and getattr(_anchor_inner_model, 'n_anchor', 0) > 0
+    )
+    if has_anchor_neurons:
+        _anchor_path = os.path.join(log_dir, 'anchor_neuron_ids.pt')
+        _n_anchor = int(_anchor_inner_model.n_anchor)
+        if os.path.exists(_anchor_path):
+            anchor_ids = torch.load(_anchor_path, map_location=device, weights_only=True)
+            if len(anchor_ids) != _n_anchor:
+                _logger.warning(f'anchor_ids size {len(anchor_ids)} != model.n_anchor {_n_anchor}; re-sampling')
+                anchor_ids = None
+        if anchor_ids is None:
+            _rng = np.random.RandomState(sim.seed + 1)
+            _candidates = np.setdiff1d(
+                np.arange(sim.n_input_neurons, n_neurons),
+                hidden_ids.cpu().numpy(),
+            )
+            _n_anchor_eff = min(_n_anchor, len(_candidates))
+            _anchor_np = np.sort(_rng.choice(_candidates, size=_n_anchor_eff, replace=False))
+            anchor_ids = torch.from_numpy(_anchor_np).long().to(device)
+            torch.save(anchor_ids, _anchor_path)
+            _logger.info(f'sampled {len(anchor_ids)} anchor neurons, saved')
+        else:
+            _logger.info(f'loaded {len(anchor_ids)} anchor neurons from checkpoint')
+
     if tc.coeff_W_sign > 0:
         index_weight = []
         for i in range(n_neurons):
@@ -488,9 +523,11 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
         frame_indices = epoch_rng.randint(0, _frame_range, size=Niter * tc.batch_size) + _frame_min_k
 
         last_connectivity_r2 = None
+        last_connectivity_r2_visible = None
         last_vrest_r2 = 0.0
         last_tau_r2 = 0.0
         last_hidden_r2 = None
+        last_anchor_r2 = None
         field_R2 = None
         field_slope = None
         pbar = trange(Niter, ncols=100)
@@ -565,22 +602,33 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                     with open(metrics_log_path, 'a') as f:
                         f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f}\n')
                 elif (is_regular_r2 or is_early_r2) and 'mlp' not in model_name.lower():
-                    last_connectivity_r2, _r2_visible, _h_r2, _a_r2 = plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_list, gt_weights, edges, n_neurons=n_neurons, n_neuron_types=sim.n_neuron_types, ode_params=ode_params, hidden_ids=hidden_ids)
+                    last_connectivity_r2, _r2_visible, _h_r2, _a_r2 = plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_list, gt_weights, edges, n_neurons=n_neurons, n_neuron_types=sim.n_neuron_types, ode_params=ode_params, hidden_ids=hidden_ids, anchor_ids=anchor_ids)
+                    last_connectivity_r2_visible = _r2_visible
                     if _h_r2 is not None:
                         last_hidden_r2 = _h_r2
+                    if _a_r2 is not None:
+                        last_anchor_r2 = _a_r2
                     last_vrest_r2, last_tau_r2 = compute_dynamics_r2(model, x_ts, config, device, n_neurons)
                     with open(metrics_log_path, 'a') as f:
                         f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f}\n')
 
                 if last_connectivity_r2 is not None:
                     c_conn = r2_color(last_connectivity_r2)
-                    bar_parts = [f'{c_conn}conn={last_connectivity_r2:.3f}{ANSI_RESET}']
+                    if last_connectivity_r2_visible is not None and abs(last_connectivity_r2_visible - last_connectivity_r2) > 1e-4:
+                        conn_str = f'conn={last_connectivity_r2:.3f}({last_connectivity_r2_visible:.3f})'
+                    else:
+                        conn_str = f'conn={last_connectivity_r2:.3f}'
+                    bar_parts = [f'{c_conn}{conn_str}{ANSI_RESET}']
                     if ode_params.has_vrest():
                         bar_parts.append(f'{r2_color(last_vrest_r2)}Vr={last_vrest_r2:.3f}{ANSI_RESET}')
                     if ode_params.has_tau():
                         bar_parts.append(f'{r2_color(last_tau_r2)}τ={last_tau_r2:.3f}{ANSI_RESET}')
                     if last_hidden_r2 is not None:
-                        bar_parts.append(f'{r2_color(last_hidden_r2)}nnr={last_hidden_r2:.3f}{ANSI_RESET}')
+                        if last_anchor_r2 is not None:
+                            nnr_str = f'nnr={last_hidden_r2:.3f}({last_anchor_r2:.3f})'
+                        else:
+                            nnr_str = f'nnr={last_hidden_r2:.3f}'
+                        bar_parts.append(f'{r2_color(last_hidden_r2)}{nnr_str}{ANSI_RESET}')
                     pbar.set_postfix_str(' '.join(bar_parts))
                 continue
 
@@ -761,13 +809,25 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                 else:
 
                     loss = loss + (pred[ids_batch] - y_batch[ids_batch]).norm(2)
-                    # Hidden voltage loss: GNN-predicted v(k+1) vs GT (bypasses g_phi via -v/tau)
+                    # Hidden voltage consistency loss: GNN-predicted v(k+1) vs NGP(k+1).
+                    # No oracle GT leak at hidden neurons — the target is the INR's own
+                    # prediction at t+1, so agreement requires GNN dynamics and INR trace
+                    # to be self-consistent. Degeneracy (both constant) is prevented by
+                    # the anchor loss and the visible-neuron rollout loss.
                     if has_hidden_neurons and getattr(tc, 'coeff_hidden_voltage', 0.0) > 0:
                         n_per = state_batch[0].n_neurons
                         h_ids_b = torch.cat([hidden_ids + b * n_per for b in range(len(state_batch))]).to(device)
                         pred_h = batched_state.voltage[h_ids_b].unsqueeze(-1) + sim.delta_t * pred[h_ids_b]
-                        gt_h = torch.cat([x_ts.voltage[int(k_batch[b * n_per, 0].item()) + 1, hidden_ids].unsqueeze(-1) for b in range(len(state_batch))], dim=0)
-                        loss = loss + tc.coeff_hidden_voltage * (pred_h - gt_h).norm(2)
+                        k_starts = k_batch[::n_per, 0].to(torch.long)                 # (B,)
+                        target_h = model.forward_hidden_batched(k_starts + 1).reshape(-1, 1)  # (B*n_hidden, 1)
+                        loss = loss + tc.coeff_hidden_voltage * (pred_h - target_h).norm(2)
+                    # Anchor voltage loss: NGP-T/SIREN-T anchor outputs vs observed GT voltages
+                    if has_anchor_neurons and getattr(tc, 'coeff_anchor_voltage', 0.0) > 0:
+                        n_per = state_batch[0].n_neurons
+                        k_starts = k_batch[::n_per, 0].to(torch.long)                 # (B,)
+                        pred_a = model.forward_anchor_batched(k_starts)                # (B, n_anchor)
+                        gt_a = x_ts.voltage[k_starts[:, None], anchor_ids[None, :]]    # (B, n_anchor)
+                        loss = loss + tc.coeff_anchor_voltage * (pred_a - gt_a).norm(2)
 
 
                 # === LLM-MODIFIABLE: BACKWARD AND STEP START ===
@@ -844,22 +904,33 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                     with open(metrics_log_path, 'a') as f:
                         f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f}\n')
                 elif (is_regular_r2 or is_early_r2) and not test_neural_field and 'mlp' not in model_name.lower():
-                    last_connectivity_r2, _r2_visible, _h_r2, _a_r2 = plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_list, gt_weights, edges, n_neurons=n_neurons, n_neuron_types=sim.n_neuron_types, ode_params=ode_params, hidden_ids=hidden_ids)
+                    last_connectivity_r2, _r2_visible, _h_r2, _a_r2 = plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_list, gt_weights, edges, n_neurons=n_neurons, n_neuron_types=sim.n_neuron_types, ode_params=ode_params, hidden_ids=hidden_ids, anchor_ids=anchor_ids)
+                    last_connectivity_r2_visible = _r2_visible
                     if _h_r2 is not None:
                         last_hidden_r2 = _h_r2
+                    if _a_r2 is not None:
+                        last_anchor_r2 = _a_r2
                     last_vrest_r2, last_tau_r2 = compute_dynamics_r2(model, x_ts, config, device, n_neurons)
                     with open(metrics_log_path, 'a') as f:
                         f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f}\n')
 
                 if last_connectivity_r2 is not None:
                     c_conn = r2_color(last_connectivity_r2)
-                    bar_parts = [f'{c_conn}conn={last_connectivity_r2:.3f}{ANSI_RESET}']
+                    if last_connectivity_r2_visible is not None and abs(last_connectivity_r2_visible - last_connectivity_r2) > 1e-4:
+                        conn_str = f'conn={last_connectivity_r2:.3f}({last_connectivity_r2_visible:.3f})'
+                    else:
+                        conn_str = f'conn={last_connectivity_r2:.3f}'
+                    bar_parts = [f'{c_conn}{conn_str}{ANSI_RESET}']
                     if ode_params.has_vrest():
                         bar_parts.append(f'{r2_color(last_vrest_r2)}Vr={last_vrest_r2:.3f}{ANSI_RESET}')
                     if ode_params.has_tau():
                         bar_parts.append(f'{r2_color(last_tau_r2)}τ={last_tau_r2:.3f}{ANSI_RESET}')
                     if last_hidden_r2 is not None:
-                        bar_parts.append(f'{r2_color(last_hidden_r2)}nnr={last_hidden_r2:.3f}{ANSI_RESET}')
+                        if last_anchor_r2 is not None:
+                            nnr_str = f'nnr={last_hidden_r2:.3f}({last_anchor_r2:.3f})'
+                        else:
+                            nnr_str = f'nnr={last_hidden_r2:.3f}'
+                        bar_parts.append(f'{r2_color(last_hidden_r2)}{nnr_str}{ANSI_RESET}')
                     pbar.set_postfix_str(' '.join(bar_parts))
 
                 if (has_visual_field) & (N in plot_iterations):
