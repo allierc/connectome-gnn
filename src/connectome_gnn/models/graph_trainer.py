@@ -258,7 +258,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
             _logger.info(f'n_edges mismatch: config={sim.n_edges}, actual={actual_n_edges} — using actual')
             print(f"{_R}[TRAIN] n_edges override: config={sim.n_edges} → actual={actual_n_edges}{_X}")
             config.simulation.n_edges = actual_n_edges
-    _logger.info(f'{edges.shape[1]} edges')
+
     print(f"{_G}[TRAIN] edges for model: {edges.shape}  config.n_edges now={config.simulation.n_edges}{_X}")
 
     # Save training edges so tester uses the same graph
@@ -370,7 +370,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
         _hidden_mask = torch.zeros(n_neurons, dtype=torch.bool, device=device)
         _hidden_mask[hidden_ids] = True
         visible_ids = ids[~_hidden_mask]
-        logger.info(f'hidden neurons: {len(hidden_ids)}/{n_neurons}, visible for loss: {len(visible_ids)}')
+        _logger.info(f'hidden neurons: {len(hidden_ids)}/{n_neurons}, visible for loss: {len(visible_ids)}')
 
     if tc.coeff_W_sign > 0:
         index_weight = []
@@ -379,7 +379,6 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
             mask = edges[1] == i
             index_weight.append(edges[0][mask])
 
-    logger.info(f'coeff_W_L1: {tc.coeff_W_L1} coeff_g_phi_diff: {tc.coeff_g_phi_diff} coeff_f_theta_diff: {tc.coeff_f_theta_diff}')
     _logger.info(f'coeff_W_L1: {tc.coeff_W_L1} coeff_g_phi_diff: {tc.coeff_g_phi_diff} coeff_f_theta_diff: {tc.coeff_f_theta_diff}')
      # proximal L1 info
     coeff_proximal = getattr(tc, 'coeff_W_L1_proximal', 0.0)
