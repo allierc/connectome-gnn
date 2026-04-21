@@ -340,13 +340,6 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
         _diff_warmup_start = float(getattr(tc, 'differential_warmup_start_fraction', 0.01))
         lr_scheduler = apply_differential_warmup(optimizer, config, warmup_steps=_diff_warmup_steps, warmup_start_fraction=_diff_warmup_start)
         _logger.info(f'differential warmup: {_diff_warmup_steps} steps, start_fraction={_diff_warmup_start}')
-    # Block 11: lr_W cosine decay — reduce lr_W over training to prevent regression failures
-    _lr_w_cosine_min = float(getattr(tc, 'lr_w_cosine_min_factor', 1.0))
-    _lr_w_cosine_enabled = _lr_w_cosine_min < 1.0
-    if _lr_w_cosine_enabled:
-        from connectome_gnn.LLM_code.staging.block_11.lr_w_cosine_decay import apply_lr_w_cosine_decay
-        from types import SimpleNamespace
-        _logger.info(f'lr_W cosine decay enabled: min_factor={_lr_w_cosine_min}')
     # === LLM-MODIFIABLE: OPTIMIZER SETUP END ===
     model.train()
 
@@ -552,8 +545,6 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                 if dale_enabled and N in dale_checkpoints:
                     enforce_dale_law(model, edges)
                 lr_scheduler.step()
-                if _lr_w_cosine_enabled:
-                    apply_lr_w_cosine_decay(SimpleNamespace(param_groups=[pg for pg in optimizer.param_groups if pg.get('name') == 'W']), N, Niter, lr_W, _lr_w_cosine_min)
                 _total_loss_gpu = _total_loss_gpu + loss.detach()
                 total_loss_regul += regul_val
                 regularizer.finalize_iteration()
@@ -793,8 +784,6 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                 if dale_enabled and N in dale_checkpoints:
                     enforce_dale_law(model, edges)
                 lr_scheduler.step()
-                if _lr_w_cosine_enabled:
-                    apply_lr_w_cosine_decay(SimpleNamespace(param_groups=[pg for pg in optimizer.param_groups if pg.get('name') == 'W']), N, Niter, lr_W, _lr_w_cosine_min)
                 # === LLM-MODIFIABLE: BACKWARD AND STEP END ===
 
                 _total_loss_gpu = _total_loss_gpu + loss.detach()
