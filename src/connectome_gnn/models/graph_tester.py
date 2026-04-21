@@ -160,6 +160,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     load_fields = ['voltage', 'stimulus', 'neuron_type']
     has_visual_field = 'visual' in model_config.field_type
     _inr_hidden = getattr(model_config, 'inr_type_hidden', 'none')
+    has_hidden_neurons = getattr(model_config, 'hidden_neuron_fraction', 0.0) > 0.0
     if has_visual_field or 'test' in model_config.field_type or _inr_hidden == 'siren_txy':
         load_fields.append('pos')
     if sim.calcium_type != 'none':
@@ -278,8 +279,12 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
             model.W[~ablation_mask] = 0
         logger.info(f'applied ablation mask: {(~ablation_mask).sum().item()} edges zeroed in model.W')
 
-    # When visual field is learned, use training data (INR was fit to it)
-    if has_visual_field:
+    # When a field INR is learned (visual SIREN, hidden NGP-T) rollout must
+    # happen on training frames — the INR was fit to those time indices only
+    # and cannot extrapolate to held-out test frames. For hidden NGP-T this
+    # matches the noisy training distribution the grid was fit on.
+    _use_train_data = has_visual_field or has_hidden_neurons
+    if _use_train_data:
         train_path = graphs_data_path(config.dataset, 'x_list_train')
         if os.path.exists(train_path):
             x_ts_train = load_simulation_data(train_path, fields=load_fields).to(device)
@@ -290,7 +295,10 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
                 x_ts_train = x_ts_train.subset_neurons(selected_neuron_ids)
                 y_ts_train = y_ts_train[:, selected_neuron_ids, :]
             n_eval_frames = min(n_frames, x_ts_train.n_frames)
-            logger.info(f'visual field learned: evaluating on training data ({x_ts_train.n_frames} frames available, using {n_eval_frames})')
+            _reason = ('visual field learned' if has_visual_field
+                       else 'hidden NGP-T learned')
+            logger.info(f'{_reason}: evaluating on training data '
+                        f'({x_ts_train.n_frames} frames available, using {n_eval_frames})')
             x_ts_eval = x_ts_train
             y_ts_eval = y_ts_train
         else:
@@ -315,7 +323,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     data_id = torch.zeros((n_neurons, 1), dtype=torch.int, device=device)
 
     # Load hidden neuron list for rollout
-    has_hidden_neurons = getattr(model_config, 'hidden_neuron_fraction', 0.0) > 0.0
+    # (has_hidden_neurons is defined once up top alongside has_visual_field)
     hidden_ids = None
     if has_hidden_neurons:
         _hidden_path = os.path.join(log_dir, 'hidden_neuron_ids.pt')
@@ -551,6 +559,20 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
         activity_true, activity_pred, label="rollout"
     )
 
+    # Split rollout Pearson into hidden vs visible when a hidden-NGP model is in use.
+    hidden_rollout_pearson = None
+    visible_rollout_pearson = None
+    if has_hidden_neurons and hidden_ids is not None:
+        _hidden_np = hidden_ids.detach().cpu().numpy().astype(int)
+        _mask = np.zeros(n_neurons, dtype=bool)
+        _mask[_hidden_np] = True
+        _hidden_pear = pearson_ro[_mask]
+        _visible_pear = pearson_ro[~_mask]
+        if _hidden_pear.size:
+            hidden_rollout_pearson = float(np.nanmean(_hidden_pear))
+        if _visible_pear.size:
+            visible_rollout_pearson = float(np.nanmean(_visible_pear))
+
     # Save rollout metrics
     rollout_log_path = os.path.join(log_dir, f'results_rollout{test_suffix}.log')
     with open(rollout_log_path, 'w') as f:
@@ -558,12 +580,15 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
         f.write("=" * 60 + "\n")
         f.write(f"RMSE: {np.mean(rmse_ro):.4f} +/- {np.std(rmse_ro):.4f}\n")
         f.write(f"Pearson r: {np.nanmean(pearson_ro):.3f} +/- {np.nanstd(pearson_ro):.3f}\n")
-        # f.write(f"R2: {np.nanmean(r2_ro):.3f} +/- {np.nanstd(r2_ro):.3f}\n")
-        # f.write(f"FEVE: {np.mean(feve_ro):.3f} +/- {np.std(feve_ro):.3f}\n")
+        if hidden_rollout_pearson is not None:
+            f.write(f"hidden_rollout_pearson: {hidden_rollout_pearson:.3f} "
+                    f"(n={int(_mask.sum())})\n")
+            f.write(f"visible_rollout_pearson: {visible_rollout_pearson:.3f} "
+                    f"(n={int((~_mask).sum())})\n")
         f.write(f"\nNumber of neurons evaluated: {n_neurons}\n")
         f.write(f"Frames evaluated: 0 to {n_eval_frames - 1}\n")
-        if has_visual_field:
-            f.write("Rollout data source: training (INR learned on training data)\n")
+        if _use_train_data:
+            f.write("Rollout data source: training (INR/NGP-T learned on training data)\n")
         if stimuli_R2 is not None:
             f.write(f"stimuli_R2: {stimuli_R2:.4f}\n")
             f.write(f"stimuli_r: {stimuli_r:.4f}\n")
@@ -595,6 +620,9 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
         log_file.write('\n--- Rollout results ---\n')
         log_file.write(f'rollout_pearson: {np.nanmean(pearson_ro):.4f}\n')
         log_file.write(f'rollout_pearson_std: {np.nanstd(pearson_ro):.4f}\n')
+        if hidden_rollout_pearson is not None:
+            log_file.write(f'hidden_rollout_pearson: {hidden_rollout_pearson:.4f}\n')
+            log_file.write(f'visible_rollout_pearson: {visible_rollout_pearson:.4f}\n')
         log_file.write(f'rollout_RMSE: {np.mean(rmse_ro):.4f}\n')
         log_file.write(f'rollout_RMSE_std: {np.std(rmse_ro):.4f}\n')
         if stimuli_R2 is not None:
@@ -866,15 +894,25 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     # ── Hidden-neuron trace plot (uses its own n_traces/n_frames for the PNG) ─
     if has_hidden_neurons and getattr(model, 'NNR_hidden', None) is not None:
         from connectome_gnn.plot import plot_hidden_siren_traces
-        _r2 = plot_hidden_siren_traces(
+        # Load anchor_ids if the run produced any (so the plot gets the 2-panel layout).
+        _anchor_ids = None
+        _anchor_path = os.path.join(log_dir, 'anchor_neuron_ids.pt')
+        if getattr(model, 'n_anchor', 0) > 0 and os.path.exists(_anchor_path):
+            _anchor_ids = torch.load(_anchor_path, map_location=device, weights_only=True)
+        _hp, _ap = plot_hidden_siren_traces(
             model, x_ts_eval, hidden_ids, log_dir,
             epoch=0, N=0, device=device,
-            n_traces=10, n_frames=min(800, n_eval_frames),
+            n_traces=40, n_frames=min(2000, n_eval_frames),
+            anchor_ids=_anchor_ids,
         )
         if siren_r2 is None:
-            logger.info(f'hidden INR R²: {_r2:.4f}')
+            logger.info(f'hidden INR pearson: {_hp:.4f}')
             if log_file:
-                log_file.write(f'hidden_nnr_R2: {_r2:.4f}\n')
+                log_file.write(f'hidden_nnr_R2: {_hp:.4f}\n')
+        if _ap is not None:
+            logger.info(f'anchor INR pearson: {_ap:.4f}')
+            if log_file:
+                log_file.write(f'anchor_nnr_pearson: {_ap:.4f}\n')
 
     logger.debug(f'rollout plots saved to {results_dir}/')
 
@@ -1099,7 +1137,8 @@ def data_test_gnn_special(
     pos = torch.tensor(np.stack((xc, yc), axis=1), dtype=torch.float32, device=device) / 2
     X1 = torch.cat((X1, pos[torch.randperm(pos.size(0), device=device)]), dim=0)
 
-    state = net.steady_state(t_pre=2.0, dt=sim.delta_t, batch_size=1)
+    _ss_value = getattr(sim, 'steady_state_value', 0.5)
+    state = net.steady_state(t_pre=2.0, dt=sim.delta_t, batch_size=1, value=_ss_value)
     initial_state = state.nodes.activity.squeeze()
     n_neurons = len(initial_state)
 
