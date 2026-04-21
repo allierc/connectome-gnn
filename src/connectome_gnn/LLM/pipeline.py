@@ -944,13 +944,17 @@ def _print_batch_results(state: ExplorationState, batch: BatchInfo):
             m = re.search(rf'{key}[=:]\s*([\d.eE+-]+|nan)', log_content)
             return m.group(1) if m else None
 
-        conn_r2   = _p('connectivity_R2')
-        tau_r2    = _p('tau_R2')
-        vrest_r2  = _p('V_rest_R2')
-        clust_acc = _p('cluster_accuracy')
-        rollout_r = _p('rollout_pearson')
-        onestep_r = _p('onestep_pearson')
-        train_min = _p('training_time_min')
+        conn_r2       = _p('connectivity_R2')
+        tau_r2        = _p('tau_R2')
+        vrest_r2      = _p('V_rest_R2')
+        clust_acc     = _p('cluster_accuracy')
+        rollout_r     = _p('rollout_pearson')
+        hid_rollout_r = _p('hidden_rollout_pearson')
+        vis_rollout_r = _p('visible_rollout_pearson')
+        hid_nnr_pear  = _p('hidden_nnr_pearson')
+        anc_nnr_pear  = _p('anchor_nnr_pearson')
+        onestep_r     = _p('onestep_pearson')
+        train_min     = _p('training_time_min')
 
         parts = []
         if conn_r2:
@@ -961,10 +965,20 @@ def _print_batch_results(state: ExplorationState, batch: BatchInfo):
             parts.append(f"τ={_color_metric(tau_r2, 0.9, 0.5)}")
         if clust_acc:
             parts.append(f"cl={_color_metric(clust_acc, 0.9, 0.5)}")
-        if rollout_r:
+        # Rollout: prefer hidden/visible split when available (hidden-NGP runs),
+        # else the aggregate rollout_pearson, else one-step r.
+        if hid_rollout_r and vis_rollout_r:
+            parts.append(f"rH={_color_metric(hid_rollout_r, 0.9, 0.5)}({_color_metric(vis_rollout_r, 0.9, 0.5)})")
+        elif rollout_r:
             parts.append(f"rN={_color_metric(rollout_r, 0.9, 0.5)}")
         elif onestep_r:
             parts.append(f"r1={_color_metric(onestep_r, 0.9, 0.5)}")
+        # Hidden-NGP diagnostics
+        if hid_nnr_pear:
+            nnr_str = f"nnr={_color_metric(hid_nnr_pear, 0.5, 0.2)}"
+            if anc_nnr_pear:
+                nnr_str += f"({_color_metric(anc_nnr_pear, 0.5, 0.2)})"
+            parts.append(nnr_str)
         if train_min:
             parts.append(f"\033[90mtrain={float(train_min):.1f}min\033[0m")
 

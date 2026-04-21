@@ -603,6 +603,32 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
     if os.path.exists(_metrics_path):
         os.remove(_metrics_path)
 
+    # Mirror rollout metrics from results_rollout.log (written by graph_tester)
+    # into metrics.txt so downstream consumers (CV runners, LLM exploration,
+    # verdict parsers) can read them from a single key-value file.
+    _rollout_log = os.path.join(log_dir, 'results_rollout.log')
+    if os.path.exists(_rollout_log):
+        import re as _re
+        with open(_rollout_log, 'r') as _rf:
+            _rtext = _rf.read()
+        _keys = (
+            'Pearson r', 'RMSE', 'hidden_rollout_pearson',
+            'visible_rollout_pearson', 'stimuli_R2', 'stimuli_r',
+        )
+        _mirrored = []
+        for _k in _keys:
+            _m = _re.search(rf'{_re.escape(_k)}:\s*([-\d.eE+]+)', _rtext)
+            if _m:
+                # Normalize 'Pearson r' → rollout_pearson, 'RMSE' → rollout_RMSE
+                _canonical = {
+                    'Pearson r': 'rollout_pearson',
+                    'RMSE': 'rollout_RMSE',
+                }.get(_k, _k)
+                _mirrored.append(f'{_canonical}: {_m.group(1)}\n')
+        if _mirrored:
+            with open(_metrics_path, 'a') as _mf:
+                _mf.writelines(_mirrored)
+
     print(f'experiment description: {config.description}')
     logger.info(f'experiment description: {config.description}')
 

@@ -1835,8 +1835,8 @@ def _sample_ngp_traces(model, x_ts, ids, n_traces, n_frames, use_anchor):
     return gt_arr, pred_arr, local_ids
 
 
-def _mean_pearson(gt_arr, pred_arr):
-    """Mean per-neuron Pearson correlation between rows of gt_arr and pred_arr."""
+def _per_neuron_pearson(gt_arr, pred_arr):
+    """Per-neuron Pearson correlations (shape (n,)) between rows of gt_arr and pred_arr."""
     n = gt_arr.shape[0]
     corrs = np.zeros(n, dtype=np.float32)
     for i in range(n):
@@ -1844,7 +1844,38 @@ def _mean_pearson(gt_arr, pred_arr):
         p = pred_arr[i] - pred_arr[i].mean()
         denom = float(np.sqrt((g * g).sum()) * np.sqrt((p * p).sum()))
         corrs[i] = float((g * p).sum() / (denom + 1e-12)) if denom > 0 else 0.0
-    return float(corrs.mean())
+    return corrs
+
+
+def _mean_pearson(gt_arr, pred_arr):
+    """Mean per-neuron Pearson correlation between rows of gt_arr and pred_arr."""
+    return float(_per_neuron_pearson(gt_arr, pred_arr).mean())
+
+
+def _plot_pearson_violin(ax, hidden_corrs, anchor_corrs):
+    """Side-by-side violins of per-neuron Pearson correlations for hidden and anchor traces."""
+    data = [hidden_corrs]
+    labels = ['hidden']
+    colors = ['#4477cc']
+    if anchor_corrs is not None:
+        data.append(anchor_corrs)
+        labels.append('anchor')
+        colors.append('#cc6644')
+    parts = ax.violinplot(data, showmeans=True, showextrema=True, widths=0.7)
+    for body, c in zip(parts['bodies'], colors):
+        body.set_facecolor(c)
+        body.set_edgecolor('black')
+        body.set_alpha(0.6)
+    ax.set_xticks(range(1, len(labels) + 1))
+    ax.set_xticklabels(labels, fontsize=14)
+    ax.axhline(0, color='gray', lw=0.5, linestyle='--')
+    ax.set_ylim(-0.2, 1.0)
+    ax.set_ylabel('per-neuron Pearson', fontsize=14)
+    # Overlay mean values as text
+    for i, c in enumerate(data):
+        ax.text(i + 1, -0.15, f'μ={c.mean():.3f}\nn={len(c)}',
+                ha='center', va='top', fontsize=10)
+    ax.set_aspect('auto')  # axes box controls squareness via figure layout
 
 
 def _plot_trace_panel(ax, gt_arr, pred_arr, local_ids, pearson, title, n_frames):
@@ -1901,19 +1932,29 @@ def plot_hidden_siren_traces(model, x_ts, hidden_ids, log_dir, epoch, N, device,
 
     # Hidden traces (always)
     gt_h, pred_h, local_h = _sample_ngp_traces(model, x_ts, hidden_ids, n_traces, n_frames, use_anchor=False)
-    pearson_h = _mean_pearson(gt_h, pred_h)
+    corrs_h = _per_neuron_pearson(gt_h, pred_h)
+    pearson_h = float(corrs_h.mean())
 
     anchor_active = (anchor_ids is not None) and (getattr(model, 'n_anchor', 0) > 0)
 
     if anchor_active:
         gt_a, pred_a, local_a = _sample_ngp_traces(model, x_ts, anchor_ids, n_traces, n_frames, use_anchor=True)
-        pearson_a = _mean_pearson(gt_a, pred_a)
+        corrs_a = _per_neuron_pearson(gt_a, pred_a)
+        pearson_a = float(corrs_a.mean())
 
-        fig, axes = plt.subplots(1, 2, figsize=(30, max(4, n_traces * 0.25 + 2)))
-        _plot_trace_panel(axes[0], gt_h, pred_h, local_h, pearson_h,
+        # 3-panel layout: two trace panels (width 15 each) + square violin panel
+        panel_h = max(4, n_traces * 0.25 + 2)
+        fig = plt.figure(figsize=(30 + panel_h, panel_h))
+        gs = fig.add_gridspec(1, 3, width_ratios=[15, 15, panel_h])
+        ax_h = fig.add_subplot(gs[0, 0])
+        ax_a = fig.add_subplot(gs[0, 1])
+        ax_v = fig.add_subplot(gs[0, 2])
+        _plot_trace_panel(ax_h, gt_h, pred_h, local_h, pearson_h,
                           f'Hidden {inr_label}  (epoch {epoch}  iter {N})', n_frames)
-        _plot_trace_panel(axes[1], gt_a, pred_a, local_a, pearson_a,
+        _plot_trace_panel(ax_a, gt_a, pred_a, local_a, pearson_a,
                           f'Anchor {inr_label}  (epoch {epoch}  iter {N})', n_frames)
+        _plot_pearson_violin(ax_v, corrs_h, corrs_a)
+        ax_v.set_box_aspect(1.0)  # force the axes box to be square
     else:
         pearson_a = None
         fig, ax = plt.subplots(figsize=(15, max(4, n_traces * 0.25 + 2)))

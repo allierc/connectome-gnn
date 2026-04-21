@@ -366,6 +366,41 @@ class NeuralGNN(nn.Module):
         else:
             raise RuntimeError(f"anchor outputs not supported for inr_type_hidden={self._inr_hidden_type}")
 
+    def forward_anchor_batched(self, k_tensor: torch.Tensor) -> torch.Tensor:
+        """Batched forward_anchor: predict anchor voltages at B frame indices in one call.
+
+        k_tensor: (B,) integer tensor of frame indices.
+        Returns: (B, n_anchor) tensor.
+        """
+        if self.NNR_hidden is None or self.n_anchor == 0:
+            raise RuntimeError("forward_anchor_batched called but anchor outputs are not enabled")
+        if self._inr_hidden_type == 'ngp_t':
+            denom = self.NNR_hidden_n_frames
+        elif self._inr_hidden_type == 'siren_t':
+            denom = self.NNR_hidden_T_period
+        else:
+            raise RuntimeError(f"anchor outputs not supported for inr_type_hidden={self._inr_hidden_type}")
+        t_in = (k_tensor.to(device=self.device, dtype=torch.float32) / denom).unsqueeze(-1)  # (B, 1)
+        return self.NNR_hidden(t_in)[:, self.n_hidden:]  # (B, n_anchor)
+
+    def forward_hidden_batched(self, k_tensor: torch.Tensor) -> torch.Tensor:
+        """Batched forward_hidden for ngp_t / siren_t: predict hidden voltages at B frame indices.
+
+        k_tensor: (B,) integer tensor of frame indices.
+        Returns: (B, n_hidden) tensor. Only supported for time-only INRs (ngp_t, siren_t)
+        where the output is a single vector per time step, independent of neuron position.
+        """
+        if self.NNR_hidden is None:
+            raise RuntimeError("forward_hidden_batched called but NNR_hidden is not initialised")
+        if self._inr_hidden_type == 'ngp_t':
+            denom = self.NNR_hidden_n_frames
+        elif self._inr_hidden_type == 'siren_t':
+            denom = self.NNR_hidden_T_period
+        else:
+            raise RuntimeError(f"forward_hidden_batched not supported for inr_type_hidden={self._inr_hidden_type}")
+        t_in = (k_tensor.to(device=self.device, dtype=torch.float32) / denom).unsqueeze(-1)  # (B, 1)
+        return self.NNR_hidden(t_in)[:, :self.n_hidden]  # (B, n_hidden)
+
     def forward_visual(self, state: NeuronState, k):
         """Reconstruct visual field from neuron positions and time step k."""
         if "instantNGP" in self.field_type:
