@@ -66,14 +66,24 @@ class MultiResTemporalGrid(nn.Module):
             res *= per_level_scale
 
         n_enc = n_levels * n_features_per_level
-        layers: list[nn.Module] = [nn.Linear(n_enc, mlp_width), nn.ReLU()]
+        # Split MLP into a shared body (grid encoding -> (B, mlp_width)) and a
+        # head (mlp_width -> n_output). Consumers can request the body's
+        # output via forward(..., return_features=True) to compose additional
+        # low-rank / factorized paths without re-running the grid lookup.
+        body_layers: list[nn.Module] = [nn.Linear(n_enc, mlp_width), nn.ReLU()]
         for _ in range(mlp_layers - 1):
-            layers += [nn.Linear(mlp_width, mlp_width), nn.ReLU()]
-        layers.append(nn.Linear(mlp_width, n_output))
-        self.mlp = nn.Sequential(*layers)
+            body_layers += [nn.Linear(mlp_width, mlp_width), nn.ReLU()]
+        self.mlp_body = nn.Sequential(*body_layers)
+        self.head = nn.Linear(mlp_width, n_output)
 
-    def forward(self, t: torch.Tensor) -> torch.Tensor:
-        """t: (B, 1) normalized in [0, 1]  →  (B, n_output)"""
+    def forward(self, t: torch.Tensor, return_features: bool = False):
+        """t: (B, 1) normalized in [0, 1]  →  (B, n_output)
+
+        If return_features=True, also returns the pre-head features of shape
+        (B, mlp_width) as the second element of a tuple. Those features are
+        the shared time representation used by the factorized head in
+        NeuralGNN.forward_{hidden,anchor}[_batched].
+        """
         t = t.squeeze(1)   # (B,)
         features = []
         for emb, res in zip(self.grids, self.resolutions):
@@ -83,4 +93,8 @@ class MultiResTemporalGrid(nn.Module):
             w1  = (pos - pos.floor()).unsqueeze(1)
             w0  = 1.0 - w1
             features.append(w0 * emb(i0) + w1 * emb(i1))
-        return self.mlp(torch.cat(features, dim=1))
+        feat = self.mlp_body(torch.cat(features, dim=1))  # (B, mlp_width)
+        out = self.head(feat)                              # (B, n_output)
+        if return_features:
+            return out, feat
+        return out

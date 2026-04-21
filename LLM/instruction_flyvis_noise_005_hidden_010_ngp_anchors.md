@@ -150,6 +150,19 @@ consistency+anchor setup.
 MLP (`ngp_hidden_mlp_width`, `ngp_hidden_mlp_layers`) is **deferred** — focus
 the architecture block on the hashtable first.
 
+### Factorized output head (NGP decoder)
+
+The NGP's final decoder `Linear(mlp_width, n_hidden + n_anchor)` is the biggest
+single parameter block and forces all neurons to share one time representation
+modulo a linear projection. The factorized head adds a parallel low-rank path
+`delta[b, i] = <ngp_emb(a[i]), ngp_time(f(t))>` that gives each neuron its own
+handle on the learned time features. rank=0 disables (current behavior).
+
+| Parameter                | Default | Sweep values                 | Note                                                                      |
+| ------------------------ | ------- | ---------------------------- | ------------------------------------------------------------------------- |
+| `ngp_factorized_rank`    | 0       | {0, 4, 8, 16, 32, 64}        | 0 = disabled (baseline); larger = more per-neuron capacity                |
+| `ngp_factorized_from_a`  | true    | {true, false}                | true: project `model.a` (rank-2 bottleneck, ties to GNN identity); false: dedicated `nn.Parameter(n_neurons, rank)` with independent capacity |
+
 ### Always-on GNN hyperparameters
 
 | Parameter               | Default  | Description                                                    |
@@ -182,15 +195,6 @@ Seed formula (automatic):
 - **Fragile**: ≤3/8 seeds meet criteria — reject
 - **DISQUALIFIED**: any seed conn_R2 < 0.70, OR any seed hidden_rollout_pearson < 0
 
-## Multi-parameter Exploration
-
-You may change more than one parameter per iteration when a hypothesis
-predicts a **joint effect** — e.g., "lr_W and lr_NNR_f must move together
-because they compete for the anchor-loss gradient". Single-parameter
-sweeps are still the clearest signal; multi-parameter moves should cite
-a specific interaction hypothesis. Either way, log which axes moved in
-the `Mutation:` field.
-
 ## Budget
 
 Each iteration targets **~120 min** wall-clock (`claude.training_time_target_min: 120`).
@@ -200,17 +204,35 @@ Calibrate `n_epochs` × `data_augmentation_loop` to stay within budget:
 
 ## Block Partition (suggested)
 
-| Block | Focus                      | Key axes                                                                 |
-| ----- | -------------------------- | ------------------------------------------------------------------------ |
-| 1     | **Anchor-loss baseline**   | Confirm conn_R² and hidden_nnr_pearson with default config               |
-| 2     | **Anchor strength**        | `coeff_anchor_voltage` ∈ {0, 1000, 3000, 10000} — how much anchor helps  |
-| 3     | **Anchor count**           | `n_anchor` ∈ {300, 1000, 3000, 3600} — diminishing returns of more trunk signal |
-| 4     | **Consistency strength**   | `coeff_hidden_voltage` ∈ {0, 100, 1000, 3000} — consistency scale vs oracle-era |
-| 5     | **Learning rate**          | `lr_W`, `lr`, `lr_NNR_f` scans — anchor loss changes gradient magnitude  |
-| 6     | **Batch size**             | `batch_size` ∈ {8, 16, 32, 64} — retest with anchor loss                 |
-| 7     | **Hashtable encoding**     | `n_levels`, `features_per_level`, `base_res`, `per_level_scale`          |
-| 8     | **Combined best**          | Best of blocks 2–7                                                       |
-| 9     | **Validation**             | Best config × 8 seeds, cross-check at n_epochs×DAL budget multipliers    |
+| Block | Focus                                 | Key axes                                                                 |
+| ----- | ------------------------------------- | ------------------------------------------------------------------------ |
+| 1     | **Baseline + factorized-head priority** | A few seeds at `ngp_factorized_rank=0` to establish the floor, then jump straight into the factorized-head test with `rank ∈ {8, 32}` and `from_a=true`. Do not burn all 24 iterations on identical baselines. |
+| 2     | **Factorized head — fine sweep**      | `ngp_factorized_rank` ∈ {4, 8, 16, 32, 64} × `ngp_factorized_from_a` ∈ {true, false}. Settle the best (rank, from_a) pair. |
+| 3     | **LR + batch_size (joint)**           | `lr_W`, `lr`, `lr_NNR_f` × `batch_size` ∈ {8, 16, 32, 64}. LRs and batch interact (gradient-noise × step size) — sweep jointly from the start. |
+| 4     | **Anchor strength + count (joint)**   | `coeff_anchor_voltage` ∈ {0, 1000, 3000, 10000} × `n_anchor` ∈ {300, 1000, 3000, 3600}. Treat as one 2-D axis: more anchors at low weight may match fewer at high weight. |
+| 5     | **Consistency strength**              | `coeff_hidden_voltage` ∈ {0, 100, 1000, 3000} — consistency scale vs oracle-era.  |
+| 6     | **Hashtable encoding**                | `n_levels`, `features_per_level`, `base_res`, `per_level_scale`          |
+| 7     | **Free + Validation**                 | Agent freely combines the per-block winners (multi-axis), settles on a single config, then runs the validation 8-seed at `n_epochs × DAL` budget multipliers to confirm robustness. |
+
+### Multi-parameter mutations are the default, not the exception
+
+Do NOT mutate exactly one parameter per iteration. Blocks 3 and 4 are
+explicitly joint sweeps — for them, change both axes in every iteration.
+For single-axis blocks (2, 5, 6), the agent SHOULD still combine one or
+two "free" axes (e.g. bump `ngp_factorized_rank` while testing a
+`batch_size` change) whenever a hypothesis predicts a joint effect. Every
+`Config:` log line must show the current value of all core axes
+(`coeff_hv`, `coeff_av`, `n_anc`, `lr_W`, `lr`, `lr_NNR_f`, `bs`,
+`fact_rank`, `from_a`) regardless of which were the "mutated" ones —
+this is how we later reconstruct interaction effects from the log.
+
+### Free axes from Block 2 onward
+
+Once Block 1 establishes a working `ngp_factorized_rank`, the agent may
+mutate `ngp_factorized_rank` and `ngp_factorized_from_a` freely in any
+subsequent block, combined with the block's primary axis. Example: in
+Block 3, a hypothesis "dedicated-embedding capacity + larger batch" would
+move `from_a`, `rank`, and `batch_size` simultaneously.
 
 ## YAML Rules
 
@@ -272,7 +294,7 @@ Calibrate `n_epochs` × `data_augmentation_loop` to stay within budget:
 
 Node: id=N, parent=P
 Hypothesis tested: "[quoted hypothesis]"
-Config: coeff_hv=A, coeff_av=B, n_anc=C, lr_W=D, lr=E, lr_NNR_f=F, bs=G, [arch: n_levels=L, feat=K, base=R, scale=S]
+Config: coeff_hv=A, coeff_av=B, n_anc=C, lr_W=D, lr=E, lr_NNR_f=F, bs=G, [arch: n_levels=L, feat=K, base=R, scale=S] [fact_rank=F, from_a=B]
 Slot 0: conn_R2=A, hid_pear=B, anc_pear=C, tau_R2=D, V_rest_R2=E, cluster=F, hid_rollout=G, vis_rollout=H, sim_seed=S, train_seed=T
 Slot 1: ...
 Slot 2: ...
@@ -344,11 +366,11 @@ Save to `config/fly/flyvis_noise_005_hidden_010_ngp_anchors_winner.yaml` with he
 When prompt says `PARALLEL START`:
 
 - Read base config `config/fly/flyvis_noise_005_hidden_010_ngp_anchors_Claude_00.yaml`
-- Set all 8 configs identically to the baseline
-- **Initial hypothesis**: "Consistency + anchor losses push hidden_nnr_pearson above 0.3 at iter 1 with default coefficients (3000/3000, n_anchor=3600)"
-- **Null hypothesis**: "Default coefficients leave hidden_nnr_pearson < 0.2 — anchor trunk supervision alone doesn't rescue hidden slots"
-- Write both hypotheses to working memory
-- Block 1 tests the null hypothesis — no mutation yet, just 8 seeds of baseline
+- Set all 8 configs identically to the baseline (factorized head disabled: `ngp_factorized_rank=0`)
+- **Baseline hypothesis**: "Consistency + anchor losses at default coefficients (3000/3000, n_anchor=3600, rank=0) land at hidden_nnr_pearson ≈ 0.1-0.2 — the shared-decoder bottleneck we've seen before."
+- **Block 1 priority hypothesis (FACTORIZED HEAD)**: "Turning on `ngp_factorized_rank > 0` with `ngp_factorized_from_a=true` injects the GNN's per-neuron `model.a` identity into the NGP decoder and lifts hidden_nnr_pearson substantially (target: +0.15 vs baseline)."
+- Write both hypotheses to working memory.
+- **Block 1 plan (24 iters, don't waste)**: first 3-4 iters = baseline (all 8 slots at `rank=0`) to lock in the floor, then immediately start mutating `ngp_factorized_rank` ∈ {8, 32} with `from_a=true` (treat as coarse priority test). If rank ≠ 0 beats baseline by the target margin, Block 2 refines; otherwise Block 2 pivots to `from_a=false`. From Block 2 onward, `ngp_factorized_rank` and `ngp_factorized_from_a` stay free axes.
 
 ---
 
@@ -366,9 +388,9 @@ When prompt says `PARALLEL START`:
 
 ### Results Table
 
-| Iter | Config summary | conn_R2 | hid_pear | anc_pear | tau_R2 | hid_rollout | time_min | Stability |
-| ---- | -------------- | ------- | -------- | -------- | ------ | ----------- | -------- | --------- |
-| 1    | baseline       | ?       | ?        | ?        | ?      | ?           | ?        | ?         |
+| Iter | Config summary | fact_rank | from_a | conn_R2 | hid_pear | anc_pear | tau_R2 | hid_rollout | time_min | Stability |
+| ---- | -------------- | --------- | ------ | ------- | -------- | -------- | ------ | ----------- | -------- | --------- |
+| 1    | baseline       | 0         | -      | ?       | ?        | ?        | ?      | ?           | ?        | ?         |
 
 ### Established Principles
 
@@ -382,6 +404,8 @@ When prompt says `PARALLEL START`:
 2. Does anchor loss saturate at n_anchor > 3000, or does the gradient keep helping?
 3. What is the effective lr_NNR_f sweet spot under the new anchor gradient?
 4. Does batch_size > 16 converge now that anchor loss provides dense supervision?
+5. Does the factorized head (`ngp_factorized_rank > 0`) unstick hidden_nnr_pearson relative to the rank=0 baseline?
+6. Is `model.a` (rank-2 bottleneck) enough or does a dedicated NGP embedding help (`ngp_factorized_from_a=false`)?
 
 ---
 
