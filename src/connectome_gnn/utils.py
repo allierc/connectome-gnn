@@ -469,6 +469,28 @@ def add_pre_folder(config_file_):
     return config_file, pre_folder
 
 
+def _robust_rmtree(path, max_retries=4, initial_delay=0.5):
+    """NFS-safe shutil.rmtree: retries on ENOTEMPTY / EBUSY with exponential
+    backoff (handles .nfsXXXX silly-rename files left by a prior dying
+    process). Falls through with ignore_errors=True after max_retries —
+    partial cleanup of disposable dirs is acceptable."""
+    import errno
+    import time
+    if not os.path.exists(path):
+        return
+    for attempt in range(max_retries):
+        try:
+            shutil.rmtree(path)
+            return
+        except OSError as e:
+            if e.errno not in (errno.ENOTEMPTY, errno.EBUSY):
+                raise
+            if attempt == max_retries - 1:
+                break
+            time.sleep(initial_delay * (2 ** attempt))
+    shutil.rmtree(path, ignore_errors=True)
+
+
 def create_log_dir(config=[], erase=True, erase_results=False):
 
     log_dir = log_path(config.config_file)
@@ -477,38 +499,30 @@ def create_log_dir(config=[], erase=True, erase_results=False):
     os.makedirs(log_dir, exist_ok=True)
     os.makedirs(os.path.join(log_dir, 'models'), exist_ok=True)
     os.makedirs(os.path.join(log_dir, 'results'), exist_ok=True)
-    os.makedirs(os.path.join(log_dir, 'tmp_training/external_input'), exist_ok=True)
-    os.makedirs(os.path.join(log_dir, 'tmp_training/matrix'), exist_ok=True)
-    os.makedirs(os.path.join(log_dir, 'tmp_training/function'), exist_ok=True)
-    os.makedirs(os.path.join(log_dir, 'tmp_training/function/f_theta'), exist_ok=True)
-    os.makedirs(os.path.join(log_dir, 'tmp_training/function/g_phi'), exist_ok=True)
-    os.makedirs(os.path.join(log_dir, 'tmp_training/embedding'), exist_ok=True)
-    if config.training.n_ghosts > 0:
-        os.makedirs(os.path.join(log_dir, 'tmp_training/ghost'), exist_ok=True)
 
+    # Erase BEFORE creating the tmp_training subtree, so we never rmtree dirs
+    # we just created and so the retry loop can cope with NFS silly-renames.
     if erase:
-        # erase old models to avoid mismatch with new ground truth
-        files = glob.glob(f"{log_dir}/models/*")
-        for f in files:
+        for f in glob.glob(f"{log_dir}/models/*"):
             os.remove(f)
-        # erase entire tmp_training folder and recreate
-        tmp_training_dir = os.path.join(log_dir, 'tmp_training')
-        if os.path.exists(tmp_training_dir):
-            shutil.rmtree(tmp_training_dir)
-        os.makedirs(os.path.join(log_dir, 'tmp_training/external_input'), exist_ok=True)
-        os.makedirs(os.path.join(log_dir, 'tmp_training/matrix'), exist_ok=True)
-        os.makedirs(os.path.join(log_dir, 'tmp_training/function'), exist_ok=True)
-        os.makedirs(os.path.join(log_dir, 'tmp_training/function/f_theta'), exist_ok=True)
-        os.makedirs(os.path.join(log_dir, 'tmp_training/function/g_phi'), exist_ok=True)
-        os.makedirs(os.path.join(log_dir, 'tmp_training/embedding'), exist_ok=True)
-        if config.training.n_ghosts > 0:
-            os.makedirs(os.path.join(log_dir, 'tmp_training/ghost'), exist_ok=True)
+        _robust_rmtree(os.path.join(log_dir, 'tmp_training'))
+
+    _tmp_training_subdirs = [
+        'tmp_training/external_input',
+        'tmp_training/matrix',
+        'tmp_training/function',
+        'tmp_training/function/f_theta',
+        'tmp_training/function/g_phi',
+        'tmp_training/embedding',
+    ]
+    if config.training.n_ghosts > 0:
+        _tmp_training_subdirs.append('tmp_training/ghost')
+    for _d in _tmp_training_subdirs:
+        os.makedirs(os.path.join(log_dir, _d), exist_ok=True)
 
     if erase_results:
-        # erase entire results folder and recreate
         results_dir = os.path.join(log_dir, 'results')
-        if os.path.exists(results_dir):
-            shutil.rmtree(results_dir)
+        _robust_rmtree(results_dir)
         os.makedirs(results_dir, exist_ok=True)
     os.makedirs(os.path.join(log_dir, 'tmp_recons'), exist_ok=True)
 

@@ -1824,7 +1824,7 @@ def _sample_ngp_traces(model, x_ts, ids, n_traces, n_frames, use_anchor):
     with _torch.no_grad():
         for k in range(n_frames):
             if use_anchor:
-                pred = model.forward_anchor(k)                 # (n_anchor,)
+                pred = model.forward_anchor(k, anchor_ids=ids) # (n_anchor,)
             else:
                 x = x_ts.frame(k)
                 pred = model.forward_hidden(x, k, ids)         # (n_hidden,)

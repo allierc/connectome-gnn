@@ -313,6 +313,44 @@ class NeuralGNN(nn.Module):
             )
             self.NNR_hidden.to(self.device)
 
+        # Optional factorized output path. Parallel low-rank path that mixes a
+        # per-neuron identity factor (model.a or a dedicated embedding) with the
+        # NGP's pre-head time features, added to the shared decoder output.
+        # Only ngp_t supports this currently (requires return_features from the
+        # temporal grid). rank=0 disables.
+        self.ngp_factorized_rank = int(getattr(model_config, 'ngp_factorized_rank', 0))
+        self._ngp_factorized = (
+            self.NNR_hidden is not None
+            and self._inr_hidden_type == 'ngp_t'
+            and self.ngp_factorized_rank > 0
+        )
+        self.ngp_time_proj = None
+        self.ngp_emb_proj = None
+        self.ngp_emb = None
+        self._ngp_use_a = False
+        if self._ngp_factorized:
+            _rank = self.ngp_factorized_rank
+            _mlp_w = int(getattr(model_config, 'ngp_hidden_mlp_width', 512))
+            self.ngp_time_proj = nn.Linear(_mlp_w, _rank, bias=False).to(self.device)
+            if bool(getattr(model_config, 'ngp_factorized_from_a', True)):
+                self.ngp_emb_proj = nn.Linear(
+                    int(getattr(model_config, 'embedding_dim', 2)),
+                    _rank, bias=False,
+                ).to(self.device)
+                self._ngp_use_a = True
+            else:
+                self.ngp_emb = nn.Parameter(
+                    torch.randn(int(simulation_config.n_neurons), _rank,
+                                device=self.device) * 0.01
+                )
+                self._ngp_use_a = False
+
+    def _ngp_emb_lookup(self, ids: torch.Tensor) -> torch.Tensor:
+        """(N,) neuron indices → (N, rank) factorized embedding."""
+        if self._ngp_use_a:
+            return self.ngp_emb_proj(self.a[ids])
+        return self.ngp_emb[ids]
+
     def forward_hidden(self, state: NeuronState, k: int, hidden_ids: torch.Tensor) -> torch.Tensor:
         """Predict voltages for hidden neurons at frame k via the hidden SIREN.
 
@@ -334,6 +372,12 @@ class NeuralGNN(nn.Module):
             # MultiResTemporalGrid: t normalized to [0, 1]
             t_in = torch.full((1, 1), float(k) / self.NNR_hidden_n_frames,
                               device=self.device, dtype=torch.float32)          # (1, 1)
+            if self._ngp_factorized:
+                shared, feat = self.NNR_hidden(t_in, return_features=True)      # (1, n_tot), (1, mlp_w)
+                out = shared.squeeze(0)[:self.n_hidden]                         # (n_hidden,)
+                time_lr = self.ngp_time_proj(feat).squeeze(0)                   # (rank,)
+                emb_lr = self._ngp_emb_lookup(hidden_ids)                       # (n_hidden, rank)
+                return out + (emb_lr * time_lr).sum(dim=-1)                     # (n_hidden,)
             out = self.NNR_hidden(t_in).squeeze(0)                              # (n_hidden [+ n_anchor],)
             if self.n_anchor > 0:
                 out = out[:self.n_hidden]
@@ -346,18 +390,29 @@ class NeuralGNN(nn.Module):
                 out = out[:self.n_hidden]
             return out
 
-    def forward_anchor(self, k: int) -> torch.Tensor:
+    def forward_anchor(self, k: int, anchor_ids: torch.Tensor = None) -> torch.Tensor:
         """Predict voltages for anchor neurons at frame k — only the anchor output slots.
 
         Returns (n_anchor,) tensor. Used exclusively for direct voltage supervision;
         anchor predictions are NOT injected into x.voltage (the GNN already sees the
         observed voltage of anchor neurons through the normal visible path).
+
+        When the factorized head is enabled (ngp_factorized_rank > 0), `anchor_ids`
+        must be provided so the per-neuron identity factor can be looked up.
         """
         if self.NNR_hidden is None or self.n_anchor == 0:
             raise RuntimeError("forward_anchor called but anchor outputs are not enabled")
         if self._inr_hidden_type == 'ngp_t':
             t_in = torch.full((1, 1), float(k) / self.NNR_hidden_n_frames,
                               device=self.device, dtype=torch.float32)
+            if self._ngp_factorized:
+                if anchor_ids is None:
+                    raise RuntimeError("forward_anchor requires anchor_ids when ngp_factorized_rank > 0")
+                shared, feat = self.NNR_hidden(t_in, return_features=True)
+                out = shared.squeeze(0)[self.n_hidden:]                          # (n_anchor,)
+                time_lr = self.ngp_time_proj(feat).squeeze(0)                    # (rank,)
+                emb_lr = self._ngp_emb_lookup(anchor_ids)                        # (n_anchor, rank)
+                return out + (emb_lr * time_lr).sum(dim=-1)
             return self.NNR_hidden(t_in).squeeze(0)[self.n_hidden:]
         elif self._inr_hidden_type == 'siren_t':
             t_in = torch.full((1, 1), float(k) / self.NNR_hidden_T_period,
@@ -366,10 +421,12 @@ class NeuralGNN(nn.Module):
         else:
             raise RuntimeError(f"anchor outputs not supported for inr_type_hidden={self._inr_hidden_type}")
 
-    def forward_anchor_batched(self, k_tensor: torch.Tensor) -> torch.Tensor:
+    def forward_anchor_batched(self, k_tensor: torch.Tensor,
+                                 anchor_ids: torch.Tensor = None) -> torch.Tensor:
         """Batched forward_anchor: predict anchor voltages at B frame indices in one call.
 
-        k_tensor: (B,) integer tensor of frame indices.
+        k_tensor:  (B,) integer tensor of frame indices.
+        anchor_ids: (n_anchor,) neuron ids; required when ngp_factorized_rank > 0.
         Returns: (B, n_anchor) tensor.
         """
         if self.NNR_hidden is None or self.n_anchor == 0:
@@ -381,12 +438,22 @@ class NeuralGNN(nn.Module):
         else:
             raise RuntimeError(f"anchor outputs not supported for inr_type_hidden={self._inr_hidden_type}")
         t_in = (k_tensor.to(device=self.device, dtype=torch.float32) / denom).unsqueeze(-1)  # (B, 1)
-        return self.NNR_hidden(t_in)[:, self.n_hidden:]  # (B, n_anchor)
+        if self._ngp_factorized:
+            if anchor_ids is None:
+                raise RuntimeError("forward_anchor_batched requires anchor_ids when ngp_factorized_rank > 0")
+            shared, feat = self.NNR_hidden(t_in, return_features=True)
+            out = shared[:, self.n_hidden:]                                    # (B, n_anchor)
+            time_lr = self.ngp_time_proj(feat)                                 # (B, rank)
+            emb_lr = self._ngp_emb_lookup(anchor_ids)                          # (n_anchor, rank)
+            return out + time_lr @ emb_lr.T                                    # (B, n_anchor)
+        return self.NNR_hidden(t_in)[:, self.n_hidden:]
 
-    def forward_hidden_batched(self, k_tensor: torch.Tensor) -> torch.Tensor:
+    def forward_hidden_batched(self, k_tensor: torch.Tensor,
+                                 hidden_ids: torch.Tensor = None) -> torch.Tensor:
         """Batched forward_hidden for ngp_t / siren_t: predict hidden voltages at B frame indices.
 
-        k_tensor: (B,) integer tensor of frame indices.
+        k_tensor:   (B,) integer tensor of frame indices.
+        hidden_ids: (n_hidden,) neuron ids; required when ngp_factorized_rank > 0.
         Returns: (B, n_hidden) tensor. Only supported for time-only INRs (ngp_t, siren_t)
         where the output is a single vector per time step, independent of neuron position.
         """
@@ -399,7 +466,15 @@ class NeuralGNN(nn.Module):
         else:
             raise RuntimeError(f"forward_hidden_batched not supported for inr_type_hidden={self._inr_hidden_type}")
         t_in = (k_tensor.to(device=self.device, dtype=torch.float32) / denom).unsqueeze(-1)  # (B, 1)
-        return self.NNR_hidden(t_in)[:, :self.n_hidden]  # (B, n_hidden)
+        if self._ngp_factorized:
+            if hidden_ids is None:
+                raise RuntimeError("forward_hidden_batched requires hidden_ids when ngp_factorized_rank > 0")
+            shared, feat = self.NNR_hidden(t_in, return_features=True)
+            out = shared[:, :self.n_hidden]                                    # (B, n_hidden)
+            time_lr = self.ngp_time_proj(feat)                                 # (B, rank)
+            emb_lr = self._ngp_emb_lookup(hidden_ids)                          # (n_hidden, rank)
+            return out + time_lr @ emb_lr.T                                    # (B, n_hidden)
+        return self.NNR_hidden(t_in)[:, :self.n_hidden]
 
     def forward_visual(self, state: NeuronState, k):
         """Reconstruct visual field from neuron positions and time step k."""

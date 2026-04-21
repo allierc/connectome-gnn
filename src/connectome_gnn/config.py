@@ -194,6 +194,12 @@ class SimulationConfig(BaseModel):
     blank_freq: int = 2  # Frequency of blank frames in visual input
     blank_prefix_fraction: float = 0.0  # fraction of each sequence to blank at the start (e.g. 0.1 = first 10% frames zero stimulus)
     simulation_initial_state: bool = False
+    # flyvis net.steady_state(value=…) passed during pre-warmup. Default 0.5 reproduces the
+    # flyvis implicit default used in all prior experiments (constant 0.5 luminance during the
+    # 2-second pre-stimulus window, giving an illuminated steady state as initial condition).
+    # Set to 0.0 to pre-warm under zero luminance instead — equivalent to starting from the
+    # network's true resting state with no silent-stimulus period.
+    steady_state_value: float = 0.5
     all_columns: bool = False  # if True, use all 721 retinotopic columns (extent=15); default uses 217 (extent=8)
     edge_uncertainty: int = 1  # zero-edge radius multiplier (1–3); only used by hybrid zeroedge variants
 
@@ -407,6 +413,15 @@ class GraphModelConfig(BaseModel):
     ngp_hidden_per_level_scale: float = 1.4
     ngp_hidden_mlp_width: int = 512
     ngp_hidden_mlp_layers: int = 4
+
+    # Factorized output head for NGP-T / SIREN-T: parallel low-rank path that
+    # mixes a per-neuron identity factor with time features, added to the
+    # shared decoder output. rank=0 disables (current behavior).
+    # from_a=True projects the GNN's self.a (shape (n_neurons, embedding_dim))
+    # so the NGP shares neuron identity with the GNN; =False uses a dedicated
+    # nn.Parameter (n_neurons, rank) with independent capacity.
+    ngp_factorized_rank: int = 0
+    ngp_factorized_from_a: bool = True
 
     # INR type for external input learning
     # siren_t: input=t, output=n_neurons (current implementation, works for n_neurons < 100)
@@ -722,6 +737,12 @@ class TrainingConfig(BaseModel):
     multi_start_recurrent: bool = False
     consecutive_batch: bool = False
     coeff_hidden_voltage: float = 0.0  # loss weight on GNN-predicted hidden voltages in recurrent training
+    # Anchor neurons: observed neurons whose GT voltages directly supervise NGP-T backbone.
+    # Only active when hidden_neuron_fraction > 0 and NNR_hidden is built.
+    # n_anchor defaults to len(hidden_ids) when <=0; sampled from visible non-retina, saved to log_dir/anchor_neuron_ids.pt.
+    train_with_anchor_neurons: bool = False  # True = add anchor-supervised outputs to NGP-T
+    coeff_anchor_voltage: float = 0.0  # loss weight on NGP-T anchor outputs vs GT voltages
+    n_anchor: int = 0  # number of anchor neurons; 0 = match |hidden_ids|
     recurrent_sequence: str = ""
     recurrent_parameters: list[float] = [0, 0]
 

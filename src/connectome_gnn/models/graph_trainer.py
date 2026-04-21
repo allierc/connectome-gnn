@@ -823,13 +823,13 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                         h_ids_b = torch.cat([hidden_ids + b * n_per for b in range(len(state_batch))]).to(device)
                         pred_h = batched_state.voltage[h_ids_b].unsqueeze(-1) + sim.delta_t * pred[h_ids_b]
                         k_starts = k_batch[::n_per, 0].to(torch.long)                 # (B,)
-                        target_h = model.forward_hidden_batched(k_starts + 1).reshape(-1, 1)  # (B*n_hidden, 1)
+                        target_h = model.forward_hidden_batched(k_starts + 1, hidden_ids=hidden_ids).reshape(-1, 1)  # (B*n_hidden, 1)
                         loss = loss + tc.coeff_hidden_voltage * (pred_h - target_h).norm(2)
                     # Anchor voltage loss: NGP-T/SIREN-T anchor outputs vs observed GT voltages
                     if has_anchor_neurons and getattr(tc, 'coeff_anchor_voltage', 0.0) > 0:
                         n_per = state_batch[0].n_neurons
                         k_starts = k_batch[::n_per, 0].to(torch.long)                 # (B,)
-                        pred_a = model.forward_anchor_batched(k_starts)                # (B, n_anchor)
+                        pred_a = model.forward_anchor_batched(k_starts, anchor_ids=anchor_ids)  # (B, n_anchor)
                         gt_a = x_ts.voltage[k_starts[:, None], anchor_ids[None, :]]    # (B, n_anchor)
                         loss = loss + tc.coeff_anchor_voltage * (pred_a - gt_a).norm(2)
 
