@@ -273,8 +273,10 @@ def _r2_color(val, thresholds=(0.9, 0.7, 0.3)):
 
 
 def _read_latest_training_metrics(log_dir):
-    """Return (iter, conn_r2, vr_r2, tau_r2) from the last line of the
-    training metrics log, or None if the file is missing / empty."""
+    """Return (iter, conn_r2, vr_r2, tau_r2, hid_nnr, anc_nnr) from the last
+    line of the training metrics log. The last two are None when the run is
+    not a hidden-INR model (fields absent or 'nan'). Returns None if the file
+    is missing / empty."""
     path = os.path.join(log_dir, 'tmp_training', 'metrics.log')
     if not os.path.isfile(path):
         return None
@@ -296,7 +298,21 @@ def _read_latest_training_metrics(log_dir):
         conn = float(parts[1])
         vr   = float(parts[2])
         tau  = float(parts[3])
-        return (it, conn, vr, tau)
+
+        def _opt(idx):
+            if len(parts) <= idx:
+                return None
+            v = parts[idx].strip()
+            if not v or v.lower() == 'nan':
+                return None
+            try:
+                return float(v)
+            except ValueError:
+                return None
+
+        hid = _opt(4)
+        anc = _opt(5)
+        return (it, conn, vr, tau, hid, anc)
     except (OSError, ValueError):
         return None
 
@@ -330,12 +346,19 @@ def _print_training_metrics(log_dirs, slots_active, prefix='  [metrics]'):
         if tm is None:
             print(f"{prefix} slot {slot}: (no metrics.log yet)")
             continue
-        it, conn, vr, tau = tm
+        it, conn, vr, tau, hid, anc = tm
         parts = [
             f"{_r2_color(conn)}conn={conn:.3f}{_ANSI_RESET}",
             f"{_r2_color(vr)}Vr={vr:.3f}{_ANSI_RESET}",
             f"{_r2_color(tau)}τ={tau:.3f}{_ANSI_RESET}",
         ]
+        # Hidden-INR diagnostics (only present for hidden-NGP / hidden-SIREN runs).
+        # Pearson thresholds: green > 0.5, yellow > 0.3, orange > 0.1, red <.
+        if hid is not None:
+            nnr_str = f"nnr={hid:.3f}"
+            if anc is not None:
+                nnr_str += f"({anc:.3f})"
+            parts.append(f"{_r2_color(hid, thresholds=(0.5, 0.3, 0.1))}{nnr_str}{_ANSI_RESET}")
         print(f"{prefix} slot {slot}  iter={it:>6}  " + '  '.join(parts))
 
 

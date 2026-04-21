@@ -457,7 +457,11 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
     # Metrics log: tracks R2 evolution over training iterations
     metrics_log_path = os.path.join(log_dir, 'tmp_training', 'metrics.log')
     with open(metrics_log_path, 'w') as f:
-        f.write('iteration,connectivity_r2,vrest_r2,tau_r2\n')
+        f.write('iteration,connectivity_r2,vrest_r2,tau_r2,hidden_nnr_pearson,anchor_nnr_pearson\n')
+
+    def _fmt_metric(x):
+        """Format optional float for metrics.log CSV ('nan' when None)."""
+        return 'nan' if x is None else f'{x:.6f}'
 
     # Valid frame range for sampling (matches np.random.randint logic it replaces)
     _frame_min_k = tc.time_window
@@ -600,7 +604,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                     last_connectivity_r2, last_tau_r2, last_vrest_r2 = plot_training_linear(
                         model, config, epoch, N, log_dir, device, gt_weights, n_neurons=n_neurons)
                     with open(metrics_log_path, 'a') as f:
-                        f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f}\n')
+                        f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f},{_fmt_metric(last_hidden_r2)},{_fmt_metric(last_anchor_r2)}\n')
                 elif (is_regular_r2 or is_early_r2) and 'mlp' not in model_name.lower():
                     last_connectivity_r2, _r2_visible, _h_r2, _a_r2 = plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_list, gt_weights, edges, n_neurons=n_neurons, n_neuron_types=sim.n_neuron_types, ode_params=ode_params, hidden_ids=hidden_ids, anchor_ids=anchor_ids)
                     last_connectivity_r2_visible = _r2_visible
@@ -610,7 +614,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                         last_anchor_r2 = _a_r2
                     last_vrest_r2, last_tau_r2 = compute_dynamics_r2(model, x_ts, config, device, n_neurons)
                     with open(metrics_log_path, 'a') as f:
-                        f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f}\n')
+                        f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f},{_fmt_metric(last_hidden_r2)},{_fmt_metric(last_anchor_r2)}\n')
 
                 if last_connectivity_r2 is not None:
                     c_conn = r2_color(last_connectivity_r2)
@@ -894,7 +898,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                     last_tau_r2 = 0.0
                     last_vrest_r2 = 0.0
                     with open(metrics_log_path, 'a') as f:
-                        f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f}\n')
+                        f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f},{_fmt_metric(last_hidden_r2)},{_fmt_metric(last_anchor_r2)}\n')
                     # W scatter plot using Jacobian
                     plot_jacobian_w_scatter(model, x_ts, ode_params, gt_weights, n_neurons,
                                             log_dir, epoch, N, device)
@@ -902,7 +906,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                     last_connectivity_r2, last_tau_r2, last_vrest_r2 = plot_training_linear(
                         model, config, epoch, N, log_dir, device, gt_weights, n_neurons=n_neurons)
                     with open(metrics_log_path, 'a') as f:
-                        f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f}\n')
+                        f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f},{_fmt_metric(last_hidden_r2)},{_fmt_metric(last_anchor_r2)}\n')
                 elif (is_regular_r2 or is_early_r2) and not test_neural_field and 'mlp' not in model_name.lower():
                     last_connectivity_r2, _r2_visible, _h_r2, _a_r2 = plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_list, gt_weights, edges, n_neurons=n_neurons, n_neuron_types=sim.n_neuron_types, ode_params=ode_params, hidden_ids=hidden_ids, anchor_ids=anchor_ids)
                     last_connectivity_r2_visible = _r2_visible
@@ -912,7 +916,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                         last_anchor_r2 = _a_r2
                     last_vrest_r2, last_tau_r2 = compute_dynamics_r2(model, x_ts, config, device, n_neurons)
                     with open(metrics_log_path, 'a') as f:
-                        f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f}\n')
+                        f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f},{_fmt_metric(last_hidden_r2)},{_fmt_metric(last_anchor_r2)}\n')
 
                 if last_connectivity_r2 is not None:
                     c_conn = r2_color(last_connectivity_r2)

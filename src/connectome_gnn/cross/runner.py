@@ -45,7 +45,8 @@ def run_all_conditions(hp_source, suffix, hp_yaml=None,
                         output_root=None, n_folds=5,
                         node_name='a100', hard_runtime_limit_min=120,
                         metrics_interval=300, cluster_test_plot=True,
-                        force_test=False):
+                        force_test=False,
+                        sim_overrides=None, dataset_tag='yt'):
     """Run the 8-condition × n_folds YT-only cross-check and emit the TeX table.
 
     `output_root` resolution (highest priority wins):
@@ -77,9 +78,12 @@ def run_all_conditions(hp_source, suffix, hp_yaml=None,
 
     # Step 1 — emit YT CV YAMLs (idempotent; suffix-free dataset name
     # is shared with the other two training runners and the pre-gen script).
-    print(f'\n[1] emit YT YAMLs  (hp_source={hp_source})')
+    print(f'\n[1] emit YT YAMLs  (hp_source={hp_source}, dataset_tag={dataset_tag})')
+    if sim_overrides:
+        print(f'    sim_overrides: {sim_overrides}')
     emit_yt_yamls(hp_source, suffix, hp_yaml_basename=hp_yaml,
-                  n_folds=n_folds, output_root=output_root)
+                  n_folds=n_folds, output_root=output_root,
+                  sim_overrides=sim_overrides, dataset_tag=dataset_tag)
 
     # Step 2 — per-condition cluster pipeline.
     base_cfg = NeuralGraphConfig.from_yaml(
@@ -106,7 +110,8 @@ def run_all_conditions(hp_source, suffix, hp_yaml=None,
 
 
 def generate_all_yt_data(output_root=None, n_folds=5, suffix='yt_gen',
-                          hp_source='per_condition', hp_yaml=None):
+                          hp_source='per_condition', hp_yaml=None,
+                          sim_overrides=None, dataset_tag='yt'):
     """Pre-build all 8 × n_folds YT datasets at <output_root>/graphs_data/fly/
     {base}_yt_cv{i:02d}/. The three training runners share these datasets
     (their `ensure_yt_data` calls become noops) so they can run in parallel.
@@ -127,9 +132,12 @@ def generate_all_yt_data(output_root=None, n_folds=5, suffix='yt_gen',
     #    condition's own winner yaml supplies the graph_model block; the
     #    simulation block — which is all we need for generation — comes
     #    from the base yaml regardless of hp_source).
-    print(f'\n[1] emit YT YAMLs  (hp_source={hp_source})')
+    print(f'\n[1] emit YT YAMLs  (hp_source={hp_source}, dataset_tag={dataset_tag})')
+    if sim_overrides:
+        print(f'    sim_overrides: {sim_overrides}')
     emit_yt_yamls(hp_source, suffix, hp_yaml_basename=hp_yaml,
-                  n_folds=n_folds, output_root=output_root)
+                  n_folds=n_folds, output_root=output_root,
+                  sim_overrides=sim_overrides, dataset_tag=dataset_tag)
 
     # 2. Generate data for each condition × fold.
     base_cfg = NeuralGraphConfig.from_yaml(

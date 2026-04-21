@@ -56,7 +56,8 @@ def _load_yaml_either(cfg_name, output_root):
 
 
 def emit_one(base_name, hp_yaml_path, out_yaml_path, suffix, yt_root,
-             fold_i=None, sim_seed=None, train_seed=None):
+             fold_i=None, sim_seed=None, train_seed=None,
+             sim_overrides=None, dataset_tag='yt'):
     """Emit one YT training YAML by merging:
     - simulation block from <repo>/config/fly/<base_name>.yaml
     - graph_model / training / plotting / claude from hp_yaml_path
@@ -80,6 +81,10 @@ def emit_one(base_name, hp_yaml_path, out_yaml_path, suffix, yt_root,
     merged['simulation'] = dict(base['simulation'])
     merged['simulation']['datavis_roots']     = [yt_root]
     merged['simulation']['skip_short_videos'] = False
+    # Optional simulation-block overrides (e.g. all_columns=True for the
+    # full-fly variant that uses all 721 retinotopic columns).
+    if sim_overrides:
+        merged['simulation'].update(sim_overrides)
 
     # Preserve condition-specific graph_model knobs from the base yaml when
     # the HP yaml doesn't set them. Without this, uniform-HP runs silently
@@ -132,10 +137,10 @@ def emit_one(base_name, hp_yaml_path, out_yaml_path, suffix, yt_root,
     # between the two scripts.
     if fold_i is not None:
         yaml_name    = f'{base_name}_{suffix}_cv{fold_i:02d}'
-        dataset_name = f'{base_name}_yt_cv{fold_i:02d}'
+        dataset_name = f'{base_name}_{dataset_tag}_cv{fold_i:02d}'
     else:
         yaml_name    = f'{base_name}_{suffix}'
-        dataset_name = f'{base_name}_yt'
+        dataset_name = f'{base_name}_{dataset_tag}'
     merged['dataset']     = dataset_name
     fold_tag = f' fold={fold_i}' if fold_i is not None else ''
     merged['description'] = (
@@ -175,7 +180,8 @@ def emit_davis_cv_yaml(base_name, fold_i, output_root, force=False):
     return True
 
 
-def emit_yt_yamls(hp_source, suffix, hp_yaml_basename, n_folds, output_root):
+def emit_yt_yamls(hp_source, suffix, hp_yaml_basename, n_folds, output_root,
+                   sim_overrides=None, dataset_tag='yt'):
     """Emit YT CV YAMLs for all 8 conditions × n_folds, into
     <output_root>/config/fly/. Always overwrites existing files so HP
     tweaks in the source yamls propagate on every run."""
@@ -203,7 +209,9 @@ def emit_yt_yamls(hp_source, suffix, hp_yaml_basename, n_folds, output_root):
             ok = emit_one(base_name, hp_yaml_path, out_yaml,
                           suffix, YT_VOS_ROOT,
                           fold_i=fold_i, sim_seed=sim_seed,
-                          train_seed=train_seed)
+                          train_seed=train_seed,
+                          sim_overrides=sim_overrides,
+                          dataset_tag=dataset_tag)
             if ok:
                 written.append(out_yaml)
     print(f'  wrote {len(written)} YT YAMLs -> {out_dir}  (always overwrites)')
