@@ -23,6 +23,10 @@ from connectome_gnn.neuron_state import NeuronState
 class KnownODEBase(nn.Module):
     """Base class for known-ODE baselines. Subclasses override _activation and _update."""
 
+    # Known_ODE baselines never learn hidden-neuron INRs; the trainer tests
+    # `model.NNR_hidden is not None` to decide between fill-in and zero-silencing.
+    NNR_hidden = None
+
     def __init__(self, aggr_type='add', config=None, device=None):
         super().__init__()
 
