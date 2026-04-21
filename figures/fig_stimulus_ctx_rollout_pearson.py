@@ -27,7 +27,7 @@ from connectome_gnn.config import NeuralGraphConfig
 from connectome_gnn.models.registry import create_model
 
 
-CTXS = [1, 2, 4, 8, 16, 32]
+CTXS = [1, 2, 4, 8, 16]
 CV_IDS = ['00', '01', '02', '03', '04']
 LOG_ROOT = Path('/groups/saalfeld/home/kumarv4/repos/connectome-gnn/log/fly')
 CV_ROOT = Path('/groups/saalfeld/home/allierc/GraphData/graphs_data/fly')
