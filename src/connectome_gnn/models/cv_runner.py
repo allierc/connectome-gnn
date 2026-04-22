@@ -120,6 +120,36 @@ def parse_pearson_from_log(path):
     return float('nan')
 
 
+def _load_per_neuron_pearson(log_path_):
+    """Return the per-neuron pearson array saved next to ``log_path_`` by
+    ``graph_tester._save_per_neuron_arrays``, or ``None`` if not present.
+
+    Graceful fallback for older runs that pre-date the .npy save hook.
+    """
+    stem = os.path.splitext(log_path_)[0]
+    npy = f'{stem}_pearson.npy'
+    if not os.path.isfile(npy):
+        return None
+    try:
+        return np.load(npy)
+    except OSError:
+        return None
+
+
+def _per_fold_pearson(log_path_):
+    """Per-fold (scalar, per-neuron-array) for an r-metric log.
+
+    If the ``*_pearson.npy`` sibling exists, the scalar is the Fisher-z-pooled
+    mean of that array (so it captures neuron variance). Otherwise we fall back
+    to the log-scalar parser (legacy runs).
+    """
+    from connectome_gnn.utils import fisher_pool
+    arr = _load_per_neuron_pearson(log_path_)
+    if arr is not None:
+        return float(fisher_pool(arr)['r_mean']), arr
+    return parse_pearson_from_log(log_path_), None
+
+
 def _mtime_str(path):
     try:
         return datetime.datetime.fromtimestamp(os.path.getmtime(path)).strftime('%Y-%m-%d %H:%M:%S')
@@ -212,6 +242,14 @@ def run_cv(config_name, seeds, skip_phase2=False):
 
     all_metrics = {key: [] for key, _ in ALL_METRICS}
 
+    # Per-fold per-neuron Pearson arrays for the four r-metrics; populated only
+    # when the matching *_pearson.npy file exists next to the log (graph_tester
+    # saves these via _save_per_neuron_arrays). Used by the audit writer to
+    # report a single (neurons × folds)-pooled Fisher-z mean ± SD rather than
+    # a mean-of-fold-means whose SD captures only seed-to-seed variance.
+    R_METRICS = ('one_step_r', 'rollout_r', 'yt_one_step_r', 'yt_rollout_r')
+    per_fold_r_arrays = {key: [] for key in R_METRICS}
+
     # Build per-fold configs once — reused across all phases
     fold_configs = []
     for i, seed in enumerate(seeds):
@@ -286,12 +324,14 @@ def run_cv(config_name, seeds, skip_phase2=False):
             # Determine test_suffix used by data_test_gnn
             test_ds_short = fold_config.dataset.replace('flyvis_', '').replace('fly/', '')
             test_suffix   = f'_on_{test_ds_short}'
-            one_step_r = parse_pearson_from_log(
-                os.path.join(base_log_dir, f'results_test{test_suffix}.log'))
-            rollout_r  = parse_pearson_from_log(
-                os.path.join(base_log_dir, f'results_rollout{test_suffix}.log'))
+            test_log    = os.path.join(base_log_dir, f'results_test{test_suffix}.log')
+            rollout_log = os.path.join(base_log_dir, f'results_rollout{test_suffix}.log')
+            one_step_r, one_step_arr = _per_fold_pearson(test_log)
+            rollout_r,  rollout_arr  = _per_fold_pearson(rollout_log)
             all_metrics['one_step_r'].append(one_step_r)
             all_metrics['rollout_r'].append(rollout_r)
+            per_fold_r_arrays['one_step_r'].append(one_step_arr)
+            per_fold_r_arrays['rollout_r'].append(rollout_arr)
             # Pad recovery metrics so lengths stay consistent for bar plot
             for key, _ in RECOVERY_METRICS:
                 if len(all_metrics[key]) < i + 1:
@@ -325,11 +365,16 @@ def run_cv(config_name, seeds, skip_phase2=False):
                   device=device, apply_weight_correction=True, skip_svd=True)
         _free_gpu()
 
-        # Parse rollout metrics (no test_suffix: fold model tested on its own data)
-        yt_one_step_r = parse_pearson_from_log(os.path.join(fold_log_dir, 'results_test.log'))
-        yt_rollout_r  = parse_pearson_from_log(os.path.join(fold_log_dir, 'results_rollout.log'))
+        # Parse rollout metrics (no test_suffix: fold model tested on its own data).
+        # Per-neuron arrays from *_pearson.npy take precedence; log scalar is the fallback.
+        yt_one_step_r, yt_one_step_arr = _per_fold_pearson(
+            os.path.join(fold_log_dir, 'results_test.log'))
+        yt_rollout_r, yt_rollout_arr = _per_fold_pearson(
+            os.path.join(fold_log_dir, 'results_rollout.log'))
         all_metrics['yt_one_step_r'].append(yt_one_step_r)
         all_metrics['yt_rollout_r'].append(yt_rollout_r)
+        per_fold_r_arrays['yt_one_step_r'].append(yt_one_step_arr)
+        per_fold_r_arrays['yt_rollout_r'].append(yt_rollout_arr)
         print(f"\033[92m    yt model — one_step_r={yt_one_step_r:.4f}  rollout_r={yt_rollout_r:.4f}\033[0m")
 
         m = parse_metrics(os.path.join(fold_log_dir, "results", "metrics.txt"))
@@ -371,20 +416,38 @@ def run_cv(config_name, seeds, skip_phase2=False):
     # Final summary statistics → cv_summary.txt
     # -------------------------------------------------------------------
     summary_path = os.path.join(cv_out_dir, "cv_summary.txt")
+    from connectome_gnn.utils import fisher_pool as _fisher_pool
+
+    def _summary_row(key: str) -> str:
+        # r-metric with per-neuron arrays available for every fold → Fisher-z
+        # pooling over (neurons × folds). SD then captures both neuron and seed
+        # variance. Min/Max reported over per-fold scalar means (unchanged).
+        if key in per_fold_r_arrays:
+            arrs = [a for a in per_fold_r_arrays[key] if a is not None]
+            if arrs and len(arrs) == len(per_fold_r_arrays[key]):
+                fz = _fisher_pool(np.concatenate([a.ravel() for a in arrs]))
+                vals = [v for v in all_metrics[key] if not np.isnan(v)]
+                mn = np.min(vals) if vals else float('nan')
+                mx = np.max(vals) if vals else float('nan')
+                if fz['n'] > 0:
+                    cv_pct = (fz['r_sd_sym'] / fz['r_mean'] * 100) if fz['r_mean'] != 0 else float('nan')
+                    return (f"{key:<30} {fz['r_mean']:>8.4f} {fz['r_sd_sym']:>8.4f} "
+                            f"{cv_pct:>6.1f}% {mn:>8.4f} {mx:>8.4f}\n")
+        vals = [v for v in all_metrics[key] if not np.isnan(v)]
+        if vals:
+            mean = np.mean(vals)
+            sd   = np.std(vals)
+            cv_pct = (sd / mean * 100) if mean != 0 else float('nan')
+            return (f"{key:<30} {mean:>8.4f} {sd:>8.4f} {cv_pct:>6.1f}% "
+                    f"{np.min(vals):>8.4f} {np.max(vals):>8.4f}\n")
+        return f"{key:<30} {'—':>8} {'—':>8} {'—':>7} {'—':>8} {'—':>8}\n"
+
     with open(summary_path, 'a') as f:
         f.write("=" * 90 + "\n")
         f.write(f"{'Metric':<30} {'Mean':>8} {'SD':>8} {'CV%':>7} {'Min':>8} {'Max':>8}\n")
         f.write("-" * 70 + "\n")
         for key, _ in ALL_METRICS:
-            vals = [v for v in all_metrics[key] if not np.isnan(v)]
-            if vals:
-                mean = np.mean(vals)
-                sd   = np.std(vals)
-                cv_pct = (sd / mean * 100) if mean != 0 else float('nan')
-                f.write(f"{key:<30} {mean:>8.4f} {sd:>8.4f} {cv_pct:>6.1f}% "
-                        f"{np.min(vals):>8.4f} {np.max(vals):>8.4f}\n")
-            else:
-                f.write(f"{key:<30} {'—':>8} {'—':>8} {'—':>7} {'—':>8} {'—':>8}\n")
+            f.write(_summary_row(key))
 
     # -------------------------------------------------------------------
     # Append full audit block to results_cv.txt (paper traceability)
@@ -421,20 +484,31 @@ def run_cv(config_name, seeds, skip_phase2=False):
         candidates = sorted(_glob.glob(os.path.join(model_dir, "best_model_with_*.pt")))
         best = candidates[-1] if candidates else f"{model_dir} [not found]"
         audit_lines.append(f"model[cv{i:02d}]:      {best}  [{_mtime_str(best)}]\n")
+    # For r-metrics (one_step_r, rollout_r, yt_one_step_r, yt_rollout_r), prefer
+    # Fisher-z pooling over (neurons × folds) when per-fold arrays are available
+    # — the SD then reflects both neuron-level and seed-level variance.
+    # Non-r metrics keep the old mean-of-fold-scalars ± SD reporting.
+    from connectome_gnn.utils import fisher_pool as _fisher_pool
+
+    def _summarise(key: str, group: str) -> str:
+        if key in per_fold_r_arrays:
+            arrs = [a for a in per_fold_r_arrays[key] if a is not None]
+            if arrs and len(arrs) == len(per_fold_r_arrays[key]):
+                fz = _fisher_pool(np.concatenate([a.ravel() for a in arrs]))
+                if fz['n'] > 0:
+                    return (f"{key:<35} {fz['r_mean']:>8.4f} {fz['r_sd_sym']:>8.4f}"
+                            f"   {group}\n")
+        vals = [v for v in all_metrics[key] if not np.isnan(v)]
+        if vals:
+            return f"{key:<35} {np.mean(vals):>8.4f} {np.std(vals):>8.4f}   {group}\n"
+        return f"{key:<35} {'—':>8} {'—':>8}   {group}\n"
+
     audit_lines.append(f"\n{'Metric':<35} {'Mean':>8} {'SD':>8}   group\n")
     audit_lines.append(f"{'-'*65}\n")
     for key, label in GENERALIZATION_METRICS:
-        vals = [v for v in all_metrics[key] if not np.isnan(v)]
-        if vals:
-            audit_lines.append(f"{key:<35} {np.mean(vals):>8.4f} {np.std(vals):>8.4f}   generalisation\n")
-        else:
-            audit_lines.append(f"{key:<35} {'—':>8} {'—':>8}   generalisation\n")
+        audit_lines.append(_summarise(key, 'generalisation'))
     for key, label in RECOVERY_METRICS:
-        vals = [v for v in all_metrics[key] if not np.isnan(v)]
-        if vals:
-            audit_lines.append(f"{key:<35} {np.mean(vals):>8.4f} {np.std(vals):>8.4f}   parameter recovery\n")
-        else:
-            audit_lines.append(f"{key:<35} {'—':>8} {'—':>8}   parameter recovery\n")
+        audit_lines.append(_summarise(key, 'parameter recovery'))
     audit_content = "".join(audit_lines)
 
     # Per-config results file
