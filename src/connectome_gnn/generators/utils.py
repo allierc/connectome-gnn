@@ -713,8 +713,20 @@ _FLYVIS_HYBRID_MODELS = {
     "flyvis_hybrid",              # v1: merged flyvis+FlyWire edges, template-averaged RF
     "flyvis_hybrid_flywireRF",    # v2: drop eligible flyvis edges → per-column FlyWire RF
     "flyvis_hybrid_placeholder",  # v3: placeholder for future variant
-    "flyvis_hybrid_zeroedge",     # v4: v1 + zero-weight edges from spatial neighbors
-    "flyvis_hybrid_flywireRF_zeroedge",  # v5: v2 + zero-weight edges from spatial neighbors
+    "flyvis_hybrid_zeroedge",     # v4: v1 + zero-weight edges (legacy: spatially_local=F)
+    "flyvis_hybrid_flywireRF_zeroedge",  # v5: v2 + zero-weight edges (legacy: spatially_local=F)
+    "flyvis_hybrid_zeroedge_sl",  # v4 + spatially-local donation
+    "flyvis_hybrid_flywireRF_zeroedge_sl",  # v5 + spatially-local donation
+    "flyvis_hybrid_zeroedge_cross_sl",  # v4 + cross-type + spatially-local
+    "flyvis_hybrid_flywireRF_zeroedge_cross_sl",  # v5 + cross-type + spatially-local
+    "flyvis_hybrid_known_ode",             # v1 + known ODE
+    "flyvis_hybrid_flywireRF_known_ode",   # v2 + known ODE
+    "flyvis_hybrid_zeroedge_known_ode",    # v4 + known ODE (legacy: spatially_local=F)
+    "flyvis_hybrid_flywireRF_zeroedge_known_ode",  # v5 + known ODE (legacy: spatially_local=F)
+    "flyvis_hybrid_zeroedge_sl_known_ode",  # v4-sl + known ODE
+    "flyvis_hybrid_flywireRF_zeroedge_sl_known_ode",  # v5-sl + known ODE
+    "flyvis_hybrid_zeroedge_cross_sl_known_ode",  # v4-cross_sl + known ODE
+    "flyvis_hybrid_flywireRF_zeroedge_cross_sl_known_ode",  # v5-cross_sl + known ODE
 }
 
 
