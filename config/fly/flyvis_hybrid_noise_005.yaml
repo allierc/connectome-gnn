@@ -1,13 +1,13 @@
-description: "flywirevis hybrid -- v1 merged flyvis+FlyWire edges, noise=0.05"
+description: "LOWER PRIORITY — retains all flyvis template edges. v1 merged flyvis+FlyWire edges, noise=0.05"
 dataset: flyvis_hybrid_noise_005
 simulation:
   connectivity_file: to be specified
-  adjacency_matrix: ""
+  adjacency_matrix: ''
   params:
-    - - 1.0
-      - 1.0
-      - 1.0
-      - 1.0
+  - - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
   n_neurons: 13741
   n_input_neurons: 1736
   n_neuron_types: 65
@@ -37,11 +37,11 @@ plotting:
   colormap: tab20
   arrow_length: 1
   xlim:
-    - -2.5
-    - 2.5
+  - -2.5
+  - 2.5
   ylim:
-    - -100
-    - 100
+  - -100
+  - 100
 training:
   n_epochs: 1
   n_runs: 1

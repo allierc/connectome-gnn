@@ -1,17 +1,19 @@
-description: "flywirevis hybrid -- v4 v1 base + synapse-derived zero-weight edges, uncertainty=1, noise=0.05"
+description: "ARCHIVED — spatially_local=F donates offsets globally across strata,
+  producing unrealistic null-edge flooding. Use v4-sl instead. v4 v1 base + zero-weight
+  edges (u=1, same-type, global donation), noise=0.05"
 dataset: flyvis_hybrid_zeroedge_noise_005
 simulation:
   connectivity_file: to be specified
-  adjacency_matrix: ""
+  adjacency_matrix: ''
   params:
-    - - 1.0
-      - 1.0
-      - 1.0
-      - 1.0
+  - - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
   n_neurons: 13741
   n_input_neurons: 1736
   n_neuron_types: 65
-  n_edges: 614241
+  n_edges: 533959
   n_frames: 64000
   delta_t: 0.02
   baseline_value: 0
@@ -19,6 +21,7 @@ simulation:
   noise_model_level: 0.05
   derivative_smoothing_window: 1
   seed: 42
+  edge_uncertainty: 1
 graph_model:
   signal_model_name: flyvis_hybrid_zeroedge
   prediction: first_derivative
@@ -37,11 +40,11 @@ plotting:
   colormap: tab20
   arrow_length: 1
   xlim:
-    - -2.5
-    - 2.5
+  - -2.5
+  - 2.5
   ylim:
-    - -100
-    - 100
+  - -100
+  - 100
 training:
   n_epochs: 1
   n_runs: 1
