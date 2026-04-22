@@ -1,0 +1,68 @@
+\begin{table}[h!]
+\centering
+\caption{Five-fold CV Pearson $r$ and rollout RMSE for stimulus, MLP and EED baselines on \textit{flyvis}. Pearson $r$ values are Fisher-$z$ mean $\pm$ half-range of the 1-SD interval, back-transformed to $r$-space. RMSE is plain mean $\pm$ 1~SD. Both are pooled across neurons and folds. \textcolor{green!50!black}{Green}: value $>0.9$.}
+\label{tab:cv_baselines_sym}
+\tiny
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lcrrr}
+\toprule
+condition & noise $\sigma$ & one-step $r$ & rollout $r$ & rollout RMSE \\
+\midrule
+Stimulus, $t_w{=}1$, noise-free    & $0$     & $0.33{\pm}0.25$ & --- & --- \\
+Stimulus, $t_w{=}2$, noise-free    & $0$     & $0.47{\pm}0.40$ & --- & --- \\
+Stimulus, $t_w{=}4$, noise-free    & $0$     & $0.67{\pm}0.33$ & --- & --- \\
+Stimulus, $t_w{=}8$, noise-free    & $0$     & \good{$0.91{\pm}0.08$} & --- & --- \\
+Stimulus, $t_w{=}16$, noise-free   & $0$     & \good{$0.95{\pm}0.04$} & --- & --- \\
+\midrule
+MLP, noise-free                    & $0$     & \good{$0.97{\pm}0.02$} & \good{$0.96{\pm}0.04$} & $0.080{\pm}0.057$ \\
+MLP, $\sigma{=}0.05$               & $0.05$  & \good{$0.95{\pm}0.05$} & \good{$0.90{\pm}0.10$} & $0.123{\pm}0.074$ \\
+MLP, $\sigma{=}0.5$                & $0.5$   & $0.70{\pm}0.21$ & $0.31{\pm}0.27$ & $0.474{\pm}0.306$ \\
+MLP winner, $\sigma{=}0.05$        & $0.05$  & \good{$0.96{\pm}0.04$} & \good{$0.93{\pm}0.09$} & $0.100{\pm}0.056$ \\
+MLP winner, $\sigma{=}0.5$         & $0.5$   & $0.66{\pm}0.18$ & $0.71{\pm}0.23$ & $0.271{\pm}0.242$ \\
+\midrule
+EED, noise-free                    & $0$     & \good{$0.96{\pm}0.05$} & \good{$0.97{\pm}0.03$} & $0.056{\pm}0.036$ \\
+EED, $\sigma{=}0.05$               & $0.05$  & \good{$0.95{\pm}0.08$} & \good{$0.96{\pm}0.05$} & $0.066{\pm}0.043$ \\
+EED, $\sigma{=}0.5$                & $0.5$   & $0.70{\pm}0.21$ & $0.01{\pm}0.04$ & $19.594{\pm}15.858$ \\
+EED winner, $\sigma{=}0.05$        & $0.05$  & \good{$0.97{\pm}0.07$} & \good{$0.97{\pm}0.04$} & $0.061{\pm}0.040$ \\
+EED winner, $\sigma{=}0.5$         & $0.5$   & $0.66{\pm}0.20$ & $0.74{\pm}0.20$ & $0.282{\pm}0.268$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ---------------------------------------------------------------
+% Asymmetric super/subscript version of the table above. Each r
+% cell reads $r^{+up}_{-dn}$, where (up, dn) are the back-
+% transformed Fisher-z ±1 SD bounds — up = tanh(z+sd) - r,
+% dn = r - tanh(z-sd). RMSE uses the same notation but without
+% any transform (bounds are literal ±1 SD).
+% ---------------------------------------------------------------
+% \begin{table}[h!]
+% \centering
+% \caption{Five-fold CV Pearson $r$ and rollout RMSE for stimulus, MLP and EED baselines on \textit{flyvis}. Pearson $r$ reported as Fisher-$z$ mean with asymmetric $\pm1$~SD bounds (back-transformed); RMSE as mean with $\pm1$~SD. Both pooled across neurons and folds. \textcolor{green!50!black}{Green}: value $>0.9$.}
+% \label{tab:cv_baselines_asym}
+% \tiny
+% \setlength{\tabcolsep}{4pt}
+% \begin{tabular}{lcrrr}
+% \toprule
+% condition & noise $\sigma$ & one-step $r$ & rollout $r$ & rollout RMSE \\
+% \midrule
+% Stimulus, $t_w{=}1$, noise-free    & $0$     & $0.33^{+0.22}_{-0.27}$ & --- & --- \\
+% Stimulus, $t_w{=}2$, noise-free    & $0$     & $0.47^{+0.31}_{-0.49}$ & --- & --- \\
+% Stimulus, $t_w{=}4$, noise-free    & $0$     & $0.67^{+0.21}_{-0.45}$ & --- & --- \\
+% Stimulus, $t_w{=}8$, noise-free    & $0$     & \good{$0.91^{+0.05}_{-0.11}$} & --- & --- \\
+% Stimulus, $t_w{=}16$, noise-free   & $0$     & \good{$0.95^{+0.03}_{-0.05}$} & --- & --- \\
+% \midrule
+% MLP, noise-free                    & $0$     & \good{$0.97^{+0.01}_{-0.03}$} & \good{$0.96^{+0.02}_{-0.05}$} & $0.080^{+0.057}_{-0.057}$ \\
+% MLP, $\sigma{=}0.05$               & $0.05$  & \good{$0.95^{+0.03}_{-0.07}$} & \good{$0.90^{+0.06}_{-0.15}$} & $0.123^{+0.074}_{-0.074}$ \\
+% MLP, $\sigma{=}0.5$                & $0.5$   & $0.70^{+0.15}_{-0.27}$ & $0.31^{+0.24}_{-0.29}$ & $0.474^{+0.306}_{-0.306}$ \\
+% MLP winner, $\sigma{=}0.05$        & $0.05$  & \good{$0.96^{+0.02}_{-0.06}$} & \good{$0.93^{+0.05}_{-0.13}$} & $0.100^{+0.056}_{-0.056}$ \\
+% MLP winner, $\sigma{=}0.5$         & $0.5$   & $0.66^{+0.14}_{-0.22}$ & $0.71^{+0.16}_{-0.30}$ & $0.271^{+0.242}_{-0.242}$ \\
+% \midrule
+% EED, noise-free                    & $0$     & \good{$0.96^{+0.03}_{-0.08}$} & \good{$0.97^{+0.02}_{-0.04}$} & $0.056^{+0.036}_{-0.036}$ \\
+% EED, $\sigma{=}0.05$               & $0.05$  & \good{$0.95^{+0.04}_{-0.12}$} & \good{$0.96^{+0.03}_{-0.06}$} & $0.066^{+0.043}_{-0.043}$ \\
+% EED, $\sigma{=}0.5$                & $0.5$   & $0.70^{+0.15}_{-0.27}$ & $0.01^{+0.04}_{-0.04}$ & $19.594^{+15.858}_{-15.858}$ \\
+% EED winner, $\sigma{=}0.05$        & $0.05$  & \good{$0.97^{+0.03}_{-0.11}$} & \good{$0.97^{+0.02}_{-0.07}$} & $0.061^{+0.040}_{-0.040}$ \\
+% EED winner, $\sigma{=}0.5$         & $0.5$   & $0.66^{+0.15}_{-0.24}$ & $0.74^{+0.14}_{-0.26}$ & $0.282^{+0.268}_{-0.268}$ \\
+% \bottomrule
+% \end{tabular}
+% \end{table}
