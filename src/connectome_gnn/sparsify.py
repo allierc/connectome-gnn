@@ -568,14 +568,20 @@ def clustering_hdbscan(data, type_list, min_cluster_size=5):
     return {'n_clusters_found': n_clusters_found, 'min_cluster_size': min_cluster_size,
             'accuracy': accuracy, 'ari': ari, 'nmi': nmi, 'silhouette': sil}
 
-def clustering_gmm(data, type_list, n_components=None):
+def clustering_gmm(data, type_list, n_components=None, standardize=True):
     from scipy.optimize import linear_sum_assignment
     from sklearn.metrics import accuracy_score, adjusted_rand_score, normalized_mutual_info_score, silhouette_score
     from sklearn.mixture import GaussianMixture
+    from sklearn.preprocessing import StandardScaler
 
     true_labels = to_numpy(type_list).flatten()
     if n_components is None:
         n_components = len(np.unique(true_labels))
+
+    # Z-score each feature column so GMM Gaussians aren't dominated by the
+    # highest-variance raw feature (e.g. W-stats drowning out tau / V_rest).
+    if standardize:
+        data = StandardScaler().fit_transform(data)
 
     cluster_labels = None
     for cov_type in ('full', 'diag', 'spherical'):
