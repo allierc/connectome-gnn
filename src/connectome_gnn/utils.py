@@ -674,6 +674,37 @@ def compute_feve(true, pred, n_repeats=None):
     return feve
 
 
+def fisher_pool(r_arr, clip: float = 0.9999):
+    """Pool correlation coefficients in Fisher-$z$ space.
+
+    Accepts a 1-D array (e.g. per-neuron) or N-D array (e.g.
+    ``n_neurons × n_folds``). All finite entries are pooled as one population,
+    so both neuron-level and seed-level variance contribute to the SD.
+
+    Returns ``dict`` with:
+        r_mean      tanh(mean(z))
+        r_sd_sym    symmetric r-space SD = (r_hi - r_lo) / 2
+        r_lo, r_hi  tanh(mean(z) ∓ std(z)) — asymmetric r-space bounds
+        z_mean, z_sd  native Fisher-$z$ moments
+        n           number of finite entries pooled
+    """
+    a = np.asarray(r_arr, dtype=float)
+    flat = a[np.isfinite(a)]
+    if flat.size == 0:
+        return dict(r_mean=np.nan, r_sd_sym=np.nan,
+                    r_lo=np.nan, r_hi=np.nan,
+                    z_mean=np.nan, z_sd=np.nan, n=0)
+    z = np.arctanh(np.clip(flat, -clip, clip))
+    zm = float(z.mean())
+    zs = float(z.std(ddof=0))
+    rm = float(np.tanh(zm))
+    rl = float(np.tanh(zm - zs))
+    rh = float(np.tanh(zm + zs))
+    return dict(r_mean=rm, r_sd_sym=(rh - rl) / 2.0,
+                r_lo=rl, r_hi=rh,
+                z_mean=zm, z_sd=zs, n=int(flat.size))
+
+
 def compute_trace_metrics(true, pred, label=""):
     """compute RMSE, Pearson correlation metrics, FEVE, and R²."""
     n_samples = true.shape[0]
@@ -701,9 +732,12 @@ def compute_trace_metrics(true, pred, label=""):
     if len(rmse_list) == 0:
         print("\033[91mERROR: all neurons contain NaN — model diverged\033[0m")
     else:
-        _pr = np.nanmean(pearson)
+        _fz = fisher_pool(pearson)
+        _pr = _fz['r_mean']
         _c_pr = '\033[92m' if _pr >= 0.9 else '\033[38;5;208m' if _pr > 0.3 else '\033[91m'
-        print(f"Pearson r: {_c_pr}{_pr:.3f}\033[0m ± {np.nanstd(pearson):.3f} [{np.nanmin(pearson):.3f}, {np.nanmax(pearson):.3f}]")
+        print(f"Pearson r (Fisher-z pooled over neurons): "
+              f"{_c_pr}{_pr:.3f}\033[0m ± {_fz['r_sd_sym']:.3f} "
+              f"[{_fz['r_lo']:.3f}, {_fz['r_hi']:.3f}]")
         _rm = np.nanmean(rmse)
         print(f"RMSE: {_rm:.4f} ± {np.nanstd(rmse):.4f} [{np.nanmin(rmse):.4f}, {np.nanmax(rmse):.4f}]")
         # print(f"R²: \033[92m{np.nanmean(r2):.3f}\033[0m ± {np.nanstd(r2):.3f} [{np.nanmin(r2):.3f}, {np.nanmax(r2):.3f}]")

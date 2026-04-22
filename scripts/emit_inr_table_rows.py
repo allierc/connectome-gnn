@@ -88,28 +88,70 @@ def mean_sd(values):
     return float(arr.mean()), float(arr.std(ddof=0))
 
 
+def _load_pearson_npy(log_path_):
+    """Return per-neuron pearson array from the sibling *_pearson.npy, or None."""
+    stem = os.path.splitext(log_path_)[0]
+    npy  = f'{stem}_pearson.npy'
+    if not os.path.isfile(npy):
+        return None
+    try:
+        return np.load(npy)
+    except OSError:
+        return None
+
+
+def fisher_pool_fold_arrays(arrays):
+    """Pool a list of per-fold per-neuron r arrays in Fisher-z space.
+
+    Returns (r_mean, r_sd_sym). If any fold's array is missing, returns
+    (nan, nan) so the caller can fall back to scalar log parsing.
+    """
+    if not arrays or any(a is None for a in arrays):
+        return (float('nan'), float('nan'))
+    from connectome_gnn.utils import fisher_pool
+    fz = fisher_pool(np.concatenate([a.ravel() for a in arrays]))
+    if fz['n'] == 0:
+        return (float('nan'), float('nan'))
+    return (fz['r_mean'], fz['r_sd_sym'])
+
+
 def collect_condition(base_name, condition, pre_folder, output_root, n_seeds):
-    """Return dict of metric_name -> list (len n_seeds) of per-fold values."""
+    """Return dict of metric_name -> list (len n_seeds) of per-fold values,
+    plus a parallel dict of per-fold per-neuron arrays for the r-metrics."""
     cols = {k: [] for k in (
         'one_step_r', 'rollout_r', 'stimuli_r',
         'W_corrected_R2', 'tau_R2', 'V_rest_R2', 'clustering_accuracy',
     )}
+    r_arrays = {'one_step_r': [], 'rollout_r': []}
     for i in range(n_seeds):
         fold = f'{base_name}_{condition}_cv{i:02d}'
         fold_log = os.path.join(output_root, 'log', pre_folder, fold)
-        cols['one_step_r'].append(parse_pearson(os.path.join(fold_log, 'results_test.log')))
-        cols['rollout_r'].append(parse_pearson(os.path.join(fold_log, 'results_rollout.log')))
-        cols['stimuli_r'].append(parse_stimuli_r(os.path.join(fold_log, 'results_rollout.log')))
+        test_log    = os.path.join(fold_log, 'results_test.log')
+        rollout_log = os.path.join(fold_log, 'results_rollout.log')
+        cols['one_step_r'].append(parse_pearson(test_log))
+        cols['rollout_r'].append(parse_pearson(rollout_log))
+        cols['stimuli_r'].append(parse_stimuli_r(rollout_log))
+        r_arrays['one_step_r'].append(_load_pearson_npy(test_log))
+        r_arrays['rollout_r'].append(_load_pearson_npy(rollout_log))
         m = parse_metrics_txt(os.path.join(fold_log, 'results', 'metrics.txt'))
         for k in ('W_corrected_R2', 'tau_R2', 'V_rest_R2', 'clustering_accuracy'):
             cols[k].append(m.get(k, float('nan')))
+    cols['_r_arrays'] = r_arrays
     return cols
 
 
 def emit_row(label, cols, noise_tex, edges_tex):
     def ms(k):
+        # For r-metrics with per-neuron arrays on disk, Fisher-z-pool across
+        # (neurons × folds) so the SD includes neuron-level variance. Fall
+        # back to scalar mean-of-fold-means when any fold's .npy is missing.
+        r_arrays = cols.get('_r_arrays', {})
+        if k in r_arrays:
+            m, s = fisher_pool_fold_arrays(r_arrays[k])
+            if not np.isnan(m):
+                return m, s
         return mean_sd(cols[k])
-    parts = {k: ms(k) for k in cols}
+    parts = {k: ms(k) for k in cols if not k.startswith('_')}
     one = fmt(*parts['one_step_r'])
     roll = fmt(*parts['rollout_r'])
     stim = fmt(*parts['stimuli_r'])

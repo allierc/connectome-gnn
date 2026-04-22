@@ -36,6 +36,7 @@ from connectome_gnn.neuron_state import NeuronState
 from connectome_gnn.plot import plot_spatial_activity_grid, plot_weight_comparison
 from connectome_gnn.utils import (
     compute_trace_metrics,
+    fisher_pool,
     get_datavis_root_dir,
     get_equidistant_points,
     graphs_data_path,
@@ -43,6 +44,33 @@ from connectome_gnn.utils import (
     migrate_state_dict,
     to_numpy,
 )
+
+
+def _save_per_neuron_arrays(log_path_: str, pearson: np.ndarray,
+                             rmse: np.ndarray) -> None:
+    """Save per-neuron pearson/RMSE arrays next to the matching ``results_*.log``.
+
+    Pass the log path; two sibling files are written using the log's stem:
+    ``{stem}_pearson.npy`` and ``{stem}_rmse.npy``. Lets aggregators
+    (``cv_runner``, ``emit_inr_table_rows``) pool across (neurons × folds) in
+    Fisher-$z$ space instead of averaging already-collapsed scalars.
+    """
+    stem = os.path.splitext(log_path_)[0]
+    try:
+        np.save(f'{stem}_pearson.npy', np.asarray(pearson, dtype=np.float32))
+        np.save(f'{stem}_rmse.npy',    np.asarray(rmse,    dtype=np.float32))
+    except OSError as exc:
+        logger.warning(f'could not save per-neuron arrays ({stem}): {exc}')
+
+
+def _pearson_log_line(pearson: np.ndarray) -> str:
+    """'Pearson r: {mean} +/- {sd}' with Fisher-z-pooled mean and symmetric SD.
+
+    The numeric format is preserved so existing parsers (`parse_pearson_from_log`
+    in cv_runner, `parse_pearson` in emit_inr_table_rows) keep working.
+    """
+    fz = fisher_pool(pearson)
+    return f'Pearson r: {fz["r_mean"]:.3f} +/- {fz["r_sd_sym"]:.3f}\n'
 from connectome_gnn.zarr_io import load_raw_array, load_simulation_data
 
 try:
@@ -383,20 +411,23 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
 
     # Save results
     results_path = os.path.join(log_dir, f'results_test{test_suffix}.log')
+    _onestep_fz = fisher_pool(pearson)
+    _save_per_neuron_arrays(results_path, pearson, rmse)
     with open(results_path, 'w') as f:
         f.write(f'test_dataset: {test_ds}\n')
         f.write(f'n_frames: {len(all_pred)}\n')
         f.write(f'n_neurons: {n_neurons}\n')
         f.write(f'model: {netname}\n')
-        f.write(f'Pearson r: {np.nanmean(pearson):.3f} +/- {np.nanstd(pearson):.3f}\n')
+        f.write(_pearson_log_line(pearson))
+        f.write(f'Pearson r (Fisher-z mean, sd): {_onestep_fz["z_mean"]:.4f} {_onestep_fz["z_sd"]:.4f}\n')
         f.write(f'RMSE: {np.mean(rmse):.4f} +/- {np.std(rmse):.4f}\n')
     logger.debug(f'results saved to {results_path}')
 
     if log_file:
         log_file.write('\n--- One-step test results ---\n')
         log_file.write(f'test_dataset: {test_ds}\n')
-        log_file.write(f'onestep_pearson: {np.nanmean(pearson):.4f}\n')
-        log_file.write(f'onestep_pearson_std: {np.nanstd(pearson):.4f}\n')
+        log_file.write(f'onestep_pearson: {_onestep_fz["r_mean"]:.4f}\n')
+        log_file.write(f'onestep_pearson_std: {_onestep_fz["r_sd_sym"]:.4f}\n')
         log_file.write(f'onestep_RMSE: {np.mean(rmse):.4f}\n')
         log_file.write(f'onestep_RMSE_std: {np.std(rmse):.4f}\n')
 
@@ -575,11 +606,14 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
 
     # Save rollout metrics
     rollout_log_path = os.path.join(log_dir, f'results_rollout{test_suffix}.log')
+    _rollout_fz = fisher_pool(pearson_ro)
+    _save_per_neuron_arrays(rollout_log_path, pearson_ro, rmse_ro)
     with open(rollout_log_path, 'w') as f:
         f.write("Rollout Metrics\n")
         f.write("=" * 60 + "\n")
         f.write(f"RMSE: {np.mean(rmse_ro):.4f} +/- {np.std(rmse_ro):.4f}\n")
-        f.write(f"Pearson r: {np.nanmean(pearson_ro):.3f} +/- {np.nanstd(pearson_ro):.3f}\n")
+        f.write(_pearson_log_line(pearson_ro))
+        f.write(f'Pearson r (Fisher-z mean, sd): {_rollout_fz["z_mean"]:.4f} {_rollout_fz["z_sd"]:.4f}\n')
         if hidden_rollout_pearson is not None:
             f.write(f"hidden_rollout_pearson: {hidden_rollout_pearson:.3f} "
                     f"(n={int(_mask.sum())})\n")
@@ -618,8 +652,8 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
 
     if log_file:
         log_file.write('\n--- Rollout results ---\n')
-        log_file.write(f'rollout_pearson: {np.nanmean(pearson_ro):.4f}\n')
-        log_file.write(f'rollout_pearson_std: {np.nanstd(pearson_ro):.4f}\n')
+        log_file.write(f'rollout_pearson: {_rollout_fz["r_mean"]:.4f}\n')
+        log_file.write(f'rollout_pearson_std: {_rollout_fz["r_sd_sym"]:.4f}\n')
         if hidden_rollout_pearson is not None:
             log_file.write(f'hidden_rollout_pearson: {hidden_rollout_pearson:.4f}\n')
             log_file.write(f'visible_rollout_pearson: {visible_rollout_pearson:.4f}\n')
@@ -1649,14 +1683,17 @@ def data_test_gnn_special(
         pred_slice = activity_pred[start_frame:end_frame]
 
         rmse_all, pearson_all, feve_all, r2_all = compute_trace_metrics(true_slice, pred_slice, "selected neurons")
+        _sel_fz = fisher_pool(pearson_all)
 
         # Log rollout metrics to file
         rollout_log_path = f"{log_dir}/results_rollout.log"
+        _save_per_neuron_arrays(rollout_log_path, pearson_all, rmse_all)
         with open(rollout_log_path, 'w') as f:
             f.write("Rollout Metrics for Selected Neurons\n")
             f.write("="*60 + "\n")
             f.write(f"RMSE: {np.mean(rmse_all):.4f} ± {np.std(rmse_all):.4f} [{np.min(rmse_all):.4f}, {np.max(rmse_all):.4f}]\n")
-            f.write(f"Pearson r: {np.nanmean(pearson_all):.3f} ± {np.nanstd(pearson_all):.3f} [{np.nanmin(pearson_all):.3f}, {np.nanmax(pearson_all):.3f}]\n")
+            f.write(f"Pearson r: {_sel_fz['r_mean']:.3f} ± {_sel_fz['r_sd_sym']:.3f} [{_sel_fz['r_lo']:.3f}, {_sel_fz['r_hi']:.3f}]\n")
+            f.write(f"Pearson r (Fisher-z mean, sd): {_sel_fz['z_mean']:.4f} {_sel_fz['z_sd']:.4f}\n")
             # f.write(f"R²: {np.nanmean(r2_all):.3f} ± {np.nanstd(r2_all):.3f} [{np.nanmin(r2_all):.3f}, {np.nanmax(r2_all):.3f}]\n")
             # f.write(f"FEVE: {np.mean(feve_all):.3f} ± {np.std(feve_all):.3f} [{np.min(feve_all):.3f}, {np.max(feve_all):.3f}]\n")
             f.write(f"\nNumber of neurons evaluated: {len(selected_neuron_ids)}\n")
@@ -1734,14 +1771,17 @@ def data_test_gnn_special(
     else:
 
         rmse_all, pearson_all, feve_all, r2_all = compute_trace_metrics(activity_true, activity_pred, "all neurons")
+        _all_fz = fisher_pool(pearson_all)
 
         # Log rollout metrics to file
         rollout_log_path = f"{log_dir}/results_rollout.log"
+        _save_per_neuron_arrays(rollout_log_path, pearson_all, rmse_all)
         with open(rollout_log_path, 'w') as f:
             f.write("Rollout Metrics for All Neurons\n")
             f.write("="*60 + "\n")
             f.write(f"RMSE: {np.mean(rmse_all):.4f} ± {np.std(rmse_all):.4f} [{np.min(rmse_all):.4f}, {np.max(rmse_all):.4f}]\n")
-            f.write(f"Pearson r: {np.nanmean(pearson_all):.3f} ± {np.nanstd(pearson_all):.3f} [{np.nanmin(pearson_all):.3f}, {np.nanmax(pearson_all):.3f}]\n")
+            f.write(f"Pearson r: {_all_fz['r_mean']:.3f} ± {_all_fz['r_sd_sym']:.3f} [{_all_fz['r_lo']:.3f}, {_all_fz['r_hi']:.3f}]\n")
+            f.write(f"Pearson r (Fisher-z mean, sd): {_all_fz['z_mean']:.4f} {_all_fz['z_sd']:.4f}\n")
             # f.write(f"R²: {np.nanmean(r2_all):.3f} ± {np.nanstd(r2_all):.3f} [{np.nanmin(r2_all):.3f}, {np.nanmax(r2_all):.3f}]\n")
             # f.write(f"FEVE: {np.mean(feve_all):.3f} ± {np.std(feve_all):.3f} [{np.min(feve_all):.3f}, {np.max(feve_all):.3f}]\n")
             f.write(f"\nNumber of neurons evaluated: {len(activity_true)}\n")
@@ -1750,7 +1790,7 @@ def data_test_gnn_special(
         # Write to analysis log file for Claude
         if log_file:
             # log_file.write(f"test_R2: {np.nanmean(r2_all):.4f}\n")
-            log_file.write(f"test_pearson: {np.nanmean(pearson_all):.4f}\n")
+            log_file.write(f"test_pearson: {_all_fz['r_mean']:.4f}\n")
 
         _dataset_base = os.path.basename(config.dataset)  # strip pre_folder (e.g. 'drosophila_cx/')
         filename_ = _dataset_base.split('flyvis_')[1] if 'flyvis_' in _dataset_base else re.sub(r'_\d{2}$', '', _dataset_base)
