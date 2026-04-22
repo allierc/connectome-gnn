@@ -117,7 +117,13 @@ class KnownODEBase(nn.Module):
 # Flyvis: g_phi = ReLU, dv/dt = (-v + msg + I + V_rest) / tau
 # ---------------------------------------------------------------------------
 
-@register_model("flyvis_known_ode")
+@register_model(
+    "flyvis_known_ode",
+    "flyvis_hybrid_known_ode",
+    "flyvis_hybrid_flywireRF_known_ode",
+    "flyvis_hybrid_zeroedge_known_ode",
+    "flyvis_hybrid_flywireRF_zeroedge_known_ode",
+)
 class FlyvisKnownODE(KnownODEBase):
 
     def __init__(self, aggr_type='add', config=None, device=None):
