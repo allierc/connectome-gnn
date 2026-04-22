@@ -439,21 +439,32 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
         out_mean = out_sum / safe_out
         in_std = np.sqrt(np.maximum(in_sq / safe_in - in_mean ** 2, 0))
         out_std = np.sqrt(np.maximum(out_sq / safe_out - out_mean ** 2, 0))
-        in_mean[in_count == 0] = 0
-        out_mean[out_count == 0] = 0
-        in_std[in_count == 0] = 0
-        out_std[out_count == 0] = 0
-        return in_mean, in_std, out_mean, out_std
+        # Per-neuron min / max of incoming and outgoing edge weights.
+        in_max = np.full(n, -np.inf); np.maximum.at(in_max, dst, w)
+        in_min = np.full(n,  np.inf); np.minimum.at(in_min, dst, w)
+        out_max = np.full(n, -np.inf); np.maximum.at(out_max, src, w)
+        out_min = np.full(n,  np.inf); np.minimum.at(out_min, src, w)
+        for arr, c in [(in_mean, in_count), (in_std, in_count),
+                       (in_min, in_count), (in_max, in_count),
+                       (out_mean, out_count), (out_std, out_count),
+                       (out_min, out_count), (out_max, out_count)]:
+            arr[c == 0] = 0
+        return in_mean, in_std, out_mean, out_std, in_min, in_max, out_min, out_max
 
-    w_in_mean, w_in_std, w_out_mean, w_out_std = _connectivity_stats(
+    (w_in_mean, w_in_std, w_out_mean, w_out_std,
+     w_in_min, w_in_max, w_out_min, w_out_max) = _connectivity_stats(
         learned_weights.flatten(), src, dst, n_neurons)
-    W_learned = np.column_stack([w_in_mean, w_in_std, w_out_mean, w_out_std])
+    W_learned = np.column_stack([w_in_mean, w_in_std, w_out_mean, w_out_std,
+                                 w_in_min, w_in_max, w_out_min, w_out_max])
 
-    w_in_mean_t, w_in_std_t, w_out_mean_t, w_out_std_t = _connectivity_stats(
+    (w_in_mean_t, w_in_std_t, w_out_mean_t, w_out_std_t,
+     w_in_min_t, w_in_max_t, w_out_min_t, w_out_max_t) = _connectivity_stats(
         gt_w_np.flatten(), src, dst, n_neurons)
-    W_true = np.column_stack([w_in_mean_t, w_in_std_t, w_out_mean_t, w_out_std_t])
+    W_true = np.column_stack([w_in_mean_t, w_in_std_t, w_out_mean_t, w_out_std_t,
+                              w_in_min_t, w_in_max_t, w_out_min_t, w_out_max_t])
 
-    n_gmm = min(max(2 * n_types, 10), n_neurons - 1)
+    # n_components = n_types: one Gaussian per cell type (no over-clustering penalty).
+    n_gmm = min(n_types, n_neurons - 1)
     learned_combos = {
         'τ': learned_tau.reshape(-1, 1),
         'V': learned_V_rest.reshape(-1, 1),
@@ -514,7 +525,9 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     plt.close()
 
     # Augmented clustering: (tau, V_rest, W_stats) since no embeddings
-    a_aug = np.column_stack([learned_tau, learned_V_rest, w_in_mean, w_in_std, w_out_mean, w_out_std])
+    a_aug = np.column_stack([learned_tau, learned_V_rest,
+                             w_in_mean, w_in_std, w_out_mean, w_out_std,
+                             w_in_min, w_in_max, w_out_min, w_out_max])
     results = clustering_gmm(a_aug, type_list, n_components=n_gmm)
     cluster_acc = results['accuracy']
     print(f"GMM (n_components={n_gmm}): accuracy={_r2_color(cluster_acc)}{cluster_acc:.3f}{_ANSI_RESET}, ARI={results['ari']:.3f}, NMI={results['nmi']:.3f}")
@@ -1827,41 +1840,46 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             src, dst = edges_np[0], edges_np[1]
 
             def _connectivity_stats(w, src, dst, n):
-                """Per-neuron mean/std of in-weights and out-weights."""
-                # counts
+                """Per-neuron mean/std/min/max of in-weights and out-weights."""
                 in_count = np.bincount(dst, minlength=n).astype(np.float64)
                 out_count = np.bincount(src, minlength=n).astype(np.float64)
-                # sums
                 in_sum = np.bincount(dst, weights=w, minlength=n)
                 out_sum = np.bincount(src, weights=w, minlength=n)
-                # sum of squares
                 in_sq = np.bincount(dst, weights=w ** 2, minlength=n)
                 out_sq = np.bincount(src, weights=w ** 2, minlength=n)
-                # mean (0 where no edges)
                 safe_in = np.where(in_count > 0, in_count, 1)
                 safe_out = np.where(out_count > 0, out_count, 1)
                 in_mean = in_sum / safe_in
                 out_mean = out_sum / safe_out
-                # std = sqrt(E[x^2] - E[x]^2), clamped to avoid negative from fp noise
                 in_std = np.sqrt(np.maximum(in_sq / safe_in - in_mean ** 2, 0))
                 out_std = np.sqrt(np.maximum(out_sq / safe_out - out_mean ** 2, 0))
-                # zero out neurons with no edges
-                in_mean[in_count == 0] = 0
-                out_mean[out_count == 0] = 0
-                in_std[in_count == 0] = 0
-                out_std[out_count == 0] = 0
-                return in_mean, in_std, out_mean, out_std
+                in_max = np.full(n, -np.inf); np.maximum.at(in_max, dst, w)
+                in_min = np.full(n,  np.inf); np.minimum.at(in_min, dst, w)
+                out_max = np.full(n, -np.inf); np.maximum.at(out_max, src, w)
+                out_min = np.full(n,  np.inf); np.minimum.at(out_min, src, w)
+                for arr, c in [(in_mean, in_count), (in_std, in_count),
+                               (in_min, in_count), (in_max, in_count),
+                               (out_mean, out_count), (out_std, out_count),
+                               (out_min, out_count), (out_max, out_count)]:
+                    arr[c == 0] = 0
+                return in_mean, in_std, out_mean, out_std, in_min, in_max, out_min, out_max
 
-            w_in_mean_true, w_in_std_true, w_out_mean_true, w_out_std_true = \
+            (w_in_mean_true, w_in_std_true, w_out_mean_true, w_out_std_true,
+             w_in_min_true, w_in_max_true, w_out_min_true, w_out_max_true) = \
                 _connectivity_stats(true_weights.flatten(), src, dst, n_neurons)
-            w_in_mean_learned, w_in_std_learned, w_out_mean_learned, w_out_std_learned = \
+            (w_in_mean_learned, w_in_std_learned, w_out_mean_learned, w_out_std_learned,
+             w_in_min_learned, w_in_max_learned, w_out_min_learned, w_out_max_learned) = \
                 _connectivity_stats(learned_weights.flatten(), src, dst, n_neurons)
 
-            # all 4 connectivity stats combined
+            # all connectivity stats combined (mean, std, min, max for in and out)
             W_learned = np.column_stack([w_in_mean_learned, w_in_std_learned,
-                                        w_out_mean_learned, w_out_std_learned])
+                                        w_out_mean_learned, w_out_std_learned,
+                                        w_in_min_learned, w_in_max_learned,
+                                        w_out_min_learned, w_out_max_learned])
             W_true = np.column_stack([w_in_mean_true, w_in_std_true,
-                                    w_out_mean_true, w_out_std_true])
+                                    w_out_mean_true, w_out_std_true,
+                                    w_in_min_true, w_in_max_true,
+                                    w_out_min_true, w_out_max_true])
 
             # Build feature arrays dynamically from ode_params.clustering_features()
             _gt_taus_np = to_numpy(gt_taus[:n_neurons])
@@ -1904,7 +1922,8 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 return np.column_stack([atoms[p] for p in parts])
 
             cluster_features = ode_params.clustering_features()
-            n_gmm = min(max(2 * n_types, 10), n_neurons - 1)
+            # n_components = n_types: one Gaussian per cell type.
+            n_gmm = min(n_types, n_neurons - 1)
 
             # Cluster learned
             print('clustering learned features...')
@@ -1973,7 +1992,9 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             if ode_params.has_vrest():
                 _aug_parts.append(learned_V_rest.reshape(-1, 1))
             _aug_parts.extend([w_in_mean_learned.reshape(-1, 1), w_in_std_learned.reshape(-1, 1),
-                               w_out_mean_learned.reshape(-1, 1), w_out_std_learned.reshape(-1, 1)])
+                               w_out_mean_learned.reshape(-1, 1), w_out_std_learned.reshape(-1, 1),
+                               w_in_min_learned.reshape(-1, 1), w_in_max_learned.reshape(-1, 1),
+                               w_out_min_learned.reshape(-1, 1), w_out_max_learned.reshape(-1, 1)])
             a_aug = np.column_stack(_aug_parts)
 
             results = clustering_gmm(a_aug, type_list, n_components=n_gmm)
