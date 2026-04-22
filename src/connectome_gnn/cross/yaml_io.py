@@ -188,14 +188,17 @@ def emit_davis_cv_yaml(base_name, fold_i, output_root, force=False):
 
 
 def emit_yt_yamls(hp_source, suffix, hp_yaml_basename, n_folds, output_root,
-                   sim_overrides=None, dataset_tag='yt'):
+                   sim_overrides=None, dataset_tag='yt',
+                   condition_filter=None):
     """Emit YT CV YAMLs for all 8 conditions × n_folds, into
     <output_root>/config/fly/. Always overwrites existing files so HP
     tweaks in the source yamls propagate on every run."""
     out_dir = cv_config_dir(output_root)
     os.makedirs(out_dir, exist_ok=True)
     written = []
-    for base_name, winner_name in CONDITIONS:
+    _active = [(b, w) for (b, w) in CONDITIONS
+               if condition_filter is None or b in condition_filter]
+    for base_name, winner_name in _active:
         if hp_source == 'per_condition':
             hp_yaml_path = os.path.join(
                 get_repo_root(), 'config', 'fly', f'{winner_name}.yaml')

@@ -119,7 +119,10 @@ def _warn_zero_training_metrics(log_dirs):
         tm = _read_latest_training_metrics(ld)
         if tm is None:
             continue
-        _, _, vr, tau = tm
+        # tm is (iter, conn, vr, tau, hidden_nnr, anchor_nnr) — the last 2
+        # are new fields (hidden-INR metrics); unpack defensively so this
+        # function also works with older 4-tuple logs.
+        _, _, vr, tau = tm[0], tm[1], tm[2], tm[3]
         if abs(vr) < 5e-3 or abs(tau) < 5e-3:
             print(f'\033[91m  [WARN] slot {slot}: post-training V_rest_R²={vr:.3f} '
                   f'τ_R²={tau:.3f} — dynamics parameter may have collapsed\033[0m')

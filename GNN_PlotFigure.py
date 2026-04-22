@@ -1874,23 +1874,34 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 'V': learned_V_rest.reshape(-1, 1),
                 'W': W_learned,
             }
+            # The GNN's per-neuron embedding `a` has no ground-truth counterpart
+            # (it is discovered, not given by the simulator). For composite
+            # features on the "true" side like (a,τ,V,W), use the LEARNED `a`
+            # combined with the true τ/V/W. Solo 'a' is still skipped below so
+            # "true a" alone never appears — the composite is the only place
+            # the learned embedding enters the true-features bar plot.
             _true_atoms = {
+                'a': to_numpy(model.a),
                 'τ': _gt_taus_np.reshape(-1, 1),
                 'V': _gt_vrest_np.reshape(-1, 1),
                 'W': W_true,
             }
 
             def _build_combo(name, atoms):
-                """Build feature array for a clustering feature name."""
+                """Build feature array for a clustering feature name.
+
+                Returns None if any requested atom is missing — this avoids
+                silently degrading `(a,τ,V,W)` into `(τ,V,W)` when `a` isn't
+                in the atom dict.
+                """
                 if name in atoms:
                     return atoms[name]
                 # Composite: strip parens, split on comma
                 inner = name.strip('()')
                 parts = [p.strip() for p in inner.split(',')]
-                arrays = [atoms[p] for p in parts if p in atoms]
-                if not arrays:
+                if any(p not in atoms for p in parts):
                     return None
-                return np.column_stack(arrays)
+                return np.column_stack([atoms[p] for p in parts])
 
             cluster_features = ode_params.clustering_features()
             n_gmm = min(max(2 * n_types, 10), n_neurons - 1)
