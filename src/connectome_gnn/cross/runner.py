@@ -24,7 +24,8 @@ from connectome_gnn.utils import (
 )
 
 from connectome_gnn.cross.pipeline import (
-    CONDITION_BASES, run_condition, generate_yt_data_for_condition,
+    CONDITION_BASES, run_condition, run_condition_wave,
+    generate_yt_data_for_condition,
 )
 from connectome_gnn.cross.yaml_io import emit_yt_yamls
 from connectome_gnn.cross.tex import emit_tex_file
@@ -47,8 +48,10 @@ def run_all_conditions(hp_source, suffix, hp_yaml=None,
                         metrics_interval=300, cluster_test_plot=True,
                         force_test=False,
                         sim_overrides=None, dataset_tag=None,
-                        condition_filter=None):
-    """Run the 8-condition × n_folds hold-out-only cross-check and emit the TeX table.
+                        condition_filter=None,
+                        data_augmentation_loop=100,
+                        conditions_per_wave=1):
+    """Run the 8-condition × n_folds YT-only cross-check and emit the TeX table.
 
     `output_root` resolution (highest priority wins):
         1. explicit kwarg
@@ -87,7 +90,8 @@ def run_all_conditions(hp_source, suffix, hp_yaml=None,
     emit_yt_yamls(hp_source, suffix, hp_yaml_basename=hp_yaml,
                   n_folds=n_folds, output_root=output_root,
                   sim_overrides=sim_overrides, dataset_tag=dataset_tag,
-                  condition_filter=condition_filter)
+                  condition_filter=condition_filter,
+                  data_augmentation_loop=data_augmentation_loop)
 
     # Step 2 — per-condition cluster pipeline.
     base_cfg = NeuralGraphConfig.from_yaml(
@@ -96,9 +100,15 @@ def run_all_conditions(hp_source, suffix, hp_yaml=None,
 
     _active_bases = ([b for b in CONDITION_BASES if b in condition_filter]
                      if condition_filter is not None else CONDITION_BASES)
-    for base_name in _active_bases:
-        run_condition(
-            base_name=base_name, suffix=suffix, n_folds=n_folds,
+    assert conditions_per_wave >= 1
+    n_waves = (len(_active_bases) + conditions_per_wave - 1) // conditions_per_wave
+    print(f'    conditions_per_wave={conditions_per_wave} -> {n_waves} wave(s), '
+          f'up to {conditions_per_wave * n_folds} concurrent cluster jobs per wave')
+    for wave_i in range(n_waves):
+        chunk = _active_bases[wave_i * conditions_per_wave:
+                              (wave_i + 1) * conditions_per_wave]
+        run_condition_wave(
+            base_names=chunk, suffix=suffix, n_folds=n_folds,
             device=device, output_root=output_root, node_name=node_name,
             hard_runtime_limit_min=hard_runtime_limit_min,
             force_test=force_test, cluster_test_plot=cluster_test_plot,
@@ -118,8 +128,9 @@ def run_all_conditions(hp_source, suffix, hp_yaml=None,
 def generate_all_yt_data(output_root=None, n_folds=5, suffix='yt_gen',
                           hp_source='per_condition', hp_yaml=None,
                           sim_overrides=None, dataset_tag=None,
-                          condition_filter=None):
-    """Pre-build all 8 × n_folds hold-out datasets at <output_root>/graphs_data/fly/
+                          condition_filter=None,
+                          data_augmentation_loop=100):
+    """Pre-build all 8 × n_folds YT datasets at <output_root>/graphs_data/fly/
     {base}_yt_cv{i:02d}/. The three training runners share these datasets
     (their `ensure_yt_data` calls become noops) so they can run in parallel.
 
@@ -137,7 +148,7 @@ def generate_all_yt_data(output_root=None, n_folds=5, suffix='yt_gen',
 
     # 1. Emit hold-out CV YAMLs (hp_source=per_condition by default so each
     #    condition's own winner yaml supplies the graph_model block; the
-    #    simulation block — which is all we need for generation — comes
+    #    simulation block — which is all we need for generation — comesgit
     #    from the base yaml regardless of hp_source).
     print(f'\n[1] emit hold-out YAMLs  (hp_source={hp_source}, dataset_tag={dataset_tag})')
     if sim_overrides:
@@ -147,7 +158,8 @@ def generate_all_yt_data(output_root=None, n_folds=5, suffix='yt_gen',
     emit_yt_yamls(hp_source, suffix, hp_yaml_basename=hp_yaml,
                   n_folds=n_folds, output_root=output_root,
                   sim_overrides=sim_overrides, dataset_tag=dataset_tag,
-                  condition_filter=condition_filter)
+                  condition_filter=condition_filter,
+                  data_augmentation_loop=data_augmentation_loop)
 
     # 2. Generate data for each condition × fold.
     base_cfg = NeuralGraphConfig.from_yaml(

@@ -1,9 +1,18 @@
 """
 Figure: GNN parameter-extraction panels (one composite per config).
 
+Janne-styled per figures/INSTRUCTIONS.md (the previous, larger-font version
+is preserved at fig_gnn_params_original.py):
+
+  * ~18 cm document-width figure (7.09 in) at 300 dpi
+  * 6-8 pt fonts, 0.5 pt spines / ticks
+  * top + right spines hidden globally (via janne.matplotlibrc)
+  * trim_axis breaks each axis at the data range (upper & right gap)
+  * PDF primary output (pdf.fonttype=42, svg.fonttype='none')
+
 2 rows x 5 cols (labels a-h) assembling the individual PNGs produced by
 GNN_PlotFigure.data_plot().  Panels c and g span 2 columns each because
-they are internally 2x1 (landscape) — see PANEL_LAYOUT.
+they are internally 2x1 (landscape) - see PANEL_LAYOUT.
 
   row 1:  a) weights_corrected  b) embedding  c) f_theta_domain (x2)  d) emb_aug
   row 2:  e) tau                f) V_rest     g) g_phi_domain (x2)    [blank]
@@ -22,7 +31,7 @@ Modes (--mode)
 Usage
 -----
     # one or more configs in a single call; one composite per config.
-    # --output_root works like GNN_Main.py --output_root — points at the
+    # --output_root works like GNN_Main.py --output_root - points at the
     # data root where log/<config>/ and graphs_data/ live.
     python figures/fig_gnn_params.py \
         --output_root /groups/saalfeld/home/allierc/GraphData \
@@ -30,7 +39,7 @@ Usage
 
 Output
 ------
-    figures/fig_gnn_params_<config_indices>.{png,pdf,jpg}   # one per config
+    figures/fig_gnn_params_<config_indices>.{pdf,png}   # one per config
 """
 
 import argparse
@@ -39,8 +48,31 @@ import sys
 
 import matplotlib
 matplotlib.use('Agg')
+matplotlib.rc_file(os.path.join(os.path.dirname(__file__), 'janne.matplotlibrc'))
+
 import matplotlib.image as mpimg
 import matplotlib.pyplot as plt
+
+
+# Try the flyvis trim_axis; fall back to a local equivalent if unavailable.
+try:
+    from flyvis.analysis.visualization.plt_utils import trim_axis as _trim_axis
+except Exception:
+    def _trim_axis(ax, xmargin=0.0, ymargin=0.0, yaxis=True, xaxis=True):
+        """Local fallback: clip left/bottom spines to the data range so the
+        axes break at the first/last data point (no spine beyond the data)."""
+        if xaxis:
+            xticks = ax.get_xticks()
+            xlo, xhi = ax.get_xlim()
+            xticks = [t for t in xticks if xlo <= t <= xhi]
+            if xticks:
+                ax.spines['bottom'].set_bounds(xticks[0], xticks[-1])
+        if yaxis:
+            yticks = ax.get_yticks()
+            ylo, yhi = ax.get_ylim()
+            yticks = [t for t in yticks if ylo <= t <= yhi]
+            if yticks:
+                ax.spines['left'].set_bounds(yticks[0], yticks[-1])
 
 
 # Resolve repo root from this script's location (works local + cluster).
@@ -62,7 +94,7 @@ except ImportError:
 
 
 # Panels, in reading order, placed on a 2 row x 5 col GridSpec.
-# (row, col_start, col_end_exclusive) — d and g span 2 cols (internally 2x1).
+# (row, col_start, col_end_exclusive) - d and g span 2 cols (internally 2x1).
 PANEL_LAYOUT = [
     ('a', 'weights_comparison_corrected.png',  0, 0, 1),
     ('b', 'embedding_{ci}.png',                0, 1, 2),
@@ -73,13 +105,20 @@ PANEL_LAYOUT = [
     ('g', 'g_phi_{ci}_domain.png',             1, 2, 4),   # double width
 ]
 
-# Matplotlib style — matches other figures in this folder.
-plt.rcParams.update({
-    'font.family': 'sans-serif',
-    'font.sans-serif': ['Nimbus Sans', 'Arial', 'Helvetica', 'DejaVu Sans'],
-    'text.usetex': False,
-    'mathtext.fontset': 'dejavusans',
-})
+
+# Fonts (janne.matplotlibrc sets defaults to 8/6 pt; keep these as explicit
+# override points so panel-specific tweaks are one-line edits).
+FS_LABEL  = 8
+FS_TICK   = 6
+FS_ANNOT  = 6
+FS_LEGEND = 6
+FS_TYPE   = 6
+PANEL_LBL = 8  # panel labels a) b) ... (Janne style: 8 pt, was 20 pt)
+
+# ~18 cm document-width figure; height matches the original 22:9 aspect
+# (~2.45) of the composite panel grid.
+FIG_W_IN  = 18.0 * 0.3937       # ~7.09 in
+FIG_H_IN  = FIG_W_IN * (9.0 / 22.0)  # ~2.90 in - keeps panel aspect ratios
 
 
 def load_config(config_name):
@@ -123,9 +162,6 @@ def panels_ready(results_dir, config_indices):
     return missing
 
 
-PANEL_LBL = 20  # per figures/INSTRUCTIONS.md — panel labels a) b) ... 20pt bold
-
-
 def assemble(results_dir, config_indices, out_path):
     """Assemble the 2 row x 5 col composite preserving each panel's aspect.
 
@@ -133,10 +169,10 @@ def assemble(results_dir, config_indices, out_path):
       `ax.set_box_aspect`, so no internal whitespace remains inside the panel.
     - `constrained_layout=True` tightens inter-row/column gaps.
     - Panel labels (a), b), ...) are placed at the top-left of the outer
-      panel box via `get_tightbbox`, all at the same y per row — matches the
+      panel box via `get_tightbbox`, all at the same y per row - matches the
       convention in `figures/INSTRUCTIONS.md` and the fig_davis_* scripts.
     """
-    fig = plt.figure(figsize=(22.0, 9.0), constrained_layout=True)
+    fig = plt.figure(figsize=(FIG_W_IN, FIG_H_IN), constrained_layout=True)
     gs = fig.add_gridspec(nrows=2, ncols=5, wspace=0.04, hspace=0.04)
 
     panel_axes = []  # list of (ax, label, row)
@@ -147,14 +183,18 @@ def assemble(results_dir, config_indices, out_path):
         ax.set_axis_off()
         if not os.path.exists(img_path):
             ax.text(0.5, 0.5, f'missing:\n{fname}',
-                    ha='center', va='center', fontsize=10, color='red',
+                    ha='center', va='center', fontsize=FS_ANNOT, color='red',
                     transform=ax.transAxes)
         else:
             img = mpimg.imread(img_path)
             h, w = img.shape[:2]
             ax.imshow(img, aspect='auto')
             ax.set_box_aspect(h / w)
-        panel_axes.append((ax, f'{label})', row))
+        # Hide left spine to match the original (axis_off does this implicitly,
+        # but be explicit so any reactivation also drops the left spine).
+        ax.spines['left'].set_visible(False)
+        _trim_axis(ax, yaxis=False)
+        panel_axes.append((ax, f'{label}', row))
 
     # Place panel labels at top-left of each outer panel box; align per row.
     fig.canvas.draw()
@@ -173,11 +213,11 @@ def assemble(results_dir, config_indices, out_path):
                  va='bottom', ha='left', color='black',
                  transform=fig.transFigure)
 
-    fig.savefig(out_path + '.png', dpi=300, bbox_inches='tight', pad_inches=0.05)
+    # PDF first per janne.matplotlibrc default; PNG for quick preview.
     fig.savefig(out_path + '.pdf', bbox_inches='tight', pad_inches=0.05)
-    fig.savefig(out_path + '.jpg', dpi=220, bbox_inches='tight', pad_inches=0.05)
+    fig.savefig(out_path + '.png', dpi=300, bbox_inches='tight', pad_inches=0.05)
     plt.close(fig)
-    print(f'wrote {out_path}.{{png,pdf,jpg}}')
+    print(f'wrote {out_path}.{{pdf,png}}')
 
 
 def assemble_combined(blocks, out_path):
@@ -192,12 +232,12 @@ def assemble_combined(blocks, out_path):
     """
     import matplotlib.gridspec as _mgs
     n_blocks = len(blocks)
-    # Height per block (in inches) — 9.0 matches the single-condition figure.
-    # Add some extra height for the section title above each block.
-    block_h   = 9.0
-    title_pad = 1.1
+    # Height per block (in inches) - keep the same 22:9 aspect as the
+    # single-condition figure, scaled down to ~18 cm width.
+    block_h   = FIG_W_IN * (9.0 / 22.0)
+    title_pad = 0.35  # ~9 mm padding for the section title strip
     fig_h = n_blocks * (block_h + title_pad)
-    fig_w = 22.0
+    fig_w = FIG_W_IN
     fig = plt.figure(figsize=(fig_w, fig_h), dpi=300)
 
     # Outer grid: one row per block, tall hspace for breathing room between
@@ -220,14 +260,16 @@ def assemble_combined(blocks, out_path):
             ax.set_axis_off()
             if not os.path.exists(img_path):
                 ax.text(0.5, 0.5, f'missing:\n{fname}',
-                        ha='center', va='center', fontsize=10, color='red',
+                        ha='center', va='center', fontsize=FS_ANNOT, color='red',
                         transform=ax.transAxes)
             else:
                 img = mpimg.imread(img_path)
                 h, w = img.shape[:2]
                 ax.imshow(img, aspect='auto')
                 ax.set_box_aspect(h / w)
-            panel_axes.append((ax, f'{label})', row))
+            ax.spines['left'].set_visible(False)
+            _trim_axis(ax, yaxis=False)
+            panel_axes.append((ax, f'{label}', row))
         section_info.append((panel_axes, blk['title']))
 
     # Compute label and title positions after layout is finalised.
@@ -258,15 +300,15 @@ def assemble_combined(blocks, out_path):
             x_left = inv.transform((bb_top.x0, bb_top.y1))[0]
             y_top  = max(inv.transform((bb.x0, bb.y1))[1] for _, bb in top_axes)
             fig.text(x_left, y_top + 0.018, title,
-                     fontsize=int(1.3 * PANEL_LBL), fontweight='normal',
+                     fontsize=FS_LABEL, fontweight='normal',
                      va='bottom', ha='left', color='black',
                      transform=fig.transFigure)
 
-    fig.savefig(out_path + '.png', dpi=300, bbox_inches='tight', pad_inches=0.05)
+    # PDF first per janne.matplotlibrc default; PNG for quick preview.
     fig.savefig(out_path + '.pdf', bbox_inches='tight', pad_inches=0.05)
-    fig.savefig(out_path + '.jpg', dpi=220, bbox_inches='tight', pad_inches=0.05)
+    fig.savefig(out_path + '.png', dpi=300, bbox_inches='tight', pad_inches=0.05)
     plt.close(fig)
-    print(f'wrote {out_path}.{{png,pdf,jpg}}')
+    print(f'wrote {out_path}.{{pdf,png}}')
 
 
 def process_one(config_name, device, mode):

@@ -38,10 +38,13 @@ CONDITION_BASES = [
     'flyvis_noise_005',
     'flyvis_noise_05',
     'flyvis_noise_005_010',
+    'flyvis_noise_005_020',
     'flyvis_noise_005_null_edges_pc_400',
     'flyvis_noise_005_removed_pc_20',
+    'flyvis_noise_005_removed_pc_50',
     'flyvis_noise_005_stride_5',
     'flyvis_noise_005_hidden_010_ngp',
+    'flyvis_noise_005_hidden_020_ngp',
 ]
 
 
@@ -297,9 +300,30 @@ def run_condition(base_name, suffix, n_folds, device, output_root,
     Does NOT generate data — keeps the three training runners cheap to launch
     in parallel and avoids redundant 40× rebuilds of the hold-out augmentation cache.
     """
-    print(f'\n=== {base_name}  ({n_folds}-fold hold-out train / hold-out test, suffix={suffix}) ===')
+    run_condition_wave(
+        [base_name], suffix=suffix, n_folds=n_folds, device=device,
+        output_root=output_root, node_name=node_name,
+        hard_runtime_limit_min=hard_runtime_limit_min, force_test=force_test,
+        cluster_test_plot=cluster_test_plot,
+        metrics_interval=metrics_interval,
+    )
 
-    yt_cfgs = _load_yt_cfgs(base_name, suffix, n_folds, output_root)
+
+def run_condition_wave(base_names, suffix, n_folds, device, output_root,
+                        node_name, hard_runtime_limit_min, force_test,
+                        cluster_test_plot=True, metrics_interval=300):
+    """Train + test + plot MULTIPLE conditions as a single wave.
+
+    All (base, fold) pairs are submitted together in one training wave
+    (up to len(base_names) * n_folds concurrent cluster jobs), then the
+    whole wave is awaited, then test+plot is submitted as a single wave.
+    """
+    tag = '+'.join(base_names)
+    print(f'\n=== wave[{len(base_names)}]: {tag}  ({n_folds}-fold hold-out train / hold-out test, suffix={suffix}) ===')
+
+    yt_cfgs = []
+    for base_name in base_names:
+        yt_cfgs.extend(_load_yt_cfgs(base_name, suffix, n_folds, output_root))
     for yt_cfg in yt_cfgs:
         _assert_yt_data_present(yt_cfg)
 
