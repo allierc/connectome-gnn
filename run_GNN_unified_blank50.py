@@ -27,7 +27,7 @@ Config files used (relative to repo config/fly/):
   emitted CV yamls (55 total, written to <output_root>/config/fly/):
     {base}_yt_blank50_unified_cv{00..04}.yaml
 
-    datasets: <output_root>/graphs_data/fly/<base>_yt_blank50_cv{00..04}/
+    datasets: <output_root>/graphs_data/fly/<base>_blank50_cv{00..04}/
     tex out : <output_root>/log/cv_yt_blank50_unified_rows.tex
 
 Wall-clock per GNN: ~1 h on a100.
@@ -74,9 +74,9 @@ run_all_conditions(
     hp_source='uniform',
     suffix='yt_blank50_unified',
     hp_yaml='flyvis_unified_blank50_winner',
-    hard_runtime_limit_min=1440,
+    hard_runtime_limit_min=2880,
     sim_overrides=BLANK50_SIM_OVERRIDES,
-    dataset_tag='yt_blank50',
+    dataset_tag='blank50',
     condition_filter=CONDITION_FILTER,
     data_augmentation_loop=500,
     conditions_per_wave=3,
