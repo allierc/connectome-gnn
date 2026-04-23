@@ -6,7 +6,7 @@ from typing import Annotated, Dict, List, Optional
 class StrEnum(str, Enum):
     pass
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # StrEnum types for config fields
 
@@ -193,6 +193,12 @@ class SimulationConfig(BaseModel):
     max_train_sequences: int = 0  # limit train sequences (0 = use all); reduces generation time proportionally
     blank_freq: int = 0  # Periodic-blank period: 0=off; N>=2 zeros stimulus on every Nth frame (data_idx % N == 0)
     blank_prefix_fraction: float = 0.0  # fraction of each sequence to blank at the start (e.g. 0.1 = first 10% frames zero stimulus)
+    # DAVIS blank-window injection: after every `blank_insertion_every_n_frames` real video frames
+    # (counted across video boundaries), inject `blank_window_size_frames` consecutive zero-stimulus
+    # frames. When active, sim.n_frames counts only real video frames; injected blanks add on top.
+    # Both must be specified together (both > 0) or neither (both == 0); enforced by validator.
+    blank_window_size_frames: int = Field(default=0, ge=0)
+    blank_insertion_every_n_frames: int = Field(default=0, ge=0)
     simulation_initial_state: bool = False
     # flyvis net.steady_state(value=…) passed during pre-warmup. Default 0.5 reproduces the
     # flyvis implicit default used in all prior experiments (constant 0.5 luminance during the
@@ -291,6 +297,37 @@ class SimulationConfig(BaseModel):
     pos_init: str = "uniform"
     dpos_init: float = 0
 
+    @model_validator(mode="after")
+    def _validate_blank_window_injection(self) -> "SimulationConfig":
+        l = self.blank_window_size_frames
+        m = self.blank_insertion_every_n_frames
+        if (l > 0) != (m > 0):
+            raise ValueError(
+                "blank_window_size_frames and blank_insertion_every_n_frames must be "
+                f"specified together (both > 0) or neither (both == 0); got "
+                f"blank_window_size_frames={l}, blank_insertion_every_n_frames={m}"
+            )
+        if l > 0 and (self.blank_freq > 0 or self.blank_prefix_fraction > 0.0):
+            raise ValueError(
+                "blank-window injection (blank_window_size_frames / "
+                "blank_insertion_every_n_frames) is mutually exclusive with "
+                f"blank_freq (got {self.blank_freq}) and blank_prefix_fraction "
+                f"(got {self.blank_prefix_fraction}); disable those to use it"
+            )
+        if l > 0:
+            vit = self.visual_input_type
+            if "DAVIS" not in vit:
+                raise ValueError(
+                    "blank-window injection requires visual_input_type to contain "
+                    f"'DAVIS'; got visual_input_type={vit!r}"
+                )
+            for incompat in ("flash", "mixed", "tile_mseq", "tile_blue_noise"):
+                if incompat in vit:
+                    raise ValueError(
+                        f"blank-window injection is not supported with visual_input_type "
+                        f"containing {incompat!r}; got visual_input_type={vit!r}"
+                    )
+        return self
 
 
 class ClaudeConfig(BaseModel):
