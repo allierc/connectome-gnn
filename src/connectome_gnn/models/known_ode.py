@@ -119,10 +119,9 @@ class KnownODEBase(nn.Module):
 
 @register_model(
     "flyvis_known_ode",
-    "flyvis_hybrid_known_ode",
     "flyvis_hybrid_flywireRF_known_ode",
-    "flyvis_hybrid_zeroedge_known_ode",
-    "flyvis_hybrid_flywireRF_zeroedge_known_ode",
+    "flyvis_hybrid_flywireRF_zeroedge_sl_known_ode",
+    "flyvis_hybrid_flywireRF_zeroedge_cross_sl_known_ode",
 )
 class FlyvisKnownODE(KnownODEBase):
 
