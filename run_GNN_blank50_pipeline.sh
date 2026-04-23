@@ -2,7 +2,7 @@
 # Blank-50 YT-only CV pipeline — V_rest recovery test.
 #
 # Runs two Python scripts in sequence:
-#   1. run_generate_YT_data_blank50.py — pre-generate 15 datasets
+#   1. run_generate_holdout_data_blank50.py — pre-generate 15 datasets
 #      (3 conditions × 5 folds) with `simulation.blank_prefix_fraction: 0.50`.
 #      First 50% of each YT video sequence is zero-stimulus — supplies
 #      the V_rest training signal missing from the default YT CV.
@@ -50,7 +50,7 @@ echo
 echo "============================================================"
 echo "Step 1/2: pre-generate 15 blank-50 YT datasets"
 echo "============================================================"
-python run_generate_YT_data_blank50.py
+python run_generate_holdout_data_blank50.py
 
 echo
 echo "============================================================"

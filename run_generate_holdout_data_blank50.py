@@ -1,4 +1,4 @@
-"""Pre-generate YouTube-VOS CV datasets with 50% blank-prefix injection.
+"""Pre-generate hold-out CV datasets with 50% blank-prefix injection.
 
 Mirror of run_generate_YT_data_all_columns.py but:
   - standard 217-column network (no all_columns),

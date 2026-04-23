@@ -1,6 +1,6 @@
-"""Pre-generate YouTube-VOS CV datasets for the FULL-FLY (all_columns=True) variant.
+"""Pre-generate hold-out CV datasets for the FULL-FLY (all_columns=True) variant.
 
-Mirror of run_generate_YT_data.py but sets simulation.all_columns=True in
+Mirror of run_generate_holdout_data.py but sets simulation.all_columns=True in
 every emitted YAML and uses dataset_tag='yt_all' so the datasets live in
 separate folders:
 

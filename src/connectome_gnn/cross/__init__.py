@@ -1,4 +1,4 @@
-"""YT-only CV pipeline: train + test on YouTube-VOS held-out folds."""
+"""Hold-out-only CV pipeline: train + test on hold-out dataset folds."""
 
 from connectome_gnn.cross.runner import run_all_conditions, generate_all_yt_data
 from connectome_gnn.cross.pipeline import (
