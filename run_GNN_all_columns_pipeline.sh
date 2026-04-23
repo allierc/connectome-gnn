@@ -2,7 +2,7 @@
 # Full-fly (all_columns=True) YT-only CV pipeline.
 #
 # Runs two Python scripts in sequence:
-#   1. run_generate_YT_data_all_columns.py — pre-generate 40 datasets
+#   1. run_generate_holdout_data_all_columns.py — pre-generate 40 datasets
 #      (8 conditions × 5 folds) at 45669 neurons / 1513231 edges each.
 #   2. run_GNN_unified_all_columns.py     — train 40 GNNs (uniform HPs,
 #      ~1–5 h per GNN on a100) and emit the TeX table.
@@ -48,7 +48,7 @@ echo
 echo "============================================================"
 echo "Step 1/2: pre-generate 40 all-columns YT datasets"
 echo "============================================================"
-python run_generate_YT_data_all_columns.py
+python run_generate_holdout_data_all_columns.py
 
 echo
 echo "============================================================"
