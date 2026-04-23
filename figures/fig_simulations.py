@@ -1,23 +1,31 @@
 """
 Figure: simulated neural activity at three intrinsic-noise levels.
 
-Layout (2 rows × 3 columns)
+Janne-styled per figures/INSTRUCTIONS.md (the previous, larger-font version
+is preserved at fig_simulations_original.py):
+
+  * ~18 cm document-width figure (7.09 in) at 300 dpi
+  * 6-8 pt fonts, 0.5 pt spines / ticks
+  * top + right spines hidden globally (via janne.matplotlibrc)
+  * trim_axis breaks each axis at the data range (upper & right gap)
+  * PDF primary output (pdf.fonttype=42, svg.fonttype='none')
+
+Layout (2 rows x 3 columns)
 ---------------------------
-  Row 1 (a–c): type-mean voltage heatmap — 65 cell types × 2 000 frames,
+  Row 1 (a-c): type-mean voltage heatmap - 65 cell types x 2 000 frames,
                z-scored per type (removes type-specific baseline/amplitude
                so all types are equally visible), anatomically sorted.
                Conveys the full dataset scale and type-specific dynamics.
-  Row 2 (d–f): stacked voltage traces for 6 representative cell types
-               (R1 · L1 · L2 · Mi1 · T4a · T5a) over a 500-frame window.
-               Red dashed line = visual-input stimulus I_i(t).
+  Row 2 (d-f): stacked voltage traces for representative cell types over
+               a 500-frame window. Red dashed line = visual-input stimulus.
                Conveys the noise effect on individual neuronal dynamics.
 
-Columns left → right: σ = 0 (noise-free), σ = 0.05, σ = 0.5.
-step_v for traces is fixed from σ = 0 data so noise is visually comparable.
+Columns left -> right: sigma = 0 (noise-free), sigma = 0.05, sigma = 0.5.
+step_v for traces is fixed from sigma = 0 data so noise is visually comparable.
 
 Data source
 -----------
-x_list_train zarr (fields: voltage, stimulus, neuron_type) — the actual
+x_list_train zarr (fields: voltage, stimulus, neuron_type) - the actual
 training data, not the test rollout bundle.
 
 Usage
@@ -26,17 +34,20 @@ Usage
 
 Output
 ------
-    figures/fig_simulations.{png,pdf,jpg}
+    figures/fig_simulations.{pdf,png}
 """
 
 import os
 import sys
+
 import matplotlib
 matplotlib.use('Agg')
+matplotlib.rc_file(os.path.join(os.path.dirname(__file__), 'janne.matplotlibrc'))
+
 import matplotlib.pyplot as plt
 import numpy as np
 
-# ── project imports ───────────────────────────────────────────────────────────
+# -- project imports ---------------------------------------------------------
 REPO = os.path.join(os.path.dirname(__file__), '..')
 sys.path.insert(0, os.path.join(REPO, 'src'))
 
@@ -45,25 +56,43 @@ from connectome_gnn.metrics import ANATOMICAL_ORDER, INDEX_TO_NAME
 from connectome_gnn.utils import set_data_root, graphs_data_path, add_pre_folder
 from connectome_gnn.zarr_io import load_simulation_data
 
-# ── font style (INSTRUCTIONS.md §style) ──────────────────────────────────────
-plt.rcParams.update({
-    'font.family': 'sans-serif',
-    'font.sans-serif': ['Nimbus Sans', 'Arial', 'Helvetica', 'DejaVu Sans'],
-    'text.usetex': False,
-    'mathtext.fontset': 'dejavusans',
-})
 
-# ── font sizes (col ≈ 7 in, _S = 0.52, INSTRUCTIONS.md §font) ────────────────
-_S        = 0.52
-FS_LABEL  = int(48 * _S)   # axis labels
-FS_TICK   = int(24 * _S)   # tick labels
-FS_ANNOT  = int(28 * _S)   # type-name annotations in trace panel
-FS_TITLE  = 22             # panel subtitle
-PANEL_LBL = 20             # a)–f)           (fixed, never scaled)
-FS_CBAR   = int(48 * _S)   # colorbar label
-FS_LEGEND = int(40 * _S)   # legend
+# Try the flyvis trim_axis; fall back to a local equivalent if unavailable.
+try:
+    from flyvis.analysis.visualization.plt_utils import trim_axis as _trim_axis
+except Exception:
+    def _trim_axis(ax, xmargin=0.0, ymargin=0.0, yaxis=True, xaxis=True):
+        """Local fallback: clip left/bottom spines to the data range so the
+        axes break at the first/last data point (no spine beyond the data)."""
+        if xaxis:
+            xticks = ax.get_xticks()
+            xlo, xhi = ax.get_xlim()
+            xticks = [t for t in xticks if xlo <= t <= xhi]
+            if xticks:
+                ax.spines['bottom'].set_bounds(xticks[0], xticks[-1])
+        if yaxis:
+            yticks = ax.get_yticks()
+            ylo, yhi = ax.get_ylim()
+            yticks = [t for t in yticks if ylo <= t <= yhi]
+            if yticks:
+                ax.spines['left'].set_bounds(yticks[0], yticks[-1])
 
-# ── data ──────────────────────────────────────────────────────────────────────
+
+# -- font sizes (janne.matplotlibrc sets 8/6 pt defaults) --------------------
+FS_LABEL  = 8    # axis labels
+FS_TICK   = 6    # tick labels
+FS_ANNOT  = 6    # type-name annotations in trace panel
+FS_TITLE  = 8    # panel subtitle
+PANEL_LBL = 8    # a)-f)
+FS_CBAR   = 6    # colorbar label / ticks
+FS_LEGEND = 6    # legend
+FS_TYPE   = 6    # heatmap type-name y ticks
+
+# -- figure size: ~18 cm document width --------------------------------------
+FIG_W_IN  = 18.0 * 0.3937   # ~7.09 in
+FIG_H_IN  = 4.7             # 2 rows tall, preserves the 21x14 ~ 3:2 aspect
+
+# -- data --------------------------------------------------------------------
 DATA_ROOT = '/groups/saalfeld/home/allierc/GraphData'
 CONFIGS = [
     ('flyvis_noise_free', DATA_ROOT, 'noise-free'),
@@ -72,22 +101,22 @@ CONFIGS = [
 ]
 N_HEATMAP_FRAMES = 2000    # frames loaded for the heatmap (zarr subsample)
 
-# ── selected types for trace panels ──────────────────────────────────────────
-# Covers the full visual pathway: photoreceptors → lamina → medulla → T-cells
+# -- selected types for trace panels -----------------------------------------
+# Covers the full visual pathway: photoreceptors -> lamina -> medulla -> T-cells
 # R1=23, L1=5, L2=6, L3=7, Mi1=12, Mi9=22, Tm1=43, Tm9=55, T4a=35, T5a=39, T1=31, Am=0
 SELECTED_TYPES = [23, 5, 6, 7, 12, 22, 43, 55, 35, 39, 31, 0]
 TRACE_START    = 100
 TRACE_END      = 600   # 500-frame window
 
-# ── heatmap style ─────────────────────────────────────────────────────────────
+# -- heatmap style -----------------------------------------------------------
 CMAP  = 'RdBu_r'
-VLIM  = 2.0          # ±2 σ clipping for z-scored heatmap
+VLIM  = 2.0          # +-2 sigma clipping for z-scored heatmap
 
-# ── trace colors — match graph_tester.py ─────────────────────────────────────
-COLOR_GT   = 'black'     # black — voltage trace
-COLOR_STIM = 'red'       # red    — stimulus
-LW_GT      = 1.5
-LW_STIM    = 0.8
+# -- trace colors ------------------------------------------------------------
+COLOR_GT   = 'black'     # voltage trace
+COLOR_STIM = 'red'       # stimulus
+LW_GT      = 0.6         # thin trace matches 0.5 pt axes
+LW_STIM    = 0.5
 
 
 # ---------------------------------------------------------------------------
@@ -176,7 +205,7 @@ for config_name, data_root, sigma_lbl in CONFIGS:
 
     del voltage, stimulus   # free ~400 MB
 
-# fixed step_v from σ=0 (noise-free) data so noise effect is visually comparable
+# fixed step_v from sigma=0 (noise-free) data so noise effect is visually comparable
 v_free, _, tids_free = trace_data[0]
 free_traces = np.stack([v_free[np.where(tids_free == t)[0][0]]
                         for t in SELECTED_TYPES
@@ -188,7 +217,7 @@ step_v = max(0.5, 3.0 * float(np.std(free_traces)))
 # Build figure
 # ---------------------------------------------------------------------------
 fig, axes = plt.subplots(
-    2, 3, figsize=(21, 14), dpi=300,
+    2, 3, figsize=(FIG_W_IN, FIG_H_IN),
     gridspec_kw={'height_ratios': [3, 4]},
 )
 plt.subplots_adjust(left=0.08, right=0.88, top=0.96, bottom=0.06,
@@ -202,7 +231,7 @@ last_im = None
 for col, (hz, (v_win, s_win, type_ids), (_, _, sigma_lbl)) in enumerate(
         zip(heatmaps, trace_data, CONFIGS)):
 
-    # ── row 0: heatmap ────────────────────────────────────────────────────────
+    # -- row 0: heatmap ------------------------------------------------------
     ax_h = axes[0, col]
     im   = ax_h.imshow(hz, aspect='auto', interpolation='nearest',
                        cmap=CMAP, vmin=-VLIM, vmax=VLIM, origin='upper')
@@ -214,12 +243,13 @@ for col, (hz, (v_win, s_win, type_ids), (_, _, sigma_lbl)) in enumerate(
     ax_h.set_xlabel('frame', fontsize=FS_LABEL)
     if col == 0:
         ax_h.set_yticks(range(n_sorted))
-        ax_h.set_yticklabels(sorted_names_ref, fontsize=7)
+        ax_h.set_yticklabels(sorted_names_ref, fontsize=FS_TYPE)
         ax_h.set_ylabel('cell type', fontsize=FS_LABEL)
     else:
         ax_h.set_yticks([])
+    _trim_axis(ax_h, yaxis=False)
 
-    # ── row 1: traces ─────────────────────────────────────────────────────────
+    # -- row 1: traces -------------------------------------------------------
     ax_t = axes[1, col]
     row  = 0
     first_gt   = True
@@ -233,12 +263,12 @@ for col, (hz, (v_win, s_win, type_ids), (_, _, sigma_lbl)) in enumerate(
         stim  = s_win[nid]
         bl    = trace.mean()
 
-        # voltage trace (green)
+        # voltage trace
         ax_t.plot(trace - bl + row * step_v,
                   lw=LW_GT, color=COLOR_GT, alpha=0.9)
         first_gt = False
 
-        # stimulus trace (red dashed) — only when non-trivial
+        # stimulus trace (red dashed) - only when non-trivial
         if stim.mean() > 0:
             ax_t.plot(stim - stim.mean() + row * step_v,
                       lw=LW_STIM, color=COLOR_STIM, alpha=0.9,
@@ -260,14 +290,14 @@ for col, (hz, (v_win, s_win, type_ids), (_, _, sigma_lbl)) in enumerate(
     ax_t.set_xlabel('frame', fontsize=FS_LABEL)
     ax_t.set_xlim([-n_tframes * 0.08, n_tframes * 1.05])
     ax_t.set_title(sigma_lbl, fontsize=FS_TITLE, pad=4)
-    ax_t.spines['top'].set_visible(False)
-    ax_t.spines['right'].set_visible(False)
+    # Left spine hidden - traces carry no quantitative y-axis here.
     ax_t.spines['left'].set_visible(False)
     if col == 0:
-        ax_t.set_ylabel('voltage (a.u.)', fontsize=FS_LABEL, labelpad=28)
+        ax_t.set_ylabel('voltage (a.u.)', fontsize=FS_LABEL, labelpad=12)
+    _trim_axis(ax_t, yaxis=False)
 
 
-# ── shared colorbar — placed manually right next to panel c ──────────────────
+# -- shared colorbar - placed manually right next to panel c ------------------
 # Draw once so subplots_adjust positions are committed.
 fig.canvas.draw()
 _pos = axes[0, 2].get_position()   # [x0, y0, w, h] in figure fraction
@@ -281,7 +311,7 @@ cbar = fig.colorbar(last_im, cax=_cax)
 cbar.set_label('z-scored voltage', fontsize=FS_CBAR)
 cbar.ax.tick_params(labelsize=FS_CBAR)
 
-# ── panel labels — row 0 aligned together, row 1 aligned together ─────────────
+# -- panel labels - row 0 aligned together, row 1 aligned together -----------
 # (INSTRUCTIONS.md: use y1_max per row so labels within each row share the
 #  same y; rows at different heights naturally get their own y level)
 fig.canvas.draw()
@@ -293,8 +323,8 @@ bboxes_row1 = [ax.get_tightbbox(renderer) for ax in axes[1]]
 y1_max_0 = max(inv.transform((bb.x0, bb.y1))[1] for bb in bboxes_row0)
 y1_max_1 = max(inv.transform((bb.x0, bb.y1))[1] for bb in bboxes_row1)
 
-for col, (lbl0, lbl1) in enumerate(zip(['a)', 'b)', 'c)'], ['d)', 'e)', 'f)'])):
-    # x0 = leftmost edge of this column across both rows — aligns e.g. a) and d)
+for col, (lbl0, lbl1) in enumerate(zip(['a', 'b', 'c'], ['d', 'e', 'f'])):
+    # x0 = leftmost edge of this column across both rows - aligns e.g. a) and d)
     x0_top = inv.transform((bboxes_row0[col].x0, bboxes_row0[col].y1))[0]
     x0_bot = inv.transform((bboxes_row1[col].x0, bboxes_row1[col].y1))[0]
     x0_col = min(x0_top, x0_bot)
@@ -303,14 +333,12 @@ for col, (lbl0, lbl1) in enumerate(zip(['a)', 'b)', 'c)'], ['d)', 'e)', 'f)'])):
     fig.text(x0_col, y1_max_1, lbl1, fontsize=PANEL_LBL, fontweight='bold',
              va='bottom', ha='left', color='black', transform=fig.transFigure)
 
-# ── save ─────────────────────────────────────────────────────────────────────
+# -- save --------------------------------------------------------------------
 OUT_DIR  = os.path.dirname(os.path.abspath(__file__))
 out_base = os.path.join(OUT_DIR, 'fig_simulations')
-plt.savefig(out_base + '.png', dpi=300, bbox_inches='tight')
+# PDF first per janne.matplotlibrc default; PNG for quick preview.
 plt.savefig(out_base + '.pdf', bbox_inches='tight')
-plt.savefig(out_base + '.jpg', dpi=300, bbox_inches='tight',
-            pil_kwargs={'quality': 95})
+plt.savefig(out_base + '.png', dpi=300, bbox_inches='tight')
 plt.close()
-print(f'Saved: {out_base}.png')
 print(f'Saved: {out_base}.pdf')
-print(f'Saved: {out_base}.jpg')
+print(f'Saved: {out_base}.png')

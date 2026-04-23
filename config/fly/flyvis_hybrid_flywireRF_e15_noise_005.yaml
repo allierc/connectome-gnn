@@ -70,7 +70,6 @@ training:
   f_theta_linearity_warmup_fraction: 0.3
   f_theta_linearity_rampup_iters: 200
   coeff_f_theta_centering: 0
-  coeff_V_rest: 0
   V_rest_warmup_fraction: 0.3
   V_rest_rampup_iters: 200
   V_rest_eval_every: 10

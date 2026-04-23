@@ -145,3 +145,6 @@ if __name__ == "__main__":
 # CUDA_VISIBLE_DEVICES=0 python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_010_rc iteration=128 --cluster --resume
 # CUDA_VISIBLE_DEVICES=1 python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_emb_given iteration=96 --cluster --resume
 # CUDA_VISIBLE_DEVICES=1 python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_known_ode_reg iteration=128 --cluster --resume
+# CUDA_VISIBLE_DEVICES=0 python GNN_LLM_code.py -o generate_train_test_plot_Claude flyvis_noise_005_from_zero --cluster --resume
+
+# CUDA_VISIBLE_DEVICES=1 python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_hidden_010_ngp_anchors --cluster --fresh iteration=264
