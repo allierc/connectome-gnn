@@ -1,11 +1,12 @@
 """Cross-validation runner for connectome-GNN.
 
 Three-phase pipeline (run across all seeds before advancing):
-  Phase 1 — Generate YouTube-VOS data for every fold.
+  Phase 1 — Generate hold-out dataset data for every fold.
   Phase 2 — Zero-shot generalisation: test the ORIGINAL DAVIS-trained model on
-             each YouTube-VOS fold  (one_step_r, rollout_r).
+             each hold-out fold  (one_step_r, rollout_r).
   Phase 3 — Train a new model on each fold then run rollout + parameter
-             extraction  (yt_one_step_r, yt_rollout_r, W R², tau R², …).
+             extraction  (holdout_one_step_r, holdout_rollout_r, W R², tau R², …).
+             Data source is controlled by CV_DATAVIS_ROOTS.
 
 All results are appended to results_cv.txt (paper audit log).
 
@@ -47,26 +48,26 @@ def _free_gpu():
         torch._dynamo.reset()
 
 
-# Video dataset used for CV data generation (never seen during training).
+# Hold-out video dataset used for CV data generation (never seen during training).
 # Must contain JPEGImages/480p/<video>/*.jpg
-CV_DATAVIS_ROOTS = ["/groups/saalfeld/home/kumarv4/web_datasets/YouTube-VOS"]
-CV_SKIP_SHORT_VIDEOS = False  # YouTube-VOS has many short clips
+CV_DATAVIS_ROOTS = ["/groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test"]
+CV_SKIP_SHORT_VIDEOS = False  # some hold-out datasets contain many short clips
 
 
-# Metrics from phase 2: zero-shot generalisation (DAVIS model → YouTube-VOS data)
+# Metrics from phase 2: zero-shot generalisation (DAVIS model → hold-out data)
 GENERALIZATION_METRICS = [
-    ('one_step_r', 'One-step r (DAVIS→YT)'),
-    ('rollout_r',  'Rollout r  (DAVIS→YT)'),
+    ('one_step_r', 'One-step r (DAVIS→hold-out)'),
+    ('rollout_r',  'Rollout r  (DAVIS→hold-out)'),
 ]
 
-# Metrics from phase 3: rollout + parameter recovery (model re-trained on YouTube-VOS)
+# Metrics from phase 3: rollout + parameter recovery (model re-trained on hold-out)
 RECOVERY_METRICS = [
-    ('yt_one_step_r',     'One-step r (YT model→YT)'),
-    ('yt_rollout_r',      'Rollout r  (YT model→YT)'),
-    ('W_corrected_R2',    '$R^2$ $W$ (re-train YT)'),
-    ('tau_R2',            '$R^2$ $\\tau$ (re-train YT)'),
-    ('V_rest_R2',         '$R^2$ $V^{\\mathrm{rest}}$ (re-train YT)'),
-    ('clustering_accuracy', 'Clustering acc (re-train YT)'),
+    ('holdout_one_step_r',     'One-step r (hold-out→hold-out)'),
+    ('holdout_rollout_r',      'Rollout r  (hold-out→hold-out)'),
+    ('W_corrected_R2',    '$R^2$ $W$ (re-train hold-out)'),
+    ('tau_R2',            '$R^2$ $\\tau$ (re-train hold-out)'),
+    ('V_rest_R2',         '$R^2$ $V^{\\mathrm{rest}}$ (re-train hold-out)'),
+    ('clustering_accuracy', 'Clustering acc (re-train hold-out)'),
 ]
 
 ALL_METRICS = GENERALIZATION_METRICS + RECOVERY_METRICS
@@ -93,8 +94,8 @@ def parse_metrics(path):
     return metrics
 
 
-def _yt_data_exists(graphs_dir):
-    """Return True if graphs_dir has YouTube-VOS data already generated."""
+def _heldout_data_exists(graphs_dir):
+    """Return True if graphs_dir has hold-out dataset data already generated."""
     if not os.path.isdir(os.path.join(graphs_dir, 'x_list_train')):
         return False
     log = os.path.join(graphs_dir, 'generation_log.txt')
@@ -170,8 +171,8 @@ def _save_barplot(all_metrics, config_name, seeds, cv_out_dir, n_done):
 
     rng = np.random.default_rng(0)
     for ax, metric_group, title in [
-        (axes[0], GENERALIZATION_METRICS, 'Generalisation (DAVIS→YouTube-VOS)'),
-        (axes[1], RECOVERY_METRICS,       'Parameter recovery (re-trained on YouTube-VOS)'),
+        (axes[0], GENERALIZATION_METRICS, 'Generalisation (DAVIS→hold-out)'),
+        (axes[1], RECOVERY_METRICS,       'Parameter recovery (re-trained on hold-out)'),
     ]:
         x = np.arange(len(metric_group))
         means, sds = [], []
@@ -213,7 +214,7 @@ def run_cv(config_name, seeds, skip_phase2=False):
     Args:
         config_name:  Config name or absolute YAML path.
         seeds:        List of simulation seeds.
-        skip_phase2:  If True, skip phase 2 (zero-shot DAVIS→YouTube test).
+        skip_phase2:  If True, skip phase 2 (zero-shot DAVIS→hold-out test).
                       When False and no pre-trained DAVIS model exists, phase 2
                       will first generate DAVIS data (if missing) and train the
                       base DAVIS model, then run the zero-shot rollout.
@@ -240,6 +241,13 @@ def run_cv(config_name, seeds, skip_phase2=False):
 
     base_log_dir = log_path(pre_folder + base_name)
 
+    print(f"\n\033[94m{'='*70}\033[0m")
+    print(f"\033[94mCV run: {pre_folder}{base_name}\033[0m")
+    print(f"\033[94m  hold-out dataset root(s): {CV_DATAVIS_ROOTS}\033[0m")
+    print(f"\033[94m  skip_short_videos:        {CV_SKIP_SHORT_VIDEOS}\033[0m")
+    print(f"\033[94m  seeds (sim/train):        {seeds} / {[s+1000 for s in seeds]}\033[0m")
+    print(f"\033[94m{'='*70}\033[0m")
+
     all_metrics = {key: [] for key, _ in ALL_METRICS}
 
     # Per-fold per-neuron Pearson arrays for the four r-metrics; populated only
@@ -247,7 +255,7 @@ def run_cv(config_name, seeds, skip_phase2=False):
     # saves these via _save_per_neuron_arrays). Used by the audit writer to
     # report a single (neurons × folds)-pooled Fisher-z mean ± SD rather than
     # a mean-of-fold-means whose SD captures only seed-to-seed variance.
-    R_METRICS = ('one_step_r', 'rollout_r', 'yt_one_step_r', 'yt_rollout_r')
+    R_METRICS = ('one_step_r', 'rollout_r', 'holdout_one_step_r', 'holdout_rollout_r')
     per_fold_r_arrays = {key: [] for key in R_METRICS}
 
     # Build per-fold configs once — reused across all phases
@@ -264,23 +272,24 @@ def run_cv(config_name, seeds, skip_phase2=False):
         fold_configs.append(fc)
 
     # ===================================================================
-    # PHASE 1 — Generate YouTube-VOS data for all folds
+    # PHASE 1 — Generate hold-out dataset data for all folds
     # ===================================================================
     print(f"\n\033[94m{'='*70}\033[0m")
-    print(f"\033[94mPHASE 1/3 — Generating YouTube-VOS data for all {len(seeds)} folds\033[0m")
+    print(f"\033[94mPHASE 1/3 — Generating hold-out data for all {len(seeds)} folds\033[0m")
+    print(f"\033[94m  source: {CV_DATAVIS_ROOTS}\033[0m")
     print(f"\033[94m{'='*70}\033[0m")
     for i, (seed, fold_config) in enumerate(zip(seeds, fold_configs)):
         graphs_dir = graphs_data_path(fold_config.dataset)
-        if _yt_data_exists(graphs_dir):
-            print(f"\033[90m  fold {i+1}/{len(seeds)} (seed={seed}) — YouTube-VOS data already exists, skipping\033[0m")
+        if _heldout_data_exists(graphs_dir):
+            print(f"\033[90m  fold {i+1}/{len(seeds)} (seed={seed}) — hold-out data already exists, skipping\033[0m")
         else:
-            print(f"\033[96m  fold {i+1}/{len(seeds)} (seed={seed}) — generating YouTube-VOS data ...\033[0m")
+            print(f"\033[96m  fold {i+1}/{len(seeds)} (seed={seed}) — generating hold-out data ...\033[0m")
             data_generate(fold_config, device=device, visualize=False, run_vizualized=0,
                           style="color", alpha=1, erase=True, save=True, step=100)
             print(f"\033[92m  fold {i+1}/{len(seeds)} — generation done\033[0m")
 
     # ===================================================================
-    # PHASE 2 — Zero-shot generalisation: DAVIS model → YouTube-VOS folds
+    # PHASE 2 — Zero-shot generalisation: DAVIS model → hold-out folds
     # ===================================================================
     # Auto-detect whether a DAVIS model exists; if not, train one (unless skipped)
     davis_models_dir = os.path.join(base_log_dir, 'models')
@@ -310,16 +319,17 @@ def run_cv(config_name, seeds, skip_phase2=False):
             davis_model_exists = True
 
         print(f"\n\033[94m{'='*70}\033[0m")
-        print(f"\033[94mPHASE 2/3 — Zero-shot rollout (DAVIS model → YouTube-VOS) for all {len(seeds)} folds\033[0m")
+        print(f"\033[94mPHASE 2/3 — Zero-shot rollout (DAVIS model → hold-out) for all {len(seeds)} folds\033[0m")
+        print(f"\033[94m  hold-out source: {CV_DATAVIS_ROOTS}\033[0m")
         print(f"\033[94m{'='*70}\033[0m")
         for i, (seed, fold_config) in enumerate(zip(seeds, fold_configs)):
-            print(f"\033[96m  fold {i+1}/{len(seeds)} (seed={seed}) — testing DAVIS model on YouTube-VOS fold ...\033[0m")
+            print(f"\033[96m  fold {i+1}/{len(seeds)} (seed={seed}) — testing DAVIS model on hold-out fold ...\033[0m")
             davis_config = yaml_loader()
             davis_config.config_file = pre_folder + base_name  # load DAVIS trained model
             davis_config.dataset     = pre_folder + base_config.dataset  # ensure fly/ prefix
             data_test(config=davis_config, visualize=False, best_model='best', run=0,
                       step=10, n_rollout_frames=250, device=device,
-                      test_config=fold_config)   # test data from YouTube-VOS fold
+                      test_config=fold_config)   # test data from hold-out fold
 
             # Determine test_suffix used by data_test_gnn
             test_ds_short = fold_config.dataset.replace('flyvis_', '').replace('fly/', '')
@@ -353,7 +363,7 @@ def run_cv(config_name, seeds, skip_phase2=False):
     for i, (seed, fold_config) in enumerate(zip(seeds, fold_configs)):
         fold_log_dir = log_path(fold_config.config_file)
 
-        print(f"\033[96m  fold {i+1}/{len(seeds)} (seed={seed}) — training on YouTube-VOS data ...\033[0m")
+        print(f"\033[96m  fold {i+1}/{len(seeds)} (seed={seed}) — training on hold-out data ...\033[0m")
         data_train(fold_config, device=device, erase=True)
         _free_gpu()
         print(f"\033[92m  fold {i+1}/{len(seeds)} — training done\033[0m")
@@ -367,19 +377,19 @@ def run_cv(config_name, seeds, skip_phase2=False):
 
         # Parse rollout metrics (no test_suffix: fold model tested on its own data).
         # Per-neuron arrays from *_pearson.npy take precedence; log scalar is the fallback.
-        yt_one_step_r, yt_one_step_arr = _per_fold_pearson(
+        holdout_one_step_r, holdout_one_step_arr = _per_fold_pearson(
             os.path.join(fold_log_dir, 'results_test.log'))
-        yt_rollout_r, yt_rollout_arr = _per_fold_pearson(
+        holdout_rollout_r, holdout_rollout_arr = _per_fold_pearson(
             os.path.join(fold_log_dir, 'results_rollout.log'))
-        all_metrics['yt_one_step_r'].append(yt_one_step_r)
-        all_metrics['yt_rollout_r'].append(yt_rollout_r)
-        per_fold_r_arrays['yt_one_step_r'].append(yt_one_step_arr)
-        per_fold_r_arrays['yt_rollout_r'].append(yt_rollout_arr)
-        print(f"\033[92m    yt model — one_step_r={yt_one_step_r:.4f}  rollout_r={yt_rollout_r:.4f}\033[0m")
+        all_metrics['holdout_one_step_r'].append(holdout_one_step_r)
+        all_metrics['holdout_rollout_r'].append(holdout_rollout_r)
+        per_fold_r_arrays['holdout_one_step_r'].append(holdout_one_step_arr)
+        per_fold_r_arrays['holdout_rollout_r'].append(holdout_rollout_arr)
+        print(f"\033[92m    hold-out model — one_step_r={holdout_one_step_r:.4f}  rollout_r={holdout_rollout_r:.4f}\033[0m")
 
         m = parse_metrics(os.path.join(fold_log_dir, "results", "metrics.txt"))
         for key, _ in RECOVERY_METRICS:
-            if key in ('yt_one_step_r', 'yt_rollout_r'):
+            if key in ('holdout_one_step_r', 'holdout_rollout_r'):
                 continue  # already collected above
             val = m.get(key, float('nan'))
             all_metrics[key].append(val)
@@ -473,18 +483,18 @@ def run_cv(config_name, seeds, skip_phase2=False):
     audit_lines.append(f"date:             {now_str}\n")
     audit_lines.append(f"git commit:       {sha}\n")
     audit_lines.append(f"config:           {config_yaml_path}  [{_mtime_str(config_yaml_path)}]\n")
-    audit_lines.append(f"cv_datavis:       {CV_DATAVIS_ROOTS[0]}\n")
+    audit_lines.append(f"hold_out_root:    {CV_DATAVIS_ROOTS[0]}\n")
     audit_lines.append(f"seeds (sim/train):{seeds} / {[s+1000 for s in seeds]}\n")
     audit_lines.append(f"\n-- DAVIS model (phase 2: zero-shot generalisation) --\n")
     audit_lines.append(f"davis_model:      {davis_model}  [{_mtime_str(davis_model)}]\n")
-    audit_lines.append(f"\n-- Re-trained YouTube-VOS models (phase 3: parameter recovery) --\n")
+    audit_lines.append(f"\n-- Re-trained hold-out models (phase 3: parameter recovery) --\n")
     for i, seed in enumerate(seeds):
         run_name  = f"{base_name}_cv{i:02d}"
         model_dir = os.path.join(log_path(pre_folder + run_name), "models")
         candidates = sorted(_glob.glob(os.path.join(model_dir, "best_model_with_*.pt")))
         best = candidates[-1] if candidates else f"{model_dir} [not found]"
         audit_lines.append(f"model[cv{i:02d}]:      {best}  [{_mtime_str(best)}]\n")
-    # For r-metrics (one_step_r, rollout_r, yt_one_step_r, yt_rollout_r), prefer
+    # For r-metrics (one_step_r, rollout_r, holdout_one_step_r, holdout_rollout_r), prefer
     # Fisher-z pooling over (neurons × folds) when per-fold arrays are available
     # — the SD then reflects both neuron-level and seed-level variance.
     # Non-r metrics keep the old mean-of-fold-scalars ± SD reporting.
@@ -538,8 +548,8 @@ def run_cv(config_name, seeds, skip_phase2=False):
 
 # Metrics shown in the comparison table (Phase 3 only — no DAVIS model needed)
 COMPARISON_METRICS = [
-    ('yt_one_step_r',     'One-step r'),
-    ('yt_rollout_r',      'Rollout r'),
+    ('holdout_one_step_r',     'One-step r'),
+    ('holdout_rollout_r',      'Rollout r'),
     ('W_corrected_R2',    'W R²'),
     ('tau_R2',            'τ R²'),
     ('V_rest_R2',         'V_rest R²'),
@@ -633,7 +643,7 @@ if __name__ == "__main__":
     parser.add_argument("--seeds", type=str, default=None,
                         help="Comma-separated seed list, e.g. 42,43,44 (overrides --n_seeds)")
     parser.add_argument("--skip_phase2", action="store_true", default=False,
-                        help="Skip phase 2 (zero-shot DAVIS→YouTube test)")
+                        help="Skip phase 2 (zero-shot DAVIS→hold-out test)")
     args = parser.parse_args()
 
     if args.seeds is not None:
