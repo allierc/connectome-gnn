@@ -177,25 +177,12 @@ class HeterogeneousSynapseCount(Parameter):
 
 # Map signal_model_name → variant directory prefix
 _VARIANT_PREFIXES = {
-    "flyvis_hybrid": "flyvis_hybrid",
     "flyvis_hybrid_flywireRF": "flyvis_hybrid_flywireRF",
-    "flyvis_hybrid_placeholder": "flyvis_hybrid",  # same as v1
-    "flyvis_hybrid_zeroedge": "flyvis_hybrid_zeroedge",
-    "flyvis_hybrid_flywireRF_zeroedge": "flyvis_hybrid_flywireRF_zeroedge",
-    # spatially-local: same-type + spatially-local donation
-    "flyvis_hybrid_zeroedge_sl": "flyvis_hybrid_zeroedge",
     "flyvis_hybrid_flywireRF_zeroedge_sl": "flyvis_hybrid_flywireRF_zeroedge",
-    # cross-type + spatially-local donation
-    "flyvis_hybrid_zeroedge_cross_sl": "flyvis_hybrid_zeroedge",
     "flyvis_hybrid_flywireRF_zeroedge_cross_sl": "flyvis_hybrid_flywireRF_zeroedge",
-    # known-ODE variants reuse the same parquet tables as the base variant
-    "flyvis_hybrid_known_ode": "flyvis_hybrid",
+    # known-ODE variants reuse the same parquet tables as the GNN variant
     "flyvis_hybrid_flywireRF_known_ode": "flyvis_hybrid_flywireRF",
-    "flyvis_hybrid_zeroedge_known_ode": "flyvis_hybrid_zeroedge",
-    "flyvis_hybrid_flywireRF_zeroedge_known_ode": "flyvis_hybrid_flywireRF_zeroedge",
-    "flyvis_hybrid_zeroedge_sl_known_ode": "flyvis_hybrid_zeroedge",
     "flyvis_hybrid_flywireRF_zeroedge_sl_known_ode": "flyvis_hybrid_flywireRF_zeroedge",
-    "flyvis_hybrid_zeroedge_cross_sl_known_ode": "flyvis_hybrid_zeroedge",
     "flyvis_hybrid_flywireRF_zeroedge_cross_sl_known_ode": "flyvis_hybrid_flywireRF_zeroedge",
 }
 
