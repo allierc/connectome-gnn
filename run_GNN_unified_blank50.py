@@ -25,10 +25,10 @@ Config files used (relative to repo config/fly/):
     flyvis_unified_winner.yaml
 
   emitted CV yamls (55 total, written to <output_root>/config/fly/):
-    {base}_yt_blank50_unified_cv{00..04}.yaml
+    {base}_blank50_unified_cv{00..04}.yaml
 
     datasets: <output_root>/graphs_data/fly/<base>_blank50_cv{00..04}/
-    tex out : <output_root>/log/cv_yt_blank50_unified_rows.tex
+    tex out : <output_root>/log/cv_blank50_unified_rows.tex
 
 Wall-clock per GNN: ~1 h on a100.
 Total training units: 11 conditions × 5 folds = 55 GNNs.
@@ -72,7 +72,7 @@ CONDITION_FILTER = [
 
 run_all_conditions(
     hp_source='uniform',
-    suffix='yt_blank50_unified',
+    suffix='blank50_unified',
     hp_yaml='flyvis_unified_blank50_winner',
     hard_runtime_limit_min=2880,
     sim_overrides=BLANK50_SIM_OVERRIDES,

@@ -51,7 +51,7 @@ CONDITION_FILTER = [
 
 
 generate_all_yt_data(
-    suffix='yt_blank50_gen',
+    suffix='blank50_gen',
     dataset_tag='blank50',
     sim_overrides=BLANK50_SIM_OVERRIDES,
     condition_filter=CONDITION_FILTER,
