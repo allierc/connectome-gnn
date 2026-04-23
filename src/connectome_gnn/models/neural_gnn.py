@@ -97,7 +97,7 @@ class NeuralGNN(nn.Module):
             "n_edges": {"description": "Number of synaptic connections in the connectome"},
             "n_extra_null_edges": {"description": "Additional null edges for capacity (default 0)"},
             "n_frames": {"description": "Number of simulation time frames"},
-            "visual_input_type": {"description": "Type of visual stimulus (e.g. 'DAVIS', 'youtube-vos')"},
+            "visual_input_type": {"description": "Type of visual stimulus (e.g. 'DAVIS')"},
             "noise_model_level": {"description": "Noise level added to observations", "typical_range": [0.0, 0.1]},
             "calcium_type": {
                 "description": "If not 'none', use calcium concentration instead of voltage as observable"

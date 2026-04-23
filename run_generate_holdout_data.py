@@ -1,4 +1,4 @@
-"""Pre-generate all YouTube-VOS CV datasets (8 conditions × n_folds).
+"""Pre-generate all hold-out CV datasets (8 conditions × n_folds).
 
 Run this ONCE before launching the three training runners in parallel:
     run_GNN_conditions.py       (per-condition GNN winner HPs)

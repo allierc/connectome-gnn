@@ -789,7 +789,7 @@ class AugmentedVideoDataset(MultiTaskDavis):
     """Video dataset with controlled, rich augmentation.
 
     Works with any dataset organized as JPEGImages/480p/<video_id>/*.jpg,
-    including DAVIS, YouTube-VOS, and similar video segmentation datasets.
+    including DAVIS and similar video segmentation datasets.
     """
 
     cached_sequences: List[Dict[str, torch.Tensor]]
@@ -1069,19 +1069,19 @@ class CombinedVideoDataset:
     """
     Wraps multiple video datasets into a single combined dataset.
 
-    Allows combining sequences from multiple sources (e.g., DAVIS + YouTube-VOS)
-    into a single dataset that can be iterated over.
+    Allows combining sequences from multiple sources (e.g., DAVIS + a held-out
+    dataset) into a single dataset that can be iterated over.
 
     Args:
         datasets: List of AugmentedVideoDataset (or compatible) instances.
 
     Example:
         davis = AugmentedVideoDataset(root_dir="/path/to/davis/JPEGImages/480p", ...)
-        ytvos = AugmentedVideoDataset(root_dir="/path/to/youtube-vos/JPEGImages/480p", ...)
-        combined = CombinedVideoDataset([davis, ytvos])
+        holdout = AugmentedVideoDataset(root_dir="/path/to/holdout/JPEGImages/480p", ...)
+        combined = CombinedVideoDataset([davis, holdout])
         print(f"total sequences: {len(combined)}")
         for item in combined:
-            # item comes from either davis or ytvos
+            # item comes from either davis or holdout
             lum = item["lum"]
     """
 
