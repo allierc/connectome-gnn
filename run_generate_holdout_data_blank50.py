@@ -32,6 +32,9 @@ from connectome_gnn.cross import generate_all_yt_data
 
 BLANK50_SIM_OVERRIDES = {
     'blank_prefix_fraction': 0.50,
+    # Match the standalone flyvis_noise_005_blank50 run (which uses the config
+    # default True); emit_one() otherwise forces False for the YT-VOS pipelines.
+    'skip_short_videos': True,
 }
 
 # Must match CONDITION_FILTER in run_GNN_unified_blank50.py.
