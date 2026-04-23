@@ -14,7 +14,7 @@ silently skipped by both scripts.
 Datasets land under a distinct folder tag so they don't collide with
 the existing yt_cv / yt_all_cv datasets:
 
-    <output_root>/graphs_data/fly/<base>_yt_blank50_cv<i:02d>/
+    <output_root>/graphs_data/fly/<base>_blank50_cv<i:02d>/
 
 Downstream training runner: run_GNN_unified_blank50.py.
 
@@ -52,7 +52,7 @@ CONDITION_FILTER = [
 
 generate_all_yt_data(
     suffix='yt_blank50_gen',
-    dataset_tag='yt_blank50',
+    dataset_tag='blank50',
     sim_overrides=BLANK50_SIM_OVERRIDES,
     condition_filter=CONDITION_FILTER,
 )
