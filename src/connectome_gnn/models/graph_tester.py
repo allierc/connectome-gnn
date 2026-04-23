@@ -217,7 +217,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
         y_ts = y_ts[:, selected_neuron_ids, :]
         type_list = type_list[selected_neuron_ids]
 
-    # Cap test frames to avoid runaway evaluation on large datasets (e.g. YouTube-VOS)
+    # Cap test frames to avoid runaway evaluation on large datasets (e.g. hold-out)
     MAX_TEST_FRAMES = 8000
     if x_ts.n_frames > MAX_TEST_FRAMES:
         logger.info(f'capping test frames: {x_ts.n_frames} → {MAX_TEST_FRAMES}')

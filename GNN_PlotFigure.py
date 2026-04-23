@@ -673,7 +673,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             if _val is not None:
                 setattr(x_ts, _field, _val[::_stride])
 
-    # Cap plot data after stride (e.g. non-recurrent 320K YouTube-VOS → 64K)
+    # Cap plot data after stride (e.g. non-recurrent 320K hold-out → 64K)
     MAX_PLOT_FRAMES = 64000
     if x_ts.n_frames > MAX_PLOT_FRAMES:
         print(f"\033[93mcapping plot data: {x_ts.n_frames} → {MAX_PLOT_FRAMES} frames\033[0m")

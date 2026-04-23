@@ -1,5 +1,7 @@
-description: "flywirevis hybrid -- v4 v1 base + synapse-derived zero-weight edges, uncertainty=3, noise=0.05"
-dataset: flyvis_hybrid_zeroedge_u3_noise_005
+description:
+  "HIGH PRIORITY — v5-cross_sl, v2 base + zero-weight edges (u=1, cross-type,
+  spatially-local), known ODE, all columns (extent=15), noise=0.05"
+dataset: flyvis_hybrid_flywireRF_zeroedge_cross_sl_e15_known_ode_noise_005
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ""
@@ -8,10 +10,10 @@ simulation:
       - 1.0
       - 1.0
       - 1.0
-  n_neurons: 13741
-  n_input_neurons: 1736
+  n_neurons: 45669
+  n_input_neurons: 5768
   n_neuron_types: 65
-  n_edges: 643188
+  n_edges: 5411743
   n_frames: 64000
   delta_t: 0.02
   baseline_value: 0
@@ -19,21 +21,13 @@ simulation:
   noise_model_level: 0.05
   derivative_smoothing_window: 1
   seed: 42
-  edge_uncertainty: 3
+  all_columns: true
+  edge_uncertainty: 1
 graph_model:
-  signal_model_name: flyvis_hybrid_zeroedge
+  signal_model_name: flyvis_hybrid_flywireRF_zeroedge_cross_sl_known_ode
   prediction: first_derivative
-  input_size: 3
-  n_layers: 3
-  hidden_dim: 80
-  output_size: 1
-  input_size_update: 5
-  n_layers_update: 3
-  hidden_dim_update: 80
   aggr_type: add
-  embedding_dim: 2
   update_type: generic
-  g_phi_positive: true
 plotting:
   colormap: tab20
   arrow_length: 1
@@ -56,14 +50,6 @@ training:
   data_augmentation_loop: 35
   lr_W: 0.0009
   lr: 0.0018
-  lr_embedding: 0.002325
-  coeff_g_phi_diff: 750
-  coeff_f_theta_msg_diff: 0
-  coeff_g_phi_norm: 0.9
-  coeff_g_phi_weight_L1: 0.28
-  coeff_f_theta_weight_L1: 0.05
-  coeff_g_phi_weight_L2: 0
-  coeff_f_theta_weight_L2: 0.001
   coeff_W_L1: 0.00015
   coeff_W_L2: 1.5e-06
   coeff_f_theta_linearity: 0

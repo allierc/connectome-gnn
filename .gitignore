@@ -36,6 +36,7 @@ log/
 
 # Hybrid connectome tables
 data/hybrid_connectomes/
+data/archive
 
 # graphs_data: large generated data, not tracked
 graphs_data/
@@ -115,4 +116,4 @@ assets/*.html
 
 .github/skills/
 docs/repo_overview.md
-hpc-config.json
+hpc-config.json*
