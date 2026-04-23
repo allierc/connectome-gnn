@@ -1870,6 +1870,18 @@ def _run_ode_generation(
     # V_rest.
     _seq_lens = []
 
+    # DAVIS blank-window injection (see SimulationConfig validator for compatibility).
+    # State persists across video boundaries and across passes so the m-real / l-blank
+    # pattern is preserved continuously.
+    bw_size = int(getattr(sim, "blank_window_size_frames", 0))
+    bw_every = int(getattr(sim, "blank_insertion_every_n_frames", 0))
+    use_blank_injection = bw_size > 0 and bw_every > 0
+    real_frames_consumed = 0
+    real_frames_in_chunk = 0
+    in_blank_window = False
+    blank_remaining = 0
+
+    target_reached = False
     with torch.no_grad():
         for pass_num in range(num_passes):
             for data_idx, data in enumerate(tqdm(stimulus_sequences, desc="processing stimulus data", ncols=100)):
@@ -1936,7 +1948,8 @@ def _run_ode_generation(
                 blank_prefix_frames = int(sequence_length * getattr(sim, 'blank_prefix_fraction', 0.0))
                 _seq_lens.append(int(sequence_length))
 
-                for frame_id in range(sequence_length):
+                frame_id = 0
+                while frame_id < sequence_length:
                     if "flash" in sim.visual_input_type:
                         current_flash_frame = frame_id % (flash_cycle_frames * 2)
                         x.stimulus[:] = 0
@@ -2025,6 +2038,10 @@ def _run_ode_generation(
                         col_vals_01 = 0.5 + (sim.tile_contrast * 0.5) * col_vals_pm1
                         x.stimulus[: sim.n_input_neurons] = col_vals_01[tile_labels]
                         tile_idx += 1
+                    elif use_blank_injection and in_blank_window:
+                        # DAVIS blank-window injection: zero stimulus and hold the video
+                        # cursor (frame_id is not advanced this iteration).
+                        x.stimulus[:] = 0
                     else:
                         frame = sequences[frame_id][None, None]
                         net.stimulus.add_input(frame)
@@ -2037,6 +2054,7 @@ def _run_ode_generation(
                                     / 2
                                 )
                         else:
+                            # legacy blank injection
                             if sim.blank_freq > 0:
                                 if data_idx % sim.blank_freq > 0:
                                     x.stimulus[:] = net.stimulus().squeeze()
@@ -2145,8 +2163,31 @@ def _run_ode_generation(
                             style=fig_style,
                         )
 
+                    # Advance the per-iteration cursors. With blank-window injection,
+                    # frame_id (the video cursor) is held during blank iterations so
+                    # blanks are inserted between real frames rather than replacing them.
+                    if use_blank_injection:
+                        if in_blank_window:
+                            blank_remaining -= 1
+                            if blank_remaining <= 0:
+                                in_blank_window = False
+                                real_frames_in_chunk = 0
+                        else:
+                            frame_id += 1
+                            real_frames_consumed += 1
+                            real_frames_in_chunk += 1
+                            if real_frames_in_chunk >= bw_every:
+                                in_blank_window = True
+                                blank_remaining = bw_size
+                                real_frames_in_chunk = 0
+                    else:
+                        frame_id += 1
+
                     it = it + 1
-                    if it >= target_frames:
+                    target_reached = (
+                        real_frames_consumed if use_blank_injection else it
+                    ) >= target_frames
+                    if target_reached:
                         break
                 # Save HH diagnostic plot after collecting enough sequences
                 if (
@@ -2184,9 +2225,9 @@ def _run_ode_generation(
                     )
                     _hh_debug_buffers = None  # free memory
 
-                if it >= target_frames:
+                if target_reached:
                     break
-            if it >= target_frames:
+            if target_reached:
                 break
 
     # Sequence-length summary (diagnostic for blank_prefix effectiveness).
