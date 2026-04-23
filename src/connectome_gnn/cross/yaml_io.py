@@ -28,10 +28,13 @@ CONDITIONS = [
     ('flyvis_noise_005',                 'flyvis_noise_005_winner'),
     ('flyvis_noise_05',                  'flyvis_noise_05_winner'),
     ('flyvis_noise_005_010',             'flyvis_noise_005_010_winner'),
+    ('flyvis_noise_005_020',             'flyvis_unified_winner'),
     ('flyvis_noise_005_null_edges_pc_400', 'flyvis_noise_005_null_edges_pc_400_winner'),
     ('flyvis_noise_005_removed_pc_20',   'flyvis_noise_005_removed_pc_20_winner'),
+    ('flyvis_noise_005_removed_pc_50',   'flyvis_unified_winner'),
     ('flyvis_noise_005_stride_5',        'flyvis_noise_005_stride_5_winner'),
     ('flyvis_noise_005_hidden_010_ngp',  'flyvis_noise_005_hidden_010_ngp_winner'),
+    ('flyvis_noise_005_hidden_020_ngp',  'flyvis_unified_winner'),
 ]
 
 
@@ -57,7 +60,8 @@ def _load_yaml_either(cfg_name, output_root):
 
 def emit_one(base_name, hp_yaml_path, out_yaml_path, suffix, yt_root,
              fold_i=None, sim_seed=None, train_seed=None,
-             sim_overrides=None, dataset_tag='yt'):
+             sim_overrides=None, dataset_tag='yt',
+             data_augmentation_loop=100):
     """Emit one YT training YAML by merging:
     - simulation block from <repo>/config/fly/<base_name>.yaml
     - graph_model / training / plotting / claude from hp_yaml_path
@@ -99,17 +103,11 @@ def emit_one(base_name, hp_yaml_path, out_yaml_path, suffix, yt_root,
             _hp_gm[_k] = _v
     merged['graph_model'] = _hp_gm
 
-    # Blank 50% of training frames (improves V_rest recovery) — disabled.
-    # _vit = str(merged['simulation'].get('visual_input_type', 'DAVIS'))
-    # if 'blank' not in _vit:
-    #     merged['simulation']['visual_input_type'] = _vit + '_blank'
-    # merged['simulation']['blank_freq'] = 2
-
     # Fixed training budget across all 8 conditions.
     if 'training' in merged:
         merged['training'] = dict(merged['training'])
         merged['training']['n_epochs'] = 1
-        merged['training']['data_augmentation_loop'] = 100
+        merged['training']['data_augmentation_loop'] = data_augmentation_loop
 
     # Condition-defining training knobs always come from the base yaml. These
     # describe the data regime (e.g. stride_5 BPTT) rather than tunable HPs,
@@ -122,7 +120,7 @@ def emit_one(base_name, hp_yaml_path, out_yaml_path, suffix, yt_root,
     if 'claude' in merged:
         merged['claude'] = dict(merged['claude'])
         merged['claude']['n_epochs'] = 1
-        merged['claude']['data_augmentation_loop'] = 100
+        merged['claude']['data_augmentation_loop'] = data_augmentation_loop
 
     if sim_seed is not None:
         merged['simulation']['seed'] = sim_seed
@@ -189,7 +187,7 @@ def emit_davis_cv_yaml(base_name, fold_i, output_root, force=False):
 
 def emit_yt_yamls(hp_source, suffix, hp_yaml_basename, n_folds, output_root,
                    sim_overrides=None, dataset_tag='yt',
-                   condition_filter=None):
+                   condition_filter=None, data_augmentation_loop=100):
     """Emit YT CV YAMLs for all 8 conditions × n_folds, into
     <output_root>/config/fly/. Always overwrites existing files so HP
     tweaks in the source yamls propagate on every run."""
@@ -221,7 +219,8 @@ def emit_yt_yamls(hp_source, suffix, hp_yaml_basename, n_folds, output_root,
                           fold_i=fold_i, sim_seed=sim_seed,
                           train_seed=train_seed,
                           sim_overrides=sim_overrides,
-                          dataset_tag=dataset_tag)
+                          dataset_tag=dataset_tag,
+                          data_augmentation_loop=data_augmentation_loop)
             if ok:
                 written.append(out_yaml)
     print(f'  wrote {len(written)} YT YAMLs -> {out_dir}  (always overwrites)')

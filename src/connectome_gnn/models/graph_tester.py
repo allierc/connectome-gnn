@@ -1463,7 +1463,7 @@ def data_test_gnn_special(
                                     0.5 + torch.rand(sim.n_input_neurons, dtype=torch.float32,
                                                      device=device) * sim.only_noise_visual_input / 2)
                         else:
-                            if 'blank' in sim.visual_input_type:
+                            if sim.blank_freq > 0:
                                 if (data_idx % sim.blank_freq > 0):
                                     x.stimulus = net.stimulus().squeeze()
                                 else:

@@ -817,7 +817,7 @@ def data_generate_voltage(
     n_neurons = sim.n_neurons
 
     logger.info(
-        f"generating data ... {model_config.signal_model_name}  dynamics_noise: {sim.noise_model_level}  measurement_noise: {sim.measurement_noise_level}  seed: {sim.seed}"
+        f"generating data ... {model_config.signal_model_name}  dynamics_noise: {sim.noise_model_level}  measurement_noise: {sim.measurement_noise_level}  seed: {sim.seed}  steady_state_value: {getattr(sim, 'steady_state_value', 0.5)}"
     )
 
     run = 0
@@ -1106,7 +1106,8 @@ def data_generate_voltage(
     pos = torch.tensor(np.stack((xc, yc), axis=1), dtype=torch.float32, device=device) / 2
     X1 = torch.cat((X1, pos[torch.randperm(pos.size(0), device=device)]), dim=0)
 
-    state = net.steady_state(t_pre=2.0, dt=sim.delta_t, batch_size=1)
+    _ss_value = getattr(sim, 'steady_state_value', 0.5)
+    state = net.steady_state(t_pre=2.0, dt=sim.delta_t, batch_size=1, value=_ss_value)
     initial_state = state.nodes.activity.squeeze().to(device)
     n_neurons = len(initial_state)
 
@@ -1863,6 +1864,13 @@ def _run_ode_generation(
     if hasattr(pde, "step_gates"):
         _hh_debug_buffers = {"volt": [], "stim": [], "m": [], "h": [], "n": []}
 
+    # Track per-sequence lengths so we can report a post-hoc summary.
+    # Critical for blank_prefix diagnostics: blank_prefix_frames = int(seq_len *
+    # blank_prefix_fraction), so a dataset full of 2-frame sequences gets
+    # ~1 blank frame per sequence — not enough time for neurons to decay to
+    # V_rest.
+    _seq_lens = []
+
     with torch.no_grad():
         for pass_num in range(num_passes):
             for data_idx, data in enumerate(tqdm(stimulus_sequences, desc="processing stimulus data", ncols=100)):
@@ -1927,6 +1935,7 @@ def _run_ode_generation(
                     sequence_length = sequences.shape[0]
 
                 blank_prefix_frames = int(sequence_length * getattr(sim, 'blank_prefix_fraction', 0.0))
+                _seq_lens.append(int(sequence_length))
 
                 for frame_id in range(sequence_length):
                     if "flash" in sim.visual_input_type:
@@ -2029,7 +2038,7 @@ def _run_ode_generation(
                                     / 2
                                 )
                         else:
-                            if "blank" in sim.visual_input_type:
+                            if sim.blank_freq > 0:
                                 if data_idx % sim.blank_freq > 0:
                                     x.stimulus[:] = net.stimulus().squeeze()
                                 else:
@@ -2180,6 +2189,24 @@ def _run_ode_generation(
                     break
             if it >= target_frames:
                 break
+
+    # Sequence-length summary (diagnostic for blank_prefix effectiveness).
+    if _seq_lens:
+        _arr = np.asarray(_seq_lens, dtype=np.int64)
+        _bpf = float(getattr(sim, 'blank_prefix_fraction', 0.0))
+        _bp_min = int(np.floor(_arr.min() * _bpf))
+        _bp_med = int(np.floor(float(np.median(_arr)) * _bpf))
+        _bp_max = int(np.floor(_arr.max() * _bpf))
+        logger.info(
+            "\033[93msequence-length summary: n_sequences=%d  frames=[min=%d median=%d mean=%.1f max=%d]  "
+            "total_frames=%d  frames_consumed=%d\033[0m",
+            int(_arr.size), int(_arr.min()), int(np.median(_arr)),
+            float(_arr.mean()), int(_arr.max()), int(_arr.sum()), int(it - it_start),
+        )
+        logger.info(
+            "\033[93mblank_prefix summary: blank_prefix_fraction=%.3f  blank_frames_per_seq=[min=%d median=%d max=%d]\033[0m",
+            _bpf, _bp_min, _bp_med, _bp_max,
+        )
 
     return it, id_fig
 
