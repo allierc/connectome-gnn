@@ -191,7 +191,7 @@ class SimulationConfig(BaseModel):
     datavis_roots: list[str] = []  # list of dataset roots (each contains JPEGImages/480p/); empty list uses default get_datavis_root_dir()
     skip_short_videos: bool = True  # skip videos with fewer frames than chunk size (n_frames in video_config)
     max_train_sequences: int = 0  # limit train sequences (0 = use all); reduces generation time proportionally
-    blank_freq: int = 2  # Frequency of blank frames in visual input
+    blank_freq: int = 0  # Periodic-blank period: 0=off; N>=2 zeros stimulus on every Nth frame (data_idx % N == 0)
     blank_prefix_fraction: float = 0.0  # fraction of each sequence to blank at the start (e.g. 0.1 = first 10% frames zero stimulus)
     simulation_initial_state: bool = False
     # flyvis net.steady_state(value=…) passed during pre-warmup. Default 0.5 reproduces the
