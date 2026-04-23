@@ -1,14 +1,24 @@
 """
 Figure: input stimulus on the retinotopic hexagon lattice + per-cell-type voltage maps.
 
+Janne-styled per figures/INSTRUCTIONS.md (the previous, larger-font version
+is preserved at fig_stimulus_hexagons_original.py):
+
+  • ~18 cm document-width figure (7.09 in) at 300 dpi
+  • 6–8 pt fonts, 0.5 pt spines / ticks
+  • top + right spines hidden globally (via janne.matplotlibrc); the hex
+    panels also hide left/bottom (no axes meaningful on a hex grid)
+  • trim_axis applied to the colorbar axis (the hex panels carry no spines)
+  • PDF primary output (pdf.fonttype=42, svg.fonttype='none')
+
 Layout (2 rows × 1 column block)
 ---------------------------------
-  a) Stimulus series — 10 hexagon snapshots of the visual input across time.
-  b) 8 × 9 spatial grid — top-left panel = stimulus, other 65 panels = voltage
+  a) Stimulus series — hexagon snapshots of the visual input across time.
+  b) 6 × 11 spatial grid — top-left panel = stimulus, other panels = voltage
      of each cell type on the hexagon lattice at a single frame. Identical
      layout to ``plot_spatial_activity_grid`` (the figure saved as
      ``Fig_0_000000.png`` during data generation), produced by calling
-     ``_draw_hex_panel`` directly so each cell type renders onto the same
+     ``_draw_hex`` directly so each cell type renders onto the same
      retinotopic hex lattice (avoids the disc-of-random-points artefact).
 
 Data source
@@ -22,13 +32,15 @@ Usage
 
 Output
 ------
-    figures/fig_stimulus_hexagons.{png,pdf,jpg}
+    figures/fig_stimulus_hexagons.{pdf,png}
 """
 
 import os
 import sys
 import matplotlib
 matplotlib.use('Agg')
+matplotlib.rc_file(os.path.join(os.path.dirname(__file__), 'janne.matplotlibrc'))
+
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as mgs
 import numpy as np
@@ -43,15 +55,35 @@ from connectome_gnn.utils import set_data_root, graphs_data_path, add_pre_folder
 from connectome_gnn.zarr_io import load_simulation_data
 from connectome_gnn.figure_style import default_style
 
-# ── font style (INSTRUCTIONS.md §style) ──────────────────────────────────────
-plt.rcParams.update({
-    'font.family': 'sans-serif',
-    'font.sans-serif': ['Nimbus Sans', 'Arial', 'Helvetica', 'DejaVu Sans'],
-    'text.usetex': False,
-    'mathtext.fontset': 'dejavusans',
-})
 
-PANEL_LBL = 20
+# Try the flyvis trim_axis; fall back to a local equivalent if unavailable.
+try:
+    from flyvis.analysis.visualization.plt_utils import trim_axis as _trim_axis
+except Exception:
+    def _trim_axis(ax, xmargin=0.0, ymargin=0.0, yaxis=True, xaxis=True):
+        """Local fallback: clip left/bottom spines to the data range so the
+        axes break at the first/last data point (no spine beyond the data)."""
+        if xaxis:
+            xticks = ax.get_xticks()
+            xlo, xhi = ax.get_xlim()
+            xticks = [t for t in xticks if xlo <= t <= xhi]
+            if xticks:
+                ax.spines['bottom'].set_bounds(xticks[0], xticks[-1])
+        if yaxis:
+            yticks = ax.get_yticks()
+            ylo, yhi = ax.get_ylim()
+            yticks = [t for t in yticks if ylo <= t <= yhi]
+            if yticks:
+                ax.spines['left'].set_bounds(yticks[0], yticks[-1])
+
+
+# Fonts (janne.matplotlibrc sets defaults to 8/6 pt; explicit overrides for
+# panel-specific tweaks).
+FS_LABEL  = 8
+FS_TICK   = 6
+FS_ANNOT  = 6
+FS_TITLE  = 6
+PANEL_LBL = 8
 
 # ── data config ──────────────────────────────────────────────────────────────
 CONFIG_NAME = 'flyvis_noise_free'
@@ -106,8 +138,8 @@ vmin_v, vmax_v = -3.0, 3.0
 vmin_s, vmax_s = -3.0, 3.0   # stimulus also displayed as z-score
 CMAP        = 'RdBu_r'        # match the z-scored heatmap in fig_simulations.py
 HEX_EDGE_C  = 'black'
-HEX_EDGE_W  = 0.25
-HEX_MARKER_S = 36             # same marker area in panel a and panel b
+HEX_EDGE_W  = 0.1             # thinner outline to match Janne 0.5 pt aesthetic
+HEX_MARKER_S = 6              # smaller marker to match ~18 cm wide layout
 
 # Hex-lattice extent — pre-compute so every panel sets the same xlim/ylim and
 # hence renders hexagons at identical size.
@@ -138,11 +170,13 @@ def _draw_hex(ax, xy, values, cmap, vmin, vmax):
     for spine in ax.spines.values():
         spine.set_visible(False)
 
-# 3:2 figure aspect (w:h), wider layout
-fig_w = 24.0
-fig_h = 16.0
 
-fig = plt.figure(figsize=(fig_w, fig_h), dpi=300, facecolor=style.background)
+# ~18 cm wide; pick a height that suits the original 24:16 (3:2) aspect of the
+# combined panel a (2 rows) + panel b (6 rows) layout.
+FIG_W_IN = 18.0 * 0.3937       # ≈ 7.09 in
+FIG_H_IN = FIG_W_IN * (16.0 / 24.0)   # preserve the original 3:2 aspect ≈ 4.72 in
+
+fig = plt.figure(figsize=(FIG_W_IN, FIG_H_IN), dpi=300, facecolor=style.background)
 outer = mgs.GridSpec(
     2, 1, figure=fig,
     height_ratios=[SERIES_ROWS, GRID_ROWS],
@@ -162,10 +196,10 @@ for k, t in enumerate(SERIES_FRAMES):
     ax = fig.add_subplot(gs_a[r, c])
     stim_t = _zscore(stimulus[:n_inp, t])
     _draw_hex(ax, positions[:n_inp], stim_t, CMAP, vmin_s, vmax_s)
-    ax.set_title(f't = {int(round(t * dt_ms))} ms', fontsize=style.font_size, pad=2)
+    ax.set_title(f't = {int(round(t * dt_ms))} ms', fontsize=FS_TITLE, pad=2)
     axes_a.append(ax)
 
-# ── panel b) 8×9 grid — stimulus + 65 types, same as Fig_0_000000.png ────────
+# ── panel b) 6×11 grid — stimulus + 65 types, same as Fig_0_000000.png ───────
 gs_b = mgs.GridSpecFromSubplotSpec(GRID_ROWS, GRID_COLS, subplot_spec=outer[1],
                                     wspace=0.05, hspace=0.3)
 axes_b = []
@@ -193,7 +227,7 @@ for idx in range(n_panels):
         # every cell type renders onto the same hexagonal lattice.
         _draw_hex(ax, positions[:count], vals, CMAP, vmin_v, vmax_v)
         name = INDEX_TO_NAME.get(type_idx, f'type_{type_idx}')
-    ax.set_title(name, fontsize=style.font_size, pad=2)
+    ax.set_title(name, fontsize=FS_TITLE, pad=2)
     axes_b.append(ax)
 
 # hide trailing cells
@@ -221,8 +255,10 @@ if _last_col_axes:
     _norm_v = _mcolors.Normalize(vmin=vmin_v, vmax=vmax_v)
     _sm_v = _mcm.ScalarMappable(norm=_norm_v, cmap=CMAP)
     _cbar_v = fig.colorbar(_sm_v, cax=_cax_v)
-    _cbar_v.set_label('voltage (z-score)', fontsize=22)
-    _cbar_v.ax.tick_params(labelsize=16)
+    _cbar_v.set_label('voltage (z-score)', fontsize=FS_LABEL)
+    _cbar_v.ax.tick_params(labelsize=FS_TICK)
+    # Trim the colorbar's tick range to its actual data extent.
+    _trim_axis(_cax_v, xaxis=False)
 
 # ── panel labels a) / b) — top-left of each outer row ────────────────────────
 fig.canvas.draw()
@@ -230,7 +266,7 @@ renderer = fig.canvas.get_renderer()
 inv = fig.transFigure.inverted()
 bb_a = axes_a[0].get_tightbbox(renderer)
 bb_b = axes_b[0].get_tightbbox(renderer)
-for bb, lbl in zip([bb_a, bb_b], ['a)', 'b)']):
+for bb, lbl in zip([bb_a, bb_b], ['a', 'b']):
     x0 = inv.transform((bb.x0, bb.y1))[0]
     y1 = inv.transform((bb.x0, bb.y1))[1]
     fig.text(x0, y1, lbl, fontsize=PANEL_LBL, fontweight='bold',
@@ -239,11 +275,9 @@ for bb, lbl in zip([bb_a, bb_b], ['a)', 'b)']):
 # ── save ─────────────────────────────────────────────────────────────────────
 OUT_DIR = os.path.dirname(os.path.abspath(__file__))
 out_base = os.path.join(OUT_DIR, 'fig_stimulus_hexagons')
-fig.savefig(out_base + '.png', dpi=300, bbox_inches='tight')
+# PDF first per janne.matplotlibrc default; PNG for quick preview.
 fig.savefig(out_base + '.pdf', bbox_inches='tight')
-fig.savefig(out_base + '.jpg', dpi=300, bbox_inches='tight',
-            pil_kwargs={'quality': 95})
+fig.savefig(out_base + '.png', dpi=300, bbox_inches='tight')
 plt.close(fig)
-print(f'Saved: {out_base}.png')
 print(f'Saved: {out_base}.pdf')
-print(f'Saved: {out_base}.jpg')
+print(f'Saved: {out_base}.png')

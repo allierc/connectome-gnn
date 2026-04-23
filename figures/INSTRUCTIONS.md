@@ -1,3 +1,102 @@
+Janne instructions
+
+Here's the visualization settings/matplotlibrc file I would use. In my opinion an important and logical style improvement is to remove upper and right spine and break the x and y axis because usually they don't originate in the same value. Next, it is useful to adjust everything upfront to ~18cm document usable width and fontsize 6-8 and then increase dpi to be comfortable in jupyter notebooks.
+
+```
+# http://matplotlib.org/users/customizing.html
+
+# Note: Units are in pt not in px
+#
+# How to convert px to pt in Inkscape
+# > Inkscape pixel is 1/90 of an inch, other software usually uses 1/72.
+# > This means if you need 10pt - use 12.5 in Inkscape (multiply with 1.25).
+# > http://www.inkscapeforum.com/viewtopic.php?f=6&t=5964
+
+text.usetex          : False
+mathtext.default     : it
+# font.family          : sans-serif
+# font.sans-serif      : Arial
+font.size            : 8
+figure.titlesize     : 8
+figure.dpi	     : 300
+legend.fontsize      : 6
+axes.titlesize       : 6
+axes.labelsize       : 6
+xtick.labelsize      : 6
+ytick.labelsize      : 6
+
+image.interpolation   : nearest
+image.resample        : False
+image.composite_image : True
+
+axes.spines.left     : True
+axes.spines.bottom   : True
+axes.spines.top      : False
+axes.spines.right    : False
+
+axes.linewidth       : 0.5
+xtick.major.width    : 0.5
+xtick.minor.width    : 0.5
+ytick.major.width    : 0.5
+ytick.minor.width    : 0.5
+xtick.top: False
+ytick.right: False
+
+lines.linewidth      : 1.0
+lines.markersize     : 1.0
+
+savefig.dpi          : 300
+savefig.format       : pdf
+savefig.bbox         : tight
+savefig.pad_inches   : 0.1
+
+svg.image_inline     : True
+svg.fonttype         : none
+pdf.fonttype	     : 42
+
+legend.frameon       : False
+```
+
+```python
+import matplotlib
+matplotlib.rc_file(matplotlibrc_path)
+```
+
+Trimming the axes requires a bit more logic. Call `trim_axis` on each ax object.
+```python
+from flyvis.analysis.visualization.plt_utils import trim_axis
+fig, ax = ...
+...
+trim_axis(ax)
+```
+
+## additional rules (2026-04-21 update)
+
+- **Font**: Arial (set in `janne.matplotlibrc`: `font.sans-serif: Arial, DejaVu Sans, …`).
+- **x-ticks**: always place a tick at the first and last data point at a pretty value with regular spacing between.
+  Pattern:
+  ```python
+  import numpy as np
+  def _pretty_xticks(ax, lo, hi, n_target=5):
+      span = hi - lo
+      raw_step = span / max(1, n_target - 1)
+      mag = 10 ** np.floor(np.log10(max(raw_step, 1e-12)))
+      for m in (1, 2, 5, 10):
+          if m * mag >= raw_step:
+              step = m * mag
+              break
+      tick_lo = np.ceil(lo / step - 1e-9) * step
+      ticks = np.arange(tick_lo, hi + step / 2, step)
+      if ticks[-1] < hi - step * 1e-6:
+          ticks = np.append(ticks, hi)
+      ax.set_xticks(ticks)
+      ax.set_xlim([lo, hi])
+  ```
+- **Panel labels**: no closing parenthesis — use `a`, `b`, `c`, ... (not `a)`, `b)`).
+- **Legend placement**: align top-right **inside** the existing plot
+  (`loc='upper right'`, no `bbox_to_anchor` that pushes the legend outside).
+  Legends outside the axes box steal width from the figure and hurt layout.
+
 # figure generation instructions
 
 ## one script = one figure
