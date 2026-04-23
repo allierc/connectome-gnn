@@ -1,9 +1,9 @@
 """
-Top-level entry points for the YT-only cross-check pipeline.
+Top-level entry points for the hold-out-only cross-check pipeline.
 
 `run_all_conditions(hp_source, suffix, ...)` runs the full n_folds CV across
-all 8 conditions (train + test on YouTube-VOS, using the held-out 20% of
-each fold for testing) and drops the TeX table at
+all 8 conditions (train + test on the hold-out dataset, using the held-out
+20% of each fold for testing) and drops the TeX table at
 <output_root>/log/cv_<suffix>_rows.tex.
 
 Used by the orchestrator scripts at the repo root:
@@ -12,7 +12,7 @@ Used by the orchestrator scripts at the repo root:
     run_KnownODE_conditions.py  (hp_source=uniform, Known_ODE winner HPs)
 
 `generate_all_yt_data(n_folds, ...)` — generate-only entry point used by
-run_generate_YT_data.py to pre-build the shared {base}_yt_cv{i:02d}
+run_generate_holdout_data.py to pre-build the shared {base}_<tag>_cv{i:02d}
 datasets before the three training runners are launched in parallel.
 """
 
@@ -47,7 +47,7 @@ def run_all_conditions(hp_source, suffix, hp_yaml=None,
                         node_name='a100', hard_runtime_limit_min=120,
                         metrics_interval=300, cluster_test_plot=True,
                         force_test=False,
-                        sim_overrides=None, dataset_tag='yt',
+                        sim_overrides=None, dataset_tag=None,
                         condition_filter=None,
                         data_augmentation_loop=100,
                         conditions_per_wave=1):
@@ -60,7 +60,7 @@ def run_all_conditions(hp_source, suffix, hp_yaml=None,
 
     Args:
         hp_source: 'per_condition' or 'uniform'.
-        suffix:    YT YAML suffix (e.g. 'yt_per_cond', 'yt_cross',
+        suffix:    Hold-out YAML suffix (e.g. 'yt_per_cond', 'yt_cross',
                    'yt_known_ode'). Output TeX goes to
                    log/cv_<suffix>_rows.tex.
         hp_yaml:   HP-source YAML basename (only used when
@@ -69,7 +69,7 @@ def run_all_conditions(hp_source, suffix, hp_yaml=None,
     output_root = _resolve_output_root(output_root)
 
     print('=' * 60)
-    print(f'GNN YT-only cross-check ({hp_source} HPs)')
+    print(f'GNN hold-out-only cross-check ({hp_source} HPs)')
     print(f'  data root:  {output_root}')
     print(f'  suffix:     {suffix}')
     print(f'  hp source:  {hp_source}')
@@ -80,9 +80,9 @@ def run_all_conditions(hp_source, suffix, hp_yaml=None,
     print(f'  tex out:    log/cv_{suffix}_rows.tex')
     print('=' * 60)
 
-    # Step 1 — emit YT CV YAMLs (idempotent; suffix-free dataset name
+    # Step 1 — emit hold-out CV YAMLs (idempotent; suffix-free dataset name
     # is shared with the other two training runners and the pre-gen script).
-    print(f'\n[1] emit YT YAMLs  (hp_source={hp_source}, dataset_tag={dataset_tag})')
+    print(f'\n[1] emit hold-out YAMLs  (hp_source={hp_source}, dataset_tag={dataset_tag})')
     if sim_overrides:
         print(f'    sim_overrides: {sim_overrides}')
     if condition_filter is not None:
@@ -121,13 +121,13 @@ def run_all_conditions(hp_source, suffix, hp_yaml=None,
     emit_tex_file(suffix, output_root, n_folds=n_folds)
 
     print('\n' + '=' * 60)
-    print(f'GNN YT-only cross-check complete ({hp_source}).')
+    print(f'GNN hold-out-only cross-check complete ({hp_source}).')
     print('=' * 60)
 
 
 def generate_all_yt_data(output_root=None, n_folds=5, suffix='yt_gen',
                           hp_source='per_condition', hp_yaml=None,
-                          sim_overrides=None, dataset_tag='yt',
+                          sim_overrides=None, dataset_tag=None,
                           condition_filter=None,
                           data_augmentation_loop=100):
     """Pre-build all 8 × n_folds YT datasets at <output_root>/graphs_data/fly/
@@ -140,17 +140,17 @@ def generate_all_yt_data(output_root=None, n_folds=5, suffix='yt_gen',
     output_root = _resolve_output_root(output_root)
 
     print('=' * 60)
-    print('YT data pre-generation  (shared across all 3 training runners)')
+    print('Hold-out data pre-generation  (shared across all 3 training runners)')
     print(f'  data root:  {output_root}')
     print(f'  n folds:    {n_folds}')
     print(f'  suffix:     {suffix}  (yaml-only; dataset name is shared)')
     print('=' * 60)
 
-    # 1. Emit YT CV YAMLs (hp_source=per_condition by default so each
+    # 1. Emit hold-out CV YAMLs (hp_source=per_condition by default so each
     #    condition's own winner yaml supplies the graph_model block; the
-    #    simulation block — which is all we need for generation — comes
+    #    simulation block — which is all we need for generation — comesgit
     #    from the base yaml regardless of hp_source).
-    print(f'\n[1] emit YT YAMLs  (hp_source={hp_source}, dataset_tag={dataset_tag})')
+    print(f'\n[1] emit hold-out YAMLs  (hp_source={hp_source}, dataset_tag={dataset_tag})')
     if sim_overrides:
         print(f'    sim_overrides: {sim_overrides}')
     if condition_filter is not None:
@@ -168,7 +168,7 @@ def generate_all_yt_data(output_root=None, n_folds=5, suffix='yt_gen',
 
     _active_bases = ([b for b in CONDITION_BASES if b in condition_filter]
                      if condition_filter is not None else CONDITION_BASES)
-    print('\n[2] generate YT data per condition')
+    print('\n[2] generate hold-out data per condition')
     for base_name in _active_bases:
         generate_yt_data_for_condition(
             base_name=base_name, suffix=suffix, n_folds=n_folds,
@@ -176,5 +176,5 @@ def generate_all_yt_data(output_root=None, n_folds=5, suffix='yt_gen',
         )
 
     print('\n' + '=' * 60)
-    print('YT data pre-generation complete.')
+    print('Hold-out data pre-generation complete.')
     print('=' * 60)

@@ -1,5 +1,5 @@
 """
-TeX emission for the YT-only cross-check table.
+TeX emission for the hold-out-only cross-check table.
 
 `emit_tex_file(suffix, output_root, n_folds)` aggregates n_folds mean±SD
 for each of the 8 conditions and writes the 8-row TeX table to
@@ -73,7 +73,7 @@ def _mean_sd(vals):
 
 def emit_row(base, label, nsig, ngam, edges, output_root, pre_folder,
              suffix, n_folds):
-    """N-fold CV: YT fold i rolled out on its own held-out 20%.
+    """N-fold CV: hold-out fold i rolled out on its own held-out 20%.
     Prediction columns aggregate N values; parameter columns also N.
 
     Silently emits NaN cells for conditions whose log dirs don't exist yet
@@ -121,7 +121,7 @@ def emit_tex_file(suffix, output_root, n_folds=5, pre_folder='fly',
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, out_name)
     with open(out_path, 'w') as f:
-        f.write(f'% --- rows for YT-trained, YT-held-out-tested; suffix={suffix} ---\n')
+        f.write(f'% --- rows for hold-out-trained, hold-out-held-out-tested; suffix={suffix} ---\n')
         for r in rows:
             f.write(r + '\n')
         f.write('% ' + '-' * 60 + '\n')

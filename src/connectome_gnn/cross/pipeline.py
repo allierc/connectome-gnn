@@ -1,16 +1,16 @@
 """
-Per-condition orchestration for the YT-only cross-check pipeline.
+Per-condition orchestration for the hold-out-only cross-check pipeline.
 
 Exposes `run_condition(...)` which for one base condition:
-    1. emits YT CV YAMLs (done upstream in runner.emit_yt_yamls)
-    2. generates YT CV data (local) — noop if already present
+    1. emits hold-out CV YAMLs (done upstream in runner.emit_yt_yamls)
+    2. generates hold-out CV data (local) — noop if already present
     3. submits n_folds cluster training jobs, waits for the wave
     4. submits n_folds cluster test+plot jobs (rollout on held-out 20% of
-       the same YT fold) or runs locally
+       the same hold-out fold) or runs locally
     5. warns if V_rest / tau R² collapsed
 
 Also exposes `generate_yt_data_for_condition(...)`, a generate-only entry
-point used by `run_generate_YT_data.py` so the three training-runner
+point used by `run_generate_holdout_data.py` so the three training-runner
 scripts (run_GNN_conditions / run_GNN_unique / run_KnownODE_conditions)
 can be launched in parallel on the pre-built shared datasets.
 """
@@ -106,9 +106,9 @@ def _have_plot(log_dir):
 def ensure_yt_data(yt_cfg, device):
     yt_gdir = graphs_data_path(yt_cfg.dataset)
     if _have_data(yt_gdir):
-        print(f'  [skip] YT fold data exists: {yt_gdir}')
+        print(f'  [skip] hold-out fold data exists: {yt_gdir}')
     else:
-        print(f'  [run ] data_generate YT -> {yt_gdir}')
+        print(f'  [run ] data_generate hold-out -> {yt_gdir}')
         # visualize=False: no activity/trace figures or mp4 videos.
         # compute_ranks=False: skip SVD + the kinograph.png that it drives.
         data_generate(yt_cfg, device=device, visualize=False, run_vizualized=0,
@@ -192,7 +192,7 @@ def submit_training_wave(yt_cfgs, output_root, node_name, hard_runtime_limit_min
 def submit_test_plot_wave(yt_cfgs, output_root, node_name,
                            hard_runtime_limit_min, force_test,
                            metrics_interval=300):
-    """Rollout each YT-trained model on the held-out 20% of its own YT fold.
+    """Rollout each hold-out-trained model on the held-out 20% of its own fold.
 
     Since test_config == training config, graph_tester sets test_suffix=''
     so the rollout log lands at <log_dir>/results_rollout.log (no _on_X suffix).
@@ -241,7 +241,7 @@ def submit_test_plot_wave(yt_cfgs, output_root, node_name,
 
 
 def run_test_and_plot_local(yt_cfg, device, force_test):
-    """Local fallback: rollout YT fold on its own held-out 20%, then data_plot."""
+    """Local fallback: rollout hold-out fold on its own held-out 20%, then data_plot."""
     from GNN_PlotFigure import data_plot
     yt_log_dir = log_path(yt_cfg.config_file)
     rollout_log = os.path.join(yt_log_dir, 'results_rollout.log')
@@ -250,7 +250,7 @@ def run_test_and_plot_local(yt_cfg, device, force_test):
     if os.path.exists(rollout_log):
         print(f'  [skip] rollout log exists: {rollout_log}')
     else:
-        print(f'  [run ] data_test YT held-out  (dataset: {yt_cfg.dataset})')
+        print(f'  [run ] data_test hold-out  (dataset: {yt_cfg.dataset})')
         data_test(config=yt_cfg, visualize=False, best_model='best', run=0,
                   step=10, n_rollout_frames=250, device=device)
     metrics_path = os.path.join(yt_log_dir, 'results', 'metrics.txt')
@@ -272,33 +272,33 @@ def _load_yt_cfgs(base_name, suffix, n_folds, output_root):
         yt_cfg_name = f'{base_name}_{suffix}_cv{i:02d}'
         yt_yaml = _load_yaml_either(yt_cfg_name, output_root)
         if not os.path.isfile(yt_yaml):
-            print(f'  [skip] fold {i}: missing YT YAML {yt_yaml}')
+            print(f'  [skip] fold {i}: missing hold-out YAML {yt_yaml}')
             continue
         yt_cfgs.append(_load(yt_cfg_name, output_root))
     return yt_cfgs
 
 
 def _assert_yt_data_present(yt_cfg):
-    """Fail loud if the expected YT dataset is missing. Data generation is
-    the sole responsibility of run_generate_YT_data.py so the three training
+    """Fail loud if the expected hold-out dataset is missing. Data generation is
+    the sole responsibility of run_generate_holdout_data.py so the three training
     runners can safely start in parallel without racing on generation."""
     yt_gdir = graphs_data_path(yt_cfg.dataset)
     if not _have_data(yt_gdir):
         raise RuntimeError(
-            f'YT dataset missing or incomplete: {yt_gdir}\n'
-            f'  Run `python run_generate_YT_data.py` first to pre-build the '
+            f'Hold-out dataset missing or incomplete: {yt_gdir}\n'
+            f'  Run `python run_generate_holdout_data.py` first to pre-build the '
             f'shared {{base}}_yt_cv{{i:02d}} datasets.')
-    print(f'  [ok ] YT fold data present: {yt_gdir}')
+    print(f'  [ok ] hold-out fold data present: {yt_gdir}')
 
 
 def run_condition(base_name, suffix, n_folds, device, output_root,
                   node_name, hard_runtime_limit_min, force_test,
                   cluster_test_plot=True, metrics_interval=300):
-    """Train + test + plot one condition on YouTube-VOS (no DAVIS).
+    """Train + test + plot one condition on the hold-out dataset (no DAVIS).
 
-    Requires YT datasets to already exist (built by run_generate_YT_data.py).
+    Requires hold-out datasets to already exist (built by run_generate_holdout_data.py).
     Does NOT generate data — keeps the three training runners cheap to launch
-    in parallel and avoids redundant 40× rebuilds of the YT augmentation cache.
+    in parallel and avoids redundant 40× rebuilds of the hold-out augmentation cache.
     """
     run_condition_wave(
         [base_name], suffix=suffix, n_folds=n_folds, device=device,
@@ -319,7 +319,7 @@ def run_condition_wave(base_names, suffix, n_folds, device, output_root,
     whole wave is awaited, then test+plot is submitted as a single wave.
     """
     tag = '+'.join(base_names)
-    print(f'\n=== wave[{len(base_names)}]: {tag}  ({n_folds}-fold YT-train / YT-test, suffix={suffix}) ===')
+    print(f'\n=== wave[{len(base_names)}]: {tag}  ({n_folds}-fold hold-out train / hold-out test, suffix={suffix}) ===')
 
     yt_cfgs = []
     for base_name in base_names:
@@ -341,8 +341,8 @@ def run_condition_wave(base_names, suffix, n_folds, device, output_root,
 
 
 def generate_yt_data_for_condition(base_name, suffix, n_folds, device, output_root):
-    """Generate-only entry point: produces YT datasets for n_folds of one base
-    condition and returns. Used by run_generate_YT_data.py to pre-build the
+    """Generate-only entry point: produces hold-out datasets for n_folds of one
+    base condition and returns. Used by run_generate_holdout_data.py to pre-build the
     shared datasets before the 3 parallel training runners."""
     print(f'\n=== {base_name}  (generate-only, n_folds={n_folds}, suffix={suffix}) ===')
     yt_cfgs = _load_yt_cfgs(base_name, suffix, n_folds, output_root)

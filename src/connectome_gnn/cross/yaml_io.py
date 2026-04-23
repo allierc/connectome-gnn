@@ -1,12 +1,15 @@
 """
-YAML I/O for the YT-only cross-check pipeline.
+YAML I/O for the hold-out-only cross-check pipeline.
 
-Emits YT-training CV YAMLs (`<base>_<suffix>_cv<i>.yaml`) into the
-shared-FS CV config dir (`<output_root>/config/fly/`). The dataset
-name inside each yaml is suffix-free (`<base>_yt_cv<i>`) so the three
+Emits hold-out-training CV YAMLs (`<base>_<suffix>_cv<i>.yaml`) into
+the shared-FS CV config dir (`<output_root>/config/fly/`). The dataset
+name inside each yaml is suffix-free (`<base>_<tag>_cv<i>`) so the three
 training runners (run_GNN_conditions / run_GNN_unique /
 run_KnownODE_conditions) and the pre-gen script all share the same
-YT datasets at <output_root>/graphs_data/fly/<base>_yt_cv<i>/.
+hold-out datasets at <output_root>/graphs_data/fly/<base>_<tag>_cv<i>/.
+
+The short on-disk `<tag>` is looked up in ROOT_TAGS from HOLDOUT_DS_ROOT;
+pass `dataset_tag=...` explicitly to override.
 """
 
 import os
@@ -17,7 +20,15 @@ import yaml
 from connectome_gnn.utils import get_repo_root
 
 
-YT_VOS_ROOT = "/groups/saalfeld/home/kumarv4/web_datasets/YouTube-VOS"
+# Map of datavis root path -> short dataset tag used in on-disk dataset dirs.
+# Add new roots here when you want to use them.
+ROOT_TAGS = {
+    "/groups/saalfeld/home/kumarv4/web_datasets/YouTube-VOS":            "yt",
+    "/groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test": "davis2017_pt",
+}
+
+
+HOLDOUT_DS_ROOT = "/groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test"
 
 
 # (condition_basename_for_data, condition_basename_for_winner_hps)
@@ -60,14 +71,24 @@ def _load_yaml_either(cfg_name, output_root):
 
 def emit_one(base_name, hp_yaml_path, out_yaml_path, suffix, yt_root,
              fold_i=None, sim_seed=None, train_seed=None,
-             sim_overrides=None, dataset_tag='yt',
+             sim_overrides=None, dataset_tag=None,
              data_augmentation_loop=100):
-    """Emit one YT training YAML by merging:
+    """Emit one hold-out training YAML by merging:
     - simulation block from <repo>/config/fly/<base_name>.yaml
     - graph_model / training / plotting / claude from hp_yaml_path
-    - stimulus swap to YouTube-VOS, blank_freq=2, n_epochs=1, DAL=100
+    - stimulus swap to hold-out dataset, blank_freq=2, n_epochs=1, DAL=100
     Writes to out_yaml_path. Returns True on success.
+
+    dataset_tag defaults to ROOT_TAGS[yt_root] — add an entry to ROOT_TAGS
+    when introducing a new datavis root.
     """
+    if dataset_tag is None:
+        if yt_root not in ROOT_TAGS:
+            raise KeyError(
+                f'No dataset_tag registered for root {yt_root!r}. '
+                f'Add an entry to ROOT_TAGS in {__file__} or pass '
+                f'dataset_tag=... explicitly.')
+        dataset_tag = ROOT_TAGS[yt_root]
     base_yaml = os.path.join(get_repo_root(), 'config', 'fly', f'{base_name}.yaml')
     if not os.path.isfile(base_yaml):
         print(f'WARN: missing base yaml {base_yaml} — skipping', file=sys.stderr)
@@ -130,7 +151,7 @@ def emit_one(base_name, hp_yaml_path, out_yaml_path, suffix, yt_root,
 
     # YAML filename keeps the suffix (drives config_file -> log dir, so
     # run_GNN_conditions and run_GNN_unique stay in distinct log dirs).
-    # dataset is suffix-free so the underlying YT training data (which
+    # dataset is suffix-free so the underlying hold-out training data (which
     # only depends on the base + seed, not on the HP block) is shared
     # between the two scripts.
     if fold_i is not None:
@@ -186,9 +207,9 @@ def emit_davis_cv_yaml(base_name, fold_i, output_root, force=False):
 
 
 def emit_yt_yamls(hp_source, suffix, hp_yaml_basename, n_folds, output_root,
-                   sim_overrides=None, dataset_tag='yt',
+                   sim_overrides=None, dataset_tag=None,
                    condition_filter=None, data_augmentation_loop=100):
-    """Emit YT CV YAMLs for all 8 conditions × n_folds, into
+    """Emit hold-out CV YAMLs for all 8 conditions × n_folds, into
     <output_root>/config/fly/. Always overwrites existing files so HP
     tweaks in the source yamls propagate on every run."""
     out_dir = cv_config_dir(output_root)
@@ -215,7 +236,7 @@ def emit_yt_yamls(hp_source, suffix, hp_yaml_basename, n_folds, output_root,
                 sim_seed   = 42 + fold_i
                 train_seed = 1042 + fold_i
             ok = emit_one(base_name, hp_yaml_path, out_yaml,
-                          suffix, YT_VOS_ROOT,
+                          suffix, HOLDOUT_DS_ROOT,
                           fold_i=fold_i, sim_seed=sim_seed,
                           train_seed=train_seed,
                           sim_overrides=sim_overrides,
@@ -223,4 +244,4 @@ def emit_yt_yamls(hp_source, suffix, hp_yaml_basename, n_folds, output_root,
                           data_augmentation_loop=data_augmentation_loop)
             if ok:
                 written.append(out_yaml)
-    print(f'  wrote {len(written)} YT YAMLs -> {out_dir}  (always overwrites)')
+    print(f'  wrote {len(written)} hold-out YAMLs -> {out_dir}  (always overwrites)')

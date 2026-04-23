@@ -40,7 +40,7 @@ if __name__ == "__main__":
     parser.add_argument("--force", action="store_true",
                         help="Force regeneration of data even if it already exists")
     parser.add_argument("--skip_phase2", action="store_true", default=False,
-                        help="CV: skip phase 2 (zero-shot DAVIS→YouTube test). Use when no pre-trained DAVIS model exists.")
+                        help="CV: skip phase 2 (zero-shot DAVIS→hold-out test). Use when no pre-trained DAVIS model exists.")
 
     print()
     device = []
