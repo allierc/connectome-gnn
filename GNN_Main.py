@@ -36,7 +36,7 @@ if __name__ == "__main__":
     parser.add_argument("--seeds", type=str, default=None,
                         help="CV: comma-separated seeds, e.g. 42,43,44 (overrides --n_seeds)")
     parser.add_argument("--output_root", type=str, default=None,
-                        help="Root directory for log/ and graphs_data/ (default: cwd)")
+                        help="Root directory for log/ and  (default: cwd)")
     parser.add_argument("--force", action="store_true",
                         help="Force regeneration of data even if it already exists")
     parser.add_argument("--skip_phase2", action="store_true", default=False,
@@ -47,6 +47,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     output_root = args.output_root or os.environ.get('GNN_OUTPUT_ROOT')
+
     if output_root:
         assert os.path.isdir(output_root), f"--output_root does not exist: {output_root}"
         assert os.access(output_root, os.W_OK), f"--output_root is not writable: {output_root}"
@@ -119,8 +120,8 @@ if __name__ == "__main__":
                 test_config_name = None
     else:
         best_model = ''
-        task = task = 'generate'
-        config_list = ['flyvis_noise_005_blank10']
+        task = task = 'train'
+        config_list = ['flyvis_noise_005_hidden_010_ngp_anchors']
         test_config_name = None
 
     if task == 'cv':
@@ -319,8 +320,8 @@ if __name__ == "__main__":
 
 
 
-# bsub -n 8 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o train /groups/saalfeld/home/allierc/Graph/connectome-gnn/config/fly/flyvis_noise_005"
-# bsub -n 8 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o cv /groups/saalfeld/home/allierc/Graph/connectome-gnn/config/fly/flyvis_noise_005 --n_seeds 5"
+# bsub -n 2 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o train /groups/saalfeld/home/allierc/Graph/connectome-gnn/config/fly/flyvis_noise_005"
+# bsub -n 2 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o cv /groups/saalfeld/home/allierc/Graph/connectome-gnn/config/fly/flyvis_noise_005 --n_seeds 5"
 
 
 # python GNN_Main.py -o cv flyvis_noise_005 --n_seeds 10
@@ -331,8 +332,16 @@ if __name__ == "__main__":
 #   -o logs/cv_cross.out -e logs/cv_cross.err \
 #   "bash run_cv_null_edges_cross.sh"
 
-# bsub -n 2 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o train_test_plot null_edges_cross"
+# bsub -n 2 -gpu "num=1" -q gpu_a100 -W 10:00 -Is "python GNN_Main.py -o train_test_plot null_edges_cross"
 # bsub -n 2 -gpu "num=1" -q gpu_a100 -W 6000 -Is  -o logs/cv_cross.out -e logs/cv_cross.err   "bash run_cv_null_edges_cross.sh"
-# bsub -n 8 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o cv /groups/saalfeld/home/allierc/GraphData/config/fly/flyvis_noise_005 --n_seeds 5 "
+# bsub -n 2 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o cv /groups/saalfeld/home/allierc/GraphData/config/fly/flyvis_noise_005 --n_seeds 5 "
 
 # bsub -n 2 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o train /groups/saalfeld/home/allierc/GraphData/config/fly/flyvis_noise_005_stride_5_yt_Claude_00"
+
+# bsub -n 2 -gpu "num=1" -q gpu_h100 -W 6000 -Is "python GNN_Main.py -o generate_train_test_plot flyvis_hybrid_zeroedge_e15_u2_noise_005"
+# bsub -n 2 -gpu "num=1" -q gpu_h100 -W 6000 -Is "python GNN_Main.py -o generate_train_test_plot flyvis_hybrid_flywireRF_zeroedge_e15_u2_noise_005"
+
+# export GNN_OUTPUT_ROOT=graphs_data
+# unset GNN_OUTPUT_ROOT
+# CUDA_VISIBLE_DEVICES=1 python GNN_Main.py -o train_test_plot flyvis_noise_005_hidden_010_ngp_anchors --output_root /groups/saalfeld/home/allierc/GraphData
+# CUDA_VISIBLE_DEVICES=0 python GNN_Main.py -o train_test_plot flyvis_noise_005_ss0 --output_root /groups/saalfeld/home/allierc/GraphData 

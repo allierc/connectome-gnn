@@ -1,15 +1,21 @@
 """
 Figure: effect of blank stimulus fraction on V_rest recovery.
 
-2×2 layout
-----------
-  a) V_rest scatter — no blank stimulus   (0%)
-  b) V_rest scatter — 50% blank stimulus
-  c) parameter R² vs blank fraction (W, τ, V_rest, clustering)
-  d) rollout Pearson r vs blank fraction
+Janne-styled per figures/INSTRUCTIONS.md (the previous, larger-font version
+is preserved at fig_vrest_blank_original.py):
 
-All panels are rendered directly from model checkpoints using the
-exact same style as GNN_PlotFigure.py (figsize=(10,9), labels 48pt, ticks 24pt).
+  • ~18 cm document-width figure (7.09 in) at 300 dpi
+  • 6–8 pt fonts, 0.5 pt spines / ticks
+  • top + right spines hidden globally (via janne.matplotlibrc)
+  • trim_axis breaks each axis at the data range (upper & right gap)
+  • PDF primary output (pdf.fonttype=42, svg.fonttype='none')
+
+2×4 layout
+----------
+  row 0 (a–d): simulation panels — heatmap (a, b) + traces (c, d)
+  row 1 (e–h): parameter recovery — V_rest scatters (e, f) +
+               R² vs blank fraction (g) + rollout Pearson r vs blank fraction (h)
+
 Best checkpoint is selected via sort_key (same logic as GNN_PlotFigure 'best').
 Panel labels sit at the top-left of the outer panel box via get_tightbbox.
 
@@ -19,13 +25,15 @@ Usage
 
 Output
 ------
-    figures/fig_vrest_blank.png   — 300 dpi PNG
+    figures/fig_vrest_blank.{pdf,png}
 """
 
 import os
 import sys
 import matplotlib
 matplotlib.use("Agg")
+matplotlib.rc_file(os.path.join(os.path.dirname(__file__), 'janne.matplotlibrc'))
+
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
@@ -43,13 +51,27 @@ from connectome_gnn.utils import (
     sort_key,
 )
 
-# GNN_PlotFigure rcParams (font only)
-plt.rcParams.update({
-    'font.family': 'sans-serif',
-    'font.sans-serif': ['Nimbus Sans', 'Arial', 'Helvetica', 'DejaVu Sans'],
-    'text.usetex': False,
-    'mathtext.fontset': 'dejavusans',
-})
+
+# Try the flyvis trim_axis; fall back to a local equivalent if unavailable.
+try:
+    from flyvis.analysis.visualization.plt_utils import trim_axis as _trim_axis
+except Exception:
+    def _trim_axis(ax, xmargin=0.0, ymargin=0.0, yaxis=True, xaxis=True):
+        """Local fallback: clip left/bottom spines to the data range so the
+        axes break at the first/last data point (no spine beyond the data)."""
+        if xaxis:
+            xticks = ax.get_xticks()
+            xlo, xhi = ax.get_xlim()
+            xticks = [t for t in xticks if xlo <= t <= xhi]
+            if xticks:
+                ax.spines['bottom'].set_bounds(xticks[0], xticks[-1])
+        if yaxis:
+            yticks = ax.get_yticks()
+            ylo, yhi = ax.get_ylim()
+            yticks = [t for t in yticks if ylo <= t <= yhi]
+            if yticks:
+                ax.spines['left'].set_bounds(yticks[0], yticks[-1])
+
 
 # ---------------------------------------------------------------------------
 # Data roots
@@ -78,20 +100,22 @@ DATA = {
 }
 
 # ---------------------------------------------------------------------------
-# Font sizes — match GNN_PlotFigure scatter (figsize=(10,9))
-# scale = subplot_col_width / 10 ≈ 0.38 for 27 in four-column layout (paper fonts)
+# Janne-style font sizes — 6–8 pt
 # ---------------------------------------------------------------------------
-_S        = 0.52
-FS_LABEL  = 48 * _S   # axis labels
-FS_TICK   = 24 * _S   # tick labels
-FS_ANNOT  = 32 * _S   # in-plot annotation (R², slope, N)
-FS_LEGEND = 28 * _S   # legend
-FS_TITLE  = 22        # panel subtitle
-PANEL_LBL = 20        # a) b) c) d)
-MARKER_S  = 8
-LW        = 2.0
-FS_CBAR   = int(36 * _S)   # colorbar label / ticks
-FS_TYPE   = int(26 * _S)   # cell-type name annotations in trace panels
+FS_LABEL  = 8     # axis labels
+FS_TICK   = 6     # tick labels
+FS_ANNOT  = 6     # in-plot annotation (R², slope, N)
+FS_LEGEND = 6     # legend
+FS_TITLE  = 7     # panel subtitle
+PANEL_LBL = 8     # a) b) c) d)
+MARKER_S  = 3
+LW        = 0.7
+FS_CBAR   = 6     # colorbar label / ticks
+FS_TYPE   = 6     # cell-type name annotations in trace panels
+
+# ~18 cm document-width figure; height matches the 2-row layout of the original.
+FIG_W_IN = 18.0 * 0.3937   # ≈ 7.09 in
+FIG_H_IN = 7.09            # two rows of 4 panels each, square-ish subpanels
 
 
 # ── extra imports needed for V_rest extraction ───────────────────────────────
@@ -117,8 +141,8 @@ SIM_TRACE_END   = 600
 SIM_TYPES       = [23, 5, 6, 7, 12, 22, 43, 55, 35, 39, 31, 0]  # R1…Am
 SIM_CMAP        = 'RdBu_r'
 SIM_VLIM        = 2.0
-SIM_LW          = 1.0
-SIM_LW_STIM     = 0.6
+SIM_LW          = 0.5
+SIM_LW_STIM     = 0.4
 SIM_COLOR       = 'black'
 SIM_COLOR_STIM  = 'red'
 
@@ -233,7 +257,7 @@ def load_vrest(config_name: str, output_root: str):
 # ---------------------------------------------------------------------------
 import matplotlib.gridspec as _mgs
 
-fig = plt.figure(figsize=(27, 14), dpi=300, constrained_layout=True)
+fig = plt.figure(figsize=(FIG_W_IN, FIG_H_IN), constrained_layout=True)
 _gs = _mgs.GridSpec(2, 4, figure=fig, height_ratios=[1, 1], hspace=0.06)
 # row 0: simulation — heatmaps (a, b) then traces (c, d)
 ax_e, ax_f = fig.add_subplot(_gs[0, 0]), fig.add_subplot(_gs[0, 1])
@@ -250,7 +274,7 @@ for ax, (config_name, output_root, title) in zip(axes[:2], CONFIGS):
     r2, slope   = compute_r_squared(gt, learned)
     n           = len(gt)
 
-    ax.scatter(gt, learned, c='k', s=1, alpha=0.3)
+    ax.scatter(gt, learned, c='k', s=0.5, alpha=0.3)
     ax.set_ylim(-1, 1.75)
     ax.text(0.05, 0.95,
             f'R²: {r2:.2f}\nslope: {slope:.2f}\nN: {n:,}',
@@ -258,7 +282,8 @@ for ax, (config_name, output_root, title) in zip(axes[:2], CONFIGS):
     ax.set_xlabel(r'true $V_{rest}$',    fontsize=FS_LABEL)
     ax.set_ylabel(r'learned $V_{rest}$', fontsize=FS_LABEL)
     ax.tick_params(labelsize=FS_TICK)
-    ax.set_title(title, fontsize=FS_TITLE, pad=6)
+    ax.set_title(title, fontsize=FS_TITLE, pad=4)
+    _trim_axis(ax)
     scatter_axes.append(ax)
 
 # ── panel c: parameter R² vs blank % ─────────────────────────────────────────
@@ -278,6 +303,7 @@ ax_c.tick_params(axis='y', labelsize=FS_TICK)
 ax_c.set_xlabel('blank fraction (%)', fontsize=FS_LABEL)
 ax_c.set_ylabel('$R^2$ / accuracy',   fontsize=FS_LABEL)
 ax_c.legend(fontsize=FS_LEGEND, frameon=False)
+_trim_axis(ax_c)
 
 # ── panel d: rollout Pearson r vs blank % ─────────────────────────────────────
 ax_d    = axes[3]
@@ -289,6 +315,7 @@ ax_d.set_xticks(pcts);  ax_d.set_xticklabels([str(p) for p in pcts], fontsize=FS
 ax_d.tick_params(axis='y', labelsize=FS_TICK)
 ax_d.set_xlabel('blank fraction (%)',  fontsize=FS_LABEL)
 ax_d.set_ylabel('rollout Pearson $r$', fontsize=FS_LABEL)
+_trim_axis(ax_d)
 
 # ---------------------------------------------------------------------------
 # Row 1: simulation data panels (e–h)
@@ -318,7 +345,7 @@ for _col, (_cfg, _root, _title) in enumerate(SIM_CONFIGS):
     _ax_h.set_xlabel('frame', fontsize=FS_LABEL)
     if _col == 0:
         _ax_h.set_yticks(range(len(_sorted_names)))
-        _ax_h.set_yticklabels(_sorted_names, fontsize=7)
+        _ax_h.set_yticklabels(_sorted_names, fontsize=FS_TYPE)
         _ax_h.set_ylabel('cell type', fontsize=FS_LABEL)
     else:
         _ax_h.set_yticks([])
@@ -367,11 +394,11 @@ for _col, (_cfg, _root, _title) in enumerate(SIM_CONFIGS):
     _ax_t.set_xlabel('frame', fontsize=FS_LABEL)
     _ax_t.set_xlim([-_ntf * 0.08, _ntf * 1.05])
     _ax_t.set_title(_title, fontsize=FS_TITLE, pad=4)
-    _ax_t.spines['top'].set_visible(False)
-    _ax_t.spines['right'].set_visible(False)
+    # Left spine hidden because traces carry no quantitative y-axis here.
     _ax_t.spines['left'].set_visible(False)
     if _col == 0:
-        _ax_t.set_ylabel('voltage (a.u.)', fontsize=FS_LABEL, labelpad=28)
+        _ax_t.set_ylabel('voltage (a.u.)', fontsize=FS_LABEL, labelpad=12)
+    _trim_axis(_ax_t, yaxis=False)
 
     del _vol, _stim
 
@@ -392,23 +419,20 @@ _bb1 = [ax.get_tightbbox(renderer) for ax in _row1_axes]
 _y0  = max(inv.transform((bb.x0, bb.y1))[1] for bb in _bb0)
 _y1  = max(inv.transform((bb.x0, bb.y1))[1] for bb in _bb1)
 for bb, lbl, y in zip(_bb0 + _bb1,
-                      ['a)', 'b)', 'c)', 'd)', 'e)', 'f)', 'g)', 'h)'],
+                      ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'],
                       [_y0]*4 + [_y1]*4):
     x0 = inv.transform((bb.x0, bb.y1))[0]
     fig.text(x0, y, lbl, fontsize=PANEL_LBL, fontweight='bold',
              va='bottom', ha='left', color='black', transform=fig.transFigure)
 
 # ---------------------------------------------------------------------------
-# Save
+# Save — PDF first per janne.matplotlibrc default; PNG for quick preview.
 # ---------------------------------------------------------------------------
 OUT_DIR = os.path.dirname(os.path.abspath(__file__))
-out_png = os.path.join(OUT_DIR, 'fig_vrest_blank.png')
 out_pdf = os.path.join(OUT_DIR, 'fig_vrest_blank.pdf')
-out_jpg = os.path.join(OUT_DIR, 'fig_vrest_blank.jpg')
-plt.savefig(out_png, dpi=300, bbox_inches='tight')
+out_png = os.path.join(OUT_DIR, 'fig_vrest_blank.png')
 plt.savefig(out_pdf, bbox_inches='tight')
-plt.savefig(out_jpg, dpi=300, bbox_inches='tight', pil_kwargs={'quality': 95})
+plt.savefig(out_png, dpi=300, bbox_inches='tight')
 plt.close()
-print(f'Saved: {out_png}')
 print(f'Saved: {out_pdf}')
-print(f'Saved: {out_jpg}')
+print(f'Saved: {out_png}')
