@@ -306,10 +306,12 @@ class ODEParamsBase:
     "flyvis_B_NULL",
     "flyvis_C_NULL",
     "flyvis_known_ode",
-    "flyvis_hybrid",
     "flyvis_hybrid_flywireRF",
-    "flyvis_hybrid_zeroedge",
-    "flyvis_hybrid_flywireRF_zeroedge",
+    "flyvis_hybrid_flywireRF_zeroedge_sl",
+    "flyvis_hybrid_flywireRF_zeroedge_cross_sl",
+    "flyvis_hybrid_flywireRF_known_ode",
+    "flyvis_hybrid_flywireRF_zeroedge_sl_known_ode",
+    "flyvis_hybrid_flywireRF_zeroedge_cross_sl_known_ode",
 )
 @dataclass
 class FlyVisODEParams(ODEParamsBase):

@@ -177,11 +177,13 @@ class HeterogeneousSynapseCount(Parameter):
 
 # Map signal_model_name → variant directory prefix
 _VARIANT_PREFIXES = {
-    "flyvis_hybrid": "flyvis_hybrid",
     "flyvis_hybrid_flywireRF": "flyvis_hybrid_flywireRF",
-    "flyvis_hybrid_placeholder": "flyvis_hybrid",  # same as v1
-    "flyvis_hybrid_zeroedge": "flyvis_hybrid_zeroedge",
-    "flyvis_hybrid_flywireRF_zeroedge": "flyvis_hybrid_flywireRF_zeroedge",
+    "flyvis_hybrid_flywireRF_zeroedge_sl": "flyvis_hybrid_flywireRF_zeroedge",
+    "flyvis_hybrid_flywireRF_zeroedge_cross_sl": "flyvis_hybrid_flywireRF_zeroedge",
+    # known-ODE variants reuse the same parquet tables as the GNN variant
+    "flyvis_hybrid_flywireRF_known_ode": "flyvis_hybrid_flywireRF",
+    "flyvis_hybrid_flywireRF_zeroedge_sl_known_ode": "flyvis_hybrid_flywireRF_zeroedge",
+    "flyvis_hybrid_flywireRF_zeroedge_cross_sl_known_ode": "flyvis_hybrid_flywireRF_zeroedge",
 }
 
 
@@ -204,9 +206,16 @@ def _table_dir(
             f"Available: {sorted(_VARIANT_PREFIXES.keys())}"
         )
 
-    has_zero = signal_name.endswith("_zeroedge")
+    has_zero = "_zeroedge" in signal_name
+    # Determine parquet dir suffix from signal model name
+    if "_cross_sl" in signal_name:
+        dir_suffix = "_cross_sl"
+    elif "_sl" in signal_name and "_cross" not in signal_name:
+        dir_suffix = "_sl"
+    else:
+        dir_suffix = ""
     if has_zero:
-        dirname = f"{prefix}_e{extent}_u{edge_uncertainty}"
+        dirname = f"{prefix}_e{extent}_u{edge_uncertainty}{dir_suffix}"
     else:
         dirname = f"{prefix}_e{extent}"
 
