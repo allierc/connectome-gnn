@@ -1,3 +1,4 @@
+import json
 import logging
 from contextlib import contextmanager
 from itertools import product
@@ -349,7 +350,14 @@ class MultiTaskDavis(MultiTaskDataset):
         ValueError: If any element in tasks is invalid.
     """
 
-    original_framerate: int = 24  # DAVIS sequences are typically around this framerate
+    # Datasets without metadata.json get this fallback framerate. Restricted to a
+    # narrow allow-list (see _MISSING_METADATA_EXEMPTIONS) — every other root_dir
+    # MUST ship a metadata.json with framerate_fps.
+    _MISSING_METADATA_EXEMPTIONS: Tuple[str, ...] = (
+        "/groups/saalfeld/home/allierc/signaling/DATAVIS/JPEGImages/480p",
+    )
+    _EXEMPT_FALLBACK_FRAMERATE_FPS: int = 24
+
     dt: float = 1 / 50
     t_pre: float = 0.0
     t_post: float = 0.0
@@ -392,6 +400,11 @@ class MultiTaskDavis(MultiTaskDataset):
             return tasks, data_keys
 
         self.tasks, self.data_keys = check_tasks(tasks)
+        # Load original_framerate from metadata.json BEFORE init_augmentation()
+        # consumes it. root_dir is the directory containing per-video folders
+        # (typically .../JPEGImages/480p/).
+        self.root_dir = Path(root_dir)
+        self.original_framerate = self._load_original_framerate(self.root_dir)
         self.interpolate = interpolate
         self.n_frames = n_frames if not unittest else 3
         self.dt = dt
@@ -422,7 +435,6 @@ class MultiTaskDavis(MultiTaskDataset):
         self.augment = augment
 
         self.unittest = unittest
-        self.root_dir = Path(root_dir)
 
         self.rendered = RenderedDavis(
             tasks=tasks,
@@ -521,6 +533,36 @@ class MultiTaskDavis(MultiTaskDataset):
         # also update augmentation because it may already be initialized
         if getattr(self, "_augmentations_are_initialized", False):
             self.update_augmentation(name, value)
+
+    @classmethod
+    def _load_original_framerate(cls, root_dir: Path) -> int:
+        """Load original_framerate from <root_dir>/metadata.json.
+
+        Mandatory for every dataset root, with one allow-listed exemption
+        (see _MISSING_METADATA_EXEMPTIONS) where 24 fps is assumed.
+        """
+        meta_path = root_dir / "metadata.json"
+        if meta_path.exists():
+            with open(meta_path) as f:
+                meta = json.load(f)
+            if "framerate_fps" not in meta:
+                raise KeyError(
+                    f"{meta_path} is missing required key 'framerate_fps'"
+                )
+            return int(meta["framerate_fps"])
+
+        if str(root_dir) in cls._MISSING_METADATA_EXEMPTIONS:
+            logger.warning(
+                "metadata.json missing at %s; using exempt fallback %d fps",
+                root_dir, cls._EXEMPT_FALLBACK_FRAMERATE_FPS,
+            )
+            return cls._EXEMPT_FALLBACK_FRAMERATE_FPS
+
+        raise FileNotFoundError(
+            f"metadata.json not found in {root_dir}. Every video dataset root "
+            f"must contain a metadata.json with at least "
+            f'{{"name": ..., "framerate_fps": <int>, "reference": ...}}.'
+        )
 
     def init_augmentation(self) -> None:
         """Initialize augmentation callables."""
