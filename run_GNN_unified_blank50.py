@@ -58,29 +58,38 @@ BLANK50_SIM_OVERRIDES = {
     'skip_short_videos': True,
 }
 
-CONDITION_FILTER = [
-    'flyvis_noise_free',
-    'flyvis_noise_005',
-    'flyvis_noise_05',
-    'flyvis_noise_005_010',
-    'flyvis_noise_005_020',
-    'flyvis_noise_005_null_edges_pc_400',
-    'flyvis_noise_005_removed_pc_20',
-    'flyvis_noise_005_removed_pc_50',
-    'flyvis_noise_005_stride_5',
-    'flyvis_noise_005_hidden_010_ngp',
-    'flyvis_noise_005_hidden_020_ngp',
-]
+#  condition name                        ->  LSF queue (gpu_<node>)
+# Comment out a row to drop it from the run. The dict is the single source of
+# truth — CONDITION_FILTER is derived from its keys, NODE_PER_CONDITION from
+# the full mapping.
+CONDITION_NODES = {
+    'flyvis_noise_free':                    'a100',
+    'flyvis_noise_005':                     'a100',
+    'flyvis_noise_05':                      'a100',
+    'flyvis_noise_005_010':                 'a100',
+    'flyvis_noise_005_020':                 'a100',
+    'flyvis_noise_005_null_edges_pc_400':   'a100',
+    'flyvis_noise_005_removed_pc_20':       'a100',
+    'flyvis_noise_005_removed_pc_50':       'a100',
+    'flyvis_noise_005_stride_5':            'a100',
+    'flyvis_noise_005_hidden_010_ngp':      'a100',
+    'flyvis_noise_005_hidden_020_ngp':      'a100',
+}
+
+CONDITION_FILTER     = list(CONDITION_NODES.keys())
+NODE_PER_CONDITION   = CONDITION_NODES
 
 
 run_all_conditions(
     hp_source='uniform',
     suffix='blank50_unified',
     hp_yaml='flyvis_unified_blank50_winner',
+    node_name='a100',
     hard_runtime_limit_min=2880,
     sim_overrides=BLANK50_SIM_OVERRIDES,
     dataset_tag='blank50',
     condition_filter=CONDITION_FILTER,
     data_augmentation_loop=500,
     conditions_per_wave=3,
+    node_name_per_condition=NODE_PER_CONDITION,
 )
