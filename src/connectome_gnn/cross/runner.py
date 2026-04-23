@@ -50,7 +50,8 @@ def run_all_conditions(hp_source, suffix, hp_yaml=None,
                         sim_overrides=None, dataset_tag=None,
                         condition_filter=None,
                         data_augmentation_loop=100,
-                        conditions_per_wave=1):
+                        conditions_per_wave=1,
+                        node_name_per_condition=None):
     """Run the 8-condition × n_folds YT-only cross-check and emit the TeX table.
 
     `output_root` resolution (highest priority wins):
@@ -101,20 +102,39 @@ def run_all_conditions(hp_source, suffix, hp_yaml=None,
     _active_bases = ([b for b in CONDITION_BASES if b in condition_filter]
                      if condition_filter is not None else CONDITION_BASES)
     assert conditions_per_wave >= 1
-    n_waves = (len(_active_bases) + conditions_per_wave - 1) // conditions_per_wave
-    print(f'    conditions_per_wave={conditions_per_wave} -> {n_waves} wave(s), '
-          f'up to {conditions_per_wave * n_folds} concurrent cluster jobs per wave')
-    for wave_i in range(n_waves):
-        chunk = _active_bases[wave_i * conditions_per_wave:
-                              (wave_i + 1) * conditions_per_wave]
-        run_condition_wave(
-            base_names=chunk, suffix=suffix, n_folds=n_folds,
-            device=device, output_root=output_root, node_name=node_name,
-            hard_runtime_limit_min=hard_runtime_limit_min,
-            force_test=force_test, cluster_test_plot=cluster_test_plot,
-            metrics_interval=metrics_interval,
-        )
-        emit_tex_file(suffix, output_root, n_folds=n_folds)
+
+    # Per-condition node override — run one base at a time so each wave uses
+    # exactly one LSF queue. Falls back to `node_name` for bases not in the dict.
+    if node_name_per_condition:
+        print(f'    node_name_per_condition active: forcing '
+              f'conditions_per_wave=1 (per-base LSF queue control)')
+        for base in _active_bases:
+            effective_node = node_name_per_condition.get(base, node_name)
+            print(f'  -> condition {base!r}: node=gpu_{effective_node}')
+            run_condition_wave(
+                base_names=[base], suffix=suffix, n_folds=n_folds,
+                device=device, output_root=output_root,
+                node_name=effective_node,
+                hard_runtime_limit_min=hard_runtime_limit_min,
+                force_test=force_test, cluster_test_plot=cluster_test_plot,
+                metrics_interval=metrics_interval,
+            )
+            emit_tex_file(suffix, output_root, n_folds=n_folds)
+    else:
+        n_waves = (len(_active_bases) + conditions_per_wave - 1) // conditions_per_wave
+        print(f'    conditions_per_wave={conditions_per_wave} -> {n_waves} wave(s), '
+              f'up to {conditions_per_wave * n_folds} concurrent cluster jobs per wave')
+        for wave_i in range(n_waves):
+            chunk = _active_bases[wave_i * conditions_per_wave:
+                                  (wave_i + 1) * conditions_per_wave]
+            run_condition_wave(
+                base_names=chunk, suffix=suffix, n_folds=n_folds,
+                device=device, output_root=output_root, node_name=node_name,
+                hard_runtime_limit_min=hard_runtime_limit_min,
+                force_test=force_test, cluster_test_plot=cluster_test_plot,
+                metrics_interval=metrics_interval,
+            )
+            emit_tex_file(suffix, output_root, n_folds=n_folds)
 
     # Step 3 — final TeX emission (idempotent).
     print('\n[3] final TeX')

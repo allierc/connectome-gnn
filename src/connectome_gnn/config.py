@@ -569,6 +569,7 @@ class TrainingConfig(BaseModel):
     # works from the staged production hook.
     model_config = ConfigDict(extra="allow")
     device: Annotated[str, Field(pattern=r"^(auto|cpu|cuda:\d+)$")] = "auto"
+    node_name: str = "a100"  # cluster GPU node: h100, a100, or l4
 
     n_epochs: int = 20
     n_epochs_init: int = 99999  # DEPRECATED: no longer used by regularizer
