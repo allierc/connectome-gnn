@@ -915,7 +915,6 @@ def data_generate_voltage(
             "n_rotations": [0, 90, 180, 270],
             "temporal_split": False,
             "dt": sim.delta_t,
-            "interpolate": True,
             "boxfilter": dict(extent=extent, kernel_size=13),
             "vertical_splits": 1,
             "center_crop_fraction": 0.6,
