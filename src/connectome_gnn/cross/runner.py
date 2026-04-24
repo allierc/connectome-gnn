@@ -50,6 +50,8 @@ def run_all_conditions(hp_source, suffix, hp_yaml=None,
                         sim_overrides=None, dataset_tag=None,
                         condition_filter=None,
                         data_augmentation_loop=100,
+                        data_augmentation_loop_overrides=None,
+                        hp_yaml_overrides=None,
                         conditions_per_wave=1,
                         node_name_per_condition=None):
     """Run the 8-condition × n_folds YT-only cross-check and emit the TeX table.
@@ -92,7 +94,9 @@ def run_all_conditions(hp_source, suffix, hp_yaml=None,
                   n_folds=n_folds, output_root=output_root,
                   sim_overrides=sim_overrides, dataset_tag=dataset_tag,
                   condition_filter=condition_filter,
-                  data_augmentation_loop=data_augmentation_loop)
+                  data_augmentation_loop=data_augmentation_loop,
+                  data_augmentation_loop_overrides=data_augmentation_loop_overrides,
+                  hp_yaml_overrides=hp_yaml_overrides)
 
     # Step 2 — per-condition cluster pipeline.
     base_cfg = NeuralGraphConfig.from_yaml(
@@ -149,7 +153,9 @@ def generate_all_yt_data(output_root=None, n_folds=5, suffix='yt_gen',
                           hp_source='per_condition', hp_yaml=None,
                           sim_overrides=None, dataset_tag=None,
                           condition_filter=None,
-                          data_augmentation_loop=100):
+                          data_augmentation_loop=100,
+                          data_augmentation_loop_overrides=None,
+                          hp_yaml_overrides=None):
     """Pre-build all 8 × n_folds YT datasets at <output_root>/graphs_data/fly/
     {base}_yt_cv{i:02d}/. The three training runners share these datasets
     (their `ensure_yt_data` calls become noops) so they can run in parallel.
@@ -179,7 +185,9 @@ def generate_all_yt_data(output_root=None, n_folds=5, suffix='yt_gen',
                   n_folds=n_folds, output_root=output_root,
                   sim_overrides=sim_overrides, dataset_tag=dataset_tag,
                   condition_filter=condition_filter,
-                  data_augmentation_loop=data_augmentation_loop)
+                  data_augmentation_loop=data_augmentation_loop,
+                  data_augmentation_loop_overrides=data_augmentation_loop_overrides,
+                  hp_yaml_overrides=hp_yaml_overrides)
 
     # 2. Generate data for each condition × fold.
     base_cfg = NeuralGraphConfig.from_yaml(
