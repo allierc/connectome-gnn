@@ -128,11 +128,16 @@ def emit_one(base_name, hp_yaml_path, out_yaml_path, suffix, yt_root,
     # Fixed training budget across all 8 conditions. Per-condition DAL
     # overrides let expensive conditions (e.g. null_edges_pc_400 with 5×
     # edges) run a smaller gradient budget so wall time stays in range.
+    # Rebuild training to drop the HP yaml's own n_epochs/DAL (avoids the
+    # duplicate-key cosmetic artifact when yaml.safe_dump is called).
     _dal = data_augmentation_loop
     if data_augmentation_loop_overrides and base_name in data_augmentation_loop_overrides:
         _dal = data_augmentation_loop_overrides[base_name]
     if 'training' in merged:
-        merged['training'] = dict(merged['training'])
+        merged['training'] = {
+            k: v for k, v in merged['training'].items()
+            if k not in ('n_epochs', 'data_augmentation_loop')
+        }
         merged['training']['n_epochs'] = 1
         merged['training']['data_augmentation_loop'] = _dal
 
@@ -145,7 +150,10 @@ def emit_one(base_name, hp_yaml_path, out_yaml_path, suffix, yt_root,
             if _k in _base_tr:
                 merged['training'][_k] = _base_tr[_k]
     if 'claude' in merged:
-        merged['claude'] = dict(merged['claude'])
+        merged['claude'] = {
+            k: v for k, v in merged['claude'].items()
+            if k not in ('n_epochs', 'data_augmentation_loop')
+        }
         merged['claude']['n_epochs'] = 1
         merged['claude']['data_augmentation_loop'] = _dal
 
