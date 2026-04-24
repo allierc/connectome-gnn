@@ -463,8 +463,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     W_true = np.column_stack([w_in_mean_t, w_in_std_t, w_out_mean_t, w_out_std_t,
                               w_in_min_t, w_in_max_t, w_out_min_t, w_out_max_t])
 
-    # n_components = n_types: one Gaussian per cell type (no over-clustering penalty).
-    n_gmm = min(n_types, n_neurons - 1)
+    n_gmm = min(100, n_neurons - 1)
     learned_combos = {
         'τ': learned_tau.reshape(-1, 1),
         'V': learned_V_rest.reshape(-1, 1),
@@ -1922,8 +1921,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 return np.column_stack([atoms[p] for p in parts])
 
             cluster_features = ode_params.clustering_features()
-            # n_components = n_types: one Gaussian per cell type.
-            n_gmm = min(n_types, n_neurons - 1)
+            n_gmm = min(100, n_neurons - 1)
 
             # Cluster learned
             print('clustering learned features...')
