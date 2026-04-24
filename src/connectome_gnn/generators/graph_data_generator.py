@@ -910,7 +910,7 @@ def data_generate_voltage(
 
         video_config = {
             "n_frames": 50,
-            "max_frames": 80,
+            "max_frames": sim.truncate_max_frames,  # None = no per-clip truncation
             "flip_axes": [0, 1],
             "n_rotations": [0, 90, 180, 270],
             "temporal_split": False,
@@ -924,7 +924,7 @@ def data_generate_voltage(
             "shuffle_sequences": True,
             "shuffle_seed": sim.seed,
         }
-        print(f"[DBG] video_config built (skip_short={sim.skip_short_videos} seed={sim.seed})", flush=True)
+        print(f"[DBG] video_config built (skip_short={sim.skip_short_videos} max_frames={sim.truncate_max_frames} seed={sim.seed})", flush=True)
 
         # create dataset(s)
         if len(datavis_root_list) == 1:
