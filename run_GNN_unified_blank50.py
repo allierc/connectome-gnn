@@ -63,11 +63,11 @@ BLANK50_SIM_OVERRIDES = {
 # truth — CONDITION_FILTER is derived from its keys, NODE_PER_CONDITION from
 # the full mapping.
 CONDITION_NODES = {
-    'flyvis_noise_free':                    'a100',
-    'flyvis_noise_005':                     'a100',
-    'flyvis_noise_05':                      'a100',
-    'flyvis_noise_005_010':                 'a100',
-    'flyvis_noise_005_020':                 'a100',
+    # 'flyvis_noise_free':                    'a100',
+    # 'flyvis_noise_005':                     'a100',
+    # 'flyvis_noise_05':                      'a100',
+    # 'flyvis_noise_005_010':                 'a100',
+    # 'flyvis_noise_005_020':                 'a100',
     'flyvis_noise_005_null_edges_pc_400':   'a100',
     'flyvis_noise_005_removed_pc_20':       'a100',
     'flyvis_noise_005_removed_pc_50':       'a100',
@@ -80,6 +80,29 @@ CONDITION_FILTER     = list(CONDITION_NODES.keys())
 NODE_PER_CONDITION   = CONDITION_NODES
 
 
+# Per-condition DAL overrides. Expensive conditions (5x edges / NGP encoder)
+# need a smaller gradient budget to keep wall time under ~6h per fold.
+# Others use the default data_augmentation_loop=500.
+DAL_OVERRIDES = {
+    'flyvis_noise_005_null_edges_pc_400': 100,   # 2.17M edges -> ~5.8h instead of ~29h
+    'flyvis_noise_005_hidden_010_ngp':    100,   # NGP encoder + anchors loss; matches winner DAL
+    'flyvis_noise_005_hidden_020_ngp':    100,   # same as _010_ngp
+}
+
+# Per-condition HP yaml overrides. stride_5 (BPTT with bs=1, coeff_g_phi_diff=9000,
+# coeff_g_phi_norm=0.1) and the hidden_*_ngp conditions (NGP-T + anchors training:
+# lr_NNR_f, coeff_anchor_voltage, n_anchor, alternate_training) have structurally
+# different training recipes that the uniform noise_005-style HP yaml cannot
+# represent — route them to their own winner yamls instead. Makes
+# `python run_GNN_unified_blank50.py` equivalent to running
+# patch_blank50_pending_cv_yamls.py after the uniform emit.
+HP_YAML_OVERRIDES = {
+    'flyvis_noise_005_stride_5':       'flyvis_noise_005_stride_5_winner',
+    'flyvis_noise_005_hidden_010_ngp': 'flyvis_noise_005_hidden_010_ngp_anchors_winner',
+    'flyvis_noise_005_hidden_020_ngp': 'flyvis_noise_005_hidden_020_ngp_anchors_winner',
+}
+
+
 run_all_conditions(
     hp_source='uniform',
     suffix='blank50_unified',
@@ -90,6 +113,8 @@ run_all_conditions(
     dataset_tag='blank50',
     condition_filter=CONDITION_FILTER,
     data_augmentation_loop=500,
+    data_augmentation_loop_overrides=DAL_OVERRIDES,
+    hp_yaml_overrides=HP_YAML_OVERRIDES,
     conditions_per_wave=3,
     node_name_per_condition=NODE_PER_CONDITION,
 )

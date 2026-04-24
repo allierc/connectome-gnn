@@ -39,11 +39,11 @@ BLANK50_SIM_OVERRIDES = {
 
 # Must match CONDITION_FILTER in run_GNN_unified_blank50.py.
 CONDITION_FILTER = [
-    'flyvis_noise_free',
-    'flyvis_noise_005',
-    'flyvis_noise_05',
-    'flyvis_noise_005_010',
-    'flyvis_noise_005_020',
+    # 'flyvis_noise_free',
+    # 'flyvis_noise_005',
+    # 'flyvis_noise_05',
+    # 'flyvis_noise_005_010',
+    # 'flyvis_noise_005_020',
     'flyvis_noise_005_null_edges_pc_400',
     'flyvis_noise_005_removed_pc_20',
     'flyvis_noise_005_removed_pc_50',
@@ -53,9 +53,30 @@ CONDITION_FILTER = [
 ]
 
 
+# Per-condition DAL overrides — must match run_GNN_unified_blank50.py.
+# Data generation itself doesn't depend on DAL, but if this script is re-run
+# it overwrites the emitted CV yamls, so the override dict stays in sync so
+# the downstream training uses the right DAL per condition.
+DAL_OVERRIDES = {
+    'flyvis_noise_005_null_edges_pc_400': 100,
+    'flyvis_noise_005_hidden_010_ngp':    100,
+    'flyvis_noise_005_hidden_020_ngp':    100,
+}
+
+# Per-condition HP yaml overrides — must match run_GNN_unified_blank50.py.
+HP_YAML_OVERRIDES = {
+    'flyvis_noise_005_stride_5':       'flyvis_noise_005_stride_5_winner',
+    'flyvis_noise_005_hidden_010_ngp': 'flyvis_noise_005_hidden_010_ngp_anchors_winner',
+    'flyvis_noise_005_hidden_020_ngp': 'flyvis_noise_005_hidden_020_ngp_anchors_winner',
+}
+
+
 generate_all_yt_data(
     suffix='blank50_gen',
     dataset_tag='blank50',
     sim_overrides=BLANK50_SIM_OVERRIDES,
     condition_filter=CONDITION_FILTER,
+    data_augmentation_loop=500,
+    data_augmentation_loop_overrides=DAL_OVERRIDES,
+    hp_yaml_overrides=HP_YAML_OVERRIDES,
 )

@@ -22,8 +22,21 @@ BLANK50_SIM_OVERRIDES = {
     'skip_short_videos': True,
 }
 
+# Same override table as run_GNN_unified_blank50.py — null_edges (5x edges)
+# and the NGP-hidden conditions run at DAL=100; everything else at DAL=500.
+DAL_OVERRIDES = {
+    'flyvis_noise_005_null_edges_pc_400': 100,
+    'flyvis_noise_005_hidden_010_ngp':    100,
+    'flyvis_noise_005_hidden_020_ngp':    100,
+}
+
+# Re-emit only the pending conditions whose yamls need updating:
+#   stride_5: currently DAL=100 on disk, bump to 500 (fast per-step, safe to use full budget)
+#   null_edges: currently DAL=500 on disk, drop to 100 (5x edges too slow at 500)
+#   hidden_*_ngp: re-emit anyway so HP tweaks to anchors_winner propagate
 CONDITION_FILTER = [
     'flyvis_noise_005_stride_5',
+    'flyvis_noise_005_null_edges_pc_400',
     'flyvis_noise_005_hidden_010_ngp',
     'flyvis_noise_005_hidden_020_ngp',
 ]
@@ -38,5 +51,6 @@ emit_yt_yamls(
     sim_overrides=BLANK50_SIM_OVERRIDES,
     dataset_tag='blank50',
     condition_filter=CONDITION_FILTER,
-    data_augmentation_loop=100,
+    data_augmentation_loop=500,
+    data_augmentation_loop_overrides=DAL_OVERRIDES,
 )

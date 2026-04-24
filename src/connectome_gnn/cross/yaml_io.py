@@ -72,7 +72,8 @@ def _load_yaml_either(cfg_name, output_root):
 def emit_one(base_name, hp_yaml_path, out_yaml_path, suffix, yt_root,
              fold_i=None, sim_seed=None, train_seed=None,
              sim_overrides=None, dataset_tag=None,
-             data_augmentation_loop=100):
+             data_augmentation_loop=100,
+             data_augmentation_loop_overrides=None):
     """Emit one hold-out training YAML by merging:
     - simulation block from <repo>/config/fly/<base_name>.yaml
     - graph_model / training / plotting / claude from hp_yaml_path
@@ -124,11 +125,16 @@ def emit_one(base_name, hp_yaml_path, out_yaml_path, suffix, yt_root,
             _hp_gm[_k] = _v
     merged['graph_model'] = _hp_gm
 
-    # Fixed training budget across all 8 conditions.
+    # Fixed training budget across all 8 conditions. Per-condition DAL
+    # overrides let expensive conditions (e.g. null_edges_pc_400 with 5×
+    # edges) run a smaller gradient budget so wall time stays in range.
+    _dal = data_augmentation_loop
+    if data_augmentation_loop_overrides and base_name in data_augmentation_loop_overrides:
+        _dal = data_augmentation_loop_overrides[base_name]
     if 'training' in merged:
         merged['training'] = dict(merged['training'])
         merged['training']['n_epochs'] = 1
-        merged['training']['data_augmentation_loop'] = data_augmentation_loop
+        merged['training']['data_augmentation_loop'] = _dal
 
     # Condition-defining training knobs always come from the base yaml. These
     # describe the data regime (e.g. stride_5 BPTT) rather than tunable HPs,
@@ -141,7 +147,7 @@ def emit_one(base_name, hp_yaml_path, out_yaml_path, suffix, yt_root,
     if 'claude' in merged:
         merged['claude'] = dict(merged['claude'])
         merged['claude']['n_epochs'] = 1
-        merged['claude']['data_augmentation_loop'] = data_augmentation_loop
+        merged['claude']['data_augmentation_loop'] = _dal
 
     if sim_seed is not None:
         merged['simulation']['seed'] = sim_seed
@@ -208,7 +214,9 @@ def emit_davis_cv_yaml(base_name, fold_i, output_root, force=False):
 
 def emit_yt_yamls(hp_source, suffix, hp_yaml_basename, n_folds, output_root,
                    sim_overrides=None, dataset_tag=None,
-                   condition_filter=None, data_augmentation_loop=100):
+                   condition_filter=None, data_augmentation_loop=100,
+                   data_augmentation_loop_overrides=None,
+                   hp_yaml_overrides=None):
     """Emit hold-out CV YAMLs for all 8 conditions × n_folds, into
     <output_root>/config/fly/. Always overwrites existing files so HP
     tweaks in the source yamls propagate on every run."""
@@ -218,7 +226,15 @@ def emit_yt_yamls(hp_source, suffix, hp_yaml_basename, n_folds, output_root,
     _active = [(b, w) for (b, w) in CONDITIONS
                if condition_filter is None or b in condition_filter]
     for base_name, winner_name in _active:
-        if hp_source == 'per_condition':
+        # Per-condition HP yaml override lets a uniform-mode pipeline opt
+        # specific conditions into their dedicated winner (e.g. stride_5's
+        # BPTT recipe or the NGP+anchors recipe for hidden_*_ngp, which the
+        # uniform noise_005-style HP yaml can't represent).
+        if hp_yaml_overrides and base_name in hp_yaml_overrides:
+            hp_yaml_path = os.path.join(
+                get_repo_root(), 'config', 'fly',
+                f'{hp_yaml_overrides[base_name]}.yaml')
+        elif hp_source == 'per_condition':
             hp_yaml_path = os.path.join(
                 get_repo_root(), 'config', 'fly', f'{winner_name}.yaml')
         else:
@@ -241,7 +257,8 @@ def emit_yt_yamls(hp_source, suffix, hp_yaml_basename, n_folds, output_root,
                           train_seed=train_seed,
                           sim_overrides=sim_overrides,
                           dataset_tag=dataset_tag,
-                          data_augmentation_loop=data_augmentation_loop)
+                          data_augmentation_loop=data_augmentation_loop,
+                          data_augmentation_loop_overrides=data_augmentation_loop_overrides)
             if ok:
                 written.append(out_yaml)
     print(f'  wrote {len(written)} hold-out YAMLs -> {out_dir}  (always overwrites)')
