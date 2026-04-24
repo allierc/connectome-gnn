@@ -68,14 +68,16 @@ def get_model_W(model) -> torch.Tensor:
 # ------------------------------------------------------------------ #
 
 def compute_r_squared(true: np.ndarray, learned: np.ndarray) -> tuple[float, float]:
-    """Standard R² (1 − MSE/var(true)) and OLS slope of learned on true.
-    Returns (nan, nan) on failure (e.g. degenerate var(true) = 0)."""
+    """Calibration-corrected R²: linearly fit `learned → true` (find a, b such
+    that a·learned + b ≈ true), then R² = 1 − var(true − fitted) / var(true).
+    Slope `a` of the calibration is also returned. (nan, nan) on failure."""
     try:
+        a, b = np.polyfit(learned, true, 1)
+        fitted = a * learned + b
         var_true = float(np.var(true))
-        mse = float(np.mean((true - learned) ** 2))
+        mse = float(np.mean((true - fitted) ** 2))
         r_squared = 1.0 - mse / var_true if var_true > 0 else float('nan')
-        slope = float(np.polyfit(true, learned, 1)[0]) if var_true > 0 else float('nan')
-        return r_squared, slope
+        return r_squared, float(a)
     except Exception:
         return float('nan'), float('nan')
 
