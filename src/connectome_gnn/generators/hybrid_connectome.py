@@ -31,9 +31,11 @@ from flyvis.network.initialization import (
     Parameter,
     InitialDistribution,
     deepcopy_config,
+    get_scatter_indices,
     symmetry_masks,
 )
 from flyvis.utils.class_utils import forward_subclass
+from flyvis.utils.type_utils import byte_to_str
 
 from connectome_gnn.log import get_logger
 
@@ -143,6 +145,61 @@ class _InMemoryFlyvisConnectome:
 
     def __contains__(self, key):
         return hasattr(self, key)
+
+
+class ZeroEdgeAwareSynapseCountScaling(Parameter):
+    """SynapseCountScaling that zeros out zero-edge-only type pairs.
+
+    Identical to flyvis's ``SynapseCountScaling`` except that type pairs
+    whose edges *all* have ``n_syn == 0`` receive ``syn_strength = 0``
+    instead of ``scale / 1e-6``.
+    """
+
+    @deepcopy_config
+    def __init__(self, param_config, connectome):
+        edges_dir = connectome.edges
+
+        edges = pd.DataFrame({
+            k: byte_to_str(edges_dir[k][:])
+            for k in [*param_config.groupby, "n_syn"]
+        })
+        grouped_edges = edges.groupby(
+            param_config.groupby, as_index=False, sort=False
+        ).mean()
+
+        scale = param_config.get("scale", 0.01)
+        mean_n_syn = grouped_edges.n_syn.values
+
+        # Zero-only type pairs: all edges have n_syn == 0 → group mean == 0.
+        # Set their syn_strength to 0 so W is exactly 0.
+        zero_mask = mean_n_syn == 0
+        safe_mean = np.where(zero_mask, 1.0, mean_n_syn)  # avoid division by zero
+        syn_strength = np.where(zero_mask, 0.0, scale / safe_mean)
+
+        n_zeroed = int(zero_mask.sum())
+        if n_zeroed > 0:
+            logger.info(
+                f"ZeroEdgeAwareSynapseCountScaling: zeroed syn_strength for "
+                f"{n_zeroed}/{len(grouped_edges)} type pairs (all edges have n_syn=0)"
+            )
+
+        param_config.target_type = grouped_edges.target_type.values
+        param_config.source_type = grouped_edges.source_type.values
+        param_config.value = syn_strength
+
+        self.indices = get_scatter_indices(edges, grouped_edges, param_config.groupby)
+        self.parameter = forward_subclass(
+            InitialDistribution, param_config, subclass_key="initial_dist"
+        )
+        self.keys = list(
+            zip(
+                param_config.source_type.tolist(),
+                param_config.target_type.tolist(),
+            )
+        )
+        self.symmetry_masks = symmetry_masks(
+            param_config.get("symmetric", []), self.keys
+        )
 
 
 class HeterogeneousSynapseCount(Parameter):
@@ -331,7 +388,7 @@ def load_hybrid_network(
                 std=1.0,
             ),
             syn_strength=Namespace(
-                type="SynapseCountScaling",
+                type="ZeroEdgeAwareSynapseCountScaling",
                 initial_dist="Value",
                 requires_grad=True,
                 scale=0.01,
@@ -362,6 +419,27 @@ def load_hybrid_network(
     for key in free_param_keys:
         if key in trained_params:
             params[key] = trained_params[key]
+
+    # Handle shape mismatch for edges_syn_strength when cross-type zero-edges
+    # introduce new (source_type, target_type) pairs not present in the original
+    # flyvis checkpoint.  Map matching pairs and initialize new pairs with the
+    # hybrid network's default values.
+    hybrid_ss = hybrid_net.edges_syn_strength
+    if "edges_syn_strength" in params and params["edges_syn_strength"].shape != hybrid_ss.shape:
+        trained_ss = params["edges_syn_strength"]
+        orig_keys = orig_net.edge_params.syn_strength.keys
+        hybrid_keys = hybrid_net.edge_params.syn_strength.keys
+        orig_key_to_idx = {k: i for i, k in enumerate(orig_keys)}
+
+        expanded = hybrid_ss.detach().clone()  # start from hybrid defaults
+        for j, hk in enumerate(hybrid_keys):
+            if hk in orig_key_to_idx:
+                expanded[j] = trained_ss[orig_key_to_idx[hk]]
+        params["edges_syn_strength"] = expanded
+        logger.info(
+            f"expanded edges_syn_strength: {trained_ss.shape[0]} → {expanded.shape[0]} "
+            f"({expanded.shape[0] - trained_ss.shape[0]} new type pairs from zero-edges)"
+        )
 
     params["edges_syn_count"] = hybrid_net.edges_syn_count
     params["edges_sign"] = hybrid_net.edges_sign
