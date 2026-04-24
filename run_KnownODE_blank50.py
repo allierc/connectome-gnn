@@ -1,11 +1,13 @@
 """Known_ODE baseline cross-check on 50%-blank-prefix DAVIS data.
 
-Mirror of run_GNN_unified_blank50.py but swaps the unified-GNN winner HPs
-for the Known_ODE winner HPs (flyvis_noise_free_known_ode_reg_winner,
-same as run_KnownODE_conditions.py). All other settings — 11-condition
-filter, blank_prefix_fraction=0.50 override, dataset_tag='blank50',
-a100 @ 48h, data_augmentation_loop=500, 3-condition waves — match the
-GNN blank50 pipeline so the two tables are directly comparable.
+Mirror of run_GNN_unified_blank50.py (new layout: CONDITION_NODES dict as
+single source of truth, node_name_per_condition wired through) but swaps
+the unified-GNN winner HPs for the Known_ODE winner HPs
+(flyvis_noise_free_known_ode_reg_winner, same as run_KnownODE_conditions.py).
+
+Restricted to 8 conditions — drops stride_5 and both hidden_NGP variants
+(the hidden-NGP ones have no Known_ODE analogue since Known_ODE has no
+NGP-T INR, and stride_5 is out of scope for this baseline table).
 
 Config files used (relative to repo config/fly/):
 
@@ -18,14 +20,11 @@ Config files used (relative to repo config/fly/):
     flyvis_noise_005_null_edges_pc_400.yaml
     flyvis_noise_005_removed_pc_20.yaml
     flyvis_noise_005_removed_pc_50.yaml
-    flyvis_noise_005_stride_5.yaml
-    flyvis_noise_005_hidden_010_ngp.yaml
-    flyvis_noise_005_hidden_020_ngp.yaml
 
   HP yaml (graph_model + training blocks, applied to every condition):
     flyvis_noise_free_known_ode_reg_winner.yaml
 
-  emitted CV yamls (55 total, written to <output_root>/config/fly/):
+  emitted CV yamls (40 total, written to <output_root>/config/fly/):
     {base}_blank50_known_ode_cv{00..04}.yaml
 
     datasets: <output_root>/graphs_data/fly/<base>_blank50_cv{00..04}/  (shared with GNN blank50)
@@ -34,11 +33,7 @@ Config files used (relative to repo config/fly/):
 Wall-clock per Known_ODE run: typically <<1h on a100 (far smaller
 parameter count than the GNN), but the 48h ceiling matches the GNN
 pipeline for scheduling consistency.
-Total training units: 11 conditions × 5 folds = 55 Known_ODE runs.
-
-Hidden-neuron conditions (hidden_010_ngp, hidden_020_ngp) train on
-zero-silenced hidden voltages — Known_ODE has no NGP-T INR. That's
-intentional for the baseline comparison, not a bug.
+Total training units: 8 conditions × 5 folds = 40 Known_ODE runs.
 
 This script does NOT generate data — it fails fast if the datasets are
 missing. Run run_generate_holdout_data_blank50.py first; its datasets
@@ -60,25 +55,30 @@ BLANK50_SIM_OVERRIDES = {
     'skip_short_videos': True,
 }
 
-CONDITION_FILTER = [
-    'flyvis_noise_free',
-    'flyvis_noise_005',
-    'flyvis_noise_05',
-    'flyvis_noise_005_010',
-    'flyvis_noise_005_020',
-    'flyvis_noise_005_null_edges_pc_400',
-    'flyvis_noise_005_removed_pc_20',
-    'flyvis_noise_005_removed_pc_50',
-    'flyvis_noise_005_stride_5',
-    'flyvis_noise_005_hidden_010_ngp',
-    'flyvis_noise_005_hidden_020_ngp',
-]
+#  condition name                        ->  LSF queue (gpu_<node>)
+# Comment out a row to drop it from the run. The dict is the single source of
+# truth — CONDITION_FILTER is derived from its keys, NODE_PER_CONDITION from
+# the full mapping.
+CONDITION_NODES = {
+    'flyvis_noise_free':                    'a100',
+    'flyvis_noise_005':                     'a100',
+    'flyvis_noise_05':                      'a100',
+    'flyvis_noise_005_010':                 'a100',
+    'flyvis_noise_005_020':                 'a100',
+    'flyvis_noise_005_null_edges_pc_400':   'a100',
+    'flyvis_noise_005_removed_pc_20':       'a100',
+    'flyvis_noise_005_removed_pc_50':       'a100',
+}
+
+CONDITION_FILTER     = list(CONDITION_NODES.keys())
+NODE_PER_CONDITION   = CONDITION_NODES
 
 
 run_all_conditions(
     hp_source='uniform',
     suffix='blank50_known_ode',
     hp_yaml='flyvis_noise_free_known_ode_reg_winner',
+    node_name='a100',
     hard_runtime_limit_min=2880,
     sim_overrides=BLANK50_SIM_OVERRIDES,
     dataset_tag='blank50',
