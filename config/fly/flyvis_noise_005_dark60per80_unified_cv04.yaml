@@ -1,7 +1,7 @@
-description: 'Cross-check YT-training variant of flyvis_noise_005 fold=0 (dark60per80_unified).
-  sim_seed=42 train_seed=1042. HPs: flyvis_unified_blank50_winner.yaml.
+description: 'Cross-check YT-training variant of flyvis_noise_005 fold=4 (dark60per80_unified).
+  sim_seed=46 train_seed=1046. HPs: flyvis_unified_blank50_winner.yaml.
   Windowed injection: l=60, m=80 (see bsweep PR #33 V_rest analysis).'
-dataset: flyvis_noise_005_dark60per80_cv00
+dataset: flyvis_noise_005_dark60per80_cv04
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ''
@@ -19,7 +19,7 @@ simulation:
   baseline_value: 0
   visual_input_type: DAVIS
   noise_model_level: 0.05
-  seed: 42
+  seed: 46
   datavis_roots:
   - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
   skip_short_videos: false
@@ -76,5 +76,5 @@ training:
   regul_annealing_rate: 0.0
   w_init_mode: randn_scaled
   use_gt_edges: true
-  seed: 1042
-config_file: fly/flyvis_noise_005_dark60per80_unified_cv00
+  seed: 1046
+config_file: fly/flyvis_noise_005_dark60per80_unified_cv04
