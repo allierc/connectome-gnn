@@ -116,5 +116,4 @@ run_all_conditions(
     data_augmentation_loop_overrides=DAL_OVERRIDES,
     hp_yaml_overrides=HP_YAML_OVERRIDES,
     conditions_per_wave=3,
-    node_name_per_condition=NODE_PER_CONDITION,
 )
