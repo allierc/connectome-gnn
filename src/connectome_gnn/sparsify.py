@@ -510,14 +510,12 @@ def clustering_evaluation_augmented(data, type_list, eps=0.5):
     return {'n_clusters_found': n_clusters_found, 'n_noise_points': n_noise_points, 'eps_used': eps,
             'ari': ari, 'nmi': nmi, 'accuracy': accuracy, 'silhouette': sil}
 
-def clustering_spectral(data, type_list, n_clusters=None):
+def clustering_spectral(data, type_list, n_clusters):
     from scipy.optimize import linear_sum_assignment
     from sklearn.cluster import SpectralClustering
     from sklearn.metrics import accuracy_score, adjusted_rand_score, normalized_mutual_info_score, silhouette_score
 
     true_labels = to_numpy(type_list).flatten()
-    if n_clusters is None:
-        n_clusters = len(np.unique(true_labels))
 
     spectral = SpectralClustering(n_clusters=n_clusters, affinity='nearest_neighbors', n_neighbors=10, random_state=42)
     cluster_labels = spectral.fit_predict(data)
@@ -568,15 +566,13 @@ def clustering_hdbscan(data, type_list, min_cluster_size=5):
     return {'n_clusters_found': n_clusters_found, 'min_cluster_size': min_cluster_size,
             'accuracy': accuracy, 'ari': ari, 'nmi': nmi, 'silhouette': sil}
 
-def clustering_gmm(data, type_list, n_components=None, standardize=True):
+def clustering_gmm(data, type_list, n_components, standardize=True):
     from scipy.optimize import linear_sum_assignment
     from sklearn.metrics import accuracy_score, adjusted_rand_score, normalized_mutual_info_score, silhouette_score
     from sklearn.mixture import GaussianMixture
     from sklearn.preprocessing import StandardScaler
 
     true_labels = to_numpy(type_list).flatten()
-    if n_components is None:
-        n_components = len(np.unique(true_labels))
 
     # Z-score each feature column so GMM Gaussians aren't dominated by the
     # highest-variance raw feature (e.g. W-stats drowning out tau / V_rest).
