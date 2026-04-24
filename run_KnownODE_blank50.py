@@ -30,7 +30,7 @@ Config files used (relative to repo config/fly/):
     datasets: <output_root>/graphs_data/fly/<base>_blank50_cv{00..04}/  (shared with GNN blank50)
     tex out : <output_root>/log/cv_blank50_known_ode_rows.tex
 
-Wall-clock per Known_ODE run: typically <<1h on a100 (far smaller
+Wall-clock per Known_ODE run: typically <<1h on l4 (far smaller
 parameter count than the GNN), but the 48h ceiling matches the GNN
 pipeline for scheduling consistency.
 Total training units: 8 conditions × 5 folds = 40 Known_ODE runs.
@@ -60,14 +60,14 @@ BLANK50_SIM_OVERRIDES = {
 # truth — CONDITION_FILTER is derived from its keys, NODE_PER_CONDITION from
 # the full mapping.
 CONDITION_NODES = {
-    'flyvis_noise_free':                    'a100',
-    'flyvis_noise_005':                     'a100',
-    'flyvis_noise_05':                      'a100',
-    'flyvis_noise_005_010':                 'a100',
-    'flyvis_noise_005_020':                 'a100',
-    'flyvis_noise_005_null_edges_pc_400':   'a100',
-    'flyvis_noise_005_removed_pc_20':       'a100',
-    'flyvis_noise_005_removed_pc_50':       'a100',
+    'flyvis_noise_free':                    'l4',
+    'flyvis_noise_005':                     'l4',
+    'flyvis_noise_05':                      'l4',
+    'flyvis_noise_005_010':                 'l4',
+    'flyvis_noise_005_020':                 'l4',
+    'flyvis_noise_005_null_edges_pc_400':   'l4',
+    'flyvis_noise_005_removed_pc_20':       'l4',
+    'flyvis_noise_005_removed_pc_50':       'l4',
 }
 
 CONDITION_FILTER     = list(CONDITION_NODES.keys())
@@ -78,7 +78,7 @@ run_all_conditions(
     hp_source='uniform',
     suffix='blank50_known_ode',
     hp_yaml='flyvis_noise_free_known_ode_reg_winner',
-    node_name='a100',
+    node_name='l4',
     hard_runtime_limit_min=2880,
     sim_overrides=BLANK50_SIM_OVERRIDES,
     dataset_tag='blank50',
