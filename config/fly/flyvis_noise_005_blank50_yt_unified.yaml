@@ -19,7 +19,7 @@ simulation:
   visual_input_type: DAVIS
   noise_model_level: 0.05
   seed: 42
-  skip_short_videos: true
+  skip_short_videos: false
   blank_prefix_fraction: 0.5
   datavis_roots:
     - /groups/saalfeld/home/kumarv4/web_datasets/YouTube-VOS
