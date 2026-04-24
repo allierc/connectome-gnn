@@ -3,12 +3,19 @@ data_paths.json
 
 # Track only biomodel config folders (fly, drosophila_cx, larva, zebrafish_oculomotor)
 config/*
-config/fly/archive/
-config/fly/archive_2/
+!config/fly/
+config/fly/*.yaml
+config/fly/archive/*
+config/fly/archive_2/*
 
 # Ignore LLM-generated config files (environment-specific, stored in GraphData)
 config/**/*_Claude_*.yaml
 config/**/*_winner.yaml
+
+# Always track flyvis_hybrid_flywireRF configs, even in archive folders
+!config/fly/flyvis_hybrid_flywireRF_*.yaml
+!config/fly/archive/flyvis_hybrid_flywireRF_*.yaml
+!config/fly/archive_2/flyvis_hybrid_flywireRF_*.yaml
 
 # Data files (large simulation data)
 *.npy
