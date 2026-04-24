@@ -13,9 +13,7 @@ from typing import Optional
 
 import numpy as np
 import torch
-from scipy.optimize import curve_fit
 
-from connectome_gnn.fitting_models import linear_model
 from connectome_gnn.utils import graphs_data_path, to_numpy
 
 # ------------------------------------------------------------------ #
@@ -70,13 +68,16 @@ def get_model_W(model) -> torch.Tensor:
 # ------------------------------------------------------------------ #
 
 def compute_r_squared(true: np.ndarray, learned: np.ndarray) -> tuple[float, float]:
-    """Compute R² and linear fit slope between true and learned arrays."""
-    lin_fit, _ = curve_fit(linear_model, true, learned)
-    residuals = learned - linear_model(true, *lin_fit)
-    ss_res = np.sum(residuals ** 2)
-    ss_tot = np.sum((learned - np.mean(learned)) ** 2)
-    r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0.0
-    return r_squared, lin_fit[0]
+    """Standard R² (1 − MSE/var(true)) and OLS slope of learned on true.
+    Returns (nan, nan) on failure (e.g. degenerate var(true) = 0)."""
+    try:
+        var_true = float(np.var(true))
+        mse = float(np.mean((true - learned) ** 2))
+        r_squared = 1.0 - mse / var_true if var_true > 0 else float('nan')
+        slope = float(np.polyfit(true, learned, 1)[0]) if var_true > 0 else float('nan')
+        return r_squared, slope
+    except Exception:
+        return float('nan'), float('nan')
 
 
 def compute_r_squared_filtered(true: np.ndarray, learned: np.ndarray, outlier_threshold: float = 5.0) -> tuple[float, float, np.ndarray]:
