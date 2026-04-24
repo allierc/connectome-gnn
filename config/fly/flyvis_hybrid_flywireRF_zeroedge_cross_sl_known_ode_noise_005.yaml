@@ -21,6 +21,10 @@ simulation:
   derivative_smoothing_window: 1
   seed: 42
   edge_uncertainty: 1
+  datavis_roots:
+  - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
+  skip_short_videos: true
+  blank_prefix_fraction: 0.5
 graph_model:
   signal_model_name: flyvis_hybrid_flywireRF_zeroedge_cross_sl_known_ode
   prediction: first_derivative
