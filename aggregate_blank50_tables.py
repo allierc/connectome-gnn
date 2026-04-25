@@ -29,6 +29,9 @@ rollout + data_plot) for every GNN fold (55 jobs). Force-removes existing
 rollout/test logs and metrics.txt so stale artifacts can't shadow the rerun.
 Implies --data_plot. Use when you want to redo the whole post-training
 evaluation pipeline.
+
+Example:
+    python aggregate_blank50_tables.py --test_plot --node_name l4 --test_plot_runtime_min 360
 """
 
 import argparse
@@ -105,7 +108,8 @@ ROW_META = {
 # Table 1 (Known-ODE vs GNN) row spec: (model_label, condition_label, sigma, suffix, base).
 # Empty model_label = continuation of previous model block (suppress the column).
 TABLE1_SPEC = [
-    ('Known ODE',  'low noise',  '0.05', KO_SUFFIX,  'flyvis_noise_005'),
+    ('Known ODE',  'noise-free', '0',    KO_SUFFIX,  'flyvis_noise_free'),
+    ('',           'low noise',  '0.05', KO_SUFFIX,  'flyvis_noise_005'),
     ('',           'high noise', '0.5',  KO_SUFFIX,  'flyvis_noise_05'),
     ('GNN (ours)', 'noise-free', '0',    GNN_SUFFIX, 'flyvis_noise_free'),
     ('',           'low noise',  '0.05', GNN_SUFFIX, 'flyvis_noise_005'),
