@@ -41,6 +41,8 @@ if __name__ == "__main__":
                         help="Force regeneration of data even if it already exists")
     parser.add_argument("--skip_phase2", action="store_true", default=False,
                         help="CV: skip phase 2 (zero-shot DAVIS→hold-out test). Use when no pre-trained DAVIS model exists.")
+    parser.add_argument("--test_mode", type=str, default="",
+                        help='Test-time variant, e.g. "test_ablation_50" (zero out 50%% of edges before rollout) or "test_modified_0.1" (add Gaussian noise σ=0.1 to W).')
 
     print()
     device = []
@@ -86,6 +88,34 @@ if __name__ == "__main__":
             'flyvis_noise_005_blank10',
             'flyvis_noise_005_blank25',
             'flyvis_noise_005_blank50',
+        ],
+        'flyvis_noise_free_blank50_unified_cv': [
+            'flyvis_noise_free_blank50_unified_cv00',
+            'flyvis_noise_free_blank50_unified_cv01',
+            'flyvis_noise_free_blank50_unified_cv02',
+            'flyvis_noise_free_blank50_unified_cv03',
+            'flyvis_noise_free_blank50_unified_cv04',
+        ],
+        'flyvis_noise_005_blank50_unified_cv': [
+            'flyvis_noise_005_blank50_unified_cv00',
+            'flyvis_noise_005_blank50_unified_cv01',
+            'flyvis_noise_005_blank50_unified_cv02',
+            'flyvis_noise_005_blank50_unified_cv03',
+            'flyvis_noise_005_blank50_unified_cv04',
+        ],
+        'flyvis_noise_05_blank50_unified_cv': [
+            'flyvis_noise_05_blank50_unified_cv00',
+            'flyvis_noise_05_blank50_unified_cv01',
+            'flyvis_noise_05_blank50_unified_cv02',
+            'flyvis_noise_05_blank50_unified_cv03',
+            'flyvis_noise_05_blank50_unified_cv04',
+        ],
+        'hybrid_flywireRF_variants': [
+            'flyvis_hybrid_flywireRF_noise_005',
+            'flyvis_hybrid_flywireRF_e15_noise_005',
+            'flyvis_hybrid_flywireRF_zeroedge_cross_sl_noise_005',
+            'flyvis_hybrid_flywireRF_zeroedge_cross_sl_e15_noise_005',
+            'flyvis_hybrid_flywireRF_zeroedge_sl_noise_005',
         ],
     }
 
@@ -284,7 +314,7 @@ if __name__ == "__main__":
                 verbose=False,
                 best_model='best',
                 run=0,
-                test_mode="",   # test_ablation_50
+                test_mode=args.test_mode,   # e.g. "test_ablation_50"
                 sample_embedding=False,
                 step=10,
                 n_rollout_frames=250,
@@ -345,3 +375,5 @@ if __name__ == "__main__":
 # unset GNN_OUTPUT_ROOT
 # CUDA_VISIBLE_DEVICES=1 python GNN_Main.py -o train_test_plot flyvis_noise_005_hidden_010_ngp_anchors --output_root /groups/saalfeld/home/allierc/GraphData
 # CUDA_VISIBLE_DEVICES=0 python GNN_Main.py -o train_test_plot flyvis_noise_005_ss0 --output_root /groups/saalfeld/home/allierc/GraphData 
+
+# bsub -n 2 -gpu "num=1" -q gpu_h100 -W 6000 -Is "python GNN_Main.py -o generate_train_test_plot hybrid_flywireRF_variants --force"

@@ -560,7 +560,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     plt.ylabel(r'UMAP$_2$', fontsize=48)
     plt.xticks(fontsize=24)
     plt.yticks(fontsize=24)
-    plt.text(0.05, 0.95, f"N: {n_neurons}\naccuracy: {cluster_acc:.2f}",
+    plt.text(0.05, 0.95, f"accuracy: {cluster_acc:.2f}",
              transform=plt.gca().transAxes, fontsize=32, verticalalignment='top')
     plt.tight_layout()
     plt.savefig(f'{log_dir}/results/embedding_augmented_{config_indices}.png', dpi=300)
@@ -967,6 +967,16 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             plt.ylabel(r'$a_{i1}$', fontsize=48)
             plt.xticks(fontsize=24)
             plt.yticks(fontsize=24)
+            # Per-panel axis range derived from the embedding's bounding box,
+            # with a small relative margin so points aren't on the spines.
+            _a0 = to_numpy(model.a[:, 0])
+            _a1 = to_numpy(model.a[:, 1])
+            _x_lo, _x_hi = float(_a0.min()), float(_a0.max())
+            _y_lo, _y_hi = float(_a1.min()), float(_a1.max())
+            _x_pad = max(0.05 * (_x_hi - _x_lo), 1e-3)
+            _y_pad = max(0.05 * (_y_hi - _y_lo), 1e-3)
+            ax.set_xlim(_x_lo - _x_pad, _x_hi + _x_pad)
+            ax.set_ylim(_y_lo - _y_pad, _y_hi + _y_pad)
             plt.tight_layout()
             plt.savefig(f'{log_dir}/results/embedding_{config_indices}.png', dpi=300)
             plt.close()
@@ -1028,6 +1038,36 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             plt.tight_layout()
             plt.savefig(f"{log_dir}/results/g_phi_{config_indices}_domain.png", dpi=300)
             plt.close()
+
+            # NEW: scatter plot of learned vs true g_phi outputs.
+            # Each point = one (neuron, v_j domain point) pair, coloured by
+            # neuron type. Complements the side-by-side curve view above.
+            if func_true_g_phi is not None and func_true_g_phi.shape == func_np.shape:
+                _x_flat = func_true_g_phi.ravel()
+                _y_flat = func_np.ravel()
+                _type_flat = np.repeat(type_np, func_np.shape[1])
+                _r2_g_scatter, _slope_g_scatter = compute_r_squared(_x_flat, _y_flat)
+                fig = plt.figure(figsize=(10, 9))
+                plt.scatter(_x_flat, _y_flat,
+                            c=cmap.color(_type_flat.astype(int)),
+                            s=max(0.5, _dot_s * 0.25),
+                            alpha=max(0.05, _dot_alpha * 0.4),
+                            edgecolors='none')
+                _lo = float(min(_x_flat.min(), _y_flat.min()))
+                _hi = float(max(_x_flat.max(), _y_flat.max()))
+                plt.plot([_lo, _hi], [_lo, _hi], 'k--', lw=1.2, alpha=0.6)
+                plt.text(0.05, 0.95,
+                         f'R²: {_r2_g_scatter:.2f}\nslope: {_slope_g_scatter:.2f}',
+                         transform=plt.gca().transAxes,
+                         verticalalignment='top', fontsize=32)
+                plt.xlabel(r'true $g_\phi(a_j, v_j)$', fontsize=48)
+                plt.ylabel(r'learned $g_\phi(a_j, v_j)$', fontsize=48)
+                plt.xticks(fontsize=24)
+                plt.yticks(fontsize=24)
+                plt.tight_layout()
+                plt.savefig(f'{log_dir}/results/g_phi_scatter_{config_indices}.png',
+                            dpi=300)
+                plt.close()
 
             # Functional Pearson r² for g_phi: per-neuron correlation between true and learned curves
             if func_true_g_phi is not None and func_true_g_phi.shape == func_np.shape:
@@ -1099,6 +1139,37 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             plt.savefig(f"{log_dir}/results/f_theta_{config_indices}_domain.png", dpi=300)
             plt.close()
 
+            # NEW: scatter plot of learned vs true f_theta outputs.
+            # Each point = one (neuron, v_i domain point) pair, coloured by
+            # neuron type. Complements the side-by-side curve view above.
+            _func_learned_f = to_numpy(func_domain_phi)
+            if func_true_f_theta is not None and func_true_f_theta.shape == _func_learned_f.shape:
+                _x_flat = func_true_f_theta.ravel()
+                _y_flat = _func_learned_f.ravel()
+                _type_flat = np.repeat(type_np, _func_learned_f.shape[1])
+                _r2_f_scatter, _slope_f_scatter = compute_r_squared(_x_flat, _y_flat)
+                fig = plt.figure(figsize=(10, 9))
+                plt.scatter(_x_flat, _y_flat,
+                            c=cmap.color(_type_flat.astype(int)),
+                            s=max(0.5, _dot_s * 0.25),
+                            alpha=max(0.05, _dot_alpha * 0.4),
+                            edgecolors='none')
+                _lo = float(min(_x_flat.min(), _y_flat.min()))
+                _hi = float(max(_x_flat.max(), _y_flat.max()))
+                plt.plot([_lo, _hi], [_lo, _hi], 'k--', lw=1.2, alpha=0.6)
+                plt.text(0.05, 0.95,
+                         f'R²: {_r2_f_scatter:.2f}\nslope: {_slope_f_scatter:.2f}',
+                         transform=plt.gca().transAxes,
+                         verticalalignment='top', fontsize=32)
+                plt.xlabel(r'true $f_\theta(a_i, v_i)$', fontsize=48)
+                plt.ylabel(r'learned $f_\theta(a_i, v_i)$', fontsize=48)
+                plt.xticks(fontsize=24)
+                plt.yticks(fontsize=24)
+                plt.tight_layout()
+                plt.savefig(f'{log_dir}/results/f_theta_scatter_{config_indices}.png',
+                            dpi=300)
+                plt.close()
+
             # Functional Pearson r² for f_theta: per-neuron correlation between true and learned curves
             func_domain_phi_np = to_numpy(func_domain_phi)
             if func_true_f_theta is not None and func_true_f_theta.shape == func_domain_phi_np.shape:
@@ -1122,12 +1193,14 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 fig = plt.figure(figsize=(10, 9))
                 plt.scatter(gt_taus_np, learned_tau, c=mc, s=_dot_s, alpha=_dot_alpha)
                 r_squared_tau, slope_tau = compute_r_squared(gt_taus_np, learned_tau)
-                plt.text(0.05, 0.95, f'R²: {r_squared_tau:.2f}\nslope: {slope_tau:.2f}\nN: {n_neurons}',
+                plt.text(0.05, 0.95, f'R²: {r_squared_tau:.2f}\nslope: {slope_tau:.2f}',
                          transform=plt.gca().transAxes, verticalalignment='top', fontsize=32)
                 plt.xlabel(r'true $\tau$', fontsize=48)
                 plt.ylabel(r'learned $\tau$', fontsize=48)
                 plt.xticks(fontsize=24)
                 plt.yticks(fontsize=24)
+                # Fixed range so τ scatter is comparable across noise levels.
+                plt.xlim(0, 0.4); plt.ylim(0, 0.4)
                 plt.tight_layout()
                 plt.savefig(f'{log_dir}/results/tau_comparison_{config_indices}.png', dpi=300)
                 plt.close()
@@ -1141,12 +1214,14 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 fig = plt.figure(figsize=(10, 9))
                 plt.scatter(gt_vrest_np, learned_V_rest, c=mc, s=_dot_s, alpha=_dot_alpha)
                 r_squared_V_rest, slope_V_rest = compute_r_squared(gt_vrest_np, learned_V_rest)
-                plt.text(0.05, 0.95, f'R²: {r_squared_V_rest:.2f}\nslope: {slope_V_rest:.2f}\nN: {n_neurons}',
+                plt.text(0.05, 0.95, f'R²: {r_squared_V_rest:.2f}\nslope: {slope_V_rest:.2f}',
                          transform=plt.gca().transAxes, verticalalignment='top', fontsize=32)
                 plt.xlabel(r'true $V_{rest}$', fontsize=48)
                 plt.ylabel(r'learned $V_{rest}$', fontsize=48)
                 plt.xticks(fontsize=24)
                 plt.yticks(fontsize=24)
+                # Fixed range so V_rest scatter is comparable across noise levels.
+                plt.xlim(0, 0.8); plt.ylim(0, 0.8)
                 plt.tight_layout()
                 plt.savefig(f'{log_dir}/results/V_rest_comparison_{config_indices}.png', dpi=300)
                 plt.close()
@@ -1292,7 +1367,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             fig = plt.figure(figsize=(10, 9))
             plt.scatter(true_in, learned_in, c=mc, s=_edge_s, alpha=_edge_alpha)
             plt.text(0.05, 0.95,
-                     f'R²: {r_squared:.2f}\nslope: {slope_corrected:.2f}\nN: {sim.n_edges}',
+                     f'R²: {r_squared:.2f}\nslope: {slope_corrected:.2f}',
                      transform=plt.gca().transAxes, verticalalignment='top', fontsize=32)
 
             plt.xlabel(r'true $W_{ij}$', fontsize=48)
@@ -1353,7 +1428,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                         # Scatter plot for each g_phi parameter
                         fig = plt.figure(figsize=(10, 9))
                         plt.scatter(gt_vals, learned_vals, c=mc, s=_dot_s, alpha=_dot_alpha)
-                        plt.text(0.05, 0.95, f'R²: {r2_p:.2f}\nslope: {slope_p:.2f}\nN: {n_neurons}',
+                        plt.text(0.05, 0.95, f'R²: {r2_p:.2f}\nslope: {slope_p:.2f}',
                                  transform=plt.gca().transAxes, verticalalignment='top', fontsize=32)
                         plt.xlabel(f'true {pname}', fontsize=48)
                         plt.ylabel(f'learned {pname}', fontsize=48)
@@ -2030,7 +2105,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             plt.ylabel(r'UMAP$_2$', fontsize=48)
             plt.xticks(fontsize=24)
             plt.yticks(fontsize=24)
-            plt.text(0.05, 0.95, f"N: {n_neurons}\naccuracy: {cluster_acc:.2f}",
+            plt.text(0.05, 0.95, f"accuracy: {cluster_acc:.2f}",
                     transform=plt.gca().transAxes, fontsize=32, verticalalignment='top')
             plt.tight_layout()
             plt.savefig(f'{log_dir}/results/embedding_augmented_{config_indices}.png', dpi=300)

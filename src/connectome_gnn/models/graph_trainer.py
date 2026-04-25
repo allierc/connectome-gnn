@@ -534,7 +534,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
         last_anchor_r2 = None
         field_R2 = None
         field_slope = None
-        pbar = trange(Niter, ncols=100)
+        pbar = trange(Niter, ncols=150)
         # Dale's law enforcement: 3 evenly spaced interventions per epoch
         dale_enabled = getattr(tc, 'dale_law', False)
         if dale_enabled:
@@ -1287,12 +1287,22 @@ def data_test(config=None, config_file=None, visualize=False, style='color frame
 
     _connconstr = any(x in config.dataset for x in ('drosophila_cx', 'zebrafish_oculomotor', 'larva'))
     if 'fly' in config.dataset or _connconstr:
-        # Route to special test (ODE regeneration) for ablation/modification experiments,
-        # otherwise use pre-generated test data
-        special_modes = ('ablation', 'modified', 'inactivity', 'special')
-        if any(m in test_mode for m in special_modes):
-            if test_mode == "":
-                test_mode = "test_ablation_0"
+        # Ablation modes (test_ablation_NN) zero out a fraction of model.W
+        # before the full rollout, so the saved rollout_bundle reflects the
+        # ablated dynamics. They go through the standard data_test_gnn path
+        # (which writes the bundle). Other special modes (modified, inactivity,
+        # ...) still need the regeneration / visualization path.
+        special_modes = ('modified', 'inactivity', 'special')
+        if 'ablation' in test_mode:
+            data_test_gnn(
+                config,
+                best_model=best_model,
+                device=device,
+                log_file=log_file,
+                test_config=test_config,
+                test_mode=test_mode,
+            )
+        elif any(m in test_mode for m in special_modes):
             data_test_gnn_special(
                 config,
                 visualize,
