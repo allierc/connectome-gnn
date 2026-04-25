@@ -149,7 +149,7 @@ def wait_for_cluster_jobs(job_ids, log_dir=None, poll_interval=60, job_prefix='c
                                 err_hint = f"  (see {err_file})"
                         print(
                             f"\033[91m  slot {slot} (job {jid}): FAILED (EXIT)"
-                            f"{err_hint} — auto-repair will read the log\033[0m"
+                            f"{err_hint}\033[0m"
                         )
 
             if slot in pending and jid not in out.stdout:
