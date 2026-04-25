@@ -23,6 +23,12 @@ Outputs (rows-only; no captions):
 Optional --data_plot: re-submit data_plot-only cluster jobs for every GNN fold
 (55 jobs) before reading metrics. Forces overwrite of existing metrics.txt.
 Use after editing parameter extraction in GNN_PlotFigure.py.
+
+Optional --test_plot: re-submit the full cross test+plot wave (data_test
+rollout + data_plot) for every GNN fold (55 jobs). Force-removes existing
+rollout/test logs and metrics.txt so stale artifacts can't shadow the rerun.
+Implies --data_plot. Use when you want to redo the whole post-training
+evaluation pipeline.
 """
 
 import argparse
@@ -34,7 +40,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'src
 from connectome_gnn.cross.tex import _fmt, _mean_sd, _parse_pearson, _parse_metrics_txt
 from connectome_gnn.cross.yaml_io import shared_cv_yaml_path, _load_yaml_either
 from connectome_gnn.LLM.cluster import (
-    submit_cluster_data_plot_job, wait_for_cluster_jobs,
+    submit_cluster_cross_test_plot_job, submit_cluster_data_plot_job,
+    wait_for_cluster_jobs,
 )
 from connectome_gnn.utils import (
     load_data_root_from_json, log_path, set_data_root,
@@ -66,9 +73,7 @@ GNN_BASES = [
 GNN_TABLE_BASES = [b for b in GNN_BASES
                    if b not in ('flyvis_noise_free', 'flyvis_noise_05')]
 
-# Known-ODE blank50 conditions shown in tab:cv_known_ode-conditions.
-# Drops removed_pc_50 (the -50% edges row) — kept training-side in
-# run_KnownODE_blank50.py but omitted from the table.
+# 8 Known-ODE blank50 conditions (run_KnownODE_blank50.py CONDITION_NODES).
 KO_BASES = [
     'flyvis_noise_free',
     'flyvis_noise_005',
@@ -77,6 +82,7 @@ KO_BASES = [
     'flyvis_noise_005_020',
     'flyvis_noise_005_null_edges_pc_400',
     'flyvis_noise_005_removed_pc_20',
+    'flyvis_noise_005_removed_pc_50',
 ]
 
 # (base, label, sigma, gamma, edges) — used by tab:cv_cross_noise (GNN) and
@@ -247,6 +253,64 @@ def _submit_data_plot_jobs(output_root, n_folds, node_name, runtime_min):
     )
 
 
+def _submit_test_plot_jobs(output_root, n_folds, node_name, runtime_min):
+    """Force-rerun the cross test+plot wave for every GNN blank50 fold
+    (55 jobs). Each job re-runs data_test (rollout on the held-out 20% of
+    its own fold) AND data_plot. Removes existing rollout logs and
+    metrics.txt first so stale artifacts can't shadow the rerun.
+
+    Mirrors submit_test_plot_wave in cross/pipeline.py but ignores the
+    fold-level skip — every fold is forced."""
+    job_ids, log_dirs = {}, {}
+    slot = 0
+    for base in GNN_BASES:
+        for i in range(n_folds):
+            fd = _fold_dir(output_root, base, GNN_SUFFIX, i)
+            if not os.path.isdir(fd):
+                print(f'  [skip] {base} fold {i}: no log dir')
+                continue
+            cfg_file_field = f'fly/{base}_{GNN_SUFFIX}_cv{i:02d}'
+            cfg_path = shared_cv_yaml_path(cfg_file_field, output_root)
+            if not os.path.isfile(cfg_path):
+                cfg_path = _load_yaml_either(f'{base}_{GNN_SUFFIX}_cv{i:02d}',
+                                              output_root)
+            if not os.path.isfile(cfg_path):
+                print(f'  [skip] {base} fold {i}: yaml not found')
+                continue
+            for stale in (
+                os.path.join(fd, 'results_rollout.log'),
+                os.path.join(fd, 'results_test.log'),
+                os.path.join(fd, 'results', 'metrics.txt'),
+                os.path.join(fd, '_cross_test_plot_complete'),
+            ):
+                if os.path.isfile(stale):
+                    os.remove(stale)
+                    print(f'  [force] removed {stale}')
+            jid = submit_cluster_cross_test_plot_job(
+                slot=slot, config_path=cfg_path,
+                test_config_paths=[cfg_path],
+                analysis_log_path=os.path.join(fd, 'cluster_cross_test_plot.log'),
+                config_file_field=cfg_file_field,
+                test_config_file_fields=[cfg_file_field],
+                log_dir=fd, node_name=node_name,
+                output_root=output_root,
+                hard_runtime_limit_min=runtime_min,
+                n_rollout_frames=250,
+            )
+            if jid is not None:
+                job_ids[slot] = jid
+                log_dirs[slot] = fd
+            slot += 1
+    if not job_ids:
+        print('  [test_plot] no jobs submitted')
+        return
+    print(f'\n  [wait] {len(job_ids)} test+plot job(s)')
+    wait_for_cluster_jobs(
+        job_ids, log_dir=None, poll_interval=60,
+        job_prefix='cluster_cross_test_plot',
+    )
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -257,10 +321,20 @@ def main():
     p.add_argument('--data_plot', action='store_true',
                    help='re-run data_plot on all 55 GNN blank50 folds before '
                         'aggregating (cluster jobs, force-overwrite metrics.txt)')
+    p.add_argument('--test_plot', action='store_true',
+                   help='re-run the cross test+plot wave (data_test rollout '
+                        '+ data_plot) on all 55 GNN blank50 folds before '
+                        'aggregating. Force-removes existing results_rollout.log, '
+                        'results_test.log, metrics.txt, and the '
+                        '_cross_test_plot_complete marker. Implies --data_plot.')
     p.add_argument('--node_name', default='a100',
-                   help='LSF queue suffix for --data_plot jobs (default a100)')
+                   help='LSF queue suffix for --data_plot/--test_plot jobs '
+                        '(default a100)')
     p.add_argument('--runtime_min', type=int, default=60,
                    help='--data_plot job runtime limit in minutes (default 60)')
+    p.add_argument('--test_plot_runtime_min', type=int, default=240,
+                   help='--test_plot job runtime limit in minutes (default 240; '
+                        'rollout dominates wall time)')
     args = p.parse_args()
 
     output_root = _resolve_output_root(args.output_root)
@@ -270,10 +344,17 @@ def main():
     print('aggregate blank50 -> tex tables')
     print(f'  data root:  {output_root}')
     print(f'  n folds:    {args.n_folds}')
+    print(f'  test_plot:  {args.test_plot}')
     print(f'  data_plot:  {args.data_plot}')
     print('=' * 60)
 
-    if args.data_plot:
+    if args.test_plot:
+        # test_plot supersedes data_plot — the same subprocess runs data_plot
+        # at the end of each cross test+plot job.
+        print('\n[1] re-running cross test+plot on all GNN blank50 folds')
+        _submit_test_plot_jobs(output_root, args.n_folds,
+                               args.node_name, args.test_plot_runtime_min)
+    elif args.data_plot:
         print('\n[1] re-running data_plot on all GNN blank50 folds')
         _submit_data_plot_jobs(output_root, args.n_folds,
                                args.node_name, args.runtime_min)
