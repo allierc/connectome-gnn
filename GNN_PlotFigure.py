@@ -961,23 +961,29 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 spine.set_alpha(0.75)
             for n in range(n_types):
                 pos = torch.argwhere(type_list == n)
-                plt.scatter(to_numpy(model.a[pos, 0]), to_numpy(model.a[pos, 1]), s=_dot_s, color=colors_65[n],
-                            alpha=_dot_alpha, edgecolors='none')
-            plt.xlabel(r'$a_{i0}$', fontsize=68)
-            plt.ylabel(r'$a_{i1}$', fontsize=68)
-            # Per-panel axis range derived from the embedding's bounding box,
-            # with a small relative margin so points aren't on the spines.
+                plt.scatter(to_numpy(model.a[pos, 0]), to_numpy(model.a[pos, 1]),
+                            s=80, color=colors_65[n],
+                            alpha=0.6, edgecolors='none')
+            plt.xlabel(r'$a_{i0}$', fontsize=56)
+            plt.ylabel(r'$a_{i1}$', fontsize=56)
+            # Per-panel bbox from the 5-95 percentile of each axis to ignore
+            # any outlier embeddings; small relative margin so points aren't
+            # right on the spines.
             _a0 = to_numpy(model.a[:, 0])
             _a1 = to_numpy(model.a[:, 1])
-            _x_lo, _x_hi = float(_a0.min()), float(_a0.max())
-            _y_lo, _y_hi = float(_a1.min()), float(_a1.max())
+            _x_lo, _x_hi = float(np.percentile(_a0, 5)), float(np.percentile(_a0, 95))
+            _y_lo, _y_hi = float(np.percentile(_a1, 5)), float(np.percentile(_a1, 95))
             _x_pad = max(0.05 * (_x_hi - _x_lo), 1e-3)
             _y_pad = max(0.05 * (_y_hi - _y_lo), 1e-3)
             ax.set_xlim(_x_lo - _x_pad, _x_hi + _x_pad)
             ax.set_ylim(_y_lo - _y_pad, _y_hi + _y_pad)
-            # Exactly 3 ticks per axis (endpoints + midpoint of the bbox).
-            ax.set_xticks([_x_lo, 0.5 * (_x_lo + _x_hi), _x_hi])
-            ax.set_yticks([_y_lo, 0.5 * (_y_lo + _y_hi), _y_hi])
+            # Exactly 3 ticks per axis, rounded to 1 decimal for clean labels.
+            ax.set_xticks([round(_x_lo, 1),
+                           round(0.5 * (_x_lo + _x_hi), 1),
+                           round(_x_hi, 1)])
+            ax.set_yticks([round(_y_lo, 1),
+                           round(0.5 * (_y_lo + _y_hi), 1),
+                           round(_y_hi, 1)])
             ax.tick_params(axis='both', labelsize=51)
             plt.tight_layout()
             plt.savefig(f'{log_dir}/results/embedding_{config_indices}.png', dpi=300)
@@ -1062,11 +1068,13 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                          f'R²: {_r2_g_scatter:.2f}\nslope: {_slope_g_scatter:.2f}',
                          transform=plt.gca().transAxes,
                          verticalalignment='top', fontsize=42)
-                plt.xlabel(r'true $g_\phi(a_j, v_j)$', fontsize=68)
-                plt.ylabel(r'learned $g_\phi(a_j, v_j)$', fontsize=68)
-                # Exactly 3 ticks per axis at the endpoints + midpoint.
-                plt.xticks([_lo, 0.5 * (_lo + _hi), _hi], fontsize=51)
-                plt.yticks([_lo, 0.5 * (_lo + _hi), _hi], fontsize=51)
+                plt.xlabel(r'true $g^*_\phi(a_j, v_j)$', fontsize=56)
+                plt.ylabel(r'learned $g^*_\phi(a_j, v_j)$', fontsize=56)
+                # g_phi^* is non-negative; ticks placed inside the [0, 6]
+                # limits so the bottom-left corner labels don't overlap.
+                plt.xlim(0, 6); plt.ylim(0, 6)
+                plt.xticks([0.5, 3, 5.5], ['0.5', '3', '5.5'], fontsize=51)
+                plt.yticks([0.5, 3, 5.5], ['0.5', '3', '5.5'], fontsize=51)
                 plt.tight_layout()
                 plt.savefig(f'{log_dir}/results/g_phi_scatter_{config_indices}.png',
                             dpi=300)
@@ -1164,10 +1172,19 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                          f'R²: {_r2_f_scatter:.2f}\nslope: {_slope_f_scatter:.2f}',
                          transform=plt.gca().transAxes,
                          verticalalignment='top', fontsize=42)
-                plt.xlabel(r'true $f_\theta(a_i, v_i)$', fontsize=68)
-                plt.ylabel(r'learned $f_\theta(a_i, v_i)$', fontsize=68)
-                plt.xticks([_lo, 0.5 * (_lo + _hi), _hi], fontsize=51)
-                plt.yticks([_lo, 0.5 * (_lo + _hi), _hi], fontsize=51)
+                plt.xlabel(r'true $f_\theta(a_i, v_i)$', fontsize=56)
+                plt.ylabel(r'learned $f_\theta(a_i, v_i)$', fontsize=56)
+                # f_theta values widen with noise level: σ=0.5 column needs
+                # ±275; nf and low-noise stay on ±210. Tick values are placed
+                # slightly INSIDE the axis limit so the leftmost / bottommost
+                # labels don't overlap each other at the corner.
+                if sim.noise_model_level >= 0.5:
+                    _ft_lim, _ft_tick = 275, 250
+                else:
+                    _ft_lim, _ft_tick = 210, 200
+                plt.xlim(-_ft_lim, _ft_lim); plt.ylim(-_ft_lim, _ft_lim)
+                plt.xticks([-_ft_tick, 0, _ft_tick], fontsize=51)
+                plt.yticks([-_ft_tick, 0, _ft_tick], fontsize=51)
                 plt.tight_layout()
                 plt.savefig(f'{log_dir}/results/f_theta_scatter_{config_indices}.png',
                             dpi=300)
@@ -1198,12 +1215,12 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 r_squared_tau, slope_tau = compute_r_squared(gt_taus_np, learned_tau)
                 plt.text(0.05, 0.95, f'R²: {r_squared_tau:.2f}\nslope: {slope_tau:.2f}',
                          transform=plt.gca().transAxes, verticalalignment='top', fontsize=42)
-                plt.xlabel(r'true $\tau$', fontsize=68)
-                plt.ylabel(r'learned $\tau$', fontsize=68)
+                plt.xlabel(r'true $\tau$', fontsize=56)
+                plt.ylabel(r'learned $\tau$', fontsize=56)
                 # Fixed range + exactly 3 ticks for cross-condition comparability.
                 plt.xlim(0, 0.4); plt.ylim(0, 0.4)
-                plt.xticks([0.0, 0.2, 0.4], fontsize=51)
-                plt.yticks([0.0, 0.2, 0.4], fontsize=51)
+                plt.xticks([0.0, 0.2, 0.4], ['0', '0.2', '0.4'], fontsize=51)
+                plt.yticks([0.0, 0.2, 0.4], ['0', '0.2', '0.4'], fontsize=51)
                 plt.tight_layout()
                 plt.savefig(f'{log_dir}/results/tau_comparison_{config_indices}.png', dpi=300)
                 plt.close()
@@ -1219,56 +1236,15 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 r_squared_V_rest, slope_V_rest = compute_r_squared(gt_vrest_np, learned_V_rest)
                 plt.text(0.05, 0.95, f'R²: {r_squared_V_rest:.2f}\nslope: {slope_V_rest:.2f}',
                          transform=plt.gca().transAxes, verticalalignment='top', fontsize=42)
-                plt.xlabel(r'true $V_{rest}$', fontsize=68)
-                plt.ylabel(r'learned $V_{rest}$', fontsize=68)
+                plt.xlabel(r'true $V_{rest}$', fontsize=56)
+                plt.ylabel(r'learned $V_{rest}$', fontsize=56)
                 # Fixed range + exactly 3 ticks for cross-condition comparability.
                 plt.xlim(0, 0.8); plt.ylim(0, 0.8)
-                plt.xticks([0.0, 0.4, 0.8], fontsize=51)
-                plt.yticks([0.0, 0.4, 0.8], fontsize=51)
+                plt.xticks([0.0, 0.4, 0.8], ['0', '0.4', '0.8'], fontsize=51)
+                plt.yticks([0.0, 0.4, 0.8], ['0', '0.4', '0.8'], fontsize=51)
                 plt.tight_layout()
                 plt.savefig(f'{log_dir}/results/V_rest_comparison_{config_indices}.png', dpi=300)
                 plt.close()
-
-            # ── Consolidated panel-data dump (npz) ────────────────────────
-            # All arrays needed to re-render the six parameter panels are
-            # saved together so figure scripts can iterate on styling
-            # without re-running the (slow) model evaluation in data_plot.
-            _panel_npz = f'{log_dir}/results/panels_{config_indices}.npz'
-            _panel_data = {
-                'config_indices': np.asarray(config_indices),
-                'n_neurons':      np.int64(n_neurons),
-                'type_ids':       type_np.astype(np.int32),
-                # W panel
-                'W_true':         gt_w_np.astype(np.float32),
-                'W_learned':      learned_weights.astype(np.float32),
-                'W_r2':           np.float32(r_squared_W),
-                'W_slope':        np.float32(slope_W),
-                # Embedding
-                'a':              to_numpy(model.a).astype(np.float32),
-                'cluster_accuracy': np.float32(cluster_acc),
-                # g_phi (curves + scatter share the same arrays)
-                'g_phi_domain':   rr_np.astype(np.float32),
-                'g_phi_learned':  func_np.astype(np.float32),
-                # f_theta (curves + scatter share the same arrays)
-                'f_theta_domain': rr_domain_phi_np.astype(np.float32),
-                'f_theta_learned': to_numpy(func_domain_phi).astype(np.float32),
-            }
-            if func_true_g_phi is not None:
-                _panel_data['g_phi_true'] = func_true_g_phi.astype(np.float32)
-            if func_true_f_theta is not None:
-                _panel_data['f_theta_true'] = func_true_f_theta.astype(np.float32)
-            if ode_params.has_tau() and gt_taus_np is not None:
-                _panel_data['tau_true']    = gt_taus_np.astype(np.float32)
-                _panel_data['tau_learned'] = learned_tau.astype(np.float32)
-                _panel_data['tau_r2']      = np.float32(r_squared_tau)
-                _panel_data['tau_slope']   = np.float32(slope_tau)
-            if ode_params.has_vrest() and gt_vrest_np is not None:
-                _panel_data['V_rest_true']    = gt_vrest_np.astype(np.float32)
-                _panel_data['V_rest_learned'] = learned_V_rest.astype(np.float32)
-                _panel_data['V_rest_r2']      = np.float32(r_squared_V_rest)
-                _panel_data['V_rest_slope']   = np.float32(slope_V_rest)
-            np.savez_compressed(_panel_npz, **_panel_data)
-            print(f'saved panel data → {_panel_npz}')
 
             # f_theta derived params plot — panels depend on model
             param_names = ode_params.f_theta_param_names()
@@ -1409,21 +1385,71 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 plt.close()
 
             fig = plt.figure(figsize=(10, 9))
-            plt.scatter(true_in, learned_in, c=mc, s=_edge_s, alpha=_edge_alpha,
+            plt.scatter(true_in, learned_in, c=mc, s=2.0, alpha=0.3,
                         edgecolors='none')
             plt.text(0.05, 0.95,
                      f'R²: {r_squared:.2f}\nslope: {slope_corrected:.2f}',
                      transform=plt.gca().transAxes, verticalalignment='top', fontsize=42)
 
-            plt.xlabel(r'true $W_{ij}$', fontsize=68)
-            plt.ylabel(r'learned $W_{ij}^*$', fontsize=68)
+            plt.xlabel(r'true $W_{ij}$', fontsize=56)
+            plt.ylabel(r'learned $W_{ij}^*$', fontsize=56)
             plt.xlim([-1, 2])
             plt.ylim([-1, 2])
-            plt.xticks([-1, 0.5, 2], fontsize=51)
-            plt.yticks([-1, 0.5, 2], fontsize=51)
+            plt.xticks([-1, 0.5, 2], ['-1', '0.5', '2'], fontsize=51)
+            plt.yticks([-1, 0.5, 2], ['-1', '0.5', '2'], fontsize=51)
             plt.tight_layout()
             plt.savefig(f'{log_dir}/results/weights_comparison_corrected.png', dpi=300)
             plt.close()
+
+            # ── Consolidated panel-data dump (npz) ────────────────────────
+            # Saved arrays let figure scripts re-render the six parameter
+            # panels without re-running the (slow) model evaluation.
+            # `_maybe` defensively skips any entry whose source variable
+            # isn't defined yet at this point of plot_synaptic (some are
+            # set later in the function), so the dump degrades gracefully
+            # rather than crashing on a NameError or None.attribute.
+            _panel_npz = f'{log_dir}/results/panels_{config_indices}.npz'
+            _panel_data = {}
+
+            def _maybe(key, fn):
+                try:
+                    _panel_data[key] = fn()
+                except (NameError, AttributeError, TypeError):
+                    pass
+
+            _maybe('config_indices',   lambda: np.asarray(config_indices))
+            _maybe('n_neurons',        lambda: np.int64(n_neurons))
+            _maybe('type_ids',         lambda: type_np.astype(np.int32))
+            # W panel (corrected — what the figure script displays)
+            _maybe('W_true',           lambda: np.asarray(true_in, dtype=np.float32))
+            _maybe('W_learned',        lambda: np.asarray(learned_in, dtype=np.float32))
+            _maybe('W_r2',             lambda: np.float32(r_squared))
+            _maybe('W_slope',          lambda: np.float32(slope_corrected))
+            # Embedding
+            _maybe('a',                lambda: to_numpy(model.a).astype(np.float32))
+            _maybe('cluster_accuracy', lambda: np.float32(cluster_acc))
+            # g_phi (curves + scatter share these arrays)
+            _maybe('g_phi_domain',     lambda: rr_np.astype(np.float32))
+            _maybe('g_phi_learned',    lambda: func_np.astype(np.float32))
+            _maybe('g_phi_true',       lambda: func_true_g_phi.astype(np.float32))
+            # f_theta (curves + scatter share these arrays)
+            _maybe('f_theta_domain',   lambda: rr_domain_phi_np.astype(np.float32))
+            _maybe('f_theta_learned',  lambda: to_numpy(func_domain_phi).astype(np.float32))
+            _maybe('f_theta_true',     lambda: func_true_f_theta.astype(np.float32))
+            # tau / V_rest
+            _maybe('tau_true',         lambda: gt_taus_np.astype(np.float32))
+            _maybe('tau_learned',      lambda: learned_tau.astype(np.float32))
+            _maybe('tau_r2',           lambda: np.float32(r_squared_tau))
+            _maybe('tau_slope',        lambda: np.float32(slope_tau))
+            _maybe('V_rest_true',      lambda: gt_vrest_np.astype(np.float32))
+            _maybe('V_rest_learned',   lambda: learned_V_rest.astype(np.float32))
+            _maybe('V_rest_r2',        lambda: np.float32(r_squared_V_rest))
+            _maybe('V_rest_slope',     lambda: np.float32(slope_V_rest))
+
+            if _panel_data:
+                np.savez_compressed(_panel_npz, **_panel_data)
+                print(f'saved panel data → {_panel_npz} '
+                      f'({len(_panel_data)} arrays)')
 
             print(f"effective W R² (W*g_phi vs W_true*gain): {_r2_color(r_squared)}{r_squared:.4f}{_ANSI_RESET}  slope: {np.round(slope_corrected, 4)}")
             logger.info(f"effective W R²: {r_squared:.4f}  slope: {np.round(slope_corrected, 4)}")
