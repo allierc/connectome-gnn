@@ -38,9 +38,10 @@ import argparse
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'src'))
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(_REPO_ROOT, 'src'))
 
-from connectome_gnn.cross.tex import _fmt, _mean_sd, _parse_pearson, _parse_metrics_txt
+from connectome_gnn.cross.tex import _mean_sd, _parse_pearson, _parse_metrics_txt
 from connectome_gnn.cross.yaml_io import shared_cv_yaml_path, _load_yaml_either
 from connectome_gnn.LLM.cluster import (
     submit_cluster_cross_test_plot_job, submit_cluster_data_plot_job,
@@ -93,8 +94,8 @@ KO_BASES = [
 # approximate (50% of 434,112). hidden_*_ngp and stride_5 use full edges.
 ROW_META = {
     'flyvis_noise_free':                   ('noise-free',             '0',    '0',   '434\\,112'),
-    'flyvis_noise_005':                    ('low intrinsic noise',    '0.05', '0',   '434\\,112'),
-    'flyvis_noise_05':                     ('high intrinsic noise',   '0.5',  '0',   '434\\,112'),
+    'flyvis_noise_005':                    ('low model noise',        '0.05', '0',   '434\\,112'),
+    'flyvis_noise_05':                     ('high model noise',       '0.5',  '0',   '434\\,112'),
     'flyvis_noise_005_010':                ('low meas. noise',        '0.05', '0.1', '434\\,112'),
     'flyvis_noise_005_020':                ('mid meas. noise',        '0.05', '0.2', '434\\,112'),
     'flyvis_noise_005_null_edges_pc_400':  ('$+400\\%$ null edges',   '0.05', '0',   '2\\,170\\,560'),
@@ -132,6 +133,55 @@ def _fold_dir(output_root, base, suffix, fold_i):
                         f'{base}_{suffix}_cv{fold_i:02d}')
 
 
+_ANSI_ORANGE = '\033[38;5;208m'
+_ANSI_GREEN  = '\033[92m'
+_ANSI_RESET  = '\033[0m'
+_LOW_THRESH  = 0.3   # mean strictly below this -> orange / \bad{}
+_GOOD_THRESH = 0.9   # mean strictly above this -> green  / \good{}
+
+
+def _fmt(mean, sd):
+    """LaTeX cell. Wraps \\good{...} when mean > 0.9, \\bad{...} when mean < 0.3,
+    and emits $\\cdot$ for NaN. Requires \\good and \\bad macros in the preamble:
+        \\newcommand{\\good}[1]{\\textcolor{green!50!black}{#1}}
+        \\newcommand{\\bad}[1]{\\textcolor{orange}{#1}}"""
+    import math
+    if isinstance(mean, float) and math.isnan(mean):
+        return '$\\cdot$'
+    body = f"${mean:.2f}{{\\pm}}{sd:.2f}$"
+    if mean > _GOOD_THRESH:
+        return f"\\good{{{body}}}"
+    if mean < _LOW_THRESH:
+        return f"\\bad{{{body}}}"
+    return body
+
+
+def _ansi_cell(mean, sd, width=11):
+    """ANSI-coloured cell for console preview. Orange when mean < 0.3 or NaN,
+    green when mean > 0.9, plain otherwise."""
+    import math
+    if isinstance(mean, float) and math.isnan(mean):
+        body = '   nan   '
+        return f'{_ANSI_ORANGE}{body:<{width}}{_ANSI_RESET}'
+    body = f'{mean:.2f}±{sd:.2f}'
+    if mean < _LOW_THRESH:
+        return f'{_ANSI_ORANGE}{body:<{width}}{_ANSI_RESET}'
+    if mean > _GOOD_THRESH:
+        return f'{_ANSI_GREEN}{body:<{width}}{_ANSI_RESET}'
+    return f'{body:<{width}}'
+
+
+def _print_console_row(label, s):
+    """Print one aggregated row to stdout with red highlighting on weak means."""
+    print(f'    {label:<24} '
+          f'one={_ansi_cell(*s["one_r"])} '
+          f'roll={_ansi_cell(*s["roll_r"])} '
+          f'W={_ansi_cell(*s["W_R2"])} '
+          f'tau={_ansi_cell(*s["tau_R2"])} '
+          f'V={_ansi_cell(*s["V_R2"])} '
+          f'cl={_ansi_cell(*s["cluster"])}')
+
+
 def _aggregate(output_root, base, suffix, n_folds):
     """Aggregate per-fold metrics for one (base, suffix). Returns dict of
     (mean, sd) tuples — NaN means no folds had that metric."""
@@ -164,6 +214,7 @@ def _emit_table1(output_root, n_folds):
     Inserts \\midrule\\midrule between the Known-ODE block and the GNN block."""
     lines = []
     prev_suffix = None
+    print('\n  [tab1] Known-ODE vs GNN  (orange: <0.3 or missing, green: >0.9)')
     for model, label, sigma, suffix, base in TABLE1_SPEC:
         if prev_suffix is not None and suffix != prev_suffix:
             lines.append('\\midrule\n\\midrule')
@@ -174,6 +225,7 @@ def _emit_table1(output_root, n_folds):
             f'  & {_fmt(*s["W_R2"])} & {_fmt(*s["tau_R2"])} & '
             f'{_fmt(*s["V_R2"])} & {_fmt(*s["cluster"])} \\\\'
         )
+        _print_console_row(f'{(model or "..").strip()} {label}'.strip(), s)
         prev_suffix = suffix
     path = os.path.join(output_root, 'log', 'cv_table_known_ode_vs_gnn.tex')
     with open(path, 'w') as f:
@@ -188,6 +240,7 @@ def _emit_condition_table(output_root, n_folds, suffix, bases, out_name, header)
     10-col layout (condition, sigma, gamma, edges, one-step r, rollout r,
     W, tau, V, cluster)."""
     lines = []
+    print(f'\n  [tab ] {out_name}  (orange: <0.3 or missing, green: >0.9)')
     for base in bases:
         meta = ROW_META.get(base)
         if meta is None:
@@ -201,6 +254,7 @@ def _emit_condition_table(output_root, n_folds, suffix, bases, out_name, header)
             f'  & {_fmt(*s["W_R2"])} & {_fmt(*s["tau_R2"])} & '
             f'{_fmt(*s["V_R2"])} & {_fmt(*s["cluster"])} \\\\'
         )
+        _print_console_row(label, s)
     path = os.path.join(output_root, 'log', out_name)
     with open(path, 'w') as f:
         f.write(f'% {header}\n')

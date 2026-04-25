@@ -20,8 +20,8 @@ GOOD_THRESHOLD = 0.9
 # (base, label, sigma, gamma, edges) — table-row metadata.
 CONDITIONS = [
     ('flyvis_noise_free',                'noise-free',              '0',    '0',   '434\\,112'),
-    ('flyvis_noise_005',                 'low intrinsic noise',     '0.05', '0',   '434\\,112'),
-    ('flyvis_noise_05',                  'high intrinsic noise',    '0.5',  '0',   '434\\,112'),
+    ('flyvis_noise_005',                 'low model noise',         '0.05', '0',   '434\\,112'),
+    ('flyvis_noise_05',                  'high model noise',        '0.5',  '0',   '434\\,112'),
     ('flyvis_noise_005_010',             'low meas. noise',         '0.05', '0.1', '434\\,112'),
     ('flyvis_noise_005_null_edges_pc_400', '$+400\\%$ null edges',  '0.05', '0',   '2\\,170\\,560'),
     ('flyvis_noise_005_removed_pc_20',   '$-20\\%$ edges removed',  '0.05', '0',   '347\\,000'),
