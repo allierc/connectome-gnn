@@ -307,8 +307,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     model.eval()
 
     # Apply ablation mask if test dataset has one
-    test_ds_for_mask = test_ds if test_config is not None else config.dataset
-    mask_path = graphs_data_path(test_ds_for_mask, 'ablation_mask.pt')
+    mask_path = graphs_data_path(test_ds, 'ablation_mask.pt')
     if os.path.exists(mask_path):
         ablation_mask = torch.load(mask_path, map_location=device, weights_only=False)
         with torch.no_grad():
