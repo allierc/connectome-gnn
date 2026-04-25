@@ -53,7 +53,8 @@ def run_all_conditions(hp_source, suffix, hp_yaml=None,
                         data_augmentation_loop_overrides=None,
                         hp_yaml_overrides=None,
                         conditions_per_wave=1,
-                        node_name_per_condition=None):
+                        node_name_per_condition=None,
+                        emit_tex=True):
     """Run the 8-condition × n_folds YT-only cross-check and emit the TeX table.
 
     `output_root` resolution (highest priority wins):
@@ -80,7 +81,10 @@ def run_all_conditions(hp_source, suffix, hp_yaml=None,
         print(f'  hp yaml:    {hp_yaml}')
     print(f'  n folds:    {n_folds}')
     print(f'  node:       {node_name}')
-    print(f'  tex out:    log/cv_{suffix}_rows.tex')
+    if emit_tex:
+        print(f'  tex out:    log/cv_{suffix}_rows.tex')
+    else:
+        print(f'  tex out:    [disabled — emit_tex=False]')
     print('=' * 60)
 
     # Step 1 — emit hold-out CV YAMLs (idempotent; suffix-free dataset name
@@ -123,7 +127,8 @@ def run_all_conditions(hp_source, suffix, hp_yaml=None,
                 force_test=force_test, cluster_test_plot=cluster_test_plot,
                 metrics_interval=metrics_interval,
             )
-            emit_tex_file(suffix, output_root, n_folds=n_folds)
+            if emit_tex:
+                emit_tex_file(suffix, output_root, n_folds=n_folds)
     else:
         n_waves = (len(_active_bases) + conditions_per_wave - 1) // conditions_per_wave
         print(f'    conditions_per_wave={conditions_per_wave} -> {n_waves} wave(s), '
@@ -138,11 +143,13 @@ def run_all_conditions(hp_source, suffix, hp_yaml=None,
                 force_test=force_test, cluster_test_plot=cluster_test_plot,
                 metrics_interval=metrics_interval,
             )
-            emit_tex_file(suffix, output_root, n_folds=n_folds)
+            if emit_tex:
+                emit_tex_file(suffix, output_root, n_folds=n_folds)
 
     # Step 3 — final TeX emission (idempotent).
-    print('\n[3] final TeX')
-    emit_tex_file(suffix, output_root, n_folds=n_folds)
+    if emit_tex:
+        print('\n[3] final TeX')
+        emit_tex_file(suffix, output_root, n_folds=n_folds)
 
     print('\n' + '=' * 60)
     print(f'GNN hold-out-only cross-check complete ({hp_source}).')

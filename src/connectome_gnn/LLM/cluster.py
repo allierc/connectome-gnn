@@ -505,3 +505,69 @@ def submit_cluster_test_plot_job(slot, config_path, analysis_log_path, config_fi
         print(f"    stdout: {result.stdout.strip()}")
         print(f"    stderr: {result.stderr.strip()}")
         return None
+
+
+def submit_cluster_data_plot_job(slot, config_path, analysis_log_path, config_file_field,
+                                  log_dir, node_name='a100',
+                                  conda_env='connectome-gnn', n_cpus=2, device='cuda',
+                                  iteration=None, output_root=None,
+                                  hard_runtime_limit_min=120):
+    """Submit a single data_plot-only job to the cluster (no rollout).
+
+    Runs data_plot_subprocess.py — only re-extracts parameters from the
+    already-trained model and overwrites <log_dir>/results/metrics.txt.
+    Used by aggregate_blank50_tables.py --data_plot.
+    """
+    cluster_script_path = f"{log_dir}/cluster_data_plot_{slot:02d}.sh"
+    error_details_path  = f"{log_dir}/data_plot_error_{slot:02d}.log"
+
+    if device == 'auto':
+        device = 'cuda'
+
+    assert os.path.isfile(config_path), f"Config file not found: {config_path}"
+
+    cluster_cmd = f"python data_plot_subprocess.py --config '{config_path}' --device {device}"
+    if output_root:
+        cluster_cmd += f" --output_root '{output_root}'"
+    cluster_cmd += f" --log_file '{analysis_log_path}'"
+    cluster_cmd += f" --config_file '{config_file_field}'"
+    cluster_cmd += f" --error_log '{error_details_path}'"
+    if iteration is not None:
+        cluster_cmd += f" --iteration {iteration}"
+        cluster_cmd += f" --slot {slot}"
+
+    with open(cluster_script_path, 'w') as f:
+        f.write("#!/bin/bash -l\n")
+        f.write(f"cd {CLUSTER_ROOT_DIR}\n")
+        f.write(f"conda run -n {conda_env} {cluster_cmd}\n")
+    os.chmod(cluster_script_path, 0o755)
+
+    cluster_stdout = f"{log_dir}/cluster_data_plot_{slot:02d}.out"
+    cluster_stderr = f"{log_dir}/cluster_data_plot_{slot:02d}.err"
+
+    if device == 'cpu':
+        bsub_resources = f"bsub -n {n_cpus} -W {hard_runtime_limit_min}"
+        queue_label = "cpu"
+    else:
+        bsub_resources = f"bsub -n {n_cpus} -gpu 'num=1' -q gpu_{node_name} -W {hard_runtime_limit_min}"
+        queue_label = f"gpu_{node_name}"
+
+    ssh_cmd = (
+        f"ssh {CLUSTER_SSH} \"bash -l -c 'cd {CLUSTER_ROOT_DIR} && "
+        f"{bsub_resources} "
+        f"-o {cluster_stdout!r} -e {cluster_stderr!r} "
+        f"bash -l {cluster_script_path}'\""
+    )
+    print(f"\033[96m  slot {slot}: submitting data_plot to {queue_label} via SSH\033[0m", flush=True)
+    result = subprocess.run(ssh_cmd, shell=True, capture_output=True, text=True)
+
+    match = re.search(r'Job <(\d+)>', result.stdout)
+    if match:
+        job_id = match.group(1)
+        print(f"\033[92m  slot {slot}: data_plot job {job_id} submitted to {queue_label}\033[0m")
+        return job_id
+    else:
+        print(f"\033[91m  slot {slot}: data_plot submission FAILED\033[0m")
+        print(f"    stdout: {result.stdout.strip()}")
+        print(f"    stderr: {result.stderr.strip()}")
+        return None
