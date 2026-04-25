@@ -85,4 +85,5 @@ run_all_conditions(
     condition_filter=CONDITION_FILTER,
     data_augmentation_loop=500,
     conditions_per_wave=3,
+    emit_tex=False,
 )

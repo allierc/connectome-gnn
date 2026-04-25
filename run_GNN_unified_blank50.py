@@ -63,11 +63,11 @@ BLANK50_SIM_OVERRIDES = {
 # truth — CONDITION_FILTER is derived from its keys, NODE_PER_CONDITION from
 # the full mapping.
 CONDITION_NODES = {
-    # 'flyvis_noise_free':                    'a100',
-    # 'flyvis_noise_005':                     'a100',
-    # 'flyvis_noise_05':                      'a100',
-    # 'flyvis_noise_005_010':                 'a100',
-    # 'flyvis_noise_005_020':                 'a100',
+    'flyvis_noise_free':                    'a100',
+    'flyvis_noise_005':                     'a100',
+    'flyvis_noise_05':                      'a100',
+    'flyvis_noise_005_010':                 'a100',
+    'flyvis_noise_005_020':                 'a100',
     'flyvis_noise_005_null_edges_pc_400':   'a100',
     'flyvis_noise_005_removed_pc_20':       'a100',
     'flyvis_noise_005_removed_pc_50':       'a100',
@@ -116,4 +116,5 @@ run_all_conditions(
     data_augmentation_loop_overrides=DAL_OVERRIDES,
     hp_yaml_overrides=HP_YAML_OVERRIDES,
     conditions_per_wave=3,
+    emit_tex=False,
 )
