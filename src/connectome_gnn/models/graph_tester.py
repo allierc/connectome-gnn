@@ -150,7 +150,7 @@ def _compute_inr_traces(model, x_ts, hidden_ids, device, n_traces=20, n_frames=N
     )
 
 
-def data_test_gnn(config, best_model=None, device=None, log_file=None, test_config=None):
+def data_test_gnn(config, best_model=None, device=None, log_file=None, test_config=None, test_mode=''):
     """Test using pre-generated test data (x_list_test / y_list_test).
 
     Loads the held-out test split, runs the trained model on every frame,
@@ -183,6 +183,14 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
         test_suffix = f'_on_{test_ds_short}'
     else:
         test_suffix = ''
+    # Append the test_mode (e.g. "test_ablation_50") so ablation bundles don't
+    # overwrite the corresponding non-ablation rollout output. Defensive
+    # `locals().get(...)` so this line stays compatible with any older copy of
+    # the function whose signature predates the test_mode parameter (e.g. a
+    # checkout where the suffix edit landed but the signature edit didn't).
+    _tm = locals().get('test_mode', '')
+    if _tm:
+        test_suffix = f"{test_suffix}_{_tm}"
 
     # Determine which fields to load
     load_fields = ['voltage', 'stimulus', 'neuron_type']
@@ -306,6 +314,28 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
         with torch.no_grad():
             model.W[~ablation_mask] = 0
         logger.info(f'applied ablation mask: {(~ablation_mask).sum().item()} edges zeroed in model.W')
+
+    # Random test-time ablation (test_mode="test_ablation_50" → zero 50% of
+    # edges). Deterministic seed so the same edges are removed on every run.
+    # Same defensive locals() lookup as above so an older copy of this file
+    # that lacks the test_mode parameter just skips the block.
+    _tm = locals().get('test_mode', '')
+    if 'test_ablation' in _tm:
+        try:
+            ablation_ratio = int(_tm.split('_')[-1]) / 100
+        except ValueError:
+            ablation_ratio = 0.0
+        if ablation_ratio > 0:
+            n_total = model.W.shape[0]
+            n_ablate = int(n_total * ablation_ratio)
+            rng = np.random.default_rng(0)
+            idx = rng.choice(n_total, n_ablate, replace=False)
+            with torch.no_grad():
+                model.W[idx] = 0
+            logger.info(
+                f'test_mode ablation: zeroed {n_ablate}/{n_total} edges '
+                f'(ratio {ablation_ratio})'
+            )
 
     # When a field INR is learned (visual SIREN, hidden NGP-T) rollout must
     # happen on training frames — the INR was fit to those time indices only
