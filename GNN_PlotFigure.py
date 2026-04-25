@@ -963,10 +963,8 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 pos = torch.argwhere(type_list == n)
                 plt.scatter(to_numpy(model.a[pos, 0]), to_numpy(model.a[pos, 1]), s=_dot_s, color=colors_65[n],
                             alpha=_dot_alpha, edgecolors='none')
-            plt.xlabel(r'$a_{i0}$', fontsize=48)
-            plt.ylabel(r'$a_{i1}$', fontsize=48)
-            plt.xticks(fontsize=24)
-            plt.yticks(fontsize=24)
+            plt.xlabel(r'$a_{i0}$', fontsize=68)
+            plt.ylabel(r'$a_{i1}$', fontsize=68)
             # Per-panel axis range derived from the embedding's bounding box,
             # with a small relative margin so points aren't on the spines.
             _a0 = to_numpy(model.a[:, 0])
@@ -977,6 +975,10 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             _y_pad = max(0.05 * (_y_hi - _y_lo), 1e-3)
             ax.set_xlim(_x_lo - _x_pad, _x_hi + _x_pad)
             ax.set_ylim(_y_lo - _y_pad, _y_hi + _y_pad)
+            # Exactly 3 ticks per axis (endpoints + midpoint of the bbox).
+            ax.set_xticks([_x_lo, 0.5 * (_x_lo + _x_hi), _x_hi])
+            ax.set_yticks([_y_lo, 0.5 * (_y_lo + _y_hi), _y_hi])
+            ax.tick_params(axis='both', labelsize=51)
             plt.tight_layout()
             plt.savefig(f'{log_dir}/results/embedding_{config_indices}.png', dpi=300)
             plt.close()
@@ -1051,7 +1053,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 plt.scatter(_x_flat, _y_flat,
                             c=cmap.color(_type_flat.astype(int)),
                             s=max(0.5, _dot_s * 0.25),
-                            alpha=max(0.05, _dot_alpha * 0.4),
+                            alpha=0.20,            # noticeable transparency
                             edgecolors='none')
                 _lo = float(min(_x_flat.min(), _y_flat.min()))
                 _hi = float(max(_x_flat.max(), _y_flat.max()))
@@ -1059,11 +1061,12 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 plt.text(0.05, 0.95,
                          f'R²: {_r2_g_scatter:.2f}\nslope: {_slope_g_scatter:.2f}',
                          transform=plt.gca().transAxes,
-                         verticalalignment='top', fontsize=32)
-                plt.xlabel(r'true $g_\phi(a_j, v_j)$', fontsize=48)
-                plt.ylabel(r'learned $g_\phi(a_j, v_j)$', fontsize=48)
-                plt.xticks(fontsize=24)
-                plt.yticks(fontsize=24)
+                         verticalalignment='top', fontsize=42)
+                plt.xlabel(r'true $g_\phi(a_j, v_j)$', fontsize=68)
+                plt.ylabel(r'learned $g_\phi(a_j, v_j)$', fontsize=68)
+                # Exactly 3 ticks per axis at the endpoints + midpoint.
+                plt.xticks([_lo, 0.5 * (_lo + _hi), _hi], fontsize=51)
+                plt.yticks([_lo, 0.5 * (_lo + _hi), _hi], fontsize=51)
                 plt.tight_layout()
                 plt.savefig(f'{log_dir}/results/g_phi_scatter_{config_indices}.png',
                             dpi=300)
@@ -1152,7 +1155,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 plt.scatter(_x_flat, _y_flat,
                             c=cmap.color(_type_flat.astype(int)),
                             s=max(0.5, _dot_s * 0.25),
-                            alpha=max(0.05, _dot_alpha * 0.4),
+                            alpha=0.20,            # noticeable transparency
                             edgecolors='none')
                 _lo = float(min(_x_flat.min(), _y_flat.min()))
                 _hi = float(max(_x_flat.max(), _y_flat.max()))
@@ -1160,11 +1163,11 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 plt.text(0.05, 0.95,
                          f'R²: {_r2_f_scatter:.2f}\nslope: {_slope_f_scatter:.2f}',
                          transform=plt.gca().transAxes,
-                         verticalalignment='top', fontsize=32)
-                plt.xlabel(r'true $f_\theta(a_i, v_i)$', fontsize=48)
-                plt.ylabel(r'learned $f_\theta(a_i, v_i)$', fontsize=48)
-                plt.xticks(fontsize=24)
-                plt.yticks(fontsize=24)
+                         verticalalignment='top', fontsize=42)
+                plt.xlabel(r'true $f_\theta(a_i, v_i)$', fontsize=68)
+                plt.ylabel(r'learned $f_\theta(a_i, v_i)$', fontsize=68)
+                plt.xticks([_lo, 0.5 * (_lo + _hi), _hi], fontsize=51)
+                plt.yticks([_lo, 0.5 * (_lo + _hi), _hi], fontsize=51)
                 plt.tight_layout()
                 plt.savefig(f'{log_dir}/results/f_theta_scatter_{config_indices}.png',
                             dpi=300)
@@ -1194,13 +1197,13 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 plt.scatter(gt_taus_np, learned_tau, c=mc, s=_dot_s, alpha=_dot_alpha)
                 r_squared_tau, slope_tau = compute_r_squared(gt_taus_np, learned_tau)
                 plt.text(0.05, 0.95, f'R²: {r_squared_tau:.2f}\nslope: {slope_tau:.2f}',
-                         transform=plt.gca().transAxes, verticalalignment='top', fontsize=32)
-                plt.xlabel(r'true $\tau$', fontsize=48)
-                plt.ylabel(r'learned $\tau$', fontsize=48)
-                plt.xticks(fontsize=24)
-                plt.yticks(fontsize=24)
-                # Fixed range so τ scatter is comparable across noise levels.
+                         transform=plt.gca().transAxes, verticalalignment='top', fontsize=42)
+                plt.xlabel(r'true $\tau$', fontsize=68)
+                plt.ylabel(r'learned $\tau$', fontsize=68)
+                # Fixed range + exactly 3 ticks for cross-condition comparability.
                 plt.xlim(0, 0.4); plt.ylim(0, 0.4)
+                plt.xticks([0.0, 0.2, 0.4], fontsize=51)
+                plt.yticks([0.0, 0.2, 0.4], fontsize=51)
                 plt.tight_layout()
                 plt.savefig(f'{log_dir}/results/tau_comparison_{config_indices}.png', dpi=300)
                 plt.close()
@@ -1215,16 +1218,57 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 plt.scatter(gt_vrest_np, learned_V_rest, c=mc, s=_dot_s, alpha=_dot_alpha)
                 r_squared_V_rest, slope_V_rest = compute_r_squared(gt_vrest_np, learned_V_rest)
                 plt.text(0.05, 0.95, f'R²: {r_squared_V_rest:.2f}\nslope: {slope_V_rest:.2f}',
-                         transform=plt.gca().transAxes, verticalalignment='top', fontsize=32)
-                plt.xlabel(r'true $V_{rest}$', fontsize=48)
-                plt.ylabel(r'learned $V_{rest}$', fontsize=48)
-                plt.xticks(fontsize=24)
-                plt.yticks(fontsize=24)
-                # Fixed range so V_rest scatter is comparable across noise levels.
+                         transform=plt.gca().transAxes, verticalalignment='top', fontsize=42)
+                plt.xlabel(r'true $V_{rest}$', fontsize=68)
+                plt.ylabel(r'learned $V_{rest}$', fontsize=68)
+                # Fixed range + exactly 3 ticks for cross-condition comparability.
                 plt.xlim(0, 0.8); plt.ylim(0, 0.8)
+                plt.xticks([0.0, 0.4, 0.8], fontsize=51)
+                plt.yticks([0.0, 0.4, 0.8], fontsize=51)
                 plt.tight_layout()
                 plt.savefig(f'{log_dir}/results/V_rest_comparison_{config_indices}.png', dpi=300)
                 plt.close()
+
+            # ── Consolidated panel-data dump (npz) ────────────────────────
+            # All arrays needed to re-render the six parameter panels are
+            # saved together so figure scripts can iterate on styling
+            # without re-running the (slow) model evaluation in data_plot.
+            _panel_npz = f'{log_dir}/results/panels_{config_indices}.npz'
+            _panel_data = {
+                'config_indices': np.asarray(config_indices),
+                'n_neurons':      np.int64(n_neurons),
+                'type_ids':       type_np.astype(np.int32),
+                # W panel
+                'W_true':         gt_w_np.astype(np.float32),
+                'W_learned':      learned_weights.astype(np.float32),
+                'W_r2':           np.float32(r_squared_W),
+                'W_slope':        np.float32(slope_W),
+                # Embedding
+                'a':              to_numpy(model.a).astype(np.float32),
+                'cluster_accuracy': np.float32(cluster_acc),
+                # g_phi (curves + scatter share the same arrays)
+                'g_phi_domain':   rr_np.astype(np.float32),
+                'g_phi_learned':  func_np.astype(np.float32),
+                # f_theta (curves + scatter share the same arrays)
+                'f_theta_domain': rr_domain_phi_np.astype(np.float32),
+                'f_theta_learned': to_numpy(func_domain_phi).astype(np.float32),
+            }
+            if func_true_g_phi is not None:
+                _panel_data['g_phi_true'] = func_true_g_phi.astype(np.float32)
+            if func_true_f_theta is not None:
+                _panel_data['f_theta_true'] = func_true_f_theta.astype(np.float32)
+            if ode_params.has_tau() and gt_taus_np is not None:
+                _panel_data['tau_true']    = gt_taus_np.astype(np.float32)
+                _panel_data['tau_learned'] = learned_tau.astype(np.float32)
+                _panel_data['tau_r2']      = np.float32(r_squared_tau)
+                _panel_data['tau_slope']   = np.float32(slope_tau)
+            if ode_params.has_vrest() and gt_vrest_np is not None:
+                _panel_data['V_rest_true']    = gt_vrest_np.astype(np.float32)
+                _panel_data['V_rest_learned'] = learned_V_rest.astype(np.float32)
+                _panel_data['V_rest_r2']      = np.float32(r_squared_V_rest)
+                _panel_data['V_rest_slope']   = np.float32(slope_V_rest)
+            np.savez_compressed(_panel_npz, **_panel_data)
+            print(f'saved panel data → {_panel_npz}')
 
             # f_theta derived params plot — panels depend on model
             param_names = ode_params.f_theta_param_names()
@@ -1365,17 +1409,18 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 plt.close()
 
             fig = plt.figure(figsize=(10, 9))
-            plt.scatter(true_in, learned_in, c=mc, s=_edge_s, alpha=_edge_alpha)
+            plt.scatter(true_in, learned_in, c=mc, s=_edge_s, alpha=_edge_alpha,
+                        edgecolors='none')
             plt.text(0.05, 0.95,
                      f'R²: {r_squared:.2f}\nslope: {slope_corrected:.2f}',
-                     transform=plt.gca().transAxes, verticalalignment='top', fontsize=32)
+                     transform=plt.gca().transAxes, verticalalignment='top', fontsize=42)
 
-            plt.xlabel(r'true $W_{ij}$', fontsize=48)
-            plt.ylabel(r'learned $W_{ij}^*$', fontsize=48)
-            plt.xticks(fontsize = 24)
-            plt.yticks(fontsize = 24)
-            plt.xlim([-1,2])
-            plt.ylim([-1,2])
+            plt.xlabel(r'true $W_{ij}$', fontsize=68)
+            plt.ylabel(r'learned $W_{ij}^*$', fontsize=68)
+            plt.xlim([-1, 2])
+            plt.ylim([-1, 2])
+            plt.xticks([-1, 0.5, 2], fontsize=51)
+            plt.yticks([-1, 0.5, 2], fontsize=51)
             plt.tight_layout()
             plt.savefig(f'{log_dir}/results/weights_comparison_corrected.png', dpi=300)
             plt.close()
