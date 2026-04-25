@@ -45,6 +45,7 @@ GNN_SUFFIX = 'blank50_unified'
 KO_SUFFIX  = 'blank50_known_ode'
 
 # All 11 GNN blank50 conditions (matches CONDITION_BASES in cross/pipeline.py).
+# Used by --data_plot to iterate every trained fold.
 GNN_BASES = [
     'flyvis_noise_free',
     'flyvis_noise_005',
@@ -59,7 +60,15 @@ GNN_BASES = [
     'flyvis_noise_005_hidden_020_ngp',
 ]
 
-# 8 Known-ODE blank50 conditions (run_KnownODE_blank50.py CONDITION_NODES).
+# Subset shown in tab:cv_cross_noise (drops noise_free + noise_05; both are
+# already covered by tab:cv_known_ode-vs-gnn, so this table focuses on the
+# variants away from the canonical low-noise reference).
+GNN_TABLE_BASES = [b for b in GNN_BASES
+                   if b not in ('flyvis_noise_free', 'flyvis_noise_05')]
+
+# Known-ODE blank50 conditions shown in tab:cv_known_ode-conditions.
+# Drops removed_pc_50 (the -50% edges row) — kept training-side in
+# run_KnownODE_blank50.py but omitted from the table.
 KO_BASES = [
     'flyvis_noise_free',
     'flyvis_noise_005',
@@ -68,7 +77,6 @@ KO_BASES = [
     'flyvis_noise_005_020',
     'flyvis_noise_005_null_edges_pc_400',
     'flyvis_noise_005_removed_pc_20',
-    'flyvis_noise_005_removed_pc_50',
 ]
 
 # (base, label, sigma, gamma, edges) — used by tab:cv_cross_noise (GNN) and
@@ -273,9 +281,10 @@ def main():
     print('\n[2] emit tex')
     _emit_table1(output_root, args.n_folds)
     _emit_condition_table(
-        output_root, args.n_folds, GNN_SUFFIX, GNN_BASES,
+        output_root, args.n_folds, GNN_SUFFIX, GNN_TABLE_BASES,
         out_name='cv_table_gnn_cross_noise.tex',
-        header='GNN blank50 cross-noise (rows only).')
+        header='GNN blank50 cross-noise (rows only; '
+               'noise-free and high-noise rows omitted, see vs-Known-ODE table).')
     _emit_condition_table(
         output_root, args.n_folds, KO_SUFFIX, KO_BASES,
         out_name='cv_table_known_ode_conditions.tex',
