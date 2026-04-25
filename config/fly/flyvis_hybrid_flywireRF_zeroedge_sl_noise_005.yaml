@@ -1,14 +1,15 @@
-description: "HIGH PRIORITY — drops eligible flyvis edges for higher realism. v5-sl
+description:
+  "HIGH PRIORITY — drops eligible flyvis edges for higher realism. v5-sl
   v2 base + zero-weight edges (u=1, same-type, spatially-local), noise=0.05"
 dataset: flyvis_hybrid_flywireRF_zeroedge_sl_noise_005
 simulation:
   connectivity_file: to be specified
-  adjacency_matrix: ''
+  adjacency_matrix: ""
   params:
-  - - 1.0
-    - 1.0
-    - 1.0
-    - 1.0
+    - - 1.0
+      - 1.0
+      - 1.0
+      - 1.0
   n_neurons: 13741
   n_input_neurons: 1736
   n_neuron_types: 65
@@ -22,7 +23,7 @@ simulation:
   seed: 42
   edge_uncertainty: 1
   datavis_roots:
-  - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
+    - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
   skip_short_videos: true
   blank_prefix_fraction: 0.5
 graph_model:
@@ -43,11 +44,11 @@ plotting:
   colormap: tab20
   arrow_length: 1
   xlim:
-  - -2.5
-  - 2.5
+    - -2.5
+    - 2.5
   ylim:
-  - -100
-  - 100
+    - -100
+    - 100
 training:
   n_epochs: 1
   n_runs: 1

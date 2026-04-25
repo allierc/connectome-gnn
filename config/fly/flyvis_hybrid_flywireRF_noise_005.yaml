@@ -3,12 +3,12 @@ description: "HIGH PRIORITY — drops eligible flyvis edges for higher realism. 
 dataset: flyvis_hybrid_flywireRF_noise_005
 simulation:
   connectivity_file: to be specified
-  adjacency_matrix: ''
+  adjacency_matrix: ""
   params:
-  - - 1.0
-    - 1.0
-    - 1.0
-    - 1.0
+    - - 1.0
+      - 1.0
+      - 1.0
+      - 1.0
   n_neurons: 13741
   n_input_neurons: 1736
   n_neuron_types: 65
@@ -20,8 +20,6 @@ simulation:
   noise_model_level: 0.05
   derivative_smoothing_window: 1
   seed: 42
-  datavis_roots:
-  - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
   skip_short_videos: true
   blank_prefix_fraction: 0.5
 graph_model:
@@ -42,11 +40,11 @@ plotting:
   colormap: tab20
   arrow_length: 1
   xlim:
-  - -2.5
-  - 2.5
+    - -2.5
+    - 2.5
   ylim:
-  - -100
-  - 100
+    - -100
+    - 100
 training:
   n_epochs: 1
   n_runs: 1
@@ -57,10 +55,13 @@ training:
   batch_ratio: 1
   small_init_batch_size: false
   sparsity: none
-  data_augmentation_loop: 35
-  lr_W: 0.0009
-  lr: 0.0018
-  lr_embedding: 0.002325
+  data_augmentation_loop: 100
+  # lr_W: 0.0009
+  # lr: 0.0018
+  # lr_embedding: 0.002325
+  lr_W: 1.8e-3
+  lr: 1.8e-3
+  lr_embedding: 4.65e-3
   coeff_g_phi_diff: 750
   coeff_f_theta_msg_diff: 0
   coeff_g_phi_norm: 0.9
@@ -68,28 +69,16 @@ training:
   coeff_f_theta_weight_L1: 0.05
   coeff_g_phi_weight_L2: 0
   coeff_f_theta_weight_L2: 0.001
-  coeff_W_L1: 0.00015
-  coeff_W_L2: 1.5e-06
-  coeff_f_theta_linearity: 0
-  f_theta_linearity_warmup_fraction: 0.3
-  f_theta_linearity_rampup_iters: 200
-  coeff_f_theta_centering: 0
-  V_rest_warmup_fraction: 0.3
-  V_rest_rampup_iters: 200
-  V_rest_eval_every: 10
+  coeff_W_L1: 1.5E-4
+  coeff_W_L2: 2.5e-06
   regul_annealing_rate: 0.0
   w_init_mode: randn_scaled
   use_gt_edges: true
-  lr_scheduler: none
-  lr_scheduler_T0: 1000
-  lr_scheduler_T_mult: 2
-  lr_scheduler_eta_min_ratio: 0.01
-  lr_scheduler_warmup_iters: 100
   seed: 42
 claude:
   n_epochs: 1
   data_augmentation_loop: 35
   n_iter_block: 12
-  ucb_c: 1.414
-  generate_data: true
+  generate_data: false
   training_time_target_min: 60
+  node_name: a100
