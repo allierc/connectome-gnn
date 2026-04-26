@@ -49,6 +49,67 @@ def _rollout_block(model, v, stim_block, target_block, dt):
     return v, out_mses
 
 
+def _rollout_block_latent(model, z, stim_block, target_block):
+    """Roll out EED for _VAL_BLOCK_SIZE steps in PURE LATENT SPACE.
+
+    No re-encoding: evolves z autoregressively, decodes each step only
+    to score against ground truth.
+
+    Args:
+        z: (1, latent_dim) current latent state
+        stim_block: (_VAL_BLOCK_SIZE, n_input)
+        target_block: (_VAL_BLOCK_SIZE, N) ground-truth next states
+
+    Returns:
+        z: (1, latent_dim) latent state after the block
+        out_mses: (_VAL_BLOCK_SIZE,) per-step MSE
+    """
+    out_mses = torch.empty(_VAL_BLOCK_SIZE, device=z.device)
+    for t in range(_VAL_BLOCK_SIZE):
+        stim_z = model.stimulus_encoder(stim_block[t].unsqueeze(0))
+        z = z + model.evolver(torch.cat([z, stim_z], dim=-1))
+        v_pred = model.decoder(z).squeeze(0)
+        out_mses[t] = F.mse_loss(v_pred, target_block[t])
+    return z, out_mses
+
+
+def val_rollout_latent(model, voltage, stimulus, val_start_idx, dt):
+    """Single-start PURE-LATENT rollout validation on training data.
+
+    Encodes the initial voltage once, then chains the evolver in latent
+    space for _VAL_ROLLOUT_LEN steps. Decodes each step only for the MSE
+    score (decoded prediction does NOT feed back into the encoder).
+
+    `dt` is unused (kept for signature parity with `val_rollout`).
+
+    Returns:
+        mse_curve: (_VAL_ROLLOUT_LEN,) numpy array of per-step MSE
+        div_time: first step index where MSE > 1, or _VAL_ROLLOUT_LEN if never
+        rollout_rmse: RMSE = sqrt(mean MSE) over steps [0, div_time)
+    """
+    del dt  # unused; latent rollout does not Euler-integrate in activity
+    _rollout_block_latent_compiled = torch.compile(_rollout_block_latent, mode="default")
+
+    all_mse = torch.empty(_VAL_ROLLOUT_LEN, device=voltage.device)
+    z = model.encoder(voltage[val_start_idx].unsqueeze(0))  # (1, latent_dim)
+
+    n_blocks = _VAL_ROLLOUT_LEN // _VAL_BLOCK_SIZE
+    for b in range(n_blocks):
+        t0 = val_start_idx + b * _VAL_BLOCK_SIZE
+        stim_block = stimulus[t0:t0 + _VAL_BLOCK_SIZE]
+        target_block = voltage[t0 + 1:t0 + _VAL_BLOCK_SIZE + 1]
+        z, block_mse = _rollout_block_latent_compiled(model, z, stim_block, target_block)
+        all_mse[b * _VAL_BLOCK_SIZE:(b + 1) * _VAL_BLOCK_SIZE] = block_mse
+
+    mse_np = all_mse.cpu().numpy()
+    # NaN/Inf during latent drift counts as divergence
+    mse_np = np.nan_to_num(mse_np, nan=np.inf, posinf=np.inf, neginf=np.inf)
+    above = np.where(mse_np > 1.0)[0]
+    div_time = int(above[0]) if len(above) > 0 else _VAL_ROLLOUT_LEN
+    rollout_rmse_val = float(np.sqrt(mse_np[:max(div_time, 1)].mean()))
+    return mse_np, div_time, rollout_rmse_val
+
+
 def val_rollout(model, voltage, stimulus, val_start_idx, dt):
     """Single-start rollout validation on training data.
 
