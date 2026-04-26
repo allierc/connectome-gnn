@@ -835,6 +835,14 @@ def data_generate_voltage(
         flush=True,
     )
     print(f"\033[93m[stimulus] datavis_roots={_datavis_roots}\033[0m", flush=True)
+    _ar1_rho = float(getattr(sim, 'noise_ar1_rho', 0.0))
+    print(
+        f"\033[93m[noise] noise_model_level={sim.noise_model_level}  "
+        f"measurement_noise_level={sim.measurement_noise_level}  "
+        f"noise_ar1_rho={_ar1_rho:.3f} "
+        f"({'AR(1) ENABLED' if _ar1_rho > 0 else 'i.i.d.'})\033[0m",
+        flush=True,
+    )
 
     run = 0
 
@@ -1887,6 +1895,20 @@ def _run_ode_generation(
     # V_rest.
     _seq_lens = []
 
+    # AR(1) measurement-noise state: persists across all frames/sequences within
+    # this generator call. Recursion eta(t+1) = rho*eta(t) + sqrt(1-rho**2)*gamma*xi(t)
+    # preserves marginal Var(eta) = gamma**2. rho = 0 -> standard i.i.d. (current default).
+    ar1_rho = float(getattr(sim, 'noise_ar1_rho', 0.0))
+    ar1_inject_std = (1.0 - ar1_rho ** 2) ** 0.5 * measurement_noise_level
+    if measurement_noise_level > 0 and ar1_rho > 0:
+        # Initialise in stationary distribution: Var(eta_0) = gamma**2
+        ar1_prev_noise = (
+            torch.randn(n_neurons, dtype=torch.float32, device=device)
+            * measurement_noise_level
+        )
+    else:
+        ar1_prev_noise = None
+
     # DAVIS blank-window injection (see SimulationConfig validator for compatibility).
     # State persists across video boundaries and across passes so the m-real / l-blank
     # pattern is preserved continuously.
@@ -2119,11 +2141,20 @@ def _run_ode_generation(
                         y = pde(x, edge_index, has_field=False)
                         dv_step = y.squeeze()
 
-                    # Generate measurement noise for this timestep
+                    # Generate measurement noise for this timestep.
+                    # AR(1) recursion when noise_ar1_rho > 0; falls back to i.i.d. otherwise.
                     if measurement_noise_level > 0:
-                        x.noise = (
-                            torch.randn(n_neurons, dtype=torch.float32, device=device) * measurement_noise_level
-                        )
+                        if ar1_rho > 0:
+                            ar1_prev_noise = (
+                                ar1_rho * ar1_prev_noise
+                                + torch.randn(n_neurons, dtype=torch.float32, device=device)
+                                * ar1_inject_std
+                            )
+                            x.noise = ar1_prev_noise.clone()
+                        else:
+                            x.noise = (
+                                torch.randn(n_neurons, dtype=torch.float32, device=device) * measurement_noise_level
+                            )
                     else:
                         x.noise = torch.zeros(n_neurons, dtype=torch.float32, device=device)
 

@@ -63,17 +63,22 @@ BLANK50_SIM_OVERRIDES = {
 # truth — CONDITION_FILTER is derived from its keys, NODE_PER_CONDITION from
 # the full mapping.
 CONDITION_NODES = {
-    'flyvis_noise_free':                    'a100',
-    'flyvis_noise_005':                     'a100',
-    'flyvis_noise_05':                      'a100',
-    'flyvis_noise_005_010':                 'a100',
-    'flyvis_noise_005_020':                 'a100',
-    'flyvis_noise_005_null_edges_pc_400':   'a100',
-    'flyvis_noise_005_removed_pc_20':       'a100',
-    'flyvis_noise_005_removed_pc_50':       'a100',
-    'flyvis_noise_005_stride_5':            'a100',
-    'flyvis_noise_005_hidden_010_ngp':      'a100',
-    'flyvis_noise_005_hidden_020_ngp':      'a100',
+    # 'flyvis_noise_free':                    'a100',
+    # 'flyvis_noise_005':                     'a100',
+    # 'flyvis_noise_05':                      'a100',
+    # 'flyvis_noise_005_010':                 'a100',
+    # 'flyvis_noise_005_020':                 'a100',
+    # 'flyvis_noise_005_null_edges_pc_400':   'a100',
+    # 'flyvis_noise_005_removed_pc_20':       'a100',
+    # 'flyvis_noise_005_removed_pc_50':       'a100',
+    # 'flyvis_noise_005_stride_5':            'a100',
+    # 'flyvis_noise_005_hidden_010_ngp':      'a100',
+    # 'flyvis_noise_005_hidden_020_ngp':      'a100',
+    # AR(1) measurement-noise sweep (gamma=0.10 + temporal correlation rho).
+    # Base yamls: flyvis_noise_005_010_blank50_ar1_rho{00,05,10}.yaml.
+    'flyvis_noise_005_010_blank50_ar1_rho00': 'a100',
+    'flyvis_noise_005_010_blank50_ar1_rho05': 'a100',
+    'flyvis_noise_005_010_blank50_ar1_rho10': 'a100',
 }
 
 CONDITION_FILTER     = list(CONDITION_NODES.keys())

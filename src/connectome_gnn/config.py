@@ -288,6 +288,11 @@ class SimulationConfig(BaseModel):
     calcium_noise_level: float = 0.0  # optional Gaussian noise added to [Ca] updates
     noise_model_level: float = 0.0  # process noise added during dynamics simulation
     measurement_noise_level: float = 0.0  # observation noise saved separately in noise.zarr
+    # Stationary AR(1) coefficient on measurement noise: 0 = i.i.d. (default),
+    # 0.5 ~ GCaMP6f kinetics at dt=20ms, 0.99 = highly temporally correlated.
+    # Recursion: eta(t+1) = rho*eta(t) + sqrt(1 - rho**2) * gamma * xi(t),
+    # ξ ~ N(0,1) i.i.d. -- preserves marginal Var(eta) = gamma**2 across t.
+    noise_ar1_rho: float = 0.0
     noisy_test_data: bool = False  # if True, test split uses the same noise levels as train; default keeps test deterministic
     derivative_smoothing_window: int = 1  # temporal smoothing window for noisy derivatives (1 = no smoothing)
     calcium_saturation_kd: float = 1.0  # for nonlinear saturation models

@@ -91,17 +91,37 @@ def _r2c(v):
 # Cite: https://github.com/buchenglab/SPEND
 # ============================================================================
 
-def _synth_noise_pair(shape, gamma, seed_a, seed_b, device):
-    """Two independent Gaussian noise tensors of `shape`, std=gamma.
+def _synth_noise_pair(shape, gamma, seed_a, seed_b, device, rho=0.0):
+    """Two independent (T, N) Gaussian noise tensors, std=gamma.
 
     Uses local torch.Generator instances so the global RNG (used by dropout,
-    sampling, etc.) is left untouched. Cite: SPEND uses single noise per
-    realisation; we generalise to two seeds for the replay-N2N construction.
+    sampling, etc.) is left untouched.
+
+    If rho > 0, each tensor is a stationary AR(1) chain with autocorrelation
+    rho preserving marginal variance gamma**2:
+        eta(t+1) = rho * eta(t) + sqrt(1 - rho**2) * gamma * xi(t),  xi ~ N(0,1).
+    The two chains share NO innovations (different seeds -> independent
+    processes), which is the only requirement of the Noise2Noise theorem.
+
+    Cite: https://github.com/buchenglab/SPEND -- N2N requires independence
+    between the two noise realisations; that holds regardless of rho.
     """
     g_a = torch.Generator(device=device).manual_seed(int(seed_a))
     g_b = torch.Generator(device=device).manual_seed(int(seed_b))
-    n_a = torch.randn(*shape, generator=g_a, device=device) * gamma
-    n_b = torch.randn(*shape, generator=g_b, device=device) * gamma
+    if rho <= 0.0:
+        n_a = torch.randn(*shape, generator=g_a, device=device) * gamma
+        n_b = torch.randn(*shape, generator=g_b, device=device) * gamma
+        return n_a, n_b
+    T, N = shape
+    inject = (1.0 - rho ** 2) ** 0.5 * gamma
+    n_a = torch.zeros(T, N, device=device)
+    n_b = torch.zeros(T, N, device=device)
+    # init in stationary distribution: Var(eta_0) = gamma**2
+    n_a[0] = torch.randn(N, generator=g_a, device=device) * gamma
+    n_b[0] = torch.randn(N, generator=g_b, device=device) * gamma
+    for t in range(1, T):
+        n_a[t] = rho * n_a[t-1] + torch.randn(N, generator=g_a, device=device) * inject
+        n_b[t] = rho * n_b[t-1] + torch.randn(N, generator=g_b, device=device) * inject
     return n_a, n_b
 
 
@@ -300,10 +320,19 @@ def data_train_spend(config, erase=False, best_model=None, device=None, log_file
                 'coeff_spend_replay > 0 requires sim.measurement_noise_level > 0 '
                 '(replay synthesises noise of std=gamma)'
             )
-        noise_a, noise_b = _synth_noise_pair((n_frames, n_neurons), gamma,
-                                             spend_seed_a, spend_seed_b, device)
-        _logger.info(f'SPEND replay: synthesised two noise tensors, std={gamma}, '
-                     f'seeds=({spend_seed_a}, {spend_seed_b}), shape={tuple(noise_a.shape)}')
+        # Match the synth-noise AR(1) statistics to the dataset's
+        # (sim.noise_ar1_rho) so the smoother is trained on the same
+        # distribution it would see in a real experiment with this rho.
+        ar1_rho = float(getattr(sim, 'noise_ar1_rho', 0.0))
+        noise_a, noise_b = _synth_noise_pair(
+            (n_frames, n_neurons), gamma,
+            spend_seed_a, spend_seed_b, device,
+            rho=ar1_rho,
+        )
+        _logger.info(
+            f'SPEND replay: synthesised two noise tensors, std={gamma}, rho={ar1_rho}, '
+            f'seeds=({spend_seed_a}, {spend_seed_b}), shape={tuple(noise_a.shape)}'
+        )
 
     # --- Optimizer (single Adam, smoother as second param group) ---
     if tc.lr_update == 0:
