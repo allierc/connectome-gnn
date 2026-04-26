@@ -160,8 +160,19 @@ if __name__ == "__main__":
 # bsub -n 8 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o generate flyvis_noise_005_010_blank50"
 #
 # Step 2: launch the four SPEND agentic explorations (each reads its own instruction_*.md).
-# All use generate_data: false (claude-block in each YAML); they reuse the dataset produced in step 1.
-# python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_010_spend_replay   iterations=80 --cluster --resume
-# python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_010_spend_time     iterations=80 --cluster --resume
-# python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_010_spend_typed    iterations=80 --cluster --resume
-# python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_010_spend_combined iterations=80 --cluster --resume
+# All use generate_data: false (claude block in each YAML); they reuse the dataset from step 1.
+# Block plans (each block = 8 iter = 4 slots * 2 batches):
+#   replay/time: 6 planned blocks (B1 SPEND coeff, B2 LR, B3 mechanism-knob,
+#                B4 smoother LR, B5 merged regul, B6 CV) + stretch B7+
+#                -> 48 iter (min: planned blocks only) ... 72 iter (with stretch).
+#   typed:       5 planned blocks (no smoother branch: B1 coeff x dist, B2 LR,
+#                B3 dist refine, B4 merged regul, B5 CV) + stretch B6+
+#                -> 40 iter (min) ... 72 iter (with stretch).
+#   combined:    6 planned blocks (B1 solo re-validate, B2 LR, B3 replay+typed,
+#                B4 add time-permute, B5 merged regul, B6 CV) + stretch B7+
+#                -> 48 iter (min) ... 88 iter (with stretch).
+# At ~60 min/iter on a100 (4-slot parallel batch): 72 iter ~18 h, 88 iter ~22 h.
+# python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_010_spend_replay   iterations=72 --cluster --resume
+# python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_010_spend_time     iterations=72 --cluster --resume
+# python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_010_spend_typed    iterations=72 --cluster --resume
+# python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_010_spend_combined iterations=88 --cluster --resume

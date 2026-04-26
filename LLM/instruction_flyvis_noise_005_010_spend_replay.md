@@ -102,6 +102,13 @@ Locked: `spend_load_clean: true`; `coeff_spend_time: 0`; `coeff_spend_typed: 0`.
 Each batch tests **4 distinct configs** simultaneously (rc-style). The LLM
 designs 4 related but distinct settings to maximise exploration speed.
 
+**Causality rule (relaxed).** Each slot's config may differ from the current
+baseline by **up to TWO parameters** (not strictly one). This enables 2×2
+factorial sweeps in a single batch — e.g. Slot 0: control; Slot 1: change A;
+Slot 2: change B; Slot 3: change A + B. Use the freedom only when the two
+parameters are theoretically expected to interact; otherwise prefer the
+simpler one-parameter sweep so attribution stays clean.
+
 ### Config Files
 
 - Edit all 4 config files: `flyvis_noise_005_010_spend_replay_00.yaml` through
@@ -170,7 +177,7 @@ Diagnostic rules of thumb for the HPO agent:
 
 ## Block Structure
 
-### Block 1 (iter 1–8): Coefficient sweep
+### Block 1 (iter 1–8): SPEND coefficient sweep
 
 Sweep `coeff_spend_replay` ∈ {0.1, 0.3, 1.0, 3.0} across 4 slots. Identify
 the regime where the N2N loss is meaningful but does not dominate the
@@ -178,35 +185,54 @@ main MSE. Use seed=baseline.
 
 Goal: find the order of magnitude of `coeff_spend_replay`.
 
-### Block 2 (iter 9–16): Smoother capacity sweep
+### Block 2 (iter 9–16): Learning-rate sweep
 
-Fix `coeff_spend_replay` at the Block-1 winner. Sweep
-`spend_smoother_hidden` ∈ {16, 32, 64} + one slot at the smoother LR
-boundary (1e-2). Goal: smaller is better unless the smoother under-fits.
+Fix `coeff_spend_replay` at the Block-1 winner. Sweep `lr`, `lr_W`, and
+`lr_embedding` jointly. The denoised input changes the effective gradient
+SNR, which can shift the LR sweet spots. Suggested 4-slot design:
+- Slot 0: baseline (`lr_W=9e-4`, `lr=1.8e-3`, `lr_embedding=2.325e-3`)
+- Slot 1: `lr_W=5e-4` (lower W LR, exploit cleaner gradients)
+- Slot 2: `lr=1.0e-3` + `lr_embedding=1.5e-3` (slower MLPs)
+- Slot 3: `lr_W=5e-4` + `lr=1.0e-3` (combined — uses the up-to-two-params rule)
 
-### Block 3 (iter 17–24): Smoother LR + warm-up interaction
+### Block 3 (iter 17–24): Smoother capacity sweep
 
-Sweep `spend_smoother_lr` ∈ {1e-4, 3e-4, 1e-3, 3e-3} with the Block-1/2
+Sweep `spend_smoother_hidden` ∈ {16, 32, 64} + one slot at the smoother
+LR boundary (1e-2). Goal: smaller is better unless the smoother under-fits.
+
+### Block 4 (iter 25–32): Smoother LR + warm-up interaction
+
+Sweep `spend_smoother_lr` ∈ {1e-4, 3e-4, 1e-3, 3e-3} at the Block-1/3
 winner. Hypothesis: a slower smoother prevents it from absorbing the
 clean-signal correction in the first 1k iterations before the GNN finds W.
 
-### Block 4 (iter 25–32): Combine SPEND replay with standard knobs
+### Block 5 (iter 33–40): Regularization sweep (merged)
 
-Test interactions: lower `coeff_g_phi_diff` (e.g. 1200) with strong
-SPEND on; lower `coeff_W_L1` (e.g. 5e-5) with strong SPEND on. SPEND
-denoising may make some existing regularizers redundant.
+The denoised observable may make several existing regularizers redundant.
+Sweep regularization coefficients jointly using the up-to-two-params rule.
+Suggested pool (pick 2 to vary per slot, others at baseline):
+`coeff_g_phi_diff` (baseline 2000; try 600, 1200, 3000),
+`coeff_W_L1` (baseline 1.5e-4; try 5e-5, 5e-4),
+`coeff_g_phi_norm` (baseline 0.9; try 0.3, 1.5),
+`coeff_g_phi_weight_L1` (baseline 0.28; try 0, 0.5),
+`coeff_f_theta_weight_L1` (baseline 0.05; try 0, 0.1),
+`coeff_W_L2` (baseline 1.5e-6; try 0, 3e-6).
+Suggested 4-slot design:
+- Slot 0: control
+- Slot 1: vary `coeff_g_phi_diff`
+- Slot 2: vary `coeff_W_L1`
+- Slot 3: vary `coeff_g_phi_diff` + `coeff_W_L1` together
 
-### Block 5 (iter 33–40): Robustness validation
+### Block 6 (iter 41–48): Robustness validation
 
 Run **identical** champion config with 4 different `training.seed` values.
 Decision: if CV% < 10% AND mean > 0.80, declare champion. If
-CV% > 20% → result was lucky; reopen Blocks 2/3.
+CV% > 20% → result was lucky; reopen Blocks 3/4/5.
 
-### Block 6+ (iter 41+): Stretch — beat the oracle
+### Block 7+ (iter 49+): Stretch — beat the oracle
 
-Try `data_augmentation_loop=40`, `batch_size=10`, larger smoother window
-(needs `spend_time_window` knob even though we're in replay mode — irrelevant
-here, leave at 16). Goal: conn_R2 > 0.85.
+Try `data_augmentation_loop=40`, `batch_size=10`, larger smoother capacity
+(`spend_smoother_hidden=64`) at low smoother LR (1e-4). Goal: conn_R2 > 0.85.
 
 ## Iteration Workflow
 

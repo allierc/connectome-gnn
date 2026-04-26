@@ -84,6 +84,13 @@ Same as the single-add-on instructions. Note: under the combined regime
 
 Each batch tests **4 distinct configs**.
 
+**Causality rule (relaxed).** Each slot's config may differ from the current
+baseline by **up to TWO parameters** (not strictly one). This enables 2×2
+factorial sweeps in a single batch — Slot 0: control; Slot 1: change A;
+Slot 2: change B; Slot 3: change A + B. Use only when A and B are
+theoretically expected to interact; otherwise prefer one-parameter sweeps so
+attribution stays clean.
+
 ### Config Files
 
 - Edit all 4: `flyvis_noise_005_010_spend_combined_00.yaml` through
@@ -153,9 +160,20 @@ codepath* (some bookkeeping differs).
 If any single-add-on slot regresses by > 0.02 vs its solo champion,
 **stop** and debug the trainer integration before continuing.
 
-### Block 2 (iter 9–16): Replay + typed pairwise sweep
+### Block 2 (iter 9–16): Learning-rate sweep
 
-Fix smoother config at replay-champion. Sweep:
+Fix all SPEND coefficients at the Block-1 winner ratios. Sweep `lr`,
+`lr_W`, and `lr_embedding` jointly. Combined SPEND changes the effective
+gradient SNR substantially relative to solo runs, so LR sweet spots can
+shift. Suggested:
+- Slot 0: baseline (`lr_W=9e-4`, `lr=1.8e-3`, `lr_embedding=2.325e-3`)
+- Slot 1: `lr_W=5e-4`
+- Slot 2: `lr=1.0e-3` + `lr_embedding=1.5e-3` (two-param sweep)
+- Slot 3: `lr_W=5e-4` + `lr=1.0e-3` (two-param sweep)
+
+### Block 3 (iter 17–24): Replay + typed pairwise sweep
+
+Fix smoother config at replay-champion and LRs at the Block-2 winner. Sweep:
 - Slot 0: `coeff_replay=1.0, coeff_typed=0.0` (replay only, control)
 - Slot 1: `coeff_replay=1.0, coeff_typed=0.5`
 - Slot 2: `coeff_replay=1.0, coeff_typed=1.0`
@@ -163,33 +181,40 @@ Fix smoother config at replay-champion. Sweep:
 
 Goal: find typed weight where (A)+(B) attacks combine super-additively.
 
-### Block 3 (iter 17–24): Add time-permute on top of best Block-2
+### Block 4 (iter 25–32): Add time-permute on top of best Block-3
 
-- Slot 0: Block-2 best, `coeff_time=0` (control)
-- Slot 1: Block-2 best, `coeff_time=0.1`
-- Slot 2: Block-2 best, `coeff_time=0.3`
-- Slot 3: Block-2 best, `coeff_time=1.0`
+- Slot 0: Block-3 best, `coeff_time=0` (control)
+- Slot 1: Block-3 best, `coeff_time=0.1`
+- Slot 2: Block-3 best, `coeff_time=0.3`
+- Slot 3: Block-3 best, `coeff_time=1.0`
 
 Hypothesis: time-permute is redundant with replay; expect Slot 0 to win or
 near-win. If a non-zero time slot strictly beats Slot 0, time-permute is
 contributing additional information (e.g. via the half-frame interpolation
 acting as a regularizer).
 
-### Block 4 (iter 25–32): Reduce standard regularization
+### Block 5 (iter 33–40): Regularization sweep (merged)
 
-With combined SPEND on, the `coeff_g_phi_diff` term may be redundant.
-- Slot 0: combined-winner, `coeff_g_phi_diff=2000` (control)
-- Slot 1: combined-winner, `coeff_g_phi_diff=1200`
-- Slot 2: combined-winner, `coeff_g_phi_diff=600`
-- Slot 3: combined-winner, `coeff_g_phi_diff=0`
+Combined SPEND covers both barrier (A) and (B); several existing
+regularizers may be redundant or need re-tuning. Sweep regularization
+coefficients jointly using the up-to-two-params rule. Pool to draw from
+(pick 2 to vary per slot, others at baseline):
+`coeff_g_phi_diff` (baseline 2000; try 0, 600, 1200, 3000),
+`coeff_W_L1` (baseline 1.5e-4; try 5e-5, 3e-4, 5e-4),
+`coeff_g_phi_norm` (baseline 0.9; try 0.3, 1.5),
+`coeff_g_phi_weight_L1` (baseline 0.28; try 0, 0.5),
+`coeff_f_theta_weight_L1` (baseline 0.05; try 0, 0.1),
+`coeff_W_L2` (baseline 1.5e-6; try 0, 3e-6).
+Suggested 4-slot design:
+- Slot 0: control
+- Slot 1: vary `coeff_g_phi_diff` (e.g. 0)
+- Slot 2: vary `coeff_W_L1` (e.g. 5e-4)
+- Slot 3: vary both `coeff_g_phi_diff` + `coeff_W_L1` together
 
-Hypothesis: typed-equiv subsumes the structural role of `g_phi_diff`;
-reducing the latter frees up some loss budget.
-
-### Block 5 (iter 33–40): W_L1 + lr_W refine
-
-With cleaner gradients, the W_L1 sweet spot may shift. Sweep
-`coeff_W_L1` ∈ {5e-5, 1.5e-4, 3e-4, 5e-4} at the combined champion.
+Hypothesis: typed-equiv subsumes the structural role of `g_phi_diff`, so
+even `coeff_g_phi_diff=0` should not regress conn_R2 by more than 0.01;
+and the cleaner gradients from replay should make a stronger W L1 (5e-4)
+viable without pruning real connections.
 
 ### Block 6 (iter 41–48): Robustness validation
 

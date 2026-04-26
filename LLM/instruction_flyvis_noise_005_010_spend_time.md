@@ -91,6 +91,13 @@ lr_W, lr, data_augmentation_loop, batch_size).
 Each batch tests **4 distinct configs**. Only at robustness-validation
 blocks do all 4 share a config and vary `training.seed`.
 
+**Causality rule (relaxed).** Each slot's config may differ from the current
+baseline by **up to TWO parameters** (not strictly one). This enables 2×2
+factorial sweeps in a single batch — e.g. Slot 0: control; Slot 1: change A;
+Slot 2: change B; Slot 3: change A + B. Use only when A and B are
+theoretically expected to interact; otherwise prefer one-parameter sweeps so
+attribution stays clean.
+
 ### Config Files
 
 - Edit all 4 config files: `flyvis_noise_005_010_spend_time_00.yaml` through
@@ -141,7 +148,7 @@ Diagnostics for the HPO agent:
 
 ## Block Structure
 
-### Block 1 (iter 1–8): Coefficient + window joint sweep
+### Block 1 (iter 1–8): SPEND coefficient + window joint sweep
 
 4 slots:
 - Slot 0: `coeff=0.3, window=16` (control)
@@ -151,27 +158,50 @@ Diagnostics for the HPO agent:
 
 Goal: coarse joint sweep — identify the productive (coeff, window) region.
 
-### Block 2 (iter 9–16): Window refine at best Block-1 coefficient
+### Block 2 (iter 9–16): Learning-rate sweep
 
-Sweep `spend_time_window` ∈ {8, 16, 24, 32} at the Block-1 coefficient.
+Fix `coeff_spend_time` and `spend_time_window` at the Block-1 winner.
+Sweep `lr`, `lr_W`, and `lr_embedding` jointly. The denoised input changes
+the effective gradient SNR, which can shift the LR sweet spots. Suggested:
+- Slot 0: baseline (`lr_W=9e-4`, `lr=1.8e-3`, `lr_embedding=2.325e-3`)
+- Slot 1: `lr_W=5e-4`
+- Slot 2: `lr=1.0e-3` + `lr_embedding=1.5e-3` (two-param sweep)
+- Slot 3: `lr_W=5e-4` + `lr=1.0e-3` (two-param sweep)
+
+### Block 3 (iter 17–24): Window refine
+
+Sweep `spend_time_window` ∈ {8, 16, 24, 32} at the Block-1/2 coefficient.
 Test the linearity assumption boundary; expect U-shaped curve (too short
 = no SNR gain; too long = interp bias).
 
-### Block 3 (iter 17–24): Smoother capacity + LR
+### Block 4 (iter 25–32): Smoother capacity + LR
 
 Sweep `spend_smoother_hidden` ∈ {16, 32, 64} and `spend_smoother_lr` at
-the Block-1/2 winner.
+the prior-block winner.
 
-### Block 4 (iter 25–32): Combine with standard knobs
+### Block 5 (iter 33–40): Regularization sweep (merged)
 
-`coeff_g_phi_diff` reduce to 1200 (less standard regularization with N2N
-on); `data_augmentation_loop` increase to 30 (more passes through windows).
+The denoised observable may make several existing regularizers redundant.
+Sweep regularization coefficients jointly using the up-to-two-params rule.
+Pool to draw from (pick 2 to vary per slot, others at baseline):
+`coeff_g_phi_diff` (baseline 2000; try 600, 1200, 3000),
+`coeff_W_L1` (baseline 1.5e-4; try 5e-5, 5e-4),
+`coeff_g_phi_norm` (baseline 0.9; try 0.3, 1.5),
+`coeff_g_phi_weight_L1` (baseline 0.28; try 0, 0.5),
+`coeff_f_theta_weight_L1` (baseline 0.05; try 0, 0.1),
+`coeff_W_L2` (baseline 1.5e-6; try 0, 3e-6),
+`data_augmentation_loop` (baseline 20; try 30, 40).
+Suggested 4-slot design:
+- Slot 0: control
+- Slot 1: vary `coeff_g_phi_diff`
+- Slot 2: vary `coeff_W_L1`
+- Slot 3: vary `coeff_g_phi_diff` + `coeff_W_L1` together
 
-### Block 5 (iter 33–40): Robustness validation
+### Block 6 (iter 41–48): Robustness validation
 
 4-seed CV at champion config. CV% < 10% AND mean > 0.80 → declare champion.
 
-### Block 6+ (iter 41+): Stretch
+### Block 7+ (iter 49+): Stretch
 
 Larger window (40+) for slow-dynamics regime; cross-cell-type smoother
 (needs Add-on #2 instruction).

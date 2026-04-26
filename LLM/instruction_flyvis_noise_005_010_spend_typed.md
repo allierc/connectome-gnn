@@ -93,6 +93,12 @@ and may make `coeff_g_phi_diff` redundant — test reducing it.
 
 Each batch tests **4 distinct configs**.
 
+**Causality rule (relaxed).** Each slot's config may differ from the current
+baseline by **up to TWO parameters** (not strictly one). This enables 2×2
+factorial sweeps in a single batch — Slot 0: control; Slot 1: change A;
+Slot 2: change B; Slot 3: change A + B. Use only when A and B are
+theoretically expected to interact; otherwise prefer one-parameter sweeps.
+
 ### Config Files
 
 - Edit all 4: `flyvis_noise_005_010_spend_typed_00.yaml` through
@@ -141,7 +147,7 @@ Diagnostics for the HPO agent:
 
 ## Block Structure
 
-### Block 1 (iter 1–8): Coefficient + max-distance joint sweep
+### Block 1 (iter 1–8): SPEND coefficient + max-distance joint sweep
 
 4 slots:
 - Slot 0: `coeff=0.1, dist=5.0` (light, default-distance)
@@ -151,23 +157,46 @@ Diagnostics for the HPO agent:
 
 Goal: identify productive (coeff, distance) region.
 
-### Block 2 (iter 9–16): Distance refine
+### Block 2 (iter 9–16): Learning-rate sweep
 
-Fix coefficient at Block-1 winner. Sweep
+Fix `coeff_spend_typed` and `spend_typed_max_pos_dist` at the Block-1
+winner. Sweep `lr`, `lr_W`, and `lr_embedding` jointly. The typed-equiv
+loss injects a gradient orthogonal to the W↔f_θ orbit, which can shift
+LR sweet spots. Suggested:
+- Slot 0: baseline (`lr_W=9e-4`, `lr=1.8e-3`, `lr_embedding=2.325e-3`)
+- Slot 1: `lr_W=5e-4`
+- Slot 2: `lr=1.0e-3` + `lr_embedding=1.5e-3` (two-param sweep)
+- Slot 3: `lr_W=5e-4` + `lr=1.0e-3` (two-param sweep)
+
+### Block 3 (iter 17–24): Distance refine
+
+Fix coefficient at the Block-1/2 winner. Sweep
 `spend_typed_max_pos_dist` ∈ {1.0, 2.5, 5.0, 10.0}. Hypothesis: optimum at
 ~5.0 — too small under-utilises pair count; too large brings biased pairs.
 
-### Block 3 (iter 17–24): Combine with reduced standard regularization
+### Block 4 (iter 25–32): Regularization sweep (merged)
 
-The typed-equiv loss is anchor class 4; it should reduce reliance on
-`coeff_g_phi_diff`. Test `coeff_g_phi_diff` ∈ {600, 1200, 2000} with fixed
-SPEND typed.
+Typed-equiv is anchor class 4; it injects information orthogonal to the
+W↔f_θ symmetry, so several existing regularizers may become redundant or
+need re-tuning. Sweep regularization coefficients jointly using the
+up-to-two-params rule. Pool to draw from (pick 2 to vary per slot, others
+at baseline):
+`coeff_g_phi_diff` (baseline 2000; try 600, 1200, 3000),
+`coeff_W_L1` (baseline 1.5e-4; try 5e-5, 5e-4),
+`coeff_g_phi_norm` (baseline 0.9; try 0.3, 1.5),
+`coeff_g_phi_weight_L1` (baseline 0.28; try 0, 0.5),
+`coeff_f_theta_weight_L1` (baseline 0.05; try 0, 0.1),
+`coeff_W_L2` (baseline 1.5e-6; try 0, 3e-6).
+Suggested 4-slot design:
+- Slot 0: control
+- Slot 1: vary `coeff_g_phi_diff`
+- Slot 2: vary `coeff_W_L1`
+- Slot 3: vary `coeff_g_phi_diff` + `coeff_W_L1` together
 
-### Block 4 (iter 25–32): Combine with W L1
-
-Test `coeff_W_L1` ∈ {5e-5, 1.5e-4, 5e-4} with strong typed-equiv. Hypothesis:
-typed-equiv makes W more identifiable, so a stronger sparsity prior may
-help (less risk of pruning real connections under typed-equiv constraint).
+Hypothesis to test: typed-equiv makes W more identifiable, so a stronger
+W L1 (5e-4) may help by pruning spurious connections — and a weaker
+`coeff_g_phi_diff` may suffice since structural identifiability now flows
+through the typed-equiv loss.
 
 ### Block 5 (iter 33–40): Robustness validation
 
