@@ -46,7 +46,7 @@ def run_all_conditions(hp_source, suffix, hp_yaml=None,
                         output_root=None, n_folds=5,
                         node_name='a100', hard_runtime_limit_min=120,
                         metrics_interval=300, cluster_test_plot=True,
-                        force_test=False,
+                        force_test=False, force_train=False,
                         sim_overrides=None, dataset_tag=None,
                         condition_filter=None,
                         data_augmentation_loop=100,
@@ -126,6 +126,7 @@ def run_all_conditions(hp_source, suffix, hp_yaml=None,
                 hard_runtime_limit_min=hard_runtime_limit_min,
                 force_test=force_test, cluster_test_plot=cluster_test_plot,
                 metrics_interval=metrics_interval,
+                force_train=force_train,
             )
             if emit_tex:
                 emit_tex_file(suffix, output_root, n_folds=n_folds)
@@ -142,6 +143,7 @@ def run_all_conditions(hp_source, suffix, hp_yaml=None,
                 hard_runtime_limit_min=hard_runtime_limit_min,
                 force_test=force_test, cluster_test_plot=cluster_test_plot,
                 metrics_interval=metrics_interval,
+                force_train=force_train,
             )
             if emit_tex:
                 emit_tex_file(suffix, output_root, n_folds=n_folds)
