@@ -19,7 +19,7 @@ Preamble:
     \\newcommand{\\good}[1]{\\textcolor{green!50!black}{#1}}
     \\newcommand{\\bad}[1]{\\textcolor{orange}{#1}}
 
-Output: <output_root>/log/cv_table_flywireRF_zeroedge.tex
+Output: figures/cv_table_flywireRF_zeroedge.tex
 
 Console preview: orange when val < 0.3 or missing, green when > 0.9.
 
@@ -32,7 +32,8 @@ import math
 import os
 import sys
 
-_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_FIGURES_DIR = os.path.dirname(os.path.abspath(__file__))
+_REPO_ROOT = os.path.dirname(_FIGURES_DIR)
 sys.path.insert(0, os.path.join(_REPO_ROOT, 'src'))
 
 from connectome_gnn.cross.tex import _parse_pearson, _parse_metrics_txt
@@ -42,39 +43,41 @@ from connectome_gnn.utils import load_data_root_from_json, set_data_root
 # Sentinel for the double-midrule between the Known-ODE and GNN blocks.
 DOUBLE_RULE = ('__rule__',)
 
-# (model_label, condition_label, edges, extent, base). 10 rows total
-# (5 Known-ODE + 5 GNN). Edge counts read from each config YAML's `n_edges`.
-# Empty model_label = continuation of previous model block.
-# Extent-15 rows use \textit{larger} / \textit{visual field} in the model
-# column to form a two-row "Larger visual field" vertical sub-label.
+# (model_label, condition_label, neurons, edges, extent, base). 10 rows
+# total (5 Known-ODE + 5 GNN). Edge / neuron counts read from each config
+# YAML's `n_edges` and `n_neurons`. Extent-8 has 13,741 neurons; extent-15
+# has 45,669 neurons (full hex hex visual field). Empty model_label =
+# continuation of previous model block. Extent-15 rows use
+# \textit{larger} / \textit{visual field} in the model column to form a
+# two-row "Larger visual field" vertical sub-label.
 # zeroedge variants: `_sl_` = same-type spatially-local, `_cross_sl_` =
 # cross-type spatially-local (different sampling strategies for the
 # zero-weight edge augmentation).
 TABLE_ROWS = [
     # ---- Known-ODE block ----
-    ('Known ODE',                'het. RF (oracle)',                       '328\\,092',     '8',
+    ('Known ODE',                'het. RF (oracle)',                       '13\\,741', '328\\,092',     '8',
         'flyvis_hybrid_flywireRF_known_ode_noise_005'),
-    ('',                         'het.\\ RF + uncert.\\ edges (same-type)', '401\\,175',    '8',
+    ('',                         'het.\\ RF + uncert.\\ edges (same-type)', '13\\,741', '401\\,175',    '8',
         'flyvis_hybrid_flywireRF_zeroedge_sl_known_ode_noise_005'),
-    ('',                         'het.\\ RF + uncert.\\ edges (cross-type)','1\\,959\\,994','8',
+    ('',                         'het.\\ RF + uncert.\\ edges (cross-type)','13\\,741', '1\\,959\\,994','8',
         'flyvis_hybrid_flywireRF_zeroedge_cross_sl_known_ode_noise_005'),
-    ('\\textit{larger}',         'het. RF (oracle)',                       '1\\,256\\,695', '15',
+    ('\\textit{larger}',         'het. RF (oracle)',                       '45\\,669', '1\\,256\\,695', '15',
         'flyvis_hybrid_flywireRF_e15_known_ode_noise_005'),
-    ('\\textit{visual field}',   'het.\\ RF + uncert.\\ edges (cross-type)','5\\,411\\,743','15',
+    ('\\textit{visual field}',   'het.\\ RF + uncert.\\ edges (cross-type)','45\\,669', '5\\,411\\,743','15',
         'flyvis_hybrid_flywireRF_zeroedge_cross_sl_e15_known_ode_noise_005'),
 
     DOUBLE_RULE,
 
     # ---- GNN block ----
-    ('GNN',                      'het. RF (oracle)',                       '328\\,092',     '8',
+    ('GNN',                      'het. RF (oracle)',                       '13\\,741', '328\\,092',     '8',
         'flyvis_hybrid_flywireRF_noise_005'),
-    ('',                         'het.\\ RF + uncert.\\ edges (same-type)', '401\\,175',    '8',
+    ('',                         'het.\\ RF + uncert.\\ edges (same-type)', '13\\,741', '401\\,175',    '8',
         'flyvis_hybrid_flywireRF_zeroedge_sl_noise_005'),
-    ('',                         'het.\\ RF + uncert.\\ edges (cross-type)','1\\,959\\,994','8',
+    ('',                         'het.\\ RF + uncert.\\ edges (cross-type)','13\\,741', '1\\,959\\,994','8',
         'flyvis_hybrid_flywireRF_zeroedge_cross_sl_noise_005'),
-    ('\\textit{larger}',         'het. RF (oracle)',                       '1\\,256\\,695', '15',
+    ('\\textit{larger}',         'het. RF (oracle)',                       '45\\,669', '1\\,256\\,695', '15',
         'flyvis_hybrid_flywireRF_e15_noise_005'),
-    ('\\textit{visual field}',   'het.\\ RF + uncert.\\ edges (cross-type)','5\\,411\\,743','15',
+    ('\\textit{visual field}',   'het.\\ RF + uncert.\\ edges (cross-type)','45\\,669', '5\\,411\\,743','15',
         'flyvis_hybrid_flywireRF_zeroedge_cross_sl_e15_noise_005'),
 ]
 
@@ -140,11 +143,12 @@ def _strip_tex(s):
     return s.replace('\\,', ',').replace('\\ ', ' ').replace('\\', '')
 
 
-def _print_console_row(model, cond, edges, extent, m):
+def _print_console_row(model, cond, neurons, edges, extent, m):
     label = f'{(model or "..").strip():>10}  {_strip_tex(cond)}'
-    edges_disp = _strip_tex(edges)
+    neurons_disp = _strip_tex(neurons)
+    edges_disp   = _strip_tex(edges)
     print(f'    {label:<55} '
-          f'edges={edges_disp:>10} ext={extent:>2} | '
+          f'N={neurons_disp:>7} edges={edges_disp:>10} ext={extent:>2} | '
           f'one={_ansi_cell(m["one_r"])} '
           f'roll={_ansi_cell(m["roll_r"])} '
           f'W={_ansi_cell(m["W_R2"])} '
@@ -160,21 +164,21 @@ def _emit_table(output_root):
             lines.append('\\midrule')
             print('    ' + '-' * 80)
             continue
-        model, cond, edges, extent, base = entry
+        model, cond, neurons, edges, extent, base = entry
         m = _read_metrics(output_root, base)
         lines.append(
-            f'{model:<24} & {cond:<40} & ${edges}$ & {extent}\n'
+            f'{model:<24} & {cond:<40} & ${neurons}$ & ${edges}$ & {extent}\n'
             f'  & {_fmt(m["one_r"])} & {_fmt(m["roll_r"])}\n'
             f'  & {_fmt(m["W_R2"])} & {_fmt(m["tau_R2"])} & {_fmt(m["V_R2"])} \\\\'
         )
-        _print_console_row(model, cond, edges, extent, m)
+        _print_console_row(model, cond, neurons, edges, extent, m)
 
-    out_dir = os.path.join(output_root, 'log')
-    os.makedirs(out_dir, exist_ok=True)
-    path = os.path.join(out_dir, 'cv_table_flywireRF_zeroedge.tex')
+    os.makedirs(_FIGURES_DIR, exist_ok=True)
+    path = os.path.join(_FIGURES_DIR, 'cv_table_flywireRF_zeroedge.tex')
     with open(path, 'w') as f:
         f.write('% flywireRF zero-edge augmentation; rows only; '
-                'Known-ODE block, then GNN block separated by midrule midrule.\n')
+                'Known-ODE block, then GNN block separated by single midrule. '
+                'Columns: model & condition & neurons & edges & extent & one-step r & rollout r & W & tau & V_rest.\n')
         for ln in lines:
             f.write(ln + '\n')
     print(f'\n  [tex ] {path}')
