@@ -140,6 +140,12 @@ def setup_exploration(args, root_dir: str, skip_confirm: bool = False) -> Explor
         best_model=best_model,
     )
 
+    # L4 nodes give ~15 GB host RAM per slot vs ~40 GB on A100/H100; flyvis
+    # training peaks ~30 GB, so n_cpus<4 hits TERM_MEMLIMIT on L4. Bump to 4.
+    if state.node_name == 'l4' and state.n_cpus < 4:
+        print(f"\033[93m  auto-bumping n_cpus {state.n_cpus} -> 4 for gpu_l4 (memory headroom)\033[0m")
+        state.n_cpus = 4
+
     # Detect resume point
     if args.resume:
         analysis_path_probe = f"{exploration_dir}/{llm_task_name}_analysis.md"
