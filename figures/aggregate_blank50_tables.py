@@ -212,13 +212,13 @@ def _aggregate(output_root, base, suffix, n_folds):
 def _emit_table1(output_root, n_folds):
     """tab:cv_known_ode (model x noise comparison). 5 rows, 9-col layout
     (model, condition, sigma, one-step r, rollout r, W, tau, V, cluster).
-    Inserts \\midrule\\midrule between the Known-ODE block and the GNN block."""
+    Inserts a single \\midrule between the Known-ODE block and the GNN block."""
     lines = []
     prev_suffix = None
     print('\n  [tab1] Known-ODE vs GNN  (orange: <0.3 or missing, green: >0.9)')
     for model, label, sigma, suffix, base in TABLE1_SPEC:
         if prev_suffix is not None and suffix != prev_suffix:
-            lines.append('\\midrule\n\\midrule')
+            lines.append('\\midrule')
         s = _aggregate(output_root, base, suffix, n_folds)
         lines.append(
             f'{model:<10} & {label:<11} & ${sigma}$\n'

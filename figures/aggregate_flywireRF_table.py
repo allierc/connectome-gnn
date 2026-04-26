@@ -5,7 +5,7 @@ Single-run pipeline (no CV folds): one row per config. Reads
     log/fly/<base>/results_rollout.log      (rollout r)
     log/fly/<base>/results/metrics.txt      (W_corrected_R2, tau_R2, V_rest_R2)
 
-Layout: Known-ODE block first, then GNN block, separated by \\midrule\\midrule.
+Layout: Known-ODE block first, then GNN block, separated by a single \\midrule.
 The two extent-15 rows in each block carry \\textit{larger} (first row)
 and \\textit{visual field} (second row) in the model column, forming a
 two-line vertical "Larger visual field" sub-label.
@@ -157,7 +157,7 @@ def _emit_table(output_root):
     print('\n  [tab ] flywireRF zero-edge  (orange: <0.3 or missing, green: >0.9)')
     for entry in TABLE_ROWS:
         if entry == DOUBLE_RULE:
-            lines.append('\\midrule\n\\midrule')
+            lines.append('\\midrule')
             print('    ' + '-' * 80)
             continue
         model, cond, edges, extent, base = entry
