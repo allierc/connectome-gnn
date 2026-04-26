@@ -13,7 +13,57 @@ import re
 from connectome_gnn.config import NeuralGraphConfig
 from connectome_gnn.generators.graph_data_generator import data_generate
 from connectome_gnn.models.graph_trainer import data_train, data_test, data_train_INR
-from connectome_gnn.utils import set_device, add_pre_folder, log_path, config_path, validate_pre_folder, set_data_root, git_sha, git_dirty_files
+from connectome_gnn.utils import (
+    set_device, add_pre_folder, log_path, config_path, validate_pre_folder,
+    set_data_root, git_sha, git_dirty_files, get_repo_root, graphs_data_path,
+    load_config_fallback_roots, load_data_fallback_roots,
+)
+
+
+def _yellow(msg: str) -> str:
+    return f"\033[33m{msg}\033[0m"
+
+
+def _resolve_config_path(yaml_path: str) -> str:
+    """If yaml_path doesn't exist at the local repo, try each fallback config
+    root from data_paths.json (cluster_data_dir/config, cluster_root_dir/config).
+    Returns the first existing path (with a yellow warning), or the original
+    path if nothing is found.
+    """
+    if os.path.isfile(yaml_path):
+        return yaml_path
+    repo_config_root = os.path.join(get_repo_root(), 'config')
+    if not yaml_path.startswith(repo_config_root + os.sep):
+        return yaml_path
+    rel = os.path.relpath(yaml_path, repo_config_root)
+    for root in load_config_fallback_roots():
+        candidate = os.path.join(root, rel)
+        if os.path.isfile(candidate):
+            print(_yellow(f"  config not found at {yaml_path}"))
+            print(_yellow(f"  using fallback config: {candidate}"))
+            return candidate
+    return yaml_path
+
+
+def _maybe_fallback_data_root(config, explicit_output_root: bool, task: str) -> None:
+    """If the dataset is missing at the current data root, try each fallback
+    data root from data_paths.json (cluster_data_dir). Switch the data root to
+    the first one that has it (and print a yellow warning). Skipped when
+    --output_root / GNN_OUTPUT_ROOT was explicitly provided or when generating
+    fresh data locally.
+    """
+    if explicit_output_root or 'generate' in task:
+        return
+    dataset_dir = graphs_data_path(config.dataset)
+    if os.path.isdir(dataset_dir):
+        return
+    for root in load_data_fallback_roots():
+        candidate = os.path.join(root, 'graphs_data', config.dataset)
+        if os.path.isdir(candidate):
+            print(_yellow(f"  data not found at {dataset_dir}"))
+            print(_yellow(f"  switching data root to: {root}"))
+            set_data_root(root)
+            return
 
 # Optional imports (not available in flyvis-gnn spinoff)
 try:
@@ -49,6 +99,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     output_root = args.output_root or os.environ.get('GNN_OUTPUT_ROOT')
+    explicit_output_root = output_root is not None
 
     if output_root:
         assert os.path.isdir(output_root), f"--output_root does not exist: {output_root}"
@@ -187,14 +238,14 @@ if __name__ == "__main__":
 
             # load config — if YAML not found, try stripping _cvNN suffix (CV folds
             # share a base config; the cv_runner overrides dataset/config_file at runtime)
-            yaml_path = config_path(f"{config_file}.yaml")
+            yaml_path = _resolve_config_path(config_path(f"{config_file}.yaml"))
             cv_match = re.search(r'_cv(\d+)$', config_file_)
             if not os.path.isfile(yaml_path) and cv_match:
                 base_name = config_file_[:cv_match.start()]
                 base_file, _ = add_pre_folder(base_name)
                 print(f"  CV fold detected: loading base config {base_name}.yaml, "
                       f"dataset/log -> {config_file_}")
-                yaml_file = config_path(f"{base_file}.yaml")
+                yaml_file = _resolve_config_path(config_path(f"{base_file}.yaml"))
                 config = NeuralGraphConfig.from_yaml(yaml_file)
                 config.dataset = pre_folder + config_file_
                 config.config_file = pre_folder + config_file_
@@ -204,6 +255,8 @@ if __name__ == "__main__":
                 if not config.dataset.startswith(pre_folder):
                     config.dataset = pre_folder + config.dataset
                 config.config_file = pre_folder + config_file_
+
+        _maybe_fallback_data_root(config, explicit_output_root, task)
 
         if device == []:
             device = set_device(config.training.device)
@@ -375,5 +428,5 @@ if __name__ == "__main__":
 # unset GNN_OUTPUT_ROOT
 # CUDA_VISIBLE_DEVICES=1 python GNN_Main.py -o train_test_plot flyvis_noise_005_hidden_010_ngp_anchors --output_root /groups/saalfeld/home/allierc/GraphData
 # CUDA_VISIBLE_DEVICES=0 python GNN_Main.py -o train_test_plot flyvis_noise_005_ss0 --output_root /groups/saalfeld/home/allierc/GraphData 
-
+# python GNN_Main.py -o test   /groups/saalfeld/home/allierc/GraphData/config/fly/flyvis_noise_005_blank50_unified_cv00   --output_root /groups/saalfeld/home/allierc/GraphData
 # bsub -n 2 -gpu "num=1" -q gpu_h100 -W 6000 -Is "python GNN_Main.py -o generate_train_test_plot hybrid_flywireRF_variants --force"
