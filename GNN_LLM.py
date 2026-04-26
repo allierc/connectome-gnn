@@ -148,3 +148,7 @@ if __name__ == "__main__":
 # CUDA_VISIBLE_DEVICES=0 python GNN_LLM_code.py -o generate_train_test_plot_Claude flyvis_noise_005_from_zero --cluster --resume
 
 # CUDA_VISIBLE_DEVICES=1 python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_hidden_010_ngp_anchors --cluster --fresh iteration=264
+
+# --- flywireRF + zero-edge (cross-type) explorations (a100, sigma=0.05) ---
+# python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_hybrid_flywireRF_zeroedge_cross_sl_noise_005 iterations=80 --cluster --resume
+# python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_hybrid_flywireRF_zeroedge_cross_sl_known_ode_noise_005 iterations=72 --cluster --resume

@@ -142,7 +142,8 @@ _GOOD_THRESH = 0.9   # mean strictly above this -> green  / \good{}
 
 def _fmt(mean, sd):
     """LaTeX cell. Wraps \\good{...} when mean > 0.9, \\bad{...} when mean < 0.3,
-    and emits $\\cdot$ for NaN. Requires \\good and \\bad macros in the preamble:
+    and emits $\\cdot$ for NaN. Define both macros once in the preamble:
+        \\usepackage{xcolor}
         \\newcommand{\\good}[1]{\\textcolor{green!50!black}{#1}}
         \\newcommand{\\bad}[1]{\\textcolor{orange}{#1}}"""
     import math
