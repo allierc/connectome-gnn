@@ -327,10 +327,6 @@ def draw_scatter(ax, x_all, y_all, xlabel, ylabel, show_fit=True):
 
     ax.hexbin(x, y, gridsize=140, bins='log', cmap='magma_r',
               mincnt=1, extent=(lo, hi, lo, hi), linewidths=0.0)
-    if show_fit:
-        xs = np.array([lo, hi])
-        ax.plot(xs, slope * xs + intercept, lw=0.5, color='#cf222e',
-                alpha=0.95, zorder=4, linestyle='--')
 
     ax.set_xlim([lo, hi]); ax.set_ylim([lo, hi])
     ax.set_aspect('equal', adjustable='box')
