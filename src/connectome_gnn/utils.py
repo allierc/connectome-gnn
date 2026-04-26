@@ -82,8 +82,8 @@ def set_data_root(path: str) -> None:
     _data_root = path
 
 
-def load_data_root_from_json() -> str:
-    """Read cluster_data_dir from data_paths.json. Used by GNN_LLM cluster mode only."""
+def _read_data_paths_json() -> dict | None:
+    """Locate and parse data_paths.json. Returns None if not found."""
     _this_dir = os.path.dirname(os.path.abspath(__file__))
     candidates = [
         os.path.join(os.getcwd(), 'data_paths.json'),
@@ -98,8 +98,50 @@ def load_data_root_from_json() -> str:
                 "data_paths.json contains deprecated 'data_root' key. "
                 "Remove it and use 'cluster_data_dir' instead (or --output_root CLI arg)."
             )
-            return data['cluster_data_dir']
-    raise FileNotFoundError("data_paths.json not found (required for cluster mode)")
+            return data
+    return None
+
+
+def load_data_root_from_json() -> str:
+    """Read cluster_data_dir from data_paths.json. Used by GNN_LLM cluster mode only."""
+    data = _read_data_paths_json()
+    if data is None:
+        raise FileNotFoundError("data_paths.json not found (required for cluster mode)")
+    return data['cluster_data_dir']
+
+
+def load_config_fallback_roots() -> list:
+    """Return ordered list of config-root directories to try when a config is
+    not found under the local repo's config/. Each entry is the parent of
+    `fly/`, `drosophila_cx/`, ... (i.e. equivalent to `<repo>/config`).
+
+    Returns [] if data_paths.json is absent — no fallback, normal error surfaces.
+    """
+    data = _read_data_paths_json()
+    if data is None:
+        return []
+    roots = []
+    if 'cluster_data_dir' in data:
+        roots.append(os.path.join(data['cluster_data_dir'], 'config'))
+    if 'cluster_root_dir' in data:
+        roots.append(os.path.join(data['cluster_root_dir'], 'config'))
+    return roots
+
+
+def load_data_fallback_roots() -> list:
+    """Return ordered list of data-root directories to try when a dataset is
+    not found at the current data root. Each entry is the parent of
+    `graphs_data/` and `log/`.
+
+    Returns [] if data_paths.json is absent — no fallback, normal error surfaces.
+    """
+    data = _read_data_paths_json()
+    if data is None:
+        return []
+    roots = []
+    if 'cluster_data_dir' in data:
+        roots.append(data['cluster_data_dir'])
+    return roots
 
 
 def graphs_data_path(*parts: str) -> str:
