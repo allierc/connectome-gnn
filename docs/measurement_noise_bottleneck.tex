@@ -1,0 +1,479 @@
+\documentclass[11pt]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{microtype}
+\usepackage{parskip}
+\usepackage{enumitem}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!50!black,
+  urlcolor=blue!50!black,
+  citecolor=blue!50!black
+}
+
+\title{Bottleneck of GNN connectome inference under \\ measurement noise --- synthesis and implementation plan}
+\author{}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\tableofcontents
+\bigskip\hrule\bigskip
+
+\section{Where the wall is, mathematically}
+
+The flyvis ODE is \emph{nonlinear in voltages} but \emph{linear in circuit
+parameters} $\theta = (\tau_i, W_{ij}, V^{\text{rest}}_i)$. Stacking
+the simulator update rule across $(N\,T)$ samples gives an over-determined
+linear system $A\theta = b$ where the design matrix $A$ depends only on the
+observed voltages and stimuli (\texttt{neurips.tex:217}, app.\ \S B). The
+inverse problem is therefore well-posed up to the null space of $A$, and the
+identifiability of $\theta$ is purely a question of whether $A^\top A$ is
+invertible.
+
+It is not. Two structural facts kill recovery before a single noise photon
+enters:
+
+\subsection{Continuous degeneracy in $W$ (geometric symmetry)}
+
+In the central FlyVis crop ($N{=}13{,}741$ neurons, $E{=}434{,}122$ edges) the
+stimulus-driven Hessian $H = A^\top A$ has $\dim\ker(H) = 308{,}160$ ---
+roughly $71\%$ of the edges. The reason is structural: same-type neurons
+across different retinotopic columns receive \emph{stimulus-shifted copies}
+of the same input. If $W_{ij}$ is the weight feeding neuron $i$ from neuron
+$j$, and $W_{i'j'}$ is the analogous weight one column over, then the data
+$\{v(t)\}$ supports a continuous one-parameter family of perturbations
+$W_{ij} \mapsto W_{ij} + \delta$, $W_{i'j'} \mapsto W_{i'j'} - \delta$ that
+leave the predicted dynamics unchanged --- \emph{sum-zero} edge perturbations
+within columnar equivalence classes. Empirically the appendix shows $W$ can
+be perturbed by $\geq 8\times$ the group mean while rollout Pearson $r > 0.94$
+(\texttt{neurips.tex:1061}, Table~$\lambda_8$).
+
+\subsection{Scale degeneracy $W \leftrightarrow f_\theta$ (architectural symmetry)}
+
+The GNN forward model is
+\[
+\frac{d\hat v_i}{dt} = f_\theta\!\Big(v_i,\, \mathbf{a}_i,\,
+\underbrace{\textstyle\sum_j \widehat W_{ij}\, g_\phi(v_j,\mathbf{a}_j)}_{=\,m_i},\,
+I_i\Big).
+\]
+For \emph{any} positive constant $k$, the substitution
+$(\widehat W,\, f_\theta(\cdot,\cdot,m,\cdot)) \mapsto (k\widehat W,\, f_\theta(\cdot,\cdot,m/k,\cdot))$
+leaves $d\hat v/dt$ pointwise unchanged, because $k\widehat W \cdot g_\phi$
+multiplies $m$ by $k$ and the message branch of $f_\theta$ divides it back by $k$
+on the way out. This is an \emph{exact} continuous symmetry of the
+architecture. The MLP $f_\theta$ has more than enough capacity to absorb a
+factor of $\sim 2$ on its message branch, and the data alone cannot tell which
+$k$ is the ``right'' one.
+
+The consequence: the recovered $\widehat W$ is determined by the data
+\emph{only up to an unknown global scale}. The regression slope of
+$\widehat W$ vs.\ $W_{\text{true}}$ depends on which point $k^\star$ the
+optimizer landed on. In our baseline that point is $k^\star \approx 0.51$
+(\texttt{instruction:120--138}).
+
+\subsection{What it means for measurement noise to be ``load-bearing''}
+
+\textbf{Definition.} A symmetry is ``load-bearing'' if the optimizer's choice
+within the symmetry orbit is \emph{determined} by the noise rather than by the
+signal. In the noise-free case, all points on the orbit yield the same loss,
+and the optimizer's landing point is set by initialisation, regularization,
+and gradient-flow geometry --- not by the data. A modest L1 penalty on
+$\widehat W$ is enough to nudge the system to the natural-scale point
+$k^\star \approx 1$, recovering $W$ R$^2 \approx 0.97$.
+
+Add measurement noise. The training signal is now a \emph{noisy} finite
+difference $\widetilde y_i(t) = (v_i(t{+}1) - v_i(t))/\Delta t + \eta_i(t)$
+where $\eta_i$ has standard deviation $\gamma\sqrt{2}/\Delta t$. At
+$\gamma=0.10$ and $\Delta t = 0.02$ this is $\eta\text{-std} \approx 7.07$ ---
+the same order of magnitude as the clean derivative itself
+(\texttt{instruction:34}). The MSE loss now has two contributions:
+a signal term that is invariant along the orbit, and a noise term
+$\propto \mathbb E\|\eta\|^2 \sim k^2 \cdot \mathrm{Var}(\eta_{\text{eff}})$
+that is \emph{not}, because the message-branch Jacobian
+$\partial f_\theta / \partial m \propto 1/k$ scales the variance the noise sees
+on its way through the network. The optimizer minimises this term by
+\emph{shrinking} $\widehat W$ (smaller $k$) and inflating $f_\theta$'s
+message branch correspondingly.
+
+\textbf{The slope-shrunk $W$ is therefore the path of least resistance
+under noise:} of all points on the symmetry orbit, the shrunken one is the
+local minimum of the noise penalty. The network has no incentive to leave it
+because every voltage-level loss is constant along the orbit. This is what
+``load-bearing'' means here: the symmetry is silent in the clean case but
+\emph{actively selects the wrong $W$} as soon as noise enters the gradient.
+
+\subsection{What ``no information orthogonal to the symmetry'' means}
+
+A loss function $\mathcal L$ is \emph{symmetry-blind} if
+$\mathcal L(\widehat W, f_\theta) = \mathcal L(k\widehat W, f_\theta(\cdot,m/k,\cdot))$
+for all $k>0$. Any voltage-level loss --- one-step MSE, multi-step rollout
+MSE, smoothness on $v$, EMA-denoised $v$, derivative-SNR-weighted MSE,
+voltage-coherence terms across neurons --- is symmetry-blind by construction,
+because all of these are functions of $v$ and $\hat v$, and the symmetry
+\emph{by definition} preserves $\hat v$ pointwise.
+
+Adding more such losses cannot break the degeneracy. Geometrically: the
+symmetry traces out a one-dimensional orbit in parameter space; any
+symmetry-blind loss is constant along that orbit; the gradient of such a
+loss has zero component in the orbit direction. Information ``orthogonal to
+the symmetry'' means a loss term whose gradient \emph{has} a non-zero
+component in that direction --- a constraint that distinguishes $k$ from
+$1/k$. Examples: $g_\phi(v_\star,\mathbf a) = v_\star$ (anchors $g_\phi$ at a
+reference voltage), $\partial f_\theta/\partial m = 1$ (anchors the
+message-branch Jacobian), $\sum_{ij}|W_{ij}| \cdot \mathrm{sign}(W^{\text{Dale}}_{ij})$
+(Dale's law: signs of edges by presynaptic type), or a typed equivariance
+constraint that ties $W_{ij}$ values across columns of the same
+presynaptic-postsynaptic type pair.
+
+This is why the LLM exploration's voltage-side blocks (denoising, coherence,
+EMA --- all symmetry-blind) reverted: they cannot, even in principle, move
+the optimizer off the slope-shrunk minimum.
+
+\section{Empirical evidence from the three explorations}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lll}
+\toprule
+\textbf{Regime} & \textbf{Best $W$ R$^2$} & \textbf{Notes} \\
+\midrule
+\texttt{noise\_005} ($\sigma=0.05$ only)
+  & 0.983 (CV 0.21\%)
+  & Recurrent + msg\_diff=100 + g\_phi\_L1=0; near-oracle \\
+\texttt{noise\_005\_010} ($\sigma=0.05,\, \gamma=0.10$)
+  & 0.7457 $\rightarrow$ 0.802
+  & Stuck below 0.78 oracle; $W$ slope $\approx 0.51$ \\
+\texttt{noise\_005\_010\_rc} (recurrent fine-tune)
+  & 0.802 (5-seed)
+  & Bimodal convergence --- Batch~32 collapsed (0.07--0.17) \\
+\texttt{removed\_pc\_20} (structural perturbation, no $\gamma$)
+  & 0.887
+  & Edge removal is \emph{easier} than measurement noise \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Adding $\gamma=0.10$ costs $\sim 0.18$ absolute $W$ R$^2$. Five LLM-explored
+anchor families that touch only voltage-level signals (denoising, EMA,
+coherence, $g_\phi$ 10-pt identity, $g_\phi$ zero-intercept) \textbf{all
+reverted}: as just argued, they re-process the same noise-corrupted observable
+with symmetry-blind losses, adding no information that distinguishes the
+correct $k$ from any other (\texttt{instruction:120--209}).
+
+\section{Why the GNN inherits this from the loss, not the architecture}
+
+The Known-ODE oracle (perfect ReLU, only $W$, $\tau$, $V^{\text{rest}}$ free,
+\emph{no} message-branch MLP and therefore \emph{no} scale degeneracy)
+plateaus at $W$ R$^2 \approx 0.78$--$0.80$ at $\gamma=0.10$
+(\texttt{neurips.tex:1393}). The GNN at 0.745 sits in the same basin: the
+gap to oracle is architectural (the MLP gives it the scale degeneracy that
+the oracle lacks), but the gap from oracle to noise-free
+(0.78 $\rightarrow$ 0.965) is \emph{genuinely loss-limited}. Even with no
+parametric symmetry, the pointwise MSE on $(v[t{+}1]-v[t])/\Delta t$ is
+half-drowned by derivative noise of std~$\sim 7$, so the conditioning of
+$A^\top A$ collapses regardless of the architectural choice. The neurips
+paper concedes the point and offers no fix (line 584).
+
+\medskip
+\noindent\textbf{Two distinct attacks are needed:}
+\begin{enumerate}[label=(\Alph*),leftmargin=*]
+  \item \textbf{Reformulate the loss} so it is no longer pointwise on a
+    finite difference (attacks the noise wall --- closes the
+    $0.78 \rightarrow 0.965$ gap that even the oracle cannot close).
+  \item \textbf{Add a symmetry-breaking anchor} so the optimizer cannot rest
+    at the slope-shrunk point (attacks the architectural gap ---
+    closes $0.745 \rightarrow 0.78$).
+\end{enumerate}
+The rest of this document is about (A), with implementation guided by SPEND.
+
+\section{What SPEND (Ding et al.\ 2025) actually offers}
+
+SPEND solves a \emph{different} problem: spatially-correlated,
+spectrally-varied noise in hyperspectral SRS/MIP imaging, denoised via
+Noise2Noise (N2N) self-permutation along an axis where the noise is least
+correlated. We inspected the reference implementation
+(\texttt{/workspace/connectome-gnn/papers/SPEND/}); the relevant facts are:
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Permutation pair construction
+    (\texttt{datasplit\_with\_aug\_choose.py:75--97}).}
+    Literal stride-2 split + concatenate along the chosen axis $\omega$:
+\begin{verbatim}
+    even = img[::2, :, :]
+    odd  = img[1::2, :, :]
+    input_stack  = concat(even, odd)
+    target_stack = concat(odd,  even)
+\end{verbatim}
+    Both stacks are noisy. Both have \emph{the same underlying signal} (up
+    to a one-frame shift along $\omega$) but \emph{independent noise
+    realisations}. That is the definition of an N2N pair.
+  \item \textbf{Loss (\texttt{losses.py:37--48}).}
+    Pure MAE between network output and target; no masking, no perceptual
+    term.
+  \item \textbf{Model.} 3D U-Net via CSBDeep, depth~4, base channels 32, no
+    batch norm, residual skip on the output, linear head.
+  \item \textbf{Training.} Adam, LR $4\times10^{-5}$, 100 epochs, batch~16.
+    Augmentation is flips only (no rotation), applied at preprocessing time.
+  \item \textbf{Inference (\texttt{3\_prediction\_SPEND.py}).} The trained
+    network is applied to the \emph{original} (un-permuted) sequence; the
+    permutation is a training-time trick only.
+  \item \textbf{No explicit noise model.} The network is purely supervised
+    on N2N pairs --- the only ``model'' of the noise is the implicit
+    assumption that it decorrelates along the chosen permutation axis.
+\end{itemize}
+
+\section{Why SPEND-style training applies even though our noise is i.i.d.}
+
+This is the key sceptic-pass. Our measurement noise is added independently
+per $(\text{neuron}, \text{frame})$:
+$v^{\text{obs}}_i(t) = v^{\text{clean}}_i(t) + \gamma\, \xi_i(t)$,
+$\xi_i(t) \overset{\text{iid}}{\sim} \mathcal N(0,1)$.
+SPEND was \emph{designed} for non-independent noise. Why use a
+non-independent-noise method on independent noise?
+
+\subsection{The Noise2Noise theorem does not require non-independent noise}
+
+The original Noise2Noise result (Lehtinen et~al.\ 2018) shows that, given
+any two noisy observations $\widetilde x_1 = s + \eta_1$ and
+$\widetilde x_2 = s + \eta_2$ with $\eta_1, \eta_2$ \emph{independent}
+zero-mean noise, the network trained with
+$\mathcal L = \mathbb E \|f(\widetilde x_1) - \widetilde x_2\|^2$
+converges to $\mathbb E[\widetilde x_2 \mid \widetilde x_1] =
+\mathbb E[s \mid \widetilde x_1] + 0 = $ posterior mean of $s$. The proof
+hinges on $\mathbb E[\eta_2 \mid \widetilde x_1] = 0$, which holds whenever
+$\eta_1 \perp \eta_2$. \emph{i.i.d.\ Gaussian noise satisfies this trivially}
+--- in fact it was the canonical case in the original paper.
+
+SPEND's contribution was to show that even when noise is \emph{not} i.i.d.\
+across all axes (it is correlated along the fast-scan axis in SRS), there is
+\emph{still} an axis along which it decorrelates (the slow-scan or spectral
+axis), and permuting along that axis gives valid N2N pairs. SPEND extends
+N2N to a harder regime; it does not invalidate it for the easy regime.
+
+\textbf{Translation to our setting.} Our noise is i.i.d.\ across every axis
+--- time, neuron, simulation seed, stimulus frame. This means \emph{every}
+axis is a valid permutation axis for an N2N construction, and we have more
+flexibility than SPEND, not less. The challenge for us is not finding a
+decorrelating axis (any axis works); it is choosing the axis whose
+\emph{signal} is the most highly correlated, so the network has the
+strongest signal to learn while the noise pair has independent realisations.
+
+\subsection{What the signal-correlation structure of flyvis lets us exploit}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lll}
+\toprule
+\textbf{Domain} & \textbf{Signal correlation} & \textbf{Noise correlation} \\
+\midrule
+Time $t$ & strong (smooth $\sim$ms dynamics, $\Delta t = 20$ms) & uncorrelated \\
+Cell-type $c_i$ (65 classes) & strong (typed equivariance) & uncorrelated \\
+Spatial column (217 retinotopic columns) & strong (same RF, shifted stimulus) & uncorrelated \\
+Stimulus replay (re-run with same $I(t)$, different seed) & identical (deterministic ODE) & uncorrelated \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+For SPEND, axis selection was forced (only the spectral axis decorrelated
+noise). For us, axis selection is \emph{strategic}: we pick the axis along
+which the signal is strongest, because the N2N convergence rate is set by
+how cleanly the network can predict signal from a noisy pair. The
+stimulus-replay axis is the cleanest (deterministic signal, fully
+independent noise), the time axis is the most data-efficient
+(no extra simulation needed), and the cell-type/columnar axis is the most
+mechanistically informative (it ties recovery to the connectome's structural
+priors).
+
+\textbf{One-line argument the user can use:} \emph{N2N requires only that
+the two views share the same signal and have independent noise; i.i.d.\
+Gaussian noise satisfies this in every axis. SPEND's permutation trick
+generates such pairs from a single recording. We can use the same trick
+along time, cell-type, or stimulus-replay axes --- the i.i.d.\ assumption
+is what makes our problem easier, not harder, than SPEND's.}
+
+\section{Three add-ons --- implementation plan}
+
+Each add-on is a self-contained training-time intervention that can be
+toggled by a single YAML coefficient. None modifies the GNN architecture.
+All three address attack (A) --- reformulating the loss so it operates on a
+denoised observable rather than on a noisy finite difference.
+
+\subsection{Add-on \#1 --- N2N-on-time (frame-permutation training)}
+
+\textbf{Mechanism.} Within each training window of $T_w$ consecutive frames
+(say $T_w = 16$, $\Delta t = 20$\,ms, total 320\,ms --- well within the
+correlation length of the dynamics), construct two views:
+\[
+v^{\text{even}}_{i,k} = v^{\text{obs}}_i(t_0 + 2k \Delta t), \quad
+v^{\text{odd}}_{i,k} = v^{\text{obs}}_i(t_0 + (2k{+}1)\Delta t),\quad k=0,\ldots,T_w/2 - 1.
+\]
+The two views share the same underlying clean trajectory (subject to the
+half-frame shift, which is small at this $\Delta t$) but have independent
+noise realisations because $\xi_i(t) \perp \xi_i(t')$ for $t \ne t'$.
+
+\textbf{Loss.} Train an auxiliary 1D-conv \emph{voltage smoother}
+$\mathcal D: v^{\text{even}} \mapsto \widehat v^{\text{clean}}$ with the
+N2N loss
+$\mathcal L_{\text{N2N}} = \| \mathcal D(v^{\text{even}}) - v^{\text{odd, interp}}\|_2^2$
+where $v^{\text{odd, interp}}$ is the half-frame interpolant of the odd
+trace evaluated at even-frame timestamps. The cleaned trace
+$\widehat v^{\text{clean}}$ then replaces $v^{\text{obs}}$ everywhere it
+appears in the GNN forward pass and in the supervised target
+$\widehat y = (\widehat v[t{+}1] - \widehat v[t])/\Delta t$.
+
+\textbf{Why it helps.} The derivative noise std drops from
+$\gamma\sqrt 2/\Delta t \approx 7.07$ to
+$\sim \gamma/\sqrt{T_w \cdot \Delta t}$ --- order-of-magnitude SNR gain. The
+neurips paper's pointwise MSE is replaced by an MSE on a target whose
+variance has been reduced $\sim 8\times$, exactly SPEND's reported gain.
+
+\textbf{Wire-up.} New regularizer component
+\texttt{coeff\_n2n\_time\_loss} in
+\texttt{src/connectome\_gnn/models/regularizer.py}; new module
+\texttt{src/connectome\_gnn/models/voltage\_smoother.py} (10--20 LoC, 1D
+U-Net with 3 levels, channels 16/32/64, total $\sim 30\text{k}$ params); call site
+in \texttt{graph\_trainer.py} (3 lines). Smoother is co-trained with the
+GNN; the N2N loss flows through it but not through $\widehat W$.
+
+\textbf{Falsifiable PASS criterion (Phase~S).} On a held-out 16-frame window
+of \texttt{flyvis\_noise\_free} corrupted with $\gamma=0.10$ Gaussian noise,
+the smoother's output must reduce per-pixel std by $\geq 4\times$ versus
+the input, while preserving signal mean to within 5\%.
+
+\textbf{Risk.} The N2N target needs sub-frame interpolation; at
+$\Delta t = 20$\,ms the dynamics changes by $\lesssim 5\%$ between adjacent
+frames so linear interpolation is sufficient. If the smoother over-smooths,
+$\widehat v$ loses high-frequency content needed by $g_\phi(v)^2$ (the
+squaring is sensitive to fast voltage transients). Mitigation: regularize
+the smoother's bandwidth via a small L2 on its second-derivative output.
+
+\subsection{Add-on \#2 --- N2N-across-cells (typed-equivariance pair)}
+
+\textbf{Mechanism.} For each cell type $c$ (65 total), pick two neurons
+$i_1, i_2$ of that type that are exposed to approximately the same stimulus
+(same retinotopic column with a small spatial offset, or successive frames
+of a slow video stimulus). Their clean voltages should be
+\emph{equivariant under stimulus shift}, i.e.\ $v_{i_1}(t) \approx v_{i_2}(t + \tau_{12})$
+where $\tau_{12}$ is a known column-offset delay. After delay-correction,
+the two traces share the same signal but have independent noise.
+
+\textbf{Loss.}
+$\mathcal L_{\text{equiv}} = \sum_{c,\,(i_1,i_2)\in c}
+\|v^{\text{obs}}_{i_1}(t) - v^{\text{obs}}_{i_2}(t + \tau_{12})\|_2^2 - 2\sigma_\eta^2$
+where the constant subtraction cancels the noise-variance bias so the
+expected loss is exactly the residual cell-type heterogeneity.
+
+\textbf{Why it helps.} This injects two pieces of information at once:
+(i) typed equivariance breaks the \emph{continuous columnar degeneracy} of
+\S\,1.1 directly, because the loss is non-zero on sum-zero columnar
+perturbations; (ii) it provides an N2N-style noise reduction because the
+loss is invariant under the mean-zero noise on $v_{i_1} - v_{i_2}$.
+
+\textbf{Wire-up.} New regularizer component
+\texttt{coeff\_typed\_equiv}; requires a precomputed lookup table
+$(c,\, i_1,\, i_2,\, \tau_{12})$ from the connectome metadata
+(already available via cell-type and column index). Cost is
+$O(65)$ pairs per minibatch, negligible.
+
+\textbf{Falsifiable PASS criterion.} On clean traces ($\gamma=0$), the loss
+must be $< 10^{-3}$ at all timesteps for at least 60/65 cell types
+(some types have only one column-instance and are excluded). Under
+$\gamma=0.10$, the noise-cancelled estimator (subtracting $2\sigma_\eta^2$)
+must remain unbiased to within 5\% of the clean value.
+
+\textbf{Risk.} Columnar offsets are not perfectly known --- the connectome
+gives us cell-type labels, but the column-index map has residual jitter from
+the FlyWire registration. Mitigation: limit pairs to within-column same-type
+pairs first (where $\tau_{12} = 0$), and add cross-column pairs in a
+later iteration.
+
+\subsection{Add-on \#3 --- Stimulus-replay residual denoising}
+
+\textbf{Mechanism.} Generate two simulations with \emph{the same stimulus
+$I(t)$} but \emph{different noise seeds}:
+$v_a, v_b$ both $= v^{\text{clean}}(I) + \gamma\,\xi_{a,b}$. The
+\emph{stimulus-conditional residual} $r_a = v_a - \mathbb E[v|I]$ is pure
+noise; $r_b$ likewise. But $\mathbb E[v|I] = v^{\text{clean}}$ (deterministic
+ODE), so $r_a + r_b = $ pure independent noise of zero mean. The N2N pair
+is $(v_a, v_b)$ directly --- both views share the same clean signal
+$v^{\text{clean}}$ and have independent noise.
+
+\textbf{Loss.} A denoiser $\mathcal D: v_a \mapsto \widehat v^{\text{clean}}$
+with $\mathcal L = \|\mathcal D(v_a) - v_b\|_2^2$. This is the closest
+direct port of SPEND --- the ``permutation'' is replaced by a second
+simulation seed.
+
+\textbf{Why it helps.} Same N2N rationale as add-on \#1, but the two views
+share the \emph{exact} clean signal (no half-frame shift) so there is no
+interpolation loss. Cleanest of the three add-ons; cost is one extra
+simulation pass per training epoch.
+
+\textbf{Wire-up.} New simulation flag
+\texttt{simulation.replay\_seed\_pair: true} in
+\texttt{src/flyvis\_gnn/generators/graph\_data\_generator.py}; new dataset
+field \texttt{v\_obs\_pair} (shape $T \times N \times 2$); new regularizer
+component \texttt{coeff\_replay\_n2n}.
+
+\textbf{Falsifiable PASS criterion.} Under
+$\gamma=0.10$, the trained denoiser's output on a held-out
+stimulus must achieve $\|\mathcal D(v_a) - v^{\text{clean}}\|_2 / \|v^{\text{clean}}\|_2
+< 0.04$ (4\% relative error), versus 10\% for the raw $v_a$.
+
+\textbf{Risk.} Doubles simulation cost. Mitigation: re-use the same DAVIS
+clip with two noise realisations; this only doubles memory, not
+compute, since the clean ODE rollout is shared.
+
+\subsection{Recommended order and integration with the agentic loop}
+
+\begin{enumerate}
+  \item \textbf{Add-on \#3 first} (stimulus-replay) --- cleanest mathematics,
+    smallest implementation surface, sets a ceiling on what N2N can buy us.
+    If add-on \#3 fails to lift $W$ R$^2$, no other N2N variant will help.
+  \item \textbf{Add-on \#1 second} (time-permutation) --- gets the same
+    benefit without doubling simulation cost; the ratio of its result to
+    add-on \#3's tells us how much we lose from the half-frame-shift
+    approximation.
+  \item \textbf{Add-on \#2 last} (typed equivariance) --- this one
+    \emph{also} attacks the symmetry directly (anchor class~4 in the
+    instruction-file taxonomy), so it is independent of \#1/\#3 and worth
+    running in parallel.
+\end{enumerate}
+
+Each add-on lives in a single block of the agentic loop, conforming to the
+existing Phase R/S/C/V protocol
+(\texttt{instruction\_flyvis\_noise\_005\_010\_code\_change.md:373--559}). The
+PASS criteria above plug directly into Phase~S; the verdict criteria
+($\Delta W$~R$^2 \geq 0.005$, $\geq 75\%$ seeds better, no catastrophe)
+are unchanged.
+
+\section{Practical takeaway}
+
+The bottleneck under $\gamma=0.10$ is not the GNN architecture --- it is the
+combination of an \emph{absorbing} architectural symmetry
+(W~$\leftrightarrow f_\theta$ scale) with a \emph{symmetry-blind} loss
+(pointwise MSE on a noisy finite difference). Voltage-level reweighting
+cannot move the optimizer off the slope-shrunk minimum. SPEND validates a
+broader principle: \emph{reformulating the loss along an axis where noise
+decorrelates dissolves the bottleneck}. The fact that SPEND was designed for
+non-independent noise is irrelevant to whether it transfers --- the
+underlying Noise2Noise theorem requires only independence between two
+noise realisations, which i.i.d.\ Gaussian satisfies trivially. Three concrete
+add-ons (stimulus-replay, time-permutation, typed-equivariance) are
+implementable as single-block agentic interventions and address attack (A)
+of the bottleneck head-on.
+
+\end{document}

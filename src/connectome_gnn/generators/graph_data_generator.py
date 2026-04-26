@@ -820,10 +820,27 @@ def data_generate_voltage(
         f"generating data ... {model_config.signal_model_name}  dynamics_noise: {sim.noise_model_level}  measurement_noise: {sim.measurement_noise_level}  seed: {sim.seed}  steady_state_value: {getattr(sim, 'steady_state_value', 0.5)}"
     )
 
+    # Stimulus / blank-prefix summary -- printed up-front so the user sees the
+    # actual parameters used at generation time (vs whatever default the loader
+    # might silently apply if the YAML is incomplete).
+    _bpf = float(getattr(sim, 'blank_prefix_fraction', 0.0))
+    _vis_type = getattr(sim, 'visual_input_type', 'DAVIS')
+    _datavis_roots = getattr(sim, 'datavis_roots', None) or ['<flyvis default Sintel>']
+    _skip_short = bool(getattr(sim, 'skip_short_videos', True))
+    print(
+        f"\033[93m[stimulus] visual_input_type={_vis_type}  "
+        f"blank_prefix_fraction={_bpf:.3f} "
+        f"({'BLANK PREFIX ENABLED' if _bpf > 0 else 'no blank prefix'})  "
+        f"skip_short_videos={_skip_short}\033[0m",
+        flush=True,
+    )
+    print(f"\033[93m[stimulus] datavis_roots={_datavis_roots}\033[0m", flush=True)
+
     run = 0
 
     os.makedirs(graphs_data_path("fly"), exist_ok=True)
     folder = graphs_data_path(config.dataset) + "/"
+    print(f"\033[93m[data folder] {folder}\033[0m", flush=True)
     os.makedirs(folder, exist_ok=True)
     os.makedirs(graphs_data_path(config.dataset, "Fig"), exist_ok=True)
     files = glob.glob(graphs_data_path(config.dataset, "Fig", "*"))
