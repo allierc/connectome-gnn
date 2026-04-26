@@ -16,9 +16,9 @@ Suffixes:
     blank50_known_ode  —  8 conditions x 5 folds (run_KnownODE_blank50.py)
 
 Outputs (rows-only; no captions):
-    log/cv_table_known_ode_vs_gnn.tex      Known-ODE x{2 noise levels} + GNN x{3 noise levels}
-    log/cv_table_gnn_cross_noise.tex       all 11 GNN blank50 conditions
-    log/cv_table_known_ode_conditions.tex  all 8  Known-ODE blank50 conditions
+    figures/cv_table_known_ode_vs_gnn.tex      Known-ODE x{2 noise levels} + GNN x{3 noise levels}
+    figures/cv_table_gnn_cross_noise.tex       all 11 GNN blank50 conditions
+    figures/cv_table_known_ode_conditions.tex  all 8  Known-ODE blank50 conditions
 
 Optional --data_plot: re-submit data_plot-only cluster jobs for every GNN fold
 (55 jobs) before reading metrics. Forces overwrite of existing metrics.txt.
@@ -38,7 +38,8 @@ import argparse
 import os
 import sys
 
-_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_FIGURES_DIR = os.path.dirname(os.path.abspath(__file__))
+_REPO_ROOT = os.path.dirname(_FIGURES_DIR)
 sys.path.insert(0, os.path.join(_REPO_ROOT, 'src'))
 
 from connectome_gnn.cross.tex import _mean_sd, _parse_pearson, _parse_metrics_txt
@@ -228,7 +229,7 @@ def _emit_table1(output_root, n_folds):
         )
         _print_console_row(f'{(model or "..").strip()} {label}'.strip(), s)
         prev_suffix = suffix
-    path = os.path.join(output_root, 'log', 'cv_table_known_ode_vs_gnn.tex')
+    path = os.path.join(_FIGURES_DIR, 'cv_table_known_ode_vs_gnn.tex')
     with open(path, 'w') as f:
         f.write('% Known-ODE vs GNN, blank50, 5-fold CV (rows only).\n')
         for ln in lines:
@@ -256,7 +257,7 @@ def _emit_condition_table(output_root, n_folds, suffix, bases, out_name, header)
             f'{_fmt(*s["V_R2"])} & {_fmt(*s["cluster"])} \\\\'
         )
         _print_console_row(label, s)
-    path = os.path.join(output_root, 'log', out_name)
+    path = os.path.join(_FIGURES_DIR, out_name)
     with open(path, 'w') as f:
         f.write(f'% {header}\n')
         for ln in lines:
@@ -397,7 +398,7 @@ def main():
     args = p.parse_args()
 
     output_root = _resolve_output_root(args.output_root)
-    os.makedirs(os.path.join(output_root, 'log'), exist_ok=True)
+    os.makedirs(_FIGURES_DIR, exist_ok=True)
 
     print('=' * 60)
     print('aggregate blank50 -> tex tables')
