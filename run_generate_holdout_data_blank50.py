@@ -39,10 +39,19 @@ BLANK50_SIM_OVERRIDES = {
 
 # Must match CONDITION_FILTER in run_GNN_unified_blank50.py.
 CONDITION_FILTER = [
+    # === AR(1) measurement-noise sweep (3-point dose-response, blank50 + gamma=0.10) ===
+    # rho=0.25 / 0.50 / 0.75 bracket the indicator-kinetics regime
+    # (ASAP3 ~ 0.25, GCaMP6f rise ~ 0.50, GCaMP6f decay ~ 0.75).
+    # The rho=0 control is the existing flyvis_noise_005_010 condition
+    # under blank50 overrides (commented out below; uncomment if needed).
+    'flyvis_noise_005_010_blank50_ar1_rho25',
+    'flyvis_noise_005_010_blank50_ar1_rho50',
+    'flyvis_noise_005_010_blank50_ar1_rho75',
+    # --- non-AR(1) baselines (paused for the AR(1) sweep; uncomment to re-enable) ---
     # 'flyvis_noise_free',
     # 'flyvis_noise_005',
     # 'flyvis_noise_05',
-    # 'flyvis_noise_005_010',
+    # 'flyvis_noise_005_010',                 # = AR(1) rho=0 control under blank50 overrides
     # 'flyvis_noise_005_020',
     # 'flyvis_noise_005_null_edges_pc_400',
     # 'flyvis_noise_005_removed_pc_20',
@@ -50,9 +59,6 @@ CONDITION_FILTER = [
     # 'flyvis_noise_005_stride_5',
     # 'flyvis_noise_005_hidden_010_ngp',
     # 'flyvis_noise_005_hidden_020_ngp',
-    'flyvis_noise_005_010_blank50_ar1_rho00',
-    'flyvis_noise_005_010_blank50_ar1_rho05',
-    'flyvis_noise_005_010_blank50_ar1_rho10'
 ]
 
 

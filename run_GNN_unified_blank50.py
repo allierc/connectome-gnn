@@ -43,12 +43,20 @@ missing. Run run_generate_YT_data_blank50.py first (or use the bash
 wrapper run_GNN_blank50_pipeline.sh).
 """
 
+import argparse
 import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
 from connectome_gnn.cross import run_all_conditions
+
+_parser = argparse.ArgumentParser(description=__doc__)
+_parser.add_argument('--force', action='store_true',
+                     help='Force re-train: removes existing models/, results/, '
+                          'tmp_training/ in each condition+fold log dir before '
+                          'submitting cluster jobs (bypasses the [skip] guard).')
+_args = _parser.parse_args()
 
 
 BLANK50_SIM_OVERRIDES = {
@@ -63,10 +71,19 @@ BLANK50_SIM_OVERRIDES = {
 # truth — CONDITION_FILTER is derived from its keys, NODE_PER_CONDITION from
 # the full mapping.
 CONDITION_NODES = {
+    # === AR(1) measurement-noise sweep (3-point dose-response, blank50 + gamma=0.10) ===
+    # rho=0.25 / 0.50 / 0.75 bracket the indicator-kinetics regime
+    # (ASAP3 ~ 0.25, GCaMP6f rise ~ 0.50, GCaMP6f decay ~ 0.75).
+    # The rho=0 control is the existing flyvis_noise_005_010 condition
+    # under blank50 overrides (commented out below; uncomment if needed).
+    'flyvis_noise_005_010_blank50_ar1_rho25': 'a100',
+    'flyvis_noise_005_010_blank50_ar1_rho50': 'a100',
+    'flyvis_noise_005_010_blank50_ar1_rho75': 'a100',
+    # --- non-AR(1) baselines (paused for the AR(1) sweep; uncomment to re-enable) ---
     # 'flyvis_noise_free':                    'a100',
     # 'flyvis_noise_005':                     'a100',
     # 'flyvis_noise_05':                      'a100',
-    # 'flyvis_noise_005_010':                 'a100',
+    # 'flyvis_noise_005_010':                 'a100',  # = AR(1) rho=0 control under blank50 overrides
     # 'flyvis_noise_005_020':                 'a100',
     # 'flyvis_noise_005_null_edges_pc_400':   'a100',
     # 'flyvis_noise_005_removed_pc_20':       'a100',
@@ -74,11 +91,6 @@ CONDITION_NODES = {
     # 'flyvis_noise_005_stride_5':            'a100',
     # 'flyvis_noise_005_hidden_010_ngp':      'a100',
     # 'flyvis_noise_005_hidden_020_ngp':      'a100',
-    # AR(1) measurement-noise sweep (gamma=0.10 + temporal correlation rho).
-    # Base yamls: flyvis_noise_005_010_blank50_ar1_rho{00,05,10}.yaml.
-    'flyvis_noise_005_010_blank50_ar1_rho00': 'a100',
-    'flyvis_noise_005_010_blank50_ar1_rho05': 'a100',
-    'flyvis_noise_005_010_blank50_ar1_rho10': 'a100',
 }
 
 CONDITION_FILTER     = list(CONDITION_NODES.keys())
@@ -120,6 +132,7 @@ run_all_conditions(
     data_augmentation_loop=500,
     data_augmentation_loop_overrides=DAL_OVERRIDES,
     hp_yaml_overrides=HP_YAML_OVERRIDES,
+    force_train=_args.force,
     conditions_per_wave=3,
     emit_tex=False,
 )

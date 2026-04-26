@@ -46,9 +46,9 @@ CONDITION_BASES = [
     'flyvis_noise_005_hidden_010_ngp',
     'flyvis_noise_005_hidden_020_ngp',
     # AR(1) measurement-noise sweep (must match CONDITIONS in cross/yaml_io.py).
-    'flyvis_noise_005_010_blank50_ar1_rho00',
-    'flyvis_noise_005_010_blank50_ar1_rho05',
-    'flyvis_noise_005_010_blank50_ar1_rho10',
+    'flyvis_noise_005_010_blank50_ar1_rho25',
+    'flyvis_noise_005_010_blank50_ar1_rho50',
+    'flyvis_noise_005_010_blank50_ar1_rho75',
 ]
 
 
@@ -160,12 +160,28 @@ def _warn_zero_plot_metrics(yt_log_dir, slot_tag=''):
 
 
 def submit_training_wave(yt_cfgs, output_root, node_name, hard_runtime_limit_min,
-                          metrics_interval=300):
+                          metrics_interval=300, force_train=False):
     job_ids = {}
     log_dirs = {}
     for slot, yt_cfg in enumerate(yt_cfgs):
         yt_log_dir = log_path(yt_cfg.config_file)
         os.makedirs(yt_log_dir, exist_ok=True)
+        if force_train:
+            # Mirror force_test pattern (line ~211): remove existing
+            # checkpoints + downstream artefacts so the cluster job re-trains
+            # from scratch rather than hitting the [skip] guard.
+            for sub in ('models', 'results', 'tmp_training'):
+                p_ = os.path.join(yt_log_dir, sub)
+                if os.path.isdir(p_):
+                    import shutil
+                    shutil.rmtree(p_)
+                    print(f'  [force] removed {p_}')
+            for fname in ('results_rollout.log', 'cluster_train.log',
+                          'cluster_cross_test_plot.log'):
+                p_ = os.path.join(yt_log_dir, fname)
+                if os.path.exists(p_):
+                    os.remove(p_)
+                    print(f'  [force] removed {p_}')
         if _have_model(yt_log_dir):
             print(f'  [skip] fold {slot}: model already trained at {yt_log_dir}/models')
             continue
@@ -297,7 +313,8 @@ def _assert_yt_data_present(yt_cfg):
 
 def run_condition(base_name, suffix, n_folds, device, output_root,
                   node_name, hard_runtime_limit_min, force_test,
-                  cluster_test_plot=True, metrics_interval=300):
+                  cluster_test_plot=True, metrics_interval=300,
+                  force_train=False):
     """Train + test + plot one condition on the hold-out dataset (no DAVIS).
 
     Requires hold-out datasets to already exist (built by run_generate_holdout_data.py).
@@ -310,12 +327,14 @@ def run_condition(base_name, suffix, n_folds, device, output_root,
         hard_runtime_limit_min=hard_runtime_limit_min, force_test=force_test,
         cluster_test_plot=cluster_test_plot,
         metrics_interval=metrics_interval,
+        force_train=force_train,
     )
 
 
 def run_condition_wave(base_names, suffix, n_folds, device, output_root,
                         node_name, hard_runtime_limit_min, force_test,
-                        cluster_test_plot=True, metrics_interval=300):
+                        cluster_test_plot=True, metrics_interval=300,
+                        force_train=False):
     """Train + test + plot MULTIPLE conditions as a single wave.
 
     All (base, fold) pairs are submitted together in one training wave
@@ -333,7 +352,8 @@ def run_condition_wave(base_names, suffix, n_folds, device, output_root,
 
     submit_training_wave(yt_cfgs, output_root, node_name,
                          hard_runtime_limit_min,
-                         metrics_interval=metrics_interval)
+                         metrics_interval=metrics_interval,
+                         force_train=force_train)
 
     if cluster_test_plot:
         submit_test_plot_wave(yt_cfgs, output_root, node_name,
