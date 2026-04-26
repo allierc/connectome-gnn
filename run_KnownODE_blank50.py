@@ -68,6 +68,11 @@ CONDITION_NODES = {
     'flyvis_noise_005_null_edges_pc_400':   'l4',
     'flyvis_noise_005_removed_pc_20':       'l4',
     'flyvis_noise_005_removed_pc_50':       'l4',
+    # AR(1) measurement-noise sweep (gamma=0.10 + temporal correlation rho).
+    # Base yamls: flyvis_noise_005_010_blank50_ar1_rho{00,05,10}.yaml.
+    'flyvis_noise_005_010_blank50_ar1_rho00': 'l4',
+    'flyvis_noise_005_010_blank50_ar1_rho05': 'l4',
+    'flyvis_noise_005_010_blank50_ar1_rho10': 'l4',
 }
 
 CONDITION_FILTER     = list(CONDITION_NODES.keys())

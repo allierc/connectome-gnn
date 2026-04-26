@@ -46,6 +46,13 @@ CONDITIONS = [
     ('flyvis_noise_005_stride_5',        'flyvis_noise_005_stride_5_winner'),
     ('flyvis_noise_005_hidden_010_ngp',  'flyvis_noise_005_hidden_010_ngp_anchors_winner'),
     ('flyvis_noise_005_hidden_020_ngp',  'flyvis_noise_005_hidden_020_ngp_anchors_winner'),
+    # AR(1) measurement-noise sweep (blank50 + gamma=0.10 + temporal noise correlation rho).
+    # Base yamls carry the simulation.noise_ar1_rho field; sim block propagates through
+    # emit_one. HP source = flyvis_noise_005_010_winner (same training recipe as the
+    # i.i.d. noise_005_010 condition).
+    ('flyvis_noise_005_010_blank50_ar1_rho00', 'flyvis_noise_005_010_winner'),
+    ('flyvis_noise_005_010_blank50_ar1_rho05', 'flyvis_noise_005_010_winner'),
+    ('flyvis_noise_005_010_blank50_ar1_rho10', 'flyvis_noise_005_010_winner'),
 ]
 
 
