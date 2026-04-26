@@ -152,3 +152,16 @@ if __name__ == "__main__":
 # --- flywireRF + zero-edge (cross-type) explorations (a100, sigma=0.05) ---
 # python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_hybrid_flywireRF_zeroedge_cross_sl_noise_005 iterations=80 --cluster --resume
 # python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_hybrid_flywireRF_zeroedge_cross_sl_known_ode_noise_005 iterations=72 --cluster --resume
+
+# --- SPEND Noise2Noise explorations (a100, blank50 stimulus, sigma=0.05, gamma=0.10) ---
+# Cite: https://github.com/buchenglab/SPEND  (Ding et al. 2025, Newton 1, 100195)
+#
+# Step 1: generate the blank50 + measurement-noise dataset ONCE before launching the four agentic loops.
+# bsub -n 8 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o generate flyvis_noise_005_010_blank50"
+#
+# Step 2: launch the four SPEND agentic explorations (each reads its own instruction_*.md).
+# All use generate_data: false (claude-block in each YAML); they reuse the dataset produced in step 1.
+# python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_010_spend_replay   iterations=80 --cluster --resume
+# python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_010_spend_time     iterations=80 --cluster --resume
+# python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_010_spend_typed    iterations=80 --cluster --resume
+# python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_010_spend_combined iterations=80 --cluster --resume

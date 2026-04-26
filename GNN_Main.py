@@ -13,6 +13,9 @@ import re
 from connectome_gnn.config import NeuralGraphConfig
 from connectome_gnn.generators.graph_data_generator import data_generate
 from connectome_gnn.models.graph_trainer import data_train, data_test, data_train_INR
+# SPEND-style Noise2Noise trainer (sibling of data_train, data_train_INR).
+# Cite: https://github.com/buchenglab/SPEND  (Ding et al. 2025, Newton 1, 100195)
+from connectome_gnn.models.graph_trainer_spend import data_train_spend
 from connectome_gnn.utils import (
     set_device, add_pre_folder, log_path, config_path, validate_pre_folder,
     set_data_root, git_sha, git_dirty_files, get_repo_root, graphs_data_path,
@@ -168,6 +171,14 @@ if __name__ == "__main__":
             'flyvis_hybrid_flywireRF_zeroedge_cross_sl_e15_noise_005',
             'flyvis_hybrid_flywireRF_zeroedge_sl_noise_005',
         ],
+        # SPEND-style Noise2Noise trainer; invoke with -o train_SPEND flyvis_spend.
+        # Cite: https://github.com/buchenglab/SPEND
+        'flyvis_spend': [
+            'flyvis_noise_005_010_spend_replay',
+            'flyvis_noise_005_010_spend_time',
+            'flyvis_noise_005_010_spend_typed',
+            'flyvis_noise_005_010_spend_combined',
+        ],
     }
 
     if args.option is not None:
@@ -321,6 +332,23 @@ if __name__ == "__main__":
             with open(_marker, 'w') as f:
                 f.write(f"commit={sha}\nargv={sys.argv}\n")
 
+        elif 'train_SPEND' in task:
+            _marker = os.path.join(run_log_dir, '_completed_train')
+            if os.path.exists(_marker):
+                os.remove(_marker)
+            # SPEND-style Noise2Noise trainer.
+            # Cite: https://github.com/buchenglab/SPEND
+            # usage: -o train_SPEND <config>          (single config)
+            #        -o train_SPEND flyvis_spend      (CONFIG_LIST -> 4 SPEND yamls)
+            data_train_spend(
+                config=config,
+                erase=True,
+                best_model=best_model,
+                device=device,
+            )
+            with open(_marker, 'w') as f:
+                f.write(f"commit={sha}\nargv={sys.argv}\n")
+
         elif "train" in task:
             _marker = os.path.join(run_log_dir, '_completed_train')
             if os.path.exists(_marker):
@@ -430,3 +458,10 @@ if __name__ == "__main__":
 # CUDA_VISIBLE_DEVICES=0 python GNN_Main.py -o train_test_plot flyvis_noise_005_ss0 --output_root /groups/saalfeld/home/allierc/GraphData 
 # python GNN_Main.py -o test   /groups/saalfeld/home/allierc/GraphData/config/fly/flyvis_noise_005_blank50_unified_cv00   --output_root /groups/saalfeld/home/allierc/GraphData
 # bsub -n 2 -gpu "num=1" -q gpu_h100 -W 6000 -Is "python GNN_Main.py -o generate_train_test_plot hybrid_flywireRF_variants --force"
+
+# bsub -n 8 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o plot /groups/saalfeld/home/allierc/Graph/connectome-gnn/config/fly/flyvis_hybrid_flywireRF_zeroedge_cross_sl_e15_noise_005 --force"
+#  bsub -n 8 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o train_test_plot /groups/saalfeld/home/allierc/Graph/connectome-gnn/config/fly/flyvis_hybrid_flywireRF_zeroedge_cross_sl_e15_known_ode_noise_005 --force"
+#  bsub -n 8 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o train_test_plot /groups/saalfeld/home/allierc/Graph/connectome-gnn/config/fly/flyvis_hybrid_flywireRF_zeroedge_cross_sl_e15_known_ode_noise_005 --force"
+#  bsub -n 8 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o test_plot /groups/saalfeld/home/allierc/Graph/connectome-gnn/config/fly/flyvis_hybrid_flywireRF_zeroedge_cross_sl_known_ode_noise_005 --force"
+# bsub -n 8 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o plot /groups/saalfeld/home/allierc/Graph/connectome-gnn/config/fly/flyvis_hybrid_flywireRF_zeroedge_sl_noise_005 --force"
+#  bsub -n 8 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o train_test_plot /groups/saalfeld/home/allierc/Graph/connectome-gnn/config/fly/flyvis_hybrid_flywireRF_zeroedge_sl_known_ode_noise_005 --force"
