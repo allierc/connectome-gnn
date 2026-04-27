@@ -721,7 +721,11 @@ def main():
 
         ax_gt = fig.add_subplot(gs_a[0, col])
         _draw_hex(ax_gt, pos_input, vals_gt, HEX_XLIM, HEX_YLIM)
-        ax_gt.set_title(f't = {int(t * DT_MS)} ms', fontsize=4, pad=1)
+        # Only label the first and last hex of the top row; everything in
+        # between is implicit. Larger font for legibility.
+        if col == 0 or col == SERIES_COLS - 1:
+            ax_gt.set_title(f't = {int(t * DT_MS)} ms',
+                            fontsize=FS_TICK, pad=2)
         axes_hex_top.append(ax_gt)
 
         ax_pd = fig.add_subplot(gs_a[1, col])
