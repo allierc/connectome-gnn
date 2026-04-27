@@ -393,7 +393,7 @@ if __name__ == "__main__":
                 visualize=True,
                 style="color name continuous_slice",
                 verbose=False,
-                best_model='best',
+                best_model=best_model if best_model else 'best',
                 run=0,
                 test_mode=args.test_mode,   # e.g. "test_ablation_50"
                 sample_embedding=False,
