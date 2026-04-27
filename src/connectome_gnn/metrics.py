@@ -68,35 +68,43 @@ def get_model_W(model) -> torch.Tensor:
 # ------------------------------------------------------------------ #
 
 def compute_r_squared(true: np.ndarray, learned: np.ndarray) -> tuple[float, float]:
-    """Calibration-corrected R²: linearly fit `learned → true` (find a, b such
-    that a·learned + b ≈ true), then R² = 1 − var(true − fitted) / var(true).
-    Slope `a` of the calibration is also returned. (nan, nan) on failure."""
+    """Identity-line R² plus calibration-fit slope (diagnostic).
+
+    R² = 1 − var(true − learned) / var(true) — measures how close `learned`
+    is to `true` on the same scale (no fit, ideal when slope=1, intercept=0).
+    Slope is the `a` of `true ≈ a·learned + b` from np.polyfit, returned for
+    diagnostic use (plot annotations, metrics.txt, JSON summaries) so callers
+    that consume the second tuple element still see the real number rather
+    than a hardcoded constant. Returns (nan, nan) on failure."""
     try:
-        a, b = np.polyfit(learned, true, 1)
-        fitted = a * learned + b
         var_true = float(np.var(true))
-        mse = float(np.mean((true - fitted) ** 2))
-        r_squared = 1.0 - mse / var_true if var_true > 0 else float('nan')
-        return r_squared, float(a)
+        var_unexpl = float(np.var(true - learned))
+        r_squared = 1.0 - var_unexpl / var_true if var_true > 0 else float('nan')
+        try:
+            slope = float(np.polyfit(learned, true, 1)[0])
+        except Exception:
+            slope = float('nan')
+        return r_squared, slope
     except Exception:
         return float('nan'), float('nan')
 
 
 def compute_r_squared_filtered(true: np.ndarray, learned: np.ndarray, outlier_threshold: float = 5.0) -> tuple[float, float, np.ndarray]:
-    """Compute R² with outlier removal.
+    """Compute identity-line R² with outlier removal + diagnostic slope.
 
-    Removes points where |learned - true| > outlier_threshold before
-    computing the linear fit and R².
+    Removes points where |learned - true| > outlier_threshold, then computes
+    R² and slope on the inliers via compute_r_squared (slope from polyfit).
 
     Returns:
         r_squared: float.
-        slope: float.
+        slope: float (np.polyfit on inliers).
         inlier_mask: (N,) bool array — True for inliers.
     """
     residuals = learned - true
     mask = np.abs(residuals) <= outlier_threshold
     true_in = true[mask]
     learned_in = learned[mask]
+
     r_squared, slope = compute_r_squared(true_in, learned_in)
     return r_squared, slope, mask
 
