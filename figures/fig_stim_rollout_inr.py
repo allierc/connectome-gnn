@@ -390,7 +390,9 @@ TRACE_SHRINK = 0.65
 SCATTER_N_MAX = 2_000_000
 SCATTER_RNG   = np.random.default_rng(0)
 SCATTER_LO_V, SCATTER_HI_V = -10.0, 10.0   # voltage range
-SCATTER_LO_S, SCATTER_HI_S = 0.0, 1.0      # stimulus range (raw [0, 1] DAVIS pixels)
+SCATTER_LO_S, SCATTER_HI_S = -0.5, 1.5     # stimulus range — slightly asymmetric
+                                            # to capture INR overshoot above the
+                                            # raw [0, 1] DAVIS intensity ceiling.
 
 # Fonts (janne.matplotlibrc sets defaults to 8/6 pt).
 FS_LABEL  = 8
@@ -557,11 +559,18 @@ def _subsample_pair(x_full, y_full, n_max=SCATTER_N_MAX):
 
 
 def draw_scatter(ax, x_all, y_all, lo, hi, xlabel, ylabel, title=None):
-    """Hexbin density of (x, y) on a fixed range with R²/slope inside."""
+    """Hexbin density of (x, y) on a fixed range with R²/slope inside.
+
+    R² is the identity-line (Nash-Sutcliffe) coefficient,
+    R² = 1 − mean((true − learned)²) / var(true), via
+    `connectome_gnn.metrics.compute_r_squared` — penalises scale/offset
+    bias, so it differs from Pearson r² when the prediction has
+    calibration error. Slope is the OLS slope of learned vs true.
+    """
+    from connectome_gnn.metrics import compute_r_squared
     x, y, _ = _subsample_pair(x_all, y_all)
-    corr = float(np.corrcoef(x, y)[0, 1])
-    slope, intercept = np.polyfit(x.astype(np.float64),
-                                   y.astype(np.float64), 1)
+    r2, slope = compute_r_squared(x.astype(np.float64),
+                                  y.astype(np.float64))
     ax.hexbin(x, y, gridsize=140, bins='log', cmap='magma_r',
               mincnt=1, extent=(lo, hi, lo, hi), linewidths=0.0)
     ax.set_xlim([lo, hi]); ax.set_ylim([lo, hi])
@@ -578,7 +587,7 @@ def draw_scatter(ax, x_all, y_all, lo, hi, xlabel, ylabel, title=None):
                 va='bottom', ha='center', fontsize=FS_TICK,
                 fontweight='normal')
     ax.text(0.05, 0.97,
-            f"$R^2$ = {corr ** 2:.2f}\nslope = {slope:.2f}",
+            f"$R^2$ = {r2:.2f}\nslope = {slope:.2f}",
             transform=ax.transAxes, va='top', ha='left',
             fontsize=FS_TICK)
 
