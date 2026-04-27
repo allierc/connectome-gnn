@@ -525,10 +525,15 @@ def draw_trace_panel(ax, true_w, pred_w, labels, step_v, time_ms,
     # collide with its wiggle peak.
     ax.set_ylim([-step_v, (n_traces - 1) * step_v + 2.2 * step_v])
     ax.set_yticks([])
-    ax.set_xlim([time_ms[0], time_ms[-1]])
+    # time_ms[-1] is the LAST sample's time = (n-1)*Δt+t0 = 29980 ms for our
+    # default window — round the displayed extent to the nearest tick step
+    # so the axis reads 10000 / 20000 / 30000 instead of …/19990/29980.
+    _x_lo = float(time_ms[0])
+    _x_hi = float(time_ms[-1] + DT_MS)        # exclusive upper bound, e.g. 30000
+    ax.set_xlim([_x_lo, _x_hi])
     ax.spines['left'].set_visible(False)
     if show_xlabel:
-        ticks = np.linspace(time_ms[0], time_ms[-1], 3)
+        ticks = np.linspace(_x_lo, _x_hi, 3)
         ax.set_xticks(ticks)
         ax.set_xlabel('time (ms)', fontsize=FS_LABEL, labelpad=1)
         ax.tick_params(axis='x', labelsize=FS_TICK, pad=1)
@@ -703,14 +708,19 @@ def main():
 
     # ── figure layout ──────────────────────────────────────────────────────
     fig = plt.figure(figsize=(FIG_W_IN, FIG_H_IN), dpi=300)
+    # Outer hspace controls BOTH gaps (a↔b/c AND b/c↔d/e/f). We want the
+    # first gap small and the second one bigger, so we use a moderate
+    # global hspace and then push the scatter row DOWN with a manual
+    # set_position offset later.
     outer = mgs.GridSpec(3, 1, figure=fig,
                          height_ratios=[2.4, 1.4, 1.4],
                          left=0.06, right=0.92, top=0.97, bottom=0.05,
-                         hspace=0.10)        # tighter blank between rows
+                         hspace=0.10)
 
-    # (a) 3 × 11 hexagons — minimal hspace between the GT / learned / residual rows
+    # (a) 3 × 11 hexagons — wspace=0 so cells touch without cropping; very
+    # negative hspace pulls the GT/learned/residual rows close together.
     gs_a = mgs.GridSpecFromSubplotSpec(3, SERIES_COLS, subplot_spec=outer[0],
-                                        wspace=0.05, hspace=-0.10)
+                                        wspace=0.0, hspace=-0.50)
     axes_hex_top = []
     axes_hex_mid = []
     axes_hex_res = []
@@ -769,6 +779,12 @@ def main():
                                          wspace=0.20)
     ax_b = fig.add_subplot(gs_bc[0, 0])
     ax_c = fig.add_subplot(gs_bc[0, 1])
+    # Pull the trace row UP so it sits closer to the hex grid; this shrinks
+    # only the a↔b/c gap and leaves the b/c↔d/e/f gap at its outer value.
+    TRACE_PULL_UP = 0.05
+    for _ax in (ax_b, ax_c):
+        _p = _ax.get_position()
+        _ax.set_position([_p.x0, _p.y0 + TRACE_PULL_UP, _p.width, _p.height])
     draw_trace_panel(ax_b, true_s, pred_s, labels_s, step_v_stim, time_ms,
                      pearson_r=r_stim,
                      header_label='stimulus, INR vs gt',
@@ -784,6 +800,12 @@ def main():
     ax_d = fig.add_subplot(gs_def[0, 0])
     ax_e = fig.add_subplot(gs_def[0, 1])
     ax_f = fig.add_subplot(gs_def[0, 2])
+    # Pull the scatter row UP so the b/c↔d/e/f gap shrinks (trace row was
+    # already pulled up by TRACE_PULL_UP, leaving an asymmetric gap below).
+    SCATTER_PULL_UP = 0.02
+    for _ax in (ax_d, ax_e, ax_f):
+        _p = _ax.get_position()
+        _ax.set_position([_p.x0, _p.y0 + SCATTER_PULL_UP, _p.width, _p.height])
 
     draw_scatter(
         ax_d,
