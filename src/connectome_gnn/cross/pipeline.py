@@ -27,6 +27,7 @@ from connectome_gnn.models.graph_trainer import data_test
 from connectome_gnn.LLM.cluster import (
     submit_cluster_job, submit_cluster_cross_test_plot_job,
     wait_for_cluster_jobs_with_metrics,
+    _r2_color, _ANSI_RESET,
 )
 from connectome_gnn.cross.yaml_io import (
     shared_cv_yaml_path, _load_yaml_either,
@@ -138,11 +139,13 @@ def _warn_zero_training_metrics(log_dirs):
                   f'τ_R²={tau:.3f} — dynamics parameter may have collapsed\033[0m')
 
 
-def _warn_zero_plot_metrics(yt_log_dir, slot_tag=''):
+def _read_plot_metrics(yt_log_dir):
+    """Parse <yt_log_dir>/results/metrics.txt into a {key: float} dict.
+    Returns an empty dict if the file is missing or unreadable."""
     path = os.path.join(yt_log_dir, 'results', 'metrics.txt')
-    if not os.path.isfile(path):
-        return
     vals = {}
+    if not os.path.isfile(path):
+        return vals
     try:
         with open(path) as f:
             for line in f:
@@ -153,13 +156,68 @@ def _warn_zero_plot_metrics(yt_log_dir, slot_tag=''):
                     except ValueError:
                         pass
     except OSError:
-        return
+        pass
+    return vals
+
+
+def _warn_zero_plot_metrics(yt_log_dir, slot_tag=''):
+    vals = _read_plot_metrics(yt_log_dir)
     tau = vals.get('tau_R2')
     vr  = vals.get('V_rest_R2')
     if tau is not None and abs(tau) < 5e-3:
         print(f'\033[91m  [WARN]{slot_tag} post-plot tau_R2={tau:.3f}\033[0m')
     if vr is not None and abs(vr) < 5e-3:
         print(f'\033[91m  [WARN]{slot_tag} post-plot V_rest_R2={vr:.3f}\033[0m')
+
+
+def print_plot_metrics_summary(yt_log_dir, slot=None, prefix='  [plot   ]'):
+    """Print colored one-line summary parsed from results/metrics.txt:
+        slot S  R²W=0.82  V_rest=0.40±1.8%(1572)  τ=0.26±1.1%(260)  cluster=0.91
+    Each metric is wrapped in the same _r2_color thresholds the live
+    training tracker uses, so red/orange/yellow/green are consistent
+    across both the [final ] and the [plot   ] lines.
+    """
+    vals = _read_plot_metrics(yt_log_dir)
+    if not vals:
+        slot_str = f' slot {slot}' if slot is not None else ''
+        print(f'{prefix}{slot_str}: (no metrics.txt yet)')
+        return
+
+    def _c(val, thresholds=(0.9, 0.7, 0.3)):
+        if val is None:
+            return f'{_ANSI_RESET}n/a{_ANSI_RESET}'
+        return f'{_r2_color(val, thresholds)}{val:.2f}{_ANSI_RESET}'
+
+    w_r2  = vals.get('W_corrected_R2')
+    # τ "median ± IQR %" + outlier count.
+    tau_med = vals.get('tau_rel_err_median')
+    tau_iqr = vals.get('tau_rel_err_iqr')
+    tau_n   = vals.get('tau_n_outliers')
+    tau_r2_no = vals.get('tau_no_outliers_R2')
+    # V_rest equivalents.
+    vr_med = vals.get('V_rest_rel_err_median')
+    vr_iqr = vals.get('V_rest_rel_err_iqr')
+    vr_n   = vals.get('V_rest_n_outliers')
+    vr_r2_no = vals.get('V_rest_no_outliers_R2')
+    cl     = vals.get('clustering_accuracy')
+
+    def _fmt_med_iqr(med, iqr, n_out, r2_no):
+        # Colour by the no-outliers R² (the canonical paper number for
+        # this metric); display the relative-error distribution.
+        if med is None or iqr is None:
+            return f'{_ANSI_RESET}n/a{_ANSI_RESET}'
+        col = _r2_color(r2_no if r2_no is not None else 0.0)
+        n_str = f'({int(n_out)})' if n_out is not None else ''
+        return f'{col}{med * 100:.1f}±{iqr * 100:.1f}%{n_str}{_ANSI_RESET}'
+
+    slot_str = f' slot {slot}' if slot is not None else ''
+    print(
+        f'{prefix}{slot_str}  '
+        f'R²W={_c(w_r2)}  '
+        f'V_rest={_fmt_med_iqr(vr_med, vr_iqr, vr_n, vr_r2_no)}  '
+        f'τ={_fmt_med_iqr(tau_med, tau_iqr, tau_n, tau_r2_no)}  '
+        f'cluster={_c(cl)}'
+    )
 
 
 def submit_training_wave(yt_cfgs, output_root, node_name, hard_runtime_limit_min,
@@ -214,11 +272,20 @@ def submit_training_wave(yt_cfgs, output_root, node_name, hard_runtime_limit_min
 
 def submit_test_plot_wave(yt_cfgs, output_root, node_name,
                            hard_runtime_limit_min, force_test,
+                           force_plot=False,
                            metrics_interval=300):
     """Rollout each hold-out-trained model on the held-out 20% of its own fold.
 
     Since test_config == training config, graph_tester sets test_suffix=''
     so the rollout log lands at <log_dir>/results_rollout.log (no _on_X suffix).
+
+    Per-phase forcing:
+      force_test=True  → remove results_rollout.log and re-run data_test
+      force_plot=True  → remove results/metrics.txt and re-run data_plot
+      both             → re-run everything (legacy --force-test behaviour)
+    The cluster job is told to --skip-test / --skip-plot for whichever phase
+    the artefacts already cover, so a plot-only re-run does not redo the
+    multi-minute rollout (and vice versa).
     """
     job_ids = {}
     log_dirs = {}
@@ -227,17 +294,21 @@ def submit_test_plot_wave(yt_cfgs, output_root, node_name,
         os.makedirs(yt_log_dir, exist_ok=True)
         rollout_log = os.path.join(yt_log_dir, 'results_rollout.log')
         metrics_path = os.path.join(yt_log_dir, 'results', 'metrics.txt')
-        if force_test:
-            for p_ in (rollout_log, metrics_path):
-                if os.path.exists(p_):
-                    os.remove(p_)
-                    print(f'  [force] removed {p_}')
-        if os.path.exists(rollout_log) and os.path.exists(metrics_path):
+        if force_test and os.path.exists(rollout_log):
+            os.remove(rollout_log)
+            print(f'  [force-test] removed {rollout_log}')
+        if force_plot and os.path.exists(metrics_path):
+            os.remove(metrics_path)
+        need_test = force_test or not os.path.exists(rollout_log)
+        need_plot = force_plot or not os.path.exists(metrics_path)
+        if not need_test and not need_plot:
             print(f'  [skip] fold {slot}: rollout log + metrics.txt already exist')
             continue
-        if not _have_model(yt_log_dir):
+        if need_test and not _have_model(yt_log_dir):
             print(f'\033[91m  [skip] fold {slot}: no trained model, cannot test\033[0m')
             continue
+        skip_test = not need_test
+        skip_plot = not need_plot
         cfg_path = shared_cv_yaml_path(yt_cfg.config_file, output_root)
         jid = submit_cluster_cross_test_plot_job(
             slot=slot, config_path=cfg_path,
@@ -248,6 +319,7 @@ def submit_test_plot_wave(yt_cfgs, output_root, node_name,
             log_dir=yt_log_dir, node_name=node_name, output_root=output_root,
             hard_runtime_limit_min=hard_runtime_limit_min,
             n_rollout_frames=250,
+            skip_test=skip_test, skip_plot=skip_plot,
         )
         if jid is not None:
             job_ids[slot]  = jid
@@ -261,9 +333,10 @@ def submit_test_plot_wave(yt_cfgs, output_root, node_name,
         )
         for slot, ld in sorted(log_dirs.items()):
             _warn_zero_plot_metrics(ld, slot_tag=f' slot {slot}:')
+            print_plot_metrics_summary(ld, slot=slot)
 
 
-def run_test_and_plot_local(yt_cfg, device, force_test):
+def run_test_and_plot_local(yt_cfg, device, force_test, force_plot=False):
     """Local fallback: rollout hold-out fold on its own held-out 20%, then data_plot."""
     from GNN_PlotFigure import data_plot
     yt_log_dir = log_path(yt_cfg.config_file)
@@ -277,7 +350,7 @@ def run_test_and_plot_local(yt_cfg, device, force_test):
         data_test(config=yt_cfg, visualize=False, best_model='best', run=0,
                   step=10, n_rollout_frames=250, device=device)
     metrics_path = os.path.join(yt_log_dir, 'results', 'metrics.txt')
-    if force_test and os.path.exists(metrics_path):
+    if force_plot and os.path.exists(metrics_path):
         os.remove(metrics_path)
     if _have_plot(yt_log_dir):
         print(f'  [skip] metrics.txt exists')
@@ -317,7 +390,7 @@ def _assert_yt_data_present(yt_cfg):
 def run_condition(base_name, suffix, n_folds, device, output_root,
                   node_name, hard_runtime_limit_min, force_test,
                   cluster_test_plot=True, metrics_interval=300,
-                  force_train=False):
+                  force_train=False, force_plot=False):
     """Train + test + plot one condition on the hold-out dataset (no DAVIS).
 
     Requires hold-out datasets to already exist (built by run_generate_holdout_data.py).
@@ -330,14 +403,14 @@ def run_condition(base_name, suffix, n_folds, device, output_root,
         hard_runtime_limit_min=hard_runtime_limit_min, force_test=force_test,
         cluster_test_plot=cluster_test_plot,
         metrics_interval=metrics_interval,
-        force_train=force_train,
+        force_train=force_train, force_plot=force_plot,
     )
 
 
 def run_condition_wave(base_names, suffix, n_folds, device, output_root,
                         node_name, hard_runtime_limit_min, force_test,
                         cluster_test_plot=True, metrics_interval=300,
-                        force_train=False):
+                        force_train=False, force_plot=False):
     """Train + test + plot MULTIPLE conditions as a single wave.
 
     All (base, fold) pairs are submitted together in one training wave
@@ -361,10 +434,11 @@ def run_condition_wave(base_names, suffix, n_folds, device, output_root,
     if cluster_test_plot:
         submit_test_plot_wave(yt_cfgs, output_root, node_name,
                               hard_runtime_limit_min, force_test,
+                              force_plot=force_plot,
                               metrics_interval=metrics_interval)
     else:
         for yt_cfg in yt_cfgs:
-            run_test_and_plot_local(yt_cfg, device, force_test)
+            run_test_and_plot_local(yt_cfg, device, force_test, force_plot=force_plot)
 
 
 def generate_yt_data_for_condition(base_name, suffix, n_folds, device, output_root):

@@ -187,7 +187,8 @@ def submit_cluster_cross_test_plot_job(slot, config_path, test_config_paths,
                                         device='cuda', iteration=None,
                                         output_root=None,
                                         hard_runtime_limit_min=60,
-                                        n_rollout_frames=250):
+                                        n_rollout_frames=250,
+                                        skip_test=False, skip_plot=False):
     """Submit cross_test_plot_subprocess.py to the cluster.
 
     One cluster job per YT fold. Inside the job, the subprocess loops over
@@ -228,6 +229,10 @@ def submit_cluster_cross_test_plot_job(slot, config_path, test_config_paths,
     cluster_cmd += f" --config_file '{config_file_field}'"
     cluster_cmd += f" --error_log '{error_details_path}'"
     cluster_cmd += f" --n_rollout_frames {n_rollout_frames}"
+    if skip_test:
+        cluster_cmd += " --skip-test"
+    if skip_plot:
+        cluster_cmd += " --skip-plot"
     if iteration is not None:
         cluster_cmd += f" --iteration {iteration}"
         cluster_cmd += f" --slot {slot}"
@@ -256,7 +261,6 @@ def submit_cluster_cross_test_plot_job(slot, config_path, test_config_paths,
         f"-o {cluster_stdout!r} -e {cluster_stderr!r} "
         f"bash -l {cluster_script_path}'\""
     )
-    print(f"\033[96m  slot {slot}: submitting cross test+plot to {queue_label} via SSH\033[0m", flush=True)
     result = subprocess.run(ssh_cmd, shell=True, capture_output=True, text=True)
 
     match = re.search(r'Job <(\d+)>', result.stdout)

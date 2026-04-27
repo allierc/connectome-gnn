@@ -317,11 +317,18 @@ SCATTER_LO, SCATTER_HI = -10.0, 10.0
 
 
 def draw_scatter(ax, x_all, y_all, xlabel, ylabel, show_fit=True):
-    """Hexbin density of y vs x with R² and OLS slope in the corner."""
+    """Hexbin density of y vs x with identity-line R² and OLS slope.
+
+    R² via `connectome_gnn.metrics.compute_r_squared` (Nash-Sutcliffe:
+    1 − mean((true − learned)²) / var(true)) — penalises scale/offset
+    bias the same way the rest of the codebase does.
+    """
+    from connectome_gnn.metrics import compute_r_squared
     x, y, n_full = _subsample_pair(x_all, y_all)
 
-    corr = float(np.corrcoef(x, y)[0, 1])
-    slope, intercept = np.polyfit(x.astype(np.float64), y.astype(np.float64), 1)
+    r2, slope = compute_r_squared(x.astype(np.float64), y.astype(np.float64))
+    intercept = float(np.polyfit(x.astype(np.float64),
+                                  y.astype(np.float64), 1)[1])
 
     lo, hi = SCATTER_LO, SCATTER_HI
 
@@ -339,7 +346,7 @@ def draw_scatter(ax, x_all, y_all, xlabel, ylabel, show_fit=True):
     ax.set_xlim([lo, hi]); ax.set_ylim([lo, hi])
     _trim_axis(ax)
 
-    r2_text    = f"$R^2$ = {corr ** 2:.2f}"
+    r2_text    = f"$R^2$ = {r2:.2f}"
     slope_text = f"slope = {slope:.2f}"
     txt_kwargs = dict(transform=ax.transAxes, va='top', ha='left',
                       fontsize=FS_TICK)
