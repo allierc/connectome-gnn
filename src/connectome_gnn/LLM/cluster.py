@@ -32,9 +32,9 @@ CLUSTER_SSH      = f"{CLUSTER_USER}@{CLUSTER_LOGIN}"
 # ---------------------------------------------------------------------------
 
 # Per-GPU-node CPU sizing. l4 GPUs are slower per-frame, so the data-loader
-# starves the GPU at the default n_cpus=2; bumping to 4 keeps the input
+# starves the GPU at the default n_cpus=2; bumping to 8 keeps the input
 # pipeline ahead of the trainer. Other nodes (a100, h100) are fine at 2.
-_CPUS_PER_NODE = {'l4': 4}
+_CPUS_PER_NODE = {'l4': 8}
 
 
 def _resolve_n_cpus(node_name, n_cpus_default=2):
