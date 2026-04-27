@@ -47,13 +47,20 @@ CONDITIONS = [
     ('flyvis_noise_005_hidden_010_ngp',  'flyvis_noise_005_hidden_010_ngp_anchors_winner'),
     ('flyvis_noise_005_hidden_020_ngp',  'flyvis_noise_005_hidden_020_ngp_anchors_winner'),
     # AR(1) measurement-noise sweep (blank50 + gamma=0.10 + temporal correlation).
-    # Three-point dose-response sweep at rho in {0.25, 0.50, 0.75}, bracketing
-    # the indicator-kinetics regime (ASAP3 ~ 0.25, GCaMP6f rise ~ 0.50, GCaMP6f
-    # decay ~ 0.75). Naming: rho<NN> = 100 * rho. The rho=0 control is the
-    # existing flyvis_noise_005_010 condition under the blank50 overrides.
+    # Six-point dose-response sweep at rho in {0.25, 0.50, 0.75, 0.90, 0.95, 0.99}.
+    # Low-rho points bracket the indicator-kinetics regime (ASAP3 ~ 0.25,
+    # GCaMP6f rise ~ 0.50, GCaMP6f decay ~ 0.75); high-rho points probe the
+    # asymptote toward the noise_005 ceiling (per-frame derivative noise scales
+    # as (1-rho); at rho=0.99 it is 1% of the i.i.d. case, so Known_ODE's
+    # per-neuron V_rest can absorb most of the static-offset component).
+    # Naming: rho<NN> = 100 * rho. The rho=0 control is the existing
+    # flyvis_noise_005_010 condition under the blank50 overrides.
     ('flyvis_noise_005_010_blank50_ar1_rho25', 'flyvis_noise_005_010_winner'),
     ('flyvis_noise_005_010_blank50_ar1_rho50', 'flyvis_noise_005_010_winner'),
     ('flyvis_noise_005_010_blank50_ar1_rho75', 'flyvis_noise_005_010_winner'),
+    ('flyvis_noise_005_010_blank50_ar1_rho90', 'flyvis_noise_005_010_winner'),
+    ('flyvis_noise_005_010_blank50_ar1_rho95', 'flyvis_noise_005_010_winner'),
+    ('flyvis_noise_005_010_blank50_ar1_rho99', 'flyvis_noise_005_010_winner'),
 ]
 
 

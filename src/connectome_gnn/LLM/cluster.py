@@ -31,6 +31,18 @@ CLUSTER_SSH      = f"{CLUSTER_USER}@{CLUSTER_LOGIN}"
 # Cluster helpers
 # ---------------------------------------------------------------------------
 
+# Per-GPU-node CPU sizing. l4 GPUs are slower per-frame, so the data-loader
+# starves the GPU at the default n_cpus=2; bumping to 4 keeps the input
+# pipeline ahead of the trainer. Other nodes (a100, h100) are fine at 2.
+_CPUS_PER_NODE = {'l4': 4}
+
+
+def _resolve_n_cpus(node_name, n_cpus_default=2):
+    """Return the bsub -n count for a given GPU node. Override per-node via
+    _CPUS_PER_NODE; otherwise use the caller's default."""
+    return _CPUS_PER_NODE.get(node_name, n_cpus_default)
+
+
 def check_cluster_repo():
     """Check that the cluster repo has no uncommitted source changes.
 
@@ -91,11 +103,13 @@ def submit_cluster_job(slot, config_path, analysis_log_path, config_file_field,
     cluster_stdout = f"{log_dir}/cluster_train_{slot:02d}.out"
     cluster_stderr = f"{log_dir}/cluster_train_{slot:02d}.err"
 
+    # Per-GPU-node CPU sizing (l4 needs more CPUs to keep up; see _resolve_n_cpus).
+    n_cpus_eff = _resolve_n_cpus(node_name, n_cpus_default=n_cpus)
     if device == 'cpu':
-        bsub_resources = f"bsub -n {n_cpus} -W {hard_runtime_limit_min}"
+        bsub_resources = f"bsub -n {n_cpus_eff} -W {hard_runtime_limit_min}"
         queue_label = "cpu"
     else:
-        bsub_resources = f"bsub -n {n_cpus} -gpu 'num=1' -q gpu_{node_name} -W {hard_runtime_limit_min}"
+        bsub_resources = f"bsub -n {n_cpus_eff} -gpu 'num=1' -q gpu_{node_name} -W {hard_runtime_limit_min}"
         queue_label = f"gpu_{node_name}"
     ssh_cmd = (
         f"ssh {CLUSTER_SSH} \"bash -l -c 'cd {CLUSTER_ROOT_DIR} && "
@@ -227,11 +241,13 @@ def submit_cluster_cross_test_plot_job(slot, config_path, test_config_paths,
     cluster_stdout = f"{log_dir}/cluster_cross_test_plot_{slot:02d}.out"
     cluster_stderr = f"{log_dir}/cluster_cross_test_plot_{slot:02d}.err"
 
+    # Per-GPU-node CPU sizing (l4 needs more CPUs to keep up; see _resolve_n_cpus).
+    n_cpus_eff = _resolve_n_cpus(node_name, n_cpus_default=n_cpus)
     if device == 'cpu':
-        bsub_resources = f"bsub -n {n_cpus} -W {hard_runtime_limit_min}"
+        bsub_resources = f"bsub -n {n_cpus_eff} -W {hard_runtime_limit_min}"
         queue_label = "cpu"
     else:
-        bsub_resources = f"bsub -n {n_cpus} -gpu 'num=1' -q gpu_{node_name} -W {hard_runtime_limit_min}"
+        bsub_resources = f"bsub -n {n_cpus_eff} -gpu 'num=1' -q gpu_{node_name} -W {hard_runtime_limit_min}"
         queue_label = f"gpu_{node_name}"
 
     ssh_cmd = (
@@ -479,11 +495,13 @@ def submit_cluster_test_plot_job(slot, config_path, analysis_log_path, config_fi
     cluster_stdout = f"{log_dir}/cluster_test_plot_{slot:02d}.out"
     cluster_stderr = f"{log_dir}/cluster_test_plot_{slot:02d}.err"
 
+    # Per-GPU-node CPU sizing (l4 needs more CPUs to keep up; see _resolve_n_cpus).
+    n_cpus_eff = _resolve_n_cpus(node_name, n_cpus_default=n_cpus)
     if device == 'cpu':
-        bsub_resources = f"bsub -n {n_cpus} -W {hard_runtime_limit_min}"
+        bsub_resources = f"bsub -n {n_cpus_eff} -W {hard_runtime_limit_min}"
         queue_label = "cpu"
     else:
-        bsub_resources = f"bsub -n {n_cpus} -gpu 'num=1' -q gpu_{node_name} -W {hard_runtime_limit_min}"
+        bsub_resources = f"bsub -n {n_cpus_eff} -gpu 'num=1' -q gpu_{node_name} -W {hard_runtime_limit_min}"
         queue_label = f"gpu_{node_name}"
 
     ssh_cmd = (
@@ -545,11 +563,13 @@ def submit_cluster_data_plot_job(slot, config_path, analysis_log_path, config_fi
     cluster_stdout = f"{log_dir}/cluster_data_plot_{slot:02d}.out"
     cluster_stderr = f"{log_dir}/cluster_data_plot_{slot:02d}.err"
 
+    # Per-GPU-node CPU sizing (l4 needs more CPUs to keep up; see _resolve_n_cpus).
+    n_cpus_eff = _resolve_n_cpus(node_name, n_cpus_default=n_cpus)
     if device == 'cpu':
-        bsub_resources = f"bsub -n {n_cpus} -W {hard_runtime_limit_min}"
+        bsub_resources = f"bsub -n {n_cpus_eff} -W {hard_runtime_limit_min}"
         queue_label = "cpu"
     else:
-        bsub_resources = f"bsub -n {n_cpus} -gpu 'num=1' -q gpu_{node_name} -W {hard_runtime_limit_min}"
+        bsub_resources = f"bsub -n {n_cpus_eff} -gpu 'num=1' -q gpu_{node_name} -W {hard_runtime_limit_min}"
         queue_label = f"gpu_{node_name}"
 
     ssh_cmd = (

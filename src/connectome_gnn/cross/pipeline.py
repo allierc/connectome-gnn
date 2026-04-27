@@ -49,6 +49,9 @@ CONDITION_BASES = [
     'flyvis_noise_005_010_blank50_ar1_rho25',
     'flyvis_noise_005_010_blank50_ar1_rho50',
     'flyvis_noise_005_010_blank50_ar1_rho75',
+    'flyvis_noise_005_010_blank50_ar1_rho90',
+    'flyvis_noise_005_010_blank50_ar1_rho95',
+    'flyvis_noise_005_010_blank50_ar1_rho99',
 ]
 
 
