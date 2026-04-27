@@ -68,14 +68,19 @@ BLANK50_SIM_OVERRIDES = {
 # truth — CONDITION_FILTER is derived from its keys, NODE_PER_CONDITION from
 # the full mapping.
 CONDITION_NODES = {
-    # === AR(1) measurement-noise sweep (3-point dose-response, blank50 + gamma=0.10) ===
-    # rho=0.25 / 0.50 / 0.75 bracket the indicator-kinetics regime
-    # (ASAP3 ~ 0.25, GCaMP6f rise ~ 0.50, GCaMP6f decay ~ 0.75).
+    # === AR(1) measurement-noise sweep (6-point dose-response, blank50 + gamma=0.10) ===
+    # Low rho brackets the indicator-kinetics regime (ASAP3 ~ 0.25,
+    # GCaMP6f rise ~ 0.50, GCaMP6f decay ~ 0.75); high rho probes the
+    # asymptote toward the noise_005 ceiling (per-frame derivative noise
+    # scales as (1-rho), so at rho=0.99 it is 1% of the i.i.d. case).
     # The rho=0 control is the existing flyvis_noise_005_010 condition
     # under blank50 overrides (commented out below; uncomment if needed).
-    'flyvis_noise_005_010_blank50_ar1_rho25': 'a100',
-    'flyvis_noise_005_010_blank50_ar1_rho50': 'a100',
-    'flyvis_noise_005_010_blank50_ar1_rho75': 'a100',
+    'flyvis_noise_005_010_blank50_ar1_rho25': 'l4',
+    'flyvis_noise_005_010_blank50_ar1_rho50': 'l4',
+    'flyvis_noise_005_010_blank50_ar1_rho75': 'l4',
+    'flyvis_noise_005_010_blank50_ar1_rho90': 'l4',
+    'flyvis_noise_005_010_blank50_ar1_rho95': 'l4',
+    'flyvis_noise_005_010_blank50_ar1_rho99': 'l4',
     # --- non-AR(1) baselines (paused for the AR(1) sweep; uncomment to re-enable) ---
     # 'flyvis_noise_free':                    'l4',
     # 'flyvis_noise_005':                     'l4',
@@ -95,7 +100,7 @@ run_all_conditions(
     hp_source='uniform',
     suffix='blank50_known_ode',
     hp_yaml='flyvis_noise_free_known_ode_reg_winner',
-    node_name='a100',
+    node_name='l4',
     hard_runtime_limit_min=2880,
     sim_overrides=BLANK50_SIM_OVERRIDES,
     dataset_tag='blank50',
