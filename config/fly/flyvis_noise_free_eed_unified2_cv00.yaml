@@ -55,7 +55,7 @@ plotting:
   - 100
 training:
   seed: 1042
-  n_epochs: 60
+  n_epochs: 30
   batch_size: 256
   data_augmentation_loop: 100
   train_start: 0

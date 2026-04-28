@@ -1,13 +1,13 @@
-description: "Flyvis noise 0.5 — EED baseline (encode-evolve-decode)"
+description: "Flyvis noise 0.5 \u2014 EED baseline (encode-evolve-decode)"
 dataset: flyvis_noise_05
 simulation:
   connectivity_file: to be specified
-  adjacency_matrix: ""
+  adjacency_matrix: ''
   params:
-    - - 1.0
-      - 1.0
-      - 1.0
-      - 1.0
+  - - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
   n_neurons: 13741
   n_input_neurons: 1736
   n_neuron_types: 65
@@ -22,19 +22,13 @@ graph_model:
   signal_model_name: flyvis_eed
   prediction: first_derivative
   aggr_type: add
-  # EED sub-network parameter mapping:
-  #   encoder:          MLPWithSkips(n_neurons -> latent_dim, hidden=latent_dim, layers=n_layers_encoder)
-  #   decoder:          MLPWithSkips(latent_dim -> n_neurons, hidden=latent_dim, layers=n_layers_encoder)  [symmetric with encoder]
-  #   evolver:          MLPWithSkips(latent_dim+stim_latent_dims -> latent_dim, hidden=latent_dim, layers=n_layers_evolver)  [zero-init + residual]
-  #   stimulus_encoder: MLPWithSkips(n_input_neurons -> stim_latent_dims, hidden=hidden_dim_stim_encoder, layers=n_layers_stim_encoder)
-  latent_dim: 512 # latent space dimensionality (also hidden dim for encoder/decoder/evolver)
-  n_layers_encoder: 1 # hidden layers in encoder and decoder
-  n_layers_evolver: 1 # hidden layers in evolver
-  stim_latent_dims: 128 # stimulus encoder output dimensionality
-  hidden_dim_stim_encoder: 64 # stimulus encoder hidden width
-  n_layers_stim_encoder: 3 # hidden layers in stimulus encoder
-  MLP_activation: "relu" # activation for all sub-networks: "relu", "tanh", "sigmoid", "leaky_relu", "soft_relu"
-  # Unused by EED but required by config schema
+  latent_dim: 256
+  n_layers_encoder: 1
+  n_layers_evolver: 1
+  stim_latent_dims: 64
+  hidden_dim_stim_encoder: 64
+  n_layers_stim_encoder: 3
+  MLP_activation: relu
   input_size: 3
   n_layers: 3
   hidden_dim: 256
@@ -49,14 +43,14 @@ plotting:
   colormap: tab20
   arrow_length: 1
   xlim:
-    - -2.5
-    - 2.5
+  - -2.5
+  - 2.5
   ylim:
-    - -100
-    - 100
+  - -100
+  - 100
 training:
   seed: 43
-  n_epochs: 20
+  n_epochs: 30
   batch_size: 256
   data_augmentation_loop: 100
   train_start: 0
@@ -84,9 +78,8 @@ training:
   coeff_W_sign: 0
   w_init_mode: zeros
   regul_annealing_rate: 0
-
 claude:
-  n_epochs: 20
+  n_epochs: 30
   data_augmentation_loop: 100
   n_iter_block: 8
   ucb_c: 1.414
@@ -96,5 +89,8 @@ claude:
   generate_data: true
   hard_runtime_limit_min: 120
   interaction_code: false
-  case_study: "eed_rollout"
-  case_study_brief: "Optimize EED hyperparameters for stable autoregressive rollout on flyvis_noise_05. Primary metric: rollout_RMSE (lower is better). Target: rollout_RMSE < 2e-2, stable across seeds (CV < 10%). Key levers: latent_dim, n_layers_encoder, n_layers_evolver, lr, batch_size."
+  case_study: eed_rollout
+  case_study_brief: 'Optimize EED hyperparameters for stable autoregressive rollout
+    on flyvis_noise_05. Primary metric: rollout_RMSE (lower is better). Target: rollout_RMSE
+    < 2e-2, stable across seeds (CV < 10%). Key levers: latent_dim, n_layers_encoder,
+    n_layers_evolver, lr, batch_size.'
