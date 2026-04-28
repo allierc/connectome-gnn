@@ -33,6 +33,7 @@ _ANSI_RED = '\033[91m'
 _ANSI_ORANGE = '\033[38;5;208m'
 _ANSI_GREEN = '\033[92m'
 _ANSI_BLUE = '\033[94m'
+_ANSI_WHITE = '\033[97m'
 _ANSI_RESET = '\033[0m'
 
 def _r2_color(val):
@@ -106,6 +107,108 @@ plt.rcParams.update({
 })
 
 
+def query_cell_types(config_or_dataset, name=None, device='cpu'):
+    """Cell-type lookup for a flyvis (or biomodel) dataset.
+
+    The per-neuron type-id vector lives inside x_list_train (`x.neuron_type`);
+    the index→name mapping comes from `ode_params.type_names` when available
+    (drosophila_cx, larva, zebrafish biomodels), or falls back to the FlyVis
+    constant `INDEX_TO_NAME` (Am, C2, …, L4, …, TmY9).
+
+    Args:
+        config_or_dataset: a NeuralGraphConfig instance, or the dataset
+            string (e.g. 'fly/flyvis_noise_005_010_blank50_ar1_rho25_blank50_cv00').
+        name: optional shortcut. If a single str (e.g. 'L4'), returns the
+            np.ndarray of neuron indices of that type. If a list of strs,
+            returns one np.ndarray per name in the same order. If None,
+            returns the full info dict described below.
+        device: where to place the returned `type_list` tensor.
+
+    Returns (when name is None):
+        dict with
+            type_list:     (N,) torch.LongTensor — per-neuron type id
+            n_neurons:     int
+            n_types:       int (= len(unique(type_list)))
+            index_to_name: {int: str}
+            name_to_index: {str: int}
+            neurons_of:    callable name(s) -> np.ndarray (or list of)
+            counts:        {str: int} — neurons per type name (only types present)
+    """
+    from connectome_gnn.generators.ode_params import (
+        get_ode_params_class, FlyVisODEParams,
+    )
+
+    dataset = (config_or_dataset.dataset
+               if isinstance(config_or_dataset, NeuralGraphConfig)
+               else config_or_dataset)
+
+    # 1. Per-neuron type ids — pulled from the saved x_list_train tensor.
+    x_ts = load_simulation_data(graphs_data_path(dataset, 'x_list_train'),
+                                fields=['neuron_type'])
+    type_list = x_ts.neuron_type.to(device).long()
+    n_neurons = int(type_list.shape[0])
+    n_types_present = int(torch.unique(type_list).numel())
+
+    # 2. Index → name mapping. Prefer ode_params.type_names if it exists
+    # (set by the connectome biomodels); otherwise use the FlyVis hardcoded
+    # mapping. Connectome biomodels with no explicit names get 'Type{i}'.
+    index_to_name = None
+    ode_params_path = graphs_data_path(dataset, 'ode_params.pt')
+    if os.path.exists(ode_params_path):
+        signal_model = (config_or_dataset.graph_model.signal_model_name
+                        if isinstance(config_or_dataset, NeuralGraphConfig)
+                        else None)
+        try:
+            cls = (get_ode_params_class(signal_model) if signal_model
+                   else FlyVisODEParams)
+        except KeyError:
+            cls = FlyVisODEParams
+        try:
+            ode_params = cls.load(graphs_data_path(dataset), device='cpu')
+            if hasattr(ode_params, 'type_names') and ode_params.type_names:
+                index_to_name = {i: n for i, n in enumerate(ode_params.type_names)}
+        except Exception:
+            pass
+
+    if index_to_name is None:
+        is_connconstr = any(s in dataset for s in
+                            ('drosophila_cx', 'zebrafish_oculomotor', 'larva'))
+        if is_connconstr:
+            index_to_name = {i: f'Type{i}' for i in range(n_types_present)}
+        else:
+            index_to_name = dict(INDEX_TO_NAME)
+
+    name_to_index = {v: k for k, v in index_to_name.items()}
+    type_list_np = to_numpy(type_list).astype(int).ravel()
+
+    def _neurons_of(query):
+        if isinstance(query, str):
+            if query not in name_to_index:
+                raise KeyError(
+                    f"unknown cell type {query!r}. "
+                    f"Known types ({len(name_to_index)}): "
+                    f"{sorted(name_to_index)[:8]}…")
+            return np.where(type_list_np == name_to_index[query])[0]
+        return [_neurons_of(q) for q in query]
+
+    if name is not None:
+        return _neurons_of(name)
+
+    counts = {nm: int(np.sum(type_list_np == idx))
+              for idx, nm in index_to_name.items()
+              if int(np.sum(type_list_np == idx)) > 0}
+
+    return {
+        'type_list':     type_list,
+        'n_neurons':     n_neurons,
+        'n_types':       n_types_present,
+        'index_to_name': index_to_name,
+        'name_to_index': name_to_index,
+        'neurons_of':    _neurons_of,
+        'counts':        counts,
+    }
+
+
 def get_training_files(log_dir, n_runs):
     """Return the list of per-epoch training checkpoints (sorted) used to
     plot weight evolution.
@@ -116,8 +219,21 @@ def get_training_files(log_dir, n_runs):
     """
     files = glob.glob(f"{log_dir}/models/best_model_with_{n_runs - 1}_graphs_*.pt")
     if len(files) == 0:
+        print(f"  [get_training_files] no checkpoints in {log_dir}/models/ "
+              f"matching best_model_with_{n_runs - 1}_graphs_*.pt")
         return [], np.array([])
-    files.sort(key=sort_key)
+    try:
+        files.sort(key=sort_key)
+    except (ValueError, TypeError) as e:
+        # sort_key raises on filenames it doesn't recognise; surface what we
+        # actually found so the user can see whether the directory is empty,
+        # populated with a different naming convention, or has a stray file.
+        print(f"  [get_training_files] failed to sort checkpoints in "
+              f"{log_dir}/models/ — {type(e).__name__}: {e}")
+        print(f"  files found ({len(files)}): "
+              f"{[os.path.basename(f) for f in files][:10]}"
+              + (" ..." if len(files) > 10 else ""))
+        raise
 
     # Modern format ("..._graphs_<epoch>.pt"): one ckpt per epoch, return them all.
     if all(os.path.basename(f).split('_')[-2] == 'graphs' for f in files):
@@ -141,14 +257,104 @@ def get_training_files(log_dir, n_runs):
     return selected, np.arange(len(selected), dtype=int)
 
 
+def _plot_tau_outlier_traces(activity_true, neuron_types, outlier_neuron_indices,
+                              n_frames_actual, start_frame, index_to_name,
+                              log_dir, config_indices, mc):
+    """GT activity traces — one row per τ-outlier neuron, plus an R1 reference.
+    Single long-window panel (≤64k frames).
+
+    outlier_neuron_indices is the explicit list of neuron IDs flagged by the τ
+    scatter outlier mask, so every outlier gets its own trace (no per-type
+    subsampling).
+    """
+    outlier_neuron_indices = [int(i) for i in outlier_neuron_indices]
+    if not len(outlier_neuron_indices):
+        return
+    name_to_idx = {v: k for k, v in index_to_name.items()}
+    _to_indices, _to_labels = [], []
+    for nid in outlier_neuron_indices:
+        stype = int(neuron_types[nid])
+        name = index_to_name.get(stype, f'Type{stype}')
+        _to_indices.append(nid)
+        _to_labels.append(f'{name}/{nid}')
+
+    r1_id = name_to_idx.get('R1')
+    r1_neuron_idx = None
+    if r1_id is not None:
+        r1_cands = np.where(neuron_types == r1_id)[0]
+        if len(r1_cands) > 0:
+            r1_neuron_idx = int(r1_cands[0])
+
+    all_indices = list(_to_indices)
+    all_labels  = list(_to_labels)
+    if r1_neuron_idx is not None:
+        all_indices.append(r1_neuron_idx)
+        all_labels.append(f'R1/{r1_neuron_idx}')
+    n_rows = len(all_indices)
+
+    _n_show  = min(n_frames_actual, 64000)
+
+    _baselines = np.array([
+        float(np.mean(activity_true[nid, start_frame:start_frame + _n_show]))
+        for nid in all_indices
+    ])
+    _act_std = np.std(activity_true[_to_indices, start_frame:start_frame + _n_show])
+    _step_v = max(0.5, 3.0 * _act_std) if _act_std > 0 else 2.5
+
+    # Per-row height shrinks for tall figures so 260 traces still render in a
+    # tractable canvas. Label fontsize tracks the row spacing.
+    _per_row_in = 0.15 if n_rows > 60 else 0.4
+    _label_fs   = 7 if n_rows > 60 else 11
+    _row_h = max(6, n_rows * _per_row_in + 2)
+    fig, _ax = plt.subplots(1, 1, figsize=(15, _row_h))
+    for i, nid in enumerate(all_indices):
+        _is_r1 = (r1_neuron_idx is not None) and (i == n_rows - 1)
+        _trace = activity_true[nid, start_frame:start_frame + _n_show] - _baselines[i]
+        _color = 'red' if _is_r1 else 'green'
+        _lw = 1.2 if _is_r1 else 0.8
+        _label = ('R1 (reference)' if _is_r1 else
+                  ('activity (GT)' if i == 0 else None))
+        _ax.plot(_trace + i * _step_v, linewidth=_lw, c=_color, alpha=0.9, label=_label)
+    for i, lbl in enumerate(all_labels):
+        _is_r1 = (r1_neuron_idx is not None) and (i == n_rows - 1)
+        _ax.text(-_n_show * 0.025, i * _step_v, lbl,
+                 fontsize=_label_fs, va='center', ha='right',
+                 color=('red' if _is_r1 else mc))
+    _ax.set_ylim([-_step_v, n_rows * (_step_v + 0.25)])
+    _ax.set_yticks([])
+    _mid = _n_show // 2
+    _ax.set_xticks([0, _mid, _n_show])
+    _ax.set_xticklabels([0, _mid, _n_show], fontsize=14)
+    _ax.set_xlabel(f'frame ({_n_show} frames)', fontsize=18)
+    _ax.set_xlim([0, _n_show])
+    _ax.spines['top'].set_visible(False)
+    _ax.spines['right'].set_visible(False)
+    _ax.spines['left'].set_visible(False)
+    _ax.legend(loc='upper right', fontsize=12)
+    plt.tight_layout()
+    plt.savefig(f'{log_dir}/results/activity_{config_indices}_tau_outliers.png',
+                dpi=300, bbox_inches='tight')
+    plt.close()
+
+
 def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
                           edges, gt_weights, gt_taus, gt_V_Rest,
                           type_list, n_types, n_neurons, cmap, device,
                           extended, log_file, mu_activity, sigma_activity,
-                          ode_params=None):
+                          ode_params=None,
+                          activity_true=None, n_frames_actual=None,
+                          start_frame=0, index_to_name=None):
     """Analysis plots for LinearODE: W, tau, V_rest, gain, bias R² + clustering."""
     import torch.nn.functional as F
     sim = config.simulation
+
+    # Cell-type index → name (used by the *_cell_type plots to label per-type
+    # outlier clusters). Mirrors the lookup in plot_synaptic.
+    if ode_params is not None and getattr(ode_params, 'type_names', None):
+        _idx2name = {i: n for i, n in enumerate(ode_params.type_names)}
+    else:
+        _idx2name = INDEX_TO_NAME
+    _type_list_np = to_numpy(type_list).astype(int).ravel()
 
     # --- Parameter table ---
     w_params = get_model_W(model).numel()
@@ -199,21 +405,18 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     learned_gain = to_numpy(model.get_learned_gain()[:n_neurons]) if hasattr(model, 'get_learned_gain') and model.get_learned_gain() is not None else None
     learned_bias = to_numpy(model.get_learned_bias()[:n_neurons]) if hasattr(model, 'get_learned_bias') and model.get_learned_bias() is not None else None
 
-    # --- Plot 1: Loss curve ---
-    if os.path.exists(os.path.join(log_dir, 'loss.pt')):
-        fig = plt.figure(figsize=(8, 6))
-        ax = plt.gca()
-        for spine in ax.spines.values():
-            spine.set_alpha(0.75)
-        list_loss = torch.load(os.path.join(log_dir, 'loss.pt'), weights_only=False)
-        plt.plot(list_loss, color=mc, linewidth=2)
-        plt.xlim([0, len(list_loss)])
-        plt.ylabel('Loss')
-        plt.xlabel('Epochs')
-        plt.title('Training Loss')
-        plt.tight_layout()
-        plt.savefig(f'{log_dir}/results/loss.png', dpi=300)
-        plt.close()
+    # --- Save learned parameters (mirrors ode_params.pt schema, no edge_index) ---
+    os.makedirs(os.path.join(log_dir, 'results'), exist_ok=True)
+    learned_state = {
+        'tau_i': torch.from_numpy(learned_tau),
+        'V_i_rest': torch.from_numpy(learned_V_rest),
+        'W': torch.from_numpy(learned_weights),
+    }
+    if learned_gain is not None:
+        learned_state['gain'] = torch.from_numpy(learned_gain)
+    if learned_bias is not None:
+        learned_state['bias'] = torch.from_numpy(learned_bias)
+    torch.save(learned_state, os.path.join(log_dir, 'results', 'learned_ode_params.pt'))
 
     # --- Plot 2: Raw W comparison ---
     fig = plt.figure(figsize=(10, 9))
@@ -230,6 +433,30 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     plt.close()
     print(f"weights R²: {_r2_color(r_squared_W)}{r_squared_W:.4f}{_ANSI_RESET}  slope: {slope_W:.4f}")
     logger.info(f"weights R²: {r_squared_W:.4f}  slope: {slope_W:.4f}")
+    # Relative error |learned - true| / max(|true|, eps), full sample.
+    # Mean ± SD intentionally omitted: with the heavy-tailed weight
+    # distribution a few near-zero true edges dominate the mean. Median + IQR
+    # are the only honest summary numbers here.
+    _gt_w_arr  = np.asarray(gt_w_np).ravel()
+    _lrn_w_arr = np.asarray(learned_weights).ravel()
+    _rel_err_w = np.abs(_lrn_w_arr - _gt_w_arr) / np.maximum(np.abs(_gt_w_arr), 1e-6)
+    _rel_err_w_med  = float(np.median(_rel_err_w))
+    _q1_w_re, _q3_w_re = np.percentile(_rel_err_w, [25.0, 75.0])
+    _rel_err_w_iqr  = float(_q3_w_re - _q1_w_re)
+    print(f"W rel.err: {_ANSI_GREEN}median {100*_rel_err_w_med:.1f}%  IQR {100*_rel_err_w_iqr:.1f}%{_ANSI_RESET}")
+    logger.info(f"W rel.err: median {100*_rel_err_w_med:.2f}%  IQR {100*_rel_err_w_iqr:.2f}%")
+    with open(os.path.join(log_dir, 'results', 'metrics.txt'), 'a') as _mf:
+        _mf.write(f"W_rel_err_median: {_rel_err_w_med:.4f}\n")
+        _mf.write(f"W_rel_err_iqr: {_rel_err_w_iqr:.4f}\n")
+
+    # Fixed *x* range (true τ never changes) for cross-run comparability. y
+    # range stays data-driven on learned_tau because that's what varies per run.
+    _tau_xlim = (-0.025, 0.5)
+    _tau_ticks = [0.0, 0.25, 0.5]
+    _tau_tick_labels = ['0.0', '0.25', '0.5']
+    _tau_lo = float(np.min(learned_tau)); _tau_hi = float(np.max(learned_tau))
+    _tau_pad = 0.02 * (_tau_hi - _tau_lo) if _tau_hi > _tau_lo else 0.01
+    _tau_ylim = (_tau_lo - _tau_pad, _tau_hi + _tau_pad)
 
     # --- Plot 3: tau comparison ---
     fig = plt.figure(figsize=(10, 9))
@@ -239,13 +466,129 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
              transform=plt.gca().transAxes, verticalalignment='top', fontsize=32)
     plt.xlabel(r'true $\tau$', fontsize=48)
     plt.ylabel(r'learned $\tau$', fontsize=48)
-    plt.xticks(fontsize=24)
-    plt.yticks(fontsize=24)
+    plt.xlim(_tau_xlim); plt.ylim(_tau_ylim)
+    plt.xticks(_tau_ticks, _tau_tick_labels, fontsize=24)
+    plt.yticks(_tau_ticks, _tau_tick_labels, fontsize=24)
     plt.tight_layout()
     plt.savefig(f'{log_dir}/results/tau_comparison_{config_indices}.png', dpi=300)
     plt.close()
     print(f"tau R²: {_r2_color(r_squared_tau)}{r_squared_tau:.3f}{_ANSI_RESET}  slope: {slope_tau:.2f}")
     logger.info(f"tau R²: {r_squared_tau:.3f}  slope: {slope_tau:.2f}")
+    # Relative error |learned - true| / max(|true|, eps), full sample. Mean ± SD
+    # intentionally omitted (heavy tails inflate them); median + IQR only.
+    _gt_t_arr   = np.asarray(gt_taus_np).ravel()
+    _lrn_t_arr  = np.asarray(learned_tau).ravel()
+    _rel_err_tau = np.abs(_lrn_t_arr - _gt_t_arr) / np.maximum(np.abs(_gt_t_arr), 1e-6)
+    _rel_err_tau_med = float(np.median(_rel_err_tau))
+    _q1_t_re, _q3_t_re = np.percentile(_rel_err_tau, [25.0, 75.0])
+    _rel_err_tau_iqr = float(_q3_t_re - _q1_t_re)
+    print(f"tau rel.err: {_ANSI_GREEN}median {100*_rel_err_tau_med:.1f}%  IQR {100*_rel_err_tau_iqr:.1f}%{_ANSI_RESET}")
+    logger.info(f"tau rel.err: median {100*_rel_err_tau_med:.2f}%  IQR {100*_rel_err_tau_iqr:.2f}%")
+    with open(os.path.join(log_dir, 'results', 'metrics.txt'), 'a') as _mf:
+        _mf.write(f"tau_rel_err_median: {_rel_err_tau_med:.4f}\n")
+        _mf.write(f"tau_rel_err_iqr: {_rel_err_tau_iqr:.4f}\n")
+
+    # Outlier rule for the tau plots: absolute distance from identity line
+    # > 0.1 (i.e. outside the y = x ± 0.1 band). Computed once here so Plot 3b
+    # (cell-type labels) and Plot 3c (outlier viz) share the same mask.
+    _gt_t   = np.asarray(gt_taus_np).ravel()
+    _lrn_t  = np.asarray(learned_tau).ravel()
+    _tau_outlier_thresh = 0.1
+    _outlier_mask_t = np.abs(_lrn_t - _gt_t) > _tau_outlier_thresh
+    _inlier_mask_t  = ~_outlier_mask_t
+    n_outliers_tau = int(_outlier_mask_t.sum())
+
+    # GT activity traces — one row per τ-outlier neuron (so the figure shows
+    # every outlier flagged by the |Δτ|>thresh mask).
+    if (activity_true is not None and n_frames_actual is not None
+            and index_to_name is not None and n_outliers_tau > 0):
+        _outlier_neuron_ids_t = np.where(_outlier_mask_t)[0].tolist()
+        _plot_tau_outlier_traces(activity_true, _type_list_np, _outlier_neuron_ids_t,
+                                 n_frames_actual, start_frame, index_to_name,
+                                 log_dir, config_indices, mc)
+
+    # --- Plot 3b: tau comparison colored by cell type, outlier clusters labelled ---
+    fig = plt.figure(figsize=(10, 9))
+    ax_3b = plt.gca()
+    plt.scatter(gt_taus_np, learned_tau,
+                c=cmap.color(to_numpy(type_list).astype(int)),
+                s=4, alpha=0.6)
+    # One label per cell type that has any outliers, placed at the centroid
+    # of that type's outlier subset.
+    for _t in np.unique(_type_list_np):
+        _t_mask = (_type_list_np == _t) & _outlier_mask_t
+        if not _t_mask.any():
+            continue
+        _x_lbl = float(_gt_t[_t_mask].mean())
+        _y_lbl = float(_lrn_t[_t_mask].mean())
+        ax_3b.text(_x_lbl, _y_lbl, _idx2name.get(int(_t), f'Type{int(_t)}'),
+                   fontsize=11, ha='center', va='center',
+                   color='black', fontweight='bold',
+                   bbox=dict(boxstyle='round,pad=0.15', facecolor='white',
+                             edgecolor='gray', alpha=0.75, linewidth=0.5))
+    plt.text(0.05, 0.95, f'R²: {r_squared_tau:.2f}\nslope: {slope_tau:.2f}',
+             transform=ax_3b.transAxes, verticalalignment='top', fontsize=32)
+    plt.xlabel(r'true $\tau$', fontsize=48)
+    plt.ylabel(r'learned $\tau$', fontsize=48)
+    plt.xlim(_tau_xlim); plt.ylim(_tau_ylim)
+    plt.xticks(_tau_ticks, _tau_tick_labels, fontsize=24)
+    plt.yticks(_tau_ticks, _tau_tick_labels, fontsize=24)
+    plt.tight_layout()
+    plt.savefig(f'{log_dir}/results/tau_comparison_cell_type_{config_indices}.png', dpi=300)
+    plt.close()
+
+    # --- Plot 3c: tau comparison with outliers in red, R²/slope on inliers only ---
+    if int(_inlier_mask_t.sum()) >= 2:
+        r2_tau_clean, slope_tau_clean = compute_r_squared(_gt_t[_inlier_mask_t], _lrn_t[_inlier_mask_t])
+    else:
+        r2_tau_clean, slope_tau_clean = float('nan'), float('nan')
+    fig = plt.figure(figsize=(10, 9))
+    plt.scatter(_gt_t[_inlier_mask_t], _lrn_t[_inlier_mask_t], c=mc, s=1, alpha=0.3)
+    if n_outliers_tau > 0:
+        plt.scatter(_gt_t[_outlier_mask_t], _lrn_t[_outlier_mask_t],
+                    c='red', s=6, alpha=0.7)
+    # Identity line ± threshold band (visual cue for the rejection criterion).
+    _tlin = np.linspace(_tau_xlim[0], _tau_xlim[1], 2)
+    plt.plot(_tlin, _tlin, '--', color='gray', linewidth=1, alpha=0.6)
+    plt.plot(_tlin, _tlin + _tau_outlier_thresh, ':', color='gray', linewidth=1, alpha=0.5)
+    plt.plot(_tlin, _tlin - _tau_outlier_thresh, ':', color='gray', linewidth=1, alpha=0.5)
+    _pct_outliers_tau = (100.0 * n_outliers_tau / _gt_t.size) if _gt_t.size else 0.0
+    _ax_3c = plt.gca()
+    _ax_3c.text(0.05, 0.95,
+                f'R²: {r2_tau_clean:.2f} ({r_squared_tau:.2f})\n'
+                f'slope: {slope_tau_clean:.2f}',
+                transform=_ax_3c.transAxes, verticalalignment='top', fontsize=32)
+    _ax_3c.text(0.05, 0.78,
+                f'N outliers: {n_outliers_tau} ({_pct_outliers_tau:.1f}%)  '
+                f'(|Δ|>{_tau_outlier_thresh})',
+                transform=_ax_3c.transAxes, verticalalignment='top', fontsize=18)
+    plt.xlabel(r'true $\tau$', fontsize=48)
+    plt.ylabel(r'learned $\tau$', fontsize=48)
+    plt.xlim(_tau_xlim); plt.ylim(_tau_ylim)
+    plt.xticks(_tau_ticks, _tau_tick_labels, fontsize=24)
+    plt.yticks(_tau_ticks, _tau_tick_labels, fontsize=24)
+    plt.tight_layout()
+    plt.savefig(f'{log_dir}/results/tau_comparison_wo_outliers_{config_indices}.png', dpi=300)
+    plt.close()
+    print(f"tau (wo outliers) R²: {_r2_color(r2_tau_clean)}{r2_tau_clean:.3f}{_ANSI_RESET}  "
+          f"slope: {slope_tau_clean:.2f}  "
+          f"outliers: {n_outliers_tau}/{_gt_t.size} ({_pct_outliers_tau:.1f}%)")
+    logger.info(f"tau_wo_outliers R²: {r2_tau_clean:.4f}  slope: {slope_tau_clean:.4f}  "
+                f"outliers: {n_outliers_tau}/{_gt_t.size} ({_pct_outliers_tau:.1f}%)")
+    _metrics_path_tau = os.path.join(log_dir, 'results', 'metrics.txt')
+    with open(_metrics_path_tau, 'a') as _mf:
+        _mf.write(f"tau_no_outliers_R2: {r2_tau_clean:.4f}\n")
+        _mf.write(f"tau_no_outliers_slope: {slope_tau_clean:.4f}\n")
+        _mf.write(f"tau_n_outliers: {n_outliers_tau}\n")
+
+    # Fixed axis range for ALL V_rest comparison plots (4, 4b, 4c) so the
+    # window is comparable across configs/runs.
+    _v_xlim = (-0.025, 1.0)
+    _v_ticks = [0.0, 0.5, 1.0]
+    _v_tick_labels = ['0.0', '0.5', '1.0']
+    _v_lo = float(np.min(learned_V_rest)); _v_hi = float(np.max(learned_V_rest))
+    _v_pad = 0.02 * (_v_hi - _v_lo) if _v_hi > _v_lo else 0.01
+    _v_ylim = (_v_lo - _v_pad, _v_hi + _v_pad)
 
     # --- Plot 4: V_rest comparison ---
     fig = plt.figure(figsize=(10, 9))
@@ -255,13 +598,116 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
              transform=plt.gca().transAxes, verticalalignment='top', fontsize=32)
     plt.xlabel(r'true $V_{rest}$', fontsize=48)
     plt.ylabel(r'learned $V_{rest}$', fontsize=48)
-    plt.xticks(fontsize=24)
-    plt.yticks(fontsize=24)
+    plt.xlim(_v_xlim); plt.ylim(_v_ylim)
+    plt.xticks(_v_ticks, _v_tick_labels, fontsize=24)
+    plt.yticks(_v_ticks, _v_tick_labels, fontsize=24)
     plt.tight_layout()
     plt.savefig(f'{log_dir}/results/V_rest_comparison_{config_indices}.png', dpi=300)
     plt.close()
     print(f"V_rest R²: {_r2_color(r_squared_V_rest)}{r_squared_V_rest:.3f}{_ANSI_RESET}  slope: {slope_V_rest:.2f}")
     logger.info(f"V_rest R²: {r_squared_V_rest:.3f}  slope: {slope_V_rest:.2f}")
+    # Relative error |learned - true| / max(|true|, eps), full sample. Mean ± SD
+    # intentionally omitted (heavy tails inflate them); median + IQR only.
+    _gt_v_arr   = np.asarray(gt_V_rest_np).ravel()
+    _lrn_v_arr  = np.asarray(learned_V_rest).ravel()
+    _rel_err_v = np.abs(_lrn_v_arr - _gt_v_arr) / np.maximum(np.abs(_gt_v_arr), 1e-6)
+    _rel_err_v_med = float(np.median(_rel_err_v))
+    _q1_v_re, _q3_v_re = np.percentile(_rel_err_v, [25.0, 75.0])
+    _rel_err_v_iqr = float(_q3_v_re - _q1_v_re)
+    print(f"V_rest rel.err: {_ANSI_GREEN}median {100*_rel_err_v_med:.1f}%  IQR {100*_rel_err_v_iqr:.1f}%{_ANSI_RESET}")
+    logger.info(f"V_rest rel.err: median {100*_rel_err_v_med:.2f}%  IQR {100*_rel_err_v_iqr:.2f}%")
+    with open(os.path.join(log_dir, 'results', 'metrics.txt'), 'a') as _mf:
+        _mf.write(f"V_rest_rel_err_median: {_rel_err_v_med:.4f}\n")
+        _mf.write(f"V_rest_rel_err_iqr: {_rel_err_v_iqr:.4f}\n")
+
+    # Outlier rule for V_rest plots: absolute distance from identity line
+    # > 0.2 (i.e. outside the y = x ± 0.2 band). Computed once so Plot 4b
+    # (cell-type labels) and Plot 4c (outlier viz) share the same mask.
+    _gt_v   = np.asarray(gt_V_rest_np).ravel()
+    _lrn_v  = np.asarray(learned_V_rest).ravel()
+    _vrest_outlier_thresh = 0.1
+    _outlier_mask = np.abs(_lrn_v - _gt_v) > _vrest_outlier_thresh
+    _inlier_mask  = ~_outlier_mask
+    n_outliers = int(_outlier_mask.sum())
+
+    # --- Plot 4b: V_rest comparison colored by cell type, outlier clusters labelled ---
+    fig = plt.figure(figsize=(10, 9))
+    ax_4b = plt.gca()
+    plt.scatter(gt_V_rest_np, learned_V_rest,
+                c=cmap.color(to_numpy(type_list).astype(int)),
+                s=4, alpha=0.6)
+    # Label a type only when >50% of its neurons are outliers, so labels
+    # mark types that are systematically off rather than types with a few
+    # stragglers (whose centroid would land inside the ±thresh band).
+    for _t in np.unique(_type_list_np):
+        _type_mask = (_type_list_np == _t)
+        _n_type = int(_type_mask.sum())
+        if _n_type == 0:
+            continue
+        _t_mask = _type_mask & _outlier_mask
+        if _t_mask.sum() / _n_type <= 0.5:
+            continue
+        _x_lbl = float(_gt_v[_t_mask].mean())
+        _y_lbl = float(_lrn_v[_t_mask].mean())
+        ax_4b.text(_x_lbl, _y_lbl, _idx2name.get(int(_t), f'Type{int(_t)}'),
+                   fontsize=11, ha='center', va='center',
+                   color='black', fontweight='bold',
+                   bbox=dict(boxstyle='round,pad=0.15', facecolor='white',
+                             edgecolor='gray', alpha=0.75, linewidth=0.5))
+    plt.text(0.05, 0.95, f'R²: {r_squared_V_rest:.2f}\nslope: {slope_V_rest:.2f}',
+             transform=ax_4b.transAxes, verticalalignment='top', fontsize=32)
+    plt.xlabel(r'true $V_{rest}$', fontsize=48)
+    plt.ylabel(r'learned $V_{rest}$', fontsize=48)
+    plt.xlim(_v_xlim); plt.ylim(_v_ylim)
+    plt.xticks(_v_ticks, _v_tick_labels, fontsize=24)
+    plt.yticks(_v_ticks, _v_tick_labels, fontsize=24)
+    plt.tight_layout()
+    plt.savefig(f'{log_dir}/results/V_rest_comparison_cell_type_{config_indices}.png', dpi=300)
+    plt.close()
+
+    # --- Plot 4c: V_rest comparison with outliers in red, R²/slope on inliers only ---
+    if int(_inlier_mask.sum()) >= 2:
+        r2_v_clean, slope_v_clean = compute_r_squared(_gt_v[_inlier_mask], _lrn_v[_inlier_mask])
+    else:
+        r2_v_clean, slope_v_clean = float('nan'), float('nan')
+    fig = plt.figure(figsize=(10, 9))
+    plt.scatter(_gt_v[_inlier_mask], _lrn_v[_inlier_mask], c=mc, s=1, alpha=0.3)
+    if n_outliers > 0:
+        plt.scatter(_gt_v[_outlier_mask], _lrn_v[_outlier_mask],
+                    c='red', s=6, alpha=0.7)
+    # Identity line ± threshold band (visual cue for the rejection criterion).
+    _vlin = np.linspace(_v_xlim[0], _v_xlim[1], 2)
+    plt.plot(_vlin, _vlin, '--', color='gray', linewidth=1, alpha=0.6)
+    plt.plot(_vlin, _vlin + _vrest_outlier_thresh, ':', color='gray', linewidth=1, alpha=0.5)
+    plt.plot(_vlin, _vlin - _vrest_outlier_thresh, ':', color='gray', linewidth=1, alpha=0.5)
+    _pct_outliers_v = (100.0 * n_outliers / _gt_v.size) if _gt_v.size else 0.0
+    _ax_4c = plt.gca()
+    _ax_4c.text(0.05, 0.95,
+                f'R²: {r2_v_clean:.2f} ({r_squared_V_rest:.2f})\n'
+                f'slope: {slope_v_clean:.2f}',
+                transform=_ax_4c.transAxes, verticalalignment='top', fontsize=32)
+    _ax_4c.text(0.05, 0.78,
+                f'N outliers: {n_outliers} ({_pct_outliers_v:.1f}%)  '
+                f'(|Δ|>{_vrest_outlier_thresh})',
+                transform=_ax_4c.transAxes, verticalalignment='top', fontsize=18)
+    plt.xlabel(r'true $V_{rest}$', fontsize=48)
+    plt.ylabel(r'learned $V_{rest}$', fontsize=48)
+    plt.xlim(_v_xlim); plt.ylim(_v_ylim)
+    plt.xticks(_v_ticks, _v_tick_labels, fontsize=24)
+    plt.yticks(_v_ticks, _v_tick_labels, fontsize=24)
+    plt.tight_layout()
+    plt.savefig(f'{log_dir}/results/V_rest_comparison_wo_outliers_{config_indices}.png', dpi=300)
+    plt.close()
+    print(f"V_rest (wo outliers) R²: {_r2_color(r2_v_clean)}{r2_v_clean:.3f}{_ANSI_RESET}  "
+          f"slope: {slope_v_clean:.2f}  "
+          f"outliers: {n_outliers}/{_gt_v.size} ({_pct_outliers_v:.1f}%)")
+    logger.info(f"V_rest_wo_outliers R²: {r2_v_clean:.4f}  slope: {slope_v_clean:.4f}  "
+                f"outliers: {n_outliers}/{_gt_v.size} ({_pct_outliers_v:.1f}%)")
+    _metrics_path = os.path.join(log_dir, 'results', 'metrics.txt')
+    with open(_metrics_path, 'a') as _mf:
+        _mf.write(f"V_rest_no_outliers_R2: {r2_v_clean:.4f}\n")
+        _mf.write(f"V_rest_no_outliers_slope: {slope_v_clean:.4f}\n")
+        _mf.write(f"V_rest_n_outliers: {n_outliers}\n")
 
     # --- Plot 5: tau and V_rest per neuron ---
     fig = plt.figure(figsize=(10, 9))
@@ -323,7 +769,11 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     if log_file:
         log_file.write(f"connectivity_R2: {r_squared_W:.4f}\n")
         log_file.write(f"tau_R2: {r_squared_tau:.4f}\n")
+        log_file.write(f"tau_no_outliers_R2: {r2_tau_clean:.4f}\n")
+        log_file.write(f"tau_n_outliers: {n_outliers_tau}\n")
         log_file.write(f"V_rest_R2: {r_squared_V_rest:.4f}\n")
+        log_file.write(f"V_rest_no_outliers_R2: {r2_v_clean:.4f}\n")
+        log_file.write(f"V_rest_n_outliers: {n_outliers}\n")
         if gt_gain_np is not None and learned_gain is not None:
             log_file.write(f"gain_R2: {r_squared_gain:.4f}\n")
         if gt_bias_np is not None and learned_bias is not None:
@@ -458,64 +908,6 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
                               w_in_min_t, w_in_max_t, w_out_min_t, w_out_max_t])
 
     n_gmm = min(100, n_neurons - 1)
-    learned_combos = {
-        'τ': learned_tau.reshape(-1, 1),
-        'V': learned_V_rest.reshape(-1, 1),
-        'W': W_learned,
-        '(τ,V)': np.column_stack([learned_tau, learned_V_rest]),
-        '(τ,V,W)': np.column_stack([learned_tau, learned_V_rest, W_learned]),
-    }
-    true_combos = {
-        'τ': gt_taus_np.reshape(-1, 1),
-        'V': gt_V_rest_np.reshape(-1, 1),
-        'W': W_true,
-        '(τ,V)': np.column_stack([gt_taus_np, gt_V_rest_np]),
-        '(τ,V,W)': np.column_stack([gt_taus_np, gt_V_rest_np, W_true]),
-    }
-
-    learned_results = {}
-    for name, feat in learned_combos.items():
-        result = clustering_gmm(feat, type_list, n_components=n_gmm)
-        learned_results[name] = result['accuracy']
-        print(f"  learned {name}: {result['accuracy']:.3f}")
-    true_results = {}
-    for name, feat in true_combos.items():
-        result = clustering_gmm(feat, type_list, n_components=n_gmm)
-        true_results[name] = result['accuracy']
-        print(f"  true {name}: {result['accuracy']:.3f}")
-
-    # two-panel clustering bar chart
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
-    learned_order = list(learned_combos.keys())
-    learned_vals = [learned_results[k] for k in learned_order]
-    colors_l = ['#d62728' if v < 0.6 else '#ff7f0e' if v < 0.85 else '#2ca02c' for v in learned_vals]
-    ax1.barh(range(len(learned_order)), learned_vals, color=colors_l)
-    ax1.set_yticks(range(len(learned_order)))
-    ax1.set_yticklabels(learned_order, fontsize=11)
-    ax1.set_xlabel('clustering accuracy', fontsize=12)
-    ax1.set_title('learned features', fontsize=14)
-    ax1.set_xlim([0, 1])
-    ax1.grid(axis='x', alpha=0.3)
-    ax1.invert_yaxis()
-    for i, v in enumerate(learned_vals):
-        ax1.text(v + 0.02, i, f'{v:.3f}', va='center', fontsize=10)
-
-    true_order = list(true_combos.keys())
-    true_vals = [true_results[k] for k in true_order]
-    colors_t = ['#d62728' if v < 0.6 else '#ff7f0e' if v < 0.85 else '#2ca02c' for v in true_vals]
-    ax2.barh(range(len(true_order)), true_vals, color=colors_t)
-    ax2.set_yticks(range(len(true_order)))
-    ax2.set_yticklabels(true_order, fontsize=11)
-    ax2.set_xlabel('clustering accuracy', fontsize=12)
-    ax2.set_title('true features', fontsize=14)
-    ax2.set_xlim([0, 1])
-    ax2.grid(axis='x', alpha=0.3)
-    ax2.invert_yaxis()
-    for i, v in enumerate(true_vals):
-        ax2.text(v + 0.02, i, f'{v:.3f}', va='center', fontsize=10)
-    plt.tight_layout()
-    plt.savefig(f'{log_dir}/results/clustering_comprehensive.png', dpi=300, bbox_inches='tight')
-    plt.close()
 
     # Augmented clustering: (tau, V_rest, W_stats) since no embeddings
     a_aug = np.column_stack([learned_tau, learned_V_rest,
@@ -771,95 +1163,16 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
     config_indices = os.path.basename(config.dataset).split('flyvis_')[1] if 'flyvis_' in config.dataset else re.sub(r'_\d{2}$', '', os.path.basename(config.dataset))
     neuron_types = to_numpy(type_list).astype(int).squeeze()
 
-    # Get activity traces for all frames — voltage is (T, N), transpose to (N, T)
+    # Activity traces are kept in memory so the per-epoch τ-outlier traces
+    # plot can render them; voltage is (T, N), transpose to (N, T).
     activity_true = to_numpy(x_ts.voltage).T     # (n_neurons, n_frames_actual)
-    visual_input_true = to_numpy(x_ts.stimulus).T  # (n_neurons, n_frames_actual)
     n_frames_actual = activity_true.shape[1]
 
     start_frame = 0
 
-    # Determine neurons per type for "all" plot based on model size
-    n_types_model = sim.n_neuron_types
-    if n_types_model <= 10:
-        neurons_per_type = max(1, min(5, n_neurons // (n_types_model * 2)))
-    else:
-        neurons_per_type = 1
-
-    # Build selected types: for flyvis use curated list, for small models use all types
-    if n_types_model > 10:
-        _selected_types = [5, 15, 43, 39, 35, 31, 23, 19, 12, 55]
-        _selected_types = [t for t in _selected_types if t < n_types_model]
-    else:
-        _selected_types = list(range(n_types_model))
-
-    # Create two figures: all types and selected types
-    for fig_name, selected_types in [
-        ("selected", _selected_types),
-        ("all", np.arange(0, n_types_model))
-    ]:
-        neuron_indices = []
-        neuron_labels = []
-        _n_per_type = neurons_per_type if fig_name == "all" else 1
-        for stype in selected_types:
-            indices = np.where(neuron_types == stype)[0]
-            if len(indices) > 0:
-                for j in range(min(_n_per_type, len(indices))):
-                    neuron_indices.append(indices[j])
-                    type_name = index_to_name.get(int(stype), f'Type{stype}')
-                    neuron_labels.append(type_name if j == 0 else '')
-
-        if len(neuron_indices) == 0:
-            continue
-
-        fig, ax = plt.subplots(1, 1, figsize=(15, max(6, len(neuron_indices) * 0.4 + 2)))
-
-        true_slice = activity_true[neuron_indices, start_frame:n_frames_actual]
-        visual_input_slice = visual_input_true[neuron_indices, start_frame:n_frames_actual]
-
-        # Auto-adjust step_v based on activity amplitude
-        activity_std = np.std(true_slice)
-        step_v = max(0.5, 3.0 * activity_std) if activity_std > 0 else 2.5
-        lw = 1
-
-        # Adjust fontsize based on number of neurons
-        name_fontsize = 10 if len(neuron_indices) > 50 else 18
-
-        _stim_color = 'red' if _connconstr else 'yellow'
-        _stim_label = 'stimuli'
-        _stim_scale = 0.3 if _connconstr else 1.0
-
-        for i in range(len(neuron_indices)):
-            baseline = np.mean(true_slice[i])
-            ax.plot(true_slice[i] - baseline + i * step_v, linewidth=lw, c='green', alpha=0.9,
-                    label='activity' if i == 0 else None)
-            if (neuron_indices[i] == 0) and visual_input_slice[i].mean() > 0:
-                ax.plot(visual_input_slice[i] * _stim_scale - baseline + i * step_v, linewidth=1,
-                        c=_stim_color, alpha=0.9, linestyle='--', label=_stim_label)
-
-        for i in range(len(neuron_indices)):
-            if neuron_labels[i]:
-                ax.text(-n_frames_actual * 0.025, i * step_v, neuron_labels[i],
-                        fontsize=name_fontsize, va='bottom', ha='right', color=mc)
-
-        ax.set_ylim([-step_v, len(neuron_indices) * (step_v + 0.25 + 0.15 * (len(neuron_indices)//50))])
-        ax.set_yticks([])
-        _mid = n_frames_actual // 2
-        ax.set_xticks([0, _mid, n_frames_actual])
-        ax.set_xticklabels([0, _mid, n_frames_actual], fontsize=16)
-        ax.set_xlabel('frame', fontsize=20)
-        ax.set_xlim([0, n_frames_actual])
-        ax.spines['top'].set_visible(False)
-        ax.spines['right'].set_visible(False)
-        ax.spines['left'].set_visible(False)
-
-        ax.legend(loc='upper right', fontsize=14)
-
-        plt.tight_layout()
-        if fig_name == "all":
-            plt.savefig(f'{log_dir}/results/activity_{config_indices}.png', dpi=300, bbox_inches='tight')
-        else:
-            plt.savefig(f'{log_dir}/results/activity_{config_indices}_selected.png', dpi=300, bbox_inches='tight')
-        plt.close()
+    # τ-outlier traces are rendered later, inside the per-epoch loop,
+    # using the actual outlier-type set detected from the learned τ — so the
+    # figure always tracks the cell-type labels on tau_comparison_cell_type.
 
     if epoch_list[0] != 'all':
         config_indices = os.path.basename(config.dataset).split('flyvis_')[1] if 'flyvis_' in config.dataset else re.sub(r'_\d{2}$', '', os.path.basename(config.dataset))
@@ -892,7 +1205,9 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                     edges, gt_weights, gt_taus, gt_V_Rest,
                     type_list, n_types, n_neurons, cmap, device,
                     extended, log_file, mu_activity, sigma_activity,
-                    ode_params=ode_params)
+                    ode_params=ode_params,
+                    activity_true=activity_true, n_frames_actual=n_frames_actual,
+                    start_frame=start_frame, index_to_name=index_to_name)
                 continue
 
             # print learnable parameters table
@@ -915,22 +1230,6 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 print(f'  INR (NNR_f): {nnr_f_params:,}')
                 total_params += nnr_f_params
             print(f'  total: {total_params:,}')
-
-            # Plot 1: Loss curve
-            if os.path.exists(os.path.join(log_dir, 'loss.pt')):
-                fig = plt.figure(figsize=(8, 6))
-                ax = plt.gca()
-                for spine in ax.spines.values():
-                    spine.set_alpha(0.75)
-                list_loss = torch.load(os.path.join(log_dir, 'loss.pt'), weights_only=False)
-                plt.plot(list_loss, color=mc, linewidth=2)
-                plt.xlim([0, len(list_loss)])
-                plt.ylabel('Loss')
-                plt.xlabel('Epochs')
-                plt.title('Training Loss')
-                plt.tight_layout()
-                plt.savefig(f'{log_dir}/results/loss.png', dpi=300)
-                plt.close()
 
             # Adaptive dot size and alpha for different neuron counts
             _dot_s = max(10, min(48, 2000 / max(n_neurons, 1))) if n_neurons > 500 else max(30, min(80, 5000 / max(n_neurons, 1)))
@@ -1052,12 +1351,9 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 fig = plt.figure(figsize=(10, 9))
                 plt.scatter(_x_flat, _y_flat,
                             c=cmap.color(_type_flat.astype(int)),
-                            s=max(0.5, _dot_s * 0.25),
-                            alpha=0.20,            # noticeable transparency
-                            edgecolors='none')
-                _lo = float(min(_x_flat.min(), _y_flat.min()))
-                _hi = float(max(_x_flat.max(), _y_flat.max()))
-                plt.plot([_lo, _hi], [_lo, _hi], 'k--', lw=1.2, alpha=0.6)
+                            s=max(4.0, _dot_s * 0.8),
+                            alpha=0.08,
+                            edgecolors=None)
                 plt.text(0.05, 0.95,
                          f'R²: {_r2_g_scatter:.2f}\nslope: {_slope_g_scatter:.2f}',
                          transform=plt.gca().transAxes,
@@ -1156,12 +1452,9 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 fig = plt.figure(figsize=(10, 9))
                 plt.scatter(_x_flat, _y_flat,
                             c=cmap.color(_type_flat.astype(int)),
-                            s=max(0.5, _dot_s * 0.25),
-                            alpha=0.20,            # noticeable transparency
-                            edgecolors='none')
-                _lo = float(min(_x_flat.min(), _y_flat.min()))
-                _hi = float(max(_x_flat.max(), _y_flat.max()))
-                plt.plot([_lo, _hi], [_lo, _hi], 'k--', lw=1.2, alpha=0.6)
+                            s=max(4.0, _dot_s * 0.8),
+                            alpha=0.08,
+                            edgecolors=None)
                 plt.text(0.05, 0.95,
                          f'R²: {_r2_f_scatter:.2f}\nslope: {_slope_f_scatter:.2f}',
                          transform=plt.gca().transAxes,
@@ -1204,6 +1497,12 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             slope_tau = 0.0
 
             if ode_params.has_tau() and gt_taus_np is not None:
+                # x is true τ (fixed window for cross-run comparability); y is
+                # learned τ which varies per run, so compute its range from data.
+                _tau_lo_p = float(np.min(learned_tau)); _tau_hi_p = float(np.max(learned_tau))
+                _tau_pad_p = 0.02 * (_tau_hi_p - _tau_lo_p) if _tau_hi_p > _tau_lo_p else 0.01
+                _tau_ylim_p = (_tau_lo_p - _tau_pad_p, _tau_hi_p + _tau_pad_p)
+
                 fig = plt.figure(figsize=(10, 9))
                 plt.scatter(gt_taus_np, learned_tau, c=mc, s=_dot_s, alpha=_dot_alpha)
                 r_squared_tau, slope_tau = compute_r_squared(gt_taus_np, learned_tau)
@@ -1211,12 +1510,94 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                          transform=plt.gca().transAxes, verticalalignment='top', fontsize=42)
                 plt.xlabel(r'true $\tau$', fontsize=56)
                 plt.ylabel(r'learned $\tau$', fontsize=56)
-                # Fixed range + exactly 3 ticks for cross-condition comparability.
-                plt.xlim(0, 0.4); plt.ylim(0, 0.4)
-                plt.xticks([0.0, 0.2, 0.4], ['0', '0.2', '0.4'], fontsize=51)
-                plt.yticks([0.0, 0.2, 0.4], ['0', '0.2', '0.4'], fontsize=51)
+                plt.xlim(-0.025, 0.5); plt.ylim(_tau_ylim_p)
+                plt.xticks([0.0, 0.25, 0.5], ['0.0', '0.25', '0.5'], fontsize=51)
+                plt.yticks([0.0, 0.25, 0.5], ['0.0', '0.25', '0.5'], fontsize=51)
                 plt.tight_layout()
                 plt.savefig(f'{log_dir}/results/tau_comparison_{config_indices}.png', dpi=300)
+                plt.close()
+
+                # Outlier mask on |learned - true| > 0.1, shared by both extra plots.
+                _gt_t   = np.asarray(gt_taus_np).ravel()
+                _lrn_t  = np.asarray(learned_tau).ravel()
+                _tau_outlier_thresh = 0.1
+                _outlier_mask_t = np.abs(_lrn_t - _gt_t) > _tau_outlier_thresh
+                _inlier_mask_t  = ~_outlier_mask_t
+                n_outliers_tau = int(_outlier_mask_t.sum())
+                _type_list_np_t = to_numpy(type_list).astype(int).ravel()
+
+                # GT activity traces for the τ-outlier types in this run
+                # (matches tau_comparison_cell_type's labeled cell types).
+                if n_outliers_tau > 0:
+                    _outlier_types_t = sorted({int(t) for t in _type_list_np_t[_outlier_mask_t]})
+                    _plot_tau_outlier_traces(activity_true, _type_list_np_t,
+                                             _outlier_types_t,
+                                             n_frames_actual, start_frame,
+                                             index_to_name, log_dir,
+                                             config_indices, mc)
+
+                # tau_comparison_cell_type — colored by cell type, outlier clusters labelled.
+                fig = plt.figure(figsize=(10, 9))
+                ax_tc = plt.gca()
+                plt.scatter(gt_taus_np, learned_tau,
+                            c=cmap.color(_type_list_np_t),
+                            s=4, alpha=0.6)
+                for _t in np.unique(_type_list_np_t):
+                    _t_mask = (_type_list_np_t == _t) & _outlier_mask_t
+                    if not _t_mask.any():
+                        continue
+                    _x_lbl = float(_gt_t[_t_mask].mean())
+                    _y_lbl = float(_lrn_t[_t_mask].mean())
+                    ax_tc.text(_x_lbl, _y_lbl,
+                               index_to_name.get(int(_t), f'Type{int(_t)}'),
+                               fontsize=11, ha='center', va='center',
+                               color='black', fontweight='bold',
+                               bbox=dict(boxstyle='round,pad=0.15', facecolor='white',
+                                         edgecolor='gray', alpha=0.75, linewidth=0.5))
+                plt.text(0.05, 0.95, f'R²: {r_squared_tau:.2f}\nslope: {slope_tau:.2f}',
+                         transform=ax_tc.transAxes, verticalalignment='top', fontsize=42)
+                plt.xlabel(r'true $\tau$', fontsize=56)
+                plt.ylabel(r'learned $\tau$', fontsize=56)
+                plt.xlim(-0.025, 0.5); plt.ylim(_tau_ylim_p)
+                plt.xticks([0.0, 0.25, 0.5], ['0.0', '0.25', '0.5'], fontsize=51)
+                plt.yticks([0.0, 0.25, 0.5], ['0.0', '0.25', '0.5'], fontsize=51)
+                plt.tight_layout()
+                plt.savefig(f'{log_dir}/results/tau_comparison_cell_type_{config_indices}.png', dpi=300)
+                plt.close()
+
+                # tau_comparison_wo_outliers — outliers in red, R²/slope on inliers.
+                if int(_inlier_mask_t.sum()) >= 2:
+                    r2_tau_clean, slope_tau_clean = compute_r_squared(
+                        _gt_t[_inlier_mask_t], _lrn_t[_inlier_mask_t])
+                else:
+                    r2_tau_clean, slope_tau_clean = float('nan'), float('nan')
+                fig = plt.figure(figsize=(10, 9))
+                plt.scatter(_gt_t[_inlier_mask_t], _lrn_t[_inlier_mask_t],
+                            c=mc, s=_dot_s, alpha=_dot_alpha)
+                if n_outliers_tau > 0:
+                    plt.scatter(_gt_t[_outlier_mask_t], _lrn_t[_outlier_mask_t],
+                                c='red', s=6, alpha=0.7)
+                _tlin = np.linspace(-0.025, 0.5, 2)
+                plt.plot(_tlin, _tlin, '--', color='gray', linewidth=1, alpha=0.6)
+                plt.plot(_tlin, _tlin + _tau_outlier_thresh, ':', color='gray', linewidth=1, alpha=0.5)
+                plt.plot(_tlin, _tlin - _tau_outlier_thresh, ':', color='gray', linewidth=1, alpha=0.5)
+                _pct_outliers_tau = (100.0 * n_outliers_tau / _gt_t.size) if _gt_t.size else 0.0
+                _ax_tc3 = plt.gca()
+                _ax_tc3.text(0.05, 0.95,
+                             f'R²: {r2_tau_clean:.2f} ({r_squared_tau:.2f})\n'
+                             f'slope: {slope_tau_clean:.2f}',
+                             transform=_ax_tc3.transAxes, verticalalignment='top', fontsize=32)
+                _ax_tc3.text(0.05, 0.78,
+                             f'N outliers: {n_outliers_tau} ({_pct_outliers_tau:.1f}%)  '
+                             f'(|Δ|>{_tau_outlier_thresh})',
+                             transform=_ax_tc3.transAxes, verticalalignment='top', fontsize=18)
+                plt.xlabel(r'true $\tau$', fontsize=56)
+                plt.ylabel(r'learned $\tau$', fontsize=56)
+                plt.xlim(-0.025, 0.5); plt.ylim(_tau_ylim_p)
+                plt.xticks([0.0, 0.25, 0.5], ['0.0', '0.25', '0.5'], fontsize=51)
+                plt.yticks([0.0, 0.25, 0.5], ['0.0', '0.25', '0.5'], fontsize=51)
+                plt.tight_layout()
+                plt.savefig(f'{log_dir}/results/tau_comparison_wo_outliers_{config_indices}.png', dpi=300)
                 plt.close()
 
             gt_vrest_np = ode_params.gt_vrest(n_neurons)
@@ -1225,6 +1606,11 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             slope_V_rest = 0.0
 
             if ode_params.has_vrest() and gt_vrest_np is not None:
+                # x is true V_rest (fixed); y is learned V_rest, data-driven.
+                _v_lo_p = float(np.min(learned_V_rest)); _v_hi_p = float(np.max(learned_V_rest))
+                _v_pad_p = 0.02 * (_v_hi_p - _v_lo_p) if _v_hi_p > _v_lo_p else 0.01
+                _v_ylim_p = (_v_lo_p - _v_pad_p, _v_hi_p + _v_pad_p)
+
                 fig = plt.figure(figsize=(10, 9))
                 plt.scatter(gt_vrest_np, learned_V_rest, c=mc, s=_dot_s, alpha=_dot_alpha)
                 r_squared_V_rest, slope_V_rest = compute_r_squared(gt_vrest_np, learned_V_rest)
@@ -1232,12 +1618,84 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                          transform=plt.gca().transAxes, verticalalignment='top', fontsize=42)
                 plt.xlabel(r'true $V_{rest}$', fontsize=56)
                 plt.ylabel(r'learned $V_{rest}$', fontsize=56)
-                # Fixed range + exactly 3 ticks for cross-condition comparability.
-                plt.xlim(0, 0.8); plt.ylim(0, 0.8)
-                plt.xticks([0.0, 0.4, 0.8], ['0', '0.4', '0.8'], fontsize=51)
-                plt.yticks([0.0, 0.4, 0.8], ['0', '0.4', '0.8'], fontsize=51)
+                plt.xlim(-0.025, 1.0); plt.ylim(_v_ylim_p)
+                plt.xticks([0.0, 0.5, 1.0], ['0.0', '0.5', '1.0'], fontsize=51)
+                plt.yticks([0.0, 0.5, 1.0], ['0.0', '0.5', '1.0'], fontsize=51)
                 plt.tight_layout()
                 plt.savefig(f'{log_dir}/results/V_rest_comparison_{config_indices}.png', dpi=300)
+                plt.close()
+
+                # Outlier mask on |learned - true| > 0.2, shared by both extra plots.
+                _gt_v   = np.asarray(gt_vrest_np).ravel()
+                _lrn_v  = np.asarray(learned_V_rest).ravel()
+                _vrest_outlier_thresh = 0.1
+                _outlier_mask_v = np.abs(_lrn_v - _gt_v) > _vrest_outlier_thresh
+                _inlier_mask_v  = ~_outlier_mask_v
+                n_outliers_v = int(_outlier_mask_v.sum())
+                _type_list_np_v = to_numpy(type_list).astype(int).ravel()
+
+                # V_rest_comparison_cell_type — colored by cell type, outlier clusters labelled.
+                fig = plt.figure(figsize=(10, 9))
+                ax_vc = plt.gca()
+                plt.scatter(gt_vrest_np, learned_V_rest,
+                            c=cmap.color(_type_list_np_v),
+                            s=4, alpha=0.6)
+                for _t in np.unique(_type_list_np_v):
+                    _t_mask = (_type_list_np_v == _t) & _outlier_mask_v
+                    if not _t_mask.any():
+                        continue
+                    _x_lbl = float(_gt_v[_t_mask].mean())
+                    _y_lbl = float(_lrn_v[_t_mask].mean())
+                    ax_vc.text(_x_lbl, _y_lbl,
+                               index_to_name.get(int(_t), f'Type{int(_t)}'),
+                               fontsize=11, ha='center', va='center',
+                               color='black', fontweight='bold',
+                               bbox=dict(boxstyle='round,pad=0.15', facecolor='white',
+                                         edgecolor='gray', alpha=0.75, linewidth=0.5))
+                plt.text(0.05, 0.95, f'R²: {r_squared_V_rest:.2f}\nslope: {slope_V_rest:.2f}',
+                         transform=ax_vc.transAxes, verticalalignment='top', fontsize=42)
+                plt.xlabel(r'true $V_{rest}$', fontsize=56)
+                plt.ylabel(r'learned $V_{rest}$', fontsize=56)
+                plt.xlim(-0.025, 1.0); plt.ylim(_v_ylim_p)
+                plt.xticks([0.0, 0.5, 1.0], ['0.0', '0.5', '1.0'], fontsize=51)
+                plt.yticks([0.0, 0.5, 1.0], ['0.0', '0.5', '1.0'], fontsize=51)
+                plt.tight_layout()
+                plt.savefig(f'{log_dir}/results/V_rest_comparison_cell_type_{config_indices}.png', dpi=300)
+                plt.close()
+
+                # V_rest_comparison_wo_outliers — outliers in red, R²/slope on inliers.
+                if int(_inlier_mask_v.sum()) >= 2:
+                    r2_v_clean, slope_v_clean = compute_r_squared(
+                        _gt_v[_inlier_mask_v], _lrn_v[_inlier_mask_v])
+                else:
+                    r2_v_clean, slope_v_clean = float('nan'), float('nan')
+                fig = plt.figure(figsize=(10, 9))
+                plt.scatter(_gt_v[_inlier_mask_v], _lrn_v[_inlier_mask_v],
+                            c=mc, s=_dot_s, alpha=_dot_alpha)
+                if n_outliers_v > 0:
+                    plt.scatter(_gt_v[_outlier_mask_v], _lrn_v[_outlier_mask_v],
+                                c='red', s=6, alpha=0.7)
+                _vlin = np.linspace(-0.025, 1.0, 2)
+                plt.plot(_vlin, _vlin, '--', color='gray', linewidth=1, alpha=0.6)
+                plt.plot(_vlin, _vlin + _vrest_outlier_thresh, ':', color='gray', linewidth=1, alpha=0.5)
+                plt.plot(_vlin, _vlin - _vrest_outlier_thresh, ':', color='gray', linewidth=1, alpha=0.5)
+                _pct_outliers_v = (100.0 * n_outliers_v / _gt_v.size) if _gt_v.size else 0.0
+                _ax_vc3 = plt.gca()
+                _ax_vc3.text(0.05, 0.95,
+                             f'R²: {r2_v_clean:.2f} ({r_squared_V_rest:.2f})\n'
+                             f'slope: {slope_v_clean:.2f}',
+                             transform=_ax_vc3.transAxes, verticalalignment='top', fontsize=32)
+                _ax_vc3.text(0.05, 0.78,
+                             f'N outliers: {n_outliers_v} ({_pct_outliers_v:.1f}%)  '
+                             f'(|Δ|>{_vrest_outlier_thresh})',
+                             transform=_ax_vc3.transAxes, verticalalignment='top', fontsize=18)
+                plt.xlabel(r'true $V_{rest}$', fontsize=56)
+                plt.ylabel(r'learned $V_{rest}$', fontsize=56)
+                plt.xlim(-0.025, 1.0); plt.ylim(_v_ylim_p)
+                plt.xticks([0.0, 0.5, 1.0], ['0.0', '0.5', '1.0'], fontsize=51)
+                plt.yticks([0.0, 0.5, 1.0], ['0.0', '0.5', '1.0'], fontsize=51)
+                plt.tight_layout()
+                plt.savefig(f'{log_dir}/results/V_rest_comparison_wo_outliers_{config_indices}.png', dpi=300)
                 plt.close()
 
             # f_theta derived params plot — panels depend on model
@@ -1328,7 +1786,6 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             plt.savefig(f'{log_dir}/results/weights_comparison_raw.png', dpi=300)
             plt.close()
             raw_W_r2 = r_squared
-            print(f"raw W R²: {_r2_color(r_squared)}{r_squared:.2f}{_ANSI_RESET}  slope: {np.round(slope_raw, 4)}")
             logger.info(f"raw W R²: {r_squared:.2f}  slope: {np.round(slope_raw, 4)}")
 
             # Corrected weights via metrics pipeline (replaces inline DataLoader +
@@ -1395,6 +1852,59 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             plt.savefig(f'{log_dir}/results/weights_comparison_corrected.png', dpi=300)
             plt.close()
 
+            # weights_comparison_corrected_true_tau — recompute corrected W
+            # using ground-truth τ instead of the f_theta-derived slope.
+            # Derivation: slopes_f_theta = -1/τ, and
+            #   corrected_W = -W / slopes_f_theta * grad_msg * slopes_g_phi
+            # So replacing learned slopes with -1/τ_true is equivalent to
+            # rescaling the existing corrected_W by (s_learned / s_true)
+            # = (τ_true / τ_learned_raw) per post-synaptic neuron.
+            if gt_taus_np is not None:
+                n_w_tt = model.n_edges + model.n_extra_null_edges
+                target_ids_tt = edges[1, :] % n_w_tt
+
+                gt_tau_arr = np.asarray(gt_taus_np, dtype=np.float32).ravel()
+                with np.errstate(divide='ignore', invalid='ignore'):
+                    slopes_f_true = np.where(gt_tau_arr > 0, -1.0 / gt_tau_arr, 0.0)
+                slopes_f_learned = np.asarray(ret_slopes_f, dtype=np.float32).ravel()
+
+                slopes_f_true_t = torch.tensor(slopes_f_true, dtype=torch.float32, device=device)
+                slopes_f_learned_t = torch.tensor(slopes_f_learned, dtype=torch.float32, device=device)
+
+                s_learned_edge = slopes_f_learned_t[target_ids_tt]
+                s_true_edge = slopes_f_true_t[target_ids_tt]
+                # Avoid div-by-zero when gt_tau is 0/missing (factor → 0 there).
+                scale_edge = torch.where(
+                    s_true_edge != 0,
+                    s_learned_edge / s_true_edge,
+                    torch.zeros_like(s_true_edge))
+                corrected_W_true_tau = corrected_W * scale_edge.unsqueeze(1)
+                corrected_W_true_tau = torch.nan_to_num(
+                    corrected_W_true_tau, nan=0.0, posinf=0.0, neginf=0.0)
+
+                learned_weights_tt = to_numpy(corrected_W_true_tau.squeeze())
+                r_squared_tt, slope_tt, mask_tt = compute_r_squared_filtered(
+                    _tw_c, learned_weights_tt, outlier_threshold=5.0)
+                true_in_tt = _tw_c[mask_tt]
+                learned_in_tt = learned_weights_tt[mask_tt]
+
+                fig = plt.figure(figsize=(10, 9))
+                plt.scatter(true_in_tt, learned_in_tt, c=mc, s=2.0, alpha=0.3,
+                            edgecolors='none')
+                plt.text(0.05, 0.95,
+                         f'R²: {r_squared_tt:.2f}\nslope: {slope_tt:.2f}',
+                         transform=plt.gca().transAxes, verticalalignment='top', fontsize=42)
+                plt.xlabel(r'true $W_{ij}$', fontsize=56)
+                plt.ylabel(r'learned $W_{ij}^*$ (true $\tau$)', fontsize=56)
+                plt.xlim([-1, 2])
+                plt.ylim([-1, 2])
+                plt.xticks([-1, 0.5, 2], ['-1', '0.5', '2'], fontsize=51)
+                plt.yticks([-1, 0.5, 2], ['-1', '0.5', '2'], fontsize=51)
+                plt.tight_layout()
+                plt.savefig(f'{log_dir}/results/weights_comparison_corrected_true_tau.png', dpi=300)
+                plt.close()
+                logger.info(f"corrected W (true τ) R²: {r_squared_tt:.2f}  slope: {np.round(slope_tt, 4)}")
+
             # ── Consolidated panel-data dump (npz) ────────────────────────
             # Saved arrays let figure scripts re-render the six parameter
             # panels without re-running the (slow) model evaluation.
@@ -1442,11 +1952,25 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
 
             if _panel_data:
                 np.savez_compressed(_panel_npz, **_panel_data)
-                print(f'saved panel data → {_panel_npz} '
-                      f'({len(_panel_data)} arrays)')
+                logger.info(f'saved panel data → {_panel_npz} ({len(_panel_data)} arrays)')
 
-            print(f"effective W R² (W*g_phi vs W_true*gain): {_r2_color(r_squared)}{r_squared:.4f}{_ANSI_RESET}  slope: {np.round(slope_corrected, 4)}")
-            logger.info(f"effective W R²: {r_squared:.4f}  slope: {np.round(slope_corrected, 4)}")
+            print(f"weights R²: {_r2_color(r_squared)}{r_squared:.4f}{_ANSI_RESET}  slope: {np.round(slope_corrected, 4)}")
+            logger.info(f"weights R²: {r_squared:.4f}  slope: {np.round(slope_corrected, 4)}")
+            # Relative error |learned - true| / max(|true|, eps), full sample.
+            # Mean ± SD intentionally omitted (heavy tails dominate); median + IQR only.
+            _gt_w_arr  = np.asarray(_tw_c).ravel()
+            _lrn_w_arr = np.asarray(_lw_c).ravel()
+            _rel_err_w = np.abs(_lrn_w_arr - _gt_w_arr) / np.maximum(np.abs(_gt_w_arr), 1e-6)
+            _rel_err_w_med  = float(np.median(_rel_err_w))
+            _q1_w_re, _q3_w_re = np.percentile(_rel_err_w, [25.0, 75.0])
+            _rel_err_w_iqr  = float(_q3_w_re - _q1_w_re)
+            print(f"W rel.err: {_ANSI_WHITE}median {100*_rel_err_w_med:.1f}%  IQR {100*_rel_err_w_iqr:.1f}%{_ANSI_RESET}")
+            logger.info(f"W rel.err: median {100*_rel_err_w_med:.2f}%  IQR {100*_rel_err_w_iqr:.2f}%")
+            with open(os.path.join(log_dir, 'results', 'metrics.txt'), 'a') as _mf:
+                _mf.write(f"W_rel_err_median: {_rel_err_w_med:.4f}\n")
+                _mf.write(f"W_rel_err_iqr: {_rel_err_w_iqr:.4f}\n")
+            _rel_err_tau_med = _rel_err_tau_iqr = None
+            _rel_err_v_med = _rel_err_v_iqr = None
 
             # R² on only real (non-null) edges
             connectivity_r2_real = None
@@ -1459,21 +1983,92 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                     logger.info(f"connectivity R² (real edges only): {r2_real:.4f}")
                 except Exception:
                     pass
-            print(f'median residuals: {np.median(residuals):.4f}')
+            logger.info(f'median residuals: {np.median(residuals):.4f}')
             inlier_residuals = residuals[mask]
-            print(f'inliers: {len(inlier_residuals)}  mean residual: {np.mean(inlier_residuals):.4f}  std: {np.std(inlier_residuals):.4f}  min,max: {np.min(inlier_residuals):.4f}, {np.max(inlier_residuals):.4f}')
+            logger.info(f'inliers: {len(inlier_residuals)}  mean residual: {np.mean(inlier_residuals):.4f}  std: {np.std(inlier_residuals):.4f}  min,max: {np.min(inlier_residuals):.4f}, {np.max(inlier_residuals):.4f}')
             outlier_residuals = residuals[~mask]
             if len(outlier_residuals) > 0:
-                print(
+                logger.info(
                     f'outliers: {len(outlier_residuals)}  mean residual: {np.mean(outlier_residuals):.4f}  std: {np.std(outlier_residuals):.4f}  min,max: {np.min(outlier_residuals):.4f}, {np.max(outlier_residuals):.4f}')
             else:
-                print('outliers: 0  (no outliers detected)')
+                logger.info('outliers: 0  (no outliers detected)')
             if ode_params.has_tau():
-                print(f"tau reconstruction R²: {_r2_color(r_squared_tau)}{r_squared_tau:.3f}{_ANSI_RESET}  slope: {slope_tau:.2f}")
-                logger.info(f"tau reconstruction R²: {r_squared_tau:.3f}  slope: {slope_tau:.2f}")
+                print(f"tau R²: {_r2_color(r_squared_tau)}{r_squared_tau:.3f}{_ANSI_RESET}  slope: {slope_tau:.2f}")
+                logger.info(f"tau R²: {r_squared_tau:.3f}  slope: {slope_tau:.2f}")
+                # Relative error |learned - true| / max(|true|, eps), full sample.
+                _gt_t_arr  = np.asarray(gt_taus_np).ravel()
+                _lrn_t_arr = np.asarray(learned_tau).ravel()
+                _rel_err_tau = np.abs(_lrn_t_arr - _gt_t_arr) / np.maximum(np.abs(_gt_t_arr), 1e-6)
+                _rel_err_tau_med  = float(np.median(_rel_err_tau))
+                _q1_t_re, _q3_t_re = np.percentile(_rel_err_tau, [25.0, 75.0])
+                _rel_err_tau_iqr  = float(_q3_t_re - _q1_t_re)
+                print(f"tau rel.err: {_ANSI_WHITE}median {100*_rel_err_tau_med:.1f}%  IQR {100*_rel_err_tau_iqr:.1f}%{_ANSI_RESET}")
+                logger.info(f"tau rel.err: median {100*_rel_err_tau_med:.2f}%  IQR {100*_rel_err_tau_iqr:.2f}%")
+                with open(os.path.join(log_dir, 'results', 'metrics.txt'), 'a') as _mf:
+                    _mf.write(f"tau_rel_err_median: {_rel_err_tau_med:.4f}\n")
+                    _mf.write(f"tau_rel_err_iqr: {_rel_err_tau_iqr:.4f}\n")
+                # Outlier count + trimmed R²/slope (|learned - true| > 0.1).
+                _tau_outlier_thresh_g = 0.1
+                _outlier_mask_t_g = np.abs(_lrn_t_arr - _gt_t_arr) > _tau_outlier_thresh_g
+                _inlier_mask_t_g  = ~_outlier_mask_t_g
+                n_outliers_tau_g = int(_outlier_mask_t_g.sum())
+                _pct_outliers_tau_g = (100.0 * n_outliers_tau_g / _gt_t_arr.size) if _gt_t_arr.size else 0.0
+                if int(_inlier_mask_t_g.sum()) >= 2:
+                    r2_tau_clean_g, slope_tau_clean_g = compute_r_squared(
+                        _gt_t_arr[_inlier_mask_t_g], _lrn_t_arr[_inlier_mask_t_g])
+                else:
+                    r2_tau_clean_g, slope_tau_clean_g = float('nan'), float('nan')
+                print(f"tau (wo outliers) R²: {_r2_color(r2_tau_clean_g)}{r2_tau_clean_g:.3f}{_ANSI_RESET}  "
+                      f"slope: {slope_tau_clean_g:.2f}  "
+                      f"outliers: {n_outliers_tau_g}/{_gt_t_arr.size} ({_pct_outliers_tau_g:.1f}%)")
+                logger.info(f"tau_wo_outliers R²: {r2_tau_clean_g:.4f}  slope: {slope_tau_clean_g:.4f}  "
+                            f"outliers: {n_outliers_tau_g}/{_gt_t_arr.size} ({_pct_outliers_tau_g:.1f}%)")
+                with open(os.path.join(log_dir, 'results', 'metrics.txt'), 'a') as _mf:
+                    _mf.write(f"tau_no_outliers_R2: {r2_tau_clean_g:.4f}\n")
+                    _mf.write(f"tau_no_outliers_slope: {slope_tau_clean_g:.4f}\n")
+                    _mf.write(f"tau_n_outliers: {n_outliers_tau_g}\n")
             if ode_params.has_vrest():
-                print(f"V_rest reconstruction R²: {_r2_color(r_squared_V_rest)}{r_squared_V_rest:.3f}{_ANSI_RESET}  slope: {slope_V_rest:.2f}")
-                logger.info(f"V_rest reconstruction R²: {r_squared_V_rest:.3f}  slope: {slope_V_rest:.2f}")
+                print(f"V_rest R²: {_r2_color(r_squared_V_rest)}{r_squared_V_rest:.3f}{_ANSI_RESET}  slope: {slope_V_rest:.2f}")
+                logger.info(f"V_rest R²: {r_squared_V_rest:.3f}  slope: {slope_V_rest:.2f}")
+                # Relative error |learned - true| / max(|true|, eps), full sample.
+                # Mean ± SD intentionally omitted (heavy tails dominate); median + IQR only.
+                _gt_v_arr  = np.asarray(gt_vrest_np).ravel()
+                _lrn_v_arr = np.asarray(learned_V_rest).ravel()
+                _rel_err_v = np.abs(_lrn_v_arr - _gt_v_arr) / np.maximum(np.abs(_gt_v_arr), 1e-6)
+                _rel_err_v_med  = float(np.median(_rel_err_v))
+                _q1_v_re, _q3_v_re = np.percentile(_rel_err_v, [25.0, 75.0])
+                _rel_err_v_iqr  = float(_q3_v_re - _q1_v_re)
+                print(f"V_rest rel.err: {_ANSI_WHITE}median {100*_rel_err_v_med:.1f}%  IQR {100*_rel_err_v_iqr:.1f}%{_ANSI_RESET}")
+                logger.info(f"V_rest rel.err: median {100*_rel_err_v_med:.2f}%  IQR {100*_rel_err_v_iqr:.2f}%")
+                with open(os.path.join(log_dir, 'results', 'metrics.txt'), 'a') as _mf:
+                    _mf.write(f"V_rest_rel_err_median: {_rel_err_v_med:.4f}\n")
+                    _mf.write(f"V_rest_rel_err_iqr: {_rel_err_v_iqr:.4f}\n")
+                # Outlier count + trimmed R²/slope (|learned - true| > 0.2).
+                _vrest_outlier_thresh_g = 0.2
+                _outlier_mask_v_g = np.abs(_lrn_v_arr - _gt_v_arr) > _vrest_outlier_thresh_g
+                _inlier_mask_v_g  = ~_outlier_mask_v_g
+                n_outliers_v_g = int(_outlier_mask_v_g.sum())
+                _pct_outliers_v_g = (100.0 * n_outliers_v_g / _gt_v_arr.size) if _gt_v_arr.size else 0.0
+                if int(_inlier_mask_v_g.sum()) >= 2:
+                    r2_v_clean_g, slope_v_clean_g = compute_r_squared(
+                        _gt_v_arr[_inlier_mask_v_g], _lrn_v_arr[_inlier_mask_v_g])
+                else:
+                    r2_v_clean_g, slope_v_clean_g = float('nan'), float('nan')
+                print(f"V_rest (wo outliers) R²: {_r2_color(r2_v_clean_g)}{r2_v_clean_g:.3f}{_ANSI_RESET}  "
+                      f"slope: {slope_v_clean_g:.2f}  "
+                      f"outliers: {n_outliers_v_g}/{_gt_v_arr.size} ({_pct_outliers_v_g:.1f}%)")
+                logger.info(f"V_rest_wo_outliers R²: {r2_v_clean_g:.4f}  slope: {slope_v_clean_g:.4f}  "
+                            f"outliers: {n_outliers_v_g}/{_gt_v_arr.size} ({_pct_outliers_v_g:.1f}%)")
+                with open(os.path.join(log_dir, 'results', 'metrics.txt'), 'a') as _mf:
+                    _mf.write(f"V_rest_no_outliers_R2: {r2_v_clean_g:.4f}\n")
+                    _mf.write(f"V_rest_no_outliers_slope: {slope_v_clean_g:.4f}\n")
+                    _mf.write(f"V_rest_n_outliers: {n_outliers_v_g}\n")
+            _summary_parts = [f"W rel err {100*_rel_err_w_med:.1f}±{100*_rel_err_w_iqr:.1f}%"]
+            if _rel_err_tau_med is not None:
+                _summary_parts.append(f"tau rel err {100*_rel_err_tau_med:.1f}±{100*_rel_err_tau_iqr:.1f}%")
+            if _rel_err_v_med is not None:
+                _summary_parts.append(f"Vrest rel err {100*_rel_err_v_med:.1f}±{100*_rel_err_v_iqr:.1f}%")
+            logger.info(f"SUMMARY: {', '.join(_summary_parts)}")
             print(f"f_theta Pearson r²: {_r2_color(r2_f_theta_mean)}{r2_f_theta_mean:.3f}{_ANSI_RESET}  median={r2_f_theta_median:.3f}")
             print(f"g_phi Pearson r²: {_r2_color(r2_g_phi_mean)}{r2_g_phi_mean:.3f}{_ANSI_RESET}  median={r2_g_phi_median:.3f}")
             logger.info(f"f_theta Pearson r²: mean={r2_f_theta_mean:.3f}  median={r2_f_theta_median:.3f}")
@@ -2020,110 +2615,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                                     w_in_min_true, w_in_max_true,
                                     w_out_min_true, w_out_max_true])
 
-            # Build feature arrays dynamically from ode_params.clustering_features()
-            _gt_taus_np = to_numpy(gt_taus[:n_neurons])
-            _gt_vrest_np = to_numpy(gt_V_Rest[:n_neurons])
-
-            # Atomic feature pools (learned and true)
-            _learned_atoms = {
-                'a': to_numpy(model.a),
-                'τ': learned_tau.reshape(-1, 1),
-                'V': learned_V_rest.reshape(-1, 1),
-                'W': W_learned,
-            }
-            # The GNN's per-neuron embedding `a` has no ground-truth counterpart
-            # (it is discovered, not given by the simulator). For composite
-            # features on the "true" side like (a,τ,V,W), use the LEARNED `a`
-            # combined with the true τ/V/W. Solo 'a' is still skipped below so
-            # "true a" alone never appears — the composite is the only place
-            # the learned embedding enters the true-features bar plot.
-            _true_atoms = {
-                'a': to_numpy(model.a),
-                'τ': _gt_taus_np.reshape(-1, 1),
-                'V': _gt_vrest_np.reshape(-1, 1),
-                'W': W_true,
-            }
-
-            def _build_combo(name, atoms):
-                """Build feature array for a clustering feature name.
-
-                Returns None if any requested atom is missing — this avoids
-                silently degrading `(a,τ,V,W)` into `(τ,V,W)` when `a` isn't
-                in the atom dict.
-                """
-                if name in atoms:
-                    return atoms[name]
-                # Composite: strip parens, split on comma
-                inner = name.strip('()')
-                parts = [p.strip() for p in inner.split(',')]
-                if any(p not in atoms for p in parts):
-                    return None
-                return np.column_stack([atoms[p] for p in parts])
-
-            cluster_features = ode_params.clustering_features()
             n_gmm = min(100, n_neurons - 1)
-
-            # Cluster learned
-            print('clustering learned features...')
-            learned_results = {}
-            for name in cluster_features:
-                feat = _build_combo(name, _learned_atoms)
-                if feat is None:
-                    continue
-                result = clustering_gmm(feat, type_list, n_components=n_gmm)
-                learned_results[name] = result['accuracy']
-                print(f"{name}: {result['accuracy']:.3f}")
-
-            # Cluster true (skip 'a' — no ground truth embeddings)
-            print('clustering true features...')
-            true_results = {}
-            for name in cluster_features:
-                if name == 'a':
-                    continue
-                feat = _build_combo(name, _true_atoms)
-                if feat is None:
-                    continue
-                result = clustering_gmm(feat, type_list, n_components=n_gmm)
-                true_results[name] = result['accuracy']
-                print(f"{name}: {result['accuracy']:.3f}")
-
-            # Plot two-panel figure
-            fig, axes_cl = plt.subplots(1, 2 if true_results else 1,
-                                        figsize=(14 if true_results else 7, max(5, len(cluster_features) * 0.7)))
-            if not true_results:
-                axes_cl = [axes_cl]
-            ax1 = axes_cl[0]
-            learned_order = [k for k in cluster_features if k in learned_results]
-            learned_vals = [learned_results[k] for k in learned_order]
-            colors_l = ['#d62728' if v < 0.6 else '#ff7f0e' if v < 0.85 else '#2ca02c' for v in learned_vals]
-            ax1.barh(range(len(learned_order)), learned_vals, color=colors_l)
-            ax1.set_yticks(range(len(learned_order)))
-            ax1.set_yticklabels(learned_order, fontsize=11)
-            ax1.set_xlabel('clustering accuracy', fontsize=12)
-            ax1.set_title('learned features', fontsize=14)
-            ax1.set_xlim([0, 1])
-            ax1.grid(axis='x', alpha=0.3)
-            ax1.invert_yaxis()
-            for i, v in enumerate(learned_vals):
-                ax1.text(v + 0.02, i, f'{v:.3f}', va='center', fontsize=10)
-            if true_results:
-                ax2 = axes_cl[1]
-                true_order = [k for k in cluster_features if k in true_results]
-                true_vals = [true_results[k] for k in true_order]
-                colors_t = ['#d62728' if v < 0.6 else '#ff7f0e' if v < 0.85 else '#2ca02c' for v in true_vals]
-                ax2.barh(range(len(true_order)), true_vals, color=colors_t)
-                ax2.set_yticks(range(len(true_order)))
-                ax2.set_yticklabels(true_order, fontsize=11)
-                ax2.set_xlabel('clustering accuracy', fontsize=12)
-                ax2.set_title('true features', fontsize=14)
-                ax2.set_xlim([0, 1])
-                ax2.grid(axis='x', alpha=0.3)
-                ax2.invert_yaxis()
-                for i, v in enumerate(true_vals):
-                    ax2.text(v + 0.02, i, f'{v:.3f}', va='center', fontsize=10)
-            plt.tight_layout()
-            plt.savefig(f'{log_dir}/results/clustering_comprehensive.png', dpi=300, bbox_inches='tight')
-            plt.close()
 
             # Build augmented embedding for GMM + UMAP
             _aug_parts = [to_numpy(model.a), learned_tau.reshape(-1, 1)]
@@ -2155,7 +2647,18 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
 
             # Get cluster labels from GMM
             results = clustering_gmm(a_aug, type_list, n_components=n_gmm)
-            cluster_labels = GaussianMixture(n_components=n_gmm, random_state=42).fit_predict(a_aug)
+            cluster_labels = None
+            for cov_type in ('full', 'diag', 'spherical'):
+                try:
+                    cluster_labels = GaussianMixture(
+                        n_components=n_gmm, random_state=42,
+                        reg_covar=1e-3, covariance_type=cov_type,
+                    ).fit_predict(a_aug)
+                    break
+                except Exception:
+                    continue
+            if cluster_labels is None:
+                cluster_labels = np.zeros(len(a_aug), dtype=int)
 
             plt.figure(figsize=(10, 9))
             ax = plt.gca()
@@ -2512,8 +3015,35 @@ def data_plot(config, epoch_list, style, extended, device, apply_weight_correcti
     os.makedirs(os.path.join(log_dir, 'results'), exist_ok=True)
 
     if epoch_list==['best']:
-        files = glob.glob(f"{log_dir}/models/best_model_with_*")
+        _models_dir = f"{log_dir}/models"
+        _pattern = f"{_models_dir}/best_model_with_*"
+        files = glob.glob(_pattern)
         files.sort(key=sort_key)
+        if not files:
+            # Diagnose: log_dir? models/? what's in there?
+            _log_exists = os.path.isdir(log_dir)
+            _models_exists = os.path.isdir(_models_dir)
+            _all_in_models = sorted(os.listdir(_models_dir)) if _models_exists else []
+            _best_any = [f for f in _all_in_models if f.startswith('best_model')]
+            print('\033[91m' + '=' * 70)
+            print(f"ERROR: no 'best_model_with_*' checkpoint matched.")
+            print(f"  log_dir:       {log_dir}  (exists={_log_exists})")
+            print(f"  models/:       {_models_dir}  (exists={_models_exists})")
+            print(f"  glob pattern:  {_pattern}")
+            print(f"  matches:       {len(files)}")
+            if _models_exists:
+                print(f"  files in models/: {len(_all_in_models)} total")
+                if _best_any:
+                    print(f"  best_model* present (but didn't match 'with_'): {_best_any[:5]}")
+                else:
+                    print(f"  no best_model* files at all. First 10 entries: {_all_in_models[:10]}")
+                    print(f"  → training may not have produced a best checkpoint yet,")
+                    print(f"    or this run wrote a different naming scheme.")
+            print('=' * 70 + '\033[0m')
+            raise FileNotFoundError(
+                f"No best_model_with_* checkpoint in {_models_dir}. "
+                f"Pass epoch_list explicitly or train the model first."
+            )
         filename = files[-1]
         filename = filename.split('/')[-1]
         filename = filename.split('graphs')[-1][1:-3]
@@ -2522,18 +3052,11 @@ def data_plot(config, epoch_list, style, extended, device, apply_weight_correcti
         print(f'best model: {epoch_list}')
         logger.info(f'best model: {epoch_list}')
 
-    if os.path.exists(f'{log_dir}/loss.pt'):
+    # Mirror final loss to analysis.log without producing loss.png
+    # (the figure is no longer generated by data_plot).
+    if log_file and os.path.exists(f'{log_dir}/loss.pt'):
         loss = torch.load(f'{log_dir}/loss.pt', weights_only=False)
-        fig, ax = fig_style.figure()
-        plt.plot(loss, color=mc, linewidth=4)
-        plt.xlim([0, 20])
-        plt.ylabel('loss', fontsize=68)
-        plt.xlabel('epochs', fontsize=68)
-        plt.tight_layout()
-        plt.savefig(f"{log_dir}/results/loss.png", dpi=170.7)
-        plt.close()
-        # Log final loss to analysis.log
-        if log_file and len(loss) > 0:
+        if len(loss) > 0:
             log_file.write(f"final_loss: {loss[-1]:.4e}\n")
 
 
