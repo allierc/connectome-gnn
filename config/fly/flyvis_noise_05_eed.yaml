@@ -22,6 +22,11 @@ graph_model:
   signal_model_name: flyvis_eed
   prediction: first_derivative
   aggr_type: add
+  # EED sub-network parameter mapping:
+  #   encoder:          MLPWithSkips(n_neurons -> latent_dim, hidden=latent_dim, layers=n_layers_encoder)
+  #   decoder:          MLPWithSkips(latent_dim -> n_neurons, hidden=latent_dim, layers=n_layers_encoder)  [symmetric with encoder]
+  #   evolver:          MLPWithSkips(latent_dim+stim_latent_dims -> latent_dim, hidden=latent_dim, layers=n_layers_evolver)  [zero-init + residual]
+  #   stimulus_encoder: MLPWithSkips(n_input_neurons -> stim_latent_dims, hidden=hidden_dim_stim_encoder, layers=n_layers_stim_encoder)
   latent_dim: 256
   n_layers_encoder: 1
   n_layers_evolver: 1
