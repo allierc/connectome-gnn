@@ -107,44 +107,38 @@ plt.rcParams.update({
 
 
 def get_training_files(log_dir, n_runs):
+    """Return the list of per-epoch training checkpoints (sorted) used to
+    plot weight evolution.
+
+    Handles both filename conventions in the repo:
+      - modern: best_model_with_<run>_graphs_<epoch>.pt   (one per epoch)
+      - legacy: best_model_with_<run>_<epoch>_<sub>.pt    (multiple per epoch)
+    """
     files = glob.glob(f"{log_dir}/models/best_model_with_{n_runs - 1}_graphs_*.pt")
     if len(files) == 0:
         return [], np.array([])
     files.sort(key=sort_key)
 
-    # Find the first file with positive sort_key
-    file_id = 0
-    while file_id < len(files) and sort_key(files[file_id]) <= 0:
-        file_id += 1
+    # Modern format ("..._graphs_<epoch>.pt"): one ckpt per epoch, return them all.
+    if all(os.path.basename(f).split('_')[-2] == 'graphs' for f in files):
+        return files, np.arange(len(files), dtype=int)
 
-    # If all files have non-positive sort_key, use all files
-    if file_id >= len(files):
-        file_id = 0
-
-    files = files[file_id:]
-
-    # Filter out files without the expected X_Y.pt suffix (e.g., "graphs_0.pt" has no Y)
-    files = [f for f in files if f.split('_')[-2].isdigit()]
-
+    # Legacy format ("..._<epoch>_<sub>.pt"): subsample sub-iters within each
+    # epoch (50 points across the post-epoch-0 sub-iters, plus all epoch-0 ones).
+    files = [f for f in files if os.path.basename(f).split('_')[-2].isdigit()]
     if len(files) == 0:
         return [], np.array([])
 
-    # Filter based on the Y value (number after "graphs")
-    files_with_0 = [file for file in files if int(file.split('_')[-2]) == 0]
-    files_without_0 = [file for file in files if int(file.split('_')[-2]) != 0]
+    files_with_0    = [f for f in files if int(os.path.basename(f).split('_')[-2]) == 0]
+    files_without_0 = [f for f in files if int(os.path.basename(f).split('_')[-2]) != 0]
 
-    indices_with_0 = np.arange(0, len(files_with_0) - 1, dtype=int)
-    indices_without_0 = np.linspace(0, len(files_without_0) - 1, 50, dtype=int)
+    indices_with_0    = np.arange(0, max(len(files_with_0) - 1, 0), dtype=int)
+    selected = [files_with_0[i] for i in indices_with_0]
+    if files_without_0:
+        indices_without_0 = np.linspace(0, len(files_without_0) - 1, 50, dtype=int)
+        selected += [files_without_0[i] for i in indices_without_0]
 
-    # Select the files using the generated indices
-    selected_files_with_0 = [files_with_0[i] for i in indices_with_0]
-    if len(files_without_0) > 0:
-        selected_files_without_0 = [files_without_0[i] for i in indices_without_0]
-        selected_files = selected_files_with_0 + selected_files_without_0
-    else:
-        selected_files = selected_files_with_0
-
-    return selected_files, np.arange(0, len(selected_files), 1)
+    return selected, np.arange(len(selected), dtype=int)
 
 
 def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
