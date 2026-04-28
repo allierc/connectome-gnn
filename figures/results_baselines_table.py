@@ -179,6 +179,39 @@ def _load_test_data(dataset: str, device, max_frames: int, load_fields: list[str
     return x_ts, y_ts
 
 
+def load_saved_fold(config_name: str, fold_idx: int) -> dict:
+    """Load per-neuron pearson + rmse arrays already saved by data_test_gnn,
+    plus the model param count (from the latest checkpoint state_dict).
+
+    Returns dict with keys: r1, rR, rmseR (each per-neuron 1d), n_params, kind.
+    Stimulus folds have rollout metrics filled with NaN.
+    """
+    meta = infer_metadata(config_name)
+    is_stim = meta['kind'] == 'stimulus'
+    if is_stim:
+        log_dir = log_path('fly/' + config_name)
+    else:
+        log_dir = log_path('fly/' + f'{config_name}_cv{fold_idx:02d}')
+
+    r1   = np.load(os.path.join(log_dir, 'results_test_pearson.npy'))
+    if is_stim:
+        rR    = np.full_like(r1, np.nan)
+        rmseR = np.full_like(r1, np.nan)
+    else:
+        rR    = np.load(os.path.join(log_dir, 'results_rollout_pearson.npy'))
+        rmseR = np.load(os.path.join(log_dir, 'results_rollout_rmse.npy'))
+
+    # Param count from checkpoint state_dict (no model build needed).
+    ckpts = glob.glob(os.path.join(log_dir, 'models', 'best_model_with_*.pt'))
+    ckpt_path = max(ckpts, key=os.path.getmtime)
+    sd = torch.load(ckpt_path, map_location='cpu', weights_only=False)
+    if isinstance(sd, dict) and 'model_state_dict' in sd:
+        sd = sd['model_state_dict']
+    n_params = sum(v.numel() for v in sd.values() if isinstance(v, torch.Tensor))
+
+    return dict(r1=r1, rR=rR, rmseR=rmseR, n_params=n_params, kind=meta['kind'])
+
+
 def load_fold(config_name: str, fold_idx: int, device, max_frames: int) -> dict:
     yaml_path = os.path.join(REPO, 'config', 'fly', f'{config_name}.yaml')
     config = NeuralGraphConfig.from_yaml(yaml_path)
@@ -228,8 +261,10 @@ def load_fold(config_name: str, fold_idx: int, device, max_frames: int) -> dict:
     model.load_state_dict(state_dict['model_state_dict'], strict=False)
     model.eval()
 
+    n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     return dict(config=config, model=model, x_ts=x_ts, y_ts=y_ts, edges=edges,
-                log_dir=log_dir, ckpt_path=ckpt_path, kind=meta['kind'])
+                log_dir=log_dir, ckpt_path=ckpt_path, kind=meta['kind'],
+                n_params=n_params)
 
 
 # ---------------------------------------------------------------------------
@@ -403,12 +438,18 @@ def emit_table(label, caption, rows, fmt_r, fmt_rmse, *,
     p(f'\\label{{tab:{label}}}')
     p(r'\tiny')
     p(r'\setlength{\tabcolsep}{4pt}')
-    p(r'\begin{tabular}{lcrrr}')
+    p(r'\begin{tabular}{lcrrrr}')
     p(r'\toprule')
-    p(r'condition & noise $\sigma$ & one-step $r$ & rollout $r$ & rollout RMSE \\')
+    p(r'condition & noise $\sigma$ & params (M) & one-step $r$ & rollout $r$ & rollout RMSE \\')
     p(r'\midrule')
-    for display, sigma, r1t, rRt, rmseRt in rows:
+    prev_family = None
+    for display, sigma, n_params, r1t, rRt, rmseRt in rows:
+        family = display.split(',', 1)[0]   # "Stimulus" / "MLP" / "EED"
+        if prev_family is not None and family != prev_family:
+            p(r'\midrule')
+        prev_family = family
         p(f'{display:<34} & ${sigma}$  '
+          f'& {n_params/1e6:.2f} '
           f'& {fmt_r(*r1t)} & {fmt_r(*rRt)} & {fmt_rmse(*rmseRt)} \\\\')
     p(r'\bottomrule')
     p(r'\end{tabular}')
@@ -435,17 +476,8 @@ def main(argv=None):
 
     set_data_root(args.data_root)
 
-    # Pre-flight every config before any expensive eval.
-    for cfg in args.config_names:
-        preflight(cfg, CV_FOLDS)
-
-    # Device from the first config's training.device (same across all).
-    base_cfg = NeuralGraphConfig.from_yaml(
-        os.path.join(REPO, 'config', 'fly', f'{args.config_names[0]}.yaml'))
-    device = set_device(base_cfg.training.device)
-    print(f'# device: {device}', file=sys.stderr)
-
-    # Evaluate every config × every fold; build one row per config.
+    # Build one row per config from per-fold per-neuron arrays already
+    # saved by data_test_gnn (results_{test,rollout}_{pearson,rmse}.npy).
     rows = []
     for cfg in args.config_names:
         meta = infer_metadata(cfg)
@@ -453,41 +485,25 @@ def main(argv=None):
               f'config={cfg}) =====', file=sys.stderr)
 
         per_fold_r_1s, per_fold_r_ro, per_fold_rmse_ro = [], [], []
+        n_params = None
         for f in CV_FOLDS:
-            print(f'# --- cv{f:02d} ---', file=sys.stderr)
-            bundle = load_fold(cfg, f, device, MAX_FRAMES)
-
-            if bundle['kind'] == 'stimulus':
-                t, p = run_one_step_stimulus(bundle['model'], bundle['x_ts'], device)
-                _, r1 = torch_trace_metrics(t, p); del t, p
-                per_fold_r_1s.append(r1)
-                # Stimulus baseline has no recurrence → no rollout metric.
-                per_fold_r_ro.append(np.full_like(r1, np.nan))
-                per_fold_rmse_ro.append(np.full_like(r1, np.nan))
-                print(f'#   one-step r={np.nanmean(r1):.4f}  '
-                      f'rollout=n/a', file=sys.stderr)
-            else:
-                t, p = run_one_step(bundle['model'], bundle['x_ts'], bundle['y_ts'], device)
-                _, r1 = torch_trace_metrics(t, p); del t, p
-                per_fold_r_1s.append(r1)
-                t, p = run_rollout(bundle['config'], bundle['model'], bundle['x_ts'], device)
-                rmR, rR = torch_trace_metrics(t, p); del t, p
-                per_fold_r_ro.append(rR)
-                per_fold_rmse_ro.append(rmR)
-                print(f'#   one-step r={np.nanmean(r1):.4f}  '
-                      f'rollout r={np.nanmean(rR):.4f}  '
-                      f'rollout RMSE={np.nanmean(rmR):.4f}',
-                      file=sys.stderr)
-
-            del bundle
-            if 'cuda' in str(device):
-                torch.cuda.empty_cache()
+            bundle = load_saved_fold(cfg, f)
+            if n_params is None:
+                n_params = bundle['n_params']
+                print(f'#   n_params={n_params:,}', file=sys.stderr)
+            per_fold_r_1s.append(bundle['r1'])
+            per_fold_r_ro.append(bundle['rR'])
+            per_fold_rmse_ro.append(bundle['rmseR'])
+            print(f'#   cv{f:02d}: one-step r={np.nanmean(bundle["r1"]):.4f}  '
+                  f'rollout r={np.nanmean(bundle["rR"]):.4f}  '
+                  f'rollout RMSE={np.nanmean(bundle["rmseR"]):.4f}',
+                  file=sys.stderr)
 
         r_onestep = np.stack(per_fold_r_1s, axis=1)
         r_rollout = np.stack(per_fold_r_ro, axis=1)
         rmse_rollout = np.stack(per_fold_rmse_ro, axis=1)
         rows.append((
-            meta['display'], meta['sigma'],
+            meta['display'], meta['sigma'], n_params,
             fisher_summary(r_onestep),
             fisher_summary(r_rollout),
             mean_sd_summary(rmse_rollout),
@@ -525,8 +541,9 @@ def main(argv=None):
     # ── Raw values for caption / sanity-checks, as LaTeX comments ───────
     print('%')
     print('% raw values (mean / lo / hi):')
-    for display, _sigma, (r1, lo1, hi1), (rR, loR, hiR), (rmR, rmLo, rmHi) in rows:
-        print(f'%   {display:<34}  1s r: {r1:.4f} [{lo1:.4f}, {hi1:.4f}]   '
+    for display, _sigma, n_params, (r1, lo1, hi1), (rR, loR, hiR), (rmR, rmLo, rmHi) in rows:
+        print(f'%   {display:<34}  params: {n_params/1e6:.2f}M   '
+              f'1s r: {r1:.4f} [{lo1:.4f}, {hi1:.4f}]   '
               f'ro r: {rR:.4f} [{loR:.4f}, {hiR:.4f}]   '
               f'ro RMSE: {rmR:.4f} [{rmLo:.4f}, {rmHi:.4f}]')
 
