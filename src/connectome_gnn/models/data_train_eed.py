@@ -20,7 +20,7 @@ import torch.nn.functional as F
 from tqdm import trange
 
 from connectome_gnn.log import get_logger
-from connectome_gnn.models.data_train_rollout import val_rollout, plot_rollout_mse
+from connectome_gnn.models.data_train_rollout import val_rollout_latent, plot_rollout_mse
 from connectome_gnn.models.training_utils import build_model, load_flyvis_data, determine_load_fields
 from connectome_gnn.utils import create_log_dir
 
@@ -220,11 +220,11 @@ def data_train_eed(config, erase, best_model, device, log_file=None):
             best_epoch = epoch + 1
             break
 
-        # --- Validation rollout (uses predict_dvdt + Euler) ---
+        # --- Validation rollout (PURE LATENT: encode once, chain evolver, decode) ---
         val_start_t = time.time()
         model.eval()
         with torch.no_grad():
-            mse_curve, div_time, mean_rollout_rmse = val_rollout(
+            mse_curve, div_time, mean_rollout_rmse = val_rollout_latent(
                 model, voltage, stimulus, val_start_idx, dt,
             )
         model.train()

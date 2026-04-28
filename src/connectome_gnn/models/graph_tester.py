@@ -482,6 +482,15 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     h_state = None
     c_state = None
 
+    # EED rollout runs in pure latent space: encode the initial voltage
+    # once, chain the evolver in z, decode each step. z_latent persists
+    # across iterations so the activity-space re-encoding loop is bypassed.
+    is_eed = 'eed' in model_config.signal_model_name.lower()
+    z_latent = None
+    if is_eed:
+        z_latent = model.encoder(x.voltage.unsqueeze(0))
+        logger.info('EED detected — running rollout in pure latent space')
+
     rollout_pred_list = []
     rollout_true_list = []
     rollout_stim_list = []
@@ -517,7 +526,15 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
                 else:
                     I = x.stimulus[:sim.n_input_neurons].unsqueeze(-1)
                 y = model.rollout_step(v, I, dt=sim.delta_t, method='rk4') - v
-            elif 'mlp' in model_config.signal_model_name.lower() or 'eed' in model_config.signal_model_name.lower():
+            elif is_eed:
+                # Pure latent rollout: chain evolver in z, never re-encode x.
+                stim_in = x.stimulus[:model.n_input_neurons].unsqueeze(0)
+                z_stim = model.stimulus_encoder(stim_in)
+                z_latent = z_latent + model.evolver(torch.cat([z_latent, z_stim], dim=1))
+                v_next = model.decoder(z_latent).squeeze(0)
+                # Emit dvdt so the shared Euler step lands on v_next exactly.
+                y = ((v_next - x.voltage) / sim.delta_t).unsqueeze(-1)
+            elif 'mlp' in model_config.signal_model_name.lower():
                 y = model(x, data_id=data_id, return_all=False)
             elif hasattr(tc, 'neural_ODE_training') and tc.neural_ODE_training:
                 v0 = x.voltage.flatten()
