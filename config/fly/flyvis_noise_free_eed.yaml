@@ -27,10 +27,10 @@ graph_model:
   #   decoder:          MLPWithSkips(latent_dim -> n_neurons, hidden=latent_dim, layers=n_layers_encoder)  [symmetric with encoder]
   #   evolver:          MLPWithSkips(latent_dim+stim_latent_dims -> latent_dim, hidden=latent_dim, layers=n_layers_evolver)  [zero-init + residual]
   #   stimulus_encoder: MLPWithSkips(n_input_neurons -> stim_latent_dims, hidden=hidden_dim_stim_encoder, layers=n_layers_stim_encoder)
-  latent_dim: 512 # latent space dimensionality (also hidden dim for encoder/decoder/evolver)
+  latent_dim: 256 # latent space dimensionality (also hidden dim for encoder/decoder/evolver)
   n_layers_encoder: 1 # hidden layers in encoder and decoder
   n_layers_evolver: 1 # hidden layers in evolver
-  stim_latent_dims: 128 # stimulus encoder output dimensionality
+  stim_latent_dims: 64 # stimulus encoder output dimensionality
   hidden_dim_stim_encoder: 64 # stimulus encoder hidden width
   n_layers_stim_encoder: 3 # hidden layers in stimulus encoder
   MLP_activation: "relu" # activation for all sub-networks: "relu", "tanh", "sigmoid", "leaky_relu", "soft_relu"
@@ -56,7 +56,7 @@ plotting:
     - 100
 training:
   seed: 43
-  n_epochs: 20
+  n_epochs: 30
   batch_size: 256
   data_augmentation_loop: 100
   train_start: 0
@@ -86,7 +86,7 @@ training:
   regul_annealing_rate: 0
 
 claude:
-  n_epochs: 20
+  n_epochs: 30
   data_augmentation_loop: 100
   n_iter_block: 8
   ucb_c: 1.414

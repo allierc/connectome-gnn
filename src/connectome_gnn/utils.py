@@ -254,12 +254,21 @@ def migrate_state_dict(state_dict: dict) -> dict:
     return state_dict
 
 
-def sort_key(filename: str) -> int:
-            # Extract the numeric parts using regular expressions
-            if filename.split('_')[-2] == 'graphs':
-                return 0
-            else:
-                return 1E7 * int(filename.split('_')[-2]) + int(filename.split('_')[-1][:-3])
+def sort_key(filename: str) -> tuple[int, int, int]:
+    """Sort checkpoint filenames numerically by (run, epoch, sub).
+
+    Handles both naming conventions in the repo:
+      - best_model_with_<run>_graphs_<epoch>.pt   -> (run, epoch, 0)
+      - best_model_with_<run>_<epoch>_<sub>.pt    -> (run, epoch, sub)
+    """
+    base = os.path.basename(filename).removesuffix('.pt')
+    m = re.match(r'^best_model_with_(\d+)_graphs_(\d+)$', base)
+    if m:
+        return (int(m.group(1)), int(m.group(2)), 0)
+    m = re.match(r'^best_model_with_(\d+)_(\d+)_(\d+)$', base)
+    if m:
+        return (int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    raise ValueError(f'sort_key: unrecognized checkpoint filename {base!r}')
 
 
 def to_numpy(tensor: torch.Tensor) -> np.ndarray:
