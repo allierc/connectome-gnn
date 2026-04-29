@@ -27,7 +27,7 @@ from connectome_gnn.models.graph_trainer import data_test
 from connectome_gnn.LLM.cluster import (
     submit_cluster_job, submit_cluster_cross_test_plot_job,
     wait_for_cluster_jobs, wait_for_cluster_jobs_with_metrics,
-    _print_training_metrics, _r2_color, _ANSI_RESET,
+    _r2_color, _ANSI_RESET,
 )
 from connectome_gnn.cross.yaml_io import (
     shared_cv_yaml_path, _load_yaml_either,
@@ -333,7 +333,7 @@ def submit_test_plot_wave(yt_cfgs, output_root, node_name,
         )
         for slot, ld in sorted(log_dirs.items()):
             _warn_zero_plot_metrics(ld, slot_tag=f' slot {slot}:')
-        _print_training_metrics(log_dirs, log_dirs.keys(), prefix='  [plot   ]')
+            print_plot_metrics_summary(ld, slot=slot)
 
 
 def run_test_and_plot_local(yt_cfg, device, force_test, force_plot=False):
