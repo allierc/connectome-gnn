@@ -350,8 +350,9 @@ def draw_scatter(ax, x_all, y_all, xlabel, ylabel, show_fit=True, show_r=True):
     if show_r:
         _, _pear, _, _ = compute_trace_metrics(
             np.asarray(x_all), np.asarray(y_all))
-        r = float(fisher_pool(_pear)['r_mean'])
-        ax.text(0.05, 0.97, f"$r$ = {r:.2f}",
+        _fp = fisher_pool(_pear)
+        r, r_sd = float(_fp['r_mean']), float(_fp['r_sd_sym'])
+        ax.text(0.05, 0.97, f"$r$ = {r:.2f} $\\pm$ {r_sd:.2f}",
                 transform=ax.transAxes, va='top', ha='left', fontsize=FS_TICK)
 
 
@@ -484,8 +485,9 @@ def main():
         _src = n if col['noise_level'] > 0 else ts
         _, _pear, _, _ = compute_trace_metrics(
             np.asarray(_src['true']), np.asarray(_src['pred']))
-        r_nf = float(fisher_pool(_pear)['r_mean'])
-        header = f"vs noise-free ablated, $r$ = {r_nf:.2f}"
+        _fp = fisher_pool(_pear)
+        r_nf, r_sd_nf = float(_fp['r_mean']), float(_fp['r_sd_sym'])
+        header = f"vs noise-free ablated, $r$ = {r_nf:.2f} $\\pm$ {r_sd_nf:.2f}"
         draw_traces(
             ax, true_w, pred_w, stim_w, labels, step_v, time_ms,
             column_title=f"{col['label']} ({col['sigma']})",

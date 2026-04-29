@@ -354,21 +354,25 @@ GNN (ours) & noise-free  & $0$
     photoreceptors (R1--R8, repeated) over a $20$~s window
     ($1{,}000$ frames at $\Delta t = 20$~ms). Green: ground-truth
     photoreceptor voltage; black: INR rollout.
-    \textbf{(c)} GNN voltage rollout vs noisy ground truth for $12$
-    representative cell types (R1, L1--L3, Mi1, Mi9, Tm1, Tm9, T4a, T5a,
-    T1, Am) over the same window. In-axes header reports the pooled
-    Pearson $r$ over all $(\text{neuron},\,\text{frame})$ pairs.
+    \textbf{(c)} GNN voltage rollout vs the noise-free ground truth for
+    $12$ representative cell types (R1, L1--L3, Mi1, Mi9, Tm1, Tm9, T4a,
+    T5a, T1, Am) over the same window. In-axes header reports the
+    per-neuron Pearson $r$ pooled in Fisher-$z$ space (same recipe
+    \texttt{graph\_tester} uses for the cv-table Pearson rows). The
+    noise-free reference is produced by integrating the same flyvis\_A
+    ODE forward with $\sigma = 0$ from the same initial state and the
+    same per-frame stimulus the INR was trained on, so the only
+    difference from the noisy variant is the per-step Gaussian
+    increment.
     \textbf{(d)} INR scatter: learned vs true photoreceptor stimulus,
     pooled over all $(t, i)$ on a fixed $[0, 1]$ axis.
-    \textbf{(e)} Voltage rollout vs noisy ground truth, pooled over all
-    $(\text{neuron},\,\text{frame})$ pairs on a fixed $[-10, 10]$ axis.
-    \textbf{(f)} Voltage rollout vs the noise-free ground truth produced
-    by integrating the same flyvis\_A ODE forward with $\sigma = 0$ from
-    the same initial state and the same per-frame stimulus the INR was
-    trained on; the noise-free trajectory therefore differs from
-    \textbf{(e)} only by the per-step Gaussian increment, isolating the
-    contribution of observation noise to the residual. Each scatter is
-    annotated with $R^2$ and OLS slope of learned vs true.
+    \textbf{(e)} Voltage rollout vs the noise-free ground truth pooled
+    over all $(\text{neuron},\,\text{frame})$ pairs on a fixed
+    $[-10, 10]$ axis. Each scatter is annotated with the Pearson $r$
+    (Fisher-$z$ pooled per-neuron for the voltage scatter \textbf{(e)};
+    pooled correlation over all $(t, i)$ pairs for the stimulus scatter
+    \textbf{(d)}). The complementary "vs noisy ground truth" scatter
+    panel was dropped because the noisy reference is itself perturbed.
 }
 \label{fig:stim_rollout_inr}
 \end{figure}

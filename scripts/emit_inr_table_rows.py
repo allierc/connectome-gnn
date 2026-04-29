@@ -41,14 +41,35 @@ for _p in (os.path.join(REPO_ROOT, 'src'), REPO_ROOT):
 
 
 GOOD_THRESHOLD = 0.9
+LOW_THRESHOLD  = 0.3
+N_NEURONS      = 13741   # flyvis_A — total neuron count for outlier %
 
 
 def fmt(mean, sd):
-    """Format as $x.xx{\\pm}y.yy$ with \\good{} wrapping if mean > 0.9."""
+    """Format as $x.xx{\\pm}y.yy$ with \\good{} (>0.9) / \\bad{} (<0.3)."""
     if np.isnan(mean):
         return '$\\cdot$'
     body = f"${mean:.2f}{{\\pm}}{sd:.2f}$"
-    return f"\\good{{{body}}}" if mean > GOOD_THRESHOLD else body
+    if mean > GOOD_THRESHOLD:
+        return f"\\good{{{body}}}"
+    if mean < LOW_THRESHOLD:
+        return f"\\bad{{{body}}}"
+    return body
+
+
+def fmt_R2_out(mean, sd, count_mean, n_neurons=N_NEURONS):
+    """${R2}{\\pm}{SD}\\,(out%)$ for tau / V_rest no-outliers R²,
+    appending mean(n_outliers / n_neurons) across folds (1 decimal).
+    \\good{} (>0.9) / \\bad{} (<0.3) on the R² mean wraps the whole cell."""
+    if np.isnan(mean) or np.isnan(sd) or np.isnan(count_mean) or not n_neurons:
+        return '$\\cdot$'
+    body = (f"${mean:.2f}{{\\pm}}{sd:.2f}"
+            f"\\,({100.0*count_mean/n_neurons:.1f})$")
+    if mean > GOOD_THRESHOLD:
+        return f"\\good{{{body}}}"
+    if mean < LOW_THRESHOLD:
+        return f"\\bad{{{body}}}"
+    return body
 
 
 def parse_pearson(log_file):
@@ -120,7 +141,10 @@ def collect_condition(base_name, condition, pre_folder, output_root, n_seeds):
     plus a parallel dict of per-fold per-neuron arrays for the r-metrics."""
     cols = {k: [] for k in (
         'one_step_r', 'rollout_r', 'stimuli_r',
-        'W_corrected_R2', 'tau_R2', 'V_rest_R2', 'clustering_accuracy',
+        'W_corrected_R2',
+        'tau_no_outliers_R2',  'tau_n_outliers',
+        'V_rest_no_outliers_R2', 'V_rest_n_outliers',
+        'clustering_accuracy',
     )}
     r_arrays = {'one_step_r': [], 'rollout_r': []}
     for i in range(n_seeds):
@@ -134,7 +158,10 @@ def collect_condition(base_name, condition, pre_folder, output_root, n_seeds):
         r_arrays['one_step_r'].append(_load_pearson_npy(test_log))
         r_arrays['rollout_r'].append(_load_pearson_npy(rollout_log))
         m = parse_metrics_txt(os.path.join(fold_log, 'results', 'metrics.txt'))
-        for k in ('W_corrected_R2', 'tau_R2', 'V_rest_R2', 'clustering_accuracy'):
+        for k in ('W_corrected_R2',
+                  'tau_no_outliers_R2', 'tau_n_outliers',
+                  'V_rest_no_outliers_R2', 'V_rest_n_outliers',
+                  'clustering_accuracy'):
             cols[k].append(m.get(k, float('nan')))
     cols['_r_arrays'] = r_arrays
     return cols
@@ -152,13 +179,19 @@ def emit_row(label, cols, noise_tex, edges_tex):
                 return m, s
         return mean_sd(cols[k])
     parts = {k: ms(k) for k in cols if not k.startswith('_')}
-    one = fmt(*parts['one_step_r'])
+    one  = fmt(*parts['one_step_r'])
     roll = fmt(*parts['rollout_r'])
     stim = fmt(*parts['stimuli_r'])
-    W = fmt(*parts['W_corrected_R2'])
-    tau = fmt(*parts['tau_R2'])
-    V = fmt(*parts['V_rest_R2'])
-    cl = fmt(*parts['clustering_accuracy'])
+    W    = fmt(*parts['W_corrected_R2'])
+    # tau / V_rest cells: R² on the no-outliers subset + mean outlier %
+    # (count averaged across folds, then divided by N_NEURONS, 1 decimal).
+    tau_R2_m, tau_R2_s = parts['tau_no_outliers_R2']
+    tau_out_m, _       = parts['tau_n_outliers']
+    V_R2_m,   V_R2_s   = parts['V_rest_no_outliers_R2']
+    V_out_m,  _        = parts['V_rest_n_outliers']
+    tau = fmt_R2_out(tau_R2_m, tau_R2_s, tau_out_m)
+    V   = fmt_R2_out(V_R2_m,   V_R2_s,   V_out_m)
+    cl  = fmt(*parts['clustering_accuracy'])
     return (
         f'{label:<12} & {noise_tex} & {edges_tex}\n'
         f'  & {one} & {roll} & {stim}\n'
@@ -177,32 +210,51 @@ def main():
     p.add_argument('--n_seeds', type=int, default=5)
     p.add_argument('--noise', default='0.05')
     p.add_argument('--edges', default='434\\,112')
+    p.add_argument('--condition_tags', nargs='+',
+                   default=['davis', 'yt'],
+                   help='Condition tags used in the fold dirname '
+                        '(<config>_<tag>_cv<i>). Default: davis yt. '
+                        'For blank50 runs pass: davis_blank50 yt_blank50.')
+    p.add_argument('--row_labels', nargs='+',
+                   default=['DAVIS', 'YouTube-VOS'],
+                   help='Display labels for each row, paired with '
+                        '--condition_tags (same length).')
     args = p.parse_args()
+
+    assert len(args.condition_tags) == len(args.row_labels), \
+        '--condition_tags and --row_labels must have the same length'
 
     noise_tex = f'${args.noise}$'
     edges_tex = f'${args.edges}$'
 
-    davis = collect_condition(args.config, 'davis', args.pre_folder,
-                              args.output_root, args.n_seeds)
-    yt = collect_condition(args.config, 'yt', args.pre_folder,
-                           args.output_root, args.n_seeds)
+    rows = []
+    for tag, label in zip(args.condition_tags, args.row_labels):
+        cols = collect_condition(args.config, tag, args.pre_folder,
+                                 args.output_root, args.n_seeds)
+        rows.append(emit_row(label, cols, noise_tex, edges_tex))
+    # Backwards-compat aliases — the existing two-row write block below
+    # references row_davis / row_yt explicitly. Map by position.
+    row_davis = rows[0] if len(rows) >= 1 else None
+    row_yt    = rows[1] if len(rows) >= 2 else None
 
-    row_davis = emit_row('DAVIS', davis, noise_tex, edges_tex)
-    row_yt    = emit_row('YouTube-VOS', yt, noise_tex, edges_tex)
-
-    base_log_dir = os.path.join(args.output_root, 'log',
-                                args.pre_folder, args.config)
-    os.makedirs(os.path.join(base_log_dir, 'results'), exist_ok=True)
-    out_tex = os.path.join(base_log_dir, 'results', 'cv_inr_table_rows.tex')
+    # Paper-bound .tex lives alongside the other cv_*.tex tables in figures/.
+    figures_dir = os.path.join(REPO_ROOT, 'figures')
+    os.makedirs(figures_dir, exist_ok=True)
+    out_tex = os.path.join(figures_dir, 'cv_table_inr.tex')
     with open(out_tex, 'w') as f:
-        f.write('% --- tab:cv_inr — generated rows ---\n')
-        f.write(row_davis + '\n')
-        f.write(row_yt + '\n')
-        f.write('% ---------------------------------\n')
+        f.write('% tab:cv_inr — joint GNN+INR rows.\n')
+        f.write(f'% Conditions: {", ".join(args.row_labels)}.\n')
+        f.write('% Cols: condition & sigma & edges | one-step r | rollout r | '
+                'stimuli r | W R^2 | tau R^2 (out%%) | Vrest R^2 (out%%) | '
+                'cluster acc.  (R^2 for tau/Vrest computed on no-outlier '
+                'subset; out%% = mean(n_outliers / 13741) across folds, '
+                '1 decimal.)\n')
+        for r in rows:
+            f.write(r + '\n')
 
     print('% --- tab:cv_inr — generated rows ---')
-    print(row_davis)
-    print(row_yt)
+    for r in rows:
+        print(r)
     print('% ---------------------------------')
     print(f'\nwrote {out_tex}')
 

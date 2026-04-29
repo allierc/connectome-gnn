@@ -498,7 +498,7 @@ def _pretty_xticks(ax, lo, hi, n_target=4):
 # ── trace panel (no residuals, fig_rollout style) ───────────────────────────
 def draw_trace_panel(ax, true_w, pred_w, labels, step_v, time_ms,
                      pearson_r, header_label, show_xlabel,
-                     show_type_labels=True):
+                     show_type_labels=True, pearson_r_sd=None):
     n_traces, n_frames = true_w.shape
     baselines = true_w.mean(axis=1)
     s = TRACE_SHRINK
@@ -515,7 +515,12 @@ def draw_trace_panel(ax, true_w, pred_w, labels, step_v, time_ms,
                     va='bottom', ha='right', color='black')
 
     # Header inside the axes top-left (same as fig_rollout).
-    r_txt = f'{pearson_r:.2f}' if pearson_r is not None else 'n/a'
+    if pearson_r is None:
+        r_txt = 'n/a'
+    elif pearson_r_sd is not None:
+        r_txt = f'{pearson_r:.2f} $\\pm$ {pearson_r_sd:.2f}'
+    else:
+        r_txt = f'{pearson_r:.2f}'
     ax.text(0.015, 0.99,
             f'{header_label}, $r$ = {r_txt}',
             transform=ax.transAxes, va='top', ha='left',
@@ -559,18 +564,26 @@ def _subsample_pair(x_full, y_full, n_max=SCATTER_N_MAX):
 
 
 def draw_scatter(ax, x_all, y_all, lo, hi, xlabel, ylabel, title=None):
-    """Hexbin density of (x, y) on a fixed range with R²/slope inside.
+    """Hexbin density of (x, y) on a fixed range with Pearson r inside.
 
-    R² is the identity-line (Nash-Sutcliffe) coefficient,
-    R² = 1 − mean((true − learned)²) / var(true), via
-    `connectome_gnn.metrics.compute_r_squared` — penalises scale/offset
-    bias, so it differs from Pearson r² when the prediction has
-    calibration error. Slope is the OLS slope of learned vs true.
+    For 2-D (n_neurons, n_frames) inputs the reported r is the canonical
+    per-neuron Fisher-pooled correlation
+    (`compute_trace_metrics` → `fisher_pool['r_mean']`), matching what
+    graph_tester writes to results_test.log / results_rollout.log and
+    what the cv tables report. For 1-D inputs (e.g. the stimulus
+    scatter) it falls back to a single np.corrcoef on flattened data.
     """
-    from connectome_gnn.metrics import compute_r_squared
+    from connectome_gnn.utils import compute_trace_metrics, fisher_pool
+    x_arr = np.asarray(x_all)
+    y_arr = np.asarray(y_all)
+    if x_arr.ndim >= 2 and y_arr.ndim >= 2:
+        _, _pear, _, _ = compute_trace_metrics(x_arr, y_arr)
+        _fp = fisher_pool(_pear)
+        r, r_sd = float(_fp['r_mean']), float(_fp['r_sd_sym'])
+    else:
+        r = float(np.corrcoef(x_arr.ravel(), y_arr.ravel())[0, 1])
+        r_sd = None
     x, y, _ = _subsample_pair(x_all, y_all)
-    r2, slope = compute_r_squared(x.astype(np.float64),
-                                  y.astype(np.float64))
     ax.hexbin(x, y, gridsize=140, bins='log', cmap='magma_r',
               mincnt=1, extent=(lo, hi, lo, hi), linewidths=0.0)
     ax.set_xlim([lo, hi]); ax.set_ylim([lo, hi])
@@ -581,13 +594,13 @@ def draw_scatter(ax, x_all, y_all, lo, hi, xlabel, ylabel, title=None):
     ax.set_xticks([lo, 0.0, hi])
     ax.set_yticks([lo, 0.0, hi])
     _trim_axis(ax)
-    # Header above axes (subtitle if any) + R²/slope inside top-left.
     if title is not None:
         ax.text(0.5, 1.02, title, transform=ax.transAxes,
                 va='bottom', ha='center', fontsize=FS_TICK,
                 fontweight='normal')
-    ax.text(0.05, 0.97,
-            f"$R^2$ = {r2:.2f}\nslope = {slope:.2f}",
+    _r_txt = (f"$r$ = {r:.2f} $\\pm$ {r_sd:.2f}" if r_sd is not None
+              else f"$r$ = {r:.2f}")
+    ax.text(0.05, 0.97, _r_txt,
             transform=ax.transAxes, va='top', ha='left',
             fontsize=FS_TICK)
 
@@ -708,12 +721,19 @@ def main():
     step_v_stim = max(0.5 * TRACE_SHRINK,
                       3.0 * TRACE_SHRINK * float(np.std(true_s)))
 
-    # Compute pooled Pearson r directly from the loaded bundles so the
-    # header text reflects the actual noisy variant we just generated.
-    r_volt = float(np.corrcoef(activity_true.ravel(), activity_pred.ravel())[0, 1])
+    # Voltage trace header: per-neuron Fisher-pooled Pearson r against the
+    # NOISE-FREE bundle (matches the "vs noise-free" comparison shown in the
+    # scatter panel below). Stimulus header keeps the simple pooled Pearson
+    # because stim_in_* is a 1-D-ish array and per-neuron r doesn't apply.
+    from connectome_gnn.utils import compute_trace_metrics, fisher_pool
+    _, _pear_v, _, _ = compute_trace_metrics(
+        np.asarray(nf_bundle['true']), np.asarray(nf_bundle['pred']))
+    _fp_v = fisher_pool(_pear_v)
+    r_volt    = float(_fp_v['r_mean'])
+    r_volt_sd = float(_fp_v['r_sd_sym'])
     r_stim = float(np.corrcoef(stim_in_true.ravel(), stim_in_pred.ravel())[0, 1])
-    print(f'  voltage Pearson r  (noisy) = {r_volt:.3f}')
-    print(f'  stimulus Pearson r (INR)   = {r_stim:.3f}')
+    print(f'  voltage Pearson r  (vs noise-free, Fisher-pooled) = {r_volt:.3f}')
+    print(f'  stimulus Pearson r (INR)                          = {r_stim:.3f}')
 
     # ── figure layout ──────────────────────────────────────────────────────
     fig = plt.figure(figsize=(FIG_W_IN, FIG_H_IN), dpi=300)
@@ -796,23 +816,24 @@ def main():
         _ax.set_position([_p.x0, _p.y0 + TRACE_PULL_UP, _p.width, _p.height])
     draw_trace_panel(ax_b, true_s, pred_s, labels_s, step_v_stim, time_ms,
                      pearson_r=r_stim,
-                     header_label='stimulus, INR vs gt',
+                     header_label='stimulus, INR',
                      show_xlabel=True, show_type_labels=True)
     draw_trace_panel(ax_c, true_v, pred_v, labels_v, step_v_volt, time_ms,
-                     pearson_r=r_volt,
-                     header_label='voltage, GNN vs noisy gt',
+                     pearson_r=r_volt, pearson_r_sd=r_volt_sd,
+                     header_label='voltage, GNN vs noise-free',
                      show_xlabel=True, show_type_labels=True)
 
-    # (d/e/f) Three scatter panels at the bottom.
-    gs_def = mgs.GridSpecFromSubplotSpec(1, 3, subplot_spec=outer[2],
+    # (d/e) Two scatter panels at the bottom. The "vs noisy" scatter
+    # (was panel e) is disabled — comparing the learned trace against
+    # perturbed gt is misleading. Uncomment to restore.
+    gs_def = mgs.GridSpecFromSubplotSpec(1, 2, subplot_spec=outer[2],
                                           wspace=0.40)
     ax_d = fig.add_subplot(gs_def[0, 0])
     ax_e = fig.add_subplot(gs_def[0, 1])
-    ax_f = fig.add_subplot(gs_def[0, 2])
-    # Pull the scatter row UP so the b/c↔d/e/f gap shrinks (trace row was
-    # already pulled up by TRACE_PULL_UP, leaving an asymmetric gap below).
-    SCATTER_PULL_UP = 0.02
-    for _ax in (ax_d, ax_e, ax_f):
+    # b/c ↔ d/e gap. Smaller value = scatter row sits LOWER (more blank
+    # above d/e). 0.04 leaves a comfortable gap; bump up to 0.08 to tighten.
+    SCATTER_PULL_UP = 0.04
+    for _ax in (ax_d, ax_e):
         _p = _ax.get_position()
         _ax.set_position([_p.x0, _p.y0 + SCATTER_PULL_UP, _p.width, _p.height])
 
@@ -823,28 +844,59 @@ def main():
         xlabel='true stimulus', ylabel='learned stimulus',
         title=None,
     )
+    # Removed "vs noisy" scatter:
+    # draw_scatter(
+    #     ax_e_noisy,
+    #     activity_true, activity_pred,
+    #     lo=SCATTER_LO_V, hi=SCATTER_HI_V,
+    #     xlabel='noisy voltage', ylabel='rollout voltage',
+    #     title='vs noisy',
+    # )
     draw_scatter(
         ax_e,
-        activity_true, activity_pred,
-        lo=SCATTER_LO_V, hi=SCATTER_HI_V,
-        xlabel='noisy gt voltage', ylabel='rollout voltage',
-        title='vs noisy',
-    )
-    draw_scatter(
-        ax_f,
         nf_bundle['true'], nf_bundle['pred'],
         lo=SCATTER_LO_V, hi=SCATTER_HI_V,
-        xlabel='noise-free gt voltage', ylabel='rollout voltage',
-        title='vs noise-free',
+        xlabel='ground truth voltage', ylabel='rollout voltage',
+        title=None,
     )
 
-    # Panel labels a..f
+    # Shrink panels d and e to the same size and align their VISIBLE left
+    # edge (tight bbox, which includes ylabel/ticks) with the visible left
+    # edge of the trace panel directly above. Aligning ax.x0 alone is
+    # off because the scatter panels carry a ylabel that the trace panels
+    # don't.
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    inv = fig.transFigure.inverted()
+
+    def _tight_x0(ax):
+        return inv.transform((ax.get_tightbbox(renderer).x0, 0))[0]
+
+    _pd = ax_d.get_position()
+    _pe = ax_e.get_position()
+    _scatter_width  = _pe.width * 0.6
+    _scatter_height = _pe.height
+    # First resize each panel so we can recompute its tight bbox at the
+    # final width (label x-extent depends on figure-fraction width).
+    ax_d.set_position([_pd.x0, _pd.y0, _scatter_width, _scatter_height])
+    ax_e.set_position([_pe.x0, _pe.y0, _scatter_width, _scatter_height])
+    fig.canvas.draw()
+    # Now shift each panel so its tight-bbox left edge matches the trace
+    # panel's tight-bbox left edge.
+    delta_d = _tight_x0(ax_b) - _tight_x0(ax_d)
+    delta_e = _tight_x0(ax_c) - _tight_x0(ax_e)
+    _pd2 = ax_d.get_position()
+    _pe2 = ax_e.get_position()
+    ax_d.set_position([_pd2.x0 + delta_d, _pd2.y0, _pd2.width, _pd2.height])
+    ax_e.set_position([_pe2.x0 + delta_e, _pe2.y0, _pe2.width, _pe2.height])
+
+    # Panel labels a..e
     fig.canvas.draw()
     renderer = fig.canvas.get_renderer()
     inv = fig.transFigure.inverted()
     anchors = [(axes_hex_top[0], 'a'),
                (ax_b, 'b'), (ax_c, 'c'),
-               (ax_d, 'd'), (ax_e, 'e'), (ax_f, 'f')]
+               (ax_d, 'd'), (ax_e, 'e')]
     for ax_anchor, lbl in anchors:
         bb = ax_anchor.get_tightbbox(renderer)
         x0, y1 = inv.transform((bb.x0, bb.y1))
