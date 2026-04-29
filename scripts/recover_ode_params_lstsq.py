@@ -12,6 +12,28 @@ values, with degenerate parameters colored red.
 
 Usage:
     python recover_ode_params_lstsq.py DATA_ROOT [--out OUT_PATH] [--dt DT]
+
+NOTE: This script works for noise-free data. For noisy SDE data (sigma > 0),
+recovery is biased toward zero — particularly for tau, since the dv/dt column
+is computed by finite differences which amplifies voltage noise by ~1/dt. Two
+fundamental obstacles:
+
+  1. Errors-in-variables bias: noise enters BOTH A and b (not just b). Standard
+     OLS gives attenuation bias on every coefficient with a noisy regressor;
+     this bias does not vanish with more data.
+  2. Correlated noise across columns: the same SDE noise on v_i(t) appears in
+     dv/dt(t), dv/dt(t-1), and b(t) simultaneously. Vanilla TLS assumes column-
+     wise independent noise and produces wild outputs in this regime.
+
+A previous --tls flag using weighted total least squares was tried and removed
+because the column-correlated noise structure violates TLS's assumptions. The
+correct fix would be generalized TLS with the analytical noise covariance, or
+iterative bias-corrected OLS — neither is implemented here.
+
+A previous --avg-window flag for block-averaging rows (integral form) was also
+tried: dv/dt averaged over W steps telescopes to (v_{t+W} - v_t)/(W*dt),
+reducing FD noise by 1/W. It helps at moderate noise (sigma ~ 0.05) but
+doesn't fully recover tau at sigma ~ 0.5, so it was removed too.
 """
 
 import argparse
@@ -127,20 +149,20 @@ def solve(
         s = torch.where(s > 0, s, torch.ones_like(s))
         A_s = A / s
 
+        # Null/sloppy detection always uses A's own Gram (independent of solver).
         G = A_s.T @ A_s
-        c = A_s.T @ b
-
         w, V = torch.linalg.eigh(G)
         w_max = w[-1]
-
-        # Two-tier classification of directions.
         rel = w / w_max
         null_mask   = rel <= null_eig_tol
         sloppy_mask = (rel > null_eig_tol) & (rel <= sloppy_eig_tol)
-        # Both null and sloppy are zeroed in the pseudoinverse (regularization).
+
+        # OLS via column-equilibrated normal equations + pseudoinverse.
+        c = A_s.T @ b
         keep = ~(null_mask | sloppy_mask)
         inv_w = torch.where(keep, 1.0 / w, torch.zeros_like(w))
         theta_i = (V @ (inv_w * (V.T @ c))) / s
+
         th = theta_i.cpu().numpy()
 
         tau_lstsq[i]   = th[0]
@@ -181,7 +203,7 @@ def plot(data: dict, out: dict, fig_path: Path):
     fig, axes = plt.subplots(1, 3, figsize=(30, 9))
 
     def _panel(ax, true, pred, null, sloppy, xlabel, ylabel):
-        m = ~np.isnan(pred)
+        m = np.isfinite(pred)   # excludes nan and inf
         is_null   = m & null
         is_sloppy = m & sloppy & ~null
         ok        = m & ~null & ~sloppy
@@ -201,15 +223,33 @@ def plot(data: dict, out: dict, fig_path: Path):
         n_ok = int(ok.sum())
         pct_ok = (100.0 * n_ok / n_total) if n_total else 0.0
 
+        def _fmt(n, pct):
+            if n == 0:
+                return "0%"
+            return f"<0.1%" if pct < 0.1 else f"{pct:.1f}%"
+
         # Layered: null (red) at the back, sloppy (orange) above, ok (black) on top.
         ax.scatter(true[is_null],   pred[is_null],   s=6, alpha=0.35, color="red",
-                   label=f"null ({pct_null:.1f}%)")
+                   label=f"null ({_fmt(n_null, pct_null)})")
         ax.scatter(true[is_sloppy], pred[is_sloppy], s=6, alpha=0.4, color="orange",
-                   label=f"sloppy ({pct_sloppy:.1f}%)")
+                   label=f"sloppy ({_fmt(n_sloppy, pct_sloppy)})")
         ax.scatter(true[ok],        pred[ok],        s=4, alpha=0.7, color="k",
-                   label=f"ok ({pct_ok:.1f}%)")
+                   label=f"ok ({_fmt(n_ok, pct_ok)})")
         lo, hi = float(true[m].min()), float(true[m].max())
         ax.plot([lo, hi], [lo, hi], '--', color='gray', linewidth=1, alpha=0.6)
+
+        # Robust axis limits: x from `true` range, y from percentiles of pred.
+        # Prevents extreme outliers (e.g. 1e30 from unstable TLS) from breaking
+        # matplotlib's tick computation while still letting them appear at the
+        # plot edges.
+        pad = 0.05 * (hi - lo) if hi > lo else 1.0
+        ax.set_xlim(lo - pad, hi + pad)
+        if m.any():
+            y_lo, y_hi = np.percentile(pred[m], [0.5, 99.5])
+            y_lo = min(y_lo, lo - pad)
+            y_hi = max(y_hi, hi + pad)
+            y_pad = 0.1 * (y_hi - y_lo) if y_hi > y_lo else 1.0
+            ax.set_ylim(y_lo - y_pad, y_hi + y_pad)
 
         ax.text(0.05, 0.95,
                 f'R²: {r2_ok:.2f} ({r2_all:.2f})\nslope: {slope_ok:.2f}',
