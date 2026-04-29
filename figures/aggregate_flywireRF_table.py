@@ -102,6 +102,29 @@ def _fmt(val):
     return body
 
 
+def _fmt_rel(median, iqr):
+    """LaTeX cell for relative error: ${median%}{\\pm}{IQR%}$.
+    Used for $\\widehat{W}$ (no outlier metric).
+    median and iqr are fractions in [0,1]; emit as percent. NaN -> $\\cdot$."""
+    if (isinstance(median, float) and math.isnan(median)) or \
+       (isinstance(iqr, float) and math.isnan(iqr)):
+        return '$\\cdot$'
+    return f'${100*median:.1f}{{\\pm}}{100*iqr:.1f}$'
+
+
+def _fmt_rel_out(median, iqr, count, n_neurons):
+    """Combined LaTeX cell: ${med%}{\\pm}{IQR%}\\,(out%)$.
+    Used for $\\widehat{\\tau}$ and $\\widehat{V}^{\\mathrm{rest}}$.
+    NaN in any field -> $\\cdot$."""
+    if (isinstance(median, float) and math.isnan(median)) or \
+       (isinstance(iqr, float) and math.isnan(iqr)) or \
+       (isinstance(count, float) and math.isnan(count)) or \
+       not n_neurons:
+        return '$\\cdot$'
+    return (f'${100*median:.1f}{{\\pm}}{100*iqr:.1f}'
+            f'\\,({100.0*count/n_neurons:.2f})$')
+
+
 def _ansi_cell(val, width=7):
     if isinstance(val, float) and math.isnan(val):
         body = '  nan  '
@@ -112,6 +135,18 @@ def _ansi_cell(val, width=7):
     if val > _GOOD_THRESH:
         return f'{_ANSI_GREEN}{body:<{width}}{_ANSI_RESET}'
     return f'{body:<{width}}'
+
+
+def _ansi_rel(median, iqr, width=11):
+    if isinstance(median, float) and math.isnan(median):
+        return f'{_ANSI_ORANGE}{"  nan  ":<{width}}{_ANSI_RESET}'
+    return f'{f"{100*median:.1f}±{100*iqr:.1f}%":<{width}}'
+
+
+def _ansi_pct(count, n_neurons, width=8):
+    if isinstance(count, float) and math.isnan(count) or not n_neurons:
+        return f'{_ANSI_ORANGE}{"  nan ":<{width}}{_ANSI_RESET}'
+    return f'{f"{100*count/n_neurons:.2f}%":<{width}}'
 
 
 def _resolve_output_root(output_root):
@@ -125,17 +160,22 @@ def _resolve_output_root(output_root):
 
 
 def _read_metrics(output_root, base):
-    """Read the 5 metrics for one config. Returns dict; missing -> NaN."""
+    """Read parameter-recovery metrics for one config. Returns dict; missing -> NaN."""
     log_dir = os.path.join(output_root, 'log', 'fly', base)
     one_r  = _parse_pearson(os.path.join(log_dir, 'results_test.log'))
     roll_r = _parse_pearson(os.path.join(log_dir, 'results_rollout.log'))
     m = _parse_metrics_txt(os.path.join(log_dir, 'results', 'metrics.txt'))
     return {
-        'one_r':  one_r,
-        'roll_r': roll_r,
-        'W_R2':   m.get('W_corrected_R2', float('nan')),
-        'tau_R2': m.get('tau_R2',         float('nan')),
-        'V_R2':   m.get('V_rest_R2',      float('nan')),
+        'one_r':   one_r,
+        'roll_r':  roll_r,
+        'W_med':   m.get('W_rel_err_median',      float('nan')),
+        'W_iqr':   m.get('W_rel_err_iqr',         float('nan')),
+        'tau_med': m.get('tau_rel_err_median',    float('nan')),
+        'tau_iqr': m.get('tau_rel_err_iqr',       float('nan')),
+        'tau_out': m.get('tau_n_outliers',        float('nan')),
+        'V_med':   m.get('V_rest_rel_err_median', float('nan')),
+        'V_iqr':   m.get('V_rest_rel_err_iqr',    float('nan')),
+        'V_out':   m.get('V_rest_n_outliers',     float('nan')),
     }
 
 
@@ -143,17 +183,28 @@ def _strip_tex(s):
     return s.replace('\\,', ',').replace('\\ ', ' ').replace('\\', '')
 
 
+def _parse_n_neurons(neurons_str):
+    """'13\\,741' -> 13741. Returns 0 on failure."""
+    try:
+        return int(_strip_tex(neurons_str).replace(',', ''))
+    except (ValueError, TypeError):
+        return 0
+
+
 def _print_console_row(model, cond, neurons, edges, extent, m):
     label = f'{(model or "..").strip():>10}  {_strip_tex(cond)}'
     neurons_disp = _strip_tex(neurons)
     edges_disp   = _strip_tex(edges)
+    n_neurons    = _parse_n_neurons(neurons)
     print(f'    {label:<55} '
           f'N={neurons_disp:>7} edges={edges_disp:>10} ext={extent:>2} | '
           f'one={_ansi_cell(m["one_r"])} '
           f'roll={_ansi_cell(m["roll_r"])} '
-          f'W={_ansi_cell(m["W_R2"])} '
-          f'tau={_ansi_cell(m["tau_R2"])} '
-          f'V={_ansi_cell(m["V_R2"])}')
+          f'W%={_ansi_rel(m["W_med"], m["W_iqr"])} '
+          f'tau%={_ansi_rel(m["tau_med"], m["tau_iqr"])} '
+          f'tau_out={_ansi_pct(m["tau_out"], n_neurons)} '
+          f'V%={_ansi_rel(m["V_med"], m["V_iqr"])} '
+          f'V_out={_ansi_pct(m["V_out"], n_neurons)}')
 
 
 def _emit_table(output_root):
@@ -166,10 +217,13 @@ def _emit_table(output_root):
             continue
         model, cond, neurons, edges, extent, base = entry
         m = _read_metrics(output_root, base)
+        n_neurons = _parse_n_neurons(neurons)
         lines.append(
             f'{model:<24} & {cond:<40} & ${neurons}$ & ${edges}$ & {extent}\n'
             f'  & {_fmt(m["one_r"])} & {_fmt(m["roll_r"])}\n'
-            f'  & {_fmt(m["W_R2"])} & {_fmt(m["tau_R2"])} & {_fmt(m["V_R2"])} \\\\'
+            f'  & {_fmt_rel(m["W_med"], m["W_iqr"])}\n'
+            f'  & {_fmt_rel_out(m["tau_med"], m["tau_iqr"], m["tau_out"], n_neurons)}\n'
+            f'  & {_fmt_rel_out(m["V_med"], m["V_iqr"], m["V_out"], n_neurons)} \\\\'
         )
         _print_console_row(model, cond, neurons, edges, extent, m)
 
@@ -178,7 +232,8 @@ def _emit_table(output_root):
     with open(path, 'w') as f:
         f.write('% flywireRF zero-edge augmentation; rows only; '
                 'Known-ODE block, then GNN block separated by single midrule. '
-                'Columns: model & condition & neurons & edges & extent & one-step r & rollout r & W & tau & V_rest.\n')
+                'Cols: model & condition & neurons & edges & extent | one-step r | rollout r | '
+                'W rel.err%% | tau rel.err%% (out%%) | Vrest rel.err%% (out%%).\n')
         for ln in lines:
             f.write(ln + '\n')
     print(f'\n  [tex ] {path}')
