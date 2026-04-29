@@ -26,8 +26,8 @@ from connectome_gnn.generators.graph_data_generator import data_generate
 from connectome_gnn.models.graph_trainer import data_test
 from connectome_gnn.LLM.cluster import (
     submit_cluster_job, submit_cluster_cross_test_plot_job,
-    wait_for_cluster_jobs_with_metrics,
-    _r2_color, _ANSI_RESET,
+    wait_for_cluster_jobs, wait_for_cluster_jobs_with_metrics,
+    _print_training_metrics, _r2_color, _ANSI_RESET,
 )
 from connectome_gnn.cross.yaml_io import (
     shared_cv_yaml_path, _load_yaml_either,
@@ -130,10 +130,7 @@ def _warn_zero_training_metrics(log_dirs):
         tm = _read_latest_training_metrics(ld)
         if tm is None:
             continue
-        # tm is (iter, conn, vr, tau, hidden_nnr, anchor_nnr) — the last 2
-        # are new fields (hidden-INR metrics); unpack defensively so this
-        # function also works with older 4-tuple logs.
-        _, _, vr, tau = tm[0], tm[1], tm[2], tm[3]
+        vr, tau = tm['vr'], tm['tau']
         if abs(vr) < 5e-3 or abs(tau) < 5e-3:
             print(f'\033[91m  [WARN] slot {slot}: post-training V_rest_R²={vr:.3f} '
                   f'τ_R²={tau:.3f} — dynamics parameter may have collapsed\033[0m')
@@ -326,14 +323,17 @@ def submit_test_plot_wave(yt_cfgs, output_root, node_name,
             log_dirs[slot] = yt_log_dir
     if job_ids:
         print(f'  [wait] {len(job_ids)} test+plot job(s): {job_ids}')
-        wait_for_cluster_jobs_with_metrics(
-            job_ids, log_dirs, poll_interval=metrics_interval,
-            metrics_interval=metrics_interval,
+        # Use the plain (no-metrics) wait so we don't keep re-printing the
+        # stale tmp_training/metrics.log line during a force-plot wait
+        # (training is already done; only the plot job runs here). The
+        # post-plot summary below is the only post-job line we want.
+        wait_for_cluster_jobs(
+            job_ids, poll_interval=metrics_interval,
             job_prefix='cluster_cross_test_plot',
         )
         for slot, ld in sorted(log_dirs.items()):
             _warn_zero_plot_metrics(ld, slot_tag=f' slot {slot}:')
-            print_plot_metrics_summary(ld, slot=slot)
+        _print_training_metrics(log_dirs, log_dirs.keys(), prefix='  [plot   ]')
 
 
 def run_test_and_plot_local(yt_cfg, device, force_test, force_plot=False):
@@ -390,7 +390,8 @@ def _assert_yt_data_present(yt_cfg):
 def run_condition(base_name, suffix, n_folds, device, output_root,
                   node_name, hard_runtime_limit_min, force_test,
                   cluster_test_plot=True, metrics_interval=300,
-                  force_train=False, force_plot=False):
+                  force_train=False, force_plot=False,
+                  skip_test_plot=False):
     """Train + test + plot one condition on the hold-out dataset (no DAVIS).
 
     Requires hold-out datasets to already exist (built by run_generate_holdout_data.py).
@@ -404,18 +405,24 @@ def run_condition(base_name, suffix, n_folds, device, output_root,
         cluster_test_plot=cluster_test_plot,
         metrics_interval=metrics_interval,
         force_train=force_train, force_plot=force_plot,
+        skip_test_plot=skip_test_plot,
     )
 
 
 def run_condition_wave(base_names, suffix, n_folds, device, output_root,
                         node_name, hard_runtime_limit_min, force_test,
                         cluster_test_plot=True, metrics_interval=300,
-                        force_train=False, force_plot=False):
+                        force_train=False, force_plot=False,
+                        skip_test_plot=False):
     """Train + test + plot MULTIPLE conditions as a single wave.
 
     All (base, fold) pairs are submitted together in one training wave
     (up to len(base_names) * n_folds concurrent cluster jobs), then the
     whole wave is awaited, then test+plot is submitted as a single wave.
+
+    `skip_test_plot=True` runs ONLY the training wave and returns — no
+    rollout, no parameter plot. Used by training-only re-runs where the
+    user wants to inspect the trained model before committing to test/plot.
     """
     tag = '+'.join(base_names)
     print(f'\n=== wave[{len(base_names)}]: {tag}  ({n_folds}-fold hold-out train / hold-out test, suffix={suffix}) ===')
@@ -430,6 +437,10 @@ def run_condition_wave(base_names, suffix, n_folds, device, output_root,
                          hard_runtime_limit_min,
                          metrics_interval=metrics_interval,
                          force_train=force_train)
+
+    if skip_test_plot:
+        print(f'  [skip] test+plot wave suppressed (skip_test_plot=True)')
+        return
 
     if cluster_test_plot:
         submit_test_plot_wave(yt_cfgs, output_root, node_name,

@@ -293,10 +293,17 @@ def _r2_color(val, thresholds=(0.9, 0.7, 0.3)):
 
 
 def _read_latest_training_metrics(log_dir):
-    """Return (iter, conn_r2, vr_r2, tau_r2, hid_nnr, anc_nnr) from the last
-    line of the training metrics log. The last two are None when the run is
-    not a hidden-INR model (fields absent or 'nan'). Returns None if the file
-    is missing / empty."""
+    """Return a dict from the last line of the training metrics log.
+
+    Always-present keys: iter, conn, vr, tau.
+    Optional (None when absent / 'nan'):
+      hid, anc — hidden-NNR Pearson (hidden-INR runs only).
+      vr_clean, n_out_vr, n_total_vr — V_rest cleaned R² + outlier counts.
+      tau_clean, n_out_tau, n_total_tau — τ cleaned R² + outlier counts.
+    Returns None if the file is missing / empty.
+
+    Backward-compatible: legacy 6-column logs still parse (the new fields
+    come back as None / 0)."""
     path = os.path.join(log_dir, 'tmp_training', 'metrics.log')
     if not os.path.isfile(path):
         return None
@@ -314,12 +321,8 @@ def _read_latest_training_metrics(log_dir):
         parts = last.split(',')
         if len(parts) < 4:
             return None
-        it = int(parts[0])
-        conn = float(parts[1])
-        vr   = float(parts[2])
-        tau  = float(parts[3])
 
-        def _opt(idx):
+        def _opt_float(idx):
             if len(parts) <= idx:
                 return None
             v = parts[idx].strip()
@@ -330,9 +333,31 @@ def _read_latest_training_metrics(log_dir):
             except ValueError:
                 return None
 
-        hid = _opt(4)
-        anc = _opt(5)
-        return (it, conn, vr, tau, hid, anc)
+        def _opt_int(idx, default=0):
+            if len(parts) <= idx:
+                return default
+            v = parts[idx].strip()
+            if not v or v.lower() == 'nan':
+                return default
+            try:
+                return int(float(v))
+            except ValueError:
+                return default
+
+        return {
+            'iter':         int(parts[0]),
+            'conn':         float(parts[1]),
+            'vr':           float(parts[2]),
+            'tau':          float(parts[3]),
+            'hid':          _opt_float(4),
+            'anc':          _opt_float(5),
+            'vr_clean':     _opt_float(6),
+            'n_out_vr':     _opt_int(7),
+            'n_total_vr':   _opt_int(8),
+            'tau_clean':    _opt_float(9),
+            'n_out_tau':    _opt_int(10),
+            'n_total_tau':  _opt_int(11),
+        }
     except (OSError, ValueError):
         return None
 
@@ -357,7 +382,18 @@ def _read_clustering_accuracy(log_dir):
 
 
 def _print_training_metrics(log_dirs, slots_active, prefix='  [metrics]'):
-    """Read latest metrics.log line for each active slot and print colored."""
+    """Read latest metrics.log line for each active slot and print colored.
+
+    Format per slot:
+        [metrics] slot N  iter=I  conn=X
+                          Vr=all/clean(out%)
+                          τ=all/clean(out%)
+                          [nnr=hid(anc)]      (hidden-INR runs only)
+
+    `Vr` and `τ` show the all-neurons R² and the outlier-cleaned R² (V_rest
+    threshold |Δ|>0.2, τ threshold |Δ|>0.1 — same as data_plot) plus the
+    outlier % of total evaluated neurons. clean / out% are omitted gracefully
+    when the metrics file lacks those columns (legacy logs)."""
     for slot in sorted(slots_active):
         log_dir = log_dirs.get(slot)
         if log_dir is None:
@@ -366,20 +402,31 @@ def _print_training_metrics(log_dirs, slots_active, prefix='  [metrics]'):
         if tm is None:
             print(f"{prefix} slot {slot}: (no metrics.log yet)")
             continue
-        it, conn, vr, tau, hid, anc = tm
+
+        def _fmt_with_clean(name, r2_all, r2_clean, n_out, n_total):
+            base = f"{_r2_color(r2_all)}{name}={r2_all:.3f}"
+            if r2_clean is None or n_total <= 0:
+                return base + _ANSI_RESET
+            pct = 100.0 * n_out / n_total
+            return (base + _ANSI_RESET +
+                    f"{_r2_color(r2_clean)}/{r2_clean:.3f}{_ANSI_RESET}"
+                    f"({pct:.1f}%)")
+
         parts = [
-            f"{_r2_color(conn)}conn={conn:.3f}{_ANSI_RESET}",
-            f"{_r2_color(vr)}Vr={vr:.3f}{_ANSI_RESET}",
-            f"{_r2_color(tau)}τ={tau:.3f}{_ANSI_RESET}",
+            f"{_r2_color(tm['conn'])}conn={tm['conn']:.3f}{_ANSI_RESET}",
+            _fmt_with_clean('Vr', tm['vr'], tm['vr_clean'],
+                            tm['n_out_vr'], tm['n_total_vr']),
+            _fmt_with_clean('τ', tm['tau'], tm['tau_clean'],
+                            tm['n_out_tau'], tm['n_total_tau']),
         ]
         # Hidden-INR diagnostics (only present for hidden-NGP / hidden-SIREN runs).
         # Pearson thresholds: green > 0.5, yellow > 0.3, orange > 0.1, red <.
-        if hid is not None:
-            nnr_str = f"nnr={hid:.3f}"
-            if anc is not None:
-                nnr_str += f"({anc:.3f})"
-            parts.append(f"{_r2_color(hid, thresholds=(0.5, 0.3, 0.1))}{nnr_str}{_ANSI_RESET}")
-        print(f"{prefix} slot {slot}  iter={it:>6}  " + '  '.join(parts))
+        if tm['hid'] is not None:
+            nnr_str = f"nnr={tm['hid']:.3f}"
+            if tm['anc'] is not None:
+                nnr_str += f"({tm['anc']:.3f})"
+            parts.append(f"{_r2_color(tm['hid'], thresholds=(0.5, 0.3, 0.1))}{nnr_str}{_ANSI_RESET}")
+        print(f"{prefix} slot {slot}  iter={tm['iter']:>6}  " + '  '.join(parts))
 
 
 def wait_for_cluster_jobs_with_metrics(job_ids, log_dirs, poll_interval=60,
