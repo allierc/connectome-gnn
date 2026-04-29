@@ -46,19 +46,19 @@ CONDITION_FILTER = [
     # scales as (1-rho), so at rho=0.99 it is 1% of the i.i.d. case).
     # The rho=0 control is the existing flyvis_noise_005_010 condition
     # under blank50 overrides (commented out below; uncomment if needed).
-    'flyvis_noise_005_010_blank50_ar1_rho25',
-    'flyvis_noise_005_010_blank50_ar1_rho50',
-    'flyvis_noise_005_010_blank50_ar1_rho75',
-    'flyvis_noise_005_010_blank50_ar1_rho90',
-    'flyvis_noise_005_010_blank50_ar1_rho95',
-    'flyvis_noise_005_010_blank50_ar1_rho99',
+    # 'flyvis_noise_005_010_blank50_ar1_rho25',
+    # 'flyvis_noise_005_010_blank50_ar1_rho50',
+    # 'flyvis_noise_005_010_blank50_ar1_rho75',
+    # 'flyvis_noise_005_010_blank50_ar1_rho90',
+    # 'flyvis_noise_005_010_blank50_ar1_rho95',
+    # 'flyvis_noise_005_010_blank50_ar1_rho99',
     # --- non-AR(1) baselines (paused for the AR(1) sweep; uncomment to re-enable) ---
     # 'flyvis_noise_free',
     # 'flyvis_noise_005',
     # 'flyvis_noise_05',
     # 'flyvis_noise_005_010',                 # = AR(1) rho=0 control under blank50 overrides
     # 'flyvis_noise_005_020',
-    # 'flyvis_noise_005_null_edges_pc_400',
+    'flyvis_noise_005_null_edges_pc_400',
     # 'flyvis_noise_005_removed_pc_20',
     # 'flyvis_noise_005_removed_pc_50',
     # 'flyvis_noise_005_stride_5',

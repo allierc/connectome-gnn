@@ -23,6 +23,8 @@ from connectome_gnn.neuron_state import NeuronState
     "flyvis_hybrid_flywireRF",
     "flyvis_hybrid_zeroedge",
     "flyvis_hybrid_flywireRF_zeroedge",
+    "flyvis_hybrid_flywireRF_zeroedge_sl",
+    "flyvis_hybrid_flywireRF_zeroedge_cross_sl",
     "drosophila_cx",
     "larva",
     "zebrafish",

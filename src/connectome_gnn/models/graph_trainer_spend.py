@@ -373,7 +373,9 @@ def data_train_spend(config, erase=False, best_model=None, device=None, log_file
     os.makedirs(os.path.dirname(metrics_log_path), exist_ok=True)
     with open(metrics_log_path, 'w') as f:
         f.write('iteration,connectivity_r2,vrest_r2,tau_r2,'
-                'hidden_nnr_pearson,anchor_nnr_pearson\n')
+                'hidden_nnr_pearson,anchor_nnr_pearson,'
+                'vrest_r2_clean,n_out_vrest,n_total_vrest,'
+                'tau_r2_clean,n_out_tau,n_total_tau\n')
     spend_log_path = os.path.join(log_dir, 'tmp_training', 'spend_components.log')
     with open(spend_log_path, 'w') as f:
         f.write('iteration,loss_main,loss_replay,loss_time,loss_typed\n')
@@ -589,13 +591,17 @@ def data_train_spend(config, erase=False, best_model=None, device=None, log_file
                     n_neuron_types=sim.n_neuron_types, ode_params=ode_params,
                     hidden_ids=None, anchor_ids=None,
                 )
-                last_vrest_r2, last_tau_r2 = compute_dynamics_r2(model, x_ts, config, device, n_neurons)
-                # Standard 6-column schema (matches graph_trainer.py); SPEND has
-                # no hidden/anchor neurons so those slots are 'nan'.
+                _dyn = compute_dynamics_r2(model, x_ts, config, device, n_neurons)
+                last_vrest_r2 = _dyn['vrest_r2']
+                last_tau_r2   = _dyn['tau_r2']
+                # Schema matches graph_trainer.py extended layout; SPEND has no
+                # hidden/anchor neurons so those slots are 'nan'.
                 with open(metrics_log_path, 'a') as f:
                     f.write(f'{regularizer.iter_count},{_fmt(last_connectivity_r2)},'
                             f'{_fmt(last_vrest_r2)},{_fmt(last_tau_r2)},'
-                            f'nan,nan\n')
+                            f'nan,nan,'
+                            f'{_fmt(_dyn["vrest_r2_clean"])},{_dyn["n_out_vrest"]},{_dyn["n_total_vrest"]},'
+                            f'{_fmt(_dyn["tau_r2_clean"])},{_dyn["n_out_tau"]},{_dyn["n_total_tau"]}\n')
 
             # progress bar -- conn, Vr, tau in colored R2 style; SPEND component
             # losses shown as EMAs (raw per-batch values fluctuate ~+/-100%).

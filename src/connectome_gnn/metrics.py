@@ -528,14 +528,68 @@ def compute_f_theta_centering_loss(
 #  Dynamics R² (V_rest and tau)
 # ------------------------------------------------------------------ #
 
+# Outlier thresholds — must match GNN_PlotFigure.py (lines 422 and 539) so
+# the live training metrics agree with the post-training data_plot summary.
+TAU_OUTLIER_THRESH = 0.1
+VREST_OUTLIER_THRESH = 0.2
+
+
+def _r2_with_outliers(gt, learned, thresh):
+    """Return (r2_all, r2_clean, n_out, n_total) for one parameter array.
+
+    Outlier mask: |learned - gt| > thresh (same rule as data_plot).
+    r2_all   : R² over every neuron.
+    r2_clean : R² over inliers only (NaN if <2 inliers).
+    """
+    gt_arr  = np.asarray(gt).ravel()
+    lrn_arr = np.asarray(learned).ravel()
+    n_total = int(gt_arr.size)
+    if n_total == 0:
+        return 0.0, float('nan'), 0, 0
+
+    try:
+        r2_all, _ = compute_r_squared(gt_arr, lrn_arr)
+    except Exception:
+        r2_all = 0.0
+
+    out_mask = np.abs(lrn_arr - gt_arr) > thresh
+    n_out = int(out_mask.sum())
+    inl_mask = ~out_mask
+    if int(inl_mask.sum()) >= 2:
+        try:
+            r2_clean, _ = compute_r_squared(gt_arr[inl_mask], lrn_arr[inl_mask])
+        except Exception:
+            r2_clean = float('nan')
+    else:
+        r2_clean = float('nan')
+    return float(r2_all), float(r2_clean), n_out, n_total
+
+
+_DYNAMICS_R2_EMPTY = {
+    'vrest_r2': 0.0, 'vrest_r2_clean': float('nan'),
+    'n_out_vrest': 0, 'n_total_vrest': 0,
+    'tau_r2':   0.0, 'tau_r2_clean':   float('nan'),
+    'n_out_tau':   0, 'n_total_tau':   0,
+}
+
+
 def compute_dynamics_r2(model, x_ts, config, device, n_neurons):
     """Compute V_rest R² and tau R² during training (lightweight, no plots).
 
     Uses the ODE params analysis interface: gt_tau(), gt_vrest(), derive_tau(),
-    derive_vrest(). Returns (0.0, 0.0) for models that don't have these params.
+    derive_vrest(). Returns the empty-metric dict for models that don't have
+    these params.
 
     Returns:
-        (vrest_r2, tau_r2): tuple of float R² values.
+        dict with keys:
+            vrest_r2       : R² over all neurons
+            vrest_r2_clean : R² over inliers (|learned-gt| <= VREST_OUTLIER_THRESH)
+            n_out_vrest    : number of V_rest outliers
+            n_total_vrest  : total neurons evaluated for V_rest
+            tau_r2         : R² over all neurons
+            tau_r2_clean   : R² over inliers (|learned-gt| <= TAU_OUTLIER_THRESH)
+            n_out_tau      : number of tau outliers
+            n_total_tau    : total neurons evaluated for tau
     """
     from connectome_gnn.generators.ode_params import get_ode_params_class
     signal_model = config.graph_model.signal_model_name
@@ -543,34 +597,34 @@ def compute_dynamics_r2(model, x_ts, config, device, n_neurons):
         OdeParamsCls = get_ode_params_class(signal_model)
         ode_params = OdeParamsCls.load(graphs_data_path(config.dataset), device=device)
     except (KeyError, FileNotFoundError):
-        return 0.0, 0.0
+        return dict(_DYNAMICS_R2_EMPTY)
 
     mu, sigma = compute_activity_stats(x_ts, device)
     slopes, offsets = extract_f_theta_slopes(model, config, n_neurons, mu, sigma, device)
 
-    # Tau R²
-    tau_r2 = 0.0
+    out = dict(_DYNAMICS_R2_EMPTY)
+
     if ode_params.has_tau():
         gt_tau = ode_params.gt_tau(n_neurons)
         if gt_tau is not None:
             learned_tau = ode_params.derive_tau(slopes, n_neurons)
-            try:
-                tau_r2, _ = compute_r_squared(gt_tau, learned_tau)
-            except Exception:
-                pass
+            tr2, tr2c, ntout, ntot = _r2_with_outliers(gt_tau, learned_tau, TAU_OUTLIER_THRESH)
+            out['tau_r2']        = tr2
+            out['tau_r2_clean']  = tr2c
+            out['n_out_tau']     = ntout
+            out['n_total_tau']   = ntot
 
-    # V_rest R²
-    vrest_r2 = 0.0
     if ode_params.has_vrest():
         gt_vrest = ode_params.gt_vrest(n_neurons)
         if gt_vrest is not None:
             learned_vrest = ode_params.derive_vrest(slopes, offsets, n_neurons)
-            try:
-                vrest_r2, _ = compute_r_squared(gt_vrest, learned_vrest)
-            except Exception:
-                pass
+            vr2, vr2c, nvout, nvtot = _r2_with_outliers(gt_vrest, learned_vrest, VREST_OUTLIER_THRESH)
+            out['vrest_r2']        = vr2
+            out['vrest_r2_clean']  = vr2c
+            out['n_out_vrest']     = nvout
+            out['n_total_vrest']   = nvtot
 
-    return vrest_r2, tau_r2
+    return out
 
 
 def compute_dynamics_r2_linear(model, config, device, n_neurons):
@@ -580,7 +634,8 @@ def compute_dynamics_r2_linear(model, config, device, n_neurons):
     slopes, the linear model exposes them as direct learnable parameters.
 
     Returns:
-        (vrest_r2, tau_r2, connectivity_r2): tuple of float R² values.
+        (dynamics_dict, conn_r2): the same dict layout as compute_dynamics_r2
+        plus a separate conn_r2 float.
     """
     import torch.nn.functional as F
 
@@ -594,21 +649,30 @@ def compute_dynamics_r2_linear(model, config, device, n_neurons):
     gt_weights = to_numpy(ode_params.W)
     learned_W = to_numpy(get_model_W(model).squeeze())
 
-    vrest_r2 = 0.0
-    tau_r2 = 0.0
+    out = dict(_DYNAMICS_R2_EMPTY)
     conn_r2 = 0.0
 
     # tau and V_rest only exist for FlyVis models
     if hasattr(ode_params, 'V_i_rest') and ode_params.V_i_rest is not None:
         try:
             learned_vrest = to_numpy(model.V_rest[:n_neurons].detach())
-            vrest_r2, _ = compute_r_squared(to_numpy(ode_params.V_i_rest[:n_neurons]), learned_vrest)
+            gt_vrest = to_numpy(ode_params.V_i_rest[:n_neurons])
+            vr2, vr2c, nvout, nvtot = _r2_with_outliers(gt_vrest, learned_vrest, VREST_OUTLIER_THRESH)
+            out['vrest_r2']        = vr2
+            out['vrest_r2_clean']  = vr2c
+            out['n_out_vrest']     = nvout
+            out['n_total_vrest']   = nvtot
         except Exception:
             pass
     if hasattr(ode_params, 'tau_i') and ode_params.tau_i is not None:
         try:
             learned_tau = to_numpy(F.softplus(model.raw_tau[:n_neurons]).detach())
-            tau_r2, _ = compute_r_squared(to_numpy(ode_params.tau_i[:n_neurons]), learned_tau)
+            gt_tau = to_numpy(ode_params.tau_i[:n_neurons])
+            tr2, tr2c, ntout, ntot = _r2_with_outliers(gt_tau, learned_tau, TAU_OUTLIER_THRESH)
+            out['tau_r2']        = tr2
+            out['tau_r2_clean']  = tr2c
+            out['n_out_tau']     = ntout
+            out['n_total_tau']   = ntot
         except Exception:
             pass
     try:
@@ -616,7 +680,7 @@ def compute_dynamics_r2_linear(model, config, device, n_neurons):
     except Exception:
         pass
 
-    return vrest_r2, tau_r2, conn_r2
+    return out, conn_r2
 
 
 # ------------------------------------------------------------------ #
