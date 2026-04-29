@@ -10,8 +10,8 @@ results_test.log and results_rollout.log, and writes one markdown file:
 Each condition gets its own table — one row per CV fold plus a final
 **mean ± SD** row. Columns cover both prediction (test/rollout Pearson r,
 RMSE) and parameter recovery (W R² + slope, tau R², V_rest R²,
-gain R², bias R², clustering accuracy). The full per-fold log directory
-path is shown above each table for traceability.
+clustering accuracy). The full per-fold log directory path is shown
+above each table for traceability.
 
 Called from run_all_conditions (and from the top-level run scripts) so
 the markdown stays in sync with the TeX rows after every wave.
@@ -87,8 +87,6 @@ COLUMNS = [
     ('V_rest_n_outliers','V_rest N outl.', '{:.0f}'),
     ('V_rest_rel_err_med_pct', 'V_rest rel.err median %', '{:.1f}'),
     ('V_rest_rel_err_iqr_pct', 'V_rest rel.err IQR %',    '{:.1f}'),
-    ('gain_R2',          'gain R²',    '{:.3f}'),
-    ('bias_R2',          'bias R²',    '{:.3f}'),
     ('clustering',       'Clust acc',  '{:.3f}'),
 ]
 
@@ -119,8 +117,6 @@ def _collect_fold(fold_dir):
         'V_rest_n_outliers':  m.get('V_rest_n_outliers',     float('nan')),
         'V_rest_rel_err_med_pct': 100.0 * m['V_rest_rel_err_median'] if 'V_rest_rel_err_median' in m else float('nan'),
         'V_rest_rel_err_iqr_pct': 100.0 * m['V_rest_rel_err_iqr']    if 'V_rest_rel_err_iqr'    in m else float('nan'),
-        'gain_R2':            m.get('gain_R2',               float('nan')),
-        'bias_R2':            m.get('bias_R2',               float('nan')),
         'clustering':         m.get('clustering_accuracy',   float('nan')),
     }
 

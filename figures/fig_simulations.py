@@ -1,27 +1,30 @@
 """
-Figure: simulated neural activity at three intrinsic-noise levels.
+Figure: simulated neural activity at three intrinsic-noise levels (rows 1-2)
+plus a zoomed R1 trace at two measurement-noise levels (row 3).
 
-Janne-styled per figures/INSTRUCTIONS.md (the previous, larger-font version
-is preserved at fig_simulations_original.py):
+Janne-styled per figures/INSTRUCTIONS.md:
 
   * ~18 cm document-width figure (7.09 in) at 300 dpi
   * 6-8 pt fonts, 0.5 pt spines / ticks
   * top + right spines hidden globally (via janne.matplotlibrc)
-  * trim_axis breaks each axis at the data range (upper & right gap)
+  * trim_axis breaks each axis at the data range
   * PDF primary output (pdf.fonttype=42, svg.fonttype='none')
 
-Layout (2 rows x 3 columns)
----------------------------
-  Row 1 (a-c): type-mean voltage heatmap - 65 cell types x 2 000 frames,
-               z-scored per type (removes type-specific baseline/amplitude
-               so all types are equally visible), anatomically sorted.
-               Conveys the full dataset scale and type-specific dynamics.
-  Row 2 (d-f): stacked voltage traces for representative cell types over
-               a 500-frame window. Red dashed line = visual-input stimulus.
-               Conveys the noise effect on individual neuronal dynamics.
-
-Columns left -> right: sigma = 0 (noise-free), sigma = 0.05, sigma = 0.5.
-step_v for traces is fixed from sigma = 0 data so noise is visually comparable.
+Layout (3 rows)
+---------------
+  Row 1 (a-c): type-mean voltage heatmap, 65 cell types x 2 000 frames,
+               z-scored per type, anatomically sorted. 3 intrinsic-noise
+               levels (sigma_model = 0, 0.05, 0.5).
+  Row 2 (d-f): stacked voltage traces for 12 representative cell types
+               over a 500-frame window. Same 3 intrinsic-noise columns.
+               step_v fixed from sigma_model = 0 so noise is visually
+               comparable.
+  Row 3 (g-h): single zoomed R1 photoreceptor trace at two measurement-
+               noise levels (sigma_meas = 0, 0.10) -- both with 50% blank
+               stimulus, so blank periods are highlighted as semi-
+               transparent steelblue spans (matches fig_vrest_blank.py
+               panel d). Shows how measurement noise corrupts a single
+               trace while the underlying stimulus structure remains.
 
 Data source
 -----------
@@ -44,6 +47,7 @@ import matplotlib
 matplotlib.use('Agg')
 matplotlib.rc_file(os.path.join(os.path.dirname(__file__), 'janne.matplotlibrc'))
 
+import matplotlib.gridspec as mgs
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -62,8 +66,6 @@ try:
     from flyvis.analysis.visualization.plt_utils import trim_axis as _trim_axis
 except Exception:
     def _trim_axis(ax, xmargin=0.0, ymargin=0.0, yaxis=True, xaxis=True):
-        """Local fallback: clip left/bottom spines to the data range so the
-        axes break at the first/last data point (no spine beyond the data)."""
         if xaxis:
             xticks = ax.get_xticks()
             xlo, xhi = ax.get_xlim()
@@ -79,59 +81,81 @@ except Exception:
 
 
 # -- font sizes (janne.matplotlibrc sets 8/6 pt defaults) --------------------
-FS_LABEL  = 8    # axis labels
-FS_TICK   = 6    # tick labels
-FS_ANNOT  = 6    # type-name annotations in trace panel
-FS_TITLE  = 8    # panel subtitle
-PANEL_LBL = 8    # a)-f)
-FS_CBAR   = 6    # colorbar label / ticks
-FS_LEGEND = 6    # legend
-FS_TYPE   = 6    # heatmap type-name y ticks
+FS_LABEL  = 8
+FS_TICK   = 6
+FS_ANNOT  = 5    # type-name annotations next to trace stacks
+FS_TITLE  = 8
+PANEL_LBL = 8
+FS_CBAR   = 6
+FS_TYPE   = 4    # heatmap y-axis cell-type labels (very dense; 65 entries)
+
+# Minimum vertical spacing (in heatmap rows) between displayed cell-type
+# names. With 65 anatomical types crammed into ~3 in of vertical space,
+# every other label is suppressed so adjacent names stop overlapping.
+HEATMAP_LABEL_MIN_STEP = 2
 
 # -- figure size: ~18 cm document width --------------------------------------
 FIG_W_IN  = 18.0 * 0.3937   # ~7.09 in
-FIG_H_IN  = 4.7             # 2 rows tall, preserves the 21x14 ~ 3:2 aspect
+FIG_H_IN  = 7.0             # 3 rows; row 3 is shorter
 
 # -- data --------------------------------------------------------------------
 DATA_ROOT = '/groups/saalfeld/home/allierc/GraphData'
-CONFIGS = [
-    ('flyvis_noise_free', DATA_ROOT, 'noise-free'),
-    ('flyvis_noise_005',  DATA_ROOT, 'low intrinsic noise'),
-    ('flyvis_noise_05',   DATA_ROOT, 'high intrinsic noise'),
-]
-N_HEATMAP_FRAMES = 2000    # frames loaded for the heatmap (zarr subsample)
 
-# -- selected types for trace panels -----------------------------------------
-# Covers the full visual pathway: photoreceptors -> lamina -> medulla -> T-cells
-# R1=23, L1=5, L2=6, L3=7, Mi1=12, Mi9=22, Tm1=43, Tm9=55, T4a=35, T5a=39, T1=31, Am=0
+# Rows 1-2: 3 model-noise columns (heatmaps + trace stacks). Using the
+# blank50 variants so 50% blank-stimulus periods are visible — the blue
+# steelblue shading on d/e/f then encodes the same on/off structure as
+# panels g/h/i.
+INTRINSIC_CONFIGS = [
+    ('flyvis_noise_free_blank50', r'noise-free ($\sigma=0$)'),
+    ('flyvis_noise_005_blank50',  r'low model noise ($\sigma=0.05$)'),
+    ('flyvis_noise_05_blank50',   r'high model noise ($\sigma=0.5$)'),
+]
+
+# Row 3: noise-free blank50 source. Panel g is the raw signal (gamma=0,
+# noise-free reference); panels h & i add Gaussian measurement noise so
+# all three R1 panels share the exact same underlying trace.
+MEAS_SOURCE_CFG = 'flyvis_noise_free_blank50'
+MEAS_GAMMAS = [
+    (0.00, r'noise-free ($\gamma=0$)'),
+    (0.10, r'low measurement noise ($\gamma=0.1$)'),
+    (0.20, r'high measurement noise ($\gamma=0.2$)'),
+]
+MEAS_NOISE_SEED = 42
+
+N_HEATMAP_FRAMES = 2000
+
+# -- selected types for trace stack panels -----------------------------------
+# Covers the visual pathway: photoreceptors -> lamina -> medulla -> T-cells
 SELECTED_TYPES = [23, 5, 6, 7, 12, 22, 43, 55, 35, 39, 31, 0]
 TRACE_START    = 100
-TRACE_END      = 600   # 500-frame window
+TRACE_END      = 600   # 500-frame window for trace stacks
+
+# -- R1 zoom (row 3) ---------------------------------------------------------
+R1_TYPE_ID     = 23    # R1 photoreceptor index
+R1_TRACE_START = 100
+R1_TRACE_END   = 600   # 500-frame window — same as row 2 trace stacks
 
 # -- heatmap style -----------------------------------------------------------
 CMAP  = 'RdBu_r'
-VLIM  = 2.0          # +-2 sigma clipping for z-scored heatmap
+VLIM  = 2.0
 
-# -- trace colors ------------------------------------------------------------
-COLOR_GT   = 'black'     # voltage trace
-COLOR_STIM = 'red'       # stimulus
-LW_GT      = 0.6         # thin trace matches 0.5 pt axes
-LW_STIM    = 0.5
+# -- trace + blank-shading style ---------------------------------------------
+COLOR_GT        = 'black'
+COLOR_STIM      = 'red'
+LW_GT           = 0.6
+LW_STIM         = 0.5
+LW_R1           = 0.6
+BLANK_COLOR     = 'steelblue'
+BLANK_ALPHA     = 0.18
+BLANK_THRESHOLD = 0.01
 
 
 # ---------------------------------------------------------------------------
 # Data loading
 # ---------------------------------------------------------------------------
 
-def load_training_data(config_name, data_root):
-    """Load voltage, stimulus, and per-neuron type_ids from x_list_train zarr.
-
-    Returns
-    -------
-    voltage  : (n_neurons, N_HEATMAP_FRAMES)  float32
-    stimulus : (n_neurons, N_HEATMAP_FRAMES)  float32
-    type_ids : (n_neurons,)                   int
-    """
+def load_training_data(config_name, data_root, n_frames):
+    """Load voltage / stimulus / type_ids slice from x_list_train zarr."""
     set_data_root(data_root)
     cfg_path = os.path.join(REPO, 'config', 'fly', f'{config_name}.yaml')
     config   = NeuralGraphConfig.from_yaml(cfg_path)
@@ -144,10 +168,9 @@ def load_training_data(config_name, data_root):
         os.path.join(gdata_dir, 'x_list_train'),
         fields=['voltage', 'stimulus', 'neuron_type'],
     )
-    # subsample frames for speed (zarr lazy-loads only what is requested)
-    voltage  = x_ts.voltage[:N_HEATMAP_FRAMES].numpy().T.astype(np.float32)
-    stimulus = x_ts.stimulus[:N_HEATMAP_FRAMES].numpy().T.astype(np.float32)
-    type_ids = x_ts.neuron_type.numpy().astype(int)   # (n_neurons,)
+    voltage  = x_ts.voltage[:n_frames].numpy().T.astype(np.float32)
+    stimulus = x_ts.stimulus[:n_frames].numpy().T.astype(np.float32)
+    type_ids = x_ts.neuron_type.numpy().astype(int)
     return voltage, stimulus, type_ids
 
 
@@ -156,14 +179,7 @@ def load_training_data(config_name, data_root):
 # ---------------------------------------------------------------------------
 
 def _type_heatmap(voltage, type_ids, n_types, anat_order):
-    """Type-mean voltage, z-scored per type, anatomically sorted.
-
-    z-scoring (subtract each type's mean, divide by its std) removes the
-    type-specific voltage baseline and amplitude, making all 65 types
-    equally visible in the heatmap regardless of absolute scale.
-
-    Returns (n_sorted_types, n_frames) array and corresponding name list.
-    """
+    """Type-mean voltage, z-scored per type, anatomically sorted."""
     n_frames  = voltage.shape[1]
     type_mean = np.zeros((n_types, n_frames), dtype=np.float32)
     for t in range(n_types):
@@ -178,82 +194,144 @@ def _type_heatmap(voltage, type_ids, n_types, anat_order):
     return z[valid], names
 
 
-# ---------------------------------------------------------------------------
-# Load all data (one config at a time to keep peak memory low)
-# ---------------------------------------------------------------------------
-anat_order = ANATOMICAL_ORDER   # may contain None at index 0
-n_types    = len(INDEX_TO_NAME) # 65
+def _thin_labels(names, min_step):
+    """Replace each name within `min_step` rows of the previously kept name
+    with an empty string. Used to declutter dense y-axis label stacks."""
+    out  = []
+    last = -10**9
+    for i, n in enumerate(names):
+        if i - last >= min_step:
+            out.append(n)
+            last = i
+        else:
+            out.append('')
+    return out
 
-heatmaps   = []
-trace_data = []   # list of (voltage, stimulus, type_ids) for trace window only
-sorted_names_ref = None
 
-for config_name, data_root, sigma_lbl in CONFIGS:
+def _draw_blank_shading(ax, s_win):
+    """Steelblue spans where NO neuron sees stimulus (true blank periods).
+    Uses max-across-neurons rather than mean: only ~8 of 13.7k neurons
+    (photoreceptors) get direct visual input, so the population mean is
+    always close to zero and would mark every frame as 'blank'."""
+    s_max = np.abs(s_win).max(axis=0)
+    blank = s_max < BLANK_THRESHOLD
+    if not blank.any():
+        return
+    edges  = np.diff(blank.astype(int), prepend=0, append=0)
+    starts = np.where(edges == 1)[0]
+    ends   = np.where(edges == -1)[0]
+    for bs, be in zip(starts, ends):
+        ax.axvspan(bs, be, alpha=BLANK_ALPHA, color=BLANK_COLOR,
+                   linewidth=0, zorder=0)
+
+
+# ---------------------------------------------------------------------------
+# Load data — rows 1-2 (intrinsic-noise heatmaps + trace stacks)
+# ---------------------------------------------------------------------------
+anat_order = ANATOMICAL_ORDER
+n_types    = len(INDEX_TO_NAME)   # 65
+
+heatmaps          = []
+trace_data        = []   # list of (v_window, s_window, type_ids)
+sorted_names_ref  = None
+
+for config_name, sigma_lbl in INTRINSIC_CONFIGS:
     print(f'loading {config_name} ...')
-    voltage, stimulus, type_ids = load_training_data(config_name, data_root)
+    voltage, stimulus, type_ids = load_training_data(
+        config_name, DATA_ROOT, N_HEATMAP_FRAMES)
 
-    # heatmap over all N_HEATMAP_FRAMES
     hz, snames = _type_heatmap(voltage, type_ids, n_types, anat_order)
     heatmaps.append(hz)
     if sorted_names_ref is None:
         sorted_names_ref = snames
 
-    # keep only the trace window to save memory
-    v_win   = voltage[:,  TRACE_START:TRACE_END]   # (n_neurons, 500)
-    s_win   = stimulus[:, TRACE_START:TRACE_END]   # (n_neurons, 500)
+    v_win = voltage[:,  TRACE_START:TRACE_END]
+    s_win = stimulus[:, TRACE_START:TRACE_END]
     trace_data.append((v_win, s_win, type_ids))
 
-    del voltage, stimulus   # free ~400 MB
+    del voltage, stimulus
 
-# fixed step_v from sigma=0 (noise-free) data so noise effect is visually comparable
+# Fixed step_v from sigma_model = 0 so vertical spacing is identical across columns.
 v_free, _, tids_free = trace_data[0]
-free_traces = np.stack([v_free[np.where(tids_free == t)[0][0]]
-                        for t in SELECTED_TYPES
-                        if len(np.where(tids_free == t)[0]) > 0])
+free_traces = np.stack([
+    v_free[np.where(tids_free == t)[0][0]]
+    for t in SELECTED_TYPES if len(np.where(tids_free == t)[0]) > 0
+])
 step_v = max(0.5, 3.0 * float(np.std(free_traces)))
+
+
+# ---------------------------------------------------------------------------
+# Load data — row 3: one noise-free blank50 source, then add measurement
+# noise per panel so both R1 traces share the same underlying signal.
+# ---------------------------------------------------------------------------
+print(f'loading {MEAS_SOURCE_CFG} (R1 zoom source) ...')
+_v_src, _s_src, _tids_src = load_training_data(
+    MEAS_SOURCE_CFG, DATA_ROOT, R1_TRACE_END)
+_v_src_win = _v_src[:,  R1_TRACE_START:R1_TRACE_END]
+_s_src_win = _s_src[:, R1_TRACE_START:R1_TRACE_END]
+del _v_src, _s_src
+
+# Synthesise per-gamma R1 windows by adding independent Gaussian noise.
+_rng = np.random.default_rng(MEAS_NOISE_SEED)
+r1_data = []
+for gamma, _title in MEAS_GAMMAS:
+    v_noisy = _v_src_win + _rng.normal(0.0, gamma, size=_v_src_win.shape).astype(np.float32)
+    r1_data.append((v_noisy, _s_src_win, _tids_src))
 
 
 # ---------------------------------------------------------------------------
 # Build figure
 # ---------------------------------------------------------------------------
-fig, axes = plt.subplots(
-    2, 3, figsize=(FIG_W_IN, FIG_H_IN),
-    gridspec_kw={'height_ratios': [3, 4]},
+fig = plt.figure(figsize=(FIG_W_IN, FIG_H_IN))
+# 3 rows x 6 cols — rows 1-2 use 3 panels of width 2; row 3 uses 2 panels of width 3.
+# Heights: heatmap (3) > traces (4) > R1 zoom (2).
+gs_outer = mgs.GridSpec(
+    3, 6, figure=fig,
+    height_ratios=[3, 4, 2],
+    left=0.08, right=0.88, top=0.95, bottom=0.06,
+    hspace=0.36, wspace=0.30,
 )
-plt.subplots_adjust(left=0.08, right=0.88, top=0.96, bottom=0.06,
-                    hspace=0.32, wspace=0.06)
+
+axes_row0 = [fig.add_subplot(gs_outer[0, c*2:(c+1)*2]) for c in range(3)]   # a, b, c
+axes_row1 = [fig.add_subplot(gs_outer[1, c*2:(c+1)*2]) for c in range(3)]   # d, e, f
+axes_row2 = [fig.add_subplot(gs_outer[2, c*2:(c+1)*2]) for c in range(3)]   # g, h, i
 
 n_sorted  = len(sorted_names_ref)
 n_frames  = heatmaps[0].shape[1]
 n_tframes = TRACE_END - TRACE_START
+n_r1f     = R1_TRACE_END - R1_TRACE_START
 
+
+# -- Row 1: heatmaps (a, b, c) -----------------------------------------------
 last_im = None
-for col, (hz, (v_win, s_win, type_ids), (_, _, sigma_lbl)) in enumerate(
-        zip(heatmaps, trace_data, CONFIGS)):
-
-    # -- row 0: heatmap ------------------------------------------------------
-    ax_h = axes[0, col]
-    im   = ax_h.imshow(hz, aspect='auto', interpolation='nearest',
-                       cmap=CMAP, vmin=-VLIM, vmax=VLIM, origin='upper')
+for col, (hz, (_cfg, sigma_lbl)) in enumerate(zip(heatmaps, INTRINSIC_CONFIGS)):
+    ax = axes_row0[col]
+    im = ax.imshow(hz, aspect='auto', interpolation='nearest',
+                   cmap=CMAP, vmin=-VLIM, vmax=VLIM, origin='upper')
     last_im = im
-    ax_h.set_title(sigma_lbl, fontsize=FS_TITLE, pad=4)
-    ax_h.set_xticks([0, n_frames // 2, n_frames - 1])
-    ax_h.set_xticklabels(['0', str(n_frames // 2), str(n_frames - 1)],
-                          fontsize=FS_TICK)
-    ax_h.set_xlabel('frame', fontsize=FS_LABEL)
+    ax.set_title(sigma_lbl, fontsize=FS_TITLE, pad=4)
+    ax.set_xticks([0, n_frames // 2, n_frames - 1])
+    ax.set_xticklabels(['0', str(n_frames // 2), str(n_frames - 1)],
+                       fontsize=FS_TICK)
+    ax.set_xlabel('frame', fontsize=FS_LABEL)
     if col == 0:
-        ax_h.set_yticks(range(n_sorted))
-        ax_h.set_yticklabels(sorted_names_ref, fontsize=FS_TYPE)
-        ax_h.set_ylabel('cell type', fontsize=FS_LABEL)
+        ax.set_yticks(range(n_sorted))
+        ax.set_yticklabels(
+            _thin_labels(sorted_names_ref, HEATMAP_LABEL_MIN_STEP),
+            fontsize=FS_TYPE)
+        ax.set_ylabel('cell type', fontsize=FS_LABEL)
     else:
-        ax_h.set_yticks([])
-    _trim_axis(ax_h, yaxis=False)
+        ax.set_yticks([])
+    _trim_axis(ax, yaxis=False)
 
-    # -- row 1: traces -------------------------------------------------------
-    ax_t = axes[1, col]
-    row  = 0
-    first_gt   = True
-    first_stim = True
+
+# -- Row 2: trace stacks (d, e, f) -------------------------------------------
+for col, ((v_win, s_win, type_ids), (_cfg, sigma_lbl)) in enumerate(
+        zip(trace_data, INTRINSIC_CONFIGS)):
+    ax = axes_row1[col]
+    # Steelblue blank-stimulus spans go down first so traces sit on top.
+    _draw_blank_shading(ax, s_win)
+    row = 0
     for t_idx in SELECTED_TYPES:
         neuron_rows = np.where(type_ids == t_idx)[0]
         if len(neuron_rows) == 0:
@@ -263,80 +341,139 @@ for col, (hz, (v_win, s_win, type_ids), (_, _, sigma_lbl)) in enumerate(
         stim  = s_win[nid]
         bl    = trace.mean()
 
-        # voltage trace
-        ax_t.plot(trace - bl + row * step_v,
-                  lw=LW_GT, color=COLOR_GT, alpha=0.9)
-        first_gt = False
-
-        # stimulus trace (red dashed) - only when non-trivial
+        ax.plot(trace - bl + row * step_v,
+                lw=LW_GT, color=COLOR_GT, alpha=0.9)
         if stim.mean() > 0:
-            ax_t.plot(stim - stim.mean() + row * step_v,
-                      lw=LW_STIM, color=COLOR_STIM, alpha=0.9,
-                      linestyle='--')
-            first_stim = False
+            ax.plot(stim - stim.mean() + row * step_v,
+                    lw=LW_STIM, color=COLOR_STIM, alpha=0.9, linestyle='--')
 
-        # type-name label on the left
-        ax_t.text(-n_tframes * 0.025, row * step_v,
-                  INDEX_TO_NAME.get(t_idx, f'Type{t_idx}'),
-                  fontsize=FS_ANNOT, va='bottom', ha='right', color='black')
+        ax.text(-n_tframes * 0.025, row * step_v,
+                INDEX_TO_NAME.get(t_idx, f'Type{t_idx}'),
+                fontsize=FS_ANNOT, va='bottom', ha='right', color='black')
         row += 1
 
     n_rows = row
-    ax_t.set_ylim([-step_v, (n_rows - 1) * step_v + step_v])
-    ax_t.set_yticks([])
-    ax_t.set_xticks([0, n_tframes // 2, n_tframes])
-    ax_t.set_xticklabels([TRACE_START, (TRACE_START + TRACE_END) // 2, TRACE_END],
-                          fontsize=FS_TICK)
-    ax_t.set_xlabel('frame', fontsize=FS_LABEL)
-    ax_t.set_xlim([-n_tframes * 0.08, n_tframes * 1.05])
-    ax_t.set_title(sigma_lbl, fontsize=FS_TITLE, pad=4)
-    # Left spine hidden - traces carry no quantitative y-axis here.
-    ax_t.spines['left'].set_visible(False)
+    ax.set_ylim([-step_v, (n_rows - 1) * step_v + step_v])
+    ax.set_yticks([])
+    ax.set_xticks([0, n_tframes // 2, n_tframes])
+    ax.set_xticklabels([TRACE_START, (TRACE_START + TRACE_END) // 2, TRACE_END],
+                       fontsize=FS_TICK)
+    ax.set_xlabel('frame', fontsize=FS_LABEL)
+    ax.set_xlim([-n_tframes * 0.08, n_tframes * 1.05])
+    ax.set_title(sigma_lbl, fontsize=FS_TITLE, pad=4)
+    ax.spines['left'].set_visible(False)
     if col == 0:
-        ax_t.set_ylabel('voltage (a.u.)', fontsize=FS_LABEL, labelpad=12)
-    _trim_axis(ax_t, yaxis=False)
+        ax.set_ylabel('voltage (a.u.)', fontsize=FS_LABEL, labelpad=12)
+    _trim_axis(ax, yaxis=False)
 
 
-# -- shared colorbar - placed manually right next to panel c ------------------
-# Draw once so subplots_adjust positions are committed.
+# -- Row 3: single-R1 zoom (noise-free reference + 2 measurement-noise levels)
+# Pre-compute the baseline-subtracted R1 trace for each panel so we can
+# share a single y-axis range across g/h/i (fair noise comparison).
+_r1_traces = []
+for v_win, s_win, type_ids in r1_data:
+    neuron_rows = np.where(type_ids == R1_TYPE_ID)[0]
+    if len(neuron_rows) == 0:
+        _r1_traces.append((None, s_win))
+        continue
+    nid   = neuron_rows[0]
+    trace = v_win[nid]
+    _r1_traces.append((trace - trace.mean(), s_win))
+
+# Symmetric shared y-range covering every panel's most extreme value,
+# with a 5% headroom so the trace edges aren't flush to the spine.
+_r1_pad = 0.05
+_r1_max = max(np.abs(t).max() for t, _ in _r1_traces if t is not None)
+R1_YMIN = -(1 + _r1_pad) * _r1_max
+R1_YMAX =  (1 + _r1_pad) * _r1_max
+
+for col, ((trace_bl, s_win), (_gamma, title)) in enumerate(
+        zip(_r1_traces, MEAS_GAMMAS)):
+    ax = axes_row2[col]
+    if trace_bl is None:
+        ax.text(0.5, 0.5, f'no neurons of type R1 (id={R1_TYPE_ID})',
+                ha='center', va='center', fontsize=FS_ANNOT,
+                color='red', transform=ax.transAxes)
+        continue
+
+    _draw_blank_shading(ax, s_win)
+
+    # Voltage trace only — stimulus overlay (red dashed) intentionally
+    # omitted in the bottom row; the steelblue blank shading already
+    # encodes when stimulus is on/off.
+    ax.plot(trace_bl, lw=LW_R1, color=COLOR_GT, alpha=0.95, label='R1 voltage')
+
+    ax.set_xticks([0, n_r1f // 2, n_r1f])
+    ax.set_xticklabels([R1_TRACE_START,
+                        (R1_TRACE_START + R1_TRACE_END) // 2,
+                        R1_TRACE_END],
+                       fontsize=FS_TICK)
+    ax.set_xlabel('frame', fontsize=FS_LABEL)
+    ax.set_xlim([0, n_r1f])
+    ax.set_ylim([R1_YMIN, R1_YMAX])
+    if col == 0:
+        ax.tick_params(axis='y', labelsize=FS_TICK)
+        ax.set_ylabel('R1 voltage (a.u.)', fontsize=FS_LABEL)
+    else:
+        # Same scale as panel g; suppress repeated tick labels so h/i
+        # have the same effective box width as a/b/c above.
+        ax.set_yticklabels([])
+    ax.set_title(title, fontsize=FS_TITLE, pad=4)
+    _trim_axis(ax)
+
+
+# Force row 3 panels to share the exact x-range of the heatmap row above
+# (panels g/h/i had a slightly narrower data box because their y-tick
+# labels were pushing the frame inward).
 fig.canvas.draw()
-_pos = axes[0, 2].get_position()   # [x0, y0, w, h] in figure fraction
+for col, ax_g in enumerate(axes_row2):
+    pos_top = axes_row0[col].get_position()
+    pos_g   = ax_g.get_position()
+    ax_g.set_position([pos_top.x0, pos_g.y0, pos_top.width, pos_g.height])
+
+
+# -- shared colorbar — placed manually right next to panel c -----------------
+fig.canvas.draw()
+_pos = axes_row0[2].get_position()
 _cax = fig.add_axes([
-    _pos.x1 + 0.008,               # just to the right of panel c
-    _pos.y0 + _pos.height * 0.10,  # 10 % padding bottom
-    0.012,                          # slim width
-    _pos.height * 0.80,            # 80 % of panel height
+    _pos.x1 + 0.008,
+    _pos.y0 + _pos.height * 0.10,
+    0.012,
+    _pos.height * 0.80,
 ])
 cbar = fig.colorbar(last_im, cax=_cax)
 cbar.set_label('z-scored voltage', fontsize=FS_CBAR)
 cbar.ax.tick_params(labelsize=FS_CBAR)
 
-# -- panel labels - row 0 aligned together, row 1 aligned together -----------
-# (INSTRUCTIONS.md: use y1_max per row so labels within each row share the
-#  same y; rows at different heights naturally get their own y level)
+
+# -- panel labels (a..h), one shared y per row -------------------------------
 fig.canvas.draw()
-renderer  = fig.canvas.get_renderer()
-inv       = fig.transFigure.inverted()
+renderer = fig.canvas.get_renderer()
+inv      = fig.transFigure.inverted()
 
-bboxes_row0 = [ax.get_tightbbox(renderer) for ax in axes[0]]
-bboxes_row1 = [ax.get_tightbbox(renderer) for ax in axes[1]]
-y1_max_0 = max(inv.transform((bb.x0, bb.y1))[1] for bb in bboxes_row0)
-y1_max_1 = max(inv.transform((bb.x0, bb.y1))[1] for bb in bboxes_row1)
+bb_r0 = [ax.get_tightbbox(renderer) for ax in axes_row0]
+bb_r1 = [ax.get_tightbbox(renderer) for ax in axes_row1]
+bb_r2 = [ax.get_tightbbox(renderer) for ax in axes_row2]
+y_r0 = max(inv.transform((bb.x0, bb.y1))[1] for bb in bb_r0)
+y_r1 = max(inv.transform((bb.x0, bb.y1))[1] for bb in bb_r1)
+y_r2 = max(inv.transform((bb.x0, bb.y1))[1] for bb in bb_r2)
 
-for col, (lbl0, lbl1) in enumerate(zip(['a', 'b', 'c'], ['d', 'e', 'f'])):
-    # x0 = leftmost edge of this column across both rows - aligns e.g. a) and d)
-    x0_top = inv.transform((bboxes_row0[col].x0, bboxes_row0[col].y1))[0]
-    x0_bot = inv.transform((bboxes_row1[col].x0, bboxes_row1[col].y1))[0]
-    x0_col = min(x0_top, x0_bot)
-    fig.text(x0_col, y1_max_0, lbl0, fontsize=PANEL_LBL, fontweight='bold',
-             va='bottom', ha='left', color='black', transform=fig.transFigure)
-    fig.text(x0_col, y1_max_1, lbl1, fontsize=PANEL_LBL, fontweight='bold',
-             va='bottom', ha='left', color='black', transform=fig.transFigure)
+row_letters = [
+    (axes_row0, ['a', 'b', 'c'], y_r0, bb_r0),
+    (axes_row1, ['d', 'e', 'f'], y_r1, bb_r1),
+    (axes_row2, ['g', 'h', 'i'], y_r2, bb_r2),
+]
+for axes_row, lbls, y, bbs in row_letters:
+    for bb, lbl in zip(bbs, lbls):
+        x0 = inv.transform((bb.x0, bb.y1))[0]
+        fig.text(x0, y, lbl, fontsize=PANEL_LBL, fontweight='bold',
+                 va='bottom', ha='left', color='black',
+                 transform=fig.transFigure)
+
 
 # -- save --------------------------------------------------------------------
 OUT_DIR  = os.path.dirname(os.path.abspath(__file__))
 out_base = os.path.join(OUT_DIR, 'fig_simulations')
-# PDF first per janne.matplotlibrc default; PNG for quick preview.
 plt.savefig(out_base + '.pdf', bbox_inches='tight')
 plt.savefig(out_base + '.png', dpi=300, bbox_inches='tight')
 plt.close()

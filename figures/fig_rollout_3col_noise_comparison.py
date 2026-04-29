@@ -484,15 +484,17 @@ def main():
         pred_w = _slice(ts['pred'], neuron_idx)
         stim_w = (_slice(ts['stim'], neuron_idx)
                   if ts.get('stim') is not None else None)
-        # Pooled Pearson r against the noisy training-style gt (the data the
-        # trace plot displays).
-        r_noisy = float(np.corrcoef(np.asarray(ts['true']).ravel(),
-                                    np.asarray(ts['pred']).ravel())[0, 1])
+        # Per-neuron Pearson r, Fisher-z pooled — same recipe the
+        # graph_tester / cv table use, so the values shown here agree
+        # with the per-condition Pearson rows in the TeX/MD summaries.
+        from connectome_gnn.utils import compute_trace_metrics, fisher_pool
+        _, _pear_noisy, _, _ = compute_trace_metrics(
+            np.asarray(ts['true']), np.asarray(ts['pred']))
+        r_noisy = float(fisher_pool(_pear_noisy)['r_mean'])
         if col['noise_level'] > 0:
-            # Also report Pearson r against the deterministic (noise-free) gt
-            # — same model, deterministic cv00 split.
-            r_nf = float(np.corrcoef(np.asarray(prim['true']).ravel(),
-                                     np.asarray(prim['pred']).ravel())[0, 1])
+            _, _pear_nf, _, _ = compute_trace_metrics(
+                np.asarray(prim['true']), np.asarray(prim['pred']))
+            r_nf = float(fisher_pool(_pear_nf)['r_mean'])
             header = [f"vs noisy, $r$ = {r_noisy:.2f}",
                       f"vs noise-free, $r$ = {r_nf:.2f}"]
         else:

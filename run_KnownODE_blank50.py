@@ -77,11 +77,17 @@ _parser.add_argument('--cluster', choices=['a100', 'l4'], default=None,
                      help='Override the LSF GPU queue for ALL conditions '
                           '(a100 or l4). When unset, uses the per-script '
                           'default.')
+_parser.add_argument('--cv00-only', dest='cv00_only', action='store_true',
+                     help='Limit the CV grid to fold 0 (cv00) only — useful '
+                          'when iterating on plot rendering with --replot, '
+                          'so a single fold is re-rolled out per condition '
+                          'instead of all five.')
 _args = _parser.parse_args()
 
 _force_train = bool(_args.retrain or _args.redo_all)
 _force_test  = bool(_args.retest  or _args.redo_all)
 _force_plot  = bool(_args.replot  or _args.redo_all)
+_n_folds     = 1 if _args.cv00_only else 5
 
 
 BLANK50_SIM_OVERRIDES = {
@@ -113,11 +119,11 @@ CONDITION_NODES = {
     'flyvis_noise_free':                    'a100',
     'flyvis_noise_005':                     'a100',
     'flyvis_noise_05':                      'a100',
-    'flyvis_noise_005_010':                 'a100',  # = AR(1) rho=0 control under blank50 overrides
-    'flyvis_noise_005_020':                 'a100',
-    'flyvis_noise_005_null_edges_pc_400':   'a100',
-    'flyvis_noise_005_removed_pc_20':       'a100',
-    'flyvis_noise_005_removed_pc_50':       'a100',
+    # 'flyvis_noise_005_010':                 'a100',  # = AR(1) rho=0 control under blank50 overrides
+    # 'flyvis_noise_005_020':                 'a100',
+    # 'flyvis_noise_005_null_edges_pc_400':   'a100',
+    # 'flyvis_noise_005_removed_pc_20':       'a100',
+    # 'flyvis_noise_005_removed_pc_50':       'a100',
 }
 
 CONDITION_FILTER     = list(CONDITION_NODES.keys())
@@ -135,6 +141,7 @@ run_all_conditions(
     dataset_tag='blank50',
     condition_filter=CONDITION_FILTER,
     data_augmentation_loop=35,
+    n_folds=_n_folds,
     conditions_per_wave=4,
     emit_tex=False,
     force_train=_force_train,
@@ -148,7 +155,7 @@ run_all_conditions(
 emit_summary_md('blank50_known_ode',
                 output_root=os.environ.get('GNN_OUTPUT_ROOT')
                             or load_data_root_from_json(),
-                n_folds=5)
+                n_folds=_n_folds)
 
 
 # ---------------------------------------------------------------------------
@@ -176,3 +183,4 @@ emit_summary_md('blank50_known_ode',
 #
 # # Force fresh training but defer plotting to a later --replot pass:
 # python run_KnownODE_blank50.py --retrain --skip-test-plot --cluster a100
+# python run_KnownODE_blank50.py --replot --cv00-only --cluster a100
