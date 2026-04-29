@@ -42,8 +42,44 @@ import yaml
 from fig_rollout_3col_noise_comparison import (  # type: ignore
     SELECTED_TYPES, DT_MS, FS_LABEL, FS_TICK, TRACE_SHRINK,
     FIG_W_IN, FIG_H_IN, TRACE_START, TRACE_END,
-    _slice, draw_traces, draw_scatter, add_panel_label, _load_bundle,
+    SCATTER_LO, SCATTER_HI,
+    _slice, _trim_axis, draw_traces, add_panel_label, _load_bundle,
 )
+from connectome_gnn.utils import compute_trace_metrics, fisher_pool
+
+
+def _pooled_r(true_arr, pred_arr):
+    """Fisher-z pooled per-neuron Pearson r and its symmetric SD."""
+    _, pear, _, _ = compute_trace_metrics(np.asarray(true_arr),
+                                          np.asarray(pred_arr))
+    fz = fisher_pool(pear)
+    return float(fz['r_mean']), float(fz['r_sd_sym'])
+
+
+def draw_scatter(ax, true_arr, pred_arr, xlabel, ylabel, show_fit=True):
+    """Hexbin density of pred vs true, annotated with Fisher-z pooled r ± SD.
+
+    Replaces the upstream draw_scatter (which prints R² + slope) — same hexbin
+    rendering, different annotation.
+    """
+    r_mean, r_sd = _pooled_r(true_arr, pred_arr)
+    # x-axis: ground truth; y-axis: prediction (same convention as upstream).
+    x = np.asarray(true_arr).reshape(-1).astype(np.float32)
+    y = np.asarray(pred_arr).reshape(-1).astype(np.float32)
+    lo, hi = SCATTER_LO, SCATTER_HI
+    ax.hexbin(x, y, gridsize=140, bins='log', cmap='magma_r',
+              mincnt=1, extent=(lo, hi, lo, hi), linewidths=0.0)
+    ax.set_xlim([lo, hi]); ax.set_ylim([lo, hi])
+    ax.set_aspect('equal', adjustable='box')
+    ax.set_xlabel(xlabel, fontsize=FS_LABEL)
+    ax.set_ylabel(ylabel, fontsize=FS_LABEL)
+    ax.tick_params(axis='both', labelsize=FS_TICK)
+    ticks = [lo, 0.0, hi]
+    ax.set_xticks(ticks); ax.set_yticks(ticks)
+    ax.set_xlim([lo, hi]); ax.set_ylim([lo, hi])
+    _trim_axis(ax)
+    ax.text(0.05, 0.97, f"$r$ = {r_mean:.2f} $\\pm$ {r_sd:.2f}",
+            transform=ax.transAxes, va='top', ha='left', fontsize=FS_TICK)
 
 
 # ── paths ────────────────────────────────────────────────────────────────────
@@ -76,15 +112,19 @@ def build_columns(arch):
         ['noise-free', 'low model noise', 'high model noise'],
         base.values(),
     ):
-        run_cfg = f'{BASELINE_ROOT}/log/fly/{model}/config.yaml'
-        if not os.path.isfile(run_cfg):
-            sys.exit(f'missing run config: {run_cfg}')
+        # GNN_Main.py extracts pre_folder from the yaml's parent dir, so the
+        # model yaml must live under config/fly/ (copied from log/fly/<run>/).
+        model_yaml = f'{CFG_DIR}/{model}.yaml'
+        run_cfg    = f'{BASELINE_ROOT}/log/fly/{model}/config.yaml'
+        if not os.path.isfile(model_yaml):
+            sys.exit(f'missing model yaml at config/fly/: {model_yaml}\n'
+                     f'  cp {run_cfg} {model_yaml}')
         cols.append({
             'label'         : label,
             'sigma'         : sigma_tex,
             'model'         : model,
-            'model_yaml'    : run_cfg,
-            'base_yaml'     : run_cfg,         # the run config doubles as base
+            'model_yaml'    : model_yaml,
+            'base_yaml'     : model_yaml,      # the run config doubles as base
             'cv00_dataset'  : model,           # dataset name == model name here
             'noise_level'   : sigma,
         })
@@ -184,10 +224,9 @@ def load_noisy_bundle(col):
 # Figure builder (mirrors main() in the GNN figure)
 # ---------------------------------------------------------------------------
 def build_figure(columns, out_base):
-    # NOTE: the "vs noisy" panels are dropped for now — the kumarv4 run dirs
-    # are read-only here, so we cannot generate the noisy-test variant or its
-    # rollout bundle. Each column shows only the deterministic-test rollout
-    # (primary bundle), giving a 3-trace + 3-scatter layout.
+    # Show only "vs noise-free" comparison (drop the noisy-test panels): trace
+    # row 1 displays the deterministic-test rollout, scatter row 2 has one
+    # panel per noise level — 6 panels total.
     primary = [load_primary_bundle(col) for col in columns]
     trace_src = primary
 
@@ -225,9 +264,11 @@ def build_figure(columns, out_base):
         pred_w = _slice(ts['pred'], neuron_idx)
         stim_w = (_slice(ts['stim'], neuron_idx)
                   if ts.get('stim') is not None else None)
-        r_nf = float(np.corrcoef(np.asarray(ts['true']).ravel(),
-                                 np.asarray(ts['pred']).ravel())[0, 1])
-        header = f"$r$ = {r_nf:.2f}"
+        # Per-neuron Pearson r, Fisher-z pooled — same recipe the
+        # graph_tester / cv table use, so the values shown here agree
+        # with the per-condition Pearson rows in the TeX/MD summaries.
+        r_mean, r_sd = _pooled_r(ts['true'], ts['pred'])
+        header = f"$r$ = {r_mean:.2f} $\\pm$ {r_sd:.2f}"
         draw_traces(
             ax, true_w, pred_w, stim_w, labels, step_v, time_ms,
             column_title=f"{col['label']} ({col['sigma']})",
@@ -249,22 +290,20 @@ def build_figure(columns, out_base):
     # One scatter per column, all "vs noise-free" (deterministic test gt).
     scatter_panels = [
         (bottom_gs[0, 0], primary[0]['true'], primary[0]['pred'],
-         'ground truth voltage', 'rollout voltage', True),
+         'ground truth voltage', 'rollout voltage'),
         (bottom_gs[0, 1], primary[1]['true'], primary[1]['pred'],
-         '', '', True),
+         '', ''),
         (bottom_gs[0, 2], primary[2]['true'], primary[2]['pred'],
-         '', '', True),
+         '', ''),
     ]
 
     scatter_axes = []
-    for cell, x, y, xlbl, ylbl, show_fit in scatter_panels:
+    for cell, x, y, xlbl, ylbl in scatter_panels:
         ax = fig.add_subplot(cell)
-        draw_scatter(ax, x, y, xlabel=xlbl, ylabel=ylbl, show_fit=show_fit)
+        draw_scatter(ax, x, y, xlabel=xlbl, ylabel=ylbl)
         scatter_axes.append(ax)
 
-    # Scatter panels are wider than in the GNN figure (3 panels vs 5), so
-    # aspect='equal' makes them taller — pull-up must be ~0 to avoid the row 1
-    # x-ticks colliding with the row 2 panel tops.
+    # Wider panels (3 vs 5) at aspect='equal' are taller, so no upward pull.
     SCATTER_PULL_UP = 0.0
     for ax in scatter_axes:
         pos = ax.get_position()
