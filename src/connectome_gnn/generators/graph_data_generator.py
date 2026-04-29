@@ -827,8 +827,17 @@ def data_generate_voltage(
     _vis_type = getattr(sim, 'visual_input_type', 'DAVIS')
     _datavis_roots = getattr(sim, 'datavis_roots', None) or ['<flyvis default Sintel>']
     _skip_short = bool(getattr(sim, 'skip_short_videos', True))
+    # `visual_input_type` is the renderer class (DAVIS/mixed/flash/...), not
+    # the dataset identity. For video-based renderers the actual data source
+    # comes from `datavis_roots` — surface its basename so the log isn't
+    # misleading when e.g. visual_input_type='DAVIS' but the root is YouTube-VOS.
+    if 'DAVIS' in _vis_type or 'mixed' in _vis_type:
+        _data_source = ', '.join(os.path.basename(r.rstrip('/')) for r in _datavis_roots)
+        _renderer_str = f"renderer={_vis_type}  data_source={_data_source}"
+    else:
+        _renderer_str = f"renderer={_vis_type}"
     print(
-        f"\033[93m[stimulus] visual_input_type={_vis_type}  "
+        f"\033[93m[stimulus] {_renderer_str}  "
         f"blank_prefix_fraction={_bpf:.3f} "
         f"({'BLANK PREFIX ENABLED' if _bpf > 0 else 'no blank prefix'})  "
         f"skip_short_videos={_skip_short}\033[0m",

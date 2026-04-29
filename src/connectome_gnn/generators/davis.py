@@ -244,6 +244,7 @@ class RenderedDavis(Directory):
 
         logger.info(f"Found {len(sequence_dirs)} sequence directories")
 
+        n_skipped_short = 0
         for i, seq_dir in enumerate(tqdm(sequence_dirs, desc="Rendering sequences", ncols=100)):
             try:
                 # Load full image sequence
@@ -251,7 +252,7 @@ class RenderedDavis(Directory):
 
                 # Skip if sequence too short (only if skip_short_videos is True)
                 if skip_short_videos and len(frames) < n_frames:
-                    logger.warning(f"Sequence {seq_dir.name} has only {len(frames)} frames, skipping")
+                    n_skipped_short += 1
                     continue
 
                 # Apply max_frames cap if requested
@@ -290,6 +291,12 @@ class RenderedDavis(Directory):
 
             if unittest:
                 break
+
+        if n_skipped_short:
+            logger.info(
+                f"skipped {n_skipped_short}/{len(sequence_dirs)} sequences shorter than "
+                f"{n_frames} frames (skip_short_videos=True)"
+            )
 
     def __call__(self, seq_id: int) -> Dict[str, np.ndarray]:
         """Returns all rendered data for a given sequence index.
