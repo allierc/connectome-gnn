@@ -1349,10 +1349,10 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 _type_flat = np.repeat(type_np, func_np.shape[1])
                 _r2_g_scatter, _slope_g_scatter = compute_r_squared(_x_flat, _y_flat)
                 fig = plt.figure(figsize=(10, 9))
-                plt.scatter(_x_flat, _y_flat,
-                            c=cmap.color(_type_flat.astype(int)),
+                plt.scatter(_x_flat[::10], _y_flat[::10],
+                            c=cmap.color(_type_flat[::10].astype(int)),
                             s=max(4.0, _dot_s * 0.8),
-                            alpha=0.02,
+                            alpha=0.04,
                             edgecolors=None)
                 plt.text(0.05, 0.95,
                          f'R²: {_r2_g_scatter:.2f}\nslope: {_slope_g_scatter:.2f}',
@@ -1450,10 +1450,10 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 _type_flat = np.repeat(type_np, _func_learned_f.shape[1])
                 _r2_f_scatter, _slope_f_scatter = compute_r_squared(_x_flat, _y_flat)
                 fig = plt.figure(figsize=(10, 9))
-                plt.scatter(_x_flat, _y_flat,
-                            c=cmap.color(_type_flat.astype(int)),
+                plt.scatter(_x_flat[::10], _y_flat[::10],
+                            c=cmap.color(_type_flat[::10].astype(int)),
                             s=max(4.0, _dot_s * 0.8),
-                            alpha=0.02,
+                            alpha=0.04,
                             edgecolors=None)
                 plt.text(0.05, 0.95,
                          f'R²: {_r2_f_scatter:.2f}\nslope: {_slope_f_scatter:.2f}',
@@ -1497,11 +1497,9 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             slope_tau = 0.0
 
             if ode_params.has_tau() and gt_taus_np is not None:
-                # x is true τ (fixed window for cross-run comparability); y is
-                # learned τ which varies per run, so compute its range from data.
-                _tau_lo_p = float(np.min(learned_tau)); _tau_hi_p = float(np.max(learned_tau))
-                _tau_pad_p = 0.02 * (_tau_hi_p - _tau_lo_p) if _tau_hi_p > _tau_lo_p else 0.01
-                _tau_ylim_p = (_tau_lo_p - _tau_pad_p, _tau_hi_p + _tau_pad_p)
+                # Square fixed window matching the x-axis so the identity line
+                # is the diagonal across the whole panel.
+                _tau_ylim_p = (-0.025, 0.5)
 
                 fig = plt.figure(figsize=(10, 9))
                 plt.scatter(gt_taus_np, learned_tau, c=mc, s=_dot_s, alpha=_dot_alpha)
@@ -1606,10 +1604,9 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             slope_V_rest = 0.0
 
             if ode_params.has_vrest() and gt_vrest_np is not None:
-                # x is true V_rest (fixed); y is learned V_rest, data-driven.
-                _v_lo_p = float(np.min(learned_V_rest)); _v_hi_p = float(np.max(learned_V_rest))
-                _v_pad_p = 0.02 * (_v_hi_p - _v_lo_p) if _v_hi_p > _v_lo_p else 0.01
-                _v_ylim_p = (_v_lo_p - _v_pad_p, _v_hi_p + _v_pad_p)
+                # Square fixed window matching the x-axis so the identity line
+                # is the diagonal across the whole panel.
+                _v_ylim_p = (-0.025, 1.0)
 
                 fig = plt.figure(figsize=(10, 9))
                 plt.scatter(gt_vrest_np, learned_V_rest, c=mc, s=_dot_s, alpha=_dot_alpha)
