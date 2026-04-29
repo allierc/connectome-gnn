@@ -70,9 +70,27 @@ def solve(
     in_eidx: list,
     deg_in: np.ndarray,
     device: torch.device,
-    neq_tol: float = 1e-12,
+    null_eig_tol: float = 1e-22,
+    sloppy_eig_tol: float = 1e-12,
     null_comp_tol: float = 1e-3,
 ):
+    """Per-neuron min-norm lstsq + degeneracy flagging.
+
+    Two-tier classification of directions by relative eigenvalue w/w_max of
+    A_tilde^T A_tilde:
+        w/w_max <= null_eig_tol     -> exact null (numerical zero, structural)
+        w/w_max <= sloppy_eig_tol   -> sloppy / weakly identifiable
+                                       ("sloppy" in Sethna et al. terminology)
+        w/w_max >  sloppy_eig_tol   -> identifiable
+
+    Both null and sloppy directions are zeroed in the pseudoinverse (so the
+    solve doesn't amplify noise on near-null directions) and used to flag
+    degenerate parameters. The flag distinguishes the two: tau_null vs
+    tau_sloppy, etc., letting plots use different colors.
+
+    null_comp_tol — min |v_alpha| on a null/sloppy direction (after
+                    normalization) to flag parameter alpha.
+    """
     N, E, T = data["N"], data["E"], data["T"]
     active_idx = np.where(deg_in > 0)[0]
 
@@ -84,15 +102,17 @@ def solve(
     tau_lstsq   = np.full(N, np.nan, dtype=np.float64)
     vrest_lstsq = np.full(N, np.nan, dtype=np.float64)
     W_lstsq     = np.full(E, np.nan, dtype=np.float64)
-    tau_deg   = np.zeros(N, dtype=bool)
-    vrest_deg = np.zeros(N, dtype=bool)
-    W_deg     = np.zeros(E, dtype=bool)
+    tau_null      = np.zeros(N, dtype=bool)
+    tau_sloppy    = np.zeros(N, dtype=bool)
+    vrest_null    = np.zeros(N, dtype=bool)
+    vrest_sloppy  = np.zeros(N, dtype=bool)
+    W_null        = np.zeros(E, dtype=bool)
+    W_sloppy      = np.zeros(E, dtype=bool)
 
-    # Neurons with no incoming edges are entirely unidentifiable: A_i has only
-    # the dv/dt and constant columns, so tau and V_rest are jointly degenerate.
+    # Neurons with no incoming edges are entirely unidentifiable: tau, V_rest jointly null.
     no_in = deg_in == 0
-    tau_deg[no_in] = True
-    vrest_deg[no_in] = True
+    tau_null[no_in] = True
+    vrest_null[no_in] = True
 
     t0 = time.time()
     for i in tqdm(active_idx, desc="lstsq", unit="neuron"):
@@ -112,7 +132,13 @@ def solve(
 
         w, V = torch.linalg.eigh(G)
         w_max = w[-1]
-        keep = w > neq_tol * w_max
+
+        # Two-tier classification of directions.
+        rel = w / w_max
+        null_mask   = rel <= null_eig_tol
+        sloppy_mask = (rel > null_eig_tol) & (rel <= sloppy_eig_tol)
+        # Both null and sloppy are zeroed in the pseudoinverse (regularization).
+        keep = ~(null_mask | sloppy_mask)
         inv_w = torch.where(keep, 1.0 / w, torch.zeros_like(w))
         theta_i = (V @ (inv_w * (V.T @ c))) / s
         th = theta_i.cpu().numpy()
@@ -121,40 +147,45 @@ def solve(
         vrest_lstsq[i] = th[1]
         W_lstsq[in_eidx[i]] = th[2:]
 
-        null_mask = ~keep
-        if int(null_mask.sum().item()) > 0:
-            null_V = (V[:, null_mask] / s.unsqueeze(1)).abs()
-            null_V = null_V / null_V.amax(dim=0, keepdim=True).clamp_min(1e-300)
-            part = null_V.amax(dim=1).cpu().numpy()
+        def _flag(mask_t, tau_arr, vrest_arr, W_arr):
+            if int(mask_t.sum().item()) == 0:
+                return
+            V_null = (V[:, mask_t] / s.unsqueeze(1)).abs()
+            V_null = V_null / V_null.amax(dim=0, keepdim=True).clamp_min(1e-300)
+            part = V_null.amax(dim=1).cpu().numpy()
             if part[0] > null_comp_tol:
-                tau_deg[i] = True
+                tau_arr[i] = True
             if part[1] > null_comp_tol:
-                vrest_deg[i] = True
-            edge_deg = part[2:] > null_comp_tol
-            if edge_deg.any():
-                W_deg[in_eidx[i][edge_deg]] = True
+                vrest_arr[i] = True
+            edge_flag = part[2:] > null_comp_tol
+            if edge_flag.any():
+                W_arr[in_eidx[i][edge_flag]] = True
+
+        _flag(null_mask,   tau_null,   vrest_null,   W_null)
+        _flag(sloppy_mask, tau_sloppy, vrest_sloppy, W_sloppy)
 
     if device.type == "cuda":
         torch.cuda.synchronize()
     print(f"solve time: {time.time()-t0:.1f}s")
-    print(f"degenerate: tau={tau_deg.sum()}  V_rest={vrest_deg.sum()}  W={W_deg.sum()}/{E}")
+    print(f"null   : tau={tau_null.sum()}  V_rest={vrest_null.sum()}  W={W_null.sum()}/{E}")
+    print(f"sloppy : tau={tau_sloppy.sum()}  V_rest={vrest_sloppy.sum()}  W={W_sloppy.sum()}/{E}")
 
     return dict(
         tau_lstsq=tau_lstsq, vrest_lstsq=vrest_lstsq, W_lstsq=W_lstsq,
-        tau_deg=tau_deg, vrest_deg=vrest_deg, W_deg=W_deg,
+        tau_null=tau_null,     vrest_null=vrest_null,     W_null=W_null,
+        tau_sloppy=tau_sloppy, vrest_sloppy=vrest_sloppy, W_sloppy=W_sloppy,
     )
 
 
 def plot(data: dict, out: dict, fig_path: Path):
     fig, axes = plt.subplots(1, 3, figsize=(30, 9))
 
-    def _panel(ax, true, pred, deg, xlabel, ylabel):
+    def _panel(ax, true, pred, null, sloppy, xlabel, ylabel):
         m = ~np.isnan(pred)
-        ok = m & ~deg
-        bad = m & deg
+        is_null   = m & null
+        is_sloppy = m & sloppy & ~null
+        ok        = m & ~null & ~sloppy
 
-        # Identity-line R² + polyfit slope (matches GNN_PlotFigure).
-        # ok = ignoring degenerate, all = including all valid points.
         r2_all, _ = compute_r_squared(true[m], pred[m])
         if ok.any():
             r2_ok, slope_ok = compute_r_squared(true[ok], pred[ok])
@@ -162,33 +193,40 @@ def plot(data: dict, out: dict, fig_path: Path):
             r2_ok, slope_ok = float('nan'), float('nan')
 
         n_total = int(m.sum())
-        n_deg = int(bad.sum())
-        pct_deg = (100.0 * n_deg / n_total) if n_total else 0.0
+        n_null   = int(is_null.sum())
+        n_sloppy = int(is_sloppy.sum())
+        pct_null   = (100.0 * n_null   / n_total) if n_total else 0.0
+        pct_sloppy = (100.0 * n_sloppy / n_total) if n_total else 0.0
 
-        # Degenerate points first (translucent), then black on top.
-        ax.scatter(true[bad], pred[bad], s=6, alpha=0.35, color="red",
-                   label=f"degenerate ({n_deg})")
-        ax.scatter(true[ok],  pred[ok],  s=4, alpha=0.7, color="k",
-                   label=f"ok ({int(ok.sum())})")
+        n_ok = int(ok.sum())
+        pct_ok = (100.0 * n_ok / n_total) if n_total else 0.0
+
+        # Layered: null (red) at the back, sloppy (orange) above, ok (black) on top.
+        ax.scatter(true[is_null],   pred[is_null],   s=6, alpha=0.35, color="red",
+                   label=f"null ({pct_null:.1f}%)")
+        ax.scatter(true[is_sloppy], pred[is_sloppy], s=6, alpha=0.4, color="orange",
+                   label=f"sloppy ({pct_sloppy:.1f}%)")
+        ax.scatter(true[ok],        pred[ok],        s=4, alpha=0.7, color="k",
+                   label=f"ok ({pct_ok:.1f}%)")
         lo, hi = float(true[m].min()), float(true[m].max())
         ax.plot([lo, hi], [lo, hi], '--', color='gray', linewidth=1, alpha=0.6)
 
         ax.text(0.05, 0.95,
                 f'R²: {r2_ok:.2f} ({r2_all:.2f})\nslope: {slope_ok:.2f}',
                 transform=ax.transAxes, verticalalignment='top', fontsize=32)
-        ax.text(0.05, 0.78,
-                f'N degenerate: {n_deg} ({pct_deg:.1f}%)',
-                transform=ax.transAxes, verticalalignment='top', fontsize=18)
         ax.set_xlabel(xlabel, fontsize=48)
         ax.set_ylabel(ylabel, fontsize=48)
         ax.tick_params(axis='both', labelsize=20)
-        ax.legend(loc='lower right', fontsize=14)
+        ax.legend(loc='lower right', fontsize=24, markerscale=4)
 
-    _panel(axes[0], data["tau_true"],   out["tau_lstsq"],   out["tau_deg"],
+    _panel(axes[0], data["tau_true"],   out["tau_lstsq"],
+           out["tau_null"],   out["tau_sloppy"],
            r'true $\tau$',      r'learned $\tau$')
-    _panel(axes[1], data["vrest_true"], out["vrest_lstsq"], out["vrest_deg"],
+    _panel(axes[1], data["vrest_true"], out["vrest_lstsq"],
+           out["vrest_null"], out["vrest_sloppy"],
            r'true $V_{rest}$',  r'learned $V_{rest}$')
-    _panel(axes[2], data["W_true"],     out["W_lstsq"],     out["W_deg"],
+    _panel(axes[2], data["W_true"],     out["W_lstsq"],
+           out["W_null"],     out["W_sloppy"],
            r'true $W_{ij}$',    r'learned $W_{ij}$')
 
     plt.tight_layout()
@@ -202,8 +240,13 @@ def main():
     p.add_argument("data_root", type=Path, help="dir containing ode_params.pt and x_list_train/")
     p.add_argument("--out", type=Path, default=None, help="output figure path (default: ./<data_root_basename>_lstsq_recovery.png in CWD)")
     p.add_argument("--dt", type=float, default=0.020, help="simulation timestep in seconds")
-    p.add_argument("--neq-tol", type=float, default=1e-12)
-    p.add_argument("--null-comp-tol", type=float, default=1e-3)
+    p.add_argument("--null-eig-tol", type=float, default=1e-22,
+                   help="relative eigenvalue cutoff for STRICT null space (red)")
+    p.add_argument("--sloppy-eig-tol", type=float, default=1e-12,
+                   help="relative eigenvalue cutoff for sloppy directions (orange); "
+                        "weakly identifiable, also zeroed in pseudoinverse")
+    p.add_argument("--null-comp-tol", type=float, default=1e-3,
+                   help="min |v_alpha| on a null/sloppy direction to flag parameter alpha")
     p.add_argument("--cpu", action="store_true", help="force CPU even if CUDA is available")
     args = p.parse_args()
 
@@ -216,13 +259,21 @@ def main():
     print(f"T={data['T']}  N={data['N']}  E={data['E']}")
     in_src, in_eidx, deg_in = build_in_edges(data["edge_index"], data["N"])
     out = solve(data, in_src, in_eidx, deg_in, device,
-                neq_tol=args.neq_tol, null_comp_tol=args.null_comp_tol)
+                null_eig_tol=args.null_eig_tol,
+                sloppy_eig_tol=args.sloppy_eig_tol,
+                null_comp_tol=args.null_comp_tol)
     plot(data, out, fig_path)
 
     torch.save({
-        "tau":    torch.from_numpy(out["tau_deg"]),
-        "V_rest": torch.from_numpy(out["vrest_deg"]),
-        "W":      torch.from_numpy(out["W_deg"]),
+        "tau":           torch.from_numpy(out["tau_null"]   | out["tau_sloppy"]),
+        "V_rest":        torch.from_numpy(out["vrest_null"] | out["vrest_sloppy"]),
+        "W":             torch.from_numpy(out["W_null"]     | out["W_sloppy"]),
+        "tau_null":      torch.from_numpy(out["tau_null"]),
+        "tau_sloppy":    torch.from_numpy(out["tau_sloppy"]),
+        "V_rest_null":   torch.from_numpy(out["vrest_null"]),
+        "V_rest_sloppy": torch.from_numpy(out["vrest_sloppy"]),
+        "W_null":        torch.from_numpy(out["W_null"]),
+        "W_sloppy":      torch.from_numpy(out["W_sloppy"]),
     }, mask_path)
     print(f"wrote {mask_path}")
 
