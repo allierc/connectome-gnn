@@ -24,6 +24,8 @@ import torch
 import zarr
 from tqdm.auto import tqdm
 
+from connectome_gnn.metrics import compute_r_squared
+
 
 def load_data(data_root: Path, dt: float):
     params = torch.load(data_root / "ode_params.pt", map_location="cpu", weights_only=False)
@@ -138,39 +140,68 @@ def solve(
 
 
 def plot(data: dict, out: dict, fig_path: Path):
-    fig, axes = plt.subplots(1, 3, figsize=(13, 4))
+    fig, axes = plt.subplots(1, 3, figsize=(30, 9))
 
-    def _panel(ax, true, pred, deg, title):
+    def _panel(ax, true, pred, deg, xlabel, ylabel):
         m = ~np.isnan(pred)
         ok = m & ~deg
         bad = m & deg
-        ax.scatter(true[ok], pred[ok], s=3, alpha=0.4, color="k", label=f"ok ({ok.sum()})")
-        ax.scatter(true[bad], pred[bad], s=6, alpha=0.6, color="r", label=f"degenerate ({bad.sum()})")
-        lo, hi = true[m].min(), true[m].max()
-        ax.plot([lo, hi], [lo, hi], "k--", lw=0.8)
-        ax.set_xlabel(f"{title} true"); ax.set_ylabel(f"{title} lstsq")
-        ax.set_title(title); ax.legend(loc="best", fontsize=8)
 
-    _panel(axes[0], data["tau_true"],   out["tau_lstsq"],   out["tau_deg"],   "tau")
-    _panel(axes[1], data["vrest_true"], out["vrest_lstsq"], out["vrest_deg"], "V_rest")
-    _panel(axes[2], data["W_true"],     out["W_lstsq"],     out["W_deg"],     "W")
+        # Identity-line R² + polyfit slope (matches GNN_PlotFigure).
+        # ok = ignoring degenerate, all = including all valid points.
+        r2_all, _ = compute_r_squared(true[m], pred[m])
+        if ok.any():
+            r2_ok, slope_ok = compute_r_squared(true[ok], pred[ok])
+        else:
+            r2_ok, slope_ok = float('nan'), float('nan')
+
+        n_total = int(m.sum())
+        n_deg = int(bad.sum())
+        pct_deg = (100.0 * n_deg / n_total) if n_total else 0.0
+
+        # Degenerate points first (translucent), then black on top.
+        ax.scatter(true[bad], pred[bad], s=6, alpha=0.35, color="red",
+                   label=f"degenerate ({n_deg})")
+        ax.scatter(true[ok],  pred[ok],  s=4, alpha=0.7, color="k",
+                   label=f"ok ({int(ok.sum())})")
+        lo, hi = float(true[m].min()), float(true[m].max())
+        ax.plot([lo, hi], [lo, hi], '--', color='gray', linewidth=1, alpha=0.6)
+
+        ax.text(0.05, 0.95,
+                f'R²: {r2_ok:.2f} ({r2_all:.2f})\nslope: {slope_ok:.2f}',
+                transform=ax.transAxes, verticalalignment='top', fontsize=32)
+        ax.text(0.05, 0.78,
+                f'N degenerate: {n_deg} ({pct_deg:.1f}%)',
+                transform=ax.transAxes, verticalalignment='top', fontsize=18)
+        ax.set_xlabel(xlabel, fontsize=48)
+        ax.set_ylabel(ylabel, fontsize=48)
+        ax.tick_params(axis='both', labelsize=20)
+        ax.legend(loc='lower right', fontsize=14)
+
+    _panel(axes[0], data["tau_true"],   out["tau_lstsq"],   out["tau_deg"],
+           r'true $\tau$',      r'learned $\tau$')
+    _panel(axes[1], data["vrest_true"], out["vrest_lstsq"], out["vrest_deg"],
+           r'true $V_{rest}$',  r'learned $V_{rest}$')
+    _panel(axes[2], data["W_true"],     out["W_lstsq"],     out["W_deg"],
+           r'true $W_{ij}$',    r'learned $W_{ij}$')
 
     plt.tight_layout()
     fig.savefig(fig_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
     print(f"wrote {fig_path}")
 
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("data_root", type=Path, help="dir containing ode_params.pt and x_list_train/")
-    p.add_argument("--out", type=Path, default=None, help="output figure path (default: data_root/lstsq_recovery.png)")
+    p.add_argument("--out", type=Path, default=None, help="output figure path (default: ./<data_root_basename>_lstsq_recovery.png in CWD)")
     p.add_argument("--dt", type=float, default=0.020, help="simulation timestep in seconds")
     p.add_argument("--neq-tol", type=float, default=1e-12)
     p.add_argument("--null-comp-tol", type=float, default=1e-3)
     p.add_argument("--cpu", action="store_true", help="force CPU even if CUDA is available")
     args = p.parse_args()
 
-    fig_path = args.out or (args.data_root / "lstsq_recovery.png")
+    fig_path = args.out or Path.cwd() / f"{args.data_root.name}_lstsq_recovery.png"
     device = torch.device("cpu" if args.cpu or not torch.cuda.is_available() else "cuda")
     print(f"device: {device}  data_root: {args.data_root}")
 
