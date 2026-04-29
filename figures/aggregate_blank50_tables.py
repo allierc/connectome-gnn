@@ -140,6 +140,9 @@ _ANSI_RESET  = '\033[0m'
 _LOW_THRESH  = 0.3   # mean strictly below this -> orange / \bad{}
 _GOOD_THRESH = 0.9   # mean strictly above this -> green  / \good{}
 
+# Total neurons in every blank50 config — used to convert n_outliers to %.
+_N_NEURONS_BLANK50 = 13741
+
 
 def _fmt(mean, sd):
     """LaTeX cell. Wraps \\good{...} when mean > 0.9, \\bad{...} when mean < 0.3,
@@ -158,6 +161,32 @@ def _fmt(mean, sd):
     return body
 
 
+def _fmt_rel(median_mean, iqr_mean):
+    """LaTeX cell for relative error: ${median%}{\\pm}{IQR%}$ across folds.
+    Used for $\\widehat{W}$ (no outlier metric).
+    median_mean and iqr_mean are fold-averaged fractions in [0,1]; emit
+    as percent. NaN -> $\\cdot$."""
+    import math
+    if (isinstance(median_mean, float) and math.isnan(median_mean)) or \
+       (isinstance(iqr_mean, float) and math.isnan(iqr_mean)):
+        return '$\\cdot$'
+    return f"${100*median_mean:.1f}{{\\pm}}{100*iqr_mean:.1f}$"
+
+
+def _fmt_rel_out(median_mean, iqr_mean, count_mean, n_neurons):
+    """Combined LaTeX cell: ${med%}{\\pm}{IQR%}\\,(out%)$.
+    Used for $\\widehat{\\tau}$ and $\\widehat{V}^{\\mathrm{rest}}$.
+    NaN in any field -> $\\cdot$."""
+    import math
+    if (isinstance(median_mean, float) and math.isnan(median_mean)) or \
+       (isinstance(iqr_mean, float) and math.isnan(iqr_mean)) or \
+       (isinstance(count_mean, float) and math.isnan(count_mean)) or \
+       not n_neurons:
+        return '$\\cdot$'
+    return (f"${100*median_mean:.1f}{{\\pm}}{100*iqr_mean:.1f}"
+            f"\\,({100.0*count_mean/n_neurons:.2f})$")
+
+
 def _ansi_cell(mean, sd, width=11):
     """ANSI-coloured cell for console preview. Orange when mean < 0.3 or NaN,
     green when mean > 0.9, plain otherwise."""
@@ -173,22 +202,50 @@ def _ansi_cell(mean, sd, width=11):
     return f'{body:<{width}}'
 
 
+def _ansi_rel_cell(median_mean, iqr_mean, width=11):
+    """ANSI-coloured cell for relative error preview. Plain if defined."""
+    import math
+    if isinstance(median_mean, float) and math.isnan(median_mean):
+        body = '   nan   '
+        return f'{_ANSI_ORANGE}{body:<{width}}{_ANSI_RESET}'
+    body = f'{100*median_mean:.1f}±{100*iqr_mean:.1f}%'
+    return f'{body:<{width}}'
+
+
+def _ansi_pct_cell(count_mean, n_neurons, width=8):
+    """ANSI-coloured cell for outlier % preview."""
+    import math
+    if isinstance(count_mean, float) and math.isnan(count_mean) or not n_neurons:
+        body = '  nan  '
+        return f'{_ANSI_ORANGE}{body:<{width}}{_ANSI_RESET}'
+    body = f'{100*count_mean/n_neurons:.2f}%'
+    return f'{body:<{width}}'
+
+
 def _print_console_row(label, s):
     """Print one aggregated row to stdout with red highlighting on weak means."""
     print(f'    {label:<24} '
           f'one={_ansi_cell(*s["one_r"])} '
           f'roll={_ansi_cell(*s["roll_r"])} '
-          f'W={_ansi_cell(*s["W_R2"])} '
-          f'tau={_ansi_cell(*s["tau_R2"])} '
-          f'V={_ansi_cell(*s["V_R2"])} '
+          f'W%={_ansi_rel_cell(*s["W_rel"])} '
+          f'tau%={_ansi_rel_cell(*s["tau_rel"])} '
+          f'tau_out={_ansi_pct_cell(s["tau_out"], _N_NEURONS_BLANK50)} '
+          f'V%={_ansi_rel_cell(*s["V_rel"])} '
+          f'V_out={_ansi_pct_cell(s["V_out"], _N_NEURONS_BLANK50)} '
           f'cl={_ansi_cell(*s["cluster"])}')
 
 
 def _aggregate(output_root, base, suffix, n_folds):
-    """Aggregate per-fold metrics for one (base, suffix). Returns dict of
-    (mean, sd) tuples — NaN means no folds had that metric."""
+    """Aggregate per-fold metrics for one (base, suffix). Returns dict where:
+       - 'one_r', 'roll_r', 'cluster' map to (mean, sd) tuples
+       - 'W_rel', 'tau_rel', 'V_rel' map to (median_mean, iqr_mean) tuples
+       - 'tau_out', 'V_out' map to count_mean (mean across folds of n_outliers)
+       NaN signals no folds had that metric."""
     one, roll = [], []
-    W, tau, V, cl = [], [], [], []
+    W_med, W_iqr = [], []
+    tau_med, tau_iqr, tau_out = [], [], []
+    V_med, V_iqr, V_out = [], [], []
+    cl = []
     for i in range(n_folds):
         fd = _fold_dir(output_root, base, suffix, i)
         if not os.path.isdir(fd):
@@ -196,23 +253,31 @@ def _aggregate(output_root, base, suffix, n_folds):
         one.append(_parse_pearson(os.path.join(fd, 'results_test.log')))
         roll.append(_parse_pearson(os.path.join(fd, 'results_rollout.log')))
         m = _parse_metrics_txt(os.path.join(fd, 'results', 'metrics.txt'))
-        W.append(m.get('W_corrected_R2',     float('nan')))
-        tau.append(m.get('tau_R2',           float('nan')))
-        V.append(m.get('V_rest_R2',          float('nan')))
-        cl.append(m.get('clustering_accuracy', float('nan')))
+        W_med.append(m.get('W_rel_err_median',      float('nan')))
+        W_iqr.append(m.get('W_rel_err_iqr',         float('nan')))
+        tau_med.append(m.get('tau_rel_err_median',  float('nan')))
+        tau_iqr.append(m.get('tau_rel_err_iqr',     float('nan')))
+        tau_out.append(m.get('tau_n_outliers',      float('nan')))
+        V_med.append(m.get('V_rest_rel_err_median', float('nan')))
+        V_iqr.append(m.get('V_rest_rel_err_iqr',    float('nan')))
+        V_out.append(m.get('V_rest_n_outliers',     float('nan')))
+        cl.append(m.get('clustering_accuracy',      float('nan')))
     return {
-        'one_r':    _mean_sd(one),
-        'roll_r':   _mean_sd(roll),
-        'W_R2':     _mean_sd(W),
-        'tau_R2':   _mean_sd(tau),
-        'V_R2':     _mean_sd(V),
-        'cluster':  _mean_sd(cl),
+        'one_r':   _mean_sd(one),
+        'roll_r':  _mean_sd(roll),
+        'W_rel':   (_mean_sd(W_med)[0],   _mean_sd(W_iqr)[0]),
+        'tau_rel': (_mean_sd(tau_med)[0], _mean_sd(tau_iqr)[0]),
+        'tau_out': _mean_sd(tau_out)[0],
+        'V_rel':   (_mean_sd(V_med)[0],   _mean_sd(V_iqr)[0]),
+        'V_out':   _mean_sd(V_out)[0],
+        'cluster': _mean_sd(cl),
     }
 
 
 def _emit_table1(output_root, n_folds):
-    """tab:cv_known_ode (model x noise comparison). 5 rows, 9-col layout
-    (model, condition, sigma, one-step r, rollout r, W, tau, V, cluster).
+    """tab:cv_known_ode (model x noise comparison). 9-col layout
+    (model, condition, sigma, one-step r, rollout r,
+    W rel.err%, tau rel.err% (out%), Vrest rel.err% (out%), cluster).
     Inserts a single \\midrule between the Known-ODE block and the GNN block."""
     lines = []
     prev_suffix = None
@@ -224,14 +289,19 @@ def _emit_table1(output_root, n_folds):
         lines.append(
             f'{model:<10} & {label:<11} & ${sigma}$\n'
             f'  & {_fmt(*s["one_r"])} & {_fmt(*s["roll_r"])}\n'
-            f'  & {_fmt(*s["W_R2"])} & {_fmt(*s["tau_R2"])} & '
-            f'{_fmt(*s["V_R2"])} & {_fmt(*s["cluster"])} \\\\'
+            f'  & {_fmt_rel(*s["W_rel"])}\n'
+            f'  & {_fmt_rel_out(*s["tau_rel"], s["tau_out"], _N_NEURONS_BLANK50)}\n'
+            f'  & {_fmt_rel_out(*s["V_rel"], s["V_out"], _N_NEURONS_BLANK50)}\n'
+            f'  & {_fmt(*s["cluster"])} \\\\'
         )
         _print_console_row(f'{(model or "..").strip()} {label}'.strip(), s)
         prev_suffix = suffix
     path = os.path.join(_FIGURES_DIR, 'cv_table_known_ode_vs_gnn.tex')
     with open(path, 'w') as f:
         f.write('% Known-ODE vs GNN, blank50, 5-fold CV (rows only).\n')
+        f.write('% Cols: model & condition & sigma | one-step r | rollout r | '
+                'W rel.err%% | tau rel.err%% (out%%) | '
+                'Vrest rel.err%% (out%%) | cluster acc.\n')
         for ln in lines:
             f.write(ln + '\n')
     print(f'  [tex ] {path}')
@@ -240,7 +310,7 @@ def _emit_table1(output_root, n_folds):
 def _emit_condition_table(output_root, n_folds, suffix, bases, out_name, header):
     """tab:cv_cross_noise / tab:cv_known_ode-conditions: condition rows,
     10-col layout (condition, sigma, gamma, edges, one-step r, rollout r,
-    W, tau, V, cluster)."""
+    W rel.err%, tau rel.err% (out%), Vrest rel.err% (out%), cluster)."""
     lines = []
     print(f'\n  [tab ] {out_name}  (orange: <0.3 or missing, green: >0.9)')
     for base in bases:
@@ -253,13 +323,18 @@ def _emit_condition_table(output_root, n_folds, suffix, bases, out_name, header)
         lines.append(
             f'{label:<24} & ${sigma}$ & ${gamma}$ & ${edges}$\n'
             f'  & {_fmt(*s["one_r"])} & {_fmt(*s["roll_r"])}\n'
-            f'  & {_fmt(*s["W_R2"])} & {_fmt(*s["tau_R2"])} & '
-            f'{_fmt(*s["V_R2"])} & {_fmt(*s["cluster"])} \\\\'
+            f'  & {_fmt_rel(*s["W_rel"])}\n'
+            f'  & {_fmt_rel_out(*s["tau_rel"], s["tau_out"], _N_NEURONS_BLANK50)}\n'
+            f'  & {_fmt_rel_out(*s["V_rel"], s["V_out"], _N_NEURONS_BLANK50)}\n'
+            f'  & {_fmt(*s["cluster"])} \\\\'
         )
         _print_console_row(label, s)
     path = os.path.join(_FIGURES_DIR, out_name)
     with open(path, 'w') as f:
         f.write(f'% {header}\n')
+        f.write('% Cols: condition & sigma & gamma & edges | one-step r | rollout r | '
+                'W rel.err%% | tau rel.err%% (out%%) | '
+                'Vrest rel.err%% (out%%) | cluster acc.\n')
         for ln in lines:
             f.write(ln + '\n')
     print(f'  [tex ] {path}')
