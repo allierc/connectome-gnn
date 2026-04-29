@@ -218,7 +218,7 @@ def assemble(blocks, out_base):
                 else:
                     img = mpimg.imread(p)
                     h, w = img.shape[:2]
-                    ax.imshow(img, aspect='auto')
+                    ax.imshow(img, aspect='auto', interpolation='lanczos')
                     ax.set_box_aspect(h / w)
                 panel_axes.append((ax, letters[letter_idx], k))
                 letter_idx += 1
@@ -252,7 +252,7 @@ def assemble(blocks, out_base):
                  transform=fig.transFigure)
 
     fig.savefig(out_base + '.pdf', bbox_inches='tight', pad_inches=0.05)
-    fig.savefig(out_base + '.png', dpi=300, bbox_inches='tight', pad_inches=0.05)
+    fig.savefig(out_base + '.png', dpi=600, bbox_inches='tight', pad_inches=0.05)
     plt.close(fig)
     print(f'wrote {out_base}.{{pdf,png}}')
 

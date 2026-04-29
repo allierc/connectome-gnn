@@ -1,13 +1,11 @@
 """Figure: Known_ODE parameter-extraction panels across three noise levels.
 
 Known_ODE counterpart of ``fig_gnn_params_3col_noise_comparison.py``. The
-3-column noise-level layout is preserved (noise-free / σ=0.05 / σ=0.5),
-but the inner panel set is reduced from 6 → 3 because Known_ODE has no
-learned f_theta MLP, no g_phi MLP, and no per-neuron embedding `model.a`
-to plot. The remaining recovery panels are the three direct-parameter
-scatters (W, V_rest, τ), and V_rest / τ use the outlier-flagged plots
-emitted by ``GNN_PlotFigure.py`` (red = points with |learned − gt| above
-the threshold, R² reported on inliers only).
+3-column noise-level layout is preserved (noise-free / σ=0.05 / σ=0.5).
+Per column we render a 2×2 mini-grid (4 panels): connectivity W,
+augmented UMAP embedding, V_rest, τ. V_rest / τ use the outlier-flagged
+plots emitted by ``GNN_PlotFigure.py`` (red = points with |learned − gt|
+above the threshold, R² reported on inliers only).
 
 Models used:
 
@@ -15,11 +13,10 @@ Models used:
     flyvis_noise_005_blank50_known_ode_cv00
     flyvis_noise_05_blank50_known_ode_cv00
 
-Per column (reading order, top → bottom):
+Per column (2×2 mini-grid):
 
-    row 1: weights_corrected (R²W)
-    row 2: V_rest comparison with outliers in red
-    row 3: τ comparison with outliers in red
+    row 0:  W (col 0)       UMAP / embedding_augmented (col 1)
+    row 1:  V_rest (col 0)  τ                          (col 1)
 
 Modes
 -----
@@ -97,17 +94,18 @@ COLUMNS = [
     },
 ]
 
-# 3 panels per column, ordered (row, col=0). fname_template uses {ci} =
-# config_indices. Known_ODE plots V_rest / τ via the outlier-aware PNGs
-# (red dots = outliers, R² on inliers).
+# 4 panels per column in a 2×2 mini-grid, ordered (row, col_within_column).
+# fname_template uses {ci} = config_indices. Known_ODE plots V_rest / τ via
+# the outlier-aware PNGs (red dots = outliers, R² on inliers).
 PANELS = [
-    # (row, fname_template)
-    (0, 'weights_comparison_raw.png'),                 # R²W (raw — no flux correction for known_ode)
-    (1, 'V_rest_comparison_wo_outliers_{ci}.png'),     # V_rest, outliers flagged red
-    (2, 'tau_comparison_wo_outliers_{ci}.png'),        # τ,      outliers flagged red
+    # (row, col, fname_template)
+    (0, 0, 'weights_comparison_raw.png'),              # R²W (raw — no flux correction for known_ode)
+    (0, 1, 'embedding_augmented_{ci}.png'),            # augmented UMAP embedding
+    (1, 0, 'V_rest_comparison_wo_outliers_{ci}.png'),  # V_rest, outliers flagged red
+    (1, 1, 'tau_comparison_wo_outliers_{ci}.png'),     # τ,      outliers flagged red
 ]
-N_PANEL_ROWS = 3
-N_PANEL_COLS_PER_BLOCK = 1
+N_PANEL_ROWS = 2
+N_PANEL_COLS_PER_BLOCK = 2
 
 
 # ── style ────────────────────────────────────────────────────────────────────
@@ -116,12 +114,13 @@ FS_TICK   = 6
 FS_ANNOT  = 6
 PANEL_LBL = 8
 
-# ~18 cm wide. With one panel per column-row and 3 noise blocks × 1 panel
-# wide each, we have 3 panels per row at FIG_W_IN ≈ 7.09 in → per-panel
-# width ≈ 2.36 in. Source PNGs have aspect h/w ≈ 0.9, so 3 rows ≈ 6.4 in.
-# Slightly shorter than that to avoid trailing whitespace from the title strip.
+# Match the per-panel size of fig_gnn_params_3col_noise_comparison.py while
+# trimming the inter-row blank that would otherwise be visually overwhelming
+# with only two rows. Achieved by shrinking FIG_H_IN (2.8 → 2.5) so the
+# row-cell height is just enough for the box_aspect=0.9 panel, and dropping
+# inner-grid hspace from 0.10 → 0.02.
 FIG_W_IN = 18.0 * 0.3937          # ≈ 7.09 in
-FIG_H_IN = 6.4
+FIG_H_IN = 2.5
 
 
 def load_config_from_yaml(yaml_path):
@@ -158,42 +157,45 @@ def panel_path(results_dir, fname_template, ci):
 
 
 def panels_present(results_dir, ci):
-    """Return list of (row, expected_path, status) for each PANEL entry."""
+    """Return list of (row, col, expected_path, status) for each PANEL entry."""
     out = []
-    for r, fname in PANELS:
+    for r, c, fname in PANELS:
         p = panel_path(results_dir, fname, ci)
-        out.append((r, p, os.path.isfile(p)))
+        out.append((r, c, p, os.path.isfile(p)))
     return out
 
 
 def assemble(blocks, out_base):
-    """Build the 3-noise-level × 3-row × 1-col composite figure.
+    """Build the 3-noise-level × 2-row × 2-col composite figure.
 
     blocks is a list of 3 dicts: {label, sigma, results_dir, ci}.
     Panel letters are assigned in ROW-MAJOR order across the entire
-    figure: top row left→right = a..c, second row = d..f, third row = g..i.
+    figure: top row left→right = a..f, bottom row = g..l.
     """
     fig = plt.figure(figsize=(FIG_W_IN, FIG_H_IN), dpi=300)
     # Outer GridSpec: 1 row, 3 columns (one per noise level). Tight wspace.
+    # Slightly larger top margin than the GNN figure so the noise-level
+    # title doesn't crowd the top row of panels.
     outer = mgs.GridSpec(
         1, 3, figure=fig,
-        left=0.04, right=0.99, top=0.92, bottom=0.04,
+        left=0.04, right=0.99, top=0.84, bottom=0.04,
         wspace=0.10,
     )
 
-    # Build the 3-row x 1-col mini-grids per block.
+    # Build the 2-row x 2-col mini-grids per block; tight hspace so the two
+    # rows abut without a wide blank corridor between them.
     inner_grids = []
     for k in range(len(blocks)):
         inner = mgs.GridSpecFromSubplotSpec(
             N_PANEL_ROWS, N_PANEL_COLS_PER_BLOCK,
             subplot_spec=outer[0, k],
-            wspace=0.04, hspace=0.10,
+            wspace=0.04, hspace=0.02,
         )
         inner_grids.append(inner)
 
-    # Index PANELS by row so we can iterate in row-major order across all three
-    # blocks for letter assignment a..i.
-    panel_by_row = {r: fname for r, fname in PANELS}
+    # Index PANELS by (row, col) so we can iterate in row-major order across
+    # all three blocks for letter assignment a..l.
+    panel_by_rc = {(r, c): fname for r, c, fname in PANELS}
 
     panel_axes = []                    # (ax, letter, block_idx)
     letters = string.ascii_lowercase
@@ -201,21 +203,22 @@ def assemble(blocks, out_base):
     for r in range(N_PANEL_ROWS):
         for k, blk in enumerate(blocks):
             inner = inner_grids[k]
-            fname = panel_by_row[r]
-            ax = fig.add_subplot(inner[r, 0])
-            ax.set_axis_off()
-            p = panel_path(blk['results_dir'], fname, blk['ci'])
-            if not os.path.isfile(p):
-                ax.text(0.5, 0.5, f'missing:\n{os.path.basename(p)}',
-                        ha='center', va='center', fontsize=FS_ANNOT,
-                        color='red', transform=ax.transAxes)
-            else:
-                img = mpimg.imread(p)
-                h, w = img.shape[:2]
-                ax.imshow(img, aspect='auto')
-                ax.set_box_aspect(h / w)
-            panel_axes.append((ax, letters[letter_idx], k))
-            letter_idx += 1
+            for c in range(N_PANEL_COLS_PER_BLOCK):
+                fname = panel_by_rc[(r, c)]
+                ax = fig.add_subplot(inner[r, c])
+                ax.set_axis_off()
+                p = panel_path(blk['results_dir'], fname, blk['ci'])
+                if not os.path.isfile(p):
+                    ax.text(0.5, 0.5, f'missing:\n{os.path.basename(p)}',
+                            ha='center', va='center', fontsize=FS_ANNOT,
+                            color='red', transform=ax.transAxes)
+                else:
+                    img = mpimg.imread(p)
+                    h, w = img.shape[:2]
+                    ax.imshow(img, aspect='auto', interpolation='lanczos')
+                    ax.set_box_aspect(h / w)
+                panel_axes.append((ax, letters[letter_idx], k))
+                letter_idx += 1
 
     # Section titles per block (centered above each column block).
     fig.canvas.draw()
@@ -233,7 +236,7 @@ def assemble(blocks, out_base):
         y_top   = max(inv.transform((bb.x0, bb.y1))[1] for bb in bboxes)
         x_center = (x_left + x_right) / 2
         title = f"{blk['label']} ({blk['sigma']})"
-        fig.text(x_center, y_top + 0.03, title, fontsize=FS_LABEL,
+        fig.text(x_center, y_top + 0.06, title, fontsize=FS_LABEL,
                  fontweight='normal', va='bottom', ha='center',
                  transform=fig.transFigure)
 
@@ -246,7 +249,7 @@ def assemble(blocks, out_base):
                  transform=fig.transFigure)
 
     fig.savefig(out_base + '.pdf', bbox_inches='tight', pad_inches=0.05)
-    fig.savefig(out_base + '.png', dpi=300, bbox_inches='tight', pad_inches=0.05)
+    fig.savefig(out_base + '.png', dpi=600, bbox_inches='tight', pad_inches=0.05)
     plt.close(fig)
     print(f'wrote {out_base}.{{pdf,png}}')
 
@@ -289,8 +292,8 @@ def main():
             print('regenerating panels via GNN_PlotFigure.data_plot()')
             regenerate_panels(cfg, args.device)
         else:
-            missing = [p for *_, p, ok in panels_present(results_dir,
-                                                         col['config_indices']) if not ok]
+            missing = [p for _r, _c, p, ok in panels_present(results_dir,
+                                                              col['config_indices']) if not ok]
             if missing:
                 print(f"WARNING: {len(missing)} panel(s) missing for {col['model']}:")
                 for m in missing:
