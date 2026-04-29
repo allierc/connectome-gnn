@@ -201,7 +201,8 @@ def main():
     p.add_argument("--cpu", action="store_true", help="force CPU even if CUDA is available")
     args = p.parse_args()
 
-    fig_path = args.out or Path.cwd() / f"{args.data_root.name}_lstsq_recovery.png"
+    fig_path  = args.out or Path.cwd() / f"{args.data_root.name}_lstsq_recovery.png"
+    mask_path = Path.cwd() / f"{args.data_root.name}_degenerate_mask.pt"
     device = torch.device("cpu" if args.cpu or not torch.cuda.is_available() else "cuda")
     print(f"device: {device}  data_root: {args.data_root}")
 
@@ -211,6 +212,13 @@ def main():
     out = solve(data, in_src, in_eidx, deg_in, device,
                 neq_tol=args.neq_tol, null_comp_tol=args.null_comp_tol)
     plot(data, out, fig_path)
+
+    torch.save({
+        "tau":    torch.from_numpy(out["tau_deg"]),
+        "V_rest": torch.from_numpy(out["vrest_deg"]),
+        "W":      torch.from_numpy(out["W_deg"]),
+    }, mask_path)
+    print(f"wrote {mask_path}")
 
 
 if __name__ == "__main__":
