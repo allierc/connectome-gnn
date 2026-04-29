@@ -88,6 +88,12 @@ def solve(
     vrest_deg = np.zeros(N, dtype=bool)
     W_deg     = np.zeros(E, dtype=bool)
 
+    # Neurons with no incoming edges are entirely unidentifiable: A_i has only
+    # the dv/dt and constant columns, so tau and V_rest are jointly degenerate.
+    no_in = deg_in == 0
+    tau_deg[no_in] = True
+    vrest_deg[no_in] = True
+
     t0 = time.time()
     for i in tqdm(active_idx, desc="lstsq", unit="neuron"):
         A = torch.cat([
