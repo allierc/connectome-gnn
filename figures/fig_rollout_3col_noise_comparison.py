@@ -355,22 +355,25 @@ SCATTER_LO, SCATTER_HI = -10.0, 10.0
 
 
 def draw_scatter(ax, x_all, y_all, xlabel, ylabel, show_fit=True):
-    """Hexbin density of y vs x with identity-line R² and OLS slope.
+    """Hexbin density of y vs x with per-neuron Fisher-pooled Pearson r.
 
-    R² via `connectome_gnn.metrics.compute_r_squared` (Nash-Sutcliffe:
-    1 − mean((true − learned)²) / var(true)) — penalises scale/offset
-    bias the same way the rest of the codebase does.
+    The hexbin uses subsampled flattened (x, y) for the visual; the
+    correlation reported is computed on the full 2-D traces using the
+    same recipe graph_tester / cv-tables use:
+    `compute_trace_metrics` → per-neuron `pearsonr` → `fisher_pool`
+    `r_mean`. Values printed here therefore agree with the
+    {onestep,rollout}_pearson rows of the cv summaries.
     """
-    from connectome_gnn.metrics import compute_r_squared
-    x, y, n_full = _subsample_pair(x_all, y_all)
+    from connectome_gnn.utils import compute_trace_metrics, fisher_pool
+    x_sub, y_sub, n_full = _subsample_pair(x_all, y_all)
 
-    r2, slope = compute_r_squared(x.astype(np.float64), y.astype(np.float64))
-    intercept = float(np.polyfit(x.astype(np.float64),
-                                  y.astype(np.float64), 1)[1])
+    _, _pear, _, _ = compute_trace_metrics(
+        np.asarray(x_all), np.asarray(y_all))
+    r = float(fisher_pool(_pear)['r_mean'])
 
     lo, hi = SCATTER_LO, SCATTER_HI
 
-    ax.hexbin(x, y, gridsize=140, bins='log', cmap='magma_r',
+    ax.hexbin(x_sub, y_sub, gridsize=140, bins='log', cmap='magma_r',
               mincnt=1, extent=(lo, hi, lo, hi), linewidths=0.0)
 
     ax.set_xlim([lo, hi]); ax.set_ylim([lo, hi])
@@ -385,15 +388,9 @@ def draw_scatter(ax, x_all, y_all, xlabel, ylabel, show_fit=True):
     ax.set_xlim([lo, hi]); ax.set_ylim([lo, hi])
     _trim_axis(ax)
 
-    # R² (above) and OLS slope (below it) printed inside the axes in the
-    # top-left corner, just to the right of the y-axis. Two stacked lines
-    # left-aligned for easy comparison across panels.
-    r2_text    = f"$R^2$ = {r2:.2f}"
-    slope_text = f"slope = {slope:.2f}"
-    txt_kwargs = dict(transform=ax.transAxes, va='top', ha='left',
-                      fontsize=FS_TICK)
-    ax.text(0.05, 0.97, r2_text,    **txt_kwargs)
-    ax.text(0.05, 0.85, slope_text, **txt_kwargs)
+    # Pearson r (single line) inside the axes, top-left corner.
+    ax.text(0.05, 0.97, f"$r$ = {r:.2f}",
+            transform=ax.transAxes, va='top', ha='left', fontsize=FS_TICK)
 
 
 def add_panel_label(fig, ax, letter, dx=0.015, dy=0.01):
@@ -484,21 +481,17 @@ def main():
         pred_w = _slice(ts['pred'], neuron_idx)
         stim_w = (_slice(ts['stim'], neuron_idx)
                   if ts.get('stim') is not None else None)
-        # Per-neuron Pearson r, Fisher-z pooled — same recipe the
-        # graph_tester / cv table use, so the values shown here agree
-        # with the per-condition Pearson rows in the TeX/MD summaries.
+        # Per-neuron Pearson r, Fisher-z pooled — same recipe graph_tester /
+        # cv-table use. Single-line header: only the "vs noise-free" comparison
+        # is printed on the noisy columns (b, c); the noisy-vs-learned r is
+        # suppressed because the gt itself is perturbed.
         from connectome_gnn.utils import compute_trace_metrics, fisher_pool
-        _, _pear_noisy, _, _ = compute_trace_metrics(
-            np.asarray(ts['true']), np.asarray(ts['pred']))
-        r_noisy = float(fisher_pool(_pear_noisy)['r_mean'])
-        if col['noise_level'] > 0:
-            _, _pear_nf, _, _ = compute_trace_metrics(
-                np.asarray(prim['true']), np.asarray(prim['pred']))
-            r_nf = float(fisher_pool(_pear_nf)['r_mean'])
-            header = [f"vs noisy, $r$ = {r_noisy:.2f}",
-                      f"vs noise-free, $r$ = {r_nf:.2f}"]
-        else:
-            header = f"$r$ = {r_noisy:.2f}"
+        _src = prim if col['noise_level'] > 0 else ts
+        _label = "vs noise-free, " if col['noise_level'] > 0 else ""
+        _, _pear, _, _ = compute_trace_metrics(
+            np.asarray(_src['true']), np.asarray(_src['pred']))
+        r = float(fisher_pool(_pear)['r_mean'])
+        header = f"{_label}$r$ = {r:.2f}"
         draw_traces(
             ax, true_w, pred_w, stim_w, labels, step_v, time_ms,
             column_title=f"{col['label']} ({col['sigma']})",
@@ -531,16 +524,21 @@ def main():
         # Panel d uses the noisy-variant bundle so its stimulus matches panels
         # b and c (same DAVIS videos, same seed=42).
         (nf_gs[0, 0], noisy[0]['true'], noisy[0]['pred'],
-         'ground truth voltage', 'rollout voltage', True,  None),
-        (lo_gs[0, 0], noisy[1]['true'],   noisy[1]['pred'],
-         '',                     '',                True,  'vs noisy'),
-        (lo_gs[0, 1], primary[1]['true'], primary[1]['pred'],
+         'voltage', 'rollout voltage', True,  None),
+        # Panels e (low-noise "vs noisy") and g (high-noise "vs noisy") are
+        # disabled — comparing the learned trace against the perturbed gt is
+        # misleading. Uncomment to restore.
+        # (lo_gs[0, 0], noisy[1]['true'],   noisy[1]['pred'],
+        #  '',                     '',                True,  'vs noisy'),
+        # e moves into the LEFT half of the low-noise column so it left-
+        # aligns with the trace panel b above it (was lo_gs[0, 1]).
+        (lo_gs[0, 0], primary[1]['true'], primary[1]['pred'],
          '',                     '',                True,  'vs noise-free'),
-        # Panel g: skip the red OLS fit line (noisy-vs-learned for high noise
-        # has a visibly non-identity slope that we don't want to emphasise).
-        (hi_gs[0, 0], noisy[2]['true'],   noisy[2]['pred'],
-         '',                     '',                False, 'vs noisy'),
-        (hi_gs[0, 1], primary[2]['true'], primary[2]['pred'],
+        # (hi_gs[0, 0], noisy[2]['true'],   noisy[2]['pred'],
+        #  '',                     '',                False, 'vs noisy'),
+        # f moves into the LEFT half of the high-noise column so it left-
+        # aligns with the trace panel c above it (was hi_gs[0, 1]).
+        (hi_gs[0, 0], primary[2]['true'], primary[2]['pred'],
          '',                     '',                True,  'vs noise-free'),
     ]
 

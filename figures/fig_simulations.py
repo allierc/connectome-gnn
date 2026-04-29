@@ -94,8 +94,8 @@ FS_TYPE   = 4    # heatmap y-axis cell-type labels (very dense; 65 entries)
 # every other label is suppressed so adjacent names stop overlapping.
 HEATMAP_LABEL_MIN_STEP = 2
 
-# -- figure size: ~18 cm document width --------------------------------------
-FIG_W_IN  = 18.0 * 0.3937   # ~7.09 in
+# -- figure size: ~24 cm wide (full landscape page width) --------------------
+FIG_W_IN  = 24.0 * 0.3937   # ~9.45 in
 FIG_H_IN  = 7.0             # 3 rows; row 3 is shorter
 
 # -- data --------------------------------------------------------------------
@@ -116,7 +116,7 @@ INTRINSIC_CONFIGS = [
 # all three R1 panels share the exact same underlying trace.
 MEAS_SOURCE_CFG = 'flyvis_noise_free_blank50'
 MEAS_GAMMAS = [
-    (0.00, r'noise-free ($\gamma=0$)'),
+    (0.00, r'noise-free ($\sigma=0,\,\gamma=0$)'),
     (0.10, r'low measurement noise ($\gamma=0.1$)'),
     (0.20, r'high measurement noise ($\gamma=0.2$)'),
 ]
@@ -422,14 +422,21 @@ for col, ((trace_bl, s_win), (_gamma, title)) in enumerate(
     _trim_axis(ax)
 
 
-# Force row 3 panels to share the exact x-range of the heatmap row above
-# (panels g/h/i had a slightly narrower data box because their y-tick
-# labels were pushing the frame inward).
+# Align row 3 (g/h/i) with the *trace content* of row 2 (d/e/f), not the
+# full axes box. The trace stacks have an extended xlim that reserves a
+# strip on the left for the type-name labels (text at negative data-x);
+# without this remap, frame 0 of d sits ~7% inside the panel while frame
+# 0 of g sits flush at the left edge — visually misaligning the columns.
 fig.canvas.draw()
 for col, ax_g in enumerate(axes_row2):
-    pos_top = axes_row0[col].get_position()
-    pos_g   = ax_g.get_position()
-    ax_g.set_position([pos_top.x0, pos_g.y0, pos_top.width, pos_g.height])
+    ax_d = axes_row1[col]
+    pos_d = ax_d.get_position()
+    xlo_d, xhi_d = ax_d.get_xlim()
+    # Figure-x of data frame 0 and data frame n_tframes inside row-2 panel.
+    fig_x0 = pos_d.x0 + (0          - xlo_d) / (xhi_d - xlo_d) * pos_d.width
+    fig_x1 = pos_d.x0 + (n_tframes  - xlo_d) / (xhi_d - xlo_d) * pos_d.width
+    pos_g = ax_g.get_position()
+    ax_g.set_position([fig_x0, pos_g.y0, fig_x1 - fig_x0, pos_g.height])
 
 
 # -- shared colorbar — placed manually right next to panel c -----------------
