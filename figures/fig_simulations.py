@@ -105,16 +105,23 @@ DATA_ROOT = '/groups/saalfeld/home/allierc/GraphData'
 # blank50 variants so 50% blank-stimulus periods are visible — the blue
 # steelblue shading on d/e/f then encodes the same on/off structure as
 # panels g/h/i.
+# Use the *_davispt variants — three blank50 datasets that pin
+# datavis_roots to the same DAVIS2017-partial-test path and share
+# seed=42, so the DAVIS clip order (and therefore the blank-prefix
+# positions) are identical across columns. See
+# `python GNN_Main.py -o generate flyvis_blank50_davispt` to regenerate.
 INTRINSIC_CONFIGS = [
-    ('flyvis_noise_free_blank50', r'noise-free ($\sigma=0$)'),
-    ('flyvis_noise_005_blank50',  r'low model noise ($\sigma=0.05$)'),
-    ('flyvis_noise_05_blank50',   r'high model noise ($\sigma=0.5$)'),
+    ('flyvis_noise_free_blank50_davispt', r'noise-free ($\sigma=0$)'),
+    ('flyvis_noise_005_blank50_davispt',  r'low model noise ($\sigma=0.05$)'),
+    ('flyvis_noise_05_blank50_davispt',   r'high model noise ($\sigma=0.5$)'),
 ]
 
 # Row 3: noise-free blank50 source. Panel g is the raw signal (gamma=0,
 # noise-free reference); panels h & i add Gaussian measurement noise so
-# all three R1 panels share the exact same underlying trace.
-MEAS_SOURCE_CFG = 'flyvis_noise_free_blank50'
+# all three R1 panels share the exact same underlying trace. We pull
+# from the same _davispt dataset as the heatmaps for stimulus
+# consistency across the figure.
+MEAS_SOURCE_CFG = 'flyvis_noise_free_blank50_davispt'
 MEAS_GAMMAS = [
     (0.00, r'noise-free ($\sigma=0,\,\gamma=0$)'),
     (0.10, r'low measurement noise ($\gamma=0.1$)'),

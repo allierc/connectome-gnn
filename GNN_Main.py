@@ -143,6 +143,16 @@ if __name__ == "__main__":
             'flyvis_noise_005_blank25',
             'flyvis_noise_005_blank50',
         ],
+        # Three blank50 datasets pinned to the same DAVIS2017-partial-test
+        # root (and the same seed=42) so panels d/e/f of fig_simulations.py
+        # see bit-identical stimulus sequences. Use:
+        #   python GNN_Main.py -o generate flyvis_blank50_davispt
+        # to regenerate all three from scratch.
+        'flyvis_blank50_davispt': [
+            'flyvis_noise_free_blank50_davispt',
+            'flyvis_noise_005_blank50_davispt',
+            'flyvis_noise_05_blank50_davispt',
+        ],
         'flyvis_noise_free_blank50_unified_cv': [
             'flyvis_noise_free_blank50_unified_cv00',
             'flyvis_noise_free_blank50_unified_cv01',

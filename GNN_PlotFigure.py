@@ -784,310 +784,319 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
             log_file.write(f"bias_R2: {r_squared_bias:.4f}\n")
 
     # --- Eigenvalue / SVD analysis ---
-    print('plot eigenvalue spectrum and eigenvector comparison ...')
-    edges_np = to_numpy(edges)
-    true_sparse = scipy.sparse.csr_matrix(
-        (gt_w_np.flatten(), (edges_np[1], edges_np[0])),
-        shape=(n_neurons, n_neurons))
-    learned_sparse = scipy.sparse.csr_matrix(
-        (learned_weights.flatten(), (edges_np[1], edges_np[0])),
-        shape=(n_neurons, n_neurons))
+    # The SVD-based eigen_comparison plot is unreliable on the corrected
+    # W and is slow, so skip the entire block when the PNG already exists.
+    # First-time runs still produce it so figures that depend on the file
+    # can be assembled. Set FORCE_EIGEN=1 in the env to override.
+    _eigen_path = os.path.join(log_dir, 'results', 'eigen_comparison.png')
+    _skip_eigen = os.path.isfile(_eigen_path) and not os.environ.get('FORCE_EIGEN')
+    if _skip_eigen:
+        print(f'eigen_comparison already exists, skipping SVD analysis: {_eigen_path}')
+    if not _skip_eigen:
+        print('plot eigenvalue spectrum and eigenvector comparison ...')
+        edges_np = to_numpy(edges)
+        true_sparse = scipy.sparse.csr_matrix(
+            (gt_w_np.flatten(), (edges_np[1], edges_np[0])),
+            shape=(n_neurons, n_neurons))
+        learned_sparse = scipy.sparse.csr_matrix(
+            (learned_weights.flatten(), (edges_np[1], edges_np[0])),
+            shape=(n_neurons, n_neurons))
 
-    n_components = min(100, n_neurons - 1)
-    svd_true = TruncatedSVD(n_components=n_components, random_state=42)
-    svd_learned = TruncatedSVD(n_components=n_components, random_state=42)
-    svd_true.fit(true_sparse)
-    svd_learned.fit(learned_sparse)
-    sv_true = svd_true.singular_values_
-    sv_learned = svd_learned.singular_values_
+        n_components = min(100, n_neurons - 1)
+        svd_true = TruncatedSVD(n_components=n_components, random_state=42)
+        svd_learned = TruncatedSVD(n_components=n_components, random_state=42)
+        svd_true.fit(true_sparse)
+        svd_learned.fit(learned_sparse)
+        sv_true = svd_true.singular_values_
+        sv_learned = svd_learned.singular_values_
 
-    n_eigs = min(200, n_neurons - 2)
-    eig_true = eig_learned = None
-    try:
-        eig_true, _ = scipy.sparse.linalg.eigs(true_sparse.astype(np.float64), k=n_eigs, which='LM')
-        eig_learned, _ = scipy.sparse.linalg.eigs(learned_sparse.astype(np.float64), k=n_eigs, which='LM')
-    except Exception:
+        n_eigs = min(200, n_neurons - 2)
+        eig_true = eig_learned = None
         try:
-            n_eigs = min(50, n_neurons - 2)
-            if eig_true is None:
-                eig_true, _ = scipy.sparse.linalg.eigs(true_sparse.astype(np.float64), k=n_eigs, which='LM')
-            if eig_learned is None:
-                eig_learned, _ = scipy.sparse.linalg.eigs(learned_sparse.astype(np.float64), k=n_eigs, which='LM')
+            eig_true, _ = scipy.sparse.linalg.eigs(true_sparse.astype(np.float64), k=n_eigs, which='LM')
+            eig_learned, _ = scipy.sparse.linalg.eigs(learned_sparse.astype(np.float64), k=n_eigs, which='LM')
+        except Exception:
+            try:
+                n_eigs = min(50, n_neurons - 2)
+                if eig_true is None:
+                    eig_true, _ = scipy.sparse.linalg.eigs(true_sparse.astype(np.float64), k=n_eigs, which='LM')
+                if eig_learned is None:
+                    eig_learned, _ = scipy.sparse.linalg.eigs(learned_sparse.astype(np.float64), k=n_eigs, which='LM')
+            except Exception as e:
+                logger.warning(f"eigenvalue computation failed: {e}")
+
+        V_true = svd_true.components_
+        V_learned = svd_learned.components_
+        alignment = np.abs(V_true @ V_learned.T)
+
+        n_show = min(100, n_components)
+        U_true = svd_true.transform(true_sparse)[:, :n_show]
+        U_learned = svd_learned.transform(learned_sparse)[:, :n_show]
+        U_true = U_true / (np.linalg.norm(U_true, axis=0, keepdims=True) + 1e-10)
+        U_learned = U_learned / (np.linalg.norm(U_learned, axis=0, keepdims=True) + 1e-10)
+        alignment_L = np.abs(U_true.T @ U_learned)
+
+        cumvar = np.cumsum(sv_true**2) / np.sum(sv_true**2)
+        rank_90 = int(np.searchsorted(cumvar, 0.90)) + 1
+        rank_99 = int(np.searchsorted(cumvar, 0.99)) + 1
+        rank_r = min(rank_99, n_components)
+
+        # Full dense SVD -> Procrustes alignment. Memory: ~N^2 * 8 bytes for the
+        # dense W; for flyvis (N≈13.7k) this is ~1.5 GB and SVD takes a few minutes.
+        W_true_dense = true_sparse.toarray()
+        W_learned_dense = learned_sparse.toarray()
+
+        try:
+            U_t, S_t, Vt_t = np.linalg.svd(W_true_dense, full_matrices=False)
+            U_l, S_l, Vt_l = np.linalg.svd(W_learned_dense, full_matrices=False)
+
+            U_t_r = U_t[:, :rank_r] * S_t[:rank_r]
+            V_t_r = Vt_t[:rank_r, :]
+            U_l_r = U_l[:, :rank_r] * S_l[:rank_r]
+            V_l_r = Vt_l[:rank_r, :]
+
+            from scipy.linalg import orthogonal_procrustes
+            R_U, _ = orthogonal_procrustes(U_l_r, U_t_r)
+            U_l_aligned = U_l_r @ R_U
+            R_V, _ = orthogonal_procrustes(V_l_r.T, V_t_r.T)
+            V_l_aligned = (V_l_r.T @ R_V).T
+
+            def _r2(y_true, y_pred):
+                ss_res = np.sum((y_true - y_pred)**2)
+                ss_tot = np.sum((y_true - y_true.mean())**2)
+                return 1.0 - ss_res / ss_tot if ss_tot > 0 else 0.0
+
+            U_r2 = _r2(U_t_r.ravel(), U_l_aligned.ravel())
+            V_r2 = _r2(V_t_r.ravel(), V_l_aligned.ravel())
+
+            W_recon_true = U_t_r @ V_t_r
+            W_recon_learned = U_l_aligned @ V_l_aligned
+            W_recon_r2 = _r2(W_recon_true.ravel(), W_recon_learned.ravel())
+
+            rank_list = sorted(set([rank_90, rank_99, min(5, n_components),
+                                    min(10, n_components), min(20, n_components),
+                                    min(50, n_components)]))
+            rank_list = [r for r in rank_list if r <= n_components]
+            U_r2_per_rank = []
+            V_r2_per_rank = []
+            W_r2_per_rank = []
+            for rr in rank_list:
+                Ut_rr = U_t[:, :rr] * S_t[:rr]
+                Vt_rr = Vt_t[:rr, :]
+                Ul_rr = U_l[:, :rr] * S_l[:rr]
+                Vl_rr = Vt_l[:rr, :]
+                Ru, _ = orthogonal_procrustes(Ul_rr, Ut_rr)
+                Rv, _ = orthogonal_procrustes(Vl_rr.T, Vt_rr.T)
+                Ul_a = Ul_rr @ Ru
+                Vl_a = (Vl_rr.T @ Rv).T
+                U_r2_per_rank.append(_r2(Ut_rr.ravel(), Ul_a.ravel()))
+                V_r2_per_rank.append(_r2(Vt_rr.ravel(), Vl_a.ravel()))
+                W_r2_per_rank.append(_r2((Ut_rr @ Vt_rr).ravel(), (Ul_a @ Vl_a).ravel()))
+
+            _rank20 = min(20, n_components)
+            if _rank20 in rank_list:
+                _idx20 = rank_list.index(_rank20)
+                U_r2_rank20 = U_r2_per_rank[_idx20]
+                V_r2_rank20 = V_r2_per_rank[_idx20]
+                W_r2_rank20 = W_r2_per_rank[_idx20]
+            else:
+                Ut_20 = U_t[:, :_rank20] * S_t[:_rank20]
+                Vt_20 = Vt_t[:_rank20, :]
+                Ul_20 = U_l[:, :_rank20] * S_l[:_rank20]
+                Vl_20 = Vt_l[:_rank20, :]
+                Ru20, _ = orthogonal_procrustes(Ul_20, Ut_20)
+                Rv20, _ = orthogonal_procrustes(Vl_20.T, Vt_20.T)
+                Ul_20a = Ul_20 @ Ru20
+                Vl_20a = (Vl_20.T @ Rv20).T
+                U_r2_rank20 = _r2(Ut_20.ravel(), Ul_20a.ravel())
+                V_r2_rank20 = _r2(Vt_20.ravel(), Vl_20a.ravel())
+                W_r2_rank20 = _r2((Ut_20 @ Vt_20).ravel(), (Ul_20a @ Vl_20a).ravel())
+
+            procrustes_ok = True
         except Exception as e:
-            logger.warning(f"eigenvalue computation failed: {e}")
+            logger.warning(f"Procrustes SVD analysis failed: {e}")
+            procrustes_ok = False
 
-    V_true = svd_true.components_
-    V_learned = svd_learned.components_
-    alignment = np.abs(V_true @ V_learned.T)
+        fig, axes = plt.subplots(3, 3, figsize=(30, 30))
 
-    n_show = min(100, n_components)
-    U_true = svd_true.transform(true_sparse)[:, :n_show]
-    U_learned = svd_learned.transform(learned_sparse)[:, :n_show]
-    U_true = U_true / (np.linalg.norm(U_true, axis=0, keepdims=True) + 1e-10)
-    U_learned = U_learned / (np.linalg.norm(U_learned, axis=0, keepdims=True) + 1e-10)
-    alignment_L = np.abs(U_true.T @ U_learned)
-
-    cumvar = np.cumsum(sv_true**2) / np.sum(sv_true**2)
-    rank_90 = int(np.searchsorted(cumvar, 0.90)) + 1
-    rank_99 = int(np.searchsorted(cumvar, 0.99)) + 1
-    rank_r = min(rank_99, n_components)
-
-    # Full dense SVD -> Procrustes alignment. Memory: ~N^2 * 8 bytes for the
-    # dense W; for flyvis (N≈13.7k) this is ~1.5 GB and SVD takes a few minutes.
-    W_true_dense = true_sparse.toarray()
-    W_learned_dense = learned_sparse.toarray()
-
-    try:
-        U_t, S_t, Vt_t = np.linalg.svd(W_true_dense, full_matrices=False)
-        U_l, S_l, Vt_l = np.linalg.svd(W_learned_dense, full_matrices=False)
-
-        U_t_r = U_t[:, :rank_r] * S_t[:rank_r]
-        V_t_r = Vt_t[:rank_r, :]
-        U_l_r = U_l[:, :rank_r] * S_l[:rank_r]
-        V_l_r = Vt_l[:rank_r, :]
-
-        from scipy.linalg import orthogonal_procrustes
-        R_U, _ = orthogonal_procrustes(U_l_r, U_t_r)
-        U_l_aligned = U_l_r @ R_U
-        R_V, _ = orthogonal_procrustes(V_l_r.T, V_t_r.T)
-        V_l_aligned = (V_l_r.T @ R_V).T
-
-        def _r2(y_true, y_pred):
-            ss_res = np.sum((y_true - y_pred)**2)
-            ss_tot = np.sum((y_true - y_true.mean())**2)
-            return 1.0 - ss_res / ss_tot if ss_tot > 0 else 0.0
-
-        U_r2 = _r2(U_t_r.ravel(), U_l_aligned.ravel())
-        V_r2 = _r2(V_t_r.ravel(), V_l_aligned.ravel())
-
-        W_recon_true = U_t_r @ V_t_r
-        W_recon_learned = U_l_aligned @ V_l_aligned
-        W_recon_r2 = _r2(W_recon_true.ravel(), W_recon_learned.ravel())
-
-        rank_list = sorted(set([rank_90, rank_99, min(5, n_components),
-                                min(10, n_components), min(20, n_components),
-                                min(50, n_components)]))
-        rank_list = [r for r in rank_list if r <= n_components]
-        U_r2_per_rank = []
-        V_r2_per_rank = []
-        W_r2_per_rank = []
-        for rr in rank_list:
-            Ut_rr = U_t[:, :rr] * S_t[:rr]
-            Vt_rr = Vt_t[:rr, :]
-            Ul_rr = U_l[:, :rr] * S_l[:rr]
-            Vl_rr = Vt_l[:rr, :]
-            Ru, _ = orthogonal_procrustes(Ul_rr, Ut_rr)
-            Rv, _ = orthogonal_procrustes(Vl_rr.T, Vt_rr.T)
-            Ul_a = Ul_rr @ Ru
-            Vl_a = (Vl_rr.T @ Rv).T
-            U_r2_per_rank.append(_r2(Ut_rr.ravel(), Ul_a.ravel()))
-            V_r2_per_rank.append(_r2(Vt_rr.ravel(), Vl_a.ravel()))
-            W_r2_per_rank.append(_r2((Ut_rr @ Vt_rr).ravel(), (Ul_a @ Vl_a).ravel()))
-
-        _rank20 = min(20, n_components)
-        if _rank20 in rank_list:
-            _idx20 = rank_list.index(_rank20)
-            U_r2_rank20 = U_r2_per_rank[_idx20]
-            V_r2_rank20 = V_r2_per_rank[_idx20]
-            W_r2_rank20 = W_r2_per_rank[_idx20]
+        # --- Row 1: spectral overview ---
+        if eig_true is not None and eig_learned is not None:
+            axes[0, 0].scatter(eig_true.real, eig_true.imag, s=100, c='green', alpha=0.7, label='true')
+            axes[0, 0].scatter(eig_learned.real, eig_learned.imag, s=100, c='black', alpha=0.7, label='learned')
+        elif eig_true is not None:
+            axes[0, 0].scatter(eig_true.real, eig_true.imag, s=100, c='green', alpha=0.7, label='true')
+            axes[0, 0].text(0.5, 0.5, 'learned W ≈ 0\n(no eigenvalues)', transform=axes[0, 0].transAxes,
+                           ha='center', va='center', fontsize=20, color='red')
         else:
-            Ut_20 = U_t[:, :_rank20] * S_t[:_rank20]
-            Vt_20 = Vt_t[:_rank20, :]
-            Ul_20 = U_l[:, :_rank20] * S_l[:_rank20]
-            Vl_20 = Vt_l[:_rank20, :]
-            Ru20, _ = orthogonal_procrustes(Ul_20, Ut_20)
-            Rv20, _ = orthogonal_procrustes(Vl_20.T, Vt_20.T)
-            Ul_20a = Ul_20 @ Ru20
-            Vl_20a = (Vl_20.T @ Rv20).T
-            U_r2_rank20 = _r2(Ut_20.ravel(), Ul_20a.ravel())
-            V_r2_rank20 = _r2(Vt_20.ravel(), Vl_20a.ravel())
-            W_r2_rank20 = _r2((Ut_20 @ Vt_20).ravel(), (Ul_20a @ Vl_20a).ravel())
+            axes[0, 0].text(0.5, 0.5, 'eigenvalue computation failed', transform=axes[0, 0].transAxes,
+                           ha='center', va='center', fontsize=20, color='red')
+        axes[0, 0].axhline(y=0, color='gray', linestyle='--', linewidth=0.5)
+        axes[0, 0].axvline(x=0, color='gray', linestyle='--', linewidth=0.5)
+        axes[0, 0].set_xlabel('real', fontsize=32)
+        axes[0, 0].set_ylabel('imag', fontsize=32)
+        axes[0, 0].legend(fontsize=20)
+        axes[0, 0].tick_params(labelsize=20)
+        axes[0, 0].set_title('eigenvalues in complex plane', fontsize=28)
 
-        procrustes_ok = True
-    except Exception as e:
-        logger.warning(f"Procrustes SVD analysis failed: {e}")
-        procrustes_ok = False
+        n_compare = min(len(sv_true), len(sv_learned))
+        sv_r2 = _r2(sv_true[:n_compare], sv_learned[:n_compare]) if procrustes_ok else 0.0
+        axes[0, 1].scatter(sv_true[:n_compare], sv_learned[:n_compare], s=100, c='black', edgecolors='black', alpha=0.7)
+        max_val = max(sv_true.max(), sv_learned.max())
+        axes[0, 1].plot([0, max_val], [0, max_val], 'g--', linewidth=2)
+        axes[0, 1].set_xlabel('true singular value', fontsize=32)
+        axes[0, 1].set_ylabel('learned singular value', fontsize=32)
+        axes[0, 1].tick_params(labelsize=20)
+        axes[0, 1].set_title(f'singular value comparison  R²={sv_r2:.3f}', fontsize=28)
 
-    fig, axes = plt.subplots(3, 3, figsize=(30, 30))
+        axes[0, 2].plot(sv_true, color='green', linewidth=2, label='true')
+        axes[0, 2].plot(sv_learned, color='black', linewidth=2, label='learned')
+        axes[0, 2].axvline(x=rank_90, color='orange', linestyle='--', linewidth=1.5, label=f'rank@90%={rank_90}')
+        axes[0, 2].axvline(x=rank_99, color='red', linestyle='--', linewidth=1.5, label=f'rank@99%={rank_99}')
+        axes[0, 2].set_xlabel('index', fontsize=32)
+        axes[0, 2].set_ylabel('singular value', fontsize=32)
+        axes[0, 2].set_yscale('log')
+        axes[0, 2].legend(fontsize=18)
+        axes[0, 2].tick_params(labelsize=20)
+        axes[0, 2].set_title('singular value spectrum (log scale)', fontsize=28)
 
-    # --- Row 1: spectral overview ---
-    if eig_true is not None and eig_learned is not None:
-        axes[0, 0].scatter(eig_true.real, eig_true.imag, s=100, c='green', alpha=0.7, label='true')
-        axes[0, 0].scatter(eig_learned.real, eig_learned.imag, s=100, c='black', alpha=0.7, label='learned')
-    elif eig_true is not None:
-        axes[0, 0].scatter(eig_true.real, eig_true.imag, s=100, c='green', alpha=0.7, label='true')
-        axes[0, 0].text(0.5, 0.5, 'learned W ≈ 0\n(no eigenvalues)', transform=axes[0, 0].transAxes,
-                       ha='center', va='center', fontsize=20, color='red')
-    else:
-        axes[0, 0].text(0.5, 0.5, 'eigenvalue computation failed', transform=axes[0, 0].transAxes,
-                       ha='center', va='center', fontsize=20, color='red')
-    axes[0, 0].axhline(y=0, color='gray', linestyle='--', linewidth=0.5)
-    axes[0, 0].axvline(x=0, color='gray', linestyle='--', linewidth=0.5)
-    axes[0, 0].set_xlabel('real', fontsize=32)
-    axes[0, 0].set_ylabel('imag', fontsize=32)
-    axes[0, 0].legend(fontsize=20)
-    axes[0, 0].tick_params(labelsize=20)
-    axes[0, 0].set_title('eigenvalues in complex plane', fontsize=28)
+        # --- Row 2: Procrustes-aligned U, V, W_recon ---
+        if procrustes_ok:
+            u_flat_t = U_t_r.ravel()
+            u_flat_l = U_l_aligned.ravel()
+            axes[1, 0].scatter(u_flat_t, u_flat_l, s=1, c='black', alpha=0.15, rasterized=True)
+            umax = max(np.abs(u_flat_t).max(), np.abs(u_flat_l).max())
+            axes[1, 0].plot([-umax, umax], [-umax, umax], 'g--', linewidth=2)
+            axes[1, 0].set_xlabel('true U (output modes)', fontsize=28)
+            axes[1, 0].set_ylabel('learned U (Procrustes-aligned)', fontsize=28)
+            axes[1, 0].tick_params(labelsize=20)
+            axes[1, 0].set_title(f'U (rank={rank_r})  R²={U_r2:.3f}', fontsize=28)
+            axes[1, 0].set_aspect('equal')
 
-    n_compare = min(len(sv_true), len(sv_learned))
-    sv_r2 = _r2(sv_true[:n_compare], sv_learned[:n_compare]) if procrustes_ok else 0.0
-    axes[0, 1].scatter(sv_true[:n_compare], sv_learned[:n_compare], s=100, c='black', edgecolors='black', alpha=0.7)
-    max_val = max(sv_true.max(), sv_learned.max())
-    axes[0, 1].plot([0, max_val], [0, max_val], 'g--', linewidth=2)
-    axes[0, 1].set_xlabel('true singular value', fontsize=32)
-    axes[0, 1].set_ylabel('learned singular value', fontsize=32)
-    axes[0, 1].tick_params(labelsize=20)
-    axes[0, 1].set_title(f'singular value comparison  R²={sv_r2:.3f}', fontsize=28)
+            v_flat_t = V_t_r.ravel()
+            v_flat_l = V_l_aligned.ravel()
+            axes[1, 1].scatter(v_flat_t, v_flat_l, s=1, c='black', alpha=0.15, rasterized=True)
+            vmax = max(np.abs(v_flat_t).max(), np.abs(v_flat_l).max())
+            axes[1, 1].plot([-vmax, vmax], [-vmax, vmax], 'g--', linewidth=2)
+            axes[1, 1].set_xlabel('true V (input selection)', fontsize=28)
+            axes[1, 1].set_ylabel('learned V (Procrustes-aligned)', fontsize=28)
+            axes[1, 1].tick_params(labelsize=20)
+            axes[1, 1].set_title(f'V (rank={rank_r})  R²={V_r2:.3f}', fontsize=28)
+            axes[1, 1].set_aspect('equal')
 
-    axes[0, 2].plot(sv_true, color='green', linewidth=2, label='true')
-    axes[0, 2].plot(sv_learned, color='black', linewidth=2, label='learned')
-    axes[0, 2].axvline(x=rank_90, color='orange', linestyle='--', linewidth=1.5, label=f'rank@90%={rank_90}')
-    axes[0, 2].axvline(x=rank_99, color='red', linestyle='--', linewidth=1.5, label=f'rank@99%={rank_99}')
-    axes[0, 2].set_xlabel('index', fontsize=32)
-    axes[0, 2].set_ylabel('singular value', fontsize=32)
-    axes[0, 2].set_yscale('log')
-    axes[0, 2].legend(fontsize=18)
-    axes[0, 2].tick_params(labelsize=20)
-    axes[0, 2].set_title('singular value spectrum (log scale)', fontsize=28)
+            w_flat_t = W_recon_true.ravel()
+            w_flat_l = W_recon_learned.ravel()
+            axes[1, 2].scatter(w_flat_t, w_flat_l, s=1, c='black', alpha=0.05, rasterized=True)
+            wmax = max(np.abs(w_flat_t).max(), np.abs(w_flat_l).max())
+            axes[1, 2].plot([-wmax, wmax], [-wmax, wmax], 'g--', linewidth=2)
+            axes[1, 2].set_xlabel('true W (rank-r approx)', fontsize=28)
+            axes[1, 2].set_ylabel('learned W (rank-r approx)', fontsize=28)
+            axes[1, 2].tick_params(labelsize=20)
+            axes[1, 2].set_title(f'W_recon (rank={rank_r})  R²={W_recon_r2:.3f}', fontsize=28)
+            axes[1, 2].set_aspect('equal')
+        else:
+            for j in range(3):
+                axes[1, j].text(0.5, 0.5, 'Procrustes failed\n(N too large or singular)',
+                               transform=axes[1, j].transAxes, ha='center', va='center', fontsize=20, color='red')
 
-    # --- Row 2: Procrustes-aligned U, V, W_recon ---
-    if procrustes_ok:
-        u_flat_t = U_t_r.ravel()
-        u_flat_l = U_l_aligned.ravel()
-        axes[1, 0].scatter(u_flat_t, u_flat_l, s=1, c='black', alpha=0.15, rasterized=True)
-        umax = max(np.abs(u_flat_t).max(), np.abs(u_flat_l).max())
-        axes[1, 0].plot([-umax, umax], [-umax, umax], 'g--', linewidth=2)
-        axes[1, 0].set_xlabel('true U (output modes)', fontsize=28)
-        axes[1, 0].set_ylabel('learned U (Procrustes-aligned)', fontsize=28)
-        axes[1, 0].tick_params(labelsize=20)
-        axes[1, 0].set_title(f'U (rank={rank_r})  R²={U_r2:.3f}', fontsize=28)
-        axes[1, 0].set_aspect('equal')
+        # --- Row 3: alignment matrices + R² per rank ---
+        im = axes[2, 0].imshow(alignment[:n_show, :n_show], cmap='hot', vmin=0, vmax=1)
+        axes[2, 0].set_xlabel('learned SV index', fontsize=28)
+        axes[2, 0].set_ylabel('true SV index', fontsize=28)
+        axes[2, 0].set_title('right SV alignment (V)', fontsize=28)
+        axes[2, 0].tick_params(labelsize=16)
+        plt.colorbar(im, ax=axes[2, 0], fraction=0.046)
 
-        v_flat_t = V_t_r.ravel()
-        v_flat_l = V_l_aligned.ravel()
-        axes[1, 1].scatter(v_flat_t, v_flat_l, s=1, c='black', alpha=0.15, rasterized=True)
-        vmax = max(np.abs(v_flat_t).max(), np.abs(v_flat_l).max())
-        axes[1, 1].plot([-vmax, vmax], [-vmax, vmax], 'g--', linewidth=2)
-        axes[1, 1].set_xlabel('true V (input selection)', fontsize=28)
-        axes[1, 1].set_ylabel('learned V (Procrustes-aligned)', fontsize=28)
-        axes[1, 1].tick_params(labelsize=20)
-        axes[1, 1].set_title(f'V (rank={rank_r})  R²={V_r2:.3f}', fontsize=28)
-        axes[1, 1].set_aspect('equal')
+        im_L = axes[2, 1].imshow(alignment_L, cmap='hot', vmin=0, vmax=1)
+        axes[2, 1].set_xlabel('learned SV index', fontsize=28)
+        axes[2, 1].set_ylabel('true SV index', fontsize=28)
+        axes[2, 1].set_title('left SV alignment (U)', fontsize=28)
+        axes[2, 1].tick_params(labelsize=16)
+        plt.colorbar(im_L, ax=axes[2, 1], fraction=0.046)
 
-        w_flat_t = W_recon_true.ravel()
-        w_flat_l = W_recon_learned.ravel()
-        axes[1, 2].scatter(w_flat_t, w_flat_l, s=1, c='black', alpha=0.05, rasterized=True)
-        wmax = max(np.abs(w_flat_t).max(), np.abs(w_flat_l).max())
-        axes[1, 2].plot([-wmax, wmax], [-wmax, wmax], 'g--', linewidth=2)
-        axes[1, 2].set_xlabel('true W (rank-r approx)', fontsize=28)
-        axes[1, 2].set_ylabel('learned W (rank-r approx)', fontsize=28)
-        axes[1, 2].tick_params(labelsize=20)
-        axes[1, 2].set_title(f'W_recon (rank={rank_r})  R²={W_recon_r2:.3f}', fontsize=28)
-        axes[1, 2].set_aspect('equal')
-    else:
-        for j in range(3):
-            axes[1, j].text(0.5, 0.5, 'Procrustes failed\n(N too large or singular)',
-                           transform=axes[1, j].transAxes, ha='center', va='center', fontsize=20, color='red')
+        if procrustes_ok:
+            axes[2, 2].plot(rank_list, U_r2_per_rank, 'o-', color='green', linewidth=2, markersize=8, label='U R²')
+            axes[2, 2].plot(rank_list, V_r2_per_rank, 's-', color='black', linewidth=2, markersize=8, label='V R²')
+            axes[2, 2].plot(rank_list, W_r2_per_rank, '^-', color='blue', linewidth=2, markersize=8, label='W_recon R²')
+            axes[2, 2].axvline(x=rank_90, color='orange', linestyle='--', linewidth=1.5, label=f'rank@90%={rank_90}')
+            axes[2, 2].axvline(x=rank_99, color='red', linestyle='--', linewidth=1.5, label=f'rank@99%={rank_99}')
+            axes[2, 2].set_xlabel('truncation rank', fontsize=28)
+            axes[2, 2].set_ylabel('R²', fontsize=28)
+            axes[2, 2].set_title('Procrustes R² vs truncation rank', fontsize=28)
+            axes[2, 2].set_ylim([-0.05, 1.05])
+            axes[2, 2].legend(fontsize=18)
+            axes[2, 2].tick_params(labelsize=20)
+        else:
+            best_alignment_R = np.max(alignment[:n_show, :n_show], axis=1)
+            best_alignment_L = np.max(alignment_L, axis=1)
+            axes[2, 2].scatter(range(len(best_alignment_R)), best_alignment_R, s=50, c='green', alpha=0.7, label=f'right (mean={np.mean(best_alignment_R):.2f})')
+            axes[2, 2].scatter(range(len(best_alignment_L)), best_alignment_L, s=50, c='black', alpha=0.7, label=f'left (mean={np.mean(best_alignment_L):.2f})')
+            axes[2, 2].axhline(y=1/np.sqrt(n_show), color='gray', linestyle='--', linewidth=2, label=f'random ({1/np.sqrt(n_show):.2f})')
+            axes[2, 2].set_xlabel('SV index (sorted by singular value)', fontsize=28)
+            axes[2, 2].set_ylabel('best alignment score', fontsize=28)
+            axes[2, 2].set_title('best alignment per SV', fontsize=28)
+            axes[2, 2].set_ylim([0, 1.05])
+            axes[2, 2].legend(fontsize=20)
+            axes[2, 2].tick_params(labelsize=16)
 
-    # --- Row 3: alignment matrices + R² per rank ---
-    im = axes[2, 0].imshow(alignment[:n_show, :n_show], cmap='hot', vmin=0, vmax=1)
-    axes[2, 0].set_xlabel('learned SV index', fontsize=28)
-    axes[2, 0].set_ylabel('true SV index', fontsize=28)
-    axes[2, 0].set_title('right SV alignment (V)', fontsize=28)
-    axes[2, 0].tick_params(labelsize=16)
-    plt.colorbar(im, ax=axes[2, 0], fraction=0.046)
+        plt.tight_layout()
+        plt.savefig(f'{log_dir}/results/eigen_comparison.png', dpi=87)
+        plt.close()
 
-    im_L = axes[2, 1].imshow(alignment_L, cmap='hot', vmin=0, vmax=1)
-    axes[2, 1].set_xlabel('learned SV index', fontsize=28)
-    axes[2, 1].set_ylabel('true SV index', fontsize=28)
-    axes[2, 1].set_title('left SV alignment (U)', fontsize=28)
-    axes[2, 1].tick_params(labelsize=16)
-    plt.colorbar(im_L, ax=axes[2, 1], fraction=0.046)
-
-    if procrustes_ok:
-        axes[2, 2].plot(rank_list, U_r2_per_rank, 'o-', color='green', linewidth=2, markersize=8, label='U R²')
-        axes[2, 2].plot(rank_list, V_r2_per_rank, 's-', color='black', linewidth=2, markersize=8, label='V R²')
-        axes[2, 2].plot(rank_list, W_r2_per_rank, '^-', color='blue', linewidth=2, markersize=8, label='W_recon R²')
-        axes[2, 2].axvline(x=rank_90, color='orange', linestyle='--', linewidth=1.5, label=f'rank@90%={rank_90}')
-        axes[2, 2].axvline(x=rank_99, color='red', linestyle='--', linewidth=1.5, label=f'rank@99%={rank_99}')
-        axes[2, 2].set_xlabel('truncation rank', fontsize=28)
-        axes[2, 2].set_ylabel('R²', fontsize=28)
-        axes[2, 2].set_title('Procrustes R² vs truncation rank', fontsize=28)
-        axes[2, 2].set_ylim([-0.05, 1.05])
-        axes[2, 2].legend(fontsize=18)
-        axes[2, 2].tick_params(labelsize=20)
-    else:
+        # --- Print and log all spectral/SVD metrics ---
         best_alignment_R = np.max(alignment[:n_show, :n_show], axis=1)
         best_alignment_L = np.max(alignment_L, axis=1)
-        axes[2, 2].scatter(range(len(best_alignment_R)), best_alignment_R, s=50, c='green', alpha=0.7, label=f'right (mean={np.mean(best_alignment_R):.2f})')
-        axes[2, 2].scatter(range(len(best_alignment_L)), best_alignment_L, s=50, c='black', alpha=0.7, label=f'left (mean={np.mean(best_alignment_L):.2f})')
-        axes[2, 2].axhline(y=1/np.sqrt(n_show), color='gray', linestyle='--', linewidth=2, label=f'random ({1/np.sqrt(n_show):.2f})')
-        axes[2, 2].set_xlabel('SV index (sorted by singular value)', fontsize=28)
-        axes[2, 2].set_ylabel('best alignment score', fontsize=28)
-        axes[2, 2].set_title('best alignment per SV', fontsize=28)
-        axes[2, 2].set_ylim([0, 1.05])
-        axes[2, 2].legend(fontsize=20)
-        axes[2, 2].tick_params(labelsize=16)
 
-    plt.tight_layout()
-    plt.savefig(f'{log_dir}/results/eigen_comparison.png', dpi=87)
-    plt.close()
-
-    # --- Print and log all spectral/SVD metrics ---
-    best_alignment_R = np.max(alignment[:n_show, :n_show], axis=1)
-    best_alignment_L = np.max(alignment_L, axis=1)
-
-    if eig_true is not None and eig_learned is not None:
-        true_spectral_radius = np.max(np.abs(eig_true))
-        learned_spectral_radius = np.max(np.abs(eig_learned))
-        print(f'spectral radius - true: {true_spectral_radius:.3f}  learned: {learned_spectral_radius:.3f}')
-        logger.info(f'spectral radius - true: {true_spectral_radius:.3f}  learned: {learned_spectral_radius:.3f}')
-    else:
-        print('spectral radius - skipped (eigenvalue computation failed)')
-        logger.warning('spectral radius computation skipped')
-
-    print(f'SV alignment - right (V): {np.mean(best_alignment_R):.3f}  left (U): {np.mean(best_alignment_L):.3f}')
-    logger.info(f'SV alignment - right (V): {np.mean(best_alignment_R):.3f}  left (U): {np.mean(best_alignment_L):.3f}')
-    if procrustes_ok:
-        print(f'SV R² (singular values): {sv_r2:.4f}')
-        logger.info(f'SV R² (singular values): {sv_r2:.4f}')
-    print(f'effective rank - 90%: {rank_90}  99%: {rank_99}')
-    logger.info(f'effective rank - 90%: {rank_90}  99%: {rank_99}')
-
-    if procrustes_ok:
-        print(f'Procrustes SVD (rank={rank_r}) - U R²: {U_r2:.4f}  V R²: {V_r2:.4f}  W_recon R²: {W_recon_r2:.4f}')
-        logger.info(f'Procrustes SVD (rank={rank_r}) - U R²: {U_r2:.4f}  V R²: {V_r2:.4f}  W_recon R²: {W_recon_r2:.4f}')
-        print(f'Procrustes rank-20: U R²: {U_r2_rank20:.4f}  V R²: {V_r2_rank20:.4f}  W R²: {W_r2_rank20:.4f}')
-        logger.info(f'Procrustes rank-20: U R²: {U_r2_rank20:.4f}  V R²: {V_r2_rank20:.4f}  W R²: {W_r2_rank20:.4f}')
-        print(f'Procrustes R² per rank:')
-        logger.info(f'Procrustes R² per rank:')
-        for i_rk, rr in enumerate(rank_list):
-            line = f'  rank={rr:3d}  U_R2={U_r2_per_rank[i_rk]:.4f}  V_R2={V_r2_per_rank[i_rk]:.4f}  W_R2={W_r2_per_rank[i_rk]:.4f}'
-            print(line)
-            logger.info(line)
-
-    if log_file:
         if eig_true is not None and eig_learned is not None:
-            log_file.write(f"spectral_radius_true: {true_spectral_radius:.4f}\n")
-            log_file.write(f"spectral_radius_learned: {learned_spectral_radius:.4f}\n")
-        log_file.write(f"sv_alignment_R: {np.mean(best_alignment_R):.4f}\n")
-        log_file.write(f"sv_alignment_L: {np.mean(best_alignment_L):.4f}\n")
+            true_spectral_radius = np.max(np.abs(eig_true))
+            learned_spectral_radius = np.max(np.abs(eig_learned))
+            print(f'spectral radius - true: {true_spectral_radius:.3f}  learned: {learned_spectral_radius:.3f}')
+            logger.info(f'spectral radius - true: {true_spectral_radius:.3f}  learned: {learned_spectral_radius:.3f}')
+        else:
+            print('spectral radius - skipped (eigenvalue computation failed)')
+            logger.warning('spectral radius computation skipped')
+
+        print(f'SV alignment - right (V): {np.mean(best_alignment_R):.3f}  left (U): {np.mean(best_alignment_L):.3f}')
+        logger.info(f'SV alignment - right (V): {np.mean(best_alignment_R):.3f}  left (U): {np.mean(best_alignment_L):.3f}')
         if procrustes_ok:
-            log_file.write(f"sv_r2: {sv_r2:.4f}\n")
-        log_file.write(f"effective_rank_90: {rank_90}\n")
-        log_file.write(f"effective_rank_99: {rank_99}\n")
+            print(f'SV R² (singular values): {sv_r2:.4f}')
+            logger.info(f'SV R² (singular values): {sv_r2:.4f}')
+        print(f'effective rank - 90%: {rank_90}  99%: {rank_99}')
+        logger.info(f'effective rank - 90%: {rank_90}  99%: {rank_99}')
+
         if procrustes_ok:
-            log_file.write(f"procrustes_rank: {rank_r}\n")
-            log_file.write(f"procrustes_U_r2: {U_r2:.4f}\n")
-            log_file.write(f"procrustes_V_r2: {V_r2:.4f}\n")
-            log_file.write(f"procrustes_W_recon_r2: {W_recon_r2:.4f}\n")
+            print(f'Procrustes SVD (rank={rank_r}) - U R²: {U_r2:.4f}  V R²: {V_r2:.4f}  W_recon R²: {W_recon_r2:.4f}')
+            logger.info(f'Procrustes SVD (rank={rank_r}) - U R²: {U_r2:.4f}  V R²: {V_r2:.4f}  W_recon R²: {W_recon_r2:.4f}')
+            print(f'Procrustes rank-20: U R²: {U_r2_rank20:.4f}  V R²: {V_r2_rank20:.4f}  W R²: {W_r2_rank20:.4f}')
+            logger.info(f'Procrustes rank-20: U R²: {U_r2_rank20:.4f}  V R²: {V_r2_rank20:.4f}  W R²: {W_r2_rank20:.4f}')
+            print(f'Procrustes R² per rank:')
+            logger.info(f'Procrustes R² per rank:')
             for i_rk, rr in enumerate(rank_list):
-                log_file.write(f"procrustes_rank_{rr}_U_r2: {U_r2_per_rank[i_rk]:.4f}\n")
-                log_file.write(f"procrustes_rank_{rr}_V_r2: {V_r2_per_rank[i_rk]:.4f}\n")
-                log_file.write(f"procrustes_rank_{rr}_W_r2: {W_r2_per_rank[i_rk]:.4f}\n")
-            log_file.write(f"U_r2_rank20: {U_r2_rank20:.4f}\n")
-            log_file.write(f"V_r2_rank20: {V_r2_rank20:.4f}\n")
-            log_file.write(f"W_r2_rank20: {W_r2_rank20:.4f}\n")
+                line = f'  rank={rr:3d}  U_R2={U_r2_per_rank[i_rk]:.4f}  V_R2={V_r2_per_rank[i_rk]:.4f}  W_R2={W_r2_per_rank[i_rk]:.4f}'
+                print(line)
+                logger.info(line)
+
+        if log_file:
+            if eig_true is not None and eig_learned is not None:
+                log_file.write(f"spectral_radius_true: {true_spectral_radius:.4f}\n")
+                log_file.write(f"spectral_radius_learned: {learned_spectral_radius:.4f}\n")
+            log_file.write(f"sv_alignment_R: {np.mean(best_alignment_R):.4f}\n")
+            log_file.write(f"sv_alignment_L: {np.mean(best_alignment_L):.4f}\n")
+            if procrustes_ok:
+                log_file.write(f"sv_r2: {sv_r2:.4f}\n")
+            log_file.write(f"effective_rank_90: {rank_90}\n")
+            log_file.write(f"effective_rank_99: {rank_99}\n")
+            if procrustes_ok:
+                log_file.write(f"procrustes_rank: {rank_r}\n")
+                log_file.write(f"procrustes_U_r2: {U_r2:.4f}\n")
+                log_file.write(f"procrustes_V_r2: {V_r2:.4f}\n")
+                log_file.write(f"procrustes_W_recon_r2: {W_recon_r2:.4f}\n")
+                for i_rk, rr in enumerate(rank_list):
+                    log_file.write(f"procrustes_rank_{rr}_U_r2: {U_r2_per_rank[i_rk]:.4f}\n")
+                    log_file.write(f"procrustes_rank_{rr}_V_r2: {V_r2_per_rank[i_rk]:.4f}\n")
+                    log_file.write(f"procrustes_rank_{rr}_W_r2: {W_r2_per_rank[i_rk]:.4f}\n")
+                log_file.write(f"U_r2_rank20: {U_r2_rank20:.4f}\n")
+                log_file.write(f"V_r2_rank20: {V_r2_rank20:.4f}\n")
+                log_file.write(f"W_r2_rank20: {W_r2_rank20:.4f}\n")
 
     # --- Clustering (no embeddings — use tau, V_rest, W stats) ---
     print('clustering learned features...')
@@ -2426,8 +2435,17 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                     plt.close(fig_zf)
                     logger.info("saved connectivity_matrix_zebrafish_sorted.png")
 
-            # eigenvalue and singular value analysis using sparse matrices
-            if not skip_svd:
+            # eigenvalue and singular value analysis using sparse matrices.
+            # The SVD-based eigen_comparison plot is unreliable on the
+            # corrected W and is slow, so skip the entire block when the
+            # PNG already exists; first-time runs still produce it. Set
+            # FORCE_EIGEN=1 in the env to override.
+            _eigen_path = os.path.join(log_dir, 'results', 'eigen_comparison.png')
+            _skip_eigen_existing = (os.path.isfile(_eigen_path)
+                                    and not os.environ.get('FORCE_EIGEN'))
+            if _skip_eigen_existing:
+                print(f'eigen_comparison already exists, skipping SVD analysis: {_eigen_path}')
+            if not skip_svd and not _skip_eigen_existing:
                 print('plot eigenvalue spectrum and eigenvector comparison ...')
 
                 # build sparse matrices for true and learned weights
