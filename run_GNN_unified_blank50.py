@@ -49,14 +49,42 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
-from connectome_gnn.cross import run_all_conditions
+from connectome_gnn.cross import run_all_conditions, emit_summary_md
+from connectome_gnn.utils import load_data_root_from_json
 
 _parser = argparse.ArgumentParser(description=__doc__)
-_parser.add_argument('--force', action='store_true',
-                     help='Force re-train: removes existing models/, results/, '
-                          'tmp_training/ in each condition+fold log dir before '
-                          'submitting cluster jobs (bypasses the [skip] guard).')
+_parser.add_argument('--retrain', action='store_true',
+                     help='Re-run TRAIN: wipe models/, results/, tmp_training/ '
+                          'and cluster_train.log per fold, then retrain from '
+                          'scratch. Without this flag the [skip] guard keeps '
+                          'every already-trained fold and only fills in folds '
+                          'whose models/ is missing.')
+_parser.add_argument('--retest', action='store_true',
+                     help='Re-run TEST (rollout): wipe results_rollout.log per '
+                          'fold and rerun data_test. Independent of --retrain '
+                          'and --replot.')
+_parser.add_argument('--replot', action='store_true',
+                     help='Re-run PLOT (parameter scatters): wipe '
+                          'results/metrics.txt per fold and rerun data_plot. '
+                          'Independent of --retrain and --retest.')
+_parser.add_argument('--redo-all', dest='redo_all', action='store_true',
+                     help='Shortcut for --retrain --retest --replot. Wipes '
+                          'every phase artefact and runs the full pipeline '
+                          'from scratch.')
+_parser.add_argument('--skip-test-plot', dest='skip_test_plot', action='store_true',
+                     help='Submit the training wave only — suppress the '
+                          'test+plot wave entirely. Combine with --retrain to '
+                          'retrain from scratch without immediately rolling '
+                          'out / plotting the new model.')
+_parser.add_argument('--cluster', choices=['a100', 'l4'], default=None,
+                     help='Override the LSF GPU queue for ALL conditions '
+                          '(a100 or l4). When unset, uses the per-script '
+                          'default.')
 _args = _parser.parse_args()
+
+_force_train = bool(_args.retrain or _args.redo_all)
+_force_test  = bool(_args.retest  or _args.redo_all)
+_force_plot  = bool(_args.replot  or _args.redo_all)
 
 
 BLANK50_SIM_OVERRIDES = {
@@ -78,24 +106,28 @@ CONDITION_NODES = {
     # scales as (1-rho), so at rho=0.99 it is 1% of the i.i.d. case).
     # The rho=0 control is the existing flyvis_noise_005_010 condition
     # under blank50 overrides (commented out below; uncomment if needed).
-    'flyvis_noise_005_010_blank50_ar1_rho25': 'a100',
-    'flyvis_noise_005_010_blank50_ar1_rho50': 'a100',
-    'flyvis_noise_005_010_blank50_ar1_rho75': 'a100',
-    'flyvis_noise_005_010_blank50_ar1_rho90': 'a100',
-    'flyvis_noise_005_010_blank50_ar1_rho95': 'a100',
-    'flyvis_noise_005_010_blank50_ar1_rho99': 'a100',
-    # --- non-AR(1) baselines (paused for the AR(1) sweep; uncomment to re-enable) ---
-    # 'flyvis_noise_free':                    'a100',
-    # 'flyvis_noise_005':                     'a100',
-    # 'flyvis_noise_05':                      'a100',
+    # 'flyvis_noise_005_010_blank50_ar1_rho25': 'l4',
+    # 'flyvis_noise_005_010_blank50_ar1_rho50': 'l4',
+    # 'flyvis_noise_005_010_blank50_ar1_rho75': 'l4',
+    # 'flyvis_noise_005_010_blank50_ar1_rho90': 'l4',
+    # 'flyvis_noise_005_010_blank50_ar1_rho95': 'l4',
+    # 'flyvis_noise_005_010_blank50_ar1_rho99': 'l4',
+    # === stride_5 (speed) baseline — re-enabled with AR(1) sweep for the
+    # learned_ode_params.pt re-emit pass. Uncomment more rows below to expand
+    # to the full canonical baseline set in a follow-up run.
+
+    # --- other non-AR(1) baselines (paused; uncomment to add to this run) ---
+    'flyvis_noise_free':                    'a100',
+    'flyvis_noise_005':                     'a100',
+    'flyvis_noise_05':                      'a100',
     # 'flyvis_noise_005_010':                 'a100',  # = AR(1) rho=0 control under blank50 overrides
     # 'flyvis_noise_005_020':                 'a100',
     # 'flyvis_noise_005_null_edges_pc_400':   'a100',
     # 'flyvis_noise_005_removed_pc_20':       'a100',
     # 'flyvis_noise_005_removed_pc_50':       'a100',
-    # 'flyvis_noise_005_stride_5':            'a100',
     # 'flyvis_noise_005_hidden_010_ngp':      'a100',
     # 'flyvis_noise_005_hidden_020_ngp':      'a100',
+    # 'flyvis_noise_005_stride_5':             'a100',
 }
 
 CONDITION_FILTER     = list(CONDITION_NODES.keys())
@@ -129,7 +161,7 @@ run_all_conditions(
     hp_source='uniform',
     suffix='blank50_unified',
     hp_yaml='flyvis_unified_blank50_winner',
-    node_name='a100',
+    node_name=_args.cluster or 'a100',
     hard_runtime_limit_min=2880,
     sim_overrides=BLANK50_SIM_OVERRIDES,
     dataset_tag='blank50',
@@ -137,7 +169,44 @@ run_all_conditions(
     data_augmentation_loop=500,
     data_augmentation_loop_overrides=DAL_OVERRIDES,
     hp_yaml_overrides=HP_YAML_OVERRIDES,
-    force_train=_args.force,
+    force_train=_force_train,
+    force_test=_force_test,
+    force_plot=_force_plot,
+    skip_test_plot=_args.skip_test_plot,
     conditions_per_wave=3,
     emit_tex=False,
 )
+
+# Per-condition CV summary markdown (rows per fold + mean±SD), written to
+# <output_root>/log/cv_blank50_unified_summary.md.
+emit_summary_md('blank50_unified',
+                output_root=os.environ.get('GNN_OUTPUT_ROOT')
+                            or load_data_root_from_json(),
+                n_folds=5)
+
+
+# ---------------------------------------------------------------------------
+# Example invocations  (run from /workspace/connectome-gnn)
+# ---------------------------------------------------------------------------
+#
+# # Default: resume — skip already-trained folds, run test+plot only on
+# # folds whose results_rollout.log / results/metrics.txt is missing.
+# python run_GNN_unified_blank50.py --cluster a100
+#
+# # Training partially done but plots are missing: do NOT pass --retrain
+# # (the [skip] guard will keep the trained folds and retrain only the
+# # wiped ones). Force the test+plot wave for every fold so all parameter
+# # PNGs land:
+# python run_GNN_unified_blank50.py --retest --replot --cluster a100
+#
+# # Only re-render the parameter plots (rollouts already present):
+# python run_GNN_unified_blank50.py --replot --cluster a100
+#
+# # Full clean re-run (wipe + retrain + retest + replot every fold):
+# python run_GNN_unified_blank50.py --redo-all --cluster a100
+#
+# # Train only — suppress the rollout/plot wave entirely:
+# python run_GNN_unified_blank50.py --skip-test-plot --cluster a100
+#
+# # Force fresh training but defer plotting to a later --replot pass:
+# python run_GNN_unified_blank50.py --retrain --skip-test-plot --cluster a100

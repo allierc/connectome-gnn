@@ -46,7 +46,7 @@ def run_all_conditions(hp_source, suffix, hp_yaml=None,
                         output_root=None, n_folds=5,
                         node_name='a100', hard_runtime_limit_min=120,
                         metrics_interval=300, cluster_test_plot=True,
-                        force_test=False, force_train=False,
+                        force_test=False, force_train=False, force_plot=False,
                         sim_overrides=None, dataset_tag=None,
                         condition_filter=None,
                         data_augmentation_loop=100,
@@ -54,8 +54,9 @@ def run_all_conditions(hp_source, suffix, hp_yaml=None,
                         hp_yaml_overrides=None,
                         conditions_per_wave=1,
                         node_name_per_condition=None,
-                        emit_tex=True):
-    """Run the 8-condition × n_folds YT-only cross-check and emit the TeX table.
+                        emit_tex=True,
+                        skip_test_plot=False):
+    """Run the 8-condition × n_folds and emit the TeX table.
 
     `output_root` resolution (highest priority wins):
         1. explicit kwarg
@@ -73,7 +74,7 @@ def run_all_conditions(hp_source, suffix, hp_yaml=None,
     output_root = _resolve_output_root(output_root)
 
     print('=' * 60)
-    print(f'GNN hold-out-only cross-check ({hp_source} HPs)')
+    print(f'Hold-out-only cross-check ({hp_source} HPs)')
     print(f'  data root:  {output_root}')
     print(f'  suffix:     {suffix}')
     print(f'  hp source:  {hp_source}')
@@ -126,7 +127,8 @@ def run_all_conditions(hp_source, suffix, hp_yaml=None,
                 hard_runtime_limit_min=hard_runtime_limit_min,
                 force_test=force_test, cluster_test_plot=cluster_test_plot,
                 metrics_interval=metrics_interval,
-                force_train=force_train,
+                force_train=force_train, force_plot=force_plot,
+                skip_test_plot=skip_test_plot,
             )
             if emit_tex:
                 emit_tex_file(suffix, output_root, n_folds=n_folds)
@@ -143,7 +145,8 @@ def run_all_conditions(hp_source, suffix, hp_yaml=None,
                 hard_runtime_limit_min=hard_runtime_limit_min,
                 force_test=force_test, cluster_test_plot=cluster_test_plot,
                 metrics_interval=metrics_interval,
-                force_train=force_train,
+                force_train=force_train, force_plot=force_plot,
+                skip_test_plot=skip_test_plot,
             )
             if emit_tex:
                 emit_tex_file(suffix, output_root, n_folds=n_folds)
