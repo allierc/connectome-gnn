@@ -191,12 +191,15 @@ gs_a = mgs.GridSpecFromSubplotSpec(SERIES_ROWS, SERIES_COLS,
                                     subplot_spec=outer[0],
                                     wspace=0.05, hspace=0.3)
 axes_a = []
+_n_series = len(SERIES_FRAMES)
 for k, t in enumerate(SERIES_FRAMES):
     r, c = divmod(k, SERIES_COLS)
     ax = fig.add_subplot(gs_a[r, c])
     stim_t = _zscore(stimulus[:n_inp, t])
     _draw_hex(ax, positions[:n_inp], stim_t, CMAP, vmin_s, vmax_s)
-    ax.set_title(f't = {int(round(t * dt_ms))} ms', fontsize=FS_TITLE, pad=2)
+    # Title only on the first and last hex of the time-series.
+    if k == 0 or k == _n_series - 1:
+        ax.set_title(f't = {int(round(t * dt_ms))} ms', fontsize=FS_TITLE, pad=2)
     axes_a.append(ax)
 
 # ── panel b) 6×11 grid — stimulus + 65 types, same as Fig_0_000000.png ───────
@@ -248,14 +251,14 @@ if _last_col_axes:
     _pos = _anchor.get_position()
     _cax_v = fig.add_axes([
         _pos.x1 + 0.010,
-        _pos.y0 - _pos.height * 1.5,
-        0.010,
-        _pos.height * 4.0,
+        _pos.y0 - _pos.height * 0.5,
+        0.007,
+        _pos.height * 2.0,
     ])
     _norm_v = _mcolors.Normalize(vmin=vmin_v, vmax=vmax_v)
     _sm_v = _mcm.ScalarMappable(norm=_norm_v, cmap=CMAP)
     _cbar_v = fig.colorbar(_sm_v, cax=_cax_v)
-    _cbar_v.set_label('voltage (z-score)', fontsize=FS_LABEL)
+    _cbar_v.set_label('z-scored voltage', fontsize=FS_TICK)
     _cbar_v.ax.tick_params(labelsize=FS_TICK)
     # Trim the colorbar's tick range to its actual data extent.
     _trim_axis(_cax_v, xaxis=False)

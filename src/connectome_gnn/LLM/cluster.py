@@ -384,16 +384,20 @@ def _read_clustering_accuracy(log_dir):
 def _print_training_metrics(log_dirs, slots_active, prefix='  [metrics]'):
     """Read latest metrics.log line for each active slot and print colored.
 
-    Format per slot:
-        [metrics] slot N  iter=I  conn=X
-                          Vr=all/clean(out%)
-                          τ=all/clean(out%)
-                          [nnr=hid(anc)]      (hidden-INR runs only)
+    Same column layout as cross.pipeline.print_plot_metrics_summary so the
+    terminal stream stays consistent across [metrics]/[final ]/[plot   ]:
 
-    `Vr` and `τ` show the all-neurons R² and the outlier-cleaned R² (V_rest
-    threshold |Δ|>0.2, τ threshold |Δ|>0.1 — same as data_plot) plus the
-    outlier % of total evaluated neurons. clean / out% are omitted gracefully
-    when the metrics file lacks those columns (legacy logs)."""
+        [metrics] slot N  iter=I  R²W=conn  R²Vr=clean(out%)  R²τ=clean(out%)
+                                  cluster=…   [nnr=hid(anc)]
+
+    R²W      = `conn` field from tmp_training/metrics.log (W R²)
+    R²Vr     = vr_clean (no-outliers R²); out% = n_out_vr / n_total_vr
+    R²τ      = tau_clean (no-outliers R²); out% = n_out_tau / n_total_tau
+    cluster  = clustering_accuracy from results/metrics.txt (n/a until plot
+               phase has run; never available during training-only waves).
+    nnr      = hidden-INR Pearson (hidden-NGP / hidden-SIREN runs only).
+    Falls back to the all-neurons R² when no-outliers fields are absent
+    (legacy 6-column metrics.log)."""
     for slot in sorted(slots_active):
         log_dir = log_dirs.get(slot)
         if log_dir is None:
@@ -403,23 +407,29 @@ def _print_training_metrics(log_dirs, slots_active, prefix='  [metrics]'):
             print(f"{prefix} slot {slot}: (no metrics.log yet)")
             continue
 
-        def _fmt_with_clean(name, r2_all, r2_clean, n_out, n_total):
-            base = f"{_r2_color(r2_all)}{name}={r2_all:.3f}"
-            if r2_clean is None or n_total <= 0:
+        def _fmt_R2_out(name, r2_clean, r2_all, n_out, n_total):
+            # Prefer the no-outliers (cleaned) R² for display when available;
+            # the legacy 6-column metrics.log only carries the all-neurons R².
+            r2 = r2_clean if r2_clean is not None else r2_all
+            base = f"{_r2_color(r2)}{name}={r2:.3f}"
+            if r2_clean is None or not n_total or n_total <= 0:
                 return base + _ANSI_RESET
             pct = 100.0 * n_out / n_total
-            return (base + _ANSI_RESET +
-                    f"{_r2_color(r2_clean)}/{r2_clean:.3f}{_ANSI_RESET}"
-                    f"({pct:.1f}%)")
+            return base + f"({pct:.1f}%)" + _ANSI_RESET
+
+        cl = _read_clustering_accuracy(log_dir)
+        cl_str = (f"{_r2_color(cl)}{cl:.2f}{_ANSI_RESET}"
+                  if cl is not None else f"{_ANSI_RESET}n/a{_ANSI_RESET}")
 
         parts = [
-            f"{_r2_color(tm['conn'])}conn={tm['conn']:.3f}{_ANSI_RESET}",
-            _fmt_with_clean('Vr', tm['vr'], tm['vr_clean'],
-                            tm['n_out_vr'], tm['n_total_vr']),
-            _fmt_with_clean('τ', tm['tau'], tm['tau_clean'],
-                            tm['n_out_tau'], tm['n_total_tau']),
+            f"{_r2_color(tm['conn'])}R²W={tm['conn']:.3f}{_ANSI_RESET}",
+            _fmt_R2_out('R²Vr', tm['vr_clean'], tm['vr'],
+                        tm['n_out_vr'], tm['n_total_vr']),
+            _fmt_R2_out('R²τ', tm['tau_clean'], tm['tau'],
+                        tm['n_out_tau'], tm['n_total_tau']),
+            f"cluster={cl_str}",
         ]
-        # Hidden-INR diagnostics (only present for hidden-NGP / hidden-SIREN runs).
+        # Hidden-INR diagnostics (only present for hidden-NGP / hidden-SIREN).
         # Pearson thresholds: green > 0.5, yellow > 0.3, orange > 0.1, red <.
         if tm['hid'] is not None:
             nnr_str = f"nnr={tm['hid']:.3f}"

@@ -369,7 +369,8 @@ def draw_scatter(ax, x_all, y_all, xlabel, ylabel, show_fit=True):
 
     _, _pear, _, _ = compute_trace_metrics(
         np.asarray(x_all), np.asarray(y_all))
-    r = float(fisher_pool(_pear)['r_mean'])
+    _fp = fisher_pool(_pear)
+    r, r_sd = float(_fp['r_mean']), float(_fp['r_sd_sym'])
 
     lo, hi = SCATTER_LO, SCATTER_HI
 
@@ -388,8 +389,8 @@ def draw_scatter(ax, x_all, y_all, xlabel, ylabel, show_fit=True):
     ax.set_xlim([lo, hi]); ax.set_ylim([lo, hi])
     _trim_axis(ax)
 
-    # Pearson r (single line) inside the axes, top-left corner.
-    ax.text(0.05, 0.97, f"$r$ = {r:.2f}",
+    # Pearson r ± SD (Fisher-pooled per-neuron) inside the axes, top-left.
+    ax.text(0.05, 0.97, f"$r$ = {r:.2f} $\\pm$ {r_sd:.2f}",
             transform=ax.transAxes, va='top', ha='left', fontsize=FS_TICK)
 
 
@@ -490,8 +491,9 @@ def main():
         _label = "vs noise-free, " if col['noise_level'] > 0 else ""
         _, _pear, _, _ = compute_trace_metrics(
             np.asarray(_src['true']), np.asarray(_src['pred']))
-        r = float(fisher_pool(_pear)['r_mean'])
-        header = f"{_label}$r$ = {r:.2f}"
+        _fp = fisher_pool(_pear)
+        r, r_sd = float(_fp['r_mean']), float(_fp['r_sd_sym'])
+        header = f"{_label}$r$ = {r:.2f} $\\pm$ {r_sd:.2f}"
         draw_traces(
             ax, true_w, pred_w, stim_w, labels, step_v, time_ms,
             column_title=f"{col['label']} ({col['sigma']})",

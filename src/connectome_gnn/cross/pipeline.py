@@ -167,12 +167,18 @@ def _warn_zero_plot_metrics(yt_log_dir, slot_tag=''):
         print(f'\033[91m  [WARN]{slot_tag} post-plot V_rest_R2={vr:.3f}\033[0m')
 
 
-def print_plot_metrics_summary(yt_log_dir, slot=None, prefix='  [plot   ]'):
-    """Print colored one-line summary parsed from results/metrics.txt:
-        slot S  R²W=0.82  V_rest=0.40±1.8%(1572)  τ=0.26±1.1%(260)  cluster=0.91
-    Each metric is wrapped in the same _r2_color thresholds the live
-    training tracker uses, so red/orange/yellow/green are consistent
-    across both the [final ] and the [plot   ] lines.
+def print_plot_metrics_summary(yt_log_dir, slot=None, prefix='  [plot   ]',
+                                n_neurons=13741):
+    """Print colored one-line summary parsed from results/metrics.txt — uses
+    the same column layout as the [metrics]/[final ] training prints so the
+    terminal stream is consistent across all runners:
+
+        [plot   ] slot S  R²W=0.99  R²Vr=0.94(3.3%)  R²τ=0.99(0.0%)  cluster=0.92
+
+    R²W   = W_corrected_R2 (nominal)
+    R²Vr  = V_rest_no_outliers_R2  (out% = V_rest_n_outliers / n_neurons)
+    R²τ   = tau_no_outliers_R2     (out% = tau_n_outliers     / n_neurons)
+    cluster = clustering_accuracy
     """
     vals = _read_plot_metrics(yt_log_dir)
     if not vals:
@@ -185,34 +191,28 @@ def print_plot_metrics_summary(yt_log_dir, slot=None, prefix='  [plot   ]'):
             return f'{_ANSI_RESET}n/a{_ANSI_RESET}'
         return f'{_r2_color(val, thresholds)}{val:.2f}{_ANSI_RESET}'
 
-    w_r2  = vals.get('W_corrected_R2')
-    # τ "median ± IQR %" + outlier count.
-    tau_med = vals.get('tau_rel_err_median')
-    tau_iqr = vals.get('tau_rel_err_iqr')
-    tau_n   = vals.get('tau_n_outliers')
-    tau_r2_no = vals.get('tau_no_outliers_R2')
-    # V_rest equivalents.
-    vr_med = vals.get('V_rest_rel_err_median')
-    vr_iqr = vals.get('V_rest_rel_err_iqr')
-    vr_n   = vals.get('V_rest_n_outliers')
-    vr_r2_no = vals.get('V_rest_no_outliers_R2')
-    cl     = vals.get('clustering_accuracy')
-
-    def _fmt_med_iqr(med, iqr, n_out, r2_no):
-        # Colour by the no-outliers R² (the canonical paper number for
-        # this metric); display the relative-error distribution.
-        if med is None or iqr is None:
+    def _fmt_R2_out(r2_no, n_out):
+        if r2_no is None:
             return f'{_ANSI_RESET}n/a{_ANSI_RESET}'
-        col = _r2_color(r2_no if r2_no is not None else 0.0)
-        n_str = f'({int(n_out)})' if n_out is not None else ''
-        return f'{col}{med * 100:.1f}±{iqr * 100:.1f}%{n_str}{_ANSI_RESET}'
+        col = _r2_color(r2_no)
+        if n_out is None or not n_neurons:
+            return f'{col}{r2_no:.2f}{_ANSI_RESET}'
+        pct = 100.0 * n_out / n_neurons
+        return f'{col}{r2_no:.2f}({pct:.1f}%){_ANSI_RESET}'
+
+    w_r2  = vals.get('W_corrected_R2')
+    tau_n   = vals.get('tau_n_outliers')
+    tau_r2  = vals.get('tau_no_outliers_R2')
+    vr_n    = vals.get('V_rest_n_outliers')
+    vr_r2   = vals.get('V_rest_no_outliers_R2')
+    cl      = vals.get('clustering_accuracy')
 
     slot_str = f' slot {slot}' if slot is not None else ''
     print(
         f'{prefix}{slot_str}  '
         f'R²W={_c(w_r2)}  '
-        f'V_rest={_fmt_med_iqr(vr_med, vr_iqr, vr_n, vr_r2_no)}  '
-        f'τ={_fmt_med_iqr(tau_med, tau_iqr, tau_n, tau_r2_no)}  '
+        f'R²Vr={_fmt_R2_out(vr_r2, vr_n)}  '
+        f'R²τ={_fmt_R2_out(tau_r2, tau_n)}  '
         f'cluster={_c(cl)}'
     )
 
