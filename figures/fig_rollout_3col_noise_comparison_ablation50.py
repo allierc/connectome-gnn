@@ -316,23 +316,24 @@ def _subsample_pair(x_full, y_full, n_max=SCATTER_N_MAX):
 SCATTER_LO, SCATTER_HI = -10.0, 10.0
 
 
-def draw_scatter(ax, x_all, y_all, xlabel, ylabel, show_fit=True):
-    """Hexbin density of y vs x with identity-line R² and OLS slope.
+def draw_scatter(ax, x_all, y_all, xlabel, ylabel, show_fit=True, show_r=True):
+    """Hexbin density of y vs x with per-neuron Fisher-pooled Pearson r.
 
-    R² via `connectome_gnn.metrics.compute_r_squared` (Nash-Sutcliffe:
-    1 − mean((true − learned)²) / var(true)) — penalises scale/offset
-    bias the same way the rest of the codebase does.
+    The hexbin uses subsampled flattened (x, y) for the visual; the
+    correlation reported is computed on the full 2-D traces using
+    compute_trace_metrics → per-neuron pearsonr → fisher_pool['r_mean'],
+    matching the values reported by graph_tester and the cv tables.
+
+    `show_r=False` suppresses the printed `r = X.XX` annotation
+    (used for the "vs noisy ablated" panels where comparing the
+    learned trace against the perturbed gt is misleading).
     """
-    from connectome_gnn.metrics import compute_r_squared
-    x, y, n_full = _subsample_pair(x_all, y_all)
-
-    r2, slope = compute_r_squared(x.astype(np.float64), y.astype(np.float64))
-    intercept = float(np.polyfit(x.astype(np.float64),
-                                  y.astype(np.float64), 1)[1])
+    from connectome_gnn.utils import compute_trace_metrics, fisher_pool
+    x_sub, y_sub, n_full = _subsample_pair(x_all, y_all)
 
     lo, hi = SCATTER_LO, SCATTER_HI
 
-    ax.hexbin(x, y, gridsize=140, bins='log', cmap='magma_r',
+    ax.hexbin(x_sub, y_sub, gridsize=140, bins='log', cmap='magma_r',
               mincnt=1, extent=(lo, hi, lo, hi), linewidths=0.0)
 
     ax.set_xlim([lo, hi]); ax.set_ylim([lo, hi])
@@ -346,12 +347,12 @@ def draw_scatter(ax, x_all, y_all, xlabel, ylabel, show_fit=True):
     ax.set_xlim([lo, hi]); ax.set_ylim([lo, hi])
     _trim_axis(ax)
 
-    r2_text    = f"$R^2$ = {r2:.2f}"
-    slope_text = f"slope = {slope:.2f}"
-    txt_kwargs = dict(transform=ax.transAxes, va='top', ha='left',
-                      fontsize=FS_TICK)
-    ax.text(0.05, 0.97, r2_text,    **txt_kwargs)
-    ax.text(0.05, 0.85, slope_text, **txt_kwargs)
+    if show_r:
+        _, _pear, _, _ = compute_trace_metrics(
+            np.asarray(x_all), np.asarray(y_all))
+        r = float(fisher_pool(_pear)['r_mean'])
+        ax.text(0.05, 0.97, f"$r$ = {r:.2f}",
+                transform=ax.transAxes, va='top', ha='left', fontsize=FS_TICK)
 
 
 def affine_fit_stats(true_arr, pred_arr):
@@ -475,15 +476,16 @@ def main():
         pred_w = _slice(ts['pred'], neuron_idx)
         stim_w = (_slice(ts['stim'], neuron_idx)
                   if ts.get('stim') is not None else None)
-        r_matched = float(np.corrcoef(np.asarray(ts['true']).ravel(),
-                                      np.asarray(ts['pred']).ravel())[0, 1])
-        if col['noise_level'] > 0:
-            r_nf = float(np.corrcoef(np.asarray(n['true']).ravel(),
-                                     np.asarray(n['pred']).ravel())[0, 1])
-            header = [f"vs noisy ablated, $r$ = {r_matched:.2f}",
-                      f"vs noise-free ablated, $r$ = {r_nf:.2f}"]
-        else:
-            header = f"vs noise-free ablated, $r$ = {r_matched:.2f}"
+        # Per-neuron Pearson r, Fisher-z pooled — matches graph_tester /
+        # cv-table recipe (compute_trace_metrics → fisher_pool['r_mean']).
+        # Single line: only the "vs noise-free ablated" comparison is shown
+        # (the noisy-vs-learned r is suppressed).
+        from connectome_gnn.utils import compute_trace_metrics, fisher_pool
+        _src = n if col['noise_level'] > 0 else ts
+        _, _pear, _, _ = compute_trace_metrics(
+            np.asarray(_src['true']), np.asarray(_src['pred']))
+        r_nf = float(fisher_pool(_pear)['r_mean'])
+        header = f"vs noise-free ablated, $r$ = {r_nf:.2f}"
         draw_traces(
             ax, true_w, pred_w, stim_w, labels, step_v, time_ms,
             column_title=f"{col['label']} ({col['sigma']})",
@@ -503,23 +505,35 @@ def main():
                  fontweight='normal', transform=fig.transFigure)
 
     # --- Row 2: scatters [nf] [005 matched, 005 nf] [05 matched, 05 nf].
+    # Panels e (low-noise "vs noisy ablated") and g (high-noise "vs noisy
+    # ablated") are disabled — comparing the learned trace against the
+    # perturbed gt is misleading. Uncomment to restore.
     scatter_panels = [
         (nf_gs[0, 0], matched[0]['true'], matched[0]['pred'],
-         'ground truth voltage', 'rollout voltage', True,  'vs noise-free ablated'),
-        (lo_gs[0, 0], matched[1]['true'], matched[1]['pred'],
-         '',                     '',                True,  'vs noisy ablated'),
-        (lo_gs[0, 1], nf[1]['true'],      nf[1]['pred'],
+         'voltage', 'rollout voltage', True,  'vs noise-free ablated'),
+        # (lo_gs[0, 0], matched[1]['true'], matched[1]['pred'],
+        #  '',                     '',                True,  'vs noisy ablated'),
+        # e moves into the LEFT half of the low-noise column so it left-
+        # aligns with the trace panel b above it (was lo_gs[0, 1]).
+        (lo_gs[0, 0], nf[1]['true'],      nf[1]['pred'],
          '',                     '',                True,  'vs noise-free ablated'),
-        (hi_gs[0, 0], matched[2]['true'], matched[2]['pred'],
-         '',                     '',                False, 'vs noisy ablated'),
-        (hi_gs[0, 1], nf[2]['true'],      nf[2]['pred'],
+        # (hi_gs[0, 0], matched[2]['true'], matched[2]['pred'],
+        #  '',                     '',                False, 'vs noisy ablated'),
+        # f moves into the LEFT half of the high-noise column so it left-
+        # aligns with the trace panel c above it (was hi_gs[0, 1]).
+        (hi_gs[0, 0], nf[2]['true'],      nf[2]['pred'],
          '',                     '',                True,  'vs noise-free ablated'),
     ]
 
     scatter_axes = []
     for cell, x, y, xlbl, ylbl, show_fit, subtitle in scatter_panels:
         ax = fig.add_subplot(cell)
-        draw_scatter(ax, x, y, xlabel=xlbl, ylabel=ylbl, show_fit=show_fit)
+        # Suppress the printed Pearson r on "vs noisy ablated" panels —
+        # comparing the learned trace against perturbed gt would be
+        # misleading there.
+        show_r = subtitle != 'vs noisy ablated'
+        draw_scatter(ax, x, y, xlabel=xlbl, ylabel=ylbl,
+                     show_fit=show_fit, show_r=show_r)
         if subtitle is not None:
             ax.text(0.5, 1.02, subtitle, transform=ax.transAxes,
                     va='bottom', ha='center', fontsize=FS_TICK,
