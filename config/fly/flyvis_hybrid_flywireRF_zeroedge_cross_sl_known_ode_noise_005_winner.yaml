@@ -1,0 +1,98 @@
+# Winner config: flyvis_hybrid_flywireRF_zeroedge_cross_sl_known_ode_noise_005_winner.yaml
+# Source: iter_058_slot_01 (conn_R2 = 0.9551, validated across 10 seeds)
+# Exploration: 72 iterations, 6 blocks
+# Date: 2026-04-26
+#
+# Why this is the winner:
+#   - batch_size=32 breaks gradient noise ceiling for 1.96M-param W (bs=4→8→16→32: 0.945→0.950→0.953→0.955)
+#   - W_L1=3e-3 eliminates late-training collapse (drop 6% → <1%)
+#   - 10-seed Stable-Robust: near-deterministic (CV=0.015%)
+#   - Key HP changes vs inherited: W_L1 1e-5→3e-3, lr_W 6e-4→4.5e-4, Vr_L2 1e-3→0.1, bs 4→32
+#
+# Metrics (10-seed mean +/- std):
+#   conn_R2 final  : 0.9550 +/- 0.0001
+#   conn_R2 peak   : 0.9550 (no drop)
+#   max-drop       : <1%
+#   tau_R2         : 0.9852 +/- 0.0002
+#   V_rest_R2      : 0.9472 +/- 0.0002
+#   rollout_pearson: 0.9999
+#   onestep_pearson: 0.9998
+
+description: "Winner: bs=32, lr_W=4.5e-4, W_L1=3e-3, Vr_L2=0.1 — 10-seed Stable-Robust (72 iters, 6 blocks)"
+dataset: fly/flyvis_hybrid_flywireRF_zeroedge_cross_sl_known_ode_noise_005_03
+simulation:
+  connectivity_file: to be specified
+  adjacency_matrix: ''
+  params:
+  - - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+  n_neurons: 13741
+  n_input_neurons: 1736
+  n_neuron_types: 65
+  n_edges: 1959994
+  n_frames: 64000
+  delta_t: 0.02
+  baseline_value: 0
+  visual_input_type: DAVIS
+  noise_model_level: 0.05
+  derivative_smoothing_window: 1
+  seed: 28003
+  edge_uncertainty: 1
+  skip_short_videos: true
+  blank_prefix_fraction: 0.5
+graph_model:
+  signal_model_name: flyvis_hybrid_flywireRF_zeroedge_cross_sl_known_ode
+  prediction: first_derivative
+  aggr_type: add
+  update_type: generic
+plotting:
+  colormap: tab20
+  arrow_length: 1
+  xlim:
+  - -2.5
+  - 2.5
+  ylim:
+  - -100
+  - 100
+training:
+  n_epochs: 1
+  n_runs: 1
+  device: auto
+  recurrent_training: false
+  batch_size: 32
+  batch_ratio: 1
+  small_init_batch_size: false
+  sparsity: none
+  data_augmentation_loop: 330
+  lr_W: 0.00045
+  lr: 0.006
+  lr_embedding: 0.0
+  coeff_g_phi_diff: 0
+  coeff_f_theta_msg_diff: 0
+  coeff_g_phi_norm: 0
+  coeff_g_phi_weight_L1: 0
+  coeff_f_theta_weight_L1: 0
+  coeff_g_phi_weight_L2: 0
+  coeff_f_theta_weight_L2: 0
+  coeff_W_L1: 0.003
+  coeff_W_L2: 0
+  coeff_W_sign: 0
+  coeff_tau_L1: 0.0
+  coeff_tau_L2: 0.003
+  coeff_V_rest_L1: 0.0
+  coeff_V_rest_L2: 0.1
+  w_init_mode: zeros
+  w_init_scale: 1.0
+  use_gt_edges: true
+  regul_annealing_rate: 0
+  seed: 28503
+claude:
+  n_epochs: 1
+  data_augmentation_loop: 330
+  n_iter_block: 12
+  n_parallel: 4
+  node_name: a100
+  generate_data: false
+  training_time_target_min: 60
