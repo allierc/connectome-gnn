@@ -127,3 +127,7 @@ assets/*.html
 .github/skills/
 docs/repo_overview.md
 hpc-config.json*
+
+# Claude code settings
+# ignore local settings json that each user can set independently
+.claude/settings.local.json
