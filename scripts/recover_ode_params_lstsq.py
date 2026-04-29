@@ -130,6 +130,15 @@ def solve(
     vrest_sloppy  = np.zeros(N, dtype=bool)
     W_null        = np.zeros(E, dtype=bool)
     W_sloppy      = np.zeros(E, dtype=bool)
+    # Cramér–Rao std-error per parameter (in original parameter scale): smaller
+    # = more identifiable. sigma_alpha = sqrt( sum_k v_{k,alpha}^2 / lambda_k ) / s_alpha
+    # where (lambda, V) is the eigendecomposition of A_s^T A_s. Captures both
+    # null directions (huge sigma) and sloppy directions (large sigma) on a
+    # continuous scale. Null lambdas are floored at null_eig_tol*lambda_max so
+    # the sum stays finite; the resulting sigma is then large but not inf.
+    tau_score   = np.full(N, np.nan, dtype=np.float64)
+    vrest_score = np.full(N, np.nan, dtype=np.float64)
+    W_score     = np.full(E, np.nan, dtype=np.float64)
 
     # Neurons with no incoming edges are entirely unidentifiable: tau, V_rest jointly null.
     no_in = deg_in == 0
@@ -163,11 +172,21 @@ def solve(
         inv_w = torch.where(keep, 1.0 / w, torch.zeros_like(w))
         theta_i = (V @ (inv_w * (V.T @ c))) / s
 
+        # Cramér–Rao std error in original parameter coordinates.
+        w_floor = w.clamp_min(null_eig_tol * w_max)
+        sigma_tilde = torch.sqrt((V**2 / w_floor).sum(dim=1))   # in equilibrated space
+        sigma = sigma_tilde / s                                 # back to original scale
+        sg = sigma.cpu().numpy()
+
         th = theta_i.cpu().numpy()
 
         tau_lstsq[i]   = th[0]
         vrest_lstsq[i] = th[1]
         W_lstsq[in_eidx[i]] = th[2:]
+
+        tau_score[i]   = sg[0]
+        vrest_score[i] = sg[1]
+        W_score[in_eidx[i]] = sg[2:]
 
         def _flag(mask_t, tau_arr, vrest_arr, W_arr):
             if int(mask_t.sum().item()) == 0:
@@ -196,6 +215,7 @@ def solve(
         tau_lstsq=tau_lstsq, vrest_lstsq=vrest_lstsq, W_lstsq=W_lstsq,
         tau_null=tau_null,     vrest_null=vrest_null,     W_null=W_null,
         tau_sloppy=tau_sloppy, vrest_sloppy=vrest_sloppy, W_sloppy=W_sloppy,
+        tau_score=tau_score,   vrest_score=vrest_score,   W_score=W_score,
     )
 
 
@@ -314,6 +334,10 @@ def main():
         "V_rest_sloppy": torch.from_numpy(out["vrest_sloppy"]),
         "W_null":        torch.from_numpy(out["W_null"]),
         "W_sloppy":      torch.from_numpy(out["W_sloppy"]),
+        # Continuous Cramér–Rao std-error per parameter (smaller = more identifiable).
+        "tau_score":     torch.from_numpy(out["tau_score"]),
+        "V_rest_score":  torch.from_numpy(out["vrest_score"]),
+        "W_score":       torch.from_numpy(out["W_score"]),
     }, mask_path)
     print(f"wrote {mask_path}")
 
