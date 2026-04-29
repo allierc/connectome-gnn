@@ -22,8 +22,6 @@ simulation:
   derivative_smoothing_window: 1
   seed: 42
   edge_uncertainty: 1
-  datavis_roots:
-    - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
   skip_short_videos: true
   blank_prefix_fraction: 0.5
 graph_model:
@@ -77,5 +75,6 @@ claude:
   data_augmentation_loop: 35
   n_iter_block: 12
   ucb_c: 1.414
-  generate_data: true
+  generate_data: false
   training_time_target_min: 60
+  node_name: a100
