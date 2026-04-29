@@ -47,6 +47,10 @@ if __name__ == '__main__':
     parser.add_argument('--slot',        type=int, default=None)
     parser.add_argument('--output_root', default=None)
     parser.add_argument('--n_rollout_frames', type=int, default=250)
+    parser.add_argument('--skip-test', dest='skip_test', action='store_true',
+                        help='Skip the data_test rollout phase (use when only re-emitting plots).')
+    parser.add_argument('--skip-plot', dest='skip_plot', action='store_true',
+                        help='Skip the data_plot phase (use when only re-running rollout).')
     args = parser.parse_args()
 
     if args.device == 'auto':
@@ -78,33 +82,39 @@ if __name__ == '__main__':
         log_file = open(args.log_file, 'a', buffering=1) if args.log_file else None
         try:
             # 1. Cross-test: loop over every DAVIS CV test set.
-            for j, test_yaml in enumerate(args.test_configs):
-                test_config = NeuralGraphConfig.from_yaml(test_yaml)
-                if args.test_config_files:
-                    test_config.config_file = args.test_config_files[j]
-                    # Prepend pre_folder from config_file to dataset (guarded).
-                    if '/' in test_config.config_file:
-                        pre = test_config.config_file.split('/')[0] + '/'
+            if args.skip_test:
+                print('[cross] --skip-test set: skipping data_test rollout phase', flush=True)
+            else:
+                for j, test_yaml in enumerate(args.test_configs):
+                    test_config = NeuralGraphConfig.from_yaml(test_yaml)
+                    if args.test_config_files:
+                        test_config.config_file = args.test_config_files[j]
+                        # Prepend pre_folder from config_file to dataset (guarded).
+                        if '/' in test_config.config_file:
+                            pre = test_config.config_file.split('/')[0] + '/'
+                            if not test_config.dataset.startswith(pre):
+                                test_config.dataset = pre + test_config.dataset
+                    else:
+                        base_name = os.path.basename(test_yaml).replace('.yaml', '')
+                        cfg_file, pre = add_pre_folder(base_name)
                         if not test_config.dataset.startswith(pre):
                             test_config.dataset = pre + test_config.dataset
-                else:
-                    base_name = os.path.basename(test_yaml).replace('.yaml', '')
-                    cfg_file, pre = add_pre_folder(base_name)
-                    if not test_config.dataset.startswith(pre):
-                        test_config.dataset = pre + test_config.dataset
-                    test_config.config_file = pre + base_name
-                print(f'[cross] {config.config_file}  ->  {test_config.config_file}',
-                      flush=True)
-                data_test(config=config, visualize=False, best_model='best', run=0,
-                          step=10, n_rollout_frames=args.n_rollout_frames,
-                          device=args.device, test_config=test_config,
-                          log_file=log_file)
+                        test_config.config_file = pre + base_name
+                    print(f'[cross] {config.config_file}  ->  {test_config.config_file}',
+                          flush=True)
+                    data_test(config=config, visualize=False, best_model='best', run=0,
+                              step=10, n_rollout_frames=args.n_rollout_frames,
+                              device=args.device, test_config=test_config,
+                              log_file=log_file)
 
             # 2. Parameter recovery plot (once per YT model).
-            from GNN_PlotFigure import data_plot
-            data_plot(config=config, epoch_list=['best'], style='color',
-                      extended='plots', device=args.device, log_file=log_file,
-                      apply_weight_correction=True, skip_svd=True)
+            if args.skip_plot:
+                print('[cross] --skip-plot set: skipping data_plot phase', flush=True)
+            else:
+                from GNN_PlotFigure import data_plot
+                data_plot(config=config, epoch_list=['best'], style='color',
+                          extended='plots', device=args.device, log_file=log_file,
+                          apply_weight_correction=True, skip_svd=True)
         finally:
             if log_file is not None:
                 try:

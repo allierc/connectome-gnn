@@ -1710,8 +1710,11 @@ def plot_training_linear(model, config, epoch, N, log_dir, device,
     if n_neurons is None:
         n_neurons = model.n_neurons
 
-    # Compute all R² values via shared metrics function
-    vrest_r2, tau_r2, conn_r2 = compute_dynamics_r2_linear(model, config, device, n_neurons)
+    # Compute all R² values via shared metrics function. Returns (dict, conn_r2)
+    # where dict has vrest_r2 / tau_r2 plus cleaned + outlier-count fields.
+    dyn_r2, conn_r2 = compute_dynamics_r2_linear(model, config, device, n_neurons)
+    vrest_r2 = dyn_r2['vrest_r2']
+    tau_r2   = dyn_r2['tau_r2']
 
     # Load ground-truth ODE params (use correct class for connconstr models)
     from connectome_gnn.generators.ode_params import FlyVisODEParams, get_ode_params_class
@@ -1766,7 +1769,7 @@ def plot_training_linear(model, config, epoch, N, log_dir, device,
                     dpi=87, bbox_inches='tight', pad_inches=0)
         plt.close()
 
-    return conn_r2, tau_r2, vrest_r2
+    return conn_r2, tau_r2, vrest_r2, dyn_r2
 
 
 def plot_weight_comparison(w_true, w_modified, output_path, xlabel='true $W$', ylabel='modified $W$', color='white'):

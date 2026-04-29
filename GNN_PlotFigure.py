@@ -1352,7 +1352,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 plt.scatter(_x_flat, _y_flat,
                             c=cmap.color(_type_flat.astype(int)),
                             s=max(4.0, _dot_s * 0.8),
-                            alpha=0.08,
+                            alpha=0.04,
                             edgecolors=None)
                 plt.text(0.05, 0.95,
                          f'R²: {_r2_g_scatter:.2f}\nslope: {_slope_g_scatter:.2f}',
@@ -1453,7 +1453,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 plt.scatter(_x_flat, _y_flat,
                             c=cmap.color(_type_flat.astype(int)),
                             s=max(4.0, _dot_s * 0.8),
-                            alpha=0.08,
+                            alpha=0.04,
                             edgecolors=None)
                 plt.text(0.05, 0.95,
                          f'R²: {_r2_f_scatter:.2f}\nslope: {_slope_f_scatter:.2f}',

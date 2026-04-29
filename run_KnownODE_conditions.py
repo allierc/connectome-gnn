@@ -14,10 +14,11 @@ run_GNN_unique.py. This script does NOT generate data — it fails fast
 if the datasets are missing. Run run_generate_YT_data.py first, then
 launch the three training scripts in parallel.
 
-No CLI flags — edit constants in src/connectome_gnn/cross/ if you need
-to tune behavior.
+CLI: --no-test-plot suppresses the post-training rollout/plot wave;
+otherwise edit constants in src/connectome_gnn/cross/ to tune behavior.
 """
 
+import argparse
 import os
 import sys
 
@@ -25,6 +26,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
 from connectome_gnn.cross import run_all_conditions
 
+_parser = argparse.ArgumentParser(description=__doc__)
+_parser.add_argument('--no-test-plot', dest='no_test_plot', action='store_true',
+                     help='Submit the training wave only — suppress the test+plot '
+                          'wave entirely.')
+_args = _parser.parse_args()
+
 run_all_conditions(hp_source='uniform', suffix='yt_known_ode',
                     hp_yaml='flyvis_noise_free_known_ode_reg_winner',
-                    hard_runtime_limit_min=480)
+                    hard_runtime_limit_min=480,
+                    skip_test_plot=_args.no_test_plot)

@@ -212,8 +212,8 @@ if __name__ == "__main__":
                 test_config_name = None
     else:
         best_model = ''
-        task = task = 'train'
-        config_list = ['flyvis_noise_005_hidden_010_ngp_anchors']
+        task = task = 'plot'
+        config_list = ['flyvis_noise_free_blank50_unified_cv00']
         test_config_name = None
 
     if task == 'cv':
@@ -464,4 +464,5 @@ if __name__ == "__main__":
 #  bsub -n 8 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o train_test_plot /groups/saalfeld/home/allierc/Graph/connectome-gnn/config/fly/flyvis_hybrid_flywireRF_zeroedge_cross_sl_e15_known_ode_noise_005 --force"
 #  bsub -n 8 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o test_plot /groups/saalfeld/home/allierc/Graph/connectome-gnn/config/fly/flyvis_hybrid_flywireRF_zeroedge_cross_sl_known_ode_noise_005 --force"
 # bsub -n 8 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o plot /groups/saalfeld/home/allierc/Graph/connectome-gnn/config/fly/flyvis_hybrid_flywireRF_zeroedge_sl_noise_005 --force"
-#  bsub -n 8 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o train_test_plot /groups/saalfeld/home/allierc/Graph/connectome-gnn/config/fly/flyvis_hybrid_flywireRF_zeroedge_sl_known_ode_noise_005 --force"
+#  bsub -n 8 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o train_test_plot /groups/saalfeld/home/allierc/Graph/connectome-gnn/config/fly/flyvis_hybrid_flywireRF_zeroedge_sl_known_ode_noise_005 --force"python GNN_Main.py -o plot flyvis_noise_free_blank50_unified_cv00
+# python GNN_Main.py -o plot flyvis_noise_free_blank50_unified_cv00

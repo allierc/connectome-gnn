@@ -36,7 +36,6 @@ class KnownODEBase(nn.Module):
 
         self.device = device
         self.model = model_config.signal_model_name
-        self.calcium_type = simulation_config.calcium_type
         self.n_neurons = simulation_config.n_neurons
         self.n_input_neurons = simulation_config.n_input_neurons
         self.n_edges = simulation_config.n_edges
@@ -101,7 +100,7 @@ class KnownODEBase(nn.Module):
                 data_id=[], k=[], return_all=False, **kwargs):
         self.data_id = data_id.squeeze().long().clone().detach() if hasattr(data_id, 'squeeze') else data_id
 
-        v = state.observable(self.calcium_type)
+        v = state.voltage.unsqueeze(-1)
         excitation = state.stimulus.unsqueeze(-1)
         particle_id = state.index.long()
 
