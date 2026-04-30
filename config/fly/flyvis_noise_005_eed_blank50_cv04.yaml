@@ -57,7 +57,7 @@ training:
   train_start: 0
   train_end: 0
   lr: 1e-5
-  rollout_train_steps: 1
+  rollout_train_steps: 5
   n_runs: 1
   device: auto
   recurrent_training: false
