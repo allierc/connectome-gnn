@@ -27,6 +27,29 @@ Example:
     python figures/aggregate_flywireRF_table.py
 """
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Inputs / paths
+# ─────────────────────────────────────────────────────────────────────────────
+# Data root      : /groups/saalfeld/home/allierc/GraphData
+# Configs        : <DATA_ROOT>/config/fly/<base>.yaml
+#                    <base> in:
+#                      flyvis_hybrid_flywireRF_known_ode_noise_005
+#                      flyvis_hybrid_flywireRF_zeroedge_sl_known_ode_noise_005
+#                      flyvis_hybrid_flywireRF_zeroedge_cross_sl_known_ode_noise_005
+#                      flyvis_hybrid_flywireRF_e15_known_ode_noise_005
+#                      flyvis_hybrid_flywireRF_zeroedge_cross_sl_e15_known_ode_noise_005
+#                      flyvis_hybrid_flywireRF_noise_005
+#                      flyvis_hybrid_flywireRF_zeroedge_sl_noise_005
+#                      flyvis_hybrid_flywireRF_zeroedge_cross_sl_noise_005
+#                      flyvis_hybrid_flywireRF_e15_noise_005
+#                      flyvis_hybrid_flywireRF_zeroedge_cross_sl_e15_noise_005
+# Trained models : <DATA_ROOT>/log/fly/<base>/models/best_model_with_0_graphs_0.pt
+# Eval logs      : <DATA_ROOT>/log/fly/<base>/results_test.log
+#                  <DATA_ROOT>/log/fly/<base>/results_rollout.log
+#                  <DATA_ROOT>/log/fly/<base>/results/metrics.txt
+# Output         : figures/cv_table_flywireRF_zeroedge.tex
+# ─────────────────────────────────────────────────────────────────────────────
+
 import argparse
 import math
 import os

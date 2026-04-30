@@ -29,6 +29,27 @@ Assumptions
   suffix is reflected in the condition name.
 """
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Inputs / paths
+# ─────────────────────────────────────────────────────────────────────────────
+# Data root      : /groups/saalfeld/home/allierc/GraphData
+# Configs        : <DATA_ROOT>/config/fly/<config_name>.yaml
+#                  (e.g. flyvis_noise_005_mlp, flyvis_noise_05_eed,
+#                   flyvis_noise_005_stimulus_ctx<N>)
+# Training data  : <DATA_ROOT>/graphs_data/fly/<config_name>_cv{00..04}/x_list_train/
+#                  <DATA_ROOT>/graphs_data/fly/<config_name>_cv{00..04}/{edge_index.pt, ode_params.pt}
+# Test data      : <DATA_ROOT>/graphs_data/fly/<config_name>_cv{00..04}/x_list_test/
+#                    (or x_list_0 fallback; stimulus configs borrow from the
+#                     matching-noise MLP CV via STIM_DATA_DONOR)
+# Trained models : <DATA_ROOT>/log/fly/<config_name>_cv{00..04}/models/best_model_with_*.pt
+#                  <DATA_ROOT>/log/fly/<config_name>_cv{00..04}/training_edges.pt
+# Eval logs      : <DATA_ROOT>/log/fly/<config_name>_cv{00..04}/results_test_pearson.npy
+#                  <DATA_ROOT>/log/fly/<config_name>_cv{00..04}/results_rollout_pearson.npy
+#                  <DATA_ROOT>/log/fly/<config_name>_cv{00..04}/results_rollout_rmse.npy
+# Output         : stdout LaTeX table (tab:cv_baselines_sym; asymmetric variant
+#                  emitted commented-out below it)
+# ─────────────────────────────────────────────────────────────────────────────
+
 from __future__ import annotations
 
 import argparse

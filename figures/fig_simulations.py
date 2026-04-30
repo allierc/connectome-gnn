@@ -40,6 +40,18 @@ Output
     figures/fig_simulations.{pdf,png}
 """
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Inputs / paths
+# ─────────────────────────────────────────────────────────────────────────────
+# Data root      : /groups/saalfeld/home/allierc/GraphData
+# Configs        : <DATA_ROOT>/config/fly/flyvis_noise_free_blank50_davispt.yaml
+#                  <DATA_ROOT>/config/fly/flyvis_noise_005_blank50_davispt.yaml
+#                  <DATA_ROOT>/config/fly/flyvis_noise_05_blank50_davispt.yaml
+# Training data  : <DATA_ROOT>/graphs_data/fly/<dataset>/x_list_train/
+#                  <DATA_ROOT>/graphs_data/fly/<dataset>/{edge_index.pt, ode_params.pt}
+# Output         : figures/fig_simulations.{pdf,png}
+# ─────────────────────────────────────────────────────────────────────────────
+
 import os
 import sys
 

@@ -23,6 +23,26 @@ Output
     figures/fig_rollout_3col_noise_comparison.{pdf,png}
 """
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Inputs / paths
+# ─────────────────────────────────────────────────────────────────────────────
+# Data root      : /groups/saalfeld/home/allierc/GraphData
+# Configs        : <DATA_ROOT>/config/fly/flyvis_noise_free_blank50_unified_cv00.yaml
+#                  <DATA_ROOT>/config/fly/flyvis_noise_005_blank50_unified_cv00.yaml
+#                  <DATA_ROOT>/config/fly/flyvis_noise_05_blank50_unified_cv00.yaml
+#                  (noisy-test twins generated on the fly:
+#                   <DATA_ROOT>/config/fly/flyvis_noise_{free,005,05}_blank50_cv00_test.yaml)
+# Stimulus root  : /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test/
+#                  /groups/saalfeld/home/allierc/signaling/DATAVIS/  (fallback)
+# Training data  : <DATA_ROOT>/graphs_data/fly/flyvis_noise_{free,005,05}_blank50_cv00/x_list_train/
+#                  <DATA_ROOT>/graphs_data/fly/flyvis_noise_{free,005,05}_blank50_cv00/{edge_index.pt, ode_params.pt}
+# Test data      : <DATA_ROOT>/graphs_data/fly/flyvis_noise_{free,005,05}_blank50_cv00_test/x_list_test/
+# Trained models : <DATA_ROOT>/log/fly/flyvis_noise_{free,005,05}_blank50_unified_cv00/models/best_model_with_0_graphs_0.pt
+# Eval logs      : <DATA_ROOT>/log/fly/flyvis_noise_{free,005,05}_blank50_unified_cv00/results/rollout_bundle.npz
+#                  <DATA_ROOT>/log/fly/flyvis_noise_{free,005,05}_blank50_unified_cv00/results/rollout_bundle_on_noise_{free,005,05}_blank50_cv00_test.npz
+# Output         : figures/fig_rollout_3col_noise_comparison{,_nf_green}.{pdf,png}
+# ─────────────────────────────────────────────────────────────────────────────
+
 import os
 import shutil
 import string

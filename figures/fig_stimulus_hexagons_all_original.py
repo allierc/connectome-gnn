@@ -16,6 +16,16 @@ Output
     figures/fig_stimulus_hexagons_all_all.{png,pdf,jpg}
 """
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Inputs / paths
+# ─────────────────────────────────────────────────────────────────────────────
+# Data root      : /groups/saalfeld/home/allierc/GraphData
+# Configs        : <DATA_ROOT>/config/fly/flyvis_noise_free_all.yaml
+# Training data  : <DATA_ROOT>/graphs_data/fly/flyvis_noise_free_all/x_list_train/
+#                  <DATA_ROOT>/graphs_data/fly/flyvis_noise_free_all/{edge_index.pt, ode_params.pt}
+# Output         : figures/fig_stimulus_hexagons_all.{png,pdf,jpg}
+# ─────────────────────────────────────────────────────────────────────────────
+
 import os
 import sys
 import matplotlib

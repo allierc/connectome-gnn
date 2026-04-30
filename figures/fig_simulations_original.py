@@ -29,6 +29,18 @@ Output
     figures/fig_simulations.{png,pdf,jpg}
 """
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Inputs / paths
+# ─────────────────────────────────────────────────────────────────────────────
+# Data root      : /groups/saalfeld/home/allierc/GraphData
+# Configs        : <DATA_ROOT>/config/fly/flyvis_noise_free.yaml
+#                  <DATA_ROOT>/config/fly/flyvis_noise_005.yaml
+#                  <DATA_ROOT>/config/fly/flyvis_noise_05.yaml
+# Training data  : <DATA_ROOT>/graphs_data/fly/<dataset>/x_list_train/
+#                  <DATA_ROOT>/graphs_data/fly/<dataset>/{edge_index.pt, ode_params.pt}
+# Output         : figures/fig_simulations.{png,pdf,jpg}
+# ─────────────────────────────────────────────────────────────────────────────
+
 import os
 import sys
 import matplotlib

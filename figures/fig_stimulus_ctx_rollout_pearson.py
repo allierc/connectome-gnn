@@ -8,6 +8,19 @@ Two-panel figure:
 
 Output: figures/fig_stimulus_ctx_rollout_pearson.{pdf,png}
 """
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Inputs / paths
+# ─────────────────────────────────────────────────────────────────────────────
+# Data root      : /groups/saalfeld/home/kumarv4/repos/connectome-gnn
+# Configs        : <REPO>/config/fly/flyvis_noise_free_stimulus_ctx1.yaml
+#                  (time_window overridden in-memory for ctx=2..14)
+# Test data      : <DATA_ROOT>/graphs_data/fly/flyvis_noise_free_eed_cv{00..04}/x_list_test/
+#                  {voltage.zarr, stimulus.zarr, neuron_type.zarr}
+# Trained models : <DATA_ROOT>/log/fly/flyvis_noise_free_stimulus_ctx{1..14}/models/best_model_with_*.pt
+# Output         : figures/fig_stimulus_ctx_rollout_pearson.{pdf,png}
+# ─────────────────────────────────────────────────────────────────────────────
+
 import glob
 import os
 import sys
