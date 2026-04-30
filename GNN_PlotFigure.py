@@ -2438,14 +2438,16 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             # eigenvalue and singular value analysis using sparse matrices.
             # The SVD-based eigen_comparison plot is unreliable on the
             # corrected W and is slow, so skip the entire block when the
-            # PNG already exists; first-time runs still produce it. Set
-            # FORCE_EIGEN=1 in the env to override.
+            # PNG already exists; first-time runs still produce it (the
+            # caller's skip_svd flag is intentionally bypassed here so
+            # `python GNN_Main.py -o plot ...` populates the missing
+            # file). Set FORCE_EIGEN=1 in the env to regenerate.
             _eigen_path = os.path.join(log_dir, 'results', 'eigen_comparison.png')
             _skip_eigen_existing = (os.path.isfile(_eigen_path)
                                     and not os.environ.get('FORCE_EIGEN'))
             if _skip_eigen_existing:
                 print(f'eigen_comparison already exists, skipping SVD analysis: {_eigen_path}')
-            if not skip_svd and not _skip_eigen_existing:
+            if not _skip_eigen_existing:
                 print('plot eigenvalue spectrum and eigenvector comparison ...')
 
                 # build sparse matrices for true and learned weights

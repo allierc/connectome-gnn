@@ -135,7 +135,11 @@ SCATTER_RNG   = np.random.default_rng(0)
 TRACE_SHRINK = 0.65
 
 FIG_W_IN = 18.0 * 0.3937   # ≈ 7.09 in
-FIG_H_IN = 5.2             # shorter overall — row 1 height reduced
+# Bottom row height ratio doubled (was [1.4*TS, 1.0]) so the scatter
+# panels are roughly 2× the linear size of the previous left-half-only
+# layout. FIG_H_IN bumped to keep the trace row physical size unchanged
+# while the scatter row grows.
+FIG_H_IN = 7.5
 
 
 # ---------------------------------------------------------------------------
@@ -165,19 +169,19 @@ def _clone_base(base_yaml, out_yaml, dataset_name, description, overrides):
 # ---------------------------------------------------------------------------
 # Noisy-test-variant pipeline (for noise_005 / noise_05 columns only)
 # ---------------------------------------------------------------------------
-def noisy_variant_for(col):
-    ds_noisy = f"{col['cv00_dataset']}_noisy"
+def test_variant_for(col):
+    ds_test = f"{col['cv00_dataset']}_test"
     return {
-        'dataset'  : ds_noisy,
-        'yaml'     : f'{CFG_DIR}/{ds_noisy}.yaml',
-        'data_dir' : f'{DATA_ROOT}/graphs_data/fly/{ds_noisy}',
+        'dataset'  : ds_test,
+        'yaml'     : f'{CFG_DIR}/{ds_test}.yaml',
+        'data_dir' : f'{DATA_ROOT}/graphs_data/fly/{ds_test}',
         'bundle'   : (f"{DATA_ROOT}/log/fly/{col['model']}/results/"
-                      f"rollout_bundle_on_{ds_noisy.replace('flyvis_', '')}.npz"),
+                      f"rollout_bundle_on_{ds_test.replace('flyvis_', '')}.npz"),
     }
 
 
-def ensure_noisy_variant(col):
-    nv = noisy_variant_for(col)
+def ensure_test_variant(col):
+    nv = test_variant_for(col)
 
     if not os.path.isfile(nv['yaml']):
         print(f"[{col['model']}] cloning noisy-test variant -> {nv['yaml']}")
@@ -244,8 +248,8 @@ def load_primary_bundle(col):
     return _load_bundle(path)
 
 
-def load_noisy_bundle(col):
-    return _load_bundle(noisy_variant_for(col)['bundle'])
+def load_test_bundle(col):
+    return _load_bundle(test_variant_for(col)['bundle'])
 
 
 # ---------------------------------------------------------------------------
@@ -417,19 +421,19 @@ def main():
     # generated test dataset with matching DAVIS videos + seed=42, so panel a
     # and panels b/c use identical stimuli and can be compared directly.
     for col in COLUMNS:
-        ensure_noisy_variant(col)
+        ensure_test_variant(col)
 
     # Step 2: load bundles. Use the noisy-variant bundle everywhere so
     # traces and the "rollout vs gt" scatter all derive from the same test
     # dataset per column (primary bundles are kept only as the "noise-free
     # gt" comparator for the low/high columns where the two differ).
     primary = [load_primary_bundle(col) for col in COLUMNS]
-    noisy   = [load_noisy_bundle(col)   for col in COLUMNS]
+    test_data = [load_test_bundle(col)   for col in COLUMNS]
 
     # For traces and the first-per-group scatter, always use the noisy
     # variant. For the secondary scatters (vs noise-free) in the low/high
     # columns, use the primary (deterministic) bundle.
-    trace_src = noisy
+    trace_src = test_data
 
     # Neuron selection from the first column's type_ids.
     type_ids   = trace_src[0]['type_ids']
@@ -453,138 +457,141 @@ def main():
 
     # Figure layout: outer 2-row split; top row = 3 trace axes, bottom row = 5
     # scatter axes in one row (1 for nf + 2 for 005 + 2 for 05).
-    fig = plt.figure(figsize=(FIG_W_IN, FIG_H_IN), constrained_layout=False)
-    outer = mgs.GridSpec(
-        2, 1, figure=fig,
-        height_ratios=[1.4 * TRACE_SHRINK, 1.0],
-        left=0.06, right=0.98, top=0.97, bottom=0.04,
-        hspace=0.0,
-    )
-    # Top and bottom rows share identical column boundaries — three equal-width
-    # groups with the same wspace — so noise-group boundaries in the bottom row
-    # align with the trace-column boundaries in the top row.
-    TOP_WSPACE    = 0.25
-    GROUP_WSPACE  = 0.35   # separation between the two panels within a group
-    top_gs   = mgs.GridSpecFromSubplotSpec(1, 3, outer[0, 0], wspace=TOP_WSPACE)
-    group_gs = mgs.GridSpecFromSubplotSpec(1, 3, outer[1, 0], wspace=TOP_WSPACE)
-    # Each noise group holds up to 2 panels (left / right) at half-column width.
-    # The noise-free group uses only the left subcell (d), leaving the right
-    # subcell empty so d has the same panel width as e / f / g / h.
-    nf_gs = mgs.GridSpecFromSubplotSpec(1, 2, group_gs[0, 0], wspace=GROUP_WSPACE)
-    lo_gs = mgs.GridSpecFromSubplotSpec(1, 2, group_gs[0, 1], wspace=GROUP_WSPACE)
-    hi_gs = mgs.GridSpecFromSubplotSpec(1, 2, group_gs[0, 2], wspace=GROUP_WSPACE)
-
-    # --- Row 1: traces ---
-    trace_axes = []
-    for c, (col, ts, prim) in enumerate(zip(COLUMNS, trace_src, primary)):
-        ax = fig.add_subplot(top_gs[0, c])
-        true_w = _slice(ts['true'], neuron_idx)
-        pred_w = _slice(ts['pred'], neuron_idx)
-        stim_w = (_slice(ts['stim'], neuron_idx)
-                  if ts.get('stim') is not None else None)
-        # Per-neuron Pearson r, Fisher-z pooled — same recipe graph_tester /
-        # cv-table use. Single-line header: only the "vs noise-free" comparison
-        # is printed on the noisy columns (b, c); the noisy-vs-learned r is
-        # suppressed because the gt itself is perturbed.
-        from connectome_gnn.utils import compute_trace_metrics, fisher_pool
-        _src = prim if col['noise_level'] > 0 else ts
-        _label = "vs noise-free, " if col['noise_level'] > 0 else ""
-        _, _pear, _, _ = compute_trace_metrics(
-            np.asarray(_src['true']), np.asarray(_src['pred']))
-        _fp = fisher_pool(_pear)
-        r, r_sd = float(_fp['r_mean']), float(_fp['r_sd_sym'])
-        header = f"{_label}$r$ = {r:.2f} $\\pm$ {r_sd:.2f}"
-        draw_traces(
-            ax, true_w, pred_w, stim_w, labels, step_v, time_ms,
-            column_title=f"{col['label']} ({col['sigma']})",
-            show_type_labels=(c == 0),
-            show_xlabel=(c == 0),
-            header_text=header,
+    for _nf_green in (False, True):
+        fig = plt.figure(figsize=(FIG_W_IN, FIG_H_IN), constrained_layout=False)
+        outer = mgs.GridSpec(
+            2, 1, figure=fig,
+            height_ratios=[1.4 * TRACE_SHRINK, 2.0],
+            left=0.06, right=0.98, top=0.97, bottom=0.04,
+            hspace=0.0,
         )
-        trace_axes.append(ax)
+        # Top and bottom rows share identical column boundaries — three equal-width
+        # groups with the same wspace — so noise-group boundaries in the bottom row
+        # align with the trace-column boundaries in the top row.
+        TOP_WSPACE    = 0.25
+        GROUP_WSPACE  = 0.35   # separation between the two panels within a group
+        top_gs   = mgs.GridSpecFromSubplotSpec(1, 3, outer[0, 0], wspace=TOP_WSPACE)
+        group_gs = mgs.GridSpecFromSubplotSpec(1, 3, outer[1, 0], wspace=TOP_WSPACE)
+        # Each noise group used to hold up to 2 panels (left / right); after
+        # dropping the "vs noisy" panels (e, g) we collapse each group to a
+        # single full-width cell so panels d / e / f are ~2× wider than the
+        # half-cell layout. The remaining panel sits at [0, 0] of each
+        # 1×1 sub-grid.
+        nf_gs = mgs.GridSpecFromSubplotSpec(1, 1, group_gs[0, 0])
+        lo_gs = mgs.GridSpecFromSubplotSpec(1, 1, group_gs[0, 1])
+        hi_gs = mgs.GridSpecFromSubplotSpec(1, 1, group_gs[0, 2])
 
-    # Draw column titles via fig.text at a uniform fig-y across all three
-    # trace columns so the title baseline lines up with the panel letters
-    # a / b / c (drawn at the same fig-y by add_panel_label below).
-    fig.canvas.draw()
-    TRACE_TITLE_DY = 0.02   # fig-fraction above each trace axes' top edge
-                            # (small — headers now live inside the axes)
-    for ax_t in trace_axes:
-        pos = ax_t.get_position()
-        x_center = pos.x0 + pos.width / 2
-        fig.text(x_center, pos.y1 + TRACE_TITLE_DY, ax_t._column_title,
-                 va='bottom', ha='center', fontsize=FS_LABEL,
-                 fontweight='normal', transform=fig.transFigure)
+        # --- Row 1: traces ---
+        trace_axes = []
+        for c, (col, ts, prim) in enumerate(zip(COLUMNS, trace_src, primary)):
+            ax = fig.add_subplot(top_gs[0, c])
+            true_w = _slice((trace_src[0]['true'] if _nf_green else ts['true']), neuron_idx)
+            pred_w = _slice(ts['pred'], neuron_idx)
+            stim_w = (_slice(ts['stim'], neuron_idx)
+                      if ts.get('stim') is not None else None)
+            # Per-neuron Pearson r, Fisher-z pooled — same recipe graph_tester /
+            # cv-table use. Single-line header: only the "vs noise-free" comparison
+            # is printed on the noisy columns (b, c); the noisy-vs-learned r is
+            # suppressed because the gt itself is perturbed.
+            from connectome_gnn.utils import compute_trace_metrics, fisher_pool
+            _src = prim if col['noise_level'] > 0 else ts
+            _label = "vs noise-free, " if col['noise_level'] > 0 else ""
+            _, _pear, _, _ = compute_trace_metrics(
+                np.asarray(_src['true']), np.asarray(_src['pred']))
+            _fp = fisher_pool(_pear)
+            r, r_sd = float(_fp['r_mean']), float(_fp['r_sd_sym'])
+            header = f"{_label}$r$ = {r:.2f} $\\pm$ {r_sd:.2f}"
+            draw_traces(
+                ax, true_w, pred_w, stim_w, labels, step_v, time_ms,
+                column_title=f"{col['label']} ({col['sigma']})",
+                show_type_labels=(c == 0),
+                show_xlabel=(c == 0),
+                header_text=header,
+            )
+            trace_axes.append(ax)
 
-    # --- Row 2: five scatter panels, grouped [nf] [005 noisy, 005 nf] [05 noisy, 05 nf].
-    # Axis labels are shown only the FIRST time they occur, so g and h inherit
-    # their axis meaning from e and f (same kind of plot, different noise level).
-    # Panel tuple: (cell, x, y, xlabel, ylabel, show_fit, subtitle)
-    # Sub-titles distinguish "noisy" vs "noise-free" within the low/high groups;
-    # panel d has no subtitle (its noise-free status is implicit).
-    scatter_panels = [
-        # Panel d uses the noisy-variant bundle so its stimulus matches panels
-        # b and c (same DAVIS videos, same seed=42).
-        (nf_gs[0, 0], noisy[0]['true'], noisy[0]['pred'],
-         'voltage', 'rollout voltage', True,  None),
-        # Panels e (low-noise "vs noisy") and g (high-noise "vs noisy") are
-        # disabled — comparing the learned trace against the perturbed gt is
-        # misleading. Uncomment to restore.
-        # (lo_gs[0, 0], noisy[1]['true'],   noisy[1]['pred'],
-        #  '',                     '',                True,  'vs noisy'),
-        # e moves into the LEFT half of the low-noise column so it left-
-        # aligns with the trace panel b above it (was lo_gs[0, 1]).
-        (lo_gs[0, 0], primary[1]['true'], primary[1]['pred'],
-         '',                     '',                True,  'vs noise-free'),
-        # (hi_gs[0, 0], noisy[2]['true'],   noisy[2]['pred'],
-        #  '',                     '',                False, 'vs noisy'),
-        # f moves into the LEFT half of the high-noise column so it left-
-        # aligns with the trace panel c above it (was hi_gs[0, 1]).
-        (hi_gs[0, 0], primary[2]['true'], primary[2]['pred'],
-         '',                     '',                True,  'vs noise-free'),
-    ]
+        # Draw column titles via fig.text at a uniform fig-y across all three
+        # trace columns so the title baseline lines up with the panel letters
+        # a / b / c (drawn at the same fig-y by add_panel_label below).
+        fig.canvas.draw()
+        TRACE_TITLE_DY = 0.02   # fig-fraction above each trace axes' top edge
+                                # (small — headers now live inside the axes)
+        for ax_t in trace_axes:
+            pos = ax_t.get_position()
+            x_center = pos.x0 + pos.width / 2
+            fig.text(x_center, pos.y1 + TRACE_TITLE_DY, ax_t._column_title,
+                     va='bottom', ha='center', fontsize=FS_LABEL,
+                     fontweight='normal', transform=fig.transFigure)
 
-    scatter_axes = []
-    for cell, x, y, xlbl, ylbl, show_fit, subtitle in scatter_panels:
-        ax = fig.add_subplot(cell)
-        draw_scatter(ax, x, y, xlabel=xlbl, ylabel=ylbl, show_fit=show_fit)
-        # Subtitle ("vs noisy" / "vs noise-free") above the axes.
-        # R² and slope are drawn INSIDE the axes (top-left) by draw_scatter.
-        if subtitle is not None:
-            ax.text(0.5, 1.02, subtitle, transform=ax.transAxes,
-                    va='bottom', ha='center', fontsize=FS_TICK,
-                    fontweight='normal')
-        scatter_axes.append(ax)
+        # --- Row 2: five scatter panels, grouped [nf] [005 noisy, 005 nf] [05 noisy, 05 nf].
+        # Axis labels are shown only the FIRST time they occur, so g and h inherit
+        # their axis meaning from e and f (same kind of plot, different noise level).
+        # Panel tuple: (cell, x, y, xlabel, ylabel, show_fit, subtitle)
+        # Sub-titles distinguish "noisy" vs "noise-free" within the low/high groups;
+        # panel d has no subtitle (its noise-free status is implicit).
+        scatter_panels = [
+            # Panel d uses the noisy-variant bundle so its stimulus matches panels
+            # b and c (same DAVIS videos, same seed=42).
+            (nf_gs[0, 0], test_data[0]['true'], test_data[0]['pred'],
+             'ground truth voltage', 'rollout voltage', True,  None),
+            # Panels e (low-noise "vs noisy") and g (high-noise "vs noisy") are
+            # disabled — comparing the learned trace against the perturbed gt is
+            # misleading. Uncomment to restore.
+            # (lo_gs[0, 0], test_data[1]['true'],   test_data[1]['pred'],
+            #  '',                     '',                True,  'vs noisy'),
+            # e moves into the LEFT half of the low-noise column so it left-
+            # aligns with the trace panel b above it (was lo_gs[0, 1]).
+            (lo_gs[0, 0], primary[1]['true'], primary[1]['pred'],
+             '',                     '',                True,  'vs noise-free'),
+            # (hi_gs[0, 0], test_data[2]['true'],   test_data[2]['pred'],
+            #  '',                     '',                False, 'vs noisy'),
+            # f moves into the LEFT half of the high-noise column so it left-
+            # aligns with the trace panel c above it (was hi_gs[0, 1]).
+            (hi_gs[0, 0], primary[2]['true'], primary[2]['pred'],
+             '',                     '',                True,  'vs noise-free'),
+        ]
 
-    # Pull the entire scatter row upward by a fixed fig-fraction so the visible
-    # gap between the trace row and the scatter row shrinks. Axis headers
-    # (positioned via transAxes coords) shift up with their axes.
-    SCATTER_PULL_UP = 0.07
-    for ax in scatter_axes:
-        pos = ax.get_position()
-        ax.set_position([pos.x0, pos.y0 + SCATTER_PULL_UP,
-                         pos.width, pos.height])
+        scatter_axes = []
+        for cell, x, y, xlbl, ylbl, show_fit, subtitle in scatter_panels:
+            ax = fig.add_subplot(cell)
+            draw_scatter(ax, x, y, xlabel=xlbl, ylabel=ylbl, show_fit=show_fit)
+            # Subtitle ("vs noisy" / "vs noise-free") above the axes.
+            # R² and slope are drawn INSIDE the axes (top-left) by draw_scatter.
+            if subtitle is not None:
+                ax.text(0.5, 1.02, subtitle, transform=ax.transAxes,
+                        va='bottom', ha='center', fontsize=FS_TICK,
+                        fontweight='normal')
+            scatter_axes.append(ax)
 
-    # --- Panel labels (a–h) on every panel ---
-    all_axes = trace_axes + scatter_axes
-    letters = list(string.ascii_lowercase[:len(all_axes)])
-    fig.canvas.draw()
-    # Trace letters (a, b, c) sit at the same fig-y as the column titles
-    # (TRACE_TITLE_DY above the trace axes), so the title baseline aligns
-    # with the letter. Scatter letters keep the default tighter offset.
-    for ax, letter in zip(all_axes, letters):
-        if ax in trace_axes:
-            add_panel_label(fig, ax, letter, dy=TRACE_TITLE_DY)
-        else:
-            add_panel_label(fig, ax, letter)
+        # Pull the entire scatter row upward by a fixed fig-fraction so the visible
+        # gap between the trace row and the scatter row shrinks. Axis headers
+        # (positioned via transAxes coords) shift up with their axes.
+        SCATTER_PULL_UP = 0.13
+        for ax in scatter_axes:
+            pos = ax.get_position()
+            ax.set_position([pos.x0, pos.y0 + SCATTER_PULL_UP,
+                             pos.width, pos.height])
 
-    out_base = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                            'fig_rollout_3col_noise_comparison')
-    fig.savefig(out_base + '.pdf', bbox_inches='tight')
-    fig.savefig(out_base + '.png', dpi=300, bbox_inches='tight')
-    plt.close(fig)
-    print(f'Saved: {out_base}.pdf')
-    print(f'Saved: {out_base}.png')
+        # --- Panel labels (a–h) on every panel ---
+        all_axes = trace_axes + scatter_axes
+        letters = list(string.ascii_lowercase[:len(all_axes)])
+        fig.canvas.draw()
+        # Trace letters (a, b, c) sit at the same fig-y as the column titles
+        # (TRACE_TITLE_DY above the trace axes), so the title baseline aligns
+        # with the letter. Scatter letters keep the default tighter offset.
+        for ax, letter in zip(all_axes, letters):
+            if ax in trace_axes:
+                add_panel_label(fig, ax, letter, dy=TRACE_TITLE_DY)
+            else:
+                add_panel_label(fig, ax, letter)
+
+        out_base = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                'fig_rollout_3col_noise_comparison' + ('_nf_green' if _nf_green else ''))
+        fig.savefig(out_base + '.pdf', bbox_inches='tight')
+        fig.savefig(out_base + '.png', dpi=300, bbox_inches='tight')
+        plt.close(fig)
+        print(f'Saved: {out_base}.pdf')
+        print(f'Saved: {out_base}.png')
 
 
 if __name__ == '__main__':
