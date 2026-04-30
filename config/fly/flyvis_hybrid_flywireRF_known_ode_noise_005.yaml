@@ -12,7 +12,7 @@ simulation:
   n_neurons: 13741
   n_input_neurons: 1736
   n_neuron_types: 65
-  n_edges: 328092
+  n_edges: 327358
   n_frames: 64000
   delta_t: 0.02
   baseline_value: 0

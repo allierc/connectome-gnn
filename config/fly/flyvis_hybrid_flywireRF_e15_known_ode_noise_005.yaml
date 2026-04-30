@@ -1,4 +1,4 @@
-description: "flywirevis hybrid -- v2 per-column FlyWire RF, known ODE, all columns (extent=15), noise=0.05"
+description: "flywirevis hybrid -- v2 per-column FlyWire RF, known ODE, full eye (column_source='flywire', extent=15 slot), noise=0.05"
 dataset: flyvis_hybrid_flywireRF_e15_known_ode_noise_005
 simulation:
   connectivity_file: to be specified
@@ -8,10 +8,10 @@ simulation:
       - 1.0
       - 1.0
       - 1.0
-  n_neurons: 45669
-  n_input_neurons: 5768
+  n_neurons: 50412
+  n_input_neurons: 6368
   n_neuron_types: 65
-  n_edges: 1256695
+  n_edges: 1266378
   n_frames: 64000
   delta_t: 0.02
   baseline_value: 0
@@ -20,6 +20,7 @@ simulation:
   derivative_smoothing_window: 1
   seed: 42
   all_columns: true
+  flywire_stimulus: true
   datavis_roots:
     - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
   skip_short_videos: true
