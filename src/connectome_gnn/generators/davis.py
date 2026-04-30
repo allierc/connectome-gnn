@@ -213,7 +213,7 @@ class RenderedDavis(Directory):
     def __init__(
             self,
             tasks: List[str] = ["lum"],
-            boxfilter: Dict[str, int] = dict(extent=15, kernel_size=13),
+            boxfilter: Union[Dict[str, int], BoxEye] = dict(extent=15, kernel_size=13),
             vertical_splits: int = 3,
             n_frames: int = 19,
             max_frames: Optional[int] = None,
@@ -234,7 +234,10 @@ class RenderedDavis(Directory):
             logger.warning("Flow and depth not available for DAVIS image sequences, using only 'lum'")
         tasks = ["lum"]
 
-        boxfilter = BoxEye(**boxfilter)
+        # Allow callers to inject a pre-built filter (e.g. a FlyWireBoxEye
+        # whose receptors match a hybrid network's column lattice).
+        if not isinstance(boxfilter, BoxEye):
+            boxfilter = BoxEye(**boxfilter)
 
         # Find all sequence directories (DAVIS format: each sequence is a directory of JPEGs)
         sequence_dirs = [d for d in root_dir.iterdir() if d.is_dir()]
