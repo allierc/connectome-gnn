@@ -377,6 +377,19 @@ if __name__ == "__main__":
             _marker = os.path.join(run_log_dir, '_completed_test')
             if os.path.exists(_marker):
                 os.remove(_marker)
+            # Release training-phase CUDA memory (incl. CUDA Graphs private pools)
+            # before allocating the test model. Without this, large e15 GNN runs
+            # OOM at test-time model creation despite total need being modest.
+            try:
+                import gc as _gc
+                import torch as _torch
+                _gc.collect()
+                if _torch.cuda.is_available():
+                    _torch.cuda.empty_cache()
+                    if hasattr(_torch.cuda, 'reset_peak_memory_stats'):
+                        _torch.cuda.reset_peak_memory_stats()
+            except Exception as _e:
+                print(f'[warn] pre-test cuda cleanup failed: {_e}')
             # Optional: load a second config for cross-dataset test data
             test_config = None
             if test_config_name:
