@@ -38,6 +38,18 @@ Output
     figures/fig_clustering_appendix.{pdf,png}
 """
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Inputs / paths
+# ─────────────────────────────────────────────────────────────────────────────
+# Data root      : /groups/saalfeld/home/allierc/GraphData
+# Configs        : <DATA_ROOT>/config/fly/flyvis_noise_005_blank50_unified_cv00.yaml
+# Training data  : <DATA_ROOT>/graphs_data/fly/flyvis_noise_005_blank50_cv00/x_list_train/
+#                  <DATA_ROOT>/graphs_data/fly/flyvis_noise_005_blank50_cv00/ode_params.pt
+# Trained models : <DATA_ROOT>/log/fly/flyvis_noise_005_blank50_unified_cv00/models/best_model_with_0_graphs_0.pt
+# Cached panels  : <DATA_ROOT>/log/fly/flyvis_noise_005_blank50_unified_cv00/results/panels_noise_005_blank50_cv00.npz
+# Output         : figures/fig_clustering_appendix.{pdf,png}
+# ─────────────────────────────────────────────────────────────────────────────
+
 import os
 import string
 import sys

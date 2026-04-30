@@ -28,6 +28,20 @@ Output
     figures/fig_vrest_blank.{pdf,png}
 """
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Inputs / paths
+# ─────────────────────────────────────────────────────────────────────────────
+# Data root      : /groups/saalfeld/home/allierc/GraphData
+# Configs        : <REPO>/config/fly/flyvis_noise_005.yaml
+#                  <REPO>/config/fly/flyvis_noise_005_blank50.yaml
+# Training data  : <DATA_ROOT>/graphs_data/fly/flyvis_noise_005/x_list_train/
+#                  <DATA_ROOT>/graphs_data/fly/flyvis_noise_005_blank50/x_list_train/
+#                  <DATA_ROOT>/graphs_data/fly/flyvis_noise_005{,_blank50}/ode_params.pt
+# Trained models : <DATA_ROOT>/log/fly/flyvis_noise_005{,_blank50}/models/best_model_with_*.pt (latest sort_key)
+# Inline metrics : DATA dict in this script (no external load)
+# Output         : figures/fig_vrest_blank.{pdf,png}
+# ─────────────────────────────────────────────────────────────────────────────
+
 import os
 import sys
 import matplotlib

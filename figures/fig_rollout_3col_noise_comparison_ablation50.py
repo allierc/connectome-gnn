@@ -34,6 +34,25 @@ Output
     figures/fig_rollout_3col_noise_comparison_ablation50.{pdf,png}
 """
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Inputs / paths
+# ─────────────────────────────────────────────────────────────────────────────
+# Data root      : /groups/saalfeld/home/allierc/GraphData
+# Configs        : <DATA_ROOT>/config/fly/flyvis_noise_free_blank50_unified_cv00.yaml
+#                  <DATA_ROOT>/config/fly/flyvis_noise_005_blank50_unified_cv00.yaml
+#                  <DATA_ROOT>/config/fly/flyvis_noise_05_blank50_unified_cv00.yaml
+#                  /workspace/connectome-gnn/config/fly/flyvis_noise_free_mask_50.yaml
+#                  /workspace/connectome-gnn/config/fly/flyvis_noise_005_mask_50.yaml
+#                  /workspace/connectome-gnn/config/fly/flyvis_noise_05_mask_50.yaml
+# Training data  : <DATA_ROOT>/graphs_data/fly/flyvis_noise_{free,005,05}_blank50_cv00/x_list_train/
+#                  <DATA_ROOT>/graphs_data/fly/flyvis_noise_{free,005,05}_blank50_cv00/{edge_index.pt, ode_params.pt}
+# Test data      : <DATA_ROOT>/graphs_data/fly/flyvis_noise_{free,005,05}_mask_50/x_list_test/
+#                  <DATA_ROOT>/graphs_data/fly/flyvis_noise_{free,005,05}_mask_50/ablation_mask.pt
+# Trained models : <DATA_ROOT>/log/fly/flyvis_noise_{free,005,05}_blank50_unified_cv00/models/best_model_with_0_graphs_0.pt
+# Eval logs      : <DATA_ROOT>/log/fly/flyvis_noise_{free,005,05}_blank50_unified_cv00/results/rollout_bundle_on_noise_{free,005,05}_mask_50.npz
+# Output         : figures/fig_rollout_3col_noise_comparison_ablation50{,_nf_green}.{pdf,png}
+# ─────────────────────────────────────────────────────────────────────────────
+
 import os
 import string
 import subprocess
@@ -460,8 +479,7 @@ def main():
     n_frames = TRACE_END - TRACE_START
     time_ms = np.arange(n_frames) * DT_MS + TRACE_START * DT_MS
 
-    for _nf_green, _apply_affine in [(False, True), (True, True),
-                                      (False, False), (True, False)]:
+    for _nf_green in (False, True):
         fig = plt.figure(figsize=(FIG_W_IN, FIG_H_IN), constrained_layout=False)
         outer = mgs.GridSpec(
             2, 1, figure=fig,
@@ -505,7 +523,7 @@ def main():
                 show_type_labels=(c == 0),
                 show_xlabel=(c == 0),
                 header_text=header,
-                apply_affine=_apply_affine,
+                apply_affine=False,
             )
             trace_axes.append(ax)
 
@@ -569,7 +587,7 @@ def main():
             else:
                 add_panel_label(fig, ax, letter, dy=0.030)
 
-        suffix = ('_nf_green' if _nf_green else '') + ('' if _apply_affine else '_no_affine')
+        suffix = '_nf_green' if _nf_green else ''
         out_base = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 'fig_rollout_3col_noise_comparison_ablation50' + suffix)
         fig.savefig(out_base + '.pdf', bbox_inches='tight')

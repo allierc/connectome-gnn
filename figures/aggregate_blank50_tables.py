@@ -34,6 +34,25 @@ Example:
     python aggregate_blank50_tables.py --test_plot --node_name l4 --test_plot_runtime_min 360
 """
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Inputs / paths
+# ─────────────────────────────────────────────────────────────────────────────
+# Data root      : /groups/saalfeld/home/allierc/GraphData
+# Configs        : <DATA_ROOT>/config/fly/<base>_blank50_unified_cv{00..04}.yaml
+#                  <DATA_ROOT>/config/fly/<base>_blank50_known_ode_cv{00..04}.yaml
+# Trained models : <DATA_ROOT>/log/fly/<base>_blank50_unified_cv{00..04}/models/best_model_with_0_graphs_0.pt
+#                  <DATA_ROOT>/log/fly/<base>_blank50_known_ode_cv{00..04}/models/best_model_with_0_graphs_0.pt
+# Eval logs      : <DATA_ROOT>/log/fly/<base>_blank50_unified_cv{00..04}/results_test.log
+#                  <DATA_ROOT>/log/fly/<base>_blank50_unified_cv{00..04}/results_rollout.log
+#                  <DATA_ROOT>/log/fly/<base>_blank50_unified_cv{00..04}/results/metrics.txt
+#                  <DATA_ROOT>/log/fly/<base>_blank50_known_ode_cv{00..04}/results_test.log
+#                  <DATA_ROOT>/log/fly/<base>_blank50_known_ode_cv{00..04}/results_rollout.log
+#                  <DATA_ROOT>/log/fly/<base>_blank50_known_ode_cv{00..04}/results/metrics.txt
+# Output         : figures/cv_table_known_ode_vs_gnn.tex
+#                  figures/cv_table_gnn_cross_noise.tex
+#                  figures/cv_table_known_ode_conditions.tex
+# ─────────────────────────────────────────────────────────────────────────────
+
 import argparse
 import os
 import sys

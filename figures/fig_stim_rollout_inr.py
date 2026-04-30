@@ -36,6 +36,25 @@ Output
     figures/fig_stim_rollout_inr.{pdf,png}
 """
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Inputs / paths
+# ─────────────────────────────────────────────────────────────────────────────
+# Data root      : /groups/saalfeld/home/allierc/GraphData
+# Configs        : <DATA_ROOT>/config/fly/flyvis_noise_005_INR_davis_cv00.yaml
+#                  <DATA_ROOT>/config/fly/flyvis_noise_005_INR_davis_cv00_noisy.yaml
+#                  <DATA_ROOT>/config/fly/flyvis_noise_005_INR_davis_cv00_nf.yaml
+# Training data  : <DATA_ROOT>/graphs_data/fly/<dataset>/x_list_train/
+#                  <DATA_ROOT>/graphs_data/fly/<dataset>/{edge_index.pt, ode_params.pt}
+# Test data      : <DATA_ROOT>/graphs_data/fly/<dataset>/x_list_test/
+# Stimulus root  : /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test/
+#                  /groups/saalfeld/home/allierc/signaling/DATAVIS/
+# Trained models : <DATA_ROOT>/log/fly/flyvis_noise_005_INR_davis_cv00/models/best_model_with_0_graphs_0.pt
+# Eval logs      : <DATA_ROOT>/log/fly/flyvis_noise_005_INR_davis_cv00/results_{test,rollout}.log
+#                  <DATA_ROOT>/log/fly/flyvis_noise_005_INR_davis_cv00/results/rollout_bundle.npz
+#                  <DATA_ROOT>/log/fly/flyvis_noise_005_INR_davis_cv00/results/rollout_bundle_nf_synthetic.npz
+# Output         : figures/fig_stim_rollout_inr.{pdf,png}
+# ─────────────────────────────────────────────────────────────────────────────
+
 import os
 import shutil
 import subprocess

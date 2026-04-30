@@ -39,6 +39,23 @@ Output
     figures/fig_gnn_params_3col_noise_comparison.{pdf,png}
 """
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Inputs / paths
+# ─────────────────────────────────────────────────────────────────────────────
+# Data root      : /groups/saalfeld/home/allierc/GraphData
+# Configs        : <DATA_ROOT>/config/fly/flyvis_noise_free_blank50_unified_cv00.yaml
+#                  <DATA_ROOT>/config/fly/flyvis_noise_005_blank50_unified_cv00.yaml
+#                  <DATA_ROOT>/config/fly/flyvis_noise_05_blank50_unified_cv00.yaml
+# Training data  : <DATA_ROOT>/graphs_data/fly/flyvis_noise_{free,005,05}_blank50_cv00/x_list_train/
+#                  <DATA_ROOT>/graphs_data/fly/flyvis_noise_{free,005,05}_blank50_cv00/{edge_index.pt, ode_params.pt}
+# Test data      : <DATA_ROOT>/graphs_data/fly/flyvis_noise_{free,005,05}_blank50_cv00/x_list_test/
+# Trained models : <DATA_ROOT>/log/fly/flyvis_noise_{free,005,05}_blank50_unified_cv00/models/best_model_with_0_graphs_0.pt
+# Eval logs      : <DATA_ROOT>/log/fly/flyvis_noise_{free,005,05}_blank50_unified_cv00/results_{test,rollout}.log
+#                  <DATA_ROOT>/log/fly/flyvis_noise_{free,005,05}_blank50_unified_cv00/results/metrics.txt
+# Cached panels  : <DATA_ROOT>/log/fly/flyvis_noise_{free,005,05}_blank50_unified_cv00/results/{weights_comparison_corrected,embedding_*,f_theta_scatter_*,g_phi_scatter_*,V_rest_comparison_wo_outliers_*,tau_comparison_wo_outliers_*}.png
+# Output         : figures/fig_gnn_params_3col_noise_comparison.{pdf,png}
+# ─────────────────────────────────────────────────────────────────────────────
+
 import argparse
 import os
 import string

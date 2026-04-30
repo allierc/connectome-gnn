@@ -35,6 +35,23 @@ Output
     figures/fig_known_ode_params_3col_noise_comparison.{pdf,png}
 """
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Inputs / paths
+# ─────────────────────────────────────────────────────────────────────────────
+# Data root      : /groups/saalfeld/home/allierc/GraphData
+# Configs        : <DATA_ROOT>/config/fly/flyvis_noise_free_blank50_known_ode_cv00.yaml
+#                  <DATA_ROOT>/config/fly/flyvis_noise_005_blank50_known_ode_cv00.yaml
+#                  <DATA_ROOT>/config/fly/flyvis_noise_05_blank50_known_ode_cv00.yaml
+# Training data  : <DATA_ROOT>/graphs_data/fly/flyvis_noise_{free,005,05}_blank50_cv00/x_list_train/
+#                  <DATA_ROOT>/graphs_data/fly/flyvis_noise_{free,005,05}_blank50_cv00/{edge_index.pt, ode_params.pt}
+# Test data      : <DATA_ROOT>/graphs_data/fly/flyvis_noise_{free,005,05}_blank50_cv00/x_list_test/
+# Trained models : <DATA_ROOT>/log/fly/flyvis_noise_{free,005,05}_blank50_known_ode_cv00/models/best_model_with_0_graphs_0.pt
+# Eval logs      : <DATA_ROOT>/log/fly/flyvis_noise_{free,005,05}_blank50_known_ode_cv00/results_{test,rollout}.log
+#                  <DATA_ROOT>/log/fly/flyvis_noise_{free,005,05}_blank50_known_ode_cv00/results/metrics.txt
+# Cached panels  : <DATA_ROOT>/log/fly/flyvis_noise_{free,005,05}_blank50_known_ode_cv00/results/{weights_comparison_raw,embedding_augmented_*,V_rest_comparison_wo_outliers_*,tau_comparison_wo_outliers_*}.png
+# Output         : figures/fig_known_ode_params_3col_noise_comparison{,_nf_green}.{pdf,png}
+# ─────────────────────────────────────────────────────────────────────────────
+
 import argparse
 import os
 import string
@@ -47,6 +64,10 @@ matplotlib.rc_file(os.path.join(os.path.dirname(__file__), 'janne.matplotlibrc')
 import matplotlib.gridspec as mgs
 import matplotlib.image as mpimg
 import matplotlib.pyplot as plt
+import numpy as np
+import seaborn as sns
+import torch
+from matplotlib.colors import ListedColormap
 
 
 # Make `connectome_gnn` importable + locate the repo root.
@@ -67,6 +88,70 @@ except ImportError:
         _cg_utils._data_root = path
 
 CFG_DIR = f'{DATA_ROOT}/config/fly'
+
+# UMAP / colour palette — matches fig_clustering_appendix.py: 65 hues at uniform
+# saturation/lightness, coloured by GT cell type.
+UMAP_N_NEIGHBORS = 15
+UMAP_MIN_DIST    = 0.1
+UMAP_RANDOM      = 42
+HUSL_65_CMAP     = ListedColormap(sns.color_palette("husl", 65))
+
+
+def _connectivity_stats(w, src, dst, n):
+    """Per-neuron in/out edge-weight summary (mean, std, min, max).
+
+    Vectorised; mirrors fig_clustering_appendix._connectivity_stats so the
+    UMAP feature vector matches the appendix figure bit-for-bit.
+    """
+    in_count  = np.bincount(dst, minlength=n).astype(np.float64)
+    out_count = np.bincount(src, minlength=n).astype(np.float64)
+    in_sum    = np.bincount(dst, weights=w,       minlength=n)
+    out_sum   = np.bincount(src, weights=w,       minlength=n)
+    in_sq     = np.bincount(dst, weights=w ** 2,  minlength=n)
+    out_sq    = np.bincount(src, weights=w ** 2,  minlength=n)
+    safe_in   = np.where(in_count  > 0, in_count,  1)
+    safe_out  = np.where(out_count > 0, out_count, 1)
+    in_mean   = in_sum  / safe_in
+    out_mean  = out_sum / safe_out
+    in_std    = np.sqrt(np.maximum(in_sq  / safe_in  - in_mean  ** 2, 0))
+    out_std   = np.sqrt(np.maximum(out_sq / safe_out - out_mean ** 2, 0))
+    in_max  = np.full(n, -np.inf); np.maximum.at(in_max,  dst, w)
+    in_min  = np.full(n,  np.inf); np.minimum.at(in_min,  dst, w)
+    out_max = np.full(n, -np.inf); np.maximum.at(out_max, src, w)
+    out_min = np.full(n,  np.inf); np.minimum.at(out_min, src, w)
+    for arr, c in [(in_mean, in_count), (in_std, in_count),
+                   (in_min, in_count),  (in_max, in_count),
+                   (out_mean, out_count), (out_std, out_count),
+                   (out_min, out_count),  (out_max, out_count)]:
+        arr[c == 0] = 0
+    return np.column_stack([in_mean, in_std, out_mean, out_std,
+                            in_min, in_max, out_min, out_max])
+
+
+def compute_umap_panel(model_dir, dataset, log_dir):
+    """Return (xy, type_ids) for the augmented-feature UMAP of a known_ode run."""
+    import umap
+    model_pt   = f'{log_dir}/models/best_model_with_0_graphs_0.pt'
+    ode_pt     = f'{DATA_ROOT}/graphs_data/fly/{dataset}/ode_params.pt'
+    bundle_npz = f'{log_dir}/results/rollout_bundle.npz'
+    sd = torch.load(model_pt, weights_only=False, map_location='cpu')['model_state_dict']
+    raw_tau = sd.get('_orig_mod.raw_tau', sd.get('raw_tau'))
+    V_rest  = sd.get('_orig_mod.V_rest',  sd.get('V_rest'))
+    W       = sd.get('_orig_mod.W',       sd.get('W'))
+    tau_learned    = torch.nn.functional.softplus(raw_tau).cpu().numpy()
+    V_rest_learned = V_rest.cpu().numpy()
+    W_learned      = W.squeeze().cpu().numpy()
+    op = torch.load(ode_pt, weights_only=False, map_location='cpu')
+    edge_index = op['edge_index'].cpu().numpy()
+    src, dst = edge_index[0], edge_index[1]
+    n = tau_learned.shape[0]
+    w_stats = _connectivity_stats(W_learned, src, dst, n)
+    feats = np.column_stack([tau_learned[:, None], V_rest_learned[:, None], w_stats])
+    type_ids = np.asarray(np.load(bundle_npz, allow_pickle=True)['type_ids']).astype(int)
+    reducer = umap.UMAP(n_components=2, random_state=UMAP_RANDOM,
+                        n_neighbors=UMAP_N_NEIGHBORS, min_dist=UMAP_MIN_DIST)
+    xy = reducer.fit_transform(feats)
+    return xy, type_ids
 
 # Three noise levels — same blank50 datasets as the GNN counterpart, but the
 # Known_ODE training run (different HP yaml).
@@ -109,10 +194,10 @@ N_PANEL_COLS_PER_BLOCK = 2
 
 
 # ── style ────────────────────────────────────────────────────────────────────
-FS_LABEL  = 8
-FS_TICK   = 6
-FS_ANNOT  = 6
-PANEL_LBL = 8
+FS_LABEL  = 6
+FS_TICK   = 5
+FS_ANNOT  = 5
+PANEL_LBL = 6
 
 # Bottom-row scatters (V_rest, τ) enlarged ~2× — height_ratios = [1, 2]
 # in the inner 2×2 mini-grid. FIG_H_IN bumped accordingly. Inter-row
@@ -206,19 +291,41 @@ def assemble(blocks, out_base):
         for k, blk in enumerate(blocks):
             inner = inner_grids[k]
             for c in range(N_PANEL_COLS_PER_BLOCK):
-                fname = panel_by_rc[(r, c)]
                 ax = fig.add_subplot(inner[r, c])
-                ax.set_axis_off()
-                p = panel_path(blk['results_dir'], fname, blk['ci'])
-                if not os.path.isfile(p):
-                    ax.text(0.5, 0.5, f'missing:\n{os.path.basename(p)}',
-                            ha='center', va='center', fontsize=FS_ANNOT,
-                            color='red', transform=ax.transAxes)
+                # The UMAP panel (top-row, right column) is rendered fresh
+                # here using the husl-65 palette + GT cell-type colouring,
+                # matching fig_clustering_appendix.py. All other panels are
+                # composited from the GNN_PlotFigure PNGs as before.
+                if (r, c) == (0, 1):
+                    xy, type_ids = blk['umap']
+                    ax.scatter(xy[:, 0], xy[:, 1], c=type_ids,
+                               cmap=HUSL_65_CMAP, s=2, alpha=0.7,
+                               edgecolors='none')
+                    ax.set_xticks([]); ax.set_yticks([])
+                    for sp in ax.spines.values():
+                        sp.set_alpha(0.5); sp.set_linewidth(0.4)
+                    ax.set_xlabel(r'UMAP$_1$', fontsize=FS_LABEL, labelpad=1)
+                    ax.set_ylabel(r'UMAP$_2$', fontsize=FS_LABEL, labelpad=1)
+                    ax.set_box_aspect(1.0)
+                    ax.set_anchor('S')
                 else:
-                    img = mpimg.imread(p)
-                    h, w = img.shape[:2]
-                    ax.imshow(img, aspect='auto', interpolation='lanczos')
-                    ax.set_box_aspect(h / w)
+                    ax.set_axis_off()
+                    fname = panel_by_rc[(r, c)]
+                    p = panel_path(blk['results_dir'], fname, blk['ci'])
+                    if not os.path.isfile(p):
+                        ax.text(0.5, 0.5, f'missing:\n{os.path.basename(p)}',
+                                ha='center', va='center', fontsize=FS_ANNOT,
+                                color='red', transform=ax.transAxes)
+                    else:
+                        img = mpimg.imread(p)
+                        h, w = img.shape[:2]
+                        ax.imshow(img, aspect='auto', interpolation='lanczos')
+                        ax.set_box_aspect(h / w)
+                        # Pull the two rows together by anchoring any extra
+                        # slack in each cell to the side AWAY from the
+                        # inter-row gap: top row sinks to the bottom of its
+                        # cell ('S'), bottom row floats to the top ('N').
+                        ax.set_anchor('S' if r == 0 else 'N')
                 panel_axes.append((ax, letters[letter_idx], k))
                 letter_idx += 1
 
@@ -302,7 +409,13 @@ def main():
                     print(f"  - {os.path.basename(m)}")
                 print('  → run with --mode regenerate to produce them')
 
+        print(f'computing fresh UMAP (husl-65 LUT) for {col["model"]}...')
+        umap_xy, umap_types = compute_umap_panel(
+            model_dir=col['model'], dataset=cfg.dataset.split('/')[-1],
+            log_dir=log_dir,
+        )
         blocks.append({
+            'umap':   (umap_xy, umap_types),
             'label':  col['label'],
             'sigma':  col['sigma'],
             'results_dir': results_dir,
