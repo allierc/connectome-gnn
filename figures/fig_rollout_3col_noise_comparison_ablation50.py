@@ -134,7 +134,10 @@ SCATTER_RNG   = np.random.default_rng(0)
 TRACE_SHRINK = 0.65
 
 FIG_W_IN = 18.0 * 0.3937   # ≈ 7.09 in
-FIG_H_IN = 5.2             # shorter overall — row 1 height reduced
+# Bottom row height ratio doubled and noise groups collapsed from 1×2 to
+# 1×1 so panels d/e/f are ~2× the linear size of the previous half-cell
+# layout. FIG_H_IN bumped to fit the now-larger square scatters.
+FIG_H_IN = 7.5
 
 
 # ---------------------------------------------------------------------------
@@ -246,16 +249,19 @@ def _affine_align(pred, true):
 
 def draw_traces(ax, true_w, pred_w, stim_w, labels, step_v, time_ms,
                 column_title, show_type_labels, show_xlabel=True,
-                header_text=None):
+                header_text=None, apply_affine=True):
     n_traces, n_frames = true_w.shape
     baselines = true_w.mean(axis=1)
     s = TRACE_SHRINK
     for i in range(n_traces):
         bl = baselines[i]
-        pred_aligned = _affine_align(pred_w[i], true_w[i]).astype(np.float32)
+        if apply_affine:
+            pred_to_plot = _affine_align(pred_w[i], true_w[i]).astype(np.float32)
+        else:
+            pred_to_plot = pred_w[i].astype(np.float32)
         ax.plot(time_ms, s * (true_w[i] - bl) + i * step_v,
                 lw=LW_GT, color=COLOR_GT, alpha=0.95, zorder=2)
-        ax.plot(time_ms, s * (pred_aligned - bl) + i * step_v,
+        ax.plot(time_ms, s * (pred_to_plot - bl) + i * step_v,
                 lw=LW_PRED, color=COLOR_PRED, alpha=0.95, zorder=3)
         if stim_w is not None and stim_w[i].std() > 1e-6:
             stim = stim_w[i]
@@ -454,116 +460,123 @@ def main():
     n_frames = TRACE_END - TRACE_START
     time_ms = np.arange(n_frames) * DT_MS + TRACE_START * DT_MS
 
-    fig = plt.figure(figsize=(FIG_W_IN, FIG_H_IN), constrained_layout=False)
-    outer = mgs.GridSpec(
-        2, 1, figure=fig,
-        height_ratios=[1.4 * TRACE_SHRINK, 1.0],
-        left=0.06, right=0.98, top=0.97, bottom=0.04,
-        hspace=0.0,
-    )
-    TOP_WSPACE    = 0.25
-    GROUP_WSPACE  = 0.35
-    top_gs   = mgs.GridSpecFromSubplotSpec(1, 3, outer[0, 0], wspace=TOP_WSPACE)
-    group_gs = mgs.GridSpecFromSubplotSpec(1, 3, outer[1, 0], wspace=TOP_WSPACE)
-    nf_gs = mgs.GridSpecFromSubplotSpec(1, 2, group_gs[0, 0], wspace=GROUP_WSPACE)
-    lo_gs = mgs.GridSpecFromSubplotSpec(1, 2, group_gs[0, 1], wspace=GROUP_WSPACE)
-    hi_gs = mgs.GridSpecFromSubplotSpec(1, 2, group_gs[0, 2], wspace=GROUP_WSPACE)
-
-    # --- Row 1: traces ---
-    trace_axes = []
-    for c, (col, ts, n) in enumerate(zip(COLUMNS, trace_src, nf)):
-        ax = fig.add_subplot(top_gs[0, c])
-        true_w = _slice(ts['true'], neuron_idx)
-        pred_w = _slice(ts['pred'], neuron_idx)
-        stim_w = (_slice(ts['stim'], neuron_idx)
-                  if ts.get('stim') is not None else None)
-        # Per-neuron Pearson r, Fisher-z pooled — matches graph_tester /
-        # cv-table recipe (compute_trace_metrics → fisher_pool['r_mean']).
-        # Single line: only the "vs noise-free ablated" comparison is shown
-        # (the noisy-vs-learned r is suppressed).
-        from connectome_gnn.utils import compute_trace_metrics, fisher_pool
-        _src = n if col['noise_level'] > 0 else ts
-        _, _pear, _, _ = compute_trace_metrics(
-            np.asarray(_src['true']), np.asarray(_src['pred']))
-        _fp = fisher_pool(_pear)
-        r_nf, r_sd_nf = float(_fp['r_mean']), float(_fp['r_sd_sym'])
-        header = f"vs noise-free ablated, $r$ = {r_nf:.2f} $\\pm$ {r_sd_nf:.2f}"
-        draw_traces(
-            ax, true_w, pred_w, stim_w, labels, step_v, time_ms,
-            column_title=f"{col['label']} ({col['sigma']})",
-            show_type_labels=(c == 0),
-            show_xlabel=(c == 0),
-            header_text=header,
+    for _nf_green, _apply_affine in [(False, True), (True, True),
+                                      (False, False), (True, False)]:
+        fig = plt.figure(figsize=(FIG_W_IN, FIG_H_IN), constrained_layout=False)
+        outer = mgs.GridSpec(
+            2, 1, figure=fig,
+            height_ratios=[1.4 * TRACE_SHRINK, 2.0],
+            left=0.06, right=0.98, top=0.97, bottom=0.04,
+            hspace=0.0,
         )
-        trace_axes.append(ax)
+        TOP_WSPACE    = 0.25
+        GROUP_WSPACE  = 0.35
+        top_gs   = mgs.GridSpecFromSubplotSpec(1, 3, outer[0, 0], wspace=TOP_WSPACE)
+        group_gs = mgs.GridSpecFromSubplotSpec(1, 3, outer[1, 0], wspace=TOP_WSPACE)
+        # Each noise group collapsed to 1×1 (was 1×2) since the "vs noisy
+        # ablated" panels are commented out, giving the surviving scatter
+        # the full noise-group width.
+        nf_gs = mgs.GridSpecFromSubplotSpec(1, 1, group_gs[0, 0])
+        lo_gs = mgs.GridSpecFromSubplotSpec(1, 1, group_gs[0, 1])
+        hi_gs = mgs.GridSpecFromSubplotSpec(1, 1, group_gs[0, 2])
 
-    fig.canvas.draw()
-    TRACE_TITLE_DY = 0.02
-    for ax_t in trace_axes:
-        pos = ax_t.get_position()
-        x_center = pos.x0 + pos.width / 2
-        fig.text(x_center, pos.y1 + TRACE_TITLE_DY, ax_t._column_title,
-                 va='bottom', ha='center', fontsize=FS_LABEL,
-                 fontweight='normal', transform=fig.transFigure)
+        # --- Row 1: traces ---
+        trace_axes = []
+        for c, (col, ts, n) in enumerate(zip(COLUMNS, trace_src, nf)):
+            ax = fig.add_subplot(top_gs[0, c])
+            true_w = _slice((trace_src[0]['true'] if _nf_green else ts['true']), neuron_idx)
+            pred_w = _slice(ts['pred'], neuron_idx)
+            stim_w = (_slice(ts['stim'], neuron_idx)
+                      if ts.get('stim') is not None else None)
+            # Per-neuron Pearson r, Fisher-z pooled — matches graph_tester /
+            # cv-table recipe (compute_trace_metrics → fisher_pool['r_mean']).
+            # Single line: only the "vs noise-free ablated" comparison is shown
+            # (the noisy-vs-learned r is suppressed).
+            from connectome_gnn.utils import compute_trace_metrics, fisher_pool
+            _src = n if col['noise_level'] > 0 else ts
+            _, _pear, _, _ = compute_trace_metrics(
+                np.asarray(_src['true']), np.asarray(_src['pred']))
+            _fp = fisher_pool(_pear)
+            r_nf, r_sd_nf = float(_fp['r_mean']), float(_fp['r_sd_sym'])
+            header = f"vs noise-free ablated, $r$ = {r_nf:.2f} $\\pm$ {r_sd_nf:.2f}"
+            draw_traces(
+                ax, true_w, pred_w, stim_w, labels, step_v, time_ms,
+                column_title=f"{col['label']} ({col['sigma']})",
+                show_type_labels=(c == 0),
+                show_xlabel=(c == 0),
+                header_text=header,
+                apply_affine=_apply_affine,
+            )
+            trace_axes.append(ax)
 
-    # --- Row 2: scatters [nf] [005 matched, 005 nf] [05 matched, 05 nf].
-    # Panels e (low-noise "vs noisy ablated") and g (high-noise "vs noisy
-    # ablated") are disabled — comparing the learned trace against the
-    # perturbed gt is misleading. Uncomment to restore.
-    scatter_panels = [
-        (nf_gs[0, 0], matched[0]['true'], matched[0]['pred'],
-         'voltage', 'rollout voltage', True,  'vs noise-free ablated'),
-        # (lo_gs[0, 0], matched[1]['true'], matched[1]['pred'],
-        #  '',                     '',                True,  'vs noisy ablated'),
-        # e moves into the LEFT half of the low-noise column so it left-
-        # aligns with the trace panel b above it (was lo_gs[0, 1]).
-        (lo_gs[0, 0], nf[1]['true'],      nf[1]['pred'],
-         '',                     '',                True,  'vs noise-free ablated'),
-        # (hi_gs[0, 0], matched[2]['true'], matched[2]['pred'],
-        #  '',                     '',                False, 'vs noisy ablated'),
-        # f moves into the LEFT half of the high-noise column so it left-
-        # aligns with the trace panel c above it (was hi_gs[0, 1]).
-        (hi_gs[0, 0], nf[2]['true'],      nf[2]['pred'],
-         '',                     '',                True,  'vs noise-free ablated'),
-    ]
+        fig.canvas.draw()
+        TRACE_TITLE_DY = 0.02
+        for ax_t in trace_axes:
+            pos = ax_t.get_position()
+            x_center = pos.x0 + pos.width / 2
+            fig.text(x_center, pos.y1 + TRACE_TITLE_DY, ax_t._column_title,
+                     va='bottom', ha='center', fontsize=FS_LABEL,
+                     fontweight='normal', transform=fig.transFigure)
 
-    scatter_axes = []
-    for cell, x, y, xlbl, ylbl, show_fit, subtitle in scatter_panels:
-        ax = fig.add_subplot(cell)
-        # Suppress the printed Pearson r on "vs noisy ablated" panels —
-        # comparing the learned trace against perturbed gt would be
-        # misleading there.
-        show_r = subtitle != 'vs noisy ablated'
-        draw_scatter(ax, x, y, xlabel=xlbl, ylabel=ylbl,
-                     show_fit=show_fit, show_r=show_r)
-        if subtitle is not None:
-            ax.text(0.5, 1.02, subtitle, transform=ax.transAxes,
-                    va='bottom', ha='center', fontsize=FS_TICK,
-                    fontweight='normal')
-        scatter_axes.append(ax)
+        # --- Row 2: scatters [nf] [005 matched, 005 nf] [05 matched, 05 nf].
+        # Panels e (low-noise "vs noisy ablated") and g (high-noise "vs noisy
+        # ablated") are disabled — comparing the learned trace against the
+        # perturbed gt is misleading. Uncomment to restore.
+        scatter_panels = [
+            (nf_gs[0, 0], nf[0]['true'],      nf[0]['pred'],
+             'ground truth voltage', 'rollout voltage', True,  'vs noise-free ablated'),
+            # (lo_gs[0, 0], test_data[1]['true'], test_data[1]['pred'],
+            #  '',                     '',                True,  'vs noisy ablated'),
+            # e moves into the LEFT half of the low-noise column so it left-
+            # aligns with the trace panel b above it (was lo_gs[0, 1]).
+            (lo_gs[0, 0], nf[1]['true'],      nf[1]['pred'],
+             '',                     '',                True,  'vs noise-free ablated'),
+            # (hi_gs[0, 0], test_data[2]['true'], test_data[2]['pred'],
+            #  '',                     '',                False, 'vs noisy ablated'),
+            # f moves into the LEFT half of the high-noise column so it left-
+            # aligns with the trace panel c above it (was hi_gs[0, 1]).
+            (hi_gs[0, 0], nf[2]['true'],      nf[2]['pred'],
+             '',                     '',                True,  'vs noise-free ablated'),
+        ]
 
-    SCATTER_PULL_UP = 0.07
-    for ax in scatter_axes:
-        pos = ax.get_position()
-        ax.set_position([pos.x0, pos.y0 + SCATTER_PULL_UP,
-                         pos.width, pos.height])
+        scatter_axes = []
+        for cell, x, y, xlbl, ylbl, show_fit, subtitle in scatter_panels:
+            ax = fig.add_subplot(cell)
+            # Suppress the printed Pearson r on "vs noisy ablated" panels —
+            # comparing the learned trace against perturbed gt would be
+            # misleading there.
+            show_r = subtitle != 'vs noisy ablated'
+            draw_scatter(ax, x, y, xlabel=xlbl, ylabel=ylbl,
+                         show_fit=show_fit, show_r=show_r)
+            if subtitle is not None:
+                ax.text(0.5, 1.02, subtitle, transform=ax.transAxes,
+                        va='bottom', ha='center', fontsize=FS_TICK,
+                        fontweight='normal')
+            scatter_axes.append(ax)
 
-    all_axes = trace_axes + scatter_axes
-    letters = list(string.ascii_lowercase[:len(all_axes)])
-    fig.canvas.draw()
-    for ax, letter in zip(all_axes, letters):
-        if ax in trace_axes:
-            add_panel_label(fig, ax, letter, dy=TRACE_TITLE_DY)
-        else:
-            add_panel_label(fig, ax, letter, dy=0.030)
+        SCATTER_PULL_UP = 0.13
+        for ax in scatter_axes:
+            pos = ax.get_position()
+            ax.set_position([pos.x0, pos.y0 + SCATTER_PULL_UP,
+                             pos.width, pos.height])
 
-    out_base = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                            'fig_rollout_3col_noise_comparison_ablation50')
-    fig.savefig(out_base + '.pdf', bbox_inches='tight')
-    fig.savefig(out_base + '.png', dpi=300, bbox_inches='tight')
-    plt.close(fig)
-    print(f'Saved: {out_base}.pdf')
-    print(f'Saved: {out_base}.png')
+        all_axes = trace_axes + scatter_axes
+        letters = list(string.ascii_lowercase[:len(all_axes)])
+        fig.canvas.draw()
+        for ax, letter in zip(all_axes, letters):
+            if ax in trace_axes:
+                add_panel_label(fig, ax, letter, dy=TRACE_TITLE_DY)
+            else:
+                add_panel_label(fig, ax, letter, dy=0.030)
+
+        suffix = ('_nf_green' if _nf_green else '') + ('' if _apply_affine else '_no_affine')
+        out_base = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                'fig_rollout_3col_noise_comparison_ablation50' + suffix)
+        fig.savefig(out_base + '.pdf', bbox_inches='tight')
+        fig.savefig(out_base + '.png', dpi=300, bbox_inches='tight')
+        plt.close(fig)
+        print(f'Saved: {out_base}.pdf')
+        print(f'Saved: {out_base}.png')
 
 
 if __name__ == '__main__':

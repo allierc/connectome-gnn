@@ -404,7 +404,8 @@ PANEL_LBL = 8
 
 # ~18 cm wide; 3 rows of content (hex / traces / scatters).
 FIG_W_IN  = 18.0 * 0.3937       # ≈ 7.09 in
-FIG_H_IN  = 7.7
+# FIG_H_IN bumped to fit the 2× larger scatter panels on row 3.
+FIG_H_IN  = 9.5
 
 CMAP = 'RdBu_r'
 HEX_VMIN, HEX_VMAX = -3.0, 3.0
@@ -705,7 +706,7 @@ def main():
             neuron_idx.append(int(ids[0]))
             labels_v.append(index_to_name.get(t, f'Type{t}'))
 
-    true_v = activity_true[neuron_idx, TRACE_START:TRACE_END].astype(np.float32)
+    true_v = (np.asarray(nf_bundle['true']) if _nf_green else activity_true)[neuron_idx, TRACE_START:TRACE_END].astype(np.float32)
     pred_v = activity_pred[neuron_idx, TRACE_START:TRACE_END].astype(np.float32)
 
     stim_idx = np.linspace(0, n_input - 1, N_STIM_TRACES, dtype=int)
@@ -736,178 +737,182 @@ def main():
     print(f'  stimulus Pearson r (INR)                          = {r_stim:.3f}')
 
     # ── figure layout ──────────────────────────────────────────────────────
-    fig = plt.figure(figsize=(FIG_W_IN, FIG_H_IN), dpi=300)
-    # Outer hspace controls BOTH gaps (a↔b/c AND b/c↔d/e/f). We want the
-    # first gap small and the second one bigger, so we use a moderate
-    # global hspace and then push the scatter row DOWN with a manual
-    # set_position offset later.
-    outer = mgs.GridSpec(3, 1, figure=fig,
-                         height_ratios=[2.4, 1.4, 1.4],
-                         left=0.06, right=0.92, top=0.97, bottom=0.05,
-                         hspace=0.10)
+    for _nf_green in (False, True):
+        fig = plt.figure(figsize=(FIG_W_IN, FIG_H_IN), dpi=300)
+        # Outer hspace controls BOTH gaps (a↔b/c AND b/c↔d/e/f). We want the
+        # first gap small and the second one bigger, so we use a moderate
+        # global hspace and then push the scatter row DOWN with a manual
+        # set_position offset later.
+        outer = mgs.GridSpec(3, 1, figure=fig,
+                             height_ratios=[2.4, 1.4, 1.4],
+                             left=0.06, right=0.92, top=0.97, bottom=0.05,
+                             hspace=0.10)
 
-    # (a) 3 × 11 hexagons — wspace=0 so cells touch without cropping; very
-    # negative hspace pulls the GT/learned/residual rows close together.
-    gs_a = mgs.GridSpecFromSubplotSpec(3, SERIES_COLS, subplot_spec=outer[0],
-                                        wspace=0.0, hspace=-0.50)
-    axes_hex_top = []
-    axes_hex_mid = []
-    axes_hex_res = []
-    for col, t in enumerate(series_frames):
-        vals_gt = _zscore(stim_in_true[t, :])
-        vals_pd = _zscore(stim_in_pred[t, :])
-        vals_rs = vals_pd - vals_gt
+        # (a) 3 × 11 hexagons — wspace=0 so cells touch without cropping; very
+        # negative hspace pulls the GT/learned/residual rows close together.
+        gs_a = mgs.GridSpecFromSubplotSpec(3, SERIES_COLS, subplot_spec=outer[0],
+                                            wspace=0.0, hspace=-0.50)
+        axes_hex_top = []
+        axes_hex_mid = []
+        axes_hex_res = []
+        for col, t in enumerate(series_frames):
+            vals_gt = _zscore(stim_in_true[t, :])
+            vals_pd = _zscore(stim_in_pred[t, :])
+            vals_rs = vals_pd - vals_gt
 
-        ax_gt = fig.add_subplot(gs_a[0, col])
-        _draw_hex(ax_gt, pos_input, vals_gt, HEX_XLIM, HEX_YLIM)
-        # Only label the first and last hex of the top row; everything in
-        # between is implicit. Larger font for legibility.
-        if col == 0 or col == SERIES_COLS - 1:
-            ax_gt.set_title(f't = {int(t * DT_MS)} ms',
-                            fontsize=FS_TICK, pad=2)
-        axes_hex_top.append(ax_gt)
+            ax_gt = fig.add_subplot(gs_a[0, col])
+            _draw_hex(ax_gt, pos_input, vals_gt, HEX_XLIM, HEX_YLIM)
+            # Only label the first and last hex of the top row; everything in
+            # between is implicit. Larger font for legibility.
+            if col == 0 or col == SERIES_COLS - 1:
+                ax_gt.set_title(f't = {int(t * DT_MS)} ms',
+                                fontsize=FS_TICK, pad=2)
+            axes_hex_top.append(ax_gt)
 
-        ax_pd = fig.add_subplot(gs_a[1, col])
-        _draw_hex(ax_pd, pos_input, vals_pd, HEX_XLIM, HEX_YLIM)
-        axes_hex_mid.append(ax_pd)
+            ax_pd = fig.add_subplot(gs_a[1, col])
+            _draw_hex(ax_pd, pos_input, vals_pd, HEX_XLIM, HEX_YLIM)
+            axes_hex_mid.append(ax_pd)
 
-        ax_rs = fig.add_subplot(gs_a[2, col])
-        _draw_hex(ax_rs, pos_input, vals_rs, HEX_XLIM, HEX_YLIM)
-        axes_hex_res.append(ax_rs)
+            ax_rs = fig.add_subplot(gs_a[2, col])
+            _draw_hex(ax_rs, pos_input, vals_rs, HEX_XLIM, HEX_YLIM)
+            axes_hex_res.append(ax_rs)
 
-    axes_hex_top[0].text(0.35, 1.28, 'ground truth visual stimulus',
-                         transform=axes_hex_top[0].transAxes,
-                         va='bottom', ha='left', fontsize=FS_LABEL)
-    axes_hex_mid[0].text(0.35, 1.10, 'learned visual stimulus',
-                         transform=axes_hex_mid[0].transAxes,
-                         va='bottom', ha='left', fontsize=FS_LABEL)
-    axes_hex_res[0].text(0.35, 1.10, 'residual (learned $-$ ground truth)',
-                         transform=axes_hex_res[0].transAxes,
-                         va='bottom', ha='left', fontsize=FS_LABEL)
+        axes_hex_top[0].text(0.35, 1.28, 'ground truth visual stimulus',
+                             transform=axes_hex_top[0].transAxes,
+                             va='bottom', ha='left', fontsize=FS_LABEL)
+        axes_hex_mid[0].text(0.35, 1.10, 'learned visual stimulus',
+                             transform=axes_hex_mid[0].transAxes,
+                             va='bottom', ha='left', fontsize=FS_LABEL)
+        axes_hex_res[0].text(0.35, 1.10, 'residual (learned $-$ ground truth)',
+                             transform=axes_hex_res[0].transAxes,
+                             va='bottom', ha='left', fontsize=FS_LABEL)
 
-    fig.canvas.draw()
-    _norm = _mcolors.Normalize(vmin=HEX_VMIN, vmax=HEX_VMAX)
-    _sm = _mcm.ScalarMappable(norm=_norm, cmap=CMAP)
-    _top_pos = axes_hex_top[-1].get_position()
-    _res_pos = axes_hex_res[-1].get_position()
-    _cbar_h = (_top_pos.y1 - _res_pos.y0) * 0.45
-    _cbar_y0 = (_top_pos.y1 + _res_pos.y0) / 2.0 - _cbar_h / 2.0
-    _cax = fig.add_axes([
-        _top_pos.x1 + 0.010,
-        _cbar_y0,
-        0.008,
-        _cbar_h,
-    ])
-    _cbar = fig.colorbar(_sm, cax=_cax)
-    _cbar.set_label('voltage (z-score)', fontsize=FS_LABEL)
-    _cbar.ax.tick_params(labelsize=FS_TICK)
-    _cbar.outline.set_linewidth(0.5)
+        fig.canvas.draw()
+        _norm = _mcolors.Normalize(vmin=HEX_VMIN, vmax=HEX_VMAX)
+        _sm = _mcm.ScalarMappable(norm=_norm, cmap=CMAP)
+        _top_pos = axes_hex_top[-1].get_position()
+        _res_pos = axes_hex_res[-1].get_position()
+        _cbar_h = (_top_pos.y1 - _res_pos.y0) * 0.45
+        _cbar_y0 = (_top_pos.y1 + _res_pos.y0) / 2.0 - _cbar_h / 2.0
+        _cax = fig.add_axes([
+            _top_pos.x1 + 0.010,
+            _cbar_y0,
+            0.008,
+            _cbar_h,
+        ])
+        _cbar = fig.colorbar(_sm, cax=_cax)
+        _cbar.set_label('voltage (z-score)', fontsize=FS_LABEL)
+        _cbar.ax.tick_params(labelsize=FS_TICK)
+        _cbar.outline.set_linewidth(0.5)
 
-    # (b/c) Two trace panels — stimulus | voltage vs noisy.
-    gs_bc = mgs.GridSpecFromSubplotSpec(1, 2, subplot_spec=outer[1],
-                                         wspace=0.20)
-    ax_b = fig.add_subplot(gs_bc[0, 0])
-    ax_c = fig.add_subplot(gs_bc[0, 1])
-    # Pull the trace row UP so it sits closer to the hex grid; this shrinks
-    # only the a↔b/c gap and leaves the b/c↔d/e/f gap at its outer value.
-    TRACE_PULL_UP = 0.05
-    for _ax in (ax_b, ax_c):
-        _p = _ax.get_position()
-        _ax.set_position([_p.x0, _p.y0 + TRACE_PULL_UP, _p.width, _p.height])
-    draw_trace_panel(ax_b, true_s, pred_s, labels_s, step_v_stim, time_ms,
-                     pearson_r=r_stim,
-                     header_label='stimulus, INR',
-                     show_xlabel=True, show_type_labels=True)
-    draw_trace_panel(ax_c, true_v, pred_v, labels_v, step_v_volt, time_ms,
-                     pearson_r=r_volt, pearson_r_sd=r_volt_sd,
-                     header_label='voltage, GNN vs noise-free',
-                     show_xlabel=True, show_type_labels=True)
+        # (b/c) Two trace panels — stimulus | voltage vs noisy.
+        gs_bc = mgs.GridSpecFromSubplotSpec(1, 2, subplot_spec=outer[1],
+                                             wspace=0.20)
+        ax_b = fig.add_subplot(gs_bc[0, 0])
+        ax_c = fig.add_subplot(gs_bc[0, 1])
+        # Pull the trace row UP so it sits closer to the hex grid; this shrinks
+        # only the a↔b/c gap and leaves the b/c↔d/e/f gap at its outer value.
+        TRACE_PULL_UP = 0.05
+        for _ax in (ax_b, ax_c):
+            _p = _ax.get_position()
+            _ax.set_position([_p.x0, _p.y0 + TRACE_PULL_UP, _p.width, _p.height])
+        draw_trace_panel(ax_b, true_s, pred_s, labels_s, step_v_stim, time_ms,
+                         pearson_r=r_stim,
+                         header_label='stimulus, INR',
+                         show_xlabel=True, show_type_labels=True)
+        draw_trace_panel(ax_c, true_v, pred_v, labels_v, step_v_volt, time_ms,
+                         pearson_r=r_volt, pearson_r_sd=r_volt_sd,
+                         header_label='voltage, GNN vs noise-free',
+                         show_xlabel=True, show_type_labels=True)
 
-    # (d/e) Two scatter panels at the bottom. The "vs noisy" scatter
-    # (was panel e) is disabled — comparing the learned trace against
-    # perturbed gt is misleading. Uncomment to restore.
-    gs_def = mgs.GridSpecFromSubplotSpec(1, 2, subplot_spec=outer[2],
-                                          wspace=0.40)
-    ax_d = fig.add_subplot(gs_def[0, 0])
-    ax_e = fig.add_subplot(gs_def[0, 1])
-    # b/c ↔ d/e gap. Smaller value = scatter row sits LOWER (more blank
-    # above d/e). 0.04 leaves a comfortable gap; bump up to 0.08 to tighten.
-    SCATTER_PULL_UP = 0.04
-    for _ax in (ax_d, ax_e):
-        _p = _ax.get_position()
-        _ax.set_position([_p.x0, _p.y0 + SCATTER_PULL_UP, _p.width, _p.height])
+        # (d/e) Two scatter panels at the bottom. The "vs noisy" scatter
+        # (was panel e) is disabled — comparing the learned trace against
+        # perturbed gt is misleading. Uncomment to restore.
+        gs_def = mgs.GridSpecFromSubplotSpec(1, 2, subplot_spec=outer[2],
+                                              wspace=0.40)
+        ax_d = fig.add_subplot(gs_def[0, 0])
+        ax_e = fig.add_subplot(gs_def[0, 1])
+        # b/c ↔ d/e gap. Smaller value = scatter row sits LOWER (more blank
+        # above d/e). 0.04 leaves a comfortable gap; bump up to 0.08 to tighten.
+        SCATTER_PULL_UP = 0.04
+        for _ax in (ax_d, ax_e):
+            _p = _ax.get_position()
+            _ax.set_position([_p.x0, _p.y0 + SCATTER_PULL_UP, _p.width, _p.height])
 
-    draw_scatter(
-        ax_d,
-        stim_in_true.ravel(), stim_in_pred.ravel(),
-        lo=SCATTER_LO_S, hi=SCATTER_HI_S,
-        xlabel='true stimulus', ylabel='learned stimulus',
-        title=None,
-    )
-    # Removed "vs noisy" scatter:
-    # draw_scatter(
-    #     ax_e_noisy,
-    #     activity_true, activity_pred,
-    #     lo=SCATTER_LO_V, hi=SCATTER_HI_V,
-    #     xlabel='noisy voltage', ylabel='rollout voltage',
-    #     title='vs noisy',
-    # )
-    draw_scatter(
-        ax_e,
-        nf_bundle['true'], nf_bundle['pred'],
-        lo=SCATTER_LO_V, hi=SCATTER_HI_V,
-        xlabel='ground truth voltage', ylabel='rollout voltage',
-        title=None,
-    )
+        draw_scatter(
+            ax_d,
+            stim_in_true.ravel(), stim_in_pred.ravel(),
+            lo=SCATTER_LO_S, hi=SCATTER_HI_S,
+            xlabel='true stimulus', ylabel='learned stimulus',
+            title=None,
+        )
+        # Removed "vs noisy" scatter:
+        # draw_scatter(
+        #     ax_e_noisy,
+        #     activity_true, activity_pred,
+        #     lo=SCATTER_LO_V, hi=SCATTER_HI_V,
+        #     xlabel='noisy voltage', ylabel='rollout voltage',
+        #     title='vs noisy',
+        # )
+        draw_scatter(
+            ax_e,
+            nf_bundle['true'], nf_bundle['pred'],
+            lo=SCATTER_LO_V, hi=SCATTER_HI_V,
+            xlabel='ground truth voltage', ylabel='rollout voltage',
+            title=None,
+        )
 
-    # Shrink panels d and e to the same size and align their VISIBLE left
-    # edge (tight bbox, which includes ylabel/ticks) with the visible left
-    # edge of the trace panel directly above. Aligning ax.x0 alone is
-    # off because the scatter panels carry a ylabel that the trace panels
-    # don't.
-    fig.canvas.draw()
-    renderer = fig.canvas.get_renderer()
-    inv = fig.transFigure.inverted()
+        # Shrink panels d and e to the same size and align their VISIBLE left
+        # edge (tight bbox, which includes ylabel/ticks) with the visible left
+        # edge of the trace panel directly above. Aligning ax.x0 alone is
+        # off because the scatter panels carry a ylabel that the trace panels
+        # don't.
+        fig.canvas.draw()
+        renderer = fig.canvas.get_renderer()
+        inv = fig.transFigure.inverted()
 
-    def _tight_x0(ax):
-        return inv.transform((ax.get_tightbbox(renderer).x0, 0))[0]
+        def _tight_x0(ax):
+            return inv.transform((ax.get_tightbbox(renderer).x0, 0))[0]
 
-    _pd = ax_d.get_position()
-    _pe = ax_e.get_position()
-    _scatter_width  = _pe.width * 0.6
-    _scatter_height = _pe.height
-    # First resize each panel so we can recompute its tight bbox at the
-    # final width (label x-extent depends on figure-fraction width).
-    ax_d.set_position([_pd.x0, _pd.y0, _scatter_width, _scatter_height])
-    ax_e.set_position([_pe.x0, _pe.y0, _scatter_width, _scatter_height])
-    fig.canvas.draw()
-    # Now shift each panel so its tight-bbox left edge matches the trace
-    # panel's tight-bbox left edge.
-    delta_d = _tight_x0(ax_b) - _tight_x0(ax_d)
-    delta_e = _tight_x0(ax_c) - _tight_x0(ax_e)
-    _pd2 = ax_d.get_position()
-    _pe2 = ax_e.get_position()
-    ax_d.set_position([_pd2.x0 + delta_d, _pd2.y0, _pd2.width, _pd2.height])
-    ax_e.set_position([_pe2.x0 + delta_e, _pe2.y0, _pe2.width, _pe2.height])
+        _pd = ax_d.get_position()
+        _pe = ax_e.get_position()
+        # Scatter panels enlarged ~2× — was * 0.6, now * 1.2 (linear) to
+        # match the 2× bottom-panel bump on the other rollout figs.
+        _scatter_width  = _pe.width * 1.2
+        _scatter_height = _pe.height * 2.0
+        # First resize each panel so we can recompute its tight bbox at the
+        # final width (label x-extent depends on figure-fraction width).
+        ax_d.set_position([_pd.x0, _pd.y0, _scatter_width, _scatter_height])
+        ax_e.set_position([_pe.x0, _pe.y0, _scatter_width, _scatter_height])
+        fig.canvas.draw()
+        # Now shift each panel so its tight-bbox left edge matches the trace
+        # panel's tight-bbox left edge.
+        delta_d = _tight_x0(ax_b) - _tight_x0(ax_d)
+        delta_e = _tight_x0(ax_c) - _tight_x0(ax_e)
+        _pd2 = ax_d.get_position()
+        _pe2 = ax_e.get_position()
+        ax_d.set_position([_pd2.x0 + delta_d, _pd2.y0, _pd2.width, _pd2.height])
+        ax_e.set_position([_pe2.x0 + delta_e, _pe2.y0, _pe2.width, _pe2.height])
 
-    # Panel labels a..e
-    fig.canvas.draw()
-    renderer = fig.canvas.get_renderer()
-    inv = fig.transFigure.inverted()
-    anchors = [(axes_hex_top[0], 'a'),
-               (ax_b, 'b'), (ax_c, 'c'),
-               (ax_d, 'd'), (ax_e, 'e')]
-    for ax_anchor, lbl in anchors:
-        bb = ax_anchor.get_tightbbox(renderer)
-        x0, y1 = inv.transform((bb.x0, bb.y1))
-        fig.text(x0, y1, lbl, fontsize=PANEL_LBL, fontweight='bold',
-                 va='bottom', ha='left', color='black',
-                 transform=fig.transFigure)
+        # Panel labels a..e
+        fig.canvas.draw()
+        renderer = fig.canvas.get_renderer()
+        inv = fig.transFigure.inverted()
+        anchors = [(axes_hex_top[0], 'a'),
+                   (ax_b, 'b'), (ax_c, 'c'),
+                   (ax_d, 'd'), (ax_e, 'e')]
+        for ax_anchor, lbl in anchors:
+            bb = ax_anchor.get_tightbbox(renderer)
+            x0, y1 = inv.transform((bb.x0, bb.y1))
+            fig.text(x0, y1, lbl, fontsize=PANEL_LBL, fontweight='bold',
+                     va='bottom', ha='left', color='black',
+                     transform=fig.transFigure)
 
-    out_base = os.path.join(_SCRIPT_DIR, 'fig_stim_rollout_inr')
-    fig.savefig(out_base + '.pdf', bbox_inches='tight')
-    fig.savefig(out_base + '.png', dpi=300, bbox_inches='tight')
-    plt.close(fig)
+        out_base = os.path.join(_SCRIPT_DIR,
+        'fig_stim_rollout_inr' + ('_nf_green' if _nf_green else ''))
+        fig.savefig(out_base + '.pdf', bbox_inches='tight')
+        fig.savefig(out_base + '.png', dpi=300, bbox_inches='tight')
+        plt.close(fig)
     print(f'Saved: {out_base}.pdf')
     print(f'Saved: {out_base}.png')
 

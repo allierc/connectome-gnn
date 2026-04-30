@@ -114,13 +114,12 @@ FS_TICK   = 6
 FS_ANNOT  = 6
 PANEL_LBL = 8
 
-# Match the per-panel size of fig_gnn_params_3col_noise_comparison.py while
-# trimming the inter-row blank that would otherwise be visually overwhelming
-# with only two rows. Achieved by shrinking FIG_H_IN (2.8 → 2.5) so the
-# row-cell height is just enough for the box_aspect=0.9 panel, and dropping
-# inner-grid hspace from 0.10 → 0.02.
+# Bottom-row scatters (V_rest, τ) enlarged ~2× — height_ratios = [1, 2]
+# in the inner 2×2 mini-grid. FIG_H_IN bumped accordingly. Inter-row
+# spacing kept tight (hspace=0.02) — same gap profile fig_rollout uses
+# between trace and scatter rows.
 FIG_W_IN = 18.0 * 0.3937          # ≈ 7.09 in
-FIG_H_IN = 2.5
+FIG_H_IN = 4.0
 
 
 def load_config_from_yaml(yaml_path):
@@ -183,13 +182,16 @@ def assemble(blocks, out_base):
     )
 
     # Build the 2-row x 2-col mini-grids per block; tight hspace so the two
-    # rows abut without a wide blank corridor between them.
+    # rows abut without a wide blank corridor between them. Bottom-row
+    # cells are 2× the top-row height so V_rest / τ scatters look ~2×
+    # bigger than the W / UMAP panels above them.
     inner_grids = []
     for k in range(len(blocks)):
         inner = mgs.GridSpecFromSubplotSpec(
             N_PANEL_ROWS, N_PANEL_COLS_PER_BLOCK,
             subplot_spec=outer[0, k],
             wspace=0.04, hspace=0.02,
+            height_ratios=[1, 2],
         )
         inner_grids.append(inner)
 
@@ -310,6 +312,12 @@ def main():
     out_base = os.path.join(REPO_ROOT, 'figures',
                             'fig_known_ode_params_3col_noise_comparison')
     assemble(blocks, out_base)
+    # Twin output (mirrors the rollout figs' _nf_green convention). For a
+    # parameter-recovery figure the panel content is identical between the
+    # two variants — there is no green-trace concept to swap — but emitting
+    # the second pair lets latex \includegraphics templates that expect
+    # `*_nf_green.{pdf,png}` resolve.
+    assemble(blocks, out_base + '_nf_green')
 
 
 if __name__ == '__main__':
