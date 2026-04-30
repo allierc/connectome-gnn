@@ -28,39 +28,38 @@ _logger = get_logger(__name__)
 
 
 def compute_eed_loss(model, voltage, stimulus, t_indices, dt, rollout_steps):
-    """Compute reconstruction + multi-step rollout loss for a batch.
+    """Compute reconstruction + multi-step pure-latent rollout loss for a batch.
 
     Reconstruction loss at t=0: MSE(decoder(encoder(x_t)), x_t).
-    Rollout loss at t=1..rollout_steps: Euler-integrate using predict_dvdt,
-    accumulate MSE at each step (same as MLP rollout training).
+    Rollout loss at t=1..rollout_steps: chain evolver in latent space, decode each
+    step, accumulate MSE against true voltage. This matches the test pipeline
+    (graph_tester.py) which encodes once and never re-encodes.
 
     Args:
         model: EEDBaseline with encoder, decoder, stimulus_encoder, evolver
         voltage: (T, N) full voltage tensor
         stimulus: (T, n_input) full stimulus tensor
         t_indices: (B,) random time indices
-        dt: scalar time step
-        rollout_steps: number of Euler steps to unroll
+        dt: scalar time step (unused; kept for signature compatibility)
+        rollout_steps: number of latent-evolver steps to unroll
 
     Returns:
         total_loss, recon_loss, evolve_loss
     """
     x_t = voltage[t_indices]           # (B, N)
 
-    # Reconstruction loss at t=0
     z = model.encoder(x_t)
     x_recon = model.decoder(z)
     recon_loss = F.mse_loss(x_recon, x_t)
 
-    # Multi-step rollout loss (same as MLP)
-    x = x_t
-    evolve_loss = torch.zeros((), device=x.device)
+    evolve_loss = torch.zeros((), device=x_t.device)
     for k in range(rollout_steps):
         stim_k = stimulus[t_indices + k]
-        dvdt = model.predict_dvdt(x, stim_k)
-        x = x + dt * dvdt
+        z_stim = model.stimulus_encoder(stim_k)
+        z = z + model.evolver(torch.cat([z, z_stim], dim=1))
+        x_pred = model.decoder(z)
         target = voltage[t_indices + k + 1]
-        evolve_loss = evolve_loss + F.mse_loss(x, target)
+        evolve_loss = evolve_loss + F.mse_loss(x_pred, target)
     evolve_loss = evolve_loss / rollout_steps
 
     total_loss = recon_loss + evolve_loss

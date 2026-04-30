@@ -26,51 +26,6 @@ from connectome_gnn.utils import create_log_dir
 _logger = get_logger(__name__)
 
 _VAL_ROLLOUT_LEN = 8000
-_VAL_BLOCK_SIZE = 64
-
-
-def _rollout_block(model, v, stim_block, target_block, dt):
-    """Roll out model for _VAL_BLOCK_SIZE steps.
-
-    Args:
-        v: (N,) current state
-        stim_block: (_VAL_BLOCK_SIZE, n_input)
-        target_block: (_VAL_BLOCK_SIZE, N) ground-truth next states
-
-    Returns:
-        v: (N,) state after the block
-        out_mses: (_VAL_BLOCK_SIZE,) per-step MSE
-    """
-    out_mses = torch.empty(_VAL_BLOCK_SIZE, device=v.device)
-    for t in range(_VAL_BLOCK_SIZE):
-        dvdt = model.predict_dvdt(v, stim_block[t])
-        v = v + dt * dvdt
-        out_mses[t] = F.mse_loss(v, target_block[t])
-    return v, out_mses
-
-
-def _rollout_block_latent(model, z, stim_block, target_block):
-    """Roll out EED for _VAL_BLOCK_SIZE steps in PURE LATENT SPACE.
-
-    No re-encoding: evolves z autoregressively, decodes each step only
-    to score against ground truth.
-
-    Args:
-        z: (1, latent_dim) current latent state
-        stim_block: (_VAL_BLOCK_SIZE, n_input)
-        target_block: (_VAL_BLOCK_SIZE, N) ground-truth next states
-
-    Returns:
-        z: (1, latent_dim) latent state after the block
-        out_mses: (_VAL_BLOCK_SIZE,) per-step MSE
-    """
-    out_mses = torch.empty(_VAL_BLOCK_SIZE, device=z.device)
-    for t in range(_VAL_BLOCK_SIZE):
-        stim_z = model.stimulus_encoder(stim_block[t].unsqueeze(0))
-        z = z + model.evolver(torch.cat([z, stim_z], dim=-1))
-        v_pred = model.decoder(z).squeeze(0)
-        out_mses[t] = F.mse_loss(v_pred, target_block[t])
-    return z, out_mses
 
 
 def val_rollout_latent(model, voltage, stimulus, val_start_idx, dt):
@@ -88,18 +43,14 @@ def val_rollout_latent(model, voltage, stimulus, val_start_idx, dt):
         rollout_rmse: RMSE = sqrt(mean MSE) over steps [0, div_time)
     """
     del dt  # unused; latent rollout does not Euler-integrate in activity
-    _rollout_block_latent_compiled = torch.compile(_rollout_block_latent, mode="default")
 
-    all_mse = torch.empty(_VAL_ROLLOUT_LEN, device=voltage.device)
+    all_mse = torch.zeros(_VAL_ROLLOUT_LEN, device=voltage.device)
     z = model.encoder(voltage[val_start_idx].unsqueeze(0))  # (1, latent_dim)
-
-    n_blocks = _VAL_ROLLOUT_LEN // _VAL_BLOCK_SIZE
-    for b in range(n_blocks):
-        t0 = val_start_idx + b * _VAL_BLOCK_SIZE
-        stim_block = stimulus[t0:t0 + _VAL_BLOCK_SIZE]
-        target_block = voltage[t0 + 1:t0 + _VAL_BLOCK_SIZE + 1]
-        z, block_mse = _rollout_block_latent_compiled(model, z, stim_block, target_block)
-        all_mse[b * _VAL_BLOCK_SIZE:(b + 1) * _VAL_BLOCK_SIZE] = block_mse
+    for t in range(_VAL_ROLLOUT_LEN):
+        stim_z = model.stimulus_encoder(stimulus[val_start_idx + t].unsqueeze(0))
+        z = z + model.evolver(torch.cat([z, stim_z], dim=-1))
+        v_pred = model.decoder(z).squeeze(0)
+        all_mse[t] = F.mse_loss(v_pred, voltage[val_start_idx + t + 1])
 
     mse_np = all_mse.cpu().numpy()
     # NaN/Inf during latent drift counts as divergence
@@ -113,25 +64,19 @@ def val_rollout_latent(model, voltage, stimulus, val_start_idx, dt):
 def val_rollout(model, voltage, stimulus, val_start_idx, dt):
     """Single-start rollout validation on training data.
 
-    Runs _VAL_ROLLOUT_LEN steps from val_start_idx using compiled _VAL_BLOCK_SIZE-step blocks.
+    Runs _VAL_ROLLOUT_LEN Euler steps from val_start_idx in activity space.
 
     Returns:
         mse_curve: (_VAL_ROLLOUT_LEN,) numpy array of per-step MSE
         div_time: first step index where MSE > 1, or _VAL_ROLLOUT_LEN if never
         rollout_rmse: RMSE = sqrt(mean MSE) over steps [0, div_time)
     """
-    _rollout_block_compiled = torch.compile(_rollout_block, mode="default")
-
-    all_mse = torch.empty(_VAL_ROLLOUT_LEN, device=voltage.device)
+    all_mse = torch.zeros(_VAL_ROLLOUT_LEN, device=voltage.device)
     v = voltage[val_start_idx].clone()
-
-    n_blocks = _VAL_ROLLOUT_LEN // _VAL_BLOCK_SIZE
-    for b in range(n_blocks):
-        t0 = val_start_idx + b * _VAL_BLOCK_SIZE
-        stim_block = stimulus[t0:t0 + _VAL_BLOCK_SIZE]
-        target_block = voltage[t0 + 1:t0 + _VAL_BLOCK_SIZE + 1]
-        v, block_mse = _rollout_block_compiled(model, v, stim_block, target_block, dt)
-        all_mse[b * _VAL_BLOCK_SIZE:(b + 1) * _VAL_BLOCK_SIZE] = block_mse
+    for t in range(_VAL_ROLLOUT_LEN):
+        dvdt = model.predict_dvdt(v, stimulus[val_start_idx + t])
+        v = v + dt * dvdt
+        all_mse[t] = F.mse_loss(v, voltage[val_start_idx + t + 1])
 
     mse_np = all_mse.cpu().numpy()
     above = np.where(mse_np > 1.0)[0]
