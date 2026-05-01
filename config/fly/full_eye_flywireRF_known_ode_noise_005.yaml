@@ -1,5 +1,5 @@
 description: "flywirevis hybrid -- v2 per-column FlyWire RF, known ODE, full eye (column_source='flywire', extent=15 slot), noise=0.05"
-dataset: flyvis_hybrid_flywireRF_e15_known_ode_noise_005
+dataset: full_eye_flywireRF_known_ode_noise_005
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ""
@@ -26,7 +26,7 @@ simulation:
   skip_short_videos: true
   blank_prefix_fraction: 0.5
 graph_model:
-  signal_model_name: flyvis_hybrid_flywireRF_known_ode
+  signal_model_name: full_eye_flywireRF_known_ode
   prediction: first_derivative
   aggr_type: add
   update_type: generic
