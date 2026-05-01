@@ -211,6 +211,8 @@ def load_saved_fold(config_name: str, fold_idx: int) -> dict:
     is_stim = meta['kind'] == 'stimulus'
     if is_stim:
         log_dir = log_path('fly/' + config_name)
+        if not os.path.isdir(log_dir):
+            log_dir = log_path('fly/' + f'{config_name}_cv{CV_FOLDS[0]:02d}')
     else:
         log_dir = log_path('fly/' + f'{config_name}_cv{fold_idx:02d}')
 
@@ -518,8 +520,10 @@ def main(argv=None):
         if meta['kind'] == 'stimulus':
             n_rollout = None
         else:
-            cfg_yaml = NeuralGraphConfig.from_yaml(
-                os.path.join(REPO, 'config', 'fly', f'{cfg}.yaml'))
+            cfg_path = os.path.join(REPO, 'config', 'fly', f'{cfg}.yaml')
+            if not os.path.exists(cfg_path):
+                cfg_path = os.path.join(REPO, 'config', 'fly', f'{cfg}_cv{CV_FOLDS[0]:02d}.yaml')
+            cfg_yaml = NeuralGraphConfig.from_yaml(cfg_path)
             n_rollout = int(cfg_yaml.training.rollout_train_steps)
 
         per_fold_r_1s, per_fold_r_ro, per_fold_rmse_ro = [], [], []
