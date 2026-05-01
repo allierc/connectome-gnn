@@ -16,6 +16,7 @@ from connectome_gnn.neuron_state import NeuronState
     "drosophila_cx_mlp", "larva_mlp", "zebrafish_oculomotor_mlp",
     "flyvis_mlp",
     "e8_flywireRF_mlp", "e8_flywireRF_proximal_nulls_mlp",
+    "full_eye_flywireRF_mlp", "full_eye_flywireRF_proximal_nulls_mlp",
 )
 class MLPBaseline(nn.Module):
     """Flat MLP baseline: dv/dt = MLP([v; stim]).

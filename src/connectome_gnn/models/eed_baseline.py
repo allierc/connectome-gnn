@@ -70,6 +70,7 @@ class MLPWithSkips(nn.Module):
 @register_model(
     "flyvis_eed",
     "e8_flywireRF_eed", "e8_flywireRF_proximal_nulls_eed",
+    "full_eye_flywireRF_eed", "full_eye_flywireRF_proximal_nulls_eed",
 )
 class EEDBaseline(nn.Module):
     """Encode-Evolve-Decode model with configurable architecture.

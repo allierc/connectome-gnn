@@ -255,8 +255,14 @@ _VARIANT_TO_DIRNAME = {
     # full FlyWire eye (no extent applies)
     "full_eye_flywireRF": "full_eye_flywireRF",
     "full_eye_flywireRF_known_ode": "full_eye_flywireRF",
+    "full_eye_flywireRF_mlp": "full_eye_flywireRF",
+    "full_eye_flywireRF_eed": "full_eye_flywireRF",
+    "full_eye_flywireRF_stimulus": "full_eye_flywireRF",
     "full_eye_flywireRF_proximal_nulls": "full_eye_flywireRF_proximal_nulls",
     "full_eye_flywireRF_proximal_nulls_known_ode": "full_eye_flywireRF_proximal_nulls",
+    "full_eye_flywireRF_proximal_nulls_mlp": "full_eye_flywireRF_proximal_nulls",
+    "full_eye_flywireRF_proximal_nulls_eed": "full_eye_flywireRF_proximal_nulls",
+    "full_eye_flywireRF_proximal_nulls_stimulus": "full_eye_flywireRF_proximal_nulls",
     "full_eye_flywireRF_random_nulls": "full_eye_flywireRF_random_nulls",
     "full_eye_flywireRF_random_nulls_known_ode": "full_eye_flywireRF_random_nulls",
 }
