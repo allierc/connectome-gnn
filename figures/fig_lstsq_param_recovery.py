@@ -7,16 +7,18 @@ column-equilibrated normal equations on GPU, with the eigendecomposition of the
 small Gram matrix giving both the min-norm solution and a flag for parameters
 that lie in the null space (degenerate / unidentifiable).
 
-Outputs a 3-panel scatter plot (tau, V_rest, W) of recovered vs. ground-truth
-values, with degenerate parameters colored red.
+Outputs a 3-panel scatter (tau, V_rest, W) of recovered vs. ground-truth values,
+with degenerate parameters colored red, plus a `<basename>_degenerate_mask.pt`
+sidecar tensor used by downstream training.
+
+Output: figures/fig_lstsq_param_recovery_<basename>.{pdf,png}
 
 Usage:
-    python recover_ode_params_lstsq.py DATA_ROOT [--out OUT_PATH] [--dt DT]
+    python figures/fig_lstsq_param_recovery.py DATA_ROOT [--dt DT]
 
-NOTE: This script works for noise-free data. For noisy SDE data (sigma > 0),
-recovery is biased toward zero — particularly for tau, since the dv/dt column
-is computed by finite differences which amplifies voltage noise by ~1/dt. Two
-fundamental obstacles:
+NOTE: noise-free data only. For noisy SDE data (sigma > 0) recovery is biased
+toward zero — particularly for tau, since the dv/dt column is computed by finite
+differences which amplifies voltage noise by ~1/dt. Two fundamental obstacles:
 
   1. Errors-in-variables bias: noise enters BOTH A and b (not just b). Standard
      OLS gives attenuation bias on every coefficient with a noisy regressor;
@@ -24,29 +26,47 @@ fundamental obstacles:
   2. Correlated noise across columns: the same SDE noise on v_i(t) appears in
      dv/dt(t), dv/dt(t-1), and b(t) simultaneously. Vanilla TLS assumes column-
      wise independent noise and produces wild outputs in this regime.
-
-A previous --tls flag using weighted total least squares was tried and removed
-because the column-correlated noise structure violates TLS's assumptions. The
-correct fix would be generalized TLS with the analytical noise covariance, or
-iterative bias-corrected OLS — neither is implemented here.
-
-A previous --avg-window flag for block-averaging rows (integral form) was also
-tried: dv/dt averaged over W steps telescopes to (v_{t+W} - v_t)/(W*dt),
-reducing FD noise by 1/W. It helps at moderate noise (sigma ~ 0.05) but
-doesn't fully recover tau at sigma ~ 0.5, so it was removed too.
 """
 
 import argparse
+import sys
 import time
 from pathlib import Path
 
+import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import zarr
 from tqdm.auto import tqdm
 
+REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO / "src"))
+
 from connectome_gnn.metrics import compute_r_squared
+
+
+# ---------------------------------------------------------------------------
+# Style: Janne base + scatter overrides per figures/INSTRUCTIONS.md
+# ---------------------------------------------------------------------------
+matplotlib.rc_file(str(REPO / "figures" / "janne.matplotlibrc"))
+plt.rcParams.update({
+    # GNN_PlotFigure scatter convention: keep spines, use Nimbus Sans family.
+    "font.family":     "sans-serif",
+    "font.sans-serif": ["Nimbus Sans", "Arial", "Helvetica", "DejaVu Sans"],
+    "mathtext.fontset": "dejavusans",
+    "axes.spines.top":   False,
+    "axes.spines.right": False,
+    "savefig.dpi": 300,
+    "figure.dpi":  150,
+})
+
+# Scatter-content fonts (figsize=(30,9), each panel 10 in wide -> _S = 1.0).
+_AXIS_LABEL_FS = 48
+_TICK_LABEL_FS = 24
+_ANNOT_FS      = 32
+_LEGEND_FS     = 28
+_PANEL_LBL_FS  = 40
 
 
 def _load_cell_type_labels(data_root: Path, N: int):
@@ -245,8 +265,22 @@ def solve(
     )
 
 
-def plot(data: dict, out: dict, fig_path: Path):
-    fig, axes = plt.subplots(1, 3, figsize=(30, 9))
+def _add_panel_labels(fig, axes_flat, labels, fontsize=_PANEL_LBL_FS):
+    """Place labels at top-left of each panel's outer (tight) bbox, aligned to a
+    shared y. Per figures/INSTRUCTIONS.md."""
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    inv = fig.transFigure.inverted()
+    bboxes = [ax.get_tightbbox(renderer) for ax in axes_flat]
+    y1_max = max(inv.transform((bb.x0, bb.y1))[1] for bb in bboxes)
+    for bb, lbl in zip(bboxes, labels):
+        x0 = inv.transform((bb.x0, bb.y1))[0]
+        fig.text(x0, y1_max, lbl, fontsize=fontsize, fontweight="bold",
+                 va="bottom", ha="left", color="black", transform=fig.transFigure)
+
+
+def plot(data: dict, out: dict, out_base: Path):
+    fig, axes = plt.subplots(1, 3, figsize=(30, 9), constrained_layout=True)
 
     def _panel(ax, true, pred, null, sloppy, xlabel, ylabel, labels=None, label_x_min=None):
         m = np.isfinite(pred)   # excludes nan and inf
@@ -363,11 +397,12 @@ def plot(data: dict, out: dict, fig_path: Path):
 
         ax.text(0.05, 0.95,
                 f'R²: {r2_ok:.2f} ({r2_all:.2f})\nslope: {slope_ok:.2f}',
-                transform=ax.transAxes, verticalalignment='top', fontsize=32)
-        ax.set_xlabel(xlabel, fontsize=48)
-        ax.set_ylabel(ylabel, fontsize=48)
-        ax.tick_params(axis='both', labelsize=20)
-        ax.legend(loc='lower right', fontsize=24, markerscale=4)
+                transform=ax.transAxes, verticalalignment='top', fontsize=_ANNOT_FS)
+        ax.set_xlabel(xlabel, fontsize=_AXIS_LABEL_FS)
+        ax.set_ylabel(ylabel, fontsize=_AXIS_LABEL_FS)
+        ax.tick_params(axis='both', labelsize=_TICK_LABEL_FS)
+        # INSTRUCTIONS: legend top-right inside the data area.
+        ax.legend(loc='upper right', fontsize=_LEGEND_FS, markerscale=4)
 
     cell_type = data.get("cell_type")
 
@@ -383,16 +418,23 @@ def plot(data: dict, out: dict, fig_path: Path):
            out["W_null"],     out["W_sloppy"],
            r'true $W_{ij}$',    r'learned $W_{ij}$')
 
-    plt.tight_layout()
-    fig.savefig(fig_path, dpi=150, bbox_inches="tight")
+    _add_panel_labels(fig, list(axes), ['A', 'B', 'C'])
+
+    out_png = out_base.with_suffix('.png')
+    out_pdf = out_base.with_suffix('.pdf')
+    fig.savefig(out_png, dpi=300, bbox_inches="tight")
+    fig.savefig(out_pdf, bbox_inches="tight")
     plt.close(fig)
-    print(f"wrote {fig_path}")
+    print(f"wrote {out_png.name}, {out_pdf.name}")
 
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("data_root", type=Path, help="dir containing ode_params.pt and x_list_train/")
-    p.add_argument("--out", type=Path, default=None, help="output figure path (default: ./<data_root_basename>_lstsq_recovery.png in CWD)")
+    p.add_argument("--out", type=Path, default=None,
+                   help="output figure stem (default: figures/fig_lstsq_param_recovery_<basename>)")
+    p.add_argument("--mask-out", type=Path, default=None,
+                   help="output path for degeneracy mask .pt (default: alongside figure)")
     p.add_argument("--dt", type=float, default=0.020, help="simulation timestep in seconds")
     p.add_argument("--null-eig-tol", type=float, default=1e-22,
                    help="relative eigenvalue cutoff for STRICT null space (red)")
@@ -404,8 +446,10 @@ def main():
     p.add_argument("--cpu", action="store_true", help="force CPU even if CUDA is available")
     args = p.parse_args()
 
-    fig_path  = args.out or Path.cwd() / f"{args.data_root.name}_lstsq_recovery.png"
-    mask_path = Path.cwd() / f"{args.data_root.name}_degenerate_mask.pt"
+    out_base = args.out or REPO / "figures" / f"fig_lstsq_param_recovery_{args.data_root.name}"
+    mask_path = args.mask_out or out_base.with_name(
+        f"{args.data_root.name}_degenerate_mask.pt"
+    )
     device = torch.device("cpu" if args.cpu or not torch.cuda.is_available() else "cuda")
     print(f"device: {device}  data_root: {args.data_root}")
 
@@ -416,7 +460,7 @@ def main():
                 null_eig_tol=args.null_eig_tol,
                 sloppy_eig_tol=args.sloppy_eig_tol,
                 null_comp_tol=args.null_comp_tol)
-    plot(data, out, fig_path)
+    plot(data, out, out_base)
 
     torch.save({
         "tau":           torch.from_numpy(out["tau_null"]   | out["tau_sloppy"]),
