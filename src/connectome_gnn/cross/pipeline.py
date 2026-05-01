@@ -53,6 +53,11 @@ CONDITION_BASES = [
     'flyvis_noise_005_010_blank50_ar1_rho90',
     'flyvis_noise_005_010_blank50_ar1_rho95',
     'flyvis_noise_005_010_blank50_ar1_rho99',
+    # FlyWire-RF v2 connectomes (must match CONDITIONS in cross/yaml_io.py).
+    'e8_flywireRF_noise_005',
+    'e8_flywireRF_proximal_nulls_noise_005',
+    'full_eye_flywireRF_noise_005',
+    'full_eye_flywireRF_proximal_nulls_noise_005',
 ]
 
 
@@ -111,7 +116,7 @@ def _have_plot(log_dir):
     return os.path.exists(os.path.join(log_dir, 'results', 'metrics.txt'))
 
 
-def ensure_yt_data(yt_cfg, device):
+def ensure_yt_data(yt_cfg, device, save_traces=True):
     yt_gdir = graphs_data_path(yt_cfg.dataset)
     if _have_data(yt_gdir):
         print(f'  [skip] hold-out fold data exists: {yt_gdir}')
@@ -122,6 +127,18 @@ def ensure_yt_data(yt_cfg, device):
         data_generate(yt_cfg, device=device, visualize=False, run_vizualized=0,
                       style='color', alpha=1, erase=True, save=True, step=100,
                       compute_ranks=False)
+
+    # Cheap post-generation panel-A-style trace summary (reads voltage.zarr,
+    # no simulation re-run, no mp4). Idempotent — skips when traces.png
+    # already exists. Defaults on; pass save_traces=False to suppress.
+    if save_traces:
+        try:
+            from connectome_gnn.cross.trace_plot import save_trace_plot
+            if save_trace_plot(yt_gdir):
+                print(f'  [plot ] traces.png -> {yt_gdir}/traces.png')
+        except Exception as _e:
+            print(f'  [warn ] trace plot failed for {yt_gdir}: '
+                  f'{_e.__class__.__name__}: {_e}')
 
 
 def _warn_zero_training_metrics(log_dirs):

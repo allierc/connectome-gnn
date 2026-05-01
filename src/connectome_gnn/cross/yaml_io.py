@@ -61,6 +61,14 @@ CONDITIONS = [
     ('flyvis_noise_005_010_blank50_ar1_rho90', 'flyvis_noise_005_010_winner'),
     ('flyvis_noise_005_010_blank50_ar1_rho95', 'flyvis_noise_005_010_winner'),
     ('flyvis_noise_005_010_blank50_ar1_rho99', 'flyvis_noise_005_010_winner'),
+    # FlyWire-RF v2 connectomes (4 variants × {GNN, Known-ODE} share each
+    # dataset). Each base yaml already contains a complete graph_model +
+    # training block, so winner = base for the GNN runner; the KODE runner
+    # passes hp_yaml_overrides to swap to the matching _known_ode_ template.
+    ('e8_flywireRF_noise_005',                       'e8_flywireRF_noise_005'),
+    ('e8_flywireRF_proximal_nulls_noise_005',        'e8_flywireRF_proximal_nulls_noise_005'),
+    ('full_eye_flywireRF_noise_005',                 'full_eye_flywireRF_noise_005'),
+    ('full_eye_flywireRF_proximal_nulls_noise_005',  'full_eye_flywireRF_proximal_nulls_noise_005'),
 ]
 
 
