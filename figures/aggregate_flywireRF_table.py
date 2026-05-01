@@ -1,54 +1,35 @@
-"""Aggregate flywireRF (zero-edge augmentation) metrics into a LaTeX row block.
+"""Aggregate the 4 flywireRF blank50 connectomes (KODE + GNN, 5-fold CV)
+into a single LaTeX table for neurips.tex.
 
-Single-run pipeline (no CV folds): one row per config. Reads
-    log/fly/<base>/results_test.log         (one-step r)
-    log/fly/<base>/results_rollout.log      (rollout r)
-    log/fly/<base>/results/metrics.txt      (W_corrected_R2, tau_R2, V_rest_R2)
+Reads per-fold metrics under
+    <output_root>/log/fly/<base>_<suffix>_cv{i:02d}/results/metrics.txt
+    <output_root>/log/fly/<base>_<suffix>_cv{i:02d}/results_test.log
+    <output_root>/log/fly/<base>_<suffix>_cv{i:02d}/results_rollout.log
 
-Layout: Known-ODE block first, then GNN block, separated by a single \\midrule.
-The two extent-15 rows in each block carry \\textit{larger} (first row)
-and \\textit{visual field} (second row) in the model column, forming a
-two-line vertical "Larger visual field" sub-label.
+Suffixes:
+    blank50_flywire             — run_GNN_flywire_blank50.py        (GNN)
+    blank50_flywire_known_ode   — run_KnownODE_flywire_blank50.py   (KODE)
 
-Cell formatting (same scheme as figures/aggregate_blank50_tables.py):
-    val > 0.9  -> \\good{$val$}                 (define \\good in preamble)
-    val < 0.3  -> \\bad{$val$}                  (define \\bad  in preamble)
-    NaN        -> $\\cdot$
-Preamble:
-    \\usepackage{xcolor}
-    \\newcommand{\\good}[1]{\\textcolor{green!50!black}{#1}}
-    \\newcommand{\\bad}[1]{\\textcolor{orange}{#1}}
+Output: figures/cv_table_flywireRF.tex  — full \\begin{table}...\\end{table}
+block, drop-in replacement for the hand-written zero-edge table.
+Pass --rows-only to emit just the row block (no caption / wrapper).
 
-Output: figures/cv_table_flywireRF_zeroedge.tex
+Single mean across folds (no ±SD shown); matches the format of the table
+this script replaces.
 
-Console preview: orange when val < 0.3 or missing, green when > 0.9.
+Coloring (mirrors caption macros \\good / \\bad):
+    val > 0.9   -> \\good{$val$}      (green!50!black)
+    val < 0.3   -> \\bad{$val$}       (orange)
+For the R²(corrected, out%) triplet cells:
+    both R² > 0.9                  -> wrap whole cell in \\good{}
+    R² < 0.3                       -> \\bad{R²}, corrected/out% plain
+    R² in [0.3, 0.9], corrected>0.9 -> R² plain, \\good{corrected}
+    else                           -> all plain
 
-Example:
-    python figures/aggregate_flywireRF_table.py
+Run from devcontainer:
+    /workspace/.conda_envs/neural-graph-linux/bin/python \\
+      figures/aggregate_flywireRF_table.py
 """
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Inputs / paths
-# ─────────────────────────────────────────────────────────────────────────────
-# Data root      : /groups/saalfeld/home/allierc/GraphData
-# Configs        : <DATA_ROOT>/config/fly/<base>.yaml
-#                    <base> in:
-#                      flyvis_hybrid_flywireRF_known_ode_noise_005
-#                      flyvis_hybrid_flywireRF_zeroedge_sl_known_ode_noise_005
-#                      flyvis_hybrid_flywireRF_zeroedge_cross_sl_known_ode_noise_005
-#                      flyvis_hybrid_flywireRF_e15_known_ode_noise_005
-#                      flyvis_hybrid_flywireRF_zeroedge_cross_sl_e15_known_ode_noise_005
-#                      flyvis_hybrid_flywireRF_noise_005
-#                      flyvis_hybrid_flywireRF_zeroedge_sl_noise_005
-#                      flyvis_hybrid_flywireRF_zeroedge_cross_sl_noise_005
-#                      flyvis_hybrid_flywireRF_e15_noise_005
-#                      flyvis_hybrid_flywireRF_zeroedge_cross_sl_e15_noise_005
-# Trained models : <DATA_ROOT>/log/fly/<base>/models/best_model_with_0_graphs_0.pt
-# Eval logs      : <DATA_ROOT>/log/fly/<base>/results_test.log
-#                  <DATA_ROOT>/log/fly/<base>/results_rollout.log
-#                  <DATA_ROOT>/log/fly/<base>/results/metrics.txt
-# Output         : figures/cv_table_flywireRF_zeroedge.tex
-# ─────────────────────────────────────────────────────────────────────────────
 
 import argparse
 import math
@@ -59,117 +40,30 @@ _FIGURES_DIR = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.dirname(_FIGURES_DIR)
 sys.path.insert(0, os.path.join(_REPO_ROOT, 'src'))
 
-from connectome_gnn.cross.tex import _parse_pearson, _parse_metrics_txt
+from connectome_gnn.cross.tex import _mean_sd, _parse_pearson, _parse_metrics_txt
 from connectome_gnn.utils import load_data_root_from_json, set_data_root
 
 
-# Sentinel for the double-midrule between the Known-ODE and GNN blocks.
-DOUBLE_RULE = ('__rule__',)
+GNN_SUFFIX = 'blank50_flywire'
+KO_SUFFIX  = 'blank50_flywire_known_ode'
 
-# (model_label, condition_label, neurons, edges, extent, base). 10 rows
-# total (5 Known-ODE + 5 GNN). Edge / neuron counts read from each config
-# YAML's `n_edges` and `n_neurons`. Extent-8 has 13,741 neurons; extent-15
-# has 45,669 neurons (full hex hex visual field). Empty model_label =
-# continuation of previous model block. Extent-15 rows use
-# \textit{larger} / \textit{visual field} in the model column to form a
-# two-row "Larger visual field" vertical sub-label.
-# zeroedge variants: `_sl_` = same-type spatially-local, `_cross_sl_` =
-# cross-type spatially-local (different sampling strategies for the
-# zero-weight edge augmentation).
-TABLE_ROWS = [
-    # ---- Known-ODE block ----
-    ('Known ODE',                'het. RF (oracle)',                       '13\\,741', '328\\,092',     '8',
-        'e8_flywireRF_known_ode_noise_005'),
-    ('',                         'het.\\ RF + uncert.\\ edges (same-type)', '13\\,741', '401\\,175',    '8',
-        'e8_flywireRF_zeroedge_sl_known_ode_noise_005'),
-    ('',                         'het.\\ RF + uncert.\\ edges (cross-type)','13\\,741', '1\\,959\\,994','8',
-        'e8_flywireRF_proximal_nulls_known_ode_noise_005'),
-    ('\\textit{larger}',         'het. RF (oracle)',                       '45\\,669', '1\\,256\\,695', '—',
-        'full_eye_flywireRF_known_ode_noise_005'),
-    ('\\textit{visual field}',   'het.\\ RF + uncert.\\ edges (cross-type)','45\\,669', '5\\,411\\,743','—',
-        'full_eye_flywireRF_proximal_nulls_known_ode_noise_005'),
-
-    DOUBLE_RULE,
-
-    # ---- GNN block ----
-    ('GNN',                      'het. RF (oracle)',                       '13\\,741', '328\\,092',     '8',
-        'e8_flywireRF_noise_005'),
-    ('',                         'het.\\ RF + uncert.\\ edges (same-type)', '13\\,741', '401\\,175',    '8',
-        'e8_flywireRF_zeroedge_sl_noise_005'),
-    ('',                         'het.\\ RF + uncert.\\ edges (cross-type)','13\\,741', '1\\,959\\,994','8',
-        'e8_flywireRF_proximal_nulls_noise_005'),
-    ('\\textit{larger}',         'het. RF (oracle)',                       '45\\,669', '1\\,256\\,695', '—',
-        'full_eye_flywireRF_noise_005'),
-    ('\\textit{visual field}',   'het.\\ RF + uncert.\\ edges (cross-type)','45\\,669', '5\\,411\\,743','—',
-        'full_eye_flywireRF_proximal_nulls_noise_005'),
-]
-
-
-_ANSI_ORANGE = '\033[38;5;208m'
-_ANSI_GREEN  = '\033[92m'
-_ANSI_RESET  = '\033[0m'
 _LOW_THRESH  = 0.3
 _GOOD_THRESH = 0.9
 
 
-def _fmt(val):
-    """LaTeX cell for a single (non-CV) value. Wraps \\good{...} when >0.9,
-    \\bad{...} when <0.3, $\\cdot$ for NaN."""
-    if isinstance(val, float) and math.isnan(val):
-        return '$\\cdot$'
-    body = f'${val:.2f}$'
-    if val > _GOOD_THRESH:
-        return f'\\good{{{body}}}'
-    if val < _LOW_THRESH:
-        return f'\\bad{{{body}}}'
-    return body
-
-
-def _fmt_rel(median, iqr):
-    """LaTeX cell for relative error: ${median%}{\\pm}{IQR%}$.
-    Used for $\\widehat{W}$ (no outlier metric).
-    median and iqr are fractions in [0,1]; emit as percent. NaN -> $\\cdot$."""
-    if (isinstance(median, float) and math.isnan(median)) or \
-       (isinstance(iqr, float) and math.isnan(iqr)):
-        return '$\\cdot$'
-    return f'${100*median:.1f}{{\\pm}}{100*iqr:.1f}$'
-
-
-def _fmt_rel_out(median, iqr, count, n_neurons):
-    """Combined LaTeX cell: ${med%}{\\pm}{IQR%}\\,(out%)$.
-    Used for $\\widehat{\\tau}$ and $\\widehat{V}^{\\mathrm{rest}}$.
-    NaN in any field -> $\\cdot$."""
-    if (isinstance(median, float) and math.isnan(median)) or \
-       (isinstance(iqr, float) and math.isnan(iqr)) or \
-       (isinstance(count, float) and math.isnan(count)) or \
-       not n_neurons:
-        return '$\\cdot$'
-    return (f'${100*median:.1f}{{\\pm}}{100*iqr:.1f}'
-            f'\\,({100.0*count/n_neurons:.2f})$')
-
-
-def _ansi_cell(val, width=7):
-    if isinstance(val, float) and math.isnan(val):
-        body = '  nan  '
-        return f'{_ANSI_ORANGE}{body:<{width}}{_ANSI_RESET}'
-    body = f'{val:.2f}'
-    if val < _LOW_THRESH:
-        return f'{_ANSI_ORANGE}{body:<{width}}{_ANSI_RESET}'
-    if val > _GOOD_THRESH:
-        return f'{_ANSI_GREEN}{body:<{width}}{_ANSI_RESET}'
-    return f'{body:<{width}}'
-
-
-def _ansi_rel(median, iqr, width=11):
-    if isinstance(median, float) and math.isnan(median):
-        return f'{_ANSI_ORANGE}{"  nan  ":<{width}}{_ANSI_RESET}'
-    return f'{f"{100*median:.1f}±{100*iqr:.1f}%":<{width}}'
-
-
-def _ansi_pct(count, n_neurons, width=8):
-    if isinstance(count, float) and math.isnan(count) or not n_neurons:
-        return f'{_ANSI_ORANGE}{"  nan ":<{width}}{_ANSI_RESET}'
-    return f'{f"{100*count/n_neurons:.2f}%":<{width}}'
+# (base, condition_label, n_neurons, n_edges, eye_map_label).
+# Order: per model block, e8 (13,741) rows first then full_eye (50,412),
+# with proximal_nulls placed second within each n_neurons group.
+ROW_META = [
+    ('e8_flywireRF_noise_005',
+        'het.\\ RF',                   13_741,   327_358, 'flyvis hex lattice'),
+    ('e8_flywireRF_proximal_nulls_noise_005',
+        'het.\\ RF + uncert.\\ edges', 13_741, 2_418_403, 'flyvis hex lattice'),
+    ('full_eye_flywireRF_noise_005',
+        'het.\\ RF',                   50_412, 1_266_378, 'flywire eye map'),
+    ('full_eye_flywireRF_proximal_nulls_noise_005',
+        'het.\\ RF + uncert.\\ edges', 50_412, 9_642_335, 'flywire eye map'),
+]
 
 
 def _resolve_output_root(output_root):
@@ -182,104 +76,231 @@ def _resolve_output_root(output_root):
     return output_root
 
 
-def _read_metrics(output_root, base):
-    """Read parameter-recovery metrics for one config. Returns dict; missing -> NaN."""
-    log_dir = os.path.join(output_root, 'log', 'fly', base)
-    one_r  = _parse_pearson(os.path.join(log_dir, 'results_test.log'))
-    roll_r = _parse_pearson(os.path.join(log_dir, 'results_rollout.log'))
-    m = _parse_metrics_txt(os.path.join(log_dir, 'results', 'metrics.txt'))
+def _fold_dir(output_root, base, suffix, fold_i):
+    return os.path.join(output_root, 'log', 'fly',
+                        f'{base}_{suffix}_cv{fold_i:02d}')
+
+
+def _aggregate(output_root, base, suffix, n_folds):
+    """Per-condition mean across folds for the metrics this table needs."""
+    one, roll = [], []
+    W_R2 = []
+    tau_R2_full, tau_R2_corr, tau_n_out = [], [], []
+    V_R2_full,   V_R2_corr,   V_n_out   = [], [], []
+    n_present = 0
+    for i in range(n_folds):
+        fd = _fold_dir(output_root, base, suffix, i)
+        if not os.path.isdir(fd):
+            continue
+        n_present += 1
+        one.append(_parse_pearson(os.path.join(fd, 'results_test.log')))
+        roll.append(_parse_pearson(os.path.join(fd, 'results_rollout.log')))
+        m = _parse_metrics_txt(os.path.join(fd, 'results', 'metrics.txt'))
+        W_R2.append(m.get('W_corrected_R2',         float('nan')))
+        tau_R2_full.append(m.get('tau_R2',                  float('nan')))
+        tau_R2_corr.append(m.get('tau_no_outliers_R2',      float('nan')))
+        tau_n_out.append(   m.get('tau_n_outliers',         float('nan')))
+        V_R2_full.append(  m.get('V_rest_R2',                float('nan')))
+        V_R2_corr.append(  m.get('V_rest_no_outliers_R2',    float('nan')))
+        V_n_out.append(    m.get('V_rest_n_outliers',        float('nan')))
+
+    def _mean(xs): return _mean_sd(xs)[0]
     return {
-        'one_r':   one_r,
-        'roll_r':  roll_r,
-        'W_med':   m.get('W_rel_err_median',      float('nan')),
-        'W_iqr':   m.get('W_rel_err_iqr',         float('nan')),
-        'tau_med': m.get('tau_rel_err_median',    float('nan')),
-        'tau_iqr': m.get('tau_rel_err_iqr',       float('nan')),
-        'tau_out': m.get('tau_n_outliers',        float('nan')),
-        'V_med':   m.get('V_rest_rel_err_median', float('nan')),
-        'V_iqr':   m.get('V_rest_rel_err_iqr',    float('nan')),
-        'V_out':   m.get('V_rest_n_outliers',     float('nan')),
+        'n_present':    n_present,
+        'one':          _mean(one),
+        'roll':         _mean(roll),
+        'W_R2':         _mean(W_R2),
+        'tau_R2_full':  _mean(tau_R2_full),
+        'tau_R2_corr':  _mean(tau_R2_corr),
+        'tau_n_out':    _mean(tau_n_out),
+        'V_R2_full':    _mean(V_R2_full),
+        'V_R2_corr':    _mean(V_R2_corr),
+        'V_n_out':      _mean(V_n_out),
     }
 
 
-def _strip_tex(s):
-    return s.replace('\\,', ',').replace('\\ ', ' ').replace('\\', '')
+def _is_nan(x):
+    return isinstance(x, float) and math.isnan(x)
 
 
-def _parse_n_neurons(neurons_str):
-    """'13\\,741' -> 13741. Returns 0 on failure."""
-    try:
-        return int(_strip_tex(neurons_str).replace(',', ''))
-    except (ValueError, TypeError):
-        return 0
+def _fmt_simple(x):
+    """one-step r / rollout r / R²_W: $X.XX$ with optional \\good{}/\\bad{}."""
+    if _is_nan(x):
+        return '$\\cdot$'
+    body = f'${x:.2f}$'
+    if x > _GOOD_THRESH:
+        return f'\\good{{{body}}}'
+    if x < _LOW_THRESH:
+        return f'\\bad{{{body}}}'
+    return body
 
 
-def _print_console_row(model, cond, neurons, edges, extent, m):
-    label = f'{(model or "..").strip():>10}  {_strip_tex(cond)}'
-    neurons_disp = _strip_tex(neurons)
-    edges_disp   = _strip_tex(edges)
-    n_neurons    = _parse_n_neurons(neurons)
-    print(f'    {label:<55} '
-          f'N={neurons_disp:>7} edges={edges_disp:>10} ext={extent:>2} | '
-          f'one={_ansi_cell(m["one_r"])} '
-          f'roll={_ansi_cell(m["roll_r"])} '
-          f'W%={_ansi_rel(m["W_med"], m["W_iqr"])} '
-          f'tau%={_ansi_rel(m["tau_med"], m["tau_iqr"])} '
-          f'tau_out={_ansi_pct(m["tau_out"], n_neurons)} '
-          f'V%={_ansi_rel(m["V_med"], m["V_iqr"])} '
-          f'V_out={_ansi_pct(m["V_out"], n_neurons)}')
+def _fmt_R2_triplet(R2_full, R2_corr, n_out, n_neurons):
+    """R² triplet cell — granular coloring per the source-table convention."""
+    if any(_is_nan(v) for v in (R2_full, R2_corr, n_out)) or not n_neurons:
+        return '$\\cdot$'
+    out_pct = 100.0 * n_out / n_neurons
+    full_s  = f'{R2_full:.2f}'
+    corr_s  = f'{R2_corr:.2f}'
+    out_s   = f'{out_pct:.1f}'
+
+    if R2_full > _GOOD_THRESH and R2_corr > _GOOD_THRESH:
+        return f'\\good{{${full_s}\\,({corr_s},\\,{out_s})$}}'
+    if R2_full < _LOW_THRESH:
+        return f'\\bad{{${full_s}$}}\\,$({corr_s},\\,{out_s})$'
+    if R2_corr > _GOOD_THRESH:
+        return f'${full_s}\\,(\\good{{{corr_s}}},\\,{out_s})$'
+    if R2_corr < _LOW_THRESH:
+        return f'${full_s}\\,(\\bad{{{corr_s}}},\\,{out_s})$'
+    return f'${full_s}\\,({corr_s},\\,{out_s})$'
 
 
-def _emit_table(output_root):
-    lines = []
-    print('\n  [tab ] flywireRF zero-edge  (orange: <0.3 or missing, green: >0.9)')
-    for entry in TABLE_ROWS:
-        if entry == DOUBLE_RULE:
-            lines.append('\\midrule')
-            print('    ' + '-' * 80)
-            continue
-        model, cond, neurons, edges, extent, base = entry
-        m = _read_metrics(output_root, base)
-        n_neurons = _parse_n_neurons(neurons)
-        lines.append(
-            f'{model:<24} & {cond:<40} & ${neurons}$ & ${edges}$ & {extent}\n'
-            f'  & {_fmt(m["one_r"])} & {_fmt(m["roll_r"])}\n'
-            f'  & {_fmt_rel(m["W_med"], m["W_iqr"])}\n'
-            f'  & {_fmt_rel_out(m["tau_med"], m["tau_iqr"], m["tau_out"], n_neurons)}\n'
-            f'  & {_fmt_rel_out(m["V_med"], m["V_iqr"], m["V_out"], n_neurons)} \\\\'
-        )
-        _print_console_row(model, cond, neurons, edges, extent, m)
-
-    os.makedirs(_FIGURES_DIR, exist_ok=True)
-    path = os.path.join(_FIGURES_DIR, 'cv_table_flywireRF_zeroedge.tex')
-    with open(path, 'w') as f:
-        f.write('% flywireRF zero-edge augmentation; rows only; '
-                'Known-ODE block, then GNN block separated by single midrule. '
-                'Cols: model & condition & neurons & edges & extent | one-step r | rollout r | '
-                'W rel.err%% | tau rel.err%% (out%%) | Vrest rel.err%% (out%%).\n')
-        for ln in lines:
-            f.write(ln + '\n')
-    print(f'\n  [tex ] {path}')
+def _fmt_int_thousands(n):
+    """13741 -> '13\\,741'  (LaTeX thin-space thousand separator)."""
+    return f'{n:,}'.replace(',', '\\,')
 
 
-def main():
-    p = argparse.ArgumentParser(description=__doc__,
-                                formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument('--output_root', default=None,
-                   help='data root with log/ subdir '
-                        '(default: $GNN_OUTPUT_ROOT or data_paths.json)')
-    args = p.parse_args()
+def _row(model_label, condition, n_neurons, n_edges, eye_map, s):
+    neurons_s = f'${_fmt_int_thousands(n_neurons)}$'
+    edges_s   = f'${_fmt_int_thousands(n_edges)}$'
+    return (
+        f'{model_label:<24} & {condition:<28} & {neurons_s:<10} & {edges_s:<14} & {eye_map}\n'
+        f'  & {_fmt_simple(s["one"])} & {_fmt_simple(s["roll"])}\n'
+        f'  & {_fmt_simple(s["W_R2"])}\n'
+        f'  & {_fmt_R2_triplet(s["tau_R2_full"], s["tau_R2_corr"], s["tau_n_out"], n_neurons)}\n'
+        f'  & {_fmt_R2_triplet(s["V_R2_full"], s["V_R2_corr"], s["V_n_out"], n_neurons)} \\\\'
+    )
 
-    output_root = _resolve_output_root(args.output_root)
 
-    print('=' * 60)
-    print('aggregate flywireRF -> tex table')
-    print(f'  data root: {output_root}')
-    print('=' * 60)
+def _build_block(output_root, n_folds, suffix, model_label):
+    """4-row block for one model. \\cmidrule between 13,741 and 50,412 sub-blocks.
+    The 50,412 sub-block carries a two-line model label
+    (\\textit{larger} on row 1, \\textit{visual field} on row 2) — the same
+    visual hierarchy used by the table this script replaces."""
+    rows = []
+    prev_n = None
+    is_first = True
+    second_eye_block_row = 0
+    for base, cond, n_neurons, n_edges, eye_map in ROW_META:
+        crossed = prev_n is not None and n_neurons != prev_n
+        if crossed:
+            rows.append('  \\cmidrule[0.2pt](lr){2-10}')
+            second_eye_block_row = 0
+        s = _aggregate(output_root, base, suffix, n_folds)
+        if is_first:
+            label = model_label
+            is_first = False
+        elif crossed:
+            label = '\\textit{larger}'
+        elif prev_n is not None and n_neurons == prev_n and not is_first:
+            # 13,741 sub-block: only the first row gets the model_label.
+            # 50,412 sub-block: the row right after \textit{larger}
+            # gets \textit{visual field} as the second-line label.
+            second_eye_block_row += 1
+            label = ('\\textit{visual field}'
+                     if n_neurons == 50_412 and second_eye_block_row == 1
+                     else '')
+        else:
+            label = ''
+        rows.append(_row(label, cond, n_neurons, n_edges, eye_map, s))
+        prev_n = n_neurons
+    return rows
 
-    _emit_table(output_root)
-    print('\ndone.')
+
+def _print_console(output_root, n_folds):
+    print('\n  flywireRF table preview  (mean across folds; · = NaN)')
+    print('  ' + '-' * 120)
+    print(f'  {"model":<6} {"variant":<7} {"neurons":>7} {"edges":>10}  '
+          f'{"folds":>5}  {"one":>5} {"roll":>5}  {"W":>5}  '
+          f'{"tau_R2":>6} {"tau_no":>6} {"tau%":>5}  '
+          f'{"V_R2":>6} {"V_no":>6} {"V%":>5}')
+    for model_label, suffix in (('KODE', KO_SUFFIX), ('GNN', GNN_SUFFIX)):
+        for base, _, n_neurons, n_edges, _ in ROW_META:
+            s = _aggregate(output_root, base, suffix, n_folds)
+            variant = '+null' if 'proximal_nulls' in base else 'plain'
+            tau_pct = (100*s['tau_n_out']/n_neurons
+                       if n_neurons and not _is_nan(s['tau_n_out'])
+                       else float('nan'))
+            V_pct   = (100*s['V_n_out']/n_neurons
+                       if n_neurons and not _is_nan(s['V_n_out'])
+                       else float('nan'))
+            def _f(v, w=5):
+                return ('  · '.rjust(w) if _is_nan(v)
+                        else f'{v:{w}.2f}')
+            print(f'  {model_label:<6} {variant:<7} {n_neurons:>7} {n_edges:>10}  '
+                  f'{s["n_present"]:>5}  {_f(s["one"])} {_f(s["roll"])}  {_f(s["W_R2"])}  '
+                  f'{_f(s["tau_R2_full"], 6)} {_f(s["tau_R2_corr"], 6)} {_f(tau_pct, 5)}  '
+                  f'{_f(s["V_R2_full"], 6)} {_f(s["V_R2_corr"], 6)} {_f(V_pct, 5)}')
+
+
+_TABLE_PREAMBLE = r"""\begin{table}[h]
+\centering
+\caption{GNN recovery on hybrid connectome variants under connectivity uncertainty (zero-edge augmentation, no coregistration perturbation).
+All runs use low model noise $\sigma = 0.05$ ($65$ cell types). Eye map is either the flyvis hex lattice ($13{,}741$ neurons, extent $= 8$) or the larger flywire eye map ($50{,}412$ neurons, extent $= 15$).
+$R^2_{\hat{\tau}}$ and $R^2_{\hat{V}^{\mathrm{rest}}}$ are reported on the full neuron set; the parenthetical pair shows the outlier-corrected $R^2$ and the percentage of neurons dropped (residual-based outlier filter).
+\textcolor{green!50!black}{Green}: value $> 0.9$. \bad{Orange}: value $< 0.3$.}
+\label{tab:zero_edge}
+\tiny
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{llccrrrrrr}
+\toprule
+& & & & & \multicolumn{2}{c}{prediction} & \multicolumn{3}{c}{parameter recovery} \\
+model & condition & neurons & edges & eye map
+  & one-step $r$ & rollout $r$
+  & $R^2_{\widehat{W}}$
+  & $R^2_{\widehat{\tau}}$ (outlier-corr., out.\ \%)
+  & $R^2_{\widehat{V}^{\mathrm{rest}}}$ (outlier-corr., out.\ \%) \\
+\midrule
+"""
+
+_TABLE_POSTAMBLE = r"""\bottomrule
+\end{tabular}
+\end{table}
+"""
+
+
+def _emit(output_root, n_folds, out_path, full_table):
+    ko_rows  = _build_block(output_root, n_folds, KO_SUFFIX,  'Known ODE')
+    gnn_rows = _build_block(output_root, n_folds, GNN_SUFFIX, 'GNN')
+    body = '\n'.join(ko_rows) + '\n\\midrule\n' + '\n'.join(gnn_rows) + '\n'
+
+    with open(out_path, 'w') as f:
+        if full_table:
+            f.write(_TABLE_PREAMBLE)
+            f.write(body)
+            f.write(_TABLE_POSTAMBLE)
+        else:
+            f.write('% flywireRF zero-edge table — KODE block, then GNN block.\n')
+            f.write('% Cols: model & condition & neurons & edges & eye map | one-step r | rollout r | '
+                    'W R^2 | tau R^2 (corr., out%%) | Vrest R^2 (corr., out%%).\n')
+            f.write(body)
+    print(f'  [tex ] {out_path}')
 
 
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('--output_root', default=None,
+                        help='GraphData root (default: GNN_OUTPUT_ROOT or '
+                             'data_paths.json fallback).')
+    parser.add_argument('--n_folds', type=int, default=5)
+    parser.add_argument('--rows-only', action='store_true',
+                        help='Emit only the row block (no \\begin{table} wrapper).')
+    parser.add_argument('--out', default=None,
+                        help='Output path. Default: figures/cv_table_flywireRF.tex')
+    args = parser.parse_args()
+
+    output_root = _resolve_output_root(args.output_root)
+    out_path = args.out or os.path.join(_FIGURES_DIR, 'cv_table_flywireRF.tex')
+
+    print('=' * 60)
+    print('aggregate flywireRF -> tex table')
+    print(f'  data root:  {output_root}')
+    print(f'  n_folds:    {args.n_folds}')
+    print(f'  out:        {out_path}')
+    print(f'  full table: {not args.rows_only}')
+    print('=' * 60)
+
+    _print_console(output_root, args.n_folds)
+    _emit(output_root, args.n_folds, out_path, full_table=not args.rows_only)
+    print('done.')

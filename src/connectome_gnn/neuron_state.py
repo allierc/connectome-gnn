@@ -220,12 +220,28 @@ class NeuronTimeSeries:
 
     @property
     def xnorm(self) -> torch.Tensor:
-        """Voltage normalization: 1.5 * std of all valid voltage values."""
+        """Voltage normalization: 1.5 * std of all valid (non-NaN) voltage values.
+
+        Streaming formulation (E[x²] − E[x]²) avoids the v[~isnan(v)]
+        boolean-mask path, which int32-overflows in PyTorch's
+        TensorAdvancedIndexing.cpp when v has more than 2^31 elements
+        (full_eye_flywireRF: 50,412 neurons × 64,000 frames ≈ 3.23 B
+        elements). Numerically equivalent for voltage values bounded near
+        physiological range.
+        """
         v = self.voltage
-        valid = v[~torch.isnan(v)]
-        if len(valid) > 0:
-            return 1.5 * valid.std()
-        return torch.tensor(1.0, device=v.device if v is not None else 'cpu')
+        if v is None:
+            return torch.tensor(1.0)
+        mask = ~torch.isnan(v)
+        n = mask.sum()
+        if int(n) == 0:
+            return torch.tensor(1.0, device=v.device)
+        v_clean = torch.where(mask, v, torch.zeros_like(v))
+        s1 = v_clean.sum()
+        s2 = (v_clean * v_clean).sum()
+        mean = s1 / n
+        var = s2 / n - mean * mean
+        return 1.5 * var.clamp_min(0).sqrt()
 
     def frame(self, t: int) -> NeuronState:
         """Extract single-frame NeuronState at time t.

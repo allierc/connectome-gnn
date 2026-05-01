@@ -788,15 +788,28 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     # W and is slow, so skip the entire block when the PNG already exists.
     # First-time runs still produce it so figures that depend on the file
     # can be assembled. Set FORCE_EIGEN=1 in the env to override.
+    # Also auto-skip on very large connectomes (default 5M edges) where
+    # scipy's sparse eigs/svds SIGSEGVs or runs for hours; tunable via
+    # EIGEN_MAX_EDGES env var.
     _eigen_path = os.path.join(log_dir, 'results', 'eigen_comparison.png')
+    _n_edges = int(edges.shape[1]) if hasattr(edges, 'shape') else len(edges[0])
+    try:
+        _max_edges = int(os.environ.get('EIGEN_MAX_EDGES', 5_000_000))
+    except ValueError:
+        _max_edges = 5_000_000
     _skip_eigen = (
         os.environ.get('SKIP_EIGEN')
+        or _n_edges > _max_edges
         or (os.path.isfile(_eigen_path) and not os.environ.get('FORCE_EIGEN'))
     )
     # edges_np is needed downstream (clustering); compute even when skipping eigen
     edges_np = to_numpy(edges)
     if _skip_eigen:
-        print(f'eigen_comparison skipped (SKIP_EIGEN set or file exists): {_eigen_path}')
+        _reason = ('SKIP_EIGEN set' if os.environ.get('SKIP_EIGEN')
+                   else f'n_edges={_n_edges:,} > EIGEN_MAX_EDGES={_max_edges:,}'
+                        if _n_edges > _max_edges
+                        else 'file exists')
+        print(f'eigen_comparison skipped ({_reason}): {_eigen_path}')
     if not _skip_eigen:
         print('plot eigenvalue spectrum and eigenvector comparison ...')
         edges_np = to_numpy(edges)
@@ -2446,14 +2459,26 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             # PNG already exists; first-time runs still produce it (the
             # caller's skip_svd flag is intentionally bypassed here so
             # `python GNN_Main.py -o plot ...` populates the missing
-            # file). Set FORCE_EIGEN=1 in the env to regenerate.
+            # file). Set FORCE_EIGEN=1 in the env to regenerate. Also
+            # auto-skip on very large connectomes (>EIGEN_MAX_EDGES, default
+            # 5M) where scipy's sparse eigs/svds SIGSEGVs or runs for hours.
             _eigen_path = os.path.join(log_dir, 'results', 'eigen_comparison.png')
+            _n_edges = int(edges.shape[1]) if hasattr(edges, 'shape') else len(edges[0])
+            try:
+                _max_edges = int(os.environ.get('EIGEN_MAX_EDGES', 5_000_000))
+            except ValueError:
+                _max_edges = 5_000_000
             _skip_eigen_existing = (
                 os.environ.get('SKIP_EIGEN')
+                or _n_edges > _max_edges
                 or (os.path.isfile(_eigen_path) and not os.environ.get('FORCE_EIGEN'))
             )
             if _skip_eigen_existing:
-                print(f'eigen_comparison skipped (SKIP_EIGEN set or file exists): {_eigen_path}')
+                _reason = ('SKIP_EIGEN set' if os.environ.get('SKIP_EIGEN')
+                           else f'n_edges={_n_edges:,} > EIGEN_MAX_EDGES={_max_edges:,}'
+                                if _n_edges > _max_edges
+                                else 'file exists')
+                print(f'eigen_comparison skipped ({_reason}): {_eigen_path}')
             if not _skip_eigen_existing:
                 print('plot eigenvalue spectrum and eigenvector comparison ...')
 
