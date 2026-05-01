@@ -103,8 +103,14 @@ def draw_scatter(ax, true_arr, pred_arr, xlabel, ylabel, show_fit=True):
 # ── paths ────────────────────────────────────────────────────────────────────
 GNN_REPO_ROOT  = '/workspace/connectome-gnn'  # this repo (figure script lives here)
 BASELINE_REPO  = '/groups/saalfeld/home/kumarv4/repos/connectome-gnn'
-BASELINE_ROOT  = BASELINE_REPO  # output_root for baseline runs (logs + data)
-CFG_DIR        = f'{BASELINE_REPO}/config/fly'
+# Writable scratch root: we copy parent's noisy-test dataset here, write the
+# variant yamls here, and let GNN_Main.py write the rollout bundle into
+# <SCRATCH>/log/fly/<model>/results/. The collaborator's repo on
+# /groups/saalfeld is read-only for us, so we never touch it.
+SCRATCH_ROOT   = f'{GNN_REPO_ROOT}/figures/_baseline_cache'
+BASELINE_ROOT  = SCRATCH_ROOT  # passed via --output_root
+CFG_DIR        = f'{SCRATCH_ROOT}/config/fly'
+PARENT_GRAPHDATA = '/groups/saalfeld/home/allierc/GraphData'
 
 _DAVIS_CANDIDATES = [
     '/groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test/',
@@ -121,22 +127,25 @@ DAVIS_ROOT = next(
 def build_columns(arch):
     """Three-column spec for one architecture (``arch`` ∈ {'mlp','eed'})."""
     base = {
-        'noise_free': ('flyvis_noise_free_' + arch + '_unified2_cv00', 0.0,    r'$\sigma = 0$'),
-        'noise_005' : ('flyvis_noise_005_'  + arch + '_unified2_cv00', 0.05,   r'$\sigma = 0.05$'),
-        'noise_05'  : ('flyvis_noise_05_'   + arch + '_unified2_cv00', 0.5,    r'$\sigma = 0.5$'),
+        'noise_free': ('flyvis_noise_free_' + arch + '_blank50_cv00', 0.0,    r'$\sigma = 0$'),
+        'noise_005' : ('flyvis_noise_005_'  + arch + '_blank50_cv00', 0.05,   r'$\sigma = 0.05$'),
+        'noise_05'  : ('flyvis_noise_05_'   + arch + '_blank50_cv00', 0.5,    r'$\sigma = 0.5$'),
     }
     cols = []
+    os.makedirs(CFG_DIR, exist_ok=True)
     for label, (model, sigma, sigma_tex) in zip(
         ['noise-free', 'low model noise', 'high model noise'],
         base.values(),
     ):
         # GNN_Main.py extracts pre_folder from the yaml's parent dir, so the
-        # model yaml must live under config/fly/ (copied from log/fly/<run>/).
+        # model yaml must live under <output_root>/config/fly/. Copy from the
+        # read-only baseline run dir into our writable scratch each run so the
+        # path is stable.
         model_yaml = f'{CFG_DIR}/{model}.yaml'
-        run_cfg    = f'{BASELINE_ROOT}/log/fly/{model}/config.yaml'
-        if not os.path.isfile(model_yaml):
-            sys.exit(f'missing model yaml at config/fly/: {model_yaml}\n'
-                     f'  cp {run_cfg} {model_yaml}')
+        run_cfg    = f'{BASELINE_REPO}/log/fly/{model}/config.yaml'
+        if not os.path.isfile(run_cfg):
+            sys.exit(f'missing baseline run config: {run_cfg}')
+        shutil.copy2(run_cfg, model_yaml)
         cols.append({
             'label'         : label,
             'sigma'         : sigma_tex,
@@ -207,18 +216,34 @@ def ensure_noisy_variant(col):
     else:
         print(f"[{col['model']}] noisy config exists: {nv['yaml']}")
 
+    # Step 1: bring parent's already-generated _test dataset into our writable
+    # scratch root. Contents depend only on (noise_level, seed=42, DAVIS,
+    # connectome) — not architecture — so it's a valid drop-in.
+    sigma = col['noise_level']
+    _tag = 'free' if sigma == 0.0 else ('005' if sigma == 0.05 else '05')
+    parent_dir = (f'{PARENT_GRAPHDATA}/graphs_data/fly/'
+                  f'flyvis_noise_{_tag}_blank50_cv00_test')
+    parent_marker = f'{parent_dir}/noisy_test_data.ok'
     marker = f"{nv['data_dir']}/noisy_test_data.ok"
     if not os.path.isfile(marker):
+        if not os.path.isfile(parent_marker):
+            sys.exit(f'expected parent test dataset at {parent_dir} '
+                     f'(marker {parent_marker} not found) — re-run the parent '
+                     'figure first to generate it')
         if os.path.isdir(nv['data_dir']):
             print(f"[{col['model']}] removing stale {nv['data_dir']}")
             shutil.rmtree(nv['data_dir'])
-        print(f"[{col['model']}] generating noisy test dataset {nv['dataset']} "
-              "— tens of minutes")
-        _run('-o', 'generate', nv['yaml'], tag=f"[{col['model']}]")
+        print(f"[{col['model']}] copying parent dataset {parent_dir} -> "
+              f"{nv['data_dir']}")
+        os.makedirs(os.path.dirname(nv['data_dir']), exist_ok=True)
+        shutil.copytree(parent_dir, nv['data_dir'])
         if not os.path.isfile(marker):
-            sys.exit(f'expected marker missing after generation: {marker}')
+            sys.exit(f'expected marker missing after copy: {marker}')
     else:
         print(f"[{col['model']}] noisy test dataset exists: {nv['data_dir']}")
+
+    _mirror_model_dir(col)
+    _mirror_train_dataset(col)
 
     if not os.path.isfile(nv['bundle']):
         print(f"[{col['model']}] running rollout on {nv['dataset']}")
@@ -228,9 +253,48 @@ def ensure_noisy_variant(col):
         print(f"[{col['model']}] rollout bundle exists: {nv['bundle']}")
 
 
+def _mirror_train_dataset(col):
+    """Symlink the training-dataset dir into scratch — `-o test` reads
+    edge_index.pt / ode_params.pt from the model's training dataset, not just
+    the test dataset. Read-only access, so a symlink is fine."""
+    ds = col['cv00_dataset']
+    src = f'{BASELINE_REPO}/graphs_data/fly/{ds}'
+    dst = f'{SCRATCH_ROOT}/graphs_data/fly/{ds}'
+    if not os.path.isdir(src):
+        sys.exit(f'missing baseline training dataset: {src}')
+    if os.path.islink(dst) or os.path.exists(dst):
+        return
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    os.symlink(src, dst)
+
+
+def _mirror_model_dir(col):
+    """Stand up <SCRATCH>/log/fly/<model>/ as a writable run dir for
+    GNN_Main.py. We only symlink ``models/`` (read-only trained weights);
+    everything else (config.yaml, results/, logs) is left for GNN_Main to
+    create fresh in scratch, since `-o test` overwrites config.yaml on entry
+    and that would fail through the symlink to /groups/saalfeld."""
+    src = f'{BASELINE_REPO}/log/fly/{col["model"]}'
+    dst = f'{SCRATCH_ROOT}/log/fly/{col["model"]}'
+    if not os.path.isdir(os.path.join(src, 'models')):
+        sys.exit(f'missing baseline models dir: {src}/models')
+    os.makedirs(dst, exist_ok=True)
+    # Clean up stale read-only symlinks (e.g. config.yaml pointing into the
+    # baseline repo) left over from earlier runs of this script.
+    for entry in os.listdir(dst):
+        p = os.path.join(dst, entry)
+        if os.path.islink(p) and entry != 'models':
+            os.unlink(p)
+    models_link = os.path.join(dst, 'models')
+    if not os.path.islink(models_link) and not os.path.exists(models_link):
+        os.symlink(os.path.join(src, 'models'), models_link)
+    os.makedirs(os.path.join(dst, 'results'), exist_ok=True)
+
+
 def load_primary_bundle(col):
+    # Primary deterministic-test bundle lives in the read-only baseline tree.
     return _load_bundle(
-        f"{BASELINE_ROOT}/log/fly/{col['model']}/results/rollout_bundle.npz"
+        f"{BASELINE_REPO}/log/fly/{col['model']}/results/rollout_bundle.npz"
     )
 
 
@@ -242,21 +306,48 @@ def load_noisy_bundle(col):
 # Figure builder (mirrors main() in the GNN figure)
 # ---------------------------------------------------------------------------
 def build_figure(columns, out_base):
-    # Show only "vs noise-free" comparison (drop the noisy-test panels): trace
-    # row 1 displays the deterministic-test rollout, scatter row 2 has one
-    # panel per noise level — 6 panels total.
+    # Match the parent figure: use the noisy-variant bundle (freshly generated
+    # test dataset with seed=42 + forced DAVIS root) for the trace row, so the
+    # ground-truth voltages line up frame-for-frame with the parent figure.
+    # Scatter row keeps the deterministic primary bundle ("vs noise-free").
+    for col in columns:
+        ensure_noisy_variant(col)
     primary = [load_primary_bundle(col) for col in columns]
-    trace_src = primary
+    noisy   = [load_noisy_bundle(col)   for col in columns]
+    trace_src = noisy
+
+    # Hack: pin neuron_idx + labels to the EXACT same neurons the parent figure
+    # (fig_rollout_3col_noise_comparison.py) chose, so the two figures plot
+    # identical traces side-by-side. Steal them from a parent bundle on disk;
+    # assert the type at each index matches in the baseline bundle (it will,
+    # as long as both repos share the same flyvis connectome ordering).
+    PARENT_BUNDLE = ('/groups/saalfeld/home/allierc/GraphData/log/fly/'
+                     'flyvis_noise_free_blank50_unified_cv00/results/'
+                     'rollout_bundle.npz')
+    _pb = np.load(PARENT_BUNDLE, allow_pickle=True)
+    _parent_type_ids   = np.asarray(_pb['type_ids']).astype(int)
+    _parent_type_names = list(_pb['type_names'])
+    _p_index_to_name = {i: _parent_type_names[i] for i in range(len(_parent_type_names))}
+    parent_neuron_idx, parent_labels = [], []
+    for t in SELECTED_TYPES:
+        ids = np.where(_parent_type_ids == t)[0]
+        if len(ids) > 0:
+            parent_neuron_idx.append(int(ids[0]))
+            parent_labels.append(_p_index_to_name.get(t, f'Type{t}'))
 
     type_ids   = trace_src[0]['type_ids']
     type_names = trace_src[0]['type_names']
     index_to_name = {i: type_names[i] for i in range(len(type_names))}
-    neuron_idx, labels = [], []
-    for t in SELECTED_TYPES:
-        ids = np.where(type_ids == t)[0]
-        if len(ids) > 0:
-            neuron_idx.append(int(ids[0]))
-            labels.append(index_to_name.get(t, f'Type{t}'))
+    neuron_idx, labels = parent_neuron_idx, parent_labels
+    # Sanity check: the type at each pinned index in the baseline bundle should
+    # match the parent's chosen type. If this fires, the two repos enumerate
+    # neurons differently and we'd need to re-resolve by (type, rank).
+    for nid, lbl in zip(neuron_idx, labels):
+        bt = int(type_ids[nid])
+        bname = index_to_name.get(bt, f'Type{bt}')
+        if bname != lbl:
+            sys.exit(f'connectome ordering mismatch: parent neuron {nid} is '
+                     f'{lbl} but baseline bundle has {bname} at that index')
 
     step_vs = [3.0 * TRACE_SHRINK * float(np.std(_slice(ts['true'], neuron_idx)))
                for ts in trace_src]
@@ -267,26 +358,39 @@ def build_figure(columns, out_base):
     fig = plt.figure(figsize=(FIG_W_IN, FIG_H_IN), constrained_layout=False)
     outer = mgs.GridSpec(
         2, 1, figure=fig,
-        height_ratios=[1.4 * TRACE_SHRINK, 1.0],
+        height_ratios=[1.4 * TRACE_SHRINK, 2.0],
         left=0.06, right=0.98, top=0.97, bottom=0.04,
-        hspace=0.1,
+        hspace=0.0,
     )
+    # Mirror parent's _nf_green flavor exactly: top row = 3 trace axes;
+    # bottom row = 3 noise groups, each a single full-width 1×1 cell (parent
+    # collapsed the half-column subcells when the "vs noisy" panels were
+    # dropped).
     TOP_WSPACE = 0.25
-    top_gs    = mgs.GridSpecFromSubplotSpec(1, 3, outer[0, 0], wspace=TOP_WSPACE)
-    bottom_gs = mgs.GridSpecFromSubplotSpec(1, 3, outer[1, 0], wspace=TOP_WSPACE)
+    top_gs   = mgs.GridSpecFromSubplotSpec(1, 3, outer[0, 0], wspace=TOP_WSPACE)
+    group_gs = mgs.GridSpecFromSubplotSpec(1, 3, outer[1, 0], wspace=TOP_WSPACE)
+    nf_gs = mgs.GridSpecFromSubplotSpec(1, 1, group_gs[0, 0])
+    lo_gs = mgs.GridSpecFromSubplotSpec(1, 1, group_gs[0, 1])
+    hi_gs = mgs.GridSpecFromSubplotSpec(1, 1, group_gs[0, 2])
 
     trace_axes = []
     for c, (col, ts) in enumerate(zip(columns, trace_src)):
         ax = fig.add_subplot(top_gs[0, c])
-        true_w = _slice(ts['true'], neuron_idx)
+        # nf-green flavor: green ground truth is always column 0's noise-free
+        # GT, repeated across all three columns. Black prediction is per-column.
+        true_w = _slice(trace_src[0]['true'], neuron_idx)
         pred_w = _slice(ts['pred'], neuron_idx)
         stim_w = (_slice(ts['stim'], neuron_idx)
                   if ts.get('stim') is not None else None)
-        # Per-neuron Pearson r, Fisher-z pooled — same recipe the
-        # graph_tester / cv table use, so the values shown here agree
-        # with the per-condition Pearson rows in the TeX/MD summaries.
-        r_mean, r_sd = _pooled_r(ts['true'], ts['pred'])
-        header = f"$r$ = {r_mean:.2f} $\\pm$ {r_sd:.2f}"
+        # Match parent's header recipe: for noisy columns the trace r is
+        # computed against the deterministic (noise-free) GT — the same source
+        # the scatter panel below uses — so the two values agree. For
+        # noise-free columns there's nothing to swap, so we use the noisy
+        # bundle (which equals the deterministic one at sigma=0).
+        _src = primary[c] if col['noise_level'] > 0 else ts
+        _label = "vs noise-free, " if col['noise_level'] > 0 else ""
+        r_mean, r_sd = _pooled_r(_src['true'], _src['pred'])
+        header = f"{_label}$r$ = {r_mean:.2f} $\\pm$ {r_sd:.2f}"
         draw_traces(
             ax, true_w, pred_w, stim_w, labels, step_v, time_ms,
             column_title=f"{col['label']} ({col['sigma']})",
@@ -305,24 +409,29 @@ def build_figure(columns, out_base):
                  va='bottom', ha='center', fontsize=FS_LABEL,
                  fontweight='normal', transform=fig.transFigure)
 
-    # One scatter per column, all "vs noise-free" (deterministic test gt).
+    # Panel d uses the noisy-variant bundle so its stimulus matches panels b/c
+    # above; e and f use the deterministic primary bundle (vs noise-free GT).
     scatter_panels = [
-        (bottom_gs[0, 0], primary[0]['true'], primary[0]['pred'],
-         'ground truth voltage', 'rollout voltage'),
-        (bottom_gs[0, 1], primary[1]['true'], primary[1]['pred'],
-         '', ''),
-        (bottom_gs[0, 2], primary[2]['true'], primary[2]['pred'],
-         '', ''),
+        (nf_gs[0, 0], trace_src[0]['true'], trace_src[0]['pred'],
+         'ground truth voltage', 'rollout voltage', None),
+        (lo_gs[0, 0], primary[1]['true'], primary[1]['pred'],
+         '', '', 'vs noise-free'),
+        (hi_gs[0, 0], primary[2]['true'], primary[2]['pred'],
+         '', '', 'vs noise-free'),
     ]
 
     scatter_axes = []
-    for cell, x, y, xlbl, ylbl in scatter_panels:
+    for cell, x, y, xlbl, ylbl, subtitle in scatter_panels:
         ax = fig.add_subplot(cell)
         draw_scatter(ax, x, y, xlabel=xlbl, ylabel=ylbl)
+        if subtitle is not None:
+            ax.text(0.5, 1.02, subtitle, transform=ax.transAxes,
+                    va='bottom', ha='center', fontsize=FS_TICK,
+                    fontweight='normal')
         scatter_axes.append(ax)
 
-    # Wider panels (3 vs 5) at aspect='equal' are taller, so no upward pull.
-    SCATTER_PULL_UP = 0.0
+    # Match parent's _nf_green pull-up so the trace/scatter gap is identical.
+    SCATTER_PULL_UP = 0.13
     for ax in scatter_axes:
         pos = ax.get_position()
         ax.set_position([pos.x0, pos.y0 + SCATTER_PULL_UP,
