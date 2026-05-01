@@ -110,7 +110,8 @@ def plot_rollout_mse(mse_curve, div_time, epoch, log_dir):
 
 
 def _compute_loss_multistep(model, voltage, stimulus, t_indices, dt, rollout_steps,
-                            coeff_stim_sparsity: float = 0.0):
+                            coeff_stim_sparsity: float = 0.0,
+                            coeff_L1: float = 0.0):
     """Compute MSE loss averaged over a multi-step rollout.
 
     Unrolls for rollout_steps steps from t_indices, accumulating MSE at each step.
@@ -121,6 +122,9 @@ def _compute_loss_multistep(model, voltage, stimulus, t_indices, dt, rollout_ste
     delta = predict_dvdt(v, stim) - predict_dvdt(v, 0) is summed over neurons.
     This encourages the stimulus to drive only a sparse set of neurons without
     specifying which ones.
+
+    If coeff_L1 > 0, also adds a global L1 penalty over all trainable model
+    parameters (folded into the compiled graph to keep kernel launches fused).
     """
     x = voltage[t_indices]  # (B, N)
     loss = torch.zeros((), device=x.device)
@@ -139,6 +143,12 @@ def _compute_loss_multistep(model, voltage, stimulus, t_indices, dt, rollout_ste
     loss = loss / rollout_steps
     if coeff_stim_sparsity > 0.0:
         loss = loss + coeff_stim_sparsity * (stim_pen / rollout_steps)
+    if coeff_L1 > 0.0:
+        l1 = torch.zeros((), device=x.device)
+        for p in model.parameters():
+            if p.requires_grad:
+                l1 = l1 + p.abs().sum()
+        loss = loss + coeff_L1 * l1
     return loss
 
 
@@ -297,11 +307,9 @@ def data_train_rollout(config, erase, best_model, device, log_file=None):
             optimizer.zero_grad()
             loss = _compute_loss_multistep_compiled(
                 model, voltage, stimulus, t_indices, dt, rollout_train_steps,
-                getattr(tc, 'coeff_stim_sparsity', 0.0),
+                coeff_stim_sparsity,
+                coeff_L1,
             )
-            if coeff_L1 > 0.0:
-                l1 = sum(p.abs().sum() for p in model.parameters() if p.requires_grad)
-                loss = loss + coeff_L1 * l1
             loss.backward()
             optimizer.step()
 
