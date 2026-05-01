@@ -118,9 +118,12 @@ class KnownODEBase(nn.Module):
 
 @register_model(
     "flyvis_known_ode",
-    "flyvis_hybrid_flywireRF_known_ode",
-    "flyvis_hybrid_flywireRF_zeroedge_sl_known_ode",
-    "flyvis_hybrid_flywireRF_zeroedge_cross_sl_known_ode",
+    "e8_flywireRF_known_ode",
+    "e8_flywireRF_proximal_nulls_known_ode",
+    "e8_flywireRF_random_nulls_known_ode",
+    "full_eye_flywireRF_known_ode",
+    "full_eye_flywireRF_proximal_nulls_known_ode",
+    "full_eye_flywireRF_random_nulls_known_ode",
 )
 class FlyvisKnownODE(KnownODEBase):
 

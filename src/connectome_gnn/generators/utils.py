@@ -710,12 +710,20 @@ def is_connconstr_model(signal_model_name: str) -> bool:
 
 
 _FLYVIS_HYBRID_MODELS = {
-    "flyvis_hybrid_flywireRF",    # v2: per-column FlyWire RF
-    "flyvis_hybrid_flywireRF_zeroedge_sl",  # v5-sl: v2 + zero edges (same-type, spatially-local)
-    "flyvis_hybrid_flywireRF_zeroedge_cross_sl",  # v5-cross_sl: v2 + zero edges (cross-type, spatially-local)
-    "flyvis_hybrid_flywireRF_known_ode",   # v2 + known ODE
-    "flyvis_hybrid_flywireRF_zeroedge_sl_known_ode",  # v5-sl + known ODE
-    "flyvis_hybrid_flywireRF_zeroedge_cross_sl_known_ode",  # v5-cross_sl + known ODE
+    # truncated flyvis hex disk (extent=8), FlyWire RFs
+    "e8_flywireRF",
+    "e8_flywireRF_known_ode",
+    "e8_flywireRF_proximal_nulls",
+    "e8_flywireRF_proximal_nulls_known_ode",
+    "e8_flywireRF_random_nulls",
+    "e8_flywireRF_random_nulls_known_ode",
+    # full FlyWire eye map
+    "full_eye_flywireRF",
+    "full_eye_flywireRF_known_ode",
+    "full_eye_flywireRF_proximal_nulls",
+    "full_eye_flywireRF_proximal_nulls_known_ode",
+    "full_eye_flywireRF_random_nulls",
+    "full_eye_flywireRF_random_nulls_known_ode",
 }
 
 

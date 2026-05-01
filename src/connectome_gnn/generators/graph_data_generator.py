@@ -927,6 +927,40 @@ def data_generate_voltage(
     print(f"  n_input_neurons: {n_input_neurons_net}", flush=True)
     print(f"  n_edges:         {net.n_edges}", flush=True)
 
+    # Stimulus filter: regular flyvis hex disk (default) or, for FlyWire
+    # hybrids, a *standard* hex disk large enough to contain every
+    # FlyWire input column, plus an index that projects the rendered
+    # standard-hex frame to the FlyWire column subset.  Rendering at the
+    # standard hex disk lets us apply flyvis's HexFlip/HexRotate
+    # augmentations unchanged (they require a regular lattice); the
+    # projection then maps each augmented frame onto the actual FlyWire
+    # input columns at ``Stimulus.add_input`` time.
+    if getattr(sim, 'flywire_stimulus', False):
+        from connectome_gnn.generators.flywire_eye import (
+            standard_boxeye_and_flywire_index,
+        )
+        _be, _flywire_proj_idx, _be_extent = standard_boxeye_and_flywire_index(
+            net, kernel_size=13,
+        )
+        boxfilter_arg = dict(extent=_be_extent, kernel_size=13)
+        print(
+            f"[stimulus] flywire_stimulus=True: rendering at standard "
+            f"BoxEye(extent={_be_extent}) with {_be.hexals} hexals; "
+            f"projecting to {_flywire_proj_idx.numel()} FlyWire columns",
+            flush=True,
+        )
+        # Monkey-patch ``net.stimulus.add_input`` to project standard-hex
+        # frames down to FlyWire columns. This way every existing call
+        # site (including those inside top-level helpers like
+        # ``_run_ode_generation``) works unchanged.
+        _orig_add_input = net.stimulus.add_input
+        def _patched_add_input(frame, *args, **kwargs):
+            idx = _flywire_proj_idx.to(frame.device)
+            return _orig_add_input(frame.index_select(-1, idx), *args, **kwargs)
+        net.stimulus.add_input = _patched_add_input
+    else:
+        boxfilter_arg = dict(extent=extent, kernel_size=13)
+
     # Initialize datasets
     print(f"[DBG] visual_input_type={sim.visual_input_type!r}  datavis_roots={sim.datavis_roots}", flush=True)
     if "DAVIS" in sim.visual_input_type or "mixed" in sim.visual_input_type:
@@ -945,11 +979,19 @@ def data_generate_voltage(
         video_config = {
             "n_frames": 50,
             "max_frames": sim.truncate_max_frames,  # None = no per-clip truncation
+            # Hex rotate/flip rely on a regular hex-disk lattice; the FlyWire
+            # column lattice is irregular, so disable them when rendering on it.
+            # (augment=False already neutralises them at runtime, but this also
+            # keeps the construction path safe for any future augment toggle.)
+            # HexFlip/HexRotate operate on the standard hex lattice the
+            # frames are rendered on (BoxEye extent above). For FlyWire
+            # mode we render at a standard disk and project later, so
+            # the same 8x augmentation factor applies to both modes.
             "flip_axes": [0, 1],
             "n_rotations": [0, 90, 180, 270],
             "temporal_split": False,
             "dt": sim.delta_t,
-            "boxfilter": dict(extent=extent, kernel_size=13),
+            "boxfilter": boxfilter_arg,
             "vertical_splits": 1,
             "center_crop_fraction": 0.6,
             "augment": False,
@@ -984,7 +1026,7 @@ def data_generate_voltage(
             "temporal_split": True,
             "dt": sim.delta_t,
             "interpolate": True,
-            "boxfilter": dict(extent=extent, kernel_size=13),
+            "boxfilter": boxfilter_arg,
             "vertical_splits": 3,
             "center_crop_fraction": 0.7,
         }

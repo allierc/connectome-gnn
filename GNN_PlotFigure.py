@@ -789,9 +789,14 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     # First-time runs still produce it so figures that depend on the file
     # can be assembled. Set FORCE_EIGEN=1 in the env to override.
     _eigen_path = os.path.join(log_dir, 'results', 'eigen_comparison.png')
-    _skip_eigen = os.path.isfile(_eigen_path) and not os.environ.get('FORCE_EIGEN')
+    _skip_eigen = (
+        os.environ.get('SKIP_EIGEN')
+        or (os.path.isfile(_eigen_path) and not os.environ.get('FORCE_EIGEN'))
+    )
+    # edges_np is needed downstream (clustering); compute even when skipping eigen
+    edges_np = to_numpy(edges)
     if _skip_eigen:
-        print(f'eigen_comparison already exists, skipping SVD analysis: {_eigen_path}')
+        print(f'eigen_comparison skipped (SKIP_EIGEN set or file exists): {_eigen_path}')
     if not _skip_eigen:
         print('plot eigenvalue spectrum and eigenvector comparison ...')
         edges_np = to_numpy(edges)
@@ -2443,10 +2448,12 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             # `python GNN_Main.py -o plot ...` populates the missing
             # file). Set FORCE_EIGEN=1 in the env to regenerate.
             _eigen_path = os.path.join(log_dir, 'results', 'eigen_comparison.png')
-            _skip_eigen_existing = (os.path.isfile(_eigen_path)
-                                    and not os.environ.get('FORCE_EIGEN'))
+            _skip_eigen_existing = (
+                os.environ.get('SKIP_EIGEN')
+                or (os.path.isfile(_eigen_path) and not os.environ.get('FORCE_EIGEN'))
+            )
             if _skip_eigen_existing:
-                print(f'eigen_comparison already exists, skipping SVD analysis: {_eigen_path}')
+                print(f'eigen_comparison skipped (SKIP_EIGEN set or file exists): {_eigen_path}')
             if not _skip_eigen_existing:
                 print('plot eigenvalue spectrum and eigenvector comparison ...')
 

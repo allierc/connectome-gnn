@@ -1,5 +1,8 @@
-description: "flywirevis hybrid -- v2 per-column FlyWire RF (dropped eligible flyvis edges), all columns (extent=15), noise=0.05"
-dataset: flyvis_hybrid_flywireRF_e15_noise_005
+description:
+  "HIGH PRIORITY — v5-cross_sl, v2 base + zero-weight edges (u=1, cross-type,
+  spatially-local), full eye (column_source='flywire', extent=15 slot), noise=0.05.
+  HPs from cedric's GNN HPO on e8 cross_sl."
+dataset: full_eye_flywireRF_proximal_nulls_noise_005
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ""
@@ -8,10 +11,10 @@ simulation:
       - 1.0
       - 1.0
       - 1.0
-  n_neurons: 45669
-  n_input_neurons: 5768
+  n_neurons: 50412
+  n_input_neurons: 6368
   n_neuron_types: 65
-  n_edges: 1256695
+  n_edges: 9642335
   n_frames: 64000
   delta_t: 0.02
   baseline_value: 0
@@ -20,20 +23,22 @@ simulation:
   derivative_smoothing_window: 1
   seed: 42
   all_columns: true
+  flywire_stimulus: true
+  edge_uncertainty: 1
   datavis_roots:
     - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
   skip_short_videos: true
   blank_prefix_fraction: 0.5
 graph_model:
-  signal_model_name: flyvis_hybrid_flywireRF
+  signal_model_name: full_eye_flywireRF_proximal_nulls
   prediction: first_derivative
   input_size: 3
-  n_layers: 3
-  hidden_dim: 80
+  n_layers: 4
+  hidden_dim: 64
   output_size: 1
   input_size_update: 5
-  n_layers_update: 3
-  hidden_dim_update: 80
+  n_layers_update: 4
+  hidden_dim_update: 64
   aggr_type: add
   embedding_dim: 2
   update_type: generic
@@ -57,8 +62,8 @@ training:
   batch_ratio: 1
   small_init_batch_size: false
   sparsity: none
-  data_augmentation_loop: 100
-  lr_W: 0.0009
+  data_augmentation_loop: 26
+  lr_W: 0.0014
   lr: 0.0018
   lr_embedding: 0.002325
   coeff_g_phi_diff: 750
@@ -68,15 +73,20 @@ training:
   coeff_f_theta_weight_L1: 0.05
   coeff_g_phi_weight_L2: 0
   coeff_f_theta_weight_L2: 0.001
-  coeff_W_L1: 0.00015
+  coeff_W_L1: 0.001
   coeff_W_L2: 1.5e-06
   regul_annealing_rate: 0.0
   w_init_mode: randn_scaled
   use_gt_edges: true
+  lr_scheduler: none
+  lr_scheduler_T0: 1000
+  lr_scheduler_T_mult: 2
+  lr_scheduler_eta_min_ratio: 0.01
+  lr_scheduler_warmup_iters: 100
   seed: 42
 claude:
   n_epochs: 1
-  data_augmentation_loop: 35
+  data_augmentation_loop: 26
   n_iter_block: 12
   ucb_c: 1.414
   generate_data: true

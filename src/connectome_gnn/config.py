@@ -209,6 +209,11 @@ class SimulationConfig(BaseModel):
     steady_state_value: float = 0.5
     all_columns: bool = False  # if True, use all 721 retinotopic columns (extent=15); default uses 217 (extent=8)
     edge_uncertainty: int = 1  # zero-edge radius multiplier (1–3); only used by hybrid zeroedge variants
+    # If True, render visual stimuli onto the FlyWire column lattice carried
+    # by the hybrid connectome (instead of flyvis's regular hex disk).
+    # Required for hybrid networks with all_columns=True because their input
+    # column count differs from BoxEye(extent=15)'s 721 hexals.
+    flywire_stimulus: bool = False
 
 
     # external input configuration
