@@ -1,10 +1,8 @@
 """Stimulus-baseline context sweep: per-neuron Pearson r over an 8k-step rollout.
 
-Two-panel figure:
-    A) violin distribution of per-neuron Pearson r across all neurons x 5 CVs,
-       at each context length, with Fisher-mean +/- 95% CI overlaid.
-    B) Fisher-mean Pearson r vs context length, one line per coarse functional
-       cell-type group: R1-R8, L1-L5, Lawf, Am, C2-C3, CT1, Mi, T, Tm.
+Single-panel scatter: per-neuron Pearson r vs context length, sampled across
+neurons x CV splits, colored by coarse functional group (R1-R8, L1-L5, Lawf,
+Am, C2-C3, CT1, Mi, T, Tm), with smooth per-group mean lines overlaid.
 
 Output: figures/fig_stimulus_ctx_rollout_pearson.{pdf,png}
 """
@@ -30,6 +28,8 @@ import numpy as np
 import torch
 import zarr
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
+from scipy.interpolate import make_interp_spline
 from scipy.stats import norm
 
 REPO = Path(__file__).resolve().parents[1]
@@ -193,74 +193,58 @@ def compute_all():
     return pearson_r, type_list
 
 
-def plot(pearson_r, type_list):
-    # neuron -> group id
+def plot(pearson_r, type_list, n_sample=500, seed=0):
+    rng = np.random.default_rng(seed)
+
     neuron_group = np.array([
         name_to_group(INDEX_TO_NAME.get(int(t), '')) for t in type_list
     ])
     present_groups = sorted({int(g) for g in neuron_group if g >= 0})
-
-    # per-group Fisher-mean curves (pool all CVs, all neurons in group)
-    group_curves = {}
-    for g in present_groups:
-        mask = (neuron_group == g)
-        means = []
-        for c in CTXS:
-            rs = pearson_r[c][:, mask]
-            flat = rs[np.isfinite(rs)].ravel()
-            z = np.arctanh(np.clip(flat, -0.999999, 0.999999))
-            means.append(np.tanh(z.mean()) if z.size else np.nan)
-        group_curves[g] = np.array(means)
-
     group_cmap = plt.get_cmap('tab10')
     group_color = {g: group_cmap(i % 10) for i, g in enumerate(present_groups)}
 
-    # 18 cm ~ 7.1 in usable width: two ~3.5 in panels
-    fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=(7, 2.6),
-                                     constrained_layout=True)
+    n_cv, n_neurons = pearson_r[CTXS[0]].shape
+    sample_cv = rng.integers(0, n_cv, size=n_sample)
+    sample_n = rng.choice(n_neurons, size=n_sample, replace=False)
+    sample_groups = neuron_group[sample_n]
 
-    # --- panel A: per-neuron r distribution as violins + Fisher mean +/- CI ---
-    data = [pearson_r[c][np.isfinite(pearson_r[c])].ravel() for c in CTXS]
-    parts = ax_a.violinplot(data, positions=CTXS, widths=0.8,
-                            showmeans=False, showmedians=False, showextrema=False)
-    for pc in parts['bodies']:
-        pc.set_alpha(0.4)
-        pc.set_facecolor('steelblue')
-        pc.set_edgecolor('none')
+    data = {c: pearson_r[c][sample_cv, sample_n] for c in CTXS}
+
+    fig, ax = plt.subplots(figsize=(8, 4), constrained_layout=True)
+
     for c in CTXS:
-        flat = pearson_r[c][np.isfinite(pearson_r[c])].ravel()
-        m, lo, hi = fisher_mean_ci(flat)
-        ax_a.errorbar([c], [m], yerr=[[m - lo], [hi - m]],
-                      fmt='o', color='black', capsize=2, markersize=2, lw=0.6)
-    ax_a.set_xlabel('context length')
-    ax_a.set_ylabel('per-neuron Pearson r')
-    ax_a.set_title('distribution across neurons', pad=4)
-    ax_a.set_xticks([1, 5, 10, 14])
-    trim_axis(ax_a)
+        jitter = (rng.random(n_sample) - 0.5) / 2
+        ax.scatter(
+            c + jitter,
+            np.clip(data[c], 0, 1),
+            c=[group_color.get(int(g), (0.7, 0.7, 0.7, 1.0)) for g in sample_groups],
+            s=3,
+            linewidths=0,
+        )
 
-    # --- panel B: per-group Fisher-mean r vs ctx ---
-    for g in present_groups:
-        ax_b.plot(CTXS, group_curves[g], '-', color=group_color[g], lw=1.2,
-                  label=GROUP_NAMES.get(g, f'group {g}'))
-    ax_b.set_xlabel('context length')
-    ax_b.set_ylabel('Fisher-mean Pearson r')
-    ax_b.set_title('per-group vs context length', pad=4)
-    ax_b.set_xticks([1, 5, 10, 14])
-    ax_b.legend(loc='lower right', fontsize=6,
-                handlelength=1.4, ncol=2, columnspacing=0.8, labelspacing=0.25)
-    trim_axis(ax_b)
+    # smooth per-group mean lines (over the sampled subset, to match scatter)
+    ctx_arr = np.asarray(CTXS, dtype=float)
+    x_smooth = np.linspace(ctx_arr.min(), ctx_arr.max(), 200)
+    k = min(3, len(ctx_arr) - 1)
+    for g, color in group_color.items():
+        mask = sample_groups == g
+        if not mask.any():
+            continue
+        means = np.array([np.clip(data[c], 0, 1)[mask].mean() for c in CTXS])
+        spline = make_interp_spline(ctx_arr, means, k=k)
+        ax.plot(x_smooth, spline(x_smooth), color=color, linewidth=1.2)
 
-    # --- panel labels A, B at top-left of outer panel boxes (shared y) ---
-    fig.canvas.draw()
-    renderer = fig.canvas.get_renderer()
-    inv = fig.transFigure.inverted()
-    bboxes = [ax_a.get_tightbbox(renderer), ax_b.get_tightbbox(renderer)]
-    y1_max = max(inv.transform((bb.x0, bb.y1))[1] for bb in bboxes)
-    for bb, lbl in zip(bboxes, ['A', 'B']):
-        x0 = inv.transform((bb.x0, bb.y1))[0]
-        fig.text(x0, y1_max, lbl, fontsize=10, fontweight='bold',
-                 va='bottom', ha='left', color='black',
-                 transform=fig.transFigure)
+    ax.set_xticks([1, 4, 8, 12, 16])
+    ax.set_xlabel('context length')
+    ax.set_ylabel('Pearson correlation $r$')
+
+    handles = [
+        Line2D([], [], marker='o', linestyle='-', color=group_color[g],
+               markeredgecolor='none', label=GROUP_NAMES.get(g, f'group {g}'))
+        for g in present_groups
+    ]
+    ax.legend(handles=handles)
+    trim_axis(ax)
 
     OUT_BASE.parent.mkdir(parents=True, exist_ok=True)
     out_pdf = OUT_BASE.with_suffix('.pdf')
@@ -269,13 +253,6 @@ def plot(pearson_r, type_list):
     fig.savefig(out_pdf, bbox_inches='tight')
     print(f'[wrote] {out_pdf}')
     print(f'[wrote] {out_png}')
-
-    # group-level summary
-    print(f'\n{"group":<10} {"r@ctx1":>8} {"r@ctxN":>8} {"delta":>8}')
-    for g in present_groups:
-        r0, rN = group_curves[g][0], group_curves[g][-1]
-        print(f'{GROUP_NAMES.get(g, str(g)):<10} '
-              f'{r0:>8.3f} {rN:>8.3f} {rN - r0:>+8.3f}')
 
 
 def main():
