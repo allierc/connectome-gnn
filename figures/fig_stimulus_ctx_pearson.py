@@ -59,14 +59,14 @@ plt.rcParams.update({
     'mathtext.default': 'it',
     'font.family': 'sans-serif',
     'font.sans-serif': ['Arial', 'DejaVu Sans'],
-    'font.size': 8,
-    'figure.titlesize': 8,
+    'font.size': 12,
+    'figure.titlesize': 12,
     'figure.dpi': 300,
-    'legend.fontsize': 6,
-    'axes.titlesize': 6,
-    'axes.labelsize': 6,
-    'xtick.labelsize': 6,
-    'ytick.labelsize': 6,
+    'legend.fontsize': 11,
+    'axes.titlesize': 12,
+    'axes.labelsize': 12,
+    'xtick.labelsize': 11,
+    'ytick.labelsize': 11,
     'axes.spines.top': False,
     'axes.spines.right': False,
     'axes.linewidth': 0.5,
@@ -243,7 +243,7 @@ def plot(pearson_r, type_list, n_sample=500, seed=0):
                markeredgecolor='none', label=GROUP_NAMES.get(g, f'group {g}'))
         for g in present_groups
     ]
-    ax.legend(handles=handles)
+    ax.legend(handles=handles, loc='lower right')
     trim_axis(ax)
 
     OUT_BASE.parent.mkdir(parents=True, exist_ok=True)
