@@ -109,21 +109,37 @@ def plot_rollout_mse(mse_curve, div_time, epoch, log_dir):
     plt.close(fig)
 
 
-def _compute_loss_multistep(model, voltage, stimulus, t_indices, dt, rollout_steps):
+def _compute_loss_multistep(model, voltage, stimulus, t_indices, dt, rollout_steps,
+                            coeff_stim_sparsity: float = 0.0):
     """Compute MSE loss averaged over a multi-step rollout.
 
     Unrolls for rollout_steps steps from t_indices, accumulating MSE at each step.
     Backprop through the full rollout penalizes error compounding.
+
+    If coeff_stim_sparsity > 0, also adds a group-L1 (L_{2,1}) penalty on the
+    stimulus pathway: at each step, the per-neuron L2 norm (over batch) of
+    delta = predict_dvdt(v, stim) - predict_dvdt(v, 0) is summed over neurons.
+    This encourages the stimulus to drive only a sparse set of neurons without
+    specifying which ones.
     """
     x = voltage[t_indices]  # (B, N)
     loss = torch.zeros((), device=x.device)
+    stim_pen = torch.zeros((), device=x.device)
     for k in range(rollout_steps):
         stim_k = stimulus[t_indices + k]              # (B, n_input)
         dvdt = model.predict_dvdt(x, stim_k)
+        if coeff_stim_sparsity > 0.0:
+            dvdt_zero = model.predict_dvdt(x, torch.zeros_like(stim_k))
+            delta = dvdt - dvdt_zero                  # (B, N)
+            # Group-L1: per-neuron L2 over batch, then sum over neurons
+            stim_pen = stim_pen + delta.pow(2).mean(dim=0).clamp_min(1e-12).sqrt().sum()
         x = x + dt * dvdt
         target = voltage[t_indices + k + 1]           # (B, N)
         loss = loss + F.mse_loss(x, target)
-    return loss / rollout_steps
+    loss = loss / rollout_steps
+    if coeff_stim_sparsity > 0.0:
+        loss = loss + coeff_stim_sparsity * (stim_pen / rollout_steps)
+    return loss
 
 
 def data_train_rollout(config, erase, best_model, device, log_file=None):
@@ -211,6 +227,9 @@ def data_train_rollout(config, erase, best_model, device, log_file=None):
     _logger.info(f'batch_size: {batch_size}, data_passes_per_epoch: {data_passes_per_epoch}')
     _logger.info(f'batches_per_epoch: {batches_per_epoch}, n_epochs: {n_epochs}')
     _logger.info(f'rollout_train_steps: {rollout_train_steps}')
+    coeff_stim_sparsity = float(getattr(tc, 'coeff_stim_sparsity', 0.0))
+    if coeff_stim_sparsity > 0.0:
+        _logger.info(f'stim-sparsity (group-L1) penalty enabled: coeff={coeff_stim_sparsity}')
 
     net_path = os.path.join(log_dir, 'models')
     os.makedirs(net_path, exist_ok=True)
@@ -275,6 +294,7 @@ def data_train_rollout(config, erase, best_model, device, log_file=None):
             optimizer.zero_grad()
             loss = _compute_loss_multistep_compiled(
                 model, voltage, stimulus, t_indices, dt, rollout_train_steps,
+                getattr(tc, 'coeff_stim_sparsity', 0.0),
             )
             loss.backward()
             optimizer.step()

@@ -676,6 +676,13 @@ class TrainingConfig(BaseModel):
     coeff_W_sign: float = 0
     W_sign_temperature: float = 10.0
 
+    # Stimulus-pathway sparsity penalty (predict_dvdt models, e.g. MLP baseline).
+    # Adds  lambda * mean over batch of  sum_i ||delta[:, i]||_2
+    # where delta = predict_dvdt(v, stim) - predict_dvdt(v, 0).
+    # Encourages the stimulus to drive only a small subset of neurons,
+    # without assuming which neurons receive stimulus. 0 = disabled.
+    coeff_stim_sparsity: float = 0.0
+
     # Shared annealing rate for all weight regularization (L1 and L2)
     # Formula: coeff * (1 - exp(-rate * epoch)). With rate=0.5, ramps from 0 at
     # epoch 0 to ~0.39x at epoch 1 to ~0.92x at epoch 5. Set to 0 to disable.
