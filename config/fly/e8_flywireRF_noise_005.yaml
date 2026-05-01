@@ -1,6 +1,6 @@
 description: "HIGH PRIORITY — drops eligible flyvis edges for higher realism. v2
   per-column FlyWire RF, noise=0.05"
-dataset: flyvis_hybrid_flywireRF_noise_005
+dataset: e8_flywireRF_noise_005
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ""
@@ -25,7 +25,7 @@ simulation:
   skip_short_videos: true
   blank_prefix_fraction: 0.5
 graph_model:
-  signal_model_name: flyvis_hybrid_flywireRF
+  signal_model_name: e8_flywireRF
   prediction: first_derivative
   input_size: 3
   n_layers: 3

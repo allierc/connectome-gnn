@@ -481,10 +481,10 @@ We generated simulated data from the flyvis ODE on the hybrid FlyWire-RF connect
 
 [TODO: add results of flyvis\_hybrid\_flywireRF\_noise\_005 (and see source comment)]
 % # Secondary (heterogenous filters but no zero edges / GNN + known-ODE / 8 and 15 extent)
-% python GNN_Main.py -o generate+train+test flyvis_hybrid_flywireRF_noise_005
-% python GNN_Main.py -o generate+train+test flyvis_hybrid_flywireRF_known_ode_noise_005
-% python GNN_Main.py -o generate+train+test flyvis_hybrid_flywireRF_e15_noise_005
-% python GNN_Main.py -o generate+train+test flyvis_hybrid_flywireRF_e15_known_ode_noise_005
+% python GNN_Main.py -o generate+train+test e8_flywireRF_noise_005
+% python GNN_Main.py -o generate+train+test e8_flywireRF_known_ode_noise_005
+% python GNN_Main.py -o generate+train+test full_eye_flywireRF_noise_005
+% python GNN_Main.py -o generate+train+test full_eye_flywireRF_known_ode_noise_005
 
 \paragraph{Benchmarking coregistration uncertainty in system idenfication}
 
@@ -500,59 +500,61 @@ To model this scenario, we constructed a connectivity graph that augments the Fl
 \comment{TODO: weave in: Relative (absolute=False): If donor A at position (u,v) has an edge to target T at offset (du,dv), receiver B gets an edge at offset (du,dv) from B's own position. $B\rightarrow (B_u+du, B_v+dv)$. This answers: "Can the GNN recover circuit parameters if we assume the spatial pattern of connectivity (receptive field shape) is conserved across columns?" It models uncertainty in which source column a neuron belongs to, assuming the motif is translation-invariant.}
 % [TODO: add results of flyvis\_hybrid\_flywireRF\_zeroedge\_cross\_sl\_noise\_005 (and see source comment)]
 % # Primary (cross-type zero edges / GNN + known-ODE / 8 and 15 extent)
-% python GNN_Main.py -o generate+train+test flyvis_hybrid_flywireRF_zeroedge_cross_sl_noise_005
-% python GNN_Main.py -o generate+train+test flyvis_hybrid_flywireRF_zeroedge_cross_sl_known_ode_noise_005
-% python GNN_Main.py -o generate+train+test flyvis_hybrid_flywireRF_zeroedge_cross_sl_e15_noise_005
-% python GNN_Main.py -o generate+train+test flyvis_hybrid_flywireRF_zeroedge_cross_sl_e15_known_ode_noise_005
+% python GNN_Main.py -o generate+train+test e8_flywireRF_proximal_nulls_noise_005
+% python GNN_Main.py -o generate+train+test e8_flywireRF_proximal_nulls_known_ode_noise_005
+% python GNN_Main.py -o generate+train+test full_eye_flywireRF_proximal_nulls_noise_005
+% python GNN_Main.py -o generate+train+test full_eye_flywireRF_proximal_nulls_known_ode_noise_005
 
 
 
 \begin{table}[h]
 \centering
 \caption{GNN recovery on hybrid connectome variants under connectivity uncertainty (zero-edge augmentation, no coregistration perturbation).
-All runs use $\sigma = 0.05$ model noise on $13{,}741$ neurons ($65$ cell types), extent $= 8$ unless noted.
-\textcolor{green!50!black}{Green}: value $> 0.9$.}
+All runs use low model noise $\sigma = 0.05$ ($65$ cell types). Eye map is either the flyvis hex lattice ($13{,}741$ neurons, extent $= 8$) or the larger flywire eye map ($50{,}412$ neurons, extent $= 15$).
+\textcolor{green!50!black}{Green}: value $> 0.9$. \bad{Orange}: value $< 0.3$.}
 \label{tab:zero_edge}
 \tiny
 \setlength{\tabcolsep}{4pt}
 \begin{tabular}{llccrrrrrr}
 \toprule
 & & & & & \multicolumn{2}{c}{prediction} & \multicolumn{3}{c}{parameter recovery} \\
-model & condition & neurons & edges & extent
+model & condition & neurons & edges & eye map
   & one-step $r$ & rollout $r$
   & $R^2_{\widehat{W}}$ & $R^2_{\widehat{\tau}}$ & $R^2_{\widehat{V}^{\mathrm{rest}}}$ \\
 \midrule
-Known ODE                & het. RF (oracle)                         & $13\,741$ & $328\,092$ & 8
-  & \good{$1.00$} & \good{$1.00$}
-  & \good{$0.98$} & \good{$1.00$} & \good{$0.95$} \\
-                         & het.\ RF + uncert.\ edges (same-type)    & $13\,741$ & $401\,175$ & 8
-  & \good{$1.00$} & \good{$1.00$}
-  & \good{$0.97$} & \good{$1.00$} & \good{$0.91$} \\
-                         & het.\ RF + uncert.\ edges (cross-type)   & $13\,741$ & $1\,959\,994$ & 8
-  & \good{$1.00$} & \good{$1.00$}
-  & $0.64$ & $0.89$ & $0.33$ \\
-\textit{larger}          & het. RF (oracle)                         & $45\,669$ & $1\,256\,695$ & 15
+Known ODE                & het. RF                       & $13\,741$ & $327\,358$ & flyvis hex lattice
   & \good{$1.00$} & \good{$1.00$}
   & \good{$0.98$} & \good{$1.00$} & \good{$0.94$} \\
-\textit{visual field}    & het.\ RF + uncert.\ edges (cross-type)   & $45\,669$ & $5\,411\,743$ & 15
+                         % & het.\ RF + uncert.\ edges (same-type)    & $13\,741$ & $401\,175$ & flyvis hex lattice
+  % & \good{$1.00$} & \good{$1.00$}
+  % & \good{$0.97$} & \good{$1.00$} & \good{$0.91$} \\
+                         & het.\ RF + uncert.\ edges     & $13\,741$ & $2\,418\,403$ & flyvis hex lattice
   & \good{$1.00$} & \good{$1.00$}
-  & $0.70$ & \good{$0.93$} & $0.36$ \\
+  & \good{$0.95$} & \good{$0.99$} & \good{$0.94$} \\
+  \cmidrule[0.2pt](lr){2-10}
+\textit{larger}          & het. RF                       & $50\,412$ & $1\,266\,378$ & flywire eye map
+  & \good{$1.00$} & \good{$1.00$}
+  & \good{$0.98$} & \good{$1.00$} & \good{$0.94$} \\
+\textit{visual field}    & het.\ RF + uncert.\ edges     & $50\,412$ & $9\,642\,335$ & flywire eye map
+  & \good{$1.00$} & \good{$1.00$}
+  & \good{$0.94$} & \good{$0.99$} & $0.89$ \\
 \midrule
-GNN                      & het. RF (oracle)                         & $13\,741$ & $328\,092$ & 8
+GNN                      & het. RF                       & $13\,741$ & $327\,358$ & flyvis hex lattice
   & \good{$1.00$} & \good{$1.00$}
-  & \good{$0.92$} & \bad{$0.17$} & $0.61$ \\
-                         & het.\ RF + uncert.\ edges (same-type)    & $13\,741$ & $401\,175$ & 8
+  & \good{$0.92$} & \good{$0.93$} & \bad{$0.15$} \\
+                         % & het.\ RF + uncert.\ edges (same-type)    & $13\,741$ & $401\,175$ & flyvis hex lattice
+  % & \good{$1.00$} & \good{$1.00$}
+  % & \good{$0.96$} & \good{$0.98$} & $0.74$ \\
+                         & het.\ RF + uncert.\ edges     & $13\,741$ & $2\,418\,403$ & flyvis hex lattice
   & \good{$1.00$} & \good{$1.00$}
-  & \good{$0.96$} & \good{$0.98$} & $0.74$ \\
-                         & het.\ RF + uncert.\ edges (cross-type)   & $13\,741$ & $1\,959\,994$ & 8
+  & \good{$0.95$} & \good{$0.97$} & \bad{$-1.10$} \\
+  \cmidrule[0.2pt](lr){2-10}
+\textit{larger}          & het. RF                       & $50\,412$ & $1\,266\,378$ & flywire eye map
   & \good{$1.00$} & \good{$1.00$}
-  & $0.78$ & $0.82$ & \bad{$0.15$} \\
-\textit{larger}          & het. RF (oracle)                         & $45\,669$ & $1\,256\,695$ & 15
-  & \good{$1.00$} & \good{$1.00$}
-  & \good{$0.97$} & \good{$0.98$} & $0.58$ \\
-\textit{visual field}    & het.\ RF + uncert.\ edges (cross-type)   & $45\,669$ & $5\,411\,743$ & 15
-  & \good{$1.00$} & \good{$1.00$}
-  & \good{$0.92$} & $0.84$ & \bad{$0.15$} \\
+  & \good{$0.96$} & \good{$0.98$} & $0.50$ \\
+\textit{visual field}    & het.\ RF + uncert.\ edges     & $50\,412$ & $9\,642\,335$ & flywire eye map
+  & \good{$0.99$} & \good{$0.99$}
+  & $0.58$ & $0.87$ & \bad{$-2.68$} \\
 \bottomrule
 \end{tabular}
 \end{table}

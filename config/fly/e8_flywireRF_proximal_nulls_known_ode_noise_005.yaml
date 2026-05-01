@@ -2,7 +2,7 @@ description:
   "HIGH PRIORITY — drops eligible flyvis edges for higher realism. v5-cross_sl
   v2 base + zero-weight edges (u=1, cross-type, spatially-local), known ODE, noise=0.05
   HPs: bs=32, lr_W=4.5e-4, W_L1=3e-3, Vr_L2=0.1, DAL=330 (from cedric's HPO winner, conn_R2 0.955, 10 seeds, CV=0.015%)."
-dataset: flyvis_hybrid_flywireRF_zeroedge_cross_sl_known_ode_noise_005
+dataset: e8_flywireRF_proximal_nulls_known_ode_noise_005
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ""
@@ -28,7 +28,7 @@ simulation:
   skip_short_videos: true
   blank_prefix_fraction: 0.5
 graph_model:
-  signal_model_name: flyvis_hybrid_flywireRF_zeroedge_cross_sl_known_ode
+  signal_model_name: e8_flywireRF_proximal_nulls_known_ode
   prediction: first_derivative
   aggr_type: add
   update_type: generic
