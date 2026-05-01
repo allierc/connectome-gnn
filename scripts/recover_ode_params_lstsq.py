@@ -49,6 +49,29 @@ from tqdm.auto import tqdm
 from connectome_gnn.metrics import compute_r_squared
 
 
+def _load_cell_type_labels(data_root: Path, N: int):
+    """Per-neuron cell-type label (str). Best-effort: tries to resolve int ids
+    in neuron_type.zarr to flyvis type names (alphabetically sorted unique
+    types from the connectome). Falls back to stringified int ids."""
+    nt_path = data_root / "x_list_train" / "neuron_type.zarr"
+    if not nt_path.exists():
+        return np.array([""] * N)
+    nt = np.array(zarr.open(str(nt_path), mode="r"))
+    try:
+        from flyvis.network import NetworkView
+        nv = NetworkView("flow/0000/000")
+        types_full = np.array(
+            [t.decode() if isinstance(t, bytes) else str(t)
+             for t in nv.connectome.nodes["type"][:]]
+        )
+        names = np.unique(types_full)  # alphabetical — matches np.unique(...,return_inverse=True) ordering used at gen time
+        if int(nt.max()) < len(names):
+            return names[nt]
+    except Exception as e:
+        print(f"[cell_types] flyvis lookup failed ({e}); using int ids")
+    return np.array([str(int(x)) for x in nt])
+
+
 def load_data(data_root: Path, dt: float):
     params = torch.load(data_root / "ode_params.pt", map_location="cpu", weights_only=False)
     edge_index = params["edge_index"].numpy()
@@ -66,11 +89,14 @@ def load_data(data_root: Path, dt: float):
     relu_v = np.maximum(voltage[:-1], 0.0)
     rhs = stimulus[:-1] - voltage[:-1]
 
+    cell_type = _load_cell_type_labels(data_root, N)
+
     return dict(
         edge_index=edge_index,
         W_true=W_true, tau_true=tau_true, vrest_true=vrest_true,
         dv=dv, relu_v=relu_v, rhs=rhs,
         T=T, N=N, E=E,
+        cell_type=cell_type,
     )
 
 
@@ -222,7 +248,7 @@ def solve(
 def plot(data: dict, out: dict, fig_path: Path):
     fig, axes = plt.subplots(1, 3, figsize=(30, 9))
 
-    def _panel(ax, true, pred, null, sloppy, xlabel, ylabel):
+    def _panel(ax, true, pred, null, sloppy, xlabel, ylabel, labels=None, label_x_min=None):
         m = np.isfinite(pred)   # excludes nan and inf
         is_null   = m & null
         is_sloppy = m & sloppy & ~null
@@ -253,8 +279,7 @@ def plot(data: dict, out: dict, fig_path: Path):
                    label=f"null ({_fmt(n_null, pct_null)})")
         ax.scatter(true[is_sloppy], pred[is_sloppy], s=6, alpha=0.4, color="orange",
                    label=f"sloppy ({_fmt(n_sloppy, pct_sloppy)})")
-        ax.scatter(true[ok],        pred[ok],        s=4, alpha=0.7, color="k",
-                   label=f"ok ({_fmt(n_ok, pct_ok)})")
+        ax.scatter(true[ok],        pred[ok],        s=4, alpha=0.7, color="k")
         lo, hi = float(true[m].min()), float(true[m].max())
         ax.plot([lo, hi], [lo, hi], '--', color='gray', linewidth=1, alpha=0.6)
 
@@ -271,6 +296,71 @@ def plot(data: dict, out: dict, fig_path: Path):
             y_pad = 0.1 * (y_hi - y_lo) if y_hi > y_lo else 1.0
             ax.set_ylim(y_lo - y_pad, y_hi + y_pad)
 
+        # One label per cell type at the centroid of that type's null|sloppy
+        # subset. Overlapping labels get nudged apart by a simple iterative
+        # repulsion in axis-fraction coordinates so each tag stays readable.
+        if labels is not None:
+            labels_arr = np.asarray(labels)
+            label_mask = is_null | is_sloppy
+            true_arr = np.asarray(true)
+            pred_arr = np.asarray(pred)
+            anchors = []
+            # Only label a type if its null/sloppy centroid sits noticeably off
+            # the y=x line — otherwise the recovery is fine and labeling is
+            # noise. Threshold = 5% of the y-axis span.
+            ylo_t, yhi_t = ax.get_ylim()
+            off_thresh = 0.05 * (yhi_t - ylo_t)
+            for _t in np.unique(labels_arr[label_mask]):
+                if not _t:
+                    continue
+                _m = label_mask & (labels_arr == _t)
+                if not _m.any():
+                    continue
+                _x = float(true_arr[_m].mean())
+                _y = float(pred_arr[_m].mean())
+                if abs(_y - _x) < off_thresh:
+                    continue
+                if label_x_min is not None and _x < label_x_min:
+                    continue
+                anchors.append((_x, _y, str(_t)))
+            if anchors:
+                xlo, xhi = ax.get_xlim()
+                ylo, yhi = ax.get_ylim()
+                xr = xhi - xlo or 1.0
+                yr = yhi - ylo or 1.0
+                # Work in normalized coords so x/y radii are comparable.
+                pts = np.array([[(a[0]-xlo)/xr, (a[1]-ylo)/yr] for a in anchors])
+                pos = pts.copy()
+                min_d = 0.05  # ~5% of axis span between label centers
+                for _ in range(80):
+                    moved = False
+                    for i in range(len(pos)):
+                        for j in range(i+1, len(pos)):
+                            d = pos[j] - pos[i]
+                            n = float(np.hypot(*d))
+                            if n < min_d:
+                                if n < 1e-9:
+                                    d = np.array([1e-3, 1e-3])
+                                    n = float(np.hypot(*d))
+                                push = (min_d - n) / 2 * d / n
+                                pos[i] -= push
+                                pos[j] += push
+                                moved = True
+                    if not moved:
+                        break
+                for (ax_, ay_, txt), (px, py) in zip(anchors, pos):
+                    lx = xlo + px * xr
+                    ly = ylo + py * yr
+                    if (lx, ly) != (ax_, ay_):
+                        ax.plot([ax_, lx], [ay_, ly], color='gray',
+                                linewidth=0.4, alpha=0.5, zorder=2)
+                    ax.text(lx, ly, txt,
+                            fontsize=11, ha='center', va='center',
+                            color='black', fontweight='bold',
+                            bbox=dict(boxstyle='round,pad=0.15', facecolor='white',
+                                      edgecolor='gray', alpha=0.75, linewidth=0.5),
+                            zorder=3)
+
         ax.text(0.05, 0.95,
                 f'R²: {r2_ok:.2f} ({r2_all:.2f})\nslope: {slope_ok:.2f}',
                 transform=ax.transAxes, verticalalignment='top', fontsize=32)
@@ -279,12 +369,16 @@ def plot(data: dict, out: dict, fig_path: Path):
         ax.tick_params(axis='both', labelsize=20)
         ax.legend(loc='lower right', fontsize=24, markerscale=4)
 
+    cell_type = data.get("cell_type")
+
     _panel(axes[0], data["tau_true"],   out["tau_lstsq"],
            out["tau_null"],   out["tau_sloppy"],
-           r'true $\tau$',      r'learned $\tau$')
+           r'true $\tau$',      r'learned $\tau$',
+           labels=cell_type, label_x_min=0.05)
     _panel(axes[1], data["vrest_true"], out["vrest_lstsq"],
            out["vrest_null"], out["vrest_sloppy"],
-           r'true $V_{rest}$',  r'learned $V_{rest}$')
+           r'true $V_{rest}$',  r'learned $V_{rest}$',
+           labels=cell_type, label_x_min=0.05)
     _panel(axes[2], data["W_true"],     out["W_lstsq"],
            out["W_null"],     out["W_sloppy"],
            r'true $W_{ij}$',    r'learned $W_{ij}$')
