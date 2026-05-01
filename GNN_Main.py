@@ -175,11 +175,10 @@ if __name__ == "__main__":
             'flyvis_noise_05_blank50_unified_cv04',
         ],
         'hybrid_flywireRF_variants': [
-            'flyvis_hybrid_flywireRF_noise_005',
-            'flyvis_hybrid_flywireRF_e15_noise_005',
-            'flyvis_hybrid_flywireRF_zeroedge_cross_sl_noise_005',
-            'flyvis_hybrid_flywireRF_zeroedge_cross_sl_e15_noise_005',
-            'flyvis_hybrid_flywireRF_zeroedge_sl_noise_005',
+            'e8_flywireRF_noise_005',
+            'full_eye_flywireRF_noise_005',
+            'e8_flywireRF_proximal_nulls_noise_005',
+            'full_eye_flywireRF_proximal_nulls_noise_005',
         ],
         # SPEND-style Noise2Noise trainer; invoke with -o train_SPEND flyvis_spend.
         # Cite: https://github.com/buchenglab/SPEND
@@ -472,8 +471,7 @@ if __name__ == "__main__":
 
 # bsub -n 2 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o train /groups/saalfeld/home/allierc/GraphData/config/fly/flyvis_noise_005_stride_5_yt_Claude_00"
 
-# bsub -n 2 -gpu "num=1" -q gpu_h100 -W 6000 -Is "python GNN_Main.py -o generate_train_test_plot flyvis_hybrid_zeroedge_e15_u2_noise_005"
-# bsub -n 2 -gpu "num=1" -q gpu_h100 -W 6000 -Is "python GNN_Main.py -o generate_train_test_plot flyvis_hybrid_flywireRF_zeroedge_e15_u2_noise_005"
+# bsub -n 2 -gpu "num=1" -q gpu_h100 -W 6000 -Is "python GNN_Main.py -o generate_train_test_plot full_eye_flywireRF_proximal_nulls_noise_005"
 
 # export GNN_OUTPUT_ROOT=graphs_data
 # unset GNN_OUTPUT_ROOT
@@ -482,10 +480,7 @@ if __name__ == "__main__":
 # python GNN_Main.py -o test   /groups/saalfeld/home/allierc/GraphData/config/fly/flyvis_noise_005_blank50_unified_cv00   --output_root /groups/saalfeld/home/allierc/GraphData
 # bsub -n 2 -gpu "num=1" -q gpu_h100 -W 6000 -Is "python GNN_Main.py -o generate_train_test_plot hybrid_flywireRF_variants --force"
 
-# bsub -n 8 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o plot /groups/saalfeld/home/allierc/Graph/connectome-gnn/config/fly/flyvis_hybrid_flywireRF_zeroedge_cross_sl_e15_noise_005 --force"
-#  bsub -n 8 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o train_test_plot /groups/saalfeld/home/allierc/Graph/connectome-gnn/config/fly/flyvis_hybrid_flywireRF_zeroedge_cross_sl_e15_known_ode_noise_005 --force"
-#  bsub -n 8 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o train_test_plot /groups/saalfeld/home/allierc/Graph/connectome-gnn/config/fly/flyvis_hybrid_flywireRF_zeroedge_cross_sl_e15_known_ode_noise_005 --force"
-#  bsub -n 8 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o test_plot /groups/saalfeld/home/allierc/Graph/connectome-gnn/config/fly/flyvis_hybrid_flywireRF_zeroedge_cross_sl_known_ode_noise_005 --force"
-# bsub -n 8 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o plot /groups/saalfeld/home/allierc/Graph/connectome-gnn/config/fly/flyvis_hybrid_flywireRF_zeroedge_sl_noise_005 --force"
-#  bsub -n 8 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o train_test_plot /groups/saalfeld/home/allierc/Graph/connectome-gnn/config/fly/flyvis_hybrid_flywireRF_zeroedge_sl_known_ode_noise_005 --force"python GNN_Main.py -o plot flyvis_noise_free_blank50_unified_cv00
+# bsub -n 8 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o plot config/fly/full_eye_flywireRF_proximal_nulls_noise_005 --force"
+#  bsub -n 8 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o train_test_plot config/fly/full_eye_flywireRF_proximal_nulls_known_ode_noise_005 --force"
+#  bsub -n 8 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o test_plot config/fly/e8_flywireRF_proximal_nulls_known_ode_noise_005 --force"
 # python GNN_Main.py -o plot flyvis_noise_free_blank50_unified_cv00
