@@ -242,8 +242,14 @@ _VARIANT_TO_DIRNAME = {
     # e8 (truncated flyvis hex disk, FlyWire RFs)
     "e8_flywireRF": "e8_flywireRF",
     "e8_flywireRF_known_ode": "e8_flywireRF",
+    "e8_flywireRF_mlp": "e8_flywireRF",
+    "e8_flywireRF_eed": "e8_flywireRF",
+    "e8_flywireRF_stimulus": "e8_flywireRF",
     "e8_flywireRF_proximal_nulls": "e8_flywireRF_proximal_nulls",
     "e8_flywireRF_proximal_nulls_known_ode": "e8_flywireRF_proximal_nulls",
+    "e8_flywireRF_proximal_nulls_mlp": "e8_flywireRF_proximal_nulls",
+    "e8_flywireRF_proximal_nulls_eed": "e8_flywireRF_proximal_nulls",
+    "e8_flywireRF_proximal_nulls_stimulus": "e8_flywireRF_proximal_nulls",
     "e8_flywireRF_random_nulls": "e8_flywireRF_random_nulls",
     "e8_flywireRF_random_nulls_known_ode": "e8_flywireRF_random_nulls",
     # full FlyWire eye (no extent applies)

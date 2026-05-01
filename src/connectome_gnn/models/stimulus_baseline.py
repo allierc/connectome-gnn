@@ -25,7 +25,10 @@ def _build_mlp(input_dim, output_dim, hidden_dim, n_layers, device=None):
     return nn.Sequential(*layers)
 
 
-@register_model("flyvis_stimulus")
+@register_model(
+    "flyvis_stimulus",
+    "e8_flywireRF_stimulus", "e8_flywireRF_proximal_nulls_stimulus",
+)
 class StimulusBaseline(nn.Module):
     """Stimulus-only baseline: v(t) = Predictor(flatten(StimEncoder(stim[t-tw:t]))).
 
