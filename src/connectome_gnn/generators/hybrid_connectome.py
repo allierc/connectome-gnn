@@ -232,55 +232,64 @@ class HeterogeneousSynapseCount(Parameter):
 # Directory naming convention
 # ---------------------------------------------------------------------------
 
-# Map signal_model_name → variant directory prefix
-_VARIANT_PREFIXES = {
-    "flyvis_hybrid_flywireRF": "flyvis_hybrid_flywireRF",
-    "flyvis_hybrid_flywireRF_zeroedge_sl": "flyvis_hybrid_flywireRF_zeroedge",
-    "flyvis_hybrid_flywireRF_zeroedge_cross_sl": "flyvis_hybrid_flywireRF_zeroedge",
-    # known-ODE variants reuse the same parquet tables as the GNN variant
-    "flyvis_hybrid_flywireRF_known_ode": "flyvis_hybrid_flywireRF",
-    "flyvis_hybrid_flywireRF_zeroedge_sl_known_ode": "flyvis_hybrid_flywireRF_zeroedge",
-    "flyvis_hybrid_flywireRF_zeroedge_cross_sl_known_ode": "flyvis_hybrid_flywireRF_zeroedge",
+# Map signal_model_name → parquet variant directory name. The naming
+# matches flyrewire's v2 hybrid_connectomes manifest: the eye-map axis
+# (``e8_*`` vs ``full_eye_*``) is folded into the variant name, and
+# zero-edge controls become ``_proximal_nulls`` / ``_random_nulls``.
+# Known-ODE variants reuse the same parquet tables as their GNN sibling
+# (``_known_ode`` only changes the model arch, not the connectome).
+_VARIANT_TO_DIRNAME = {
+    # e8 (truncated flyvis hex disk, FlyWire RFs)
+    "e8_flywireRF": "e8_flywireRF",
+    "e8_flywireRF_known_ode": "e8_flywireRF",
+    "e8_flywireRF_proximal_nulls": "e8_flywireRF_proximal_nulls",
+    "e8_flywireRF_proximal_nulls_known_ode": "e8_flywireRF_proximal_nulls",
+    "e8_flywireRF_random_nulls": "e8_flywireRF_random_nulls",
+    "e8_flywireRF_random_nulls_known_ode": "e8_flywireRF_random_nulls",
+    # full FlyWire eye (no extent applies)
+    "full_eye_flywireRF": "full_eye_flywireRF",
+    "full_eye_flywireRF_known_ode": "full_eye_flywireRF",
+    "full_eye_flywireRF_proximal_nulls": "full_eye_flywireRF_proximal_nulls",
+    "full_eye_flywireRF_proximal_nulls_known_ode": "full_eye_flywireRF_proximal_nulls",
+    "full_eye_flywireRF_random_nulls": "full_eye_flywireRF_random_nulls",
+    "full_eye_flywireRF_random_nulls_known_ode": "full_eye_flywireRF_random_nulls",
 }
+
+# Back-compat alias kept for any external callers introspecting the table.
+_VARIANT_PREFIXES = _VARIANT_TO_DIRNAME
 
 
 def _table_dir(
     signal_name: str,
-    extent: int,
+    extent: Optional[int] = None,
     edge_uncertainty: int = 1,
     data_dir: Optional[Path] = None,
 ) -> Path:
-    """Resolve the directory containing nodes.parquet / edges.parquet."""
+    """Resolve the directory containing nodes.parquet / edges.parquet.
+
+    The ``extent`` and ``edge_uncertainty`` arguments are accepted for
+    backwards compatibility but are ignored: the eye-map and null-edge
+    configuration are now encoded directly in ``signal_name``.
+    """
+    del extent, edge_uncertainty  # encoded in signal_name now
+
     if data_dir is None:
         data_dir = Path(os.environ.get("HYBRID_CONNECTOME_DIR", str(_DEFAULT_DATA_DIR)))
     else:
         data_dir = Path(data_dir)
 
-    prefix = _VARIANT_PREFIXES.get(signal_name)
-    if prefix is None:
+    dirname = _VARIANT_TO_DIRNAME.get(signal_name)
+    if dirname is None:
         raise KeyError(
             f"Unknown hybrid variant '{signal_name}'. "
-            f"Available: {sorted(_VARIANT_PREFIXES.keys())}"
+            f"Available: {sorted(_VARIANT_TO_DIRNAME.keys())}"
         )
-
-    has_zero = "_zeroedge" in signal_name
-    # Determine parquet dir suffix from signal model name
-    if "_cross_sl" in signal_name:
-        dir_suffix = "_cross_sl"
-    elif "_sl" in signal_name and "_cross" not in signal_name:
-        dir_suffix = "_sl"
-    else:
-        dir_suffix = ""
-    if has_zero:
-        dirname = f"{prefix}_e{extent}_u{edge_uncertainty}{dir_suffix}"
-    else:
-        dirname = f"{prefix}_e{extent}"
 
     path = data_dir / dirname
     if not path.exists():
         raise FileNotFoundError(
             f"Hybrid connectome tables not found at {path}. "
-            f"Run flyrewire/scripts/export_connectomes.py to generate them."
+            f"Run flyrewire/scripts/export_connectomes_v2.py to generate them."
         )
     return path
 
@@ -292,7 +301,7 @@ def _table_dir(
 
 def load_tables(
     signal_name: str,
-    extent: int,
+    extent: Optional[int] = None,
     edge_uncertainty: int = 1,
     data_dir: Optional[Path] = None,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
@@ -301,11 +310,12 @@ def load_tables(
     Parameters
     ----------
     signal_name : str
-        Model variant name (e.g. ``"flyvis_hybrid_zeroedge"``).
-    extent : int
-        Hex grid extent (e.g. 8 or 15).
+        Model variant name (e.g. ``"e8_flywireRF_proximal_nulls"``).
+    extent : int, optional
+        Accepted for backwards compatibility; ignored. The eye-map axis is
+        encoded in ``signal_name`` (``e8_*`` vs ``full_eye_*``).
     edge_uncertainty : int
-        Edge uncertainty for zero-edge variants (ignored for v1/v2).
+        Accepted for backwards compatibility; ignored.
     data_dir : Path, optional
         Override data directory. Defaults to ``$HYBRID_CONNECTOME_DIR`` env
         var or ``connectome-gnn/data/hybrid_connectomes/``.
@@ -327,7 +337,7 @@ def load_tables(
 
 def load_hybrid_network(
     signal_name: str,
-    extent: int,
+    extent: Optional[int] = None,
     edge_uncertainty: int = 1,
     model: Optional[str] = None,
     checkpoint: str = "best",
@@ -341,11 +351,12 @@ def load_hybrid_network(
     Parameters
     ----------
     signal_name : str
-        Model variant name.
-    extent : int
-        Hex grid extent.
+        Model variant name (see :data:`_VARIANT_TO_DIRNAME`).
+    extent : int, optional
+        Accepted for backwards compatibility; ignored. Encoded in
+        ``signal_name``.
     edge_uncertainty : int
-        Edge uncertainty for zero-edge variants.
+        Accepted for backwards compatibility; ignored.
     model : str, optional
         Flyvis model identifier (e.g. ``"flow/0000/000"``).  When provided,
         returns ``(hybrid_net, orig_net)`` with trained weights loaded.

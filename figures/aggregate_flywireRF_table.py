@@ -79,29 +79,29 @@ DOUBLE_RULE = ('__rule__',)
 TABLE_ROWS = [
     # ---- Known-ODE block ----
     ('Known ODE',                'het. RF (oracle)',                       '13\\,741', '328\\,092',     '8',
-        'flyvis_hybrid_flywireRF_known_ode_noise_005'),
+        'e8_flywireRF_known_ode_noise_005'),
     ('',                         'het.\\ RF + uncert.\\ edges (same-type)', '13\\,741', '401\\,175',    '8',
-        'flyvis_hybrid_flywireRF_zeroedge_sl_known_ode_noise_005'),
+        'e8_flywireRF_zeroedge_sl_known_ode_noise_005'),
     ('',                         'het.\\ RF + uncert.\\ edges (cross-type)','13\\,741', '1\\,959\\,994','8',
-        'flyvis_hybrid_flywireRF_zeroedge_cross_sl_known_ode_noise_005'),
-    ('\\textit{larger}',         'het. RF (oracle)',                       '45\\,669', '1\\,256\\,695', '15',
-        'flyvis_hybrid_flywireRF_e15_known_ode_noise_005'),
-    ('\\textit{visual field}',   'het.\\ RF + uncert.\\ edges (cross-type)','45\\,669', '5\\,411\\,743','15',
-        'flyvis_hybrid_flywireRF_zeroedge_cross_sl_e15_known_ode_noise_005'),
+        'e8_flywireRF_proximal_nulls_known_ode_noise_005'),
+    ('\\textit{larger}',         'het. RF (oracle)',                       '45\\,669', '1\\,256\\,695', '—',
+        'full_eye_flywireRF_known_ode_noise_005'),
+    ('\\textit{visual field}',   'het.\\ RF + uncert.\\ edges (cross-type)','45\\,669', '5\\,411\\,743','—',
+        'full_eye_flywireRF_proximal_nulls_known_ode_noise_005'),
 
     DOUBLE_RULE,
 
     # ---- GNN block ----
     ('GNN',                      'het. RF (oracle)',                       '13\\,741', '328\\,092',     '8',
-        'flyvis_hybrid_flywireRF_noise_005'),
+        'e8_flywireRF_noise_005'),
     ('',                         'het.\\ RF + uncert.\\ edges (same-type)', '13\\,741', '401\\,175',    '8',
-        'flyvis_hybrid_flywireRF_zeroedge_sl_noise_005'),
+        'e8_flywireRF_zeroedge_sl_noise_005'),
     ('',                         'het.\\ RF + uncert.\\ edges (cross-type)','13\\,741', '1\\,959\\,994','8',
-        'flyvis_hybrid_flywireRF_zeroedge_cross_sl_noise_005'),
-    ('\\textit{larger}',         'het. RF (oracle)',                       '45\\,669', '1\\,256\\,695', '15',
-        'flyvis_hybrid_flywireRF_e15_noise_005'),
-    ('\\textit{visual field}',   'het.\\ RF + uncert.\\ edges (cross-type)','45\\,669', '5\\,411\\,743','15',
-        'flyvis_hybrid_flywireRF_zeroedge_cross_sl_e15_noise_005'),
+        'e8_flywireRF_proximal_nulls_noise_005'),
+    ('\\textit{larger}',         'het. RF (oracle)',                       '45\\,669', '1\\,256\\,695', '—',
+        'full_eye_flywireRF_noise_005'),
+    ('\\textit{visual field}',   'het.\\ RF + uncert.\\ edges (cross-type)','45\\,669', '5\\,411\\,743','—',
+        'full_eye_flywireRF_proximal_nulls_noise_005'),
 ]
 
 
