@@ -230,6 +230,9 @@ def data_train_rollout(config, erase, best_model, device, log_file=None):
     coeff_stim_sparsity = float(getattr(tc, 'coeff_stim_sparsity', 0.0))
     if coeff_stim_sparsity > 0.0:
         _logger.info(f'stim-sparsity (group-L1) penalty enabled: coeff={coeff_stim_sparsity}')
+    coeff_L1 = float(getattr(tc, 'coeff_L1', 0.0))
+    if coeff_L1 > 0.0:
+        _logger.info(f'global L1 penalty on all model parameters enabled: coeff={coeff_L1}')
 
     net_path = os.path.join(log_dir, 'models')
     os.makedirs(net_path, exist_ok=True)
@@ -296,6 +299,9 @@ def data_train_rollout(config, erase, best_model, device, log_file=None):
                 model, voltage, stimulus, t_indices, dt, rollout_train_steps,
                 getattr(tc, 'coeff_stim_sparsity', 0.0),
             )
+            if coeff_L1 > 0.0:
+                l1 = sum(p.abs().sum() for p in model.parameters() if p.requires_grad)
+                loss = loss + coeff_L1 * l1
             loss.backward()
             optimizer.step()
 
