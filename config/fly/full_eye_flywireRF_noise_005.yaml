@@ -1,6 +1,5 @@
-description: "HIGH PRIORITY — drops eligible flyvis edges for higher realism. v2
-  per-column FlyWire RF, noise=0.05"
-dataset: flyvis_hybrid_flywireRF_noise_005
+description: "flywirevis hybrid -- v2 per-column FlyWire RF (dropped eligible flyvis edges), full eye (column_source='flywire', extent=15 slot), noise=0.05"
+dataset: full_eye_flywireRF_noise_005
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ""
@@ -9,10 +8,10 @@ simulation:
       - 1.0
       - 1.0
       - 1.0
-  n_neurons: 13741
-  n_input_neurons: 1736
+  n_neurons: 50412
+  n_input_neurons: 6368
   n_neuron_types: 65
-  n_edges: 328092
+  n_edges: 1266378
   n_frames: 64000
   delta_t: 0.02
   baseline_value: 0
@@ -20,10 +19,14 @@ simulation:
   noise_model_level: 0.05
   derivative_smoothing_window: 1
   seed: 42
+  all_columns: true
+  flywire_stimulus: true
+  datavis_roots:
+    - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
   skip_short_videos: true
   blank_prefix_fraction: 0.5
 graph_model:
-  signal_model_name: flyvis_hybrid_flywireRF
+  signal_model_name: full_eye_flywireRF
   prediction: first_derivative
   input_size: 3
   n_layers: 3
@@ -56,12 +59,9 @@ training:
   small_init_batch_size: false
   sparsity: none
   data_augmentation_loop: 100
-  # lr_W: 0.0009
-  # lr: 0.0018
-  # lr_embedding: 0.002325
-  lr_W: 1.8e-3
-  lr: 1.8e-3
-  lr_embedding: 4.65e-3
+  lr_W: 0.0009
+  lr: 0.0018
+  lr_embedding: 0.002325
   coeff_g_phi_diff: 750
   coeff_f_theta_msg_diff: 0
   coeff_g_phi_norm: 0.9
@@ -69,8 +69,8 @@ training:
   coeff_f_theta_weight_L1: 0.05
   coeff_g_phi_weight_L2: 0
   coeff_f_theta_weight_L2: 0.001
-  coeff_W_L1: 1.5E-4
-  coeff_W_L2: 2.5e-06
+  coeff_W_L1: 0.00015
+  coeff_W_L2: 1.5e-06
   regul_annealing_rate: 0.0
   w_init_mode: randn_scaled
   use_gt_edges: true
@@ -79,6 +79,6 @@ claude:
   n_epochs: 1
   data_augmentation_loop: 35
   n_iter_block: 12
-  generate_data: false
+  ucb_c: 1.414
+  generate_data: true
   training_time_target_min: 60
-  node_name: a100

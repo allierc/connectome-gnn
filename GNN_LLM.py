@@ -150,8 +150,8 @@ if __name__ == "__main__":
 # CUDA_VISIBLE_DEVICES=1 python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_hidden_010_ngp_anchors --cluster --fresh iteration=264
 
 # --- flywireRF + zero-edge (cross-type) explorations (a100, sigma=0.05) ---
-# python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_hybrid_flywireRF_zeroedge_cross_sl_noise_005 iterations=80 --cluster --resume
-# python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_hybrid_flywireRF_zeroedge_cross_sl_known_ode_noise_005 iterations=72 --cluster --resume
+# python GNN_LLM.py -o generate_train_test_plot_Claude e8_flywireRF_proximal_nulls_noise_005 iterations=80 --cluster --resume
+# python GNN_LLM.py -o generate_train_test_plot_Claude e8_flywireRF_proximal_nulls_known_ode_noise_005 iterations=72 --cluster --resume
 
 # --- SPEND Noise2Noise explorations (l4, blank50 stimulus, sigma=0.05, gamma=0.10) ---
 # Cite: https://github.com/buchenglab/SPEND  (Ding et al. 2025, Newton 1, 100195)

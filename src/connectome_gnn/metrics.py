@@ -275,10 +275,28 @@ def compute_activity_stats(x_ts, device: Optional[torch.device] = None) -> tuple
         sigma_activity: (N,) tensor of per-neuron std voltage.
     """
     voltage = x_ts.voltage  # (T, N), already on device if x_ts was moved
-    if device is not None:
-        voltage = voltage.to(device)
-    mu = voltage.mean(dim=0)
-    sigma = voltage.std(dim=0)
+    if device is None or voltage.device == device:
+        return voltage.mean(dim=0), voltage.std(dim=0)
+    # Avoid OOM when (T, N) is large (e.g. e15 hybrids: T~64k, N~50k → ~12 GiB)
+    # AND the target device is full (e.g. CUDA Graphs in GNN training reserve
+    # ~38 GiB during plot_training_flyvis). Reduce on CPU in float64 with small
+    # chunks; only the small (N,) result tensors are moved to device at the end.
+    T, N = voltage.shape
+    # ~256 MiB float32 chunks
+    chunk = max(1, int(2.5e8 // (4 * max(N, 1))))
+    s1 = torch.zeros(N, dtype=torch.float64, device='cpu')
+    s2 = torch.zeros(N, dtype=torch.float64, device='cpu')
+    for i in range(0, T, chunk):
+        v = voltage[i:i + chunk]
+        if v.is_cuda:
+            v = v.cpu()
+        v = v.to(torch.float64)
+        s1.add_(v.sum(dim=0))
+        s2.add_((v * v).sum(dim=0))
+        del v
+    mu = (s1 / T).to(torch.float32).to(device)
+    var = (s2 / T - (s1 / T) ** 2).clamp_min_(0.0)
+    sigma = var.sqrt().to(torch.float32).to(device)
     return mu, sigma
 
 
