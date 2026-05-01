@@ -4,7 +4,7 @@ Single-panel scatter: per-neuron Pearson r vs context length, sampled across
 neurons x CV splits, colored by coarse functional group (R1-R8, L1-L5, Lawf,
 Am, C2-C3, CT1, Mi, T, Tm), with smooth per-group mean lines overlaid.
 
-Output: figures/fig_stimulus_ctx_rollout_pearson.{pdf,png}
+Output: figures/fig_stimulus_ctx_pearson.{pdf,png}
 """
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -16,7 +16,7 @@ Output: figures/fig_stimulus_ctx_rollout_pearson.{pdf,png}
 # Test data      : <DATA_ROOT>/graphs_data/fly/flyvis_noise_free_eed_cv{00..04}/x_list_test/
 #                  {voltage.zarr, stimulus.zarr, neuron_type.zarr}
 # Trained models : <DATA_ROOT>/log/fly/flyvis_noise_free_stimulus_ctx{1..14}/models/best_model_with_*.pt
-# Output         : figures/fig_stimulus_ctx_rollout_pearson.{pdf,png}
+# Output         : figures/fig_stimulus_ctx_pearson.{pdf,png}
 # ─────────────────────────────────────────────────────────────────────────────
 
 import glob
@@ -50,7 +50,7 @@ CTXS = list(range(1, 15))
 CV_IDS = ['00', '01', '02', '03', '04']
 LOG_ROOT = Path('/groups/saalfeld/home/kumarv4/repos/connectome-gnn/log/fly')
 CV_ROOT = Path('/groups/saalfeld/home/kumarv4/repos/connectome-gnn/graphs_data/fly')
-OUT_BASE = REPO / 'figures' / 'fig_stimulus_ctx_rollout_pearson'
+OUT_BASE = REPO / 'figures' / 'fig_stimulus_ctx_pearson'
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 # Janne style per figures/INSTRUCTIONS.md
