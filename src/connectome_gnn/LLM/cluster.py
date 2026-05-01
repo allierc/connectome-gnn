@@ -33,8 +33,12 @@ CLUSTER_SSH      = f"{CLUSTER_USER}@{CLUSTER_LOGIN}"
 
 # Per-GPU-node CPU sizing. l4 GPUs are slower per-frame, so the data-loader
 # starves the GPU at the default n_cpus=2; bumping to 8 keeps the input
-# pipeline ahead of the trainer. Other nodes (a100, h100) are fine at 2.
-_CPUS_PER_NODE = {'l4': 8}
+# pipeline ahead of the trainer. a100 / h100 jobs run on the larger
+# flywire connectomes (full_eye, 50k neurons; proximal_nulls, ≤9.6M edges)
+# — the default n_cpus=2 caps LSF memory at ~80 GB which is below the
+# voltage.zarr + stimulus.zarr + DAL footprint, so bump both to n_cpus=8
+# (~320 GB) to avoid TERM_MEMLIMIT during data load.
+_CPUS_PER_NODE = {'l4': 8, 'a100': 8, 'h100': 8}
 
 
 def _resolve_n_cpus(node_name, n_cpus_default=2):
