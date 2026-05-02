@@ -276,34 +276,48 @@ circuit. Mechanistic interpretation requires recovering the governing
 equation of the neural signal together with the per-neuron and
 connection parameters. We separate this inverse problem into two cases
 according to whether the form of the governing equation is given or not.
-When the equation is given, we trained a Known-ODE model, the
-differentiable version of Eq.~\ref{eq:simulated_update}, whose
-learnable parameters are the connectivity weights $\hat{\mathbf{W}}$
-($434{,}112$ edges) and the per-neuron $\hat{\boldsymbol{\tau}}$,
+When the equation is given, we train a Known-ODE model, the
+differentiable version of Eq.~\ref{eq:simulated_update}, whose learnable
+parameters are the connectivity weights $\hat{\mathbf{W}}$ ($434{,}112$
+edges) and the per-neuron $\hat{\boldsymbol{\tau}}$,
 $\hat{\mathbf{V}}^{\mathrm{rest}}$ ($13{,}741$ each). The ReLU
 activation is shared across neurons; cell-type assignments are not
-given. With $\ell_1$/$\ell_2$ regularisation on the parameters and an MSE
-one-step prediction loss (Appendix~\ref{app:benchmark}), the Known-ODE
-achieved near-perfect activity prediction over $8{,}000$ test frames
-and near-perfect parameter recovery over $>4.5\cdot10^5$ values  (Fig.~\ref{fig:know_ode_rollout},
-Fig.~\ref{fig:known_ode_params_3col_noise_comparison}). Even at high model noise ($\sigma=0.5$), the model clusters the $65$
-cell types correctly and recovers all circuit parameters, with the
-exception of a small fraction of neurons ($<10\%$). Notably, the Known-ODE trained on
-noisy activity reproduced the noise-free rollout. It cannot
-explicitly fit the stochastic fluctuations and instead converges on the
-underlying deterministic dynamics. This results sets an upper bound: when the
-ODE form is given, the strongly ill-posed inverse problem is well tractable.
-Conversely, the GNN does not have access to the update equation. It learns jointly
-the connectivity, a per-neuron embedding, and two signalling functions
-$f_\theta, g_\phi$ that together express a wide family of update rules
-(Eq.~\ref{eq:gnn_ct}). To overcome the degeneracy problem, we optimized the GNN training scheme with an agentic loop (Appendix~\ref{app:agent} and \ref{app:GNN}). As a result, the GNN achieved near-perfect activity prediction (Table~\ref{tab:cv_gnn_vs_baselines},
-Fig.~\ref{fig:rollout_3col_noise_comparison}) at all noise model levels, and
-likewise reproduces the noise-free rollout when trained on noisy
-activity. Strikingly, parameter recovery is comparable to the
-Known-ODE upper bound. Connectivity weights, time constants, resting potentials
-and cell-type clusters are all recovered with accuracy approaching the
-upper bound, despite the GNN having no prior on the form of the dynamics
-(Table~\ref{tab:cv_gnn_vs_baselines}).
+given. With $\ell_1$/$\ell_2$ regularisation on the parameters and an
+MSE one-step prediction loss (Appendix~\ref{app:benchmark}), the
+Known-ODE achieves near-perfect activity prediction (one-step and
+autoregressive rollout) over $8{,}000$ test
+frames and near-perfect parameter recovery over $> 4.5\cdot 10^5$
+values (Fig.~\ref{fig:know_ode_rollout},
+Fig.~\ref{fig:known_ode_params_3col_noise_comparison}). Even at high
+model noise ($\sigma=0.5$), the model clusters the $65$ cell types
+correctly and recovers all circuit parameters, with the exception of a
+small fraction of neurons ($<10\%$). Notably, the Known-ODE trained on
+noisy activity reproduces the noise-free rollout: it cannot explicitly
+fit the stochastic fluctuations and instead converges on the underlying
+deterministic dynamics. This result sets an upper bound: when the ODE
+form is given, the strongly ill-posed inverse problem is tractable.
+Conversely, the GNN does not have access to the update equation. It
+learns jointly the connectivity, a per-neuron embedding, and two
+signalling functions $f_\theta, g_\phi$ that together express a wide
+family of update rules (Eq.~\ref{eq:gnn_ct}). To overcome the
+degeneracy problem, we optimise the GNN training scheme with an agentic
+loop (Appendix~\ref{app:agent} and \ref{app:GNN}). At low and high
+model noise ($\sigma \in \{0.05,\,0.5\}$), the GNN matches the
+Known-ODE upper bound almost exactly: one-step and rollout Pearson
+$r=1.00$ over $8{,}000$ frames, $R^2_{\hat{\mathbf{W}}}\geq 0.99$
+across all $434{,}112$ edges, $R^2_{\hat{\tau}}\geq 0.99$ and
+$R^2_{\hat{V}^{\mathrm{rest}}}\geq 0.94$ on the no-outlier neuron set,
+and cell-type clustering accuracy $0.92$ from the learned latent
+embeddings $\mathbf{a}_i$ (Table~\ref{tab:cv_gnn_vs_baselines},
+Fig.~\ref{fig:rollout_3col_noise_comparison},
+Fig.~\ref{fig:gnn_params_3col_noise_comparison}). As with the
+Known-ODE, when trained on noisy activity the GNN recovers the
+underlying deterministic dynamics rather than fitting the stochastic
+fluctuations, reproducing the noise-free rollout. The deterministic
+$\sigma=0$ regime is the harder case (rollout $r=0.90\pm 0.21$,
+$R^2_{\hat{\mathbf{W}}}=0.89$, $R^2_{\hat{V}^{\mathrm{rest}}}=0.78$),
+consistent with our identifiability analysis.
+
 
 \input{tables/cv_table_gnn_vs_baselines}
 
@@ -349,22 +363,45 @@ upper bound, despite the GNN having no prior on the form of the dynamics
 \end{figure}
 
 
-\paragraph{Ablation edges, a mechanistic test.}
+
+\paragraph{Edge ablation as a mechanistic test.}
+Predicting held-out activity is a necessary but insufficient property of
+a mechanistic model: data-driven sequence models (\mlpbase, \eedbase,
+\stimbase) absorb the connectivity into their hidden state and, by
+construction, cannot answer counterfactual questions about edge removal.
+We therefore probe whether the GNN has internalised the message-passing
+rules of the circuit by performing a matched ablation. For each of the
+three training-noise regimes ($\sigma \in \{0,\,0.05,\,0.5\}$), we
+randomly zero $50\%$ of the $434{,}112$ edges, regenerate $8{,}000$
+frames of held-out test activity with the perturbed connectome, and
+apply the same edge mask to the trained GNN's learned weights
+$\hat{\mathbf{W}}$ before running the autoregressive rollout. No
+retraining is performed: the test is whether $\hat{\mathbf{W}}$,
+$\hat{\boldsymbol{\tau}}$, $\hat{\mathbf{V}}^{\mathrm{rest}}$,
+$f_\theta$, $g_\phi$ extrapolate to a circuit with half its edges
+removed. The GNN passes this test at all model noise levels. The per-neuron Pearson correlation between the ablated rollout and the noise-free ablated
+simulations is $r \geq 0.99$ across all three noise levels
+(Fig.~\ref{fig:rollout_3col_noise_comparison_ablation50}). The agreement
+holds for individual cell-type traces (panels a--c) and across the full
+voltage range (panels d--f). The high cross-condition agreement
+indicates that the learned $f_\theta$ and $g_\phi$ encode the local
+update rule rather than memorising trajectories, satisfying our
+mechanistic criterion and complementing the parameter-recovery results
+of Fig.~\ref{fig:gnn_params_3col_noise_comparison}. 
 
 
 
+\paragraph{Data degradation (measurment noise, partial data, unknown stimulus).}
+We evaluate the GNN ($\sigma=0.05$) on a grid of degradations expected in real experiments: measurement noise ($\gamma\in\{0.1,0.2\}$), connectome errors as false positives ($+400\%$ random null edges, $5\times$ inflated graph) and false negatives ($-20\%$, $-50\%$ edges removed), partial temporal sampling ($1/5$ frames), partial spatial sampling ($10\%$, $20\%$ neurons hidden), and unknown stimulus jointly recovered with a SIREN network (Appendix \ref{app:SIREN}) (Table~\ref{tab:cv_cross_noise}). Activity prediction is robust across all conditions (one-step $r\geq0.95$ except $1/5$ frames at $0.86$). Parameter recovery is most resilient to false-positive edges. The GNN correctly identifies the $80\%$ of inflated edges as zero-weight and recovers the true $\hat{\mathbf{W}}$ at $R^2=0.96$ even at $5\times$ the true edge count. It degrades under $-20\%$ edge removal ($R^2_{\hat{W}}=0.78$, rollout $r=0.99$), but breaks down at $-50\%$ removal ($R^2_{\hat{W}}=0.19$, rollout $r=0.56$). When half the true edges are missing from the prior, the remaining edges cannot absorb their contribution. Measurement noise primarily corrupts $\hat{\mathbf{W}}$ ($R^2=0.64$ at $\gamma=0.1$, $0.39$ at $\gamma=0.2$) while leaving rollout largely intact. Partial observation of frames or neurons preserves $\tau$ recovery ($R^2_{\hat\tau}\geq0.83$) but undermines $\hat{\mathbf{W}}$. As a first attempt to close this gap, we couple the GNN with an Instant\nobreakdash-NGP coordinate network~\citep{mueller_instant_2022} that learns to fill in the unobserved neuron activity jointly with the dynamics; preliminary results recover part of the lost $\hat{\mathbf{W}}$ signal but do not yet match the fully observed baseline (Appendix~\ref{app:NGP}, in preparation). When the input stimulus is itself hidden, we couple the GNN with a SIREN coordinate network~\citep{sitzmann_implicit_2020} that learns the photoreceptor drive jointly with the dynamics: the recovered stimulus matches ground truth at $r=0.92$, while $\hat{\boldsymbol{\tau}}$ ($R^2=0.93$) and $\hat{\mathbf{W}}$ ($R^2=0.81$) remain close to the known-stimulus values
+(Fig.~\ref{fig:stim_rollout_inr}). Note that here the stimulus is not
+truly unobserved: it is present in the activity of the $1{,}736$ retinal
+photoreceptors (R1--R8 across $217$ columns), which themselves also
+receive feedback from downstream neurons. The task is therefore one of
+disentangling the feedforward stimulus drive from the recurrent
+feedback, rather than recovering an unknown input from scratch.
 
 
-% \textcolor{orange}{[TODO]} add extraction other parameters, add figure.
-% The resting membrane potential $V_i^{\mathrm{rest}}$ is the hardest parameter to extract. Results obtained with GNN are far below the Known-ODE baseline $R^2_{V^{\mathrm{rest}}}\sim0.9$ (see Table \ref{tab:cv_per_condition} and \ref{tab:cv_known_ode}). It is however a key property of the circuit important to recover as it sets the baseline excitability of each neuron. Notably $V_i^{\mathrm{rest}}$ recovery is made possible by a minimal modification of the stimulus sequences, namely prepending a $10\%$ blank period ($I_i(t)=0$) to each training sequence. During this silent window, each neuron relaxes towards $V_i^{\mathrm{rest}}$, giving the possibility for the GNN to extrapolate the $V_i^{\mathrm{rest}}$ values. This modification alone raises $R^2_{\hat{V}^{\mathrm{rest}}}$ from  $\sim0.1$ to $\sim0.8$. This highlights the impact of the choice of stimulus on parameter recovery; a real experiment on the fly visual system would be potentially unable to recover the resting potential in the absence of a sufficient amount of blank/dark stimulus frames. The solution was not discovered by the agentic loop HPO, which did not explore stimulus structures. Including the stimuli optimization in the agent search space is thus a necessary extension for future work.
 
-
-
-\paragraph{Difficult cases (noise, partial data, unknown stimuluss).}
-
-We evaluate the GNN models and the Know-ODE across a grid of simulations spanning the main sources of variability and degradation expected in realistic experimental settings. In particular, we tested two levels of measurement noise
-($\gamma \in \{0.1, 0.2\}$), false-positive edges ($+400\%$ added null edges),
-false-negative edges ($-20\%$, $-50\%$  removed edges), and partial observation of data in both time ($1/5$ frames kept) and neurons ($10\%$ and $20\%$ hidden). Also we considered the case where the input stimulus is not given and must be learned jointly with the model.  
 
 
 % \paragraph{Robustness to measurement noise.}
@@ -927,8 +964,6 @@ degeneracy: any $\mathbf{w}_i + \boldsymbol{\delta}$ with $\boldsymbol{\delta}
 produces identical dynamics. In the following, we characterise the
 dynamical equivalence class of $\mathbf{W}$, the set of all weight
 matrices that reproduce the observed trajectories.
-
-\comment {I've commented out the pseudo-inverse section, because we don't have a way to demonstrate that 99\% is the right threshold.}
 
 % \paragraph{Pseudoinverse recovery.}
 % Assuming $\tau_i$ and $V_i^{\mathrm{rest}}$ are known,
@@ -1800,6 +1835,7 @@ GNN result reported in the paper, including the FlyWire and
 degraded-connectome variants.
 
 \subsection{Joint stimulus recovery with a SIREN.}
+\label{app:SIREN}
 To test whether the visual input $I_i(t)$ entering
 Eq.~\ref{eq:known_ode} can itself be recovered from activity alone,
 we extend the GNN with an implicit neural representation of the
@@ -1818,6 +1854,95 @@ learning rates by $0.05$ while $\text{lr}_\text{SIREN}$ is held
 constant, letting the SIREN catch up on a stable graph backbone.
 
 
+\subsection{Joint hidden-activity recovery with Instant-NGP.}
+\label{app:NGP}
+The hidden-neuron rows of Table~\ref{tab:cv_cross_noise}
+(configs \texttt{flyvis\_noise\_005\_hidden\_010\_ngp\_blank50\_unified\_cv00..04}
+and \texttt{flyvis\_noise\_005\_hidden\_020\_ngp\_blank50\_unified\_cv00..04};
+five folds each) are obtained by hiding $10\%$ or $20\%$ of the
+$12{,}005$ non-retinal neurons and asking the GNN to recover its
+parameters without ever seeing those voltage traces. The unobserved
+voltages are filled in by a coordinate-based network trained jointly
+with the GNN, in the same spirit as the SIREN-based stimulus recovery
+of Appendix~\ref{app:SIREN} \citep{sitzmann_implicit_2020}, but with
+an Instant-NGP-style multi-resolution feature grid in place of the
+sine MLP \citep{mueller_instant_2022}.
+
+\paragraph{Architecture.} Because the input here is one-dimensional
+(time), we use a pure-PyTorch \texttt{MultiResTemporalGrid}
+(\texttt{src/connectome\_gnn/models/MultiResGrid\_Network.py}) rather
+than a hash table: each level is an \texttt{nn.Embedding} of size
+$(R_\ell+1)\times d$ with linear interpolation between neighbouring
+cells, so each query touches only the two cells around it
+($d=4$ features, $L=24$ levels, base resolution $R_0=16$, per-level
+scale $1.4$, finest $R_{23}\approx5\,300$). The concatenated grid
+features ($Ld=96$D) are decoded by a $3$-hidden-layer MLP of width
+$512$ to a vector of size $n_{\mathrm{hidden}}+n_{\mathrm{anchor}}$.
+Locality is what motivates the architecture over a SIREN: updating
+the prediction for one frame only modifies a small neighbourhood of
+grid cells, avoiding the global ``waterbed'' coupling that we
+observed when training a $T$-only SIREN over $64{,}000$ frames.
+
+\paragraph{Training.} The first $n_{\mathrm{hidden}}$ output slots are
+written into \texttt{x.voltage[hidden\_ids]} at every step so the
+hidden neurons participate in message passing exactly like the
+visible ones, and gradients flow back into the grid and the decoder
+through the GNN's prediction loss. The remaining $n_{\mathrm{anchor}}$
+slots are supervised directly against the ground-truth voltages of
+$3{,}600$ anchor neurons drawn uniformly from the visible set --- this
+gives the time field a stable temporal scaffold without which the
+hidden-neuron output tends to collapse onto a low-frequency mean.
+Both auxiliary terms enter the total loss with coefficients
+$\lambda_{\mathrm{hidden}}=\lambda_{\mathrm{anchor}}=3{,}000$. All
+GNN learning rates and regularisers are inherited unchanged from the
+canonical $\sigma=0.05$ winner of Appendix~\ref{app:GNN}; the only
+new hyperparameters are those of the temporal grid above.
+
+\paragraph{Status.} On $10\%$ hidden the joint scheme reaches
+one-step $r=0.98$ but rollout $r=0.64\pm0.26$ and
+$R^2_{\hat{\mathbf{W}}}=0.33\pm0.45$; on $20\%$ hidden $\hat{\mathbf
+W}$ recovery collapses to $0.02\pm0.39$
+(Table~\ref{tab:cv_cross_noise}). $\tau$ recovery is preserved in
+both cases ($R^2_{\hat\tau}\geq0.84$). We attribute the residual
+gap to two factors --- (i)~the hidden voltages are reconstructed
+purely from the time index, with no spatial prior, so the grid has
+to memorise per-neuron trajectories, and (ii)~the anchor supervision
+constrains the time encoding but not the per-neuron decoder weights.
+
+\paragraph{Spatio-temporal extension.} As a direct response to the
+two factors above we add a 2-D companion grid \texttt{MultiResHexGrid2D}
+indexed by the per-neuron retinotopic position $(u_i, v_i)$ — the
+columnar coordinates flyvis already attaches to every node — mapped to
+Cartesian $(x_i, y_i) = (u_i + 0.5\,v_i,\ v_i\,\sqrt{3}/2)$ in
+keeping with the hex convention used by every other plot in this
+paper. This required a one-line fix to the data generator
+(\texttt{generators/graph\_data\_generator.py}): in the published
+results, only photoreceptor positions were retinotopically meaningful,
+while non-retinal neurons received random equidistant points; we now
+use the same $(u, v)$ mapping for every neuron via
+\texttt{get\_all\_neuron\_positions\_from\_net} so the spatial grid can
+share parameters across nearby columns. The wrapper
+\texttt{MultiResSpatioTemporalGrid} concatenates the temporal and
+spatial grid features ($96+24$D in our run) and decodes them with a
+shrunk MLP ($16$ temporal levels, $6$ spatial levels at
+base resolution $4$ and per-level scale $1.5$, $256$-wide
+$2$-hidden-layer decoder) into a per-neuron scalar voltage; the cell-type
+identity is carried by the GNN's learned latent
+$\mathbf{a}_i$ via the rank-$16$ factorised head
+(\texttt{ngp\_factorized\_rank=16}, \texttt{ngp\_factorized\_from\_a=true})
+which directly addresses (ii). Crucially $\mathbf{a}_i$ for a hidden neuron
+is itself learned through $g_\phi(v_i^{\mathrm{NGP}}, \mathbf{a}_i)$: when the
+hidden neuron's output is sent through outgoing edges to a visible
+postsynaptic neighbour, the visible neuron's prediction loss
+back-propagates through $g_\phi$ to update $\mathbf{a}_i$, so cell-type
+structure is inherited from neighbouring observed neurons of the same
+type. Numerical results from this extension will be added in a
+follow-up; the implementation lands as
+\texttt{run\_GNN\_hidden\_ngp\_spatial.py} (single condition, $5$ CV
+folds in parallel), and the rollout bundle now stores all hidden
+neurons together with their $(x, y)$ positions and per-neuron
+$R^2$ so column-resolved error maps can be rendered directly
+(\texttt{figures/fig\_hidden\_rollout\_ngp.py}).
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
