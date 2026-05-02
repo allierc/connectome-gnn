@@ -32,6 +32,8 @@ def _load_manifest():
 class TestVariantResolution:
     def test_is_flyvis_hybrid_model(self):
         assert is_flyvis_hybrid_model("e8_flywireRF")
+        assert is_flyvis_hybrid_model("e8_flywireRF_mlp")
+        assert is_flyvis_hybrid_model("e8_flywireRF_eed")
         assert is_flyvis_hybrid_model("e8_flywireRF_proximal_nulls")
         assert is_flyvis_hybrid_model("full_eye_flywireRF")
         assert is_flyvis_hybrid_model("full_eye_flywireRF_proximal_nulls_known_ode")

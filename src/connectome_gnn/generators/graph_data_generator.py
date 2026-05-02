@@ -911,6 +911,7 @@ def data_generate_voltage(
             f"{net.connectome.edges.source_index[:].shape[0]} edges"
         )
     else:
+        assert "flywire" not in model_config.signal_model_name, "Should have taken the if-branch"
         # --- Standard flyvis network ---
         config_net = get_default_config(overrides=[], path=f"{CONFIG_PATH}/network/network.yaml")
         config_net.connectome.extent = extent
