@@ -60,6 +60,88 @@ ANSI_YELLOW = '\033[93m'
 ANSI_ORANGE = '\033[38;5;208m'
 ANSI_RED = '\033[91m'
 
+def _quick_ngp_pearson(model, x_ts, ids, *, use_anchor, device,
+                        n_neurons_sample=64, n_frames_sample=256, rng=None):
+    """Lightweight per-neuron Pearson r between batched NGP output and GT.
+
+    Used by the tqdm bar to surface a real-time fit metric for the
+    hidden-neuron InstantNGP between the heavyweight
+    plot_training_flyvis checkpoints. Samples a small random subset of
+    (neurons, frames), runs a single ``forward_{hidden,anchor}_batched``
+    call (no grad), and returns the mean per-neuron Pearson r.
+
+    Args:
+        model:        NeuralGNN with NNR_hidden initialised.
+        x_ts:         TimeSeries used as ground truth.
+        ids:          (N,) torch.long ids — hidden_ids or anchor_ids.
+        use_anchor:   pick forward_anchor_batched if True, else
+                      forward_hidden_batched.
+        device:       trainer device.
+        n_neurons_sample / n_frames_sample: subset sizes (defaults are
+                      cheap enough to call every ~200 iterations on a
+                      single A100 without measurable wall-time cost).
+        rng:          optional numpy Generator. Defaults to a fresh
+                      default_rng() so the subset varies between calls.
+
+    Returns:
+        float | None — mean per-neuron Pearson r, or None if the call
+        could not run (e.g. spatial NGP pos cache not yet populated).
+    """
+    if model.NNR_hidden is None or ids is None or len(ids) == 0:
+        return None
+    if use_anchor and getattr(model, 'n_anchor', 0) == 0:
+        return None
+
+    n_total = int(len(ids))
+    n_neurons_sample = min(n_neurons_sample, n_total)
+    n_frames_total = int(x_ts.n_frames)
+    n_frames_sample = min(n_frames_sample, n_frames_total)
+    if rng is None:
+        rng = np.random.default_rng()
+    sel_n = np.sort(rng.choice(n_total, n_neurons_sample, replace=False))
+    sel_f = np.sort(rng.choice(n_frames_total, n_frames_sample, replace=False))
+
+    if isinstance(ids, torch.Tensor):
+        sel_ids = ids[sel_n].to(device=device, dtype=torch.long)
+    else:
+        sel_ids = torch.as_tensor(np.asarray(ids)[sel_n],
+                                  device=device, dtype=torch.long)
+    k_t = torch.as_tensor(sel_f, device=device, dtype=torch.long)
+
+    was_training = model.training
+    model.eval()
+    try:
+        with torch.no_grad():
+            if use_anchor:
+                pred = model.forward_anchor_batched(k_t, anchor_ids=sel_ids)
+            else:
+                pred = model.forward_hidden_batched(k_t, hidden_ids=sel_ids)
+    except RuntimeError:
+        # spatial NGP pos cache not yet populated — caller skips this iter
+        if was_training:
+            model.train()
+        return None
+    if was_training:
+        model.train()
+
+    gt = x_ts.voltage[sel_f][:, sel_ids]                     # (F, N)
+    gt_np = gt.detach().to('cpu').numpy().astype(np.float32)
+    pred_np = pred.detach().to('cpu').numpy().astype(np.float32)
+    g = gt_np - gt_np.mean(axis=0, keepdims=True)
+    p = pred_np - pred_np.mean(axis=0, keepdims=True)
+    num = (g * p).sum(axis=0)
+    denom = np.sqrt((g * g).sum(axis=0)) * np.sqrt((p * p).sum(axis=0))
+    corrs = np.where(denom > 1e-12, num / (denom + 1e-12), 0.0)
+    return float(corrs.mean())
+
+
+# How often the tqdm bar gets a refreshed NGP Pearson r between the heavy
+# plot_training_flyvis checkpoints. ~200 iters keeps the cost negligible
+# (one batched forward over 64 neurons × 256 frames per refresh) while
+# updating the bar often enough to track the InstantNGP visibly.
+_NGP_QUICK_FREQ = 200
+
+
 def r2_color(val, thresholds=(0.9, 0.7, 0.3)):
     """ANSI color for an R² value: green > t0, yellow > t1, orange > t2, red otherwise."""
     t0, t1, t2 = thresholds
@@ -642,24 +724,63 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                                 f'{_fmt_metric(last_vrest_r2_clean)},{last_n_out_vrest},{last_n_total_vrest},'
                                 f'{_fmt_metric(last_tau_r2_clean)},{last_n_out_tau},{last_n_total_tau}\n')
 
-                if last_connectivity_r2 is not None:
-                    c_conn = r2_color(last_connectivity_r2)
-                    if last_connectivity_r2_visible is not None and abs(last_connectivity_r2_visible - last_connectivity_r2) > 1e-4:
-                        conn_str = f'conn={last_connectivity_r2:.3f}({last_connectivity_r2_visible:.3f})'
-                    else:
-                        conn_str = f'conn={last_connectivity_r2:.3f}'
-                    bar_parts = [f'{c_conn}{conn_str}{ANSI_RESET}']
-                    if ode_params.has_vrest():
-                        bar_parts.append(f'{r2_color(last_vrest_r2)}Vr={last_vrest_r2:.3f}{ANSI_RESET}')
-                    if ode_params.has_tau():
-                        bar_parts.append(f'{r2_color(last_tau_r2)}τ={last_tau_r2:.3f}{ANSI_RESET}')
+                # Fast NGP Pearson refresh — independent of the heavy R²
+                # checkpoint above. Subsamples (64 neurons × 256 frames),
+                # one batched forward, no grad. Only fires when the model
+                # has a hidden-neuron INR. Also appends a metrics.log row
+                # so the runner's 300s collector picks the updated values
+                # up between heavy checkpoints.
+                _ngp_quick_updated = False
+                if (has_hidden_neurons
+                        and getattr(model, 'NNR_hidden', None) is not None
+                        and N > 0 and N % _NGP_QUICK_FREQ == 0):
+                    _h_quick = _quick_ngp_pearson(
+                        model, x_ts, hidden_ids,
+                        use_anchor=False, device=device)
+                    if _h_quick is not None:
+                        last_hidden_r2 = _h_quick
+                        _ngp_quick_updated = True
+                    if has_anchor_neurons:
+                        _a_quick = _quick_ngp_pearson(
+                            model, x_ts, anchor_ids,
+                            use_anchor=True, device=device)
+                        if _a_quick is not None:
+                            last_anchor_r2 = _a_quick
+                            _ngp_quick_updated = True
+                if _ngp_quick_updated:
+                    with open(metrics_log_path, 'a') as f:
+                        f.write(f'{regularizer.iter_count},'
+                                f'{_fmt_metric(last_connectivity_r2)},'
+                                f'{_fmt_metric(last_vrest_r2)},'
+                                f'{_fmt_metric(last_tau_r2)},'
+                                f'{_fmt_metric(last_hidden_r2)},'
+                                f'{_fmt_metric(last_anchor_r2)},'
+                                f'{_fmt_metric(last_vrest_r2_clean)},'
+                                f'{last_n_out_vrest},{last_n_total_vrest},'
+                                f'{_fmt_metric(last_tau_r2_clean)},'
+                                f'{last_n_out_tau},{last_n_total_tau}\n')
+
+                if last_connectivity_r2 is not None or last_hidden_r2 is not None:
+                    bar_parts = []
+                    if last_connectivity_r2 is not None:
+                        c_conn = r2_color(last_connectivity_r2)
+                        if last_connectivity_r2_visible is not None and abs(last_connectivity_r2_visible - last_connectivity_r2) > 1e-4:
+                            conn_str = f'conn={last_connectivity_r2:.3f}({last_connectivity_r2_visible:.3f})'
+                        else:
+                            conn_str = f'conn={last_connectivity_r2:.3f}'
+                        bar_parts.append(f'{c_conn}{conn_str}{ANSI_RESET}')
+                        if ode_params.has_vrest():
+                            bar_parts.append(f'{r2_color(last_vrest_r2)}Vr={last_vrest_r2:.3f}{ANSI_RESET}')
+                        if ode_params.has_tau():
+                            bar_parts.append(f'{r2_color(last_tau_r2)}τ={last_tau_r2:.3f}{ANSI_RESET}')
                     if last_hidden_r2 is not None:
                         if last_anchor_r2 is not None:
                             nnr_str = f'nnr={last_hidden_r2:.3f}({last_anchor_r2:.3f})'
                         else:
                             nnr_str = f'nnr={last_hidden_r2:.3f}'
                         bar_parts.append(f'{r2_color(last_hidden_r2)}{nnr_str}{ANSI_RESET}')
-                    pbar.set_postfix_str(' '.join(bar_parts))
+                    if bar_parts:
+                        pbar.set_postfix_str(' '.join(bar_parts))
                 continue
 
             state_batch = []
@@ -963,24 +1084,62 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                                 f'{_fmt_metric(last_vrest_r2_clean)},{last_n_out_vrest},{last_n_total_vrest},'
                                 f'{_fmt_metric(last_tau_r2_clean)},{last_n_out_tau},{last_n_total_tau}\n')
 
-                if last_connectivity_r2 is not None:
-                    c_conn = r2_color(last_connectivity_r2)
-                    if last_connectivity_r2_visible is not None and abs(last_connectivity_r2_visible - last_connectivity_r2) > 1e-4:
-                        conn_str = f'conn={last_connectivity_r2:.3f}({last_connectivity_r2_visible:.3f})'
-                    else:
-                        conn_str = f'conn={last_connectivity_r2:.3f}'
-                    bar_parts = [f'{c_conn}{conn_str}{ANSI_RESET}']
-                    if ode_params.has_vrest():
-                        bar_parts.append(f'{r2_color(last_vrest_r2)}Vr={last_vrest_r2:.3f}{ANSI_RESET}')
-                    if ode_params.has_tau():
-                        bar_parts.append(f'{r2_color(last_tau_r2)}τ={last_tau_r2:.3f}{ANSI_RESET}')
+                # Fast NGP Pearson refresh — independent of the heavy R²
+                # checkpoint above. Subsamples (64 neurons × 256 frames),
+                # one batched forward, no grad. Also appends a metrics.log
+                # row so the runner's 300s collector picks the updated
+                # values up between heavy checkpoints.
+                _ngp_quick_updated = False
+                if (has_hidden_neurons
+                        and getattr(model, 'NNR_hidden', None) is not None
+                        and N > 0 and N % _NGP_QUICK_FREQ == 0):
+                    _h_quick = _quick_ngp_pearson(
+                        model, x_ts, hidden_ids,
+                        use_anchor=False, device=device)
+                    if _h_quick is not None:
+                        last_hidden_r2 = _h_quick
+                        _ngp_quick_updated = True
+                    if has_anchor_neurons:
+                        _a_quick = _quick_ngp_pearson(
+                            model, x_ts, anchor_ids,
+                            use_anchor=True, device=device)
+                        if _a_quick is not None:
+                            last_anchor_r2 = _a_quick
+                            _ngp_quick_updated = True
+                if _ngp_quick_updated:
+                    with open(metrics_log_path, 'a') as f:
+                        f.write(f'{regularizer.iter_count},'
+                                f'{_fmt_metric(last_connectivity_r2)},'
+                                f'{_fmt_metric(last_vrest_r2)},'
+                                f'{_fmt_metric(last_tau_r2)},'
+                                f'{_fmt_metric(last_hidden_r2)},'
+                                f'{_fmt_metric(last_anchor_r2)},'
+                                f'{_fmt_metric(last_vrest_r2_clean)},'
+                                f'{last_n_out_vrest},{last_n_total_vrest},'
+                                f'{_fmt_metric(last_tau_r2_clean)},'
+                                f'{last_n_out_tau},{last_n_total_tau}\n')
+
+                if last_connectivity_r2 is not None or last_hidden_r2 is not None:
+                    bar_parts = []
+                    if last_connectivity_r2 is not None:
+                        c_conn = r2_color(last_connectivity_r2)
+                        if last_connectivity_r2_visible is not None and abs(last_connectivity_r2_visible - last_connectivity_r2) > 1e-4:
+                            conn_str = f'conn={last_connectivity_r2:.3f}({last_connectivity_r2_visible:.3f})'
+                        else:
+                            conn_str = f'conn={last_connectivity_r2:.3f}'
+                        bar_parts.append(f'{c_conn}{conn_str}{ANSI_RESET}')
+                        if ode_params.has_vrest():
+                            bar_parts.append(f'{r2_color(last_vrest_r2)}Vr={last_vrest_r2:.3f}{ANSI_RESET}')
+                        if ode_params.has_tau():
+                            bar_parts.append(f'{r2_color(last_tau_r2)}τ={last_tau_r2:.3f}{ANSI_RESET}')
                     if last_hidden_r2 is not None:
                         if last_anchor_r2 is not None:
                             nnr_str = f'nnr={last_hidden_r2:.3f}({last_anchor_r2:.3f})'
                         else:
                             nnr_str = f'nnr={last_hidden_r2:.3f}'
                         bar_parts.append(f'{r2_color(last_hidden_r2)}{nnr_str}{ANSI_RESET}')
-                    pbar.set_postfix_str(' '.join(bar_parts))
+                    if bar_parts:
+                        pbar.set_postfix_str(' '.join(bar_parts))
 
                 if (has_visual_field) & (N in plot_iterations):
                     field_R2, field_slope = render_visual_field_video(
