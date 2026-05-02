@@ -797,18 +797,27 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
         _max_edges = int(os.environ.get('EIGEN_MAX_EDGES', 5_000_000))
     except ValueError:
         _max_edges = 5_000_000
+    try:
+        _max_neurons = int(os.environ.get('EIGEN_MAX_NEURONS', 20_000))
+    except ValueError:
+        _max_neurons = 20_000
     _skip_eigen = (
         os.environ.get('SKIP_EIGEN')
         or _n_edges > _max_edges
+        or n_neurons > _max_neurons
         or (os.path.isfile(_eigen_path) and not os.environ.get('FORCE_EIGEN'))
     )
     # edges_np is needed downstream (clustering); compute even when skipping eigen
     edges_np = to_numpy(edges)
     if _skip_eigen:
-        _reason = ('SKIP_EIGEN set' if os.environ.get('SKIP_EIGEN')
-                   else f'n_edges={_n_edges:,} > EIGEN_MAX_EDGES={_max_edges:,}'
-                        if _n_edges > _max_edges
-                        else 'file exists')
+        if os.environ.get('SKIP_EIGEN'):
+            _reason = 'SKIP_EIGEN set'
+        elif _n_edges > _max_edges:
+            _reason = f'n_edges={_n_edges:,} > EIGEN_MAX_EDGES={_max_edges:,}'
+        elif n_neurons > _max_neurons:
+            _reason = f'n_neurons={n_neurons:,} > EIGEN_MAX_NEURONS={_max_neurons:,}'
+        else:
+            _reason = 'file exists'
         print(f'eigen_comparison skipped ({_reason}): {_eigen_path}')
     if not _skip_eigen:
         print('plot eigenvalue spectrum and eigenvector comparison ...')
@@ -2468,16 +2477,25 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 _max_edges = int(os.environ.get('EIGEN_MAX_EDGES', 5_000_000))
             except ValueError:
                 _max_edges = 5_000_000
+            try:
+                _max_neurons = int(os.environ.get('EIGEN_MAX_NEURONS', 20_000))
+            except ValueError:
+                _max_neurons = 20_000
             _skip_eigen_existing = (
                 os.environ.get('SKIP_EIGEN')
                 or _n_edges > _max_edges
+                or n_neurons > _max_neurons
                 or (os.path.isfile(_eigen_path) and not os.environ.get('FORCE_EIGEN'))
             )
             if _skip_eigen_existing:
-                _reason = ('SKIP_EIGEN set' if os.environ.get('SKIP_EIGEN')
-                           else f'n_edges={_n_edges:,} > EIGEN_MAX_EDGES={_max_edges:,}'
-                                if _n_edges > _max_edges
-                                else 'file exists')
+                if os.environ.get('SKIP_EIGEN'):
+                    _reason = 'SKIP_EIGEN set'
+                elif _n_edges > _max_edges:
+                    _reason = f'n_edges={_n_edges:,} > EIGEN_MAX_EDGES={_max_edges:,}'
+                elif n_neurons > _max_neurons:
+                    _reason = f'n_neurons={n_neurons:,} > EIGEN_MAX_NEURONS={_max_neurons:,}'
+                else:
+                    _reason = 'file exists'
                 print(f'eigen_comparison skipped ({_reason}): {_eigen_path}')
             if not _skip_eigen_existing:
                 print('plot eigenvalue spectrum and eigenvector comparison ...')

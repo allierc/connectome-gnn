@@ -82,19 +82,25 @@ except ImportError:
 logger = get_logger(__name__)
 
 
-def _compute_inr_traces(model, x_ts, hidden_ids, device, n_traces=20, n_frames=None):
+def _compute_inr_traces(model, x_ts, hidden_ids, device, n_traces=None, n_frames=None):
     """Evaluate INR hidden-neuron predictions without rollout state.
 
     Calls model.forward_hidden(x, k, hidden_ids) for each frame independently
     (pure INR, no GNN dynamics), then applies a global linear correction so
     that the saved traces are in the same scale as the ground truth.
 
+    All ``len(hidden_ids)`` traces are returned by default (set
+    ``n_traces`` to subsample). Per-neuron positions ``pos[hidden_ids]`` are
+    also returned so downstream figures can render a column-resolved map of
+    the hidden-neuron error.
+
     Args:
         model:      trained NeuralGNN with model.NNR_hidden initialised
         x_ts:       TimeSeries used for ground truth and forward_hidden state
         hidden_ids: (n_hidden,) tensor of global neuron indices
         device:     torch device
-        n_traces:   how many evenly-spaced hidden neurons to store
+        n_traces:   how many hidden neurons to store. None → all hidden_ids.
+                    If less than n_hidden, evenly-spaced ids are kept.
         n_frames:   number of frames to evaluate (None → all frames in x_ts)
 
     Returns dict with keys:
@@ -102,14 +108,22 @@ def _compute_inr_traces(model, x_ts, hidden_ids, device, n_traces=20, n_frames=N
         pred_arr      (n_traces, n_frames)  raw INR predictions
         pred_corr_arr (n_traces, n_frames)  linearly-corrected INR predictions
         global_ids    (n_traces,)           global neuron indices of stored neurons
+        global_pos    (n_traces, 2) | None  (x, y) positions of those neurons
+                                            (None if x_ts has no pos field)
         inr_type      str                   value of model._inr_hidden_type
         r2            float                 mean R² of corrected predictions
+        r2_per        (n_traces,) float32   per-neuron R² (corrected)
     """
     n_hidden = len(hidden_ids)
+    if n_traces is None:
+        n_traces = n_hidden
     n_traces = min(n_traces, n_hidden)
     n_frames = min(n_frames, x_ts.n_frames) if n_frames is not None else x_ts.n_frames
 
-    sel = np.linspace(0, n_hidden - 1, n_traces, dtype=int)
+    if n_traces == n_hidden:
+        sel = np.arange(n_hidden, dtype=int)
+    else:
+        sel = np.linspace(0, n_hidden - 1, n_traces, dtype=int)
     local_ids = hidden_ids[sel]                          # (n_traces,) global indices
 
     gt_arr   = np.zeros((n_traces, n_frames), dtype=np.float32)
@@ -138,15 +152,25 @@ def _compute_inr_traces(model, x_ts, hidden_ids, device, n_traces=20, n_frames=N
     gt_mean_n = gt_T.mean(axis=0)
     ss_res = ((gt_T - (a_coeff * pred_T + b_coeff)) ** 2).sum(axis=0)
     ss_tot = ((gt_T - gt_mean_n) ** 2).sum(axis=0)
-    r2 = float((1.0 - ss_res / (ss_tot + 1e-12)).mean())
+    r2_per = (1.0 - ss_res / (ss_tot + 1e-12)).astype(np.float32)
+    r2 = float(r2_per.mean())
+
+    global_pos = None
+    if getattr(x_ts, 'pos', None) is not None:
+        try:
+            global_pos = to_numpy(x_ts.pos[local_ids, :2]).astype(np.float32)
+        except Exception:
+            global_pos = None
 
     return dict(
         gt_arr        = gt_arr,
         pred_arr      = pred_arr,
         pred_corr_arr = pred_corr_arr,
         global_ids    = to_numpy(local_ids),
+        global_pos    = global_pos,
         inr_type      = getattr(model, '_inr_hidden_type', 'siren_t'),
         r2            = r2,
+        r2_per        = r2_per,
     )
 
 
@@ -198,6 +222,11 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     _inr_hidden = getattr(model_config, 'inr_type_hidden', 'none')
     has_hidden_neurons = getattr(model_config, 'hidden_neuron_fraction', 0.0) > 0.0
     if has_visual_field or 'test' in model_config.field_type or _inr_hidden == 'siren_txy':
+        load_fields.append('pos')
+    # When the hidden-neuron INR is active, the rollout bundle saves
+    # pos[hidden_ids] alongside the traces so figures can render
+    # column-resolved error maps without re-loading the dataset.
+    if has_hidden_neurons and 'pos' not in load_fields:
         load_fields.append('pos')
     if sim.calcium_type != 'none':
         load_fields.append('calcium')
@@ -954,18 +983,24 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
             bundle['stimulus_input_pred_corrected'] = stim_pred_corrected_2d.astype(np.float32)
 
     # ── Add INR traces when the model has a hidden-neuron INR ─────────────────
+    # All hidden neurons are stored (n_traces=None) so downstream figures can
+    # render column-resolved error maps; per-neuron R² and 2-D positions are
+    # included in the bundle.
     siren_r2 = None
     if has_hidden_neurons and hidden_ids is not None and \
             getattr(model, 'NNR_hidden', None) is not None:
         inr = _compute_inr_traces(model, x_ts_eval, hidden_ids, device,
-                                   n_traces=20, n_frames=activity_true.shape[1])
-        bundle['inr_true']       = inr['gt_arr']         # (n_inr, n_frames)
-        bundle['inr_pred_raw']   = inr['pred_arr']       # (n_inr, n_frames)
-        bundle['inr_pred_corr']  = inr['pred_corr_arr']  # (n_inr, n_frames)
-        bundle['inr_global_ids'] = inr['global_ids']     # (n_inr,)
+                                   n_traces=None, n_frames=activity_true.shape[1])
+        bundle['inr_true']       = inr['gt_arr']         # (n_hidden, n_frames)
+        bundle['inr_pred_raw']   = inr['pred_arr']       # (n_hidden, n_frames)
+        bundle['inr_pred_corr']  = inr['pred_corr_arr']  # (n_hidden, n_frames)
+        bundle['inr_global_ids'] = inr['global_ids']     # (n_hidden,)
+        bundle['inr_r2_per']     = inr['r2_per']         # (n_hidden,) per-neuron R²
+        if inr['global_pos'] is not None:
+            bundle['inr_global_pos'] = inr['global_pos'] # (n_hidden, 2) (x, y)
         bundle['inr_type']       = np.array(inr['inr_type'])
         siren_r2 = inr['r2']
-        logger.info(f'hidden INR R²: {siren_r2:.4f}')
+        logger.info(f'hidden INR R²: {siren_r2:.4f} (over {len(inr["r2_per"])} neurons)')
         if log_file:
             log_file.write(f'hidden_nnr_R2: {siren_r2:.4f}\n')
 

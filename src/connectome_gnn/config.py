@@ -462,6 +462,19 @@ class GraphModelConfig(BaseModel):
     ngp_hidden_mlp_width: int = 512
     ngp_hidden_mlp_layers: int = 4
 
+    # NGP hidden spatial branch — when ngp_hidden_spatial=True the temporal grid
+    # above is wrapped in a MultiResSpatioTemporalGrid that also queries a 2-D
+    # MultiResHexGrid2D at every neuron position pos[i]. The two feature streams
+    # are concatenated before the decoder MLP, so neighbouring columns share
+    # spatial grid cells (retinotopic smoothness prior). Only used with
+    # inr_type_hidden = "ngp_t".
+    ngp_hidden_spatial: bool = False
+    ngp_hidden_spatial_n_levels: int = 6
+    ngp_hidden_spatial_n_features_per_level: int = 4
+    ngp_hidden_spatial_base_resolution: int = 4
+    ngp_hidden_spatial_per_level_scale: float = 1.5
+    ngp_hidden_xy_period: float = 1.0  # divides pos before mapping to [0, 1]^2
+
     # Factorized output head for NGP-T / SIREN-T: parallel low-rank path that
     # mixes a per-neuron identity factor with time features, added to the
     # shared decoder output. rank=0 disables (current behavior).

@@ -87,6 +87,34 @@ def get_photoreceptor_positions_from_net(net):
     return x_coords, y_coords, u_photo, v_photo
 
 
+def get_all_neuron_positions_from_net(net):
+    """Hexagonal Cartesian (x, y) and (u, v) for *all* neurons in the network.
+
+    Uses the standard flyvis convention used everywhere in the repo for hex
+    plotting:
+        x = u + 0.5 * v
+        y = v * sqrt(3) / 2
+
+    Photoreceptors and non-retinal neurons are mapped consistently — every
+    node in ``net.connectome.nodes`` carries its own (u, v) column index, so
+    a single formula gives meaningful retinotopic positions for the entire
+    population (1,736 input + 12,005 non-retinal neurons in the canonical
+    flyvis-A model). Compare with ``get_photoreceptor_positions_from_net``,
+    which returns positions only for the R1-R8 photoreceptor subset.
+
+    Returns:
+        x_coords, y_coords, u_coords, v_coords — each (N,) numpy arrays
+        ordered to match ``net.connectome.nodes`` (i.e. the global neuron
+        index used downstream as ``state.index``).
+    """
+    nodes = net.connectome.nodes
+    u_coords = np.asarray(nodes['u'])
+    v_coords = np.asarray(nodes['v'])
+    x_coords = u_coords + 0.5 * v_coords
+    y_coords = v_coords * np.sqrt(3) / 2
+    return x_coords, y_coords, u_coords, v_coords
+
+
 class FlyVisODE(nn.Module):
     """Ground-truth ODE for flyvis neural signal dynamics.
 

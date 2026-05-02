@@ -7,7 +7,10 @@ import torch.nn as nn
 from connectome_gnn.models.MLP import MLP
 from connectome_gnn.models.registry import register_model
 from connectome_gnn.models.Siren_Network import Siren
-from connectome_gnn.models.MultiResGrid_Network import MultiResTemporalGrid
+from connectome_gnn.models.MultiResGrid_Network import (
+    MultiResTemporalGrid,
+    MultiResSpatioTemporalGrid,
+)
 from connectome_gnn.neuron_state import NeuronState
 
 
@@ -276,6 +279,11 @@ class NeuralGNN(nn.Module):
         self.NNR_hidden_T_period = getattr(model_config, 'nnr_hidden_T_period', 64000.0) / (2 * np.pi)
         self.NNR_hidden_xy_period = getattr(model_config, 'nnr_f_xy_period', 1.0) / (2 * np.pi)
         self.NNR_hidden_n_frames = float(simulation_config.n_frames)  # for NGP [0,1] normalisation
+        # Spatio-temporal NGP defaults — only become meaningful if the
+        # ngp_t branch below is selected with ngp_hidden_spatial=True.
+        self._ngp_spatial_enabled = False
+        self._ngp_xy_period = 1.0
+        self._ngp_pos_norm = None
         _hidden_frac = getattr(model_config, 'hidden_neuron_fraction', 0.0)
         _train_anchor = bool(getattr(config.training, 'train_with_anchor_neurons', False))
         _n_anchor_cfg = int(getattr(config.training, 'n_anchor', 0))
@@ -306,15 +314,36 @@ class NeuralGNN(nn.Module):
             self.n_hidden = n_hidden
             if _train_anchor:
                 self.n_anchor = _n_anchor_cfg if _n_anchor_cfg > 0 else n_hidden
-            self.NNR_hidden = MultiResTemporalGrid(
-                n_levels=getattr(model_config, 'ngp_hidden_n_levels', 24),
-                n_features_per_level=getattr(model_config, 'ngp_hidden_n_features_per_level', 4),
-                base_resolution=getattr(model_config, 'ngp_hidden_base_resolution', 16),
-                per_level_scale=getattr(model_config, 'ngp_hidden_per_level_scale', 1.4),
-                n_output=n_hidden + self.n_anchor,
-                mlp_width=getattr(model_config, 'ngp_hidden_mlp_width', 512),
-                mlp_layers=getattr(model_config, 'ngp_hidden_mlp_layers', 4),
-            )
+            self._ngp_spatial_enabled = bool(getattr(model_config, 'ngp_hidden_spatial', False))
+            self._ngp_xy_period = float(getattr(model_config, 'ngp_hidden_xy_period', 1.0))
+            self._ngp_pos_norm = None  # populated lazily from state.pos on first call
+            if self._ngp_spatial_enabled:
+                # Per-neuron query: scalar output per (t, pos) pair. Output slot
+                # role (hidden vs anchor) is encoded by which neuron ids we
+                # query, not by an output index — so n_output=1.
+                self.NNR_hidden = MultiResSpatioTemporalGrid(
+                    n_levels=getattr(model_config, 'ngp_hidden_n_levels', 16),
+                    n_features_per_level=getattr(model_config, 'ngp_hidden_n_features_per_level', 4),
+                    base_resolution=getattr(model_config, 'ngp_hidden_base_resolution', 16),
+                    per_level_scale=getattr(model_config, 'ngp_hidden_per_level_scale', 1.4),
+                    spatial_n_levels=getattr(model_config, 'ngp_hidden_spatial_n_levels', 6),
+                    spatial_n_features_per_level=getattr(model_config, 'ngp_hidden_spatial_n_features_per_level', 4),
+                    spatial_base_resolution=getattr(model_config, 'ngp_hidden_spatial_base_resolution', 4),
+                    spatial_per_level_scale=getattr(model_config, 'ngp_hidden_spatial_per_level_scale', 1.5),
+                    n_output=1,
+                    mlp_width=getattr(model_config, 'ngp_hidden_mlp_width', 256),
+                    mlp_layers=getattr(model_config, 'ngp_hidden_mlp_layers', 2),
+                )
+            else:
+                self.NNR_hidden = MultiResTemporalGrid(
+                    n_levels=getattr(model_config, 'ngp_hidden_n_levels', 24),
+                    n_features_per_level=getattr(model_config, 'ngp_hidden_n_features_per_level', 4),
+                    base_resolution=getattr(model_config, 'ngp_hidden_base_resolution', 16),
+                    per_level_scale=getattr(model_config, 'ngp_hidden_per_level_scale', 1.4),
+                    n_output=n_hidden + self.n_anchor,
+                    mlp_width=getattr(model_config, 'ngp_hidden_mlp_width', 512),
+                    mlp_layers=getattr(model_config, 'ngp_hidden_mlp_layers', 4),
+                )
             self.NNR_hidden.to(self.device)
 
         # Optional factorized output path. Parallel low-rank path that mixes a
@@ -355,6 +384,47 @@ class NeuralGNN(nn.Module):
             return self.ngp_emb_proj(self.a[ids])
         return self.ngp_emb[ids]
 
+    def _ngp_cache_pos(self, state: NeuronState):
+        """Populate self._ngp_pos_norm from state.pos on first call."""
+        if self._ngp_pos_norm is None:
+            self._ngp_pos_norm = (
+                state.pos[:, :self.dimension] / self._ngp_xy_period
+            ).detach().to(self.device)
+
+    def _ngp_query_spatial(self, k_tensor: torch.Tensor,
+                           ids: torch.Tensor) -> torch.Tensor:
+        """Spatial+temporal NGP query at B frames × M neurons.
+
+        k_tensor: (B,) integer frame indices.
+        ids:      (M,) neuron ids whose positions index into self._ngp_pos_norm.
+        Returns:  (B, M) tensor of predicted voltages.
+
+        Requires self._ngp_pos_norm to have been populated by a prior
+        forward_hidden(state, ...) call.
+        """
+        if self._ngp_pos_norm is None:
+            raise RuntimeError(
+                "forward_hidden(state, ...) must be called once before batched "
+                "spatial NGP calls so the model can cache neuron positions."
+            )
+        B = int(k_tensor.shape[0])
+        M = int(ids.shape[0])
+        t_norm = (k_tensor.to(device=self.device, dtype=torch.float32)
+                  / self.NNR_hidden_n_frames)                       # (B,)
+        pos_m = self._ngp_pos_norm[ids.to(self._ngp_pos_norm.device)]  # (M, 2)
+        t_flat = t_norm.repeat_interleave(M).unsqueeze(1)            # (B*M, 1)
+        pos_flat = pos_m.repeat(B, 1)                                # (B*M, 2)
+        if self._ngp_factorized:
+            out, feat = self.NNR_hidden(t_flat, pos_flat, return_features=True)
+            out = out.squeeze(-1)                                    # (B*M,)
+            time_lr = self.ngp_time_proj(feat)                       # (B*M, rank)
+            emb_per_neuron = self._ngp_emb_lookup(ids)               # (M, rank)
+            emb_flat = emb_per_neuron.repeat(B, 1)                   # (B*M, rank)
+            out = out + (emb_flat * time_lr).sum(dim=-1)
+        else:
+            out = self.NNR_hidden(t_flat, pos_flat).squeeze(-1)      # (B*M,)
+        return out.reshape(B, M)
+
     def forward_hidden(self, state: NeuronState, k: int, hidden_ids: torch.Tensor) -> torch.Tensor:
         """Predict voltages for hidden neurons at frame k via the hidden SIREN.
 
@@ -373,6 +443,10 @@ class NeuralGNN(nn.Module):
             in_feats = torch.cat([pos_h / self.NNR_hidden_xy_period, t_vec], dim=1)  # (n_hidden, 3)
             return self.NNR_hidden(in_feats).squeeze(-1)                        # (n_hidden,)
         elif self._inr_hidden_type == 'ngp_t':
+            if self._ngp_spatial_enabled:
+                self._ngp_cache_pos(state)
+                k_t = torch.tensor([int(k)], device=self.device, dtype=torch.long)
+                return self._ngp_query_spatial(k_t, hidden_ids).squeeze(0)      # (n_hidden,)
             # MultiResTemporalGrid: t normalized to [0, 1]
             t_in = torch.full((1, 1), float(k) / self.NNR_hidden_n_frames,
                               device=self.device, dtype=torch.float32)          # (1, 1)
@@ -407,6 +481,11 @@ class NeuralGNN(nn.Module):
         if self.NNR_hidden is None or self.n_anchor == 0:
             raise RuntimeError("forward_anchor called but anchor outputs are not enabled")
         if self._inr_hidden_type == 'ngp_t':
+            if self._ngp_spatial_enabled:
+                if anchor_ids is None:
+                    raise RuntimeError("forward_anchor requires anchor_ids when ngp_hidden_spatial=True")
+                k_t = torch.tensor([int(k)], device=self.device, dtype=torch.long)
+                return self._ngp_query_spatial(k_t, anchor_ids).squeeze(0)       # (n_anchor,)
             t_in = torch.full((1, 1), float(k) / self.NNR_hidden_n_frames,
                               device=self.device, dtype=torch.float32)
             if self._ngp_factorized:
@@ -435,6 +514,10 @@ class NeuralGNN(nn.Module):
         """
         if self.NNR_hidden is None or self.n_anchor == 0:
             raise RuntimeError("forward_anchor_batched called but anchor outputs are not enabled")
+        if self._inr_hidden_type == 'ngp_t' and self._ngp_spatial_enabled:
+            if anchor_ids is None:
+                raise RuntimeError("forward_anchor_batched requires anchor_ids when ngp_hidden_spatial=True")
+            return self._ngp_query_spatial(k_tensor, anchor_ids)               # (B, n_anchor)
         if self._inr_hidden_type == 'ngp_t':
             denom = self.NNR_hidden_n_frames
         elif self._inr_hidden_type == 'siren_t':
@@ -463,6 +546,10 @@ class NeuralGNN(nn.Module):
         """
         if self.NNR_hidden is None:
             raise RuntimeError("forward_hidden_batched called but NNR_hidden is not initialised")
+        if self._inr_hidden_type == 'ngp_t' and self._ngp_spatial_enabled:
+            if hidden_ids is None:
+                raise RuntimeError("forward_hidden_batched requires hidden_ids when ngp_hidden_spatial=True")
+            return self._ngp_query_spatial(k_tensor, hidden_ids)               # (B, n_hidden)
         if self._inr_hidden_type == 'ngp_t':
             denom = self.NNR_hidden_n_frames
         elif self._inr_hidden_type == 'siren_t':

@@ -77,10 +77,11 @@ refactor.md
 
 # Local-only scripts + figure outputs
 scripts/
-# Track only source code in figures/ (.py / .md); ignore rendered outputs (PDF/PNG/JPG/TeX)
+# Track only source code in figures/ (.py / .md / .tex); ignore rendered outputs (PDF/PNG/JPG)
 figures/*
 !figures/*.py
 !figures/*.md
+!figures/*.tex
 *.png
 *.pdf
 *.jpg

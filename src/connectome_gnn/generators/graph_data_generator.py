@@ -589,7 +589,13 @@ def data_generate_spiking(
     # Create AdEx ODE
     pde = FlyVisAdExODE(ode_params=ode_params, device=device)
 
-    # Extract positions and neuron metadata
+    # Extract positions and neuron metadata. Same fix as in
+    # data_generate_voltage: positions are derived from per-node (u, v) for
+    # the entire population, not just photoreceptors.
+    from connectome_gnn.generators.flyvis_ode import (
+        get_all_neuron_positions_from_net,
+    )
+    x_coords_all, y_coords_all, _u_all, _v_all = get_all_neuron_positions_from_net(net)
     x_coords, y_coords, u_coords, v_coords = get_photoreceptor_positions_from_net(net)
     node_types = np.array(net.connectome.nodes["type"])
     node_types_str = [t.decode("utf-8") if isinstance(t, bytes) else str(t) for t in node_types]
@@ -598,10 +604,10 @@ def data_generate_spiking(
     _, node_types_int = np.unique(node_types, return_inverse=True)
 
     n_neurons = sim.n_neurons
-    X1 = torch.tensor(np.stack((x_coords, y_coords), axis=1), dtype=torch.float32, device=device)
-    xc, yc = get_equidistant_points(n_points=n_neurons - x_coords.shape[0])
-    pos = torch.tensor(np.stack((xc, yc), axis=1), dtype=torch.float32, device=device) / 2
-    X1 = torch.cat((X1, pos[torch.randperm(pos.size(0), device=device)]), dim=0)
+    X1 = torch.tensor(
+        np.stack((x_coords_all, y_coords_all), axis=1),
+        dtype=torch.float32, device=device,
+    )
 
     # Initialize spiking neuron state
     x = pde.init_state(n_neurons)
@@ -1168,6 +1174,19 @@ def data_generate_voltage(
     # despite missing edges.
     print(f"{_G}[GENERATE] full connectivity: edge_index={edge_index.shape}  W={ode_params.W.shape}{_X}")
 
+    # Per-neuron hexagonal Cartesian positions for the *full* network — every
+    # node carries (u, v) in net.connectome.nodes, so we use the standard
+    # x = u + 0.5*v, y = v*sqrt(3)/2 mapping for both photoreceptors and
+    # non-retinal neurons. This replaces the previous behaviour where
+    # non-retinal neurons received random equidistant positions; the spatial
+    # NGP path (ngp_hidden_spatial=True) and any column-aware figure that
+    # reads pos[hidden_ids] depend on this fix.
+    from connectome_gnn.generators.flyvis_ode import (
+        get_all_neuron_positions_from_net,
+    )
+    x_coords_all, y_coords_all, _u_all, _v_all = get_all_neuron_positions_from_net(net)
+    # Keep the photoreceptor-only arrays available for downstream code that
+    # filters on input neurons (visual SIREN initialisation, etc.).
     x_coords, y_coords, u_coords, v_coords = get_photoreceptor_positions_from_net(net)
 
     node_types = np.array(net.connectome.nodes["type"])
@@ -1176,11 +1195,10 @@ def data_generate_voltage(
     grouped_types = np.array([group_by_direction_and_function(t) for t in node_types_str])
     _, node_types_int = np.unique(node_types, return_inverse=True)
 
-    X1 = torch.tensor(np.stack((x_coords, y_coords), axis=1), dtype=torch.float32, device=device)
-
-    xc, yc = get_equidistant_points(n_points=n_neurons - x_coords.shape[0])
-    pos = torch.tensor(np.stack((xc, yc), axis=1), dtype=torch.float32, device=device) / 2
-    X1 = torch.cat((X1, pos[torch.randperm(pos.size(0), device=device)]), dim=0)
+    X1 = torch.tensor(
+        np.stack((x_coords_all, y_coords_all), axis=1),
+        dtype=torch.float32, device=device,
+    )
 
     _ss_value = getattr(sim, 'steady_state_value', 0.5)
     state = net.steady_state(t_pre=2.0, dt=sim.delta_t, batch_size=1, value=_ss_value)
