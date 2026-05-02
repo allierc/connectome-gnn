@@ -14,6 +14,9 @@ Inputs (per fold):
 Suffixes:
     blank50_unified    — 11 conditions x 5 folds (run_GNN_unified_blank50.py)
     blank50_known_ode  —  8 conditions x 5 folds (run_KnownODE_blank50.py)
+    davis_blank50      —  joint GNN+INR, DAVIS x 5 folds (run_GNN_INR_blank50.py);
+                          spliced into cv_table_gnn_cross_noise.tex as one extra
+                          row just before the +400%% null-edges row.
 
 Outputs (rows-only; no captions):
     figures/cv_table_known_ode_vs_gnn.tex      Known-ODE x{2 noise levels} + GNN x{3 noise levels}
@@ -74,6 +77,7 @@ from connectome_gnn.utils import (
 
 GNN_SUFFIX = 'blank50_unified'
 KO_SUFFIX  = 'blank50_known_ode'
+INR_SUFFIX = 'davis_blank50'   # joint GNN+INR (run_GNN_INR_blank50.py)
 
 # All 11 GNN blank50 conditions (matches CONDITION_BASES in cross/pipeline.py).
 # Used by --data_plot to iterate every trained fold.
@@ -93,9 +97,21 @@ GNN_BASES = [
 
 # Subset shown in tab:cv_cross_noise (drops noise_free + noise_05; both are
 # already covered by tab:cv_known_ode-vs-gnn, so this table focuses on the
-# variants away from the canonical low-noise reference).
-GNN_TABLE_BASES = [b for b in GNN_BASES
-                   if b not in ('flyvis_noise_free', 'flyvis_noise_05')]
+# variants away from the canonical low-noise reference). Includes the joint
+# GNN+INR row (different suffix) inserted just before the +400% null-edges row.
+# Entries are (base, suffix) tuples so the GNN+INR row can use INR_SUFFIX.
+GNN_TABLE_BASES = [
+    ('flyvis_noise_005',                   GNN_SUFFIX),
+    ('flyvis_noise_005_010',               GNN_SUFFIX),
+    ('flyvis_noise_005_020',               GNN_SUFFIX),
+    ('flyvis_noise_005_INR',               INR_SUFFIX),
+    ('flyvis_noise_005_null_edges_pc_400', GNN_SUFFIX),
+    ('flyvis_noise_005_removed_pc_20',     GNN_SUFFIX),
+    ('flyvis_noise_005_removed_pc_50',     GNN_SUFFIX),
+    ('flyvis_noise_005_stride_5',          GNN_SUFFIX),
+    ('flyvis_noise_005_hidden_010_ngp',    GNN_SUFFIX),
+    ('flyvis_noise_005_hidden_020_ngp',    GNN_SUFFIX),
+]
 
 # 8 Known-ODE blank50 conditions (run_KnownODE_blank50.py CONDITION_NODES).
 KO_BASES = [
@@ -118,6 +134,7 @@ ROW_META = {
     'flyvis_noise_05':                     ('high model noise',       '0.5',  '0',   '434\\,112'),
     'flyvis_noise_005_010':                ('low meas. noise',        '0.05', '0.1', '434\\,112'),
     'flyvis_noise_005_020':                ('mid meas. noise',        '0.05', '0.2', '434\\,112'),
+    'flyvis_noise_005_INR':                ('unknown stimulus',       '0.05', '0',   '434\\,112'),
     'flyvis_noise_005_null_edges_pc_400':  ('$+400\\%$ null edges',   '0.05', '0',   '2\\,170\\,560'),
     'flyvis_noise_005_removed_pc_20':      ('$-20\\%$ edges removed', '0.05', '0',   '347\\,000'),
     'flyvis_noise_005_removed_pc_50':      ('$-50\\%$ edges removed', '0.05', '0',   '217\\,056'),
@@ -315,16 +332,24 @@ def _emit_table1(output_root, n_folds):
 def _emit_condition_table(output_root, n_folds, suffix, bases, out_name, header):
     """tab:cv_cross_noise / tab:cv_known_ode-conditions: condition rows,
     10-col layout (condition, sigma, gamma, edges, one-step r, rollout r,
-    W rel.err%, tau rel.err% (out%), Vrest rel.err% (out%), cluster)."""
+    W rel.err%, tau rel.err% (out%), Vrest rel.err% (out%), cluster).
+
+    `bases` accepts either a plain base name (uses the default `suffix`) or
+    a (base, suffix_override) tuple — used to splice the GNN+INR row
+    (INR_SUFFIX) into the otherwise unified-GNN table."""
     lines = []
     print(f'\n  [tab ] {out_name}  (orange: <0.3 or missing, green: >0.9)')
-    for base in bases:
+    for entry in bases:
+        if isinstance(entry, tuple):
+            base, row_suffix = entry
+        else:
+            base, row_suffix = entry, suffix
         meta = ROW_META.get(base)
         if meta is None:
             print(f'  [warn] no ROW_META for {base!r} — skipping')
             continue
         label, sigma, gamma, edges = meta
-        s = _aggregate(output_root, base, suffix, n_folds)
+        s = _aggregate(output_root, base, row_suffix, n_folds)
         lines.append(
             f'{label:<24} & ${sigma}$ & ${gamma}$ & ${edges}$\n'
             f'  & {_fmt(*s["one_r"])} & {_fmt(*s["roll_r"])}\n'
@@ -506,7 +531,9 @@ def main():
         output_root, args.n_folds, GNN_SUFFIX, GNN_TABLE_BASES,
         out_name='cv_table_gnn_cross_noise.tex',
         header='GNN blank50 cross-noise (rows only; '
-               'noise-free and high-noise rows omitted, see vs-Known-ODE table).')
+               'noise-free and high-noise rows omitted, see vs-Known-ODE table). '
+               'Includes the joint GNN+INR (DAVIS) row inserted just before '
+               '+400%% null edges; that row uses INR_SUFFIX = davis_blank50.')
     _emit_condition_table(
         output_root, args.n_folds, KO_SUFFIX, KO_BASES,
         out_name='cv_table_known_ode_conditions.tex',

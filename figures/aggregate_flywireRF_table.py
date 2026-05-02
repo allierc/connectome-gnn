@@ -135,24 +135,22 @@ def _fmt_simple(x):
     return body
 
 
-def _fmt_R2_triplet(R2_full, R2_corr, n_out, n_neurons):
-    """R² triplet cell — granular coloring per the source-table convention."""
-    if any(_is_nan(v) for v in (R2_full, R2_corr, n_out)) or not n_neurons:
+def _fmt_R2_pair(R2_corr, n_out, n_neurons):
+    """R² pair cell: outlier-corrected R² with parenthetical out%.
+    The full-set R² is no longer reported (a few high-leverage outliers can
+    drag it negative even when the corrected value is in the 0.85–0.95 range,
+    which was misleading)."""
+    if any(_is_nan(v) for v in (R2_corr, n_out)) or not n_neurons:
         return '$\\cdot$'
     out_pct = 100.0 * n_out / n_neurons
-    full_s  = f'{R2_full:.2f}'
     corr_s  = f'{R2_corr:.2f}'
     out_s   = f'{out_pct:.1f}'
 
-    if R2_full > _GOOD_THRESH and R2_corr > _GOOD_THRESH:
-        return f'\\good{{${full_s}\\,({corr_s},\\,{out_s})$}}'
-    if R2_full < _LOW_THRESH:
-        return f'\\bad{{${full_s}$}}\\,$({corr_s},\\,{out_s})$'
     if R2_corr > _GOOD_THRESH:
-        return f'${full_s}\\,(\\good{{{corr_s}}},\\,{out_s})$'
+        return f'\\good{{${corr_s}\\,({out_s})$}}'
     if R2_corr < _LOW_THRESH:
-        return f'${full_s}\\,(\\bad{{{corr_s}}},\\,{out_s})$'
-    return f'${full_s}\\,({corr_s},\\,{out_s})$'
+        return f'\\bad{{${corr_s}$}}\\,$({out_s})$'
+    return f'${corr_s}\\,({out_s})$'
 
 
 def _fmt_int_thousands(n):
@@ -167,8 +165,8 @@ def _row(model_label, condition, n_neurons, n_edges, eye_map, s):
         f'{model_label:<24} & {condition:<28} & {neurons_s:<10} & {edges_s:<14} & {eye_map}\n'
         f'  & {_fmt_simple(s["one"])} & {_fmt_simple(s["roll"])}\n'
         f'  & {_fmt_simple(s["W_R2"])}\n'
-        f'  & {_fmt_R2_triplet(s["tau_R2_full"], s["tau_R2_corr"], s["tau_n_out"], n_neurons)}\n'
-        f'  & {_fmt_R2_triplet(s["V_R2_full"], s["V_R2_corr"], s["V_n_out"], n_neurons)} \\\\'
+        f'  & {_fmt_R2_pair(s["tau_R2_corr"], s["tau_n_out"], n_neurons)}\n'
+        f'  & {_fmt_R2_pair(s["V_R2_corr"], s["V_n_out"], n_neurons)} \\\\'
     )
 
 
@@ -237,7 +235,7 @@ _TABLE_PREAMBLE = r"""\begin{table}[h]
 \centering
 \caption{GNN recovery on hybrid connectome variants under connectivity uncertainty (zero-edge augmentation, no coregistration perturbation).
 All runs use low model noise $\sigma = 0.05$ ($65$ cell types). Eye map is either the flyvis hex lattice ($13{,}741$ neurons, extent $= 8$) or the larger flywire eye map ($50{,}412$ neurons, extent $= 15$).
-$R^2_{\hat{\tau}}$ and $R^2_{\hat{V}^{\mathrm{rest}}}$ are reported on the full neuron set; the parenthetical pair shows the outlier-corrected $R^2$ and the percentage of neurons dropped (residual-based outlier filter).
+$R^2_{\hat{\tau}}$ and $R^2_{\hat{V}^{\mathrm{rest}}}$ are reported on the outlier-corrected neuron set; the parenthetical value is the percentage of neurons dropped (residual-based outlier filter).
 \textcolor{green!50!black}{Green}: value $> 0.9$. \bad{Orange}: value $< 0.3$.}
 \label{tab:zero_edge}
 \tiny
@@ -248,8 +246,8 @@ $R^2_{\hat{\tau}}$ and $R^2_{\hat{V}^{\mathrm{rest}}}$ are reported on the full 
 model & condition & neurons & edges & eye map
   & one-step $r$ & rollout $r$
   & $R^2_{\widehat{W}}$
-  & $R^2_{\widehat{\tau}}$ (outlier-corr., out.\ \%)
-  & $R^2_{\widehat{V}^{\mathrm{rest}}}$ (outlier-corr., out.\ \%) \\
+  & $R^2_{\widehat{\tau}}$ (out.\ \%)
+  & $R^2_{\widehat{V}^{\mathrm{rest}}}$ (out.\ \%) \\
 \midrule
 """
 
