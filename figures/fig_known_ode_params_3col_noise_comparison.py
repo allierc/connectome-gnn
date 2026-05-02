@@ -153,6 +153,38 @@ def compute_umap_panel(model_dir, dataset, log_dir):
     xy = reducer.fit_transform(feats)
     return xy, type_ids
 
+
+def render_umap_png(xy, type_ids, out_path):
+    """Render a UMAP scatter to a standalone PNG with the same figsize/padding
+    as GNN_PlotFigure.embedding_augmented (figsize=(10, 9), tight_layout, dpi=300)
+    so the resulting image composites at the same physical size as the W /
+    V_rest / τ panels in the assembly figure.
+    """
+    fig = plt.figure(figsize=(10, 9))
+    ax = plt.gca()
+    # Full bounding box (all four spines) so the UMAP panel is framed like a
+    # plot, not floating dots.
+    for sp in ax.spines.values():
+        sp.set_visible(True)
+        sp.set_alpha(0.75)
+        sp.set_linewidth(1.5)
+    ax.scatter(xy[:, 0], xy[:, 1], c=type_ids, cmap=HUSL_65_CMAP,
+               s=24, alpha=0.8, edgecolors='none')
+    ax.set_xlabel(r'UMAP$_1$', fontsize=48)
+    ax.set_ylabel(r'UMAP$_2$', fontsize=48)
+    # Three ticks per axis (min / 0 / max, rounded to integers) at the
+    # FS_TICK style fig_rollout uses — composited size lands close to the
+    # tick size of fig_rollout's hexbin scatters.
+    x_lo, x_hi = float(np.floor(xy[:, 0].min())), float(np.ceil(xy[:, 0].max()))
+    y_lo, y_hi = float(np.floor(xy[:, 1].min())), float(np.ceil(xy[:, 1].max()))
+    ax.set_xticks([x_lo, 0.0, x_hi])
+    ax.set_yticks([y_lo, 0.0, y_hi])
+    ax.tick_params(axis='both', labelsize=36,
+                   top=True, right=True, direction='out')
+    plt.tight_layout()
+    fig.savefig(out_path, dpi=300)
+    plt.close(fig)
+
 # Three noise levels — same blank50 datasets as the GNN counterpart, but the
 # Known_ODE training run (different HP yaml).
 COLUMNS = [
@@ -296,36 +328,31 @@ def assemble(blocks, out_base):
                 # here using the husl-65 palette + GT cell-type colouring,
                 # matching fig_clustering_appendix.py. All other panels are
                 # composited from the GNN_PlotFigure PNGs as before.
+                ax.set_axis_off()
+                # The UMAP panel uses a freshly rendered PNG (husl-65 LUT,
+                # coloured by GT cell type) instead of the GNN_PlotFigure
+                # cached PNG. By saving with the same figsize=(10, 9) +
+                # tight_layout, it composites at the same physical size as
+                # the other panels in the assembly figure.
                 if (r, c) == (0, 1):
-                    xy, type_ids = blk['umap']
-                    ax.scatter(xy[:, 0], xy[:, 1], c=type_ids,
-                               cmap=HUSL_65_CMAP, s=2, alpha=0.7,
-                               edgecolors='none')
-                    ax.set_xticks([]); ax.set_yticks([])
-                    for sp in ax.spines.values():
-                        sp.set_alpha(0.5); sp.set_linewidth(0.4)
-                    ax.set_xlabel(r'UMAP$_1$', fontsize=FS_LABEL, labelpad=1)
-                    ax.set_ylabel(r'UMAP$_2$', fontsize=FS_LABEL, labelpad=1)
-                    ax.set_box_aspect(1.0)
-                    ax.set_anchor('S')
+                    p = blk['umap_png']
                 else:
-                    ax.set_axis_off()
                     fname = panel_by_rc[(r, c)]
                     p = panel_path(blk['results_dir'], fname, blk['ci'])
-                    if not os.path.isfile(p):
-                        ax.text(0.5, 0.5, f'missing:\n{os.path.basename(p)}',
-                                ha='center', va='center', fontsize=FS_ANNOT,
-                                color='red', transform=ax.transAxes)
-                    else:
-                        img = mpimg.imread(p)
-                        h, w = img.shape[:2]
-                        ax.imshow(img, aspect='auto', interpolation='lanczos')
-                        ax.set_box_aspect(h / w)
-                        # Pull the two rows together by anchoring any extra
-                        # slack in each cell to the side AWAY from the
-                        # inter-row gap: top row sinks to the bottom of its
-                        # cell ('S'), bottom row floats to the top ('N').
-                        ax.set_anchor('S' if r == 0 else 'N')
+                if not os.path.isfile(p):
+                    ax.text(0.5, 0.5, f'missing:\n{os.path.basename(p)}',
+                            ha='center', va='center', fontsize=FS_ANNOT,
+                            color='red', transform=ax.transAxes)
+                else:
+                    img = mpimg.imread(p)
+                    h, w = img.shape[:2]
+                    ax.imshow(img, aspect='auto', interpolation='lanczos')
+                    ax.set_box_aspect(h / w)
+                    # Pull the two rows together by anchoring any extra
+                    # slack in each cell to the side AWAY from the
+                    # inter-row gap: top row sinks to the bottom of its
+                    # cell ('S'), bottom row floats to the top ('N').
+                    ax.set_anchor('S' if r == 0 else 'N')
                 panel_axes.append((ax, letters[letter_idx], k))
                 letter_idx += 1
 
@@ -414,8 +441,12 @@ def main():
             model_dir=col['model'], dataset=cfg.dataset.split('/')[-1],
             log_dir=log_dir,
         )
+        umap_png = os.path.join(
+            results_dir,
+            f"embedding_augmented_husl_{col['config_indices']}.png")
+        render_umap_png(umap_xy, umap_types, umap_png)
         blocks.append({
-            'umap':   (umap_xy, umap_types),
+            'umap_png': umap_png,
             'label':  col['label'],
             'sigma':  col['sigma'],
             'results_dir': results_dir,
