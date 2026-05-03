@@ -723,6 +723,8 @@ _FLYVIS_HYBRID_MODELS = {
     "e8_flywireRF_proximal_nulls_stimulus",
     "e8_flywireRF_random_nulls",
     "e8_flywireRF_random_nulls_known_ode",
+    "e8_flywireRF_typed_nulls",
+    "e8_flywireRF_typed_nulls_known_ode",
     # full FlyWire eye map
     "full_eye_flywireRF",
     "full_eye_flywireRF_known_ode",
@@ -736,6 +738,8 @@ _FLYVIS_HYBRID_MODELS = {
     "full_eye_flywireRF_proximal_nulls_stimulus",
     "full_eye_flywireRF_random_nulls",
     "full_eye_flywireRF_random_nulls_known_ode",
+    "full_eye_flywireRF_typed_nulls",
+    "full_eye_flywireRF_typed_nulls_known_ode",
 }
 
 
