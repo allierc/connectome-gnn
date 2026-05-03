@@ -674,7 +674,69 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                 profile_memory=True,
             )
             _prof.start()
+        # NGP-injection warmup config (two-step training).
+        # Phase 1 (N < warmup_inject_nnr_iter): hidden voltages are zero-silenced
+        # (alpha=0). The NGP still trains via the anchor loss (which is gated by
+        # coeff_anchor_voltage, NOT by alpha), so by phase 2 the NGP already
+        # produces sensible per-(t,u,v) outputs at anchor positions.
+        # Phase 2 (N >= warmup_inject_nnr_iter): alpha ramps 0 -> 1 over
+        # warmup_inject_nnr_ramp_iter steps, then stays at 1. The ramp gives W a
+        # window to absorb the new non-zero hidden contribution gradually
+        # instead of stepwise. ramp=0 -> hard switch.
+        # Defaults (warmup=0, ramp=0) preserve the legacy "always inject" behavior.
+        # The *_frac variants override the absolute counts when > 0, expressed
+        # as a fraction of Niter — useful when DAL/bs change since the warmup
+        # tracks training length automatically.
+        _warmup_inject_iter_frac = float(getattr(tc, 'warmup_inject_nnr_iter_frac', 0.0))
+        _warmup_inject_ramp_frac = float(getattr(tc, 'warmup_inject_nnr_ramp_iter_frac', 0.0))
+        if _warmup_inject_iter_frac > 0.0:
+            _warmup_inject_iter = int(Niter * _warmup_inject_iter_frac)
+        else:
+            _warmup_inject_iter = int(getattr(tc, 'warmup_inject_nnr_iter', 0))
+        if _warmup_inject_ramp_frac > 0.0:
+            _warmup_inject_ramp = int(Niter * _warmup_inject_ramp_frac)
+        else:
+            _warmup_inject_ramp = int(getattr(tc, 'warmup_inject_nnr_ramp_iter', 0))
+        if _warmup_inject_iter > 0:
+            print(f'NGP warmup-inject: phase 1 = iters [0, {_warmup_inject_iter}) '
+                  f'(alpha=0), ramp [{_warmup_inject_iter}, {_warmup_inject_iter + _warmup_inject_ramp}), '
+                  f'phase 2 from iter {_warmup_inject_iter + _warmup_inject_ramp} '
+                  f'(alpha=1). Total Niter={Niter}.')
+
+        # Track previous-iter alpha so we can announce the two phase transitions
+        # (warmup-end / ramp-start, ramp-end / phase-2-start).
+        _prev_alpha_inject = -1.0
+
         for N in pbar:
+
+            # Compute per-iter alpha for NGP-into-hidden injection.
+            # Branchless inside the compiled forward (just a scalar multiply);
+            # the if-tree below runs once in the Python loop, not in any
+            # compiled region.
+            if _warmup_inject_iter <= 0:
+                alpha_inject = 1.0
+            elif N < _warmup_inject_iter:
+                alpha_inject = 0.0
+            elif _warmup_inject_ramp > 0 and N < _warmup_inject_iter + _warmup_inject_ramp:
+                alpha_inject = float(N - _warmup_inject_iter) / float(_warmup_inject_ramp)
+            else:
+                alpha_inject = 1.0
+
+            # Announce phase transitions when crossed.
+            if _warmup_inject_iter > 0 and _prev_alpha_inject != alpha_inject:
+                if _prev_alpha_inject == 0.0 and alpha_inject > 0.0:
+                    if _warmup_inject_ramp > 0:
+                        print(f'\n[NGP warmup] iter {N}: phase 1 → ramp '
+                              f'(alpha 0 -> 1 over {_warmup_inject_ramp} iters). '
+                              f'Hidden NGP injection now ramping in.')
+                    else:
+                        print(f'\n[NGP warmup] iter {N}: phase 1 → phase 2 '
+                              f'(alpha 0 -> 1, hard switch). '
+                              f'Hidden NGP injection now fully active.')
+                elif _prev_alpha_inject < 1.0 and alpha_inject >= 1.0:
+                    print(f'\n[NGP warmup] iter {N}: ramp → phase 2 '
+                          f'(alpha = 1). Hidden NGP injection now fully active.')
+            _prev_alpha_inject = alpha_inject
 
             # Unfreeze embedding at the midpoint after UMAP clustering froze it
             if embedding_frozen and N == unfreeze_at_iteration:
@@ -816,12 +878,22 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                             bar_parts.append(f'{r2_color(last_vrest_r2)}Vr={last_vrest_r2:.3f}{ANSI_RESET}')
                         if ode_params.has_tau():
                             bar_parts.append(f'{r2_color(last_tau_r2)}τ={last_tau_r2:.3f}{ANSI_RESET}')
-                    if last_hidden_r2 is not None:
-                        if last_anchor_r2 is not None:
-                            nnr_str = f'nnr={last_hidden_r2:.3f}({last_anchor_r2:.3f})'
-                        else:
-                            nnr_str = f'nnr={last_hidden_r2:.3f}'
-                        bar_parts.append(f'{r2_color(last_hidden_r2)}{nnr_str}{ANSI_RESET}')
+                    if last_hidden_r2 is not None or last_anchor_r2 is not None:
+                        # During warmup (alpha_inject=0), hidden voltages are
+                        # zero-silenced so hidden_nnr_pearson is meaningless;
+                        # show NA. Anchor is still trained throughout, show it.
+                        if alpha_inject <= 0.0:
+                            if last_anchor_r2 is not None:
+                                nnr_str = f'nnr=NA({last_anchor_r2:.3f})'
+                            else:
+                                nnr_str = 'nnr=NA'
+                            bar_parts.append(nnr_str)
+                        elif last_hidden_r2 is not None:
+                            if last_anchor_r2 is not None:
+                                nnr_str = f'nnr={last_hidden_r2:.3f}({last_anchor_r2:.3f})'
+                            else:
+                                nnr_str = f'nnr={last_hidden_r2:.3f}'
+                            bar_parts.append(f'{r2_color(last_hidden_r2)}{nnr_str}{ANSI_RESET}')
                     if bar_parts:
                         pbar.set_postfix_str(' '.join(bar_parts))
                 continue
@@ -853,10 +925,14 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                 if x.noise is not None and sim.measurement_noise_level > 0:
                     x.voltage = x.voltage + x.noise
 
-                # Hidden neurons: predict via SIREN or zero-silence
+                # Hidden neurons: predict via SIREN/NGP or zero-silence.
+                # alpha_inject ramps 0->1 across the warmup window: in phase 1
+                # this is a multiply-by-zero so the GNN sees voltage[hidden]=0
+                # exactly (same as the no-NGP baseline), while the NGP still
+                # gets gradient from the anchor loss elsewhere in the step.
                 if has_hidden_neurons:
                     if model.NNR_hidden is not None:
-                        x.voltage[hidden_ids] = model.forward_hidden(x, k, hidden_ids)
+                        x.voltage[hidden_ids] = alpha_inject * model.forward_hidden(x, k, hidden_ids)
                     else:
                         x.voltage[hidden_ids] = 0.0
 
@@ -1008,13 +1084,18 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                     # prediction at t+1, so agreement requires GNN dynamics and INR trace
                     # to be self-consistent. Degeneracy (both constant) is prevented by
                     # the anchor loss and the visible-neuron rollout loss.
+                    # Hidden self-consistency loss: gated by alpha_inject so it
+                    # is OFF in phase 1 (alpha=0) and ON in phase 2 (alpha=1).
+                    # Phase 1 the GNN sees voltage[hidden]=0, so a self-consistency
+                    # term vs NGP(t+1) would push the GNN toward 0 instead of the
+                    # true dynamics. Multiplying by alpha cleanly disables it.
                     if has_hidden_neurons and getattr(tc, 'coeff_hidden_voltage', 0.0) > 0:
                         n_per = state_batch[0].n_neurons
                         h_ids_b = torch.cat([hidden_ids + b * n_per for b in range(len(state_batch))]).to(device)
                         pred_h = batched_state.voltage[h_ids_b].unsqueeze(-1) + sim.delta_t * pred[h_ids_b]
                         k_starts = k_batch[::n_per, 0].to(torch.long)                 # (B,)
                         target_h = model.forward_hidden_batched(k_starts + 1, hidden_ids=hidden_ids).reshape(-1, 1)  # (B*n_hidden, 1)
-                        loss = loss + tc.coeff_hidden_voltage * (pred_h - target_h).norm(2)
+                        loss = loss + alpha_inject * tc.coeff_hidden_voltage * (pred_h - target_h).norm(2)
                     # Anchor voltage loss: NGP-T/SIREN-T anchor outputs vs observed GT voltages
                     if has_anchor_neurons and getattr(tc, 'coeff_anchor_voltage', 0.0) > 0:
                         n_per = state_batch[0].n_neurons
@@ -1190,12 +1271,22 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                             bar_parts.append(f'{r2_color(last_vrest_r2)}Vr={last_vrest_r2:.3f}{ANSI_RESET}')
                         if ode_params.has_tau():
                             bar_parts.append(f'{r2_color(last_tau_r2)}τ={last_tau_r2:.3f}{ANSI_RESET}')
-                    if last_hidden_r2 is not None:
-                        if last_anchor_r2 is not None:
-                            nnr_str = f'nnr={last_hidden_r2:.3f}({last_anchor_r2:.3f})'
-                        else:
-                            nnr_str = f'nnr={last_hidden_r2:.3f}'
-                        bar_parts.append(f'{r2_color(last_hidden_r2)}{nnr_str}{ANSI_RESET}')
+                    if last_hidden_r2 is not None or last_anchor_r2 is not None:
+                        # During warmup (alpha_inject=0), hidden voltages are
+                        # zero-silenced so hidden_nnr_pearson is meaningless;
+                        # show NA. Anchor is still trained throughout, show it.
+                        if alpha_inject <= 0.0:
+                            if last_anchor_r2 is not None:
+                                nnr_str = f'nnr=NA({last_anchor_r2:.3f})'
+                            else:
+                                nnr_str = 'nnr=NA'
+                            bar_parts.append(nnr_str)
+                        elif last_hidden_r2 is not None:
+                            if last_anchor_r2 is not None:
+                                nnr_str = f'nnr={last_hidden_r2:.3f}({last_anchor_r2:.3f})'
+                            else:
+                                nnr_str = f'nnr={last_hidden_r2:.3f}'
+                            bar_parts.append(f'{r2_color(last_hidden_r2)}{nnr_str}{ANSI_RESET}')
                     if bar_parts:
                         pbar.set_postfix_str(' '.join(bar_parts))
 
