@@ -1,0 +1,39 @@
+% Known-ODE vs GNN, blank50, 5-fold CV (rows only).
+% Cols: model & condition & sigma | one-step r | rollout r | W R^2 | tau R^2 (out%%) | Vrest R^2 (out%%) | cluster acc.  (R^2 for tau/Vrest computed on no-outlier subset; out%% = mean(n_outliers / n_neurons) across folds, 1 dec.)
+Known ODE  & noise-free  & $0$
+  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
+  & \good{$0.96{\pm}0.00$}
+  & \good{$1.00{\pm}0.00\,(1.9)$}
+  & \good{$0.97{\pm}0.00\,(10.2)$}
+  & \good{$0.92{\pm}0.00$} \\
+           & low noise   & $0.05$
+  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
+  & \good{$0.99{\pm}0.00$}
+  & \good{$1.00{\pm}0.00\,(0.0)$}
+  & \good{$0.99{\pm}0.00\,(4.7)$}
+  & \good{$0.93{\pm}0.00$} \\
+           & high noise  & $0.5$
+  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
+  & \good{$1.00{\pm}0.00$}
+  & \good{$1.00{\pm}0.00\,(0.0)$}
+  & \good{$1.00{\pm}0.00\,(0.0)$}
+  & \good{$0.93{\pm}0.00$} \\
+\midrule
+GNN (ours) & noise-free  & $0$
+  & \good{$1.00{\pm}0.00$} & $0.90{\pm}0.21$
+  & $0.89{\pm}0.04$
+  & \good{$0.94{\pm}0.02\,(3.1)$}
+  & $0.78{\pm}0.07\,(13.7)$
+  & $0.86{\pm}0.04$ \\
+           & low noise   & $0.05$
+  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
+  & \good{$0.99{\pm}0.00$}
+  & \good{$0.99{\pm}0.00\,(0.0)$}
+  & \good{$0.94{\pm}0.01\,(3.3)$}
+  & \good{$0.92{\pm}0.01$} \\
+           & high noise  & $0.5$
+  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
+  & \good{$1.00{\pm}0.00$}
+  & \good{$1.00{\pm}0.00\,(0.0)$}
+  & \good{$0.98{\pm}0.03\,(0.0)$}
+  & \good{$0.92{\pm}0.01$} \\

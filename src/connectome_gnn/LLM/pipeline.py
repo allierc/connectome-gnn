@@ -561,6 +561,8 @@ def load_configs_and_seeds(state: ExplorationState, batch: BatchInfo):
 
         # CRITICAL: Dataset suffix must always be _XX where XX is the slot number (_00, _01, _02, _03)
         # This is set once in init_slot_configs() and should NEVER change, even if Claude modifies the config.
+        # EXCEPTION: when generate_data=False, the source YAML's dataset is authoritative
+        # (all slots share one pre-existing dataset, e.g. for fixed-fold HPO sweeps).
         expected_dataset = f"{state.base_config_name}_{slot:02d}"
         if not expected_dataset.startswith(state.pre_folder):
             expected_dataset = state.pre_folder + expected_dataset
@@ -569,22 +571,23 @@ def load_configs_and_seeds(state: ExplorationState, batch: BatchInfo):
         with open(state.config_paths[slot], 'r') as f:
             yaml_data = yaml.safe_load(f)
 
-        # Validate: dataset suffix must be slot-based (_00, _01, _02, _03), never iteration-based
-        actual_dataset = yaml_data.get('dataset', '')
-        expected_suffix = f"_{slot:02d}"
+        if state.generate_data:
+            # Validate: dataset suffix must be slot-based (_00, _01, _02, _03), never iteration-based
+            actual_dataset = yaml_data.get('dataset', '')
+            expected_suffix = f"_{slot:02d}"
 
-        if actual_dataset and not actual_dataset.endswith(expected_suffix):
-            # Claude changed the dataset suffix — warn and fix it
-            found_suffix = actual_dataset.split('_')[-1] if '_' in actual_dataset else 'unknown'
-            print(
-                f"\033[91mWARNING: Claude changed dataset suffix in slot {slot}!\033[0m\n"
-                f"\033[91m  Expected suffix: {expected_suffix} (slot-based, IMMUTABLE)\033[0m\n"
-                f"\033[91m  Found dataset:   {actual_dataset}\033[0m\n"
-                f"\033[91m  Found suffix:    {found_suffix}\033[0m\n"
-                f"\033[93m  Restoring to correct slot-based suffix...\033[0m"
-            )
-            # Reconstruct dataset with correct slot suffix
-            yaml_data['dataset'] = expected_dataset
+            if actual_dataset and not actual_dataset.endswith(expected_suffix):
+                # Claude changed the dataset suffix — warn and fix it
+                found_suffix = actual_dataset.split('_')[-1] if '_' in actual_dataset else 'unknown'
+                print(
+                    f"\033[91mWARNING: Claude changed dataset suffix in slot {slot}!\033[0m\n"
+                    f"\033[91m  Expected suffix: {expected_suffix} (slot-based, IMMUTABLE)\033[0m\n"
+                    f"\033[91m  Found dataset:   {actual_dataset}\033[0m\n"
+                    f"\033[91m  Found suffix:    {found_suffix}\033[0m\n"
+                    f"\033[93m  Restoring to correct slot-based suffix...\033[0m"
+                )
+                # Reconstruct dataset with correct slot suffix
+                yaml_data['dataset'] = expected_dataset
 
         # Force seeds (pipeline-controlled — LLM cannot override)
         assert iteration >= 1, f"iteration must be >= 1 for valid seeds (got {iteration} from batch.iterations[{slot_idx}])"
@@ -592,10 +595,13 @@ def load_configs_and_seeds(state: ExplorationState, batch: BatchInfo):
         train_seed = (iteration * 1000 + slot + 500) % (2**32)
         batch.slot_seeds[slot] = {'simulation': sim_seed, 'training': train_seed}
 
-        # Update YAML with forced seeds and slot-based dataset
+        # Update YAML with forced seeds. Only force slot-based dataset when
+        # generate_data=True; otherwise keep the source YAML's dataset (shared
+        # across all slots — typical for fixed-fold HPO sweeps).
         yaml_data['simulation']['seed'] = sim_seed
         yaml_data['training']['seed'] = train_seed
-        yaml_data['dataset'] = expected_dataset
+        if state.generate_data:
+            yaml_data['dataset'] = expected_dataset
         # Restore intended n_epochs from claude section (training section gets
         # overwritten by yaml.dump round-trips, claude section is authoritative)
         yaml_data['training']['n_epochs'] = yaml_data.get('claude', {}).get('n_epochs', 1)
@@ -630,17 +636,16 @@ def load_configs_and_seeds(state: ExplorationState, batch: BatchInfo):
 def should_generate_data(state: ExplorationState, batch: BatchInfo) -> bool:
     """Return True if data should be generated for this batch.
 
-    Logic (generate_data: false — new default):
-      - Always generate on the very first batch (batch_first == 1) so each slot
-        gets a different-seed dataset at startup.
-      - On subsequent batches, only generate if the agent set
-        claude.test_robustness_seed: true in any slot config (then reset the flag).
-    Legacy (generate_data: true): generate every batch as before.
+    Logic (generate_data: false — fixed-dataset HPO mode):
+      - Never generate. All slots share the source YAML's dataset (a
+        pre-generated fold, e.g. flyvis_noise_005_hidden_010_ngp_blank50).
+      - The agent can still trigger re-generation by setting
+        claude.test_robustness_seed: true on any slot.
+    Legacy (generate_data: true): generate every batch as before (per-slot
+    datasets with seed-derived suffixes).
     """
     if state.generate_data:
         return True  # legacy mode: re-generate every batch
-    if batch.batch_first == 1:
-        return True  # new mode: generate once at startup
     # Check if agent requested robustness re-seeding
     for slot in range(batch.n_slots):
         with open(state.config_paths[slot], 'r') as f:
@@ -951,42 +956,30 @@ def _print_batch_results(state: ExplorationState, batch: BatchInfo):
             return m.group(1) if m else None
 
         conn_r2       = _p('connectivity_R2')
+        conn_r2_vis   = _p('connectivity_R2_visible')
         tau_r2        = _p('tau_R2')
         vrest_r2      = _p('V_rest_R2')
-        clust_acc     = _p('cluster_accuracy')
-        rollout_r     = _p('rollout_pearson')
-        hid_rollout_r = _p('hidden_rollout_pearson')
-        vis_rollout_r = _p('visible_rollout_pearson')
         hid_nnr_pear  = _p('hidden_nnr_pearson')
         anc_nnr_pear  = _p('anchor_nnr_pearson')
-        onestep_r     = _p('onestep_pearson')
-        train_min     = _p('training_time_min')
 
+        # Compact format matching graph_trainer's pbar:
+        #   conn=X(Y) Vr=Z τ=W nnr=H(A)
+        # where (Y) is the visible-edge R² and (A) is the anchor-NNR pearson.
         parts = []
         if conn_r2:
-            parts.append(f"conn={_color_metric(conn_r2, 0.9, 0.5)}")
+            conn_str = f"conn={_color_metric(conn_r2, 0.9, 0.5)}"
+            if conn_r2_vis:
+                conn_str += f"({_color_metric(conn_r2_vis, 0.9, 0.5)})"
+            parts.append(conn_str)
         if vrest_r2:
             parts.append(f"Vr={_color_metric(vrest_r2, 0.9, 0.5)}")
         if tau_r2:
             parts.append(f"τ={_color_metric(tau_r2, 0.9, 0.5)}")
-        if clust_acc:
-            parts.append(f"cl={_color_metric(clust_acc, 0.9, 0.5)}")
-        # Rollout: prefer hidden/visible split when available (hidden-NGP runs),
-        # else the aggregate rollout_pearson, else one-step r.
-        if hid_rollout_r and vis_rollout_r:
-            parts.append(f"rH={_color_metric(hid_rollout_r, 0.9, 0.5)}({_color_metric(vis_rollout_r, 0.9, 0.5)})")
-        elif rollout_r:
-            parts.append(f"rN={_color_metric(rollout_r, 0.9, 0.5)}")
-        elif onestep_r:
-            parts.append(f"r1={_color_metric(onestep_r, 0.9, 0.5)}")
-        # Hidden-NGP diagnostics
         if hid_nnr_pear:
             nnr_str = f"nnr={_color_metric(hid_nnr_pear, 0.5, 0.2)}"
             if anc_nnr_pear:
                 nnr_str += f"({_color_metric(anc_nnr_pear, 0.5, 0.2)})"
             parts.append(nnr_str)
-        if train_min:
-            parts.append(f"\033[90mtrain={float(train_min):.1f}min\033[0m")
 
         metrics_str = "  ".join(parts) if parts else "\033[90mno metrics yet\033[0m"
         print(f"  Slot {slot} (iter {iteration}):  {metrics_str}")

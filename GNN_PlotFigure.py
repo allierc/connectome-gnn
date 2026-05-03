@@ -2076,6 +2076,18 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             true_in = _tw_c[mask]
             learned_in = _lw_c[mask]
 
+            # R² over visible edges only (drops edges that touch any hidden
+            # neuron). Matches the graph_trainer pbar's `conn=X(Y)` inner Y.
+            r_squared_visible = None
+            if visible_edge_mask is not None and visible_edge_mask.shape[0] == _tw_c.shape[0]:
+                try:
+                    r_squared_visible, _ = compute_r_squared_filtered(
+                        _tw_c[visible_edge_mask],
+                        _lw_c[visible_edge_mask],
+                        outlier_threshold=5.0)[:2]
+                except Exception:
+                    r_squared_visible = None
+
             if extended:
                 # Partial correction (without g_phi factor) for diagnostic plot
                 n_w = model.n_edges + model.n_extra_null_edges
@@ -2369,6 +2381,8 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 log_file.write(f"\n--- Parameter extraction results ---\n")
                 log_file.write(f"raw_W_R2: {raw_W_r2:.4f}\n")
                 log_file.write(f"connectivity_R2: {r_squared:.4f}\n")
+                if r_squared_visible is not None:
+                    log_file.write(f"connectivity_R2_visible: {r_squared_visible:.4f}\n")
                 if connectivity_r2_real is not None:
                     log_file.write(f"connectivity_R2_real: {connectivity_r2_real:.4f}\n")
                 log_file.write(f"f_theta_functional_R2: {r2_f_theta_mean:.4f}\n")
