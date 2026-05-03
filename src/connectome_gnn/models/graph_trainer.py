@@ -124,7 +124,20 @@ def _quick_ngp_pearson(model, x_ts, ids, *, use_anchor, device,
     if was_training:
         model.train()
 
-    gt = x_ts.voltage[sel_f][:, sel_ids]                     # (F, N)
+    # Time-only ngp_t (no spatial, no factorized head) ignores the
+    # passed-in ids and returns (B, n_total) — every output slot maps 1:1
+    # to the trainer's hidden_ids / anchor_ids order. Slice down to the
+    # subsampled positions so pred matches gt's shape (B, n_sample).
+    # The spatial path already returns (B, n_sample) directly via
+    # _ngp_query_spatial, so no slicing needed in that case.
+    if pred.shape[1] == n_total:
+        pred = pred[:, sel_n]
+    elif pred.shape[1] != n_neurons_sample:
+        if was_training:
+            model.train()
+        return None  # shape mismatch we don't know how to recover from
+
+    gt = x_ts.voltage[sel_f][:, sel_ids]                     # (F, N_sample)
     gt_np = gt.detach().to('cpu').numpy().astype(np.float32)
     pred_np = pred.detach().to('cpu').numpy().astype(np.float32)
     g = gt_np - gt_np.mean(axis=0, keepdims=True)
@@ -406,10 +419,26 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
     lr_W = tc.lr_W
     lr_NNR_f = tc.lr_NNR_f
 
-    _logger.info(f'learning rates: lr_W {lr_W}, lr {lr}, lr_update {lr_update}, lr_embedding {lr_embedding}, lr_NNR_f {lr_NNR_f}')
+    # Two-phase NNR schedule (SIREN-style).
+    #   tc.training_NNR_start_epoch > 0  -> NNR (NNR_f and NNR_hidden) is
+    #     frozen at lr_NNR_f_start during the warmup epochs [0, start_epoch),
+    #     then catches up at full lr_NNR_f from epoch=start_epoch onward.
+    #   The catch-up switch is fired by the existing alternate_training block
+    #     below (which also scales the GNN lr's by alternate_lr_ratio so the
+    #     graph backbone stops drifting while the NNR converges).
+    nnr_warmup_epochs = int(getattr(tc, 'training_NNR_start_epoch', 0))
+    lr_NNR_f_start = float(getattr(tc, 'lr_NNR_f_start', 0.0))
+    lr_NNR_f_init = lr_NNR_f_start if nnr_warmup_epochs > 0 else lr_NNR_f
+
+    _logger.info(
+        f'learning rates: lr_W {lr_W}, lr {lr}, lr_update {lr_update}, '
+        f'lr_embedding {lr_embedding}, lr_NNR_f {lr_NNR_f_init} '
+        f'(NNR warmup: {nnr_warmup_epochs} epoch(s) at {lr_NNR_f_start}, '
+        f'then {lr_NNR_f})'
+    )
 
     optimizer, n_total_params = set_trainable_parameters(model=model, lr_embedding=lr_embedding, lr=lr,
-                                                         lr_update=lr_update, lr_W=lr_W, lr_NNR_f=lr_NNR_f)
+                                                         lr_update=lr_update, lr_W=lr_W, lr_NNR_f=lr_NNR_f_init)
 
     lr_scheduler = build_lr_scheduler(optimizer, config)
     scheduler_type = getattr(tc, 'lr_scheduler', 'none')

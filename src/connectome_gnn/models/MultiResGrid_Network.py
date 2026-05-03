@@ -200,6 +200,7 @@ class MultiResSpatioTemporalGrid(nn.Module):
         n_output: int = 1,
         mlp_width: int = 256,
         mlp_layers: int = 2,
+        a_dim: int = 0,
     ):
         super().__init__()
 
@@ -223,7 +224,15 @@ class MultiResSpatioTemporalGrid(nn.Module):
 
         n_t = n_levels * n_features_per_level
         n_s = spatial_n_levels * spatial_n_features_per_level
-        body_layers: list[nn.Module] = [nn.Linear(n_t + n_s, mlp_width), nn.ReLU()]
+        # When a_dim > 0 the decoder also consumes a per-query embedding
+        # (typically the GNN's self.a[ids]) so cell-type / per-neuron
+        # identity is available non-linearly throughout the decoder MLP,
+        # not just as an additive low-rank correction.
+        self.a_dim = int(a_dim)
+        body_layers: list[nn.Module] = [
+            nn.Linear(n_t + n_s + self.a_dim, mlp_width),
+            nn.ReLU(),
+        ]
         for _ in range(mlp_layers - 1):
             body_layers += [nn.Linear(mlp_width, mlp_width), nn.ReLU()]
         self.mlp_body = nn.Sequential(*body_layers)
@@ -243,13 +252,18 @@ class MultiResSpatioTemporalGrid(nn.Module):
         return torch.cat(feats, dim=1)
 
     def forward(self, t: torch.Tensor, pos: torch.Tensor,
+                a: torch.Tensor = None,
                 return_features: bool = False):
         """Per-query forward.
 
-        Two broadcast modes are supported:
+        Two broadcast modes are supported for ``t`` and ``pos``:
           * t shape (B, 1) and pos shape (B, 2): one (t, pos) pair per row.
           * t shape (1, 1) and pos shape (B, 2): single time, B positions.
             The temporal feature is broadcast across B.
+
+        ``a`` (optional, required when self.a_dim > 0) is the per-query
+        identity embedding. Shape (B, a_dim) — broadcast against t/pos
+        the same way (singleton dim 0 is expanded).
 
         Returns:
             out: (B, n_output)
@@ -261,7 +275,23 @@ class MultiResSpatioTemporalGrid(nn.Module):
             t_feat = t_feat.expand(s_feat.shape[0], -1)
         elif s_feat.shape[0] == 1 and t_feat.shape[0] != 1:
             s_feat = s_feat.expand(t_feat.shape[0], -1)
-        feat = self.mlp_body(torch.cat([t_feat, s_feat], dim=1))  # (B, mlp_width)
+        feats = [t_feat, s_feat]
+        if self.a_dim > 0:
+            if a is None:
+                raise RuntimeError(
+                    "MultiResSpatioTemporalGrid built with a_dim>0 requires "
+                    "an `a` tensor at forward()."
+                )
+            B_target = t_feat.shape[0]
+            if a.shape[0] == 1 and B_target != 1:
+                a = a.expand(B_target, -1)
+            elif a.shape[0] != B_target:
+                raise RuntimeError(
+                    f"a has batch dim {a.shape[0]} but expected {B_target} "
+                    f"to match t/pos."
+                )
+            feats.append(a)
+        feat = self.mlp_body(torch.cat(feats, dim=1))             # (B, mlp_width)
         out = self.head(feat)                                     # (B, n_output)
         if return_features:
             return out, feat
