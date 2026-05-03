@@ -121,9 +121,11 @@ class KnownODEBase(nn.Module):
     "e8_flywireRF_known_ode",
     "e8_flywireRF_proximal_nulls_known_ode",
     "e8_flywireRF_random_nulls_known_ode",
+    "e8_flywireRF_typed_nulls_known_ode",
     "full_eye_flywireRF_known_ode",
     "full_eye_flywireRF_proximal_nulls_known_ode",
     "full_eye_flywireRF_random_nulls_known_ode",
+    "full_eye_flywireRF_typed_nulls_known_ode",
 )
 class FlyvisKnownODE(KnownODEBase):
 

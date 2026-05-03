@@ -1,0 +1,88 @@
+description: "SMOKE TEST — minimal generate+train+test for e8_flywireRF_typed_nulls.
+  Uses local Sintel stimulus (no DAVIS dependency), tiny n_frames, 1 epoch, tiny DAL.
+  Just verifies that the typed_nulls connectome loads and the pipeline runs end-to-end."
+dataset: e8_flywireRF_typed_nulls_smoke
+simulation:
+  connectivity_file: to be specified
+  adjacency_matrix: ''
+  params:
+  - - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+  n_neurons: 13741
+  n_input_neurons: 1736
+  n_neuron_types: 65
+  n_edges: 600426
+  n_frames: 300
+  delta_t: 0.02
+  baseline_value: 0
+  visual_input_type: ''
+  noise_model_level: 0.05
+  derivative_smoothing_window: 1
+  seed: 42
+  edge_uncertainty: 1
+  skip_short_videos: true
+graph_model:
+  signal_model_name: e8_flywireRF_typed_nulls
+  prediction: first_derivative
+  input_size: 3
+  n_layers: 2
+  hidden_dim: 16
+  output_size: 1
+  input_size_update: 5
+  n_layers_update: 2
+  hidden_dim_update: 16
+  aggr_type: add
+  embedding_dim: 2
+  update_type: generic
+  g_phi_positive: true
+plotting:
+  colormap: tab20
+  arrow_length: 1
+  xlim:
+  - -2.5
+  - 2.5
+  ylim:
+  - -100
+  - 100
+training:
+  n_epochs: 1
+  n_runs: 1
+  device: cpu
+  recurrent_training: false
+  time_step: 1
+  batch_size: 1
+  batch_ratio: 1
+  small_init_batch_size: false
+  sparsity: none
+  data_augmentation_loop: 1
+  lr_W: 0.0014
+  lr: 0.0018
+  lr_embedding: 0.002325
+  coeff_g_phi_diff: 750
+  coeff_f_theta_msg_diff: 0
+  coeff_g_phi_norm: 0.9
+  coeff_g_phi_weight_L1: 0.28
+  coeff_f_theta_weight_L1: 0.05
+  coeff_g_phi_weight_L2: 0
+  coeff_f_theta_weight_L2: 0.001
+  coeff_W_L1: 0.001
+  coeff_W_L2: 1.5e-06
+  coeff_f_theta_linearity: 0
+  f_theta_linearity_warmup_fraction: 0.3
+  f_theta_linearity_rampup_iters: 200
+  coeff_f_theta_centering: 0
+  coeff_V_rest: 0
+  V_rest_warmup_fraction: 0.3
+  V_rest_rampup_iters: 200
+  V_rest_eval_every: 10
+  regul_annealing_rate: 0.0
+  w_init_mode: randn_scaled
+  use_gt_edges: true
+  lr_scheduler: none
+  lr_scheduler_T0: 1000
+  lr_scheduler_T_mult: 2
+  lr_scheduler_eta_min_ratio: 0.01
+  lr_scheduler_warmup_iters: 100
+  seed: 42
