@@ -70,6 +70,8 @@ def parse_args():
                         help="auto-resume from last completed batch")
     parser.add_argument("--cluster", action="store_true",
                         help="submit training to LSF cluster (default: run locally)")
+    parser.add_argument("--node", type=str, default=None,
+                        help="cluster node name override (e.g. a100, h100, l4). Overrides claude.node_name in YAML.")
     return parser.parse_args()
 
 
