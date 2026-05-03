@@ -318,9 +318,15 @@ class NeuralGNN(nn.Module):
             self._ngp_xy_period = float(getattr(model_config, 'ngp_hidden_xy_period', 1.0))
             self._ngp_pos_norm = None  # populated lazily from state.pos on first call
             if self._ngp_spatial_enabled:
-                # Per-neuron query: scalar output per (t, pos) pair. Output slot
-                # role (hidden vs anchor) is encoded by which neuron ids we
-                # query, not by an output index — so n_output=1.
+                # Per-neuron query: scalar output per (t, pos, a) triple.
+                # Output slot role (hidden vs anchor) is encoded by which
+                # neuron ids we query, not by an output index — so n_output=1.
+                # The decoder also consumes the GNN's learned embedding
+                # self.a[ids] (a_dim=embedding_dim) so the same per-neuron
+                # latent that drives g_phi / f_theta is available to the
+                # NGP non-linearly. Cell type itself is NOT fed in: only
+                # the learned a_i, which the GNN co-trains via g_phi for
+                # hidden neurons through visible postsynaptic neighbours.
                 self.NNR_hidden = MultiResSpatioTemporalGrid(
                     n_levels=getattr(model_config, 'ngp_hidden_n_levels', 16),
                     n_features_per_level=getattr(model_config, 'ngp_hidden_n_features_per_level', 4),
@@ -333,6 +339,7 @@ class NeuralGNN(nn.Module):
                     n_output=1,
                     mlp_width=getattr(model_config, 'ngp_hidden_mlp_width', 256),
                     mlp_layers=getattr(model_config, 'ngp_hidden_mlp_layers', 2),
+                    a_dim=int(model_config.embedding_dim),
                 )
             else:
                 self.NNR_hidden = MultiResTemporalGrid(
@@ -414,15 +421,21 @@ class NeuralGNN(nn.Module):
         pos_m = self._ngp_pos_norm[ids.to(self._ngp_pos_norm.device)]  # (M, 2)
         t_flat = t_norm.repeat_interleave(M).unsqueeze(1)            # (B*M, 1)
         pos_flat = pos_m.repeat(B, 1)                                # (B*M, 2)
+        # Per-query GNN embedding self.a[ids] — the same learned latent
+        # that g_phi/f_theta consume. Tiled across frames so each (k, id)
+        # query carries its identity factor non-linearly into the decoder.
+        a_m = self.a[ids.to(self.a.device)]                          # (M, embedding_dim)
+        a_flat = a_m.repeat(B, 1)                                    # (B*M, embedding_dim)
         if self._ngp_factorized:
-            out, feat = self.NNR_hidden(t_flat, pos_flat, return_features=True)
+            out, feat = self.NNR_hidden(t_flat, pos_flat, a=a_flat,
+                                         return_features=True)
             out = out.squeeze(-1)                                    # (B*M,)
             time_lr = self.ngp_time_proj(feat)                       # (B*M, rank)
             emb_per_neuron = self._ngp_emb_lookup(ids)               # (M, rank)
             emb_flat = emb_per_neuron.repeat(B, 1)                   # (B*M, rank)
             out = out + (emb_flat * time_lr).sum(dim=-1)
         else:
-            out = self.NNR_hidden(t_flat, pos_flat).squeeze(-1)      # (B*M,)
+            out = self.NNR_hidden(t_flat, pos_flat, a=a_flat).squeeze(-1)  # (B*M,)
         return out.reshape(B, M)
 
     def forward_hidden(self, state: NeuronState, k: int, hidden_ids: torch.Tensor) -> torch.Tensor:

@@ -29,6 +29,17 @@ def determine_load_fields(config):
     fields = ['voltage', 'stimulus', 'neuron_type']
     if 'visual' in model_config.field_type or 'test' in model_config.field_type:
         fields.append('pos')
+    # Hidden-neuron INR variants that read per-neuron positions:
+    #   - SIREN(x, y, t)
+    #   - NGP-T with the spatial branch (ngp_hidden_spatial=True)
+    inr_hidden = getattr(model_config, 'inr_type_hidden', 'none')
+    needs_pos_for_inr = (
+        inr_hidden == 'siren_txy'
+        or (inr_hidden == 'ngp_t'
+            and bool(getattr(model_config, 'ngp_hidden_spatial', False)))
+    )
+    if needs_pos_for_inr and 'pos' not in fields:
+        fields.append('pos')
     if sim.calcium_type != 'none':
         fields.append('calcium')
     if sim.measurement_noise_level > 0:

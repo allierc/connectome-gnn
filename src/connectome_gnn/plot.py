@@ -1881,11 +1881,20 @@ def _plot_pearson_violin(ax, hidden_corrs, anchor_corrs):
     ax.set_aspect('auto')  # axes box controls squareness via figure layout
 
 
-def _plot_trace_panel(ax, gt_arr, pred_arr, local_ids, pearson, title, n_frames):
-    """Render one stacked-trace panel (GT green + prediction black, per-neuron pearson)."""
+def _plot_trace_panel(ax, gt_arr, pred_arr, local_ids, pearson, title,
+                       n_frames, type_names=None):
+    """Render one stacked-trace panel (GT green + prediction black, per-neuron pearson).
+
+    type_names: optional list of cell-type strings (one per trace) used as
+                left-margin row labels in place of the raw neuron index.
+    """
+    from connectome_gnn.metrics import INDEX_TO_NAME
+
     n_traces = gt_arr.shape[0]
     activity_std = float(np.std(gt_arr))
-    step_v = max(0.25, 1.2 * activity_std) if activity_std > 0 else 1.0
+    # 2.5x activity std (was 1.2) so neighbouring traces don't collide when
+    # GT and NGP predictions both wiggle by ~+/-2 std around the baseline.
+    step_v = max(0.5, 2.5 * activity_std) if activity_std > 0 else 1.0
 
     # Per-neuron linear rescale so prediction can be drawn on the same stacked axis
     for i in range(n_traces):
@@ -1898,24 +1907,28 @@ def _plot_trace_panel(ax, gt_arr, pred_arr, local_ids, pearson, title, n_frames)
         a_i = float((g * p).sum() / (denom + 1e-12)) if denom > 0 else 0.0
         ax.plot(a_i * p + i * step_v, lw=0.9, c='black', alpha=0.9,
                 label='NGP' if i == 0 else None)
-        ax.text(-n_frames * 0.025, i * step_v, f'n{local_ids[i].item()}',
-                fontsize=9, va='bottom', ha='right', color='black')
+        if type_names is not None and i < len(type_names) and type_names[i]:
+            label = type_names[i]
+        else:
+            label = f'n{local_ids[i].item()}'
+        ax.text(-n_frames * 0.025, i * step_v, label,
+                fontsize=12, va='bottom', ha='right', color='black')
 
     ax.set_ylim([-step_v, n_traces * step_v + step_v])
     ax.set_yticks([])
     ax.set_xticks([0, n_frames // 2, n_frames])
-    ax.set_xticklabels([0, n_frames // 2, n_frames], fontsize=13)
-    ax.set_xlabel('frame', fontsize=15)
-    ax.set_xlim([-n_frames * 0.03, n_frames * 1.05])
-    ax.set_title(f'{title}   pearson={pearson:.3f}', fontsize=13)
-    ax.legend(loc='upper right', fontsize=12, frameon=False)
+    ax.set_xticklabels([0, n_frames // 2, n_frames], fontsize=15)
+    ax.set_xlabel('frame', fontsize=17)
+    ax.set_xlim([-n_frames * 0.06, n_frames * 1.05])
+    ax.set_title(f'{title}   pearson={pearson:.3f}', fontsize=15)
+    ax.legend(loc='upper right', fontsize=14, frameon=False)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     ax.spines['left'].set_visible(False)
 
 
 def plot_hidden_siren_traces(model, x_ts, hidden_ids, log_dir, epoch, N, device,
-                             n_traces=40, n_frames=2000, anchor_ids=None):
+                             n_traces=13, n_frames=1000, anchor_ids=None):
     """Plot GT voltage vs NGP-predicted voltage for a sample of hidden neurons.
 
     When anchor_ids is provided AND the model has anchor outputs, adds a right panel
@@ -1929,14 +1942,31 @@ def plot_hidden_siren_traces(model, x_ts, hidden_ids, log_dir, epoch, N, device,
         (hidden_pearson, anchor_pearson)
         anchor_pearson is None when anchor_ids is not provided.
     """
+    from connectome_gnn.metrics import INDEX_TO_NAME
+
     n_frames = min(n_frames, x_ts.n_frames)
     inr_type = getattr(model, '_inr_hidden_type', 'siren_t')
     inr_label = inr_type.upper().replace('_', '-')
+
+    # Helper: cell-type names for the row labels (one per sampled neuron).
+    def _names_for(local_ids):
+        ntype = getattr(x_ts, 'neuron_type', None)
+        if ntype is None:
+            return None
+        names = []
+        for nid in local_ids:
+            try:
+                t = int(ntype[int(nid)].item() if hasattr(ntype[int(nid)], 'item') else ntype[int(nid)])
+                names.append(INDEX_TO_NAME.get(t, f'T{t}'))
+            except Exception:
+                names.append('')
+        return names
 
     # Hidden traces (always)
     gt_h, pred_h, local_h = _sample_ngp_traces(model, x_ts, hidden_ids, n_traces, n_frames, use_anchor=False)
     corrs_h = _per_neuron_pearson(gt_h, pred_h)
     pearson_h = float(corrs_h.mean())
+    names_h = _names_for(local_h)
 
     anchor_active = (anchor_ids is not None) and (getattr(model, 'n_anchor', 0) > 0)
 
@@ -1944,25 +1974,30 @@ def plot_hidden_siren_traces(model, x_ts, hidden_ids, log_dir, epoch, N, device,
         gt_a, pred_a, local_a = _sample_ngp_traces(model, x_ts, anchor_ids, n_traces, n_frames, use_anchor=True)
         corrs_a = _per_neuron_pearson(gt_a, pred_a)
         pearson_a = float(corrs_a.mean())
+        names_a = _names_for(local_a)
 
-        # 3-panel layout: two trace panels (width 15 each) + square violin panel
-        panel_h = max(4, n_traces * 0.25 + 2)
+        # 3-panel layout: two trace panels (width 15 each) + square violin panel.
+        # Height scales with n_traces — at n_traces=13 this gives ~9 inches.
+        panel_h = max(8, n_traces * 0.7 + 2)
         fig = plt.figure(figsize=(30 + panel_h, panel_h))
         gs = fig.add_gridspec(1, 3, width_ratios=[15, 15, panel_h])
         ax_h = fig.add_subplot(gs[0, 0])
         ax_a = fig.add_subplot(gs[0, 1])
         ax_v = fig.add_subplot(gs[0, 2])
         _plot_trace_panel(ax_h, gt_h, pred_h, local_h, pearson_h,
-                          f'Hidden {inr_label}  (epoch {epoch}  iter {N})', n_frames)
+                          f'Hidden {inr_label}  (epoch {epoch}  iter {N})',
+                          n_frames, type_names=names_h)
         _plot_trace_panel(ax_a, gt_a, pred_a, local_a, pearson_a,
-                          f'Anchor {inr_label}  (epoch {epoch}  iter {N})', n_frames)
+                          f'Anchor {inr_label}  (epoch {epoch}  iter {N})',
+                          n_frames, type_names=names_a)
         _plot_pearson_violin(ax_v, corrs_h, corrs_a)
         ax_v.set_box_aspect(1.0)  # force the axes box to be square
     else:
         pearson_a = None
-        fig, ax = plt.subplots(figsize=(15, max(4, n_traces * 0.25 + 2)))
+        fig, ax = plt.subplots(figsize=(15, max(8, n_traces * 0.7 + 2)))
         _plot_trace_panel(ax, gt_h, pred_h, local_h, pearson_h,
-                          f'Hidden {inr_label}  (epoch {epoch}  iter {N})', n_frames)
+                          f'Hidden {inr_label}  (epoch {epoch}  iter {N})',
+                          n_frames, type_names=names_h)
 
     out_dir = os.path.join(log_dir, 'tmp_training', f'hidden_{inr_type}')
     os.makedirs(out_dir, exist_ok=True)
