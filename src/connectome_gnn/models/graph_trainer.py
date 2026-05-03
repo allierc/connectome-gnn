@@ -1081,6 +1081,21 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                 is_regular_r2 = (N > 0) and (N % connectivity_plot_frequency == 0)
                 is_early_r2 = (N < connectivity_plot_frequency) and (N % early_r2_frequency == 0)
                 model_name = model_config.signal_model_name
+
+                # Intermediate model checkpoint at every 1/10 of the epoch.
+                # Overwrites the same path used by the end-of-epoch save (line
+                # ~1019), so graph_tester (which picks the newest file in
+                # models/ by mtime) keeps working unchanged. Lets a recovery
+                # from a mid-training wedge cost at most one Niter/10 cycle.
+                if is_regular_r2:
+                    _intermediate_path = os.path.join(
+                        log_dir, 'models',
+                        f'best_model_with_{tc.n_runs - 1}_graphs_{epoch}.pt')
+                    os.makedirs(os.path.dirname(_intermediate_path), exist_ok=True)
+                    torch.save({'model_state_dict': model.state_dict(),
+                                'optimizer_state_dict': optimizer.state_dict()},
+                               _intermediate_path)
+
                 if (is_regular_r2 or is_early_r2) and not test_neural_field and '_mlp' in model_name:
                     from connectome_gnn.metrics import compute_jacobian_connectivity_r2
                     last_connectivity_r2 = compute_jacobian_connectivity_r2(
