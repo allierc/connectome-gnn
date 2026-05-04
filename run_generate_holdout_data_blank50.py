@@ -64,6 +64,8 @@ CONDITION_FILTER = [
     # 'flyvis_noise_005_stride_5',
     # 'flyvis_noise_005_hidden_010_ngp',
     # 'flyvis_noise_005_hidden_020_ngp',
+    'flyvis_noise_005_hidden_010_no_ngp',
+    'flyvis_noise_005_hidden_020_no_ngp',
 ]
 
 

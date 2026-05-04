@@ -366,6 +366,22 @@ def _read_latest_training_metrics(log_dir):
         return None
 
 
+def _read_total_iter(log_dir):
+    """Return total expected training iterations, or None if not written yet.
+
+    data_train writes <log_dir>/tmp_training/total_iter.txt at startup so the
+    poller can display iter=I/total in the periodic [metrics] line.
+    """
+    path = os.path.join(log_dir, 'tmp_training', 'total_iter.txt')
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path) as f:
+            return int(f.read().strip())
+    except (OSError, ValueError):
+        return None
+
+
 def _read_clustering_accuracy(log_dir):
     """Return clustering_accuracy float from <log_dir>/results/metrics.txt
     (written by data_plot), or None if not available yet."""
@@ -440,7 +456,12 @@ def _print_training_metrics(log_dirs, slots_active, prefix='  [metrics]'):
             if tm['anc'] is not None:
                 nnr_str += f"({tm['anc']:.3f})"
             parts.append(f"{_r2_color(tm['hid'], thresholds=(0.5, 0.3, 0.1))}{nnr_str}{_ANSI_RESET}")
-        print(f"{prefix} slot {slot}  iter={tm['iter']:>6}  " + '  '.join(parts))
+        total = _read_total_iter(log_dir)
+        if total is not None:
+            iter_str = f"iter={tm['iter']:>6}/{total}"
+        else:
+            iter_str = f"iter={tm['iter']:>6}"
+        print(f"{prefix} slot {slot}  {iter_str}  " + '  '.join(parts))
 
 
 def wait_for_cluster_jobs_with_metrics(job_ids, log_dirs, poll_interval=60,

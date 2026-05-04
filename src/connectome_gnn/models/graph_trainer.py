@@ -61,7 +61,8 @@ ANSI_ORANGE = '\033[38;5;208m'
 ANSI_RED = '\033[91m'
 
 def _quick_ngp_pearson(model, x_ts, ids, *, use_anchor, device,
-                        n_neurons_sample=64, n_frames_sample=256, rng=None):
+                        n_neurons_sample=64, n_frames_sample=256, rng=None,
+                        return_stats=False):
     """Lightweight per-neuron Pearson r between batched NGP output and GT.
 
     Used by the tqdm bar to surface a real-time fit metric for the
@@ -82,15 +83,20 @@ def _quick_ngp_pearson(model, x_ts, ids, *, use_anchor, device,
                       single A100 without measurable wall-time cost).
         rng:          optional numpy Generator. Defaults to a fresh
                       default_rng() so the subset varies between calls.
+        return_stats: if True, return (mean, std) tuple over per-neuron
+                      Pearson r. Default False keeps the legacy float
+                      return.
 
     Returns:
-        float | None — mean per-neuron Pearson r, or None if the call
+        float | (float, float) | None — mean per-neuron Pearson r (or
+        ``(mean, std)`` when ``return_stats=True``), or None if the call
         could not run (e.g. spatial NGP pos cache not yet populated).
     """
+    _none_ret = (None, None) if return_stats else None
     if model.NNR_hidden is None or ids is None or len(ids) == 0:
-        return None
+        return _none_ret
     if use_anchor and getattr(model, 'n_anchor', 0) == 0:
-        return None
+        return _none_ret
 
     n_total = int(len(ids))
     n_neurons_sample = min(n_neurons_sample, n_total)
@@ -120,7 +126,7 @@ def _quick_ngp_pearson(model, x_ts, ids, *, use_anchor, device,
         # spatial NGP pos cache not yet populated — caller skips this iter
         if was_training:
             model.train()
-        return None
+        return _none_ret
     if was_training:
         model.train()
 
@@ -135,7 +141,7 @@ def _quick_ngp_pearson(model, x_ts, ids, *, use_anchor, device,
     elif pred.shape[1] != n_neurons_sample:
         if was_training:
             model.train()
-        return None  # shape mismatch we don't know how to recover from
+        return _none_ret  # shape mismatch we don't know how to recover from
 
     gt = x_ts.voltage[sel_f][:, sel_ids]                     # (F, N_sample)
     gt_np = gt.detach().to('cpu').numpy().astype(np.float32)
@@ -145,6 +151,8 @@ def _quick_ngp_pearson(model, x_ts, ids, *, use_anchor, device,
     num = (g * p).sum(axis=0)
     denom = np.sqrt((g * g).sum(axis=0)) * np.sqrt((p * p).sum(axis=0))
     corrs = np.where(denom > 1e-12, num / (denom + 1e-12), 0.0)
+    if return_stats:
+        return float(corrs.mean()), float(corrs.std())
     return float(corrs.mean())
 
 
@@ -573,6 +581,24 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                 'vrest_r2_clean,n_out_vrest,n_total_vrest,'
                 'tau_r2_clean,n_out_tau,n_total_tau\n')
 
+    # Total iter count across all epochs — read by the LLM poller to display
+    # iter=I/total in the periodic [metrics] line. Mirrors the Niter formula
+    # used inside the epoch loop (deterministic per epoch).
+    _Niter_per_epoch = int(sim.n_frames * tc.data_augmentation_loop // tc.batch_size * 0.2)
+    if tc.max_iterations_per_epoch > 0:
+        _Niter_per_epoch = min(_Niter_per_epoch, tc.max_iterations_per_epoch)
+    _total_iter = _Niter_per_epoch * tc.n_epochs
+    with open(os.path.join(log_dir, 'tmp_training', 'total_iter.txt'), 'w') as f:
+        f.write(str(_total_iter))
+
+    # NNR pearson log: tracks per-neuron Pearson r mean ± SD across
+    # training iterations (populated only when an NGP/SIREN hidden head
+    # is active). Consumed by plot_signal_loss to draw the mean+SD panel.
+    nnr_pearson_log_path = os.path.join(log_dir, 'tmp_training', 'nnr_pearson.log')
+    with open(nnr_pearson_log_path, 'w') as f:
+        f.write('iteration,hidden_pearson_mean,hidden_pearson_std,'
+                'anchor_pearson_mean,anchor_pearson_std\n')
+
     def _fmt_metric(x):
         """Format optional float for metrics.log CSV ('nan' when None)."""
         return 'nan' if x is None else f'{x:.6f}'
@@ -881,19 +907,21 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                 # so the runner's 300s collector picks the updated values
                 # up between heavy checkpoints.
                 _ngp_quick_updated = False
+                _h_quick_std = None
+                _a_quick_std = None
                 if (has_hidden_neurons
                         and getattr(model, 'NNR_hidden', None) is not None
                         and N > 0 and N % _NGP_QUICK_FREQ == 0):
-                    _h_quick = _quick_ngp_pearson(
+                    _h_quick, _h_quick_std = _quick_ngp_pearson(
                         model, x_ts, hidden_ids,
-                        use_anchor=False, device=device)
+                        use_anchor=False, device=device, return_stats=True)
                     if _h_quick is not None:
                         last_hidden_r2 = _h_quick
                         _ngp_quick_updated = True
                     if has_anchor_neurons:
-                        _a_quick = _quick_ngp_pearson(
+                        _a_quick, _a_quick_std = _quick_ngp_pearson(
                             model, x_ts, anchor_ids,
-                            use_anchor=True, device=device)
+                            use_anchor=True, device=device, return_stats=True)
                         if _a_quick is not None:
                             last_anchor_r2 = _a_quick
                             _ngp_quick_updated = True
@@ -909,6 +937,12 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                                 f'{last_n_out_vrest},{last_n_total_vrest},'
                                 f'{_fmt_metric(last_tau_r2_clean)},'
                                 f'{last_n_out_tau},{last_n_total_tau}\n')
+                    with open(nnr_pearson_log_path, 'a') as f:
+                        f.write(f'{regularizer.iter_count},'
+                                f'{_fmt_metric(last_hidden_r2)},'
+                                f'{_fmt_metric(_h_quick_std)},'
+                                f'{_fmt_metric(last_anchor_r2)},'
+                                f'{_fmt_metric(_a_quick_std)}\n')
 
                 if last_connectivity_r2 is not None or last_hidden_r2 is not None:
                     bar_parts = []
@@ -1281,19 +1315,21 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                 # row so the runner's 300s collector picks the updated
                 # values up between heavy checkpoints.
                 _ngp_quick_updated = False
+                _h_quick_std = None
+                _a_quick_std = None
                 if (has_hidden_neurons
                         and getattr(model, 'NNR_hidden', None) is not None
                         and N > 0 and N % _NGP_QUICK_FREQ == 0):
-                    _h_quick = _quick_ngp_pearson(
+                    _h_quick, _h_quick_std = _quick_ngp_pearson(
                         model, x_ts, hidden_ids,
-                        use_anchor=False, device=device)
+                        use_anchor=False, device=device, return_stats=True)
                     if _h_quick is not None:
                         last_hidden_r2 = _h_quick
                         _ngp_quick_updated = True
                     if has_anchor_neurons:
-                        _a_quick = _quick_ngp_pearson(
+                        _a_quick, _a_quick_std = _quick_ngp_pearson(
                             model, x_ts, anchor_ids,
-                            use_anchor=True, device=device)
+                            use_anchor=True, device=device, return_stats=True)
                         if _a_quick is not None:
                             last_anchor_r2 = _a_quick
                             _ngp_quick_updated = True
@@ -1309,6 +1345,12 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                                 f'{last_n_out_vrest},{last_n_total_vrest},'
                                 f'{_fmt_metric(last_tau_r2_clean)},'
                                 f'{last_n_out_tau},{last_n_total_tau}\n')
+                    with open(nnr_pearson_log_path, 'a') as f:
+                        f.write(f'{regularizer.iter_count},'
+                                f'{_fmt_metric(last_hidden_r2)},'
+                                f'{_fmt_metric(_h_quick_std)},'
+                                f'{_fmt_metric(last_anchor_r2)},'
+                                f'{_fmt_metric(_a_quick_std)}\n')
 
                 if last_connectivity_r2 is not None or last_hidden_r2 is not None:
                     bar_parts = []

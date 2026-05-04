@@ -785,12 +785,10 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
 
     # --- Eigenvalue / SVD analysis ---
     # The SVD-based eigen_comparison plot is unreliable on the corrected
-    # W and is slow, so skip the entire block when the PNG already exists.
-    # First-time runs still produce it so figures that depend on the file
-    # can be assembled. Set FORCE_EIGEN=1 in the env to override.
-    # Also auto-skip on very large connectomes (default 5M edges) where
-    # scipy's sparse eigs/svds SIGSEGVs or runs for hours; tunable via
-    # EIGEN_MAX_EDGES env var.
+    # W and is slow, so it is OFF by default. Set FORCE_EIGEN=1 in the
+    # env to enable. Even when forced, auto-skip on very large connectomes
+    # (default 5M edges) where scipy's sparse eigs/svds SIGSEGVs or runs
+    # for hours; tunable via EIGEN_MAX_EDGES / EIGEN_MAX_NEURONS env vars.
     _eigen_path = os.path.join(log_dir, 'results', 'eigen_comparison.png')
     _n_edges = int(edges.shape[1]) if hasattr(edges, 'shape') else len(edges[0])
     try:
@@ -802,22 +800,19 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     except ValueError:
         _max_neurons = 20_000
     _skip_eigen = (
-        os.environ.get('SKIP_EIGEN')
+        not os.environ.get('FORCE_EIGEN')
         or _n_edges > _max_edges
         or n_neurons > _max_neurons
-        or (os.path.isfile(_eigen_path) and not os.environ.get('FORCE_EIGEN'))
     )
     # edges_np is needed downstream (clustering); compute even when skipping eigen
     edges_np = to_numpy(edges)
     if _skip_eigen:
-        if os.environ.get('SKIP_EIGEN'):
-            _reason = 'SKIP_EIGEN set'
+        if not os.environ.get('FORCE_EIGEN'):
+            _reason = 'eigen_comparison off by default (set FORCE_EIGEN=1 to enable)'
         elif _n_edges > _max_edges:
             _reason = f'n_edges={_n_edges:,} > EIGEN_MAX_EDGES={_max_edges:,}'
-        elif n_neurons > _max_neurons:
-            _reason = f'n_neurons={n_neurons:,} > EIGEN_MAX_NEURONS={_max_neurons:,}'
         else:
-            _reason = 'file exists'
+            _reason = f'n_neurons={n_neurons:,} > EIGEN_MAX_NEURONS={_max_neurons:,}'
         print(f'eigen_comparison skipped ({_reason}): {_eigen_path}')
     if not _skip_eigen:
         print('plot eigenvalue spectrum and eigenvector comparison ...')
@@ -1450,6 +1445,9 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                     logger.info(f'n_edges from checkpoint: {ckpt_n_edges} '
                                 f'(config: {config.simulation.n_edges}) — using checkpoint')
                     config.simulation.n_edges = ckpt_n_edges
+                # Mirror trainer: checkpoint n_edges already includes null edges,
+                # so zero n_extra_null_edges to avoid double-counting at model build.
+                config.simulation.n_extra_null_edges = 0
             model = create_model(model_config.signal_model_name,
                                  aggr_type=model_config.aggr_type, config=config, device=device)
             model.load_state_dict(state_dict['model_state_dict'], strict=False)
@@ -2478,13 +2476,11 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
 
             # eigenvalue and singular value analysis using sparse matrices.
             # The SVD-based eigen_comparison plot is unreliable on the
-            # corrected W and is slow, so skip the entire block when the
-            # PNG already exists; first-time runs still produce it (the
-            # caller's skip_svd flag is intentionally bypassed here so
-            # `python GNN_Main.py -o plot ...` populates the missing
-            # file). Set FORCE_EIGEN=1 in the env to regenerate. Also
-            # auto-skip on very large connectomes (>EIGEN_MAX_EDGES, default
-            # 5M) where scipy's sparse eigs/svds SIGSEGVs or runs for hours.
+            # corrected W and is slow, so it is OFF by default. Set
+            # FORCE_EIGEN=1 in the env to enable. Even when forced,
+            # auto-skip on very large connectomes (>EIGEN_MAX_EDGES,
+            # default 5M) where scipy's sparse eigs/svds SIGSEGVs or
+            # runs for hours.
             _eigen_path = os.path.join(log_dir, 'results', 'eigen_comparison.png')
             _n_edges = int(edges.shape[1]) if hasattr(edges, 'shape') else len(edges[0])
             try:
@@ -2496,20 +2492,17 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             except ValueError:
                 _max_neurons = 20_000
             _skip_eigen_existing = (
-                os.environ.get('SKIP_EIGEN')
+                not os.environ.get('FORCE_EIGEN')
                 or _n_edges > _max_edges
                 or n_neurons > _max_neurons
-                or (os.path.isfile(_eigen_path) and not os.environ.get('FORCE_EIGEN'))
             )
             if _skip_eigen_existing:
-                if os.environ.get('SKIP_EIGEN'):
-                    _reason = 'SKIP_EIGEN set'
+                if not os.environ.get('FORCE_EIGEN'):
+                    _reason = 'eigen_comparison off by default (set FORCE_EIGEN=1 to enable)'
                 elif _n_edges > _max_edges:
                     _reason = f'n_edges={_n_edges:,} > EIGEN_MAX_EDGES={_max_edges:,}'
-                elif n_neurons > _max_neurons:
-                    _reason = f'n_neurons={n_neurons:,} > EIGEN_MAX_NEURONS={_max_neurons:,}'
                 else:
-                    _reason = 'file exists'
+                    _reason = f'n_neurons={n_neurons:,} > EIGEN_MAX_NEURONS={_max_neurons:,}'
                 print(f'eigen_comparison skipped ({_reason}): {_eigen_path}')
             if not _skip_eigen_existing:
                 print('plot eigenvalue spectrum and eigenvector comparison ...')
