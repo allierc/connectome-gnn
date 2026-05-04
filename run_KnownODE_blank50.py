@@ -119,11 +119,11 @@ CONDITION_NODES = {
     'flyvis_noise_free':                    'a100',
     'flyvis_noise_005':                     'a100',
     'flyvis_noise_05':                      'a100',
-    # 'flyvis_noise_005_010':                 'a100',  # = AR(1) rho=0 control under blank50 overrides
-    # 'flyvis_noise_005_020':                 'a100',
-    # 'flyvis_noise_005_null_edges_pc_400':   'a100',
-    # 'flyvis_noise_005_removed_pc_20':       'a100',
-    # 'flyvis_noise_005_removed_pc_50':       'a100',
+    'flyvis_noise_005_010':                 'a100',  # = AR(1) rho=0 control under blank50 overrides
+    'flyvis_noise_005_020':                 'a100',
+    'flyvis_noise_005_null_edges_pc_400':   'a100',
+    'flyvis_noise_005_removed_pc_20':       'a100',
+    'flyvis_noise_005_removed_pc_50':       'a100',
 }
 
 CONDITION_FILTER     = list(CONDITION_NODES.keys())

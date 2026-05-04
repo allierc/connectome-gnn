@@ -93,6 +93,8 @@ GNN_BASES = [
     'flyvis_noise_005_stride_5',
     'flyvis_noise_005_hidden_010_ngp',
     'flyvis_noise_005_hidden_020_ngp',
+    'flyvis_noise_005_hidden_010_no_ngp',
+    'flyvis_noise_005_hidden_020_no_ngp',
 ]
 
 # Subset shown in tab:cv_cross_noise (drops noise_free + noise_05; both are
@@ -111,6 +113,8 @@ GNN_TABLE_BASES = [
     ('flyvis_noise_005_stride_5',          GNN_SUFFIX),
     ('flyvis_noise_005_hidden_010_ngp',    GNN_SUFFIX),
     ('flyvis_noise_005_hidden_020_ngp',    GNN_SUFFIX),
+    ('flyvis_noise_005_hidden_010_no_ngp', GNN_SUFFIX),
+    ('flyvis_noise_005_hidden_020_no_ngp', GNN_SUFFIX),
 ]
 
 # 8 Known-ODE blank50 conditions (run_KnownODE_blank50.py CONDITION_NODES).
@@ -139,8 +143,10 @@ ROW_META = {
     'flyvis_noise_005_removed_pc_20':      ('$-20\\%$ edges removed', '0.05', '0',   '347\\,000'),
     'flyvis_noise_005_removed_pc_50':      ('$-50\\%$ edges removed', '0.05', '0',   '217\\,056'),
     'flyvis_noise_005_stride_5':           ('$1/5$ frames',           '0.05', '0',   '434\\,112'),
-    'flyvis_noise_005_hidden_010_ngp':     ('$10\\%$ hidden',         '0.05', '0',   '434\\,112'),
-    'flyvis_noise_005_hidden_020_ngp':     ('$20\\%$ hidden',         '0.05', '0',   '434\\,112'),
+    'flyvis_noise_005_hidden_010_ngp':     ('$10\\%$ hidden (NGP)',    '0.05', '0',   '434\\,112'),
+    'flyvis_noise_005_hidden_020_ngp':     ('$20\\%$ hidden (NGP)',    '0.05', '0',   '434\\,112'),
+    'flyvis_noise_005_hidden_010_no_ngp':  ('$10\\%$ hidden (no NGP)', '0.05', '0',   '434\\,112'),
+    'flyvis_noise_005_hidden_020_no_ngp':  ('$20\\%$ hidden (no NGP)', '0.05', '0',   '434\\,112'),
 }
 
 # Table 1 (Known-ODE vs GNN) row spec: (model_label, condition_label, sigma, suffix, base).
