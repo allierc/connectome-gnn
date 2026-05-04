@@ -46,6 +46,8 @@ CONDITIONS = [
     ('flyvis_noise_005_stride_5',        'flyvis_noise_005_stride_5_winner'),
     ('flyvis_noise_005_hidden_010_ngp',  'flyvis_noise_005_hidden_010_ngp_anchors_winner'),
     ('flyvis_noise_005_hidden_020_ngp',  'flyvis_noise_005_hidden_020_ngp_anchors_winner'),
+    ('flyvis_noise_005_hidden_010_no_ngp', 'flyvis_unified_winner'),
+    ('flyvis_noise_005_hidden_020_no_ngp', 'flyvis_unified_winner'),
     # AR(1) measurement-noise sweep (blank50 + gamma=0.10 + temporal correlation).
     # Six-point dose-response sweep at rho in {0.25, 0.50, 0.75, 0.90, 0.95, 0.99}.
     # Low-rho points bracket the indicator-kinetics regime (ASAP3 ~ 0.25,
