@@ -46,6 +46,8 @@ CONDITION_BASES = [
     'flyvis_noise_005_stride_5',
     'flyvis_noise_005_hidden_010_ngp',
     'flyvis_noise_005_hidden_020_ngp',
+    'flyvis_noise_005_hidden_010_no_ngp',
+    'flyvis_noise_005_hidden_020_no_ngp',
     # AR(1) measurement-noise sweep (must match CONDITIONS in cross/yaml_io.py).
     'flyvis_noise_005_010_blank50_ar1_rho25',
     'flyvis_noise_005_010_blank50_ar1_rho50',
