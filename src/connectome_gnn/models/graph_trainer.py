@@ -149,10 +149,11 @@ def _quick_ngp_pearson(model, x_ts, ids, *, use_anchor, device,
 
 
 # How often the tqdm bar gets a refreshed NGP Pearson r between the heavy
-# plot_training_flyvis checkpoints. ~200 iters keeps the cost negligible
+# plot_training_flyvis checkpoints. ~100 iters keeps the cost negligible
 # (one batched forward over 64 neurons × 256 frames per refresh) while
-# updating the bar often enough to track the InstantNGP visibly.
-_NGP_QUICK_FREQ = 200
+# updating the bar — and the metrics.log row written from this path —
+# often enough to give nnr_plot.png ~2× the resolution of the prior 200.
+_NGP_QUICK_FREQ = 100
 
 
 def r2_color(val, thresholds=(0.9, 0.7, 0.3)):
@@ -595,7 +596,10 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
 
         Niter = int(sim.n_frames * tc.data_augmentation_loop // tc.batch_size * 0.2)
         plot_frequency = max(1, int(Niter // 20))
-        connectivity_plot_frequency = max(1, int(Niter // 10))
+        # Heavy R² checkpoint cadence — doubled (Niter//10 → Niter//20) so
+        # nnr_plot.png gets twice the V_rest/τ-clean steps. Heavy plots
+        # (embedding/W) still fire at the lower plot_frequency cadence.
+        connectivity_plot_frequency = max(1, int(Niter // 20))
         # Early-phase R2: 4 extra checkpoints in [1, connectivity_plot_frequency)
         early_r2_frequency = connectivity_plot_frequency // 5
         n_plots_per_epoch = 4
@@ -702,11 +706,32 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
         # to isolate whether the conn_R² drop seen in phase 2 is caused by the
         # injection itself or by the hidden self-consistency loss.
         _alpha_inject_target = float(getattr(tc, 'alpha_inject_target', 1.0))
+
+        # Three-phase schedule (when warmup_hidden_loss_iter_frac > 0):
+        #   phase 1 [0, hidden_loss_iter)               : alpha=0, hidden loss OFF
+        #   phase 2 [hidden_loss_iter, inject_iter)     : alpha=0, hidden loss ON
+        #   phase 3 [inject_iter, ...)                  : alpha ramps to target, hidden loss ON
+        # Default (frac=0) = legacy two-phase behavior where the hidden loss
+        # gate is tied to alpha_inject (so it activates at the inject ramp).
+        _hidden_loss_iter_frac = float(getattr(tc, 'warmup_hidden_loss_iter_frac', 0.0))
+        if _hidden_loss_iter_frac > 0.0:
+            _hidden_loss_iter = int(Niter * _hidden_loss_iter_frac)
+        else:
+            _hidden_loss_iter = int(getattr(tc, 'warmup_hidden_loss_iter', 0))
+        _three_phase = _hidden_loss_iter > 0
+
         if _warmup_inject_iter > 0:
-            print(f'NGP warmup-inject: phase 1 = iters [0, {_warmup_inject_iter}) '
-                  f'(alpha=0), ramp [{_warmup_inject_iter}, {_warmup_inject_iter + _warmup_inject_ramp}), '
-                  f'phase 2 from iter {_warmup_inject_iter + _warmup_inject_ramp} '
-                  f'(alpha={_alpha_inject_target}). Total Niter={Niter}.')
+            if _three_phase:
+                print(f'NGP three-phase schedule: '
+                      f'phase 1 [0, {_hidden_loss_iter}) GNN+anchor only, '
+                      f'phase 2 [{_hidden_loss_iter}, {_warmup_inject_iter}) +hidden loss (alpha=0), '
+                      f'phase 3 ramp [{_warmup_inject_iter}, {_warmup_inject_iter + _warmup_inject_ramp}) → '
+                      f'inject (alpha={_alpha_inject_target}). Niter={Niter}.')
+            else:
+                print(f'NGP warmup-inject: phase 1 = iters [0, {_warmup_inject_iter}) '
+                      f'(alpha=0), ramp [{_warmup_inject_iter}, {_warmup_inject_iter + _warmup_inject_ramp}), '
+                      f'phase 2 from iter {_warmup_inject_iter + _warmup_inject_ramp} '
+                      f'(alpha={_alpha_inject_target}). Total Niter={Niter}.')
 
         # Track previous-iter alpha so we can announce the two phase transitions
         # (warmup-end / ramp-start, ramp-end / phase-2-start).
@@ -729,6 +754,18 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
             else:
                 alpha_inject = 1.0
             alpha_inject = alpha_inject * _alpha_inject_target
+
+            # Hidden-voltage self-consistency gate. Three-phase: turns on at
+            # _hidden_loss_iter (independent of alpha_inject), so phase 2 can
+            # train NGP-hidden against GNN(v_h=0) targets BEFORE injection
+            # starts in phase 3 — pre-shaping NGP-hidden away from the
+            # trivial-zero fixed point that emerges once alpha>0.
+            # Two-phase fallback (when _three_phase is False): the gate
+            # follows alpha_inject (legacy behavior).
+            if _three_phase:
+                hidden_loss_gate = 1.0 if N >= _hidden_loss_iter else 0.0
+            else:
+                hidden_loss_gate = alpha_inject
 
             # Announce phase transitions when crossed.
             if _warmup_inject_iter > 0 and _prev_alpha_inject != alpha_inject:
@@ -1105,7 +1142,12 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                         pred_h = batched_state.voltage[h_ids_b].unsqueeze(-1) + sim.delta_t * pred[h_ids_b]
                         k_starts = k_batch[::n_per, 0].to(torch.long)                 # (B,)
                         target_h = model.forward_hidden_batched(k_starts + 1, hidden_ids=hidden_ids).reshape(-1, 1)  # (B*n_hidden, 1)
-                        loss = loss + alpha_inject * tc.coeff_hidden_voltage * (pred_h - target_h).norm(2)
+                        # hidden_loss_gate: in three-phase mode this turns on
+                        # at _hidden_loss_iter even while alpha_inject=0, so
+                        # NGP-hidden gets shaped against GNN(v_h=0) targets
+                        # before injection starts. In legacy two-phase mode it
+                        # equals alpha_inject (gate tied to injection ramp).
+                        loss = loss + hidden_loss_gate * tc.coeff_hidden_voltage * (pred_h - target_h).norm(2)
                     # Anchor voltage loss: NGP-T/SIREN-T anchor outputs vs observed GT voltages
                     if has_anchor_neurons and getattr(tc, 'coeff_anchor_voltage', 0.0) > 0:
                         n_per = state_batch[0].n_neurons
