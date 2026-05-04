@@ -36,7 +36,7 @@ from connectome_gnn.utils import (
 )
 from connectome_gnn.metrics import (
     compute_activity_stats,
-    compute_r_squared,
+    compute_r_squared_NSE,
     _build_f_theta_features,
 )
 from connectome_gnn.generators.ode_params import get_ode_params_class, FlyVisODEParams
@@ -358,7 +358,7 @@ def analyze(log_dir, device):
             f"{'prior_plotfig':25s}  {plotfig_tau:7.4f}  {'':>7s}  {'':>9s}")
 
     for name, tau_hat in results.items():
-        r2, slope = compute_r_squared(gt_tau, tau_hat)
+        r2, slope = compute_r_squared_NSE(gt_tau, tau_hat)
         summary[name] = {'R2': float(r2), 'slope': float(slope),
                          'tau_mean': float(tau_hat.mean())}
         report_lines.append(

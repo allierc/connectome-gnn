@@ -35,7 +35,7 @@ from connectome_gnn.metrics import (  # noqa: F401
     compute_corrected_weights,
     compute_dynamics_r2,
     compute_grad_msg,
-    compute_r_squared,
+    compute_r_squared_NSE,
     compute_r_squared_filtered,
     derive_tau,
     derive_vrest,
@@ -358,7 +358,7 @@ def plot_weight_scatter(ax, gt_weights, learned_weights, corrected=False,
         learned_in = learned_weights
         mc_in = mc
 
-    r_squared, slope = compute_r_squared(true_in, learned_in)
+    r_squared, slope = compute_r_squared_NSE(true_in, learned_in)
 
     scatter_color = mc_in if mc_in is not None else 'k'
     ax.scatter(true_in, learned_in, s=scatter_size, c=scatter_color, alpha=0.04)
@@ -419,7 +419,7 @@ def plot_tau(ax, slopes_f_theta, gt_taus, n_neurons, mc=None):
     learned_tau = np.clip(learned_tau, 0, 1)
     gt_taus_np = to_numpy(gt_taus[:n_neurons]) if torch.is_tensor(gt_taus) else np.asarray(gt_taus[:n_neurons])
 
-    r_squared, slope = compute_r_squared(gt_taus_np, learned_tau)
+    r_squared, slope = compute_r_squared_NSE(gt_taus_np, learned_tau)
 
     ax.scatter(gt_taus_np, learned_tau, c=mc, s=1, alpha=0.25)
     ax.text(0.05, 0.95,
@@ -448,7 +448,7 @@ def plot_vrest(ax, slopes_f_theta, offsets_f_theta, gt_V_rest, n_neurons, mc=Non
     learned_V_rest = np.where(slopes_f_theta != 0, -offsets_f_theta / slopes_f_theta, 1.0)
     gt_vr_np = to_numpy(gt_V_rest[:n_neurons]) if torch.is_tensor(gt_V_rest) else np.asarray(gt_V_rest[:n_neurons])
 
-    r_squared, slope = compute_r_squared(gt_vr_np, learned_V_rest)
+    r_squared, slope = compute_r_squared_NSE(gt_vr_np, learned_V_rest)
 
     ax.scatter(gt_vr_np, learned_V_rest, c=mc, s=1, alpha=0.25)
     ax.text(0.05, 0.95,

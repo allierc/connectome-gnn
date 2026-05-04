@@ -10,7 +10,7 @@ from connectome_gnn.metrics import (
     _vectorized_linear_fit,
     _vectorized_linspace,
     compute_activity_stats,
-    compute_r_squared,
+    compute_r_squared_NSE,
     compute_r_squared_filtered,
     derive_tau,
     derive_vrest,
@@ -40,26 +40,26 @@ class TestComputeRSquared:
     def test_perfect_linear_fit(self):
         true = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
         learned = 2.0 * true + 1.0
-        r2, slope = compute_r_squared(true, learned)
+        r2, slope = compute_r_squared_NSE(true, learned)
         assert r2 == pytest.approx(1.0, abs=1e-6)
         assert slope == pytest.approx(2.0, abs=1e-6)
 
     def test_noisy_fit_high_r2(self, sample_1d_arrays):
         true, learned = sample_1d_arrays
-        r2, slope = compute_r_squared(true, learned)
+        r2, slope = compute_r_squared_NSE(true, learned)
         assert 0.9 < r2 <= 1.0
         assert slope == pytest.approx(2.0, abs=0.5)
 
     def test_identity_fit(self):
         true = np.linspace(0, 10, 100)
-        r2, slope = compute_r_squared(true, true)
+        r2, slope = compute_r_squared_NSE(true, true)
         assert r2 == pytest.approx(1.0, abs=1e-6)
         assert slope == pytest.approx(1.0, abs=1e-6)
 
     def test_negative_slope(self):
         true = np.array([1.0, 2.0, 3.0, 4.0])
         learned = -3.0 * true + 10.0
-        r2, slope = compute_r_squared(true, learned)
+        r2, slope = compute_r_squared_NSE(true, learned)
         assert r2 == pytest.approx(1.0, abs=1e-6)
         assert slope == pytest.approx(-3.0, abs=1e-6)
 
