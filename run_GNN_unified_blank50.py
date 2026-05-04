@@ -128,13 +128,13 @@ CONDITION_NODES = {
     # 'flyvis_noise_05':                      'a100',
     # 'flyvis_noise_005_010':                 'a100',  
     # 'flyvis_noise_005_020':                 'a100',
-    # 'flyvis_noise_005_null_edges_pc_400':   'a100',
+    'flyvis_noise_005_null_edges_pc_400':   'a100',
     # 'flyvis_noise_005_removed_pc_20':       'a100',
     # 'flyvis_noise_005_removed_pc_50':       'a100',
     # 'flyvis_noise_005_hidden_010_ngp':      'a100',
     # 'flyvis_noise_005_hidden_020_ngp':      'a100',
-    'flyvis_noise_005_hidden_010_no_ngp':   'a100',
-    'flyvis_noise_005_hidden_020_no_ngp':   'a100',
+    # 'flyvis_noise_005_hidden_010_no_ngp':   'a100',
+    # 'flyvis_noise_005_hidden_020_no_ngp':   'a100',
     # 'flyvis_noise_005_stride_5':             'a100',
 }
 

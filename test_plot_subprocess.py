@@ -44,6 +44,11 @@ if __name__ == '__main__':
         # Derive pre_folder from config_file (e.g., "fly/flyvis_..." -> "fly/")
         pre_folder = config.config_file.split('/')[0] + '/' if '/' in config.config_file else ''
 
+        # Mirror train_subprocess: prepend pre_folder to config.dataset so
+        # graphs_data_path(config.dataset, ...) resolves to graphs_data/<pre>/<dataset>/.
+        if pre_folder and not config.dataset.startswith(pre_folder):
+            config.dataset = pre_folder + config.dataset
+
         log_file = open(args.log_file, 'a', buffering=1) if args.log_file else None
         try:
             # Test

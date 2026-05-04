@@ -1363,14 +1363,47 @@ def plot_signal_loss(loss_dict, log_dir, epoch=None, Niter=None, epoch_boundarie
 
     style = default_style
     lw = style.line_width
-    fig_loss, (ax1, ax2, ax3) = style.figure(ncols=3, width=3 * style.figure_height * style.default_aspect)
+
+    # Look for the NNR pearson log first — its presence determines whether
+    # the figure adds the 4th (mean ± SD per-neuron) panel.
+    nnr_log_path = os.path.join(log_dir, 'tmp_training', 'nnr_pearson.log')
+    nnr_iters, nnr_h_mean, nnr_h_std, nnr_a_mean, nnr_a_std = [], [], [], [], []
+    if os.path.exists(nnr_log_path):
+        try:
+            with open(nnr_log_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith('iteration'):
+                        continue
+                    parts = line.split(',')
+                    nnr_iters.append(int(parts[0]))
+                    nnr_h_mean.append(float(parts[1]) if parts[1] != 'nan' else np.nan)
+                    nnr_h_std.append(float(parts[2]) if parts[2] != 'nan' else np.nan)
+                    nnr_a_mean.append(float(parts[3]) if parts[3] != 'nan' else np.nan)
+                    nnr_a_std.append(float(parts[4]) if parts[4] != 'nan' else np.nan)
+        except Exception:
+            nnr_iters = []
+    has_nnr = len(nnr_iters) > 0
+
+    if has_nnr:
+        fig_loss, axes = style.figure(
+            ncols=2, nrows=2,
+            width=2 * style.figure_height * style.default_aspect,
+        )
+        ax1, ax2 = axes[0]
+        ax3, ax4 = axes[1]
+    else:
+        fig_loss, (ax1, ax2, ax3) = style.figure(
+            ncols=3, width=3 * style.figure_height * style.default_aspect)
+        ax4 = None
 
     # x-axis: use global iteration if available, otherwise list index
     x_iter = loss_dict.get('iteration') or list(range(len(loss_dict['loss'])))
 
     # Linear scale
     legend_fs = 7
-    for a in (ax1, ax2, ax3):
+    _all_axes = (ax1, ax2, ax3) if ax4 is None else (ax1, ax2, ax3, ax4)
+    for a in _all_axes:
         a.tick_params(axis='x', labelsize=9)
         a.tick_params(axis='y', labelsize=9)
     ax1.plot(x_iter, loss_dict['loss'], color='b', linewidth=1, label='loss (no regul)', alpha=0.8)
@@ -1401,10 +1434,10 @@ def plot_signal_loss(loss_dict, log_dir, epoch=None, Niter=None, epoch_boundarie
     ax2.set_yscale('log')
     ax2.legend(fontsize=legend_fs, loc='best', ncol=2)
 
-    # Epoch boundary lines on all three panels
+    # Epoch boundary lines on every panel
     if epoch_boundaries:
         for xb in epoch_boundaries:
-            for ax in (ax1, ax2, ax3):
+            for ax in _all_axes:
                 ax.axvline(x=xb, color='gray', linestyle='--', linewidth=0.8, alpha=0.6)
 
     # R2 metrics panel (conn, V_rest, tau)
@@ -1448,6 +1481,65 @@ def plot_signal_loss(loss_dict, log_dir, epoch=None, Niter=None, epoch_boundarie
     else:
         ax3.text(0.5, 0.5, 'no r\u00b2 data yet', ha='center', va='center',
                  transform=ax3.transAxes, fontsize=style.label_font_size, color='gray')
+
+    # NNR mean \u00b1 SD panel (per-neuron Pearson r over training iterations).
+    # Only added when an NGP/SIREN hidden head was trained, so nnr_pearson.log
+    # exists and contains rows.
+    if ax4 is not None:
+        x_n = np.asarray(nnr_iters)
+        h_m = np.asarray(nnr_h_mean, dtype=float)
+        h_s = np.asarray(nnr_h_std, dtype=float)
+        a_m = np.asarray(nnr_a_mean, dtype=float)
+        a_s = np.asarray(nnr_a_std, dtype=float)
+
+        h_valid = ~np.isnan(h_m)
+        if h_valid.any():
+            ax4.plot(x_n[h_valid], h_m[h_valid], color='#4477cc', linewidth=1.2,
+                     label='hidden mean')
+            h_band_valid = h_valid & ~np.isnan(h_s)
+            if h_band_valid.any():
+                ax4.fill_between(x_n[h_band_valid],
+                                 h_m[h_band_valid] - h_s[h_band_valid],
+                                 h_m[h_band_valid] + h_s[h_band_valid],
+                                 color='#4477cc', alpha=0.25, linewidth=0,
+                                 label='hidden \u00b1 SD')
+
+        a_valid = ~np.isnan(a_m)
+        if a_valid.any():
+            ax4.plot(x_n[a_valid], a_m[a_valid], color='#cc6644', linewidth=1.2,
+                     label='anchor mean')
+            a_band_valid = a_valid & ~np.isnan(a_s)
+            if a_band_valid.any():
+                ax4.fill_between(x_n[a_band_valid],
+                                 a_m[a_band_valid] - a_s[a_band_valid],
+                                 a_m[a_band_valid] + a_s[a_band_valid],
+                                 color='#cc6644', alpha=0.25, linewidth=0,
+                                 label='anchor \u00b1 SD')
+
+        ax4.axhline(y=0.0, color='gray', linewidth=0.5, linestyle='--', alpha=0.6)
+        ax4.set_ylim(-0.2, 1.05)
+        style.xlabel(ax4, 'iteration')
+        style.ylabel(ax4, 'NNR per-neuron pearson')
+        ax4.legend(fontsize=legend_fs, loc='lower right', ncol=2)
+
+        latest_lines = []
+        if h_valid.any():
+            _hm_last = h_m[h_valid][-1]
+            _hs_last = h_s[h_valid][-1] if (~np.isnan(h_s[h_valid])).any() else float('nan')
+            if np.isnan(_hs_last):
+                latest_lines.append(f'h={_hm_last:.3f}')
+            else:
+                latest_lines.append(f'h={_hm_last:.3f}\u00b1{_hs_last:.3f}')
+        if a_valid.any():
+            _am_last = a_m[a_valid][-1]
+            _as_last = a_s[a_valid][-1] if (~np.isnan(a_s[a_valid])).any() else float('nan')
+            if np.isnan(_as_last):
+                latest_lines.append(f'a={_am_last:.3f}')
+            else:
+                latest_lines.append(f'a={_am_last:.3f}\u00b1{_as_last:.3f}')
+        if latest_lines:
+            ax4.text(0.98, 0.97, '\n'.join(latest_lines), transform=ax4.transAxes,
+                     fontsize=8, verticalalignment='top', horizontalalignment='right')
 
     style.savefig(fig_loss, f'{log_dir}/tmp_training/loss.png')
     plt.close()
