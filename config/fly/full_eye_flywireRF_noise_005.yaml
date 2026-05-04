@@ -21,6 +21,7 @@ simulation:
   seed: 42
   all_columns: true
   flywire_stimulus: true
+  flywire_stimulus_squeeze: true
   datavis_roots:
     - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
   skip_short_videos: true

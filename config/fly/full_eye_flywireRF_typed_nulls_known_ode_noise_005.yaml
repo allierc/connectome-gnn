@@ -1,9 +1,9 @@
 description:
   "v2 base + zero-weight edges (u=1, same-type-only / cross_type=False,
-  spatially-local), full eye (column_source='flywire'), noise=0.05.
+  spatially-local), known ODE, full eye (column_source='flywire'), noise=0.05.
   Restricts null edges to (source_type, target_type) pairs that already appear
-  in the real connectome."
-dataset: full_eye_flywireRF_typed_nulls_noise_005
+  in the real connectome. HPs inherited from cross_sl HPO winner."
+dataset: full_eye_flywireRF_typed_nulls_known_ode_noise_005
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ""
@@ -15,7 +15,7 @@ simulation:
   n_neurons: 50412
   n_input_neurons: 6368
   n_neuron_types: 65
-  n_edges: 9642335
+  n_edges: 2347640
   n_frames: 64000
   delta_t: 0.02
   baseline_value: 0
@@ -32,19 +32,10 @@ simulation:
   skip_short_videos: true
   blank_prefix_fraction: 0.5
 graph_model:
-  signal_model_name: full_eye_flywireRF_typed_nulls
+  signal_model_name: full_eye_flywireRF_typed_nulls_known_ode
   prediction: first_derivative
-  input_size: 3
-  n_layers: 4
-  hidden_dim: 64
-  output_size: 1
-  input_size_update: 5
-  n_layers_update: 4
-  hidden_dim_update: 64
   aggr_type: add
-  embedding_dim: 2
   update_type: generic
-  g_phi_positive: true
 plotting:
   colormap: tab20
   arrow_length: 1
@@ -59,36 +50,36 @@ training:
   n_runs: 1
   device: auto
   recurrent_training: false
-  time_step: 1
-  batch_size: 4
+  batch_size: 32
   batch_ratio: 1
   small_init_batch_size: false
   sparsity: none
-  data_augmentation_loop: 26
-  lr_W: 0.0014
-  lr: 0.0018
-  lr_embedding: 0.002325
-  coeff_g_phi_diff: 750
+  data_augmentation_loop: 330
+  lr_W: 0.00045
+  lr: 0.006
+  lr_embedding: 0.0
+  coeff_g_phi_diff: 0
   coeff_f_theta_msg_diff: 0
-  coeff_g_phi_norm: 0.9
-  coeff_g_phi_weight_L1: 0.28
-  coeff_f_theta_weight_L1: 0.05
+  coeff_g_phi_norm: 0
+  coeff_g_phi_weight_L1: 0
+  coeff_f_theta_weight_L1: 0
   coeff_g_phi_weight_L2: 0
-  coeff_f_theta_weight_L2: 0.001
-  coeff_W_L1: 0.001
-  coeff_W_L2: 1.5e-06
-  regul_annealing_rate: 0.0
-  w_init_mode: randn_scaled
+  coeff_f_theta_weight_L2: 0
+  coeff_W_L1: 0.003
+  coeff_W_L2: 0
+  coeff_W_sign: 0
+  coeff_tau_L1: 0.0
+  coeff_tau_L2: 3.0e-03
+  coeff_V_rest_L1: 0.0
+  coeff_V_rest_L2: 0.1
+  w_init_mode: zeros
+  w_init_scale: 1.0
   use_gt_edges: true
-  lr_scheduler: none
-  lr_scheduler_T0: 1000
-  lr_scheduler_T_mult: 2
-  lr_scheduler_eta_min_ratio: 0.01
-  lr_scheduler_warmup_iters: 100
+  regul_annealing_rate: 0
   seed: 42
 claude:
   n_epochs: 1
-  data_augmentation_loop: 26
+  data_augmentation_loop: 330
   n_iter_block: 12
   ucb_c: 1.414
   generate_data: true

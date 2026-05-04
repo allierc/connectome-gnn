@@ -91,8 +91,10 @@ BLANK50_SIM_OVERRIDES = {
 CONDITION_NODES = {
     'e8_flywireRF_noise_005':                       'a100',
     'e8_flywireRF_proximal_nulls_noise_005':        'h100',
+    'e8_flywireRF_typed_nulls_noise_005':           'h100',
     'full_eye_flywireRF_noise_005':                 'h100',
     'full_eye_flywireRF_proximal_nulls_noise_005':  'h100',
+    'full_eye_flywireRF_typed_nulls_noise_005':     'h100',
 }
 
 # Group bases by target queue so each call to run_all_conditions can use a
