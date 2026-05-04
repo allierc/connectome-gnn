@@ -424,7 +424,7 @@ FS_TICK   = 6
 FS_ANNOT  = 6
 FS_LEGEND = 6
 FS_TYPE   = 6
-PANEL_LBL = 8
+PANEL_LBL = 11
 
 # ~18 cm wide. Layout: 3 rows.
 #   row 0: hex grid (a)
@@ -434,12 +434,12 @@ PANEL_LBL = 8
 # eye-line readable (left = traces, right = density) and lets the scatter
 # axes occupy a full row's height instead of being manually inflated and
 # colliding with the trace row above.
-FIG_W_IN  = 18.0 * 0.3937       # ≈ 7.09 in
-FIG_H_IN  = 11.0
+FIG_W_IN  = 10.5                # ≈ 26.7 cm — two-column width
+FIG_H_IN  = 8.0                 # ≈ 20.3 cm — extra height for inter-row text
 
 CMAP = 'RdBu_r'
 HEX_VMIN, HEX_VMAX = -3.0, 3.0
-HEX_MARKER_S = 6
+HEX_MARKER_S = 10
 HEX_EDGE_C = 'black'
 HEX_EDGE_W = 0.1
 
@@ -795,15 +795,15 @@ def main():
         # empty — explicit ratios let us shrink the a↔b/c gap while keeping
         # a clearly visible gap between b/c and d/e.
         outer = mgs.GridSpec(5, 1, figure=fig,
-                             height_ratios=[1.0, 0.05, 1.5, 0.30, 1.5],
-                             left=0.06, right=0.92, top=0.97, bottom=0.05,
+                             height_ratios=[2.6, 0.30, 1.5, 0.30, 1.5],
+                             left=0.05, right=0.92, top=0.95, bottom=0.07,
                              hspace=0.0)
 
         # (a) 3 × SERIES_COLS hexagons — wspace=0 so cells touch without
-        # cropping; very negative hspace pulls the GT/learned/residual
-        # rows close together.
+        # cropping; hspace=0.40 leaves a clear vertical gap between hex rows
+        # for inter-row annotations (e.g. noise-regime labels).
         gs_a = mgs.GridSpecFromSubplotSpec(3, SERIES_COLS, subplot_spec=outer[0],
-                                            wspace=0.0, hspace=-0.50)
+                                            wspace=0.0, hspace=0.40)
         axes_hex_top = []
         axes_hex_mid = []
         axes_hex_res = []
@@ -814,9 +814,9 @@ def main():
 
             ax_gt = fig.add_subplot(gs_a[0, col])
             _draw_hex(ax_gt, pos_input, vals_gt, HEX_XLIM, HEX_YLIM)
-            # Label the first trace-window frame (col 1, which falls on
-            # TRACE_START) and the last frame; col 0 is the blank reference.
-            if col == 1 or col == SERIES_COLS - 1:
+            # Label cols 1, 2, and the last frame so the reader can read off
+            # the hex_step_frames cadence (col 0 is the blank reference).
+            if col in (1, 2, SERIES_COLS - 1):
                 ax_gt.set_title(f't = {int(t * DT_MS)} ms',
                                 fontsize=FS_TICK, pad=2)
             axes_hex_top.append(ax_gt)
@@ -829,18 +829,21 @@ def main():
             _draw_hex(ax_rs, pos_input, vals_rs, HEX_XLIM, HEX_YLIM)
             axes_hex_res.append(ax_rs)
 
-        # Row labels are anchored at axes-x=0 of the leftmost hex column,
-        # so they sit at the same horizontal position as the panel-letter
-        # marker `a` (which is placed at the axes' tightbbox.x0).
-        axes_hex_top[0].text(0.0, 1.28, 'ground truth visual stimulus',
-                             transform=axes_hex_top[0].transAxes,
-                             va='bottom', ha='left', fontsize=FS_LABEL)
-        axes_hex_mid[0].text(0.0, 1.10, 'learned visual stimulus',
-                             transform=axes_hex_mid[0].transAxes,
-                             va='bottom', ha='left', fontsize=FS_LABEL)
-        axes_hex_res[0].text(0.0, 1.10, 'residual (learned $-$ ground truth)',
-                             transform=axes_hex_res[0].transAxes,
-                             va='bottom', ha='left', fontsize=FS_LABEL)
+        # Row labels — placed in figure coords at x=x_row_label (sits in
+        # the figure's left margin, well left of the gridspec) and at the
+        # top edge of each subrow. The top row uses a larger y offset so
+        # the label sits above the "t = 10000 ms" axes title strip; the
+        # other two rows have no title above them.
+        fig.canvas.draw()
+        x_row_label = 0.010
+        for ax_row, txt, y_off in [
+                (axes_hex_top[0], 'ground truth visual stimulus',          0.020),
+                (axes_hex_mid[0], 'learned visual stimulus',               0.004),
+                (axes_hex_res[0], 'residual (learned $-$ ground truth)',   0.004)]:
+            pos = ax_row.get_position()
+            fig.text(x_row_label, pos.y1 + y_off, txt,
+                     fontsize=FS_LABEL, va='bottom', ha='left',
+                     transform=fig.transFigure)
 
         fig.canvas.draw()
         _norm = _mcolors.Normalize(vmin=HEX_VMIN, vmax=HEX_VMAX)
@@ -865,8 +868,8 @@ def main():
         # scatter then keeps its square aspect (aspect='equal' in
         # draw_scatter) and grows to fill the wider slot.
         gs_bc = mgs.GridSpecFromSubplotSpec(1, 2, subplot_spec=outer[2],
-                                             wspace=0.30,
-                                             width_ratios=[1.0, 1.0])
+                                             wspace=0.18,
+                                             width_ratios=[2.4, 1.0])
         ax_b = fig.add_subplot(gs_bc[0, 0])
         ax_c = fig.add_subplot(gs_bc[0, 1])
         draw_trace_panel(ax_b, true_s, pred_s, labels_s, step_v_stim, time_ms,
@@ -887,8 +890,8 @@ def main():
         # from so the two panels report consistent r values. Same 2:1
         # width split as the b/c row.
         gs_de = mgs.GridSpecFromSubplotSpec(1, 2, subplot_spec=outer[4],
-                                             wspace=0.30,
-                                             width_ratios=[1.0, 1.0])
+                                             wspace=0.18,
+                                             width_ratios=[2.4, 1.0])
         ax_d = fig.add_subplot(gs_de[0, 0])
         ax_e = fig.add_subplot(gs_de[0, 1])
 
@@ -904,18 +907,25 @@ def main():
             title=None,
         )
 
-        # Panel labels a..e
+        # Panel labels a..e — anchor to gridspec column edges and row tops
+        # in figure coords (not per-axes tightbbox), so letters line up
+        # vertically across rows and horizontally across columns even when
+        # ylabels of different widths shift each axes' tightbbox.
         fig.canvas.draw()
-        renderer = fig.canvas.get_renderer()
-        inv = fig.transFigure.inverted()
-        # Visual reading order is a (top), b/d (row 1), c/e (row 2).
-        anchors = [(axes_hex_top[0], 'a'),
-                   (ax_b, 'b'), (ax_d, 'd'),
-                   (ax_c, 'c'), (ax_e, 'e')]
-        for ax_anchor, lbl in anchors:
-            bb = ax_anchor.get_tightbbox(renderer)
-            x0, y1 = inv.transform((bb.x0, bb.y1))
-            fig.text(x0, y1, lbl, fontsize=PANEL_LBL, fontweight='bold',
+        # Panel letters share the same x_row_label as the row labels so
+        # `a` stacks directly above "ground truth visual stimulus", and
+        # b/d sit above the trace ylabels (which extend left of the axes).
+        x_left  = x_row_label
+        x_right = ax_c.get_position().x0 - 0.04
+        # `a` sits above the "ground truth visual stimulus" row label;
+        # b/c/d/e sit just above their own axes top edge.
+        y_a     = axes_hex_top[0].get_position().y1 + 0.045
+        y_bc    = ax_b.get_position().y1 + 0.005
+        y_de    = ax_d.get_position().y1 + 0.005
+        for x, y, lbl in [(x_left, y_a,  'a'),
+                          (x_left, y_bc, 'b'), (x_right, y_bc, 'c'),
+                          (x_left, y_de, 'd'), (x_right, y_de, 'e')]:
+            fig.text(x, y, lbl, fontsize=PANEL_LBL, fontweight='bold',
                      va='bottom', ha='left', color='black',
                      transform=fig.transFigure)
 
