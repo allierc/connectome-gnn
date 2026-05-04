@@ -697,11 +697,16 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
             _warmup_inject_ramp = int(Niter * _warmup_inject_ramp_frac)
         else:
             _warmup_inject_ramp = int(getattr(tc, 'warmup_inject_nnr_ramp_iter', 0))
+        # alpha_inject_target caps the post-warmup alpha (default 1.0). Set to
+        # 0.0 to leave NGP as a passive monitor (no injection ever) — useful
+        # to isolate whether the conn_R² drop seen in phase 2 is caused by the
+        # injection itself or by the hidden self-consistency loss.
+        _alpha_inject_target = float(getattr(tc, 'alpha_inject_target', 1.0))
         if _warmup_inject_iter > 0:
             print(f'NGP warmup-inject: phase 1 = iters [0, {_warmup_inject_iter}) '
                   f'(alpha=0), ramp [{_warmup_inject_iter}, {_warmup_inject_iter + _warmup_inject_ramp}), '
                   f'phase 2 from iter {_warmup_inject_iter + _warmup_inject_ramp} '
-                  f'(alpha=1). Total Niter={Niter}.')
+                  f'(alpha={_alpha_inject_target}). Total Niter={Niter}.')
 
         # Track previous-iter alpha so we can announce the two phase transitions
         # (warmup-end / ramp-start, ramp-end / phase-2-start).
@@ -712,7 +717,9 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
             # Compute per-iter alpha for NGP-into-hidden injection.
             # Branchless inside the compiled forward (just a scalar multiply);
             # the if-tree below runs once in the Python loop, not in any
-            # compiled region.
+            # compiled region. Final value is scaled by alpha_inject_target so
+            # `alpha_inject_target=0` leaves alpha at 0 throughout (NGP never
+            # injected — passive-monitor mode).
             if _warmup_inject_iter <= 0:
                 alpha_inject = 1.0
             elif N < _warmup_inject_iter:
@@ -721,6 +728,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                 alpha_inject = float(N - _warmup_inject_iter) / float(_warmup_inject_ramp)
             else:
                 alpha_inject = 1.0
+            alpha_inject = alpha_inject * _alpha_inject_target
 
             # Announce phase transitions when crossed.
             if _warmup_inject_iter > 0 and _prev_alpha_inject != alpha_inject:
