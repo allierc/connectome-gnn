@@ -171,9 +171,13 @@ shown in the "Default" column.
 
 | Parameter                   | Default | Range            | Notes |
 | --------------------------- | ------- | ---------------- | ----- |
-| `coeff_hidden_voltage`      | 3000    | {1000, 3000, 10000} | self-consistency loss strength |
+| `coeff_hidden_voltage`      | 300     | {100, 300, 1000, 3000} | self-consistency loss strength. Now applied during phase 2 onward (alpha-decoupled). The default dropped 10× vs the legacy 3000 because phase 2 actively shapes NGP-hidden against GNN(v_h=0) targets, so a softer pull is sufficient and avoids the W mis-attribution observed at 3000. |
 | `coeff_anchor_voltage`      | 3000    | {1000, 3000, 10000} | direct anchor supervision strength |
 | `alternate_lr_ratio`        | 0.4     | {0.05, 0.2, 0.4, 1.0} | ratio applied to GNN lrs at epoch 1; 1.0 = disabled |
+| `warmup_hidden_loss_iter_frac` | 0.20 | {0.10, 0.20, 0.30, 0.40} | NEW (3-phase): when the hidden-voltage self-consistency loss turns on. Must be < `warmup_inject_nnr_iter_frac` so phase 2 has length > 0. |
+| `warmup_inject_nnr_iter_frac` | 0.50 | {0.30, 0.40, 0.50, 0.60} | when the NGP injection ramp starts. Phase 2 = [hidden_loss_iter, inject_iter); during phase 2 alpha=0 so NGP-hidden is shaped by the GNN forward without the trivial-zero fixed point. |
+| `warmup_inject_nnr_ramp_iter_frac` | 0.10 | {0.033, 0.05, 0.10, 0.15} | length of the alpha 0→1 ramp. 10% (vs the legacy 3%) gives W more iterations to absorb the new non-zero hidden contribution after two prior phases of v_h=0. |
+| `alpha_inject_target`       | 1.0     | {0.0, 0.5, 1.0}    | post-ramp alpha cap. 0.0 = passive monitor (NGP never injected); 0.5 = half-strength injection. Useful as a diagnostic if conn_R² regresses in phase 3. |
 
 ### Frozen / off-limits
 
@@ -292,11 +296,19 @@ the explicit list below.
   - `coeff_W_L1=1.5e-4, coeff_W_L2=1.5e-6, coeff_g_phi_norm=0.9`
   - `ngp_hidden_n_levels=24, n_features_per_level=4, mlp_width=256, mlp_layers=3`
   - `ngp_hidden_spatial=true, ngp_factorized_rank=0, ngp_factorized_from_a=false`
-  - `n_anchor=3600, coeff_anchor_voltage=3000, coeff_hidden_voltage=3000`
+  - `n_anchor=3600, coeff_anchor_voltage=3000, coeff_hidden_voltage=300`
   - `alternate_training=true, alternate_lr_ratio=0.4`
-  - `warmup_inject_nnr_iter_frac=0.333, warmup_inject_nnr_ramp_iter_frac=0.033`
-    (NGP silenced for first 1/3 of iters, then ramps in over ~3% — required for
-     W/τ/V_rest to converge cleanly before NGP competes)
+  - **NEW 3-phase schedule**:
+    `warmup_hidden_loss_iter_frac=0.20, warmup_inject_nnr_iter_frac=0.50, warmup_inject_nnr_ramp_iter_frac=0.10`
+    - phase 1 [0, 0.20·Niter):    GNN W + anchor NGP only — alpha=0, hidden loss off
+    - phase 2 [0.20, 0.50·Niter): + hidden-voltage loss     — alpha=0, hidden loss ON
+      (NGP-hidden shaped against GNN(v_h=0) targets, no trivial-zero fixed point)
+    - ramp    [0.50, 0.60·Niter): alpha ramps 0→1
+    - phase 3 [0.60, 1.00·Niter): full coupling — alpha=1, hidden loss ON
+  - **Background**: a 2-phase run with `coeff_hidden_voltage=3000` collapsed
+    NGP-hidden to ~0 in phase 2 (trivial fixed point), dragging conn_R² from
+    0.66 down to 0.40. The 3-phase schedule fixes this by training NGP-hidden
+    with `alpha_inject=0` so the residual is non-degenerate.
   - `n_epochs=1, data_augmentation_loop=50` (LLM pipeline; manual uses DAL=100), `batch_size=4`
   - `embedding_dim=2`
 
@@ -318,14 +330,20 @@ the explicit list below.
   - slot 4: `ngp_factorized_rank=8` (architectural pivot — low-rank shared subspace)
   - slot 5: `ngp_factorized_rank=16` (architectural pivot, larger rank)
   - slot 6: `n_anchor=9000` (denser anchor supervision)
-  - slot 7: `warmup_inject_nnr_iter_frac=0.20` (shorter phase 1 — NGP comes online sooner)
+  - slot 7: `warmup_hidden_loss_iter_frac=0.10, warmup_inject_nnr_iter_frac=0.40` (compress phases 1+2 — earlier NGP shaping + earlier injection)
 
-- **Launch**:
+- **Launch (FRESH START — required for the 3-phase rollout)**:
+  Wipe the 8 stale slot configs and the per-exploration analysis logs first
+  so the loop re-seeds from the (updated) parent yaml in this repo:
   ```
+  rm /groups/saalfeld/home/allierc/GraphData/config/fly/flyvis_noise_005_hidden_010_ngp_blank50_unified_spatial_Claude_*.yaml
   python GNN_LLM.py -o generate_train_test_plot_Claude \
     flyvis_noise_005_hidden_010_ngp_blank50_unified_spatial \
-    iterations=128 --cluster --resume
+    iterations=128 --cluster
   ```
+  (Drop `--resume`; the loop's fresh-start path will prompt before clearing
+  `LLM_flyvis_noise_005_hidden_010_ngp_blank50_unified_spatial/<base>_analysis.md`,
+  `_memory.md`, and `_reasoning.log`.)
 
 ## Final Summary
 
