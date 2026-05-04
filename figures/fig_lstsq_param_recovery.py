@@ -43,7 +43,7 @@ from tqdm.auto import tqdm
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 
-from connectome_gnn.metrics import compute_r_squared
+from connectome_gnn.metrics import compute_r_squared_NSE
 
 
 # ---------------------------------------------------------------------------
@@ -288,9 +288,9 @@ def plot(data: dict, out: dict, out_base: Path):
         is_sloppy = m & sloppy & ~null
         ok        = m & ~null & ~sloppy
 
-        r2_all, _ = compute_r_squared(true[m], pred[m])
+        r2_all, _ = compute_r_squared_NSE(true[m], pred[m])
         if ok.any():
-            r2_ok, slope_ok = compute_r_squared(true[ok], pred[ok])
+            r2_ok, slope_ok = compute_r_squared_NSE(true[ok], pred[ok])
         else:
             r2_ok, slope_ok = float('nan'), float('nan')
 

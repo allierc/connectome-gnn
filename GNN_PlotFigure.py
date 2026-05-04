@@ -54,7 +54,7 @@ from connectome_gnn.models.registry import create_model
 from connectome_gnn.config import NeuralGraphConfig
 from connectome_gnn.metrics import (
     get_model_W,
-    compute_r_squared,
+    compute_r_squared_NSE,
     compute_r_squared_filtered,
     compute_all_corrected_weights,
     compute_activity_stats,
@@ -427,7 +427,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     # --- Plot 2: Raw W comparison ---
     fig = plt.figure(figsize=(10, 9))
     plt.scatter(gt_w_np, learned_weights, c=mc, s=0.1, alpha=0.1)
-    r_squared_W, slope_W = compute_r_squared(gt_w_np, learned_weights)
+    r_squared_W, slope_W = compute_r_squared_NSE(gt_w_np, learned_weights)
     plt.text(0.05, 0.95, f'R²: {r_squared_W:.3f}\nslope: {slope_W:.2f}',
              transform=plt.gca().transAxes, verticalalignment='top', fontsize=32)
     plt.xlabel(r'true $W_{ij}$', fontsize=48)
@@ -467,7 +467,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     # --- Plot 3: tau comparison ---
     fig = plt.figure(figsize=(10, 9))
     plt.scatter(gt_taus_np, learned_tau, c=mc, s=1, alpha=0.3)
-    r_squared_tau, slope_tau = compute_r_squared(gt_taus_np, learned_tau)
+    r_squared_tau, slope_tau = compute_r_squared_NSE(gt_taus_np, learned_tau)
     plt.text(0.05, 0.95, f'R²: {r_squared_tau:.2f}\nslope: {slope_tau:.2f}',
              transform=plt.gca().transAxes, verticalalignment='top', fontsize=32)
     plt.xlabel(r'true $\tau$', fontsize=48)
@@ -545,7 +545,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
 
     # --- Plot 3c: tau comparison with outliers in red, R²/slope on inliers only ---
     if int(_inlier_mask_t.sum()) >= 2:
-        r2_tau_clean, slope_tau_clean = compute_r_squared(_gt_t[_inlier_mask_t], _lrn_t[_inlier_mask_t])
+        r2_tau_clean, slope_tau_clean = compute_r_squared_NSE(_gt_t[_inlier_mask_t], _lrn_t[_inlier_mask_t])
     else:
         r2_tau_clean, slope_tau_clean = float('nan'), float('nan')
     fig = plt.figure(figsize=(10, 9))
@@ -598,7 +598,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     # --- Plot 4: V_rest comparison ---
     fig = plt.figure(figsize=(10, 9))
     plt.scatter(gt_V_rest_np, learned_V_rest, c=mc, s=1, alpha=0.3)
-    r_squared_V_rest, slope_V_rest = compute_r_squared(gt_V_rest_np, learned_V_rest)
+    r_squared_V_rest, slope_V_rest = compute_r_squared_NSE(gt_V_rest_np, learned_V_rest)
     plt.text(0.05, 0.95, f'R²: {r_squared_V_rest:.2f}\nslope: {slope_V_rest:.2f}',
              transform=plt.gca().transAxes, verticalalignment='top', fontsize=32)
     plt.xlabel(r'true $V_{rest}$', fontsize=48)
@@ -672,7 +672,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
 
     # --- Plot 4c: V_rest comparison with outliers in red, R²/slope on inliers only ---
     if int(_inlier_mask.sum()) >= 2:
-        r2_v_clean, slope_v_clean = compute_r_squared(_gt_v[_inlier_mask], _lrn_v[_inlier_mask])
+        r2_v_clean, slope_v_clean = compute_r_squared_NSE(_gt_v[_inlier_mask], _lrn_v[_inlier_mask])
     else:
         r2_v_clean, slope_v_clean = float('nan'), float('nan')
     fig = plt.figure(figsize=(10, 9))
@@ -738,7 +738,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     if gt_gain_np is not None and learned_gain is not None:
         fig = plt.figure(figsize=(10, 9))
         plt.scatter(gt_gain_np, learned_gain, c=mc, s=1, alpha=0.3)
-        r_squared_gain, slope_gain = compute_r_squared(gt_gain_np, learned_gain)
+        r_squared_gain, slope_gain = compute_r_squared_NSE(gt_gain_np, learned_gain)
         plt.text(0.05, 0.95, f'R²: {r_squared_gain:.2f}\nslope: {slope_gain:.2f}',
                  transform=plt.gca().transAxes, verticalalignment='top', fontsize=32)
         plt.xlabel(r'true gain', fontsize=48)
@@ -756,7 +756,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     if gt_bias_np is not None and learned_bias is not None:
         fig = plt.figure(figsize=(10, 9))
         plt.scatter(gt_bias_np, learned_bias, c=mc, s=1, alpha=0.3)
-        r_squared_bias, slope_bias = compute_r_squared(gt_bias_np, learned_bias)
+        r_squared_bias, slope_bias = compute_r_squared_NSE(gt_bias_np, learned_bias)
         plt.text(0.05, 0.95, f'R²: {r_squared_bias:.2f}\nslope: {slope_bias:.2f}',
                  transform=plt.gca().transAxes, verticalalignment='top', fontsize=32)
         plt.xlabel(r'true bias', fontsize=48)
@@ -1606,7 +1606,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 _x_flat = func_true_g_phi.ravel()
                 _y_flat = func_np.ravel()
                 _type_flat = np.repeat(type_np, func_np.shape[1])
-                _r2_g_scatter, _slope_g_scatter = compute_r_squared(_x_flat, _y_flat)
+                _r2_g_scatter, _slope_g_scatter = compute_r_squared_NSE(_x_flat, _y_flat)
                 fig = plt.figure(figsize=(10, 9))
                 plt.scatter(_x_flat[::10], _y_flat[::10],
                             c=cmap.color(_type_flat[::10].astype(int)),
@@ -1707,7 +1707,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 _x_flat = func_true_f_theta.ravel()
                 _y_flat = _func_learned_f.ravel()
                 _type_flat = np.repeat(type_np, _func_learned_f.shape[1])
-                _r2_f_scatter, _slope_f_scatter = compute_r_squared(_x_flat, _y_flat)
+                _r2_f_scatter, _slope_f_scatter = compute_r_squared_NSE(_x_flat, _y_flat)
                 fig = plt.figure(figsize=(10, 9))
                 plt.scatter(_x_flat[::10], _y_flat[::10],
                             c=cmap.color(_type_flat[::10].astype(int)),
@@ -1762,7 +1762,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
 
                 fig = plt.figure(figsize=(10, 9))
                 plt.scatter(gt_taus_np, learned_tau, c=mc, s=_dot_s, alpha=_dot_alpha)
-                r_squared_tau, slope_tau = compute_r_squared(gt_taus_np, learned_tau)
+                r_squared_tau, slope_tau = compute_r_squared_NSE(gt_taus_np, learned_tau)
                 plt.text(0.05, 0.95, f'R²: {r_squared_tau:.2f}\nslope: {slope_tau:.2f}',
                          transform=plt.gca().transAxes, verticalalignment='top', fontsize=42)
                 plt.xlabel(r'true $\tau$', fontsize=56)
@@ -1824,7 +1824,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
 
                 # tau_comparison_wo_outliers — outliers in red, R²/slope on inliers.
                 if int(_inlier_mask_t.sum()) >= 2:
-                    r2_tau_clean, slope_tau_clean = compute_r_squared(
+                    r2_tau_clean, slope_tau_clean = compute_r_squared_NSE(
                         _gt_t[_inlier_mask_t], _lrn_t[_inlier_mask_t])
                 else:
                     r2_tau_clean, slope_tau_clean = float('nan'), float('nan')
@@ -1868,7 +1868,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
 
                 fig = plt.figure(figsize=(10, 9))
                 plt.scatter(gt_vrest_np, learned_V_rest, c=mc, s=_dot_s, alpha=_dot_alpha)
-                r_squared_V_rest, slope_V_rest = compute_r_squared(gt_vrest_np, learned_V_rest)
+                r_squared_V_rest, slope_V_rest = compute_r_squared_NSE(gt_vrest_np, learned_V_rest)
                 plt.text(0.05, 0.95, f'R²: {r_squared_V_rest:.2f}\nslope: {slope_V_rest:.2f}',
                          transform=plt.gca().transAxes, verticalalignment='top', fontsize=42)
                 plt.xlabel(r'true $V_{rest}$', fontsize=56)
@@ -1920,7 +1920,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
 
                 # V_rest_comparison_wo_outliers — outliers in red, R²/slope on inliers.
                 if int(_inlier_mask_v.sum()) >= 2:
-                    r2_v_clean, slope_v_clean = compute_r_squared(
+                    r2_v_clean, slope_v_clean = compute_r_squared_NSE(
                         _gt_v[_inlier_mask_v], _lrn_v[_inlier_mask_v])
                 else:
                     r2_v_clean, slope_v_clean = float('nan'), float('nan')
@@ -2018,7 +2018,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             _edge_s = max(0.1, min(10, 2000 / max(len(_tw), 1)))
             _edge_alpha = max(0.05, min(0.8, 500 / max(len(_tw), 1)))
             plt.scatter(_tw, _lw, c=mc, s=_edge_s, alpha=_edge_alpha)
-            r_squared, slope_raw = compute_r_squared(_tw, _lw)
+            r_squared, slope_raw = compute_r_squared_NSE(_tw, _lw)
             plt.text(0.05, 0.95, f'R²: {r_squared:.3f}\nslope: {slope_raw:.2f}',
                      transform=plt.gca().transAxes, verticalalignment='top', fontsize=24)
 
@@ -2101,7 +2101,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
 
                 fig = plt.figure(figsize=(10, 9))
                 plt.scatter(true_in, learned_in_, c=mc, s=_edge_s, alpha=_edge_alpha)
-                r_squared_rj, slope_rj = compute_r_squared(true_in, learned_in_)
+                r_squared_rj, slope_rj = compute_r_squared_NSE(true_in, learned_in_)
                 plt.text(0.05, 0.95,
                         f'R²: {r_squared_rj:.3f}\nslope: {slope_rj:.2f}',
                         transform=plt.gca().transAxes, verticalalignment='top', fontsize=24)
@@ -2255,7 +2255,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             if hasattr(model, 'n_extra_null_edges') and model.n_extra_null_edges > 0:
                 n_real = model.n_edges
                 try:
-                    r2_real, _ = compute_r_squared(true_weights[:n_real], learned_weights[:n_real])
+                    r2_real, _ = compute_r_squared_NSE(true_weights[:n_real], learned_weights[:n_real])
                     connectivity_r2_real = r2_real
                     print(f"connectivity R² (real edges only): {_r2_color(r2_real)}{r2_real:.4f}{_ANSI_RESET}")
                     logger.info(f"connectivity R² (real edges only): {r2_real:.4f}")
@@ -2292,7 +2292,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 n_outliers_tau_g = int(_outlier_mask_t_g.sum())
                 _pct_outliers_tau_g = (100.0 * n_outliers_tau_g / _gt_t_arr.size) if _gt_t_arr.size else 0.0
                 if int(_inlier_mask_t_g.sum()) >= 2:
-                    r2_tau_clean_g, slope_tau_clean_g = compute_r_squared(
+                    r2_tau_clean_g, slope_tau_clean_g = compute_r_squared_NSE(
                         _gt_t_arr[_inlier_mask_t_g], _lrn_t_arr[_inlier_mask_t_g])
                 else:
                     r2_tau_clean_g, slope_tau_clean_g = float('nan'), float('nan')
@@ -2328,7 +2328,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 n_outliers_v_g = int(_outlier_mask_v_g.sum())
                 _pct_outliers_v_g = (100.0 * n_outliers_v_g / _gt_v_arr.size) if _gt_v_arr.size else 0.0
                 if int(_inlier_mask_v_g.sum()) >= 2:
-                    r2_v_clean_g, slope_v_clean_g = compute_r_squared(
+                    r2_v_clean_g, slope_v_clean_g = compute_r_squared_NSE(
                         _gt_v_arr[_inlier_mask_v_g], _lrn_v_arr[_inlier_mask_v_g])
                 else:
                     r2_v_clean_g, slope_v_clean_g = float('nan'), float('nan')
@@ -2359,7 +2359,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                     if pname in g_phi_fitted and pname in gt_g_params:
                         gt_vals = gt_g_params[pname]
                         learned_vals = g_phi_fitted[pname][:n_neurons]
-                        r2_p, slope_p = compute_r_squared(gt_vals, learned_vals)
+                        r2_p, slope_p = compute_r_squared_NSE(gt_vals, learned_vals)
                         print(f"g_phi {pname} R²: {_r2_color(r2_p)}{r2_p:.3f}{_ANSI_RESET}  slope: {slope_p:.2f}")
                         logger.info(f"g_phi {pname} R²: {r2_p:.3f}  slope: {slope_p:.2f}")
 
@@ -2396,7 +2396,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                         if pname in g_phi_fitted and pname in gt_g_params:
                             gt_v = gt_g_params[pname]
                             lr_v = g_phi_fitted[pname][:n_neurons]
-                            r2_p, _ = compute_r_squared(gt_v, lr_v)
+                            r2_p, _ = compute_r_squared_NSE(gt_v, lr_v)
                             log_file.write(f"g_phi_{pname}_R2: {r2_p:.4f}\n")
 
 

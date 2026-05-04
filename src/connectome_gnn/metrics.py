@@ -80,7 +80,7 @@ def compute_r_squared_lin_fit(true: np.ndarray, learned: np.ndarray) -> tuple[fl
     return r_squared, lin_fit[0]
 
 
-def compute_r_squared(true: np.ndarray, learned: np.ndarray) -> tuple[float, float]:
+def compute_r_squared_identity_line(true: np.ndarray, learned: np.ndarray) -> tuple[float, float]:
     """Identity-line R² plus calibration-fit slope (diagnostic).
 
     R² = 1 − var(true − learned) / var(true) — measures how close `learned`
@@ -137,7 +137,7 @@ def compute_r_squared_filtered(true: np.ndarray, learned: np.ndarray, outlier_th
     true_in = true[mask]
     learned_in = learned[mask]
 
-    r_squared, slope = compute_r_squared(true_in, learned_in)
+    r_squared, slope = compute_r_squared_NSE(true_in, learned_in)
     return r_squared, slope, mask
 
 
@@ -566,7 +566,7 @@ def _r2_with_outliers(gt, learned, thresh):
         return 0.0, float('nan'), 0, 0
 
     try:
-        r2_all, _ = compute_r_squared(gt_arr, lrn_arr)
+        r2_all, _ = compute_r_squared_NSE(gt_arr, lrn_arr)
     except Exception:
         r2_all = 0.0
 
@@ -575,7 +575,7 @@ def _r2_with_outliers(gt, learned, thresh):
     inl_mask = ~out_mask
     if int(inl_mask.sum()) >= 2:
         try:
-            r2_clean, _ = compute_r_squared(gt_arr[inl_mask], lrn_arr[inl_mask])
+            r2_clean, _ = compute_r_squared_NSE(gt_arr[inl_mask], lrn_arr[inl_mask])
         except Exception:
             r2_clean = float('nan')
     else:
@@ -694,7 +694,7 @@ def compute_dynamics_r2_linear(model, config, device, n_neurons):
         except Exception:
             pass
     try:
-        conn_r2, _ = compute_r_squared(gt_weights, learned_W)
+        conn_r2, _ = compute_r_squared_NSE(gt_weights, learned_W)
     except Exception:
         pass
 
@@ -734,7 +734,7 @@ def compute_jacobian_connectivity_r2(model, x_ts, ode_params, n_neurons, device,
     J_np = to_numpy(J_mean)
 
     try:
-        conn_r2, _ = compute_r_squared(W_dense_gt.flatten(), J_np.flatten())
+        conn_r2, _ = compute_r_squared_NSE(W_dense_gt.flatten(), J_np.flatten())
     except Exception:
         conn_r2 = 0.0
 
