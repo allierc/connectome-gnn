@@ -875,9 +875,11 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                             conn_str = f'conn={last_connectivity_r2:.3f}'
                         bar_parts.append(f'{c_conn}{conn_str}{ANSI_RESET}')
                         if ode_params.has_vrest():
-                            bar_parts.append(f'{r2_color(last_vrest_r2)}Vr={last_vrest_r2:.3f}{ANSI_RESET}')
+                            _vr_pct = (100.0 * last_n_out_vrest / last_n_total_vrest) if last_n_total_vrest > 0 else 0.0
+                            bar_parts.append(f'{r2_color(last_vrest_r2_clean)}Vr={last_vrest_r2_clean:.3f}({_vr_pct:.0f}%){ANSI_RESET}')
                         if ode_params.has_tau():
-                            bar_parts.append(f'{r2_color(last_tau_r2)}τ={last_tau_r2:.3f}{ANSI_RESET}')
+                            _tau_pct = (100.0 * last_n_out_tau / last_n_total_tau) if last_n_total_tau > 0 else 0.0
+                            bar_parts.append(f'{r2_color(last_tau_r2_clean)}τ={last_tau_r2_clean:.3f}({_tau_pct:.0f}%){ANSI_RESET}')
                     if last_hidden_r2 is not None or last_anchor_r2 is not None:
                         # During warmup (alpha_inject=0), hidden voltages are
                         # zero-silenced so hidden_nnr_pearson is meaningless;
@@ -1268,9 +1270,11 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                             conn_str = f'conn={last_connectivity_r2:.3f}'
                         bar_parts.append(f'{c_conn}{conn_str}{ANSI_RESET}')
                         if ode_params.has_vrest():
-                            bar_parts.append(f'{r2_color(last_vrest_r2)}Vr={last_vrest_r2:.3f}{ANSI_RESET}')
+                            _vr_pct = (100.0 * last_n_out_vrest / last_n_total_vrest) if last_n_total_vrest > 0 else 0.0
+                            bar_parts.append(f'{r2_color(last_vrest_r2_clean)}Vr={last_vrest_r2_clean:.3f}({_vr_pct:.0f}%){ANSI_RESET}')
                         if ode_params.has_tau():
-                            bar_parts.append(f'{r2_color(last_tau_r2)}τ={last_tau_r2:.3f}{ANSI_RESET}')
+                            _tau_pct = (100.0 * last_n_out_tau / last_n_total_tau) if last_n_total_tau > 0 else 0.0
+                            bar_parts.append(f'{r2_color(last_tau_r2_clean)}τ={last_tau_r2_clean:.3f}({_tau_pct:.0f}%){ANSI_RESET}')
                     if last_hidden_r2 is not None or last_anchor_r2 is not None:
                         # During warmup (alpha_inject=0), hidden voltages are
                         # zero-silenced so hidden_nnr_pearson is meaningless;

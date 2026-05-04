@@ -51,7 +51,7 @@ Output
 # Eval logs      : <DATA_ROOT>/log/fly/flyvis_noise_{free,005,05}_blank50_known_ode_cv03/results_{test,rollout}.log
 #                  <DATA_ROOT>/log/fly/flyvis_noise_{free,005,05}_blank50_known_ode_cv03/results/metrics.txt
 # Cached panels  : <DATA_ROOT>/log/fly/flyvis_noise_{free,005,05}_blank50_known_ode_cv03/results/{weights_comparison_raw,embedding_augmented_*,V_rest_comparison_wo_outliers_*,tau_comparison_wo_outliers_*}.png
-# Output         : figures/fig_known_ode_params_3col_noise_comparison_cv03{,_nf_green}.{pdf,png}
+# Output         : figures/fig_known_ode_params_3col_noise_comparison_cv03.{pdf,png}
 # ─────────────────────────────────────────────────────────────────────────────
 
 import argparse
@@ -309,7 +309,6 @@ def main():
     out_base = os.path.join(REPO_ROOT, 'figures',
                             'fig_known_ode_params_3col_noise_comparison_cv03')
     assemble(blocks, out_base)
-    assemble(blocks, out_base + '_nf_green')
 
 
 if __name__ == '__main__':
