@@ -91,8 +91,6 @@ GNN_BASES = [
     'flyvis_noise_005_removed_pc_20',
     'flyvis_noise_005_removed_pc_50',
     'flyvis_noise_005_stride_5',
-    'flyvis_noise_005_hidden_010_ngp',
-    'flyvis_noise_005_hidden_020_ngp',
     'flyvis_noise_005_hidden_010_no_ngp',
     'flyvis_noise_005_hidden_020_no_ngp',
 ]
@@ -111,8 +109,6 @@ GNN_TABLE_BASES = [
     ('flyvis_noise_005_removed_pc_20',     GNN_SUFFIX),
     ('flyvis_noise_005_removed_pc_50',     GNN_SUFFIX),
     ('flyvis_noise_005_stride_5',          GNN_SUFFIX),
-    ('flyvis_noise_005_hidden_010_ngp',    GNN_SUFFIX),
-    ('flyvis_noise_005_hidden_020_ngp',    GNN_SUFFIX),
     ('flyvis_noise_005_hidden_010_no_ngp', GNN_SUFFIX),
     ('flyvis_noise_005_hidden_020_no_ngp', GNN_SUFFIX),
 ]
