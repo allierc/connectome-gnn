@@ -244,3 +244,104 @@ def standard_boxeye_and_flywire_index(
         )
     idx = torch.tensor([uv_to_hex[uv] for uv in cols_uv], dtype=torch.long)
     return boxeye, idx, n
+
+
+def squeezed_boxeye_and_flywire_index(
+    net,
+    kernel_size: int = 13,
+    target_extent: Optional[int] = None,
+) -> Tuple[BoxEye, torch.LongTensor, int]:
+    """Like :func:`standard_boxeye_and_flywire_index`, but rendered at
+    a *smaller* hex disk by relabelling FlyWire columns onto the closest
+    free cell of a tighter standard hex lattice.
+
+    Motivation
+    ----------
+    The FlyWire input lattice has axial radius up to 30 (~796 columns),
+    forcing ``BoxEye(extent=30)`` and a 2.56× upsample of typical 480p
+    sources. The resulting receptor-pair correlations decay much more
+    slowly with hex distance than at extent=15 — adjacent receptors
+    bin overlapping, interpolated source pixels.
+
+    With this variant we keep the FlyWire connectivity unchanged but
+    place the FlyWire columns on the smallest standard hex disk that
+    can hold them all (extent ``N`` such that ``3N²+3N+1 ≥ M``,
+    e.g. ``N=16`` for ``M=796``). Each FlyWire column is mapped to its
+    nearest free cell in the standard disk (greedy, processed
+    centre-out, using flyvis ``hex_to_pixel`` coordinates after the
+    FlyWire cloud is recentred and rescaled to the standard disk's
+    bounding circle). The geometry is no longer literal — it is the
+    "squeeze-into-shape" convention of
+    :meth:`flyrewire.FlyRewire.plot_coregistration_hulls` — but the
+    per-step decorrelation matches that of canonical extent=15
+    rendering.
+
+    Returns the same triple ``(boxeye, flywire_to_hex_idx, extent)``
+    as :func:`standard_boxeye_and_flywire_index`.
+    """
+    cols_uv = _input_columns_uv(net)
+    M = len(cols_uv)
+
+    def _hexals(N: int) -> int:
+        return 3 * N * N + 3 * N + 1
+
+    if target_extent is None:
+        N = 1
+        while _hexals(N) < M:
+            N += 1
+    else:
+        N = int(target_extent)
+        if _hexals(N) < M:
+            raise ValueError(
+                f"target_extent={N} has only {_hexals(N)} hexals, "
+                f"cannot hold {M} FlyWire columns."
+            )
+
+    boxeye = BoxEye(extent=N, kernel_size=kernel_size)
+
+    # Standard hex disk, in BoxEye._receptor_centers iteration order.
+    std_uv: List[Tuple[int, int]] = []
+    for u in range(-N, N + 1):
+        v_min = max(-N, -N - u)
+        v_max = min(N, N - u)
+        for v in range(v_min, v_max + 1):
+            std_uv.append((u, v))
+    assert len(std_uv) == boxeye.hexals, (len(std_uv), boxeye.hexals)
+
+    # Cartesian (flyvis hex_to_pixel) for both lattices.
+    sq3 = float(np.sqrt(3.0))
+
+    def _xy(uv_arr: np.ndarray) -> np.ndarray:
+        return np.stack(
+            [sq3 * (uv_arr[:, 0] + 0.5 * uv_arr[:, 1]), 1.5 * uv_arr[:, 1]],
+            axis=1,
+        )
+
+    std_xy = _xy(np.asarray(std_uv, dtype=float))
+
+    fw_arr = np.asarray(cols_uv, dtype=float)
+    fw_arr = fw_arr - fw_arr.mean(axis=0, keepdims=True)
+    fw_xy = _xy(fw_arr)
+    fw_max_r = float(np.sqrt((fw_xy ** 2).sum(axis=1)).max())
+    std_max_r = float(np.sqrt((std_xy ** 2).sum(axis=1)).max())
+    if fw_max_r > 0:
+        fw_xy *= std_max_r / fw_max_r
+
+    # Greedy nearest-free-cell assignment, processed centre-out so the
+    # innermost FlyWire columns claim the centre cells first and
+    # peripheral ones absorb whatever leftover ring positions remain.
+    order = np.argsort((fw_xy ** 2).sum(axis=1))
+    D = ((fw_xy[:, None, :] - std_xy[None, :, :]) ** 2).sum(axis=-1)
+    used = np.zeros(len(std_uv), dtype=bool)
+    assignment = np.full(M, -1, dtype=np.int64)
+    for i in order:
+        for j in np.argsort(D[i]):
+            if not used[j]:
+                used[j] = True
+                assignment[i] = int(j)
+                break
+    if (assignment < 0).any():
+        raise RuntimeError("squeezed assignment failed (unfilled slots).")
+
+    idx = torch.from_numpy(assignment).to(torch.long)
+    return boxeye, idx, N

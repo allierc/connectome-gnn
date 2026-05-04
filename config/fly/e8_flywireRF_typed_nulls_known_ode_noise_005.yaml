@@ -1,8 +1,9 @@
 description:
-  "HIGH PRIORITY — v5-cross_sl, v2 base + zero-weight edges (u=1, cross-type,
-  spatially-local), known ODE, full eye (column_source='flywire', extent=15 slot), noise=0.05.
-  HPs from cedric's HPO winner on e8 cross_sl."
-dataset: full_eye_flywireRF_proximal_nulls_known_ode_noise_005
+  "v2 base + zero-weight edges (u=1, same-type-only / cross_type=False,
+  spatially-local), known ODE, noise=0.05. Restricts null edges to
+  (source_type, target_type) pairs that already appear in the real connectome.
+  HPs inherited from cross_sl HPO winner."
+dataset: e8_flywireRF_typed_nulls_known_ode_noise_005
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ""
@@ -11,10 +12,10 @@ simulation:
       - 1.0
       - 1.0
       - 1.0
-  n_neurons: 50412
-  n_input_neurons: 6368
+  n_neurons: 13741
+  n_input_neurons: 1736
   n_neuron_types: 65
-  n_edges: 9642335
+  n_edges: 600426
   n_frames: 64000
   delta_t: 0.02
   baseline_value: 0
@@ -22,16 +23,13 @@ simulation:
   noise_model_level: 0.05
   derivative_smoothing_window: 1
   seed: 42
-  all_columns: true
-  flywire_stimulus: true
-  flywire_stimulus_squeeze: true
   edge_uncertainty: 1
   datavis_roots:
     - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
   skip_short_videos: true
   blank_prefix_fraction: 0.5
 graph_model:
-  signal_model_name: full_eye_flywireRF_proximal_nulls_known_ode
+  signal_model_name: e8_flywireRF_typed_nulls_known_ode
   prediction: first_derivative
   aggr_type: add
   update_type: generic
@@ -81,5 +79,6 @@ claude:
   data_augmentation_loop: 330
   n_iter_block: 12
   ucb_c: 1.414
-  generate_data: true
+  generate_data: false
   training_time_target_min: 60
+  node_name: a100

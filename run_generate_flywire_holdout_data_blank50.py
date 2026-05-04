@@ -38,8 +38,10 @@ BLANK50_SIM_OVERRIDES = {
 CONDITION_FILTER = [
     'e8_flywireRF_noise_005',                       # 327k edges
     'e8_flywireRF_proximal_nulls_noise_005',        # 2.4M edges
+    'e8_flywireRF_typed_nulls_noise_005',           # same-type nulls control
     'full_eye_flywireRF_noise_005',                 # 1.3M edges
     'full_eye_flywireRF_proximal_nulls_noise_005',  # 9.6M edges
+    'full_eye_flywireRF_typed_nulls_noise_005',     # same-type nulls control
 ]
 
 
