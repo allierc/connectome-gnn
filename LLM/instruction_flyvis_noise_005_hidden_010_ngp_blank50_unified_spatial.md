@@ -143,9 +143,9 @@ shown in the "Default" column.
 
 | Parameter      | Default  | Range to explore                         | Notes |
 | -------------- | -------- | ---------------------------------------- | ----- |
-| `lr_W`         | 1.0e-4   | {1e-5, 5e-5, 1e-4, 5e-4, 9e-4}           | paper-baseline NGP-winner=1e-4; unified=9e-4. Larger → more W learning, more noise into NGP gradient |
-| `lr` (g_φ,f_θ) | 1.0e-3   | {1e-4, 5e-4, 1e-3, 1.8e-3}               | paper time-only=1e-3; unified=1.8e-3. Smaller → freezes message function, gives W headroom |
-| `lr_NNR_f`     | 5.0e-4   | {1e-5, 5e-5, 1e-4, 5e-4, 1e-3}           | smaller after anchor>0.5 stabilises (consolidate); larger speeds NGP catchup |
+| `lr_W`         | 9.0e-4   | {1e-4, 5e-4, 9e-4, 1.5e-3}               | parent default=9e-4 (consensus winner); 5e-4 caused regression on this dataset |
+| `lr` (g_φ,f_θ) | 1.8e-3   | {5e-4, 1e-3, 1.8e-3, 3e-3}               | parent default=1.8e-3 (consensus winner); smaller lrs (≤1e-3) under-fit messages on blank50 |
+| `lr_NNR_f`     | 5.0e-5   | {1e-5, 5e-5, 1e-4, 5e-4, 1e-3}           | parent default=5e-5 (slow NGP after warmup-inject); smaller=consolidate, larger=catchup |
 | `lr_embedding` | 1.0e-3   | {5e-4, 1e-3, 2e-3}                       | controls how fast `a_i` clusters by cell type (load-bearing for nnr_hidden) |
 
 ### Regularisation
@@ -189,8 +189,9 @@ Do NOT modify these (they would change the experimental setup):
 ## Training regime (fixed)
 
 - `n_epochs: 1`
-- `data_augmentation_loop: 25` (DAL=25 → ~20,000 iterations per epoch on H100, ~35 min wall time)
-- `batch_size: 16`
+- `data_augmentation_loop: 50` (LLM pipeline; manual uses DAL=100 — this is the
+  faster-HPO-turnover setting, ~80K iters/epoch at batch=4, ~2.5 h wall time on A100)
+- `batch_size: 4`
 - `n_runs: 1`
 - Cluster: `gpu_h100`
 - Hard runtime limit: 60 min per slot (cluster default)
@@ -206,16 +207,20 @@ Each "block" is just an administrative checkpoint of 8 iterations × 4 slots = *
 block**. Within a block, the agent freely picks any HP from the search space above to mutate at
 each iteration.
 
-| Block | Iters  | Suggested focus (NOT a hard restriction)                 |
-| ----- | ------ | -------------------------------------------------------- |
-| 1     | 1–4    | Baseline robustness — 4 slots = control config (4 seeds) |
-| 2     | 5–12   | Lr sweep (lr_W, lr, lr_NNR_f, lr_embedding) priority      |
-| 3     | 13–20  | Regularisation sweep (coeff_W_L1 priority)               |
-| 4     | 21–28  | NGP capacity (n_levels, mlp_width, mlp_layers)           |
-| 5     | 29–36  | Free exploration combining best-of-block 2/3/4           |
-| 6     | 37–44  | Free exploration #2                                      |
-| 7     | 45–52  | Free exploration #3                                      |
-| 8     | 53–56  | 4-seed robustness validation of best candidate           |
+| Block | Iters  | Suggested focus (NOT a hard restriction)                                           |
+| ----- | ------ | ---------------------------------------------------------------------------------- |
+| 1     | 1–8    | Slot 0 = parent baseline (1 seed, control); slots 1–7 = first HP probes (lr axes) |
+| 2     | 9–16   | Lr sweep continuation (lr_W, lr, lr_NNR_f, lr_embedding) + best-of-block-1         |
+| 3     | 17–24  | Regularisation sweep (coeff_W_L1 priority)                                         |
+| 4     | 25–32  | NGP capacity (n_levels, mlp_width, mlp_layers, ngp_factorized_rank)                |
+| 5     | 33–48  | Free exploration combining best-of-block 2/3/4                                     |
+| 6     | 49–80  | Free exploration #2                                                                |
+| 7     | 81–112 | Free exploration #3                                                                |
+| 8     | 113–128| 8-seed robustness validation of best candidate                                     |
+
+NOTE: Baseline robustness is NOT needed — the parent yaml has already been
+validated by a manual `bsub` run (`conn=0.487(0.625)` at iter ~6.7K), so 1 seed
+on slot 0 is sufficient as control. Spend the other 7 slots on HP probes.
 
 **The "suggested focus" is a hint, not a rule.** If the agent finds a strong signal in lr_W during
 block 1, it can stay on lr_W in block 2. If a regularisation finding from block 3 is overturned in
@@ -269,24 +274,51 @@ At every block boundary (every 8 iters):
 
 When prompt says `PARALLEL START`:
 
-- **Slot 0 = baseline** (current cv04 config; must be present at
-  `<workspace>/config/fly/flyvis_noise_005_hidden_010_ngp_blank50_unified_spatial.yaml`):
-  - `lr_W=1.0e-4, lr=1.0e-3, lr_embedding=1.0e-3, lr_NNR_f=5.0e-4`
-  - `coeff_W_L1=5.0e-5, coeff_W_L2=1.5e-6, coeff_g_phi_norm=5.0`
+**HARD RULE — config sources:** The ONLY authoritative config is the parent yaml at
+`<workspace>/config/fly/flyvis_noise_005_hidden_010_ngp_blank50_unified_spatial.yaml`.
+Do NOT `ls` or `Read` other yamls in the slot config directory
+(`<data_root>/config/fly/`) for HP inspiration — any `_cv04_*` or
+`_unified_*` files you may find there are STALE and use a different (worse)
+HP point. If you need a value, take it from the parent yaml above or from
+the explicit list below.
+
+- **Slot 0 = baseline** — must be an *exact* copy of the parent yaml at
+  `<workspace>/config/fly/flyvis_noise_005_hidden_010_ngp_blank50_unified_spatial.yaml`.
+  Parent HPs match the validated `flyvis_noise_005_hidden_010_blank50_consensus_ngp`
+  baseline (manual `bsub` run reaches `conn=0.504` at iter 32K of a 320K epoch).
+  Do NOT inherit HPs from any prior `_cv04_*` baseline (those used lr=1e-4 / lr_W=5e-4
+  which regressed from `conn=0.487` → `0.173` between iter 6.7K and 24K, abandoned 2026-05-03).
+  - `lr_W=9.0e-4, lr=1.8e-3, lr_embedding=2.325e-3, lr_NNR_f=5.0e-5`
+  - `coeff_W_L1=1.5e-4, coeff_W_L2=1.5e-6, coeff_g_phi_norm=0.9`
   - `ngp_hidden_n_levels=24, n_features_per_level=4, mlp_width=256, mlp_layers=3`
   - `ngp_hidden_spatial=true, ngp_factorized_rank=0, ngp_factorized_from_a=false`
   - `n_anchor=3600, coeff_anchor_voltage=3000, coeff_hidden_voltage=3000`
   - `alternate_training=true, alternate_lr_ratio=0.4`
-  - `n_epochs=1, data_augmentation_loop=20, batch_size=16`
+  - `warmup_inject_nnr_iter_frac=0.333, warmup_inject_nnr_ramp_iter_frac=0.033`
+    (NGP silenced for first 1/3 of iters, then ramps in over ~3% — required for
+     W/τ/V_rest to converge cleanly before NGP competes)
+  - `n_epochs=1, data_augmentation_loop=50` (LLM pipeline; manual uses DAL=100), `batch_size=4`
   - `embedding_dim=2`
 
-- **Block 1 = ROBUSTNESS mode**: slots 1–3 also use the same baseline config (different seeds)
-  → quantifies seed-dependent variance of the **starting** score
+- **Block 1 = HP-PROBE mode** (NOT robustness): slot 0 alone is the parent baseline (control,
+  1 seed). Slots 1–7 each mutate **exactly one HP** from the parent yaml on the highest-priority
+  axes (lr_W, lr, lr_NNR_f, coeff_W_L1, ngp_factorized_rank). Do not spend slots on extra seeds of
+  the baseline — the manual `bsub` run already validated the parent (see "Validation history" below
+  / instruction header). Single-axis mutations preserve causality and give 7 first-iteration data
+  points instead of 0.
 
-- **Hypothesis**: "The cv04 baseline (manual single-seed) reached
-  `nnr_anchor≈0.5`, `nnr_hidden≈0.05`, `R²W≈-7` at iter ~5K (DAL=50). With DAL=25 (single epoch ≈
-  16K iters), 4-seed robustness should give mean_score in [-2, 0] and CV high. The bottleneck is
-  R²W and nnr_hidden — those are what the rest of the sweep must lift above 0.4."
+- **Suggested first-batch slot allocation** (not binding, but a sensible default).
+  The consensus baseline already incorporates the lr/coeff axes that the prior
+  cv04 sweep validated, so block 1 should probe NEW axes: NGP capacity, anchor
+  density, schedule, and the architectural pivot:
+  - slot 0: parent baseline (control)
+  - slot 1: `lr_W=1.5e-3` (test if even more aggressive W learning helps post-warmup)
+  - slot 2: `lr_NNR_f=1e-4` (faster NGP catchup after phase-1 silence)
+  - slot 3: `coeff_W_L1=5e-4` (much stronger W sparsity prior)
+  - slot 4: `ngp_factorized_rank=8` (architectural pivot — low-rank shared subspace)
+  - slot 5: `ngp_factorized_rank=16` (architectural pivot, larger rank)
+  - slot 6: `n_anchor=9000` (denser anchor supervision)
+  - slot 7: `warmup_inject_nnr_iter_frac=0.20` (shorter phase 1 — NGP comes online sooner)
 
 - **Launch**:
   ```

@@ -1,70 +1,1989 @@
-\begin{table}[h!]
+ \documentclass{article}
+
+\usepackage{neurips_2026}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{nicefrac}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage[table]{xcolor}
+\usepackage{subcaption}
+\usepackage{booktabs}
+\usepackage{cleveref}
+\crefname{equation}{Eq.\@}{Eqs.\@}
+\Crefname{equation}{Eq.\@}{Eqs.\@}
+\crefname{figure}{Fig.\@}{Figs.\@}
+\Crefname{figure}{Fig.\@}{Figs.\@}
+\crefname{table}{Tab.\@}{Tabs.\@}
+\Crefname{table}{Tab.\@}{Tabs.\@}
+\crefname{section}{Sect.\@}{Sects.\@}
+\Crefname{section}{Sect.\@}{Sects.\@}
+\crefname{appendix}{Appx.\@}{Appx.\@}
+\Crefname{appendix}{Appx.\@}{Appx.\@}
+
+\definecolor{cgreen}{HTML}{2ea043}
+\definecolor{corange}{HTML}{d29922}
+\definecolor{cred}{HTML}{cf222e}
+\newcommand{\good}[1]{\textcolor{green!50!black}{#1}}
+\newcommand{\bad}[1]{\textcolor{orange}{#1}}
+\newcommand{\tbd}{\multicolumn{1}{c}{\textcolor{gray}{\textemdash}}}
+
+\newcommand{\comment}[1]{\textcolor{orange}{[#1]}}
+\def\eg{{\it e.g.}}
+\def\ie{{\it i.e.}}
+\def\stimbase{Stimulus-driven MLP}
+\def\eedbase{EED model}
+\def\mlpbase{Recurrent MLP}
+
+% shortcuts for technical terms
+\def\R{\mathbb{R}}
+\def\vrest{V^{\mathrm{rest}}}
+\def\relu{\mathrm{ReLU}}
+
+\title{Graph neural networks recover interpretable \comment{quantitative} circuit models from neural activity}
+
+\author{%
+  First Author \\
+  Department / Institution \\
+  \texttt{first@example.com} \\
+  % \And
+  % Second Author \\
+  % Department / Institution \\
+  % \texttt{second@example.com} \\
+}
+
+\begin{document}
+
+
+\maketitle
+
+
+\begin{abstract}
+
+% Connectomes and whole-brain recordings are increasingly available, opening the prospect of building interpretable, mechanistic models of neural circuits. But before applying any inverse-problem method on real recording data data, it must be validated against ground truth, which simulated data can provide. We therefore propose a benchmark framework on the flyvis simulator: a large-scale, biologically realistic simulation environment in which we can systematically degrade the connectivity, vary the noise, and ablate parts of the circuit, then evaluate whether a candidate model recovers the underlying parameters from recordings. Our contribution is twofold, the framework itself, and a GNN-based method that, in this framework, recovers connectivity and circuit parameters under realistic levels of noise and partial observation.
+
+% Synapse-level connectomes describe the structure of circuits, but not the electrical and chemical dynamics. Conversely, large-scale recordings of neural activity capture these dynamics, but not the circuit structure. Combined, connectomes and whole-brain recordings open the prospect of learning interpretable, mechanistic models of neural circuits directly from data. But before any such method can be applied to real data, it must be validated against ground truth that only simulated data can provide. We therefore propose a framework built on the flyvis model simulation: a large-scale, biologically realistic simulation environment in which we can systematically degrade the connectivity, vary the noise, and ablate parts of the circuit, then evaluate whether a candidate model recovers the underlying parameters from recordings. We further propose ablation tests that evaluate the mechanistic content of a learned model, beyond its ability to predict or reproduce the activity. Our contribution is twofold: the framework itself, and a GNN-based method that, in this framework, recovers connectivity and circuit parameters under realistic levels of noise and partial observation.
+
+% We trained graph neural network models (GNN) to forecast the activity of \emph{Drosophila} visual system simulations.  Trained on activity trajectories in response to visual inputs, the models recover effective connectivity weights, neuron types, and nonlinear activation functions, even when 400\% random connections are added to the given connectivity.  Moreover, they correctly predict causal effects of connection removal, demonstrating the ability to infer mechanistic dependencies directly from activity data.
+
+
+Synapse-level connectomes describe the structure of circuits, but not the electrical and chemical dynamics.  Conversely, large-scale recordings of neural activity capture these dynamics, but not the circuit structure.  We asked whether combining binary connectivity and recorded neural activity can be used to infer mechanistic models of neural circuits.  We trained graph neural network models (GNN) to forecast the activity of \emph{Drosophila} visual system simulations.  Trained on activity trajectories in response to visual inputs, the models recover effective connectivity weights, neuron types, and nonlinear activation functions, even when 400\% random connections are added to the given connectivity.  Moreover, they correctly predict causal effects of connection removal, demonstrating the ability to infer mechanistic dependencies directly from activity data.
+
+
+
+\end{abstract}
+
+
+\section{Introduction}
+
+Building a mechanistic model of a brain from measurements of its wiring and its activity is a long-standing goal of neuroscience, and one that is becoming concrete: Synapse-resolution connectomes paired with neural activity recordings from the same brain \citep{MICrONS-Consortium2025-pt} [V1DD, Zebrafish] open the prospect of mechanistic, data-constrained models of neural circuits. It is unclear, however, whether such data actually suffice to identify the underlying brain system, and what reliable computational strategies for doing so would look like.
+
+Different threads of prior work bound the answer. 
+System identification theory establishes that recovering dynamical systems parameters requires observations rich enough to disambiguate them \citep{Astrom1965-ri, Ljung2010-by}. In the neural circuit setting, this raises two questions: How varied must the observation be, and how can such variation be achieved experimentally? At least the former question can hardly be addressed without computational models.
+
+In computational neuroscience, it is known that different parameter settings of the same circuit architecture can produce indistinguishable activity \citep{Prinz2004-pb, Marder2011-cc}, leaving open the extent to which degenerate circuit parameters can be disambiguated from data.
+
+Machine learning models, trained by backpropagation, provide powerful tools to find circuit parameters that accurately uncover the input-output computation of a system, such as stimulus-response neural time series. Many machine learning architectures exist to solve sequential time-series problems \citep{Elman1990-ar, Vaswani2017-wz, Gu2023-at, Krishnan2015-ri, Chen2018-gd}, but general-purpose models are not designed to function like the brain and uncover its underlying parameters and mechanisms. Using such models as tools for neuroscience shifts the question from \emph{which architecture is most performant in predicting time-series} to \emph{which architecture is most suitable for brain simulation} --- that is, most interpretable and most easily constrained by the heterogenous measurements experimentalists actually collect.
+
+Providing concrete answers to these questions requires access to ground-truth connectivity and dynamics from the same system, which no current experimental dataset fully provides: Available large-scale datasets contain either only partial brain measurements \citep{MICrONS-Consortium2025-pt}, activity but no connectivity measurements \citep{Ahrens2013-rd, lueckmann_zapbench_2025}, or connectivity \citep{Dorkenwald2024-ni} and activity \citep{Currier2025-af} from different individuals. While new datasets are underway, many of these system-identification questions can be addressed today in a fully computational framework built on recent large-scale, connectome-constrained circuit simulations \citep{Lappalainen2024-tq, Shiu2024-rz}. 
+
+We developed a 'teacher--student' setup in which the teacher is a variant of a recent fly visual-system simulation \citep{Lappalainen2024-tq}. The original model, a continuous-time recurrent dynamical system defined on the fly connectome graph (45K neurons, 1.5M connections) and trained on the computer vision dataset Sintel \citep{Butler2012-sj} detects optical flow in naturalistic video and recapitulates single-neuron response properties across three decades of experimental research, without knowledge of that data. We extended the teacher with the most recent whole-eye connectome data \citep{Dorkenwald2024-ni, Schlegel2024-qh} to test counterfactuals for identifiability such as the convolutional assumption of the original model or connectivity uncertainty from EM measurements, resulting in model variants at varying scales ($13$K or $50$K neurons; $0.4$M or $5$M edges).
+As students, we evaluate a broad selection of ML sequence models and propose as our primary model class an interpretable recurrent graph neural network (GNN) that can be flexibly conditioned on neural and synaptic measurements, and that admits learnable latent variables for circuit structure such as cell types.
+As a baseline against which to compare the GNN, we use an oracle student that knows the true ODE of the teacher. Computational models in the form of differential equations of neural circuit electrical activity are often designed by tailoring equation components to match specific observed data \citep{Abbott1999-sh, Hodgkin1952-eq}, and an oracle of this form represents the strongest version of that choice. At brain scale, however, it is unlikely that a single ``true'' ODE exists, and models that flexibly parametrize neural and synaptic interactions and absorb measurement constraints become more practical than models hand-designed for a particular system or set of observations.
+Finally, for any gradient-based model class, tuning training hyperparameters such that the same model class works equivalently well across data settings is itself nontrivial. We therefore introduce an agentic hyperparameter optimization (HPO) procedure that identifies a single GNN training configuration for robust system identification across conditions such as connectivity and activity completeness, or neuronal noise level.
+
+Our main contributions are:
+
+\begin{itemize}
+    \item We propose a general, interpretable continuous-time GNN architecture for neural system identification from connectivity and activity measurements. In contrast to ODEs, the model is conveniently constrained by or conditioned on explicit synapse- or neuron-level data while remaining interpretable at the level of individual neurons and synaptic currents.
+    \item We find that the GNN recovers effective connectivity weights, neuron parameters and types, and nonlinear activation functions. %, even with 400\% random connections are added to the given connectivity. 
+    \item We demonstrate that extensions with SIREN \citep{sitzmann_implicit_2020} allow additional accurate inference of inputs simultaneously to inferring the dynamical system itself, which is relevant when inputs cannot be observed.
+    % \item We characterize, empirically and theoretically, which parameter degeneracies arise in the visual system model, and confirm that [X] different FlyVis circuit parametters can produce enarly indistinguishable activity under matched stimuli.
+    \item We identify per-neuron noise as a powerful lever for parameter identification (as opposed to rollout accuracy, which can be achieved without noise). We find teacher neuron noise complements the role of sensory drive in system identification and poses the question of how per-neuron noise could be controlled experimentally at the system level.
+    \item We show that many ML sequence models fit the visual system activity, but that fitting activity is a poor proxy for recovering parameters. Moreover, ML baselines fail mechanistic interventions in contrast to our GNN, such as predicting activity after removing 50\% of connections.
+    \item We demonstrate that our GNN approach recovers a FlyWire-Flyvis eye simulation as accurately as the known-ODE oracle baseline, while remaining equivalently interpretable and robust to additions of $~700\%$ connections to the given connectivity.
+    % \item We provide a strategy for hyperparameter optimization ...
+\end{itemize}
+
+
+% The holy grail of neuroscience is to develop a fully functional model of the brain that reproduces the behavioral outcome of its biological template and reveals how those outcomes are implemented---how sensation, cognition, decision making, control, and learning are generated by the circuits of neurons and glial cells in the brain, and how the molecular machines running these cells produce these outcomes. This daunting task requires an understanding of the circuitry of the brain and how its components functionally interact.
+
+% Connectomes and whole-brain recordings are increasingly available, opening the prospect of building such interpretable, mechanistic models of neural circuit. 
+
+% Several neuronal connectomes have become available for a variety of relatively small organisms, e.g CElegans, zebrafish, drosophila, others (?). At the same time, through advances in voltage and calcium imaging, it has become possible to record neuronal activity over the whole brain of some of these organisms. There is ongoing work to capture the neuronal activity and the connectome of the same organism. 
+
+
+% In the following work we establish a new ML framework that could leverage on the availability of functionnal and connectome data to establish interpretable and quantitative model of neural activity. 
+% Here we propose a set of neural activity simulation and a set of ML learning solutions to explore wether it is possible to reproduce neural activity first, and extract circuit parameters second, given binary connectivity and simulated neural activity. 
+
+
+
+% Importantly we varied the precision and completeness of the connectivity and the neural activity in order to face the main sources of degradation expected in realistic experimental settings. For the neural activity simulation, we used the previoulsy established flyvis model. We varied the model size from 13k to 50K neurons, and edged from 400K to 5M (to what). For the ML models, we built on a GNN model discussed in ?? It allows to ... but was assessed only random neural networks, not realistic biological model ...
+
+
+
+% The main contributions of our work are:
+
+% \begin{enumerate}
+%     % 1. We propose a general GNN model class for neural dynamical system inference with connectivity and neural activity data
+%     % 2. 
+
+%     \item 
+% \end{enumerate}
+
+% (i) We first emphasize the conendrum 'many circuits, same activity' [?? cite Abbott] as it is strongly confirmed by the Flyvis model. From theoroitical and empirical perspectives we establish that many and very different Flyvis circuits generate very similar activity, given equal stimulus. 
+
+% (ii) We show that baseline ML are able to predict activity from past activity given the stimulus, but does not lead to mechanistic understanding. For instance, they fail at the mechanistic test what happens if we remove $50\%$ of the connections. 
+
+% (iii) Conversely, we show that GNN framework is able to predict activity but also to extract circuit parameters, notably the >400K connectome weights. Building a more mechanistic model, the GNN passes the mechanistics ablation test. 
+
+% (iv) Identifiabilty is not solved by the GNN structure itself. We show that injecting noise in the neuron signaling model is the stronger level to solve identifiaibilty. Model noise decorrelate the different neurons activity. Without the decorrelation, permutation in the connectivity matrix can be applied without any effect on the traces as shown in (i). 
+
+% (v) Still the GNN needs to be tune properly its training scheme, amongst many parameters. We show that through a novel agentic HPO we are able to fine a unique sets of parameters for the GNN to recover circuit parameters in various experimental settings. 
+
+% (v) We show the current limitation facing the recovery of parameters from neural data alone. In the presence of measurement noise  
+
+\section{Related work}
+
+
+Prior studies were successful in retrieving functional connectivity, functional properties of neurons, or predictive models of neural activity at the population level, but a method to infer an interpretable mechanistic model of complex neural systems is yet missing.
+
+Several lines of work address related but distinct
+problems.
+A concurrent study by \citet{Lueckmann2026-hl} establishes a similar in silico testbed using a larval zebrafish visuomotor circuit of $\sim$36 units, showing that LLM-guided code search recovers effective connectivity when given structural priors. 
+\citet{mi_connectome-constrained_2021} infer the hidden voltage dynamics and functional connectivity from calcium recordings of parts of the \emph{C. elegans} nervous system using a simple biophysical neuron model.  While its predictive performance is modest, it demonstrates that integrating real activity recordings with connectivity can yield experimentally testable predictions beyond simulation.  \citet{pospisil_fly_2024} used the connectome of \emph{Drosophila melanogaster} \citep{dorkenwald_neuronal_2024} to create simulations of full brain activity and inferred effective connectivity from known perturbations of individual neurons with a simple linear model.  Lacking information about connectivity, \citet{wang_foundation_2025} trained a foundation model of mouse visual cortex activity on real two-photon recordings from 135,000 neurons, which predicts responses to both natural videos and out-of-distribution stimuli across animals.
+\citet{prasse_predicting_2022} focus on accurate prediction without recovering connectivity while \citet{yu_discovering_2025} infer symbolic dynamical equations without validating connectivity weights. Both work with simulated data and do not learn neuronal heterogeneity.
+
+Our method learns the functional properties of individual neurons and their relative connectivity weights, enabling transfer of the learned dynamics to different network configurations with modified connectivity (or different neuron type compositions).
+
+\section{Methods}
+
+\subsection*{Flyvis simulations} \label{method:simulation}
+
+
+We simulated neural activity in the \emph{Drosophila} visual system using Flyvis pretrained models \citep{lappalainen_connectome-constrained_2024}. We restricted the original $721$
+retinotopic columns to the central subset of $217$
+columns, covering the functionally relevant central visual field while substantially reducing memory and runtime requirements. This way, the recurrent neural network contains $13{,}741$ neurons from $65$ cell types and $434{,}122$ synaptic connections. Each neuron is modeled as a non-spiking voltage compartment governed by the ordinary differential equation (ODE)
+\begin{equation}
+\tau_i\frac{dv_i(t)}{dt} = -v_i(t) + V_i^{\text{rest}}
++ \sum_{j\in\mathcal{N}_i}\mathbf{W}_{ij}\,\text{ReLU}\!\big(v_j(t)\big)
++ I_i(t) + \sigma\,\xi_i(t),
+\label{eq:simulated_update}
+\end{equation}
+where $v_i$ is the neuron membrane voltage, $\tau_i$ and
+$V_i^{\mathrm{rest}}$ are cell-type parameters, $\mathbf{W}_{ij}$ is the
+connectome synaptic weight, and $I_i(t)$ is the visual input. Visual
+inputs are derived from the DAVIS-2017 dataset
+\citep{Pont-Tuset_arXiv_2017}, a benchmark dataset for annotated
+natural videos (see details in Appendix~\ref{app:agent}). A null
+stimulus ($I_i(t)=0$) is prepended to every sequence so that neurons
+relax toward $V_i^{\mathrm{rest}}$ during the first half of each clip,
+which is essential for parameter identifiability
+(Appendix~\ref{app:stimulus}). $\xi_i(t)\sim\mathcal{N}(0,1)$ is an
+independent Gaussian noise scaled by $\sigma$ (model noise), perturbing
+the dynamical trajectory of $v_i(t)$. We additionally apply a
+measurement noise directly to $v_i(t)$, Gaussian noise scaled by
+$\gamma$. See examples of simulated data in
+Fig.~\ref{fig:stimulus_hexagons}, with and without model and
+measurement noise in Fig.~\ref{fig:simulations}.
+         
+
+
+
+\subsection*{Flyvis simulartions with realistic FlyWire edges}
+% Dynamical visual system with real biological synaptic variability
+% This fits into methods
+The flyvis model was coregistered to the FlyWire connectome (FAFB-v783) with a pipeline including node registration through cell type and column-coordinate matching and subsequent edge registration through synapse-table look-up based on source and target node identity, aggregation and outlier filtering. This hybrid model retains all flyvis edges but replaces synapse counts with FlyWire values wherever both datasets contain the same edge, and adds novel edges present only in FlyWire for type pairs that already exist in the flyvis template. Because FlyWire synapse counts were systematically higher than flyvis template values (median ratio $~ 1.39\times$ at shared offsets), we apply multiplicative per-type-pair mean-ratio correction to each FlyWire edge synapse count so that edge weights remain compatible with the trained flyvis scaling parameters.
+
+% filtered (≥5, what v2 uses)	unfiltered
+% matched edges	50,335	103,174
+% per-edge mean ratio	2.98	2.17
+% per-edge median ratio	2.00	1.39
+% global Σ_FW / Σ_fv	1.44	1.32
+% per type-pair median (median)	2.70	1.33
+
+
+% \textbf{Variant 2} (\texttt{flyvis\_hybrid\_flywireRF}) for each target column where FlyWire data exists, drops all flyvis template edges and uses only the FlyWire receptive field, preserving flyvis template edges only in columns without FlyWire coverage. 
+
+% \begin{itemize}
+%       \item \comment{what if no inputs? siren results }
+%       \item \comment{what if misaligned connectome and neural activity measurements: realistic null edge results} 
+%       \item \comment{what if we had no convolutional assumption: hetereogeneous flyvis-flywire hybrid results} 
+%       \item \comment{what if we cannot find the right parameters: agentic results?} 
+%       \item \comment{can we do any of this with established model classes? no-> benchmark}
+%   \end{itemize}
+
+
+\subsubsection*{Graph neural network model} \label{method:GNN}
+We approximate the simulated voltage dynamics by a message-passing GNN \citep{gilmer_neural_2017}
+\begin{equation}
+\frac{d\hat{v}_i(t)}{dt}
+= f_\theta\!\Big(v_i(t),\,\mathbf{a}_i,\,
+\sum_{j\in\mathcal{N}_i} \hat{\mathbf{W}}_{ij}\,
+g_\phi\!\big(v_j(t),\mathbf{a}_j\big)^2,\,
+I_i(t)\Big).
+\label{eq:gnn_ct}
+\end{equation}
+Nodes of the GNN correspond to neurons and edges correspond to functional synaptic connections. The GNN learns a latent embedding $\mathbf{a}_i\in\mathbb{R}^2$ for each neuron. The learnable vectors $\mathbf{a}_i\in\mathbb{R}^2$ represent compact latent identity, they can map to cell-type-specific properties (like time constants and nonlinearities). Neuron update $f_\theta=\text{MLP}_0$ and edge message $g_\phi=\text{MLP}_1$ are three-layer perceptrons (width $64$, ReLU, linear output). $g_\phi$ maps presynaptic inputs $v_j$ to nonnegative messages (via squaring) depending on latent embedding $\mathbf{a}_j$, weighted by $\hat{\mathbf{W}}_{ij}$. $f_\theta$ processes the postsynaptic voltage $v_i$, aggregated input, and external input $I_i(t)$ to predict $d\hat{v}_i(t)/dt$, depending also on latent embedding $\mathbf{a}_i$. During training (Appendix \ref{app:GNN}), inputs $I_i(t)$, adjacency $\mathcal{N}_i$, and activity $v_i(t)$ are given. The MLPs, $\hat{\mathbf{W}}_{ij}$, and $\mathbf{a}_i$ are optimized by minimizing difference between simulator $y_i(t)=dv_i(t)/dt$ and GNN predictions $\hat{y}_i(t)=d\hat{v}_i(t)/dt$:
+\begin{equation}
+\mathcal{L}_{\mathrm{pred}} = \sum_{i,t}\|\hat{y}_i(t) - y_i(t)\|_2
+\label{eq:loss_pred}
+\end{equation}
+Many synaptic weight configurations give rise to identical neural activity, making the recovery of $\hat{\mathbf{W}}$ from voltage traces fundamentally non-unique (see Appendix \ref{app:degeneracy}). To constrain the solution space, we added regularization terms to $\mathcal{L}_{\mathrm{pred}}$
+\begin{eqnarray}
+\mathcal{L} &=& \mathcal{L}_{\mathrm{pred}}
++ \lambda_0\|\theta\|_1 + \lambda_1\|\phi\|_1 + \lambda_2\|\theta\|_2 + \lambda_3\|\phi\|_2
++ \gamma_0\|\hat{\mathbf{W}}\|_1 + \gamma_1\|\hat{\mathbf{W}}\|_2 \nonumber\\
+&& +\; \mu_0\!\left\|\mathrm{ReLU}\!\left(-\tfrac{\partial\,f_\theta(v,m,\mathbf{a},I)}{\partial m}\right)\right\|_2
++ \mu_1\!\left\|\mathrm{ReLU}\!\left(-\tfrac{\partial\,g_\phi(v,\mathbf{a})}{\partial v}\right)\right\|_2 \nonumber +\; \mu_2\|g_\phi(v_\star,\mathbf{a})-v_\star\|_2.
+\label{eq:loss_full}
+\end{eqnarray}
+The $\ell_1$ penalties $\lambda_0,\lambda_1$ on the MLP weights $\theta$ and $\phi$ promote sparsity, biasing $f_\theta$ and $g_\phi$ toward simpler functions; the $\ell_2$ penalties $\lambda_2,\lambda_3$ prevent weight explosion and stabilize training. The $\ell_1$ term $\gamma_0$ on $\hat{\mathbf{W}}$ promotes sparse effective connectivity, while the $\ell_2$ term $\gamma_1$ penalizes large synaptic weights. The monotonicity term $\mu_0$ penalizes negative slopes of $f_\theta$ with respect to its aggregated synaptic input $m=\sum_{j\in\mathcal{N}_i}\hat{\mathbf{W}}_{ij}\,g_\phi(v_j,\mathbf{a}_j)$, encoding the prior that the postsynaptic derivative increases with net excitatory drive. The monotonicity term $\mu_1$ penalizes negative slopes of $g_\phi$ with respect to $v$, encoding the prior that synaptic drive increases with presynaptic voltage. The normalization term $\mu_2$ anchors $g_\phi$ at a reference voltage $v_\star$, removing the scale degeneracy between $g_\phi$ and $\hat{\mathbf{W}}$ in \cref{eq:gnn_ct}. We tuned all the hyperparameters $\lambda_0,\lambda_1,\lambda_2,\lambda_3,\gamma_0,\gamma_1,\mu_0,\mu_1,\mu_2$ and the MLPs structure with an agentic optimization procedure described in Appendix \ref{app:agent}.
+
+
+\subsubsection*{Benchmark}
+We compare GNN results with four baseline models detailed in Appendix~\ref{app:benchmark}: Known-ODE, which assumes knowledge of the full functional form of the ODE and learns the circuit parameters $\tau, \vrest, W$; \mlpbase, which predicts $dv/dt$ as a function of the current $v(t)$ and $I(t)$ using a 2-layer MLP (640 hidden units) with ResNet-style skip connections; \eedbase, which predicts neural activity using a 256D nonlinear dynamical system that is read out by the observed activity; and Stimulus-driven MLP, which predicts $v(t)$ based only on the past stimulus $I(t-(w-1)), \cdots, I(t-1), I(t)$. These baselines span the spectrum from full mechanistic knowledge (Known-ODE) to purely data-driven prediction (\stimbase), while \mlpbase{ }and \eedbase{ }adopt distinct dynamical-systems perspectives without incorporating additional inductive bias.
+
+% The Known-ODE baseline , setting an upper bound on parameter 
+% recovery. Three data-driven baselines assume no knowledge of the connectome:
+% make no assumption on the form of the ODE nor on the circuit
+% structure: a stimulus-only model, an MLP, and an EED
+% (Encoder--Evolver--Decoder) with a low-dimensional latent bottleneck. [TO DO add stimulus] 
+% In contrast, the GNN jointly recovers circuit parameters and predicts neural activity without prior knowledge of the ODE form, using the connectivity structure as an architectural prior (see \cref{eq:gnn_ct}) still learning the full set of connectivity weights ($434{,}122$ to $1{,}513231$).
+
+\section{Results}
+
+We report four quantities throughout this section: the one-step and
+$8{,}000$-frame auto-regressive rollout Pearson~$r$ on neural activity
+(per neuron, Fisher-$z$ pooled), and the identity-line $R^2$ on
+$\hat{\mathbf{W}}$, $\hat{\boldsymbol{\tau}}$, and
+$\hat{\mathbf{V}}^{\mathrm{rest}}$. The two parameter $R^2$'s are
+computed on the inlier set defined by hard residual thresholds, with
+the outlier fraction shown in parentheses. Full definitions are given
+in Appendix~\ref{app:metrics}.
+
+
+% Across all simulations we fixed the training data size to $64{,}000$ frames. The number of model training iterations varied between $5{\times}10^5$ and $2{\times}10^6$ depending on noise level and model. For most of simulation condition, an independent agentic loop was run to identify the optimal model architecture and training parameters (see \ref{app:agent}, Table \ref{tab:unified_hp}, ?? TODO tables for other models). The resulting models were evaluated on new simulations driven by stimuli unseen during training,   confirming that performance does not depend on the specific stimulus. Models were also retrained on these held-out simulations to verify that the agentic loop findings generalize across stimulus distributions.
+
+
+\paragraph{Identifiability of parameters} 
+% Vijay's rewrite
+The FlyVis model has a columnar structure containing 65 cell types that are repeated over a hexagonal lattice. This symmetric structure allows the weight parameters to be permuted or modified in specific combinations that leave the simulated activity unchanged; \eg, we found a model with approximately 40{,}000 edges that almost perfectly matched (Pearson $r = 0.99$) the results of the complete  434{,}112 edges FlyVis. We show in Appendix \ref{app:degeneracy} that the problem of inferring the circuit parameters with full knowledge of the ODE is \emph{linear} in the parameters and can be efficiently solved using least squares. The singular values of the system matrix can be exactly zero (symmetries or neurons that are never stimulated) or $\ll 1e-6$ causing null or sloppy directions in parameter space (see Figure \ref{fig:lstsq_param_recovery}). We found that addition of model noise (see Eq. \ref{eq:simulated_update}) helps resolve this degeneracy allowing for better parameter identification from neural activity.
+
+% original version
+% Before testing the ability to predict activty and recover circuit parameters from data alone, we first established how much the problem was ill-posed. In the particular case of the FLyvis model were a columnar structure containing 65 different cell types is repeated hundreds of times over an hexagonal lattices, it appears that the problem is very ill-posed. We show in the Appendix \ref{app:degeneracy} [@VIJAY ADD MENTION OF LEAST SQUARE] that the simulation model can be fully linearized so that the connectivity unknows (>400K weights) are the solution of a  matrix equations. Because many neurons within a given cell type have similar role in the computation, their corresponding matrix coefficients can be permutated and/or largely modified. So that many solutions exists and they can be very different one another. Emprically we found a model with only 40K edges (vs 400K) that is still able to rollout activity (r~0.99 over 800K frames). This implies that having a model able to predict activity is one solution amongst many other and drawing conclusions from this learned model alone would be misleading. 
+
+\paragraph{Prediction but no circuit parameters.}
+% Points to make
+% Stimulus: very accurate. ctx=16. See appendix figure that shows difference between neurons deeper in the graph vs others
+% MLP and EED: very accurate rollout in noise free case.
+% performance degrades with model noise likely because the extra parameters memorize patterns in the noise and don't generalize.
+% Jacobian: does not agree with the ground truth as shown in appendix fig
+The neuronal activity of different cells encodes several frames of past stimuli so the optic lobe can perform complex visual tasks. The performance of the \stimbase{ } steadily increases with the number of given context frames as shown in Figure \ref{fig:stimulus_ctx_pearson} and accurately predicts neuronal activity with 8 ($r=0.92 \pm 0.09$) to 16 frames ($r=0.97 \pm 0.03$) as shown in Table \ref{tab:cv_gnn_vs_baselines}.
+The \mlpbase{ }(29M parameters) and the \eedbase{ }(20M parameters) accurately learn the one-step noise-free neural dynamics and are able to perform a long auto-regressive rollout for over 8000 frames. Notably, the performance degrades with the addition of model noise and we speculate that the models memorize noise patterns in the training data that do not generalize. Despite being excellent predictors of neuron activity these models \emph{do not} learn the true underlying dynamics. Figure \ref{fig:jacobian_l1_comparison} shows the discrepancy between the expected and learned dynamics visualized through analysis of their Jacobian. We showed above that the parameter inference problem is degenerate even with complete information of the update equation; this degeneracy is exacerbated if one ignores the presence of connectivity information altogether.
+
+% The benchmark includes ML models that accurately predict flyvis activity in response to unseen stimuli. [@VIJAY GIVE SHORT RESULTS, AND POINT TO MORE DETAILED RESULTS IN THE APPENDIX]. However, the solution space is so large that prediction accuracy alone cannot certify that the learned model is close to the ground truth. The only way to make this assessment is to recover the parameters from the ML models and compare them directly to the ground-truth values used in simulation, which these ML baselines cannot do by construction. [@VIJAY YOU TESTED JACOBIAN THIS WAS NOT CONCLUSIVE]. Another mechanisitic test would consists in predciting the response after removing $50\%$ of the neuron connections. The ML baselines cannot run this test by construction.
+
+\subparagraph{Results with and without the ODE given.}
+Predicting activity alone does not yield understanding of the underlying
+circuit. Mechanistic interpretation requires recovering the governing
+equation of the neural signal together with the per-neuron and
+connection parameters. We separate this inverse problem into two cases
+according to whether the form of the governing equation is given or not.
+When the equation is given, we train a Known-ODE model, the
+differentiable version of Eq.~\ref{eq:simulated_update}, whose learnable
+parameters are the connectivity weights $\hat{\mathbf{W}}$ ($434{,}112$
+edges) and the per-neuron $\hat{\boldsymbol{\tau}}$,
+$\hat{\mathbf{V}}^{\mathrm{rest}}$ ($13{,}741$ each). The ReLU
+activation is shared across neurons; cell-type assignments are not
+given. With $\ell_1$/$\ell_2$ regularisation on the parameters and an
+MSE one-step prediction loss (Appendix~\ref{app:benchmark}), the
+Known-ODE achieves near-perfect activity prediction (one-step and
+autoregressive rollout) over $8{,}000$ test
+frames and near-perfect parameter recovery over $> 4.5\cdot 10^5$
+values (Fig.~\ref{fig:know_ode_rollout},
+Fig.~\ref{fig:known_ode_params_3col_noise_comparison}). Even at high
+model noise ($\sigma=0.5$), the model clusters the $65$ cell types
+correctly and recovers all circuit parameters, with the exception of a
+small fraction of neurons ($<10\%$). Notably, the Known-ODE trained on
+noisy activity reproduces the noise-free rollout: it cannot explicitly
+fit the stochastic fluctuations and instead converges on the underlying
+deterministic dynamics. This result sets an upper bound: when the ODE
+form is given, the strongly ill-posed inverse problem is tractable.
+Conversely, the GNN does not have access to the update equation. It
+learns jointly the connectivity, a per-neuron embedding, and two
+signalling functions $f_\theta, g_\phi$ that together express a wide
+family of update rules (Eq.~\ref{eq:gnn_ct}). To overcome the
+degeneracy problem, we optimise the GNN training scheme with an agentic
+loop (Appendix~\ref{app:agent} and \ref{app:GNN}). At low and high
+model noise ($\sigma \in \{0.05,\,0.5\}$), the GNN results closely matches the
+Known-ODE upper bound. As with the
+Known-ODE, when trained on noisy activity the GNN recovers the
+underlying deterministic dynamics rather than fitting the stochastic
+fluctuations, reproducing the noise-free rollout. The deterministic
+$\sigma=0$ regime is the harder case ($r=0.90\pm 0.21$,
+$R^2_{\hat{\mathbf{W}}}=0.89$, $R^2_{\hat{V}^{\mathrm{rest}}}=0.78$).
+
+
+\input{tables/cv_table_gnn_vs_baselines}
+
+\begin{figure}[ht!]
+  \centering
+  \includegraphics[width=0.8\textwidth]{figure/fig_rollout_3col_noise_comparison_known_ode_nf_green.pdf}
+\caption{\textbf{Rollout prediction.} GNN trained on Flyvis data under
+    three model noise regimes ($\sigma = 0$, $\sigma = 0.05$,
+    $\sigma = 0.5$), tested on held-out stimuli, and compared against
+    noise-free Flyvis simulations. Top row (\textbf{a}, \textbf{b},
+    \textbf{c}): GNN rollout traces for $12$ representative cell types
+    over a $20$~s window ($1{,}000$ frames at $\Delta t = 20$~ms).
+    Green: ground-truth voltage; black: GNN rollout prediction; red: one
+    visual input stimulus. Bottom row (\textbf{d}, \textbf{e}, \textbf{f}):
+    scatterplots of rollout voltage vs noise-free ground-truth voltage,
+    pooled over all $(\text{neuron}, \text{frame})$ pairs and subsampled
+    to $2 \cdot 10^6$ points for display. Pearson~$r$ computed on the
+    full $8{,}000$-frame rollout.
+}
+\label{fig:rollout_3col_noise_comparison}
+\end{figure}
+
+\begin{figure}[ht!]
+  \centering
+  \includegraphics[width=\textwidth]{figure/fig_gnn_params_3col_noise_comparison.png}
+  \caption{%
+    \textbf{Circuit parameter extraction} from GNNs trained on Flyvis data under three noise
+    model noise regimes($\sigma = 0$, $\sigma = 0.05$,
+    $\sigma = 0.5$). \textbf{(a, c, e)}~Connectivity weights $\hat{\mathbf{W}}_{ij}$
+    over all edges.
+    \textbf{(b, d, f)}~Learned latent embeddings
+    $\mathbf{a}_i \in \mathbb{R}^2$ of all neurons.
+    \textbf{(g, i, k)}~Output of the update MLP
+    $f_\theta(\mathbf{a}_i, v_i)$, pooled over all
+    $(\text{neuron}, \text{domain-point})$ pairs.
+    \textbf{(h, j, l)}~Output of the edge MLP
+    $g^{*}_\phi(\mathbf{a}_j, v_j)$ over the same input set.
+    \textbf{(m, o, q)}~Resting potentials $V_i^{\mathrm{rest}}$.
+    \textbf{(n, p, r)}~Time constants $\tau_i$.
+    Each scatter is annotated with $R^2$ and slope of learned vs.\ true; colours indicate ground-truth cell types.
+}
+  \label{fig:gnn_params_3col_noise_comparison}
+\end{figure}
+
+
+
+\paragraph{Edge ablation as a mechanistic test.}
+Predicting held-out activity is a necessary but insufficient property of
+a mechanistic model: data-driven sequence models (\mlpbase, \eedbase,
+\stimbase) absorb the connectivity into their hidden state and, by
+construction, cannot answer counterfactual questions about edge removal.
+We therefore probe whether the GNN has internalised the message-passing
+rules of the circuit by performing a matched ablation. For each of the
+three training-noise regimes ($\sigma \in \{0,\,0.05,\,0.5\}$), we
+randomly zero $50\%$ of the $434{,}112$ edges, regenerate $8{,}000$
+frames of held-out test activity with the perturbed connectome, and
+apply the same edge mask to the trained GNN's learned weights
+$\hat{\mathbf{W}}$ before running the autoregressive rollout. No
+retraining is performed: the test is whether $\hat{\mathbf{W}}$,
+$\hat{\boldsymbol{\tau}}$, $\hat{\mathbf{V}}^{\mathrm{rest}}$,
+$f_\theta$, $g_\phi$ extrapolate to a circuit with half its edges
+removed. The GNN passes this test at all model noise levels. The per-neuron Pearson correlation between the ablated rollout and the noise-free ablated
+simulations is $r \geq 0.99$ across all three noise levels
+(Fig.~\ref{fig:rollout_3col_noise_comparison_ablation50}). The agreement
+holds for individual cell-type traces (panels a--c) and across the full
+voltage range (panels d--f). The high cross-condition agreement
+indicates that the learned $f_\theta$ and $g_\phi$ encode the local
+update rule rather than memorising trajectories, satisfying our
+mechanistic criterion and complementing the parameter-recovery results
+of Fig.~\ref{fig:gnn_params_3col_noise_comparison}. 
+
+
+
+\paragraph{Data degradation (measurment noise, partial data, unknown stimulus).}
+We evaluate the GNN ($\sigma=0.05$) on a grid of degradations expected in real experiments: measurement noise ($\gamma\in\{0.1,0.2\}$), connectome errors as false positives ($+400\%$ random null edges, $5\times$ inflated graph) and false negatives ($-20\%$, $-50\%$ edges removed), partial temporal sampling ($1/5$ frames), partial spatial sampling ($10\%$, $20\%$ neurons hidden), and unknown stimulus jointly recovered with a SIREN network (Appendix \ref{app:SIREN}) (Table~\ref{tab:cv_cross_noise}). Activity prediction is robust across all conditions (one-step $r\geq0.95$ except $1/5$ frames at $0.86$). Parameter recovery is most resilient to false-positive edges. The GNN correctly identifies the $80\%$ of inflated edges as zero-weight and recovers the true $\hat{\mathbf{W}}$ at $R^2=0.96$ even at $5\times$ the true edge count. It degrades under $-20\%$ edge removal ($R^2_{\hat{W}}=0.78$, rollout $r=0.99$), but breaks down at $-50\%$ removal ($R^2_{\hat{W}}=0.19$, rollout $r=0.56$). When half the true edges are missing from the prior, the remaining edges cannot absorb their contribution. Measurement noise primarily corrupts $\hat{\mathbf{W}}$ ($R^2=0.64$ at $\gamma=0.1$, $0.39$ at $\gamma=0.2$) while leaving rollout largely intact. Partial observation of frames or neurons preserves $\tau$ recovery ($R^2_{\hat\tau}\geq0.83$) but undermines $\hat{\mathbf{W}}$. As a first attempt to close this gap, we couple the GNN with an Instant\nobreakdash-NGP coordinate network~\citep{muller_instant_2022} that learns to fill in the unobserved neuron activity jointly with the dynamics; preliminary results recover part of the lost $\hat{\mathbf{W}}$ signal but do not yet match the fully observed baseline (Appendix~\ref{app:NGP}, in preparation). When the input stimulus is itself hidden, we couple the GNN with a SIREN coordinate network~\citep{sitzmann_implicit_2020} that learns the photoreceptor drive jointly with the dynamics (Appendix \ref{app:SIREN}). The recovered stimulus matches ground truth at $r=0.92$, while $\hat{\boldsymbol{\tau}}$ ($R^2=0.93$) and $\hat{\mathbf{W}}$ ($R^2=0.81$) remain close to the known-stimulus values. Note that the stimulus is not truly unobserved. It is largely present in the activity of the $1{,}736$ retinal photoreceptors (R1--R8 across $217$ columns), which themselves also
+receive feedback from downstream neurons. The task is therefore one of
+disentangling the feedforward stimulus drive from the recurrent feedback, rather than recovering an unknown input from scratch.
+
+
+
+
+
+% \paragraph{Robustness to measurement noise.}
+% To assess robustness to measurement noise, we injected Gaussian noise into the simulated voltages to obtain SNR~$\sim$20\,dB. The GNN still predicts noise-free dynamics accurately (rollout Pearson~$r\sim0.93$), but parameter recovery deteriorates ($R^2_{\hat{W}} \sim 0.7$). The Known-ODE baseline shows the same degradation, indicating a fundamental identifiability bottleneck. \textcolor{orange}{[TODO]} add a figure to explicite the measurement noise level  
+
+% \paragraph{Robustness to erroneous adjacency matrices.}
+% In practice, annotated connectome reconstructions contain both false negatives (missing
+% connections) and false positives (spurious connections). To test robustness to
+% both error types, we \textit{(i)} augmented the ground-truth adjacency matrix
+% with randomly added null edges ($+400\%$; $434{,}112 \to 2{,}170{,}560$ edges)
+% and \textit{(ii)} randomly removed edges ($-20\%$; $434{,}112 \to 347{,}000$
+% edges). In both cases the GNN was trained on the corrupted connectivity while
+% neural activity was simulated with the full ground-truth connectome
+% ($434{,}112$ edges).
+
+% ----- partial data 1/5 frames only \textbf{NEW}
+
+% ----- partial data 10\% neurons removed \textbf{NEW}
+
+% ----- benchmark Known-ODE MLP EED  \textbf{NEW}
+
+
+%%% BEGIN FLYWIRE
+%% Vijay: This should be a standalone subsection under Results
+%% It's a real biological connectome. And we are modeling real connectome errors.
+%% This is significantly different from other GNN things we are doing
+\paragraph{GNN recovers Flyvis with realistic FlyWire edges}
+% This fits into results section
+\cite{lappalainen_connectome-constrained_2024} compiles whole-eye connectivity from local reconstructions. The resulting flyvis model connectome is a convolutional (translation-invariant) graph: Every visual column shares the same set of 2,140 edge templates, each parametrized by source type, target type, and column offset. While this assumption is a good approximation for the underlying biology, it discards per-column variation of connectivity that is present in the fly and available in more recent whole-brain reconstructions (FlyWire) \citep{dorkenwald_neuronal_2024,Schlegel2024-qh}. To test the counterfactual whether the GNN would recover a dynamical visual system with real biological synaptic wiring variability -- or in other words, whether the GNN inference capability was limited by the convolutional assumption --  we constructed a hybrid connectome variant that augments the flyvis graph with column-resolved FlyWire connectivity data, while remaining compatible with the trained flyvis model parameters (Fig.~\ref{fig:flywire}a, Methods). 
+
+We generated simulated data from the flyvis ODE on the hybrid FlyWire-RF connectome (327,358
+% 328,092 previously, number changed because of column-assignment based on unfiltered instead of >5 synapse table from flywire in coregistration step
+edges; Table~\ref{tab:hybrid_recovery}) and trained the GNN to recover the dynamical system from noisy observations ($\sigma=0.05$). The GNN achieved a one-step Pearson $r=0.973$ and rollout $r=0.970$, closly matching the convolutional flyvis baseline (rollout $r=0.984$ on $451,451$ edges). Per edge synaptic weight recovery remained high ($R^2=0.924$), with time-constant recovery $R^2=0.974$, confirming that the GNN can infer heterogenous, column-specific connectivity without loss of accuracy.
+
+Our hybrid connectome graph connectivity is varied across columns and sparser than the flyvis convolutional filters (Fig.~ because flyvis constructed convolutional templates merging all existing per-type-pair connectivity [refine].
+
+
+[TODO: add results of flyvis\_hybrid\_flywireRF\_noise\_005 (and see source comment)]
+% # Secondary (heterogenous filters but no zero edges / GNN + known-ODE / 8 and 15 extent)
+% python GNN_Main.py -o generate+train+test flyvis_hybrid_flywireRF_noise_005
+% python GNN_Main.py -o generate+train+test flyvis_hybrid_flywireRF_known_ode_noise_005
+% python GNN_Main.py -o generate+train+test flyvis_hybrid_flywireRF_e15_noise_005
+% python GNN_Main.py -o generate+train+test flyvis_hybrid_flywireRF_e15_known_ode_noise_005
+
+\paragraph{Benchmarking coregistration uncertainty in system idenfication}
+
+We could not rule out that the system identification via the GNN would work fundamentally different in the case that lateral connectivity throughout the eye would not rely on convolutional filters but mirror real biological variability. This motivated us to augment the model simulation with synaptic connectivity data from a recent full eye reconstruction \citep{dorkenwald_neuronal_2024,Schlegel2024-qh}. 
+
+\paragraph{GNN dynamical system inference with realistic connectivity uncertainty}
+
+
+In practice, datasets that combine anatomical and functional measurements are rare but becoming more readily available in different recording modalities, such as X [CITE], Y [CITE], Z [CITE]. Different measurement techniques pose different trade-offs and typically combining neural activity recordings with mesoscale anatomical reconstructions [CITE] is cheaper than combining it with synapse-level EM microscopy reconstruction. We asked, what if we pretended we had coarse mesoscale connectivity and single-neuron neural activity measurements but did not know synapse-level connectivity? [TODO: refine]
+
+To model this scenario, we constructed a connectivity graph that augments the FlyWire-RF connectome with realistic zero-weight edges representing uncertainty: Neuron pairs lying within a radius of $~6\,\mu\text{m}$ of each other (approximately one-column in the fly visual system) inhert all their neighbors edges as zero edges, across all types. This increases the edge-count from $328,092$ to $1,959,994$. The zero edges represent spatially plausible but unmeasured edges and the GNN must learn which carry nonzero weight. 
+
+\comment{TODO: weave in: Relative (absolute=False): If donor A at position (u,v) has an edge to target T at offset (du,dv), receiver B gets an edge at offset (du,dv) from B's own position. $B\rightarrow (B_u+du, B_v+dv)$. This answers: "Can the GNN recover circuit parameters if we assume the spatial pattern of connectivity (receptive field shape) is conserved across columns?" It models uncertainty in which source column a neuron belongs to, assuming the motif is translation-invariant.}
+% [TODO: add results of flyvis\_hybrid\_flywireRF\_zeroedge\_cross\_sl\_noise\_005 (and see source comment)]
+% # Primary (cross-type zero edges / GNN + known-ODE / 8 and 15 extent)
+% python GNN_Main.py -o generate+train+test flyvis_hybrid_flywireRF_zeroedge_cross_sl_noise_005
+% python GNN_Main.py -o generate+train+test flyvis_hybrid_flywireRF_zeroedge_cross_sl_known_ode_noise_005
+% python GNN_Main.py -o generate+train+test flyvis_hybrid_flywireRF_zeroedge_cross_sl_e15_noise_005
+% python GNN_Main.py -o generate+train+test flyvis_hybrid_flywireRF_zeroedge_cross_sl_e15_known_ode_noise_005
+
+
+
+% \begin{table}[h]
+% \centering
+% \caption{GNN recovery on hybrid connectome variants under connectivity uncertainty (zero-edge augmentation, no coregistration perturbation).
+% All runs use low model noise $\sigma=0.05$ on $13{,}741$ neurons ($65$ cell types), extent $= 8$ unless noted.
+% \textcolor{green!50!black}{Green}: value $> 0.9$. \bad{Orange}: value $< 0.3$.}
+% \label{tab:zero_edge}
+% \tiny
+% \setlength{\tabcolsep}{4pt}
+% \begin{tabular}{llccrrrrrr}
+% \toprule
+% & & & & & \multicolumn{2}{c}{prediction} & \multicolumn{3}{c}{parameter recovery} \\
+% model & condition & neurons & edges & extent
+%   & one-step $r$ & rollout $r$
+%   & $R^2_{\hat{W}}$ & $R^2_{\hat{\tau}}(\text{outliers} \%)$ & $R^2_{\hat{V}^{\mathrm{rest}}}(\text{outliers} \%)$ \\
+% \midrule
+% Known ODE                & het. RF                        & $13\,741$ & $328\,092$ & 8
+%   & \good{$1.00$} & \good{$1.00$}
+%   & \good{$0.98$} & \good{$1.00$} & \good{$0.95$} \\
+%                          % & het.\ RF + uncert.\ edges (same-type)    & $13\,741$ & $401\,175$ & 8
+%   % & \good{$1.00$} & \good{$1.00$}
+%   % & \good{$0.97$} & \good{$1.00$} & \good{$0.91$} \\
+%                          & het.\ RF + uncert.\ edges   & $13\,741$ & $1\,959\,994$ & 8
+%   & \good{$1.00$} & \good{$1.00$}
+%   & $0.64$ & $0.89$ & $0.33$ \\
+%   \cmidrule[0.2pt](lr){2-10}
+% \textit{larger}          & het. RF                        & $45\,669$ & $1\,256\,695$ & 15
+%   & \good{$1.00$} & \good{$1.00$}
+%   & \good{$0.98$} & \good{$1.00$} & \good{$0.94$} \\
+% \textit{visual field}    & het.\ RF + uncert.\ edges   & $45\,669$ & $5\,411\,743$ & 15
+%   & \good{$1.00$} & \good{$1.00$}
+%   & $0.70$ & \good{$0.93$} & $0.36$ \\
+% \midrule
+% GNN                      & het. RF                        & $13\,741$ & $328\,092$ & 8
+%   & \good{$1.00$} & \good{$1.00$}
+%   & \good{$0.92$} & \bad{$0.17$} & $0.61$ \\
+%                          % & het.\ RF + uncert.\ edges (same-type)    & $13\,741$ & $401\,175$ & 8
+%   % & \good{$1.00$} & \good{$1.00$}
+%   % & \good{$0.96$} & \good{$0.98$} & $0.74$ \\
+%                          & het.\ RF + uncert.\ edges   & $13\,741$ & $1\,959\,994$ & 8
+%   & \good{$1.00$} & \good{$1.00$}
+%   & $0.78$ & $0.82$ & \bad{$0.15$} \\
+%   \cmidrule[0.2pt](lr){2-10}
+% \textit{larger}          & het. RF                        & $45\,669$ & $1\,256\,695$ & 15
+%   & \good{$1.00$} & \good{$1.00$}
+%   & \good{$0.97$} & \good{$0.98$} & $0.58$ \\
+% \textit{visual field}    & het.\ RF + uncert.\ edges   & $45\,669$ & $5\,411\,743$ & 15
+%   & \good{$1.00$} & \good{$1.00$}
+%   & \good{$0.92$} & $0.84$ & \bad{$0.15$} \\
+% \bottomrule
+% \end{tabular}
+% \end{table}
+
+\input{tables/flybrid}
+
+
+\begin{figure}[ht!]
+  \centering
+  \includegraphics[width=\textwidth]{figure/fig_flywire_hybrid.png}
+\caption{\textbf{Hybrid flyvis--FlyWire connectome.}
+\textbf{(a)}~Hybrid model combining the flyvis convolutional template (orange disc, extent~8) with the FlyWire FAFB-v783 column lattice (teal disc) on the right hemisphere; the 3D inset shows representative registered visual neurons threaded through the medulla, lobula, and lobula plate neuropil meshes.
+\textbf{(b)}~Per-column FlyWire receptive-field connectivity for an example projection (Tm1\,$\to$\,T4c) at extent~1: Each mini-hexlattice is the spatial RF kernel of one T4c target column, with cells annotated by per-edge average synapse count.  Cells lacking FlyWire evidence but covered by a zero-weight (null) edge are marked \textit{n.e.}
+\textbf{(c)}~Average column connectivity for the same Tm1\,$\to$\,T4c projection.  \emph{flyvis}: per-column-averaged convolutional kernel from the original flyvis template.  \emph{FlyWire}: per-(du,\,dv) average of FlyWire/merged synapse counts.  \emph{Hull overlay}: union of offset support, coloured by membership (orange = flyvis only, teal = FlyWire only, magenta = both).
+\textbf{(d--f)}~Placeholder for rollout comparisons.}
+\label{fig:flywire}
+\end{figure}
+\paragraph{GNN dynamical system inference under coregistration uncertainty}
+
+Training connectome-constrained models with neural activity data at single-neuron resolution poses the challenge of coregistration uncertainty: Neural recordings and connectomic reconstructions can be coregistered to 5-10 microns precision \citep{Brezovec2024-zc}, on the order of a small neuron or ROI, such that measured activity of a specific neuron cannot always be assigned to a single reconstructed neuron from a connectome. We asked how the prediction accuracy degrades with a realistic perturbation that permutes neuron identities within each cell type's spatial neighborhood (radius of $~6\,\mu\text{m}$, Methods). We tested two conditions: (1) The FlyWire-RF graph with permuted node identities, expecting catastrophic failur and (2) the same perturbation applied to the zero-edge augmented graph, which in principle contains all edges needed to recover the correct rollout, and -- under perturbation -- wiring. Without coregistration perturbation the GNN achieves rollout $r=0.970$ (Table~\ref{tab:hybrid_recovery}). Under full permutation (first condition), rollout accuracy drops to 
+
+[TODO: weave in: Absolute (absolute=True): Receiver B gets an edge to the donor's exact same target T at (tu,tv). This answers: "Can the GNN recover parameters when the graph is closed under all plausible node permutations within a spatial neighborhood?" If A and B are confusable (same type, adjacent columns), and A→X exists, then B→X is guaranteed to exist too.]
+
+[TODO: add results of (see source comment)]
+% # NEW (cross-type zero edges / GNN + known-ODE / 8 extent / coregistration permutation)
+% 
+
+
+-- in every case a large landscape of simulation / optimization to be explored -> agent in the loop
+
+-- in every case measurement noise and partial data are bottlenecks
+
+%%%% END OF FLYWIRE
+
+
+
+\section{Discussion}
+
+% 1. We asked 
+\begin{itemize}
+\item The present framework propose a set of neural activity data at large scale (up to 45K neuron 1.5M edges), ML models and standardized test to developp and assess learning neural dynamics from data
+\item prediction activity together with parameters extraction is a necessary (standard) to assess dynamics learning: good prediction but not good model, not good prediction but good model
+\item we stress that measurement noise, partial data are current bottlenecks of the approach. Any connectome-inverse method that only works without measurement noise is of theoretical interest only.
+\end{itemize}
+
+The degeneracy is exacerbated when the model lacks any architectural prior on the underlying connected network. The MLP and EED could in principle encode $\mathbf{W}$ in their weights, but with no inductive bias toward this structure they instead overfit the activity and its noise.
+
+
+
+\section{Conclusion}
+
+\begin{ack}
+  % Remove this section for anonymous submission.
+\end{ack}
+
+% \section*{References}
+
+{\small
+\bibliographystyle{plainnat}
+\bibliography{references,paperpile,refs}
+}
+
+
+
+\appendix
+% appendix.tex — \input{appendix} before \end{document}
+% appendix.tex — \input{appendix} before \end{document}
+
+\newpage
+\section{Supplementary Tables}
+
+
+
+
+\input{tables/cv_table_gnn_cross_noise}
+
+
+
+% \begin{table}[h!]
+% \centering
+% \caption{Joint GNN+INR evaluation on DAVIS and YouTube-VOS input stimuli, five-fold cross-validation (mean~$\pm$~SD). Prediction: model trained with low model noise $\sigma=0.05$ ($64{,}000$ frames) and tested on noise-free data with held-out stimuli ($8{,}000$ frames). Stimuli $r$: Pearson $r$ between the INR output and the true input stimulus. Parameter recovery: $R^2_{\hat{W}}$ over all edges, $R^2_{\hat{\tau}}$ and $R^2_{\hat{V}^{\mathrm{rest}}}$ over all neurons (outlier fraction
+% in parentheses), GMM clustering accuracy over $65$ cell types.
+% \good{Green}: value $> 0.9$.}
+% \label{tab:cv_inr}
+% \label{tab:cv_inr}
+% \tiny
+% \setlength{\tabcolsep}{3pt}
+% \begin{tabular}{lccrrrrrrrrr}
+% \toprule
+% & model& & \multicolumn{3}{c}{prediction} & \multicolumn{4}{c}{parameter recovery} \\
+% condition & noise $\sigma$ & edges
+%   & one-step $r$ & rollout $r$ & stimuli $r$
+%   & $R^2_{\hat{W}}$ & $R^2_{\hat{\tau}}(\text{outliers} \%)$ & $R^2_{\hat{V}^{\mathrm{rest}}}(\text{outliers} \%)$ & cluster\ acc. \\
+% \midrule
+% DAVIS        & $0.05$ & $434\,112$
+%   & \good{$0.96{\pm}0.01$} & $0.64{\pm}0.04$ & $0.89{\pm}0.04$
+%   & \good{$0.90{\pm}0.02$} & \good{$0.92{\pm}0.03$} & $0.19{\pm}0.10$ & $0.81{\pm}0.04$ \\
+% YouTube-VOS  & $0.05$ & $434\,112$
+%   & \good{$0.96{\pm}0.01$} & $0.61{\pm}0.05$ & $0.83{\pm}0.05$
+%   & $0.89{\pm}0.05$ & \good{$0.90{\pm}0.06$} & $0.25{\pm}0.05$ & $0.77{\pm}0.02$ \\
+% \bottomrule
+% \end{tabular}
+% \end{table}
+
+\newpage
+
+\section{Supplementary Figures}
+
+
+% ===== 217-column flyvis_noise_free (13,741 neurons) =====
+\begin{figure}[ht!]
+  \centering
+  \includegraphics[width=\textwidth]{figure/fig_stimulus_hexagons.png}
+  \caption{%
+    Visual input and per-cell-type activity on the retinotopic hexagonal lattice
+    (Flyvis noise-free simulation, $217$ columns, $13{,}741$ neurons,
+    $1{,}736$ photoreceptors, $434{,}112$ synaptic connections,
+    integration step $\Delta t = 20$~ms).
+    \textbf{(a)}~Consecutive frames of the visual stimulus
+    ($t = 2400$--$2820$~ms, one panel every $20$~ms)
+    projected on the hex lattice of photoreceptors.
+    Each frame is z-scored across photoreceptors so that local contrast
+    pattern is visible.
+    \textbf{(b)}~Snapshot of the voltage at $t = 2400$~ms for the stimulus
+    (top-left) and the $65$ cell types.
+    Values are z-scored \emph{within} each cell type, so every hexagon panel
+    shares the same color scale (shown on the right).
+    Red (positive) and blue (negative) indicate deviations from the type's
+    mean voltage at that instant; white is at the mean.
+  }
+  \label{fig:stimulus_hexagons}
+\end{figure}
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\linewidth]{figure/fig_simulations.png}
+\caption{%
+    \textbf{Simulated Flyvis activity across noise regimes.}
+    Voltage traces $v_i(t)$ are generated by
+    Eq.~\ref{eq:simulated_update};
+    $\xi_i(t)\sim\mathcal{N}(0,1)$ is an independent Gaussian noise
+    scaled by $\sigma$ (model noise), perturbing the dynamical
+    trajectory of $v_i(t)$. We additionally apply a measurement noise
+    directly to $v_i(t)$, Gaussian noise scaled by $\gamma$. All
+    simulations use $50\%$ null stimulus; blue spans mark null frames.
+    (\textbf{a}--\textbf{c})~Type-mean voltage heatmap, $z$-scored per
+    type; columns are noise-free ($\sigma=0$), low model noise
+    ($\sigma=0.05$), high model noise ($\sigma=0.5$).
+    (\textbf{d}--\textbf{f})~Voltage traces of $12$ representative cell
+    types over a $500$-frame window; same three model-noise columns.
+    Red line: stimulus.
+    (\textbf{g}--\textbf{i})~Zoom on a single R1 photoreceptor at three
+    measurement-noise levels ($\gamma=0$, $0.1$, $0.2$).
+}
+    \label{fig:simulations}
+\end{figure}
+
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=0.6\linewidth]{figure/fig_clustering_appendix.png}
+\caption{%
+    \textbf{Cell-type clusterability across feature spaces.}
+    Each panel scatters the $13{,}741$ Flyvis neurons coloured by
+    ground-truth cell type ($65$ classes). Gaussian Mixture Model (GMM)
+    accuracy, Adjusted Rand Index (ARI) and Normalized Mutual Information
+    (NMI) are quoted top-left of each panel, with $k$ the number of
+    populated mixture components (out of $100$ requested). GMM is fit on
+    the raw features; UMAP is shown for visualisation only when the
+    feature space is $>2$D.
+    (\textbf{a}) Ground-truth $(\tau, V_{\mathrm{rest}})$ plus $8$
+    connectivity statistics of the true $\mathbf{W}$ ($10$D).
+    (\textbf{b}) Same statistics computed from the learned
+    $\mathbf{W}$ ($10$D).
+    (\textbf{c}) Learned 2D node embedding $\mathbf{a}_i$ shown
+    directly (no projection).
+    (\textbf{d}) $\mathbf{a}_i$ concatenated with the learned
+    $(\tau, V_{\mathrm{rest}}, \mathbf{W}\text{-stats})$ ($12$D).
+}
+    \label{fig:clustering_appendix}
+\end{figure}
+
+
+\begin{figure}[ht!]
+  \centering
+  \includegraphics[width=\textwidth]{figure/fig_rollout_3col_noise_comparison_ablation50_nf_green_no_affine.png}
+\caption{\textbf{Rollout prediction under $50\%$ edge ablation.} GNN
+    trained on Flyvis data under three model noise regimes
+    (noise-free $\sigma = 0$, $\sigma = 0.05$, $\sigma = 0.5$), tested on
+    held-out stimuli, and compared against noise-free ablated Flyvis
+    simulations. For each test, the simulator regenerates voltage traces
+    with $50\%$ of synaptic edges randomly zeroed, and the same edge mask
+    is applied to the trained GNN's learned weights $\hat{\mathbf{W}}$
+    before rollout (no retraining). Top row (\textbf{a}, \textbf{b},
+    \textbf{c}): GNN rollout traces for $12$ representative cell types
+    over a $20$~s window ($1{,}000$ frames at $\Delta t = 20$~ms). Green:
+    ablated ground-truth voltage; black: GNN rollout prediction; red:
+    one visual input stimulus. Bottom row (\textbf{d}, \textbf{e},
+    \textbf{f}): scatterplots of rollout voltage vs noise-free ablated
+    ground-truth voltage, pooled over all $(\text{neuron}, \text{frame})$
+    pairs and subsampled to $2 \cdot 10^6$ points for display.
+    Pearson~$r$ computed on the full $8{,}000$-frame rollout.
+}
+  \label{fig:rollout_3col_noise_comparison_ablation50}
+\end{figure}
+
+
+\begin{figure}[ht!]
 \centering
-\caption{GNN optimum hyperparameters as tuned by the agentic loop
-(Appendix~\ref{app:agent}) for each of the six evaluation conditions,
-plus the consensus configuration applied uniformly to every GNN result
-reported in the paper, including the FlyWire and degraded-connectome
-variants. The consensus is adopted from the $\sigma=0.05$ winner: the
-closest single point to the per-coefficient medians and the only one
-validated under 12-seed robustness with zero catastrophic failures.
-The agentic loop converged on a shared regulariser block
-($W_{L1}=1.5\times 10^{-4}$, $g_{\text{diff}}=750$,
-$g_{\text{norm}}=0.9$, $g_{L1}=0.28$, $f_{L1}=0.05$,
-$f_{L2}=10^{-3}$) across all four $\sigma=0.05$ sub-conditions (clean,
-low measurement noise, false-positive edges, false-negative edges);
-only the per-condition learning rates and batch size differ. The
-regularisation coefficients $W_{L1}, W_{L2}, g_{\text{diff}},
-g_{\text{norm}}, g_{L1}, f_{L1}, f_{L2}$ correspond to $\gamma_0,
-\gamma_1, \mu_1, \mu_2, \lambda_1, \lambda_0, \lambda_2$ in the loss
-(Eq.~\ref{eq:loss_full}).}
-\label{tab:unified_hp}
-\tiny
-\setlength{\tabcolsep}{3pt}
-\begin{tabular}{lrrrrrrrrrrr}
+\includegraphics[width=0.85\textwidth]{figure/fig_stim_rollout_inr_nf_green.png}
+\caption{%
+    Joint GNN+INR (visual SIREN) trained on Flyvis data with low model noise ($\sigma = 0.05$), $64\,000$ training frames; rollout evaluated on the first $8\,000$ training
+    frames since the SIREN cannot extrapolate to test-time indices.
+    \textbf{(a)} INR-reconstructed visual stimulus on the photoreceptor
+    lattice spaced by $80$~ms; top: ground truth;
+    middle: INR; bottom: residual.
+    \textbf{(b)} INR stimulus rollout for $12$ photoreceptors over a
+    $20$~s window ($1{,}000$ frames at $\Delta t = 20$~ms).
+    \textbf{(c)} GNN voltage rollout vs the noise-free ground truth for
+    $12$ representative cell types over the same window.
+    Green: ground-truth voltage; black: GNN rollout prediction.
+    Bottom row (\textbf{d}, \textbf{e}): scatterplots of learned vs true photoreceptor stimulus (\textbf{d}) and rollout voltage vs noise-free ground-truth voltage (\textbf{e}), pooled over all $(\text{neuron},\,\text{frame})$ pairs and subsampled to $2 \cdot 10^6$ points for display. Pearson~$r$ computed on the full $8\,000$-frame rollout.
+}
+\label{fig:stim_rollout_inr}
+\end{figure}
+
+
+
+
+
+
+
+\clearpage
+
+
+\section{Evaluation metrics}
+\label{app:metrics}
+
+We define here the four metrics reported throughout the paper: the
+one-step and auto-regressive rollout Pearson~$r$ on neural activity,
+and the parameter-recovery $R^2$ on the synaptic weights
+$\hat{\mathbf{W}}$, the membrane time constants
+$\hat{\boldsymbol{\tau}}$, and the resting potentials
+$\hat{\mathbf{V}}^{\mathrm{rest}}$. The corresponding implementations
+are \texttt{compute\_trace\_metrics} in
+\texttt{src/connectome\_gnn/utils.py:759} (one-step / rollout~$r$ and
+RMSE), \texttt{compute\_r\_squared} in
+\texttt{src/connectome\_gnn/metrics.py:83} (identity-line $R^2$), and
+\texttt{\_r2\_with\_outliers} in
+\texttt{src/connectome\_gnn/metrics.py:555} (filtered $R^2$ for
+$\tau, \vrest$).
+
+\paragraph{One-step Pearson $r$.}
+On a held-out trajectory of $T$ frames, at every time step
+$t = 0, \ldots, T-2$ the model is fed the ground-truth voltage
+$\tilde v(t)$ together with the stimulus $I(t)$ and predicts the next
+state $\hat v(t+1)$. For each neuron $i$ we compute the Pearson
+correlation between the predicted and the ground-truth trace,
+\begin{equation}
+    r_i^{\mathrm{1-step}}
+        \,=\,
+        \mathrm{pearsonr}\!\big(\hat v_i(\,\cdot\,),\,\tilde v_i(\,\cdot\,)\big)
+\end{equation}
+using \texttt{scipy.stats.pearsonr}. Neurons whose predicted or
+ground-truth trace is flat ($\sigma < 10^{-8}$) are dropped. The
+per-neuron correlations are then pooled in Fisher-$z$ space,
+\begin{equation}
+    \bar z \;=\; \frac{1}{N}\sum_{i=1}^{N}\mathrm{arctanh}\,r_i,
+    \qquad
+    \bar r \;=\; \tanh\bar z,
+    \label{eq:fisher_pool}
+\end{equation}
+and we report $\bar r \pm (r_+ - r_-)/2$ with
+$r_\pm = \tanh(\bar z \pm \sigma_z)$ and $\sigma_z$ the standard
+deviation of $\mathrm{arctanh}\,r_i$ across the $N$ neurons. The
+pooling is implemented in \texttt{fisher\_pool}
+(\texttt{src/connectome\_gnn/utils.py:728}).
+
+\paragraph{Auto-regressive rollout Pearson $r$.}
+For the rollout the model receives only the initial voltage
+$\tilde v(0)$ and the full stimulus stream
+$\{I(0),\ldots,I(T-1)\}$; from $t = 1$ onwards it is fed back its own
+prediction $\hat v(t-1)$ to produce $\hat v(t)$, with no resetting to
+ground truth. The trajectory length is $T = 8{,}000$ frames
+($160$~s at $\Delta t = 20$~ms) for every flyvis evaluation.
+The rollout trace is compared against the noise-free ground truth
+$\tilde v_i(\cdot)$ on a per-neuron basis, and the Fisher-$z$ pooling
+of Eq.~\ref{eq:fisher_pool} is applied unchanged.
+
+\paragraph{Synaptic-weight identity-line $R^2$.}
+The recovery of the connectome is quantified by the identity-line
+coefficient of determination on the edge weights,
+\begin{equation}
+    R^2_{\hat{\mathbf{W}}}
+        \;=\; 1 \;-\; \frac{\mathrm{Var}_{(i,j)}\!\big(W_{ij} - \hat W_{ij}\big)}
+                            {\mathrm{Var}_{(i,j)}\!\big(W_{ij}\big)},
+    \label{eq:r2_identity}
+\end{equation}
+pooled over all edges of the prior graph. The variance in the
+numerator and denominator is mean-subtracted (\texttt{np.var}), so
+under a linear miscalibration $\hat W_{ij} = a\,W_{ij} + b$ one has
+$\mathrm{Var}(W - \hat W) = (1-a)^2\,\mathrm{Var}(W)$ and a uniform
+offset $b$ drops out: the metric penalises a wrong slope
+$a\!\neq\!1$ but is invariant to a constant bias. The diagnostic
+slope returned alongside $R^2$ by \texttt{compute\_r\_squared} is
+the $a$ of $\hat W \approx a\,W + b$ from \texttt{np.polyfit}, used
+in figure annotations (e.g.\ Fig.~\ref{fig:known_ode_params_3col_noise_comparison}). For models
+trained with extra null edges (e.g.\ the $+400\%$ condition) the sum
+runs over the augmented graph, including the null edges; recovering
+$\hat W_{ij}\!\approx\!0$ on those edges is therefore part of the
+reported number. We do not apply outlier filtering to
+$R^2_{\hat{\mathbf{W}}}$: the canonical flyvis graph has $434{,}112$
+edges and the per-edge residual distribution is tightly concentrated,
+so removing a handful of extreme points would not change the value
+materially.
+
+\paragraph{Parameter $R^2$ for $\hat{\boldsymbol{\tau}}$ and
+$\hat{\mathbf{V}}^{\mathrm{rest}}$ with hard outlier filtering.}
+For the per-neuron parameters $\tau_i$ and $\vrest_i$ the same
+identity-line statistic of Eq.~\ref{eq:r2_identity} is used, but
+restricted to the inlier set. A neuron $i$ is flagged as an outlier
+when its absolute residual exceeds a hard, parameter-specific
+threshold,
+\begin{equation}
+    |\hat\theta_i - \theta_i| \;>\; \delta_\theta,
+    \qquad
+    \delta_\tau = 0.1,\;\;
+    \delta_{\vrest} = 0.2,
+    \label{eq:outlier_threshold}
+\end{equation}
+in the same units as the corresponding ground-truth parameter
+(\texttt{TAU\_OUTLIER\_THRESH} and \texttt{VREST\_OUTLIER\_THRESH} in
+\texttt{src/connectome\_gnn/metrics.py:551--552}). The thresholds are
+hard arbitrary cut-offs, hand-picked once and held fixed for every
+condition in the paper, so that the outlier counts are directly
+comparable across rows of any cross-noise table. They are
+deliberately ample compared with the typical recovery error in the
+noise-free regime ($|\hat\theta - \theta|\!\lesssim\!0.02$).
+We motivate the filtering by the way $\tau$ and $\vrest$ are
+extracted: both quantities are read off from the slope and offset of
+the learned single-neuron transfer function $f_\theta$ around the
+neuron's working point, and a small number of inactive or saturated
+neurons can produce extreme slope estimates that would otherwise
+dominate the variance in Eq.~\ref{eq:r2_identity}.
+
+The reported numbers $R^2_{\hat{\boldsymbol{\tau}}}$ and
+$R^2_{\hat{\mathbf{V}}^{\mathrm{rest}}}$ are therefore the inlier-set
+$R^2$, with the outlier fraction
+$n_{\text{out}}/n_{\text{total}}$ (in percent) shown in parentheses
+next to the value, e.g.\ $0.94 \pm 0.01\,(3.3)$ in
+Tab.~\ref{tab:cv_cross_noise}.
+
+\paragraph{Cross-validation aggregation.}
+For five-fold CV results, every metric above is computed independently
+in each fold; the table value is the mean across folds and the
+$\pm$ figure is one standard deviation across folds. Pearson~$r$
+values are averaged in Fisher-$z$ space across folds as well
+(Eq.~\ref{eq:fisher_pool}, with the $N$ now being the total number of
+finite per-neuron entries pooled over all folds).
+
+
+\section{Video stimulus in simulations}
+\label{app:stimulus}
+Visual inputs are derived from the DAVIS-2017 dataset
+\citep{Pont-Tuset_arXiv_2017}, a benchmark dataset for annotated natural
+videos. We used 151 videos (10{,}474 frames) in total, 80 videos
+(5{,}635 frames) of which were used for training (80\%) and validation
+(20\%), while 71 videos (4{,}839 frames) were withheld and solely used
+for reporting results in this manuscript. DAVIS sequences are augmented
+with horizontal/vertical flips and four rotations.
+
+The frames are converted to grayscale, scaled to the range $[0, 1]$,
+and resampled onto the hexagonal photoreceptor lattice of $217$ columns,
+giving $1{,}736$ input neurons ($8$ photoreceptor types R1--R8 per
+column).
+
+\paragraph{Null stimulus injection.}
+For the simulation conditions reported in the main results, we prepend
+a zero-stimulus window to every sequence (see \cref{fig:simulations}
+for an example trace, in which the null window is highlighted in
+blue): the first $50\%$ of each video clip is replaced by frames of
+constant zero luminance ($I_i(t)=0$ for the corresponding photoreceptor
+inputs), while the remaining $50\%$ contains the natural DAVIS frames.
+Concretely, for a sequence of length $T$ we set $I_i(t)=0$ for
+$t \in [0, T/2)$ and pass the original DAVIS frames during
+$t \in [T/2, T)$. The network's pre-stimulus warm-up at $0.5$
+luminance is left unchanged.
+
+\section{Degeneracy of the inverse problem}
+\label{app:degeneracy}
+
+
+% FROM RESULTS:
+% In each case, the model almost perfectly predicts the one-step update and is able to perform an auto-regressive rollout on held out stimuli for 8000 steps. However, despite perfect information about the dynamical equation we find that certain parameters cannot be accurately inferred. Parameter recovery improves upon the addition of a small amount of noise $\sigma=0.05$ and the recovery is perfect at the highest level of $\sigma=0.5$. This is due to a continuous degeneracy in the parameter space of the FlyVis ODE model simulated on naturalistic videos, that is, there is a \emph{degenerate subspace} in parameter space along which different ODEs with the same initial conditions produce the exact same solution. The chosen simulation parameters $(\tau_i, W_{ij}, \vrest_i)$ comprise one point in the degenerate subspace from which we generate a training dataset $\{v_i(t) | \ t \in [0, T]\}$ but gradient descent with random initialization of parameters can converge to any point in this space. Concretely, as a toy example, the parameters $\theta_1, \theta_2$ of the ODE $\dot{x} = -(\theta_1 + \theta_2)x, \ x(0) = 0$, cannot be uniquely determined from the solution $x(t)$ alone, but the combination $\theta_1 + \theta_2$ can be. To understand the degenerate space in equation \ref{eq:simulated_update}, first we observe that while the equation is nonlinear in $v(t)$, it is linear in the parameters $\theta_\alpha := (\tau_i, W_{ij}, \vrest_i)$, and therefore the problem of determining the parameters from given training data $v(t)$ can be written as $A\theta = b$, where $A$ is $(NT - 1) \times (2N + N_E)$ design matrix and $b$ is a vector of length $NT-1$. With this formulation, it is easy to see that if the training data contained a neuron $i$ that was always at its resting potential, \ie, $v_i(t) = \vrest_i \ \forall \ t$, then it is impossible to identify $\tau_i$ because the column multiplying $\tau_i$ in $A$ is identically 0. However, upon the addition of model noise, the stochastic dynamics decreases the likelihood of finding such a neuron. Similarly, if a neuron is in a constantly excited state the training data for that neuron would allow us to probe its presynaptic weights accurately but we would be underpowered to determine $\tau$ and $\vrest$. We do not rule out the possibility that there exists a family of stimuli, perhaps uncorrelated white noise, that would allow for perfect recovery of parameters in the absence of noise. This baseline helps demonstrate that the flyvis in the degenerate subspace can produce perfect one-step predictions and perfect rollouts but fail to recover the true parameters of the system. For further details on the degeneracy and parameter recovery, we refer the interested reader to Appendix \ref{app:degeneracy}.
+
+
+
+
+\comment{TODO: we need to standardize notation for simulation variables and inferred variables!}
+
+Recall that the FlyVis stochastic dynamical system in \ref{eq:simulated_update}, in the absence of noise ($\sigma=0$), takes the form:
+\begin{equation}
+    \tau_i\frac{dv_i(t)}{dt} = -v_i(t) + V_i^{\text{rest}}
++ \sum_{j\in\mathcal{N}_i}\mathbf{W}_{ij}\,\text{ReLU}\!\big(v_j(t)\big)
++ I_i(t) \label{eq:flyvis-app-noise-free-ode}
+\end{equation}
+Our goal is to infer the circuit parameters $(\tau_i, \vrest_i, W_{ij})$ from one solution of this ODE $\tilde{v}_i(t)$ and the stimulus $I_i(t)$. The ODE parameters can be decomposed into a separate set for each neuron $i$, namely, $\theta_{i\alpha} := (\tau_i, \vrest_i, W_{ij})$ is a vector of length $2 + |\mathcal{N}_i|$ indexed by $\alpha$, where $\mathcal{N}_i$ is the set of presynaptic partners of neuron $i$. We assume the solution $\tilde{v}_i(t)$ was generated by a parameter set $\theta$ and solving the inverse problem gives us an inferred set $\hat{theta}$. We show here that there are \emph{continuous} deformations in parameter space that lead to equivalent solutions, therefore, the system does not admit a unique solution making the inverse problem ill-posed.
+
+\Cref{eq:flyvis-app-noise-free-ode} can be rewritten, for the purposes of parameter inference
+\begin{equation}
+    -\tau_i \dot{\tilde{v}}_i + \vrest_i + \sum_{j \in \mathcal{N}_i} W_{ij}h_j(t) = \tilde{v}_i(t) - I_i(t)
+    \label{eq:flyvis-linear-rewrite}
+\end{equation}
+where $h_j(t) := \relu(\tilde{v}_j(t))$ are the pre-synaptic activities.
+Observe that while the ODE is non-linear in the state variable $v$ it is
+\emph{linear} in the circuit parameters $\theta_{i\alpha}$ defined above. So,
+given a solution $\tilde{v}_i(t)$ sampled at discrete time points $t=0,
+\ldots, T-1$, we can rewrite Eq.~\ref{eq:flyvis-linear-rewrite} as a separate
+linear system to solve for each neuron $i$,
+\begin{equation}
+    \mathbf{A}_i \, \boldsymbol{\theta}_i = \mathbf{b}_i,
+    \label{eq:parameter-linear-system}
+\end{equation}
+in terms of the design matrix $\mathbf{A}_i$ of dimension $T \times (2 + |\mathcal{N}_i|)$,
+and the vectors $\boldsymbol{\theta}_i$ of dimension $2 + |\mathcal{N}_i|$ and
+$\mathbf{b}_i$ of dimension $T$:
+\begin{equation}
+    \mathbf{A}_i := \begin{pmatrix}
+        -\dot{\tilde{v}}_i(0) & 1 & h_{j_1}(0) & h_{j_2}(0) & \cdots  \\
+        -\dot{\tilde{v}}_i(1) & 1 & h_{j_1}(1) & h_{j_2}(1) & \cdots  \\
+        \vdots & \vdots & \vdots & \vdots &
+    \end{pmatrix},\quad
+    \boldsymbol{\theta}_i := \begin{pmatrix}
+        \tau_i \\ \vrest_i \\ W_{ij_1} \\ W_{ij_2} \\ \vdots
+    \end{pmatrix},\quad
+    \mathbf{b}_i := \begin{pmatrix}
+        \tilde{v}_i(0) - I_i(0) \\
+        \tilde{v}_i(1) - I_i(1) \\
+        \vdots
+    \end{pmatrix}
+    \label{eq:explicit-linear-system}
+\end{equation}
+where $j_1, j_2, \ldots$ are the pre-synaptic neurons in $\mathcal{N}_i$.
+We emphasise that this linear system is not a linearisation or approximation
+but a property of the voltage-based firing-rate models used in flyvis
+\citep{Lappalainen2024-tq}.
+
+The linear system Eq.~\ref{eq:parameter-linear-system} can be solved to
+infer the simulation parameters $\theta_{i\alpha}$. If the column space is
+not full rank the system admits a continuous degeneracy defined by the
+kernel of $\mathbf{A}_i$. In particular, if there exists a vector
+$\boldsymbol{\eta}_i$ satisfying $\mathbf{A}_i \, \boldsymbol{\eta}_i =
+\mathbf{0}$ for every $i$, then the family of parameters
+$\boldsymbol{\theta}'_i = \boldsymbol{\theta}_i + \lambda \,
+\boldsymbol{\eta}_i$ are solutions to the inverse problem for all $\lambda$.
+Furthermore, a forward simulation with parameters $\boldsymbol{\theta}'$
+under the same stimulus $I_i$ and initial condition $\tilde{v}_i(t{=}0)$
+would generate the same solution $\tilde{v}_i(t)$.
+
+In the following, we present explicit examples of the degenerate space.
+This serves to explain why parameter recovery from neural activity in the
+flyvis system \emph{without} intrinsic noise does not work perfectly, even
+when the activation functions are known (Known-ODE). The issue is
+exacerbated when fitting GNNs without noise, where the activation functions
+are estimated simultaneously with the parameters.
+
+\subsection{Parameter recovery}
+
+
+\comment{TODO: Vijay will add least squares here and discussion of null and sloppy directions.}
+
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\textwidth]{figure/fig_lstsq_param_recovery_flyvis_noise_free_blank50_cv00.pdf}
+  \caption{%
+    Per-neuron least-squares recovery of the ground-truth ODE parameters
+    on noise-free DAVIS data (\texttt{flyvis\_noise\_free\_blank50\_cv00}).
+    Each panel scatters the recovered value against the ground truth;
+    the dashed line is $y=x$.
+    \textbf{(A)} membrane time constant $\tau_i$;
+    \textbf{(B)} resting voltage $V^{\text{rest}}_i$;
+    \textbf{(C)} synaptic weight $W_{ij}$.
+    Black points are well-identified; orange (``sloppy'') and red
+    (``null'') points lie in poorly-conditioned directions of the
+    per-neuron Gram matrix and are flagged as degenerate by the
+    eigendecomposition.
+    Inset annotations report $R^{2}$ over the well-identified subset
+    (with the all-points $R^{2}$ in parentheses) and the regression
+    slope on the same subset.
+  }
+  \label{fig:lstsq_param_recovery}
+\end{figure}
+
+\subsubsection*{$\tau$ recovery}
+
+If the network structure and stimulus are such that a neuron $i$ is in a resting state during the entire experiment, then we have $\tilde{v}_i(t) = \vrest_i$ and $\dot{\tilde{v}}_i(t) = 0$ for all observed $t$. In this case, the first column of $A_i$ is identically zero and hence it is impossible to recover $\tau_i$. A neuron can be in constant rest, \eg, if it does not receive an external stimulus and all its pre-synaptic neurons contribute sub-threshold/negative activities, resulting in $h_{j_1}(t), h_{j_2}(t), \cdots = 0$. In this case, the corresponding weights to $W_i$ are also impossible to determine. In Figure \ref{fig:degeneracy-tau-figure} \comment{TODO(Vijay): paste figure here showing neurons that are always resting, and therefore, have poor tau estimation.}
+
+\subsubsection*{$\vrest$ recovery}
+
+Other scenarios make it impossible to unambiguously recover $\vrest$. 
+Let's suppose two neurons $i$ and $j$ are both at rest, and that $j$ is a pre-synaptic partner of $i$. If all incoming connections to $i$ and $j$ are sub-threshold, except for $j\rightarrow i$ and if $\vrest_j > 0$, then
+\begin{equation}
+    A_i := \begin{pmatrix}
+        0 & 1 & \vrest_j & 0 & \cdots  \\
+        0 & 1 & \vrest_j & 0 & \cdots  \\
+        \vdots & \vdots & \vdots &\vdots & 
+    \end{pmatrix} \text{and} \ \mathbf{A_j} := \begin{pmatrix}
+        0 & 1 & 0 & 0 & \cdots  \\
+        0 & 1 & 0 & 0 & \cdots  \\
+        \vdots & \vdots & \vdots &\vdots & 
+    \end{pmatrix}.
+\end{equation}
+We now have a family of solutions where $\hat{V}^{\mathrm{rest}}_j = \vrest_j $ and $\hat{V}^{\mathrm{rest}}_i + \vrest_j\hat{W}_{ij} = \vrest_j$. Like in the previous example, $\tau_i$ and $\tau_j$ are undetermined because the neurons are at rest, but we have a new degeneracy with a solution $\hat{V}^{\mathrm{rest}}_j = \vrest_j, \hat{V}^{\mathrm{rest}}_i = \vrest_j ( 1 - \hat{W}_{ij} )$ for \emph{any} value of $\hat{W}_{ij}$.% generated by the optimization.
+
+\comment{TODO: this is a theoretically possible scenario and we should check if this happens.}
+
+\subsubsection*{$W$ recovery}
+
+% In the following, we characterise the dynamical equivalence class of $\mathbf{W}$, the set of all weight matrices that reproduce the observed trajectories. We show that Eq.~\eqref{eq:simulated_update} can be linearised per neuron, that this linear system admits a solution, and finally that it admits many different solutions.
+
+To study degeneracies within the space of weight matrices, we fix the values of $\vrest$ and $\tau$ and rearrange \cref{eq:flyvis-linear-rewrite} yielding
+% \paragraph{Linearisation of the simulation equation.}
+% Rearranging Eq.~\eqref{eq:simulated_update} to isolate the incoming synaptic
+% weights gives
+\begin{equation}
+  \sum_{j\in\mathcal{N}_i} \mathbf{W}_{ij}\,\text{ReLU}\!\big(v_j(t)\big)
+  = \tau_i \frac{dv_i(t)}{dt} + v_i(t) - V_i^{\text{rest}} - I_i(t).
+\end{equation}
+Redefining the residual term $b_i(t) = \tau_i \frac{dv_i(t)}{dt} + v_i(t) - V_i^{\text{rest}} - I_i(t)$, we have 
+% Defining the presynaptic activity $h_j(t) = \text{ReLU}(v_j(t))$ and the
+% residual $b_i(t) = \tau_i \frac{dv_i(t)}{dt} + v_i(t) - V_i^{\text{rest}} -
+% I_i(t)$, and stacking the $T$ time-point constraints into matrix form, yields
+% an independent linear system for each postsynaptic neuron $i$:
+\begin{equation}
+  \mathbf{H}_i\,\mathbf{w}_i = \mathbf{b}_i,
+  \label{eq:linear_system}
+\end{equation}
+where $\mathbf{H}_i \in \mathbb{R}^{T \times d_i}$ is the presynaptic
+activity matrix, $d_i$ is the in-degree of neuron $i$, $\mathbf{w}_i \in
+\mathbb{R}^{d_i}$ the incoming weight vector, and $\mathbf{b}_i \in
+\mathbb{R}^T$ the stacked residuals. This holds for each postsynaptic neuron
+$i = 1, \ldots, N$, where $N = 13{,}697$ and $d_i$ ranges from $1$ to $208$.
+The null space $\ker(\mathbf{H}_i) = \{\boldsymbol{\delta} \in \mathbb{R}^{d_i}
+: \mathbf{H}_i\boldsymbol{\delta} = \mathbf{0}\}$ characterises the
+degeneracy: any $\mathbf{w}_i + \boldsymbol{\delta}$ with $\boldsymbol{\delta}
+\in \ker(\mathbf{H}_i)$ satisfies Eq.~\eqref{eq:linear_system} equally and
+produces identical dynamics. In the following, we characterise the
+dynamical equivalence class of $\mathbf{W}$, the set of all weight
+matrices that reproduce the observed trajectories.
+
+% \paragraph{Pseudoinverse recovery.}
+% Assuming $\tau_i$ and $V_i^{\mathrm{rest}}$ are known,
+% Eq.~\eqref{eq:linear_system} admits many solutions. The full pseudoinverse
+% recovers the ground-truth weights accurately ($R^2_{\mathbf{W}} = 0.99$, rollout
+% $r = 1.00$; Table~\ref{tab:pseudoinverse}). Truncated SVD solvers progressively
+% discard the smallest singular directions. Keeping $99\%$, $95\%$, or $90\%$ of
+% the variance drops $R^2_{\mathbf{W}}$ to $0.23$, $0.11$, and $0.07$ respectively. Yet rollout Pearson $r$ remains at $0.95$-$0.96$. The recovered weights
+% become almost uncorrelated with the ground truth while still reproducing the
+% dynamics. This empirically demonstrates that the mapping from
+% dynamics to connectivity is many-to-one.
+
+% \begin{table}[ht!]
+% \centering\footnotesize
+% \begin{tabular}{lrr}
+% \toprule
+% Method & $R^2_{\mathbf{W}}$ & rollout $r$ \\
+% \midrule
+% Full SVD            & 0.99 & 1.00 \\
+% \midrule
+% Trunc.\ SVD 99\%    & 0.23 & 0.95 \\
+% Trunc.\ SVD 95\%    & 0.11 & 0.96 \\
+% Trunc.\ SVD 90\%    & 0.07 & 0.96 \\
+% \bottomrule
+% \end{tabular}
+% \caption{Weight recovery from Eq.~\eqref{eq:linear_system} with known $v(t)$, $I(t)$, 
+%   $\tau_i$, $V_i^{\mathrm{rest}}$ (noise-free data). Top: full-rank
+%   pseudoinverse. Bottom: truncated SVD keeping only $90$--$99\%$ of the
+%   singular-value variance. $R^2_{\mathbf{W}}$: coefficient of determination
+%   between recovered and ground-truth edge weights. Rollout Pearson $r$:
+%   correlation between voltage trajectories simulated with recovered vs.\
+%   ground-truth $\mathbf{W}$, over $1{,}000$ frames.}
+% \label{tab:pseudoinverse}
+% \end{table}
+
+
+
+% \paragraph{Structural origin of the null space.}
+The columnar organization of the connectome directly implies the
+existence of $\ker(\mathbf{H}_i)$. The flyvis circuit
+spans 217 retinotopic columns, and each postsynaptic neuron $i$ typically
+receives input from $k_{i\alpha} > 1$ neurons of the same cell type $\alpha$
+across columns. A moving stimulus crosses the eye so that column $c$ sees
+what column $c-1$ saw moments earlier: same-type neurons produce time-shifted
+copies of the same signal, giving the corresponding $k_{i\alpha}$ columns of
+$\mathbf{H}_i$ rank $\approx 1$ instead of $k_{i\alpha}$. Any sum-zero
+perturbation $\sum_{m=1}^{k_{i\alpha}} \delta_{j_m} = 0$ on those weights
+leaves $\mathbf{H}_i \mathbf{w}_i$ unchanged, contributing $k_{i\alpha} - 1$
+free directions to $\ker(\mathbf{H}_i)$. Summing over all neurons and cell
+types:
+\begin{equation}
+  \dim\ker(\mathbf{H}) = \sum_{i=1}^{N}\sum_{\alpha:\,k_{i\alpha}>1}(k_{i\alpha}-1)
+  = 308{,}160 \quad (71\%\ \text{of edges}).
+  \label{eq:null_structural}
+\end{equation}
+
+To verify Eq.~\eqref{eq:null_structural}, we generated one single-type variant
+per degenerate cell type: a perturbed matrix $\mathbf{W}' = \mathbf{W} +
+\boldsymbol{\Delta}$, where $\boldsymbol{\Delta}$ applies sum-zero perturbations
+at maximum amplitude ($8\times$ mean group weight) within the degenerate groups
+of that type. Of the 65 flyvis cell types, 11 have no degenerate groups and 2
+(Lawf2, Tm5b) have no outgoing edges; the remaining 52 types each yield one
+variant. For each we computed $R^2_{\mathbf{W}}$ (weight-space agreement with GT)
+and rollout Pearson $r$ (ODE trajectory agreement over 1{,}000 frames).
+$R^2_{\mathbf{W}}$ ranges from 0.28 to 1.0 while mean rollout Pearson $r$ remains
+above 0.94 (min: TmY10). Perturbed weights differ substantially from the ground
+truth yet produce nearly identical dynamics (Table~\ref{tab:lambda_8}). Further, we looked for the minimal-edges $\mathbf{W}$ by collapsing each degenerate $(i,\alpha)$ group of $k_{i\alpha}$ edges onto a
+single representative edge $e^* = \arg\max_e |W_e^*|$, zeroing the remaining
+$k_{i\alpha}-1$ edges. We tested two variants: sum-preserving
+($W_{e^*} = \sum_e W_e^*$, exact null-space member) and calibrated
+($W_{e^*}$ minimising the per-group dynamics residual via one least-squares
+scalar fit). Both zero $308{,}160$ edges ($71\%$ of $434{,}112$). The sum-preserving variant achieves mean rollout Pearson $r = 0.95$ with $R^2_{\mathbf{W}} = 0.10$.
+The calibrated variant achieves mean rollout Pearson $r = 0.98$ with $R^2_{\mathbf{W}} = 0.39$.
+
+\begin{table}[ht!]
+\centering\scriptsize
+\begin{tabular}{lrr@{\quad}lrr@{\quad}lrr}
 \toprule
- & & \multicolumn{3}{c}{learning rates} & \multicolumn{2}{c}{$W$ reg} & \multicolumn{3}{c}{$g_\phi$ reg} & \multicolumn{2}{c}{$f_\theta$ reg} \\
-condition & bs
-  & $\text{lr}_W$ & lr & $\text{lr}_{\text{emb}}$
-  & $W_{L1}$ & $W_{L2}$
-  & $g_{\text{diff}}$ & $g_{\text{norm}}$ & $g_{L1}$
-  & $f_{L1}$ & $f_{L2}$ \\
+Cell Type & $R^2_{\mathbf{W}}$ & rollout $r$ &Cell Type & $R^2_{\mathbf{W}}$ & rollout $r$ & Cell Type & $R^2_{\mathbf{W}}$ & rollout $r$ \\
 \midrule
-noise-free            & $4$
-  & $3.0{\cdot}10^{-4}$ & $9.0{\cdot}10^{-4}$ & $1.6{\cdot}10^{-3}$
-  & $1.5{\cdot}10^{-4}$ & $0$
-  & $1.5{\cdot}10^{3}$  & $0$     & $0.14$
-  & $0$    & $0$          \\
-low intr.\ noise      & $4$
-  & $9.0{\cdot}10^{-4}$ & $1.8{\cdot}10^{-3}$ & $2.3{\cdot}10^{-3}$
-  & $1.5{\cdot}10^{-4}$ & $1.5{\cdot}10^{-6}$
-  & $7.5{\cdot}10^{2}$  & $0.9$   & $0.28$
-  & $0.05$ & $1.0{\cdot}10^{-3}$ \\
-high intr.\ noise     & $2$
-  & $1.5{\cdot}10^{-4}$ & $1.2{\cdot}10^{-3}$ & $1.6{\cdot}10^{-3}$
-  & $0$                 & $0$
-  & $7.5{\cdot}10^{2}$  & $0.9$   & $0$
-  & $0$    & $1.0{\cdot}10^{-3}$ \\
-low meas.\ noise      & $6$
-  & $9.0{\cdot}10^{-4}$ & $1.8{\cdot}10^{-3}$ & $2.3{\cdot}10^{-3}$
-  & $1.5{\cdot}10^{-4}$ & $1.5{\cdot}10^{-6}$
-  & $2.0{\cdot}10^{3}$  & $0.9$   & $0.28$
-  & $0.05$ & $1.0{\cdot}10^{-3}$ \\
-$+400\%$ null edges   & $4$
-  & $9.0{\cdot}10^{-4}$ & $1.8{\cdot}10^{-3}$ & $2.5{\cdot}10^{-3}$
-  & $1.5{\cdot}10^{-4}$ & $1.5{\cdot}10^{-6}$
-  & $7.5{\cdot}10^{2}$  & $0.9$   & $0.28$
-  & $0.05$ & $1.0{\cdot}10^{-3}$ \\
-$-20\%$ edges removed & $4$
-  & $6.0{\cdot}10^{-4}$ & $1.2{\cdot}10^{-3}$ & $1.6{\cdot}10^{-3}$
-  & $1.5{\cdot}10^{-4}$ & $1.5{\cdot}10^{-6}$
-  & $7.5{\cdot}10^{2}$  & $0.9$   & $0.28$
-  & $0.05$ & $1.0{\cdot}10^{-3}$ \\
-\midrule
-\textbf{consensus (used)} & $\mathbf{4}$
-  & $\mathbf{9.0{\cdot}10^{-4}}$ & $\mathbf{1.8{\cdot}10^{-3}}$ & $\mathbf{2.3{\cdot}10^{-3}}$
-  & $\mathbf{1.5{\cdot}10^{-4}}$ & $\mathbf{1.5{\cdot}10^{-6}}$
-  & $\mathbf{7.5{\cdot}10^{2}}$  & $\mathbf{0.9}$   & $\mathbf{0.28}$
-  & $\mathbf{0.05}$ & $\mathbf{1.0{\cdot}10^{-3}}$ \\
+R2         & 0.94 & 1.00 & R3         & 0.97 & 1.00 & R4         & 0.74 & 1.00 \\
+R5         & 0.99 & 1.00 & R6         & 1.00 & 1.00 & R7         & 1.00 & 1.00 \\
+R8         & 0.90 & 1.00 & L1         & 0.73 & 0.98 & L2         & 0.62 & 1.00 \\
+L4         & 1.00 & 1.00 & L5         & 0.73 & 0.99 & Lawf1      & 1.00 & 1.00 \\
+Am         & 0.95 & 1.00 & C2         & 0.93 & 1.00 & C3         & 1.00 & 1.00 \\
+CT1(Lo1)   & 1.00 & 1.00 & CT1(M10)   & 0.88 & 1.00 & Mi2        & 0.91 & 0.98 \\
+Mi3        & 0.94 & 1.00 & Mi14       & 0.96 & 1.00 & Mi15       & 0.87 & 1.00 \\
+T2         & 0.97 & 1.00 & T2a        & 0.97 & 1.00 & T3         & 0.97 & 1.00 \\
+T4a        & 0.97 & 1.00 & T4b        & 0.99 & 1.00 & T4c        & 0.99 & 1.00 \\
+T4d        & 0.98 & 1.00 & T5a        & 1.00 & 1.00 & T5b        & 1.00 & 1.00 \\
+T5c        & 0.99 & 1.00 & T5d        & 0.99 & 1.00 & Tm1        & 0.74 & 1.00 \\
+Tm2        & 0.93 & 1.00 & Tm3        & 0.81 & 1.00 & Tm4        & 0.99 & 1.00 \\
+Tm5Y       & 1.00 & 1.00 & Tm5a       & 0.97 & 1.00 & Tm5c       & 0.28 & 1.00 \\
+Tm16       & 0.99 & 1.00 & Tm20       & 1.00 & 1.00 & Tm28       & 0.75 & 0.99 \\
+Tm30       & 0.57 & 1.00 & TmY3       & 1.00 & 1.00 & TmY4       & 0.99 & 1.00 \\
+TmY5a      & 0.94 & 1.00 & TmY9       & 0.95 & 1.00 & TmY10      & 0.97 & 0.94 \\
+TmY13      & 0.99 & 1.00 & TmY15      & 0.97 & 1.00 & TmY18      & 0.99 & 1.00 \\
 \bottomrule
 \end{tabular}
+\caption{Single-type degenerate variants for per cell type (TmY14
+excluded: rollout diverged). For each variant, $R^2_{\mathbf{W}}$ measures
+weight-space agreement with ground truth and rollout Pearson $r$ measures
+dynamics agreement over 1{,}000 frames.}
+\label{tab:lambda_8}
 \end{table}
+
+
+
+
+
+
+
+
+
+%%%%%
+% Vijay: This analysis is incomplete. We have shown that given v(t) we cannot infer
+% parameter but we also want to show that modifying certain combinations of params
+% does not change the v(t). This is harder to do in general but is interesting
+%%%%%
+
+% \section{Sensitivity analysis of the FlyVis ODE}
+
+% %%% Goal of this section: explain why the known ODE method does not recover tau %%%
+
+% Given an ODE, sensitivity analysis [TODO: right term?][TODO: ref] helps identify directions in parameter space that minimally impact the solution. The solution $x_i(t)$ to a general ODE
+% \begin{equation}
+% \dot{x_i} = f_i(x, \theta)    
+% \end{equation}
+% with the state $x \in \R^n$ and parameters $\theta \in \R^p$, implicitly depends on $\theta$. The \emph{sensitivity} $S_{i\alpha} := \partial x_i / \partial \theta_\alpha$ of the $i$-th component to the specific parameter direction $\theta_\alpha$ is the solution to another ODE:
+% \begin{equation}
+% \dot{S_{i; \alpha}} = \sum_j \frac{\partial f_i}{\partial x_j} S_{j; \alpha} + \frac{\partial f_i}{\partial \theta_\alpha} \label{eq:sens-ode}
+% \end{equation}
+% The ODE is initialized $x(t=0) = x_0$ to a value independent of the parameters $\theta$ and therefore we have $S_{i; \alpha}(t=0)= 0$. The second term on the right hand side describes the source term that causes $S_{i; \alpha}$ to gradually take on non-zero values. In the absence of the source term $S_{i; \alpha} = 0$ for all time. For a particular direction in parameter space defined by $\eta_\alpha$ we can define $s_i := \sum_\alpha S_{i\alpha} \eta_\alpha$ by projection. Then, 
+% \begin{equation}
+%     \dot{s}_i(t) = \sum_j J_{ij}(x) s_j + \sum_\alpha \frac{\partial f_i}{\partial \theta_\alpha} \eta_\alpha\ .
+% \end{equation}
+
+% The noise-free FlyVis ODE \ref{eq:simulated_update} can be rewritten
+% \begin{equation}
+%     \dot{x_i} = -\omega_i x_i + U_i + \sum_j G_{ij} \relu(x_j) + \omega_i I_i
+% \end{equation}
+% with a suitable redefinition of the parameters (TODO: fix)
+% \begin{equation}
+%     \omega_i = 1/\tau_i, \ U_i = \vrest_i \tau_i, \ W_{ij} = G_{ij} \tau_i
+% \end{equation}
+% The Jacobian $J(x)$, which appears in \ref{eq:sens-ode}, has the special form $J(x) = \Omega + G\odot H(x)$ in matrix notation where $H(x) = d \relu (x) / dx$ and $\odot$ denotes elementwise multiplication. The Jacobian is a constant matrix in any region of state space where the signs of $x_i$ are unchanged for all $i$, \eg, $J(x) = \Omega$, for $x \in \R_-^n$. We compute the second term in \ref{eq:sens-ode} for each parameter below:
+% \begin{eqnarray}
+%     \omega_j & : & \frac{\partial f_i}{\partial \omega_j} = (-x_i + I_i) \delta_{ij} \\
+%     U_j & : & \frac{\partial f_i}{\partial U_j} = \delta_{ij} \\
+%     G_{kl} & : & \frac{\partial f_i}{\partial G_{kl}} = \relu(x_l) \delta_{ik}
+% \end{eqnarray}
+% Note that $I_i$ is non-zero only for the input neurons. Let $M$ denote the set of neurons such that $x_i(t) >= 0$ and $I_i(t) = 0$ for all $i \in M$. If there exists such a non-empty set, then
+% \begin{equation}
+%     \sum_j \frac{\partial f_i}{\partial \omega_j} + \sum_{j, k} \frac{\partial f_i}{\partial G_{kj}} = -x_j \delta_{ij} + x_j \delta_{ik} 
+% \end{equation}
+
+
+
+% % If the jacobian is a negative semi-definite matrix for a majority of parameter space, The evolution of $S_{i; \alpha}$ is defined by a homogeneous 
+% % The sensitivity equations for the parameters are
+
+% \emph{Claim}: $J$ is a negative semi-definite matrix. TODO: show with data.
+
+
+% appendix_agent.tex — \input{appendix_agent} in the appendix section
+
+
+
+\newpage
+
+\section{GNN}
+\label{app:GNN}
+\subsection{Training and agentic HPO.}
+
+
+The optimised networks of the GNN are $g_\phi$ and $f_\theta$ of
+Eq.~\ref{eq:gnn_ct}, both modelled as MLPs (ReLU activation, hidden
+dimension $=80$, $3$ layers, output size $=1$). Other learnables are
+the two-dimensional latent vector $\mathbf{a}_i$ associated with each
+neuron and the connectivity matrix $\hat{\mathbf W}$. We implemented
+the GNNs in PyTorch~Geometric \citep{fey_fast_2019} and used Adam
+gradient descent with separate parameter-group learning rates
+$\text{lr}_W\!=\!9{\cdot}10^{-4}$ (connectivity),
+$\text{lr}\!=\!1.8{\cdot}10^{-3}$ ($g_\phi$, $f_\theta$),
+$\text{lr}_\text{emb}\!=\!2.3{\cdot}10^{-3}$ (embeddings), batch size
+$4$, $1$ nominal epoch with
+\texttt{data\_augmentation\_loop}$=500$ over $64\,000$ training
+frames (${\approx}5{\cdot}10^{5}$ to $2{\cdot}10^{6}$ gradient steps
+across conditions). Time points are sampled uniformly at random at
+each step.
+
+The agentic loop of Appendix~\ref{app:agent} was run independently
+for each of the six conditions of Table~\ref{tab:unified_hp}
+($\sim$100 iterations of 4 parallel slots per condition,
+single-parameter mutations, 4-seed robustness validation of every
+candidate winner). The exploration converged on a consistent picture
+of the role played by each term of Eq.~\ref{eq:loss_full}. The
+$\ell_1$ prior on $\hat{\mathbf W}$ ($\gamma_0$) is the only
+important regulariser: setting $\gamma_0\!=\!0$ leaves rollouts
+nearly unchanged ($r\!=\!0.999$) but collapses $R^2_{\hat W}$ from
+$0.97$ to $0.39$, a direct manifestation of the degeneracy of
+Appendix~\ref{app:degeneracy}. The $\ell_2$ counterpart $\gamma_1$
+provides no measurable benefit. Among the $g_\phi$ priors, $\mu_1$
+prevents the trivial collapse $g_\phi\!\equiv\!0$ and was selected in
+$[750, 2000]$ across conditions; $\mu_2$ stabilises at $0.9$ for the
+$\sigma=0.05$ sub-conditions and is driven to 0 only in the noise-free condition;
+the weight-$\ell_1$ $\lambda_1$ takes a distinct value in the
+noise-free condition ($\lambda_1\!=\!0.14$, $+0.054$ on
+$R^2_{\hat W}$) versus a uniform $0.28$ across the $\sigma=0.05$ 
+sub-conditions. The two $f_\theta$ priors split by noise regime:
+$\lambda_0$ ($\ell_1$) is needed at the $\sigma=0.05$  working point
+($\lambda_0\!=\!0.05$, identical across the four $\sigma=0.05$ 
+sub-conditions) but is driven to $0$ in the noise-free and $\sigma=0.5$ 
+extremes; $\lambda_2$ ($\ell_2$) acts as the magnitude anchor of
+$\hat{\mathbf W}$ and stays at $10^{-3}$ for every noisy condition.
+
+A clean cross-condition pattern emerged: the four $\sigma{=}0.05$
+sub-conditions share an identical regulariser block, with the
+noise-free and $\sigma{=}0.5$ winners deviating at opposite poles.
+The $\sigma{=}0.05$ winner sits between the two extremes, is the
+closest single point to the per-coefficient medians of
+Table~\ref{tab:unified_hp}, and is the only one validated under
+12-seed robustness with zero catastrophic failures; we therefore
+retain it unchanged for every GNN result reported in the paper,
+including the FlyWire and degraded-connectome variants.
+
+\input{tables/agent_GNN_HPO}
+
+
+
+\subsection{Joint stimulus recovery with SIREN.}
+\label{app:SIREN}
+The unkown-stimulus results of Table ~\ref{tab:cv_cross_noise} is obtained by hiding the visual stimulus over the $1{,}736$ retina neurons. To test whether the visual input $I_i(t)$ entering Eq.~\ref{eq:known_ode} can itself be recovered from activity alone, we extend the GNN with an implicit neural representation of the stimulus field $\hat I^*(t,x,y)$, modelled as a coordinate-based
+MLP with sine activations \citep[SIREN,][input size~$=3$,
+hidden dimension~$=2048$, $4$ hidden layers, output size~$=1$,
+$\omega_0\!=\!4096$, outermost-linear head]{sitzmann_implicit_2020}.
+The SIREN is queried at the $1\,736$ photoreceptor positions
+$(x_i,y_i)$ at every time step and substitutes for $I_i(t)$ in the
+GNN forward pass. The GNN and the SIREN are jointly optimised on the
+same prediction loss but with strongly asymmetric learning rates
+and a two-phase ``alternate-training'' schedule: epoch~$0$ uses the
+full GNN learning rates above with
+$\text{lr}_\text{SIREN}\!=\!10^{-8}$; epochs~$1$–$2$ scale the GNN
+learning rates by $0.05$ while $\text{lr}_\text{SIREN}$ is held
+constant, letting the SIREN catch up on a stable graph backbone.
+
+
+\subsection{Joint hidden-activity recovery with Instant-NGP}
+\label{app:NGP}
+
+The hidden-neuron results of Table~\ref{tab:cv_cross_noise} are obtained by
+hiding $10\%$ or $20\%$ of the $12{,}005$ non-retinal neurons and asking
+the GNN to recover its parameters without ever seeing those voltage
+traces. The unobserved voltages are filled in by a coordinate-based
+network trained jointly with the GNN, in the same spirit as the
+SIREN-based stimulus recovery of Appendix~\ref{app:SIREN}
+\citep{sitzmann_implicit_2020}, but with an Instant-NGP-style
+multi-resolution feature grid \citep{muller_instant_2022} in place of the sine MLP
+. Because the input is one-dimensional (time), each level of the grid is an embedding of size  $(R_\ell+1) \times d$ with linear interpolation between neighbouring cells. Locality is what motivates this architecture over a SIREN:
+updating the prediction for one frame modifies only a small
+neighbourhood of grid cells, avoiding the global coupling we observed
+when training a time-only SIREN over $64{,}000$ frames. The grid
+features are decoded by an MLP into hidden-neuron voltages and a set of
+anchor voltages supervised against ground truth on a held-out subset of
+visible neurons; the anchor term is necessary to give the time field a
+stable temporal scaffold, without which the hidden-neuron output
+collapses onto a low-frequency mean.
+
+The joint scheme is promising but does not yet match the fully observed
+case. At $10\%$ hidden it reaches one-step $r=0.98$ but rollout
+$r=0.64\pm0.26$ and $R^2_{\hat{\mathbf{W}}}=0.33\pm0.45$; at $20\%$
+hidden, $R^2_{\hat{\mathbf{W}}}$ recovery collapses to $0.02\pm0.39$
+(Table~\ref{tab:cv_cross_noise}). $\tau$ recovery is preserved in both
+cases ($R^2_{\hat{\tau}}\geq 0.84$). We attribute the residual gap
+to two factors: the hidden voltages are reconstructed purely from the
+time index with no spatial prior, so the grid has to memorise
+per-neuron trajectories; and the anchor supervision constrains the
+time encoding but not the per-neuron decoder weights. 
+
+\paragraph{Spatio-temporal extension.} We are
+are currently exploring the use of a 2-D spatial-then-temporal grid that would introduces a neuron-space prior. We added a 2-D companion
+grid indexed by the per-neuron retinotopic position $(u_i, v_i)$ — the
+columnar coordinates flyvis attaches to every node — mapped to
+Cartesian $(x_i, y_i) = (u_i + 0.5\,v_i,\ v_i\sqrt{3}/2)$ following
+the hex convention used elsewhere in the paper. The temporal and
+spatial grid features are concatenated with the GNN's learned latent
+$\mathbf{a}_i$ and decoded by a shared MLP into a per-neuron scalar
+voltage; feeding $\mathbf{a}_i$ directly into the decoder lets the
+MLP combine it non-linearly with the spatio-temporal features and
+makes per-neuron identity available to the NGP throughout the
+network, directly addressing the second factor above. The latent
+$\mathbf{a}_i$ for a hidden neuron is itself learned through
+$g_\phi$: when the hidden neuron's output is sent through outgoing
+edges to a visible postsynaptic neighbour, the visible neuron's
+prediction loss back-propagates through $g_\phi$ to update
+$\mathbf{a}_i$, so cell-type structure is inherited from
+neighbouring observed neurons of the same type. Crucially, the
+ground-truth cell type is never an input. Only the GNN's own
+co-trained latent is fed in, so cell type remains an unknown of the
+inverse problem. Numerical results from this extension will be
+reported in follow-up work.
+
+\newpage
+\section{Agent-in-the-loop parameter optimisation}
+\label{app:agent}
+
+The optimisation space combining simulation parameters (noise $\sigma$,
+connectivity constraints, $n_{\mathrm{frames}}$) and machine learning parameters
+(e.g.\ for GNN, $\lambda_0,\lambda_1,\lambda_2,\lambda_3,\gamma_0,\gamma_1,\mu_0,\mu_1,\mu_2$, learning rates, etc.) is too large for grid search. We instead deploy a closed loop
+coupling three components: a GNN training engine, a large language model
+agent (Claude Code, Anthropic), and an explicit structured summary. The system
+operates through text file exchange. The instruction file defines the inverse
+problem, the quantitative score objective, the metrics to track, the parameter
+ranges, and the logging format. The structured summary maintains accumulated
+understanding in two tiers: established principles and open questions that
+persist across blocks, and a working record of current hypotheses and recent
+iterations. A configuration file is edited by the agent to set the next
+experiment; a results file is written by the experiment engine and read by
+the agent.
+
+The primary objective of the agentic loop is to optimise hyperparameters
+against a quantitative score ($R^2_{\mathbf{W}}$ or rollout accuracy). But we
+also constrain the agent to hypothesis-driven protocol: a testable
+hypothesis must be stated before each experiment, and only experimental
+outcomes can validate or falsify it. The next experiment is therefore
+selected by the hypothesis the agent currently seeks to test rather than by a
+numerical exploration/exploitation trade-off.
+
+Experiments are organised into blocks of 8-16 iterations (multiples of 4 to
+match the parallel batch size). The agent does not start from scratch, it is initialised with a configuration established from prior works. The simulation
+regime of each block can be specified by the user in the instruction file or
+chosen by the agent. Within a block, the agent explores GNN training
+parameters guided by its current hypothesis. To make the protocol robust, we
+run $4$ experiments in parallel and submit the resulting batch of training
+outcomes to the agent. Reasoning over a batch rather than a single trial
+sharpens both confirmation and falsification. The structured summary also
+serves as an explicit long-term memory, overcoming the finite context window
+of the agent and enabling accumulation across hundreds of iterations. With
+this protocol, convergence to the optimal configuration is reached within
+$\sim 100$ GNN training experiments sweeping sometimes more than 10 parameters.
+
+We initially adopted UCB tree search as in AlphaEvolve and FunSearch
+\citep{romera-paredes_mathematical_2024,novikov_alphaevolve_2025}, where
+parameter mutations are sampled from a tree balancing exploitation and
+exploration. Once the hypothesis-driven constraint was introduced, we
+found that the agent stopped consulting the UCB scores: parent selection and
+parameter mutations were driven entirely by hypotheses formulated from the
+structured summary and recent experimental results. We accordingly removed
+the UCB component, which had become redundant.
+
+
+\label{app:instruction_file}
+As an example, the instruction file passed to the agent for the
+noise-free condition is
+
+\begin{tiny}
+\begin{verbatim}
+# FlyVis GNN — Connectome Recovery (noise-free)
+
+## Goal
+
+Optimize GNN hyperparameters for maximum **connectivity matrix recovery (conn_R2)** on FlyVis with
+no noise (sigma=0.0). Two sub-goals:
+
+- Maximize conn_R2 (primary): recover synaptic weight matrix W from clean neural activity
+- Understand the noise-free ceiling: why is conn_R2=0.923 (prior winner) lower than noise_005's 0.982?
+
+The exploration starts from the **default config** below to enable before/after comparison with
+the prior winner (conn_R2=0.923, CV=0.82%).
+
+## Scientific Context
+
+**Core research question: Why does noise-free training produce lower connectome recovery (0.923)
+than sigma=0.05 training (0.982)? Does noise act as regularization?**
+
+The noise-free case is surprising — removing noise should make W recovery easier, yet the prior winner
+is lower. Key hypotheses to test:
+- Noise acts as implicit regularization (Langevin dynamics): sigma=0.05 prevents over-fitting to W
+- The embedding_dim=4 (unique to noise-free) may be under-exploited — extra dims could help or hurt
+- All regularization is 0 in the default config — should some regularization be introduced?
+- coeff_g_phi_diff=1500 is 2x higher than noisy variants — explore if this is optimal
+- The absence of noise sharpens the optimization landscape, potentially creating narrow basins
+
+Key differences from noisy variants:
+- embedding_dim=4 (vs 2 for noise_005 and noise_05)
+- All L1/L2 regularization = 0 (vs non-zero for noisy variants)
+- coeff_g_phi_norm = 0 (vs 0.9 for noisy variants)
+- coeff_g_phi_diff = 1500 (vs 750 for noisy variants)
+
+## Noise Model
+
+v_i(t+1) = v_i(t) + dt * f(v_i(t), W, a_i, I_i(t))
+sigma = 0.0 (noise_model_level)
+
+No noise is added to training data. Train and test conditions are identical.
+
+## Metrics
+
+During test/validation:
+- **PRIMARY METRIC: `conn_R2`** (higher is better; R^2 of learned W vs ground-truth W)
+- `tau_R2`: R^2 of tau (time constant) recovery
+- `V_rest_R2`: R^2 of V_rest (resting potential) recovery
+- `cluster_accuracy`: cell-type clustering accuracy from neuron embeddings
+- `rollout_pearson_r`: Pearson r of autoregressive rollout vs ground truth
+
+**Robustness classification** (4 seeds per iteration):
+- **Stable-Robust**: all 4 seeds conn_R2 >= 0.90, CV < 3%
+- **Stable**: mean conn_R2 >= 0.85, CV < 10%
+- **Unstable**: mean < 0.85 OR CV >= 10%
+- **Catastrophic**: any seed conn_R2 < 0.50
+
+## Scientific Method
+
+Strict **hypothesize -> test -> validate/falsify** cycle:
+
+1. **Hypothesize**: Form a specific, testable prediction
+2. **Design experiment**: Change **EXACTLY ONE** parameter at a time (causality rule)
+3. **Run training**: 4 slots (1 control + 3 experiments in EXPLORATION; 4 same config in ROBUSTNESS)
+4. **Analyze results**: Use conn_R2 AND cluster_accuracy to understand embedding quality
+5. **Update understanding**: Revise hypotheses based on evidence
+
+**CRITICAL**: You can only hypothesize. Only training results validate or falsify.
+
+### CAUSALITY RULE (MANDATORY)
+
+**If you change more than one parameter per slot, you CANNOT attribute the effect.**
+
+- In EXPLORATION mode: Slot 0 = parent/baseline (unchanged control). Slots 1-3 each change
+  **exactly one** parameter from the parent.
+- In ROBUSTNESS mode: all 4 slots use the same config (different seeds test robustness).
+
+## FlyVis Model
+
+tau_i * dv_i/dt = -v_i + V_rest_i + sum_j W_ij * g(v_j) + I_i(t)
+
+- **13,741 neurons**, 65 cell types, **434,112 edges**
+- **1,736 input neurons** (photoreceptors, DAVIS visual input)
+- Noise level: sigma=0.0 (noise-free)
+- 64,000 frames, delta_t = 0.02
+
+## GNN Architecture
+
+g_phi(v_j, embed_j) -> message_ij          (edge MLP, per-edge messages)
+sum_j W_ij * g_phi(v_j) -> agg_i           (weighted aggregation)
+f_theta(v_i, agg_i, embed_i) -> dv_i/dt    (node update MLP)
+
+- Per-neuron embedding: learnable `embedding_dim`-dim vector
+- **embedding_dim=4** (unique to noise-free; 2x larger than noisy variants)
+- `g_phi_positive=true`: g_phi output clipped to [0, inf)
+
+## GNN Architecture Parameters
+
+| Parameter       | Default | Description                                         |
+| --------------- | ------- | --------------------------------------------------- |
+| hidden_dim      | 80      | Width of hidden layers in g_phi and f_theta         |
+| n_layers        | 3       | Depth of g_phi and f_theta networks                 |
+| embedding_dim   | 4       | Per-neuron learnable embedding dimension            |
+
+## Training Parameters
+
+| Parameter                | Default      | Description                                       |
+| ------------------------ | ------------ | ------------------------------------------------- |
+| lr_W                     | 0.0006       | Learning rate for W matrix                        |
+| lr                       | 0.0018       | Learning rate for g_phi and f_theta MLP weights   |
+| lr_embedding             | 0.00155      | Learning rate for per-neuron embeddings           |
+| data_augmentation_loop   | 30           | Augmentation loops per epoch (DAL)                |
+| batch_size               | 4            | Samples per batch                                 |
+| coeff_g_phi_diff         | 1500         | L2 penalty against g_phi collapse (2x noisy)      |
+| coeff_g_phi_norm         | 0.0          | L2 norm reg. on g_phi (0 for noise-free)          |
+| coeff_g_phi_weight_L1    | 0.0          | L1 weight reg. on g_phi (0 for noise-free)        |
+| coeff_f_theta_weight_L1  | 0.0          | L1 weight reg. on f_theta                         |
+| coeff_f_theta_weight_L2  | 0.0          | L2 weight reg. on f_theta                         |
+| coeff_W_L1               | 0.0          | L1 reg. on W                                      |
+| coeff_W_L2               | 0.0          | L2 reg. on W                                      |
+| regul_annealing_rate     | 0.0          | MUST be 0.0 with n_epochs=1                       |
+| w_init_mode              | randn_scaled | W init: randn_scaled / zeros / uniform_scaled     |
+| w_init_scale             | 1.0          | Scale for randn init (bound = scale/sqrt(n_edges))|
+
+**Hard runtime limit (120 min)**: Cluster enforces 120-min wall-clock limit.
+
+**Fixed: n_epochs=1** — do not change.
+
+## Block Structure
+
+| Block | Focus                  | Parameters to scan                                                |
+| ----- | ---------------------- | ----------------------------------------------------------------- |
+| 1     | Baseline robustness    | All 4 slots = default config (ROBUSTNESS)                         |
+| 2     | Learning rates         | lr_W, lr, lr_embedding                                            |
+| 3     | g_phi diff + norm      | coeff_g_phi_diff, coeff_g_phi_norm                                |
+| 4     | Regularization intro   | coeff_g_phi_weight_L1, coeff_f_theta_weight_L1, coeff_W_L1        |
+| 5     | Architecture           | embedding_dim, hidden_dim                                         |
+| 6     | Training regime        | batch_size, data_augmentation_loop                                |
+| 7     | Free exploration       | Combine best from Blocks 2-6                                      |
+| 8     | Final robustness       | Best config, 4 slots same (ROBUSTNESS)                            |
+| 9     | CV robustness          | Best config, 8 seeds over 2 iterations (generate_data=true)       |
+
+## Iteration Workflow
+
+### Step 1: Read Working Memory + User Input
+### Step 2: Analyze Results (4 slots)
+
+For each slot: read conn_R2, tau_R2, V_rest_R2, cluster_accuracy, rollout_pearson_r;
+compare to the noise-free baseline (0.923) and to noise_005 (0.982); classify.
+
+### Step 3: Write Log Entry + Update Memory
+
+## Iter N: [stable_robust/stable/unstable/catastrophic]
+Node: id=N, parent=P
+Hypothesis tested: "[quoted hypothesis]"
+Config: lr_W=X, lr=Y, lr_emb=Z, DAL=D, bs=B,
+        g_diff=A, g_norm=B, g_L1=C, f_L1=D, W_L1=E,
+        w_init=F, emb_dim=G, hidden=H
+Slot 0..3: conn_R2, tau_R2, Vr_R2, cluster_acc, rollout_r, sim_seed, train_seed
+Seed stats: mean_conn_R2, std, CV%, catastrophic=N/4
+Mutation: [param]: [old] -> [new]
+Verdict: [supported/falsified/inconclusive]
+Next: parent=P
+
+### Step 4: Acknowledge User Input
+### Step 5: Formulate Next Hypothesis + Edit 4 Config Files
+
+## Start Call
+
+When prompt says PARALLEL START:
+- Slot 0 = default config (before-exploration baseline):
+  lr_W=0.0006, lr=0.0018, lr_embedding=0.00155, batch_size=4, DAL=30
+  coeff_g_phi_diff=1500, coeff_g_phi_norm=0.0, coeff_g_phi_weight_L1=0.0
+  coeff_f_theta_weight_L1=0.0, coeff_W_L1=0.0, w_init_mode=randn_scaled, embedding_dim=4
+- Block 1 is ROBUSTNESS mode: Slots 1-3 also use the same default config (different seeds)
+- Hypothesis: "The default noise-free GNN config achieves conn_R2 >= 0.90 with CV < 5% but
+  remains below noise_005's winner (0.982). Prior winner: conn_R2=0.923, CV=0.82%."
+\end{verbatim}
+\end{tiny}
+
+As an example, the structured summary built by the agent for the
+noise-free condition is
+
+\begin{tiny}
+\begin{verbatim}
+# Working Memory: flyvis_noise_free
+
+## Paper Summary (update at every block boundary)
+
+**GNN optimization** (EXPLORATION COMPLETE -- 108/108 iters, Blocks 1-9):
+Champion config achieves conn_R2=0.9665 single-seed ATB (Iter 77), 24-seed combined
+mean=0.9453+/-0.0159 (CV=1.68%, Block 8+9), STABLE-ROBUST, beating the prior winner
+(0.923) on 22/24 seeds. Key hyperparameters: g_phi_wL1=0.14 (single largest lever:
++0.054 over baseline, narrow peak), W_L1=1.5e-4, lr_W=3e-4, lr=9e-4, DAL=150,
+n_epochs=1, bs=4, g_diff=1500, g_norm=0, randn_scaled, emb_dim=2, hidden=80.
+
+**LLM-driven exploration** (EXPLORATION COMPLETE):
+All 21 falsified hypotheses and 21 established principles are closed; champion
+config is definitively optimal. Gap vs noise_005 narrowed from 0.085 to 0.0155
+(ATB 0.9665 vs 0.982); structural noise-free ceiling at ~0.945 mean confirmed by
+both Block 8 (fixed data, CV=1.62%) and Block 9 (generate_data=true, CV=1.74%).
+Noise acts as implicit regularizer: noise-free requires explicit g_phi_wL1=0.14
+to compensate, contrasting with the broad optimization basin that noise provides.
+
+---
+
+## Knowledge Base
+
+### Robustness Comparison Table
+
+| Iter        | Config summary                       | conn_R2          | CV%   | Verdict          |
+| ----------- | ------------------------------------ | ---------------- | ----- | ---------------- |
+| 1-12        | 12 seeds Block 1                     | 0.913+/-0.042    | 4.6%  | Stable           |
+| 13-16       | lr_W scan                            | 0.924-0.948      | -     | lr_W=3e-4 best   |
+| 17-20       | lr scan                              | 0.900-0.953      | -     | lr=9e-4 best     |
+| 21-24       | lr_emb scan                          | 0.868-0.955      | -     | Inconclusive     |
+| 25-28       | g_diff scan                          | 0.922-0.951      | -     | g_diff=1500 best |
+| 29-32       | g_norm scan                          | 0.905-0.955      | -     | g_norm=0 best    |
+| 33-36       | g_norm=0, 4 seeds robustness         | 0.9446+/-0.012   | 1.3%  | STABLE-ROBUST    |
+| 37-40       | W_L1 + g_phi_wL1 init                | 0.916-0.950      | -     | W_L1=1.5e-4 best |
+| 41-44       | W_L1 extend + f_theta_wL1            | 0.860-0.939      | -     | f_theta_wL1=0.05 |
+| 45-48       | W_L1 finalize, g_phi_wL1=0.28        | 0.869-0.967      | -     | W_L1=1.5e-4 peak |
+| 49-60       | Architecture (emb_dim, hidden)       | 0.744-0.953      | -     | emb_dim=4 (NB: deployed=2) |
+| 71          | g_phi_wL1=0.14 half-dose             | 0.9579           | -     | ATB raw_W=0.8106 |
+| 73          | Block 7 CTRL g_phi_wL1=0.14          | 0.9630           | -     | ATB raw_W=0.8340 |
+| 77          | Block 7 CTRL g_phi_wL1=0.14 (3rd)    | 0.9665           | -     | NEW ATB          |
+| 78          | DAL=175                              | 0.9516           | -     | FALSIFIED        |
+| 79          | g_phi_wL1=0.21                       | 0.9368           | -     | FALSIFIED        |
+| 82          | W_L2=1e-5                            | 0.9362           | -     | FALSIFIED        |
+| 84          | g_phi_norm=0.01                      | 0.9439           | -     | NEUTRAL/decline  |
+| 85-96       | Block 8 (12-seed mean, fixed data)   | 0.9442+/-0.0153  | 1.62% | STABLE-ROBUST    |
+| 97-108      | Block 9 (12-seed mean, gen_data=t)   | 0.9465+/-0.0165  | 1.74% | STABLE-ROBUST    |
+
+ATB (single-seed, clean): Iter 77 conn_R2=0.9665.
+Combined 24-seed: mean=0.9453, CV=1.68%, 0/24 catastrophic. EXPLORATION COMPLETE.
+
+### Established Principles
+
+1. DAL=150 outperforms DAL=30: +0.031 mean conn_R2, CV halved.
+2. tau_R2 and Vr_R2 unreliable for flyvis_A: model absorbs them implicitly.
+3. Conservative LRs win noise-free: lr_W=3e-4 (0.5x default) +0.025;
+   lr=9e-4 (0.5x default) +0.017. Hard cliff above lr=3.6e-3.
+4. g_phi defaults (g_diff=1500, g_norm=0) both optimal for noise-free.
+   g_norm=0 (vs 0.9 optimal for noise_005). g_diff=1500 (2x noisy variants).
+5. W_L1=1.5e-4 is optimal W regularization. Block 4 scan: 0->5e-5->1.5e-4
+   ->3e-4->5e-4. Peak at 1.5e-4 (+0.035 vs 0). Over-reg above 1.5e-4.
+6. f_theta_wL1 beneficial range is narrow (~0.05). Dose: 0->0.05(+0.033)
+   ->0.2(-0.082).
+7. g_phi_wL1=0.14 is the OPTIMAL dose. Full dose-response:
+   0.07(0.9292) < 0.14(ATB=0.9665) > 0.21(0.9368) > 0.28(~0.93-0.95)
+   > 0.5(0.9168). Non-monotone sharp peak at 0.14.
+8. n_epochs=2 same budget is HARMFUL for noise-free: raw_W_R2=0.370 vs 0.613.
+9. g_phi_wL1 + f_theta_wL1 combination is ALWAYS ANTAGONISTIC: 0.28+0.05
+   catastrophic (Iter 70); 0.14+0.05 -> -0.051 (Iter 74).
+10. DAL=175 is over-training for noise-free: -0.015 vs DAL=150.
+11. f_theta_msg_diff=50 is NEUTRAL for noise-free W recovery: -0.007.
+12. W_L2=1e-5 is mildly harmful for noise-free: -0.014.
+13. batch_size=2 is NEUTRAL for conn_R2: 2-seed mean=0.9577 ~ ctrl=0.9599.
+14. g_phi_norm is harmful at ALL tested values (0.01-1.5): g_norm=0 optimal.
+15. dale_law_score predicts conn_R2 (Block 8 confirmed, decouples with
+    generate_data=true).
+
+### Falsified Hypotheses
+
+1. "g_phi_norm helps noise-free" -- ALL values 0.01-1.5. g_norm=0 optimal.
+2. "W_L1=5e-4 beats W_L1=1.5e-4" -- FALSIFIED. Peak at 1.5e-4.
+3. "f_theta_wL1=0.2 improves over 0.05" -- FALSIFIED. Over-reg.
+4. "Larger emb_dim monotonically improves clustering" -- FALSIFIED.
+   emb_dim=8 harms cluster_acc -0.073.
+5. "emb_dim=6 improves conn_R2 over emb_dim=4" -- DEFINITIVELY FALSIFIED.
+6. "n_epochs=2 same budget matches n_epochs=1" -- FALSIFIED. raw_W_R2
+   catastrophically degraded.
+7. "g_phi_wL1=0.28 + f_theta_wL1=0.05 combination is additive" --
+   CATASTROPHICALLY FALSIFIED (conn_R2=0.0000, loss=47K).
+8. "g_phi_wL1=0.07 is superior or equal to 0.14" -- FALSIFIED.
+9. "DAL=175 fills budget and improves W convergence" -- FALSIFIED.
+10. "g_phi_wL1=0.21 is between 0.14 and 0.28 performance" -- FALSIFIED.
+    Peak is sharp and narrow.
+11. "W_L2=1e-5 complements W_L1=1.5e-4 for noise-free" -- FALSIFIED.
+12. "batch_size=2 improves conn_R2 over batch_size=4" -- NEUTRAL/FALSIFIED.
+
+### Open Questions
+
+1. Why does noise-free underperform vs noise_005? Gap narrowed to 0.0155.
+   Remaining gap confirmed as structural limit: sharp narrow peak at
+   g_phi_wL1=0.14. No remaining untested levers.
+
+---
+
+## Previous Block Summaries
+
+### Block 5 Summary -- Architecture Search (iters 49-60)
+emb_dim=4 OPTIMAL among tested values; emb_dim=6 FALSIFIED -0.005;
+emb_dim=8 HARMS cluster -0.073. hidden=128 CONFIRMED +0.050 cluster_acc,
+neutral conn_R2. Architecture NOT the bottleneck.
+
+### Block 6 Summary -- Regularization Refinement (iters 61-72)
+g_phi_wL1 dose-response COMPLETE: peak at 0.14 (ATB=0.9579, raw_W_R2=0.8106
+HIGHEST EVER). 0.28 over-regularizes. g_phi_wL1=0.28+f_theta_wL1=0.05
+COMBINATION CATASTROPHIC (conn_R2=0). f_theta_wL1=0.05 confirmed
+individually (+0.024). n_epochs=2 same budget FALSIFIED.
+
+### Block 7 Summary -- Free Exploration (iters 73-84)
+ATB: Iter 77 conn_R2=0.9665. 4-seed champion (Iters 71,73,77,81):
+mean=0.9594, CV=0.76%. All 9 tested levers FALSIFIED or NEUTRAL: f_theta_wL1
+combo (ANTAGONISTIC), g_phi_wL1 neighbors (SHARP PEAK), DAL=175 (OVERFIT),
+f_theta_msg_diff=50 (NEUTRAL), W_L2 (FALSIFIED), batch_size=2 (NEUTRAL),
+g_phi_norm=0.01 (NEUTRAL).
+
+### Block 8 Summary -- Final Robustness (iters 85-96)
+STABLE-ROBUST CONFIRMED on 12 independent seeds. Mean=0.9442+/-0.0153,
+CV=1.62%, 0/12 catastrophic. 10/12 seeds beat prior winner (0.923).
+Key finding: dale_law_score is strong predictor of final conn_R2.
+
+### Block 9 Summary -- CV Robustness (iters 97-108) -- COMPLETE
+STABLE-ROBUST with generate_data=true on 12 seeds. Mean=0.9465+/-0.0165,
+CV=1.74%, 0/12 catastrophic, 1/12 below prior winner. Performance matches
+Block 8: generate_data=true does NOT degrade performance.
+
+---
+
+## EXPLORATION COMPLETE -- 108/108 Iterations, 9 Blocks
+
+**Final Champion Config**:
+- lr_W=3e-4, lr=9e-4, lr_emb=1.55e-3, DAL=150, n_epochs=1, bs=4
+- g_diff=1500, g_norm=0, g_phi_wL1=0.14, f_L1=0, W_L1=1.5e-4, W_L2=0
+- randn_scaled, emb_dim=2, hidden=80
+
+**Final Statistics**:
+- ATB (single-seed): Iter 77 = 0.9665
+- Block 8 (12-seed, fixed data): mean=0.9442, CV=1.62%
+- Block 9 (12-seed, generate_data=true): mean=0.9465, CV=1.74%
+- Combined 24-seed: mean=0.9453, CV=1.68%, 22/24 beat prior winner (0.923),
+  0/24 catastrophic
+- Gap vs noise_005 (ATB): 0.0155 -- structural noise-free ceiling confirmed
+
+**Key finding**: g_phi_weight_L1=0.14 is the single most impactful lever
+(+0.054 over baseline, sharp narrow peak). Noise acts as implicit regularizer
+-- noise-free requires explicit regularization to compensate.
+\end{verbatim}
+\end{tiny}
+
+
+
+
+
+
+\newpage
+\section{Benchmark models}
+\label{app:benchmark}
+
+
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{figure/fig_baseline_model_arch.pdf}
+  \caption{%
+    Architectures of the three neuronal activity prediction baseline models discussed. 
+    Grey boxes are model inputs, green boxes are model outputs and orange boxes are sub-networks 
+    that are variations on the basic MLP architecture.
+    \textbf{(A) Stimulus-only baseline} A length-$t_w$ window of past stimuli is
+    encoded frame-by-frame by a \emph{shared} stimulus encoder; the concatenated
+    latents are fed to a predictor MLP that outputs $\hat{\mathbf{v}}(t)$ with no
+    dependence on past voltage. Since the FlyVis model was optimized for optical flow
+    we expect that the neural activity at any time contains a representation of past
+    stimuli. $t_w=1$ serves as a baseline to captures the extent to which the
+    stimulus alone can predict the instantaneous voltage.
+    \textbf{(B) MLP baseline.} Voltages $\mathbf{v}(t)\!\in\!\mathbb{R}^{N}$ and
+    stimulus $\mathbf{s}(t)\!\in\!\mathbb{R}^{N_\text{in}}$ are concatenated and
+    mapped to $d\mathbf{v}/dt$ by a single MLP ($L$ hidden layers, activation
+    $\phi$, ResNet-style skip connections).  No graph structure is used.
+    \textbf{(C) Encode--Evolve--Decode (EED).} A voltage encoder maps
+    $\mathbf{v}(t)$ to a latent $\mathbf{z}(t)$; a stimulus encoder maps
+    $\mathbf{s}(t)$ to $\mathbf{s}_z(t)$.  A residual evolver updates the latent as
+    $\mathbf{z}' = \mathbf{z} + \mathrm{Evolver}([\mathbf{z};\mathbf{s}_z])$
+    (evolver zero-initialised, so the map starts as identity), and a decoder
+    produces $\mathbf{v}(t{+}\Delta t)$.  All four sub-networks are MLPs with
+    per-layer input-skip concatenations (NeRF-/DeepSDF-style). No graph structure is
+    used.
+  }
+  \label{fig:baseline_arch}
+\end{figure}
+
+\subsection{Known-ODE} \label{app:known_ode}
+The known-ODE model fixes the functional form of the dynamics to the ground-truth flyvis equation and learns only the biophysical parameters and the connectivity:
+\begin{equation}
+\hat{\tau}_i\,\frac{d\hat{v}_i(t)}{dt}
+= -\hat{v}_i(t) + \hat{V}^{\mathrm{rest}}_i
++ \sum_{j\in\mathcal{N}_i} \hat{\mathbf{W}}_{ij}\,\mathrm{ReLU}\!\big(v_j(t)\big)
++ I_i(t).
+\label{eq:known_ode}
+\end{equation}
+The learnable parameters are the per-edge weights $\hat{\mathbf{W}}_{ij}$, the per-neuron time constants $\hat{\tau}_i = \mathrm{softplus}(\tilde{\tau}_i)$ (with $\tilde{\tau}_i\in\mathbb{R}$ the underlying optimized parameter), and the per-neuron resting potentials $\hat{V}^{\mathrm{rest}}_i$. During training, inputs $I_i(t)$, adjacency $\mathcal{N}_i$, and activity $v_i(t)$ are given; $\hat{\mathbf{W}}, \tilde{\boldsymbol{\tau}}, \hat{\mathbf{V}}^{\mathrm{rest}}$ are optimized by minimizing the difference between simulator $y_i(t)=dv_i(t)/dt$ and known-ODE predictions $\hat{y}_i(t)=d\hat{v}_i(t)/dt$,
+\begin{equation}
+\mathcal{L}_{\mathrm{pred}} = \sum_{i,t}\|\hat{y}_i(t) - y_i(t)\|_2.
+\label{eq:known_ode_loss_pred}
+\end{equation}
+Even with the ODE structure fixed, recovery of $\hat{\mathbf{W}}$ from voltage traces remains non-unique (see Appendix~\ref{app:degeneracy}). To constrain the solution space, we added regularization terms to $\mathcal{L}_{\mathrm{pred}}$:
+\begin{equation}
+\mathcal{L} = \mathcal{L}_{\mathrm{pred}}
++ \gamma_0\|\hat{\mathbf{W}}\|_1 + \gamma_1\|\hat{\mathbf{W}}\|_2
++ \eta_0\|\tilde{\boldsymbol{\tau}}\|_1 + \eta_1\|\tilde{\boldsymbol{\tau}}\|_2
++ \eta_2\|\hat{\mathbf{V}}^{\mathrm{rest}}\|_1 + \eta_3\|\hat{\mathbf{V}}^{\mathrm{rest}}\|_2.
+\label{eq:known_ode_loss}
+\end{equation}
+The $\ell_1$ term $\gamma_0$ on $\hat{\mathbf{W}}$ promotes sparse effective connectivity, while the $\ell_2$ term $\gamma_1$ penalizes large synaptic weights. The $\ell_1$ penalty $\eta_0$ on $\tilde{\boldsymbol{\tau}}$ shrinks the time constants toward the softplus origin, while the $\ell_2$ penalty $\eta_1$ prevents drift. The $\ell_1$ penalty $\eta_2$ on $\hat{\mathbf{V}}^{\mathrm{rest}}$ promotes sparse resting potentials, while the $\ell_2$ penalty $\eta_3$ penalizes large biases. Eq.~\ref{eq:known_ode_loss} is a general form: the coefficients $\gamma_0,\gamma_1,\eta_0,\eta_1,\eta_2,\eta_3$ are hyperparameters tuned via the agentic optimization procedure described in Appendix \ref{app:agent} , which can set a subset of them to zero. In practice we retain a single regularization profile for every
+Known-ODE result reported in the paper, namely the best paremeters found by the
+agentic exploration run on noise-free data (Appendix~\ref{app:agent}):
+$\gamma_0=10^{-5}$ ($\ell_1$ on $\hat{\mathbf W}$),
+$\eta_1=3\!\times\!10^{-3}$ ($\ell_2$ on $\tilde{\boldsymbol\tau}$),
+$\eta_3=10^{-3}$ ($\ell_2$ on $\hat{\mathbf V}^{\mathrm{rest}}$), with
+the remaining three coefficients pinned to zero. The same coefficients
+are applied unchanged to the noisy flyvis conditions and to the
+FlyWireRF runs.
+
+
+% Known-ODE blank50 (rows only).
+% Cols: condition & sigma & gamma & edges | one-step r | rollout r | W R^2 | tau R^2 (out%%) | Vrest R^2 (out%%) | cluster acc.  (R^2 for tau/Vrest computed on no-outlier subset; out%% = mean(n_outliers / n_neurons) across folds, 1 dec.)
+
+
+\begin{figure}[ht!]
+  \centering
+  \includegraphics[width=\textwidth]{figure/fig_rollout_3col_noise_comparison_known_ode_nf_green.png}
+\caption{\textbf{Rollout prediction (Known-ODE baseline).} Known-ODE
+    baseline trained on Flyvis data under three model noise regimes
+    ($\sigma = 0$, $\sigma = 0.05$, $\sigma = 0.5$), tested on held-out
+    stimuli, and compared against noise-free Flyvis simulations. Top row
+    (\textbf{a}, \textbf{b}, \textbf{c}): Known-ODE rollout traces for
+    $12$ representative cell types over a $20$~s window ($1{,}000$ frames
+    at $\Delta t = 20$~ms). Green: ground-truth voltage; black: Known-ODE
+    rollout prediction; red: one visual input stimulus. Bottom row
+    (\textbf{d}, \textbf{e}, \textbf{f}): scatterplots of rollout voltage
+    vs noise-free ground-truth voltage, pooled over all
+    $(\text{neuron}, \text{frame})$ pairs and subsampled to $2 \cdot 10^6$
+    points for display. Pearson~$r$ computed on the full $8{,}000$-frame
+    rollout.
+}
+\label{fig:know_ode_rollout}
+\end{figure}
+
+
+\begin{figure}[ht!]
+  \centering
+  \includegraphics[width=\textwidth]{figure/fig_known_ode_params_3col_noise_comparison.png}
+\caption{Known-ODE parameter recovery under three model-noise regimes
+    ($\sigma = 0$, $\sigma = 0.05$, $\sigma = 0.5$). Each column shows the
+    same four diagnostics for one noise level. \textbf{(a, c, e)} Learned
+    versus true synaptic weight $W_{ij}$ scatter, with R$^2$ and slope
+    annotated. \textbf{(b, d, f)} UMAP embedding of the augmented per-neuron
+    feature vector $(\tau,\,V_{rest},\,W\text{-stats})$, coloured by ground-
+    truth cell type using the same 65-hue palette as the appendix clustering
+    figure. \textbf{(g, i, k)} Learned versus true resting potential $V_{rest}$;
+    points whose $|$learned $-$ true$|$ exceeds the per-axis threshold are
+    flagged in red, and R$^2$ / slope are reported on the inlier set
+    (full-sample R$^2$ in parentheses). \textbf{(h, j, l)} Same convention for
+    the membrane time constant $\tau$.}
+\label{fig:known_ode_params_3col_noise_comparison}
+\end{figure}
+
+\input{tables/cv_table_known_ode_conditions}
+
+
+% \input{tables/table_baseline_results}
+
+\input{tables/blank50_baselines_table}
+
+
+\subsection{Stimulus-only prediction}
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.8\linewidth]{figure/fig_stimulus_ctx_pearson.pdf}
+\caption{%
+\textbf{Stimulus context length controls dynamical fidelity of the baseline.}
+For each context length $t_w \in \{1, 2, 4, 8, 16\}$, a stimulus-only
+MLP was trained to map $t_w$ consecutive stimulus frames $\{s(t), s(t-1), \cdots s(t-(t_w-1))\}$ to the voltage
+of all $N{=}13{,}741$ neurons $v(t)$ on 64k frames of the DAVIS dataset with no noise added. 
+Each model is evaluated on five distinct held-out YouTube test datasets by generating an 8{,}000 step voltage time series.
+For each
+(split, neuron) we compute the Pearson correlation between the predicted
+and true voltage trace; violins show the distribution across
+$5 \times N = 68{,}705$ points per context length. The multi-lobed distributions on the violins indicate the
+cell-type heterogeneity; some cell types, like retinal neurons are readily predicted even with $t_w=1$. Black markers are
+Fisher $z$-transformed means with 95\% confidence intervals
+($\bar r = \tanh(\overline{\operatorname{atanh} r})$). Correlation grows
+monotonically.
+}
+\label{fig:stimulus_ctx_pearson}
+\end{figure}
+          
+The FlyVis model optimizes a biophysically motivated, connectome-constrained model on an optical flow task, which requires the neural activities to encode past visual stimuli. The stimulus baseline model  (Figure \ref{fig:baseline_arch}) predicts the activities $v_i(t)$ of all the neurons using the input stimulus at times $t, t-1, t-(t_w-1)$, where $t_w$ denotes a context window. The stimulus encoder and predictor MLP are jointly trained to minimize the MSE loss between prediction and ground truth voltage. Figure \ref{fig:stimulus_ctx_pearson} shows the prediction performance, quantified using Pearson's r, as a function of $t_w$; at $t_w=1$ the performance is poor and increases monotonically as a function of context length. This baseline serves to demonstrate that . Thus, the performance of any model that predicts the activity $v(t)$ based on the stimulus $s(t)$ and $v(t-1)$ must be bounded from below by the stimulus baseline with $t_w=1$.
+
+
+\subsection{MLP baseline}
+
+We used a plain MLP to predict the time derivative of neural activity based on the input stimulus and past activity. We begin with the noise free system, where $\sigma = 0$ in \ref{eq:simulated_update}, and use the model
+\begin{equation}
+    \frac{dv}{dt} = \mathrm{MLP}(s(t), v(t-1))\, .
+\end{equation}
+
+We train this model to minimize the MSE loss between the predicted and ground truth $dv/dt$. We observed that by varying the hyperparameters of the MLP we were able to accurately capture the 1-step evolution of neural activity. However, we failed to achieve a stable roll out on validation data beyond a few hundred time steps. When measuring the MSE on an 8000 step rollout on validation data we observed large (RMSE $> 1.0$) low frequency oscillations that did not go to zero even after significant increases to the training time. To address this, we added ResNet-style skip connections, which enable the network to easily model the low frequency oscillations in the MSE that were missed by the plain MLP. This intervention helps us learn a generalizable model for neural activity evolution and we are able to generate autoregressive rollouts of over 8000 steps on the held-out test data with Pearson's $r > 0.90$ (data not shown here). However, 
+as shown in Table \ref{tab:cv_baselines_sym}. 
+
+Figure \ref{fig:mlp_rollout} visualizes the noise free rollout on models trained with varying levels of noise. Unlike the GNN the rollout performance of the MLP is negatively impacted by increasing model noise. 
+
+. While the model faithfully reproduces the rollout, it does not capture the true underlying dynamics. This is best illustrated by plotting the Jacobian of the MLP with respect to the stimuli and the other neuron activities, which shows a large deviation from expectations. The main reason is that the MLP misses the connectome constraint and is therefore free to take any combinations of the current neural activity and the stimulus to predict the next time step. A linear analysis of the MLP shows poor concordance with the true underlying weights.
+
+\comment{TODO: explore regularization? or add a comment on this.}
+% \comment{TODO: add a figure showing that weight recovery fails?}
+\begin{figure}[t]                                                                      
+\centering                                                                           
+\includegraphics[width=\textwidth]{figure/fig_jacobian_l1_comparison.pdf}           
+\caption{%                                                                           
+  Stimulus and voltage Jacobians of the trained MLP baseline,                        
+  compared with no L1 regularization vs.\ $\lambda_{L1}=10^{-6}$.                    
+  \textbf{(a–c)} Stimulus Jacobian $J^{s}=\partial(\dot v)/\partial s$               
+  on the input-neuron rows ($i<n_\text{in}=1736$) for all stimulus columns:          
+  \textbf{(a)}~ground truth (identity, red diagonal),                                
+  \textbf{(b)}~no regularization,                                                    
+  \textbf{(c)}~with global L1 on MLP weights.                                        
+  \textbf{(d–f)} Voltage Jacobian $J^{v}=\partial(\dot v)/\partial v$                
+  versus the ground-truth connectivity $W_{j\to i}$ on a                             
+  $400{\times}400$ ROI containing both excitatory and inhibitory                     
+  edges that the L1 model also activates:                                            
+  \textbf{(d)}~GT $W$,                                                               
+  \textbf{(e)}~no regularization,                                                    
+  \textbf{(f)}~with L1.                                                              
+  Color uses a symmetric-log normalization                                           
+  ($\text{linthresh}=0.1$) so small magnitudes remain visible;                       
+  each row shares one colorbar.                                                      
+}                                                                                    
+\label{fig:jacobian_l1_comparison}                                                   
+\end{figure}  
+
+We found that the addition of stochastic dynamics via an model noise term as in Eq. \ref{eq:simulated_update} with $\sigma > 0$ hurts the ability of the MLP to learn the underlying drift dynamics. At the high noise level of $\sigma=0.5$ the activity at the next time step is dominated by the noise compared to the drift term that is mostly close to zero. To compensate for this, we trained the MLP model to make predictions of the next $R$ time steps and minimized the MSE loss over $t+1, t+2, \cdots, t+R$. The $R$ step rollout training helps average out the uncorrelated noise and the model is able to learn the correct drift dynamics. Additionally, we initialized the weights and biases of the final layer of the MLP to zero, since this starts the optimization at $dv_i/dt = 0$ generating a constant and bounded rollout. We still observe a performance gap between the noise free conditions and those with noise added. It may be possible to bridge this gap with more input data that would allow for further averaging out of the noise term, or other architectural and training innovations. 
+
+\subsection{EED model}
+
+To improve the performance of the MLP we introduce a bottleneck architecture that we call the Encoder-Evolver-Decoder model. This can be viewed as a state space model where the internal dynamics are described by an evolving latent representation, which is then read out by the measured neurons. We were motivated to consider this architecture by the observation that the neural activity matrix can be accurately reconstructed using top $K$ singular values for $K \ll N$ \comment{TODO: add reconstruction error vs K plot or just numbers inline}. The model architecture, depicted in Figure \ref{fig:baseline_arch}C, consists of an auto-encoder that projects to/reconstructs the observed neural activity from a lower dimensional latent space. The visual stimulus is also encoded into a smaller representation and the next latent state is a function of the stimulus latent and the activity latent. Similar to the MLP baseline architecture above we added linear skip connections to each of the encoder, decoder, evolver and stimulus encoder MLPs. 
+
+
+- TODO: jacobian - any better than MLP?
+
+TODO: we need to make some comment that we've restricted ourselves to models of first order dynamics for the most part. We have not considered models that use past W time steps of neural activity to predict the future.
+
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\newpage
+\input{checklist.tex}
+
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\newpage
+\input{checklist.tex}
+
+\end{document}
