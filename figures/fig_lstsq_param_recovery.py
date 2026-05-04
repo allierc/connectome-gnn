@@ -309,11 +309,14 @@ def plot(data: dict, out: dict, out_base: Path):
             return f"<0.1%" if pct < 0.1 else f"{pct:.1f}%"
 
         # Layered: null (red) at the back, sloppy (orange) above, ok (black) on top.
+        # rasterized=True keeps PDF size small and lets Overleaf render quickly
+        # (otherwise tens of thousands of vector points choke the renderer).
         ax.scatter(true[is_null],   pred[is_null],   s=6, alpha=0.35, color="red",
-                   label=f"null ({_fmt(n_null, pct_null)})")
+                   label=f"null ({_fmt(n_null, pct_null)})", rasterized=True)
         ax.scatter(true[is_sloppy], pred[is_sloppy], s=6, alpha=0.4, color="orange",
-                   label=f"sloppy ({_fmt(n_sloppy, pct_sloppy)})")
-        ax.scatter(true[ok],        pred[ok],        s=4, alpha=0.7, color="k")
+                   label=f"sloppy ({_fmt(n_sloppy, pct_sloppy)})", rasterized=True)
+        ax.scatter(true[ok],        pred[ok],        s=4, alpha=0.7, color="k",
+                   rasterized=True)
         lo, hi = float(true[m].min()), float(true[m].max())
         ax.plot([lo, hi], [lo, hi], '--', color='gray', linewidth=1, alpha=0.6)
 
