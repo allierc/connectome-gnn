@@ -37,6 +37,7 @@ from connectome_gnn.models.utils import (
 )
 from connectome_gnn.plot import (
     plot_jacobian_w_scatter,
+    plot_metrics,
     plot_signal_loss,
     plot_training_flyvis,
     plot_training_linear,
@@ -879,6 +880,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                         f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f},{_fmt_metric(last_hidden_r2)},{_fmt_metric(last_anchor_r2)},'
                                 f'{_fmt_metric(last_vrest_r2_clean)},{last_n_out_vrest},{last_n_total_vrest},'
                                 f'{_fmt_metric(last_tau_r2_clean)},{last_n_out_tau},{last_n_total_tau}\n')
+                    _metrics_changed = True
                 elif (is_regular_r2 or is_early_r2) and 'mlp' not in model_name.lower():
                     last_connectivity_r2, _r2_visible, _h_r2, _a_r2 = plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_list, gt_weights, edges, n_neurons=n_neurons, n_neuron_types=sim.n_neuron_types, ode_params=ode_params, hidden_ids=hidden_ids, anchor_ids=anchor_ids)
                     last_connectivity_r2_visible = _r2_visible
@@ -899,6 +901,9 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                         f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f},{_fmt_metric(last_hidden_r2)},{_fmt_metric(last_anchor_r2)},'
                                 f'{_fmt_metric(last_vrest_r2_clean)},{last_n_out_vrest},{last_n_total_vrest},'
                                 f'{_fmt_metric(last_tau_r2_clean)},{last_n_out_tau},{last_n_total_tau}\n')
+                    _metrics_changed = True
+                else:
+                    _metrics_changed = False
 
                 # Fast NGP Pearson refresh — independent of the heavy R²
                 # checkpoint above. Subsamples (64 neurons × 256 frames),
@@ -943,6 +948,13 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                                 f'{_fmt_metric(_h_quick_std)},'
                                 f'{_fmt_metric(last_anchor_r2)},'
                                 f'{_fmt_metric(_a_quick_std)}\n')
+                    _metrics_changed = True
+
+                # Refresh metrics.png whenever metrics.log / nnr_pearson.log
+                # gained a new row (heavy R² or quick NGP path).
+                if _metrics_changed:
+                    plot_metrics(log_dir,
+                                 epoch_boundaries=regularizer.epoch_boundaries)
 
                 if last_connectivity_r2 is not None or last_hidden_r2 is not None:
                     bar_parts = []
@@ -962,12 +974,12 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                     if last_hidden_r2 is not None or last_anchor_r2 is not None:
                         # During warmup (alpha_inject=0), hidden voltages are
                         # zero-silenced so hidden_nnr_pearson is meaningless;
-                        # show NA. Anchor is still trained throughout, show it.
+                        # show n/a. Anchor is still trained throughout, show it.
                         if alpha_inject <= 0.0:
                             if last_anchor_r2 is not None:
-                                nnr_str = f'nnr=NA({last_anchor_r2:.3f})'
+                                nnr_str = f'nnr=n/a({last_anchor_r2:.3f})'
                             else:
-                                nnr_str = 'nnr=NA'
+                                nnr_str = 'nnr=n/a'
                             bar_parts.append(nnr_str)
                         elif last_hidden_r2 is not None:
                             if last_anchor_r2 is not None:
@@ -1275,6 +1287,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                     # W scatter plot using Jacobian
                     plot_jacobian_w_scatter(model, x_ts, ode_params, gt_weights, n_neurons,
                                             log_dir, epoch, N, device)
+                    _metrics_changed = True
                 elif (is_regular_r2 or is_early_r2) and not test_neural_field and ('linear' in model_name or 'known_ode' in model_name):
                     last_connectivity_r2, last_tau_r2, last_vrest_r2, _dyn = plot_training_linear(
                         model, config, epoch, N, log_dir, device, gt_weights, n_neurons=n_neurons)
@@ -1288,6 +1301,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                         f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f},{_fmt_metric(last_hidden_r2)},{_fmt_metric(last_anchor_r2)},'
                                 f'{_fmt_metric(last_vrest_r2_clean)},{last_n_out_vrest},{last_n_total_vrest},'
                                 f'{_fmt_metric(last_tau_r2_clean)},{last_n_out_tau},{last_n_total_tau}\n')
+                    _metrics_changed = True
                 elif (is_regular_r2 or is_early_r2) and not test_neural_field and 'mlp' not in model_name.lower():
                     last_connectivity_r2, _r2_visible, _h_r2, _a_r2 = plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_list, gt_weights, edges, n_neurons=n_neurons, n_neuron_types=sim.n_neuron_types, ode_params=ode_params, hidden_ids=hidden_ids, anchor_ids=anchor_ids)
                     last_connectivity_r2_visible = _r2_visible
@@ -1308,6 +1322,9 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                         f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f},{_fmt_metric(last_hidden_r2)},{_fmt_metric(last_anchor_r2)},'
                                 f'{_fmt_metric(last_vrest_r2_clean)},{last_n_out_vrest},{last_n_total_vrest},'
                                 f'{_fmt_metric(last_tau_r2_clean)},{last_n_out_tau},{last_n_total_tau}\n')
+                    _metrics_changed = True
+                else:
+                    _metrics_changed = False
 
                 # Fast NGP Pearson refresh — independent of the heavy R²
                 # checkpoint above. Subsamples (64 neurons × 256 frames),
@@ -1351,6 +1368,13 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                                 f'{_fmt_metric(_h_quick_std)},'
                                 f'{_fmt_metric(last_anchor_r2)},'
                                 f'{_fmt_metric(_a_quick_std)}\n')
+                    _metrics_changed = True
+
+                # Refresh metrics.png whenever metrics.log / nnr_pearson.log
+                # gained a new row (heavy R² or quick NGP path).
+                if _metrics_changed:
+                    plot_metrics(log_dir,
+                                 epoch_boundaries=regularizer.epoch_boundaries)
 
                 if last_connectivity_r2 is not None or last_hidden_r2 is not None:
                     bar_parts = []
@@ -1370,12 +1394,12 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                     if last_hidden_r2 is not None or last_anchor_r2 is not None:
                         # During warmup (alpha_inject=0), hidden voltages are
                         # zero-silenced so hidden_nnr_pearson is meaningless;
-                        # show NA. Anchor is still trained throughout, show it.
+                        # show n/a. Anchor is still trained throughout, show it.
                         if alpha_inject <= 0.0:
                             if last_anchor_r2 is not None:
-                                nnr_str = f'nnr=NA({last_anchor_r2:.3f})'
+                                nnr_str = f'nnr=n/a({last_anchor_r2:.3f})'
                             else:
-                                nnr_str = 'nnr=NA'
+                                nnr_str = 'nnr=n/a'
                             bar_parts.append(nnr_str)
                         elif last_hidden_r2 is not None:
                             if last_anchor_r2 is not None:

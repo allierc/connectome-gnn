@@ -1290,8 +1290,15 @@ def plot_signal_loss(loss_dict, log_dir, epoch=None, Niter=None, epoch_boundarie
     """
     Plot stratified loss components over training iterations.
 
-    Creates a three-panel figure showing loss and regularization terms in both
-    linear and log scale, plus connectivity R2 trajectory. Saves to {log_dir}/tmp_training/loss.png.
+    Creates a two-panel figure (linear + log scale) showing loss and
+    regularization terms. Saves to ``{log_dir}/tmp_training/loss.png``.
+
+    R² metrics and NNR per-neuron Pearson curves live in a separate
+    figure (``metrics.png``) produced by :func:`plot_metrics`. They were
+    split out because R²/NNR are refreshed every ~100 iters (NGP quick
+    Pearson cadence) while the loss panel only ticks every Niter/20 —
+    keeping them in one figure made the metrics panels stale between
+    loss ticks.
 
     Parameters:
     -----------
@@ -1364,46 +1371,14 @@ def plot_signal_loss(loss_dict, log_dir, epoch=None, Niter=None, epoch_boundarie
     style = default_style
     lw = style.line_width
 
-    # Look for the NNR pearson log first — its presence determines whether
-    # the figure adds the 4th (mean ± SD per-neuron) panel.
-    nnr_log_path = os.path.join(log_dir, 'tmp_training', 'nnr_pearson.log')
-    nnr_iters, nnr_h_mean, nnr_h_std, nnr_a_mean, nnr_a_std = [], [], [], [], []
-    if os.path.exists(nnr_log_path):
-        try:
-            with open(nnr_log_path) as f:
-                for line in f:
-                    line = line.strip()
-                    if not line or line.startswith('iteration'):
-                        continue
-                    parts = line.split(',')
-                    nnr_iters.append(int(parts[0]))
-                    nnr_h_mean.append(float(parts[1]) if parts[1] != 'nan' else np.nan)
-                    nnr_h_std.append(float(parts[2]) if parts[2] != 'nan' else np.nan)
-                    nnr_a_mean.append(float(parts[3]) if parts[3] != 'nan' else np.nan)
-                    nnr_a_std.append(float(parts[4]) if parts[4] != 'nan' else np.nan)
-        except Exception:
-            nnr_iters = []
-    has_nnr = len(nnr_iters) > 0
-
-    if has_nnr:
-        fig_loss, axes = style.figure(
-            ncols=2, nrows=2,
-            width=2 * style.figure_height * style.default_aspect,
-        )
-        ax1, ax2 = axes[0]
-        ax3, ax4 = axes[1]
-    else:
-        fig_loss, (ax1, ax2, ax3) = style.figure(
-            ncols=3, width=3 * style.figure_height * style.default_aspect)
-        ax4 = None
+    fig_loss, (ax1, ax2) = style.figure(
+        ncols=2, width=2 * style.figure_height * style.default_aspect)
 
     # x-axis: use global iteration if available, otherwise list index
     x_iter = loss_dict.get('iteration') or list(range(len(loss_dict['loss'])))
 
-    # Linear scale
     legend_fs = 7
-    _all_axes = (ax1, ax2, ax3) if ax4 is None else (ax1, ax2, ax3, ax4)
-    for a in _all_axes:
+    for a in (ax1, ax2):
         a.tick_params(axis='x', labelsize=9)
         a.tick_params(axis='y', labelsize=9)
     ax1.plot(x_iter, loss_dict['loss'], color='b', linewidth=1, label='loss (no regul)', alpha=0.8)
@@ -1434,16 +1409,36 @@ def plot_signal_loss(loss_dict, log_dir, epoch=None, Niter=None, epoch_boundarie
     ax2.set_yscale('log')
     ax2.legend(fontsize=legend_fs, loc='best', ncol=2)
 
-    # Epoch boundary lines on every panel
     if epoch_boundaries:
         for xb in epoch_boundaries:
-            for ax in _all_axes:
+            for ax in (ax1, ax2):
                 ax.axvline(x=xb, color='gray', linestyle='--', linewidth=0.8, alpha=0.6)
 
-    # R2 metrics panel (conn, V_rest, tau)
+    style.savefig(fig_loss, f'{log_dir}/tmp_training/loss.png')
+    plt.close()
+
+
+def plot_metrics(log_dir, epoch_boundaries=None):
+    """Render R\u00b2 and NNR per-neuron Pearson trajectories into metrics.png.
+
+    Reads ``{log_dir}/tmp_training/metrics.log`` (R\u00b2: connectivity, V_rest,
+    tau) and ``{log_dir}/tmp_training/nnr_pearson.log`` (per-neuron Pearson
+    r mean+SD when an NGP/SIREN hidden head is active). Layout:
+
+    - 1\u00d71 if only metrics.log has rows.
+    - 1\u00d72 if both logs have rows (R\u00b2 panel + NNR mean \u00b1 SD panel).
+    - skipped (no file written) if neither has rows.
+
+    The split from :func:`plot_signal_loss` lets these panels refresh at
+    the metrics-log cadence (\u2248100 iters via the NGP quick Pearson
+    refresh) instead of the slower ``plot_frequency`` (\u2248Niter/20)
+    tick that gates ``loss.png``.
+    """
     metrics_log_path = os.path.join(log_dir, 'tmp_training', 'metrics.log')
+    nnr_log_path = os.path.join(log_dir, 'tmp_training', 'nnr_pearson.log')
+
+    r2_iters, conn_vals, vrest_vals, tau_vals = [], [], [], []
     if os.path.exists(metrics_log_path):
-        r2_iters, conn_vals, vrest_vals, tau_vals = [], [], [], []
         try:
             with open(metrics_log_path) as f:
                 for line in f:
@@ -1452,40 +1447,76 @@ def plot_signal_loss(loss_dict, log_dir, epoch=None, Niter=None, epoch_boundarie
                         continue
                     parts = line.split(',')
                     r2_iters.append(int(parts[0]))
-                    conn_vals.append(float(parts[1]))
-                    vrest_vals.append(float(parts[2]) if len(parts) > 2 else 0.0)
-                    tau_vals.append(float(parts[3]) if len(parts) > 3 else 0.0)
+                    conn_vals.append(float(parts[1]) if len(parts) > 1 and parts[1] != 'nan' else np.nan)
+                    vrest_vals.append(float(parts[2]) if len(parts) > 2 and parts[2] != 'nan' else np.nan)
+                    tau_vals.append(float(parts[3]) if len(parts) > 3 and parts[3] != 'nan' else np.nan)
         except Exception:
-            pass
-        if conn_vals:
-            ax3.plot(r2_iters, conn_vals, color='#d62728', linewidth=1,
-                     label=r'connectivity $R^2$')
-            ax3.plot(r2_iters, vrest_vals, color='#1f77b4', linewidth=1,
-                     label=r'$V_{rest}$ $R^2$')
-            ax3.plot(r2_iters, tau_vals, color='#2ca02c', linewidth=1,
-                     label=r'$\tau$ $R^2$')
-            ax3.axhline(y=0.9, color='green', linestyle='--', alpha=0.4, linewidth=1)
-            ax3.set_ylim(-0.05, 1.05)
-            style.xlabel(ax3, 'iteration')
-            style.ylabel(ax3, r'$R^2$')
-            ax3.legend(fontsize=legend_fs, loc='lower right')
-            # most recent R2 values
-            latest_text = (f"conn={conn_vals[-1]:.3f}\n"
-                           f"vrest={vrest_vals[-1]:.3f}\n"
-                           f"tau={tau_vals[-1]:.3f}")
-            ax3.text(0.98, 0.97, latest_text, transform=ax3.transAxes,
-                     fontsize=8, verticalalignment='top', horizontalalignment='right')
-        else:
-            ax3.text(0.5, 0.5, 'no r\u00b2 data yet', ha='center', va='center',
-                     transform=ax3.transAxes, fontsize=style.label_font_size, color='gray')
-    else:
-        ax3.text(0.5, 0.5, 'no r\u00b2 data yet', ha='center', va='center',
-                 transform=ax3.transAxes, fontsize=style.label_font_size, color='gray')
+            r2_iters = []
 
-    # NNR mean \u00b1 SD panel (per-neuron Pearson r over training iterations).
-    # Only added when an NGP/SIREN hidden head was trained, so nnr_pearson.log
-    # exists and contains rows.
-    if ax4 is not None:
+    nnr_iters, nnr_h_mean, nnr_h_std, nnr_a_mean, nnr_a_std = [], [], [], [], []
+    if os.path.exists(nnr_log_path):
+        try:
+            with open(nnr_log_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith('iteration'):
+                        continue
+                    parts = line.split(',')
+                    nnr_iters.append(int(parts[0]))
+                    nnr_h_mean.append(float(parts[1]) if parts[1] != 'nan' else np.nan)
+                    nnr_h_std.append(float(parts[2]) if parts[2] != 'nan' else np.nan)
+                    nnr_a_mean.append(float(parts[3]) if parts[3] != 'nan' else np.nan)
+                    nnr_a_std.append(float(parts[4]) if parts[4] != 'nan' else np.nan)
+        except Exception:
+            nnr_iters = []
+
+    has_r2 = len(r2_iters) > 0
+    has_nnr = len(nnr_iters) > 0
+    if not has_r2 and not has_nnr:
+        return
+
+    style = default_style
+    legend_fs = 7
+
+    if has_r2 and has_nnr:
+        fig, (ax_r2, ax_nnr) = style.figure(
+            ncols=2, width=2 * style.figure_height * style.default_aspect)
+        axes_iter = (ax_r2, ax_nnr)
+    else:
+        fig, ax = style.figure(ncols=1)
+        ax_r2 = ax if has_r2 else None
+        ax_nnr = ax if has_nnr else None
+        axes_iter = (ax,)
+
+    for a in axes_iter:
+        a.tick_params(axis='x', labelsize=9)
+        a.tick_params(axis='y', labelsize=9)
+
+    if has_r2:
+        ax_r2.plot(r2_iters, conn_vals, color='#d62728', linewidth=1,
+                   label=r'connectivity $R^2$')
+        ax_r2.plot(r2_iters, vrest_vals, color='#1f77b4', linewidth=1,
+                   label=r'$V_{rest}$ $R^2$')
+        ax_r2.plot(r2_iters, tau_vals, color='#2ca02c', linewidth=1,
+                   label=r'$\tau$ $R^2$')
+        ax_r2.axhline(y=0.9, color='green', linestyle='--', alpha=0.4, linewidth=1)
+        ax_r2.set_ylim(-0.05, 1.05)
+        style.xlabel(ax_r2, 'iteration')
+        style.ylabel(ax_r2, r'$R^2$')
+        ax_r2.legend(fontsize=legend_fs, loc='lower right')
+        latest_lines = []
+        if conn_vals and not np.isnan(conn_vals[-1]):
+            latest_lines.append(f'conn={conn_vals[-1]:.3f}')
+        if vrest_vals and not np.isnan(vrest_vals[-1]):
+            latest_lines.append(f'vrest={vrest_vals[-1]:.3f}')
+        if tau_vals and not np.isnan(tau_vals[-1]):
+            latest_lines.append(f'tau={tau_vals[-1]:.3f}')
+        if latest_lines:
+            ax_r2.text(0.98, 0.97, '\n'.join(latest_lines),
+                       transform=ax_r2.transAxes, fontsize=8,
+                       verticalalignment='top', horizontalalignment='right')
+
+    if has_nnr:
         x_n = np.asarray(nnr_iters)
         h_m = np.asarray(nnr_h_mean, dtype=float)
         h_s = np.asarray(nnr_h_std, dtype=float)
@@ -1494,33 +1525,33 @@ def plot_signal_loss(loss_dict, log_dir, epoch=None, Niter=None, epoch_boundarie
 
         h_valid = ~np.isnan(h_m)
         if h_valid.any():
-            ax4.plot(x_n[h_valid], h_m[h_valid], color='#4477cc', linewidth=1.2,
-                     label='hidden mean')
+            ax_nnr.plot(x_n[h_valid], h_m[h_valid], color='#4477cc',
+                        linewidth=1.2, label='hidden mean')
             h_band_valid = h_valid & ~np.isnan(h_s)
             if h_band_valid.any():
-                ax4.fill_between(x_n[h_band_valid],
-                                 h_m[h_band_valid] - h_s[h_band_valid],
-                                 h_m[h_band_valid] + h_s[h_band_valid],
-                                 color='#4477cc', alpha=0.25, linewidth=0,
-                                 label='hidden \u00b1 SD')
+                ax_nnr.fill_between(x_n[h_band_valid],
+                                    h_m[h_band_valid] - h_s[h_band_valid],
+                                    h_m[h_band_valid] + h_s[h_band_valid],
+                                    color='#4477cc', alpha=0.25, linewidth=0,
+                                    label='hidden \u00b1 SD')
 
         a_valid = ~np.isnan(a_m)
         if a_valid.any():
-            ax4.plot(x_n[a_valid], a_m[a_valid], color='#cc6644', linewidth=1.2,
-                     label='anchor mean')
+            ax_nnr.plot(x_n[a_valid], a_m[a_valid], color='#cc6644',
+                        linewidth=1.2, label='anchor mean')
             a_band_valid = a_valid & ~np.isnan(a_s)
             if a_band_valid.any():
-                ax4.fill_between(x_n[a_band_valid],
-                                 a_m[a_band_valid] - a_s[a_band_valid],
-                                 a_m[a_band_valid] + a_s[a_band_valid],
-                                 color='#cc6644', alpha=0.25, linewidth=0,
-                                 label='anchor \u00b1 SD')
+                ax_nnr.fill_between(x_n[a_band_valid],
+                                    a_m[a_band_valid] - a_s[a_band_valid],
+                                    a_m[a_band_valid] + a_s[a_band_valid],
+                                    color='#cc6644', alpha=0.25, linewidth=0,
+                                    label='anchor \u00b1 SD')
 
-        ax4.axhline(y=0.0, color='gray', linewidth=0.5, linestyle='--', alpha=0.6)
-        ax4.set_ylim(-0.2, 1.05)
-        style.xlabel(ax4, 'iteration')
-        style.ylabel(ax4, 'NNR per-neuron pearson')
-        ax4.legend(fontsize=legend_fs, loc='lower right', ncol=2)
+        ax_nnr.axhline(y=0.0, color='gray', linewidth=0.5, linestyle='--', alpha=0.6)
+        ax_nnr.set_ylim(-0.2, 1.05)
+        style.xlabel(ax_nnr, 'iteration')
+        style.ylabel(ax_nnr, 'NNR per-neuron pearson')
+        ax_nnr.legend(fontsize=legend_fs, loc='lower right', ncol=2)
 
         latest_lines = []
         if h_valid.any():
@@ -1538,10 +1569,16 @@ def plot_signal_loss(loss_dict, log_dir, epoch=None, Niter=None, epoch_boundarie
             else:
                 latest_lines.append(f'a={_am_last:.3f}\u00b1{_as_last:.3f}')
         if latest_lines:
-            ax4.text(0.98, 0.97, '\n'.join(latest_lines), transform=ax4.transAxes,
-                     fontsize=8, verticalalignment='top', horizontalalignment='right')
+            ax_nnr.text(0.98, 0.97, '\n'.join(latest_lines),
+                        transform=ax_nnr.transAxes, fontsize=8,
+                        verticalalignment='top', horizontalalignment='right')
 
-    style.savefig(fig_loss, f'{log_dir}/tmp_training/loss.png')
+    if epoch_boundaries:
+        for xb in epoch_boundaries:
+            for a in axes_iter:
+                a.axvline(x=xb, color='gray', linestyle='--', linewidth=0.8, alpha=0.6)
+
+    style.savefig(fig, f'{log_dir}/tmp_training/metrics.png')
     plt.close()
 
 
