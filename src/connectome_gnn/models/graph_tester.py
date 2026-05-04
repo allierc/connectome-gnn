@@ -738,46 +738,6 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
             log_file.write(f'stimuli_R2: {stimuli_R2:.4f}\n')
             log_file.write(f'stimuli_r: {stimuli_r:.4f}\n')
 
-    # --- MLP Jacobian connectivity R2 ---
-    if ('mlp' in model_config.signal_model_name.lower() or 'eed' in model_config.signal_model_name.lower()) and hasattr(model, 'compute_jacobian_batched'):
-        from connectome_gnn.metrics import compute_jacobian_connectivity_r2
-        from connectome_gnn.generators.ode_params import get_ode_params_class
-        try:
-            _OdeCls = get_ode_params_class(config.graph_model.signal_model_name)
-            _ode_p = _OdeCls.load(graphs_data_path(config.dataset), device=device)
-        except Exception as e:
-            logger.error(f'Failed to load ODE params for Jacobian connectivity R2: {e}')
-            _ode_p = None
-        if _ode_p is not None:
-            jac_r2 = compute_jacobian_connectivity_r2(
-                model, x_ts_eval, _ode_p, n_neurons=n_neurons, device=device)
-            logger.info(f'Jacobian connectivity R2: {jac_r2:.4f}')
-            if log_file:
-                log_file.write(f'\n--- Jacobian connectivity ---\n')
-                log_file.write(f'connectivity_R2: {jac_r2:.4f}\n')
-
-            # W scatter plot: true W vs Jacobian dF/dv
-            model.eval()
-            J_mean = model.compute_jacobian_batched(x_ts_eval, n_samples=50, seed=0)
-            model.train()
-            ei = to_numpy(_ode_p.edge_index)
-            gt_W = to_numpy(_ode_p.W)
-            J_np = to_numpy(J_mean)
-            learned_at_edges = J_np[ei[0], ei[1]]
-
-            from connectome_gnn.plot import plot_weight_scatter
-            fig, ax = plt.subplots(figsize=(8, 8))
-            plot_weight_scatter(ax, gt_weights=gt_W, learned_weights=learned_at_edges,
-                                corrected=False, outlier_threshold=5)
-            ax.set_xlabel('true $W$', fontsize=24)
-            ax.set_ylabel('Jacobian $\\partial F / \\partial v$', fontsize=24)
-            ax.set_title(f'Jacobian connectivity $R^2$ = {jac_r2:.4f}', fontsize=18)
-            plt.tight_layout()
-            _idx = re.sub(r'_\d{2}$', '', os.path.basename(config.dataset))
-            plt.savefig(f"{results_dir}/weights_comparison_{_idx}.png", dpi=300)
-            plt.close()
-            logger.info(f'saved weights_comparison_{_idx}.png')
-
     # --- Rollout trace plots ---
     neuron_types = to_numpy(type_list).astype(int).squeeze()
     n_neuron_types = sim.n_neuron_types
