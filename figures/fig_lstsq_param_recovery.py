@@ -162,10 +162,25 @@ def solve(
     N, E, T = data["N"], data["E"], data["T"]
     active_idx = np.where(deg_in > 0)[0]
 
-    dv_d     = torch.from_numpy(data["dv"]).to(device).double()
-    relu_v_d = torch.from_numpy(data["relu_v"]).to(device).double()
-    rhs_d    = torch.from_numpy(data["rhs"]).to(device).double()
+    # By default the full (T-1, N) matrices are uploaded to the GPU once. For
+    # large N (e.g. flyvis full eye, ~25 GB per matrix at float64) this OOMs on
+    # a single GPU; --lowmem keeps them on (pinned) host memory and ships only
+    # per-neuron column slices each iteration. Slower per iter but fits.
+    # Storage: float32 (halves memory + bandwidth). Per-neuron design matrix A
+    # and target b are upcast to float64 inside the loop, since the eigh /
+    # pseudoinverse step is sensitive to the conditioning of A^T A.
+    dv_d     = torch.from_numpy(data["dv"]).float().to(device)
+    relu_v_d = torch.from_numpy(data["relu_v"]).float().to(device)
+    rhs_d    = torch.from_numpy(data["rhs"]).float().to(device)
     ones_col = -torch.ones(T - 1, 1, device=device, dtype=torch.float64)
+
+    # Preallocate one (T-1, K_max+2) double buffer reused across all iterations.
+    # Column 0 = dv_i, column 1 = -1, columns 2..2+K_i-1 = -ReLU(v_j) for j in
+    # in_src[i]. A is a view into A_buf trimmed to the current K_i+2 width, so
+    # there's no per-iteration allocation for A and no torch.cat call.
+    K_max = int(deg_in.max())
+    A_buf = torch.empty(T - 1, K_max + 2, device=device, dtype=torch.float64)
+    A_buf[:, 1:2] = ones_col
 
     tau_lstsq   = np.full(N, np.nan, dtype=np.float64)
     vrest_lstsq = np.full(N, np.nan, dtype=np.float64)
@@ -193,12 +208,14 @@ def solve(
 
     t0 = time.time()
     for i in tqdm(active_idx, desc="lstsq", unit="neuron"):
-        A = torch.cat([
-            dv_d[:, i:i+1],
-            ones_col,
-            -relu_v_d[:, in_src[i]],
-        ], dim=1)
-        b = rhs_d[:, i]
+        # Fill A_buf in place: copy_ handles the float32 -> float64 cast.
+        # Column 1 (-1) was set once outside the loop and is never touched.
+        K_i = len(in_src[i])
+        A = A_buf[:, :K_i + 2]
+        A[:, 0:1].copy_(dv_d[:, i:i+1])
+        A[:, 2:].copy_(relu_v_d[:, in_src[i]])
+        A[:, 2:].neg_()
+        b = rhs_d[:, i].double()
 
         s = A.norm(dim=0)
         s = torch.where(s > 0, s, torch.ones_like(s))
