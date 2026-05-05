@@ -33,7 +33,6 @@ import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.colors import SymLogNorm
 from torch.func import jacfwd
-from scipy.ndimage import uniform_filter
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / 'src'))
@@ -58,13 +57,14 @@ LAMBDA_L1_LABEL = r'10^{-6}'
 T_EVAL          = 40       # frame at which Jacobians are evaluated
 JV_CHUNK        = 128      # row-chunk for the (N x N) voltage Jacobian backward pass
 
-W_ROI           = 400      # bottom-row ROI size (square)
-L1_THRESH       = 0.05     # |J^v_l1| > this counts as "signal" when scoring ROI
-ROI_DI          = -150     # nudge auto-picked ROI (negative = up)
-ROI_DJ          = -150     # nudge auto-picked ROI (negative = left)
+L1_THRESH       = 0.05     # |J^v_l1| > this counts as "signal" when scoring a type pair
+MIN_TYPE_NEURONS = 30      # require this many neurons of each type to qualify
+N_POST_TYPES    = 3        # number of post-synaptic types tiled along Y
+N_PRE_TYPES     = 3        # number of pre-synaptic  types tiled along X
 
 TOP_LINTHRESH   = 0.1      # SymLogNorm linear-threshold for top-row J^s
 BOT_LINTHRESH   = 0.1      # SymLogNorm linear-threshold for bottom-row J^v / W
+BOT_VMAX_SCALE  = 0.3      # tighten bottom-row clim (smaller -> more saturated color)
 
 CACHE_DIR       = REPO / 'figures' / '_baseline_cache'
 OUT_BASE        = REPO / 'figures' / 'fig_jacobian_l1_comparison'
@@ -157,6 +157,33 @@ def _cached_jacobians(config_name, t_eval, device):
     return Je, Jv, n_input
 
 
+# -----------------------------------------------------------------------------
+# Per-neuron flyvis cell type names (cached: requires loading flyvis Network)
+# -----------------------------------------------------------------------------
+def _cached_neuron_type_names(cfg):
+    """Return (N,) array of cell-type strings (e.g. 'T4a', 'Mi1') per neuron."""
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    path = CACHE_DIR / f'flyvis_neuron_types_{cfg.dataset}.npz'
+    if path.exists():
+        return np.load(path, allow_pickle=False)['types_str']
+    print(f'  loading flyvis Network for cell-type names ({cfg.dataset}) ...')
+    from flyvis import Network
+    from flyvis.utils.config_utils import CONFIG_PATH, get_default_config
+    sim = cfg.simulation
+    extent = 15 if getattr(sim, 'all_columns', False) else 8
+    config_net = get_default_config(
+        overrides=[], path=f'{CONFIG_PATH}/network/network.yaml'
+    )
+    config_net.connectome.extent = extent
+    net = Network(**config_net)
+    raw = np.array(net.connectome.nodes['type'])
+    types_str = np.array(
+        [t.decode('utf-8') if isinstance(t, bytes) else str(t) for t in raw]
+    )
+    np.savez_compressed(path, types_str=types_str)
+    return types_str
+
+
 def _build_W_dense_gt(dataset_name, n_neurons, device):
     OdeCls = get_ode_params_class('flyvis_known_ode')
     ode = OdeCls.load(graphs_data_path(f'fly/{dataset_name}'), device=device)
@@ -167,24 +194,60 @@ def _build_W_dense_gt(dataset_name, n_neurons, device):
 
 
 # -----------------------------------------------------------------------------
-# ROI selection
+# Cell-type pair selection
 # -----------------------------------------------------------------------------
-def _find_mixed_sign_window(M_gt, M_signal, win, signal_thresh):
-    """Window with substantial positive AND negative MASS in M_gt + signal in M_signal.
+def _score_type_pairs(W, types_str, signal, signal_thresh, min_neurons):
+    """Pick (post_type, pre_type) with the strongest, densest GT block + L1 signal.
 
-    Score = sum(W_+) * sum(|W_-|) * density(|signal| > thresh).
+    Flyvis follows Dale's law, so each (post, pre) block is single-sign. We score
+    by GT edge density * |W| mass * learned-signal density, biased to blocks the
+    L1 model also lights up:
+
+        score = mass(|W|) * density(|W| > 0) * density(|signal| > thresh)
+
+    Returns the full list of candidates sorted by score (desc).
+    Candidate tuple = (post, pre, score, w_mass, gt_density, sig_density).
     """
-    pos_mass = uniform_filter(np.where(M_gt > 0, M_gt,  0.0).astype(np.float32),
-                              size=win, mode='constant', cval=0.0)
-    neg_mass = uniform_filter(np.where(M_gt < 0, -M_gt, 0.0).astype(np.float32),
-                              size=win, mode='constant', cval=0.0)
-    sig_dens = uniform_filter((np.abs(M_signal) > signal_thresh).astype(np.float32),
-                              size=win, mode='constant', cval=0.0)
-    score = pos_mass * neg_mass * sig_dens
-    H, W = M_gt.shape
-    valid = score[: H - win + 1, : W - win + 1]
-    cy, cx = np.unravel_index(np.argmax(valid), valid.shape)
-    return int(cy), int(cx)
+    unique = np.unique(types_str)
+    type_idx = {t: np.where(types_str == t)[0] for t in unique}
+    candidates = []
+    for post in unique:
+        rows = type_idx[post]
+        if len(rows) < min_neurons:
+            continue
+        for pre in unique:
+            cols = type_idx[pre]
+            if len(cols) < min_neurons:
+                continue
+            sub_W   = W[np.ix_(rows, cols)]
+            sub_sig = signal[np.ix_(rows, cols)]
+            w_mass     = float(np.abs(sub_W).sum())
+            if w_mass == 0.0:
+                continue
+            gt_density  = float((sub_W != 0).mean())
+            sig_density = float((np.abs(sub_sig) > signal_thresh).mean())
+            score = w_mass * gt_density * sig_density
+            candidates.append((post, pre, score, w_mass, gt_density, sig_density))
+    if not candidates:
+        raise RuntimeError(
+            f'no type pair satisfies min_neurons={min_neurons} with non-zero W mass'
+        )
+    candidates.sort(key=lambda x: x[2], reverse=True)
+    return candidates
+
+
+def _topk_unique(candidates, axis, k):
+    """Top-k unique values on `axis` ('post' or 'pre') by max pair score."""
+    col = 0 if axis == 'post' else 1
+    seen, out = set(), []
+    for c in candidates:
+        v = c[col]
+        if v in seen:
+            continue
+        seen.add(v); out.append(v)
+        if len(out) == k:
+            break
+    return out
 
 
 def _vmax_pct(M, pct=99.0):
@@ -234,85 +297,113 @@ def main():
     Je_no_reg_p = Je_no_reg[top_slice]
     Je_l1_p     = Je_l1[top_slice]
 
-    # ---- bottom row crop: ROI maximizing pos-mass * neg-mass * L1-signal ----
-    i_auto, j_auto = _find_mixed_sign_window(W_dense_gt, Jv_l1, W_ROI, L1_THRESH)
-    H, W = W_dense_gt.shape
-    i0 = int(np.clip(i_auto + ROI_DI, 0, H - W_ROI))
-    j0 = int(np.clip(j_auto + ROI_DJ, 0, W - W_ROI))
-    print(f'auto ROI: ({i_auto}, {j_auto})  ->  shifted by ({ROI_DI:+d}, {ROI_DJ:+d})  '
-          f'->  ({i0}, {j0})')
+    # ---- bottom row: tile top-N post x top-N pre cell types into one block ----
+    types_str = _cached_neuron_type_names(cfg)
+    if len(types_str) != N:
+        raise RuntimeError(
+            f'flyvis cell-type vector length {len(types_str)} != n_neurons {N}'
+        )
+    candidates = _score_type_pairs(
+        W_dense_gt, types_str, signal=Jv_l1,
+        signal_thresh=L1_THRESH, min_neurons=MIN_TYPE_NEURONS,
+    )
+    print('top type-pair candidates (post, pre, score, w_mass, gt_density, sig_density):')
+    for c in candidates[:8]:
+        print(f'  {c[0]:>8s} <- {c[1]:>8s}  score={c[2]:.2e}  '
+              f'w={c[3]:.1f}  gt={c[4]:.3f}  sig={c[5]:.3f}')
 
-    bot_slice = (slice(i0, i0 + W_ROI), slice(j0, j0 + W_ROI))
-    W_gt_p      = W_dense_gt[bot_slice]
-    Jv_no_reg_p = Jv_no_reg[bot_slice]
-    Jv_l1_p     = Jv_l1[bot_slice]
+    post_types = _topk_unique(candidates, 'post', N_POST_TYPES)
+    pre_types  = _topk_unique(candidates, 'pre',  N_PRE_TYPES)
+    rows_per_type = [np.where(types_str == t)[0] for t in post_types]
+    cols_per_type = [np.where(types_str == t)[0] for t in pre_types]
+    rows = np.concatenate(rows_per_type)
+    cols = np.concatenate(cols_per_type)
+    n_post, n_pre = len(rows), len(cols)
+    row_edges = np.concatenate([[0], np.cumsum([len(r) for r in rows_per_type])])
+    col_edges = np.concatenate([[0], np.cumsum([len(c) for c in cols_per_type])])
+    row_centers = 0.5 * (row_edges[:-1] + row_edges[1:])
+    col_centers = 0.5 * (col_edges[:-1] + col_edges[1:])
+    print(f'selected post types: {post_types}  (n={[len(r) for r in rows_per_type]})')
+    print(f'selected pre  types: {pre_types}   (n={[len(c) for c in cols_per_type]})')
 
-    sum_pos = float(W_gt_p[W_gt_p > 0].sum())
-    sum_neg = float(-W_gt_p[W_gt_p < 0].sum())
-    n_sig   = int((np.abs(Jv_l1_p) > L1_THRESH).sum())
-    print(f'mixed-sign ROI: rows [{i0}, {i0+W_ROI}), cols [{j0}, {j0+W_ROI}) - '
-          f'+sum {sum_pos:.1f}, -sum {sum_neg:.1f}, {n_sig} L1 signal pixels')
+    rc = np.ix_(rows, cols)
+    W_gt_p      = W_dense_gt[rc]
+    Jv_no_reg_p = Jv_no_reg[rc]
+    Jv_l1_p     = Jv_l1[rc]
 
     # ---- per-row shared color norms (SymLog so small magnitudes are visible) ----
     vmax_top = max(1.0, _vmax_pct(Je_no_reg_p, 99.0), _vmax_pct(Je_l1_p, 99.0))
     vmax_bot = max(_vmax_pct(W_gt_p, 99.5) if W_gt_p.any() else 1.0,
                    _vmax_pct(Jv_no_reg_p, 99.0),
-                   _vmax_pct(Jv_l1_p, 99.0))
+                   _vmax_pct(Jv_l1_p, 99.0)) * BOT_VMAX_SCALE
     top_norm = SymLogNorm(linthresh=TOP_LINTHRESH, vmin=-vmax_top, vmax=vmax_top, base=10)
     bot_norm = SymLogNorm(linthresh=BOT_LINTHRESH, vmin=-vmax_bot, vmax=vmax_bot, base=10)
 
     # ---- figure ----
     n_diag = min(n_input, Je_gt_p.shape[1])
     top_extent = [0, Je_gt_p.shape[1], 0, n_input]
-    bot_extent = [j0, j0 + W_ROI, i0, i0 + W_ROI]
+    bot_extent = [0, n_pre, 0, n_post]
 
     fig, axes = plt.subplots(2, 3, figsize=(12, 8), constrained_layout=True,
                              sharey='row')
 
     top_xlabel = r'stimulus index'
     top_ylabel = r'retinal neurons'
-    bot_xlabel = r'pre-synaptic neuron'
-    bot_ylabel = r'post-synaptic neuron'
+    bot_xlabel = 'pre-synaptic cell type'
+    bot_ylabel = 'post-synaptic cell type'
 
     # -- top row: stimulus Jacobian J^s --
     axes[0, 0].imshow(np.zeros_like(Je_gt_p), aspect='auto', cmap='Greys', origin='lower',
-                      vmin=0, vmax=1, extent=top_extent)
+                      vmin=0, vmax=1, extent=top_extent, rasterized=True)
     axes[0, 0].plot([0, n_diag - 1], [0, n_diag - 1],
                     color='red', lw=1.5, solid_capstyle='butt')
-    axes[0, 0].set_title(r'gt $J^s$ (identity for $i<n_\mathrm{in}$)', pad=4)
+    axes[0, 0].set_title(r'Jacobian stimulus (GT)', pad=4)
     axes[0, 0].set_xlabel(top_xlabel); axes[0, 0].set_ylabel(top_ylabel)
 
     im_top = axes[0, 1].imshow(Je_no_reg_p, aspect='auto', cmap='RdBu_r', origin='lower',
-                               norm=top_norm, extent=top_extent)
-    axes[0, 1].set_title(r'$J^s$ — no reg ($\lambda_{L1}=0$)', pad=4)
+                               norm=top_norm, extent=top_extent, rasterized=True)
+    axes[0, 1].set_title(r'Jacobian stimulus (no L1 reg)', pad=4)
     axes[0, 1].set_xlabel(top_xlabel)
 
     axes[0, 2].imshow(Je_l1_p, aspect='auto', cmap='RdBu_r', origin='lower',
-                      norm=top_norm, extent=top_extent)
-    axes[0, 2].set_title(rf'$J^s$ — L1 ($\lambda_{{L1}}={LAMBDA_L1_LABEL}$)', pad=4)
+                      norm=top_norm, extent=top_extent, rasterized=True)
+    axes[0, 2].set_title(rf'Jacobian stimulus (L1 reg ${LAMBDA_L1_LABEL}$)', pad=4)
     axes[0, 2].set_xlabel(top_xlabel)
 
-    cbar_top = fig.colorbar(im_top, ax=axes[0, :].tolist(), fraction=0.025, pad=0.02)
-    cbar_top.set_label(rf'$J^s$  (symlog, linthresh={TOP_LINTHRESH:g}, vmax={vmax_top:.2f})')
+    fig.colorbar(im_top, ax=axes[0, :].tolist(), fraction=0.025, pad=0.02)
 
     # -- bottom row: voltage Jacobian J^v vs GT W --
     im_bot = axes[1, 0].imshow(W_gt_p, aspect='auto', cmap='RdBu_r', origin='lower',
-                               norm=bot_norm, extent=bot_extent)
-    axes[1, 0].set_title(r'gt $W$ ($j \to i$)', pad=4)
+                               norm=bot_norm, extent=bot_extent, rasterized=True)
+    axes[1, 0].set_title(r'Jacobian weight (GT)', pad=4)
     axes[1, 0].set_xlabel(bot_xlabel); axes[1, 0].set_ylabel(bot_ylabel)
 
     axes[1, 1].imshow(Jv_no_reg_p, aspect='auto', cmap='RdBu_r', origin='lower',
-                      norm=bot_norm, extent=bot_extent)
-    axes[1, 1].set_title(r'$J^v$ — no reg ($\lambda_{L1}=0$)', pad=4)
+                      norm=bot_norm, extent=bot_extent, rasterized=True)
+    axes[1, 1].set_title(r'Jacobian weight (no L1 reg)', pad=4)
     axes[1, 1].set_xlabel(bot_xlabel)
 
     axes[1, 2].imshow(Jv_l1_p, aspect='auto', cmap='RdBu_r', origin='lower',
-                      norm=bot_norm, extent=bot_extent)
-    axes[1, 2].set_title(rf'$J^v$ — L1 ($\lambda_{{L1}}={LAMBDA_L1_LABEL}$)', pad=4)
+                      norm=bot_norm, extent=bot_extent, rasterized=True)
+    axes[1, 2].set_title(rf'Jacobian weight (L1 reg ${LAMBDA_L1_LABEL}$)', pad=4)
     axes[1, 2].set_xlabel(bot_xlabel)
 
-    cbar_bot = fig.colorbar(im_bot, ax=axes[1, :].tolist(), fraction=0.025, pad=0.02)
-    cbar_bot.set_label(rf'$J^v$ / $W$  (symlog, linthresh={BOT_LINTHRESH:g}, vmax={vmax_bot:.2f})')
+    fig.colorbar(im_bot, ax=axes[1, :].tolist(), fraction=0.025, pad=0.02)
+
+    # -- bottom-row tick labels at type-block centers + thin boundary lines --
+    for j, ax in enumerate(axes[1, :]):
+        ax.set_xticks(col_centers)
+        ax.set_xticklabels([f'{t}\n(n={len(c)})'
+                            for t, c in zip(pre_types, cols_per_type)])
+        if j == 0:
+            ax.set_yticks(row_centers)
+            ax.set_yticklabels([f'{t}\n(n={len(r)})'
+                                for t, r in zip(post_types, rows_per_type)])
+        for x in col_edges[1:-1]:
+            ax.axvline(x, color='k', lw=0.5, alpha=0.6)
+        for y in row_edges[1:-1]:
+            ax.axhline(y, color='k', lw=0.5, alpha=0.6)
+        ax.tick_params(axis='both', which='both', length=0)
 
     # -- panel labels (a..f), aligned to outer panel bbox top --
     _add_panel_labels(fig, [axes[0, 0], axes[0, 1], axes[0, 2]],
