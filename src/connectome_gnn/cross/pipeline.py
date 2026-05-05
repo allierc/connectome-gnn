@@ -55,6 +55,16 @@ CONDITION_BASES = [
     'flyvis_noise_005_010_blank50_ar1_rho90',
     'flyvis_noise_005_010_blank50_ar1_rho95',
     'flyvis_noise_005_010_blank50_ar1_rho99',
+    # gamma=0.50 measurement-noise base (extends {0.10, 0.20} sweep).
+    'flyvis_noise_005_050',
+    # Per-epoch noise resampling twins (must match CONDITIONS in cross/yaml_io.py).
+    'flyvis_noise_005_010_resample',
+    'flyvis_noise_005_020_resample',
+    'flyvis_noise_005_050_resample',
+    # Tile-25 short-trajectory twins (must match CONDITIONS in cross/yaml_io.py).
+    'flyvis_noise_005_010_repeat25',
+    'flyvis_noise_005_020_repeat25',
+    'flyvis_noise_005_050_repeat25',
     # FlyWire-RF v2 connectomes (must match CONDITIONS in cross/yaml_io.py).
     'e8_flywireRF_noise_005',
     'e8_flywireRF_proximal_nulls_noise_005',

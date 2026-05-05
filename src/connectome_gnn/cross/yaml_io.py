@@ -63,6 +63,21 @@ CONDITIONS = [
     ('flyvis_noise_005_010_blank50_ar1_rho90', 'flyvis_noise_005_010_winner'),
     ('flyvis_noise_005_010_blank50_ar1_rho95', 'flyvis_noise_005_010_winner'),
     ('flyvis_noise_005_010_blank50_ar1_rho99', 'flyvis_noise_005_010_winner'),
+    # gamma=0.50 base condition (extends the {0.10, 0.20} measurement-noise
+    # sweep — see flyvis_noise_005_010 / flyvis_noise_005_020).
+    ('flyvis_noise_005_050',           'flyvis_unified_winner'),
+    # Per-epoch measurement-noise resampling twins (DAL=1, n_epochs=25 set
+    # via overrides in the runner; resample_noise_per_epoch=True is preserved
+    # from the base yaml via the pass-through in emit_one).
+    ('flyvis_noise_005_010_resample',  'flyvis_noise_005_010_resample'),
+    ('flyvis_noise_005_020_resample',  'flyvis_noise_005_020_resample'),
+    ('flyvis_noise_005_050_resample',  'flyvis_noise_005_050_resample'),
+    # Short-trajectory tile-25 twins (n_frames/25 unique frames generated
+    # then tiled ×25 across the train zarr; flag lives in simulation block
+    # so it flows through unchanged).
+    ('flyvis_noise_005_010_repeat25',  'flyvis_noise_005_010_repeat25'),
+    ('flyvis_noise_005_020_repeat25',  'flyvis_noise_005_020_repeat25'),
+    ('flyvis_noise_005_050_repeat25',  'flyvis_noise_005_050_repeat25'),
     # FlyWire-RF v2 connectomes (4 variants × {GNN, Known-ODE} share each
     # dataset). Each base yaml already contains a complete graph_model +
     # training block, so winner = base for the GNN runner; the KODE runner
@@ -98,7 +113,10 @@ def emit_one(base_name, hp_yaml_path, out_yaml_path, suffix, yt_root,
              fold_i=None, sim_seed=None, train_seed=None,
              sim_overrides=None, dataset_tag=None,
              data_augmentation_loop=100,
-             data_augmentation_loop_overrides=None):
+             data_augmentation_loop_overrides=None,
+             n_epochs=1,
+             n_epochs_overrides=None,
+             dataset_base_aliases=None):
     """Emit one hold-out training YAML by merging:
     - simulation block from <repo>/config/fly/<base_name>.yaml
     - graph_model / training / plotting / claude from hp_yaml_path
@@ -158,20 +176,24 @@ def emit_one(base_name, hp_yaml_path, out_yaml_path, suffix, yt_root,
     _dal = data_augmentation_loop
     if data_augmentation_loop_overrides and base_name in data_augmentation_loop_overrides:
         _dal = data_augmentation_loop_overrides[base_name]
+    _n_epochs = n_epochs
+    if n_epochs_overrides and base_name in n_epochs_overrides:
+        _n_epochs = n_epochs_overrides[base_name]
     if 'training' in merged:
         merged['training'] = {
             k: v for k, v in merged['training'].items()
             if k not in ('n_epochs', 'data_augmentation_loop')
         }
-        merged['training']['n_epochs'] = 1
+        merged['training']['n_epochs'] = _n_epochs
         merged['training']['data_augmentation_loop'] = _dal
 
     # Condition-defining training knobs always come from the base yaml. These
-    # describe the data regime (e.g. stride_5 BPTT) rather than tunable HPs,
-    # so a uniform HP yaml must not be allowed to silently disable them.
+    # describe the data regime (e.g. stride_5 BPTT, per-epoch noise resampling)
+    # rather than tunable HPs, so a uniform HP yaml must not be allowed to
+    # silently disable them.
     _base_tr = base.get('training') or {}
     if 'training' in merged:
-        for _k in ('recurrent_training', 'time_step'):
+        for _k in ('recurrent_training', 'time_step', 'resample_noise_per_epoch'):
             if _k in _base_tr:
                 merged['training'][_k] = _base_tr[_k]
     if 'claude' in merged:
@@ -193,12 +215,16 @@ def emit_one(base_name, hp_yaml_path, out_yaml_path, suffix, yt_root,
     # dataset is suffix-free so the underlying hold-out training data (which
     # only depends on the base + seed, not on the HP block) is shared
     # between the two scripts.
+    # Allow a condition to share another condition's already-generated
+    # datasets — used by the resample twins to point at the existing
+    # flyvis_noise_005_010_blank50_cv* data without re-running the generator.
+    _ds_base = (dataset_base_aliases or {}).get(base_name, base_name)
     if fold_i is not None:
         yaml_name    = f'{base_name}_{suffix}_cv{fold_i:02d}'
-        dataset_name = f'{base_name}_{dataset_tag}_cv{fold_i:02d}'
+        dataset_name = f'{_ds_base}_{dataset_tag}_cv{fold_i:02d}'
     else:
         yaml_name    = f'{base_name}_{suffix}'
-        dataset_name = f'{base_name}_{dataset_tag}'
+        dataset_name = f'{_ds_base}_{dataset_tag}'
     merged['dataset']     = dataset_name
     # Always point config_file at this emitted YAML. Some winner yamls carry
     # a stale config_file pointing at the base condition (e.g.
@@ -249,7 +275,10 @@ def emit_yt_yamls(hp_source, suffix, hp_yaml_basename, n_folds, output_root,
                    sim_overrides=None, dataset_tag=None,
                    condition_filter=None, data_augmentation_loop=100,
                    data_augmentation_loop_overrides=None,
-                   hp_yaml_overrides=None):
+                   hp_yaml_overrides=None,
+                   n_epochs=1,
+                   n_epochs_overrides=None,
+                   dataset_base_aliases=None):
     """Emit hold-out CV YAMLs for all 8 conditions × n_folds, into
     <output_root>/config/fly/. Always overwrites existing files so HP
     tweaks in the source yamls propagate on every run."""
@@ -291,7 +320,10 @@ def emit_yt_yamls(hp_source, suffix, hp_yaml_basename, n_folds, output_root,
                           sim_overrides=sim_overrides,
                           dataset_tag=dataset_tag,
                           data_augmentation_loop=data_augmentation_loop,
-                          data_augmentation_loop_overrides=data_augmentation_loop_overrides)
+                          data_augmentation_loop_overrides=data_augmentation_loop_overrides,
+                          n_epochs=n_epochs,
+                          n_epochs_overrides=n_epochs_overrides,
+                          dataset_base_aliases=dataset_base_aliases)
             if ok:
                 written.append(out_yaml)
     print(f'  wrote {len(written)} hold-out YAMLs -> {out_dir}  (always overwrites)')

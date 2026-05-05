@@ -105,24 +105,7 @@ BLANK50_SIM_OVERRIDES = {
 # truth — CONDITION_FILTER is derived from its keys, NODE_PER_CONDITION from
 # the full mapping.
 CONDITION_NODES = {
-    # === AR(1) measurement-noise sweep (6-point dose-response, blank50 + gamma=0.10) ===
-    # Low rho brackets the indicator-kinetics regime (ASAP3 ~ 0.25,
-    # GCaMP6f rise ~ 0.50, GCaMP6f decay ~ 0.75); high rho probes the
-    # asymptote toward the noise_005 ceiling (per-frame derivative noise
-    # scales as (1-rho), so at rho=0.99 it is 1% of the i.i.d. case).
-    # The rho=0 control is the existing flyvis_noise_005_010 condition
-    # under blank50 overrides (commented out below; uncomment if needed).
-    # 'flyvis_noise_005_010_blank50_ar1_rho25': 'l4',
-    # 'flyvis_noise_005_010_blank50_ar1_rho50': 'l4',
-    # 'flyvis_noise_005_010_blank50_ar1_rho75': 'l4',
-    # 'flyvis_noise_005_010_blank50_ar1_rho90': 'l4',
-    # 'flyvis_noise_005_010_blank50_ar1_rho95': 'l4',
-    # 'flyvis_noise_005_010_blank50_ar1_rho99': 'l4',
-    # === stride_5 (speed) baseline — re-enabled with AR(1) sweep for the
-    # learned_ode_params.pt re-emit pass. Uncomment more rows below to expand
-    # to the full canonical baseline set in a follow-up run.
 
-    # --- other non-AR(1) baselines (paused; uncomment to add to this run) ---
     # 'flyvis_noise_free':                    'a100',
     # 'flyvis_noise_005':                     'a100',
     # 'flyvis_noise_05':                      'a100',
@@ -133,9 +116,24 @@ CONDITION_NODES = {
     # 'flyvis_noise_005_removed_pc_50':       'a100',
     # 'flyvis_noise_005_hidden_010_ngp':      'a100',
     # 'flyvis_noise_005_hidden_020_ngp':      'a100',
-    'flyvis_noise_005_hidden_010_no_ngp':   'a100',
-    'flyvis_noise_005_hidden_020_no_ngp':   'a100',
+    # 'flyvis_noise_005_hidden_010_no_ngp':   'a100',
+    # 'flyvis_noise_005_hidden_020_no_ngp':   'a100',
     # 'flyvis_noise_005_stride_5':             'a100',
+    # gamma=0.50 base (needs data generation via run_generate_blank50.py).
+    # 'flyvis_noise_005_050':                 'a100',
+    # Per-epoch noise resampling twins of the gamma=0.10 / 0.20 / 0.50 cases.
+    # Reuse the existing flyvis_noise_005_0{10,20,50}_blank50_cv* datasets
+    # (no regeneration needed) via DATASET_BASE_ALIASES; trained at DAL=1,
+    # n_epochs=25 to keep the gradient-step budget in the same ballpark as
+    # DAL=30, n_epochs=2 while giving the resampler 25 fresh noise draws.
+    'flyvis_noise_005_010_resample':        'a100',
+    'flyvis_noise_005_020_resample':        'a100',
+    # 'flyvis_noise_005_050_resample':        'a100',
+    # Tile-25 short-trajectory twins (need data regeneration via
+    # run_generate_blank50.py before training).
+    # 'flyvis_noise_005_010_repeat25':        'a100',
+    # 'flyvis_noise_005_020_repeat25':        'a100',
+    # 'flyvis_noise_005_050_repeat25':        'a100',
 }
 
 CONDITION_FILTER     = list(CONDITION_NODES.keys())
@@ -149,6 +147,32 @@ DAL_OVERRIDES = {
     'flyvis_noise_005_null_edges_pc_400': 100,   # 2.17M edges -> ~5.8h instead of ~29h
     'flyvis_noise_005_hidden_010_ngp':    100,   # NGP encoder + anchors loss; matches winner DAL
     'flyvis_noise_005_hidden_020_ngp':    100,   # same as _010_ngp
+    # Resample twins: DAL=1 paired with N_EPOCHS_OVERRIDES=25 gives 25 fresh
+    # noise draws over the dataset (~same total iteration count as the
+    # original DAL=30, n_epochs=2 baseline).
+    'flyvis_noise_005_010_resample':       1,
+    'flyvis_noise_005_020_resample':       1,
+    'flyvis_noise_005_050_resample':       1,
+}
+
+# Per-condition n_epochs override. Cross emitter forces n_epochs=1 by default
+# (one pass over the dataset, DAL controls augmentation per pass). The
+# resample twins need n_epochs=25 so the per-epoch noise resampler at the top
+# of the trainer's epoch loop fires 25 times.
+N_EPOCHS_OVERRIDES = {
+    'flyvis_noise_005_010_resample':      25,
+    'flyvis_noise_005_020_resample':      25,
+    'flyvis_noise_005_050_resample':      25,
+}
+
+# Per-condition dataset alias: route a condition's training jobs to a
+# different condition's already-generated CV datasets. Used by the resample
+# twins to skip regeneration since the simulated data is identical to the
+# corresponding non-resample base.
+DATASET_BASE_ALIASES = {
+    'flyvis_noise_005_010_resample': 'flyvis_noise_005_010',
+    'flyvis_noise_005_020_resample': 'flyvis_noise_005_020',
+    'flyvis_noise_005_050_resample': 'flyvis_noise_005_050',
 }
 
 # Per-condition HP yaml overrides. stride_5 (BPTT with bs=1, coeff_g_phi_diff=9000,
@@ -176,6 +200,8 @@ run_all_conditions(
     condition_filter=CONDITION_FILTER,
     data_augmentation_loop=500,
     data_augmentation_loop_overrides=DAL_OVERRIDES,
+    n_epochs_overrides=N_EPOCHS_OVERRIDES,
+    dataset_base_aliases=DATASET_BASE_ALIASES,
     hp_yaml_overrides=HP_YAML_OVERRIDES,
     force_train=_force_train,
     force_test=_force_test,
