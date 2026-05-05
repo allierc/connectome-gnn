@@ -1437,7 +1437,32 @@ def plot_metrics(log_dir, epoch_boundaries=None):
     metrics_log_path = os.path.join(log_dir, 'tmp_training', 'metrics.log')
     nnr_log_path = os.path.join(log_dir, 'tmp_training', 'nnr_pearson.log')
 
-    r2_iters, conn_vals, vrest_vals, tau_vals = [], [], [], []
+    # metrics.log columns:
+    # 0 iteration
+    # 1 connectivity_r2
+    # 2 vrest_r2 (raw, with outliers)
+    # 3 tau_r2   (raw, with outliers)
+    # 4 hidden_nnr_pearson
+    # 5 anchor_nnr_pearson
+    # 6 vrest_r2_clean
+    # 7 n_out_vrest
+    # 8 n_total_vrest
+    # 9 tau_r2_clean
+    # 10 n_out_tau
+    # 11 n_total_tau
+    def _f(parts, idx):
+        if idx >= len(parts):
+            return np.nan
+        v = parts[idx]
+        try:
+            return float(v)
+        except ValueError:
+            return np.nan
+
+    r2_iters = []
+    conn_vals, vrest_vals, tau_vals = [], [], []
+    vrest_clean_vals, tau_clean_vals = [], []
+    vrest_out_pct, tau_out_pct = [], []
     if os.path.exists(metrics_log_path):
         try:
             with open(metrics_log_path) as f:
@@ -1447,9 +1472,19 @@ def plot_metrics(log_dir, epoch_boundaries=None):
                         continue
                     parts = line.split(',')
                     r2_iters.append(int(parts[0]))
-                    conn_vals.append(float(parts[1]) if len(parts) > 1 and parts[1] != 'nan' else np.nan)
-                    vrest_vals.append(float(parts[2]) if len(parts) > 2 and parts[2] != 'nan' else np.nan)
-                    tau_vals.append(float(parts[3]) if len(parts) > 3 and parts[3] != 'nan' else np.nan)
+                    conn_vals.append(_f(parts, 1))
+                    vrest_vals.append(_f(parts, 2))
+                    tau_vals.append(_f(parts, 3))
+                    vrest_clean_vals.append(_f(parts, 6))
+                    tau_clean_vals.append(_f(parts, 9))
+                    n_out_v = _f(parts, 7)
+                    n_tot_v = _f(parts, 8)
+                    n_out_t = _f(parts, 10)
+                    n_tot_t = _f(parts, 11)
+                    vrest_out_pct.append(100.0 * n_out_v / n_tot_v
+                                         if n_tot_v and n_tot_v > 0 else np.nan)
+                    tau_out_pct.append(100.0 * n_out_t / n_tot_t
+                                       if n_tot_t and n_tot_t > 0 else np.nan)
         except Exception:
             r2_iters = []
 
@@ -1493,27 +1528,49 @@ def plot_metrics(log_dir, epoch_boundaries=None):
         a.tick_params(axis='y', labelsize=9)
 
     if has_r2:
-        ax_r2.plot(r2_iters, conn_vals, color='#d62728', linewidth=1,
-                   label=r'connectivity $R^2$')
-        ax_r2.plot(r2_iters, vrest_vals, color='#1f77b4', linewidth=1,
-                   label=r'$V_{rest}$ $R^2$')
-        ax_r2.plot(r2_iters, tau_vals, color='#2ca02c', linewidth=1,
-                   label=r'$\tau$ $R^2$')
+        # Connectivity: single solid line.
+        ax_r2.plot(r2_iters, conn_vals, color='#d62728', linewidth=1.2,
+                   label=r'$R^2_W$')
+        # V_rest: solid = no-outlier (clean), dashed = raw (with outliers).
+        ax_r2.plot(r2_iters, vrest_clean_vals, color='#1f77b4', linewidth=1.2,
+                   label=r'$R^2_{V_{rest}}$ (no outl.)')
+        ax_r2.plot(r2_iters, vrest_vals, color='#1f77b4', linewidth=1.0,
+                   linestyle='--', alpha=0.7,
+                   label=r'$R^2_{V_{rest}}$ (raw)')
+        # τ: solid = no-outlier (clean), dashed = raw.
+        ax_r2.plot(r2_iters, tau_clean_vals, color='#2ca02c', linewidth=1.2,
+                   label=r'$R^2_\tau$ (no outl.)')
+        ax_r2.plot(r2_iters, tau_vals, color='#2ca02c', linewidth=1.0,
+                   linestyle='--', alpha=0.7,
+                   label=r'$R^2_\tau$ (raw)')
         ax_r2.axhline(y=0.9, color='green', linestyle='--', alpha=0.4, linewidth=1)
         ax_r2.set_ylim(-0.05, 1.05)
         style.xlabel(ax_r2, 'iteration')
         style.ylabel(ax_r2, r'$R^2$')
-        ax_r2.legend(fontsize=legend_fs, loc='lower right')
+        ax_r2.legend(fontsize=5, loc='lower right', ncol=2,
+                     handlelength=1.3, columnspacing=0.6,
+                     handletextpad=0.4, borderpad=0.3, labelspacing=0.3)
+
+        # Latest-values badge (top right) — clean R² values with the
+        # current outlier-fraction in parentheses for V_rest and τ.
         latest_lines = []
         if conn_vals and not np.isnan(conn_vals[-1]):
-            latest_lines.append(f'conn={conn_vals[-1]:.3f}')
-        if vrest_vals and not np.isnan(vrest_vals[-1]):
-            latest_lines.append(f'vrest={vrest_vals[-1]:.3f}')
-        if tau_vals and not np.isnan(tau_vals[-1]):
-            latest_lines.append(f'tau={tau_vals[-1]:.3f}')
+            latest_lines.append(f'$R^2_W$={conn_vals[-1]:.3f}')
+        if vrest_clean_vals and not np.isnan(vrest_clean_vals[-1]):
+            _vp = vrest_out_pct[-1] if vrest_out_pct else np.nan
+            if not np.isnan(_vp):
+                latest_lines.append(f'$R^2_{{Vr}}$={vrest_clean_vals[-1]:.3f}({_vp:.1f}%)')
+            else:
+                latest_lines.append(f'$R^2_{{Vr}}$={vrest_clean_vals[-1]:.3f}')
+        if tau_clean_vals and not np.isnan(tau_clean_vals[-1]):
+            _tp = tau_out_pct[-1] if tau_out_pct else np.nan
+            if not np.isnan(_tp):
+                latest_lines.append(f'$R^2_\\tau$={tau_clean_vals[-1]:.3f}({_tp:.1f}%)')
+            else:
+                latest_lines.append(f'$R^2_\\tau$={tau_clean_vals[-1]:.3f}')
         if latest_lines:
             ax_r2.text(0.98, 0.97, '\n'.join(latest_lines),
-                       transform=ax_r2.transAxes, fontsize=8,
+                       transform=ax_r2.transAxes, fontsize=9,
                        verticalalignment='top', horizontalalignment='right')
 
     if has_nnr:
