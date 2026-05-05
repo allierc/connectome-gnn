@@ -454,7 +454,7 @@ def plot(data: dict, out: dict, out_base: Path):
            out["W_null"],     out["W_sloppy"],
            r'true $W_{ij}$',    r'learned $W_{ij}$')
 
-    _add_panel_labels(fig, list(axes), ['A', 'B', 'C'])
+    _add_panel_labels(fig, list(axes), ['a', 'b', 'c'])
 
     out_png = out_base.with_suffix('.png')
     out_pdf = out_base.with_suffix('.pdf')
