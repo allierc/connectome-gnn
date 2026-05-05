@@ -298,6 +298,11 @@ class SimulationConfig(BaseModel):
     # Recursion: eta(t+1) = rho*eta(t) + sqrt(1 - rho**2) * gamma * xi(t),
     # ξ ~ N(0,1) i.i.d. -- preserves marginal Var(eta) = gamma**2 across t.
     noise_ar1_rho: float = 0.0
+    # Generate only n_frames // factor unique simulated frames, then tile that
+    # short trajectory `factor` times across the train zarr (voltage / stimulus
+    # / noise / y). Test data generation is unaffected. Use to study the role
+    # of stimulus diversity vs noise averaging at fixed total dataset length.
+    repeat_short_sequence_factor: int = 1
     noisy_test_data: bool = False  # if True, test split uses the same noise levels as train; default keeps test deterministic
     derivative_smoothing_window: int = 1  # temporal smoothing window for noisy derivatives (1 = no smoothing)
     calcium_saturation_kd: float = 1.0  # for nonlinear saturation models
@@ -769,6 +774,12 @@ class TrainingConfig(BaseModel):
     coeff_diff: float = 0.0  # Monotonicity constraint on edge function
 
     loss_noise_level: float = 0.0
+
+    # Resample stored measurement noise (x_ts.noise) at the start of every epoch
+    # using the per-epoch RNG seeded from simulation.seed + epoch. Lets the model
+    # average noise across epochs instead of memorising the fixed realisation
+    # baked into noise.zarr at data-generation time.
+    resample_noise_per_epoch: bool = False
 
     # Compilation flag for torch.compile optimization
     torch_compile: bool = True

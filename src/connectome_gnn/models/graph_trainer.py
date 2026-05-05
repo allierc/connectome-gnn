@@ -538,6 +538,17 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
         loss_noise_level = tc.loss_noise_level * (0.95 ** epoch)
         regularizer.set_epoch(epoch, plot_frequency, Niter=Niter)
 
+        # Per-epoch resampling of measurement noise: overwrite x_ts.noise with a
+        # fresh Gaussian realisation seeded by sim.seed + epoch so the GNN sees
+        # an independent noise draw on every pass. Replaces the fixed noise.zarr
+        # realisation; only active when measurement noise is enabled.
+        if tc.resample_noise_per_epoch and sim.measurement_noise_level > 0 and x_ts.noise is not None:
+            _noise_gen = torch.Generator(device=x_ts.noise.device).manual_seed(int(sim.seed) + int(epoch))
+            x_ts.noise = (torch.randn(x_ts.noise.shape, generator=_noise_gen,
+                                       dtype=x_ts.noise.dtype, device=x_ts.noise.device)
+                          * sim.measurement_noise_level)
+            _logger.info(f'epoch {epoch}: resampled measurement noise (seed={int(sim.seed) + int(epoch)})')
+
         # Two-phase training: epoch 0 = full LRs, epoch 1+ = reduce W/MLP, keep SIREN
         if tc.alternate_training and epoch >= 1:
             phase_mult = tc.alternate_lr_ratio
@@ -633,9 +644,16 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
         # without compounding rounding errors over the loop.
         _base_lrs = {id(pg): pg['base_lr'] for pg in optimizer.param_groups}
 
+        # Stage boundaries surfaced as labeled verticals on metrics.png
+        # (right panel only). Empty when no NGP injection is configured.
+        _ngp_stages = []
         if _warmup_inject_iter > 0:
             _ramp_mid = _warmup_inject_iter + _warmup_inject_ramp
             _ramp_end = _warmup_inject_iter + 2 * _warmup_inject_ramp
+            _ngp_stages.append((_warmup_inject_iter, 'inject'))
+            if _lr_damping_active:
+                _ngp_stages.append((_ramp_mid, 'trough'))
+                _ngp_stages.append((_ramp_end, 'recover'))
             print(f'NGP binary-inject schedule: '
                   f'warmup [0, {_warmup_inject_iter}) NGP off + nominal LR, '
                   f'inject ON at {_warmup_inject_iter}.')
@@ -852,7 +870,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                 # gained a new row (heavy R² or quick NGP path).
                 if _metrics_changed:
                     plot_metrics(log_dir,
-                                 epoch_boundaries=regularizer.epoch_boundaries)
+                                 epoch_boundaries=regularizer.epoch_boundaries,
+                                 ngp_stages=_ngp_stages)
 
                 if last_connectivity_r2 is not None or last_hidden_r2 is not None:
                     bar_parts = []
@@ -1270,7 +1289,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                 # gained a new row (heavy R² or quick NGP path).
                 if _metrics_changed:
                     plot_metrics(log_dir,
-                                 epoch_boundaries=regularizer.epoch_boundaries)
+                                 epoch_boundaries=regularizer.epoch_boundaries,
+                                 ngp_stages=_ngp_stages)
 
                 if last_connectivity_r2 is not None or last_hidden_r2 is not None:
                     bar_parts = []

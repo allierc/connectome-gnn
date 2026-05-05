@@ -1317,15 +1317,21 @@ def data_generate_voltage(
     # --- Generate TRAIN split ---
     total_frames_per_pass = len(train_sequences) * frames_per_sequence
 
+    repeat_factor = max(1, int(getattr(sim, 'repeat_short_sequence_factor', 1)))
     if n_frames == 0:
         num_passes_needed = 1
         target_frames = float("inf")
         logger.info(f"n_frames=0 mode: single pass through {len(train_sequences)} train sequences")
     else:
-        target_frames = n_frames
+        # When tiling a short unique block, only generate n_frames // factor
+        # frames; the helper below replicates them across the full n_frames.
+        target_frames = n_frames // repeat_factor if repeat_factor > 1 else n_frames
         num_passes_needed = (target_frames // total_frames_per_pass) + 1
 
-    logger.info(f"generating TRAIN data ({target_frames} frames from {len(train_sequences)} sequences)...")
+    if repeat_factor > 1:
+        logger.info(f"generating TRAIN data ({target_frames} unique frames, will tile ×{repeat_factor} → {target_frames * repeat_factor} total)...")
+    else:
+        logger.info(f"generating TRAIN data ({target_frames} frames from {len(train_sequences)} sequences)...")
 
     x_writer = ZarrSimulationWriterV3(
         path=graphs_data_path(config.dataset, "x_list_train"),
@@ -1378,6 +1384,10 @@ def data_generate_voltage(
     # --- Compute noisy derivatives for TRAIN split ---
     if sim.measurement_noise_level > 0:
         _compute_noisy_derivatives(config, sim, n_neurons, split="train")
+
+    # --- Tile unique block ×factor across all dynamic train fields ---
+    if repeat_factor > 1:
+        _tile_train_zarrs(config, repeat_factor, save_calcium=sim.save_calcium)
 
     # --- Generate TEST split ---
     # Default: test data is deterministic (sim.noisy_test_data=False) so that rollout
@@ -2367,6 +2377,53 @@ def _run_ode_generation(
         )
 
     return it, id_fig
+
+
+def _tile_train_zarrs(config, factor: int, save_calcium: bool):
+    """Tile the unique train block `factor` times across every dynamic field.
+
+    After data_generate_fly_voltage simulates n_frames // factor unique frames
+    and finalises the writers, this helper re-opens each per-field store
+    (voltage, stimulus, noise, calcium/fluorescence, y_clean, noisy_y) and
+    writes (factor - 1) more copies, yielding a length-(unique_n * factor)
+    dataset of the short trajectory repeated end-to-end.
+    """
+    import tensorstore as ts
+    from pathlib import Path
+
+    base = Path(graphs_data_path(config.dataset, "x_list_train"))
+    fields = ['voltage', 'stimulus', 'noise']
+    if save_calcium:
+        fields += ['calcium', 'fluorescence']
+
+    for name in fields:
+        spec = {
+            'driver': 'zarr',
+            'kvstore': {'driver': 'file', 'path': str(base / f'{name}.zarr')},
+        }
+        store = ts.open(spec).result()
+        unique = store.read().result()
+        unique_n, N = unique.shape
+        new_n = unique_n * factor
+        store = store.resize(exclusive_max=[new_n, N]).result()
+        for k in range(1, factor):
+            store[unique_n * k: unique_n * (k + 1)].write(unique).result()
+
+    # 3-D arrays: y_list_train and (if present) noisy_y_list_train
+    for tag in ("y_list_train", "noisy_y_list_train"):
+        path = Path(graphs_data_path(config.dataset, tag) + ".zarr")
+        if not path.exists():
+            continue
+        spec = {'driver': 'zarr', 'kvstore': {'driver': 'file', 'path': str(path)}}
+        store = ts.open(spec).result()
+        unique = store.read().result()
+        unique_n, N, F = unique.shape
+        new_n = unique_n * factor
+        store = store.resize(exclusive_max=[new_n, N, F]).result()
+        for k in range(1, factor):
+            store[unique_n * k: unique_n * (k + 1)].write(unique).result()
+
+    logger.info(f"tiled train zarrs ×{factor}: unique_n={unique_n} → total={unique_n * factor}")
 
 
 def _compute_noisy_derivatives(config, sim, n_neurons, split="train"):
