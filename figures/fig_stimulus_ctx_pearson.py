@@ -46,7 +46,7 @@ except ImportError:
         return None
 
 
-CTXS = list(range(1, 15))
+CTXS = list(range(1, 17))
 CV_IDS = ['00', '01', '02', '03', '04']
 LOG_ROOT = Path('/groups/saalfeld/home/kumarv4/repos/connectome-gnn/log/fly')
 CV_ROOT = Path('/groups/saalfeld/home/kumarv4/repos/connectome-gnn/graphs_data/fly')
@@ -235,7 +235,7 @@ def plot(pearson_r, type_list, n_sample=500, seed=0):
         ax.plot(x_smooth, spline(x_smooth), color=color, linewidth=1.2)
 
     ax.set_xticks([1, 4, 8, 12, 16])
-    ax.set_xlabel('context length')
+    ax.set_xlabel('context length $t_w$')
     ax.set_ylabel('Pearson correlation $r$')
 
     handles = [

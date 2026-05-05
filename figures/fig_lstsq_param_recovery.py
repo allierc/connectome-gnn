@@ -201,6 +201,14 @@ def solve(
     vrest_score = np.full(N, np.nan, dtype=np.float64)
     W_score     = np.full(E, np.nan, dtype=np.float64)
 
+    # Per-neuron null/sloppy direction vectors in θ-space (the ORIGINAL
+    # parameter coordinates). Each entry is a (2 + d_i, k_i) float32 tensor
+    # with unit-norm columns; row 0 = τ, row 1 = V_rest, rows 2..2+d_i-1 = W
+    # components in the order of in_eidx[i]. Stored sparsely: only neurons
+    # with at least one flagged direction get an entry.
+    null_dirs:   dict = {}
+    sloppy_dirs: dict = {}
+
     # Neurons with no incoming edges are entirely unidentifiable: tau, V_rest jointly null.
     no_in = deg_in == 0
     tau_null[no_in] = True
@@ -251,10 +259,17 @@ def solve(
         vrest_score[i] = sg[1]
         W_score[in_eidx[i]] = sg[2:]
 
-        def _flag(mask_t, tau_arr, vrest_arr, W_arr):
+        def _flag(mask_t, tau_arr, vrest_arr, W_arr, dirs_dict):
             if int(mask_t.sum().item()) == 0:
                 return
-            V_null = (V[:, mask_t] / s.unsqueeze(1)).abs()
+            # Convert eigenvectors of A_s^T A_s back to θ-space (divide by
+            # column norms s) and renormalize each column to unit norm in
+            # θ-space, then store the (2+d_i, k) block for this neuron.
+            V_theta = V[:, mask_t] / s.unsqueeze(1)
+            V_theta = V_theta / V_theta.norm(dim=0, keepdim=True).clamp_min(1e-300)
+            dirs_dict[int(i)] = V_theta.float().cpu()
+
+            V_null = V_theta.abs()
             V_null = V_null / V_null.amax(dim=0, keepdim=True).clamp_min(1e-300)
             part = V_null.amax(dim=1).cpu().numpy()
             if part[0] > null_comp_tol:
@@ -265,8 +280,8 @@ def solve(
             if edge_flag.any():
                 W_arr[in_eidx[i][edge_flag]] = True
 
-        _flag(null_mask,   tau_null,   vrest_null,   W_null)
-        _flag(sloppy_mask, tau_sloppy, vrest_sloppy, W_sloppy)
+        _flag(null_mask,   tau_null,   vrest_null,   W_null,   null_dirs)
+        _flag(sloppy_mask, tau_sloppy, vrest_sloppy, W_sloppy, sloppy_dirs)
 
     if device.type == "cuda":
         torch.cuda.synchronize()
@@ -279,6 +294,7 @@ def solve(
         tau_null=tau_null,     vrest_null=vrest_null,     W_null=W_null,
         tau_sloppy=tau_sloppy, vrest_sloppy=vrest_sloppy, W_sloppy=W_sloppy,
         tau_score=tau_score,   vrest_score=vrest_score,   W_score=W_score,
+        null_dirs=null_dirs, sloppy_dirs=sloppy_dirs,
     )
 
 
@@ -496,6 +512,13 @@ def main():
         "tau_score":     torch.from_numpy(out["tau_score"]),
         "V_rest_score":  torch.from_numpy(out["vrest_score"]),
         "W_score":       torch.from_numpy(out["W_score"]),
+        # Per-neuron null/sloppy direction vectors in θ-space:
+        # dict[int -> Tensor (2 + d_i, k_i)] with unit-norm columns. Row 0 = τ,
+        # row 1 = V_rest, rows 2..2+d_i-1 = W components in the order of edges
+        # incoming to neuron i (same order as in the per-neuron design matrix).
+        # Only neurons with at least one flagged direction are present.
+        "null_dirs":   out["null_dirs"],
+        "sloppy_dirs": out["sloppy_dirs"],
     }, mask_path)
     print(f"wrote {mask_path}")
 
