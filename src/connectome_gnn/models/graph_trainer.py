@@ -347,13 +347,6 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
     scheduler_type = getattr(tc, 'lr_scheduler', 'none')
     if scheduler_type != 'none':
         _logger.info(f'LR scheduler: {scheduler_type}')
-    # Block 06: differential warmup — ramp MLP/embedding LRs while W stays at full strength
-    _diff_warmup_steps = int(getattr(tc, 'differential_warmup_steps', 0))
-    if _diff_warmup_steps > 0:
-        from connectome_gnn.LLM_code.staging.block_06.differential_warmup import apply_differential_warmup
-        _diff_warmup_start = float(getattr(tc, 'differential_warmup_start_fraction', 0.01))
-        lr_scheduler = apply_differential_warmup(optimizer, config, warmup_steps=_diff_warmup_steps, warmup_start_fraction=_diff_warmup_start)
-        _logger.info(f'differential warmup: {_diff_warmup_steps} steps, start_fraction={_diff_warmup_start}')
     # === LLM-MODIFIABLE: OPTIMIZER SETUP END ===
     model.train()
 
