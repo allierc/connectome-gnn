@@ -78,12 +78,12 @@ plt.rcParams.update({
     # Janne defaults are 6-8 pt; bump for a 6-panel composite figure.
     'figure.dpi':       150,
     'savefig.dpi':      300,
-    'axes.titlesize':   9,
-    'axes.labelsize':   8,
-    'xtick.labelsize':  7,
-    'ytick.labelsize':  7,
-    'figure.titlesize': 10,
-    'legend.fontsize':  7,
+    'axes.titlesize':   12,
+    'axes.labelsize':   12,
+    'xtick.labelsize':  10,
+    'ytick.labelsize':  10,
+    'figure.titlesize': 13,
+    'legend.fontsize':  10,
 })
 
 
@@ -263,63 +263,62 @@ def main():
 
     # ---- figure ----
     n_diag = min(n_input, Je_gt_p.shape[1])
-    top_extent = [0, Je_gt_p.shape[1], n_input, 0]
-    bot_extent = [j0, j0 + W_ROI, i0 + W_ROI, i0]
+    top_extent = [0, Je_gt_p.shape[1], 0, n_input]
+    bot_extent = [j0, j0 + W_ROI, i0, i0 + W_ROI]
 
-    fig, axes = plt.subplots(2, 3, figsize=(12, 8), constrained_layout=True)
+    fig, axes = plt.subplots(2, 3, figsize=(12, 8), constrained_layout=True,
+                             sharey='row')
 
-    top_xlabel = r'stimulus index $j$'
-    top_ylabel = r'neuron $i$'
-    bot_xlabel = r'pre-synaptic neuron $j$'
-    bot_ylabel = r'post-synaptic neuron $i$'
+    top_xlabel = r'stimulus index'
+    top_ylabel = r'retinal neurons'
+    bot_xlabel = r'pre-synaptic neuron'
+    bot_ylabel = r'post-synaptic neuron'
 
     # -- top row: stimulus Jacobian J^s --
-    axes[0, 0].imshow(np.zeros_like(Je_gt_p), aspect='auto', cmap='Greys',
+    axes[0, 0].imshow(np.zeros_like(Je_gt_p), aspect='auto', cmap='Greys', origin='lower',
                       vmin=0, vmax=1, extent=top_extent)
     axes[0, 0].plot([0, n_diag - 1], [0, n_diag - 1],
                     color='red', lw=1.5, solid_capstyle='butt')
     axes[0, 0].set_title(r'gt $J^s$ (identity for $i<n_\mathrm{in}$)', pad=4)
     axes[0, 0].set_xlabel(top_xlabel); axes[0, 0].set_ylabel(top_ylabel)
 
-    im_top = axes[0, 1].imshow(Je_no_reg_p, aspect='auto', cmap='RdBu_r',
+    im_top = axes[0, 1].imshow(Je_no_reg_p, aspect='auto', cmap='RdBu_r', origin='lower',
                                norm=top_norm, extent=top_extent)
     axes[0, 1].set_title(r'$J^s$ — no reg ($\lambda_{L1}=0$)', pad=4)
-    axes[0, 1].set_xlabel(top_xlabel); axes[0, 1].set_ylabel(top_ylabel)
+    axes[0, 1].set_xlabel(top_xlabel)
 
-    axes[0, 2].imshow(Je_l1_p, aspect='auto', cmap='RdBu_r',
+    axes[0, 2].imshow(Je_l1_p, aspect='auto', cmap='RdBu_r', origin='lower',
                       norm=top_norm, extent=top_extent)
     axes[0, 2].set_title(rf'$J^s$ — L1 ($\lambda_{{L1}}={LAMBDA_L1_LABEL}$)', pad=4)
-    axes[0, 2].set_xlabel(top_xlabel); axes[0, 2].set_ylabel(top_ylabel)
+    axes[0, 2].set_xlabel(top_xlabel)
 
     cbar_top = fig.colorbar(im_top, ax=axes[0, :].tolist(), fraction=0.025, pad=0.02)
     cbar_top.set_label(rf'$J^s$  (symlog, linthresh={TOP_LINTHRESH:g}, vmax={vmax_top:.2f})')
 
     # -- bottom row: voltage Jacobian J^v vs GT W --
-    im_bot = axes[1, 0].imshow(W_gt_p, aspect='auto', cmap='RdBu_r',
+    im_bot = axes[1, 0].imshow(W_gt_p, aspect='auto', cmap='RdBu_r', origin='lower',
                                norm=bot_norm, extent=bot_extent)
     axes[1, 0].set_title(r'gt $W$ ($j \to i$)', pad=4)
     axes[1, 0].set_xlabel(bot_xlabel); axes[1, 0].set_ylabel(bot_ylabel)
 
-    axes[1, 1].imshow(Jv_no_reg_p, aspect='auto', cmap='RdBu_r',
+    axes[1, 1].imshow(Jv_no_reg_p, aspect='auto', cmap='RdBu_r', origin='lower',
                       norm=bot_norm, extent=bot_extent)
     axes[1, 1].set_title(r'$J^v$ — no reg ($\lambda_{L1}=0$)', pad=4)
-    axes[1, 1].set_xlabel(bot_xlabel); axes[1, 1].set_ylabel(bot_ylabel)
+    axes[1, 1].set_xlabel(bot_xlabel)
 
-    axes[1, 2].imshow(Jv_l1_p, aspect='auto', cmap='RdBu_r',
+    axes[1, 2].imshow(Jv_l1_p, aspect='auto', cmap='RdBu_r', origin='lower',
                       norm=bot_norm, extent=bot_extent)
     axes[1, 2].set_title(rf'$J^v$ — L1 ($\lambda_{{L1}}={LAMBDA_L1_LABEL}$)', pad=4)
-    axes[1, 2].set_xlabel(bot_xlabel); axes[1, 2].set_ylabel(bot_ylabel)
+    axes[1, 2].set_xlabel(bot_xlabel)
 
     cbar_bot = fig.colorbar(im_bot, ax=axes[1, :].tolist(), fraction=0.025, pad=0.02)
     cbar_bot.set_label(rf'$J^v$ / $W$  (symlog, linthresh={BOT_LINTHRESH:g}, vmax={vmax_bot:.2f})')
 
     # -- panel labels (a..f), aligned to outer panel bbox top --
-    _add_panel_labels(
-        fig,
-        [axes[0, 0], axes[0, 1], axes[0, 2], axes[1, 0], axes[1, 1], axes[1, 2]],
-        ['a', 'b', 'c', 'd', 'e', 'f'],
-        fontsize=14,
-    )
+    _add_panel_labels(fig, [axes[0, 0], axes[0, 1], axes[0, 2]],
+                      ['a', 'b', 'c'], fontsize=14)
+    _add_panel_labels(fig, [axes[1, 0], axes[1, 1], axes[1, 2]],
+                      ['d', 'e', 'f'], fontsize=14)
 
     out_png = OUT_BASE.with_suffix('.png')
     out_pdf = OUT_BASE.with_suffix('.pdf')
