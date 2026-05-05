@@ -1217,39 +1217,56 @@ visible neurons; the anchor term is necessary to give the time field a
 stable temporal scaffold, without which the hidden-neuron output
 collapses onto a low-frequency mean.
 
-The joint scheme is promising but does not yet match the fully observed
-case. At $10\%$ hidden it reaches one-step $r=0.98$ but rollout
-$r=0.64\pm0.26$ and $R^2_{\hat{\mathbf{W}}}=0.33\pm0.45$; at $20\%$
-hidden, $R^2_{\hat{\mathbf{W}}}$ recovery collapses to $0.02\pm0.39$
-(Table~\ref{tab:cv_cross_noise}). $\tau$ recovery is preserved in both
-cases ($R^2_{\hat{\tau}}\geq 0.84$). We attribute the residual gap
-to two factors: the hidden voltages are reconstructed purely from the
-time index with no spatial prior, so the grid has to memorise
-per-neuron trajectories; and the anchor supervision constrains the
-time encoding but not the per-neuron decoder weights. 
+\paragraph{Spatio-temporal architecture.}
+We add a 2-D companion grid indexed by the per-neuron retinotopic
+position $(u_i, v_i)$ — the columnar coordinates flyvis attaches to
+every node — mapped to Cartesian $(x_i, y_i) = (u_i + 0.5\,v_i,\
+v_i\sqrt{3}/2)$ following the hex convention used elsewhere in the
+paper. Temporal and spatial grid features are concatenated with the
+GNN's learned latent $\mathbf{a}_i$ and decoded by a shared MLP into a
+per-neuron scalar voltage; feeding $\mathbf{a}_i$ directly into the
+decoder lets the MLP combine it non-linearly with the spatio-temporal
+features and makes per-neuron identity available to the NGP
+throughout the network. The latent $\mathbf{a}_i$ of a hidden neuron
+is itself learned through $g_\phi$: when its NGP-imputed voltage is
+sent through outgoing edges to a visible postsynaptic neighbour, the
+visible neuron's prediction loss back-propagates through $g_\phi$ to
+update $\mathbf{a}_i$, so cell-type structure is inherited from
+neighbouring observed neurons of the same type. The ground-truth cell
+type is never an input — only the GNN's co-trained latent is fed in,
+so cell type remains an unknown of the inverse problem.
 
-\paragraph{Spatio-temporal extension.} We are
-are currently exploring the use of a 2-D spatial-then-temporal grid that would introduces a neuron-space prior. We added a 2-D companion
-grid indexed by the per-neuron retinotopic position $(u_i, v_i)$ — the
-columnar coordinates flyvis attaches to every node — mapped to
-Cartesian $(x_i, y_i) = (u_i + 0.5\,v_i,\ v_i\sqrt{3}/2)$ following
-the hex convention used elsewhere in the paper. The temporal and
-spatial grid features are concatenated with the GNN's learned latent
-$\mathbf{a}_i$ and decoded by a shared MLP into a per-neuron scalar
-voltage; feeding $\mathbf{a}_i$ directly into the decoder lets the
-MLP combine it non-linearly with the spatio-temporal features and
-makes per-neuron identity available to the NGP throughout the
-network, directly addressing the second factor above. The latent
-$\mathbf{a}_i$ for a hidden neuron is itself learned through
-$g_\phi$: when the hidden neuron's output is sent through outgoing
-edges to a visible postsynaptic neighbour, the visible neuron's
-prediction loss back-propagates through $g_\phi$ to update
-$\mathbf{a}_i$, so cell-type structure is inherited from
-neighbouring observed neurons of the same type. Crucially, the
-ground-truth cell type is never an input. Only the GNN's own
-co-trained latent is fed in, so cell type remains an unknown of the
-inverse problem. Numerical results from this extension will be
-reported in follow-up work.
+\paragraph{Training schedule.}
+The GNN and the NGP are co-trained in two phases. During warmup (the
+first third of training) hidden voltages are silenced ($v_i = 0$),
+so the GNN learns $\hat{\mathbf{W}}$ on the visible $90\%$ identically
+to a no-NGP run, while the NGP backbone trains via an anchor loss on
+a held-out subset of visible neurons. At the end of warmup the
+injection switches on hard ($v_i \leftarrow
+\mathrm{NGP}(t, x_i, y_i, \mathbf{a}_i)$, with no scalar
+ramp). To absorb the resulting input-distribution shift in the GNN
+forward, the learning rates of $\hat{\mathbf{W}}$, $f_\theta$ and
+$g_\phi$ are damped by a factor of $100$ at the injection switch and
+recover linearly back to nominal over an absorption window of roughly
+$20\%$ of training; the embedding $\mathbf{a}_i$ and the NGP weights
+stay at full learning rate throughout. We deliberately do not add a
+self-consistency term between $\mathrm{GNN}(v_h{=}0)_h$ and
+$\mathrm{NGP}(t)_h$: an earlier variant of this loss collapsed onto
+the trivial zero fixed point, with the consistency residual reducing
+to an $L_2$ ridge $\lVert\mathrm{NGP}\rVert$ once the GNN was
+consistent with $v_h{=}0$, and pinning the hidden NGP output at zero
+throughout training. NGP-hidden is therefore supervised only
+through (i) the shared backbone via the anchor loss and (ii)
+back-propagation through the injection during phase~2 — both
+gradients point away from zero.
+
+This extension is still in development. The architectural and
+training-schedule changes described above remove the zero-attractor
+failure mode of an earlier temporal-only variant, but the resulting
+joint scheme has not yet produced a measurable improvement in
+$R^2_{\hat{\mathbf{W}}}$ recovery over the no-NGP baseline on the
+$10\%$ / $20\%$ hidden conditions of Table~\ref{tab:cv_cross_noise}.
+Final numerical results will be reported in follow-up work.
 
 \newpage
 \section{Agent-in-the-loop parameter optimisation}

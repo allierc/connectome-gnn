@@ -221,8 +221,8 @@ if __name__ == "__main__":
                 test_config_name = None
     else:
         best_model = ''
-        task = task = 'plot'
-        config_list = ['flyvis_noise_free_blank50_unified_cv00']
+        task = task = 'train'
+        config_list = ['flyvis_noise_005_hidden_010_blank50_consensus_ngp_light']
         test_config_name = None
 
     if task == 'cv':

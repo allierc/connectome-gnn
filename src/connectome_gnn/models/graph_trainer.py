@@ -30,9 +30,17 @@ from connectome_gnn.models.recurrent_step import recurrent_loss
 from connectome_gnn.models.registry import create_model
 from connectome_gnn.models.training_utils import build_lr_scheduler, build_model, dale_law_score, determine_load_fields, enforce_dale_law, load_flyvis_data
 from connectome_gnn.models.utils import (
+    ANSI_GREEN,
+    ANSI_ORANGE,
+    ANSI_RED,
+    ANSI_RESET,
+    ANSI_YELLOW,
     LossRegularizer,
+    _NGP_QUICK_FREQ,
     _batch_frames,
+    _quick_ngp_pearson,
     analyze_data_svd,
+    r2_color,
     set_trainable_parameters,
 )
 from connectome_gnn.plot import (
@@ -54,121 +62,6 @@ from connectome_gnn.utils import (
 )
 
 _logger = get_logger(__name__)
-
-ANSI_RESET = '\033[0m'
-ANSI_GREEN = '\033[92m'
-ANSI_YELLOW = '\033[93m'
-ANSI_ORANGE = '\033[38;5;208m'
-ANSI_RED = '\033[91m'
-
-def _quick_ngp_pearson(model, x_ts, ids, *, use_anchor, device,
-                        n_neurons_sample=64, n_frames_sample=256, rng=None,
-                        return_stats=False):
-    """Lightweight per-neuron Pearson r between batched NGP output and GT.
-
-    Used by the tqdm bar to surface a real-time fit metric for the
-    hidden-neuron InstantNGP between the heavyweight
-    plot_training_flyvis checkpoints. Samples a small random subset of
-    (neurons, frames), runs a single ``forward_{hidden,anchor}_batched``
-    call (no grad), and returns the mean per-neuron Pearson r.
-
-    Args:
-        model:        NeuralGNN with NNR_hidden initialised.
-        x_ts:         TimeSeries used as ground truth.
-        ids:          (N,) torch.long ids — hidden_ids or anchor_ids.
-        use_anchor:   pick forward_anchor_batched if True, else
-                      forward_hidden_batched.
-        device:       trainer device.
-        n_neurons_sample / n_frames_sample: subset sizes (defaults are
-                      cheap enough to call every ~200 iterations on a
-                      single A100 without measurable wall-time cost).
-        rng:          optional numpy Generator. Defaults to a fresh
-                      default_rng() so the subset varies between calls.
-        return_stats: if True, return (mean, std) tuple over per-neuron
-                      Pearson r. Default False keeps the legacy float
-                      return.
-
-    Returns:
-        float | (float, float) | None — mean per-neuron Pearson r (or
-        ``(mean, std)`` when ``return_stats=True``), or None if the call
-        could not run (e.g. spatial NGP pos cache not yet populated).
-    """
-    _none_ret = (None, None) if return_stats else None
-    if model.NNR_hidden is None or ids is None or len(ids) == 0:
-        return _none_ret
-    if use_anchor and getattr(model, 'n_anchor', 0) == 0:
-        return _none_ret
-
-    n_total = int(len(ids))
-    n_neurons_sample = min(n_neurons_sample, n_total)
-    n_frames_total = int(x_ts.n_frames)
-    n_frames_sample = min(n_frames_sample, n_frames_total)
-    if rng is None:
-        rng = np.random.default_rng()
-    sel_n = np.sort(rng.choice(n_total, n_neurons_sample, replace=False))
-    sel_f = np.sort(rng.choice(n_frames_total, n_frames_sample, replace=False))
-
-    if isinstance(ids, torch.Tensor):
-        sel_ids = ids[sel_n].to(device=device, dtype=torch.long)
-    else:
-        sel_ids = torch.as_tensor(np.asarray(ids)[sel_n],
-                                  device=device, dtype=torch.long)
-    k_t = torch.as_tensor(sel_f, device=device, dtype=torch.long)
-
-    was_training = model.training
-    model.eval()
-    try:
-        with torch.no_grad():
-            if use_anchor:
-                pred = model.forward_anchor_batched(k_t, anchor_ids=sel_ids)
-            else:
-                pred = model.forward_hidden_batched(k_t, hidden_ids=sel_ids)
-    except RuntimeError:
-        # spatial NGP pos cache not yet populated — caller skips this iter
-        if was_training:
-            model.train()
-        return _none_ret
-    if was_training:
-        model.train()
-
-    # Time-only ngp_t (no spatial, no factorized head) ignores the
-    # passed-in ids and returns (B, n_total) — every output slot maps 1:1
-    # to the trainer's hidden_ids / anchor_ids order. Slice down to the
-    # subsampled positions so pred matches gt's shape (B, n_sample).
-    # The spatial path already returns (B, n_sample) directly via
-    # _ngp_query_spatial, so no slicing needed in that case.
-    if pred.shape[1] == n_total:
-        pred = pred[:, sel_n]
-    elif pred.shape[1] != n_neurons_sample:
-        if was_training:
-            model.train()
-        return _none_ret  # shape mismatch we don't know how to recover from
-
-    gt = x_ts.voltage[sel_f][:, sel_ids]                     # (F, N_sample)
-    gt_np = gt.detach().to('cpu').numpy().astype(np.float32)
-    pred_np = pred.detach().to('cpu').numpy().astype(np.float32)
-    g = gt_np - gt_np.mean(axis=0, keepdims=True)
-    p = pred_np - pred_np.mean(axis=0, keepdims=True)
-    num = (g * p).sum(axis=0)
-    denom = np.sqrt((g * g).sum(axis=0)) * np.sqrt((p * p).sum(axis=0))
-    corrs = np.where(denom > 1e-12, num / (denom + 1e-12), 0.0)
-    if return_stats:
-        return float(corrs.mean()), float(corrs.std())
-    return float(corrs.mean())
-
-
-# How often the tqdm bar gets a refreshed NGP Pearson r between the heavy
-# plot_training_flyvis checkpoints. ~100 iters keeps the cost negligible
-# (one batched forward over 64 neurons × 256 frames per refresh) while
-# updating the bar — and the metrics.log row written from this path —
-# often enough to give nnr_plot.png ~2× the resolution of the prior 200.
-_NGP_QUICK_FREQ = 100
-
-
-def r2_color(val, thresholds=(0.9, 0.7, 0.3)):
-    """ANSI color for an R² value: green > t0, yellow > t1, orange > t2, red otherwise."""
-    t0, t1, t2 = thresholds
-    return ANSI_GREEN if val > t0 else ANSI_YELLOW if val > t1 else ANSI_ORANGE if val > t2 else ANSI_RED
 
 
 def data_train(config=None, erase=False, best_model=None, style=None, device=None, log_file=None):
@@ -705,19 +598,23 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                 profile_memory=True,
             )
             _prof.start()
-        # NGP-injection warmup config (two-step training).
+        # NGP-injection schedule (two-phase, binary on/off).
+        #
         # Phase 1 (N < warmup_inject_nnr_iter): hidden voltages are zero-silenced
-        # (alpha=0). The NGP still trains via the anchor loss (which is gated by
-        # coeff_anchor_voltage, NOT by alpha), so by phase 2 the NGP already
-        # produces sensible per-(t,u,v) outputs at anchor positions.
-        # Phase 2 (N >= warmup_inject_nnr_iter): alpha ramps 0 -> 1 over
-        # warmup_inject_nnr_ramp_iter steps, then stays at 1. The ramp gives W a
-        # window to absorb the new non-zero hidden contribution gradually
-        # instead of stepwise. ramp=0 -> hard switch.
-        # Defaults (warmup=0, ramp=0) preserve the legacy "always inject" behavior.
-        # The *_frac variants override the absolute counts when > 0, expressed
-        # as a fraction of Niter — useful when DAL/bs change since the warmup
-        # tracks training length automatically.
+        # (NGP forward is not called for the GNN input — see assignment site
+        # below). NGP still trains via the anchor loss (which is gated by
+        # coeff_anchor_voltage, NOT by injection state), so by phase 2 the NGP
+        # already produces sensible per-(t,u,v) outputs at anchor positions
+        # via shared backbone weights.
+        #
+        # Phase 2 (N >= warmup_inject_nnr_iter): NGP injection is hard-on (no
+        # scalar α). The smooth absorption of the new input distribution is
+        # done by the LR-damping V (see below), not by ramping the injected
+        # signal magnitude.
+        #
+        # Defaults (warmup=0, ramp=0) preserve the legacy "always inject"
+        # behavior — non-NGP runs and uncondiguered NGP runs follow the
+        # exact same code path they used before this rewrite.
         _warmup_inject_iter_frac = float(getattr(tc, 'warmup_inject_nnr_iter_frac', 0.0))
         _warmup_inject_ramp_frac = float(getattr(tc, 'warmup_inject_nnr_ramp_iter_frac', 0.0))
         if _warmup_inject_iter_frac > 0.0:
@@ -728,87 +625,95 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
             _warmup_inject_ramp = int(Niter * _warmup_inject_ramp_frac)
         else:
             _warmup_inject_ramp = int(getattr(tc, 'warmup_inject_nnr_ramp_iter', 0))
-        # alpha_inject_target caps the post-warmup alpha (default 1.0). Set to
-        # 0.0 to leave NGP as a passive monitor (no injection ever) — useful
-        # to isolate whether the conn_R² drop seen in phase 2 is caused by the
-        # injection itself or by the hidden self-consistency loss.
-        _alpha_inject_target = float(getattr(tc, 'alpha_inject_target', 1.0))
 
-        # Three-phase schedule (when warmup_hidden_loss_iter_frac > 0):
-        #   phase 1 [0, hidden_loss_iter)               : alpha=0, hidden loss OFF
-        #   phase 2 [hidden_loss_iter, inject_iter)     : alpha=0, hidden loss ON
-        #   phase 3 [inject_iter, ...)                  : alpha ramps to target, hidden loss ON
-        # Default (frac=0) = legacy two-phase behavior where the hidden loss
-        # gate is tied to alpha_inject (so it activates at the inject ramp).
-        _hidden_loss_iter_frac = float(getattr(tc, 'warmup_hidden_loss_iter_frac', 0.0))
-        if _hidden_loss_iter_frac > 0.0:
-            _hidden_loss_iter = int(Niter * _hidden_loss_iter_frac)
-        else:
-            _hidden_loss_iter = int(getattr(tc, 'warmup_hidden_loss_iter', 0))
-        _three_phase = _hidden_loss_iter > 0
+        # LR-damping V-schedule. Fired only when an NGP injection switch is
+        # configured (_warmup_inject_iter > 0) AND a damping window length is
+        # set (_warmup_inject_ramp > 0). lr_damping_factor controls the depth
+        # of the V (default 100.0 → /100 at the trough; one knob covers both
+        # legs, recovery just multiplies back by the same factor).
+        _lr_damping_factor = float(getattr(tc, 'lr_damping_factor', 100.0))
+        _lr_damping_active = (_warmup_inject_iter > 0
+                              and _warmup_inject_ramp > 0
+                              and _lr_damping_factor > 1.0)
+        _damp_groups = ('W', 'f_theta', 'g_phi')   # only GNN groups are damped
+        # Cache base LRs so each iter we set pg['lr'] = base * lr_mult
+        # without compounding rounding errors over the loop.
+        _base_lrs = {id(pg): pg['base_lr'] for pg in optimizer.param_groups}
 
         if _warmup_inject_iter > 0:
-            if _three_phase:
-                print(f'NGP three-phase schedule: '
-                      f'phase 1 [0, {_hidden_loss_iter}) GNN+anchor only, '
-                      f'phase 2 [{_hidden_loss_iter}, {_warmup_inject_iter}) +hidden loss (alpha=0), '
-                      f'phase 3 ramp [{_warmup_inject_iter}, {_warmup_inject_iter + _warmup_inject_ramp}) → '
-                      f'inject (alpha={_alpha_inject_target}). Niter={Niter}.')
+            _ramp_mid = _warmup_inject_iter + _warmup_inject_ramp
+            _ramp_end = _warmup_inject_iter + 2 * _warmup_inject_ramp
+            print(f'NGP binary-inject schedule: '
+                  f'warmup [0, {_warmup_inject_iter}) NGP off + nominal LR, '
+                  f'inject ON at {_warmup_inject_iter}.')
+            if _lr_damping_active:
+                print(f'  LR-damping V on {{{",".join(_damp_groups)}}}: '
+                      f'damp [{_warmup_inject_iter}, {_ramp_mid}) base→base/{_lr_damping_factor:g}, '
+                      f'recover [{_ramp_mid}, {_ramp_end}) base/{_lr_damping_factor:g}→base. '
+                      f'Niter={Niter}.')
             else:
-                print(f'NGP warmup-inject: phase 1 = iters [0, {_warmup_inject_iter}) '
-                      f'(alpha=0), ramp [{_warmup_inject_iter}, {_warmup_inject_iter + _warmup_inject_ramp}), '
-                      f'phase 2 from iter {_warmup_inject_iter + _warmup_inject_ramp} '
-                      f'(alpha={_alpha_inject_target}). Total Niter={Niter}.')
+                print(f'  LR-damping V disabled (ramp window or factor not set). Niter={Niter}.')
 
-        # Track previous-iter alpha so we can announce the two phase transitions
-        # (warmup-end / ramp-start, ramp-end / phase-2-start).
-        _prev_alpha_inject = -1.0
+        _prev_injection_active = None
+        _prev_lr_mult = 1.0
 
         for N in pbar:
 
-            # Compute per-iter alpha for NGP-into-hidden injection.
-            # Branchless inside the compiled forward (just a scalar multiply);
-            # the if-tree below runs once in the Python loop, not in any
-            # compiled region. Final value is scaled by alpha_inject_target so
-            # `alpha_inject_target=0` leaves alpha at 0 throughout (NGP never
-            # injected — passive-monitor mode).
-            if _warmup_inject_iter <= 0:
-                alpha_inject = 1.0
-            elif N < _warmup_inject_iter:
-                alpha_inject = 0.0
-            elif _warmup_inject_ramp > 0 and N < _warmup_inject_iter + _warmup_inject_ramp:
-                alpha_inject = float(N - _warmup_inject_iter) / float(_warmup_inject_ramp)
-            else:
-                alpha_inject = 1.0
-            alpha_inject = alpha_inject * _alpha_inject_target
+            # Binary injection gate. Cheap — branchless via int compare —
+            # evaluated once per iteration in Python (not inside any
+            # torch.compile region).
+            injection_active = (_warmup_inject_iter <= 0) or (N >= _warmup_inject_iter)
 
-            # Hidden-voltage self-consistency gate. Three-phase: turns on at
-            # _hidden_loss_iter (independent of alpha_inject), so phase 2 can
-            # train NGP-hidden against GNN(v_h=0) targets BEFORE injection
-            # starts in phase 3 — pre-shaping NGP-hidden away from the
-            # trivial-zero fixed point that emerges once alpha>0.
-            # Two-phase fallback (when _three_phase is False): the gate
-            # follows alpha_inject (legacy behavior).
-            if _three_phase:
-                hidden_loss_gate = 1.0 if N >= _hidden_loss_iter else 0.0
+            # LR-damping V-schedule multiplier (applied to W/f_theta/g_phi
+            # param groups only). Outside the V window: 1.0 → no change vs
+            # legacy behavior. embedding/NNR_hidden/NNR_f always at 1.0.
+            if _lr_damping_active:
+                if N < _warmup_inject_iter or N >= _ramp_end:
+                    _lr_mult = 1.0
+                elif N < _ramp_mid:
+                    # Damping leg: linearly 1.0 → 1/factor.
+                    _t = float(N - _warmup_inject_iter) / float(_warmup_inject_ramp)
+                    _lr_mult = 1.0 + (1.0 / _lr_damping_factor - 1.0) * _t
+                else:
+                    # Recovery leg: linearly 1/factor → 1.0.
+                    _t = float(N - _ramp_mid) / float(_warmup_inject_ramp)
+                    _lr_mult = (1.0 / _lr_damping_factor
+                                + (1.0 - 1.0 / _lr_damping_factor) * _t)
             else:
-                hidden_loss_gate = alpha_inject
+                _lr_mult = 1.0
 
-            # Announce phase transitions when crossed.
-            if _warmup_inject_iter > 0 and _prev_alpha_inject != alpha_inject:
-                if _prev_alpha_inject == 0.0 and alpha_inject > 0.0:
-                    if _warmup_inject_ramp > 0:
-                        print(f'\n[NGP warmup] iter {N}: phase 1 → ramp '
-                              f'(alpha 0 -> 1 over {_warmup_inject_ramp} iters). '
-                              f'Hidden NGP injection now ramping in.')
-                    else:
-                        print(f'\n[NGP warmup] iter {N}: phase 1 → phase 2 '
-                              f'(alpha 0 -> 1, hard switch). '
-                              f'Hidden NGP injection now fully active.')
-                elif _prev_alpha_inject < 1.0 and alpha_inject >= 1.0:
-                    print(f'\n[NGP warmup] iter {N}: ramp → phase 2 '
-                          f'(alpha = 1). Hidden NGP injection now fully active.')
-            _prev_alpha_inject = alpha_inject
+            # Apply the multiplier to the GNN param groups whenever it
+            # changes. Skipping when (_lr_mult == _prev_lr_mult) avoids the
+            # per-iter Python loop overhead 99% of training (mult is 1.0
+            # outside the V).
+            if _lr_damping_active and _lr_mult != _prev_lr_mult:
+                for pg in optimizer.param_groups:
+                    if pg.get('name') in _damp_groups:
+                        pg['lr'] = _base_lrs[id(pg)] * _lr_mult
+                _prev_lr_mult = _lr_mult
+
+            # Announce injection-on transition once.
+            if (_warmup_inject_iter > 0
+                    and _prev_injection_active is False
+                    and injection_active):
+                if _lr_damping_active:
+                    print(f'\n[NGP inject] iter {N}: phase 1 → phase 2 '
+                          f'(NGP hard-on; GNN-LR V-schedule starts: '
+                          f'damp over {_warmup_inject_ramp} iters, '
+                          f'recover over {_warmup_inject_ramp} iters).')
+                else:
+                    print(f'\n[NGP inject] iter {N}: phase 1 → phase 2 '
+                          f'(NGP hard-on, no LR damping configured).')
+            elif (_lr_damping_active
+                    and N == _ramp_mid
+                    and _warmup_inject_iter > 0):
+                print(f'\n[NGP inject] iter {N}: GNN-LR damping leg → recovery leg '
+                      f'(at trough, base/{_lr_damping_factor:g}).')
+            elif (_lr_damping_active
+                    and N == _ramp_end
+                    and _warmup_inject_iter > 0):
+                print(f'\n[NGP inject] iter {N}: GNN-LR back to nominal.')
+            _prev_injection_active = injection_active
 
             # Unfreeze embedding at the midpoint after UMAP clustering froze it
             if embedding_frozen and N == unfreeze_at_iteration:
@@ -972,10 +877,11 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                             _tau_pct = (100.0 * last_n_out_tau / last_n_total_tau) if last_n_total_tau > 0 else 0.0
                             bar_parts.append(f'{r2_color(last_tau_r2_clean)}τ={last_tau_r2_clean:.3f}({_tau_pct:.0f}%){ANSI_RESET}')
                     if last_hidden_r2 is not None or last_anchor_r2 is not None:
-                        # During warmup (alpha_inject=0), hidden voltages are
-                        # zero-silenced so hidden_nnr_pearson is meaningless;
-                        # show n/a. Anchor is still trained throughout, show it.
-                        if alpha_inject <= 0.0:
+                        # During warmup (injection_active=False), hidden
+                        # voltages are zero-silenced so hidden_nnr_pearson
+                        # against GT-injection rollout is meaningless; show
+                        # n/a. Anchor is trained throughout, show it.
+                        if not injection_active:
                             if last_anchor_r2 is not None:
                                 nnr_str = f'nnr=n/a({last_anchor_r2:.3f})'
                             else:
@@ -1019,15 +925,23 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                     x.voltage = x.voltage + x.noise
 
                 # Hidden neurons: predict via SIREN/NGP or zero-silence.
-                # alpha_inject ramps 0->1 across the warmup window: in phase 1
-                # this is a multiply-by-zero so the GNN sees voltage[hidden]=0
-                # exactly (same as the no-NGP baseline), while the NGP still
-                # gets gradient from the anchor loss elsewhere in the step.
+                # injection_active is binary: phase 1 → False (v_h=0, identical
+                # to the no-NGP baseline; NGP still trains via the anchor loss
+                # elsewhere in the step), phase 2 → True (NGP fully injected).
+                # The smooth absorption of the new input distribution at the
+                # phase 1→2 transition is handled by the LR-damping V-schedule
+                # on the GNN param groups, not by ramping injection magnitude.
                 if has_hidden_neurons:
-                    if model.NNR_hidden is not None:
-                        x.voltage[hidden_ids] = alpha_inject * model.forward_hidden(x, k, hidden_ids)
+                    if model.NNR_hidden is not None and injection_active:
+                        x.voltage[hidden_ids] = model.forward_hidden(x, k, hidden_ids)
                     else:
                         x.voltage[hidden_ids] = 0.0
+                        # Phase 1: forward_hidden is skipped, so the spatial NGP
+                        # position cache (normally primed there) stays empty —
+                        # but the anchor-voltage loss below still routes through
+                        # _ngp_query_spatial. Prime it here; it is idempotent.
+                        if model.NNR_hidden is not None and getattr(model, '_ngp_spatial_enabled', False):
+                            model._ngp_cache_pos(x)
 
                 if tc.time_window > 0:
                     x_temporal = x_ts.voltage[k - tc.time_window + 1: k + 1].T
@@ -1172,28 +1086,17 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                 else:
 
                     loss = loss + (pred[ids_batch] - y_batch[ids_batch]).norm(2)
-                    # Hidden voltage consistency loss: GNN-predicted v(k+1) vs NGP(k+1).
-                    # No oracle GT leak at hidden neurons — the target is the INR's own
-                    # prediction at t+1, so agreement requires GNN dynamics and INR trace
-                    # to be self-consistent. Degeneracy (both constant) is prevented by
-                    # the anchor loss and the visible-neuron rollout loss.
-                    # Hidden self-consistency loss: gated by alpha_inject so it
-                    # is OFF in phase 1 (alpha=0) and ON in phase 2 (alpha=1).
-                    # Phase 1 the GNN sees voltage[hidden]=0, so a self-consistency
-                    # term vs NGP(t+1) would push the GNN toward 0 instead of the
-                    # true dynamics. Multiplying by alpha cleanly disables it.
-                    if has_hidden_neurons and getattr(tc, 'coeff_hidden_voltage', 0.0) > 0:
-                        n_per = state_batch[0].n_neurons
-                        h_ids_b = torch.cat([hidden_ids + b * n_per for b in range(len(state_batch))]).to(device)
-                        pred_h = batched_state.voltage[h_ids_b].unsqueeze(-1) + sim.delta_t * pred[h_ids_b]
-                        k_starts = k_batch[::n_per, 0].to(torch.long)                 # (B,)
-                        target_h = model.forward_hidden_batched(k_starts + 1, hidden_ids=hidden_ids).reshape(-1, 1)  # (B*n_hidden, 1)
-                        # hidden_loss_gate: in three-phase mode this turns on
-                        # at _hidden_loss_iter even while alpha_inject=0, so
-                        # NGP-hidden gets shaped against GNN(v_h=0) targets
-                        # before injection starts. In legacy two-phase mode it
-                        # equals alpha_inject (gate tied to injection ramp).
-                        loss = loss + hidden_loss_gate * tc.coeff_hidden_voltage * (pred_h - target_h).norm(2)
+                    # NB: the previous "hidden self-consistency" loss
+                    # ‖pred_h − target_h‖ where target_h = NGP's own prediction
+                    # has been removed. In phase 1 (v_h=0) pred_h is
+                    # delta_t · O(small) ≈ 0, so the gradient on NGP reduced to
+                    # an L2 ridge ‖NGP‖ that pinned NGP-hidden at the trivial
+                    # zero fixed point throughout training (verified
+                    # empirically: hidden_pearson stayed ≈ 0.02 across 320k
+                    # iters). NGP-hidden is now supervised only via (a) the
+                    # anchor loss (shared NNR backbone) and (b) backprop
+                    # through injection during phase 2 — both of which point
+                    # away from zero.
                     # Anchor voltage loss: NGP-T/SIREN-T anchor outputs vs observed GT voltages
                     if has_anchor_neurons and getattr(tc, 'coeff_anchor_voltage', 0.0) > 0:
                         n_per = state_batch[0].n_neurons
@@ -1392,10 +1295,11 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                             _tau_pct = (100.0 * last_n_out_tau / last_n_total_tau) if last_n_total_tau > 0 else 0.0
                             bar_parts.append(f'{r2_color(last_tau_r2_clean)}τ={last_tau_r2_clean:.3f}({_tau_pct:.0f}%){ANSI_RESET}')
                     if last_hidden_r2 is not None or last_anchor_r2 is not None:
-                        # During warmup (alpha_inject=0), hidden voltages are
-                        # zero-silenced so hidden_nnr_pearson is meaningless;
-                        # show n/a. Anchor is still trained throughout, show it.
-                        if alpha_inject <= 0.0:
+                        # During warmup (injection_active=False), hidden
+                        # voltages are zero-silenced so hidden_nnr_pearson
+                        # against GT-injection rollout is meaningless; show
+                        # n/a. Anchor is trained throughout, show it.
+                        if not injection_active:
                             if last_anchor_r2 is not None:
                                 nnr_str = f'nnr=n/a({last_anchor_r2:.3f})'
                             else:
