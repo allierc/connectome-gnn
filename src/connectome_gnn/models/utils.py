@@ -1185,6 +1185,123 @@ def save_exploration_artifacts_flyvis(root_dir, exploration_dir, config, config_
     }
 
 
+ANSI_RESET = '\033[0m'
+ANSI_GREEN = '\033[92m'
+ANSI_YELLOW = '\033[93m'
+ANSI_ORANGE = '\033[38;5;208m'
+ANSI_RED = '\033[91m'
+
+
+def _quick_ngp_pearson(model, x_ts, ids, *, use_anchor, device,
+                        n_neurons_sample=64, n_frames_sample=256, rng=None,
+                        return_stats=False):
+    """Lightweight per-neuron Pearson r between batched NGP output and GT.
+
+    Used by the tqdm bar to surface a real-time fit metric for the
+    hidden-neuron InstantNGP between the heavyweight
+    plot_training_flyvis checkpoints. Samples a small random subset of
+    (neurons, frames), runs a single ``forward_{hidden,anchor}_batched``
+    call (no grad), and returns the mean per-neuron Pearson r.
+
+    Args:
+        model:        NeuralGNN with NNR_hidden initialised.
+        x_ts:         TimeSeries used as ground truth.
+        ids:          (N,) torch.long ids — hidden_ids or anchor_ids.
+        use_anchor:   pick forward_anchor_batched if True, else
+                      forward_hidden_batched.
+        device:       trainer device.
+        n_neurons_sample / n_frames_sample: subset sizes (defaults are
+                      cheap enough to call every ~200 iterations on a
+                      single A100 without measurable wall-time cost).
+        rng:          optional numpy Generator. Defaults to a fresh
+                      default_rng() so the subset varies between calls.
+        return_stats: if True, return (mean, std) tuple over per-neuron
+                      Pearson r. Default False keeps the legacy float
+                      return.
+
+    Returns:
+        float | (float, float) | None — mean per-neuron Pearson r (or
+        ``(mean, std)`` when ``return_stats=True``), or None if the call
+        could not run (e.g. spatial NGP pos cache not yet populated).
+    """
+    _none_ret = (None, None) if return_stats else None
+    if model.NNR_hidden is None or ids is None or len(ids) == 0:
+        return _none_ret
+    if use_anchor and getattr(model, 'n_anchor', 0) == 0:
+        return _none_ret
+
+    n_total = int(len(ids))
+    n_neurons_sample = min(n_neurons_sample, n_total)
+    n_frames_total = int(x_ts.n_frames)
+    n_frames_sample = min(n_frames_sample, n_frames_total)
+    if rng is None:
+        rng = np.random.default_rng()
+    sel_n = np.sort(rng.choice(n_total, n_neurons_sample, replace=False))
+    sel_f = np.sort(rng.choice(n_frames_total, n_frames_sample, replace=False))
+
+    if isinstance(ids, torch.Tensor):
+        sel_ids = ids[sel_n].to(device=device, dtype=torch.long)
+    else:
+        sel_ids = torch.as_tensor(np.asarray(ids)[sel_n],
+                                  device=device, dtype=torch.long)
+    k_t = torch.as_tensor(sel_f, device=device, dtype=torch.long)
+
+    was_training = model.training
+    model.eval()
+    try:
+        with torch.no_grad():
+            if use_anchor:
+                pred = model.forward_anchor_batched(k_t, anchor_ids=sel_ids)
+            else:
+                pred = model.forward_hidden_batched(k_t, hidden_ids=sel_ids)
+    except RuntimeError:
+        # spatial NGP pos cache not yet populated — caller skips this iter
+        if was_training:
+            model.train()
+        return _none_ret
+    if was_training:
+        model.train()
+
+    # Time-only ngp_t (no spatial, no factorized head) ignores the
+    # passed-in ids and returns (B, n_total) — every output slot maps 1:1
+    # to the trainer's hidden_ids / anchor_ids order. Slice down to the
+    # subsampled positions so pred matches gt's shape (B, n_sample).
+    # The spatial path already returns (B, n_sample) directly via
+    # _ngp_query_spatial, so no slicing needed in that case.
+    if pred.shape[1] == n_total:
+        pred = pred[:, sel_n]
+    elif pred.shape[1] != n_neurons_sample:
+        if was_training:
+            model.train()
+        return _none_ret  # shape mismatch we don't know how to recover from
+
+    gt = x_ts.voltage[sel_f][:, sel_ids]                     # (F, N_sample)
+    gt_np = gt.detach().to('cpu').numpy().astype(np.float32)
+    pred_np = pred.detach().to('cpu').numpy().astype(np.float32)
+    g = gt_np - gt_np.mean(axis=0, keepdims=True)
+    p = pred_np - pred_np.mean(axis=0, keepdims=True)
+    num = (g * p).sum(axis=0)
+    denom = np.sqrt((g * g).sum(axis=0)) * np.sqrt((p * p).sum(axis=0))
+    corrs = np.where(denom > 1e-12, num / (denom + 1e-12), 0.0)
+    if return_stats:
+        return float(corrs.mean()), float(corrs.std())
+    return float(corrs.mean())
+
+
+# How often the tqdm bar gets a refreshed NGP Pearson r between the heavy
+# plot_training_flyvis checkpoints. ~100 iters keeps the cost negligible
+# (one batched forward over 64 neurons × 256 frames per refresh) while
+# updating the bar — and the metrics.log row written from this path —
+# often enough to give nnr_plot.png ~2× the resolution of the prior 200.
+_NGP_QUICK_FREQ = 100
+
+
+def r2_color(val, thresholds=(0.9, 0.7, 0.3)):
+    """ANSI color for an R² value: green > t0, yellow > t1, orange > t2, red otherwise."""
+    t0, t1, t2 = thresholds
+    return ANSI_GREEN if val > t0 else ANSI_YELLOW if val > t1 else ANSI_ORANGE if val > t2 else ANSI_RED
+
+
 # Lazy re-export for backward compatibility — existing imports like
 # `from connectome_gnn.models.utils import LossRegularizer` continue to work.
 # Uses __getattr__ to avoid circular import (regularizer.py imports from utils.py).

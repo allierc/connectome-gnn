@@ -819,7 +819,17 @@ class TrainingConfig(BaseModel):
     time_step: int = 1
     multi_start_recurrent: bool = False
     consecutive_batch: bool = False
-    coeff_hidden_voltage: float = 0.0  # loss weight on GNN-predicted hidden voltages in recurrent training
+    coeff_hidden_voltage: float = 0.0  # loss weight on GNN-predicted hidden voltages in recurrent training (NB: the self-consistency variant in graph_trainer was removed because it was a zero-attractor; only the GT-supervised variant in recurrent_step.py still reads this knob)
+    # Differential LR damping around the NGP injection switch. The schedule is
+    # a V centered at warmup_inject_nnr_iter: GNN param groups (W, f_theta,
+    # g_phi) drop their LR to base_lr / lr_damping_factor over the first
+    # warmup_inject_nnr_ramp_iter window, then recover back to base_lr over an
+    # equal-length recovery window. Embedding (model.a), NNR_hidden, NNR_f are
+    # left at full LR throughout. Default 100.0 mirrors the symmetric "divide
+    # by 100, multiply by 100" pattern (factor>=1 used for both legs).
+    # Applied only when warmup_inject_nnr_iter and warmup_inject_nnr_ramp_iter
+    # are both > 0 (otherwise lr_mult stays at 1.0).
+    lr_damping_factor: float = 100.0
     # Anchor neurons: observed neurons whose GT voltages directly supervise NGP-T backbone.
     # Only active when hidden_neuron_fraction > 0 and NNR_hidden is built.
     # n_anchor defaults to len(hidden_ids) when <=0; sampled from visible non-retina, saved to log_dir/anchor_neuron_ids.pt.
