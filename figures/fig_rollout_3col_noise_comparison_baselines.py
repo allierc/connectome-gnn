@@ -2,8 +2,7 @@
 
 Mirrors ``fig_rollout_3col_noise_comparison.py`` (the GNN/unified figure) but
 points at the MLP and EED ``_unified2_cv00`` runs that live under
-
-    /groups/saalfeld/home/kumarv4/repos/connectome-gnn/log/fly/
+``$TRAINED_MODEL_OUTPUT_ROOT/log/fly/``.
 
 For each architecture (mlp, eed) it builds the same 3-column trace + 5-panel
 scatter layout (noise-free / σ=0.05 / σ=0.5) and writes
@@ -20,12 +19,9 @@ Usage
 # ─────────────────────────────────────────────────────────────────────────────
 # Inputs / paths
 # ─────────────────────────────────────────────────────────────────────────────
-# Data root      : /groups/saalfeld/home/kumarv4/repos/connectome-gnn   (BASELINE_REPO; baseline runs live here)
 # Configs        : <DATA_ROOT>/config/fly/flyvis_noise_{free,005,05}_mlp_unified2_cv00.yaml
 #                  <DATA_ROOT>/config/fly/flyvis_noise_{free,005,05}_eed_unified2_cv00.yaml
 #                  (noisy-test twins generated on the fly with suffix _noisy)
-# Stimulus root  : /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test/
-#                  /groups/saalfeld/home/allierc/signaling/DATAVIS/  (fallback)
 # Training data  : <DATA_ROOT>/graphs_data/fly/flyvis_noise_{free,005,05}_{mlp,eed}_unified2_cv00/x_list_train/
 # Test data      : <DATA_ROOT>/graphs_data/fly/flyvis_noise_{free,005,05}_{mlp,eed}_unified2_cv00/x_list_test/
 #                  <DATA_ROOT>/graphs_data/fly/flyvis_noise_{free,005,05}_{mlp,eed}_unified2_cv00_noisy/x_list_test/
@@ -102,20 +98,17 @@ def draw_scatter(ax, true_arr, pred_arr, xlabel, ylabel, show_fit=True):
 
 # ── paths ────────────────────────────────────────────────────────────────────
 GNN_REPO_ROOT  = '/workspace/connectome-gnn'  # this repo (figure script lives here)
-BASELINE_REPO  = '/groups/saalfeld/home/kumarv4/repos/connectome-gnn'
+BASELINE_REPO  = os.environ.get('TRAINED_MODEL_OUTPUT_ROOT', '.')
 # Writable scratch root: we copy parent's noisy-test dataset here, write the
 # variant yamls here, and let GNN_Main.py write the rollout bundle into
 # <SCRATCH>/log/fly/<model>/results/. The collaborator's repo on
-# /groups/saalfeld is read-only for us, so we never touch it.
 SCRATCH_ROOT   = f'{GNN_REPO_ROOT}/figures/_baseline_cache'
 BASELINE_ROOT  = SCRATCH_ROOT  # passed via --output_root
 CFG_DIR        = f'{SCRATCH_ROOT}/config/fly'
-PARENT_GRAPHDATA = '/groups/saalfeld/home/allierc/GraphData'
+PARENT_GRAPHDATA = os.environ.get('TRAINED_MODEL_OUTPUT_ROOT', '.')
 
 _DAVIS_CANDIDATES = [
-    '/groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test/',
-    '/groups/saalfeld/home/allierc/signaling/DATAVIS/',
-    os.environ.get('DATAVIS_ROOT', ''),
+    os.environ.get('DATAVIS_TEST_ROOT', ''),
 ]
 DAVIS_ROOT = next(
     (p for p in _DAVIS_CANDIDATES
@@ -321,7 +314,7 @@ def build_figure(columns, out_base):
     # identical traces side-by-side. Steal them from a parent bundle on disk;
     # assert the type at each index matches in the baseline bundle (it will,
     # as long as both repos share the same flyvis connectome ordering).
-    PARENT_BUNDLE = ('/groups/saalfeld/home/allierc/GraphData/log/fly/'
+    PARENT_BUNDLE = (f"{os.environ.get('TRAINED_MODEL_OUTPUT_ROOT', '.')}/log/fly/"
                      'flyvis_noise_free_blank50_unified_cv00/results/'
                      'rollout_bundle.npz')
     _pb = np.load(PARENT_BUNDLE, allow_pickle=True)

@@ -74,7 +74,7 @@ except Exception:
 
 
 REPO_ROOT = '/workspace/connectome-gnn'
-DATA_ROOT = '/groups/saalfeld/home/allierc/GraphData'
+DATA_ROOT = os.environ.get('TRAINED_MODEL_OUTPUT_ROOT', '.')
 CFG_DIR   = f'{DATA_ROOT}/config/fly'
 CACHE_DIR = os.path.join(REPO_ROOT, 'figures', 'data')
 CACHE_PREFIX = 'fig_rollout_4col_flywire_'

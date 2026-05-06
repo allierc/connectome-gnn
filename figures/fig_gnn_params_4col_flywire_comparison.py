@@ -50,7 +50,7 @@ import matplotlib.pyplot as plt
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(_SCRIPT_DIR)
-DATA_ROOT = '/groups/saalfeld/home/allierc/GraphData'
+DATA_ROOT = os.environ.get('TRAINED_MODEL_OUTPUT_ROOT', '.')
 for _p in (os.path.join(REPO_ROOT, 'src'), REPO_ROOT):
     if _p in sys.path:
         sys.path.remove(_p)

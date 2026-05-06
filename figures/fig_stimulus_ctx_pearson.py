@@ -10,7 +10,6 @@ Output: figures/fig_stimulus_ctx_pearson.{pdf,png}
 # ─────────────────────────────────────────────────────────────────────────────
 # Inputs / paths
 # ─────────────────────────────────────────────────────────────────────────────
-# Data root      : /groups/saalfeld/home/kumarv4/repos/connectome-gnn
 # Configs        : <REPO>/config/fly/flyvis_noise_free_stimulus_ctx1.yaml
 #                  (time_window overridden in-memory for ctx=2..14)
 # Test data      : <DATA_ROOT>/graphs_data/fly/flyvis_noise_free_eed_cv{00..04}/x_list_test/
@@ -48,8 +47,8 @@ except ImportError:
 
 CTXS = list(range(1, 17))
 CV_IDS = ['00', '01', '02', '03', '04']
-LOG_ROOT = Path('/groups/saalfeld/home/kumarv4/repos/connectome-gnn/log/fly')
-CV_ROOT = Path('/groups/saalfeld/home/kumarv4/repos/connectome-gnn/graphs_data/fly')
+LOG_ROOT = Path(f"{os.environ.get('TRAINED_MODEL_OUTPUT_ROOT', '.')}/log/fly")
+CV_ROOT = Path(f"{os.environ.get('TRAINED_MODEL_OUTPUT_ROOT', '.')}/graphs_data/fly")
 OUT_BASE = REPO / 'figures' / 'fig_stimulus_ctx_pearson'
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 

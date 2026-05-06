@@ -31,14 +31,11 @@ Output
 # ─────────────────────────────────────────────────────────────────────────────
 # Inputs / paths
 # ─────────────────────────────────────────────────────────────────────────────
-# Data root      : /groups/saalfeld/home/allierc/GraphData
 # Configs        : <DATA_ROOT>/config/fly/flyvis_noise_free_blank50_unified_cv03.yaml
 #                  <DATA_ROOT>/config/fly/flyvis_noise_005_blank50_unified_cv03.yaml
 #                  <DATA_ROOT>/config/fly/flyvis_noise_05_blank50_unified_cv03.yaml
 #                  (noisy-test twins generated on the fly:
 #                   <DATA_ROOT>/config/fly/flyvis_noise_{free,005,05}_blank50_cv03_test.yaml)
-# Stimulus root  : /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test/
-#                  /groups/saalfeld/home/allierc/signaling/DATAVIS/  (fallback)
 # Training data  : <DATA_ROOT>/graphs_data/fly/flyvis_noise_{free,005,05}_blank50_cv03/x_list_train/
 #                  <DATA_ROOT>/graphs_data/fly/flyvis_noise_{free,005,05}_blank50_cv03/{edge_index.pt, ode_params.pt}
 # Test data      : <DATA_ROOT>/graphs_data/fly/flyvis_noise_{free,005,05}_blank50_cv03_test/x_list_test/
@@ -84,14 +81,12 @@ except Exception:
 
 # ── paths ────────────────────────────────────────────────────────────────────
 REPO_ROOT = '/workspace/connectome-gnn'
-DATA_ROOT = '/groups/saalfeld/home/allierc/GraphData'
+DATA_ROOT = os.environ.get('TRAINED_MODEL_OUTPUT_ROOT', '.')
 CFG_DIR   = f'{DATA_ROOT}/config/fly'
 
 # DAVIS stimulus root — same fallback chain as the cv00 figure.
 _DAVIS_CANDIDATES = [
-    '/groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test/',
-    '/groups/saalfeld/home/allierc/signaling/DATAVIS/',
-    os.environ.get('DATAVIS_ROOT', ''),
+    os.environ.get('DATAVIS_TEST_ROOT', ''),
 ]
 DAVIS_ROOT = next(
     (p for p in _DAVIS_CANDIDATES
