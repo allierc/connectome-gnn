@@ -47,9 +47,9 @@ from connectome_gnn.metrics import compute_r_squared_NSE
 
 
 # ---------------------------------------------------------------------------
-# Style: Janne base + scatter overrides per figures/INSTRUCTIONS.md
+# Style: Unified-style base + scatter overrides per figures/INSTRUCTIONS.md
 # ---------------------------------------------------------------------------
-matplotlib.rc_file(str(REPO / "figures" / "janne.matplotlibrc"))
+matplotlib.rc_file(str(REPO / "figures" / "unified_style.matplotlibrc"))
 plt.rcParams.update({
     # GNN_PlotFigure scatter convention: keep spines, use Nimbus Sans family.
     "font.family":     "sans-serif",

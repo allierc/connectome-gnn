@@ -52,7 +52,7 @@ CV_ROOT = Path(f"{os.environ.get('TRAINED_MODEL_OUTPUT_ROOT', '.')}/graphs_data/
 OUT_BASE = REPO / 'figures' / 'fig_stimulus_ctx_pearson'
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-# Janne style per figures/INSTRUCTIONS.md
+# Unified-style style per figures/INSTRUCTIONS.md
 plt.rcParams.update({
     'text.usetex': False,
     'mathtext.default': 'it',

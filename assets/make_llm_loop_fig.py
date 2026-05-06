@@ -140,7 +140,7 @@ ax.text(9.5, 0.7, "exploit best branches\n+ explore uncertain ones",
         fontstyle="italic", linespacing=1.3)
 
 plt.tight_layout()
-out_path = "/workspace/flyvis-gnn/assets/Fig_agentic_loop.svg"
+out_path = "/workspace/connectome-gnn/assets/Fig_agentic_loop.svg"
 fig.savefig(out_path, format="svg", bbox_inches="tight", facecolor="white")
 plt.close()
 

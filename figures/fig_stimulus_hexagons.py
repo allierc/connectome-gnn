@@ -1,12 +1,12 @@
 """
 Figure: input stimulus on the retinotopic hexagon lattice + per-cell-type voltage maps.
 
-Janne-styled per figures/INSTRUCTIONS.md (the previous, larger-font version
+Unified-style-styled per figures/INSTRUCTIONS.md (the previous, larger-font version
 is preserved at fig_stimulus_hexagons_original.py):
 
   • ~18 cm document-width figure (7.09 in) at 300 dpi
   • 6–8 pt fonts, 0.5 pt spines / ticks
-  • top + right spines hidden globally (via janne.matplotlibrc); the hex
+  • top + right spines hidden globally (via unified_style.matplotlibrc); the hex
     panels also hide left/bottom (no axes meaningful on a hex grid)
   • trim_axis applied to the colorbar axis (the hex panels carry no spines)
   • PDF primary output (pdf.fonttype=42, svg.fonttype='none')
@@ -48,7 +48,7 @@ import os
 import sys
 import matplotlib
 matplotlib.use('Agg')
-matplotlib.rc_file(os.path.join(os.path.dirname(__file__), 'janne.matplotlibrc'))
+matplotlib.rc_file(os.path.join(os.path.dirname(__file__), 'unified_style.matplotlibrc'))
 
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as mgs
@@ -86,7 +86,7 @@ except Exception:
                 ax.spines['left'].set_bounds(yticks[0], yticks[-1])
 
 
-# Fonts (janne.matplotlibrc sets defaults to 8/6 pt; explicit overrides for
+# Fonts (unified_style.matplotlibrc sets defaults to 8/6 pt; explicit overrides for
 # panel-specific tweaks).
 FS_LABEL  = 8
 FS_TICK   = 6
@@ -147,7 +147,7 @@ vmin_v, vmax_v = -3.0, 3.0
 vmin_s, vmax_s = -3.0, 3.0   # stimulus also displayed as z-score
 CMAP        = 'RdBu_r'        # match the z-scored heatmap in fig_simulations.py
 HEX_EDGE_C  = 'black'
-HEX_EDGE_W  = 0.1             # thinner outline to match Janne 0.5 pt aesthetic
+HEX_EDGE_W  = 0.1             # thinner outline to match Unified-style 0.5 pt aesthetic
 HEX_MARKER_S = 6              # smaller marker to match ~18 cm wide layout
 
 # Hex-lattice extent — pre-compute so every panel sets the same xlim/ylim and
@@ -287,7 +287,7 @@ for bb, lbl in zip([bb_a, bb_b], ['a', 'b']):
 # ── save ─────────────────────────────────────────────────────────────────────
 OUT_DIR = os.path.dirname(os.path.abspath(__file__))
 out_base = os.path.join(OUT_DIR, 'fig_stimulus_hexagons')
-# PDF first per janne.matplotlibrc default; PNG for quick preview.
+# PDF first per unified_style.matplotlibrc default; PNG for quick preview.
 fig.savefig(out_base + '.pdf', bbox_inches='tight')
 fig.savefig(out_base + '.png', dpi=300, bbox_inches='tight')
 plt.close(fig)

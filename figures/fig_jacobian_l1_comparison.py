@@ -70,11 +70,11 @@ OUT_BASE        = REPO / 'figures' / 'fig_jacobian_l1_comparison'
 
 
 # -----------------------------------------------------------------------------
-# Style: Janne + small bumps so the figure is readable at one-column print width
+# Style: Unified-style + small bumps so the figure is readable at one-column print width
 # -----------------------------------------------------------------------------
-matplotlib.rc_file(str(REPO / 'figures' / 'janne.matplotlibrc'))
+matplotlib.rc_file(str(REPO / 'figures' / 'unified_style.matplotlibrc'))
 plt.rcParams.update({
-    # Janne defaults are 6-8 pt; bump for a 6-panel composite figure.
+    # Unified-style defaults are 6-8 pt; bump for a 6-panel composite figure.
     'figure.dpi':       150,
     'savefig.dpi':      300,
     'axes.titlesize':   12,

@@ -5,7 +5,7 @@ ablation is *matched* between simulator and GNN: the simulator regenerates the
 test data with 50% of edges zeroed (saved as ``ablation_mask.pt`` next to the
 test split), and graph_tester applies the same mask to the trained model's
 ``W`` before rollout. This is the apples-to-apples test from Notebook_03 of
-flyvis-gnn (the network learned the message-passing rules iff a 50%-reduced
+conntectome-gnn (the network learned the message-passing rules iff a 50%-reduced
 circuit still produces the right dynamics, no retraining).
 
 Mechanism: passes the appropriate ``flyvis_noise_*_mask_50.yaml`` as the 4th
@@ -59,7 +59,7 @@ import sys
 
 import matplotlib
 matplotlib.use('Agg')
-matplotlib.rc_file(os.path.join(os.path.dirname(__file__), 'janne.matplotlibrc'))
+matplotlib.rc_file(os.path.join(os.path.dirname(__file__), 'unified_style.matplotlibrc'))
 
 import matplotlib.gridspec as mgs
 import matplotlib.pyplot as plt

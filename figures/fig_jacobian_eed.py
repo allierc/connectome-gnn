@@ -67,9 +67,9 @@ OUT_BASE        = REPO / 'figures' / 'fig_jacobian_eed'
 
 
 # -----------------------------------------------------------------------------
-# Style: Janne + small bumps so the figure is readable at one-column print width
+# Style: Unified-style + small bumps so the figure is readable at one-column print width
 # -----------------------------------------------------------------------------
-matplotlib.rc_file(str(REPO / 'figures' / 'janne.matplotlibrc'))
+matplotlib.rc_file(str(REPO / 'figures' / 'unified_style.matplotlibrc'))
 plt.rcParams.update({
     'figure.dpi':       150,
     'savefig.dpi':      300,

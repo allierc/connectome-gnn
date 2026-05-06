@@ -1,4 +1,4 @@
-"""Shared fixtures for flyvis-gnn unit tests.
+"""Shared fixtures for connectome-gnn unit tests.
 
 All fixtures produce CPU-only, deterministically-seeded data.
 No disk I/O, no GPU, no external data files.
