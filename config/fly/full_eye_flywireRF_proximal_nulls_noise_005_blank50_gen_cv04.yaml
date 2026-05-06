@@ -2,6 +2,7 @@ description: 'Cross-check YT-training variant of full_eye_flywireRF_proximal_nul
   fold=4 (blank50_gen). sim_seed=46 train_seed=1046. HPs: full_eye_flywireRF_proximal_nulls_noise_005.yaml.'
 dataset: full_eye_flywireRF_proximal_nulls_noise_005_blank50_cv04
 simulation:
+  datavis_root_env: DATAVIS_TEST_ROOT
   connectivity_file: to be specified
   adjacency_matrix: ''
   params:
@@ -23,8 +24,6 @@ simulation:
   all_columns: true
   flywire_stimulus: true
   edge_uncertainty: 1
-  datavis_roots:
-  - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
   skip_short_videos: true
   blank_prefix_fraction: 0.5
 graph_model:

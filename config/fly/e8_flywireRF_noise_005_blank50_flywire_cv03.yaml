@@ -2,6 +2,7 @@ description: 'Cross-check YT-training variant of e8_flywireRF_noise_005 fold=3 (
   sim_seed=45 train_seed=1045. HPs: e8_flywireRF_noise_005.yaml.'
 dataset: e8_flywireRF_noise_005_blank50_cv03
 simulation:
+  datavis_root_env: DATAVIS_TEST_ROOT
   connectivity_file: to be specified
   adjacency_matrix: ''
   params:
@@ -20,8 +21,6 @@ simulation:
   noise_model_level: 0.05
   derivative_smoothing_window: 1
   seed: 45
-  datavis_roots:
-  - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
   skip_short_videos: true
   blank_prefix_fraction: 0.5
 graph_model:

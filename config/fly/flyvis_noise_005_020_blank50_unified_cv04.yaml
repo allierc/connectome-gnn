@@ -2,6 +2,7 @@ description: 'Cross-check YT-training variant of flyvis_noise_005_020 fold=4 (bl
   sim_seed=46 train_seed=1046. HPs: flyvis_unified_blank50_winner.yaml.'
 dataset: flyvis_noise_005_020_blank50_cv04
 simulation:
+  datavis_root_env: DATAVIS_TEST_ROOT
   connectivity_file: to be specified
   adjacency_matrix: ''
   params:
@@ -20,8 +21,6 @@ simulation:
   noise_model_level: 0.05
   measurement_noise_level: 0.2
   seed: 46
-  datavis_roots:
-  - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
   skip_short_videos: true
   blank_prefix_fraction: 0.5
 graph_model:

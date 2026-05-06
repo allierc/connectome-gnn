@@ -3,6 +3,7 @@ description: MLP on full_eye_flywireRF_noise_005 blank50 fold=2 (sim_seed=44 tra
   model arch from config.yaml.
 dataset: full_eye_flywireRF_noise_005_blank50_cv02
 simulation:
+  datavis_root_env: DATAVIS_TEST_ROOT
   connectivity_file: to be specified
   adjacency_matrix: ''
   params:
@@ -21,8 +22,6 @@ simulation:
   noise_model_level: 0.05
   seed: 44
   derivative_smoothing_window: 1
-  datavis_roots:
-  - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
   skip_short_videos: true
   blank_prefix_fraction: 0.5
 graph_model:
