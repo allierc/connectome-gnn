@@ -832,17 +832,20 @@ def data_generate_voltage(
     _bpf = float(getattr(sim, 'blank_prefix_fraction', 0.0))
     _vis_type = getattr(sim, 'visual_input_type', 'DAVIS')
     _datavis_root_env = getattr(sim, 'datavis_root_env', 'DATAVIS_ROOT')
-    _datavis_root = os.environ.get(_datavis_root_env, '') or '<flyvis default Sintel>'
     _skip_short = bool(getattr(sim, 'skip_short_videos', True))
     # `visual_input_type` is the renderer class (DAVIS/mixed/flash/...), not
     # the dataset identity. For video-based renderers the actual data source
     # is resolved at runtime from the env var named by datavis_root_env —
     # surface its basename so the log isn't misleading when e.g.
     # visual_input_type='DAVIS' but the env var points at YouTube-VOS.
+    # Resolve+validate up-front so a missing/typoed path fails here next to the
+    # banner rather than several screens later in data_generate_voltage.
     if 'DAVIS' in _vis_type or 'mixed' in _vis_type:
+        _datavis_root = get_datavis_root_dir(_datavis_root_env)
         _data_source = os.path.basename(_datavis_root.rstrip('/'))
         _renderer_str = f"renderer={_vis_type}  data_source={_data_source}"
     else:
+        _datavis_root = '<flyvis default Sintel>'
         _renderer_str = f"renderer={_vis_type}"
     print(
         f"\033[93m[stimulus] {_renderer_str}  "
