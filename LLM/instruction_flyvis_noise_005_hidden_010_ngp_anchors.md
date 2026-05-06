@@ -1,5 +1,16 @@
 # FlyVis GNN Hidden-Neuron Exploration — flyvis_noise_005_hidden_010_ngp_anchors
 
+## Setup
+
+Export these in the shell session before running any commands or referencing
+file paths in this document:
+
+```bash
+export GNN_OUTPUT_ROOT=/path/to/cluster/data/root   # parent of config/, log/, graphs_data/
+export DATAVIS_ROOT=/path/to/DAVIS-train-val
+export DATAVIS_TEST_ROOT=/path/to/DAVIS-holdout-test
+```
+
 ## Goal
 
 Recover **connectivity W** from partial observations: 10% of non-retinal neurons
@@ -41,7 +52,7 @@ two configs with similar conn_R2, prefer the one with higher
 - **Standalone NGP on GT traces** (direct supervised fit, same hash config, 500k steps):
   final R² = 0.428 ≈ Pearson ≈ 0.65. This is the **architectural ceiling** for
   hidden/anchor Pearson at this NGP config.
-  File: `/groups/saalfeld/home/allierc/GraphData/log/fly/flyvis_noise_005_hidden_010/tmp_training/ngp_voltage/results.log`
+  File: `$GNN_OUTPUT_ROOT/log/fly/flyvis_noise_005_hidden_010/tmp_training/ngp_voltage/results.log`
 - **Stride-1 no-hidden** (`flyvis_noise_005`): `connectivity_R2 ≈ 0.980`.
 
 ## Recent Code Changes (relative to prior ngp exploration)

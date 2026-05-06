@@ -1,24 +1,28 @@
-# FlyVis-GNN
+# Connectome-GNN
 
 Graph neural networks recover interpretable circuit models from neural activity.
 
-Synapse-level connectomes describe the structure of circuits, but not the electrical and chemical
-dynamics. Conversely, large-scale recordings of neural activity capture these dynamics, but not the
-circuit structure. We asked whether combining binary connectivity and recorded neural activity can
-be used to infer mechanistic models of neural circuits. We trained a graph neural network model
-(GNN) to forecast the activity of Drosophila visual system simulations. Trained on activity
-trajectories in response to visual inputs, the model recovers effective connectivity weights, neuron
-types, and nonlinear activation functions, even when 200% random connections are added to the
-adjacency matrix. Moreover, it correctly predicts causal effects of connection removal,
-demonstrating the ability to infer mechanistic dependencies directly from activity data. Our simple,
-flexible, and interpretable method recovers both structure and dynamics from incomplete anatomical
-reconstructions and activity.
-
-The repository also includes an agentic workflow for hyper-parameter optimization in this ill-posed
-inverse problem.
-
-**Project page:**
-[https://saalfeldlab.github.io/flyvis-gnn/](https://saalfeldlab.github.io/flyvis-gnn/)
+Synapse-level connectomes describe the structure of neural circuits but not their dynamics; neural
+activity recordings capture dynamics but not structure. Recovering circuit parameters from activity
+alone is possible when both connectivity and activity are sufficiently rich and identifiable. This
+may fail on the sparse, repeat-column architectures of biological nervous systems, where parameter
+symmetries and limited state-space coverage can make additional constraints from connectivity or
+perturbations necessary to disambiguate the inverse problem. We explore conditions under which
+mechanistic inference from connectivity and activity is feasible, using a connectome-constrained
+simulator. We train graph neural networks (GNNs) on a Drosophila visual-system simulation with
+13,741 neurons, 65 cell types, and up to 434,112 synaptic connections, driven by naturalistic video.
+Given the binary connectome graph and activity, the GNNs jointly recover the unknown per-neuron
+update functions and per-synapse interaction functions, together with effective connectivity
+weights, membrane time constants, resting potentials, and unsupervised cell-type clusters---on par
+with an oracle that knows the true ODE form. A SIREN extension additionally recovers unknown visual
+stimuli. Recovery remains robust when the connectome prior is relaxed by adding +400\% random edges,
+and across FlyWire-derived connectome variants with heterogeneous wiring. We find that per-neuron
+noise breaks degeneracies that otherwise render the system unidentifiable, suggesting that
+perturbations enhancing data diversity are essential when activity alone is insufficient. ML
+baselines match one-step activity prediction but their learned dynamics do not encode the underlying
+connectivity neural dynamics, showing that fitting activity is a poor proxy for recovering
+mechanism. The repository also includes an agentic workflow for hyper-parameter optimization in this
+ill-posed inverse problem.
 
 ## Installation
 
