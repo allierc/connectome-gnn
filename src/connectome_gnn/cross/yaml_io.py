@@ -84,8 +84,10 @@ CONDITIONS = [
     # passes hp_yaml_overrides to swap to the matching _known_ode_ template.
     ('e8_flywireRF_noise_005',                       'e8_flywireRF_noise_005'),
     ('e8_flywireRF_proximal_nulls_noise_005',        'e8_flywireRF_proximal_nulls_noise_005'),
+    ('e8_flywireRF_typed_nulls_noise_005',           'e8_flywireRF_typed_nulls_noise_005'),
     ('full_eye_flywireRF_noise_005',                 'full_eye_flywireRF_noise_005'),
     ('full_eye_flywireRF_proximal_nulls_noise_005',  'full_eye_flywireRF_proximal_nulls_noise_005'),
+    ('full_eye_flywireRF_typed_nulls_noise_005',     'full_eye_flywireRF_typed_nulls_noise_005'),
 ]
 
 

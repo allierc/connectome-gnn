@@ -1,20 +1,21 @@
-description:
-  "HIGH PRIORITY — v5-cross_sl, v2 base + zero-weight edges (u=1, cross-type,
-  spatially-local), full eye (column_source='flywire', extent=15 slot), noise=0.05.
-  HPs from cedric's GNN HPO on e8 cross_sl."
-dataset: full_eye_flywireRF_proximal_nulls_noise_005
+description: "v2 base + zero-weight edges (u=1, same-type-only / cross_type=False,
+  spatially-local), noise=0.05. Restricts null edges to (source_type, target_type)
+  pairs that already appear in the real connectome — useful when the set of
+  biologically plausible cell-type-to-cell-type connections is known a priori.
+  HPs: hd=64, n_layers=4, lr_W=1.4e-3, W_L1=1e-3, DAL=26 (inherited from cross_sl HPO)."
+dataset: e8_flywireRF_typed_nulls_noise_005
 simulation:
   connectivity_file: to be specified
-  adjacency_matrix: ""
+  adjacency_matrix: ''
   params:
-    - - 1.0
-      - 1.0
-      - 1.0
-      - 1.0
-  n_neurons: 50412
-  n_input_neurons: 6368
+  - - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+  n_neurons: 13741
+  n_input_neurons: 1736
   n_neuron_types: 65
-  n_edges: 9642335
+  n_edges: 600426
   n_frames: 64000
   delta_t: 0.02
   baseline_value: 0
@@ -22,16 +23,13 @@ simulation:
   noise_model_level: 0.05
   derivative_smoothing_window: 1
   seed: 42
-  all_columns: true
-  flywire_stimulus: true
-  flywire_stimulus_squeeze: true
   edge_uncertainty: 1
   datavis_roots:
     - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
   skip_short_videos: true
   blank_prefix_fraction: 0.5
 graph_model:
-  signal_model_name: full_eye_flywireRF_proximal_nulls
+  signal_model_name: e8_flywireRF_typed_nulls
   prediction: first_derivative
   input_size: 3
   n_layers: 4
@@ -48,11 +46,11 @@ plotting:
   colormap: tab20
   arrow_length: 1
   xlim:
-    - -2.5
-    - 2.5
+  - -2.5
+  - 2.5
   ylim:
-    - -100
-    - 100
+  - -100
+  - 100
 training:
   n_epochs: 1
   n_runs: 1
@@ -76,6 +74,14 @@ training:
   coeff_f_theta_weight_L2: 0.001
   coeff_W_L1: 0.001
   coeff_W_L2: 1.5e-06
+  coeff_f_theta_linearity: 0
+  f_theta_linearity_warmup_fraction: 0.3
+  f_theta_linearity_rampup_iters: 200
+  coeff_f_theta_centering: 0
+  coeff_V_rest: 0
+  V_rest_warmup_fraction: 0.3
+  V_rest_rampup_iters: 200
+  V_rest_eval_every: 10
   regul_annealing_rate: 0.0
   w_init_mode: randn_scaled
   use_gt_edges: true
@@ -90,5 +96,6 @@ claude:
   data_augmentation_loop: 26
   n_iter_block: 12
   ucb_c: 1.414
-  generate_data: true
+  generate_data: false
   training_time_target_min: 60
+  node_name: a100

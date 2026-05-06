@@ -214,6 +214,14 @@ class SimulationConfig(BaseModel):
     # Required for hybrid networks with all_columns=True because their input
     # column count differs from BoxEye(extent=15)'s 721 hexals.
     flywire_stimulus: bool = False
+    # If True (and flywire_stimulus=True), "squeeze" the FlyWire columns onto
+    # the smallest standard hex disk that can hold them (greedy nearest-cell
+    # assignment in flyvis hex_to_pixel coordinates). This avoids the heavy
+    # source-image upsampling that BoxEye(extent=30) applies to ~480p inputs
+    # and recovers per-step receptor decorrelation comparable to the canonical
+    # extent=15 rendering. Geometry is no longer literal but the stimulus
+    # statistics are honest. Off by default to preserve reproducibility.
+    flywire_stimulus_squeeze: bool = False
 
 
     # external input configuration

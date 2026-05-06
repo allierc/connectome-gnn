@@ -1,45 +1,38 @@
-description:
-  "HIGH PRIORITY — v5-cross_sl, v2 base + zero-weight edges (u=1, cross-type,
-  spatially-local), full eye (column_source='flywire', extent=15 slot), noise=0.05.
-  HPs from cedric's GNN HPO on e8 cross_sl."
-dataset: full_eye_flywireRF_proximal_nulls_noise_005
+description: "SMOKE TEST — minimal generate+train+test for e8_flywireRF_typed_nulls.
+  Uses local Sintel stimulus (no DAVIS dependency), tiny n_frames, 1 epoch, tiny DAL.
+  Just verifies that the typed_nulls connectome loads and the pipeline runs end-to-end."
+dataset: e8_flywireRF_typed_nulls_smoke
 simulation:
   connectivity_file: to be specified
-  adjacency_matrix: ""
+  adjacency_matrix: ''
   params:
-    - - 1.0
-      - 1.0
-      - 1.0
-      - 1.0
-  n_neurons: 50412
-  n_input_neurons: 6368
+  - - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+  n_neurons: 13741
+  n_input_neurons: 1736
   n_neuron_types: 65
-  n_edges: 9642335
-  n_frames: 64000
+  n_edges: 600426
+  n_frames: 300
   delta_t: 0.02
   baseline_value: 0
-  visual_input_type: DAVIS
+  visual_input_type: ''
   noise_model_level: 0.05
   derivative_smoothing_window: 1
   seed: 42
-  all_columns: true
-  flywire_stimulus: true
-  flywire_stimulus_squeeze: true
   edge_uncertainty: 1
-  datavis_roots:
-    - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
   skip_short_videos: true
-  blank_prefix_fraction: 0.5
 graph_model:
-  signal_model_name: full_eye_flywireRF_proximal_nulls
+  signal_model_name: e8_flywireRF_typed_nulls
   prediction: first_derivative
   input_size: 3
-  n_layers: 4
-  hidden_dim: 64
+  n_layers: 2
+  hidden_dim: 16
   output_size: 1
   input_size_update: 5
-  n_layers_update: 4
-  hidden_dim_update: 64
+  n_layers_update: 2
+  hidden_dim_update: 16
   aggr_type: add
   embedding_dim: 2
   update_type: generic
@@ -48,22 +41,22 @@ plotting:
   colormap: tab20
   arrow_length: 1
   xlim:
-    - -2.5
-    - 2.5
+  - -2.5
+  - 2.5
   ylim:
-    - -100
-    - 100
+  - -100
+  - 100
 training:
   n_epochs: 1
   n_runs: 1
-  device: auto
+  device: cpu
   recurrent_training: false
   time_step: 1
-  batch_size: 4
+  batch_size: 1
   batch_ratio: 1
   small_init_batch_size: false
   sparsity: none
-  data_augmentation_loop: 26
+  data_augmentation_loop: 1
   lr_W: 0.0014
   lr: 0.0018
   lr_embedding: 0.002325
@@ -76,6 +69,14 @@ training:
   coeff_f_theta_weight_L2: 0.001
   coeff_W_L1: 0.001
   coeff_W_L2: 1.5e-06
+  coeff_f_theta_linearity: 0
+  f_theta_linearity_warmup_fraction: 0.3
+  f_theta_linearity_rampup_iters: 200
+  coeff_f_theta_centering: 0
+  coeff_V_rest: 0
+  V_rest_warmup_fraction: 0.3
+  V_rest_rampup_iters: 200
+  V_rest_eval_every: 10
   regul_annealing_rate: 0.0
   w_init_mode: randn_scaled
   use_gt_edges: true
@@ -85,10 +86,3 @@ training:
   lr_scheduler_eta_min_ratio: 0.01
   lr_scheduler_warmup_iters: 100
   seed: 42
-claude:
-  n_epochs: 1
-  data_augmentation_loop: 26
-  n_iter_block: 12
-  ucb_c: 1.414
-  generate_data: true
-  training_time_target_min: 60

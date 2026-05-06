@@ -318,6 +318,8 @@ class ODEParamsBase:
     "e8_flywireRF_proximal_nulls_stimulus",
     "e8_flywireRF_random_nulls",
     "e8_flywireRF_random_nulls_known_ode",
+    "e8_flywireRF_typed_nulls",
+    "e8_flywireRF_typed_nulls_known_ode",
     "full_eye_flywireRF",
     "full_eye_flywireRF_known_ode",
     "full_eye_flywireRF_mlp",
@@ -330,6 +332,8 @@ class ODEParamsBase:
     "full_eye_flywireRF_proximal_nulls_stimulus",
     "full_eye_flywireRF_random_nulls",
     "full_eye_flywireRF_random_nulls_known_ode",
+    "full_eye_flywireRF_typed_nulls",
+    "full_eye_flywireRF_typed_nulls_known_ode",
 )
 @dataclass
 class FlyVisODEParams(ODEParamsBase):

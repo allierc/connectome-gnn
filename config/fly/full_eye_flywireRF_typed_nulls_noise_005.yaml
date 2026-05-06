@@ -1,8 +1,9 @@
 description:
-  "HIGH PRIORITY — v5-cross_sl, v2 base + zero-weight edges (u=1, cross-type,
-  spatially-local), full eye (column_source='flywire', extent=15 slot), noise=0.05.
-  HPs from cedric's GNN HPO on e8 cross_sl."
-dataset: full_eye_flywireRF_proximal_nulls_noise_005
+  "v2 base + zero-weight edges (u=1, same-type-only / cross_type=False,
+  spatially-local), full eye (column_source='flywire'), noise=0.05.
+  Restricts null edges to (source_type, target_type) pairs that already appear
+  in the real connectome."
+dataset: full_eye_flywireRF_typed_nulls_noise_005
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ""
@@ -31,7 +32,7 @@ simulation:
   skip_short_videos: true
   blank_prefix_fraction: 0.5
 graph_model:
-  signal_model_name: full_eye_flywireRF_proximal_nulls
+  signal_model_name: full_eye_flywireRF_typed_nulls
   prediction: first_derivative
   input_size: 3
   n_layers: 4

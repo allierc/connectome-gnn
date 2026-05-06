@@ -87,8 +87,10 @@ BLANK50_SIM_OVERRIDES = {
 CONDITION_NODES = {
     'e8_flywireRF_noise_005':                       'a100',
     'e8_flywireRF_proximal_nulls_noise_005':        'h100',
+    'e8_flywireRF_typed_nulls_noise_005':           'h100',
     'full_eye_flywireRF_noise_005':                 'a100',
     'full_eye_flywireRF_proximal_nulls_noise_005':  'h100',
+    'full_eye_flywireRF_typed_nulls_noise_005':     'h100',
 }
 
 # Each base reuses its sibling _known_ode_ yaml as the HP source.
@@ -97,8 +99,10 @@ CONDITION_NODES = {
 HP_YAML_OVERRIDES = {
     'e8_flywireRF_noise_005':                       'e8_flywireRF_known_ode_noise_005',
     'e8_flywireRF_proximal_nulls_noise_005':        'e8_flywireRF_proximal_nulls_known_ode_noise_005',
+    'e8_flywireRF_typed_nulls_noise_005':           'e8_flywireRF_typed_nulls_known_ode_noise_005',
     'full_eye_flywireRF_noise_005':                 'full_eye_flywireRF_known_ode_noise_005',
     'full_eye_flywireRF_proximal_nulls_noise_005':  'full_eye_flywireRF_proximal_nulls_known_ode_noise_005',
+    'full_eye_flywireRF_typed_nulls_noise_005':     'full_eye_flywireRF_typed_nulls_known_ode_noise_005',
 }
 
 # Group bases by target queue so each call to run_all_conditions can use a

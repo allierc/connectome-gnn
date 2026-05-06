@@ -945,13 +945,21 @@ def data_generate_voltage(
     if getattr(sim, 'flywire_stimulus', False):
         from connectome_gnn.generators.flywire_eye import (
             standard_boxeye_and_flywire_index,
+            squeezed_boxeye_and_flywire_index,
         )
-        _be, _flywire_proj_idx, _be_extent = standard_boxeye_and_flywire_index(
-            net, kernel_size=13,
-        )
+        if getattr(sim, 'flywire_stimulus_squeeze', False):
+            _be, _flywire_proj_idx, _be_extent = squeezed_boxeye_and_flywire_index(
+                net, kernel_size=13,
+            )
+            _mode = "squeezed"
+        else:
+            _be, _flywire_proj_idx, _be_extent = standard_boxeye_and_flywire_index(
+                net, kernel_size=13,
+            )
+            _mode = "literal"
         boxfilter_arg = dict(extent=_be_extent, kernel_size=13)
         print(
-            f"[stimulus] flywire_stimulus=True: rendering at standard "
+            f"[stimulus] flywire_stimulus=True ({_mode}): rendering at standard "
             f"BoxEye(extent={_be_extent}) with {_be.hexals} hexals; "
             f"projecting to {_flywire_proj_idx.numel()} FlyWire columns",
             flush=True,
