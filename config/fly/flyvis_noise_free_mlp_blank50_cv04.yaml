@@ -2,6 +2,9 @@ description: CV fold 4 of flyvis_noise_free_mlp_blank50 (unified2 architecture, 
   dataset)
 dataset: flyvis_noise_free_mlp_blank50_cv04
 simulation:
+  blank_prefix_fraction: 0.5
+  skip_short_videos: true
+  datavis_root_env: DATAVIS_TEST_ROOT
   connectivity_file: to be specified
   adjacency_matrix: ''
   params:

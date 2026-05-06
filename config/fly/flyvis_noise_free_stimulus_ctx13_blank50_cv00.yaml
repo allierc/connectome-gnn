@@ -1,6 +1,9 @@
 description: Flyvis noise 0.0 — stimulus baseline (context 13), blank50 dataset cv00
-dataset: flyvis_noise_free_stimulus_ctx13_blank50_cv00
+dataset: flyvis_noise_free_blank50_cv00
 simulation:
+  blank_prefix_fraction: 0.5
+  skip_short_videos: true
+  datavis_root_env: DATAVIS_TEST_ROOT
   connectivity_file: to be specified
   adjacency_matrix: ''
   params:

@@ -1,6 +1,7 @@
 description: Joint GNN+INR blank50 CV fold 4 (davis, sim_seed=46, train_seed=1046).
-dataset: fly/flyvis_noise_005_INR_davis_blank50_cv04
+dataset: flyvis_noise_005_blank50_cv04
 simulation:
+  datavis_root_env: DATAVIS_TEST_ROOT
   connectivity_file: to be specified
   adjacency_matrix: ''
   params:

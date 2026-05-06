@@ -1,7 +1,10 @@
 description: CV fold 2 of flyvis_noise_005_eed_blank50 (unified2 architecture, blank50
   dataset)
-dataset: flyvis_noise_005_eed_blank50_cv02
+dataset: flyvis_noise_005_blank50_cv02
 simulation:
+  blank_prefix_fraction: 0.5
+  skip_short_videos: true
+  datavis_root_env: DATAVIS_TEST_ROOT
   connectivity_file: to be specified
   adjacency_matrix: ''
   params:
