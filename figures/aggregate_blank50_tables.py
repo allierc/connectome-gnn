@@ -40,7 +40,6 @@ Example:
 # ─────────────────────────────────────────────────────────────────────────────
 # Inputs / paths
 # ─────────────────────────────────────────────────────────────────────────────
-# Data root      : /groups/saalfeld/home/allierc/GraphData
 # Configs        : <DATA_ROOT>/config/fly/<base>_blank50_unified_cv{00..04}.yaml
 #                  <DATA_ROOT>/config/fly/<base>_blank50_known_ode_cv{00..04}.yaml
 # Trained models : <DATA_ROOT>/log/fly/<base>_blank50_unified_cv{00..04}/models/best_model_with_0_graphs_0.pt

@@ -36,7 +36,7 @@ from connectome_gnn.models.training_utils import load_flyvis_data
 from connectome_gnn.utils import set_data_root
 
 
-DATA_ROOT  = '/groups/saalfeld/home/kumarv4/repos/connectome-gnn'
+DATA_ROOT  = os.environ.get('TRAINED_MODEL_OUTPUT_ROOT', '.')
 CONFIG_EED = 'flyvis_noise_free_eed_blank50_cv00'
 K_MAX      = 1024
 

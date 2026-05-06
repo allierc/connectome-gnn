@@ -32,7 +32,6 @@ Output
 # ─────────────────────────────────────────────────────────────────────────────
 # Inputs / paths
 # ─────────────────────────────────────────────────────────────────────────────
-# Data root      : /groups/saalfeld/home/allierc/GraphData
 # Configs        : <DATA_ROOT>/config/fly/flyvis_noise_free.yaml
 #                  <DATA_ROOT>/config/fly/flyvis_noise_005.yaml
 #                  <DATA_ROOT>/config/fly/flyvis_noise_05.yaml
@@ -76,7 +75,7 @@ FS_CBAR   = int(48 * _S)   # colorbar label
 FS_LEGEND = int(40 * _S)   # legend
 
 # ── data ──────────────────────────────────────────────────────────────────────
-DATA_ROOT = '/groups/saalfeld/home/allierc/GraphData'
+DATA_ROOT = os.environ.get('TRAINED_MODEL_OUTPUT_ROOT', '.')
 CONFIGS = [
     ('flyvis_noise_free', DATA_ROOT, 'noise-free'),
     ('flyvis_noise_005',  DATA_ROOT, 'low intrinsic noise'),

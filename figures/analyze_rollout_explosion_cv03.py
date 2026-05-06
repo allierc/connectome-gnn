@@ -33,7 +33,6 @@ Output
 # ─────────────────────────────────────────────────────────────────────────────
 # Inputs / paths
 # ─────────────────────────────────────────────────────────────────────────────
-# Data root      : /groups/saalfeld/home/allierc/GraphData
 # Configs        : <DATA_ROOT>/config/fly/flyvis_noise_free_blank50_unified_cv{00..04}.yaml
 # Trained models : <DATA_ROOT>/log/fly/flyvis_noise_free_blank50_unified_cv{00..04}/models/best_model_with_0_graphs_0.pt
 # Eval logs      : <DATA_ROOT>/log/fly/flyvis_noise_free_blank50_unified_cv{00..04}/results/rollout_bundle.npz
@@ -53,7 +52,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-DATA_ROOT = '/groups/saalfeld/home/allierc/GraphData'
+DATA_ROOT = os.environ.get('TRAINED_MODEL_OUTPUT_ROOT', '.')
 REPO_ROOT = '/workspace/connectome-gnn'
 OUT_BASE  = os.path.join(REPO_ROOT, 'figures', 'analyze_rollout_explosion_cv03')
 

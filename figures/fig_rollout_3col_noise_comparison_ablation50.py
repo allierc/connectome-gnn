@@ -37,7 +37,6 @@ Output
 # ─────────────────────────────────────────────────────────────────────────────
 # Inputs / paths
 # ─────────────────────────────────────────────────────────────────────────────
-# Data root      : /groups/saalfeld/home/allierc/GraphData
 # Configs        : <DATA_ROOT>/config/fly/flyvis_noise_free_blank50_unified_cv00.yaml
 #                  <DATA_ROOT>/config/fly/flyvis_noise_005_blank50_unified_cv00.yaml
 #                  <DATA_ROOT>/config/fly/flyvis_noise_05_blank50_unified_cv00.yaml
@@ -87,7 +86,7 @@ except Exception:
 
 # ── paths ────────────────────────────────────────────────────────────────────
 REPO_ROOT = '/workspace/connectome-gnn'
-DATA_ROOT = '/groups/saalfeld/home/allierc/GraphData'
+DATA_ROOT = os.environ.get('TRAINED_MODEL_OUTPUT_ROOT', '.')
 CFG_DIR   = f'{DATA_ROOT}/config/fly'      # model yamls live here
 MASK_CFG_DIR = f'{REPO_ROOT}/config/fly'   # flyvis_noise_*_mask_50.yaml live here
 

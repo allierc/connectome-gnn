@@ -43,7 +43,6 @@ Output
 # ─────────────────────────────────────────────────────────────────────────────
 # Inputs / paths
 # ─────────────────────────────────────────────────────────────────────────────
-# Data root      : /groups/saalfeld/home/allierc/GraphData
 # Configs        : <DATA_ROOT>/config/fly/flyvis_noise_free_blank50_davispt.yaml
 #                  <DATA_ROOT>/config/fly/flyvis_noise_005_blank50_davispt.yaml
 #                  <DATA_ROOT>/config/fly/flyvis_noise_05_blank50_davispt.yaml
@@ -111,7 +110,7 @@ FIG_W_IN  = 24.0 * 0.3937   # ~9.45 in
 FIG_H_IN  = 7.0             # 3 rows; row 3 is shorter
 
 # -- data --------------------------------------------------------------------
-DATA_ROOT = '/groups/saalfeld/home/allierc/GraphData'
+DATA_ROOT = os.environ.get('TRAINED_MODEL_OUTPUT_ROOT', '.')
 
 # Rows 1-2: 3 model-noise columns (heatmaps + trace stacks). Using the
 # blank50 variants so 50% blank-stimulus periods are visible — the blue

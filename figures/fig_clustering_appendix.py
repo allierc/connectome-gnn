@@ -41,7 +41,6 @@ Output
 # ─────────────────────────────────────────────────────────────────────────────
 # Inputs / paths
 # ─────────────────────────────────────────────────────────────────────────────
-# Data root      : /groups/saalfeld/home/allierc/GraphData
 # Configs        : <DATA_ROOT>/config/fly/flyvis_noise_005_blank50_unified_cv00.yaml
 # Training data  : <DATA_ROOT>/graphs_data/fly/flyvis_noise_005_blank50_cv00/x_list_train/
 #                  <DATA_ROOT>/graphs_data/fly/flyvis_noise_005_blank50_cv00/ode_params.pt
@@ -71,7 +70,7 @@ from sklearn.mixture import GaussianMixture
 # ── repo + imports ──────────────────────────────────────────────────────────
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(_SCRIPT_DIR)
-DATA_ROOT = '/groups/saalfeld/home/allierc/GraphData'
+DATA_ROOT = os.environ.get('TRAINED_MODEL_OUTPUT_ROOT', '.')
 for _p in (os.path.join(REPO_ROOT, 'src'), REPO_ROOT):
     if _p in sys.path:
         sys.path.remove(_p)

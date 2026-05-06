@@ -15,7 +15,6 @@ Output: figures/fig_jacobian_eed.{pdf,png}
 # -----------------------------------------------------------------------------
 # Inputs / paths
 # -----------------------------------------------------------------------------
-# Data root      : /groups/saalfeld/home/kumarv4/repos/connectome-gnn
 # Config / log   : <DATA_ROOT>/log/fly/flyvis_noise_free_eed_blank50_cv00
 # GT ODE params  : <DATA_ROOT>/graphs_data/fly/<dataset>/ode_params.pt
 # Cache (npz)    : <REPO>/figures/_baseline_cache/jacobian_eed_*.npz
@@ -48,7 +47,7 @@ from connectome_gnn.utils import (
 # -----------------------------------------------------------------------------
 # Config
 # -----------------------------------------------------------------------------
-DATA_ROOT       = '/groups/saalfeld/home/kumarv4/repos/connectome-gnn'
+DATA_ROOT       = os.environ.get('TRAINED_MODEL_OUTPUT_ROOT', '.')
 CONFIG_EED      = 'flyvis_noise_free_eed_blank50_cv00'
 
 T_EVAL          = 40       # frame at which Jacobians are evaluated

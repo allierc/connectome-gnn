@@ -31,7 +31,6 @@ Usage
 # ─────────────────────────────────────────────────────────────────────────────
 # Inputs / paths
 # ─────────────────────────────────────────────────────────────────────────────
-# Data root      : /groups/saalfeld/home/allierc/GraphData
 # Configs        : <DATA_ROOT>/config/fly/flyvis_noise_free_blank50_known_ode_cv03.yaml
 # Training data  : <DATA_ROOT>/graphs_data/fly/flyvis_noise_free_blank50_cv03/{edge_index.pt, ode_params.pt}
 # Test data      : <DATA_ROOT>/graphs_data/fly/flyvis_noise_free_blank50_cv03/x_list_test/
@@ -53,7 +52,7 @@ from tqdm import trange
 
 
 REPO_ROOT = '/workspace/connectome-gnn'
-DATA_ROOT = '/groups/saalfeld/home/allierc/GraphData'
+DATA_ROOT = os.environ.get('TRAINED_MODEL_OUTPUT_ROOT', '.')
 
 # Make `connectome_gnn` importable.
 for _p in (os.path.join(REPO_ROOT, 'src'), REPO_ROOT):

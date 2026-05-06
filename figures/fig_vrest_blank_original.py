@@ -25,7 +25,6 @@ Output
 # ─────────────────────────────────────────────────────────────────────────────
 # Inputs / paths
 # ─────────────────────────────────────────────────────────────────────────────
-# Data root      : /groups/saalfeld/home/allierc/GraphData
 # Configs        : <REPO>/config/fly/flyvis_noise_005.yaml
 #                  <REPO>/config/fly/flyvis_noise_005_blank50.yaml
 # Training data  : <DATA_ROOT>/graphs_data/fly/flyvis_noise_005/x_list_train/
@@ -68,7 +67,7 @@ plt.rcParams.update({
 # ---------------------------------------------------------------------------
 # Data roots
 # ---------------------------------------------------------------------------
-DATA_ROOT_REMOTE = '/groups/saalfeld/home/allierc/GraphData'
+DATA_ROOT_REMOTE = os.environ.get('TRAINED_MODEL_OUTPUT_ROOT', '.')
 
 # ---------------------------------------------------------------------------
 # Scatter panel configs: (config_name, output_root, title)

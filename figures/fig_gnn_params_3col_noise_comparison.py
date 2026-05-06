@@ -42,7 +42,6 @@ Output
 # ─────────────────────────────────────────────────────────────────────────────
 # Inputs / paths
 # ─────────────────────────────────────────────────────────────────────────────
-# Data root      : /groups/saalfeld/home/allierc/GraphData
 # Configs        : <DATA_ROOT>/config/fly/flyvis_noise_free_blank50_unified_cv00.yaml
 #                  <DATA_ROOT>/config/fly/flyvis_noise_005_blank50_unified_cv00.yaml
 #                  <DATA_ROOT>/config/fly/flyvis_noise_05_blank50_unified_cv00.yaml
@@ -73,7 +72,7 @@ import matplotlib.pyplot as plt
 # Make `connectome_gnn` importable + locate the repo root.
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(_SCRIPT_DIR)
-DATA_ROOT = '/groups/saalfeld/home/allierc/GraphData'
+DATA_ROOT = os.environ.get('TRAINED_MODEL_OUTPUT_ROOT', '.')
 for _p in (os.path.join(REPO_ROOT, 'src'), REPO_ROOT):
     if _p in sys.path:
         sys.path.remove(_p)
