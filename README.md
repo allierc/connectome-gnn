@@ -244,9 +244,18 @@ export DATAVIS_TEST_ROOT=/path/to/DAVIS2017-holdout-test
 
 ## Usage
 
-By default the code creates simulation and model outputs in the repo root. These are .gitignored by
-default. This may be undesirable since the contents can be large >> 100MB. Set the env var
-`$GNN_OUTPUT_ROOT` to redirect elsewhere.
+### Environment variables
+
+| Variable | Required by | Default | Purpose |
+|---|---|---|---|
+| `DATAVIS_ROOT` | training, generation | — | Train/val DAVIS root (must contain `JPEGImages/480p/`) |
+| `DATAVIS_TEST_ROOT` | hold-out training, CV (`-o cv`) | — | Hold-out DAVIS root (same layout) |
+| `GNN_OUTPUT_ROOT` | optional | repo root | Where `log/` and `graphs_data/` are written; outputs can exceed 100 MB so redirecting is recommended |
+| `TRAINED_MODEL_OUTPUT_ROOT` | figure scripts only | `.` | Where pre-trained model bundles live (only needed when re-rendering paper figures) |
+
+Outputs default to the repo root and are `.gitignore`'d.
+
+### Running a single config
 
 For any config in `./config/fly/*.yaml`, run data generation, training & testing like this:
 
@@ -256,11 +265,12 @@ conda activate connectome-gnn
 python GNN_Main.py -o generate_train_test_plot flyvis_noise_05_blank50_unified_cv00
 ```
 
-WARNING: many different models share the same generated data set by the `dataset:` tag in the
-config.yaml. If you run two configs in parallel with `-o generate` and they share the same
-`config.dataset` tag, they will overwrite, which will lead to unpredictable results. So generate
-data for 1 config for each unique `config.dataset` first with `-o generate` alone. Then run
-`GNN_Main.py -o train_test_plot` all in parallel.
+> **Warning — shared datasets.** Many configs share the same generated data via their `dataset:`
+> tag (e.g. all five `flyvis_tiny_*_cv00.yaml` configs share `flyvis_tiny_cv00`). If you run two
+> configs in parallel with `-o generate` and they share the same `dataset:` tag, they will
+> overwrite each other and produce inconsistent results. The safe pattern is: run `-o generate`
+> serially, once per unique `dataset:` tag, then run `-o train_test_plot` for each config in
+> parallel.
 
 ### Smoke test (all five model types)
 
