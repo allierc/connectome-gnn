@@ -8,8 +8,8 @@ training runners (run_GNN_conditions / run_GNN_unique /
 run_KnownODE_conditions) and the pre-gen script all share the same
 hold-out datasets at <output_root>/graphs_data/fly/<base>_<tag>_cv<i>/.
 
-The short on-disk `<tag>` is looked up in ROOT_TAGS from HOLDOUT_DS_ROOT;
-pass `dataset_tag=...` explicitly to override.
+`<tag>` defaults to HOLDOUT_DS_TAG; pass `dataset_tag=...` to override.
+The actual hold-out path is resolved at runtime from DATAVIS_TEST_ROOT.
 """
 
 import os
@@ -20,15 +20,11 @@ import yaml
 from connectome_gnn.utils import get_repo_root
 
 
-# Map of datavis root path -> short dataset tag used in on-disk dataset dirs.
-# Add new roots here when you want to use them.
-ROOT_TAGS = {
-    "/groups/saalfeld/home/kumarv4/web_datasets/YouTube-VOS":            "yt",
-    "/groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test": "davis2017_pt",
-}
-
-
-HOLDOUT_DS_ROOT = "/groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test"
+# Short on-disk identifier for the hold-out dataset, used to name the
+# `graphs_data/fly/<base>_<tag>_cv<i>/` directories shared by the training
+# runners. Bump this only when introducing a fundamentally different hold-out
+# dataset — changing it orphans the existing on-disk graphs_data tree.
+HOLDOUT_DS_TAG = "davis2017_pt"
 
 
 # (condition_basename_for_data, condition_basename_for_winner_hps)
@@ -109,7 +105,7 @@ def _load_yaml_either(cfg_name, output_root):
     return os.path.join(get_repo_root(), 'config', 'fly', f'{cfg_name}.yaml')
 
 
-def emit_one(base_name, hp_yaml_path, out_yaml_path, suffix, yt_root,
+def emit_one(base_name, hp_yaml_path, out_yaml_path, suffix,
              fold_i=None, sim_seed=None, train_seed=None,
              sim_overrides=None, dataset_tag=None,
              data_augmentation_loop=100,
@@ -125,18 +121,12 @@ def emit_one(base_name, hp_yaml_path, out_yaml_path, suffix, yt_root,
 
     The base yaml's training-data root (DATAVIS_ROOT) is replaced with
     DATAVIS_TEST_ROOT, which is what makes the emitted yaml a *hold-out*
-    config. dataset_tag defaults to ROOT_TAGS[yt_root] — add an entry to
-    ROOT_TAGS when introducing a new datavis root. yt_root is now only used
-    to derive the on-disk dataset tag; the actual path is resolved at
-    runtime from DATAVIS_TEST_ROOT.
+    config. dataset_tag defaults to HOLDOUT_DS_TAG and names the on-disk
+    graphs_data subdir; the actual hold-out path is resolved at runtime from
+    DATAVIS_TEST_ROOT.
     """
     if dataset_tag is None:
-        if yt_root not in ROOT_TAGS:
-            raise KeyError(
-                f'No dataset_tag registered for root {yt_root!r}. '
-                f'Add an entry to ROOT_TAGS in {__file__} or pass '
-                f'dataset_tag=... explicitly.')
-        dataset_tag = ROOT_TAGS[yt_root]
+        dataset_tag = HOLDOUT_DS_TAG
     base_yaml = os.path.join(get_repo_root(), 'config', 'fly', f'{base_name}.yaml')
     if not os.path.isfile(base_yaml):
         print(f'WARN: missing base yaml {base_yaml} — skipping', file=sys.stderr)
@@ -317,8 +307,7 @@ def emit_yt_yamls(hp_source, suffix, hp_yaml_basename, n_folds, output_root,
                     out_dir, f'{base_name}_{suffix}_cv{fold_i:02d}.yaml')
                 sim_seed   = 42 + fold_i
                 train_seed = 1042 + fold_i
-            ok = emit_one(base_name, hp_yaml_path, out_yaml,
-                          suffix, HOLDOUT_DS_ROOT,
+            ok = emit_one(base_name, hp_yaml_path, out_yaml, suffix,
                           fold_i=fold_i, sim_seed=sim_seed,
                           train_seed=train_seed,
                           sim_overrides=sim_overrides,
