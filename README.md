@@ -235,20 +235,22 @@ export DATAVIS_ROOT=/path/to/DAVIS2017-train-val
 export DATAVIS_TEST_ROOT=/path/to/DAVIS2017-holdout-test
 ```
 
-Trained GNN models and loss files are stored with [Git LFS](https://git-lfs.com/). After cloning,
-pull the model files:
-
-```bash
-git lfs install
-git lfs pull
-```
-
-Simulation data must be generated first (Notebook 00.py) before training or testing.
-
 ## Usage
+
+By default the code creates simulation and model outputs in the repo root. These are .gitignored by
+default. This may be undesirable since the contents can be large >> 100MB. Set the env var
+`$GNN_OUTPUT_ROOT` to redirect elsewhere.
+
+For any config in `./config/fly/*.yaml`, run data generation, training & testing like this:
 
 ```bash
 # Single training run
-python GNN_Main.py -o generate_train_test_plot flyvis_noise_05
-
+conda activate connectome-gnn
+python GNN_Main.py -o generate_train_test_plot flyvis_noise_05_blank50_unified_cv00
 ```
+
+WARNING: many different models share the same generated data set by the `dataset:` tag in the
+config.yaml. If you run two configs in parallel with `-o generate` and they share the same
+`config.dataset` tag, they will overwrite, which will lead to unpredictable results. So generate
+data for 1 config for each unique `config.dataset` first with `-o generate` alone. Then run
+`GNN_Main.py -o train_test_plot` all in parallel.
