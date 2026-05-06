@@ -44,9 +44,11 @@ conda env create -f envs/environment.mac.yaml
 conda activate connectome-gnn
 ```
 
-Note: we make use of torch.compile and use `reduce-overhead` which is a CUDA only feature. If
-running on a make change the torch.compile incantations to use `default` mode. If you run into
-difficulties with torch compile, just turn off compilation.
+Note: we make use of `torch.compile` with `reduce-overhead`, which is a CUDA-only feature.
+`torch.compile` is only guaranteed to work on CUDA — it currently fails on Apple Silicon / MPS. On
+a Mac, run on CPU (see the smoke-test section below for the one-line `sed` to flip the configs to
+`device: cpu`); if you hit other compile issues, turn compilation off entirely or switch the
+`torch.compile` calls to `mode="default"`.
 
 Run `conda activate connectome-gnn && pip install -e .` to add src/ to the PYTHONPATH and install
 the package into the environment. Or set `$PYTHONPATH`.
@@ -254,3 +256,39 @@ config.yaml. If you run two configs in parallel with `-o generate` and they shar
 `config.dataset` tag, they will overwrite, which will lead to unpredictable results. So generate
 data for 1 config for each unique `config.dataset` first with `-o generate` alone. Then run
 `GNN_Main.py -o train_test_plot` all in parallel.
+
+### Smoke test (all five model types)
+
+The repo ships five tiny configs in `config/fly/flyvis_tiny_*_cv00.yaml` — one each for **GNN**,
+**Known ODE**, **MLP**, **EED**, and **Stimulus** — that all share the dataset tag
+`flyvis_tiny_cv00`. They use 10k frames, `data_augmentation_loop=1`, and `n_epochs=1`, so a full
+generate + train_test_plot sweep finishes in a few minutes on a modest machine and exercises every
+architecture end-to-end.
+
+Generate the shared dataset once, then train+test+plot each architecture:
+
+```bash
+# one-time generate (any of the five configs works — they share dataset flyvis_tiny_cv00)
+python GNN_Main.py -o generate flyvis_tiny_gnn_cv00
+
+# train + test + plot, one per architecture
+for cfg in flyvis_tiny_gnn_cv00 \
+           flyvis_tiny_known_ode_cv00 \
+           flyvis_tiny_mlp_cv00 \
+           flyvis_tiny_eed_cv00 \
+           flyvis_tiny_stimulus_ctx5_cv00; do
+    python GNN_Main.py -o train_test_plot "$cfg"
+done
+```
+
+On a Mac the default `device: auto` in each yaml prefers MPS over CPU. MPS support in PyTorch is
+incomplete (no `float64`, no `torch.compile`) and may fail mid-run with errors like
+`<op> not implemented for MPS` or `Cannot reuse outer quote character in f-strings`. If you hit one
+of those, fall back to CPU by switching `device: auto` → `device: cpu` in each smoke-test config:
+
+```bash
+sed -i.bak 's/^  device: auto$/  device: cpu/' config/fly/flyvis_tiny_*_cv00.yaml
+```
+
+You may also need to set `torch_compile: false` in the same configs if compilation fails on your
+platform.
