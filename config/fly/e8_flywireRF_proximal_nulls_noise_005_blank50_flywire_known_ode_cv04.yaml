@@ -1,0 +1,85 @@
+description: 'Cross-check YT-training variant of e8_flywireRF_proximal_nulls_noise_005
+  fold=4 (blank50_flywire_known_ode). sim_seed=46 train_seed=1046. HPs: e8_flywireRF_proximal_nulls_known_ode_noise_005.yaml.'
+dataset: e8_flywireRF_proximal_nulls_noise_005_blank50_cv04
+simulation:
+  connectivity_file: to be specified
+  adjacency_matrix: ''
+  params:
+  - - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+  n_neurons: 13741
+  n_input_neurons: 1736
+  n_neuron_types: 65
+  n_edges: 2418403
+  n_frames: 64000
+  delta_t: 0.02
+  baseline_value: 0
+  visual_input_type: DAVIS
+  noise_model_level: 0.05
+  derivative_smoothing_window: 1
+  seed: 46
+  edge_uncertainty: 1
+  datavis_roots:
+  - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
+  skip_short_videos: true
+  blank_prefix_fraction: 0.5
+graph_model:
+  signal_model_name: e8_flywireRF_proximal_nulls_known_ode
+  prediction: first_derivative
+  aggr_type: add
+  update_type: generic
+  hidden_dim: 64
+  hidden_dim_update: 64
+plotting:
+  colormap: tab20
+  arrow_length: 1
+  xlim:
+  - -2.5
+  - 2.5
+  ylim:
+  - -100
+  - 100
+training:
+  n_runs: 1
+  device: auto
+  recurrent_training: false
+  batch_size: 32
+  batch_ratio: 1
+  small_init_batch_size: false
+  sparsity: none
+  lr_W: 0.00045
+  lr: 0.006
+  lr_embedding: 0.0
+  coeff_g_phi_diff: 0
+  coeff_f_theta_msg_diff: 0
+  coeff_g_phi_norm: 0
+  coeff_g_phi_weight_L1: 0
+  coeff_f_theta_weight_L1: 0
+  coeff_g_phi_weight_L2: 0
+  coeff_f_theta_weight_L2: 0
+  coeff_W_L1: 0.003
+  coeff_W_L2: 0
+  coeff_W_sign: 0
+  coeff_tau_L1: 0.0
+  coeff_tau_L2: 0.003
+  coeff_V_rest_L1: 0.0
+  coeff_V_rest_L2: 0.1
+  w_init_mode: zeros
+  w_init_scale: 1.0
+  use_gt_edges: true
+  regul_annealing_rate: 0
+  seed: 1046
+  n_epochs: 1
+  data_augmentation_loop: 100
+  time_step: 1
+claude:
+  n_iter_block: 12
+  ucb_c: 1.414
+  generate_data: false
+  training_time_target_min: 60
+  node_name: a100
+  n_epochs: 1
+  data_augmentation_loop: 100
+config_file: fly/e8_flywireRF_proximal_nulls_noise_005_blank50_flywire_known_ode_cv04
