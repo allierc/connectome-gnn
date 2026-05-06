@@ -15,7 +15,7 @@ Single 4-row × 2-col composite for one model
                     2-D learned embedding `a` adds to the ODE+W vector.
 
 Each panel reports the GMM accuracy in the top-left, fontsize matching
-the R²/slope text on the parameter scatters. Same Janne style as
+the R²/slope text on the parameter scatters. Same Unified-style style as
 `fig_gnn_params_3col_noise_comparison.py` (FS_LABEL=8, FS_TICK=6, etc.).
 
 Inputs (loaded directly — no fresh `--replot` required):
@@ -55,7 +55,7 @@ import sys
 
 import matplotlib
 matplotlib.use('Agg')
-matplotlib.rc_file(os.path.join(os.path.dirname(__file__), 'janne.matplotlibrc'))
+matplotlib.rc_file(os.path.join(os.path.dirname(__file__), 'unified_style.matplotlibrc'))
 
 import matplotlib.gridspec as mgs
 import matplotlib.pyplot as plt
@@ -99,7 +99,7 @@ UMAP_RANDOM      = 42
 
 # ── style ────────────────────────────────────────────────────────────────────
 # This appendix figure uses larger fonts than the multi-condition figs
-# (which sit at FS_LABEL=8 per Janne convention) because each panel is ~4 in
+# (which sit at FS_LABEL=8 per Unified-style convention) because each panel is ~4 in
 # wide here vs ~1.18 in there — at the same point size the labels would
 # look ~3× smaller relative to the panel content. Doubling the FS_*
 # values keeps the visual ratio comparable.

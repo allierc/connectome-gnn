@@ -88,12 +88,12 @@ figures/*
 *.jpeg
 
 # Code review
-flyvis_gnn_code_review*.pdf
+connectome_gnn_code_review*.pdf
 code_review_deepmind_v*.py
 
 # LLM exploration (cluster-specific scripts, not tracked)
 INR_LLM.py
-src/flyvis_gnn/LLM/cluster.py
+src/connectome_gnn/LLM/cluster.py
 
 # LLM instruction directory — track all instruction files
 LLM/*

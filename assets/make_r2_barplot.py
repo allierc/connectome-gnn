@@ -32,7 +32,7 @@ EXPLORATIONS = {
     },
 }
 
-BASE = "/workspace/flyvis-gnn"
+BASE = "/workspace/connectome-gnn"
 EXPLORATION_ROOT = os.path.join(BASE, "log", "Claude_exploration")
 FLY_ROOT = os.path.join(BASE, "log", "fly")
 

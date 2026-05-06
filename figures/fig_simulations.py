@@ -2,11 +2,11 @@
 Figure: simulated neural activity at three intrinsic-noise levels (rows 1-2)
 plus a zoomed R1 trace at two measurement-noise levels (row 3).
 
-Janne-styled per figures/INSTRUCTIONS.md:
+Unified-style-styled per figures/INSTRUCTIONS.md:
 
   * ~18 cm document-width figure (7.09 in) at 300 dpi
   * 6-8 pt fonts, 0.5 pt spines / ticks
-  * top + right spines hidden globally (via janne.matplotlibrc)
+  * top + right spines hidden globally (via unified_style.matplotlibrc)
   * trim_axis breaks each axis at the data range
   * PDF primary output (pdf.fonttype=42, svg.fonttype='none')
 
@@ -56,7 +56,7 @@ import sys
 
 import matplotlib
 matplotlib.use('Agg')
-matplotlib.rc_file(os.path.join(os.path.dirname(__file__), 'janne.matplotlibrc'))
+matplotlib.rc_file(os.path.join(os.path.dirname(__file__), 'unified_style.matplotlibrc'))
 
 import matplotlib.gridspec as mgs
 import matplotlib.pyplot as plt
@@ -91,7 +91,7 @@ except Exception:
                 ax.spines['left'].set_bounds(yticks[0], yticks[-1])
 
 
-# -- font sizes (janne.matplotlibrc sets 8/6 pt defaults) --------------------
+# -- font sizes (unified_style.matplotlibrc sets 8/6 pt defaults) --------------------
 FS_LABEL  = 8
 FS_TICK   = 6
 FS_ANNOT  = 5    # type-name annotations next to trace stacks

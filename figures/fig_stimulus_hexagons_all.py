@@ -3,12 +3,12 @@ Figure: stimulus + per-cell-type voltage maps on the full 721-column retinotopic
 lattice (flyvis_noise_free_all, 45,669 neurons, 5,768 photoreceptors — roughly
 3.3x more voxels than the 217-column flyvis_noise_free variant).
 
-Janne-styled per figures/INSTRUCTIONS.md (the previous, larger-font version
+Unified-style-styled per figures/INSTRUCTIONS.md (the previous, larger-font version
 is preserved at fig_stimulus_hexagons_all_original.py):
 
   * ~18 cm document-width figure (7.09 in) at 300 dpi
   * 6-8 pt fonts, 0.5 pt spines / ticks
-  * top + right spines hidden globally (via janne.matplotlibrc)
+  * top + right spines hidden globally (via unified_style.matplotlibrc)
   * trim_axis used on axes that have visible spines (the colorbar)
   * hexagon panels have no spines/ticks so trim_axis is skipped there
   * PDF primary output (pdf.fonttype=42, svg.fonttype='none')
@@ -40,7 +40,7 @@ import sys
 
 import matplotlib
 matplotlib.use('Agg')
-matplotlib.rc_file(os.path.join(os.path.dirname(__file__), 'janne.matplotlibrc'))
+matplotlib.rc_file(os.path.join(os.path.dirname(__file__), 'unified_style.matplotlibrc'))
 
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as mgs
@@ -78,7 +78,7 @@ except Exception:
                 ax.spines['left'].set_bounds(yticks[0], yticks[-1])
 
 
-# ── font sizes (Janne 6-8 pt) ────────────────────────────────────────────────
+# ── font sizes (Unified-style 6-8 pt) ────────────────────────────────────────────────
 FS_TITLE  = 6     # per-hexagon panel titles (cell-type names, time stamps)
 FS_LABEL  = 7     # colorbar label
 FS_TICK   = 6     # colorbar ticks
@@ -137,7 +137,7 @@ vmin_v, vmax_v = -3.0, 3.0
 vmin_s, vmax_s = -3.0, 3.0   # stimulus also displayed as z-score
 CMAP        = 'RdBu_r'        # match the z-scored heatmap in fig_simulations.py
 HEX_EDGE_C  = 'black'
-HEX_EDGE_W  = 0.05            # thinner outline matches Janne 0.5 pt aesthetics
+HEX_EDGE_W  = 0.05            # thinner outline matches Unified-style 0.5 pt aesthetics
 HEX_MARKER_S = 3              # scaled down for the smaller ~18 cm figure
 
 # Hex-lattice extent — pre-compute so every panel sets the same xlim/ylim and
@@ -255,7 +255,7 @@ if _last_col_axes:
     _cbar_v.set_label('voltage (z-score)', fontsize=FS_LABEL)
     _cbar_v.ax.tick_params(labelsize=FS_TICK, width=0.5)
     # Trim the colorbar's data axis (vertical) so the spine stops at the
-    # first/last tick — Janne convention. Leave the (empty) horizontal axis.
+    # first/last tick — Unified-style convention. Leave the (empty) horizontal axis.
     _trim_axis(_cax_v, xaxis=False, yaxis=True)
 
 # ── panel labels a) / b) — top-left of each outer row ────────────────────────
@@ -273,7 +273,7 @@ for bb, lbl in zip([bb_a, bb_b], ['a', 'b']):
 # ── save ─────────────────────────────────────────────────────────────────────
 OUT_DIR = os.path.dirname(os.path.abspath(__file__))
 out_base = os.path.join(OUT_DIR, 'fig_stimulus_hexagons_all')
-# PDF first per janne.matplotlibrc default; PNG for quick preview.
+# PDF first per unified_style.matplotlibrc default; PNG for quick preview.
 fig.savefig(out_base + '.pdf', bbox_inches='tight')
 fig.savefig(out_base + '.png', dpi=300, bbox_inches='tight')
 plt.close(fig)

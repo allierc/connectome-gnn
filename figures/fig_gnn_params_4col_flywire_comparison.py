@@ -41,7 +41,7 @@ import sys
 
 import matplotlib
 matplotlib.use('Agg')
-matplotlib.rc_file(os.path.join(os.path.dirname(__file__), 'janne.matplotlibrc'))
+matplotlib.rc_file(os.path.join(os.path.dirname(__file__), 'unified_style.matplotlibrc'))
 
 import matplotlib.gridspec as mgs
 import matplotlib.image as mpimg

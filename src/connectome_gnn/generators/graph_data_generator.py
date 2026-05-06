@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
-# Optional imports (not available in flyvis-gnn spinoff)
+# Optional imports (not available in connectome-gnn spinoff)
 try:
     from connectome_gnn.data_loaders import load_wormvae_data, load_zebrafish_data
 except ImportError:

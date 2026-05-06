@@ -44,7 +44,7 @@ CACHE_DIR = REPO / 'figures' / '_baseline_cache'
 OUT_BASE  = REPO / 'figures' / 'fig_svd_variance_explained'
 
 
-matplotlib.rc_file(str(REPO / 'figures' / 'janne.matplotlibrc'))
+matplotlib.rc_file(str(REPO / 'figures' / 'unified_style.matplotlibrc'))
 plt.rcParams.update({
     'figure.dpi':      150,
     'savefig.dpi':     300,

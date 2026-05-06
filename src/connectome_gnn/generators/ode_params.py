@@ -1,4 +1,4 @@
-"""ODE parameter classes and registry for flyvis-gnn.
+"""ODE parameter classes and registry for connectome-gnn.
 
 Maps config signal_model_name strings to ODE parameter dataclasses.
 Each ODE_params_class knows how to construct itself from a source,

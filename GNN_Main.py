@@ -79,7 +79,7 @@ def _maybe_fallback_data_root(config, explicit_output_root: bool, task: str) -> 
             set_data_root(root)
             return
 
-# Optional imports (not available in flyvis-gnn spinoff)
+# Optional imports
 try:
     from connectome_gnn.models.NGP_trainer import data_train_NGP
 except ImportError:

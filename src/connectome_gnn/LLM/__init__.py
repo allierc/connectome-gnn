@@ -1,4 +1,4 @@
-"""LLM exploration pipeline for flyvis-gnn.
+"""LLM exploration pipeline for connectome-gnn.
 
 Provides the infrastructure for Claude-driven hyperparameter exploration
 with optional interactive code modification sessions at block boundaries.

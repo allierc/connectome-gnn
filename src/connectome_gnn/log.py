@@ -1,4 +1,4 @@
-"""Centralized logging setup for flyvis-gnn.
+"""Centralized logging setup for connectome-gnn.
 
 Usage::
 

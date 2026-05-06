@@ -43,7 +43,7 @@ import subprocess
 import sys
 import matplotlib
 matplotlib.use('Agg')
-matplotlib.rc_file(os.path.join(os.path.dirname(__file__), 'janne.matplotlibrc'))
+matplotlib.rc_file(os.path.join(os.path.dirname(__file__), 'unified_style.matplotlibrc'))
 
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as mgs
@@ -396,7 +396,7 @@ SCATTER_LO_V, SCATTER_HI_V = -7.5, 7.5     # voltage range
 SCATTER_LO_S, SCATTER_HI_S = 0.0, 1.0       # stimulus range (clipped to the
                                             # raw DAVIS intensity domain)
 
-# Fonts (janne.matplotlibrc sets defaults to 8/6 pt).
+# Fonts (unified_style.matplotlibrc sets defaults to 8/6 pt).
 FS_LABEL  = 8
 FS_TICK   = 6
 FS_ANNOT  = 6

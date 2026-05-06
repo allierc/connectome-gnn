@@ -1,4 +1,4 @@
-"""Centralized plot styling for the flyvis-gnn project.
+"""Centralized plot styling for the connectome-gnn project.
 
 Design principles:
   - flat design: no titles, no bounding box (all spines removed)

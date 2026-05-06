@@ -165,7 +165,7 @@ def load_full_voltage(
 
     if graphs_root is None:
         # Prefer the connectome-gnn repo's own graphs_data, fall back to
-        # flyvis-gnn's, which always has the zarr files for noise_free etc.
+        # connectome-gnn's, which always has the zarr files for noise_free etc.
         candidates = [
             "/workspace/connectome-gnn/graphs_data",
         ]

@@ -1,4 +1,4 @@
-Janne instructions
+Unified-style instructions
 
 Here's the visualization settings/matplotlibrc file I would use. In my opinion an important and logical style improvement is to remove upper and right spine and break the x and y axis because usually they don't originate in the same value. Next, it is useful to adjust everything upfront to ~18cm document usable width and fontsize 6-8 and then increase dpi to be comfortable in jupyter notebooks.
 
@@ -72,7 +72,7 @@ trim_axis(ax)
 
 ## additional rules (2026-04-21 update)
 
-- **Font**: Arial (set in `janne.matplotlibrc`: `font.sans-serif: Arial, DejaVu Sans, …`).
+- **Font**: Arial (set in `unified_style.matplotlibrc`: `font.sans-serif: Arial, DejaVu Sans, …`).
 - **x-ticks**: always place a tick at the first and last data point at a pretty value with regular spacing between.
   Pattern:
   ```python

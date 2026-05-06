@@ -39,7 +39,7 @@ import sys
 
 import matplotlib
 matplotlib.use('Agg')
-_RC = os.path.join(os.path.dirname(__file__), 'janne.matplotlibrc')
+_RC = os.path.join(os.path.dirname(__file__), 'unified_style.matplotlibrc')
 if os.path.isfile(_RC):
     matplotlib.rc_file(_RC)
 
@@ -266,7 +266,7 @@ def _mirror_model_dir(col):
     GNN_Main.py. We only symlink ``models/`` (read-only trained weights);
     everything else (config.yaml, results/, logs) is left for GNN_Main to
     create fresh in scratch, since `-o test` overwrites config.yaml on entry
-    and that would fail through the symlink to /groups/saalfeld."""
+    and that would fail through the symlink to /groups/...."""
     src = f'{BASELINE_REPO}/log/fly/{col["model"]}'
     dst = f'{SCRATCH_ROOT}/log/fly/{col["model"]}'
     if not os.path.isdir(os.path.join(src, 'models')):

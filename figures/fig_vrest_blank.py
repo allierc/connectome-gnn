@@ -1,12 +1,12 @@
 """
 Figure: effect of blank stimulus fraction on V_rest recovery.
 
-Janne-styled per figures/INSTRUCTIONS.md (the previous, larger-font version
+Unified-style-styled per figures/INSTRUCTIONS.md (the previous, larger-font version
 is preserved at fig_vrest_blank_original.py):
 
   • ~18 cm document-width figure (7.09 in) at 300 dpi
   • 6–8 pt fonts, 0.5 pt spines / ticks
-  • top + right spines hidden globally (via janne.matplotlibrc)
+  • top + right spines hidden globally (via unified_style.matplotlibrc)
   • trim_axis breaks each axis at the data range (upper & right gap)
   • PDF primary output (pdf.fonttype=42, svg.fonttype='none')
 
@@ -45,7 +45,7 @@ import os
 import sys
 import matplotlib
 matplotlib.use("Agg")
-matplotlib.rc_file(os.path.join(os.path.dirname(__file__), 'janne.matplotlibrc'))
+matplotlib.rc_file(os.path.join(os.path.dirname(__file__), 'unified_style.matplotlibrc'))
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -113,7 +113,7 @@ DATA = {
 }
 
 # ---------------------------------------------------------------------------
-# Janne-style font sizes — 6–8 pt
+# Unified-style-style font sizes — 6–8 pt
 # ---------------------------------------------------------------------------
 FS_LABEL  = 8     # axis labels
 FS_TICK   = 6     # tick labels
@@ -439,7 +439,7 @@ for bb, lbl, y in zip(_bb0 + _bb1,
              va='bottom', ha='left', color='black', transform=fig.transFigure)
 
 # ---------------------------------------------------------------------------
-# Save — PDF first per janne.matplotlibrc default; PNG for quick preview.
+# Save — PDF first per unified_style.matplotlibrc default; PNG for quick preview.
 # ---------------------------------------------------------------------------
 OUT_DIR = os.path.dirname(os.path.abspath(__file__))
 out_pdf = os.path.join(OUT_DIR, 'fig_vrest_blank.pdf')

@@ -1,7 +1,7 @@
-# Shared Janne style — see figures/INSTRUCTIONS.md
+# Shared unified-style — see figures/INSTRUCTIONS.md
 # Use from a script with:
 #     import matplotlib, os
-#     matplotlib.rc_file(os.path.join(os.path.dirname(__file__), 'janne.matplotlibrc'))
+#     matplotlib.rc_file(os.path.join(os.path.dirname(__file__), 'unified_style.matplotlibrc'))
 
 text.usetex          : False
 mathtext.default     : it
