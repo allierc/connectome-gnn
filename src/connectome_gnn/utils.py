@@ -803,19 +803,20 @@ def compute_trace_metrics(true, pred, label=""):
     return rmse, pearson, feve, r2
 
 
-def get_datavis_root_dir() -> str:
+def get_datavis_root_dir(env_var: str = "DATAVIS_ROOT") -> str:
     """Location of downloaded DAVIS data.
 
-    Set the DATAVIS_ROOT environment variable to the directory containing
-    ``JPEGImages/480p/``.
+    The directory must contain ``JPEGImages/480p/``. The env var to read is
+    selectable so configs can point at different roots (e.g. the CV runner
+    sets ``DATAVIS_TEST_ROOT`` for the hold-out video set).
     """
 
-    datavis_root = os.environ.get("DATAVIS_ROOT", "")
+    datavis_root = os.environ.get(env_var, "")
     if not datavis_root or not os.path.exists(datavis_root):
         raise RuntimeError(
-            "DAVIS data not found. Set the DATAVIS_ROOT environment variable "
+            f"DAVIS data not found. Set the {env_var} environment variable "
             "to the directory containing JPEGImages/480p/. "
-            "Example: export DATAVIS_ROOT=/path/to/DAVIS"
+            f"Example: export {env_var}=/path/to/DAVIS"
         )
     return datavis_root
 

@@ -5,6 +5,17 @@ import shutil
 # Ensure src/ is on the path so connectome_gnn is always importable
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
+# DAVIS data is required for every code path that reads from it (training and
+# CV hold-out alike). Fail fast at startup so a missing export doesn't surface
+# as an opaque error deep in data generation.
+_missing_envs = [v for v in ('DATAVIS_ROOT', 'DATAVIS_TEST_ROOT') if not os.environ.get(v)]
+if _missing_envs:
+    sys.exit(
+        f"error: required environment variable(s) not set: {', '.join(_missing_envs)}.\n"
+        "  DATAVIS_ROOT      -> training/validation video dataset root (contains JPEGImages/480p/)\n"
+        "  DATAVIS_TEST_ROOT -> hold-out video dataset root (used by -o cv and configs that set datavis_root_env: DATAVIS_TEST_ROOT)"
+    )
+
 import matplotlib
 matplotlib.use('Agg')  # set non-interactive backend before other imports
 import argparse

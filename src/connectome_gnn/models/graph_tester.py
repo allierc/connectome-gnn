@@ -985,11 +985,8 @@ def data_test_gnn_special(
     setup_flyvis_model_path()
     # Initialize datasets
     if "DAVIS" in sim.visual_input_type or "mixed" in sim.visual_input_type:
-        # determine dataset roots: use config list if provided, otherwise fall back to default
-        if sim.datavis_roots:
-            datavis_root_list = [os.path.join(r, "JPEGImages/480p") for r in sim.datavis_roots]
-        else:
-            datavis_root_list = [os.path.join(get_datavis_root_dir(), "JPEGImages/480p")]
+        # resolve dataset root via the env var named by datavis_root_env (defaults to DATAVIS_ROOT)
+        datavis_root_list = [os.path.join(get_datavis_root_dir(sim.datavis_root_env), "JPEGImages/480p")]
 
         for root in datavis_root_list:
             assert os.path.exists(root), f"video data not found at {root}"

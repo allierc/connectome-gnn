@@ -20,8 +20,7 @@ simulation:
   noise_model_level: 0.05
   derivative_smoothing_window: 1
   seed: 42
-  datavis_roots:
-    - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
+  datavis_root_env: DATAVIS_TEST_ROOT
   skip_short_videos: true
   blank_prefix_fraction: 0.5
 graph_model:

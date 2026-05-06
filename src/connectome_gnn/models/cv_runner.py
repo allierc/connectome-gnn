@@ -6,7 +6,8 @@ Three-phase pipeline (run across all seeds before advancing):
              each hold-out fold  (one_step_r, rollout_r).
   Phase 3 — Train a new model on each fold then run rollout + parameter
              extraction  (holdout_one_step_r, holdout_rollout_r, W R², tau R², …).
-             Data source is controlled by CV_DATAVIS_ROOTS.
+             Data source is the directory pointed at by the DATAVIS_TEST_ROOT
+             environment variable (must be set before running -o cv).
 
 All results are appended to results_cv.txt (paper audit log).
 
@@ -49,8 +50,12 @@ def _free_gpu():
 
 
 # Hold-out video dataset used for CV data generation (never seen during training).
-# Must contain JPEGImages/480p/<video>/*.jpg
-CV_DATAVIS_ROOTS = ["/groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test"]
+# The directory must contain JPEGImages/480p/<video>/*.jpg, and is resolved at
+# runtime from the DATAVIS_TEST_ROOT environment variable (set per-shell, not
+# baked into configs). Each fold-config records the env-var name on
+# simulation.datavis_root_env; the actual lookup happens inside
+# graph_data_generator / graph_tester.
+CV_DATAVIS_ROOT_ENV = "DATAVIS_TEST_ROOT"
 CV_SKIP_SHORT_VIDEOS = False  # some hold-out datasets contain many short clips
 
 
@@ -94,8 +99,9 @@ def parse_metrics(path):
     return metrics
 
 
-def _heldout_data_exists(graphs_dir):
-    """Return True if graphs_dir has hold-out dataset data already generated."""
+def _heldout_data_exists(graphs_dir, holdout_root):
+    """Return True if graphs_dir has hold-out dataset data already generated
+    against ``holdout_root`` (resolved DATAVIS_TEST_ROOT path)."""
     if not os.path.isdir(os.path.join(graphs_dir, 'x_list_train')):
         return False
     log = os.path.join(graphs_dir, 'generation_log.txt')
@@ -103,7 +109,7 @@ def _heldout_data_exists(graphs_dir):
         return False
     with open(log) as f:
         content = f.read()
-    return any(root in content for root in CV_DATAVIS_ROOTS)
+    return holdout_root in content
 
 
 def parse_pearson_from_log(path):
@@ -236,6 +242,14 @@ def run_cv(config_name, seeds, skip_phase2=False):
     base_config = yaml_loader()
     device = set_device(base_config.training.device)
 
+    holdout_root = os.environ.get(CV_DATAVIS_ROOT_ENV, "")
+    if not holdout_root or not os.path.exists(holdout_root):
+        raise RuntimeError(
+            f"CV requires the {CV_DATAVIS_ROOT_ENV} environment variable to "
+            f"point at a hold-out dataset root containing JPEGImages/480p/. "
+            f"Example: export {CV_DATAVIS_ROOT_ENV}=/path/to/DAVIS2017-partial-test"
+        )
+
     cv_out_dir = os.path.join(log_path(pre_folder + base_name), "results")
     os.makedirs(cv_out_dir, exist_ok=True)
 
@@ -243,7 +257,7 @@ def run_cv(config_name, seeds, skip_phase2=False):
 
     print(f"\n\033[94m{'='*70}\033[0m")
     print(f"\033[94mCV run: {pre_folder}{base_name}\033[0m")
-    print(f"\033[94m  hold-out dataset root(s): {CV_DATAVIS_ROOTS}\033[0m")
+    print(f"\033[94m  hold-out dataset root:    {holdout_root}  (${CV_DATAVIS_ROOT_ENV})\033[0m")
     print(f"\033[94m  skip_short_videos:        {CV_SKIP_SHORT_VIDEOS}\033[0m")
     print(f"\033[94m  seeds (sim/train):        {seeds} / {[s+1000 for s in seeds]}\033[0m")
     print(f"\033[94m{'='*70}\033[0m")
@@ -267,7 +281,7 @@ def run_cv(config_name, seeds, skip_phase2=False):
         fc.training.seed             = seed + 1000
         fc.dataset                   = pre_folder + run_name
         fc.config_file               = pre_folder + run_name
-        fc.simulation.datavis_roots  = CV_DATAVIS_ROOTS
+        fc.simulation.datavis_root_env = CV_DATAVIS_ROOT_ENV
         fc.simulation.skip_short_videos = CV_SKIP_SHORT_VIDEOS
         fold_configs.append(fc)
 
@@ -276,11 +290,11 @@ def run_cv(config_name, seeds, skip_phase2=False):
     # ===================================================================
     print(f"\n\033[94m{'='*70}\033[0m")
     print(f"\033[94mPHASE 1/3 — Generating hold-out data for all {len(seeds)} folds\033[0m")
-    print(f"\033[94m  source: {CV_DATAVIS_ROOTS}\033[0m")
+    print(f"\033[94m  source: {holdout_root}  (${CV_DATAVIS_ROOT_ENV})\033[0m")
     print(f"\033[94m{'='*70}\033[0m")
     for i, (seed, fold_config) in enumerate(zip(seeds, fold_configs)):
         graphs_dir = graphs_data_path(fold_config.dataset)
-        if _heldout_data_exists(graphs_dir):
+        if _heldout_data_exists(graphs_dir, holdout_root):
             print(f"\033[90m  fold {i+1}/{len(seeds)} (seed={seed}) — hold-out data already exists, skipping\033[0m")
         else:
             print(f"\033[96m  fold {i+1}/{len(seeds)} (seed={seed}) — generating hold-out data ...\033[0m")
@@ -320,7 +334,7 @@ def run_cv(config_name, seeds, skip_phase2=False):
 
         print(f"\n\033[94m{'='*70}\033[0m")
         print(f"\033[94mPHASE 2/3 — Zero-shot rollout (DAVIS model → hold-out) for all {len(seeds)} folds\033[0m")
-        print(f"\033[94m  hold-out source: {CV_DATAVIS_ROOTS}\033[0m")
+        print(f"\033[94m  hold-out source: {holdout_root}  (${CV_DATAVIS_ROOT_ENV})\033[0m")
         print(f"\033[94m{'='*70}\033[0m")
         for i, (seed, fold_config) in enumerate(zip(seeds, fold_configs)):
             print(f"\033[96m  fold {i+1}/{len(seeds)} (seed={seed}) — testing DAVIS model on hold-out fold ...\033[0m")
@@ -483,7 +497,7 @@ def run_cv(config_name, seeds, skip_phase2=False):
     audit_lines.append(f"date:             {now_str}\n")
     audit_lines.append(f"git commit:       {sha}\n")
     audit_lines.append(f"config:           {config_yaml_path}  [{_mtime_str(config_yaml_path)}]\n")
-    audit_lines.append(f"hold_out_root:    {CV_DATAVIS_ROOTS[0]}\n")
+    audit_lines.append(f"hold_out_root:    {holdout_root}  (${CV_DATAVIS_ROOT_ENV})\n")
     audit_lines.append(f"seeds (sim/train):{seeds} / {[s+1000 for s in seeds]}\n")
     audit_lines.append(f"\n-- DAVIS model (phase 2: zero-shot generalisation) --\n")
     audit_lines.append(f"davis_model:      {davis_model}  [{_mtime_str(davis_model)}]\n")

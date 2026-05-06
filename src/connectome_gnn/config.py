@@ -188,7 +188,7 @@ class SimulationConfig(BaseModel):
     noise_visual_input: float = 0.0
     only_noise_visual_input: float = 0.0
     visual_input_type: str = ""  # for flyvis experiments
-    datavis_roots: list[str] = []  # list of dataset roots (each contains JPEGImages/480p/); empty list uses default get_datavis_root_dir()
+    datavis_root_env: str = "DATAVIS_ROOT"  # name of env var holding the dataset root path (must contain JPEGImages/480p/); CV runs override to e.g. DATAVIS_TEST_ROOT
     skip_short_videos: bool = True  # skip videos with fewer frames than chunk size (n_frames in video_config)
     truncate_max_frames: Optional[int] = Field(default=80, gt=0)  # crop video clips to this length (frames); None = no truncation. Default preserves prior hardcoded 80.
     max_train_sequences: int = 0  # limit train sequences (0 = use all); reduces generation time proportionally
