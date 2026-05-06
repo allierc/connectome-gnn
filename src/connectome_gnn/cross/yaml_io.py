@@ -123,8 +123,12 @@ def emit_one(base_name, hp_yaml_path, out_yaml_path, suffix, yt_root,
     - stimulus swap to hold-out dataset, blank_freq=2, n_epochs=1, DAL=100
     Writes to out_yaml_path. Returns True on success.
 
-    dataset_tag defaults to ROOT_TAGS[yt_root] — add an entry to ROOT_TAGS
-    when introducing a new datavis root.
+    The base yaml's training-data root (DATAVIS_ROOT) is replaced with
+    DATAVIS_TEST_ROOT, which is what makes the emitted yaml a *hold-out*
+    config. dataset_tag defaults to ROOT_TAGS[yt_root] — add an entry to
+    ROOT_TAGS when introducing a new datavis root. yt_root is now only used
+    to derive the on-disk dataset tag; the actual path is resolved at
+    runtime from DATAVIS_TEST_ROOT.
     """
     if dataset_tag is None:
         if yt_root not in ROOT_TAGS:
@@ -148,7 +152,7 @@ def emit_one(base_name, hp_yaml_path, out_yaml_path, suffix, yt_root,
 
     merged = dict(hp)
     merged['simulation'] = dict(base['simulation'])
-    merged['simulation']['datavis_roots']     = [yt_root]
+    merged['simulation']['datavis_root_env']  = 'DATAVIS_TEST_ROOT'
     merged['simulation']['skip_short_videos'] = False
     # Optional simulation-block overrides (e.g. all_columns=True for the
     # full-fly variant that uses all 721 retinotopic columns).

@@ -831,14 +831,16 @@ def data_generate_voltage(
     # might silently apply if the YAML is incomplete).
     _bpf = float(getattr(sim, 'blank_prefix_fraction', 0.0))
     _vis_type = getattr(sim, 'visual_input_type', 'DAVIS')
-    _datavis_roots = getattr(sim, 'datavis_roots', None) or ['<flyvis default Sintel>']
+    _datavis_root_env = getattr(sim, 'datavis_root_env', 'DATAVIS_ROOT')
+    _datavis_root = os.environ.get(_datavis_root_env, '') or '<flyvis default Sintel>'
     _skip_short = bool(getattr(sim, 'skip_short_videos', True))
     # `visual_input_type` is the renderer class (DAVIS/mixed/flash/...), not
     # the dataset identity. For video-based renderers the actual data source
-    # comes from `datavis_roots` — surface its basename so the log isn't
-    # misleading when e.g. visual_input_type='DAVIS' but the root is YouTube-VOS.
+    # is resolved at runtime from the env var named by datavis_root_env —
+    # surface its basename so the log isn't misleading when e.g.
+    # visual_input_type='DAVIS' but the env var points at YouTube-VOS.
     if 'DAVIS' in _vis_type or 'mixed' in _vis_type:
-        _data_source = ', '.join(os.path.basename(r.rstrip('/')) for r in _datavis_roots)
+        _data_source = os.path.basename(_datavis_root.rstrip('/'))
         _renderer_str = f"renderer={_vis_type}  data_source={_data_source}"
     else:
         _renderer_str = f"renderer={_vis_type}"
@@ -849,7 +851,7 @@ def data_generate_voltage(
         f"skip_short_videos={_skip_short}\033[0m",
         flush=True,
     )
-    print(f"\033[93m[stimulus] datavis_roots={_datavis_roots}\033[0m", flush=True)
+    print(f"\033[93m[stimulus] datavis_root={_datavis_root}  (${_datavis_root_env})\033[0m", flush=True)
     _ar1_rho = float(getattr(sim, 'noise_ar1_rho', 0.0))
     print(
         f"\033[93m[noise] noise_model_level={sim.noise_model_level}  "
@@ -969,13 +971,10 @@ def data_generate_voltage(
         boxfilter_arg = dict(extent=extent, kernel_size=13)
 
     # Initialize datasets
-    print(f"[DBG] visual_input_type={sim.visual_input_type!r}  datavis_roots={sim.datavis_roots}", flush=True)
+    print(f"[DBG] visual_input_type={sim.visual_input_type!r}  datavis_root_env={sim.datavis_root_env}", flush=True)
     if "DAVIS" in sim.visual_input_type or "mixed" in sim.visual_input_type:
-        # determine dataset roots: use config list if provided, otherwise fall back to default
-        if sim.datavis_roots:
-            datavis_root_list = [os.path.join(r, "JPEGImages/480p") for r in sim.datavis_roots]
-        else:
-            datavis_root_list = [os.path.join(get_datavis_root_dir(), "JPEGImages/480p")]
+        # resolve dataset root via the env var named by datavis_root_env (defaults to DATAVIS_ROOT)
+        datavis_root_list = [os.path.join(get_datavis_root_dir(sim.datavis_root_env), "JPEGImages/480p")]
 
         print(f"[DBG] datavis_root_list={datavis_root_list}", flush=True)
         for root in datavis_root_list:
@@ -1763,8 +1762,9 @@ def data_generate_voltage(
         log_f.write(f'train_videos: {train_video_names}\n')
         log_f.write(f'test_videos: {test_video_names}\n')
         log_f.write(f'visual_input_type: {sim.visual_input_type}\n')
-        if sim.datavis_roots:
-            log_f.write(f'datavis_roots: {sim.datavis_roots}\n')
+        if 'DAVIS' in sim.visual_input_type or 'mixed' in sim.visual_input_type:
+            log_f.write(f'datavis_root_env: {sim.datavis_root_env}\n')
+            log_f.write(f'datavis_root: {os.environ.get(sim.datavis_root_env, "")}\n')
         log_f.write(f'noise_model_level: {sim.noise_model_level}\n')
         log_f.write(f'measurement_noise_level: {sim.measurement_noise_level}\n')
         log_f.write(f'model_id: {sim.model_id}\n')
