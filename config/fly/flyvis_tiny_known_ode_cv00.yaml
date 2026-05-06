@@ -1,6 +1,6 @@
 description: "Tiny test config for Known ODE \u2014 10k frames, DAL=1, n_epochs=1;\
-  \ shares dataset tiny_test_cv00 so generate runs once."
-dataset: tiny_test_cv00
+  \ shares dataset flyvis_tiny_cv00 so generate runs once."
+dataset: flyvis_tiny_cv00
 simulation:
   datavis_root_env: DATAVIS_TEST_ROOT
   connectivity_file: to be specified
@@ -78,6 +78,7 @@ training:
   n_epochs: 1
   data_augmentation_loop: 1
   time_step: 1
+  max_iterations_per_epoch: 50
 claude:
   n_iter_block: 12
   n_parallel: 4
@@ -86,4 +87,4 @@ claude:
   training_time_target_min: 15
   n_epochs: 1
   data_augmentation_loop: 35
-config_file: fly/tiny_test_known_ode_cv00
+config_file: fly/flyvis_tiny_known_ode_cv00

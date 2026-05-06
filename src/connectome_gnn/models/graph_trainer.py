@@ -870,8 +870,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                 # gained a new row (heavy R² or quick NGP path).
                 if _metrics_changed:
                     plot_metrics(log_dir,
-                                 epoch_boundaries=regularizer.epoch_boundaries,
-                                 ngp_stages=_ngp_stages)
+                                 epoch_boundaries=regularizer.epoch_boundaries)
 
                 if last_connectivity_r2 is not None or last_hidden_r2 is not None:
                     bar_parts = []
@@ -1289,8 +1288,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                 # gained a new row (heavy R² or quick NGP path).
                 if _metrics_changed:
                     plot_metrics(log_dir,
-                                 epoch_boundaries=regularizer.epoch_boundaries,
-                                 ngp_stages=_ngp_stages)
+                                 epoch_boundaries=regularizer.epoch_boundaries)
 
                 if last_connectivity_r2 is not None or last_hidden_r2 is not None:
                     bar_parts = []

@@ -288,7 +288,8 @@ def compute_activity_stats(x_ts, device: Optional[torch.device] = None) -> tuple
     s2 = torch.zeros(N, dtype=torch.float64, device='cpu')
     for i in range(0, T, chunk):
         v = voltage[i:i + chunk]
-        if v.is_cuda:
+        # MPS has no float64 support; CUDA path stays on host for the precision-sensitive accumulators.
+        if v.device.type != 'cpu':
             v = v.cpu()
         v = v.to(torch.float64)
         s1.add_(v.sum(dim=0))

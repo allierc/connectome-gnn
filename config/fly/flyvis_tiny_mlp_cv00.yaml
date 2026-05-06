@@ -1,6 +1,6 @@
 description: "Tiny test config for MLP \u2014 10k frames, DAL=1, n_epochs=1; shares\
-  \ dataset tiny_test_cv00 so generate runs once."
-dataset: tiny_test_cv00
+  \ dataset flyvis_tiny_cv00 so generate runs once."
+dataset: flyvis_tiny_cv00
 simulation:
   blank_prefix_fraction: 0.5
   skip_short_videos: true
@@ -80,20 +80,4 @@ training:
   coeff_W_sign: 0
   w_init_mode: zeros
   regul_annealing_rate: 0
-claude:
-  n_epochs: 60
-  data_augmentation_loop: 20
-  n_iter_block: 8
-  ucb_c: 1.414
-  node_name: a100
-  conda_env: connectome-gnn
-  n_cpus: 2
-  generate_data: true
-  hard_runtime_limit_min: 120
-  interaction_code: false
-  case_study: mlp_rollout
-  case_study_brief: 'Optimize MLP hyperparameters for stable autoregressive rollout
-    on flyvis_noise_free. Primary metric: rollout_RMSE (lower is better). Target:
-    rollout_RMSE < 2e-2, stable across seeds (CV < 10%). Key levers: rollout_train_steps,
-    hidden_dim, n_layers, lr, batch_size.'
-config_file: fly/tiny_test_mlp_cv00
+config_file: fly/flyvis_tiny_mlp_cv00
