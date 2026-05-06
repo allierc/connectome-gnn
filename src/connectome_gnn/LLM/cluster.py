@@ -21,9 +21,9 @@ def _load_cluster_config() -> dict:
     return {}
 
 _cluster_cfg = _load_cluster_config()
-CLUSTER_USER     = _cluster_cfg.get('cluster_user', 'allierc')
-CLUSTER_LOGIN    = _cluster_cfg.get('cluster_login', 'login1')
-CLUSTER_ROOT_DIR = _cluster_cfg.get('cluster_root_dir', '/groups/saalfeld/home/allierc/GraphCluster/connectome-gnn')
+CLUSTER_USER     = _cluster_cfg.get('cluster_user', None)
+CLUSTER_LOGIN    = _cluster_cfg.get('cluster_login', None)
+CLUSTER_ROOT_DIR = _cluster_cfg.get('cluster_root_dir', None)
 CLUSTER_SSH      = f"{CLUSTER_USER}@{CLUSTER_LOGIN}"
 
 
