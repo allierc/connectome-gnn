@@ -1,0 +1,92 @@
+description: 'Cross-check YT-training variant of full_eye_flywireRF_proximal_nulls_noise_005
+  fold=0 (blank50_flywire). sim_seed=42 train_seed=1042. HPs: full_eye_flywireRF_proximal_nulls_noise_005.yaml.'
+dataset: full_eye_flywireRF_proximal_nulls_noise_005_blank50_cv00
+simulation:
+  connectivity_file: to be specified
+  adjacency_matrix: ''
+  params:
+  - - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+  n_neurons: 50412
+  n_input_neurons: 6368
+  n_neuron_types: 65
+  n_edges: 9642335
+  n_frames: 64000
+  delta_t: 0.02
+  baseline_value: 0
+  visual_input_type: DAVIS
+  noise_model_level: 0.05
+  derivative_smoothing_window: 1
+  seed: 42
+  all_columns: true
+  flywire_stimulus: true
+  edge_uncertainty: 1
+  datavis_roots:
+  - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
+  skip_short_videos: true
+  blank_prefix_fraction: 0.5
+graph_model:
+  signal_model_name: full_eye_flywireRF_proximal_nulls
+  prediction: first_derivative
+  input_size: 3
+  n_layers: 4
+  hidden_dim: 64
+  output_size: 1
+  input_size_update: 5
+  n_layers_update: 4
+  hidden_dim_update: 64
+  aggr_type: add
+  embedding_dim: 2
+  update_type: generic
+  g_phi_positive: true
+plotting:
+  colormap: tab20
+  arrow_length: 1
+  xlim:
+  - -2.5
+  - 2.5
+  ylim:
+  - -100
+  - 100
+training:
+  n_runs: 1
+  device: auto
+  recurrent_training: false
+  time_step: 1
+  batch_size: 2
+  batch_ratio: 1
+  small_init_batch_size: false
+  sparsity: none
+  lr_W: 0.0014
+  lr: 0.0018
+  lr_embedding: 0.002325
+  coeff_g_phi_diff: 750
+  coeff_f_theta_msg_diff: 0
+  coeff_g_phi_norm: 0.9
+  coeff_g_phi_weight_L1: 0.28
+  coeff_f_theta_weight_L1: 0.05
+  coeff_g_phi_weight_L2: 0
+  coeff_f_theta_weight_L2: 0.001
+  coeff_W_L1: 0.001
+  coeff_W_L2: 1.5e-06
+  regul_annealing_rate: 0.0
+  w_init_mode: randn_scaled
+  use_gt_edges: true
+  lr_scheduler: none
+  lr_scheduler_T0: 1000
+  lr_scheduler_T_mult: 2
+  lr_scheduler_eta_min_ratio: 0.01
+  lr_scheduler_warmup_iters: 100
+  seed: 1042
+  n_epochs: 1
+  data_augmentation_loop: 500
+claude:
+  n_iter_block: 12
+  ucb_c: 1.414
+  generate_data: true
+  training_time_target_min: 60
+  n_epochs: 1
+  data_augmentation_loop: 500
+config_file: fly/full_eye_flywireRF_proximal_nulls_noise_005_blank50_flywire_cv00

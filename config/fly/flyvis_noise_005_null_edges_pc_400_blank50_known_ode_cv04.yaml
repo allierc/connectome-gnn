@@ -1,0 +1,91 @@
+description: 'Cross-check YT-training variant of flyvis_noise_005_null_edges_pc_400
+  fold=4 (blank50_known_ode). sim_seed=46 train_seed=1046. HPs: flyvis_noise_free_known_ode_reg_winner.yaml.'
+dataset: flyvis_noise_005_null_edges_pc_400_blank50_cv04
+simulation:
+  connectivity_file: to be specified
+  adjacency_matrix: ''
+  params:
+  - - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+  n_neurons: 13741
+  n_input_neurons: 1736
+  n_neuron_types: 65
+  n_edges: 434112
+  n_extra_null_edges: 1736448
+  null_edges_mode: per_column
+  n_frames: 64000
+  delta_t: 0.02
+  baseline_value: 0
+  visual_input_type: DAVIS
+  noise_model_level: 0.05
+  seed: 46
+  datavis_roots:
+  - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
+  skip_short_videos: true
+  blank_prefix_fraction: 0.5
+graph_model:
+  signal_model_name: flyvis_known_ode
+  prediction: first_derivative
+  input_size: 1
+  n_layers: 1
+  hidden_dim: 1
+  output_size: 1
+  input_size_update: 1
+  n_layers_update: 1
+  hidden_dim_update: 1
+  aggr_type: add
+  embedding_dim: 0
+  update_type: linear
+  g_phi_positive: false
+plotting:
+  colormap: tab20
+  arrow_length: 1
+  xlim:
+  - -2.5
+  - 2.5
+  ylim:
+  - -100
+  - 100
+training:
+  n_runs: 1
+  device: auto
+  recurrent_training: false
+  batch_size: 4
+  batch_ratio: 1
+  small_init_batch_size: false
+  sparsity: none
+  lr_W: 0.0006
+  lr: 0.006
+  lr_embedding: 0.0
+  coeff_g_phi_diff: 0
+  coeff_f_theta_msg_diff: 0
+  coeff_g_phi_norm: 0
+  coeff_g_phi_weight_L1: 0
+  coeff_f_theta_weight_L1: 0
+  coeff_g_phi_weight_L2: 0
+  coeff_f_theta_weight_L2: 0
+  coeff_W_L1: 1.0e-05
+  coeff_W_L2: 0
+  coeff_W_sign: 0
+  coeff_tau_L1: 0.0
+  coeff_tau_L2: 0.003
+  coeff_V_rest_L1: 0.0
+  coeff_V_rest_L2: 0.001
+  w_init_mode: zeros
+  w_init_scale: 1.0
+  use_gt_edges: true
+  regul_annealing_rate: 0
+  seed: 1046
+  n_epochs: 1
+  data_augmentation_loop: 35
+claude:
+  n_iter_block: 12
+  n_parallel: 4
+  node_name: a100
+  generate_data: false
+  training_time_target_min: 15
+  n_epochs: 1
+  data_augmentation_loop: 35
+config_file: fly/flyvis_noise_005_null_edges_pc_400_blank50_known_ode_cv04
