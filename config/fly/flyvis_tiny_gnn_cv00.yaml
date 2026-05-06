@@ -1,6 +1,6 @@
 description: "Tiny test config for GNN \u2014 10k frames, DAL=1, n_epochs=1; shares\
-  \ dataset tiny_test_cv00 so generate runs once."
-dataset: tiny_test_cv00
+  \ dataset flyvis_tiny_cv00 so generate runs once."
+dataset: flyvis_tiny_cv00
 simulation:
   datavis_root_env: DATAVIS_TEST_ROOT
   connectivity_file: to be specified
@@ -73,4 +73,5 @@ training:
   seed: 1042
   n_epochs: 1
   data_augmentation_loop: 1
-config_file: fly/tiny_test_gnn_cv00
+  max_iterations_per_epoch: 50
+config_file: fly/flyvis_tiny_gnn_cv00
