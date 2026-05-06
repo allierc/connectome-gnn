@@ -26,29 +26,34 @@ ill-posed inverse problem.
 
 ## Installation
 
+> **Strongly recommended: run on a CUDA GPU.** Every result in the paper, every figure, and every
+> training pipeline in this repo was produced and validated on CUDA. Apple Silicon / MPS has only
+> been smoke-tested on the EED and MLP architectures (see the smoke-test section below); other
+> code paths may hit `torch.compile` errors, missing-op errors, or numerical issues on MPS that we
+> haven't characterised. CPU works for the smoke test but is far too slow for full-size runs.
+
 ### Conda environment
 
-- Linux:
+- Linux (CUDA):
 
 ```bash
 conda env create -f envs/environment.linux.yaml
 conda activate connectome-gnn
 ```
 
-After install make sure that CUDA enabled pytorch wheels were successfully downloaded.
+After install make sure that CUDA-enabled PyTorch wheels were successfully downloaded.
 
-- Mac:
+- Mac (MPS or CPU; limited testing):
 
 ```bash
 conda env create -f envs/environment.mac.yaml
 conda activate connectome-gnn
 ```
 
-Note: we make use of `torch.compile` with `reduce-overhead`, which is a CUDA-only feature.
-`torch.compile` is only guaranteed to work on CUDA — it currently fails on Apple Silicon / MPS. On
-a Mac, run on CPU (see the smoke-test section below for the one-line `sed` to flip the configs to
-`device: cpu`); if you hit other compile issues, turn compilation off entirely or switch the
-`torch.compile` calls to `mode="default"`.
+Note: we use `torch.compile` with `reduce-overhead`, which is a CUDA-only feature. `torch.compile`
+is only guaranteed to work on CUDA — it currently fails on Apple Silicon / MPS. The smoke-test
+section below documents the recommended fallback order (disable compilation first, then drop to
+CPU if MPS still errors out).
 
 Run `conda activate connectome-gnn && pip install -e .` to add src/ to the PYTHONPATH and install
 the package into the environment. Or set `$PYTHONPATH`.
@@ -281,14 +286,23 @@ for cfg in flyvis_tiny_gnn_cv00 \
 done
 ```
 
-On a Mac the default `device: auto` in each yaml prefers MPS over CPU. MPS support in PyTorch is
-incomplete (no `float64`, no `torch.compile`) and may fail mid-run with errors like
-`<op> not implemented for MPS` or `Cannot reuse outer quote character in f-strings`. If you hit one
-of those, fall back to CPU by switching `device: auto` → `device: cpu` in each smoke-test config:
+On a Mac the default `device: auto` in each yaml selects MPS. MPS works fine for the EED and MLP
+smoke runs out of the box. The GNN/Known ODE/Stimulus paths use `torch.compile` with the CUDA-only
+`reduce-overhead` mode, which can fail on MPS.
+
+**If you hit a `torch.compile` error on Mac, first turn compilation off** — keep MPS for speed:
+
+```bash
+sed -i.bak 's/^  torch_compile: true$/  torch_compile: false/' config/fly/flyvis_tiny_*_cv00.yaml
+```
+
+(If `torch_compile:` isn't present in a yaml, it inherits the default `true` — append the line under
+`training:` instead, or use any yaml editor.)
+
+**Only if MPS still fails after disabling compilation**, fall back to CPU for the smoke test:
 
 ```bash
 sed -i.bak 's/^  device: auto$/  device: cpu/' config/fly/flyvis_tiny_*_cv00.yaml
 ```
 
-You may also need to set `torch_compile: false` in the same configs if compilation fails on your
-platform.
+Don't switch `device: cpu` for full-size runs — they'll be far too slow without GPU acceleration.
