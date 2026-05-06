@@ -1,5 +1,16 @@
 # FlyVis spatial-NGP HP sweep on cv04 — break the (R²W, nnr_hidden, nnr_anchor) > 0.4 triple ceiling
 
+## Setup
+
+Export these in the shell session before running any commands or referencing
+file paths in this document:
+
+```bash
+export GNN_OUTPUT_ROOT=/path/to/cluster/data/root   # parent of config/, log/, graphs_data/
+export DATAVIS_ROOT=/path/to/DAVIS-train-val
+export DATAVIS_TEST_ROOT=/path/to/DAVIS-holdout-test
+```
+
 ## Goal
 
 Optimize GNN + spatial-NGP hyperparameters on `flyvis_noise_005_hidden_010_ngp_blank50_unified_spatial`
@@ -336,7 +347,7 @@ the explicit list below.
   Wipe the 8 stale slot configs and the per-exploration analysis logs first
   so the loop re-seeds from the (updated) parent yaml in this repo:
   ```
-  rm /groups/saalfeld/home/allierc/GraphData/config/fly/flyvis_noise_005_hidden_010_ngp_blank50_unified_spatial_Claude_*.yaml
+  rm "$GNN_OUTPUT_ROOT/config/fly/flyvis_noise_005_hidden_010_ngp_blank50_unified_spatial_Claude_"*.yaml
   python GNN_LLM.py -o generate_train_test_plot_Claude \
     flyvis_noise_005_hidden_010_ngp_blank50_unified_spatial \
     iterations=128 --cluster

@@ -74,12 +74,17 @@ def get_data_root() -> str:
 def set_data_root(path: str) -> None:
     """Set the data root for log_path() and graphs_data_path().
 
+    Also exports GNN_OUTPUT_ROOT in the process environment so subprocesses
+    (cluster job submissions, shell commands invoked from instruction docs,
+    etc.) inherit the same value without each caller re-resolving it.
+
     Call early in main before any path functions are used.
     GNN_Main: set from --output_root CLI arg.
     GNN_LLM cluster mode: set from load_data_root_from_json().
     """
     global _data_root
     _data_root = path
+    os.environ['GNN_OUTPUT_ROOT'] = path
 
 
 def _read_data_paths_json() -> dict | None:
