@@ -22,15 +22,37 @@ inverse problem.
 
 ## Installation
 
+### Conda environment
+
+- Linux:
+
 ```bash
 conda env create -f envs/environment.linux.yaml
-conda activate flyvis-gnn
+conda activate connectome-gnn
 ```
 
-The pretrained flyvis model (model 000, ~105 KB) is bundled in `assets/flyvis_model/` and used
-automatically.
+After install make sure that CUDA enabled pytorch wheels were successfully downloaded.
 
-### DAVIS dataset stimuli
+- Mac:
+
+```bash
+conda env create -f envs/environment.mac.yaml
+conda activate connectome-gnn
+```
+
+Note: we make use of torch.compile and use `reduce-overhead` which is a CUDA only feature. If
+running on a make change the torch.compile incantations to use `default` mode. If you run into
+difficulties with torch compile, just turn off compilation.
+
+Run `conda activate connectome-gnn && pip install -e .` to add src/ to the PYTHONPATH and install
+the package into the environment. Or set `$PYTHONPATH`.
+
+### Data dependencies
+
+- FlyVis model: the pretrained flyvis model (model 000, ~105 KB) is bundled in
+  `assets/flyvis_model/` and used automatically.
+
+- DAVIS-2017 dataset stimuli
 
 Download the [DAVIS 2017](https://davischallenge.org/davis2017/code.html) dataset (480p). We split
 the data for training and validation as below:
