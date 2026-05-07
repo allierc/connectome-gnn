@@ -85,7 +85,9 @@ class ZebrafishODE(nn.Module):
             dv: (N, 1) voltage derivative
         """
         v = state.voltage.unsqueeze(-1)           # (N, 1)
-        stim = state.stimulus.unsqueeze(-1)        # (N, 1) — already per-neuron (I(t) * v_in)
+        # Combine visual stimulus + optional optogenetic perturbation
+        opto = state.optogenetics_stimulus if state.optogenetics_stimulus is not None else 0.0
+        stim = (state.stimulus + opto).unsqueeze(-1)  # (N, 1) — already per-neuron
         tau = self.ode_params.tau
 
         msg = self._compute_messages(v, edge_index)

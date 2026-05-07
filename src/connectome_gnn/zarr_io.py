@@ -166,14 +166,18 @@ class ZarrSimulationWriterV3:
         n_neurons: int,
         time_chunks: int = 2000,
         save_calcium: bool = False,
+        extra_dynamic_fields: list[str] | None = None,
     ):
         self.path = Path(path)
         self.n_neurons = n_neurons
         self.time_chunks = time_chunks
         self.save_calcium = save_calcium
 
-        self._fields = [f for f in _DYNAMIC_FIELDS
-                        if save_calcium or f not in ('calcium', 'fluorescence')]
+        extras = list(extra_dynamic_fields or [])
+        base = [f for f in _DYNAMIC_FIELDS
+                if save_calcium or f not in ('calcium', 'fluorescence')]
+        # extras append after the canonical fields, dedup-preserving
+        self._fields = base + [e for e in extras if e not in base]
         self._static_saved = False
         self._buffers: dict[str, list[np.ndarray]] = {f: [] for f in self._fields}
         self._stores: dict[str, ts.TensorStore] = {}
@@ -266,6 +270,16 @@ class ZarrSimulationWriterV3:
             to_numpy(noise_val).astype(np.float32) if noise_val is not None
             else np.zeros(self.n_neurons, dtype=np.float32)
         )
+        # Any field beyond the canonical {voltage,stimulus,calcium,fluorescence,noise}
+        # was added via extra_dynamic_fields; pull it from the state by name.
+        for name in self._fields:
+            if name in ('voltage', 'stimulus', 'calcium', 'fluorescence', 'noise'):
+                continue
+            val = getattr(state, name, None)
+            self._buffers[name].append(
+                to_numpy(val).astype(np.float32) if val is not None
+                else np.zeros(self.n_neurons, dtype=np.float32)
+            )
 
         if len(self._buffers['voltage']) >= self.time_chunks:
             self._flush_buffer()
