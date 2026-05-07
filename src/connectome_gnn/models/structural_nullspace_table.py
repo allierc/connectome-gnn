@@ -74,9 +74,12 @@ from tqdm import tqdm
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-REPO_ROOT  = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(REPO_ROOT, "src"))
+# This module lives at src/connectome_gnn/models/. REPO_ROOT is three levels up.
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__)
+))))
+# Output directory: repo-root/figures (figures and analytical artifacts live together).
+OUTPUT_DIR = os.path.join(REPO_ROOT, "figures")
 
 # Ground-truth ODE params: noise-free gives the cleanest null-space structure
 # (no noise realisations shrink the kernel).
@@ -87,12 +90,9 @@ ODE_PARAMS_PATH = "/workspace/flyvis-gnn/graphs_data/fly/flyvis_noise_free/ode_p
 # the network topology (edge_index, cell types) is identical across noise levels.
 DATA_DIR = "/workspace/flyvis-gnn/graphs_data/fly/flyvis_noise_005"
 
-# Official flyvis connectome JSON: lists all 65 cell types in the exact order
-# matching the integer IDs stored in neuron_type.zarr.
-CONNECTOME_JSON = (
-    "/workspace/.conda_envs/neural-graph-linux/lib/python3.12"
-    "/site-packages/flyvis/connectome/fib25-fib19_v2.2.json"
-)
+# Type-name source of truth: connectome_gnn.metrics.INDEX_TO_NAME.
+# (The flyvis connectome JSON uses a different node ordering than neuron_type.zarr;
+# loading names from there mislabels every output. See load_cell_type_names below.)
 
 # Single-type variant settings.
 # Amplitude of each sum-zero perturbation = SCALE * mean(|W_group|).
@@ -141,17 +141,21 @@ def load_ground_truth():
 
 
 def load_cell_type_names():
-    """Load the 65 official flyvis cell type names from the connectome JSON.
+    """Return the canonical 65 cell type names indexed by integer type ID.
 
-    The JSON 'nodes' list is ordered identically to the integer type IDs
-    in neuron_type.zarr.  Type ID k => nodes[k]['name'].
+    Source of truth: connectome_gnn.metrics.INDEX_TO_NAME — this is the same
+    mapping used by neuron_type.zarr (verified against neuron counts: id 23
+    has 217 entries = R1 photoreceptor count for extent=8).
 
-    Returns:
-        type_names: list of 65 strings, e.g. ['R1-R6', 'R7', ..., 'TmY15']
+    Note: a previous version of this function read names from the flyvis
+    connectome JSON, whose `nodes` list uses a DIFFERENT ordering than
+    neuron_type.zarr. That mismatch produced systematically wrong type-name
+    labels in this script's output (e.g., "type 0: R1" labeled the Am
+    population as R1; "type 64: TmY18" labeled the TmY9 population as TmY18).
+    INDEX_TO_NAME is the codebase-wide canonical mapping.
     """
-    with open(CONNECTOME_JSON, "r") as f:
-        data = json.load(f)
-    return [node["name"] for node in data["nodes"]]
+    from connectome_gnn.metrics import INDEX_TO_NAME
+    return [INDEX_TO_NAME[i] for i in range(len(INDEX_TO_NAME))]
 
 
 def load_neuron_type_ids():
@@ -874,6 +878,12 @@ def main():
     print(f"{'='*60}")
 
     # JSON
+    # Per-type null_dim: needed by load_nullspace_ranking() for opto target selection.
+    null_dim_per_type_named = {
+        type_names[t] if t < len(type_names) else f"type_{t}":
+            int(null_dim_per_type.get(t, 0))
+        for t in degenerate_types
+    }
     results = {
         "null_dim": null_dim,
         "pct_edges": pct_edges,
@@ -889,9 +899,11 @@ def main():
             type_names[t] if t < len(type_names) else f"type_{t}"
             for t in no_outgoing_types
         ],
+        "null_dim_per_type": null_dim_per_type_named,
         "type_results": {
             str(t): {
                 "name": type_names[t] if t < len(type_names) else f"type_{t}",
+                "null_dim": int(null_dim_per_type.get(t, 0)),
                 **type_results[t],
             }
             for t in degenerate_types
@@ -899,13 +911,14 @@ def main():
         "sparse_sum_preserving": sp_stats,
         "sparse_calibrated":     cal_stats,
     }
-    json_path = os.path.join(SCRIPT_DIR, "structural_nullspace_table.json")
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    json_path = os.path.join(OUTPUT_DIR, "structural_nullspace_table.json")
     with open(json_path, "w") as f:
         json.dump(results, f, indent=2)
     print(f"  JSON saved to {json_path}")
 
     # LaTeX table (tab:lambda_8)
-    tex_path = os.path.join(SCRIPT_DIR, "tab_lambda_8.tex")
+    tex_path = os.path.join(OUTPUT_DIR, "tab_lambda_8.tex")
     write_tab_lambda_8(type_results, type_names, tex_path)
 
     # Console summary for the paragraph text

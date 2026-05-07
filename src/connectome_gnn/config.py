@@ -150,6 +150,115 @@ class LabelStyle(StrEnum):
 # Sub-config schemas for NeuralGraph
 
 
+class OptoTargetMode(StrEnum):
+    CELL_TYPE = "cell_type"
+    COLUMN = "column"
+    EXPLICIT_INDICES = "explicit_indices"
+    TOPK_NULLSPACE = "topk_nullspace"
+
+
+class OptoRanking(StrEnum):
+    NULL_DIM = "null_dim"
+    LEVERAGE = "leverage"
+
+
+class OptoWaveformKind(StrEnum):
+    WHITE_NOISE = "white_noise"
+    HEAVISIDE = "heaviside"
+    IMPULSE = "impulse"
+    VIDEO = "video"
+    CONSTANT = "constant"
+
+
+class OptoShareVia(StrEnum):
+    MANIFEST = "manifest"
+    COPY = "copy"
+
+
+class OptoTargetSpec(BaseModel):
+    """Spatial pattern of opto targets.
+
+    Modes:
+        cell_type        — every neuron of listed cell types, all columns (Gal4 analogue)
+        column           — every neuron in listed retinotopic columns (single-column holography)
+        explicit_indices — exactly these neuron indices (advanced; needs dataset_fingerprint)
+        topk_nullspace   — auto top-k from scripts/structural_nullspace_table.json
+    """
+    model_config = ConfigDict(extra="ignore")
+
+    mode: OptoTargetMode = OptoTargetMode.TOPK_NULLSPACE
+    cell_types: List[str] = []
+    columns: List[int] = []
+    indices: List[int] = []
+    k: int = 1
+    ranking: OptoRanking = OptoRanking.NULL_DIM
+    structural_table_json: str = "figures/structural_nullspace_table.json"
+
+    # Per-column independence is required to break the columnar sum-zero kernel.
+    # False emits a UserWarning at twin-generation time.
+    column_distinct: bool = True
+
+    # Footgun guard for explicit_indices: sha256 of the source dataset's
+    # (n_neurons, neuron_type) — set at write time by add_optogenetics_stimulus.
+    dataset_fingerprint: Optional[str] = None
+
+
+class OptoWaveform(BaseModel):
+    """Temporal waveform applied to each (independent if column_distinct) target.
+
+    Composition (per target):
+        u_target(t) = base_waveform(t) + noise_level * xi(t)
+    where xi ~ N(0,1) is i.i.d. per (target, t). noise_level applies for every
+    kind. For kind='white_noise' the base contribution is zero and noise_level
+    drives the signal.
+
+    Units: amplitude and noise_level are on the same scale as state.stimulus,
+    directly comparable to SimulationConfig.noise_model_level.
+    """
+    model_config = ConfigDict(extra="ignore")
+
+    kind: OptoWaveformKind = OptoWaveformKind.WHITE_NOISE
+
+    # Base amplitude. None = per-target auto-calibration to 0.5 * lambda_max(type)
+    # read from the structural nullspace JSON.
+    amplitude: Optional[float] = None
+
+    # Universal additive Gaussian noise on top of base waveform.
+    noise_level: float = 0.0
+
+    onset_frame: int = 0
+    offset_frame: int = -1  # -1 = until end
+
+    seed: int = 0
+
+    # impulse-only
+    pulse_width_frames: int = 5
+    pulse_period_frames: int = 50
+
+    # video-only (experimental — off-manifold replay)
+    video_path: Optional[str] = None
+
+
+class OptogeneticsConfig(BaseModel):
+    """Master config block for the optogenetics-twin pipeline.
+
+    enabled=False (default) keeps existing pipelines untouched. When enabled,
+    the twin-dataset generator (add_optogenetics_stimulus) re-simulates the
+    forward model with this opto current added, sharing visual stimulus and
+    noise seed with `source_dataset`.
+    """
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = False
+    target: OptoTargetSpec = OptoTargetSpec()
+    waveform: OptoWaveform = OptoWaveform()
+
+    # Twin-dataset overlay: source dataset (must already exist on disk).
+    source_dataset: Optional[str] = None
+    twin_suffix: str = "_opto"
+    share_via: OptoShareVia = OptoShareVia.MANIFEST
+
+
 class SimulationConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -312,6 +421,11 @@ class SimulationConfig(BaseModel):
 
     pos_init: str = "uniform"
     dpos_init: float = 0
+
+    # Optogenetic perturbation pipeline. Disabled by default — enabling
+    # triggers a separate twin-dataset code path (see generators/optogenetics.py)
+    # that adds an `optogenetics_stimulus` field to the on-disk artifact.
+    optogenetics: OptogeneticsConfig = OptogeneticsConfig()
 
     @model_validator(mode="after")
     def _validate_blank_window_injection(self) -> "SimulationConfig":

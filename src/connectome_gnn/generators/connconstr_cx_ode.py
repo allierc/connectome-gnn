@@ -106,7 +106,9 @@ class DrosophilaCxODE(nn.Module):
             dv: (N, 1) hidden state derivative
         """
         h = state.voltage.unsqueeze(-1)       # (N, 1)
-        inp = state.stimulus.unsqueeze(-1)     # (N, 1) — already projected input
+        # Combine visual stimulus + optional optogenetic perturbation before projection
+        opto = state.optogenetics_stimulus if state.optogenetics_stimulus is not None else 0.0
+        inp = (state.stimulus + opto).unsqueeze(-1)  # (N, 1) — already projected input
         p = self.ode_params
 
         msg = self._compute_messages(h, edge_index)
