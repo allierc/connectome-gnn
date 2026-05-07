@@ -448,7 +448,8 @@ def add_optogenetics_stimulus(config) -> None:
             nullspace_json_path=opto_cfg.target.structural_table_json,
         ).to(device)
 
-        # Log opto coverage.
+        # Log opto coverage. Print a green block so the user sees exactly which
+        # neurons are perturbed and how many per cell type.
         mask = build_target_mask(state, opto_cfg.target)
         coverage = summarize_targets(state, mask)
         log.info(
@@ -456,6 +457,14 @@ def add_optogenetics_stimulus(config) -> None:
             f"{int(mask.sum().item())} target neurons across {len(coverage)} types: "
             f"{coverage}"
         )
+        G, R = "\033[92m", "\033[0m"
+        print(f"{G}[opto {split}] reusing source x_list_{split} "
+              f"({T} frames, {n_neurons} neurons){R}")
+        print(f"{G}[opto {split}] perturbing {int(mask.sum().item())} neurons "
+              f"across {len(coverage)} cell types:{R}")
+        for name, (n_target, n_total, frac) in sorted(coverage.items()):
+            print(f"{G}    {name:>10s}: {n_target:>4d} / {n_total:<4d} "
+                  f"neurons ({100*frac:5.1f}%){R}")
 
         writer = ZarrSimulationWriterV3(
             path=target_split,

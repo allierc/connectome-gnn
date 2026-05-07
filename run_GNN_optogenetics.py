@@ -32,26 +32,29 @@ from connectome_gnn.utils import (  # noqa: E402
 )
 
 
-BASELINE = "flyvis_noise_free_blank50_cv00"
+OUTPUT_PREFIX = "flyvis_noise_free_blank50"
 
 CONDITIONS = [
-    "TmY15_white_noise", "TmY15_heaviside",
-    "Mi1_white_noise",   "Mi1_heaviside",
-    "T4c_white_noise",   "T4c_heaviside",
-    "R1_white_noise",    "R1_heaviside",
-    "T1_white_noise",    "T1_heaviside",
+    "TmY15_white_noise", "TmY15_heaviside",  # 43,299
+    "Mi1_white_noise",   "Mi1_heaviside",    # 25,834
+    "Tm3_white_noise",   "Tm3_heaviside",    # 20,471
+    "Tm4_white_noise",   "Tm4_heaviside",    # 15,971
+    "Tm1_white_noise",   "Tm1_heaviside",    # 15,525
+    "Mi4_white_noise",   "Mi4_heaviside",    # 14,439
+    "T4c_white_noise",   "T4c_heaviside",    # 12,564
+    "Mi9_white_noise",   "Mi9_heaviside",    # 11,889
+    "Tm2_white_noise",   "Tm2_heaviside",    # 11,068
 ]
 
 
 def _config_yaml_for(cond: str) -> str:
-    name = f"{BASELINE}_opto_{cond}.yaml"
+    name = f"{OUTPUT_PREFIX}_opto_{cond}.yaml"
     candidates = [config_path("fly", name)]
     try:
         load_data_root_from_json()
         candidates.append(os.path.join(get_data_root(), "config", "fly", name))
     except Exception:
         pass
-    candidates.append(f"/groups/saalfeld/home/allierc/GraphData/config/fly/{name}")
     for c in candidates:
         if os.path.isfile(c):
             return c
@@ -59,7 +62,7 @@ def _config_yaml_for(cond: str) -> str:
 
 
 def _dataset_exists(cond: str) -> bool:
-    ds = f"{BASELINE}_opto_{cond}"
+    ds = f"{OUTPUT_PREFIX}_opto_{cond}"
     return os.path.isdir(os.path.join(graphs_data_path("fly", ds), "x_list_train", "voltage.zarr"))
 
 

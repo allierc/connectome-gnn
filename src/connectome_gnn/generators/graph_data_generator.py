@@ -79,6 +79,36 @@ from connectome_gnn.utils import get_datavis_root_dir, git_sha, graphs_data_path
 logger = get_logger(__name__)
 
 
+def _print_opto_banner(config, opto_cfg) -> None:
+    """Green banner: confirms source-dataset reuse and dumps opto parameters."""
+    G, R = "\033[92m", "\033[0m"
+    src = opto_cfg.source_dataset
+    src_dir = graphs_data_path(src)
+    if not os.path.isdir(src_dir):
+        alt = graphs_data_path("fly", src)
+        if os.path.isdir(alt):
+            src_dir = alt
+    voltage_zarr = os.path.join(src_dir, "x_list_train", "voltage.zarr")
+    src_ok = os.path.isdir(voltage_zarr)
+    tgt = opto_cfg.target
+    wf = opto_cfg.waveform
+    target_str = (
+        f"mode={tgt.mode} k={tgt.k}" if str(tgt.mode) == "OptoTargetMode.TOPK_NULLSPACE"
+        or tgt.mode == "topk_nullspace"
+        else f"mode={tgt.mode} cell_types={list(tgt.cell_types)}"
+    )
+    print(f"{G}{'='*70}{R}")
+    print(f"{G}[opto] OPTOGENETIC PERTURBATION — re-simulation from existing source{R}")
+    print(f"{G}[opto] source dataset:  {src}{R}")
+    print(f"{G}[opto] source on disk:  {src_dir}  ({'OK' if src_ok else 'MISSING'}){R}")
+    print(f"{G}[opto] target output:   {config.dataset}{R}")
+    print(f"{G}[opto] target spec:     {target_str}  column_distinct={tgt.column_distinct}{R}")
+    print(f"{G}[opto] waveform:        kind={wf.kind}  amplitude={wf.amplitude}  "
+          f"noise_level={wf.noise_level}  onset={wf.onset_frame}  offset={wf.offset_frame}{R}")
+    print(f"{G}[opto] seed:            {wf.seed}  (paired with source for matched comparison){R}")
+    print(f"{G}{'='*70}{R}", flush=True)
+
+
 def data_generate(
     config,
     visualize=True,
@@ -97,6 +127,17 @@ def data_generate(
 ):
 
     logger.info(f"dataset: {config.dataset}")
+
+    # Optogenetics dispatch: if the config has opto enabled, route to the
+    # re-simulation pass (generators/optogenetics.py) instead of generating
+    # the baseline dataset from scratch. The opto pipeline reads the source's
+    # existing voltage/stimulus zarrs and only writes the perturbed twin.
+    opto_cfg = getattr(config.simulation, 'optogenetics', None)
+    if opto_cfg is not None and opto_cfg.enabled:
+        from connectome_gnn.generators.optogenetics import add_optogenetics_stimulus
+        _print_opto_banner(config, opto_cfg)
+        add_optogenetics_stimulus(config)
+        return
 
     dataset_dir = graphs_data_path(config.dataset)
     os.makedirs(dataset_dir, exist_ok=True)
