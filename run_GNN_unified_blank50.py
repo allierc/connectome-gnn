@@ -111,7 +111,6 @@ CONDITION_NODES = {
     # 'flyvis_noise_05':                      'a100',
     # 'flyvis_noise_005_010':                 'a100',  
     # 'flyvis_noise_005_020':                 'a100',
-    # 'flyvis_noise_005_050':                 'a100',
     # 'flyvis_noise_005_null_edges_pc_400':   'a100',
     # 'flyvis_noise_005_removed_pc_20':       'a100',
     # 'flyvis_noise_005_removed_pc_50':       'a100',
@@ -124,10 +123,9 @@ CONDITION_NODES = {
     # 'flyvis_noise_005_050':                 'a100',
     # Per-epoch noise resampling twins of the gamma=0.10 / 0.20 / 0.50 cases.
     # Reuse the existing flyvis_noise_005_0{10,20,50}_blank50_cv* datasets
-    # (no regeneration needed) via DATASET_BASE_ALIASES; trained at DAL=20,
-    # n_epochs=25 (= 500 augmentation passes, matching the cross-pipeline
-    # default DAL=500 / n_epochs=1 baseline) so the resampler gets 25 fresh
-    # noise draws while the total gradient budget is apples-to-apples.
+    # (no regeneration needed) via DATASET_BASE_ALIASES; trained at DAL=1,
+    # n_epochs=25 to keep the gradient-step budget in the same ballpark as
+    # DAL=30, n_epochs=2 while giving the resampler 25 fresh noise draws.
     'flyvis_noise_005_010_resample':        'a100',
     'flyvis_noise_005_020_resample':        'a100',
     # 'flyvis_noise_005_050_resample':        'a100',
@@ -149,14 +147,12 @@ DAL_OVERRIDES = {
     'flyvis_noise_005_null_edges_pc_400': 100,   # 2.17M edges -> ~5.8h instead of ~29h
     'flyvis_noise_005_hidden_010_ngp':    100,   # NGP encoder + anchors loss; matches winner DAL
     'flyvis_noise_005_hidden_020_ngp':    100,   # same as _010_ngp
-    # Resample twins: DAL=20 paired with N_EPOCHS_OVERRIDES=25 gives
-    # 20×25 = 500 augmentation passes — apples-to-apples with the
-    # cross-pipeline baseline DAL=500/n_epochs=1, while the resampler
-    # at the top of every epoch fires 25 times (one fresh noise draw
-    # per epoch).
-    'flyvis_noise_005_010_resample':       20,
-    'flyvis_noise_005_020_resample':       20,
-    'flyvis_noise_005_050_resample':       20,
+    # Resample twins: DAL=1 paired with N_EPOCHS_OVERRIDES=25 gives 25 fresh
+    # noise draws over the dataset (~same total iteration count as the
+    # original DAL=30, n_epochs=2 baseline).
+    'flyvis_noise_005_010_resample':       1,
+    'flyvis_noise_005_020_resample':       1,
+    'flyvis_noise_005_050_resample':       1,
 }
 
 # Per-condition n_epochs override. Cross emitter forces n_epochs=1 by default
