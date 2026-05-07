@@ -35,6 +35,35 @@ def master_yaml_for(cond: str) -> str:
     raise FileNotFoundError(f'master opto config for {cond!r} not found')
 
 
+def emit_gen_yaml(cond: str) -> str:
+    """Emit the per-condition '_gen' template into <data_root>/config/fly/.
+
+    Mirrors the convention from run_generate_blank50.py / generate_all_yt_data:
+    a fold-less generation config that documents the master parameters used to
+    produce all 5 cv splits. opto.enabled is FALSE here so this YAML is never
+    accidentally used for re-simulation; the actual generation is dispatched
+    per-fold via emit_fold_yaml.
+    """
+    with open(master_yaml_for(cond)) as f:
+        cfg = yaml.safe_load(f)
+    out_name = f'{OUTPUT_PREFIX}_opto_{cond}_gen'
+    cfg['dataset'] = out_name
+    cfg['config_file'] = f'fly/{out_name}'
+    # Mark as generation template, not a runnable opto config.
+    cfg['simulation']['optogenetics']['enabled'] = False
+    cfg['simulation']['optogenetics']['source_dataset'] = ''
+    cfg['simulation']['optogenetics']['output_suffix'] = ''
+    base_desc = cfg.get('description', '')
+    cfg['description'] = f"{base_desc}  (gen template — see _cv00..cv04 for runnable configs)"
+
+    out_dir = os.path.join(get_data_root(), 'config', 'fly')
+    os.makedirs(out_dir, exist_ok=True)
+    out_path = os.path.join(out_dir, f'{out_name}.yaml')
+    with open(out_path, 'w') as f:
+        yaml.safe_dump(cfg, f, default_flow_style=False, sort_keys=False)
+    return out_path
+
+
 def emit_fold_yaml(cond: str, fold: int) -> str:
     """Patch master YAML for this fold, write into <data_root>/config/fly/, return path."""
     src_dataset = f'{BASELINE_PREFIX}_cv{fold:02d}'

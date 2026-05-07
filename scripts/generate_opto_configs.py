@@ -54,8 +54,10 @@ def _resolve_baseline_config_path(name: str) -> str:
 
 
 BASELINE_CONFIG_NAME = "flyvis_noise_free_blank50_unified_cv00"
-SOURCE_DATASET = "flyvis_noise_free_blank50_cv00"
-# Output prefix drops the "_cv00" suffix — opto runs aren't per-fold.
+# Master templates leave source_dataset as the prefix (no fold suffix); the
+# per-fold YAML emitter (scripts/_opto_cv_yaml.emit_fold_yaml) substitutes
+# flyvis_noise_free_blank50_cv{XX} per fold at generation time.
+SOURCE_DATASET = "flyvis_noise_free_blank50"
 OUTPUT_PREFIX = "flyvis_noise_free_blank50"
 
 # Top-9 positive controls by null_dim, descending. From
@@ -74,7 +76,7 @@ TARGETS = [
 ]
 
 WAVEFORMS = [
-    {"kind": "white_noise", "amplitude": 0.0, "noise_level": 0.05},
+    {"kind": "white_noise", "amplitude": 0.0, "noise_level": 0.5},
     {"kind": "heaviside",   "amplitude": 1.0, "noise_level": 0.0},
 ]
 
@@ -89,10 +91,15 @@ def _waveform_suffix(wf: dict) -> str:
     """
     kind = wf["kind"]
     if kind == "white_noise":
-        # Match the repo-wide convention: 0.05 → '005', 0.10 → '010',
-        # 0.50 → '050' (matches flyvis_noise_005 / _050 dataset names).
+        # Match the repo-wide convention exactly:
+        #   0.05 → '005' (matches flyvis_noise_005)
+        #   0.5  → '05'  (matches flyvis_noise_05)
+        #   0.1  → '01'
+        #   0.2  → '02'
+        # Formula: 4-digit centi-units, then strip trailing zeros.
         nl = wf["noise_level"]
-        return f"{int(round(nl * 100)):03d}"
+        s = f"{int(round(nl * 1000)):04d}".rstrip('0')
+        return s or '0'
     return kind
 
 

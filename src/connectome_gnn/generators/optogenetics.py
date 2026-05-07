@@ -356,7 +356,8 @@ def add_optogenetics_stimulus(config) -> None:
     import zarr
     from connectome_gnn.neuron_state import NeuronTimeSeries, NeuronState
     from connectome_gnn.utils import graphs_data_path
-    from connectome_gnn.zarr_io import ZarrSimulationWriterV3
+    from connectome_gnn.utils import to_numpy
+    from connectome_gnn.zarr_io import ZarrArrayWriter, ZarrSimulationWriterV3
 
     log = logging.getLogger(__name__)
 
@@ -489,6 +490,12 @@ def add_optogenetics_stimulus(config) -> None:
             time_chunks=2000,
             extra_dynamic_fields=['optogenetics_stimulus'],
         )
+        y_writer = ZarrArrayWriter(
+            path=os.path.join(target_root, f"y_list_{split}"),
+            n_neurons=n_neurons,
+            n_features=1,
+            time_chunks=2000,
+        )
 
         # AR(1) state for measurement noise (zero at start, matches source).
         ar1_prev_noise = torch.zeros(n_neurons, dtype=torch.float32, device=device)
@@ -529,6 +536,7 @@ def add_optogenetics_stimulus(config) -> None:
 
                 # 3. Snapshot CURRENT frame.
                 writer.append_state(state)
+                y_writer.append(to_numpy(dv.unsqueeze(-1).clone().detach()))
 
                 # 4. Advance voltage with dynamics noise.
                 if split_noise_model > 0:
@@ -542,6 +550,7 @@ def add_optogenetics_stimulus(config) -> None:
                     state.voltage = state.voltage + dt * dv
 
         n_written = writer.finalize()
+        y_writer.finalize()
         log.info(f"opto [{split}]: wrote {n_written} frames to {target_split}")
 
         # Post-generation summary for this split.
