@@ -1388,6 +1388,9 @@ def data_generate_voltage(
     # --- Tile unique block ×factor across all dynamic train fields ---
     if repeat_factor > 1:
         _tile_train_zarrs(config, repeat_factor, save_calcium=sim.save_calcium)
+        # Reflect the post-tile length in the generation log so _have_data
+        # validates the on-disk zarr without flagging it as incomplete.
+        n_frames_train = n_frames_train * repeat_factor
 
     # --- Generate TEST split ---
     # Default: test data is deterministic (sim.noisy_test_data=False) so that rollout

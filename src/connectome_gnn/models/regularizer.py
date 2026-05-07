@@ -120,8 +120,13 @@ class LossRegularizer:
         """
         from connectome_gnn.metrics import compute_activity_stats
         mu, sigma = compute_activity_stats(x_ts, device)
-        self._mu_activity = to_numpy(mu).astype(np.float32)
-        self._sigma_activity = to_numpy(sigma).astype(np.float32)
+        # Store as torch tensors on device — numpy/scalar arithmetic
+        # (e.g. `mu - 2 * sigma`) inside the torch.compile'd compute()
+        # region trips Dynamo's __torch_function__ device wrapper.
+        mu_np = to_numpy(mu).astype(np.float32)
+        sigma_np = to_numpy(sigma).astype(np.float32)
+        self._mu_activity = torch.as_tensor(mu_np, dtype=torch.float32, device=device)
+        self._sigma_activity = torch.as_tensor(sigma_np, dtype=torch.float32, device=device)
 
     def _update_coeffs(self):
         """Recompute coefficients based on current epoch.
