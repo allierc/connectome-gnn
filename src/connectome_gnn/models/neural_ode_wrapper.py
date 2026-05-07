@@ -75,6 +75,10 @@ class GNNODEFunc(nn.Module):
 
                 if k_current < self.x_ts.n_frames:
                     state.stimulus[start_idx:end_idx] = self.x_ts.stimulus[k_current]
+                    if (state.optogenetics_stimulus is not None
+                            and self.x_ts.optogenetics_stimulus is not None):
+                        state.optogenetics_stimulus[start_idx:end_idx] = \
+                            self.x_ts.optogenetics_stimulus[k_current]
 
         pred = self.model(
             state,

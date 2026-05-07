@@ -79,12 +79,30 @@ WAVEFORMS = [
 ]
 
 
+def _waveform_suffix(wf: dict) -> str:
+    """Compact filename-friendly tag for a waveform.
+
+    white_noise → noise level encoded as 'NNN' (e.g. 0.05 → '005');
+    heaviside, impulse, video, constant → the kind name itself.
+    Future noise levels (0.10 → '010', 0.20 → '020') get their own files
+    automatically without needing to edit naming code.
+    """
+    kind = wf["kind"]
+    if kind == "white_noise":
+        # Match the repo-wide convention: 0.05 → '005', 0.10 → '010',
+        # 0.50 → '050' (matches flyvis_noise_005 / _050 dataset names).
+        nl = wf["noise_level"]
+        return f"{int(round(nl * 100)):03d}"
+    return kind
+
+
 def build_opto_block(cell_type: str, waveform: dict) -> dict:
     """Construct the simulation.optogenetics block for one condition."""
+    suffix = _waveform_suffix(waveform)
     return {
         "enabled": True,
         "source_dataset": SOURCE_DATASET,
-        "output_suffix": f"_opto_{cell_type}_{waveform['kind']}",
+        "output_suffix": f"_opto_{cell_type}_{suffix}",
         "target": {
             "mode": "cell_type",
             "cell_types": [cell_type],
@@ -94,8 +112,6 @@ def build_opto_block(cell_type: str, waveform: dict) -> dict:
             "kind": waveform["kind"],
             "amplitude": waveform["amplitude"],
             "noise_level": waveform["noise_level"],
-            "onset_frame": 0,
-            "offset_frame": -1,
             "seed": 42,
         },
     }
@@ -114,7 +130,7 @@ def emit(dry_run: bool):
 
     for target in TARGETS:
         for wf in WAVEFORMS:
-            cond = f"{target}_{wf['kind']}"
+            cond = f"{target}_{_waveform_suffix(wf)}"
             cfg = copy.deepcopy(baseline)
             cfg["dataset"] = f"{OUTPUT_PREFIX}_opto_{cond}"
             cfg["config_file"] = f"fly/{OUTPUT_PREFIX}_opto_{cond}"

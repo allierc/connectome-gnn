@@ -221,10 +221,13 @@ class OptoWaveform(BaseModel):
     # Universal additive Gaussian noise on top of base waveform.
     noise_level: float = 0.0
 
-    onset_frame: int = 0
-    offset_frame: int = -1  # -1 = until end
-
     seed: int = 0
+
+    # heaviside-only: ON for frames_on frames, OFF for frames_on frames,
+    # repeat. Full period = 2 * frames_on. Default 35 frames means
+    # 35 ON / 35 OFF / ... (period 70 frames ~= 1.4 s at dt=0.02 s).
+    # Set to 0 for a one-shot DC step (always ON).
+    frames_on: int = 35
 
     # impulse-only
     pulse_width_frames: int = 5
