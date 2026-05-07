@@ -172,7 +172,11 @@ class EEDBaseline(nn.Module):
         self.data_id = data_id.squeeze().long().clone().detach() if hasattr(data_id, 'squeeze') else data_id
 
         v = state.observable(self.calcium_type)    # (N, 1)
-        stim = state.stimulus.unsqueeze(-1)        # (N, 1)
+        # Sum optogenetic perturbation (when present) into the visual-stim
+        # channel; opto on hidden neurons is silently ignored by EED since
+        # only the first n_input_neurons columns are fed to predict_dvdt.
+        opto = state.optogenetics_stimulus if state.optogenetics_stimulus is not None else 0.0
+        stim = (state.stimulus + opto).unsqueeze(-1)  # (N, 1)
 
         n_total = v.shape[0]
         batch_size = n_total // self.n_neurons

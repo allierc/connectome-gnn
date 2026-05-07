@@ -120,8 +120,9 @@ def _per_target_amplitudes(
     target_type_per_neuron: list[str],
     waveform: OptoWaveform,
     nullspace_json_path: str,
+    device: torch.device | str = 'cpu',
 ) -> torch.Tensor:
-    """Resolve per-target base amplitude.
+    """Resolve per-target base amplitude on `device`.
 
     If waveform.amplitude is set, every target gets that scalar.
     If waveform.amplitude is None, look up per-type lambda_max from the
@@ -130,19 +131,19 @@ def _per_target_amplitudes(
     """
     n_targets = int(target_indices.numel())
     if waveform.amplitude is not None:
-        return torch.full((n_targets,), float(waveform.amplitude))
+        return torch.full((n_targets,), float(waveform.amplitude), device=device)
 
     try:
         ranking = load_nullspace_ranking(
             json_path=nullspace_json_path, metric='null_dim'
         )
     except FileNotFoundError:
-        return torch.full((n_targets,), 1.0)
+        return torch.full((n_targets,), 1.0, device=device)
     lam_by_name: dict[str, float] = {
         name: lam for (name, _s, lam) in ranking
         if not math.isnan(lam)
     }
-    out = torch.empty(n_targets, dtype=torch.float32)
+    out = torch.empty(n_targets, dtype=torch.float32, device=device)
     for i, idx in enumerate(target_indices.tolist()):
         type_name = target_type_per_neuron[idx]
         lam = lam_by_name.get(type_name, math.nan)
@@ -157,8 +158,9 @@ def build_waveform(
     target_type_per_neuron: list[str],
     column_distinct: bool,
     nullspace_json_path: str = "scripts/structural_nullspace_table.json",
+    device: torch.device | str = 'cpu',
 ) -> torch.Tensor:
-    """(T, n_targets) float32 — base waveform plus universal additive noise.
+    """(T, n_targets) float32 on `device` — base waveform + universal noise.
 
     column_distinct=True → independent realizations per target.
     column_distinct=False → identical waveform replicated across targets
@@ -166,64 +168,74 @@ def build_waveform(
     """
     n_targets = int(target_indices.numel())
     amps = _per_target_amplitudes(target_indices, target_type_per_neuron, waveform,
-                                  nullspace_json_path)  # (n_targets,)
+                                  nullspace_json_path, device=device)  # (n_targets,)
 
-    g = torch.Generator(device='cpu')
+    # Generator must match the device of the tensors it seeds.
+    gen_device = 'cuda' if torch.device(device).type == 'cuda' else 'cpu'
+    g = torch.Generator(device=gen_device)
     g.manual_seed(int(waveform.seed))
-
-    onset = max(0, int(waveform.onset_frame))
-    offset = n_frames if waveform.offset_frame < 0 else int(waveform.offset_frame)
-    offset = min(offset, n_frames)
 
     kind = waveform.kind if isinstance(waveform.kind, str) else waveform.kind.value
 
-    # ---- base waveform (T, n_targets) ----
-    base = torch.zeros(n_frames, n_targets, dtype=torch.float32)
-    if onset < offset:
-        if kind == OptoWaveformKind.WHITE_NOISE.value:
-            # white_noise has no deterministic component; noise_level drives signal
-            pass
-        elif kind in (OptoWaveformKind.HEAVISIDE.value, OptoWaveformKind.CONSTANT.value):
-            if column_distinct:
-                base[onset:offset, :] = amps[None, :]
-            else:
-                # identical signal across targets — use amps mean to avoid hidden per-target variation
-                base[onset:offset, :] = amps.mean()
-        elif kind == OptoWaveformKind.IMPULSE.value:
-            pw = max(1, int(waveform.pulse_width_frames))
-            pp = max(pw + 1, int(waveform.pulse_period_frames))
-            for k in range(0, (offset - onset) // pp + 1):
-                a = onset + k * pp
-                b = min(a + pw, offset)
-                if a >= offset:
-                    break
-                base[a:b, :] = amps[None, :] if column_distinct else amps.mean()
-        elif kind == OptoWaveformKind.VIDEO.value:
-            if not waveform.video_path:
-                raise ValueError("waveform.kind='video' requires video_path")
-            arr = np.load(waveform.video_path)
-            arr = torch.from_numpy(arr).float()
-            if arr.shape != (n_frames, n_targets):
-                raise ValueError(
-                    f"video file shape {tuple(arr.shape)} != (n_frames, n_targets)="
-                    f"({n_frames}, {n_targets})"
-                )
-            base[onset:offset, :] = arr[onset:offset, :]
+    # ---- base waveform (T, n_targets) — opto runs across the whole [0, T) ----
+    base = torch.zeros(n_frames, n_targets, dtype=torch.float32, device=device)
+    if kind == OptoWaveformKind.WHITE_NOISE.value:
+        # white_noise has no deterministic component; noise_level drives signal
+        pass
+    elif kind == OptoWaveformKind.CONSTANT.value:
+        if column_distinct:
+            base[:, :] = amps[None, :]
         else:
-            raise ValueError(f"unknown waveform kind: {kind}")
+            base[:, :] = amps.mean()
+    elif kind == OptoWaveformKind.HEAVISIDE.value:
+        # Square wave: frames_on ON, frames_on OFF, repeat. Set frames_on=0
+        # for a one-shot DC step (always ON).
+        frames_on = int(getattr(waveform, 'frames_on', 0) or 0)
+        if frames_on <= 0:
+            if column_distinct:
+                base[:, :] = amps[None, :]
+            else:
+                base[:, :] = amps.mean()
+        else:
+            period = 2 * frames_on
+            on_mask = (torch.arange(n_frames, device=device) % period) < frames_on
+            if column_distinct:
+                base[on_mask, :] = amps[None, :]
+            else:
+                base[on_mask, :] = amps.mean()
+    elif kind == OptoWaveformKind.IMPULSE.value:
+        pw = max(1, int(waveform.pulse_width_frames))
+        pp = max(pw + 1, int(waveform.pulse_period_frames))
+        for k in range(0, n_frames // pp + 1):
+            a = k * pp
+            b = min(a + pw, n_frames)
+            if a >= n_frames:
+                break
+            base[a:b, :] = amps[None, :] if column_distinct else amps.mean()
+    elif kind == OptoWaveformKind.VIDEO.value:
+        if not waveform.video_path:
+            raise ValueError("waveform.kind='video' requires video_path")
+        arr = np.load(waveform.video_path)
+        arr = torch.from_numpy(arr).float()
+        if arr.shape != (n_frames, n_targets):
+            raise ValueError(
+                f"video file shape {tuple(arr.shape)} != (n_frames, n_targets)="
+                f"({n_frames}, {n_targets})"
+            )
+        base[:, :] = arr
+    else:
+        raise ValueError(f"unknown waveform kind: {kind}")
 
-    # ---- universal additive Gaussian noise ----
+    # ---- universal additive Gaussian noise (applied across all frames) ----
     if waveform.noise_level > 0.0:
         if column_distinct:
-            xi = torch.randn(n_frames, n_targets, generator=g, dtype=torch.float32)
+            xi = torch.randn(n_frames, n_targets, generator=g,
+                             dtype=torch.float32, device=device)
         else:
-            shared = torch.randn(n_frames, 1, generator=g, dtype=torch.float32)
+            shared = torch.randn(n_frames, 1, generator=g,
+                                 dtype=torch.float32, device=device)
             xi = shared.expand(n_frames, n_targets).clone()
-        # zero noise outside the active window
-        zero_mask = torch.ones(n_frames, 1, dtype=torch.float32)
-        zero_mask[:onset, 0] = 0.0
-        zero_mask[offset:, 0] = 0.0
-        base = base + (xi * float(waveform.noise_level)) * zero_mask
+        base = base + xi * float(waveform.noise_level)
 
     return base
 
@@ -239,8 +251,11 @@ def make_optogenetics_stimulus(
     Zero outside the targeted neuron mask. Returns float32 on the same device
     as state.neuron_type.
     """
+    # Allocate everything on the same device as the simulation state.
+    device = state.neuron_type.device
+
     if not opto_cfg.enabled:
-        return torch.zeros(n_frames, state.n_neurons, dtype=torch.float32)
+        return torch.zeros(n_frames, state.n_neurons, dtype=torch.float32, device=device)
 
     spec = opto_cfg.target
     if not spec.column_distinct:
@@ -253,12 +268,12 @@ def make_optogenetics_stimulus(
         )
 
     mask = build_target_mask(state, spec)
-    target_indices = torch.nonzero(mask, as_tuple=False).flatten().cpu()
+    target_indices = torch.nonzero(mask, as_tuple=False).flatten().to(device)
 
     if target_indices.numel() == 0:
         warnings.warn("OptoTargetSpec resolves to ZERO targets — opto tensor will be all zeros.",
                       UserWarning)
-        return torch.zeros(n_frames, state.n_neurons, dtype=torch.float32)
+        return torch.zeros(n_frames, state.n_neurons, dtype=torch.float32, device=device)
 
     type_names_per_neuron = neuron_type_names(state.neuron_type)
     wf = build_waveform(
@@ -268,9 +283,10 @@ def make_optogenetics_stimulus(
         target_type_per_neuron=type_names_per_neuron,
         column_distinct=spec.column_distinct,
         nullspace_json_path=nullspace_json_path,
+        device=device,
     )
 
-    out = torch.zeros(n_frames, state.n_neurons, dtype=torch.float32)
+    out = torch.zeros(n_frames, state.n_neurons, dtype=torch.float32, device=device)
     out[:, target_indices] = wf
     return out
 
@@ -442,11 +458,12 @@ def add_optogenetics_stimulus(config) -> None:
             noise=torch.zeros(n_neurons, dtype=torch.float32, device=device),
         )
 
-        # Per-split opto tensor (T, N).
+        # Per-split opto tensor (T, N) — already allocated on `device` since
+        # state.neuron_type lives there.
         opto_full = make_optogenetics_stimulus(
             state, n_frames=T, opto_cfg=opto_cfg,
             nullspace_json_path=opto_cfg.target.structural_table_json,
-        ).to(device)
+        )
 
         # Log opto coverage. Print a green block so the user sees exactly which
         # neurons are perturbed and how many per cell type.
@@ -482,8 +499,9 @@ def add_optogenetics_stimulus(config) -> None:
         # Forward integration. Per-frame RNG order MATCHES
         # graph_data_generator._run_ode_generation L2208-2253 so that with a
         # matched seed the noise streams are statistically equivalent.
+        from tqdm import tqdm
         with torch.no_grad():
-            for t in range(T):
+            for t in tqdm(range(T), desc=f"opto {split}", ncols=100):
                 state.stimulus = ts.stimulus[t].to(device, non_blocking=True)
                 state.optogenetics_stimulus = opto_full[t]
 
@@ -525,6 +543,35 @@ def add_optogenetics_stimulus(config) -> None:
 
         n_written = writer.finalize()
         log.info(f"opto [{split}]: wrote {n_written} frames to {target_split}")
+
+        # Post-generation summary for this split.
+        # voltage stats + Δv vs source on the perturbed mask vs the rest.
+        from connectome_gnn.zarr_io import load_simulation_data
+        x_ts_new = load_simulation_data(
+            target_split, fields=['voltage', 'optogenetics_stimulus'],
+        )
+        v_new = x_ts_new.voltage.numpy()                # (T, N)
+        v_src_arr = ts.voltage[:n_written].cpu().numpy()
+        opto_arr = opto_full[:n_written].cpu().numpy()
+        mask_np = mask.cpu().numpy()
+        delta = v_new - v_src_arr                       # (T, N)
+        Y, R = "\033[93m", "\033[0m"
+        print(f"{Y}[opto {split} summary]{R}")
+        print(f"  saved        : {target_split}")
+        print(f"  frames       : {n_written}")
+        print(f"  voltage      : mean={v_new.mean():+.4f}  std={v_new.std():.4f}  "
+              f"min={v_new.min():+.4f}  max={v_new.max():+.4f}")
+        print(f"  opto current : mean={opto_arr[:, mask_np].mean():+.4f}  "
+              f"std={opto_arr[:, mask_np].std():.4f}  "
+              f"max|·|={abs(opto_arr).max():.4f}")
+        print(f"  |Δv| target  : mean={abs(delta[:, mask_np]).mean():.4f}  "
+              f"max={abs(delta[:, mask_np]).max():.4f}  "
+              f"({int(mask_np.sum())} perturbed neurons)")
+        if (~mask_np).any():
+            d_off = delta[:, ~mask_np]
+            print(f"  |Δv| other   : mean={abs(d_off).mean():.4f}  "
+                  f"max={abs(d_off).max():.4f}  "
+                  f"({int((~mask_np).sum())} downstream/unrelated)")
 
     # Auto-comparison: produce per-split with-vs-without trace plots.
     for split in ('train', 'test'):
@@ -591,10 +638,24 @@ def _draw_opto_traces(ax, baseline, opto, opto_current, labels, time_ms, step_v,
                 va='top', ha='left', fontsize=_FS_TICK,
                 bbox=dict(facecolor='white', edgecolor='none', alpha=0.85, pad=0.4))
 
-    ax.set_ylabel('neurons', fontsize=_FS_LABEL, labelpad=18)
+    ax.set_ylabel('neurons', fontsize=_FS_LABEL, labelpad=32)
     ax.set_ylim([-step_v, (n_traces - 1) * step_v + 2.2 * step_v])
     ax.set_yticks([])
     ax.set_xlim([time_ms[0], time_ms[-1]])
+    # Tick layout matching fig_rollout_3col_noise_comparison.py _pretty_ticks
+    # (n_target=3 → 10000/20000/30000 ms for a 500-1500 frame window).
+    lo, hi = time_ms[0], time_ms[-1]
+    raw_step = (hi - lo) / max(1, 3 - 1)
+    mag = 10 ** np.floor(np.log10(max(raw_step, 1e-12)))
+    step = mag
+    for m in (1, 2, 5, 10):
+        if m * mag >= raw_step:
+            step = m * mag
+            break
+    tick_lo = np.ceil(lo / step - 1e-9) * step
+    ticks = list(np.arange(tick_lo, hi + step / 2, step))
+    if ticks:
+        ax.set_xticks(ticks)
     ax.set_xlabel('time (ms)', fontsize=_FS_LABEL, labelpad=1)
     ax.tick_params(axis='x', labelsize=_FS_TICK, pad=1)
     ax.spines['left'].set_visible(False)
@@ -669,49 +730,54 @@ def compare_traces(
         mean_abs_dv[INDEX_TO_NAME.get(int(t_id), f"type_{t_id}")] = \
             float(abs_dv_window[idxs].mean())
 
-    # Neuron selection — show both perturbed and non-perturbed:
-    #   * perturbed: one representative per cell type that receives opto current
-    #     (label suffixed with " *")
-    #   * non-perturbed: one representative per cell type ranked by mean |Δv|
-    #     (downstream of opto via the connectome) up to the panel cap
+    # Neuron selection — match the canonical SELECTED_TYPES from
+    # figures/fig_rollout_3col_noise_comparison.py (rendered top -> bottom):
+    #   Am, T1, T5a, T4a, Tm9, Tm1, Mi9, Mi1, L3, L2, L1, R1
+    # so opto_compare_*.png is directly comparable to the reference figure.
+    # Any perturbed cell type missing from this list is appended at the BOTTOM
+    # (above R1) with a " *" suffix; types already in the list get the suffix
+    # in place.
     if opto_full is not None:
         is_perturbed_neuron = (opto_full.abs().sum(dim=0) > 0).cpu().numpy()
     else:
         is_perturbed_neuron = np.zeros(len(nt), dtype=bool)
-    perturbed_types = sorted(set(int(t) for t in nt[is_perturbed_neuron]))
+    perturbed_types = set(int(t) for t in nt[is_perturbed_neuron])
+
+    REFERENCE_TYPES = [0, 31, 39, 35, 55, 43, 22, 12, 7, 6, 5, 23]
+    # Names: Am, T1, T5a, T4a, Tm9, Tm1, Mi9, Mi1, L3, L2, L1, R1
 
     neuron_idx, labels = [], []
     seen_types: set[int] = set()
-    # Perturbed types first — order by null_dim ranking-style importance
-    # (just keep numerical order for determinism here).
-    for t in perturbed_types:
-        ids = np.where((nt == t) & is_perturbed_neuron)[0]
-        if len(ids) > 0:
-            neuron_idx.append(int(ids[0]))
-            labels.append(INDEX_TO_NAME.get(int(t), f"type_{t}") + " *")
-            seen_types.add(t)
-
-    # Non-perturbed types — pick the most-affected first (largest mean |Δv|).
-    PANEL_CAP = 12
-    non_perturbed_ranked: list[tuple[int, float]] = []
-    for t_id in np.unique(nt):
-        t_int = int(t_id)
-        if t_int in seen_types:
-            continue
+    for t_int in REFERENCE_TYPES:
         ids = np.where(nt == t_int)[0]
         if len(ids) == 0:
             continue
-        score = float(abs_dv_window[ids].mean())
-        non_perturbed_ranked.append((t_int, score))
-    non_perturbed_ranked.sort(key=lambda kv: kv[1], reverse=True)
-    for t_int, _ in non_perturbed_ranked:
-        if len(neuron_idx) >= PANEL_CAP:
-            break
-        ids = np.where(nt == t_int)[0]
-        neuron_idx.append(int(ids[0]))
-        labels.append(INDEX_TO_NAME.get(t_int, f"type_{t_int}"))
+        if t_int in perturbed_types:
+            ids_pert = np.where((nt == t_int) & is_perturbed_neuron)[0]
+            neuron_idx.append(int(ids_pert[0] if len(ids_pert) else ids[0]))
+            labels.append(INDEX_TO_NAME.get(t_int, f"type_{t_int}") + " *")
+        else:
+            neuron_idx.append(int(ids[0]))
+            labels.append(INDEX_TO_NAME.get(t_int, f"type_{t_int}"))
+        seen_types.add(t_int)
 
-    # Slice the trace window
+    # Append any perturbed types that aren't in REFERENCE_TYPES
+    # (e.g. TmY15, Tm3, Mi4 ...). Insert just before R1 (the last entry) so the
+    # photoreceptor stays at the bottom edge of the panel.
+    for t_int in sorted(perturbed_types - seen_types):
+        ids = np.where((nt == t_int) & is_perturbed_neuron)[0]
+        if len(ids) == 0:
+            continue
+        # insert above R1 (last entry) — keep R1 visually at the bottom
+        insert_at = len(neuron_idx) - 1 if neuron_idx and labels[-1].startswith("R1") else len(neuron_idx)
+        neuron_idx.insert(insert_at, int(ids[0]))
+        labels.insert(insert_at, INDEX_TO_NAME.get(t_int, f"type_{t_int}") + " *")
+        seen_types.add(t_int)
+
+    # Slice the trace window. trace_start/trace_end are FRAME indices; the
+    # x-axis is rendered in ms starting at trace_start * DT_MS to match
+    # figures/fig_rollout_3col_noise_comparison.py (default window
+    # 500-1500 frames -> 10000-30000 ms at DT=20 ms).
     sl = slice(trace_start, min(trace_end, T))
     v_b = src_ts.voltage[sl][:, neuron_idx].T.cpu().numpy()
     v_o = opto_ts.voltage[sl][:, neuron_idx].T.cpu().numpy()
@@ -720,12 +786,19 @@ def compare_traces(
     else:
         i_o = None
 
-    # Build figure
+    # Build figure — square aspect (more horizontal than the reference's
+    # narrow per-column block) so the trace panel stands alone.
     matplotlib.rc_file(os.path.join('/workspace/connectome-gnn/figures', 'janne.matplotlibrc'))
-    fig, ax = plt.subplots(1, 1, figsize=(6.0, 7.5))
+    fig, ax = plt.subplots(1, 1, figsize=(6.0, 6.0))
     DT_MS = 20.0
-    time_ms = np.arange(v_b.shape[1]) * DT_MS
-    step_v = 1.4 * np.median([v_b[i].std() for i in range(v_b.shape[0])] + [1.0])
+    time_ms = np.arange(v_b.shape[1]) * DT_MS + trace_start * DT_MS
+    # step_v formula mirrors fig_rollout_3col_noise_comparison.py: scale to
+    # 3 * TRACE_SHRINK * std(baseline) per row, take the max across rows,
+    # floor at 0.5 * TRACE_SHRINK so panels with near-flat baselines still
+    # have visible separation.
+    row_stds = [float(v_b[i].std()) for i in range(v_b.shape[0])]
+    step_v = max(0.5 * _TRACE_SHRINK,
+                 3.0 * _TRACE_SHRINK * (max(row_stds) if row_stds else 1.0))
     header = (f"source: {source_dataset}\n"
               f"opto:   {opto_dataset}\n"
               f"split={split}  opto-on=[{onset}, {offset})")
@@ -737,9 +810,7 @@ def compare_traces(
 
     fig.tight_layout()
     if save_fig_to is None:
-        fig_dir = os.path.join(opto_root, "Fig")
-        os.makedirs(fig_dir, exist_ok=True)
-        save_fig_to = os.path.join(fig_dir, f"opto_compare_{split}.png")
+        save_fig_to = os.path.join(opto_root, f"opto_compare_{split}.png")
     fig.savefig(save_fig_to, dpi=150, bbox_inches='tight')
     plt.close(fig)
 

@@ -103,7 +103,9 @@ class LarvaODE(nn.Module):
             dv: (N+M, 1) voltage derivative
         """
         v = state.voltage.unsqueeze(-1)       # (N+M, 1)
-        stim = state.stimulus.unsqueeze(-1)    # (N+M, 1) — stimulus for premotor, 0 for motor
+        # Combine visual stimulus + optional optogenetic perturbation
+        opto = state.optogenetics_stimulus if state.optogenetics_stimulus is not None else 0.0
+        stim = (state.stimulus + opto).unsqueeze(-1)  # (N+M, 1)
         p = self.ode_params
         N = p.n_premotor
         M = p.n_motor

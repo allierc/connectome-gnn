@@ -188,7 +188,10 @@ class FlyVisODE(nn.Module):
         """
         v = state.voltage.unsqueeze(-1)
         v_rest = self.ode_params.V_i_rest[:, None]
-        e = state.stimulus.unsqueeze(-1)
+        # Visual stimulus + optogenetic perturbation (when present) enter on
+        # the same input channel; opto contributes +opto/tau to dv/dt.
+        opto = state.optogenetics_stimulus if state.optogenetics_stimulus is not None else 0.0
+        e = (state.stimulus + opto).unsqueeze(-1)
         particle_type = state.neuron_type.unsqueeze(-1).long()
 
         msg = self._compute_messages(v, particle_type, edge_index)

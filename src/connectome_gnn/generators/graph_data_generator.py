@@ -79,6 +79,44 @@ from connectome_gnn.utils import get_datavis_root_dir, git_sha, graphs_data_path
 logger = get_logger(__name__)
 
 
+def _resolve_opto_data_root(opto_cfg) -> None:
+    """Switch the data root to whichever fallback contains the opto source.
+
+    Opto re-simulation requires the source dataset to already exist on disk.
+    GNN_Main.py's _maybe_fallback_data_root() skips fallback resolution for
+    'generate' tasks (it expects fresh local data). For opto we override that:
+    if the source can't be found at the current data root, scan the
+    data_paths.json fallback roots and switch to the first one that has it.
+    """
+    from connectome_gnn.utils import (
+        get_data_root, load_data_fallback_roots, set_data_root,
+    )
+
+    src = opto_cfg.source_dataset
+    if not src:
+        return
+
+    def _has_source(root: str) -> bool:
+        for sub in (src, os.path.join("fly", src)):
+            voltage = os.path.join(root, "graphs_data", sub,
+                                  "x_list_train", "voltage.zarr")
+            if os.path.isdir(voltage):
+                return True
+        return False
+
+    if _has_source(get_data_root()):
+        return
+
+    Y, R = "\033[93m", "\033[0m"
+    for root in load_data_fallback_roots():
+        if _has_source(root):
+            print(f"{Y}[opto] source not found at current data root; "
+                  f"switching to {root}{R}", flush=True)
+            set_data_root(root)
+            return
+    # No fallback worked — let downstream fail with a clear error.
+
+
 def _print_opto_banner(config, opto_cfg) -> None:
     """Green banner: confirms source-dataset reuse and dumps opto parameters."""
     G, R = "\033[92m", "\033[0m"
@@ -103,8 +141,9 @@ def _print_opto_banner(config, opto_cfg) -> None:
     print(f"{G}[opto] source on disk:  {src_dir}  ({'OK' if src_ok else 'MISSING'}){R}")
     print(f"{G}[opto] target output:   {config.dataset}{R}")
     print(f"{G}[opto] target spec:     {target_str}  column_distinct={tgt.column_distinct}{R}")
+    wf_extra = f"  frames_on={wf.frames_on}" if wf.kind == "heaviside" else ""
     print(f"{G}[opto] waveform:        kind={wf.kind}  amplitude={wf.amplitude}  "
-          f"noise_level={wf.noise_level}  onset={wf.onset_frame}  offset={wf.offset_frame}{R}")
+          f"noise_level={wf.noise_level}{wf_extra}{R}")
     print(f"{G}[opto] seed:            {wf.seed}  (paired with source for matched comparison){R}")
     print(f"{G}{'='*70}{R}", flush=True)
 
@@ -131,10 +170,11 @@ def data_generate(
     # Optogenetics dispatch: if the config has opto enabled, route to the
     # re-simulation pass (generators/optogenetics.py) instead of generating
     # the baseline dataset from scratch. The opto pipeline reads the source's
-    # existing voltage/stimulus zarrs and only writes the perturbed twin.
+    # existing voltage/stimulus zarrs and only writes the perturbed dataset.
     opto_cfg = getattr(config.simulation, 'optogenetics', None)
     if opto_cfg is not None and opto_cfg.enabled:
         from connectome_gnn.generators.optogenetics import add_optogenetics_stimulus
+        _resolve_opto_data_root(opto_cfg)
         _print_opto_banner(config, opto_cfg)
         add_optogenetics_stimulus(config)
         return
