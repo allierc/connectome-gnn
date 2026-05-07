@@ -533,7 +533,10 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
             rollout_true_list.append(to_numpy(x_ts_eval.frame(k).voltage))
 
             # Set stimulus from rollout data
-            x.stimulus = x_ts_eval.frame(k).stimulus.clone()
+            frame_k = x_ts_eval.frame(k)
+            x.stimulus = frame_k.stimulus.clone()
+            if frame_k.optogenetics_stimulus is not None:
+                x.optogenetics_stimulus = frame_k.optogenetics_stimulus.clone()
             rollout_stim_list.append(to_numpy(x.stimulus))
 
             if has_visual_field:
