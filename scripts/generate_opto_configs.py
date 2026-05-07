@@ -1,20 +1,19 @@
 #!/usr/bin/env python
-"""Emit the optogenetics first-glimpse sweep configs.
+"""Emit the optogenetics sweep configs.
 
 Reads the baseline config (flyvis_noise_free_blank50_unified_cv00.yaml),
-applies a per-condition optogenetics block, and writes 10 standalone YAML
-files to <data_root>/config/fly/.
+applies a per-condition optogenetics block, and writes standalone YAML
+files into the repo's config/fly/ directory.
 
 Sweep grid:
-    targets   = TmY15, Mi1, T4c    (positive controls — ranked by null_dim)
-                R1, T1              (negative controls — identifiable types)
+    targets   = TmY15, Mi1, T4c    (top-3 positive controls by null_dim)
     waveforms = white_noise, heaviside
 
-Output: 10 YAMLs of the form
-    flyvis_noise_free_blank50_cv00_opto_<target>_<waveform>.yaml
+Output: 6 YAMLs of the form
+    config/fly/flyvis_noise_free_blank50_opto_<target>_<waveform>.yaml
 
 Each opto config produces a dataset under
-    graphs_data/fly/flyvis_noise_free_blank50_cv00_opto_<target>_<waveform>/
+    graphs_data/fly/flyvis_noise_free_blank50_opto_<target>_<waveform>/
 
 Source dataset (must already exist on disk):
     fly/flyvis_noise_free_blank50_cv00
@@ -56,10 +55,23 @@ def _resolve_baseline_config_path(name: str) -> str:
 
 BASELINE_CONFIG_NAME = "flyvis_noise_free_blank50_unified_cv00"
 SOURCE_DATASET = "flyvis_noise_free_blank50_cv00"
+# Output prefix drops the "_cv00" suffix — opto runs aren't per-fold.
+OUTPUT_PREFIX = "flyvis_noise_free_blank50"
 
-POSITIVE_TARGETS = ["TmY15", "Mi1", "T4c"]
-NEGATIVE_TARGETS = ["R1", "T1"]
-TARGETS = POSITIVE_TARGETS + NEGATIVE_TARGETS
+# Top-9 positive controls by null_dim, descending. From
+# figures/structural_nullspace_table.json (regenerate via
+# src/connectome_gnn/models/structural_nullspace_table.py).
+TARGETS = [
+    "TmY15",  # 43,299
+    "Mi1",    # 25,834
+    "Tm3",    # 20,471
+    "Tm4",    # 15,971
+    "Tm1",    # 15,525
+    "Mi4",    # 14,439
+    "T4c",    # 12,564
+    "Mi9",    # 11,889
+    "Tm2",    # 11,068
+]
 
 WAVEFORMS = [
     {"kind": "white_noise", "amplitude": 0.0, "noise_level": 0.05},
@@ -94,22 +106,25 @@ def emit(dry_run: bool):
     print(f"baseline: {base_path}")
     with open(base_path) as f:
         baseline = yaml.safe_load(f)
-    out_dir = os.path.dirname(base_path)
+    # Always emit into the repo's config/fly/ — opto configs are local-only,
+    # not part of the data-root config tree.
+    out_dir = config_path("fly")
+    os.makedirs(out_dir, exist_ok=True)
     written = []
 
     for target in TARGETS:
         for wf in WAVEFORMS:
             cond = f"{target}_{wf['kind']}"
             cfg = copy.deepcopy(baseline)
-            cfg["dataset"] = f"{SOURCE_DATASET}_opto_{cond}"
-            cfg["config_file"] = f"fly/{SOURCE_DATASET}_opto_{cond}"
+            cfg["dataset"] = f"{OUTPUT_PREFIX}_opto_{cond}"
+            cfg["config_file"] = f"fly/{OUTPUT_PREFIX}_opto_{cond}"
             cfg["description"] = (
-                f"Opto twin of {SOURCE_DATASET}: target={target} waveform={wf['kind']} "
-                f"amplitude={wf['amplitude']} noise_level={wf['noise_level']}. "
-                f"{'positive' if target in POSITIVE_TARGETS else 'negative'} control."
+                f"Opto run derived from {SOURCE_DATASET}: target={target} "
+                f"waveform={wf['kind']} amplitude={wf['amplitude']} "
+                f"noise_level={wf['noise_level']}."
             )
             cfg["simulation"]["optogenetics"] = build_opto_block(target, wf)
-            out_name = f"{SOURCE_DATASET}_opto_{cond}.yaml"
+            out_name = f"{OUTPUT_PREFIX}_opto_{cond}.yaml"
             out_path = os.path.join(out_dir, out_name)
             written.append(out_path)
             if dry_run:

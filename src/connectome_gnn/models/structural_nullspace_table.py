@@ -339,9 +339,9 @@ def report_type_degeneracy(type_has_degeneracy, null_dim_per_type, type_names,
     for t in identifiable_types:
         print(f"    type {t:2d}: {tname(t)}")
 
-    print(f"\n  Cell types WITH degenerate groups (null_dim contribution):")
+    print(f"\n  Cell types WITH degenerate groups (null_dim contribution, descending):")
     print(f"    {'Type':>4}  {'Name':<12}  {'null_dim':>10}")
-    for t in degenerate_types:
+    for t in sorted(degenerate_types, key=lambda i: -null_dim_per_type.get(i, 0)):
         nd = null_dim_per_type.get(t, 0)
         print(f"    {t:4d}  {tname(t):<12}  {nd:10d}")
 

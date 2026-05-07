@@ -1,164 +1,85 @@
-"""Generate all optogenetics sweep datasets in parallel.
+"""Pre-generate the optogenetics sweep datasets sequentially.
 
-For each YAML produced by `scripts/generate_opto_configs.py`, runs
-add_optogenetics_stimulus(config) once. The baseline source dataset
-(flyvis_noise_free_blank50_cv00) must already exist on disk.
+Mirror of run_generate_blank50.py for the opto experiment: each entry in
+CONDITIONS names a YAML produced by scripts/generate_opto_configs.py;
+add_optogenetics_stimulus(config) is called on it in turn.
 
-Two execution modes:
+The baseline source dataset (flyvis_noise_free_blank50_cv00) must already
+exist on disk. Datasets land at:
 
-  --serial    Run conditions one after the other in the current process.
-              Simplest; no cluster needed. ~30 min per condition on GPU.
-  default     Spawn each condition as a background subprocess (parallel
-              local execution). Limited by --n-parallel slots.
+    <output_root>/graphs_data/fly/<base>_opto_<target>_<waveform>/
 
-Usage:
-    python run_generate_optogenetics.py
-    python run_generate_optogenetics.py --serial
-    python run_generate_optogenetics.py --conditions TmY15_white_noise Mi1_heaviside
-    python run_generate_optogenetics.py --dry-run
+Comment lines in CONDITIONS to skip individual conditions. Downstream
+training runner: run_GNN_optogenetics.py.
+
+No CLI flags — edit CONDITIONS or scripts/generate_opto_configs.py to
+change the sweep.
 """
-import argparse
+
 import os
-import subprocess
 import sys
-import time
 
-REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(REPO_ROOT, "src"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
-from connectome_gnn.utils import (  # noqa: E402
+from connectome_gnn.config import NeuralGraphConfig
+from connectome_gnn.generators.optogenetics import add_optogenetics_stimulus
+from connectome_gnn.utils import (
     config_path, get_data_root, graphs_data_path,
     load_data_root_from_json, set_data_root,
 )
 
 
-BASELINE = "flyvis_noise_free_blank50_cv00"
-SOURCE_NAME_PREFIX = f"{BASELINE}_opto_"
+# Source dataset (must already exist on disk).
+SOURCE_DATASET = 'flyvis_noise_free_blank50_cv00'
+# Output config / dataset prefix — opto runs aren't per-fold so we drop _cv00.
+OUTPUT_PREFIX = 'flyvis_noise_free_blank50'
 
+# Must match the conditions in scripts/generate_opto_configs.py and
+# run_GNN_optogenetics.py. Top-9 positive controls by null_dim, descending.
 CONDITIONS = [
-    "TmY15_white_noise", "TmY15_heaviside",
-    "Mi1_white_noise",   "Mi1_heaviside",
-    "T4c_white_noise",   "T4c_heaviside",
-    "R1_white_noise",    "R1_heaviside",
-    "T1_white_noise",    "T1_heaviside",
+    'TmY15_white_noise', 'TmY15_heaviside',  # 43,299
+    'Mi1_white_noise',   'Mi1_heaviside',    # 25,834
+    'Tm3_white_noise',   'Tm3_heaviside',    # 20,471
+    'Tm4_white_noise',   'Tm4_heaviside',    # 15,971
+    'Tm1_white_noise',   'Tm1_heaviside',    # 15,525
+    'Mi4_white_noise',   'Mi4_heaviside',    # 14,439
+    'T4c_white_noise',   'T4c_heaviside',    # 12,564
+    'Mi9_white_noise',   'Mi9_heaviside',    # 11,889
+    'Tm2_white_noise',   'Tm2_heaviside',    # 11,068
 ]
 
 
-def _config_yaml_for(cond: str) -> str:
-    """Find the config YAML for a condition, trying repo and data-root config dirs."""
-    name = f"{BASELINE}_opto_{cond}.yaml"
-    candidates = [config_path("fly", name)]
-    try:
-        load_data_root_from_json()
-        candidates.append(os.path.join(get_data_root(), "config", "fly", name))
-    except Exception:
-        pass
-    candidates.append(f"/groups/saalfeld/home/allierc/GraphData/config/fly/{name}")
-    for c in candidates:
+try:
+    set_data_root(load_data_root_from_json())
+except Exception:
+    pass
+
+
+def _config_path_for(cond):
+    name = f'{OUTPUT_PREFIX}_opto_{cond}.yaml'
+    for c in (
+        config_path('fly', name),
+        os.path.join(get_data_root(), 'config', 'fly', name),
+    ):
         if os.path.isfile(c):
             return c
-    raise FileNotFoundError(f"opto config for {cond!r} not found; tried {candidates}")
+    raise FileNotFoundError(f'opto config for {cond!r} not found')
 
 
-def _baseline_exists() -> bool:
-    base = graphs_data_path("fly", BASELINE)
-    if not os.path.isdir(base):
-        return False
-    return os.path.isdir(os.path.join(base, "x_list_train", "voltage.zarr"))
+_baseline_voltage = os.path.join(
+    graphs_data_path('fly', SOURCE_DATASET), 'x_list_train', 'voltage.zarr'
+)
+if not os.path.isdir(_baseline_voltage):
+    sys.exit(
+        f"baseline {SOURCE_DATASET!r} not found at "
+        f"{graphs_data_path('fly', SOURCE_DATASET)}; generate it via the "
+        f"unified blank50 pipeline first."
+    )
 
 
-def _run_serial(yaml_paths: list[str]):
-    runner = os.path.join(REPO_ROOT, "scripts", "run_add_optogenetics.py")
-    py = sys.executable
-    for cfg in yaml_paths:
-        print(f"\n=== {os.path.basename(cfg)} ===", flush=True)
-        proc = subprocess.run([py, runner, cfg])
-        if proc.returncode != 0:
-            sys.exit(f"FAILED: {cfg} (returncode={proc.returncode})")
-
-
-def _run_parallel(yaml_paths: list[str], n_parallel: int, log_dir: str):
-    runner = os.path.join(REPO_ROOT, "scripts", "run_add_optogenetics.py")
-    py = sys.executable
-    os.makedirs(log_dir, exist_ok=True)
-    queue = list(yaml_paths)
-    procs: dict[str, subprocess.Popen] = {}
-    log_files: dict[str, object] = {}
-
-    def _spawn(cfg: str):
-        log = os.path.join(log_dir, f"{os.path.basename(cfg)}.log")
-        f = open(log, "w")
-        log_files[cfg] = f
-        p = subprocess.Popen([py, runner, cfg], stdout=f, stderr=subprocess.STDOUT)
-        procs[cfg] = p
-        print(f"[spawn] {os.path.basename(cfg)}  pid={p.pid}  log={log}", flush=True)
-
-    while queue and len(procs) < n_parallel:
-        _spawn(queue.pop(0))
-
-    failed: list[str] = []
-    while procs:
-        time.sleep(2)
-        for cfg, p in list(procs.items()):
-            rc = p.poll()
-            if rc is None:
-                continue
-            log_files[cfg].close()
-            print(f"[done ] {os.path.basename(cfg)}  rc={rc}", flush=True)
-            del procs[cfg]
-            if rc != 0:
-                failed.append(cfg)
-            if queue and len(procs) < n_parallel:
-                _spawn(queue.pop(0))
-    if failed:
-        sys.exit(f"FAILED ({len(failed)}): {[os.path.basename(c) for c in failed]}")
-
-
-def main():
-    p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--serial", action="store_true",
-                   help="run conditions sequentially in this process")
-    p.add_argument("--n-parallel", type=int, default=4,
-                   help="parallel local subprocesses (default 4)")
-    p.add_argument("--conditions", nargs="*", default=None,
-                   help=f"subset of conditions to run (default: all 10). "
-                        f"Available: {CONDITIONS}")
-    p.add_argument("--dry-run", action="store_true",
-                   help="print intended commands without executing")
-    p.add_argument("--log-dir", default=None,
-                   help="parallel-mode per-condition log dir "
-                        "(default: <data_root>/log/opto_generate)")
-    args = p.parse_args()
-
-    # Load the user's environment-specific data root (data_paths.json).
-    try:
-        set_data_root(load_data_root_from_json())
-    except Exception:
-        pass
-
-    if not _baseline_exists():
-        sys.exit(
-            f"baseline {BASELINE!r} not found at {graphs_data_path('fly', BASELINE)}. "
-            f"Generate it first via the unified blank50 pipeline."
-        )
-
-    selected = args.conditions or CONDITIONS
-    yaml_paths = [_config_yaml_for(c) for c in selected]
-    print(f"baseline: {graphs_data_path('fly', BASELINE)}")
-    print(f"conditions ({len(yaml_paths)}):")
-    for y in yaml_paths:
-        print(f"  {os.path.basename(y)}")
-    if args.dry_run:
-        return
-
-    if args.serial:
-        _run_serial(yaml_paths)
-    else:
-        log_dir = args.log_dir or os.path.join(
-            get_data_root(), "log", "opto_generate"
-        )
-        _run_parallel(yaml_paths, args.n_parallel, log_dir)
-
-
-if __name__ == "__main__":
-    main()
+for cond in CONDITIONS:
+    cfg_path = _config_path_for(cond)
+    print(f'\n=== {cond} ===', flush=True)
+    print(f'config: {cfg_path}', flush=True)
+    config = NeuralGraphConfig.from_yaml(cfg_path)
+    add_optogenetics_stimulus(config)
