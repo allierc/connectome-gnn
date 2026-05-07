@@ -571,7 +571,7 @@ def main():
                         fontweight='normal')
             scatter_axes.append(ax)
 
-        SCATTER_PULL_UP = 0.09  # leaves a small gap between trace row and scatter row
+        SCATTER_PULL_UP = 0.13
         for ax in scatter_axes:
             pos = ax.get_position()
             ax.set_position([pos.x0, pos.y0 + SCATTER_PULL_UP,
@@ -586,10 +586,7 @@ def main():
             else:
                 add_panel_label(fig, ax, letter, dy=0.030)
 
-        # apply_affine=False is hardcoded in the trace draw call, so always
-        # tag outputs with _no_affine to match the file name referenced by
-        # neurips.tex.
-        suffix = ('_nf_green_no_affine' if _nf_green else '_no_affine')
+        suffix = '_nf_green' if _nf_green else ''
         out_base = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 'fig_rollout_3col_noise_comparison_ablation50' + suffix)
         fig.savefig(out_base + '.pdf', bbox_inches='tight')
