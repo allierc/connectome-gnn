@@ -57,10 +57,10 @@ NAME_TO_INDEX: dict[str, int] = {v: k for k, v in INDEX_TO_NAME.items()}
 def _load_identifiability_lists() -> tuple[list[str], list[str]]:
     """Derive IDENTIFIABLE_TYPES and NO_OUTGOING_TYPES from the canonical JSON.
 
-    Source: scripts/structural_nullspace_table.json (produced by
-    structural_nullspace_table.py — this is the authoritative analytical
-    artifact for the optogenetics-recovery experiment, since it also
-    provides the per-type null_dim ranking used to select positive targets).
+    Source: figures/structural_nullspace_table.json (produced by
+    src/connectome_gnn/models/structural_nullspace_table.py — this is the
+    authoritative analytical artifact for the opto-recovery experiment,
+    since it also provides the per-type null_dim ranking).
 
     IDENTIFIABLE: cell types with no degenerate (k>=2) groups
                   ⇒ weights recoverable from naturalistic dynamics alone
@@ -71,11 +71,13 @@ def _load_identifiability_lists() -> tuple[list[str], list[str]]:
     """
     import json
     import os
-    json_path = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-        'scripts', 'structural_nullspace_table.json',
-    )
-    if not os.path.exists(json_path):
+    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    candidates = [
+        os.path.join(repo_root, 'figures', 'structural_nullspace_table.json'),
+        os.path.join(repo_root, 'scripts', 'structural_nullspace_table.json'),  # legacy
+    ]
+    json_path = next((p for p in candidates if os.path.exists(p)), None)
+    if json_path is None:
         return [], []
     data = json.load(open(json_path))
     identifiable = sorted(
@@ -195,7 +197,7 @@ def neuron_column_ids(pos: torch.Tensor) -> torch.Tensor:
 
 def summarize_targets(state, mask: torch.Tensor) -> dict[str, tuple[int, int, float]]:
     """{type_name: (n_targeted, n_total_of_type, fraction)} for every type with
-    nonzero targeting. Used to log opto coverage at twin-generation time."""
+    nonzero targeting. Used to log opto coverage at generation time."""
     out: dict[str, tuple[int, int, float]] = {}
     nt = state.neuron_type
     for type_id in torch.unique(nt[mask]).tolist():
@@ -207,8 +209,9 @@ def summarize_targets(state, mask: torch.Tensor) -> dict[str, tuple[int, int, fl
 
 
 def fingerprint_dataset(state) -> str:
-    """Stable sha256 over (n_neurons, neuron_type bytes). Recorded in twin
-    manifests for source-version identity and explicit_indices safety."""
+    """Stable sha256 over (n_neurons, neuron_type bytes). Used by
+    OptoTargetSpec.dataset_fingerprint to guard explicit_indices targets
+    against silent ID drift across connectome variants."""
     import hashlib
     nt = state.neuron_type.detach().cpu().to(torch.int32).numpy().tobytes()
     h = hashlib.sha256()

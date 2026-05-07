@@ -170,11 +170,6 @@ class OptoWaveformKind(StrEnum):
     CONSTANT = "constant"
 
 
-class OptoShareVia(StrEnum):
-    MANIFEST = "manifest"
-    COPY = "copy"
-
-
 class OptoTargetSpec(BaseModel):
     """Spatial pattern of opto targets.
 
@@ -195,7 +190,7 @@ class OptoTargetSpec(BaseModel):
     structural_table_json: str = "figures/structural_nullspace_table.json"
 
     # Per-column independence is required to break the columnar sum-zero kernel.
-    # False emits a UserWarning at twin-generation time.
+    # False emits a UserWarning at opto-generation time.
     column_distinct: bool = True
 
     # Footgun guard for explicit_indices: sha256 of the source dataset's
@@ -240,12 +235,11 @@ class OptoWaveform(BaseModel):
 
 
 class OptogeneticsConfig(BaseModel):
-    """Master config block for the optogenetics-twin pipeline.
+    """Master config block for the optogenetic-perturbation pipeline.
 
     enabled=False (default) keeps existing pipelines untouched. When enabled,
-    the twin-dataset generator (add_optogenetics_stimulus) re-simulates the
-    forward model with this opto current added, sharing visual stimulus and
-    noise seed with `source_dataset`.
+    add_optogenetics_stimulus re-simulates the source dataset's forward model
+    with this opto current added, using the same seed for matched comparison.
     """
     model_config = ConfigDict(extra="ignore")
 
@@ -253,10 +247,9 @@ class OptogeneticsConfig(BaseModel):
     target: OptoTargetSpec = OptoTargetSpec()
     waveform: OptoWaveform = OptoWaveform()
 
-    # Twin-dataset overlay: source dataset (must already exist on disk).
+    # Source dataset (must already exist on disk; the opto pass re-simulates from it).
     source_dataset: Optional[str] = None
-    twin_suffix: str = "_opto"
-    share_via: OptoShareVia = OptoShareVia.MANIFEST
+    output_suffix: str = "_opto"
 
 
 class SimulationConfig(BaseModel):
@@ -423,8 +416,9 @@ class SimulationConfig(BaseModel):
     dpos_init: float = 0
 
     # Optogenetic perturbation pipeline. Disabled by default — enabling
-    # triggers a separate twin-dataset code path (see generators/optogenetics.py)
-    # that adds an `optogenetics_stimulus` field to the on-disk artifact.
+    # triggers a separate code path (see generators/optogenetics.py) that
+    # re-simulates the source dataset with an additive optogenetics_stimulus
+    # current and writes a new dataset under config.dataset.
     optogenetics: OptogeneticsConfig = OptogeneticsConfig()
 
     @model_validator(mode="after")
