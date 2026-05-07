@@ -1418,7 +1418,7 @@ def plot_signal_loss(loss_dict, log_dir, epoch=None, Niter=None, epoch_boundarie
     plt.close()
 
 
-def plot_metrics(log_dir, epoch_boundaries=None):
+def plot_metrics(log_dir, epoch_boundaries=None, ngp_stages=None):
     """Render R\u00b2 and NNR per-neuron Pearson trajectories into metrics.png.
 
     Reads ``{log_dir}/tmp_training/metrics.log`` (R\u00b2: connectivity, V_rest,
@@ -1634,6 +1634,17 @@ def plot_metrics(log_dir, epoch_boundaries=None):
         for xb in epoch_boundaries:
             for a in axes_iter:
                 a.axvline(x=xb, color='gray', linestyle='--', linewidth=0.8, alpha=0.6)
+
+    # NGP stage boundaries on every panel — inject switch, LR-damping
+    # trough, recovery end. ngp_stages = list of (iter, label).
+    if ngp_stages:
+        for xb, lbl in ngp_stages:
+            for a in axes_iter:
+                a.axvline(x=xb, color='#ff7f0e', linestyle=':',
+                          linewidth=1.0, alpha=0.8)
+                a.text(xb, 1.02, lbl, transform=a.get_xaxis_transform(),
+                       fontsize=6, color='#ff7f0e', ha='center', va='bottom',
+                       rotation=0)
 
     style.savefig(fig, f'{log_dir}/tmp_training/metrics.png')
     plt.close()
