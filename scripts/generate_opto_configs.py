@@ -85,6 +85,8 @@ TARGETS = [
     "Tm2",         # 11,068
     "TmY15+Mi1",   # joint perturbation of the two top-null_dim types
     "retina",      # all R1..R8 (1,736 photoreceptors across 217 columns)
+    "L4",          # 6,136  (rank 13) — mid-rank positive control
+    "L5",          # 7,463  (rank 11) — mid-rank positive control
 ]
 
 WAVEFORMS = [
