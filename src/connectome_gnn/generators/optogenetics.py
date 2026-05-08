@@ -197,11 +197,24 @@ def build_waveform(
             else:
                 base[:, :] = amps.mean()
         else:
-            period = 2 * frames_on
-            on_mask = (torch.arange(n_frames, device=device) % period) < frames_on
             if column_distinct:
-                base[on_mask, :] = amps[None, :]
+                # Independent per-column random telegraph signal: flip ON/OFF
+                # with probability 1/frames_on per frame (mean dwell ≈
+                # frames_on, matches the deterministic schedule's timescale
+                # but desynchronises columns so the columnar sum-zero kernel
+                # is broken). Per-column amplitude is U(0, 1) to add a second
+                # axis of asymmetry. State starts at 0 (OFF).
+                p_flip = 1.0 / float(frames_on)
+                flips = (torch.rand(n_frames, n_targets, generator=g,
+                                    dtype=torch.float32, device=device)
+                         < p_flip)
+                state01 = torch.cumsum(flips.to(torch.int32), dim=0) % 2
+                col_amps = torch.rand(n_targets, generator=g,
+                                      dtype=torch.float32, device=device)
+                base = state01.float() * col_amps[None, :]
             else:
+                period = 2 * frames_on
+                on_mask = (torch.arange(n_frames, device=device) % period) < frames_on
                 base[on_mask, :] = amps.mean()
     elif kind == OptoWaveformKind.IMPULSE.value:
         pw = max(1, int(waveform.pulse_width_frames))
@@ -389,6 +402,16 @@ def add_optogenetics_stimulus(config) -> None:
             f"source dataset is missing ode_params.pt at {ode_params_path}"
         )
     state_dict = torch.load(ode_params_path, map_location='cpu', weights_only=True)
+
+    # Mirror the source's ode_params.pt into the target — the ODE parameters
+    # (connectome weights, per-neuron biophysics) are unchanged under opto
+    # perturbation, only the injected current changes. Trainer requires this
+    # file at graphs_data_path(config.dataset)/ode_params.pt.
+    target_ode_params = os.path.join(target_root, "ode_params.pt")
+    if not os.path.isfile(target_ode_params):
+        import shutil
+        shutil.copy2(ode_params_path, target_ode_params)
+        log.info(f"opto: copied ode_params.pt to {target_ode_params}")
 
     device = _resolve_device(config)
     model_type = config.graph_model.signal_model_name
@@ -783,6 +806,25 @@ def compare_traces(
         labels.insert(insert_at, INDEX_TO_NAME.get(t_int, f"type_{t_int}") + " *")
         seen_types.add(t_int)
 
+    # Right-panel selection: up to PANEL_CAP perturbed neurons sampled
+    # uniformly across the targeted-cell-type columns, so the per-column
+    # heterogeneity of the opto drive (and its downstream effect) is visible.
+    pert_indices_all = np.where(is_perturbed_neuron)[0]
+    PANEL_CAP = max(1, len(neuron_idx))
+    if len(pert_indices_all) > 0:
+        if len(pert_indices_all) > PANEL_CAP:
+            sel = np.linspace(0, len(pert_indices_all) - 1, PANEL_CAP).round().astype(int)
+            pert_neuron_idx = [int(pert_indices_all[i]) for i in sel]
+        else:
+            pert_neuron_idx = [int(i) for i in pert_indices_all]
+        pert_labels = []
+        for k, gi in enumerate(pert_neuron_idx):
+            t_int = int(nt[gi])
+            type_name = INDEX_TO_NAME.get(t_int, f"type_{t_int}")
+            pert_labels.append(f"{type_name} #{k}")
+    else:
+        pert_neuron_idx, pert_labels = [], []
+
     # Slice the trace window. trace_start/trace_end are FRAME indices; the
     # x-axis is rendered in ms starting at trace_start * DT_MS to match
     # figures/fig_rollout_3col_noise_comparison.py (default window
@@ -794,28 +836,49 @@ def compare_traces(
         i_o = opto_full[sl][:, neuron_idx].T.cpu().numpy()
     else:
         i_o = None
+    if pert_neuron_idx:
+        v_b_pert = src_ts.voltage[sl][:, pert_neuron_idx].T.cpu().numpy()
+        v_o_pert = opto_ts.voltage[sl][:, pert_neuron_idx].T.cpu().numpy()
+        i_o_pert = (opto_full[sl][:, pert_neuron_idx].T.cpu().numpy()
+                    if opto_full is not None else None)
 
-    # Build figure — square aspect (more horizontal than the reference's
-    # narrow per-column block) so the trace panel stands alone.
+    # Build figure — left: per-cell-type reference traces; right: perturbed
+    # neurons across columns of the targeted type. step_v shared so both
+    # panels are visually comparable.
     matplotlib.rc_file(os.path.join('/workspace/connectome-gnn/figures', 'janne.matplotlibrc'))
-    fig, ax = plt.subplots(1, 1, figsize=(6.0, 6.0))
     DT_MS = 20.0
     time_ms = np.arange(v_b.shape[1]) * DT_MS + trace_start * DT_MS
-    # step_v formula mirrors fig_rollout_3col_noise_comparison.py: scale to
-    # 3 * TRACE_SHRINK * std(baseline) per row, take the max across rows,
-    # floor at 0.5 * TRACE_SHRINK so panels with near-flat baselines still
-    # have visible separation.
     row_stds = [float(v_b[i].std()) for i in range(v_b.shape[0])]
+    if pert_neuron_idx:
+        row_stds += [float(v_b_pert[i].std()) for i in range(v_b_pert.shape[0])]
     step_v = max(0.5 * _TRACE_SHRINK,
                  3.0 * _TRACE_SHRINK * (max(row_stds) if row_stds else 1.0))
     header = (f"source: {source_dataset}\n"
               f"opto:   {opto_dataset}\n"
               f"split={split}  opto-on=[{onset}, {offset})")
+
+    if pert_neuron_idx:
+        fig, axes = plt.subplots(1, 2, figsize=(12.0, 6.0))
+        ax_left, ax_right = axes
+    else:
+        fig, ax_left = plt.subplots(1, 1, figsize=(6.0, 6.0))
+        ax_right = None
+
     _draw_opto_traces(
-        ax, v_b, v_o, i_o, labels, time_ms, step_v,
+        ax_left, v_b, v_o, i_o, labels, time_ms, step_v,
         onset=max(0, onset - sl.start), offset=min(v_b.shape[1], offset - sl.start),
         header_text=header,
     )
+    ax_left.set_title('reference cell types', fontsize=_FS_LABEL)
+    if ax_right is not None:
+        _draw_opto_traces(
+            ax_right, v_b_pert, v_o_pert, i_o_pert, pert_labels, time_ms, step_v,
+            onset=max(0, onset - sl.start),
+            offset=min(v_b_pert.shape[1], offset - sl.start),
+            header_text=None,
+        )
+        ax_right.set_title(f'perturbed neurons (n={len(pert_neuron_idx)})',
+                           fontsize=_FS_LABEL)
 
     fig.tight_layout()
     if save_fig_to is None:
