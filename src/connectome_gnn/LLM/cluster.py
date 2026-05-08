@@ -401,6 +401,22 @@ def _read_clustering_accuracy(log_dir):
     return None
 
 
+def _fmt_count(n):
+    """Compact integer → '32K' / '1.6M' / raw for n<1000.
+
+    Strips trailing '.0' so 1_000_000 → '1M' (not '1.0M') and 32_000 → '32K'
+    (not '32.0K'); preserves one decimal otherwise (32_500 → '32.5K').
+    """
+    if n is None or n < 0:
+        return '?'
+    if n < 1000:
+        return str(n)
+    # Cut over to M before n hits 1_000_000 so 999_500 doesn't render '1000K'.
+    div, suffix = (1_000_000, 'M') if n >= 950_000 else (1000, 'K')
+    s = f'{round(n / div, 1):.1f}'.rstrip('0').rstrip('.')
+    return f'{s}{suffix}'
+
+
 def _print_training_metrics(log_dirs, slots_active, prefix='  [metrics]'):
     """Read latest metrics.log line for each active slot and print colored.
 
@@ -418,6 +434,11 @@ def _print_training_metrics(log_dirs, slots_active, prefix='  [metrics]'):
     nnr      = hidden-INR Pearson (hidden-NGP / hidden-SIREN runs only).
     Falls back to the all-neurons R² when no-outliers fields are absent
     (legacy 6-column metrics.log)."""
+    # Pre-compute padding so cfg_tag column lines up across slots within this
+    # dump, no matter the runner (opto names are ~57 chars, unified cv ~30).
+    active_dirs = [log_dirs.get(s) for s in slots_active if log_dirs.get(s)]
+    tag_w = max((len(os.path.basename(d.rstrip('/'))) for d in active_dirs),
+                default=0)
     for slot in sorted(slots_active):
         log_dir = log_dirs.get(slot)
         if log_dir is None:
@@ -458,10 +479,16 @@ def _print_training_metrics(log_dirs, slots_active, prefix='  [metrics]'):
             parts.append(f"{_r2_color(tm['hid'], thresholds=(0.5, 0.3, 0.1))}{nnr_str}{_ANSI_RESET}")
         total = _read_total_iter(log_dir)
         if total is not None:
-            iter_str = f"iter={tm['iter']:>6}/{total}"
+            iter_str = f"iter={_fmt_count(tm['iter'])}/{_fmt_count(total)}"
         else:
-            iter_str = f"iter={tm['iter']:>6}"
-        print(f"{prefix} slot {slot}  {iter_str}  " + '  '.join(parts))
+            iter_str = f"iter={_fmt_count(tm['iter'])}"
+        # Place the log-dir basename (i.e. per-fold config name like
+        # `flyvis_noise_free_blank50_opto_TmY15_05_cv00`) right after the slot
+        # number so multi-job waves are identifiable from the [metrics] stream
+        # alone, padded to tag_w so iter= columns align across slots.
+        cfg_tag = os.path.basename(log_dir.rstrip('/'))
+        print(f"{prefix} slot {slot}  {cfg_tag:<{tag_w}}  {iter_str}  "
+              + '  '.join(parts))
 
 
 def wait_for_cluster_jobs_with_metrics(job_ids, log_dirs, poll_interval=60,
