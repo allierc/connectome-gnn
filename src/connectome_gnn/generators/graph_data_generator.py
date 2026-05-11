@@ -22,7 +22,6 @@ from connectome_gnn.plot import (
     plot_hh_debug,
     plot_sequence_preview,
     plot_kinograph,
-    plot_selected_neuron_traces,
     plot_spatial_activity_grid,
     plot_spiking_traces,
 )
@@ -61,6 +60,7 @@ import os
 from tqdm import tqdm, trange
 
 from connectome_gnn.generators.utils import (
+    _print_opto_banner,
     apply_pairwise_knobs_torch,
     assign_columns_from_uv,
     build_neighbor_graph,
@@ -77,75 +77,6 @@ from connectome_gnn.generators.utils import (
 from connectome_gnn.utils import get_datavis_root_dir, git_sha, graphs_data_path, to_numpy
 
 logger = get_logger(__name__)
-
-
-def _resolve_opto_data_root(opto_cfg) -> None:
-    """Switch the data root to whichever fallback contains the opto source.
-
-    Opto re-simulation requires the source dataset to already exist on disk.
-    GNN_Main.py's _maybe_fallback_data_root() skips fallback resolution for
-    'generate' tasks (it expects fresh local data). For opto we override that:
-    if the source can't be found at the current data root, scan the
-    data_paths.json fallback roots and switch to the first one that has it.
-    """
-    from connectome_gnn.utils import (
-        get_data_root, load_data_fallback_roots, set_data_root,
-    )
-
-    src = opto_cfg.source_dataset
-    if not src:
-        return
-
-    def _has_source(root: str) -> bool:
-        for sub in (src, os.path.join("fly", src)):
-            voltage = os.path.join(root, "graphs_data", sub,
-                                  "x_list_train", "voltage.zarr")
-            if os.path.isdir(voltage):
-                return True
-        return False
-
-    if _has_source(get_data_root()):
-        return
-
-    Y, R = "\033[93m", "\033[0m"
-    for root in load_data_fallback_roots():
-        if _has_source(root):
-            print(f"{Y}[opto] source not found at current data root; "
-                  f"switching to {root}{R}", flush=True)
-            set_data_root(root)
-            return
-    # No fallback worked — let downstream fail with a clear error.
-
-
-def _print_opto_banner(config, opto_cfg) -> None:
-    """Green banner: confirms source-dataset reuse and dumps opto parameters."""
-    G, R = "\033[92m", "\033[0m"
-    src = opto_cfg.source_dataset
-    src_dir = graphs_data_path(src)
-    if not os.path.isdir(src_dir):
-        alt = graphs_data_path("fly", src)
-        if os.path.isdir(alt):
-            src_dir = alt
-    voltage_zarr = os.path.join(src_dir, "x_list_train", "voltage.zarr")
-    src_ok = os.path.isdir(voltage_zarr)
-    tgt = opto_cfg.target
-    wf = opto_cfg.waveform
-    target_str = (
-        f"mode={tgt.mode} k={tgt.k}" if str(tgt.mode) == "OptoTargetMode.TOPK_NULLSPACE"
-        or tgt.mode == "topk_nullspace"
-        else f"mode={tgt.mode} cell_types={list(tgt.cell_types)}"
-    )
-    print(f"{G}{'='*70}{R}")
-    print(f"{G}[opto] OPTOGENETIC PERTURBATION — re-simulation from existing source{R}")
-    print(f"{G}[opto] source dataset:  {src}{R}")
-    print(f"{G}[opto] source on disk:  {src_dir}  ({'OK' if src_ok else 'MISSING'}){R}")
-    print(f"{G}[opto] target output:   {config.dataset}{R}")
-    print(f"{G}[opto] target spec:     {target_str}  column_distinct={tgt.column_distinct}{R}")
-    wf_extra = f"  frames_on={wf.frames_on}" if wf.kind == "heaviside" else ""
-    print(f"{G}[opto] waveform:        kind={wf.kind}  amplitude={wf.amplitude}  "
-          f"noise_level={wf.noise_level}{wf_extra}{R}")
-    print(f"{G}[opto] seed:            {wf.seed}  (paired with source for matched comparison){R}")
-    print(f"{G}{'='*70}{R}", flush=True)
 
 
 def data_generate(
@@ -174,7 +105,6 @@ def data_generate(
     opto_cfg = getattr(config.simulation, 'optogenetics', None)
     if opto_cfg is not None and opto_cfg.enabled:
         from connectome_gnn.generators.optogenetics import add_optogenetics_stimulus
-        _resolve_opto_data_root(opto_cfg)
         _print_opto_banner(config, opto_cfg)
         add_optogenetics_stimulus(config)
         return
@@ -1960,16 +1890,6 @@ def data_generate_voltage(
         graphs_data_path(config.dataset) + "/",
     )
 
-    logger.info("plot figure activity ...")
-    plot_selected_neuron_traces(
-        activity=to_numpy(activity),
-        type_list=to_numpy(type_list.squeeze()),
-        output_path=graphs_data_path(config.dataset, 'activity.png'),
-        start_frame=0,
-        end_frame=activity.shape[1],
-        style=fig_style,
-    )
-
     if visualize & (run == run_vizualized):
         logger.info("generating lossless video ...")
 
@@ -2083,6 +2003,50 @@ def _run_ode_generation(
     real_frames_in_chunk = 0
     in_blank_window = False
     blank_remaining = 0
+
+    # Calcium kernel setup (GCaMP-style convolution observable).
+    # When calcium_type == "kernel", we maintain a per-neuron voltage history
+    # buffer V_hist of shape (n_neurons, kernel_len) and compute
+    # x.calcium[t] = sum_k K[k] * V[t-k] each step.
+    calcium_kernel = None
+    v_hist = None
+    trace_neuron_idx: list[int] = []
+    trace_labels: list[str] = []
+    v_trace_buf: list = []
+    ca_trace_buf: list = []
+    TRACE_MAX_FRAMES = 1500
+    if sim.calcium_type == "kernel":
+        from connectome_gnn.generators.gcamp_kernel import (
+            build_kernel_from_config,
+            select_reference_neurons,
+        )
+        calcium_kernel = build_kernel_from_config(sim, device=device)
+        v_hist = torch.zeros(
+            (n_neurons, calcium_kernel.shape[0]),
+            dtype=torch.float32,
+            device=device,
+        )
+        trace_neuron_idx, trace_labels = select_reference_neurons(x.neuron_type)
+        # Save a one-shot diagnostic figure of K(t) at the dataset root.
+
+        data_root_dir = graphs_data_path(config.dataset)
+        os.makedirs(data_root_dir, exist_ok=True)
+        t_axis = np.arange(calcium_kernel.shape[0]) * sim.calcium_kernel_dt_seconds
+        fig, ax = plt.subplots(figsize=(5, 3))
+        ax.plot(t_axis, calcium_kernel.cpu().numpy(), color="tab:blue")
+        ax.set_xlabel("time (s)", fontsize=8)
+        ax.set_ylabel("K(t)", fontsize=8)
+        ax.set_title(
+            f"{sim.calcium_kernel_variant} kernel "
+            f"(tau_r={sim.calcium_kernel_tau_rise:.3f}s, "
+            f"tau_d={sim.calcium_kernel_tau_decay:.3f}s)",
+            fontsize=8,
+        )
+        ax.tick_params(axis="both", labelsize=6)
+        fig.tight_layout()
+        fig.savefig(os.path.join(data_root_dir, "kernel.png"), dpi=120)
+        plt.close(fig)
+
 
     target_reached = False
     with torch.no_grad():
@@ -2358,6 +2322,19 @@ def _run_ode_generation(
                         x.calcium = x.calcium + (sim.delta_t / sim.calcium_tau) * (-x.calcium + s)
                         x.fluorescence = sim.calcium_alpha * x.calcium + sim.calcium_beta
                         y = ((x.calcium - prev_calcium) / sim.delta_t).unsqueeze(-1)
+                    elif sim.calcium_type == "kernel":
+                        v_hist = torch.roll(v_hist, shifts=1, dims=-1)
+                        v_hist[:, 0] = x.voltage
+                        x.calcium = (v_hist * calcium_kernel).sum(dim=-1)
+                        x.fluorescence = sim.calcium_alpha * x.calcium + sim.calcium_beta
+                        y = ((x.calcium - prev_calcium) / sim.delta_t).unsqueeze(-1)
+                        if trace_neuron_idx and len(v_trace_buf) < TRACE_MAX_FRAMES:
+                            v_trace_buf.append(
+                                x.voltage[trace_neuron_idx].detach().cpu().numpy().copy()
+                            )
+                            ca_trace_buf.append(
+                                x.calcium[trace_neuron_idx].detach().cpu().numpy().copy()
+                            )
 
                     y_writer.append(to_numpy_fn(y.clone().detach()))
 
@@ -2459,6 +2436,40 @@ def _run_ode_generation(
             "\033[93mblank_prefix summary: blank_prefix_fraction=%.3f  blank_frames_per_seq=[min=%d median=%d max=%d]\033[0m",
             _bpf, _bp_min, _bp_med, _bp_max,
         )
+
+    # GCaMP kernel diagnostic: side-by-side voltage / calcium traces for the
+    # canonical reference cell types (Am, T1, T5a, T4a, Tm9, Tm1, Mi9, Mi1,
+    # L3, L2, L1, R1), mirroring opto_compare_*.png. Saved under
+    # graphs_data/<dataset>/calcium_trace.png.
+    if sim.calcium_type == "kernel" and v_trace_buf and config is not None:
+        try:
+            from connectome_gnn.generators.gcamp_kernel import plot_voltage_calcium_traces
+            v_arr = np.stack(v_trace_buf, axis=0)   # (n_frames_buf, n_sel)
+            ca_arr = np.stack(ca_trace_buf, axis=0)
+            # Match opto_compare window: frames 500-1500 -> 10000-30000 ms at dt=20ms.
+            TRACE_START, TRACE_END = 500, 1500
+            n_buf = v_arr.shape[0]
+            start = min(TRACE_START, max(0, n_buf - 2))
+            end = min(TRACE_END, n_buf)
+            v_arr = v_arr[start:end]
+            ca_arr = ca_arr[start:end]
+            data_root = graphs_data_path(config.dataset)
+            os.makedirs(data_root, exist_ok=True)
+            save_path = os.path.join(data_root, "calcium_trace.png")
+            plot_voltage_calcium_traces(
+                voltage=v_arr,
+                calcium=ca_arr,
+                labels=trace_labels,
+                dt_seconds=float(sim.calcium_kernel_dt_seconds),
+                save_path=save_path,
+                start_frame=start,
+                title=(
+                    f"{sim.calcium_kernel_variant}: V (left) vs "
+                    f"F=V*K (right) - frames [{start}, {end})"
+                ),
+            )
+        except Exception as e:
+            logger.warning(f"calcium_trace plot failed: {e}")
 
     return it, id_fig
 

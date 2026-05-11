@@ -526,6 +526,17 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     stimuli_true_list = []   # true stimulus (input neurons only)
     stimuli_pred_list = []   # SIREN predicted stimulus (input neurons only)
 
+    # GCaMP kernel state (only used when sim.calcium_type == "kernel").
+    _calcium_kernel = None
+    _v_hist = None
+    if sim.calcium_type == "kernel":
+        from connectome_gnn.generators.gcamp_kernel import build_kernel_from_config
+        _calcium_kernel = build_kernel_from_config(sim, device=device)
+        _v_hist = torch.zeros(
+            (x.voltage.shape[0], _calcium_kernel.shape[0]),
+            dtype=torch.float32, device=device,
+        )
+
     with torch.no_grad():
         for k in trange(n_eval_frames - 1, ncols=100, desc="rollout"):
             # Collect state before integration
@@ -617,6 +628,11 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
                     u = x.voltage.clone()
                 x.calcium = x.calcium + (sim.delta_t / sim.calcium_tau) * (-x.calcium + u)
                 x.calcium = torch.clamp(x.calcium, min=0.0)
+                x.fluorescence = sim.calcium_alpha * x.calcium + sim.calcium_beta
+            elif sim.calcium_type == "kernel":
+                _v_hist = torch.roll(_v_hist, shifts=1, dims=-1)
+                _v_hist[:, 0] = x.voltage
+                x.calcium = (_v_hist * _calcium_kernel).sum(dim=-1)
                 x.fluorescence = sim.calcium_alpha * x.calcium + sim.calcium_beta
 
     rollout_pred_arr = np.array(rollout_pred_list)   # (n_frames-1, n_neurons)
@@ -1265,6 +1281,16 @@ def data_test_gnn_special(
     fig_style = dark_style
     index_to_name = INDEX_TO_NAME
 
+    # GCaMP kernel state (only used when sim.calcium_type == "kernel").
+    _calcium_kernel = None
+    _v_hist = None
+    if sim.calcium_type == "kernel":
+        from connectome_gnn.generators.gcamp_kernel import build_kernel_from_config
+        _calcium_kernel = build_kernel_from_config(sim, device=device)
+        _v_hist = torch.zeros(
+            (x.voltage.shape[0], _calcium_kernel.shape[0]),
+            dtype=torch.float32, device=device,
+        )
 
     # Main loop #####################################
 
@@ -1573,6 +1599,12 @@ def data_test_gnn_special(
                         x.calcium = torch.clamp(x.calcium, min=0.0)
                         x.fluorescence = sim.calcium_alpha * x.calcium + sim.calcium_beta
 
+                        y = (x.calcium - torch.tensor(x_list[-1][:, 7], dtype=torch.float32, device=device)).unsqueeze(-1) / sim.delta_t
+                    elif sim.calcium_type == "kernel":
+                        _v_hist = torch.roll(_v_hist, shifts=1, dims=-1)
+                        _v_hist[:, 0] = x.voltage
+                        x.calcium = (_v_hist * _calcium_kernel).sum(dim=-1)
+                        x.fluorescence = sim.calcium_alpha * x.calcium + sim.calcium_beta
                         y = (x.calcium - torch.tensor(x_list[-1][:, 7], dtype=torch.float32, device=device)).unsqueeze(-1) / sim.delta_t
 
                     y_list.append(to_numpy(y.clone().detach()))

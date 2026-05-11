@@ -36,6 +36,7 @@ class CalciumType(StrEnum):
     LEAKY = "leaky"
     MULTI_COMPARTMENT = "multi-compartment"
     SATURATION = "saturation"
+    KERNEL = "kernel"
 
 class CalciumActivation(StrEnum):
     SOFTPLUS = "softplus"
@@ -423,6 +424,19 @@ class SimulationConfig(BaseModel):
     calcium_num_compartments: int = 1
     calcium_down_sample: int = 1  # down-sample [Ca] time series by this factor
     save_calcium: bool = False  # whether to save calcium/fluorescence in zarr output
+
+    # Kernel-convolution calcium model (calcium_type == "kernel").
+    # F(t) = (V * K)(t) with K a fixed GCaMP impulse response in physical seconds.
+    # When calcium_type == "kernel", calcium_activation / calcium_tau /
+    # calcium_saturation_kd / calcium_num_compartments are ignored;
+    # calcium_alpha / calcium_beta still scale fluorescence.
+    calcium_kernel_variant: str = "gcamp6f"
+    calcium_kernel_tau_rise: float = 0.075  # seconds (GCaMP6f ~75 ms)
+    calcium_kernel_tau_decay: float = 0.4   # seconds (GCaMP6f ~400 ms)
+    calcium_kernel_length_seconds: float = 2.4
+    # Physical seconds per simulation step. 0.02 s = 20 ms matches the
+    # GCaMP6f-AR(1) reference noted above (dt=20ms).
+    calcium_kernel_dt_seconds: float = 0.02
 
     pos_init: str = "uniform"
     dpos_init: float = 0

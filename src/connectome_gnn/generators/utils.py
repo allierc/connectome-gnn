@@ -742,3 +742,34 @@ _FLYVIS_HYBRID_MODELS = {
 def is_flyvis_hybrid_model(signal_model_name: str) -> bool:
     """Check if signal_model_name is a flyrewire hybrid model."""
     return signal_model_name in _FLYVIS_HYBRID_MODELS
+
+
+def _print_opto_banner(config, opto_cfg) -> None:
+    """Green banner: confirms source-dataset reuse and dumps opto parameters."""
+    G, R = "\033[92m", "\033[0m"
+    src = opto_cfg.source_dataset
+    src_dir = graphs_data_path(src)
+    if not os.path.isdir(src_dir):
+        alt = graphs_data_path("fly", src)
+        if os.path.isdir(alt):
+            src_dir = alt
+    voltage_zarr = os.path.join(src_dir, "x_list_train", "voltage.zarr")
+    src_ok = os.path.isdir(voltage_zarr)
+    tgt = opto_cfg.target
+    wf = opto_cfg.waveform
+    target_str = (
+        f"mode={tgt.mode} k={tgt.k}" if str(tgt.mode) == "OptoTargetMode.TOPK_NULLSPACE"
+        or tgt.mode == "topk_nullspace"
+        else f"mode={tgt.mode} cell_types={list(tgt.cell_types)}"
+    )
+    print(f"{G}{'='*70}{R}")
+    print(f"{G}[opto] OPTOGENETIC PERTURBATION — re-simulation from existing source{R}")
+    print(f"{G}[opto] source dataset:  {src}{R}")
+    print(f"{G}[opto] source on disk:  {src_dir}  ({'OK' if src_ok else 'MISSING'}){R}")
+    print(f"{G}[opto] target output:   {config.dataset}{R}")
+    print(f"{G}[opto] target spec:     {target_str}  column_distinct={tgt.column_distinct}{R}")
+    wf_extra = f"  frames_on={wf.frames_on}" if wf.kind == "heaviside" else ""
+    print(f"{G}[opto] waveform:        kind={wf.kind}  amplitude={wf.amplitude}  "
+          f"noise_level={wf.noise_level}{wf_extra}{R}")
+    print(f"{G}[opto] seed:            {wf.seed}  (paired with source for matched comparison){R}")
+    print(f"{G}{'='*70}{R}", flush=True)
