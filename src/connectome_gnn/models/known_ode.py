@@ -101,7 +101,10 @@ class KnownODEBase(nn.Module):
         self.data_id = data_id.squeeze().long().clone().detach() if hasattr(data_id, 'squeeze') else data_id
 
         v = state.voltage.unsqueeze(-1)
-        excitation = state.stimulus.unsqueeze(-1)
+        # Visual stimulus + optogenetic perturbation (when present) enter on
+        # the same excitation channel; opto contributes +opto/tau to dv/dt.
+        opto = state.optogenetics_stimulus if state.optogenetics_stimulus is not None else 0.0
+        excitation = (state.stimulus + opto).unsqueeze(-1)
         particle_id = state.index.long()
 
         msg = self._compute_messages(v, edge_index)

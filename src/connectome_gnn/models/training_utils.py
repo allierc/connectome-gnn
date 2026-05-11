@@ -44,6 +44,12 @@ def determine_load_fields(config):
         fields.append('calcium')
     if sim.measurement_noise_level > 0:
         fields.append('noise')
+    # Datasets generated under optogenetic perturbation carry an additional
+    # optogenetics_stimulus.zarr that the trainer / tester must load so the
+    # forward pass can sum it into the excitation channel.
+    opto_enabled = bool(getattr(getattr(sim, 'optogenetics', None), 'enabled', False))
+    if opto_enabled:
+        fields.append('optogenetics_stimulus')
     return fields
 
 

@@ -1087,6 +1087,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                                 else:
                                     x_next = x_ts.frame(k_current)
                                     state_batch[b].stimulus = x_next.stimulus
+                                    if x_next.optogenetics_stimulus is not None:
+                                        state_batch[b].optogenetics_stimulus = x_next.optogenetics_stimulus
 
                             batched_state, batched_edges = _batch_frames(state_batch, edges)
                             pred, in_features, msg = model(batched_state, batched_edges, data_id=data_id, return_all=True)

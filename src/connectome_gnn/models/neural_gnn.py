@@ -648,7 +648,11 @@ class NeuralGNN(nn.Module):
         self.data_id = data_id.squeeze().long().clone().detach()
 
         v = state.observable(self.calcium_type)
-        excitation = state.stimulus.unsqueeze(-1)
+        # Sum optogenetic perturbation (when present) into the same excitation channel
+        # as visual stimulus. Keeps f_theta input dim unchanged → existing checkpoints
+        # remain loadable; opto contributes zero when state.optogenetics_stimulus is None.
+        opto = state.optogenetics_stimulus if state.optogenetics_stimulus is not None else 0.0
+        excitation = (state.stimulus + opto).unsqueeze(-1)
         particle_id = state.index.long()
         embedding = self.a[particle_id]
         if embedding.dim() == 1:

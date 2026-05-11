@@ -150,6 +150,120 @@ class LabelStyle(StrEnum):
 # Sub-config schemas for NeuralGraph
 
 
+class OptoTargetMode(StrEnum):
+    CELL_TYPE = "cell_type"
+    COLUMN = "column"
+    EXPLICIT_INDICES = "explicit_indices"
+    TOPK_NULLSPACE = "topk_nullspace"
+
+
+class OptoRanking(StrEnum):
+    NULL_DIM = "null_dim"
+    LEVERAGE = "leverage"
+
+
+class OptoWaveformKind(StrEnum):
+    WHITE_NOISE = "white_noise"
+    HEAVISIDE = "heaviside"
+    IMPULSE = "impulse"
+    VIDEO = "video"
+    CONSTANT = "constant"
+
+
+class OptoTargetSpec(BaseModel):
+    """Spatial pattern of opto targets.
+
+    Modes:
+        cell_type        — every neuron of listed cell types, all columns (Gal4 analogue)
+        column           — every neuron in listed retinotopic columns (single-column holography)
+        explicit_indices — exactly these neuron indices (advanced; needs dataset_fingerprint)
+        topk_nullspace   — auto top-k from scripts/structural_nullspace_table.json
+    """
+    model_config = ConfigDict(extra="ignore")
+
+    mode: OptoTargetMode = OptoTargetMode.TOPK_NULLSPACE
+    cell_types: List[str] = []
+    columns: List[int] = []
+    indices: List[int] = []
+    k: int = 1
+    ranking: OptoRanking = OptoRanking.NULL_DIM
+    structural_table_json: str = "figures/structural_nullspace_table.json"
+
+    # Per-column independence is required to break the columnar sum-zero kernel.
+    # False emits a UserWarning at opto-generation time.
+    column_distinct: bool = True
+
+    # Footgun guard for explicit_indices: sha256 of the source dataset's
+    # (n_neurons, neuron_type) — set at write time by add_optogenetics_stimulus.
+    dataset_fingerprint: Optional[str] = None
+
+
+class OptoWaveform(BaseModel):
+    """Temporal waveform applied to each (independent if column_distinct) target.
+
+    Composition (per target):
+        u_target(t) = base_waveform(t) + noise_level * xi(t)
+    where xi ~ N(0,1) is i.i.d. per (target, t). noise_level applies for every
+    kind. For kind='white_noise' the base contribution is zero and noise_level
+    drives the signal.
+
+    Units: amplitude and noise_level are on the same scale as state.stimulus,
+    directly comparable to SimulationConfig.noise_model_level.
+    """
+    model_config = ConfigDict(extra="ignore")
+
+    kind: OptoWaveformKind = OptoWaveformKind.WHITE_NOISE
+
+    # Base amplitude. None = per-target auto-calibration to 0.5 * lambda_max(type)
+    # read from the structural nullspace JSON.
+    amplitude: Optional[float] = None
+
+    # Universal additive Gaussian noise on top of base waveform.
+    noise_level: float = 0.0
+
+    seed: int = 0
+
+    # heaviside-only: ON for frames_on frames, OFF for frames_on frames,
+    # repeat. Full period = 2 * frames_on. Default 35 frames means
+    # 35 ON / 35 OFF / ... (period 70 frames ~= 1.4 s at dt=0.02 s).
+    # Set to 0 for a one-shot DC step (always ON).
+    frames_on: int = 35
+
+    # heaviside-only (column_distinct=True): if False (default), each column
+    # draws a single per-column gain ~U(0,1) at simulation start and that
+    # gain persists for the entire trajectory (column-identity label). If
+    # True, a fresh per-column amplitude ~U(0,1) is drawn at every flip,
+    # so the per-column gain varies across ON intervals — removes the
+    # column-fingerprint and isolates the temporal-decorrelation effect
+    # from the persistent-gain effect.
+    resample_amplitude_per_transition: bool = False
+
+    # impulse-only
+    pulse_width_frames: int = 5
+    pulse_period_frames: int = 50
+
+    # video-only (experimental — off-manifold replay)
+    video_path: Optional[str] = None
+
+
+class OptogeneticsConfig(BaseModel):
+    """Master config block for the optogenetic-perturbation pipeline.
+
+    enabled=False (default) keeps existing pipelines untouched. When enabled,
+    add_optogenetics_stimulus re-simulates the source dataset's forward model
+    with this opto current added, using the same seed for matched comparison.
+    """
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = False
+    target: OptoTargetSpec = OptoTargetSpec()
+    waveform: OptoWaveform = OptoWaveform()
+
+    # Source dataset (must already exist on disk; the opto pass re-simulates from it).
+    source_dataset: Optional[str] = None
+    output_suffix: str = "_opto"
+
+
 class SimulationConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -312,6 +426,12 @@ class SimulationConfig(BaseModel):
 
     pos_init: str = "uniform"
     dpos_init: float = 0
+
+    # Optogenetic perturbation pipeline. Disabled by default — enabling
+    # triggers a separate code path (see generators/optogenetics.py) that
+    # re-simulates the source dataset with an additive optogenetics_stimulus
+    # current and writes a new dataset under config.dataset.
+    optogenetics: OptogeneticsConfig = OptogeneticsConfig()
 
     @model_validator(mode="after")
     def _validate_blank_window_injection(self) -> "SimulationConfig":

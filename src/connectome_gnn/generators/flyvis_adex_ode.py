@@ -86,8 +86,9 @@ class FlyVisAdExODE(nn.Module):
         v = state.voltage
         w = state.adapt_current
 
-        # Current
-        I = p.I_bias + p.stim_scale * state.stimulus
+        # Current (visual stimulus + optional optogenetic perturbation)
+        opto = state.optogenetics_stimulus if state.optogenetics_stimulus is not None else 0.0
+        I = p.I_bias + p.stim_scale * state.stimulus + opto
 
         if p.synapse_model == "COBA":
             I = I + state.ge * (p.E_ge - v) + state.gi * (p.E_gi - v)

@@ -401,6 +401,22 @@ def _read_clustering_accuracy(log_dir):
     return None
 
 
+def _fmt_count(n):
+    """Compact integer → '32K' / '1.6M' / raw for n<1000.
+
+    Strips trailing '.0' so 1_000_000 → '1M' (not '1.0M') and 32_000 → '32K'
+    (not '32.0K'); preserves one decimal otherwise (32_500 → '32.5K').
+    """
+    if n is None or n < 0:
+        return '?'
+    if n < 1000:
+        return str(n)
+    # Cut over to M before n hits 1_000_000 so 999_500 doesn't render '1000K'.
+    div, suffix = (1_000_000, 'M') if n >= 950_000 else (1000, 'K')
+    s = f'{round(n / div, 1):.1f}'.rstrip('0').rstrip('.')
+    return f'{s}{suffix}'
+
+
 def _print_training_metrics(log_dirs, slots_active, prefix='  [metrics]'):
     """Read latest metrics.log line for each active slot and print colored.
 
@@ -417,51 +433,118 @@ def _print_training_metrics(log_dirs, slots_active, prefix='  [metrics]'):
                phase has run; never available during training-only waves).
     nnr      = hidden-INR Pearson (hidden-NGP / hidden-SIREN runs only).
     Falls back to the all-neurons R² when no-outliers fields are absent
-    (legacy 6-column metrics.log)."""
-    for slot in sorted(slots_active):
+    (legacy 6-column metrics.log).
+
+    Block ordering: slots are grouped by condition (cfg_tag with the
+    trailing `_cv\\d+` stripped) and the resulting blocks are printed in
+    descending order of mean R²W across that condition's folds. Within a
+    block the per-fold rows are sorted by slot id (= cv00, cv01, ... given
+    that the runners enumerate yt_cfgs in CV-fold order). Each block is
+    preceded by a `[summary]` line showing the mean ± SD of W R² over the
+    folds present in this dump."""
+    # First pass: pull per-slot metrics + cfg_tag + condition + iter_str.
+    rows = []
+    for slot in slots_active:
         log_dir = log_dirs.get(slot)
         if log_dir is None:
             continue
+        cfg_tag = os.path.basename(log_dir.rstrip('/'))
+        cond = re.sub(r'_cv\d+$', '', cfg_tag)
         tm = _read_latest_training_metrics(log_dir)
-        if tm is None:
-            print(f"{prefix} slot {slot}: (no metrics.log yet)")
-            continue
+        iter_str = ''
+        if tm is not None:
+            total = _read_total_iter(log_dir)
+            if total is not None:
+                iter_str = f"iter={_fmt_count(tm['iter'])}/{_fmt_count(total)}"
+            else:
+                iter_str = f"iter={_fmt_count(tm['iter'])}"
+        rows.append({'slot': slot, 'log_dir': log_dir, 'cfg_tag': cfg_tag,
+                     'cond': cond, 'tm': tm, 'iter_str': iter_str})
+    if not rows:
+        return
 
-        def _fmt_R2_out(name, r2_clean, r2_all, n_out, n_total):
-            # Prefer the no-outliers (cleaned) R² for display when available;
-            # the legacy 6-column metrics.log only carries the all-neurons R².
-            r2 = r2_clean if r2_clean is not None else r2_all
-            base = f"{_r2_color(r2)}{name}={r2:.3f}"
-            if r2_clean is None or not n_total or n_total <= 0:
-                return base + _ANSI_RESET
-            pct = 100.0 * n_out / n_total
-            return base + f"({pct:.1f}%)" + _ANSI_RESET
+    # Pad cfg_tag, slot text, and iter_str so the R²W column lines up across
+    # every row — including the [summary] header, which uses an empty
+    # placeholder of width (slot_w + 2 + tag_w + 2 + iter_w) so its R²W lands
+    # at the same offset as the per-fold metrics rows below it.
+    tag_w  = max(len(r['cfg_tag']) for r in rows)
+    slot_w = max(len(f"slot {r['slot']}") for r in rows)
+    iter_w = max((len(r['iter_str']) for r in rows if r['iter_str']),
+                 default=0)
+    summary_lhs_w = slot_w + 2 + tag_w + 2 + iter_w
 
-        cl = _read_clustering_accuracy(log_dir)
-        cl_str = (f"{_r2_color(cl)}{cl:.2f}{_ANSI_RESET}"
-                  if cl is not None else f"{_ANSI_RESET}n/a{_ANSI_RESET}")
+    groups = {}
+    for r in rows:
+        groups.setdefault(r['cond'], []).append(r)
 
-        parts = [
-            f"{_r2_color(tm['conn'])}R²W={tm['conn']:.3f}{_ANSI_RESET}",
-            _fmt_R2_out('R²Vr', tm['vr_clean'], tm['vr'],
-                        tm['n_out_vr'], tm['n_total_vr']),
-            _fmt_R2_out('R²τ', tm['tau_clean'], tm['tau'],
-                        tm['n_out_tau'], tm['n_total_tau']),
-            f"cluster={cl_str}",
-        ]
-        # Hidden-INR diagnostics (only present for hidden-NGP / hidden-SIREN).
-        # Pearson thresholds: green > 0.5, yellow > 0.3, orange > 0.1, red <.
-        if tm['hid'] is not None:
-            nnr_str = f"nnr={tm['hid']:.3f}"
-            if tm['anc'] is not None:
-                nnr_str += f"({tm['anc']:.3f})"
-            parts.append(f"{_r2_color(tm['hid'], thresholds=(0.5, 0.3, 0.1))}{nnr_str}{_ANSI_RESET}")
-        total = _read_total_iter(log_dir)
-        if total is not None:
-            iter_str = f"iter={tm['iter']:>6}/{total}"
-        else:
-            iter_str = f"iter={tm['iter']:>6}"
-        print(f"{prefix} slot {slot}  {iter_str}  " + '  '.join(parts))
+    def _mean_sd_n(vals):
+        n = len(vals)
+        if n == 0:
+            return float('-inf'), 0.0, 0
+        m = sum(vals) / n
+        sd = (sum((v - m) ** 2 for v in vals) / n) ** 0.5 if n > 1 else 0.0
+        return m, sd, n
+
+    group_stats = {
+        c: _mean_sd_n([r['tm']['conn'] for r in rs
+                       if r['tm'] is not None and r['tm'].get('conn') is not None])
+        for c, rs in groups.items()
+    }
+    ordered_conds = sorted(groups.keys(), key=lambda c: -group_stats[c][0])
+
+    def _fmt_R2_out(name, r2_clean, r2_all, n_out, n_total):
+        # Prefer the no-outliers (cleaned) R² for display when available; the
+        # legacy 6-column metrics.log only carries the all-neurons R².
+        r2 = r2_clean if r2_clean is not None else r2_all
+        base = f"{_r2_color(r2)}{name}={r2:.3f}"
+        if r2_clean is None or not n_total or n_total <= 0:
+            return base + _ANSI_RESET
+        pct = 100.0 * n_out / n_total
+        return base + f"({pct:.1f}%)" + _ANSI_RESET
+
+    for cond in ordered_conds:
+        rs = sorted(groups[cond], key=lambda x: x['slot'])
+        m, sd, n = group_stats[cond]
+        # Per-condition summary header (skip when only a single run is present
+        # — the per-slot row already shows that value, so a header would just
+        # repeat it). The cond placeholder is padded to summary_lhs_w so the
+        # `R²W =` token lands at the same column as `R²W=` on the rows below.
+        n_folds = len(rs)
+        if n_folds > 1 and n > 0:
+            lhs = cond.ljust(summary_lhs_w)
+            print(f"  [summary] {lhs}  "
+                  f"{_r2_color(m)}R²W = {m:.3f} ± {sd:.3f}{_ANSI_RESET}  "
+                  f"(n={n}/{n_folds})")
+
+        for r in rs:
+            slot, log_dir, tm, cfg_tag = (r['slot'], r['log_dir'],
+                                          r['tm'], r['cfg_tag'])
+            if tm is None:
+                print(f"{prefix} slot {slot}: (no metrics.log yet)")
+                continue
+
+            cl = _read_clustering_accuracy(log_dir)
+            cl_str = (f"{_r2_color(cl)}{cl:.2f}{_ANSI_RESET}"
+                      if cl is not None else f"{_ANSI_RESET}n/a{_ANSI_RESET}")
+
+            parts = [
+                f"{_r2_color(tm['conn'])}R²W={tm['conn']:.3f}{_ANSI_RESET}",
+                _fmt_R2_out('R²Vr', tm['vr_clean'], tm['vr'],
+                            tm['n_out_vr'], tm['n_total_vr']),
+                _fmt_R2_out('R²τ', tm['tau_clean'], tm['tau'],
+                            tm['n_out_tau'], tm['n_total_tau']),
+                f"cluster={cl_str}",
+            ]
+            # Hidden-INR diagnostics (only present for hidden-NGP / hidden-SIREN).
+            # Pearson thresholds: green > 0.5, yellow > 0.3, orange > 0.1, red <.
+            if tm['hid'] is not None:
+                nnr_str = f"nnr={tm['hid']:.3f}"
+                if tm['anc'] is not None:
+                    nnr_str += f"({tm['anc']:.3f})"
+                parts.append(f"{_r2_color(tm['hid'], thresholds=(0.5, 0.3, 0.1))}{nnr_str}{_ANSI_RESET}")
+            slot_text = f"slot {slot}"
+            print(f"{prefix} {slot_text:<{slot_w}}  {cfg_tag:<{tag_w}}  "
+                  f"{r['iter_str']:<{iter_w}}  " + '  '.join(parts))
 
 
 def wait_for_cluster_jobs_with_metrics(job_ids, log_dirs, poll_interval=60,
