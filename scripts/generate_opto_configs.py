@@ -87,12 +87,26 @@ TARGETS = [
     "retina",      # all R1..R8 (1,736 photoreceptors across 217 columns)
     "L4",          # 6,136  (rank 13) — mid-rank positive control
     "L5",          # 7,463  (rank 11) — mid-rank positive control
+    "Lawf2",       # 1,040  — has degenerate groups but ZERO outgoing edges.
+                   # Pure null control: perturbation cannot propagate to any
+                   # postsynaptic cell, so ΔR²_W must be ≈0 across all metrics.
+                   # Stronger than retina/05 (which has lever-2 column-decorrelation
+                   # available); Lawf2 has neither lever by construction.
 ]
 
 WAVEFORMS = [
     {"kind": "white_noise", "amplitude": 0.0, "noise_level": 0.5},
     {"kind": "heaviside",   "amplitude": 1.0, "noise_level": 0.0},
     {"kind": "heaviside",   "amplitude": 1.0, "noise_level": 0.5},
+    # Heaviside with per-transition amplitude resampling (no persistent
+    # per-column gain). Filename token: 'heaviside_var'.
+    {"kind": "heaviside",   "amplitude": 1.0, "noise_level": 0.0,
+     "resample_amplitude_per_transition": True},
+    # Constant DC step — pure V_rest probe. No time variation, no kernel
+    # breaking, no column decorrelation; at steady state v_i → V_rest_i +
+    # (synaptic + opto)/leak. Tests whether biophysical-parameter recovery
+    # is a third independent mechanism. Filename token: 'dc_05'.
+    {"kind": "constant",    "amplitude": 0.5, "noise_level": 0.0},
 ]
 
 
@@ -122,16 +136,25 @@ def _waveform_suffix(wf: dict) -> str:
     """Compact filename-friendly tag for a waveform.
 
     white_noise        → noise-level token alone (e.g. '05')
-    heaviside (no nl)  → 'heaviside'
+    heaviside (no nl)  → 'heaviside' (or 'heaviside_var' if amplitude
+                          is resampled at every transition)
     heaviside (+ nl>0) → 'heaviside_<noise_token>' (e.g. 'heaviside_05')
-    impulse / video / constant → the kind name itself.
+                          ('heaviside_var_<noise_token>' if resampled)
+    constant           → 'dc_<amplitude_token>' (e.g. amplitude=0.5 → 'dc_05')
+    impulse / video    → the kind name itself.
     """
     kind = wf["kind"]
     nl = float(wf.get("noise_level", 0.0) or 0.0)
     if kind == "white_noise":
         return _noise_token(nl)
-    if kind == "heaviside" and nl > 0.0:
-        return f"heaviside_{_noise_token(nl)}"
+    if kind == "heaviside":
+        base = "heaviside_var" if wf.get("resample_amplitude_per_transition") else "heaviside"
+        if nl > 0.0:
+            return f"{base}_{_noise_token(nl)}"
+        return base
+    if kind == "constant":
+        amp = float(wf.get("amplitude", 0.0) or 0.0)
+        return f"dc_{_noise_token(amp)}"
     return kind
 
 
@@ -152,6 +175,10 @@ def build_opto_block(target_tag: str, cell_types: list[str], waveform: dict) -> 
             "amplitude": waveform["amplitude"],
             "noise_level": waveform["noise_level"],
             "seed": 42,
+            **(
+                {"resample_amplitude_per_transition": True}
+                if waveform.get("resample_amplitude_per_transition") else {}
+            ),
         },
     }
 
