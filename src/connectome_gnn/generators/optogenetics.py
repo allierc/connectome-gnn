@@ -209,9 +209,23 @@ def build_waveform(
                                     dtype=torch.float32, device=device)
                          < p_flip)
                 state01 = torch.cumsum(flips.to(torch.int32), dim=0) % 2
-                col_amps = torch.rand(n_targets, generator=g,
-                                      dtype=torch.float32, device=device)
-                base = state01.float() * col_amps[None, :]
+                if getattr(waveform, 'resample_amplitude_per_transition', False):
+                    # Fresh U(0,1) gain per (column, segment), where a
+                    # "segment" is the run between two consecutive flips.
+                    # Removes the persistent column-identity label (fixed
+                    # gain across the whole trajectory) while keeping the
+                    # column-distinct telegraph timing — isolates temporal
+                    # decorrelation from the persistent-gain mechanism.
+                    seg_id = torch.cumsum(flips.to(torch.int64), dim=0)
+                    max_seg = int(seg_id.max().item()) + 1
+                    seg_amps = torch.rand(max_seg, n_targets, generator=g,
+                                          dtype=torch.float32, device=device)
+                    col_amps_t = torch.gather(seg_amps, 0, seg_id)
+                    base = state01.float() * col_amps_t
+                else:
+                    col_amps = torch.rand(n_targets, generator=g,
+                                          dtype=torch.float32, device=device)
+                    base = state01.float() * col_amps[None, :]
             else:
                 period = 2 * frames_on
                 on_mask = (torch.arange(n_frames, device=device) % period) < frames_on

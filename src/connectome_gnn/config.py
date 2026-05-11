@@ -229,6 +229,15 @@ class OptoWaveform(BaseModel):
     # Set to 0 for a one-shot DC step (always ON).
     frames_on: int = 35
 
+    # heaviside-only (column_distinct=True): if False (default), each column
+    # draws a single per-column gain ~U(0,1) at simulation start and that
+    # gain persists for the entire trajectory (column-identity label). If
+    # True, a fresh per-column amplitude ~U(0,1) is drawn at every flip,
+    # so the per-column gain varies across ON intervals — removes the
+    # column-fingerprint and isolates the temporal-decorrelation effect
+    # from the persistent-gain effect.
+    resample_amplitude_per_transition: bool = False
+
     # impulse-only
     pulse_width_frames: int = 5
     pulse_period_frames: int = 50

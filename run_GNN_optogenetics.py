@@ -10,9 +10,13 @@ Pre-requisite: the corresponding dataset must already exist at
 (Run run_generate_optogenetics.py first.)
 
 Usage:
-    python run_GNN_optogenetics.py                  # submit all to LSF (default)
+    python run_GNN_optogenetics.py                  # train + test + plot (default)
     python run_GNN_optogenetics.py --cv00-only      # cv00 only
     python run_GNN_optogenetics.py --retrain        # wipe models/ and retrain
+    python run_GNN_optogenetics.py --skip-test-plot # train only — no rollout/plot
+    python run_GNN_optogenetics.py --replot         # rerun plot/metrics only
+    python run_GNN_optogenetics.py --retest         # rerun rollout only
+    python run_GNN_optogenetics.py --redo-all       # wipe + retrain + retest + replot
     python run_GNN_optogenetics.py --max-parallel 80 --cluster l4
 
 ═══════════════════════════════════════════════════════════════════════════
@@ -196,9 +200,13 @@ Pre-requisite: the corresponding dataset must already exist at
 (Run run_generate_optogenetics.py first.)
 
 Usage:
-    python run_GNN_optogenetics.py                  # submit all to LSF (default)
+    python run_GNN_optogenetics.py                  # train + test + plot (default)
     python run_GNN_optogenetics.py --cv00-only      # cv00 only
     python run_GNN_optogenetics.py --retrain        # wipe models/ and retrain
+    python run_GNN_optogenetics.py --skip-test-plot # train only — no rollout/plot
+    python run_GNN_optogenetics.py --replot         # rerun plot/metrics only
+    python run_GNN_optogenetics.py --retest         # rerun rollout only
+    python run_GNN_optogenetics.py --redo-all       # wipe + retrain + retest + replot
     python run_GNN_optogenetics.py --max-parallel 80 --cluster l4
 
 
@@ -214,7 +222,9 @@ sys.path.insert(0, os.path.join(REPO_ROOT, 'src'))
 sys.path.insert(0, os.path.join(REPO_ROOT, 'scripts'))
 
 from connectome_gnn.config import NeuralGraphConfig  # noqa: E402
-from connectome_gnn.cross.pipeline import submit_training_wave  # noqa: E402
+from connectome_gnn.cross.pipeline import (  # noqa: E402
+    submit_test_plot_wave, submit_training_wave,
+)
 from connectome_gnn.cross.summary_md import (  # noqa: E402
     COLUMNS, _collect_fold, _fmt_cell, _fmt_meansd,
 )
@@ -234,11 +244,30 @@ parser.add_argument('--runtime-min', type=int, default=2880,
                     help='Cluster runtime cap in minutes (default 2880 = 48h).')
 parser.add_argument('--retrain', action='store_true',
                     help='Wipe models/, results/, tmp_training/ per fold and retrain.')
+parser.add_argument('--retest', action='store_true',
+                    help='Re-run TEST (rollout): wipe results_rollout.log per '
+                         'fold and rerun data_test. Independent of --retrain '
+                         'and --replot.')
+parser.add_argument('--replot', action='store_true',
+                    help='Re-run PLOT (parameter scatters + metrics): wipe '
+                         'results/metrics.txt per fold and rerun data_plot. '
+                         'Independent of --retrain and --retest.')
+parser.add_argument('--redo-all', dest='redo_all', action='store_true',
+                    help='Shortcut for --retrain --retest --replot.')
+parser.add_argument('--skip-test-plot', dest='skip_test_plot', action='store_true',
+                    help='Submit the training wave only — suppress the '
+                         'test+plot wave entirely. Combine with --retrain to '
+                         'retrain from scratch without immediately rolling '
+                         'out / plotting the new model.')
 parser.add_argument('--max-parallel', type=int, default=128,
                     help='Maximum (cond, fold) jobs to submit per wave; each '
                          'wave blocks until it finishes before the next submits. '
                          'Default 128 (gpu_l4 has higher throughput than a100).')
 args = parser.parse_args()
+
+force_train = bool(args.retrain or args.redo_all)
+force_test  = bool(args.retest  or args.redo_all)
+force_plot  = bool(args.replot  or args.redo_all)
 
 
 try:
@@ -388,6 +417,14 @@ TARGETS = [
                    #   amplitude-only regime is a real and reproducible
                    #   experimental signature.
                    # Biological: NOT a T4 input.
+
+    'Lawf2',       # null_dim=1,040 — has degenerate groups but ZERO outgoing
+                   #   edges. Pure null control: perturbation cannot propagate
+                   #   to any postsynaptic cell. Stronger than retina/05
+                   #   (which still has lever-2 column-decorrelation available);
+                   #   Lawf2 has neither lever by construction.
+                   # Predicted: ΔR²_W = 0 across all metrics. Falsification
+                   #   test for both levers.
 ]
 
 
@@ -427,9 +464,13 @@ WAVEFORMS = [
     '05',            # white_noise, σ = 0.5  (matches flyvis_noise_05 convention)
     'heaviside',     # 35 ON / 35 OFF stochastic square wave (column-distinct)
     'heaviside_05',  # heaviside + white-noise σ = 0.5 layered on top
+    'dc_05',         # constant DC step, amplitude=0.5 — pure V_rest probe
 ]
 
 CONDITIONS = [f'{t}_{w}' for t in TARGETS for w in WAVEFORMS]
+# Per-transition-resampled heaviside (retina-only). See
+# run_generate_optogenetics.py for rationale.
+CONDITIONS += ['retina_heaviside_var']
 
 
 _DS_REQUIRED = (
@@ -467,60 +508,93 @@ def _is_trained(config_file: str) -> bool:
     ))
 
 
+def _build_section(parent_dir: str, base_name: str, heading: str) -> str | None:
+    """Build one Markdown section (table + per-fold log list) for the
+    given log-dir basename, or return None if no fold dir exists."""
+    fold_dirs, fold_data = [], []
+    for i in FOLDS:
+        fd = os.path.join(parent_dir, f'{base_name}_cv{i:02d}')
+        if os.path.isdir(fd):
+            fold_dirs.append(fd)
+            fold_data.append(_collect_fold(fd))
+    if not fold_dirs:
+        return None
+    lines = [heading, '',
+             f'**Log dir:** `{parent_dir}/{base_name}_cv*`', '']
+    headers = ['Fold'] + [label for _, label, _ in COLUMNS]
+    lines.append('| ' + ' | '.join(headers) + ' |')
+    lines.append('|' + '|'.join(['---'] * len(headers)) + '|')
+    for fd, vals in zip(fold_dirs, fold_data):
+        cv_tag = os.path.basename(fd).rsplit('_', 1)[-1]
+        cells = [cv_tag] + [_fmt_cell(vals[k], fmt) for k, _, fmt in COLUMNS]
+        lines.append('| ' + ' | '.join(cells) + ' |')
+    summary_cells = ['**mean ± SD**']
+    for k, _, fmt in COLUMNS:
+        summary_cells.append('**' + _fmt_meansd([v[k] for v in fold_data], fmt) + '**')
+    lines.append('| ' + ' | '.join(summary_cells) + ' |')
+    lines.extend(['', '<details><summary>Per-fold log directories</summary>', ''])
+    for fd in fold_dirs:
+        lines.append(f'- `{fd}`')
+    lines.extend(['', '</details>'])
+    return '\n'.join(lines)
+
+
+# No-opto baseline log-dir basename. Models are trained by
+# run_GNN_unified_blank50.py and live at
+# <output_root>/log/fly/flyvis_noise_free_blank50_unified_cv{XX}.
+# We READ those metrics here (no retraining) so the opto summary table
+# carries a single matched-baseline row at the top for ΔR² eyeballing.
+BASELINE_LOG_BASENAME = 'flyvis_noise_free_blank50_unified'
+
+
 def _emit_opto_summary_md():
     """Write <output_root>/log/cv_blank50_opto_summary.md.
 
     Mirrors connectome_gnn.cross.summary_md.emit_summary_md but iterates
     over our per-condition opto log dirs (which are not in CONDITION_BASES).
+    Prepends a no-opto baseline section read from the unified-blank50 logs
+    so opto rows can be eyeballed against the matched baseline directly.
     Per-fold metrics are pulled from results/metrics.txt + results_test.log
     + results_rollout.log; folds without those artefacts render as '–'.
     Safe to call repeatedly — overwrites the file in place.
     """
     parent_dir = os.path.join(OUTPUT_ROOT, 'log', 'fly')
     sections = []
+
+    # Baseline first (read-only — never touched by the training loop).
+    baseline = _build_section(
+        parent_dir, BASELINE_LOG_BASENAME,
+        heading='## baseline: no-opto (`flyvis_noise_free_blank50_unified`)',
+    )
+    if baseline is not None:
+        sections.append(baseline)
+
     for cond in CONDITIONS:
         base_name = f'flyvis_noise_free_blank50_opto_{cond}'
-        fold_dirs, fold_data = [], []
-        for i in FOLDS:
-            fd = os.path.join(parent_dir, f'{base_name}_cv{i:02d}')
-            if os.path.isdir(fd):
-                fold_dirs.append(fd)
-                fold_data.append(_collect_fold(fd))
-        if not fold_dirs:
-            continue
-        lines = [f'## opto: `{cond}`', '',
-                 f'**Log dir:** `{parent_dir}/{base_name}_cv*`', '']
-        headers = ['Fold'] + [label for _, label, _ in COLUMNS]
-        lines.append('| ' + ' | '.join(headers) + ' |')
-        lines.append('|' + '|'.join(['---'] * len(headers)) + '|')
-        for fd, vals in zip(fold_dirs, fold_data):
-            cv_tag = os.path.basename(fd).rsplit('_', 1)[-1]
-            cells = [cv_tag] + [_fmt_cell(vals[k], fmt) for k, _, fmt in COLUMNS]
-            lines.append('| ' + ' | '.join(cells) + ' |')
-        summary_cells = ['**mean ± SD**']
-        for k, _, fmt in COLUMNS:
-            summary_cells.append('**' + _fmt_meansd([v[k] for v in fold_data], fmt) + '**')
-        lines.append('| ' + ' | '.join(summary_cells) + ' |')
-        lines.extend(['', '<details><summary>Per-fold log directories</summary>', ''])
-        for fd in fold_dirs:
-            lines.append(f'- `{fd}`')
-        lines.extend(['', '</details>'])
-        sections.append('\n'.join(lines))
+        sec = _build_section(parent_dir, base_name,
+                             heading=f'## opto: `{cond}`')
+        if sec is not None:
+            sections.append(sec)
 
     out_dir = os.path.join(OUTPUT_ROOT, 'log')
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, 'cv_blank50_opto_summary.md')
+    n_opto = len(sections) - (1 if baseline is not None else 0)
     with open(out_path, 'w') as f:
         f.write('# CV summary — `blank50_opto`\n\n')
         f.write(f'**Output root:** `{OUTPUT_ROOT}`\n\n')
-        f.write(f'**Conditions found:** {len(sections)} '
+        f.write(f'**Baseline:** {"present" if baseline is not None else "_missing_"}'
+                f' (`{BASELINE_LOG_BASENAME}`)\n\n')
+        f.write(f'**Opto conditions found:** {n_opto} '
                 f'(of {len(CONDITIONS)} declared)\n\n')
         if not sections:
             f.write('_No matching log directories found._\n')
         else:
             f.write('\n\n'.join(sections))
             f.write('\n')
-    print(f'  [md  ] {out_path}  ({len(sections)} condition(s))')
+    print(f'  [md  ] {out_path}  '
+          f'({"baseline + " if baseline is not None else ""}'
+          f'{n_opto} opto condition(s))')
     return out_path
 
 
@@ -554,13 +628,81 @@ def _screen():
                 cfg.dataset = 'fly/' + cfg.dataset
             if not cfg.config_file.startswith('fly/'):
                 cfg.config_file = 'fly/' + cfg.config_file
-            if not args.retrain and _is_trained(cfg.config_file):
+            if not force_train and _is_trained(cfg.config_file):
                 trained.append(out_ds)
                 per_cond[cond]['trained'] += 1
                 continue
             per_cond[cond]['ready'] += 1
             yt_cfgs.append(cfg)
     return yt_cfgs, trained, partial, missing, per_cond
+
+
+def _has_rollout_and_metrics(config_file: str) -> bool:
+    """True iff results_rollout.log AND results/metrics.txt both exist.
+
+    Mirrors submit_test_plot_wave's per-fold skip check (pipeline.py:328-332)
+    so the outer wave count reflects actual work, not just trained-ness.
+    """
+    yt_log_dir = log_path(config_file)
+    return (os.path.exists(os.path.join(yt_log_dir, 'results_rollout.log'))
+            and os.path.exists(os.path.join(yt_log_dir, 'results', 'metrics.txt')))
+
+
+def _training_complete(config_file: str) -> bool:
+    """True iff the `_complete` sentinel exists at the log dir root.
+
+    Periodic checkpoint saves drop a best_model_with_*.pt as soon as training
+    starts, so _is_trained() (which only checks for that file) reports True
+    even for a 480k-iter partial run that was killed mid-flight. The
+    `_complete` sentinel is only written when training finishes the full
+    target iteration count, so it's the right signal for "ready to test+plot".
+    """
+    return os.path.exists(os.path.join(log_path(config_file), '_complete'))
+
+
+def _collect_trained_cfgs(force_test: bool = False, force_plot: bool = False):
+    """Return cfgs for every (cond, fold) whose dataset is complete AND
+    training finished (has the `_complete` sentinel) AND still needs test
+    or plot work.
+
+    Skips:
+      • partial trainings (best_model present but no `_complete` sentinel)
+      • folds where results_rollout.log + results/metrics.txt both exist
+        (unless --retest or --replot — same condition as the per-fold skip
+        inside submit_test_plot_wave).
+    Hoisting the skip up here means the outer wave-count summary reflects
+    real work, not 'eligible' work."""
+    cfgs = []
+    skipped_partial = 0
+    skipped_done = 0
+    for cond in CONDITIONS:
+        for fold in FOLDS:
+            out_ds = fold_dataset_name(cond, fold)
+            if _dataset_status(out_ds) != 'complete':
+                continue
+            yaml_path = emit_fold_yaml(cond, fold)
+            cfg = NeuralGraphConfig.from_yaml(yaml_path)
+            if not cfg.dataset.startswith('fly/'):
+                cfg.dataset = 'fly/' + cfg.dataset
+            if not cfg.config_file.startswith('fly/'):
+                cfg.config_file = 'fly/' + cfg.config_file
+            if not _is_trained(cfg.config_file):
+                continue
+            if not _training_complete(cfg.config_file):
+                skipped_partial += 1
+                continue
+            if (not force_test and not force_plot
+                    and _has_rollout_and_metrics(cfg.config_file)):
+                skipped_done += 1
+                continue
+            cfgs.append(cfg)
+    if skipped_partial:
+        print(f'  [skip] {skipped_partial} fold(s) have a checkpoint but no '
+              f'`_complete` sentinel (partial / killed training)')
+    if skipped_done:
+        print(f'  [skip] {skipped_done} fold(s) already have results_rollout.log '
+              f'+ results/metrics.txt (use --retest or --replot to redo)')
+    return cfgs
 
 
 def _print_screen(yt_cfgs, trained, partial, missing, per_cond, n_total):
@@ -636,9 +778,46 @@ while True:
         output_root=OUTPUT_ROOT,
         node_name=args.cluster,
         hard_runtime_limit_min=args.runtime_min,
-        force_train=args.retrain,
+        force_train=force_train,
     )
     attempted.update(c.config_file for c in chunk)
     # Refresh the markdown after each wave so progress is visible without
     # waiting for the full sweep to finish.
     _emit_opto_summary_md()
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Test + plot wave — runs after all training is done (or skipped if
+# --skip-test-plot). Produces results/metrics.txt + results_test.log +
+# results_rollout.log per fold, which the summary markdown reads from.
+# Mirrors run_GNN_unified_blank50.py's --retest / --replot / --redo-all
+# semantics.
+# ──────────────────────────────────────────────────────────────────────────
+if args.skip_test_plot:
+    print('\n[skip] test+plot wave suppressed (--skip-test-plot).')
+else:
+    plot_cfgs = _collect_trained_cfgs(force_test=force_test, force_plot=force_plot)
+    if not plot_cfgs:
+        print('\n[test+plot] no trained folds eligible — nothing to do.')
+    else:
+        n_chunks = (len(plot_cfgs) + wave_size - 1) // wave_size
+        print(f'\n=== test+plot: {len(plot_cfgs)} trained fold(s) in '
+              f'{n_chunks} wave(s) of ≤{wave_size} '
+              f'(queue=gpu_{args.cluster}, runtime≤{args.runtime_min}min, '
+              f'force_test={force_test}, force_plot={force_plot}) ===')
+        for i in range(0, len(plot_cfgs), wave_size):
+            chunk = plot_cfgs[i:i + wave_size]
+            wave_no = i // wave_size + 1
+            print(f'\n--- test+plot wave {wave_no}/{n_chunks}: '
+                  f'{len(chunk)} job(s) ---')
+            submit_test_plot_wave(
+                yt_cfgs=chunk,
+                output_root=OUTPUT_ROOT,
+                node_name=args.cluster,
+                hard_runtime_limit_min=args.runtime_min,
+                force_test=force_test,
+                force_plot=force_plot,
+            )
+            # Refresh the markdown after each test+plot wave so partial
+            # results are visible while later waves are still running.
+            _emit_opto_summary_md()

@@ -168,6 +168,14 @@ TARGETS = [
                    #   amplitude-only regime is a real and reproducible
                    #   experimental signature.
                    # Biological: NOT a T4 input.
+
+    'Lawf2',       # null_dim=1,040 — has degenerate groups but ZERO outgoing
+                   #   edges. Pure null control: perturbation cannot propagate
+                   #   to any postsynaptic cell. Stronger than retina/05
+                   #   (which still has lever-2 column-decorrelation available);
+                   #   Lawf2 has neither lever by construction.
+                   # Predicted: ΔR²_W = 0 across all metrics. Falsification
+                   #   test for both levers.
 ]
 
 
@@ -207,10 +215,17 @@ IDENTIFIABLE_TYPES = [
 WAVEFORMS = [
     '05',            # white_noise, σ = 0.5  (matches flyvis_noise_05 convention)
     'heaviside',     # 35 ON / 35 OFF stochastic square wave (column-distinct)
-    'heaviside_05',  # heaviside + white-noise σ = 0.5 layered on top
+    'heaviside_05'  # heaviside + white-noise σ = 0.5 layered on top
+    # 'dc_05',         # constant DC step, amplitude=0.5 — pure V_rest probe
 ]
 
 CONDITIONS = [f'{t}_{w}' for t in TARGETS for w in WAVEFORMS]
+# Per-transition-resampled heaviside (no persistent column gain): retina-only
+# variant for testing the column-identity hypothesis. Adds a single condition
+# rather than a full target × waveform cross product because the resample
+# variant is meant to *break* the per-column fingerprint that retina's
+# regular heaviside provides — see optogenetics.py heaviside generator.
+CONDITIONS += ['retina_heaviside_var']
 
 
 try:

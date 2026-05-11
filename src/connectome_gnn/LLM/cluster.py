@@ -442,7 +442,7 @@ def _print_training_metrics(log_dirs, slots_active, prefix='  [metrics]'):
     that the runners enumerate yt_cfgs in CV-fold order). Each block is
     preceded by a `[summary]` line showing the mean ± SD of W R² over the
     folds present in this dump."""
-    # First pass: pull per-slot metrics + cfg_tag + condition.
+    # First pass: pull per-slot metrics + cfg_tag + condition + iter_str.
     rows = []
     for slot in slots_active:
         log_dir = log_dirs.get(slot)
@@ -450,14 +450,28 @@ def _print_training_metrics(log_dirs, slots_active, prefix='  [metrics]'):
             continue
         cfg_tag = os.path.basename(log_dir.rstrip('/'))
         cond = re.sub(r'_cv\d+$', '', cfg_tag)
+        tm = _read_latest_training_metrics(log_dir)
+        iter_str = ''
+        if tm is not None:
+            total = _read_total_iter(log_dir)
+            if total is not None:
+                iter_str = f"iter={_fmt_count(tm['iter'])}/{_fmt_count(total)}"
+            else:
+                iter_str = f"iter={_fmt_count(tm['iter'])}"
         rows.append({'slot': slot, 'log_dir': log_dir, 'cfg_tag': cfg_tag,
-                     'cond': cond, 'tm': _read_latest_training_metrics(log_dir)})
+                     'cond': cond, 'tm': tm, 'iter_str': iter_str})
     if not rows:
         return
 
-    # Pad cfg_tag (and the matching condition column on summary lines) so
-    # every iter= / R²W= column aligns across both slot rows and headers.
-    tag_w = max(len(r['cfg_tag']) for r in rows)
+    # Pad cfg_tag, slot text, and iter_str so the R²W column lines up across
+    # every row — including the [summary] header, which uses an empty
+    # placeholder of width (slot_w + 2 + tag_w + 2 + iter_w) so its R²W lands
+    # at the same offset as the per-fold metrics rows below it.
+    tag_w  = max(len(r['cfg_tag']) for r in rows)
+    slot_w = max(len(f"slot {r['slot']}") for r in rows)
+    iter_w = max((len(r['iter_str']) for r in rows if r['iter_str']),
+                 default=0)
+    summary_lhs_w = slot_w + 2 + tag_w + 2 + iter_w
 
     groups = {}
     for r in rows:
@@ -493,11 +507,13 @@ def _print_training_metrics(log_dirs, slots_active, prefix='  [metrics]'):
         m, sd, n = group_stats[cond]
         # Per-condition summary header (skip when only a single run is present
         # — the per-slot row already shows that value, so a header would just
-        # repeat it).
+        # repeat it). The cond placeholder is padded to summary_lhs_w so the
+        # `R²W =` token lands at the same column as `R²W=` on the rows below.
         n_folds = len(rs)
         if n_folds > 1 and n > 0:
-            print(f"  [summary] {cond:<{tag_w}}  "
-                  f"R²W = {_r2_color(m)}{m:.3f}{_ANSI_RESET} ± {sd:.3f}  "
+            lhs = cond.ljust(summary_lhs_w)
+            print(f"  [summary] {lhs}  "
+                  f"{_r2_color(m)}R²W = {m:.3f} ± {sd:.3f}{_ANSI_RESET}  "
                   f"(n={n}/{n_folds})")
 
         for r in rs:
@@ -526,13 +542,9 @@ def _print_training_metrics(log_dirs, slots_active, prefix='  [metrics]'):
                 if tm['anc'] is not None:
                     nnr_str += f"({tm['anc']:.3f})"
                 parts.append(f"{_r2_color(tm['hid'], thresholds=(0.5, 0.3, 0.1))}{nnr_str}{_ANSI_RESET}")
-            total = _read_total_iter(log_dir)
-            if total is not None:
-                iter_str = f"iter={_fmt_count(tm['iter'])}/{_fmt_count(total)}"
-            else:
-                iter_str = f"iter={_fmt_count(tm['iter'])}"
-            print(f"{prefix} slot {slot}  {cfg_tag:<{tag_w}}  {iter_str}  "
-                  + '  '.join(parts))
+            slot_text = f"slot {slot}"
+            print(f"{prefix} {slot_text:<{slot_w}}  {cfg_tag:<{tag_w}}  "
+                  f"{r['iter_str']:<{iter_w}}  " + '  '.join(parts))
 
 
 def wait_for_cluster_jobs_with_metrics(job_ids, log_dirs, poll_interval=60,

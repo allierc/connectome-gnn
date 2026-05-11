@@ -1,8 +1,11 @@
 #!/usr/bin/env python
 """
-structural_nullspace_table.py
-==============================
-Unified script for the structural null-space section of the paper.
+flyvis_nullspace.py
+====================
+Structural null-space analysis for the flyvis (7-column) connectome.
+
+Companion script: flywire_nullspace.py — same Step-2/Step-3 computation
+applied to the hybrid-flywire (full-eye) connectome.
 
 Replaces these four old scripts:
   - generate_degenerate_W.py          (variant generation, heavy disk I/O)
@@ -822,10 +825,15 @@ def main():
             print(f"\n    WARNING: type {t} ({type_names[t]}) rollout failed: {ex}")
             type_results[t] = {"conn_r2": None, "pearson_r": None, "ok": False}
 
-    # Print summary table to console
+    # Print summary table to console, sorted by R²_W ascending (failed rows last)
     print(f"\n  {'Type':>4}  {'Name':<12}  {'R²_W':>6}  {'Pearson r':>9}")
     print(f"  {'-'*40}")
-    for t in degenerate_types:
+    sorted_types = sorted(
+        degenerate_types,
+        key=lambda t: (not type_results[t]["ok"],
+                       type_results[t]["conn_r2"] if type_results[t]["ok"] else float("inf")),
+    )
+    for t in sorted_types:
         r = type_results[t]
         name = type_names[t] if t < len(type_names) else f"type_{t}"
         if r["ok"]:
