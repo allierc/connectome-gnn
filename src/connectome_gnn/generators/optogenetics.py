@@ -439,6 +439,41 @@ def add_optogenetics_stimulus(config) -> None:
     ode, edge_index = _build_flyvis_ode(state_dict, neuron_types, model_type, device)
 
     n_neurons = int(neuron_types.numel())
+
+    # Calcium kernel setup (mirrors graph_data_generator._run_ode_generation).
+    # When calcium_type == "kernel", maintain a per-neuron voltage-history buffer
+    # and compute state.calcium = sum_k K[k] * V[t-k] each step. y = dC/dt
+    # replaces dV/dt as the supervision target.
+    calcium_kernel = None
+    trace_neuron_idx: list[int] = []
+    trace_labels: list[str] = []
+    TRACE_MAX_FRAMES = 1500
+    if sim.calcium_type == "kernel":
+        from connectome_gnn.generators.gcamp_kernel import (
+            build_kernel_from_config,
+            select_reference_neurons,
+        )
+        calcium_kernel = build_kernel_from_config(sim, device=device)
+        trace_neuron_idx, trace_labels = select_reference_neurons(neuron_types)
+
+        # Diagnostic K(t) plot at the dataset root, matching the source layout.
+        import matplotlib
+        import matplotlib.pyplot as plt
+        t_axis = np.arange(calcium_kernel.shape[0]) * sim.calcium_kernel_dt_seconds
+        fig, ax = plt.subplots(figsize=(5, 3))
+        ax.plot(t_axis, calcium_kernel.cpu().numpy(), color="tab:blue")
+        ax.set_xlabel("time (s)", fontsize=8)
+        ax.set_ylabel("K(t)", fontsize=8)
+        ax.set_title(
+            f"{sim.calcium_kernel_variant} kernel "
+            f"(tau_r={sim.calcium_kernel_tau_rise:.3f}s, "
+            f"tau_d={sim.calcium_kernel_tau_decay:.3f}s)",
+            fontsize=8,
+        )
+        ax.tick_params(axis="both", labelsize=6)
+        fig.tight_layout()
+        fig.savefig(os.path.join(target_root, "kernel.png"), dpi=120)
+        plt.close(fig)
     if sim.n_neurons not in (0, n_neurons):
         log.warning(
             f"config.simulation.n_neurons ({sim.n_neurons}) "
@@ -496,6 +531,19 @@ def add_optogenetics_stimulus(config) -> None:
             noise=torch.zeros(n_neurons, dtype=torch.float32, device=device),
         )
 
+        # Per-split kernel state (voltage history + trace buffers).
+        v_hist = None
+        v_trace_buf: list = []
+        ca_trace_buf: list = []
+        if calcium_kernel is not None:
+            v_hist = torch.zeros(
+                (n_neurons, calcium_kernel.shape[0]),
+                dtype=torch.float32,
+                device=device,
+            )
+            state.calcium = torch.zeros(n_neurons, dtype=torch.float32, device=device)
+            state.fluorescence = torch.zeros(n_neurons, dtype=torch.float32, device=device)
+
         # Per-split opto tensor (T, N) — already allocated on `device` since
         # state.neuron_type lives there.
         opto_full = make_optogenetics_stimulus(
@@ -526,6 +574,7 @@ def add_optogenetics_stimulus(config) -> None:
             n_neurons=n_neurons,
             time_chunks=2000,
             extra_dynamic_fields=['optogenetics_stimulus'],
+            save_calcium=(calcium_kernel is not None),
         )
         y_writer = ZarrArrayWriter(
             path=os.path.join(target_root, f"y_list_{split}"),
@@ -571,9 +620,33 @@ def add_optogenetics_stimulus(config) -> None:
                         n_neurons, dtype=torch.float32, device=device
                     )
 
+                # Calcium kernel: update history with current voltage and
+                # compute state.calcium for the current frame. y = dC/dt
+                # replaces dV/dt as the supervision target in kernel mode.
+                if calcium_kernel is not None:
+                    prev_calcium = state.calcium.clone()
+                    v_hist = torch.roll(v_hist, shifts=1, dims=-1)
+                    v_hist[:, 0] = state.voltage
+                    state.calcium = (v_hist * calcium_kernel).sum(dim=-1)
+                    state.fluorescence = (
+                        sim.calcium_alpha * state.calcium + sim.calcium_beta
+                    )
+                    y_record = ((state.calcium - prev_calcium) / dt).unsqueeze(-1)
+                    if trace_neuron_idx and len(v_trace_buf) < TRACE_MAX_FRAMES:
+                        v_trace_buf.append(
+                            state.voltage[trace_neuron_idx]
+                            .detach().cpu().numpy().copy()
+                        )
+                        ca_trace_buf.append(
+                            state.calcium[trace_neuron_idx]
+                            .detach().cpu().numpy().copy()
+                        )
+                else:
+                    y_record = dv.unsqueeze(-1)
+
                 # 3. Snapshot CURRENT frame.
                 writer.append_state(state)
-                y_writer.append(to_numpy(dv.unsqueeze(-1).clone().detach()))
+                y_writer.append(to_numpy(y_record.clone().detach()))
 
                 # 4. Advance voltage with dynamics noise.
                 if split_noise_model > 0:
@@ -589,6 +662,38 @@ def add_optogenetics_stimulus(config) -> None:
         n_written = writer.finalize()
         y_writer.finalize()
         log.info(f"opto [{split}]: wrote {n_written} frames to {target_split}")
+
+        # Diagnostic calcium-trace plot for the train split, matching the
+        # opto_compare window (frames 500-1500 -> 10000-30000 ms at dt=20ms).
+        if calcium_kernel is not None and v_trace_buf and split == 'train':
+            try:
+                from connectome_gnn.generators.gcamp_kernel import (
+                    plot_voltage_calcium_traces,
+                )
+                v_arr = np.stack(v_trace_buf, axis=0)
+                ca_arr = np.stack(ca_trace_buf, axis=0)
+                TRACE_START, TRACE_END = 500, 1500
+                n_buf = v_arr.shape[0]
+                start = min(TRACE_START, max(0, n_buf - 2))
+                end = min(TRACE_END, n_buf)
+                v_arr = v_arr[start:end]
+                ca_arr = ca_arr[start:end]
+                save_path = os.path.join(target_root, "calcium_trace.png")
+                plot_voltage_calcium_traces(
+                    voltage=v_arr,
+                    calcium=ca_arr,
+                    labels=trace_labels,
+                    dt_seconds=float(sim.calcium_kernel_dt_seconds),
+                    save_path=save_path,
+                    start_frame=start,
+                    title=(
+                        f"{sim.calcium_kernel_variant}: V (left) vs F=V*K "
+                        f"(right) - frames [{start}, {end})"
+                    ),
+                )
+                log.info(f"opto [{split}]: calcium_trace -> {save_path}")
+            except Exception as e:
+                log.warning(f"opto [{split}]: calcium_trace plot failed: {e}")
 
         # Post-generation summary for this split.
         # voltage stats + Δv vs source on the perturbed mask vs the rest.

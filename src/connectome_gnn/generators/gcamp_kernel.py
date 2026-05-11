@@ -16,23 +16,34 @@ Supported variants and their double-exponential parameters:
                    https://doi.org/10.1038/nature12354
                    https://doi.org/10.1016/j.cub.2021.03.004
 
-  "gcamp6s"      — GCaMP6s as deployed for zebrafish whole-brain imaging,
-                   matching the ZAPBench acquisition convention:
+  "gcamp6s"      — H2B-GCaMP6s as used in Ahrens-lab zebrafish whole-brain
+                   imaging predating ZAPBench (e.g. Migault 2018):
                    tau_rise = 300 ms, tau_decay = 3.5 s.
-                   The ZAPBench paper reports "GCaMP6s"; the actual
-                   transgenic line used by the Ahrens/Janelia whole-brain
-                   pipeline is Tg(elavl3:H2B-GCaMP6s) — nuclear-fused — and
-                   the tau values below are the double-exponential fit
-                   measured in that exact preparation by
-                   Migault et al. 2018 Curr Biol (whole-brain light-sheet
-                   imaging of larval zebrafish). Re-fits in
-                   Knafo et al. 2024 bioRxiv give tau_d = 1.78 s for the
-                   faster H2B-GCaMP6f for comparison. The 300 ms rise
-                   corresponds to cytosolic GCaMP6s half-rise ~180 ms
-                   (Chen 2013) plus the additional nuclear-envelope
-                   smoothing of the H2B fusion.
+                   Migault et al. 2018 Curr Biol fit Tg(elavl3:H2B-GCaMP6s)
+                   in whole-brain light-sheet imaging of larval zebrafish.
+                   Knafo et al. 2024 bioRxiv re-fits give tau_d = 1.78 s
+                   for the faster H2B-GCaMP6f. The 300 ms rise corresponds
+                   to cytosolic GCaMP6s half-rise ~180 ms (Chen 2013) plus
+                   nuclear-envelope smoothing.
                    https://doi.org/10.1016/j.cub.2018.10.017
                    https://doi.org/10.1101/2024.03.22.586054
+
+  "gcamp7f"      — H2B-GCaMP7f, the actual ZAPBench acquisition variant
+                   (Tg(elavl3:H2B-GCaMP7f), Lange et al. 2025 arXiv
+                   2503.02618 §Methods):
+                   tau_rise = 150 ms, tau_decay = 1.2 s.
+                   Cytosolic jGCaMP7f has half-rise ~27 ms / half-decay
+                   ~280 ms (Dana et al. 2019 Nat Methods); the H2B fusion
+                   slows both. Zhang et al. 2023 Nature (jGCaMP8 paper)
+                   directly compares H2B-6f / H2B-7f / H2B-8f kinetics in
+                   6-8 dpf larval zebrafish optic tectum (Supp Fig 11F);
+                   H2B-7f sits between H2B-6f (~1.78 s decay) and H2B-6s
+                   (~3.5 s decay). The 1.2 s value used here is a
+                   defensible midpoint pending a finer fit from ZAPBench
+                   data directly.
+                   https://arxiv.org/abs/2503.02618
+                   https://doi.org/10.1038/s41592-019-0435-6
+                   https://doi.org/10.1038/s41586-023-05828-9
 """
 
 from __future__ import annotations
@@ -81,6 +92,7 @@ def gcamp6f_kernel(
 
 _VARIANT_PRESETS: dict[str, dict[str, float]] = {
     "gcamp6f": {"tau_rise": 0.075, "tau_decay": 0.400, "length_seconds":  2.4},
+    "gcamp7f": {"tau_rise": 0.150, "tau_decay": 1.200, "length_seconds":  7.2},
     "gcamp6s": {"tau_rise": 0.300, "tau_decay": 3.500, "length_seconds": 15.0},
 }
 
