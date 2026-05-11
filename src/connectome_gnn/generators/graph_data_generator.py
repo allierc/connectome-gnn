@@ -2010,6 +2010,7 @@ def _run_ode_generation(
     # x.calcium[t] = sum_k K[k] * V[t-k] each step.
     calcium_kernel = None
     v_hist = None
+    stim_hist = None
     trace_neuron_idx: list[int] = []
     trace_labels: list[str] = []
     v_trace_buf: list = []
@@ -2026,6 +2027,14 @@ def _run_ode_generation(
             dtype=torch.float32,
             device=device,
         )
+        # Stimulus history for the calcium-domain excitation channel:
+        # F_stim(t) = (stimulus * K_GCaMP)(t), same kernel as the V->Ca map.
+        stim_hist = torch.zeros(
+            (n_neurons, calcium_kernel.shape[0]),
+            dtype=torch.float32,
+            device=device,
+        )
+        x.stimulus_calcium = torch.zeros(n_neurons, dtype=torch.float32, device=device)
         trace_neuron_idx, trace_labels = select_reference_neurons(x.neuron_type)
         # Save a one-shot diagnostic figure of K(t) at the dataset root.
 
@@ -2327,6 +2336,12 @@ def _run_ode_generation(
                         v_hist[:, 0] = x.voltage
                         x.calcium = (v_hist * calcium_kernel).sum(dim=-1)
                         x.fluorescence = sim.calcium_alpha * x.calcium + sim.calcium_beta
+                        # Same kernel applied to the visual stimulus so the
+                        # excitation channel lives in the same temporal regime
+                        # as the calcium observable (no fast/slow asymmetry).
+                        stim_hist = torch.roll(stim_hist, shifts=1, dims=-1)
+                        stim_hist[:, 0] = x.stimulus
+                        x.stimulus_calcium = (stim_hist * calcium_kernel).sum(dim=-1)
                         y = ((x.calcium - prev_calcium) / sim.delta_t).unsqueeze(-1)
                         if trace_neuron_idx and len(v_trace_buf) < TRACE_MAX_FRAMES:
                             v_trace_buf.append(

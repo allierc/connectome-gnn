@@ -531,8 +531,9 @@ def add_optogenetics_stimulus(config) -> None:
             noise=torch.zeros(n_neurons, dtype=torch.float32, device=device),
         )
 
-        # Per-split kernel state (voltage history + trace buffers).
+        # Per-split kernel state (voltage + stimulus history + trace buffers).
         v_hist = None
+        stim_hist = None
         v_trace_buf: list = []
         ca_trace_buf: list = []
         if calcium_kernel is not None:
@@ -541,8 +542,14 @@ def add_optogenetics_stimulus(config) -> None:
                 dtype=torch.float32,
                 device=device,
             )
+            stim_hist = torch.zeros(
+                (n_neurons, calcium_kernel.shape[0]),
+                dtype=torch.float32,
+                device=device,
+            )
             state.calcium = torch.zeros(n_neurons, dtype=torch.float32, device=device)
             state.fluorescence = torch.zeros(n_neurons, dtype=torch.float32, device=device)
+            state.stimulus_calcium = torch.zeros(n_neurons, dtype=torch.float32, device=device)
 
         # Per-split opto tensor (T, N) — already allocated on `device` since
         # state.neuron_type lives there.
@@ -621,8 +628,10 @@ def add_optogenetics_stimulus(config) -> None:
                     )
 
                 # Calcium kernel: update history with current voltage and
-                # compute state.calcium for the current frame. y = dC/dt
-                # replaces dV/dt as the supervision target in kernel mode.
+                # compute state.calcium for the current frame. Same kernel is
+                # applied to the visual stimulus so the excitation channel
+                # lives in the same temporal regime. y = dC/dt replaces dV/dt
+                # as the supervision target in kernel mode.
                 if calcium_kernel is not None:
                     prev_calcium = state.calcium.clone()
                     v_hist = torch.roll(v_hist, shifts=1, dims=-1)
@@ -631,6 +640,9 @@ def add_optogenetics_stimulus(config) -> None:
                     state.fluorescence = (
                         sim.calcium_alpha * state.calcium + sim.calcium_beta
                     )
+                    stim_hist = torch.roll(stim_hist, shifts=1, dims=-1)
+                    stim_hist[:, 0] = state.stimulus
+                    state.stimulus_calcium = (stim_hist * calcium_kernel).sum(dim=-1)
                     y_record = ((state.calcium - prev_calcium) / dt).unsqueeze(-1)
                     if trace_neuron_idx and len(v_trace_buf) < TRACE_MAX_FRAMES:
                         v_trace_buf.append(

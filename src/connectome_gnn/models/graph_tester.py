@@ -230,6 +230,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
         load_fields.append('pos')
     if sim.calcium_type != 'none':
         load_fields.append('calcium')
+        load_fields.append('stimulus_calcium')
 
     # Load test data (fall back to x_list_0 for backwards compatibility)
     test_path = graphs_data_path(test_ds, 'x_list_test')
@@ -546,6 +547,8 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
             # Set stimulus from rollout data
             frame_k = x_ts_eval.frame(k)
             x.stimulus = frame_k.stimulus.clone()
+            if frame_k.stimulus_calcium is not None:
+                x.stimulus_calcium = frame_k.stimulus_calcium.clone()
             if frame_k.optogenetics_stimulus is not None:
                 x.optogenetics_stimulus = frame_k.optogenetics_stimulus.clone()
             rollout_stim_list.append(to_numpy(x.stimulus))

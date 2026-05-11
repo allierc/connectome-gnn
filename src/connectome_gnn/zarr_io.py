@@ -134,7 +134,7 @@ class ZarrArrayWriter:
         return self._total_frames
 
 
-_DYNAMIC_FIELDS = ['voltage', 'stimulus', 'calcium', 'fluorescence', 'noise']
+_DYNAMIC_FIELDS = ['voltage', 'stimulus', 'stimulus_calcium', 'calcium', 'fluorescence', 'noise']
 _STATIC_FIELDS = ['pos', 'group_type', 'neuron_type']
 
 
@@ -174,8 +174,9 @@ class ZarrSimulationWriterV3:
         self.save_calcium = save_calcium
 
         extras = list(extra_dynamic_fields or [])
+        # stimulus_calcium piggybacks on save_calcium (same kernel produced it).
         base = [f for f in _DYNAMIC_FIELDS
-                if save_calcium or f not in ('calcium', 'fluorescence')]
+                if save_calcium or f not in ('calcium', 'fluorescence', 'stimulus_calcium')]
         # extras append after the canonical fields, dedup-preserving
         self._fields = base + [e for e in extras if e not in base]
         self._static_saved = False
@@ -265,6 +266,11 @@ class ZarrSimulationWriterV3:
         if self.save_calcium:
             self._buffers['calcium'].append(to_numpy(state.calcium).astype(np.float32))
             self._buffers['fluorescence'].append(to_numpy(state.fluorescence).astype(np.float32))
+            sc_val = getattr(state, 'stimulus_calcium', None)
+            self._buffers['stimulus_calcium'].append(
+                to_numpy(sc_val).astype(np.float32) if sc_val is not None
+                else np.zeros(self.n_neurons, dtype=np.float32)
+            )
         noise_val = getattr(state, 'noise', None)
         self._buffers['noise'].append(
             to_numpy(noise_val).astype(np.float32) if noise_val is not None
@@ -273,7 +279,7 @@ class ZarrSimulationWriterV3:
         # Any field beyond the canonical {voltage,stimulus,calcium,fluorescence,noise}
         # was added via extra_dynamic_fields; pull it from the state by name.
         for name in self._fields:
-            if name in ('voltage', 'stimulus', 'calcium', 'fluorescence', 'noise'):
+            if name in ('voltage', 'stimulus', 'stimulus_calcium', 'calcium', 'fluorescence', 'noise'):
                 continue
             val = getattr(state, name, None)
             self._buffers[name].append(

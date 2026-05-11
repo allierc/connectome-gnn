@@ -652,7 +652,14 @@ class NeuralGNN(nn.Module):
         # as visual stimulus. Keeps f_theta input dim unchanged → existing checkpoints
         # remain loadable; opto contributes zero when state.optogenetics_stimulus is None.
         opto = state.optogenetics_stimulus if state.optogenetics_stimulus is not None else 0.0
-        excitation = (state.stimulus + opto).unsqueeze(-1)
+        # In calcium mode, use the kernel-convolved stimulus so the excitation
+        # channel lives in the same temporal regime as the calcium observable.
+        # Falls back to raw stimulus for legacy datasets without the field.
+        if self.calcium_type != "none" and state.stimulus_calcium is not None:
+            stim = state.stimulus_calcium
+        else:
+            stim = state.stimulus
+        excitation = (stim + opto).unsqueeze(-1)
         particle_id = state.index.long()
         embedding = self.a[particle_id]
         if embedding.dim() == 1:

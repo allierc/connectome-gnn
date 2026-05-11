@@ -42,6 +42,7 @@ def determine_load_fields(config):
         fields.append('pos')
     if sim.calcium_type != 'none':
         fields.append('calcium')
+        fields.append('stimulus_calcium')
     if sim.measurement_noise_level > 0:
         fields.append('noise')
     # Datasets generated under optogenetic perturbation carry an additional
