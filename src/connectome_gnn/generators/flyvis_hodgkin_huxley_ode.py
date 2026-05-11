@@ -145,8 +145,9 @@ class FlyVisHodgkinHuxleyODE(nn.Module):
         # Synaptic current (continuous, voltage-dependent)
         I_syn = self._compute_synaptic_current(state)
 
-        # External input
-        I_ext = p.I_bias + p.stim_scale * state.stimulus
+        # External input (visual stimulus + optional optogenetic perturbation)
+        opto = state.optogenetics_stimulus if state.optogenetics_stimulus is not None else 0.0
+        I_ext = p.I_bias + p.stim_scale * state.stimulus + opto
 
         # dv/dt = (-I_Na - I_K - I_L + I_syn + I_ext) / C
         dv = (-I_Na - I_K - I_L + I_syn + I_ext) / p.C

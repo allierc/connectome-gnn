@@ -1,0 +1,1132 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath, amssymb}
+\usepackage{geometry}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{parskip}
+\usepackage{natbib}
+\geometry{margin=2.5cm}
+
+\title{\textbf{Novel GNN Framework\\for Complex Dynamics}}
+\date{\today}
+
+\begin{document}
+\maketitle
+%##############################################################################
+\section{Hidden Dimensions in Neural Circuits}
+%##############################################################################
+
+Neural activity is often recorded as a single variable per neuron
+--- a voltage or a firing rate $x_i(t) \in \mathbb{R}$. This
+representation collapses a richer underlying structure. Synaptic
+transmission involves multiple receptor types with distinct
+timescales, axonal delays make interactions sensitive to past
+activity rather than instantaneous values, neurons adapt over time,
+and neuromodulators such as dopamine or serotonin continuously
+reshape dynamics. Altogether these considerations define
+the computational capacity of the circuit.
+
+This work introduces three extensions that restore this higher-dimensionnal structure
+progressively. Part~I replaces the scalar $x_i(t)$ with a history
+vector $\mathbf{v}_i(t) \in \mathbb{R}^T$ and learns
+receiver-dependent temporal filters, capturing axonal delays and
+multi-timescale synaptic integration. Part~II promotes the
+connectivity to complex values $W_{ij}^{\mathbb{C}} =
+|W_{ij}|e^{i\varphi_{ij}}$, so that a single scalar $\alpha$
+reconfigures all $N^2$ synapses simultaneously to reflect neuromodulation.
+Part~III asks how $W_{ij}^{\mathbb{C}}$ is learned, connecting the
+complex phase structure to behavioral timescale synaptic plasticity
+and the two-compartment morphology of pyramidal neurons.
+
+Together the three parts move from a scalar, static, single-context
+circuit toward a model that integrates history, adapts to context,
+and learns from experience while remaining grounded throughout
+in ODE form with explicit, identifiable parameters.
+
+\newpage
+%##############################################################################
+\part{GNN / Transformer Formulation}
+%##############################################################################
+
+%-----------------------------------------------------------------------
+\section{History Vectors}
+%-----------------------------------------------------------------------
+
+The current framework simulates neural dynamics as:
+\begin{equation}
+\tau_i\frac{dv_i(t)}{dt} = -v_i(t) + V_i^{\text{rest}}
++ \sum_{j\in\mathcal{N}_i} W_{ij}\,
+  \mathrm{ReLU}\!\big(v_j(t)\big)
++ I_i(t)
+\label{eq:sim_current}
+\end{equation}
+
+and learns through:
+\begin{equation}
+\frac{\widehat{dv}_i(t)}{dt}
+= f_\theta\!\Big(
+v_i(t),\,\mathbf{a}_i,\,
+\sum_{j\in\mathcal{N}_i} \hat{W}_{ij}\,
+g_\phi\!\big(v_j(t),\mathbf{a}_j\big)^2,\,
+I_i(t)\Big)
+\label{eq:gnn_current}
+\end{equation}
+
+The limitation is that both equations depend only on the
+\emph{current} scalar value $v_j(t)$. There are no history, no temporal structure, no spatial structure, no dynamic modulation of the receiver. We now consider that each neuron 'carries' a history vector of its last $T$ voltage values:
+\begin{equation}
+\mathbf{v}_i(t) = \bigl[v_i(t),\; v_i(t-1),\; \ldots,\; v_i(t-T+1)\bigr]^\top
+\in \mathbb{R}^T
+\end{equation}
+
+The scalar $v_i(t) = \mathbf{v}_i(t)[0]$ is the first element, so
+the current framework is the special case $T=1$. 
+
+%-----------------------------------------------------------------------
+\section{Updated Equations}
+%-----------------------------------------------------------------------
+
+We can now modify the simulation with per-edge axonal kernel
+$G_{ij} \in \mathbb{R}^T$, and a per-neuron adaptation kernel
+$Q_i \in \mathbb{R}^T$:
+
+\begin{equation}
+\boxed{
+\tau_i\frac{dv_i(t)}{dt} = -v_i(t) + V_i^{\text{rest}}
++ \sigma\!\left(Q_i \cdot \mathbf{v}_i(t)\right)
+\cdot \sum_{j\in\mathcal{N}_i} W_{ij}\,
+  \mathrm{ReLU}\!\left(G_{ij} \cdot \mathbf{v}_j(t)\right)
++ I_i(t)
+}
+\label{eq:sim_new}
+\end{equation}
+In a special case, the temporal kernel can be defined geometrically
+\begin{equation}
+G_{ij}(k) = \exp\!\left(-\frac{\bigl(k - d_{ij}\bigr)^2}{2\sigma_g^2}\right),
+\qquad d_{ij} = \frac{\|r_i - r_j\|}{v\,\Delta t},
+\end{equation}
+that is, a Gaussian centered at the axonal delay expressed in timesteps. In this setting, spatial distance determines the relevant temporal offset, so the filter selects the appropriate portion of the sender's history. 
+
+To learns these new dynamics, we define a new GNN as
+\begin{equation}
+\boxed{
+\frac{\widehat{dv}_i(t)}{dt}
+= f_\theta\!\left(
+\mathbf{v}_i(t),\;\mathbf{a}_i,\;
+q_\psi\!\left(\mathbf{a}_i,\,\mathbf{v}_i(t)\right)
+\cdot \sum_{j\in\mathcal{N}_i}
+\hat{W}_{ij}\;
+g_\phi\!\left(\mathbf{a}_i,\,\mathbf{a}_j,\,\tilde{v}_j(t)\right),\;
+I_i(t)
+\right)
+}
+\label{eq:gnn_new}
+\end{equation}
+
+where the transmitted signal is first reduced to a scalar through a temporal filter
+\begin{equation}
+\tilde{v}_j(t) = h_\xi\!\left(\mathbf{a}_i,\,\mathbf{v}_j(t)\right).
+\end{equation}
+
+The message computation separates into two stages. The function $h_\xi$ extracts the relevant temporal component of the sender's history, conditioned on the receiver, while $g_\phi$ applies a nonlinear transformation that depends on both neurons. These two components are learned independently, allowing temporal filtering and interaction nonlinearities to be modeled separately. The new GNN has now four learnable MLPs:
+
+\begin{center}
+\begin{tabular}{llll}
+\toprule
+MLP & Params & Input dim & Role \\
+\midrule
+$h_\xi$ & $\xi$ & $d_e + T$ 
+& temporal filter (history $\to$ scalar, receiver-dependent) \\
+
+$g_\phi$ & $\phi$ & $2d_e + 1$ 
+& nonlinear message (heterogeneity, $\tilde{v}_j$) \\
+
+$q_\psi$ & $\psi$ & $d_e + T$ 
+& adaptation gate (receiver-dependent modulation) \\
+
+$f_\theta$ & $\theta$ & $T + d_e + 2$ 
+& node update (state + message + input) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+%-----------------------------------------------------------------------
+\section{Relationship to Transformers}
+%-----------------------------------------------------------------------
+
+\subsection{From attention to structured message passing}
+
+The history vector $\mathbf{v}_i \in \mathbb{R}^T$ plays the same
+role as the token embedding $\mathbf{x}_i \in \mathbb{R}^d$ in a
+transformer \citep{vaswani2017}: the raw representation from which
+all projections are computed, with $T$ playing the role of $d$.
+The transformer computes an attention score $s_{ij} \in \mathbb{R}$
+between every pair of tokens, measuring how much token $i$ should
+attend to token $j$, and uses it to aggregate information:
+\begin{equation}
+s_{ij} = q_i^\top k_j, \qquad
+x_i' = \sum_j \mathrm{softmax}_j\!\left(s_{ij}\right)\, v_j,
+\qquad
+q_i = \mathbf{x}_i W_Q,\;
+k_j = \mathbf{x}_j W_K,\;
+v_j = \mathbf{x}_j W_V,
+\label{eq:transformer}
+\end{equation}
+where $W_Q$, $W_K$, $W_V$ are learned projections and interactions
+are fully dense, recomputed for each input. Values and Queries have natural neural counterparts: the transmitted
+signal and receiver-dependent modulation respectively.
+Keys have no direct neural analog: their sole role is to produce
+asymmetric attentions $s_{ij} \neq s_{ji}$. In neural circuits this asymmetry is already
+encoded in the directed connectivity $\hat{W}_{ij} \neq
+\hat{W}_{ji}$, making $W_K$ redundant. The interaction reduces
+to a Query--Value form:
+\begin{equation}
+m_i = q_i \cdot \sum_j \hat{W}_{ij}\, v_j,
+\end{equation}
+where $\hat{W}_{ij}$ directly specifies which signals are transmitted and how strongly they contribute.
+\subsection{From linear projections to nonlinear dynamics}
+
+Replacing linear projections with nonlinear functions and incorporating temporal structure leads to the proposed formulation. Each neuron carries a history vector $\mathbf{v}_i \in \mathbb{R}^T$ and a latent embedding $\mathbf{a}_i$, and interactions take the form
+\begin{equation}
+m_i =
+q_\psi(\mathbf{a}_i,\mathbf{v}_i)
+\cdot
+\sum_j \hat{W}_{ij}\,
+g_\phi(\mathbf{a}_i,\mathbf{a}_j,\tilde{\mathbf{v}}_j),
+\qquad
+\tilde{\mathbf{v}}_j = h_\xi(\mathbf{a}_i,\mathbf{v}_j).
+\end{equation}
+
+The full system is then defined as a continuous-time dynamical process:
+\begin{equation}
+\tau_i \dot{v}_i =
+f_\theta\!\left(
+\mathbf{v}_i,\mathbf{a}_i,\;
+m_i,\;
+I_i(t)
+\right).
+\end{equation}
+
+This formulation introduces three key departures from standard attention: interactions are structured by $\hat{W}_{ij}$, transformations are nonlinear and neuron-dependent, and the model evolves in continuous time. The dynamical state $v_i(t)$ (and its history $\mathbf{v}_i$) provides persistent memory of past activity, whereas the latent embedding $\mathbf{a}_i$ remains fixed and encodes neuron identity.
+
+
+
+\subsection{From attention to geometric to structured interactions}
+
+Euclidean fast attention (EFA) \citep{frank2026efa} occupies an
+intermediate position between the transformer and the GNN: it
+retains dense interactions like the transformer but constrains
+them through geometry rather than learning them freely. The central contribution of EFA is the Euclidean rotary positional encoding (ERoPE), which encodes a position $r \in \mathbb{R}^3$ into a feature vector $x$ via a complex phase factor along direction
+$u \in S^2$:
+\begin{equation}
+\mathrm{ERoPE}_u(x, r) := x \cdot e^{i\omega u \cdot r},
+\label{eq:erope}
+\end{equation}
+where $\omega \in \mathbb{R}$ is a frequency coefficient and
+$u \cdot r$ is the dot product.
+The scalar product of two ERoPE-encoded features contains geometric
+information about the relative displacement between nodes:
+\begin{equation}
+\langle \mathrm{ERoPE}_u(q, r_i),\, \mathrm{ERoPE}_u(k, r_j)\rangle
+= \langle q, k\rangle \cdot e^{i\omega u \cdot (r_i - r_j)}.
+\end{equation}
+This expression depends on the choice of $u$ and is therefore not
+rotationally invariant. Integrating over all directions $u \in S^2$
+resolves this:
+\begin{equation}
+\frac{1}{4\pi}\int_{S^2} e^{i\omega u \cdot r_{ij}}\, du
+= \frac{\sin(\omega r_{ij})}{\omega r_{ij}} = \mathrm{sinc}(\omega r_{ij}),
+\qquad r_{ij} = \|r_i - r_j\|,
+\label{eq:sinc}
+\end{equation}
+yielding a real-valued kernel that depends only on Euclidean distance.
+Combining ERoPE with linear-scaling attention gives the full EFA
+mechanism \citep{frank2026efa}:
+\begin{equation}
+\mathrm{EFA}(\mathcal{X}, \mathcal{R})_i =
+\frac{1}{4\pi}\int_{S^2}
+\phi_u(q_i, r_i)^\top
+\sum_{j=1}^{N} \phi_u(k_j, r_j)\, v_j^\top\, du,
+\label{eq:efa}
+\end{equation}
+where $\phi_u(x, r) := \mathrm{ERoPE}_u(\psi(x), r)$ and $\psi$ is a
+learned feature map. The sum $\sum_j \phi_u(k_j, r_j) v_j^\top$ is
+computed once for all senders independently of $i$, giving
+$\mathcal{O}(N)$ complexity. The effective kernel is
+$A_{ij} = \langle q_i, k_j\rangle \cdot \mathrm{sinc}(\omega r_{ij})$:
+learned similarity modulated by fixed geometric phase.
+
+EFA thus sits between transformer attention, where $A_{ij}$ is
+fully learned, and the GNN, where $A_{ij} = \hat{W}_{ij}$ is
+sparse and anatomically fixed. This motivates a unified view of transformer attention, EFA, and the
+GNN through a common interaction form:
+\begin{equation}
+\text{interaction}_i = \sum_j A_{ij}\, v_j,
+\label{eq:unified}
+\end{equation}
+where the kernel $A_{ij}$ captures how signals from sender $j$
+contribute to receiver $i$:
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+Method & $A_{ij}$ & Phase \\
+\midrule
+Transformer & $\mathrm{softmax}(q_i^\top k_j/\sqrt{d_k})$ &
+  none --- purely learned similarity \\
+EFA \citep{frank2026efa} &
+  $\langle q_i, k_j\rangle \cdot \mathrm{sinc}(\omega\|r_i-r_j\|)$ &
+  fixed by Euclidean geometry \\
+GNN & $\hat{W}_{ij}$ &
+  none --- sparse learned anatomy \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+
+%-----------------------------------------------------------------------
+\section{Discussion of Part I}
+%-----------------------------------------------------------------------
+The mapping between transformer components and cortical anatomy
+has been proposed by \citet{konig2026}, who argue that the laminar
+structure of cortical columns implements transformer-like
+computations, with Queries arriving as top-down feedback to apical
+dendrites, Keys conveyed laterally through L2/3 horizontal
+connections, and Values carried by the L4$\to$L2/3 feedforward
+pathway. The novel proposed GNN framework builds upon this
+correspondence and upon all three models (GNN-ODE, Transformer,
+and EFA) by replacing the linear Q-K-V projections with
+nonlinear, state-dependent MLPs $q_\psi$, $g_\phi$, $h_\xi$,
+and embedding them in continuous-time dynamics. From the bottom
+up, each MLP has a direct biological counterpart: $h_\xi$ accounts
+for the axonal delay kernel, $g_\phi$ the synaptic nonlinearity,
+$q_\psi$ the neural adaptation, and $f_\theta$ the leaky membrane
+integration. From the top down, the GNN framework maps onto the
+cortical column interpretation of \citet{konig2026}: $q_\psi$ is
+the apical-dendritic Query, $h_\xi$ is the Value stream, $g_\phi$
+is the dendritic nonlinearity, and $\hat{W}_{ij}$ absorbs the
+Key pathway.
+
+A further step is to promote the real connectivity $\hat{W}_{ij} \in \mathbb{R}$ to a complex-valued weight $\hat{W}_{ij}^{\mathbb{C}} =
+|\hat{W}_{ij}|\,e^{i\varphi_{ij}}$, where the phase $\varphi_{ij}$
+is learned at the level of each connection. In EFA the phase
+$e^{i\omega u \cdot (r_i - r_j)}$ is fully determined by geometry.
+Here instead $\varphi_{ij}$ is a free parameter: each connection
+learns its own phase, encoding neuromodulatory sensitivity, temporal
+context, or task-dependent reconfiguration beyond what Euclidean
+distance alone can express. This is the subject of Part~II.
+
+\newpage
+%##############################################################################
+\part{GNN with Complex Numbers}
+%##############################################################################
+
+
+\subsection{Complex numbers in neural circuits}
+\label{sec:complex_analysis}
+
+The dynamics of Eq.~\eqref{eq:sim_current} are entirely real-valued, with $x_i(t) \in \mathbb{R}$ and $W_{ij} \in \mathbb{R}$. Nevertheless, complex numbers arise naturally in its analysis. The eigenvalues of $W$ are generically complex: their real parts govern growth or decay, while their imaginary parts determine oscillatory behaviour. Likewise, in dynamical mean-field theory, the spectral properties of the system are characterized by complex poles in the frequency domain. In this sense, complex numbers serve as analytical tools, revealing oscillatory modes, stability regimes, and temporal structure.
+This raises a natural question: should complex numbers remain confined to analysis, or should they be introduced directly into the model? A straightforward approach would be to associate complex phases with oscillatory activity. However, this interpretation is not supported by typical neural recording. We suggests thus a different route: complex values can be used to parameterize interactions between neurons. This perspective motivates the introduction of complex-valued connectivity, where phase encodes properties of the interaction.
+
+\subsection{Rationale for complex numbers: multi-task circuits}
+\label{sec:rationale}
+
+The motivation for $\mathbb{C}$ comes not from the oscillatory structure of the data but from the \textbf{multi-task vs single-circuit problem}: biological circuits must perform multiple computations using one set of anatomical connections. Consider a network with fixed $W \in \mathbb{R}^{N\times N}$ that must perform $K$ tasks. For each task $k$, the optimal connectivity is $W^{*(k)} = \arg\min_W \mathcal{L}_k(W)$. Generically $W^{*(1)} \neq W^{*(2)}$: a single real matrix $W$ cannot simultaneously satisfy all tasks---the circuit is \textbf{underparameterized} relative to its behavioral repertoire.
+
+\textbf{Example: the fly optic lobe.} The \emph{Drosophila} visual system provides a concrete instance. The optic lobe contains a connectome-constrained circuit whose synaptic weights are anatomically fixed. Yet this circuit must simultaneously support:
+(i) \textbf{motion direction selectivity} via T4/T5 neurons (Borst, Haag \& Mauss, 2020);
+(ii) \textbf{ON/OFF edge detection} via L1/L2 pathways (Joesch et al., 2010);
+(iii) \textbf{looming detection} via LC cells (Klapoetke et al., 2017);
+(iv) \textbf{figure--ground discrimination} (Aptekar et al., 2012). Lappalainen et al.\ (Nature, 2024) trained ensembles of connectome-constrained networks on optic flow tasks and found that different ensemble members---sharing the same graph but differing in learned weights---produce different tuning. The same anatomical circuit, optimized for different objectives, yields different effective connectivity matrices. A single real $W$ is insufficient.
+
+\textbf{The multi-task problem} demands a structure that stores multiple effective connectivity patterns in a single object. The minimal such structure is $\mathbb{C}$, namely $W_{ij}^{\mathbb{C}} = W_{ij}^R + iW_{ij}^I$. A context variable $\alpha \in [0, 2\pi)$ selects the effective connectivity via projection onto the real axis:
+\begin{equation}
+W_{ij}^{\text{eff}}(\alpha) = W_{ij}^R\cos\alpha 
+- W_{ij}^I\sin\alpha = \Re\!\left(W_{ij}^{\mathbb{C}}\, 
+e^{-i\alpha}\right).
+\label{eq:weff_preview}
+\end{equation}
+Rewriting the complex weight in polar form, 
+$W_{ij}^{\mathbb{C}} = |W_{ij}|\,e^{i\varphi_{ij}}$, separates anatomy 
+from modulation:
+\begin{equation}
+|W_{ij}| = \sqrt{(W_{ij}^R)^2 + (W_{ij}^I)^2}, \qquad 
+\varphi_{ij} = \arctan\!\left(\frac{W_{ij}^I}{W_{ij}^R}\right).
+\end{equation}
+Substituting into Eq.~\eqref{eq:weff_preview} gives the polar form:
+\begin{equation}
+W_{ij}^{\text{eff}}(\alpha) = |W_{ij}|\cos(\varphi_{ij} - \alpha).
+\label{eq:weff_polar}
+\end{equation}
+The interpretation is the following. $|W_{ij}|$ is the anatomical synapse strength---set by the connectome, fixed across contexts. $\varphi_{ij}$ is the neuromodulatory sensitivity of that synapse.
+And $\alpha$ is a circuit-wide state: one number encoding the current 
+level of a single neuromodulator. When the animal switches context, 
+$\alpha$ shifts, and all $N^2$ synapses update simultaneously---but 
+not identically. Each synapse responds to the broadcast $\alpha$ 
+through its own variable $\varphi_{ij}$, selecting how much of its 
+anatomical capacity is expressed.
+The anatomical strength $|W_{ij}|$ is fixed; the cosine selects how 
+much of it is expressed. Three regimes arise depending on the 
+alignment between the broadcast $\alpha$ and the synapse's antenna 
+$\varphi_{ij}$:
+\begin{itemize}
+\item $\alpha = \varphi_{ij}$: full expression, 
+$W_{ij}^{\text{eff}} = +|W_{ij}|$. The synapse operates at maximum 
+anatomical capacity.
+\item $\alpha = \varphi_{ij} + \pi/2$: silent, 
+$W_{ij}^{\text{eff}} = 0$. The synapse exists anatomically but 
+contributes nothing to the dynamics---it is gated off by the 
+neuromodulatory state.
+\item $\alpha = \varphi_{ij} + \pi$: sign-flipped, 
+$W_{ij}^{\text{eff}} = -|W_{ij}|$. An excitatory synapse becomes 
+effectively inhibitory, or vice versa.
+\end{itemize}
+A circuit with diverse phases $\varphi_{ij}$ therefore contains 
+synapses in all three regimes at any given $\alpha$: some fully 
+expressed, some silent, some sign-flipped. A shift in circuit state $\alpha$ does 
+not uniformly strengthen or weaken the circuit---it 
+\emph{reconfigures} it, activating some pathways while silencing or reversing others, all from a single scalar signal.
+
+\subsection{Global $U(1)$: dynamics and falsifiability}
+\label{sec:u1}
+
+Section~\ref{sec:rationale} established that 
+$W_{ij}^{\text{eff}}(\alpha) = |W_{ij}|\cos(\varphi_{ij} - \alpha)$ 
+reconfigures a fixed anatomical circuit from a single neuromodulatory 
+parameter $\alpha$. Equivalently, the effective connectivity is 
+$\Weff(\alpha) = \Re(\Wc\, e^{-i\alpha})$: a rotation of the 
+complex weight matrix $\Wc = W^R + iW^I$ projected onto the real 
+axis. The set of all such rotations, parameterized by $\alpha 
+\in [0, 2\pi)$, forms the unit circle $S^1 \subset \mathbb{R}^2$; viewed 
+as a group under addition of angles, this is $U(1)$. The full 
+dynamics are
+\begin{equation}
+\tau\dot{x}_i = -(x_i - V_{\text{rest},i}) + \sum_{j=1}^{N} 
+\Re\!\left(W_{ij}^{\mathbb{C}}\, e^{-i\alpha(t)}\right)\psi(x_j) 
++ \eta_i(t),
+\label{eq:u1_dynamics}
+\end{equation}
+where $x_i(t) \in \mathbb{R}$ throughout. The task-to-circuit parameter 
+ratio is $1/N^2$: for $N = 100$, one scalar controls $10{,}000$ 
+weights. Two questions arise: why is this complex formulation 
+preferable to a more general real alternative, and what does it 
+predict?
+
+\subsubsection{Why complex and not two real matrices?}
+\label{sec:why_complex}
+
+The simplest alternative is linear interpolation between two real 
+matrices:
+\begin{equation}
+\Weff = \alpha\, W_1 + (1-\alpha)\, W_2, \qquad \alpha \in \mathbb{R}.
+\label{eq:linear}
+\end{equation}
+This traces a line through $W_1$ and $W_2$ in $\mathbb{R}^{N\times N}$: 
+one parameter, unbounded, no periodicity. A more general alternative 
+uses two unconstrained coefficients:
+\begin{equation}
+\Weff = c_1\, W_1 + c_2\, W_2, \qquad (c_1, c_2) \in \mathbb{R}^2.
+\label{eq:real_alternative}
+\end{equation}
+This spans a plane through $W_1$ and $W_2$---two free parameters 
+on the same two basis matrices. The question is empirical: does the 
+effective connectivity travel along a \emph{line}, an \emph{arc}, 
+or freely in a \emph{plane} between task contexts?
+
+\begin{center}
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+& \textbf{Line} & \textbf{$U(1)$ arc} & \textbf{$\mathbb{R}^2$ plane} \\
+\midrule
+Parameters & $1$ & $1$ & $2$ \\
+Manifold & $\mathbb{R}$ & $S^1$ & $\mathbb{R}^2$ \\
+Prediction at $\alpha_3$ & 
+linear & Eq.~\eqref{eq:prediction1} (trig.) & none \\
+Antipodal & no constraint & 
+$\Weff(\alpha{+}\pi) = -\Weff(\alpha)$ & no constraint \\
+Norm & unbounded & approximately constant & unbounded \\
+Topology & open & closed, periodic & open \\
+Falsifiable & weakly & \textbf{strongly} & no \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The norm constraint is the sharpest discriminator: on the circle, 
+the Frobenius norm is $\|W^{eff}(\alpha)\|_F^2 = \|W^R\|_F^2\cos^2\alpha 
++ \|W^I\|_F^2\sin^2\alpha - 2\langle W^R, W^I\rangle_F 
+\sin\alpha\cos\alpha$, which is bounded and periodic. On the line, 
+$\|\Weff\|$ grows without bound as $|\alpha| \to \infty$; on the 
+plane, $\|\Weff\|$ is unconstrained in two directions. If the 
+effective connectivity recovered across multiple tasks has 
+approximately constant Frobenius norm, the data favor the arc; if 
+the norm scales linearly with the task parameter, they favor the 
+line.
+
+In Eq.~\eqref{eq:real_alternative}, $c_1$ and $c_2$ can be 
+interpreted as two neuromodulator concentrations (e.g., dopamine and serotonin). This is legitimate but describes a different situation: a circuit modulated by two independent molecules requires $U(1)^2$, which has its own predictions and is developed in Section~\ref{sec:beyond}.
+
+\subsubsection{$U(1)$: falsifiable predictions}
+\label{sec:predictions}
+
+\textbf{Prediction 1: Two tasks determine all others.}
+If $U(1)$ is the correct symmetry, the effective connectivity at any third angle $\alpha_3$ is determined by the connectivities at two reference angles $\alpha_1, \alpha_2$ (provided $\alpha_1 \neq \alpha_2 \mod \pi$):
+\begin{equation}
+\boxed{\Weff(\alpha_3) = \frac{\sin(\alpha_2 - \alpha_3)}{\sin(\alpha_2 - \alpha_1)}\,\Weff(\alpha_1) + \frac{\sin(\alpha_3 - \alpha_1)}{\sin(\alpha_2 - \alpha_1)}\,\Weff(\alpha_2).}
+\label{eq:prediction1}
+\end{equation}
+Expanding $\Weff(\alpha_k) = W^R\cos\alpha_k - W^I\sin\alpha_k$ for $k=1,2$ yields two linear equations in $W^R$ and $W^I$. Solving and substituting gives Eq.~\eqref{eq:prediction1}. This is a strong constraint: it follows directly from the data living on $S^1$ rather than $\mathbb{R}^2$.
+
+\textbf{Prediction 2: Antipodal circuits.}
+Tasks separated by $\pi$ on the circle produce sign-reversed connectivity:
+\begin{equation}
+\Weff(\alpha + \pi) = -\Weff(\alpha).
+\label{eq:antipodal}
+\end{equation}
+Every excitatory connection becomes inhibitory and vice versa. The behavioral repertoire at the antipodal context is the exact functional negation of the original.
+
+\textbf{Prediction 3: Smooth behavioral transitions on $S^1$.}
+Switching from task $k=1$ (at $\alpha_1$) to task $k=2$ (at $\alpha_2$) requires traversing an arc on the unit circle. At the midpoint $\bar{\alpha} = (\alpha_1 + \alpha_2)/2$:
+\begin{equation}
+\Weff(\bar{\alpha}) = \cos\!\left(\frac{\alpha_2 - \alpha_1}{2}\right)\left[W^R\cos\bar{\alpha} - W^I\sin\bar{\alpha}\right].
+\label{eq:midpoint}
+\end{equation}
+The prefactor $\cos((\alpha_2-\alpha_1)/2) \leq 1$ predicts specific transient dynamics during task switching: not random interpolation, but geometrically structured transitions along the circle.
+
+\subsubsection{Comparison with existing approaches}
+\label{sec:comparison}
+
+We compare global $U(1)$ with existing methods for context-dependent connectivity.
+
+\textbf{Separate $W$ per task} ($N^2$ parameters per task) is the unconstrained baseline: no compression, no shared structure, no predictions about unseen tasks.
+
+\textbf{Context-dependent RNNs} (Yang et al., Nat.\ Neurosci.\ 2019) train a single RNN with fixed recurrent weights $W_{\text{rec}}$ on multiple cognitive tasks. Task identity enters via an input rule vector $\mathbf{r}_k$:
+\begin{equation}
+h_{t+1} = \tanh(W_{\text{rec}}\, h_t + W_{\text{stim}}\, s_t + W_{\text{rule}}\, \mathbf{r}_k + b).
+\end{equation}
+This uses $N$ parameters per task and reveals compositional task structure: tasks sharing sensory or motor demands cluster in rule space. However, $W_{\text{rec}}$ is identical across tasks---context modulates the \emph{input}, not the \emph{connectivity}. The effective Jacobian $J = W_{\text{rec}} \cdot \text{diag}(\psi'(h))$ changes only indirectly through the operating point $h$: a synapse cannot flip sign unless $h$ crosses a nonlinearity threshold.
+
+\textbf{Low-rank modulation} (Beiran, Dubreuil et al., Neural Comput.\ 2021) decomposes connectivity into rank-$R$ structure:
+\begin{equation}
+J_{ij} = \frac{1}{N}\sum_{r=1}^{R} m_i^{(r)} n_j^{(r)},
+\end{equation}
+where the connectivity patterns $\mathbf{m}^{(r)}, \mathbf{n}^{(r)}$ are drawn from a gaussian mixture with $P$ populations. The rank $R$ sets the dimensionality of collective dynamics; the population structure shapes the effective circuit within that subspace. Task-dependent modulation enters additively:
+\begin{equation}
+\Weff = W + \sum_{l=1}^{k} \alpha_l\, \mathbf{m}_l\,\mathbf{n}_l^T,
+\end{equation}
+using $k(2N+1)$ parameters per task. The perturbation is \emph{additive} and unconstrained in direction---the task manifold is a $k$-dimensional affine subspace, not a rotation. There is no constraint linking different tasks and no analog of Prediction~1.
+
+\textbf{Gain modulation} (Salinas \& Abbott, 1997) scales each neuron's output independently:
+\begin{equation}
+\Weff = \text{diag}(\mathbf{g})\cdot W, \qquad g_i > 0.
+\end{equation}
+This uses $N$ parameters per task and is biologically grounded, but cannot flip signs: if $W_{ij} > 0$, then $g_i W_{ij} > 0$ for all $g_i > 0$. Structurally, gain modulation traces a ray in $\mathbb{R}^{N^2}$; $U(1)$ traces a circle.
+
+\textbf{Global $U(1)$} uses 1 parameter per task. Unlike Yang et al., it modulates the circuit directly, not the input. Unlike low-rank, it imposes a rotational constraint that yields Prediction~1. Unlike gain modulation, it can flip synapse signs. The parameter-to-circuit ratio $1/N^2$ is the smallest of any method. The limitation of global $U(1)$---``too rigid if neurons differ''---is addressed by the extensions in Section~\ref{sec:beyond}.
+
+\begin{center}
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{@{}lccccl@{}}
+\toprule
+\textbf{Approach} & \textbf{Params} & \textbf{Sign-flip} & \textbf{Modulates} & \textbf{Falsifiable} & \textbf{Limitation} \\
+\midrule
+Separate $W$ & $N^2$ & yes & circuit & no & no compression \\
+Context RNN & $N$ & indirect & input & partially & $W_{\text{rec}}$ fixed \\
+Low-rank & $k(2N{+}1)$ & yes & circuit & partially & additive, no rotation \\
+Gain modulation & $N$ & no & output & yes & no sign-flip \\[3pt]
+\textbf{Global $U(1)$} & $\mathbf{1}$ & \textbf{yes} & \textbf{circuit} & \textbf{strongly} & too rigid if neurons differ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Beyond global $U(1)$}
+\label{sec:beyond}
+
+When global $U(1)$ proves insufficient, two independent directions 
+of generalization are available. They address different failure modes 
+and can be combined.
+
+\subsubsection{Direction 1: Spatial heterogeneity ($\alpha \to \alpha_i \to \alpha_{ij}$)}
+
+Promote the global rotation to a per-neuron or per-synapse rotation:
+
+\begin{center}
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{@{}llcl@{}}
+\toprule
+\textbf{Level} & \textbf{Transform} & \textbf{Params} & 
+\textbf{Biological mechanism} \\
+\midrule
+Global $U(1)$ & $\Re(\Wc\, e^{-i\alpha})$ & $1$ & 
+uniform neuromodulatory bath \\
+Local $U(1)_{\text{post}}$ & 
+$\Re(\text{diag}(e^{-i\alpha_i})\,\Wc)$ & $N$ & 
+spatial gradient $+$ receptor profile \\
+Pre $\times$ post & 
+$\Re(\text{diag}(e^{-i\alpha_i})\,\Wc\,
+\text{diag}(e^{-i\beta_j}))$ & $2N$ & 
+$+$ presynaptic autoreceptors \\
+Per-synapse & $\Re(e^{-i\alpha_{ij}}\,W_{ij}^{\mathbb{C}})$ & $N^2$ & 
+unconstrained \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The task manifold stays one-dimensional throughout this direction, 
+but different neurons are allowed to rotate by different amounts.
+
+\textbf{Global $U(1)$} (1 parameter) assumes all synapses respond 
+identically to a neuromodulatory shift. \emph{Diagnostic:} for each 
+task $k$, compute the per-neuron residual
+\begin{equation}
+\epsilon_{ik} = \hat{W}^{(k)}_{i\cdot} 
+- \Re\!\left(\hat{W}^{\mathbb{C}}_{i\cdot}\, e^{-i\hat{\alpha}_k}\right).
+\end{equation}
+If global $U(1)$ holds, $\epsilon_{ik}$ is unstructured noise. If 
+it fails, the same neurons show consistently large residuals across 
+tasks---neuron $i$ is systematically over- or under-rotated. A 
+per-neuron offset $\delta_i$ with $\alpha_{i,k} = \hat{\alpha}_k 
++ \delta_i$ should collapse the residuals, pointing to local 
+$U(1)_{\text{post}}$.
+
+\textbf{Local $U(1)_{\text{post}}$} ($N$ parameters) allows each 
+postsynaptic neuron $i$ to rotate by its own angle $\alpha_i$. 
+Biologically, a single neuromodulator (e.g., dopamine) is delivered 
+with spatial gradients across brain regions, and each neuron filters 
+this signal through its receptor profile---the D1/D2 receptor ratio 
+(D1 enhances, D2 suppresses synaptic transmission). The circuit is 
+modulated directly, and synapse signs can flip when $\alpha_i$ 
+crosses $\varphi_{ij} + \pi/2$. \emph{Diagnostic:} fit per-neuron 
+angles $\hat{\alpha}_i$ and compute the per-synapse residual
+\begin{equation}
+\epsilon_{ij,k} = \hat{W}^{(k)}_{ij} 
+- \Re\!\left(e^{-i\hat{\alpha}_i}\, \hat{W}^{\mathbb{C}}_{ij}\right).
+\end{equation}
+If local $U(1)_{\text{post}}$ holds, $\epsilon_{ij,k}$ is 
+unstructured. If it fails, the residual shows sender-dependence: 
+for fixed $i$, the error correlates with $j$. The residual matrix 
+has rank-1 structure $\epsilon_{ij,k} \approx f_i\, g_j$, 
+indicating that the presynaptic neuron also needs its own phase 
+$\beta_j$, pointing to the pre $\times$ post level.
+
+\textbf{Pre $\times$ post} ($2N$ parameters) adds presynaptic 
+modulation: $e^{-i\beta_j}$ models presynaptic autoreceptors 
+(e.g., D2 autoreceptors on dopaminergic terminals). The effective 
+phase at synapse $ij$ becomes $\alpha_i + \beta_j$, a rank-2 
+structure. \emph{Diagnostic:} fit $\hat{\alpha}_i$ and 
+$\hat{\beta}_j$ and compute
+\begin{equation}
+\epsilon_{ij,k} = \hat{W}^{(k)}_{ij} 
+- \Re\!\left(e^{-i\hat{\alpha}_i}\, 
+\hat{W}^{\mathbb{C}}_{ij}\, e^{-i\hat{\beta}_j}\right).
+\end{equation}
+If it fails, the residual is non-factorizable: it cannot be 
+decomposed as $f_i\, g_j$. The rotational structure itself is 
+insufficient.
+
+\textbf{Per-synapse $\alpha_{ij}$} ($N^2$ parameters) recovers 
+full freedom. It provides no compression and no predictions---the 
+unfalsifiable ceiling of the hierarchy.
+
+\subsubsection{Direction 2: Task dimensionality ($U(1) \to U(1)^k$)}
+
+Direction~1 keeps the task manifold one-dimensional and relaxes 
+spatial uniformity. Direction~2 does the opposite: it keeps global 
+modulation but increases the number of independent neuromodulatory 
+axes.
+
+\begin{center}
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{@{}lclc@{}}
+\toprule
+\textbf{Symmetry} & \textbf{Weight space} & 
+\textbf{Task manifold} & \textbf{Params} \\
+\midrule
+$U(1)$ & $W^R, W^I$ ($2N^2$ real) & circle $S^1$ & 1 \\
+$U(1)^2$ & $W^{(1)}, \ldots, W^{(4)}$ ($4N^2$ real) & 
+torus $T^2$ & 2 \\
+$SU(2)$ & $W \in \mathbb{H}^{N\times N}$ ($4N^2$ real) & 
+sphere $S^3$ & 3 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Each additional angle $\alpha_l$ introduces an independent rotation 
+axis, requiring two new basis matrices per axis. The effective 
+connectivity becomes
+\begin{equation}
+\Weff(\boldsymbol{\alpha}) = \sum_{m=1}^{M} W^{(m)}\, 
+c_m(\boldsymbol{\alpha}),
+\end{equation}
+where the coefficient functions $c_m$ are determined by the group 
+structure (trigonometric for $U(1)^k$, Wigner matrices for $SU(2)$). 
+The rotational constraint is preserved on each axis: Prediction~1 
+holds independently along each $\alpha_l$, so any two tasks that 
+differ along only one neuromodulatory axis still determine a third. 
+The number of major cortical neuromodulators (dopamine, serotonin, 
+acetylcholine, norepinephrine) is four, suggestive of $k \leq 4$.
+
+\emph{Diagnostic:} Prediction~1 violated with structured residuals 
+---the residual matrix $\Weff(\alpha_3) - 
+\widehat{W}^{\text{eff}}(\alpha_3)$ from 
+Eq.~\eqref{eq:prediction1} has rank $\leq 2(k-1)$, pointing 
+directly to the required number of additional axes. The two directions combine: local $U(1)_{\text{post}}^k$ with 
+per-neuron angles $\alpha_{i,1}, \ldots, \alpha_{i,k}$ gives $kN$ 
+parameters---still far below $N^2$.
+
+\subsubsection{Why the $U(1)$ hierarchy and not $\mathbb{R}^k$}
+\label{sec:why_hierarchy}
+
+Every biological scenario considered above maps onto a specific 
+level of the $U(1)$ hierarchy:
+
+\begin{center}
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Biology} & \textbf{Model} \\
+\midrule
+One neuromodulator, uniform delivery & 
+global $U(1)$: one $\alpha$ \\
+Same neuromodulator, spatial gradient & 
+local $U(1)_{\text{post}}$: per-neuron $\alpha_i$ \\
+Two neuromodulators & 
+$U(1)^2$: two angles on $T^2$ \\
+Two neuromodulators, spatial gradients & 
+local $U(1)^2_{\text{post}}$: $2N$ angles \\[3pt]
+$c_1 W_1 + c_2 W_2$, unconstrained & ? \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Every row has a biological name except the last. $\alpha$ is a 
+dopamine level. $\alpha_i$ is that level filtered through neuron 
+$i$'s receptor profile. $(\alpha_1, \alpha_2)$ are dopamine and 
+serotonin concentrations. Each is measurable, each is manipulable 
+(optogenetics, pharmacology, volume transmission), each makes the 
+model testable.
+
+The unconstrained coefficients $c_1$ and $c_2$ correspond to 
+nothing. They are not concentrations, not receptor states, not 
+firing rates. They are free parameters that absorb any pattern 
+in the data without constraining the next observation.
+
+This is not a proof that $\mathbb{R}^k$ is wrong---it is an argument 
+for the starting hypothesis. The $U(1)$ hierarchy is more 
+constrained (fewer parameters at every level), maps onto known 
+biology at every level of relaxation, and makes falsifiable 
+predictions that the unconstrained formulation does not. 
+Critically, when $U(1)$ fails, the \emph{pattern} of failure 
+is diagnostic: per-neuron residuals $\to$ promote to local 
+$U(1)_{\text{post}}$; structured rank deficiency $\to$ add 
+a rotation axis via $U(1)^k$; non-factorizable residuals $\to$ 
+the rotational structure itself is insufficient. When the 
+unconstrained $\mathbb{R}^k$ fails, there is no diagnostic---the model 
+simply failed, and no principled next step exists.
+
+The choice between $U(1)$ and $\mathbb{R}^k$ is ultimately empirical. 
+But one framework generates a research program; the other 
+generates a fit.
+
+\subsection {Comparison with existing approaches} 
+The same 
+diagnostic asymmetry distinguishes $U(1)$ from existing methods. 
+Gain modulation (Salinas \& Abbott, 1997) uses $N$ parameters 
+per task but cannot flip synapse signs and traces a ray in 
+$\mathbb{R}^{N^2}$, not a circle---failure is simply poor fit. 
+Context-dependent RNNs (Yang et al., 2019) modulate the input, 
+not the circuit---if the fixed $W_{\text{rec}}$ is insufficient, 
+there is no structured path to a richer model. Low-rank 
+perturbation (Beiran, Dubreuil et al., 2021) adds 
+$k$-dimensional affine corrections $\Weff = W + \sum_l 
+\alpha_l \mathbf{m}_l \mathbf{n}_l^T$, which can change signs 
+and shape dynamics through population vectors, but the 
+perturbation is additive and unconstrained in direction---there 
+is no inter-task constraint analogous to Prediction~1, and 
+failure does not point to a specific relaxation.
+
+The $U(1)$ hierarchy is the only framework in which:
+(i)~the modulation acts on the circuit directly,
+(ii)~synapse signs can flip,
+(iii)~a single parameter controls $N^2$ weights,
+(iv)~each level of relaxation has a biological interpretation,
+and (v)~the pattern of failure at one level diagnoses the next.
+No existing method satisfies all five.
+
+Euclidean fast attention (EFA) introduces complex-valued phase encoding to incorporate geometric information into attention mechanisms. In this formulation, interactions depend on phase factors of the form $e^{i \omega u \cdot (r_i - r_j)}$, which encode relative spatial positions and are subsequently integrated to produce real-valued distance-dependent kernels. In contrast, the present framework assigns a complex-valued weight directly to each connection, $\hat{W}_{ij} = |\hat{W}_{ij}| e^{i \varphi_{ij}}$, where the phase $\varphi_{ij}$ is learned and not restricted to geometric structure. This allows interactions to encode directional, temporal, and context-dependent effects beyond Euclidean distance. EFA can be recovered as a special case of this formulation by constraining the phase to $\varphi_{ij} = \omega u \cdot (r_i - r_j)$ and integrating over directions. The proposed model therefore generalizes EFA by replacing fixed geometric phase encoding with learnable connection-specific phases.
+
+%-----------------------------------------------------------------------
+\section{Discussion of Part II}
+%-----------------------------------------------------------------------
+
+Part I introduced a real-valued GNN framework built around four independent MLPs: $h_\xi$, $g_\phi$, $q_\psi$, and $f_\theta$, together with the sparse connectivity matrix $\hat{W}_{ij}$. The key architectural move was to separate temporal filtering from nonlinear synaptic transformation. This separation makes it possible to align the model both with biological mechanisms and with transformer-like structure: $h_\xi$ plays the role of a receiver-dependent Value filter, $q_\psi$ the role of a Query-like adaptation gate, $g_\phi$ the learned nonlinear message transformation, and $\hat{W}_{ij}$ the sparse anatomical routing.
+
+Part II began from the opposite direction. Instead of asking how to enrich message passing in real-valued space, it asked why real-valued connectivity itself may be insufficient. The path-integral analogy showed that Feynman-style interference fails in purely real neural dynamics because probabilities concentrate but do not cancel. Complex numbers already appear in the analysis of real dynamics through eigenvalues, Jacobians, and DMFT poles, but the data do not support a naive oscillatory route to complex state variables. The real motivation for complex numbers comes from the multi-task / single-circuit problem: one anatomical circuit must implement multiple effective connectivities.
+
+This led to the proposal of complex-valued connectivity $W_{ij}^{\mathbb{C}} = |W_{ij}|e^{i\varphi_{ij}}$, together with a circuit-wide neuromodulatory parameter $\alpha$ that selects effective connectivity through
+\[
+W_{ij}^{\text{eff}}(\alpha)=|W_{ij}|\cos(\varphi_{ij}-\alpha).
+\]
+In this representation, anatomy is stored in the amplitude $|W_{ij}|$, modulation sensitivity in the phase $\varphi_{ij}$, and context in the single scalar $\alpha$. This restores constructive and destructive interference at the message-passing level and yields strong falsifiable predictions: two contexts determine all others, antipodal contexts produce sign-reversed connectivity, and task switching follows structured arcs rather than unconstrained interpolation.
+
+When global $U(1)$ is too rigid, the framework generalizes in two principled ways. The first introduces spatial heterogeneity, replacing the single angle $\alpha$ by per-neuron or per-synapse phases. The second increases task dimensionality, replacing $U(1)$ by $U(1)^k$ or related symmetry groups. In both cases, the pattern of failure of the simpler model diagnoses the correct next step. This is the central advantage of the hierarchy: it is not only a parametrization, but a research program.
+
+
+%##############################################################################
+\part{Learning as Orbit Navigation}
+%##############################################################################
+
+%-----------------------------------------------------------------------
+\section{The Learning Problem in the $U(1)$ Framework}
+%-----------------------------------------------------------------------
+
+Parts I and II developed two complementary extensions to the base
+GNN: temporal filtering through history vectors and context-dependent
+reconfiguration through complex-valued connectivity. Part II treated
+the complex weight matrix $W_{ij}^{\mathbb{C}} = |W_{ij}|e^{i\varphi_{ij}}$
+and the context angle $\alpha$ as fixed after training. This part asks
+how these quantities are acquired, and what biological learning rules
+correspond to the mathematical structure of the $U(1)$ orbit.
+
+The core observation is that learning has a natural two-timescale
+decomposition within the $U(1)$ framework. At the slow timescale,
+structural plasticity sets $|W_{ij}|$ and $\varphi_{ij}$, building
+the orbit:
+\begin{equation}
+\mathcal{O} = \left\{ W^{\text{eff}}(\alpha) \;:\; \alpha \in [0, 2\pi) \right\}
+= \left\{ \Re\!\left(W_{ij}^{\mathbb{C}}\, e^{-i\alpha}\right) \;:\; \alpha \in S^1 \right\}.
+\end{equation}
+At the fast timescale, neuromodulatory alignment navigates the orbit,
+selecting the context angle $\alpha_k$ that best matches task $k$:
+\begin{equation}
+\alpha_k = \arg\min_{\alpha \in S^1}\,
+\mathcal{L}_k\!\left(W^{\text{eff}}(\alpha)\right),
+\label{eq:alpha_learning}
+\end{equation}
+where $\mathcal{L}_k$ is the task loss. These two timescales are not
+independent: the orbit built by structural plasticity determines which
+tasks are accessible, and the task demands encountered during behavior
+shape the orbit in return.
+
+%-----------------------------------------------------------------------
+\section{Behavioral Timescale Synaptic Plasticity as Orbit Construction}
+%-----------------------------------------------------------------------
+
+Standard Hebbian plasticity updates each weight independently:
+\begin{equation}
+\dot{W}_{ij} = \eta\, x_i(t)\, x_j(t) - \lambda W_{ij},
+\label{eq:hebbian}
+\end{equation}
+where $x_i$ is the postsynaptic activity, $x_j$ the presynaptic
+activity, $\eta$ the learning rate, and $\lambda$ a decay term.
+This operates in the full $N^2$-dimensional weight space with no
+geometric constraint: each synapse follows its own local correlation
+signal, with no coordination across synapses and no reference to
+task demands. The result is a drift toward correlations present in
+the data, regardless of whether those correlations are task-relevant.
+
+Behavioral timescale synaptic plasticity (BTSP), recently
+characterized in the hippocampus \citep{magee2026}, operates
+differently. Rather than relying on millisecond-scale spike
+coincidences, BTSP is induced by single dendritic plateau potentials
+lasting hundreds of milliseconds and produces strong, bidirectional
+weight changes in a single trial. The teaching signal arrives via
+the \emph{distal apical compartment} of pyramidal neurons, while
+the learning inputs arrive at the \emph{proximal compartment}
+\citep{magee2026}. These compartments are electrically segregated:
+the teaching signal does not corrupt the activity signal and
+vice versa. This compartmental separation maps directly onto the
+$U(1)$ structure:
+
+\begin{center}
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Compartment} & \textbf{Signal} & \textbf{$U(1)$ role} \\
+\midrule
+Proximal & Action potential $x_i(t)$ & forward pass, GNN dynamics \\
+Distal apical & Plateau potential $\delta_i(t)$ &
+  teaching signal, orbit construction \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The plateau potential $\delta_i(t)$ provides the broadcast error
+signal that standard Hebbian plasticity lacks: instead of a local
+spike coincidence, a single plateau event integrates information
+from a higher-order brain region over behavioral timescales,
+comparing circuit output to task demand and driving the large,
+one-trial changes in $|W_{ij}|$ and $\varphi_{ij}$ that constitute
+orbit construction.
+
+%-----------------------------------------------------------------------
+\section{Orbit Navigation: Alignment as a Sine Rule}
+%-----------------------------------------------------------------------
+
+Once the orbit $\mathcal{O}$ is built, task performance reduces to
+finding $\alpha_k$ such that $W^{\text{eff}}(\alpha_k)$ best
+approximates the optimal connectivity for task $k$. The gradient
+of the task loss with respect to $\alpha$ is:
+\begin{equation}
+\frac{\partial \mathcal{L}_k}{\partial \alpha} =
+-\sum_{ij} \frac{\partial \mathcal{L}_k}{\partial W_{ij}^{\text{eff}}}
+\cdot |W_{ij}|\sin(\varphi_{ij} - \alpha).
+\label{eq:sine_rule}
+\end{equation}
+This is the \textbf{sine rule}: each synapse contributes a push on
+$\alpha$ proportional to $\sin(\varphi_{ij} - \alpha)$, weighted by
+the task error at that synapse. The push is zero when the synapse is
+already aligned ($\varphi_{ij} = \alpha$), maximal when it is
+$90^{\circ}$ misaligned, and reverses direction when misalignment
+exceeds $\pi/2$. The plateau potential in BTSP integrates exactly
+this kind of signed, graded error signal across many synapses and
+shifts the neuromodulatory state accordingly.
+
+The key advantage over Hebbian plasticity is that
+Eq.~\eqref{eq:sine_rule} updates a \emph{single scalar} $\alpha$
+rather than $N^2$ independent weights. For $N=100$, a circuit of
+$10{,}000$ synapses requires one number to re-align for a new task.
+A single neuromodulatory broadcast $\alpha \to \alpha + \Delta\alpha$
+coherently shifts all synapses simultaneously, whereas independent
+Hebbian updates produce incoherent drifts that degrade previously
+stored patterns.
+
+Five properties distinguish $U(1)$ orbit navigation from Hebbian
+plasticity:
+
+\textbf{1.~Coordination.} Hebbian updates are local and independent;
+$U(1)$ alignment updates one scalar and all $N^2$ synapses move
+coherently as a unit.
+
+\textbf{2.~Sign flipping.} Hebbian plasticity can only strengthen
+or weaken a synapse; $U(1)$ rotation crosses $\varphi_{ij} + \pi/2$
+and flips the effective sign of $W_{ij}^{\text{eff}}$, turning an
+excitatory connection functionally inhibitory without touching anatomy.
+
+\textbf{3.~Speed.} Hebbian learning accumulates correlations over
+many trials. Once $\mathcal{O}$ is built, $U(1)$ alignment finds one
+scalar $\alpha_k$, achievable in a single trial via a plateau
+potential, consistent with the one-trial place cell formation
+observed in BTSP \citep{magee2026}.
+
+\textbf{4.~Reversibility.} Hebbian changes to $W_{ij}$ are
+semi-permanent. The context angle $\alpha$ is a continuous state
+variable that returns to any previously visited point on $S^1$
+without modifying $|W_{ij}|$ or $\varphi_{ij}$. Task switching
+is lossless.
+
+\textbf{5.~Capacity.} Hebbian learning stores patterns in the
+$N^2$-dimensional weight space with no geometric structure.
+The $U(1)$ orbit stores a continuum of effective connectivities
+parameterized by $\alpha \in S^1$ within a fixed anatomy. With
+$U(1)^k$ the capacity scales as a $k$-torus.
+
+\begin{center}
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+& \textbf{Coord.} & \textbf{Sign-flip} & \textbf{Speed} &
+  \textbf{Reversible} & \textbf{Params/task} \\
+\midrule
+Hebbian & no & no & slow & no & $N^2$ \\
+BTSP (orbit build) & partial & no & one trial & no & $2N^2$ \\
+$U(1)$ alignment & yes & yes & one broadcast & yes & $1$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+%-----------------------------------------------------------------------
+\section{Mutual Shaping of Orbit and State}
+%-----------------------------------------------------------------------
+
+The two timescales of learning are not independent. As $\alpha(t)$
+moves along the orbit $\mathcal{O}$, the resulting activity
+$x_i(t)$ modifies the orbit itself through structural plasticity ---
+which in turn changes where $\alpha$ goes next. The orbit is not
+a fixed track: it deforms as it is navigated.
+
+The orbit drives $\alpha$ via the sine rule:
+\begin{equation}
+\dot{\alpha} = \eta_\alpha \sum_{ij}
+\frac{\partial \mathcal{L}}{\partial W_{ij}^{\text{eff}}} \cdot
+|W_{ij}|\sin(\varphi_{ij} - \alpha).
+\label{eq:alpha_dynamics}
+\end{equation}
+
+Moving along the orbit generates activity $x_i(t)$ which, gated
+by the plateau potential $\delta_i(t)$, modifies the orbit in
+return:
+\begin{align}
+\dot{|W_{ij}|} &= \eta_W\, \delta_i(t)\, x_j(t - \tau_{ij}),
+\label{eq:amplitude_rule} \\
+\dot{\varphi}_{ij} &= \eta_\varphi\, \delta_i(t)\,
+\sin\!\left(\omega\, x_j(t - \tau_{ij}) - \varphi_{ij}\right),
+\label{eq:phase_rule}
+\end{align}
+where $\tau_{ij} = \|r_i - r_j\|/v\Delta t$ is the axonal delay
+from Part~I. Eq.~\eqref{eq:amplitude_rule} updates the
+amplitude --- the synapse's anatomical capacity. 
+Eq.~\eqref{eq:phase_rule} updates the phase --- the synapse's
+sensitivity to future rotations of $\alpha$.
+
+The deformed orbit then drives $\alpha$ differently, which
+generates new activity, which deforms the orbit further.
+The fixed points of this loop are \textbf{self-consistent orbits}:
+configurations of $(|W_{ij}|, \varphi_{ij})$ such that the activity
+generated by navigating $\mathcal{O}^*$ reproduces exactly the
+plasticity that sustains $\mathcal{O}^*$:
+\begin{equation}
+\langle \delta_i(t)\, x_j(t - \tau_{ij})\rangle_{\mathcal{O}^*}
+\propto |W_{ij}^*|\, f(\varphi_{ij}^* - \alpha^*).
+\label{eq:self_consistent}
+\end{equation}
+These are memories: stable geometries that channel behavior back to
+the same outcomes without external stabilization \citep{magee2026}.
+%-----------------------------------------------------------------------
+\section{Extension to Higher Symmetries}
+%-----------------------------------------------------------------------
+
+When the task manifold requires more than one dimension, the field
+analogy extends to higher symmetry groups. A single neuromodulator
+defines a $U(1)$ orbit on $S^1$. Two independent neuromodulators
+define a $U(1)^2$ orbit on the torus $T^2$, with effective
+connectivity:
+\begin{equation}
+W^{\text{eff}}(\alpha_1, \alpha_2) =
+\Re\!\left(W^{\mathbb{C}}_1\, e^{-i\alpha_1} +
+           W^{\mathbb{C}}_2\, e^{-i\alpha_2}\right).
+\label{eq:u1k}
+\end{equation}
+The gradient of the task loss along each axis is independent:
+\begin{equation}
+\frac{\partial \mathcal{L}_k}{\partial \alpha_l} =
+-\sum_{ij} \frac{\partial \mathcal{L}_k}{\partial W_{ij}^{\text{eff}}}
+\cdot |W^{(l)}_{ij}|\sin(\varphi^{(l)}_{ij} - \alpha_l),
+\label{eq:multi_sine}
+\end{equation}
+a sine rule for each modulator axis independently. The self-consistent
+orbit Eq.~\eqref{eq:self_consistent} generalizes to a fixed point
+on $T^k$, and the structural plasticity rules
+Eqs.~\eqref{eq:amplitude_rule}--\eqref{eq:phase_rule} apply
+independently to each pair $(|W^{(l)}_{ij}|, \varphi^{(l)}_{ij})$.
+
+\begin{center}
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{@{}lclcc@{}}
+\toprule
+\textbf{Symmetry} & \textbf{Orbit} &
+  \textbf{Neuromodulators} & \textbf{Params/task} &
+  \textbf{Anatomy} \\
+\midrule
+$U(1)$ & $S^1$ & 1 (e.g., dopamine) & 1 & $2N^2$ \\
+$U(1)^2$ & $T^2$ & 2 (e.g., DA + 5-HT) & 2 & $4N^2$ \\
+$U(1)^k$ & $T^k$ & $k$ & $k$ & $2kN^2$ \\
+$SU(2)$ & $S^3$ & 3 (quaternionic) & 3 & $4N^2$ \\
+$U(k)$ & $k^2$-manifold & $k^2$ & $k^2$ & $2k^2 N^2$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The number of major cortical neuromodulators --- dopamine,
+serotonin, acetylcholine, norepinephrine --- is four, suggestive
+of $k \leq 4$ for mammalian cortex. The $SU(2)$ case ($k=3$, three
+free angles, quaternionic connectivity) is the natural group for
+circuits performing rotations in a two-dimensional task space such
+as spatial navigation with two angular coordinates. At each level,
+the field--particle co-evolution operates: the $k$-dimensional
+neuromodulatory state $\boldsymbol{\alpha}(t) \in T^k$ navigates
+the multi-dimensional orbit while behavioral trajectories reshape
+it through BTSP and the phase rule Eq.~\eqref{eq:phase_rule}.
+
+The diagnostic hierarchy of Part~II extends naturally. Prediction~1
+(Eq.~\eqref{eq:prediction1}) holds independently along each
+$\alpha_l$: fixing all but one modulator axis, two measurements
+along that axis determine all others. Failure along one axis
+while the others hold signals that $(|W^{(l)}_{ij}|,
+\varphi^{(l)}_{ij})$ requires spatial heterogeneity (Direction~1
+of Section~\ref{sec:beyond}), not additional axes. The pattern
+of failure is informative at every level --- the hierarchy
+remains a research program, not merely a parametrization.
+
+%-----------------------------------------------------------------------
+\section{Summary}
+%-----------------------------------------------------------------------
+
+The three parts of this document develop a mechanistic model of
+neural computation grounded in an ODE with explicit connectivity.
+
+Part~I introduced history vectors $\mathbf{v}_i(t) \in \mathbb{R}^T$
+and four independent MLPs that learn the temporal filter, synaptic
+nonlinearity, adaptation gate, and membrane integration. The key
+move was to separate these roles so that each specialises
+independently, aligning the GNN with both transformer structure and
+known biological mechanisms.
+
+Part~II promoted the connectivity to complex values
+$W_{ij}^{\mathbb{C}} = |W_{ij}|e^{i\varphi_{ij}}$. At each context
+angle $\alpha \in S^1$ this defines an executable dynamical system:
+\begin{equation}
+\tau\dot{x}_i = -(x_i - V_{\text{rest},i}) +
+\sum_j \Re\!\left(W_{ij}^{\mathbb{C}}\, e^{-i\alpha}\right)\psi(x_j)
++ \eta_i(t).
+\end{equation}
+The circle $\alpha \in S^1$ parameterises a continuous family of
+vector fields on $\mathbb{R}^N$. Task switching is a smooth
+deformation of the dynamics, not a jump between disconnected
+states. The $U(1)$ structure constrains this family strongly:
+two tasks determine all others, antipodal tasks have sign-reversed
+connectivity, and transitions follow structured arcs. These are
+falsifiable predictions absent from purely data-driven descriptions
+of neural geometry.
+
+Part~III connected this to learning. The orbit $\mathcal{O}$
+is constructed at the slow timescale by BTSP acting through the
+two-compartment structure of pyramidal neurons \citep{magee2026}.
+At the fast timescale, a single neuromodulatory broadcast shifts
+$\alpha$ to the task-appropriate point via the sine rule. The orbit
+and the state co-evolve: moving along $\mathcal{O}$ generates
+activity that through BTSP deforms $\mathcal{O}$, which reshapes
+future trajectories. The fixed points of this loop are
+self-consistent orbits --- stable circuit geometries that sustain
+themselves without external stabilisation.
+
+The distinctive property of the framework is that each $\alpha$
+generates a fully specified dynamical system. The fixed points,
+Jacobian, and bifurcation structure of $W^{\text{eff}}(\alpha)$
+are all accessible analytically, and perturbing $\alpha$ 
+continuously deforms them. The low-dimensional structure of neural
+activity at each task is a consequence of the dynamics, not a
+prior imposed on the data. This grounds the geometric intuition of low-dimensional neural representations in an explicit and highly dimensional formulation.
+
+
+\bibliographystyle{plainnat}
+\begin{thebibliography}{9}
+
+\bibitem[K\"{o}nig and Negrello(2026)]{konig2026}
+P.~K\"{o}nig and M.~Negrello.
+\newblock The neuroscience of transformers.
+\newblock arXiv:2603.15339 [q-bio.NC], 2026.
+
+\bibitem[Vaswani et~al.(2017)]{vaswani2017}
+A.~Vaswani, N.~Shazeer, N.~Parmar, J.~Uszkoreit, L.~Jones, A.~N. Gomez,
+  \L.~Kaiser, and I.~Polosukhin.
+\newblock Attention is all you need.
+\newblock In \emph{Advances in Neural Information Processing Systems},
+  volume~30, 2017.
+
+\bibitem[Frank et~al.(2026)]{frank2026efa}
+J.~T. Frank, S.~Chmiela, K.-R. M\"{u}ller, and O.~T. Unke.
+\newblock Machine learning global atomic representations with {Euclidean} fast
+  attention.
+\newblock \emph{Nature Machine Intelligence}, 8:388--402, 2026.
+
+\bibitem[Magee(2026)]{magee2026}
+J.~C. Magee.
+\newblock Behavioral timescale synaptic plasticity: properties, elements and
+  functions.
+\newblock \emph{Nature Neuroscience}, 29:520--534, 2026.
+
+\end{thebibliography}
+
+
+\end{document}

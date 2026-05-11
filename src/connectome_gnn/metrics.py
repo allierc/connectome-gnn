@@ -51,6 +51,248 @@ ANATOMICAL_ORDER: list[Optional[int]] = [
 ]
 
 
+NAME_TO_INDEX: dict[str, int] = {v: k for k, v in INDEX_TO_NAME.items()}
+
+
+def _load_identifiability_lists() -> tuple[list[str], list[str]]:
+    """Derive IDENTIFIABLE_TYPES and NO_OUTGOING_TYPES from the canonical JSON.
+
+    Source: figures/structural_nullspace_table.json (produced by
+    src/connectome_gnn/models/structural_nullspace_table.py — this is the
+    authoritative analytical artifact for the opto-recovery experiment,
+    since it also provides the per-type null_dim ranking).
+
+    IDENTIFIABLE: cell types with no degenerate (k>=2) groups
+                  ⇒ weights recoverable from naturalistic dynamics alone
+                  ⇒ negative controls for opto experiment.
+    NO_OUTGOING:  cell types that never appear as presynaptic.
+
+    Returns ([], []) if the JSON is missing.
+    """
+    import json
+    import os
+    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    candidates = [
+        os.path.join(repo_root, 'figures', 'structural_nullspace_table.json'),
+        os.path.join(repo_root, 'scripts', 'structural_nullspace_table.json'),  # legacy
+    ]
+    json_path = next((p for p in candidates if os.path.exists(p)), None)
+    if json_path is None:
+        return [], []
+    data = json.load(open(json_path))
+    identifiable = sorted(
+        data.get('identifiable_type_names', []),
+        key=lambda n: NAME_TO_INDEX.get(n, 999),
+    )
+    no_outgoing = sorted(
+        data.get('no_outgoing_type_names', []),
+        key=lambda n: NAME_TO_INDEX.get(n, 999),
+    )
+    return identifiable, no_outgoing
+
+
+IDENTIFIABLE_TYPES, NO_OUTGOING_TYPES = _load_identifiability_lists()
+
+# Hierarchical groups — mirror of group_by_direction_and_function in
+# generators/flyvis_ode.py. Kept for the Gal4-driver-line UX (pan-cell-type,
+# all-columns drive). NB: group-only targeting cannot break the columnar
+# sum-zero kernel — always pair with column_distinct=True in OptoTargetSpec.
+GROUP_NAMES: dict[int, str] = {
+    0: 'photoreceptors_outer',  # R1-R6
+    1: 'photoreceptors_inner',  # R7-R8
+    2: 'lamina_monopolar',      # L1-L5
+    3: 'lamina_interneurons',   # Am, C2, C3
+    4: 'medulla_Mi_early',      # Mi1-Mi4
+    5: 'medulla_Mi_mid',        # Mi9-Mi12
+    6: 'medulla_Mi_late',       # Mi13-Mi15
+    7: 'medulla_Tm_early',      # Tm1-Tm4
+    8: 'medulla_Tm5',           # Tm5*
+    9: 'medulla_Tm_mid',        # Tm9, Tm16, Tm20
+    10: 'medulla_Tm_late',      # Tm28, Tm30
+    11: 'medulla_TmY',          # TmY*
+    12: 'T4a', 13: 'T4b', 14: 'T4c', 15: 'T4d',
+    16: 'T5_OFF',               # T5a-T5d
+    17: 'tangential',           # T1, T2, T2a, T3
+    18: 'wide_field_Lawf',
+    19: 'other_CT1',
+}
+
+GROUP_AGGREGATES: dict[str, list[str]] = {
+    'all_photoreceptors':  ['photoreceptors_outer', 'photoreceptors_inner'],
+    'all_lamina':          ['lamina_monopolar', 'lamina_interneurons'],
+    'all_medulla':         ['medulla_Mi_early', 'medulla_Mi_mid', 'medulla_Mi_late',
+                            'medulla_Tm_early', 'medulla_Tm5', 'medulla_Tm_mid',
+                            'medulla_Tm_late', 'medulla_TmY'],
+    'all_T4':              ['T4a', 'T4b', 'T4c', 'T4d'],
+    'all_T5':              ['T5_OFF'],
+    'all_T4_T5':           ['T4a', 'T4b', 'T4c', 'T4d', 'T5_OFF'],
+}
+
+
+def _build_group_to_types() -> dict[str, list[str]]:
+    """Invert group_by_direction_and_function over all known cell type names."""
+    from connectome_gnn.generators.flyvis_ode import group_by_direction_and_function
+    out: dict[str, list[str]] = {name: [] for name in GROUP_NAMES.values()}
+    for name in INDEX_TO_NAME.values():
+        gid = group_by_direction_and_function(name)
+        out[GROUP_NAMES[gid]].append(name)
+    return out
+
+
+_GROUP_TO_TYPES: Optional[dict[str, list[str]]] = None
+
+
+def _group_table() -> dict[str, list[str]]:
+    global _GROUP_TO_TYPES
+    if _GROUP_TO_TYPES is None:
+        _GROUP_TO_TYPES = _build_group_to_types()
+    return _GROUP_TO_TYPES
+
+
+def group_to_neuron_types(group_name: str) -> list[str]:
+    """Resolve a group name (or aggregate) to a flat list of cell type names."""
+    table = _group_table()
+    if group_name in table:
+        return list(table[group_name])
+    if group_name in GROUP_AGGREGATES:
+        out: list[str] = []
+        for sub in GROUP_AGGREGATES[group_name]:
+            out.extend(table[sub])
+        return out
+    raise KeyError(
+        f"unknown group '{group_name}' — known groups: "
+        f"{sorted(set(GROUP_NAMES.values()) | set(GROUP_AGGREGATES.keys()))}"
+    )
+
+
+def name_to_neuron_ids(neuron_type: torch.Tensor, names: list[str]) -> torch.Tensor:
+    """Bool mask over neurons whose integer type ∈ {NAME_TO_INDEX[n] for n in names}."""
+    type_ids = torch.tensor(
+        [NAME_TO_INDEX[n] for n in names],
+        device=neuron_type.device, dtype=neuron_type.dtype,
+    )
+    return torch.isin(neuron_type, type_ids)
+
+
+def neuron_type_names(neuron_type: torch.Tensor) -> list[str]:
+    """Per-neuron type-name list, length N. Inverse of name_to_neuron_ids."""
+    ids = neuron_type.detach().cpu().tolist()
+    return [INDEX_TO_NAME[i] for i in ids]
+
+
+def neuron_column_ids(pos: torch.Tensor) -> torch.Tensor:
+    """(N,) long: which retinotopic column each neuron belongs to.
+
+    Columns are unique (x, y) photoreceptor positions; every non-photoreceptor
+    neuron inherits its column from its retinotopic neighborhood. The mapping
+    is constructed by finding distinct positions and assigning an index per
+    distinct position. extent=8 → 217 columns, extent=15 → 721.
+    """
+    pos_cpu = pos.detach().cpu()
+    keys = (pos_cpu * 1e4).round().long()
+    flat = keys[:, 0] * 100000 + keys[:, 1]
+    uniq, inverse = torch.unique(flat, sorted=True, return_inverse=True)
+    return inverse.to(pos.device, dtype=torch.long)
+
+
+def summarize_targets(state, mask: torch.Tensor) -> dict[str, tuple[int, int, float]]:
+    """{type_name: (n_targeted, n_total_of_type, fraction)} for every type with
+    nonzero targeting. Used to log opto coverage at generation time."""
+    out: dict[str, tuple[int, int, float]] = {}
+    nt = state.neuron_type
+    for type_id in torch.unique(nt[mask]).tolist():
+        name = INDEX_TO_NAME[int(type_id)]
+        n_total = int((nt == type_id).sum())
+        n_target = int(((nt == type_id) & mask).sum())
+        out[name] = (n_target, n_total, n_target / n_total if n_total else 0.0)
+    return out
+
+
+def fingerprint_dataset(state) -> str:
+    """Stable sha256 over (n_neurons, neuron_type bytes). Used by
+    OptoTargetSpec.dataset_fingerprint to guard explicit_indices targets
+    against silent ID drift across connectome variants."""
+    import hashlib
+    nt = state.neuron_type.detach().cpu().to(torch.int32).numpy().tobytes()
+    h = hashlib.sha256()
+    h.update(int(state.n_neurons).to_bytes(8, 'little'))
+    h.update(nt)
+    return h.hexdigest()
+
+
+def load_nullspace_ranking(
+    json_path: str = "figures/structural_nullspace_table.json",
+    metric: str = "null_dim",
+) -> list[tuple[str, float, float]]:
+    """Load structural-nullspace artifact and return (name, score, lambda_max)
+    sorted descending by `metric`. `lambda_max` defaults to NaN if absent
+    (older JSONs predate the lambda_max instrumentation pass).
+
+    Source: produced by src/connectome_gnn/models/structural_nullspace_table.py;
+    written to figures/structural_nullspace_table.json.
+    """
+    import json
+    import math
+    import os
+    candidates = [json_path]
+    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    candidates.append(os.path.join(repo_root, json_path))
+    # legacy location
+    candidates.append(os.path.join(repo_root, "scripts", "structural_nullspace_table.json"))
+    chosen = next((p for p in candidates if os.path.exists(p)), None)
+    if chosen is None:
+        raise FileNotFoundError(
+            f"nullspace JSON not found at {json_path}; run "
+            f"connectome_gnn/models/structural_nullspace_table.py to produce it."
+        )
+    data = json.load(open(chosen))
+    type_results = data.get('type_results', {})
+    out: list[tuple[str, float, float]] = []
+    for entry in type_results.values():
+        name = entry['name']
+        nd = float(entry.get('null_dim', 0.0))
+        lam = float(entry.get('lambda_max', math.nan))
+        if metric == 'null_dim':
+            score = nd
+        elif metric == 'leverage':
+            n_c = float(entry.get('n_neurons_of_type', entry.get('n_c', 1.0)) or 1.0)
+            r2 = entry.get('conn_r2', entry.get('R2_W', 1.0))
+            r2 = float(r2) if r2 is not None else 1.0
+            score = (nd / max(n_c, 1.0)) * (1.0 - r2)
+        else:
+            raise ValueError(f"unknown metric '{metric}' (expected 'null_dim' or 'leverage')")
+        out.append((name, score, lam))
+    out.sort(key=lambda t: t[1], reverse=True)
+    return out
+
+
+def validate_registry() -> None:
+    """Internal-consistency check, called on import. Raises AssertionError on drift."""
+    from connectome_gnn.generators.flyvis_ode import group_by_direction_and_function
+    assert len(INDEX_TO_NAME) == 65, f"INDEX_TO_NAME has {len(INDEX_TO_NAME)} entries, expected 65"
+    assert sorted(INDEX_TO_NAME.keys()) == list(range(65)), "INDEX_TO_NAME ids not contiguous 0..64"
+    for i, n in INDEX_TO_NAME.items():
+        assert NAME_TO_INDEX[n] == i, f"NAME_TO_INDEX inverse mismatch at {n}"
+    for n in IDENTIFIABLE_TYPES + NO_OUTGOING_TYPES:
+        assert n in NAME_TO_INDEX, f"unknown type name in registry constants: {n}"
+    assert set(IDENTIFIABLE_TYPES).isdisjoint(set(NO_OUTGOING_TYPES))
+    assert len(GROUP_NAMES) == 20
+    table = _group_table()
+    assert set(table.keys()) == set(GROUP_NAMES.values())
+    for agg, subs in GROUP_AGGREGATES.items():
+        for s in subs:
+            assert s in table, f"GROUP_AGGREGATES[{agg!r}] references unknown group {s!r}"
+    # round trip: every type name resolves into exactly one group, and that
+    # group's expansion contains the type
+    for name in INDEX_TO_NAME.values():
+        gid = group_by_direction_and_function(name)
+        gname = GROUP_NAMES[gid]
+        assert name in table[gname], f"round-trip failed for {name} (group {gname})"
+
+
+validate_registry()
+
+
 # ------------------------------------------------------------------ #
 #  Weight extraction
 # ------------------------------------------------------------------ #
