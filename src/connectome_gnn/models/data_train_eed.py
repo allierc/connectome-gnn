@@ -93,6 +93,7 @@ def data_train_eed(config, erase, best_model, device, log_file=None):
     load_fields = determine_load_fields(config)
     x_ts, _y_ts, type_list = load_flyvis_data(
         config.dataset, split='train', fields=load_fields,
+        observable=config.training.observable,
     )
     x_ts = x_ts.to(device)
 

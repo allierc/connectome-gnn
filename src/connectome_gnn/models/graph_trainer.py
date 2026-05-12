@@ -149,6 +149,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
         training_selected_neurons=tc.training_selected_neurons,
         selected_neuron_ids=tc.selected_neuron_ids if tc.training_selected_neurons else None,
         measurement_noise_level=sim.measurement_noise_level,
+        observable=tc.observable,
     )
 
     # get n_neurons and n_frames from data, not config file

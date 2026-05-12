@@ -40,7 +40,10 @@ def determine_load_fields(config):
     )
     if needs_pos_for_inr and 'pos' not in fields:
         fields.append('pos')
-    if sim.calcium_type != 'none':
+    # Load calcium fields only when the trainer actually consumes them.
+    # Generation may still write calcium/stimulus_calcium to disk; the loader
+    # ignores them unless training.observable == "calcium".
+    if getattr(config.training, 'observable', 'voltage') == 'calcium':
         fields.append('calcium')
         fields.append('stimulus_calcium')
     if sim.measurement_noise_level > 0:
@@ -56,7 +59,8 @@ def determine_load_fields(config):
 
 def load_flyvis_data(dataset_name, split='train', fields=None,
                      training_selected_neurons=False, selected_neuron_ids=None,
-                     measurement_noise_level=0.0):
+                     measurement_noise_level=0.0,
+                     observable='voltage'):
     """Load NeuronTimeSeries + derivative targets for a given split.
 
     Data is returned on CPU. Callers are responsible for moving to GPU
@@ -70,6 +74,10 @@ def load_flyvis_data(dataset_name, split='train', fields=None,
         training_selected_neurons: if True, subset neurons
         selected_neuron_ids: list of neuron indices to keep
         measurement_noise_level: if > 0, load noisy_y_list instead of y_list
+        observable: "voltage" (load y_list[_noisy]_{split}) or "calcium"
+            (load y_list_{split}_calcium). When observable=="calcium" the
+            generator must have written y_list_{split}_calcium (i.e. the
+            dataset was created with simulation.calcium_type != "none").
 
     Returns:
         x_ts: NeuronTimeSeries on CPU
@@ -79,18 +87,27 @@ def load_flyvis_data(dataset_name, split='train', fields=None,
     split_name = f'x_list_{split}'
     path = graphs_data_path(dataset_name, split_name)
 
-    # Choose derivative target: noisy or clean
-    y_prefix = 'noisy_y_list' if measurement_noise_level > 0 else 'y_list'
+    # Choose derivative target. Calcium target lives in a separate zarr,
+    # written by the generator alongside the voltage target when
+    # simulation.calcium_type != "none". Noisy calcium-domain target is not
+    # currently materialised — fall back to the clean calcium derivative.
+    if observable == 'calcium':
+        y_suffix = f'_{split}_calcium'
+        y_prefix = 'y_list'
+    else:
+        y_suffix = f'_{split}'
+        y_prefix = 'noisy_y_list' if measurement_noise_level > 0 else 'y_list'
 
     if os.path.exists(path):
         x_ts = load_simulation_data(path, fields=fields)
-        y_ts = load_raw_array(graphs_data_path(dataset_name, f'{y_prefix}_{split}'))
+        y_ts = load_raw_array(graphs_data_path(dataset_name, f'{y_prefix}{y_suffix}'))
     else:
         print(f"warning: {split_name} not found, falling back to x_list_0")
         x_ts = load_simulation_data(
             graphs_data_path(dataset_name, 'x_list_0'), fields=fields
         )
-        y_ts = load_raw_array(graphs_data_path(dataset_name, 'y_list_0'))
+        fallback_y = 'y_list_0_calcium' if observable == 'calcium' else 'y_list_0'
+        y_ts = load_raw_array(graphs_data_path(dataset_name, fallback_y))
 
     # Extract type_list, then construct index (not loaded from disk)
     type_list = x_ts.neuron_type.float().unsqueeze(-1)

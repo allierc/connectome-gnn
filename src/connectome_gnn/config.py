@@ -44,6 +44,10 @@ class CalciumActivation(StrEnum):
     IDENTITY = "identity"
     TANH = "tanh"
 
+class Observable(StrEnum):
+    VOLTAGE = "voltage"
+    CALCIUM = "calcium"
+
 class Prediction(StrEnum):
     FIRST_DERIVATIVE = "first_derivative"
     SECOND_DERIVATIVE = "2nd_derivative"
@@ -759,6 +763,12 @@ class TrainingConfig(BaseModel):
     device: Annotated[str, Field(pattern=r"^(auto|cpu|cuda:\d+)$")] = "auto"
     node_name: str = "a100"  # cluster GPU node: h100, a100, or l4
 
+    # Observable the GNN trains on. "voltage" uses x.voltage as input and
+    # y_list_{split} as target. "calcium" uses x.calcium + x.stimulus_calcium
+    # as input and y_list_{split}_calcium as target. Requires the dataset to
+    # have been generated with simulation.calcium_type != "none".
+    observable: Observable = Observable.VOLTAGE
+
     n_epochs: int = 20
     n_epochs_init: int = 99999  # DEPRECATED: no longer used by regularizer
     epoch_reset: int = -1
@@ -1038,6 +1048,19 @@ class NeuralGraphConfig(BaseModel):
     plotting: PlottingConfig
     training: TrainingConfig
     zarr: Optional[ZarrConfig] = None
+
+    @model_validator(mode="after")
+    def _validate_observable_vs_calcium(self) -> "NeuralGraphConfig":
+        if (
+            self.training.observable == Observable.CALCIUM
+            and self.simulation.calcium_type == CalciumType.NONE
+        ):
+            raise ValueError(
+                "training.observable='calcium' requires simulation.calcium_type "
+                "!= 'none' so the dataset contains calcium / stimulus_calcium / "
+                "y_list_*_calcium fields."
+            )
+        return self
 
     @staticmethod
     def from_yaml(file_name: str):

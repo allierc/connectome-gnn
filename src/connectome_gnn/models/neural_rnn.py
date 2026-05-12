@@ -44,6 +44,7 @@ class NeuralRNN(nn.Module):
         self.device = device
         self.model = model_config.signal_model_name
         self.calcium_type = simulation_config.calcium_type
+        self.observable = train_config.observable
         self.n_neurons = simulation_config.n_neurons
         self.n_input_neurons = simulation_config.n_input_neurons
         self.n_edges = simulation_config.n_edges
@@ -110,8 +111,9 @@ class NeuralRNN(nn.Module):
             dv_dt: (n_neurons, 1) predicted derivative.
             h: Updated hidden state (only if return_all=True).
         """
-        # Extract voltage and stimulus from state tensor
-        if self.calcium_type != "none":
+        # Extract observable column from packed state tensor.
+        # Layout: [..., voltage(3), stimulus(4), ..., calcium(7), ...].
+        if self.observable == "calcium":
             v = x[:, 7:8]
         else:
             v = x[:, 3:4]

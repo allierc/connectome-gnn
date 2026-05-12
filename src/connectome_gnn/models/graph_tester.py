@@ -228,21 +228,37 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     # column-resolved error maps without re-loading the dataset.
     if has_hidden_neurons and 'pos' not in load_fields:
         load_fields.append('pos')
-    if sim.calcium_type != 'none':
+    observable = getattr(config.training, 'observable', 'voltage')
+    if observable == 'calcium':
         load_fields.append('calcium')
         load_fields.append('stimulus_calcium')
+
+    # Calcium-kernel state for visualisation / synthetic trace still needs the
+    # raw stimulus_calcium even in voltage-observable mode — graph_tester
+    # rolls the kernel forward to compare predicted v with measured Ca below.
+    if (
+        observable != 'calcium'
+        and sim.calcium_type != 'none'
+        and 'stimulus_calcium' not in load_fields
+    ):
+        load_fields.append('stimulus_calcium')
+
+    # Pick the matching y target — y_list_test for voltage observable,
+    # y_list_test_calcium for calcium observable.
+    y_suffix = '_test_calcium' if observable == 'calcium' else '_test'
+    y_fallback = 'y_list_0_calcium' if observable == 'calcium' else 'y_list_0'
 
     # Load test data (fall back to x_list_0 for backwards compatibility)
     test_path = graphs_data_path(test_ds, 'x_list_test')
     if os.path.exists(test_path):
         x_ts = load_simulation_data(test_path, fields=load_fields).to(device)
-        y_ts = load_raw_array(graphs_data_path(test_ds, 'y_list_test'))
+        y_ts = load_raw_array(graphs_data_path(test_ds, f'y_list{y_suffix}'))
     else:
         logger.warning("x_list_test not found, falling back to x_list_0")
         x_ts = load_simulation_data(
             graphs_data_path(test_ds, 'x_list_0'), fields=load_fields
         ).to(device)
-        y_ts = load_raw_array(graphs_data_path(test_ds, 'y_list_0'))
+        y_ts = load_raw_array(graphs_data_path(test_ds, y_fallback))
 
     # Extract type_list and set up index
     type_list = x_ts.neuron_type.float().unsqueeze(-1)
@@ -528,9 +544,12 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     stimuli_pred_list = []   # SIREN predicted stimulus (input neurons only)
 
     # GCaMP kernel state (only used when sim.calcium_type == "kernel").
+    # In voltage-observable mode we apply V→Ca after each integration step for
+    # diagnostic plots; in calcium-observable mode the model already outputs
+    # dCa/dt so the kernel is skipped (calcium is the rolled-out quantity).
     _calcium_kernel = None
     _v_hist = None
-    if sim.calcium_type == "kernel":
+    if sim.calcium_type == "kernel" and observable != "calcium":
         from connectome_gnn.generators.gcamp_kernel import build_kernel_from_config
         _calcium_kernel = build_kernel_from_config(sim, device=device)
         _v_hist = torch.zeros(
@@ -541,8 +560,12 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     with torch.no_grad():
         for k in trange(n_eval_frames - 1, ncols=100, desc="rollout"):
             # Collect state before integration
-            rollout_pred_list.append(to_numpy(x.voltage))
-            rollout_true_list.append(to_numpy(x_ts_eval.frame(k).voltage))
+            if observable == "calcium":
+                rollout_pred_list.append(to_numpy(x.calcium))
+                rollout_true_list.append(to_numpy(x_ts_eval.frame(k).calcium))
+            else:
+                rollout_pred_list.append(to_numpy(x.voltage))
+                rollout_true_list.append(to_numpy(x_ts_eval.frame(k).voltage))
 
             # Set stimulus from rollout data
             frame_k = x_ts_eval.frame(k)
@@ -600,7 +623,16 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
             else:
                 y = model(x, edges, data_id=data_id, return_all=False)
 
-            # Integration step
+            # Integration step. In calcium-observable mode the model emits
+            # dCa/dt and we integrate x.calcium directly — no kernel reapply.
+            if observable == "calcium":
+                x.calcium = x.calcium + sim.delta_t * y.squeeze(-1)
+                if torch.isnan(x.calcium).any() or torch.isinf(x.calcium).any():
+                    logger.error(f"rollout diverged at frame {k} (NaN/Inf in calcium) — aborting")
+                    break
+                x.calcium = torch.clamp(x.calcium, min=-100.0, max=100.0)
+                continue
+
             if 'mlp_ode' in model_config.signal_model_name.lower():
                 x.voltage = x.voltage + y.squeeze(-1)
             else:
@@ -966,6 +998,17 @@ def data_test_gnn_special(
     sim = config.simulation
     tc = config.training
     model_config = config.graph_model
+
+    # data_test_gnn_special regenerates test data by re-running the ODE and
+    # integrating the model's predicted derivative onto x.voltage. That path
+    # assumes the model emits dv/dt; the calcium-domain rollout will land in
+    # this file as a follow-up once the visualisation path is rewired.
+    if getattr(tc, 'observable', 'voltage') == 'calcium':
+        raise NotImplementedError(
+            "data_test_gnn_special is not yet supported when "
+            "training.observable == 'calcium'. Use data_test_gnn for "
+            "calcium-domain rollout/metrics."
+        )
 
     log_dir = log_path(config.config_file)
 

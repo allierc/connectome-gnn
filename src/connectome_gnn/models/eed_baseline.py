@@ -99,6 +99,7 @@ class EEDBaseline(nn.Module):
         self.batch_size = train_config.batch_size
         self.update_type = model_config.update_type
         self.calcium_type = simulation_config.calcium_type
+        self.observable = train_config.observable
         self.dt = simulation_config.delta_t
 
         # Read EED architecture from config
@@ -171,7 +172,7 @@ class EEDBaseline(nn.Module):
         """Compute dv/dt from neuron state. Same interface as MLPBaseline."""
         self.data_id = data_id.squeeze().long().clone().detach() if hasattr(data_id, 'squeeze') else data_id
 
-        v = state.observable(self.calcium_type)    # (N, 1)
+        v = state.observable(self.observable)    # (N, 1)
         # Sum optogenetic perturbation (when present) into the visual-stim
         # channel; opto on hidden neurons is silently ignored by EED since
         # only the first n_input_neurons columns are fed to predict_dvdt.

@@ -177,6 +177,7 @@ class NeuralGNN(nn.Module):
         self.embedding_trial = config.training.embedding_trial
         self.multi_connectivity = config.training.multi_connectivity
         self.calcium_type = simulation_config.calcium_type
+        self.observable = config.training.observable
         self.MLP_activation = config.graph_model.MLP_activation
 
         self.training_time_window = config.training.time_window
@@ -647,7 +648,7 @@ class NeuralGNN(nn.Module):
         """
         self.data_id = data_id.squeeze().long().clone().detach()
 
-        v = state.observable(self.calcium_type)
+        v = state.observable(self.observable)
         # Sum optogenetic perturbation (when present) into the same excitation channel
         # as visual stimulus. Keeps f_theta input dim unchanged → existing checkpoints
         # remain loadable; opto contributes zero when state.optogenetics_stimulus is None.
@@ -655,7 +656,7 @@ class NeuralGNN(nn.Module):
         # In calcium mode, use the kernel-convolved stimulus so the excitation
         # channel lives in the same temporal regime as the calcium observable.
         # Falls back to raw stimulus for legacy datasets without the field.
-        if self.calcium_type != "none" and state.stimulus_calcium is not None:
+        if self.observable == "calcium" and state.stimulus_calcium is not None:
             stim = state.stimulus_calcium
         else:
             stim = state.stimulus

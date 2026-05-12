@@ -90,9 +90,14 @@ class NeuronState:
                 return val.device
         raise ValueError("NeuronState has no populated fields")
 
-    def observable(self, calcium_type: str = "none") -> torch.Tensor:
-        """Return the observable signal: voltage or calcium, as (N, 1)."""
-        if calcium_type != "none":
+    def observable(self, mode="voltage") -> torch.Tensor:
+        """Return the observable signal as (N, 1).
+
+        mode == "calcium" → self.calcium (kernel/leaky-convolved fluorescence
+        observable). Otherwise (default "voltage") → self.voltage. Accepts
+        either a plain string or the Observable StrEnum.
+        """
+        if mode == "calcium":
             return self.calcium.unsqueeze(-1)
         return self.voltage.unsqueeze(-1)
 

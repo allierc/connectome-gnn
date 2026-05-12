@@ -242,6 +242,7 @@ def data_train_spend(config, erase=False, best_model=None, device=None, log_file
         training_selected_neurons=tc.training_selected_neurons,
         selected_neuron_ids=tc.selected_neuron_ids if tc.training_selected_neurons else None,
         measurement_noise_level=loader_meas_noise,
+        observable=tc.observable,
     )
 
     n_neurons = x_ts.n_neurons

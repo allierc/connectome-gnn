@@ -1356,6 +1356,14 @@ def data_generate_voltage(
         n_features=1,
         time_chunks=2000,
     )
+    y_calcium_writer = None
+    if sim.calcium_type != "none":
+        y_calcium_writer = ZarrArrayWriter(
+            path=graphs_data_path(config.dataset, "y_list_train_calcium"),
+            n_neurons=n_neurons,
+            n_features=1,
+            time_chunks=2000,
+        )
 
     it, id_fig = _run_ode_generation(
         stimulus_sequences=train_sequences,
@@ -1367,6 +1375,7 @@ def data_generate_voltage(
         sim=sim,
         x_writer=x_writer,
         y_writer=y_writer,
+        y_calcium_writer=y_calcium_writer,
         target_frames=target_frames,
         num_passes=num_passes_needed,
         n_neurons=n_neurons,
@@ -1390,6 +1399,8 @@ def data_generate_voltage(
 
     n_frames_train = x_writer.finalize()
     y_writer.finalize()
+    if y_calcium_writer is not None:
+        y_calcium_writer.finalize()
     logger.info(f"generated {n_frames_train} TRAIN frames (saved as .zarr)")
 
     # --- Compute noisy derivatives for TRAIN split ---
@@ -1443,11 +1454,19 @@ def data_generate_voltage(
         n_features=1,
         time_chunks=2000,
     )
+    y_calcium_writer = None
+    if sim.calcium_type != "none":
+        y_calcium_writer = ZarrArrayWriter(
+            path=graphs_data_path(config.dataset, "y_list_test_calcium"),
+            n_neurons=n_neurons,
+            n_features=1,
+            time_chunks=2000,
+        )
 
     _run_ode_generation(
         stimulus_sequences=test_sequences, net=net, pde=pde, x=x,
         edge_index=edge_index, initial_state=initial_state, sim=sim,
-        x_writer=x_writer, y_writer=y_writer,
+        x_writer=x_writer, y_writer=y_writer, y_calcium_writer=y_calcium_writer,
         target_frames=test_target_frames, num_passes=1,
         n_neurons=n_neurons, device=device, to_numpy_fn=to_numpy,
         noise_model_level=test_noise_model,
@@ -1461,6 +1480,8 @@ def data_generate_voltage(
 
     n_frames_test = x_writer.finalize()
     y_writer.finalize()
+    if y_calcium_writer is not None:
+        y_calcium_writer.finalize()
     _noise_tag = (
         f"noisy (noise_model={test_noise_model:g}, meas={test_noise_meas:g})"
         if sim.noisy_test_data else "without noise"
@@ -1938,6 +1959,7 @@ def _run_ode_generation(
     u_coords=None,
     v_coords=None,
     split: str = "train",
+    y_calcium_writer=None,
 ):
     """Run ODE simulation over stimulus sequences, writing frames to zarr.
 
@@ -2371,6 +2393,11 @@ def _run_ode_generation(
                         _hh_debug_buffers["h"].append(x.hh_h.cpu().numpy().copy())
                         _hh_debug_buffers["n"].append(x.hh_n.cpu().numpy().copy())
 
+                    # y above is the voltage derivative dv/dt (PDE output).
+                    # When calcium is on, also compute calcium derivative; both
+                    # are written to separate zarrs so training can pick either
+                    # observable via training.observable.
+                    y_calcium = None
                     if sim.calcium_type == "leaky":
                         if sim.calcium_activation == "softplus":
                             s = torch.nn.functional.softplus(x.voltage)
@@ -2383,7 +2410,7 @@ def _run_ode_generation(
 
                         x.calcium = x.calcium + (sim.delta_t / sim.calcium_tau) * (-x.calcium + s)
                         x.fluorescence = sim.calcium_alpha * x.calcium + sim.calcium_beta
-                        y = ((x.calcium - prev_calcium) / sim.delta_t).unsqueeze(-1)
+                        y_calcium = ((x.calcium - prev_calcium) / sim.delta_t).unsqueeze(-1)
                     elif sim.calcium_type == "kernel":
                         v_hist = torch.roll(v_hist, shifts=1, dims=-1)
                         v_hist[:, 0] = x.voltage
@@ -2395,7 +2422,7 @@ def _run_ode_generation(
                         stim_hist = torch.roll(stim_hist, shifts=1, dims=-1)
                         stim_hist[:, 0] = x.stimulus
                         x.stimulus_calcium = (stim_hist * calcium_kernel).sum(dim=-1)
-                        y = ((x.calcium - prev_calcium) / sim.delta_t).unsqueeze(-1)
+                        y_calcium = ((x.calcium - prev_calcium) / sim.delta_t).unsqueeze(-1)
                         if trace_neuron_idx and len(v_trace_buf) < TRACE_MAX_FRAMES:
                             v_trace_buf.append(
                                 x.voltage[trace_neuron_idx].detach().cpu().numpy().copy()
@@ -2426,6 +2453,8 @@ def _run_ode_generation(
                                 )
 
                     y_writer.append(to_numpy_fn(y.clone().detach()))
+                    if y_calcium_writer is not None and y_calcium is not None:
+                        y_calcium_writer.append(to_numpy_fn(y_calcium.clone().detach()))
 
                     if (visualize & (run == run_vizualized) & (it > 0) & (it % 4 == 0) & (it <= 400)):
                         num = f"{id_fig:06}"
@@ -2622,7 +2651,7 @@ def _tile_train_zarrs(config, factor: int, save_calcium: bool):
     base = Path(graphs_data_path(config.dataset, "x_list_train"))
     fields = ['voltage', 'stimulus', 'noise']
     if save_calcium:
-        fields += ['calcium', 'fluorescence']
+        fields += ['calcium', 'fluorescence', 'stimulus_calcium']
 
     for name in fields:
         spec = {
@@ -2637,8 +2666,8 @@ def _tile_train_zarrs(config, factor: int, save_calcium: bool):
         for k in range(1, factor):
             store[unique_n * k: unique_n * (k + 1)].write(unique).result()
 
-    # 3-D arrays: y_list_train and (if present) noisy_y_list_train
-    for tag in ("y_list_train", "noisy_y_list_train"):
+    # 3-D arrays: y_list_train and (if present) noisy_y_list_train + calcium twin
+    for tag in ("y_list_train", "noisy_y_list_train", "y_list_train_calcium"):
         path = Path(graphs_data_path(config.dataset, tag) + ".zarr")
         if not path.exists():
             continue

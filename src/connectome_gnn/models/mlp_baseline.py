@@ -45,6 +45,7 @@ class MLPBaseline(nn.Module):
         self.batch_size = train_config.batch_size
         self.update_type = model_config.update_type
         self.calcium_type = simulation_config.calcium_type
+        self.observable = train_config.observable
 
         input_size = self.n_neurons + self.n_input_neurons  # [v; stim_input_neurons]
         output_size = self.n_neurons
@@ -147,7 +148,7 @@ class MLPBaseline(nn.Module):
         """
         self.data_id = data_id.squeeze().long().clone().detach() if hasattr(data_id, 'squeeze') else data_id
 
-        v = state.observable(self.calcium_type)    # (N, 1)
+        v = state.observable(self.observable)    # (N, 1)
         # Sum optogenetic perturbation (when present) into the stim channel;
         # opto on non-input neurons is silently ignored by MLPBaseline since
         # only the first n_input_neurons columns are fed to predict_dvdt.
@@ -172,7 +173,7 @@ class MLPBaseline(nn.Module):
         Returns:
             J: (n_neurons, n_neurons) tensor where J[i,j] = d(dv_i/dt) / dv_j
         """
-        v = state.observable(self.calcium_type).detach()    # (N, 1)
+        v = state.observable(self.observable).detach()    # (N, 1)
         opto = state.optogenetics_stimulus if state.optogenetics_stimulus is not None else 0.0
         if torch.is_tensor(opto):
             stim = (state.stimulus + opto).detach()         # (N,)
