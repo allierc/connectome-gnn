@@ -879,7 +879,7 @@ def _draw_stacked_traces(ax, voltage, calcium, labels, time_ms, ylabel):
                 color="black")
 
     ax.set_ylabel(ylabel, fontsize=_FS_LABEL, labelpad=32)
-    ax.set_ylim([-step_v, (n_neurons - 1) * step_v + 2.2 * step_v])
+    ax.set_ylim([-step_v, (n_neurons - 1) * step_v + 0.5 * step_v])
     ax.set_yticks([])
     ax.set_xlim([time_ms[0], time_ms[-1]])
 
@@ -1021,7 +1021,9 @@ def plot_visual_perturbation_traces(
         axes[0], voltage_retina, calcium_retina, labels_retina,
         time_ms, ylabel="retina neurons",
     )
-    axes[0].legend(loc="lower right", fontsize=6, frameon=False)
+    # Only show the legend when both channels are drawn (V alone is obvious).
+    if calcium_retina is not None:
+        axes[0].legend(loc="lower right", fontsize=6, frameon=False)
 
     _draw_stacked_traces(
         axes[1], voltage_other, calcium_other, labels_other,

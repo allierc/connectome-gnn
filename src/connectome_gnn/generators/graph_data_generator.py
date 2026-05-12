@@ -2047,6 +2047,18 @@ def _run_ode_generation(
     vp_ca_buf: list = []
     vp_v_other_buf: list = []
     vp_ca_other_buf: list = []
+
+    # Retina + downstream trace neurons are populated for every train run so
+    # traces.png can be saved as a generic diagnostic (not gated on
+    # visual_perturbation). For test runs they stay empty.
+    from connectome_gnn.generators.utils import (
+        select_retina_trace_neurons,
+        select_downstream_trace_neurons,
+    )
+    if split == "train":
+        vp_trace_idx, vp_trace_labels = select_retina_trace_neurons(x.neuron_type, per_type=2)
+        vp_other_idx, vp_other_labels = select_downstream_trace_neurons(x.neuron_type)
+
     if vp_enabled:
         # target_frames may be inf in some streaming paths; cap at sim.n_frames.
         import math as _math
@@ -2058,10 +2070,6 @@ def _run_ode_generation(
                 "(only 'heaviside' is implemented)"
             )
         from connectome_gnn.generators.optogenetics import heaviside_var_waveform
-        from connectome_gnn.generators.utils import (
-            select_retina_trace_neurons,
-            select_downstream_trace_neurons,
-        )
         visual_pert_full = heaviside_var_waveform(
             n_frames=vp_T,
             n_targets=int(sim.n_input_neurons),
@@ -2070,8 +2078,6 @@ def _run_ode_generation(
             resample_amplitude_per_transition=bool(vp_cfg.resample_amplitude_per_transition),
             device=device,
         )
-        vp_trace_idx, vp_trace_labels = select_retina_trace_neurons(x.neuron_type, per_type=2)
-        vp_other_idx, vp_other_labels = select_downstream_trace_neurons(x.neuron_type)
 
     # Calcium kernel setup (GCaMP-style convolution observable).
     # When calcium_type == "kernel", we maintain a per-neuron voltage history
@@ -2435,7 +2441,7 @@ def _run_ode_generation(
                     # if any) for the retina sample AND for the downstream
                     # cell-type sample, so the plot can show direct vs.
                     # indirect response side by side.
-                    if vp_enabled and vp_trace_idx and len(vp_v_buf) < TRACE_MAX_FRAMES:
+                    if vp_trace_idx and len(vp_v_buf) < TRACE_MAX_FRAMES:
                         vp_v_buf.append(
                             x.voltage[vp_trace_idx].detach().cpu().numpy().copy()
                         )
@@ -2566,7 +2572,7 @@ def _run_ode_generation(
     # traces_kernel.png (V + Ca overlay). Non-kernel runs emit only
     # traces.png. The K(t) / K*heaviside diagram lives in kernel.png,
     # written once at the top of the calcium-kernel setup block.
-    if vp_enabled and vp_v_buf and config is not None and split == "train":
+    if vp_v_buf and config is not None and split == "train":
         try:
             from connectome_gnn.generators.utils import plot_visual_perturbation_traces
             v_arr = np.stack(vp_v_buf, axis=0)
@@ -2588,12 +2594,18 @@ def _run_ode_generation(
             os.makedirs(data_root, exist_ok=True)
             dt_seconds = float(getattr(sim, 'calcium_kernel_dt_seconds',
                                        getattr(sim, 'delta_t', 0.02)))
-            title = (
-                f"heaviside-var (frames_on={vp_cfg.frames_on}, "
-                f"resample={vp_cfg.resample_amplitude_per_transition}) - "
-                f"noise={sim.noise_model_level} - "
-                f"frames [{start}, {end})"
-            )
+            if vp_enabled:
+                title = (
+                    f"heaviside-var (frames_on={vp_cfg.frames_on}, "
+                    f"resample={vp_cfg.resample_amplitude_per_transition}) - "
+                    f"noise={sim.noise_model_level} - "
+                    f"frames [{start}, {end})"
+                )
+            else:
+                title = (
+                    f"{config.dataset} - noise={sim.noise_model_level} - "
+                    f"frames [{start}, {end})"
+                )
             if v_other_arr is None or not vp_other_labels:
                 logger.warning(
                     "visual_perturbation: no downstream neurons found — "

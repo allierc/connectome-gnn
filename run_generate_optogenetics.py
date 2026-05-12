@@ -215,7 +215,7 @@ IDENTIFIABLE_TYPES = [
 WAVEFORMS = [
     '05',            # white_noise, σ = 0.5  (matches flyvis_noise_05 convention)
     'heaviside',     # 35 ON / 35 OFF stochastic square wave (column-distinct)
-    'heaviside_05'  # heaviside + white-noise σ = 0.5 layered on top
+    'heaviside_05',  # heaviside + white-noise σ = 0.5 layered on top
     # 'dc_05',         # constant DC step, amplitude=0.5 — pure V_rest probe
 ]
 
