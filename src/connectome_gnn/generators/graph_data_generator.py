@@ -1456,6 +1456,7 @@ def data_generate_voltage(
         step=step, id_fig_start=id_fig, it_start=0,
         fig_style=fig_style, config=config, davis_dataset=davis_dataset,
         X1=X1, u_coords=u_coords, v_coords=v_coords,
+        split="test",
     )
 
     n_frames_test = x_writer.finalize()
@@ -1936,11 +1937,17 @@ def _run_ode_generation(
     X1=None,
     u_coords=None,
     v_coords=None,
+    split: str = "train",
 ):
     """Run ODE simulation over stimulus sequences, writing frames to zarr.
 
     This is the inner loop extracted so it can be called for both train and test.
     Returns (it, id_fig) — the final frame counter and figure counter.
+
+    `split` is used only for diagnostic plot routing — the
+    visual_perturbation traces plot fires only when split=='train' so the
+    noise level used during training is visible (the test pass uses
+    noise_model_level=0 by default, hiding the difference between configs).
     """
     it = it_start
     id_fig = id_fig_start
@@ -2004,6 +2011,46 @@ def _run_ode_generation(
     in_blank_window = False
     blank_remaining = 0
 
+    # Visual-channel perturbation: additive heaviside-var added to
+    # x.stimulus on real-movie frames. Pre-allocated once per call so the
+    # main loop is just an indexed read. Blank-prefix overwrites it.
+    vp_cfg = getattr(sim, 'visual_perturbation', None)
+    vp_enabled = bool(vp_cfg is not None and vp_cfg.enabled)
+    visual_pert_full = None
+    vp_trace_idx: list[int] = []
+    vp_trace_labels: list[str] = []
+    vp_other_idx: list[int] = []
+    vp_other_labels: list[str] = []
+    vp_v_buf: list = []
+    vp_ca_buf: list = []
+    vp_v_other_buf: list = []
+    vp_ca_other_buf: list = []
+    if vp_enabled:
+        # target_frames may be inf in some streaming paths; cap at sim.n_frames.
+        import math as _math
+        vp_T = int(target_frames) if _math.isfinite(target_frames) else int(sim.n_frames)
+        kind = vp_cfg.kind if isinstance(vp_cfg.kind, str) else vp_cfg.kind.value
+        if kind != 'heaviside':
+            raise NotImplementedError(
+                f"visual_perturbation.kind={kind!r} not supported "
+                "(only 'heaviside' is implemented)"
+            )
+        from connectome_gnn.generators.optogenetics import heaviside_var_waveform
+        from connectome_gnn.generators.utils import (
+            select_retina_trace_neurons,
+            select_downstream_trace_neurons,
+        )
+        visual_pert_full = heaviside_var_waveform(
+            n_frames=vp_T,
+            n_targets=int(sim.n_input_neurons),
+            frames_on=int(vp_cfg.frames_on),
+            seed=int(vp_cfg.seed),
+            resample_amplitude_per_transition=bool(vp_cfg.resample_amplitude_per_transition),
+            device=device,
+        )
+        vp_trace_idx, vp_trace_labels = select_retina_trace_neurons(x.neuron_type, per_type=2)
+        vp_other_idx, vp_other_labels = select_downstream_trace_neurons(x.neuron_type)
+
     # Calcium kernel setup (GCaMP-style convolution observable).
     # When calcium_type == "kernel", we maintain a per-neuron voltage history
     # buffer V_hist of shape (n_neurons, kernel_len) and compute
@@ -2036,25 +2083,21 @@ def _run_ode_generation(
         )
         x.stimulus_calcium = torch.zeros(n_neurons, dtype=torch.float32, device=device)
         trace_neuron_idx, trace_labels = select_reference_neurons(x.neuron_type)
-        # Save a one-shot diagnostic figure of K(t) at the dataset root.
-
+        # Diagnostic figure: K(t) plus example K * heaviside(off-on-off)
+        # for several pulse widths. Saved once at the dataset root.
         data_root_dir = graphs_data_path(config.dataset)
         os.makedirs(data_root_dir, exist_ok=True)
-        t_axis = np.arange(calcium_kernel.shape[0]) * sim.calcium_kernel_dt_seconds
-        fig, ax = plt.subplots(figsize=(5, 3))
-        ax.plot(t_axis, calcium_kernel.cpu().numpy(), color="tab:blue")
-        ax.set_xlabel("time (s)", fontsize=8)
-        ax.set_ylabel("K(t)", fontsize=8)
-        ax.set_title(
-            f"{sim.calcium_kernel_variant} kernel "
-            f"(tau_r={sim.calcium_kernel_tau_rise:.3f}s, "
-            f"tau_d={sim.calcium_kernel_tau_decay:.3f}s)",
-            fontsize=8,
+        from connectome_gnn.generators.utils import plot_kernel_diagram
+        plot_kernel_diagram(
+            kernel=calcium_kernel,
+            dt_seconds=float(sim.calcium_kernel_dt_seconds),
+            save_path=os.path.join(data_root_dir, "kernel.png"),
+            title=(
+                f"{sim.calcium_kernel_variant} kernel "
+                f"(tau_r={sim.calcium_kernel_tau_rise:.3f}s, "
+                f"tau_d={sim.calcium_kernel_tau_decay:.3f}s)"
+            ),
         )
-        ax.tick_params(axis="both", labelsize=6)
-        fig.tight_layout()
-        fig.savefig(os.path.join(data_root_dir, "kernel.png"), dpi=120)
-        plt.close(fig)
 
 
     target_reached = False
@@ -2244,6 +2287,16 @@ def _run_ode_generation(
                                     + torch.randn(sim.n_input_neurons, dtype=torch.float32, device=device)
                                     * sim.noise_visual_input
                                 )
+                            # Visual perturbation: add heaviside-var to real-movie
+                            # frames only. Sits before the blank_prefix overwrite
+                            # so blanks naturally suppress the perturbation.
+                            if visual_pert_full is not None:
+                                vp_idx = it - it_start
+                                if 0 <= vp_idx < visual_pert_full.shape[0]:
+                                    x.stimulus[: sim.n_input_neurons] = (
+                                        x.stimulus[: sim.n_input_neurons]
+                                        + visual_pert_full[vp_idx]
+                                    )
 
                     # Blank prefix: force zero stimulus for the first N frames of each sequence
                     if blank_prefix_frames > 0 and frame_id < blank_prefix_frames:
@@ -2351,6 +2404,27 @@ def _run_ode_generation(
                                 x.calcium[trace_neuron_idx].detach().cpu().numpy().copy()
                             )
 
+                    # Visual-perturbation diagnostic buffers: voltage (+calcium
+                    # if any) for the retina sample AND for the downstream
+                    # cell-type sample, so the plot can show direct vs.
+                    # indirect response side by side.
+                    if vp_enabled and vp_trace_idx and len(vp_v_buf) < TRACE_MAX_FRAMES:
+                        vp_v_buf.append(
+                            x.voltage[vp_trace_idx].detach().cpu().numpy().copy()
+                        )
+                        if vp_other_idx:
+                            vp_v_other_buf.append(
+                                x.voltage[vp_other_idx].detach().cpu().numpy().copy()
+                            )
+                        if sim.calcium_type != "none" and x.calcium is not None:
+                            vp_ca_buf.append(
+                                x.calcium[vp_trace_idx].detach().cpu().numpy().copy()
+                            )
+                            if vp_other_idx:
+                                vp_ca_other_buf.append(
+                                    x.calcium[vp_other_idx].detach().cpu().numpy().copy()
+                                )
+
                     y_writer.append(to_numpy_fn(y.clone().detach()))
 
                     if (visualize & (run == run_vizualized) & (it > 0) & (it % 4 == 0) & (it <= 400)):
@@ -2452,39 +2526,83 @@ def _run_ode_generation(
             _bpf, _bp_min, _bp_med, _bp_max,
         )
 
-    # GCaMP kernel diagnostic: side-by-side voltage / calcium traces for the
-    # canonical reference cell types (Am, T1, T5a, T4a, Tm9, Tm1, Mi9, Mi1,
-    # L3, L2, L1, R1), mirroring opto_compare_*.png. Saved under
-    # graphs_data/<dataset>/calcium_trace.png.
-    if sim.calcium_type == "kernel" and v_trace_buf and config is not None:
+    # (calcium_trace.png removed — traces_kernel.png from the
+    # visual_perturbation block below covers the same diagnostic with the
+    # richer retina/downstream layout.)
+
+    # Visual-perturbation diagnostic plots. Only emit on the train pass —
+    # the test pass uses noise_model_level=0 by default so test plots would
+    # erase the noise differences between configs.
+    # Emits two files for kernel runs: traces.png (V only) and
+    # traces_kernel.png (V + Ca overlay). Non-kernel runs emit only
+    # traces.png. The K(t) / K*heaviside diagram lives in kernel.png,
+    # written once at the top of the calcium-kernel setup block.
+    if vp_enabled and vp_v_buf and config is not None and split == "train":
         try:
-            from connectome_gnn.generators.gcamp_kernel import plot_voltage_calcium_traces
-            v_arr = np.stack(v_trace_buf, axis=0)   # (n_frames_buf, n_sel)
-            ca_arr = np.stack(ca_trace_buf, axis=0)
-            # Match opto_compare window: frames 500-1500 -> 10000-30000 ms at dt=20ms.
+            from connectome_gnn.generators.utils import plot_visual_perturbation_traces
+            v_arr = np.stack(vp_v_buf, axis=0)
+            v_other_arr = np.stack(vp_v_other_buf, axis=0) if vp_v_other_buf else None
+            ca_arr = np.stack(vp_ca_buf, axis=0) if vp_ca_buf else None
+            ca_other_arr = np.stack(vp_ca_other_buf, axis=0) if vp_ca_other_buf else None
             TRACE_START, TRACE_END = 500, 1500
             n_buf = v_arr.shape[0]
             start = min(TRACE_START, max(0, n_buf - 2))
             end = min(TRACE_END, n_buf)
             v_arr = v_arr[start:end]
-            ca_arr = ca_arr[start:end]
+            if v_other_arr is not None:
+                v_other_arr = v_other_arr[start:end]
+            if ca_arr is not None:
+                ca_arr = ca_arr[start:end]
+            if ca_other_arr is not None:
+                ca_other_arr = ca_other_arr[start:end]
             data_root = graphs_data_path(config.dataset)
             os.makedirs(data_root, exist_ok=True)
-            save_path = os.path.join(data_root, "calcium_trace.png")
-            plot_voltage_calcium_traces(
-                voltage=v_arr,
-                calcium=ca_arr,
-                labels=trace_labels,
-                dt_seconds=float(sim.calcium_kernel_dt_seconds),
-                save_path=save_path,
-                start_frame=start,
-                title=(
-                    f"{sim.calcium_kernel_variant}: V (left) vs "
-                    f"F=V*K (right) - frames [{start}, {end})"
-                ),
+            dt_seconds = float(getattr(sim, 'calcium_kernel_dt_seconds',
+                                       getattr(sim, 'delta_t', 0.02)))
+            title = (
+                f"heaviside-var (frames_on={vp_cfg.frames_on}, "
+                f"resample={vp_cfg.resample_amplitude_per_transition}) - "
+                f"noise={sim.noise_model_level} - "
+                f"frames [{start}, {end})"
             )
+            if v_other_arr is None or not vp_other_labels:
+                logger.warning(
+                    "visual_perturbation: no downstream neurons found — "
+                    "skipping plot"
+                )
+            else:
+                # Voltage-only diagnostic — same content for kernel and non-kernel runs.
+                save_path = os.path.join(data_root, "traces.png")
+                plot_visual_perturbation_traces(
+                    voltage_retina=v_arr,
+                    labels_retina=vp_trace_labels,
+                    voltage_other=v_other_arr,
+                    labels_other=vp_other_labels,
+                    dt_seconds=dt_seconds,
+                    save_path=save_path,
+                    start_frame=start,
+                    title=title,
+                )
+                logger.info(f"traces -> {save_path}")
+
+                # Kernel runs: also emit V+Ca overlay variant.
+                if ca_arr is not None and ca_other_arr is not None:
+                    save_path_k = os.path.join(data_root, "traces_kernel.png")
+                    plot_visual_perturbation_traces(
+                        voltage_retina=v_arr,
+                        labels_retina=vp_trace_labels,
+                        voltage_other=v_other_arr,
+                        labels_other=vp_other_labels,
+                        dt_seconds=dt_seconds,
+                        save_path=save_path_k,
+                        calcium_retina=ca_arr,
+                        calcium_other=ca_other_arr,
+                        start_frame=start,
+                        title=title,
+                    )
+                    logger.info(f"traces_kernel -> {save_path_k}")
         except Exception as e:
-            logger.warning(f"calcium_trace plot failed: {e}")
+            logger.warning(f"visual_perturbation traces plot failed: {e}")
 
     return it, id_fig
 

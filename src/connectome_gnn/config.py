@@ -247,6 +247,26 @@ class OptoWaveform(BaseModel):
     video_path: Optional[str] = None
 
 
+class VisualPerturbationConfig(BaseModel):
+    """Additive perturbation on the visual stimulus channel.
+
+    When enabled, a (T, n_input_neurons) telegraph signal is added to
+    x.stimulus on real-movie frames only. Blank-prefix frames overwrite
+    stimulus to 0 *after* the add, so blanks naturally suppress the
+    perturbation. Reuses the heaviside-var generator from
+    generators/optogenetics.heaviside_var_waveform — kind currently must be
+    'heaviside'; extend the dispatch in graph_data_generator if more
+    kinds are needed.
+    """
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = False
+    kind: OptoWaveformKind = OptoWaveformKind.HEAVISIDE
+    frames_on: int = 35
+    seed: int = 0
+    resample_amplitude_per_transition: bool = True
+
+
 class OptogeneticsConfig(BaseModel):
     """Master config block for the optogenetic-perturbation pipeline.
 
@@ -446,6 +466,11 @@ class SimulationConfig(BaseModel):
     # re-simulates the source dataset with an additive optogenetics_stimulus
     # current and writes a new dataset under config.dataset.
     optogenetics: OptogeneticsConfig = OptogeneticsConfig()
+
+    # Visual-channel perturbation (additive heaviside-var on x.stimulus). See
+    # VisualPerturbationConfig — runs inline with the normal data generator
+    # (no re-simulation pass), and is suppressed by blank-prefix frames.
+    visual_perturbation: VisualPerturbationConfig = VisualPerturbationConfig()
 
     @model_validator(mode="after")
     def _validate_blank_window_injection(self) -> "SimulationConfig":

@@ -773,3 +773,309 @@ def _print_opto_banner(config, opto_cfg) -> None:
           f"noise_level={wf.noise_level}{wf_extra}{R}")
     print(f"{G}[opto] seed:            {wf.seed}  (paired with source for matched comparison){R}")
     print(f"{G}{'='*70}{R}", flush=True)
+
+
+# --- Diagnostic traces for the visual_perturbation pipeline ----------------
+# Sister to optogenetics._draw_opto_traces / plot_voltage_calcium_traces but
+# for the inline visual_perturbation pass (heaviside-var added on x.stimulus).
+# No baseline-vs-perturbed comparison — single dataset, V (+optional Ca)
+# stacked per neuron with the per-neuron stimulus trace beneath.
+
+
+def select_retina_trace_neurons(
+    neuron_type: "torch.Tensor",
+    per_type: int = 2,
+) -> tuple[list[int], list[str]]:
+    """Pick `per_type` indices for each R1..R8 photoreceptor type.
+
+    Returns (neuron_idx, labels) ordered R1, R1, R2, R2, ... R8, R8 (drops
+    types with no neurons). Indices are spaced across the available pool so
+    different retinotopic columns are represented.
+    """
+    from connectome_gnn.metrics import NAME_TO_INDEX
+    nt = neuron_type.detach().cpu().numpy()
+    neuron_idx: list[int] = []
+    labels: list[str] = []
+    for r in (f"R{k}" for k in range(1, 9)):
+        if r not in NAME_TO_INDEX:
+            continue
+        t_int = NAME_TO_INDEX[r]
+        ids = (nt == t_int).nonzero()[0]
+        if len(ids) == 0:
+            continue
+        k = min(per_type, len(ids))
+        # uniform sample across the population (different columns)
+        picks = ids[np.linspace(0, len(ids) - 1, k).round().astype(int)]
+        for j, idx in enumerate(picks.tolist()):
+            neuron_idx.append(int(idx))
+            labels.append(f"{r} #{j}")
+    return neuron_idx, labels
+
+
+def select_downstream_trace_neurons(
+    neuron_type: "torch.Tensor",
+    per_type: int = 2,
+) -> tuple[list[int], list[str]]:
+    """Pick `per_type` indices for each of 8 representative non-retina types.
+
+    Eight types × 2 columns = 16 traces, matching the retina panel's
+    8 photoreceptors × 2 columns. Covers lamina (L1-L3), medulla
+    (Mi1, Mi9, Tm1), and lobula direction-selective (T4a, T5a) cells.
+    """
+    from connectome_gnn.metrics import NAME_TO_INDEX
+    nt = neuron_type.detach().cpu().numpy()
+    downstream_types = ["L1", "L2", "L3", "Mi1", "Mi9", "Tm1", "T4a", "T5a"]
+    neuron_idx: list[int] = []
+    labels: list[str] = []
+    for name in downstream_types:
+        if name not in NAME_TO_INDEX:
+            continue
+        t_int = NAME_TO_INDEX[name]
+        ids = (nt == t_int).nonzero()[0]
+        if len(ids) == 0:
+            continue
+        k = min(per_type, len(ids))
+        picks = ids[np.linspace(0, len(ids) - 1, k).round().astype(int)]
+        for j, idx in enumerate(picks.tolist()):
+            neuron_idx.append(int(idx))
+            labels.append(f"{name} #{j}")
+    return neuron_idx, labels
+
+
+def _draw_stacked_traces(ax, voltage, calcium, labels, time_ms, ylabel):
+    """Stacked V (+optional Ca) draw, no stimulus row.
+
+    voltage: (T, n), calcium: (T, n) or None.
+    """
+    _TRACE_SHRINK = 0.65
+    _LW_V, _LW_CA = 0.45, 0.7
+    _COLOR_V  = "#000000"   # black voltage trace
+    _COLOR_CA = "#cf222e"   # pure red calcium (drawn on top of V)
+    _FS_LABEL, _FS_TICK, _FS_TYPE = 8, 6, 6
+
+    n_neurons = voltage.shape[1]
+    row_stds = [
+        max(voltage[:, i].std(),
+            (calcium[:, i].std() if calcium is not None else 0.0))
+        for i in range(n_neurons)
+    ]
+    step_v = max(0.5 * _TRACE_SHRINK,
+                 3.0 * _TRACE_SHRINK * (max(row_stds) if row_stds else 1.0))
+    v_mean = voltage.mean(axis=0)
+    ca_mean = calcium.mean(axis=0) if calcium is not None else None
+    s = _TRACE_SHRINK
+
+    for i in range(n_neurons):
+        y_base = (n_neurons - 1 - i) * step_v
+        ax.plot(time_ms, s * (voltage[:, i] - v_mean[i]) + y_base,
+                lw=_LW_V, color=_COLOR_V, alpha=0.95, zorder=3,
+                label="voltage" if i == 0 else None)
+        if calcium is not None:
+            ax.plot(time_ms, s * (calcium[:, i] - ca_mean[i]) + y_base,
+                    lw=_LW_CA, color=_COLOR_CA, alpha=0.95, zorder=4,
+                    label="calcium" if i == 0 else None)
+        ax.text(time_ms[0] - (time_ms[-1] - time_ms[0]) * 0.02, y_base,
+                labels[i], fontsize=_FS_TYPE, va="center", ha="right",
+                color="black")
+
+    ax.set_ylabel(ylabel, fontsize=_FS_LABEL, labelpad=32)
+    ax.set_ylim([-step_v, (n_neurons - 1) * step_v + 2.2 * step_v])
+    ax.set_yticks([])
+    ax.set_xlim([time_ms[0], time_ms[-1]])
+
+    lo, hi = time_ms[0], time_ms[-1]
+    raw_step = (hi - lo) / max(1, 3 - 1)
+    mag = 10 ** np.floor(np.log10(max(raw_step, 1e-12)))
+    step = mag
+    for m in (1, 2, 5, 10):
+        if m * mag >= raw_step:
+            step = m * mag
+            break
+    tick_lo = np.ceil(lo / step - 1e-9) * step
+    ticks = list(np.arange(tick_lo, hi + step / 2, step))
+    if ticks:
+        ax.set_xticks(ticks)
+    ax.set_xlabel("time (ms)", fontsize=_FS_LABEL, labelpad=1)
+    ax.tick_params(axis="x", labelsize=_FS_TICK, pad=1)
+    ax.spines["left"].set_visible(False)
+
+
+def _draw_kernel_convolution_panel(ax, kernel, dt_seconds):
+    """Stacked rows showing K * pulse for several pulse widths.
+
+    Each row: red step input (off -> on -> off) and the kernel-convolved
+    output (light pink) at the same vertical offset. Pulse widths sweep
+    through values relevant to the GCaMP6f time-constants.
+    """
+    _TRACE_SHRINK = 0.65
+    _LW_INPUT, _LW_OUT = 0.8, 1.2
+    _COLOR_INPUT = "#cf222e"
+    _COLOR_OUT   = "#ff7a7a"
+    _FS_LABEL, _FS_TICK, _FS_TYPE = 8, 6, 6
+
+    kernel_np = kernel.detach().cpu().numpy() if hasattr(kernel, 'detach') else np.asarray(kernel)
+    kernel_np = kernel_np.astype(np.float32)
+    K = kernel_np.shape[0]
+
+    # Pulse widths in seconds: short / medium / long / very long
+    pulse_seconds = [0.1, 0.5, 1.0, 2.0]
+    n_pulses = len(pulse_seconds)
+    # Total trace length: long enough that the longest pulse + kernel tail fit
+    total_seconds = max(pulse_seconds) * 1.5 + K * dt_seconds + 0.5
+    total_frames = int(round(total_seconds / dt_seconds))
+    pre_frames = int(round(0.2 / dt_seconds))   # 200 ms baseline before pulse on
+
+    time_ms = np.arange(total_frames) * dt_seconds * 1000.0
+
+    step_v = 1.6 * _TRACE_SHRINK
+    s = _TRACE_SHRINK
+
+    for i, pw_s in enumerate(pulse_seconds):
+        y_base = (n_pulses - 1 - i) * step_v
+        pulse_frames = int(round(pw_s / dt_seconds))
+        u = np.zeros(total_frames, dtype=np.float32)
+        end = min(total_frames, pre_frames + pulse_frames)
+        u[pre_frames:end] = 1.0
+        # 'full' convolution then truncated to total_frames, matching the
+        # causal forward sweep used in the simulator.
+        y = np.convolve(u, kernel_np, mode='full')[:total_frames]
+
+        ax.plot(time_ms, s * u + y_base, lw=_LW_INPUT, color=_COLOR_INPUT,
+                alpha=0.9, zorder=2,
+                label="heaviside" if i == 0 else None)
+        ax.plot(time_ms, s * y + y_base, lw=_LW_OUT, color=_COLOR_OUT,
+                alpha=0.95, zorder=3,
+                label="K * heaviside" if i == 0 else None)
+        ax.text(time_ms[0] - (time_ms[-1] - time_ms[0]) * 0.02, y_base,
+                f"{int(pw_s * 1000)} ms", fontsize=_FS_TYPE,
+                va="center", ha="right", color="black")
+
+    ax.set_ylabel("pulse width", fontsize=_FS_LABEL, labelpad=32)
+    ax.set_ylim([-0.4 * step_v, (n_pulses - 1) * step_v + 2.0 * step_v])
+    ax.set_yticks([])
+    ax.set_xlim([time_ms[0], time_ms[-1]])
+    ax.set_xlabel("time (ms)", fontsize=_FS_LABEL, labelpad=1)
+    ax.tick_params(axis="x", labelsize=_FS_TICK, pad=1)
+    ax.spines["left"].set_visible(False)
+    ax.legend(loc="upper right", fontsize=_FS_TICK, frameon=False)
+
+
+def plot_visual_perturbation_traces(
+    voltage_retina: "np.ndarray",
+    labels_retina: list[str],
+    voltage_other: "np.ndarray",
+    labels_other: list[str],
+    dt_seconds: float,
+    save_path: str,
+    calcium_retina: "np.ndarray | None" = None,
+    calcium_other: "np.ndarray | None" = None,
+    start_frame: int = 0,
+    title: str | None = None,
+) -> None:
+    """Two-panel V (+optional Ca) trace plot.
+
+    Left:  retina neurons (R1..R8, 2 columns each).
+    Right: downstream non-retina cell types (L1-L3, Mi1, Mi9, Tm1, T4a,
+           T5a; 2 columns each), connectome-mediated response.
+
+    Voltage is drawn in black. If `calcium_*` is provided it is overlaid
+    in light-red on top of the voltage trace. Stimulus is intentionally
+    not drawn — every retina neuron carries the same telegraph timing
+    (different amplitudes), so a per-neuron stimulus trace would be
+    redundant. The K_GCaMP impulse response and its convolution with
+    heaviside pulses live in a separate kernel.png (plot_kernel_diagram).
+    """
+    import os
+    import matplotlib
+    import matplotlib.pyplot as plt
+
+    if voltage_retina.ndim != 2 or voltage_other.ndim != 2:
+        raise ValueError("voltage arrays must be (T, n_neurons)")
+    if voltage_retina.shape[0] != voltage_other.shape[0]:
+        raise ValueError(
+            f"frame count mismatch retina={voltage_retina.shape[0]} "
+            f"other={voltage_other.shape[0]}"
+        )
+    if calcium_retina is not None and calcium_retina.shape != voltage_retina.shape:
+        raise ValueError(
+            f"calcium_retina {calcium_retina.shape} != voltage_retina {voltage_retina.shape}"
+        )
+    if calcium_other is not None and calcium_other.shape != voltage_other.shape:
+        raise ValueError(
+            f"calcium_other {calcium_other.shape} != voltage_other {voltage_other.shape}"
+        )
+
+    rc_path = "/workspace/connectome-gnn/figures/janne.matplotlibrc"
+    if os.path.isfile(rc_path):
+        matplotlib.rc_file(rc_path)
+
+    n_frames = voltage_retina.shape[0]
+    time_ms = (np.arange(n_frames) + start_frame) * dt_seconds * 1000.0
+    n_neurons_retina = voltage_retina.shape[1]
+
+    fig_width = 9.0
+    fig_height = 0.42 * n_neurons_retina + 1.2
+    fig, axes = plt.subplots(1, 2, figsize=(fig_width, fig_height))
+
+    _draw_stacked_traces(
+        axes[0], voltage_retina, calcium_retina, labels_retina,
+        time_ms, ylabel="retina neurons",
+    )
+    axes[0].legend(loc="lower right", fontsize=6, frameon=False)
+
+    _draw_stacked_traces(
+        axes[1], voltage_other, calcium_other, labels_other,
+        time_ms, ylabel="downstream neurons",
+    )
+
+    if title:
+        # Figure-level title above both panels so it never collides with traces.
+        fig.suptitle(title, fontsize=8, y=0.995)
+
+    os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
+    # Leave room at the top for the suptitle.
+    fig.tight_layout(rect=(0, 0, 1, 0.97) if title else None)
+    fig.savefig(save_path, dpi=150)
+    plt.close(fig)
+
+
+def plot_kernel_diagram(
+    kernel: "np.ndarray | torch.Tensor",
+    dt_seconds: float,
+    save_path: str,
+    title: str | None = None,
+) -> None:
+    """Two-panel diagnostic for the GCaMP impulse response.
+
+    Left:  K(t) curve in physical seconds.
+    Right: K * heaviside(off-on-off) for several pulse widths, showing
+           the calcium response a single column would produce if it saw
+           an isolated ON pulse.
+    """
+    import os
+    import matplotlib
+    import matplotlib.pyplot as plt
+
+    rc_path = "/workspace/connectome-gnn/figures/janne.matplotlibrc"
+    if os.path.isfile(rc_path):
+        matplotlib.rc_file(rc_path)
+
+    kernel_np = (kernel.detach().cpu().numpy()
+                 if hasattr(kernel, 'detach') else np.asarray(kernel)).astype(np.float32)
+
+    fig, axes = plt.subplots(1, 2, figsize=(9.0, 3.2),
+                             gridspec_kw={"width_ratios": [1.0, 1.5]})
+    t_axis_s = np.arange(kernel_np.shape[0]) * dt_seconds
+    axes[0].plot(t_axis_s, kernel_np, color="#ff7a7a", lw=1.4)
+    axes[0].set_xlabel("time (s)", fontsize=8)
+    axes[0].set_ylabel("K(t)", fontsize=8)
+    axes[0].tick_params(axis="both", labelsize=6)
+    if title:
+        axes[0].set_title(title, fontsize=8)
+
+    _draw_kernel_convolution_panel(axes[1], kernel_np, dt_seconds)
+
+    os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
+    fig.tight_layout()
+    fig.savefig(save_path, dpi=120)
+    plt.close(fig)

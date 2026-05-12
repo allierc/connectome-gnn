@@ -151,6 +151,49 @@ def _per_target_amplitudes(
     return out
 
 
+def heaviside_var_waveform(
+    n_frames: int,
+    n_targets: int,
+    frames_on: int,
+    seed: int,
+    resample_amplitude_per_transition: bool = True,
+    device: torch.device | str = 'cpu',
+) -> torch.Tensor:
+    """(T, n_targets) per-column random telegraph signal with random gains.
+
+    Each target column flips ON/OFF independently with probability
+    1/frames_on per frame (mean dwell ~ frames_on). The output is `state01 *
+    gain` where gain is either a per-column U(0,1) (resample=False) or a
+    fresh U(0,1) per (column, segment) (resample=True). Same generator used
+    by the column_distinct=True heaviside branch of `build_waveform` — keep
+    them in lockstep.
+    """
+    if frames_on <= 0:
+        raise ValueError(f"heaviside_var_waveform requires frames_on>=1, got {frames_on}")
+
+    gen_device = 'cuda' if torch.device(device).type == 'cuda' else 'cpu'
+    g = torch.Generator(device=gen_device)
+    g.manual_seed(int(seed))
+
+    p_flip = 1.0 / float(frames_on)
+    flips = (torch.rand(n_frames, n_targets, generator=g,
+                        dtype=torch.float32, device=device)
+             < p_flip)
+    state01 = torch.cumsum(flips.to(torch.int32), dim=0) % 2
+
+    if resample_amplitude_per_transition:
+        seg_id = torch.cumsum(flips.to(torch.int64), dim=0)
+        max_seg = int(seg_id.max().item()) + 1
+        seg_amps = torch.rand(max_seg, n_targets, generator=g,
+                              dtype=torch.float32, device=device)
+        col_amps_t = torch.gather(seg_amps, 0, seg_id)
+        return state01.float() * col_amps_t
+
+    col_amps = torch.rand(n_targets, generator=g,
+                          dtype=torch.float32, device=device)
+    return state01.float() * col_amps[None, :]
+
+
 def build_waveform(
     n_frames: int,
     target_indices: torch.Tensor,
@@ -198,34 +241,17 @@ def build_waveform(
                 base[:, :] = amps.mean()
         else:
             if column_distinct:
-                # Independent per-column random telegraph signal: flip ON/OFF
-                # with probability 1/frames_on per frame (mean dwell ≈
-                # frames_on, matches the deterministic schedule's timescale
-                # but desynchronises columns so the columnar sum-zero kernel
-                # is broken). Per-column amplitude is U(0, 1) to add a second
-                # axis of asymmetry. State starts at 0 (OFF).
-                p_flip = 1.0 / float(frames_on)
-                flips = (torch.rand(n_frames, n_targets, generator=g,
-                                    dtype=torch.float32, device=device)
-                         < p_flip)
-                state01 = torch.cumsum(flips.to(torch.int32), dim=0) % 2
-                if getattr(waveform, 'resample_amplitude_per_transition', False):
-                    # Fresh U(0,1) gain per (column, segment), where a
-                    # "segment" is the run between two consecutive flips.
-                    # Removes the persistent column-identity label (fixed
-                    # gain across the whole trajectory) while keeping the
-                    # column-distinct telegraph timing — isolates temporal
-                    # decorrelation from the persistent-gain mechanism.
-                    seg_id = torch.cumsum(flips.to(torch.int64), dim=0)
-                    max_seg = int(seg_id.max().item()) + 1
-                    seg_amps = torch.rand(max_seg, n_targets, generator=g,
-                                          dtype=torch.float32, device=device)
-                    col_amps_t = torch.gather(seg_amps, 0, seg_id)
-                    base = state01.float() * col_amps_t
-                else:
-                    col_amps = torch.rand(n_targets, generator=g,
-                                          dtype=torch.float32, device=device)
-                    base = state01.float() * col_amps[None, :]
+                # Per-column random telegraph signal — see heaviside_var_waveform.
+                base = heaviside_var_waveform(
+                    n_frames=n_frames,
+                    n_targets=n_targets,
+                    frames_on=frames_on,
+                    seed=int(waveform.seed),
+                    resample_amplitude_per_transition=bool(
+                        getattr(waveform, 'resample_amplitude_per_transition', False)
+                    ),
+                    device=device,
+                )
             else:
                 period = 2 * frames_on
                 on_mask = (torch.arange(n_frames, device=device) % period) < frames_on
@@ -461,7 +487,7 @@ def add_optogenetics_stimulus(config) -> None:
         import matplotlib.pyplot as plt
         t_axis = np.arange(calcium_kernel.shape[0]) * sim.calcium_kernel_dt_seconds
         fig, ax = plt.subplots(figsize=(5, 3))
-        ax.plot(t_axis, calcium_kernel.cpu().numpy(), color="tab:blue")
+        ax.plot(t_axis, calcium_kernel.cpu().numpy(), color="#2ca02c")
         ax.set_xlabel("time (s)", fontsize=8)
         ax.set_ylabel("K(t)", fontsize=8)
         ax.set_title(
