@@ -361,6 +361,7 @@ def _read_latest_training_metrics(log_dir):
             'tau_clean':    _opt_float(9),
             'n_out_tau':    _opt_int(10),
             'n_total_tau':  _opt_int(11),
+            'loss':         _opt_float(12),
         }
     except (OSError, ValueError):
         return None
@@ -535,6 +536,8 @@ def _print_training_metrics(log_dirs, slots_active, prefix='  [metrics]'):
                             tm['n_out_tau'], tm['n_total_tau']),
                 f"cluster={cl_str}",
             ]
+            if tm.get('loss') is not None:
+                parts.append(f"loss={tm['loss']:.2e}")
             # Hidden-INR diagnostics (only present for hidden-NGP / hidden-SIREN).
             # Pearson thresholds: green > 0.5, yellow > 0.3, orange > 0.1, red <.
             if tm['hid'] is not None:

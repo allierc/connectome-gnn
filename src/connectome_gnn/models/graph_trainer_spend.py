@@ -376,7 +376,7 @@ def data_train_spend(config, erase=False, best_model=None, device=None, log_file
         f.write('iteration,connectivity_r2,vrest_r2,tau_r2,'
                 'hidden_nnr_pearson,anchor_nnr_pearson,'
                 'vrest_r2_clean,n_out_vrest,n_total_vrest,'
-                'tau_r2_clean,n_out_tau,n_total_tau\n')
+                'tau_r2_clean,n_out_tau,n_total_tau,loss\n')
     spend_log_path = os.path.join(log_dir, 'tmp_training', 'spend_components.log')
     with open(spend_log_path, 'w') as f:
         f.write('iteration,loss_main,loss_replay,loss_time,loss_typed\n')
@@ -392,6 +392,8 @@ def data_train_spend(config, erase=False, best_model=None, device=None, log_file
     _frame_range = max(_frame_max_k - _frame_min_k, 1)
 
     loss_components = {'loss': []}
+    # Most-recent (regul-subtracted, per-neuron) loss for metrics.log.
+    last_loss = None
     training_start_time = time.time()
 
     last_connectivity_r2 = None
@@ -569,6 +571,7 @@ def data_train_spend(config, erase=False, best_model=None, device=None, log_file
                 current_loss = float(loss.detach())
                 regul_total = regularizer.get_iteration_total()
                 loss_components['loss'].append((current_loss - regul_total) / n_neurons)
+                last_loss = loss_components['loss'][-1]
                 plot_dict = {**regularizer.get_history(), 'loss': loss_components['loss']}
                 plot_signal_loss(
                     plot_dict, log_dir, epoch=epoch, Niter=Niter,
@@ -602,7 +605,7 @@ def data_train_spend(config, erase=False, best_model=None, device=None, log_file
                             f'{_fmt(last_vrest_r2)},{_fmt(last_tau_r2)},'
                             f'nan,nan,'
                             f'{_fmt(_dyn["vrest_r2_clean"])},{_dyn["n_out_vrest"]},{_dyn["n_total_vrest"]},'
-                            f'{_fmt(_dyn["tau_r2_clean"])},{_dyn["n_out_tau"]},{_dyn["n_total_tau"]}\n')
+                            f'{_fmt(_dyn["tau_r2_clean"])},{_dyn["n_out_tau"]},{_dyn["n_total_tau"]},{_fmt(last_loss)}\n')
 
             # progress bar -- conn, Vr, tau in colored R2 style; SPEND component
             # losses shown as EMAs (raw per-batch values fluctuate ~+/-100%).

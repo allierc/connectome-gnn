@@ -459,6 +459,10 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
         logger.info("torch.compile disabled via config (torch_compile: false)")
 
     loss_components = {'loss': []}
+    # Most-recent loss value (per-neuron, regul-subtracted) recorded alongside
+    # the loss_components list. Written into metrics.log so the [metrics]
+    # poller can surface it next to the R² fields.
+    last_loss = None
 
     training_start_time = time.time()
 
@@ -467,7 +471,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
     with open(metrics_log_path, 'w') as f:
         f.write('iteration,connectivity_r2,vrest_r2,tau_r2,hidden_nnr_pearson,anchor_nnr_pearson,'
                 'vrest_r2_clean,n_out_vrest,n_total_vrest,'
-                'tau_r2_clean,n_out_tau,n_total_tau\n')
+                'tau_r2_clean,n_out_tau,n_total_tau,loss\n')
 
     # Total iter count across all epochs — read by the LLM poller to display
     # iter=I/total in the periodic [metrics] line. Mirrors the Niter formula
@@ -762,6 +766,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                 if regularizer.should_record():
                     _current_loss = loss.item()  # single sync per plot_frequency iters
                     loss_components['loss'].append((_current_loss - regul_val) / n_neurons)
+                    last_loss = loss_components['loss'][-1]
                     plot_dict = {**regularizer.get_history(), 'loss': loss_components['loss']}
                     plot_signal_loss(plot_dict, log_dir, epoch=epoch, Niter=Niter,
                                     epoch_boundaries=regularizer.epoch_boundaries)
@@ -796,7 +801,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                     with open(metrics_log_path, 'a') as f:
                         f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f},{_fmt_metric(last_hidden_r2)},{_fmt_metric(last_anchor_r2)},'
                                 f'{_fmt_metric(last_vrest_r2_clean)},{last_n_out_vrest},{last_n_total_vrest},'
-                                f'{_fmt_metric(last_tau_r2_clean)},{last_n_out_tau},{last_n_total_tau}\n')
+                                f'{_fmt_metric(last_tau_r2_clean)},{last_n_out_tau},{last_n_total_tau},{_fmt_metric(last_loss)}\n')
                     _metrics_changed = True
                 elif (is_regular_r2 or is_early_r2) and 'mlp' not in model_name.lower():
                     last_connectivity_r2, _r2_visible, _h_r2, _a_r2 = plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_list, gt_weights, edges, n_neurons=n_neurons, n_neuron_types=sim.n_neuron_types, ode_params=ode_params, hidden_ids=hidden_ids, anchor_ids=anchor_ids)
@@ -817,7 +822,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                     with open(metrics_log_path, 'a') as f:
                         f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f},{_fmt_metric(last_hidden_r2)},{_fmt_metric(last_anchor_r2)},'
                                 f'{_fmt_metric(last_vrest_r2_clean)},{last_n_out_vrest},{last_n_total_vrest},'
-                                f'{_fmt_metric(last_tau_r2_clean)},{last_n_out_tau},{last_n_total_tau}\n')
+                                f'{_fmt_metric(last_tau_r2_clean)},{last_n_out_tau},{last_n_total_tau},{_fmt_metric(last_loss)}\n')
                     _metrics_changed = True
                 else:
                     _metrics_changed = False
@@ -858,7 +863,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                                 f'{_fmt_metric(last_vrest_r2_clean)},'
                                 f'{last_n_out_vrest},{last_n_total_vrest},'
                                 f'{_fmt_metric(last_tau_r2_clean)},'
-                                f'{last_n_out_tau},{last_n_total_tau}\n')
+                                f'{last_n_out_tau},{last_n_total_tau},{_fmt_metric(last_loss)}\n')
                     with open(nnr_pearson_log_path, 'a') as f:
                         f.write(f'{regularizer.iter_count},'
                                 f'{_fmt_metric(last_hidden_r2)},'
@@ -1153,6 +1158,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                     current_loss = loss.item()  # single sync per plot_frequency iters
                     regul_total_this_iter = regularizer.get_iteration_total()  # free after sync
                     loss_components['loss'].append((current_loss - regul_total_this_iter) / n_neurons)
+                    last_loss = loss_components['loss'][-1]
 
                     # merge loss_components with regularizer history for plotting
                     plot_dict = {**regularizer.get_history(), 'loss': loss_components['loss']}
@@ -1201,7 +1207,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                     last_vrest_r2 = 0.0
                     with open(metrics_log_path, 'a') as f:
                         f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f},{_fmt_metric(last_hidden_r2)},{_fmt_metric(last_anchor_r2)},'
-                                f'nan,0,0,nan,0,0\n')
+                                f'nan,0,0,nan,0,0,{_fmt_metric(last_loss)}\n')
                     # W scatter plot using Jacobian
                     plot_jacobian_w_scatter(model, x_ts, ode_params, gt_weights, n_neurons,
                                             log_dir, epoch, N, device)
@@ -1218,7 +1224,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                     with open(metrics_log_path, 'a') as f:
                         f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f},{_fmt_metric(last_hidden_r2)},{_fmt_metric(last_anchor_r2)},'
                                 f'{_fmt_metric(last_vrest_r2_clean)},{last_n_out_vrest},{last_n_total_vrest},'
-                                f'{_fmt_metric(last_tau_r2_clean)},{last_n_out_tau},{last_n_total_tau}\n')
+                                f'{_fmt_metric(last_tau_r2_clean)},{last_n_out_tau},{last_n_total_tau},{_fmt_metric(last_loss)}\n')
                     _metrics_changed = True
                 elif (is_regular_r2 or is_early_r2) and not test_neural_field and 'mlp' not in model_name.lower():
                     last_connectivity_r2, _r2_visible, _h_r2, _a_r2 = plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_list, gt_weights, edges, n_neurons=n_neurons, n_neuron_types=sim.n_neuron_types, ode_params=ode_params, hidden_ids=hidden_ids, anchor_ids=anchor_ids)
@@ -1239,7 +1245,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                     with open(metrics_log_path, 'a') as f:
                         f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f},{_fmt_metric(last_hidden_r2)},{_fmt_metric(last_anchor_r2)},'
                                 f'{_fmt_metric(last_vrest_r2_clean)},{last_n_out_vrest},{last_n_total_vrest},'
-                                f'{_fmt_metric(last_tau_r2_clean)},{last_n_out_tau},{last_n_total_tau}\n')
+                                f'{_fmt_metric(last_tau_r2_clean)},{last_n_out_tau},{last_n_total_tau},{_fmt_metric(last_loss)}\n')
                     _metrics_changed = True
                 else:
                     _metrics_changed = False
@@ -1279,7 +1285,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                                 f'{_fmt_metric(last_vrest_r2_clean)},'
                                 f'{last_n_out_vrest},{last_n_total_vrest},'
                                 f'{_fmt_metric(last_tau_r2_clean)},'
-                                f'{last_n_out_tau},{last_n_total_tau}\n')
+                                f'{last_n_out_tau},{last_n_total_tau},{_fmt_metric(last_loss)}\n')
                     with open(nnr_pearson_log_path, 'a') as f:
                         f.write(f'{regularizer.iter_count},'
                                 f'{_fmt_metric(last_hidden_r2)},'
