@@ -12,6 +12,7 @@ import re
 
 from connectome_gnn.config import NeuralGraphConfig
 from connectome_gnn.generators.graph_data_generator import data_generate
+from connectome_gnn.models.calcium_deconvolution import data_deconvolve
 from connectome_gnn.models.graph_trainer import data_train, data_test, data_train_INR
 # SPEND-style Noise2Noise trainer (sibling of data_train, data_train_INR).
 # Cite: https://github.com/buchenglab/SPEND  (Ding et al. 2025, Newton 1, 100195)
@@ -188,6 +189,15 @@ if __name__ == "__main__":
             'flyvis_noise_005_010_spend_typed',
             'flyvis_noise_005_010_spend_combined',
         ],
+        # GCaMP measurement-noise sweep — deconvolution reference datasets.
+        # Used with `-o deconvolve flyvis_kernel_noise_sweep` to run the
+        # Wiener/derivative-Tikhonov inverse on all three noise levels in
+        # one go.
+        'flyvis_kernel_noise_sweep': [
+            'flyvis_noise_free_kernel_noise_001',
+            'flyvis_noise_free_kernel_noise_002',
+            'flyvis_noise_free_kernel_noise_003',
+        ],
     }
 
     if args.option is not None:
@@ -221,8 +231,8 @@ if __name__ == "__main__":
                 test_config_name = None
     else:
         best_model = ''
-        task = task = 'train'
-        config_list = ['flyvis_noise_005_hidden_010_blank50_consensus_ngp_light']
+        task = task = 'generate'
+        config_list = ['flyvis_noise_free_kernel']
         test_config_name = None
 
     if task == 'cv':
@@ -296,6 +306,21 @@ if __name__ == "__main__":
         if os.path.exists(_complete_path):
             os.remove(_complete_path)
 
+        if "deconvolve" in task:
+            _marker = os.path.join(run_log_dir, '_completed_deconvolve')
+            if os.path.exists(_marker):
+                os.remove(_marker)
+            metrics = data_deconvolve(config=config, device=device)
+            print(
+                f"[deconvolve] {config.config_file}  "
+                f"rollout_pearson={metrics['rollout_pearson']:.4f}  "
+                f"rmse={metrics['rollout_rmse']:.4f}  "
+                f"-> {metrics['results_dir']}"
+            )
+            with open(_marker, 'w') as f:
+                f.write(f"commit={sha}\nargv={sys.argv}\n")
+            continue
+
         if "generate" in task:
             _marker = os.path.join(run_log_dir, '_completed_generate')
             if os.path.exists(_marker):
@@ -303,7 +328,7 @@ if __name__ == "__main__":
             data_generate(
                 config,
                 device=device,
-                visualize=True,
+                visualize=False,
                 run_vizualized=0,
                 style="color",
                 alpha=1,
@@ -311,6 +336,7 @@ if __name__ == "__main__":
                 save=True,
                 step=100,
                 compute_ranks=False,
+                visualize_calcium_true=False,
             )
             os.makedirs(run_log_dir, exist_ok=True)
             with open(_marker, 'w') as f:

@@ -20,7 +20,7 @@ import torch
 
 # Field classification — used by from_zarr_v3 to pick dtype/shape.
 STATIC_FIELDS = {'index', 'pos', 'group_type', 'neuron_type'}
-DYNAMIC_FIELDS = {'voltage', 'stimulus', 'stimulus_calcium', 'optogenetics_stimulus', 'calcium', 'fluorescence', 'noise'}
+DYNAMIC_FIELDS = {'voltage', 'stimulus', 'stimulus_calcium', 'optogenetics_stimulus', 'calcium', 'fluorescence', 'noise', 'calcium_noise'}
 # Spiking-model fields (AdEx) — not included in ALL_FIELDS to preserve
 # legacy format compatibility.  Used only by spiking generators/models.
 SPIKING_FIELDS = {'adapt_current', 'ge', 'gi', 'spiked', 'refractory_counter'}
@@ -58,7 +58,8 @@ class NeuronState:
     optogenetics_stimulus: torch.Tensor | None = None  # (N,) float32 — additive opto current
     calcium: torch.Tensor | None = None      # (N,) float32 — calcium concentration
     fluorescence: torch.Tensor | None = None # (N,) float32 — fluorescence readout
-    noise: torch.Tensor | None = None       # (N,) float32 — measurement noise
+    noise: torch.Tensor | None = None       # (N,) float32 — measurement noise on voltage
+    calcium_noise: torch.Tensor | None = None  # (N,) float32 — measurement noise on calcium
 
     # spiking model fields (AdEx) — None for graded models
     adapt_current: torch.Tensor | None = None      # (N,) float32 — adaptation current w
@@ -207,7 +208,8 @@ class NeuronTimeSeries:
     optogenetics_stimulus: torch.Tensor | None = None  # (T, N) — additive opto current
     calcium: torch.Tensor | None = None      # (T, N)
     fluorescence: torch.Tensor | None = None # (T, N)
-    noise: torch.Tensor | None = None        # (T, N) — measurement noise
+    noise: torch.Tensor | None = None        # (T, N) — measurement noise on voltage
+    calcium_noise: torch.Tensor | None = None  # (T, N) — measurement noise on calcium
 
     @property
     def n_frames(self) -> int:

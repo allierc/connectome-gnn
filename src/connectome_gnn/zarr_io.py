@@ -134,7 +134,7 @@ class ZarrArrayWriter:
         return self._total_frames
 
 
-_DYNAMIC_FIELDS = ['voltage', 'stimulus', 'stimulus_calcium', 'calcium', 'fluorescence', 'noise']
+_DYNAMIC_FIELDS = ['voltage', 'stimulus', 'stimulus_calcium', 'calcium', 'fluorescence', 'noise', 'calcium_noise']
 _STATIC_FIELDS = ['pos', 'group_type', 'neuron_type']
 
 
@@ -174,9 +174,13 @@ class ZarrSimulationWriterV3:
         self.save_calcium = save_calcium
 
         extras = list(extra_dynamic_fields or [])
-        # stimulus_calcium piggybacks on save_calcium (same kernel produced it).
+        # stimulus_calcium and calcium_noise piggyback on save_calcium
+        # (no point recording calcium-domain side-channels when there is no
+        # calcium trace to save).
         base = [f for f in _DYNAMIC_FIELDS
-                if save_calcium or f not in ('calcium', 'fluorescence', 'stimulus_calcium')]
+                if save_calcium or f not in (
+                    'calcium', 'fluorescence', 'stimulus_calcium', 'calcium_noise'
+                )]
         # extras append after the canonical fields, dedup-preserving
         self._fields = base + [e for e in extras if e not in base]
         self._static_saved = False
@@ -276,10 +280,17 @@ class ZarrSimulationWriterV3:
             to_numpy(noise_val).astype(np.float32) if noise_val is not None
             else np.zeros(self.n_neurons, dtype=np.float32)
         )
-        # Any field beyond the canonical {voltage,stimulus,calcium,fluorescence,noise}
-        # was added via extra_dynamic_fields; pull it from the state by name.
+        if self.save_calcium and 'calcium_noise' in self._buffers:
+            cn_val = getattr(state, 'calcium_noise', None)
+            self._buffers['calcium_noise'].append(
+                to_numpy(cn_val).astype(np.float32) if cn_val is not None
+                else np.zeros(self.n_neurons, dtype=np.float32)
+            )
+        # Any field beyond the canonical set above was added via
+        # extra_dynamic_fields; pull it from the state by name.
         for name in self._fields:
-            if name in ('voltage', 'stimulus', 'stimulus_calcium', 'calcium', 'fluorescence', 'noise'):
+            if name in ('voltage', 'stimulus', 'stimulus_calcium', 'calcium',
+                        'fluorescence', 'noise', 'calcium_noise'):
                 continue
             val = getattr(state, name, None)
             self._buffers[name].append(

@@ -94,6 +94,7 @@ def data_generate(
     save=True,
     log_file=None,
     compute_ranks=True,
+    visualize_calcium_true=False,
 ):
 
     logger.info(f"dataset: {config.dataset}")
@@ -190,6 +191,7 @@ def data_generate(
                 device=device,
                 save=save,
                 compute_ranks=compute_ranks,
+                visualize_calcium_true=visualize_calcium_true,
             )
         else:
             data_generate_voltage(
@@ -202,6 +204,7 @@ def data_generate(
                 device=device,
                 save=save,
                 compute_ranks=compute_ranks,
+                visualize_calcium_true=visualize_calcium_true,
             )
 
         # Mark generation complete — only reached on successful dispatch.
@@ -808,6 +811,7 @@ def data_generate_voltage(
     device=None,
     save=True,
     compute_ranks=True,
+    visualize_calcium_true=False,
 ):
 
     fig_style = dark_style if "black" in style else default_style
@@ -865,6 +869,7 @@ def data_generate_voltage(
     print(
         f"\033[93m[noise] noise_model_level={sim.noise_model_level}  "
         f"measurement_noise_level={sim.measurement_noise_level}  "
+        f"calcium_noise_level={sim.calcium_noise_level}  "
         f"noise_ar1_rho={_ar1_rho:.3f} "
         f"({'AR(1) ENABLED' if _ar1_rho > 0 else 'i.i.d.'})\033[0m",
         flush=True,
@@ -1325,6 +1330,21 @@ def data_generate_voltage(
         logger=logger,
     )
 
+    # --- Optional synthetic column-resolution calcium imaging frames ---
+    calcium_imaging_ctx = None
+    if visualize_calcium_true:
+        from connectome_gnn.generators.calcium_imaging import setup_fig_calcium
+        calcium_imaging_ctx = setup_fig_calcium(
+            out_dir=graphs_data_path(config.dataset, "Fig_calcium"),
+            u_coords=np.asarray(net.connectome.nodes["u"]),
+            v_coords=np.asarray(net.connectome.nodes["v"]),
+        )
+        logger.info(
+            f"Fig_calcium enabled: {calcium_imaging_ctx['n_columns']} columns, "
+            f"{calcium_imaging_ctx['img_size']}x{calcium_imaging_ctx['img_size']} grayscale, "
+            "SNR=0.5 (baseline SNR=2 with noise level ×4), 1000 consecutive frames"
+        )
+
     # --- Generate TRAIN split ---
     total_frames_per_pass = len(train_sequences) * frames_per_sequence
 
@@ -1383,6 +1403,7 @@ def data_generate_voltage(
         to_numpy_fn=to_numpy,
         noise_model_level=sim.noise_model_level,
         measurement_noise_level=sim.measurement_noise_level,
+        calcium_noise_level=sim.calcium_noise_level,
         visualize=visualize,
         run=run,
         run_vizualized=run_vizualized,
@@ -1395,6 +1416,7 @@ def data_generate_voltage(
         X1=X1,
         u_coords=u_coords,
         v_coords=v_coords,
+        calcium_imaging_ctx=calcium_imaging_ctx,
     )
 
     n_frames_train = x_writer.finalize()
@@ -1421,6 +1443,7 @@ def data_generate_voltage(
     # (e.g. for figures that show the noisy stimulus-response trace the model saw).
     test_noise_model = sim.noise_model_level if sim.noisy_test_data else 0.0
     test_noise_meas = sim.measurement_noise_level if sim.noisy_test_data else 0.0
+    test_noise_calcium = sim.calcium_noise_level if sim.noisy_test_data else 0.0
 
     # Reset neural state to avoid train→test leakage
     if is_hh:
@@ -1471,6 +1494,7 @@ def data_generate_voltage(
         n_neurons=n_neurons, device=device, to_numpy_fn=to_numpy,
         noise_model_level=test_noise_model,
         measurement_noise_level=test_noise_meas,
+        calcium_noise_level=test_noise_calcium,
         visualize=False, run=run, run_vizualized=run_vizualized,
         step=step, id_fig_start=id_fig, it_start=0,
         fig_style=fig_style, config=config, davis_dataset=davis_dataset,
@@ -1946,6 +1970,7 @@ def _run_ode_generation(
     to_numpy_fn,
     noise_model_level: float,
     measurement_noise_level: float,
+    calcium_noise_level: float = 0.0,
     visualize=False,
     run=0,
     run_vizualized=0,
@@ -1960,6 +1985,7 @@ def _run_ode_generation(
     v_coords=None,
     split: str = "train",
     y_calcium_writer=None,
+    calcium_imaging_ctx=None,
 ):
     """Run ODE simulation over stimulus sequences, writing frames to zarr.
 
@@ -1973,6 +1999,7 @@ def _run_ode_generation(
     """
     it = it_start
     id_fig = id_fig_start
+    ci_count = 0  # Fig_calcium consecutive-frame counter (capped at 1000)
 
     tile_labels = None
     tile_codes_torch = None
@@ -2376,6 +2403,20 @@ def _run_ode_generation(
                     else:
                         x.noise = torch.zeros(n_neurons, dtype=torch.float32, device=device)
 
+                    # Calcium-domain measurement noise: i.i.d. Gaussian per
+                    # neuron per frame. Stored separately in calcium_noise.zarr
+                    # so the trainer can mix it into x.calcium on demand and
+                    # the dataset on disk stays clean (mirrors x.noise).
+                    if calcium_noise_level > 0 and sim.calcium_type != "none":
+                        x.calcium_noise = (
+                            torch.randn(n_neurons, dtype=torch.float32, device=device)
+                            * calcium_noise_level
+                        )
+                    else:
+                        x.calcium_noise = torch.zeros(
+                            n_neurons, dtype=torch.float32, device=device
+                        )
+
                     # Save x[t] BEFORE updating voltage to x[t+1]
                     x_writer.append_state(x)
 
@@ -2461,6 +2502,26 @@ def _run_ode_generation(
                     y_writer.append(to_numpy_fn(y.clone().detach()))
                     if y_calcium_writer is not None and y_calcium is not None:
                         y_calcium_writer.append(to_numpy_fn(y_calcium.clone().detach()))
+
+                    # Synthetic column-resolution calcium imaging frames (1000 consecutive).
+                    if (
+                        calcium_imaging_ctx is not None
+                        and run == run_vizualized
+                        and ci_count < 1000
+                        and sim.calcium_type != "none"
+                        and x.calcium is not None
+                    ):
+                        from connectome_gnn.generators.calcium_imaging import render_calcium_frame
+                        render_calcium_frame(
+                            calcium_imaging_ctx,
+                            to_numpy_fn(x.calcium),
+                            snr=0.5,  # SNR=2 baseline; noise level ×4 -> SNR=0.5
+                            filename=os.path.join(
+                                calcium_imaging_ctx["out_dir"],
+                                f"Fig_{run}_{ci_count:06d}.png",
+                            ),
+                        )
+                        ci_count += 1
 
                     if (visualize & (run == run_vizualized) & (it > 0) & (it % 4 == 0) & (it <= 400)):
                         num = f"{id_fig:06}"

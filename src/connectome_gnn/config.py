@@ -429,7 +429,12 @@ class SimulationConfig(BaseModel):
     calcium_alpha: float = 1.0  # scale factor to convert [Ca] to fluorescence
     calcium_beta: float = 0.0  # baseline offset for fluorescence
     calcium_initial: float = 0.0  # initial calcium concentration
-    calcium_noise_level: float = 0.0  # optional Gaussian noise added to [Ca] updates
+    # Calcium-domain observation noise. i.i.d. Gaussian σ added on top of
+    # the (clean) calcium signal. Stored separately in calcium_noise.zarr —
+    # mirror of measurement_noise_level/noise.zarr — so the clean calcium
+    # trace stays on disk and the trainer can mix the noise in on demand.
+    # Test split is always clean unless `noisy_test_data=True`.
+    calcium_noise_level: float = 0.0
     noise_model_level: float = 0.0  # process noise added during dynamics simulation
     measurement_noise_level: float = 0.0  # observation noise saved separately in noise.zarr
     # Stationary AR(1) coefficient on measurement noise: 0 = i.i.d. (default),

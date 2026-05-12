@@ -46,6 +46,10 @@ def determine_load_fields(config):
     if getattr(config.training, 'observable', 'voltage') == 'calcium':
         fields.append('calcium')
         fields.append('stimulus_calcium')
+        # Calcium-domain measurement noise: written by the generator as a
+        # separate calcium_noise.zarr (mirror of voltage's noise.zarr).
+        if sim.calcium_noise_level > 0:
+            fields.append('calcium_noise')
     if sim.measurement_noise_level > 0:
         fields.append('noise')
     # Datasets generated under optogenetic perturbation carry an additional

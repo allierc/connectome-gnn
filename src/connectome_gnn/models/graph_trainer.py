@@ -553,6 +553,20 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                                        dtype=x_ts.noise.dtype, device=x_ts.noise.device)
                           * sim.measurement_noise_level)
             _logger.info(f'epoch {epoch}: resampled measurement noise (seed={int(sim.seed) + int(epoch)})')
+        # Calcium-noise mirror of the resample-per-epoch block above.
+        if (tc.resample_noise_per_epoch and sim.calcium_noise_level > 0
+                and getattr(x_ts, 'calcium_noise', None) is not None):
+            _cn_gen = torch.Generator(device=x_ts.calcium_noise.device).manual_seed(
+                int(sim.seed) + int(epoch) + 10_000
+            )
+            x_ts.calcium_noise = (torch.randn(
+                x_ts.calcium_noise.shape, generator=_cn_gen,
+                dtype=x_ts.calcium_noise.dtype, device=x_ts.calcium_noise.device,
+            ) * sim.calcium_noise_level)
+            _logger.info(
+                f'epoch {epoch}: resampled calcium measurement noise '
+                f'(seed={int(sim.seed) + int(epoch) + 10_000})'
+            )
 
         # Two-phase training: epoch 0 = full LRs, epoch 1+ = reduce W/MLP, keep SIREN
         if tc.alternate_training and epoch >= 1:
@@ -941,6 +955,12 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                 # Add measurement noise to observed voltage
                 if x.noise is not None and sim.measurement_noise_level > 0:
                     x.voltage = x.voltage + x.noise
+                # Add measurement noise to observed calcium when training on
+                # the calcium observable (mirror of the voltage block above).
+                if (x.calcium_noise is not None
+                        and sim.calcium_noise_level > 0
+                        and x.calcium is not None):
+                    x.calcium = x.calcium + x.calcium_noise
 
                 # Hidden neurons: predict via SIREN/NGP or zero-silence.
                 # injection_active is binary: phase 1 → False (v_h=0, identical
