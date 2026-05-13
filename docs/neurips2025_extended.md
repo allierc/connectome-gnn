@@ -199,7 +199,6 @@ No experiment suffix = baseline (clean data, known/fully-connected topology).
 | `gnn`       | GNN (ours)           | `neural_gnn.py`         | Done                                                             |
 | `mlp`       | MLP baseline         | `mlp_baseline.py`       | Done — registered for drosophila_cx, larva, zebrafish_oculomotor |
 | `known_ode` | Known ODE (GT structure) | `known_ode.py`       | Done — per-model activation (ReLU/softplus/identity)             |
-| `neuralode` | Neural ODE (adjoint) | `neural_ode_wrapper.py` | Done — GNN + `neural_ODE_training: true`                         |
 | `rnn`       | RNN (GRU)            | `neural_rnn.py`         | Done — registered for all bio models                             |
 
 ### experiment

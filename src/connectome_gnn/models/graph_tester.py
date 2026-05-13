@@ -29,7 +29,6 @@ from connectome_gnn.generators.ode_params import FlyVisODEParams, load_edge_inde
 from connectome_gnn.generators.utils import generate_compressed_video_mp4
 from connectome_gnn.log import get_logger
 from connectome_gnn.metrics import INDEX_TO_NAME
-from connectome_gnn.models.neural_ode_wrapper import integrate_neural_ode
 from connectome_gnn.models.registry import create_model
 from connectome_gnn.models.utils import _batch_frames
 from connectome_gnn.neuron_state import NeuronState
@@ -598,21 +597,6 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
                 y = ((v_next - x.voltage) / sim.delta_t).unsqueeze(-1)
             elif 'mlp' in model_config.signal_model_name.lower():
                 y = model(x, data_id=data_id, return_all=False)
-            elif hasattr(tc, 'neural_ODE_training') and tc.neural_ODE_training:
-                v0 = x.voltage.flatten()
-                v_final, _ = integrate_neural_ode(
-                    model=model, v0=v0, x_template=x,
-                    edge_index=edges, data_id=data_id,
-                    time_steps=1, delta_t=sim.delta_t,
-                    neurons_per_sample=n_neurons, batch_size=1,
-                    has_visual_field=has_visual_field,
-                    x_ts=None, device=device,
-                    k_batch=torch.tensor([k], device=device),
-                    ode_method=tc.ode_method,
-                    rtol=tc.ode_rtol, atol=tc.ode_atol,
-                    adjoint=False, noise_level=0.0
-                )
-                y = (v_final.view(-1, 1) - x.voltage.unsqueeze(-1)) / sim.delta_t
             else:
                 y = model(x, edges, data_id=data_id, return_all=False)
 
@@ -1536,30 +1520,6 @@ def data_test_gnn_special(
                             y, h_state, c_state = model(x.to_packed(), h=h_state, c=c_state, return_all=True)
                         elif 'mlp' in model_config.signal_model_name.lower() or 'eed' in model_config.signal_model_name.lower():
                             y = model(x.to_packed(), data_id=None, return_all=False)
-                        elif tc.neural_ODE_training:
-                            data_id = torch.zeros((x.n_neurons, 1), dtype=torch.int, device=device)
-                            v0 = x.voltage.flatten()
-                            v_final, _ = integrate_neural_ode(
-                                model=model,
-                                v0=v0,
-                                x_template=x,
-                                edge_index=edge_index,
-                                data_id=data_id,
-                                time_steps=1,
-                                delta_t=sim.delta_t,
-                                neurons_per_sample=n_neurons,
-                                batch_size=1,
-                                has_visual_field='visual' in model_config.field_type,
-                                x_ts=None,
-                                device=device,
-                                k_batch=torch.tensor([it], device=device),
-                                ode_method=tc.ode_method,
-                                rtol=tc.ode_rtol,
-                                atol=tc.ode_atol,
-                                adjoint=False,
-                                noise_level=0.0
-                            )
-                            y = (v_final.view(-1, 1) - x.voltage.unsqueeze(-1)) / sim.delta_t
                         else:
                             data_id = torch.zeros((x.n_neurons, 1), dtype=torch.int, device=device)
                             y = model(x, edge_index, data_id=data_id, return_all=False)

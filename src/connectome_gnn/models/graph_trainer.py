@@ -22,10 +22,6 @@ from tqdm import trange
 from connectome_gnn.figure_style import default_style
 from connectome_gnn.log import get_logger
 from connectome_gnn.metrics import compute_dynamics_r2
-from connectome_gnn.models.neural_ode_wrapper import (
-    debug_check_gradients,
-    neural_ode_loss,
-)
 from connectome_gnn.models.recurrent_step import recurrent_loss
 from connectome_gnn.models.registry import create_model
 from connectome_gnn.models.training_utils import build_lr_scheduler, build_model, dale_law_score, determine_load_fields, enforce_dale_law, load_flyvis_data
@@ -167,11 +163,16 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
     stride = tc.time_step if (tc.recurrent_training and tc.time_step > 1) else 1
     if stride > 1:
         from tqdm import tqdm as _tqdm
-        _fields_to_stride = ['voltage', 'stimulus', 'calcium', 'fluorescence', 'noise']
+        from connectome_gnn.neuron_state import DYNAMIC_FIELDS
+        # Stride EVERY (T, N) dynamic field. A hand-picked subset is fragile:
+        # x_ts.n_frames returns the first non-None DYNAMIC_FIELDS entry's
+        # shape[0] in set-iteration order, so leaving e.g. stimulus_calcium
+        # at the original T while subsampling voltage makes n_frames return
+        # whichever the set happens to yield first.
         print(f"\033[93msubsampling dataset: {n_frames_raw} frames → {n_frames_raw // stride} frames "
               f"(1 every {stride} steps for recurrent training with time_step={stride})\033[0m")
-        for _field in _tqdm(_fields_to_stride, desc='subsampling x_ts', ncols=150):
-            _val = getattr(x_ts, _field)
+        for _field in _tqdm(sorted(DYNAMIC_FIELDS), desc='subsampling x_ts', ncols=150):
+            _val = getattr(x_ts, _field, None)
             if _val is not None:
                 setattr(x_ts, _field, _val[::stride])
         y_ts = y_ts[::stride]
@@ -497,8 +498,9 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
 
     # Valid frame range for sampling (matches np.random.randint logic it replaces)
     _frame_min_k = tc.time_window
-    _stride_subsample = tc.recurrent_training and tc.time_step > 1
-    _target_offset = 1 if _stride_subsample else tc.time_step
+    # With recurrent subsampling, neighbouring frames in x_ts are time_step
+    # apart, so the target is voltage[k+1]; otherwise target is voltage[k+time_step].
+    _target_offset = 1 if (tc.recurrent_training and tc.time_step > 1) else tc.time_step
     _frame_max_k = sim.n_frames - 4 - _target_offset  # exclusive upper bound
     _frame_range = max(_frame_max_k - _frame_min_k, 1)
 
@@ -757,7 +759,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
             optimizer.zero_grad()
 
             # Recurrent training (standard or multi-start) — delegated to recurrent_step
-            if tc.recurrent_training and not tc.neural_ODE_training:
+            if tc.recurrent_training:
                 loss, regul_val = recurrent_loss(
                     model=model, x_ts=x_ts, y_ts=y_ts, edges=edges, ids=visible_ids,
                     frame_indices=frame_indices, iter_idx=N, config=config,
@@ -1003,9 +1005,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                     )
                     loss = loss + regul_loss
 
-                if tc.recurrent_training or tc.neural_ODE_training:
-                    y = x_ts.voltage[k + 1 if _stride_subsample else k + tc.time_step].unsqueeze(-1)
-                elif test_neural_field:
+                if test_neural_field:
                     y = x_ts.stimulus[k, :sim.n_input_neurons].unsqueeze(-1)
                 else:
                     y = y_ts_gpu[k] / ynorm
@@ -1050,155 +1050,19 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                 loss = loss + update_regul
 
 
-                if tc.neural_ODE_training:
-
-                    ode_state_clamp = getattr(tc, 'ode_state_clamp', 10.0)
-                    ode_stab_lambda = getattr(tc, 'ode_stab_lambda', 0.0)
-                    ode_loss, pred_x = neural_ode_loss(
-                        model=model,
-                        dataset_batch=state_batch,
-                        edge_index=edges,
-                        x_ts=x_ts,
-                        k_batch=k_batch,
-                        time_step=tc.time_step,
-                        batch_size=tc.batch_size,
-                        n_neurons=n_neurons,
-                        ids_batch=ids_batch,
-                        delta_t=sim.delta_t,
-                        device=device,
-                        data_id=data_id,
-                        has_visual_field=has_visual_field,
-                        y_batch=y_batch,
-                        noise_level=tc.noise_recurrent_level,
-                        ode_method=tc.ode_method,
-                        rtol=tc.ode_rtol,
-                        atol=tc.ode_atol,
-                        adjoint=tc.ode_adjoint,
-                        iteration=N,
-                        state_clamp=ode_state_clamp,
-                        stab_lambda=ode_stab_lambda
-                    )
-                    loss = loss + ode_loss
-
-
-                elif tc.recurrent_training:
-
-                    # Vectorized batch-dim rollout. The Python loop only
-                    # iterates over time steps — batch elements are processed
-                    # as flat (B*N,) tensor ops without per-element NeuronState
-                    # shuffling or _batch_frames re-packing. Per-step
-                    # observable targets are accumulated so the gradient
-                    # signal exists at every intermediate step (not just the
-                    # endpoint). The model forward `model(batched_state, ...)`
-                    # is already wrapped in torch.compile at line ~454 when
-                    # tc.torch_compile is true, so each call lands in a
-                    # CUDA-graph-captured kernel.
-                    n_neurons_per_sample = state_batch[0].n_neurons
-                    B = tc.batch_size
-
-                    # Per-sample start-frame index (B,). k_batch is (B*N, 1)
-                    # where each block of N rows holds the same k.
-                    k_per_sample = k_batch[::n_neurons_per_sample, 0].long()
-
-                    # Observable target stream (T, N) — calcium for calcium
-                    # mode, voltage otherwise. Used to supervise every step.
-                    obs_full = x_ts.calcium if tc.observable == 'calcium' else x_ts.voltage
-
-                    # Step-1 prediction: state at frame (k + 1) after one
-                    # Euler step on the upstream non-recurrent `pred`.
-                    pred_x = batched_state.observable(tc.observable) + sim.delta_t * pred + tc.noise_recurrent_level * torch.randn_like(pred)
-
-                    # Per-step accumulated loss in observable space,
-                    # supervised on visible neurons only.
-                    target_step = obs_full[k_per_sample + 1].reshape(-1, 1)
-                    loss_steps = (pred_x[ids_batch] - target_step[ids_batch]).norm(2)
-
-                    # Pre-compute the batch-flat hidden index list once
-                    # (constant across steps).
-                    if has_hidden_neurons and hidden_ids is not None and len(hidden_ids) > 0:
-                        _b_off = torch.arange(B, device=device).view(-1, 1) * n_neurons_per_sample
-                        _batched_hidden_ids = (_b_off + hidden_ids.view(1, -1)).flatten()
-                    else:
-                        _batched_hidden_ids = None
-
-                    if tc.time_step > 1:
-                        for step in range(tc.time_step - 1):
-                            # Write rolled-out observable back into the
-                            # channel the model reads on the next forward.
-                            if tc.observable == 'calcium':
-                                batched_state.calcium = pred_x.squeeze(-1)
-                                if _batched_hidden_ids is not None:
-                                    batched_state.calcium[_batched_hidden_ids] = 0.0
-                            else:
-                                batched_state.voltage = pred_x.squeeze(-1)
-                                if _batched_hidden_ids is not None:
-                                    batched_state.voltage[_batched_hidden_ids] = 0.0
-
-                            # Per-sample frame index for the stimulus
-                            # driving the NEXT step.
-                            k_advanced = k_per_sample + step + 1  # (B,)
-
-                            if has_visual_field:
-                                # forward_visual takes a single NeuronState
-                                # — keep a per-batch loop ONLY when the
-                                # visual field is active.
-                                stim_buf = torch.zeros(B, n_neurons_per_sample, device=device)
-                                for b in range(B):
-                                    visual_input_next = model.forward_visual(state_batch[b], int(k_advanced[b].item()))
-                                    stim_buf[b, :model.n_input_neurons] = visual_input_next.squeeze(-1)
-                                batched_state.stimulus = stim_buf.flatten()
-                            else:
-                                # Vectorized stimulus gather: x_ts.stimulus[k_advanced]
-                                # is (B, N) for k_advanced a (B,) index tensor.
-                                batched_state.stimulus = x_ts.stimulus[k_advanced].reshape(-1)
-                                if tc.observable == 'calcium' and x_ts.stimulus_calcium is not None:
-                                    batched_state.stimulus_calcium = x_ts.stimulus_calcium[k_advanced].reshape(-1)
-                                if x_ts.optogenetics_stimulus is not None:
-                                    batched_state.optogenetics_stimulus = x_ts.optogenetics_stimulus[k_advanced].reshape(-1)
-
-                            # Forward (compiled when tc.torch_compile) + Euler step.
-                            pred, in_features, msg = model(batched_state, batched_edges, data_id=data_id, return_all=True)
-                            pred_x = pred_x + sim.delta_t * pred + tc.noise_recurrent_level * torch.randn_like(pred)
-
-                            # Per-step loss: target is observable at (k + step + 2).
-                            target_step = obs_full[k_per_sample + step + 2].reshape(-1, 1)
-                            loss_steps = loss_steps + (pred_x[ids_batch] - target_step[ids_batch]).norm(2)
-
-                    # Average over time steps; same overall scale convention
-                    # as the previous endpoint-only formulation
-                    # (1 / (dt * time_step)).
-                    loss = loss + (loss_steps / tc.time_step) / (sim.delta_t * tc.time_step)
-
-                else:
-
-                    loss = loss + (pred[ids_batch] - y_batch[ids_batch]).norm(2)
-                    # NB: the previous "hidden self-consistency" loss
-                    # ‖pred_h − target_h‖ where target_h = NGP's own prediction
-                    # has been removed. In phase 1 (v_h=0) pred_h is
-                    # delta_t · O(small) ≈ 0, so the gradient on NGP reduced to
-                    # an L2 ridge ‖NGP‖ that pinned NGP-hidden at the trivial
-                    # zero fixed point throughout training (verified
-                    # empirically: hidden_pearson stayed ≈ 0.02 across 320k
-                    # iters). NGP-hidden is now supervised only via (a) the
-                    # anchor loss (shared NNR backbone) and (b) backprop
-                    # through injection during phase 2 — both of which point
-                    # away from zero.
-                    # Anchor voltage loss: NGP-T/SIREN-T anchor outputs vs observed GT voltages
-                    if has_anchor_neurons and getattr(tc, 'coeff_anchor_voltage', 0.0) > 0:
-                        n_per = state_batch[0].n_neurons
-                        k_starts = k_batch[::n_per, 0].to(torch.long)                 # (B,)
-                        pred_a = model.forward_anchor_batched(k_starts, anchor_ids=anchor_ids)  # (B, n_anchor)
-                        gt_a = x_ts.voltage[k_starts[:, None], anchor_ids[None, :]]    # (B, n_anchor)
-                        loss = loss + tc.coeff_anchor_voltage * (pred_a - gt_a).norm(2)
+                loss = loss + (pred[ids_batch] - y_batch[ids_batch]).norm(2)
+                # Anchor voltage loss: NGP-T/SIREN-T anchor outputs vs observed GT voltages
+                if has_anchor_neurons and getattr(tc, 'coeff_anchor_voltage', 0.0) > 0:
+                    n_per = state_batch[0].n_neurons
+                    k_starts = k_batch[::n_per, 0].to(torch.long)                 # (B,)
+                    pred_a = model.forward_anchor_batched(k_starts, anchor_ids=anchor_ids)  # (B, n_anchor)
+                    gt_a = x_ts.voltage[k_starts[:, None], anchor_ids[None, :]]    # (B, n_anchor)
+                    loss = loss + tc.coeff_anchor_voltage * (pred_a - gt_a).norm(2)
 
 
                 # === LLM-MODIFIABLE: BACKWARD AND STEP START ===
                 # Allowed changes: gradient clipping, LR scheduler step, loss scaling
                 loss.backward()
-
-                # debug gradient check for neural ODE training
-                if tc.neural_ODE_training and (N % 500 == 0):
-                    debug_check_gradients(model, loss, N)
 
                 # W-specific gradient clipping: clip W gradients to force optimizer
                 # to adjust lin_update (which contains V_rest/tau) instead of W

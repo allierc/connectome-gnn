@@ -55,7 +55,6 @@ dependencies:
       # Keep only packages that aren't well-supported natively on conda
       - geomloss==0.2
       - torch_geometric==2.7.0
-      - torchdiffeq
       - vedo
       - joblib
       - flyvis

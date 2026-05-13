@@ -120,13 +120,6 @@ class ClusterConnectivity(StrEnum):
     SINGLE = "single"
     AVERAGE = "average"
 
-class OdeMethod(StrEnum):
-    DOPRI5 = "dopri5"
-    RK4 = "rk4"
-    EULER = "euler"
-    MIDPOINT = "midpoint"
-    HEUN3 = "heun3"
-
 class WInitMode(StrEnum):
     RANDN = "randn"
     RANDN_SCALED = "randn_scaled"
@@ -976,13 +969,6 @@ class TrainingConfig(BaseModel):
 
     hidden_neuron_fraction: float = 0.0  # fraction of non-input neurons to silence (0 = disabled); seed = simulation.seed
 
-    neural_ODE_training: bool = False
-    ode_method: OdeMethod = OdeMethod.DOPRI5
-    ode_rtol: float = 1e-4
-    ode_atol: float = 1e-5
-    ode_adjoint: bool = True
-    ode_state_clamp: float = 10.0
-    ode_stab_lambda: float = 0.0
     grad_clip_W: float = 0.0
     use_gt_edges: bool = False  # True = use ground truth edge_index; False = fully connected graph
     w_init_mode: WInitMode = WInitMode.RANDN  # randn=std=1, randn_scaled=std=scale/sqrt(N), zeros

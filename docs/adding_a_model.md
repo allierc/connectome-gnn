@@ -116,15 +116,12 @@ python GNN_LLM.py -o generate_train_test_plot_Claude drosophila_cx_mymodel itera
 | `flyvis_linear`, `drosophila_cx_linear`, etc. | `LinearODE` | `flyvis_linear.py` | GNN | Linear ODE: dv/dt = (-v + W*relu(v) + I + V_rest) / tau |
 | `flyvis_rnn`, `drosophila_cx_rnn`, etc. | `NeuralRNN` | `neural_rnn.py` | RNN | GRU-based RNN, flat input (no graph structure) |
 
-The GNN model also supports Neural ODE training via the flag `training.neural_ODE_training: true` in the config. This wraps the GNN forward pass with `torchdiffeq.odeint_adjoint` for O(1) memory rollout training. The wrapper lives in `neural_ode_wrapper.py` and is invoked at `graph_trainer.py:536-564`.
-
 ## Key Files
 
 | File | Purpose |
 |---|---|
 | `src/connectome_gnn/models/registry.py` | Model registry: `@register_model` decorator and `create_model()` lookup |
 | `src/connectome_gnn/models/graph_trainer.py` | Training loops: `data_train_gnn` (line 96) and `data_train_gnn_RNN` (line 853) |
-| `src/connectome_gnn/models/neural_ode_wrapper.py` | Neural ODE adjoint wrapper for any model |
 | `src/connectome_gnn/neuron_state.py` | `NeuronState` dataclass (voltage, stimulus, index, etc.) |
 | `src/connectome_gnn/config.py` | Config dataclasses (SimulationConfig, GraphModelConfig, TrainingConfig) |
 | `src/connectome_gnn/utils.py:314` | `add_pre_folder`: dataset name to config directory routing |

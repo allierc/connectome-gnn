@@ -40,7 +40,6 @@ class GNNDataset(Dataset):
         self.time_window = tc.time_window
         self.n_frames = sim.n_frames
         self.recurrent = tc.recurrent_training
-        self.neural_ode = tc.neural_ODE_training
         self.has_visual_field = 'visual' in config.graph_model.field_type
         self.test_neural_field = 'test' in config.graph_model.field_type
         self.n_input_neurons = getattr(sim, 'n_input_neurons', 0)
@@ -72,7 +71,7 @@ class GNNDataset(Dataset):
             y: target tensor, shape (N, 1)
             k: the frame index (passed through for downstream use)
         """
-        if self.recurrent or self.neural_ode:
+        if self.recurrent:
             k = k - k % self.time_step
 
         x = self.x_ts.frame(k)
@@ -84,7 +83,7 @@ class GNNDataset(Dataset):
             x.stimulus[self.model.n_input_neurons:] = 0
 
         # Target construction
-        if self.recurrent or self.neural_ode:
+        if self.recurrent:
             y = self.x_ts.voltage[k + self.time_step].unsqueeze(-1)
         elif self.test_neural_field:
             y = self.x_ts.stimulus[k, :self.n_input_neurons].unsqueeze(-1)
