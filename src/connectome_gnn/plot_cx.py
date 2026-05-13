@@ -530,6 +530,11 @@ def plot_cx_training_snapshot(
     fig.colorbar(im, ax=ax_mat, fraction=0.046, pad=0.04)
 
     # ---- RIGHT: kinograph with HD curves ----
+    # We plot the per-frame z-scored angular bump (mean=0, std=1 across
+    # the n_bins angular bins at each timestep). This makes the colorbar
+    # directly interpretable — yellow ≈ "k σ above the trial-mean" — so
+    # the FWHM threshold (a horizontal mark on the colorbar) shows
+    # visually where the bump-edge cutoff lies.
     r_epg = rollout["r_epg"]  # (T, n_epg)
     T = r_epg.shape[0]
     bin_centres = np.linspace(-np.pi, np.pi, n_bins, endpoint=False)
@@ -537,12 +542,21 @@ def plot_cx_training_snapshot(
     sigma = 2 * np.pi / n_bins
     w = np.exp(-0.5 * (diff / sigma) ** 2)
     w /= w.sum(axis=0, keepdims=True) + 1e-12
-    binned = r_epg @ w
-    binned_n = binned - binned.mean(axis=0, keepdims=True)
-    absmax = float(np.percentile(np.abs(binned_n), 99) + 1e-9)
-    ax_kin.imshow(binned_n, aspect="auto", origin="upper", cmap="RdBu_r",
-                  vmin=-absmax, vmax=absmax,
-                  extent=[-np.pi, np.pi, T * dt_s, 0], interpolation="nearest")
+    binned = r_epg @ w                                    # (T, n_bins)
+    mu = binned.mean(axis=1, keepdims=True)
+    sd = binned.std(axis=1, keepdims=True) + 1e-12
+    z = (binned - mu) / sd                                # (T, n_bins)
+    z_max = float(max(np.percentile(np.abs(z), 99), fwhm_z_thresh + 0.5))
+    im_kin = ax_kin.imshow(z, aspect="auto", origin="upper", cmap="RdBu_r",
+                           vmin=-z_max, vmax=z_max,
+                           extent=[-np.pi, np.pi, T * dt_s, 0],
+                           interpolation="nearest")
+    cb_kin = fig.colorbar(im_kin, ax=ax_kin, fraction=0.04, pad=0.02)
+    cb_kin.ax.tick_params(labelsize=7)
+    cb_kin.set_label("z-score (per-frame, across angular bins)", fontsize=7)
+    # Mark the FWHM threshold on the colorbar so "z>1" has a visual anchor.
+    cb_kin.ax.axhline(fwhm_z_thresh, color="black", linewidth=0.8)
+
     # Scatter overlay: dense dots avoid the horizontal-jump artefact at ±π
     # without needing wrap-aware NaN insertion.
     def _scatter(theta, time, color, size, label):
@@ -558,12 +572,9 @@ def plot_cx_training_snapshot(
     ax_kin.set_ylabel("time (s)")
 
     # FWHM = mean (over time) of the angular width where the per-frame
-    # z-scored bump exceeds `fwhm_z_thresh`. Computed on the same binned
+    # z-scored bump exceeds `fwhm_z_thresh`. Computed on the same z-scored
     # signal that's plotted, so the annotation matches the panel.
     bin_rad = 2 * np.pi / n_bins
-    mu = binned.mean(axis=1, keepdims=True)
-    sd = binned.std(axis=1, keepdims=True) + 1e-12
-    z = (binned - mu) / sd                                # (T, n_bins)
     widths = []
     c = n_bins // 2
     for t in range(T):
@@ -580,8 +591,8 @@ def plot_cx_training_snapshot(
             right += 1
         widths.append((right - left + 1) * bin_rad)
     fwhm_rad = float(np.mean(widths)) if widths else float("nan")
-    fwhm_str = (f"FWHM={np.degrees(fwhm_rad):.0f}°(z>{fwhm_z_thresh:g})"
-                if widths else f"FWHM=n/a (z>{fwhm_z_thresh:g})")
+    fwhm_str = (f"bump width={np.degrees(fwhm_rad):.0f}°"
+                if widths else "bump width=n/a")
     # pi_acc on the snapshot rollout = mean cos(decoded - true) after a
     # short warmup (matches `path_integration_accuracy()` definition).
     warmup = min(10, T // 4)
@@ -589,7 +600,8 @@ def plot_cx_training_snapshot(
                                  - np.asarray(rollout["true_theta"][warmup:]))))
     pi_acc = float(np.cos(diff).mean()) if diff.size else float("nan")
     ax_kin.set_title(
-        f"EPG kinograph (angle-binned, mean-sub.) — {fwhm_str}  pi_acc={pi_acc:.3f}",
+        f"EPG kinograph (z-scored)  —  "
+        f"{fwhm_str} above z={fwhm_z_thresh:g}  —  pi_acc={pi_acc:.3f}",
         fontsize=8,
     )
 
