@@ -1,0 +1,155 @@
+\documentclass[11pt]{article}
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{listings}
+\usepackage{parskip}
+\usepackage{titlesec}
+\usepackage{graphicx}
+\usepackage{caption}
+\usepackage{subcaption}
+
+\titleformat{\section}{\large\bfseries}{\thesection}{0.6em}{}
+\lstset{basicstyle=\small\ttfamily, breaklines=true, frame=single, framesep=4pt}
+
+\title{OU angular velocity --- variable cheat-sheet\\
+\large \texttt{generate\_path\_integration\_batch} setup block}
+\date{2026-05-13}
+
+\begin{document}
+\maketitle
+
+The block in lines 292--300 sets up the discretised
+Ornstein--Uhlenbeck (OU) process for angular velocity. The
+continuous-time SDE is
+\begin{equation}
+\frac{d\omega}{dt} \;=\; -\alpha\,\omega(t) \;+\; \sigma\,\xi(t),
+\qquad \xi(t)\sim\mathrm{white\ noise},
+\label{eq:ou}
+\end{equation}
+with stationary distribution
+$\omega\sim\mathcal{N}\bigl(0,\;\sigma^{2}/(2\alpha)\bigr)$ so the
+stationary standard deviation is
+$\sigma_{\omega}=\sigma/\sqrt{2\alpha}$. The Euler--Maruyama
+discretisation that the next loop uses is
+\begin{equation}
+\omega[t+1] \;=\; \omega[t]
+    \;-\;\alpha\,\omega[t]\,\Delta t
+    \;+\;\sigma\sqrt{\Delta t}\;\eta[t],
+\qquad \eta[t]\sim\mathcal{N}(0,1).
+\label{eq:ou-discrete}
+\end{equation}
+
+\section*{Variables in the snippet}
+
+\begin{center}\small
+\begin{tabular}{lll}
+\toprule
+\textbf{Code} & \textbf{Math} & \textbf{Meaning / Hulse default} \\
+\midrule
+\texttt{B}             & $B$                       & Batch size (number of trials per gradient step, default 100). \\
+\texttt{T}             & $T$                       & Time steps per trial (Hulse: 100, i.e.\ 1\,s at $\Delta t=0.01$\,s). \\
+\texttt{alpha}         & $\alpha = 1/\tau_{\mathrm{corr}}$ & Mean-reversion rate. Hulse $\tau_{\mathrm{corr}}=0.12$\,s, so $\alpha\approx 8.33\;\mathrm{s}^{-1}$. \\
+\texttt{sigma}         & $\sigma = \sigma_{\omega}\sqrt{2\alpha}$ & SDE diffusion. Hulse $\sigma_{\omega}=40^{\circ}/\mathrm{s}\;\Rightarrow\;\sigma\approx 163.3^{\circ}/\mathrm{s}^{3/2}$. \\
+\texttt{sqrt\_dt}      & $\sqrt{\Delta t}$         & Hulse $\sqrt{0.01}=0.1$. \\
+\texttt{sigma\_step}   & $\sigma\sqrt{\Delta t}$   & Per-step noise scale, $\approx 16.3^{\circ}$. \\
+\texttt{omega}         & $\omega[b,t]$, shape $(B,T)$ & Velocity trajectory; pre-allocated to zeros. Hulse: $\omega[0]=0$. \\
+\texttt{eta}           & $\eta[b,t]\sim\mathcal{N}(0,1)$, shape $(B,T)$ & The driving Gaussian noise, sampled once. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section*{Where these come from}
+
+The two-step derivation is
+\begin{equation}
+\boxed{\;\;\sigma_{\omega}\;\xleftarrow{\text{user input}}\;
+       \sigma=\sigma_{\omega}\sqrt{2\alpha}\;\xleftarrow{\text{calibrate}}\;
+       \sigma\sqrt{\Delta t}\;\xleftarrow{\text{discretise}}\;
+       \text{per-step Gaussian increment.}\;\;}
+\end{equation}
+The point of going through $\sigma$ rather than skipping straight to a
+per-step std is that it makes the \emph{stationary} statistics
+($\sigma_{\omega}$ = the std you'd measure on a long trajectory) match
+Hulse's spec --- which is the meaningful biological quantity.
+
+\section*{Numerical check}
+
+Stationary std after one Euler step:
+\begin{equation}
+\mathrm{Var}\bigl(\omega_{\infty}\bigr)
+   \;=\; \frac{(\sigma\sqrt{\Delta t})^{2}}{1-(1-\alpha\,\Delta t)^{2}}
+   \;\approx\;
+   \frac{\sigma^{2}\,\Delta t}{2\alpha\,\Delta t}
+   \;=\; \frac{\sigma^{2}}{2\alpha}
+   \;=\; \sigma_{\omega}^{2}.
+\end{equation}
+So $\mathrm{std}(\omega_{\infty})\;\approx\;\sigma_{\omega}=40^{\circ}/\mathrm{s}$,
+matching Hulse's spec.
+
+\section*{What happens next in the function}
+
+The actual integration loop (immediately after the snippet) is the
+discrete OU recursion
+\begin{lstlisting}[language=Python]
+decay = 1.0 - alpha * dt          # = 1 - dt/tau_corr  ~ 0.917 for Hulse
+for t in range(1, T):
+    omega[:, t] = decay * omega[:, t - 1] + sigma_step * eta[:, t]
+\end{lstlisting}
+which is exactly Eq.~(\ref{eq:ou-discrete}). After this loop, the
+function inserts $\sim 20\%$ standing pauses (zeros into \texttt{omega}),
+integrates \texttt{omega\_rad} to get true heading $\theta_{\mathrm{hd}}(t)$,
+and packs the 3-channel input $u[t]=[\omega(t),\;\cos\theta_{0}\cdot
+\mathbf{1}_{t=0},\;\sin\theta_{0}\cdot\mathbf{1}_{t=0}]$.
+
+\section*{Figures (4 example trials, 4\,s each, $\Delta t=0.01$\,s)}
+
+The three figures below are produced from
+\texttt{generate\_path\_integration\_batch} itself --- not a re-implementation.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.95\linewidth]{figures/ou_omega_theta_y.png}
+\caption{\textbf{From OU velocity to network target.}
+\emph{Top:} the OU angular velocity $\omega(t)$ in deg/s for four
+trials. Grey shading marks a standing pause (only shown for trial~0):
+$\omega$ is forced to zero, modelling the fly standing still.
+\emph{Middle:} the unwrapped heading
+$\theta_{\mathrm{hd}}(t)=\theta_0+\int\omega\,dt'$. During the stop, the
+heading is held constant (flat plateau). Each trial starts at a random
+$\theta_0\in[0,2\pi)$.
+\emph{Bottom:} the 2-channel target $y(t)=(\cos\theta_{\mathrm{hd}},\sin\theta_{\mathrm{hd}})$
+that the readout has to predict. Solid = $\cos$, dashed = $\sin$,
+matched colour per trial.}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.95\linewidth]{figures/ou_u_channels.png}
+\caption{\textbf{The 3-channel input $u[t]$ (trial 0).}
+\emph{Top:} $u_0(t)=\omega(t)$ in deg/s --- the only time-varying
+channel. Zeroed during the standing pause (grey).
+\emph{Middle and bottom:} $u_1=\cos\theta_0$ and $u_2=\sin\theta_0$ are
+\emph{single-frame impulses} at $t=0$ only (the orange/green spike), and
+zero for all $t>0$. These encode the initial heading so the network can
+anchor its bump at the correct phase before integrating velocity.}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.95\linewidth]{figures/ou_eta_and_hist.png}
+\caption{\textbf{Driving noise $\eta$ and the resulting stationary
+distribution of $\omega$.}
+\emph{Left:} four independent draws of $\eta[t]\sim\mathcal{N}(0,1)$
+(unit-variance white noise). This is what the OU update consumes via
+$\sigma_{\mathrm{step}}\cdot\eta[t]$.
+\emph{Right:} histogram of $\omega(t)$ pooled over 200 trials $\times$
+900 post-burnin steps. Red curve is the target stationary
+$\mathcal{N}(0,\sigma_{\omega}^{2})$ with $\sigma_{\omega}=40^{\circ}$/s.
+The empirical std (32.3) lands a bit below the theoretical 40 because
+$\sim$20\% of samples are zeroed by standing pauses --- exactly the
+effect we want.}
+\end{figure}
+
+\end{document}

@@ -1,0 +1,401 @@
+\documentclass[11pt]{article}
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{titlesec}
+\usepackage{parskip}
+\usepackage{listings}
+
+\hypersetup{colorlinks=true, linkcolor=blue!60!black, urlcolor=blue!60!black, citecolor=blue!60!black}
+\titleformat{\section}{\large\bfseries}{\thesection}{0.6em}{}
+\titleformat{\subsection}{\normalsize\bfseries}{\thesubsection}{0.6em}{}
+\lstset{basicstyle=\small\ttfamily, breaklines=true, frame=single, framesep=4pt,
+        breakatwhitespace=true, columns=fullflexible}
+
+\title{Hulse Drosophila CX twin paper\\ \large Implementation plan (supersedes \texttt{cx\_ring})}
+\author{Internal note, connectome-gnn project}
+\date{2026-05-13}
+
+\begin{document}
+\maketitle
+
+\section*{Context}
+
+Earlier today we considered the Noorman 2024 discrete ring attractor
+(\texttt{papers/DiscreteRingAttractor/}) as the new biomodel. That was the
+wrong target: it is an abstract 6--16 unit ring with ReLU and cosine
+weights --- too simple to be ``complex Drosophila''. The actual model
+in \texttt{docs/Hidden\_Symmetries.pdf} (Hulse \textit{et~al.}, Janelia
+draft 2026) that we want to mirror is the
+\textbf{connectome-constrained RNN of Figure 2} --- a 156-neuron CX
+network with \textbf{sigmoid} activation, \textbf{sign-mask $\times$
+trainable-magnitude} recurrent weights, and an explicit
+\textbf{path-integration} training task. This is biologically richer than
+Noorman and architecturally distinct from Beiran \& Litwin-Kumar
+(\texttt{papers/Ashok.pdf}, our existing \texttt{drosophila\_cx}).
+
+\subsection*{Hulse vs Beiran --- the architectural deltas}
+
+\begin{center}
+\small
+\begin{tabular}{lll}
+\toprule
+                                     & \textbf{Beiran (existing \texttt{drosophila\_cx})} & \textbf{Hulse Model A (new \texttt{drosophila\_cx\_hulse})} \\
+\midrule
+Nonlinearity                         & softplus($\beta=5$)                              & sigmoid $1/(1+e^{-h})$ \\
+Recurrent weight parameterisation    & $J^{\text{eff}} = e^{w_{\text{rec}}}\cdot m_{\text{wrec}}$ & $W^{\text{rec}} = |S|\odot W^{\text{con}}$ (sign mask) \\
+Per-neuron $g$ (log gain), $b$, $\tau_{\text{raw}}$ & all trainable                          & none --- single global $\tau=0.1\,\text{s}$, bias $b_j$ only \\
+Training task                        & continuous bump rotation under PEN drive          & path integration: $\hat\theta_{\text{hd}}(t) = \int\!\omega$ \\
+Connectome source                    & hemibrain CX (152 neurons, 6 types)              & CNS volume CX (156 neurons, 7 types $+$ ER6) \\
+Loss                                 & MSE on rate trajectories                          & MSE on $(\cos\hat\theta, \sin\hat\theta)$ + cos-distance reg.\ \\
+Readout                              & none (state is the output)                        & explicit 2-channel $\hat{y}=W^{\text{out}}\phi(h)+b^{\text{out}}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection*{Scope confirmed with the user}
+
+\begin{itemize}[leftmargin=*]
+\item Reproduce Hulse Model A end-to-end --- not just architecture.
+\item Reuse Beiran's hemibrain loader as the connectome source (152
+  neurons, 6 types --- skip ER6 in v1). Filed as a deliberate scope
+  deviation from Hulse's 156-neuron CNS-volume setup.
+\item New registry entry alongside Beiran's: \texttt{drosophila\_cx\_hulse}.
+  The existing \texttt{drosophila\_cx} biomodel stays for legacy.
+\item End-to-end deliverable: trained Hulse teacher $\to$ inverse-problem
+  biomodel $\to$ 3-noise-regime exploration $\to$ consensus CV $\to$ figures +
+  twin paper.
+\end{itemize}
+
+\section{The Hulse Model A specification (verbatim)}
+\label{sec:spec}
+
+From \texttt{docs/Hidden\_Symmetries.pdf} Methods pp.~12--14.
+Equation numbers are Hulse's:
+\begin{align}
+\tau\,\dot h_j &= -h_j
+   + \sum_{k=1}^{N} W^{\text{rec}}_{jk}\,\phi(h_k)
+   + \sum_{\ell=1}^{3} W^{\text{in}}_{j,\ell}\,u_\ell
+   + b_j,
+   && j=1,\ldots,N \tag{Eq.\ 1} \\
+\phi(h) &= 1/(1+e^{-h}),\quad N=156,\quad \tau=0.1\,\text{s},\quad \Delta t=0.01\,\text{s} \\
+\hat{y}_i &= \sum_{j=1}^{N} W^{\text{out}}_{ij}\,\phi(h_j) + b^{\text{out}}_i,
+            \quad i=1,2 \tag{Eq.\ 3} \\
+u[t] &= \bigl[\,\omega[t],\ \cos(\theta_{\text{hd}}[0])\cdot 1_{t=0},\
+                       \sin(\theta_{\text{hd}}[0])\cdot 1_{t=0}\,\bigr]^\top \tag{Eq.\ 7} \\
+\omega[t+1] &= \omega[t] - \alpha\omega[t]\Delta t + \sigma\sqrt{\Delta t}\,\eta[t],
+            \quad \tau_{\text{corr}}{=}0.12\,\text{s},\ \sigma_\omega{=}40\,\text{deg/s} \tag{Eq.\ 5} \\
+\theta_{\text{hd}}[t] &= \theta_{\text{hd}}[0]+\sum_{s=0}^{t}\omega[s]\Delta t \tag{Eq.\ 6} \\
+\mathcal{L} &= \tfrac{1}{2T}\sum_{t,i} (\hat{y}_i[t]-y_i[t])^2 + \mathcal{L}_{\text{cos-d}} + \mathcal{L}_{\text{norm}} \tag{Eq.\ 4} \\
+\mathcal{L}_{\text{cos-d}} &= \tfrac{\lambda}{|B|}\sum_{(p,q)\in B}\!\!
+    \Bigl(\,1 - \tfrac{\sum_{j,k}\!W^{\text{rec}}_{pq,jk}W^{\text{con}}_{pq,jk}}
+              {\sqrt{\sum(W^{\text{rec}}_{pq})^2}\sqrt{\sum(W^{\text{con}}_{pq})^2}}\Bigr),
+    \quad \lambda=1.0 \tag{Eq.\ 10} \\
+\mathcal{L}_{\text{norm}} &= \tfrac{\lambda}{|B|}\sum_{(p,q)\in B}
+   \max\!\bigl(0,\;\kappa-\langle|W^{\text{rec}}_{pq}|\rangle\bigr)^2,
+   \quad \kappa=0.05 \tag{Eq.\ 11}
+\end{align}
+
+Training: 200{,}000 trials in 2000 batches of 100; 100 timesteps each
+(1\,s per trial); 10 epochs; learning rate $5\times 10^{-3}$, decaying
+$\times 0.1$ at epoch 5; Adam + BPTT; trainable parameters
+$\{W^{\text{in}},W^{\text{rec}},b,W^{\text{out}},b^{\text{out}}\}$.
+
+Standing pauses: $\sim 20\%$ of trial, exponential duration mean 2\,s
+capped at 8\,s, head direction held constant, $\omega=0$.
+
+Cell types in connectome-constrained network: EPG (+ EPGt), PEG, PEN\_a,
+PEN\_b, $\Delta_7$, ER6. $\Delta_7$ and ER6 are inhibitory; others
+excitatory.
+
+\section{Implementation phases}
+
+\subsection*{Phase A --- Hulse Model A teacher (3--5~days)}
+
+New module \texttt{src/connectome\_gnn/teachers/hulse\_cx\_teacher.py} ---
+self-contained training pipeline that produces a checkpoint file.
+
+\begin{itemize}[leftmargin=*]
+\item \textbf{Connectome source}: reuse
+  \texttt{generators/connconstr\_data.py:load\_drosophila\_cx\_connectome}
+  (lines 60+, hemibrain). v1 uses Beiran's 152-neuron / 6-type set;
+  v2 may add ER6 if/when needed.
+\item \textbf{Sign mask construction}: from the loaded cell-type labels,
+  $S_{ij} = -1$ if presynaptic type is $\Delta_7$ (or ER6 in v2), $+1$
+  otherwise; $|S| = 1$ for actually-connected pairs (from connectome
+  density), 0 elsewhere. $W^{\text{con}}$ is the magnitude template
+  (synapse-count-derived).
+\item \textbf{Parameterisation}: $W^{\text{rec}} = |W^{\text{rec}}_{\text{raw}}|
+  \cdot \mathrm{sign}(S)$, with $W^{\text{rec}}_{\text{raw}}$ trainable.
+  Sign is fixed by the connectome (Dale's law); magnitude is trainable.
+\item \textbf{Training loop}: OU velocity generator, path-integration
+  target, MSE loss + Eqs.~10--11 regularizers, Adam + BPTT, 10 epochs.
+  Save best-loss checkpoint to
+  \texttt{papers/hulse\_cx/trained/hulse\_cx\_seed\{S\}.pt} (analogous to
+  Beiran's \texttt{papers/Code\_NN/Code\_NN/netPopVec\_Wrec\_simplering2.pt}).
+\item \textbf{Verification}: trained model should pass the same tuning-curve
+  / phase-shift analysis Hulse runs in Fig.~2 (path-integration accuracy
+  $\gtrsim 95\%$, bump structure visible). Optional: produce a
+  \texttt{figures/fig\_hulse\_teacher\_diagnostic.py} that mirrors Hulse
+  Fig.~2 panels for the trained checkpoint.
+\end{itemize}
+
+\subsection*{Phase B --- Inverse-problem biomodel (2--3~days)}
+
+Two new files mirroring the Beiran-CX pattern:
+
+\begin{itemize}[leftmargin=*]
+\item \texttt{src/connectome\_gnn/generators/hulse\_cx\_ode.py} --- sigmoid
+  ODE forward, mirroring the structure of
+  \texttt{connconstr\_cx\_ode.py}. The forward path is one
+  \texttt{scatter\_add} for $\sum_k W^{\text{rec}}_{jk}\phi(h_k)$ plus
+  $W^{\text{in}}u$ + $b$, divided by $\tau$.
+\item \texttt{HulseCxODEParams} appended to
+  \texttt{generators/ode\_params.py} (around the existing
+  \texttt{DrosophilaCxODEParams} at lines 1066--1453). Registered via
+  \texttt{@register\_ode\_params("drosophila\_cx\_hulse", "drosophila\_cx\_hulse\_known\_ode", "drosophila\_cx\_hulse\_mlp")}.
+\item \texttt{from\_pretrained(datapath)} loads the Phase~A checkpoint and
+  unpacks $W^{\text{rec}}, W^{\text{in}}, b, W^{\text{out}}, b^{\text{out}}$.
+\item \texttt{generate\_stimulus(n\_frames, sim)} builds the 3-channel
+  $u[t]$ stream (OU velocity + initial heading), broadcasts to per-neuron
+  via $W^{\text{in}}$, returns the projected (T, N) stimulus tensor.
+\item \texttt{is\_connconstr\_model} in
+  \texttt{generators/utils.py:695} extended to include
+  \texttt{HulseCxODEParams}, so it routes through the existing
+  \texttt{data\_generate\_connconstr} loop. No loop changes needed.
+\item \texttt{tests/test\_hulse\_cx.py}: registry round-trip, sigmoid
+  fixed-point, bump exists at random $\psi$, traveling-bump under
+  constant $\omega$.
+\end{itemize}
+
+\subsection*{Phase B' --- Visualisations during data generation (NEW, 1--2~days)}
+
+User request: produce ``nice viz during data generation'' mirroring the
+canonical CX-imaging figure conventions (GCaMP7f panel + 3-D neuron
+anatomy + kinograph).
+
+Three deliverables, all hooked into
+\texttt{plot\_connconstr\_diagnostics}
+(\texttt{plot.py:2359}, the function \texttt{data\_generate\_connconstr}
+already calls):
+
+\begin{enumerate}[leftmargin=*]
+\item \textbf{Compass (PVA) plot} ---
+   \texttt{plot.plot\_cx\_compass(voltage\_history, ode\_params, output\_path)}.
+   For each saved frame, bin the EPG-cell activities by their preferred
+   direction $\theta_j$, render a polar bar chart with intensity =
+   $\Delta F/F$ proxy, and overlay an arrow at the population-vector
+   average (PVA). Use the Beiran loader's
+   \texttt{W\_46to3} matrix (already available) as the PVA decoder.
+   Output: \texttt{compass.png} (multi-panel grid across time) +
+   \texttt{compass.gif} (animation).
+\item \textbf{Kinograph with PVA trace} --- extend the existing
+   \texttt{plot\_kinograph} (\texttt{plot.py:577}) to overlay a red HD
+   line as in Hulse Fig.~1e. Already half-done; only the overlay is new.
+\item \textbf{3-D anatomy panel} ---
+   \texttt{plot.plot\_cx\_anatomy\_3d(neuron\_types, type\_names, output\_path)}.
+   v1: load pre-cached neuron skeleton meshes from
+   \texttt{papers/hulse\_cx/anatomy/} (one \texttt{.npz} per cell type,
+   each containing a (P, 3) coordinate array). Render in matplotlib
+   \texttt{Axes3D} with one colour per cell type. Skeleton data fetched
+   one-off via \texttt{neuprint-python} into the
+   \texttt{anatomy/} cache directory (script
+   \texttt{papers/hulse\_cx/fetch\_anatomy.py}, written once and never
+   re-run). v2: high-res render via navis if v1 ends up cartoony.
+\end{enumerate}
+
+All three are also surfaced during \textbf{teacher training}
+(Phase A): a small \texttt{teachers/hulse\_cx\_diagnostic.py} script
+that loads a checkpoint and runs the compass/kinograph plots on a fresh
+batch. Used both to monitor training progress and to assemble Fig.~1 of
+the twin paper.
+
+\subsection*{Phase C --- Stimulus modes + configs (2--3~days)}
+
+\textbf{Naturalistic stimuli} produced by \texttt{generate\_stimulus} above
+match Hulse's training distribution.
+
+\textbf{Structured probes} via the existing optogenetics path
+(\texttt{generators/optogenetics.py}), with
+\texttt{OptoTargetSpec(mode='explicit\_indices')} resolving cell-type
+groups (EPG/$\Delta_7$/PEN\_a/PEN\_b/PEG) from
+\texttt{ode\_params.neuron\_types}. Same three probes as before:
+\texttt{static\_cue\_release}, \texttt{constant\_omega},
+\texttt{single\_neuron\_impulse}.
+
+\textbf{Generalise \texttt{add\_optogenetics\_stimulus}}
+(\texttt{optogenetics.py:465}) so the connconstr-class ODEs are
+dispatched correctly --- same change as in the previous plan revision.
+
+\textbf{Configs} under \texttt{config/drosophila\_cx\_hulse/} (new dir):
+
+\begin{lstlisting}
+config/drosophila_cx_hulse/
+  drosophila_cx_hulse_noise_free.yaml
+  drosophila_cx_hulse_noise_005.yaml
+  drosophila_cx_hulse_noise_05.yaml
+  drosophila_cx_hulse_noise_free_static_release.yaml
+  drosophila_cx_hulse_noise_free_constant_omega.yaml
+  drosophila_cx_hulse_noise_free_single_impulse.yaml
+  drosophila_cx_hulse_noise_005_single_impulse.yaml
+  drosophila_cx_hulse_noise_05_single_impulse.yaml
+\end{lstlisting}
+
+Per the \textit{dedicated-HP-yaml-over-overrides} rule, each variant is
+its own YAML.
+
+\subsection*{Phase D --- LLM instruction for the clean baseline (1~day)}
+
+\texttt{LLM/instruction\_drosophila\_cx\_hulse\_noise\_free.md} ---
+mirrors \texttt{LLM/instruction\_drosophila\_cx\_noise\_free.md}
+(283 lines). Same scientific-method scaffolding; default config points at
+\texttt{drosophila\_cx\_hulse\_noise\_free.yaml}. Primary metric stays
+\texttt{connectivity\_R2}; additional Hulse-specific metrics:
+\textbf{path-integration accuracy} (how well a frozen
+$W^{\text{rec}}=\hat{W}$ readout still tracks $\theta_{\text{hd}}$),
+\textbf{tuning-curve similarity} (Hulse Fig.~2), \textbf{phase-shift
+distribution} (Hulse Eq.~16).
+
+Per the project memory rule ``optimize first onto low model noise
+regime'', only \texttt{noise\_free} gets an instruction file in this
+phase; \texttt{noise\_005} / \texttt{noise\_05} are deferred.
+
+\subsection*{Phase E --- Consensus CV + figures (3--5~days)}
+
+\begin{enumerate}[leftmargin=*]
+\item LLM exploration $\to$ per-regime winner configs
+  (\texttt{drosophila\_cx\_hulse\_noise\_free\_winner.yaml}, etc.).
+\item Unified consensus config
+  \texttt{drosophila\_cx\_hulse\_unified\_winner.yaml}.
+\item Register \texttt{HULSE\_CONDITIONS} in
+  \texttt{src/connectome\_gnn/cross/yaml\_io.py} (one row per noise regime
+  + per opto variant).
+\item New wrapper \texttt{run\_GNN\_drosophila\_cx\_hulse.py} (mirrors
+  \texttt{run\_GNN\_conditions.py}).
+\item Run \texttt{run\_all\_conditions(hp\_source='uniform',
+  suffix='cx\_hulse', hp\_yaml='drosophila\_cx\_hulse\_unified\_winner',
+  n\_folds=5, node\_name='a100')}. CV table at
+  \texttt{log/cv\_cx\_hulse\_rows.tex}.
+\item Figures (thin ports of existing scripts):
+  \texttt{fig\_cx\_hulse\_gnn\_params\_3col\_noise\_comparison.py},
+  \texttt{fig\_cx\_hulse\_rollout\_3col\_noise\_comparison.py},
+  \texttt{fig\_cx\_hulse\_path\_integration.py},
+  \texttt{fig\_cx\_hulse\_opto\_perturbation.py},
+  \texttt{aggregate\_cx\_hulse\_tables.py}.
+\end{enumerate}
+
+\subsection*{Phase F --- Twin paper scaffold}
+
+\texttt{docs/cx\_hulse\_neurips.tex}. Same six-section structure as
+discussed before (Intro, Method, Identifiability, Results, Optogenetics,
+Discussion). Two key differences from the abandoned \texttt{cx\_ring}
+plan:
+
+\begin{itemize}[leftmargin=*]
+\item \textbf{Identifiability section} now anchors on the path-integration
+  task: which dimensions of $W^{\text{rec}}$ are determined by the
+  task and which are sloppy. This is the Hulse-paper question; we have
+  the simulator to study it directly.
+\item \textbf{Discussion} can engage Hulse's manuscript on its own terms
+  (path integration, dynamical clones, hidden symmetries) rather than via
+  the more abstract Noorman/Clark framing.
+\end{itemize}
+
+\section{Critical files}
+
+\textbf{Created}:
+\begin{itemize}[leftmargin=*, itemsep=0pt]
+\item \texttt{src/connectome\_gnn/teachers/\_\_init\_\_.py}, \texttt{teachers/hulse\_cx\_teacher.py}
+\item \texttt{src/connectome\_gnn/generators/hulse\_cx\_ode.py}
+\item \texttt{tests/test\_hulse\_cx.py}
+\item \texttt{config/drosophila\_cx\_hulse/*.yaml} (8 files in Phase C, 4 more from LLM exploration)
+\item \texttt{LLM/instruction\_drosophila\_cx\_hulse\_noise\_free.md}
+\item \texttt{run\_GNN\_drosophila\_cx\_hulse.py}
+\item \texttt{figures/fig\_cx\_hulse\_*.py} (4 scripts + 1 aggregator)
+\item \texttt{docs/cx\_hulse\_neurips.tex}
+\item \texttt{papers/hulse\_cx/trained/hulse\_cx\_seed\{S\}.pt} (Phase~A output)
+\item \texttt{papers/hulse\_cx/anatomy/*.npz} (one per cell type; Phase~B' cache)
+\item \texttt{papers/hulse\_cx/fetch\_anatomy.py} (one-off neuPrint fetcher)
+\item \texttt{src/connectome\_gnn/teachers/hulse\_cx\_diagnostic.py} (compass + kinograph from a trained checkpoint)
+\end{itemize}
+
+\textbf{Modified}:
+\begin{itemize}[leftmargin=*, itemsep=0pt]
+\item \texttt{src/connectome\_gnn/generators/ode\_params.py} ---
+  append \texttt{HulseCxODEParams} + registry entry.
+\item \texttt{src/connectome\_gnn/generators/utils.py:695} ---
+  extend \texttt{is\_connconstr\_model}.
+\item \texttt{src/connectome\_gnn/generators/optogenetics.py:465} ---
+  dispatch for connconstr ODEs.
+\item \texttt{src/connectome\_gnn/plot.py} ---
+  add \texttt{plot\_cx\_compass} + \texttt{plot\_cx\_anatomy\_3d};
+  overlay PVA trace on \texttt{plot\_kinograph}.
+\item \texttt{src/connectome\_gnn/cross/yaml\_io.py:34} ---
+  append \texttt{HULSE\_CONDITIONS}.
+\item Optionally \texttt{generators/connconstr\_data.py} --- add ER6 +
+  EPGt loading branch (v2; v1 reuses 152-neuron Beiran connectome).
+\end{itemize}
+
+\section{Execution order}
+
+\begin{enumerate}[leftmargin=*]
+\item Build this plan PDF (done).
+\item Phase~A --- training pipeline; verify path-integration accuracy.
+\item Phase~B --- biomodel + registry + tests.
+\item Phase~B' --- compass + 3D anatomy visualisations
+  hooked into \texttt{plot\_connconstr\_diagnostics}.
+\item Phase~C --- 8 config YAMLs; smoke-test data generation.
+\item Generate datasets:
+\texttt{python GNN\_Main.py -o generate\_train\_test\_plot drosophila\_cx\_hulse\_noise\_free}
+and siblings.
+\item Phase~D --- LLM instruction + clean-baseline exploration:
+\texttt{python GNN\_LLM.py -o llm\_exploration drosophila\_cx\_hulse\_noise\_free --cluster}.
+\item After winner stabilises: extend instructions for the two noisy
+  regimes, run them, distil into the unified winner.
+\item Phase~E --- consensus CV + figures.
+\item Phase~F --- populate the twin paper.
+\end{enumerate}
+
+\section{Risks and open questions}
+
+\begin{itemize}[leftmargin=*]
+\item \textbf{Training cost}. Hulse's spec: 200k trials $\times$ 100 steps
+  $\times$ 10 epochs at lr 0.005. Should fit a single L4/A100 in $\sim$1
+  hour; budget extra for the cosine-distance regulariser overhead.
+\item \textbf{Hemibrain vs CNS volume}. v1 uses Beiran's hemibrain
+  (152 neurons, 6 types). Hulse uses CNS volume (156, 7 types + ER6).
+  Document the deviation explicitly in the paper; offer v2 as a
+  follow-up.
+\item \textbf{Sign mask convention}. Beiran already encodes signs in
+  $m_{\text{wrec}}$. The Hulse sign mask $|S|\odot W^{\text{con}}$ is
+  the same idea applied differently --- verify the sign convention round-trips
+  before training.
+\item \textbf{Identifiability of trained weights}. Hulse's clone
+  arguments (Sec.~A1.1-A1.3 of \texttt{Hidden\_Symmetries.pdf}) imply
+  the trained $W^{\text{rec}}$ is identifiable only modulo the
+  equivalence class. The GNN's reported $R^2(\hat W, W^{\text{teacher}})$
+  may therefore have a ceiling --- the paper should frame this
+  honestly.
+\item \textbf{Code release}. Hulse: ``Code will be made publicly available
+  upon publication.'' If they release during Phase~A, reconcile our port
+  against their implementation.
+\end{itemize}
+
+\section{Out of scope}
+
+\begin{itemize}[leftmargin=*, itemsep=0pt]
+\item Reproducing Hulse Figs.~3--5 (unconstrained / ring-constrained
+  network variants, dynamical-clone algorithm). Out of scope for the
+  twin paper; only Fig.~2 (connectome-constrained) is mirrored.
+\item Touching the existing \texttt{drosophila\_cx} (Beiran) biomodel.
+  It stays as a legacy reference and a control comparison.
+\item Touching \texttt{docs/neurips.tex} --- opto experiments and
+  symmetry discussion live only in the twin paper.
+\item Degraded-condition configs (\texttt{blank50}, \texttt{fc},
+  \texttt{removed\_pc\_*}, \texttt{INR}, \texttt{eed}).
+\end{itemize}
+
+\end{document}
