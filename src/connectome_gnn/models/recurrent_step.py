@@ -37,9 +37,12 @@ Modes 1 and 2 are implemented in this module. Mode 3 is a sampling
 change in graph_trainer.py (no dedicated function needed).
 """
 
+from dataclasses import fields as dc_fields
+
 import torch
 
 from connectome_gnn.models.utils import _batch_frames
+from connectome_gnn.neuron_state import DYNAMIC_FIELDS, NeuronState
 
 
 def recurrent_loss(
@@ -93,115 +96,158 @@ def _standard_recurrent_loss(
     time_step, sim, tc, device, xnorm, regularizer, has_visual_field,
     hidden_ids=None,
 ):
-    batch_size = tc.batch_size
-    n_neurons = sim.n_neurons
-    data_id = torch.zeros((n_neurons * batch_size, 1), dtype=torch.int, device=device)
+    """Vectorized standard recurrent rollout loss.
 
-    state_batch = []
-    y_list = []
-    ids_list = []
-    hidden_ids_list = []
-    k_list = []
-    ids_index = 0
-
+    Behaviour matches the previous batch-loop version:
+        - voltage target = x_ts.voltage[k + 1] (subsampled or not)
+        - per-step Gaussian noise injection (tc.noise_recurrent_level)
+        - optional per-step hidden-voltage MSE (coeff_hidden_voltage)
+        - regularizer.compute/compute_update_regul integration
+    The Python loop over batch elements is replaced by gathers on a (B,)
+    frame-index tensor, and `_batch_frames` is called only implicitly when
+    the initial state is built — the unroll mutates `batched_state` in
+    place via batched indexing.
+    """
+    B = tc.batch_size
+    N = sim.n_neurons
     coeff_hidden = getattr(tc, 'coeff_hidden_voltage', 0.0)
     use_hidden_loss = (coeff_hidden > 0.0) and (hidden_ids is not None)
 
-    for b in range(batch_size):
-        k = int(frame_indices[iter_idx * batch_size + b])
+    # Per-sample start frame (B,)
+    k_per_sample = torch.as_tensor(
+        frame_indices[iter_idx * B : iter_idx * B + B],
+        device=device, dtype=torch.long,
+    )
 
-        x = x_ts.frame(k)
-        if x.noise is not None and sim.measurement_noise_level > 0:
-            x.voltage = x.voltage + x.noise
-        if hidden_ids is not None:
-            if model.NNR_hidden is not None:
-                x.voltage[hidden_ids] = model.forward_hidden(x, k, hidden_ids)
-            else:
-                x.voltage[hidden_ids] = 0.0
+    # Batch-flat helper indices
+    _b_off_N = (torch.arange(B, device=device) * N).view(-1, 1)         # (B, 1)
+    ids_batch = (_b_off_N + ids.view(1, -1)).reshape(-1)                # (B*|ids|,)
+    if use_hidden_loss:
+        hidden_ids_batch = (_b_off_N + hidden_ids.view(1, -1)).reshape(-1)
+    else:
+        hidden_ids_batch = None
 
-        if has_visual_field:
-            visual_input = model.forward_visual(x, k)
-            x.stimulus[:model.n_input_neurons] = visual_input.squeeze(-1)
-            x.stimulus[model.n_input_neurons:] = 0
+    data_id = torch.zeros((B * N, 1), dtype=torch.int, device=device)
 
-        if torch.isnan(x.voltage).any():
-            continue
+    # Build batched_state with the same layout _batch_frames produces:
+    # dynamic fields are (B*N,) — frame-gathered then flattened; static
+    # fields are tiled B times. No Python loop over b.
+    def _tile_static(val):
+        if val is None:
+            return None
+        return val.repeat(B) if val.dim() == 1 else val.repeat(B, *([1] * (val.dim() - 1)))
 
-        y = x_ts.voltage[k + (1 if time_step > 1 else time_step)].unsqueeze(-1)
-        if torch.isnan(y).any():
-            continue
+    kwargs = {}
+    for f in dc_fields(NeuronState):
+        val_ts = getattr(x_ts, f.name, None)
+        if val_ts is None:
+            kwargs[f.name] = None
+        elif f.name in DYNAMIC_FIELDS:
+            kwargs[f.name] = val_ts[k_per_sample].reshape(-1).clone()
+        else:
+            kwargs[f.name] = _tile_static(val_ts)
+    batched_state = NeuronState(**kwargs)
+    batched_edges = torch.cat([edges + i * N for i in range(B)], dim=1)
 
-        state_batch.append(x)
-        y_list.append(y)
-        ids_list.append(ids + ids_index)
-        if use_hidden_loss:
-            hidden_ids_list.append(hidden_ids + ids_index)
-        k_list.append(k)
-        ids_index += x.n_neurons
+    # Measurement noise on the observed voltage (now batched)
+    if batched_state.noise is not None and sim.measurement_noise_level > 0:
+        batched_state.voltage = batched_state.voltage + batched_state.noise
 
-    if not state_batch:
-        return torch.zeros(1, device=device, requires_grad=True), 0.0
+    # Hidden-neuron injection at the initial frame
+    if hidden_ids is not None:
+        _hidden_flat = (_b_off_N + hidden_ids.view(1, -1)).reshape(-1)
+        if model.NNR_hidden is not None:
+            # Batched query (only ngp_t / siren_t variants support this;
+            # siren_txy is not exercised by current configs).
+            hidden_pred = model.forward_hidden_batched(k_per_sample, hidden_ids=hidden_ids)
+            batched_state.voltage[_hidden_flat] = hidden_pred.reshape(-1)
+        else:
+            batched_state.voltage[_hidden_flat] = 0.0
 
-    y_batch = torch.cat(y_list, dim=0)
-    ids_batch = torch.cat(ids_list, dim=0)
-    hidden_ids_batch = torch.cat(hidden_ids_list, dim=0) if use_hidden_loss else None
-    data_id = torch.zeros((ids_index, 1), dtype=torch.int, device=device)
+    # Visual field at the initial frame (B is small; per-b inner loop)
+    if has_visual_field:
+        n_input = model.n_input_neurons
+        stim_buf = torch.zeros(B, N, device=device, dtype=batched_state.stimulus.dtype)
+        for b in range(B):
+            k_b = int(k_per_sample[b].item())
+            x_b = x_ts.frame(k_b)
+            vi = model.forward_visual(x_b, k_b)
+            stim_buf[b, :n_input] = vi.squeeze(-1)
+        batched_state.stimulus = stim_buf.flatten()
 
-    # Regularisation (computed once on initial state)
+    # Regularisation — runs once on the initial state. compute() only
+    # reads from `model`, not from `x`, so passing batched_state is fine.
     regularizer.reset_iteration(device=device)
     regul_loss = regularizer.compute(
-        model=model, x=state_batch[0], in_features=None,
+        model=model, x=batched_state, in_features=None,
         ids=ids, ids_batch=None, edges=edges, device=device, xnorm=xnorm,
     )
     loss = regul_loss.clone()
     regul_value = regul_loss.item()
 
-    # Forward pass + unroll
-    batched_state, batched_edges = _batch_frames(state_batch, edges)
+    # First forward + Euler step (k → k+1)
     pred, in_features, msg = model(batched_state, batched_edges, data_id=data_id, return_all=True)
-
     update_regul = regularizer.compute_update_regul(model, in_features, ids_batch, device)
     loss = loss + update_regul
+    pred_x = (
+        batched_state.voltage.unsqueeze(-1)
+        + sim.delta_t * pred
+        + tc.noise_recurrent_level * torch.randn_like(pred)
+    )
 
-    pred_x = batched_state.voltage.unsqueeze(-1) + sim.delta_t * pred + tc.noise_recurrent_level * torch.randn_like(pred)
+    # Per-step loss accumulator (visible neurons). After each Euler step
+    # pred_x is at frame k + s + 1; compare against voltage[k + s + 1].
+    target = x_ts.voltage[k_per_sample + 1].reshape(-1, 1)              # (B*N, 1)
+    loss_steps = (pred_x[ids_batch] - target[ids_batch]).norm(2)
+    if use_hidden_loss:
+        gt_hidden = x_ts.voltage[k_per_sample + 1][:, hidden_ids].reshape(-1, 1)
+        loss = loss + coeff_hidden * (pred_x[hidden_ids_batch] - gt_hidden).norm(2)
 
+    # Unroll: each iteration advances pred_x from k+step+1 to k+step+2.
     for step in range(time_step - 1):
-        # Hidden neuron loss at this intermediate step (before overwriting with NGP)
-        # Gradient path: loss → pred_x[hidden] → v_hidden(k) via -v/tau term → NGP(k)
-        if use_hidden_loss:
-            neurons_per_sample = state_batch[0].n_neurons
-            gt_hidden_parts = []
-            for b_idx in range(len(state_batch)):
-                k_h = k_list[b_idx] + step + 1
-                if k_h < x_ts.n_frames:
-                    gt_hidden_parts.append(x_ts.voltage[k_h, hidden_ids].unsqueeze(-1))
-            if gt_hidden_parts:
-                gt_hidden_batch = torch.cat(gt_hidden_parts, dim=0)
-                loss = loss + coeff_hidden * (pred_x[hidden_ids_batch] - gt_hidden_batch).norm(2)
-
-        neurons_per_sample = state_batch[0].n_neurons
-        for b_idx in range(len(state_batch)):
-            s, e = b_idx * neurons_per_sample, (b_idx + 1) * neurons_per_sample
-            state_batch[b_idx].voltage = pred_x[s:e].squeeze()
-            if hidden_ids is not None:
-                k_current_h = k_list[b_idx] + step + 1
-                if model.NNR_hidden is not None:
-                    state_batch[b_idx].voltage[hidden_ids] = model.forward_hidden(state_batch[b_idx], k_current_h, hidden_ids)
-                else:
-                    state_batch[b_idx].voltage[hidden_ids] = 0.0
-            k_current = k_list[b_idx] + step + 1
-            if has_visual_field:
-                vi = model.forward_visual(state_batch[b_idx], k_current)
-                state_batch[b_idx].stimulus[:model.n_input_neurons] = vi.squeeze(-1)
-                state_batch[b_idx].stimulus[model.n_input_neurons:] = 0
+        # Roll observable forward — flat assignment, no _batch_frames re-pack.
+        batched_state.voltage = pred_x.squeeze(-1)
+        if hidden_ids is not None:
+            k_now = k_per_sample + step + 1
+            if model.NNR_hidden is not None:
+                hidden_pred = model.forward_hidden_batched(k_now, hidden_ids=hidden_ids)
+                batched_state.voltage[hidden_ids_batch] = hidden_pred.reshape(-1)
             else:
-                pass  # stimulus held constant during unroll (subsampled x_ts; intermediate frames not available)
+                batched_state.voltage[hidden_ids_batch] = 0.0
 
-        batched_state, batched_edges = _batch_frames(state_batch, edges)
+        # Update stimulus to the current frame (now that x_ts is full-length,
+        # intermediate-frame stimuli are available).
+        k_now = k_per_sample + step + 1
+        if has_visual_field:
+            n_input = model.n_input_neurons
+            stim_buf = torch.zeros(B, N, device=device, dtype=batched_state.stimulus.dtype)
+            for b in range(B):
+                k_b = int(k_now[b].item())
+                x_b = x_ts.frame(k_b)
+                vi = model.forward_visual(x_b, k_b)
+                stim_buf[b, :n_input] = vi.squeeze(-1)
+            batched_state.stimulus = stim_buf.flatten()
+        else:
+            batched_state.stimulus = x_ts.stimulus[k_now].reshape(-1)
+            if x_ts.stimulus_calcium is not None:
+                batched_state.stimulus_calcium = x_ts.stimulus_calcium[k_now].reshape(-1)
+            if x_ts.optogenetics_stimulus is not None:
+                batched_state.optogenetics_stimulus = x_ts.optogenetics_stimulus[k_now].reshape(-1)
+
+        # Forward + Euler step → pred_x now at frame k + step + 2.
         pred, _, _ = model(batched_state, batched_edges, data_id=data_id, return_all=True)
         pred_x = pred_x + sim.delta_t * pred + tc.noise_recurrent_level * torch.randn_like(pred)
 
-    loss = loss + ((pred_x[ids_batch] - y_batch[ids_batch]) / (sim.delta_t * time_step)).norm(2)
+        # Per-step loss against voltage[k + step + 2].
+        target = x_ts.voltage[k_per_sample + step + 2].reshape(-1, 1)
+        loss_steps = loss_steps + (pred_x[ids_batch] - target[ids_batch]).norm(2)
+        if use_hidden_loss:
+            gt_hidden = x_ts.voltage[k_per_sample + step + 2][:, hidden_ids].reshape(-1, 1)
+            loss = loss + coeff_hidden * (pred_x[hidden_ids_batch] - gt_hidden).norm(2)
+
+    # Average per-step contributions; (dt * time_step) keeps the magnitude
+    # comparable to the previous endpoint-only formulation.
+    loss = loss + (loss_steps / time_step) / (sim.delta_t * time_step)
     return loss, regul_value
 
 

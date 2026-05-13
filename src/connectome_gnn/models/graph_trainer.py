@@ -156,27 +156,12 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
     _logger.info(f'dataset: {n_frames_raw} frames,  n neurons: {n_neurons}')
     logger.info(f'n neurons: {n_neurons}')
 
-    # Subsample every time_step frames for recurrent training to reduce GPU memory.
-    # After subsampling, consecutive frames in x_ts are time_step original steps apart,
-    # so the BPTT unroll of time_step steps spans exactly the same physical duration
-    # as before, but GPU memory scales with n_frames/time_step instead of n_frames.
-    stride = tc.time_step if (tc.recurrent_training and tc.time_step > 1) else 1
-    if stride > 1:
-        from tqdm import tqdm as _tqdm
-        from connectome_gnn.neuron_state import DYNAMIC_FIELDS
-        # Stride EVERY (T, N) dynamic field. A hand-picked subset is fragile:
-        # x_ts.n_frames returns the first non-None DYNAMIC_FIELDS entry's
-        # shape[0] in set-iteration order, so leaving e.g. stimulus_calcium
-        # at the original T while subsampling voltage makes n_frames return
-        # whichever the set happens to yield first.
-        print(f"\033[93msubsampling dataset: {n_frames_raw} frames → {n_frames_raw // stride} frames "
-              f"(1 every {stride} steps for recurrent training with time_step={stride})\033[0m")
-        for _field in _tqdm(sorted(DYNAMIC_FIELDS), desc='subsampling x_ts', ncols=150):
-            _val = getattr(x_ts, _field, None)
-            if _val is not None:
-                setattr(x_ts, _field, _val[::stride])
-        y_ts = y_ts[::stride]
-        sim.n_frames = x_ts.n_frames  # update after subsampling
+    # NOTE: recurrent_training previously subsampled x_ts by stride=time_step
+    # for GPU-memory savings, but that discards intermediate frames and
+    # rules out per-step loss supervision. Subsampling has been removed so
+    # the rollout can compare pred_x against voltage[k + s] at every Euler
+    # step s ∈ [1, time_step]. If this becomes an OOM problem, a streaming
+    # / chunked x_ts would be the right replacement, not stride subsampling.
 
     # Compute xnorm on CPU before moving to GPU (avoids OOM from temporary
     # boolean mask + filtered copy needing ~2x voltage memory)
@@ -192,12 +177,12 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
         _logger.info(f'voltage denoising applied: alpha={_denoise_alpha}')
     y_ts_gpu = torch.from_numpy(y_ts).float().to(device)  # pre-convert once; avoids per-iter cudaStreamSynchronize
     torch.save(xnorm, os.path.join(log_dir, 'xnorm.pt'))
-    _logger.info(f'xnorm: {to_numpy(xnorm):0.3f}')
+    # _logger.info(f'xnorm: {to_numpy(xnorm):0.3f}')
     logger.info(f'xnorm: {to_numpy(xnorm)}')
     xnorm = float(xnorm)  # Python float so compiled functions avoid .item()
     ynorm = torch.tensor(1.0, device=device)
     torch.save(ynorm, os.path.join(log_dir, 'ynorm.pt'))
-    _logger.info(f'ynorm: {to_numpy(ynorm):0.3f}')
+    # _logger.info(f'ynorm: {to_numpy(ynorm):0.3f}')
     logger.info(f'ynorm: {to_numpy(ynorm)}')
     ynorm = float(ynorm)
 
@@ -498,9 +483,10 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
 
     # Valid frame range for sampling (matches np.random.randint logic it replaces)
     _frame_min_k = tc.time_window
-    # With recurrent subsampling, neighbouring frames in x_ts are time_step
-    # apart, so the target is voltage[k+1]; otherwise target is voltage[k+time_step].
-    _target_offset = 1 if (tc.recurrent_training and tc.time_step > 1) else tc.time_step
+    # Rollout target is voltage[k + time_step]; per-step loss reads
+    # voltage[k + s] for s ∈ [1, time_step]. tc.time_step is 1 for one-step
+    # training, > 1 for recurrent.
+    _target_offset = tc.time_step
     _frame_max_k = sim.n_frames - 4 - _target_offset  # exclusive upper bound
     _frame_range = max(_frame_max_k - _frame_min_k, 1)
 
