@@ -51,6 +51,7 @@ from connectome_gnn.zarr_io import load_simulation_data, load_raw_array
 from connectome_gnn.sparsify import clustering_gmm
 from connectome_gnn.models.neural_gnn import NeuralGNN  # noqa: F401 — kept for backwards compat
 from connectome_gnn.models.registry import create_model
+from connectome_gnn.models.training_utils import determine_load_fields
 from connectome_gnn.config import NeuralGraphConfig
 from connectome_gnn.metrics import (
     get_model_W,
@@ -1300,14 +1301,14 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
     x_path = graphs_data_path(config.dataset, 'x_list_train')
     if not os.path.exists(x_path):
         x_path = graphs_data_path(config.dataset, 'x_list_0')
-    x_ts = load_simulation_data(x_path,
-                                fields=['index', 'voltage', 'stimulus', 'neuron_type', 'group_type'])
+    _plot_fields = list({'index', 'group_type', *determine_load_fields(config)})
+    x_ts = load_simulation_data(x_path, fields=_plot_fields)
 
     # Apply same stride as training to reduce memory for recurrent models with time_step > 1
     _stride = tc.time_step if (tc.recurrent_training and tc.time_step > 1) else 1
     if _stride > 1:
         print(f"\033[93msubsampling plot data: {x_ts.n_frames} → {x_ts.n_frames // _stride} frames (stride={_stride})\033[0m")
-        for _field in ['voltage', 'stimulus']:
+        for _field in ('voltage', 'stimulus', 'calcium', 'stimulus_calcium', 'fluorescence', 'noise', 'optogenetics_stimulus'):
             _val = getattr(x_ts, _field)
             if _val is not None:
                 setattr(x_ts, _field, _val[::_stride])
@@ -3043,6 +3044,69 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             logger.warning(f'could not generate activity_traces_noisy: {_e}')
 
 
+def plot_synaptic_calcium(config, epoch_list, log_dir, logger, cc, style, extended, device, log_file=None, skip_svd=False):
+    """Calcium-observable variant of plot_synaptic.
+
+    Math context (see `papers/from_voltage_to_calcium.tex` for the full derivation):
+
+      Voltage ODE (Eq. 1):
+          τ_i v̇_i = -v_i + V_i^rest + Σ_j W_ij ReLU(v_j) + I_i
+
+      Calcium = K-convolved voltage:
+          c_i(t) = (K * v_i)(t),   K(t) = exp(-t/τ_d) - exp(-t/τ_r)
+
+      K is linear and time-invariant — it commutes with d/dt and with linear
+      sums. Convolving Eq. 1 with K, and using that on the active set
+      A(t) = {j : v_j(t) > 0} we have K*ReLU(v_j) = K*v_j = c_j, gives the
+      calcium ODE (Eq. 13):
+
+          τ_i ċ_i = -c_i + (τ_d - τ_r) V_i^rest + Σ_{j∈A} W_ij c_j + (K*I_i)
+
+      Same algebraic form as Eq. 1. So a GNN trained on (c, K*I) → ċ recovers:
+          τ̂_i      ≈ τ_i
+          Ŵ_ij     ≈ W_ij
+          V̂_i^rest ≈ (τ_d - τ_r) · V_i^rest   (continuous K, area ≈ 0.325 s for GCaMP6f)
+                  ≈ 1.0 · V_i^rest              (our discrete unit-sum K, DC gain 1)
+
+      Caveat (Eq. 17): K filters out the high-frequency content that breaks
+      the columnar rank-1 within same-type groups, so
+          dim ker(H̃_i) ≥ dim ker(H_i),
+      i.e. the calcium-space null space is INFLATED compared to voltage.
+      Expect R²W lower than voltage even with perfect optimization.
+
+    Implementation: this function logs the math context to results.log, then
+    delegates the standard W / τ / V_rest scatter, rollout-metric mirroring,
+    and analysis figures to plot_synaptic — which reads model.W and
+    ode_params.W (voltage-frame) and produces the right comparison because
+    Eq. 13 predicts Ŵ ≈ W (same matrix, same frame).
+    """
+    sim = config.simulation
+    tau_d = float(getattr(sim, "calcium_kernel_tau_decay", 0.4))
+    tau_r = float(getattr(sim, "calcium_kernel_tau_rise", 0.075))
+    kernel_area_continuous = tau_d - tau_r          # ≈ 0.325 s for GCaMP6f
+    kernel_dc_gain_discrete = 1.0                   # our K is unit-sum
+    variant = getattr(sim, "calcium_kernel_variant", "gcamp6f")
+
+    msg = (
+        f"=== calcium-domain math context ({variant}) ===\n"
+        f"  Eq. 13:  τ_i ċ_i = -c_i + (τ_d - τ_r) V_rest + Σ_{{j∈A}} W_ij c_j + K*I_i\n"
+        f"  Expected fit:  Ŵ ≈ W,  τ̂ ≈ τ,  "
+        f"V̂_rest scale = {kernel_dc_gain_discrete:.3f} (discrete unit-sum K) "
+        f"or {kernel_area_continuous:.3f} s (continuous K, τ_d - τ_r)\n"
+        f"  Eq. 17:  dim ker(H̃_i) >= dim ker(H_i) — calcium-space null space "
+        f"is inflated; expect lower R²W than voltage even with perfect optimization."
+    )
+    print(msg)
+    if logger is not None:
+        for line in msg.split("\n"):
+            logger.info(line)
+
+    plot_synaptic(
+        config, epoch_list, log_dir, logger, cc, style, extended, device,
+        log_file=log_file, skip_svd=skip_svd,
+    )
+
+
 def analyze_neuron_type_reconstruction(config, model, edges, true_weights, gt_taus, gt_V_Rest,
                                        learned_weights, learned_tau, learned_V_rest, type_list, n_frames, dimension,
                                        n_neuron_types, device, log_dir, dataset_name, logger, index_to_name,
@@ -3370,7 +3434,7 @@ def data_plot(config, epoch_list, style, extended, device, apply_weight_correcti
     _connconstr = any(x in config.dataset for x in ('drosophila_cx', 'zebrafish_oculomotor', 'larva'))
     if 'fly' in config.dataset or _connconstr:
         if config.simulation.calcium_type != 'none':
-            plot_synaptic_calcium(config, epoch_list, log_dir, logger, 'viridis', style, extended, device, skip_svd=skip_svd) # noqa: F821
+            plot_synaptic_calcium(config, epoch_list, log_dir, logger, 'viridis', style, extended, device, log_file=log_file, skip_svd=skip_svd)
         else:
             plot_synaptic(config, epoch_list, log_dir, logger, 'viridis', style, extended, device, log_file=log_file, skip_svd=skip_svd)
 

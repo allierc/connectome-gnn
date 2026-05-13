@@ -214,25 +214,27 @@ formula yields effective_coeff = 0 at epoch 0).
 config points at `cv00`. **Do not modify simulation parameters** (n_neurons, n_frames,
 n_edges, delta_t, noise_model_level, calcium_kernel_*).
 
-For Block 7 (CV robustness) the existing five CVs are reused — no regeneration.
+For Block 4 (CV robustness) the existing five CVs are reused — no regeneration.
 
 ## Block Structure
 
-Total: **112 iterations** = 7 blocks × 16 iter/block, 4 slots/iter on **gpu_h100**.
+Total: **120 iterations** = 4 blocks × 30 iter/block, 4 slots/iter on **gpu_h100**.
 
-| Block | Focus                       | Parameters to scan                                              | Ranges                                                                       |
-| ----- | --------------------------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| 1     | **Learning rates**          | `lr_W`, `lr`, `coeff_W_L1`                                      | lr_W: {3e-4, 6e-4, 9e-4, 1.5e-3}; lr: {9e-4, 1.8e-3, 3.6e-3}; W_L1: {0, 5e-5, 1.5e-4, 5e-4} (parent=9e-4 / 1.8e-3 / 1.5e-4) |
-| 2     | **g_phi diff + norm**       | `coeff_g_phi_diff`, `coeff_g_phi_norm`                          | diff: {500, 750, 1500, 2500}; norm: {0, 0.5, 0.9, 1.5} (parent=750 / 0.9)   |
-| 3     | **Training regime**         | `batch_size`, `data_augmentation_loop`                           | bs: {2, 4, 8}; DAL: {25, 35, 50, 70} (parent=4 / 35)                        |
-| 4     | **Regularization intro**    | `coeff_g_phi_weight_L1`, `coeff_f_theta_weight_L1`              | g_L1: {0, 0.1, 0.28, 0.5}; f_L1: {0, 0.05, 0.1, 0.2} (parent=0.28 / 0.05)   |
-| 5     | **Free exploration**        | Any parameter — combine best from Blocks 1-4                    | Test calcium-specific interactions; target conn_R2 close to voltage ceiling. |
-| 6     | **Final robustness**        | Best config, all 4 slots same (ROBUSTNESS, `generate_data: false`) | Confirm CV < 3%; same dataset cv00 across seeds.                          |
-| 7     | **CV robustness (existing)** | Best config, 4 slots → cv00..cv03 via per-slot `dataset:` patch | True data-independence using the 5 pre-generated CV folds.                  |
+| Block | Focus                                        | Parameters to scan                                                                                                                                        | Notes                                                                                                                                                                              |
+| ----- | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | **LR sweep** (30 iter)                       | `lr_W`, `lr`, `lr_embedding`, `w_init_mode`, `w_init_scale`                                                                                               | Pure LR landscape. All f_theta/g_phi regul = 0 in the entry-point YAML; do NOT touch regul coeffs here. Find LR triplet (W / MLP / embedding) that gives best conn_R2 unregularized. |
+| 2     | **LR + regul + bs sweep** (30 iter)          | All Block-1 knobs PLUS `coeff_g_phi_diff`, `coeff_g_phi_norm`, `coeff_g_phi_weight_L1`, `coeff_g_phi_weight_L2`, `coeff_f_theta_weight_L1`, `coeff_f_theta_weight_L2`, `coeff_W_L1`, `coeff_W_L2`, `batch_size`, `data_augmentation_loop` | Re-open the LR knobs from Block 1 because regul and LR interact. f_theta_L1 ≥ 0.05 is a known W=0 attractor — explore sub-collapse range only. Track all 4 conn_R2 dimensions (W, τ, V_rest, cluster_acc). |
+| 3     | **Recurrent training** (30 iter)             | `recurrent_training: true`, `time_step` ∈ {1..8}, `noise_recurrent_level`, and the best LR + regul from Blocks 1-2 (re-tunable)                          | Turn on multi-step rollout supervision. Expect LR to need to drop (gradient through `time_step` integrations). Goal: shrink the GCaMP recovery cost — the rollout loss matches the inference-time use case (Euler integration of dC/dt) so the data-mode mismatch from one-step training disappears. |
+| 4     | **Fine-tuning + CV validation** (30 iter)    | First half (iter 1-15): narrow band around Block-3 winner — small perturbations to top 2-3 knobs. Second half (iter 16-30): ROBUSTNESS mode + CV folds.   | Fine-tune for ~15 iter at gpu_h100 with single-CV stability check at iter 10/15. Then ROBUSTNESS pass on cv00, then patch dataset to cv00..cv04 across 4 slots to measure true CV stability. Report mean ± SD across folds. |
 
-> **Block 7 procedure**: Patch each slot's emitted YAML to point at a different CV fold
-> (`dataset: flyvis_noise_free_blank50_heaviside_var_kernel_cv0[0-3]`). Keep
-> `generate_data: false` — the LLM pipeline will not regenerate.
+> **Block 4 CV procedure** (second half): Patch each slot's emitted YAML to point at a
+> different CV fold (`dataset: flyvis_noise_free_blank50_heaviside_var_kernel_cv0[0-4]`).
+> Keep `generate_data: false` — the LLM pipeline will not regenerate.
+
+> **LR knob re-opening in Block 2**: this is intentional. The Block-1 optimum was found
+> with zero regul; introducing g_phi_diff/L1 will likely shift the optimal lr_W and lr
+> because the effective loss landscape changes. Treat (LR triplet, regul triplet, bs/DAL)
+> as one joint search space in Block 2.
 
 ## File Structure
 
@@ -329,29 +331,32 @@ At every block boundary:
 
 When prompt says `PARALLEL START`:
 
-- **Default config** (the production master
-  `flyvis_noise_free_blank50_heaviside_var_kernel.yaml` HPs — same config
-  that generated the cv00 dataset; the LLM seeds Block 1's first iteration
-  from these values):
+- **Default config** (the entry-point
+  `config/fly/flyvis_noise_free_kernel.yaml` HPs — calcium-specific defaults,
+  all f_theta/g_phi regularizers zeroed; Block 1 seeds from here):
   `lr_W=0.0009, lr=0.0018, lr_embedding=0.002325, batch_size=4, DAL=35`
-  `coeff_g_phi_diff=750, coeff_g_phi_norm=0.9, coeff_g_phi_weight_L1=0.28`
-  `coeff_f_theta_weight_L1=0.05, coeff_f_theta_weight_L2=0.001`
+  `coeff_g_phi_diff=0, coeff_g_phi_norm=0, coeff_g_phi_weight_L1=0`
+  `coeff_g_phi_weight_L2=0, coeff_f_theta_weight_L1=0, coeff_f_theta_weight_L2=0`
   `coeff_W_L1=0.00015, coeff_W_L2=1.5e-06, w_init_mode=randn_scaled`
-  `embedding_dim=4, observable=calcium`
+  `embedding_dim=4, g_phi_positive=false, observable=calcium`
 - **Block 1 is EXPLORATION mode** (no separate robustness pass): 4 slots
-  mutate `lr_W`, `lr`, `coeff_W_L1` (one parameter per slot) from the default.
+  mutate `lr_W`, `lr`, `lr_embedding`, `w_init_scale` (one parameter per slot)
+  from the default. **Do NOT touch any f_theta/g_phi regularization coeff in
+  Block 1** — that's reserved for Block 2 where LR and regul are jointly tuned.
   The baseline conn_R2 is implicitly captured by whichever slot in iter 1
   becomes the running-best.
 - Hypothesis: "Noise-free voltage HPs transfer to the calcium observable with conn_R2 ≥
   0.85 and CV < 5%. The K-commutes argument predicts a recovery cost ≤ ~5%, so target is
-  to come within Δ=0.05 of the voltage prior winner (0.923)."
-- Launch: `python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_free_kernel iterations=112 --cluster --resume`
+  to come within Δ=0.05 of the voltage prior winner (0.923). The unregularized Block-1
+  optimum will be a meaningful baseline because the calcium-domain closed-form linear
+  regression already reaches conn_R2≈+0.36 without any regul."
+- Launch: `python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_free_kernel iterations=120 --cluster --resume`
 
 ---
 
 ## Final Summary
 
-At exploration completion (after Block 6), append to
+At exploration completion (after Block 4), append to
 `/home/node/.claude/projects/-workspace--devcontainer/memory/exploration_results.md`:
 
 ### flyvis_noise_free_kernel — Key Discoveries (YYYY-MM-DD)

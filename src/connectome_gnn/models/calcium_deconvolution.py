@@ -124,29 +124,29 @@ def wiener_deconvolve(
     kernel: np.ndarray,
     lam: float = 1e-3,
     regularizer: str = 'derivative',
+    noise_sigma: float = 0.0,
 ) -> np.ndarray:
-    """FFT-based Tikhonov deconvolution.
+    """FFT-based deconvolution. Three modes:
 
-    Solves  V_hat = argmin_V ||F - K*V||² + lam · ||R·V||²  in the frequency
-    domain. ``regularizer`` selects R:
+        'flat'         classical Tikhonov, R = I (penalises ||V||²).
+        'derivative'   Tikhonov, R = first-diff (penalises ||DV||² → smooth V).
+        'optimal'      Wiener-Helstrom (MMSE-optimal under stationary,
+                       jointly-Gaussian (V, noise)). Requires ``noise_sigma``.
+                       No λ knob — uses the per-frequency signal PSD
+                       estimated from the data and the known noise PSD.
 
-        'flat'        R = I             (classical Wiener: penalises ||V||²)
-        'derivative'  R = first-diff D  (penalises ||DV||² → smooth V)
+    For the Tikhonov modes,
 
-    Derivative-Tikhonov is the natural denoiser for the calcium → voltage
-    inverse problem: D's transfer function |D_hat(f)|² = 2(1-cos(ω)) rises
-    with frequency exactly where K rolls off and where measurement noise
-    dominates, so high-frequency content gets attenuated without flattening
-    the signal band.
+        V_hat(f) = K*(f) F(f) / (|K(f)|² + λ · max|K|² · |R(f)|²)
 
-    Args:
-        calcium: (T, N) float32 — kernel-convolved signal F[t].
-        kernel:  (L,)  float32 — newest-first impulse response (K[0] is t=0).
-        lam:     float — regularisation strength, relative to ``max |K_hat|^2``.
-        regularizer: 'flat' or 'derivative'.
+    For 'optimal',
 
-    Returns:
-        voltage_hat: (T, N) float32 — deconvolved estimate.
+        V_hat(f) = K*(f) S_V(f) F(f) / (|K(f)|² S_V(f) + N(f))
+
+    where N(f) = σ² · n_fft (white-noise PSD on the rfft grid) and
+    S_V(f) = max(0, S_F(f) - N(f)) / max(|K(f)|², ε) with
+    S_F(f) = mean_n |F_n(f)|². Pooling across neurons gives ~N samples
+    per frequency bin so the estimate is stable.
     """
     T, N = calcium.shape
     L = kernel.shape[0]
@@ -161,20 +161,47 @@ def wiener_deconvolve(
     K_hat = np.fft.rfft(k_pad)
     power_k = np.abs(K_hat) ** 2
 
-    if regularizer == 'flat':
-        reg = np.ones_like(power_k)
-    elif regularizer == 'derivative':
-        # First-difference operator d[t] = δ[t] - δ[t-1]; D_hat = 1 - e^{-jω}.
-        d_pad = np.zeros(n_fft, dtype=np.float32)
-        d_pad[0] = 1.0
-        d_pad[1] = -1.0
-        D_hat = np.fft.rfft(d_pad)
-        reg = np.abs(D_hat) ** 2
+    if regularizer == 'optimal':
+        if noise_sigma <= 0:
+            raise ValueError(
+                "regularizer='optimal' requires noise_sigma > 0 "
+                "(pass sim.calcium_noise_level)"
+            )
+        # White-noise PSD on the rfft grid: E[|N(f)|²] = σ²·n_fft for
+        # i.i.d. Gaussian noise of variance σ². Parseval: sum_t n[t]² ≈ σ²·T,
+        # and the rfft's E[|X(f)|²] integrates to that.
+        n_psd = (noise_sigma ** 2) * n_fft
+        # Per-frequency observed PSD averaged across neurons.
+        s_f = np.mean(np.abs(F_hat) ** 2, axis=1)
+        # Debias by the noise floor, clip negative bins. Result is an
+        # estimate of E[|F_noiseless(f)|²].
+        s_f_clean = np.maximum(s_f - n_psd, 0.0)
+        # Solve S_F_clean = |K|² · S_V, with a small floor so quiet
+        # frequencies don't blow up the division.
+        eps_k = 1e-12 * float(power_k.max())
+        s_v = s_f_clean / (power_k + eps_k)
+        # Optimal Wiener-Helstrom filter (per-frequency, broadcast over neurons).
+        denom = power_k * s_v + n_psd
+        # Guard zero (rare; only if a frequency has no signal AND no noise).
+        denom = np.maximum(denom, 1e-30)
+        H = np.conj(K_hat) * s_v / denom
+        V_hat = F_hat * H[:, None]
     else:
-        raise ValueError(f'unknown regularizer {regularizer!r}')
+        if regularizer == 'flat':
+            reg = np.ones_like(power_k)
+        elif regularizer == 'derivative':
+            # First-difference operator d[t] = δ[t] - δ[t-1]; D_hat = 1 - e^{-jω}.
+            d_pad = np.zeros(n_fft, dtype=np.float32)
+            d_pad[0] = 1.0
+            d_pad[1] = -1.0
+            D_hat = np.fft.rfft(d_pad)
+            reg = np.abs(D_hat) ** 2
+        else:
+            raise ValueError(f'unknown regularizer {regularizer!r}')
 
-    eps = lam * float(power_k.max())
-    V_hat = F_hat * np.conj(K_hat)[:, None] / (power_k[:, None] + eps * reg[:, None])
+        eps = lam * float(power_k.max())
+        V_hat = F_hat * np.conj(K_hat)[:, None] / (power_k[:, None] + eps * reg[:, None])
+
     v_pad = np.fft.irfft(V_hat, n=n_fft, axis=0)
     return v_pad[:T].astype(np.float32)
 
@@ -278,9 +305,37 @@ def deconvolve_and_compare(config: NeuralGraphConfig) -> dict:
     calcium_noisy = (calcium + noise).astype(np.float32)
     print(f'  added noise:    {noise_descr}')
 
+    # Adaptive λ for derivative-Tikhonov. From a per-σ sweep on this
+    # dataset family (sigma ∈ {0.01, 0.02, 0.03}, voltage RMS ≈ 0.94),
+    # the optimum follows λ ≈ 100·σ² closely:
+    #   σ=0.01 → λ_opt=0.010 (formula: 0.010)
+    #   σ=0.02 → λ_opt=0.030 (formula: 0.040)
+    #   σ=0.03 → λ_opt=0.100 (formula: 0.090)
+    # Below noise_sigma < 1e-4 fall back to the original noise-free default.
+    if cfg_noise > 1e-4:
+        sigma_used = cfg_noise
+        lam_used = 100.0 * sigma_used ** 2
+        deconv_method = (
+            f'derivative-Tikhonov, λ = 100·σ² = {lam_used:.4g}  '
+            f'(σ = {sigma_used})'
+        )
+    else:
+        # Synthetic-noise fallback for datasets without a real
+        # calcium_noise.zarr: estimate σ from the noise we just added.
+        sigma_used = float(noise.std())
+        if sigma_used > 1e-6:
+            lam_used = 100.0 * sigma_used ** 2
+            deconv_method = (
+                f'derivative-Tikhonov, λ = 100·σ_hat² = {lam_used:.4g}  '
+                f'(σ_hat = {sigma_used:.5f}, synth)'
+            )
+        else:
+            lam_used = 3e-3
+            deconv_method = 'derivative-Tikhonov λ=3e-3 (no noise model)'
     voltage_hat = wiener_deconvolve(
-        calcium_noisy, kernel, lam=3e-3, regularizer='derivative',
+        calcium_noisy, kernel, lam=lam_used, regularizer='derivative',
     )
+    print(f'  deconvolution:  {deconv_method}')
 
     gt_win = voltage_gt[start:end]        # (n_frames, N)
     pred_win = voltage_hat[start:end]
@@ -343,7 +398,8 @@ def deconvolve_and_compare(config: NeuralGraphConfig) -> dict:
                 f'(tau_r={sim.calcium_kernel_tau_rise}, '
                 f'tau_d={sim.calcium_kernel_tau_decay}, '
                 f'dt={sim.calcium_kernel_dt_seconds})\n')
-        f.write(f'calcium noise:   {noise_descr}  (seed={NOISE_SEED})\n\n')
+        f.write(f'calcium noise:   {noise_descr}  (seed={NOISE_SEED})\n')
+        f.write(f'deconvolution:   {deconv_method}\n\n')
         f.write(_pearson_log_line(pearson))
         f.write(f'RMSE: {float(np.nanmean(rmse)):.4f} '
                 f'+/- {float(np.nanstd(rmse)):.4f}\n')
@@ -404,7 +460,8 @@ def _plot_three_panel(
     n_frames, n_neurons = voltage_gt.shape
     _TRACE_SHRINK = 0.65
     _FS_LABEL, _FS_TICK, _FS_TYPE = 8, 6, 6
-    _LW = 1.2
+    _LW_V = 1.2          # green V_gt
+    _LW_VHAT = 0.6       # thin black V_deconv (overlaid on top of green)
     _C_V = '#2ca02c'      # green — ground truth voltage
     _C_VHAT = 'black'     # black — Wiener-deconvolved voltage
     _C_CA = '#d62728'     # red — calcium F = V * K
@@ -433,10 +490,10 @@ def _plot_three_panel(
                         label='calcium' if i == 0 else None)
             elif panel == 'overlay':
                 ax.plot(time_ms, s * (voltage_gt[:, i] - v_mean[i]) + y_base,
-                        lw=_LW, color=_C_V, alpha=0.95, zorder=2,
+                        lw=_LW_V, color=_C_V, alpha=0.95, zorder=2,
                         label='V (gt)' if i == 0 else None)
                 ax.plot(time_ms, s * (voltage_hat[:, i] - vh_mean[i]) + y_base,
-                        lw=_LW, color=_C_VHAT, alpha=0.85, zorder=3,
+                        lw=_LW_VHAT, color=_C_VHAT, alpha=0.9, zorder=3,
                         label='V (deconv)' if i == 0 else None)
             ax.text(
                 time_ms[0] - (time_ms[-1] - time_ms[0]) * 0.02, y_base,

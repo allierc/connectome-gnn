@@ -1083,38 +1083,91 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
 
                 elif tc.recurrent_training:
 
-                    pred_x = batched_state.voltage.unsqueeze(-1) + sim.delta_t * pred + tc.noise_recurrent_level * torch.randn_like(pred)
+                    # Vectorized batch-dim rollout. The Python loop only
+                    # iterates over time steps — batch elements are processed
+                    # as flat (B*N,) tensor ops without per-element NeuronState
+                    # shuffling or _batch_frames re-packing. Per-step
+                    # observable targets are accumulated so the gradient
+                    # signal exists at every intermediate step (not just the
+                    # endpoint). The model forward `model(batched_state, ...)`
+                    # is already wrapped in torch.compile at line ~454 when
+                    # tc.torch_compile is true, so each call lands in a
+                    # CUDA-graph-captured kernel.
+                    n_neurons_per_sample = state_batch[0].n_neurons
+                    B = tc.batch_size
+
+                    # Per-sample start-frame index (B,). k_batch is (B*N, 1)
+                    # where each block of N rows holds the same k.
+                    k_per_sample = k_batch[::n_neurons_per_sample, 0].long()
+
+                    # Observable target stream (T, N) — calcium for calcium
+                    # mode, voltage otherwise. Used to supervise every step.
+                    obs_full = x_ts.calcium if tc.observable == 'calcium' else x_ts.voltage
+
+                    # Step-1 prediction: state at frame (k + 1) after one
+                    # Euler step on the upstream non-recurrent `pred`.
+                    pred_x = batched_state.observable(tc.observable) + sim.delta_t * pred + tc.noise_recurrent_level * torch.randn_like(pred)
+
+                    # Per-step accumulated loss in observable space,
+                    # supervised on visible neurons only.
+                    target_step = obs_full[k_per_sample + 1].reshape(-1, 1)
+                    loss_steps = (pred_x[ids_batch] - target_step[ids_batch]).norm(2)
+
+                    # Pre-compute the batch-flat hidden index list once
+                    # (constant across steps).
+                    if has_hidden_neurons and hidden_ids is not None and len(hidden_ids) > 0:
+                        _b_off = torch.arange(B, device=device).view(-1, 1) * n_neurons_per_sample
+                        _batched_hidden_ids = (_b_off + hidden_ids.view(1, -1)).flatten()
+                    else:
+                        _batched_hidden_ids = None
 
                     if tc.time_step > 1:
                         for step in range(tc.time_step - 1):
-                            neurons_per_sample = state_batch[0].n_neurons
+                            # Write rolled-out observable back into the
+                            # channel the model reads on the next forward.
+                            if tc.observable == 'calcium':
+                                batched_state.calcium = pred_x.squeeze(-1)
+                                if _batched_hidden_ids is not None:
+                                    batched_state.calcium[_batched_hidden_ids] = 0.0
+                            else:
+                                batched_state.voltage = pred_x.squeeze(-1)
+                                if _batched_hidden_ids is not None:
+                                    batched_state.voltage[_batched_hidden_ids] = 0.0
 
-                            for b in range(tc.batch_size):
-                                start_idx = b * neurons_per_sample
-                                end_idx = (b + 1) * neurons_per_sample
+                            # Per-sample frame index for the stimulus
+                            # driving the NEXT step.
+                            k_advanced = k_per_sample + step + 1  # (B,)
 
-                                state_batch[b].voltage = pred_x[start_idx:end_idx].squeeze()
-                                if has_hidden_neurons:
-                                    state_batch[b].voltage[hidden_ids] = 0.0
+                            if has_visual_field:
+                                # forward_visual takes a single NeuronState
+                                # — keep a per-batch loop ONLY when the
+                                # visual field is active.
+                                stim_buf = torch.zeros(B, n_neurons_per_sample, device=device)
+                                for b in range(B):
+                                    visual_input_next = model.forward_visual(state_batch[b], int(k_advanced[b].item()))
+                                    stim_buf[b, :model.n_input_neurons] = visual_input_next.squeeze(-1)
+                                batched_state.stimulus = stim_buf.flatten()
+                            else:
+                                # Vectorized stimulus gather: x_ts.stimulus[k_advanced]
+                                # is (B, N) for k_advanced a (B,) index tensor.
+                                batched_state.stimulus = x_ts.stimulus[k_advanced].reshape(-1)
+                                if tc.observable == 'calcium' and x_ts.stimulus_calcium is not None:
+                                    batched_state.stimulus_calcium = x_ts.stimulus_calcium[k_advanced].reshape(-1)
+                                if x_ts.optogenetics_stimulus is not None:
+                                    batched_state.optogenetics_stimulus = x_ts.optogenetics_stimulus[k_advanced].reshape(-1)
 
-                                k_current = k_batch[start_idx, 0].item() + step + 1
-
-                                if has_visual_field:
-                                    visual_input_next = model.forward_visual(state_batch[b], k_current)
-                                    state_batch[b].stimulus[:model.n_input_neurons] = visual_input_next.squeeze(-1)
-                                    state_batch[b].stimulus[model.n_input_neurons:] = 0
-                                else:
-                                    x_next = x_ts.frame(k_current)
-                                    state_batch[b].stimulus = x_next.stimulus
-                                    if x_next.optogenetics_stimulus is not None:
-                                        state_batch[b].optogenetics_stimulus = x_next.optogenetics_stimulus
-
-                            batched_state, batched_edges = _batch_frames(state_batch, edges)
+                            # Forward (compiled when tc.torch_compile) + Euler step.
                             pred, in_features, msg = model(batched_state, batched_edges, data_id=data_id, return_all=True)
-
                             pred_x = pred_x + sim.delta_t * pred + tc.noise_recurrent_level * torch.randn_like(pred)
 
-                    loss = loss + ((pred_x[ids_batch] - y_batch[ids_batch]) / (sim.delta_t * tc.time_step)).norm(2)
+                            # Per-step loss: target is observable at (k + step + 2).
+                            target_step = obs_full[k_per_sample + step + 2].reshape(-1, 1)
+                            loss_steps = loss_steps + (pred_x[ids_batch] - target_step[ids_batch]).norm(2)
+
+                    # Average over time steps; same overall scale convention
+                    # as the previous endpoint-only formulation
+                    # (1 / (dt * time_step)).
+                    loss = loss + (loss_steps / tc.time_step) / (sim.delta_t * tc.time_step)
 
                 else:
 

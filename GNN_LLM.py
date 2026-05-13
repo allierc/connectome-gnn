@@ -180,3 +180,4 @@ if __name__ == "__main__":
 # python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_005_010_spend_combined iterations=88 --cluster --resume
 # python GNN_LLM.py -o train_test_plot_CLaude e8_flywireRF_proximal_nulls_noise_005 iterations=150 --cluster --resume
 # python GNN_LLM.py -o train_test_plot_CLaude flyvis_noise_005_hidden_010_blank50_consensus_ngp iterations=150 --cluster
+# python GNN_LLM.py -o generate_train_test_plot_Claude flyvis_noise_free_kernel iterations=112 --cluster --resume
