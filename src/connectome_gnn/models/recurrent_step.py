@@ -175,11 +175,14 @@ def _standard_recurrent_loss(
             stim_buf[b, :n_input] = vi.squeeze(-1)
         batched_state.stimulus = stim_buf.flatten()
 
-    # Regularisation — runs once on the initial state. compute() only
-    # reads from `model`, not from `x`, so passing batched_state is fine.
+    # Regularisation — runs once on the initial state. compute() reads
+    # x.voltage of shape (N,) via get_in_features_g_phi (concatenates with
+    # model.a, also (N, emb_dim)), so pass a single-frame view rather than
+    # the batched (B*N,) state.
     regularizer.reset_iteration(device=device)
+    x_first = NeuronState(voltage=batched_state.voltage[:N])
     regul_loss = regularizer.compute(
-        model=model, x=batched_state, in_features=None,
+        model=model, x=x_first, in_features=None,
         ids=ids, ids_batch=None, edges=edges, device=device, xnorm=xnorm,
     )
     loss = regul_loss.clone()
