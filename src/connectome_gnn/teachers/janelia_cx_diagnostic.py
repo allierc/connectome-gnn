@@ -1,13 +1,13 @@
 """Diagnostic visualisations for a trained Hulse Model A checkpoint.
 
-Loads a `.pt` checkpoint produced by hulse_cx_teacher.train_hulse_cx_teacher
+Loads a `.pt` checkpoint produced by janelia_cx_teacher.train_janelia_cx_teacher
 and renders the four canonical CX-imaging panels (compass / EB ring /
 kinograph / 3-D anatomy) on a fresh path-integration batch.
 
 Usage:
-    python -m connectome_gnn.teachers.hulse_cx_diagnostic \
-        --checkpoint papers/hulse_cx/trained/hulse_cx_seed0.pt \
-        --output-dir papers/hulse_cx/diagnostics_seed0 \
+    python -m connectome_gnn.teachers.janelia_cx_diagnostic \
+        --checkpoint papers/janelia_cx/trained/janelia_cx_seed0.pt \
+        --output-dir papers/janelia_cx/diagnostics_seed0 \
         --n-steps 400
 """
 
@@ -27,28 +27,47 @@ from connectome_gnn.plot_cx import (
     plot_cx_eb_ring,
     plot_cx_kinograph_pva,
 )
-from connectome_gnn.teachers.hulse_cx_teacher import (
-    HulseCxRNN,
+from connectome_gnn.teachers.janelia_cx_teacher import (
+    JaneliaCxRNN,
     generate_path_integration_batch,
 )
 
 
-def _load_checkpoint(path: str, device: str = "cpu") -> tuple[HulseCxRNN, dict]:
+def _load_checkpoint(path: str, device: str = "cpu") -> tuple[JaneliaCxRNN, dict]:
     state = torch.load(path, map_location=device, weights_only=False)
-    net = HulseCxRNN(
+    if "W_con" not in state:
+        raise ValueError(
+            f"checkpoint {path} has no 'W_con' — cannot reconstruct the "
+            "Hulse Eq. 9 sign mask. Please re-train and re-save."
+        )
+    W_con = state["W_con"].to(device)
+    net = JaneliaCxRNN(
         n_units=int(state["n_units"]),
         n_input=int(state["n_input"]),
         n_output=int(state["n_output"]),
         tau=float(state["tau"]),
         dt=float(state["dt"]),
+        W_con=W_con,
     ).to(device)
-    net.W_rec.data.copy_(state["W_rec"].to(device))
+    if "S" in state:
+        # New format (Hulse Eq. 9 parameterisation).
+        net.S.data.copy_(state["S"].to(device))
+    else:
+        # Legacy format: free W_rec parameter. Recover S = |W_rec|; the
+        # sign of W_rec from the legacy run is *not* guaranteed to match
+        # sign(W_con), so we warn loudly.
+        W_rec_old = state["W_rec"].to(device)
+        sign_match = (torch.sign(W_rec_old) * net.W_con_sign >= 0).float().mean().item()
+        if sign_match < 0.999:
+            print(f"[janelia_cx_diagnostic] WARNING: legacy checkpoint has "
+                  f"{(1 - sign_match) * 100:.1f}% of recurrent entries with "
+                  f"signs that disagree with W_con. Reloading as |W_rec|; "
+                  f"those entries will silently flip to the connectome sign.")
+        net.S.data.copy_(W_rec_old.abs())
     net.W_in.data.copy_(state["W_in"].to(device))
     net.b.data.copy_(state["b"].to(device))
     net.W_out.data.copy_(state["W_out"].to(device))
     net.b_out.data.copy_(state["b_out"].to(device))
-    if "W_con" in state:
-        net.W_con.data.copy_(state["W_con"].to(device))
     return net, state
 
 
@@ -122,7 +141,7 @@ def render_diagnostics(
         neuron_types=np.asarray(cx["neuron_types"]).astype(int),
         type_names=type_names,
         epg_ix=cx["epg_ix"],
-        anatomy_dir="papers/hulse_cx/anatomy",
+        anatomy_dir="papers/janelia_cx/anatomy",
         edge_index=edge_index,
         edge_weights=edge_weights,
         n_edge_draw=300,
@@ -148,7 +167,7 @@ def render_diagnostics(
     fig.savefig(os.path.join(output_dir, "readout.png"), dpi=200, bbox_inches="tight")
     plt.close(fig)
 
-    print(f"[hulse_cx_diagnostic] wrote diagnostics to {output_dir}")
+    print(f"[janelia_cx_diagnostic] wrote diagnostics to {output_dir}")
 
 
 def _main():

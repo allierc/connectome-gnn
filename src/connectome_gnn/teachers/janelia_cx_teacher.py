@@ -40,6 +40,8 @@ Deviation from Hulse (v1, documented in the plan):
 
 from __future__ import annotations
 
+from typing import Optional
+
 import math
 import os
 import time
@@ -57,15 +59,22 @@ from tqdm import trange
 # ---------------------------------------------------------------------------
 
 
-class HulseCxRNN(nn.Module):
+class JaneliaCxRNN(nn.Module):
     """Connectome-constrained CX RNN (Hulse Model A).
 
-    Recurrent weights are parameterised as the unconstrained tensor
-    `W_rec`. The connectome-derived template `W_con` (with signs baked in
-    via the Beiran sign mask `mwrec`) is held as a non-trainable buffer
-    and used by the cosine-distance regulariser.
+    Recurrent weights follow Hulse Eq. 9:
 
-    Parameters that are trainable: W_rec, W_in, b, W_out, b_out
+        W_rec = |S| ⊙ W_con
+
+    `S` is a learnable per-connection scaling matrix (the only trainable
+    recurrent param); `|S|` enforces nonnegative scale, while the sign
+    and sparsity of `W_con` are baked in. `W_con_sign` and `W_con_mask`
+    are held as non-trainable buffers; absent connections (W_con==0) get
+    zero gradient automatically because dW_rec/dS = sign(W_con) is 0
+    there. The cosine-distance + norm-floor losses (Eqs. 10-11) then act
+    on the *shape* and *scale* of each type-pair block.
+
+    Parameters that are trainable: S, W_in, b, W_out, b_out
     (matching Hulse Methods 'Network training' paragraph).
     """
 
@@ -89,10 +98,10 @@ class HulseCxRNN(nn.Module):
             n_output: output-channel count (2 in Hulse: cos/sin of decoded HD).
             tau: membrane time constant in seconds.
             dt: Euler integration step in seconds.
-            W_con: (N, N) connectome template with signs. If provided,
-                used as the W_rec initial value AND as the cosine-distance
-                regulariser target. If None, W_rec is initialised from
-                N(0, init_scale**2).
+            W_con: (N, N) connectome template with signs. Required.
+                Used to lock the sign and sparsity of W_rec via Hulse
+                Eq. 9 (W_rec = |S| ⊙ W_con) and as the cosine-distance
+                regulariser target.
             type_pair_blocks: dict mapping (type_pre, type_post) -> (mask, name).
                 `mask` is a (N, N) bool tensor selecting the type-pair block.
                 Used by L_cosd and L_norm. If None, the regularisers fall
@@ -112,29 +121,28 @@ class HulseCxRNN(nn.Module):
         gen = torch.Generator()
         gen.manual_seed(int(rng_seed))
 
-        # --- Recurrent weights -------------------------------------------
-        if W_con is not None:
-            if W_con.shape != (n_units, n_units):
-                raise ValueError(
-                    f"W_con shape {tuple(W_con.shape)} != ({n_units}, {n_units})"
-                )
-            # Hulse Methods p. 13:
-            #   "the recurrent weight matrix contains 156 units and was
-            #    initialized and regularized using a processed version of
-            #    the raw synaptic connectivity matrix"
-            # We initialise W_rec from W_con directly so the network starts
-            # in the connectome regime.
-            W_rec_init = W_con.clone().to(torch.float32)
-            self.register_buffer("W_con", W_con.clone().to(torch.float32))
-        else:
-            W_rec_init = torch.randn(
-                n_units, n_units, generator=gen, dtype=torch.float32
-            ) * init_scale
-            self.register_buffer(
-                "W_con", torch.zeros(n_units, n_units, dtype=torch.float32)
+        # --- Recurrent weights (Hulse Eq. 9) -----------------------------
+        # W_rec = |S| ⊙ W_con. Sign and sparsity are locked by the
+        # buffers below; only the per-connection magnitudes |S| are
+        # learned. Absent connections (W_con==0) receive zero gradient
+        # automatically because dW_rec/dS = sign(W_con) is 0 there.
+        if W_con is None:
+            raise ValueError(
+                "JaneliaCxRNN requires W_con (Hulse Eq. 9 parameterisation "
+                "needs the connectome to lock recurrent signs and sparsity)."
             )
+        if W_con.shape != (n_units, n_units):
+            raise ValueError(
+                f"W_con shape {tuple(W_con.shape)} != ({n_units}, {n_units})"
+            )
+        W_con_f = W_con.to(torch.float32).clone()
+        self.register_buffer("W_con", W_con_f)
+        self.register_buffer("W_con_sign", torch.sign(W_con_f))
+        self.register_buffer("W_con_mask", (W_con_f != 0).to(torch.float32))
 
-        self.W_rec = nn.Parameter(W_rec_init)
+        # Hulse Methods p. 14: S initialised to 0.01 for non-zero
+        # connections, 0 for absent connections.
+        self.S = nn.Parameter(0.01 * self.W_con_mask)
 
         # --- Input / output weights and biases ---------------------------
         # Hulse Methods p. 13: W_in element from N(0, 1/d^2), d=100.
@@ -162,6 +170,18 @@ class HulseCxRNN(nn.Module):
             # Persist them as buffers so .to(device) moves them
             for i, m in enumerate(self._block_masks):
                 self.register_buffer(f"_block_mask_{i}", m, persistent=False)
+
+    # --- Effective recurrent weight (Hulse Eq. 9) ----------------------
+
+    @property
+    def W_rec(self) -> torch.Tensor:
+        """Effective recurrent weight matrix W_rec = |S| ⊙ W_con.
+
+        Equivalent to ``self.S.abs() * self.W_con_sign`` because
+        ``W_con_sign`` is 0 wherever ``W_con`` is 0, so the sparsity
+        mask is implicit. Differentiable end-to-end through ``S``.
+        """
+        return self.S.abs() * self.W_con_sign
 
     # --- Forward path ---------------------------------------------------
 
@@ -191,9 +211,12 @@ class HulseCxRNN(nn.Module):
         dt_over_tau = self.dt / self.tau
         h_buf = torch.empty(B, T, N, dtype=u.dtype, device=u.device)
 
+        # Materialise once per forward (cheaper than per-step property reads).
+        W_rec_t = self.W_rec.t()
+
         for t in range(T):
             r = torch.sigmoid(h)                          # (B, N)
-            rec = r @ self.W_rec.t()                      # (B, N)
+            rec = r @ W_rec_t                             # (B, N)
             inp = u[:, t, :] @ self.W_in.t()              # (B, N)
             dh = -h + rec + inp + self.b
             h = h + dt_over_tau * dh
@@ -391,7 +414,7 @@ def _build_type_pair_blocks(
     return blocks
 
 
-def train_hulse_cx_teacher(
+def train_janelia_cx_teacher(
     *,
     connconstr_datapath: str,
     output_path: str,
@@ -410,6 +433,13 @@ def train_hulse_cx_teacher(
     log_interval: int = 50,
     eval_interval: int = 500,
     save_every_epoch: bool = True,
+    include_er6: bool = False,
+    rollout_interval: int = 0,
+    rollout_n_steps: int = 500,
+    rollout_seed: int = 12345,
+    snapshots_per_epoch: int = 5,
+    snapshot_n_steps: int = 1500,
+    snapshot_omega_deg_per_s: float = 60.0,
 ) -> dict:
     """Train a Hulse Model A CX teacher RNN and save the checkpoint.
 
@@ -431,8 +461,10 @@ def train_hulse_cx_teacher(
     rng = np.random.default_rng(int(seed))
 
     # --- Load hemibrain connectome ----------------------------------------
-    cx = load_drosophila_cx_connectome(connconstr_datapath)
+    cx = load_drosophila_cx_connectome(connconstr_datapath, include_er6=include_er6)
     N = int(cx["N"])
+    if include_er6:
+        print(f"[janelia_cx] Hulse-spec network: N={N} (incl. 4 ER6 inhibitory ring neurons)")
     W_con_np = cx["J_effective"].astype(np.float32)        # signs baked in
     neuron_types = np.asarray(cx["neuron_types"]).astype(np.int64)
     type_names = list(cx["type_names"])
@@ -449,7 +481,7 @@ def train_hulse_cx_teacher(
 
     W_con_t = torch.from_numpy(W_con_np)
 
-    net = HulseCxRNN(
+    net = JaneliaCxRNN(
         n_units=N,
         n_input=3,
         n_output=2,
@@ -471,7 +503,7 @@ def train_hulse_cx_teacher(
             lr_schedule = lr_schedule + [lr_schedule[-1]] * (n_epochs - len(lr_schedule))
         lr_schedule = lr_schedule[:n_epochs]
         _lr_init = lr_schedule[0]
-        print(f"[hulse_cx] lr schedule: {lr_schedule}")
+        print(f"[janelia_cx] lr schedule: {lr_schedule}")
 
     opt = torch.optim.Adam(net.parameters(), lr=_lr_init)
     if lr_schedule is None:
@@ -493,9 +525,64 @@ def train_hulse_cx_teacher(
         if len(_list) < n_epochs:
             _list = _list + [_list[-1]] * (n_epochs - len(_list))
         n_steps_schedule = _list[:n_epochs]
-    print(f"[hulse_cx] n_steps schedule: {n_steps_schedule}")
+    print(f"[janelia_cx] n_steps schedule: {n_steps_schedule}")
 
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+    log_dir = os.path.dirname(output_path) or "."
+
+    # CLEAN START: wipe per-run artefacts in the log dir so a re-run doesn't
+    # mix old and new snapshots. Only deletes things this trainer produces;
+    # leaves unrelated files alone.
+    import shutil as _sh
+    basename = os.path.splitext(os.path.basename(output_path))[0]
+    artefacts_to_clear = [
+        os.path.join(log_dir, "connectivity_matrix.png"),
+        os.path.join(log_dir, "training_curves.png"),
+        os.path.join(log_dir, f"{basename}_history.json"),
+        output_path,
+    ]
+    for p in artefacts_to_clear:
+        if os.path.isfile(p):
+            os.remove(p)
+    for sub in ("rollouts", "matrix_snapshots", "kinograph_snapshots"):
+        sub_dir = os.path.join(log_dir, sub)
+        if os.path.isdir(sub_dir):
+            _sh.rmtree(sub_dir)
+    # Also wipe per-epoch checkpoints from a previous run (same basename pattern).
+    import glob as _glob
+    for p in _glob.glob(os.path.join(log_dir, f"{basename}_epoch*.pt")):
+        os.remove(p)
+    print(f"[janelia_cx] clean start: cleared previous artefacts in {log_dir}")
+    print(f"[janelia_cx] log_dir = {log_dir}")
+
+    # Plot the model matrix once at the start so the run is self-documenting.
+    try:
+        from connectome_gnn.plot_cx import plot_cx_matrix
+        plot_cx_matrix(
+            cx["J_effective"], neuron_types, type_names,
+            os.path.join(log_dir, "connectivity_matrix.png"),
+            title=f"J_effective at training start (N={N})",
+        )
+        print(f"[janelia_cx] wrote {log_dir}/connectivity_matrix.png")
+    except Exception as exc:
+        print(f"[janelia_cx] connectivity-matrix plot failed: {exc}")
+
+    # Optional raw-rollout .pt saves at fixed step intervals (existing path).
+    if rollout_interval > 0:
+        rollout_dir = os.path.join(log_dir, "rollouts")
+        os.makedirs(rollout_dir, exist_ok=True)
+        print(f"[janelia_cx] saving raw rollouts every {rollout_interval} steps to "
+              f"{rollout_dir} (fixed seed {rollout_seed}, n_steps={rollout_n_steps})")
+    else:
+        rollout_dir = None
+
+    # Snapshot figures (matrix + kinograph) at evenly-spaced steps per epoch.
+    matrix_snapshot_dir = os.path.join(log_dir, "matrix_snapshots")
+    kinograph_snapshot_dir = os.path.join(log_dir, "kinograph_snapshots")
+    if snapshots_per_epoch > 0:
+        os.makedirs(matrix_snapshot_dir, exist_ok=True)
+        os.makedirs(kinograph_snapshot_dir, exist_ok=True)
+        print(f"[janelia_cx] saving {snapshots_per_epoch} matrix+kinograph snapshots per epoch")
 
     t0 = time.time()
     # EMA buffers for a smooth running display
@@ -503,6 +590,7 @@ def train_hulse_cx_teacher(
     ema_alpha = 0.05
     last_pi_acc = float("nan")
     last_fwhm = float("nan")
+    global_step = 0
 
     def _ema(prev, new):
         return float(new) if prev is None else (1 - ema_alpha) * prev + ema_alpha * float(new)
@@ -516,11 +604,12 @@ def train_hulse_cx_teacher(
         pbar = trange(
             steps_per_epoch,
             ncols=200,
-            desc=f"hulse_cx epoch {epoch}/{n_epochs} (T={n_steps_epoch})",
+            desc=f"janelia_cx epoch {epoch}/{n_epochs} (T={n_steps_epoch})",
             leave=True,
         )
         for step1 in pbar:
             step = step1 + 1
+            global_step += 1
             batch = generate_path_integration_batch(
                 batch_size, n_steps_epoch, device=device, rng=rng
             )
@@ -581,6 +670,38 @@ def train_hulse_cx_teacher(
                 f"fwhm={fwhm_deg}  best={best_loss:.5f}"
             )
 
+            # Snapshot figures: matrix + kinograph at evenly-spaced steps per epoch.
+            # snapshot_step_indices_in_epoch = [steps_per_epoch//N, 2*spe//N, ...]
+            if snapshots_per_epoch > 0:
+                snap_div = max(1, steps_per_epoch // snapshots_per_epoch)
+                if step % snap_div == 0 or step == steps_per_epoch:
+                    _save_training_snapshot(
+                        net=net,
+                        log_dir=log_dir,
+                        matrix_dir=matrix_snapshot_dir,
+                        kinograph_dir=kinograph_snapshot_dir,
+                        global_step=global_step,
+                        epoch=epoch,
+                        neuron_types=neuron_types,
+                        type_names=type_names,
+                        epg_indices=epg_indices,
+                        epg_glom_ix=epg_glom_ix,
+                        device=device,
+                        snapshot_n_steps=snapshot_n_steps,
+                        snapshot_omega_deg=snapshot_omega_deg_per_s,
+                    )
+
+            # Save a fixed-seed rollout at regular intervals for inspection.
+            if rollout_dir is not None and (global_step % rollout_interval) == 0:
+                rollout_path = os.path.join(
+                    rollout_dir, f"step_{global_step:07d}.pt",
+                )
+                save_rollout(
+                    net, rollout_path,
+                    n_steps=rollout_n_steps, seed=rollout_seed,
+                    device=device, epg_indices=epg_indices, epg_ix=epg_glom_ix,
+                )
+
             if float(loss.item()) < best_loss:
                 best_loss = float(loss.item())
                 _save_checkpoint(net, output_path, meta={
@@ -606,7 +727,7 @@ def train_hulse_cx_teacher(
             if not math.isnan(last_fwhm) else "n/a"
         )
         print(
-            f"[hulse_cx] epoch {epoch}/{n_epochs} done — "
+            f"[janelia_cx] epoch {epoch}/{n_epochs} done — "
             f"loss(ema)={ema_loss:.5f}  pi_acc={last_pi_acc:.4f}  fwhm={fwhm_deg}  "
             f"best_loss={best_loss:.5f}  lr={opt.param_groups[0]['lr']:.2e}  "
             f"elapsed={elapsed/60:.1f} min"
@@ -614,12 +735,27 @@ def train_hulse_cx_teacher(
         if sched is not None:
             sched.step()
 
+    # Persist the training history alongside the checkpoint so plots can
+    # be regenerated later. JSON is portable and tiny (a few hundred KB).
+    import json
+    history_path = os.path.splitext(output_path)[0] + "_history.json"
+    history_to_dump = {k: list(v) if not isinstance(v, list) else v
+                       for k, v in history.items()}
+    with open(history_path, "w") as f:
+        json.dump({"history": history_to_dump,
+                   "best_loss": best_loss,
+                   "n_steps_schedule": n_steps_schedule,
+                   "lr_schedule": lr_schedule,
+                   "include_er6": include_er6,
+                   "n_units": N}, f, indent=2)
+    print(f"[janelia_cx] wrote {history_path}")
+
     return {"best_loss": best_loss, "history": history,
             "output_path": output_path, "final_pi_acc": last_pi_acc}
 
 
 def bump_fwhm(
-    net: HulseCxRNN,
+    net: JaneliaCxRNN,
     epg_indices: np.ndarray,
     epg_ix: np.ndarray,
     *,
@@ -627,17 +763,26 @@ def bump_fwhm(
     n_steps: int = 100,
     device: str = "cpu",
     n_glom: int = 16,
+    z_thresh: float = 1.0,
 ) -> float:
-    """Mean FWHM of the EPG bump (in radians) at the last frame of a batch.
+    """Mean bump width (in radians) at the last frame of a batch, defined
+    as the number of contiguous glomerular wedges around the peak whose
+    z-scored activity exceeds `z_thresh`.
+
+    Z-scoring across the `n_glom` wedges per trial removes the per-trial
+    baseline (which depends on bias / saturation) so the threshold has the
+    same meaning across snapshots: `z_thresh=1.0` means "at least 1 std
+    above the trial's mean glomerular activity".
 
     Computed by:
       1. Running a fresh path-integration batch through the network.
-      2. Taking sigmoid(h) on the 46 EPG neurons at the final timestep.
+      2. Taking sigmoid(h) on the EPG neurons at the final timestep.
       3. Binning into `n_glom` glomerular wedges (uniform around the ring).
-      4. Rolling so the peak glomerulus is at the centre.
-      5. Counting wedges with activity > half-max and converting to radians.
+      4. Z-scoring each trial across the n_glom wedges.
+      5. Rolling so the peak glomerulus is at the centre.
+      6. Counting contiguous wedges around the peak with z > `z_thresh`.
 
-    Returns nan if no bump is detectable (all-uniform activity).
+    Returns nan if no trial has a peak above threshold.
     """
     net.eval()
     with torch.no_grad():
@@ -653,32 +798,30 @@ def bump_fwhm(
         if mask.any():
             glom_act[:, g] = r_epg[:, mask].mean(axis=1)
 
+    # Per-trial z-score across glomeruli (bump detection is invariant to
+    # baseline / overall scale).
+    mu = glom_act.mean(axis=1, keepdims=True)
+    sigma = glom_act.std(axis=1, keepdims=True) + 1e-12
+    z = (glom_act - mu) / sigma                                  # (B, n_glom)
+
     wedge_rad = 2.0 * np.pi / n_glom
     fwhms = []
-    for b in range(glom_act.shape[0]):
-        v = glom_act[b]
+    c = n_glom // 2
+    for b in range(z.shape[0]):
+        v = z[b]
         peak = int(np.argmax(v))
-        v_rolled = np.roll(v, n_glom // 2 - peak)
-        half = float(v_rolled.max()) / 2.0
-        if half <= 0:
+        if v[peak] <= z_thresh:
             continue
-        above = v_rolled > half
-        if not above.any():
-            continue
-        idx = np.where(above)[0]
-        # Width = number of contiguous wedges above half-max around the centre.
-        c = n_glom // 2
+        v_rolled = np.roll(v, c - peak)
+        # Walk outward from the centre while still above threshold (wraps
+        # around because v_rolled is on a ring).
         left = c
-        while left - 1 >= 0 and v_rolled[left - 1] > half:
+        while left - 1 >= 0 and v_rolled[left - 1] > z_thresh:
             left -= 1
         right = c
-        while right + 1 < n_glom and v_rolled[right + 1] > half:
+        while right + 1 < n_glom and v_rolled[right + 1] > z_thresh:
             right += 1
         width = right - left + 1
-        # If the bump is wider than the rolled window (e.g. activity barely above half everywhere)
-        # fall back to total above-half count.
-        if width <= 1:
-            width = max(width, int(above.sum()))
         fwhms.append(width * wedge_rad)
 
     if not fwhms:
@@ -687,7 +830,7 @@ def bump_fwhm(
 
 
 def path_integration_accuracy(
-    net: HulseCxRNN,
+    net: JaneliaCxRNN,
     n_trials: int = 64,
     n_steps: int = 100,
     device: str = "cpu",
@@ -713,9 +856,165 @@ def path_integration_accuracy(
     return acc
 
 
-def _save_checkpoint(net: HulseCxRNN, path: str, meta: dict) -> None:
+def _deterministic_sweep_rollout(
+    net: JaneliaCxRNN,
+    *,
+    n_steps: int,
+    omega_deg_per_s: float,
+    device: str,
+) -> dict:
+    """One trial with **constant ω**, no OU noise, no standing pauses.
+
+    Designed to span the full HD circle (−π to +π) by the end of the rollout
+    so the kinograph shows the bump migrating across the full orientation
+    axis. Distinct from `save_rollout` which uses naturalistic OU velocity.
+    """
+    T = int(n_steps)
+    omega = np.full((1, T), float(omega_deg_per_s), dtype=np.float32)
+    omega[0, 0] = 0.0  # Hulse convention: ω[0] = 0
+    omega_rad = np.deg2rad(omega)
+    theta_hd = np.cumsum(omega_rad, axis=1) * float(net.dt)  # starts at 0
+
+    u = np.zeros((1, T, 3), dtype=np.float32)
+    u[:, :, 0] = omega
+    u[:, 0, 1] = 1.0  # cos(0)
+    u[:, 0, 2] = 0.0  # sin(0)
+
+    u_t = torch.from_numpy(u).to(device)
+    with torch.no_grad():
+        y_hat, h = net(u_t)
+    r = torch.sigmoid(h[0]).cpu().numpy()  # (T, N)
+    y_pred = y_hat[0].cpu().numpy()
+    return {
+        "u": u[0],
+        "y_pred": y_pred,
+        "true_theta": theta_hd[0],
+        "decoded_theta": np.arctan2(y_pred[:, 1], y_pred[:, 0]),
+        "h": h[0].cpu().numpy(),
+        "r": r,  # full (T, N) firing rates
+        "n_steps": T,
+        "omega_deg_per_s": float(omega_deg_per_s),
+        "dt_s": float(net.dt),
+    }
+
+
+def _save_training_snapshot(
+    *,
+    net: JaneliaCxRNN,
+    log_dir: str,
+    matrix_dir: str,
+    kinograph_dir: str,
+    global_step: int,
+    epoch: int,
+    neuron_types: np.ndarray,
+    type_names: list,
+    epg_indices: np.ndarray,
+    epg_glom_ix: np.ndarray,
+    device: str,
+    snapshot_n_steps: int,
+    snapshot_omega_deg: float,
+) -> None:
+    """Render a matrix snapshot + a deterministic-sweep kinograph snapshot."""
+    from connectome_gnn.plot_cx import (
+        plot_cx_matrix,
+        plot_cx_training_snapshot,
+        cx_epg_directions,
+    )
+
+    name = f"step_{global_step:07d}.png"
+
+    # --- Matrix snapshot ---
+    try:
+        W_rec_np = net.W_rec.detach().cpu().numpy()
+        plot_cx_matrix(
+            W_rec_np, neuron_types, type_names,
+            os.path.join(matrix_dir, name),
+            title=f"learned W_rec  epoch {epoch}  step {global_step}",
+        )
+    except Exception as exc:
+        print(f"[janelia_cx] matrix snapshot failed @ step {global_step}: {exc}")
+
+    # --- Kinograph snapshot (deterministic sweep) ---
+    try:
+        rollout = _deterministic_sweep_rollout(
+            net, n_steps=snapshot_n_steps,
+            omega_deg_per_s=snapshot_omega_deg, device=device,
+        )
+        # Pack r_epg for the snapshot plotter's interface.
+        rollout["r_epg"] = rollout["r"][:, epg_indices]
+        epg_theta = cx_epg_directions(epg_glom_ix)
+        plot_cx_training_snapshot(
+            W_rec=net.W_rec.detach().cpu().numpy(),
+            rollout=rollout,
+            epg_theta=epg_theta,
+            output_path=os.path.join(kinograph_dir, name),
+            neuron_types=neuron_types,
+            type_names=type_names,
+            step=global_step,
+            dt_s=float(net.dt),
+        )
+    except Exception as exc:
+        print(f"[janelia_cx] kinograph snapshot failed @ step {global_step}: {exc}")
+
+
+def save_rollout(
+    net: JaneliaCxRNN,
+    output_path: str,
+    *,
+    n_steps: int = 500,
+    seed: int = 0,
+    device: str = "cpu",
+    epg_indices: Optional[np.ndarray] = None,
+    epg_ix: Optional[np.ndarray] = None,
+) -> None:
+    """Save a fixed-seed rollout for training-time inspection.
+
+    Contents of the saved .pt file:
+        u            (T, 3) — input stream
+        y_true       (T, 2) — target (cos, sin) of HD
+        y_pred       (T, 2) — network readout
+        true_theta   (T,)   — unwrapped true HD (radians)
+        decoded_theta(T,)   — atan2 of y_pred, wrapped to (-π, π]
+        h            (T, N) — subthreshold voltage
+        r_epg        (T, 46) — sigmoid(h) on EPG neurons only (or None)
+        epg_ix       (46,)  — EPG glomerular mapping for plotting (or None)
+        n_steps, seed       — for reproducibility
+    """
+    net.eval()
+    rng = np.random.default_rng(seed)
+    with torch.no_grad():
+        batch = generate_path_integration_batch(1, n_steps, rng=rng, device=device)
+        y_hat, h = net(batch.u)
+    net.train()
+    r = torch.sigmoid(h[0]).cpu().numpy()  # (T, N)
+    r_epg = r[:, epg_indices] if epg_indices is not None else None
+    true_theta = batch.theta_hd[0].cpu().numpy()
+    y_pred = y_hat[0].cpu().numpy()
+    decoded_theta = np.arctan2(y_pred[:, 1], y_pred[:, 0])
+    rollout = {
+        "u": batch.u[0].cpu().numpy().astype(np.float32),
+        "y_true": batch.y[0].cpu().numpy().astype(np.float32),
+        "y_pred": y_pred.astype(np.float32),
+        "true_theta": true_theta.astype(np.float32),
+        "decoded_theta": decoded_theta.astype(np.float32),
+        "h": h[0].cpu().numpy().astype(np.float32),
+        "r_epg": r_epg.astype(np.float32) if r_epg is not None else None,
+        "epg_ix": np.asarray(epg_ix, dtype=np.int64) if epg_ix is not None else None,
+        "n_steps": int(n_steps),
+        "seed": int(seed),
+    }
+    torch.save(rollout, output_path)
+
+
+def _save_checkpoint(net: JaneliaCxRNN, path: str, meta: dict) -> None:
     """Save a state dict with auxiliary metadata."""
     state = {
+        # New (Hulse Eq. 9) parameterisation: S is the trainable param,
+        # W_rec is materialised on read. We persist both: S for exact
+        # round-tripping, W_rec for downstream consumers (matrix plots,
+        # connectivity-derived phase shifts) that just want the effective
+        # weight matrix.
+        "S": net.S.detach().cpu(),
         "W_rec": net.W_rec.detach().cpu(),
         "W_in": net.W_in.detach().cpu(),
         "b": net.b.detach().cpu(),
@@ -743,29 +1042,32 @@ def _main():
     p = argparse.ArgumentParser(description="Train Hulse Model A CX teacher")
     p.add_argument("--datapath", default="papers/Code_NN/Code_NN/Data/Figure5/exported-traced-adjacencies-v1.2",
                    help="hemibrain CSV directory")
-    p.add_argument("--output", default="papers/hulse_cx/trained/hulse_cx_seed0.pt")
-    p.add_argument("--n_trials", type=int, default=200_000)
-    p.add_argument("--batch_size", type=int, default=100)
+    p.add_argument("--output",
+                   default="/groups/saalfeld/home/allierc/GraphData/log/janelia_cx/seed0_curriculum_er6/janelia_cx.pt")
+    p.add_argument("--n_trials", type=int, default=100_000)
+    p.add_argument("--batch_size", type=int, default=64)
     def _parse_n_steps(s: str):
         """Accept either '100' or '100,1000,1000' (per-epoch schedule)."""
         if "," in s:
             return [int(x) for x in s.split(",") if x.strip()]
         return int(s)
-    p.add_argument("--n_steps", type=_parse_n_steps, default=100,
+    p.add_argument("--n_steps", type=_parse_n_steps,
+                   default=[100, 250, 500, 1000, 1000],
                    help="trial length in timesteps. Either a single int (constant)"
-                        " or a comma-separated per-epoch schedule, e.g."
-                        " '100,1000,1000,1000,1000' for a curriculum.")
+                        " or a comma-separated per-epoch schedule. Default is the"
+                        " 5-epoch curriculum '100,250,500,1000,1000'.")
     p.add_argument("--n_epochs", type=int, default=5)
     def _parse_lr(s: str):
         """Accept '1e-3' or '5e-3,1e-3,5e-4,2e-4,1e-4' (per-epoch schedule)."""
         if "," in s:
             return [float(x) for x in s.split(",") if x.strip()]
         return float(s)
-    p.add_argument("--lr", type=_parse_lr, default=1e-3,
-                   help="learning rate. Either a single float (default 1e-3, "
-                        "with MultiStepLR drop at --lr-drop-epoch) or a "
-                        "comma-separated per-epoch schedule, e.g. "
-                        "'5e-3,1e-3,5e-4,2e-4,1e-4' matching --n_steps curriculum.")
+    p.add_argument("--lr", type=_parse_lr,
+                   default=[5e-3, 1e-3, 5e-4, 2e-4, 1e-4],
+                   help="learning rate. Either a single float (with MultiStepLR drop"
+                        " at --lr-drop-epoch) or a comma-separated per-epoch schedule."
+                        " Default is the 5-epoch schedule '5e-3,1e-3,5e-4,2e-4,1e-4'"
+                        " matched to the n_steps curriculum.")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     p.add_argument("--log-interval", type=int, default=50,
@@ -773,6 +1075,33 @@ def _main():
     p.add_argument("--eval-interval", type=int, default=100,
                    help="refresh pi_acc every N steps (default 100; lower = laggier "
                         "but slower; was 500 prior to this commit)")
+    p.add_argument("--snapshots-per-epoch", type=int, default=5,
+                   help="number of matrix+kinograph snapshot figures per epoch "
+                        "(default 5; 0 disables). Saved to "
+                        "<log_dir>/matrix_snapshots/ and <log_dir>/kinograph_snapshots/.")
+    p.add_argument("--snapshot-n-steps", type=int, default=1500,
+                   help="length (timesteps) of the deterministic full-sweep rollout "
+                        "used for each kinograph snapshot (default 1500 = 15 s).")
+    p.add_argument("--snapshot-omega-deg", type=float, default=60.0,
+                   help="constant angular velocity (deg/s) used for the snapshot "
+                        "rollout — picks a value high enough to span -π to +π "
+                        "within the rollout (default 60°/s → ~2.5 turns in 15 s).")
+    p.add_argument("--rollout-interval", type=int, default=500,
+                   help="save a fixed-seed rollout every N gradient steps "
+                        "(0 disables; default 500 ≈ 15 rollouts over a 5-epoch "
+                        "curriculum at n_trials/batch_size=1562 steps/epoch). "
+                        "Rollouts go to <output_stem>_rollouts/step_{N:07d}.pt")
+    p.add_argument("--rollout-n-steps", type=int, default=500,
+                   help="trial length (timesteps) of each saved rollout (default 500 = 5 s)")
+    p.add_argument("--rollout-seed", type=int, default=12345,
+                   help="fixed RNG seed for the saved rollouts — same trial each save, "
+                        "so successive rollouts let you see the network's solution evolve")
+    p.add_argument("--include-er6", action=argparse.BooleanOptionalAction,
+                   default=True,
+                   help="add the 4 ER6 broad-inhibitory ring neurons "
+                        "(Hulse-spec 156-neuron CX; default ON. "
+                        "Pass --no-include-er6 to fall back to Beiran's "
+                        "152-neuron loader).")
     p.add_argument("--smoke", action="store_true",
                    help="tiny run for debugging (200 trials, 1 epoch)")
     args = p.parse_args()
@@ -781,7 +1110,7 @@ def _main():
         args.n_trials = 200
         args.n_epochs = 1
 
-    stats = train_hulse_cx_teacher(
+    stats = train_janelia_cx_teacher(
         connconstr_datapath=args.datapath,
         output_path=args.output,
         n_trials=args.n_trials,
@@ -793,9 +1122,16 @@ def _main():
         device=args.device,
         log_interval=args.log_interval,
         eval_interval=args.eval_interval,
+        include_er6=args.include_er6,
+        rollout_interval=args.rollout_interval,
+        rollout_n_steps=args.rollout_n_steps,
+        rollout_seed=args.rollout_seed,
+        snapshots_per_epoch=args.snapshots_per_epoch,
+        snapshot_n_steps=args.snapshot_n_steps,
+        snapshot_omega_deg_per_s=args.snapshot_omega_deg,
     )
-    print(f"[hulse_cx] best_loss={stats['best_loss']:.4f}")
-    print(f"[hulse_cx] checkpoint saved to {args.output}")
+    print(f"[janelia_cx] best_loss={stats['best_loss']:.4f}")
+    print(f"[janelia_cx] checkpoint saved to {args.output}")
 
 
 if __name__ == "__main__":

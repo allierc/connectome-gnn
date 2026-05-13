@@ -9,7 +9,7 @@ These mirror the canonical fly-CX imaging panels:
 Each function is self-contained and uses only numpy / matplotlib. They are
 hooked into the data-generation pipeline via plot.plot_connconstr_diagnostics,
 and are also reusable from the teacher-training diagnostics script
-(teachers/hulse_cx_diagnostic.py).
+(teachers/janelia_cx_diagnostic.py).
 """
 from __future__ import annotations
 
@@ -399,6 +399,226 @@ def plot_cx_kinograph_pva(
 
 
 # ---------------------------------------------------------------------------
+# Training-time snapshots: weight matrix + kinograph with HD curves
+# ---------------------------------------------------------------------------
+
+
+def plot_cx_matrix(
+    J: np.ndarray,
+    neuron_types: np.ndarray,
+    type_names: list[str],
+    output_path: str,
+    *,
+    title: str = "",
+    transpose_to_post_pre: bool = True,
+) -> None:
+    """Plot a CX connectivity matrix with cell-type annotations.
+
+    Args:
+        J: (N, N) dense connectivity. By default treated as (pre, post)
+            and transposed to (post, pre) for the plot (neuroscience
+            convention: rows = postsynaptic, cols = presynaptic).
+        neuron_types: (N,) int per-neuron type indices.
+        type_names: type-name strings indexed by neuron_types values.
+        output_path: PNG file to write.
+        title: optional super-title.
+        transpose_to_post_pre: if True (default), plot J.T.
+    """
+    J_plot = J.T if transpose_to_post_pre else J
+    N = J_plot.shape[0]
+    nonzero = np.abs(J_plot)[np.abs(J_plot) > 0]
+    vmax = float(np.percentile(nonzero, 98)) if nonzero.size else 1.0
+
+    # Cell-type boundary detection (assumes neurons are grouped contiguously).
+    bounds, centres, labels = [0], [], []
+    cur_t, cur_start = int(neuron_types[0]), 0
+    for i, t in enumerate(neuron_types):
+        t = int(t)
+        if t != cur_t:
+            bounds.append(i)
+            centres.append((cur_start + i - 1) / 2.0)
+            labels.append(type_names[cur_t])
+            cur_t, cur_start = t, i
+    bounds.append(len(neuron_types))
+    centres.append((cur_start + len(neuron_types) - 1) / 2.0)
+    labels.append(type_names[cur_t])
+
+    fig, ax = plt.subplots(figsize=(6.5, 6.0))
+    im = ax.imshow(J_plot, cmap="bwr_r", vmin=-vmax, vmax=vmax,
+                   aspect="equal", interpolation="nearest", origin="upper")
+    for b in bounds[1:-1]:
+        ax.axhline(b - 0.5, color="k", linewidth=0.4, alpha=0.6)
+        ax.axvline(b - 0.5, color="k", linewidth=0.4, alpha=0.6)
+    ax.set_xticks(centres)
+    ax.set_xticklabels(labels, fontsize=7, rotation=45, ha="right")
+    ax.set_yticks(centres)
+    ax.set_yticklabels(labels, fontsize=7)
+    nnz = int((np.abs(J_plot) > 0).sum())
+    sub = f"N={N}, nonzero={nnz}, vmax={vmax:.3f}"
+    ax.set_title((title + "\n" if title else "") + sub, fontsize=10)
+    ax.set_xlabel("presynaptic")
+    ax.set_ylabel("postsynaptic")
+    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    plt.tight_layout()
+    fig.savefig(output_path, dpi=180, bbox_inches="tight")
+    plt.close(fig)
+
+
+def plot_cx_training_snapshot(
+    W_rec: np.ndarray,
+    rollout: dict,
+    epg_theta: np.ndarray,
+    output_path: str,
+    *,
+    neuron_types: Optional[np.ndarray] = None,
+    type_names: Optional[list[str]] = None,
+    step: Optional[int] = None,
+    dt_s: float = 0.01,
+    n_bins: int = 32,
+    mat_vmax: float = 1.0,
+    fwhm_z_thresh: float = 1.0,
+) -> None:
+    """Combined W_rec matrix + kinograph for one training-time snapshot.
+
+    Args:
+        W_rec: (N, N) current learned recurrent matrix.
+        rollout: dict produced by save_rollout (must include
+            r_epg, true_theta, decoded_theta).
+        epg_theta: (n_epg,) preferred direction per EPG neuron.
+        output_path: PNG file to write.
+        neuron_types, type_names: optional, for matrix annotation.
+        step: optional training step (for the title).
+        dt_s: seconds per frame in the rollout.
+        n_bins: number of angular bins for the kinograph (default 32, Hulse).
+        mat_vmax: fixed colorbar limit for the W_rec matrix (default 1.0,
+            so colors are comparable across snapshots during training).
+        fwhm_z_thresh: per-frame z-score threshold used to compute the bump
+            FWHM annotation on the angle-binned panel (default 1.0).
+    """
+    fig = plt.figure(figsize=(20, 5.5))
+    gs = fig.add_gridspec(1, 3, width_ratios=[2.0, 1.0, 1.0])
+    ax_mat = fig.add_subplot(gs[0, 0])
+    ax_kin = fig.add_subplot(gs[0, 1])
+    ax_neu = fig.add_subplot(gs[0, 2])
+
+    # ---- LEFT: W_rec matrix ----
+    J = W_rec.T if W_rec.shape[0] == W_rec.shape[1] else W_rec
+    im = ax_mat.imshow(J, cmap="bwr_r", vmin=-mat_vmax, vmax=mat_vmax,
+                       aspect="equal", interpolation="nearest", origin="upper")
+    if neuron_types is not None and type_names is not None:
+        bounds, centres, labels = [0], [], []
+        cur_t, cur_start = int(neuron_types[0]), 0
+        for i, t in enumerate(neuron_types):
+            t = int(t)
+            if t != cur_t:
+                bounds.append(i)
+                centres.append((cur_start + i - 1) / 2.0)
+                labels.append(type_names[cur_t])
+                cur_t, cur_start = t, i
+        bounds.append(len(neuron_types))
+        centres.append((cur_start + len(neuron_types) - 1) / 2.0)
+        labels.append(type_names[cur_t])
+        for b in bounds[1:-1]:
+            ax_mat.axhline(b - 0.5, color="k", linewidth=0.4, alpha=0.5)
+            ax_mat.axvline(b - 0.5, color="k", linewidth=0.4, alpha=0.5)
+        ax_mat.set_xticks(centres)
+        ax_mat.set_xticklabels(labels, fontsize=7, rotation=45, ha="right")
+        ax_mat.set_yticks(centres)
+        ax_mat.set_yticklabels(labels, fontsize=7)
+    ax_mat.set_title(f"learned W_rec   vmax=±{mat_vmax:.3f}", fontsize=10)
+    ax_mat.set_xlabel("presyn"); ax_mat.set_ylabel("postsyn")
+    fig.colorbar(im, ax=ax_mat, fraction=0.046, pad=0.04)
+
+    # ---- RIGHT: kinograph with HD curves ----
+    r_epg = rollout["r_epg"]  # (T, n_epg)
+    T = r_epg.shape[0]
+    bin_centres = np.linspace(-np.pi, np.pi, n_bins, endpoint=False)
+    diff = np.angle(np.exp(1j * (epg_theta[:, None] - bin_centres[None, :])))
+    sigma = 2 * np.pi / n_bins
+    w = np.exp(-0.5 * (diff / sigma) ** 2)
+    w /= w.sum(axis=0, keepdims=True) + 1e-12
+    binned = r_epg @ w
+    binned_n = binned - binned.mean(axis=0, keepdims=True)
+    absmax = float(np.percentile(np.abs(binned_n), 99) + 1e-9)
+    ax_kin.imshow(binned_n, aspect="auto", origin="upper", cmap="RdBu_r",
+                  vmin=-absmax, vmax=absmax,
+                  extent=[-np.pi, np.pi, T * dt_s, 0], interpolation="nearest")
+    # Scatter overlay: dense dots avoid the horizontal-jump artefact at ±π
+    # without needing wrap-aware NaN insertion.
+    def _scatter(theta, time, color, size, label):
+        theta = np.angle(np.exp(1j * np.asarray(theta)))  # ensure (-π, π]
+        ax_kin.scatter(theta, time, s=size, c=color, marker=".",
+                       linewidths=0, label=label)
+    t_axis = np.arange(T) * dt_s
+    _scatter(rollout["true_theta"], t_axis, "black", 4, "true HD")
+    _scatter(rollout["decoded_theta"], t_axis, "red", 3, "decoded HD (W_out)")
+    ax_kin.set_xticks([-np.pi, -np.pi / 2, 0, np.pi / 2, np.pi])
+    ax_kin.set_xticklabels([r"$-\pi$", r"$-\pi/2$", "0", r"$\pi/2$", r"$\pi$"])
+    ax_kin.set_xlabel("orientation (rad)")
+    ax_kin.set_ylabel("time (s)")
+
+    # FWHM = mean (over time) of the angular width where the per-frame
+    # z-scored bump exceeds `fwhm_z_thresh`. Computed on the same binned
+    # signal that's plotted, so the annotation matches the panel.
+    bin_rad = 2 * np.pi / n_bins
+    mu = binned.mean(axis=1, keepdims=True)
+    sd = binned.std(axis=1, keepdims=True) + 1e-12
+    z = (binned - mu) / sd                                # (T, n_bins)
+    widths = []
+    c = n_bins // 2
+    for t in range(T):
+        v = z[t]
+        peak = int(np.argmax(v))
+        if v[peak] <= fwhm_z_thresh:
+            continue
+        v_rolled = np.roll(v, c - peak)
+        left = c
+        while left - 1 >= 0 and v_rolled[left - 1] > fwhm_z_thresh:
+            left -= 1
+        right = c
+        while right + 1 < n_bins and v_rolled[right + 1] > fwhm_z_thresh:
+            right += 1
+        widths.append((right - left + 1) * bin_rad)
+    fwhm_rad = float(np.mean(widths)) if widths else float("nan")
+    fwhm_str = (f"FWHM={np.degrees(fwhm_rad):.0f}°(z>{fwhm_z_thresh:g})"
+                if widths else f"FWHM=n/a (z>{fwhm_z_thresh:g})")
+    # pi_acc on the snapshot rollout = mean cos(decoded - true) after a
+    # short warmup (matches `path_integration_accuracy()` definition).
+    warmup = min(10, T // 4)
+    diff = np.angle(np.exp(1j * (np.asarray(rollout["decoded_theta"][warmup:])
+                                 - np.asarray(rollout["true_theta"][warmup:]))))
+    pi_acc = float(np.cos(diff).mean()) if diff.size else float("nan")
+    ax_kin.set_title(
+        f"EPG kinograph (angle-binned, mean-sub.) — {fwhm_str}  pi_acc={pi_acc:.3f}",
+        fontsize=8,
+    )
+
+    # ---- RIGHT: per-neuron EPG kinograph (sorted by preferred HD) ----
+    # Rows are individual EPG neurons (no angular smoothing). This panel
+    # exposes synchrony within Hulse-style "dynamical clones" — neurons
+    # whose preferred HD differs by < 5° (Hulse Methods, Fig. 2 S3) form
+    # a clone group and should fire together. Thin separators mark the
+    # boundaries between groups.
+    n_epg = r_epg.shape[1]
+    vmax_neu = float(np.percentile(r_epg, 99) + 1e-9)
+    # Time on y-axis (matches ax_kin) so both panels can be read together.
+    ax_neu.imshow(
+        r_epg, aspect="auto", origin="upper", cmap="viridis",
+        vmin=0.0, vmax=vmax_neu,
+        extent=[-0.5, n_epg - 0.5, T * dt_s, 0], interpolation="nearest",
+    )
+    ax_neu.set_xlabel("EPG neuron index")
+    ax_neu.set_ylabel("time (s)")
+    ax_neu.set_title("per-neuron EPG (raw firing rate)", fontsize=10)
+
+    title = f"training snapshot   step={step}" if step is not None else "training snapshot"
+    fig.suptitle(title, fontsize=12)
+    plt.tight_layout(rect=[0, 0, 1, 0.97])
+    fig.savefig(output_path, dpi=160, bbox_inches="tight")
+    plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
 # 3-D anatomy (cached-skeletons)
 # ---------------------------------------------------------------------------
 
@@ -409,7 +629,7 @@ def plot_cx_anatomy_3d(
     neuron_types: Optional[np.ndarray] = None,
     type_names: Optional[list[str]] = None,
     epg_ix: Optional[list[int]] = None,
-    anatomy_dir: str = "papers/hulse_cx/anatomy",
+    anatomy_dir: str = "papers/janelia_cx/anatomy",
     elev: float = 22.0,
     azim: float = -55.0,
     edge_index: Optional[np.ndarray] = None,
@@ -489,7 +709,7 @@ def plot_cx_anatomy_3d(
         ax.text(0.5, 0.5,
                 "3D anatomy unavailable\n"
                 "(pass neuron_types + type_names, "
-                "or cache skeletons in papers/hulse_cx/anatomy/)",
+                "or cache skeletons in papers/janelia_cx/anatomy/)",
                 ha="center", va="center", fontsize=10, transform=ax.transAxes)
         ax.set_axis_off()
         plt.tight_layout()
