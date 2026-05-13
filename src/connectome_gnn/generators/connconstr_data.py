@@ -60,7 +60,7 @@ def dense_to_sparse(J, threshold=0.0):
 # Drosophila adult central complex (ring attractor)
 # ---------------------------------------------------------------------------
 
-def load_drosophila_cx_connectome(datapath):
+def load_drosophila_cx_connectome(datapath, include_er6: bool = False):
     """Load hemibrain connectivity for the Drosophila central complex ring attractor.
 
     Ref: papers/Code_NN/Code_NN/nn_fig5_drosophilaCx_teacher.py lines 431-598
@@ -71,15 +71,24 @@ def load_drosophila_cx_connectome(datapath):
       - Delta7 (inhibitory interneurons)
       - PEG (heading-to-velocity neurons)
 
+    When ``include_er6=True`` (Hulse Model A configuration), also include:
+      - ER6 (4 neurons): broad inhibitory ring neurons that target EPG cells
+        in the ellipsoid body. Added with the same -5*|J| sign treatment as
+        Delta7. Brings the total to 156 neurons matching Hulse Methods p. 13.
+
     The connectivity matrix J is:
       1. Subselected from the full hemibrain adjacency matrix (line 480)
-      2. Delta7 columns made inhibitory: J2[:,delta7] = -5*|J[:,delta7]| (line 521)
+      2. Delta7 (and optionally ER6) columns made inhibitory:
+         J2[:,inh_cols] = -5*|J[:,inh_cols]| (line 521)
       3. Normalized by spectral radius: Jf = 0.9 * J2 / max(Re(eig(J2))) (line 524)
       4. Decomposed into log-space: wrec_log = log(|Jf|), mwrec = sign(Jf) (lines 587-591)
          so effective J = exp(wrec) * mwrec (line 184 of RNN.forward)
 
     Args:
-        datapath: path to 'exported-traced-adjacencies-v1.2/' directory
+        datapath: path to 'exported-traced-adjacencies-v1.2/' directory.
+        include_er6: if True, also include 4 ER6 inhibitory ring neurons
+            (Hulse-spec 156-neuron CX). Default False preserves Beiran's
+            original 152-neuron 4-type setup.
 
     Returns:
         dict with keys:
@@ -89,7 +98,7 @@ def load_drosophila_cx_connectome(datapath):
             neuron_types: (N,) int type labels
             type_names: list of unique type names
             epg_ix: list mapping 46 EPG neurons to 16 glomeruli
-            N: number of neurons
+            N: number of neurons (152 or 156 if include_er6)
             n_epg: 46 (EPG population size)
     """
     # Load hemibrain neuron and connection data
@@ -134,6 +143,22 @@ def load_drosophila_cx_connectome(datapath):
         25, 26, 19, 20, 21, 22
     ]]
 
+    # Optionally append ER6 (Hulse Model A spec). The substring matcher must
+    # be picked carefully: "ER6" matches only the 4 ER6 cells (other ER types
+    # are named ER1_a, ER2_b, ER3w, etc., none of which contain "ER6").
+    if include_er6:
+        # Use anchored match to avoid accidentally pulling in future ER6* types.
+        er6 = np.array([i for i, t in enumerate(types) if t == "ER6"], dtype=int)
+        if er6.size == 0:
+            warnings_msg = (
+                "include_er6=True requested but no neurons with type=='ER6' "
+                "found in hemibrain CSV; loader falls back to 152-neuron set."
+            )
+            import warnings as _w
+            _w.warn(warnings_msg, UserWarning)
+        else:
+            allcx = np.concatenate((allcx, er6))
+
     # EPG glomerulus mapping: 46 neurons → 16 functional groups
     # Ref: lines 476-477
     epg_ix = [
@@ -161,11 +186,21 @@ def load_drosophila_cx_connectome(datapath):
     types_1hot = np.zeros([N, Ntype])
     types_1hot[np.arange(N), typeclasses] = 1.0
 
-    # Apply inhibitory sign to Delta7 neurons and normalize by spectral radius
-    # Ref: lines 520-524 — Delta7 is type index -2 in the concatenation order
-    # J2[:,types_1hot[:,-2]==1.] = -5*np.abs(J[:,types_1hot[:,-2]==1.])
+    # Apply inhibitory sign to Delta7 (and optionally ER6) by name lookup.
+    # Replaces Beiran's fragile `types_1hot[:, -2]` indexing, which assumed
+    # Delta7 was the second-to-last type in the concatenation order.
+    # Ref: lines 520-524 — J2[:, inh_cols] = -5*|J[:, inh_cols]|
     J2 = np.copy(J)
-    J2[:, types_1hot[:, -2] == 1.0] = -5 * np.abs(J[:, types_1hot[:, -2] == 1.0])
+    inhibitory_type_names = ["Delta7"]
+    if include_er6:
+        inhibitory_type_names.append("ER6")
+    uniqtypes_list = list(uniqtypes)
+    for tname in inhibitory_type_names:
+        if tname not in uniqtypes_list:
+            continue
+        col = uniqtypes_list.index(tname)
+        mask_pre = types_1hot[:, col] == 1.0
+        J2[:, mask_pre] = -5 * np.abs(J[:, mask_pre])
     u = np.linalg.eigvals(J2)
 
     # Ref: line 524 — Jf = 0.9*J2/np.max(np.real(u))

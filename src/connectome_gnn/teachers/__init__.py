@@ -9,16 +9,16 @@ external constraint), trains a network on a task, and writes a checkpoint
 that the matching ODE-params class then consumes via `from_pretrained`.
 """
 
-from connectome_gnn.teachers.hulse_cx_teacher import (
-    HulseCxRNN,
+from connectome_gnn.teachers.janelia_cx_teacher import (
+    JaneliaCxRNN,
     PathIntegrationBatch,
     generate_path_integration_batch,
-    train_hulse_cx_teacher,
+    train_janelia_cx_teacher,
 )
 
 __all__ = [
-    "HulseCxRNN",
+    "JaneliaCxRNN",
     "PathIntegrationBatch",
     "generate_path_integration_batch",
-    "train_hulse_cx_teacher",
+    "train_janelia_cx_teacher",
 ]

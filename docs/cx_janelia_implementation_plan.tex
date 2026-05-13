@@ -153,7 +153,7 @@ Two new files mirroring the Beiran-CX pattern:
   \texttt{connconstr\_cx\_ode.py}. The forward path is one
   \texttt{scatter\_add} for $\sum_k W^{\text{rec}}_{jk}\phi(h_k)$ plus
   $W^{\text{in}}u$ + $b$, divided by $\tau$.
-\item \texttt{HulseCxODEParams} appended to
+\item \texttt{JaneliaCxODEParams} appended to
   \texttt{generators/ode\_params.py} (around the existing
   \texttt{DrosophilaCxODEParams} at lines 1066--1453). Registered via
   \texttt{@register\_ode\_params("drosophila\_cx\_hulse", "drosophila\_cx\_hulse\_known\_ode", "drosophila\_cx\_hulse\_mlp")}.
@@ -164,7 +164,7 @@ Two new files mirroring the Beiran-CX pattern:
   via $W^{\text{in}}$, returns the projected (T, N) stimulus tensor.
 \item \texttt{is\_connconstr\_model} in
   \texttt{generators/utils.py:695} extended to include
-  \texttt{HulseCxODEParams}, so it routes through the existing
+  \texttt{JaneliaCxODEParams}, so it routes through the existing
   \texttt{data\_generate\_connconstr} loop. No loop changes needed.
 \item \texttt{tests/test\_hulse\_cx.py}: registry round-trip, sigmoid
   fixed-point, bump exists at random $\psi$, traveling-bump under
@@ -325,7 +325,7 @@ plan:
 \textbf{Modified}:
 \begin{itemize}[leftmargin=*, itemsep=0pt]
 \item \texttt{src/connectome\_gnn/generators/ode\_params.py} ---
-  append \texttt{HulseCxODEParams} + registry entry.
+  append \texttt{JaneliaCxODEParams} + registry entry.
 \item \texttt{src/connectome\_gnn/generators/utils.py:695} ---
   extend \texttt{is\_connconstr\_model}.
 \item \texttt{src/connectome\_gnn/generators/optogenetics.py:465} ---
