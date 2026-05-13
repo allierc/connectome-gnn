@@ -42,6 +42,7 @@ class KnownODEBase(nn.Module):
         self.n_extra_null_edges = simulation_config.n_extra_null_edges
         self.batch_size = train_config.batch_size
         self.update_type = model_config.update_type
+        self.observable = getattr(train_config, 'observable', 'voltage')
 
         # Per-edge weights W (shared across all variants)
         n_w = self.n_edges + self.n_extra_null_edges
@@ -100,11 +101,18 @@ class KnownODEBase(nn.Module):
                 data_id=[], k=[], return_all=False, **kwargs):
         self.data_id = data_id.squeeze().long().clone().detach() if hasattr(data_id, 'squeeze') else data_id
 
-        v = state.voltage.unsqueeze(-1)
+        v = state.observable(self.observable)
         # Visual stimulus + optogenetic perturbation (when present) enter on
         # the same excitation channel; opto contributes +opto/tau to dv/dt.
         opto = state.optogenetics_stimulus if state.optogenetics_stimulus is not None else 0.0
-        excitation = (state.stimulus + opto).unsqueeze(-1)
+        # In calcium mode, use the kernel-convolved stimulus so the excitation
+        # channel lives in the same temporal regime as the calcium observable.
+        # Falls back to raw stimulus for legacy datasets without the field.
+        if self.observable == "calcium" and state.stimulus_calcium is not None:
+            stim = state.stimulus_calcium
+        else:
+            stim = state.stimulus
+        excitation = (stim + opto).unsqueeze(-1)
         particle_id = state.index.long()
 
         msg = self._compute_messages(v, edge_index)
