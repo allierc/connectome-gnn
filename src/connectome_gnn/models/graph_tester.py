@@ -588,13 +588,6 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
                 y, h_state = model(x.to_packed(), h=h_state, return_all=True)
             elif 'lstm' in model_config.signal_model_name.lower():
                 y, h_state, c_state = model(x.to_packed(), h=h_state, c=c_state, return_all=True)
-            elif 'mlp_ode' in model_config.signal_model_name.lower():
-                v = x.voltage.unsqueeze(-1)
-                if tc.training_selected_neurons:
-                    I = x.stimulus.unsqueeze(-1)
-                else:
-                    I = x.stimulus[:sim.n_input_neurons].unsqueeze(-1)
-                y = model.rollout_step(v, I, dt=sim.delta_t, method='rk4') - v
             elif is_eed:
                 # Pure latent rollout: chain evolver in z, never re-encode x.
                 stim_in = x.stimulus[:model.n_input_neurons].unsqueeze(0)
@@ -633,10 +626,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
                 x.calcium = torch.clamp(x.calcium, min=-100.0, max=100.0)
                 continue
 
-            if 'mlp_ode' in model_config.signal_model_name.lower():
-                x.voltage = x.voltage + y.squeeze(-1)
-            else:
-                x.voltage = x.voltage + sim.delta_t * y.squeeze(-1)
+            x.voltage = x.voltage + sim.delta_t * y.squeeze(-1)
 
             # Update hidden neuron voltages via SIREN or keep silent
             if has_hidden_neurons:
@@ -1536,10 +1526,6 @@ def data_test_gnn_special(
                             y, h_state = model(x_selected.to_packed(), h=h_state, return_all=True)
                         elif 'lstm' in _smn_lower:
                             y, h_state, c_state = model(x_selected.to_packed(), h=h_state, c=c_state, return_all=True)
-                        elif 'mlp_ode' in model_config.signal_model_name.lower():
-                            v = x_selected.voltage.unsqueeze(-1)
-                            I = x_selected.stimulus.unsqueeze(-1)
-                            y = model.rollout_step(v, I, dt=sim.delta_t, method='rk4') - v  # Return as delta
                         elif 'mlp' in model_config.signal_model_name.lower() or 'eed' in model_config.signal_model_name.lower():
                             y = model(x_selected.to_packed(), data_id=None, return_all=False)
 
@@ -1548,10 +1534,6 @@ def data_test_gnn_special(
                             y, h_state = model(x.to_packed(), h=h_state, return_all=True)
                         elif 'lstm' in _smn_lower:
                             y, h_state, c_state = model(x.to_packed(), h=h_state, c=c_state, return_all=True)
-                        elif 'mlp_ode' in model_config.signal_model_name.lower():
-                            v = x.voltage.unsqueeze(-1)
-                            I = x.stimulus[:sim.n_input_neurons].unsqueeze(-1)
-                            y = model.rollout_step(v, I, dt=sim.delta_t, method='rk4') - v  # Return as delta
                         elif 'mlp' in model_config.signal_model_name.lower() or 'eed' in model_config.signal_model_name.lower():
                             y = model(x.to_packed(), data_id=None, return_all=False)
                         elif tc.neural_ODE_training:
@@ -1606,17 +1588,11 @@ def data_test_gnn_special(
                         x_generated_modified.voltage = x_generated_modified.voltage + sim.delta_t * y_generated_modified.squeeze(-1)
 
                     if tc.training_selected_neurons:
-                        if 'mlp_ode' in model_config.signal_model_name.lower():
-                            x_selected.voltage = x_selected.voltage + y.squeeze(-1)  # y already contains full update
-                        else:
-                            x_selected.voltage = x_selected.voltage + sim.delta_t * y.squeeze(-1)
+                        x_selected.voltage = x_selected.voltage + sim.delta_t * y.squeeze(-1)
                         if (it <= warm_up_length) and ('rnn' in _smn_lower or 'lstm' in _smn_lower):
                             x_selected.voltage = x_generated.voltage[selected_neuron_ids].clone()
                     else:
-                        if 'mlp_ode' in model_config.signal_model_name.lower():
-                            x.voltage = x.voltage + y.squeeze(-1)  # y already contains full update
-                        else:
-                            x.voltage = x.voltage + sim.delta_t * y.squeeze(-1)
+                        x.voltage = x.voltage + sim.delta_t * y.squeeze(-1)
                         if (it <= warm_up_length) and ('rnn' in _smn_lower):
                             x.voltage = x_generated.voltage.clone()
 
