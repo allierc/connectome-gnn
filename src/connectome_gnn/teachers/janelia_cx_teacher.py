@@ -87,6 +87,7 @@ class JaneliaCxRNN(nn.Module):
         dt: float = 0.01,
         W_con: torch.Tensor | None = None,
         type_pair_blocks: dict | None = None,
+        ring_assignments: dict | None = None,
         init_scale: float = 1.0 / 100.0,
         rng_seed: int = 0,
     ):
@@ -106,6 +107,13 @@ class JaneliaCxRNN(nn.Module):
                 `mask` is a (N, N) bool tensor selecting the type-pair block.
                 Used by L_cosd and L_norm. If None, the regularisers fall
                 back to a single global block.
+            ring_assignments: optional dict mapping ring name (e.g. "EPG",
+                "PEN") to a tuple ``(neuron_indices, ring_positions)``,
+                each a 1-D int array of equal length. ``neuron_indices``
+                are positions in the (N,) unit population; ``ring_positions``
+                are integer EB-ring positions used to sort the neurons
+                around the ring. Used by `loss_tv_circular` to penalise
+                jumps between neighbouring positions on the EB ring.
             init_scale: stddev of the N(0, init_scale**2) initialisation
                 used when W_con is None or for W_in.  Hulse uses d=100
                 (init_scale = 1/100).
@@ -170,6 +178,29 @@ class JaneliaCxRNN(nn.Module):
             # Persist them as buffers so .to(device) moves them
             for i, m in enumerate(self._block_masks):
                 self.register_buffer(f"_block_mask_{i}", m, persistent=False)
+
+        # --- Ring orderings for circular-TV regulariser ------------------
+        # For each named ring, store a 1-D long tensor of neuron indices
+        # in EB-ring order; loss_tv_circular gathers activity by these
+        # indices and penalises adjacent-position differences (wrap-around).
+        self._ring_names: list[str] = []
+        if ring_assignments:
+            for name, (idx, pos) in ring_assignments.items():
+                idx_np = np.asarray(idx, dtype=np.int64)
+                pos_np = np.asarray(pos, dtype=np.int64)
+                if idx_np.shape != pos_np.shape or idx_np.ndim != 1:
+                    raise ValueError(
+                        f"ring '{name}': neuron_indices and ring_positions "
+                        f"must be 1-D arrays of equal length, got "
+                        f"{idx_np.shape} and {pos_np.shape}"
+                    )
+                # Sort neurons by ring position so adjacent slots in the
+                # gathered tensor are adjacent on the ring.
+                sort = np.argsort(pos_np, kind="stable")
+                order = torch.from_numpy(idx_np[sort]).long()
+                safe = name.replace("-", "_").replace(" ", "_")
+                self.register_buffer(f"_ring_order_{safe}", order, persistent=False)
+                self._ring_names.append(safe)
 
     # --- Effective recurrent weight (Hulse Eq. 9) ----------------------
 
@@ -257,6 +288,28 @@ class JaneliaCxRNN(nn.Module):
             slack = F.relu(kappa - mean_abs)
             total = total + slack.pow(2)
         return lam * total / max(len(self._block_names), 1)
+
+    def loss_tv_circular(self, h_buf: torch.Tensor, lam: float = 1.0) -> torch.Tensor:
+        """Circular total-variation penalty on firing rates around each
+        EB ring (e.g. EPG, PEN). Encodes the prior that neurons adjacent
+        on the EB ring should fire similarly — the bump is spatially
+        smooth, even if individual entries in the unsorted firing-rate
+        vector look discontinuous.
+
+        Per ring: gather r = sigmoid(h) at the cached ring-order indices,
+        then sum |r[..., (j+1) mod n] - r[..., j]| across positions and
+        average over (batch, time). Rings are summed and averaged.
+        """
+        if not self._ring_names or lam == 0.0:
+            return self.S.new_zeros(())
+        r = torch.sigmoid(h_buf)                          # (B, T, N)
+        total = self.S.new_zeros(())
+        for name in self._ring_names:
+            order = getattr(self, f"_ring_order_{name}")  # (n_ring,)
+            r_ring = r.index_select(-1, order)            # (B, T, n_ring)
+            diffs = (torch.roll(r_ring, -1, dims=-1) - r_ring).abs()
+            total = total + diffs.sum(dim=-1).mean()
+        return lam * total / len(self._ring_names)
 
 
 # ---------------------------------------------------------------------------
@@ -427,6 +480,7 @@ def train_janelia_cx_teacher(
     lr_drop_factor: float = 0.1,
     lambda_cos: float = 1.0,
     lambda_norm: float = 1.0,
+    lambda_tv: float = 0.0,
     kappa_norm: float = 0.05,
     seed: int = 0,
     device: str = "cuda" if torch.cuda.is_available() else "cpu",
@@ -479,6 +533,35 @@ def train_janelia_cx_teacher(
     # cos-distance regulariser is scale-invariant anyway.
     type_pair_blocks = _build_type_pair_blocks(neuron_types, type_names, W_con_np)
 
+    # Ring assignments for the circular-TV regulariser. Each entry pairs
+    # the in-network indices of a neuron population with their EB-ring
+    # positions. EPG has an explicit glomerular mapping (cx["epg_ix"]);
+    # PEN/PENa/PENb get the natural connectome-order index as their ring
+    # position (the loader sorts neurons by neuPrint instance, which is
+    # PB-glomerulus-ordered for these types).
+    ring_assignments: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+    if "EPG" in type_names:
+        epg_t = type_names.index("EPG")
+        epg_idx = np.where(neuron_types == epg_t)[0]
+        if epg_idx.size == epg_glom_ix.size:
+            ring_assignments["EPG"] = (epg_idx, epg_glom_ix)
+    # PEN: substring match catches all PEN-family types in the hemibrain
+    # naming convention ("PEN_a(PEN1)", "PEN_b(PEN2)", etc.) without
+    # accidentally pulling in PEG. Natural connectome-order index serves
+    # as the ring position (the loader sorts neurons by neuPrint instance,
+    # which is PB-glomerulus-ordered for PEN types).
+    pen_type_idx = [i for i, n in enumerate(type_names)
+                    if "PEN" in n and "PEG" not in n]
+    pen_idx_all: list[int] = []
+    for t in pen_type_idx:
+        pen_idx_all.extend(np.where(neuron_types == t)[0].tolist())
+    if pen_idx_all:
+        pen_idx_arr = np.array(sorted(pen_idx_all), dtype=np.int64)
+        ring_assignments["PEN"] = (pen_idx_arr, np.arange(pen_idx_arr.size))
+    if ring_assignments:
+        sizes = ", ".join(f"{k}={v[0].size}" for k, v in ring_assignments.items())
+        print(f"[janelia_cx] ring assignments for circular-TV reg: {sizes}")
+
     W_con_t = torch.from_numpy(W_con_np)
 
     net = JaneliaCxRNN(
@@ -489,6 +572,7 @@ def train_janelia_cx_teacher(
         dt=0.01,
         W_con=W_con_t,
         type_pair_blocks=type_pair_blocks,
+        ring_assignments=ring_assignments,
         rng_seed=seed,
     ).to(device)
 
@@ -514,7 +598,8 @@ def train_janelia_cx_teacher(
         sched = None
 
     steps_per_epoch = max(1, n_trials // batch_size)
-    history = {"loss": [], "mse": [], "cosd": [], "norm": [], "epoch": [], "pi_acc": []}
+    history = {"loss": [], "mse": [], "cosd": [], "norm": [], "tv": [],
+               "epoch": [], "pi_acc": []}
     best_loss = float("inf")
 
     # Per-epoch trial length: int -> constant; list -> curriculum (pads with last).
@@ -586,7 +671,7 @@ def train_janelia_cx_teacher(
 
     t0 = time.time()
     # EMA buffers for a smooth running display
-    ema_loss = ema_mse = ema_cosd = ema_norm = None
+    ema_loss = ema_mse = ema_cosd = ema_norm = ema_tv = None
     ema_alpha = 0.05
     last_pi_acc = float("nan")
     last_fwhm = float("nan")
@@ -613,11 +698,12 @@ def train_janelia_cx_teacher(
             batch = generate_path_integration_batch(
                 batch_size, n_steps_epoch, device=device, rng=rng
             )
-            y_hat, _ = net(batch.u)
+            y_hat, h_buf = net(batch.u)
             mse = F.mse_loss(y_hat, batch.y)
             cosd = net.loss_cos_distance(lambda_cos)
             norm = net.loss_norm_floor(lambda_norm, kappa_norm)
-            loss = mse + cosd + norm
+            tv = net.loss_tv_circular(h_buf, lambda_tv)
+            loss = mse + cosd + norm + tv
 
             opt.zero_grad(set_to_none=True)
             loss.backward()
@@ -627,12 +713,14 @@ def train_janelia_cx_teacher(
             ema_mse = _ema(ema_mse, mse.item())
             ema_cosd = _ema(ema_cosd, cosd.item())
             ema_norm = _ema(ema_norm, norm.item())
+            ema_tv = _ema(ema_tv, tv.item())
 
             if step % log_interval == 0:
                 history["loss"].append(float(loss.item()))
                 history["mse"].append(float(mse.item()))
                 history["cosd"].append(float(cosd.item()))
                 history["norm"].append(float(norm.item()))
+                history["tv"].append(float(tv.item()))
                 history["epoch"].append(epoch + step / steps_per_epoch)
 
             if step % eval_interval == 0 or step == steps_per_epoch:
@@ -665,7 +753,7 @@ def train_janelia_cx_teacher(
             )
             pbar.set_postfix_str(
                 f"loss={ema_loss:.5f}  mse={ema_mse:.5f}  "
-                f"cosd={ema_cosd:.5f}  norm={ema_norm:.5f}  "
+                f"cosd={ema_cosd:.5f}  norm={ema_norm:.5f}  tv={ema_tv:.5f}  "
                 f"{acc_col}pi_acc={last_pi_acc:.4f}{reset}  "
                 f"fwhm={fwhm_deg}  best={best_loss:.5f}"
             )
@@ -940,8 +1028,19 @@ def _save_training_snapshot(
             net, n_steps=snapshot_n_steps,
             omega_deg_per_s=snapshot_omega_deg, device=device,
         )
-        # Pack r_epg for the snapshot plotter's interface.
+        # Pack r_epg + r_pen for the snapshot plotter's interface.
+        # PEN: substring match on type names ("PEN_a(PEN1)", "PEN_b(PEN2)"),
+        # excluding PEG; uses the loader's natural index order as ring pos.
         rollout["r_epg"] = rollout["r"][:, epg_indices]
+        pen_type_idx = [i for i, n in enumerate(type_names)
+                        if "PEN" in n and "PEG" not in n]
+        if pen_type_idx:
+            pen_idx_list: list[int] = []
+            nt = np.asarray(neuron_types)
+            for t in pen_type_idx:
+                pen_idx_list.extend(np.where(nt == t)[0].tolist())
+            pen_indices = np.array(sorted(pen_idx_list), dtype=np.int64)
+            rollout["r_pen"] = rollout["r"][:, pen_indices]
         epg_theta = cx_epg_directions(epg_glom_ix)
         plot_cx_training_snapshot(
             W_rec=net.W_rec.detach().cpu().numpy(),
@@ -1068,6 +1167,11 @@ def _main():
                         " at --lr-drop-epoch) or a comma-separated per-epoch schedule."
                         " Default is the 5-epoch schedule '5e-3,1e-3,5e-4,2e-4,1e-4'"
                         " matched to the n_steps curriculum.")
+    p.add_argument("--lambda-tv", type=float, default=0.0,
+                   help="weight for the circular TV regulariser on EPG+PEN "
+                        "firing rates around the EB ring (default 0; try 1e-3 "
+                        "to start, increase if the bump looks discontinuous "
+                        "in HD-sorted neuron order).")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     p.add_argument("--log-interval", type=int, default=50,
@@ -1122,6 +1226,7 @@ def _main():
         device=args.device,
         log_interval=args.log_interval,
         eval_interval=args.eval_interval,
+        lambda_tv=args.lambda_tv,
         include_er6=args.include_er6,
         rollout_interval=args.rollout_interval,
         rollout_n_steps=args.rollout_n_steps,
