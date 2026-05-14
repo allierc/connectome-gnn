@@ -495,11 +495,20 @@ def plot_cx_training_snapshot(
         fwhm_z_thresh: per-frame z-score threshold used to compute the bump
             FWHM annotation on the angle-binned panel (default 1.0).
     """
-    fig = plt.figure(figsize=(20, 5.5))
-    gs = fig.add_gridspec(1, 3, width_ratios=[2.0, 1.0, 1.0])
+    fig = plt.figure(figsize=(16, 14))
+    gs = fig.add_gridspec(2, 2, width_ratios=[1.0, 1.0],
+                          height_ratios=[1.0, 1.0],
+                          hspace=0.22, wspace=0.22,
+                          left=0.06, right=0.94, top=0.93, bottom=0.05)
     ax_mat = fig.add_subplot(gs[0, 0])
     ax_kin = fig.add_subplot(gs[0, 1])
-    ax_neu = fig.add_subplot(gs[0, 2])
+    ax_neu = fig.add_subplot(gs[1, 0])
+    # Bottom-right cell becomes a 3x3 of polar axes (defaults: full 360°).
+    gs_polar = gs[1, 1].subgridspec(3, 3, hspace=0.45, wspace=0.30)
+    polar_axes = [
+        fig.add_subplot(gs_polar[i, j], projection="polar")
+        for i in range(3) for j in range(3)
+    ]
 
     # ---- LEFT: W_rec matrix ----
     J = W_rec.T if W_rec.shape[0] == W_rec.shape[1] else W_rec
@@ -527,7 +536,8 @@ def plot_cx_training_snapshot(
         ax_mat.set_yticklabels(labels, fontsize=7)
     ax_mat.set_title(f"learned W_rec   vmax=±{mat_vmax:.3f}", fontsize=10)
     ax_mat.set_xlabel("presyn"); ax_mat.set_ylabel("postsyn")
-    fig.colorbar(im, ax=ax_mat, fraction=0.046, pad=0.04)
+    cb_mat = fig.colorbar(im, ax=ax_mat, fraction=0.04, pad=0.02, shrink=0.8)
+    cb_mat.ax.tick_params(labelsize=7)
 
     # ---- RIGHT: kinograph with HD curves ----
     # We plot the per-frame z-scored angular bump (mean=0, std=1 across
@@ -551,7 +561,7 @@ def plot_cx_training_snapshot(
                            vmin=-z_max, vmax=z_max,
                            extent=[-np.pi, np.pi, T * dt_s, 0],
                            interpolation="nearest")
-    cb_kin = fig.colorbar(im_kin, ax=ax_kin, fraction=0.04, pad=0.02)
+    cb_kin = fig.colorbar(im_kin, ax=ax_kin, fraction=0.04, pad=0.02, shrink=0.85)
     cb_kin.ax.tick_params(labelsize=7)
     cb_kin.set_label("z-score (per-frame, across angular bins)", fontsize=7)
     # Mark the FWHM threshold on the colorbar so "z>1" has a visual anchor.
@@ -623,9 +633,75 @@ def plot_cx_training_snapshot(
     ax_neu.set_ylabel("time (s)")
     ax_neu.set_title("per-neuron EPG (raw firing rate)", fontsize=10)
 
+    # ---- BOTTOM-RIGHT: 3x3 polar snapshots at 9 sampled HD values ----
+    # For each target HD, find the rollout frame whose true_theta is
+    # closest, then plot EPG (outer ring, r=1.0) and PEN (inner ring,
+    # r=0.6) firing rates as colored dots placed at the neuron's
+    # preferred angle. PEN preferred angles are unknown — we use a
+    # uniform ring in connectome-order as a stand-in (matches the
+    # ordering used by the circular-TV regulariser).
+    true_theta_arr = np.angle(np.exp(1j * np.asarray(rollout["true_theta"])))
+    target_angles = np.linspace(-np.pi, np.pi, 9, endpoint=False)
+    r_pen = rollout.get("r_pen")  # (T, n_pen) or None
+    n_pen = r_pen.shape[1] if r_pen is not None else 0
+    pen_theta = (np.linspace(-np.pi, np.pi, n_pen, endpoint=False)
+                 if n_pen > 0 else None)
+    epg_theta_wrapped = np.angle(np.exp(1j * np.asarray(epg_theta)))
+
+    # Shared colour scale across all 9 cells so brightness is comparable.
+    polar_vmax = float(np.percentile(
+        np.concatenate([r_epg.ravel(), r_pen.ravel()]) if r_pen is not None
+        else r_epg.ravel(), 99) + 1e-9)
+    # Use scatter-with-cmap; we need a mappable for the shared colourbar.
+    polar_scatter = None
+    epg_radius, pen_radius = 1.0, 0.6
+    for k, target in enumerate(target_angles):
+        ax = polar_axes[k]
+        # Closest frame in the rollout to this target HD.
+        dist = np.abs(np.angle(np.exp(1j * (true_theta_arr - target))))
+        t_idx = int(np.argmin(dist))
+        # EPG outer ring.
+        sc_e = ax.scatter(
+            epg_theta_wrapped, np.full(n_epg, epg_radius),
+            c=r_epg[t_idx], cmap="viridis", vmin=0.0, vmax=polar_vmax,
+            s=14, edgecolors="none",
+        )
+        # PEN inner ring (if available).
+        if r_pen is not None:
+            ax.scatter(
+                pen_theta, np.full(n_pen, pen_radius),
+                c=r_pen[t_idx], cmap="viridis", vmin=0.0, vmax=polar_vmax,
+                s=10, edgecolors="none",
+            )
+        # Reference line at the actual frame HD (not the target).
+        actual = true_theta_arr[t_idx]
+        ax.plot([actual, actual], [0, 1.15], color="black", linewidth=0.8)
+        ax.set_ylim(0, 1.25)
+        ax.set_yticks([])
+        ax.set_xticks([0, np.pi / 2, np.pi, 3 * np.pi / 2])
+        ax.set_xticklabels(["0°", "90°", "±180°", "−90°"], fontsize=6)
+        ax.tick_params(pad=0)
+        ax.set_title(f"θ={np.degrees(actual):+.0f}°", fontsize=8, pad=4)
+        ax.grid(alpha=0.25, linewidth=0.4)
+        if polar_scatter is None:
+            polar_scatter = sc_e
+    # Single colorbar anchored to the right column of the 3x3 grid.
+    cbar = fig.colorbar(polar_scatter, ax=[polar_axes[2], polar_axes[5], polar_axes[8]],
+                        fraction=0.05, pad=0.04, shrink=0.85)
+    cbar.ax.tick_params(labelsize=6)
+    cbar.set_label("firing rate", fontsize=7)
+    # Group title: position above the top row of the polar grid using the
+    # gridspec coordinates of the upper-right block.
+    pos = gs[1, 1].get_position(fig)
+    fig.text(
+        (pos.x0 + pos.x1) / 2.0, pos.y1 + 0.005,
+        f"EPG (outer) + PEN (inner) at 9 HDs"
+        + (f"  —  n_pen={n_pen}" if n_pen else "  —  no PEN data"),
+        ha="center", fontsize=9,
+    )
+
     title = f"training snapshot   step={step}" if step is not None else "training snapshot"
     fig.suptitle(title, fontsize=12)
-    plt.tight_layout(rect=[0, 0, 1, 0.97])
     fig.savefig(output_path, dpi=160, bbox_inches="tight")
     plt.close(fig)
 
