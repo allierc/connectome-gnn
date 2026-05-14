@@ -124,6 +124,11 @@ assets/*.html
 /docs/*.log
 /docs/*.out
 /docs/*.gz
+docs/*.tex
+docs/*.pdf
+
+# Local-only data dirs (per-branch dev artefacts)
+gcamp/
 
 .github/skills/
 docs/repo_overview.md
