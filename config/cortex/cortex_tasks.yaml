@@ -1,0 +1,42 @@
+description: "Yang et al. 2019 multitask cognitive battery — full 20-rule cortex dataset."
+dataset: task_cortex_tasks
+simulation:
+  params:
+    - - 1.0
+graph_model:
+  aggr_type: add
+plotting: {}
+training: {}
+task:
+  task_type: cortex
+  task_only: true
+  cortex:
+    # Yang's ruleset='all' = 20 tasks (go/anti, dm/delaydm, ctx-variants, dms/dmc families).
+    rules:
+      - fdgo
+      - reactgo
+      - delaygo
+      - fdanti
+      - reactanti
+      - delayanti
+      - dm1
+      - dm2
+      - contextdm1
+      - contextdm2
+      - multidm
+      - delaydm1
+      - delaydm2
+      - contextdelaydm1
+      - contextdelaydm2
+      - multidelaydm
+      - dmsgo
+      - dmsnogo
+      - dmcgo
+      - dmcnogo
+    rule_weights: []          # uniform sampling
+    ruleset: "all"
+    n_trials_train: 200       # ~10 trials per rule on average
+    n_trials_test: 40         # ~2 trials per rule on average
+    n_steps_max: 300          # contextdelaydm runs ~166 frames; keep slack
+    seed: 0
+    hp_overrides: {}

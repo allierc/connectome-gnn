@@ -1,0 +1,21 @@
+description: "Yang delaygo single-task — mirrors papers/multi-tasks/config/multi_task/multi_task_delaygo_1.yaml"
+dataset: task_cortex_delaygo
+simulation:
+  params:
+    - - 1.0
+graph_model:
+  aggr_type: add
+plotting: {}
+training: {}
+task:
+  task_type: cortex
+  task_only: true
+  cortex:
+    rules: ["delaygo"]
+    rule_weights: []
+    ruleset: "all"
+    n_trials_train: 1000
+    n_trials_test: 200
+    n_steps_max: 200
+    seed: 0
+    hp_overrides: {}

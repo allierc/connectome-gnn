@@ -12,7 +12,9 @@ import re
 
 from connectome_gnn.config import NeuralGraphConfig
 from connectome_gnn.generators.graph_data_generator import data_generate
-from connectome_gnn.models.graph_trainer import data_train, data_test, data_train_INR
+from connectome_gnn.models.graph_trainer import (
+    data_train, data_test, data_train_INR, data_train_task_gnn,
+)
 # SPEND-style Noise2Noise trainer (sibling of data_train, data_train_INR).
 # Cite: https://github.com/buchenglab/SPEND  (Ding et al. 2025, Newton 1, 100195)
 from connectome_gnn.models.graph_trainer_spend import data_train_spend
@@ -118,76 +120,6 @@ if __name__ == "__main__":
             '/groups/saalfeld/home/allierc/GraphData/config/fly/flyvis_noise_005_stride_5_baseline_00',
             '/groups/saalfeld/home/allierc/GraphData/config/fly/flyvis_noise_005_stride_5_yt_baseline_00',
         ],
-        'drosophila_cx_baselines': [
-            'drosophila_cx_known_ode',
-            'drosophila_cx_rnn',
-            'drosophila_cx_neuralode',
-        ],
-        'known_ode': [
-            'flyvis_noise_free_known_ode',
-            'flyvis_noise_005_known_ode',
-            'flyvis_noise_05_known_ode',
-            'flyvis_noise_005_INR_known_ode',
-        ],
-        'retest_noisy_rollouts': [
-            *[f'flyvis_noise_005_cv{i:02d}' for i in range(10)],
-            *[f'flyvis_noise_05_cv{i:02d}' for i in range(10)],
-            *[f'flyvis_noise_free_default_cv{i:02d}' for i in range(10)],
-            *[f'flyvis_noise_005_default_cv{i:02d}' for i in range(10)],
-            *[f'flyvis_noise_05_default_cv{i:02d}' for i in range(10)],
-        ],
-        'flyvis_blank_sweep': [
-            'flyvis_noise_005_blank01',
-            'flyvis_noise_005_blank05',
-            'flyvis_noise_005_blank10',
-            'flyvis_noise_005_blank25',
-            'flyvis_noise_005_blank50',
-        ],
-        # Three blank50 datasets pinned to the same DAVIS2017-partial-test
-        # root (and the same seed=42) so panels d/e/f of fig_simulations.py
-        # see bit-identical stimulus sequences. Use:
-        #   python GNN_Main.py -o generate flyvis_blank50_davispt
-        # to regenerate all three from scratch.
-        'flyvis_blank50_davispt': [
-            'flyvis_noise_free_blank50_davispt',
-            'flyvis_noise_005_blank50_davispt',
-            'flyvis_noise_05_blank50_davispt',
-        ],
-        'flyvis_noise_free_blank50_unified_cv': [
-            'flyvis_noise_free_blank50_unified_cv00',
-            'flyvis_noise_free_blank50_unified_cv01',
-            'flyvis_noise_free_blank50_unified_cv02',
-            'flyvis_noise_free_blank50_unified_cv03',
-            'flyvis_noise_free_blank50_unified_cv04',
-        ],
-        'flyvis_noise_005_blank50_unified_cv': [
-            'flyvis_noise_005_blank50_unified_cv00',
-            'flyvis_noise_005_blank50_unified_cv01',
-            'flyvis_noise_005_blank50_unified_cv02',
-            'flyvis_noise_005_blank50_unified_cv03',
-            'flyvis_noise_005_blank50_unified_cv04',
-        ],
-        'flyvis_noise_05_blank50_unified_cv': [
-            'flyvis_noise_05_blank50_unified_cv00',
-            'flyvis_noise_05_blank50_unified_cv01',
-            'flyvis_noise_05_blank50_unified_cv02',
-            'flyvis_noise_05_blank50_unified_cv03',
-            'flyvis_noise_05_blank50_unified_cv04',
-        ],
-        'hybrid_flywireRF_variants': [
-            'e8_flywireRF_noise_005',
-            'full_eye_flywireRF_noise_005',
-            'e8_flywireRF_proximal_nulls_noise_005',
-            'full_eye_flywireRF_proximal_nulls_noise_005',
-        ],
-        # SPEND-style Noise2Noise trainer; invoke with -o train_SPEND flyvis_spend.
-        # Cite: https://github.com/buchenglab/SPEND
-        'flyvis_spend': [
-            'flyvis_noise_005_010_spend_replay',
-            'flyvis_noise_005_010_spend_time',
-            'flyvis_noise_005_010_spend_typed',
-            'flyvis_noise_005_010_spend_combined',
-        ],
     }
 
     if args.option is not None:
@@ -221,8 +153,8 @@ if __name__ == "__main__":
                 test_config_name = None
     else:
         best_model = ''
-        task = task = 'train'
-        config_list = ['flyvis_noise_005_hidden_010_blank50_consensus_ngp_light']
+        task = task = 'generate'
+        config_list = ['drosophila_cx_pi']
         test_config_name = None
 
     if task == 'cv':
@@ -316,7 +248,21 @@ if __name__ == "__main__":
             with open(_marker, 'w') as f:
                 f.write(f"commit={sha}\nargv={sys.argv}\n")
 
-        if 'train_NGP' in task:
+        if 'train_task' in task:
+            # Path-integration task trainer (NeuralTaskGNN). Sibling of
+            # train_NGP / train_INR / train_SPEND. Placed first because
+            # `'train' in 'train_task'` would otherwise fall into the generic
+            # `train` branch below.
+            _marker = os.path.join(run_log_dir, '_completed_train')
+            if os.path.exists(_marker):
+                os.remove(_marker)
+            data_train_task_gnn(
+                config=config, erase=True, best_model=best_model, device=device,
+            )
+            with open(_marker, 'w') as f:
+                f.write(f"commit={sha}\nargv={sys.argv}\n")
+
+        elif 'train_NGP' in task:
             _marker = os.path.join(run_log_dir, '_completed_train')
             if os.path.exists(_marker):
                 os.remove(_marker)
