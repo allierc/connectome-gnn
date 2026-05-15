@@ -1,5 +1,7 @@
+import math
 import os
 import subprocess
+from dataclasses import dataclass
 from time import sleep
 
 import numpy as np
@@ -742,3 +744,121 @@ _FLYVIS_HYBRID_MODELS = {
 def is_flyvis_hybrid_model(signal_model_name: str) -> bool:
     """Check if signal_model_name is a flyrewire hybrid model."""
     return signal_model_name in _FLYVIS_HYBRID_MODELS
+
+
+# ---------------------------------------------------------------------------
+# Path-integration data generation (Hulse Methods Eqs. 5-7).
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class PathIntegrationBatch:
+    """One batch of path-integration training data.
+
+    Shapes:
+        u:        (B, T, 3) — [omega(t), cos(theta0)*1_{t=0}, sin(theta0)*1_{t=0}]
+        y:        (B, T, 2) — [cos(theta_hd(t)), sin(theta_hd(t))]
+        theta_hd: (B, T)    — ground-truth heading in radians (for diagnostics)
+        is_stop:  (B, T)    — 1 during standing pauses, 0 otherwise
+    """
+    u: torch.Tensor
+    y: torch.Tensor
+    theta_hd: torch.Tensor
+    is_stop: torch.Tensor
+
+
+def generate_path_integration_batch(
+    batch_size: int,
+    n_steps: int,
+    *,
+    dt: float = 0.01,
+    tau_corr: float = 0.12,
+    sigma_omega_deg: float = 40.0,
+    stop_fraction: float = 0.20,
+    stop_mean_s: float = 2.0,
+    stop_max_s: float = 8.0,
+    device: torch.device | str = "cpu",
+    rng: np.random.Generator | None = None,
+) -> PathIntegrationBatch:
+    """Generate a path-integration training batch (Hulse Methods Eqs. 5-7).
+
+    Args:
+        batch_size: number of trials B.
+        n_steps:    number of timesteps T (Hulse default 100).
+        dt:         step size in seconds (Hulse: 0.01).
+        tau_corr:   OU autocorrelation time (Hulse: 0.12 s).
+        sigma_omega_deg: stationary stddev of omega (Hulse: 40 deg/s).
+        stop_fraction:   approximate fraction of trial time spent stationary.
+        stop_mean_s:     mean stop duration (Hulse: 2 s, exponential).
+        stop_max_s:      cap on stop duration (Hulse: 8 s).
+        device, rng:     where to allocate / what RNG to use.
+
+    Returns:
+        PathIntegrationBatch on `device`.
+    """
+    if rng is None:
+        rng = np.random.default_rng()
+
+    B = int(batch_size)
+    T = int(n_steps)
+    alpha = 1.0 / tau_corr
+    sigma = sigma_omega_deg * math.sqrt(2.0 * alpha)
+    sqrt_dt = math.sqrt(dt)
+    sigma_step = sigma * sqrt_dt
+
+    omega = np.zeros((B, T), dtype=np.float32)
+    eta = rng.standard_normal(size=(B, T)).astype(np.float32)
+
+    # OU integration (Eq. 5). Use multiplicative form for stability.
+    decay = 1.0 - alpha * dt
+    for t in range(1, T):
+        omega[:, t] = decay * omega[:, t - 1] + sigma_step * eta[:, t]
+
+    # Standing pauses: insert exponential-duration stops in each trial.
+    is_stop = np.zeros((B, T), dtype=np.float32)
+    if stop_fraction > 0.0:
+        mean_steps = stop_mean_s / dt
+        max_steps = int(stop_max_s / dt)
+        for b in range(B):
+            covered = 0
+            target = int(stop_fraction * T)
+            attempts = 0
+            while covered < target and attempts < 100:
+                attempts += 1
+                start = rng.integers(0, T)
+                length = min(
+                    max_steps,
+                    int(rng.exponential(mean_steps)),
+                    T - start,
+                )
+                if length <= 0:
+                    continue
+                end = start + length
+                already = int(is_stop[b, start:end].sum())
+                is_stop[b, start:end] = 1.0
+                covered += length - already
+        omega = omega * (1.0 - is_stop)  # zero velocity during stops
+
+    # Integrate to heading (Eq. 6).
+    theta0 = rng.uniform(0.0, 2.0 * math.pi, size=B).astype(np.float32)
+    omega_rad = np.deg2rad(omega)
+    theta_hd = theta0[:, None] + np.cumsum(omega_rad, axis=1) * dt
+    theta_hd[:, 0] = theta0  # ensure t=0 has the initial heading
+
+    cos_t = np.cos(theta_hd).astype(np.float32)
+    sin_t = np.sin(theta_hd).astype(np.float32)
+
+    # Input vector (Eq. 7): [omega, cos(theta0)*1_{t=0}, sin(theta0)*1_{t=0}].
+    u = np.zeros((B, T, 3), dtype=np.float32)
+    u[:, :, 0] = omega  # in deg/s, matching Hulse
+    u[:, 0, 1] = np.cos(theta0)
+    u[:, 0, 2] = np.sin(theta0)
+
+    y = np.stack([cos_t, sin_t], axis=-1).astype(np.float32)
+
+    return PathIntegrationBatch(
+        u=torch.from_numpy(u).to(device),
+        y=torch.from_numpy(y).to(device),
+        theta_hd=torch.from_numpy(theta_hd).to(device),
+        is_stop=torch.from_numpy(is_stop).to(device),
+    )

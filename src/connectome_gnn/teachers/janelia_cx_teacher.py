@@ -45,13 +45,28 @@ from typing import Optional
 import math
 import os
 import time
-from dataclasses import dataclass
 
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import trange
+
+from connectome_gnn.generators.utils import (
+    PathIntegrationBatch,
+    generate_path_integration_batch,
+)
+# These helpers were moved to models/cx_eval.py so the new
+# `data_train_task_gnn` (in models/graph_trainer.py) can use them without
+# importing the teacher module. Re-exported here so the existing CLI and
+# `janelia_cx_diagnostic` keep working.
+from connectome_gnn.models.cx_eval import (  # noqa: F401  (re-export)
+    _deterministic_sweep_rollout,
+    _save_training_snapshot,
+    build_type_pair_blocks as _build_type_pair_blocks,
+    bump_fwhm,
+    path_integration_accuracy,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -313,158 +328,8 @@ class JaneliaCxRNN(nn.Module):
 
 
 # ---------------------------------------------------------------------------
-# Path-integration data generation
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class PathIntegrationBatch:
-    """One batch of path-integration training data.
-
-    Shapes:
-        u:        (B, T, 3) — [omega(t), cos(theta0)*1_{t=0}, sin(theta0)*1_{t=0}]
-        y:        (B, T, 2) — [cos(theta_hd(t)), sin(theta_hd(t))]
-        theta_hd: (B, T)    — ground-truth heading in radians (for diagnostics)
-        is_stop:  (B, T)    — 1 during standing pauses, 0 otherwise
-    """
-    u: torch.Tensor
-    y: torch.Tensor
-    theta_hd: torch.Tensor
-    is_stop: torch.Tensor
-
-
-def generate_path_integration_batch(
-    batch_size: int,
-    n_steps: int,
-    *,
-    dt: float = 0.01,
-    tau_corr: float = 0.12,
-    sigma_omega_deg: float = 40.0,
-    stop_fraction: float = 0.20,
-    stop_mean_s: float = 2.0,
-    stop_max_s: float = 8.0,
-    device: torch.device | str = "cpu",
-    rng: np.random.Generator | None = None,
-) -> PathIntegrationBatch:
-    """Generate a path-integration training batch (Hulse Methods Eqs. 5-7).
-
-    Args:
-        batch_size: number of trials B.
-        n_steps:    number of timesteps T (Hulse default 100).
-        dt:         step size in seconds (Hulse: 0.01).
-        tau_corr:   OU autocorrelation time (Hulse: 0.12 s).
-        sigma_omega_deg: stationary stddev of omega (Hulse: 40 deg/s).
-        stop_fraction:   approximate fraction of trial time spent stationary.
-        stop_mean_s:     mean stop duration (Hulse: 2 s, exponential).
-        stop_max_s:      cap on stop duration (Hulse: 8 s).
-        device, rng:     where to allocate / what RNG to use.
-
-    Returns:
-        PathIntegrationBatch on `device`.
-    """
-    if rng is None:
-        rng = np.random.default_rng()
-
-    B = int(batch_size)
-    T = int(n_steps)
-    alpha = 1.0 / tau_corr
-    sigma = sigma_omega_deg * math.sqrt(2.0 * alpha)
-    sqrt_dt = math.sqrt(dt)
-    sigma_step = sigma * sqrt_dt
-
-    omega = np.zeros((B, T), dtype=np.float32)
-    eta = rng.standard_normal(size=(B, T)).astype(np.float32)
-
-    # OU integration (Eq. 5). Use multiplicative form for stability.
-    decay = 1.0 - alpha * dt
-    for t in range(1, T):
-        omega[:, t] = decay * omega[:, t - 1] + sigma_step * eta[:, t]
-
-    # Standing pauses: insert exponential-duration stops in each trial.
-    # Average fraction is roughly `stop_fraction`, capped per-stop at stop_max_s.
-    is_stop = np.zeros((B, T), dtype=np.float32)
-    if stop_fraction > 0.0:
-        mean_steps = stop_mean_s / dt
-        max_steps = int(stop_max_s / dt)
-        for b in range(B):
-            covered = 0
-            target = int(stop_fraction * T)
-            attempts = 0
-            while covered < target and attempts < 100:
-                attempts += 1
-                start = rng.integers(0, T)
-                length = min(
-                    max_steps,
-                    int(rng.exponential(mean_steps)),
-                    T - start,
-                )
-                if length <= 0:
-                    continue
-                end = start + length
-                already = int(is_stop[b, start:end].sum())
-                is_stop[b, start:end] = 1.0
-                covered += length - already
-        omega = omega * (1.0 - is_stop)  # zero velocity during stops
-
-    # Integrate to heading (Eq. 6).
-    theta0 = rng.uniform(0.0, 2.0 * math.pi, size=B).astype(np.float32)
-    omega_rad = np.deg2rad(omega)
-    theta_hd = theta0[:, None] + np.cumsum(omega_rad, axis=1) * dt
-    theta_hd[:, 0] = theta0  # ensure t=0 has the initial heading
-
-    # Hold theta_hd constant during stops (replace cumsum increment with 0 above).
-
-    cos_t = np.cos(theta_hd).astype(np.float32)
-    sin_t = np.sin(theta_hd).astype(np.float32)
-
-    # Input vector (Eq. 7): [omega, cos(theta0)*1_{t=0}, sin(theta0)*1_{t=0}].
-    u = np.zeros((B, T, 3), dtype=np.float32)
-    u[:, :, 0] = omega  # in deg/s, matching Hulse
-    u[:, 0, 1] = np.cos(theta0)
-    u[:, 0, 2] = np.sin(theta0)
-
-    y = np.stack([cos_t, sin_t], axis=-1).astype(np.float32)
-
-    return PathIntegrationBatch(
-        u=torch.from_numpy(u).to(device),
-        y=torch.from_numpy(y).to(device),
-        theta_hd=torch.from_numpy(theta_hd).to(device),
-        is_stop=torch.from_numpy(is_stop).to(device),
-    )
-
-
-# ---------------------------------------------------------------------------
 # Trainer
 # ---------------------------------------------------------------------------
-
-
-def _build_type_pair_blocks(
-    neuron_types: np.ndarray,
-    type_names: list[str],
-    W_con: np.ndarray,
-) -> dict[str, torch.Tensor]:
-    """Build (post-type, pre-type) -> bool-mask blocks for the cos-distance reg.
-
-    Only include blocks whose `W_con` block has at least one non-zero entry,
-    matching the definition of set B in Hulse Eq. 10.
-    """
-    blocks: dict[str, torch.Tensor] = {}
-    nt = np.asarray(neuron_types).astype(np.int64)
-    n = nt.size
-    unique = sorted(set(nt.tolist()))
-    for q in unique:
-        post_mask = nt == q  # (N,)
-        for p in unique:
-            pre_mask = nt == p  # (N,)
-            block = np.outer(post_mask, pre_mask)
-            if block.sum() == 0:
-                continue
-            sub = W_con[block]
-            if np.abs(sub).sum() < 1e-12:
-                continue
-            tp_name = f"{type_names[int(p)]}->{type_names[int(q)]}"
-            blocks[tp_name] = torch.from_numpy(block.astype(np.bool_))
-    return blocks
 
 
 def train_janelia_cx_teacher(
@@ -842,218 +707,6 @@ def train_janelia_cx_teacher(
             "output_path": output_path, "final_pi_acc": last_pi_acc}
 
 
-def bump_fwhm(
-    net: JaneliaCxRNN,
-    epg_indices: np.ndarray,
-    epg_ix: np.ndarray,
-    *,
-    n_trials: int = 64,
-    n_steps: int = 100,
-    device: str = "cpu",
-    n_glom: int = 16,
-    z_thresh: float = 1.0,
-) -> float:
-    """Mean bump width (in radians) at the last frame of a batch, defined
-    as the number of contiguous glomerular wedges around the peak whose
-    z-scored activity exceeds `z_thresh`.
-
-    Z-scoring across the `n_glom` wedges per trial removes the per-trial
-    baseline (which depends on bias / saturation) so the threshold has the
-    same meaning across snapshots: `z_thresh=1.0` means "at least 1 std
-    above the trial's mean glomerular activity".
-
-    Computed by:
-      1. Running a fresh path-integration batch through the network.
-      2. Taking sigmoid(h) on the EPG neurons at the final timestep.
-      3. Binning into `n_glom` glomerular wedges (uniform around the ring).
-      4. Z-scoring each trial across the n_glom wedges.
-      5. Rolling so the peak glomerulus is at the centre.
-      6. Counting contiguous wedges around the peak with z > `z_thresh`.
-
-    Returns nan if no trial has a peak above threshold.
-    """
-    net.eval()
-    with torch.no_grad():
-        batch = generate_path_integration_batch(n_trials, n_steps, device=device)
-        _, h = net(batch.u)
-    net.train()
-
-    r_epg = torch.sigmoid(h[:, -1, epg_indices]).cpu().numpy()   # (B, n_epg)
-    epg_ix_arr = np.asarray(epg_ix, dtype=int)
-    glom_act = np.zeros((r_epg.shape[0], n_glom), dtype=np.float32)
-    for g in range(n_glom):
-        mask = epg_ix_arr == g
-        if mask.any():
-            glom_act[:, g] = r_epg[:, mask].mean(axis=1)
-
-    # Per-trial z-score across glomeruli (bump detection is invariant to
-    # baseline / overall scale).
-    mu = glom_act.mean(axis=1, keepdims=True)
-    sigma = glom_act.std(axis=1, keepdims=True) + 1e-12
-    z = (glom_act - mu) / sigma                                  # (B, n_glom)
-
-    wedge_rad = 2.0 * np.pi / n_glom
-    fwhms = []
-    c = n_glom // 2
-    for b in range(z.shape[0]):
-        v = z[b]
-        peak = int(np.argmax(v))
-        if v[peak] <= z_thresh:
-            continue
-        v_rolled = np.roll(v, c - peak)
-        # Walk outward from the centre while still above threshold (wraps
-        # around because v_rolled is on a ring).
-        left = c
-        while left - 1 >= 0 and v_rolled[left - 1] > z_thresh:
-            left -= 1
-        right = c
-        while right + 1 < n_glom and v_rolled[right + 1] > z_thresh:
-            right += 1
-        width = right - left + 1
-        fwhms.append(width * wedge_rad)
-
-    if not fwhms:
-        return float("nan")
-    return float(np.mean(fwhms))
-
-
-def path_integration_accuracy(
-    net: JaneliaCxRNN,
-    n_trials: int = 64,
-    n_steps: int = 100,
-    device: str = "cpu",
-) -> float:
-    """Mean cosine similarity between predicted and true head direction.
-
-    1.0 means perfect path integration. Hulse aims for ~0.95+ on the
-    test set after 10 epochs.
-    """
-    net.eval()
-    with torch.no_grad():
-        batch = generate_path_integration_batch(n_trials, n_steps, device=device)
-        y_hat, _ = net(batch.u)
-        # Skip the first 10 steps (initial-condition lead-in).
-        warmup = 10
-        y_hat_n = y_hat[:, warmup:, :] / (
-            y_hat[:, warmup:, :].norm(dim=-1, keepdim=True) + 1e-8
-        )
-        y_n = batch.y[:, warmup:, :]
-        cosine = (y_hat_n * y_n).sum(dim=-1)
-        acc = cosine.mean().item()
-    net.train()
-    return acc
-
-
-def _deterministic_sweep_rollout(
-    net: JaneliaCxRNN,
-    *,
-    n_steps: int,
-    omega_deg_per_s: float,
-    device: str,
-) -> dict:
-    """One trial with **constant ω**, no OU noise, no standing pauses.
-
-    Designed to span the full HD circle (−π to +π) by the end of the rollout
-    so the kinograph shows the bump migrating across the full orientation
-    axis. Distinct from `save_rollout` which uses naturalistic OU velocity.
-    """
-    T = int(n_steps)
-    omega = np.full((1, T), float(omega_deg_per_s), dtype=np.float32)
-    omega[0, 0] = 0.0  # Hulse convention: ω[0] = 0
-    omega_rad = np.deg2rad(omega)
-    theta_hd = np.cumsum(omega_rad, axis=1) * float(net.dt)  # starts at 0
-
-    u = np.zeros((1, T, 3), dtype=np.float32)
-    u[:, :, 0] = omega
-    u[:, 0, 1] = 1.0  # cos(0)
-    u[:, 0, 2] = 0.0  # sin(0)
-
-    u_t = torch.from_numpy(u).to(device)
-    with torch.no_grad():
-        y_hat, h = net(u_t)
-    r = torch.sigmoid(h[0]).cpu().numpy()  # (T, N)
-    y_pred = y_hat[0].cpu().numpy()
-    return {
-        "u": u[0],
-        "y_pred": y_pred,
-        "true_theta": theta_hd[0],
-        "decoded_theta": np.arctan2(y_pred[:, 1], y_pred[:, 0]),
-        "h": h[0].cpu().numpy(),
-        "r": r,  # full (T, N) firing rates
-        "n_steps": T,
-        "omega_deg_per_s": float(omega_deg_per_s),
-        "dt_s": float(net.dt),
-    }
-
-
-def _save_training_snapshot(
-    *,
-    net: JaneliaCxRNN,
-    log_dir: str,
-    matrix_dir: str,
-    kinograph_dir: str,
-    global_step: int,
-    epoch: int,
-    neuron_types: np.ndarray,
-    type_names: list,
-    epg_indices: np.ndarray,
-    epg_glom_ix: np.ndarray,
-    device: str,
-    snapshot_n_steps: int,
-    snapshot_omega_deg: float,
-) -> None:
-    """Render a matrix snapshot + a deterministic-sweep kinograph snapshot."""
-    from connectome_gnn.plot_cx import (
-        plot_cx_matrix,
-        plot_cx_training_snapshot,
-        cx_epg_directions,
-    )
-
-    name = f"step_{global_step:07d}.png"
-
-    # --- Matrix snapshot ---
-    try:
-        W_rec_np = net.W_rec.detach().cpu().numpy()
-        plot_cx_matrix(
-            W_rec_np, neuron_types, type_names,
-            os.path.join(matrix_dir, name),
-            title=f"learned W_rec  epoch {epoch}  step {global_step}",
-        )
-    except Exception as exc:
-        print(f"[janelia_cx] matrix snapshot failed @ step {global_step}: {exc}")
-
-    # --- Kinograph snapshot (deterministic sweep) ---
-    try:
-        rollout = _deterministic_sweep_rollout(
-            net, n_steps=snapshot_n_steps,
-            omega_deg_per_s=snapshot_omega_deg, device=device,
-        )
-        # Pack r_epg + r_pen for the snapshot plotter's interface.
-        # PEN: substring match on type names ("PEN_a(PEN1)", "PEN_b(PEN2)"),
-        # excluding PEG; uses the loader's natural index order as ring pos.
-        rollout["r_epg"] = rollout["r"][:, epg_indices]
-        pen_type_idx = [i for i, n in enumerate(type_names)
-                        if "PEN" in n and "PEG" not in n]
-        if pen_type_idx:
-            pen_idx_list: list[int] = []
-            nt = np.asarray(neuron_types)
-            for t in pen_type_idx:
-                pen_idx_list.extend(np.where(nt == t)[0].tolist())
-            pen_indices = np.array(sorted(pen_idx_list), dtype=np.int64)
-            rollout["r_pen"] = rollout["r"][:, pen_indices]
-        epg_theta = cx_epg_directions(epg_glom_ix)
-        plot_cx_training_snapshot(
-            W_rec=net.W_rec.detach().cpu().numpy(),
-            rollout=rollout,
-            epg_theta=epg_theta,
-            output_path=os.path.join(kinograph_dir, name),
-            neuron_types=neuron_types,
-            type_names=type_names,
-            step=global_step,
-            dt_s=float(net.dt),
-        )
-    except Exception as exc:
-        print(f"[janelia_cx] kinograph snapshot failed @ step {global_step}: {exc}")
 
 
 def save_rollout(

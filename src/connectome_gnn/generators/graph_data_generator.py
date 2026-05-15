@@ -647,28 +647,29 @@ def _generate_cortex_task(config, *, device, visualize: bool = True) -> None:
             from connectome_gnn.plot import (
                 plot_task_cortex_example,
                 plot_task_cortex_overview,
-                plot_task_cortex_traces,
+                plot_task_cortex_samples,
             )
 
-            # Per-rule close-up + traces (one figure per rule from first_trial_per_rule).
+            # Per-rule: 5-trial heatmap grid + 5-trial line-trace grid.
             for r, trial in first_trial_per_rule.items():
-                first_idx = int(np.where(rule_idx == rules.index(r))[0][0])
+                idxs_for_r = np.where(rule_idx == rules.index(r))[0]
+                sample_idx = idxs_for_r[:5]
                 plot_task_cortex_example(
-                    stimulus=stimulus[first_idx],
-                    target=target[first_idx],
-                    length=length[first_idx],
+                    stimulus=stimulus[sample_idx],
+                    target=target[sample_idx],
+                    length=length[sample_idx],
                     dt=dt_s, rule=r, epochs=getattr(trial, 'epochs', None),
                     n_rule=int(hp.get('n_rule', 0)),
                     n_eachring=int(hp.get('n_eachring', 32)),
                     out_path=os.path.join(out_root, f"task_cortex_example_{split}_{r}.png"),
                 )
-                plot_task_cortex_traces(
-                    stimulus=stimulus[first_idx],
-                    target=target[first_idx],
-                    length=length[first_idx],
+                plot_task_cortex_samples(
+                    stimulus=stimulus[sample_idx],
+                    target=target[sample_idx],
+                    length=length[sample_idx],
                     dt=dt_s, rule=r,
                     n_eachring=int(hp.get('n_eachring', 32)),
-                    out_path=os.path.join(out_root, f"task_cortex_traces_{split}_{r}.png"),
+                    out_path=os.path.join(out_root, f"task_cortex_samples_{split}_{r}.png"),
                 )
 
             # Multi-rule grid overview — only meaningful for multi-rule runs.

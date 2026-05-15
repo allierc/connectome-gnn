@@ -846,90 +846,124 @@ def plot_task_pi_traces(
 
 
 def plot_task_cortex_example(
-    stimulus: np.ndarray,                   # (T, N_i) one trial
-    target: np.ndarray,                     # (T, N_o)
-    length: np.ndarray,                     # (T,) binary real-step mask
+    stimulus: np.ndarray,                   # (N, T, N_i) trials grid
+    target: np.ndarray,                     # (N, T, N_o)
+    length: np.ndarray,                     # (N, T) binary real-step mask
     dt: float,
     rule: str,
     n_rule: int,
     out_path: str,
     n_eachring: int = 32,
     epochs: Optional[Dict[str, tuple]] = None,
+    n_show: int = 5,
     style: FigureStyle = default_style,
 ) -> None:
-    """Single-rule close-up — mirrors `show_all_tasks.ipynb` cell 4.
+    """Multi-trial heatmap grid — drosophila-style 5-column kinograph.
 
-    Two rows of heatmaps:
+    Two rows of heatmaps per trial, n_show columns:
         Input  (N_i ch): fixation | stim mod1 | stim mod2 | rule one-hot
         Target (N_o ch): fixation | motor ring
 
-    Cyan horizontal lines mark the fix/mod1/mod2/rule boundaries; vertical
-    lime lines mark Yang epoch boundaries (fix1, stim1, delay1, go1, ...)
-    when `epochs` is provided.
+    Cyan horizontal lines mark the fix/mod1/mod2/rule boundaries on every
+    panel; vertical lime lines mark Yang epoch boundaries (fix1, stim1,
+    delay1, go1, ...) when `epochs` is provided (epochs are the same for
+    all sampled trials only if they share the same per-trial timing — use
+    only for orientation).
     """
-    T = stimulus.shape[0]
-    N_i = stimulus.shape[1]
-    N_o = target.shape[1]
-    real_T = int(length.sum()) if length is not None else T
+    # Handle legacy (T, N_i) single-trial calls for backward compat.
+    if stimulus.ndim == 2:
+        stimulus = stimulus[None]
+        target   = target[None]
+        length   = length[None]
+    N, T, N_i = stimulus.shape
+    N_o = target.shape[-1]
+    n = min(n_show, N)
+    axis_fs = max(7, style.tick_font_size - 2)
 
-    fig, axes = plt.subplots(2, 1, figsize=(11, 7),
-                             gridspec_kw={"height_ratios": [1.6, 1.0]})
+    fig, axes = plt.subplots(
+        2, n, figsize=(2.6 * n, 6.0),
+        gridspec_kw={"height_ratios": [1.6, 1.0],
+                     "hspace": 0.45, "wspace": 0.12},
+        sharex='col',
+    )
+    if n == 1:
+        axes = axes.reshape(2, 1)
 
-    im0 = axes[0].imshow(stimulus.T, aspect="auto", cmap="hot",
-                          vmin=0.0, vmax=1.0, interpolation="nearest")
-    axes[0].set_title(f"{rule}: full input ({N_i} ch)", pad=22,
-                       fontsize=style.label_font_size)
-    axes[0].set_xlabel("t"); axes[0].set_ylabel("input ch")
     # Channel block boundaries: 0=fix, 1..n_eachring=mod1, n_eachring+1..2*n_eachring=mod2,
     # 2*n_eachring+1..2*n_eachring+n_rule=rule.
     b1 = 0.5
     b2 = n_eachring + 0.5
     b3 = 2 * n_eachring + 0.5
-    for boundary, lbl in [(b1, "fix | stim1"), (b2, "stim1 | stim2"),
-                           (b3, "stim2 | rule")]:
-        if boundary < N_i:
-            axes[0].axhline(boundary, color="cyan", lw=0.8, label=lbl)
-    if axes[0].get_legend_handles_labels()[1]:
-        axes[0].legend(loc="upper right", fontsize=style.tick_font_size)
-    plt.colorbar(im0, ax=axes[0], fraction=0.046)
-    # Label key rows.
-    axes[0].set_yticks([0, n_eachring // 2, n_eachring,
-                         3 * n_eachring // 2, 2 * n_eachring,
-                         2 * n_eachring + max(0, n_rule // 2)])
-    axes[0].set_yticklabels(
-        ["fix(0)", "stim1 mid", "stim1|2", "stim2 mid", "stim2 end", "rule mid"]
-    )
 
-    im1 = axes[1].imshow(target.T, aspect="auto", cmap="hot",
-                          vmin=0.0, vmax=0.9, interpolation="nearest")
-    axes[1].set_title(f"{rule}: target ({N_o} ch)", pad=22,
-                       fontsize=style.label_font_size)
-    axes[1].set_xlabel("t"); axes[1].set_ylabel("output ch")
-    axes[1].axhline(0.5, color="cyan", lw=0.8)
-    axes[1].set_yticks([0, n_eachring // 2, n_eachring])
-    axes[1].set_yticklabels(["fix", f"motor {n_eachring // 2}", f"motor {n_eachring}"])
-    plt.colorbar(im1, ax=axes[1], fraction=0.046)
+    for col in range(n):
+        real_T = int(length[col].sum())
+        ax_in  = axes[0, col]
+        ax_tgt = axes[1, col]
 
-    # Epoch boundary overlay.
-    if epochs:
-        for name, (s, e) in epochs.items():
-            if s is None: s = 0
-            if e is None: e = T
-            for ax in axes:
-                ax.axvline(s, color="lime", lw=0.6, alpha=0.5)
-            axes[0].text((s + e) / 2, -4, name, ha="center", va="bottom",
-                         fontsize=style.tick_font_size, color="green")
+        ax_in.imshow(stimulus[col].T, aspect="auto", cmap="hot",
+                      vmin=0.0, vmax=1.0, interpolation="nearest")
+        for boundary in [b1, b2, b3]:
+            if boundary < N_i:
+                ax_in.axhline(boundary, color="cyan", lw=0.6, alpha=0.7)
 
-    # Pad region shading.
-    if real_T < T:
-        for ax in axes:
-            ax.axvspan(real_T, T, color="0.92", alpha=0.4, lw=0)
+        ax_tgt.imshow(target[col].T, aspect="auto", cmap="hot",
+                       vmin=0.0, vmax=0.9, interpolation="nearest")
+        ax_tgt.axhline(0.5, color="cyan", lw=0.6, alpha=0.7)
+
+        # Epoch boundary overlay (only meaningful for the first trial whose
+        # epochs we have — but vertical lines at the same indices give a
+        # useful reference for the others too).
+        if epochs:
+            for name, (s, e) in epochs.items():
+                if s is None: s = 0
+                if e is None: e = T
+                for ax in (ax_in, ax_tgt):
+                    ax.axvline(s, color="lime", lw=0.6, alpha=0.5)
+                if col == 0:
+                    ax_in.text((s + e) / 2, -3, name,
+                               ha="center", va="bottom",
+                               fontsize=axis_fs, color="green")
+
+        # Pad region overlay.
+        if real_T < T:
+            for ax in (ax_in, ax_tgt):
+                ax.axvspan(real_T, T, color="0.92", alpha=0.4, lw=0)
+
+        # Column-only title with trial length info.
+        ax_in.set_title(f"trial {col} (T={real_T})",
+                         fontsize=style.label_font_size)
+
+        # X-label only on the bottom row.
+        ax_tgt.set_xlabel("t", fontsize=axis_fs)
+        ax_in.tick_params(axis='x', labelsize=axis_fs)
+        ax_tgt.tick_params(axis='x', labelsize=axis_fs)
+
+        # Y-axis labels / ticks only on the first column.
+        if col == 0:
+            ax_in.set_ylabel(f"input ch ({N_i})", fontsize=axis_fs)
+            ax_in.set_yticks([0, n_eachring // 2, n_eachring,
+                              3 * n_eachring // 2, 2 * n_eachring,
+                              2 * n_eachring + max(0, n_rule // 2)])
+            ax_in.set_yticklabels(
+                ["fix", "mod1 mid", "mod1|2", "mod2 mid", "mod2 end", "rule"],
+                fontsize=axis_fs,
+            )
+            ax_tgt.set_ylabel(f"out ch ({N_o})", fontsize=axis_fs)
+            ax_tgt.set_yticks([0, n_eachring // 2, n_eachring])
+            ax_tgt.set_yticklabels(
+                ["fix", f"motor {n_eachring // 2}", f"motor {n_eachring}"],
+                fontsize=axis_fs,
+            )
+        else:
+            ax_in.tick_params(axis='y', labelleft=False)
+            ax_tgt.tick_params(axis='y', labelleft=False)
 
     fig.suptitle(
-        f"cortex/{rule} (real T={real_T}/{T}, dt={dt:.3g}s)",
+        f"cortex/{rule} — {n} trials, padded to {T} frames "
+        f"(dt={dt:.3g}s, max {T*dt:.2g}s)",
         fontsize=style.label_font_size,
     )
-    fig.tight_layout()
+    fig.tight_layout(rect=[0, 0, 1, 0.96])
     style.savefig(fig, out_path)
 
 
@@ -1003,69 +1037,137 @@ def plot_task_cortex_overview(
     style.savefig(fig, out_path)
 
 
-def plot_task_cortex_traces(
-    stimulus: np.ndarray,                   # (T, N_i) one trial
-    target: np.ndarray,                     # (T, N_o)
-    length: np.ndarray,                     # (T,)
+def plot_task_cortex_samples(
+    stimulus: np.ndarray,                   # (N, T, N_i)
+    target: np.ndarray,                     # (N, T, N_o)
+    length: np.ndarray,                     # (N, T) binary real-step mask
     dt: float,
     rule: str,
     out_path: str,
     n_eachring: int = 32,
+    n_show: int = 5,
     style: FigureStyle = default_style,
 ) -> None:
-    """Per-block trace overlay for one trial — sanity-check line plot.
+    """N-trial preview grid — mirrors the drosophila path-integration layout.
 
-    Rows (in order): fixation, stim mod 1, stim mod 2, rule one-hot, target.
-    Ring channels render as faint grey lines with the peak channel highlighted.
+    One column per trial, rows split into INPUT / OUTPUT blocks. Ring channels
+    plot all 32 lines in faint grey with the per-trial peak channel highlighted
+    in red. Padding shaded gray.
+
+    Rows for Yang's ruleset='all':
+        Row 0 [in fix]   fixation input
+        Row 1 [in mod1]  stim modality 1 ring (32 ch + peak)
+        Row 2 [in mod2]  stim modality 2 ring (32 ch + peak)
+        Row 3 [in rule]  rule one-hot (active channel highlighted)
+        Row 4 [out fix]  fixation target
+        Row 5 [out mot]  motor ring (32 ch + peak)
     """
-    T = stimulus.shape[0]
+    N, T, N_i = stimulus.shape
+    N_o = target.shape[-1]
+    n = min(n_show, N)
     t = np.arange(T) * dt
-    real_T = int(length.sum()) if length is not None else T
 
     # Channel slices for Yang's ruleset='all' layout.
-    fix_ch = [0]
+    fix_in_ch = 0
     mod1_ch = list(range(1, 1 + n_eachring))
     mod2_ch = list(range(1 + n_eachring, 1 + 2 * n_eachring))
-    rule_ch = list(range(1 + 2 * n_eachring, stimulus.shape[1]))
+    rule_ch = list(range(1 + 2 * n_eachring, N_i))
+    motor_ch = list(range(1, N_o))   # output ch 0 is fix, rest are motor ring
 
-    rows: list[tuple[str, np.ndarray, list[int]]] = []
-    if fix_ch:
-        rows.append(("fixation input", stimulus[:, fix_ch], fix_ch))
-    if mod1_ch and any(c < stimulus.shape[1] for c in mod1_ch):
-        rows.append(("stim mod 1", stimulus[:, mod1_ch], mod1_ch))
-    if mod2_ch and any(c < stimulus.shape[1] for c in mod2_ch):
-        rows.append(("stim mod 2", stimulus[:, mod2_ch], mod2_ch))
-    if rule_ch:
-        rows.append(("rule", stimulus[:, rule_ch], rule_ch))
-    rows.append(("target z", target, list(range(target.shape[-1]))))
+    n_rows = 6
+    INP, OUT = "0.92", "0.97"
+    rows = [
+        ("input",  "in fix\n(ch 0)",                       "C0", INP, "single"),
+        ("input",  f"in mod1\n(ring {n_eachring} ch)",     "C0", INP, "ring"),
+        ("input",  f"in mod2\n(ring {n_eachring} ch)",     "C1", INP, "ring"),
+        ("input",  f"in rule\n({len(rule_ch)} ch)",        "C2", INP, "onehot"),
+        ("output", "out fix\n(ch 0)",                      "C0", OUT, "single"),
+        ("output", f"out motor\n(ring {len(motor_ch)} ch)", "C3", OUT, "ring"),
+    ]
 
-    fig, axes = plt.subplots(len(rows), 1, figsize=(9, 1.3 * len(rows) + 1),
-                             sharex=True)
-    if len(rows) == 1:
-        axes = [axes]
+    fig, axes = plt.subplots(
+        n_rows, n, figsize=(2.6 * n, 1.5 * n_rows + 1.0),
+        sharex=True, sharey='row',
+    )
+    if n == 1:
+        axes = axes.reshape(n_rows, 1)
 
-    for ax, (name, arr, idxs) in zip(axes, rows):
-        n_ch = arr.shape[-1]
-        if n_ch <= 6:
-            for c in range(n_ch):
-                ax.plot(t, arr[:, c], lw=1.1, label=f"ch {idxs[c]}")
-            ax.legend(fontsize=style.tick_font_size,
-                      loc="upper right", ncol=min(n_ch, 6))
-        else:
-            for c in range(n_ch):
-                ax.plot(t, arr[:, c], lw=0.4, color="0.45", alpha=0.5)
-            peak_ch = int(arr.max(axis=0).argmax())
-            ax.plot(t, arr[:, peak_ch], lw=1.3, color="C3",
-                    label=f"peak ch (idx {idxs[peak_ch]})")
-            ax.legend(fontsize=style.tick_font_size, loc="upper right")
-        ax.set_ylabel(name, fontsize=style.label_font_size)
-        if real_T < T:
-            ax.axvspan(real_T * dt, T * dt, color="0.9", lw=0)
+    axis_fs = max(7, style.tick_font_size - 2)
 
-    axes[-1].set_xlabel("time (s)", fontsize=style.label_font_size)
-    fig.suptitle(f"cortex/{rule} — real T={real_T}, padded to {T}",
-                 fontsize=style.label_font_size)
-    plt.tight_layout()
+    for col in range(n):
+        real_T = int(length[col].sum())
+        u_col = stimulus[col]   # (T, N_i)
+        y_col = target[col]     # (T, N_o)
+
+        for r, (kind, label, color, bg, mode) in enumerate(rows):
+            ax = axes[r, col]
+            ax.set_facecolor(bg)
+
+            if r == 0:
+                ax.plot(t, u_col[:, fix_in_ch], color=color, lw=1.2)
+                ax.set_ylim(-0.1, 1.2)
+            elif r == 1:
+                ring = u_col[:, mod1_ch]
+                for c in range(ring.shape[-1]):
+                    ax.plot(t, ring[:, c], lw=0.3, color="0.55", alpha=0.5)
+                peak = int(ring.max(axis=0).argmax())
+                ax.plot(t, ring[:, peak], lw=1.3, color=color)
+                ax.set_ylim(-0.1, 1.2)
+            elif r == 2:
+                ring = u_col[:, mod2_ch]
+                for c in range(ring.shape[-1]):
+                    ax.plot(t, ring[:, c], lw=0.3, color="0.55", alpha=0.5)
+                peak = int(ring.max(axis=0).argmax())
+                ax.plot(t, ring[:, peak], lw=1.3, color=color)
+                ax.set_ylim(-0.1, 1.2)
+            elif r == 3:
+                rule_arr = u_col[:, rule_ch]
+                for c in range(rule_arr.shape[-1]):
+                    ax.plot(t, rule_arr[:, c], lw=0.3, color="0.55", alpha=0.5)
+                # Active rule = the channel with the highest mean over real_T.
+                if real_T > 0:
+                    peak = int(rule_arr[:real_T].mean(axis=0).argmax())
+                    ax.plot(t, rule_arr[:, peak], lw=1.3, color=color)
+                ax.set_ylim(-0.1, 1.2)
+            elif r == 4:
+                ax.plot(t, y_col[:, 0], color=color, lw=1.2)
+                ax.set_ylim(-0.1, 1.0)
+            elif r == 5:
+                motor = y_col[:, motor_ch]
+                for c in range(motor.shape[-1]):
+                    ax.plot(t, motor[:, c], lw=0.3, color="0.55", alpha=0.5)
+                peak = int(motor.max(axis=0).argmax())
+                ax.plot(t, motor[:, peak], lw=1.3, color=color)
+                ax.set_ylim(-0.1, 1.0)
+
+            ax.axhline(0, color="0.5", lw=0.5)
+            ax.tick_params(axis='x', labelsize=axis_fs)
+            if real_T < T:
+                ax.axvspan(real_T * dt, T * dt, color="0.6", lw=0, alpha=0.25)
+            if r == 0:
+                ax.set_title(f"trial {col} (T={real_T})",
+                             fontsize=style.label_font_size)
+            if r == n_rows - 1:
+                ax.set_xlabel("time (s)", fontsize=axis_fs)
+            # Y-axis: only show label + tick labels on the first column.
+            if col == 0:
+                ax.set_ylabel(label, fontsize=axis_fs)
+                ax.tick_params(axis='y', labelsize=axis_fs)
+            else:
+                ax.tick_params(axis='y', labelleft=False)
+
+    # Bracket-style INPUT/OUTPUT labels in the left margin.
+    fig.text(0.005, 0.65, "INPUT",  rotation=90, va='center', ha='left',
+             fontsize=axis_fs + 1, fontweight='bold', color='0.25')
+    fig.text(0.005, 0.20, "OUTPUT", rotation=90, va='center', ha='left',
+             fontsize=axis_fs + 1, fontweight='bold', color='0.25')
+
+    fig.suptitle(
+        f"cortex/{rule} — {n} of {N} trials, padded to {T} frames "
+        f"(dt={dt:.3g}s, max {T*dt:.2g}s)   [gray = pad]",
+        fontsize=style.label_font_size,
+    )
+    plt.tight_layout(rect=[0.02, 0, 1, 0.97])
     style.savefig(fig, out_path)
 
 

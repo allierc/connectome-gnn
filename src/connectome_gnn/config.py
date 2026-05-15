@@ -874,6 +874,14 @@ class TrainingConfig(BaseModel):
     kappa_norm_floor:   float = 0.05   # floor target for norm-floor reg
     coeff_tv_circular:  float = 0.0    # circular TV on EPG/PEN ring firing rates
     snapshots_per_epoch: int = 5       # cadence of matrix+kinograph + pi_acc/fwhm eval
+    # Per-epoch trial-length curriculum (Hulse Methods). Each epoch slices the
+    # first n_steps_schedule[epoch] frames from the on-disk T=1000 trials.
+    # Padded with the last value if n_epochs > len(schedule). Empty list → use
+    # the full T from the dataset throughout (no curriculum).
+    n_steps_schedule: List[int] = Field(default_factory=lambda: [100, 250, 500, 1000, 1000])
+    # Per-epoch learning-rate schedule (Hulse). Empty list → constant `lr`.
+    # Padded with the last value if n_epochs > len(schedule).
+    lr_schedule: List[float] = Field(default_factory=lambda: [5e-3, 1e-3, 5e-4, 2e-4, 1e-4])
     coeff_model_b: float = 0  # Regularizer on bias b
     coeff_embedding_cluster: float = 0.0  # pull same-cell-type embeddings toward their per-type centroid (L2)
 

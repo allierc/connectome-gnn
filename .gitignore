@@ -1,12 +1,17 @@
 # Data root config (per-environment, not tracked)
 data_paths.json
 
-# Track only biomodel config folders (fly, drosophila_cx, larva, zebrafish_oculomotor)
+# Track only biomodel config folders (fly, drosophila_cx, larva, zebrafish_oculomotor, cortex)
 config/*
 !config/fly/
 config/fly/*.yaml
 config/fly/archive/*
 config/fly/archive_2/*
+# cortex/ and drosophila_cx/ task fixtures ARE tracked (user request 2026-05-15).
+!config/cortex/
+!config/cortex/*.yaml
+!config/drosophila_cx/
+!config/drosophila_cx/*.yaml
 
 # Ignore LLM-generated config files (environment-specific, stored in GraphData)
 config/**/*_Claude_*.yaml

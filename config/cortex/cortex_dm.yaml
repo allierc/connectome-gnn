@@ -1,0 +1,21 @@
+description: "Cortex decision-making pair (Yang contextdm1 + contextdm2 — Mante-style)."
+dataset: task_cortex_dm
+simulation:
+  params:
+    - - 1.0
+graph_model:
+  aggr_type: add
+plotting: {}
+training: {}
+task:
+  task_type: cortex
+  task_only: true
+  cortex:
+    rules: ["contextdm1", "contextdm2"]
+    rule_weights: []
+    ruleset: "all"
+    n_trials_train: 16
+    n_trials_test: 4
+    n_steps_max: 200
+    seed: 0
+    hp_overrides: {}

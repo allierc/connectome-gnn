@@ -1724,3 +1724,237 @@ def data_test(config=None, config_file=None, visualize=False, style='color frame
 
 # Test functions moved to graph_tester.py
 from connectome_gnn.models.graph_tester import data_test_gnn, data_test_gnn_special
+
+
+# ============================================================================
+# Path-integration task trainer (NeuralTaskGNN)
+# ============================================================================
+
+def data_train_task_gnn(config, erase, best_model, device, log_file=None):
+    """Train a NeuralTaskGNN on the path-integration task data.
+
+    Mirrors the skeleton of `data_train_gnn`:
+    config → log_dir → data load → model (registry) → optimizer → epoch loop
+    with regulariser coeffs → snapshot/eval cadence → per-epoch checkpoint.
+
+    The task data is a flat per-trial layout under
+    `<dataset>/{train,test}/{stimulus,target,...}.zarr` (produced by
+    `_generate_path_integration_task`). Stimulus is (B, T, 3); target is
+    (B, T, 2) = (cos θ_hd, sin θ_hd).
+
+    Loss = MSE(y_hat, y) plus the four Hulse auxiliaries gated by:
+        tc.coeff_cos_distance · L_cos  (Eq. 10)
+        tc.coeff_norm_floor   · L_norm (Eq. 11, kappa=tc.kappa_norm_floor)
+        tc.coeff_tv_circular  · L_tv   (circular TV on EPG/PEN rings)
+        tc.coeff_W_L1         · |S|.sum()
+    """
+    import torch.nn.functional as F
+
+    from connectome_gnn.models.cx_eval import (
+        _save_training_snapshot,
+        bump_fwhm,
+        path_integration_accuracy_from_data,
+    )
+    from connectome_gnn.zarr_io import load_raw_array
+
+    if torch.cuda.is_available():
+        torch.set_float32_matmul_precision('high')
+
+    sim = config.simulation
+    tc = config.training
+    model_config = config.graph_model
+
+    torch.random.fork_rng(devices=device)
+    torch.random.manual_seed(tc.seed)
+    np.random.seed(tc.seed)
+    random.seed(tc.seed)
+
+    default_style.apply_globally()
+
+    log_dir, logger = create_log_dir(config, erase)
+    matrix_dir = os.path.join(log_dir, 'matrix_snapshots')
+    kinograph_dir = os.path.join(log_dir, 'kinograph_snapshots')
+    os.makedirs(matrix_dir, exist_ok=True)
+    os.makedirs(kinograph_dir, exist_ok=True)
+
+    # --- Eager load: trials stay on GPU between iterations ---------------
+    root = graphs_data_path(config.dataset)
+    _logger.info(f'loading task data from {root}/(train|test)/...')
+    u_train = torch.from_numpy(load_raw_array(f"{root}/train/stimulus.zarr")).to(device)
+    y_train = torch.from_numpy(load_raw_array(f"{root}/train/target.zarr")).to(device)
+    u_test = torch.from_numpy(load_raw_array(f"{root}/test/stimulus.zarr")).to(device)
+    y_test = torch.from_numpy(load_raw_array(f"{root}/test/target.zarr")).to(device)
+    _logger.info(f'task data: train u={tuple(u_train.shape)} y={tuple(y_train.shape)}  '
+                 f'test u={tuple(u_test.shape)} y={tuple(y_test.shape)}')
+    logger.info(f'train trials: {u_train.shape[0]}  test trials: {u_test.shape[0]}  '
+                f'T: {u_train.shape[1]}  in: {u_train.shape[2]}  out: {y_train.shape[2]}')
+
+    # --- Model build via registry ----------------------------------------
+    model = create_model(model_config.signal_model_name,
+                         aggr_type=model_config.aggr_type,
+                         config=config, device=device)
+    n_total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    _logger.info(f'model {model_config.signal_model_name}: {n_total_params:,} trainable params')
+    logger.info(f'model: {model_config.signal_model_name}  params: {n_total_params}')
+
+    # --- Optimizer + scheduler -------------------------------------------
+    # Single-LR Adam (Hulse's setup); existing `set_trainable_parameters` is
+    # built around lr_W / lr_update / lr_NNR_f groups that don't apply here.
+    optimizer = torch.optim.Adam(model.parameters(), lr=tc.lr)
+    lr_scheduler = build_lr_scheduler(optimizer, config)
+    _logger.info(f'lr={tc.lr}  lr_scheduler={getattr(tc, "lr_scheduler", "none")}')
+
+    # --- Regulariser coefficients (cached as Python scalars) -------------
+    coeff_cos = float(tc.coeff_cos_distance)
+    coeff_norm = float(tc.coeff_norm_floor)
+    kappa_norm = float(tc.kappa_norm_floor)
+    coeff_tv = float(tc.coeff_tv_circular)
+    coeff_l1S = float(tc.coeff_W_L1)
+    grad_clip = float(getattr(tc, 'grad_clip_W', 0.0))
+    snapshots_per_epoch = int(getattr(tc, 'snapshots_per_epoch', 5))
+    snapshot_n_steps = int(getattr(tc, 'snapshot_n_steps', 1500))
+    snapshot_omega_deg = float(getattr(tc, 'snapshot_omega_deg', 60.0))
+    _logger.info(f'losses: cos_distance={coeff_cos}  norm_floor={coeff_norm} (κ={kappa_norm})  '
+                 f'tv_circular={coeff_tv}  W_L1={coeff_l1S}')
+
+    # --- Training loop ---------------------------------------------------
+    n_trials, T_full = u_train.shape[0], u_train.shape[1]
+    Niter = max(1, n_trials // tc.batch_size)
+    snap_every = max(1, Niter // max(1, snapshots_per_epoch))
+    best_loss = float('inf')
+    global_step = 0
+
+    # Per-epoch trial-length curriculum (Hulse). Slice the first T_epoch
+    # frames from the on-disk T=T_full trials. Empty schedule = use T_full.
+    raw_schedule = list(getattr(tc, 'n_steps_schedule', []) or [])
+    if raw_schedule:
+        if len(raw_schedule) < tc.n_epochs:
+            raw_schedule = raw_schedule + [raw_schedule[-1]] * (tc.n_epochs - len(raw_schedule))
+        n_steps_schedule = [min(int(s), T_full) for s in raw_schedule[:tc.n_epochs]]
+    else:
+        n_steps_schedule = [T_full] * tc.n_epochs
+    _logger.info(f'curriculum n_steps schedule (epochs 1..{tc.n_epochs}): {n_steps_schedule}')
+
+    # Per-epoch lr schedule (Hulse — decays 50× from 5e-3 to 1e-4 over 5 epochs).
+    # Empty schedule = constant tc.lr (and the build_lr_scheduler above is in charge).
+    raw_lr = list(getattr(tc, 'lr_schedule', []) or [])
+    if raw_lr:
+        if len(raw_lr) < tc.n_epochs:
+            raw_lr = raw_lr + [raw_lr[-1]] * (tc.n_epochs - len(raw_lr))
+        lr_schedule = [float(x) for x in raw_lr[:tc.n_epochs]]
+        _logger.info(f'lr schedule (epochs 1..{tc.n_epochs}): {lr_schedule}')
+    else:
+        lr_schedule = None
+
+    metrics_log_path = os.path.join(log_dir, 'tmp_training', 'metrics.log')
+    os.makedirs(os.path.dirname(metrics_log_path), exist_ok=True)
+    with open(metrics_log_path, 'w') as f:
+        f.write('iteration,epoch,loss,mse,cosd,norm,tv,l1S,pi_acc,fwhm_deg\n')
+
+    last_pi_acc = float('nan')
+    last_fwhm = float('nan')
+    model.train()
+    _logger.info(f'start training: {tc.n_epochs} epochs × {Niter} iters/epoch')
+
+    for epoch in range(tc.n_epochs):
+        T_epoch = n_steps_schedule[epoch]
+        # Per-epoch lr replacement (Hulse). When no schedule is provided we
+        # leave the optimizer / build_lr_scheduler alone.
+        if lr_schedule is not None:
+            lr_epoch = lr_schedule[epoch]
+            for g in optimizer.param_groups:
+                g['lr'] = lr_epoch
+            _logger.info(f'epoch {epoch+1}: lr -> {lr_epoch}')
+        perm = torch.randperm(n_trials, device=device,
+                              generator=torch.Generator(device=device).manual_seed(tc.seed + epoch))
+        pbar = trange(Niter, ncols=150,
+                      desc=f'task_gnn epoch {epoch+1}/{tc.n_epochs} (T={T_epoch})', leave=True)
+        for N in pbar:
+            global_step += 1
+            idx = perm[N * tc.batch_size:(N + 1) * tc.batch_size]
+            # Curriculum slice: first T_epoch frames of each selected trial.
+            # The OU process and integrated heading are valid as a length-T_epoch
+            # path-integration trial.
+            u = u_train[idx, :T_epoch]
+            y = y_train[idx, :T_epoch]
+
+            y_hat, h_buf = model(u)
+            mse = F.mse_loss(y_hat, y)
+            cosd = (model.loss_cos_distance(coeff_cos)
+                    if coeff_cos > 0 else u.new_zeros(()))
+            norm = (model.loss_norm_floor(coeff_norm, kappa_norm)
+                    if coeff_norm > 0 else u.new_zeros(()))
+            tv = (model.loss_tv_circular(h_buf, coeff_tv)
+                  if coeff_tv > 0 else u.new_zeros(()))
+            l1S = (coeff_l1S * model.S.abs().sum()
+                   if coeff_l1S > 0 else u.new_zeros(()))
+            loss = mse + cosd + norm + tv + l1S
+
+            optimizer.zero_grad(set_to_none=True)
+            loss.backward()
+            if grad_clip > 0:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+            optimizer.step()
+            lr_scheduler.step()
+
+            if N % snap_every == 0 or N == Niter - 1:
+                with torch.no_grad():
+                    # Eval at the *current* curriculum length so pi_acc tracks
+                    # the actual training distribution this epoch.
+                    last_pi_acc = path_integration_accuracy_from_data(
+                        model, u_test[:512, :T_epoch], y_test[:512, :T_epoch],
+                        warmup=10, batch_size=tc.batch_size,
+                    )
+                    last_fwhm = bump_fwhm(
+                        model, model.epg_indices, model.epg_glom_ix,
+                        n_trials=64, n_steps=T_epoch, device=device,
+                    )
+                _save_training_snapshot(
+                    net=model, log_dir=log_dir,
+                    matrix_dir=matrix_dir, kinograph_dir=kinograph_dir,
+                    global_step=global_step, epoch=epoch + 1,
+                    neuron_types=model.neuron_types,
+                    type_names=model.type_names,
+                    epg_indices=model.epg_indices,
+                    epg_glom_ix=model.epg_glom_ix,
+                    device=device,
+                    snapshot_n_steps=snapshot_n_steps,
+                    snapshot_omega_deg=snapshot_omega_deg,
+                )
+                with open(metrics_log_path, 'a') as f:
+                    fwhm_deg = (np.degrees(last_fwhm)
+                                if not np.isnan(last_fwhm) else float('nan'))
+                    f.write(f'{global_step},{epoch+1},{loss.item():.6f},'
+                            f'{mse.item():.6f},{float(cosd):.6f},{float(norm):.6f},'
+                            f'{float(tv):.6f},{float(l1S):.6f},'
+                            f'{last_pi_acc:.6f},{fwhm_deg:.3f}\n')
+
+            if loss.item() < best_loss:
+                best_loss = loss.item()
+
+            fwhm_str = (f'{np.degrees(last_fwhm):.0f}°'
+                        if not np.isnan(last_fwhm) else 'n/a')
+            pbar.set_postfix_str(
+                f'loss={loss.item():.4f}  mse={mse.item():.4f}  '
+                f'pi_acc={last_pi_acc:.3f}  fwhm={fwhm_str}  best={best_loss:.4f}'
+            )
+
+        # Per-epoch checkpoint (matches data_train_gnn's naming).
+        ckpt_path = os.path.join(
+            log_dir, 'models',
+            f'best_model_with_{tc.n_runs - 1}_graphs_{epoch}.pt')
+        torch.save({'model_state_dict': model.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict()},
+                   ckpt_path)
+        _logger.info(
+            f'epoch {epoch+1}/{tc.n_epochs} done — last_loss={loss.item():.4f}  '
+            f'best={best_loss:.4f}  pi_acc={last_pi_acc:.4f}  saved {ckpt_path}'
+        )
+
+    # --- Final eval on full test split (full T) -------------------------
+    final_pi = path_integration_accuracy_from_data(
+        model, u_test, y_test, warmup=10, batch_size=tc.batch_size,
+    )
+    _logger.info(f'final test pi_acc: {final_pi:.4f}  '
+                 f'(n_test={u_test.shape[0]}, T={u_test.shape[1]})')
+    logger.info(f'final test pi_acc: {final_pi:.4f}')

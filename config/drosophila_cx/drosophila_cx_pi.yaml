@@ -1,0 +1,56 @@
+description: "Path-integration task: data generation + NeuralTaskGNN trainer."
+dataset: drosophila_cx_pi
+simulation:
+  params:
+    - - 1.0
+  connconstr_datapath: papers/Code_NN/Code_NN/Data/Figure5/exported-traced-adjacencies-v1.2
+graph_model:
+  signal_model_name: drosophila_cx_pi   # NeuralTaskGNN via registry
+  aggr_type: add
+  input_proj: matrix      # or "mlp" — reuses hidden_dim / n_layers
+  output_proj: matrix     # or "mlp"
+  hidden_dim: 64          # only used when *_proj == "mlp"
+  n_layers: 2             # only used when *_proj == "mlp"
+  MLP_activation: relu
+  include_er6: true       # 156-neuron Hulse-spec network
+plotting: {}
+training:
+  device: auto
+  seed: 0
+  n_runs: 1
+  n_epochs: 5
+  batch_size: 64                                  # Hulse default
+  lr: 5.0e-3                                      # initial; overridden by schedule below
+  lr_schedule: [5.0e-3, 1.0e-3, 5.0e-4, 2.0e-4, 1.0e-4]   # Hulse decay
+  lr_scheduler: none
+  grad_clip_W: 0.0
+  coeff_cos_distance: 1.0   # Hulse Eq. 10
+  coeff_norm_floor:   1.0   # Hulse Eq. 11
+  kappa_norm_floor:   0.05
+  coeff_tv_circular:  0.0   # circular TV on EPG/PEN rings (try 1e-3 if bump is rough)
+  coeff_W_L1:         0.0
+  snapshots_per_epoch: 5    # cadence of matrix+kinograph + pi_acc/fwhm eval
+  # Hulse curriculum: trial length grows across epochs. Each epoch slices the
+  # first n_steps_schedule[epoch] frames from the on-disk T=1000 trials.
+  n_steps_schedule: [100, 250, 500, 1000, 1000]
+task:
+  task_type: path_integration
+  task_only: true
+  path_integration:
+    n_trials_train: 100000
+    n_trials_test: 10000
+    n_steps: 1000
+    dt: 0.01
+    sigma_omega_deg: 40.0
+    tau_corr: 0.12
+    stop_fraction: 0.20
+    seed: 0
+    input_perturbation:
+      channel_mask: [0]
+      waveform:
+        kind: heaviside
+        amplitude: 0.0     # base zero so the perturbation is purely the noise component
+        frames_on: 20
+        noise_level: 5.0   # in deg/s; meaningful relative to sigma_omega_deg=40
+        resample_amplitude_per_transition: false
+        seed: 0
