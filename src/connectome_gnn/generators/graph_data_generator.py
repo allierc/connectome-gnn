@@ -179,6 +179,14 @@ def data_generate(
         add_optogenetics_stimulus(config)
         return
 
+    # Task-data generation (PR1: path_integration only). Runs independently
+    # from the simulation pipeline below; merging the two (task-trained
+    # circuit -> simulate activity -> GNN recovery) is a follow-up PR.
+    if getattr(config, 'task', None) is not None:
+        data_generate_task(config, visualize=visualize)
+        if config.task.task_only:
+            return
+
     dataset_dir = graphs_data_path(config.dataset)
     os.makedirs(dataset_dir, exist_ok=True)
     lock_path   = os.path.join(dataset_dir, ".generate.lock")
@@ -282,6 +290,167 @@ def data_generate(
             _dm.write(f"dataset: {config.dataset}\n")
 
     default_style.apply_globally()
+
+
+# ---------------------------------------------------------------------------
+# Task-data generation (PR1: path_integration only; OF + twenty_tasks stubbed)
+# Schema: see config.TaskConfig + InputPerturbation.
+# Plan:   /home/node/.claude/plans/structured-swimming-pearl.md
+# ---------------------------------------------------------------------------
+
+
+def _resolve_task_device(spec: str) -> torch.device:
+    if spec == "auto":
+        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    return torch.device(spec)
+
+
+def _write_trial_zarr(path: str, arr: np.ndarray) -> None:
+    """Write a (N_trials, T, n) array as a zarr with per-trial chunks (1, T, n).
+
+    Reuses ZarrArrayWriter by remapping its (T, N, F) axes to (N_trials, T, n).
+    """
+    n_trials, T, n_feat = arr.shape
+    writer = ZarrArrayWriter(
+        path=path,
+        n_neurons=T,
+        n_features=n_feat,
+        time_chunks=1,
+    )
+    for i in range(n_trials):
+        writer.append(arr[i])
+    writer.finalize()
+
+
+def _write_trial_zarr_1d(path: str, arr: np.ndarray) -> None:
+    """Write a (N_trials, T) array as zarr by promoting to (N_trials, T, 1)."""
+    _write_trial_zarr(path, arr[..., None].astype(np.float32))
+
+
+def _generate_path_integration_task(config, *, visualize: bool = True) -> None:
+    """Generate the Hulse path-integration task data (input + heading target).
+
+    Writes per-split zarrs under <dataset>/<task.output_subdir>/{train,test}/:
+        u.zarr           (N, T, 3)   — [omega(t), cos(theta_0)*delta_t0, sin(theta_0)*delta_t0]
+        y.zarr           (N, T, 2)   — [cos(theta_hd(t)), sin(theta_hd(t))]
+        aux/theta_hd.zarr  (N, T)
+        aux/is_stop.zarr   (N, T)
+        aux/u_canonical.zarr, aux/delta_u.zarr  (only when input_perturbation is set)
+    """
+    # noqa: cross-pkg — TODO lift generate_path_integration_batch into this module
+    # when teachers/ is removed.
+    from connectome_gnn.teachers.janelia_cx_teacher import (
+        generate_path_integration_batch,
+    )
+
+    task = config.task
+    pi = task.path_integration
+    device = _resolve_task_device(pi.device)
+    seed_seq = np.random.SeedSequence(pi.seed)
+    rng_train, rng_test = (np.random.default_rng(s) for s in seed_seq.spawn(2))
+
+    out_root = graphs_data_path(config.dataset, task.output_subdir)
+    os.makedirs(out_root, exist_ok=True)
+    logger.info(f"[task] path_integration -> {out_root}")
+    logger.info(
+        f"[task] T={pi.n_steps} dt={pi.dt} sigma_omega={pi.sigma_omega_deg} "
+        f"tau_corr={pi.tau_corr} train={pi.n_trials_train} test={pi.n_trials_test} "
+        f"perturb={pi.input_perturbation is not None}"
+    )
+
+    for split, n_trials, rng in [
+        ("train", pi.n_trials_train, rng_train),
+        ("test", pi.n_trials_test, rng_test),
+    ]:
+        if n_trials <= 0:
+            continue
+        batch = generate_path_integration_batch(
+            batch_size=n_trials,
+            n_steps=pi.n_steps,
+            dt=pi.dt,
+            tau_corr=pi.tau_corr,
+            sigma_omega_deg=pi.sigma_omega_deg,
+            stop_fraction=pi.stop_fraction,
+            stop_mean_s=pi.stop_mean_s,
+            stop_max_s=pi.stop_max_s,
+            device=device,
+            rng=rng,
+        )
+        u_canonical = batch.u.detach().cpu().numpy().astype(np.float32)   # (N, T, 3)
+        y           = batch.y.detach().cpu().numpy().astype(np.float32)   # (N, T, 2)
+        theta_hd    = batch.theta_hd.detach().cpu().numpy().astype(np.float32)
+        is_stop     = batch.is_stop.detach().cpu().numpy().astype(np.float32)
+
+        delta_u = None
+        if pi.input_perturbation is not None:
+            from connectome_gnn.generators.optogenetics import build_input_perturbation
+            delta_u = np.zeros_like(u_canonical)
+            # Per-trial deterministic perturbation seed: derive from the split RNG
+            # so reordering trials doesn't shift all subsequent perturbations.
+            trial_seeds = rng.integers(0, 2**31 - 1, size=n_trials, dtype=np.int64)
+            for i in range(n_trials):
+                pert = build_input_perturbation(
+                    n_frames=pi.n_steps,
+                    n_channels=u_canonical.shape[-1],
+                    perturbation=pi.input_perturbation,
+                    seed=int(trial_seeds[i]),
+                    device=device,
+                )
+                delta_u[i] = pert.detach().cpu().numpy()
+            u = (u_canonical + delta_u).astype(np.float32)
+        else:
+            u = u_canonical
+
+        split_dir = os.path.join(out_root, split)
+        os.makedirs(os.path.join(split_dir, "aux"), exist_ok=True)
+
+        _write_trial_zarr(os.path.join(split_dir, "u.zarr"), u)
+        _write_trial_zarr(os.path.join(split_dir, "y.zarr"), y)
+        _write_trial_zarr_1d(os.path.join(split_dir, "aux", "theta_hd.zarr"), theta_hd)
+        _write_trial_zarr_1d(os.path.join(split_dir, "aux", "is_stop.zarr"), is_stop)
+        if delta_u is not None:
+            _write_trial_zarr(os.path.join(split_dir, "aux", "u_canonical.zarr"), u_canonical)
+            _write_trial_zarr(os.path.join(split_dir, "aux", "delta_u.zarr"), delta_u)
+        logger.info(f"[task]   {split}: wrote {n_trials} trials of T={pi.n_steps}")
+
+        if visualize:
+            from connectome_gnn.plot import (
+                plot_task_pi_kinograph,
+                plot_task_pi_traces,
+            )
+            plot_task_pi_kinograph(
+                u=u, y=y, theta_hd=theta_hd, is_stop=is_stop, dt=pi.dt,
+                out_path=os.path.join(split_dir, "task_kinograph.png"),
+            )
+            plot_task_pi_traces(
+                u=u, y=y, theta_hd=theta_hd, is_stop=is_stop, dt=pi.dt,
+                out_path=os.path.join(split_dir, "task_traces.png"),
+            )
+
+
+def data_generate_task(config, *, visualize: bool = True) -> None:
+    """Top-level dispatcher for task-data generation.
+
+    Routes on config.task.task_type. PR1 implements path_integration; OF and
+    twenty_tasks raise NotImplementedError (PR2/PR3).
+    """
+    task = config.task
+    if task is None:
+        return
+    if task.task_type == "path_integration":
+        _generate_path_integration_task(config, visualize=visualize)
+    elif task.task_type == "optical_flow":
+        raise NotImplementedError(
+            "optical_flow task generation lands in PR2 (see plan §3); "
+            "schema is declared so YAMLs validate."
+        )
+    elif task.task_type == "twenty_tasks":
+        raise NotImplementedError(
+            "twenty_tasks generation lands in PR3 via neurogym (see plan §3); "
+            "schema is declared so YAMLs validate."
+        )
+    else:
+        raise ValueError(f"unknown task_type: {task.task_type!r}")
 
 
 def data_generate_connconstr(config, visualize=True, device=None, save=True, erase=False):
