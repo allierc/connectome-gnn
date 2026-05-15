@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Annotated, Dict, List, Optional
+from typing import Annotated, Dict, List, Literal, Optional
 
 
 # Python 3.10 compatibility (StrEnum added in 3.11)
@@ -981,6 +981,121 @@ class TrainingConfig(BaseModel):
 
 
 
+# ---------------------------------------------------------------------------
+# Task-data generation (input stimulus + target output) — see plan
+# /home/node/.claude/plans/structured-swimming-pearl.md. PR1 lands the schema
+# for all three task families (path_integration, optical_flow, twenty_tasks)
+# and the PI generator; OF and twenty-tasks generators are PR2/PR3.
+# ---------------------------------------------------------------------------
+
+
+class InputPerturbation(BaseModel):
+    """Stochastic decorrelation signal added to task-input channels.
+
+    Wraps the existing OptoWaveform schema (kind/amplitude/frames_on/
+    noise_level/...) and adds a channel mask. Channels not in the mask are
+    untouched — critical for PI where channels 1,2 carry the initial heading
+    only and perturbing them destroys the IC semantics.
+    """
+    model_config = ConfigDict(extra="ignore")
+
+    waveform: OptoWaveform
+    channel_mask: Optional[List[int]] = None  # None = all channels
+
+
+class PathIntegrationTaskConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    n_trials_train: int
+    n_trials_test: int
+    n_steps: int = 100              # T per trial (Hulse default)
+    dt: float = 0.01                # seconds (Hulse default)
+    seed: int = 42
+
+    tau_corr: float = 0.12
+    sigma_omega_deg: float = 40.0
+    stop_fraction: float = 0.20
+    stop_mean_s: float = 2.0
+    stop_max_s: float = 8.0
+
+    device: Literal["cpu", "cuda", "auto"] = "cpu"
+    input_perturbation: Optional[InputPerturbation] = None
+
+
+class OpticalFlowTaskConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    n_trials_train: int
+    n_trials_test: int
+    n_steps: int = 80
+    dt: float = 1.0 / 24            # seconds; video framerate
+    seed: int = 42
+
+    flow_target: Literal["sintel_gt", "raft_pseudo", "photometric_selfsup"] = "sintel_gt"
+    train_test_split: Literal["random", "video_held_out"] = "video_held_out"
+    raft_model: Literal["raft_large", "raft_small"] = "raft_large"
+
+    # Reused flyvis video-source fields (see SimulationConfig.visual_input_type etc.).
+    # Used by raft_pseudo / photometric_selfsup; ignored for sintel_gt.
+    datavis_roots: List[str] = []
+    truncate_max_frames: Optional[int] = Field(default=80, gt=0)
+    flywire_stimulus: bool = False
+    all_columns: bool = False
+    steady_state_value: float = 0.5
+
+    device: Literal["cpu", "cuda", "auto"] = "auto"
+    input_perturbation: Optional[InputPerturbation] = None
+
+
+class TwentyTasksConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    subtasks: List[str]
+    n_trials_train_per_subtask: int
+    n_trials_test_per_subtask: int
+    dt: float = 0.020               # seconds (Yang default 20 ms)
+    n_steps_max: int = 80
+    seed: int = 42
+
+    sigma_x: float = 0.01
+    dataset_balance: Literal["uniform", "weighted"] = "uniform"
+
+    device: Literal["cpu"] = "cpu"
+    input_perturbation: Optional[InputPerturbation] = None
+
+
+class TaskConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    task_type: Literal["path_integration", "optical_flow", "twenty_tasks"]
+
+    path_integration: Optional[PathIntegrationTaskConfig] = None
+    optical_flow: Optional[OpticalFlowTaskConfig] = None
+    twenty_tasks: Optional[TwentyTasksConfig] = None
+
+    output_subdir: str = "task"
+
+    # If True, the data_generate dispatcher returns immediately after writing
+    # task data — skipping the (still-required-by-schema) simulation pipeline.
+    # Default False so configs that legitimately want both task+sim still work.
+    task_only: bool = False
+
+    @model_validator(mode="after")
+    def _exactly_matching_subblock(self):
+        sub = {
+            "path_integration": self.path_integration,
+            "optical_flow": self.optical_flow,
+            "twenty_tasks": self.twenty_tasks,
+        }
+        present = [k for k, v in sub.items() if v is not None]
+        if present != [self.task_type]:
+            raise ValueError(
+                f"task_type={self.task_type!r} requires exactly the matching "
+                f"subblock to be populated; got populated={present}"
+            )
+        return self
+
+
 class NeuralGraphConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -999,6 +1114,7 @@ class NeuralGraphConfig(BaseModel):
     plotting: PlottingConfig
     training: TrainingConfig
     zarr: Optional[ZarrConfig] = None
+    task: Optional[TaskConfig] = None
 
     @staticmethod
     def from_yaml(file_name: str):

@@ -720,6 +720,114 @@ def plot_kinograph(
     style.savefig(fig, output_path)
 
 
+# ---------------------------------------------------------------------------
+# Task-data plots (PR1: path_integration). Two separate figures per split:
+#   task_kinograph.png — heatmap view of all trials
+#   task_traces.png    — line plot of one example trial
+# OF and twenty_tasks panels land in PR2/PR3.
+# ---------------------------------------------------------------------------
+
+
+def plot_task_pi_kinograph(
+    u: np.ndarray,           # (N, T, 3) — perturbed input
+    y: np.ndarray,           # (N, T, 2) — heading target
+    theta_hd: np.ndarray,    # (N, T)
+    is_stop: np.ndarray,     # (N, T)
+    dt: float,
+    out_path: str,
+    n_show: int = 32,
+    style: FigureStyle = default_style,
+) -> None:
+    """Heatmap kinograph for path-integration task data.
+
+    4 stacked panels showing the first n_show trials (rows) over time (cols):
+      omega input (channel 0), cos(theta_0) (channel 1, IC), heading cos target,
+      heading sin target. is_stop overlay marks rest periods on the omega panel.
+    """
+    n_trials, T, _ = u.shape
+    n = min(n_show, n_trials)
+    panels = [
+        ("input omega (deg/s)",       u[:n, :, 0],           "RdBu_r"),
+        ("input cos(theta_0) (IC)",   u[:n, :, 1],           "RdBu_r"),
+        ("target cos(theta_hd)",      y[:n, :, 0],           "RdBu_r"),
+        ("target sin(theta_hd)",      y[:n, :, 1],           "RdBu_r"),
+    ]
+    fig, axes = plt.subplots(len(panels), 1, figsize=(10, 1.6 * len(panels)),
+                             sharex=True)
+    for ax, (title, arr, cmap) in zip(axes, panels):
+        vmax = max(1e-6, float(np.abs(arr).max()))
+        im = ax.imshow(arr, aspect="auto", origin="upper",
+                       cmap=cmap, vmin=-vmax, vmax=vmax,
+                       extent=[0, T * dt, n - 0.5, -0.5])
+        ax.set_ylabel("trial", fontsize=style.label_font_size)
+        ax.set_title(title, fontsize=style.label_font_size)
+        cbar = fig.colorbar(im, ax=ax, fraction=0.025, pad=0.01)
+        cbar.ax.tick_params(labelsize=style.tick_font_size)
+    axes[-1].set_xlabel("time (s)", fontsize=style.label_font_size)
+    fig.suptitle(f"path-integration task — {n} of {n_trials} trials, T={T}, dt={dt:.3g}s",
+                 fontsize=style.label_font_size)
+    plt.tight_layout()
+    style.savefig(fig, out_path)
+
+
+def plot_task_pi_traces(
+    u: np.ndarray,
+    y: np.ndarray,
+    theta_hd: np.ndarray,
+    is_stop: np.ndarray,
+    dt: float,
+    out_path: str,
+    trial_idx: int = 0,
+    style: FigureStyle = default_style,
+) -> None:
+    """Line plot of one example trial: omega(t), heading target, theta_hd(t).
+
+    Standing-pause regions (is_stop=1) shaded in gray.
+    """
+    T = u.shape[1]
+    t = np.arange(T) * dt
+
+    fig, axes = plt.subplots(3, 1, figsize=(9, 6), sharex=True)
+    stop = is_stop[trial_idx].astype(bool)
+
+    def _shade_stops(ax):
+        # Mark contiguous stop blocks as gray bands.
+        in_block = False
+        start = 0
+        for i, s in enumerate(stop):
+            if s and not in_block:
+                start = i; in_block = True
+            elif not s and in_block:
+                ax.axvspan(start * dt, i * dt, color="0.85", lw=0)
+                in_block = False
+        if in_block:
+            ax.axvspan(start * dt, T * dt, color="0.85", lw=0)
+
+    ax = axes[0]
+    ax.plot(t, u[trial_idx, :, 0], lw=1.2)
+    ax.set_ylabel("omega (deg/s)", fontsize=style.label_font_size)
+    ax.axhline(0, color="0.5", lw=0.5)
+    _shade_stops(ax)
+
+    ax = axes[1]
+    ax.plot(t, y[trial_idx, :, 0], lw=1.2, label="cos(theta_hd)")
+    ax.plot(t, y[trial_idx, :, 1], lw=1.2, label="sin(theta_hd)")
+    ax.set_ylabel("heading target", fontsize=style.label_font_size)
+    ax.legend(fontsize=style.tick_font_size, loc="upper right")
+    _shade_stops(ax)
+
+    ax = axes[2]
+    ax.plot(t, np.unwrap(theta_hd[trial_idx]), lw=1.2)
+    ax.set_ylabel("theta_hd (rad, unwrapped)", fontsize=style.label_font_size)
+    ax.set_xlabel("time (s)", fontsize=style.label_font_size)
+    _shade_stops(ax)
+
+    fig.suptitle(f"path-integration task — trial {trial_idx} (gray = standing pause)",
+                 fontsize=style.label_font_size)
+    plt.tight_layout()
+    style.savefig(fig, out_path)
+
+
 def plot_activity_traces(
     activity: np.ndarray,
     output_path: str,

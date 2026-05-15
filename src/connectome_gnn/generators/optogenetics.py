@@ -25,6 +25,7 @@ import numpy as np
 import torch
 
 from connectome_gnn.config import (
+    InputPerturbation,
     OptogeneticsConfig,
     OptoTargetMode,
     OptoTargetSpec,
@@ -265,6 +266,102 @@ def build_waveform(
         base = base + xi * float(waveform.noise_level)
 
     return base
+
+
+def build_input_perturbation(
+    n_frames: int,
+    n_channels: int,
+    perturbation: InputPerturbation,
+    *,
+    seed: int,
+    device: torch.device | str = 'cpu',
+) -> torch.Tensor:
+    """(T, n_channels) float32 perturbation for task input channels.
+
+    Slim sibling of build_waveform: same kind logic (HEAVISIDE / WHITE_NOISE /
+    IMPULSE / CONSTANT / VIDEO) and additive Gaussian noise, but no per-target
+    nullspace lookup — we treat the n_targets axis as input channels and use
+    waveform.amplitude (or 1.0) as the unit scale.
+
+    Channels not in perturbation.channel_mask are left as zero so the caller
+    can blindly add the result to u_canonical.
+    """
+    waveform = perturbation.waveform
+    mask = perturbation.channel_mask
+    if mask is None:
+        active = list(range(n_channels))
+    else:
+        active = [int(c) for c in mask]
+        if any(c < 0 or c >= n_channels for c in active):
+            raise ValueError(
+                f"channel_mask {mask} out of range for n_channels={n_channels}"
+            )
+
+    n_active = len(active)
+    if n_active == 0:
+        return torch.zeros(n_frames, n_channels, dtype=torch.float32, device=device)
+
+    # Trial-deterministic seed: combine the user-provided perturbation seed
+    # (waveform.seed) with the per-trial seed passed in.
+    gen_device = 'cuda' if torch.device(device).type == 'cuda' else 'cpu'
+    g = torch.Generator(device=gen_device)
+    g.manual_seed(int(waveform.seed) ^ int(seed))
+
+    amp = float(waveform.amplitude) if waveform.amplitude is not None else 1.0
+    amps = torch.full((n_active,), amp, device=device, dtype=torch.float32)
+
+    kind = waveform.kind if isinstance(waveform.kind, str) else waveform.kind.value
+
+    base = torch.zeros(n_frames, n_active, dtype=torch.float32, device=device)
+    if kind == OptoWaveformKind.WHITE_NOISE.value:
+        pass
+    elif kind == OptoWaveformKind.CONSTANT.value:
+        base[:, :] = amps[None, :]
+    elif kind == OptoWaveformKind.HEAVISIDE.value:
+        frames_on = int(getattr(waveform, 'frames_on', 0) or 0)
+        if frames_on <= 0:
+            base[:, :] = amps[None, :]
+        else:
+            # Per-channel random telegraph (independent flip per channel) —
+            # mirrors build_waveform's column_distinct=True branch.
+            p_flip = 1.0 / float(frames_on)
+            flips = (torch.rand(n_frames, n_active, generator=g,
+                                dtype=torch.float32, device=device) < p_flip)
+            state01 = torch.cumsum(flips.to(torch.int32), dim=0) % 2
+            if getattr(waveform, 'resample_amplitude_per_transition', False):
+                seg_id = torch.cumsum(flips.to(torch.int64), dim=0)
+                max_seg = int(seg_id.max().item()) + 1
+                seg_amps = torch.rand(max_seg, n_active, generator=g,
+                                      dtype=torch.float32, device=device)
+                col_amps_t = torch.gather(seg_amps, 0, seg_id)
+                base = state01.float() * col_amps_t * amp
+            else:
+                col_amps = torch.rand(n_active, generator=g,
+                                      dtype=torch.float32, device=device)
+                base = state01.float() * col_amps[None, :] * amp
+    elif kind == OptoWaveformKind.IMPULSE.value:
+        pw = max(1, int(waveform.pulse_width_frames))
+        pp = max(pw + 1, int(waveform.pulse_period_frames))
+        for k in range(0, n_frames // pp + 1):
+            a = k * pp
+            b = min(a + pw, n_frames)
+            if a >= n_frames:
+                break
+            base[a:b, :] = amps[None, :]
+    elif kind == OptoWaveformKind.VIDEO.value:
+        raise ValueError("VIDEO waveform is not supported for task input perturbation")
+    else:
+        raise ValueError(f"unknown waveform kind: {kind}")
+
+    if waveform.noise_level > 0.0:
+        xi = torch.randn(n_frames, n_active, generator=g,
+                         dtype=torch.float32, device=device)
+        base = base + xi * float(waveform.noise_level)
+
+    # Scatter active channels back into the full (T, n_channels) frame.
+    out = torch.zeros(n_frames, n_channels, dtype=torch.float32, device=device)
+    out[:, active] = base
+    return out
 
 
 def make_optogenetics_stimulus(
