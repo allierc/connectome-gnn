@@ -1,6 +1,7 @@
 import datetime
 import fcntl
 import glob
+import math
 import shutil
 
 import matplotlib.pyplot as plt
@@ -14,6 +15,7 @@ except ImportError:
     load_wormvae_data = None
     load_zebrafish_data = None
 from connectome_gnn.figure_style import dark_style, default_style
+from connectome_gnn.generators.optogenetics import build_input_perturbation
 from connectome_gnn.log import get_logger
 from connectome_gnn.neuron_state import NeuronState
 from connectome_gnn.plot import (
@@ -25,7 +27,10 @@ from connectome_gnn.plot import (
     plot_selected_neuron_traces,
     plot_spatial_activity_grid,
     plot_spiking_traces,
+    plot_task_pi_traces,
 )
+# plot_task_cortex_* are imported lazily inside _generate_cortex_task so plot.py
+# can be edited without affecting non-task code paths.
 from connectome_gnn.zarr_io import ZarrArrayWriter, ZarrSimulationWriterV3
 
 
@@ -183,7 +188,7 @@ def data_generate(
     # from the simulation pipeline below; merging the two (task-trained
     # circuit -> simulate activity -> GNN recovery) is a follow-up PR.
     if getattr(config, 'task', None) is not None:
-        data_generate_task(config, visualize=visualize)
+        data_generate_task(config, device=device, visualize=visualize)
         if config.task.task_only:
             return
 
@@ -299,57 +304,72 @@ def data_generate(
 # ---------------------------------------------------------------------------
 
 
-def _resolve_task_device(spec: str) -> torch.device:
-    if spec == "auto":
-        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    return torch.device(spec)
+def _write_trial_zarr(
+    path: str,
+    arr: np.ndarray,
+    *,
+    chunk_trials: int = 1000,
+    desc: str | None = None,
+) -> None:
+    """Write a (N_trials, T, n) array as a zarr with per-trial chunks.
 
-
-def _write_trial_zarr(path: str, arr: np.ndarray) -> None:
-    """Write a (N_trials, T, n) array as a zarr with per-trial chunks (1, T, n).
-
-    Reuses ZarrArrayWriter by remapping its (T, N, F) axes to (N_trials, T, n).
+    `chunk_trials` is the number of trials per zstd block. 1000 trials × T=1000 ×
+    3 channels ≈ 12 MB per chunk — the sweet spot for sequential reads. Reuses
+    ZarrArrayWriter by remapping its (T, N, F) axes to (N_trials, T, n).
     """
     n_trials, T, n_feat = arr.shape
+    chunks = max(1, min(int(chunk_trials), n_trials))
     writer = ZarrArrayWriter(
         path=path,
         n_neurons=T,
         n_features=n_feat,
-        time_chunks=1,
+        time_chunks=chunks,
     )
-    for i in range(n_trials):
+    n_flushes = math.ceil(n_trials / chunks)
+    label = desc or os.path.basename(path)
+    for i in tqdm(range(n_trials), desc=f"  zarr {label} ({n_flushes} chunks)",
+                  leave=False, ncols=150):
         writer.append(arr[i])
     writer.finalize()
 
 
-def _write_trial_zarr_1d(path: str, arr: np.ndarray) -> None:
+def _write_trial_zarr_1d(
+    path: str,
+    arr: np.ndarray,
+    *,
+    chunk_trials: int = 1000,
+    desc: str | None = None,
+) -> None:
     """Write a (N_trials, T) array as zarr by promoting to (N_trials, T, 1)."""
-    _write_trial_zarr(path, arr[..., None].astype(np.float32))
+    _write_trial_zarr(path, arr[..., None].astype(np.float32),
+                      chunk_trials=chunk_trials, desc=desc)
 
 
-def _generate_path_integration_task(config, *, visualize: bool = True) -> None:
+def _generate_path_integration_task(config, *, device, visualize: bool = True) -> None:
     """Generate the Hulse path-integration task data (input + heading target).
 
-    Writes per-split zarrs under <dataset>/<task.output_subdir>/{train,test}/:
-        u.zarr           (N, T, 3)   — [omega(t), cos(theta_0)*delta_t0, sin(theta_0)*delta_t0]
-        y.zarr           (N, T, 2)   — [cos(theta_hd(t)), sin(theta_hd(t))]
-        aux/theta_hd.zarr  (N, T)
-        aux/is_stop.zarr   (N, T)
-        aux/u_canonical.zarr, aux/delta_u.zarr  (only when input_perturbation is set)
-    """
-    # noqa: cross-pkg — TODO lift generate_path_integration_batch into this module
-    # when teachers/ is removed.
-    from connectome_gnn.teachers.janelia_cx_teacher import (
-        generate_path_integration_batch,
-    )
+    Layout — flyvis-style flat dataset folder:
+        <dataset>/
+            task_traces_{train,test}.png
+            train/
+                stimulus.zarr   (N, T, 3)   [omega(t), cos(theta_0)*delta_t0, sin(theta_0)*delta_t0]
+                target.zarr     (N, T, 2)   [cos(theta_hd(t)), sin(theta_hd(t))]
+                theta_hd.zarr   (N, T)      ground-truth heading
+                is_stop.zarr    (N, T)      standing-pause mask
+                stimulus_canonical.zarr / delta_stimulus.zarr  (only when input_perturbation is set)
+            test/
+                same fields
 
+    Inlines the OU-velocity / heading integration from Hulse Methods Eqs. 5-7;
+    the trainer in teachers/janelia_cx_teacher.py keeps its own torch-tensor
+    version for the BPTT loop.
+    """
     task = config.task
     pi = task.path_integration
-    device = _resolve_task_device(pi.device)
     seed_seq = np.random.SeedSequence(pi.seed)
     rng_train, rng_test = (np.random.default_rng(s) for s in seed_seq.spawn(2))
 
-    out_root = graphs_data_path(config.dataset, task.output_subdir)
+    out_root = graphs_data_path(config.dataset)
     os.makedirs(out_root, exist_ok=True)
     logger.info(f"[task] path_integration -> {out_root}")
     logger.info(
@@ -358,97 +378,334 @@ def _generate_path_integration_task(config, *, visualize: bool = True) -> None:
         f"perturb={pi.input_perturbation is not None}"
     )
 
+    T = int(pi.n_steps)
+    dt = float(pi.dt)
+    alpha = 1.0 / float(pi.tau_corr)
+    sigma_step = float(pi.sigma_omega_deg) * math.sqrt(2.0 * alpha) * math.sqrt(dt)
+    decay = 1.0 - alpha * dt
+    mean_steps = pi.stop_mean_s / dt
+    max_steps = int(pi.stop_max_s / dt)
+    target_stop = int(pi.stop_fraction * T)
+
     for split, n_trials, rng in [
         ("train", pi.n_trials_train, rng_train),
         ("test", pi.n_trials_test, rng_test),
     ]:
         if n_trials <= 0:
             continue
-        batch = generate_path_integration_batch(
-            batch_size=n_trials,
-            n_steps=pi.n_steps,
-            dt=pi.dt,
-            tau_corr=pi.tau_corr,
-            sigma_omega_deg=pi.sigma_omega_deg,
-            stop_fraction=pi.stop_fraction,
-            stop_mean_s=pi.stop_mean_s,
-            stop_max_s=pi.stop_max_s,
-            device=device,
-            rng=rng,
-        )
-        u_canonical = batch.u.detach().cpu().numpy().astype(np.float32)   # (N, T, 3)
-        y           = batch.y.detach().cpu().numpy().astype(np.float32)   # (N, T, 2)
-        theta_hd    = batch.theta_hd.detach().cpu().numpy().astype(np.float32)
-        is_stop     = batch.is_stop.detach().cpu().numpy().astype(np.float32)
+        B = int(n_trials)
 
-        delta_u = None
+        logger.info(f"[task] {split}: generating {B} trials of T={T} ...")
+
+        # OU-driven angular velocity (Hulse Eq. 5). Loop is over T (not B), so
+        # the bar shows time-step progress; B-scaling is in the array width.
+        omega = np.zeros((B, T), dtype=np.float32)
+        eta = rng.standard_normal(size=(B, T)).astype(np.float32)
+        for t in tqdm(range(1, T), desc=f"  {split} OU velocity (B={B})",
+                      ncols=150, leave=False):
+            omega[:, t] = decay * omega[:, t - 1] + sigma_step * eta[:, t]
+
+        # Standing-pause mask: insert exponential-duration stops per trial.
+        is_stop = np.zeros((B, T), dtype=np.float32)
+        if pi.stop_fraction > 0.0:
+            for b in tqdm(range(B), desc=f"  {split} stop-mask",
+                          ncols=150, leave=False):
+                covered = 0
+                attempts = 0
+                while covered < target_stop and attempts < 100:
+                    attempts += 1
+                    start = rng.integers(0, T)
+                    length = min(max_steps, int(rng.exponential(mean_steps)), T - start)
+                    if length <= 0:
+                        continue
+                    end = start + length
+                    already = int(is_stop[b, start:end].sum())
+                    is_stop[b, start:end] = 1.0
+                    covered += length - already
+            omega *= 1.0 - is_stop  # zero velocity during stops
+
+        # Integrate to heading (Hulse Eq. 6).
+        theta0 = rng.uniform(0.0, 2.0 * math.pi, size=B).astype(np.float32)
+        theta_hd = theta0[:, None] + np.cumsum(np.deg2rad(omega), axis=1) * dt
+        theta_hd[:, 0] = theta0
+        target_y = np.stack([np.cos(theta_hd), np.sin(theta_hd)],
+                            axis=-1).astype(np.float32)
+
+        # Input vector (Hulse Eq. 7): [omega, cos(theta0)·δ_t0, sin(theta0)·δ_t0].
+        stimulus_canonical = np.zeros((B, T, 3), dtype=np.float32)
+        stimulus_canonical[:, :, 0] = omega
+        stimulus_canonical[:, 0, 1] = np.cos(theta0)
+        stimulus_canonical[:, 0, 2] = np.sin(theta0)
+
+        delta_stimulus = None
         if pi.input_perturbation is not None:
-            from connectome_gnn.generators.optogenetics import build_input_perturbation
-            delta_u = np.zeros_like(u_canonical)
+            delta_stimulus = np.zeros_like(stimulus_canonical)
             # Per-trial deterministic perturbation seed: derive from the split RNG
             # so reordering trials doesn't shift all subsequent perturbations.
-            trial_seeds = rng.integers(0, 2**31 - 1, size=n_trials, dtype=np.int64)
-            for i in range(n_trials):
+            trial_seeds = rng.integers(0, 2**31 - 1, size=B, dtype=np.int64)
+            for i in tqdm(range(B), desc=f"  {split} perturbation",
+                          ncols=150, leave=False):
                 pert = build_input_perturbation(
-                    n_frames=pi.n_steps,
-                    n_channels=u_canonical.shape[-1],
+                    n_frames=T,
+                    n_channels=stimulus_canonical.shape[-1],
                     perturbation=pi.input_perturbation,
                     seed=int(trial_seeds[i]),
                     device=device,
                 )
-                delta_u[i] = pert.detach().cpu().numpy()
-            u = (u_canonical + delta_u).astype(np.float32)
+                delta_stimulus[i] = pert.detach().cpu().numpy()
+            stimulus = (stimulus_canonical + delta_stimulus).astype(np.float32)
         else:
-            u = u_canonical
+            stimulus = stimulus_canonical
 
         split_dir = os.path.join(out_root, split)
-        os.makedirs(os.path.join(split_dir, "aux"), exist_ok=True)
+        os.makedirs(split_dir, exist_ok=True)
 
-        _write_trial_zarr(os.path.join(split_dir, "u.zarr"), u)
-        _write_trial_zarr(os.path.join(split_dir, "y.zarr"), y)
-        _write_trial_zarr_1d(os.path.join(split_dir, "aux", "theta_hd.zarr"), theta_hd)
-        _write_trial_zarr_1d(os.path.join(split_dir, "aux", "is_stop.zarr"), is_stop)
-        if delta_u is not None:
-            _write_trial_zarr(os.path.join(split_dir, "aux", "u_canonical.zarr"), u_canonical)
-            _write_trial_zarr(os.path.join(split_dir, "aux", "delta_u.zarr"), delta_u)
-        logger.info(f"[task]   {split}: wrote {n_trials} trials of T={pi.n_steps}")
+        _write_trial_zarr(os.path.join(split_dir, "stimulus.zarr"), stimulus)
+        _write_trial_zarr(os.path.join(split_dir, "target.zarr"), target_y)
+        _write_trial_zarr_1d(os.path.join(split_dir, "theta_hd.zarr"), theta_hd)
+        _write_trial_zarr_1d(os.path.join(split_dir, "is_stop.zarr"), is_stop)
+        if delta_stimulus is not None:
+            _write_trial_zarr(os.path.join(split_dir, "stimulus_canonical.zarr"), stimulus_canonical)
+            _write_trial_zarr(os.path.join(split_dir, "delta_stimulus.zarr"), delta_stimulus)
+        logger.info(f"[task]   {split}: wrote {B} trials of T={T}")
+
+        if visualize:
+            plot_task_pi_traces(
+                u=stimulus, y=target_y, theta_hd=theta_hd, is_stop=is_stop, dt=dt,
+                out_path=os.path.join(out_root, f"task_traces_{split}.png"),
+            )
+
+
+def _generate_cortex_task(config, *, device, visualize: bool = True) -> None:
+    """Generate Yang et al. 2019 multitask cognitive battery data.
+
+    Drives `generators/cortex_task.py` (verbatim port of gyyang/multitask) and
+    stores trials as zarr arrays under `<dataset>/<split>/`. Single flat
+    layout: for any fixed `ruleset` Yang's N_i / N_o are constant across
+    rules (the rule one-hot embedded in the input acts as the task ID).
+
+    Layout — flyvis-style flat dataset folder:
+        <dataset>/
+            rules.json            ruleset + N_i + N_o + dt + rules list
+            task_cortex_overview_<split>.png      multi-rule heatmap grid (only if >1 rule)
+            task_cortex_example_<split>_<rule>.png  single-rule close-up
+            task_cortex_traces_<split>_<rule>.png   line-overlay sanity check
+            train/
+                stimulus.zarr     (N, T_max, N_i)     padded Yang trial.x
+                target.zarr       (N, T_max, N_o)     padded Yang trial.y
+                c_mask.zarr       (N, T_max, N_o)     padded Yang c_mask
+                length.zarr       (N, T_max)          real-step mask
+                rule_idx.zarr     (N,)                index into ct.rules
+                stimulus_canonical.zarr / delta_stimulus.zarr  (only when input_perturbation set)
+            test/
+                same fields
+    """
+    import json
+
+    from connectome_gnn.generators.cortex_task import generate_trials, get_default_hp
+    from connectome_gnn.generators.cortex_adapter import trial_to_numpy
+
+    task = config.task
+    ct = task.cortex
+
+    if ct.rule_weights and len(ct.rule_weights) != len(ct.rules):
+        raise ValueError(
+            f"cortex.rule_weights length {len(ct.rule_weights)} != "
+            f"rules length {len(ct.rules)}"
+        )
+
+    # Build Yang hp + apply overrides. `get_default_hp` returns a fresh dict.
+    hp = get_default_hp(ct.ruleset)
+    for k, v in (ct.hp_overrides or {}).items():
+        hp[k] = v
+    n_in = int(hp["n_input"])
+    n_out = int(hp["n_output"])
+    dt_s = float(hp["dt"]) / 1000.0   # Yang stores dt in ms; convert to seconds
+
+    out_root = graphs_data_path(config.dataset)
+    os.makedirs(out_root, exist_ok=True)
+    logger.info(f"[task] cortex -> {out_root}")
+    logger.info(
+        f"[task] ruleset={ct.ruleset!r} rules={ct.rules} n_in={n_in} n_out={n_out} "
+        f"dt={dt_s}s n_steps_max={ct.n_steps_max} "
+        f"train={ct.n_trials_train} test={ct.n_trials_test} "
+        f"perturb={ct.input_perturbation is not None}"
+    )
+
+    rules = list(ct.rules)
+    weights = list(ct.rule_weights) if ct.rule_weights else None
+    if weights:
+        s = float(sum(weights))
+        weights = [w / s for w in weights]
+
+    # Persist ruleset metadata at dataset root.
+    with open(os.path.join(out_root, "rules.json"), "w") as f:
+        json.dump({
+            "rules":   rules,
+            "ruleset": ct.ruleset,
+            "N_i":     n_in,
+            "N_o":     n_out,
+            "dt":      dt_s,
+            "n_steps_max": int(ct.n_steps_max),
+            "hp_overrides": dict(ct.hp_overrides or {}),
+        }, f, indent=2)
+
+    # Per-split deterministic seed streams: train and test use different RNGs
+    # spawned from the cortex.seed so adding test trials doesn't shift train.
+    seed_seq = np.random.SeedSequence(ct.seed)
+    split_seeds = dict(zip(("train", "test"), seed_seq.spawn(2)))
+
+    for split, n_total in [("train", ct.n_trials_train),
+                           ("test",  ct.n_trials_test)]:
+        if n_total <= 0:
+            continue
+
+        # One RNG drives both rule choice and Yang's per-trial randomness
+        # (passed in via hp['rng']). One RNG drives the perturbation stream.
+        rule_rng, yang_rng, pert_rng = (
+            np.random.default_rng(s) for s in split_seeds[split].spawn(3)
+        )
+        # Yang uses RandomState (legacy); bridge it with the per-split seed.
+        hp = dict(hp)
+        hp['rng'] = np.random.RandomState(int(yang_rng.integers(0, 2**31 - 1)))
+
+        T_max = int(ct.n_steps_max)
+        stimulus_canonical = np.zeros((n_total, T_max, n_in), dtype=np.float32)
+        target             = np.zeros((n_total, T_max, n_out), dtype=np.float32)
+        c_mask             = np.zeros((n_total, T_max, n_out), dtype=np.float32)
+        length             = np.zeros((n_total, T_max),        dtype=np.float32)
+        rule_idx           = np.zeros((n_total,),              dtype=np.int64)
+
+        # Stash one Trial per rule so plotters can render epoch boundaries.
+        first_trial_per_rule: dict[str, object] = {}
+
+        for i in tqdm(range(n_total), desc=f"  {split} trials",
+                      ncols=150, leave=False):
+            r_idx = int(rule_rng.choice(len(rules), p=weights))
+            r = rules[r_idx]
+            trial = generate_trials(r, hp, mode='random', batch_size=1)
+            T_trial = int(trial.tdim)
+            if T_trial > T_max:
+                raise ValueError(
+                    f"[cortex/{r}] trial length {T_trial} > "
+                    f"n_steps_max={T_max}; raise n_steps_max in the YAML."
+                )
+            x_in, y_tgt, cm = trial_to_numpy(trial, 0)
+            stimulus_canonical[i, :T_trial] = x_in
+            target[i, :T_trial]             = y_tgt
+            c_mask[i, :T_trial]             = cm
+            length[i, :T_trial]             = 1.0
+            rule_idx[i]                     = r_idx
+            if r not in first_trial_per_rule:
+                first_trial_per_rule[r] = trial
+
+        # Optional decorrelation perturbation on top of the canonical input.
+        delta_stimulus = None
+        if ct.input_perturbation is not None:
+            trial_seeds = pert_rng.integers(0, 2**31 - 1, size=n_total, dtype=np.int64)
+            delta_stimulus = np.zeros_like(stimulus_canonical)
+            for i in tqdm(range(n_total), desc=f"  {split} perturbation",
+                          ncols=150, leave=False):
+                pert = build_input_perturbation(
+                    n_frames=T_max,
+                    n_channels=n_in,
+                    perturbation=ct.input_perturbation,
+                    seed=int(trial_seeds[i]),
+                    device=device,
+                )
+                # Mask perturbation to real timesteps so padding stays clean.
+                delta_stimulus[i] = pert.detach().cpu().numpy() * length[i, :, None]
+            stimulus = (stimulus_canonical + delta_stimulus).astype(np.float32)
+        else:
+            stimulus = stimulus_canonical
+
+        # Write zarrs.
+        split_dir = os.path.join(out_root, split)
+        os.makedirs(split_dir, exist_ok=True)
+        _write_trial_zarr(os.path.join(split_dir, "stimulus.zarr"), stimulus)
+        _write_trial_zarr(os.path.join(split_dir, "target.zarr"),   target)
+        _write_trial_zarr(os.path.join(split_dir, "c_mask.zarr"),   c_mask)
+        _write_trial_zarr_1d(os.path.join(split_dir, "length.zarr"), length)
+        # rule_idx is one-per-trial (1D); zarr chunked layout is overkill — store
+        # as .npy at the split root. Plotting / loaders read it as a flat array.
+        np.save(os.path.join(split_dir, "rule_idx.npy"), rule_idx)
+        if delta_stimulus is not None:
+            _write_trial_zarr(
+                os.path.join(split_dir, "stimulus_canonical.zarr"), stimulus_canonical
+            )
+            _write_trial_zarr(
+                os.path.join(split_dir, "delta_stimulus.zarr"), delta_stimulus
+            )
+
+        rule_counts = {r: int((rule_idx == ri).sum()) for ri, r in enumerate(rules)}
+        logger.info(
+            f"[task]   {split}: wrote {n_total} trials "
+            f"(N_i={n_in}, N_o={n_out}, T_max={T_max}) — rule counts: {rule_counts}"
+        )
 
         if visualize:
             from connectome_gnn.plot import (
-                plot_task_pi_kinograph,
-                plot_task_pi_traces,
-            )
-            plot_task_pi_kinograph(
-                u=u, y=y, theta_hd=theta_hd, is_stop=is_stop, dt=pi.dt,
-                out_path=os.path.join(split_dir, "task_kinograph.png"),
-            )
-            plot_task_pi_traces(
-                u=u, y=y, theta_hd=theta_hd, is_stop=is_stop, dt=pi.dt,
-                out_path=os.path.join(split_dir, "task_traces.png"),
+                plot_task_cortex_example,
+                plot_task_cortex_overview,
+                plot_task_cortex_traces,
             )
 
+            # Per-rule close-up + traces (one figure per rule from first_trial_per_rule).
+            for r, trial in first_trial_per_rule.items():
+                first_idx = int(np.where(rule_idx == rules.index(r))[0][0])
+                plot_task_cortex_example(
+                    stimulus=stimulus[first_idx],
+                    target=target[first_idx],
+                    length=length[first_idx],
+                    dt=dt_s, rule=r, epochs=getattr(trial, 'epochs', None),
+                    n_rule=int(hp.get('n_rule', 0)),
+                    n_eachring=int(hp.get('n_eachring', 32)),
+                    out_path=os.path.join(out_root, f"task_cortex_example_{split}_{r}.png"),
+                )
+                plot_task_cortex_traces(
+                    stimulus=stimulus[first_idx],
+                    target=target[first_idx],
+                    length=length[first_idx],
+                    dt=dt_s, rule=r,
+                    n_eachring=int(hp.get('n_eachring', 32)),
+                    out_path=os.path.join(out_root, f"task_cortex_traces_{split}_{r}.png"),
+                )
 
-def data_generate_task(config, *, visualize: bool = True) -> None:
+            # Multi-rule grid overview — only meaningful for multi-rule runs.
+            if len(rules) > 1:
+                # Pick one trial per rule (the first occurrence) for the grid.
+                ridx_for_grid = [int(np.where(rule_idx == ri)[0][0])
+                                 for ri in range(len(rules))
+                                 if (rule_idx == ri).any()]
+                plot_task_cortex_overview(
+                    stimulus=stimulus[ridx_for_grid],
+                    target=target[ridx_for_grid],
+                    rules=[rules[int(rule_idx[i])] for i in ridx_for_grid],
+                    n_rule=int(hp.get('n_rule', 0)),
+                    n_eachring=int(hp.get('n_eachring', 32)),
+                    out_path=os.path.join(out_root, f"task_cortex_overview_{split}.png"),
+                )
+
+
+def data_generate_task(config, *, device, visualize: bool = True) -> None:
     """Top-level dispatcher for task-data generation.
 
-    Routes on config.task.task_type. PR1 implements path_integration; OF and
-    twenty_tasks raise NotImplementedError (PR2/PR3).
+    Routes on config.task.task_type. path_integration: Hulse heading task;
+    cortex: Yang 2019 multitask cognitive battery; optical_flow: not yet
+    implemented (schema only).
     """
     task = config.task
     if task is None:
         return
     if task.task_type == "path_integration":
-        _generate_path_integration_task(config, visualize=visualize)
+        _generate_path_integration_task(config, device=device, visualize=visualize)
     elif task.task_type == "optical_flow":
         raise NotImplementedError(
-            "optical_flow task generation lands in PR2 (see plan §3); "
+            "optical_flow task generation is not implemented yet; "
             "schema is declared so YAMLs validate."
         )
-    elif task.task_type == "twenty_tasks":
-        raise NotImplementedError(
-            "twenty_tasks generation lands in PR3 via neurogym (see plan §3); "
-            "schema is declared so YAMLs validate."
-        )
+    elif task.task_type == "cortex":
+        _generate_cortex_task(config, device=device, visualize=visualize)
     else:
         raise ValueError(f"unknown task_type: {task.task_type!r}")
 

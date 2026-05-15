@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Annotated, Dict, List, Literal, Optional
+from typing import Annotated, Any, Dict, List, Literal, Optional
 
 
 # Python 3.10 compatibility (StrEnum added in 3.11)
@@ -534,6 +534,15 @@ class GraphModelConfig(BaseModel):
 
     update_type: UpdateType = UpdateType.NONE
 
+    # NeuralTaskGNN: shape of W_in / W_out (Hulse path-integration model).
+    # "matrix" → learnable Linear (Hulse default). "mlp" → small MLP reusing
+    # `hidden_dim` and `n_layers` above.
+    input_proj: Literal["matrix", "mlp"] = "matrix"
+    output_proj: Literal["matrix", "mlp"] = "matrix"
+    # NeuralTaskGNN: include the 4 ER6 broad-inhibitory ring neurons in the
+    # hemibrain CX (156-neuron Hulse spec). False uses Beiran's 152-neuron loader.
+    include_er6: bool = True
+
     MLP_activation: MLPActivation = MLPActivation.RELU
     zero_init_output: bool = False  # zero-init final layer so model starts predicting dvdt=0
     add_skip_layers: bool = False  # linear skip connection at each hidden layer
@@ -858,6 +867,13 @@ class TrainingConfig(BaseModel):
     coeff_TV_norm: float = 0  # Total variation norm on predictions
     coeff_missing_activity: float = 0  # Penalty for missing activity patterns
     coeff_model_a: float = 0  # Regularizer on embedding a
+
+    # -- NeuralTaskGNN (path-integration) regularizers (Hulse Eqs. 10, 11 + circular TV) --
+    coeff_cos_distance: float = 0.0    # cos-distance per (post, pre) type-pair block
+    coeff_norm_floor:   float = 0.0    # soft floor on mean |W| per type-pair block
+    kappa_norm_floor:   float = 0.05   # floor target for norm-floor reg
+    coeff_tv_circular:  float = 0.0    # circular TV on EPG/PEN ring firing rates
+    snapshots_per_epoch: int = 5       # cadence of matrix+kinograph + pi_acc/fwhm eval
     coeff_model_b: float = 0  # Regularizer on bias b
     coeff_embedding_cluster: float = 0.0  # pull same-cell-type embeddings toward their per-type centroid (L2)
 
@@ -982,10 +998,11 @@ class TrainingConfig(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Task-data generation (input stimulus + target output) — see plan
-# /home/node/.claude/plans/structured-swimming-pearl.md. PR1 lands the schema
-# for all three task families (path_integration, optical_flow, twenty_tasks)
-# and the PI generator; OF and twenty-tasks generators are PR2/PR3.
+# Task-data generation (input stimulus + target output). Three task families:
+#   - path_integration: Hulse heading-direction estimation
+#   - optical_flow: video-driven flow targets
+#   - cortex: Yang et al. 2019 multitask cognitive battery, ported directly
+#             from gyyang/multitask (see generators/cortex_task.py)
 # ---------------------------------------------------------------------------
 
 
@@ -1047,18 +1064,30 @@ class OpticalFlowTaskConfig(BaseModel):
     input_perturbation: Optional[InputPerturbation] = None
 
 
-class TwentyTasksConfig(BaseModel):
+class CortexTaskConfig(BaseModel):
+    """Yang et al. 2019 multitask cognitive battery (gyyang/multitask port).
+
+    The Yang generator (`generators/cortex_task.py`) defines task dimensions
+    from `ruleset`: for ruleset='all', N_i = 1 + 2*32 + 20 = 85 (fixation +
+    two stimulus rings + 20-rule one-hot), N_o = 1 + 32 = 33 (fixation +
+    motor ring). Per-trial tdim varies; trials get padded to `n_steps_max`.
+    """
     model_config = ConfigDict(extra="ignore")
 
-    subtasks: List[str]
-    n_trials_train_per_subtask: int
-    n_trials_test_per_subtask: int
-    dt: float = 0.020               # seconds (Yang default 20 ms)
-    n_steps_max: int = 80
-    seed: int = 42
+    # Task selection
+    rules: List[str]                                      # Yang task names (subset of ruleset)
+    rule_weights: List[float] = []                        # empty = uniform sampling
+    ruleset: Literal["all", "mante", "oicdmc"] = "all"
 
-    sigma_x: float = 0.01
-    dataset_balance: Literal["uniform", "weighted"] = "uniform"
+    # Trial counts
+    n_trials_train: int
+    n_trials_test: int
+    n_steps_max: int = 200                                # padding length; raises if any trial exceeds
+
+    # Yang hp overrides — passed through `get_default_hp(ruleset)` then
+    # mutated. Use to tweak dt, tau, sigma_x, sigma_rec, etc. Empty = Yang defaults.
+    hp_overrides: Dict[str, Any] = {}
+    seed: int = 0
 
     device: Literal["cpu"] = "cpu"
     input_perturbation: Optional[InputPerturbation] = None
@@ -1067,13 +1096,11 @@ class TwentyTasksConfig(BaseModel):
 class TaskConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    task_type: Literal["path_integration", "optical_flow", "twenty_tasks"]
+    task_type: Literal["path_integration", "optical_flow", "cortex"]
 
     path_integration: Optional[PathIntegrationTaskConfig] = None
     optical_flow: Optional[OpticalFlowTaskConfig] = None
-    twenty_tasks: Optional[TwentyTasksConfig] = None
-
-    output_subdir: str = "task"
+    cortex: Optional[CortexTaskConfig] = None
 
     # If True, the data_generate dispatcher returns immediately after writing
     # task data — skipping the (still-required-by-schema) simulation pipeline.
@@ -1085,7 +1112,7 @@ class TaskConfig(BaseModel):
         sub = {
             "path_integration": self.path_integration,
             "optical_flow": self.optical_flow,
-            "twenty_tasks": self.twenty_tasks,
+            "cortex": self.cortex,
         }
         present = [k for k, v in sub.items() if v is not None]
         if present != [self.task_type]:
