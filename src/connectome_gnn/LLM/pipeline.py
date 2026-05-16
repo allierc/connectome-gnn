@@ -417,18 +417,28 @@ def run_batch_0(state: ExplorationState):
         )
 
     # Validate slot YAMLs are still parseable (Edit tool writes atomically, but
-    # confirm explicitly so we never submit broken jobs).
+    # confirm explicitly so we never submit broken jobs). If Claude corrupted
+    # a slot, auto-restore from source_config and keep going — the slot will
+    # run baseline (same as the seed config) for this batch, which is fine
+    # as a robustness sample.
     for slot, path in state.config_paths.items():
         try:
             with open(path) as f:
                 yaml.safe_load(f)
         except Exception as e:
             print(
-                f"\033[91mFATAL: slot {slot} YAML at {path} no longer parses "
-                f"({type(e).__name__}: {e}). Restore from {state.source_config} "
-                f"and re-run.\033[0m"
+                f"\033[93mWARNING: slot {slot} YAML at {path} no longer parses "
+                f"({type(e).__name__}: {e}). Auto-restoring from "
+                f"{state.source_config}; this slot will run baseline.\033[0m"
             )
-            sys.exit(1)
+            try:
+                shutil.copy2(state.source_config, path)
+            except Exception as exc:
+                print(
+                    f"\033[91mFATAL: failed to restore slot {slot} from "
+                    f"{state.source_config}: {exc}\033[0m"
+                )
+                sys.exit(1)
 
     if output_text.strip():
         with open(state.reasoning_log_path, 'a') as f:
@@ -1286,18 +1296,27 @@ def run_claude_analysis(state: ExplorationState, batch: BatchInfo):
             f"previous-batch values; proceeding with re-test.\033[0m"
         )
 
-    # Validate slot YAMLs are still parseable.
+    # Validate slot YAMLs are still parseable. If Claude corrupted a slot,
+    # auto-restore from source_config and keep going (slot will run baseline
+    # for this batch — fine as a robustness sample).
     for slot, path in state.config_paths.items():
         try:
             with open(path) as f:
                 yaml.safe_load(f)
         except Exception as e:
             print(
-                f"\033[91mFATAL: slot {slot} YAML at {path} no longer parses "
-                f"({type(e).__name__}: {e}). Restore from {state.source_config} "
-                f"and re-run.\033[0m"
+                f"\033[93mWARNING: slot {slot} YAML at {path} no longer parses "
+                f"({type(e).__name__}: {e}). Auto-restoring from "
+                f"{state.source_config}; this slot will run baseline.\033[0m"
             )
-            sys.exit(1)
+            try:
+                shutil.copy2(state.source_config, path)
+            except Exception as exc:
+                print(
+                    f"\033[91mFATAL: failed to restore slot {slot} from "
+                    f"{state.source_config}: {exc}\033[0m"
+                )
+                sys.exit(1)
 
     if output_text.strip():
         with open(state.reasoning_log_path, 'a') as f:
