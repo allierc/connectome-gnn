@@ -67,8 +67,8 @@ These are the fields the agent may set per-slot in `training:` /
 | `batch_size`            | `64`                                             | Try {32, 64, 128}. Smaller = noisier gradients but more updates per epoch.                                        |
 | `grad_clip_W`           | `1.0`                                            | Max-norm gradient clip. Yang trains with clip ≈ 1.0. Try {0, 0.5, 1.0, 2.0, 5.0}.                                 |
 | `noise_recurrent_level` | `0.0`                                            | Gaussian noise on `h` per Euler step (training only). Try {0, 1e-3, 1e-2, 5e-2}. Often helps delay-memory tasks.  |
-| `w_init_scale`          | `1.0`                                            | Scale for `randn_scaled` mode → `S = randn · scale/√N`. Yang papers use ≈ 1.0 (edge of chaos). Try {0.5, 1, 2}.   |
-| `w_init_mode`           | `randn_scaled`                                   | `randn_scaled` (default, Yang-style) | `zeros` | `randn` | `uniform_scaled`.                                       |
+| `w_init_scale`          | `1.0`                                            | (under **`training:`**) Scale for `randn_scaled` mode → `W = randn · scale/√N`. Yang papers use ≈ 1.0 (edge of chaos). Try {0.5, 1, 2}. |
+| `w_init_mode`           | `randn_scaled`                                   | (under **`training:`**) `randn_scaled` (default, Yang-style) | `zeros` | `randn` | `uniform_scaled`.                                       |
 | `coeff_rate_L2`         | `0.0`                                            | L2 on σ(h) — discourages saturation. Yang-specific. Try {0, 1e-4, 1e-3, 1e-2}.                                    |
 | `coeff_W_L2`            | `0.0`                                            | Weight decay on `W_rec`. Try {0, 1e-5, 1e-4, 1e-3}.                                                                |
 

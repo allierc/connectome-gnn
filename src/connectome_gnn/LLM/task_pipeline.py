@@ -455,7 +455,7 @@ def run_task_cluster_training(state: ExplorationState, batch: BatchInfo):
         printer.start()
         try:
             cluster_results = wait_for_cluster_jobs(
-                job_ids, log_dir=state.log_dir, poll_interval=60,
+                job_ids, log_dir=state.log_dir, poll_interval=300,
                 job_prefix='cluster_train',
             )
         finally:

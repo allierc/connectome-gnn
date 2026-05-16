@@ -75,8 +75,8 @@ These are the fields the agent may set per-slot in `training:` /
 | `n_epochs`              | `5`                              | Number of curriculum stages. Could be 7–10 with finer T steps.                                                                                                        |
 | `batch_size`            | `64`                             | Try {32, 64, 128}. Larger = smoother gradients, less BPTT-noise variance.                                                                                             |
 | `coeff_W_L1`            | `0.0`                            | L1 on `                                                                                                                                                               | S   | ` (synaptic magnitude). Try {0, 1e-5, 1e-4, 1e-3}. |
-| `w_init_scale`          | `0.01`                           | Scalar multiplier on the per-edge magnitude `S` at init (`S = w_init_scale * W_con_mask` in `const` mode). Try {1e-3, 1e-2, 5e-2, 1e-1, 0.5}.                         |
-| `w_init_mode`           | `const`                          | Init template for `S`: `const` (=scale × mask, current default), `randn` (=scale × randn × mask, sign-symmetric noise on connectome support), `zeros`.                |
+| `w_init_scale`          | `0.01`                           | (under **`training:`**) Scalar multiplier on the per-edge magnitude `S` at init (`S = w_init_scale * W_con_mask` in `const` mode). Try {1e-3, 1e-2, 5e-2, 1e-1, 0.5}. |
+| `w_init_mode`           | `const`                          | (under **`training:`**) Init template for `S`: `const` (=scale × mask, current default), `randn` (=scale × randn × mask, sign-symmetric noise on connectome support), `zeros`. |
 
 ### Hulse aux losses (already wired)
 
