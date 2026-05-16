@@ -120,6 +120,20 @@ if __name__ == "__main__":
             '/groups/saalfeld/home/allierc/GraphData/config/fly/flyvis_noise_005_stride_5_baseline_00',
             '/groups/saalfeld/home/allierc/GraphData/config/fly/flyvis_noise_005_stride_5_yt_baseline_00',
         ],
+        # Yang 2019 cognitive battery — 20 single-task configs (all use the
+        # same TaskRNN free-W architecture and ruleset='all' for I/O shape,
+        # but differ in which rule is sampled). Use `python GNN_Main.py -o
+        # generate cortex_all_tasks` to generate the 20 per-task datasets in
+        # one process (sequential).
+        'cortex_all_tasks': [
+            'cortex_fdgo', 'cortex_reactgo', 'cortex_delaygo',
+            'cortex_fdanti', 'cortex_reactanti', 'cortex_delayanti',
+            'cortex_dm1', 'cortex_dm2',
+            'cortex_contextdm1', 'cortex_contextdm2', 'cortex_multidm',
+            'cortex_delaydm1', 'cortex_delaydm2',
+            'cortex_contextdelaydm1', 'cortex_contextdelaydm2', 'cortex_multidelaydm',
+            'cortex_dmsgo', 'cortex_dmsnogo', 'cortex_dmcgo', 'cortex_dmcnogo',
+        ],
     }
 
     if args.option is not None:
