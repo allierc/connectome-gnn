@@ -1739,6 +1739,20 @@ from connectome_gnn.models.graph_tester import data_test_gnn, data_test_gnn_spec
 # ============================================================================
 
 def data_train_task_gnn(config, erase, best_model, device, log_file=None):
+    """Dispatch to the task-specific trainer based on `config.task.task_type`.
+
+    - `path_integration` → CX trainer (TaskRNN sign_locked mode, Hulse aux
+      losses, pi_acc eval, EPG kinograph snapshots).
+    - `cortex`           → Yang multitask trainer (TaskRNN free mode,
+      masked-MSE loss, direction_acc eval, 8-panel snapshot).
+    """
+    task_type = str(getattr(config.task, "task_type", "path_integration")).lower()
+    if task_type == "cortex":
+        return _data_train_cortex_task_gnn(config, erase, best_model, device, log_file)
+    return _data_train_pi_task_gnn(config, erase, best_model, device, log_file)
+
+
+def _data_train_pi_task_gnn(config, erase, best_model, device, log_file=None):
     """Train a TaskRNN on the path-integration task data.
 
     Mirrors the skeleton of `data_train_gnn`:
@@ -1991,3 +2005,265 @@ def data_train_task_gnn(config, erase, best_model, device, log_file=None):
     _logger.info(f'final test pi_acc: {final_pi:.4f}  '
                  f'(n_test={u_test.shape[0]}, T={u_test.shape[1]})')
     logger.info(f'final test pi_acc: {final_pi:.4f}')
+
+
+# ============================================================================
+# Cortex (Yang 2019) task trainer (TaskRNN, free-W mode)
+# ============================================================================
+
+def _data_train_cortex_task_gnn(config, erase, best_model, device, log_file=None):
+    """Train a TaskRNN (free-W mode) on a Yang cortex task (delaygo etc.).
+
+    Data layout under <dataset>/{train,test}/{stimulus,target,c_mask}.zarr
+    (produced by `_generate_cortex_task`):
+        stimulus.zarr  (N, T, N_i)   padded Yang trial.x
+        target.zarr    (N, T, N_o)   padded Yang trial.y    [fixation + ring]
+        c_mask.zarr    (N, T, N_o)   padded Yang c_mask      (Yang lsq loss)
+
+    Loss = mean(c_mask · (y_hat − y)²)
+        + tc.coeff_W_L2    · ‖W_rec‖²
+        + tc.coeff_rate_L2 · mean(σ(h)²)
+
+    Eval (via `cortex_eval.compute_cortex_task_metrics` over N_EVAL test
+    trials): {loss, motor_max, motor_peak_mean, direction_acc}.
+
+    Snapshots at `snapshots_per_epoch` cadence via
+    `cortex_eval.save_cortex_training_snapshot` (8-panel figure mirroring
+    papers/multi-tasks/notebooks/analyze_gnn.ipynb cell 7).
+
+    metrics.log schema (cortex):
+        iteration,epoch,loss,mse,motor_max,motor_peak_mean,direction_acc
+    """
+    import torch.nn.functional as F
+
+    from connectome_gnn.models.cortex_eval import (
+        compute_cortex_task_metrics,
+        save_cortex_training_snapshot,
+    )
+    from connectome_gnn.zarr_io import load_raw_array
+
+    if torch.cuda.is_available():
+        torch.set_float32_matmul_precision('high')
+
+    tc = config.training
+    model_config = config.graph_model
+    ct = config.task.cortex
+
+    torch.random.fork_rng(devices=device)
+    torch.random.manual_seed(tc.seed)
+    np.random.seed(tc.seed)
+    random.seed(tc.seed)
+
+    default_style.apply_globally()
+
+    log_dir, logger = create_log_dir(config, erase)
+    snapshot_dir = os.path.join(log_dir, 'tmp_training', 'cortex_snapshot')
+    os.makedirs(snapshot_dir, exist_ok=True)
+
+    # --- Eager load: trials stay on GPU between iterations ---------------
+    root = graphs_data_path(config.dataset)
+    _logger.info(f'loading task data from {root}/(train|test)/...')
+    u_train  = torch.from_numpy(load_raw_array(f"{root}/train/stimulus.zarr")).to(device)
+    y_train  = torch.from_numpy(load_raw_array(f"{root}/train/target.zarr")).to(device)
+    cm_train = torch.from_numpy(load_raw_array(f"{root}/train/c_mask.zarr")).to(device)
+    u_test   = torch.from_numpy(load_raw_array(f"{root}/test/stimulus.zarr")).to(device)
+    y_test   = torch.from_numpy(load_raw_array(f"{root}/test/target.zarr")).to(device)
+    cm_test  = torch.from_numpy(load_raw_array(f"{root}/test/c_mask.zarr")).to(device)
+    _logger.info(f'task data: train u={tuple(u_train.shape)} y={tuple(y_train.shape)} '
+                 f'cm={tuple(cm_train.shape)}  '
+                 f'test u={tuple(u_test.shape)} y={tuple(y_test.shape)} '
+                 f'cm={tuple(cm_test.shape)}')
+    logger.info(f'train trials: {u_train.shape[0]}  test trials: {u_test.shape[0]}  '
+                f'T: {u_train.shape[1]}  in: {u_train.shape[2]}  out: {y_train.shape[2]}')
+
+    # --- Model build via registry ----------------------------------------
+    model = create_model(model_config.signal_model_name,
+                         aggr_type=model_config.aggr_type,
+                         config=config, device=device)
+    n_total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    _logger.info(f'model {model_config.signal_model_name} '
+                 f'(W_param={model.W_param}, sigma={model.recurrent_activation_name}): '
+                 f'{n_total_params:,} trainable params')
+    logger.info(f'model: {model_config.signal_model_name}  params: {n_total_params}')
+
+    # --- Optimizer + scheduler -------------------------------------------
+    optimizer = torch.optim.Adam(model.parameters(), lr=tc.lr)
+    lr_scheduler = build_lr_scheduler(optimizer, config)
+    _logger.info(f'lr={tc.lr}  lr_scheduler={getattr(tc, "lr_scheduler", "none")}')
+
+    # --- Regulariser coefficients (cached as Python scalars) -------------
+    coeff_W_L2 = float(getattr(tc, 'coeff_W_L2', 0.0))
+    coeff_rate_L2 = float(getattr(tc, 'coeff_rate_L2', 0.0))
+    grad_clip = float(getattr(tc, 'grad_clip_W', 0.0))
+    # Snapshot cadence: prefer absolute `snap_every_iters` (decoupled from
+    # epoch length so DAL doesn't change the snapshot rate). Falls back to
+    # `snapshots_per_epoch` if `snap_every_iters` is 0 (default).
+    snapshots_per_epoch = int(getattr(tc, 'snapshots_per_epoch', 1))
+    snap_every_iters = int(getattr(tc, 'snap_every_iters', 0))
+    _logger.info(f'losses: masked_mse + W_L2={coeff_W_L2}  rate_L2={coeff_rate_L2}  '
+                 f'grad_clip={grad_clip}')
+
+    # --- Training loop ---------------------------------------------------
+    n_trials = u_train.shape[0]
+    # data_augmentation_loop multiplies iters/epoch by sampling batches with
+    # replacement (Yang's reference trainer generates trials on-the-fly each
+    # iter; we approximate that by reusing the pre-generated trial pool).
+    dal = int(getattr(tc, 'data_augmentation_loop', 1))
+    Niter = max(1, (n_trials // tc.batch_size) * dal)
+    if snap_every_iters > 0:
+        snap_every = snap_every_iters
+    else:
+        snap_every = max(1, Niter // max(1, snapshots_per_epoch))
+    rule_name = (ct.rules[0] if getattr(ct, "rules", None) else "cortex")
+    best_loss = float('inf')
+    global_step = 0
+
+    # Per-epoch lr schedule (Yang-style — empty = constant tc.lr).
+    raw_lr = list(getattr(tc, 'lr_schedule', []) or [])
+    if raw_lr:
+        if len(raw_lr) < tc.n_epochs:
+            raw_lr = raw_lr + [raw_lr[-1]] * (tc.n_epochs - len(raw_lr))
+        lr_schedule = [float(x) for x in raw_lr[:tc.n_epochs]]
+        _logger.info(f'lr schedule (epochs 1..{tc.n_epochs}): {lr_schedule}')
+    else:
+        lr_schedule = None
+
+    metrics_log_path = os.path.join(log_dir, 'tmp_training', 'metrics.log')
+    os.makedirs(os.path.dirname(metrics_log_path), exist_ok=True)
+    with open(metrics_log_path, 'w') as f:
+        f.write('iteration,epoch,loss,mse,motor_max,motor_peak_mean,direction_acc\n')
+
+    last_metrics = {'loss': float('nan'), 'motor_max': float('nan'),
+                    'motor_peak_mean': float('nan'), 'direction_acc': float('nan')}
+    model.train()
+
+    # torch.compile (same pattern as PI trainer; eager fallback for eval).
+    eval_model = model
+    if getattr(tc, 'torch_compile', True):
+        try:
+            model = torch.compile(model, mode='reduce-overhead', fullgraph=True)
+            logger.info('torch.compile enabled (mode=reduce-overhead, fullgraph=True); '
+                        'eval/snapshot forward stays eager via _orig_mod')
+            _logger.info('torch.compile enabled (eval via _orig_mod)')
+        except Exception as exc:
+            _logger.warning(f'torch.compile failed, falling back to eager: {exc}')
+            logger.info(f'torch.compile failed: {exc}')
+    else:
+        logger.info('torch.compile disabled via config (torch_compile: false)')
+
+    from tqdm import tqdm as _tqdm
+    n_eval = min(64, u_test.shape[0])
+    total_iters = tc.n_epochs * Niter
+    _logger.info(f'start training: {tc.n_epochs} epochs × {Niter} iters/epoch '
+                 f'= {total_iters} iters  (n_trials={n_trials}, DAL={dal}, '
+                 f'n_eval={n_eval} test trials, snap_every={snap_every} iters '
+                 f'= {total_iters // snap_every} snapshots)')
+    pbar = _tqdm(total=total_iters, ncols=150,
+                 desc=f'cortex/{rule_name} epoch 1/{tc.n_epochs}', leave=True)
+
+    for epoch in range(tc.n_epochs):
+        # Per-epoch lr replacement (Yang). When no schedule is provided we
+        # leave the optimizer / build_lr_scheduler alone.
+        if lr_schedule is not None:
+            lr_epoch = lr_schedule[epoch]
+            for g in optimizer.param_groups:
+                g['lr'] = lr_epoch
+            _logger.info(f'epoch {epoch+1}: lr -> {lr_epoch}')
+        # Per-epoch generator for reproducible batch sampling.
+        gen = torch.Generator(device=device).manual_seed(tc.seed + epoch)
+        pbar.set_description(f'cortex/{rule_name} epoch {epoch+1}/{tc.n_epochs}')
+        for N in range(Niter):
+            global_step += 1
+            # Sample with replacement (DAL > 1 makes one-pass coverage
+            # impossible from a fixed trial pool). For DAL=1 this is
+            # functionally equivalent to the bootstrap of a single pass.
+            idx = torch.randint(0, n_trials, (tc.batch_size,),
+                                generator=gen, device=device)
+            u = u_train[idx]
+            y = y_train[idx]
+            cm = cm_train[idx]
+
+            y_hat, h_buf = model(u)
+            sq_err = (y_hat - y) ** 2
+            mse = (sq_err * cm).mean()
+            W_L2 = (coeff_W_L2 * eval_model.W_rec.pow(2).sum()
+                    if coeff_W_L2 > 0 else u.new_zeros(()))
+            rate_L2 = (coeff_rate_L2 * eval_model._sigma(h_buf).pow(2).mean()
+                       if coeff_rate_L2 > 0 else u.new_zeros(()))
+            loss = mse + W_L2 + rate_L2
+
+            optimizer.zero_grad(set_to_none=True)
+            loss.backward()
+            if grad_clip > 0:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+            optimizer.step()
+            lr_scheduler.step()
+
+            if N % snap_every == 0 or N == Niter - 1:
+                with torch.no_grad():
+                    # Eval on the first n_eval test trials via the un-compiled
+                    # module (varying B between train and eval otherwise
+                    # thrashes the CUDA-Graph cache).
+                    y_eval, _ = eval_model(u_test[:n_eval])
+                    preds = [y_eval[i] for i in range(n_eval)]
+                    targets = [y_test[i] for i in range(n_eval)]
+                    cmasks = [cm_test[i] for i in range(n_eval)]
+                    last_metrics = compute_cortex_task_metrics(preds, targets, cmasks)
+                    snap_path = os.path.join(
+                        snapshot_dir, f'step_{global_step:06d}.png')
+                    try:
+                        save_cortex_training_snapshot(
+                            preds, targets, cmasks,
+                            output_path=snap_path, step=global_step,
+                            rule_name=rule_name,
+                        )
+                    except Exception as exc:
+                        _logger.warning(
+                            f'[cortex_eval] snapshot failed @ step {global_step}: {exc}')
+                with open(metrics_log_path, 'a') as f:
+                    f.write(f'{global_step},{epoch+1},{loss.item():.6f},'
+                            f'{mse.item():.6f},'
+                            f'{last_metrics["motor_max"]:.6f},'
+                            f'{last_metrics["motor_peak_mean"]:.6f},'
+                            f'{last_metrics["direction_acc"]:.6f}\n')
+
+            if loss.item() < best_loss:
+                best_loss = loss.item()
+
+            pbar.set_postfix_str(
+                f'loss={loss.item():.4f}  mse={mse.item():.4f}  '
+                f'motor_max={last_metrics["motor_max"]:.3f}  '
+                f'dir_acc={last_metrics["direction_acc"]:.2f}  '
+                f'best={best_loss:.4f}'
+            )
+            pbar.update(1)
+
+        # Per-epoch checkpoint (matches PI trainer's naming).
+        ckpt_path = os.path.join(
+            log_dir, 'models',
+            f'best_model_with_{tc.n_runs - 1}_graphs_{epoch}.pt')
+        os.makedirs(os.path.dirname(ckpt_path), exist_ok=True)
+        torch.save({'model_state_dict': eval_model.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict()},
+                   ckpt_path)
+        _logger.info(
+            f'epoch {epoch+1}/{tc.n_epochs} done — last_loss={loss.item():.4f}  '
+            f'best={best_loss:.4f}  '
+            f'dir_acc={last_metrics["direction_acc"]:.4f}  saved {ckpt_path}'
+        )
+
+    pbar.close()
+
+    # --- Final eval on full test split ----------------------------------
+    with torch.no_grad():
+        y_eval, _ = eval_model(u_test)
+        final_preds   = [y_eval[i]  for i in range(u_test.shape[0])]
+        final_targets = [y_test[i]  for i in range(u_test.shape[0])]
+        final_cmasks  = [cm_test[i] for i in range(u_test.shape[0])]
+        final_metrics = compute_cortex_task_metrics(final_preds, final_targets, final_cmasks)
+    _logger.info(
+        f'final test direction_acc: {final_metrics["direction_acc"]:.4f}  '
+        f'motor_max: {final_metrics["motor_max"]:.4f}  '
+        f'(n_test={u_test.shape[0]}, T={u_test.shape[1]})'
+    )
+    logger.info(f'final test direction_acc: {final_metrics["direction_acc"]:.4f}')

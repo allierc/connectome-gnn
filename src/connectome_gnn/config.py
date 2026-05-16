@@ -556,6 +556,11 @@ class GraphModelConfig(BaseModel):
     # Recurrent activation σ in r = σ(h). "sigmoid" is the Hulse paper
     # default; "relu" / "softplus" are Yang's defaults for cortex tasks.
     recurrent_activation: Literal["sigmoid", "relu", "tanh", "softplus"] = "sigmoid"
+    # Dynamics constants for TaskRNN's Euler integration. CX (sign_locked
+    # mode) overrides these from task.path_integration; cortex (free mode)
+    # reads them from here directly. Defaults match the Hulse paper.
+    tau: float = 0.1
+    dt: float = 0.01
 
     MLP_activation: MLPActivation = MLPActivation.RELU
     zero_init_output: bool = False  # zero-init final layer so model starts predicting dvdt=0

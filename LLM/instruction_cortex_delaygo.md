@@ -127,7 +127,7 @@ different seeds; this measures seed sensitivity of a candidate winner.
 
 ## Block plan
 
-10 slots/batch. Iterations: 320 total = 8 blocks × 40 iter/block = 4 batches/block.
+4 slots/batch. Iterations: 96 total = 8 blocks × 12 iter/block = 3 batches/block.
 
 | Block | Focus                                  | Knobs to scan                                                                                     | Why                                                                                |
 | ----- | -------------------------------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
