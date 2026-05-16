@@ -39,6 +39,9 @@ import argparse
 import os
 import warnings
 
+# Ensure src/ is on the path so connectome_gnn is always importable
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+
 from connectome_gnn.LLM import (
     resume,
     setup_exploration,

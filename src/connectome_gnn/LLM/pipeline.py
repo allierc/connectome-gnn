@@ -504,10 +504,17 @@ def _check_causality(state: ExplorationState, batch: BatchInfo):
         'coeff_W_L1', 'coeff_W_L2', 'coeff_W_sign',
         'coeff_tau_L1', 'coeff_tau_L2', 'coeff_V_rest_L1', 'coeff_V_rest_L2',
         'w_init_mode', 'w_init_scale', 'dale_law',
+        # Task-trainer knobs (TaskRNN: drosophila_cx_pi + cortex_delaygo)
+        'noise_recurrent_level', 'grad_clip_W',
+        'coeff_cos_distance', 'coeff_norm_floor', 'kappa_norm_floor',
+        'coeff_tv_circular', 'coeff_rate_L2',
     ]
     COMPARE_GRAPH_KEYS = [
         'hidden_dim', 'hidden_dim_update', 'embedding_dim',
         'input_size', 'input_size_update', 'g_phi_positive',
+        # TaskRNN architecture knobs
+        'n_units', 'n_layers', 'MLP_activation', 'recurrent_activation',
+        'input_proj', 'output_proj',
     ]
     COMPARE_SIM_KEYS = ['noise_model_level']
 
