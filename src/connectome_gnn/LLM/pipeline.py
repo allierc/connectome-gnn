@@ -423,8 +423,12 @@ def run_batch_0(state: ExplorationState):
     # as a robustness sample.
     for slot, path in state.config_paths.items():
         try:
+            # YAML-syntax check first, then full pydantic-schema check so
+            # we catch Claude putting a field under the wrong block (e.g.
+            # graph_model.w_init_scale instead of training.w_init_scale).
             with open(path) as f:
                 yaml.safe_load(f)
+            NeuralGraphConfig.from_yaml(path)
         except Exception as e:
             print(
                 f"\033[93mWARNING: slot {slot} YAML at {path} no longer parses "
@@ -1301,8 +1305,12 @@ def run_claude_analysis(state: ExplorationState, batch: BatchInfo):
     # for this batch — fine as a robustness sample).
     for slot, path in state.config_paths.items():
         try:
+            # YAML-syntax check first, then full pydantic-schema check so
+            # we catch Claude putting a field under the wrong block (e.g.
+            # graph_model.w_init_scale instead of training.w_init_scale).
             with open(path) as f:
                 yaml.safe_load(f)
+            NeuralGraphConfig.from_yaml(path)
         except Exception as e:
             print(
                 f"\033[93mWARNING: slot {slot} YAML at {path} no longer parses "
