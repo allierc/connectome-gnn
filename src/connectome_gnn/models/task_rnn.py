@@ -60,7 +60,21 @@ _ACT_MAP = {
 }
 
 
-@register_model("drosophila_cx_pi", "cortex_delaygo", "task_rnn", "neural_task_gnn")
+_CORTEX_TASKS = (
+    "fdgo", "reactgo", "delaygo", "fdanti", "reactanti", "delayanti",
+    "dm1", "dm2", "contextdm1", "contextdm2", "multidm",
+    "delaydm1", "delaydm2", "contextdelaydm1", "contextdelaydm2", "multidelaydm",
+    "dmsgo", "dmsnogo", "dmcgo", "dmcnogo",
+)
+
+
+@register_model(
+    "drosophila_cx_pi",
+    "task_rnn",
+    "neural_task_gnn",
+    "cortex_all",
+    *(f"cortex_{t}" for t in _CORTEX_TASKS),
+)
 class TaskRNN(nn.Module):
     """Configurable recurrent network for task training (CX & cortex)."""
 
