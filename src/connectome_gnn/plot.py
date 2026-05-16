@@ -854,7 +854,7 @@ def plot_task_cortex_example(
     n_rule: int,
     out_path: str,
     n_eachring: int = 32,
-    epochs: Optional[Dict[str, tuple]] = None,
+    epochs: Optional[List[Optional[Dict[str, tuple]]]] = None,
     n_show: int = 5,
     style: FigureStyle = default_style,
 ) -> None:
@@ -866,9 +866,8 @@ def plot_task_cortex_example(
 
     Cyan horizontal lines mark the fix/mod1/mod2/rule boundaries on every
     panel; vertical lime lines mark Yang epoch boundaries (fix1, stim1,
-    delay1, go1, ...) when `epochs` is provided (epochs are the same for
-    all sampled trials only if they share the same per-trial timing — use
-    only for orientation).
+    delay1, go1, ...) for each trial individually when `epochs` is provided
+    as a list (one dict per column, matching `stimulus` axis 0).
     """
     # Handle legacy (T, N_i) single-trial calls for backward compat.
     if stimulus.ndim == 2:
@@ -910,19 +909,12 @@ def plot_task_cortex_example(
                        vmin=0.0, vmax=0.9, interpolation="nearest")
         ax_tgt.axhline(0.5, color="cyan", lw=0.6, alpha=0.7)
 
-        # Epoch boundary overlay (only meaningful for the first trial whose
-        # epochs we have — but vertical lines at the same indices give a
-        # useful reference for the others too).
-        if epochs:
-            for name, (s, e) in epochs.items():
+        # Per-trial epoch boundary overlay (lime vertical lines, no labels).
+        if epochs and col < len(epochs) and epochs[col]:
+            for name, (s, e) in epochs[col].items():
                 if s is None: s = 0
-                if e is None: e = T
                 for ax in (ax_in, ax_tgt):
                     ax.axvline(s, color="lime", lw=0.6, alpha=0.5)
-                if col == 0:
-                    ax_in.text((s + e) / 2, -3, name,
-                               ha="center", va="bottom",
-                               fontsize=axis_fs, color="green")
 
         # Pad region overlay.
         if real_T < T:
@@ -930,11 +922,9 @@ def plot_task_cortex_example(
                 ax.axvspan(real_T, T, color="0.92", alpha=0.4, lw=0)
 
         # Column-only title with trial length info.
-        ax_in.set_title(f"trial {col} (T={real_T})",
-                         fontsize=style.label_font_size)
+        ax_in.set_title(f"trial {col} (T={real_T})", fontsize=axis_fs)
 
-        # X-label only on the bottom row.
-        ax_tgt.set_xlabel("t", fontsize=axis_fs)
+        # X-label drawn once on the figure (below); per-axes label off.
         ax_in.tick_params(axis='x', labelsize=axis_fs)
         ax_tgt.tick_params(axis='x', labelsize=axis_fs)
 
@@ -961,9 +951,11 @@ def plot_task_cortex_example(
     fig.suptitle(
         f"cortex/{rule} — {n} trials, padded to {T} frames "
         f"(dt={dt:.3g}s, max {T*dt:.2g}s)",
-        fontsize=style.label_font_size,
+        fontsize=axis_fs + 1,
     )
-    fig.tight_layout(rect=[0, 0, 1, 0.96])
+    # Single shared x-axis label, centered under the bottom row.
+    fig.supxlabel("time (frames)", fontsize=axis_fs)
+    fig.tight_layout(rect=[0, 0.02, 1, 0.96])
     style.savefig(fig, out_path)
 
 
@@ -1145,8 +1137,7 @@ def plot_task_cortex_samples(
             if real_T < T:
                 ax.axvspan(real_T * dt, T * dt, color="0.6", lw=0, alpha=0.25)
             if r == 0:
-                ax.set_title(f"trial {col} (T={real_T})",
-                             fontsize=style.label_font_size)
+                ax.set_title(f"trial {col} (T={real_T})", fontsize=axis_fs)
             if r == n_rows - 1:
                 ax.set_xlabel("time (s)", fontsize=axis_fs)
             # Y-axis: only show label + tick labels on the first column.
@@ -1165,7 +1156,7 @@ def plot_task_cortex_samples(
     fig.suptitle(
         f"cortex/{rule} — {n} of {N} trials, padded to {T} frames "
         f"(dt={dt:.3g}s, max {T*dt:.2g}s)   [gray = pad]",
-        fontsize=style.label_font_size,
+        fontsize=axis_fs + 1,
     )
     plt.tight_layout(rect=[0.02, 0, 1, 0.97])
     style.savefig(fig, out_path)

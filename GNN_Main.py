@@ -249,7 +249,7 @@ if __name__ == "__main__":
                 f.write(f"commit={sha}\nargv={sys.argv}\n")
 
         if 'train_task' in task:
-            # Path-integration task trainer (NeuralTaskGNN). Sibling of
+            # Path-integration task trainer (TaskRNN). Sibling of
             # train_NGP / train_INR / train_SPEND. Placed first because
             # `'train' in 'train_task'` would otherwise fall into the generic
             # `train` branch below.

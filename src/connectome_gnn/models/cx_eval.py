@@ -6,7 +6,7 @@ These helpers are duck-typed against any module exposing:
     .W_rec       (Tensor (N, N))    — effective recurrent weight (read-only)
     forward(u)  -> (y_hat, h_buf)  — (B, T, 3) -> (B, T, 2), (B, T, N)
 
-so they work on both `teachers.JaneliaCxRNN` and `models.NeuralTaskGNN`.
+so they work on both `teachers.JaneliaCxRNN` and `models.TaskRNN`.
 
 History: lifted out of `teachers/janelia_cx_teacher.py` to keep the new
 `data_train_task_gnn` from importing the teacher module.  The teacher
@@ -166,8 +166,17 @@ def _deterministic_sweep_rollout(
     u[:, 0, 2] = 0.0
 
     u_t = torch.from_numpy(u).to(device)
-    with torch.no_grad():
-        y_hat, h = net(u_t)
+    # eval()/train() toggle so the deterministic-sweep is truly deterministic
+    # (TaskRNN's training-mode forward injects Gaussian noise when
+    # noise_recurrent_level > 0).
+    was_training = net.training
+    net.eval()
+    try:
+        with torch.no_grad():
+            y_hat, h = net(u_t)
+    finally:
+        if was_training:
+            net.train()
     r = torch.sigmoid(h[0]).cpu().numpy()
     y_pred = y_hat[0].cpu().numpy()
     return {
@@ -187,7 +196,6 @@ def _save_training_snapshot(
     *,
     net,
     log_dir: str,
-    matrix_dir: str,
     kinograph_dir: str,
     global_step: int,
     epoch: int,
@@ -198,25 +206,19 @@ def _save_training_snapshot(
     device: str,
     snapshot_n_steps: int,
     snapshot_omega_deg: float,
+    matrix_dir: str | None = None,    # backwards-compat; ignored
 ) -> None:
-    """Render a matrix snapshot + a deterministic-sweep kinograph snapshot."""
+    """Render the combined kinograph+matrix snapshot.
+
+    The matrix is the top-left panel of the kinograph figure, so we no
+    longer write a separate matrix-only PNG.
+    """
     from connectome_gnn.plot_cx import (
         cx_epg_directions,
-        plot_cx_matrix,
         plot_cx_training_snapshot,
     )
 
     name = f"step_{global_step:07d}.png"
-
-    try:
-        W_rec_np = net.W_rec.detach().cpu().numpy()
-        plot_cx_matrix(
-            W_rec_np, neuron_types, type_names,
-            os.path.join(matrix_dir, name),
-            title=f"learned W_rec  epoch {epoch}  step {global_step}",
-        )
-    except Exception as exc:
-        print(f"[cx_eval] matrix snapshot failed @ step {global_step}: {exc}")
 
     try:
         rollout = _deterministic_sweep_rollout(
@@ -234,11 +236,17 @@ def _save_training_snapshot(
             pen_indices = np.array(sorted(pen_idx_list), dtype=np.int64)
             rollout["r_pen"] = rollout["r"][:, pen_indices]
         epg_theta = cx_epg_directions(epg_glom_ix)
+        # Pass GT W_con if the model exposes it (TaskRNN, JaneliaCxRNN
+        # both register the buffer); helpers that wrap with torch.compile
+        # proxy buffer access through __getattr__.
+        W_con_np = (net.W_con.detach().cpu().numpy()
+                    if hasattr(net, "W_con") else None)
         plot_cx_training_snapshot(
             W_rec=net.W_rec.detach().cpu().numpy(),
             rollout=rollout,
             epg_theta=epg_theta,
             output_path=os.path.join(kinograph_dir, name),
+            W_con=W_con_np,
             neuron_types=neuron_types,
             type_names=type_names,
             step=global_step,
@@ -250,7 +258,7 @@ def _save_training_snapshot(
 
 # ---------------------------------------------------------------------------
 # Type-pair masks (lifted from the teacher; used by both JaneliaCxRNN and
-# NeuralTaskGNN to define the cosine-distance / norm-floor regulariser blocks)
+# TaskRNN to define the cosine-distance / norm-floor regulariser blocks)
 # ---------------------------------------------------------------------------
 
 

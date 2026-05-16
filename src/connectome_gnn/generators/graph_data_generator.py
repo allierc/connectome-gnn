@@ -576,8 +576,9 @@ def _generate_cortex_task(config, *, device, visualize: bool = True) -> None:
         length             = np.zeros((n_total, T_max),        dtype=np.float32)
         rule_idx           = np.zeros((n_total,),              dtype=np.int64)
 
-        # Stash one Trial per rule so plotters can render epoch boundaries.
-        first_trial_per_rule: dict[str, object] = {}
+        # Stash the first 5 Trials per rule so plotters can render per-trial
+        # epoch boundaries (each trial has its own random epoch timing).
+        sampled_trials_per_rule: dict[str, list] = {}
 
         for i in tqdm(range(n_total), desc=f"  {split} trials",
                       ncols=150, leave=False):
@@ -596,8 +597,9 @@ def _generate_cortex_task(config, *, device, visualize: bool = True) -> None:
             c_mask[i, :T_trial]             = cm
             length[i, :T_trial]             = 1.0
             rule_idx[i]                     = r_idx
-            if r not in first_trial_per_rule:
-                first_trial_per_rule[r] = trial
+            bucket = sampled_trials_per_rule.setdefault(r, [])
+            if len(bucket) < 5:
+                bucket.append(trial)
 
         # Optional decorrelation perturbation on top of the canonical input.
         delta_stimulus = None
@@ -651,14 +653,15 @@ def _generate_cortex_task(config, *, device, visualize: bool = True) -> None:
             )
 
             # Per-rule: 5-trial heatmap grid + 5-trial line-trace grid.
-            for r, trial in first_trial_per_rule.items():
+            for r, trial_list in sampled_trials_per_rule.items():
                 idxs_for_r = np.where(rule_idx == rules.index(r))[0]
                 sample_idx = idxs_for_r[:5]
+                epochs_per_trial = [getattr(t, 'epochs', None) for t in trial_list]
                 plot_task_cortex_example(
                     stimulus=stimulus[sample_idx],
                     target=target[sample_idx],
                     length=length[sample_idx],
-                    dt=dt_s, rule=r, epochs=getattr(trial, 'epochs', None),
+                    dt=dt_s, rule=r, epochs=epochs_per_trial,
                     n_rule=int(hp.get('n_rule', 0)),
                     n_eachring=int(hp.get('n_eachring', 32)),
                     out_path=os.path.join(out_root, f"task_cortex_example_{split}_{r}.png"),

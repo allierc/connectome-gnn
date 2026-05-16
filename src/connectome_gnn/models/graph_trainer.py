@@ -89,6 +89,14 @@ def data_train(config=None, erase=False, best_model=None, style=None, device=Non
     _logger.info(f"dataset: {config.dataset}")
     _logger.info(f"{config.description}")
 
+    # Task-data trainer (path_integration etc.). Detected via the presence
+    # of a populated task block — keeps train_subprocess.py / GNN_Main.py
+    # routing transparent for both the LLM agentic loop and direct CLI use.
+    if getattr(config, 'task', None) is not None:
+        data_train_task_gnn(config, erase, best_model, device, log_file=log_file)
+        _logger.info("training completed.")
+        return
+
     _connconstr = any(x in config.dataset for x in ('drosophila_cx', 'zebrafish_oculomotor', 'larva'))
     if 'fly' in config.dataset or _connconstr:
         model_name = config.graph_model.signal_model_name.lower()
@@ -1727,11 +1735,11 @@ from connectome_gnn.models.graph_tester import data_test_gnn, data_test_gnn_spec
 
 
 # ============================================================================
-# Path-integration task trainer (NeuralTaskGNN)
+# Path-integration task trainer (TaskRNN)
 # ============================================================================
 
 def data_train_task_gnn(config, erase, best_model, device, log_file=None):
-    """Train a NeuralTaskGNN on the path-integration task data.
+    """Train a TaskRNN on the path-integration task data.
 
     Mirrors the skeleton of `data_train_gnn`:
     config → log_dir → data load → model (registry) → optimizer → epoch loop
@@ -1772,9 +1780,7 @@ def data_train_task_gnn(config, erase, best_model, device, log_file=None):
     default_style.apply_globally()
 
     log_dir, logger = create_log_dir(config, erase)
-    matrix_dir = os.path.join(log_dir, 'matrix_snapshots')
-    kinograph_dir = os.path.join(log_dir, 'kinograph_snapshots')
-    os.makedirs(matrix_dir, exist_ok=True)
+    kinograph_dir = os.path.join(log_dir, 'tmp_training', 'kinograph_matrix')
     os.makedirs(kinograph_dir, exist_ok=True)
 
     # --- Eager load: trials stay on GPU between iterations ---------------
@@ -1854,6 +1860,30 @@ def data_train_task_gnn(config, erase, best_model, device, log_file=None):
     last_pi_acc = float('nan')
     last_fwhm = float('nan')
     model.train()
+
+    # torch.compile (mirrors data_train_gnn line 451). The recurrent forward
+    # has a Python `for t in range(T)` loop, so each T_epoch in the curriculum
+    # triggers one recompile; iterations within an epoch reuse the cached
+    # graph. fullgraph=True + reduce-overhead matches the flyvis trainer.
+    #
+    # We keep an `eval_model` handle to the un-compiled module: snapshot
+    # rollouts use B=1, T=snapshot_n_steps and bump_fwhm uses fixed
+    # n_trials=64; mode='reduce-overhead' (CUDA Graphs) doesn't tolerate
+    # those varying shapes well and triggers tracer errors. Eval through
+    # the un-compiled forward — small batches, negligible perf cost.
+    eval_model = model
+    if getattr(tc, 'torch_compile', True):
+        try:
+            model = torch.compile(model, mode='reduce-overhead', fullgraph=True)
+            logger.info('torch.compile enabled (mode=reduce-overhead, fullgraph=True); '
+                        'eval/snapshot forward stays eager via _orig_mod')
+            _logger.info('torch.compile enabled (eval via _orig_mod)')
+        except Exception as exc:
+            _logger.warning(f'torch.compile failed, falling back to eager: {exc}')
+            logger.info(f'torch.compile failed: {exc}')
+    else:
+        logger.info('torch.compile disabled via config (torch_compile: false)')
+
     _logger.info(f'start training: {tc.n_epochs} epochs × {Niter} iters/epoch')
 
     for epoch in range(tc.n_epochs):
@@ -1899,24 +1929,26 @@ def data_train_task_gnn(config, erase, best_model, device, log_file=None):
 
             if N % snap_every == 0 or N == Niter - 1:
                 with torch.no_grad():
-                    # Eval at the *current* curriculum length so pi_acc tracks
-                    # the actual training distribution this epoch.
+                    # Eval/snapshot use varying shapes (B=512 for pi_acc,
+                    # B=64/T=T_epoch for fwhm, B=1/T=snapshot_n_steps for the
+                    # rollout) — pass the un-compiled module so we don't
+                    # thrash the CUDA-Graph cache or trip dynamo tracer bugs.
                     last_pi_acc = path_integration_accuracy_from_data(
-                        model, u_test[:512, :T_epoch], y_test[:512, :T_epoch],
+                        eval_model, u_test[:512, :T_epoch], y_test[:512, :T_epoch],
                         warmup=10, batch_size=tc.batch_size,
                     )
                     last_fwhm = bump_fwhm(
-                        model, model.epg_indices, model.epg_glom_ix,
+                        eval_model, eval_model.epg_indices, eval_model.epg_glom_ix,
                         n_trials=64, n_steps=T_epoch, device=device,
                     )
                 _save_training_snapshot(
-                    net=model, log_dir=log_dir,
-                    matrix_dir=matrix_dir, kinograph_dir=kinograph_dir,
+                    net=eval_model, log_dir=log_dir,
+                    kinograph_dir=kinograph_dir,
                     global_step=global_step, epoch=epoch + 1,
-                    neuron_types=model.neuron_types,
-                    type_names=model.type_names,
-                    epg_indices=model.epg_indices,
-                    epg_glom_ix=model.epg_glom_ix,
+                    neuron_types=eval_model.neuron_types,
+                    type_names=eval_model.type_names,
+                    epg_indices=eval_model.epg_indices,
+                    epg_glom_ix=eval_model.epg_glom_ix,
                     device=device,
                     snapshot_n_steps=snapshot_n_steps,
                     snapshot_omega_deg=snapshot_omega_deg,
@@ -1939,11 +1971,12 @@ def data_train_task_gnn(config, erase, best_model, device, log_file=None):
                 f'pi_acc={last_pi_acc:.3f}  fwhm={fwhm_str}  best={best_loss:.4f}'
             )
 
-        # Per-epoch checkpoint (matches data_train_gnn's naming).
+        # Per-epoch checkpoint (matches data_train_gnn's naming). Save the
+        # un-compiled module's state_dict so the file isn't tied to dynamo.
         ckpt_path = os.path.join(
             log_dir, 'models',
             f'best_model_with_{tc.n_runs - 1}_graphs_{epoch}.pt')
-        torch.save({'model_state_dict': model.state_dict(),
+        torch.save({'model_state_dict': eval_model.state_dict(),
                     'optimizer_state_dict': optimizer.state_dict()},
                    ckpt_path)
         _logger.info(
@@ -1953,7 +1986,7 @@ def data_train_task_gnn(config, erase, best_model, device, log_file=None):
 
     # --- Final eval on full test split (full T) -------------------------
     final_pi = path_integration_accuracy_from_data(
-        model, u_test, y_test, warmup=10, batch_size=tc.batch_size,
+        eval_model, u_test, y_test, warmup=10, batch_size=tc.batch_size,
     )
     _logger.info(f'final test pi_acc: {final_pi:.4f}  '
                  f'(n_test={u_test.shape[0]}, T={u_test.shape[1]})')

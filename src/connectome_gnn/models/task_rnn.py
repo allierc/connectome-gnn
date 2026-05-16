@@ -16,7 +16,7 @@ epg_glom_ix) so the helpers in `models.cx_eval` (path_integration_accuracy,
 bump_fwhm, _save_training_snapshot, _deterministic_sweep_rollout) work on this
 class without branching.
 
-Registered names: "drosophila_cx_pi", "neural_task_gnn".
+Registered names: "drosophila_cx_pi", "task_rnn" (canonical), "neural_task_gnn" (legacy alias).
 """
 
 from __future__ import annotations
@@ -34,8 +34,8 @@ from connectome_gnn.models.MLP import MLP
 from connectome_gnn.models.registry import register_model
 
 
-@register_model("drosophila_cx_pi", "neural_task_gnn")
-class NeuralTaskGNN(nn.Module):
+@register_model("drosophila_cx_pi", "cortex_delaygo", "task_rnn", "neural_task_gnn")
+class TaskRNN(nn.Module):
     """Connectome-constrained CX RNN with configurable I/O projections."""
 
     def __init__(self, aggr_type: str = "add", config=None, device=None):
@@ -69,7 +69,18 @@ class NeuralTaskGNN(nn.Module):
 
         # Trainable per-edge magnitude. dW_rec/dS = sign(W_con) is 0 at
         # absent connections, so sparsity is enforced for free.
-        self.S = nn.Parameter(0.01 * self.W_con_mask)
+        # w_init_mode: 'const' (default) | 'randn' | 'zeros'.
+        # w_init_scale: scalar multiplier on the chosen template (default 0.01).
+        tc = getattr(config, "training", None)
+        w_init_mode = str(getattr(tc, "w_init_mode", "const")).lower()
+        w_init_scale = float(getattr(tc, "w_init_scale", 0.01))
+        if w_init_mode == "zeros":
+            S_init = torch.zeros_like(self.W_con_mask)
+        elif w_init_mode == "randn":
+            S_init = torch.randn_like(self.W_con_mask) * w_init_scale * self.W_con_mask
+        else:  # 'const'
+            S_init = w_init_scale * self.W_con_mask
+        self.S = nn.Parameter(S_init)
 
         # --- Type-pair masks for cos-distance / norm-floor regularisers --
         neuron_types = np.asarray(cx["neuron_types"]).astype(np.int64)
@@ -153,6 +164,15 @@ class NeuralTaskGNN(nn.Module):
         self.tau = float(getattr(pi, "tau", 0.1))
         self.dt = float(pi.dt)
 
+        # --- Stochastic regularisation during BPTT ----------------------
+        # Flyvis injects `noise_recurrent_level * randn` at every recurrent
+        # step (recurrent_step.py:_standard_recurrent_loss). Smooths the
+        # long-T BPTT landscape and is one of the most effective stabilisers
+        # for connectome-locked recurrent training. 0 = off (Hulse default).
+        self.noise_recurrent_level = float(
+            getattr(config.training, "noise_recurrent_level", 0.0)
+        )
+
         # --- CX metadata exposed for cx_eval helpers ---------------------
         self.neuron_types = neuron_types
         self.type_names = type_names
@@ -209,12 +229,18 @@ class NeuralTaskGNN(nn.Module):
 
         W_rec_t = self.W_rec.t()
         dt_over_tau = self.dt / self.tau
+        # Inject noise only during training (eval/snapshot stays deterministic).
+        noise_lvl = (self.noise_recurrent_level
+                     if (self.training and self.noise_recurrent_level > 0)
+                     else 0.0)
 
         for t in range(T):
             r = torch.sigmoid(h)
             rec = r @ W_rec_t
             inp = self._project_in(u[:, t, :])
             h = h + dt_over_tau * (-h + rec + inp + self.b)
+            if noise_lvl > 0:
+                h = h + noise_lvl * torch.randn_like(h)
             h_buf[:, t, :] = h
 
         y_hat = self._project_out(torch.sigmoid(h_buf))

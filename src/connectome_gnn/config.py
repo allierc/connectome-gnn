@@ -534,14 +534,28 @@ class GraphModelConfig(BaseModel):
 
     update_type: UpdateType = UpdateType.NONE
 
-    # NeuralTaskGNN: shape of W_in / W_out (Hulse path-integration model).
+    # TaskRNN: shape of W_in / W_out (Hulse path-integration model).
     # "matrix" → learnable Linear (Hulse default). "mlp" → small MLP reusing
     # `hidden_dim` and `n_layers` above.
     input_proj: Literal["matrix", "mlp"] = "matrix"
     output_proj: Literal["matrix", "mlp"] = "matrix"
-    # NeuralTaskGNN: include the 4 ER6 broad-inhibitory ring neurons in the
+    # TaskRNN: include the 4 ER6 broad-inhibitory ring neurons in the
     # hemibrain CX (156-neuron Hulse spec). False uses Beiran's 152-neuron loader.
     include_er6: bool = True
+
+    # TaskRNN (cortex/free-W mode): explicit recurrent population size + I/O
+    # dimensions. For sign_locked (CX) mode these are derived from the
+    # connectome and these fields are ignored.
+    n_units: int = 0
+    n_input: int = 0
+    n_output: int = 0
+    # W parameterisation. "sign_locked" → W_rec = |S| ⊙ W_con (CX, Hulse).
+    # "free" → W_rec is a plain (N, N) Parameter (cortex/Yang, no biological
+    # prior, no Dale).
+    W_param: Literal["sign_locked", "free"] = "sign_locked"
+    # Recurrent activation σ in r = σ(h). "sigmoid" is the Hulse paper
+    # default; "relu" / "softplus" are Yang's defaults for cortex tasks.
+    recurrent_activation: Literal["sigmoid", "relu", "tanh", "softplus"] = "sigmoid"
 
     MLP_activation: MLPActivation = MLPActivation.RELU
     zero_init_output: bool = False  # zero-init final layer so model starts predicting dvdt=0
@@ -868,7 +882,7 @@ class TrainingConfig(BaseModel):
     coeff_missing_activity: float = 0  # Penalty for missing activity patterns
     coeff_model_a: float = 0  # Regularizer on embedding a
 
-    # -- NeuralTaskGNN (path-integration) regularizers (Hulse Eqs. 10, 11 + circular TV) --
+    # -- TaskRNN (path-integration) regularizers (Hulse Eqs. 10, 11 + circular TV) --
     coeff_cos_distance: float = 0.0    # cos-distance per (post, pre) type-pair block
     coeff_norm_floor:   float = 0.0    # soft floor on mean |W| per type-pair block
     kappa_norm_floor:   float = 0.05   # floor target for norm-floor reg
@@ -882,6 +896,13 @@ class TrainingConfig(BaseModel):
     # Per-epoch learning-rate schedule (Hulse). Empty list → constant `lr`.
     # Padded with the last value if n_epochs > len(schedule).
     lr_schedule: List[float] = Field(default_factory=lambda: [5e-3, 1e-3, 5e-4, 2e-4, 1e-4])
+    # TaskRNN: stddev of Gaussian noise added to the hidden state at
+    # every Euler step during training (flyvis-style). 0 → off (Hulse default).
+    # Try {0, 1e-3, 1e-2, 5e-2} — small noise smooths the long-T BPTT
+    # landscape and is the key trick used by flyvis for stable recurrent
+    # training. Noise is gated by `self.training`; eval / snapshot rollouts
+    # are deterministic.
+    noise_recurrent_level: float = 0.0
     coeff_model_b: float = 0  # Regularizer on bias b
     coeff_embedding_cluster: float = 0.0  # pull same-cell-type embeddings toward their per-type centroid (L2)
 
