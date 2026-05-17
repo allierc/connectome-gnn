@@ -34,6 +34,7 @@ from connectome_gnn.neuron_state import NeuronState
     "larva",
     "zebrafish",
     "zebrafish_oculomotor",
+    "cortex",
 )
 class NeuralGNN(nn.Module):
     """GNN for neural signal dynamics with per-edge W.

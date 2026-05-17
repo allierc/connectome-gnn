@@ -3269,57 +3269,37 @@ def _generate_voltage_from_task_model(
             f"{n_trials_done} trials -> {x_path}"
         )
 
-    # --- Sanity plots (saved before any downstream GNN training kicks off) ---
-    fig_dir = os.path.join(folder, "Fig")
-    os.makedirs(fig_dir, exist_ok=True)
+    # --- Sanity plots (saved at dataset root, before any downstream GNN
+    # training kicks off). Stimulus.zarr is the deterministic per-unit
+    # drive (W_in @ u(t)) — no noise is ever added to it; only the
+    # voltage receives `noise_recurrent_level · randn` during the rollout
+    # when sim.noise_model_level > 0. ---
 
-    # 1. Trace plot: 8 random hidden units over a 1000-frame window of the
-    #    saved train data. Mirrors data_generate_voltage's spatial-activity
-    #    grid in time-series form (no spatial grid here since TaskRNN units
-    #    are abstract).
-    from connectome_gnn.zarr_io import load_raw_array
-    train_x = graphs_data_path(config.dataset, "x_list_train")
-    v_full = load_raw_array(os.path.join(train_x, "voltage.zarr"))   # (T, N)
-    s_full = load_raw_array(os.path.join(train_x, "stimulus.zarr"))  # (T, N)
-    T_window = min(1000, v_full.shape[0])
-    n_show_units = min(8, N)
-    rng_units = np.random.default_rng(sim.seed + 7)
-    show_units = sorted(rng_units.choice(N, size=n_show_units, replace=False).tolist())
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    fig, axes = plt.subplots(2, 1, figsize=(11, 5), sharex=True)
-    for u_idx in show_units:
-        axes[0].plot(v_full[:T_window, u_idx], lw=0.8, alpha=0.85,
-                     label=f"unit {u_idx}")
-        axes[1].plot(s_full[:T_window, u_idx], lw=0.8, alpha=0.85)
-    axes[0].set_ylabel("voltage h(t)", fontsize=9)
-    axes[0].legend(fontsize=7, loc="upper right", ncol=4)
-    axes[0].set_title(
-        f"{config.dataset} — voltage & input-drive traces "
-        f"({n_show_units} random units, first {T_window} frames)",
-        fontsize=10,
+    # 1. Trace plot: reuse the canonical flyvis-style stacked-voltage
+    #    figure (cross.trace_plot.save_trace_plot). Falls back to picking
+    #    12 evenly-spaced units when neuron_type is uniform (cortex case).
+    #    Output: <dataset>/traces.png
+    from connectome_gnn.cross.trace_plot import save_trace_plot
+    save_trace_plot(folder, force=True)
+    logger.info(
+        f"[voltage_from_task] saved traces: {os.path.join(folder, 'traces.png')}"
     )
-    axes[1].set_ylabel("stimulus (W_in u)", fontsize=9)
-    axes[1].set_xlabel("time (frames)", fontsize=9)
-    for ax in axes:
-        ax.tick_params(labelsize=8)
-    fig.tight_layout()
-    traces_path = os.path.join(fig_dir, "traces.png")
-    fig.savefig(traces_path, dpi=110, bbox_inches="tight")
-    plt.close(fig)
-    logger.info(f"[voltage_from_task] saved traces: {traces_path}")
 
     # 2. Decoder sanity plot: re-run the teacher end-to-end on 5 fresh
     #    trials and pass through `save_cortex_test_kinograph` (3 rows ×
     #    5 cols + 2 right panels). If the decoder reproduces the cortex
     #    target, the rollout is consistent.
+    #    Output: <dataset>/sanity_decoder.png
     from connectome_gnn.models.cortex_eval import save_cortex_test_kinograph
     n_sanity = 5
     rng_s = np.random.default_rng(sim.seed + 9)
     hp_s = dict(hp)
     hp_s["rng"] = np.random.RandomState(int(rng_s.integers(0, 2**31 - 1)))
     sanity_stim, sanity_pred, sanity_tgt, sanity_cm = [], [], [], []
+    # Decoder check should be deterministic — temporarily disable noise.
+    saved_noise = model.noise_recurrent_level
+    model.noise_recurrent_level = 0.0
+    model.eval()
     with torch.no_grad():
         for _ in range(n_sanity):
             r = rules[int(rng_s.integers(len(rules)))]
@@ -3332,7 +3312,8 @@ def _generate_voltage_from_task_model(
             sanity_pred.append(y_hat[0, :T_trial].detach().cpu())
             sanity_tgt.append(torch.from_numpy(y_tgt_np[:T_trial]))
             sanity_cm.append(torch.from_numpy(cm_np[:T_trial]))
-    sanity_path = os.path.join(fig_dir, "sanity_decoder.png")
+    model.noise_recurrent_level = saved_noise
+    sanity_path = os.path.join(folder, "sanity_decoder.png")
     save_cortex_test_kinograph(
         sanity_stim, sanity_pred, sanity_tgt, sanity_cm,
         output_path=sanity_path,
