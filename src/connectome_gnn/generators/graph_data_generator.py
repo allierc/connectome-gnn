@@ -3113,6 +3113,21 @@ def _generate_voltage_from_task_model(
 
     N = int(model.n_units)
     dt = float(getattr(model, "dt", 0.02))
+    # CRITICAL: the saved y_list = (v[t+1] - v[t]) / model.dt is dv/dt at
+    # model.dt resolution. Downstream data_train_gnn reads y_list and
+    # interprets dt = sim.delta_t. If they disagree the GNN's W learns a
+    # rescaled solution and conn_R² stays badly negative. Override
+    # sim.delta_t to match model.dt and log it.
+    if abs(float(sim.delta_t) - dt) > 1e-9:
+        print(
+            f"\033[93m[voltage_from_task] dt mismatch: sim.delta_t="
+            f"{float(sim.delta_t)} vs model.dt={dt}. Overriding sim.delta_t "
+            f"in-memory so the downstream trainer interprets y_list "
+            f"correctly. Update the yaml to delta_t: {dt} to make this "
+            f"explicit.\033[0m",
+            flush=True,
+        )
+        sim.delta_t = float(dt)
     logger.info(
         f"[voltage_from_task] N={N}  dt={dt}s  task={task_cfg.task.cortex.rules}"
     )
