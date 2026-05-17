@@ -2998,23 +2998,38 @@ def _compute_noisy_derivatives(config, sim, n_neurons, split="train"):
 # ============================================================================
 
 def _resolve_task_config_path(path_str: str) -> str:
-    """Resolve a task-model yaml path: absolute > repo config_path() > raise."""
+    """Resolve a task-model yaml path.
+
+    Resolution order:
+      1. absolute path or relative-to-cwd file
+      2. <repo>/config/<path_str>[.yaml]
+      3. <repo>/config/<pre_folder>/<basename>[.yaml]  (matches GNN_Main's
+         add_pre_folder routing so users can write `cortex_delaygo_winner`
+         instead of `cortex/cortex_delaygo_winner`)
+    """
+    from connectome_gnn.utils import add_pre_folder, config_path
     if os.path.isabs(path_str) and os.path.isfile(path_str):
         return path_str
     if os.path.isfile(path_str):
         return os.path.abspath(path_str)
-    from connectome_gnn.utils import config_path
-    cand = config_path(path_str)
-    if os.path.isfile(cand):
-        return cand
-    # Try with .yaml appended
+    candidates = []
+    candidates.append(config_path(path_str))
     if not path_str.endswith(".yaml"):
-        cand2 = config_path(path_str + ".yaml")
-        if os.path.isfile(cand2):
-            return cand2
+        candidates.append(config_path(path_str + ".yaml"))
+    # Apply add_pre_folder routing (e.g. 'cortex_delaygo_winner' -> 'cortex/cortex_delaygo_winner')
+    try:
+        cfg_file, _ = add_pre_folder(path_str)
+        candidates.append(config_path(cfg_file))
+        if not cfg_file.endswith(".yaml"):
+            candidates.append(config_path(cfg_file + ".yaml"))
+    except Exception:
+        pass
+    for cand in candidates:
+        if cand and os.path.isfile(cand):
+            return cand
     raise FileNotFoundError(
-        f"task_model_config_path not found: {path_str} "
-        f"(checked absolute, cwd, and {config_path(path_str)})"
+        f"task_model_config_path not found: {path_str}\n"
+        f"  checked: {candidates}"
     )
 
 
@@ -3125,6 +3140,32 @@ def _generate_voltage_from_task_model(
     os.makedirs(folder, exist_ok=True)
     print(f"\033[93m[voltage_from_task] writing to {folder}\033[0m", flush=True)
 
+    # --- Save ground-truth ODE params for the downstream GNN ---
+    # Map TaskRNN's W_rec / b / tau into the FlyVisODEParams schema so the
+    # standard data_train_gnn loader picks them up unchanged. W_rec layout
+    # is (rows=presynaptic j, cols=postsynaptic i) — np.nonzero returns
+    # (row=src=pre, col=dst=post) which is exactly the edge_index
+    # convention the GNN expects.
+    from connectome_gnn.generators.ode_params import FlyVisODEParams
+    W_rec_full = model.W_rec.detach().cpu().numpy().astype(np.float32)
+    src, dst = np.nonzero(W_rec_full)
+    edge_index_gt = np.stack([src, dst], axis=0).astype(np.int64)
+    W_gt = W_rec_full[src, dst].astype(np.float32)
+    tau_i_gt = np.full(N, float(model.tau), dtype=np.float32)
+    V_i_rest_gt = model.b.detach().cpu().numpy().astype(np.float32)
+    ode_params = FlyVisODEParams(
+        tau_i=torch.from_numpy(tau_i_gt),
+        V_i_rest=torch.from_numpy(V_i_rest_gt),
+        edge_index=torch.from_numpy(edge_index_gt),
+        W=torch.from_numpy(W_gt),
+    )
+    ode_params.save(folder)
+    logger.info(
+        f"[voltage_from_task] saved ode_params.pt: N={N}  E={W_gt.size}  "
+        f"density={W_gt.size / (N * (N - 1)):.3f}  "
+        f"tau={float(model.tau):.4f}  ||b||={float(np.linalg.norm(V_i_rest_gt)):.3f}"
+    )
+
     splits = [
         ("train", int(sim.n_frames)),
         ("test", max(1, int(sim.n_frames) // 4)),
@@ -3199,3 +3240,75 @@ def _generate_voltage_from_task_model(
             f"[voltage_from_task] {split}: {n_done} frames from "
             f"{n_trials_done} trials -> {x_path}"
         )
+
+    # --- Sanity plots (saved before any downstream GNN training kicks off) ---
+    fig_dir = os.path.join(folder, "Fig")
+    os.makedirs(fig_dir, exist_ok=True)
+
+    # 1. Trace plot: 8 random hidden units over a 1000-frame window of the
+    #    saved train data. Mirrors data_generate_voltage's spatial-activity
+    #    grid in time-series form (no spatial grid here since TaskRNN units
+    #    are abstract).
+    from connectome_gnn.zarr_io import load_raw_array
+    train_x = graphs_data_path(config.dataset, "x_list_train")
+    v_full = load_raw_array(os.path.join(train_x, "voltage.zarr"))   # (T, N)
+    s_full = load_raw_array(os.path.join(train_x, "stimulus.zarr"))  # (T, N)
+    T_window = min(1000, v_full.shape[0])
+    n_show_units = min(8, N)
+    rng_units = np.random.default_rng(sim.seed + 7)
+    show_units = sorted(rng_units.choice(N, size=n_show_units, replace=False).tolist())
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    fig, axes = plt.subplots(2, 1, figsize=(11, 5), sharex=True)
+    for u_idx in show_units:
+        axes[0].plot(v_full[:T_window, u_idx], lw=0.8, alpha=0.85,
+                     label=f"unit {u_idx}")
+        axes[1].plot(s_full[:T_window, u_idx], lw=0.8, alpha=0.85)
+    axes[0].set_ylabel("voltage h(t)", fontsize=9)
+    axes[0].legend(fontsize=7, loc="upper right", ncol=4)
+    axes[0].set_title(
+        f"{config.dataset} — voltage & input-drive traces "
+        f"({n_show_units} random units, first {T_window} frames)",
+        fontsize=10,
+    )
+    axes[1].set_ylabel("stimulus (W_in u)", fontsize=9)
+    axes[1].set_xlabel("time (frames)", fontsize=9)
+    for ax in axes:
+        ax.tick_params(labelsize=8)
+    fig.tight_layout()
+    traces_path = os.path.join(fig_dir, "traces.png")
+    fig.savefig(traces_path, dpi=110, bbox_inches="tight")
+    plt.close(fig)
+    logger.info(f"[voltage_from_task] saved traces: {traces_path}")
+
+    # 2. Decoder sanity plot: re-run the teacher end-to-end on 5 fresh
+    #    trials and pass through `save_cortex_test_kinograph` (3 rows ×
+    #    5 cols + 2 right panels). If the decoder reproduces the cortex
+    #    target, the rollout is consistent.
+    from connectome_gnn.models.cortex_eval import save_cortex_test_kinograph
+    n_sanity = 5
+    rng_s = np.random.default_rng(sim.seed + 9)
+    hp_s = dict(hp)
+    hp_s["rng"] = np.random.RandomState(int(rng_s.integers(0, 2**31 - 1)))
+    sanity_stim, sanity_pred, sanity_tgt, sanity_cm = [], [], [], []
+    with torch.no_grad():
+        for _ in range(n_sanity):
+            r = rules[int(rng_s.integers(len(rules)))]
+            trial = generate_trials(r, hp_s, mode="random", batch_size=1)
+            x_in_np, y_tgt_np, cm_np = trial_to_numpy(trial, 0)
+            T_trial = int(trial.tdim)
+            u = torch.from_numpy(x_in_np[None]).to(device)
+            y_hat, _ = model(u)
+            sanity_stim.append(torch.from_numpy(x_in_np[:T_trial]))
+            sanity_pred.append(y_hat[0, :T_trial].detach().cpu())
+            sanity_tgt.append(torch.from_numpy(y_tgt_np[:T_trial]))
+            sanity_cm.append(torch.from_numpy(cm_np[:T_trial]))
+    sanity_path = os.path.join(fig_dir, "sanity_decoder.png")
+    save_cortex_test_kinograph(
+        sanity_stim, sanity_pred, sanity_tgt, sanity_cm,
+        output_path=sanity_path,
+        rule_name=(rules[0] if rules else "cortex"),
+        n_trials=n_sanity,
+    )
+    logger.info(f"[voltage_from_task] saved decoder sanity plot: {sanity_path}")
