@@ -1844,3 +1844,95 @@ def data_test_gnn_special(
             np.save(f"{log_dir}/results/activity_pred.npy", activity_pred)
 
 
+
+
+# ============================================================================
+# Cortex (Yang 2019) task tester
+# ============================================================================
+
+def data_test_cortex_task_gnn(config, best_model=None, device=None, log_file=None):
+    """Test a TaskRNN (free-W) on a cortex task: load test zarrs, rollout the
+    trained model on the first 10 consecutive test trials, and save a 2x10
+    kinograph (row 0 = GT motor, row 1 = predicted motor) to log_dir.
+
+    Also reports per-trial direction_acc + aggregate metrics across the full
+    test split via compute_cortex_task_metrics.
+    """
+    from connectome_gnn.models.cortex_eval import (
+        compute_cortex_task_metrics,
+        save_cortex_test_kinograph,
+    )
+
+    tc = config.training
+    model_config = config.graph_model
+    ct = config.task.cortex
+
+    log_dir = log_path(config.config_file)
+    os.makedirs(log_dir, exist_ok=True)
+
+    # --- Load test data ---
+    root = graphs_data_path(config.dataset)
+    logger.info(f'[cortex test] loading from {root}/test/...')
+    u_test = torch.from_numpy(load_raw_array(f"{root}/test/stimulus.zarr")).to(device)
+    y_test = torch.from_numpy(load_raw_array(f"{root}/test/target.zarr")).to(device)
+    cm_test = torch.from_numpy(load_raw_array(f"{root}/test/c_mask.zarr")).to(device)
+    logger.info(f'  test shapes: u={tuple(u_test.shape)}  y={tuple(y_test.shape)}  '
+                f'cm={tuple(cm_test.shape)}')
+
+    # --- Rebuild model from registry; load best checkpoint ---
+    model = create_model(model_config.signal_model_name,
+                         aggr_type=model_config.aggr_type,
+                         config=config, device=device)
+    ckpt_dir = os.path.join(log_dir, 'models')
+    # Find latest checkpoint (best_model arg is the epoch index if int)
+    if isinstance(best_model, int):
+        ckpt_path = os.path.join(
+            ckpt_dir,
+            f'best_model_with_{tc.n_runs - 1}_graphs_{best_model}.pt')
+    else:
+        # Pick the highest-epoch checkpoint in ckpt_dir
+        cand = sorted(glob.glob(os.path.join(
+            ckpt_dir, f'best_model_with_{tc.n_runs - 1}_graphs_*.pt')))
+        if not cand:
+            raise FileNotFoundError(
+                f'no cortex checkpoint found in {ckpt_dir}; train first.')
+        ckpt_path = cand[-1]
+    logger.info(f'  loading checkpoint: {ckpt_path}')
+    state = torch.load(ckpt_path, map_location=device, weights_only=False)
+    model.load_state_dict(state['model_state_dict'])
+    model.eval()
+
+    # --- Rollout on first 10 consecutive test trials ---
+    n_kino = min(10, u_test.shape[0])
+    with torch.no_grad():
+        y_hat, _ = model(u_test[:n_kino])
+    stim_kino = [u_test[i] for i in range(n_kino)]
+    preds_kino = [y_hat[i] for i in range(n_kino)]
+    tgts_kino = [y_test[i] for i in range(n_kino)]
+    cms_kino = [cm_test[i] for i in range(n_kino)]
+    per_trial = compute_cortex_task_metrics(preds_kino, tgts_kino, cms_kino)
+    logger.info(f'  10-trial direction_acc={per_trial["direction_acc"]:.3f}  '
+                f'motor_max={per_trial["motor_max"]:.3f}  '
+                f'loss={per_trial["loss"]:.4f}')
+
+    rule_name = (ct.rules[0] if getattr(ct, "rules", None) else "cortex")
+    results_dir = os.path.join(log_dir, 'results')
+    os.makedirs(results_dir, exist_ok=True)
+    kino_path = os.path.join(results_dir, f'test_kinograph_{rule_name}.png')
+    save_cortex_test_kinograph(
+        stim_kino, preds_kino, tgts_kino, cms_kino,
+        output_path=kino_path, rule_name=rule_name, n_trials=n_kino,
+    )
+    logger.info(f'  saved kinograph: {kino_path}')
+
+    # --- Aggregate metrics over the full test split ---
+    with torch.no_grad():
+        y_hat_full, _ = model(u_test)
+    preds = [y_hat_full[i] for i in range(u_test.shape[0])]
+    tgts = [y_test[i] for i in range(u_test.shape[0])]
+    cms = [cm_test[i] for i in range(u_test.shape[0])]
+    full = compute_cortex_task_metrics(preds, tgts, cms)
+    logger.info(
+        f'  full test (n={u_test.shape[0]}): direction_acc={full["direction_acc"]:.4f}  '
+        f'motor_max={full["motor_max"]:.4f}  loss={full["loss"]:.4f}'
+    )

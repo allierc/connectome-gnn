@@ -272,6 +272,13 @@ class SimulationConfig(BaseModel):
     start_frame: int = 0
     seed: Annotated[int, Field(ge=0, lt=2**32)] = 42
 
+    # Teacher-model voltage generation: when set, `data_generate` rolls out
+    # the TaskRNN described by this YAML over fresh task stimuli and saves
+    # the hidden-state trajectory as voltage.zarr (compatible with the
+    # standard data_generate_voltage output). Empty = use the conventional
+    # ODE-based / flyvis generators.
+    task_model_config_path: str = ""
+
     model_id: str = "000"
     ensemble_id: str = "0000"
 
@@ -556,6 +563,12 @@ class GraphModelConfig(BaseModel):
     # Recurrent activation σ in r = σ(h). "sigmoid" is the Hulse paper
     # default; "relu" / "softplus" are Yang's defaults for cortex tasks.
     recurrent_activation: Literal["sigmoid", "relu", "tanh", "softplus"] = "sigmoid"
+    # Optional image-derived binary mask on W_rec — a fun structural prior
+    # to test capacity / sparsity trade-offs. The image is resized to N×N
+    # and thresholded at its median to produce a 0/1 mask; W_rec is
+    # multiplied by this mask, so dark pixels become forbidden connections.
+    # Path is absolute or resolved via connectome_gnn.utils.config_path().
+    w_mask_image_path: str = ""
     # Dynamics constants for TaskRNN's Euler integration. CX (sign_locked
     # mode) overrides these from task.path_integration; cortex (free mode)
     # reads them from here directly. Defaults match the Hulse paper.

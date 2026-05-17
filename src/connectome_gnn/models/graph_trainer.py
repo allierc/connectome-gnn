@@ -98,7 +98,8 @@ def data_train(config=None, erase=False, best_model=None, style=None, device=Non
         return
 
     _connconstr = any(x in config.dataset for x in ('drosophila_cx', 'zebrafish_oculomotor', 'larva'))
-    if 'fly' in config.dataset or _connconstr:
+    _cortex_voltage = 'cortex' in config.dataset
+    if 'fly' in config.dataset or _connconstr or _cortex_voltage:
         model_name = config.graph_model.signal_model_name.lower()
         if 'stimulus' in model_name:
             from connectome_gnn.models.data_train_stimulus import data_train_stimulus
@@ -1685,8 +1686,18 @@ def data_test(config=None, config_file=None, visualize=False, style='color frame
     _logger.info(f"dataset_name: {dataset_name}")
     _logger.info(f"{config.description}")
 
+    # Task-trainer test dispatch (cortex first, path_integration later).
+    if getattr(config, 'task', None) is not None:
+        task_type = str(getattr(config.task, 'task_type', '')).lower()
+        if task_type == 'cortex':
+            data_test_cortex_task_gnn(
+                config, best_model=best_model, device=device, log_file=log_file,
+            )
+            return
+
     _connconstr = any(x in config.dataset for x in ('drosophila_cx', 'zebrafish_oculomotor', 'larva'))
-    if 'fly' in config.dataset or _connconstr:
+    _cortex_voltage = 'cortex' in config.dataset
+    if 'fly' in config.dataset or _connconstr or _cortex_voltage:
         # Ablation modes (test_ablation_NN) zero out a fraction of model.W
         # before the full rollout, so the saved rollout_bundle reflects the
         # ablated dynamics. They go through the standard data_test_gnn path
@@ -1731,7 +1742,11 @@ def data_test(config=None, config_file=None, visualize=False, style='color frame
 
 
 # Test functions moved to graph_tester.py
-from connectome_gnn.models.graph_tester import data_test_gnn, data_test_gnn_special
+from connectome_gnn.models.graph_tester import (
+    data_test_cortex_task_gnn,
+    data_test_gnn,
+    data_test_gnn_special,
+)
 
 
 # ============================================================================
@@ -2038,6 +2053,7 @@ def _data_train_cortex_task_gnn(config, erase, best_model, device, log_file=None
 
     from connectome_gnn.models.cortex_eval import (
         compute_cortex_task_metrics,
+        save_cortex_matrix_snapshot,
         save_cortex_training_snapshot,
     )
     from connectome_gnn.zarr_io import load_raw_array
@@ -2058,7 +2074,9 @@ def _data_train_cortex_task_gnn(config, erase, best_model, device, log_file=None
 
     log_dir, logger = create_log_dir(config, erase)
     snapshot_dir = os.path.join(log_dir, 'tmp_training', 'cortex_snapshot')
+    matrix_dir = os.path.join(log_dir, 'tmp_training', 'matrix')
     os.makedirs(snapshot_dir, exist_ok=True)
+    os.makedirs(matrix_dir, exist_ok=True)
 
     # --- Eager load: trials stay on GPU between iterations ---------------
     root = graphs_data_path(config.dataset)
@@ -2115,7 +2133,6 @@ def _data_train_cortex_task_gnn(config, erase, best_model, device, log_file=None
     else:
         snap_every = max(1, Niter // max(1, snapshots_per_epoch))
     rule_name = (ct.rules[0] if getattr(ct, "rules", None) else "cortex")
-    best_loss = float('inf')
     global_step = 0
 
     # Per-epoch lr schedule (Yang-style — empty = constant tc.lr).
@@ -2131,10 +2148,11 @@ def _data_train_cortex_task_gnn(config, erase, best_model, device, log_file=None
     metrics_log_path = os.path.join(log_dir, 'tmp_training', 'metrics.log')
     os.makedirs(os.path.dirname(metrics_log_path), exist_ok=True)
     with open(metrics_log_path, 'w') as f:
-        f.write('iteration,epoch,loss,mse,motor_max,motor_peak_mean,direction_acc\n')
+        f.write('iteration,epoch,loss,mse,motor_max,motor_peak_mean,r2,direction_acc\n')
 
     last_metrics = {'loss': float('nan'), 'motor_max': float('nan'),
-                    'motor_peak_mean': float('nan'), 'direction_acc': float('nan')}
+                    'motor_peak_mean': float('nan'), 'r2': float('nan'),
+                    'direction_acc': float('nan')}
     model.train()
 
     # torch.compile (same pattern as PI trainer; eager fallback for eval).
@@ -2151,15 +2169,25 @@ def _data_train_cortex_task_gnn(config, erase, best_model, device, log_file=None
     else:
         logger.info('torch.compile disabled via config (torch_compile: false)')
 
-    from tqdm import tqdm as _tqdm
     n_eval = min(64, u_test.shape[0])
     total_iters = tc.n_epochs * Niter
     _logger.info(f'start training: {tc.n_epochs} epochs × {Niter} iters/epoch '
                  f'= {total_iters} iters  (n_trials={n_trials}, DAL={dal}, '
                  f'n_eval={n_eval} test trials, snap_every={snap_every} iters '
                  f'= {total_iters // snap_every} snapshots)')
-    pbar = _tqdm(total=total_iters, ncols=150,
-                 desc=f'cortex/{rule_name} epoch 1/{tc.n_epochs}', leave=True)
+
+    # ANSI colors for dir_acc in postfix.
+    _C_GREEN, _C_ORANGE, _C_RED, _C_RESET = (
+        '\033[92m', '\033[33m', '\033[91m', '\033[0m'
+    )
+    def _color_acc(v):
+        if v is None or np.isnan(v):
+            return ''
+        if v >= 0.9:
+            return _C_GREEN
+        if v >= 0.5:
+            return _C_ORANGE
+        return _C_RED
 
     for epoch in range(tc.n_epochs):
         # Per-epoch lr replacement (Yang). When no schedule is provided we
@@ -2171,8 +2199,12 @@ def _data_train_cortex_task_gnn(config, erase, best_model, device, log_file=None
             _logger.info(f'epoch {epoch+1}: lr -> {lr_epoch}')
         # Per-epoch generator for reproducible batch sampling.
         gen = torch.Generator(device=device).manual_seed(tc.seed + epoch)
-        pbar.set_description(f'cortex/{rule_name} epoch {epoch+1}/{tc.n_epochs}')
-        for N in range(Niter):
+        pbar = trange(
+            Niter, ncols=150,
+            desc=f'cortex/{rule_name} epoch {epoch+1}/{tc.n_epochs}',
+            leave=True,
+        )
+        for N in pbar:
             global_step += 1
             # Sample with replacement (DAL > 1 makes one-pass coverage
             # impossible from a fixed trial pool). For DAL=1 this is
@@ -2205,6 +2237,7 @@ def _data_train_cortex_task_gnn(config, erase, best_model, device, log_file=None
                     # module (varying B between train and eval otherwise
                     # thrashes the CUDA-Graph cache).
                     y_eval, _ = eval_model(u_test[:n_eval])
+                    stimuli = [u_test[i] for i in range(n_eval)]
                     preds = [y_eval[i] for i in range(n_eval)]
                     targets = [y_test[i] for i in range(n_eval)]
                     cmasks = [cm_test[i] for i in range(n_eval)]
@@ -2213,30 +2246,45 @@ def _data_train_cortex_task_gnn(config, erase, best_model, device, log_file=None
                         snapshot_dir, f'step_{global_step:06d}.png')
                     try:
                         save_cortex_training_snapshot(
-                            preds, targets, cmasks,
+                            stimuli, preds, targets, cmasks,
                             output_path=snap_path, step=global_step,
                             rule_name=rule_name,
                         )
                     except Exception as exc:
                         _logger.warning(
                             f'[cortex_eval] snapshot failed @ step {global_step}: {exc}')
+                    # W_rec matrix view — saved at the same cadence.
+                    matrix_path = os.path.join(
+                        matrix_dir, f'step_{global_step:06d}.png')
+                    try:
+                        save_cortex_matrix_snapshot(
+                            eval_model.W_rec,
+                            output_path=matrix_path, step=global_step,
+                            title_suffix=f'epoch {epoch + 1}/{tc.n_epochs}',
+                        )
+                    except Exception as exc:
+                        _logger.warning(
+                            f'[cortex_eval] matrix snapshot failed @ step '
+                            f'{global_step}: {exc}')
                 with open(metrics_log_path, 'a') as f:
                     f.write(f'{global_step},{epoch+1},{loss.item():.6f},'
                             f'{mse.item():.6f},'
                             f'{last_metrics["motor_max"]:.6f},'
                             f'{last_metrics["motor_peak_mean"]:.6f},'
+                            f'{last_metrics.get("r2", float("nan")):.6f},'
                             f'{last_metrics["direction_acc"]:.6f}\n')
 
-            if loss.item() < best_loss:
-                best_loss = loss.item()
-
+            da = last_metrics["direction_acc"]
+            r2 = last_metrics.get("r2", float("nan"))
+            col = _color_acc(r2)
             pbar.set_postfix_str(
                 f'loss={loss.item():.4f}  mse={mse.item():.4f}  '
                 f'motor_max={last_metrics["motor_max"]:.3f}  '
-                f'dir_acc={last_metrics["direction_acc"]:.2f}  '
-                f'best={best_loss:.4f}'
+                f'dir_acc={da:.2f}  '
+                f'{col}R2={r2:.3f}{_C_RESET}'
             )
-            pbar.update(1)
+
+        pbar.close()
 
         # Per-epoch checkpoint (matches PI trainer's naming).
         ckpt_path = os.path.join(
@@ -2246,13 +2294,6 @@ def _data_train_cortex_task_gnn(config, erase, best_model, device, log_file=None
         torch.save({'model_state_dict': eval_model.state_dict(),
                     'optimizer_state_dict': optimizer.state_dict()},
                    ckpt_path)
-        _logger.info(
-            f'epoch {epoch+1}/{tc.n_epochs} done — last_loss={loss.item():.4f}  '
-            f'best={best_loss:.4f}  '
-            f'dir_acc={last_metrics["direction_acc"]:.4f}  saved {ckpt_path}'
-        )
-
-    pbar.close()
 
     # --- Final eval on full test split ----------------------------------
     with torch.no_grad():

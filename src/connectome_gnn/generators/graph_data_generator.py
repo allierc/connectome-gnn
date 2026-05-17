@@ -184,6 +184,15 @@ def data_generate(
         add_optogenetics_stimulus(config)
         return
 
+    # Teacher-voltage generation: roll out a trained TaskRNN over fresh task
+    # stimuli and write the hidden-state trajectory to x_list_train/voltage.zarr
+    # (compatible with data_train_gnn). Owns the whole pipeline -> return.
+    if getattr(config.simulation, 'task_model_config_path', ''):
+        _generate_voltage_from_task_model(
+            config, device=device, visualize=visualize,
+        )
+        return
+
     # Task-data generation (PR1: path_integration only). Runs independently
     # from the simulation pipeline below; merging the two (task-trained
     # circuit -> simulate activity -> GNN recovery) is a follow-up PR.
@@ -2982,3 +2991,211 @@ def _compute_noisy_derivatives(config, sim, n_neurons, split="train"):
         f"computed noisy derivatives for {split}: {noisy_y.shape[0]} frames "
         f"(measurement_noise_level={sim.measurement_noise_level})"
     )
+
+
+# ============================================================================
+# Voltage generation from a trained task-optimized TaskRNN
+# ============================================================================
+
+def _resolve_task_config_path(path_str: str) -> str:
+    """Resolve a task-model yaml path: absolute > repo config_path() > raise."""
+    if os.path.isabs(path_str) and os.path.isfile(path_str):
+        return path_str
+    if os.path.isfile(path_str):
+        return os.path.abspath(path_str)
+    from connectome_gnn.utils import config_path
+    cand = config_path(path_str)
+    if os.path.isfile(cand):
+        return cand
+    # Try with .yaml appended
+    if not path_str.endswith(".yaml"):
+        cand2 = config_path(path_str + ".yaml")
+        if os.path.isfile(cand2):
+            return cand2
+    raise FileNotFoundError(
+        f"task_model_config_path not found: {path_str} "
+        f"(checked absolute, cwd, and {config_path(path_str)})"
+    )
+
+
+def _resolve_task_checkpoint(task_cfg, task_cfg_path: str) -> str:
+    """Find the latest best_model checkpoint for a task-trained TaskRNN."""
+    from connectome_gnn.utils import add_pre_folder, log_path
+    cf = task_cfg.config_file
+    if cf in ("none", ""):
+        stem = os.path.splitext(os.path.basename(task_cfg_path))[0]
+        cf, _ = add_pre_folder(stem)
+    task_log_dir = log_path(cf)
+    ckpt_dir = os.path.join(task_log_dir, "models")
+    cands = sorted(glob.glob(os.path.join(ckpt_dir, "best_model_with_*_graphs_*.pt")))
+    if not cands:
+        raise FileNotFoundError(
+            f"no task-model checkpoint found in {ckpt_dir}; train the task "
+            f"model first via `GNN_Main.py -o train <task_config>`"
+        )
+    return cands[-1]
+
+
+def _generate_voltage_from_task_model(
+    config, *, device=None, visualize: bool = True
+) -> None:
+    """Generate voltage data by rolling out a trained TaskRNN over fresh task stimuli.
+
+    Loads the TaskRNN described by `simulation.task_model_config_path`,
+    runs it forward over freshly-sampled cortex trials, and stitches the
+    hidden-state trajectory into a continuous (T, N) sequence. The
+    on-disk format matches `data_generate_voltage` (ZarrSimulationWriterV3
+    + ZarrArrayWriter) so a downstream `data_train_gnn` can train on the
+    teacher's dynamics without any loader changes.
+
+    Inputs:
+      simulation.task_model_config_path : path to TaskRNN yaml (winner).
+      simulation.n_frames               : target voltage frames for train split.
+      simulation.seed                   : seed for trial sampling.
+
+    Outputs (under graphs_data/<config.dataset>/):
+      x_list_train/voltage.zarr      (T_train, N)
+      x_list_train/stimulus.zarr     (T_train, N) — per-unit input drive
+      x_list_train/pos.zarr          (N, 2)        — synthetic 2D grid
+      x_list_train/group_type.zarr   (N,)          — zeros
+      x_list_train/neuron_type.zarr  (N,)          — zeros
+      y_list_train.zarr              (T_train, N, 1) — numerical dv/dt
+      (and *_test under x_list_test / y_list_test at 25% of n_frames)
+    """
+    import torch
+
+    from connectome_gnn.config import NeuralGraphConfig
+    from connectome_gnn.generators.cortex_adapter import trial_to_numpy
+    from connectome_gnn.generators.cortex_task import (
+        generate_trials, get_default_hp,
+    )
+    from connectome_gnn.models.registry import create_model
+    from connectome_gnn.neuron_state import NeuronState
+    from connectome_gnn.zarr_io import ZarrArrayWriter, ZarrSimulationWriterV3
+
+    sim = config.simulation
+
+    task_cfg_path = _resolve_task_config_path(sim.task_model_config_path)
+    logger.info(f"[voltage_from_task] loading task config: {task_cfg_path}")
+    task_cfg = NeuralGraphConfig.from_yaml(task_cfg_path)
+
+    if device is None:
+        from connectome_gnn.utils import set_device
+        device = set_device(task_cfg.training.device)
+    if isinstance(device, str):
+        device = torch.device(device)
+
+    model = create_model(
+        task_cfg.graph_model.signal_model_name,
+        aggr_type=task_cfg.graph_model.aggr_type,
+        config=task_cfg, device=device,
+    )
+    ckpt_path = _resolve_task_checkpoint(task_cfg, task_cfg_path)
+    logger.info(f"[voltage_from_task] loading checkpoint: {ckpt_path}")
+    state = torch.load(ckpt_path, map_location=device, weights_only=False)
+    model.load_state_dict(state["model_state_dict"])
+    model.eval()
+
+    N = int(model.n_units)
+    dt = float(getattr(model, "dt", 0.02))
+    logger.info(
+        f"[voltage_from_task] N={N}  dt={dt}s  task={task_cfg.task.cortex.rules}"
+    )
+
+    # Synthetic neuron metadata (TaskRNN has no biological positions or types):
+    #   - pos: 2D grid (sqrt(N) × sqrt(N))
+    #   - group_type, neuron_type: zeros
+    n_side = int(np.ceil(np.sqrt(N)))
+    grid = np.array(
+        [[i // n_side, i % n_side] for i in range(N)],
+        dtype=np.float32,
+    ) / max(1, n_side - 1)
+    pos = torch.from_numpy(grid).to(device)
+    group_type_t = torch.zeros(N, dtype=torch.int32, device=device)
+    neuron_type_t = torch.zeros(N, dtype=torch.int32, device=device)
+
+    # Task-stimulus generator parameters from task config.
+    ct = task_cfg.task.cortex
+    hp = get_default_hp(ct.ruleset)
+    if ct.hp_overrides:
+        hp.update(ct.hp_overrides)
+    rules = list(ct.rules)
+
+    folder = graphs_data_path(config.dataset)
+    os.makedirs(folder, exist_ok=True)
+    print(f"\033[93m[voltage_from_task] writing to {folder}\033[0m", flush=True)
+
+    splits = [
+        ("train", int(sim.n_frames)),
+        ("test", max(1, int(sim.n_frames) // 4)),
+    ]
+    for split, n_frames_split in splits:
+        x_path = graphs_data_path(config.dataset, f"x_list_{split}")
+        y_path = graphs_data_path(config.dataset, f"y_list_{split}")
+        # Clean any prior data so we don't append.
+        for p in (x_path, y_path):
+            if os.path.isdir(p):
+                _rmtree(p)
+
+        x_writer = ZarrSimulationWriterV3(
+            path=x_path, n_neurons=N, time_chunks=2000, save_calcium=False,
+        )
+        y_writer = ZarrArrayWriter(
+            path=y_path, n_neurons=N, n_features=1, time_chunks=2000,
+        )
+
+        seed_offset = 0 if split == "train" else 1
+        rng = np.random.default_rng(sim.seed + seed_offset)
+        hp_split = dict(hp)
+        hp_split["rng"] = np.random.RandomState(
+            int(rng.integers(0, 2**31 - 1))
+        )
+
+        n_done = 0
+        n_trials_done = 0
+        from tqdm import tqdm as _tqdm
+        pbar = _tqdm(total=n_frames_split, ncols=150,
+                     desc=f"  {split}: voltage frames", leave=True)
+        with torch.no_grad():
+            while n_done < n_frames_split:
+                r = rules[int(rng.integers(len(rules)))]
+                trial = generate_trials(r, hp_split, mode="random", batch_size=1)
+                x_in_np, _y_tgt, _cm = trial_to_numpy(trial, 0)
+                T_trial = int(trial.tdim)
+                u = torch.from_numpy(x_in_np[None]).to(device)
+                _y_hat, h_buf = model(u)
+
+                voltage = h_buf[0, :T_trial].detach().cpu()
+                u_t = u[0, :T_trial]
+                if model.input_proj == "matrix":
+                    drive_t = u_t @ model.W_in.t()
+                else:
+                    drive_t = model._W_in_mlp(u_t)
+                drive = drive_t.detach().cpu()
+
+                # Numerical dv/dt (forward diff; last frame copies previous).
+                dv = torch.zeros_like(voltage)
+                if T_trial >= 2:
+                    dv[:-1] = (voltage[1:] - voltage[:-1]) / dt
+                    dv[-1] = dv[-2]
+
+                for t in range(T_trial):
+                    if n_done >= n_frames_split:
+                        break
+                    st = NeuronState(
+                        pos=pos, group_type=group_type_t, neuron_type=neuron_type_t,
+                        voltage=voltage[t].to(device),
+                        stimulus=drive[t].to(device),
+                    )
+                    x_writer.append_state(st)
+                    y_writer.append(dv[t].unsqueeze(-1).numpy())
+                    n_done += 1
+                    pbar.update(1)
+                n_trials_done += 1
+        pbar.close()
+        x_writer.finalize()
+        y_writer.finalize()
+        logger.info(
+            f"[voltage_from_task] {split}: {n_done} frames from "
+            f"{n_trials_done} trials -> {x_path}"
+        )
