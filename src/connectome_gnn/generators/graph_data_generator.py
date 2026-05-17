@@ -3166,11 +3166,26 @@ def _generate_voltage_from_task_model(
         f"tau={float(model.tau):.4f}  ||b||={float(np.linalg.norm(V_i_rest_gt)):.3f}"
     )
 
+    # Dynamics-noise injection during rollout (mirrors data_generate_voltage's
+    # sim.noise_model_level). The TaskRNN's forward already adds
+    # `noise_recurrent_level · randn` per Euler step when the module is in
+    # training mode; we route sim.noise_model_level through that field.
+    # Test split is deterministic unless sim.noisy_test_data is True
+    # (matches the standard generator's convention).
+    base_noise = float(getattr(sim, "noise_model_level", 0.0))
+    noisy_test = bool(getattr(sim, "noisy_test_data", False))
+    print(
+        f"\033[93m[noise] noise_model_level={base_noise}  "
+        f"noisy_test_data={noisy_test}\033[0m",
+        flush=True,
+    )
+
     splits = [
-        ("train", int(sim.n_frames)),
-        ("test", max(1, int(sim.n_frames) // 4)),
+        ("train", int(sim.n_frames), base_noise),
+        ("test",  max(1, int(sim.n_frames) // 4),
+         base_noise if noisy_test else 0.0),
     ]
-    for split, n_frames_split in splits:
+    for split, n_frames_split, split_noise in splits:
         x_path = graphs_data_path(config.dataset, f"x_list_{split}")
         y_path = graphs_data_path(config.dataset, f"y_list_{split}")
         # Clean any prior data so we don't append.
@@ -3190,6 +3205,19 @@ def _generate_voltage_from_task_model(
         hp_split = dict(hp)
         hp_split["rng"] = np.random.RandomState(
             int(rng.integers(0, 2**31 - 1))
+        )
+
+        # Activate / deactivate dynamics noise for this split. TaskRNN's
+        # forward only injects noise when `self.training and
+        # noise_recurrent_level > 0`; we honour that gate explicitly.
+        model.noise_recurrent_level = float(split_noise)
+        if split_noise > 0:
+            model.train()
+        else:
+            model.eval()
+        logger.info(
+            f"[voltage_from_task] {split}: dynamics noise σ={split_noise}  "
+            f"(mode={'train' if split_noise > 0 else 'eval'})"
         )
 
         n_done = 0
