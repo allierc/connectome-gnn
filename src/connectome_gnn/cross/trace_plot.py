@@ -29,7 +29,7 @@ TRACE_END   = 1500
 DT_MS       = 20.0
 
 # Style mirrors fig_rollout_3col_noise_comparison.py:136-139.
-COLOR_GT   = '#2ca02c'   # green
+COLOR_GT   = 'black'     # neural activity (voltage) — was '#2ca02c' green
 COLOR_STIM = '#cf222e'   # red
 LW_GT      = 1.0
 LW_STIM    = 0.6
@@ -51,24 +51,27 @@ def _pick_one_per_type(neuron_type, selected_types):
     Skips types absent from this dataset (e.g. full_eye drops some types).
 
     Fallback for typeless datasets (e.g. cortex teacher voltage, where
-    every unit has neuron_type=0): when nothing matches, return up to 12
-    evenly-spaced neuron indices so the trace plot still produces a useful
-    stacked-voltage figure.
+    every unit has neuron_type=0): when there's only a single unique type
+    value, the per-type loop would collapse to one pick — instead return
+    up to 12 evenly-spaced neuron indices so the trace plot still
+    produces a useful stacked-voltage figure.
     """
+    N = int(neuron_type.shape[0])
+    if N == 0:
+        return [], []
+    if int(np.unique(neuron_type).size) <= 1:
+        n_show = min(12, N)
+        picks = [int(round(i * (N - 1) / max(1, n_show - 1)))
+                 for i in range(n_show)]
+        type_ids = list(range(n_show))  # placeholder type ids
+        return picks, type_ids
+
     picks, type_ids = [], []
     for t in selected_types:
         ids = np.where(neuron_type == t)[0]
         if ids.size:
             picks.append(int(ids[0]))
             type_ids.append(t)
-    if not picks:
-        N = int(neuron_type.shape[0])
-        if N == 0:
-            return [], []
-        n_show = min(12, N)
-        picks = [int(round(i * (N - 1) / max(1, n_show - 1)))
-                 for i in range(n_show)]
-        type_ids = list(range(n_show))  # placeholder type ids
     return picks, type_ids
 
 
