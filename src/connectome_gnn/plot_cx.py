@@ -1,10 +1,8 @@
 """CX-specific visualisations: compass / PVA, EB ring fluorescence, 3-D anatomy.
 
-These mirror the canonical fly-CX imaging panels:
-  - Polar bump with PVA arrow (Hulse Fig. 1c middle, Seelig & Jayaraman 2015)
-  - 2-D EB ring fluorescence donut (the GCaMP7f panel in Hulse Fig. 1c top)
-  - Kinograph with overlaid HD trace (Hulse Fig. 1e)
-  - Optional 3-D neuron-skeleton rendering (Hulse Fig. 1c left)
+These mirror the canonical fly-CX imaging panels (polar bump with PVA arrow,
+2-D EB ring fluorescence donut, kinograph with overlaid HD trace, optional
+3-D neuron-skeleton rendering).
 
 Each function is self-contained and uses only numpy / matplotlib. They are
 hooked into the data-generation pipeline via plot.plot_connconstr_diagnostics,
@@ -204,8 +202,7 @@ def plot_cx_eb_ring(
     """Render a grid of 2-D EB donut panels, one per sampled frame.
 
     Each donut is a 16-bin annular heatmap where colour intensity = mean
-    EPG activity in that glomerulus. Mirrors the GCaMP7f panel in
-    Hulse Fig. 1c (top).
+    EPG activity in that glomerulus.
     """
     voltage_history = np.asarray(voltage_history)
     T = voltage_history.shape[0]
@@ -302,20 +299,19 @@ def plot_cx_kinograph_pva(
 ) -> None:
     """Kinograph: time (vertical) vs orientation (horizontal) heatmap of EPG
     fluorescence + decoded PVA trace (black) and optional ground-truth HD
-    trace (red), mirroring Hulse Fig. 1e and the right panels of the
-    user's screenshot.
+    trace (red).
 
     Args:
         voltage_history: (T, N) subthreshold voltage history.
         epg_indices:     EPG neuron indices.
         epg_theta:       (n_epg,) preferred direction.
         output_path:     where to save the figure (.png).
-        activation:      'sigmoid' (Hulse), 'relu', or 'none'.
+        activation:      'sigmoid', 'relu', or 'none'.
         cmap:            matplotlib colormap name. Default 'Blues' for
                          raw activity; switches automatically to 'RdBu_r'
                          (divergent) when subtract_mean=True.
-        dt_s:            seconds per frame (default Hulse 0.01).
-        n_bins:          number of angular bins (default 64; matches Hulse panel).
+        dt_s:            seconds per frame (default 0.01).
+        n_bins:          number of angular bins (default 64).
         true_theta_hd:   optional (T,) ground-truth heading for overlay.
         subtract_mean:   if True (default), subtract the per-bin temporal
                          mean before colouring. Stationary baselines around
@@ -565,9 +561,9 @@ def render_cx_snapshot_into_axes(
     # actual dynamics, not changing percentile floors.
     z_max = 3.0
     z_clipped = np.clip(z, -z_max, z_max)
-    im_kin = ax_kin.imshow(z_clipped, aspect="auto", origin="upper", cmap="RdBu_r",
+    im_kin = ax_kin.imshow(z_clipped.T, aspect="auto", origin="lower", cmap="RdBu_r",
                            vmin=-z_max, vmax=z_max,
-                           extent=[-np.pi, np.pi, T * dt_s, 0],
+                           extent=[0, T * dt_s, -np.pi, np.pi],
                            interpolation="nearest")
     cb_kin = fig.colorbar(im_kin, ax=ax_kin, fraction=0.04, pad=0.02, shrink=0.85)
     cb_kin.ax.tick_params(labelsize=9)
@@ -579,15 +575,15 @@ def render_cx_snapshot_into_axes(
     # without needing wrap-aware NaN insertion.
     def _scatter(theta, time, color, size, label):
         theta = np.angle(np.exp(1j * np.asarray(theta)))  # ensure (-π, π]
-        ax_kin.scatter(theta, time, s=size, c=color, marker=".",
+        ax_kin.scatter(time, theta, s=size, c=color, marker=".",
                        linewidths=0, label=label)
     t_axis = np.arange(T) * dt_s
     _scatter(rollout["true_theta"], t_axis, "black", 4, "true HD")
     _scatter(rollout["decoded_theta"], t_axis, "red", 3, "decoded HD (W_out)")
-    ax_kin.set_xticks([-np.pi, -np.pi / 2, 0, np.pi / 2, np.pi])
-    ax_kin.set_xticklabels([r"$-\pi$", r"$-\pi/2$", "0", r"$\pi/2$", r"$\pi$"])
-    ax_kin.set_xlabel("orientation (rad)")
-    ax_kin.set_ylabel("time (s)")
+    ax_kin.set_yticks([-np.pi, -np.pi / 2, 0, np.pi / 2, np.pi])
+    ax_kin.set_yticklabels([r"$-\pi$", r"$-\pi/2$", "0", r"$\pi/2$", r"$\pi$"])
+    ax_kin.set_xlabel("time (s)")
+    ax_kin.set_ylabel("orientation (rad)")
 
     # FWHM = mean (over time) of the angular width where the per-frame
     # z-scored bump exceeds `fwhm_z_thresh`. Computed on the same z-scored
@@ -624,34 +620,32 @@ def render_cx_snapshot_into_axes(
     )
 
     # ---- RIGHT: per-neuron EPG kinograph (sorted by preferred HD) ----
-    # Rows are individual EPG neurons (no angular smoothing). This panel
-    # exposes synchrony within Hulse-style "dynamical clones" — neurons
-    # whose preferred HD differs by < 5° (Hulse Methods, Fig. 2 S3) form
-    # a clone group and should fire together. Thin separators mark the
-    # boundaries between groups.
+    # Rows are individual EPG neurons (no angular smoothing). Exposes
+    # synchrony within "dynamical clone" groups (neurons whose preferred
+    # HD differs by < 5°), which should fire together. Thin separators
+    # mark the boundaries between groups.
     n_epg = r_epg.shape[1]
     # Per-frame z-score across the n_epg neurons (matches the kinograph's
     # per-frame normalisation so the two panels are directly comparable).
     epg_mu = r_epg.mean(axis=1, keepdims=True)
     epg_sd = r_epg.std(axis=1, keepdims=True) + 1e-12
     z_epg = np.clip((r_epg - epg_mu) / epg_sd, -3.0, 3.0)
-    # Time on y-axis (matches ax_kin) so both panels can be read together.
     im_neu = ax_neu.imshow(
-        z_epg, aspect="auto", origin="upper", cmap="RdBu_r",
+        z_epg.T, aspect="auto", origin="lower", cmap="RdBu_r",
         vmin=-3.0, vmax=3.0,
-        extent=[-0.5, n_epg - 0.5, T * dt_s, 0], interpolation="nearest",
+        extent=[0, T * dt_s, -0.5, n_epg - 0.5], interpolation="nearest",
     )
     cb_neu = fig.colorbar(im_neu, ax=ax_neu, fraction=0.04, pad=0.02, shrink=0.85)
     cb_neu.set_label("z-score", fontsize=11)
     cb_neu.ax.tick_params(labelsize=9)
-    ax_neu.set_xlabel("EPG neuron index")
-    ax_neu.set_ylabel("time (s)")
+    ax_neu.set_xlabel("time (s)")
+    ax_neu.set_ylabel("EPG neuron index")
     ax_neu.set_title("per-neuron EPG (z-scored, $\\pm 3\\,\\sigma$)", fontsize=10)
 
     # ---- BOTTOM-RIGHT: per-neuron PEN raster (mirror of bottom-left) ----
     # Twin of the EPG raster on the left so the user can read both bumps on
     # the same time axis. PEN_a / PEN_b receive ω from the noduli and re-enter
-    # the EB shifted by ~one PB glomerulus (Turner-Evans 2017, Hulse 2021),
+    # the EB shifted by ~one PB glomerulus (Turner-Evans 2017),
     # so the bump should *track* EPG with a velocity-dependent offset that
     # this side-by-side view exposes directly.
     #
@@ -669,15 +663,15 @@ def render_cx_snapshot_into_axes(
         pen_sd = r_pen.std(axis=1, keepdims=True) + 1e-12
         z_pen = np.clip((r_pen - pen_mu) / pen_sd, -3.0, 3.0)
         im_pen = ax_pen.imshow(
-            z_pen, aspect="auto", origin="upper", cmap="RdBu_r",
+            z_pen.T, aspect="auto", origin="lower", cmap="RdBu_r",
             vmin=-3.0, vmax=3.0,
-            extent=[-0.5, n_pen - 0.5, T * dt_s, 0], interpolation="nearest",
+            extent=[0, T * dt_s, -0.5, n_pen - 0.5], interpolation="nearest",
         )
         cb_pen = fig.colorbar(im_pen, ax=ax_pen, fraction=0.04, pad=0.02, shrink=0.85)
         cb_pen.set_label("z-score", fontsize=11)
         cb_pen.ax.tick_params(labelsize=9)
-        ax_pen.set_xlabel("PEN neuron index (connectome order ≈ PB glomerulus)")
-        ax_pen.set_ylabel("time (s)")
+        ax_pen.set_xlabel("time (s)")
+        ax_pen.set_ylabel("PEN neuron index (connectome order ≈ PB glomerulus)")
         ax_pen.set_title(
             f"per-neuron PEN (z-scored, $\\pm 3\\,\\sigma$,  n_pen={n_pen})",
             fontsize=10,
@@ -736,25 +730,27 @@ def plot_cx_training_snapshot(
     n_bins: int = 32,
     mat_vmax: float = 1.0,
     fwhm_z_thresh: float = 1.0,
+    pi_acc_history: Optional[tuple] = None,
+    rmse_history: Optional[tuple] = None,
 ) -> None:
-    """3 × 2 training-snapshot figure — writes a PNG.
+    """2 × 4 training-snapshot figure — writes a PNG.
 
-    Layout
-        (0,0) GT W_con (frozen reference)         (0,1) learned W_rec
-        (1,0) EPG angular kinograph (z-scored)    (1,1) per-neuron EPG raster
-        (2,0) per-neuron PEN raster               (2,1) ω(t) input + decoded vs true HD
+    Row 1: GT W_con | learned W_rec | per-neuron EPG | per-neuron PEN
+    Row 2: EPG kinograph | HD tracking | pi_acc trace | GT vs learned scatter
+
+    pi_acc_history / rmse_history are each an optional (iterations, values)
+    tuple of 1-D arrays. `rmse_history` is drawn on a twin y-axis on the
+    right of the pi_acc panel. The bottom-right panel is a scatter of
+    GT vs learned recurrent weights (excludes diagonal and zero entries),
+    annotated with the linear-fit slope and R².
     """
-    fig = plt.figure(figsize=(16, 18))
-    gs = fig.add_gridspec(3, 2, width_ratios=[1.0, 1.0],
-                          height_ratios=[1.0, 1.0, 1.0],
-                          hspace=0.30, wspace=0.22,
-                          left=0.06, right=0.94, top=0.95, bottom=0.04)
-    ax_gt = fig.add_subplot(gs[0, 0])
-    ax_mat = fig.add_subplot(gs[0, 1])
-    ax_kin = fig.add_subplot(gs[1, 0])
-    ax_neu = fig.add_subplot(gs[1, 1])
-    ax_pen = fig.add_subplot(gs[2, 0])
-    ax_hd = fig.add_subplot(gs[2, 1])
+    fig, axes = plt.subplots(
+        2, 4, figsize=(22, 10),
+        gridspec_kw=dict(hspace=0.40, wspace=0.35,
+                         left=0.05, right=0.98, top=0.93, bottom=0.08),
+    )
+    ax_gt, ax_mat, ax_neu, ax_pen = axes[0]
+    ax_kin, ax_hd, ax_pi, ax_fw = axes[1]
 
     render_cx_snapshot_into_axes(
         fig, ax_gt, ax_mat, ax_kin, ax_neu, ax_pen, ax_hd,
@@ -762,6 +758,50 @@ def plot_cx_training_snapshot(
         W_con=W_con, neuron_types=neuron_types, type_names=type_names,
         dt_s=dt_s, n_bins=n_bins, fwhm_z_thresh=fwhm_z_thresh,
     )
+
+    if pi_acc_history is not None and len(pi_acc_history[0]) > 0:
+        it, pi = pi_acc_history
+        ax_pi.plot(it, pi, color="C0", lw=1.6)
+        ax_pi.axhline(0.95, color="r", ls=":", lw=0.8)
+        ax_pi.set_ylim(-0.05, 1.05)
+        ax_pi.set_xlabel("iteration", fontsize=10)
+        ax_pi.set_ylabel("pi_acc", color="C0", fontsize=10)
+        ax_pi.tick_params(axis="y", labelcolor="C0", labelsize=8)
+        ax_pi.tick_params(axis="x", labelsize=8)
+        ax_pi.set_title("path-integration accuracy", fontsize=10)
+        if rmse_history is not None and len(rmse_history[0]) > 0:
+            it_r, rmse = rmse_history
+            ax_pi_r = ax_pi.twinx()
+            ax_pi_r.plot(it_r, rmse, color="C3", lw=1.2)
+            ax_pi_r.set_ylabel("rmse", color="C3", fontsize=10)
+            ax_pi_r.tick_params(axis="y", labelcolor="C3", labelsize=8)
+    else:
+        ax_pi.axis("off")
+
+    if W_con is not None:
+        mask = (W_con != 0)
+        np.fill_diagonal(mask, False)
+        x = np.asarray(W_con[mask], dtype=np.float32)
+        y = np.asarray(W_rec[mask], dtype=np.float32)
+        if x.size >= 2 and x.std() > 0:
+            slope, intercept = np.polyfit(x, y, 1)
+            r = float(np.corrcoef(x, y)[0, 1])
+            r2 = r * r
+            ax_fw.scatter(x, y, s=8, c="0.2", alpha=0.1, edgecolors="none")
+            lo, hi = float(x.min()), float(x.max())
+            xline = np.array([lo, hi])
+            ax_fw.plot(xline, slope * xline + intercept, color="C3", lw=1.0)
+            ax_fw.axhline(0, color="0.6", lw=0.3)
+            ax_fw.axvline(0, color="0.6", lw=0.3)
+            ax_fw.set_xlabel(r"GT $W_{rec}$", fontsize=10)
+            ax_fw.set_ylabel(r"learned $\hat W_{rec}$", fontsize=10)
+            ax_fw.set_title(f"slope = {slope:.3f},  $R^2$ = {r2:.3f}",
+                            fontsize=10)
+            ax_fw.tick_params(labelsize=8)
+        else:
+            ax_fw.axis("off")
+    else:
+        ax_fw.axis("off")
 
     fig.savefig(output_path, dpi=160, bbox_inches="tight")
     plt.close(fig)

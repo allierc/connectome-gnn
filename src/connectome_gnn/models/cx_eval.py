@@ -37,9 +37,9 @@ def path_integration_accuracy(
 ) -> float:
     """Mean cosine similarity between predicted and true head direction.
 
-    1.0 means perfect path integration. Hulse aims for ~0.95+ on the
-    test set after 10 epochs. Skips the first 10 steps (initial-condition
-    lead-in) before scoring.
+    1.0 means perfect path integration; well-converged runs reach ~0.95+
+    on the test set after 10 epochs. Skips the first 10 steps
+    (initial-condition lead-in) before scoring.
     """
     net.eval()
     with torch.no_grad():
@@ -156,7 +156,7 @@ def _deterministic_sweep_rollout(
     """
     T = int(n_steps)
     omega = np.full((1, T), float(omega_deg_per_s), dtype=np.float32)
-    omega[0, 0] = 0.0  # Hulse convention: ω[0] = 0
+    omega[0, 0] = 0.0  # ω[0] = 0 (trial-start convention)
     omega_rad = np.deg2rad(omega)
     theta_hd = np.cumsum(omega_rad, axis=1) * float(net.dt)
 
@@ -190,6 +190,38 @@ def _deterministic_sweep_rollout(
         "omega_deg_per_s": float(omega_deg_per_s),
         "dt_s": float(net.dt),
     }
+
+
+def load_pi_fwhm_history(metrics_log_path: str):
+    """Read pi_acc, fwhm_deg, and RMSE histories from a trainer metrics.log.
+
+    Returns (pi_acc_hist, fwhm_hist, rmse_hist) where each is an
+    (iterations, values) tuple of 1-D arrays, or None if the corresponding
+    column is missing. Returns (None, None, None) if the file is
+    missing/empty. RMSE is computed as sqrt(mse) from the metrics row.
+    Used by both training-time snapshots and the offline figure script.
+    """
+    if not os.path.isfile(metrics_log_path):
+        return None, None, None
+    try:
+        rows = np.genfromtxt(metrics_log_path, delimiter=",", names=True,
+                              dtype=None, encoding="utf-8")
+    except Exception:
+        return None, None, None
+    if rows.size == 0 or "iteration" not in rows.dtype.names:
+        return None, None, None
+    it = np.atleast_1d(rows["iteration"]).astype(np.float32)
+    pi = (np.atleast_1d(rows["pi_acc"]).astype(np.float32)
+          if "pi_acc" in rows.dtype.names else None)
+    fw = (np.atleast_1d(rows["fwhm_deg"]).astype(np.float32)
+          if "fwhm_deg" in rows.dtype.names else None)
+    rmse = None
+    if "mse" in rows.dtype.names:
+        mse = np.atleast_1d(rows["mse"]).astype(np.float32)
+        rmse = np.sqrt(np.maximum(mse, 0.0))
+    return ((it, pi) if pi is not None else None,
+            (it, fw) if fw is not None else None,
+            (it, rmse) if rmse is not None else None)
 
 
 def _save_training_snapshot(
@@ -241,6 +273,8 @@ def _save_training_snapshot(
         # proxy buffer access through __getattr__.
         W_con_np = (net.W_con.detach().cpu().numpy()
                     if hasattr(net, "W_con") else None)
+        pi_hist, _fw_hist, rmse_hist = load_pi_fwhm_history(
+            os.path.join(log_dir, 'tmp_training', 'metrics.log'))
         plot_cx_training_snapshot(
             W_rec=net.W_rec.detach().cpu().numpy(),
             rollout=rollout,
@@ -251,6 +285,8 @@ def _save_training_snapshot(
             type_names=type_names,
             step=global_step,
             dt_s=float(net.dt),
+            pi_acc_history=pi_hist,
+            rmse_history=rmse_hist,
         )
     except Exception as exc:
         print(f"[cx_eval] kinograph snapshot failed @ step {global_step}: {exc}")
@@ -269,8 +305,8 @@ def build_type_pair_blocks(
 ) -> dict:
     """(post-type → pre-type) bool-mask blocks for the cos-distance reg.
 
-    Only blocks with at least one non-zero W_con entry are returned, matching
-    the definition of set B in Hulse Eq. 10.
+    Only blocks with at least one non-zero W_con entry are returned
+    (matches the definition of set B in the cos-distance regulariser).
     """
     blocks: dict = {}
     nt = np.asarray(neuron_types).astype(np.int64)
