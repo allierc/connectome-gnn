@@ -464,61 +464,49 @@ def plot_cx_matrix(
     plt.close(fig)
 
 
-def plot_cx_training_snapshot(
+def render_cx_snapshot_into_axes(
+    fig,
+    ax_gt,
+    ax_mat,
+    ax_kin,
+    ax_neu,
+    ax_pen,
+    ax_hd,
+    *,
     W_rec: np.ndarray,
     rollout: dict,
     epg_theta: np.ndarray,
-    output_path: str,
-    *,
     W_con: Optional[np.ndarray] = None,
     neuron_types: Optional[np.ndarray] = None,
     type_names: Optional[list[str]] = None,
-    step: Optional[int] = None,
     dt_s: float = 0.01,
     n_bins: int = 32,
-    mat_vmax: float = 1.0,
     fwhm_z_thresh: float = 1.0,
 ) -> None:
-    """3 × 2 training-snapshot figure.
+    """Render the 6 CX training-snapshot panels into externally-provided axes.
 
-    Layout
-        (0,0) GT W_con (frozen reference)         (0,1) learned W_rec
-        (1,0) EPG angular kinograph (z-scored)    (1,1) per-neuron EPG raster
-        (2,0) per-neuron PEN raster               (2,1) ω(t) input + decoded vs true HD
-
-    Args:
-        W_rec: (N, N) current learned recurrent matrix.
-        rollout: dict from `_deterministic_sweep_rollout` (must include
-            r_epg, true_theta, decoded_theta, u). r_pen optional.
-        epg_theta: (n_epg,) preferred direction per EPG neuron.
-        output_path: PNG file to write.
-        W_con: optional (N, N) ground-truth connectome (drawn in (0,0));
-            if None, that panel shows a placeholder.
-        neuron_types, type_names: optional, for matrix annotation.
-        step: optional training step (for the title).
-        dt_s: seconds per frame in the rollout.
-        n_bins: angular bins for the kinograph (default 32, Hulse).
-        mat_vmax: fixed colorbar limit for both matrices (default 1.0,
-            so colours compare across snapshots).
-        fwhm_z_thresh: per-frame z-score threshold for the bump-FWHM
-            annotation on the kinograph (default 1.0).
+    Same layout/contents as `plot_cx_training_snapshot` but driven by the
+    caller's figure and axes — used to embed the snapshot inside a larger
+    composite figure.
     """
-    fig = plt.figure(figsize=(16, 18))
-    gs = fig.add_gridspec(3, 2, width_ratios=[1.0, 1.0],
-                          height_ratios=[1.0, 1.0, 1.0],
-                          hspace=0.30, wspace=0.22,
-                          left=0.06, right=0.94, top=0.95, bottom=0.04)
-    ax_gt = fig.add_subplot(gs[0, 0])
-    ax_mat = fig.add_subplot(gs[0, 1])
-    ax_kin = fig.add_subplot(gs[1, 0])
-    ax_neu = fig.add_subplot(gs[1, 1])
-    ax_pen = fig.add_subplot(gs[2, 0])
-    ax_hd = fig.add_subplot(gs[2, 1])
-
     # ---- shared matrix renderer (used for W_con and W_rec) ----
+    # Z-scored over the non-zero entries (raw |W| spans 4 orders of
+    # magnitude — fixed ±vmax makes the small entries invisible). Clipped
+    # to ±3 σ so the colour scale is comparable across snapshots and
+    # between W_con and W_rec.
     def _render_matrix(ax, M, title):
         J = M.T if M.shape[0] == M.shape[1] else M
-        im = ax.imshow(J, cmap="bwr_r", vmin=-mat_vmax, vmax=mat_vmax,
+        J_arr = np.asarray(J, dtype=np.float32)
+        nz = J_arr[J_arr != 0]
+        if nz.size:
+            mu = float(nz.mean())
+            sd = float(nz.std() + 1e-12)
+        else:
+            mu, sd = 0.0, 1.0
+        Z = np.where(J_arr != 0, (J_arr - mu) / sd, 0.0)
+        z_max = 3.0
+        Z = np.clip(Z, -z_max, z_max)
+        im = ax.imshow(Z, cmap="RdBu_r", vmin=-z_max, vmax=z_max,
                        aspect="equal", interpolation="nearest", origin="upper")
         if neuron_types is not None and type_names is not None:
             bounds, centres, labels = [0], [], []
@@ -543,17 +531,18 @@ def plot_cx_training_snapshot(
         ax.set_title(title, fontsize=10)
         ax.set_xlabel("presynaptic"); ax.set_ylabel("postsynaptic")
         cb = fig.colorbar(im, ax=ax, fraction=0.04, pad=0.02, shrink=0.8)
-        cb.ax.tick_params(labelsize=7)
+        cb.set_label("z-score", fontsize=11)
+        cb.ax.tick_params(labelsize=9)
 
     # ---- (0,0) GT W_con (reference) + (0,1) learned W_rec ----
     if W_con is not None:
-        _render_matrix(ax_gt, W_con, f"GT W_con (initial)   vmax=±{mat_vmax:.3f}")
+        _render_matrix(ax_gt, W_con, "GT W_con (z-scored, $\\pm 3\\,\\sigma$)")
     else:
         ax_gt.text(0.5, 0.5, "no W_con provided", ha="center", va="center",
                    transform=ax_gt.transAxes, fontsize=11, color="0.5")
         ax_gt.set_xticks([]); ax_gt.set_yticks([])
         ax_gt.set_title("GT W_con", fontsize=10)
-    _render_matrix(ax_mat, W_rec, f"learned W_rec   vmax=±{mat_vmax:.3f}")
+    _render_matrix(ax_mat, W_rec, "learned W_rec (z-scored, $\\pm 3\\,\\sigma$)")
 
     # ---- RIGHT: kinograph with HD curves ----
     # We plot the per-frame z-scored angular bump (mean=0, std=1 across
@@ -581,8 +570,8 @@ def plot_cx_training_snapshot(
                            extent=[-np.pi, np.pi, T * dt_s, 0],
                            interpolation="nearest")
     cb_kin = fig.colorbar(im_kin, ax=ax_kin, fraction=0.04, pad=0.02, shrink=0.85)
-    cb_kin.ax.tick_params(labelsize=7)
-    cb_kin.set_label("z-score (per-frame, across angular bins)", fontsize=7)
+    cb_kin.ax.tick_params(labelsize=9)
+    cb_kin.set_label("z-score", fontsize=11)
     # Mark the FWHM threshold on the colorbar so "z>1" has a visual anchor.
     cb_kin.ax.axhline(fwhm_z_thresh, color="black", linewidth=0.8)
 
@@ -641,16 +630,23 @@ def plot_cx_training_snapshot(
     # a clone group and should fire together. Thin separators mark the
     # boundaries between groups.
     n_epg = r_epg.shape[1]
-    vmax_neu = float(np.percentile(r_epg, 99) + 1e-9)
+    # Per-frame z-score across the n_epg neurons (matches the kinograph's
+    # per-frame normalisation so the two panels are directly comparable).
+    epg_mu = r_epg.mean(axis=1, keepdims=True)
+    epg_sd = r_epg.std(axis=1, keepdims=True) + 1e-12
+    z_epg = np.clip((r_epg - epg_mu) / epg_sd, -3.0, 3.0)
     # Time on y-axis (matches ax_kin) so both panels can be read together.
-    ax_neu.imshow(
-        r_epg, aspect="auto", origin="upper", cmap="viridis",
-        vmin=0.0, vmax=vmax_neu,
+    im_neu = ax_neu.imshow(
+        z_epg, aspect="auto", origin="upper", cmap="RdBu_r",
+        vmin=-3.0, vmax=3.0,
         extent=[-0.5, n_epg - 0.5, T * dt_s, 0], interpolation="nearest",
     )
+    cb_neu = fig.colorbar(im_neu, ax=ax_neu, fraction=0.04, pad=0.02, shrink=0.85)
+    cb_neu.set_label("z-score", fontsize=11)
+    cb_neu.ax.tick_params(labelsize=9)
     ax_neu.set_xlabel("EPG neuron index")
     ax_neu.set_ylabel("time (s)")
-    ax_neu.set_title("per-neuron EPG (raw firing rate)", fontsize=10)
+    ax_neu.set_title("per-neuron EPG (z-scored, $\\pm 3\\,\\sigma$)", fontsize=10)
 
     # ---- BOTTOM-RIGHT: per-neuron PEN raster (mirror of bottom-left) ----
     # Twin of the EPG raster on the left so the user can read both bumps on
@@ -669,16 +665,21 @@ def plot_cx_training_snapshot(
     r_pen = rollout.get("r_pen")  # (T, n_pen) or None
     if r_pen is not None and r_pen.shape[1] > 0:
         n_pen = r_pen.shape[1]
-        vmax_pen = float(np.percentile(r_pen, 99) + 1e-9)
-        ax_pen.imshow(
-            r_pen, aspect="auto", origin="upper", cmap="viridis",
-            vmin=0.0, vmax=vmax_pen,
+        pen_mu = r_pen.mean(axis=1, keepdims=True)
+        pen_sd = r_pen.std(axis=1, keepdims=True) + 1e-12
+        z_pen = np.clip((r_pen - pen_mu) / pen_sd, -3.0, 3.0)
+        im_pen = ax_pen.imshow(
+            z_pen, aspect="auto", origin="upper", cmap="RdBu_r",
+            vmin=-3.0, vmax=3.0,
             extent=[-0.5, n_pen - 0.5, T * dt_s, 0], interpolation="nearest",
         )
+        cb_pen = fig.colorbar(im_pen, ax=ax_pen, fraction=0.04, pad=0.02, shrink=0.85)
+        cb_pen.set_label("z-score", fontsize=11)
+        cb_pen.ax.tick_params(labelsize=9)
         ax_pen.set_xlabel("PEN neuron index (connectome order ≈ PB glomerulus)")
         ax_pen.set_ylabel("time (s)")
         ax_pen.set_title(
-            f"per-neuron PEN (raw firing rate, n_pen={n_pen})",
+            f"per-neuron PEN (z-scored, $\\pm 3\\,\\sigma$,  n_pen={n_pen})",
             fontsize=10,
         )
     else:
@@ -687,34 +688,81 @@ def plot_cx_training_snapshot(
         ax_pen.set_xticks([]); ax_pen.set_yticks([])
         ax_pen.set_title("per-neuron PEN", fontsize=10)
 
-    # ---- (2,1) ω input + decoded vs true HD over time ----
-    # Two y-axes share the time axis: left = input ω(t) (deg/s) drawn faintly,
-    # right = unwrapped HD in radians for true/decoded so the reader can verify
-    # the network's heading estimate tracks the integrated velocity.
+    # ---- (2,1) decoded vs true HD + residual error ----
+    # Previously this panel used a twin y-axis with unwrapped HD on the
+    # right — unwrapped HD grows linearly with ω·t and trivially dominated
+    # the axis, hiding the omega trace and any tracking error. Replaced
+    # with a single bounded axis showing wrapped HD in (−π, π) and the
+    # circular residual (decoded − true) so the heading error is directly
+    # readable on the same scale.
     t_axis = np.arange(T) * dt_s
-    omega_t = np.asarray(rollout.get("u", np.zeros((T, 1))))[:, 0]  # ω in deg/s
-    true_hd = np.unwrap(np.asarray(rollout["true_theta"]))
-    dec_hd = np.unwrap(np.asarray(rollout["decoded_theta"]))
-    ax_hd.plot(t_axis, omega_t, color="0.6", lw=0.8, label="ω input (deg/s)")
+    true_hd = np.angle(np.exp(1j * np.asarray(rollout["true_theta"])))
+    dec_hd  = np.angle(np.exp(1j * np.asarray(rollout["decoded_theta"])))
+    err_hd  = np.angle(np.exp(1j * (np.asarray(rollout["decoded_theta"])
+                                     - np.asarray(rollout["true_theta"]))))
+    ax_hd.plot(t_axis, true_hd, color="black", lw=1.0,
+                marker=".", ms=1.5, ls="", label="true HD")
+    ax_hd.plot(t_axis, dec_hd, color="red", lw=1.0,
+                marker=".", ms=1.5, ls="", label="decoded HD")
+    ax_hd.plot(t_axis, err_hd, color="C0", lw=0.8,
+                label="error (dec − true)")
+    ax_hd.axhline(0.0, color="0.6", lw=0.4)
     ax_hd.set_xlabel("time (s)")
-    ax_hd.set_ylabel("ω (deg/s)", color="0.4")
-    ax_hd.tick_params(axis='y', labelcolor='0.4')
-    ax_hd2 = ax_hd.twinx()
-    ax_hd2.plot(t_axis, true_hd, color="black", lw=1.2, label="true HD")
-    ax_hd2.plot(t_axis, dec_hd, color="red", lw=1.0, label="decoded HD")
-    ax_hd2.set_ylabel("HD (rad, unwrapped)")
-    lines1, labels1 = ax_hd.get_legend_handles_labels()
-    lines2, labels2 = ax_hd2.get_legend_handles_labels()
-    ax_hd2.legend(lines1 + lines2, labels1 + labels2,
-                  fontsize=7, loc="upper left", framealpha=0.85)
+    ax_hd.set_ylabel("heading (rad, wrapped)")
+    ax_hd.set_yticks([-np.pi, -np.pi / 2, 0, np.pi / 2, np.pi])
+    ax_hd.set_yticklabels([r"$-\pi$", r"$-\pi/2$", "0", r"$\pi/2$", r"$\pi$"])
+    ax_hd.set_ylim(-np.pi - 0.15, np.pi + 0.15)
+    ax_hd.legend(fontsize=7, loc="upper left", framealpha=0.85, ncol=3)
+    rmse_deg = float(np.degrees(np.sqrt(np.mean(err_hd ** 2))))
     ax_hd.set_title(
-        f"input ω(t) + heading tracking   (constant sweep, "
-        f"ω={rollout.get('omega_deg_per_s', 0):.0f}°/s)",
+        "heading tracking on snapshot rollout   "
+        f"(ω={rollout.get('omega_deg_per_s', 0):.0f}°/s, "
+        f"RMSE = {rmse_deg:.1f}°)",
         fontsize=10,
     )
 
-    title = f"training snapshot   step={step}" if step is not None else "training snapshot"
-    fig.suptitle(title, fontsize=12)
+
+def plot_cx_training_snapshot(
+    W_rec: np.ndarray,
+    rollout: dict,
+    epg_theta: np.ndarray,
+    output_path: str,
+    *,
+    W_con: Optional[np.ndarray] = None,
+    neuron_types: Optional[np.ndarray] = None,
+    type_names: Optional[list[str]] = None,
+    step: Optional[int] = None,
+    dt_s: float = 0.01,
+    n_bins: int = 32,
+    mat_vmax: float = 1.0,
+    fwhm_z_thresh: float = 1.0,
+) -> None:
+    """3 × 2 training-snapshot figure — writes a PNG.
+
+    Layout
+        (0,0) GT W_con (frozen reference)         (0,1) learned W_rec
+        (1,0) EPG angular kinograph (z-scored)    (1,1) per-neuron EPG raster
+        (2,0) per-neuron PEN raster               (2,1) ω(t) input + decoded vs true HD
+    """
+    fig = plt.figure(figsize=(16, 18))
+    gs = fig.add_gridspec(3, 2, width_ratios=[1.0, 1.0],
+                          height_ratios=[1.0, 1.0, 1.0],
+                          hspace=0.30, wspace=0.22,
+                          left=0.06, right=0.94, top=0.95, bottom=0.04)
+    ax_gt = fig.add_subplot(gs[0, 0])
+    ax_mat = fig.add_subplot(gs[0, 1])
+    ax_kin = fig.add_subplot(gs[1, 0])
+    ax_neu = fig.add_subplot(gs[1, 1])
+    ax_pen = fig.add_subplot(gs[2, 0])
+    ax_hd = fig.add_subplot(gs[2, 1])
+
+    render_cx_snapshot_into_axes(
+        fig, ax_gt, ax_mat, ax_kin, ax_neu, ax_pen, ax_hd,
+        W_rec=W_rec, rollout=rollout, epg_theta=epg_theta,
+        W_con=W_con, neuron_types=neuron_types, type_names=type_names,
+        dt_s=dt_s, n_bins=n_bins, fwhm_z_thresh=fwhm_z_thresh,
+    )
+
     fig.savefig(output_path, dpi=160, bbox_inches="tight")
     plt.close(fig)
 
