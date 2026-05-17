@@ -1809,7 +1809,7 @@ def _data_train_pi_task_gnn(config, erase, best_model, device, log_file=None):
     default_style.apply_globally()
 
     log_dir, logger = create_log_dir(config, erase)
-    kinograph_dir = os.path.join(log_dir, 'tmp_training', 'kinograph_matrix')
+    kinograph_dir = os.path.join(log_dir, 'tmp_training', 'evolution')
     os.makedirs(kinograph_dir, exist_ok=True)
 
     # --- Eager load: trials stay on GPU between iterations ---------------
@@ -1854,13 +1854,18 @@ def _data_train_pi_task_gnn(config, erase, best_model, device, log_file=None):
 
     # --- Training loop ---------------------------------------------------
     n_trials, T_full = u_train.shape[0], u_train.shape[1]
-    Niter = max(1, n_trials // tc.batch_size)
+    # data_augmentation_loop multiplies iters/epoch by cycling through
+    # additional independent shuffles of the trial pool (DAL=1 is a single
+    # one-pass shuffle, matching the previous behaviour).
+    dal = int(getattr(tc, 'data_augmentation_loop', 1))
+    Niter = max(1, (n_trials // tc.batch_size) * dal)
     snap_every = max(1, Niter // max(1, snapshots_per_epoch))
+    total_iters = tc.n_epochs * Niter
     best_loss = float('inf')
     global_step = 0
 
-    # Per-epoch trial-length curriculum (Hulse). Slice the first T_epoch
-    # frames from the on-disk T=T_full trials. Empty schedule = use T_full.
+    # Per-epoch trial-length curriculum. Slice the first T_epoch frames
+    # from the on-disk T=T_full trials. Empty schedule = use T_full.
     raw_schedule = list(getattr(tc, 'n_steps_schedule', []) or [])
     if raw_schedule:
         if len(raw_schedule) < tc.n_epochs:
@@ -1913,7 +1918,8 @@ def _data_train_pi_task_gnn(config, erase, best_model, device, log_file=None):
     else:
         logger.info('torch.compile disabled via config (torch_compile: false)')
 
-    _logger.info(f'start training: {tc.n_epochs} epochs × {Niter} iters/epoch')
+    _logger.info(f'start training: {tc.n_epochs} epochs × {Niter} iters/epoch '
+                 f'(n_trials={n_trials}, DAL={dal})')
 
     for epoch in range(tc.n_epochs):
         T_epoch = n_steps_schedule[epoch]
@@ -1924,8 +1930,15 @@ def _data_train_pi_task_gnn(config, erase, best_model, device, log_file=None):
             for g in optimizer.param_groups:
                 g['lr'] = lr_epoch
             _logger.info(f'epoch {epoch+1}: lr -> {lr_epoch}')
-        perm = torch.randperm(n_trials, device=device,
-                              generator=torch.Generator(device=device).manual_seed(tc.seed + epoch))
+        gen = torch.Generator(device=device).manual_seed(tc.seed + epoch)
+        # Stack `dal` independent shuffles so Niter * batch_size indices
+        # are always covered. DAL=1 reduces to a single randperm pass
+        # (preserves the prior reproducibility contract).
+        perm = torch.cat(
+            [torch.randperm(n_trials, device=device, generator=gen)
+             for _ in range(max(1, dal))],
+            dim=0,
+        )
         pbar = trange(Niter, ncols=150,
                       desc=f'task_gnn epoch {epoch+1}/{tc.n_epochs} (T={T_epoch})', leave=True)
         for N in pbar:
@@ -1956,7 +1969,11 @@ def _data_train_pi_task_gnn(config, erase, best_model, device, log_file=None):
             optimizer.step()
             lr_scheduler.step()
 
-            if N % snap_every == 0 or N == Niter - 1:
+            # Uniform-in-global-step cadence: fires at gs = 1, snap_every+1,
+            # 2*snap_every+1, ... plus a final one at end-of-training. Avoids
+            # the end-of-epoch / start-of-next-epoch burst the per-epoch
+            # `N % snap_every == 0 or N == Niter - 1` rule used to produce.
+            if (global_step - 1) % snap_every == 0 or global_step == total_iters:
                 with torch.no_grad():
                     # Eval/snapshot use varying shapes (B=512 for pi_acc,
                     # B=64/T=T_epoch for fwhm, B=1/T=snapshot_n_steps for the
