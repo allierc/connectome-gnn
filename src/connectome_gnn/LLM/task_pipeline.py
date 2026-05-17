@@ -48,7 +48,7 @@ _ANSI_GREY    = '\033[90m'
 _PI_COLS = {'iteration', 'epoch', 'loss', 'mse', 'cosd', 'norm', 'tv',
             'l1S', 'pi_acc', 'fwhm_deg'}
 _CORTEX_COLS = {'iteration', 'epoch', 'loss', 'mse', 'motor_max',
-                'motor_peak_mean', 'direction_acc'}
+                'motor_peak_mean', 'r2', 'direction_acc'}
 
 
 def _read_all_task_metrics(log_dir: str) -> list:
@@ -59,12 +59,12 @@ def _read_all_task_metrics(log_dir: str) -> list:
       PI (data_train_pi_task_gnn):
         iteration,epoch,loss,mse,cosd,norm,tv,l1S,pi_acc,fwhm_deg
       Cortex (data_train_cortex_task_gnn):
-        iteration,epoch,loss,mse,motor_max,motor_peak_mean,direction_acc
+        iteration,epoch,loss,mse,motor_max,motor_peak_mean,r2,direction_acc
 
     Each returned dict carries the union of fields (missing fields = None).
     Two synthetic fields are added so downstream code stays uniform:
-      `primary`      — the headline metric (pi_acc for PI, direction_acc
-                       for cortex), in [0,1] for both.
+      `primary`      — the headline metric (pi_acc for PI, r2 for cortex).
+                       PI's pi_acc is in [0, 1]; cortex r2 is in (-inf, 1].
       `primary_name` — string label for displays/logs.
     Returns [] if the file is missing or empty.
     """
@@ -114,12 +114,18 @@ def _read_all_task_metrics(log_dir: str) -> list:
                     # Cortex fields (None when PI)
                     'motor_max':        _f(parts, 'motor_max'),
                     'motor_peak_mean':  _f(parts, 'motor_peak_mean'),
+                    'r2':               _f(parts, 'r2'),
                     'direction_acc':    _f(parts, 'direction_acc'),
                 }
                 # Pick a primary metric for collapse detection / display.
+                # Cortex now uses r2 as the headline number (direction_acc is
+                # kept as a secondary diagnostic).
                 if row['pi_acc'] is not None:
                     row['primary'] = row['pi_acc']
                     row['primary_name'] = 'pi_acc'
+                elif row['r2'] is not None:
+                    row['primary'] = row['r2']
+                    row['primary_name'] = 'r2'
                 elif row['direction_acc'] is not None:
                     row['primary'] = row['direction_acc']
                     row['primary_name'] = 'direction_acc'
@@ -171,6 +177,9 @@ def _per_epoch_task_summary(log_dir: str) -> list:
             'norm_end':     last['norm'],
             'tv_end':       last['tv'],
             # Cortex-specific (None for PI)
+            'r2_end':            last['r2'],
+            'r2_best':           (max((r['r2'] for r in ep_rows
+                                       if r['r2'] is not None), default=None)),
             'direction_acc_end': last['direction_acc'],
             'motor_max_end':     last['motor_max'],
             'motor_peak_mean_end': last['motor_peak_mean'],
@@ -227,19 +236,30 @@ def _print_task_metrics(log_dirs: dict, slots: list, prefix: str = '  [metrics]'
         if m is None:
             print(f"{prefix} slot {slot}: (no metrics.log yet)")
             continue
-        primary = m['primary']; loss = m['loss']; mse = m['mse']
-        pname = m['primary_name']
-        pi_col = _pi_color(primary)
-        primary_str = f"{primary:.3f}" if primary is not None else "nan"
+        loss = m['loss']; mse = m['mse']
         loss_str = f"{loss:.4f}" if loss is not None else "nan"
         mse_str = f"{mse:.4f}" if mse is not None else "nan"
-        # Schema-specific secondary diagnostic.
-        if m['fwhm'] is not None:
-            secondary = f"fwhm={m['fwhm']:.0f}°"
-        elif m['motor_max'] is not None:
-            secondary = f"motor_max={m['motor_max']:.3f}"
-        else:
-            secondary = ""
+
+        # Build the "headline + secondaries" segment. For cortex slots with
+        # the new schema we want R² (coloured) explicitly, plus dir_acc as
+        # secondary; for PI slots we keep pi_acc (coloured) + fwhm.
+        r2_v = m.get('r2')
+        da_v = m.get('direction_acc')
+        pi_v = m.get('pi_acc')
+        fwhm_v = m.get('fwhm')
+        parts = []
+        if r2_v is not None:
+            parts.append(f"{_pi_color(r2_v)}R2={r2_v:.3f}{_ANSI_RESET}")
+            if da_v is not None:
+                parts.append(f"dir_acc={da_v:.2f}")
+        elif pi_v is not None:
+            parts.append(f"{_pi_color(pi_v)}pi_acc={pi_v:.3f}{_ANSI_RESET}")
+            if fwhm_v is not None:
+                parts.append(f"fwhm={fwhm_v:.0f}°")
+        elif da_v is not None:
+            # Old cortex schema (no r2 column yet) — colour direction_acc.
+            parts.append(f"{_pi_color(da_v)}dir_acc={da_v:.2f}{_ANSI_RESET}")
+        head = "  ".join(parts)
 
         per_epoch = _per_epoch_task_summary(log_dir)
         traj_parts = []
@@ -254,8 +274,7 @@ def _print_task_metrics(log_dirs: dict, slots: list, prefix: str = '  [metrics]'
         collapse_tag = f"  {_ANSI_RED}[COLLAPSE]{_ANSI_RESET}" if collapse else ""
         print(
             f"{prefix} slot {slot}  it={m['iter']:>5d} ep={m['epoch']}  "
-            f"{pi_col}{pname}={primary_str}{_ANSI_RESET}  {secondary}  "
-            f"loss={loss_str}  mse={mse_str}{collapse_tag}"
+            f"{head}  loss={loss_str}  mse={mse_str}{collapse_tag}"
         )
         if traj:
             print(f"{prefix}   traj: {traj}")
@@ -299,14 +318,18 @@ def _write_task_metrics_to_analysis_log(log_dir: str, analysis_log_path: str,
             f.write(f"final cosd: {final['cosd']}\n")
             f.write(f"final norm: {final['norm']}\n")
             f.write(f"final tv: {final['tv']}\n")
-        # Cortex-specific lines (omitted when PI)
-        if final.get('motor_max') is not None or pname == 'direction_acc':
+        # Cortex-specific lines (omitted when PI).
+        cortex_row = (final.get('motor_max') is not None
+                      or pname in ('r2', 'direction_acc'))
+        if cortex_row:
+            f.write(f"final r2: {final.get('r2')}\n")
+            f.write(f"final direction_acc: {final['direction_acc']}\n")
             f.write(f"final motor_max: {final['motor_max']}\n")
             f.write(f"final motor_peak_mean: {final['motor_peak_mean']}\n")
         f.write(f"final iter: {final['iter']}  epoch: {final['epoch']}\n")
         f.write("\nper-epoch trajectory:\n")
-        if pname == 'direction_acc':
-            f.write("  ep | dir_acc_end dir_acc_best | motor_max_end | "
+        if cortex_row:
+            f.write("  ep | r2_end  r2_best | dir_acc_end | motor_max_end | "
                     "loss_end loss_best | mse_end\n")
         else:
             f.write("  ep | pi_acc_end pi_acc_best | fwhm_end | "
@@ -315,10 +338,12 @@ def _write_task_metrics_to_analysis_log(log_dir: str, analysis_log_path: str,
             def _fmt(v, w=6):
                 return ("nan".ljust(w) if v is None
                         else f"{v:.3f}".ljust(w))
-            if pname == 'direction_acc':
+            if cortex_row:
                 f.write(
-                    f"  {e['epoch']:>2d} | {_fmt(e['direction_acc_end'])} "
-                    f"{_fmt(e['primary_best'])} | {_fmt(e['motor_max_end'])} | "
+                    f"  {e['epoch']:>2d} | {_fmt(e.get('r2_end'))} "
+                    f"{_fmt(e.get('r2_best'))} | "
+                    f"{_fmt(e['direction_acc_end'])} | "
+                    f"{_fmt(e['motor_max_end'])} | "
                     f"{_fmt(e['loss_end'])} {_fmt(e['loss_best'])} | "
                     f"{_fmt(e['mse_end'])}\n"
                 )

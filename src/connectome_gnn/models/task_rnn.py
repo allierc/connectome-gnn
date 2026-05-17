@@ -40,6 +40,7 @@ Registered names: "drosophila_cx_pi", "cortex_delaygo", "task_rnn"
 from __future__ import annotations
 
 import math
+import os
 from typing import Optional
 
 import numpy as np
@@ -60,6 +61,30 @@ _ACT_MAP = {
 }
 
 
+def _load_image_mask(path: str, N: int) -> torch.Tensor:
+    """Load `path`, resize to (N, N), threshold at median → binary (N, N).
+
+    Light pixels become 1 (connection allowed), dark pixels become 0
+    (connection forbidden). Used as a structural prior on W_rec.
+    """
+    from PIL import Image
+    if not os.path.isfile(path):
+        # try to resolve via the repo's config helper (some users pass a
+        # path relative to the repo data root)
+        from connectome_gnn.utils import get_data_root
+        cand = os.path.join(get_data_root(), path)
+        if os.path.isfile(cand):
+            path = cand
+        else:
+            raise FileNotFoundError(f"w_mask_image_path not found: {path}")
+    img = Image.open(path).convert("L")  # grayscale 0..255
+    img = img.resize((N, N), Image.BILINEAR)
+    arr = np.asarray(img, dtype=np.float32) / 255.0
+    threshold = float(np.median(arr))
+    mask_np = (arr > threshold).astype(np.float32)
+    return torch.from_numpy(mask_np)
+
+
 _CORTEX_TASKS = (
     "fdgo", "reactgo", "delaygo", "fdanti", "reactanti", "delayanti",
     "dm1", "dm2", "contextdm1", "contextdm2", "multidm",
@@ -73,6 +98,7 @@ _CORTEX_TASKS = (
     "task_rnn",
     "neural_task_gnn",
     "cortex_all",
+    "cortex_all_unique",
     *(f"cortex_{t}" for t in _CORTEX_TASKS),
 )
 class TaskRNN(nn.Module):
@@ -107,6 +133,22 @@ class TaskRNN(nn.Module):
             )
 
         N = self.n_units
+        # Zero-diagonal mask: TaskRNN's effective W_rec has no self-connections,
+        # matching the GNN convention (edge_index never includes self-loops).
+        self.register_buffer(
+            "_no_diag", 1.0 - torch.eye(N, dtype=torch.float32),
+            persistent=False,
+        )
+        # Optional image-derived binary mask on W_rec. When unset, this is a
+        # ones matrix (no effect); when set, dark pixels of the image become
+        # forbidden recurrent connections. The image is resized to N×N and
+        # thresholded at its median.
+        img_path = str(getattr(gm, "w_mask_image_path", "")).strip()
+        if img_path:
+            img_mask = _load_image_mask(img_path, N)
+        else:
+            img_mask = torch.ones(N, N, dtype=torch.float32)
+        self.register_buffer("_image_mask", img_mask, persistent=False)
 
         # --- Configurable input projection W_in --------------------------
         # "matrix": learnable (N, n_input) Gaussian-init matrix (Hulse).
@@ -294,11 +336,22 @@ class TaskRNN(nn.Module):
 
     @property
     def W_rec(self) -> torch.Tensor:
-        """Sign_locked: W_rec = |S| ⊙ W_con (sparsity implicit via sign).
-        Free: W_rec is the learnable Parameter directly."""
+        """Effective recurrent matrix. The diagonal is masked to zero in both
+        modes (no self-connections, matching the GNN convention which never
+        adds self-loops to edge_index). Convention: W_rec[j, i] = weight from
+        presynaptic neuron j onto postsynaptic neuron i — i.e. rows are
+        presynaptic, columns are postsynaptic. This matches the GNN's
+        edge_index = (src=pre, dst=post) layout so per-edge mappings between
+        TaskRNN and the GNN's learned `W` are direct.
+
+        Sign_locked: W_rec = |S| ⊙ W_con   (sparsity implicit via the sign).
+        Free:        W_rec is the learnable Parameter directly.
+        """
         if self.W_param == "sign_locked":
-            return self.S.abs() * self.W_con_sign
-        return self._W_rec_free
+            W = self.S.abs() * self.W_con_sign
+        else:
+            W = self._W_rec_free
+        return W * self._no_diag * self._image_mask
 
     # ------------------------------------------------------------------
     # Forward path
@@ -339,7 +392,13 @@ class TaskRNN(nn.Module):
              if h0 is None else h0)
         h_buf = torch.empty(B, T, N, dtype=u.dtype, device=u.device)
 
-        W_rec_t = self.W_rec.t()
+        # W_rec layout: row j = presynaptic, col i = postsynaptic so
+        # rec[b, i] = sum_j r[b, j] · W_rec[j, i] = (r @ W_rec)[b, i].
+        # This matches the GNN's edge_index convention (src=pre, dst=post),
+        # so a learned (j -> i) edge weight in the GNN maps directly to
+        # W_rec[j, i] here without any transpose. Compute the property once
+        # before the time loop (it materialises the masked diagonal).
+        W_rec = self.W_rec
         dt_over_tau = self.dt / self.tau
         # Inject noise only during training (eval/snapshot stays deterministic).
         noise_lvl = (self.noise_recurrent_level
@@ -348,7 +407,7 @@ class TaskRNN(nn.Module):
 
         for t in range(T):
             r = self._sigma(h)
-            rec = r @ W_rec_t
+            rec = r @ W_rec
             inp = self._project_in(u[:, t, :])
             h = h + dt_over_tau * (-h + rec + inp + self.b)
             if noise_lvl > 0:
