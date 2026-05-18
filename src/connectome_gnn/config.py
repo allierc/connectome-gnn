@@ -949,20 +949,6 @@ class TrainingConfig(BaseModel):
     f_theta_centering_warmup_fraction: float = 0.3   # Fraction of iters before activation
     f_theta_centering_rampup_iters: int = 200        # Linear ramp-up after warmup
 
-    # -- SPEND-style Noise2Noise add-ons (graph_trainer_spend.py) --
-    # Three N2N variants for measurement-noise data; consumed by data_train_spend.
-    # Cite: https://github.com/buchenglab/SPEND  (Ding et al. 2025, Newton 1, 100195)
-    coeff_spend_replay: float = 0.0          # Add-on #3 — stimulus-replay N2N weight (synth two noise seeds)
-    coeff_spend_time: float = 0.0            # Add-on #1 — time-permutation N2N weight (even/odd frames)
-    coeff_spend_typed: float = 0.0           # Add-on #2 — typed-equivariance loss (same-type neuron pairs)
-    spend_load_clean: bool = False           # if True, load with measurement_noise_level=0 then synth noise inline
-    spend_replay_noise_seed_a: int = 0       # RNG seed for first noise realisation
-    spend_replay_noise_seed_b: int = 1       # RNG seed for second noise realisation (must differ from a)
-    spend_time_window: int = 16              # frames per time-permutation N2N window
-    spend_smoother_hidden: int = 32          # 1D-conv smoother hidden channels
-    spend_smoother_lr: float = 1.0e-3        # separate LR for smoother param group
-    spend_typed_max_pos_dist: float = 5.0    # max retinotopic position distance for typed-pair construction
-
     g_phi_mode: GPhiMode = GPhiMode.MLP  # mlp=learned MLP, tanh=fixed tanh(u_j), identity=fixed u_j
     w_optimizer_type: WOptimizerType = WOptimizerType.ADAM  # adam (default) or sgd (SGD with momentum)
 

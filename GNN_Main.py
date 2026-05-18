@@ -14,9 +14,6 @@ from connectome_gnn.generators.graph_data_generator import data_generate
 from connectome_gnn.models.graph_trainer import (
     data_train, data_test, data_train_INR, data_train_task_gnn,
 )
-# SPEND-style Noise2Noise trainer (sibling of data_train, data_train_INR).
-# Cite: https://github.com/buchenglab/SPEND  (Ding et al. 2025, Newton 1, 100195)
-from connectome_gnn.models.graph_trainer_spend import data_train_spend
 from connectome_gnn.models.utils import load_run_config
 from connectome_gnn.utils import (
     set_device, add_pre_folder, log_path, config_path, validate_pre_folder,
@@ -203,23 +200,6 @@ if __name__ == "__main__":
             data_train_INR(config=config, device=device, total_steps=100000,
                            field_name=field_name, n_training_frames=0,
                            inr_type=inr_type_arg)
-            with open(_marker, 'w') as f:
-                f.write(f"commit={sha}\nargv={sys.argv}\n")
-
-        elif 'train_SPEND' in task:
-            _marker = os.path.join(run_log_dir, '_completed_train')
-            if os.path.exists(_marker):
-                os.remove(_marker)
-            # SPEND-style Noise2Noise trainer.
-            # Cite: https://github.com/buchenglab/SPEND
-            # usage: -o train_SPEND <config>          (single config)
-            #        -o train_SPEND flyvis_spend      (CONFIG_LIST -> 4 SPEND yamls)
-            data_train_spend(
-                config=config,
-                erase=True,
-                best_model=best_model,
-                device=device,
-            )
             with open(_marker, 'w') as f:
                 f.write(f"commit={sha}\nargv={sys.argv}\n")
 
