@@ -1,0 +1,122 @@
+description: |
+  Path-integration TaskGNN — hybrid of TaskRNN encoder/decoder + NeuralGNN
+  recurrent core. Drops the linear `r @ W_rec` step in favour of a
+  per-edge GNN update:
+
+      msg_e  = W_edge[e] · g_phi(r_src, a_src)^2
+      agg_j  = scatter_add(msg, dst)
+      rec_j  = f_theta(r_j, a_j, agg_j)
+      τ·dh/dt = -h + rec + W_in·u + b
+
+  W_in (with PEN-only velocity gate) and W_out (cos/sin readout) are
+  reused from the TaskRNN winner. The connectome topology is enforced via
+  edge_index = nonzeros(W_con) but Dale signs are NOT locked — per-edge W
+  is sign-free and the f_theta MLP supplies the non-linearity that the
+  sigmoid alone gave in TaskRNN.
+
+  Aux losses (cos-distance, norm-floor, L1 on |W|) act on the linear
+  surface W_rec[k,j] = W_edge placed at (src=k, dst=j); the f_theta
+  non-linearity is NOT regularised by these terms. The GT-vs-learned
+  scatter in the snapshot likewise compares per-edge gains only.
+
+  Initial recipe = TaskRNN winner curriculum (10-epoch lr + n_steps
+  schedules from `drosophila_cx_pi_winner.yaml`) with the GNN-specific
+  knobs (embedding_dim, g_phi_positive, hidden_dim_update / n_layers_update)
+  on the NeuralGNN defaults.
+dataset: drosophila_cx_pi
+simulation:
+  params:
+    - - 1.0
+  connconstr_datapath: papers/Code_NN/Code_NN/Data/Figure5/exported-traced-adjacencies-v1.2
+graph_model:
+  signal_model_name: drosophila_cx_pi_gnn # TaskGNN via registry
+  aggr_type: add
+  # Encoder / decoder (unchanged from TaskRNN winner)
+  input_proj: matrix
+  output_proj: matrix
+  velocity_gate: pen_only # mask W_in[:,0] so only PENa/PENb receive angular velocity
+  lock_edge_signs: true # effective W_edge = |W| · sign_GT (Dale-conformant; only magnitudes learned)
+  include_er6: true # 156-neuron full CX spec (152 core + 4 ER6)
+  # GNN core MLPs (g_phi: edge function, f_theta: node update)
+  hidden_dim: 64
+  n_layers: 2
+  hidden_dim_update: 64
+  n_layers_update: 2
+  MLP_activation: relu
+  embedding_dim: 2 # per-node embedding a_i
+  g_phi_positive: true # square g_phi output → positive edge messages
+plotting: {}
+training:
+  device: auto
+  seed: 0
+  n_runs: 1
+  n_epochs: 10
+  batch_size: 64
+  data_augmentation_loop: 1
+  lr: 2.0e-3 # overridden by lr_schedule below
+  lr_schedule: [
+      5.0e-3,
+      1.0e-3,
+      1.0e-3,
+      1.0e-3,
+      5.0e-4,
+      3.0e-4,
+      2.0e-4,
+      2.0e-4,
+      1.0e-4,
+      5.0e-5,
+    ] # flat tail
+  lr_scheduler: none
+  grad_clip_W: 1.0 # GNN can blow up more easily than sign-locked TaskRNN
+  coeff_cos_distance: 0.0 # f_theta non-linearity is invisible to cos-distance; start free
+  coeff_norm_floor: 0.0
+  kappa_norm_floor: 0.0
+  coeff_tv_circular: 0.0
+  coeff_W_L1: 0.0 # acts on |W_edge|.sum() (S is aliased to W)
+  noise_recurrent_level: 0.0
+  # Per-edge W is zero at init → recurrence is pure feedforward until
+  # |W| grows past the bifurcation. Same grokking regime as TaskRNN's
+  # w_init_mode=zeros experiments in B9-B10.
+  w_init_mode: zeros
+  w_init_scale: 0.01
+  snapshots_per_epoch: 5
+  n_steps_schedule: [100, 200, 300, 500, 500, 750, 750, 750, 1000, 1000]
+  torch_compile: true
+
+# ---------------------------------------------------------------------------
+# Agentic LLM exploration settings (parity with the TaskRNN winner).
+# ---------------------------------------------------------------------------
+claude:
+  n_epochs: 5
+  data_augmentation_loop: 1
+  n_iter_block: 40
+  ucb_c: 1.414
+  generate_data: false
+  training_time_target_min: 30
+  hard_runtime_limit_min: 60
+  node_name: l4
+  n_cpus: 8
+  n_parallel: 10
+  conda_env: connectome-gnn
+
+task:
+  task_type: path_integration
+  task_only: true
+  path_integration:
+    n_trials_train: 100000
+    n_trials_test: 10000
+    n_steps: 1000
+    dt: 0.01
+    sigma_omega_deg: 40.0
+    tau_corr: 0.12
+    stop_fraction: 0.20
+    seed: 0
+    input_perturbation:
+      channel_mask: [0]
+      waveform:
+        kind: heaviside
+        amplitude: 0.0
+        frames_on: 20
+        noise_level: 5.0
+        resample_amplitude_per_transition: false
+        seed: 0

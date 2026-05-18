@@ -1998,6 +1998,7 @@ def _data_train_pi_task_gnn(config, erase, best_model, device, log_file=None):
                     device=device,
                     snapshot_n_steps=snapshot_n_steps,
                     snapshot_omega_deg=snapshot_omega_deg,
+                    config=config,
                 )
                 with open(metrics_log_path, 'a') as f:
                     fwhm_deg = (np.degrees(last_fwhm)

@@ -239,6 +239,7 @@ def _save_training_snapshot(
     snapshot_n_steps: int,
     snapshot_omega_deg: float,
     matrix_dir: str | None = None,    # backwards-compat; ignored
+    config=None,
 ) -> None:
     """Render the combined kinograph+matrix snapshot.
 
@@ -290,6 +291,118 @@ def _save_training_snapshot(
         )
     except Exception as exc:
         print(f"[cx_eval] kinograph snapshot failed @ step {global_step}: {exc}")
+
+    # TaskGNN-only: render embedding scatter + g_phi / f_theta function
+    # plots into tmp_training/{embedding,function/{g_phi,f_theta}}/.
+    # No-op for sign_locked TaskRNN (no `a` / `g_phi` / `f_theta`).
+    if config is not None and all(
+        hasattr(net, name) for name in ("a", "g_phi", "f_theta")
+    ):
+        try:
+            _plot_gnn_functions(
+                net=net, config=config, log_dir=log_dir,
+                global_step=global_step, device=device,
+                neuron_types=neuron_types, type_names=type_names,
+            )
+        except Exception as exc:
+            print(f"[cx_eval] gnn function plots failed @ step {global_step}: {exc}")
+
+
+def _plot_gnn_functions(
+    *,
+    net, config, log_dir: str, global_step: int, device: str,
+    neuron_types: np.ndarray, type_names: list,
+) -> None:
+    """Render TaskGNN embedding + per-type g_phi / f_theta function curves.
+
+    Mirrors `plot_training_flyvis` in data_train_gnn: same three sub-plots,
+    same filenames (`tmp_training/embedding/step_*.png`,
+    `tmp_training/function/g_phi/step_*.png`,
+    `tmp_training/function/f_theta/step_*.png`).
+    """
+    import matplotlib.pyplot as plt
+    import torch
+
+    from connectome_gnn.metrics import _batched_mlp_eval, _build_g_phi_features
+    from connectome_gnn.plot import plot_embedding, plot_g_phi
+    from connectome_gnn.utils import CustomColorMap
+
+    name = f"step_{global_step:07d}.png"
+    n_neurons = int(net.n_units)
+    nt_np = np.asarray(neuron_types)
+    n_types = len(type_names)
+    cmap = CustomColorMap(config=config)
+
+    # 1) Embedding scatter (a_0 vs a_1, coloured by neuron type)
+    emb_dir = os.path.join(log_dir, 'tmp_training', 'embedding')
+    os.makedirs(emb_dir, exist_ok=True)
+    fig, ax = plt.subplots(figsize=(8, 8))
+    plot_embedding(ax, net, nt_np, n_types, cmap)
+    plt.tight_layout()
+    plt.savefig(os.path.join(emb_dir, name), dpi=87)
+    plt.close(fig)
+
+    # 2) g_phi function: r ∈ [0, 1] (sigmoid output range) on x; mean ± std
+    # per type. Override config.plotting.xlim/ylim for the sigmoid range,
+    # then restore so other callers aren't affected.
+    gphi_dir = os.path.join(log_dir, 'tmp_training', 'function', 'g_phi')
+    os.makedirs(gphi_dir, exist_ok=True)
+    orig_xlim = list(config.plotting.xlim)
+    orig_ylim = list(config.plotting.ylim)
+    try:
+        config.plotting.xlim = [0.0, 1.0]
+        config.plotting.ylim = [-0.5, 1.5]
+        fig, ax = plt.subplots(figsize=(8, 8))
+        plot_g_phi(ax, net, config, n_neurons, nt_np, cmap, device,
+                    type_names=list(type_names))
+        plt.tight_layout()
+        plt.savefig(os.path.join(gphi_dir, name), dpi=87)
+        plt.close(fig)
+    finally:
+        config.plotting.xlim = orig_xlim
+        config.plotting.ylim = orig_ylim
+
+    # 3) f_theta function: same r ∈ [0, 1] x-axis, msg pinned to 0 (probe
+    # the per-node update at zero recurrent input). TaskGNN's f_theta input
+    # is (r, a, msg) — 1 + emb_dim + 1 — which doesn't match the generic
+    # `_build_f_theta_features` (1 + emb_dim + 1 + 1, with excitation), so
+    # we use a local feature builder.
+    ftheta_dir = os.path.join(log_dir, 'tmp_training', 'function', 'f_theta')
+    os.makedirs(ftheta_dir, exist_ok=True)
+    n_pts = 1000
+    rr_1d = torch.linspace(0.0, 1.0, n_pts, device=device)
+    rr = rr_1d.unsqueeze(0).expand(n_neurons, -1)
+    feat_fn = lambda rr_f, emb_f: torch.cat(
+        [rr_f, emb_f, torch.zeros_like(rr_f)], dim=1
+    )
+    func = _batched_mlp_eval(net.f_theta, net.a, rr, feat_fn, device)
+
+    fig, ax = plt.subplots(figsize=(8, 8))
+    type_np = nt_np.astype(int).ravel()
+    x_np = rr_1d.detach().cpu().numpy()
+    func_np = func.detach().cpu().numpy()
+    for t in np.unique(type_np):
+        mask = type_np == int(t)
+        curves = func_np[mask]
+        mean = curves.mean(axis=0)
+        std = curves.std(axis=0)
+        color = cmap.color(int(t))
+        label = (type_names[int(t)]
+                 if int(t) < len(type_names) else f"type {int(t)}")
+        ax.plot(x_np, mean, linewidth=1.5, color=color, label=label)
+        if std.max() > 1e-6:
+            ax.fill_between(x_np, mean - std, mean + std,
+                             color=color, alpha=0.15)
+    ax.axhline(0, color='#aaa', linewidth=0.5, linestyle='--')
+    ax.set_xlim([0.0, 1.0])
+    ax.set_xlabel(r'$r_i = \sigma(h_i)$', fontsize=20)
+    ax.set_ylabel(r'$f_\theta(r_i, \mathbf{a}_i, \mathrm{msg}=0)$', fontsize=20)
+    if len(np.unique(type_np)) <= 12:
+        ax.legend(fontsize=12, frameon=False, loc='upper right')
+    ax.tick_params(axis='both', which='major', labelsize=14)
+    plt.tight_layout()
+    plt.savefig(os.path.join(ftheta_dir, name), dpi=87)
+    plt.close(fig)
 
 
 # ---------------------------------------------------------------------------

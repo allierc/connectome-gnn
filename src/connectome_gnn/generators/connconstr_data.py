@@ -180,6 +180,25 @@ def load_drosophila_cx_connectome(datapath, include_er6: bool = False):
     typehash = dict(zip(uniqtypes, np.arange(len(uniqtypes))))
     typeclasses = np.array([typehash[x] for x in neurons.type])
 
+    # PEN subpopulation indices (L/R × PEN_a/PEN_b). Parsed from the
+    # hemibrain `instance` field, which has the form
+    # "PEN_a(PB06a)_L4" / "..._R7" — the suffix is the PB hemisphere.
+    # Returned for callers that want to gate W_in velocity by these
+    # 4 anatomical subpopulations (Hulse 2025).
+    import re as _re
+    _side_re = _re.compile(r"_(L|R)\d+$")
+    pen_subpop_ix: dict[str, list[int]] = {
+        "PENa_L": [], "PENa_R": [], "PENb_L": [], "PENb_R": [],
+    }
+    for i, (t, inst) in enumerate(zip(neurons.type, neurons.instance)):
+        key_pre = "PENa" if "PEN_a" in str(t) else ("PENb" if "PEN_b" in str(t) else None)
+        if key_pre is None:
+            continue
+        m = _side_re.search(str(inst))
+        if m is None:
+            continue
+        pen_subpop_ix[f"{key_pre}_{m.group(1)}"].append(i)
+
     # One-hot type encoding to identify Delta7 (inhibitory)
     # Ref: lines 506-515
     Ntype = len(uniqtypes)
@@ -246,6 +265,8 @@ def load_drosophila_cx_connectome(datapath, include_er6: bool = False):
     winp[-2, 60:70] = 1.0  # right PEN neurons
 
     return {
+        "pen_subpop_ix": {k: np.asarray(v, dtype=np.int64)
+                           for k, v in pen_subpop_ix.items()},
         "J_effective": np.exp(wrec_log) * mwrec,
         "wrec_log": wrec_log,
         "mwrec": mwrec,

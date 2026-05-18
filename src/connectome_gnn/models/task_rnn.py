@@ -116,6 +116,10 @@ class TaskRNN(nn.Module):
 
         W_param = str(getattr(gm, "W_param", "sign_locked")).lower()
         self.W_param = W_param
+        # Honour the unified sign-lock toggle (default True = current
+        # behaviour). Only meaningful in CX (sign_locked) mode; in the
+        # free-W branch this is read but ignored by `W_rec`.
+        self.lock_edge_signs = bool(getattr(gm, "lock_edge_signs", True))
 
         tc = getattr(config, "training", None)
         w_init_mode = str(getattr(tc, "w_init_mode", "const")).lower()
@@ -291,6 +295,50 @@ class TaskRNN(nn.Module):
         self.epg_indices = np.arange(n_epg, dtype=np.int64)
         self.epg_glom_ix = epg_glom_ix
 
+        # --- Optional velocity-channel anatomical gate -------------------
+        # `velocity_gate: pen_only`   — zero W_in[:, 0] outside PENa/PENb
+        #                                rows; per-unit weights stay free.
+        # `velocity_gate: pen_4scalar` — strict Hulse 2025: 4 learnable
+        #                                scalars (L/R × PENa/PENb) broadcast
+        #                                onto their subpopulations, signs
+        #                                initialised opposite for L vs R.
+        # In either case, channels 1-2 (initial-bump cue) stay free for
+        # all rows.
+        self.velocity_gate = str(getattr(gm, "velocity_gate", "none")).lower()
+        if self.velocity_gate == "pen_only":
+            mask = torch.zeros(N, self.n_input, dtype=torch.float32)
+            mask[:, 1:] = 1.0
+            if pen_idx_all:
+                mask[torch.as_tensor(sorted(pen_idx_all), dtype=torch.long), 0] = 1.0
+            self.register_buffer("_W_in_mask", mask, persistent=False)
+        elif self.velocity_gate == "pen_4scalar":
+            pen_subpop = cx.get("pen_subpop_ix", {})
+            required = ("PENa_L", "PENa_R", "PENb_L", "PENb_R")
+            missing = [k for k in required if k not in pen_subpop or len(pen_subpop[k]) == 0]
+            if missing:
+                raise ValueError(
+                    f"velocity_gate='pen_4scalar' requires non-empty "
+                    f"pen_subpop_ix for {required}; missing/empty: {missing}"
+                )
+            # One-hot indicator buffers: row k is 1 iff unit k belongs to
+            # the subpop. Lets us write v_col = Σ_subpop indicator · scalar
+            # without in-place ops (autograd-friendly).
+            for key in required:
+                ind = torch.zeros(N, dtype=torch.float32)
+                ind[torch.as_tensor(pen_subpop[key], dtype=torch.long)] = 1.0
+                self.register_buffer(f"_pen_ind_{key.lower()}", ind, persistent=False)
+            # 4 velocity scalars; init opposite signs for L/R so the
+            # symmetry-breaking starts in the right direction.
+            self.v_pena_l = nn.Parameter(torch.tensor(0.01))
+            self.v_pena_r = nn.Parameter(torch.tensor(-0.01))
+            self.v_penb_l = nn.Parameter(torch.tensor(0.01))
+            self.v_penb_r = nn.Parameter(torch.tensor(-0.01))
+        elif self.velocity_gate != "none":
+            raise ValueError(
+                f"graph_model.velocity_gate must be 'none', 'pen_only', or "
+                f"'pen_4scalar', got {self.velocity_gate!r}"
+            )
+
         # --- Dynamics constants (from task.path_integration for CX) -----
         pi = task.path_integration
         self.tau = float(getattr(pi, "tau", 0.1))
@@ -336,19 +384,23 @@ class TaskRNN(nn.Module):
 
     @property
     def W_rec(self) -> torch.Tensor:
-        """Effective recurrent matrix. The diagonal is masked to zero in both
-        modes (no self-connections, matching the GNN convention which never
-        adds self-loops to edge_index). Convention: W_rec[j, i] = weight from
-        presynaptic neuron j onto postsynaptic neuron i — i.e. rows are
-        presynaptic, columns are postsynaptic. This matches the GNN's
-        edge_index = (src=pre, dst=post) layout so per-edge mappings between
-        TaskRNN and the GNN's learned `W` are direct.
+        """Effective recurrent matrix. Diagonal is always masked to zero.
+        Convention: W_rec[j, i] = weight from presynaptic neuron j onto
+        postsynaptic neuron i, matching the GNN's (src=pre, dst=post)
+        edge_index layout.
 
-        Sign_locked: W_rec = |S| ⊙ W_con   (sparsity implicit via the sign).
-        Free:        W_rec is the learnable Parameter directly.
+        CX (sign_locked architecture):
+            lock_edge_signs=True  → W_rec = |S| ⊙ W_con_sign  (Dale-conformant)
+            lock_edge_signs=False → W_rec = S ⊙ W_con_mask    (free sign per edge,
+                                                              topology still fixed)
+        Free architecture:
+            W_rec is the learnable Parameter directly.
         """
         if self.W_param == "sign_locked":
-            W = self.S.abs() * self.W_con_sign
+            if getattr(self, "lock_edge_signs", True):
+                W = self.S.abs() * self.W_con_sign
+            else:
+                W = self.S * self.W_con_mask
         else:
             W = self._W_rec_free
         return W * self._no_diag * self._image_mask
@@ -360,7 +412,22 @@ class TaskRNN(nn.Module):
     def _project_in(self, u_t: torch.Tensor) -> torch.Tensor:
         """(B, n_input) -> (B, N)."""
         if self.input_proj == "matrix":
-            return u_t @ self.W_in.t()
+            W = self.W_in
+            if getattr(self, "velocity_gate", "none") == "pen_4scalar":
+                # Build the velocity column from the 4 PEN subpop scalars;
+                # keep the cue columns (1, 2) of self.W_in as-is.
+                v_col = (
+                    self._pen_ind_pena_l * self.v_pena_l
+                    + self._pen_ind_pena_r * self.v_pena_r
+                    + self._pen_ind_penb_l * self.v_penb_l
+                    + self._pen_ind_penb_r * self.v_penb_r
+                )
+                W = torch.cat([v_col.unsqueeze(1), W[:, 1:]], dim=1)
+            else:
+                mask = getattr(self, "_W_in_mask", None)
+                if mask is not None:
+                    W = W * mask
+            return u_t @ W.t()
         return self._W_in_mlp(u_t)
 
     def _project_out(self, r: torch.Tensor) -> torch.Tensor:
