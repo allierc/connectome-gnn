@@ -862,3 +862,72 @@ def generate_path_integration_batch(
         theta_hd=torch.from_numpy(theta_hd).to(device),
         is_stop=torch.from_numpy(is_stop).to(device),
     )
+
+
+def _resolve_opto_data_root(opto_cfg) -> None:
+    """Switch the data root to whichever fallback contains the opto source.
+
+    Opto re-simulation requires the source dataset to already exist on disk.
+    GNN_Main.py's _maybe_fallback_data_root() skips fallback resolution for
+    'generate' tasks (it expects fresh local data). For opto we override that:
+    if the source can't be found at the current data root, scan the
+    data_paths.json fallback roots and switch to the first one that has it.
+    """
+    from connectome_gnn.utils import (
+        get_data_root, load_data_fallback_roots, set_data_root,
+    )
+
+    src = opto_cfg.source_dataset
+    if not src:
+        return
+
+    def _has_source(root: str) -> bool:
+        for sub in (src, os.path.join("fly", src)):
+            voltage = os.path.join(root, "graphs_data", sub,
+                                  "x_list_train", "voltage.zarr")
+            if os.path.isdir(voltage):
+                return True
+        return False
+
+    if _has_source(get_data_root()):
+        return
+
+    Y, R = "\033[93m", "\033[0m"
+    for root in load_data_fallback_roots():
+        if _has_source(root):
+            print(f"{Y}[opto] source not found at current data root; "
+                  f"switching to {root}{R}", flush=True)
+            set_data_root(root)
+            return
+    # No fallback worked — let downstream fail with a clear error.
+
+
+def _print_opto_banner(config, opto_cfg) -> None:
+    """Green banner: confirms source-dataset reuse and dumps opto parameters."""
+    G, R = "\033[92m", "\033[0m"
+    src = opto_cfg.source_dataset
+    src_dir = graphs_data_path(src)
+    if not os.path.isdir(src_dir):
+        alt = graphs_data_path("fly", src)
+        if os.path.isdir(alt):
+            src_dir = alt
+    voltage_zarr = os.path.join(src_dir, "x_list_train", "voltage.zarr")
+    src_ok = os.path.isdir(voltage_zarr)
+    tgt = opto_cfg.target
+    wf = opto_cfg.waveform
+    target_str = (
+        f"mode={tgt.mode} k={tgt.k}" if str(tgt.mode) == "OptoTargetMode.TOPK_NULLSPACE"
+        or tgt.mode == "topk_nullspace"
+        else f"mode={tgt.mode} cell_types={list(tgt.cell_types)}"
+    )
+    print(f"{G}{'='*70}{R}")
+    print(f"{G}[opto] OPTOGENETIC PERTURBATION — re-simulation from existing source{R}")
+    print(f"{G}[opto] source dataset:  {src}{R}")
+    print(f"{G}[opto] source on disk:  {src_dir}  ({'OK' if src_ok else 'MISSING'}){R}")
+    print(f"{G}[opto] target output:   {config.dataset}{R}")
+    print(f"{G}[opto] target spec:     {target_str}  column_distinct={tgt.column_distinct}{R}")
+    wf_extra = f"  frames_on={wf.frames_on}" if wf.kind == "heaviside" else ""
+    print(f"{G}[opto] waveform:        kind={wf.kind}  amplitude={wf.amplitude}  "
+          f"noise_level={wf.noise_level}{wf_extra}{R}")
+    print(f"{G}[opto] seed:            {wf.seed}  (paired with source for matched comparison){R}")
+    print(f"{G}{'='*70}{R}", flush=True)

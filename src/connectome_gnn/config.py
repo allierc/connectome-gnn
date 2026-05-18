@@ -1098,7 +1098,10 @@ class PathIntegrationTaskConfig(BaseModel):
     stop_max_s: float = 8.0
 
     device: Literal["cpu", "cuda", "auto"] = "cpu"
-    input_perturbation: Optional[InputPerturbation] = None
+    # Additive Gaussian noise σ on the observed omega channel of the
+    # stimulus. True heading (theta_hd / target_y) is computed from the
+    # clean omega — only the network's input is corrupted. 0 = no noise.
+    omega_noise_level: float = 0.0
 
 
 class OpticalFlowTaskConfig(BaseModel):
