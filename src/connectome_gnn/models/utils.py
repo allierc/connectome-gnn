@@ -9,9 +9,106 @@ import torch
 from connectome_gnn.figure_style import dark_style, default_style
 from connectome_gnn.log import get_logger
 from connectome_gnn.neuron_state import NeuronState
-from connectome_gnn.utils import graphs_data_path, log_path
+from connectome_gnn.config import NeuralGraphConfig
+from connectome_gnn.utils import (
+    add_pre_folder,
+    config_path,
+    get_repo_root,
+    graphs_data_path,
+    load_config_fallback_roots,
+    load_data_fallback_roots,
+    log_path,
+    set_data_root,
+    validate_pre_folder,
+)
 
 logger = get_logger(__name__)
+
+
+def _resolve_config_path(yaml_path: str) -> str:
+    """If yaml_path doesn't exist at the local repo, try each fallback config
+    root from data_paths.json (cluster_data_dir/config, cluster_root_dir/config).
+    Returns the first existing path (with a yellow warning), or the original
+    path if nothing is found.
+    """
+    if os.path.isfile(yaml_path):
+        return yaml_path
+    repo_config_root = os.path.join(get_repo_root(), 'config')
+    if not yaml_path.startswith(repo_config_root + os.sep):
+        return yaml_path
+    rel = os.path.relpath(yaml_path, repo_config_root)
+    for root in load_config_fallback_roots():
+        candidate = os.path.join(root, rel)
+        if os.path.isfile(candidate):
+            print(f"\033[33m  config not found at {yaml_path}\033[0m")
+            print(f"\033[33m  using fallback config: {candidate}\033[0m")
+            return candidate
+    return yaml_path
+
+
+def load_run_config(config_file_: str, explicit_output_root: bool, task: str):
+    """Load a run's NeuralGraphConfig.
+
+    Handles direct filesystem paths vs repo-relative config names, YAML
+    fallback roots (cluster_data_dir/config, cluster_root_dir/config),
+    CV-fold suffix (_cvNN) that shares a base config, and the data-root
+    fallback when the dataset is missing locally.
+
+    Returns (config, yaml_file).
+    """
+    if os.path.isfile(config_file_) or os.path.isabs(config_file_):
+        # Direct filesystem path — load without repo lookup.
+        # pre_folder is derived from the parent directory name.
+        yaml_file = config_file_ if config_file_.endswith('.yaml') else config_file_ + '.yaml'
+        parent = os.path.basename(os.path.dirname(os.path.abspath(yaml_file)))
+        pre_folder = parent + "/" if parent else ""
+        validate_pre_folder(pre_folder)
+        config = NeuralGraphConfig.from_yaml(yaml_file)
+        if not config.dataset.startswith(pre_folder):
+            config.dataset = pre_folder + config.dataset
+        # If config_file is still the default "none", derive it from the YAML path
+        # so logs go to log/<domain>/<config_name>/ not log/none/
+        if config.config_file == "none":
+            stem = os.path.splitext(os.path.basename(yaml_file))[0]
+            config.config_file = pre_folder + stem
+    else:
+        config_file, pre_folder = add_pre_folder(config_file_)
+
+        # load config — if YAML not found, try stripping _cvNN suffix (CV folds
+        # share a base config; the cv_runner overrides dataset/config_file at runtime)
+        yaml_path = _resolve_config_path(config_path(f"{config_file}.yaml"))
+        cv_match = re.search(r'_cv(\d+)$', config_file_)
+        if not os.path.isfile(yaml_path) and cv_match:
+            base_name = config_file_[:cv_match.start()]
+            base_file, _ = add_pre_folder(base_name)
+            print(f"  CV fold detected: loading base config {base_name}.yaml, "
+                  f"dataset/log -> {config_file_}")
+            yaml_file = _resolve_config_path(config_path(f"{base_file}.yaml"))
+            config = NeuralGraphConfig.from_yaml(yaml_file)
+            config.dataset = pre_folder + config_file_
+            config.config_file = pre_folder + config_file_
+        else:
+            yaml_file = yaml_path
+            config = NeuralGraphConfig.from_yaml(yaml_file)
+            if not config.dataset.startswith(pre_folder):
+                config.dataset = pre_folder + config.dataset
+            config.config_file = pre_folder + config_file_
+
+    # Data-root fallback: if dataset is missing at the current data root,
+    # switch to the first fallback root that has it. Skipped when
+    # --output_root / GNN_OUTPUT_ROOT was explicit or when generating data.
+    if not explicit_output_root and 'generate' not in task:
+        dataset_dir = graphs_data_path(config.dataset)
+        if not os.path.isdir(dataset_dir):
+            for root in load_data_fallback_roots():
+                candidate = os.path.join(root, 'graphs_data', config.dataset)
+                if os.path.isdir(candidate):
+                    print(f"\033[33m  data not found at {dataset_dir}\033[0m")
+                    print(f"\033[33m  switching data root to: {root}\033[0m")
+                    set_data_root(root)
+                    break
+
+    return config, yaml_file
 
 
 def _batch_frames(frames, edge_index):
