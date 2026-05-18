@@ -273,7 +273,6 @@ def build_input_perturbation(
     n_channels: int,
     perturbation: InputPerturbation,
     *,
-    seed: int,
     device: torch.device | str = 'cpu',
 ) -> torch.Tensor:
     """(T, n_channels) float32 perturbation for task input channels.
@@ -284,7 +283,8 @@ def build_input_perturbation(
     waveform.amplitude (or 1.0) as the unit scale.
 
     Channels not in perturbation.channel_mask are left as zero so the caller
-    can blindly add the result to u_canonical.
+    can blindly add the result to u_canonical. Randomness is drawn from the
+    global torch generator — callers are expected to seed it.
     """
     waveform = perturbation.waveform
     mask = perturbation.channel_mask
@@ -301,11 +301,7 @@ def build_input_perturbation(
     if n_active == 0:
         return torch.zeros(n_frames, n_channels, dtype=torch.float32, device=device)
 
-    # Trial-deterministic seed: combine the user-provided perturbation seed
-    # (waveform.seed) with the per-trial seed passed in.
-    gen_device = 'cuda' if torch.device(device).type == 'cuda' else 'cpu'
-    g = torch.Generator(device=gen_device)
-    g.manual_seed(int(waveform.seed) ^ int(seed))
+    g = None
 
     amp = float(waveform.amplitude) if waveform.amplitude is not None else 1.0
     amps = torch.full((n_active,), amp, device=device, dtype=torch.float32)

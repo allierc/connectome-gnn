@@ -66,6 +66,8 @@ import os
 from tqdm import tqdm, trange
 
 from connectome_gnn.generators.utils import (
+    _print_opto_banner,
+    _resolve_opto_data_root,
     apply_pairwise_knobs_torch,
     assign_columns_from_uv,
     build_neighbor_graph,
@@ -82,75 +84,6 @@ from connectome_gnn.generators.utils import (
 from connectome_gnn.utils import get_datavis_root_dir, git_sha, graphs_data_path, to_numpy
 
 logger = get_logger(__name__)
-
-
-def _resolve_opto_data_root(opto_cfg) -> None:
-    """Switch the data root to whichever fallback contains the opto source.
-
-    Opto re-simulation requires the source dataset to already exist on disk.
-    GNN_Main.py's _maybe_fallback_data_root() skips fallback resolution for
-    'generate' tasks (it expects fresh local data). For opto we override that:
-    if the source can't be found at the current data root, scan the
-    data_paths.json fallback roots and switch to the first one that has it.
-    """
-    from connectome_gnn.utils import (
-        get_data_root, load_data_fallback_roots, set_data_root,
-    )
-
-    src = opto_cfg.source_dataset
-    if not src:
-        return
-
-    def _has_source(root: str) -> bool:
-        for sub in (src, os.path.join("fly", src)):
-            voltage = os.path.join(root, "graphs_data", sub,
-                                  "x_list_train", "voltage.zarr")
-            if os.path.isdir(voltage):
-                return True
-        return False
-
-    if _has_source(get_data_root()):
-        return
-
-    Y, R = "\033[93m", "\033[0m"
-    for root in load_data_fallback_roots():
-        if _has_source(root):
-            print(f"{Y}[opto] source not found at current data root; "
-                  f"switching to {root}{R}", flush=True)
-            set_data_root(root)
-            return
-    # No fallback worked — let downstream fail with a clear error.
-
-
-def _print_opto_banner(config, opto_cfg) -> None:
-    """Green banner: confirms source-dataset reuse and dumps opto parameters."""
-    G, R = "\033[92m", "\033[0m"
-    src = opto_cfg.source_dataset
-    src_dir = graphs_data_path(src)
-    if not os.path.isdir(src_dir):
-        alt = graphs_data_path("fly", src)
-        if os.path.isdir(alt):
-            src_dir = alt
-    voltage_zarr = os.path.join(src_dir, "x_list_train", "voltage.zarr")
-    src_ok = os.path.isdir(voltage_zarr)
-    tgt = opto_cfg.target
-    wf = opto_cfg.waveform
-    target_str = (
-        f"mode={tgt.mode} k={tgt.k}" if str(tgt.mode) == "OptoTargetMode.TOPK_NULLSPACE"
-        or tgt.mode == "topk_nullspace"
-        else f"mode={tgt.mode} cell_types={list(tgt.cell_types)}"
-    )
-    print(f"{G}{'='*70}{R}")
-    print(f"{G}[opto] OPTOGENETIC PERTURBATION — re-simulation from existing source{R}")
-    print(f"{G}[opto] source dataset:  {src}{R}")
-    print(f"{G}[opto] source on disk:  {src_dir}  ({'OK' if src_ok else 'MISSING'}){R}")
-    print(f"{G}[opto] target output:   {config.dataset}{R}")
-    print(f"{G}[opto] target spec:     {target_str}  column_distinct={tgt.column_distinct}{R}")
-    wf_extra = f"  frames_on={wf.frames_on}" if wf.kind == "heaviside" else ""
-    print(f"{G}[opto] waveform:        kind={wf.kind}  amplitude={wf.amplitude}  "
-          f"noise_level={wf.noise_level}{wf_extra}{R}")
-    print(f"{G}[opto] seed:            {wf.seed}  (paired with source for matched comparison){R}")
-    print(f"{G}{'='*70}{R}", flush=True)
 
 
 def data_generate(
@@ -365,7 +298,6 @@ def _generate_path_integration_task(config, *, device, visualize: bool = True) -
                 target.zarr     (N, T, 2)   [cos(theta_hd(t)), sin(theta_hd(t))]
                 theta_hd.zarr   (N, T)      ground-truth heading
                 is_stop.zarr    (N, T)      standing-pause mask
-                stimulus_canonical.zarr / delta_stimulus.zarr  (only when input_perturbation is set)
             test/
                 same fields
 
@@ -374,31 +306,32 @@ def _generate_path_integration_task(config, *, device, visualize: bool = True) -
     version for the BPTT loop.
     """
     task = config.task
-    pi = task.path_integration
-    seed_seq = np.random.SeedSequence(pi.seed)
-    rng_train, rng_test = (np.random.default_rng(s) for s in seed_seq.spawn(2))
+    path_integration = task.path_integration
+    torch.random.fork_rng(devices=device)
+    torch.random.manual_seed(path_integration.seed)
+    np.random.seed(path_integration.seed)
 
     out_root = graphs_data_path(config.dataset)
     os.makedirs(out_root, exist_ok=True)
     logger.info(f"[task] path_integration -> {out_root}")
     logger.info(
-        f"[task] T={pi.n_steps} dt={pi.dt} sigma_omega={pi.sigma_omega_deg} "
-        f"tau_corr={pi.tau_corr} train={pi.n_trials_train} test={pi.n_trials_test} "
-        f"perturb={pi.input_perturbation is not None}"
+        f"[task] T={path_integration.n_steps} dt={path_integration.dt} sigma_omega={path_integration.sigma_omega_deg} "
+        f"tau_corr={path_integration.tau_corr} train={path_integration.n_trials_train} test={path_integration.n_trials_test} "
+        f"omega_noise_level={path_integration.omega_noise_level}"
     )
 
-    T = int(pi.n_steps)
-    dt = float(pi.dt)
-    alpha = 1.0 / float(pi.tau_corr)
-    sigma_step = float(pi.sigma_omega_deg) * math.sqrt(2.0 * alpha) * math.sqrt(dt)
+    T = int(path_integration.n_steps)
+    dt = float(path_integration.dt)
+    alpha = 1.0 / float(path_integration.tau_corr)
+    sigma_step = float(path_integration.sigma_omega_deg) * math.sqrt(2.0 * alpha) * math.sqrt(dt)
     decay = 1.0 - alpha * dt
-    mean_steps = pi.stop_mean_s / dt
-    max_steps = int(pi.stop_max_s / dt)
-    target_stop = int(pi.stop_fraction * T)
+    mean_steps = path_integration.stop_mean_s / dt
+    max_steps = int(path_integration.stop_max_s / dt)
+    target_stop = int(path_integration.stop_fraction * T)
 
-    for split, n_trials, rng in [
-        ("train", pi.n_trials_train, rng_train),
-        ("test", pi.n_trials_test, rng_test),
+    for split, n_trials in [
+        ("train", path_integration.n_trials_train),
+        ("test", path_integration.n_trials_test),
     ]:
         if n_trials <= 0:
             continue
@@ -406,25 +339,25 @@ def _generate_path_integration_task(config, *, device, visualize: bool = True) -
 
         logger.info(f"[task] {split}: generating {B} trials of T={T} ...")
 
-        # OU-driven angular velocity (Hulse Eq. 5). Loop is over T (not B), so
+        # OU-driven angular velocity. Loop is over T (not B), so
         # the bar shows time-step progress; B-scaling is in the array width.
         omega = np.zeros((B, T), dtype=np.float32)
-        eta = rng.standard_normal(size=(B, T)).astype(np.float32)
+        eta = np.random.standard_normal(size=(B, T)).astype(np.float32)
         for t in tqdm(range(1, T), desc=f"  {split} OU velocity (B={B})",
                       ncols=150, leave=False):
             omega[:, t] = decay * omega[:, t - 1] + sigma_step * eta[:, t]
 
         # Standing-pause mask: insert exponential-duration stops per trial.
         is_stop = np.zeros((B, T), dtype=np.float32)
-        if pi.stop_fraction > 0.0:
+        if path_integration.stop_fraction > 0.0:
             for b in tqdm(range(B), desc=f"  {split} stop-mask",
                           ncols=150, leave=False):
                 covered = 0
                 attempts = 0
                 while covered < target_stop and attempts < 100:
                     attempts += 1
-                    start = rng.integers(0, T)
-                    length = min(max_steps, int(rng.exponential(mean_steps)), T - start)
+                    start = np.random.randint(0, T)
+                    length = min(max_steps, int(np.random.exponential(mean_steps)), T - start)
                     if length <= 0:
                         continue
                     end = start + length
@@ -433,38 +366,25 @@ def _generate_path_integration_task(config, *, device, visualize: bool = True) -
                     covered += length - already
             omega *= 1.0 - is_stop  # zero velocity during stops
 
-        # Integrate to heading (Hulse Eq. 6).
-        theta0 = rng.uniform(0.0, 2.0 * math.pi, size=B).astype(np.float32)
+        # Integrate to heading.
+        theta0 = np.random.uniform(0.0, 2.0 * math.pi, size=B).astype(np.float32)
         theta_hd = theta0[:, None] + np.cumsum(np.deg2rad(omega), axis=1) * dt
         theta_hd[:, 0] = theta0
         target_y = np.stack([np.cos(theta_hd), np.sin(theta_hd)],
                             axis=-1).astype(np.float32)
 
-        # Input vector (Hulse Eq. 7): [omega, cos(theta0)·δ_t0, sin(theta0)·δ_t0].
-        stimulus_canonical = np.zeros((B, T, 3), dtype=np.float32)
-        stimulus_canonical[:, :, 0] = omega
-        stimulus_canonical[:, 0, 1] = np.cos(theta0)
-        stimulus_canonical[:, 0, 2] = np.sin(theta0)
-
-        delta_stimulus = None
-        if pi.input_perturbation is not None:
-            delta_stimulus = np.zeros_like(stimulus_canonical)
-            # Per-trial deterministic perturbation seed: derive from the split RNG
-            # so reordering trials doesn't shift all subsequent perturbations.
-            trial_seeds = rng.integers(0, 2**31 - 1, size=B, dtype=np.int64)
-            for i in tqdm(range(B), desc=f"  {split} perturbation",
-                          ncols=150, leave=False):
-                pert = build_input_perturbation(
-                    n_frames=T,
-                    n_channels=stimulus_canonical.shape[-1],
-                    perturbation=pi.input_perturbation,
-                    seed=int(trial_seeds[i]),
-                    device=device,
-                )
-                delta_stimulus[i] = pert.detach().cpu().numpy()
-            stimulus = (stimulus_canonical + delta_stimulus).astype(np.float32)
-        else:
-            stimulus = stimulus_canonical
+        # Input vector: [omega, cos(theta0)·δ_t0, sin(theta0)·δ_t0].
+        # Observation noise is added to the omega channel only — theta_hd /
+        # target_y above are computed from clean omega.
+        stimulus = np.zeros((B, T, 3), dtype=np.float32)
+        stimulus[:, :, 0] = omega
+        stimulus[:, 0, 1] = np.cos(theta0)
+        stimulus[:, 0, 2] = np.sin(theta0)
+        if path_integration.omega_noise_level > 0:
+            stimulus[:, :, 0] += (
+                path_integration.omega_noise_level
+                * np.random.standard_normal(size=(B, T)).astype(np.float32)
+            )
 
         split_dir = os.path.join(out_root, split)
         os.makedirs(split_dir, exist_ok=True)
@@ -473,9 +393,6 @@ def _generate_path_integration_task(config, *, device, visualize: bool = True) -
         _write_trial_zarr(os.path.join(split_dir, "target.zarr"), target_y)
         _write_trial_zarr_1d(os.path.join(split_dir, "theta_hd.zarr"), theta_hd)
         _write_trial_zarr_1d(os.path.join(split_dir, "is_stop.zarr"), is_stop)
-        if delta_stimulus is not None:
-            _write_trial_zarr(os.path.join(split_dir, "stimulus_canonical.zarr"), stimulus_canonical)
-            _write_trial_zarr(os.path.join(split_dir, "delta_stimulus.zarr"), delta_stimulus)
         logger.info(f"[task]   {split}: wrote {B} trials of T={T}")
 
         if visualize:
@@ -570,9 +487,9 @@ def _generate_cortex_task(config, *, device, visualize: bool = True) -> None:
             continue
 
         # One RNG drives both rule choice and Yang's per-trial randomness
-        # (passed in via hp['rng']). One RNG drives the perturbation stream.
-        rule_rng, yang_rng, pert_rng = (
-            np.random.default_rng(s) for s in split_seeds[split].spawn(3)
+        # (passed in via hp['rng']).
+        rule_rng, yang_rng = (
+            np.random.default_rng(s) for s in split_seeds[split].spawn(2)
         )
         # Yang uses RandomState (legacy); bridge it with the per-split seed.
         hp = dict(hp)
@@ -613,7 +530,6 @@ def _generate_cortex_task(config, *, device, visualize: bool = True) -> None:
         # Optional decorrelation perturbation on top of the canonical input.
         delta_stimulus = None
         if ct.input_perturbation is not None:
-            trial_seeds = pert_rng.integers(0, 2**31 - 1, size=n_total, dtype=np.int64)
             delta_stimulus = np.zeros_like(stimulus_canonical)
             for i in tqdm(range(n_total), desc=f"  {split} perturbation",
                           ncols=150, leave=False):
@@ -621,7 +537,6 @@ def _generate_cortex_task(config, *, device, visualize: bool = True) -> None:
                     n_frames=T_max,
                     n_channels=n_in,
                     perturbation=ct.input_perturbation,
-                    seed=int(trial_seeds[i]),
                     device=device,
                 )
                 # Mask perturbation to real timesteps so padding stays clean.
