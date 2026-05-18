@@ -2,23 +2,37 @@
 
 ## Goal
 
-Find the **best recurrent training scheme** for the Hulse-style
-connectome-constrained CX RNN (`TaskRNN` in
+Find the **best recurrent training scheme** for the connectome-constrained
+CX RNN (`TaskRNN` in
 [src/connectome_gnn/models/task_rnn.py](../src/connectome_gnn/models/task_rnn.py))
 on the path-integration task: given angular velocity ω(t) and a one-frame
 initial-heading impulse at t=0, predict (cos θ_hd, sin θ_hd) at every frame.
 
 **Primary metric**: `pi_acc` (mean cosine similarity between decoded and true
-heading on the test split, after a 10-frame warmup). Hulse-paper-level is
+heading on the test split, after a 10-frame warmup). Reference is
 **pi_acc ≥ 0.95** at full T=1000.
+
+**Secondary metric (NEW for this run)**: `gt_R2` and `gt_slope` — linear
+fit between learned `W_rec` and GT `W_con` on the non-zero edges (now
+rendered in the bottom-right of every snapshot, in
+`tmp_training/evolution/step_*.png`). Two circuits can both hit
+pi_acc ≥ 0.99 but one might be anatomically close (`gt_R2 → 1`) and the
+other functional-but-divergent (`gt_R2 ≈ 0.3`). **Always report both.**
 
 The dataset is **fixed**: 100k train + 10k test trials × T=1000 frames at
 dt=0.01s, generated once and reused across iterations. Only the training
 hyperparameters change.
 
+## Budget
+
+**160 iterations** (fresh run), 10 slots × 4 batches = 40 iter / block →
+**4 blocks total**. There is no room to re-solve the T=500 collapse
+problem (already solved by the existing winner curriculum). Every block
+must be a *targeted measurement* of one or two axes, not a free sweep.
+
 ## What's known (baseline behaviour)
 
-The current default (Hulse spec) hits pi_acc ≈ 0.999 at the T=100
+The original default (full-T BPTT, no noise, no clip) hit pi_acc ≈ 0.999 at the T=100
 curriculum stage and pi_acc ≈ 0.997 at T=250, then **collapses to pi_acc ≈
 0.000 at T=500** (loss jumps from 0.01 to 0.50). This is the central failure
 mode the agentic loop must understand and fix.
@@ -30,8 +44,8 @@ mode the agentic loop must understand and fix.
    `noise_recurrent_level · randn` at every step to smooth this; we don't.)
 2. **Gradient clipping is off** (`grad_clip_W = 0`) — a single bad step can
    blow `|S|` out of the basin.
-3. **lr schedule may decay too slowly** for the longer rollouts. Hulse drops
-   5e-3 → 1e-4 over 5 epochs; perhaps 5e-3 → 1e-5 is needed.
+3. **lr schedule may decay too slowly** for the longer rollouts. The
+   default drops 5e-3 → 1e-4 over 5 epochs; perhaps 5e-3 → 1e-5 is needed.
 4. **Sigmoid saturation** in the recurrent unit: long unrolls let `h` drift
    outside the linear regime of σ; once saturated, gradients vanish.
 5. **Curriculum jump is too aggressive**: T=250 → T=500 is a 2× jump on a
@@ -78,25 +92,26 @@ These are the fields the agent may set per-slot in `training:` /
 | `w_init_scale`          | `0.01`                           | (under **`training:`**) Scalar multiplier on the per-edge magnitude `S` at init (`S = w_init_scale * W_con_mask` in `const` mode). Try {1e-3, 1e-2, 5e-2, 1e-1, 0.5}. |
 | `w_init_mode`           | `const`                          | (under **`training:`**) Init template for `S`: `const` (=scale × mask, current default), `randn` (=scale × randn × mask, sign-symmetric noise on connectome support), `zeros`. |
 
-### Hulse aux losses (already wired)
+### Connectome-prior aux losses (already wired)
 
 | Field                | Default | Role                                                           |
 | -------------------- | ------- | -------------------------------------------------------------- | --- | ---------------------- |
-| `coeff_cos_distance` | `1.0`   | Hulse Eq. 10. Holds W_rec block-direction close to W_con.      |
-| `coeff_norm_floor`   | `1.0`   | Hulse Eq. 11. Soft floor on mean `                             | W   | ` per type-pair block. |
+| `coeff_cos_distance` | `1.0`   | Per-block cosine alignment to W_con (directional anchor).      |
+| `coeff_norm_floor`   | `1.0`   | Soft floor on mean `                                           | W   | ` per type-pair block. |
 | `kappa_norm_floor`   | `0.05`  | Floor target for the norm-floor penalty.                       |
 | `coeff_tv_circular`  | `0.0`   | Circular TV on EPG/PEN ring firing rates. Try {0, 1e-3, 1e-2}. |
 
 ### Architecture
 
-| Field            | Default    | Role                                               |
-| ---------------- | ---------- | -------------------------------------------------- |
-| `input_proj`     | `"matrix"` | `"matrix"` (Hulse default) or `"mlp"`.             |
-| `output_proj`    | `"matrix"` | Same options.                                      |
-| `hidden_dim`     | `64`       | Used only when projection is `"mlp"`.              |
-| `n_layers`       | `2`        | Used only when projection is `"mlp"`.              |
-| `MLP_activation` | `relu`     | `relu` / `tanh` / `leaky_relu` / `soft_relu`.      |
-| `include_er6`    | `true`     | 156-neuron Hulse spec vs 152-neuron Beiran loader. |
+| Field            | Default        | Role                                               |
+| ---------------- | -------------- | -------------------------------------------------- |
+| `input_proj`     | `"matrix"`     | `"matrix"` (default) or `"mlp"`.                   |
+| `output_proj`    | `"matrix"`     | Same options.                                      |
+| `velocity_gate`  | `"pen_only"` ★ | Anatomical gate on `W_in[:, 0]` (velocity column). `"none"` = free `(N,3)` matrix; `"pen_only"` = mask velocity to PEN rows only (42 cells, per-unit free); `"pen_4scalar"` = strict 4-scalar version (L/R × PENa/PENb broadcast, 4 learnable scalars total). **Primary axis for this run.** |
+| `hidden_dim`     | `64`           | Used only when projection is `"mlp"`.              |
+| `n_layers`       | `2`            | Used only when projection is `"mlp"`.              |
+| `MLP_activation` | `relu`         | `relu` / `tanh` / `leaky_relu` / `soft_relu`.      |
+| `include_er6`    | `true`         | 156-neuron CX spec vs 152-neuron core loader.      |
 
 ### Things you must NOT change
 
@@ -135,20 +150,33 @@ You can change one or two parameters per slot.
 In **robustness mode** (every slot identical), the pipeline forces 8
 different seeds; this measures seed sensitivity of a candidate winner.
 
-## Block plan
+## Block plan (160 iterations, 4 blocks × 40 iter, 10 slots/batch × 4 batches)
 
-8 slots/batch. Iterations: 148 total ≈ 18 batches ≈ 5 batches/block.
+Parent at iter 1 = current
+[`drosophila_cx_pi_winner.yaml`](../config/drosophila_cx/drosophila_cx_pi_winner.yaml)
+(14-seed mean pi_acc = 0.993 ± 0.005, fwhm 35–83°, `velocity_gate: pen_only`).
+The four blocks below answer four distinct questions in turn — **do not
+drift**; spend each block's 40 iterations on its own axis.
 
-| Block | Focus                                  | Knobs to scan                                                                                                  | Why                                                                              |
-| ----- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- | --- | --------------------------------------------------------------------------------------------------------- |
-| 1     | **Baseline + collapse confirmation**   | None — robustness test of Hulse defaults across 8 seeds.                                                       | Confirm the T=500 collapse is real and seed-stable (vs an unlucky run).          |
-| 2     | **Stabilising long-T BPTT (priority)** | `noise_recurrent_level` ∈ {0, 1e-3, 1e-2, 5e-2}; `grad_clip_W` ∈ {0, 1, 5, 10}; `coeff_W_L1` ∈ {0, 1e-5, 1e-4}; `w_init_scale` ∈ {1e-3, 1e-2, 5e-2, 1e-1}; `w_init_mode` ∈ {const, randn} | Direct attack on the collapse: noise injection + grad-clip + light L1 to bound ` | S   | ` growth. **Test the noise + clip combo last — if a single knob works alone, prefer the simpler config.** |
-| 3     | **lr schedule tuning**                 | `lr_schedule` variants: faster decay, slower decay, all-low                                                    | Hypothesis: lr=5e-4 at T=500 is too high once h saturates.                       |
-| 4     | **Curriculum smoothing**               | `n_steps_schedule` variants: gentler ramps, more epochs at small T                                             | Hypothesis: T=250→500 jump is the trigger.                                       |
-| 5     | **Aux-loss strength**                  | `coeff_cos_distance`, `coeff_norm_floor`, `kappa_norm_floor`, `coeff_tv_circular`                              | Test whether tighter connectome priors stabilise W at long T.                    |
-| 6     | **Architecture sweep**                 | `input_proj`/`output_proj` ∈ {"matrix","mlp"}; `hidden_dim`, `MLP_activation`                                  | Does an MLP I/O give the dynamics enough flexibility to integrate stably?        |
-| 7     | **Free exploration**                   | Any combination of best knobs from blocks 2-6                                                                  | Combine winners; test interactions.                                              |
-| 8     | **Final robustness**                   | None — 8-seed test of best config from blocks 1-7.                                                             | Confirm winner is seed-robust at full T=1000.                                    |
+| Block | Question | Slot layout (10 slots / batch) | Decision rule for the block boundary |
+| ----- | -------- | ------------------------------- | ------------------------------------ |
+| **1 — Velocity-gate baseline** | *Does the anatomical gate on `W_in` (PEN-only velocity) hurt, help, or leave pi_acc/`gt_R2` unchanged vs free `W_in`?* | s0–s2 control (`velocity_gate: pen_only`, parent) — 3 seeds<br>s3–s5 `velocity_gate: none` — 3 seeds<br>s6–s8 `velocity_gate: pen_4scalar` — 3 seeds<br>s9 `velocity_gate: pen_4scalar` + `coeff_cos_distance: 0` (probe: does 4-scalar still learn integration with the cos-distance prior off?) | Rank the 3 gates by (median pi_acc, median `gt_R2`). The winner gate is the parent for B2. If all three are within ±0.01 pi_acc, prefer `pen_4scalar` (strictest, lowest param count). |
+| **2 — `coeff_cos_distance` × gate** | *How does the GT-anchor strength trade pi_acc for `gt_R2`?* This is the trade-off you flagged: precision vs anatomical fidelity. | All slots use B1's winning gate. Sweep `coeff_cos_distance` ∈ {0.0, 0.1, 0.25, 0.5, 1.0, 2.0} = 6 levels × seed-doubled (12 slots → pick 10): s0 0.0 · s1 0.0 · s2 0.1 · s3 0.1 · s4 0.25 · s5 0.5 · s6 1.0 (parent) · s7 1.0 · s8 2.0 · s9 2.0. | Plot (pi_acc, `gt_R2`, `gt_slope`) vs coeff. Pick the **lowest coeff** at which pi_acc still holds ≥ 0.99 mean across its 2 seeds. Call this `coeff_*`. |
+| **3 — Locked-in interactions** | *With the gate fixed (B1) and `coeff_cos_distance = coeff_*` fixed (B2), what is the best remaining knob?* Most valuable axes: bump width (`coeff_norm_floor`, `kappa_norm_floor`) and stability (`noise_recurrent_level`, `grad_clip_W`). | s0–s1 (B2 winner, 2 seeds — bridge) · s2 `coeff_norm_floor: 0.0` · s3 `coeff_norm_floor: 0.5` · s4 `kappa_norm_floor: 0.10` · s5 `noise_recurrent_level: 1e-2` · s6 `noise_recurrent_level: 5e-2` · s7 `grad_clip_W: 5.0` · s8 `coeff_W_L1: 1e-5` · s9 `coeff_tv_circular: 1e-3`. | Promote any slot that (i) keeps pi_acc ≥ 0.99 AND (ii) improves either `gt_R2` by ≥ 0.05 over the bridge or `fwhm` by ≥ 10° toward the biological 60–90° band. |
+| **4 — 10-seed robustness** | *Is the candidate winner from B1+B2+B3 seed-robust?* | All 10 slots = identical config (B3 winner). Pipeline auto-forces 10 different seeds in robustness mode. | Report mean ± std for `pi_acc`, `fwhm_deg`, `gt_R2`, `gt_slope` across the 10 seeds. Save as the new `drosophila_cx_pi_winner.yaml` if mean pi_acc ≥ 0.99 AND no seed collapses (`collapse_detected: no` in all 10). |
+
+### Budget guard-rails
+
+- **Don't re-explore curriculum or LR schedules.** Both are already tuned
+  in the parent. If a block-1 slot collapses, that's a *signal* about the
+  velocity-gate (e.g. `pen_4scalar` over-constrains), not an invitation
+  to start re-tuning `n_steps_schedule`.
+- **One axis per block** is the rule. Block 3 is the only multi-knob
+  block and it tests them in parallel slots, not in combinations.
+- **Don't change `coeff_cos_distance` in B3 or B4.** It's frozen by B2.
+- **Always log `gt_R2` and `gt_slope`** in the analysis log — they're now
+  printed in every snapshot title; they have to make it into the
+  mutation log so post-hoc plots aren't blocked.
 
 ## Mutation log format (per iteration)
 
@@ -156,19 +184,22 @@ After each batch, append to working memory:
 
 ```
 ## Iter N (block B): [exploration | robustness]
-Parent: iter_M_slot_K  (pi_acc=X.XXX at full T)
+Parent: iter_M_slot_K  (pi_acc=X.XXX, gt_R2=Y.YY at full T)
 Hypothesis: "[testable claim about what the mutation should do]"
-Slot 0: [parent/control]   pi_acc=X.XXX  fwhm=YY°  collapse=no   traj=e1=A e2=B e3=C e4=D e5=E
-Slot 1: [knob -> value]    pi_acc=X.XXX  ...
+Slot 0: [parent/control]   pi_acc=X.XXX  gt_R2=Y.YY  gt_slope=Z.ZZ  fwhm=YY°  collapse=no  traj=e1=A e2=B e3=C e4=D e5=E
+Slot 1: [knob -> value]    pi_acc=X.XXX  gt_R2=Y.YY  ...
 ...
-Slot 7: [knob -> value]    pi_acc=X.XXX  ...
-Best slot: K  ->  pi_acc=X.XXX
+Slot 9: [knob -> value]    pi_acc=X.XXX  gt_R2=Y.YY  ...
+Best slot: K  ->  pi_acc=X.XXX  gt_R2=Y.YY
 Verdict: [supported | falsified | inconclusive]
 Next parent: iter_N_slot_K
 ```
 
 When a slot collapses, note the epoch at which it dropped and the loss/cosd/norm
-values at that epoch — this is the most informative diagnostic.
+values at that epoch — this is the most informative diagnostic. **Also record
+`gt_R2` at the last pre-collapse snapshot** — it tells you whether the
+collapse happened with `W_rec` close to GT (numerical instability) or far
+from GT (the optimiser walked off the connectome manifold).
 
 ## Winner config
 
@@ -191,7 +222,7 @@ At every block boundary, copy the best slot's config to
 
 ## Notes / hints
 
-- **The trainer's `tmp_training/kinograph_matrix/` directory** has 6-panel
+- **The trainer's `tmp_training/evolution/` directory** has 6-panel
   snapshots (GT W_con, learned W_rec, EPG kinograph, EPG raster, PEN raster,
   ω+HD overlay) at every snapshot interval. When diagnosing a collapse, look
   at the W_rec panel just before the collapse — it usually shows blown-up
@@ -204,3 +235,5 @@ At every block boundary, copy the best slot's config to
   default 0). It's the single most-promising stabiliser borrowed from
   flyvis. If Block 2 finds noise alone fixes the collapse, that's the
   simplest winner; if not, combine with `grad_clip_W` and/or `coeff_W_L1`.
+
+

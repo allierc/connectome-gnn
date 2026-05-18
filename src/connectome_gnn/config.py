@@ -546,8 +546,23 @@ class GraphModelConfig(BaseModel):
     # `hidden_dim` and `n_layers` above.
     input_proj: Literal["matrix", "mlp"] = "matrix"
     output_proj: Literal["matrix", "mlp"] = "matrix"
+    # TaskRNN + TaskGNN: when True, the effective per-edge weight is
+    # `|w| · sign_GT` (Dale-conformant; only magnitudes are learned).
+    # When False, the per-edge weight is learned with free sign — the GT
+    # connectome topology is still enforced via the mask, but Dale's law
+    # is relaxed. Only applies in CX (sign_locked-architecture) mode;
+    # in TaskRNN's free-W branch (Yang/cortex) this flag is a no-op.
+    lock_edge_signs: bool = True
+    # TaskRNN: anatomical gate on the velocity column of W_in.
+    # "pen_only"    — zero W_in[:, 0] outside PENa/PENb rows; per-unit
+    #                 weights stay free.
+    # "pen_4scalar" — strict Hulse 2025: 4 learnable scalars (L/R × PENa/PENb)
+    #                 broadcast onto their subpopulations; sign initialised
+    #                 opposite for L vs R.
+    # "none"        — W_in fully free (default).
+    velocity_gate: Literal["none", "pen_only", "pen_4scalar"] = "none"
     # TaskRNN: include the 4 ER6 broad-inhibitory ring neurons in the
-    # hemibrain CX (156-neuron Hulse spec). False uses Beiran's 152-neuron loader.
+    # hemibrain CX (156-neuron spec). False uses Beiran's 152-neuron loader.
     include_er6: bool = True
 
     # TaskRNN (cortex/free-W mode): explicit recurrent population size + I/O
