@@ -192,6 +192,42 @@ def _deterministic_sweep_rollout(
     }
 
 
+def _rollout_heading_metrics(
+    net,
+    *,
+    n_steps: int,
+    omega_deg_per_s: float,
+    device: str,
+    warmup: int = 10,
+) -> tuple[float, float]:
+    """RMSE (deg) and Pearson correlation on a deterministic sweep rollout.
+
+    - RMSE is computed on the wrapped angular residual decoded − true.
+    - Pearson is computed between the unwrapped decoded trajectory and the
+      (already-monotone) ground-truth trajectory, after a short warmup.
+    Returns (nan, nan) on failure or degenerate input.
+    """
+    try:
+        rollout = _deterministic_sweep_rollout(
+            net, n_steps=n_steps,
+            omega_deg_per_s=omega_deg_per_s, device=device,
+        )
+    except Exception:
+        return float("nan"), float("nan")
+    true_theta = np.asarray(rollout["true_theta"])
+    decoded = np.asarray(rollout["decoded_theta"])
+    if true_theta.size <= warmup:
+        return float("nan"), float("nan")
+    err = np.angle(np.exp(1j * (decoded[warmup:] - true_theta[warmup:])))
+    rmse_deg = float(np.degrees(np.sqrt(np.mean(err ** 2))))
+    decoded_unwrapped = np.unwrap(decoded[warmup:])
+    if (decoded_unwrapped.std() < 1e-8
+            or true_theta[warmup:].std() < 1e-8):
+        return rmse_deg, float("nan")
+    pearson = float(np.corrcoef(decoded_unwrapped, true_theta[warmup:])[0, 1])
+    return rmse_deg, pearson
+
+
 def load_pi_fwhm_history(metrics_log_path: str):
     """Read pi_acc, fwhm_deg, and RMSE histories from a trainer metrics.log.
 
@@ -342,16 +378,17 @@ def _plot_gnn_functions(
     plt.savefig(os.path.join(emb_dir, name), dpi=87)
     plt.close(fig)
 
-    # 2) g_phi function: r ∈ [0, 1] (sigmoid output range) on x; mean ± std
-    # per type. Override config.plotting.xlim/ylim for the sigmoid range,
-    # then restore so other callers aren't affected.
+    # 2) g_phi function: v ∈ [-3, 3] on x (the GNN MLPs consume the raw
+    # subthreshold state v ≡ h, no sigmoid wrap). Override
+    # config.plotting.xlim/ylim for this voltage range, then restore so
+    # other callers aren't affected.
     gphi_dir = os.path.join(log_dir, 'tmp_training', 'function', 'g_phi')
     os.makedirs(gphi_dir, exist_ok=True)
     orig_xlim = list(config.plotting.xlim)
     orig_ylim = list(config.plotting.ylim)
     try:
-        config.plotting.xlim = [0.0, 1.0]
-        config.plotting.ylim = [-0.5, 1.5]
+        config.plotting.xlim = [-3.0, 3.0]
+        config.plotting.ylim = [-1.0, 1.0]
         fig, ax = plt.subplots(figsize=(8, 8))
         plot_g_phi(ax, net, config, n_neurons, nt_np, cmap, device,
                     type_names=list(type_names))
@@ -362,15 +399,15 @@ def _plot_gnn_functions(
         config.plotting.xlim = orig_xlim
         config.plotting.ylim = orig_ylim
 
-    # 3) f_theta function: same r ∈ [0, 1] x-axis, msg pinned to 0 (probe
-    # the per-node update at zero recurrent input). TaskGNN's f_theta input
-    # is (r, a, msg) — 1 + emb_dim + 1 — which doesn't match the generic
-    # `_build_f_theta_features` (1 + emb_dim + 1 + 1, with excitation), so
-    # we use a local feature builder.
+    # 3) f_theta function: same voltage x-axis v ∈ [-3, 3], msg pinned to
+    # 0 to probe the per-node update at zero recurrent input. TaskGNN's
+    # f_theta input is (v, a, msg) — 1 + emb_dim + 1 — which doesn't match
+    # the generic `_build_f_theta_features` (1 + emb_dim + 1 + 1, with
+    # excitation), so we use a local feature builder.
     ftheta_dir = os.path.join(log_dir, 'tmp_training', 'function', 'f_theta')
     os.makedirs(ftheta_dir, exist_ok=True)
     n_pts = 1000
-    rr_1d = torch.linspace(0.0, 1.0, n_pts, device=device)
+    rr_1d = torch.linspace(-3.0, 3.0, n_pts, device=device)
     rr = rr_1d.unsqueeze(0).expand(n_neurons, -1)
     feat_fn = lambda rr_f, emb_f: torch.cat(
         [rr_f, emb_f, torch.zeros_like(rr_f)], dim=1
@@ -394,9 +431,9 @@ def _plot_gnn_functions(
             ax.fill_between(x_np, mean - std, mean + std,
                              color=color, alpha=0.15)
     ax.axhline(0, color='#aaa', linewidth=0.5, linestyle='--')
-    ax.set_xlim([0.0, 1.0])
-    ax.set_xlabel(r'$r_i = \sigma(h_i)$', fontsize=20)
-    ax.set_ylabel(r'$f_\theta(r_i, \mathbf{a}_i, \mathrm{msg}=0)$', fontsize=20)
+    ax.set_xlim([-3.0, 3.0])
+    ax.set_xlabel(r'$v_i$', fontsize=24)
+    ax.set_ylabel(r'$f_\theta(\mathbf{a}_i, v_i)$', fontsize=24)
     if len(np.unique(type_np)) <= 12:
         ax.legend(fontsize=12, frameon=False, loc='upper right')
     ax.tick_params(axis='both', which='major', labelsize=14)

@@ -109,11 +109,11 @@ if __name__ == "__main__":
             if len(args.option) > 3:
                 test_config_name = args.option[3]
             else:
-                test_condrosophila_cx_pi_gnnfig_name = None
+                test_config_name = None
     else:
         best_model = ''
-        task = task = 'generate'
-        config_list = ['drosophila_cx_pi']
+        task = task = 'train'
+        config_list = ['drosophila_cx_pi_gnn']
         test_config_name = None
 
     if task == 'cv':

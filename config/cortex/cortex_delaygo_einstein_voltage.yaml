@@ -1,0 +1,57 @@
+description: "Voltage generation from a trained cortex_delaygo_einstein TaskRNN — teacher's W_rec carries the Einstein binary mask (~50% sparsity); ode_params.pt's edge_index reflects that connectivity for the downstream sparse-W recovery GNN."
+
+dataset: cortex_delaygo_einstein_voltage
+
+simulation:
+  task_model_config_path: cortex_delaygo_einstein
+  n_frames: 64000
+  delta_t: 0.02
+  seed: 42
+  n_neurons: 256
+  n_input_neurons: 0
+  n_edges: 0                # GNN sees the einstein-shaped edge_index from ode_params.pt
+  noise_model_level: 0.0
+  measurement_noise_level: 0.0
+  params:
+    - - 1.0
+
+graph_model:
+  aggr_type: add
+  embedding_dim: 2
+  signal_model_name: cortex              # routes to NeuralGNN via registry
+  prediction: first_derivative
+  hidden_dim: 64
+  n_layers: 3
+  input_size: 3
+  input_size_update: 5
+  hidden_dim_update: 64
+  n_layers_update: 3
+  output_size: 1
+  update_type: generic
+  g_phi_positive: false
+
+plotting: {}
+
+training:
+  device: auto
+  seed: 42
+  n_runs: 1
+  n_epochs: 20
+  batch_size: 4
+  batch_ratio: 1
+  lr: 1.0e-3
+  lr_W: 1.0e-3
+  lr_embedding: 1.0e-3
+  data_augmentation_loop: 50
+  coeff_W_L1: 0
+  coeff_W_L2: 1.5e-6
+  coeff_W_sign: 0
+  w_init_mode: zeros
+  w_init_scale: 1.0
+  # Use the teacher's einstein-shaped edge_index from ode_params.pt
+  # instead of a free fully-connected GNN — this is the natural recovery
+  # setup when the teacher has known structural sparsity.
+  use_gt_edges: true
+  sparsity: "none"
+  torch_compile: false
+  coeff_f_theta_diff: 5.0 # negative-monotonicity prior ∂f_θ/∂h < 0 (value from neural-gnn signal configs)

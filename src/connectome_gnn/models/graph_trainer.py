@@ -1686,11 +1686,16 @@ def data_test(config=None, config_file=None, visualize=False, style='color frame
     _logger.info(f"dataset_name: {dataset_name}")
     _logger.info(f"{config.description}")
 
-    # Task-trainer test dispatch (cortex first, path_integration later).
+    # Task-trainer test dispatch.
     if getattr(config, 'task', None) is not None:
         task_type = str(getattr(config.task, 'task_type', '')).lower()
         if task_type == 'cortex':
             data_test_cortex_task_gnn(
+                config, best_model=best_model, device=device, log_file=log_file,
+            )
+            return
+        if task_type == 'path_integration':
+            data_test_path_integration_task(
                 config, best_model=best_model, device=device, log_file=log_file,
             )
             return
@@ -1746,6 +1751,7 @@ from connectome_gnn.models.graph_tester import (
     data_test_cortex_task_gnn,
     data_test_gnn,
     data_test_gnn_special,
+    data_test_path_integration_task,
 )
 
 
@@ -1763,11 +1769,12 @@ def data_train_task_gnn(config, erase, best_model, device, log_file=None):
     """
     task_type = str(getattr(config.task, "task_type", "path_integration")).lower()
     if task_type == "cortex":
-        return _data_train_cortex_task_gnn(config, erase, best_model, device, log_file)
-    return _data_train_pi_task_gnn(config, erase, best_model, device, log_file)
+        return _data_train_cortex_task(config, erase, best_model, device, log_file)
+    elif task_type == "path_integration":
+        return _data_train_pi_task(config, erase, best_model, device, log_file)
 
 
-def _data_train_pi_task_gnn(config, erase, best_model, device, log_file=None):
+def _data_train_pi_task(config, erase, best_model, device, log_file=None):
     """Train a TaskRNN on the path-integration task data.
 
     Mirrors the skeleton of `data_train_gnn`:
@@ -1788,6 +1795,7 @@ def _data_train_pi_task_gnn(config, erase, best_model, device, log_file=None):
     import torch.nn.functional as F
 
     from connectome_gnn.models.cx_eval import (
+        _rollout_heading_metrics,
         _save_training_snapshot,
         bump_fwhm,
         path_integration_accuracy_from_data,
@@ -1812,7 +1820,7 @@ def _data_train_pi_task_gnn(config, erase, best_model, device, log_file=None):
     kinograph_dir = os.path.join(log_dir, 'tmp_training', 'evolution')
     os.makedirs(kinograph_dir, exist_ok=True)
 
-    # --- Eager load: trials stay on GPU between iterations ---------------
+    # --- load: trials stay on GPU between iterations ---------------
     root = graphs_data_path(config.dataset)
     _logger.info(f'loading task data from {root}/(train|test)/...')
     u_train = torch.from_numpy(load_raw_array(f"{root}/train/stimulus.zarr")).to(device)
@@ -1863,6 +1871,7 @@ def _data_train_pi_task_gnn(config, erase, best_model, device, log_file=None):
     total_iters = tc.n_epochs * Niter
     best_loss = float('inf')
     global_step = 0
+    n_nan_skips = 0       # cumulative count of skipped optimizer steps
 
     # Per-epoch trial-length curriculum. Slice the first T_epoch frames
     # from the on-disk T=T_full trials. Empty schedule = use T_full.
@@ -1893,6 +1902,8 @@ def _data_train_pi_task_gnn(config, erase, best_model, device, log_file=None):
 
     last_pi_acc = float('nan')
     last_fwhm = float('nan')
+    last_rmse_roll = float('nan')   # deg, deterministic-sweep rollout
+    last_pearson_roll = float('nan')  # corr(unwrapped decoded, true)
     model.train()
 
     # torch.compile (mirrors data_train_gnn line 451). The recurrent forward
@@ -1919,7 +1930,20 @@ def _data_train_pi_task_gnn(config, erase, best_model, device, log_file=None):
         logger.info('torch.compile disabled via config (torch_compile: false)')
 
     _logger.info(f'start training: {tc.n_epochs} epochs × {Niter} iters/epoch '
-                 f'(n_trials={n_trials}, DAL={dal})')
+                 f'(n_trials={n_trials}, DAL={dal}); '
+                 f'metrics+snapshot every {snap_every} iters '
+                 f'(~{total_iters // snap_every} snapshots total)')
+
+    # Rolling backup for param-finiteness rollback. Refreshed after every
+    # successful step. If optimizer.step() pushes a param to NaN/Inf (Adam can
+    # do this even with clip_grad_norm, since the clip bounds L2 not the
+    # per-element update), subsequent forwards return NaN and the trainer
+    # loops forever in the NaN-loss skip branch. We restore both model and
+    # optimizer state because Adam's m/v are typically NaN too.
+    last_good_model_state = {
+        k: v.detach().clone() for k, v in eval_model.state_dict().items()
+    }
+    last_good_opt_state = optimizer.state_dict()
 
     for epoch in range(tc.n_epochs):
         T_epoch = n_steps_schedule[epoch]
@@ -1940,7 +1964,7 @@ def _data_train_pi_task_gnn(config, erase, best_model, device, log_file=None):
             dim=0,
         )
         pbar = trange(Niter, ncols=150,
-                      desc=f'task_gnn epoch {epoch+1}/{tc.n_epochs} (T={T_epoch})', leave=True)
+                      desc=f'epoch {epoch+1}/{tc.n_epochs} (T={T_epoch})', leave=True)
         for N in pbar:
             global_step += 1
             idx = perm[N * tc.batch_size:(N + 1) * tc.batch_size]
@@ -1963,11 +1987,113 @@ def _data_train_pi_task_gnn(config, erase, best_model, device, log_file=None):
             loss = mse + cosd + norm + tv + l1S
 
             optimizer.zero_grad(set_to_none=True)
+            # NaN guardrail: if the loss itself is non-finite we know the
+            # gradients will be too, so skip backward+step entirely.
+            if not torch.isfinite(loss):
+                n_nan_skips += 1
+                lr_scheduler.step()
+                if n_nan_skips == 1:
+                    # One-shot diagnostic dump on the first NaN to locate
+                    # the source: params (corruption?), input (data issue?),
+                    # y_hat / h_buf (forward divergence — and which T).
+                    _logger.warning(
+                        f'iter {global_step}: FIRST non-finite loss '
+                        f'({loss.item()}); diagnostic dump:'
+                    )
+                    for _name, _p in eval_model.named_parameters():
+                        _logger.warning(
+                            f'  param {_name}: shape={tuple(_p.shape)} '
+                            f'nan={int(torch.isnan(_p).any())} '
+                            f'inf={int(torch.isinf(_p).any())} '
+                            f'max_abs={_p.detach().abs().max().item():.3e}'
+                        )
+                    _logger.warning(
+                        f'  input u: shape={tuple(u.shape)} '
+                        f'nan={int(torch.isnan(u).any())} '
+                        f'inf={int(torch.isinf(u).any())} '
+                        f'max_abs={u.detach().abs().max().item():.3e}'
+                    )
+                    _yh_nan = int(torch.isnan(y_hat).any())
+                    _yh_inf = int(torch.isinf(y_hat).any())
+                    _logger.warning(
+                        f'  y_hat: nan={_yh_nan} inf={_yh_inf} '
+                        f'max_abs={y_hat.detach().abs().max().item():.3e}'
+                    )
+                    _hb_bad = torch.isnan(h_buf) | torch.isinf(h_buf)
+                    if _hb_bad.any():
+                        # Reduce sequentially: (B, T, N) -> (T, N) -> (T,).
+                        _bad_per_t = _hb_bad.any(dim=0).any(dim=1)
+                        _first_t = int(_bad_per_t.nonzero()[0].item())
+                        _h_prev_max = (
+                            h_buf[:, _first_t - 1].abs().max().item()
+                            if _first_t > 0 else float('nan')
+                        )
+                        _logger.warning(
+                            f'  h_buf: first non-finite at t={_first_t} '
+                            f'(of T={h_buf.shape[1]}); '
+                            f'h_buf[t-1].max_abs={_h_prev_max:.3e}'
+                        )
+                    else:
+                        _logger.warning(
+                            f'  h_buf: all finite, '
+                            f'max_abs={h_buf.detach().abs().max().item():.3e}'
+                        )
+                elif n_nan_skips % 50 == 0:
+                    _logger.warning(
+                        f'iter {global_step}: non-finite loss '
+                        f'({loss.item()}); skipping step '
+                        f'(total skips={n_nan_skips})'
+                    )
+                continue
+
             loss.backward()
             if grad_clip > 0:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+            # Post-clip guardrail: skip the step if any parameter gradient
+            # is non-finite (NaN/Inf). Clears the bad grads so the next
+            # backward starts clean, and counts the skip for diagnostics.
+            grads_finite = all(
+                p.grad is None or torch.isfinite(p.grad).all()
+                for p in model.parameters()
+            )
+            if not grads_finite:
+                optimizer.zero_grad(set_to_none=True)
+                n_nan_skips += 1
+                lr_scheduler.step()
+                if n_nan_skips == 1 or n_nan_skips % 50 == 0:
+                    _logger.warning(
+                        f'iter {global_step}: non-finite gradient; '
+                        f'skipping step (total skips={n_nan_skips})'
+                    )
+                continue
             optimizer.step()
             lr_scheduler.step()
+
+            # Param-finiteness rollback. clip_grad_norm bounds the L2 norm of
+            # the gradients, but Adam can still amplify a single component
+            # past finite range; if any param goes NaN/Inf, every subsequent
+            # forward returns NaN and the NaN-loss guard above traps forever.
+            # Restore from the rolling backup and reset optimizer state.
+            params_finite = all(
+                torch.isfinite(p).all() for p in eval_model.parameters()
+            )
+            if params_finite:
+                last_good_model_state = {
+                    k: v.detach().clone()
+                    for k, v in eval_model.state_dict().items()
+                }
+                last_good_opt_state = optimizer.state_dict()
+            else:
+                eval_model.load_state_dict(last_good_model_state)
+                optimizer.load_state_dict(last_good_opt_state)
+                n_nan_skips += 1
+                if n_nan_skips == 1 or n_nan_skips % 50 == 0:
+                    _logger.warning(
+                        f'iter {global_step}: param NaN after step; '
+                        f'restored model+optimizer from rolling backup '
+                        f'(total skips={n_nan_skips})'
+                    )
+                continue
 
             # Uniform-in-global-step cadence: fires at gs = 1, snap_every+1,
             # 2*snap_every+1, ... plus a final one at end-of-training. Avoids
@@ -1986,6 +2112,12 @@ def _data_train_pi_task_gnn(config, erase, best_model, device, log_file=None):
                     last_fwhm = bump_fwhm(
                         eval_model, eval_model.epg_indices, eval_model.epg_glom_ix,
                         n_trials=64, n_steps=T_epoch, device=device,
+                    )
+                    last_rmse_roll, last_pearson_roll = _rollout_heading_metrics(
+                        eval_model,
+                        n_steps=snapshot_n_steps,
+                        omega_deg_per_s=snapshot_omega_deg,
+                        device=device,
                     )
                 _save_training_snapshot(
                     net=eval_model, log_dir=log_dir,
@@ -2008,14 +2140,57 @@ def _data_train_pi_task_gnn(config, erase, best_model, device, log_file=None):
                             f'{float(tv):.6f},{float(l1S):.6f},'
                             f'{last_pi_acc:.6f},{fwhm_deg:.3f}\n')
 
+                # --- Memory debug (CPU RSS + GPU alloc/reserved) -----------
+                # try:
+                #     with open('/proc/self/status', 'r') as _sf:
+                #         _rss_kb = next(
+                #             (int(line.split()[1]) for line in _sf
+                #              if line.startswith('VmRSS:')), 0)
+                #     cpu_mb = _rss_kb / 1024.0
+                # except Exception:
+                #     cpu_mb = float('nan')
+                # if torch.cuda.is_available():
+                #     gpu_alloc_mb = torch.cuda.memory_allocated(device) / 1024**2
+                #     gpu_reserved_mb = torch.cuda.memory_reserved(device) / 1024**2
+                #     gpu_peak_mb = torch.cuda.max_memory_allocated(device) / 1024**2
+                #     _logger.info(
+                #         f'[mem] iter={global_step}  '
+                #         f'CPU_RSS={cpu_mb:.0f}MB  '
+                #         f'GPU_alloc={gpu_alloc_mb:.0f}MB  '
+                #         f'GPU_reserved={gpu_reserved_mb:.0f}MB  '
+                #         f'GPU_peak={gpu_peak_mb:.0f}MB'
+                #     )
+                #     torch.cuda.reset_peak_memory_stats(device)
+                # else:
+                #     _logger.info(
+                #         f'[mem] iter={global_step}  CPU_RSS={cpu_mb:.0f}MB'
+                #     )
+
             if loss.item() < best_loss:
                 best_loss = loss.item()
 
-            fwhm_str = (f'{np.degrees(last_fwhm):.0f}°'
-                        if not np.isnan(last_fwhm) else 'n/a')
+            # Progress bar: replaced fwhm with deterministic-sweep rollout
+            # metrics. Pearson is colour-coded (red < 0.5, orange < 0.9, green).
+            if np.isnan(last_rmse_roll):
+                rmse_roll_str = 'n/a'
+            else:
+                rmse_roll_str = f'{last_rmse_roll:.1f}°'
+            if np.isnan(last_pearson_roll):
+                pearson_str = 'n/a'
+            else:
+                if last_pearson_roll >= 0.9:
+                    _col = '\033[32m'  # green
+                elif last_pearson_roll >= 0.5:
+                    _col = '\033[33m'  # orange/yellow
+                else:
+                    _col = '\033[31m'  # red
+                pearson_str = f'{_col}{last_pearson_roll:.3f}\033[0m'
+            skips_str = f'  skips={n_nan_skips}' if n_nan_skips > 0 else ''
             pbar.set_postfix_str(
                 f'loss={loss.item():.4f}  mse={mse.item():.4f}  '
-                f'pi_acc={last_pi_acc:.3f}  fwhm={fwhm_str}  best={best_loss:.4f}'
+                f'pi_acc={last_pi_acc:.3f}  '
+                f'rmse_roll={rmse_roll_str}  r_roll={pearson_str}  '
+                f'best={best_loss:.4f}{skips_str}'
             )
 
         # Per-epoch checkpoint (matches data_train_gnn's naming). Save the
@@ -2044,7 +2219,7 @@ def _data_train_pi_task_gnn(config, erase, best_model, device, log_file=None):
 # Cortex (Yang 2019) task trainer (TaskRNN, free-W mode)
 # ============================================================================
 
-def _data_train_cortex_task_gnn(config, erase, best_model, device, log_file=None):
+def _data_train_cortex_task(config, erase, best_model, device, log_file=None):
     """Train a TaskRNN (free-W mode) on a Yang cortex task (delaygo etc.).
 
     Data layout under <dataset>/{train,test}/{stimulus,target,c_mask}.zarr

@@ -736,25 +736,34 @@ def plot_task_pi_traces(
     out_path: str,
     n_show: int = 5,
     style: FigureStyle = default_style,
+    *,
+    y_pred: Optional[np.ndarray] = None,
+    metrics: Optional[List[Dict[str, float]]] = None,
 ) -> None:
     """Stimulus/target preview, one column per trial.
 
-    Rows are split into INPUT (the 3 stimulus channels) and OUTPUT (the 2
-    target channels):
-
+    Without predictions (default — used by data generation):
       Row 0 [in 0]   ω(t) — angular velocity (deg/s)
       Row 1 [in 1]   cos(θ₀)·δ_{t=0} — initial-heading pulse
       Row 2 [in 2]   sin(θ₀)·δ_{t=0} — initial-heading pulse
       Row 3 [out 0]  cos(θ_hd(t))
       Row 4 [out 1]  sin(θ_hd(t))
 
+    With predictions (y_pred is not None — used by data_test):
+      Rows 0-2 same as above.
+      Row 3 [HD]     wrapped HD — true (black) + decoded (red)
+      Row 4 [out 0]  cos(θ_hd) — gt (black) + decoded (red dashed)
+      Row 5 [out 1]  sin(θ_hd) — gt (black) + decoded (red dashed)
+    Per-column titles include metrics (e.g. "rmse=12° r=0.98") when supplied.
+
     Standing-pause regions (is_stop=1) shaded in gray on every row.
     """
     n_trials, T, _ = u.shape
     n = min(n_show, n_trials)
     t = np.arange(T) * dt
+    has_pred = y_pred is not None
 
-    n_rows = 5
+    n_rows = 6 if has_pred else 5
     fig, axes = plt.subplots(n_rows, n, figsize=(2.6 * n, 1.5 * n_rows + 1.0),
                              sharex=True, sharey='row')
     if n == 1:
@@ -768,19 +777,24 @@ def plot_task_pi_traces(
         (-omega_lim, omega_lim),
         (-pulse_lim, pulse_lim),
         (-pulse_lim, pulse_lim),
-        (-out_lim, out_lim),
-        (-out_lim, out_lim),
     ]
+    if has_pred:
+        row_ylims.append((-np.pi - 0.15, np.pi + 0.15))  # wrapped HD row
+    row_ylims.extend([(-out_lim, out_lim), (-out_lim, out_lim)])
 
-    # Per-row metadata: (kind, label, color).
-    INP, OUT = "0.92", "0.97"  # background tints to separate input vs output
+    # Per-row metadata: (kind, label, color, background-tint).
+    INP, HD, OUT = "0.92", "0.94", "0.97"
     rows = [
         ("input",  "in 0\nω (deg/s)",        "C0", INP),
         ("input",  "in 1\ncos(θ₀)·δ_{t=0}",  "C0", INP),
         ("input",  "in 2\nsin(θ₀)·δ_{t=0}",  "C1", INP),
+    ]
+    if has_pred:
+        rows.append(("hd", "HD (rad,\nwrapped)", "black", HD))
+    rows.extend([
         ("output", "out 0\ncos(θ)",          "C0", OUT),
         ("output", "out 1\nsin(θ)",          "C1", OUT),
-    ]
+    ])
 
     def _shade_stops(ax, stop):
         in_block = False
@@ -797,50 +811,108 @@ def plot_task_pi_traces(
     axis_fs = max(7, style.tick_font_size - 2)
 
     for col in range(n):
-        stop = is_stop[col].astype(bool)
+        stop = (is_stop[col].astype(bool) if is_stop is not None
+                else np.zeros(T, dtype=bool))
 
-        # Each input/output channel as its own row.
-        traces = [
-            u[col, :, 0],   # ω
-            u[col, :, 1],   # cos(θ₀)·δ
-            u[col, :, 2],   # sin(θ₀)·δ
-            y[col, :, 0],   # cos(θ_hd)
-            y[col, :, 1],   # sin(θ_hd)
+        # Traces, in row order. Each entry is (trace_gt, optional trace_pred).
+        # The HD row carries (true_hd_wrapped, decoded_hd_wrapped); on output
+        # rows the second item is the predicted cos/sin trace.
+        traces: list = [
+            (u[col, :, 0], None),   # ω
+            (u[col, :, 1], None),   # cos(θ₀)·δ
+            (u[col, :, 2], None),   # sin(θ₀)·δ
         ]
+        if has_pred:
+            true_hd_wrap = np.angle(np.exp(1j * theta_hd[col]))
+            dec_theta = np.arctan2(y_pred[col, :, 1], y_pred[col, :, 0])
+            traces.append((true_hd_wrap, dec_theta))
+            traces.append((y[col, :, 0], y_pred[col, :, 0]))
+            traces.append((y[col, :, 1], y_pred[col, :, 1]))
+        else:
+            traces.append((y[col, :, 0], None))
+            traces.append((y[col, :, 1], None))
 
-        for r, ((kind, label, color, bg), trace) in enumerate(zip(rows, traces)):
+        for r, ((kind, label, color, bg), (trace_gt, trace_pred)) in enumerate(
+            zip(rows, traces)
+        ):
             ax = axes[r, col]
             ax.set_facecolor(bg)
-            # Initial-heading channels (rows 1,2) are δ_{t=0} — render as a
-            # marker at t=0 so the single non-zero sample is visible at any T.
             if r in (1, 2):
-                ax.plot(t, trace, color=color, lw=0.8, alpha=0.6)
-                ax.scatter([0], [trace[0]], color=color, s=24, zorder=3)
+                # Initial-heading impulse channels.
+                ax.plot(t, trace_gt, color=color, lw=0.8, alpha=0.6)
+                ax.scatter([0], [trace_gt[0]], color=color, s=24, zorder=3)
+            elif kind == "hd":
+                ax.plot(t, trace_gt, color="black", lw=0.0, marker=".",
+                        ms=1.4, label="true HD")
+                ax.plot(t, trace_pred, color="red", lw=0.0, marker=".",
+                        ms=1.4, label="decoded HD")
+                ax.set_yticks([-np.pi, 0, np.pi])
+                ax.set_yticklabels([r"$-\pi$", "0", r"$\pi$"])
+                if col == 0:
+                    ax.legend(fontsize=axis_fs - 1, loc="upper left",
+                              framealpha=0.7)
             else:
-                ax.plot(t, trace, color=color, lw=1.2)
+                ax.plot(t, trace_gt, color=color, lw=1.2,
+                        label="gt" if has_pred else None)
+                if trace_pred is not None:
+                    ax.plot(t, trace_pred, color="red", lw=1.0, ls="--",
+                            alpha=0.85, label="pred")
+                    if col == 0 and r == n_rows - 2:
+                        ax.legend(fontsize=axis_fs - 1, loc="lower left",
+                                  framealpha=0.7)
             ax.axhline(0, color="0.5", lw=0.5)
             ax.set_ylim(*row_ylims[r])
             ax.tick_params(axis='both', labelsize=axis_fs)
             _shade_stops(ax, stop)
             if r == 0:
-                ax.set_title(f"trial {col}", fontsize=style.label_font_size)
+                ttl = f"trial {col}"
+                if metrics is not None and col < len(metrics):
+                    m = metrics[col]
+                    rmse_s = (f"rmse={m['rmse_deg']:.1f}°"
+                              if not np.isnan(m.get('rmse_deg', float('nan')))
+                              else "rmse=n/a")
+                    r_s = (f"r={m['pearson']:.3f}"
+                           if not np.isnan(m.get('pearson', float('nan')))
+                           else "r=n/a")
+                    if 'omega_deg' in m:
+                        ttl = (f"ω={m['omega_deg']:+.0f}°/s\n"
+                               f"{rmse_s}  {r_s}")
+                    else:
+                        ttl = f"trial {col}\n{rmse_s}  {r_s}"
+                ax.set_title(ttl, fontsize=style.label_font_size - 1)
             if r == n_rows - 1:
                 ax.set_xlabel("time (s)", fontsize=axis_fs)
             if col == 0:
                 ax.set_ylabel(label, fontsize=axis_fs)
 
-    # Bracket-style INPUT/OUTPUT labels in the left margin.
-    fig.text(0.005, 0.72, "INPUT",  rotation=90, va='center', ha='left',
-             fontsize=axis_fs + 1, fontweight='bold', color='0.25')
-    fig.text(0.005, 0.30, "OUTPUT", rotation=90, va='center', ha='left',
-             fontsize=axis_fs + 1, fontweight='bold', color='0.25')
+    # Bracket-style group labels in the left margin. Positions are computed
+    # from the row count so the 5-row and 6-row layouts both look right.
+    def _row_y(r: int) -> float:
+        # Approximate y-center of axes row `r` in figure coordinates.
+        return 0.97 - 0.05 - (r + 0.5) * (0.90 / n_rows)
 
-    fig.suptitle(
+    fig.text(0.005, _row_y(1.0), "INPUT", rotation=90, va='center', ha='left',
+             fontsize=axis_fs + 1, fontweight='bold', color='0.25')
+    if has_pred:
+        fig.text(0.005, _row_y(3.0), "HD", rotation=90, va='center', ha='left',
+                 fontsize=axis_fs + 1, fontweight='bold', color='0.25')
+        fig.text(0.005, _row_y(4.5), "OUTPUT", rotation=90, va='center',
+                 ha='left', fontsize=axis_fs + 1, fontweight='bold',
+                 color='0.25')
+    else:
+        fig.text(0.005, _row_y(3.5), "OUTPUT", rotation=90, va='center',
+                 ha='left', fontsize=axis_fs + 1, fontweight='bold',
+                 color='0.25')
+
+    title = (
         f"path-integration task — {n} of {n_trials} trials, "
-        f"{T} frames (dt={dt:.3g}s, total {T*dt:.2g}s)   "
-        f"[gray = standing pause]",
-        fontsize=style.label_font_size,
+        f"{T} frames (dt={dt:.3g}s, total {T*dt:.2g}s)"
     )
+    if is_stop is not None and is_stop.any():
+        title += "   [gray = standing pause]"
+    if has_pred:
+        title += "   [black = ground truth, red = model]"
+    fig.suptitle(title, fontsize=style.label_font_size)
     plt.tight_layout(rect=[0.02, 0, 1, 0.97])
     style.savefig(fig, out_path)
 
