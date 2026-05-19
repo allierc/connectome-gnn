@@ -446,12 +446,17 @@ class CxTaskGNN(nn.Module):
             # GNN core sees the raw subthreshold state (v ≡ h). f_theta is
             # responsible for the full -h + recurrent-drive term; no explicit
             # leak is added outside the MLP, matching the flyvis GNN convention
-            # (dv/dt = f_theta(v, a, m, ...)).
+            # (dv/dt = f_theta(v, a, m, ...)). f_theta must learn the decay
+            # slope on its own (it need not be exactly -1 in dt/tau units).
             rec = self._gnn_recurrent_drive(h)
             inp = self._project_in(u[:, t, :])
             h = h + dt_over_tau * (rec + inp + self.b)
             if noise_lvl > 0:
                 h = h + noise_lvl * torch.randn_like(h)
+            # NaN guard only — kicks in only when f_theta has not yet learned
+            # a leak. Gradient is killed on saturated steps; clamp is invisible
+            # in healthy training where |h| stays well below the bound.
+            h = h.clamp(-50.0, 50.0)
             h_buf[:, t, :] = h
 
         # Decoder reads firing rates so the cos/sin readout matches the

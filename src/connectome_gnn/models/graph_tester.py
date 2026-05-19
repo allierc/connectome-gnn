@@ -1936,3 +1936,219 @@ def data_test_cortex_task_gnn(config, best_model=None, device=None, log_file=Non
         f'  full test (n={u_test.shape[0]}): direction_acc={full["direction_acc"]:.4f}  '
         f'motor_max={full["motor_max"]:.4f}  loss={full["loss"]:.4f}'
     )
+
+
+# ============================================================================
+# Path-integration task test (CxTaskRNN / CxTaskGNN)
+# ============================================================================
+
+def data_test_path_integration_task(
+    config, best_model=None, device=None, log_file=None,
+):
+    """Test the trained CX path-integration model.
+
+    Runs two evaluations and saves figures + metrics to
+    `<log_dir>/results/path_integration/`:
+
+    (a) 5 random test trials (held-out 10k split, T=1000 frames each):
+        forward the model, plot input/wrapped-HD/output traces vs ground
+        truth, report per-trial RMSE_deg and Pearson r on the unwrapped
+        decoded angle vs ground-truth heading.
+
+    (b) 5 deterministic constant-ω sweeps at ω ∈ {-120, -60, 0, 60, 120}
+        deg/s, T=2000 frames (= 20s, 2x the training horizon). Same per-
+        trial plotting and metrics; characterises long-horizon stability
+        and ω-asymmetry.
+
+    Aggregate mean ± std across both rollout sets is written to
+    `<log_dir>/results_path_integration.log`.
+    """
+    from connectome_gnn.models.cx_eval import (
+        _deterministic_sweep_rollout,
+        path_integration_accuracy_from_data,
+    )
+    from connectome_gnn.plot import plot_task_pi_traces
+
+    tc = config.training
+    model_config = config.graph_model
+
+    log_dir = log_path(config.config_file)
+    results_dir = os.path.join(log_dir, 'results', 'path_integration')
+    os.makedirs(results_dir, exist_ok=True)
+    logger.info(f'[pi test] results dir: {results_dir}')
+
+    # --- Load test data ----------------------------------------------------
+    # theta_hd is reconstructed from y = (cos θ, sin θ) rather than loaded
+    # from theta_hd.zarr (which uses the 1-D-per-trial writer and reads back
+    # with a different shape). y_test is (N, T, 2), so arctan2 → (N, T)
+    # wrapped HD; np.unwrap restores the monotone cumulative-omega ramp the
+    # Pearson metric needs.
+    root = graphs_data_path(config.dataset)
+    logger.info(f'[pi test] loading from {root}/test/...')
+    u_test_np = load_raw_array(f"{root}/test/stimulus.zarr")
+    y_test_np = load_raw_array(f"{root}/test/target.zarr")
+    theta_wrap = np.arctan2(y_test_np[:, :, 1], y_test_np[:, :, 0])
+    theta_test_np = np.unwrap(theta_wrap, axis=-1).astype(np.float32)
+    try:
+        is_stop_test_np = load_raw_array(f"{root}/test/is_stop.zarr")
+        if is_stop_test_np.shape != theta_test_np.shape:
+            is_stop_test_np = np.zeros(theta_test_np.shape, dtype=np.float32)
+    except Exception:
+        is_stop_test_np = np.zeros(theta_test_np.shape, dtype=np.float32)
+    u_test = torch.from_numpy(u_test_np).to(device)
+    y_test = torch.from_numpy(y_test_np).to(device)
+    logger.info(f'  shapes: u={tuple(u_test.shape)}  y={tuple(y_test.shape)}')
+
+    # --- Rebuild model from registry; load best checkpoint -----------------
+    model = create_model(model_config.signal_model_name,
+                         aggr_type=model_config.aggr_type,
+                         config=config, device=device)
+    ckpt_dir = os.path.join(log_dir, 'models')
+    if isinstance(best_model, int):
+        ckpt_path = os.path.join(
+            ckpt_dir,
+            f'best_model_with_{tc.n_runs - 1}_graphs_{best_model}.pt')
+    else:
+        cand = sorted(glob.glob(os.path.join(
+            ckpt_dir, f'best_model_with_{tc.n_runs - 1}_graphs_*.pt')))
+        if not cand:
+            raise FileNotFoundError(
+                f'no path-integration checkpoint found in {ckpt_dir}; '
+                f'train first.')
+        ckpt_path = cand[-1]
+    logger.info(f'  loading checkpoint: {ckpt_path}')
+    state = torch.load(ckpt_path, map_location=device, weights_only=False)
+    model.load_state_dict(state['model_state_dict'])
+    model.eval()
+
+    # --- Aggregate test pi_acc on full split (T=u_test.shape[1]) -----------
+    full_pi = path_integration_accuracy_from_data(
+        model, u_test, y_test, warmup=10, batch_size=tc.batch_size,
+    )
+    logger.info(f'  full test pi_acc (n={u_test.shape[0]}, '
+                f'T={u_test.shape[1]}): {full_pi:.4f}')
+
+    # --- (a) 5 random test trials ------------------------------------------
+    rng = np.random.default_rng(config.training.seed)
+    idx_sample = rng.choice(u_test.shape[0], size=5, replace=False)
+    idx_sample = np.sort(idx_sample)
+    with torch.no_grad():
+        y_pred_sample, _ = model(u_test[idx_sample])
+    y_pred_sample_np = y_pred_sample.cpu().numpy()
+
+    metrics_random = _per_trial_heading_metrics(
+        y_pred_sample_np, theta_test_np[idx_sample],
+    )
+    logger.info(
+        f'  5 random test trials (idx={idx_sample.tolist()}): '
+        + '  '.join(f"#{i}: rmse={m['rmse_deg']:.1f}° r={m['pearson']:.3f}"
+                    for i, m in zip(idx_sample, metrics_random))
+    )
+    random_plot_path = os.path.join(results_dir, 'test_random_trials.png')
+    plot_task_pi_traces(
+        u=u_test_np[idx_sample],
+        y=y_test_np[idx_sample],
+        theta_hd=theta_test_np[idx_sample],
+        is_stop=is_stop_test_np[idx_sample],
+        dt=float(config.task.path_integration.dt),
+        out_path=random_plot_path,
+        n_show=5,
+        y_pred=y_pred_sample_np,
+        metrics=metrics_random,
+    )
+    logger.info(f'  saved: {random_plot_path}')
+
+    # --- (b) 5 deterministic sweeps at ω ∈ {-120,-60,0,60,120}, T=2000 -----
+    omega_set = [-120.0, -60.0, 0.0, 60.0, 120.0]
+    T_sweep = 2000
+    u_sweep, y_sweep, theta_sweep, y_pred_sweep = [], [], [], []
+    for omega in omega_set:
+        rollout = _deterministic_sweep_rollout(
+            model, n_steps=T_sweep, omega_deg_per_s=omega, device=device,
+        )
+        u_sweep.append(rollout['u'])
+        theta_t = rollout['true_theta']
+        theta_sweep.append(theta_t)
+        # Ground-truth (cos, sin) target from theta_t.
+        y_sweep.append(np.stack(
+            [np.cos(theta_t), np.sin(theta_t)], axis=-1
+        ).astype(np.float32))
+        y_pred_sweep.append(rollout['y_pred'])
+    u_sweep_arr = np.stack(u_sweep, axis=0)
+    y_sweep_arr = np.stack(y_sweep, axis=0)
+    theta_sweep_arr = np.stack(theta_sweep, axis=0)
+    y_pred_sweep_arr = np.stack(y_pred_sweep, axis=0)
+
+    metrics_sweep = _per_trial_heading_metrics(
+        y_pred_sweep_arr, theta_sweep_arr,
+    )
+    # Inject ω into metrics so the plot title shows it.
+    for m, omega in zip(metrics_sweep, omega_set):
+        m['omega_deg'] = float(omega)
+    logger.info(
+        '  5 deterministic sweeps (T=2000): '
+        + '  '.join(f"ω={o:+.0f}: rmse={m['rmse_deg']:.1f}° r={m['pearson']:.3f}"
+                    for o, m in zip(omega_set, metrics_sweep))
+    )
+    sweep_plot_path = os.path.join(results_dir, 'test_deterministic_sweep.png')
+    plot_task_pi_traces(
+        u=u_sweep_arr,
+        y=y_sweep_arr,
+        theta_hd=theta_sweep_arr,
+        is_stop=None,
+        dt=float(config.task.path_integration.dt),
+        out_path=sweep_plot_path,
+        n_show=5,
+        y_pred=y_pred_sweep_arr,
+        metrics=metrics_sweep,
+    )
+    logger.info(f'  saved: {sweep_plot_path}')
+
+    # --- Aggregate metrics log --------------------------------------------
+    log_path_ = os.path.join(log_dir, 'results_path_integration.log')
+    with open(log_path_, 'w') as f:
+        f.write(f'full_test_pi_acc (n={u_test.shape[0]}, T={u_test.shape[1]}): {full_pi:.6f}\n\n')
+        f.write('# Random test trials\n')
+        f.write('trial_idx,rmse_deg,pearson\n')
+        for i, m in zip(idx_sample, metrics_random):
+            f.write(f'{int(i)},{m["rmse_deg"]:.4f},{m["pearson"]:.6f}\n')
+        f.write('\n# Deterministic sweeps (T=2000)\n')
+        f.write('omega_deg,rmse_deg,pearson\n')
+        for o, m in zip(omega_set, metrics_sweep):
+            f.write(f'{o:.1f},{m["rmse_deg"]:.4f},{m["pearson"]:.6f}\n')
+    logger.info(f'  saved metrics log: {log_path_}')
+    if log_file is not None:
+        log_file.write('\n--- Path-integration test results ---\n')
+        log_file.write(f'full_test_pi_acc: {full_pi:.4f}\n')
+        log_file.write(
+            'sweep mean rmse_deg: '
+            f'{np.nanmean([m["rmse_deg"] for m in metrics_sweep]):.2f}°  '
+            'sweep mean pearson: '
+            f'{np.nanmean([m["pearson"] for m in metrics_sweep]):.3f}\n'
+        )
+
+
+def _per_trial_heading_metrics(
+    y_pred: np.ndarray, theta_hd: np.ndarray, warmup: int = 10,
+) -> list:
+    """Per-trial (RMSE in deg, Pearson) on heading.
+
+    y_pred: (N, T, 2) predicted (cos, sin)
+    theta_hd: (N, T) ground-truth heading (cumsum / monotone or wrapped)
+    """
+    out = []
+    for b in range(y_pred.shape[0]):
+        decoded = np.arctan2(y_pred[b, :, 1], y_pred[b, :, 0])
+        true = np.asarray(theta_hd[b])
+        if true.size <= warmup:
+            out.append({'rmse_deg': float('nan'), 'pearson': float('nan')})
+            continue
+        err = np.angle(np.exp(1j * (decoded[warmup:] - true[warmup:])))
+        rmse_deg = float(np.degrees(np.sqrt(np.mean(err ** 2))))
+        decoded_unwrap = np.unwrap(decoded[warmup:])
+        if (decoded_unwrap.std() < 1e-8 or true[warmup:].std() < 1e-8):
+            pearson = float('nan')
+        else:
+            pearson = float(np.corrcoef(decoded_unwrap, true[warmup:])[0, 1])
+        out.append({'rmse_deg': rmse_deg, 'pearson': pearson})
+    return out

@@ -28,7 +28,7 @@ training:
   seed: 0
   n_runs: 1
   n_epochs: 10
-  batch_size: 16
+  batch_size: 1
   data_augmentation_loop: 1
   lr: 2.0e-3 # overridden by lr_schedule below
   lr_schedule: [
