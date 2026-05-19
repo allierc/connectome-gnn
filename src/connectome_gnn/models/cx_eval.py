@@ -301,6 +301,7 @@ def _save_training_snapshot(
         rollout["r_epg"] = rollout["r"][:, epg_indices]
         pen_type_idx = [i for i, n in enumerate(type_names)
                         if "PEN" in n and "PEG" not in n]
+        pen_neuron_types_arr = None
         if pen_type_idx:
             pen_idx_list: list[int] = []
             nt = np.asarray(neuron_types)
@@ -308,6 +309,7 @@ def _save_training_snapshot(
                 pen_idx_list.extend(np.where(nt == t)[0].tolist())
             pen_indices = np.array(sorted(pen_idx_list), dtype=np.int64)
             rollout["r_pen"] = rollout["r"][:, pen_indices]
+            pen_neuron_types_arr = nt[pen_indices]
         epg_theta = cx_epg_directions(epg_glom_ix)
         # Pass GT W_con if the model exposes it (TaskRNN, JaneliaCxRNN
         # both register the buffer); helpers that wrap with torch.compile
@@ -324,10 +326,12 @@ def _save_training_snapshot(
             W_con=W_con_np,
             neuron_types=neuron_types,
             type_names=type_names,
+            pen_neuron_types=pen_neuron_types_arr,
             step=global_step,
             dt_s=float(net.dt),
             pi_acc_history=pi_hist,
             rmse_history=rmse_hist,
+            wrec_param=str(getattr(net, "wrec_param", "edge_magnitude")),
         )
     except Exception as exc:
         print(f"[cx_eval] kinograph snapshot failed @ step {global_step}: {exc}")
