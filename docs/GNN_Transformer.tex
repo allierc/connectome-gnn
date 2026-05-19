@@ -401,6 +401,84 @@ Geometry & none & implicit in $\mathbf{a}_i$, explicit in $d_{ij}$ \\
 \end{center}
 
 %-----------------------------------------------------------------------
+\section{Methodology: Emergent Structured Connectivity from Task Optimization}
+
+\paragraph{Problem.} Nothing in the loss of Eq.~\ref{eq:gnn_new} biases
+$\hat{W}_{ij}$ toward the sparse, sign-locked, type-respecting
+connectivity observed in the Drosophila central complex (CX) ring
+attractor \citep{hulse2021}. \citet{yang2019} showed that multi-task
+gradient descent on an RNN with uniform $\tau$ and tanh activation
+yields \emph{functional} modularity but dense, uninterpretable $W$.
+The TaskRNN baseline of the present framework reproduces the CX
+head-direction integrator only by imposing sparsity and Dale's-law
+masks as hard architectural priors. We seek the middle path: start
+from a fully connected GNN, train on path integration, and let the
+CX structure --- sparse $\hat{W}$, discrete cell types, type-specific
+$\tau$ and activation --- emerge.
+
+\paragraph{Why the fly CX is the right testbed.} Theoretical RNN work
+on emergent structure almost never has a ground-truth comparison: the
+"discovered" modules are evaluated against themselves. Path integration
+on \texttt{drosophila\_cx\_pi} is the rare case where a complete
+connectome \citep{hulse2021} provides a falsifiable target. If $\hat{W}$
+collapses from dense to a pattern factorisable as
+$A \odot M_{c(i),c(j)}$ --- a low-rank type-by-type structure mask
+$M$ modulating a residual edge-level $A$ --- with effective type
+count $K^\star\!\approx\!6$ matching EPG/EPGt/PEN$_a$/PEN$_b$/$\Delta 7$/PEG,
+the claim is not "another modular RNN paper" but the first demonstration
+that a \emph{specific, anatomically known} biological circuit emerges
+from task pressure alone. This is a target the Hulse, Reiser, Jayaraman,
+Maimon and Druckmann communities can test against directly.
+
+\paragraph{Hypothesis.} Biological structure is the equilibrium of
+three asymmetric costs that gradient descent on a TaskRNN does not
+pay: (i)~a per-synapse wiring cost, (ii)~a per-template developmental
+cost (instantiating $n$ neurons of an existing type is cheap; defining
+a new type is expensive), and (iii)~no marginal cost on intra-type
+dynamic heterogeneity. Recreating those costs in the loss should
+suffice to drive structural emergence under task pressure alone,
+without an explicit evolutionary outer loop.
+
+\paragraph{Method.} Augment the four-MLP GNN of Eq.~\ref{eq:gnn_new}
+as follows. A type-assignment head produces soft cluster weights
+$\boldsymbol{\pi}_i = \mathrm{softmax}\bigl(\mathrm{MLP}_z(\mathbf{a}_i)\bigr)
+\in \Delta^{K-1}$ over $K$ candidate cell types. Per-type primitives are
+$\tau_k$ (continuous, learnable, spanning fast-spiking to slow-integrator),
+an activation $\sigma_k$ drawn by $\boldsymbol{\pi}_i$ from a small
+discrete zoo $\{\tanh,\mathrm{ReLU},\mathrm{softplus}_\beta\}$, and a
+Dale sign $s_k\!\in\!\{+1,-1\}$ imposed as a hard mask on all outgoing
+edges of every neuron assigned to type $k$. The total loss is
+\begin{equation}
+\mathcal{L} \;=\; \mathcal{L}_{\text{task}}
+\;+\; \lambda_W \|\hat{W}\|_1
+\;+\; \lambda_z\,\overline{\mathcal{H}(\boldsymbol{\pi}_i)}
+\;+\; \lambda_K\,K_{\text{eff}},
+\end{equation}
+where $\overline{\mathcal{H}}$ is the mean assignment entropy
+(encouraging discrete types) and $K_{\text{eff}} = \exp\bigl(\mathcal{H}(\overline{\boldsymbol{\pi}})\bigr)$
+the effective number of used types (penalising new-template creation).
+
+\paragraph{Schedule.} Anneal the regularisers. Train task-only for
+$E_0$ epochs (network enters a viable solution basin while dense),
+then linearly ramp $\lambda_W$ and $\lambda_z$ from zero to target
+values over $E_1$ epochs. Too aggressive a schedule collapses the
+network to a single type before task structure is found; too gentle
+a schedule leaves the dense Yang regime intact.
+
+\paragraph{Validation.} Three axes: (1)~\emph{task fidelity} ---
+tracking error on held-out PI trials; (2)~\emph{structural similarity
+to CX} --- sparsity, Dale conformity, and block-structured $\hat{W}$
+under the learned type assignment, compared to the connectome ground
+truth; (3)~\emph{functional decomposition} --- per-type ablation,
+checking that silencing one of the emergent types reproduces the
+loss-of-function signature of EPG, PEN, $\Delta 7$, or PEG in the
+real circuit. Convergent emergence of those four functional roles
+--- under no architectural prior beyond the cost structure --- would
+constitute evidence that biological connectivity is the equilibrium
+of cost-structured task optimisation, not the product of explicit
+evolutionary search.
+
+%-----------------------------------------------------------------------
 \section{Summary}
 
 The novel framework introduces four independent MLPs: $h_\xi$, $g_\phi$,
@@ -436,6 +514,20 @@ their mapping explicitly defers to future work.
 P.~K\"{o}nig and M.~Negrello.
 \newblock The neuroscience of transformers.
 \newblock arXiv:2603.15339 [q-bio.NC], 2026.
+
+\bibitem[Hulse et~al.(2021)]{hulse2021}
+B.~K. Hulse, H.~Haberkern, R.~Franconville, D.~Turner-Evans, S.-Y. Takemura,
+  T.~Wolff, M.~Noorman, M.~Dreher, C.~Dan, R.~Parekh, A.~M. Hermundstad,
+  G.~M. Rubin, and V.~Jayaraman.
+\newblock A connectome of the {D}rosophila central complex reveals network
+  motifs suitable for flexible navigation and context-dependent action selection.
+\newblock \emph{eLife}, 10:e66039, 2021.
+
+\bibitem[Yang et~al.(2019)]{yang2019}
+G.~R. Yang, M.~R. Joglekar, H.~F. Song, W.~T. Newsome, and X.-J. Wang.
+\newblock Task representations in neural networks trained to perform many
+  cognitive tasks.
+\newblock \emph{Nature Neuroscience}, 22(2):297--306, 2019.
 
 \bibitem[Vaswani et~al.(2017)]{vaswani2017}
 A.~Vaswani, N.~Shazeer, N.~Parmar, J.~Uszkoreit, L.~Jones, A.~N. Gomez,

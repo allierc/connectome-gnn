@@ -490,8 +490,12 @@ def render_cx_snapshot_into_axes(
     # magnitude — fixed ±vmax makes the small entries invisible). Clipped
     # to ±3 σ so the colour scale is comparable across snapshots and
     # between W_con and W_rec.
-    def _render_matrix(ax, M, title):
-        J = M.T if M.shape[0] == M.shape[1] else M
+    def _render_matrix(ax, M, title, tick_fs: int = 7):
+        # M is [post, pre] (loader convention: J_effective[post, pre], with
+        # Dale enforced on COLS = pre). Display without transpose so the
+        # axes match the xlabel/ylabel below and Beiran fig 5d:
+        #   y = row of M = post, x = col of M = pre, Dale visible on cols.
+        J = M
         J_arr = np.asarray(J, dtype=np.float32)
         nz = J_arr[J_arr != 0]
         if nz.size:
@@ -521,10 +525,11 @@ def render_cx_snapshot_into_axes(
                 ax.axhline(b - 0.5, color="k", linewidth=0.4, alpha=0.5)
                 ax.axvline(b - 0.5, color="k", linewidth=0.4, alpha=0.5)
             ax.set_xticks(centres)
-            ax.set_xticklabels(labels, fontsize=7, rotation=45, ha="right")
+            ax.set_xticklabels(labels, fontsize=tick_fs, rotation=45, ha="right")
             ax.set_yticks(centres)
-            ax.set_yticklabels(labels, fontsize=7)
-        ax.set_title(title, fontsize=10)
+            ax.set_yticklabels(labels, fontsize=tick_fs)
+        if title:
+            ax.set_title(title, fontsize=10)
         ax.set_xlabel("presynaptic"); ax.set_ylabel("postsynaptic")
         cb = fig.colorbar(im, ax=ax, fraction=0.04, pad=0.02, shrink=0.8)
         cb.set_label("z-score", fontsize=11)
@@ -538,7 +543,9 @@ def render_cx_snapshot_into_axes(
                    transform=ax_gt.transAxes, fontsize=11, color="0.5")
         ax_gt.set_xticks([]); ax_gt.set_yticks([])
         ax_gt.set_title("GT W_con", fontsize=10)
-    _render_matrix(ax_mat, W_rec, "learned W_rec (z-scored, $\\pm 3\\,\\sigma$)")
+    # Top-right (learned W_rec): no title, larger type-name ticks to match
+    # task_sanity_combined.png style.
+    _render_matrix(ax_mat, W_rec, "", tick_fs=11)
 
     # ---- RIGHT: kinograph with HD curves ----
     # We plot the per-frame z-scored angular bump (mean=0, std=1 across

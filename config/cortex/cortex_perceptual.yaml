@@ -16,6 +16,6 @@ task:
     ruleset: "all"
     n_trials_train: 8
     n_trials_test: 4
-    n_steps_max: 200
+    n_steps_max: 400
     seed: 0
     hp_overrides: {}

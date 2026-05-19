@@ -851,13 +851,28 @@ def compute_dynamics_r2(model, x_ts, config, device, n_neurons):
             n_out_tau      : number of tau outliers
             n_total_tau    : total neurons evaluated for tau
     """
-    from connectome_gnn.generators.ode_params import get_ode_params_class
+    from connectome_gnn.generators.ode_params import (
+        FlyVisODEParams, get_ode_params_class,
+    )
     signal_model = config.graph_model.signal_model_name
     try:
         OdeParamsCls = get_ode_params_class(signal_model)
+    except KeyError:
+        OdeParamsCls = FlyVisODEParams
+    try:
         ode_params = OdeParamsCls.load(graphs_data_path(config.dataset), device=device)
-    except (KeyError, FileNotFoundError):
+    except FileNotFoundError:
         return dict(_DYNAMICS_R2_EMPTY)
+    except TypeError:
+        # On-disk schema mismatch (e.g. signal_model=drosophila_cx maps to
+        # DrosophilaCxODEParams but the file holds FlyVisODEParams from the
+        # voltage-recovery generator). Fall back to FlyVisODEParams.
+        try:
+            ode_params = FlyVisODEParams.load(
+                graphs_data_path(config.dataset), device=device
+            )
+        except (FileNotFoundError, TypeError):
+            return dict(_DYNAMICS_R2_EMPTY)
 
     mu, sigma = compute_activity_stats(x_ts, device)
     slopes, offsets = extract_f_theta_slopes(model, config, n_neurons, mu, sigma, device)

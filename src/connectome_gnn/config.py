@@ -127,6 +127,7 @@ class WInitMode(StrEnum):
     RANDN_SCALED = "randn_scaled"
     UNIFORM_SCALED = "uniform_scaled"
     ZEROS = "zeros"
+    W_CON = "w_con"  # CX task models: init recurrent param so W_rec == W_con
 
 class GPhiMode(StrEnum):
     MLP = "mlp"
@@ -278,6 +279,14 @@ class SimulationConfig(BaseModel):
     # standard data_generate_voltage output). Empty = use the conventional
     # ODE-based / flyvis generators.
     task_model_config_path: str = ""
+    # CX teacher-voltage variant only: list of cell-type tokens defining the
+    # opto-style input target. Accepted tokens: "PEN_a" / "PEN_b" (= L ∪ R
+    # subpops), specific subpop names ("PENa_L", "PENa_R", "PENb_L", "PENb_R"),
+    # or any entry of the hemibrain `type_names` list (e.g. "EPG", "Delta7").
+    # Only the resolved input rows of `stimulus.zarr` carry the drive; the
+    # rest are zeroed. None defaults to ["PEN_a", "PEN_b"] inside the CX
+    # variant of _generate_voltage_from_task_model.
+    input_cell_types: Optional[List[str]] = None
 
     model_id: str = "000"
     ensemble_id: str = "0000"
@@ -561,9 +570,6 @@ class GraphModelConfig(BaseModel):
     #                 opposite for L vs R.
     # "none"        — W_in fully free (default).
     velocity_gate: Literal["none", "pen_only", "pen_4scalar"] = "none"
-    # TaskRNN: include the 4 ER6 broad-inhibitory ring neurons in the
-    # hemibrain CX (156-neuron spec). False uses Beiran's 152-neuron loader.
-    include_er6: bool = True
 
     # TaskRNN (cortex/free-W mode): explicit recurrent population size + I/O
     # dimensions. For sign_locked (CX) mode these are derived from the
@@ -857,6 +863,14 @@ class TrainingConfig(BaseModel):
     lr_embedding: float = 0.001
     lr_update: float = 0.0
     lr_W: float = 0.0001
+    # CX task trainer (_data_train_pi_task): separate LR for the recurrent-
+    # core params (S in CxTaskRNN; W + a + g_phi + f_theta in CxTaskGNN).
+    # When None, the trainer uses a single param group at `lr` and
+    # `lr_schedule` controls everything (current behavior — backward-compatible).
+    # When set, the recurrent core trains at this constant LR (independent of
+    # `lr_schedule`), while encoder/decoder params (W_in, W_out, b, b_out,
+    # velocity-gate scalars) keep training at `lr` (with schedule).
+    lr_W_rec: Optional[float] = None
 
     lr_missing_activity: float = 0.0001
     lr_NNR_f_start: float = 0.0

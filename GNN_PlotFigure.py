@@ -178,7 +178,7 @@ def query_cell_types(config_or_dataset, name=None, device='cpu'):
 
     if index_to_name is None:
         is_connconstr = any(s in dataset for s in
-                            ('drosophila_cx', 'zebrafish_oculomotor', 'larva'))
+                            ('drosophila_cx', 'zebrafish_oculomotor', 'larva', 'cortex'))
         if is_connconstr:
             index_to_name = {i: f'Type{i}' for i in range(n_types_present)}
         else:
@@ -1378,7 +1378,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
         print(f"hidden neuron mask: {len(_hidden_ids)} hidden neurons, "
               f"{n_hidden_edges}/{len(visible_edge_mask)} edges excluded from R²")
 
-    _connconstr = any(x in config.dataset for x in ('drosophila_cx', 'zebrafish_oculomotor', 'larva'))
+    _connconstr = any(x in config.dataset for x in ('drosophila_cx', 'zebrafish_oculomotor', 'larva', 'cortex'))
 
     # Neuron type index to name mapping — load from ode_params if available
     if hasattr(ode_params, 'type_names') and ode_params.type_names:
@@ -2404,39 +2404,186 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 edges_np = to_numpy(edges)
                 J_true = np.zeros((n_neurons, n_neurons), dtype=np.float32)
                 J_true[edges_np[0], edges_np[1]] = true_weights.flatten()
-                J_learned = np.zeros((n_neurons, n_neurons), dtype=np.float32)
-                J_learned[edges_np[0], edges_np[1]] = to_numpy(corrected_W.squeeze()).flatten()
+                # Raw learned W (pre-correction, straight from the trained model).
+                J_raw = np.zeros((n_neurons, n_neurons), dtype=np.float32)
+                J_raw[edges_np[0], edges_np[1]] = to_numpy(model.W.squeeze()).flatten()
+                # Corrected learned W (sign/scale alignment applied earlier).
+                J_corrected = np.zeros((n_neurons, n_neurons), dtype=np.float32)
+                J_corrected[edges_np[0], edges_np[1]] = to_numpy(corrected_W.squeeze()).flatten()
                 nonzero = np.abs(true_weights.flatten())
                 vmax = np.percentile(nonzero[nonzero > 0], 98) if np.any(nonzero > 0) else 1.0
                 vmax = max(vmax, 1e-6)
-                fig_mat, (ax_t, ax_l) = plt.subplots(1, 2, figsize=(14, 6))
-                im_t = ax_t.imshow(J_true.T, cmap='bwr_r', vmin=-vmax, vmax=vmax,
-                                   aspect='auto', interpolation='nearest', origin='upper')
-                ax_t.set_title('True connectivity')
-                fig_mat.colorbar(im_t, ax=ax_t, fraction=0.046, pad=0.04)
-                im_l = ax_l.imshow(J_learned.T, cmap='bwr_r', vmin=-vmax, vmax=vmax,
-                                   aspect='auto', interpolation='nearest', origin='upper')
-                ax_l.set_title('Learned connectivity')
-                fig_mat.colorbar(im_l, ax=ax_l, fraction=0.046, pad=0.04)
+
+                def _zscore_matrix(J: np.ndarray, z_max: float = 3.0) -> np.ndarray:
+                    """Z-score over non-zero entries, clip to ±z_max σ."""
+                    nz = J[J != 0]
+                    if nz.size:
+                        mu = float(nz.mean())
+                        sd = float(nz.std() + 1e-12)
+                    else:
+                        mu, sd = 0.0, 1.0
+                    Z = np.where(J != 0, (J - mu) / sd, 0.0)
+                    return np.clip(Z, -z_max, z_max)
+
+                z_max = 3.0
+                J_raw_z = _zscore_matrix(J_raw, z_max)
+                J_corrected_z = _zscore_matrix(J_corrected, z_max)
+
+                # Edge mask (replaces the standalone edge_mask.png).
+                edge_mask = np.zeros((n_neurons, n_neurons), dtype=np.float32)
+                edge_mask[edges_np[0], edges_np[1]] = 1.0
+                n_edges_actual = int(edge_mask.sum())
+                n_possible = n_neurons * (n_neurons - 1)
+                density_pct = (
+                    n_edges_actual / n_possible * 100 if n_possible > 0 else 0
+                )
+
+                # 2 rows × 3 cols:
+                #   Top:    True connectivity   | Raw learned        | Raw learned (z-scored)
+                #   Bottom: Edge mask           | Corrected learned  | Corrected learned (z-scored)
+                fig_mat, axes_mat = plt.subplots(2, 3, figsize=(20, 12))
+                ax_true, ax_raw, ax_raw_z = axes_mat[0]
+                ax_mask, ax_corr, ax_corr_z = axes_mat[1]
+
+                im_t = ax_true.imshow(J_true.T, cmap='bwr_r', vmin=-vmax, vmax=vmax,
+                                      aspect='auto', interpolation='nearest', origin='upper')
+                ax_true.set_title('True connectivity')
+                fig_mat.colorbar(im_t, ax=ax_true, fraction=0.046, pad=0.04)
+
+                # Auto-scale the raw panel to its own range (raw W magnitudes
+                # often differ from GT by orders of magnitude — sharing vmax
+                # with the true matrix would clip raw to invisible).
+                raw_nz = np.abs(J_raw[J_raw != 0])
+                raw_vmax = float(np.percentile(raw_nz, 98)) if raw_nz.size else 1.0
+                raw_vmax = max(raw_vmax, 1e-6)
+                im_raw = ax_raw.imshow(J_raw.T, cmap='bwr_r', vmin=-raw_vmax, vmax=raw_vmax,
+                                       aspect='auto', interpolation='nearest', origin='upper')
+                ax_raw.set_title('Raw learned W')
+                fig_mat.colorbar(im_raw, ax=ax_raw, fraction=0.046, pad=0.04)
+
+                im_raw_z = ax_raw_z.imshow(J_raw_z.T, cmap='bwr_r', vmin=-z_max, vmax=z_max,
+                                           aspect='auto', interpolation='nearest', origin='upper')
+                ax_raw_z.set_title(r'Raw learned (z-scored, $\pm 3\sigma$)')
+                cb_rz = fig_mat.colorbar(im_raw_z, ax=ax_raw_z, fraction=0.046, pad=0.04)
+                cb_rz.set_label('z-score')
+
+                ax_mask.imshow(edge_mask.T, cmap='Reds', vmin=0, vmax=1,
+                               aspect='auto', interpolation='nearest', origin='upper')
+                ax_mask.set_title(
+                    f'Edge mask ({n_edges_actual} edges, {density_pct:.1f}% density)'
+                )
+
+                im_corr = ax_corr.imshow(J_corrected.T, cmap='bwr_r', vmin=-vmax, vmax=vmax,
+                                         aspect='auto', interpolation='nearest', origin='upper')
+                ax_corr.set_title('Corrected learned W')
+                fig_mat.colorbar(im_corr, ax=ax_corr, fraction=0.046, pad=0.04)
+
+                im_corr_z = ax_corr_z.imshow(J_corrected_z.T, cmap='bwr_r', vmin=-z_max, vmax=z_max,
+                                             aspect='auto', interpolation='nearest', origin='upper')
+                ax_corr_z.set_title(r'Corrected learned (z-scored, $\pm 3\sigma$)')
+                cb_cz = fig_mat.colorbar(im_corr_z, ax=ax_corr_z, fraction=0.046, pad=0.04)
+                cb_cz.set_label('z-score')
+
                 plt.tight_layout()
                 plt.savefig(f'{log_dir}/results/connectivity_matrix.png', dpi=200)
                 plt.close(fig_mat)
                 logger.info("saved connectivity_matrix.png")
 
-                # Edge mask: binary adjacency (red=edge, white=no edge)
-                edge_mask = np.zeros((n_neurons, n_neurons), dtype=np.float32)
-                edge_mask[edges_np[0], edges_np[1]] = 1.0
-                fig_mask, ax_mask = plt.subplots(1, 1, figsize=(7, 6))
-                ax_mask.imshow(edge_mask.T, cmap='Reds', vmin=0, vmax=1,
-                               aspect='auto', interpolation='nearest', origin='upper')
-                n_edges_actual = int(edge_mask.sum())
-                n_possible = n_neurons * (n_neurons - 1)
-                density = n_edges_actual / n_possible * 100 if n_possible > 0 else 0
-                ax_mask.set_title(f'Edge mask ({n_edges_actual} edges, {density:.1f}% density)')
-                plt.tight_layout()
-                plt.savefig(f'{log_dir}/results/edge_mask.png', dpi=200)
-                plt.close(fig_mask)
-                logger.info("saved edge_mask.png")
+                # Keep J_learned referencing the corrected matrix for any
+                # downstream code that reads it (e.g. zebrafish sort below).
+                J_learned = J_corrected
+
+                # Per-cell-type weight distribution comparison (GT vs learned).
+                # One histogram-panel per cell type; bars overlaid with
+                # transparency so the two distributions are directly comparable.
+                type_names_list = (
+                    list(ode_params.type_names)
+                    if getattr(ode_params, 'type_names', None)
+                    else None
+                )
+                n_types_present = int(neuron_types.max()) + 1 if neuron_types.size else 0
+                if n_types_present > 0:
+                    import math as _math
+                    W_true_e = true_weights.flatten()
+                    W_learned_e = to_numpy(corrected_W.squeeze()).flatten()
+                    # Group edges by POSTSYNAPTIC (dst) cell type. dst comes from
+                    # edges_np[1] (the standard src→dst convention).
+                    dst_types = neuron_types[edges_np[1]]
+
+                    # Adaptive grid: ncols ≈ sqrt(n_types), nrows derived.
+                    ncols = int(_math.ceil(_math.sqrt(n_types_present)))
+                    nrows = int(_math.ceil(n_types_present / ncols))
+                    fig_h, axes_h = plt.subplots(
+                        nrows, ncols,
+                        figsize=(3.5 * ncols, 3.0 * nrows),
+                        sharex=True,
+                    )
+                    axes_flat = (axes_h.ravel() if hasattr(axes_h, 'ravel')
+                                 else [axes_h])
+                    # Use a common bin range across all panels for direct comparison.
+                    all_w = np.concatenate([W_true_e, W_learned_e])
+                    if all_w.size and np.any(all_w != 0):
+                        lo = float(np.percentile(all_w, 1))
+                        hi = float(np.percentile(all_w, 99))
+                        if lo == hi:
+                            lo, hi = float(all_w.min()), float(all_w.max())
+                    else:
+                        lo, hi = -1.0, 1.0
+                    bins = np.linspace(lo, hi, 41)
+
+                    for ti in range(n_types_present):
+                        ax_h = axes_flat[ti]
+                        mask = (dst_types == ti)
+                        if not np.any(mask):
+                            ax_h.set_xticks([]); ax_h.set_yticks([])
+                            ax_h.spines['top'].set_visible(False)
+                            ax_h.spines['right'].set_visible(False)
+                            tname = (type_names_list[ti]
+                                     if type_names_list and ti < len(type_names_list)
+                                     else f'Type{ti}')
+                            ax_h.text(0.02, 0.96, f'{tname}  (no edges)',
+                                      transform=ax_h.transAxes,
+                                      fontsize=10, va='top', ha='left')
+                            continue
+                        w_gt = W_true_e[mask]
+                        w_lr = W_learned_e[mask]
+                        ax_h.hist(w_gt, bins=bins, color='#4daf4a',
+                                  alpha=0.55, label='GT')
+                        ax_h.hist(w_lr, bins=bins, color='black',
+                                  alpha=0.55, label='learned')
+                        ax_h.axvline(0, color='0.5', lw=0.5)
+                        tname = (type_names_list[ti]
+                                 if type_names_list and ti < len(type_names_list)
+                                 else f'Type{ti}')
+                        ax_h.text(0.02, 0.96,
+                                  f'{tname}\n(n={int(mask.sum())})',
+                                  transform=ax_h.transAxes,
+                                  fontsize=10, va='top', ha='left')
+                        ax_h.spines['top'].set_visible(False)
+                        ax_h.spines['right'].set_visible(False)
+                        if ti == 0:
+                            ax_h.legend(fontsize=8, loc='upper right',
+                                        framealpha=0.7)
+
+                    # Hide any unused panels.
+                    for k in range(n_types_present, len(axes_flat)):
+                        axes_flat[k].axis('off')
+
+                    fig_h.suptitle(
+                        'Weight distribution per postsynaptic cell type — '
+                        'GT (green) vs learned (black)',
+                        fontsize=12,
+                    )
+                    plt.tight_layout(rect=[0, 0, 1, 0.96])
+                    plt.savefig(
+                        f'{log_dir}/results/weight_distribution_by_type.png',
+                        dpi=150,
+                    )
+                    plt.close(fig_h)
+                    logger.info("saved weight_distribution_by_type.png")
+
+                # (Edge-mask standalone figure removed — it now appears as
+                # the bottom-left panel of connectivity_matrix.png.)
 
                 # Zebrafish: extra two-panel figure with full learned matrix + cropped/sorted
                 if 'zebrafish_oculomotor' in config.dataset:
@@ -3367,7 +3514,7 @@ def data_plot(config, epoch_list, style, extended, device, apply_weight_correcti
             log_file.write(f"final_loss: {loss[-1]:.4e}\n")
 
 
-    _connconstr = any(x in config.dataset for x in ('drosophila_cx', 'zebrafish_oculomotor', 'larva'))
+    _connconstr = any(x in config.dataset for x in ('drosophila_cx', 'zebrafish_oculomotor', 'larva', 'cortex'))
     if 'fly' in config.dataset or _connconstr:
         if config.simulation.calcium_type != 'none':
             plot_synaptic_calcium(config, epoch_list, log_dir, logger, 'viridis', style, extended, device, skip_svd=skip_svd) # noqa: F821

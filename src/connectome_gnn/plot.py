@@ -742,18 +742,20 @@ def plot_task_pi_traces(
 ) -> None:
     """Stimulus/target preview, one column per trial.
 
+    The initial-heading impulse channels (in1=cos(θ₀)·δ_{t=0}, in2=sin(θ₀)·δ_{t=0})
+    are dropped from the rendering — they contribute one non-zero sample at
+    t=0 and add no visual information at trial timescales.
+
     Without predictions (default — used by data generation):
       Row 0 [in 0]   ω(t) — angular velocity (deg/s)
-      Row 1 [in 1]   cos(θ₀)·δ_{t=0} — initial-heading pulse
-      Row 2 [in 2]   sin(θ₀)·δ_{t=0} — initial-heading pulse
-      Row 3 [out 0]  cos(θ_hd(t))
-      Row 4 [out 1]  sin(θ_hd(t))
+      Row 1 [out 0]  cos(θ_hd(t))
+      Row 2 [out 1]  sin(θ_hd(t))
 
     With predictions (y_pred is not None — used by data_test):
-      Rows 0-2 same as above.
-      Row 3 [HD]     wrapped HD — true (black) + decoded (red)
-      Row 4 [out 0]  cos(θ_hd) — gt (black) + decoded (red dashed)
-      Row 5 [out 1]  sin(θ_hd) — gt (black) + decoded (red dashed)
+      Row 0 [in 0]   ω(t)
+      Row 1 [HD]     wrapped HD — true (black) + decoded (red)
+      Row 2 [out 0]  cos(θ_hd) — gt (black) + decoded (red dashed)
+      Row 3 [out 1]  sin(θ_hd) — gt (black) + decoded (red dashed)
     Per-column titles include metrics (e.g. "rmse=12° r=0.98") when supplied.
 
     Standing-pause regions (is_stop=1) shaded in gray on every row.
@@ -763,7 +765,7 @@ def plot_task_pi_traces(
     t = np.arange(T) * dt
     has_pred = y_pred is not None
 
-    n_rows = 6 if has_pred else 5
+    n_rows = 4 if has_pred else 3
     fig, axes = plt.subplots(n_rows, n, figsize=(2.6 * n, 1.5 * n_rows + 1.0),
                              sharex=True, sharey='row')
     if n == 1:
@@ -771,29 +773,28 @@ def plot_task_pi_traces(
 
     # Per-row y-limits so trials are visually comparable.
     omega_lim = max(1e-6, float(np.abs(u[:n, :, 0]).max())) * 1.05
-    pulse_lim = 1.1   # cos/sin of θ₀ are bounded in [-1, 1]
     out_lim   = 1.1
-    row_ylims = [
-        (-omega_lim, omega_lim),
-        (-pulse_lim, pulse_lim),
-        (-pulse_lim, pulse_lim),
-    ]
+    row_ylims = [(-omega_lim, omega_lim)]
     if has_pred:
         row_ylims.append((-np.pi - 0.15, np.pi + 0.15))  # wrapped HD row
     row_ylims.extend([(-out_lim, out_lim), (-out_lim, out_lim)])
 
     # Per-row metadata: (kind, label, color, background-tint).
+    # Uniform color scheme: ground truth = green, prediction = black.
     INP, HD, OUT = "0.92", "0.94", "0.97"
-    rows = [
-        ("input",  "in 0\nω (deg/s)",        "C0", INP),
-        ("input",  "in 1\ncos(θ₀)·δ_{t=0}",  "C0", INP),
-        ("input",  "in 2\nsin(θ₀)·δ_{t=0}",  "C1", INP),
-    ]
+    # Lighter green (colorblind-friendly); see memory:feedback_plot_color_scheme.
+    GT_COLOR = "#4daf4a"
+    GT_LW = 2.8         # GT line traces: clearly thicker than pred
+    GT_MS = 3.0         # GT marker scatter (wrapped HD)
+    PRED_COLOR = "black"
+    PRED_LW = 0.5       # thin so the GT envelope reads cleanly
+    PRED_MS = 0.8
+    rows = [("input",  "in 0\nω (deg/s)", GT_COLOR, INP)]
     if has_pred:
-        rows.append(("hd", "HD (rad,\nwrapped)", "black", HD))
+        rows.append(("hd", "HD (rad,\nwrapped)", GT_COLOR, HD))
     rows.extend([
-        ("output", "out 0\ncos(θ)",          "C0", OUT),
-        ("output", "out 1\nsin(θ)",          "C1", OUT),
+        ("output", "out 0\ncos(θ)",          GT_COLOR, OUT),
+        ("output", "out 1\nsin(θ)",          GT_COLOR, OUT),
     ])
 
     def _shade_stops(ax, stop):
@@ -817,11 +818,7 @@ def plot_task_pi_traces(
         # Traces, in row order. Each entry is (trace_gt, optional trace_pred).
         # The HD row carries (true_hd_wrapped, decoded_hd_wrapped); on output
         # rows the second item is the predicted cos/sin trace.
-        traces: list = [
-            (u[col, :, 0], None),   # ω
-            (u[col, :, 1], None),   # cos(θ₀)·δ
-            (u[col, :, 2], None),   # sin(θ₀)·δ
-        ]
+        traces: list = [(u[col, :, 0], None)]   # ω
         if has_pred:
             true_hd_wrap = np.angle(np.exp(1j * theta_hd[col]))
             dec_theta = np.arctan2(y_pred[col, :, 1], y_pred[col, :, 0])
@@ -837,29 +834,16 @@ def plot_task_pi_traces(
         ):
             ax = axes[r, col]
             ax.set_facecolor(bg)
-            if r in (1, 2):
-                # Initial-heading impulse channels.
-                ax.plot(t, trace_gt, color=color, lw=0.8, alpha=0.6)
-                ax.scatter([0], [trace_gt[0]], color=color, s=24, zorder=3)
-            elif kind == "hd":
-                ax.plot(t, trace_gt, color="black", lw=0.0, marker=".",
-                        ms=1.4, label="true HD")
-                ax.plot(t, trace_pred, color="red", lw=0.0, marker=".",
-                        ms=1.4, label="decoded HD")
+            if kind == "hd":
+                ax.plot(t, trace_gt, color=GT_COLOR, lw=0.0, marker=".", ms=GT_MS)
+                ax.plot(t, trace_pred, color=PRED_COLOR, lw=0.0, marker=".", ms=PRED_MS)
                 ax.set_yticks([-np.pi, 0, np.pi])
                 ax.set_yticklabels([r"$-\pi$", "0", r"$\pi$"])
-                if col == 0:
-                    ax.legend(fontsize=axis_fs - 1, loc="upper left",
-                              framealpha=0.7)
             else:
-                ax.plot(t, trace_gt, color=color, lw=1.2,
-                        label="gt" if has_pred else None)
+                # GT: thicker lighter-green; pred: black lw=1, solid.
+                ax.plot(t, trace_gt, color=color, lw=GT_LW)
                 if trace_pred is not None:
-                    ax.plot(t, trace_pred, color="red", lw=1.0, ls="--",
-                            alpha=0.85, label="pred")
-                    if col == 0 and r == n_rows - 2:
-                        ax.legend(fontsize=axis_fs - 1, loc="lower left",
-                                  framealpha=0.7)
+                    ax.plot(t, trace_pred, color=PRED_COLOR, lw=PRED_LW)
             ax.axhline(0, color="0.5", lw=0.5)
             ax.set_ylim(*row_ylims[r])
             ax.tick_params(axis='both', labelsize=axis_fs)
@@ -891,16 +875,16 @@ def plot_task_pi_traces(
         # Approximate y-center of axes row `r` in figure coordinates.
         return 0.97 - 0.05 - (r + 0.5) * (0.90 / n_rows)
 
-    fig.text(0.005, _row_y(1.0), "INPUT", rotation=90, va='center', ha='left',
+    fig.text(0.005, _row_y(0.0), "INPUT", rotation=90, va='center', ha='left',
              fontsize=axis_fs + 1, fontweight='bold', color='0.25')
     if has_pred:
-        fig.text(0.005, _row_y(3.0), "HD", rotation=90, va='center', ha='left',
+        fig.text(0.005, _row_y(1.0), "HD", rotation=90, va='center', ha='left',
                  fontsize=axis_fs + 1, fontweight='bold', color='0.25')
-        fig.text(0.005, _row_y(4.5), "OUTPUT", rotation=90, va='center',
+        fig.text(0.005, _row_y(2.5), "OUTPUT", rotation=90, va='center',
                  ha='left', fontsize=axis_fs + 1, fontweight='bold',
                  color='0.25')
     else:
-        fig.text(0.005, _row_y(3.5), "OUTPUT", rotation=90, va='center',
+        fig.text(0.005, _row_y(1.5), "OUTPUT", rotation=90, va='center',
                  ha='left', fontsize=axis_fs + 1, fontweight='bold',
                  color='0.25')
 
@@ -911,7 +895,7 @@ def plot_task_pi_traces(
     if is_stop is not None and is_stop.any():
         title += "   [gray = standing pause]"
     if has_pred:
-        title += "   [black = ground truth, red = model]"
+        title += "   [green = ground truth, black = model]"
     fig.suptitle(title, fontsize=style.label_font_size)
     plt.tight_layout(rect=[0.02, 0, 1, 0.97])
     style.savefig(fig, out_path)

@@ -746,11 +746,21 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     n_neuron_types = sim.n_neuron_types
     n_neurons = len(neuron_types)
 
-    # Model-specific type names
-    from connectome_gnn.generators.ode_params import get_ode_params_class
+    # Model-specific type names. Fall through to FlyVisODEParams when the
+    # signal_model_name isn't in the ODE registry (e.g. drosophila_cx_voltage),
+    # so the saved type_names list (if any) is still picked up.
+    from connectome_gnn.generators.ode_params import FlyVisODEParams, get_ode_params_class
     try:
-        _OdeCls = get_ode_params_class(config.graph_model.signal_model_name)
-        _ode_p = _OdeCls.load(graphs_data_path(config.dataset), device='cpu')
+        try:
+            _OdeCls = get_ode_params_class(config.graph_model.signal_model_name)
+        except KeyError:
+            _OdeCls = FlyVisODEParams
+        try:
+            _ode_p = _OdeCls.load(graphs_data_path(config.dataset), device='cpu')
+        except TypeError:
+            # On-disk schema mismatch (e.g. registered class expects fields
+            # we didn't save). Retry with the simpler FlyVisODEParams.
+            _ode_p = FlyVisODEParams.load(graphs_data_path(config.dataset), device='cpu')
         if hasattr(_ode_p, 'type_names') and _ode_p.type_names:
             index_to_name = {i: name for i, name in enumerate(_ode_p.type_names)}
         else:
@@ -1973,7 +1983,7 @@ def data_test_path_integration_task(
     model_config = config.graph_model
 
     log_dir = log_path(config.config_file)
-    results_dir = os.path.join(log_dir, 'results', 'path_integration')
+    results_dir = os.path.join(log_dir, 'results')
     os.makedirs(results_dir, exist_ok=True)
     logger.info(f'[pi test] results dir: {results_dir}')
 
@@ -2041,8 +2051,10 @@ def data_test_path_integration_task(
     )
     logger.info(
         f'  5 random test trials (idx={idx_sample.tolist()}): '
-        + '  '.join(f"#{i}: rmse={m['rmse_deg']:.1f}° r={m['pearson']:.3f}"
-                    for i, m in zip(idx_sample, metrics_random))
+        + '  '.join(
+            f"#{i}: r={_color_r(m['pearson'])}"
+            for i, m in zip(idx_sample, metrics_random)
+        )
     )
     random_plot_path = os.path.join(results_dir, 'test_random_trials.png')
     plot_task_pi_traces(
@@ -2087,8 +2099,10 @@ def data_test_path_integration_task(
         m['omega_deg'] = float(omega)
     logger.info(
         '  5 deterministic sweeps (T=2000): '
-        + '  '.join(f"ω={o:+.0f}: rmse={m['rmse_deg']:.1f}° r={m['pearson']:.3f}"
-                    for o, m in zip(omega_set, metrics_sweep))
+        + '  '.join(
+            f"ω={o:+.0f}: r={_color_r(m['pearson'])}"
+            for o, m in zip(omega_set, metrics_sweep)
+        )
     )
     sweep_plot_path = os.path.join(results_dir, 'test_deterministic_sweep.png')
     plot_task_pi_traces(
@@ -2126,6 +2140,24 @@ def data_test_path_integration_task(
             'sweep mean pearson: '
             f'{np.nanmean([m["pearson"] for m in metrics_sweep]):.3f}\n'
         )
+
+
+def _color_r(r: float) -> str:
+    """ANSI-colour-coded Pearson r for terminal output.
+
+    Matches the progress-bar thresholds in graph_trainer.py: green ≥ 0.9,
+    orange ≥ 0.5, red otherwise (including negative correlations, which
+    indicate the integrator runs with the wrong sign).
+    """
+    if np.isnan(r):
+        return 'n/a'
+    if r >= 0.9:
+        col = '\033[32m'  # green
+    elif r >= 0.5:
+        col = '\033[33m'  # orange/yellow
+    else:
+        col = '\033[31m'  # red (negative r included — anti-correlated)
+    return f'{col}{r:+.3f}\033[0m'
 
 
 def _per_trial_heading_metrics(

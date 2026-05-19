@@ -60,25 +60,23 @@ def dense_to_sparse(J, threshold=0.0):
 # Drosophila adult central complex (ring attractor)
 # ---------------------------------------------------------------------------
 
-def load_drosophila_cx_connectome(datapath, include_er6: bool = False):
+def load_drosophila_cx_connectome(datapath):
     """Load hemibrain connectivity for the Drosophila central complex ring attractor.
 
     Ref: papers/Code_NN/Code_NN/nn_fig5_drosophilaCx_teacher.py lines 431-598
 
-    The CX circuit includes 4 cell types from the hemibrain v1.2 dataset:
+    The CX circuit includes 5 cell types from the hemibrain v1.2 dataset
+    (Hulse Model A spec, 156 neurons total, Hulse Methods p. 13):
       - EPG (46 neurons, mapped to 16 glomeruli)
       - PEN (velocity-to-heading neurons)
       - Delta7 (inhibitory interneurons)
       - PEG (heading-to-velocity neurons)
-
-    When ``include_er6=True`` (Hulse Model A configuration), also include:
-      - ER6 (4 neurons): broad inhibitory ring neurons that target EPG cells
-        in the ellipsoid body. Added with the same -5*|J| sign treatment as
-        Delta7. Brings the total to 156 neurons matching Hulse Methods p. 13.
+      - ER6 (4 broad inhibitory ring neurons targeting EPG; same -5*|J|
+        sign treatment as Delta7)
 
     The connectivity matrix J is:
       1. Subselected from the full hemibrain adjacency matrix (line 480)
-      2. Delta7 (and optionally ER6) columns made inhibitory:
+      2. Delta7 and ER6 columns made inhibitory:
          J2[:,inh_cols] = -5*|J[:,inh_cols]| (line 521)
       3. Normalized by spectral radius: Jf = 0.9 * J2 / max(Re(eig(J2))) (line 524)
       4. Decomposed into log-space: wrec_log = log(|Jf|), mwrec = sign(Jf) (lines 587-591)
@@ -86,9 +84,6 @@ def load_drosophila_cx_connectome(datapath, include_er6: bool = False):
 
     Args:
         datapath: path to 'exported-traced-adjacencies-v1.2/' directory.
-        include_er6: if True, also include 4 ER6 inhibitory ring neurons
-            (Hulse-spec 156-neuron CX). Default False preserves Beiran's
-            original 152-neuron 4-type setup.
 
     Returns:
         dict with keys:
@@ -98,7 +93,7 @@ def load_drosophila_cx_connectome(datapath, include_er6: bool = False):
             neuron_types: (N,) int type labels
             type_names: list of unique type names
             epg_ix: list mapping 46 EPG neurons to 16 glomeruli
-            N: number of neurons (152 or 156 if include_er6)
+            N: number of neurons (156: 152 core + 4 ER6)
             n_epg: 46 (EPG population size)
     """
     # Load hemibrain neuron and connection data
@@ -143,21 +138,19 @@ def load_drosophila_cx_connectome(datapath, include_er6: bool = False):
         25, 26, 19, 20, 21, 22
     ]]
 
-    # Optionally append ER6 (Hulse Model A spec). The substring matcher must
-    # be picked carefully: "ER6" matches only the 4 ER6 cells (other ER types
-    # are named ER1_a, ER2_b, ER3w, etc., none of which contain "ER6").
-    if include_er6:
-        # Use anchored match to avoid accidentally pulling in future ER6* types.
-        er6 = np.array([i for i, t in enumerate(types) if t == "ER6"], dtype=int)
-        if er6.size == 0:
-            warnings_msg = (
-                "include_er6=True requested but no neurons with type=='ER6' "
-                "found in hemibrain CSV; loader falls back to 152-neuron set."
-            )
-            import warnings as _w
-            _w.warn(warnings_msg, UserWarning)
-        else:
-            allcx = np.concatenate((allcx, er6))
+    # Append ER6 (Hulse Model A spec, 156 neurons total). Use anchored match
+    # so we pick up only the 4 ER6 cells (other ER types are named ER1_a,
+    # ER2_b, ER3w, etc., none of which contain "ER6").
+    er6 = np.array([i for i, t in enumerate(types) if t == "ER6"], dtype=int)
+    if er6.size == 0:
+        import warnings as _w
+        _w.warn(
+            "no neurons with type=='ER6' found in hemibrain CSV; "
+            "loader falls back to 152-neuron set.",
+            UserWarning,
+        )
+    else:
+        allcx = np.concatenate((allcx, er6))
 
     # EPG glomerulus mapping: 46 neurons → 16 functional groups
     # Ref: lines 476-477
@@ -210,9 +203,7 @@ def load_drosophila_cx_connectome(datapath, include_er6: bool = False):
     # Delta7 was the second-to-last type in the concatenation order.
     # Ref: lines 520-524 — J2[:, inh_cols] = -5*|J[:, inh_cols]|
     J2 = np.copy(J)
-    inhibitory_type_names = ["Delta7"]
-    if include_er6:
-        inhibitory_type_names.append("ER6")
+    inhibitory_type_names = ["Delta7", "ER6"]
     uniqtypes_list = list(uniqtypes)
     for tname in inhibitory_type_names:
         if tname not in uniqtypes_list:

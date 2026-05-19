@@ -222,7 +222,20 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
         OdeParamsCls = get_ode_params_class(signal_model)
     except KeyError:
         OdeParamsCls = FlyVisODEParams
-    ode_params = OdeParamsCls.load(graphs_data_path(config.dataset), device=device)
+    try:
+        ode_params = OdeParamsCls.load(graphs_data_path(config.dataset), device=device)
+    except TypeError:
+        # Schema mismatch — on-disk ode_params.pt was saved with a different
+        # dataclass (typical when the same signal_model_name maps to two
+        # different ODE param schemas, e.g. `drosophila_cx` is registered to
+        # both DrosophilaCxODEParams (legacy Hulse-Beiran teacher) and to
+        # the simpler FlyVisODEParams (voltage-recovery flow). Fall back to
+        # FlyVisODEParams which only requires edge_index / W / tau_i / V_i_rest.
+        _logger.info(
+            f'ode_params schema mismatch for {OdeParamsCls.__name__}; '
+            f'falling back to FlyVisODEParams'
+        )
+        ode_params = FlyVisODEParams.load(graphs_data_path(config.dataset), device=device)
     gt_weights = ode_params.W
     gt_edges = ode_params.edge_index
 
@@ -1841,9 +1854,40 @@ def _data_train_pi_task(config, erase, best_model, device, log_file=None):
     logger.info(f'model: {model_config.signal_model_name}  params: {n_total_params}')
 
     # --- Optimizer + scheduler -------------------------------------------
-    # Single-LR Adam (Hulse's setup); existing `set_trainable_parameters` is
-    # built around lr_W / lr_update / lr_NNR_f groups that don't apply here.
-    optimizer = torch.optim.Adam(model.parameters(), lr=tc.lr)
+    # Default (lr_W_rec=None): single param group at `tc.lr`, fully driven
+    # by lr_schedule. Matches the original Hulse setup.
+    #
+    # When `tc.lr_W_rec` is set, split into two groups:
+    #   - "w_rec": recurrent-core params (S in CxTaskRNN; W + a + g_phi +
+    #              f_theta in CxTaskGNN). Trains at lr_W_rec (constant —
+    #              lr_schedule does not touch this group).
+    #   - "io":    encoder/decoder + biases + velocity-gate scalars. Trains
+    #              at tc.lr (and lr_schedule overrides this group only).
+    lr_W_rec = getattr(tc, 'lr_W_rec', None)
+    if lr_W_rec is None:
+        optimizer = torch.optim.Adam(model.parameters(), lr=tc.lr)
+        _w_rec_param_ids: set = set()
+    else:
+        def _is_w_rec_param(name: str) -> bool:
+            return (
+                name in ("S", "W", "a")
+                or name.startswith("g_phi.")
+                or name.startswith("f_theta.")
+            )
+        w_rec_params, io_params = [], []
+        for _name, _p in model.named_parameters():
+            (w_rec_params if _is_w_rec_param(_name) else io_params).append(_p)
+        _w_rec_param_ids = {id(_p) for _p in w_rec_params}
+        optimizer = torch.optim.Adam(
+            [
+                {"params": w_rec_params, "lr": float(lr_W_rec), "name": "w_rec"},
+                {"params": io_params,    "lr": tc.lr,            "name": "io"},
+            ]
+        )
+        _logger.info(
+            f'two-group optimizer: lr_W_rec={lr_W_rec} (w_rec: {len(w_rec_params)} params) '
+            f'| lr={tc.lr} (io: {len(io_params)} params)'
+        )
     lr_scheduler = build_lr_scheduler(optimizer, config)
     _logger.info(f'lr={tc.lr}  lr_scheduler={getattr(tc, "lr_scheduler", "none")}')
 
@@ -1949,10 +1993,13 @@ def _data_train_pi_task(config, erase, best_model, device, log_file=None):
     for epoch in range(tc.n_epochs):
         T_epoch = n_steps_schedule[epoch]
         # Per-epoch lr replacement (Hulse). When no schedule is provided we
-        # leave the optimizer / build_lr_scheduler alone.
+        # leave the optimizer / build_lr_scheduler alone. When lr_W_rec is
+        # set, the w_rec group stays constant — only the io group is updated.
         if lr_schedule is not None:
             lr_epoch = lr_schedule[epoch]
             for g in optimizer.param_groups:
+                if g.get("name") == "w_rec":
+                    continue
                 g['lr'] = lr_epoch
             _logger.info(f'epoch {epoch+1}: lr -> {lr_epoch}')
         gen = torch.Generator(device=device).manual_seed(tc.seed + epoch)

@@ -1,10 +1,10 @@
-description: "Yang delaygo single-task — mirrors papers/multi-tasks/config/multi_task/multi_task_delaygo_1.yaml"
-dataset: task_cortex_delaygo
+description: "Yang contextdm1 single-task — Context DM (attend ring 1): two stims per ring, attend ring 1 → stronger of ring 1"
+dataset: task_cortex_contextdm1
 simulation:
   params:
     - - 1.0
 graph_model:
-  signal_model_name: cortex_delaygo # routes to TaskRNN (free-W mode) via registry
+  signal_model_name: cortex_contextdm1 # routes to TaskRNN (free-W mode) via registry
   aggr_type: add
   n_units: 256 # Yang default recurrent population size
   n_input: 85 # set from data shape (u: B,T,85)
@@ -67,7 +67,7 @@ task:
   task_type: cortex
   task_only: true
   cortex:
-    rules: ["delaygo"]
+    rules: ["contextdm1"]
     rule_weights: []
     ruleset: "all"
     n_trials_train: 1000
