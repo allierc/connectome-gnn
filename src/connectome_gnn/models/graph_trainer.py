@@ -1853,12 +1853,13 @@ def _data_train_pi_task(config, erase, best_model, device, log_file=None):
     kappa_norm = float(tc.kappa_norm_floor)
     coeff_tv = float(tc.coeff_tv_circular)
     coeff_l1S = float(tc.coeff_W_L1)
+    coeff_f_diff = float(getattr(tc, 'coeff_f_theta_diff', 0.0))
     grad_clip = float(getattr(tc, 'grad_clip_W', 0.0))
     snapshots_per_epoch = int(getattr(tc, 'snapshots_per_epoch', 5))
     snapshot_n_steps = int(getattr(tc, 'snapshot_n_steps', 1500))
     snapshot_omega_deg = float(getattr(tc, 'snapshot_omega_deg', 60.0))
     _logger.info(f'losses: cos_distance={coeff_cos}  norm_floor={coeff_norm} (κ={kappa_norm})  '
-                 f'tv_circular={coeff_tv}  W_L1={coeff_l1S}')
+                 f'tv_circular={coeff_tv}  W_L1={coeff_l1S}  f_theta_diff={coeff_f_diff}')
 
     # --- Training loop ---------------------------------------------------
     n_trials, T_full = u_train.shape[0], u_train.shape[1]
@@ -1984,7 +1985,12 @@ def _data_train_pi_task(config, erase, best_model, device, log_file=None):
                   if coeff_tv > 0 else u.new_zeros(()))
             l1S = (coeff_l1S * model.S.abs().sum()
                    if coeff_l1S > 0 else u.new_zeros(()))
-            loss = mse + cosd + norm + tv + l1S
+            # f_θ-diff: only the GNN model exposes loss_f_theta_diff; the
+            # sign-locked RNN has no f_θ and the coefficient is a no-op there.
+            f_diff = (model.loss_f_theta_diff(h_buf, coeff_f_diff)
+                      if coeff_f_diff > 0 and hasattr(model, 'loss_f_theta_diff')
+                      else u.new_zeros(()))
+            loss = mse + cosd + norm + tv + l1S + f_diff
 
             optimizer.zero_grad(set_to_none=True)
             # NaN guardrail: if the loss itself is non-finite we know the

@@ -500,6 +500,34 @@ class CxTaskGNN(nn.Module):
             total = total + slack.pow(2)
         return lam * total / max(len(self._block_names), 1)
 
+    def loss_f_theta_diff(self, h_buf: torch.Tensor, lam: float = 1.0) -> torch.Tensor:
+        """Negative-monotonicity prior on ∂f_θ/∂h.
+
+        Penalises positive slope of f_θ w.r.t. its state input (v ≡ h, column
+        0 of the f_θ feature vector). Forces f_θ to learn the leak term that
+        was dropped from the explicit forward, which is the stabiliser that
+        prevents runaway integration.
+
+        Samples states from the last rollout step (where |h| is largest) and
+        evaluates f_θ with zero aggregated-message context — the penalty is on
+        the v-slope alone, irrespective of the message column.
+        """
+        if lam <= 0 or not hasattr(self, "f_theta"):
+            return h_buf.new_zeros(())
+        h_last = h_buf[:, -1, :].detach()                        # (B, N)
+        B, N = h_last.shape
+        a_exp = self.a.unsqueeze(0).expand(B, -1, -1)            # (B, N, emb)
+        agg = h_last.new_zeros(B, N, 1)
+        feat = torch.cat(
+            [h_last.unsqueeze(-1), a_exp, agg], dim=-1
+        )                                                         # (B, N, 1+emb+1)
+        dv = 0.05 * h_last.abs().max().clamp(min=1e-6)
+        feat_next = feat.clone()
+        feat_next[..., 0] = feat_next[..., 0] + dv
+        f0 = self.f_theta(feat)
+        f1 = self.f_theta(feat_next)
+        return lam * F.relu(f1 - f0).norm(2)
+
     def loss_tv_circular(self, h_buf: torch.Tensor, lam: float = 1.0) -> torch.Tensor:
         """Circular total-variation penalty on EPG/PEN ring firing rates."""
         if not self._ring_names or lam == 0.0:
