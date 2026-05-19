@@ -6,10 +6,12 @@ Architecture (Hulse 2025 Methods Eqs. 1, 9-11):
     τ * dh_j/dt = -h_j + Σ_k W_rec[j,k] σ(h_k) + Σ_l W_in[j,l] u_l + b_j
     y_hat_i     = Σ_j W_out[i,j] σ(h_j) + b_out_i
 
-Recurrent matrix is always sign-locked to the hemibrain CX connectome:
-    lock_edge_signs=True  → W_rec = |S| ⊙ W_con_sign  (Dale-conformant)
-    lock_edge_signs=False → W_rec = S ⊙ W_con_mask    (free sign per edge,
-                                                       topology still fixed)
+Recurrent matrix parameterisation via `graph_model.wrec_param`:
+    "edge_magnitude" → W_rec = |S| ⊙ sign(W_con)        (Dale, sparsity locked)
+    "edge_free"      → W_rec =  S  ⊙ mask(W_con)        (free sign per edge)
+    "column_dale"    → W_rec = |S| ⊙ col_sign[None,:]   (dense N×N, column-Dale)
+where col_sign[j] = sign(Σᵢ W_con[i, j]) is the dominant E/I identity of pre-
+neuron j. Diagonal is always masked to zero.
 
 Single-purpose class: hemibrain connectome loaded at init, n_input=3
 (omega, cos(θ₀)·δ_t0, sin(θ₀)·δ_t0), n_output=2 (cos/sin heading readout).
@@ -79,7 +81,12 @@ class CxTaskRNN(nn.Module):
         gm = config.graph_model
         task = config.task
 
-        self.lock_edge_signs = bool(getattr(gm, "lock_edge_signs", True))
+        self.wrec_param = str(getattr(gm, "wrec_param", "edge_magnitude")).lower()
+        if self.wrec_param not in ("edge_magnitude", "edge_free", "column_dale"):
+            raise ValueError(
+                f"graph_model.wrec_param must be 'edge_magnitude', 'edge_free' "
+                f"or 'column_dale'; got {self.wrec_param!r}"
+            )
 
         train_config = config.training
         w_init_mode = getattr(train_config, "w_init_mode", "const")
@@ -99,19 +106,38 @@ class CxTaskRNN(nn.Module):
         self.register_buffer("W_con_sign", torch.sign(W_con))
         self.register_buffer("W_con_mask", (W_con != 0).to(torch.float32))
 
-        # --- Trainable per-edge magnitude S -----------------------------
-        # dW_rec/dS = sign(W_con) is 0 at absent connections, so sparsity
-        # is enforced for free.
-        if w_init_mode == "zeros":
+        # Per-pre-neuron sign for column_dale mode. W_con layout is
+        # row=post, col=pre, so summing along dim=0 gives the net outgoing
+        # weight of each pre-neuron j.
+        if self.wrec_param == "column_dale":
+            col_sign = torch.sign(W_con.sum(dim=0))
+            if (col_sign == 0).any():
+                zero_idx = torch.nonzero(col_sign == 0, as_tuple=True)[0].tolist()
+                raise ValueError(
+                    f"wrec_param='column_dale' requires every pre-neuron to "
+                    f"have non-zero net outgoing weight in W_con; "
+                    f"col_sign==0 at indices {zero_idx[:10]} (showing first 10)"
+                )
+            self.register_buffer("col_sign", col_sign)
+
+        # --- Trainable matrix S -----------------------------------------
+        # Shape (N, N) in all wrec_param modes. The W_rec property combines
+        # S with the relevant sign/mask buffers (see W_rec docstring).
+        if self.wrec_param == "column_dale":
+            # Dense mode: random init at w_init_scale across all entries
+            # (sparsity is not enforced; w_init_mode is ignored).
+            w_init_scale = getattr(train_config, "w_init_scale", 0.01)
+            S_init = torch.randn(N, N, dtype=W_con.dtype) * w_init_scale
+        elif w_init_mode == "zeros":
             S_init = torch.zeros_like(self.W_con_mask)
         elif w_init_mode == "randn":
             w_init_scale = getattr(train_config, "w_init_scale", 0.01)
             S_init = torch.randn_like(self.W_con_mask) * w_init_scale * self.W_con_mask
         elif w_init_mode == "w_con":
             # Init S so the effective W_rec equals W_con exactly:
-            #   lock_edge_signs=True  → |S|·sign(W_con) = W_con  ⇒  S = |W_con|
-            #   lock_edge_signs=False → S·mask = W_con           ⇒  S = W_con
-            if self.lock_edge_signs:
+            #   "edge_magnitude" → |S|·sign(W_con) = W_con  ⇒  S = |W_con|
+            #   "edge_free"      → S·mask         = W_con  ⇒  S = W_con
+            if self.wrec_param == "edge_magnitude":
                 S_init = W_con.abs().clone()
             else:
                 S_init = W_con.clone()
@@ -289,16 +315,18 @@ class CxTaskRNN(nn.Module):
     def W_rec(self) -> torch.Tensor:
         """Effective recurrent matrix, diagonal masked to zero.
 
-        Convention: W_rec[j, i] = weight from presynaptic neuron j onto
-        postsynaptic neuron i, matching the GNN's (src=pre, dst=post)
-        edge_index layout.
+        Layout: row i = postsynaptic, col j = presynaptic. Recurrent input
+        is computed as `r @ W_rec.T` (Hulse/Beiran convention).
 
-            lock_edge_signs=True  → W_rec = |S| ⊙ W_con_sign  (Dale-conformant)
-            lock_edge_signs=False → W_rec = S ⊙ W_con_mask    (free sign per edge)
+            "edge_magnitude" → W_rec = |S| ⊙ sign(W_con)
+            "edge_free"      → W_rec =  S  ⊙ mask(W_con)
+            "column_dale"    → W_rec = |S| ⊙ col_sign[None, :]
         """
-        if self.lock_edge_signs:
+        if self.wrec_param == "column_dale":
+            W = self.S.abs() * self.col_sign.unsqueeze(0)
+        elif self.wrec_param == "edge_magnitude":
             W = self.S.abs() * self.W_con_sign
-        else:
+        else:  # "edge_free"
             W = self.S * self.W_con_mask
         return W * self._no_diag * self._image_mask
 
@@ -354,8 +382,8 @@ class CxTaskRNN(nn.Module):
              if h0 is None else h0)
         h_buf = torch.empty(B, T, N, dtype=u.dtype, device=u.device)
 
-        # W_rec layout: row j = presynaptic, col i = postsynaptic so
-        # rec[b, i] = sum_j r[b, j] · W_rec[j, i] = (r @ W_rec)[b, i].
+        # W_rec layout: row i = post, col j = pre, so the recurrent input is
+        # rec[b, i] = sum_j W_rec[i, j] · r[b, j] = (r @ W_rec.T)[b, i].
         W_rec = self.W_rec
         dt_over_tau = self.dt / self.tau
         noise_lvl = (self.noise_recurrent_level

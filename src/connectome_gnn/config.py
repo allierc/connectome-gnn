@@ -555,13 +555,21 @@ class GraphModelConfig(BaseModel):
     # `hidden_dim` and `n_layers` above.
     input_proj: Literal["matrix", "mlp"] = "matrix"
     output_proj: Literal["matrix", "mlp"] = "matrix"
-    # TaskRNN + TaskGNN: when True, the effective per-edge weight is
-    # `|w| · sign_GT` (Dale-conformant; only magnitudes are learned).
-    # When False, the per-edge weight is learned with free sign — the GT
-    # connectome topology is still enforced via the mask, but Dale's law
-    # is relaxed. Only applies in CX (sign_locked-architecture) mode;
-    # in TaskRNN's free-W branch (Yang/cortex) this flag is a no-op.
+    # TaskGNN-only: when True, the effective per-edge weight is `|w| · sign_GT`
+    # (Dale-conformant; only magnitudes are learned). When False, the per-edge
+    # weight is learned with free sign — the GT connectome topology is still
+    # enforced via the mask, but Dale's law is relaxed. CxTaskRNN uses
+    # `wrec_param` below instead.
     lock_edge_signs: bool = True
+    # CxTaskRNN: recurrent-matrix parameterisation.
+    #   "edge_magnitude" — W_rec = |S| ⊙ sign(W_con); sparsity locked to W_con,
+    #                      per-edge sign locked to connectome (Dale).
+    #   "edge_free"      — W_rec = S ⊙ mask(W_con); sparsity locked to W_con,
+    #                      per-edge sign free.
+    #   "column_dale"    — W_rec = |S| ⊙ col_sign[None,:]; dense N×N, the only
+    #                      constraint is that every entry in pre-column j shares
+    #                      sign(W_con[:, j].sum()). Diagonal still zero.
+    wrec_param: Literal["edge_magnitude", "edge_free", "column_dale"] = "edge_magnitude"
     # TaskRNN: anatomical gate on the velocity column of W_in.
     # "pen_only"    — zero W_in[:, 0] outside PENa/PENb rows; per-unit
     #                 weights stay free.

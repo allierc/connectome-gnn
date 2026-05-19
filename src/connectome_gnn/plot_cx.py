@@ -475,6 +475,7 @@ def render_cx_snapshot_into_axes(
     W_con: Optional[np.ndarray] = None,
     neuron_types: Optional[np.ndarray] = None,
     type_names: Optional[list[str]] = None,
+    pen_neuron_types: Optional[np.ndarray] = None,
     dt_s: float = 0.01,
     n_bins: int = 32,
     fwhm_z_thresh: float = 1.0,
@@ -543,9 +544,7 @@ def render_cx_snapshot_into_axes(
                    transform=ax_gt.transAxes, fontsize=11, color="0.5")
         ax_gt.set_xticks([]); ax_gt.set_yticks([])
         ax_gt.set_title("GT W_con", fontsize=10)
-    # Top-right (learned W_rec): no title, larger type-name ticks to match
-    # task_sanity_combined.png style.
-    _render_matrix(ax_mat, W_rec, "", tick_fs=11)
+    _render_matrix(ax_mat, W_rec, "", tick_fs=7)
 
     # ---- RIGHT: kinograph with HD curves ----
     # We plot the per-frame z-scored angular bump (mean=0, std=1 across
@@ -678,7 +677,31 @@ def render_cx_snapshot_into_axes(
         cb_pen.set_label("z-score", fontsize=11)
         cb_pen.ax.tick_params(labelsize=9)
         ax_pen.set_xlabel("time (s)")
-        ax_pen.set_ylabel("PEN neuron index (connectome order ≈ PB glomerulus)")
+        # Y-axis: cell-type-name ticks at each block centre if PEN subtypes
+        # are provided (e.g. PEN_a(PEN1) / PEN_b(PEN2)). Falls back to a
+        # plain "neuron index" label.
+        if (pen_neuron_types is not None and type_names is not None
+                and len(pen_neuron_types) == n_pen):
+            pt = np.asarray(pen_neuron_types).astype(np.int64)
+            bounds, centres, labels = [0], [], []
+            cur_t, cur_start = int(pt[0]), 0
+            for i, t in enumerate(pt):
+                t = int(t)
+                if t != cur_t:
+                    bounds.append(i)
+                    centres.append((cur_start + i - 1) / 2.0)
+                    labels.append(type_names[cur_t])
+                    cur_t, cur_start = t, i
+            bounds.append(n_pen)
+            centres.append((cur_start + n_pen - 1) / 2.0)
+            labels.append(type_names[cur_t])
+            for b in bounds[1:-1]:
+                ax_pen.axhline(b - 0.5, color="k", linewidth=0.4, alpha=0.5)
+            ax_pen.set_yticks(centres)
+            ax_pen.set_yticklabels(labels, fontsize=7)
+            ax_pen.set_ylabel("")
+        else:
+            ax_pen.set_ylabel("PEN neuron index (connectome order ≈ PB glomerulus)")
         ax_pen.set_title(
             f"per-neuron PEN (z-scored, $\\pm 3\\,\\sigma$,  n_pen={n_pen})",
             fontsize=10,
@@ -705,7 +728,7 @@ def render_cx_snapshot_into_axes(
                 marker=".", ms=1.5, ls="", label="true HD")
     ax_hd.plot(t_axis, dec_hd, color="red", lw=1.0,
                 marker=".", ms=1.5, ls="", label="decoded HD")
-    ax_hd.plot(t_axis, err_hd, color="C0", lw=0.8,
+    ax_hd.plot(t_axis, err_hd, color="C0", lw=0.8, alpha=0.45,
                 label="error (dec − true)")
     ax_hd.axhline(0.0, color="0.6", lw=0.4)
     ax_hd.set_xlabel("time (s)")
@@ -732,6 +755,7 @@ def plot_cx_training_snapshot(
     W_con: Optional[np.ndarray] = None,
     neuron_types: Optional[np.ndarray] = None,
     type_names: Optional[list[str]] = None,
+    pen_neuron_types: Optional[np.ndarray] = None,
     step: Optional[int] = None,
     dt_s: float = 0.01,
     n_bins: int = 32,
@@ -739,6 +763,7 @@ def plot_cx_training_snapshot(
     fwhm_z_thresh: float = 1.0,
     pi_acc_history: Optional[tuple] = None,
     rmse_history: Optional[tuple] = None,
+    wrec_param: str = "edge_magnitude",
 ) -> None:
     """2 × 4 training-snapshot figure — writes a PNG.
 
@@ -749,7 +774,10 @@ def plot_cx_training_snapshot(
     tuple of 1-D arrays. `rmse_history` is drawn on a twin y-axis on the
     right of the pi_acc panel. The bottom-right panel is a scatter of
     GT vs learned recurrent weights (excludes diagonal and zero entries),
-    annotated with the linear-fit slope and R².
+    annotated with the linear-fit slope and R². The scatter is suppressed
+    when `wrec_param == "column_dale"` (dense mode — learned W_rec has
+    entries outside the connectome support, so per-edge GT comparison is
+    not meaningful).
     """
     fig, axes = plt.subplots(
         2, 4, figsize=(22, 10),
@@ -763,6 +791,7 @@ def plot_cx_training_snapshot(
         fig, ax_gt, ax_mat, ax_kin, ax_neu, ax_pen, ax_hd,
         W_rec=W_rec, rollout=rollout, epg_theta=epg_theta,
         W_con=W_con, neuron_types=neuron_types, type_names=type_names,
+        pen_neuron_types=pen_neuron_types,
         dt_s=dt_s, n_bins=n_bins, fwhm_z_thresh=fwhm_z_thresh,
     )
 
@@ -785,7 +814,9 @@ def plot_cx_training_snapshot(
     else:
         ax_pi.axis("off")
 
-    if W_con is not None:
+    if wrec_param == "column_dale":
+        ax_fw.axis("off")
+    elif W_con is not None:
         mask = (W_con != 0)
         np.fill_diagonal(mask, False)
         x = np.asarray(W_con[mask], dtype=np.float32)
