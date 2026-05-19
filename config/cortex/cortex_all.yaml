@@ -1,0 +1,71 @@
+description: "Yang 2019 — multi-task training across all 20 cognitive tasks (gyyang/multitask 'all' ruleset)"
+dataset: task_cortex_all
+simulation:
+  params:
+    - - 1.0
+graph_model:
+  signal_model_name: cortex_all   # routes to TaskRNN (free-W mode) via registry
+  aggr_type: add
+  n_units: 256                    # Yang default recurrent population size
+  n_input: 85                     # 1 fix + 20 rule one-hot + 2×32 ring (= same shape as single-task)
+  n_output: 33                    # 1 fix + 32 ring readout
+  W_param: free                   # fully-learnable W_rec
+  recurrent_activation: tanh      # cortex_delaygo agentic loop winner over relu/softplus/sigmoid
+  input_proj: mlp                 # encoder MLP is load-bearing on Yang tasks (rule × stim gating)
+  output_proj: mlp
+  hidden_dim: 128
+  n_layers: 2
+  MLP_activation: relu
+plotting: {}
+training:
+  device: auto
+  seed: 0
+  n_runs: 1
+  n_epochs: 10
+  batch_size: 64
+  lr: 1.0e-3
+  lr_schedule:
+    [1.0e-3, 5.0e-4, 2.0e-4, 1.0e-4, 1.0e-4,
+     1.0e-4, 1.0e-4, 1.0e-4, 1.0e-4, 1.0e-4]
+  lr_scheduler: none
+  grad_clip_W: 2.0                # delaygo winner
+  noise_recurrent_level: 0.0
+  coeff_rate_L2: 1.0e-2           # delaygo winner: tightens distributions, no ceiling cost
+  coeff_W_L2: 0.0                 # silent killer in delaygo — keep off by default
+  w_init_mode: randn_scaled
+  w_init_scale: 0.5               # delaygo winner with tanh
+  snapshots_per_epoch: 5
+  data_augmentation_loop: 80      # ~60k iters/epoch with batch_size=64
+
+# ---------------------------------------------------------------------------
+# Agentic LLM exploration settings (read by GNN_LLM_task.py).
+# ---------------------------------------------------------------------------
+claude:
+  n_epochs: 10
+  data_augmentation_loop: 80
+  n_iter_block: 80                # 1 block = 4 batches × 20 slots = 80 iters
+  ucb_c: 1.414
+  generate_data: false            # cortex_all dataset is pre-generated
+  training_time_target_min: 60    # ~30 min/slot on l4 (longer than delaygo: 20× more data per epoch)
+  hard_runtime_limit_min: 180
+  node_name: l4
+  n_cpus: 8
+  n_parallel: 20                  # 20 slots/batch — saturates l4 queue
+  conda_env: connectome-gnn
+
+task:
+  task_type: cortex
+  task_only: true
+  cortex:
+    rules: ["fdgo", "reactgo", "delaygo",
+            "fdanti", "reactanti", "delayanti",
+            "dm1", "dm2", "contextdm1", "contextdm2", "multidm",
+            "delaydm1", "delaydm2", "contextdelaydm1", "contextdelaydm2", "multidelaydm",
+            "dmsgo", "dmsnogo", "dmcgo", "dmcnogo"]
+    rule_weights: []              # empty = uniform sampling across the 20 rules
+    ruleset: "all"
+    n_trials_train: 20000         # 1000 per task × 20 tasks (matches delaygo budget per task)
+    n_trials_test: 4000           # 200 per task × 20
+    n_steps_max: 400
+    seed: 0
+    hp_overrides: {}

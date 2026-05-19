@@ -342,12 +342,20 @@ class FlyVisODEParams(ODEParamsBase):
     Edge params:
         edge_index: (2, E) source/destination indices
         w:          (E,) effective synaptic weights
+
+    Optional metadata:
+        type_names: list[str] of cell-type names indexed by neuron_type id
+                    (e.g. ["EPG", "EPGt", "PEN_a(PEN1)", ...]). Used by
+                    rollout-trace plotters to label rows with cell types
+                    instead of "Type0..TypeN-1". Defaults to None for
+                    backward compat with checkpoints that don't carry it.
     """
 
     tau_i: torch.Tensor = None  # (N,)
     V_i_rest: torch.Tensor = None  # (N,)
     edge_index: torch.Tensor = None  # (2, E)
     W: torch.Tensor = None  # (E,) effective synaptic weights
+    type_names: list = None  # optional cell-type-name list
 
     @classmethod
     def from_flyvis_network(cls, net, device: torch.device | str = "cpu"):

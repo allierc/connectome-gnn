@@ -1,0 +1,76 @@
+description: |
+  cortex_delaygo with an Einstein-portrait binary mask on W_rec.
+
+  The 256×256 W_rec is element-wise multiplied by a binary mask derived
+  from /groups/saalfeld/home/allierc/GraphData/graphs_data/einstein.jpg
+  (grayscale, resized to 256×256, thresholded at the median). Light
+  pixels become allowed recurrent connections, dark pixels are forced to
+  zero. The model must therefore find a solution to delaygo while
+  respecting the Einstein-shaped connectivity prior.
+
+  Architecture: same TaskRNN free-W winner config as cortex_delaygo_winner
+  (tanh, w_init_scale=0.5, lr=2e-3 ×2.0 schedule, grad_clip=2.0,
+  rate_L2=1e-2). The only structural difference is the image mask in
+  graph_model.w_mask_image_path.
+dataset: task_cortex_delaygo
+simulation:
+  params:
+    - - 1.0
+graph_model:
+  signal_model_name: cortex_delaygo
+  aggr_type: add
+  n_units: 256
+  n_input: 85
+  n_output: 33
+  W_param: free
+  recurrent_activation: tanh
+  input_proj: mlp
+  output_proj: mlp
+  hidden_dim: 128
+  n_layers: 2
+  MLP_activation: relu
+  # Structural mask on W_rec — dark pixels of the image become forbidden
+  # recurrent connections. Mask is the 50% densest half of the image.
+  w_mask_image_path: /groups/saalfeld/home/allierc/GraphData/graphs_data/einstein.jpg
+plotting: {}
+training:
+  device: auto
+  seed: 0
+  n_runs: 1
+  n_epochs: 10
+  batch_size: 64
+  lr: 2.0e-3
+  lr_schedule:
+    - 2.0e-3
+    - 2.0e-3
+    - 1.0e-3
+    - 1.0e-3
+    - 4.0e-4
+    - 4.0e-4
+    - 2.0e-4
+    - 2.0e-4
+    - 2.0e-4
+    - 2.0e-4
+  lr_scheduler: none
+  grad_clip_W: 2.0
+  noise_recurrent_level: 0.0
+  coeff_rate_L2: 1.0e-2
+  coeff_W_L2: 0.0
+  w_init_mode: randn_scaled
+  w_init_scale: 0.5
+  snapshots_per_epoch: 5
+  data_augmentation_loop: 20
+  torch_compile: false
+
+task:
+  task_type: cortex
+  task_only: true
+  cortex:
+    rules: ["delaygo"]
+    rule_weights: []
+    ruleset: "all"
+    n_trials_train: 1000
+    n_trials_test: 200
+    n_steps_max: 400
+    seed: 0
+    hp_overrides: {}

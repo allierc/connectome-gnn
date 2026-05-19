@@ -113,7 +113,7 @@ if __name__ == "__main__":
     else:
         best_model = ''
         task = task = 'train'
-        config_list = ['drosophila_cx_pi_gnn']
+        config_list = ['drosophila_cx_pi_voltage_noise_005']
         test_config_name = None
 
     if task == 'cv':
@@ -279,6 +279,10 @@ if __name__ == "__main__":
             _marker = os.path.join(run_log_dir, '_completed_plot')
             if os.path.exists(_marker):
                 os.remove(_marker)
+            # `pre_folder` used to be set inline before load_run_config absorbed
+            # the config-loading block. Derive it from config.config_file
+            # (which now has the form "<pre_folder>/<config_name>").
+            pre_folder = os.path.dirname(config.config_file)
             folder_name = log_path(pre_folder, 'tmp_results') + '/'
             os.makedirs(folder_name, exist_ok=True)
             data_plot(config=config, epoch_list=['best'], style='color', extended='plots', device=device, apply_weight_correction=True, skip_svd=True)

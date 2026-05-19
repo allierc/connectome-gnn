@@ -1,0 +1,83 @@
+# Frozen-W_rec experiment.
+#
+# Question: with W_rec = W_con (hemibrain connectome, no learning on the
+# recurrent matrix), can W_in and W_out alone learn a functioning head
+# direction? I.e. is path-integration solvable using *only* the encoder
+# and decoder if the recurrent dynamics are fixed to the biological
+# connectome?
+#
+# Architecture: same as drosophila_cx_pi (CxTaskRNN, sign-locked,
+# velocity_gate=pen_4scalar), only the training-side knobs differ.
+#
+# Changes vs drosophila_cx_pi.yaml:
+#   - w_init_mode: w_con   → S = |W_con|, so effective W_rec == W_con
+#                            at initialisation (Dale-conformant, magnitudes
+#                            and signs both inherited from the connectome).
+#   - lr_W_rec: 0.0        → recurrent-core param group (S) is frozen;
+#                            only W_in / W_out / b / b_out / velocity-gate
+#                            scalars train at `lr` (with lr_schedule).
+#   - coeff_cos_distance: 0  → no-op when W_rec is frozen at W_con (gradient
+#                              into S is zero anyway). Saves the per-step
+#                              regulariser compute.
+#   - coeff_norm_floor: 0    → same reasoning.
+
+description: |
+  Path-integration TaskRNN — W_rec frozen at the hemibrain connectome.
+  Only W_in / W_out / biases / velocity-gate scalars train. Tests whether
+  the connectome itself plus a learnable I/O is sufficient for HD.
+dataset: drosophila_cx_pi
+simulation:
+  params:
+    - - 1.0
+  connconstr_datapath: papers/Code_NN/Code_NN/Data/Figure5/exported-traced-adjacencies-v1.2
+
+graph_model:
+  signal_model_name: drosophila_cx_pi # CxTaskRNN via registry
+  aggr_type: add
+  input_proj: matrix
+  output_proj: matrix
+  velocity_gate: pen_4scalar # 4 learnable PEN scalars in the io group
+  lock_edge_signs: true # W_rec = |S| · sign(W_con); with w_init_mode=w_con: W_rec == W_con
+  hidden_dim: 64
+  n_layers: 2
+  MLP_activation: relu
+plotting: {}
+
+training:
+  device: auto
+  seed: 0
+  n_runs: 1
+  n_epochs: 10
+  batch_size: 64
+  data_augmentation_loop: 1
+  lr: 2.0e-3 # overridden by lr_schedule below
+  lr_schedule: [2.0e-3, 1.0e-3, 5.0e-4, 3.0e-4, 2.0e-4,
+                1.5e-4, 1.0e-4, 7.0e-5, 5.0e-5, 3.0e-5]
+  lr_scheduler: none
+  grad_clip_W: 0.0
+  # --- Frozen-W_rec knobs ----------------------------------------------------
+  w_init_mode: w_con    # S = |W_con| so effective W_rec == W_con at init
+  lr_W_rec: 0.0         # freeze the recurrent core (S stays at W_con)
+  # --- Regularisers (CX aux losses are no-ops when W_rec is frozen) ----------
+  coeff_cos_distance: 0.0 # was 0.05; W_rec frozen at W_con → cos_dist == 0
+  coeff_norm_floor: 0.0   # was 0.5;  same reasoning
+  kappa_norm_floor: 0.05  # unused (coeff is 0) but kept for schema symmetry
+  coeff_tv_circular: 0.0
+  coeff_W_L1: 0.0
+  noise_recurrent_level: 0.05 # state noise is still useful (BPTT stabiliser)
+  snapshots_per_epoch: 5
+  n_steps_schedule: [300, 400, 500, 500, 500, 600, 700, 800, 900, 1000]
+  torch_compile: false
+
+task:
+  task_type: path_integration
+  task_only: true
+  path_integration:
+    n_trials_train: 100000
+    n_trials_test: 10000
+    n_steps: 1000
+    dt: 0.01
+    sigma_omega_deg: 40.0
+    tau_corr: 0.12
+    stop_fraction: 0.20
+    seed: 0

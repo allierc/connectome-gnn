@@ -163,3 +163,4 @@ if __name__ == "__main__":
 
 # python GNN_LLM.py -o train_test_plot_CLaude e8_flywireRF_proximal_nulls_noise_005 iterations=150 --cluster --resume
 # python GNN_LLM.py -o train_test_plot_CLaude flyvis_noise_005_hidden_010_blank50_consensus_ngp iterations=150 --cluster
+# python GNN_LLM.py -o train_test_plot_CLaude drosophila_cx_pi_voltage_noise_05 iterations=150 --cluster

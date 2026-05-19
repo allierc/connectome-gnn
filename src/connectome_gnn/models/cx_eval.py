@@ -156,7 +156,11 @@ def _deterministic_sweep_rollout(
     """
     T = int(n_steps)
     omega = np.full((1, T), float(omega_deg_per_s), dtype=np.float32)
-    omega[0, 0] = 0.0  # ω[0] = 0 (trial-start convention)
+    # Constant ω from t=0 — no trial-start zeroing. This breaks parity with
+    # the OU training data (where ω[0]=0 by OU initial condition) for a
+    # single frame, but produces a clean flat ω trace in the sweep plot. The
+    # 10-frame warmup in the metric computation absorbs any one-frame offset
+    # in the resulting theta_hd ramp.
     omega_rad = np.deg2rad(omega)
     theta_hd = np.cumsum(omega_rad, axis=1) * float(net.dt)
 

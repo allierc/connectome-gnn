@@ -31,6 +31,7 @@ from connectome_gnn.neuron_state import NeuronState
     "full_eye_flywireRF_proximal_nulls",
     "full_eye_flywireRF_random_nulls",
     "drosophila_cx",
+    "drosophila_cx_voltage",  # voltage-recovery flow (FlyVisODEParams schema on disk)
     "larva",
     "zebrafish",
     "zebrafish_oculomotor",

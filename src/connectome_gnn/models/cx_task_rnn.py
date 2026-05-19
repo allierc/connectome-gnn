@@ -1,31 +1,27 @@
-"""CxTaskGNN — Drosophila CX path-integration GNN.
+"""CxTaskRNN — sign-locked recurrent network for the Drosophila CX
+path-integration task.
 
-Hybrid of the TaskRNN encoder/decoder shell with a per-edge GNN
-recurrent core. The dense `r @ W_rec` matmul of CxTaskRNN is replaced
-by a NeuralGNN-style update:
+Architecture (Hulse 2025 Methods Eqs. 1, 9-11):
 
-    r        = σ(h)                                    (B, N)   — sigmoid wrap
-    msg_e    = W_edge[e] · g_phi(v_src, a_src)²        (B, E, 1) — raw v=h
-    agg_j    = Σ_{e: dst(e)=j} msg_e                   (B, N, 1)
-    rec_j    = f_theta(v_j, a_j, agg_j)                (B, N)
-    τ · dh/dt = -h + rec + W_in·u + b
+    τ * dh_j/dt = -h_j + Σ_k W_rec[j,k] σ(h_k) + Σ_l W_in[j,l] u_l + b_j
+    y_hat_i     = Σ_j W_out[i,j] σ(h_j) + b_out_i
 
-Connectome topology is enforced via `edge_index = nonzeros(W_con)`.
-Sign-lock toggle:
-    lock_edge_signs=True  → effective per-edge weight = |W| · sign_GT
-                            (Dale-conformant; magnitudes learned)
-    lock_edge_signs=False → effective per-edge weight = W
-                            (sign learned per edge; topology still fixed)
+Recurrent matrix is always sign-locked to the hemibrain CX connectome:
+    lock_edge_signs=True  → W_rec = |S| ⊙ W_con_sign  (Dale-conformant)
+    lock_edge_signs=False → W_rec = S ⊙ W_con_mask    (free sign per edge,
+                                                       topology still fixed)
 
-Snapshot rendering and the GT-vs-learned scatter use a *virtual* W_rec
-built by placing the GNN's per-edge `W` at the connectome edge positions
-(diagonal masked). The f_theta non-linearity does NOT appear in this
-surface — anatomy comparisons therefore capture per-edge gains only.
+Single-purpose class: hemibrain connectome loaded at init, n_input=3
+(omega, cos(θ₀)·δ_t0, sin(θ₀)·δ_t0), n_output=2 (cos/sin heading readout).
 
-Standalone class: no inheritance from CxTaskRNN. The encoder/decoder/
-connectome setup is duplicated for clarity (one file = one full story).
+Buffer protocol matches `teachers.JaneliaCxRNN`: W_rec, W_con, S,
+_block_mask_i, _ring_order_<name>, dt, n_units, neuron_types,
+type_names, epg_indices, epg_glom_ix — so the helpers in
+`models.cx_eval` (path_integration_accuracy, bump_fwhm,
+_save_training_snapshot, _deterministic_sweep_rollout) work without
+branching.
 
-Registered name: "drosophila_cx_pi_gnn".
+Registered name: "drosophila_cx_pi".
 """
 
 from __future__ import annotations
@@ -70,9 +66,9 @@ def _load_image_mask(path: str, N: int) -> torch.Tensor:
     return torch.from_numpy(mask_np)
 
 
-@register_model("drosophila_cx_pi_gnn")
-class CxTaskGNN(nn.Module):
-    """Sign-locked Drosophila CX path-integration GNN."""
+@register_model("drosophila_cx_pi")
+class CxTaskRNN(nn.Module):
+    """Sign-locked Drosophila CX path-integration RNN."""
 
     def __init__(self, aggr_type: str = "add", config=None, device=None):
         super().__init__()
@@ -84,6 +80,9 @@ class CxTaskGNN(nn.Module):
         task = config.task
 
         self.lock_edge_signs = bool(getattr(gm, "lock_edge_signs", True))
+
+        train_config = config.training
+        w_init_mode = getattr(train_config, "w_init_mode", "const")
 
         # --- Load hemibrain CX connectome -------------------------------
         from connectome_gnn.generators.connconstr_data import (
@@ -100,18 +99,26 @@ class CxTaskGNN(nn.Module):
         self.register_buffer("W_con_sign", torch.sign(W_con))
         self.register_buffer("W_con_mask", (W_con != 0).to(torch.float32))
 
-        # --- Edge index from W_con_mask (row=pre, col=post) ------------
-        src, dst = self.W_con_mask.nonzero(as_tuple=True)
-        edge_index = torch.stack([src, dst], dim=0).long().contiguous()
-        self.register_buffer("_edge_index", edge_index, persistent=False)
-        self.n_edges = int(edge_index.shape[1])
-
-        # --- Per-edge sign buffer (used when lock_edge_signs=True) -----
-        if self.lock_edge_signs:
-            sign_e = self.W_con_sign[src, dst].to(torch.float32)
-            self.register_buffer(
-                "_edge_sign", sign_e.unsqueeze(-1), persistent=False,
-            )
+        # --- Trainable per-edge magnitude S -----------------------------
+        # dW_rec/dS = sign(W_con) is 0 at absent connections, so sparsity
+        # is enforced for free.
+        if w_init_mode == "zeros":
+            S_init = torch.zeros_like(self.W_con_mask)
+        elif w_init_mode == "randn":
+            w_init_scale = getattr(train_config, "w_init_scale", 0.01)
+            S_init = torch.randn_like(self.W_con_mask) * w_init_scale * self.W_con_mask
+        elif w_init_mode == "w_con":
+            # Init S so the effective W_rec equals W_con exactly:
+            #   lock_edge_signs=True  → |S|·sign(W_con) = W_con  ⇒  S = |W_con|
+            #   lock_edge_signs=False → S·mask = W_con           ⇒  S = W_con
+            if self.lock_edge_signs:
+                S_init = W_con.abs().clone()
+            else:
+                S_init = W_con.clone()
+        else:  # 'const'
+            w_init_scale = getattr(train_config, "w_init_scale", 0.01)
+            S_init = w_init_scale * self.W_con_mask
+        self.S = nn.Parameter(S_init)
 
         # --- Type-pair masks for cos-distance / norm-floor regularisers
         neuron_types = np.asarray(cx["neuron_types"]).astype(np.int64)
@@ -157,10 +164,11 @@ class CxTaskGNN(nn.Module):
         self.epg_indices = np.arange(n_epg, dtype=np.int64)
         self.epg_glom_ix = epg_glom_ix
 
-        # --- Velocity gating (CX-only) ---------------------------------
+        # --- Velocity gating (PEN-specific, CX-only) -------------------
         # `pen_only`: zero W_in[:, 0] outside PEN rows; per-unit weights free.
-        # `pen_4scalar`: strict Hulse 2025 — 4 learnable scalars
-        #                (L/R × PENa/PENb) broadcast onto subpopulations.
+        # `pen_4scalar` (Hulse 2025 strict): 4 learnable scalars
+        #               (L/R × PENa/PENb) broadcast onto subpopulations,
+        #               signs initialised opposite for L vs R.
         # In either case, channels 1-2 (initial-bump cue) stay free for all rows.
         self.velocity_gate = str(getattr(gm, "velocity_gate", "none")).lower()
         if self.velocity_gate == "pen_only":
@@ -197,12 +205,17 @@ class CxTaskGNN(nn.Module):
         self.dt = float(task.path_integration.dt)
 
         # --- Zero-diagonal mask -----------------------------------------
+        # No self-connections, matching the GNN convention (edge_index
+        # never includes self-loops).
         self.register_buffer(
             "_no_diag", 1.0 - torch.eye(N, dtype=torch.float32),
             persistent=False,
         )
 
         # --- Optional image-derived binary mask on W_rec ----------------
+        # When set, dark pixels of the image become forbidden recurrent
+        # connections. The image is resized to N×N and thresholded at its
+        # median.
         img_path = str(getattr(gm, "w_mask_image_path", "")).strip()
         if img_path:
             img_mask = _load_image_mask(img_path, N)
@@ -227,7 +240,7 @@ class CxTaskGNN(nn.Module):
         else:
             raise ValueError(f"input_proj must be 'matrix' or 'mlp', got {self.input_proj!r}")
 
-        # --- Recurrent bias (initialised to 1) -------------------------
+        # --- Recurrent bias (Hulse: initialised to 1) ------------------
         self.b = nn.Parameter(torch.ones(N, dtype=torch.float32))
 
         # --- Decoder W_out (matrix or MLP) ------------------------------
@@ -259,148 +272,35 @@ class CxTaskGNN(nn.Module):
         self._sigma = _ACT_MAP[act_name]
 
         # --- Stochastic regularisation during BPTT ---------------------
+        # Flyvis injects `noise_recurrent_level * randn` at every recurrent
+        # step. Smooths the long-T BPTT landscape; 0 = off (Hulse default).
         self.noise_recurrent_level = float(
             getattr(config.training, "noise_recurrent_level", 0.0)
         )
-
-        # --- GNN-specific components -----------------------------------
-        emb_dim = int(getattr(gm, "embedding_dim", 2))
-        hidden_dim = int(getattr(gm, "hidden_dim", 64))
-        n_layers = int(getattr(gm, "n_layers", 3))
-        hidden_dim_update = int(getattr(gm, "hidden_dim_update", hidden_dim))
-        n_layers_update = int(getattr(gm, "n_layers_update", n_layers))
-        mlp_act = str(getattr(gm, "MLP_activation", "relu"))
-        self._g_phi_positive = bool(getattr(gm, "g_phi_positive", True))
-
-        # g_phi: edge function — input (v_src, a_src), output scalar.
-        self.g_phi = MLP(
-            input_size=1 + emb_dim, output_size=1,
-            nlayers=n_layers, hidden_size=hidden_dim,
-            activation=mlp_act, device=device,
-        )
-        # f_theta: node update — input (v, a, msg), output du/dt contribution.
-        self.f_theta = MLP(
-            input_size=1 + emb_dim + 1, output_size=1,
-            nlayers=n_layers_update, hidden_size=hidden_dim_update,
-            activation=mlp_act, device=device,
-        )
-
-        # Per-edge weight W (sign-free by default; sign is locked via the
-        # _edge_sign buffer + _effective_edge_weights when lock_edge_signs).
-        train_config = config.training
-        w_init_mode = str(getattr(train_config, "w_init_mode", "zeros")).lower()
-        w_init_scale = float(getattr(train_config, "w_init_scale", 1.0))
-        if w_init_mode == "zeros":
-            W_init = torch.zeros(self.n_edges, 1, dtype=torch.float32)
-        elif w_init_mode == "randn_scaled":
-            W_init = torch.randn(self.n_edges, 1, dtype=torch.float32) * (
-                w_init_scale / math.sqrt(max(1, self.n_edges))
-            )
-        elif w_init_mode == "uniform_scaled":
-            bound = w_init_scale / math.sqrt(max(1, self.n_edges))
-            W_init = (
-                torch.rand(self.n_edges, 1, dtype=torch.float32) * 2.0 - 1.0
-            ) * bound
-        elif w_init_mode == "w_con":
-            # Init per-edge W so the effective edge weight equals W_con[src,dst]:
-            #   lock_edge_signs=True  → |W|·sign_GT = W_con[s,d]  ⇒  W = |W_con[s,d]|
-            #   lock_edge_signs=False → W = W_con[s,d]
-            w_con_edges = W_con[src, dst].to(torch.float32)
-            if self.lock_edge_signs:
-                w_con_edges = w_con_edges.abs()
-            W_init = w_con_edges.unsqueeze(-1).contiguous()
-        else:  # 'randn' or 'const' fallthrough
-            W_init = torch.randn(self.n_edges, 1, dtype=torch.float32) * w_init_scale
-        self.W = nn.Parameter(W_init)
-
-        # Per-node embedding a (ones init, matches NeuralGNN convention).
-        self.a = nn.Parameter(torch.ones(N, emb_dim, dtype=torch.float32))
 
         if device is not None:
             self.to(device)
 
     # ------------------------------------------------------------------
-    # S alias for the trainer's L1 hook
+    # Effective recurrent weight
     # ------------------------------------------------------------------
-
-    @property
-    def S(self) -> nn.Parameter:
-        """Alias of `self.W` so the trainer's `coeff_W_L1 * model.S.abs().sum()`
-        hook continues to work without architecture-aware branching."""
-        return self.W
-
-    # ------------------------------------------------------------------
-    # Effective per-edge weight + dense W_rec view
-    # ------------------------------------------------------------------
-
-    def _effective_edge_weights(self) -> torch.Tensor:
-        """Per-edge weight used in messages and in the W_rec surface.
-        Shape: (E, 1).
-            lock_edge_signs=True  → |W| · sign_GT  (Dale-conformant)
-            lock_edge_signs=False → W              (sign learned per edge)
-        """
-        if self.lock_edge_signs:
-            return self.W.abs() * self._edge_sign
-        return self.W
 
     @property
     def W_rec(self) -> torch.Tensor:
-        """Dense N×N built from the per-edge `W` placed at connectome edges,
-        diagonal masked. Only the *linear* part of the GNN update appears
-        here — `f_theta` does not. The cosine-distance / norm-floor
-        regularisers and the GT-vs-learned scatter therefore compare
-        per-edge gains, not the full recurrent operator.
+        """Effective recurrent matrix, diagonal masked to zero.
+
+        Convention: W_rec[j, i] = weight from presynaptic neuron j onto
+        postsynaptic neuron i, matching the GNN's (src=pre, dst=post)
+        edge_index layout.
+
+            lock_edge_signs=True  → W_rec = |S| ⊙ W_con_sign  (Dale-conformant)
+            lock_edge_signs=False → W_rec = S ⊙ W_con_mask    (free sign per edge)
         """
-        N = self.n_units
-        W_dense = self.W.new_zeros(N, N)
-        src, dst = self._edge_index[0], self._edge_index[1]
-        W_dense[src, dst] = self._effective_edge_weights().squeeze(-1)
-        return W_dense * self._no_diag * self._image_mask
-
-    # ------------------------------------------------------------------
-    # GNN recurrent step
-    # ------------------------------------------------------------------
-
-    def _gnn_recurrent_drive(self, v: torch.Tensor) -> torch.Tensor:
-        """(B, N) subthreshold state v (= h) → (B, N) recurrent du/dt.
-
-        Both g_phi and f_theta consume the raw state `v` directly, matching
-        the NeuralGNN / data_train_gnn convention where the MLPs themselves
-        are the nonlinearities — no sigmoid wrapping the GNN inputs. The
-        sigmoid is reserved for the decoder (cos/sin readout from firing
-        rates), preserving the TaskRNN output contract.
-
-        Edge convention: `_edge_index` is built from `W_con_mask.nonzero()`
-        where `W_con` is [post, pre] (loader convention). So
-        `_edge_index[0] = post` and `_edge_index[1] = pre`. For the
-        biologically-correct GNN message flow (pre → post) we use:
-          src = _edge_index[1]  (pre — message source)
-          dst = _edge_index[0]  (post — accumulation target)
-        Matches Beiran/Hulse's `@ J^T` convention.
-        """
-        B, N = v.shape
-        src = self._edge_index[1]   # pre  (col of W_con)
-        dst = self._edge_index[0]   # post (row of W_con)
-
-        # Per-edge features: (v_src, a_src).
-        v_src = v[:, src].unsqueeze(-1)                       # (B, E, 1)
-        a_src = self.a[src].unsqueeze(0).expand(B, -1, -1)    # (B, E, emb)
-        edge_feat = torch.cat([v_src, a_src], dim=-1)
-        g_out = self.g_phi(edge_feat)                         # (B, E, 1)
-        if self._g_phi_positive:
-            g_out = g_out ** 2
-        # Per-edge weight broadcasts over batch.
-        edge_w = self._effective_edge_weights()               # (E, 1)
-        msg = edge_w.unsqueeze(0) * g_out                     # (B, E, 1)
-
-        # Scatter-add to destination nodes.
-        agg = v.new_zeros(B, N, 1)
-        agg.scatter_add_(1, dst.view(1, -1, 1).expand(B, -1, 1), msg)
-
-        # f_theta on (v, a, msg).
-        a_exp = self.a.unsqueeze(0).expand(B, -1, -1)         # (B, N, emb)
-        feat = torch.cat([v.unsqueeze(-1), a_exp, agg], dim=-1)
-        return self.f_theta(feat).squeeze(-1)                 # (B, N)
+        if self.lock_edge_signs:
+            W = self.S.abs() * self.W_con_sign
+        else:
+            W = self.S * self.W_con_mask
+        return W * self._no_diag * self._image_mask
 
     # ------------------------------------------------------------------
     # Forward path
@@ -444,39 +344,37 @@ class CxTaskGNN(nn.Module):
 
         Returns:
             y_hat: (B, T, n_output) readout.
-            h_buf: (B, T, N)        subthreshold activity.
+            h_buf: (B, T, N)        subthreshold activity (for diagnostics
+                                   and the circular-TV regulariser).
         """
         B, T, _ = u.shape
         N = self.n_units
 
-        h = u.new_zeros(B, N) if h0 is None else h0
-        h_buf = u.new_empty(B, T, N)
+        h = (torch.zeros(B, N, dtype=u.dtype, device=u.device)
+             if h0 is None else h0)
+        h_buf = torch.empty(B, T, N, dtype=u.dtype, device=u.device)
+
+        # W_rec layout: row j = presynaptic, col i = postsynaptic so
+        # rec[b, i] = sum_j r[b, j] · W_rec[j, i] = (r @ W_rec)[b, i].
+        W_rec = self.W_rec
         dt_over_tau = self.dt / self.tau
-        noise_lvl = (
-            self.noise_recurrent_level
-            if (self.training and self.noise_recurrent_level > 0)
-            else 0.0
-        )
+        noise_lvl = (self.noise_recurrent_level
+                     if (self.training and self.noise_recurrent_level > 0)
+                     else 0.0)
 
         for t in range(T):
-            # GNN core sees the raw subthreshold state (v ≡ h). f_theta is
-            # responsible for the full -h + recurrent-drive term; no explicit
-            # leak is added outside the MLP, matching the flyvis GNN convention
-            # (dv/dt = f_theta(v, a, m, ...)). f_theta must learn the decay
-            # slope on its own (it need not be exactly -1 in dt/tau units).
-            rec = self._gnn_recurrent_drive(h)
+            r = self._sigma(h)
+            # W_rec inherits J_effective's [post, pre] orientation from the
+            # loader (Dale on cols = pre). The biologically-correct recurrent
+            # input is `r @ W_rec.T` (matches Hulse/Beiran reference code:
+            # `h += alpha * (-h + g · σ(h+b) @ J^T + I) / tau`).
+            rec = r @ W_rec.T
             inp = self._project_in(u[:, t, :])
-            h = h + dt_over_tau * (rec + inp + self.b)
+            h = h + dt_over_tau * (-h + rec + inp + self.b)
             if noise_lvl > 0:
                 h = h + noise_lvl * torch.randn_like(h)
-            # NaN guard only — kicks in only when f_theta has not yet learned
-            # a leak. Gradient is killed on saturated steps; clamp is invisible
-            # in healthy training where |h| stays well below the bound.
-            h = h.clamp(-50.0, 50.0)
             h_buf[:, t, :] = h
 
-        # Decoder reads firing rates so the cos/sin readout matches the
-        # TaskRNN output contract.
         y_hat = self._project_out(self._sigma(h_buf))
         return y_hat, h_buf
 
@@ -515,34 +413,6 @@ class CxTaskGNN(nn.Module):
             slack = F.relu(kappa - mean_abs)
             total = total + slack.pow(2)
         return lam * total / max(len(self._block_names), 1)
-
-    def loss_f_theta_diff(self, h_buf: torch.Tensor, lam: float = 1.0) -> torch.Tensor:
-        """Negative-monotonicity prior on ∂f_θ/∂h.
-
-        Penalises positive slope of f_θ w.r.t. its state input (v ≡ h, column
-        0 of the f_θ feature vector). Forces f_θ to learn the leak term that
-        was dropped from the explicit forward, which is the stabiliser that
-        prevents runaway integration.
-
-        Samples states from the last rollout step (where |h| is largest) and
-        evaluates f_θ with zero aggregated-message context — the penalty is on
-        the v-slope alone, irrespective of the message column.
-        """
-        if lam <= 0 or not hasattr(self, "f_theta"):
-            return h_buf.new_zeros(())
-        h_last = h_buf[:, -1, :].detach()                        # (B, N)
-        B, N = h_last.shape
-        a_exp = self.a.unsqueeze(0).expand(B, -1, -1)            # (B, N, emb)
-        agg = h_last.new_zeros(B, N, 1)
-        feat = torch.cat(
-            [h_last.unsqueeze(-1), a_exp, agg], dim=-1
-        )                                                         # (B, N, 1+emb+1)
-        dv = 0.05 * h_last.abs().max().clamp(min=1e-6)
-        feat_next = feat.clone()
-        feat_next[..., 0] = feat_next[..., 0] + dv
-        f0 = self.f_theta(feat)
-        f1 = self.f_theta(feat_next)
-        return lam * F.relu(f1 - f0).norm(2)
 
     def loss_tv_circular(self, h_buf: torch.Tensor, lam: float = 1.0) -> torch.Tensor:
         """Circular total-variation penalty on EPG/PEN ring firing rates."""

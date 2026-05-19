@@ -1,0 +1,71 @@
+description: "Cortex 20-task capacity sweep — sweep n_units (W_rec size) 128 → 1024 on the multi-task battery"
+dataset: task_cortex_all
+simulation:
+  params:
+    - - 1.0
+graph_model:
+  signal_model_name: cortex_all   # routes to TaskRNN (free-W mode) via registry
+  aggr_type: add
+  n_units: 256                    # placeholder — overridden per slot (128 / 256 / 512 / 1024)
+  n_input: 85
+  n_output: 33
+  W_param: free
+  recurrent_activation: tanh      # cortex_delaygo winner (vs relu / softplus / sigmoid)
+  input_proj: mlp                 # load-bearing per delaygo experiments
+  output_proj: mlp
+  hidden_dim: 128
+  n_layers: 2
+  MLP_activation: relu
+plotting: {}
+training:
+  device: auto
+  seed: 0
+  n_runs: 1
+  n_epochs: 10
+  batch_size: 64
+  lr: 1.0e-3
+  lr_schedule:
+    [1.0e-3, 5.0e-4, 2.0e-4, 1.0e-4, 1.0e-4,
+     1.0e-4, 1.0e-4, 1.0e-4, 1.0e-4, 1.0e-4]
+  lr_scheduler: none
+  grad_clip_W: 2.0                # delaygo winner
+  noise_recurrent_level: 0.0
+  coeff_rate_L2: 1.0e-2           # delaygo winner
+  coeff_W_L2: 0.0
+  w_init_mode: randn_scaled
+  w_init_scale: 0.5
+  snapshots_per_epoch: 5
+  data_augmentation_loop: 80
+
+# ---------------------------------------------------------------------------
+# Agentic LLM exploration settings (read by GNN_LLM_task.py).
+# ---------------------------------------------------------------------------
+claude:
+  n_epochs: 10
+  data_augmentation_loop: 80
+  n_iter_block: 80                # 1 block = 4 batches × 20 slots = 80 iters
+  ucb_c: 1.414
+  generate_data: false
+  training_time_target_min: 60    # 1024-unit slots will run slowest; expect ~60 min on l4
+  hard_runtime_limit_min: 180
+  node_name: l4
+  n_cpus: 8
+  n_parallel: 20                  # 4 sizes × 5 seeds = 20 slots
+  conda_env: connectome-gnn
+
+task:
+  task_type: cortex
+  task_only: true
+  cortex:
+    rules: ["fdgo", "reactgo", "delaygo",
+            "fdanti", "reactanti", "delayanti",
+            "dm1", "dm2", "contextdm1", "contextdm2", "multidm",
+            "delaydm1", "delaydm2", "contextdelaydm1", "contextdelaydm2", "multidelaydm",
+            "dmsgo", "dmsnogo", "dmcgo", "dmcnogo"]
+    rule_weights: []
+    ruleset: "all"
+    n_trials_train: 20000
+    n_trials_test: 4000
+    n_steps_max: 400
+    seed: 0
+    hp_overrides: {}

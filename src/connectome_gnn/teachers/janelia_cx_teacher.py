@@ -352,7 +352,6 @@ def train_janelia_cx_teacher(
     log_interval: int = 50,
     eval_interval: int = 500,
     save_every_epoch: bool = True,
-    include_er6: bool = False,
     rollout_interval: int = 0,
     rollout_n_steps: int = 500,
     rollout_seed: int = 12345,
@@ -380,10 +379,9 @@ def train_janelia_cx_teacher(
     rng = np.random.default_rng(int(seed))
 
     # --- Load hemibrain connectome ----------------------------------------
-    cx = load_drosophila_cx_connectome(connconstr_datapath, include_er6=include_er6)
+    cx = load_drosophila_cx_connectome(connconstr_datapath)
     N = int(cx["N"])
-    if include_er6:
-        print(f"[janelia_cx] Hulse-spec network: N={N} (incl. 4 ER6 inhibitory ring neurons)")
+    print(f"[janelia_cx] Hulse-spec network: N={N} (incl. 4 ER6 inhibitory ring neurons)")
     W_con_np = cx["J_effective"].astype(np.float32)        # signs baked in
     neuron_types = np.asarray(cx["neuron_types"]).astype(np.int64)
     type_names = list(cx["type_names"])
@@ -699,7 +697,6 @@ def train_janelia_cx_teacher(
                    "best_loss": best_loss,
                    "n_steps_schedule": n_steps_schedule,
                    "lr_schedule": lr_schedule,
-                   "include_er6": include_er6,
                    "n_units": N}, f, indent=2)
     print(f"[janelia_cx] wrote {history_path}")
 
@@ -853,12 +850,6 @@ def _main():
     p.add_argument("--rollout-seed", type=int, default=12345,
                    help="fixed RNG seed for the saved rollouts — same trial each save, "
                         "so successive rollouts let you see the network's solution evolve")
-    p.add_argument("--include-er6", action=argparse.BooleanOptionalAction,
-                   default=True,
-                   help="add the 4 ER6 broad-inhibitory ring neurons "
-                        "(Hulse-spec 156-neuron CX; default ON. "
-                        "Pass --no-include-er6 to fall back to Beiran's "
-                        "152-neuron loader).")
     p.add_argument("--smoke", action="store_true",
                    help="tiny run for debugging (200 trials, 1 epoch)")
     args = p.parse_args()
@@ -880,7 +871,6 @@ def _main():
         log_interval=args.log_interval,
         eval_interval=args.eval_interval,
         lambda_tv=args.lambda_tv,
-        include_er6=args.include_er6,
         rollout_interval=args.rollout_interval,
         rollout_n_steps=args.rollout_n_steps,
         rollout_seed=args.rollout_seed,
