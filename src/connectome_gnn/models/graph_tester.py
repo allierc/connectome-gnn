@@ -2070,8 +2070,8 @@ def data_test_path_integration_task(
     )
     logger.info(f'  saved: {random_plot_path}')
 
-    # --- (b) 5 deterministic sweeps at ω ∈ {-120,-60,0,60,120}, T=2000 -----
-    omega_set = [-120.0, -60.0, 0.0, 60.0, 120.0]
+    # --- (b) 5 deterministic sweeps at ω ∈ {-120,-60,30,60,120}, T=2000 -----
+    omega_set = [-120.0, -60.0, 30.0, 60.0, 120.0]
     T_sweep = 2000
     u_sweep, y_sweep, theta_sweep, y_pred_sweep = [], [], [], []
     for omega in omega_set:
