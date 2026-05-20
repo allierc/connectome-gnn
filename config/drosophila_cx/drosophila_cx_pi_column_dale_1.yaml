@@ -35,21 +35,22 @@ training:
   seed: 0
   n_runs: 1
   n_epochs: 5
-  batch_size: 64
+  batch_size: 1
   data_augmentation_loop: 1
   lr: 2.0e-3
-  lr_schedule: [2.0e-3, 1.0e-3, 5.0e-4, 2.0e-4, 5.0e-5]
+  lr_schedule: [2.0e-2, 1.0e-3, 5.0e-4, 2.0e-4, 5.0e-5]
   lr_scheduler: none
-  lr_W_ED: 5.0e-4  # constant lr for W_in / W_out / velocity-gate scalars
+  lr_W_ED: 5.0e-4 # constant lr for W_in / W_out / velocity-gate scalars
   grad_clip_W: 0.0
   coeff_cos_distance: 0.0
   coeff_norm_floor: 0.
   kappa_norm_floor: 0.0
   coeff_tv_circular: 0.0
+
   coeff_W_L1: 1.0e-3
   noise_recurrent_level: 0.05
   snapshots_per_epoch: 5
-  n_steps_schedule: [300, 500, 700, 900, 1000]
+  n_steps_schedule: [100, 200, 300, 400, 500]
   torch_compile: false
   w_init_scale: 0.01 # randn × this scale for the full N×N S matrix
 
