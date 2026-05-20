@@ -3515,7 +3515,8 @@ def data_plot(config, epoch_list, style, extended, device, apply_weight_correcti
 
 
     _connconstr = any(x in config.dataset for x in ('drosophila_cx', 'zebrafish_oculomotor', 'larva', 'cortex'))
-    if 'fly' in config.dataset or _connconstr:
+    _task_only = bool(getattr(getattr(config, 'task', None), 'task_only', False))
+    if ('fly' in config.dataset or _connconstr) and not _task_only:
         if config.simulation.calcium_type != 'none':
             plot_synaptic_calcium(config, epoch_list, log_dir, logger, 'viridis', style, extended, device, skip_svd=skip_svd) # noqa: F821
         else:
