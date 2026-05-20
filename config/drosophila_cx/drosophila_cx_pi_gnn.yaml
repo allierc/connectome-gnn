@@ -27,17 +27,27 @@ training:
   device: auto
   seed: 0
   n_runs: 1
-  n_epochs: 5
+  n_epochs: 10
   batch_size: 16
   data_augmentation_loop: 1
   lr: 2.0e-3 # overridden by lr_W_rec_schedule below (drives w_rec only)
-  lr_W_rec_schedule: [2.0e-3, 1.0e-3, 5.0e-4, 2.0e-4, 5.0e-5] # flat tail
+  lr_W_rec_schedule:
+    - 0.002
+    - 0.002
+    - 0.001
+    - 0.001
+    - 0.0005
+    - 0.0004
+    - 0.0003
+    - 0.0002
+    - 5.0e-05
+    - 5.0e-05 # flat tail
   lr_scheduler: none
-  lr_W_ED: 5.0e-4  # constant lr for W_in / W_out / velocity-gate scalars
-  grad_clip_W: 0.0
-  coeff_cos_distance: 0.05 # B2 lowest-qualifying
-  coeff_norm_floor: 0.5 # B3 frozen baseline
-  kappa_norm_floor: 0.05 # B3 frozen baseline
+  lr_W_ED: 0.0005 # constant lr for W_in / W_out / velocity-gate scalars
+  grad_clip_W: 2.5
+  coeff_cos_distance: 0.0 # B2 lowest-qualifying
+  coeff_norm_floor: 0. # B3 frozen baseline
+  kappa_norm_floor: 0.0 # B3 frozen baseline
   coeff_tv_circular: 0.0 # tested, no gain
   coeff_W_L1: 0.0
   noise_recurrent_level: 0.05 # CORE FIX for T=500 collapse
@@ -48,7 +58,17 @@ training:
   w_init_mode: zeros
   w_init_scale: 0.01
   snapshots_per_epoch: 5
-  n_steps_schedule: [300, 500, 700, 900, 1000]
+  n_steps_schedule:
+    - 100
+    - 200
+    - 300
+    - 400
+    - 500
+    - 600
+    - 800
+    - 900
+    - 1000
+    - 1000
   torch_compile: false
 
 # ---------------------------------------------------------------------------

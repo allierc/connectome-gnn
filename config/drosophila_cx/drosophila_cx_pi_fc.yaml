@@ -1,4 +1,4 @@
-description: column-Dale (L1=1e-5) — winner config + wrec_param=column_dale
+description: designed by Claude (parallel flyvis)
 dataset: drosophila_cx_pi
 simulation:
   params:
@@ -43,7 +43,7 @@ training:
   coeff_norm_floor: 0.5
   kappa_norm_floor: 0.05
   coeff_tv_circular: 0.0
-  coeff_W_L1: 1.0e-5
+  coeff_W_L1: 0.0
   noise_recurrent_level: 0.05
   snapshots_per_epoch: 5
   n_steps_schedule:

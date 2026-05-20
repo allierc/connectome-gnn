@@ -6,19 +6,19 @@
 # and decoder if the recurrent dynamics are fixed to the biological
 # connectome?
 #
-# Architecture: same as drosophila_cx_pi (CxTaskRNN, sign-locked,
-# velocity_gate=pen_4scalar), only the training-side knobs differ.
+# Architecture: same as drosophila_cx_pi_winner.yaml (CxTaskRNN, sign-locked,
+# velocity_gate=pen_4scalar). Training parameters also mirror the winner so
+# only the freeze-related knobs differ between the two runs.
 #
-# Changes vs drosophila_cx_pi.yaml:
-#   - w_init_mode: w_con   → S = |W_con|, so effective W_rec == W_con
-#                            at initialisation (Dale-conformant, magnitudes
-#                            and signs both inherited from the connectome).
-#   - lr_W_rec: 0.0        → recurrent-core param group (S) is frozen;
-#                            only W_in / W_out / b / b_out / velocity-gate
-#                            scalars train at `lr` (with lr_schedule).
+# Changes vs drosophila_cx_pi_winner.yaml:
+#   - w_init_mode: w_con     → S = |W_con|, so effective W_rec == W_con at
+#                              initialisation (Dale-conformant, magnitudes
+#                              and signs both inherited from the connectome).
+#   - lr_W_rec: 0.0          → recurrent-core param group (S) is frozen;
+#                              only W_in / W_out / b / b_out / velocity-gate
+#                              scalars train (at lr_W_ED / lr).
 #   - coeff_cos_distance: 0  → no-op when W_rec is frozen at W_con (gradient
-#                              into S is zero anyway). Saves the per-step
-#                              regulariser compute.
+#                              into S is zero anyway).
 #   - coeff_norm_floor: 0    → same reasoning.
 
 description: |
@@ -36,37 +36,60 @@ graph_model:
   aggr_type: add
   input_proj: matrix
   output_proj: matrix
-  velocity_gate: pen_4scalar # 4 learnable PEN scalars in the io group
+  velocity_gate: pen_4scalar # 4 learnable PEN scalars in the w_ED group
   lock_edge_signs: true # W_rec = |S| · sign(W_con); with w_init_mode=w_con: W_rec == W_con
-  hidden_dim: 256
+  hidden_dim: 128
   n_layers: 3
   MLP_activation: relu
 plotting: {}
 
 training:
+  # Training parameters mirror drosophila_cx_pi_winner.yaml (r_roll=1.0 on
+  # the standard task) so the frozen-Wrec experiment differs only in the
+  # two knobs flagged below.
   device: auto
   seed: 0
   n_runs: 1
-  n_epochs: 5
+  n_epochs: 10
   batch_size: 64
   data_augmentation_loop: 1
   lr: 2.0e-3 # overridden by lr_W_rec_schedule below (drives w_rec only)
-  lr_W_rec_schedule: [2.0e-3, 1.0e-3, 5.0e-4, 2.0e-4, 5.0e-5]
+  lr_W_rec_schedule:
+    - 2.0e-3
+    - 2.0e-3
+    - 1.0e-3
+    - 1.0e-3
+    - 5.0e-4
+    - 4.0e-4
+    - 3.0e-4
+    - 2.0e-4
+    - 5.0e-5
+    - 5.0e-5
   lr_scheduler: none
-  lr_W_ED: 5.0e-4  # constant lr for W_in / W_out / velocity-gate scalars
-  grad_clip_W: 0.0
+  lr_W_ED: 5.0e-4 # constant lr for W_in / W_out / velocity-gate scalars
+  grad_clip_W: 2.5
   # --- Frozen-W_rec knobs ----------------------------------------------------
   w_init_mode: w_con # S = |W_con| so effective W_rec == W_con at init
-  lr_W_rec: 0.0 # freeze the recurrent core (S stays at W_con)
+  lr_W_rec: 0.0 # freeze the recurrent core (S stays at W_con); schedule above is a no-op
   # --- Regularisers (CX aux losses are no-ops when W_rec is frozen) ----------
-  coeff_cos_distance: 0.0 # was 0.05; W_rec frozen at W_con → cos_dist == 0
-  coeff_norm_floor: 0.0 # was 0.5;  same reasoning
+  coeff_cos_distance: 0.0 # W_rec frozen at W_con → cos_dist == 0 anyway
+  coeff_norm_floor: 0.0 # same reasoning
   kappa_norm_floor: 0.05 # unused (coeff is 0) but kept for schema symmetry
   coeff_tv_circular: 0.0
   coeff_W_L1: 0.0
   noise_recurrent_level: 0.05 # state noise is still useful (BPTT stabiliser)
   snapshots_per_epoch: 5
-  n_steps_schedule: [300, 500, 700, 900, 1000]
+  n_steps_schedule:
+    - 100
+    - 200
+    - 300
+    - 400
+    - 500
+    - 600
+    - 800
+    - 900
+    - 1000
+    - 1000
   torch_compile: false
 
 task:
