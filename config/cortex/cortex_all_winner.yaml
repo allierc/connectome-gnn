@@ -1,0 +1,97 @@
+# Winner: cortex_all_winner.yaml
+# Source: batch 24 (iter 461-480) — three-batch lineage (16/20/24) of BS=128 + n_layers=3
+#   - mean R² = 0.952, floor R² = 0.907 (slot 18 dmcgo), spread = 0.085, mean dir_acc = 0.730
+#   - batch 16: 0.958/0.920(dmsnogo), batch 20: 0.953/0.906(multidelaydm), batch 24: 0.952/0.907(dmcgo)
+# Block: 3 (focus: encoder depth atop BS=128 — depth × batch-size super-additivity)
+# Date: 2026-05-18
+#
+# Why this is the winner:
+#   - Three independent replications now match: BS=128 + n_layers=3 atop delaygo-winner gives
+#     mean R² ≈ 0.954 ± 0.003 with floor ≥ 0.90. Floor task migrates each rep (seed-driven).
+#   - Super-additive: depth alone (batch 11: mean −0.034, floor +0.043) + BS=128 alone
+#     (batch 13/19/23: mean ±0, floor +0.04-0.05) → combined: mean +0.029, floor +0.089.
+#   - Zero catastrophic late-epoch collapses across all 60 task-runs in the 3 replications.
+#
+# Per-task breakdown (hardest 5, batch 24):
+#   contextdelaydm1: 0.960   contextdelaydm2: 0.955   dmcnogo: 0.968
+#   multidelaydm:    0.985   dmcgo:           0.907 (floor)
+#
+description: "Yang 2019 — multi-task training across all 20 cognitive tasks (gyyang/multitask 'all' ruleset)"
+dataset: task_cortex_all
+simulation:
+  params:
+  - - 1.0
+  seed: 0
+graph_model:
+  signal_model_name: cortex_all
+  aggr_type: add
+  n_units: 256
+  n_input: 85
+  n_output: 33
+  W_param: free
+  recurrent_activation: tanh
+  input_proj: mlp
+  output_proj: mlp
+  hidden_dim: 128
+  n_layers: 3
+  MLP_activation: relu
+plotting: {}
+training:
+  device: auto
+  seed: 0
+  n_runs: 1
+  n_epochs: 10
+  batch_size: 128
+  lr: 0.001
+  lr_schedule:
+  - 0.001
+  - 0.0005
+  - 0.0002
+  - 0.0001
+  - 0.0001
+  - 0.0001
+  - 0.0001
+  - 0.0001
+  - 0.0001
+  - 0.0001
+  lr_scheduler: none
+  grad_clip_W: 2.0
+  noise_recurrent_level: 0.0
+  coeff_rate_L2: 0.01
+  coeff_W_L2: 0.0
+  w_init_mode: randn_scaled
+  w_init_scale: 0.5
+  snapshots_per_epoch: 5
+  data_augmentation_loop: 80
+task:
+  task_type: cortex
+  task_only: true
+  cortex:
+    rules:
+    - fdgo
+    - reactgo
+    - delaygo
+    - fdanti
+    - reactanti
+    - delayanti
+    - dm1
+    - dm2
+    - contextdm1
+    - contextdm2
+    - multidm
+    - delaydm1
+    - delaydm2
+    - contextdelaydm1
+    - contextdelaydm2
+    - multidelaydm
+    - dmsgo
+    - dmsnogo
+    - dmcgo
+    - dmcnogo
+    rule_weights: []
+    ruleset: all
+    n_trials_train: 20000
+    n_trials_test: 4000
+    n_steps_max: 400
+    seed: 0
+    hp_overrides: {}

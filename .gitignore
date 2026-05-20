@@ -16,6 +16,11 @@ config/fly/archive_2/*
 # Ignore LLM-generated config files (environment-specific, stored in GraphData)
 config/**/*_Claude_*.yaml
 config/**/*_winner.yaml
+# … except in cortex/ and drosophila_cx/, where Claude / winner yamls are tracked.
+!config/cortex/*_Claude_*.yaml
+!config/cortex/*_winner.yaml
+!config/drosophila_cx/*_Claude_*.yaml
+!config/drosophila_cx/*_winner.yaml
 
 # Always track flyvis_hybrid_flywireRF configs, even in archive folders
 !config/fly/flyvis_hybrid_flywireRF_*.yaml
