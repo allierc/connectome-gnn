@@ -1,0 +1,75 @@
+description: |
+  cortex_dm1 winner config — same TaskRNN free-W architecture as
+  cortex_delaygo_winner, applied to dm1 (Decision Making, ring 1).
+
+  dm1: two stimuli appear simultaneously on the same ring at different
+  intensities; the network must hold fixation while they're shown, then
+  saccade to the location of the stronger stimulus when fixation drops.
+
+  Architecture: TaskRNN free-W mode, N=256, tanh recurrent activation,
+  MLP encoder (load-bearing) + MLP decoder.
+
+  Hyperparameters: cortex_delaygo agentic-loop canonical winner
+  (block 6, iter 65 slot 0). All settings transferred unchanged on the
+  assumption that the delaygo winners generalise — dm1 is simpler than
+  delaygo (no delay-period working memory), so this should at minimum
+  match delaygo's best-in-ep 0.98.
+dataset: task_cortex_dm1
+simulation:
+  params:
+    - - 1.0
+graph_model:
+  signal_model_name: cortex_dm1
+  aggr_type: add
+  n_units: 256
+  n_input: 85
+  n_output: 33
+  W_param: free
+  recurrent_activation: tanh         # delaygo winner
+  input_proj: mlp                    # LOAD-BEARING per delaygo experiments
+  output_proj: mlp
+  hidden_dim: 128
+  n_layers: 2
+  MLP_activation: relu
+plotting: {}
+training:
+  device: auto
+  seed: 0
+  n_runs: 1
+  n_epochs: 10
+  batch_size: 64
+  lr: 2.0e-3
+  lr_schedule:
+    - 2.0e-3
+    - 2.0e-3
+    - 1.0e-3
+    - 1.0e-3
+    - 4.0e-4
+    - 4.0e-4
+    - 2.0e-4
+    - 2.0e-4
+    - 2.0e-4
+    - 2.0e-4
+  lr_scheduler: none
+  grad_clip_W: 2.0
+  noise_recurrent_level: 0.0
+  coeff_rate_L2: 1.0e-2
+  coeff_W_L2: 0.0
+  w_init_mode: randn_scaled
+  w_init_scale: 0.5
+  snapshots_per_epoch: 5
+  data_augmentation_loop: 20         # ~15 min target — same as delaygo_winner
+  torch_compile: false
+
+task:
+  task_type: cortex
+  task_only: true
+  cortex:
+    rules: ["dm1"]
+    rule_weights: []
+    ruleset: "all"
+    n_trials_train: 1000
+    n_trials_test: 200
+    n_steps_max: 400
+    seed: 0
+    hp_overrides: {}

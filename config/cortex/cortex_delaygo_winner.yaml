@@ -1,0 +1,73 @@
+description: |
+  cortex_delaygo winner config — 5× longer training to test whether the
+  0.98 best-in-ep ceiling identified by the 96-iter agentic loop
+  (LLM_cortex_delaygo, 2026-05-15) can be broken at higher iteration count.
+
+  Source: iter 065 slot 0 (canonical block-6 winner — 9-seed mean
+  best-in-ep = 0.981 ± 0.014, no seed below 0.95).
+
+  Architecture: TaskRNN free-W mode, N=256, tanh recurrent activation,
+  MLP encoder/decoder (input_proj=mlp is load-bearing).
+
+  Training: 5× more iters per epoch via data_augmentation_loop 40→200.
+  Same 10-epoch budget so the ×2.0 lr_schedule still fits without
+  modification. Total grad steps ≈ (1000//64) * 200 * 10 = 31 000.
+dataset: task_cortex_delaygo
+simulation:
+  params:
+    - - 1.0
+graph_model:
+  signal_model_name: cortex_delaygo
+  aggr_type: add
+  n_units: 256
+  n_input: 85
+  n_output: 33
+  W_param: free
+  recurrent_activation: tanh         # agentic-loop winner over relu/softplus/sigmoid
+  input_proj: mlp                    # LOAD-BEARING — matrix caps best-in-ep at 0.969
+  output_proj: mlp                   # neutral but kept for consistency
+  hidden_dim: 128
+  n_layers: 2
+  MLP_activation: relu
+plotting: {}
+training:
+  device: auto
+  seed: 0
+  n_runs: 1
+  n_epochs: 10
+  batch_size: 64
+  lr: 2.0e-3                         # canonical winner: 2× the Hulse default with ×2.0 slower decay
+  lr_schedule:                       # ×2.0 schedule from iter 65 slot 0
+    - 2.0e-3
+    - 2.0e-3
+    - 1.0e-3
+    - 1.0e-3
+    - 4.0e-4
+    - 4.0e-4
+    - 2.0e-4
+    - 2.0e-4
+    - 2.0e-4
+    - 2.0e-4
+  lr_scheduler: none
+  grad_clip_W: 2.0                   # tightens best-in-ep distribution by ~+0.01 over 1.0
+  noise_recurrent_level: 0.0         # neutral at tanh — tanh saturation absorbs noise
+  coeff_rate_L2: 1.0e-2              # tightens tail / suppresses catastrophic-seed dip
+  coeff_W_L2: 0.0                    # confirmed silent killer at any non-zero magnitude
+  w_init_mode: randn_scaled
+  w_init_scale: 0.5                  # plateau 0.3–3.0 with randn_scaled; 0.5 is canonical
+  snapshots_per_epoch: 5
+  data_augmentation_loop: 20         # ~15 min target on l4 (was 200 = 2h "5x longer" — too slow for iteration)
+  torch_compile: false
+
+task:
+  task_type: cortex
+  task_only: true
+  cortex:
+    rules: ["delaygo"]
+    rule_weights: []
+    ruleset: "all"
+    n_trials_train: 1000
+    n_trials_test: 200
+    n_steps_max: 400
+    seed: 0
+    hp_overrides: {}
