@@ -20,7 +20,7 @@ training:
   device: auto
   seed: 47506
   n_runs: 1
-  n_epochs: 5
+  n_epochs: 10
   batch_size: 64
   data_augmentation_loop: 1
   lr: 0.002

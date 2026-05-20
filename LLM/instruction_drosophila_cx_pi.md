@@ -154,28 +154,62 @@ different seeds; this measures seed sensitivity of a candidate winner.
 
 ## Block plan (160 iterations, 4 blocks × 40 iter, 10 slots/batch × 4 batches)
 
-Parent at iter 1 = a **clean, minimal starting config** (NOT the old
-`drosophila_cx_pi_winner.yaml`, which is now known to collapse — see
-preamble). Suggested clean parent:
+### Current best (2026-05-20)
+
+Single-seed run of `drosophila_cx_pi_winner.yaml` hit **r_roll = 1.000
+from epoch 2** and held through epoch 5 (T=500); final test pi_acc =
+0.9913 at T=1000. The winning recipe:
+
+```yaml
+graph_model:
+  velocity_gate: pen_4scalar
+training:
+  batch_size: 64
+  lr: 2.0e-3
+  lr_W_ED: 5.0e-4              # constant; encoder/decoder slow
+  lr_schedule: [2e-3, 2e-3, 1e-3, 1e-3, 5e-4, 4e-4, 3e-4, 2e-4, 5e-5, 5e-5]
+  grad_clip_W: 2.5             # B1 plateau
+  noise_recurrent_level: 0.05  # flyvis-style stabiliser
+  coeff_cos_distance: 0.0      # KEY: connectome-prior disabled
+  coeff_norm_floor: 0.5
+  coeff_W_L1: 0.0
+  n_epochs: 10
+  n_steps_schedule: [100, 200, 300, 400, 500, 600, 800, 900, 1000, 1000]
+  # ↑ gentle T-warmup starting at 100 was the missing piece
+```
+
+**This is a single-seed result.** Prior exploration documented severe seed
+variance at neighbouring configs (`r_roll` flipping 0.92 → 0.44 → −0.24
+across three seeds of the iter-28 config). The **next LLM iteration must
+be a 10-seed robustness test on this exact config** before promoting it
+to canonical winner. Decision rule for robustness:
+
+- ≥ 8/10 above r_roll = 0.95 → winner confirmed; skip to B3 (gate +
+  extras) — B1 (stabilisation) and B2 (curriculum) are effectively
+  resolved.
+- 4–7/10 above 0.95 → solid candidate; narrow B2 with this config as
+  parent (try minor n_steps / lr_schedule variants).
+- < 4/10 above 0.95 → seed-fluke; investigate what made this seed
+  special (interaction between curriculum jump timing, noise, and the
+  random init of S).
+
+### Fallback clean parent (only if winner.yaml robustness fails)
 
 ```
 graph_model:
-  velocity_gate: pen_4scalar     # anatomically tightest; revisited in B3
-  wrec_param: edge_magnitude     # Dale sign-locked (NOT column_dale)
+  velocity_gate: pen_4scalar
+  wrec_param: edge_magnitude
 training:
-  lr: 2.0e-2                     # constant for biases / "other" group (matches lr_schedule[0])
-  lr_W_ED: 5.0e-4                # constant for W_in / W_out / velocity-gate scalars
-  # lr_W_rec unset → starts at `lr`, then driven by lr_schedule
-  batch_size: 1                  # SGD-like noise; one trial per step
+  lr: 2.0e-2                     # constant for biases / "other"
+  lr_W_ED: 5.0e-4
+  batch_size: 1                  # SGD-like noise
   coeff_cos_distance: 0.0
   coeff_norm_floor: 0.5
-  noise_recurrent_level: 0.0     # off — re-evaluated in B1
-  grad_clip_W: 0.0               # off — re-evaluated in B1
-  coeff_W_L1: 0.0
+  noise_recurrent_level: 0.0     # re-evaluated in B1
+  grad_clip_W: 0.0               # re-evaluated in B1
   n_epochs: 5
   n_steps_schedule: [300, 500, 700, 900, 1000]
   lr_schedule:      [2.0e-2, 1.0e-3, 5.0e-4, 2.0e-4, 5.0e-5]
-  # ↑ drives the w_rec group only; w_ED / other stay constant.
 ```
 
 Reordered for the post-fix problem (**stabilisation first, curriculum
