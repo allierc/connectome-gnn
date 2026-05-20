@@ -1854,13 +1854,11 @@ def _data_train_pi_task(config, erase, best_model, device, log_file=None):
     logger.info(f'model: {model_config.signal_model_name}  params: {n_total_params}')
 
     # --- optimizer + scheduler -------------------------------------------
-    # default (lr_W_rec=None): single param group at `tc.lr`, fully driven
-    # by lr_schedule. Matches the original Hulse setup.
-    #
     # three named param groups (always built; missing field → tc.lr fallback):
     #   - "w_rec": recurrent core. S (CxTaskRNN) or W + a + g_phi + f_theta
-    #              (CxTaskGNN). lr starts at tc.lr_W_rec or tc.lr. lr_schedule
-    #              drives THIS group exclusively (per-epoch trajectory).
+    #              (CxTaskGNN). lr starts at tc.lr_W_rec or tc.lr.
+    #              lr_W_rec_schedule drives THIS group exclusively
+    #              (per-epoch trajectory).
     #   - "w_ED":  encoder/decoder. W_in, W_out, MLP variants, velocity-gate
     #              scalars (v_pena_l/r, v_penb_l/r). lr = tc.lr_W_ED or tc.lr.
     #              Constant — schedule does not touch.
@@ -1942,16 +1940,17 @@ def _data_train_pi_task(config, erase, best_model, device, log_file=None):
         n_steps_schedule = [T_full] * tc.n_epochs
     _logger.info(f'curriculum n_steps schedule (epochs 1..{tc.n_epochs}): {n_steps_schedule}')
 
-    # per-epoch lr schedule.
-    # empty schedule = constant tc.lr (and the build_lr_scheduler above is in charge).
-    raw_lr = list(getattr(tc, 'lr_schedule', []) or [])
+    # per-epoch schedule for the w_rec group (PI uses a three-group optimizer;
+    # this drives only the recurrent core, while w_ED and "other" stay
+    # constant). Empty schedule = w_rec stays at its initial lr.
+    raw_lr = list(getattr(tc, 'lr_W_rec_schedule', []) or [])
     if raw_lr:
         if len(raw_lr) < tc.n_epochs:
             raw_lr = raw_lr + [raw_lr[-1]] * (tc.n_epochs - len(raw_lr))
-        lr_schedule = [float(x) for x in raw_lr[:tc.n_epochs]]
-        _logger.info(f'lr schedule (epochs 1..{tc.n_epochs}): {lr_schedule}')
+        lr_W_rec_schedule = [float(x) for x in raw_lr[:tc.n_epochs]]
+        _logger.info(f'lr_W_rec_schedule (epochs 1..{tc.n_epochs}): {lr_W_rec_schedule}')
     else:
-        lr_schedule = None
+        lr_W_rec_schedule = None
 
     metrics_log_path = os.path.join(log_dir, 'tmp_training', 'metrics.log')
     os.makedirs(os.path.dirname(metrics_log_path), exist_ok=True)
@@ -2006,12 +2005,10 @@ def _data_train_pi_task(config, erase, best_model, device, log_file=None):
 
     for epoch in range(tc.n_epochs):
         T_epoch = n_steps_schedule[epoch]
-        # Per-epoch lr replacement (Hulse). When no schedule is provided we
-        # leave the optimizer / build_lr_scheduler alone. The schedule drives
-        # only the "w_rec" group; "w_ED" and "other" stay constant at their
-        # configured lr_W_ED / lr.
-        if lr_schedule is not None:
-            lr_epoch = lr_schedule[epoch]
+        # Per-epoch lr replacement for the w_rec group (lr_W_rec_schedule).
+        # "w_ED" and "other" stay constant at their configured lr_W_ED / lr.
+        if lr_W_rec_schedule is not None:
+            lr_epoch = lr_W_rec_schedule[epoch]
             for g in optimizer.param_groups:
                 if g.get("name") == "w_rec":
                     g['lr'] = lr_epoch

@@ -954,6 +954,10 @@ class TrainingConfig(BaseModel):
     # Per-epoch learning-rate schedule (Hulse). Empty list → constant `lr`.
     # Padded with the last value if n_epochs > len(schedule).
     lr_schedule: List[float] = Field(default_factory=lambda: [5e-3, 1e-3, 5e-4, 2e-4, 1e-4])
+    # PI trainer only: per-epoch lr trajectory for the w_rec group. Cortex
+    # has a single param group and uses `lr_schedule` above. This field is
+    # the unambiguous name for the three-group PI setup.
+    lr_W_rec_schedule: List[float] = Field(default_factory=list)
     # TaskRNN: stddev of Gaussian noise added to the hidden state at
     # every Euler step during training (flyvis-style). 0 → off (Hulse default).
     # Try {0, 1e-3, 1e-2, 5e-2} — small noise smooths the long-T BPTT

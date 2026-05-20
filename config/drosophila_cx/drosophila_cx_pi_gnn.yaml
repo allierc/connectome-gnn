@@ -30,8 +30,8 @@ training:
   n_epochs: 5
   batch_size: 16
   data_augmentation_loop: 1
-  lr: 2.0e-3 # overridden by lr_schedule below
-  lr_schedule: [2.0e-3, 1.0e-3, 5.0e-4, 2.0e-4, 5.0e-5] # flat tail
+  lr: 2.0e-3 # overridden by lr_W_rec_schedule below (drives w_rec only)
+  lr_W_rec_schedule: [2.0e-3, 1.0e-3, 5.0e-4, 2.0e-4, 5.0e-5] # flat tail
   lr_scheduler: none
   lr_W_ED: 5.0e-4  # constant lr for W_in / W_out / velocity-gate scalars
   grad_clip_W: 0.0
