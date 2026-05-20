@@ -12,7 +12,7 @@ import argparse
 from connectome_gnn.config import NeuralGraphConfig
 from connectome_gnn.generators.graph_data_generator import data_generate
 from connectome_gnn.models.graph_trainer import (
-    data_train, data_test, data_train_INR, data_train_task_gnn,
+    data_train, data_test, data_train_INR, data_train_task,
 )
 from connectome_gnn.models.utils import load_run_config
 from connectome_gnn.utils import (
@@ -172,7 +172,7 @@ if __name__ == "__main__":
             _marker = os.path.join(run_log_dir, '_completed_train')
             if os.path.exists(_marker):
                 os.remove(_marker)
-            data_train_task_gnn(
+            data_train_task(
                 config=config, erase=True, best_model=best_model, device=device,
             )
             with open(_marker, 'w') as f:

@@ -46,7 +46,7 @@ training:
   coeff_norm_floor: 0.
   kappa_norm_floor: 0.0
   coeff_tv_circular: 0.0
-  coeff_W_L1: 0.0
+  coeff_W_L1: 1.0e-5
   noise_recurrent_level: 0.05
   snapshots_per_epoch: 5
   n_steps_schedule: [300, 500, 700, 900, 1000]

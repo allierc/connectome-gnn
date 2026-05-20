@@ -1,6 +1,6 @@
 """Connectome-GNN — Task-trainer LLM Exploration Loop.
 
-Sibling of GNN_LLM.py for the path-integration trainer (`data_train_task_gnn`).
+Sibling of GNN_LLM.py for the path-integration trainer (`data_train_task`).
 Differences from GNN_LLM:
   - No data regeneration loop (the path-integration zarrs are written once;
     only training hyperparameters change).

@@ -1,6 +1,6 @@
 """Task-trainer (path-integration) variant of the LLM exploration pipeline.
 
-Sibling of pipeline.py for the `data_train_task_gnn` route. The only
+Sibling of pipeline.py for the `data_train_task` route. The only
 task-specific bits are:
 
 - Schema-specific metric reading / printing / collapse detection
@@ -12,7 +12,7 @@ Everything else is reused from existing code:
 - `submit_cluster_job` + `wait_for_cluster_jobs` (cluster.py) — the
   `train_subprocess.py` cluster command works unchanged because the
   `data_train` dispatcher routes any config with a `task` block to
-  `data_train_task_gnn`.
+  `data_train_task`.
 - `data_train` (graph_trainer.py) for the local path — same dispatcher.
 - `setup_exploration`, `init_*`, `run_batch_0`, `load_configs_and_seeds`,
   `save_artifacts`, `run_claude_analysis`, `finalize_batch` (pipeline.py)
@@ -424,7 +424,7 @@ def run_task_cluster_training(state: ExplorationState, batch: BatchInfo):
     """Submit task-trainer cluster jobs, wait, parse final metrics → analysis log.
 
     Reuses `submit_cluster_job` (which calls train_subprocess.py, which routes
-    to data_train_task_gnn via the data_train dispatcher). No test+plot phase
+    to data_train_task via the data_train dispatcher). No test+plot phase
     — the trainer's own snapshots and metrics.log are the authoritative output.
     """
     print(f"\n{_ANSI_YELLOW}PHASE 2: Submitting {batch.n_slots} task-trainer "
@@ -502,7 +502,7 @@ def run_task_cluster_training(state: ExplorationState, batch: BatchInfo):
 
 def run_task_local_pipeline(state: ExplorationState, batch: BatchInfo):
     """Local-mode runner: train each slot sequentially via the data_train
-    dispatcher (which routes task configs to data_train_task_gnn)."""
+    dispatcher (which routes task configs to data_train_task)."""
     from connectome_gnn.models.graph_trainer import data_train
 
     print(f"\n{_ANSI_YELLOW}PHASE 2: Training {batch.n_slots} task-models "

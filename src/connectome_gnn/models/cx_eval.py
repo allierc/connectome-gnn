@@ -9,7 +9,7 @@ These helpers are duck-typed against any module exposing:
 so they work on both `teachers.JaneliaCxRNN` and `models.TaskRNN`.
 
 History: lifted out of `teachers/janelia_cx_teacher.py` to keep the new
-`data_train_task_gnn` from importing the teacher module.  The teacher
+`data_train_task` from importing the teacher module.  The teacher
 re-exports these names for backwards compat.
 """
 

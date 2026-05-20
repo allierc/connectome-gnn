@@ -873,12 +873,15 @@ class TrainingConfig(BaseModel):
     lr_W: float = 0.0001
     # CX task trainer (_data_train_pi_task): separate LR for the recurrent-
     # core params (S in CxTaskRNN; W + a + g_phi + f_theta in CxTaskGNN).
-    # When None, the trainer uses a single param group at `lr` and
-    # `lr_schedule` controls everything (current behavior — backward-compatible).
-    # When set, the recurrent core trains at this constant LR (independent of
-    # `lr_schedule`), while encoder/decoder params (W_in, W_out, b, b_out,
-    # velocity-gate scalars) keep training at `lr` (with schedule).
+    # When set, `lr_schedule` drives THIS group only (per-epoch trajectory of
+    # the recurrent core); when None, the recurrent core starts at `lr` and is
+    # still the group `lr_schedule` drives. Schedule never touches the other
+    # groups (lr_W_ED and `lr`-biases stay constant).
     lr_W_rec: Optional[float] = None
+    # Constant LR for encoder/decoder params: W_in, W_out, MLP variants
+    # (_W_in_mlp.*, _W_out_mlp.*), and velocity-gate scalars (v_pena_l/r,
+    # v_penb_l/r). Falls back to `lr` when None.
+    lr_W_ED: Optional[float] = None
 
     lr_missing_activity: float = 0.0001
     lr_NNR_f_start: float = 0.0

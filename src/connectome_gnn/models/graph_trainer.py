@@ -93,7 +93,7 @@ def data_train(config=None, erase=False, best_model=None, style=None, device=Non
     # of a populated task block — keeps train_subprocess.py / GNN_Main.py
     # routing transparent for both the LLM agentic loop and direct CLI use.
     if getattr(config, 'task', None) is not None:
-        data_train_task_gnn(config, erase, best_model, device, log_file=log_file)
+        data_train_task(config, erase, best_model, device, log_file=log_file)
         _logger.info("training completed.")
         return
 
@@ -1772,7 +1772,7 @@ from connectome_gnn.models.graph_tester import (
 # Path-integration task trainer (TaskRNN)
 # ============================================================================
 
-def data_train_task_gnn(config, erase, best_model, device, log_file=None):
+def data_train_task(config, erase, best_model, device, log_file=None):
     """Dispatch to the task-specific trainer based on `config.task.task_type`.
 
     - `path_integration` → CX trainer (TaskRNN sign_locked mode, Hulse aux
@@ -1799,7 +1799,7 @@ def _data_train_pi_task(config, erase, best_model, device, log_file=None):
     `_generate_path_integration_task`). Stimulus is (B, T, 3); target is
     (B, T, 2) = (cos θ_hd, sin θ_hd).
 
-    Loss = MSE(y_hat, y) plus the four Hulse auxiliaries gated by:
+    Loss = MSE(y_hat, y):
         tc.coeff_cos_distance · L_cos  (Eq. 10)
         tc.coeff_norm_floor   · L_norm (Eq. 11, kappa=tc.kappa_norm_floor)
         tc.coeff_tv_circular  · L_tv   (circular TV on EPG/PEN rings)
@@ -1845,7 +1845,7 @@ def _data_train_pi_task(config, erase, best_model, device, log_file=None):
     logger.info(f'train trials: {u_train.shape[0]}  test trials: {u_test.shape[0]}  '
                 f'T: {u_train.shape[1]}  in: {u_train.shape[2]}  out: {y_train.shape[2]}')
 
-    # --- Model build via registry ----------------------------------------
+    # --- model build via registry ----------------------------------------
     model = create_model(model_config.signal_model_name,
                          aggr_type=model_config.aggr_type,
                          config=config, device=device)
@@ -1853,45 +1853,58 @@ def _data_train_pi_task(config, erase, best_model, device, log_file=None):
     _logger.info(f'model {model_config.signal_model_name}: {n_total_params:,} trainable params')
     logger.info(f'model: {model_config.signal_model_name}  params: {n_total_params}')
 
-    # --- Optimizer + scheduler -------------------------------------------
-    # Default (lr_W_rec=None): single param group at `tc.lr`, fully driven
+    # --- optimizer + scheduler -------------------------------------------
+    # default (lr_W_rec=None): single param group at `tc.lr`, fully driven
     # by lr_schedule. Matches the original Hulse setup.
     #
-    # When `tc.lr_W_rec` is set, split into two groups:
-    #   - "w_rec": recurrent-core params (S in CxTaskRNN; W + a + g_phi +
-    #              f_theta in CxTaskGNN). Trains at lr_W_rec (constant —
-    #              lr_schedule does not touch this group).
-    #   - "io":    encoder/decoder + biases + velocity-gate scalars. Trains
-    #              at tc.lr (and lr_schedule overrides this group only).
+    # three named param groups (always built; missing field → tc.lr fallback):
+    #   - "w_rec": recurrent core. S (CxTaskRNN) or W + a + g_phi + f_theta
+    #              (CxTaskGNN). lr starts at tc.lr_W_rec or tc.lr. lr_schedule
+    #              drives THIS group exclusively (per-epoch trajectory).
+    #   - "w_ED":  encoder/decoder. W_in, W_out, MLP variants, velocity-gate
+    #              scalars (v_pena_l/r, v_penb_l/r). lr = tc.lr_W_ED or tc.lr.
+    #              Constant — schedule does not touch.
+    #   - "other": biases (b, b_out) and anything not in the above. lr = tc.lr.
+    #              Constant — schedule does not touch.
     lr_W_rec = getattr(tc, 'lr_W_rec', None)
-    if lr_W_rec is None:
-        optimizer = torch.optim.Adam(model.parameters(), lr=tc.lr)
-        _w_rec_param_ids: set = set()
-    else:
-        def _is_w_rec_param(name: str) -> bool:
-            return (
-                name in ("S", "W", "a")
-                or name.startswith("g_phi.")
-                or name.startswith("f_theta.")
-            )
-        w_rec_params, io_params = [], []
-        for _name, _p in model.named_parameters():
-            (w_rec_params if _is_w_rec_param(_name) else io_params).append(_p)
-        _w_rec_param_ids = {id(_p) for _p in w_rec_params}
-        optimizer = torch.optim.Adam(
-            [
-                {"params": w_rec_params, "lr": float(lr_W_rec), "name": "w_rec"},
-                {"params": io_params,    "lr": tc.lr,            "name": "io"},
-            ]
-        )
-        _logger.info(
-            f'two-group optimizer: lr_W_rec={lr_W_rec} (w_rec: {len(w_rec_params)} params) '
-            f'| lr={tc.lr} (io: {len(io_params)} params)'
-        )
+    lr_W_ED = getattr(tc, 'lr_W_ED', None)
+
+    def _name_to_group(name: str) -> str:
+        if name in ("S", "W", "a") or name.startswith(("g_phi.", "f_theta.")):
+            return "w_rec"
+        if (name in ("W_in", "W_out")
+                or name.startswith(("_W_in_mlp.", "_W_out_mlp."))
+                or name in ("v_pena_l", "v_pena_r", "v_penb_l", "v_penb_r")):
+            return "w_ED"
+        return "other"
+
+    grouped: dict[str, list] = {"w_rec": [], "w_ED": [], "other": []}
+    for _name, _p in model.named_parameters():
+        grouped[_name_to_group(_name)].append(_p)
+
+    optimizer = torch.optim.Adam(
+        [
+            {"params": grouped["w_rec"],
+             "lr": float(lr_W_rec) if lr_W_rec is not None else tc.lr,
+             "name": "w_rec"},
+            {"params": grouped["w_ED"],
+             "lr": float(lr_W_ED) if lr_W_ED is not None else tc.lr,
+             "name": "w_ED"},
+            {"params": grouped["other"], "lr": tc.lr, "name": "other"},
+        ]
+    )
+    _logger.info(
+        f'three-group optimizer: '
+        f'w_rec lr={float(lr_W_rec) if lr_W_rec is not None else tc.lr} '
+        f'({len(grouped["w_rec"])} params, schedule-driven) | '
+        f'w_ED lr={float(lr_W_ED) if lr_W_ED is not None else tc.lr} '
+        f'({len(grouped["w_ED"])} params, constant) | '
+        f'other lr={tc.lr} ({len(grouped["other"])} params, constant)'
+    )
     lr_scheduler = build_lr_scheduler(optimizer, config)
     _logger.info(f'lr={tc.lr}  lr_scheduler={getattr(tc, "lr_scheduler", "none")}')
 
-    # --- Regulariser coefficients (cached as Python scalars) -------------
+    # --- regulariser coefficients (cached as Python scalars) -------------
     coeff_cos = float(tc.coeff_cos_distance)
     coeff_norm = float(tc.coeff_norm_floor)
     kappa_norm = float(tc.kappa_norm_floor)
@@ -1905,7 +1918,7 @@ def _data_train_pi_task(config, erase, best_model, device, log_file=None):
     _logger.info(f'losses: cos_distance={coeff_cos}  norm_floor={coeff_norm} (κ={kappa_norm})  '
                  f'tv_circular={coeff_tv}  W_L1={coeff_l1S}  f_theta_diff={coeff_f_diff}')
 
-    # --- Training loop ---------------------------------------------------
+    # --- training loop ---------------------------------------------------
     n_trials, T_full = u_train.shape[0], u_train.shape[1]
     # data_augmentation_loop multiplies iters/epoch by cycling through
     # additional independent shuffles of the trial pool (DAL=1 is a single
@@ -1918,7 +1931,7 @@ def _data_train_pi_task(config, erase, best_model, device, log_file=None):
     global_step = 0
     n_nan_skips = 0       # cumulative count of skipped optimizer steps
 
-    # Per-epoch trial-length curriculum. Slice the first T_epoch frames
+    # per-epoch trial-length curriculum. Slice the first T_epoch frames
     # from the on-disk T=T_full trials. Empty schedule = use T_full.
     raw_schedule = list(getattr(tc, 'n_steps_schedule', []) or [])
     if raw_schedule:
@@ -1929,8 +1942,8 @@ def _data_train_pi_task(config, erase, best_model, device, log_file=None):
         n_steps_schedule = [T_full] * tc.n_epochs
     _logger.info(f'curriculum n_steps schedule (epochs 1..{tc.n_epochs}): {n_steps_schedule}')
 
-    # Per-epoch lr schedule (Hulse — decays 50× from 5e-3 to 1e-4 over 5 epochs).
-    # Empty schedule = constant tc.lr (and the build_lr_scheduler above is in charge).
+    # per-epoch lr schedule.
+    # empty schedule = constant tc.lr (and the build_lr_scheduler above is in charge).
     raw_lr = list(getattr(tc, 'lr_schedule', []) or [])
     if raw_lr:
         if len(raw_lr) < tc.n_epochs:
@@ -1993,15 +2006,15 @@ def _data_train_pi_task(config, erase, best_model, device, log_file=None):
     for epoch in range(tc.n_epochs):
         T_epoch = n_steps_schedule[epoch]
         # Per-epoch lr replacement (Hulse). When no schedule is provided we
-        # leave the optimizer / build_lr_scheduler alone. When lr_W_rec is
-        # set, the w_rec group stays constant — only the io group is updated.
+        # leave the optimizer / build_lr_scheduler alone. The schedule drives
+        # only the "w_rec" group; "w_ED" and "other" stay constant at their
+        # configured lr_W_ED / lr.
         if lr_schedule is not None:
             lr_epoch = lr_schedule[epoch]
             for g in optimizer.param_groups:
                 if g.get("name") == "w_rec":
-                    continue
-                g['lr'] = lr_epoch
-            _logger.info(f'epoch {epoch+1}: lr -> {lr_epoch}')
+                    g['lr'] = lr_epoch
+            _logger.info(f'epoch {epoch+1}: w_rec lr -> {lr_epoch}')
         gen = torch.Generator(device=device).manual_seed(tc.seed + epoch)
         # Stack `dal` independent shuffles so Niter * batch_size indices
         # are always covered. DAL=1 reduces to a single randperm pass
@@ -2012,7 +2025,7 @@ def _data_train_pi_task(config, erase, best_model, device, log_file=None):
             dim=0,
         )
         pbar = trange(Niter, ncols=150,
-                      desc=f'epoch {epoch+1}/{tc.n_epochs} (T={T_epoch})', leave=True)
+                      desc=f'epoch {epoch+1} (T={T_epoch})', leave=True)
         for N in pbar:
             global_step += 1
             idx = perm[N * tc.batch_size:(N + 1) * tc.batch_size]
@@ -2240,9 +2253,9 @@ def _data_train_pi_task(config, erase, best_model, device, log_file=None):
                 pearson_str = f'{_col}{last_pearson_roll:.3f}\033[0m'
             skips_str = f'  skips={n_nan_skips}' if n_nan_skips > 0 else ''
             pbar.set_postfix_str(
-                f'loss={loss.item():.4f}  mse={mse.item():.4f}  '
-                f'pi_acc={last_pi_acc:.3f}  '
-                f'rmse_roll={rmse_roll_str}  r_roll={pearson_str}  '
+                f'loss={loss.item():.4f} '
+                f'rmse_roll={rmse_roll_str} '
+                f'r_roll={pearson_str} '
                 f'best={best_loss:.4f}{skips_str}'
             )
 
@@ -2422,18 +2435,6 @@ def _data_train_cortex_task(config, erase, best_model, device, log_file=None):
                  f'n_eval={n_eval} test trials, snap_every={snap_every} iters '
                  f'= {total_iters // snap_every} snapshots)')
 
-    # ANSI colors for dir_acc in postfix.
-    _C_GREEN, _C_ORANGE, _C_RED, _C_RESET = (
-        '\033[92m', '\033[33m', '\033[91m', '\033[0m'
-    )
-    def _color_acc(v):
-        if v is None or np.isnan(v):
-            return ''
-        if v >= 0.9:
-            return _C_GREEN
-        if v >= 0.5:
-            return _C_ORANGE
-        return _C_RED
 
     for epoch in range(tc.n_epochs):
         # Per-epoch lr replacement (Yang). When no schedule is provided we
@@ -2443,8 +2444,6 @@ def _data_train_cortex_task(config, erase, best_model, device, log_file=None):
             for g in optimizer.param_groups:
                 g['lr'] = lr_epoch
             _logger.info(f'epoch {epoch+1}: lr -> {lr_epoch}')
-        # Per-epoch generator for reproducible batch sampling.
-        gen = torch.Generator(device=device).manual_seed(tc.seed + epoch)
         pbar = trange(
             Niter, ncols=150,
             desc=f'cortex/{rule_name} epoch {epoch+1}/{tc.n_epochs}',
@@ -2455,8 +2454,7 @@ def _data_train_cortex_task(config, erase, best_model, device, log_file=None):
             # Sample with replacement (DAL > 1 makes one-pass coverage
             # impossible from a fixed trial pool). For DAL=1 this is
             # functionally equivalent to the bootstrap of a single pass.
-            idx = torch.randint(0, n_trials, (tc.batch_size,),
-                                generator=gen, device=device)
+            idx = torch.randint(0, n_trials, (tc.batch_size,), device=device)
             u = u_train[idx]
             y = y_train[idx]
             cm = cm_train[idx]

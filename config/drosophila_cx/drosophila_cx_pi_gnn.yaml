@@ -27,23 +27,13 @@ training:
   device: auto
   seed: 0
   n_runs: 1
-  n_epochs: 10
+  n_epochs: 5
   batch_size: 16
   data_augmentation_loop: 1
   lr: 2.0e-3 # overridden by lr_schedule below
-  lr_schedule: [
-      5.0e-3,
-      1.0e-3,
-      1.0e-3,
-      1.0e-3,
-      5.0e-4,
-      3.0e-4,
-      2.0e-4,
-      2.0e-4,
-      1.0e-4,
-      5.0e-5,
-    ] # flat tail
+  lr_schedule: [2.0e-3, 1.0e-3, 5.0e-4, 2.0e-4, 5.0e-5] # flat tail
   lr_scheduler: none
+  lr_W_ED: 5.0e-4  # constant lr for W_in / W_out / velocity-gate scalars
   grad_clip_W: 0.0
   coeff_cos_distance: 0.05 # B2 lowest-qualifying
   coeff_norm_floor: 0.5 # B3 frozen baseline
@@ -58,7 +48,7 @@ training:
   w_init_mode: zeros
   w_init_scale: 0.01
   snapshots_per_epoch: 5
-  n_steps_schedule: [100, 200, 300, 400, 500, 600, 800, 900, 1000, 1000]
+  n_steps_schedule: [300, 500, 700, 900, 1000]
   torch_compile: false
 
 # ---------------------------------------------------------------------------
@@ -71,8 +61,8 @@ claude:
   ucb_c: 1.414
   generate_data: false
   training_time_target_min: 30
-  hard_runtime_limit_min: 60
-  node_name: l4
+  hard_runtime_limit_min: 180
+  node_name: a100
   n_cpus: 8
   n_parallel: 10
   conda_env: connectome-gnn
