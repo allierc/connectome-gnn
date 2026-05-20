@@ -1956,7 +1956,8 @@ def _data_train_pi_task(config, erase, best_model, device, log_file=None):
     metrics_log_path = os.path.join(log_dir, 'tmp_training', 'metrics.log')
     os.makedirs(os.path.dirname(metrics_log_path), exist_ok=True)
     with open(metrics_log_path, 'w') as f:
-        f.write('iteration,epoch,loss,mse,cosd,norm,tv,l1S,pi_acc,fwhm_deg\n')
+        f.write('iteration,epoch,loss,mse,cosd,norm,tv,l1S,pi_acc,fwhm_deg,'
+                'r_roll,rmse_roll_deg\n')
 
     last_pi_acc = float('nan')
     last_fwhm = float('nan')
@@ -2204,7 +2205,8 @@ def _data_train_pi_task(config, erase, best_model, device, log_file=None):
                     f.write(f'{global_step},{epoch+1},{loss.item():.6f},'
                             f'{mse.item():.6f},{float(cosd):.6f},{float(norm):.6f},'
                             f'{float(tv):.6f},{float(l1S):.6f},'
-                            f'{last_pi_acc:.6f},{fwhm_deg:.3f}\n')
+                            f'{last_pi_acc:.6f},{fwhm_deg:.3f},'
+                            f'{last_pearson_roll:.6f},{last_rmse_roll:.3f}\n')
 
                 # --- Memory debug (CPU RSS + GPU alloc/reserved) -----------
                 # try:

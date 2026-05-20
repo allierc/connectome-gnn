@@ -111,16 +111,22 @@ def _read_all_task_metrics(log_dir: str) -> list:
                     'l1S':    _f(parts, 'l1S'),
                     'pi_acc': _f(parts, 'pi_acc'),
                     'fwhm':   _f(parts, 'fwhm_deg'),
+                    'r_roll':    _f(parts, 'r_roll'),
+                    'rmse_roll': _f(parts, 'rmse_roll_deg'),
                     # Cortex fields (None when PI)
                     'motor_max':        _f(parts, 'motor_max'),
                     'motor_peak_mean':  _f(parts, 'motor_peak_mean'),
                     'r2':               _f(parts, 'r2'),
                     'direction_acc':    _f(parts, 'direction_acc'),
                 }
-                # Pick a primary metric for collapse detection / display.
-                # Cortex now uses r2 as the headline number (direction_acc is
-                # kept as a secondary diagnostic).
-                if row['pi_acc'] is not None:
+                # Primary metric for collapse detection / display.
+                #   PI:     r_roll (Pearson on rollout) is the new headline.
+                #           Falls back to pi_acc when column absent (older logs).
+                #   Cortex: r2.
+                if row['r_roll'] is not None:
+                    row['primary'] = row['r_roll']
+                    row['primary_name'] = 'r_roll'
+                elif row['pi_acc'] is not None:
                     row['primary'] = row['pi_acc']
                     row['primary_name'] = 'pi_acc'
                 elif row['r2'] is not None:
