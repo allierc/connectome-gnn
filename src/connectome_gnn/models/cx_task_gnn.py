@@ -8,7 +8,8 @@ by a NeuralGNN-style update:
     msg_e    = W_edge[e] · g_phi(v_src, a_src)²        (B, E, 1) — raw v=h
     agg_j    = Σ_{e: dst(e)=j} msg_e                   (B, N, 1)
     rec_j    = f_theta(v_j, a_j, agg_j)                (B, N)
-    τ · dh/dt = -h + rec + W_in·u + b
+    τ · dh/dt = rec + W_in·u
+              (leak and per-neuron offset absorbed into f_theta)
 
 Connectome topology is enforced via `edge_index = nonzeros(W_con)`.
 Sign-lock toggle:
@@ -227,9 +228,6 @@ class CxTaskGNN(nn.Module):
         else:
             raise ValueError(f"input_proj must be 'matrix' or 'mlp', got {self.input_proj!r}")
 
-        # --- Recurrent bias (initialised to 1) -------------------------
-        self.b = nn.Parameter(torch.ones(N, dtype=torch.float32))
-
         # --- Decoder W_out (matrix or MLP) ------------------------------
         self.output_proj = getattr(gm, "output_proj", "matrix")
         if self.output_proj == "matrix":
@@ -284,6 +282,14 @@ class CxTaskGNN(nn.Module):
             nlayers=n_layers_update, hidden_size=hidden_dim_update,
             activation=mlp_act, device=device,
         )
+        # Shrink the last-layer weights of both MLPs so the initial recurrent
+        # drive is small (forward stability without sacrificing gradient
+        # flow). MLP default last-layer init is N(0, 0.1); ×0.1 → N(0, 0.01).
+        # g_phi's output is squared, so this is a 100× scale reduction on the
+        # initial per-edge message magnitude. Biases are already zero.
+        with torch.no_grad():
+            self.g_phi.layers[-1].weight.mul_(0.1)
+            self.f_theta.layers[-1].weight.mul_(0.1)
 
         # Per-edge weight W (sign-free by default; sign is locked via the
         # _edge_sign buffer + _effective_edge_weights when lock_edge_signs).
@@ -466,13 +472,13 @@ class CxTaskGNN(nn.Module):
             # slope on its own (it need not be exactly -1 in dt/tau units).
             rec = self._gnn_recurrent_drive(h)
             inp = self._project_in(u[:, t, :])
-            h = h + dt_over_tau * (rec + inp + self.b)
+            h = h + dt_over_tau * (rec + inp)
             if noise_lvl > 0:
                 h = h + noise_lvl * torch.randn_like(h)
             # NaN guard only — kicks in only when f_theta has not yet learned
             # a leak. Gradient is killed on saturated steps; clamp is invisible
             # in healthy training where |h| stays well below the bound.
-            h = h.clamp(-50.0, 50.0)
+            # h = h.clamp(-50.0, 50.0)
             h_buf[:, t, :] = h
 
         # Decoder reads firing rates so the cos/sin readout matches the

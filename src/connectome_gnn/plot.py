@@ -753,9 +753,9 @@ def plot_task_pi_traces(
 
     With predictions (y_pred is not None — used by data_test):
       Row 0 [in 0]   ω(t)
-      Row 1 [HD]     wrapped HD — true (black) + decoded (red)
-      Row 2 [out 0]  cos(θ_hd) — gt (black) + decoded (red dashed)
-      Row 3 [out 1]  sin(θ_hd) — gt (black) + decoded (red dashed)
+      Row 1 [out 0]  cos(θ_hd) — gt (black) + decoded (red dashed)
+      Row 2 [out 1]  sin(θ_hd) — gt (black) + decoded (red dashed)
+      Row 3 [HD]     wrapped HD — true (black) + decoded (red)
     Per-column titles include metrics (e.g. "rmse=12° r=0.98") when supplied.
 
     Standing-pause regions (is_stop=1) shaded in gray on every row.
@@ -774,10 +774,10 @@ def plot_task_pi_traces(
     # Per-row y-limits so trials are visually comparable.
     omega_lim = max(1e-6, float(np.abs(u[:n, :, 0]).max())) * 1.05
     out_lim   = 1.1
-    row_ylims = [(-omega_lim, omega_lim)]
+    row_ylims = [(-omega_lim, omega_lim),
+                 (-out_lim, out_lim), (-out_lim, out_lim)]
     if has_pred:
-        row_ylims.append((-np.pi - 0.15, np.pi + 0.15))  # wrapped HD row
-    row_ylims.extend([(-out_lim, out_lim), (-out_lim, out_lim)])
+        row_ylims.append((-np.pi - 0.15, np.pi + 0.15))  # wrapped HD row (bottom)
 
     # Per-row metadata: (kind, label, color, background-tint).
     # Uniform color scheme: ground truth = green, prediction = black.
@@ -788,14 +788,14 @@ def plot_task_pi_traces(
     GT_MS = 3.0         # GT marker scatter (wrapped HD)
     PRED_COLOR = "black"
     PRED_LW = 0.5       # thin so the GT envelope reads cleanly
-    PRED_MS = 0.8
-    rows = [("input",  "in 0\nω (deg/s)", GT_COLOR, INP)]
+    PRED_MS = 0.4
+    rows = [
+        ("input",  "in 0\nω (deg/s)", GT_COLOR, INP),
+        ("output", "out 0\ncos(θ)",   GT_COLOR, OUT),
+        ("output", "out 1\nsin(θ)",   GT_COLOR, OUT),
+    ]
     if has_pred:
         rows.append(("hd", "HD (rad,\nwrapped)", GT_COLOR, HD))
-    rows.extend([
-        ("output", "out 0\ncos(θ)",          GT_COLOR, OUT),
-        ("output", "out 1\nsin(θ)",          GT_COLOR, OUT),
-    ])
 
     def _shade_stops(ax, stop):
         in_block = False
@@ -816,15 +816,16 @@ def plot_task_pi_traces(
                 else np.zeros(T, dtype=bool))
 
         # Traces, in row order. Each entry is (trace_gt, optional trace_pred).
-        # The HD row carries (true_hd_wrapped, decoded_hd_wrapped); on output
-        # rows the second item is the predicted cos/sin trace.
+        # The HD row (last when has_pred) carries (true_hd_wrapped,
+        # decoded_hd_wrapped); on output rows the second item is the
+        # predicted cos/sin trace.
         traces: list = [(u[col, :, 0], None)]   # ω
         if has_pred:
+            traces.append((y[col, :, 0], y_pred[col, :, 0]))
+            traces.append((y[col, :, 1], y_pred[col, :, 1]))
             true_hd_wrap = np.angle(np.exp(1j * theta_hd[col]))
             dec_theta = np.arctan2(y_pred[col, :, 1], y_pred[col, :, 0])
             traces.append((true_hd_wrap, dec_theta))
-            traces.append((y[col, :, 0], y_pred[col, :, 0]))
-            traces.append((y[col, :, 1], y_pred[col, :, 1]))
         else:
             traces.append((y[col, :, 0], None))
             traces.append((y[col, :, 1], None))
@@ -841,7 +842,10 @@ def plot_task_pi_traces(
                 ax.set_yticklabels([r"$-\pi$", "0", r"$\pi$"])
             else:
                 # GT: thicker lighter-green; pred: black lw=1, solid.
-                ax.plot(t, trace_gt, color=color, lw=GT_LW)
+                # Input ω row uses a thinner line — there's no prediction
+                # overlay so a thick GT trace is visually unbalanced.
+                gt_lw = 0.8 if kind == "input" else GT_LW
+                ax.plot(t, trace_gt, color=color, lw=gt_lw)
                 if trace_pred is not None:
                     ax.plot(t, trace_pred, color=PRED_COLOR, lw=PRED_LW)
             ax.axhline(0, color="0.5", lw=0.5)
@@ -877,16 +881,12 @@ def plot_task_pi_traces(
 
     fig.text(0.005, _row_y(0.0), "INPUT", rotation=90, va='center', ha='left',
              fontsize=axis_fs + 1, fontweight='bold', color='0.25')
+    fig.text(0.005, _row_y(1.5), "OUTPUT", rotation=90, va='center',
+             ha='left', fontsize=axis_fs + 1, fontweight='bold',
+             color='0.25')
     if has_pred:
-        fig.text(0.005, _row_y(1.0), "HD", rotation=90, va='center', ha='left',
+        fig.text(0.005, _row_y(3.0), "HD", rotation=90, va='center', ha='left',
                  fontsize=axis_fs + 1, fontweight='bold', color='0.25')
-        fig.text(0.005, _row_y(2.5), "OUTPUT", rotation=90, va='center',
-                 ha='left', fontsize=axis_fs + 1, fontweight='bold',
-                 color='0.25')
-    else:
-        fig.text(0.005, _row_y(1.5), "OUTPUT", rotation=90, va='center',
-                 ha='left', fontsize=axis_fs + 1, fontweight='bold',
-                 color='0.25')
 
     title = (
         f"path-integration task — {n} of {n_trials} trials, "
@@ -899,6 +899,114 @@ def plot_task_pi_traces(
     fig.suptitle(title, fontsize=style.label_font_size)
     plt.tight_layout(rect=[0.02, 0, 1, 0.97])
     style.savefig(fig, out_path)
+
+
+def plot_integration_gain(
+    theta_hd: np.ndarray,        # (n_omega, T) ground-truth HD trajectories
+    y_pred: np.ndarray,          # (n_omega, T, 2) predicted (cos, sin)
+    omega_deg_per_s: List[float],
+    dt: float,
+    out_path: str,
+    *,
+    warmup: int = 10,
+    style: FigureStyle = default_style,
+) -> List[Dict[str, float]]:
+    """Integration-gain analysis on constant-ω deterministic sweeps.
+
+    For each ω in `omega_deg_per_s`, fit `decoded_unwrap[t] = α·t + β` on
+    the post-warmup window and compare α against the expected slope
+    `ω_rad_per_s`. Gain `g = α / ω_rad_per_s`; perfect integration → g=1.
+
+    Renders a two-panel figure:
+      Left  — unwrapped decoded HD (black) and GT linear ramp (green) per ω;
+              one curve per ω, all overlaid.
+      Right — measured slope (deg/s) vs true ω (deg/s) with y=x reference.
+              Each ω is one dot with its gain annotated.
+
+    Returns a list of per-ω metric dicts (omega, slope_deg_per_s, gain, r2).
+    """
+    n_omega, T = theta_hd.shape
+    t_full = np.arange(T) * dt
+    decoded = np.arctan2(y_pred[..., 1], y_pred[..., 0])    # (n_omega, T)
+
+    metrics: List[Dict[str, float]] = []
+    decoded_unwrap_all = np.zeros_like(decoded)
+    fits = np.zeros((n_omega, 2))                            # (α, β) per ω
+    for k in range(n_omega):
+        post = decoded[k, warmup:]
+        decoded_unwrap_all[k, warmup:] = np.unwrap(post)
+        decoded_unwrap_all[k, :warmup] = decoded_unwrap_all[k, warmup]
+        t_post = t_full[warmup:]
+        d_post = decoded_unwrap_all[k, warmup:]
+        if d_post.std() < 1e-8 or t_post.size < 2:
+            slope_rad = 0.0
+            intercept = float(d_post.mean()) if d_post.size else 0.0
+            r2 = float('nan')
+        else:
+            slope_rad, intercept = np.polyfit(t_post, d_post, 1)
+            pred = slope_rad * t_post + intercept
+            ss_res = float(((d_post - pred) ** 2).sum())
+            ss_tot = float(((d_post - d_post.mean()) ** 2).sum())
+            r2 = 1.0 - ss_res / ss_tot if ss_tot > 1e-12 else float('nan')
+        fits[k] = (slope_rad, intercept)
+        slope_deg = float(np.degrees(slope_rad))
+        omega = float(omega_deg_per_s[k])
+        gain = (slope_deg / omega) if abs(omega) > 1e-8 else float('nan')
+        metrics.append({
+            'omega_deg': omega,
+            'slope_deg_per_s': slope_deg,
+            'gain': gain,
+            'r2': r2,
+        })
+
+    fig, (ax_t, ax_g) = plt.subplots(1, 2, figsize=(11, 4.2))
+
+    # --- Left panel: unwrapped decoded HD + GT linear ramp ----------------
+    cmap = plt.get_cmap('viridis')
+    for k in range(n_omega):
+        c = cmap(k / max(n_omega - 1, 1))
+        omega = float(omega_deg_per_s[k])
+        true_unwrap = theta_hd[k] - theta_hd[k, 0]
+        ax_t.plot(t_full, np.degrees(true_unwrap),
+                  color="#4daf4a", lw=2.6, alpha=0.8)
+        d_centred = decoded_unwrap_all[k] - decoded_unwrap_all[k, warmup]
+        ax_t.plot(t_full, np.degrees(d_centred),
+                  color="black", lw=0.7,
+                  label=f"ω={omega:+.0f}°/s  (g={metrics[k]['gain']:+.2f})")
+    ax_t.axhline(0, color='0.6', lw=0.4)
+    ax_t.set_xlabel("time (s)", fontsize=style.tick_font_size)
+    ax_t.set_ylabel("unwrapped HD", fontsize=style.tick_font_size)
+    ax_t.set_title("decoded HD trajectories  (green = GT)",
+                   fontsize=style.label_font_size - 1)
+    ax_t.legend(fontsize=7, loc="best", framealpha=0.85)
+    ax_t.tick_params(labelsize=max(7, style.tick_font_size - 2))
+
+    # --- Right panel: measured slope vs true ω ----------------------------
+    omegas = np.array([m['omega_deg'] for m in metrics])
+    slopes = np.array([m['slope_deg_per_s'] for m in metrics])
+    lim = float(max(np.abs(omegas).max(), np.abs(slopes).max())) * 1.15
+    lim = max(lim, 1.0)
+    ax_g.plot([-lim, lim], [-lim, lim], color="0.5", lw=0.8, ls="--")
+    ax_g.axhline(0, color="0.7", lw=0.4)
+    ax_g.axvline(0, color="0.7", lw=0.4)
+    ax_g.scatter(omegas, slopes, s=60, c="black", zorder=3)
+    for o, s, m in zip(omegas, slopes, metrics):
+        if not np.isnan(m['gain']):
+            ax_g.annotate(f"g={m['gain']:+.2f}",
+                          (o, s), textcoords="offset points",
+                          xytext=(6, 4), fontsize=8)
+    ax_g.set_xlim(-lim, lim)
+    ax_g.set_ylim(-lim, lim)
+    ax_g.set_xlabel("true ω (deg/s)", fontsize=style.tick_font_size)
+    ax_g.set_ylabel("measured slope (deg/s)", fontsize=style.tick_font_size)
+    ax_g.set_title("integration gain  (target: y = x)",
+                   fontsize=style.label_font_size - 1)
+    ax_g.tick_params(labelsize=max(7, style.tick_font_size - 2))
+    ax_g.set_aspect('equal', adjustable='box')
+
+    plt.tight_layout()
+    style.savefig(fig, out_path)
+    return metrics
 
 
 def plot_task_cortex_example(
