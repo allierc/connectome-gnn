@@ -1,5 +1,6 @@
 import logging
 import os
+import shutil
 import time
 import warnings
 
@@ -1830,6 +1831,8 @@ def _data_train_pi_task(config, erase, best_model, device, log_file=None):
     default_style.apply_globally()
 
     log_dir, logger = create_log_dir(config, erase)
+    # Wipe tmp_training so snapshots, metrics, etc. don't mix across runs.
+    shutil.rmtree(os.path.join(log_dir, 'tmp_training'), ignore_errors=True)
     kinograph_dir = os.path.join(log_dir, 'tmp_training', 'evolution')
     os.makedirs(kinograph_dir, exist_ok=True)
 
@@ -1956,12 +1959,13 @@ def _data_train_pi_task(config, erase, best_model, device, log_file=None):
     os.makedirs(os.path.dirname(metrics_log_path), exist_ok=True)
     with open(metrics_log_path, 'w') as f:
         f.write('iteration,epoch,loss,mse,cosd,norm,tv,l1S,pi_acc,fwhm_deg,'
-                'r_roll,rmse_roll_deg\n')
+                'r_roll,rmse_roll_deg,r_roll_1k\n')
 
     last_pi_acc = float('nan')
     last_fwhm = float('nan')
-    last_rmse_roll = float('nan')   # deg, deterministic-sweep rollout
-    last_pearson_roll = float('nan')  # corr(unwrapped decoded, true)
+    last_rmse_roll = float('nan')   # deg, rollout at T_epoch
+    last_pearson_roll = float('nan')  # corr at T_epoch
+    last_pearson_roll_1k = float('nan')  # corr at fixed T=1000 (reference)
     model.train()
 
     # torch.compile (mirrors data_train_gnn line 451). The recurrent forward
@@ -2177,9 +2181,20 @@ def _data_train_pi_task(config, erase, best_model, device, log_file=None):
                         eval_model, eval_model.epg_indices, eval_model.epg_glom_ix,
                         n_trials=64, n_steps=T_epoch, device=device,
                     )
+                    # Primary rollout at the current curriculum horizon —
+                    # tracks training progress at the length actually trained.
                     last_rmse_roll, last_pearson_roll = _rollout_heading_metrics(
                         eval_model,
-                        n_steps=snapshot_n_steps,
+                        n_steps=T_epoch,
+                        omega_deg_per_s=snapshot_omega_deg,
+                        device=device,
+                    )
+                    # Reference rollout at fixed T=1000 — long-horizon probe
+                    # independent of the curriculum, useful for spotting
+                    # under-trained low-T epochs.
+                    _, last_pearson_roll_1k = _rollout_heading_metrics(
+                        eval_model,
+                        n_steps=1000,
                         omega_deg_per_s=snapshot_omega_deg,
                         device=device,
                     )
@@ -2203,7 +2218,8 @@ def _data_train_pi_task(config, erase, best_model, device, log_file=None):
                             f'{mse.item():.6f},{float(cosd):.6f},{float(norm):.6f},'
                             f'{float(tv):.6f},{float(l1S):.6f},'
                             f'{last_pi_acc:.6f},{fwhm_deg:.3f},'
-                            f'{last_pearson_roll:.6f},{last_rmse_roll:.3f}\n')
+                            f'{last_pearson_roll:.6f},{last_rmse_roll:.3f},'
+                            f'{last_pearson_roll_1k:.6f}\n')
 
                 # --- Memory debug (CPU RSS + GPU alloc/reserved) -----------
                 # try:
@@ -2236,20 +2252,24 @@ def _data_train_pi_task(config, erase, best_model, device, log_file=None):
 
             # Progress bar: replaced fwhm with deterministic-sweep rollout
             # metrics. Pearson is colour-coded (red < 0.5, orange < 0.9, green).
+            # r_roll shows two values: r_roll=<T_epoch> (<fixed-1000>).
             if np.isnan(last_rmse_roll):
                 rmse_roll_str = 'n/a'
             else:
                 rmse_roll_str = f'{last_rmse_roll:.1f}°'
-            if np.isnan(last_pearson_roll):
-                pearson_str = 'n/a'
-            else:
-                if last_pearson_roll >= 0.9:
-                    _col = '\033[32m'  # green
-                elif last_pearson_roll >= 0.5:
-                    _col = '\033[33m'  # orange/yellow
+
+            def _fmt_r(r):
+                if np.isnan(r):
+                    return 'n/a'
+                if r >= 0.9:
+                    c = '\033[32m'
+                elif r >= 0.5:
+                    c = '\033[33m'
                 else:
-                    _col = '\033[31m'  # red
-                pearson_str = f'{_col}{last_pearson_roll:.3f}\033[0m'
+                    c = '\033[31m'
+                return f'{c}{r:.3f}\033[0m'
+
+            pearson_str = f'{_fmt_r(last_pearson_roll)} ({_fmt_r(last_pearson_roll_1k)})'
             skips_str = f'  skips={n_nan_skips}' if n_nan_skips > 0 else ''
             pbar.set_postfix_str(
                 f'loss={loss.item():.4f} '
@@ -2331,6 +2351,8 @@ def _data_train_cortex_task(config, erase, best_model, device, log_file=None):
     default_style.apply_globally()
 
     log_dir, logger = create_log_dir(config, erase)
+    # Wipe tmp_training so snapshots, metrics, etc. don't mix across runs.
+    shutil.rmtree(os.path.join(log_dir, 'tmp_training'), ignore_errors=True)
     snapshot_dir = os.path.join(log_dir, 'tmp_training', 'cortex_snapshot')
     matrix_dir = os.path.join(log_dir, 'tmp_training', 'matrix')
     os.makedirs(snapshot_dir, exist_ok=True)

@@ -373,13 +373,14 @@ def plot_cx_kinograph_pva(
         extent=[-np.pi, np.pi, T * dt_s, 0],
         interpolation="nearest",
     )
-    # Overlay decoded HD as red trace.
-    ax.plot(decoded, np.arange(T) * dt_s, color="red", linewidth=1.2,
-            label="decoded HD (PVA)")
+    # Overlay true HD (thick light green) under decoded HD (thin black).
     if true_theta_hd is not None:
         true_wrapped = np.angle(np.exp(1j * np.asarray(true_theta_hd)))
-        ax.plot(true_wrapped, np.arange(T) * dt_s, color="black",
-                linewidth=0.8, linestyle="--", label="true HD")
+        ax.plot(true_wrapped, np.arange(T) * dt_s, color="#4daf4a",
+                linewidth=2.4, label="true HD")
+    ax.plot(decoded, np.arange(T) * dt_s, color="black", linewidth=0.6,
+            label="decoded HD (PVA)")
+    if true_theta_hd is not None:
         ax.legend(loc="upper right", fontsize=7, framealpha=0.9)
 
     ax.set_xlim(-np.pi, np.pi)
@@ -530,7 +531,7 @@ def render_cx_snapshot_into_axes(
             ax.set_yticks(centres)
             ax.set_yticklabels(labels, fontsize=tick_fs)
         if title:
-            ax.set_title(title, fontsize=10)
+            ax.set_title(title, fontsize=8)
         ax.set_xlabel("presynaptic"); ax.set_ylabel("postsynaptic")
         cb = fig.colorbar(im, ax=ax, fraction=0.04, pad=0.02, shrink=0.8)
         cb.set_label("z-score", fontsize=11)
@@ -543,7 +544,7 @@ def render_cx_snapshot_into_axes(
         ax_gt.text(0.5, 0.5, "no W_con provided", ha="center", va="center",
                    transform=ax_gt.transAxes, fontsize=11, color="0.5")
         ax_gt.set_xticks([]); ax_gt.set_yticks([])
-        ax_gt.set_title("GT W_con", fontsize=10)
+        ax_gt.set_title("GT W_con", fontsize=8)
     _render_matrix(ax_mat, W_rec, "", tick_fs=7)
 
     # ---- RIGHT: kinograph with HD curves ----
@@ -584,8 +585,8 @@ def render_cx_snapshot_into_axes(
         ax_kin.scatter(time, theta, s=size, c=color, marker=".",
                        linewidths=0, label=label)
     t_axis = np.arange(T) * dt_s
-    _scatter(rollout["true_theta"], t_axis, "black", 4, "true HD")
-    _scatter(rollout["decoded_theta"], t_axis, "red", 3, "decoded HD (W_out)")
+    _scatter(rollout["true_theta"], t_axis, "#4daf4a", 6, "true HD")
+    _scatter(rollout["decoded_theta"], t_axis, "black", 2, "decoded HD (W_out)")
     ax_kin.set_yticks([-np.pi, -np.pi / 2, 0, np.pi / 2, np.pi])
     ax_kin.set_yticklabels([r"$-\pi$", r"$-\pi/2$", "0", r"$\pi/2$", r"$\pi$"])
     ax_kin.set_xlabel("time (s)")
@@ -646,7 +647,7 @@ def render_cx_snapshot_into_axes(
     cb_neu.ax.tick_params(labelsize=9)
     ax_neu.set_xlabel("time (s)")
     ax_neu.set_ylabel("EPG neuron index")
-    ax_neu.set_title("per-neuron EPG (z-scored, $\\pm 3\\,\\sigma$)", fontsize=10)
+    ax_neu.set_title("per-neuron EPG (z-scored, $\\pm 3\\,\\sigma$)", fontsize=8)
 
     # ---- BOTTOM-RIGHT: per-neuron PEN raster (mirror of bottom-left) ----
     # Twin of the EPG raster on the left so the user can read both bumps on
@@ -704,13 +705,13 @@ def render_cx_snapshot_into_axes(
             ax_pen.set_ylabel("PEN neuron index (connectome order ≈ PB glomerulus)")
         ax_pen.set_title(
             f"per-neuron PEN (z-scored, $\\pm 3\\,\\sigma$,  n_pen={n_pen})",
-            fontsize=10,
+            fontsize=8,
         )
     else:
         ax_pen.text(0.5, 0.5, "no PEN data", ha="center", va="center",
                     transform=ax_pen.transAxes, fontsize=11, color="0.5")
         ax_pen.set_xticks([]); ax_pen.set_yticks([])
-        ax_pen.set_title("per-neuron PEN", fontsize=10)
+        ax_pen.set_title("per-neuron PEN", fontsize=8)
 
     # ---- (2,1) decoded vs true HD + residual error ----
     # Previously this panel used a twin y-axis with unwrapped HD on the
@@ -724,10 +725,10 @@ def render_cx_snapshot_into_axes(
     dec_hd  = np.angle(np.exp(1j * np.asarray(rollout["decoded_theta"])))
     err_hd  = np.angle(np.exp(1j * (np.asarray(rollout["decoded_theta"])
                                      - np.asarray(rollout["true_theta"]))))
-    ax_hd.plot(t_axis, true_hd, color="black", lw=1.0,
-                marker=".", ms=1.5, ls="", label="true HD")
-    ax_hd.plot(t_axis, dec_hd, color="red", lw=1.0,
-                marker=".", ms=1.5, ls="", label="decoded HD")
+    ax_hd.plot(t_axis, true_hd, color="#4daf4a", lw=0.0,
+                marker=".", ms=3.0, ls="", label="true HD")
+    ax_hd.plot(t_axis, dec_hd, color="black", lw=0.0,
+                marker=".", ms=1.0, ls="", label="decoded HD")
     ax_hd.plot(t_axis, err_hd, color="C0", lw=0.8, alpha=0.45,
                 label="error (dec − true)")
     ax_hd.axhline(0.0, color="0.6", lw=0.4)
@@ -736,13 +737,26 @@ def render_cx_snapshot_into_axes(
     ax_hd.set_yticks([-np.pi, -np.pi / 2, 0, np.pi / 2, np.pi])
     ax_hd.set_yticklabels([r"$-\pi$", r"$-\pi/2$", "0", r"$\pi/2$", r"$\pi$"])
     ax_hd.set_ylim(-np.pi - 0.15, np.pi + 0.15)
-    ax_hd.legend(fontsize=7, loc="upper left", framealpha=0.85, ncol=3)
     rmse_deg = float(np.degrees(np.sqrt(np.mean(err_hd ** 2))))
+    # Pearson over the plotted rollout (skip the first 10 frames to match the
+    # `_rollout_heading_metrics` warmup convention).
+    _warm = 10
+    _true_full = np.asarray(rollout["true_theta"])
+    _dec_full = np.asarray(rollout["decoded_theta"])
+    if _true_full.size > _warm:
+        _dec_unwrap = np.unwrap(_dec_full[_warm:])
+        _true_post = _true_full[_warm:]
+        if _dec_unwrap.std() > 1e-8 and _true_post.std() > 1e-8:
+            r_panel = float(np.corrcoef(_dec_unwrap, _true_post)[0, 1])
+            r_str = f"r = {r_panel:.3f}"
+        else:
+            r_str = "r = n/a"
+    else:
+        r_str = "r = n/a"
     ax_hd.set_title(
         "heading tracking on snapshot rollout   "
-        f"(ω={rollout.get('omega_deg_per_s', 0):.0f}°/s, "
-        f"RMSE = {rmse_deg:.1f}°)",
-        fontsize=10,
+        f"({r_str}, RMSE = {rmse_deg:.1f}°)",
+        fontsize=8,
     )
 
 
@@ -804,7 +818,7 @@ def plot_cx_training_snapshot(
         ax_pi.set_ylabel("pi_acc", color="C0", fontsize=10)
         ax_pi.tick_params(axis="y", labelcolor="C0", labelsize=8)
         ax_pi.tick_params(axis="x", labelsize=8)
-        ax_pi.set_title("path-integration accuracy", fontsize=10)
+        ax_pi.set_title("path-integration accuracy", fontsize=8)
         if rmse_history is not None and len(rmse_history[0]) > 0:
             it_r, rmse = rmse_history
             ax_pi_r = ax_pi.twinx()
@@ -834,7 +848,7 @@ def plot_cx_training_snapshot(
             ax_fw.set_xlabel(r"GT $W_{rec}$", fontsize=10)
             ax_fw.set_ylabel(r"learned $\hat W_{rec}$", fontsize=10)
             ax_fw.set_title(f"slope = {slope:.3f},  $R^2$ = {r2:.3f}",
-                            fontsize=10)
+                            fontsize=8)
             ax_fw.tick_params(labelsize=8)
         else:
             ax_fw.axis("off")

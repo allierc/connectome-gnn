@@ -1977,7 +1977,7 @@ def data_test_path_integration_task(
         _deterministic_sweep_rollout,
         path_integration_accuracy_from_data,
     )
-    from connectome_gnn.plot import plot_task_pi_traces
+    from connectome_gnn.plot import plot_integration_gain, plot_task_pi_traces
 
     tc = config.training
     model_config = config.graph_model
@@ -2118,6 +2118,35 @@ def data_test_path_integration_task(
     )
     logger.info(f'  saved: {sweep_plot_path}')
 
+    # --- (c) Integration-gain analysis (Hulse-style slope test) ------------
+    # Denser ω scan than the 5-panel deterministic_sweep so the gain curve
+    # has enough points to resolve where integration breaks down.
+    gain_omega_set = [-180.0, -150.0, -120.0, -90.0, -60.0, -30.0,
+                       30.0,  60.0,  90.0, 120.0, 150.0, 180.0]
+    gain_theta, gain_y_pred = [], []
+    for omega in gain_omega_set:
+        ro = _deterministic_sweep_rollout(
+            model, n_steps=T_sweep, omega_deg_per_s=omega, device=device,
+        )
+        gain_theta.append(ro['true_theta'])
+        gain_y_pred.append(ro['y_pred'])
+    gain_plot_path = os.path.join(results_dir, 'test_integration_gain.png')
+    gain_metrics = plot_integration_gain(
+        theta_hd=np.stack(gain_theta, axis=0),
+        y_pred=np.stack(gain_y_pred, axis=0),
+        omega_deg_per_s=gain_omega_set,
+        dt=float(config.task.path_integration.dt),
+        out_path=gain_plot_path,
+    )
+    logger.info(
+        f'  {len(gain_omega_set)} integration gains (slope ÷ ω): '
+        + '  '.join(
+            f"ω={m['omega_deg']:+.0f}: g={m['gain']:+.3f}"
+            for m in gain_metrics
+        )
+    )
+    logger.info(f'  saved: {gain_plot_path}')
+
     # --- Aggregate metrics log --------------------------------------------
     log_path_ = os.path.join(log_dir, 'results_path_integration.log')
     with open(log_path_, 'w') as f:
@@ -2130,6 +2159,13 @@ def data_test_path_integration_task(
         f.write('omega_deg,rmse_deg,pearson\n')
         for o, m in zip(omega_set, metrics_sweep):
             f.write(f'{o:.1f},{m["rmse_deg"]:.4f},{m["pearson"]:.6f}\n')
+        f.write('\n# Integration gain (decoded HD slope / true ω)\n')
+        f.write('omega_deg,slope_deg_per_s,gain,fit_r2\n')
+        for m in gain_metrics:
+            f.write(
+                f'{m["omega_deg"]:.1f},{m["slope_deg_per_s"]:.4f},'
+                f'{m["gain"]:.6f},{m["r2"]:.6f}\n'
+            )
     logger.info(f'  saved metrics log: {log_path_}')
     if log_file is not None:
         log_file.write('\n--- Path-integration test results ---\n')
