@@ -3,8 +3,8 @@
 ## Goal
 
 Find the **best recurrent training scheme** for the connectome-constrained
-CX RNN (`TaskRNN` in
-[src/connectome_gnn/models/task_rnn.py](../src/connectome_gnn/models/task_rnn.py))
+CX RNN (`CxTaskRNN` in
+[src/connectome_gnn/models/cx_task_rnn.py](../src/connectome_gnn/models/cx_task_rnn.py))
 on the path-integration task: given angular velocity ω(t) and a one-frame
 initial-heading impulse at t=0, predict (cos θ_hd, sin θ_hd) at every frame.
 
@@ -12,16 +12,55 @@ initial-heading impulse at t=0, predict (cos θ_hd, sin θ_hd) at every frame.
 heading on the test split, after a 10-frame warmup). Reference is
 **pi_acc ≥ 0.95** at full T=1000.
 
-**Secondary metric (NEW for this run)**: `gt_R2` and `gt_slope` — linear
-fit between learned `W_rec` and GT `W_con` on the non-zero edges (now
-rendered in the bottom-right of every snapshot, in
-`tmp_training/evolution/step_*.png`). Two circuits can both hit
-pi_acc ≥ 0.99 but one might be anatomically close (`gt_R2 → 1`) and the
-other functional-but-divergent (`gt_R2 ≈ 0.3`). **Always report both.**
+**Secondary metric (now first-class — see preamble)**: `gt_R2` and
+`gt_slope` — linear fit between learned `W_rec` and GT `W_con` on the
+non-zero edges. Now that the W_rec forward bug is fixed (see preamble
+below), these numbers measure real anatomical fidelity. Two circuits can
+both hit pi_acc ≥ 0.99 but one might be anatomically close (`gt_R2 → 1`)
+and the other functional-but-divergent (`gt_R2 ≈ 0.3`). **Always extract
+both into the per-slot analysis-log line, not just the snapshot title.**
 
 The dataset is **fixed**: 100k train + 10k test trials × T=1000 frames at
 dt=0.01s, generated once and reused across iterations. Only the training
 hyperparameters change.
+
+## Convention fix (2026-05-19) + observed regression — READ FIRST
+
+A bug in `CxTaskRNN` was discovered and fixed: the recurrent input was
+computed as `r @ W_rec` instead of `r @ W_rec.T`, so message flow was
+post→pre instead of pre→post. The fix changes which weight basin the
+optimiser walks toward — **the prior winner config no longer converges
+under correct dynamics.**
+
+Measured under the fixed forward, using the previous winner
+(`pen_4scalar` + `coeff_cos_distance=0.05` + `noise_recurrent_level=0.05`):
+
+| epoch | T   | end-of-epoch pi_acc | status                |
+|-------|-----|----------------------|------------------------|
+| 1     | 300 | 0.574                | partial, not converged |
+| 2     | 400 | 0.040                | **collapsed**          |
+| 3     | 500 | ≈ 0.03               | still collapsed        |
+
+So the T=500 collapse is a **real BPTT-landscape issue under correct
+dynamics**, not the transpose artefact we suspected. Implications for
+this exploration:
+
+1. **`drosophila_cx_pi_winner.yaml` is no longer a valid parent.** All
+   prior numerical optima (`cosd=0.05`, `noise=0.05`, etc.) were tuned
+   against the buggy forward and do not transfer.
+2. **Prior `gt_R2` numbers are not comparable** — they compared a
+   transposed-effective `W_rec` to `W_con`. Treat any prior gt_R2 in
+   memory files as void; rebuild the trajectory under correct dynamics.
+3. **The block plan is reordered**: convergence first (find a config
+   that survives T≥500), anatomy second (cos_distance trade-off), gate
+   choice third. Old block plan put gate first — but the gate choice
+   only matters once we have a converging baseline.
+4. **Noise / cos_distance / clip move back to hypotheses**, not
+   locked-in priors. The prior exploration baked them into the parent
+   based on bug-era data; this exploration starts clean.
+
+The qualitative search space, metrics, and infrastructure are unchanged;
+only the parent and block ordering need to be reset.
 
 ## Budget
 
@@ -30,14 +69,19 @@ hyperparameters change.
 problem (already solved by the existing winner curriculum). Every block
 must be a *targeted measurement* of one or two axes, not a free sweep.
 
-## What's known (baseline behaviour)
+## What's known (baseline behaviour, under correct dynamics)
 
-The original default (full-T BPTT, no noise, no clip) hit pi_acc ≈ 0.999 at the T=100
-curriculum stage and pi_acc ≈ 0.997 at T=250, then **collapses to pi_acc ≈
-0.000 at T=500** (loss jumps from 0.01 to 0.50). This is the central failure
-mode the agentic loop must understand and fix.
+With the bug fixed, the prior winner config (`pen_4scalar` + `cosd=0.05`
++ `noise=0.05` + 10-epoch curriculum 300..1000) reaches pi_acc ≈ 0.57 at
+T=300 and **collapses to pi_acc ≈ 0.04 at T=400**, loss going from
+~0.35 to ~0.50. The full-T BPTT landscape under correct message flow
+is the central problem to solve in Block 1.
 
-**Hypotheses for the T=500 collapse** (these are what the loop should test):
+Note: the OLD `drosophila_cx_pi_Claude_memory.md` exploration logs were
+all under the buggy forward — treat their pi_acc numbers as a different
+problem entirely. Do not parent off them.
+
+**Hypotheses for the T≥400 collapse** (these are what the loop should test):
 
 1. **Full-T BPTT through 500+ Euler steps without noise injection** is too
    sharp a landscape for Adam at lr=5e-4. (Flyvis injects
@@ -80,17 +124,50 @@ These are the fields the agent may set per-slot in `training:` /
 
 ### Recurrent training scheme (PRIORITY — this is what we're optimising)
 
+**Three-group optimiser (2026-05-19).** The trainer splits parameters into
+three named groups with separate learning rates. **`lr_schedule` drives only
+the `w_rec` group** — `w_ED` (encoder/decoder) and `other` (biases) stay
+constant at their respective `lr_W_ED` / `lr` across epochs. Asymmetry is
+deliberate: I/O matrices are small (W_in: N×3, W_out: 2×N, ~760 params total)
+and don't need decay; the recurrent core (`S`, ~25k params) does.
+
+| Group   | Trainable params                                                    | LR field    | Schedule?            |
+| ------- | ------------------------------------------------------------------- | ----------- | -------------------- |
+| `w_rec` | `S` (CxTaskRNN); `W`+`a`+`g_phi.*`+`f_theta.*` (CxTaskGNN)          | `lr_W_rec`  | **YES — `lr_schedule` drives this** |
+| `w_ED`  | `W_in`, `W_out`, `_W_in_mlp.*`, `_W_out_mlp.*`, `v_pen{a,b}_{l,r}`  | `lr_W_ED`   | NO — constant         |
+| `other` | biases (`b`, `b_out`) and anything else                             | `lr`        | NO — constant         |
+
+If `lr_W_rec` is unset it falls back to `lr` (then the schedule still
+drives it). If `lr_W_ED` is unset it also falls back to `lr` (but stays
+constant — no schedule). So at minimum you have `lr` + `lr_schedule` and
+the recurrent core is scheduled; everything else stays at `lr`.
+
 | Field                   | Default                          | What it controls                                                                                                                                                      |
-| ----------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --- | -------------------------------------------------- |
-| `noise_recurrent_level` | `0.0` (off)                      | **NEW — flyvis stabiliser.** Stddev of Gaussian noise added to `h` at every Euler step during training. Try {0, 1e-3, 1e-2, 5e-2}. Eval/snapshot stays deterministic. |
-| `grad_clip_W`           | `0.0` (off)                      | **CRITICAL.** Max-norm gradient clip on all trainable params. Set 1.0–10.0 to prevent `                                                                               | S   | ` blowups at long T.                               |
-| `n_steps_schedule`      | `[100, 250, 500, 1000, 1000]`    | Per-epoch trial length (BPTT horizon). Try gentler ramps: `[100,150,250,500,1000]` or longer warmup at small T.                                                       |
-| `lr_schedule`           | `[5e-3, 1e-3, 5e-4, 2e-4, 1e-4]` | Per-epoch lr. Try faster decay: `[5e-3, 5e-4, 1e-4, 5e-5, 1e-5]`.                                                                                                     |
-| `n_epochs`              | `5`                              | Number of curriculum stages. Could be 7–10 with finer T steps.                                                                                                        |
+| ----------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lr`                    | `2e-3`                           | Constant lr for biases / `other` group, and the fallback init for `w_rec` and `w_ED` when their dedicated fields are unset.                                           |
+| `lr_W_rec`              | unset (→ `lr`)                   | **Initial** lr for the recurrent core. `lr_schedule` then drives this group across epochs. Set this when you want the schedule to start from a different value than `lr`. |
+| `lr_W_ED`               | `5.0e-4` in the new yamls        | **Constant** lr for W_in / W_out / velocity-gate scalars. Try {1e-4, 5e-4, 1e-3, 2e-3}. Smaller = slower I/O drift, more recurrent specialisation. |
+| `lr_schedule`           | per-yaml (5 epochs, 2e-3→5e-5)   | Per-epoch trajectory of the `w_rec` group **only**. Try faster decay if `w_rec` over-fits at high T; gentler if it under-trains. |
+| `noise_recurrent_level` | `0.0` (off)                      | **flyvis stabiliser.** Stddev of Gaussian noise added to `h` at every Euler step during training. Try {0, 1e-3, 1e-2, 5e-2}. Eval/snapshot stays deterministic. |
+| `grad_clip_W`           | `0.0` (off)                      | Max-norm gradient clip on all trainable params. Set 1.0–10.0 to prevent `S` blowups at long T.                                                                        |
+| `n_steps_schedule`      | per-yaml (5 epochs, 300→1000)    | Per-epoch trial length (BPTT horizon). Try gentler ramps; longer warmup at small T helps the T=500 collapse.                                                          |
+| `n_epochs`              | `5`                              | Number of curriculum stages. Must match `len(lr_schedule)` and `len(n_steps_schedule)`. Reduced from 10 → 5 (2026-05-19) to fit the wall-clock budget; the 5-epoch ramp [300, 500, 700, 900, 1000] still reaches T=1000. |
 | `batch_size`            | `64`                             | Try {32, 64, 128}. Larger = smoother gradients, less BPTT-noise variance.                                                                                             |
-| `coeff_W_L1`            | `0.0`                            | L1 on `                                                                                                                                                               | S   | ` (synaptic magnitude). Try {0, 1e-5, 1e-4, 1e-3}. |
-| `w_init_scale`          | `0.01`                           | (under **`training:`**) Scalar multiplier on the per-edge magnitude `S` at init (`S = w_init_scale * W_con_mask` in `const` mode). Try {1e-3, 1e-2, 5e-2, 1e-1, 0.5}. |
-| `w_init_mode`           | `const`                          | (under **`training:`**) Init template for `S`: `const` (=scale × mask, current default), `randn` (=scale × randn × mask, sign-symmetric noise on connectome support), `zeros`. |
+| `coeff_W_L1`            | `0.0`                            | L1 on `S` (synaptic magnitude). Try {0, 1e-5, 1e-4, 1e-3}.                                                                                                            |
+| `w_init_scale`          | `0.01`                           | Scalar multiplier on `S` at init. Try {1e-3, 1e-2, 5e-2, 1e-1, 0.5}.                                                                                                  |
+| `w_init_mode`           | `const`                          | Init template for `S`: `const` (=scale × mask), `randn` (=scale × randn × mask), `zeros`, `w_con` (=`|W_con|`). Ignored in `wrec_param: column_dale` mode (always randn). |
+
+**Mutation guidance for the three-group setup:**
+- Use `lr_W_ED` < `lr_schedule[0]` (e.g. ratio 1:4) when the model overfits
+  the input projection early in training (decoded HD locks to a fixed
+  direction). Use `lr_W_ED` > `lr_schedule[0]` to give the encoder more
+  freedom to find the velocity-bump mapping.
+- If a slot collapses with the recurrent lr at `lr_schedule[epoch]`,
+  shrinking `lr_W_ED` does NOT help — the collapse is in `w_rec`. Touch
+  `lr_schedule`, `noise_recurrent_level`, or `grad_clip_W` instead.
+- `lr_W_rec` controls **only the epoch-0 starting value** of the schedule.
+  Don't sweep this independently of `lr_schedule[0]` — set them
+  consistently (or leave `lr_W_rec` unset so it follows `lr`).
 
 ### Connectome-prior aux losses (already wired)
 
@@ -152,31 +229,62 @@ different seeds; this measures seed sensitivity of a candidate winner.
 
 ## Block plan (160 iterations, 4 blocks × 40 iter, 10 slots/batch × 4 batches)
 
-Parent at iter 1 = current
-[`drosophila_cx_pi_winner.yaml`](../config/drosophila_cx/drosophila_cx_pi_winner.yaml)
-(14-seed mean pi_acc = 0.993 ± 0.005, fwhm 35–83°, `velocity_gate: pen_only`).
-The four blocks below answer four distinct questions in turn — **do not
-drift**; spend each block's 40 iterations on its own axis.
+Parent at iter 1 = a **clean, minimal starting config** (NOT the old
+`drosophila_cx_pi_winner.yaml`, which is now known to collapse — see
+preamble). Suggested clean parent:
+
+```
+graph_model:
+  velocity_gate: pen_4scalar     # anatomically tightest; revisited in B3
+  wrec_param: edge_magnitude     # Dale sign-locked (NOT column_dale)
+training:
+  lr: 2.0e-3                     # constant for biases / "other" group
+  lr_W_ED: 5.0e-4                # constant for W_in / W_out / velocity-gate scalars
+  # lr_W_rec unset → starts at `lr`, then driven by lr_schedule
+  coeff_cos_distance: 0.1        # mid baseline, refined in B2
+  coeff_norm_floor: 0.5
+  noise_recurrent_level: 0.0     # off — re-evaluated in B1
+  grad_clip_W: 0.0               # off — re-evaluated in B1
+  coeff_W_L1: 0.0                # off — optional in B1
+  n_epochs: 5
+  n_steps_schedule: [300, 500, 700, 900, 1000]
+  lr_schedule:      [2.0e-3, 1.0e-3, 5.0e-4, 2.0e-4, 5.0e-5]
+  # ↑ drives the w_rec group only; w_ED / other stay constant.
+```
+
+Reordered for the post-fix problem (**convergence first, anatomy second,
+gate third**). Each block's 40 iterations stay on its own axis — do not
+drift.
 
 | Block | Question | Slot layout (10 slots / batch) | Decision rule for the block boundary |
 | ----- | -------- | ------------------------------- | ------------------------------------ |
-| **1 — Velocity-gate baseline** | *Does the anatomical gate on `W_in` (PEN-only velocity) hurt, help, or leave pi_acc/`gt_R2` unchanged vs free `W_in`?* | s0–s2 control (`velocity_gate: pen_only`, parent) — 3 seeds<br>s3–s5 `velocity_gate: none` — 3 seeds<br>s6–s8 `velocity_gate: pen_4scalar` — 3 seeds<br>s9 `velocity_gate: pen_4scalar` + `coeff_cos_distance: 0` (probe: does 4-scalar still learn integration with the cos-distance prior off?) | Rank the 3 gates by (median pi_acc, median `gt_R2`). The winner gate is the parent for B2. If all three are within ±0.01 pi_acc, prefer `pen_4scalar` (strictest, lowest param count). |
-| **2 — `coeff_cos_distance` × gate** | *How does the GT-anchor strength trade pi_acc for `gt_R2`?* This is the trade-off you flagged: precision vs anatomical fidelity. | All slots use B1's winning gate. Sweep `coeff_cos_distance` ∈ {0.0, 0.1, 0.25, 0.5, 1.0, 2.0} = 6 levels × seed-doubled (12 slots → pick 10): s0 0.0 · s1 0.0 · s2 0.1 · s3 0.1 · s4 0.25 · s5 0.5 · s6 1.0 (parent) · s7 1.0 · s8 2.0 · s9 2.0. | Plot (pi_acc, `gt_R2`, `gt_slope`) vs coeff. Pick the **lowest coeff** at which pi_acc still holds ≥ 0.99 mean across its 2 seeds. Call this `coeff_*`. |
-| **3 — Locked-in interactions** | *With the gate fixed (B1) and `coeff_cos_distance = coeff_*` fixed (B2), what is the best remaining knob?* Most valuable axes: bump width (`coeff_norm_floor`, `kappa_norm_floor`) and stability (`noise_recurrent_level`, `grad_clip_W`). | s0–s1 (B2 winner, 2 seeds — bridge) · s2 `coeff_norm_floor: 0.0` · s3 `coeff_norm_floor: 0.5` · s4 `kappa_norm_floor: 0.10` · s5 `noise_recurrent_level: 1e-2` · s6 `noise_recurrent_level: 5e-2` · s7 `grad_clip_W: 5.0` · s8 `coeff_W_L1: 1e-5` · s9 `coeff_tv_circular: 1e-3`. | Promote any slot that (i) keeps pi_acc ≥ 0.99 AND (ii) improves either `gt_R2` by ≥ 0.05 over the bridge or `fwhm` by ≥ 10° toward the biological 60–90° band. |
-| **4 — 10-seed robustness** | *Is the candidate winner from B1+B2+B3 seed-robust?* | All 10 slots = identical config (B3 winner). Pipeline auto-forces 10 different seeds in robustness mode. | Report mean ± std for `pi_acc`, `fwhm_deg`, `gt_R2`, `gt_slope` across the 10 seeds. Save as the new `drosophila_cx_pi_winner.yaml` if mean pi_acc ≥ 0.99 AND no seed collapses (`collapse_detected: no` in all 10). |
+| **1 — T≥500 stabilisation** | *What gets pi_acc ≥ 0.95 past the T=400 collapse under correct dynamics?* This is the new central failure mode. | s0 control (clean parent) · s1 `noise_recurrent_level: 1e-3` · s2 `noise_recurrent_level: 1e-2` · s3 `noise_recurrent_level: 5e-2` · s4 `grad_clip_W: 1.0` · s5 `grad_clip_W: 5.0` · s6 `lr_schedule` faster decay (e.g. [2e-3,5e-4,1e-4,5e-5,...]) · s7 `n_steps_schedule` gentler ramp (200..1000) · s8 `lr_W_ED: 1e-4` (slow I/O — does freezing the encoder save w_rec?) · s9 combo: noise=5e-2 + clip=1.0 | Promote any slot with end-of-epoch pi_acc ≥ 0.95 at T=1000 **and** no collapse between consecutive epochs. Among qualifying slots, pick the one with highest final pi_acc + lowest end-of-curriculum fwhm. This becomes the **convergence parent** for B2. If no slot qualifies, run a second batch with the most promising direction widened (consider also `lr_W_ED ∈ {1e-3, 2e-3}` if the encoder needs MORE freedom, not less). |
+| **2 — `coeff_cos_distance` trade-off** | *Now that the run converges, where is the pi_acc / `gt_R2` Pareto front?* This is the precision vs anatomical-fidelity trade-off. **B2 cannot start until B1 has a converging parent.** | All slots inherit B1's convergence parent. Sweep `coeff_cos_distance` ∈ {0.0, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0}: s0 0.0 · s1 0.0 · s2 0.05 · s3 0.05 · s4 0.1 · s5 0.25 · s6 0.5 · s7 1.0 · s8 1.0 · s9 2.0 (each level seed-doubled where possible). | Plot (pi_acc, `gt_R2`, `gt_slope`) vs coeff. Pick the **lowest coeff** at which mean pi_acc still ≥ 0.95 across its seeds. Call this `coeff_*` and freeze it. |
+| **3 — Gate choice + remaining knobs** | *With B1+B2 frozen, does the velocity gate / extra regularisers still matter?* | s0 (B2 winner — bridge) · s1 `velocity_gate: pen_only` · s2 `velocity_gate: none` · s3 `coeff_norm_floor: 0.0` · s4 `kappa_norm_floor: 0.10` · s5 `coeff_W_L1: 1e-5` · s6 `coeff_W_L1: 1e-4` · s7 `coeff_tv_circular: 1e-3` · s8 `w_init_mode: w_con` · s9 `w_init_mode: randn` + scale=5e-2 | Promote any slot that keeps pi_acc ≥ 0.95 **and** improves either `gt_R2` by ≥ 0.05 over bridge or `fwhm` by ≥ 10° toward the biological 60–90° band. |
+| **4 — 10-seed robustness** | *Is the B3 winner seed-robust?* | All 10 slots = identical config (B3 winner). Pipeline auto-forces 10 different seeds in robustness mode. | Report mean ± std for `pi_acc`, `fwhm_deg`, `gt_R2`, `gt_slope` across the 10 seeds. Save as the new `drosophila_cx_pi_winner.yaml` if mean pi_acc ≥ 0.95 **and** no seed collapses. |
 
 ### Budget guard-rails
 
-- **Don't re-explore curriculum or LR schedules.** Both are already tuned
-  in the parent. If a block-1 slot collapses, that's a *signal* about the
-  velocity-gate (e.g. `pen_4scalar` over-constrains), not an invitation
-  to start re-tuning `n_steps_schedule`.
-- **One axis per block** is the rule. Block 3 is the only multi-knob
-  block and it tests them in parallel slots, not in combinations.
-- **Don't change `coeff_cos_distance` in B3 or B4.** It's frozen by B2.
-- **Always log `gt_R2` and `gt_slope`** in the analysis log — they're now
-  printed in every snapshot title; they have to make it into the
-  mutation log so post-hoc plots aren't blocked.
+- **B1 is the existential block.** If no slot in B1 converges past T=500,
+  do NOT proceed to B2 — widen B1 instead (more noise levels, combo
+  knobs, deeper schedule changes). Convergence is the gate.
+- **One axis per block** is the rule, except B1 which is multi-axis by
+  necessity (we don't yet know which stabiliser works).
+- **Don't change `coeff_cos_distance` after B2** — it's frozen for B3/B4.
+- **Always log `gt_R2` and `gt_slope` in the per-slot analysis-log line**,
+  not just the snapshot title. Mutation-log lines without `gt_R2` are
+  considered incomplete results — re-extract from the latest snapshot
+  filename if necessary.
+- **`pi_acc ≥ 0.95` is the post-fix bar**, not 0.99. We do not yet know
+  whether 0.99 is achievable under correct dynamics. Re-bar after B1+B2.
+- **`lr_schedule` only affects `w_rec`** (the recurrent core). Mutations that
+  touch `lr_W_ED` or `lr` change a *different* timescale — don't sweep them
+  in the same slot as a schedule change, you won't know which axis moved
+  pi_acc.
+- **`lr_W_rec` is redundant with `lr` + `lr_schedule`** in most cases — the
+  schedule overwrites it at every epoch. Setting `lr_W_rec` is only useful
+  if you want a different epoch-0 value than `lr` (rare). Default: leave
+  unset.
 
 ## Mutation log format (per iteration)
 
@@ -204,7 +312,11 @@ from GT (the optimiser walked off the connectome manifold).
 ## Winner config
 
 At every block boundary, copy the best slot's config to
-`config/drosophila_cx/drosophila_cx_pi_winner.yaml` with header:
+`config/drosophila_cx/drosophila_cx_pi_winner.yaml` with header. The
+existing winner.yaml is from the bug era and is no longer authoritative —
+overwriting it with the new B4 result is the goal. Note the pi_acc bar
+is **0.95**, not 0.99, until B1+B2 establish what the post-fix
+landscape actually supports.
 
 ```yaml
 # Winner: drosophila_cx_pi_winner.yaml
