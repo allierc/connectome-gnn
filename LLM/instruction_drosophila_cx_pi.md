@@ -53,7 +53,7 @@ These are the fields the agent may set per-slot in `training:` /
 ### Recurrent training scheme (PRIORITY — this is what we're optimising)
 
 **Three-group optimiser (2026-05-19).** The trainer splits parameters into
-three named groups with separate learning rates. **`lr_schedule` drives only
+three named groups with separate learning rates. **`lr_W_rec_schedule` drives only
 the `w_rec` group** — `w_ED` (encoder/decoder) and `other` (biases) stay
 constant at their respective `lr_W_ED` / `lr` across epochs. Asymmetry is
 deliberate: I/O matrices are small (W_in: N×3, W_out: 2×N, ~760 params total)
@@ -61,21 +61,21 @@ and don't need decay; the recurrent core (`S`, ~25k params) does.
 
 | Group   | Trainable params                                                    | LR field    | Schedule?            |
 | ------- | ------------------------------------------------------------------- | ----------- | -------------------- |
-| `w_rec` | `S` (CxTaskRNN); `W`+`a`+`g_phi.*`+`f_theta.*` (CxTaskGNN)          | `lr_W_rec`  | **YES — `lr_schedule` drives this** |
+| `w_rec` | `S` (CxTaskRNN); `W`+`a`+`g_phi.*`+`f_theta.*` (CxTaskGNN)          | `lr_W_rec`  | **YES — `lr_W_rec_schedule` drives this** |
 | `w_ED`  | `W_in`, `W_out`, `_W_in_mlp.*`, `_W_out_mlp.*`, `v_pen{a,b}_{l,r}`  | `lr_W_ED`   | NO — constant         |
 | `other` | biases (`b`, `b_out`) and anything else                             | `lr`        | NO — constant         |
 
 If `lr_W_rec` is unset it falls back to `lr` (then the schedule still
 drives it). If `lr_W_ED` is unset it also falls back to `lr` (but stays
-constant — no schedule). So at minimum you have `lr` + `lr_schedule` and
+constant — no schedule). So at minimum you have `lr` + `lr_W_rec_schedule` and
 the recurrent core is scheduled; everything else stays at `lr`.
 
 | Field                   | Default                          | What it controls                                                                                                                                                      |
 | ----------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `lr`                    | `2e-3`                           | Constant lr for biases / `other` group, and the fallback init for `w_rec` and `w_ED` when their dedicated fields are unset.                                           |
-| `lr_W_rec`              | unset (→ `lr`)                   | **Initial** lr for the recurrent core. `lr_schedule` then drives this group across epochs. Set this when you want the schedule to start from a different value than `lr`. |
+| `lr_W_rec`              | unset (→ `lr`)                   | **Initial** lr for the recurrent core. `lr_W_rec_schedule` then drives this group across epochs. Set this when you want the schedule to start from a different value than `lr`. |
 | `lr_W_ED`               | `5.0e-4` in the new yamls        | **Constant** lr for W_in / W_out / velocity-gate scalars. Try {1e-4, 5e-4, 1e-3, 2e-3}. Smaller = slower I/O drift, more recurrent specialisation. |
-| `lr_schedule`           | per-yaml (5 epochs, 2e-3→5e-5)   | Per-epoch trajectory of the `w_rec` group **only**. Try faster decay if `w_rec` over-fits at high T; gentler if it under-trains. |
+| `lr_W_rec_schedule`           | per-yaml (5 epochs, 2e-3→5e-5)   | Per-epoch trajectory of the `w_rec` group **only**. Try faster decay if `w_rec` over-fits at high T; gentler if it under-trains. |
 | `noise_recurrent_level` | `0.0` (off)                      | **flyvis stabiliser.** Stddev of Gaussian noise added to `h` at every Euler step during training. Try {0, 1e-3, 1e-2, 5e-2}. Eval/snapshot stays deterministic. |
 | `grad_clip_W`           | `0.0` (off)                      | Max-norm gradient clip on all trainable params. Set 1.0–10.0 to prevent `S` blowups at long T.                                                                        |
 | `n_steps_schedule`      | per-yaml (5 epochs, 300→1000)    | Per-epoch trial length (BPTT horizon). Try gentler ramps; longer warmup at small T helps the T=500 collapse.                                                          |
@@ -85,15 +85,15 @@ the recurrent core is scheduled; everything else stays at `lr`.
 | `w_init_mode`           | `const`                          | Init template for `S`: `const` (=scale × mask), `randn` (=scale × randn × mask), `zeros`, `w_con` (=`|W_con|`). Ignored in `wrec_param: column_dale` mode (always randn). |
 
 **Mutation guidance for the three-group setup:**
-- Use `lr_W_ED` < `lr_schedule[0]` (e.g. ratio 1:4) when the model overfits
+- Use `lr_W_ED` < `lr_W_rec_schedule[0]` (e.g. ratio 1:4) when the model overfits
   the input projection early in training (decoded HD locks to a fixed
-  direction). Use `lr_W_ED` > `lr_schedule[0]` to give the encoder more
+  direction). Use `lr_W_ED` > `lr_W_rec_schedule[0]` to give the encoder more
   freedom to find the velocity-bump mapping.
-- If a slot collapses with the recurrent lr at `lr_schedule[epoch]`,
+- If a slot collapses with the recurrent lr at `lr_W_rec_schedule[epoch]`,
   shrinking `lr_W_ED` does NOT help — the collapse is in `w_rec`. Touch
-  `lr_schedule`, `noise_recurrent_level`, or `grad_clip_W` instead.
+  `lr_W_rec_schedule`, `noise_recurrent_level`, or `grad_clip_W` instead.
 - `lr_W_rec` controls **only the epoch-0 starting value** of the schedule.
-  Don't sweep this independently of `lr_schedule[0]` — set them
+  Don't sweep this independently of `lr_W_rec_schedule[0]` — set them
   consistently (or leave `lr_W_rec` unset so it follows `lr`).
 
 ### Connectome-prior aux losses (already wired)
@@ -167,7 +167,7 @@ training:
   batch_size: 64
   lr: 2.0e-3
   lr_W_ED: 5.0e-4              # constant; encoder/decoder slow
-  lr_schedule: [2e-3, 2e-3, 1e-3, 1e-3, 5e-4, 4e-4, 3e-4, 2e-4, 5e-5, 5e-5]
+  lr_W_rec_schedule: [2e-3, 2e-3, 1e-3, 1e-3, 5e-4, 4e-4, 3e-4, 2e-4, 5e-5, 5e-5]
   grad_clip_W: 2.5             # B1 plateau
   noise_recurrent_level: 0.05  # flyvis-style stabiliser
   coeff_cos_distance: 0.0      # KEY: connectome-prior disabled
@@ -188,7 +188,7 @@ to canonical winner. Decision rule for robustness:
   extras) — B1 (stabilisation) and B2 (curriculum) are effectively
   resolved.
 - 4–7/10 above 0.95 → solid candidate; narrow B2 with this config as
-  parent (try minor n_steps / lr_schedule variants).
+  parent (try minor n_steps / lr_W_rec_schedule variants).
 - < 4/10 above 0.95 → seed-fluke; investigate what made this seed
   special (interaction between curriculum jump timing, noise, and the
   random init of S).
@@ -209,7 +209,7 @@ training:
   grad_clip_W: 0.0               # re-evaluated in B1
   n_epochs: 5
   n_steps_schedule: [300, 500, 700, 900, 1000]
-  lr_schedule:      [2.0e-2, 1.0e-3, 5.0e-4, 2.0e-4, 5.0e-5]
+  lr_W_rec_schedule:      [2.0e-2, 1.0e-3, 5.0e-4, 2.0e-4, 5.0e-5]
 ```
 
 Reordered for the post-fix problem (**stabilisation first, curriculum
@@ -219,7 +219,7 @@ on its own axis — do not drift.
 | Block | Question | Slot layout (10 slots / batch) | Decision rule for the block boundary |
 | ----- | -------- | ------------------------------- | ------------------------------------ |
 | **1 — Recurrent-core stabilisation** | *What gets `r_roll` past the T=400 collapse via noise / clip / I-O timescale?* These are the "smoothness" knobs on the BPTT landscape. | s0 control (clean parent) · s1 `noise_recurrent_level: 1e-3` · s2 `noise_recurrent_level: 1e-2` · s3 `noise_recurrent_level: 5e-2` · s4 `noise_recurrent_level: 1e-1` · s5 `grad_clip_W: 1.0` · s6 `grad_clip_W: 5.0` · s7 `lr_W_ED: 1e-4` (slow I/O — does freezing the encoder save w_rec?) · s8 `lr_W_ED: 1e-3` (faster I/O) · s9 combo: noise=5e-2 + clip=1.0 | Promote the slot with the highest final `r_roll` and no collapse between consecutive epochs. This becomes the **stabilisation parent** for B2. If no slot exceeds the control by ≥0.05 in `r_roll`, run a second batch widening the most promising noise / clip / lr_W_ED range. |
-| **2 — Curriculum (`n_steps_schedule` + matched `lr_schedule` sweep)** | *Given B1's stabilisation, which (BPTT-horizon ramp, lr trajectory) pair maximises `r_roll`?* The two schedules must be co-tuned — a gentler `n_steps` ramp can carry a slower `lr` decay (the optimiser has more time at each horizon); an aggressive ramp needs faster `lr` decay to dampen the jump. Each slot varies BOTH lists together. | s0 control: `n_steps_schedule: [300,500,700,900,1000]` + `lr_schedule: [2e-2,1e-3,5e-4,2e-4,5e-5]` + `batch_size: 1` (current defaults) · s1 gentle ramp + slow lr decay: `[200,350,500,750,1000]` + `[2e-3,1e-3,7e-4,3e-4,1e-4]` · s2 very-gentle + slow lr: `[100,200,400,700,1000]` + `[2e-3,1.5e-3,1e-3,5e-4,2e-4]` · s3 long-warmup + held lr: `[300,300,500,700,1000]` + `[2e-3,2e-3,1e-3,5e-4,2e-4]` · s4 linear ramp + default lr: `[300,400,500,700,1000]` + `[2e-3,1e-3,5e-4,2e-4,5e-5]` · s5 aggressive ramp + fast lr decay: `[500,700,900,1000,1000]` + `[2e-3,5e-4,1e-4,5e-5,1e-5]` · s6 full-T from start + very-fast lr decay (sanity probe): `[1000,1000,1000,1000,1000]` + `[1e-3,3e-4,1e-4,3e-5,1e-5]` · s7 extreme gentle + lowest lr: `[100,200,400,700,1000]` + `[1e-3,5e-4,2e-4,1e-4,5e-5]` · s8 `batch_size: 32` (defaults schedule) · s9 `batch_size: 128` (defaults schedule) | Promote the slot whose final `r_roll` exceeds B1's parent by ≥ 0.02 with no collapse. This becomes the **curriculum parent** for B3. If nothing wins by that margin, keep B1's parent. |
+| **2 — Curriculum (`n_steps_schedule` + matched `lr_W_rec_schedule` sweep)** | *Given B1's stabilisation, which (BPTT-horizon ramp, lr trajectory) pair maximises `r_roll`?* The two schedules must be co-tuned — a gentler `n_steps` ramp can carry a slower `lr` decay (the optimiser has more time at each horizon); an aggressive ramp needs faster `lr` decay to dampen the jump. Each slot varies BOTH lists together. | s0 control: `n_steps_schedule: [300,500,700,900,1000]` + `lr_W_rec_schedule: [2e-2,1e-3,5e-4,2e-4,5e-5]` + `batch_size: 1` (current defaults) · s1 gentle ramp + slow lr decay: `[200,350,500,750,1000]` + `[2e-3,1e-3,7e-4,3e-4,1e-4]` · s2 very-gentle + slow lr: `[100,200,400,700,1000]` + `[2e-3,1.5e-3,1e-3,5e-4,2e-4]` · s3 long-warmup + held lr: `[300,300,500,700,1000]` + `[2e-3,2e-3,1e-3,5e-4,2e-4]` · s4 linear ramp + default lr: `[300,400,500,700,1000]` + `[2e-3,1e-3,5e-4,2e-4,5e-5]` · s5 aggressive ramp + fast lr decay: `[500,700,900,1000,1000]` + `[2e-3,5e-4,1e-4,5e-5,1e-5]` · s6 full-T from start + very-fast lr decay (sanity probe): `[1000,1000,1000,1000,1000]` + `[1e-3,3e-4,1e-4,3e-5,1e-5]` · s7 extreme gentle + lowest lr: `[100,200,400,700,1000]` + `[1e-3,5e-4,2e-4,1e-4,5e-5]` · s8 `batch_size: 32` (defaults schedule) · s9 `batch_size: 128` (defaults schedule) | Promote the slot whose final `r_roll` exceeds B1's parent by ≥ 0.02 with no collapse. This becomes the **curriculum parent** for B3. If nothing wins by that margin, keep B1's parent. |
 | **3 — Gate choice + remaining knobs** | *With B1+B2 frozen, does the velocity gate / extra regularisers still matter?* | s0 (B2 winner — bridge) · s1 `velocity_gate: pen_only` · s2 `velocity_gate: none` · s3 `coeff_norm_floor: 0.0` · s4 `kappa_norm_floor: 0.10` · s5 `coeff_W_L1: 1e-5` · s6 `coeff_W_L1: 1e-4` · s7 `coeff_tv_circular: 1e-3` · s8 `w_init_mode: w_con` · s9 `w_init_mode: randn` + scale=5e-2 | Promote any slot whose `r_roll` improves by ≥ 0.02 over the bridge. |
 | **4 — 10-seed robustness** | *Is the B3 winner seed-robust?* | All 10 slots = identical config (B3 winner). Pipeline auto-forces 10 different seeds in robustness mode. | Report mean ± std for `r_roll` across the 10 seeds. Save as the new `drosophila_cx_pi_winner.yaml` if mean `r_roll` ≥ 0.95 **and** no seed collapses. |
 
@@ -233,11 +233,11 @@ on its own axis — do not drift.
   mix axes within a block.
 - **`r_roll ≥ 0.95` is the bar.** Re-bar after B1+B2 once we know what the
   landscape supports.
-- **`lr_schedule` only affects `w_rec`** (the recurrent core). Mutations that
+- **`lr_W_rec_schedule` only affects `w_rec`** (the recurrent core). Mutations that
   touch `lr_W_ED` or `lr` change a *different* timescale — don't sweep them
   in the same slot as a schedule change, you won't know which axis moved
   `r_roll`.
-- **`lr_W_rec` is redundant with `lr` + `lr_schedule`** in most cases — the
+- **`lr_W_rec` is redundant with `lr` + `lr_W_rec_schedule`** in most cases — the
   schedule overwrites it at every epoch. Setting `lr_W_rec` is only useful
   if you want a different epoch-0 value than `lr` (rare). Default: leave
   unset.

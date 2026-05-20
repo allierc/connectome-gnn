@@ -38,7 +38,7 @@ training:
   batch_size: 1
   data_augmentation_loop: 1
   lr: 2.0e-3
-  lr_schedule: [2.0e-2, 1.0e-3, 5.0e-4, 2.0e-4, 5.0e-5]
+  lr_W_rec_schedule: [2.0e-2, 1.0e-3, 5.0e-4, 2.0e-4, 5.0e-5]
   lr_scheduler: none
   lr_W_ED: 5.0e-4 # constant lr for W_in / W_out / velocity-gate scalars
   grad_clip_W: 0.0
