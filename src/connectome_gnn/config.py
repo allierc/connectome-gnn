@@ -558,10 +558,10 @@ class GraphModelConfig(BaseModel):
     # TaskGNN-only: when True, the effective per-edge weight is `|w| · sign_GT`
     # (Dale-conformant; only magnitudes are learned). When False, the per-edge
     # weight is learned with free sign — the GT connectome topology is still
-    # enforced via the mask, but Dale's law is relaxed. CxTaskRNN uses
+    # enforced via the mask, but Dale's law is relaxed. DrosophilaCxTaskRNN uses
     # `wrec_param` below instead.
     lock_edge_signs: bool = True
-    # CxTaskRNN: recurrent-matrix parameterisation.
+    # DrosophilaCxTaskRNN: recurrent-matrix parameterisation.
     #   "edge_magnitude" — W_rec = |S| ⊙ sign(W_con); sparsity locked to W_con,
     #                      per-edge sign locked to connectome (Dale).
     #   "edge_free"      — W_rec = S ⊙ mask(W_con); sparsity locked to W_con,
@@ -872,7 +872,7 @@ class TrainingConfig(BaseModel):
     lr_update: float = 0.0
     lr_W: float = 0.0001
     # CX task trainer (_data_train_pi_task): separate LR for the recurrent-
-    # core params (S in CxTaskRNN; W + a + g_phi + f_theta in CxTaskGNN).
+    # core params (S in DrosophilaCxTaskRNN; W + a + g_phi + f_theta in DrosophilaCxTaskGNN).
     # When set, `lr_schedule` drives THIS group only (per-epoch trajectory of
     # the recurrent core); when None, the recurrent core starts at `lr` and is
     # still the group `lr_schedule` drives. Schedule never touches the other

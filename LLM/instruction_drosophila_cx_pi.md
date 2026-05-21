@@ -3,8 +3,8 @@
 ## Goal
 
 Find the **best recurrent training scheme** for the connectome-constrained
-CX RNN (`CxTaskRNN` in
-[src/connectome_gnn/models/cx_task_rnn.py](../src/connectome_gnn/models/cx_task_rnn.py))
+CX RNN (`DrosophilaCxTaskRNN` in
+[src/connectome_gnn/models/drosophila_cx_task_rnn.py](../src/connectome_gnn/models/drosophila_cx_task_rnn.py))
 on the path-integration task: given angular velocity ω(t) and a one-frame
 initial-heading impulse at t=0, predict (cos θ_hd, sin θ_hd) at every frame.
 
@@ -61,7 +61,7 @@ and don't need decay; the recurrent core (`S`, ~25k params) does.
 
 | Group   | Trainable params                                                    | LR field    | Schedule?            |
 | ------- | ------------------------------------------------------------------- | ----------- | -------------------- |
-| `w_rec` | `S` (CxTaskRNN); `W`+`a`+`g_phi.*`+`f_theta.*` (CxTaskGNN)          | `lr_W_rec`  | **YES — `lr_W_rec_schedule` drives this** |
+| `w_rec` | `S` (DrosophilaCxTaskRNN); `W`+`a`+`g_phi.*`+`f_theta.*` (DrosophilaCxTaskGNN)          | `lr_W_rec`  | **YES — `lr_W_rec_schedule` drives this** |
 | `w_ED`  | `W_in`, `W_out`, `_W_in_mlp.*`, `_W_out_mlp.*`, `v_pen{a,b}_{l,r}`  | `lr_W_ED`   | NO — constant         |
 | `other` | biases (`b`, `b_out`) and anything else                             | `lr`        | NO — constant         |
 

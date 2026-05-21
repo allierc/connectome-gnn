@@ -2,7 +2,7 @@
 
 ## Goal
 
-Maximize **connectivity_R2** for the **Drosophila CX path-integration voltage-recovery** task on the **noise=0.5 rollout dataset**: a NeuralGNN learns to recover the 156-neuron CX recurrent weight matrix `W_rec` from the teacher (`drosophila_cx_pi` CxTaskRNN) rollout activity over 64K frames, with **opto-style stimulus** restricted to PEN_a + PEN_b cells.
+Maximize **connectivity_R2** for the **Drosophila CX path-integration voltage-recovery** task on the **noise=0.5 rollout dataset**: a NeuralGNN learns to recover the 156-neuron CX recurrent weight matrix `W_rec` from the teacher (`drosophila_cx_pi` DrosophilaCxTaskRNN) rollout activity over 64K frames, with **opto-style stimulus** restricted to PEN_a + PEN_b cells.
 
 **Current baseline ceiling**: `connectivity_R2 ≈ 0.3`. Break this ceiling.
 
@@ -14,7 +14,7 @@ Data is **already generated** by `python GNN_Main.py -o generate drosophila_cx_p
 - 156 CX neurons, 7 cell types (EPG, EPGt, PEN_a, PEN_b, PEG, Delta7, ER6)
 - ~10,263 edges (E auto-detected from `ode_params.pt`)
 - 64,000 train frames + 16,000 test frames, `delta_t = 0.01s`
-- Teacher: `drosophila_cx_pi` (CxTaskRNN, sign-locked, velocity_gate=pen_4scalar)
+- Teacher: `drosophila_cx_pi` (DrosophilaCxTaskRNN, sign-locked, velocity_gate=pen_4scalar)
 - Stimulus: `W_in @ u(t)` zeroed on all non-PEN rows (opto target)
 - Train-rollout noise: `σ = 0.5` on `h_t` per Euler step; test split is deterministic (clean rollout for R² evaluation)
 
@@ -54,7 +54,7 @@ w_init_scale: 0.01
 
 Informational: onestep_pearson, f_theta_R2, g_phi_R2, spectral_radius_learned vs spectral_radius_true.
 
-**NOTE**: V_rest_R2 may be unreliable (the CxTaskRNN bias `b` was trained, not the conventional resting potential). tau_R2 is constant (τ=0.1 for all neurons) — both informational only.
+**NOTE**: V_rest_R2 may be unreliable (the DrosophilaCxTaskRNN bias `b` was trained, not the conventional resting potential). tau_R2 is constant (τ=0.1 for all neurons) — both informational only.
 
 ## Scientific Method
 
@@ -101,7 +101,7 @@ The **stimulus** is opto-style: only ~42 PEN cells (PEN_a L+R, PEN_b L+R) have n
 - **156 neurons**, **7 cell types** (EPG, EPGt, PEN_a, PEN_b, PEG, Delta7, ER6)
 - ~10,263 edges (GT, sign-locked Dale-conformant connectome from hemibrain)
 - `tau_i = 0.1` (constant per-neuron), `delta_t = 0.01s`
-- Activation in teacher: sigmoid (CxTaskRNN); GNN learns `f_theta` directly
+- Activation in teacher: sigmoid (DrosophilaCxTaskRNN); GNN learns `f_theta` directly
 - PEN stim has visible CW/CCW antisymmetry in PENb_L vs PENb_R; PENa_L/R are roughly symmetric (see `task_sanity_stim.png`)
 
 ## GNN Architecture
