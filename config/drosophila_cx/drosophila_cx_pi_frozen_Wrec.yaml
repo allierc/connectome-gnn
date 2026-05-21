@@ -6,7 +6,7 @@
 # and decoder if the recurrent dynamics are fixed to the biological
 # connectome?
 #
-# Architecture: same as drosophila_cx_pi_winner.yaml (CxTaskRNN, sign-locked,
+# Architecture: same as drosophila_cx_pi_winner.yaml (DrosophilaCxTaskRNN, sign-locked,
 # velocity_gate=pen_4scalar). Training parameters also mirror the winner so
 # only the freeze-related knobs differ between the two runs.
 #
@@ -32,14 +32,14 @@ simulation:
   connconstr_datapath: papers/Code_NN/Code_NN/Data/Figure5/exported-traced-adjacencies-v1.2
 
 graph_model:
-  signal_model_name: drosophila_cx_pi # CxTaskRNN via registry
+  signal_model_name: drosophila_cx_pi # DrosophilaCxTaskRNN via registry
   aggr_type: add
-  input_proj: matrix
-  output_proj: matrix
+  input_proj: mlp
+  output_proj: mlp
   velocity_gate: pen_4scalar # 4 learnable PEN scalars in the w_ED group
   lock_edge_signs: true # W_rec = |S| · sign(W_con); with w_init_mode=w_con: W_rec == W_con
   hidden_dim: 128
-  n_layers: 3
+  n_layers: 4
   MLP_activation: relu
 plotting: {}
 
@@ -66,8 +66,8 @@ training:
     - 5.0e-5
     - 5.0e-5
   lr_scheduler: none
-  lr_W_ED: 5.0e-4 # constant lr for W_in / W_out / velocity-gate scalars
-  grad_clip_W: 2.5
+  lr_W_ED: 1.0e-3 # constant lr for W_in / W_out / velocity-gate scalars
+  grad_clip_W: 0.001
   # --- Frozen-W_rec knobs ----------------------------------------------------
   w_init_mode: w_con # S = |W_con| so effective W_rec == W_con at init
   lr_W_rec: 0.0 # freeze the recurrent core (S stays at W_con); schedule above is a no-op
@@ -80,16 +80,16 @@ training:
   noise_recurrent_level: 0.05 # state noise is still useful (BPTT stabiliser)
   snapshots_per_epoch: 5
   n_steps_schedule:
+    - 10
+    - 50
     - 100
     - 200
     - 300
     - 400
     - 500
     - 600
+    - 700
     - 800
-    - 900
-    - 1000
-    - 1000
   torch_compile: false
 
 task:

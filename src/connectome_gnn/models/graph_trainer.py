@@ -1785,10 +1785,10 @@ def data_train_task(config, erase, best_model, device, log_file=None):
     if task_type == "cortex":
         return _data_train_cortex_task(config, erase, best_model, device, log_file)
     elif task_type == "path_integration":
-        return _data_train_pi_task(config, erase, best_model, device, log_file)
+        return _data_train_drosophila_cx_task(config, erase, best_model, device, log_file)
 
 
-def _data_train_pi_task(config, erase, best_model, device, log_file=None):
+def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=None):
     """Train a TaskRNN on the path-integration task data.
 
     Mirrors the skeleton of `data_train_gnn`:
@@ -1943,17 +1943,20 @@ def _data_train_pi_task(config, erase, best_model, device, log_file=None):
         n_steps_schedule = [T_full] * tc.n_epochs
     _logger.info(f'curriculum n_steps schedule (epochs 1..{tc.n_epochs}): {n_steps_schedule}')
 
-    # per-epoch schedule for the w_rec group (PI uses a three-group optimizer;
-    # this drives only the recurrent core, while w_ED and "other" stay
-    # constant). Empty schedule = w_rec stays at its initial lr.
-    raw_lr = list(getattr(tc, 'lr_W_rec_schedule', []) or [])
-    if raw_lr:
-        if len(raw_lr) < tc.n_epochs:
-            raw_lr = raw_lr + [raw_lr[-1]] * (tc.n_epochs - len(raw_lr))
-        lr_W_rec_schedule = [float(x) for x in raw_lr[:tc.n_epochs]]
-        _logger.info(f'lr_W_rec_schedule (epochs 1..{tc.n_epochs}): {lr_W_rec_schedule}')
-    else:
-        lr_W_rec_schedule = None
+    # per-epoch schedules for the three groups. Each is optional; an empty /
+    # missing field leaves the corresponding group at its initial lr (constant).
+    def _build_lr_schedule(field_name: str):
+        raw = list(getattr(tc, field_name, []) or [])
+        if not raw:
+            return None
+        if len(raw) < tc.n_epochs:
+            raw = raw + [raw[-1]] * (tc.n_epochs - len(raw))
+        sched = [float(x) for x in raw[:tc.n_epochs]]
+        _logger.info(f'{field_name} (epochs 1..{tc.n_epochs}): {sched}')
+        return sched
+
+    lr_W_rec_schedule = _build_lr_schedule('lr_W_rec_schedule')
+    lr_W_ED_schedule = _build_lr_schedule('lr_W_ED_schedule')
 
     metrics_log_path = os.path.join(log_dir, 'tmp_training', 'metrics.log')
     os.makedirs(os.path.dirname(metrics_log_path), exist_ok=True)
@@ -1965,7 +1968,7 @@ def _data_train_pi_task(config, erase, best_model, device, log_file=None):
     last_fwhm = float('nan')
     last_rmse_roll = float('nan')   # deg, rollout at T_epoch
     last_pearson_roll = float('nan')  # corr at T_epoch
-    last_pearson_roll_1k = float('nan')  # corr at fixed T=1000 (reference)
+    last_pearson_roll_1k = float('nan')  # corr at fixed T=1000 (matches plot title)
     model.train()
 
     # torch.compile (mirrors data_train_gnn line 451). The recurrent forward
@@ -2009,14 +2012,16 @@ def _data_train_pi_task(config, erase, best_model, device, log_file=None):
 
     for epoch in range(tc.n_epochs):
         T_epoch = n_steps_schedule[epoch]
-        # Per-epoch lr replacement for the w_rec group (lr_W_rec_schedule).
-        # "w_ED" and "other" stay constant at their configured lr_W_ED / lr.
-        if lr_W_rec_schedule is not None:
-            lr_epoch = lr_W_rec_schedule[epoch]
-            for g in optimizer.param_groups:
-                if g.get("name") == "w_rec":
-                    g['lr'] = lr_epoch
-            _logger.info(f'epoch {epoch+1}: w_rec lr -> {lr_epoch}')
+        # Per-epoch lr replacement for the named groups. Each schedule is
+        # optional and drives only its own group; "other" always stays at lr.
+        for _gname, _gsched in (("w_rec", lr_W_rec_schedule),
+                                ("w_ED", lr_W_ED_schedule)):
+            if _gsched is not None:
+                _lr = _gsched[epoch]
+                for g in optimizer.param_groups:
+                    if g.get("name") == _gname:
+                        g['lr'] = _lr
+                _logger.info(f'epoch {epoch+1}: {_gname} lr -> {_lr}')
         gen = torch.Generator(device=device).manual_seed(tc.seed + epoch)
         # Stack `dal` independent shuffles so Niter * batch_size indices
         # are always covered. DAL=1 reduces to a single randperm pass
@@ -2189,9 +2194,10 @@ def _data_train_pi_task(config, erase, best_model, device, log_file=None):
                         omega_deg_per_s=snapshot_omega_deg,
                         device=device,
                     )
-                    # Reference rollout at fixed T=1000 — long-horizon probe
-                    # independent of the curriculum, useful for spotting
-                    # under-trained low-T epochs.
+                    # Reference rollout at fixed T=1000 — the evolution plot
+                    # also uses T=1000 for its `heading tracking on snapshot
+                    # rollout` panel, so the second value in r_roll=A (B)
+                    # equals the `r=` printed in that panel's title.
                     _, last_pearson_roll_1k = _rollout_heading_metrics(
                         eval_model,
                         n_steps=1000,
@@ -2202,6 +2208,7 @@ def _data_train_pi_task(config, erase, best_model, device, log_file=None):
                     net=eval_model, log_dir=log_dir,
                     kinograph_dir=kinograph_dir,
                     global_step=global_step, epoch=epoch + 1,
+                    iter_in_epoch=N + 1,
                     neuron_types=eval_model.neuron_types,
                     type_names=eval_model.type_names,
                     epg_indices=eval_model.epg_indices,
@@ -2252,7 +2259,8 @@ def _data_train_pi_task(config, erase, best_model, device, log_file=None):
 
             # Progress bar: replaced fwhm with deterministic-sweep rollout
             # metrics. Pearson is colour-coded (red < 0.5, orange < 0.9, green).
-            # r_roll shows two values: r_roll=<T_epoch> (<fixed-1000>).
+            # Format: r_roll=<T_epoch> (<snapshot_n_steps>). The second value
+            # matches the `r=` printed in the evolution-plot panel title.
             if np.isnan(last_rmse_roll):
                 rmse_roll_str = 'n/a'
             else:
@@ -2385,7 +2393,52 @@ def _data_train_cortex_task(config, erase, best_model, device, log_file=None):
     logger.info(f'model: {model_config.signal_model_name}  params: {n_total_params}')
 
     # --- Optimizer + scheduler -------------------------------------------
-    optimizer = torch.optim.Adam(model.parameters(), lr=tc.lr)
+    # Three named param groups (mirrors _data_train_drosophila_cx_task). Missing field
+    # → tc.lr fallback so old single-LR configs still work:
+    #   - "w_rec": recurrent core. _W_rec_free (cortex) — and for forward-
+    #              compat with GNN cortex variants, also W/a/g_phi.*/f_theta.*.
+    #              lr starts at tc.lr_W_rec or tc.lr. lr_W_rec_schedule drives
+    #              THIS group exclusively (per-epoch trajectory).
+    #   - "w_ED":  encoder/decoder. W_in, W_out, _W_in_mlp.*, _W_out_mlp.*.
+    #              lr = tc.lr_W_ED or tc.lr. Constant — schedule does not touch.
+    #   - "other": biases (b, b_out) and anything not in the above. lr = tc.lr.
+    #              Constant.
+    lr_W_rec = getattr(tc, 'lr_W_rec', None)
+    lr_W_ED = getattr(tc, 'lr_W_ED', None)
+
+    def _name_to_group(name: str) -> str:
+        if (name == "_W_rec_free"
+                or name in ("S", "W", "a")
+                or name.startswith(("g_phi.", "f_theta."))):
+            return "w_rec"
+        if (name in ("W_in", "W_out")
+                or name.startswith(("_W_in_mlp.", "_W_out_mlp."))):
+            return "w_ED"
+        return "other"
+
+    grouped: dict[str, list] = {"w_rec": [], "w_ED": [], "other": []}
+    for _name, _p in model.named_parameters():
+        grouped[_name_to_group(_name)].append(_p)
+
+    optimizer = torch.optim.Adam(
+        [
+            {"params": grouped["w_rec"],
+             "lr": float(lr_W_rec) if lr_W_rec is not None else tc.lr,
+             "name": "w_rec"},
+            {"params": grouped["w_ED"],
+             "lr": float(lr_W_ED) if lr_W_ED is not None else tc.lr,
+             "name": "w_ED"},
+            {"params": grouped["other"], "lr": tc.lr, "name": "other"},
+        ]
+    )
+    _logger.info(
+        f'three-group optimizer: '
+        f'w_rec lr={float(lr_W_rec) if lr_W_rec is not None else tc.lr} '
+        f'({len(grouped["w_rec"])} params, schedule-driven) | '
+        f'w_ED lr={float(lr_W_ED) if lr_W_ED is not None else tc.lr} '
+        f'({len(grouped["w_ED"])} params, constant) | '
+        f'other lr={tc.lr} ({len(grouped["other"])} params, constant)'
+    )
     lr_scheduler = build_lr_scheduler(optimizer, config)
     _logger.info(f'lr={tc.lr}  lr_scheduler={getattr(tc, "lr_scheduler", "none")}')
 
@@ -2415,15 +2468,20 @@ def _data_train_cortex_task(config, erase, best_model, device, log_file=None):
     rule_name = (ct.rules[0] if getattr(ct, "rules", None) else "cortex")
     global_step = 0
 
-    # Per-epoch lr schedule (Yang-style — empty = constant tc.lr).
-    raw_lr = list(getattr(tc, 'lr_schedule', []) or [])
-    if raw_lr:
-        if len(raw_lr) < tc.n_epochs:
-            raw_lr = raw_lr + [raw_lr[-1]] * (tc.n_epochs - len(raw_lr))
-        lr_schedule = [float(x) for x in raw_lr[:tc.n_epochs]]
-        _logger.info(f'lr schedule (epochs 1..{tc.n_epochs}): {lr_schedule}')
-    else:
-        lr_schedule = None
+    # Per-epoch schedules for the named groups (mirrors PI). Each is optional
+    # and drives only its own group; "other" always stays constant at lr.
+    def _build_lr_schedule(field_name: str):
+        raw = list(getattr(tc, field_name, []) or [])
+        if not raw:
+            return None
+        if len(raw) < tc.n_epochs:
+            raw = raw + [raw[-1]] * (tc.n_epochs - len(raw))
+        sched = [float(x) for x in raw[:tc.n_epochs]]
+        _logger.info(f'{field_name} (epochs 1..{tc.n_epochs}): {sched}')
+        return sched
+
+    lr_W_rec_schedule = _build_lr_schedule('lr_W_rec_schedule')
+    lr_W_ED_schedule = _build_lr_schedule('lr_W_ED_schedule')
 
     metrics_log_path = os.path.join(log_dir, 'tmp_training', 'metrics.log')
     os.makedirs(os.path.dirname(metrics_log_path), exist_ok=True)
@@ -2458,13 +2516,16 @@ def _data_train_cortex_task(config, erase, best_model, device, log_file=None):
 
 
     for epoch in range(tc.n_epochs):
-        # Per-epoch lr replacement (Yang). When no schedule is provided we
-        # leave the optimizer / build_lr_scheduler alone.
-        if lr_schedule is not None:
-            lr_epoch = lr_schedule[epoch]
-            for g in optimizer.param_groups:
-                g['lr'] = lr_epoch
-            _logger.info(f'epoch {epoch+1}: lr -> {lr_epoch}')
+        # Per-epoch lr replacement for the named groups. Each schedule is
+        # optional and drives only its own group; "other" always stays at lr.
+        for _gname, _gsched in (("w_rec", lr_W_rec_schedule),
+                                ("w_ED", lr_W_ED_schedule)):
+            if _gsched is not None:
+                _lr = _gsched[epoch]
+                for g in optimizer.param_groups:
+                    if g.get("name") == _gname:
+                        g['lr'] = _lr
+                _logger.info(f'epoch {epoch+1}: {_gname} lr -> {_lr}')
         pbar = trange(
             Niter, ncols=150,
             desc=f'cortex/{rule_name} epoch {epoch+1}/{tc.n_epochs}',
@@ -2541,12 +2602,12 @@ def _data_train_cortex_task(config, erase, best_model, device, log_file=None):
 
             da = last_metrics["direction_acc"]
             r2 = last_metrics.get("r2", float("nan"))
-            col = _color_acc(r2)
+            col = r2_color(r2) if r2 == r2 else ""
             pbar.set_postfix_str(
                 f'loss={loss.item():.4f}  mse={mse.item():.4f}  '
                 f'motor_max={last_metrics["motor_max"]:.3f}  '
                 f'dir_acc={da:.2f}  '
-                f'{col}R2={r2:.3f}{_C_RESET}'
+                f'{col}R2={r2:.3f}{ANSI_RESET}'
             )
 
         pbar.close()

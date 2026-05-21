@@ -1,20 +1,20 @@
-description: "Yang dmsnogo single-task — Delayed-non-match (no-go): if 2nd stim differs from 1st, saccade; else fixate"
+description: Yang dmsnogo single-task — LLM_cortex_all consensus winner (BS=128, n_layers=3, tanh, MLP encoder/decoder).
 dataset: task_cortex_dmsnogo
 simulation:
   params:
-    - - 1.0
+  - - 1.0
 graph_model:
-  signal_model_name: cortex_dmsnogo # routes to TaskRNN (free-W mode) via registry
+  signal_model_name: cortex_dmsnogo
   aggr_type: add
-  n_units: 256 # Yang default recurrent population size
-  n_input: 85 # set from data shape (u: B,T,85)
-  n_output: 33 # set from data shape (y: B,T,33) = 1 fixation + 32 ring
-  W_param: free # 'free' (cortex) or 'sign_locked' (CX). Free = dense N×N learnable.
-  recurrent_activation: relu # 'relu' (Yang default) | 'softplus' | 'tanh' | 'sigmoid'
-  input_proj: mlp # encoder MLP: 85 -> N
-  output_proj: mlp # decoder MLP: N -> 33
+  n_units: 256
+  n_input: 85
+  n_output: 33
+  W_param: free
+  recurrent_activation: tanh
+  input_proj: matrix
+  output_proj: matrix
   hidden_dim: 128
-  n_layers: 2
+  n_layers: 3
   MLP_activation: relu
 plotting: {}
 training:
@@ -22,54 +22,59 @@ training:
   seed: 0
   n_runs: 1
   n_epochs: 10
-  batch_size: 64
-  lr: 1.0e-3
-  lr_schedule:
-    [
-      1.0e-3,
-      5.0e-4,
-      2.0e-4,
-      1.0e-4,
-      1.0e-4,
-      1.0e-4,
-      1.0e-4,
-      1.0e-4,
-      1.0e-4,
-      1.0e-4,
-    ]
+  batch_size: 128
+  lr: 0.001
+  lr_W_rec_schedule:
+  - 0.001
+  - 0.0005
+  - 0.0002
+  - 0.0001
+  - 0.0001
+  - 0.0001
+  - 0.0001
+  - 0.0001
+  - 0.0001
+  - 0.0001
+  lr_W_ED_schedule:
+  - 0.001
+  - 0.0005
+  - 0.0002
+  - 0.0001
+  - 0.0001
+  - 0.0001
+  - 0.0001
+  - 0.0001
+  - 0.0001
+  - 0.0001
   lr_scheduler: none
-  grad_clip_W: 1.0 # Yang trains with grad clip — set non-zero by default
+  grad_clip_W: 2.0
   noise_recurrent_level: 0.0
-  coeff_rate_L2: 0.0 # Yang optional: L2 on r=σ(h); discourages saturation
-  coeff_W_L2: 0.0 # Yang optional: weight decay on W_rec
-  w_init_mode: randn_scaled # 'randn_scaled' (=randn·scale/√N, sensible for free W) | 'zeros' | 'randn' | 'uniform_scaled'
-  w_init_scale: 1.0
+  coeff_rate_L2: 0.01
+  coeff_W_L2: 0.0
+  w_init_mode: randn_scaled
+  w_init_scale: 0.5
   snapshots_per_epoch: 5
-  data_augmentation_loop: 80 # ~60k iters/epoch with batch_size=64
-
-# ---------------------------------------------------------------------------
-# Agentic LLM exploration settings (read by GNN_LLM_task.py).
-# ---------------------------------------------------------------------------
+  data_augmentation_loop: 80
 claude:
-  n_epochs: 10 # forced into every slot's training block
-  data_augmentation_loop: 80 # forced into every slot's training.data_augmentation_loop (matches nominal training)
-  n_iter_block: 12 # 1 block = 3 batches (= 3 * n_parallel slots)
+  n_epochs: 10
+  data_augmentation_loop: 80
+  n_iter_block: 12
   ucb_c: 1.414
-  generate_data: false # cortex zarrs are pre-generated
-  training_time_target_min: 20 # delaygo trains fast (~5-10 min/slot on l4)
-  hard_runtime_limit_min: 60 # LSF wall-clock cap
+  generate_data: false
+  training_time_target_min: 20
+  hard_runtime_limit_min: 60
   node_name: l4
   n_cpus: 8
-  n_parallel: 4 # 4 slots per batch
+  n_parallel: 4
   conda_env: connectome-gnn
-
 task:
   task_type: cortex
   task_only: true
   cortex:
-    rules: ["dmsnogo"]
+    rules:
+    - dmsnogo
     rule_weights: []
-    ruleset: "all"
+    ruleset: all
     n_trials_train: 1000
     n_trials_test: 200
     n_steps_max: 400

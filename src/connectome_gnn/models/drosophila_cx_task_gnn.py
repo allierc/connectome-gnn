@@ -478,7 +478,7 @@ class DrosophilaCxTaskGNN(nn.Module):
             # NaN guard only — kicks in only when f_theta has not yet learned
             # a leak. Gradient is killed on saturated steps; clamp is invisible
             # in healthy training where |h| stays well below the bound.
-            # h = h.clamp(-50.0, 50.0)
+            h = h.clamp(-50.0, 50.0)
             h_buf[:, t, :] = h
 
         # Decoder reads firing rates so the cos/sin readout matches the

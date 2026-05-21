@@ -53,29 +53,31 @@ These are the fields the agent may set per-slot in `training:` /
 ### Recurrent training scheme (PRIORITY — this is what we're optimising)
 
 **Three-group optimiser (2026-05-19).** The trainer splits parameters into
-three named groups with separate learning rates. **`lr_W_rec_schedule` drives only
-the `w_rec` group** — `w_ED` (encoder/decoder) and `other` (biases) stay
-constant at their respective `lr_W_ED` / `lr` across epochs. Asymmetry is
-deliberate: I/O matrices are small (W_in: N×3, W_out: 2×N, ~760 params total)
-and don't need decay; the recurrent core (`S`, ~25k params) does.
+three named groups with separate learning rates. Each group has its own
+optional schedule that drives only that group; `other` (biases) is always
+constant at `lr`.
 
 | Group   | Trainable params                                                    | LR field    | Schedule?            |
 | ------- | ------------------------------------------------------------------- | ----------- | -------------------- |
-| `w_rec` | `S` (DrosophilaCxTaskRNN); `W`+`a`+`g_phi.*`+`f_theta.*` (DrosophilaCxTaskGNN)          | `lr_W_rec`  | **YES — `lr_W_rec_schedule` drives this** |
-| `w_ED`  | `W_in`, `W_out`, `_W_in_mlp.*`, `_W_out_mlp.*`, `v_pen{a,b}_{l,r}`  | `lr_W_ED`   | NO — constant         |
+| `w_rec` | `S` (DrosophilaCxTaskRNN); `W`+`a`+`g_phi.*`+`f_theta.*` (DrosophilaCxTaskGNN) | `lr_W_rec`  | optional — `lr_W_rec_schedule` drives this if set |
+| `w_ED`  | `W_in`, `W_out`, `_W_in_mlp.*`, `_W_out_mlp.*`, `v_pen{a,b}_{l,r}`  | `lr_W_ED`   | optional — `lr_W_ED_schedule` drives this if set  |
 | `other` | biases (`b`, `b_out`) and anything else                             | `lr`        | NO — constant         |
 
-If `lr_W_rec` is unset it falls back to `lr` (then the schedule still
-drives it). If `lr_W_ED` is unset it also falls back to `lr` (but stays
-constant — no schedule). So at minimum you have `lr` + `lr_W_rec_schedule` and
-the recurrent core is scheduled; everything else stays at `lr`.
+Each schedule is independent: a missing/empty schedule leaves that group
+at its initial lr (constant across epochs). If `lr_W_rec` is unset it
+falls back to `lr`; same for `lr_W_ED`. So at minimum you have
+`lr` + `lr_W_rec_schedule` and the recurrent core is scheduled; everything
+else stays at `lr`. The W_in/W_out matrices are small (~760 params) so a
+constant `lr_W_ED` is usually sufficient, but `lr_W_ED_schedule` is
+available when you want a different I/O annealing trajectory.
 
 | Field                   | Default                          | What it controls                                                                                                                                                      |
 | ----------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `lr`                    | `2e-3`                           | Constant lr for biases / `other` group, and the fallback init for `w_rec` and `w_ED` when their dedicated fields are unset.                                           |
 | `lr_W_rec`              | unset (→ `lr`)                   | **Initial** lr for the recurrent core. `lr_W_rec_schedule` then drives this group across epochs. Set this when you want the schedule to start from a different value than `lr`. |
-| `lr_W_ED`               | `5.0e-4` in the new yamls        | **Constant** lr for W_in / W_out / velocity-gate scalars. Try {1e-4, 5e-4, 1e-3, 2e-3}. Smaller = slower I/O drift, more recurrent specialisation. |
-| `lr_W_rec_schedule`           | per-yaml (5 epochs, 2e-3→5e-5)   | Per-epoch trajectory of the `w_rec` group **only**. Try faster decay if `w_rec` over-fits at high T; gentler if it under-trains. |
+| `lr_W_ED`               | `5.0e-4` in the new yamls        | **Initial** lr for W_in / W_out / velocity-gate scalars. Constant unless `lr_W_ED_schedule` is set. Try {1e-4, 5e-4, 1e-3, 2e-3}. Smaller = slower I/O drift, more recurrent specialisation. |
+| `lr_W_rec_schedule`     | per-yaml (5 epochs, 2e-3→5e-5)   | Per-epoch trajectory of the `w_rec` group **only**. Try faster decay if `w_rec` over-fits at high T; gentler if it under-trains. |
+| `lr_W_ED_schedule`      | unset (constant `lr_W_ED`)       | Per-epoch trajectory of the `w_ED` group **only**. Use to anneal the encoder/decoder separately from `w_rec` — e.g. let W_in find the velocity-bump mapping early, then decay it to lock it in. |
 | `noise_recurrent_level` | `0.0` (off)                      | **flyvis stabiliser.** Stddev of Gaussian noise added to `h` at every Euler step during training. Try {0, 1e-3, 1e-2, 5e-2}. Eval/snapshot stays deterministic. |
 | `grad_clip_W`           | `0.0` (off)                      | Max-norm gradient clip on all trainable params. Set 1.0–10.0 to prevent `S` blowups at long T.                                                                        |
 | `n_steps_schedule`      | per-yaml (5 epochs, 300→1000)    | Per-epoch trial length (BPTT horizon). Try gentler ramps; longer warmup at small T helps the T=500 collapse.                                                          |
