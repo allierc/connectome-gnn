@@ -136,3 +136,5 @@ if __name__ == "__main__":
 #
 # Resume after Ctrl-C / job failure:
 #   python GNN_LLM_task.py -o train_task drosophila_cx_pi iterations=148 --cluster --node l4 --resume
+#
+# python GNN_LLM_task.py -o train_task drosophila_cx_pi_gnn iterations=60 --cluster --node a100 --resume
