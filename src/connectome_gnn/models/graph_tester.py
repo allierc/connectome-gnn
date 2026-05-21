@@ -1949,7 +1949,7 @@ def data_test_cortex_task_gnn(config, best_model=None, device=None, log_file=Non
 
 
 # ============================================================================
-# Path-integration task test (CxTaskRNN / CxTaskGNN)
+# Path-integration task test (DrosophilaCxTaskRNN / DrosophilaCxTaskGNN)
 # ============================================================================
 
 def data_test_path_integration_task(
@@ -1973,7 +1973,7 @@ def data_test_path_integration_task(
     Aggregate mean ± std across both rollout sets is written to
     `<log_dir>/results_path_integration.log`.
     """
-    from connectome_gnn.models.cx_eval import (
+    from connectome_gnn.models.drosophila_cx_eval import (
         _deterministic_sweep_rollout,
         path_integration_accuracy_from_data,
     )

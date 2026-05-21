@@ -79,7 +79,7 @@ class CortexTaskRNN(nn.Module):
 
     # Preserved for trainer log lines that read `model.W_param`. Cortex
     # always operates in free-W mode; the attribute exists for symmetry
-    # with CxTaskRNN's API (which has no W_param attribute since it's
+    # with DrosophilaCxTaskRNN's API (which has no W_param attribute since it's
     # implicitly sign_locked).
     W_param: str = "free"
 
@@ -122,7 +122,7 @@ class CortexTaskRNN(nn.Module):
         self._W_rec_free = nn.Parameter(W_init)
 
         # --- CX-side compat surface ------------------------------------
-        # cx_eval helpers and the trainer's loss branch read these as
+        # drosophila_cx_eval helpers and the trainer's loss branch read these as
         # "is there a connectome?" sentinels; empty lists mean "no
         # type-pair regularisation / no ring TV".
         self._block_names: list[str] = []

@@ -3386,7 +3386,7 @@ def _generate_voltage_from_cx_task_model(
     config, *, task_cfg=None, task_cfg_path: Optional[str] = None,
     device=None, visualize: bool = True
 ) -> None:
-    """Roll out a trained CxTaskRNN / CxTaskGNN over a long PI stimulus and
+    """Roll out a trained DrosophilaCxTaskRNN / DrosophilaCxTaskGNN over a long PI stimulus and
     write the activity in `data_train_gnn`-compatible zarr format.
 
     Differs from the cortex variant:
@@ -3482,7 +3482,7 @@ def _generate_voltage_from_cx_task_model(
     # --- Save GT ODE params (from model.W_rec / tau / b) ----------------
     # Convention fix: the CX connectome loader stores J_effective as
     # [post, pre] (hemibrain native orientation; Dale on COLUMNS = pre).
-    # cx_task_rnn inherits W_con = J_effective without transposing, so
+    # drosophila_cx_task_rnn inherits W_con = J_effective without transposing, so
     # `model.W_rec` is also [post, pre]. NeuralGNN downstream expects
     # edge_index in (src=pre, dst=post) order. Transpose here so the saved
     # edge_index honours the standard convention.
@@ -3511,7 +3511,7 @@ def _generate_voltage_from_cx_task_model(
     # Detailed per-tensor stats so the user doesn't need a separate inspection step.
     logger.info(
         f"[voltage_from_task/cx]   tau_i: uniform = {float(model.tau):.4f}  "
-        f"(no per-neuron variation; CxTaskRNN.tau is a scalar)"
+        f"(no per-neuron variation; DrosophilaCxTaskRNN.tau is a scalar)"
     )
     logger.info(
         f"[voltage_from_task/cx]   b (V_i_rest, shape={V_i_rest_gt.shape}): "

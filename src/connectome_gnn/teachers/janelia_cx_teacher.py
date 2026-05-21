@@ -56,11 +56,11 @@ from connectome_gnn.generators.utils import (
     PathIntegrationBatch,
     generate_path_integration_batch,
 )
-# These helpers were moved to models/cx_eval.py so the new
+# These helpers were moved to models/drosophila_cx_eval.py so the new
 # `data_train_task` (in models/graph_trainer.py) can use them without
 # importing the teacher module. Re-exported here so the existing CLI and
 # `janelia_cx_diagnostic` keep working.
-from connectome_gnn.models.cx_eval import (  # noqa: F401  (re-export)
+from connectome_gnn.models.drosophila_cx_eval import (  # noqa: F401  (re-export)
     _deterministic_sweep_rollout,
     _save_training_snapshot,
     build_type_pair_blocks as _build_type_pair_blocks,

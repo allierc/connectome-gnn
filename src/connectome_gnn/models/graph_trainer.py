@@ -1808,7 +1808,7 @@ def _data_train_pi_task(config, erase, best_model, device, log_file=None):
     """
     import torch.nn.functional as F
 
-    from connectome_gnn.models.cx_eval import (
+    from connectome_gnn.models.drosophila_cx_eval import (
         _rollout_heading_metrics,
         _save_training_snapshot,
         bump_fwhm,
@@ -1858,8 +1858,8 @@ def _data_train_pi_task(config, erase, best_model, device, log_file=None):
 
     # --- optimizer + scheduler -------------------------------------------
     # three named param groups (always built; missing field → tc.lr fallback):
-    #   - "w_rec": recurrent core. S (CxTaskRNN) or W + a + g_phi + f_theta
-    #              (CxTaskGNN). lr starts at tc.lr_W_rec or tc.lr.
+    #   - "w_rec": recurrent core. S (DrosophilaCxTaskRNN) or W + a + g_phi + f_theta
+    #              (DrosophilaCxTaskGNN). lr starts at tc.lr_W_rec or tc.lr.
     #              lr_W_rec_schedule drives THIS group exclusively
     #              (per-epoch trajectory).
     #   - "w_ED":  encoder/decoder. W_in, W_out, MLP variants, velocity-gate

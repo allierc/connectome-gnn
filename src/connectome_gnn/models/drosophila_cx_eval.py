@@ -334,7 +334,7 @@ def _save_training_snapshot(
             wrec_param=str(getattr(net, "wrec_param", "edge_magnitude")),
         )
     except Exception as exc:
-        print(f"[cx_eval] kinograph snapshot failed @ step {global_step}: {exc}")
+        print(f"[drosophila_cx_eval] kinograph snapshot failed @ step {global_step}: {exc}")
 
     # TaskGNN-only: render embedding scatter + g_phi / f_theta function
     # plots into tmp_training/{embedding,function/{g_phi,f_theta}}/.
@@ -349,7 +349,7 @@ def _save_training_snapshot(
                 neuron_types=neuron_types, type_names=type_names,
             )
         except Exception as exc:
-            print(f"[cx_eval] gnn function plots failed @ step {global_step}: {exc}")
+            print(f"[drosophila_cx_eval] gnn function plots failed @ step {global_step}: {exc}")
 
 
 def _plot_gnn_functions(
