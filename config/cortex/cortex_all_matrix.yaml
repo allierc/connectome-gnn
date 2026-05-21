@@ -66,11 +66,11 @@ training:
 # ---------------------------------------------------------------------------
 claude:
   n_epochs: 10
-  data_augmentation_loop: 80
+  data_augmentation_loop: 160     # 2× per-task winner — targets ~10 min/slot on l4
   n_iter_block: 80                # 1 block = 4 batches × 20 slots
   ucb_c: 1.414
   generate_data: false
-  training_time_target_min: 20    # matrix proj is lighter than mlp — ~12 min/slot on l4 historically
+  training_time_target_min: 10    # ~10 min/slot on l4 (matrix proj at DAL=160)
   hard_runtime_limit_min: 60
   node_name: l4
   n_cpus: 8

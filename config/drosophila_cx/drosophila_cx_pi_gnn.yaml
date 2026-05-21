@@ -62,7 +62,7 @@ training:
     - 10
     - 50
     - 100
-    - 100
+    - 150
     - 200
     - 200
     - 300
@@ -75,9 +75,9 @@ training:
 # Agentic LLM exploration settings (parity with the TaskRNN winner).
 # ---------------------------------------------------------------------------
 claude:
-  n_epochs: 10
+  n_epochs: 5
   data_augmentation_loop: 1
-  n_iter_block: 20  # 5 slots × 4 batches per block (see instruction_drosophila_cx_pi_gnn.md)
+  n_iter_block: 20 # 5 slots × 4 batches per block (see instruction_drosophila_cx_pi_gnn.md)
   ucb_c: 1.414
   generate_data: false
   training_time_target_min: 60
