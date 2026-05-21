@@ -2032,8 +2032,12 @@ def data_test_path_integration_task(
     model.eval()
 
     # --- Aggregate test pi_acc on full split (T=u_test.shape[1]) -----------
+    # Test does no backward pass, so we use a much larger batch than training.
+    # The training-side `tc.batch_size` is tuned to fit BPTT memory; here we
+    # only need forward passes so 256 fits comfortably even for the GNN.
+    test_bs = max(int(tc.batch_size), 256)
     full_pi = path_integration_accuracy_from_data(
-        model, u_test, y_test, warmup=10, batch_size=tc.batch_size,
+        model, u_test, y_test, warmup=10, batch_size=test_bs,
     )
     logger.info(f'  full test pi_acc (n={u_test.shape[0]}, '
                 f'T={u_test.shape[1]}): {full_pi:.4f}')

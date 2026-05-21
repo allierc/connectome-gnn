@@ -1,0 +1,95 @@
+description: "Cortex 20-task matrix-encoder/decoder LR sweep — same 20-task per-task-slot design as cortex_all, but with linear input_proj/output_proj and the 3-group split optimizer (lr_W_rec_schedule, lr_W_ED_schedule)."
+dataset: task_cortex_all
+simulation:
+  params:
+    - - 1.0
+graph_model:
+  signal_model_name: cortex_all   # routes to CortexTaskRNN (free-W) via registry
+  aggr_type: add
+  n_units: 256
+  n_input: 85
+  n_output: 33
+  W_param: free
+  recurrent_activation: tanh      # cortex_delaygo winner
+  input_proj: matrix              # MATRIX encoder (vs mlp in cortex_all)
+  output_proj: matrix             # MATRIX decoder (vs mlp in cortex_all)
+  hidden_dim: 128                 # unused with matrix proj; kept for schema parity
+  n_layers: 2                     # unused with matrix proj; kept for schema parity
+  MLP_activation: relu            # unused with matrix proj; kept for schema parity
+plotting: {}
+training:
+  device: auto
+  seed: 0
+  n_runs: 1
+  n_epochs: 10
+  batch_size: 128                 # matches per-task winner configs (cortex_<task>.yaml)
+  # 3-group split optimizer (graph_trainer._data_train_cortex_task):
+  #   - w_rec  (_W_rec_free)              ← lr_W_rec_schedule (per-epoch)
+  #   - w_ED   (W_in, W_out)              ← lr_W_ED_schedule  (per-epoch)
+  #   - other  (b, b_out, …)              ← lr (constant)
+  # Defaults below reproduce the per-task winner schedule on both W groups.
+  lr: 1.0e-3                      # drives biases ("other" group)
+  lr_W_rec_schedule:              # baseline: matches per-task winner
+    - 1.0e-3
+    - 5.0e-4
+    - 2.0e-4
+    - 1.0e-4
+    - 1.0e-4
+    - 1.0e-4
+    - 1.0e-4
+    - 1.0e-4
+    - 1.0e-4
+    - 1.0e-4
+  lr_W_ED_schedule:               # baseline: matches per-task winner
+    - 1.0e-3
+    - 5.0e-4
+    - 2.0e-4
+    - 1.0e-4
+    - 1.0e-4
+    - 1.0e-4
+    - 1.0e-4
+    - 1.0e-4
+    - 1.0e-4
+    - 1.0e-4
+  lr_scheduler: none
+  grad_clip_W: 2.0                # delaygo winner
+  noise_recurrent_level: 0.0
+  coeff_rate_L2: 1.0e-2           # delaygo winner
+  coeff_W_L2: 0.0                 # silent killer in delaygo — keep off by default
+  w_init_mode: randn_scaled
+  w_init_scale: 0.5               # delaygo winner with tanh
+  snapshots_per_epoch: 5
+  data_augmentation_loop: 160     # 2× per-task winner — targets ~10 min/slot on l4 (was ~5 min at DAL=80)
+
+# ---------------------------------------------------------------------------
+# Agentic LLM exploration settings (read by GNN_LLM_task.py).
+# ---------------------------------------------------------------------------
+claude:
+  n_epochs: 10
+  data_augmentation_loop: 80
+  n_iter_block: 80                # 1 block = 4 batches × 20 slots
+  ucb_c: 1.414
+  generate_data: false
+  training_time_target_min: 20    # matrix proj is lighter than mlp — ~12 min/slot on l4 historically
+  hard_runtime_limit_min: 60
+  node_name: l4
+  n_cpus: 8
+  n_parallel: 20                  # 20 task slots in parallel
+  conda_env: connectome-gnn
+
+task:
+  task_type: cortex
+  task_only: true
+  cortex:
+    rules: ["fdgo", "reactgo", "delaygo",
+            "fdanti", "reactanti", "delayanti",
+            "dm1", "dm2", "contextdm1", "contextdm2", "multidm",
+            "delaydm1", "delaydm2", "contextdelaydm1", "contextdelaydm2", "multidelaydm",
+            "dmsgo", "dmsnogo", "dmcgo", "dmcnogo"]
+    rule_weights: []
+    ruleset: "all"
+    n_trials_train: 20000
+    n_trials_test: 4000
+    n_steps_max: 400
+    seed: 0
+    hp_overrides: {}

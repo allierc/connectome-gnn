@@ -1,13 +1,21 @@
 description: |
-  cortex_delaygo winner config — 5× longer training to test whether the
-  0.98 best-in-ep ceiling identified by the 96-iter agentic loop
-  (LLM_cortex_delaygo, 2026-05-15) can be broken at higher iteration count.
+  cortex_delaygo winner config — MATRIX encoder/decoder variant.
 
-  Source: iter 065 slot 0 (canonical block-6 winner — 9-seed mean
-  best-in-ep = 0.981 ± 0.014, no seed below 0.95).
+  Source: iter 065 slot 0 (canonical block-6 MLP winner — 9-seed mean
+  best-in-ep = 0.981 ± 0.014, no seed below 0.95). Same hyperparameters
+  as the MLP winner with input_proj / output_proj switched to matrix
+  to match the methods-section equations of docs/cortex.tex (linear
+  W_in · u and linear W_out · σ(h) readout).
+
+  Expected ceiling: best-in-ep ~0.969 (≈ −0.012 vs MLP at iter 065;
+  matrix mode was the original Yang-style projection, MLP was the
+  agentic-loop discovery). Use this variant to study emergent W_rec
+  structure under the minimal Yang-style encoder.
 
   Architecture: TaskRNN free-W mode, N=256, tanh recurrent activation,
-  MLP encoder/decoder (input_proj=mlp is load-bearing).
+  matrix encoder/decoder (linear W_in / W_out — no hidden_dim /
+  n_layers / MLP_activation needed; those fields are only read by the
+  MLP variant in cortex_task_rnn.py).
 
   Training: 5× more iters per epoch via data_augmentation_loop 40→200.
   Same 10-epoch budget so the ×2.0 lr_schedule still fits without
@@ -24,11 +32,8 @@ graph_model:
   n_output: 33
   W_param: free
   recurrent_activation: tanh         # agentic-loop winner over relu/softplus/sigmoid
-  input_proj: mlp                    # LOAD-BEARING — matrix caps best-in-ep at 0.969
-  output_proj: mlp                   # neutral but kept for consistency
-  hidden_dim: 128
-  n_layers: 2
-  MLP_activation: relu
+  input_proj: matrix                 # linear W_in · u (Yang-style); MLP variant caps higher (~0.981) but is non-canonical
+  output_proj: matrix                # linear W_out · σ(h) + b_out
 plotting: {}
 training:
   device: auto

@@ -62,20 +62,33 @@ def path_integration_accuracy_from_data(
     *,
     warmup: int = 10,
     batch_size: int = 256,
+    show_progress: bool = True,
 ) -> float:
     """Same metric as `path_integration_accuracy`, but on a pre-built
     (u, y) test split (the trainer already has this in GPU memory).
     """
+    from tqdm import tqdm
+
     net.eval()
     cosines = []
+    n_trials = u.shape[0]
+    iterator = range(0, n_trials, batch_size)
+    if show_progress:
+        n_batches = (n_trials + batch_size - 1) // batch_size
+        iterator = tqdm(iterator, total=n_batches, ncols=100,
+                        desc=f"pi_acc test (B={batch_size}, T={u.shape[1]})",
+                        leave=False)
     with torch.no_grad():
-        for i in range(0, u.shape[0], batch_size):
+        for i in iterator:
             yh, _ = net(u[i : i + batch_size])
             yh_n = yh[:, warmup:, :] / (
                 yh[:, warmup:, :].norm(dim=-1, keepdim=True) + 1e-8
             )
             yt = y[i : i + batch_size, warmup:, :]
-            cosines.append((yh_n * yt).sum(dim=-1).mean().item())
+            c = (yh_n * yt).sum(dim=-1).mean().item()
+            cosines.append(c)
+            if show_progress:
+                iterator.set_postfix(pi_acc=f"{float(np.mean(cosines)):.4f}")
     net.train()
     return float(np.mean(cosines))
 
@@ -278,6 +291,7 @@ def _save_training_snapshot(
     device: str,
     snapshot_n_steps: int,
     snapshot_omega_deg: float,
+    iter_in_epoch: int | None = None,
     matrix_dir: str | None = None,    # backwards-compat; ignored
     config=None,
 ) -> None:
@@ -286,52 +300,70 @@ def _save_training_snapshot(
     The matrix is the top-left panel of the kinograph figure, so we no
     longer write a separate matrix-only PNG.
     """
-    from connectome_gnn.plot_cx import (
-        cx_epg_directions,
-        plot_cx_training_snapshot,
-    )
+    from connectome_gnn.plot_cx import cx_epg_directions
 
-    name = f"step_{global_step:07d}.png"
+    # Filename: epoch_<E>_<ITER_IN_EPOCH>.png — readable curriculum position.
+    # Falls back to step_<global_step>.png when iter_in_epoch isn't provided
+    # (e.g. legacy callers).
+    if iter_in_epoch is not None:
+        name = f"epoch_{epoch}_{iter_in_epoch:05d}.png"
+    else:
+        name = f"step_{global_step:07d}.png"
 
     try:
+        # Constant-ω rollout at T=1000 — the snapshot panels' `r=` matches the
+        # `r_roll_1k` printed in the trainer postfix (also evaluated at T=1000).
+        # `snapshot_n_steps` is kept in the signature for backwards compatibility
+        # but is no longer used for the rollout length.
         rollout = _deterministic_sweep_rollout(
-            net, n_steps=snapshot_n_steps,
+            net, n_steps=1000,
             omega_deg_per_s=snapshot_omega_deg, device=device,
         )
         rollout["r_epg"] = rollout["r"][:, epg_indices]
         pen_type_idx = [i for i, n in enumerate(type_names)
                         if "PEN" in n and "PEG" not in n]
-        pen_neuron_types_arr = None
+        pen_indices_arr = None
         if pen_type_idx:
             pen_idx_list: list[int] = []
             nt = np.asarray(neuron_types)
             for t in pen_type_idx:
                 pen_idx_list.extend(np.where(nt == t)[0].tolist())
-            pen_indices = np.array(sorted(pen_idx_list), dtype=np.int64)
-            rollout["r_pen"] = rollout["r"][:, pen_indices]
-            pen_neuron_types_arr = nt[pen_indices]
+            pen_indices_arr = np.array(sorted(pen_idx_list), dtype=np.int64)
+            rollout["r_pen"] = rollout["r"][:, pen_indices_arr]
         epg_theta = cx_epg_directions(epg_glom_ix)
-        # Pass GT W_con if the model exposes it (TaskRNN, JaneliaCxRNN
-        # both register the buffer); helpers that wrap with torch.compile
-        # proxy buffer access through __getattr__.
         W_con_np = (net.W_con.detach().cpu().numpy()
                     if hasattr(net, "W_con") else None)
-        pi_hist, _fw_hist, rmse_hist = load_pi_fwhm_history(
-            os.path.join(log_dir, 'tmp_training', 'metrics.log'))
-        plot_cx_training_snapshot(
+
+        # Use docs/figure/fig_evolution.py::build_figure (two-row mode) for
+        # the training snapshot so the in-training plot matches the paper
+        # figure exactly. Imported via importlib because docs/figure/ isn't
+        # a regular Python package.
+        import importlib.util
+        from connectome_gnn.utils import get_repo_root
+        _fig_path = os.path.join(
+            get_repo_root(), "docs", "figure", "fig_evolution.py")
+        if not os.path.isfile(_fig_path):
+            raise FileNotFoundError(f"fig_evolution.py not found at {_fig_path}")
+        _spec = importlib.util.spec_from_file_location("fig_evolution", _fig_path)
+        _fig_mod = importlib.util.module_from_spec(_spec)
+        _spec.loader.exec_module(_fig_mod)
+
+        data = dict(
+            net=net,
+            config=config,
             W_rec=net.W_rec.detach().cpu().numpy(),
-            rollout=rollout,
-            epg_theta=epg_theta,
-            output_path=os.path.join(kinograph_dir, name),
             W_con=W_con_np,
             neuron_types=neuron_types,
             type_names=type_names,
-            pen_neuron_types=pen_neuron_types_arr,
-            step=global_step,
+            pen_indices=pen_indices_arr,
+            rollout=rollout,
+            epg_theta=epg_theta,
+            gain_data=[],        # third-row only; unused in n_rows=2
+            test_trial=None,     # panel g hidden in two-row mode
             dt_s=float(net.dt),
-            pi_acc_history=pi_hist,
-            rmse_history=rmse_hist,
-            wrec_param=str(getattr(net, "wrec_param", "edge_magnitude")),
+        )
+        _fig_mod.build_figure(
+            data, os.path.join(kinograph_dir, name), n_rows=2,
         )
     except Exception as exc:
         print(f"[drosophila_cx_eval] kinograph snapshot failed @ step {global_step}: {exc}")

@@ -120,10 +120,20 @@ def _read_all_task_metrics(log_dir: str) -> list:
                     'direction_acc':    _f(parts, 'direction_acc'),
                 }
                 # Primary metric for collapse detection / display.
-                #   PI:     r_roll (Pearson on rollout) is the new headline.
-                #           Falls back to pi_acc when column absent (older logs).
+                #   PI:     r_roll_1k (Pearson on T=1000 rollout) is the headline
+                #           — it measures the deployment-horizon integration, so
+                #           a slot with high r_roll at T_epoch but low r_roll_1k
+                #           (overfit to the short curriculum) is correctly
+                #           flagged. Falls back to r_roll (T_epoch column) for
+                #           legacy logs that don't have r_roll_1k, then to
+                #           pi_acc for even older logs.
                 #   Cortex: r2.
-                if row['r_roll'] is not None:
+                row_r_roll_1k = _f(parts, 'r_roll_1k')
+                row['r_roll_1k'] = row_r_roll_1k
+                if row_r_roll_1k is not None:
+                    row['primary'] = row_r_roll_1k
+                    row['primary_name'] = 'r_roll_1k'
+                elif row['r_roll'] is not None:
                     row['primary'] = row['r_roll']
                     row['primary_name'] = 'r_roll'
                 elif row['pi_acc'] is not None:

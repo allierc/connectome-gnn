@@ -1,5 +1,5 @@
 description: |
-  GNN circuit recovery from a trained CxTaskRNN/CxTaskGNN rollout.
+  GNN circuit recovery from a trained DrosophilaCxTaskRNN/DrosophilaCxTaskGNN rollout.
   Teacher: drosophila_cx_pi. Stimulus: opto-style drive on PEN_a + PEN_b
   only; activity recorded for all 156 CX neurons.
   Rollout noise: noise_model_level=0.05 → σ·randn on h_t each Euler step

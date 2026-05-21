@@ -37,10 +37,10 @@ training:
     - 5.0e-05
   lr_scheduler: none
   lr_W_ED: 0.0005
-  grad_clip_W: 2.5
+  grad_clip_W: 0.001
   coeff_cos_distance: 0.0
-  coeff_norm_floor: 0.5
-  kappa_norm_floor: 0.05
+  coeff_norm_floor: 0.0
+  kappa_norm_floor: 0.0
   coeff_tv_circular: 0.0
   coeff_W_L1: 0.0
   noise_recurrent_level: 0.05

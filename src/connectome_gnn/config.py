@@ -871,7 +871,7 @@ class TrainingConfig(BaseModel):
     lr_embedding: float = 0.001
     lr_update: float = 0.0
     lr_W: float = 0.0001
-    # CX task trainer (_data_train_pi_task): separate LR for the recurrent-
+    # CX task trainer (_data_train_drosophila_cx_task): separate LR for the recurrent-
     # core params (S in DrosophilaCxTaskRNN; W + a + g_phi + f_theta in DrosophilaCxTaskGNN).
     # When set, `lr_schedule` drives THIS group only (per-epoch trajectory of
     # the recurrent core); when None, the recurrent core starts at `lr` and is
