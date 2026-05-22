@@ -3491,7 +3491,19 @@ def _generate_voltage_from_cx_task_model(
     edge_index_gt = np.stack([src_np, dst_np], axis=0).astype(np.int64)
     W_gt = W_rec_full[src_np, dst_np].astype(np.float32)
     tau_i_gt = np.full(N, float(model.tau), dtype=np.float32)
-    V_i_rest_gt = model.b.detach().cpu().numpy().astype(np.float32)
+    # DrosophilaCxTaskRNN exposes an explicit per-neuron bias `b` (V_rest).
+    # DrosophilaCxTaskGNN has no `b` — the bias is folded into f_theta, so
+    # the implicit V_rest is f_theta(0, a_i, 0). Fall back to zeros for the
+    # GNN teacher; downstream `gt_R2` on V_rest is then a constant-zero
+    # baseline rather than a meaningful comparison.
+    if hasattr(model, 'b') and model.b is not None:
+        V_i_rest_gt = model.b.detach().cpu().numpy().astype(np.float32)
+    else:
+        V_i_rest_gt = np.zeros(N, dtype=np.float32)
+        logger.info(
+            "[voltage_from_task/cx]   teacher has no explicit bias (GNN); "
+            "saving V_i_rest = 0. Downstream V_rest_R2 is informational only."
+        )
     ode_params = FlyVisODEParams(
         tau_i=torch.from_numpy(tau_i_gt),
         V_i_rest=torch.from_numpy(V_i_rest_gt),
@@ -3633,15 +3645,19 @@ def _generate_voltage_from_cx_task_model(
             f"[voltage_from_task/cx] {split}: {T_split} frames -> {x_path}"
         )
 
-        # Cache for sanity plots (train split only). Truncate to 1000
-        # frames so the cache is small (~600 KB voltage for N=156).
+        # Cache for sanity plots (train split only). `voltage` is the short
+        # (10000-frame) cache used by trace + per-type + function-dynamics
+        # plots; `voltage_full` is the entire train split used by the
+        # all-neurons kinograph (typically 64k frames × 156 neurons ≈ 40 MB).
         if split == "train":
-            n_cache = min(1000, T_split)
+            n_cache = min(10000, T_split)
             sanity_cache.update(
                 u=u_np[:n_cache], theta_gt=theta_gt_np[:n_cache],
                 drive=drive_cpu[:n_cache].numpy(),
                 y_pred=y_pred[:n_cache].numpy(),
                 voltage=voltage[:n_cache].numpy(),
+                voltage_full=voltage.numpy(),
+                theta_gt_full=theta_gt_np,
             )
 
     # --- Sanity figures (first 1000 frames of train) --------------------
@@ -3660,6 +3676,13 @@ def _generate_voltage_from_cx_task_model(
             y_pred=sanity_cache["y_pred"],
             cx=cx, dt=dt, n_show=n_show,
         )
+        _cx_voltage_kinograph_plot(
+            folder=folder,
+            voltage_short=sanity_cache["voltage"],
+            voltage_full=sanity_cache["voltage_full"],
+            theta_gt_full=sanity_cache["theta_gt_full"],
+            cx=cx, dt=dt,
+        )
         _cx_voltage_sanity_matrix_plot(
             folder=folder,
             W_con=np.asarray(cx["J_effective"], dtype=np.float32),
@@ -3676,6 +3699,30 @@ def _generate_voltage_from_cx_task_model(
             neuron_types=np.asarray(cx["neuron_types"], dtype=np.int64),
             type_names=list(cx["type_names"]),
         )
+        # Operating-range plot under the natural-OU rollout (the same plot
+        # that test_plot makes under the constant-ω = 60°/s deterministic
+        # sweep — see fig:function_dynamics in docs/drosophila.tex). The
+        # OU version uses the actual training-stimulus distribution, so
+        # the visited operating range is the on-distribution one.
+        if all(hasattr(model, name) for name in ("a", "g_phi", "f_theta")):
+            try:
+                from connectome_gnn.plot import plot_function_dynamics
+                fdyn_path = os.path.join(folder, "task_function_dynamics_ou.png")
+                plot_function_dynamics(
+                    net=model,
+                    h_traj=sanity_cache["voltage"],   # (n_cache, N) — OU rollout h
+                    out_path=fdyn_path,
+                    device=device,
+                )
+                logger.info(
+                    f"[voltage_from_task/cx] saved OU function dynamics: "
+                    f"{fdyn_path}"
+                )
+            except Exception as exc:
+                logger.warning(
+                    f"[voltage_from_task/cx] OU function-dynamics plot "
+                    f"failed: {exc}"
+                )
 
 
 # --- Plot styling constants (see memory: feedback_plot_color_scheme.md) -----
@@ -3782,16 +3829,16 @@ def _cx_voltage_sanity_combined_plot(
     voltage: np.ndarray, drive: np.ndarray, y_pred: np.ndarray,
     cx: dict, dt: float, n_show: int = 1000,
 ) -> None:
-    """3×1 combined sanity plot saved as task_sanity_combined.png.
+    """Task-rollout traces plot saved as task_traces.png.
 
-    Row 1 (input): ω(t).
-    Row 2 (activity): one mean-subtracted voltage trace per neuron type,
-                      stacked vertically with type names as y-tick labels.
-                      On PEN_a / PEN_b rows we additionally overlay the
-                      stimulus traces for the first L (lighter red) and
-                      first R (lighter blue) cell of that subpop — gives
-                      visual context for whether voltage tracks drive.
-    Row 3 (output): wrapped HD — true (green) vs decoded (black).
+    Single-column 2-row layout:
+
+        Row 1: raw mean-subtracted voltage traces. Several neurons per
+               type, stacked, with the type name labelled at the cluster
+               centre. On PEN_a / PEN_b clusters the stim traces of the
+               first L (lighter red) and first R (lighter blue) subpop
+               cell are overlaid for visual context.
+        Row 2: wrapped HD — true (green) vs decoded (black).
     """
     T = min(n_show, u.shape[0])
     t = np.arange(T) * dt
@@ -3799,44 +3846,44 @@ def _cx_voltage_sanity_combined_plot(
     neuron_types_np = np.asarray(cx["neuron_types"], dtype=np.int64)
     type_names = list(cx["type_names"])
 
-    # One representative neuron per type.
+    # Pick up to `n_per_type` representative neurons per cell type. With
+    # 7 CX types × 5 neurons = 35 traces this stacks cleanly without
+    # being unreadable.
+    n_per_type = 5
     chosen: list[tuple[str, int]] = []
+    type_blocks: list[tuple[str, list[int]]] = []
     for ti, name in enumerate(type_names):
         idx = np.where(neuron_types_np == ti)[0]
-        if idx.size > 0:
-            chosen.append((name, int(idx[0])))
+        if idx.size == 0:
+            continue
+        take = idx[:n_per_type].tolist()
+        type_blocks.append((name, take))
+        for ix in take:
+            chosen.append((name, int(ix)))
 
-    if chosen:
-        traces = np.stack(
-            [voltage[:T, ix] - voltage[:T, ix].mean() for _, ix in chosen],
-            axis=0,
-        )  # (n_sel, T)
-        # Vertical spacing — 3× the pooled std gives clean separation.
-        step_v = 3.0 * float(traces.std()) if traces.size else 1.0
-        if step_v <= 0:
-            step_v = 1.0
-    else:
-        traces = np.zeros((0, T), dtype=np.float32)
-        step_v = 1.0
-
-    fig, axes = plt.subplots(
-        3, 1, figsize=(10, 7),
-        gridspec_kw={"height_ratios": [1, 2.8, 1]},
-        sharex=True,
-    )
-
-    # Row 1: omega
-    axes[0].plot(t, u[:T, 0], color="black", lw=1.0)
-    axes[0].set_ylabel("ω(t) (deg/s)", fontsize=_LABEL_FS)
-    axes[0].axhline(0, color="0.5", lw=0.5)
-    axes[0].tick_params(labelsize=_TICK_FS)
-
-    # Row 2: stacked voltage traces (mean removed), label by type name.
-    # PEN rows additionally overlay the stim of the first L (lighter red)
-    # and first R (lighter blue) subpop cell — visual context for the
-    # input → activity relationship.
-    ax = axes[1]
     n_sel = len(chosen)
+    if n_sel == 0:
+        return
+
+    # Raw mean-subtracted traces (n_sel, T).
+    raw = np.stack(
+        [voltage[:T, ix] - voltage[:T, ix].mean() for _, ix in chosen],
+        axis=0,
+    )
+    step_raw = 3.0 * float(raw.std()) if raw.size else 1.0
+    step_raw = max(step_raw, 1e-6)
+
+    fig = plt.figure(figsize=(12, 9))
+    gs = fig.add_gridspec(
+        2, 1, height_ratios=[4.0, 1], hspace=0.18,
+    )
+    ax_raw = fig.add_subplot(gs[0, 0])
+    ax_hd  = fig.add_subplot(gs[1, 0], sharex=ax_raw)
+    ax_raw.set_xlim(0, t[-1] if T > 0 else 1.0)
+
+    # Row 1: traces (raw mean-subtracted). PEN stim overlay marks the
+    # first PEN_a / PEN_b cell in each cluster (light red = L, light
+    # blue = R) to give context for the input → activity relationship.
     pen_subpop = cx.get("pen_subpop_ix", {})
 
     def _first_ix(key: str) -> Optional[int]:
@@ -3845,66 +3892,153 @@ def _cx_voltage_sanity_combined_plot(
 
     pena_l, pena_r = _first_ix("PENa_L"), _first_ix("PENa_R")
     penb_l, penb_r = _first_ix("PENb_L"), _first_ix("PENb_R")
-    STIM_L_COLOR = "#f08080"  # light coral — lighter red
-    STIM_R_COLOR = "#87cefa"  # light sky blue — lighter blue
+    STIM_L_COLOR = "#f08080"  # light coral
+    STIM_R_COLOR = "#87cefa"  # light sky blue
 
-    for i, (name, _ix) in enumerate(chosen):
-        base = i * step_v
-        # Mean-subtracted voltage in black (the primary trace).
-        ax.plot(t, traces[i] + base, color="black", lw=0.8)
-        # Strip underscores so "PEN_a(PEN1)" → "PENa(PEN1)" which startswith
-        # "PENa". Matches both the canonical short names (PEN_a / PEN_b) and
-        # the hemibrain long names (PEN_a(PEN1), PEN_b(PEN2)).
-        nm = name.replace("_", "")
-        if nm.startswith("PENa"):
-            if pena_l is not None:
-                s = drive[:T, pena_l]
-                ax.plot(t, (s - s.mean()) + base,
-                        color=STIM_L_COLOR, lw=0.7, alpha=0.85)
-            if pena_r is not None:
-                s = drive[:T, pena_r]
-                ax.plot(t, (s - s.mean()) + base,
-                        color=STIM_R_COLOR, lw=0.7, alpha=0.85)
-        elif nm.startswith("PENb"):
-            if penb_l is not None:
-                s = drive[:T, penb_l]
-                ax.plot(t, (s - s.mean()) + base,
-                        color=STIM_L_COLOR, lw=0.7, alpha=0.85)
-            if penb_r is not None:
-                s = drive[:T, penb_r]
-                ax.plot(t, (s - s.mean()) + base,
-                        color=STIM_R_COLOR, lw=0.7, alpha=0.85)
+    slot = 0
+    block_centres: list[tuple[str, float]] = []
+    for name, idx_list in type_blocks:
+        block_start = slot
+        for ix in idx_list:
+            base = slot * step_raw
+            ax_raw.plot(t, raw[slot] + base, color="black", lw=0.6)
+            # PEN stim overlay at the first neuron of each PEN cluster.
+            nm = name.replace("_", "")
+            if slot == block_start:
+                if nm.startswith("PENa"):
+                    if pena_l is not None:
+                        s = drive[:T, pena_l]
+                        ax_raw.plot(t, (s - s.mean()) + base,
+                                    color=STIM_L_COLOR, lw=0.6, alpha=0.75)
+                    if pena_r is not None:
+                        s = drive[:T, pena_r]
+                        ax_raw.plot(t, (s - s.mean()) + base,
+                                    color=STIM_R_COLOR, lw=0.6, alpha=0.75)
+                elif nm.startswith("PENb"):
+                    if penb_l is not None:
+                        s = drive[:T, penb_l]
+                        ax_raw.plot(t, (s - s.mean()) + base,
+                                    color=STIM_L_COLOR, lw=0.6, alpha=0.75)
+                    if penb_r is not None:
+                        s = drive[:T, penb_r]
+                        ax_raw.plot(t, (s - s.mean()) + base,
+                                    color=STIM_R_COLOR, lw=0.6, alpha=0.75)
+            slot += 1
+        block_end = slot - 1
+        block_centres.append((name, ((block_start + block_end) / 2) * step_raw))
 
-    ytick_positions = [i * step_v for i in range(n_sel)]
-    ytick_labels = [name for name, _ in chosen]
-    ax.set_yticks(ytick_positions)
-    ax.set_yticklabels(ytick_labels, fontsize=_TICK_FS)
-    ax.tick_params(axis="x", labelsize=_TICK_FS)
-    if n_sel > 0:
-        ax.set_ylim(-step_v, n_sel * step_v)
+    ax_raw.set_yticks([y for _, y in block_centres])
+    ax_raw.set_yticklabels([n for n, _ in block_centres], fontsize=_TICK_FS)
+    ax_raw.tick_params(axis="x", labelsize=_TICK_FS)
+    ax_raw.set_ylim(-step_raw, n_sel * step_raw)
 
     # Row 3: HD (GT green vs decoded black).
     true_hd_wrap = np.angle(np.exp(1j * theta_gt[:T]))
     decoded_hd = np.arctan2(y_pred[:T, 1], y_pred[:T, 0])
-    axes[2].plot(t, true_hd_wrap, color=_GT_COLOR, lw=0.0, marker=".", ms=_GT_MS)
-    axes[2].plot(t, decoded_hd, color=_PRED_COLOR, lw=0.0, marker=".", ms=_PRED_MS)
-    axes[2].set_yticks([-np.pi, 0, np.pi])
-    axes[2].set_yticklabels([r"$-\pi$", "0", r"$\pi$"], fontsize=_TICK_FS)
-    axes[2].set_ylabel("HD (rad)", fontsize=_LABEL_FS)
-    axes[2].set_xlabel("time (s)", fontsize=_LABEL_FS)
-    axes[2].tick_params(axis="x", labelsize=_TICK_FS)
-    axes[2].axhline(0, color="0.5", lw=0.5)
+    ax_hd.plot(t, true_hd_wrap, color=_GT_COLOR, lw=0.0, marker=".", ms=_GT_MS)
+    ax_hd.plot(t, decoded_hd, color=_PRED_COLOR, lw=0.0, marker=".", ms=_PRED_MS)
+    ax_hd.set_yticks([-np.pi, 0, np.pi])
+    ax_hd.set_yticklabels([r"$-\pi$", "0", r"$\pi$"], fontsize=_TICK_FS)
+    ax_hd.set_ylabel("HD (rad)", fontsize=_LABEL_FS)
+    ax_hd.set_xlabel("time (s)", fontsize=_LABEL_FS)
+    ax_hd.tick_params(axis="x", labelsize=_TICK_FS)
+    ax_hd.axhline(0, color="0.5", lw=0.5)
 
-    fig.suptitle(
-        f"CX teacher rollout — combined (first {T} frames, dt={dt:.3g}s; "
-        f"HD: green=GT, black=decoded)",
-        fontsize=_TITLE_FS,
-    )
-    plt.tight_layout(rect=[0, 0, 1, 0.96])
-    out = os.path.join(folder, "task_sanity_combined.png")
+    plt.tight_layout()
+    out = os.path.join(folder, "task_traces.png")
     plt.savefig(out, dpi=120)
     plt.close(fig)
-    logger.info(f"[voltage_from_task/cx] saved combined sanity: {out}")
+    logger.info(f"[voltage_from_task/cx] saved task traces: {out}")
+
+
+def _cx_voltage_kinograph_plot(
+    *, folder: str, voltage_short: np.ndarray, voltage_full: np.ndarray,
+    theta_gt_full: np.ndarray, cx: dict, dt: float,
+) -> None:
+    """All-neurons-by-time kinograph saved as task_kinograph.png.
+
+    Neurons sorted by **cell type in descending type index** so the
+    block order from top to bottom matches the task_traces.png layout:
+    ER6, PEG, Δ7, PEN_b, PEN_a, EPGt, EPG. Cell-type tick labels at
+    block centres on the y-axis. `theta_gt_full` is accepted for
+    interface compatibility with phase-sorted variants but not used in
+    the type-sorted layout.
+
+    Two sub-panels per file: left = first 10k frames (≈100 s),
+    right = full train split (≈640 s). Shared colormap from the
+    [1, 99] percentile of the full trace.
+    """
+    del theta_gt_full  # unused in cell-type sort; kept in signature for parity
+
+    neuron_types_np = np.asarray(cx["neuron_types"], dtype=np.int64)
+    type_names = list(cx["type_names"])
+
+    # Descending type-index sort so highest type number ends up at top
+    # of the imshow (extent y0=N at top → first-row-of-data at top).
+    # Cell-type 0 (EPG) → bottom; cell-type max (ER6) → top.
+    order = np.argsort(-neuron_types_np, kind="stable")
+    nt_sorted = neuron_types_np[order]
+
+    V_s = voltage_short[:, order].T                             # (N, T_short)
+    V_f = voltage_full[:, order].T                              # (N, T_full)
+    N, T_short = V_s.shape
+    _, T_full  = V_f.shape
+    t_short = np.arange(T_short) * dt
+    t_full  = np.arange(T_full)  * dt
+
+    # Per-neuron z-score normalisation — each row centred on its own
+    # mean and scaled by its own std (computed on the full train split
+    # so the short and full panels share the same scale). This makes
+    # the colour show relative excursions rather than absolute voltage,
+    # so models with narrow dynamic ranges (the GNN variants) are not
+    # smeared into a single colour band by a global percentile clip.
+    mu = V_f.mean(axis=1, keepdims=True)
+    sd = V_f.std(axis=1,  keepdims=True) + 1e-8
+    V_s = (V_s - mu) / sd
+    V_f = (V_f - mu) / sd
+    vmax = 3.0  # ±3 z-scores → 99.7% of a Gaussian's mass
+
+    # Block boundaries (in row-index = sorted-position) + per-type centres.
+    bnd = np.where(np.diff(nt_sorted) != 0)[0] + 0.5
+    bounds = np.concatenate([[0.0], bnd, [float(N)]])
+    centres = (bounds[:-1] + bounds[1:]) / 2.0
+    tick_labels = [type_names[int(nt_sorted[int(np.floor(c))])] for c in centres]
+
+    fig, (ax_s, ax_f) = plt.subplots(
+        1, 2, figsize=(16, 7),
+        gridspec_kw=dict(wspace=0.10, width_ratios=[1.0, 4.0]),
+    )
+
+    for ax, V, t_axis, title in (
+        (ax_s, V_s, t_short, f"first {T_short} frames"),
+        (ax_f, V_f, t_full,  f"full train split ({T_full} frames)"),
+    ):
+        im = ax.imshow(
+            V, aspect="auto", interpolation="nearest",
+            cmap="RdBu_r", vmin=-vmax, vmax=vmax,
+            extent=(0.0, float(t_axis[-1]), float(N), 0.0),
+        )
+        for x in bnd:
+            ax.axhline(x, color="k", lw=0.3, alpha=0.5)
+        ax.set_xlabel("time (s)", fontsize=_LABEL_FS)
+        ax.set_title(title, fontsize=_LABEL_FS)
+        ax.tick_params(axis="x", labelsize=_TICK_FS)
+
+    ax_s.set_yticks(centres)
+    ax_s.set_yticklabels(tick_labels, fontsize=_TICK_FS)
+    ax_s.set_ylabel("neuron (sorted by cell type)", fontsize=_LABEL_FS)
+    ax_f.set_yticks([])
+
+    cb = fig.colorbar(im, ax=[ax_s, ax_f], fraction=0.018, pad=0.015)
+    cb.set_label(r"$(\hat h_i - \langle\hat h_i\rangle) / \mathrm{std}(\hat h_i)$",
+                 fontsize=_LABEL_FS)
+    cb.ax.tick_params(labelsize=_TICK_FS)
+
+    out = os.path.join(folder, "task_kinograph.png")
+    plt.savefig(out, dpi=120, bbox_inches="tight")
+    plt.close(fig)
+    logger.info(f"[voltage_from_task/cx] saved task kinograph "
+                f"(cell-type sort, per-neuron z-score): {out}")
 
 
 def _cx_voltage_sanity_matrix_plot(

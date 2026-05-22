@@ -1,9 +1,14 @@
 description: |
-  Path-integration TaskGNN — LLM_drosophila_cx_pi_gnn winner
-  (iter_022_slot_01 = B1 stabilisation winner + embedding_dim=4
-  from B2 batch 1; mean r_roll_1k = 0.931 ± 0.061 over 5 seeds,
-  best seed = 0.999). Curriculum extended over the full 10-epoch
-  budget to reach n_steps = 1000 (T = 10 s at dt = 0.01 s).
+  Path-integration TaskGNN — drosophila_cx_pi_gnn winner + soft-curriculum
+  tail loss. Identical hyperparameters to drosophila_cx_pi_gnn.yaml
+  (iter_022_slot_01 = B1 winner + embedding_dim=4) except that the
+  per-frame MSE is no longer hard-truncated at `n_steps_schedule[epoch]`:
+  the trainer rolls forward to T_eff = min(2 * T_epoch, T_max=1000) and
+  weights the MSE by 1.0 inside the curriculum window and
+  `coeff_tail_loss = 0.1` on the tail [T_epoch, T_eff]. Addresses the
+  late-time activity collapse observed at early curriculum epochs (e.g.
+  epoch 3, T_epoch=100 → activity zero past t≈n_steps) while keeping
+  rollout cost bounded at ~2x the truncated baseline.
 dataset: drosophila_cx_pi
 simulation:
   params:
@@ -23,7 +28,7 @@ graph_model:
   hidden_dim_update: 64
   n_layers_update: 2
   MLP_activation: tanh # bounded MLP outputs — required for stability since GNN now sees raw v (no sigmoid wrap)
-  embedding_dim: 4 # per-node embedding a_i — B2 batch-1 winner (was 2; r_roll_1k 0.981 vs collapsed parent)
+  embedding_dim: 4 # per-node embedding a_i — B2 batch-1 winner
   g_phi_positive: true
 plotting: {}
 
@@ -48,43 +53,47 @@ training:
     - 5.0e-05 # flat tail
   lr_scheduler: none
   lr_W_ED: 0.0005 # constant lr for W_in / W_out / velocity-gate scalars
-  grad_clip_W: 1.0 # B1 winner (was 0.001 — too tight, unstable; safe band [1.0, 2.5])
-  coeff_cos_distance: 0.0 # B2 lowest-qualifying
-  coeff_norm_floor: 0. # B3 frozen baseline
-  kappa_norm_floor: 0.0 # B3 frozen baseline
-  coeff_tv_circular: 0.0 # tested, no gain
+  grad_clip_W: 1.0
+  coeff_cos_distance: 0.0
+  coeff_norm_floor: 0.
+  kappa_norm_floor: 0.0
+  coeff_tv_circular: 0.0
   coeff_W_L1: 0.0
-  noise_recurrent_level: 0.01 # B1 winner (was 0.05 — safe band [0.01, 0.05]; 0 → bump-lock collapse)
-  coeff_f_theta_diff: 15.0 # B1 winner (was 10.0 — seed-fragile; 15 widens stability basin without over-regularising)
-  # Per-edge W is zero at init → recurrence is pure feedforward until
-  # |W| grows past the bifurcation. Same grokking regime as TaskRNN's
-  # w_init_mode=zeros experiments in B9-B10.
+  noise_recurrent_level: 0.01
+  coeff_f_theta_diff: 15.0
+  # NEW: soft-curriculum tail weighting. With coeff_tail_loss > 0 the trainer
+  # rolls forward to T_eff = min(2 * n_steps_schedule[epoch], T_max) every
+  # iter and weights the per-frame MSE = 1.0 for t < n_steps_schedule[epoch],
+  # coeff_tail_loss for t in [n_steps_schedule[epoch], T_eff). By epoch 10
+  # when n_steps_schedule[9] = 1000 = T_max, T_eff = T_max and the tail
+  # weight is inactive (no frames past T) → loss reduces to plain MSE.
+  coeff_tail_loss: 0.05
   w_init_mode: zeros
   w_init_scale: 0.01
   snapshots_per_epoch: 5
-  n_steps_schedule: # curriculum: ramp T = 10 → 1000 frames (0.1 s → 10 s at dt=0.01)
-    - 10   # epoch 1
-    - 50   # epoch 2
-    - 100  # epoch 3
-    - 200  # epoch 4
-    - 300  # epoch 5
-    - 400  # epoch 6
-    - 500  # epoch 7
-    - 700  # epoch 8
-    - 850  # epoch 9
+  n_steps_schedule: # curriculum: ramp T_supervised = 10 → 1000 (full T, no tail)
+    - 10 # epoch 1
+    - 50 # epoch 2
+    - 100 # epoch 3
+    - 200 # epoch 4
+    - 300 # epoch 5
+    - 400 # epoch 6
+    - 500 # epoch 7
+    - 700 # epoch 8
+    - 850 # epoch 9
     - 1000 # epoch 10 — full task horizon
   torch_compile: false
 
 # ---------------------------------------------------------------------------
-# Agentic LLM exploration settings (parity with the TaskRNN winner).
+# Agentic LLM exploration settings.
 # ---------------------------------------------------------------------------
 claude:
   n_epochs: 5
   data_augmentation_loop: 1
-  n_iter_block: 20 # 5 slots × 4 batches per block (see instruction_drosophila_cx_pi_gnn.md)
+  n_iter_block: 20
   ucb_c: 1.414
   generate_data: false
-  training_time_target_min: 60
+  training_time_target_min: 90 # tail rollout to 2x T_epoch ≈ 2x truncated cost
   hard_runtime_limit_min: 180
   node_name: a100
   n_cpus: 8

@@ -1,0 +1,97 @@
+description: |
+  Cortex per-task exploration with MATRIX encoder/decoder.
+
+  This is a TEMPLATE config: the 20 pre-seeded slot configs at
+  /groups/saalfeld/.../config/cortex/cortex_matrix_Claude_NN.yaml each
+  override `dataset`, `signal_model_name`, and `task.cortex.rules` to a
+  single Yang 2019 rule (slot 0 = fdgo, slot 1 = reactgo, …, slot 19 =
+  dmcnogo). Each slot trains an INDEPENDENT cortex_<rule>_sigma RNN.
+
+  Canonical winner settings (from cortex_delaygo_sigma single-task run,
+  R² = 0.989, dir_acc = 0.93 at 6000 iters):
+    - readout_uses_sigma: true
+    - input_proj / output_proj: matrix
+    - batch_size: 64
+    - lr peak 2e-3, slower-decay × 2.0 over 5 epochs
+    - coeff_rate_L2: 1e-2
+    - grad_clip_W: 2.0
+    - w_init_scale: 0.5 randn_scaled
+
+  The default rule below is `delaygo`; this only matters if someone runs
+  `python GNN_Main.py -o train cortex_matrix` directly — the LLM
+  exploration loop reads the pre-seeded slot configs instead.
+
+dataset: task_cortex_delaygo
+simulation:
+  params:
+    - - 1.0
+graph_model:
+  signal_model_name: cortex_delaygo     # overridden per slot
+  aggr_type: add
+  n_units: 256
+  n_input: 85
+  n_output: 33
+  W_param: free
+  recurrent_activation: tanh
+  input_proj: matrix
+  output_proj: matrix
+  readout_uses_sigma: true              # load-bearing for matrix proj
+  hidden_dim: 128                       # unused with matrix proj; kept for schema parity
+  n_layers: 2                           # unused with matrix proj; kept for schema parity
+  MLP_activation: relu                  # unused with matrix proj; kept for schema parity
+plotting: {}
+training:
+  device: auto
+  seed: 0
+  n_runs: 1
+  n_epochs: 5
+  batch_size: 64
+  lr: 2.0e-3
+  lr_W_rec_schedule:
+    - 2.0e-3
+    - 2.0e-3
+    - 1.0e-3
+    - 4.0e-4
+    - 2.0e-4
+  lr_W_ED_schedule:
+    - 2.0e-3
+    - 2.0e-3
+    - 1.0e-3
+    - 4.0e-4
+    - 2.0e-4
+  lr_scheduler: none
+  grad_clip_W: 2.0
+  noise_recurrent_level: 0.0
+  coeff_rate_L2: 1.0e-2
+  coeff_W_L2: 0.0
+  w_init_mode: randn_scaled
+  w_init_scale: 0.5
+  snapshots_per_epoch: 5
+  data_augmentation_loop: 80
+claude:
+  # n_epochs MUST match the schedule length so the 5-entry slower-decay schedule
+  # fires fully. Slots are pre-seeded with 5-entry schedules; do not exceed 5
+  # here or the per-slot schedule will repeat its tail value.
+  n_epochs: 5
+  data_augmentation_loop: 80
+  n_iter_block: 80
+  ucb_c: 1.414
+  generate_data: false
+  training_time_target_min: 10
+  hard_runtime_limit_min: 30
+  node_name: a100
+  n_cpus: 8
+  n_parallel: 20
+  conda_env: connectome-gnn
+task:
+  task_type: cortex
+  task_only: true
+  cortex:
+    rules: ["delaygo"]
+    rule_weights: []
+    ruleset: "all"
+    n_trials_train: 1000
+    n_trials_test: 200
+    n_steps_max: 400
+    seed: 0
+    hp_overrides: {}

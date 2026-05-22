@@ -1,0 +1,111 @@
+description: |
+  Cortex 20-task UNIQUE-RNN exploration with MATRIX encoder/decoder.
+
+  Sister loop to `cortex_matrix.yaml` (per-task, 20 separate RNNs).
+  Here, ALL 20 Yang 2019 rules are trained inside a SINGLE RNN —
+  one model, multi-task data (task_cortex_all).
+
+  The per-slot variation in this loop is `graph_model.n_units`
+  (capacity sweep across 256/512/1024) — slots 0-6 train at 256
+  units, slots 7-13 at 512, slots 14-19 at 1024. Mutations apply
+  uniformly across all 20 slots; the n_units assignment is fixed
+  (pre-seeded) and never changes.
+
+  Carries the cortex_delaygo_sigma canonical winner settings:
+    - readout_uses_sigma: true
+    - input_proj / output_proj: matrix
+    - lr peak 2e-3, slower-decay × 2.0 over 10 epochs
+    - coeff_rate_L2: 1e-2
+    - grad_clip_W: 2.0
+    - w_init_scale: 0.5 randn_scaled
+    - batch_size: 128 (multi-task default — half the per-task winner's 64
+      to keep per-task gradient noise similar despite the larger dataset)
+
+dataset: task_cortex_all
+simulation:
+  params:
+    - - 1.0
+graph_model:
+  signal_model_name: cortex_all
+  aggr_type: add
+  n_units: 256                          # placeholder — overridden per slot to {256, 512, 1024}
+  n_input: 85
+  n_output: 33
+  W_param: free
+  recurrent_activation: tanh
+  input_proj: matrix
+  output_proj: matrix
+  readout_uses_sigma: true              # load-bearing for matrix proj
+  hidden_dim: 128                       # unused with matrix proj; kept for schema parity
+  n_layers: 2                           # unused with matrix proj; kept for schema parity
+  MLP_activation: relu                  # unused with matrix proj; kept for schema parity
+plotting: {}
+training:
+  device: auto
+  seed: 0
+  n_runs: 1
+  n_epochs: 10
+  batch_size: 128
+  lr: 2.0e-3
+  lr_W_rec_schedule:
+    - 2.0e-3
+    - 2.0e-3
+    - 1.0e-3
+    - 1.0e-3
+    - 4.0e-4
+    - 4.0e-4
+    - 2.0e-4
+    - 2.0e-4
+    - 2.0e-4
+    - 2.0e-4
+  lr_W_ED_schedule:
+    - 2.0e-3
+    - 2.0e-3
+    - 1.0e-3
+    - 1.0e-3
+    - 4.0e-4
+    - 4.0e-4
+    - 2.0e-4
+    - 2.0e-4
+    - 2.0e-4
+    - 2.0e-4
+  lr_scheduler: none
+  grad_clip_W: 2.0
+  noise_recurrent_level: 0.0
+  coeff_rate_L2: 1.0e-2
+  coeff_W_L2: 0.0
+  w_init_mode: randn_scaled
+  w_init_scale: 0.5
+  snapshots_per_epoch: 5
+  data_augmentation_loop: 80
+claude:
+  # n_epochs MUST match the schedule length (10) so the slower-decay × 2.0
+  # schedule fires fully. Slots are pre-seeded with 10-entry schedules.
+  n_epochs: 10
+  data_augmentation_loop: 80
+  n_iter_block: 80
+  ucb_c: 1.414
+  generate_data: false
+  # 1024-unit slots bottleneck wall time (~25 min/slot vs ~12 min at 256).
+  training_time_target_min: 30
+  hard_runtime_limit_min: 90
+  node_name: a100
+  n_cpus: 8
+  n_parallel: 20
+  conda_env: connectome-gnn
+task:
+  task_type: cortex
+  task_only: true
+  cortex:
+    rules: ["fdgo", "reactgo", "delaygo",
+            "fdanti", "reactanti", "delayanti",
+            "dm1", "dm2", "contextdm1", "contextdm2", "multidm",
+            "delaydm1", "delaydm2", "contextdelaydm1", "contextdelaydm2", "multidelaydm",
+            "dmsgo", "dmsnogo", "dmcgo", "dmcnogo"]
+    rule_weights: []
+    ruleset: "all"
+    n_trials_train: 20000
+    n_trials_test: 4000
+    n_steps_max: 400
+    seed: 0
+    hp_overrides: {}

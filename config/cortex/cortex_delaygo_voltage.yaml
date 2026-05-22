@@ -82,7 +82,7 @@ training:
 # voltage trainer — not GNN_LLM_task.py which is for the task trainer).
 # ---------------------------------------------------------------------------
 claude:
-  n_epochs: 3 # forced into every slot — short training for fast iteration
+  n_epochs: 1 # forced into every slot — short training for fast iteration
   data_augmentation_loop: 20 # forced into every slot's training.data_augmentation_loop
   n_iter_block: 40 # 1 block = 5 batches (= 5 × n_parallel slots)
   ucb_c: 1.414

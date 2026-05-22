@@ -26,6 +26,7 @@ graph_model:
   recurrent_activation: tanh
   input_proj: mlp
   output_proj: mlp
+  readout_uses_sigma: false
   hidden_dim: 128
   n_layers: 2
   MLP_activation: relu

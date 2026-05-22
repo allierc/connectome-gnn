@@ -962,23 +962,36 @@ def plot_integration_gain(
     fig, (ax_t, ax_g) = plt.subplots(1, 2, figsize=(11, 4.2))
 
     # --- Left panel: unwrapped decoded HD + GT linear ramp ----------------
-    cmap = plt.get_cmap('viridis')
+    # No legend; each curve is labelled in-plot at its right edge at the
+    # height of the final GT value.
     for k in range(n_omega):
-        c = cmap(k / max(n_omega - 1, 1))
         omega = float(omega_deg_per_s[k])
         true_unwrap = theta_hd[k] - theta_hd[k, 0]
         ax_t.plot(t_full, np.degrees(true_unwrap),
                   color="#4daf4a", lw=2.6, alpha=0.8)
         d_centred = decoded_unwrap_all[k] - decoded_unwrap_all[k, warmup]
         ax_t.plot(t_full, np.degrees(d_centred),
-                  color="black", lw=0.7,
-                  label=f"ω={omega:+.0f}°/s  (g={metrics[k]['gain']:+.2f})")
+                  color="black", lw=0.7)
     ax_t.axhline(0, color='0.6', lw=0.4)
     ax_t.set_xlabel("time (s)", fontsize=style.tick_font_size)
     ax_t.set_ylabel("unwrapped HD", fontsize=style.tick_font_size)
     ax_t.set_title("decoded HD trajectories  (green = GT)",
                    fontsize=style.label_font_size - 1)
-    ax_t.legend(fontsize=7, loc="best", framealpha=0.85)
+    # Per-curve in-plot labels at the right edge, aligned with the GT
+    # endpoint so the label tracks the green trace.
+    x_label = t_full[-1] * 1.005
+    for k in range(n_omega):
+        omega = float(omega_deg_per_s[k])
+        y_gt_end = float(np.degrees(theta_hd[k, -1] - theta_hd[k, 0]))
+        gain = metrics[k]['gain']
+        ax_t.annotate(f"ω={omega:+.0f}°/s  g={gain:+.2f}",
+                      xy=(x_label, y_gt_end),
+                      xytext=(0, 0), textcoords="offset points",
+                      fontsize=6, va="center", ha="left",
+                      color="#4daf4a")
+    # Pad the right margin so the labels stay inside the axes box.
+    xlim = ax_t.get_xlim()
+    ax_t.set_xlim(xlim[0], xlim[1] + (xlim[1] - xlim[0]) * 0.10)
     ax_t.tick_params(labelsize=max(7, style.tick_font_size - 2))
 
     # --- Right panel: measured slope vs true ω ----------------------------
@@ -990,11 +1003,6 @@ def plot_integration_gain(
     ax_g.axhline(0, color="0.7", lw=0.4)
     ax_g.axvline(0, color="0.7", lw=0.4)
     ax_g.scatter(omegas, slopes, s=60, c="black", zorder=3)
-    for o, s, m in zip(omegas, slopes, metrics):
-        if not np.isnan(m['gain']):
-            ax_g.annotate(f"g={m['gain']:+.2f}",
-                          (o, s), textcoords="offset points",
-                          xytext=(6, 4), fontsize=8)
     ax_g.set_xlim(-lim, lim)
     ax_g.set_ylim(-lim, lim)
     ax_g.set_xlabel("true ω (deg/s)", fontsize=style.tick_font_size)
@@ -1007,6 +1015,141 @@ def plot_integration_gain(
     plt.tight_layout()
     style.savefig(fig, out_path)
     return metrics
+
+
+def plot_function_dynamics(
+    net,
+    h_traj: np.ndarray,             # (T, N) rollout subthreshold state per neuron
+    out_path: str,
+    *,
+    neuron_types: np.ndarray = None,
+    type_names: list = None,
+    v_range: float = 3.0,
+    n_static: int = 400,
+    device: str = "cpu",
+    style: FigureStyle = default_style,
+) -> None:
+    """Hexbin density of f_theta and g_phi^2 *along* a rollout, with the
+    static curves overlaid.
+
+    Sibling of fig 4 (k)/(l): those panels show the static functions
+    over v ∈ [-v_range, v_range]; this plot shows which (v, f) pairs
+    the model actually traverses during the deterministic-ω rollout,
+    so the operating range is visible against the full function.
+
+    Args:
+        net: trained DrosophilaCxTaskGNN (must expose .f_theta, .g_phi, .a,
+             ._g_phi_positive)
+        h_traj: per-neuron subthreshold state along the rollout (T, N).
+        out_path: PNG output path.
+        neuron_types / type_names: used only for the static-curve overlay
+             colouring (mean across cell types if both provided).
+        v_range: x-axis half-width for both panels.
+        n_static: number of v-grid points for the static curve.
+        device: torch device for forward passes.
+    """
+    h_t = torch.from_numpy(h_traj.astype(np.float32)).to(device)   # (T, N)
+    T, N = h_t.shape
+    emb_dim = int(net.a.shape[1])
+    g_phi_squared = bool(getattr(net, "_g_phi_positive", True))
+
+    # --- Dynamic samples (one point per (i, t)) -----------------------
+    a_full = net.a.unsqueeze(0).expand(T, -1, -1)                  # (T, N, emb)
+    zero_msg = torch.zeros(T, N, 1, device=device)
+    with torch.no_grad():
+        f_in = torch.cat([h_t.unsqueeze(-1), a_full, zero_msg], dim=-1)
+        f_dyn = net.f_theta(f_in).squeeze(-1).cpu().numpy()         # (T, N)
+        g_in = torch.cat([h_t.unsqueeze(-1), a_full], dim=-1)
+        g_dyn_raw = net.g_phi(g_in).squeeze(-1).cpu().numpy()       # (T, N)
+        g_dyn = g_dyn_raw ** 2 if g_phi_squared else g_dyn_raw
+
+    v_samples = h_traj.reshape(-1)
+    f_samples = f_dyn.reshape(-1)
+    g_samples = g_dyn.reshape(-1)
+
+    # --- Static reference curve (mean across cell types) ----------------
+    v_grid = torch.linspace(-v_range, v_range, n_static, device=device)
+    rr = v_grid.unsqueeze(0).expand(N, -1).unsqueeze(-1)            # (N, P, 1)
+    a_exp = net.a.unsqueeze(1).expand(-1, n_static, -1)             # (N, P, emb)
+    z_msg = torch.zeros_like(rr)
+    with torch.no_grad():
+        f_static = net.f_theta(
+            torch.cat([rr, a_exp, z_msg], dim=-1)
+        ).squeeze(-1).cpu().numpy()                                  # (N, P)
+        g_static_raw = net.g_phi(
+            torch.cat([rr, a_exp], dim=-1)
+        ).squeeze(-1).cpu().numpy()
+        g_static = g_static_raw ** 2 if g_phi_squared else g_static_raw
+
+    x_static = v_grid.cpu().numpy()
+    f_static_mean = f_static.mean(axis=0)                            # (P,)
+    f_static_std  = f_static.std(axis=0)
+    g_static_mean = g_static.mean(axis=0)
+    g_static_std  = g_static.std(axis=0)
+
+    # --- Render --------------------------------------------------------
+    fig, (ax_f, ax_g) = plt.subplots(1, 2, figsize=(13, 5.5))
+
+    # Hexbin needs a y-range; clip extreme outliers so the density doesn't
+    # smear into empty bins.
+    def _ylim_from(samples: np.ndarray) -> tuple:
+        lo = float(np.quantile(samples, 0.005))
+        hi = float(np.quantile(samples, 0.995))
+        pad = 0.05 * (hi - lo + 1e-6)
+        return lo - pad, hi + pad
+
+    f_ylo, f_yhi = _ylim_from(f_samples)
+    g_ylo, g_yhi = _ylim_from(g_samples)
+
+    # bins='log' on the hexbin so the rare bump-cell samples in the
+    # negative tail of the activity distribution stay visible against the
+    # high-density bulk at v ≈ 0.5.
+    hb_f = ax_f.hexbin(v_samples, f_samples,
+                       gridsize=60, cmap="Blues", mincnt=1, bins="log",
+                       extent=(-v_range, v_range, f_ylo, f_yhi))
+    ax_f.plot(x_static, f_static_mean, color="#cc4444", lw=1.6)
+    ax_f.fill_between(x_static,
+                      f_static_mean - f_static_std,
+                      f_static_mean + f_static_std,
+                      color="#cc4444", alpha=0.15)
+    ax_f.axhline(0, color="0.6", lw=0.5, ls="--")
+    ax_f.axvline(0, color="0.6", lw=0.5, ls="--")
+    ax_f.set_xlim(-v_range, v_range)
+    ax_f.set_ylim(f_ylo, f_yhi)
+    ax_f.set_xlabel(r"$\hat h_i(t)$", fontsize=style.tick_font_size)
+    ax_f.set_ylabel(r"$f_\theta(\hat h_i, \mathbf{a}_i, m{=}0)$",
+                    fontsize=style.tick_font_size)
+    ax_f.set_title("$f_\\theta$ — operating range along rollout",
+                   fontsize=style.label_font_size - 1)
+    cb_f = fig.colorbar(hb_f, ax=ax_f, fraction=0.04, pad=0.02)
+    cb_f.set_label("log10(count)", fontsize=8)
+    cb_f.ax.tick_params(labelsize=7)
+
+    hb_g = ax_g.hexbin(v_samples, g_samples,
+                       gridsize=60, cmap="Blues", mincnt=1, bins="log",
+                       extent=(-v_range, v_range, g_ylo, g_yhi))
+    ax_g.plot(x_static, g_static_mean, color="#cc4444", lw=1.6)
+    ax_g.fill_between(x_static,
+                      g_static_mean - g_static_std,
+                      g_static_mean + g_static_std,
+                      color="#cc4444", alpha=0.15)
+    ax_g.axhline(0, color="0.6", lw=0.5, ls="--")
+    ax_g.axvline(0, color="0.6", lw=0.5, ls="--")
+    ax_g.set_xlim(-v_range, v_range)
+    ax_g.set_ylim(g_ylo, g_yhi)
+    ax_g.set_xlabel(r"$\hat h_j(t)$", fontsize=style.tick_font_size)
+    ax_g.set_ylabel(r"$g_\phi^2$" if g_phi_squared else r"$g_\phi$",
+                    fontsize=style.tick_font_size)
+    ax_g.set_title(
+        ("$g_\\phi^2$ — operating range along rollout"
+         if g_phi_squared else "$g_\\phi$ — operating range along rollout"),
+        fontsize=style.label_font_size - 1)
+    cb_g = fig.colorbar(hb_g, ax=ax_g, fraction=0.04, pad=0.02)
+    cb_g.set_label("log10(count)", fontsize=8)
+    cb_g.ax.tick_params(labelsize=7)
+
+    plt.tight_layout()
+    style.savefig(fig, out_path)
 
 
 def plot_task_cortex_example(

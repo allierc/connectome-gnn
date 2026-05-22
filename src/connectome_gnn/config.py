@@ -922,7 +922,7 @@ class TrainingConfig(BaseModel):
     coeff_f_theta_weight_L2: float = 0  # L2 penalty on f_theta MLP weights
 
     # -- g_phi (edge message) regularizers --
-    coeff_g_phi_diff: float = 0  # Variance penalty on g_phi output across edges
+    coeff_g_phi_diff: float = 0  # Positive-monotonicity prior on ∂g_phi/∂v (forces g_phi non-decreasing in presynaptic state — Dale-conformant when g_phi_positive=False)
     coeff_g_phi_norm: float = 0  # Norm penalty on g_phi edge messages
     coeff_func_g_phi: float = 0.0  # Penalize g_phi output at zero input
     coeff_g_phi_weight_L1: float = 0  # L1 penalty on g_phi MLP weights
@@ -955,6 +955,13 @@ class TrainingConfig(BaseModel):
     # Padded with the last value if n_epochs > len(schedule). Empty list → use
     # the full T from the dataset throughout (no curriculum).
     n_steps_schedule: List[int] = Field(default_factory=lambda: [100, 250, 500, 1000, 1000])
+    # Soft-curriculum tail weight. When > 0, the PI trainer rolls forward to
+    # the full T (not n_steps_schedule[epoch]) and weights the per-frame MSE
+    # by 1.0 for t < n_steps_schedule[epoch] and `coeff_tail_loss` for
+    # t >= n_steps_schedule[epoch]. Default 0.0 keeps the hard-truncation
+    # behaviour. Typical value 0.1 prevents late-time activity collapse by
+    # supplying a small gradient on the post-horizon segment.
+    coeff_tail_loss: float = 0.0
     # Per-epoch learning-rate schedule (Hulse). Empty list → constant `lr`.
     # Padded with the last value if n_epochs > len(schedule).
     lr_schedule: List[float] = Field(default_factory=lambda: [5e-3, 1e-3, 5e-4, 2e-4, 1e-4])
