@@ -1,8 +1,12 @@
-description: Yang delaygo single-task — LLM_cortex_all consensus winner (BS=128, n_layers=3, tanh, MLP encoder/decoder).
+description: |
+  Yang delaygo single-task — LLM_cortex_delaygo canonical winner
+  (block 8, 13-sample robustness mean best-in-ep 0.981 +/- 0.014),
+  compressed to 5 epochs with the slower-decay schedule shape (lr peak
+  2e-3 with an initial high-LR plateau before the decay tail).
 dataset: task_cortex_delaygo
 simulation:
   params:
-  - - 1.0
+    - - 1.0
 graph_model:
   signal_model_name: cortex_delaygo
   aggr_type: add
@@ -13,6 +17,7 @@ graph_model:
   recurrent_activation: tanh
   input_proj: matrix
   output_proj: matrix
+  readout_uses_sigma: false
   hidden_dim: 128
   n_layers: 3
   MLP_activation: relu
@@ -21,42 +26,32 @@ training:
   device: auto
   seed: 0
   n_runs: 1
-  n_epochs: 10
-  batch_size: 128
-  lr: 0.001
+  n_epochs: 5
+  batch_size: 64
+  lr: 2.0e-3
   lr_W_rec_schedule:
-  - 0.001
-  - 0.0005
-  - 0.0002
-  - 0.0001
-  - 0.0001
-  - 0.0001
-  - 0.0001
-  - 0.0001
-  - 0.0001
-  - 0.0001
+    - 2.0e-3
+    - 2.0e-3
+    - 1.0e-3
+    - 4.0e-4
+    - 2.0e-4
   lr_W_ED_schedule:
-  - 0.001
-  - 0.0005
-  - 0.0002
-  - 0.0001
-  - 0.0001
-  - 0.0001
-  - 0.0001
-  - 0.0001
-  - 0.0001
-  - 0.0001
+    - 2.0e-3
+    - 2.0e-3
+    - 1.0e-3
+    - 4.0e-4
+    - 2.0e-4
   lr_scheduler: none
   grad_clip_W: 2.0
   noise_recurrent_level: 0.0
-  coeff_rate_L2: 0.01
+  coeff_rate_L2: 1.0e-2
   coeff_W_L2: 0.0
   w_init_mode: randn_scaled
   w_init_scale: 0.5
   snapshots_per_epoch: 5
   data_augmentation_loop: 80
 claude:
-  n_epochs: 10
+  n_epochs: 1
   data_augmentation_loop: 80
   n_iter_block: 12
   ucb_c: 1.414
@@ -72,7 +67,7 @@ task:
   task_only: true
   cortex:
     rules:
-    - delaygo
+      - delaygo
     rule_weights: []
     ruleset: all
     n_trials_train: 1000

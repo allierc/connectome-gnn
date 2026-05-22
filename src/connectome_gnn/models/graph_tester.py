@@ -1977,7 +1977,11 @@ def data_test_path_integration_task(
         _deterministic_sweep_rollout,
         path_integration_accuracy_from_data,
     )
-    from connectome_gnn.plot import plot_integration_gain, plot_task_pi_traces
+    from connectome_gnn.plot import (
+        plot_function_dynamics,
+        plot_integration_gain,
+        plot_task_pi_traces,
+    )
 
     tc = config.training
     model_config = config.graph_model
@@ -2150,6 +2154,29 @@ def data_test_path_integration_task(
         )
     )
     logger.info(f'  saved: {gain_plot_path}')
+
+    # --- (d) Function dynamics along ω=60°/s rollout (GNN teachers only) ---
+    # Hexbin of (h_i(t), f_theta(h_i(t))) and (h_j(t), g_phi(h_j(t))^2)
+    # over the ω = +60°/s rollout already computed in (b), with the
+    # static curves of fig 4 (k)/(l) overlaid. Skipped for non-GNN
+    # teachers (TaskRNN has no f_theta / g_phi).
+    if all(hasattr(model, name) for name in ("a", "g_phi", "f_theta")):
+        # Re-run the +60°/s sweep with T_sweep frames; cheap (~ms on l4)
+        # and lets us cleanly extract the per-neuron h trajectory.
+        ro_60 = _deterministic_sweep_rollout(
+            model, n_steps=T_sweep, omega_deg_per_s=60.0, device=device,
+        )
+        h_traj = np.asarray(ro_60['h'])                      # (T, N)
+        fdyn_plot_path = os.path.join(
+            results_dir, 'test_function_dynamics.png')
+        try:
+            plot_function_dynamics(
+                net=model, h_traj=h_traj, out_path=fdyn_plot_path,
+                device=device,
+            )
+            logger.info(f'  saved: {fdyn_plot_path}')
+        except Exception as exc:
+            logger.warning(f'  function-dynamics plot failed: {exc}')
 
     # --- Aggregate metrics log --------------------------------------------
     log_path_ = os.path.join(log_dir, 'results_path_integration.log')

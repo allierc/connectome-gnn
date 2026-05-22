@@ -13,6 +13,7 @@ graph_model:
   recurrent_activation: tanh      # cortex_delaygo agentic loop winner over relu/softplus/sigmoid
   input_proj: mlp                 # encoder MLP is load-bearing on Yang tasks (rule × stim gating)
   output_proj: mlp
+  readout_uses_sigma: false
   hidden_dim: 128
   n_layers: 2
   MLP_activation: relu
@@ -41,7 +42,7 @@ training:
 # Agentic LLM exploration settings (read by GNN_LLM_task.py).
 # ---------------------------------------------------------------------------
 claude:
-  n_epochs: 10
+  n_epochs: 1
   data_augmentation_loop: 80
   n_iter_block: 80                # 1 block = 4 batches × 20 slots = 80 iters
   ucb_c: 1.414

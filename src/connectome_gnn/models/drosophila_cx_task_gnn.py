@@ -550,6 +550,42 @@ class DrosophilaCxTaskGNN(nn.Module):
         f1 = self.f_theta(feat_next)
         return lam * F.relu(f1 - f0).norm(2)
 
+    def loss_g_phi_diff(self, h_buf: torch.Tensor, lam: float = 1.0) -> torch.Tensor:
+        """Positive-monotonicity prior on ∂g_φ/∂v.
+
+        Penalises NEGATIVE slope of g_φ w.r.t. its presynaptic-state input
+        (v ≡ h, column 0 of the g_φ feature vector). Forces g_φ to be
+        monotonically non-decreasing in v — the Dale-conformant prior that
+        'more presynaptic activity → larger message magnitude in the same
+        sign as the edge'. Most useful when `g_phi_positive=False` (no
+        squaring), where the raw g_φ can otherwise cross zero in the
+        operating range and flip the per-edge sign-of-drive away from the
+        connectome's edge sign.
+
+        When `g_phi_positive=True`, the comparison is done on g_φ(v)² (the
+        message magnitude that actually enters the dynamics), mirroring
+        regularizer.py:330-339.
+
+        Samples states from the last rollout step (where |h| is largest)
+        and treats each node as a hypothetical presynaptic neuron; we
+        don't need to sample over real edges — the (v, a) distribution is
+        the same.
+        """
+        if lam <= 0 or not hasattr(self, "g_phi"):
+            return h_buf.new_zeros(())
+        h_last = h_buf[:, -1, :].detach()                        # (B, N)
+        B, N = h_last.shape
+        a_exp = self.a.unsqueeze(0).expand(B, -1, -1)            # (B, N, emb)
+        feat = torch.cat([h_last.unsqueeze(-1), a_exp], dim=-1)  # (B, N, 1+emb)
+        dv = 0.05 * h_last.abs().max().clamp(min=1e-6)
+        feat_next = feat.clone()
+        feat_next[..., 0] = feat_next[..., 0] + dv
+        g0 = self.g_phi(feat)
+        g1 = self.g_phi(feat_next)
+        if self._g_phi_positive:
+            g0, g1 = g0 ** 2, g1 ** 2
+        return lam * F.relu(g0 - g1).norm(2)
+
     def loss_tv_circular(self, h_buf: torch.Tensor, lam: float = 1.0) -> torch.Tensor:
         """Circular total-variation penalty on EPG/PEN ring firing rates."""
         if not self._ring_names or lam == 0.0:

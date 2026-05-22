@@ -954,9 +954,23 @@ def plot_sparsify_figure(W_gt, W_sparse_type, W_sparse_unit,
     centres = (bounds[:-1] + bounds[1:]) / 2 - 0.5
     tick_labels = [type_names[int(nt_sorted[int(c)])] for c in centres]
 
-    fig, axes = plt.subplots(2, 3, figsize=(22, 11),
-                              gridspec_kw=dict(wspace=0.55, hspace=0.55,
-                                                height_ratios=[1.0, 0.5]))
+    # Explicit gridspec with a dedicated colorbar column so the colorbar
+    # doesn't shrink the top-row axes (which would misalign them against
+    # the bottom row of HD panels). Bottom row has an empty cell in the
+    # colorbar column.
+    fig = plt.figure(figsize=(20, 10))
+    gs = fig.add_gridspec(
+        2, 4,
+        width_ratios=[1.0, 1.0, 1.0, 0.035],
+        height_ratios=[1.0, 0.50],
+        wspace=0.32, hspace=0.32,
+        left=0.06, right=0.96, top=0.94, bottom=0.08,
+    )
+    ax_top = [fig.add_subplot(gs[0, j]) for j in range(3)]
+    cax    = fig.add_subplot(gs[0, 3])
+    ax_bot = [fig.add_subplot(gs[1, j]) for j in range(3)]
+    axes = np.array([ax_top, ax_bot])
+
     matrix_panels = [
         (axes[0, 0], zscore(M_gt[order, :][:, order]),
          "learned $\\hat W^{\\mathrm{rec}}$"),
@@ -966,8 +980,12 @@ def plot_sparsify_figure(W_gt, W_sparse_type, W_sparse_unit,
          f"per-$(i,\\alpha,\\mathrm{{instance}})$ collapse"),
     ]
     for ax, Z, title in matrix_panels:
+        # aspect='auto' so the matrix fills its gridspec cell (cell is
+        # already proportioned to match the matrix's 1:1 data aspect).
+        # Mixing aspect='equal' with a constrained gridspec was causing
+        # the per-axes bbox to shrink unpredictably.
         im = ax.imshow(Z, cmap="RdBu_r", vmin=-3.0, vmax=3.0,
-                        interpolation="nearest", aspect="equal")
+                        interpolation="nearest", aspect="auto")
         for x in bnd:
             ax.axvline(x, color="k", lw=0.3, alpha=0.5)
             ax.axhline(x, color="k", lw=0.3, alpha=0.5)
@@ -978,8 +996,7 @@ def plot_sparsify_figure(W_gt, W_sparse_type, W_sparse_unit,
         ax.set_title(title, fontsize=10)
         ax.set_xlabel("presynaptic", fontsize=8)
         ax.set_ylabel("postsynaptic", fontsize=8)
-    cb = fig.colorbar(im, ax=axes[0, :], fraction=0.025, pad=0.02,
-                       shrink=0.85)
+    cb = fig.colorbar(im, cax=cax)
     cb.ax.tick_params(labelsize=8)
 
     # --- Bottom row: HD on one OU test trial under each W_rec --------------

@@ -1912,12 +1912,15 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
     coeff_tv = float(tc.coeff_tv_circular)
     coeff_l1S = float(tc.coeff_W_L1)
     coeff_f_diff = float(getattr(tc, 'coeff_f_theta_diff', 0.0))
+    coeff_g_diff = float(getattr(tc, 'coeff_g_phi_diff', 0.0))
     grad_clip = float(getattr(tc, 'grad_clip_W', 0.0))
     snapshots_per_epoch = int(getattr(tc, 'snapshots_per_epoch', 5))
     snapshot_n_steps = int(getattr(tc, 'snapshot_n_steps', 1500))
     snapshot_omega_deg = float(getattr(tc, 'snapshot_omega_deg', 60.0))
+    _coeff_tail_log = float(getattr(tc, 'coeff_tail_loss', 0.0))
     _logger.info(f'losses: cos_distance={coeff_cos}  norm_floor={coeff_norm} (κ={kappa_norm})  '
-                 f'tv_circular={coeff_tv}  W_L1={coeff_l1S}  f_theta_diff={coeff_f_diff}')
+                 f'tv_circular={coeff_tv}  W_L1={coeff_l1S}  f_theta_diff={coeff_f_diff}  '
+                 f'g_phi_diff={coeff_g_diff}  tail_loss={_coeff_tail_log}')
 
     # --- training loop ---------------------------------------------------
     n_trials, T_full = u_train.shape[0], u_train.shape[1]
@@ -2033,17 +2036,33 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
         )
         pbar = trange(Niter, ncols=150,
                       desc=f'epoch {epoch+1} (T={T_epoch})', leave=True)
+        coeff_tail = float(getattr(tc, 'coeff_tail_loss', 0.0))
         for N in pbar:
             global_step += 1
             idx = perm[N * tc.batch_size:(N + 1) * tc.batch_size]
-            # Curriculum slice: first T_epoch frames of each selected trial.
-            # The OU process and integrated heading are valid as a length-T_epoch
-            # path-integration trial.
-            u = u_train[idx, :T_epoch]
-            y = y_train[idx, :T_epoch]
-
-            y_hat, h_buf = model(u)
-            mse = F.mse_loss(y_hat, y)
+            if coeff_tail > 0:
+                # Soft-curriculum: roll forward to min(2*T_epoch, T_max), then
+                # weight the per-frame MSE = 1 for t < T_epoch and
+                # `coeff_tail_loss` for t >= T_epoch. Gives a non-zero gradient
+                # on the post-horizon segment (so late-time activity doesn't
+                # collapse) while keeping the rollout cost bounded at ~2x the
+                # truncated baseline.
+                T_max = u_train.shape[1]
+                T_eff = min(2 * T_epoch, T_max)
+                u = u_train[idx, :T_eff]
+                y = y_train[idx, :T_eff]
+                y_hat, h_buf = model(u)
+                w = torch.ones(T_eff, device=u.device)
+                if T_epoch < T_eff:
+                    w[T_epoch:] = coeff_tail
+                sq_err = (y_hat - y).pow(2).mean(dim=-1)        # (B, T_eff)
+                mse = ((sq_err * w[None, :]).sum(dim=-1) / w.sum()).mean()
+            else:
+                # Hard-truncation curriculum (original behaviour).
+                u = u_train[idx, :T_epoch]
+                y = y_train[idx, :T_epoch]
+                y_hat, h_buf = model(u)
+                mse = F.mse_loss(y_hat, y)
             cosd = (model.loss_cos_distance(coeff_cos)
                     if coeff_cos > 0 else u.new_zeros(()))
             norm = (model.loss_norm_floor(coeff_norm, kappa_norm)
@@ -2057,7 +2076,13 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
             f_diff = (model.loss_f_theta_diff(h_buf, coeff_f_diff)
                       if coeff_f_diff > 0 and hasattr(model, 'loss_f_theta_diff')
                       else u.new_zeros(()))
-            loss = mse + cosd + norm + tv + l1S + f_diff
+            # g_φ-diff: positive-monotonicity prior on ∂g_φ/∂v. Only GNN
+            # exposes loss_g_phi_diff (the sign-locked RNN has no g_φ).
+            # Most useful with g_phi_positive=false to preserve Dale's law.
+            g_diff = (model.loss_g_phi_diff(h_buf, coeff_g_diff)
+                      if coeff_g_diff > 0 and hasattr(model, 'loss_g_phi_diff')
+                      else u.new_zeros(()))
+            loss = mse + cosd + norm + tv + l1S + f_diff + g_diff
 
             optimizer.zero_grad(set_to_none=True)
             # NaN guardrail: if the loss itself is non-finite we know the

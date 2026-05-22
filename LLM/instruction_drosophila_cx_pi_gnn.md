@@ -327,3 +327,131 @@ At every block boundary, copy the best slot's config to
   informational only. With `coeff_cos_distance: 0.0` (inherited from
   the RNN winner), the GNN is free to walk off the connectome support;
   a low `gt_R2` in this exploration is expected, not a failure.
+
+---
+
+## Resumed exploration — 4 additional blocks (80 more iterations)
+
+Triggered by the **soft-curriculum tail-loss finding (2026-05-22)**: adding
+a tail-loss term `coeff_tail_loss = 0.05` (per-frame MSE = 1.0 for
+`t < T_epoch` and 0.05 for `t ∈ [T_epoch, 2·T_epoch]`) eliminated the
+late-time activity collapse and drove `r_roll_1k = 0.990` by epoch 2
+(`T_epoch = 50`). This is a structural change to the trainer
+(`_data_train_drosophila_cx_task`), not a hyperparameter sweep over an
+existing knob, so the prior B1 / B2 conclusions need to be re-tested
+with the tail anchor *on* before the winner is frozen for robustness.
+
+### New parent (tail-loss enabled)
+
+Use [`config/drosophila_cx/drosophila_cx_pi_gnn_tailloss.yaml`](../config/drosophila_cx/drosophila_cx_pi_gnn_tailloss.yaml)
+as the iter-1 parent for the resumed run. Key fields vs the original
+B1 winner + B2-batch-1 promotion:
+
+```yaml
+graph_model:
+  embedding_dim: 4              # B2 batch-1 promotion (kept)
+  # all other graph_model fields = B1 winner
+training:
+  coeff_tail_loss: 0.05         # NEW — drives the resumed exploration
+  noise_recurrent_level: 0.01   # B1 winner (may be revisitable under tail)
+  grad_clip_W: 1.0              # B1 winner (may be revisitable under tail)
+  coeff_f_theta_diff: 15.0      # B1 winner (may be revisitable under tail)
+  # 10-epoch budget + 10-epoch n_steps_schedule reaching 1000 (already in yaml)
+```
+
+The trainer rolls forward to `min(2·T_epoch, T_max)` and weights the
+tail at `coeff_tail_loss`. Verify at iter 1 that `tail_loss=0.05` appears
+in the trainer's startup log line; if it's `0.0`, the field didn't
+propagate.
+
+### Block plan (resumed — block numbers continue from B3)
+
+| Block | Question | Slot layout (5 slots / batch) | Decision rule |
+| ----- | -------- | ----------------------------- | ------------- |
+| **B3 — Revisit B1+B2 axes with tail-loss on** | *Does the tail anchor change which knob settings are optimal? Specifically: is noise still needed? does the f_θ-diff prior still matter? does w_init_mode=zeros still beat warm-start?* Pack the most impactful axes from B1 and B2 into 4 batches. | Batch 1 — s0 parent. s1 `noise_recurrent_level: 0.0` (does tail replace noise?). s2 `coeff_f_theta_diff: 5.0` (looser leak prior). s3 `grad_clip_W: 2.5` (upper-end clip). s4 `w_init_mode: randn_scaled, w_init_scale: 0.5` (warm-start with tail). | Best slot by **r_roll_1k at epoch 10**, AND no epoch where r_roll_1k drops below the previous epoch by ≥ 0.2. Batches 2-4 mutate off the best-running slot following the same one-axis-per-slot rule (no joint mutations within a batch). |
+| **B4 — Tune `coeff_tail_loss` × `lr_W_rec_schedule`** | *Is α = 0.05 optimal, or does a lighter (0.02) / heavier (0.1) tail help? Does the lr_W_rec_schedule need re-shaping now that the tail provides gradient on late-time dynamics?* | Batch 1 — s0 parent (`α = 0.05`, current schedule). s1 `coeff_tail_loss: 0.02`. s2 `coeff_tail_loss: 0.1`. s3 `lr_W_rec_schedule` slower decay (× 1.5 each entry except the flat tail). s4 `lr_W_rec_schedule` deeper decay (last 3 entries → 1e-5). | Best by **mean of last-3-epochs r_roll_1k** (so both peak and stability count). |
+| **B5 — 5-seed CV robustness** | *Is the B4 winner seed-robust at T = 1000?* | All 5 slots = identical B4 winner. Pipeline auto-forces 5 different seeds. | Report mean ± std for r_roll_1k. **Save as the new `drosophila_cx_pi_gnn_winner.yaml` if mean r_roll_1k ≥ 0.95 AND no seed collapses (no seed r_roll_1k < 0.85).** Compare to the original B1 5-seed robustness (mean 0.931 ± 0.061, 3/5 ≥ 0.95) — the tail-loss winner should improve on this strictly. |
+| **B6 — g_φ shape study (interpretability, not performance)** | *What does the firing-rate non-linearity g_φ actually look like, and how does it depend on (i) the squaring `g_phi(v)²` and (ii) the monotonicity prior `coeff_g_phi_diff`?* The current squared-and-free configuration gives a half-rectifier with ± degeneracy that obscures the learned shape (see [docs/drosophila.tex](../docs/drosophila.tex) Methods, paragraph on the GNN diagnostics). This block decouples the squaring from the prior. **Success criterion is qualitative**: the learned g_φ should be uniquely identified (no ± symmetry) and interpretable as a firing-rate non-linearity. r_roll_1k must stay ≥ 0.90 — this is a "characterise, don't break" block. | Batch 1 — s0 `g_phi_positive: true,  coeff_g_phi_diff: 0`   (current parent, ± degenerate). s1 `g_phi_positive: false, coeff_g_phi_diff: 0`   (un-squared, no prior; signed g_φ free to flip). s2 `g_phi_positive: false, coeff_g_phi_diff: 15`  (un-squared + Dale-conformant prior — the [tailloss_unsquared.yaml](../config/drosophila_cx/drosophila_cx_pi_gnn_tailloss_unsquared.yaml) config). s3 `g_phi_positive: true,  coeff_g_phi_diff: 15`  (squared + monotonicity — constrains the half-rectifier shape). s4 `g_phi_positive: false, coeff_g_phi_diff: 5`   (un-squared + lighter prior — probes the prior magnitude). | **No promotion to winner.** This is a side-study. Save the four `<log_dir>/tmp_training/function/g_phi/` snapshot directories side-by-side for visual inspection. Record verdicts per the H-g hypotheses below. If s2 (un-squared + prior, lam=15) gives a cleanly sigmoidal g_φ AND r_roll_1k ≥ 0.95, fold it into the methods section of [drosophila.tex](../docs/drosophila.tex) as the canonical configuration for diagnostic plots. |
+
+### Hypotheses for B6 (g_φ shape)
+
+- **H-g1**: with squaring on (`g_phi_positive: true`), the plotted g_φ
+  shape is unidentified — the optimiser picks an arbitrary sign
+  convention because g_φ and −g_φ give identical squared messages. Test:
+  compare s0 vs s3. If both reach the same r_roll_1k but the learned
+  g_φ shapes differ in sign / inflection point, the ± degeneracy is
+  confirmed; the monotonicity prior partially constrains the shape but
+  cannot break the ± symmetry.
+- **H-g2**: without squaring and without the prior (`g_phi_positive:
+  false`, `coeff_g_phi_diff: 0`), the unconstrained signed g_φ either
+  (a) converges to a sigmoidal shape spontaneously, (b) finds a
+  pathological solution that crosses zero in the operating range (Dale
+  violation per edge), or (c) collapses to the trivial g_φ ≡ 0 fixed
+  point (vanishing-gradient hypothesis). Test: read off s1's learned
+  shape and the per-edge sign-flip rate.
+- **H-g3**: without squaring and with the prior (`g_phi_positive:
+  false`, `coeff_g_phi_diff: 15`), g_φ converges to a clean monotone
+  sigmoid-like firing-rate non-linearity with the per-edge sign of
+  synaptic drive aligned with the connectome edge sign. This is the
+  "expected" outcome per the methods section. Test: read off s2's
+  learned shape; check that g_φ has the same sign at the operating-range
+  mean voltage as at +∞.
+- **H-g4**: the squaring is the dominant identifiability problem; the
+  monotonicity prior alone cannot fix it under squaring. Test: compare
+  s3 (squared + lam=15) vs s2 (un-squared + lam=15). If s2 gives a
+  cleaner shape, the un-squaring is the key intervention.
+- **H-g5**: prior magnitude has a sweet spot. Test: compare s2 (lam=15)
+  vs s4 (lam=5). If s4 is "looser" but still monotone, lam=5 is the
+  more parsimonious choice; if s4 is non-monotone, lam=15 is necessary.
+
+### Slot 0 reference (B6 parent)
+
+Use the **post-B4 winner** as the structural parent for B6, varying
+only `g_phi_positive` and `coeff_g_phi_diff` across slots. If B4 hasn't
+landed yet, use the current best published config
+([drosophila_cx_pi_gnn_tailloss.yaml](../config/drosophila_cx/drosophila_cx_pi_gnn_tailloss.yaml)).
+Do NOT vary any other knob in B6 — this is a 2-knob × 5-slot study,
+not a free sweep.
+
+### Pre-registered hypotheses (write them in memory before each B3-B4 batch runs)
+
+- **H-noise**: with the tail anchor providing late-time gradient,
+  `noise_recurrent_level = 0` should no longer collapse. If H-noise holds,
+  the noise knob can be dropped → simpler config.
+- **H-f_diff**: the leak-prior at 15 may be over-regularising once the
+  tail loss is on (the tail loss penalises any drift to zero, which is
+  the failure mode `coeff_f_theta_diff` was added to fix). Test 5 → 0.
+- **H-warmstart**: `w_init_mode: zeros` was preferred to avoid early
+  divergence; with the tail anchor stabilising late-time dynamics, a
+  warm-start `randn_scaled` may grok faster.
+- **H-α**: α = 0.05 was set by a single observation. Lighter (0.02)
+  may give an even cleaner separation between supervised and anchor
+  gradients; heavier (0.1) may over-pull and degrade the supervised
+  window. Brackets the 0.05 working point.
+- **H-schedule**: with the tail loss driving the entire rollout,
+  the late-epoch finetune (currently 5e-5 × 2) may need to be slower
+  (longer at higher lr) to fully exploit the new gradient signal.
+
+### Budget guard-rails (resumed)
+
+- **Total resumed budget: 80 iterations** (B3 = 20, B4 = 20, B5 = 20,
+  B6 = 20). B5 only needs 5 iters in principle (1 batch × 5 seeds);
+  the extra 15 are held in reserve as a 5-seed bridge on a near-winner
+  candidate (see B5 decision rule).
+- **B3 is the existential block.** If 0/5 slots in B3 batch 1 reach
+  r_roll_1k ≥ 0.95 by epoch 10, the tail-loss intervention is less
+  general than the initial run suggested — escalate before B4.
+- **`coeff_tail_loss` is the only NEW axis** for B3-B4. Don't sweep
+  curriculum (`n_steps_schedule`) or encoder/decoder knobs unless a
+  slot collapses; those are still inherited from the RNN winner.
+- **B5 winner replaces the previous `drosophila_cx_pi_gnn_winner.yaml`**
+  if it strictly improves on the prior B1-lineage 5-seed robustness
+  (mean 0.931 ± 0.061). Otherwise the prior winner stands.
+- **B6 is interpretability, not promotion.** Don't update the winner
+  yaml from B6 outcomes — the role of B6 is to characterise the g_φ
+  identifiability problem, not to find a better performer. The
+  reading-off of g_φ shapes is the deliverable.
+- **B6 can run in parallel with B5** if you want — it doesn't depend
+  on the B4 winner being final (uses post-B4 winner as parent but
+  varies only g_φ knobs that are orthogonal to everything B3-B4
+  optimised). Run sequentially if cluster capacity is tight.
