@@ -202,6 +202,11 @@ class CortexTaskRNN(nn.Module):
             getattr(config.training, "noise_recurrent_level", 0.0)
         )
 
+        # --- Readout input: σ(h) (firing rate, default) or raw h (Yang) ---
+        self.readout_uses_sigma = bool(
+            getattr(gm, "readout_uses_sigma", True)
+        )
+
         if device is not None:
             self.to(device)
 
@@ -275,7 +280,8 @@ class CortexTaskRNN(nn.Module):
                 h = h + noise_lvl * torch.randn_like(h)
             h_buf[:, t, :] = h
 
-        y_hat = self._project_out(self._sigma(h_buf))
+        readout_input = self._sigma(h_buf) if self.readout_uses_sigma else h_buf
+        y_hat = self._project_out(readout_input)
         return y_hat, h_buf
 
     # ------------------------------------------------------------------
