@@ -238,6 +238,97 @@ def _pi_color(val):
     return _ANSI_RED
 
 
+def _read_n_steps_schedule(log_dir: str) -> list | None:
+    """Read training.n_steps_schedule from the slot's config yaml.
+
+    The slot config lives at `<data_root>/config/<pre>/<slot_name>.yaml`
+    (LLM exploration emits it there). `log_dir` follows the parallel layout
+    `<data_root>/log/<pre>/<slot_name>` — so we derive the config path by
+    swapping `/log/` → `/config/` and appending `.yaml`. Falls back to
+    `<log_dir>/config.yaml` for legacy runs that bundled it under log_dir.
+
+    Returns None if no config can be found or the schedule field is absent.
+    Used by `_print_task_metrics` to surface the current curriculum BPTT
+    horizon `T_epoch` alongside the iteration counters.
+    """
+    candidates = []
+    # Primary: swap /log/ → /config/ in the log_dir path.
+    log_dir_abs = os.path.abspath(log_dir)
+    if os.sep + 'log' + os.sep in log_dir_abs:
+        cfg_dir = log_dir_abs.replace(
+            os.sep + 'log' + os.sep, os.sep + 'config' + os.sep, 1
+        )
+        candidates.append(cfg_dir + '.yaml')
+    # Fallback: legacy in-log_dir config.
+    candidates.append(os.path.join(log_dir, 'config.yaml'))
+    for cfg_path in candidates:
+        if not os.path.isfile(cfg_path):
+            continue
+        try:
+            import yaml
+            with open(cfg_path) as f:
+                cfg = yaml.safe_load(f)
+        except Exception:
+            continue
+        sched = cfg.get('training', {}).get('n_steps_schedule')
+        if sched:
+            return list(sched)
+    return None
+
+
+def _slot_config_path(log_dir: str) -> str | None:
+    """Map a slot's log_dir to its yaml config path.
+
+    The agentic loop writes slot configs to `<data_root>/config/<sub>/<name>.yaml`
+    while training logs land at `<data_root>/log/<sub>/<name>/`. We invert
+    that by replacing the first `/log/` segment with `/config/` and appending
+    `.yaml`. Falls back to `<log_dir>/config.yaml` (legacy path) and returns
+    None if neither exists.
+    """
+    norm = os.path.normpath(log_dir).rstrip('/')
+    candidates: list[str] = []
+    parts = norm.split(os.sep)
+    if 'log' in parts:
+        i = parts.index('log')
+        repl = parts[:i] + ['config'] + parts[i + 1:]
+        candidates.append(os.sep.join(repl) + '.yaml')
+    candidates.append(os.path.join(log_dir, 'config.yaml'))
+    for c in candidates:
+        if os.path.isfile(c):
+            return c
+    return None
+
+
+def _read_total_iters(log_dir: str) -> int | None:
+    """Compute the slot's total iter count from its yaml config.
+
+    total = (n_trials_train // batch_size) * data_augmentation_loop * n_epochs
+
+    Mirrors the trainer's Niter math (graph_trainer.py: Niter computation
+    inside both PI and cortex trainers). Returns None if any field is
+    missing or the file can't be read.
+    """
+    cfg_path = _slot_config_path(log_dir)
+    if cfg_path is None:
+        return None
+    try:
+        import yaml
+        with open(cfg_path) as f:
+            cfg = yaml.safe_load(f)
+    except Exception:
+        return None
+    tr = cfg.get('training', {}) or {}
+    bs = tr.get('batch_size')
+    dal = tr.get('data_augmentation_loop', 1)
+    n_ep = tr.get('n_epochs')
+    task_cfg = (cfg.get('task', {}) or {}).get(
+        cfg.get('task', {}).get('task_type', ''), {}) or {}
+    n_trials = task_cfg.get('n_trials_train')
+    if not (bs and n_ep and n_trials):
+        return None
+    return max(1, (int(n_trials) // int(bs)) * int(dal)) * int(n_ep)
+
+
 def _print_task_metrics(log_dirs: dict, slots: list, prefix: str = '  [metrics]'):
     """Per-slot summary of latest snapshot + per-epoch trajectory so the
     curriculum collapse pattern (T=100 OK → T=500 explodes) is visible
@@ -256,20 +347,35 @@ def _print_task_metrics(log_dirs: dict, slots: list, prefix: str = '  [metrics]'
         loss_str = f"{loss:.4f}" if loss is not None else "nan"
         mse_str = f"{mse:.4f}" if mse is not None else "nan"
 
-        # Build the "headline + secondaries" segment. For cortex slots with
-        # the new schema we want R² (coloured) explicitly, plus dir_acc as
-        # secondary; for PI slots we keep pi_acc (coloured) + fwhm.
+        # Current curriculum horizon T_epoch (BPTT length the slot is
+        # training at right now). Read from the slot's config.yaml and
+        # indexed by epoch (1-based in metrics.log → 0-based in the list).
+        sched = _read_n_steps_schedule(log_dir)
+        t_epoch_str = ""
+        if sched is not None and 1 <= m['epoch'] <= len(sched):
+            t_epoch_str = f" T={sched[m['epoch'] - 1]}"
+
+        # Build the "headline + secondaries" segment.
+        # For PI: lead with `r_roll_1k` (the actual primary metric used by
+        # the LLM mutation loop) so the colour-coded value is the first
+        # thing visible; pi_acc + fwhm follow as secondary context.
+        # For cortex: R² (coloured) plus dir_acc secondary.
         r2_v = m.get('r2')
         da_v = m.get('direction_acc')
         pi_v = m.get('pi_acc')
         fwhm_v = m.get('fwhm')
+        rr1k_v = m.get('r_roll_1k')
         parts = []
         if r2_v is not None:
             parts.append(f"{_pi_color(r2_v)}R2={r2_v:.3f}{_ANSI_RESET}")
             if da_v is not None:
                 parts.append(f"dir_acc={da_v:.2f}")
         elif pi_v is not None:
-            parts.append(f"{_pi_color(pi_v)}pi_acc={pi_v:.3f}{_ANSI_RESET}")
+            if rr1k_v is not None:
+                parts.append(
+                    f"{_pi_color(rr1k_v)}r_roll_1k={rr1k_v:.3f}{_ANSI_RESET}"
+                )
+            parts.append(f"pi_acc={pi_v:.3f}")
             if fwhm_v is not None:
                 parts.append(f"fwhm={fwhm_v:.0f}°")
         elif da_v is not None:
@@ -277,23 +383,14 @@ def _print_task_metrics(log_dirs: dict, slots: list, prefix: str = '  [metrics]'
             parts.append(f"{_pi_color(da_v)}dir_acc={da_v:.2f}{_ANSI_RESET}")
         head = "  ".join(parts)
 
-        per_epoch = _per_epoch_task_summary(log_dir)
-        traj_parts = []
-        for e in per_epoch:
-            ep_pr = e['primary_end']
-            if ep_pr is None:
-                traj_parts.append(f"e{e['epoch']}=nan")
-            else:
-                traj_parts.append(f"{_pi_color(ep_pr)}e{e['epoch']}={ep_pr:.2f}{_ANSI_RESET}")
-        traj = "  ".join(traj_parts)
-        collapse = _detect_collapse(per_epoch)
-        collapse_tag = f"  {_ANSI_RED}[COLLAPSE]{_ANSI_RESET}" if collapse else ""
+        total_iters = _read_total_iters(log_dir)
+        iter_str = (f"{m['iter']:>5d}/{total_iters}" if total_iters is not None
+                    else f"{m['iter']:>5d}")
         print(
-            f"{prefix} slot {slot}  it={m['iter']:>5d} ep={m['epoch']}  "
-            f"{head}  loss={loss_str}  mse={mse_str}{collapse_tag}"
+            f"{prefix} slot {slot}  it={iter_str}{t_epoch_str}  "
+            f"{head}  loss={loss_str}  mse={mse_str}"
         )
-        if traj:
-            print(f"{prefix}   traj: {traj}")
+
 
 
 # ---------------------------------------------------------------------------
@@ -397,21 +494,11 @@ def _print_task_batch_results(state: ExplorationState, batch: BatchInfo,
             print(f"  Slot {slot_idx} (iter {iteration}):  {_ANSI_GREY}no metrics{_ANSI_RESET}")
             continue
 
-        # Per-epoch line — shows the trajectory at a glance.
-        per_epoch = m.get('per_epoch', [])
-        ep_strs = []
-        for e in per_epoch:
-            pr = e['primary_end']
-            if pr is None:
-                ep_strs.append(f"e{e['epoch']}=nan")
-            else:
-                col = _pi_color(pr)
-                ep_strs.append(f"{col}e{e['epoch']}={pr:.2f}{_ANSI_RESET}")
-        traj = "  ".join(ep_strs) if ep_strs else "(no epochs)"
-
         pname = m.get('primary_name', 'metric')
         primary = m['primary']
-        pi_col = _pi_color(primary)
+        # pi_acc prints uncoloured; r2 / direction_acc keep the colour ramp.
+        pi_col = "" if pname == 'pi_acc' else _pi_color(primary)
+        pi_reset = "" if pname == 'pi_acc' else _ANSI_RESET
         primary_str = f"{primary:.3f}" if primary is not None else "n/a"
         loss = f"{m['loss']:.4f}" if m['loss'] is not None else "n/a"
         if m.get('fwhm') is not None:
@@ -420,13 +507,10 @@ def _print_task_batch_results(state: ExplorationState, batch: BatchInfo,
             secondary = f"motor_max={m['motor_max']:.3f}"
         else:
             secondary = ""
-        collapse_tag = (f"  {_ANSI_RED}[COLLAPSE]{_ANSI_RESET}"
-                        if m.get('collapse') else "")
 
         print(f"  Slot {slot_idx} (iter {iteration}):  "
-              f"final {pi_col}{pname}={primary_str}{_ANSI_RESET}  "
-              f"{secondary}  loss={loss}{collapse_tag}")
-        print(f"     trajectory: {traj}")
+              f"final {pi_col}{pname}={primary_str}{pi_reset}  "
+              f"{secondary}  loss={loss}")
         if m.get('collapse'):
             print(f"     {_ANSI_RED}{m['collapse']}{_ANSI_RESET}")
 

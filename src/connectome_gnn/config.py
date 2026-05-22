@@ -555,6 +555,10 @@ class GraphModelConfig(BaseModel):
     # `hidden_dim` and `n_layers` above.
     input_proj: Literal["matrix", "mlp"] = "matrix"
     output_proj: Literal["matrix", "mlp"] = "matrix"
+    # CortexTaskRNN: whether the readout sees the firing rate r = σ(h) (default,
+    # historical) or the raw subthreshold h (Yang 2019 convention). False matches
+    # the paper's VanillaLeakyRNN exactly.
+    readout_uses_sigma: bool = True
     # TaskGNN-only: when True, the effective per-edge weight is `|w| · sign_GT`
     # (Dale-conformant; only magnitudes are learned). When False, the per-edge
     # weight is learned with free sign — the GT connectome topology is still
