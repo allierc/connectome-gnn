@@ -11,14 +11,12 @@ that the matching ODE-params class then consumes via `from_pretrained`.
 
 from connectome_gnn.teachers.janelia_cx_teacher import (
     JaneliaCxRNN,
-    PathIntegrationBatch,
     generate_path_integration_batch,
     train_janelia_cx_teacher,
 )
 
 __all__ = [
     "JaneliaCxRNN",
-    "PathIntegrationBatch",
     "generate_path_integration_batch",
     "train_janelia_cx_teacher",
 ]

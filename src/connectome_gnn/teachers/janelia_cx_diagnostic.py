@@ -96,7 +96,7 @@ def render_diagnostics(
         batch_size=1, n_steps=n_steps, device=device, rng=rng,
     )
     with torch.no_grad():
-        y_hat, h_buf = net(batch.u)
+        y_hat, h_buf = net(batch.stimulus)
 
     voltage_history = h_buf[0].cpu().numpy()       # (T, N)
     true_theta = batch.theta_hd[0].cpu().numpy()   # (T,)
@@ -153,7 +153,7 @@ def render_diagnostics(
     fig, axes = plt.subplots(2, 1, figsize=(7.5, 4.5), sharex=True)
     t_axis = np.arange(n_steps) * float(net.dt)
     pred = y_hat[0].cpu().numpy()
-    true_y = batch.y[0].cpu().numpy()
+    true_y = batch.target[0].cpu().numpy()
     axes[0].plot(t_axis, true_y[:, 0], color="black", label="true cos")
     axes[0].plot(t_axis, pred[:, 0], color="red", label="pred cos", alpha=0.8)
     axes[0].set_ylabel("cos(HD)")

@@ -751,22 +751,6 @@ def is_flyvis_hybrid_model(signal_model_name: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-@dataclass
-class PathIntegrationBatch:
-    """One batch of path-integration training data.
-
-    Shapes:
-        u:        (B, T, 3) — [omega(t), cos(theta0)*1_{t=0}, sin(theta0)*1_{t=0}]
-        y:        (B, T, 2) — [cos(theta_hd(t)), sin(theta_hd(t))]
-        theta_hd: (B, T)    — ground-truth heading in radians (for diagnostics)
-        is_stop:  (B, T)    — 1 during standing pauses, 0 otherwise
-    """
-    u: torch.Tensor
-    y: torch.Tensor
-    theta_hd: torch.Tensor
-    is_stop: torch.Tensor
-
-
 def generate_path_integration_batch(
     batch_size: int,
     n_steps: int,
@@ -779,7 +763,7 @@ def generate_path_integration_batch(
     stop_max_s: float = 8.0,
     device: torch.device | str = "cpu",
     rng: np.random.Generator | None = None,
-) -> PathIntegrationBatch:
+):
     """Generate a path-integration training batch (Hulse Methods Eqs. 5-7).
 
     Args:
@@ -794,8 +778,11 @@ def generate_path_integration_batch(
         device, rng:     where to allocate / what RNG to use.
 
     Returns:
-        PathIntegrationBatch on `device`.
+        ``TaskTrials`` on ``device`` with populated stimulus / target /
+        theta_hd / is_stop / omega fields (task_family='path_integration',
+        n_input=3, n_output=2, dt as supplied).
     """
+    from connectome_gnn.task_state import TaskTrials
     if rng is None:
         rng = np.random.default_rng()
 
@@ -856,11 +843,14 @@ def generate_path_integration_batch(
 
     y = np.stack([cos_t, sin_t], axis=-1).astype(np.float32)
 
-    return PathIntegrationBatch(
-        u=torch.from_numpy(u).to(device),
-        y=torch.from_numpy(y).to(device),
+    return TaskTrials(
+        task_family='path_integration',
+        n_input=3, n_output=2, dt=float(dt),
+        stimulus=torch.from_numpy(u).to(device),
+        target  =torch.from_numpy(y).to(device),
         theta_hd=torch.from_numpy(theta_hd).to(device),
-        is_stop=torch.from_numpy(is_stop).to(device),
+        is_stop =torch.from_numpy(is_stop).to(device),
+        omega   =torch.from_numpy(omega).to(device),
     )
 
 
