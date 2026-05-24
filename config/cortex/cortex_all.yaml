@@ -13,7 +13,7 @@ graph_model:
   recurrent_activation: tanh      # cortex_delaygo agentic loop winner over relu/softplus/sigmoid
   input_proj: mlp                 # encoder MLP is load-bearing on Yang tasks (rule × stim gating)
   output_proj: mlp
-  readout_uses_sigma: false
+  readout_uses_sigma: true
   hidden_dim: 128
   n_layers: 2
   MLP_activation: relu

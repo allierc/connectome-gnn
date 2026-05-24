@@ -1,10 +1,11 @@
-description: Yang dmsnogo single-task — LLM_cortex_matrix winner (BS=64, n_ep=5, cosine LR, matrix encoder/decoder, readout sigma).
-dataset: task_cortex_dmsnogo
+description: "Yang dmcnogo single-task \u2014 LLM_cortex_matrix winner (BS=64, n_ep=5,\
+  \ cosine LR, matrix encoder/decoder, readout sigma)."
+dataset: task_cortex_dmcnogo
 simulation:
   params:
   - - 1.0
 graph_model:
-  signal_model_name: cortex_dmsnogo
+  signal_model_name: cortex_dmcnogo
   aggr_type: add
   n_units: 256
   n_input: 85
@@ -24,19 +25,19 @@ training:
   n_runs: 1
   n_epochs: 5
   batch_size: 64
-  lr: 2.0e-3
+  lr: 0.002
   lr_W_rec_schedule:
-  - 2.0e-3
-  - 1.8e-3
-  - 1.3e-3
-  - 7.0e-4
-  - 2.0e-4
+  - 0.002
+  - 0.0018
+  - 0.0013
+  - 0.0007
+  - 0.0002
   lr_W_ED_schedule:
-  - 5.0e-4
-  - 4.5e-4
-  - 3.3e-4
-  - 1.8e-4
-  - 1.0e-4
+  - 0.0005
+  - 0.00045
+  - 0.00033
+  - 0.00018
+  - 0.0001
   lr_scheduler: none
   grad_clip_W: 2.0
   noise_recurrent_level: 0.0
@@ -45,7 +46,7 @@ training:
   w_init_mode: randn_scaled
   w_init_scale: 0.5
   snapshots_per_epoch: 5
-  data_augmentation_loop: 80
+  data_augmentation_loop: 1000
 claude:
   n_epochs: 1
   data_augmentation_loop: 80
@@ -63,7 +64,7 @@ task:
   task_only: true
   cortex:
     rules:
-    - dmsnogo
+    - dmcnogo
     rule_weights: []
     ruleset: all
     n_trials_train: 1000

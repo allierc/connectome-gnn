@@ -1,4 +1,4 @@
-description: Yang reactgo single-task — LLM_cortex_all consensus winner (BS=128, n_layers=3, tanh, MLP encoder/decoder).
+description: Yang reactgo single-task — LLM_cortex_matrix winner (BS=64, n_ep=5, cosine LR, matrix encoder/decoder, readout sigma).
 dataset: task_cortex_reactgo
 simulation:
   params:
@@ -13,7 +13,7 @@ graph_model:
   recurrent_activation: tanh
   input_proj: matrix
   output_proj: matrix
-  readout_uses_sigma: false
+  readout_uses_sigma: true
   hidden_dim: 128
   n_layers: 3
   MLP_activation: relu
@@ -22,31 +22,21 @@ training:
   device: auto
   seed: 0
   n_runs: 1
-  n_epochs: 10
-  batch_size: 128
-  lr: 0.001
+  n_epochs: 5
+  batch_size: 64
+  lr: 2.0e-3
   lr_W_rec_schedule:
-  - 0.001
-  - 0.0005
-  - 0.0002
-  - 0.0001
-  - 0.0001
-  - 0.0001
-  - 0.0001
-  - 0.0001
-  - 0.0001
-  - 0.0001
+  - 2.0e-3
+  - 1.8e-3
+  - 1.3e-3
+  - 7.0e-4
+  - 2.0e-4
   lr_W_ED_schedule:
-  - 0.001
-  - 0.0005
-  - 0.0002
-  - 0.0001
-  - 0.0001
-  - 0.0001
-  - 0.0001
-  - 0.0001
-  - 0.0001
-  - 0.0001
+  - 5.0e-4
+  - 4.5e-4
+  - 3.3e-4
+  - 1.8e-4
+  - 1.0e-4
   lr_scheduler: none
   grad_clip_W: 2.0
   noise_recurrent_level: 0.0

@@ -1,0 +1,124 @@
+# Winner: cortex_all_matrix_winner.yaml
+# Source: LLM_cortex_matrix exploration, block 4 batch 1 (B4.1, iter 181-200) +
+#         three independent CV cohorts (B5.1 iter 221-240, B5.2 iter 241-260,
+#         B5.3 iter 261-280). 4-seed CV: mean R² = 0.786 ± 0.020, floor lives
+#         on the delaydm family (slot 11 delaydm1 mean 0.430 ±0.060, slot 12
+#         delaydm2 mean 0.461 ±0.120, slot 14 contextdelaydm2 mean 0.446).
+# Block: 4 (focus: schedule shape — cosine annealing won over step-decay and
+#         3-ep-plateau-then-geometric variants).
+# Date: 2026-05-22
+#
+# Why this is the matrix-mode winner:
+#   - Cosine annealing on both W_rec and W_ED groups, decoupled by ~4× scale
+#     (W_ED 5× lower peak than W_rec), avoids the late-stage canary regressions
+#     that hit DM-ring tasks under step-decay schedules.
+#   - Slot 19 dmcnogo never collapses (all 4 CV cohorts ≥ 0.962); B3.1/B3.2
+#     no-reg / W_L2=1e-6 variants showed catastrophic collapse and were rejected.
+#   - Memory-Pro/Anti family (slots 0-5) hits ceiling R² ≥ 0.977 in 4/4 cohorts.
+#   - DMS/DMC family (slots 16-19) all ≥ 0.78, with DMC saccade/no-saccade at
+#     ceiling ≥ 0.97 (binary output, linear threshold suffices).
+#
+# Per-task 4-seed mean R² (cortex_matrix loop):
+#   fdgo:           0.996         dm1:             0.713
+#   reactgo:        0.991         dm2:             0.814  (seed-var ±0.17)
+#   delaygo:        0.985         contextdm1:      0.764  (seed-var ±0.14)
+#   fdanti:         0.995         contextdm2:      0.669
+#   reactanti:      0.991         multidm:         0.678  (B5.3 outlier 0.41)
+#   delayanti:      0.982         multidelaydm:    0.761
+#                                 dmsgo:           0.781
+#   delaydm1:       0.430  ←      dmsnogo:         0.823
+#   delaydm2:       0.461  ←      dmcgo:           0.986
+#   contextdelaydm1: 0.573        dmcnogo:         0.975
+#   contextdelaydm2: 0.446  ←
+#
+# (←) marks the per-task ceiling for matrix encoder/decoder: matrix proj
+# cannot capture delayed-ring evidence integration; the linear readout
+# cannot extract the winner of a maintained-then-overlaid ring superposition.
+# To lift these tasks, switch to `output_proj: mlp` or grow `n_units`.
+
+description: "Yang 2019 — multi-task across all 20 cognitive tasks, matrix encoder/decoder, cosine LR winner from LLM_cortex_matrix loop"
+dataset: task_cortex_all
+simulation:
+  params:
+  - - 1.0
+  seed: 0
+graph_model:
+  signal_model_name: cortex_all
+  aggr_type: add
+  n_units: 256
+  n_input: 85
+  n_output: 33
+  W_param: free
+  recurrent_activation: tanh      # cortex_delaygo + cortex_matrix winner
+  input_proj: matrix              # MATRIX encoder (linear W_in)
+  output_proj: matrix             # MATRIX decoder (linear W_out + b_out)
+  readout_uses_sigma: true        # load-bearing for matrix proj
+  hidden_dim: 128                 # unused with matrix proj; schema parity
+  n_layers: 2                     # unused with matrix proj; schema parity
+  MLP_activation: relu            # unused with matrix proj; schema parity
+plotting: {}
+training:
+  device: auto
+  seed: 0
+  n_runs: 1
+  n_epochs: 5
+  batch_size: 64
+  # Three-group split optimizer (graph_trainer._data_train_cortex_task):
+  #   w_rec  (_W_rec_free)              ← lr_W_rec_schedule (cosine, per-epoch)
+  #   w_ED   (W_in, W_out)              ← lr_W_ED_schedule  (cosine, decoupled-low)
+  #   other  (b, b_out)                 ← lr (constant)
+  lr: 2.0e-3                      # drives biases ("other" group)
+  lr_W_rec_schedule:              # cosine annealing on recurrent core
+  - 2.0e-3
+  - 1.8e-3
+  - 1.3e-3
+  - 7.0e-4
+  - 2.0e-4
+  lr_W_ED_schedule:               # cosine annealing on encoder/decoder, peak 4× lower
+  - 5.0e-4
+  - 4.5e-4
+  - 3.3e-4
+  - 1.8e-4
+  - 1.0e-4
+  lr_scheduler: none
+  grad_clip_W: 2.0                # delaygo winner; matrix loop confirmed
+  noise_recurrent_level: 0.0
+  coeff_rate_L2: 1.0e-2           # delaygo winner + slot-19 collapse prevention
+  coeff_W_L2: 0.0                 # silent killer per delaygo + matrix B3.2
+  w_init_mode: randn_scaled
+  w_init_scale: 0.5
+  snapshots_per_epoch: 5
+  data_augmentation_loop: 80      # 1000 trials // 64 bs × 80 × 5 ep = 6000 iter/slot
+
+# ---------------------------------------------------------------------------
+# Agentic LLM exploration settings (read by GNN_LLM_task.py).
+# ---------------------------------------------------------------------------
+claude:
+  n_epochs: 5
+  data_augmentation_loop: 80
+  n_iter_block: 80                # 4 batches × 20 slots
+  ucb_c: 1.414
+  generate_data: false
+  training_time_target_min: 10
+  hard_runtime_limit_min: 60
+  node_name: l4
+  n_cpus: 8
+  n_parallel: 20
+  conda_env: connectome-gnn
+
+task:
+  task_type: cortex
+  task_only: true
+  cortex:
+    rules: ["fdgo", "reactgo", "delaygo",
+            "fdanti", "reactanti", "delayanti",
+            "dm1", "dm2", "contextdm1", "contextdm2", "multidm",
+            "delaydm1", "delaydm2", "contextdelaydm1", "contextdelaydm2", "multidelaydm",
+            "dmsgo", "dmsnogo", "dmcgo", "dmcnogo"]
+    rule_weights: []
+    ruleset: "all"
+    n_trials_train: 20000
+    n_trials_test: 4000
+    n_steps_max: 400
+    seed: 0
+    hp_overrides: {}
