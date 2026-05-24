@@ -118,6 +118,11 @@ def _read_all_task_metrics(log_dir: str) -> list:
                     'motor_peak_mean':  _f(parts, 'motor_peak_mean'),
                     'r2':               _f(parts, 'r2'),
                     'direction_acc':    _f(parts, 'direction_acc'),
+                    # Filtered cortex fields (added 2026-05; outlier threshold=5
+                    # on channel error, mirroring flyvis NeurIPS convention).
+                    'r2_filtered':            _f(parts, 'r2_filtered'),
+                    'direction_acc_filtered': _f(parts, 'direction_acc_filtered'),
+                    'pct_outliers':           _f(parts, 'pct_outliers'),
                 }
                 # Primary metric for collapse detection / display.
                 #   PI:     r_roll_1k (Pearson on T=1000 rollout) is the headline
@@ -139,6 +144,9 @@ def _read_all_task_metrics(log_dir: str) -> list:
                 elif row['pi_acc'] is not None:
                     row['primary'] = row['pi_acc']
                     row['primary_name'] = 'pi_acc'
+                elif row['r2_filtered'] is not None:
+                    row['primary'] = row['r2_filtered']
+                    row['primary_name'] = 'r2_filtered'
                 elif row['r2'] is not None:
                     row['primary'] = row['r2']
                     row['primary_name'] = 'r2'
@@ -196,7 +204,13 @@ def _per_epoch_task_summary(log_dir: str) -> list:
             'r2_end':            last['r2'],
             'r2_best':           (max((r['r2'] for r in ep_rows
                                        if r['r2'] is not None), default=None)),
+            'r2_filtered_end':   last.get('r2_filtered'),
+            'r2_filtered_best':  (max((r['r2_filtered'] for r in ep_rows
+                                       if r.get('r2_filtered') is not None),
+                                      default=None)),
             'direction_acc_end': last['direction_acc'],
+            'direction_acc_filtered_end': last.get('direction_acc_filtered'),
+            'pct_outliers_end':  last.get('pct_outliers'),
             'motor_max_end':     last['motor_max'],
             'motor_peak_mean_end': last['motor_peak_mean'],
             # Shared
@@ -343,9 +357,8 @@ def _print_task_metrics(log_dirs: dict, slots: list, prefix: str = '  [metrics]'
         if m is None:
             print(f"{prefix} slot {slot}: (no metrics.log yet)")
             continue
-        loss = m['loss']; mse = m['mse']
-        loss_str = f"{loss:.4f}" if loss is not None else "nan"
-        mse_str = f"{mse:.4f}" if mse is not None else "nan"
+        loss = m['loss']
+        loss_str = f"{loss:.2e}" if loss is not None else "nan"
 
         # Current curriculum horizon T_epoch (BPTT length the slot is
         # training at right now). Read from the slot's config.yaml and
@@ -359,17 +372,33 @@ def _print_task_metrics(log_dirs: dict, slots: list, prefix: str = '  [metrics]'
         # For PI: lead with `r_roll_1k` (the actual primary metric used by
         # the LLM mutation loop) so the colour-coded value is the first
         # thing visible; pi_acc + fwhm follow as secondary context.
-        # For cortex: R² (coloured) plus dir_acc secondary.
+        # For cortex: filtered R² (coloured) + filtered dir_acc + outlier %.
         r2_v = m.get('r2')
+        r2_f = m.get('r2_filtered')
         da_v = m.get('direction_acc')
+        da_f = m.get('direction_acc_filtered')
+        pct  = m.get('pct_outliers')
         pi_v = m.get('pi_acc')
         fwhm_v = m.get('fwhm')
         rr1k_v = m.get('r_roll_1k')
         parts = []
-        if r2_v is not None:
-            parts.append(f"{_pi_color(r2_v)}R2={r2_v:.3f}{_ANSI_RESET}")
-            if da_v is not None:
-                parts.append(f"dir_acc={da_v:.2f}")
+        if r2_v is not None or r2_f is not None:
+            primary_r2 = r2_f if r2_f is not None else r2_v
+            primary_da = da_f if da_f is not None else da_v
+            r2_str = f"{_pi_color(primary_r2)}R2={primary_r2:.3f}{_ANSI_RESET}"
+            if r2_v is not None and r2_f is not None and r2_v != r2_f:
+                r2_str += f" ({r2_v:.3f})"
+            parts.append(r2_str)
+            if primary_da is not None:
+                da_str = f"{_pi_color(primary_da)}dir_acc={primary_da:.2f}{_ANSI_RESET}"
+                if da_v is not None and da_f is not None and da_v != da_f:
+                    da_str += f" ({da_v:.2f})"
+                parts.append(da_str)
+            if pct is not None:
+                if pct > 15:
+                    parts.append(f"{_ANSI_ORANGE}outlier={pct:.0f}%{_ANSI_RESET}")
+                else:
+                    parts.append(f"outlier={pct:.0f}%")
         elif pi_v is not None:
             if rr1k_v is not None:
                 parts.append(
@@ -388,7 +417,7 @@ def _print_task_metrics(log_dirs: dict, slots: list, prefix: str = '  [metrics]'
                     else f"{m['iter']:>5d}")
         print(
             f"{prefix} slot {slot}  it={iter_str}{t_epoch_str}  "
-            f"{head}  loss={loss_str}  mse={mse_str}"
+            f"{head}  loss={loss_str}"
         )
 
 
@@ -436,14 +465,15 @@ def _write_task_metrics_to_analysis_log(log_dir: str, analysis_log_path: str,
                       or pname in ('r2', 'direction_acc'))
         if cortex_row:
             f.write(f"final r2: {final.get('r2')}\n")
+            f.write(f"final r2_filtered: {final.get('r2_filtered')}\n")
             f.write(f"final direction_acc: {final['direction_acc']}\n")
-            f.write(f"final motor_max: {final['motor_max']}\n")
-            f.write(f"final motor_peak_mean: {final['motor_peak_mean']}\n")
+            f.write(f"final direction_acc_filtered: {final.get('direction_acc_filtered')}\n")
+            f.write(f"final pct_outliers: {final.get('pct_outliers')}\n")
         f.write(f"final iter: {final['iter']}  epoch: {final['epoch']}\n")
         f.write("\nper-epoch trajectory:\n")
         if cortex_row:
-            f.write("  ep | r2_end  r2_best | dir_acc_end | motor_max_end | "
-                    "loss_end loss_best | mse_end\n")
+            f.write("  ep | r2_end  r2_best | r2_filt_end | dir_acc_end | "
+                    "dir_filt_end | out% | loss_end loss_best | mse_end\n")
         else:
             f.write("  ep | pi_acc_end pi_acc_best | fwhm_end | "
                     "loss_end loss_best | mse_end cosd_end norm_end tv_end\n")
@@ -455,8 +485,10 @@ def _write_task_metrics_to_analysis_log(log_dir: str, analysis_log_path: str,
                 f.write(
                     f"  {e['epoch']:>2d} | {_fmt(e.get('r2_end'))} "
                     f"{_fmt(e.get('r2_best'))} | "
+                    f"{_fmt(e.get('r2_filtered_end'))} | "
                     f"{_fmt(e['direction_acc_end'])} | "
-                    f"{_fmt(e['motor_max_end'])} | "
+                    f"{_fmt(e.get('direction_acc_filtered_end'))} | "
+                    f"{_fmt(e.get('pct_outliers_end'))} | "
                     f"{_fmt(e['loss_end'])} {_fmt(e['loss_best'])} | "
                     f"{_fmt(e['mse_end'])}\n"
                 )
@@ -503,8 +535,8 @@ def _print_task_batch_results(state: ExplorationState, batch: BatchInfo,
         loss = f"{m['loss']:.4f}" if m['loss'] is not None else "n/a"
         if m.get('fwhm') is not None:
             secondary = f"fwhm={m['fwhm']:.0f}°"
-        elif m.get('motor_max') is not None:
-            secondary = f"motor_max={m['motor_max']:.3f}"
+        elif m.get('pct_outliers') is not None:
+            secondary = f"out={m['pct_outliers']:.0f}%"
         else:
             secondary = ""
 

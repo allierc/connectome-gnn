@@ -37,59 +37,110 @@ import torch
 # Scalar metrics (direct port of multi_task_data.compute_task_metrics)
 # ---------------------------------------------------------------------------
 
+OUTLIER_CH_THRESHOLD = 5.0  # flyvis NeurIPS convention: |pred_ch - tgt_ch| > 5 = outlier
+
+
+def _active_ch(motor_np: np.ndarray, cm_np: np.ndarray) -> int:
+    """Argmax channel on the response window (c_mask>4) for one trial."""
+    resp = (cm_np[:, 1:] > 4).any(axis=1)
+    if not resp.any():
+        return int(motor_np.max(axis=0).argmax())
+    return int(motor_np[resp].max(axis=0).argmax())
+
+
 def compute_cortex_task_metrics(
     pred_list: Sequence[torch.Tensor],
     target_list: Sequence[torch.Tensor],
     cmask_list: Sequence[torch.Tensor],
+    outlier_threshold: float = OUTLIER_CH_THRESHOLD,
 ) -> dict:
     """Aggregate per-trial diagnostic metrics across a list of trials.
 
     Each input is a list (length n_trials) of tensors of shape (T, N_o).
 
-    Returns dict with: loss, motor_max, motor_peak_mean, direction_acc, r2.
+    Returns dict with:
+        loss, motor_max, motor_peak_mean,
+        direction_acc, direction_acc_filtered,
+        r2, r2_filtered,
+        pct_outliers, n_outliers, n_trials_eval
 
-    r2 is the coefficient of determination of motor channels (1..N_o)
-    against the target, computed on supervised frames only (c_mask > 0),
-    same formula as `models/graph_tester.py` stimuli_R2:
-        r2 = 1 - SS_res / SS_tot
-    where SS_res / SS_tot are summed across the pooled (trial, time,
-    channel) array of supervised entries.
+    Outlier definition follows the flyvis NeurIPS convention (metrics.py
+    `compute_r_squared_filtered`): per-trial residual on the active-channel
+    space, `|pred_active_ch - tgt_active_ch| > outlier_threshold` (default 5).
+
+    `direction_acc_filtered` = exact matches restricted to inlier trials,
+    divided by the inlier count (so trials that landed >5 channels away
+    don't dilute the score). `r2_filtered` is the supervised-frame R²
+    pooled over inlier trials only.
     """
     losses, motor_maxes, peaks = [], [], []
-    correct = 0
+    pred_active_list, tgt_active_list = [], []
     # Pool supervised motor (pred, target) entries across all trials for R².
     pred_pool, tgt_pool = [], []
+    pred_pool_in, tgt_pool_in = [], []  # filtered: inlier trials only
+
     for pred, y_tgt, c_mask in zip(pred_list, target_list, cmask_list):
         losses.append(float(((pred - y_tgt) ** 2 * c_mask).mean().item()))
         motor_pred = pred[:, 1:].detach().cpu().numpy()
         motor_tgt = y_tgt[:, 1:].detach().cpu().numpy()
+        cm_np = c_mask.detach().cpu().numpy()
         motor_maxes.append(float(motor_pred.max()))
         peaks.append(float(motor_pred.max(axis=0).max()))
-        if int(motor_tgt.max(axis=0).argmax()) == int(motor_pred.max(axis=0).argmax()):
-            correct += 1
-        # Supervised mask on motor channels (c_mask > 0).
-        cm_motor = c_mask[:, 1:].detach().cpu().numpy()
+
+        p_ch = _active_ch(motor_pred, cm_np)
+        t_ch = _active_ch(motor_tgt, cm_np)
+        pred_active_list.append(p_ch)
+        tgt_active_list.append(t_ch)
+        inlier = abs(p_ch - t_ch) <= outlier_threshold
+
+        cm_motor = cm_np[:, 1:]
         mask = cm_motor > 0
         if mask.any():
-            pred_pool.append(motor_pred[mask])
-            tgt_pool.append(motor_tgt[mask])
+            mp = motor_pred[mask]
+            mt = motor_tgt[mask]
+            pred_pool.append(mp)
+            tgt_pool.append(mt)
+            if inlier:
+                pred_pool_in.append(mp)
+                tgt_pool_in.append(mt)
 
     n = max(len(losses), 1)
-    if pred_pool:
-        pred_flat = np.concatenate(pred_pool)
-        tgt_flat = np.concatenate(tgt_pool)
-        ss_res = float(np.sum((tgt_flat - pred_flat) ** 2))
-        ss_tot = float(np.sum((tgt_flat - tgt_flat.mean()) ** 2))
-        r2 = float(1.0 - ss_res / (ss_tot + 1e-16))
-    else:
-        r2 = float("nan")
+    pred_active = np.asarray(pred_active_list)
+    tgt_active = np.asarray(tgt_active_list)
+    inlier_mask = np.abs(pred_active - tgt_active) <= outlier_threshold
+    n_inliers = int(inlier_mask.sum())
+    n_outliers = int((~inlier_mask).sum())
+    pct_outliers = 100.0 * n_outliers / n
+
+    exact = (pred_active == tgt_active)
+    correct = int(exact.sum())
+    correct_in = int((exact & inlier_mask).sum())
+    direction_acc = correct / n
+    direction_acc_filtered = (correct_in / n_inliers) if n_inliers > 0 else float("nan")
+
+    def _pooled_r2(pp, tp):
+        if not pp:
+            return float("nan")
+        pf = np.concatenate(pp)
+        tf = np.concatenate(tp)
+        ss_res = float(np.sum((tf - pf) ** 2))
+        ss_tot = float(np.sum((tf - tf.mean()) ** 2))
+        return float(1.0 - ss_res / (ss_tot + 1e-16))
+
+    r2 = _pooled_r2(pred_pool, tgt_pool)
+    r2_filtered = _pooled_r2(pred_pool_in, tgt_pool_in)
 
     return {
         "loss": float(np.mean(losses)),
         "motor_max": float(np.mean(motor_maxes)),
         "motor_peak_mean": float(np.mean(peaks)),
-        "direction_acc": correct / n,
+        "direction_acc": direction_acc,
+        "direction_acc_filtered": direction_acc_filtered,
         "r2": r2,
+        "r2_filtered": r2_filtered,
+        "pct_outliers": pct_outliers,
+        "n_outliers": n_outliers,
+        "n_trials_eval": n,
     }
 
 
@@ -266,37 +317,84 @@ def save_cortex_training_snapshot(
     ax_prof.set_title(f"trial {i} bump profile at t={t_peak}", fontsize=FS)
 
     ax_sct = fig.add_subplot(right_gs[1])
-    ax_sct.scatter(tgt_active, pred_active, alpha=0.3, s=14)
+    # Inlier/outlier split (flyvis NeurIPS convention: |Δch| > 5 = outlier).
+    residual = pred_active.astype(np.float64) - tgt_active.astype(np.float64)
+    inlier_mask = np.abs(residual) <= OUTLIER_CH_THRESHOLD
+    n_in = int(inlier_mask.sum())
+    n_out = int((~inlier_mask).sum())
+    pct_out = 100.0 * n_out / max(len(tgt_active), 1)
+
+    if n_in:
+        ax_sct.scatter(tgt_active[inlier_mask], pred_active[inlier_mask],
+                       alpha=0.4, s=14, c="black", edgecolors="none",
+                       label=f"inliers (n={n_in})")
+    if n_out:
+        ax_sct.scatter(tgt_active[~inlier_mask], pred_active[~inlier_mask],
+                       alpha=0.5, s=18, c="tab:red", marker="x",
+                       label=f"outliers (n={n_out})")
     ax_sct.plot([0, n_motor_ch - 1], [0, n_motor_ch - 1], "k--", alpha=0.3,
                 label="y=x")
-    # Linear fit: pred_active ≈ a · tgt_active + b. Use the same R² formula
-    # as graph_tester.stimuli_R2 (1 − SS_res/SS_tot on the corrected fit).
-    if len(tgt_active) >= 2 and tgt_active.std() > 0:
-        A_fit = np.vstack([tgt_active.astype(np.float64),
-                           np.ones_like(tgt_active, dtype=np.float64)]).T
-        a_coeff, b_coeff = np.linalg.lstsq(
-            A_fit, pred_active.astype(np.float64), rcond=None,
-        )[0]
-        y_fit = a_coeff * tgt_active + b_coeff
-        ss_res = float(np.sum((pred_active - y_fit) ** 2))
-        ss_tot = float(np.sum((pred_active - pred_active.mean()) ** 2))
-        r2_sct = 1.0 - ss_res / (ss_tot + 1e-16)
+
+    # Linear fit on INLIERS only — matches flyvis `compute_r_squared_filtered`.
+    tgt_in = tgt_active[inlier_mask].astype(np.float64)
+    prd_in = pred_active[inlier_mask].astype(np.float64)
+    if len(tgt_in) >= 2 and tgt_in.std() > 0:
+        A_fit = np.vstack([tgt_in, np.ones_like(tgt_in)]).T
+        a_coeff, b_coeff = np.linalg.lstsq(A_fit, prd_in, rcond=None)[0]
+        y_fit = a_coeff * tgt_in + b_coeff
+        ss_res = float(np.sum((prd_in - y_fit) ** 2))
+        ss_tot = float(np.sum((prd_in - prd_in.mean()) ** 2))
+        r2_filt = 1.0 - ss_res / (ss_tot + 1e-16)
         xs = np.array([0, n_motor_ch - 1], dtype=np.float64)
-        ax_sct.plot(xs, a_coeff * xs + b_coeff, "r-", lw=1.0, alpha=0.7,
-                    label="lin fit")
+        ax_sct.plot(xs, a_coeff * xs + b_coeff, "g-", lw=1.0, alpha=0.7,
+                    label="lin fit (inliers)")
         slope = float(a_coeff)
     else:
-        r2_sct = float("nan")
+        r2_filt = float("nan")
         slope = float("nan")
+
+    # R² over ALL points (no filter) — same lstsq on full set for reference.
+    if len(tgt_active) >= 2 and tgt_active.std() > 0:
+        A_all = np.vstack([tgt_active.astype(np.float64),
+                           np.ones_like(tgt_active, dtype=np.float64)]).T
+        a_all, b_all = np.linalg.lstsq(
+            A_all, pred_active.astype(np.float64), rcond=None,
+        )[0]
+        y_all = a_all * tgt_active + b_all
+        ss_res_all = float(np.sum((pred_active - y_all) ** 2))
+        ss_tot_all = float(np.sum((pred_active - pred_active.mean()) ** 2))
+        r2_all = 1.0 - ss_res_all / (ss_tot_all + 1e-16)
+    else:
+        r2_all = float("nan")
+
+    # dir_acc filtered = exact matches among inliers / n_inliers
+    da_all = metrics["direction_acc"]
+    da_filt = metrics.get("direction_acc_filtered", float("nan"))
+
     ax_sct.set_xlabel("target active ch", fontsize=FS)
     ax_sct.set_ylabel("pred active ch", fontsize=FS)
     ax_sct.tick_params(labelsize=FS)
-    ax_sct.legend(fontsize=FS - 1, loc="upper left")
+    ax_sct.legend(fontsize=FS - 2, loc="upper left")
     ax_sct.set_title(
-        f"dir_acc={metrics['direction_acc']:.2f}  "
-        f"R²={r2_sct:.3f}  slope={slope:.2f}",
-        fontsize=FS,
+        f"R²={r2_filt:.3f} (all={r2_all:.3f})   "
+        f"dir_acc={da_filt:.2f} (all={da_all:.2f})\n"
+        f"outliers={pct_out:.0f}% (|Δch|>{OUTLIER_CH_THRESHOLD:g})   "
+        f"slope={slope:.2f}",
+        fontsize=FS - 2,
     )
+
+    # Stash the filtered values back into the returned dict so callers (and
+    # metrics.log writers) don't need to recompute. The R² formulas differ
+    # between this lstsq-on-active-ch view and the supervised-frame pool used
+    # in compute_cortex_task_metrics; we keep BOTH (the metric dict already
+    # carries the pooled-frame versions).
+    metrics = dict(metrics)
+    metrics.update({
+        "scatter_r2_filtered": float(r2_filt),
+        "scatter_r2_all": float(r2_all),
+        "scatter_slope": float(slope),
+        "scatter_pct_outliers": float(pct_out),
+    })
 
     if show_title:
         title_step = f"iter {step}" if step >= 0 else "test"
