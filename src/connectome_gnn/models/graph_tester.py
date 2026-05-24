@@ -2016,22 +2016,27 @@ def data_test_path_integration_task(
     logger.info(f'[pi test] results dir: {results_dir}')
 
     # --- Load test data ----------------------------------------------------
-    # theta_hd is reconstructed from y = (cos θ, sin θ) rather than loaded
-    # from theta_hd.zarr (which uses the 1-D-per-trial writer and reads back
-    # with a different shape). y_test is (N, T, 2), so arctan2 → (N, T)
-    # wrapped HD; np.unwrap restores the monotone cumulative-omega ramp the
-    # Pearson metric needs.
+    # Refactor: single TaskTrials.load instead of four zarr reads.
+    # On legacy datasets without theta_hd.zarr / is_stop.zarr these fields
+    # come back as None and we fall back to reconstructing theta_hd from
+    # y = (cos θ, sin θ); is_stop defaults to zeros so the rollout-corr
+    # masking is a no-op.
+    from connectome_gnn.task_state import TaskTrials
     root = graphs_data_path(config.dataset)
     logger.info(f'[pi test] loading from {root}/test/...')
-    u_test_np = load_raw_array(f"{root}/test/stimulus.zarr")
-    y_test_np = load_raw_array(f"{root}/test/target.zarr")
-    theta_wrap = np.arctan2(y_test_np[:, :, 1], y_test_np[:, :, 0])
-    theta_test_np = np.unwrap(theta_wrap, axis=-1).astype(np.float32)
-    try:
-        is_stop_test_np = load_raw_array(f"{root}/test/is_stop.zarr")
-        if is_stop_test_np.shape != theta_test_np.shape:
-            is_stop_test_np = np.zeros(theta_test_np.shape, dtype=np.float32)
-    except Exception:
+    trials_test = TaskTrials.load(f"{root}/test")
+    u_test_np = trials_test.stimulus.numpy()
+    y_test_np = trials_test.target.numpy()
+    if trials_test.theta_hd is not None:
+        # New writer persists the integrated (unwrapped) heading directly.
+        theta_test_np = trials_test.theta_hd.numpy().astype(np.float32)
+    else:
+        theta_wrap = np.arctan2(y_test_np[:, :, 1], y_test_np[:, :, 0])
+        theta_test_np = np.unwrap(theta_wrap, axis=-1).astype(np.float32)
+    if trials_test.is_stop is not None and \
+            tuple(trials_test.is_stop.shape) == theta_test_np.shape:
+        is_stop_test_np = trials_test.is_stop.numpy().astype(np.float32)
+    else:
         is_stop_test_np = np.zeros(theta_test_np.shape, dtype=np.float32)
     u_test = torch.from_numpy(u_test_np).to(device)
     y_test = torch.from_numpy(y_test_np).to(device)

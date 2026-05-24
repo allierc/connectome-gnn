@@ -44,12 +44,12 @@ def path_integration_accuracy(
     net.eval()
     with torch.no_grad():
         batch = generate_path_integration_batch(n_trials, n_steps, device=device)
-        y_hat, _ = net(batch.u)
+        y_hat, _ = net(batch.stimulus)
         warmup = 10
         y_hat_n = y_hat[:, warmup:, :] / (
             y_hat[:, warmup:, :].norm(dim=-1, keepdim=True) + 1e-8
         )
-        y_n = batch.y[:, warmup:, :]
+        y_n = batch.target[:, warmup:, :]
         acc = (y_hat_n * y_n).sum(dim=-1).mean().item()
     net.train()
     return acc
@@ -113,7 +113,7 @@ def bump_fwhm(
     net.eval()
     with torch.no_grad():
         batch = generate_path_integration_batch(n_trials, n_steps, device=device)
-        _, h = net(batch.u)
+        _, h = net(batch.stimulus)
     net.train()
 
     r_epg = torch.sigmoid(h[:, -1, epg_indices]).cpu().numpy()

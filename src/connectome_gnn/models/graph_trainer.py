@@ -1837,12 +1837,17 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
     os.makedirs(kinograph_dir, exist_ok=True)
 
     # --- load: trials stay on GPU between iterations ---------------
+    # Refactor: route through TaskTrials.load (one call per split) instead of
+    # four separate load_raw_array calls. The split dir was written by
+    # ZarrTaskTrialsWriter (or legacy _write_trial_zarr — same on-disk
+    # layout), so the loader works on both new and legacy datasets.
+    from connectome_gnn.task_state import TaskTrials
     root = graphs_data_path(config.dataset)
     _logger.info(f'loading task data from {root}/(train|test)/...')
-    u_train = torch.from_numpy(load_raw_array(f"{root}/train/stimulus.zarr")).to(device)
-    y_train = torch.from_numpy(load_raw_array(f"{root}/train/target.zarr")).to(device)
-    u_test = torch.from_numpy(load_raw_array(f"{root}/test/stimulus.zarr")).to(device)
-    y_test = torch.from_numpy(load_raw_array(f"{root}/test/target.zarr")).to(device)
+    trials_train = TaskTrials.load(f"{root}/train").to(device)
+    trials_test  = TaskTrials.load(f"{root}/test").to(device)
+    u_train, y_train = trials_train.stimulus, trials_train.target
+    u_test,  y_test  = trials_test.stimulus,  trials_test.target
     _logger.info(f'task data: train u={tuple(u_train.shape)} y={tuple(y_train.shape)}  '
                  f'test u={tuple(u_test.shape)} y={tuple(y_test.shape)}')
     logger.info(f'train trials: {u_train.shape[0]}  test trials: {u_test.shape[0]}  '

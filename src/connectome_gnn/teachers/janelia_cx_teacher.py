@@ -52,10 +52,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import trange
 
-from connectome_gnn.generators.utils import (
-    PathIntegrationBatch,
-    generate_path_integration_batch,
-)
+from connectome_gnn.generators.utils import generate_path_integration_batch
 # These helpers were moved to models/drosophila_cx_eval.py so the new
 # `data_train_task` (in models/graph_trainer.py) can use them without
 # importing the teacher module. Re-exported here so the existing CLI and
@@ -561,8 +558,8 @@ def train_janelia_cx_teacher(
             batch = generate_path_integration_batch(
                 batch_size, n_steps_epoch, device=device, rng=rng
             )
-            y_hat, h_buf = net(batch.u)
-            mse = F.mse_loss(y_hat, batch.y)
+            y_hat, h_buf = net(batch.stimulus)
+            mse = F.mse_loss(y_hat, batch.target)
             cosd = net.loss_cos_distance(lambda_cos)
             norm = net.loss_norm_floor(lambda_norm, kappa_norm)
             tv = net.loss_tv_circular(h_buf, lambda_tv)
@@ -733,7 +730,7 @@ def save_rollout(
     rng = np.random.default_rng(seed)
     with torch.no_grad():
         batch = generate_path_integration_batch(1, n_steps, rng=rng, device=device)
-        y_hat, h = net(batch.u)
+        y_hat, h = net(batch.stimulus)
     net.train()
     r = torch.sigmoid(h[0]).cpu().numpy()  # (T, N)
     r_epg = r[:, epg_indices] if epg_indices is not None else None
@@ -741,8 +738,8 @@ def save_rollout(
     y_pred = y_hat[0].cpu().numpy()
     decoded_theta = np.arctan2(y_pred[:, 1], y_pred[:, 0])
     rollout = {
-        "u": batch.u[0].cpu().numpy().astype(np.float32),
-        "y_true": batch.y[0].cpu().numpy().astype(np.float32),
+        "u": batch.stimulus[0].cpu().numpy().astype(np.float32),
+        "y_true": batch.target[0].cpu().numpy().astype(np.float32),
         "y_pred": y_pred.astype(np.float32),
         "true_theta": true_theta.astype(np.float32),
         "decoded_theta": decoded_theta.astype(np.float32),
