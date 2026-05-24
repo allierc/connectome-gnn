@@ -19,7 +19,7 @@ description: |
   used to characterise the inverse problem's identifiability, not to
   enforce biology; the connectome topology + per-edge weight magnitudes
   still encode the E/I row patterns.
-dataset: drosophila_cx_pi
+dataset: drosophila_cx_pi_bis
 simulation:
   params:
     - - 1.0
@@ -100,7 +100,7 @@ training:
     - 700 # epoch 8
     - 850 # epoch 9
     - 1000 # epoch 10 — full task horizon
-  torch_compile: true
+  torch_compile: false
 
 # ---------------------------------------------------------------------------
 # Agentic LLM exploration settings.
