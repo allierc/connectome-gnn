@@ -390,11 +390,26 @@ def _generate_path_integration_task(config, *, device, visualize: bool = True) -
         split_dir = os.path.join(out_root, split)
         os.makedirs(split_dir, exist_ok=True)
 
-        _write_trial_zarr(os.path.join(split_dir, "stimulus.zarr"), stimulus)
-        _write_trial_zarr(os.path.join(split_dir, "target.zarr"), target_y)
-        _write_trial_zarr_1d(os.path.join(split_dir, "theta_hd.zarr"), theta_hd)
-        _write_trial_zarr_1d(os.path.join(split_dir, "is_stop.zarr"), is_stop)
-        logger.info(f"[task]   {split}: wrote {B} trials of T={T}")
+        # Refactor: build a TaskTrials in memory, then dispatch to the shared
+        # task_state writer. On-disk layout for the legacy fields
+        # (stimulus / target / theta_hd / is_stop) is byte-identical to what
+        # _write_trial_zarr / _write_trial_zarr_1d used to produce inline, so
+        # the trainer keeps working unchanged. The refactor also persists
+        # omega.zarr and a meta.json sidecar that the v2 reader uses.
+        from connectome_gnn.task_state import TaskTrials, task_trials_to_disk
+        trials = TaskTrials(
+            task_family="path_integration",
+            n_input=int(stimulus.shape[-1]),
+            n_output=int(target_y.shape[-1]),
+            dt=dt,
+            stimulus=torch.from_numpy(stimulus),
+            target  =torch.from_numpy(target_y),
+            theta_hd=torch.from_numpy(theta_hd.astype(np.float32)),
+            is_stop =torch.from_numpy(is_stop),
+            omega   =torch.from_numpy(omega),
+        )
+        task_trials_to_disk(trials, split_dir)
+        logger.info(f"[task]   {split}: wrote {B} trials of T={T} (TaskTrials v2 layout)")
 
         if visualize:
             plot_task_pi_traces(
