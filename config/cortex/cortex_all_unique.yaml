@@ -13,7 +13,7 @@ graph_model:
   recurrent_activation: tanh      # cortex_delaygo winner (vs relu / softplus / sigmoid)
   input_proj: mlp                 # load-bearing per delaygo experiments
   output_proj: mlp
-  readout_uses_sigma: false
+  readout_uses_sigma: true
   hidden_dim: 128
   n_layers: 2
   MLP_activation: relu
