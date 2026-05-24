@@ -28,6 +28,11 @@ from connectome_gnn.generators.graph_data_generator import (
 from connectome_gnn.generators.ode_params import FlyVisODEParams, load_edge_index
 from connectome_gnn.generators.utils import generate_compressed_video_mp4
 from connectome_gnn.log import get_logger
+from connectome_gnn.models.utils import (
+    ANSI_ORANGE,
+    ANSI_RESET,
+    r2_color,
+)
 from connectome_gnn.metrics import INDEX_TO_NAME
 from connectome_gnn.models.neural_ode_wrapper import integrate_neural_ode
 from connectome_gnn.models.registry import create_model
@@ -1921,9 +1926,19 @@ def data_test_cortex_task_gnn(config, best_model=None, device=None, log_file=Non
     tgts_kino = [y_test[i] for i in range(n_kino)]
     cms_kino = [cm_test[i] for i in range(n_kino)]
     per_trial = compute_cortex_task_metrics(preds_kino, tgts_kino, cms_kino)
-    logger.info(f'  10-trial direction_acc={per_trial["direction_acc"]:.3f}  '
-                f'motor_max={per_trial["motor_max"]:.3f}  '
-                f'loss={per_trial["loss"]:.4f}')
+    _r2_f = per_trial["r2_filtered"]; _da_f = per_trial["direction_acc_filtered"]
+    _pct = per_trial["pct_outliers"]
+    _c_r2 = r2_color(_r2_f) if _r2_f == _r2_f else ""
+    _c_da = r2_color(_da_f) if _da_f == _da_f else ""
+    _c_pct = ANSI_ORANGE if (_pct == _pct and _pct > 15) else ""
+    logger.info(
+        f'  10-trial  '
+        f'{_c_r2}R²={_r2_f:.3f}{ANSI_RESET} ({per_trial["r2"]:.3f})  '
+        f'{_c_da}dir_acc={_da_f:.3f}{ANSI_RESET} '
+        f'({per_trial["direction_acc"]:.3f})  '
+        f'{_c_pct}outlier={_pct:.0f}%{ANSI_RESET if _c_pct else ""}  '
+        f'loss={per_trial["loss"]:.2e}'
+    )
 
     rule_name = (ct.rules[0] if getattr(ct, "rules", None) else "cortex")
     results_dir = os.path.join(log_dir, 'results')
@@ -1942,9 +1957,18 @@ def data_test_cortex_task_gnn(config, best_model=None, device=None, log_file=Non
     tgts = [y_test[i] for i in range(u_test.shape[0])]
     cms = [cm_test[i] for i in range(u_test.shape[0])]
     full = compute_cortex_task_metrics(preds, tgts, cms)
+    _r2_f = full["r2_filtered"]; _da_f = full["direction_acc_filtered"]
+    _pct = full["pct_outliers"]
+    _c_r2 = r2_color(_r2_f) if _r2_f == _r2_f else ""
+    _c_da = r2_color(_da_f) if _da_f == _da_f else ""
+    _c_pct = ANSI_ORANGE if (_pct == _pct and _pct > 15) else ""
     logger.info(
-        f'  full test (n={u_test.shape[0]}): direction_acc={full["direction_acc"]:.4f}  '
-        f'motor_max={full["motor_max"]:.4f}  loss={full["loss"]:.4f}'
+        f'  full test (n={u_test.shape[0]}):  '
+        f'{_c_r2}R²={_r2_f:.4f}{ANSI_RESET} ({full["r2"]:.4f})  '
+        f'{_c_da}dir_acc={_da_f:.4f}{ANSI_RESET} '
+        f'({full["direction_acc"]:.4f})  '
+        f'{_c_pct}outlier={_pct:.1f}%{ANSI_RESET if _c_pct else ""}  '
+        f'loss={full["loss"]:.2e}'
     )
 
 

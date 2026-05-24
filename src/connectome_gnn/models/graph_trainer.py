@@ -2511,11 +2511,15 @@ def _data_train_cortex_task(config, erase, best_model, device, log_file=None):
     metrics_log_path = os.path.join(log_dir, 'tmp_training', 'metrics.log')
     os.makedirs(os.path.dirname(metrics_log_path), exist_ok=True)
     with open(metrics_log_path, 'w') as f:
-        f.write('iteration,epoch,loss,mse,motor_max,motor_peak_mean,r2,direction_acc\n')
+        f.write('iteration,epoch,loss,mse,motor_max,motor_peak_mean,'
+                'r2,direction_acc,r2_filtered,direction_acc_filtered,pct_outliers\n')
 
     last_metrics = {'loss': float('nan'), 'motor_max': float('nan'),
-                    'motor_peak_mean': float('nan'), 'r2': float('nan'),
-                    'direction_acc': float('nan')}
+                    'motor_peak_mean': float('nan'),
+                    'r2': float('nan'), 'r2_filtered': float('nan'),
+                    'direction_acc': float('nan'),
+                    'direction_acc_filtered': float('nan'),
+                    'pct_outliers': float('nan')}
     model.train()
 
     # torch.compile (same pattern as PI trainer; eager fallback for eval).
@@ -2623,16 +2627,24 @@ def _data_train_cortex_task(config, erase, best_model, device, log_file=None):
                             f'{last_metrics["motor_max"]:.6f},'
                             f'{last_metrics["motor_peak_mean"]:.6f},'
                             f'{last_metrics.get("r2", float("nan")):.6f},'
-                            f'{last_metrics["direction_acc"]:.6f}\n')
+                            f'{last_metrics["direction_acc"]:.6f},'
+                            f'{last_metrics.get("r2_filtered", float("nan")):.6f},'
+                            f'{last_metrics.get("direction_acc_filtered", float("nan")):.6f},'
+                            f'{last_metrics.get("pct_outliers", float("nan")):.4f}\n')
 
             da = last_metrics["direction_acc"]
+            da_f = last_metrics.get("direction_acc_filtered", float("nan"))
             r2 = last_metrics.get("r2", float("nan"))
-            col = r2_color(r2) if r2 == r2 else ""
+            r2_f = last_metrics.get("r2_filtered", float("nan"))
+            pct = last_metrics.get("pct_outliers", float("nan"))
+            col_r2 = r2_color(r2_f) if r2_f == r2_f else ""
+            col_da = r2_color(da_f) if da_f == da_f else ""
+            col_pct = ANSI_ORANGE if (pct == pct and pct > 15) else ""
             pbar.set_postfix_str(
-                f'loss={loss.item():.4f}  mse={mse.item():.4f}  '
-                f'motor_max={last_metrics["motor_max"]:.3f}  '
-                f'dir_acc={da:.2f}  '
-                f'{col}R2={r2:.3f}{ANSI_RESET}'
+                f'loss={loss.item():.2e}  '
+                f'{col_r2}R2={r2_f:.3f}{ANSI_RESET} ({r2:.3f})  '
+                f'{col_da}dir_acc={da_f:.2f}{ANSI_RESET} ({da:.2f})  '
+                f'{col_pct}outlier={pct:.0f}%{ANSI_RESET if col_pct else ""}'
             )
 
         pbar.close()
@@ -2653,9 +2665,18 @@ def _data_train_cortex_task(config, erase, best_model, device, log_file=None):
         final_targets = [y_test[i]  for i in range(u_test.shape[0])]
         final_cmasks  = [cm_test[i] for i in range(u_test.shape[0])]
         final_metrics = compute_cortex_task_metrics(final_preds, final_targets, final_cmasks)
+    _r2_f = final_metrics["r2_filtered"]
+    _da_f = final_metrics["direction_acc_filtered"]
+    _pct = final_metrics["pct_outliers"]
+    _c_r2 = r2_color(_r2_f) if _r2_f == _r2_f else ""
+    _c_da = r2_color(_da_f) if _da_f == _da_f else ""
+    _c_pct = ANSI_ORANGE if (_pct == _pct and _pct > 15) else ""
     _logger.info(
-        f'final test direction_acc: {final_metrics["direction_acc"]:.4f}  '
-        f'motor_max: {final_metrics["motor_max"]:.4f}  '
+        f'final test  '
+        f'{_c_r2}R²={_r2_f:.4f}{ANSI_RESET} ({final_metrics["r2"]:.4f})  '
+        f'{_c_da}dir_acc={_da_f:.4f}{ANSI_RESET} '
+        f'({final_metrics["direction_acc"]:.4f})  '
+        f'{_c_pct}outlier={_pct:.1f}%{ANSI_RESET if _c_pct else ""}  '
         f'(n_test={u_test.shape[0]}, T={u_test.shape[1]})'
     )
     logger.info(f'final test direction_acc: {final_metrics["direction_acc"]:.4f}')
