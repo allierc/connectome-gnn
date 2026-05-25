@@ -92,6 +92,12 @@ figures/*
 !figures/*.py
 !figures/*.md
 !figures/*.tex
+# Source code under the per-biomodel subfolders is also tracked.
+!figures/drosophila/
+figures/drosophila/*
+!figures/drosophila/*.py
+!figures/drosophila/*.md
+!figures/drosophila/*.tex
 *.png
 *.pdf
 *.jpg
