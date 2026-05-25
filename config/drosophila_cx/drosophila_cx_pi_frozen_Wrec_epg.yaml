@@ -1,0 +1,76 @@
+description: "Path-integration TaskRNN \u2014 W_rec frozen at the hemibrain connectome.\n\
+  Only W_in / W_out / biases / velocity-gate scalars train. Tests whether\nthe connectome\
+  \ itself plus a learnable I/O is sufficient for HD.\n\n(EPG-only-readout variant:\
+  \ W_out reads only from the 46 EPG neurons, matching the Hulse 2021 wout layout.)"
+dataset: drosophila_cx_pi_task
+simulation:
+  params:
+  - - 1.0
+  connconstr_datapath: papers/Code_NN/Code_NN/Data/Figure5/exported-traced-adjacencies-v1.2
+graph_model:
+  signal_model_name: drosophila_cx_pi
+  aggr_type: add
+  input_proj: mlp
+  output_proj: mlp
+  velocity_gate: pen_4scalar
+  lock_edge_signs: true
+  hidden_dim: 128
+  n_layers: 4
+  MLP_activation: relu
+  output_from_epg_only: true
+plotting: {}
+training:
+  device: auto
+  seed: 0
+  n_runs: 1
+  n_epochs: 10
+  batch_size: 64
+  data_augmentation_loop: 1
+  lr: 0.002
+  lr_W_rec_schedule:
+  - 0.002
+  - 0.002
+  - 0.001
+  - 0.001
+  - 0.0005
+  - 0.0004
+  - 0.0003
+  - 0.0002
+  - 5.0e-05
+  - 5.0e-05
+  lr_scheduler: none
+  lr_W_ED: 0.001
+  grad_clip_W: 0.001
+  w_init_mode: w_con
+  lr_W_rec: 0.0
+  coeff_cos_distance: 0.0
+  coeff_norm_floor: 0.0
+  kappa_norm_floor: 0.05
+  coeff_tv_circular: 0.0
+  coeff_W_L1: 0.0
+  noise_recurrent_level: 0.05
+  snapshots_per_epoch: 5
+  n_steps_schedule:
+  - 10
+  - 50
+  - 100
+  - 200
+  - 300
+  - 400
+  - 500
+  - 600
+  - 700
+  - 800
+  torch_compile: false
+task:
+  task_type: path_integration
+  task_only: true
+  path_integration:
+    n_trials_train: 100000
+    n_trials_test: 10000
+    n_steps: 1000
+    dt: 0.01
+    sigma_omega_deg: 40.0
+    tau_corr: 0.12
+    stop_fraction: 0.2
+    seed: 0

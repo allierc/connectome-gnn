@@ -1,9 +1,9 @@
 description: |
   Smoke-test variant of drosophila_cx_pi: 3 epochs only, dataset
-  drosophila_cx_pi_bis (separate cache from production runs). Used by
-  run_pi_bis_smoke.py to validate the path-integration pipeline end-to-end
+  drosophila_cx_pi_task (separate cache from production runs). Used by
+  run_pi_task_smoke.py to validate the path-integration pipeline end-to-end
   before larger runs (e.g. the TaskTrials refactor wiring).
-dataset: drosophila_cx_pi_bis
+dataset: drosophila_cx_pi_task
 simulation:
   params:
     - - 1.0

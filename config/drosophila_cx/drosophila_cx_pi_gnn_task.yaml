@@ -1,0 +1,84 @@
+description: |
+  Smoke-test variant of drosophila_cx_pi_gnn: 3 epochs only, dataset
+  drosophila_cx_pi_task (shared cache with drosophila_cx_pi_task). Used by
+  run_pi_task_smoke.py to validate the GNN path-integration pipeline
+  end-to-end before larger runs.
+dataset: drosophila_cx_pi_task
+simulation:
+  params:
+    - - 1.0
+  connconstr_datapath: papers/Code_NN/Code_NN/Data/Figure5/exported-traced-adjacencies-v1.2
+graph_model:
+  signal_model_name: drosophila_cx_pi_gnn
+  aggr_type: add
+  input_proj: matrix
+  output_proj: matrix
+  velocity_gate: pen_4scalar
+  lock_edge_signs: true
+  hidden_dim: 64
+  n_layers: 2
+  hidden_dim_update: 64
+  n_layers_update: 2
+  MLP_activation: tanh
+  embedding_dim: 4
+  g_phi_positive: true
+plotting: {}
+
+training:
+  device: auto
+  seed: 0
+  n_runs: 1
+  n_epochs: 4
+  batch_size: 16
+  data_augmentation_loop: 1
+  lr: 2.0e-3
+  lr_W_rec_schedule:
+    - 0.002
+    - 0.002
+    - 0.002
+    - 0.001
+  lr_scheduler: none
+  lr_W_ED: 0.0005
+  grad_clip_W: 1.0
+  coeff_cos_distance: 0.0
+  coeff_norm_floor: 0.
+  kappa_norm_floor: 0.0
+  coeff_tv_circular: 0.0
+  coeff_W_L1: 0.0
+  noise_recurrent_level: 0.01
+  coeff_f_theta_diff: 15.0
+  w_init_mode: zeros
+  w_init_scale: 0.01
+  snapshots_per_epoch: 5
+  n_steps_schedule:
+    - 10
+    - 50
+    - 100
+    - 200
+  torch_compile: false
+
+claude:
+  n_epochs: 4
+  data_augmentation_loop: 1
+  n_iter_block: 20
+  ucb_c: 1.414
+  generate_data: false
+  training_time_target_min: 20
+  hard_runtime_limit_min: 60
+  node_name: a100
+  n_cpus: 8
+  n_parallel: 5
+  conda_env: connectome-gnn
+
+task:
+  task_type: path_integration
+  task_only: true
+  path_integration:
+    n_trials_train: 100000
+    n_trials_test: 10000
+    n_steps: 1000
+    dt: 0.01
+    sigma_omega_deg: 40.0
+    tau_corr: 0.12
+    stop_fraction: 0.20
+    seed: 0

@@ -1,0 +1,107 @@
+description: "Path-integration TaskGNN \u2014 tail-loss variant + g_phi squaring DISABLED.\n\
+  Identical to drosophila_cx_pi_gnn_tailloss.yaml except `g_phi_positive`\nis now\
+  \ `false`: the per-edge message becomes\n`W_edge[e] \xB7 g_phi(v_src, a_src)` (signed,\
+  \ single-power) instead of\n`W_edge[e] \xB7 g_phi(v_src, a_src)^2` (non-negative,\
+  \ squared).\n\nPurpose: remove the \xB1 degeneracy in g_phi so the learned firing-rate\n\
+  non-linearity is uniquely identified by the fit. With squaring on, two\nsolutions\
+  \ g_phi and \u2212g_phi produce identical dynamics, so the plotted\nshape is half-rectifier-like\
+  \ (the optimiser picks a sign convention\narbitrarily). Without squaring, the plotted\
+  \ g_phi(v_j) is the actual\nfunction entering the dynamics \u2014 expected shape\
+  \ is sigmoidal (firing\nrate non-linearity) per the methods section.\n\nTrade-off:\
+  \ signed messages mean the per-edge sign of synaptic drive\nis `sign_GT \xB7 sign(g_phi)`\
+  \ rather than just `sign_GT` \u2014 Dale's law is\nno longer enforced per edge.\
+  \ Acceptable here because the GNN is being\nused to characterise the inverse problem's\
+  \ identifiability, not to\nenforce biology; the connectome topology + per-edge weight\
+  \ magnitudes\nstill encode the E/I row patterns.\n\n(EPG-only-readout variant: W_out\
+  \ reads only from the 46 EPG neurons, matching the Hulse 2021 wout layout.)"
+dataset: drosophila_cx_pi_task
+simulation:
+  params:
+  - - 1.0
+  connconstr_datapath: papers/Code_NN/Code_NN/Data/Figure5/exported-traced-adjacencies-v1.2
+graph_model:
+  signal_model_name: drosophila_cx_pi_gnn
+  aggr_type: add
+  input_proj: matrix
+  output_proj: matrix
+  velocity_gate: pen_4scalar
+  lock_edge_signs: true
+  hidden_dim: 64
+  n_layers: 2
+  hidden_dim_update: 64
+  n_layers_update: 2
+  MLP_activation: tanh
+  embedding_dim: 4
+  g_phi_positive: false
+  output_from_epg_only: true
+plotting: {}
+training:
+  device: auto
+  seed: 0
+  n_runs: 1
+  n_epochs: 10
+  batch_size: 16
+  data_augmentation_loop: 1
+  lr: 0.002
+  lr_W_rec_schedule:
+  - 0.002
+  - 0.002
+  - 0.002
+  - 0.001
+  - 0.0005
+  - 0.0004
+  - 0.0003
+  - 0.0002
+  - 5.0e-05
+  - 5.0e-05
+  lr_scheduler: none
+  lr_W_ED: 0.0005
+  grad_clip_W: 1.0
+  coeff_cos_distance: 0.0
+  coeff_norm_floor: 0.0
+  kappa_norm_floor: 0.0
+  coeff_tv_circular: 0.0
+  coeff_W_L1: 0.0
+  noise_recurrent_level: 0.01
+  coeff_f_theta_diff: 15.0
+  coeff_g_phi_diff: 15.0
+  coeff_tail_loss: 0.05
+  w_init_mode: zeros
+  w_init_scale: 0.01
+  snapshots_per_epoch: 5
+  n_steps_schedule:
+  - 10
+  - 50
+  - 100
+  - 200
+  - 300
+  - 400
+  - 500
+  - 700
+  - 850
+  - 1000
+  torch_compile: true
+claude:
+  n_epochs: 5
+  data_augmentation_loop: 1
+  n_iter_block: 20
+  ucb_c: 1.414
+  generate_data: false
+  training_time_target_min: 90
+  hard_runtime_limit_min: 180
+  node_name: a100
+  n_cpus: 8
+  n_parallel: 5
+  conda_env: connectome-gnn
+task:
+  task_type: path_integration
+  task_only: true
+  path_integration:
+    n_trials_train: 100000
+    n_trials_test: 10000
+    n_steps: 1000
+    dt: 0.01
+    sigma_omega_deg: 40.0
+    tau_corr: 0.12
+    stop_fraction: 0.2
+    seed: 0

@@ -555,6 +555,15 @@ class GraphModelConfig(BaseModel):
     # `hidden_dim` and `n_layers` above.
     input_proj: Literal["matrix", "mlp"] = "matrix"
     output_proj: Literal["matrix", "mlp"] = "matrix"
+    # DrosophilaCxTaskRNN / DrosophilaCxTaskGNN: when True, the decoder W_out
+    # reads only from the 46 EPG neurons (rows 0..45 in the model's neuron
+    # ordering) instead of all 156. Matches Hulse 2021 nn_fig5_drosophilaCx_*.py
+    # (lines 574-577: wout[0:46, ...] non-zero, rest zero, train_wout=False).
+    # Here W_out stays learnable but its input is restricted to the 46 EPG
+    # firing rates, so the optimiser is forced to put the heading code in
+    # EPG cells (the biological prior). Default False keeps the legacy
+    # behaviour (all 156 neurons connected to the decoder).
+    output_from_epg_only: bool = False
     # CortexTaskRNN: whether the readout sees the firing rate r = σ(h) (default,
     # historical) or the raw subthreshold h (Yang 2019 convention). False matches
     # the paper's VanillaLeakyRNN exactly.
