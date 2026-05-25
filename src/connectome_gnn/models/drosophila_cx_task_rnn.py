@@ -270,9 +270,19 @@ class DrosophilaCxTaskRNN(nn.Module):
         self.b = nn.Parameter(torch.ones(N, dtype=torch.float32))
 
         # --- Decoder W_out (matrix or MLP) ------------------------------
+        # Hulse-style EPG-only readout option: when set, the decoder reads
+        # only from the first n_epg neurons (EPG block; indices 0..n_epg-1)
+        # rather than all N. Forces the optimiser to put the heading code in
+        # EPG cells, matching Hulse 2021's frozen wout[0:46,:] convention.
+        self.output_from_epg_only = bool(
+            getattr(gm, "output_from_epg_only", False)
+        )
+        self._readout_dim = int(n_epg) if self.output_from_epg_only else N
         self.output_proj = getattr(gm, "output_proj", "matrix")
         if self.output_proj == "matrix":
-            self.W_out = nn.Parameter(torch.empty(self.n_output, N, dtype=torch.float32))
+            self.W_out = nn.Parameter(
+                torch.empty(self.n_output, self._readout_dim, dtype=torch.float32)
+            )
             nn.init.kaiming_uniform_(self.W_out, a=math.sqrt(5))
             self.b_out = nn.Parameter(torch.zeros(self.n_output, dtype=torch.float32))
             self._W_out_mlp = None
@@ -280,7 +290,7 @@ class DrosophilaCxTaskRNN(nn.Module):
             self.W_out = None
             self.b_out = None
             self._W_out_mlp = MLP(
-                input_size=N, output_size=self.n_output,
+                input_size=self._readout_dim, output_size=self.n_output,
                 nlayers=gm.n_layers, hidden_size=gm.hidden_dim,
                 activation=gm.MLP_activation, device=device,
             )
@@ -354,7 +364,13 @@ class DrosophilaCxTaskRNN(nn.Module):
         return self._W_in_mlp(u_t)
 
     def _project_out(self, r: torch.Tensor) -> torch.Tensor:
-        """(B, T, N) -> (B, T, n_output)."""
+        """(B, T, N) -> (B, T, n_output).
+
+        With ``output_from_epg_only=True`` the decoder sees only the first
+        ``n_epg`` columns of ``r`` (the EPG block, indices 0..n_epg-1).
+        """
+        if self.output_from_epg_only:
+            r = r[..., : self._readout_dim]
         if self.output_proj == "matrix":
             return r @ self.W_out.t() + self.b_out
         return self._W_out_mlp(r)

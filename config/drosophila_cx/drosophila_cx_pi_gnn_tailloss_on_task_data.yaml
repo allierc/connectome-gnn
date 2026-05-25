@@ -19,7 +19,7 @@ description: |
   used to characterise the inverse problem's identifiability, not to
   enforce biology; the connectome topology + per-edge weight magnitudes
   still encode the E/I row patterns.
-dataset: drosophila_cx_pi_bis
+dataset: drosophila_cx_pi_task
 simulation:
   params:
     - - 1.0
