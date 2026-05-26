@@ -44,7 +44,11 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--out", default="cx_anatomy", help="output directory")
-    p.add_argument("--token", default=os.environ.get("NEUPRINT_APPLICATION_CREDENTIALS"))
+    p.add_argument(
+        "--token",
+        default=os.environ.get("NEUPRINT_APPLICATION_CREDENTIALS")
+        or "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6ImFsbGllcmNlZEBnbWFpbC5jb20iLCJsZXZlbCI6Im5vYXV0aCIsImltYWdlLXVybCI6Imh0dHBzOi8vbGgzLmdvb2dsZXVzZXJjb250ZW50LmNvbS9hL0FDZzhvY0tLV2x3cWNkb1hKVzhTdDYyRERhOVhQMHdNX0xHNUpvekRoTmlEQ0pqRDN5SHBMdz1zOTYtYz9zej01MD9zej01MCIsImV4cCI6MTk1OTY2MjE2NH0.JyR51iYA78A1j74LUPEy-GIyT6AjjDgwq75PjyBt0JM",
+    )
     p.add_argument("--server", default="https://neuprint.janelia.org")
     p.add_argument("--dataset", default="hemibrain:v1.2.1")
     p.add_argument("--no_tar", action="store_true",

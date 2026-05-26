@@ -23,7 +23,7 @@ training:
   device: auto
   seed: 0
   n_runs: 1
-  n_epochs: 10
+  n_epochs: 5
   batch_size: 64
   data_augmentation_loop: 1
   lr: 0.002
@@ -31,13 +31,8 @@ training:
   - 0.002
   - 0.002
   - 0.001
-  - 0.001
   - 0.0005
-  - 0.0004
-  - 0.0003
-  - 0.0002
-  - 5.0e-05
-  - 5.0e-05
+  - 0.0005
   lr_scheduler: none
   lr_W_ED: 0.001
   grad_clip_W: 0.001
@@ -51,16 +46,11 @@ training:
   noise_recurrent_level: 0.05
   snapshots_per_epoch: 5
   n_steps_schedule:
-  - 10
-  - 50
   - 100
   - 200
   - 300
   - 400
   - 500
-  - 600
-  - 700
-  - 800
   torch_compile: false
 task:
   task_type: path_integration
@@ -74,3 +64,5 @@ task:
     tau_corr: 0.12
     stop_fraction: 0.2
     seed: 0
+claude:
+  n_parallel: 10
