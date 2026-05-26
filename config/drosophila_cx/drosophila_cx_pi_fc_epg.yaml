@@ -1,4 +1,4 @@
-description: 'designed by Claude (parallel flyvis)
+description: "designed by Claude (parallel flyvis)
 
 
   (EPG-only-readout variant: W_out reads only from the 46 EPG neurons, matching the
@@ -6,11 +6,11 @@ description: 'designed by Claude (parallel flyvis)
 
 
   Winner config from the LLM_drosophila_cx_drosophila_cx_pi_fc_epg agentic exploration.
-  Use as parent for the _epg2 understanding exploration.'
+  Use as parent for the _epg2 understanding exploration."
 dataset: drosophila_cx_pi_task
 simulation:
   params:
-  - - 1.0
+    - - 1.0
   connconstr_datapath: papers/Code_NN/Code_NN/Data/Figure5/exported-traced-adjacencies-v1.2
   seed: 47006
 graph_model:
@@ -20,7 +20,7 @@ graph_model:
   output_proj: matrix
   velocity_gate: pen_4scalar
   lock_edge_signs: true
-  wrec_param: edge_free
+  wrec_param: column_dale
   hidden_dim: 128
   n_layers: 3
   MLP_activation: relu
@@ -30,16 +30,16 @@ training:
   device: auto
   seed: 47506
   n_runs: 1
-  n_epochs: 5
+  n_epochs: 10
   batch_size: 64
   data_augmentation_loop: 1
   lr: 0.002
   lr_W_rec_schedule:
-  - 0.002
-  - 0.002
-  - 0.001
-  - 0.0005
-  - 0.0005
+    - 0.002
+    - 0.002
+    - 0.001
+    - 0.0005
+    - 0.0005
   lr_scheduler: none
   lr_W_ED: 0.0005
   grad_clip_W: 2.5
@@ -51,11 +51,11 @@ training:
   noise_recurrent_level: 0.05
   snapshots_per_epoch: 5
   n_steps_schedule:
-  - 100
-  - 200
-  - 300
-  - 400
-  - 500
+    - 100
+    - 200
+    - 300
+    - 400
+    - 500
   torch_compile: false
   coeff_tail_loss: 0.05
 claude:
