@@ -1,11 +1,12 @@
-description: "Path-integration TaskRNN \u2014 W_rec frozen at the hemibrain connectome.\n\
+description:
+  "Path-integration TaskRNN \u2014 W_rec frozen at the hemibrain connectome.\n\
   Only W_in / W_out / biases / velocity-gate scalars train. Tests whether\nthe connectome\
   \ itself plus a learnable I/O is sufficient for HD.\n\n(EPG-only-readout variant:\
   \ W_out reads only from the 46 EPG neurons, matching the Hulse 2021 wout layout.)"
 dataset: drosophila_cx_pi_task
 simulation:
   params:
-  - - 1.0
+    - - 1.0
   connconstr_datapath: papers/Code_NN/Code_NN/Data/Figure5/exported-traced-adjacencies-v1.2
 graph_model:
   signal_model_name: drosophila_cx_pi
@@ -23,16 +24,16 @@ training:
   device: auto
   seed: 0
   n_runs: 1
-  n_epochs: 5
+  n_epochs: 10
   batch_size: 64
   data_augmentation_loop: 1
   lr: 0.002
   lr_W_rec_schedule:
-  - 0.002
-  - 0.002
-  - 0.001
-  - 0.0005
-  - 0.0005
+    - 0.002
+    - 0.002
+    - 0.001
+    - 0.0005
+    - 0.0005
   lr_scheduler: none
   lr_W_ED: 0.001
   grad_clip_W: 0.001
@@ -46,11 +47,11 @@ training:
   noise_recurrent_level: 0.05
   snapshots_per_epoch: 5
   n_steps_schedule:
-  - 100
-  - 200
-  - 300
-  - 400
-  - 500
+    - 100
+    - 200
+    - 300
+    - 400
+    - 500
   torch_compile: false
 task:
   task_type: path_integration

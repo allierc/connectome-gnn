@@ -20,7 +20,7 @@ graph_model:
   output_proj: matrix
   velocity_gate: pen_4scalar
   lock_edge_signs: true
-  wrec_param: edge_free
+  wrec_param: column_dale
   hidden_dim: 128
   n_layers: 3
   MLP_activation: relu
