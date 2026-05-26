@@ -144,11 +144,27 @@ def wait_for_cluster_jobs(job_ids, log_dir=None, poll_interval=60, job_prefix='c
     while pending:
         ids_str = ' '.join(pending.values())
         ssh_cmd = f"ssh {CLUSTER_SSH} \"source /etc/profile.d/profile.lsf.sh && bjobs {ids_str}\""
-        out = subprocess.run(ssh_cmd, shell=True, capture_output=True, text=True)
-        if out.returncode != 0 and not out.stdout.strip():
-            raise RuntimeError(
-                f"bjobs failed (rc={out.returncode}): {out.stderr.strip() or '(no output)'}"
+
+        # Retry SSH handshake errors (e.g. "kex_exchange_identification: read:
+        # Connection reset by peer") — login-node throttling or transient net
+        # blips shouldn't kill an exploration that may have hours of in-flight
+        # cluster jobs. Real bjobs failures (job not found, etc.) still raise.
+        out = None
+        last_err = ''
+        for attempt in range(6):
+            out = subprocess.run(ssh_cmd, shell=True, capture_output=True, text=True)
+            if out.returncode == 0 or out.stdout.strip():
+                break
+            last_err = out.stderr.strip() or '(no output)'
+            backoff = min(30, 5 * (2 ** attempt))
+            print(
+                f"\033[93m  bjobs SSH transient failure (rc={out.returncode}, "
+                f"attempt {attempt+1}/6): {last_err} — retrying in {backoff}s\033[0m",
+                flush=True,
             )
+            time.sleep(backoff)
+        else:
+            raise RuntimeError(f"bjobs failed after 6 retries: {last_err}")
 
         for slot, jid in list(pending.items()):
             for line in out.stdout.splitlines():
