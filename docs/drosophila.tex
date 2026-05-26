@@ -1,0 +1,952 @@
+\documentclass[11pt]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{natbib}
+\usepackage{geometry}
+\geometry{margin=2.5cm}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{nicefrac}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage[table]{xcolor}
+\usepackage{subcaption}
+\usepackage{cleveref}
+\crefname{equation}{Eq.\@}{Eqs.\@}
+\Crefname{equation}{Eq.\@}{Eqs.\@}
+\crefname{figure}{Fig.\@}{Figs.\@}
+\Crefname{figure}{Fig.\@}{Figs.\@}
+\crefname{table}{Tab.\@}{Tabs.\@}
+\Crefname{table}{Tab.\@}{Tabs.\@}
+\crefname{section}{Sect.\@}{Sects.\@}
+\Crefname{section}{Sect.\@}{Sects.\@}
+
+\definecolor{cgreen}{HTML}{2ea043}
+\definecolor{corange}{HTML}{d29922}
+\definecolor{cred}{HTML}{cf222e}
+\newcommand{\good}[1]{\textcolor{green!50!black}{#1}}
+\newcommand{\bad}[1]{\textcolor{orange}{#1}}
+
+\def\eg{{\it e.g.}}
+\def\ie{{\it i.e.}}
+\def\R{\mathbb{R}}
+\def\vrest{V^{\mathrm{rest}}}
+\def\relu{\mathrm{ReLU}}
+\def\softplus{\mathrm{softplus}}
+\def\hulse{Hulse et al.\ 2021}
+
+\title{\textbf{\emph{Drosophila} central complex: identifiable computation, non-identifiable implementation}}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+\begin{abstract}
+Theoretical work on emergent structure in recurrent neural networks
+almost never has a ground-truth comparison: discovered modules are
+evaluated against themselves. The \emph{Drosophila} central complex
+(CX) is the rare exception --- a complete connectome
+\citep{hulse2021} pairs with a known biological function
+(head-direction integration) and a published RNN model
+\citep{vafidis2022}. We use this pairing to ask what optimisation of the path-integration
+task identifies when the connectome topology is given. Four constrained
+models are trained on the same input--output map:
+a Known-ODE RNN, a frozen-connectome control, a fully connected RNN,
+and a message-passing GNN with learned neuronal signalling functions.
+The frozen-connectome control fails, whereas the three trainable
+models recover near-perfect heading accuracy. Among them, the
+Known-ODE RNN is the biologically aligned recovery: it preserves the
+canonical CX allocation of head-direction information to EPG / EPGt
+and $\Delta 7$, with ER6 remaining tonic. The GNN reaches comparable
+behavioural performance but implements an alternative circuit,
+redistributing head-direction information across cell types and
+learning drift/message functions. Thus optimising the path-integration task recovers the
+ring-attractor computation, but not a unique circuit implementation. Resolving these degeneracies requires a new methodology: looking for consistency between connectome, neural activity and behavioral task. 
+\end{abstract}
+
+\section{Introduction}
+
+
+\section{Methods}
+\label{sec:methods}
+
+\textbf{Recurrent neural network.}\label{method:RNN}
+The RNN model is a sign-locked discrete-time recurrent network whose connectivity is constrained to the \emph{Drosophila} hemibrain central-complex connectome. For each neuron $i\in\{1,\dots,N\}$ the subthreshold activity $\hat{h}_i(t)$ evolves according to
+\begin{equation}
+\tau\,\frac{d\hat{h}_i(t)}{dt} = -\hat{h}_i(t)
+  + \sum_j \hat{W}^{\mathrm{rec}}_{ij}\,\sigma\!\big(\hat{h}_j(t)\big)
+  + \sum_l \hat{W}^{\mathrm{in}}_{il}\,u_l(t)
+  + \hat{b}_i,
+\label{eq:cx_dynamics}
+\end{equation}
+\begin{equation}
+\hat{y}(t) = \big(\cos\hat{\theta}(t),\,\sin\hat{\theta}(t)\big) = \hat{W}^{\mathrm{out}}\sigma\big(\hat{h}(t)\big) + \hat{b}^{\mathrm{out}},
+\label{eq:cx_readout}
+\end{equation}
+where $\sigma$ is the sigmoid, $\tau = 0.1\,\mathrm{s}$, $\Delta t = 0.01\,\mathrm{s}$, and the input $u(t)\in\mathbb{R}^3 = (\omega(t),\,\cos\theta_0\,\delta_{t,0},\,\sin\theta_0\,\delta_{t,0})$ encodes angular velocity and a one-frame initial-heading impulse. The recurrent matrix is sign-locked to the connectome template $W^{\mathrm{con}}\in\mathbb{R}^{N\times N}$: the trainable per-edge parameter is the magnitude $\hat{S}\in\mathbb{R}^{N\times N}$, and
+\begin{equation}
+\hat{W}^{\mathrm{rec}}_{ij} = |\hat{S}_{ij}|\,\mathrm{sign}(W^{\mathrm{con}}_{ij})\,(1-\delta_{ij}).
+\label{eq:cx_w_rec}
+\end{equation}
+The angular-velocity input is anatomically restricted to the PEN subpopulations through a strict four-scalar gate on the angular-velocity column of $\hat{W}^{\mathrm{in}}$,
+\begin{equation}
+\hat{W}^{\mathrm{in}}_{i,\omega} = v_s \quad \text{if } i \in s,\ \ s \in \{\mathrm{PENa}_L,\mathrm{PENa}_R,\mathrm{PENb}_L,\mathrm{PENb}_R\},
+\label{eq:cx_pen_gate}
+\end{equation}
+with four learnable scalars $\{v_{\mathrm{PENa}_L},\,v_{\mathrm{PENa}_R},\,v_{\mathrm{PENb}_L},\,v_{\mathrm{PENb}_R}\}$ initialised antisymmetrically across hemispheres. The remaining two columns of $\hat{W}^{\mathrm{in}}$ --- carrying the initial-heading impulse $(\cos\theta_0,\sin\theta_0)\,\delta_{t,0}$ --- remain free for all neurons. The learnable parameters are
+\begin{equation*}
+\big\{\hat{S},\;
+v_{\mathrm{PENa}_L},\,v_{\mathrm{PENa}_R},\,v_{\mathrm{PENb}_L},\,v_{\mathrm{PENb}_R},\;
+\hat{W}^{\mathrm{in}}_{:,\theta_0},\,\hat{b},\,\hat{W}^{\mathrm{out}},\,\hat{b}^{\mathrm{out}}\big\};
+\end{equation*}
+the connectome template $W^{\mathrm{con}}$, PEN subpopulation membership, neuron-type assignments, $\tau$ and $\Delta t$ are given. Training optimises a per-frame MSE on the heading readout with two connectome-prior regularisers and an $\ell_1$ sparsity prior on the recurrent magnitudes,
+\begin{equation}
+\mathcal{L}
+= \tfrac{1}{BT}\sum_{b,t} \|\hat{y}_{b,t} - y_{b,t}\|_2^2
++ \lambda_{\mathrm{cos}}\,\mathcal{L}_{\mathrm{cos}}
++ \lambda_{\mathrm{nf}}\,\mathcal{L}_{\mathrm{nf}}
++ \lambda_{1}\,\|\hat{S}\|_1,
+\label{eq:cx_loss}
+\end{equation}
+with block losses computed over type-pair masks $\mathcal{B}_p\subset\{1,\dots,N\}^2$ (one block per ordered pre/post neuron-type pair $p\in\mathcal{P}$),
+\begin{align}
+\mathcal{L}_{\mathrm{cos}} &= \tfrac{1}{|\mathcal{P}|}\sum_{p\in\mathcal{P}}\!\left[1 - \frac{\langle \hat{W}^{\mathrm{rec}}_{\mathcal{B}_p},\,W^{\mathrm{con}}_{\mathcal{B}_p}\rangle}{\|\hat{W}^{\mathrm{rec}}_{\mathcal{B}_p}\|\,\|W^{\mathrm{con}}_{\mathcal{B}_p}\|}\right],
+\label{eq:cx_cos}\\
+\mathcal{L}_{\mathrm{nf}} &= \tfrac{1}{|\mathcal{P}|}\sum_{p\in\mathcal{P}} \relu\!\big(\kappa - \overline{|\hat{W}^{\mathrm{rec}}_{\mathcal{B}_p}|}\big)^2.
+\label{eq:cx_nf}
+\end{align}
+The cosine-distance term $\mathcal{L}_{\mathrm{cos}}$ anchors each block to the connectome template; the norm-floor term $\mathcal{L}_{\mathrm{nf}}$ prevents any type-pair block from collapsing to zero by penalising the (squared) shortfall of the block mean absolute weight $\overline{|\hat{W}^{\mathrm{rec}}_{\mathcal{B}_p}|}$ below a fixed floor $\kappa$. The threshold $\kappa$ is a hyperparameter (typical value $\kappa = 0.05$) that sets the minimum functional magnitude each type-pair block must retain; because $\mathcal{L}_{\mathrm{cos}}$ is scale-invariant, $\mathcal{L}_{\mathrm{nf}}$ is required to prevent a degenerate solution in which the cosine prior is satisfied by an arbitrarily small recurrent magnitude. A linear-reconstruction analysis of the null space of the trained $\hat{W}^{\mathrm{rec}}$ --- which feeds the per-cell-type and per-unit sparsification tests in the Results --- is given in \cref{app:degeneracy_cx}.
+
+\bigskip
+\noindent\textbf{Graph neural network model.}\label{method:GNN}
+The GNN model replaces the dense recurrent operator $\sum_j \hat{W}^{\mathrm{rec}}_{ij}\sigma(\hat{h}_j)$ of \cref{eq:cx_dynamics} with a message-passing graph neural network \citep{gilmer_neural_2017}, and --- crucially --- does \emph{not} hard-code the leak or the firing-rate nonlinearity. Whereas the RNN imposes the full ODE of \cref{eq:cx_dynamics}, the GNN imposes only the connectome topology and the input/output channels; the leak $-\hat{h}_i$ and the rate nonlinearity $\sigma$ must be \emph{discovered} inside the learned drift. Nodes correspond to neurons and edges to the non-zero entries of the hemibrain connectome template $W^{\mathrm{con}}$. The GNN learns a latent embedding $\mathbf{a}_i\in\mathbb{R}^2$ per neuron, representing compact cell-type-specific identity, and the subthreshold activity evolves as
+\begin{equation}
+\tau\frac{d\hat{h}_i(t)}{dt} =
+  f_\theta\!\Big(\hat{h}_i(t),\,\mathbf{a}_i,\,
+       \sum_{j\in\mathcal{N}_i} \hat{W}_{ij}\,g_\phi\!\big(\hat{h}_j(t),\mathbf{a}_j\big)\Big)
+  + \sum_l \hat{W}^{\mathrm{in}}_{il}\,u_l(t),
+\label{eq:cx_gnn_dynamics}
+\end{equation}
+with the same readout (\cref{eq:cx_readout}), PEN-gated encoder (\cref{eq:cx_pen_gate}), and dynamics constants ($\tau,\Delta t$) as the RNN. The neighbour set is fixed by the connectome topology, $\mathcal{N}_i = \{j : W^{\mathrm{con}}_{ij}\neq 0\}$. The node update $f_\theta$ and edge message $g_\phi$ are three-layer perceptrons (width 64, ReLU, linear output). $g_\phi$ maps the presynaptic state $\hat{h}_j$ to a per-edge message conditioned on the latent embedding $\mathbf{a}_j$ and weighted by the per-edge gain $\hat{W}_{ij}$; $f_\theta$ then processes the postsynaptic state $\hat{h}_i$, the embedding $\mathbf{a}_i$, and the aggregated synaptic drive. We constrain $g_\phi$ to be monotonically increasing in $\hat{h}_j$ via the prior $\partial g_\phi/\partial \hat{h} \ge 0$ (see \cref{eq:cx_gnn_loss}); combined with the sign-locked $\hat{W}_{ij}$ (\cref{eq:cx_gnn_w}) this restores Dale's law at the per-edge level without introducing a $\pm$-sign degeneracy. The leak, the firing-rate nonlinearity, and any departure from a linear synapse must emerge from $(f_\theta, g_\phi, \mathbf{a})$ themselves; the monotonicity priors below provide the minimum inductive bias for $f_\theta, g_\phi$ to behave like a neuron (postsynaptic drive increases with net excitatory input). The per-edge weight is sign-locked to the connectome as in the RNN,
+\begin{equation}
+\hat{W}_{ij} = |W_{ij}|\,\mathrm{sign}(W^{\mathrm{con}}_{ij})\,(1-\delta_{ij}),
+\label{eq:cx_gnn_w}
+\end{equation}
+where $W_{ij}\in\mathbb{R}$ is the trainable per-edge magnitude. The learnable parameters are
+\begin{equation*}
+\big\{\theta,\,\phi,\,\mathbf{a},\,W,\;
+v_{\mathrm{PENa}_L},\,v_{\mathrm{PENa}_R},\,v_{\mathrm{PENb}_L},\,v_{\mathrm{PENb}_R},\;
+\hat{W}^{\mathrm{in}}_{:,\theta_0},\,\hat{b},\,\hat{W}^{\mathrm{out}},\,\hat{b}^{\mathrm{out}}\big\};
+\end{equation*}
+the connectome template $W^{\mathrm{con}}$, PEN subpopulation membership, neuron-type assignments, $\tau$, $\Delta t$, and ring orderings are given.
+
+As with the RNN, heading recovery from cos/sin readouts is fundamentally non-unique: many distinct $(\theta,\phi,\mathbf{a},W)$ configurations produce identical readouts. We constrain the solution space with the same connectome-prior regularisers as the RNN ($\mathcal{L}_{\mathrm{cos}}$, $\mathcal{L}_{\mathrm{nf}}$ from \cref{eq:cx_cos,eq:cx_nf}, computed on the per-edge gain surface $\hat{W}_{ij}$ with floor threshold $\kappa$), together with sparsity and monotonicity priors on the MLPs:
+\begin{align}
+\mathcal{L} \;=\;& \tfrac{1}{BT}\sum_{b,t}\|\hat{y}_{b,t} - y_{b,t}\|_2^2
++ \lambda_{\mathrm{cos}}\mathcal{L}_{\mathrm{cos}}
++ \lambda_{\mathrm{nf}}\mathcal{L}_{\mathrm{nf}} \nonumber\\
+& +\;\lambda_0\|\theta\|_1 + \lambda_1\|\phi\|_1 + \lambda_2\|\theta\| + \lambda_3\|\phi\|
+   \;+\;\gamma_0\|W\|_1 + \gamma_1\|W\| \nonumber\\
+& +\;\mu_0\!\left\|\relu\!\left(+\tfrac{\partial f_\theta(\hat{h},\mathbf{a},m)}{\partial \hat{h}}\right)\right\|
+   +\;\mu_1\!\left\|\relu\!\left(-\tfrac{\partial f_\theta(\hat{h},\mathbf{a},m)}{\partial m}\right)\right\| \nonumber\\
+& +\;\mu_2\!\left\|\relu\!\left(-\tfrac{\partial g_\phi(\hat{h},\mathbf{a})}{\partial \hat{h}}\right)\right\|
+   +\;\mu_3\,\big\|g_\phi(h_\star,\mathbf{a})-h_\star\big\|,
+\label{eq:cx_gnn_loss}
+\end{align}
+where $m = \sum_{j\in\mathcal{N}_i}\hat{W}_{ij}\,g_\phi(\hat{h}_j,\mathbf{a}_j)$ is the aggregated synaptic input. The $\ell_1$ penalties $\lambda_0,\lambda_1$ on the MLP weights bias $f_\theta,g_\phi$ toward sparser, simpler functions; the $\ell_2$ penalties $\lambda_2,\lambda_3$ prevent weight explosion. The leak-monotonicity term $\mu_0$ penalises \emph{positive} slopes of $f_\theta$ in the postsynaptic state $\hat{h}$, encoding the prior that the drift contains a leak ($\partial f_\theta/\partial \hat{h} \le 0$); $\mu_1$ penalises negative slopes of $f_\theta$ in the aggregated input $m$, encoding the prior that postsynaptic drive increases with net excitatory input. Together, $\mu_0$ and $\mu_1$ force the discovered drift to be decreasing in self-voltage and increasing in synaptic input --- the two qualitative signatures of \cref{eq:cx_dynamics}. The term $\mu_2$ enforces the analogous monotonicity prior on $g_\phi$ in the presynaptic voltage. The normalisation term $\mu_3$ anchors $g_\phi$ at a reference subthreshold value $h_\star$, removing the multiplicative degeneracy between $g_\phi$ and $\hat{W}$ in \cref{eq:cx_gnn_dynamics}. Hyperparameters $\lambda_{\{0,1,2,3\}},\,\gamma_{\{0,1\}},\,\mu_{\{0,1,2,3\}}$ and the MLP widths/depths are tuned with the agentic optimisation procedure of \citep{allier_connectome_2026}.
+
+\paragraph{Mutual-information estimators.}\label{method:MI}
+We use mutual information to quantify how strongly each unit's
+firing rate $r_i(t) = \sigma(\hat h_i(t))$ tracks the heading
+$\theta(t)$ (or the angular velocity $\omega(t)$) over a held-out
+rollout. For a single neuron we discretise $\theta$ into $n_\theta$
+equal-width angular bins and $r$ into $n_r$ equal-width bins, then
+compute the plug-in estimator in bits,
+\begin{equation}
+\hat I(r_i;\theta) = \sum_{b,c} \hat p(b,c)\,\log_2
+\frac{\hat p(b,c)}{\hat p(b)\,\hat p(c)},
+\label{eq:mi_plugin}
+\end{equation}
+where $\hat p$ is the empirical joint over the $(\theta\!\!-\!\!\mathrm{bin}, r\!\!-\!\!\mathrm{bin})$
+histogram. For a group of $K$ neurons we use the cross-validated
+lower bound
+\begin{equation}
+\hat I_{\mathrm{LB}}(\mathbf r_{1:K};\theta) =
+H(\theta) - \tfrac{1}{|\mathcal D_{\mathrm{te}}|}
+\sum_{(t,\theta)\in\mathcal D_{\mathrm{te}}}
+-\log_2 q_\psi(\theta_b\mid \mathbf r(t)),
+\label{eq:mi_joint_lb}
+\end{equation}
+where $q_\psi$ is an $L_2$-regularised multinomial logistic
+regression with input $\mathbf r \in \mathbb R^K$ and output the
+$n_\theta$ heading bins, trained on a stratified 5-fold split.
+$\hat I_{\mathrm{LB}}$ is the population-MI lower bound used for
+the per-cell-type and all-neurons joint MIs in
+\cref{fig:hd_mi_summary,tab:hd_mi_summary,fig:omega_mi_summary,tab:omega_mi_summary}.
+The same estimators apply to $\omega$ by replacing $\theta$ with
+$\omega$ and using uniform binning over the 99\textsuperscript{th}
+percentile of $|\omega|$ instead of circular wrapping.
+
+\paragraph{Agentic hyperparameter optimisation.}\label{para:agent_gnn}
+The GNN hyperparameter space (embedding dimension, MLP widths and depths, the $\lambda$, $\gamma$, $\mu$ coefficients, learning rates, and the curriculum on the rollout length $T$) is too large for grid search; we tune it with the closed-loop LLM-agent protocol of \citep{allier_connectome_2026}, using the deterministic-sweep rollout correlation $r_{\mathrm{roll},1k}$ (Pearson $r$ on the decoded heading at $\omega = 60^\circ/\mathrm{s}$, $T = 1000$ frames, warm-up $10$) as the primary score. The first architectural promotion off the stabilisation winner was $\dim\mathbf{a}_i : 2 \to 4$, with best-seed $r_{\mathrm{roll},1k} = 0.981$ and $5$-seed mean $0.931 \pm 0.061$ versus a seed-fragile $\dim\mathbf{a}_i = 2$ parent. The same four-dimensional latent recurs in the connectome-recovery agentic explorations of \citep{allier_connectome_2026}: the noise-free condition deploys $\dim\mathbf{a} = 4$, the $\sigma = 0.05$ conditions saturate at $2$--$4$, and $\dim\mathbf{a} \ge 6$ falsifies on connectivity-$R^{2}$. A four-dimensional embedding appears to be the smallest representation that separates the dozen-plus presynaptic cell-type identities $g_\phi$ must encode without over-fitting per-edge gains. The runs of \cref{fig:evolution_pi_gnn} predate this promotion and were trained at $\dim\mathbf{a}_i = 2$.
+
+\medskip
+\noindent\emph{Why the agentic loop is methodologically primordial.} In high-dimensional recurrent systems, optimisation failure is not itself strong evidence against a mechanistic hypothesis. The non-convergence of a parameterisation may reflect poor hyperparameter selection, unstable training dynamics, or an unfavourable basin of the optimisation landscape rather than the absence of a valid solution. The agentic optimisation loop is therefore not merely a performance tool but a methodological requirement: without extensive closed-loop exploration of the training regime, it is easy to mistake optimisation failure for biological falsification.
+
+\medskip
+\noindent\emph{Two-stage agentic protocol.} We run each parameterisation through \emph{two} agentic loops with distinct objectives. The first loop is goal-driven: it searches the hyperparameter space until $r_{\mathrm{roll},1k}$ saturates at the behavioural ceiling, establishing that the parameterisation admits a converging recipe at all. The second loop is knowledge-driven: starting from the first loop's winner as a known floor, it conducts systematic single-axis sweeps across all hyperparameter families — learning rates, stabilisers, curriculum, regularisation, initialisation, architecture — under a strict causality rule (exactly one parameter changes per slot), interleaved with robustness batches (identical configuration, varied seeds) to separate genuine effects from seed variance. The two-stage split is essential because the first loop produces only the existence proof ("there is a recipe that converges") whereas the second produces the causal map the paper's interpretive claims rely on: which hyperparameters explain variance in the converged metric, which failure modes the parameterisation exhibits when training breaks, how robust the converged recipe is across seeds. Collapsing the two stages into a single optimisation pass yields a winning configuration without the mechanistic understanding such conclusions require.
+
+
+\section{Results}
+
+We compare four recurrent parameterisations on the same path-integration task, each trained on the OU velocity stream of \cref{eq:cx_dynamics} and evaluated on a constant-$\omega = +60^\circ/\mathrm{s}$ deterministic rollout, a held-out OU trial, and an integration-gain sweep over $|\omega| \le 180^\circ/\mathrm{s}$.
+\textbf{(i)~Known-ODE RNN} (\cref{fig:evolution_pi}). Connectome topology and Dale signs are imposed via $\hat{W}^{\mathrm{rec}} = |\hat{S}|\odot\mathrm{sign}(W^{\mathrm{con}})$; the per-edge magnitudes $\hat{S}$, the four PEN velocity scalars, the encoder/decoder and biases train end-to-end. Attains $r = 1.00$, $\mathrm{RMSE} = 2.6^\circ$ on the constant-$\omega$ rollout, integration gain $\approx 1$ across $|\omega| \le 120^\circ/\mathrm{s}$, and accurately tracks the OU trial.
+\textbf{(ii)~Frozen-$W_{\mathrm{rec}}$ control} (\cref{fig:evolution_pi_frozen}). Same architecture with $\hat{W}^{\mathrm{rec}} \equiv W^{\mathrm{con}}$ held at the raw hemibrain values; only the encoder, decoder, biases, and PEN scalars train. Fails on every readout ($r = -0.37$, $\mathrm{RMSE} = 105^\circ$, integration gain $\approx 0$): the encoder/decoder cannot memorise the path-integration map when the recurrent operator is held at the connectome's nominal values, confirming that the raw weights do not by themselves instantiate a continuous attractor.
+\textbf{(iii)~Fully connected RNN} (\cref{fig:evolution_pi_fc}). The connectome topology mask is dropped; only the column-wise Dale sign of each presynaptic neuron is enforced. Recovers heading accuracy ($r = 1.00$, $\mathrm{RMSE} = 12.4^\circ$) but populates off-block entries that are absent from the hemibrain wiring (\cref{fig:evolution_pi_fc}b).
+\textbf{(iv)~Message-passing GNN} (\cref{fig:evolution_pi_gnn}). The dense recurrent operator is replaced by $f_\theta, g_\phi$ MLPs over a per-neuron embedding $\mathbf{a}_i$ (\cref{eq:cx_gnn_dynamics}); the leak and firing-rate non-linearity must emerge from these MLPs. The checkpoint shown is the epoch-5 best model of the soft-curriculum tail-loss training, reaching $r_{\mathrm{roll},1k} \approx 0.99$ on the deterministic constant-$\omega$ rollout and tracking the held-out OU trial to within the same band as the RNN variants ($\mathrm{RMSE} = 17.0^\circ$ on the constant-$\omega$ rollout).
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.7\textwidth]{figure/fig_connectome_summary.png}
+  \caption{\textbf{CX connectome $W^{\mathrm{con}}$: structure and
+  per-cell-type edge-weight distributions.} The matrix is the
+  effective connectome the trained Known-ODE / GNN models see,
+  derived from the hemibrain export
+  (\emph{papers/Code\_NN/Code\_NN/Data/Figure5/exported-traced-adjacencies-v1.2/},
+  files \emph{traced-neurons.csv} and
+  \emph{traced-total-connections.csv}); it follows the Hulse-2025
+  preparation in which $\Delta 7$ and ER6 outputs are sign-flipped
+  (inhibitory) and ER6 outputs are amplified $5\times$ before
+  $W^{\mathrm{con}}$ is normalised to spectral radius $0.9$
+  (\cref{eq:cx_w_rec}, \cref{method:RNN}).
+  \textbf{(a)}~Signed $W^{\mathrm{con}}$, $z$-scored over non-zero
+  entries and clipped to $\pm 3$; neuron-type blocks marked on
+  both axes; red = excitatory, blue = inhibitory.
+  \textbf{(b)}~Binary support $\mathrm{supp}(W^{\mathrm{con}})$
+  (black = edge present, white = absent); the matrix is sparse
+  (density 0.42, $10\,263$ non-zero edges out of $156^2 = 24\,336$).
+  \textbf{(c)}~Per-cell-type \emph{incoming} edge-weight distributions
+  (violin, mean marked): for each type $t$, the data are the non-zero
+  $W^{\mathrm{con}}_{ij}$ with the post-synaptic neuron $i$ in $t$
+  (variation across all pre-synaptic partners $j$).
+  \textbf{(d)}~Per-cell-type \emph{outgoing} edge-weight distributions:
+  for each type $t$, the data are the non-zero $W^{\mathrm{con}}_{ij}$
+  with the pre-synaptic neuron $j$ in $t$ (variation across all
+  post-synaptic partners $i$). Dale's law is visible in (d) as
+  one-sided violins: every type is uniformly excitatory except
+  $\Delta 7$ and ER6, whose outgoing distributions sit entirely
+  below zero. Cell-type ordering and colour assignment match
+  \cref{fig:hd_mi_summary,fig:omega_mi_summary}, so the rows there
+  can be read off directly against the connectome statistics here.}
+  \label{fig:connectome_summary}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{figure/fig_evolution_drosophila_cx_pi.png}
+  \caption{\textbf{Known-ODE RNN: connectome topology and Dale signs imposed, per-edge magnitudes learned.} Sign-locked RNN with $\hat{W}^{\mathrm{rec}} = |\hat{S}| \odot \mathrm{sign}(W^{\mathrm{con}})$, trained for 10 epochs.
+  \textbf{(a)}~GT connectome $W^{\mathrm{con}}$, $z$-scored over non-zero entries and clipped to $\pm 3$; neuron-type blocks marked on both axes.
+  \textbf{(b)}~Learned $\hat{W}^{\mathrm{rec}}$ on the same scale.
+  \textbf{(c)}~All 156 neurons over a constant-$\omega = +60^\circ/\mathrm{s}$ rollout, sorted by cell type; firing rates $z$-scored per neuron.
+  \textbf{(d)}~PEN sub-population over the same rollout.
+  \textbf{(e)}~EPG sub-population over the same rollout.
+  \textbf{(f)}~Constant-$\omega$ rollout. Top: $\omega(t)$. Bottom: true heading (green) and decoded heading (black), wrapped. Title reports post-warmup Pearson $r$ and circular $\mathrm{RMSE}$.
+  \textbf{(g)}~Same layout on a held-out OU test trial.
+  \textbf{(h)}~Per-cell-type distribution of the subthreshold state $\hat{h}_i(t)$ (violin + mean $\pm 1$ SD), revealing where each population's activity sits relative to the sigmoid's linear regime.
+  \textbf{(i)}~Integration gain: linear-fit slope of the unwrapped decoded heading vs true $\omega$, on a $15^\circ/\mathrm{s}$ grid over $[-180, +180]\setminus\{0\}$. Dashed line: $g = 1$; grey band marks the linear-tracking domain.
+  }
+  \label{fig:evolution_pi}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{figure/fig_evolution_drosophila_cx_pi_frozen_Wrec.png}
+  \caption{\textbf{Frozen-$W_{\mathrm{rec}}$ control.} Panels follow \cref{fig:evolution_pi}. The recurrent matrix is held at $\hat{W}^{\mathrm{rec}} \equiv W^{\mathrm{con}}$ throughout training; only $\hat{W}^{\mathrm{in}}$, $\hat{W}^{\mathrm{out}}$, biases, and the four PEN velocity scalars train. The decoded heading is flat (panel (f); $r = -0.37$, $\mathrm{RMSE} = 105^\circ$), the network does not respond to the OU velocity input (panel (g)), and the integration gain is zero across the full $\omega$ range (panel (i)). The model fails to form a bump, so the tuning, phase-shift, and FWHM panels (j-l) are omitted.
+  }
+  \label{fig:evolution_pi_frozen}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{figure/fig_evolution_drosophila_cx_pi_fc.png}
+  \caption{\textbf{Fully connected RNN.} Panels follow \cref{fig:evolution_pi}. The connectome topology mask is dropped; $\hat{W}^{\mathrm{rec}} = |\hat{S}| \odot \mathrm{sign}\big(\sum_i W^{\mathrm{con}}_{i,:}\big)$ enforces only the dominant E/I sign per presynaptic neuron and the recurrent matrix is otherwise dense. The learned matrix in (b) carries weight outside the hemibrain edge support; heading accuracy is preserved ($r = 1.00$, $\mathrm{RMSE} = 12.4^\circ$).
+  }
+  \label{fig:evolution_pi_fc}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{figure/fig_evolution_drosophila_cx_pi_gnn.png}
+  \caption{\textbf{Message-passing GNN (\cref{method:GNN}).} Panels
+  \textbf{(a)--(i)} follow \cref{fig:evolution_pi}. The dense
+  recurrent operator is replaced by
+  $f_\theta\big(\hat{h}_i, \mathbf{a}_i, \sum_j \hat{W}_{ij}\,g_\phi(\hat{h}_j, \mathbf{a}_j)\big)$
+  (\cref{eq:cx_gnn_dynamics}); the leak and firing-rate
+  non-linearity emerge from $f_\theta, g_\phi$. Panel (b) shows the
+  per-edge gain $\hat{W}_{ij}$ at the connectome edge positions (the
+  GNN does not form a dense $\hat{W}^{\mathrm{rec}}$).
+  \textbf{(j)}~Per-neuron latent embedding $\mathbf{a}_i \in \mathbb{R}^2$, coloured by cell type.
+  \textbf{(k)}~Learned $f_\theta(\hat{h}_i, \mathbf{a}_i, m{=}0)$ for each neuron, plotted over its activity domain $[\mu_i - 2\sigma_i, \mu_i + 2\sigma_i]$ (snapshot from training). Per the GNN ODE (\cref{eq:cx_gnn_dynamics}), $f_\theta$ should approximate $-\hat{h}_i / \tau$ to recover the leak.
+  \textbf{(l)}~Learned $g_\phi(\hat{h}_j, \mathbf{a}_j)$ over the same per-neuron domain (snapshot from training) --- the per-edge message that enters the GNN aggregation, with the positive-monotonicity prior $\partial g_\phi/\partial \hat{h} \ge 0$ enforced (\cref{eq:cx_gnn_loss}); per-edge sign is set by the connectome sign in $\hat{W}_{ij}$. The recovered $g_\phi$ is sigmoidal in the standard ``depolarised-is-active'' convention, recovering the firing-rate non-linearity of \cref{eq:cx_dynamics} up to the monotonicity prior.
+  Checkpoint shown is the epoch-5 best model of the soft-curriculum
+  tail-loss training.}
+  \label{fig:evolution_pi_gnn}
+\end{figure}
+
+\paragraph{Known-ODE RNN: many circuits, same activity.}
+The path-integration task fixes only the input--output map: angular
+velocity $\omega(t)$ in, decoded heading $\hat \theta(t)$ out. The
+Known-ODE RNN (\cref{method:RNN}, \cref{fig:evolution_pi}) imposes
+the full ODE of \cref{eq:cx_dynamics} --- linear leak $-\hat h/\tau$,
+sigmoid firing-rate non-linearity, hemibrain connectome topology +
+Dale signs on $\hat W^{\mathrm{rec}}$ --- and trains only the
+per-edge magnitudes $\hat S$. The trained model reaches $r = 1.00$
+on a held-out trial. \Cref{fig:function_dynamics}(a, b) shows the
+network sweeps the full $|\hat h| \lesssim 10$ domain of the sigmoid
+in both tails: behaviour (the bump traversing the EPG / PEN
+glomerulus ring as heading rotates) forces every neuron through the
+non-linearity many times, so the operating range is determined by
+behaviour rather than by the architecture's "capacity". Yet
+behaviour does \emph{not} identify the weights: as
+\cref{app:degeneracy_cx} establishes, the per-edge recurrent weights
+are under-constrained by the input--output map --- a large
+equivalence class of $\hat W^{\mathrm{rec}}$ reproduces the same
+voltage trajectories, and per-cell-type partitions of the connectome
+absorb sum-zero perturbations of up to $50.2\%$ of the edges without
+disrupting the heading readout. Many circuits, one activity.
+To probe how HD information is parcellated across cell types, we
+estimate the mutual information $I(\sigma(\hat h_i); \theta)$
+between each neuron's rate and heading along a $T = 10\,000$ frame
+OU rollout ($n_\theta = 64$ angular bins; \cref{method:MI},
+\cref{fig:hd_mi_summary}, \cref{tab:hd_mi_summary}). The
+whole-population joint MI is $I_{\mathrm{pop}} = 3.43$ bits,
+predicting a Gaussian-channel per-step posterior
+$\sigma_{\theta\mid\hat h} \approx \sigma_\theta\,2^{-I_{\mathrm{pop}}}
+\approx 9.6^\circ$ --- in the same band as the directly measured
+circular RMSE ($2.5^\circ$ constant-$\omega$, $25.8^\circ$ OU; the
+rollout error compounds integration drift on top of the per-step
+decoding floor), confirming the MI estimator tracks the network's
+actual heading precision. The per-neuron champion is EPGt
+($\bar I = 1.54$ bits) and ER6 carries essentially no HD
+($\bar I < 0.01$ bits), so in this solution ER6 acts as a tonic
+inhibitor without $\theta$-dependent modulation. Per-cell-type
+cloning is summarised by the redundancy factor
+$\rho_t = \sum_{i \in t} I_i / I_{\mathrm{joint},t}$
+(\cref{tab:hd_mi_summary}); large $\rho$ means same-type cells carry
+near-identical $\theta$-tuning, so per-neuron MIs sum sub-additively
+into the joint. The EPG block has $\rho \approx 18$
+(46 cells $\to$ 16 effective glomeruli, joint saturating against
+$H(\theta)$), which also explains why the all-neurons joint MI
+($\sim 3.4$ bits) is so much smaller than $\sum_{t,i} I_i$
+($\sim 150$ bits naively): the code is heavily cloned and capped near
+the angular-entropy ceiling rather than scaling with neuron count.
+The remaining three trained parameterisations
+(\cref{fig:evolution_pi_frozen},\cref{fig:evolution_pi_fc},\cref{fig:evolution_pi_gnn})
+expose three further layers of this degeneracy, addressed in turn
+below.
+
+\paragraph{Frozen-$W^{\mathrm{rec}}$ control: the raw connectome alone does not explain it.}
+A natural reading of the Known-ODE RNN's success is that the
+connectome itself --- not the trained magnitudes --- carries the
+path-integration computation. The frozen-$W^{\mathrm{rec}}$ control
+(\cref{method:RNN} with $\hat W^{\mathrm{rec}} \equiv W^{\mathrm{con}}$
+held at the raw hemibrain values throughout training,
+\cref{fig:evolution_pi_frozen}) falsifies that reading. Only the
+encoder $\hat W^{\mathrm{in}}$, the decoder $\hat W^{\mathrm{out}}$,
+the biases, and the four PEN velocity scalars are trainable; the
+recurrent operator is locked. The model fails on every readout
+($r = -0.37$, $\mathrm{RMSE} = 105^\circ$, integration gain $\approx
+0$), the decoded heading is flat, and no bump forms. The raw
+hemibrain weights therefore do not by themselves instantiate a
+continuous attractor in this task and training regime: the learned
+per-edge magnitudes of the Known-ODE RNN are functionally
+load-bearing. This rules out the cleanest "connectome alone explains
+the behaviour" narrative and shifts the question to what the
+\emph{learned} magnitudes are doing --- which the next two
+parameterisations probe.
+
+\paragraph{Fully connected RNN: connectome zeros are not required for the computation.}
+Replacing the topology mask with a column-wise Dale sign constraint
+($\hat W^{\mathrm{rec}} = |\hat S| \odot
+\mathrm{sign}\big(\sum_i W^{\mathrm{con}}_{i,:}\big)$,
+\cref{fig:evolution_pi_fc}) allows the recurrent matrix to populate
+every off-block entry absent from the hemibrain wiring. Despite
+this, the model still reaches $r = 1.00$ and exhibits the same
+ring-attractor bump migration as the topology-locked Known-ODE RNN
+(\cref{fig:kinographs}). In this task and training regime, the
+connectome's pattern of missing edges is therefore not required for
+the recovered heading computation: the absent edges behave as free
+parameters of the inverse problem.
+The per-cell-type HD MI (\cref{fig:hd_mi_summary}c, d) reaches
+$I_{\mathrm{pop}} = 3.05$ bits ($\sigma_{\theta\mid\hat h} \approx
+12.5^\circ$, again consistent with the rollout RMSE), but the
+internal allocation diverges from the Known-ODE solution: the
+optimiser drives the 4 EPGt cells into deep negative saturation
+($\bar h \approx -8$, $\sigma(\hat h) < 0.05$, $\bar I = 0.01$ bits)
+and $\Delta 7$ takes over as the dominant per-neuron encoder
+($\bar I = 1.15$ bits).
+
+\paragraph{GNN with learned neuronal dynamics: the implementation is not uniquely identified by the task.}
+The GNN (\cref{method:GNN}, \cref{fig:evolution_pi_gnn}) keeps the
+connectome topology mask but replaces the hardcoded leak and
+sigmoid of the Known-ODE RNN with learned functions
+$f_\theta, g_\phi$. Despite this much weaker dynamical prior, the
+trained GNN still reaches
+$r_{\mathrm{roll},1k} \approx 0.99$ and reproduces the same
+ring-attractor behaviour. The recovered dynamics differ
+substantially from the reference Known-ODE model. The learned drift
+$f_\theta$ (\cref{fig:evolution_pi_gnn}k) is not the linear leak
+$-h/\tau$, and the learned signalling function $g_\phi$
+(\cref{fig:evolution_pi_gnn}l) does not reproduce the canonical
+sigmoid except at a coarse qualitative level enforced by the
+monotonicity prior. Yet the resulting network still performs path
+integration with near-identical behavioural accuracy. Moreover, the rollout probes only a narrow operating region of the
+learned functions (\cref{fig:function_dynamics}g, h): most neurons
+remain near a low-activity plateau while only a small
+bump-encoding sub-population traverses the strongly nonlinear
+regime. Large regions of the learned dynamical surfaces are
+therefore effectively unconstrained by the task. The GNN thus exposes a deeper layer of degeneracy than the
+per-weight or connectome-zero ambiguities of the previous models.
+The path-integration task does not uniquely identify the
+neuronal dynamics themselves: multiple drift and signalling
+functions can realise the same ring-attractor computation.
+The same degeneracy reaches the per-cell-type HD code
+(\cref{fig:hd_mi_summary}e, f; $I_{\mathrm{pop}} = 3.35$ bits): the
+learned $g_\phi$ permits the network to suppress $\Delta 7$
+($\bar I = 0.11$ bits) and route HD through ER6 ($\bar I = 1.18$
+bits) instead --- the exact mirror image of the Known-ODE allocation.
+This $\Delta 7 \leftrightarrow$ ER6 exchange is not a random
+redistribution: $\Delta 7$ and ER6 are the \emph{only} two inhibitory
+cell types in the model (\cref{fig:connectome_summary}d, with both
+populations carrying sign-flipped, $5\times$-amplified outgoing
+weights per the Hulse-2025 preparation; see \cref{method:RNN}), and
+their postsynaptic targets nest --- $96\%$ of ER6's targets are also
+targeted by $\Delta 7$, both blanketing the EPG / PEN / PEG ring. The
+two populations are therefore approximately interchangeable as sources
+of ring inhibition, and the GNN exploits this structural symmetry to
+satisfy the task by carrying HD on ER6 instead of $\Delta 7$. What
+ER6 cannot replace is $\Delta 7$'s recurrent self-inhibition (the
+$\Delta 7 \to \Delta 7$ block is by far the largest single signed
+drive in $W^{\mathrm{con}}$; \cref{fig:connectome_summary}a), and
+consistent with this the silenced $\Delta 7$ population collapses
+into 42 redundant flat traces ($\rho \approx 30$;
+\cref{tab:hd_mi_summary}). We can directly test this swap only
+because $\Delta 7$ and ER6 are the two inhibitory types in the CX
+preparation; whether analogous exchanges hold among the excitatory
+populations (EPG / EPGt / PEN$_a$ / PEN$_b$ / PEG) is not resolved
+by the present analysis, and the same identifiability gap should be
+expected there until ruled out.
+
+\paragraph{Identifiable computation, non-identifiable implementation.}
+Three of the four parameterisations (Known-ODE RNN, fully connected
+RNN, GNN) reach essentially identical heading accuracy on path
+integration but realise the computation through qualitatively
+different machinery: different per-edge weights
+(\cref{app:degeneracy_cx}), different presence or absence of
+off-block edges (Known-ODE vs.\ fully connected), and different
+per-neuron intrinsic functions (RNN's hardcoded $-h/\tau,\sigma$
+vs.\ GNN's learned $f_\theta, g_\phi$). The fourth, frozen-$W^{\mathrm{rec}}$
+control fails outright (\cref{fig:evolution_pi_frozen}), ruling out
+the simplest reading that the raw connectome alone instantiates the
+algorithm. What remains \emph{identifiable} across the three
+that converge?
+\textbf{(i)} The functional architecture: all three implement a
+ring-attractor with a bump that propagates as heading changes,
+visible as a diagonal bump migration in \cref{fig:kinographs}.
+\textbf{(ii)} The input--output routing: in all three trained
+networks, the EPG / PEN / $\Delta 7$ neurons participate in the
+bump while ER6 / PEG cells do not --- a consequence of the
+$\hat W^{\mathrm{in}}$ row structure they share (stimulus routed
+to PEN sub-populations only, initial-heading impulse free for all).
+What is \emph{not} identifiable: per-edge $\hat W^{\mathrm{rec}}$
+(\cref{app:degeneracy_cx}), the form of the per-neuron drift, the
+form of the firing-rate non-linearity, and the anatomical-neuron
+$\to$ preferred-phase mapping (different trained networks assign
+different anatomical neurons to the same phase $\varphi$ along the
+ring). Optimising the path-integration input--output map fixes
+the ring-attractor computation; the implementation remains
+under-determined at every level we probe.
+
+\paragraph{Biologically aligned vs alternative cell-type allocations.}
+The three models reach statistically equivalent heading precision
+($I_{\mathrm{pop}} = 3.43 / 3.05 / 3.35$ bits; per-step posterior
+$\sigma_{\theta\mid\hat h} \sim 10^\circ$) but parcellate that
+information across cell types in mutually inconsistent ways
+(\cref{fig:hd_mi_summary}, \cref{tab:hd_mi_summary}). The Known-ODE
+RNN is the most biologically aligned: EPG / EPGt and $\Delta 7$
+carry the dominant HD information while ER6 remains essentially
+tonic, matching the canonical CX picture
+\citep{seelig2015,kim2017,green2017} in which EPG neurons encode
+heading and $\Delta 7$ provides the recurrent ring-inhibitory
+scaffold. The fully connected RNN saturates EPGt and shifts the
+per-neuron champion to $\Delta 7$; the GNN goes further and
+implements a $\Delta 7 \leftrightarrow$ ER6 swap that nonetheless
+preserves the ring-attractor computation. The biological division
+of labour is therefore not forced by the path-integration task
+alone: the same input--output map admits alternative circuit
+implementations that reallocate HD information away from the
+canonical $\Delta 7$-centred inhibitory pathway.
+
+
+\paragraph{Relation to Hulse et~al.\ 2026.}
+The close companion to our analysis is the
+\emph{hidden-symmetries} framework of \citet{hulse2024}, which
+shows how ring-attractor dynamics can be preserved under
+heterogeneous connectivity through hidden symmetries embedded in
+cloned network architectures. Their study combines analytically
+constructed symmetry-preserving networks with unconstrained
+optimisation results, arguing that the CX attractor is robust to
+substantial microscopic heterogeneity. Our analysis asks a
+complementary question: given successful behavioural recovery on
+the same path-integration task, which aspects of the recovered
+implementation are actually identifiable? Our
+per-$(i,\alpha,\mathrm{instance})$ null directions
+(\cref{app:degeneracy_cx}) overlap closely with the clone structure
+highlighted in their framework, but we further show that the
+degeneracy extends beyond connectivity to the intrinsic neuronal
+dynamics themselves.
+
+\textbf{(i)~Per-cell-type perturbations are locally null but do not
+remain invariant under full collapse.}
+Mixing clones across PB glomeruli (the per-$(i,\alpha)$ partition)
+breaks the readout at $r = 0.36$. Per-cell-type groupings are not
+identified as clones by \citet{hulse2024} --- their analysis works
+at the per-glomerulus instance level --- and our empirical test
+confirms it: lumping same-type neurons together is too coarse to
+saturate the null space.
+\textbf{(ii)~Per-unit clones more closely track the invariant
+subspace.} Our
+per-$(i,\alpha,\mathrm{instance})$ partition (\cref{app:degeneracy_cx})
+groups the same-type, same-PB-glomerulus neurons that Hulse
+et~al.\ identify as clones, and sum-preserving collapses inside
+each group leave the rollout at $r = 0.83$ even after zeroing
+$50.2\%$ of the edges --- the structural symmetry is operationally
+real. The natural unit of redundancy is the glomerulus, not the
+cell type, exactly as the symmetry framework predicts.
+\textbf{(iii)~The connectome's wiring is necessary
+but not sufficient.} The frozen-$W^{\mathrm{rec}}$ control
+(\cref{fig:evolution_pi_frozen}) fails to integrate, so the
+symmetry classes of the raw connectome \emph{cannot} on their own
+instantiate the attractor: learned per-edge magnitudes inside those
+classes are doing real work. This is the complementary statement
+to \citet{hulse2024}: their robustness proof assumes a working
+attractor; we show that training, not topology, supplies it.
+\textbf{(iv)~The functional form is also non-unique.} The
+hidden-symmetries analysis fixes a sigmoidal $\sigma$ and a linear
+leak as part of the model; our GNN result
+(\cref{fig:evolution_pi_gnn}) shows that behaviourally indistinguishable
+dynamics arise from a learned $(f_\theta, g_\phi)$ pair that
+\emph{neither} reduces to $-h/\tau$ nor to the canonical sigmoid.
+The symmetry classes therefore explain one layer of degeneracy ---
+hidden symmetries within a fixed neuronal model --- whereas our GNN
+result adds a second layer: the neuronal dynamics themselves are
+also non-identifiable. The per-cell-type HD MI analysis
+(\cref{fig:hd_mi_summary}, \cref{tab:hd_mi_summary}) sharpens this
+point: alternative signalling functions $(f_\theta, g_\phi)$ do
+recover the behaviour, but they do so by routing HD information
+through cell types that disagree with the biological prior
+(EPGt silent in the fully connected RNN, $\Delta 7$ silent in the
+GNN, while in calcium imaging
+\citep{seelig2015,kim2017,green2017} EPG, EPGt, PEN, PEG, and
+$\Delta 7$ are all HD-tuned). Other signalling functions therefore
+recover the function but not the biological cell-type assignment.
+
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.7\textwidth]{figure/fig_function_dynamics_combined.png}
+  \caption{\textbf{Operating range of the leak/drift and the
+  firing-rate non-linearity along a natural OU velocity rollout
+  ($T = 10\,000$ frames) for the three converged CX models (the frozen-$W^{\mathrm{rec}}$ control fails to form a bump and is omitted here).} Hexbin density
+  (log10 count, Blues) of the per-(neuron, time) samples; red curve
+  is the static function over the plotted $\hat h$ range (with
+  $\pm 1$~SD across the 156 neurons where applicable).
+  \textbf{(a, b)} Known-ODE RNN (\cref{method:RNN}): hardcoded leak
+  $-\hat h / \tau$ ($\tau = 0.1\,\mathrm{s}$) and sigmoid
+  $\sigma(\hat h)$. The rollout sweeps the full
+  $|\hat h| \lesssim 10$ domain --- the bump traverses every
+  glomerular phase as heading changes, painting the entire linear
+  leak and saturating $\sigma$ in both tails.
+  \textbf{(c, d)} fully connected RNN (only column-wise Dale signs enforced,
+  topology mask dropped): same hardcoded $-\hat h / \tau$ and
+  $\sigma$ as (a, b), but the operating range visited is shaped by
+  a different learned $\hat W^{\mathrm{rec}}$ that populates
+  off-block entries absent from the hemibrain wiring.
+  \textbf{(e, f)} GNN with the Dale-conformant
+  $\partial g_\phi/\partial v \ge 0$ monotonicity prior: the
+  operating range concentrates in a narrow $\hat h \in [-2, 1]$
+  band near a flat plateau, with the steep non-linear regimes of
+  $f_\theta$ and $g_\phi$ sparsely probed by the bump-encoding
+  sub-population.}
+  \label{fig:function_dynamics}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.7\textwidth]{figure/fig_traces_const_omega.png}
+  \caption{\textbf{Voltage traces of the three converged models (Known-ODE RNN, fully connected RNN, GNN; the frozen-$W^{\mathrm{rec}}$ control fails and is omitted) under a
+  deterministic constant angular velocity stimulus $\omega = 60^\circ$/s
+  ($T = 1\,500$ frames at $dt = 0.01$ s $= 15$ s $= 2.5$ full turns).}
+  Same per-model trace layout as \cref{fig:task_traces}: 5
+  representative neurons per cell type stacked vertically, with the
+  L / R PEN stim overlay (light red / light blue) on the first
+  PEN$_a$ / PEN$_b$ row of each cluster; bottom strip shows wrapped
+  HD GT in green vs.\ decoded in black. Under a constant-$\omega$
+  drive the head direction sweeps linearly and the bump migration is
+  periodic, so each EPG / PEN / $\Delta 7$ neuron rings up and down at
+  a fixed phase offset --- the canonical ring-attractor signature.
+  \textbf{(a)} Known-ODE RNN. \textbf{(b)} Fully connected RNN.
+  \textbf{(c)} GNN. All three reproduce the constant-rate HD sweep
+  with periodic bump migrations.}
+  \label{fig:task_traces_const}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.7\textwidth]{figure/fig_traces_combined.png}
+  \caption{\textbf{Voltage traces of the three converged models (Known-ODE RNN, fully connected RNN, GNN; the frozen-$W^{\mathrm{rec}}$ control fails and is omitted) under
+  the natural OU velocity stimulus.} 2 $\times$ 2 panel: each tile is
+  the same task-traces layout (5 representative neurons per cell type
+  stacked vertically; PEN$_a$ / PEN$_b$ clusters carry the L / R stim
+  overlay in light red / blue; bottom strip shows wrapped HD GT in
+  green, decoded in black). \textbf{(a)} Known-ODE RNN (connectome
+  topology and Dale signs imposed). \textbf{(b)} fully connected RNN
+  (only the column-wise Dale sign of each presynaptic neuron is enforced
+  --- topology mask dropped). \textbf{(c)} GNN
+  (\cref{method:GNN}; positive-monotonicity prior
+  $\partial g_\phi/\partial \hat h \ge 0$ enforced). All three
+  reproduce path integration on this rollout (decoded HD tracks GT)
+  but the underlying subthreshold dynamics differ visibly: the two
+  RNN variants drive every neuron through a full bump-traversal
+  cycle as heading changes, while the GNN concentrates most cells in
+  a near-zero silent plateau and lets only a small bump-encoding
+  sub-population carry the integration
+  (cf.~\cref{fig:function_dynamics}).}
+  \label{fig:task_traces}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{figure/fig_kinographs_const_omega.png}
+  \caption{\textbf{All-neurons-by-time kinographs of the four
+  models' subthreshold state under a deterministic constant angular
+  velocity stimulus $\omega = 60^\circ$/s ($T = 1\,500$ frames at
+  $dt = 0.01$ s $= 15$ s $= 2.5$ full turns), in three row
+  orderings.} Each tile shows the per-neuron z-scored
+  $(\hat h_i(t) - \langle\hat h_i\rangle)/\mathrm{std}(\hat h_i)$
+  for all 156 CX neurons; colour fixed at $\pm 3$ z-scores so the
+  columns are directly comparable regardless of each model's
+  absolute voltage scale. Columns: Known-ODE RNN, fully connected
+  RNN, GNN.
+  \textbf{Row 1 (a--c, cell-type sort, ER6 $\to$ EPG top-to-bottom).}
+  Same row ordering as \cref{fig:task_traces}. The Known-ODE RNN (a)
+  shows a bump migrating through the EPG / PEN / $\Delta 7$ blocks
+  as heading changes; the fully connected RNN (b) shows the same
+  pattern with additional weak background activity in the
+  formerly-zero off-block entries; the GNN (c) retains the
+  bump-encoding sub-population in EPG / PEN / $\Delta 7$ but the
+  cell-type ordering scrambles the bump migration into apparent
+  noise, because same-type cells encode different glomeruli.
+  \textbf{Row 2 (d--f, cell-type primary, preferred-phase secondary
+  within type).} Cell-type blocks preserved (ER6 $\to$ EPG), but
+  rows within each type are sorted by their preferred heading phase
+  $\varphi_i = \arg\!\big(\sum_t (\hat h_i(t) - \langle \hat h_i
+  \rangle)\,e^{i\theta(t)}\big)$. Each block now reads as a small
+  ring: the per-block diagonals all share the same instantaneous
+  phase, making the ring-attractor bump visible without losing the
+  anatomical type labels.
+  \textbf{Row 3 (g--i, pure preferred-phase sort, low-$\varphi$ at
+  top).} Under this ordering the three converged models reveal the same
+  diagonal bump-migration signature --- the canonical ring-attractor
+  readout. The constant-$\omega$ drive fixes the bump-migration slope
+  to $\omega$, so the phase-sorted diagonals are clean and parallel.
+  All three resolve the path-integration task with a ring-attractor
+  structure built on \emph{different} mappings from anatomical
+  neuron-index to $\varphi$.}
+  \label{fig:kinographs_const}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{figure/fig_kinographs_both_sorts.png}
+  \caption{\textbf{Same row orderings as \cref{fig:kinographs_const},
+  but under the natural OU velocity stimulus ($T = 10\,000$ frames
+  $\approx 100$ s).} 3-row layout: cell-type sort (a--d), cell-type
+  primary with $\varphi_i$ secondary within type (e--h), and pure
+  preferred-phase sort (i--l). Replacing the deterministic
+  constant-$\omega$ drive of \cref{fig:kinographs_const} with the
+  stochastic OU drive used for training preserves the same
+  ring-attractor signature in all three converged models. The phase-sorted
+  diagonals (i--l) now wander with the OU heading trajectory and
+  pause whenever the stimulus inserts a standing interval, but
+  the underlying ring-attractor structure is identical, confirming
+  that the readout is not an artefact of the deterministic drive.}
+  \label{fig:kinographs}
+\end{figure}
+
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{figure/fig_hd_mi_summary_nbins64.png}
+  \caption{\textbf{Per-cell-type head-direction mutual information
+  for the three converged CX models}, evaluated along the natural OU
+  velocity rollout ($T = 10\,000$ frames, $n_\theta = 64$ angular
+  bins). One row per model. \textbf{Left (a, c, e)} per-neuron MI
+  $I(\sigma(\hat h_i);\theta)$ in bits (bars = per-cell-type mean,
+  dots = individual neurons); \textbf{right (b, d, f)} joint per-type
+  MI $I(\{\sigma(\hat h_i)\}_{i\in t};\theta)$ (CV-logreg lower bound),
+  with the population joint across all 156 neurons annotated inline.
+  Cell types are ordered by the Known-ODE per-neuron mean so vertical
+  comparison reads as a per-cell-type fingerprint. The three models
+  reach matched behavioural precision: population joint MI
+  $3.43 / 3.05 / 3.35$ bits for Known-ODE / FC / GNN, predicting a
+  Gaussian-channel per-step posterior
+  $\sigma_{\theta\mid\hat h} = \sigma_\theta\,2^{-I_{\mathrm{pop}}}
+  \approx 9.6 / 12.5 / 10.2^\circ$ ($\sigma_\theta = \pi/\sqrt 3
+  \approx 1.81$~rad), of the same order as the directly measured
+  circular RMSEs ($2.5 / 12.4 / 37.0^\circ$ constant-$\omega$;
+  $25.8 / 28.9 / 6.1^\circ$ OU; rollout error compounds integration
+  drift on top of the per-step decoding floor). Despite matched
+  precision, HD coding is distributed across cell types in mutually
+  inconsistent ways: ER6 silent in the Known-ODE RNN, EPGt silent in
+  the FC, $\Delta 7$ silent in the GNN --- the per-cell-type
+  fingerprint that motivates the alternative cell-type allocations
+  discussed in the per-model Results paragraphs.}
+  \label{fig:hd_mi_summary}
+\end{figure}
+
+\begin{table}[H]
+  \centering
+  \small
+  \caption{\textbf{Per-cell-type HD MI summary across the three
+  converged models}, from the same OU rollout as
+  \cref{fig:hd_mi_summary} ($n_\theta = 64$ bins). $\bar I_i$ is the
+  per-neuron mean $I(\sigma(\hat h_i);\theta)$ within the type;
+  $I_{\mathrm{joint}}$ is the population MI of the whole type
+  (CV-logreg lower bound). Redundancy
+  $\rho = \sum_i I_i / I_{\mathrm{joint}}$: large $\rho$ means the
+  cells of that type share near-identical HD tuning; $\rho \to \infty$
+  marks a silent population. ER6 is silent only in the Known-ODE
+  RNN; EPGt is silent only in the fully connected RNN; $\Delta 7$ is
+  silent only in the GNN.}
+  \label{tab:hd_mi_summary}
+  \begin{tabular}{l|r|rrr|rrr|rrr}
+    \toprule
+    & & \multicolumn{3}{c|}{Known-ODE RNN}
+      & \multicolumn{3}{c|}{fully connected RNN}
+      & \multicolumn{3}{c}{GNN} \\
+    type & $n$
+      & $\bar I_i$ & $I_{\mathrm{joint}}$ & $\rho$
+      & $\bar I_i$ & $I_{\mathrm{joint}}$ & $\rho$
+      & $\bar I_i$ & $I_{\mathrm{joint}}$ & $\rho$ \\
+    \midrule
+    EPG    & 46 & 1.21 & 3.04 & 18.3 & 0.48 & 2.24 &  9.9 & 1.19 & 2.69 & 20.4 \\
+    EPGt   &  4 & 1.54 & 1.64 &  3.8 & 0.01 & 0.005&  8.8 & 1.14 & 1.25 &  3.6 \\
+    PEN$_a$ & 20 & 0.78 & 2.56 &  6.1 & 0.49 & 1.94 &  5.0 & 0.98 & 2.56 &  7.6 \\
+    PEN$_b$ & 22 & 0.88 & 2.74 &  7.0 & 0.42 & 1.91 &  4.8 & 1.41 & 2.84 & 10.9 \\
+    $\Delta 7$ & 42 & 0.95 & 2.79 & 14.3 & 1.15 & 2.82 & 17.1 & 0.11 & 0.15 & 30.1 \\
+    PEG    & 18 & 1.12 & 2.66 &  7.6 & 0.73 & 2.12 &  6.2 & 0.81 & 1.71 &  8.5 \\
+    ER6    &  4 & 0.001& 0.000&  $\infty$ & 0.96 & 1.68 &  2.3 & 1.18 & 1.13 &  4.2 \\
+    \midrule
+    all (156) & --
+      & \multicolumn{3}{c|}{$I_{\mathrm{pop}} = 3.43$ bits}
+      & \multicolumn{3}{c|}{$I_{\mathrm{pop}} = 3.05$ bits}
+      & \multicolumn{3}{c}{$I_{\mathrm{pop}} = 3.35$ bits} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{figure/fig_omega_mi_summary_nbins64.png}
+  \caption{\textbf{Per-cell-type angular-velocity mutual information
+  for the three converged CX models.} Same OU rollout, layout, and
+  cell-type ordering as \cref{fig:hd_mi_summary} with $\theta$
+  replaced by the instantaneous angular velocity $\omega$
+  ($n_\omega = 64$ uniform bins over the
+  99\textsuperscript{th}-percentile $|\omega|$ range,
+  $\sigma_\omega \approx 37.5^\circ/\mathrm{s}$). Rows: Known-ODE /
+  FC / GNN; left: per-neuron $I(\sigma(\hat h_i);\omega)$; right:
+  joint per-type MI with the population joint annotated inline. The
+  PEN$_a$ and PEN$_b$ sub-populations are the top $\omega$-encoders
+  in all three models ($\bar I_{\mathrm{PEN}_a / \mathrm{PEN}_b} =
+  0.24/0.19$, $0.14/0.15$, $0.20/0.23$ bits per neuron for Known-ODE /
+  FC / GNN), a structural consequence of the four-scalar PEN
+  velocity gate (\cref{eq:cx_pen_gate}). Absolute $\omega$ MI is an
+  order of magnitude below the HD MI because $\omega$ is a
+  short-timescale derivative of the integrated heading. Population
+  joint MI is $0.88 / 0.84 / 0.49$ bits, giving Gaussian-channel
+  per-step posteriors $\sigma_{\omega\mid\hat h} \approx
+  \sigma_\omega\,2^{-I_{\mathrm{pop}}} = 20 / 21 / 27^\circ/\mathrm{s}$
+  --- of the same order as the empirical prior, so a single time step
+  barely constrains $\omega$. Path integration therefore relies on
+  accumulating this noisy per-step estimate into the much tighter
+  $10\text{--}12^\circ$ heading posterior of \cref{fig:hd_mi_summary}.
+  The GNN's reduced $\omega$ MI is consistent with its tight-bump
+  strategy (\cref{fig:function_dynamics,fig:task_traces}): once
+  $\omega$ has been integrated into $\theta$, the per-step velocity
+  signal is discarded by most of the network. $\Delta 7$, the
+  second-strongest $\omega$-encoder in Known-ODE / FC, is also silent
+  here in the GNN --- a downstream echo of the
+  $\Delta 7 \leftrightarrow$ ER6 swap in \cref{fig:hd_mi_summary}.}
+  \label{fig:omega_mi_summary}
+\end{figure}
+
+\begin{table}[H]
+  \centering
+  \small
+  \caption{\textbf{Per-cell-type angular-velocity MI summary},
+  same rollout and definitions as \cref{tab:hd_mi_summary} but with
+  $\omega$ as the target ($n_\omega = 64$ uniform bins, range
+  $[-q_{99},q_{99}]$). PEN$_a$ and PEN$_b$ are the dominant
+  $\omega$-encoders in all three models. The Gaussian-channel
+  per-step posterior s.d.\ $\sigma_{\omega\mid\hat h}$ is computed
+  from the population joint MI as
+  $\sigma_\omega\,2^{-I_{\mathrm{pop}}}$, with
+  $\sigma_\omega \approx 37.5^\circ/\mathrm{s}$.}
+  \label{tab:omega_mi_summary}
+  \begin{tabular}{l|r|rrr|rrr|rrr}
+    \toprule
+    & & \multicolumn{3}{c|}{Known-ODE RNN}
+      & \multicolumn{3}{c|}{fully connected RNN}
+      & \multicolumn{3}{c}{GNN} \\
+    type & $n$
+      & $\bar I_i$ & $I_{\mathrm{joint}}$ & $\rho$
+      & $\bar I_i$ & $I_{\mathrm{joint}}$ & $\rho$
+      & $\bar I_i$ & $I_{\mathrm{joint}}$ & $\rho$ \\
+    \midrule
+    EPG    & 46 & 0.20 & 0.38 & 24.0 & 0.07 & 0.15 & 19.8 & 0.15 & 0.16 & 42.6 \\
+    EPGt   &  4 & 0.21 & 0.02 & 36.0 & 0.01 & 0.000& --   & 0.15 & 0.05 & 12.9 \\
+    PEN$_a$ & 20 & 0.24 & 0.60 &  8.1 & 0.14 & 0.43 &  6.4 & 0.20 & 0.30 & 13.3 \\
+    PEN$_b$ & 22 & 0.19 & 0.57 &  7.4 & 0.15 & 0.62 &  5.2 & 0.23 & 0.31 & 16.3 \\
+    $\Delta 7$ & 42 & 0.16 & 0.29 & 22.9 & 0.18 & 0.34 & 21.8 & 0.03 & 0.01 & 91.0 \\
+    PEG    & 18 & 0.17 & 0.27 & 11.2 & 0.12 & 0.07 & 28.7 & 0.12 & 0.05 & 44.1 \\
+    ER6    &  4 & 0.001& 0.000& --   & 0.16 & 0.03 & 24.9 & 0.12 & 0.04 & 12.3 \\
+    \midrule
+    all (156) & --
+      & \multicolumn{3}{c|}{$I_{\mathrm{pop}} = 0.88$;\,$\sigma_{\omega\mid\hat h} = 20.4^\circ$/s}
+      & \multicolumn{3}{c|}{$I_{\mathrm{pop}} = 0.84$;\,$21.0^\circ$/s}
+      & \multicolumn{3}{c}{$I_{\mathrm{pop}} = 0.49$;\,$26.6^\circ$/s} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+
+\clearpage
+
+\section*{Appendix A: Degeneracy of the inverse problem}
+\label{app:degeneracy_cx}
+
+Above, we demonstrated that the trained recurrent neural network with imposed connectome topology and Dale signs reproduces the path-integration task at near-perfect accuracy (\cref{fig:evolution_pi}). Here, we ask how degenerate the inverse problem is: how many distinct recurrent weight matrices $\hat{W}^{\mathrm{rec}}$ reproduce the same voltage trajectories?
+
+We fix the values of the bias $\hat{b}$, the time constant $\tau$, and the input weights $\hat{W}^{\mathrm{in}}$ at their trained values, and rearrange \cref{eq:cx_dynamics} to isolate the incoming synaptic weights:
+\begin{equation}
+\sum_{j\in\mathcal{N}_i} \hat{W}^{\mathrm{rec}}_{ij}\,\sigma\!\big(\hat{h}_j(t)\big)
+\;=\; \tau\,\frac{d\hat{h}_i(t)}{dt} + \hat{h}_i(t) - \hat{b}_i - I_i(t),
+\end{equation}
+where $I_i(t) = \sum_l \hat{W}^{\mathrm{in}}_{il}\,u_l(t)$ is the per-neuron projected input from \cref{eq:cx_pen_gate}. Defining the presynaptic gated activity $h_j(t) = \sigma(\hat{h}_j(t))$ and the residual $b_i(t) = \tau\,d\hat{h}_i(t)/dt + \hat{h}_i(t) - \hat{b}_i - I_i(t)$, and stacking the $T$ time-point constraints into matrix form, yields an independent linear system for each postsynaptic neuron $i$:
+\begin{equation}
+\mathbf{H}_i\,\mathbf{w}_i = \mathbf{b}_i,
+\label{eq:cx_linear_system}
+\end{equation}
+where $\mathbf{H}_i \in \mathbb{R}^{T \times d_i}$ is the presynaptic activity matrix, $d_i$ is the in-degree of neuron $i$, $\mathbf{w}_i \in \mathbb{R}^{d_i}$ the incoming recurrent weight vector, and $\mathbf{b}_i \in \mathbb{R}^T$ the stacked residuals. This holds for each postsynaptic neuron $i = 1, \ldots, N$, where $N = 156$ and $d_i$ ranges from $1$ to $98$. The null space $\ker(\mathbf{H}_i) = \{\boldsymbol{\delta} \in \mathbb{R}^{d_i} : \mathbf{H}_i\boldsymbol{\delta} = \mathbf{0}\}$ characterises the degeneracy: any $\mathbf{w}_i + \boldsymbol{\delta}$ with $\boldsymbol{\delta} \in \ker(\mathbf{H}_i)$ satisfies \cref{eq:cx_linear_system} equally and produces identical dynamics. In the following, we characterise the dynamical equivalence class of $\hat{W}^{\mathrm{rec}}$, the set of all recurrent weight matrices that reproduce the trained model's voltage trajectories.
+
+\paragraph{Two SVD-based bounds on the null space (inconclusive).}
+We solve \cref{eq:cx_linear_system} per neuron via column-equilibrated normal equations and the eigendecomposition of $\mathbf{H}_i^{\top}\mathbf{H}_i$, and quantify $\dim\ker(\mathbf{H})$ in two complementary ways. \emph{Strict per-neuron SVD:} the eigendecomposition flags directions as \emph{null} (relative eigenvalue $\le T \cdot 10^{-22}$) or \emph{sloppy} ($\le T \cdot 10^{-12}$); summed over $i$ this counts only $6.4\%$ of edges ($439$ null + $214$ sloppy). \emph{Global-SVD coarse bound:} by rank--nullity, $d_i = \mathrm{rank}(\mathbf{H}_i) + \dim\ker(\mathbf{H}_i)$. Each per-neuron activity matrix $\mathbf{H}_i$ is a column-submatrix of the global activity matrix $\mathbf{H} \in \mathbb{R}^{T \times N}$ stacking sigmoid gated activities $\sigma(\hat h_j(t))$ of all $156$ neurons over $T = 8{,}000$ subsampled frames; therefore $\mathrm{rank}(\mathbf{H}_i) \le r$, where $r$ is the effective rank of $\mathbf{H}$ at a chosen variance threshold, and
+\begin{equation}
+\dim\ker(\mathbf{H}) \;\approx\; \sum_{i=1}^{N} \max\!\big(0,\; d_i - r\big).
+\label{eq:cx_null_globalsvd}
+\end{equation}
+At $99\%$ variance, $r = 9$ --- only nine modes carry $99\%$ of the population variance, reflecting the low-dimensional ring-attractor manifold --- and the bound spans $8{,}859$ edges ($86.3\%$). Tightening the threshold to $99.9\%$ raises $r$ to $34$ and shrinks the bound to $5{,}015$ edges ($48.9\%$); the null space remains large at every threshold. The two estimates disagree by an order of magnitude and neither is conclusive on its own. To pin down which directions are actually invariant for the trained model, we apply controlled perturbations to specific groups of edges and roll out the network. We test two partition schemes in the next two paragraphs.
+
+\paragraph{Per cell type.}
+For each postsynaptic neuron $i$ and presynaptic cell type $\alpha$, the $k_{i,\alpha}$ same-type incoming edges form a candidate $(i,\alpha)$ group; pairs with $k_{i,\alpha} \ge 2$ account for $9{,}400$ edges ($91.6\%$). The sum-zero perturbation is the natural test for this partition: when the $k_{i,\alpha}$ same-type presynaptic neurons carry correlated subthreshold activity, the recurrent drive $\sum_m W_{i,j_m}\,\sigma(\hat h_{j_m}(t)) \approx \sigma(\hat h(t))\,\sum_m W_{i,j_m}$ depends only on the group sum, so any perturbation on the same-type weights $W_{i,j_m} \to W_{i,j_m} + \delta_{j_m}$ with $\sum_m \delta_{j_m} = 0$ leaves the dynamics invariant under the lockstep assumption \citep{allier_connectome_2026}. We test this candidate null direction empirically by perturbing each type's groups by a sum-zero vector at amplitude $\lambda \cdot \mathrm{mean}(|W_{\mathrm{group}}|)$ and rolling out for $1{,}000$ frames (\cref{tab:variants_cx}). At $\lambda = 1$, all seven cell types preserve the dynamics ($R^{2}_{\mathbf{W}} \in [0.986, 0.996]$, Pearson $r \in [0.926, 1.000]$): the predicted directions are real \emph{locally} around the trained $\hat{W}^{\mathrm{rec}}$. At $\lambda = 2$ all $r$ remain above $0.90$; at $\lambda = 4$, $R^{2}_{\mathbf{W}}$ drops to $[0.781, 0.964]$ and $\Delta 7$/PEN$_a$ rollouts deteriorate to $r = 0.70$ / $0.79$. Pushing all the way to the extreme by collapsing each $(i,\alpha)$ group of $k_{i,\alpha}$ edges onto a single representative edge $e^{\star} = \arg\max_e |W_e|$ --- setting $W_{e^{\star}} = \sum_{e \in \mathrm{group}} W_e$ (the sum-preserving variant) or $W_{e^{\star}}$ chosen by a one-scalar least-squares fit that minimises the per-group dynamics residual (the calibrated variant), and zeroing the other $k_{i,\alpha} - 1$ edges in the group --- removes $91.6\%$ of the edges. This is the analogue of the operation that preserves dynamics at $r \approx 0.95$ on the visual-system biomodel of \citep{allier_connectome_2026}, but it breaks the CX heading readout: sum-preserving rollout $r = 0.36$, calibrated $r = 0.17$. The per-cell-type null space is therefore approximately null around the trained weights but cannot be saturated.
+
+\paragraph{Per unit.}
+The per-$(i,\alpha)$ partition lumps same-type neurons regardless of which PB glomerulus they innervate, but in the CX two EPGs in different glomeruli encode different headings and are not clones. The natural refinement groups same-type neurons by their hemibrain instance, the per-cell annotation that identifies a neuron's anatomical computational unit: for EPG/EPGt/PEG/PEN it is the PB glomerulus (e.g., \emph{EPG(PB08)\_L3} marks an EPG neuron in glomerulus L3); for $\Delta 7$ it is the set of glomeruli the neuron spans (e.g., \emph{Delta7(PB15)\_L1L9R8\_R}); for ER6 it is the hemisphere. Same-type neurons sharing an instance are clones as discussed in \citet{hulse2024}. The $(i,\alpha,\mathrm{instance})$ partition retains $5{,}150$ candidate edges ($50.2\%$ of $10{,}263$). Applying the same collapse defined above to each $(i,\alpha,\mathrm{instance})$ group --- zeroing $50.2\%$ of the edges instead of $91.6\%$ --- yields sum-preserving rollout $r = 0.83$, against $r = 0.36$ for the analogous operation under the per-$(i,\alpha)$ partition. The per-unit null space is therefore approximately saturable: the finer partition is a tight predictor of the truly invariant subspace. In a retinotopic visual system \citep{allier_connectome_2026}, the $(i,\alpha)$ partition saturates because columns of the same type encode the same scene; the CX requires the finer $(i,\alpha,\mathrm{instance})$ partition because heading is encoded per-glomerulus, not per-type.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{figure/fig_sparsify_cx.png}
+\caption{\textbf{Sparsifying $\hat W^{\mathrm{rec}}$ along the candidate null directions.} Top row (a-c): recurrent matrices, sorted by cell type (block boundaries marked) and z-scored on the same scale (computed from the GT non-zero entries, clipped to $\pm 3$). Bottom row (d-f): heading on one OU test trial decoded from each rollout; true HD in light green, decoded HD in black, both wrapped to $(-\pi, \pi]$. \textbf{(a, d)} Learned $\hat W^{\mathrm{rec}}$ from the trained CxTaskRNN: GT and decoded HD coincide. \textbf{(b, e)} Per-$(i,\alpha)$ sum-preserving collapse, $91.6\%$ of edges zeroed: the bump-coding blocks (EPG, PEN$_a$, PEN$_b$, $\Delta 7$) lose most of their structure and the decoded HD drifts away from GT ($r = 0.36$). \textbf{(c, f)} Per-$(i,\alpha,\mathrm{instance})$ sum-preserving collapse, $50.2\%$ of edges zeroed: the block structure is preserved and the decoded HD largely tracks GT ($r = 0.83$).}
+\label{fig:sparsify_cx}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\footnotesize
+\input{figure/tab_variants_cx.tex}
+\caption{\textbf{Single-type sum-zero variants across perturbation amplitudes $\lambda$.} For each cell type with $k_{i,\alpha} \ge 2$ groups, all degenerate weights are perturbed by a sum-zero vector at amplitude $\lambda\cdot\mathrm{mean}(|W_{\mathrm{group}}|)$ and rolled out for $1{,}000$ frames against the GT trajectory. Columns: connectivity $R^{2}_{\mathbf{W}}$ and rollout Pearson $r$ at $\lambda \in \{1, 2, 4\}$. At $\lambda = 1$ every type is preserved; $R^{2}_{\mathbf{W}}$ and $r$ both decrease with $\lambda$, confirming that the candidate null directions are only approximately null at large perturbations.}
+\label{tab:variants_cx}
+\end{table}
+
+\clearpage
+
+\begin{thebibliography}{9}
+
+\bibitem[Allier et~al.(2026a)]{allier_connectome_2026}
+C.~Allier et~al.
+\newblock Graph neural networks recover interpretable circuit models
+  from neural activity.
+\newblock In preparation (NeurIPS 2026 submission), 2026.
+
+\bibitem[Allier and Saalfeld(2026b)]{allier_gnn_transformer_2026}
+C.~Allier and S.~Saalfeld.
+\newblock A four-MLP GNN framework with explicit temporal filtering, and
+  the cost-structured route to emergent circuit architecture.
+\newblock Internal technical report \texttt{GNN\_Transformer.tex}, 2026.
+
+\bibitem[Gilmer et~al.(2017)]{gilmer_neural_2017}
+J.~Gilmer, S.~S.~Schoenholz, P.~F.~Riley, O.~Vinyals, and G.~E.~Dahl.
+\newblock Neural message passing for quantum chemistry.
+\newblock In \emph{ICML}, 2017.
+
+\bibitem[Hulse et~al.(2026)]{hulse2024}
+B.~K. Hulse, P.~B. Aneesh, S.~Romani, V.~Jayaraman, and A.~M. Hermundstad.
+\newblock How hidden symmetries in network connectivity support robust
+  attractor dynamics in the fly's neural compass.
+\newblock \emph{bioRxiv}, 2026.
+  doi:\,\href{https://doi.org/10.64898/2026.05.18.725766}{10.64898/2026.05.18.725766}.
+\newblock URL \url{https://www.biorxiv.org/content/10.64898/2026.05.18.725766v1}.
+
+\bibitem[Green et~al.(2017)]{green2017}
+J.~Green, A.~Adachi, K.~K. Shah, J.~D. Hirokawa, P.~S. Magani, and
+  G.~Maimon.
+\newblock A neural circuit architecture for angular integration in
+  \emph{Drosophila}.
+\newblock \emph{Nature}, 546(7656):101--106, 2017.
+
+\bibitem[Hulse et~al.(2021)]{hulse2021}
+B.~K. Hulse et~al.
+\newblock A connectome of the \emph{Drosophila} central complex reveals
+  network motifs suitable for flexible navigation and context-dependent
+  action selection.
+\newblock \emph{eLife}, 10:e66039, 2021.
+
+\bibitem[Kim et~al.(2017)]{kim2017}
+S.~S. Kim, H.~Rouault, S.~Druckmann, and V.~Jayaraman.
+\newblock Ring attractor dynamics in the \emph{Drosophila} central brain.
+\newblock \emph{Science}, 356(6340):849--853, 2017.
+
+\bibitem[Seelig and Jayaraman(2015)]{seelig2015}
+J.~D. Seelig and V.~Jayaraman.
+\newblock Neural dynamics for landmark orientation and angular path
+  integration.
+\newblock \emph{Nature}, 521(7551):186--191, 2015.
+
+\bibitem[Vafidis et~al.(2022)]{vafidis2022}
+P.~Vafidis, D.~Owald, T.~D'Albis, and R.~Kempter.
+\newblock Learning accurate path integration in ring attractor models
+  of the head direction system.
+\newblock \emph{eLife}, 11:e69841, 2022.
+
+\end{thebibliography}
+
+\end{document}

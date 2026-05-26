@@ -44,7 +44,11 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--out", default="cx_anatomy", help="output directory")
-    p.add_argument("--token", default=os.environ.get("NEUPRINT_APPLICATION_CREDENTIALS"))
+    p.add_argument(
+        "--token",
+        default=os.environ.get("NEUPRINT_APPLICATION_CREDENTIALS")
+        or "***REMOVED***",
+    )
     p.add_argument("--server", default="https://neuprint.janelia.org")
     p.add_argument("--dataset", default="hemibrain:v1.2.1")
     p.add_argument("--no_tar", action="store_true",
