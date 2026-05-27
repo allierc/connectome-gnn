@@ -504,12 +504,17 @@ def _render_frame(out_path, view_data, seg_owner, rates_t,
         from matplotlib.gridspec import GridSpec
         if has_traces:
             trace_h = [1] * n_trace_rows
-            ratios = [3.5, 3.5] + trace_h
-            total_h = 10.0 + (1.5 if has_swim else 0.0)
+            ratios = [5, 5] + trace_h
+            # Size total_h so the anatomy panel aspect (panel_w/panel_h)
+            # matches the data aspect (~1.5 wide:1 tall) — that's the only
+            # way equal-aspect produces zero L/R AND zero T/B blank.
+            # With fig_w=10, left=0.10, right=0.97 → panel_w=8.7; want
+            # panel_h = 8.7/1.5 = 5.8, so 5/(2*5+n_trace)*total_h*0.955 = 5.8.
+            total_h = 17.0 if has_swim else 14.6
             fig = plt.figure(figsize=(10.0, total_h), facecolor=bg)
             gs = GridSpec(len(ratios), 1, figure=fig,
                          height_ratios=ratios, hspace=0.0,
-                         top=0.995, bottom=0.04, left=0.10, right=0.995)
+                         top=0.995, bottom=0.04, left=0.10, right=0.97)
             axes = [fig.add_subplot(gs[i]) for i in range(len(ratios))]
         else:
             fig = plt.figure(figsize=(10.0, 11.0), facecolor=bg)
@@ -533,8 +538,6 @@ def _render_frame(out_path, view_data, seg_owner, rates_t,
                      vd["mesh_segs2d"], vd["soma_2d"], soma_valid,
                      vd["xlim"], vd["ylim"], bg, green, alpha_max,
                      base_color, lw_base, lw_top, soma_size)
-        if has_traces:
-            ax.set_anchor("S" if i == 0 else "N")
         ax.text(0.02, 0.97, vd["title"], color=txt_color, fontsize=9,
                 family="monospace", ha="left", va="top",
                 transform=ax.transAxes)
@@ -621,6 +624,7 @@ def _render_montage_frame(out_path, view_data, seg_owner, types_str, rates_t,
         view_title = vd["title"]
         panel_axes = axes_dict[view_keys[vi]]
 
+        backdrop_color = "0.45" if bg == "black" else "0.55"
         for col, ct in enumerate(MONTAGE_TYPES):
             ax = panel_axes[col]
             ax.set_facecolor(bg)
@@ -629,6 +633,15 @@ def _render_montage_frame(out_path, view_data, seg_owner, types_str, rates_t,
                 ax.add_collection(LineCollection(
                     mesh_segs2d, colors=(mesh_color,),
                     linewidths=0.2, alpha=0.10,
+                ))
+
+            # Full-skeleton backdrop: shows where the per-type neurons sit
+            # within the broader circuit. Skip the "all" panel since it
+            # already draws every segment at full intensity.
+            if ct != "all":
+                ax.add_collection(LineCollection(
+                    segs2d, colors=(backdrop_color,),
+                    linewidths=lw_base * 0.6, alpha=0.20,
                 ))
 
             mask_n = (np.ones(len(types_arr), dtype=bool) if ct == "all"
