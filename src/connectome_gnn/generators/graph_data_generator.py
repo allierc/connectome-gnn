@@ -26,8 +26,8 @@ from connectome_gnn.plot import (
     plot_spatial_activity_grid,
     plot_spiking_traces,
 )
-from connectome_gnn.zarr_io import ZarrArrayWriter, ZarrSimulationWriterV3
 
+from connectome_gnn.zarr_io import ZarrArrayWriter, ZarrSimulationWriterV3
 
 def _rmtree(path):
     """Remove a directory tree robustly on network filesystems (Lustre/GPFS).

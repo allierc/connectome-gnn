@@ -64,6 +64,29 @@ from connectome_gnn.utils import (
 _logger = get_logger(__name__)
 
 
+def _mem_snapshot(device, N=None):
+    """One-line CPU/GPU memory snapshot for OOM debugging."""
+    try:
+        with open('/proc/self/status') as _f:
+            rss_kb = next(int(_l.split()[1]) for _l in _f if _l.startswith('VmRSS:'))
+        cpu_str = f'CPU RSS={rss_kb / 1024 / 1024:.2f}GB'
+    except Exception:
+        cpu_str = 'CPU RSS=?'
+    gpu_str = 'GPU n/a'
+    try:
+        _dev = torch.device(device) if not isinstance(device, torch.device) else device
+        if _dev.type == 'cuda':
+            alloc = torch.cuda.memory_allocated(_dev) / 1024 ** 3
+            reserved = torch.cuda.memory_reserved(_dev) / 1024 ** 3
+            peak = torch.cuda.max_memory_allocated(_dev) / 1024 ** 3
+            gpu_str = (f'GPU alloc={alloc:.2f}GB reserved={reserved:.2f}GB '
+                       f'peak={peak:.2f}GB')
+    except Exception:
+        pass
+    tag = f' N={N}' if N is not None else ''
+    return f'[mem{tag}] {cpu_str} | {gpu_str}'
+
+
 def data_train(config=None, erase=False, best_model=None, style=None, device=None, log_file=None):
     # plt.rcParams['text.usetex'] = False  # LaTeX disabled - use mathtext instead
     # rc('font', **{'family': 'serif', 'serif': ['Times New Roman', 'Liberation Serif', 'DejaVu Serif', 'serif']})
@@ -907,6 +930,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                             bar_parts.append(f'{r2_color(last_hidden_r2)}{nnr_str}{ANSI_RESET}')
                     if bar_parts:
                         pbar.set_postfix_str(' '.join(bar_parts))
+                        pbar.write(_mem_snapshot(device, N=N))
                 continue
 
             state_batch = []
@@ -1328,6 +1352,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                             bar_parts.append(f'{r2_color(last_hidden_r2)}{nnr_str}{ANSI_RESET}')
                     if bar_parts:
                         pbar.set_postfix_str(' '.join(bar_parts))
+                        pbar.write(_mem_snapshot(device, N=N))
 
                 if (has_visual_field) & (N in plot_iterations):
                     field_R2, field_slope = render_visual_field_video(
