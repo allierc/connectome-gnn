@@ -42,9 +42,9 @@ from connectome_gnn.task_state import TaskTrials
 
 
 MODELS = [
-    ("drosophila_cx_pi",                       "Known-ODE RNN"),
-    ("drosophila_cx_pi_fc",                    "fully connected RNN"),
-    ("drosophila_cx_pi_gnn_tailloss_unsquared","GNN"),
+    ("drosophila_cx_pi_epg",                   "Known-ODE RNN"),
+    ("drosophila_cx_pi_fc_epg",                "fully connected RNN"),
+    ("drosophila_cx_pi_gnn_epg",               "GNN"),
 ]
 
 

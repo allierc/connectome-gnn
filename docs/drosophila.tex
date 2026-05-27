@@ -250,7 +250,7 @@ We compare four recurrent parameterisations on the same path-integration task, e
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=\textwidth]{figure/fig_evolution_drosophila_cx_pi.png}
+  \includegraphics[width=\textwidth]{figure/fig_evolution_drosophila_cx_pi_epg.png}
   \caption{\textbf{Known-ODE RNN: connectome topology and Dale signs imposed, per-edge magnitudes learned.} Sign-locked RNN with $\hat{W}^{\mathrm{rec}} = |\hat{S}| \odot \mathrm{sign}(W^{\mathrm{con}})$, trained for 10 epochs.
   \textbf{(a)}~GT connectome $W^{\mathrm{con}}$, $z$-scored over non-zero entries and clipped to $\pm 3$; neuron-type blocks marked on both axes.
   \textbf{(b)}~Learned $\hat{W}^{\mathrm{rec}}$ on the same scale.
@@ -267,7 +267,7 @@ We compare four recurrent parameterisations on the same path-integration task, e
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=\textwidth]{figure/fig_evolution_drosophila_cx_pi_frozen_Wrec.png}
+  \includegraphics[width=\textwidth]{figure/fig_evolution_drosophila_cx_pi_frozen_Wrec_epg.png}
   \caption{\textbf{Frozen-$W_{\mathrm{rec}}$ control.} Panels follow \cref{fig:evolution_pi}. The recurrent matrix is held at $\hat{W}^{\mathrm{rec}} \equiv W^{\mathrm{con}}$ throughout training; only $\hat{W}^{\mathrm{in}}$, $\hat{W}^{\mathrm{out}}$, biases, and the four PEN velocity scalars train. The decoded heading is flat (panel (f); $r = -0.37$, $\mathrm{RMSE} = 105^\circ$), the network does not respond to the OU velocity input (panel (g)), and the integration gain is zero across the full $\omega$ range (panel (i)). The model fails to form a bump, so the tuning, phase-shift, and FWHM panels (j-l) are omitted.
   }
   \label{fig:evolution_pi_frozen}
@@ -275,7 +275,7 @@ We compare four recurrent parameterisations on the same path-integration task, e
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=\textwidth]{figure/fig_evolution_drosophila_cx_pi_fc.png}
+  \includegraphics[width=\textwidth]{figure/fig_evolution_drosophila_cx_pi_fc_epg.png}
   \caption{\textbf{Fully connected RNN.} Panels follow \cref{fig:evolution_pi}. The connectome topology mask is dropped; $\hat{W}^{\mathrm{rec}} = |\hat{S}| \odot \mathrm{sign}\big(\sum_i W^{\mathrm{con}}_{i,:}\big)$ enforces only the dominant E/I sign per presynaptic neuron and the recurrent matrix is otherwise dense. The learned matrix in (b) carries weight outside the hemibrain edge support; heading accuracy is preserved ($r = 1.00$, $\mathrm{RMSE} = 12.4^\circ$).
   }
   \label{fig:evolution_pi_fc}
@@ -283,7 +283,7 @@ We compare four recurrent parameterisations on the same path-integration task, e
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=\textwidth]{figure/fig_evolution_drosophila_cx_pi_gnn.png}
+  \includegraphics[width=\textwidth]{figure/fig_evolution_drosophila_cx_pi_gnn_epg.png}
   \caption{\textbf{Message-passing GNN (\cref{method:GNN}).} Panels
   \textbf{(a)--(i)} follow \cref{fig:evolution_pi}. The dense
   recurrent operator is replaced by
@@ -294,8 +294,8 @@ We compare four recurrent parameterisations on the same path-integration task, e
   GNN does not form a dense $\hat{W}^{\mathrm{rec}}$).
   \textbf{(j)}~Per-neuron latent embedding $\mathbf{a}_i \in \mathbb{R}^2$, coloured by cell type.
   \textbf{(k)}~Learned $f_\theta(\hat{h}_i, \mathbf{a}_i, m{=}0)$ for each neuron, plotted over its activity domain $[\mu_i - 2\sigma_i, \mu_i + 2\sigma_i]$ (snapshot from training). Per the GNN ODE (\cref{eq:cx_gnn_dynamics}), $f_\theta$ should approximate $-\hat{h}_i / \tau$ to recover the leak.
-  \textbf{(l)}~Learned $g_\phi(\hat{h}_j, \mathbf{a}_j)$ over the same per-neuron domain (snapshot from training) --- the per-edge message that enters the GNN aggregation, with the positive-monotonicity prior $\partial g_\phi/\partial \hat{h} \ge 0$ enforced (\cref{eq:cx_gnn_loss}); per-edge sign is set by the connectome sign in $\hat{W}_{ij}$. The recovered $g_\phi$ is sigmoidal in the standard ``depolarised-is-active'' convention, recovering the firing-rate non-linearity of \cref{eq:cx_dynamics} up to the monotonicity prior.
-  Checkpoint shown is the epoch-5 best model of the soft-curriculum
+  \textbf{(l)}~Learned $g_\phi(\hat{h}_j, \mathbf{a}_j)$ over the same per-neuron domain (snapshot from training) --- the per-edge message that enters the GNN aggregation. The per-edge signed drive is $\hat{W}_{ij}\,g_\phi(\hat{h}_j,\mathbf{a}_j)$ (single-power, no squaring), so the effective synaptic sign is the product $\mathrm{sign}(\hat{W}_{ij}) \cdot \mathrm{sign}(g_\phi)$: Dale's law is no longer enforced per edge, though the dominant E/I row pattern is still encoded in $\hat{W}$. Because the squaring/positivity constraint is dropped, the $\pm$ sign degeneracy on $g_\phi$ is removed and the recovered firing-rate non-linearity is uniquely identified --- here sigmoidal in the standard ``depolarised-is-active'' convention, recovering the firing-rate non-linearity of \cref{eq:cx_dynamics}.
+  Checkpoint shown is the epoch-5 best model of the EPG-readout
   tail-loss training.}
   \label{fig:evolution_pi_gnn}
 \end{figure}
@@ -561,7 +561,7 @@ recover the function but not the biological cell-type assignment.
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=0.7\textwidth]{figure/fig_function_dynamics_combined.png}
+  \includegraphics[width=0.7\textwidth]{figure/fig_function_dynamics_combined_epg.png}
   \caption{\textbf{Operating range of the leak/drift and the
   firing-rate non-linearity along a natural OU velocity rollout
   ($T = 10\,000$ frames) for the three converged CX models (the frozen-$W^{\mathrm{rec}}$ control fails to form a bump and is omitted here).} Hexbin density
@@ -590,7 +590,7 @@ recover the function but not the biological cell-type assignment.
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=0.7\textwidth]{figure/fig_traces_const_omega.png}
+  \includegraphics[width=0.7\textwidth]{figure/fig_traces_const_omega_epg.png}
   \caption{\textbf{Voltage traces of the three converged models (Known-ODE RNN, fully connected RNN, GNN; the frozen-$W^{\mathrm{rec}}$ control fails and is omitted) under a
   deterministic constant angular velocity stimulus $\omega = 60^\circ$/s
   ($T = 1\,500$ frames at $dt = 0.01$ s $= 15$ s $= 2.5$ full turns).}
@@ -610,7 +610,7 @@ recover the function but not the biological cell-type assignment.
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=0.7\textwidth]{figure/fig_traces_combined.png}
+  \includegraphics[width=0.7\textwidth]{figure/fig_traces_combined_epg.png}
   \caption{\textbf{Voltage traces of the three converged models (Known-ODE RNN, fully connected RNN, GNN; the frozen-$W^{\mathrm{rec}}$ control fails and is omitted) under
   the natural OU velocity stimulus.} 2 $\times$ 2 panel: each tile is
   the same task-traces layout (5 representative neurons per cell type
@@ -634,7 +634,7 @@ recover the function but not the biological cell-type assignment.
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=\textwidth]{figure/fig_kinographs_const_omega.png}
+  \includegraphics[width=\textwidth]{figure/fig_kinographs_const_omega_epg.png}
   \caption{\textbf{All-neurons-by-time kinographs of the four
   models' subthreshold state under a deterministic constant angular
   velocity stimulus $\omega = 60^\circ$/s ($T = 1\,500$ frames at
@@ -675,7 +675,7 @@ recover the function but not the biological cell-type assignment.
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=\textwidth]{figure/fig_kinographs_both_sorts.png}
+  \includegraphics[width=\textwidth]{figure/fig_kinographs_both_sorts_epg.png}
   \caption{\textbf{Same row orderings as \cref{fig:kinographs_const},
   but under the natural OU velocity stimulus ($T = 10\,000$ frames
   $\approx 100$ s).} 3-row layout: cell-type sort (a--d), cell-type
@@ -694,7 +694,7 @@ recover the function but not the biological cell-type assignment.
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=\textwidth]{figure/fig_hd_mi_summary_nbins64.png}
+  \includegraphics[width=\textwidth]{figure/fig_hd_mi_summary_nbins64_epg.png}
   \caption{\textbf{Per-cell-type head-direction mutual information
   for the three converged CX models}, evaluated along the natural OU
   velocity rollout ($T = 10\,000$ frames, $n_\theta = 64$ angular
@@ -765,7 +765,7 @@ recover the function but not the biological cell-type assignment.
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=\textwidth]{figure/fig_omega_mi_summary_nbins64.png}
+  \includegraphics[width=\textwidth]{figure/fig_omega_mi_summary_nbins64_epg.png}
   \caption{\textbf{Per-cell-type angular-velocity mutual information
   for the three converged CX models.} Same OU rollout, layout, and
   cell-type ordering as \cref{fig:hd_mi_summary} with $\theta$

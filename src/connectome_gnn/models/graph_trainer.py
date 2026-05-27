@@ -2257,6 +2257,8 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
                     snapshot_n_steps=snapshot_n_steps,
                     snapshot_omega_deg=snapshot_omega_deg,
                     config=config,
+                    u_test=u_test,
+                    y_test=y_test,
                 )
                 with open(metrics_log_path, 'a') as f:
                     fwhm_deg = (np.degrees(last_fwhm)

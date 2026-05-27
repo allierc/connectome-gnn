@@ -30,11 +30,16 @@ import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
 
 import navis
+from tqdm import tqdm
 
 from fig_cx_anatomy_3d import (
     TYPE_COLOR, TYPE_ORDER, _load_rois, _project_2d,
 )
-from fig_kinographs_const_omega import _load, _run_const
+from fig_kinographs_const_omega import (
+    _load, _run_const, _preferred_phase,
+    _order_by_type_descending, _order_within_type_by_phase,
+    _order_by_preferred_phase,
+)
 
 from connectome_gnn.generators.utils import generate_path_integration_batch
 
@@ -49,6 +54,38 @@ def _run_ou_rollout(net, n_steps, device, seed=0):
     with torch.no_grad():
         _, h = net(batch.stimulus)
     return h[0].cpu().numpy(), batch.theta_hd[0].cpu().numpy()
+
+
+from fig_kinographs_const_omega import _build_const_omega_batch
+
+
+def _run_const_with_traces(net, n_steps, dt, omega_deg, theta0, device):
+    """Like _run_const but also returns omega and decoded HD."""
+    batch = _build_const_omega_batch(n_steps, dt, omega_deg, theta0, device)
+    theta = batch.theta_hd[0].cpu().numpy()
+    omega = batch.omega[0].cpu().numpy()
+    with torch.no_grad():
+        y_hat, h = net(batch.stimulus)
+    decoded_hd = np.arctan2(y_hat[0, :, 1].cpu().numpy(),
+                            y_hat[0, :, 0].cpu().numpy())
+    return h[0].cpu().numpy(), theta, omega, decoded_hd
+
+
+def _run_ou_with_traces(net, n_steps, device, seed=0):
+    """Like _run_ou_rollout but also returns omega and decoded HD."""
+    rng = np.random.default_rng(seed)
+    batch = generate_path_integration_batch(
+        batch_size=1, n_steps=n_steps, dt=float(net.dt),
+        device=device, rng=rng,
+    )
+    with torch.no_grad():
+        y_hat, h = net(batch.stimulus)
+    theta = batch.theta_hd[0].cpu().numpy()
+    omega = batch.omega[0].cpu().numpy()
+    decoded_hd = np.arctan2(y_hat[0, :, 1].cpu().numpy(),
+                            y_hat[0, :, 0].cpu().numpy())
+    return h[0].cpu().numpy(), theta, omega, decoded_hd
+
 
 from connectome_gnn.utils import load_data_root_from_json, set_data_root
 
@@ -160,20 +197,104 @@ def _extract_soma_positions(neurons):
     return soma_xyz, soma_r
 
 
+def _style_trace_ax(ax, bg, ylabel, fontsize=11, bottom_labels=False):
+    txt_color = "white" if bg == "black" else "black"
+    ax.set_facecolor(bg)
+    ax.set_ylabel(ylabel, color=txt_color, fontsize=fontsize, labelpad=2)
+    ax.tick_params(axis="y", colors=txt_color, labelsize=10, length=3)
+    ax.tick_params(axis="x", colors=txt_color, labelsize=10, length=3,
+                   labelbottom=bottom_labels)
+    ax.spines[:].set_visible(False)
+
+
+def _paint_traces(trace_axes, t_sec, frame_t, trace_data, bg="black"):
+    """Grow-then-scroll trace strip: ω(t) and HD (target vs decoded)."""
+    txt_color = "white" if bg == "black" else "black"
+    dim = "0.35" if bg == "black" else "0.70"
+
+    omega_full = trace_data["omega"]
+    theta_full = trace_data["theta"]
+    decoded_hd_full = trace_data["decoded_hd"]
+    win = trace_data.get("scroll_window", 10.0)
+
+    n_now = frame_t + 1
+    t_now_val = t_sec[frame_t]
+
+    if t_now_val < win:
+        x_lo, x_hi = 0.0, win
+    else:
+        x_lo, x_hi = t_now_val - win, t_now_val
+
+    vis_mask = (t_sec[:n_now] >= x_lo) & (t_sec[:n_now] <= x_hi)
+
+    # ── ω panel
+    ax = trace_axes[0]
+    ax.plot(t_sec[:n_now], omega_full[:n_now],
+            color=(0.0, 0.85, 0.4), lw=1.4)
+    ax.axhline(0, color=dim, lw=0.3, alpha=0.4)
+    ax.set_xlim(x_lo, x_hi)
+    o_abs = max(np.abs(omega_full).max(), 1.0)
+    ax.set_ylim(-o_abs * 1.15, o_abs * 1.15)
+    _style_trace_ax(ax, bg, "ω (°/s)")
+
+    # ── HD panel
+    ax = trace_axes[1]
+    target_deg = np.rad2deg(theta_full)
+    decoded_deg = np.rad2deg(decoded_hd_full)
+    ax.plot(t_sec[:n_now], target_deg[:n_now], color=(0.0, 0.85, 0.4),
+            lw=1.4, label="target")
+    ax.plot(t_sec[:n_now], decoded_deg[:n_now],
+            color="white" if bg == "black" else "black",
+            lw=1.4, label="decoded")
+    ax.set_xlim(x_lo, x_hi)
+    ax.set_ylim(-180, 180)
+    _style_trace_ax(ax, bg, "HD (°)", bottom_labels=True)
+    ax.set_xlabel("time (s)", color=txt_color, fontsize=11, labelpad=2)
+    # Current HD value in the panel's top-right corner.
+    hd_now_deg = float(np.rad2deg(theta_full[frame_t]))
+    ax.text(0.99, 0.96, f"HD = {hd_now_deg:+.0f}°",
+            color=txt_color, fontsize=11, family="monospace",
+            ha="right", va="top", transform=ax.transAxes)
+
+
 def _render_frame(out_path, segs2d, seg_owner, rates_t, mesh_segs2d,
                   bg="black", lw_base=0.18, lw_top=0.45,
                   base_color=(0.25, 0.25, 0.25), green=(0.0, 1.0, 0.3),
+                  alpha_max=1.0,
                   xlim=None, ylim=None, frame_idx=None, total_frames=None,
                   hd_deg=None, ax_ref=None, fig_ref=None,
-                  soma_2d=None, soma_size=18.0):
+                  soma_2d=None, soma_size=18.0,
+                  trace_data=None):
     """Render a single animation frame -- two LineCollections (dark base
     + green overlay with per-segment alpha) on top of the neuropil
-    silhouette."""
+    silhouette, with optional trace strip at the bottom."""
+    has_traces = trace_data is not None
     if fig_ref is None:
-        fig, ax = plt.subplots(figsize=(7.5, 8.5), facecolor=bg)
+        if has_traces:
+            from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
+            fig = plt.figure(figsize=(7.5, 12.0), facecolor=bg)
+            gs = GridSpec(2, 1, figure=fig, height_ratios=[5, 2],
+                          hspace=0.06)
+            ax = fig.add_subplot(gs[0])
+            gs_tr = GridSpecFromSubplotSpec(2, 1, subplot_spec=gs[1],
+                                             hspace=0.0)
+            ax_omega = fig.add_subplot(gs_tr[0])
+            ax_hd = fig.add_subplot(gs_tr[1])
+            ax_ref = [ax, ax_omega, ax_hd]
+        else:
+            fig, ax = plt.subplots(figsize=(7.5, 8.5), facecolor=bg)
+            ax_ref = ax
     else:
-        fig, ax = fig_ref, ax_ref
-        ax.clear()
+        fig = fig_ref
+        if has_traces:
+            ax = ax_ref[0]; ax.clear()
+            ax_ref[1].clear(); ax_ref[2].clear()
+        else:
+            ax = ax_ref; ax.clear()
+        for txt in list(fig.texts):
+            txt.remove()
+    if has_traces:
+        ax = ax_ref[0]
     ax.set_facecolor(bg)
 
     # Neuropil silhouette
@@ -189,7 +310,7 @@ def _render_frame(out_path, segs2d, seg_owner, rates_t, mesh_segs2d,
     ))
 
     # Green overlay: per-segment alpha driven by the owning neuron's rate.
-    alpha = rates_t[seg_owner]
+    alpha = rates_t[seg_owner] * alpha_max
     # Drop segments whose rate is essentially zero to skip useless overdraw.
     keep = alpha > 0.02
     if keep.any():
@@ -201,11 +322,12 @@ def _render_frame(out_path, segs2d, seg_owner, rates_t, mesh_segs2d,
         ))
 
     # Soma layer: dim grey dot for every neuron, green dot scaled by alpha
-    # for active ones. Soma marker sits above the skeleton (zorder).
+    # for active ones. Sits BELOW the skeleton lines so off-neuron grey
+    # dots get hidden behind the skeleton trees.
     if soma_2d is not None and len(soma_2d):
         ax.scatter(soma_2d[:, 0], soma_2d[:, 1],
                    s=soma_size * 0.5, c=[base_color], edgecolors="none",
-                   alpha=0.7, zorder=4)
+                   alpha=0.7, zorder=0)
         keep_n = rates_t > 0.02
         if keep_n.any():
             rgba_s = np.tile(np.array([*green, 1.0], dtype=np.float32),
@@ -213,16 +335,20 @@ def _render_frame(out_path, segs2d, seg_owner, rates_t, mesh_segs2d,
             rgba_s[:, 3] = rates_t[keep_n]
             ax.scatter(soma_2d[keep_n, 0], soma_2d[keep_n, 1],
                        s=soma_size, c=rgba_s, edgecolors="none",
-                       zorder=5)
+                       zorder=1)
 
     if xlim is not None:
         ax.set_xlim(xlim); ax.set_ylim(ylim)
     else:
         ax.autoscale_view()
+    # 180-deg rotation: dorsal up convention for fly CX.
+    ax.invert_xaxis(); ax.invert_yaxis()
     ax.set_aspect("equal")
     ax.set_axis_off()
 
-    if frame_idx is not None:
+    # Frame index / HD label only in the no-trace layout; the trace-strip
+    # layout prints HD in the HD panel's top-right corner instead.
+    if not has_traces and frame_idx is not None:
         txt_color = "white" if bg == "black" else "black"
         label = f"t = {frame_idx:04d}"
         if hd_deg is not None:
@@ -231,9 +357,21 @@ def _render_frame(out_path, segs2d, seg_owner, rates_t, mesh_segs2d,
                 family="monospace", ha="left", va="top",
                 transform=ax.transAxes)
 
-    fig.subplots_adjust(left=0.01, right=0.99, top=0.99, bottom=0.01)
-    fig.savefig(out_path, dpi=150, facecolor=bg, bbox_inches="tight")
-    return fig, ax
+    # Trace strip
+    if has_traces and frame_idx is not None:
+        _paint_traces(ax_ref[1:], trace_data["t_sec"], frame_idx,
+                      trace_data, bg=bg)
+        fig.subplots_adjust(top=0.995, bottom=0.06,
+                            left=0.10, right=0.98)
+        # The trace panels need left margin for the y-tick labels, but
+        # the 3D view should span the full figure width so the brain is
+        # centered. Re-place only the 3D axes after subplots_adjust.
+        ax3d_pos = ax_ref[0].get_position()
+        ax_ref[0].set_position([0.02, ax3d_pos.y0,
+                                 0.96, ax3d_pos.height])
+
+    fig.savefig(out_path, dpi=300, facecolor=bg)
+    return fig, ax_ref
 
 
 # Cell-type panel order for the montage (matches TYPE_ORDER from the
@@ -248,6 +386,7 @@ def _render_montage_frame(out_path, segs2d, seg_owner, types_str, rates_t,
                            frame_idx=None, hd_deg=None,
                            bg="black",
                            green=(0.0, 1.0, 0.3),
+                           alpha_max=1.0,
                            base_color=(0.22, 0.22, 0.22),
                            lw_base=0.10, lw_top=0.40, soma_size=10.0,
                            fig_ref=None, axes_ref=None):
@@ -298,7 +437,7 @@ def _render_montage_frame(out_path, segs2d, seg_owner, types_str, rates_t,
             ))
 
         # Green overlay for this type only
-        alpha = rates_t[seg_owner] * mask
+        alpha = rates_t[seg_owner] * mask * alpha_max
         keep = alpha > 0.02
         if keep.any():
             rgba = np.tile(np.array([*green, 1.0], dtype=np.float32),
@@ -311,7 +450,7 @@ def _render_montage_frame(out_path, segs2d, seg_owner, types_str, rates_t,
         if soma_2d is not None and len(soma_2d):
             ax.scatter(soma_2d[mask_n, 0], soma_2d[mask_n, 1],
                        s=soma_size * 0.5, c=[base_color],
-                       edgecolors="none", alpha=0.7, zorder=4)
+                       edgecolors="none", alpha=0.7, zorder=0)
             lit_n = (rates_t > 0.02) & mask_n
             if lit_n.any():
                 rgba_s = np.tile(np.array([*green, 1.0], dtype=np.float32),
@@ -319,9 +458,10 @@ def _render_montage_frame(out_path, segs2d, seg_owner, types_str, rates_t,
                 rgba_s[:, 3] = rates_t[lit_n]
                 ax.scatter(soma_2d[lit_n, 0], soma_2d[lit_n, 1],
                            s=soma_size, c=rgba_s,
-                           edgecolors="none", zorder=5)
+                           edgecolors="none", zorder=1)
 
         ax.set_xlim(xlim); ax.set_ylim(ylim)
+        ax.invert_xaxis(); ax.invert_yaxis()
         ax.set_aspect("equal")
         ax.set_axis_off()
         n_count = int(mask_n.sum())
@@ -342,7 +482,7 @@ def _render_montage_frame(out_path, segs2d, seg_owner, types_str, rates_t,
 
     fig.subplots_adjust(left=0.005, right=0.995, top=0.965,
                         bottom=0.005, wspace=0.02, hspace=0.06)
-    fig.savefig(out_path, dpi=90, facecolor=bg)
+    fig.savefig(out_path, dpi=360, facecolor=bg)
     return fig, axes
 
 
@@ -353,6 +493,7 @@ def _render_init_montage_frame(out_path, segs2d, seg_owner,
                                 xlim=None, ylim=None, frame_idx=None,
                                 bg="black",
                                 green=(0.0, 1.0, 0.3),
+                                alpha_max=1.0,
                                 base_color=(0.22, 0.22, 0.22),
                                 lw_base=0.10, lw_top=0.40, soma_size=10.0,
                                 fig_ref=None, axes_ref=None):
@@ -389,7 +530,7 @@ def _render_init_montage_frame(out_path, segs2d, seg_owner,
         ))
 
         rates_t = rates_per_init[panel_idx][frame_idx]
-        alpha = rates_t[seg_owner]
+        alpha = rates_t[seg_owner] * alpha_max
         keep = alpha > 0.02
         if keep.any():
             rgba = np.tile(np.array([*green, 1.0], dtype=np.float32),
@@ -402,7 +543,7 @@ def _render_init_montage_frame(out_path, segs2d, seg_owner,
         if soma_2d is not None and len(soma_2d):
             ax.scatter(soma_2d[:, 0], soma_2d[:, 1],
                        s=soma_size * 0.5, c=[base_color],
-                       edgecolors="none", alpha=0.7, zorder=4)
+                       edgecolors="none", alpha=0.7, zorder=0)
             lit_n = rates_t > 0.02
             if lit_n.any():
                 rgba_s = np.tile(np.array([*green, 1.0], dtype=np.float32),
@@ -410,9 +551,10 @@ def _render_init_montage_frame(out_path, segs2d, seg_owner,
                 rgba_s[:, 3] = rates_t[lit_n]
                 ax.scatter(soma_2d[lit_n, 0], soma_2d[lit_n, 1],
                            s=soma_size, c=rgba_s,
-                           edgecolors="none", zorder=5)
+                           edgecolors="none", zorder=1)
 
         ax.set_xlim(xlim); ax.set_ylim(ylim)
+        ax.invert_xaxis(); ax.invert_yaxis()
         ax.set_aspect("equal")
         ax.set_axis_off()
         hd_now = float(np.rad2deg(theta_per_init[panel_idx][frame_idx]))
@@ -428,7 +570,7 @@ def _render_init_montage_frame(out_path, segs2d, seg_owner,
 
     fig.subplots_adjust(left=0.005, right=0.995, top=0.965,
                         bottom=0.005, wspace=0.02, hspace=0.04)
-    fig.savefig(out_path, dpi=110, facecolor=bg)
+    fig.savefig(out_path, dpi=440, facecolor=bg)
     return fig, axes
 
 
@@ -439,7 +581,7 @@ def main():
     p.add_argument("--datapath",
                    default="papers/Code_NN/Code_NN/Data/Figure5/"
                            "exported-traced-adjacencies-v1.2")
-    p.add_argument("--model", default="drosophila_cx_pi",
+    p.add_argument("--model", default="drosophila_cx_pi_epg",
                    help="config name for the Known-ODE checkpoint")
     p.add_argument("--n_steps", type=int, default=2000,
                    help="number of rollout frames")
@@ -450,17 +592,25 @@ def main():
     p.add_argument("--elev", type=float, default=-7.6)
     p.add_argument("--azim", type=float, default=86.6)
     p.add_argument("--downsample", type=int, default=10)
-    p.add_argument("--out_dir",
-                   default="figures/drosophila/3D")
+    p.add_argument("--out_dir", default=None,
+                   help="output directory for frame_NNNN.png files. "
+                        "Default: figures/drosophila_cx/3D_<model-suffix> "
+                        "(suffix = model name with drosophila_cx_pi_ stripped).")
     p.add_argument("--max_frames", type=int, default=None,
                    help="stop after N rendered frames (smoke-test)")
-    p.add_argument("--gamma", type=float, default=1.0,
-                   help="contrast curve: alpha <- (z/4)^gamma. >1 = more "
-                        "contrast (weak signals fade), <1 = less contrast.")
     p.add_argument("--z_lo", type=float, default=0.0,
                    help="z-score threshold: only z > z_lo lights up.")
     p.add_argument("--z_hi", type=float, default=4.0,
                    help="z-score saturation point: alpha=1 at z >= z_hi.")
+    p.add_argument("--alpha", type=float, default=1.0,
+                   help="global multiplier on the per-segment green alpha "
+                        "(0 = off, 1 = current behavior).")
+    p.add_argument("--reorder", default="none",
+                   choices=["none", "type", "type_phase", "phase"],
+                   help="permute the per-neuron voltage vector before "
+                        "lighting the 3D skeletons. type_phase = Fig 9 "
+                        "middle sort (cell-type primary, preferred-phase "
+                        "secondary).")
     p.add_argument("--montage", action="store_true",
                    help="render a 2x4 cell-type panel montage per frame "
                         "instead of the single 3D view.")
@@ -481,6 +631,9 @@ def main():
                         "constant-omega.")
     p.add_argument("--seed", type=int, default=0,
                    help="rng seed for the OU rollout")
+    p.add_argument("--scroll_window", type=float, default=10.0,
+                   help="trace window width in seconds; traces grow "
+                        "left-to-right then scroll")
     p.add_argument("--device", default="cpu")
     p.add_argument("--output_root", default=None)
     args = p.parse_args()
@@ -493,13 +646,70 @@ def main():
         except FileNotFoundError:
             pass
 
+    if args.out_dir is None:
+        suffix = args.model
+        for prefix in ("drosophila_cx_pi_", "drosophila_cx_"):
+            if suffix.startswith(prefix):
+                suffix = suffix[len(prefix):]
+                break
+        args.out_dir = os.path.join("figures", "drosophila_cx",
+                                     f"3D_{suffix}")
+        print(f"[out_dir] auto-derived from --model {args.model}: "
+              f"{args.out_dir}")
+
     device = torch.device(args.device)
     os.makedirs(args.out_dir, exist_ok=True)
+    # Empty the output directory of any prior frame_*.png so we don't
+    # mix runs.
+    import glob as _glob
+    stale = _glob.glob(os.path.join(args.out_dir, "frame_*.png"))
+    for p in stale:
+        os.remove(p)
+    if stale:
+        print(f"      cleared {len(stale)} prior frames from {args.out_dir}/")
 
     print(f"[1/4] loading model {args.model} ...")
     t0 = time.time()
     net = _load(args.model, device)
     print(f"      done ({time.time() - t0:.1f}s)")
+
+    # --- preliminary 500-frame rollout: z-score diagnostics + LUT suggest
+    # The first ~50 frames carry the bump-formation transient (huge |z|).
+    # Steady-state stats (t>=50) drive the recommendation.
+    print(f"[1.5/4] preliminary 500-frame rollout for LUT diagnostics ...")
+    h_prev, theta_prev = _run_const(net, 500, float(net.dt),
+                                     args.omega_deg, args.theta0, device)
+    mu_p = h_prev.mean(axis=0, keepdims=True)
+    sd_p = h_prev.std (axis=0, keepdims=True) + 1e-6
+    z_p = (h_prev - mu_p) / sd_p
+    peak = z_p.max(axis=1)
+    trough = z_p.min(axis=1)
+    z_ss = z_p[50:]
+    pos_ss = z_ss[z_ss > 0]
+    neg_ss = z_ss[z_ss < 0]
+    p95 = float(np.percentile(pos_ss, 95)) if pos_ss.size else 1.0
+    p99 = float(np.percentile(pos_ss, 99)) if pos_ss.size else 1.0
+    n05 = float(np.percentile(neg_ss, 5)) if neg_ss.size else -1.0
+    n01 = float(np.percentile(neg_ss, 1)) if neg_ss.size else -1.0
+    z_lo_rec = 0.5
+    z_hi_sat = max(round(p99 * 1.05, 2), z_lo_rec + 0.5)
+    z_hi_sparse = max(round(peak.max() * 2.5, 0), 10.0)
+    print(f"      z range: full [{z_p.min():.2f}, {z_p.max():.2f}]; "
+          f"steady-state t>=50 [{z_ss.min():.2f}, {z_ss.max():.2f}]")
+    print(f"      peak z:   frames 0..10 max={peak[:10].max():.2f}, "
+          f"frames 10..50 max={peak[10:50].max():.2f}, "
+          f"t>=50 mean={peak[50:].mean():.2f}")
+    print(f"      trough z: frames 0..10 min={trough[:10].min():.2f}, "
+          f"frames 10..50 min={trough[10:50].min():.2f}, "
+          f"t>=50 mean={trough[50:].mean():.2f}")
+    print(f"      steady-state z>0 percentiles: 95={p95:.2f}  99={p99:.2f}")
+    print(f"      steady-state z<0 percentiles:  5={n05:.2f}   1={n01:.2f}")
+    print(f"      current LUT:    --z_lo={args.z_lo} --z_hi={args.z_hi} "
+          f"--alpha={args.alpha}")
+    print(f"      saturated bump: --z_lo={z_lo_rec} --z_hi={z_hi_sat} "
+          f"--alpha=1.0   (full alpha at steady-state peak)")
+    print(f"      sparse peaks:   --z_lo=0    --z_hi={z_hi_sparse:.0f} "
+          f"--alpha=1.0   (only strong moments visible, dark elsewhere)")
 
     if args.ou:
         print(f"[2/4] running OU velocity rollout, n_steps={args.n_steps} "
@@ -509,22 +719,38 @@ def main():
               f"n_steps={args.n_steps} omega={args.omega_deg}")
     t0 = time.time()
     if args.ou:
-        h_traj, theta = _run_ou_rollout(net, args.n_steps, device,
-                                         seed=args.seed)
+        h_traj, theta, omega_trace, decoded_hd = _run_ou_with_traces(
+            net, args.n_steps, device, seed=args.seed)
     else:
-        h_traj, theta = _run_const(net, args.n_steps, float(net.dt),
-                                    args.omega_deg, args.theta0, device)
+        h_traj, theta, omega_trace, decoded_hd = _run_const_with_traces(
+            net, args.n_steps, float(net.dt),
+            args.omega_deg, args.theta0, device)
     # Match Fig 9 (fig_kinographs_const_omega.py): per-neuron z-score of
     # the subthreshold state h over the rollout, displayed in [-3, 3].
     # Here we map z > 0 to green alpha (z=3 -> saturated).
     mu = h_traj.mean(axis=0, keepdims=True)
     sd = h_traj.std (axis=0, keepdims=True) + 1e-6
     z  = (h_traj - mu) / sd                       # (T, N)
-    # Window z in [z_lo, z_hi] -> alpha in [0, 1], then optional gamma curve.
+
+    # Window z in [z_lo, z_hi] -> alpha in [0, 1].
     rng = max(args.z_hi - args.z_lo, 1e-6)
     rates_lit = np.clip((z - args.z_lo) / rng, 0.0, 1.0)
-    if args.gamma != 1.0:
-        rates_lit = rates_lit ** args.gamma
+
+    # Optional reorder: permute the per-neuron voltage vector before it's
+    # mapped onto the 3D skeletons. Uses the same sorts as Fig 9.
+    perm = None
+    if args.reorder != "none":
+        neuron_types = np.asarray(net.neuron_types, dtype=np.int64)
+        pref_phase = _preferred_phase(h_traj, theta)
+        if args.reorder == "type":
+            perm = _order_by_type_descending(neuron_types)
+        elif args.reorder == "type_phase":
+            perm = _order_within_type_by_phase(neuron_types, pref_phase)
+        else:  # "phase"
+            perm = _order_by_preferred_phase(pref_phase)
+        rates_lit = rates_lit[:, perm]
+        print(f"      reorder={args.reorder}: applied permutation to "
+              f"rates_lit ({rates_lit.shape[1]} neurons)")
 
     # Slow-motion: linearly interpolate the first slow_init original frames
     # to slow_init * slow_motion output frames. The z-score baseline is
@@ -546,7 +772,6 @@ def main():
         print(f"      slow-motion: first {n_orig} frames -> {n_target} "
               f"(x{args.slow_motion})")
     print(f"      done ({time.time() - t0:.1f}s); "
-          f"gamma={args.gamma}; "
           f"z range = [{z.min():.2f}, {z.max():.2f}]; "
           f"lit median {np.median(rates_lit):.3f}, "
           f"frac > 0.5: {float((rates_lit > 0.5).mean()):.3f}")
@@ -568,8 +793,8 @@ def main():
             sd_i = h_i.std (axis=0, keepdims=True) + 1e-6
             z_i  = (h_i - mu_i) / sd_i
             r_i  = np.clip((z_i - args.z_lo) / rng, 0.0, 1.0)
-            if args.gamma != 1.0:
-                r_i = r_i ** args.gamma
+            if perm is not None:
+                r_i = r_i[:, perm]
             if args.slow_motion > 1:
                 n_orig = min(args.slow_init, r_i.shape[0])
                 n_target = n_orig * args.slow_motion
@@ -633,11 +858,22 @@ def main():
     xlim = (pts[:, 0].min() - pad[0], pts[:, 0].max() + pad[0])
     ylim = (pts[:, 1].min() - pad[1], pts[:, 1].max() + pad[1])
 
+    # ── trace data for the strip-chart ──────────────────────────────────
+    n_total = rates_lit.shape[0]
+    dt_val = float(net.dt)
+    t_sec = np.arange(n_total) * dt_val
+    trace_data = {
+        "omega": omega_trace[:n_total],
+        "theta": theta[:n_total],
+        "decoded_hd": decoded_hd[:n_total],
+        "dt": dt_val,
+        "t_sec": t_sec,
+        "scroll_window": args.scroll_window,
+    }
+
     # Render loop
     print(f"[4/4] rendering frames into {args.out_dir}/")
-    # rates_lit.shape[0] is the actual number of frames we can render;
-    # in slow-motion mode it's slow_init * slow_motion, otherwise n_steps.
-    n_render = rates_lit.shape[0]
+    n_render = n_total
     frame_ids = list(range(0, n_render, args.stride))
     if args.max_frames is not None:
         frame_ids = frame_ids[:args.max_frames]
@@ -648,7 +884,8 @@ def main():
     # memory creep over a long render (some artist caches don't release
     # between ax.clear() calls).
     fig_reset_every = 250
-    for k, t in enumerate(frame_ids):
+    pbar = tqdm(frame_ids, desc="rendering", unit="frame", ncols=150)
+    for k, t in enumerate(pbar):
         if k > 0 and k % fig_reset_every == 0 and fig is not None:
             plt.close(fig)
             fig, ax = None, None
@@ -661,6 +898,7 @@ def main():
                 rates_per_init, theta_per_init, init_thetas_deg,
                 mesh_segs2d=mesh_segs2d, soma_2d=soma_2d,
                 xlim=xlim, ylim=ylim, frame_idx=t,
+                alpha_max=args.alpha,
                 fig_ref=fig, axes_ref=ax,
             )
         elif args.montage:
@@ -669,6 +907,7 @@ def main():
                 mesh_segs2d=mesh_segs2d, soma_2d=soma_2d,
                 xlim=xlim, ylim=ylim,
                 frame_idx=t, hd_deg=float(np.rad2deg(theta[t])),
+                alpha_max=args.alpha,
                 fig_ref=fig, axes_ref=ax,
             )
         else:
@@ -678,13 +917,12 @@ def main():
                 xlim=xlim, ylim=ylim,
                 frame_idx=t, total_frames=args.n_steps,
                 hd_deg=float(np.rad2deg(theta[t])),
+                alpha_max=args.alpha,
                 fig_ref=fig, ax_ref=ax,
+                trace_data=trace_data,
             )
         render_times.append(time.time() - tic)
-        if k < 3 or k % 50 == 0:
-            print(f"  frame {t:04d} -> {out}  "
-                  f"({render_times[-1]:.2f}s, "
-                  f"mean {np.mean(render_times):.2f}s)")
+        pbar.set_postfix(s_per_frame=f"{np.mean(render_times):.2f}")
 
     plt.close(fig)
     print(f"done: {len(frame_ids)} frames, "
@@ -694,3 +932,32 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
+# python figures/drosophila_cx/fig_cx_anatomy_3d_voltage_anim.py --z_lo 0.5 --z_hi 1.6 --alpha 1.0 --reorder type_phase
+# python figures/drosophila_cx/fig_cx_anatomy_3d_voltage_anim.py   --montage   --out_dir figures/drosophila_cx/3D_epg_montage   --z_lo 0 --z_hi 20 --alpha 1.0
+
+# # Known-ODE RNN (default)
+# python figures/drosophila_cx/fig_cx_anatomy_3d_voltage_anim.py \
+#   --model drosophila_cx_pi_epg \
+#   --z_lo 0 --z_hi 20 --alpha 1.0
+# # → figures/drosophila_cx/3D_epg/
+
+# # Fully-connected RNN
+# python figures/drosophila_cx/fig_cx_anatomy_3d_voltage_anim.py \
+#   --model drosophila_cx_pi_fc_epg \
+#   --z_lo 0 --z_hi 20 --alpha 1.0
+# # → figures/drosophila_cx/3D_fc_epg/
+
+# # Frozen-Wrec control
+# python figures/drosophila_cx/fig_cx_anatomy_3d_voltage_anim.py \
+#   --model drosophila_cx_pi_frozen_Wrec_epg \
+#   --z_lo 0 --z_hi 20 --alpha 1.0
+# # → figures/drosophila_cx/3D_frozen_Wrec_epg/
+
+# # GNN
+# python figures/drosophila_cx/fig_cx_anatomy_3d_voltage_anim.py \
+#   --model drosophila_cx_pi_gnn_epg \
+#   --z_lo 0 --z_hi 20 --alpha 1.0
+# # → figures/drosophila_cx/3D_gnn_epg/
+
+# python figures/drosophila_cx/fig_cx_anatomy_3d_voltage_anim.py   --model drosophila_cx_pi_epg_tv --z_lo 0 --z_hi 20 --alpha 1.0 --n_steps 4000 --ou --out_dir figures/drosophila_cx/3D_epg_tv_ou
