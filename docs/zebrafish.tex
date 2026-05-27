@@ -1,0 +1,544 @@
+\documentclass[11pt]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{natbib}
+\usepackage{geometry}
+\geometry{margin=2.5cm}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{nicefrac}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage[table]{xcolor}
+\usepackage{subcaption}
+\usepackage{cleveref}
+\crefname{equation}{Eq.\@}{Eqs.\@}
+\Crefname{equation}{Eq.\@}{Eqs.\@}
+\crefname{figure}{Fig.\@}{Figs.\@}
+\Crefname{figure}{Fig.\@}{Figs.\@}
+\crefname{table}{Tab.\@}{Tabs.\@}
+\Crefname{table}{Tab.\@}{Tabs.\@}
+\crefname{section}{Sect.\@}{Sects.\@}
+\Crefname{section}{Sect.\@}{Sects.\@}
+
+\definecolor{cgreen}{HTML}{2ea043}
+\definecolor{corange}{HTML}{d29922}
+\definecolor{cred}{HTML}{cf222e}
+\newcommand{\good}[1]{\textcolor{green!50!black}{#1}}
+\newcommand{\bad}[1]{\textcolor{orange}{#1}}
+
+\def\eg{{\it e.g.}}
+\def\ie{{\it i.e.}}
+\def\R{\mathbb{R}}
+\def\relu{\mathrm{ReLU}}
+\def\softplus{\mathrm{softplus}}
+\def\petrucco{Petrucco et al.\ 2023}
+\def\rpi{r1\ensuremath{\pi}}
+
+\title{\textbf{Zebrafish anterior hindbrain / dIPN: a vertebrate ring attractor for heading direction}}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+\begin{abstract}
+The companion to our analysis of the \emph{Drosophila} central complex
+(\texttt{docs/drosophila.tex}) is a vertebrate ring attractor at
+comparable anatomical resolution: the GABAergic \rpi{} population of
+the larval-zebrafish anterior hindbrain (aHB), whose axons arborise in
+the dorsal interpeduncular nucleus (dIPN). \citet{petrucco2023}
+demonstrate a sinusoidal activity bump that rotates with the fish's
+swims and is otherwise stable over many seconds --- the vertebrate
+analogue of the Drosophila E-PG bump, with reciprocal inhibitory
+connectivity in dIPN replacing the
+$\Delta 7$ / ER6 ring-shaping inhibition of the fly. We port the
+connectome-constrained framework of the drosophila document to this
+dataset: skeletons, ROI meshes and the (post, pre) adjacency matrix
+between the 731 HD-circuit neurons are fetched from the
+\emph{neuprint-fish2} server (dataset \texttt{fish2}), and the same
+Known-ODE / fully connected / GNN parameterisations of the path-integration
+task are reused with a vertebrate Dale convention (all bump cells
+inhibitory). This stub document collects the anatomy and connectome
+summary; the modelling sections (parallel to \cref{sec:methods} of the
+companion) will be filled in once the zebrafish task generator and
+training runs are in place.
+\end{abstract}
+
+\section{Introduction}
+
+In the larval zebrafish, head-direction information is carried by a
+population of $\sim 50$--$100$ GABAergic neurons (the \rpi{} cells)
+located in rhombomere~1 of the anterior hindbrain \citep{petrucco2023}.
+A sinusoidal bump of activity travels around this network in a
+direction opposite to the fish's swims, persists for tens of seconds
+in the absence of motor activity, and tracks an estimated heading
+angle whose magnitude per swim ($\approx \pi/4$~rad) matches the
+behaviourally measured turn. The connectivity scheme that supports
+the bump --- short-range excitation and long-range, out-of-phase
+inhibition --- is identical to the ring-attractor scheme established
+for the insect central complex \citep{turner-evans2017,kim2017,green2017},
+and Electron-microscopy reconstructions
+of the \rpi{} axons show reciprocal inhibitory connectivity in the
+dIPN that is in concordance with this picture.
+
+The vertebrate--invertebrate parallel makes the zebrafish dataset the
+natural companion to the analysis of \texttt{docs/drosophila.tex}: a
+second connectome with a known heading-direction function, derived
+under a different vertebrate Dale convention (all inhibitory rather
+than mixed E/I), against which the identifiability claims of the
+drosophila document can be re-tested.
+
+\paragraph{Mapping the cell-type vocabulary.}
+\Cref{tab:zhd_mapping} gives the functional mapping between the
+\emph{Drosophila} CX populations of the companion document and the
+zebrafish HD-circuit populations exposed by the \texttt{fish2}
+neuprint server.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{l l l l}
+\toprule
+Role & Drosophila CX & Zebrafish & \texttt{fish2} type prefix \\
+\midrule
+Bump (HD ring) & EPG / EPGt & dorsal IPN (\rpi) & \texttt{IPNd*} \\
+Bump (HD ring, subset) & ---       & dorsal-subset IPN & \texttt{IPNds*} \\
+Long-range inhibition & $\Delta 7$ / ER6 & (intrinsic to dIPN) & \texttt{IPNd*} (Dale: inhibitory) \\
+Velocity afferents & PEN$_a$ / PEN$_b$ (L/R) & habenula $\to$ IPN & \texttt{RIPN*} \\
+Visual / context afferents & --- & pretectum $\to$ IPN & \texttt{pt-IPN*} \\
+\bottomrule
+\end{tabular}
+\caption{Functional homology between the \emph{Drosophila} CX
+populations of the companion document and the larval-zebrafish HD
+populations identified in \citet{petrucco2023}. The fish HD ring is
+all-inhibitory: the bump cells themselves provide the long-range
+inhibition, so the $\Delta 7 \leftrightarrow$ ER6 swap that
+identified one degeneracy in the drosophila document does not have a
+direct analogue here. The afferent split (RIPN / pt-IPN) is the
+zebrafish counterpart of the PEN angular-velocity gate; only
+\texttt{RIPN*} is functionally implicated as a swim-triggered driver,
+\texttt{pt-IPN*} carries visual context.}
+\label{tab:zhd_mapping}
+\end{table}
+
+\section{Anatomy and connectome}
+\label{sec:anatomy}
+
+\paragraph{Data.}
+Skeletons, ROI meshes and synaptic connections are fetched from
+\emph{neuprint-fish2.janelia.org}, dataset \texttt{fish2}.
+\texttt{figures/zebrafish/fetch\_zebrafish\_anatomy\_HD.py} writes
+SWC skeletons and OBJ meshes to
+\texttt{zebrafish\_anatomy\_HD/}; \texttt{fetch\_zebrafish\_connectivity\_HD.py}
+writes \texttt{neurons.csv} (731 rows: 443 \texttt{IPNd*} + \texttt{IPNds*}
+ring cells, 200 \texttt{RIPN*}, 88 \texttt{pt-IPN*}) and
+\texttt{connections.csv} ($14\,391$ directed edges)
+to \texttt{zebrafish\_connectome\_HD/}. The loader
+\texttt{load\_zebrafish\_hd\_connectome()} in
+\texttt{src/connectome\_gnn/generators/connconstr\_data.py} reads
+the two CSV files and returns a dictionary with the same canonical
+keys as the drosophila loader (\texttt{N}, \texttt{J\_effective},
+\texttt{neuron\_types}, \texttt{type\_names}, \texttt{n\_epg},
+\texttt{epg\_ix}, \texttt{pen\_subpop\_ix}). The
+\texttt{ZebrafishHdTaskRNN} class (registered as \texttt{zebrafish\_hd\_si}
+in \texttt{src/connectome\_gnn/models/zebrafish\_hd\_task\_rnn.py}) is a
+thin subclass of \texttt{DrosophilaCxTaskRNN} that overrides only the
+connectome-loader hook; all dynamics, sign-locking, the 4-scalar
+afferent gate, the HD-ring-only readout, and the regulariser machinery
+are inherited unchanged.
+
+The semantic remapping inside the loader is:
+\begin{itemize}
+\item \texttt{n\_epg} = 443: number of dorsal-IPN HD cells
+       (\texttt{IPNd*} + \texttt{IPNds*}), \ie{} the \rpi{} ring.
+\item \texttt{epg\_ix}: ring ordering of the HD cells, computed from
+       the mediolateral soma coordinate \texttt{somaLocationX}
+       (Petrucco's Fig.~1g right panel shows the \rpi{} cells lie on an
+       anatomical ring along this axis); cells are binned into
+       \texttt{n\_glom} = 16 ring positions for downstream decoder
+       symmetry with the drosophila side.
+\item \texttt{pen\_subpop\_ix} = \texttt{\{PENa\_L, PENa\_R, PENb\_L, PENb\_R\}}
+       with \texttt{PENa} populated by \texttt{RIPN*} and \texttt{PENb}
+       by \texttt{pt-IPN*}, each split by side from the
+       \texttt{instance} suffix; sizes
+       $\{102, 101, 41, 44\}$.
+\end{itemize}
+
+\paragraph{Dale convention.}
+The \rpi{} cells (\texttt{IPNd*} and \texttt{IPNds*}) are GABAergic
+\citep{petrucco2023}; their outgoing weights are sign-flipped and
+amplified by 5$\times$ in analogy with the Hulse-2025 treatment of
+$\Delta 7$ / ER6 in the fly model. \texttt{RIPN*} and \texttt{pt-IPN*}
+have no Dale annotation on the \texttt{fish2} server and are kept
+positive (excitatory). The resulting signed matrix is rescaled so
+$\max(\mathrm{Re}(\lambda)) = 0.9$, matching the
+spectral-radius convention used in the drosophila loader and in the
+Beiran \& Litwin-Kumar reference implementation.
+
+\paragraph{3-D anatomy.}
+\Cref{fig:zhd_3d} shows the four HD-circuit cell-type families
+(\texttt{IPNd*}, \texttt{IPNds*}, \texttt{RIPN*}, \texttt{pt-IPN*})
+rendered in 3-D against the Habenula / dIPN / vIPN ROI meshes. The
+\texttt{IPNd}/\texttt{IPNds} arbors form the compact midline
+ring-attractor structure; \texttt{RIPN} fibres descend from the
+habenula and \texttt{pt-IPN} fibres sweep in from the lateral
+pretectum --- the two afferent streams that the velocity gate of the
+companion document maps onto PEN$_a$ and PEN$_b$.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.7\textwidth]{../figures/zebrafish/fig_zebrafish_anatomy_3d_HD.png}
+  \caption{\textbf{Zebrafish HD-circuit anatomy.} 727 skeletons from
+  \texttt{neuprint-fish2} grouped into the four functional categories
+  of \cref{tab:zhd_mapping}: \texttt{IPNd*} (red, dIPN HD ring),
+  \texttt{IPNds*} (orange, dorsal-subset), \texttt{RIPN*} (blue,
+  habenula $\to$ IPN afferents), \texttt{pt-IPN*} (purple, pretectum
+  $\to$ IPN afferents). Dorsal view, elevation $+90^\circ$,
+  azimuth $-0.5^\circ$. ROI meshes: \texttt{Habenula\_dIPN},
+  \texttt{Habenula\_vIPN}, \texttt{dIPN(L1)/(R1)},
+  \texttt{dsIPN(L)/(R)}, \texttt{iIPN(L/R)\{1,2,3\}},
+  \texttt{Pretectum}, \texttt{Habenula} (faint silhouette outlines).}
+  \label{fig:zhd_3d}
+\end{figure}
+
+\paragraph{Connectome summary.}
+\Cref{fig:zhd_connectome_summary} is the two-panel zebrafish analogue
+of Fig.~1 in the companion document: signed
+$W^{\mathrm{con}}$ (panel a, $z$-scored over non-zero entries and
+clipped to $\pm 3$) and the binary support
+$\mathrm{supp}(W^{\mathrm{con}})$ (panel b). Rows and columns are
+ordered by cell type using the same first-occurrence vocabulary as
+\texttt{load\_zebrafish\_hd\_connectome}, with \texttt{IPNd*} and
+\texttt{IPNds*} contiguously at the top-left (the HD ring block),
+followed by \texttt{RIPN*} and \texttt{pt-IPN*} (afferent blocks).
+The matrix is sparse (density $0.027$, $14\,391$ non-zero edges out of
+$731^2 = 534\,361$).
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{../figures/zebrafish/fig_connectome_summary_HD.png}
+  \caption{\textbf{Zebrafish HD-circuit connectome.}
+  \textbf{(a)} Signed $W^{\mathrm{con}}$, $z$-scored over non-zero
+  entries and clipped to $\pm 3$; neuron-type blocks marked on both
+  axes; red = excitatory, blue = inhibitory.
+  \textbf{(b)} Binary support $\mathrm{supp}(W^{\mathrm{con}})$
+  (black = edge present, white = absent), block boundaries in red.
+  The dorsal-IPN block (top-left) is the densest sub-matrix; the
+  \texttt{RIPN*} and \texttt{pt-IPN*} rows show the afferent
+  projection pattern onto the HD ring.}
+  \label{fig:zhd_connectome_summary}
+\end{figure}
+
+\section{Methods}
+\label{sec:methods}
+
+\textbf{Recurrent neural network.}\label{method:RNN}
+The RNN model is a sign-locked discrete-time recurrent network whose
+connectivity is constrained to the larval-zebrafish HD-circuit
+connectome (\cref{sec:anatomy}). For each neuron $i \in \{1,\dots,N\}$
+with $N = 731$ the subthreshold activity $\hat h_i(t)$ evolves
+according to
+\begin{equation}
+\tau\,\frac{d\hat h_i(t)}{dt}
+  = -\hat h_i(t)
+  + \sum_j \hat W^{\mathrm{rec}}_{ij}\,\sigma\!\big(\hat h_j(t)\big)
+  + \sum_l \hat W^{\mathrm{in}}_{il}\,u_l(t)
+  + \hat b_i,
+\label{eq:zhd_dynamics}
+\end{equation}
+\begin{equation}
+\hat y(t) = \big(\cos\hat\theta(t),\,\sin\hat\theta(t)\big)
+  = \hat W^{\mathrm{out}}\sigma\big(\hat h(t)\big) + \hat b^{\mathrm{out}},
+\label{eq:zhd_readout}
+\end{equation}
+where $\sigma$ is the sigmoid, $\tau = 0.1\,\mathrm{s}$,
+$\Delta t = 0.01\,\mathrm{s}$, and the input
+$u(t) \in \R^3 = \big(s(t),\,\cos\theta_0\,\delta_{t,0},\,\sin\theta_0\,\delta_{t,0}\big)$
+carries a swim-triggered angular impulse $s(t)$ and a one-frame
+initial-heading cue. In \petrucco{}~Fig.~3c the network phase advances
+by $\approx \pi/4$~rad per swim ($Q_1, Q_3 = 0.49, 1.28$~rad,
+$n = 31$~fish), so $s(t)$ is a sparse stream of signed impulses of
+typical magnitude $\pi/4$ at swim onsets, taking the role of the
+angular-velocity input of the drosophila companion document. Outside
+swim events $s(t) = 0$, mirroring the persistent silence of the
+\rpi{} bump in non-swimming fish (\petrucco{}~Fig.~3a, c). The
+readout from \cref{eq:zhd_readout} reads from the
+\texttt{output\_from\_epg\_only} (\ie{} HD-ring-only) block of $N$
+neurons unless stated otherwise.
+
+The recurrent matrix is sign-locked to the connectome template
+$W^{\mathrm{con}} \in \R^{N \times N}$ exactly as in the
+Known-ODE RNN of the drosophila companion document: the trainable
+per-edge parameter is the magnitude $\hat S \in \R^{N \times N}$, and
+\begin{equation}
+\hat W^{\mathrm{rec}}_{ij}
+  = |\hat S_{ij}|\,\mathrm{sign}(W^{\mathrm{con}}_{ij})\,(1-\delta_{ij}).
+\label{eq:zhd_w_rec}
+\end{equation}
+$W^{\mathrm{con}}$ comes out of
+\texttt{load\_zebrafish\_hd\_connectome} with the Dale convention of
+\cref{sec:anatomy}: the outgoing columns of the GABAergic HD-ring
+cells (\texttt{IPNd*}, \texttt{IPNds*}) are negated and amplified by
+$5\times$, after which the matrix is rescaled to spectral radius
+$0.9$. Unlike the fly model, \emph{all} sign-flipped columns belong to
+the bump population itself; there is no separate inhibitory cell type
+($\Delta 7$, ER6) to swap with the bump.
+
+The swim-triggered drive is anatomically restricted to the
+afferent populations through a four-scalar gate on the first column
+of $\hat W^{\mathrm{in}}$:
+\begin{equation}
+\hat W^{\mathrm{in}}_{i,s}
+  = v_q \quad \text{if } i \in q,\ \ q \in
+   \{\mathrm{RIPN}_L,\mathrm{RIPN}_R,\mathrm{ptIPN}_L,\mathrm{ptIPN}_R\},
+\label{eq:zhd_swim_gate}
+\end{equation}
+with four learnable scalars
+$\{v_{\mathrm{RIPN}_L},\,v_{\mathrm{RIPN}_R},\,
+  v_{\mathrm{ptIPN}_L},\,v_{\mathrm{ptIPN}_R}\}$
+initialised antisymmetrically across hemispheres so that left swims
+and right swims drive the bump in opposite directions. The subpopulation
+membership comes from \texttt{pen\_subpop\_ix} returned by the loader,
+with \texttt{PENa} = \texttt{RIPN*} and \texttt{PENb} = \texttt{pt-IPN*}
+(sizes $102 / 101 / 41 / 44$). The two remaining input columns ---
+carrying the initial-heading impulse
+$(\cos\theta_0,\sin\theta_0)\,\delta_{t,0}$ --- stay free for all
+neurons. \texttt{RIPN*} is functionally implicated as the
+swim-triggered driver of the bump in \petrucco{}; \texttt{pt-IPN*} is
+included in the gate so the optimiser can additionally route motor
+efference through the pretectal afferents if that improves heading
+recovery (this is the closest zebrafish analogue of the
+PEN$_a$/PEN$_b$ split, where the two sub-types are functionally
+similar but anatomically distinct).
+
+The learnable parameters are
+\begin{equation*}
+\big\{\hat S,\;
+v_{\mathrm{RIPN}_L},\,v_{\mathrm{RIPN}_R},\,
+v_{\mathrm{ptIPN}_L},\,v_{\mathrm{ptIPN}_R},\;
+\hat W^{\mathrm{in}}_{:,\theta_0},\,\hat b,\,
+\hat W^{\mathrm{out}},\,\hat b^{\mathrm{out}}\big\};
+\end{equation*}
+the connectome template $W^{\mathrm{con}}$, the
+RIPN / pt-IPN subpopulation membership, the neuron-type assignments,
+$\tau$ and $\Delta t$ are given. Training optimises a per-frame MSE
+on the heading readout with the same two connectome-prior
+regularisers and an $\ell_1$ sparsity prior on the recurrent
+magnitudes as the drosophila model,
+\begin{equation}
+\mathcal{L}
+= \tfrac{1}{BT}\sum_{b,t} \|\hat y_{b,t} - y_{b,t}\|_2^2
++ \lambda_{\mathrm{cos}}\,\mathcal{L}_{\mathrm{cos}}
++ \lambda_{\mathrm{nf}}\,\mathcal{L}_{\mathrm{nf}}
++ \lambda_{1}\,\|\hat S\|_1,
+\label{eq:zhd_loss}
+\end{equation}
+with block losses computed over type-pair masks
+$\mathcal{B}_p \subset \{1,\dots,N\}^2$ (one block per ordered
+pre/post neuron-type pair $p \in \mathcal{P}$),
+\begin{align}
+\mathcal{L}_{\mathrm{cos}}
+  &= \tfrac{1}{|\mathcal{P}|}\sum_{p \in \mathcal{P}}
+     \!\left[1 - \frac{\langle \hat W^{\mathrm{rec}}_{\mathcal{B}_p},\,
+         W^{\mathrm{con}}_{\mathcal{B}_p}\rangle}
+       {\|\hat W^{\mathrm{rec}}_{\mathcal{B}_p}\|\,
+        \|W^{\mathrm{con}}_{\mathcal{B}_p}\|}\right],
+\label{eq:zhd_cos}\\
+\mathcal{L}_{\mathrm{nf}}
+  &= \tfrac{1}{|\mathcal{P}|}\sum_{p \in \mathcal{P}}
+     \relu\!\big(\kappa -
+       \overline{|\hat W^{\mathrm{rec}}_{\mathcal{B}_p}|}\big)^2.
+\label{eq:zhd_nf}
+\end{align}
+The cosine-distance term $\mathcal{L}_{\mathrm{cos}}$ anchors each
+block to the connectome template; the norm-floor term
+$\mathcal{L}_{\mathrm{nf}}$ prevents any type-pair block from
+collapsing to zero by penalising the squared shortfall of the block
+mean absolute weight $\overline{|\hat W^{\mathrm{rec}}_{\mathcal{B}_p}|}$
+below a fixed floor $\kappa$ (typical value $\kappa = 0.05$). Because
+$\mathcal{L}_{\mathrm{cos}}$ is scale-invariant,
+$\mathcal{L}_{\mathrm{nf}}$ is required to prevent a degenerate
+solution in which the cosine prior is satisfied by an arbitrarily
+small recurrent magnitude. The type-pair vocabulary
+$\mathcal{P}$ is the cartesian product of the 31 fish2 cell types
+identified in \cref{sec:anatomy}, restricted to pairs with at least
+one non-zero entry in $W^{\mathrm{con}}$ --- roughly an order of
+magnitude more blocks than the fly model, which absorbs the increased
+risk of block-level degeneracies into the optimisation. A
+linear-reconstruction analysis of the null space of the trained
+$\hat W^{\mathrm{rec}}$ --- analogous to the per-cell-type and
+per-unit sparsification tests in the appendix of the drosophila
+companion document --- is deferred to \cref{sec:results}.
+
+\bigskip
+\noindent\textbf{Graph neural network model.}\label{method:GNN}
+The GNN model replaces the dense recurrent operator
+$\sum_j \hat W^{\mathrm{rec}}_{ij}\,\sigma(\hat h_j)$ of
+\cref{eq:zhd_dynamics} with a message-passing graph neural network
+(Gilmer \emph{et al.}\ 2017), and --- as in the drosophila companion ---
+does \emph{not} hard-code the leak or the firing-rate nonlinearity.
+The GNN imposes only the connectome topology of \cref{sec:anatomy}
+and the input/output channels of \cref{eq:zhd_dynamics,eq:zhd_readout};
+the leak $-\hat h_i$ and the rate non-linearity $\sigma$ must be
+\emph{discovered} inside the learned drift. Nodes correspond to
+neurons and edges to the non-zero entries of the zebrafish HD
+connectome template $W^{\mathrm{con}}$. The GNN learns a latent
+embedding $\mathbf a_i \in \R^d$ per neuron, representing compact
+cell-type-specific identity; we use $d = 4$ as the agentic-tuning
+winner in the drosophila companion document and re-validate it for
+the zebrafish data in \cref{sec:results}. Subthreshold activity evolves as
+\begin{equation}
+\tau\,\frac{d\hat h_i(t)}{dt}
+  = f_\theta\!\Big(\hat h_i(t),\,\mathbf a_i,\,
+       \sum_{j \in \mathcal N_i}
+       \hat W_{ij}\,g_\phi\!\big(\hat h_j(t),\mathbf a_j\big)\Big)
+  + \sum_l \hat W^{\mathrm{in}}_{il}\,u_l(t),
+\label{eq:zhd_gnn_dynamics}
+\end{equation}
+with the same readout (\cref{eq:zhd_readout}), swim-gated encoder
+(\cref{eq:zhd_swim_gate}), and dynamics constants ($\tau,\Delta t$)
+as the RNN. The neighbour set is fixed by the connectome topology,
+$\mathcal N_i = \{j : W^{\mathrm{con}}_{ij} \neq 0\}$. The node
+update $f_\theta$ and edge message $g_\phi$ are three-layer
+perceptrons (width 64, ReLU, linear output). $g_\phi$ maps the
+presynaptic state $\hat h_j$ to a per-edge message conditioned on
+$\mathbf a_j$ and weighted by the per-edge gain $\hat W_{ij}$;
+$f_\theta$ then processes the postsynaptic state $\hat h_i$, the
+embedding $\mathbf a_i$, and the aggregated synaptic drive. We
+constrain $g_\phi$ to be monotonically increasing in $\hat h_j$ via
+the prior $\partial g_\phi / \partial \hat h \ge 0$ (see
+\cref{eq:zhd_gnn_loss}); combined with the sign-locked $\hat W_{ij}$
+(\cref{eq:zhd_gnn_w}) this restores Dale's law at the per-edge level
+without introducing a $\pm$-sign degeneracy. The leak, the
+firing-rate non-linearity, and any departure from a linear synapse
+must emerge from $(f_\theta, g_\phi, \mathbf a)$ themselves; the
+monotonicity priors below provide the minimum inductive bias for
+$f_\theta, g_\phi$ to behave like a neuron (postsynaptic drive
+increases with net excitatory input). The per-edge weight is
+sign-locked to the connectome as in the RNN,
+\begin{equation}
+\hat W_{ij}
+  = |W_{ij}|\,\mathrm{sign}(W^{\mathrm{con}}_{ij})\,(1-\delta_{ij}),
+\label{eq:zhd_gnn_w}
+\end{equation}
+where $W_{ij} \in \R$ is the trainable per-edge magnitude.
+In the zebrafish circuit
+$\mathrm{sign}(W^{\mathrm{con}}_{ij})$ is negative for every edge
+whose presynaptic neuron is in the bump ring (\texttt{IPNd*} or
+\texttt{IPNds*}) and positive for every edge from \texttt{RIPN*} or
+\texttt{pt-IPN*}; the GNN therefore inherits the inhibitory dIPN
+ring directly from the sign pattern, just as the fly GNN inherits
+the $\Delta 7$ / ER6 inhibition.
+
+The learnable parameters are
+\begin{equation*}
+\big\{\theta,\,\phi,\,\mathbf a,\,W,\;
+v_{\mathrm{RIPN}_L},\,v_{\mathrm{RIPN}_R},\,
+v_{\mathrm{ptIPN}_L},\,v_{\mathrm{ptIPN}_R},\;
+\hat W^{\mathrm{in}}_{:,\theta_0},\,\hat b,\,
+\hat W^{\mathrm{out}},\,\hat b^{\mathrm{out}}\big\};
+\end{equation*}
+the connectome template $W^{\mathrm{con}}$, the
+RIPN / pt-IPN subpopulation membership, the neuron-type assignments,
+$\tau$, $\Delta t$, and the mediolateral ring ordering used by the
+decoder are given.
+
+As with the RNN, heading recovery from cos/sin readouts is
+fundamentally non-unique: many distinct $(\theta,\phi,\mathbf a,W)$
+configurations produce identical readouts. We constrain the solution
+space with the same connectome-prior regularisers as the RNN
+($\mathcal{L}_{\mathrm{cos}}$, $\mathcal{L}_{\mathrm{nf}}$ from
+\cref{eq:zhd_cos,eq:zhd_nf}, computed on the per-edge gain surface
+$\hat W_{ij}$ with floor threshold $\kappa$), together with sparsity
+and monotonicity priors on the MLPs:
+\begin{align}
+\mathcal{L} \;=\;&
+  \tfrac{1}{BT}\sum_{b,t}\|\hat y_{b,t} - y_{b,t}\|_2^2
++ \lambda_{\mathrm{cos}}\mathcal{L}_{\mathrm{cos}}
++ \lambda_{\mathrm{nf}}\mathcal{L}_{\mathrm{nf}} \nonumber\\
+& +\;\lambda_0\|\theta\|_1 + \lambda_1\|\phi\|_1
+   + \lambda_2\|\theta\| + \lambda_3\|\phi\|
+   \;+\;\gamma_0\|W\|_1 + \gamma_1\|W\| \nonumber\\
+& +\;\mu_0\!\left\|
+       \relu\!\left(+\tfrac{\partial f_\theta(\hat h,\mathbf a,m)}
+                          {\partial \hat h}\right)\right\|
+   +\;\mu_1\!\left\|
+       \relu\!\left(-\tfrac{\partial f_\theta(\hat h,\mathbf a,m)}
+                          {\partial m}\right)\right\| \nonumber\\
+& +\;\mu_2\!\left\|
+       \relu\!\left(-\tfrac{\partial g_\phi(\hat h,\mathbf a)}
+                          {\partial \hat h}\right)\right\|
+   +\;\mu_3\,\big\|g_\phi(h_\star,\mathbf a)-h_\star\big\|,
+\label{eq:zhd_gnn_loss}
+\end{align}
+where $m = \sum_{j \in \mathcal N_i}\hat W_{ij}\,
+g_\phi(\hat h_j,\mathbf a_j)$ is the aggregated synaptic input. The
+$\ell_1$ penalties $\lambda_0,\lambda_1$ on the MLP weights bias
+$f_\theta, g_\phi$ toward sparser, simpler functions; the $\ell_2$
+penalties $\lambda_2,\lambda_3$ prevent weight explosion. The
+leak-monotonicity term $\mu_0$ penalises \emph{positive} slopes of
+$f_\theta$ in the postsynaptic state $\hat h$, encoding the prior
+that the drift contains a leak
+($\partial f_\theta / \partial \hat h \le 0$); $\mu_1$ penalises
+negative slopes of $f_\theta$ in the aggregated input $m$, encoding
+the prior that postsynaptic drive increases with net excitatory
+input. Together, $\mu_0$ and $\mu_1$ force the discovered drift to be
+decreasing in self-voltage and increasing in synaptic input --- the
+two qualitative signatures of \cref{eq:zhd_dynamics}. The term $\mu_2$
+enforces the analogous monotonicity prior on $g_\phi$ in the
+presynaptic voltage. The normalisation term $\mu_3$ anchors $g_\phi$
+at a reference subthreshold value $h_\star$, removing the
+multiplicative degeneracy between $g_\phi$ and $\hat W$ in
+\cref{eq:zhd_gnn_dynamics}. Hyperparameters
+$\lambda_{\{0,1,2,3\}},\,\gamma_{\{0,1\}},\,\mu_{\{0,1,2,3\}}$ and the
+MLP widths/depths are tuned with the same agentic optimisation
+procedure as the drosophila companion, with $r_{\mathrm{roll},1k}$ on
+a deterministic swim-impulse rollout (analogous to the
+constant-$\omega$ rollout of the fly model) as the primary score.
+
+\paragraph{What the GNN can and cannot identify in the zebrafish
+preparation.} The fly preparation is unusually informative for
+identifiability because $\Delta 7$ and ER6 are the \emph{two} clearly
+inhibitory cell types, with nested postsynaptic targets, so the GNN
+can swap one for the other and still satisfy the path-integration
+input--output map (drosophila companion document, GNN-result
+discussion). The zebrafish dIPN ring is all-inhibitory: there is no
+analogous E/I swap to test. What remains testable is the structurally
+similar question \emph{within} the inhibitory pool --- whether HD
+information can be reallocated among the \texttt{IPNd13*},
+\texttt{IPNd17*} and \texttt{IPNds*} sub-families without breaking
+the readout. The per-cell-type mutual-information analysis of the
+drosophila document ports unchanged and is the natural tool for that
+test.
+
+\section{Results}
+\label{sec:results}
+\emph{To be written.}
+
+\bibliographystyle{unsrtnat}
+\begin{thebibliography}{9}
+\bibitem[Petrucco et al.(2023)]{petrucco2023}
+L.~Petrucco, H.~Lavian, Y.~K.~Wu, F.~Svara, V.~\v{S}tih, R.~Portugues.
+Neural dynamics and architecture of the heading direction circuit in
+zebrafish. \emph{Nature Neuroscience} \textbf{26}, 765--773 (2023).
+\bibitem[Turner-Evans et al.(2017)]{turner-evans2017}
+D.~Turner-Evans \emph{et al.}\ Angular velocity integration in a fly
+heading circuit. \emph{eLife} \textbf{6}, e23496 (2017).
+\bibitem[Kim et al.(2017)]{kim2017}
+S.~S.~Kim, H.~Rouault, S.~Druckmann, V.~Jayaraman. Ring attractor
+dynamics in the \emph{Drosophila} central brain. \emph{Science}
+\textbf{356}, 849--853 (2017).
+\bibitem[Green et al.(2017)]{green2017}
+J.~Green \emph{et al.}\ A neural circuit architecture for angular
+integration in \emph{Drosophila}. \emph{Nature} \textbf{546}, 101--106
+(2017).
+\end{thebibliography}
+
+\end{document}

@@ -564,6 +564,12 @@ class GraphModelConfig(BaseModel):
     # EPG cells (the biological prior). Default False keeps the legacy
     # behaviour (all 156 neurons connected to the decoder).
     output_from_epg_only: bool = False
+    # Zebrafish-specific counterpart of ``output_from_epg_only``: restricts
+    # the readout to the first ``n_epg = 443`` dIPN cells (IPNd* + IPNds*
+    # = the r1π HD ring per Petrucco 2023). Read by ``ZebrafishHdTaskRNN``;
+    # ignored by the drosophila models so fly yamls keep using the
+    # ``output_from_epg_only`` flag unchanged.
+    output_from_dipn_only: bool = False
     # CortexTaskRNN: whether the readout sees the firing rate r = σ(h) (default,
     # historical) or the raw subthreshold h (Yang 2019 convention). False matches
     # the paper's VanillaLeakyRNN exactly.
@@ -957,7 +963,7 @@ class TrainingConfig(BaseModel):
     coeff_cos_distance: float = 0.0    # cos-distance per (post, pre) type-pair block
     coeff_norm_floor:   float = 0.0    # soft floor on mean |W| per type-pair block
     kappa_norm_floor:   float = 0.05   # floor target for norm-floor reg
-    coeff_tv_circular:  float = 0.0    # circular TV on EPG/PEN ring firing rates
+    coeff_tv_circular:  float = 0.0    # circular TV on EPG ring firing rates
     snapshots_per_epoch: int = 5       # cadence of matrix+kinograph + pi_acc/fwhm eval
     # Per-epoch trial-length curriculum (Hulse Methods). Each epoch slices the
     # first n_steps_schedule[epoch] frames from the on-disk T=1000 trials.
@@ -1139,6 +1145,78 @@ class PathIntegrationTaskConfig(BaseModel):
     omega_noise_level: float = 0.0
 
 
+class SwimIntegrationTaskConfig(BaseModel):
+    """Larval-zebrafish swim-impulse heading-integration task.
+
+    Companion of ``PathIntegrationTaskConfig`` for the dIPN HD-ring port
+    (see ``docs/zebrafish.tex``). Where the drosophila PI generator drives
+    the heading with a continuous OU angular-velocity stream, this generator
+    drives it with a sparse Poisson sequence of typed swim events. Each
+    event applies a finite-duration boxcar to a discrete angular-velocity
+    channel and integrates to heading exactly as in PI; consumers see the
+    same TaskTrials/zarr layout, so the trainer and the readout are
+    unchanged.
+
+    Four swim categories are sampled per onset, mirroring the larval
+    zebrafish behavioural taxonomy (Petrucco et al.\\ 2023 Fig.\\ 3a,c):
+
+      left      - CCW turn,  signed Δθ = +phase_impulse_mean_rad
+      right     - CW turn,   signed Δθ = -phase_impulse_mean_rad
+      forward   - propulsion, Δθ ≈ 0 (no net heading rotation)
+      backward  - escape / large turn-around,
+                  |Δθ| ≈ backward_phase_mean_rad (~π by default)
+
+    Category proportions are configurable via the four ``*_fraction`` fields
+    and must sum to 1. The boxcar duration ``swim_duration_s`` discretises
+    each impulse over L = swim_duration_s / dt frames so heading integrates
+    smoothly rather than via a Dirac.
+    """
+    model_config = ConfigDict(extra="ignore")
+
+    n_trials_train: int
+    n_trials_test:  int
+    n_steps: int = 1000             # T per trial; ~10s at dt=0.01
+    dt: float = 0.01                # seconds
+    seed: int = 42
+
+    # Swim event statistics
+    swim_rate_hz: float = 0.5       # mean Poisson rate of swim onsets
+    swim_duration_s: float = 0.3    # boxcar width per swim event
+
+    # Phase-impulse magnitude per swim event (rad). Petrucco Fig 3c reports
+    # median 0.83 rad, Q1=0.49, Q3=1.28 over n=31 fish, so the default
+    # mean/std target that envelope on a lognormal in Δθ.
+    phase_impulse_mean_rad: float = 0.785       # ~π/4
+    phase_impulse_std_rad:  float = 0.40
+    # Backward-swim mean phase (rad). Large turn-around / escape; ~π.
+    backward_phase_mean_rad: float = 3.14
+    backward_phase_std_rad:  float = 0.30
+
+    # Category proportions; must sum to 1.
+    left_fraction:     float = 0.40
+    right_fraction:    float = 0.40
+    forward_fraction:  float = 0.15
+    backward_fraction: float = 0.05
+
+    # Additive Gaussian σ on the observed ω channel of the stimulus (deg/s).
+    # True heading is computed from the clean ω — only the network input is
+    # corrupted. 0 = no noise. Mirrors PathIntegrationTaskConfig.
+    omega_noise_level: float = 0.0
+
+    device: Literal["cpu", "cuda", "auto"] = "cpu"
+
+    @model_validator(mode="after")
+    def _fractions_sum_to_one(self):
+        s = (self.left_fraction + self.right_fraction
+             + self.forward_fraction + self.backward_fraction)
+        if abs(s - 1.0) > 1e-6:
+            raise ValueError(
+                f"swim_integration: left/right/forward/backward fractions must "
+                f"sum to 1; got {s:.6f}"
+            )
+        return self
+
+
 class OpticalFlowTaskConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -1196,9 +1274,11 @@ class CortexTaskConfig(BaseModel):
 class TaskConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    task_type: Literal["path_integration", "optical_flow", "cortex"]
+    task_type: Literal["path_integration", "swim_integration",
+                        "optical_flow", "cortex"]
 
     path_integration: Optional[PathIntegrationTaskConfig] = None
+    swim_integration: Optional[SwimIntegrationTaskConfig] = None
     optical_flow: Optional[OpticalFlowTaskConfig] = None
     cortex: Optional[CortexTaskConfig] = None
 
@@ -1211,6 +1291,7 @@ class TaskConfig(BaseModel):
     def _exactly_matching_subblock(self):
         sub = {
             "path_integration": self.path_integration,
+            "swim_integration": self.swim_integration,
             "optical_flow": self.optical_flow,
             "cortex": self.cortex,
         }

@@ -901,6 +901,212 @@ def plot_task_pi_traces(
     style.savefig(fig, out_path)
 
 
+def plot_task_swim_traces(
+    u: np.ndarray,
+    y: np.ndarray,
+    theta_hd: np.ndarray,
+    is_stop: np.ndarray,
+    swim_label: np.ndarray,
+    dt: float,
+    out_path: str,
+    n_show: int = 5,
+    style: FigureStyle = default_style,
+    *,
+    y_pred: Optional[np.ndarray] = None,
+    metrics: Optional[List[Dict[str, float]]] = None,
+) -> None:
+    """Stimulus/target preview for the zebrafish swim-integration task.
+
+    Companion of ``plot_task_pi_traces``: identical 3-row (or 4-row when
+    predictions are supplied) layout, identical line styling and metric
+    overlay; differs in the input ω panel, which is annotated with the
+    four swim categories (left / right / forward / backward) as colored
+    vertical bands at swim-onset frames, mirroring Petrucco et al.\\ 2023
+    Fig.\\ 3a.
+
+    Rows (without predictions):
+      Row 0 [in 0]   ω(t) — angular velocity (deg/s), swim-onset markers below
+      Row 1 [out 0]  cos(θ_hd(t))
+      Row 2 [out 1]  sin(θ_hd(t))
+
+    With predictions: row 3 adds the wrapped HD comparison (gt vs decoded).
+
+    ``swim_label`` is the (B, T) int8 array written alongside the TaskTrials
+    zarrs (0 = no swim, 1 = left, 2 = right, 3 = forward, 4 = backward).
+    """
+    n_trials, T, _ = u.shape
+    n = min(n_show, n_trials)
+    t = np.arange(T) * dt
+    has_pred = y_pred is not None
+
+    n_rows = 4 if has_pred else 3
+    fig, axes = plt.subplots(n_rows, n, figsize=(2.6 * n, 1.5 * n_rows + 1.0),
+                             sharex=True, sharey='row')
+    if n == 1:
+        axes = axes.reshape(n_rows, 1)
+
+    omega_lim = max(1e-6, float(np.abs(u[:n, :, 0]).max())) * 1.05
+    out_lim   = 1.1
+    row_ylims = [(-omega_lim, omega_lim),
+                 (-out_lim, out_lim), (-out_lim, out_lim)]
+    if has_pred:
+        row_ylims.append((-np.pi - 0.15, np.pi + 0.15))
+
+    # Match plot_task_pi_traces style.
+    INP, HD, OUT = "0.92", "0.94", "0.97"
+    GT_COLOR = "#4daf4a"
+    GT_LW = 2.8
+    GT_MS = 3.0
+    PRED_COLOR = "black"
+    PRED_LW = 0.5
+    PRED_MS = 0.4
+
+    # Petrucco-style category palette: blue=left (CCW), red=right (CW),
+    # gray=forward (no rotation), orange=backward (large turn-around).
+    LABEL_COLOR = {1: "#1f77b4", 2: "#d62728",
+                   3: "#7f7f7f", 4: "#ff7f0e"}
+    LABEL_NAME  = {1: "left", 2: "right", 3: "forward", 4: "backward"}
+
+    rows = [
+        ("input",  "in 0\nω (deg/s)", GT_COLOR, INP),
+        ("output", "out 0\ncos(θ)",   GT_COLOR, OUT),
+        ("output", "out 1\nsin(θ)",   GT_COLOR, OUT),
+    ]
+    if has_pred:
+        rows.append(("hd", "HD (rad,\nwrapped)", GT_COLOR, HD))
+
+    # NB: unlike plot_task_pi_traces we do NOT shade `is_stop` here. In the
+    # swim task, ω=0 is the *baseline* (the fish is not swimming most of
+    # the time), so a stop overlay would cover the majority of every panel
+    # and bury the colored swim bands. The colored bands themselves
+    # already mark the active intervals; the green trace clearly reads 0
+    # everywhere else.
+
+    def _mark_swim_onsets(ax, labels):
+        """Shade each swim event over its full boxcar duration with a
+        category-coloured band. Detects runs of constant non-zero label
+        and emits one axvspan per run (so the ω-active interval shown by
+        the green trace is exactly what the colour bar covers)."""
+        if labels is None:
+            return
+        i = 0
+        T_ = len(labels)
+        while i < T_:
+            lab = int(labels[i])
+            if lab == 0:
+                i += 1
+                continue
+            # Find end of this contiguous run of the same label.
+            j = i + 1
+            while j < T_ and int(labels[j]) == lab:
+                j += 1
+            ax.axvspan(i * dt, j * dt, color=LABEL_COLOR[lab],
+                        alpha=0.28, lw=0, zorder=0)
+            i = j
+
+    axis_fs = max(7, style.tick_font_size - 2)
+
+    for col in range(n):
+        stop = (is_stop[col].astype(bool) if is_stop is not None
+                else np.zeros(T, dtype=bool))
+        labs = (swim_label[col].astype(int) if swim_label is not None
+                else None)
+
+        traces: list = [(u[col, :, 0], None)]
+        if has_pred:
+            traces.append((y[col, :, 0], y_pred[col, :, 0]))
+            traces.append((y[col, :, 1], y_pred[col, :, 1]))
+            true_hd_wrap = np.angle(np.exp(1j * theta_hd[col]))
+            dec_theta = np.arctan2(y_pred[col, :, 1], y_pred[col, :, 0])
+            traces.append((true_hd_wrap, dec_theta))
+        else:
+            traces.append((y[col, :, 0], None))
+            traces.append((y[col, :, 1], None))
+
+        for r, ((kind, label, color, bg), (trace_gt, trace_pred)) in enumerate(
+            zip(rows, traces)
+        ):
+            ax = axes[r, col]
+            ax.set_facecolor(bg)
+            # Swim-onset markers: only the ω row carries the colored bars
+            # to keep heading panels uncluttered. (Use _shade_stops for the
+            # non-swim baseline — barely-visible on the ω panel because
+            # ω = 0 there too.)
+            if kind == "input":
+                _mark_swim_onsets(ax, labs)
+            if kind == "hd":
+                ax.plot(t, trace_gt, color=GT_COLOR, lw=0.0, marker=".", ms=GT_MS)
+                ax.plot(t, trace_pred, color=PRED_COLOR, lw=0.0, marker=".", ms=PRED_MS)
+                ax.set_yticks([-np.pi, 0, np.pi])
+                ax.set_yticklabels([r"$-\pi$", "0", r"$\pi$"])
+            else:
+                gt_lw = 0.8 if kind == "input" else GT_LW
+                ax.plot(t, trace_gt, color=color, lw=gt_lw)
+                if trace_pred is not None:
+                    ax.plot(t, trace_pred, color=PRED_COLOR, lw=PRED_LW)
+            ax.axhline(0, color="0.5", lw=0.5)
+            ax.set_ylim(*row_ylims[r])
+            ax.tick_params(axis='both', labelsize=axis_fs)
+            if r == 0:
+                # Per-trial swim count breakdown in title.
+                if labs is not None:
+                    onsets = (labs[1:] != labs[:-1]) & (labs[1:] != 0)
+                    onset_idx = np.where(onsets)[0] + 1
+                    by_type = np.bincount(labs[onset_idx],
+                                           minlength=5)[1:]  # [L, R, F, B]
+                    counts = (f"L{by_type[0]} R{by_type[1]} "
+                              f"F{by_type[2]} B{by_type[3]}")
+                    ttl = f"trial {col}\n{counts}"
+                else:
+                    ttl = f"trial {col}"
+                if metrics is not None and col < len(metrics):
+                    m = metrics[col]
+                    rmse_s = (f"rmse={m['rmse_deg']:.1f}°"
+                              if not np.isnan(m.get('rmse_deg', float('nan')))
+                              else "rmse=n/a")
+                    r_s = (f"r={m['pearson']:.3f}"
+                           if not np.isnan(m.get('pearson', float('nan')))
+                           else "r=n/a")
+                    ttl = f"{ttl}\n{rmse_s}  {r_s}"
+                ax.set_title(ttl, fontsize=style.label_font_size - 1)
+            if r == n_rows - 1:
+                ax.set_xlabel("time (s)", fontsize=axis_fs)
+            if col == 0:
+                ax.set_ylabel(label, fontsize=axis_fs)
+
+    # Bracket-style group labels in the left margin.
+    def _row_y(r: int) -> float:
+        return 0.97 - 0.05 - (r + 0.5) * (0.90 / n_rows)
+
+    fig.text(0.005, _row_y(0.0), "INPUT", rotation=90, va='center', ha='left',
+             fontsize=axis_fs + 1, fontweight='bold', color='0.25')
+    fig.text(0.005, _row_y(1.5), "OUTPUT", rotation=90, va='center',
+             ha='left', fontsize=axis_fs + 1, fontweight='bold', color='0.25')
+    if has_pred:
+        fig.text(0.005, _row_y(3.0), "HD", rotation=90, va='center', ha='left',
+                 fontsize=axis_fs + 1, fontweight='bold', color='0.25')
+
+    # Legend strip just below the suptitle — one chip per swim category.
+    from matplotlib.lines import Line2D
+    legend_handles = [
+        Line2D([0], [0], color=LABEL_COLOR[k], lw=2.4, label=LABEL_NAME[k])
+        for k in (1, 2, 3, 4)
+    ]
+    fig.legend(handles=legend_handles, loc="upper center",
+                bbox_to_anchor=(0.5, 0.965), ncol=4, frameon=False,
+                fontsize=style.label_font_size - 1)
+
+    title = (
+        f"swim-integration task — {n} of {n_trials} trials, "
+        f"{T} frames (dt={dt:.3g}s, total {T*dt:.2g}s)"
+    )
+    if has_pred:
+        title += "   [green = ground truth, black = model]"
+    fig.suptitle(title, fontsize=style.label_font_size, y=0.998)
+    plt.tight_layout(rect=[0.02, 0, 1, 0.94])
+    style.savefig(fig, out_path)
+
+
 def plot_integration_gain(
     theta_hd: np.ndarray,        # (n_omega, T) ground-truth HD trajectories
     y_pred: np.ndarray,          # (n_omega, T, 2) predicted (cos, sin)

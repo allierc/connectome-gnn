@@ -28,6 +28,7 @@ def _discover_models():
     import connectome_gnn.models.eed_baseline  # noqa: F401 — triggers @register_model
     import connectome_gnn.models.stimulus_baseline  # noqa: F401 — triggers @register_model
     import connectome_gnn.models.drosophila_cx_task_rnn  # noqa: F401 — triggers @register_model
+    import connectome_gnn.models.zebrafish_hd_task_rnn  # noqa: F401 — triggers @register_model
     import connectome_gnn.models.cortex_task_rnn  # noqa: F401 — triggers @register_model
     import connectome_gnn.models.drosophila_cx_task_gnn  # noqa: F401 — triggers @register_model
 

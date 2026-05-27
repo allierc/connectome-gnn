@@ -72,6 +72,37 @@ def _load_image_mask(path: str, N: int) -> torch.Tensor:
 class DrosophilaCxTaskRNN(nn.Module):
     """Sign-locked Drosophila CX path-integration RNN."""
 
+    # Display labels for the bump-carrying population (analog of EPG) and the
+    # angular-velocity-gated afferent population (analog of PEN). Read by the
+    # training-snapshot helper / plot_cx_evolution so panels d, e carry the
+    # species-correct axis labels. Subclasses (e.g. ZebrafishHdTaskRNN)
+    # override these.
+    bump_label: str = "EPG"
+    afferent_label: str = "PEN"
+
+    @staticmethod
+    def _load_connectome(datapath):
+        """Connectome loader hook. Default = hemibrain CX (Hulse 2025).
+
+        Subclasses targeting a different organism override this method to
+        return a dict with the same canonical keys (N, J_effective,
+        neuron_types, type_names, n_epg, epg_ix, pen_subpop_ix, ...).
+        See ``ZebrafishHdTaskRNN`` for the larval-zebrafish dIPN port.
+        """
+        from connectome_gnn.generators.connconstr_data import (
+            load_drosophila_cx_connectome,
+        )
+        return load_drosophila_cx_connectome(datapath)
+
+    @staticmethod
+    def _resolve_bump_only_readout(gm) -> bool:
+        """Bump-only-readout config hook. Default reads the fly-historical
+        ``output_from_epg_only`` flag. Subclasses targeting a different
+        organism override to read their species-specific yaml flag (e.g.
+        ``output_from_dipn_only`` for ``ZebrafishHdTaskRNN``) without
+        otherwise touching __init__."""
+        return bool(getattr(gm, "output_from_epg_only", False))
+
     def __init__(self, aggr_type: str = "add", config=None, device=None):
         super().__init__()
         self.device = device
@@ -92,10 +123,11 @@ class DrosophilaCxTaskRNN(nn.Module):
         w_init_mode = getattr(train_config, "w_init_mode", "const")
 
         # --- Load hemibrain CX connectome -------------------------------
-        from connectome_gnn.generators.connconstr_data import (
-            load_drosophila_cx_connectome,
-        )
-        cx = load_drosophila_cx_connectome(sim.connconstr_datapath)
+        # Subclasses (e.g. ZebrafishHdTaskRNN) override ``_load_connectome``
+        # to swap in a different loader; the rest of __init__ relies only
+        # on the canonical dict shape (N, J_effective, neuron_types,
+        # type_names, n_epg, epg_ix, pen_subpop_ix).
+        cx = self._load_connectome(sim.connconstr_datapath)
         N = int(cx["N"])
         self.n_units = N
         self.n_input = 3
@@ -169,14 +201,6 @@ class DrosophilaCxTaskRNN(nn.Module):
             epg_idx = np.where(neuron_types == epg_t)[0]
             if epg_idx.size == epg_glom_ix.size:
                 ring_assignments["EPG"] = (epg_idx, epg_glom_ix)
-        pen_type_idx = [i for i, n in enumerate(type_names)
-                        if "PEN" in n and "PEG" not in n]
-        pen_idx_all: list[int] = []
-        for t in pen_type_idx:
-            pen_idx_all.extend(np.where(neuron_types == t)[0].tolist())
-        if pen_idx_all:
-            pen_idx_arr = np.array(sorted(pen_idx_all), dtype=np.int64)
-            ring_assignments["PEN"] = (pen_idx_arr, np.arange(pen_idx_arr.size))
         for name, (idx, pos) in ring_assignments.items():
             sort = np.argsort(np.asarray(pos, dtype=np.int64), kind="stable")
             order = torch.from_numpy(np.asarray(idx, dtype=np.int64)[sort]).long()
@@ -226,9 +250,22 @@ class DrosophilaCxTaskRNN(nn.Module):
                 f"'pen_4scalar', got {self.velocity_gate!r}"
             )
 
-        # --- Dynamics constants (from task.path_integration) ------------
-        self.tau = float(getattr(task.path_integration, "tau", 0.1))
-        self.dt = float(task.path_integration.dt)
+        # --- Dynamics constants -----------------------------------------
+        # ``dt`` is task-side data (matches the stimulus zarr grid); ``tau``
+        # is an RNN dynamics constant the task block may carry alongside.
+        # Read from whichever task sub-block this run uses
+        # (path_integration for fly PI, swim_integration for zebrafish SI),
+        # so the loader stays decoupled from the task name.
+        task_block = (task.path_integration if task.task_type == "path_integration"
+                      else task.swim_integration if task.task_type == "swim_integration"
+                      else None)
+        if task_block is None:
+            raise ValueError(
+                f"DrosophilaCxTaskRNN expects task_type in "
+                f"{{path_integration, swim_integration}}; got {task.task_type!r}"
+            )
+        self.tau = float(getattr(task_block, "tau", 0.1))
+        self.dt = float(task_block.dt)
 
         # --- Zero-diagonal mask -----------------------------------------
         # No self-connections, matching the GNN convention (edge_index
@@ -274,9 +311,10 @@ class DrosophilaCxTaskRNN(nn.Module):
         # only from the first n_epg neurons (EPG block; indices 0..n_epg-1)
         # rather than all N. Forces the optimiser to put the heading code in
         # EPG cells, matching Hulse 2021's frozen wout[0:46,:] convention.
-        self.output_from_epg_only = bool(
-            getattr(gm, "output_from_epg_only", False)
-        )
+        # Resolution is factored into ``_resolve_bump_only_readout`` so
+        # species subclasses (e.g. ZebrafishHdTaskRNN) can read a
+        # different yaml flag without touching the rest of __init__.
+        self.output_from_epg_only = self._resolve_bump_only_readout(gm)
         self._readout_dim = int(n_epg) if self.output_from_epg_only else N
         self.output_proj = getattr(gm, "output_proj", "matrix")
         if self.output_proj == "matrix":
@@ -459,7 +497,7 @@ class DrosophilaCxTaskRNN(nn.Module):
         return lam * total / max(len(self._block_names), 1)
 
     def loss_tv_circular(self, h_buf: torch.Tensor, lam: float = 1.0) -> torch.Tensor:
-        """Circular total-variation penalty on EPG/PEN ring firing rates."""
+        """Circular total-variation penalty on EPG ring firing rates."""
         if not self._ring_names or lam == 0.0:
             return h_buf.new_zeros(())
         r = self._sigma(h_buf)

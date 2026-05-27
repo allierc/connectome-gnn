@@ -29,6 +29,7 @@ from connectome_gnn.plot import (
     plot_spatial_activity_grid,
     plot_spiking_traces,
     plot_task_pi_traces,
+    plot_task_swim_traces,
 )
 # plot_task_cortex_* are imported lazily inside _generate_cortex_task so plot.py
 # can be edited without affecting non-task code paths.
@@ -418,6 +419,203 @@ def _generate_path_integration_task(config, *, device, visualize: bool = True) -
             )
 
 
+def _generate_swim_integration_task(config, *, device, visualize: bool = True) -> None:
+    """Generate the larval-zebrafish swim-integration task data.
+
+    Companion of ``_generate_path_integration_task``: identical on-disk
+    layout (same TaskTrials v2 fields under ``<dataset>/{train,test}/``),
+    same heading-integration formula ``θ_hd(t) = θ₀ + ∫ω(t)dt``, same
+    3-channel stimulus ``[ω(t), cos θ₀·δ, sin θ₀·δ]``. What differs is
+    only the distribution of ω(t): instead of a continuous OU stream,
+    ω(t) is built from a sparse Poisson sequence of typed swim events
+    (left, right, forward, backward), each stretched over a boxcar of
+    ``swim_duration_s`` so heading integrates smoothly. ω is stored
+    in deg/s for consistency with the drosophila pipeline.
+
+    Layout — flyvis-style flat dataset folder:
+        <dataset>/
+            task_traces_{train,test}.png
+            train/
+                stimulus.zarr     (N, T, 3)  [ω(t), cos(θ₀)·δ_t0, sin(θ₀)·δ_t0]
+                target.zarr       (N, T, 2)  [cos(θ_hd(t)), sin(θ_hd(t))]
+                theta_hd.zarr     (N, T)     ground-truth heading
+                is_stop.zarr      (N, T)     non-swim mask (1 outside boxcars)
+                omega.zarr        (N, T)     ω in deg/s
+                swim_label.zarr   (N, T)     int8: 0=none, 1=left, 2=right,
+                                                   3=forward, 4=backward
+            test/
+                same fields
+    """
+    task = config.task
+    si = task.swim_integration
+    torch.random.fork_rng(devices=device)
+    torch.random.manual_seed(si.seed)
+    np.random.seed(si.seed)
+
+    out_root = graphs_data_path(config.dataset)
+    os.makedirs(out_root, exist_ok=True)
+    logger.info(f"[task] swim_integration -> {out_root}")
+    # Echo angles in degrees so they read off the same scale as ω (deg/s).
+    # The underlying config fields stay in radians (suffix _rad) because the
+    # heading-integration math is computed in radians; only the log line is
+    # converted.
+    lr_deg = math.degrees(si.phase_impulse_mean_rad)
+    bw_deg = math.degrees(si.backward_phase_mean_rad)
+    logger.info(
+        f"[task] T={si.n_steps} dt={si.dt} rate={si.swim_rate_hz}Hz "
+        f"swim_dur={si.swim_duration_s}s "
+        f"mean|Δθ|_LR={lr_deg:.1f}° "
+        f"mean|Δθ|_B={bw_deg:.1f}° "
+        f"fractions=L{si.left_fraction:.2f}/R{si.right_fraction:.2f}/"
+        f"F{si.forward_fraction:.2f}/B{si.backward_fraction:.2f} "
+        f"train={si.n_trials_train} test={si.n_trials_test} "
+        f"omega_noise_level={si.omega_noise_level}"
+    )
+
+    T = int(si.n_steps)
+    dt = float(si.dt)
+    L = max(1, int(round(si.swim_duration_s / dt)))   # boxcar length in frames
+    p_swim_per_frame = float(si.swim_rate_hz) * dt    # per-frame Bernoulli prob
+
+    # Cumulative category cutoffs for sampling swim type per event.
+    fracs = np.array([si.left_fraction, si.right_fraction,
+                       si.forward_fraction, si.backward_fraction],
+                      dtype=np.float64)
+    cdf = np.cumsum(fracs)  # [P(L), P(L)+P(R), ..., 1.0]
+    # Labels: 1=left, 2=right, 3=forward, 4=backward
+    LABEL_LEFT, LABEL_RIGHT, LABEL_FORWARD, LABEL_BACKWARD = 1, 2, 3, 4
+
+    for split, n_trials in [
+        ("train", si.n_trials_train),
+        ("test",  si.n_trials_test),
+    ]:
+        if n_trials <= 0:
+            continue
+        B = int(n_trials)
+
+        logger.info(f"[task] {split}: generating {B} trials of T={T} ...")
+
+        # 1) Poisson swim onsets per frame. Refractory enforced by skipping
+        # any onset that falls inside an already-active boxcar (so two
+        # events can't overlap).
+        onset = (np.random.uniform(size=(B, T)) < p_swim_per_frame)
+
+        # 2) Per-onset swim type (1..4) drawn from the category cdf, then
+        # per-event |Δθ| from a lognormal whose mean is the category mean.
+        # Backward gets its own mean; LR/forward share phase_impulse_mean.
+        # Sign comes from the category (L = +, R = -, F = 0, B = ±π).
+        u_type = np.random.uniform(size=(B, T))
+        cat = np.digitize(u_type, cdf[:-1])  # 0=L, 1=R, 2=F, 3=B
+        cat = (cat + 1).astype(np.int8)      # shift to 1..4 labels
+
+        # Lognormal magnitudes (rad). σ_log = std_rad / mean_rad keeps the
+        # spread in linear-magnitude space close to the requested std.
+        sigma_log_LR = float(si.phase_impulse_std_rad) / max(
+            float(si.phase_impulse_mean_rad), 1e-6)
+        sigma_log_B  = float(si.backward_phase_std_rad) / max(
+            float(si.backward_phase_mean_rad), 1e-6)
+        mag_LR = np.random.lognormal(
+            mean=math.log(max(float(si.phase_impulse_mean_rad), 1e-6)),
+            sigma=sigma_log_LR, size=(B, T))
+        mag_B = np.random.lognormal(
+            mean=math.log(max(float(si.backward_phase_mean_rad), 1e-6)),
+            sigma=sigma_log_B,  size=(B, T))
+
+        # Per-event signed Δθ (radians) and per-event LABEL only at onsets.
+        delta_theta = np.zeros((B, T), dtype=np.float32)
+        delta_theta[(cat == LABEL_LEFT)  & onset] = (
+            +mag_LR[(cat == LABEL_LEFT) & onset].astype(np.float32))
+        delta_theta[(cat == LABEL_RIGHT) & onset] = (
+            -mag_LR[(cat == LABEL_RIGHT) & onset].astype(np.float32))
+        # forward: Δθ = 0 (do nothing)
+        # backward: ±|Δθ_B|, sign random
+        bw_mask = (cat == LABEL_BACKWARD) & onset
+        bw_sign = np.where(np.random.uniform(size=(B, T)) < 0.5, +1.0, -1.0)
+        delta_theta[bw_mask] = (
+            bw_sign[bw_mask] * mag_B[bw_mask]).astype(np.float32)
+
+        # Onset-only labels (0 outside onsets).
+        swim_label_onset = np.where(onset, cat, np.int8(0)).astype(np.int8)
+
+        # 3) Convert per-event Δθ to ω(t) deg/s by stretching each event
+        # over L frames as a boxcar of height (Δθ / (L·dt)). Cumulative
+        # contribution from past onsets within a sliding window of L frames.
+        # Also stretch the per-frame label so the boxcar carries the type.
+        omega_rad = np.zeros((B, T), dtype=np.float32)
+        swim_label = np.zeros((B, T), dtype=np.int8)
+        for k in tqdm(range(L), desc=f"  {split} boxcar stretch",
+                      ncols=150, leave=False):
+            omega_rad[:, k:] += delta_theta[:, : T - k] / (L * dt)
+            # label: take the most recent onset's type (overwrite is fine
+            # because we don't allow two onsets within L frames in expectation
+            # — even when they do collide, last-onset wins, which is fine).
+            mask = swim_label_onset[:, : T - k] != 0
+            if k == 0:
+                swim_label[:, k:] = np.where(mask, swim_label_onset[:, : T - k],
+                                              swim_label[:, k:])
+            else:
+                swim_label[:, k:] = np.where(mask, swim_label_onset[:, : T - k],
+                                              swim_label[:, k:])
+        omega = np.rad2deg(omega_rad).astype(np.float32)  # deg/s, like PI
+
+        # `is_stop` here means "fish is not swimming"; complement of any
+        # non-zero ω. We keep the field name so the loader/plot code is
+        # shared with the drosophila pipeline. Forward swims have Δθ = 0,
+        # so they appear in swim_label but not in is_stop.
+        is_stop = (omega == 0).astype(np.float32)
+
+        # 4) Heading integration (radians) — identical formula to PI,
+        # except ω here is already in deg/s, so we deg2rad before integrating.
+        theta0 = np.random.uniform(0.0, 2.0 * math.pi, size=B).astype(np.float32)
+        theta_hd = theta0[:, None] + np.cumsum(np.deg2rad(omega), axis=1) * dt
+        theta_hd[:, 0] = theta0
+        target_y = np.stack([np.cos(theta_hd), np.sin(theta_hd)],
+                             axis=-1).astype(np.float32)
+
+        # 5) 3-channel input — identical layout to PI.
+        stimulus = np.zeros((B, T, 3), dtype=np.float32)
+        stimulus[:, :, 0] = omega
+        stimulus[:, 0, 1] = np.cos(theta0)
+        stimulus[:, 0, 2] = np.sin(theta0)
+        if si.omega_noise_level > 0:
+            stimulus[:, :, 0] += (
+                si.omega_noise_level
+                * np.random.standard_normal(size=(B, T)).astype(np.float32)
+            )
+
+        split_dir = os.path.join(out_root, split)
+        os.makedirs(split_dir, exist_ok=True)
+
+        from connectome_gnn.task_state import TaskTrials, task_trials_to_disk
+        trials = TaskTrials(
+            task_family="swim_integration",
+            n_input=int(stimulus.shape[-1]),
+            n_output=int(target_y.shape[-1]),
+            dt=dt,
+            stimulus=torch.from_numpy(stimulus),
+            target  =torch.from_numpy(target_y),
+            theta_hd=torch.from_numpy(theta_hd.astype(np.float32)),
+            is_stop =torch.from_numpy(is_stop),
+            omega   =torch.from_numpy(omega),
+        )
+        task_trials_to_disk(trials, split_dir)
+        # swim_label is a swim-specific extra field; write alongside the
+        # TaskTrials zarrs as a plain (B, T) int8 zarr so plotting and
+        # downstream analyses can read it without modifying TaskTrials.
+        import zarr as _zarr
+        _zarr.save(os.path.join(split_dir, "swim_label.zarr"),
+                   swim_label.astype(np.int8))
+        logger.info(f"[task]   {split}: wrote {B} trials of T={T} "
+                    f"(TaskTrials v2 layout + swim_label.zarr)")
+
+        if visualize:
+            plot_task_swim_traces(
+                u=stimulus, y=target_y, theta_hd=theta_hd, is_stop=is_stop,
+                swim_label=swim_label, dt=dt,
+                out_path=os.path.join(out_root, f"task_traces_{split}.png"),
+            )
+
+
 def _generate_cortex_task(config, *, device, visualize: bool = True) -> None:
     """Generate Yang et al. 2019 multitask cognitive battery data.
 
@@ -643,6 +841,8 @@ def data_generate_task(config, *, device, visualize: bool = True) -> None:
         return
     if task.task_type == "path_integration":
         _generate_path_integration_task(config, device=device, visualize=visualize)
+    elif task.task_type == "swim_integration":
+        _generate_swim_integration_task(config, device=device, visualize=visualize)
     elif task.task_type == "optical_flow":
         raise NotImplementedError(
             "optical_flow task generation is not implemented yet; "

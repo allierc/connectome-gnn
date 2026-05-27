@@ -1,0 +1,102 @@
+description: 'Larval-zebrafish dIPN head-direction circuit, swim-integration task.
+
+  Companion of config/drosophila_cx/drosophila_cx_pi_epg.yaml: same
+  DrosophilaCxTaskRNN class (connectome_loader switched to zebrafish_hd),
+  same PEN-gate machinery (now wired to RIPN_L/R and pt-IPN_L/R subpops),
+  same IPNd-ring-only decoder (output_from_epg_only=True slices the first
+  n_epg=443 columns, which are the IPNd*/IPNds* HD ring by loader
+  construction). Input is a sparse Poisson sequence of typed swim events
+  (left, right, forward, backward) instead of the OU angular-velocity
+  stream of the drosophila version.
+
+  See docs/zebrafish.tex §2 for the connectome remapping and §3 for the
+  modelling equations.'
+dataset: zebrafish_hd_si_task
+simulation:
+  params:
+  - - 1.0
+  connconstr_datapath: figures/zebrafish/zebrafish_connectome_HD
+  seed: 47006
+graph_model:
+  signal_model_name: zebrafish_hd_si
+  aggr_type: add
+  input_proj: matrix
+  output_proj: matrix
+  velocity_gate: pen_4scalar
+  lock_edge_signs: true
+  hidden_dim: 128
+  n_layers: 3
+  MLP_activation: relu
+  output_from_dipn_only: true
+plotting: {}
+training:
+  device: auto
+  seed: 47506
+  n_runs: 1
+  n_epochs: 10
+  batch_size: 64
+  data_augmentation_loop: 1
+  lr: 0.002
+  lr_W_rec_schedule:
+  - 0.0005
+  - 0.0005
+  - 0.00025
+  - 0.000125
+  - 0.000125
+  - 1.0e-4
+  - 1.0e-4
+  - 1.0e-4
+  - 5.0e-05
+  - 5.0e-05
+  lr_scheduler: none
+  lr_W_ED: 0.0025
+  grad_clip_W: 2.5
+  coeff_cos_distance: 0.0
+  coeff_norm_floor: 0.0
+  kappa_norm_floor: 0.0
+  coeff_tv_circular: 0.0
+  coeff_W_L1: 0.0
+  noise_recurrent_level: 0.03
+  snapshots_per_epoch: 5
+  n_steps_schedule:
+  - 100
+  - 100
+  - 200
+  - 200
+  - 300
+  - 400
+  - 500
+  - 600
+  - 700
+  - 800
+  coeff_tail_loss: 0.035
+  torch_compile: false
+  w_init_mode: w_con
+claude:
+  n_epochs: 5
+  data_augmentation_loop: 1
+  n_iter_block: 40
+  n_parallel: 10
+  node_name: a100
+  generate_data: false
+  training_time_target_min: 30
+task:
+  task_type: swim_integration
+  task_only: true
+  swim_integration:
+    n_trials_train: 100000
+    n_trials_test: 10000
+    n_steps: 1000
+    dt: 0.01
+    swim_rate_hz: 0.5            # mean Poisson rate of swim onsets
+    swim_duration_s: 0.3         # boxcar width per swim event
+    phase_impulse_mean_rad: 0.785  # ≈π/4, Petrucco Fig 3c median 0.83 rad
+    phase_impulse_std_rad:  0.40
+    backward_phase_mean_rad: 3.14
+    backward_phase_std_rad:  0.30
+    left_fraction:     0.40
+    right_fraction:    0.40
+    forward_fraction:  0.15
+    backward_fraction: 0.05
+    omega_noise_level: 0.0
+    seed: 0

@@ -334,19 +334,19 @@ def _save_training_snapshot(
         W_con_np = (net.W_con.detach().cpu().numpy()
                     if hasattr(net, "W_con") else None)
 
-        # Use docs/figure/fig_evolution.py::build_figure (two-row mode) for
-        # the training snapshot so the in-training plot matches the paper
-        # figure exactly. Imported via importlib because docs/figure/ isn't
-        # a regular Python package.
-        import importlib.util
-        from connectome_gnn.utils import get_repo_root
-        _fig_path = os.path.join(
-            get_repo_root(), "docs", "figure", "fig_evolution.py")
-        if not os.path.isfile(_fig_path):
-            raise FileNotFoundError(f"fig_evolution.py not found at {_fig_path}")
-        _spec = importlib.util.spec_from_file_location("fig_evolution", _fig_path)
-        _fig_mod = importlib.util.module_from_spec(_spec)
-        _spec.loader.exec_module(_fig_mod)
+        # Use plot_cx_evolution (two-row mode) for the training snapshot so
+        # the in-training plot matches the paper figure exactly. Function
+        # lives in connectome_gnn.plot_cx alongside every other CX-specific
+        # plotting helper; it used to live in figures/drosophila_cx/
+        # fig_evolution.py and be loaded via importlib here, which broke
+        # when the figures/ directory was reorganised.
+        from connectome_gnn.plot_cx import plot_cx_evolution
+
+        # Species-specific axis labels for panels d, e (afferent and
+        # bump-carrying populations). Defaults to fly EPG/PEN via the base
+        # class; zebrafish subclass overrides to r1π/dIPN and RIPN/pt-IPN.
+        bump_label = getattr(type(net), "bump_label", "EPG")
+        afferent_label = getattr(type(net), "afferent_label", "PEN")
 
         data = dict(
             net=net,
@@ -361,8 +361,10 @@ def _save_training_snapshot(
             gain_data=[],        # third-row only; unused in n_rows=2
             test_trial=None,     # panel g hidden in two-row mode
             dt_s=float(net.dt),
+            bump_label=bump_label,
+            afferent_label=afferent_label,
         )
-        _fig_mod.build_figure(
+        plot_cx_evolution(
             data, os.path.join(kinograph_dir, name), n_rows=2,
         )
     except Exception as exc:
