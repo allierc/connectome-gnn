@@ -393,31 +393,16 @@ def train_janelia_cx_teacher(
     # cos-distance regulariser is scale-invariant anyway.
     type_pair_blocks = _build_type_pair_blocks(neuron_types, type_names, W_con_np)
 
-    # Ring assignments for the circular-TV regulariser. Each entry pairs
-    # the in-network indices of a neuron population with their EB-ring
-    # positions. EPG has an explicit glomerular mapping (cx["epg_ix"]);
-    # PEN/PENa/PENb get the natural connectome-order index as their ring
-    # position (the loader sorts neurons by neuPrint instance, which is
-    # PB-glomerulus-ordered for these types).
+    # Ring assignments for the circular-TV regulariser. EPG has an
+    # explicit glomerular mapping (cx["epg_ix"]) defining its EB-ring
+    # position. PEN rings were dropped (user request): only EPG is
+    # regularised now.
     ring_assignments: dict[str, tuple[np.ndarray, np.ndarray]] = {}
     if "EPG" in type_names:
         epg_t = type_names.index("EPG")
         epg_idx = np.where(neuron_types == epg_t)[0]
         if epg_idx.size == epg_glom_ix.size:
             ring_assignments["EPG"] = (epg_idx, epg_glom_ix)
-    # PEN: substring match catches all PEN-family types in the hemibrain
-    # naming convention ("PEN_a(PEN1)", "PEN_b(PEN2)", etc.) without
-    # accidentally pulling in PEG. Natural connectome-order index serves
-    # as the ring position (the loader sorts neurons by neuPrint instance,
-    # which is PB-glomerulus-ordered for PEN types).
-    pen_type_idx = [i for i, n in enumerate(type_names)
-                    if "PEN" in n and "PEG" not in n]
-    pen_idx_all: list[int] = []
-    for t in pen_type_idx:
-        pen_idx_all.extend(np.where(neuron_types == t)[0].tolist())
-    if pen_idx_all:
-        pen_idx_arr = np.array(sorted(pen_idx_all), dtype=np.int64)
-        ring_assignments["PEN"] = (pen_idx_arr, np.arange(pen_idx_arr.size))
     if ring_assignments:
         sizes = ", ".join(f"{k}={v[0].size}" for k, v in ring_assignments.items())
         print(f"[janelia_cx] ring assignments for circular-TV reg: {sizes}")
@@ -815,7 +800,7 @@ def _main():
                         " Default is the 5-epoch schedule '5e-3,1e-3,5e-4,2e-4,1e-4'"
                         " matched to the n_steps curriculum.")
     p.add_argument("--lambda-tv", type=float, default=0.0,
-                   help="weight for the circular TV regulariser on EPG+PEN "
+                   help="weight for the circular TV regulariser on EPG "
                         "firing rates around the EB ring (default 0; try 1e-3 "
                         "to start, increase if the bump looks discontinuous "
                         "in HD-sorted neuron order).")

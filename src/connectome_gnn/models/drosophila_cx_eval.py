@@ -277,6 +277,42 @@ def load_pi_fwhm_history(metrics_log_path: str):
             (it, rmse) if rmse is not None else None)
 
 
+def _build_test_trial(net, u_test, y_test, device, config):
+    """Build a test_trial dict from a single OU test trial for panel g.
+
+    Returns None when u_test / y_test are not provided (backwards-compat).
+    """
+    if u_test is None or y_test is None:
+        return None
+    import torch
+    seed = int(getattr(config.training, "seed", 0)) + 17 if config else 17
+    rng = np.random.default_rng(seed)
+    n_test = u_test.shape[0]
+    trial_idx = int(rng.integers(0, n_test))
+    u_one = u_test[trial_idx]                    # (T, N_in) tensor or ndarray
+    y_true = y_test[trial_idx]
+    if hasattr(u_one, "cpu"):
+        u_one_np = u_one.cpu().numpy()
+        y_true_np = y_true.cpu().numpy()
+    else:
+        u_one_np = np.asarray(u_one)
+        y_true_np = np.asarray(y_test[trial_idx])
+    with torch.no_grad():
+        u_t = torch.from_numpy(u_one_np[None]).to(device) if not hasattr(u_one, "to") \
+              else u_one[None].to(device)
+        y_pred_t, _ = net(u_t)
+    y_pred_np = y_pred_t[0].cpu().numpy()
+    dt = float(config.task.path_integration.dt) if config else float(net.dt)
+    return dict(
+        idx=trial_idx,
+        u=u_one_np,
+        y_true=y_true_np,
+        y_pred=y_pred_np,
+        dt=dt,
+        label="OU test trial",
+    )
+
+
 def _save_training_snapshot(
     *,
     net,
@@ -294,6 +330,8 @@ def _save_training_snapshot(
     iter_in_epoch: int | None = None,
     matrix_dir: str | None = None,    # backwards-compat; ignored
     config=None,
+    u_test=None,
+    y_test=None,
 ) -> None:
     """Render the combined kinograph+matrix snapshot.
 
@@ -375,7 +413,8 @@ def _save_training_snapshot(
             rollout=rollout,
             epg_theta=epg_theta,
             gain_data=[],        # third-row only; unused in n_rows=2
-            test_trial=None,     # panel g hidden in two-row mode
+            test_trial=_build_test_trial(
+                net, u_test, y_test, device, config),
             dt_s=float(net.dt),
             bump_label=bump_label,
             afferent_label=afferent_label,

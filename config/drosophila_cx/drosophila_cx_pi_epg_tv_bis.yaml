@@ -1,13 +1,8 @@
-description: 'designed by Claude (parallel flyvis)
-
-
-  (EPG-only-readout variant: W_out reads only from the 46 EPG neurons, matching the
-  Hulse 2021 wout layout.)
-
-
-  Winner config from the LLM_drosophila_cx_drosophila_cx_pi_epg agentic exploration.
-  Use as parent for the _epg2 understanding exploration.'
-dataset: drosophila_cx_pi_task
+description: 'Smoke-test bis of drosophila_cx_pi_epg_tv.yaml — same params, different
+  dataset name (drosophila_cx_pi_task_bis) so it does not collide with the original
+  generated data. Used to verify the drosophila_cx branch still works after the
+  zebrafish head-direction companion dev.'
+dataset: drosophila_cx_pi_task_bis
 simulation:
   params:
   - - 1.0
@@ -50,7 +45,7 @@ training:
   coeff_cos_distance: 0.0
   coeff_norm_floor: 0.0
   kappa_norm_floor: 0.0
-  coeff_tv_circular: 0.0
+  coeff_tv_circular: 0.01
   coeff_W_L1: 0.0
   noise_recurrent_level: 0.03
   snapshots_per_epoch: 5

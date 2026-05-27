@@ -23,11 +23,19 @@ different recipe than what the legacy `pi_fc.yaml` provides.
 
 ## Budget
 
-**60 iterations**, 5 slots × 4 batches = 20 iter/block, **3 blocks**.
+**128 iterations**, 10 slots × ~13 batches, organised as **3 blocks**
+of roughly (40, 40, 48) iters.
 
 **Per-iter training**: `n_epochs: 5`, `data_augmentation_loop: 1`,
 `n_steps_schedule: [100, 200, 300, 400, 500]` — slow ramp from T=100
 up to T=500 (jumping to T=500 in one epoch starves bump formation).
+
+**Hard pin (do not change)**: `wrec_param: column_dale`. The point of
+this exploration is to find a recipe that makes FC + EPG-only readout
+work *under the Dale constraint*. Relaxing to `edge_free` would
+trivially unlock the metric but defeat the scientific claim — the
+paper rests on staying Dale-faithful, so this axis is forbidden across
+all blocks.
 
 ## Parent recipe (iter 0 / B1 slot 0)
 
@@ -58,7 +66,7 @@ training:
 
 ## Block plan
 
-### B1 — Stabilisation + tail-loss sweep (iter 1-20)
+### B1 — Stabilisation + tail-loss sweep (iter 1-40)
 
 Dense W_rec at T=500 is unstable without strong regularisation, and
 tail-loss is essential for late-T tracking — probe both axes jointly.
@@ -74,18 +82,20 @@ tail-loss is essential for late-T tracking — probe both axes jointly.
 Best slot from each batch becomes the parent. After B1, freeze
 `coeff_tail_loss` at the winner for B2 / B3.
 
-### B2 — wrec_param + L1 sparsity (iter 21-40)
+### B2 — Aux losses + sparsity + initialisation (iter 41-80)
 
-Once stable, probe the recurrent parameterisation:
+Once stable, probe the connectome-prior aux losses and initialisation —
+`wrec_param` stays pinned to `column_dale` throughout.
 
 | axis | mutations |
 |---|---|
-| `wrec_param` | {column_dale, edge_free} — does Dale's law help or hurt? |
 | `coeff_W_L1` | {0, 1e-5, 1e-4, 1e-3} — pull W_rec toward sparse |
-| `w_init_scale` | {0.01, 0.05, 0.1} |
+| `coeff_cos_distance` | {0, 0.5, 1, 2} — alignment to W_con |
+| `coeff_norm_floor` × `kappa_norm_floor` | {(0,0), (0.5,0.05), (1.0,0.1)} |
+| `w_init_mode` × `w_init_scale` | {const, randn, w_con} × {0.01, 0.05, 0.1} |
 | `lr_W_rec_schedule` (single value) | refine around B1 winner |
 
-### B3 — Robustness / fine-tune (iter 41-60)
+### B3 — Robustness / fine-tune (iter 81-128)
 
 Re-probe around the B2 winner. Verify stability across seeds; revisit
 `coeff_tail_loss` ±50% in case B2 shifted the optimum.
@@ -103,8 +113,11 @@ Re-probe around the B2 winner. Verify stability across seeds; revisit
 - Keep `output_from_epg_only: true`. The decoder shape is what we're
   characterising.
 - Dataset fixed (`drosophila_cx_pi_task`). Never regenerate.
-- `wrec_param: edge_magnitude` is invalid for FC (no connectome
-  template); only `column_dale` and `edge_free` are valid.
+- **`wrec_param` is PINNED to `column_dale`** — the central scientific
+  claim is that the FC can solve PI *under Dale's law per pre-column*.
+  Mutating to `edge_free` or `edge_magnitude` is forbidden across all
+  blocks; any slot that mutates `wrec_param` is a fatal experimental
+  design error and must be reverted.
 - Keep `n_steps_schedule` as a multi-epoch slow ramp
   (length == `n_epochs`). `lr_W_rec_schedule` length must match.
 
