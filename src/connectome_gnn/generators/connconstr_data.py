@@ -428,8 +428,13 @@ def load_zebrafish_hd_connectome(datapath, *, inh_amplify: float = 5.0,
 
     # --- Dale sign flip + spectral rescale --------------------------------
     # Build a mask over presynaptic columns that belong to an inhibitory
-    # cell type, then flip + amplify those columns.
+    # cell type, then flip + amplify those columns. Also expose the
+    # per-cell Dale prior sign as ``dale_signs`` — used by the model's
+    # ``column_dale`` path as a fallback for cells with zero net outgoing
+    # weight in the HD subset (orphan leaves whose outgoing partners lie
+    # outside the 731-cell pool).
     is_inh = nrn_df["category"].isin(_ZHD_INH_PREFIXES).to_numpy()
+    dale_signs = np.where(is_inh, -1.0, +1.0).astype(np.float32)
     J2 = J.copy()
     J2[:, is_inh] = -inh_amplify * np.abs(J[:, is_inh])
 
@@ -551,6 +556,7 @@ def load_zebrafish_hd_connectome(datapath, *, inh_amplify: float = 5.0,
             ["somaLocationX", "somaLocationY", "somaLocationZ"]
         ].to_numpy(dtype=np.float64),
         "n_glom": n_glom,
+        "dale_signs": dale_signs,
     }
 
 

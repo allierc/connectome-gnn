@@ -140,15 +140,27 @@ class DrosophilaCxTaskRNN(nn.Module):
 
         # Per-pre-neuron sign for column_dale mode. W_con layout is
         # row=post, col=pre, so summing along dim=0 gives the net outgoing
-        # weight of each pre-neuron j.
+        # weight of each pre-neuron j. Cells whose net is zero (e.g.
+        # orphan leaves in a subset connectome where all outgoing partners
+        # fall outside the modelled population — happens in the zebrafish
+        # HD subset for 8 cells) fall back to ``cx["dale_signs"]`` if the
+        # loader provided it; otherwise the build errors so the issue is
+        # surfaced rather than silently zeroing those cells' outgoing
+        # column.
         if self.wrec_param == "column_dale":
             col_sign = torch.sign(W_con.sum(dim=0))
+            if (col_sign == 0).any() and "dale_signs" in cx:
+                dale = torch.as_tensor(cx["dale_signs"],
+                                        dtype=col_sign.dtype,
+                                        device=col_sign.device)
+                col_sign = torch.where(col_sign == 0, dale, col_sign)
             if (col_sign == 0).any():
                 zero_idx = torch.nonzero(col_sign == 0, as_tuple=True)[0].tolist()
                 raise ValueError(
                     f"wrec_param='column_dale' requires every pre-neuron to "
-                    f"have non-zero net outgoing weight in W_con; "
-                    f"col_sign==0 at indices {zero_idx[:10]} (showing first 10)"
+                    f"have non-zero net outgoing weight in W_con (or a Dale "
+                    f"prior via cx['dale_signs']); col_sign==0 at indices "
+                    f"{zero_idx[:10]} (showing first 10)"
                 )
             self.register_buffer("col_sign", col_sign)
 

@@ -1,0 +1,85 @@
+description: 'Zebrafish dIPN HD ring — W_rec frozen at the fish2 connectome.
+
+  Companion of config/drosophila_cx/drosophila_cx_pi_frozen_Wrec_epg.yaml:
+  W_rec is initialised to the connectome template (w_init_mode: w_con)
+  and held there throughout training (lr_W_rec: 0.0). Only W_in / W_out
+  / biases / velocity-gate scalars learn. Tests whether the raw connectome
+  itself plus a learnable I/O suffices to integrate swim impulses into
+  heading — the zebrafish counterpart of the drosophila frozen-W_rec
+  control that fails on the OU velocity stream in docs/drosophila.tex.
+
+  Readout restricted to the first n_epg = 443 neurons (the IPNd* + IPNds*
+  dIPN HD ring per Petrucco 2023) via output_from_dipn_only.'
+dataset: zebrafish_hd_si_task
+simulation:
+  params:
+  - - 1.0
+  connconstr_datapath: figures/zebrafish/zebrafish_connectome_HD
+  seed: 47006
+graph_model:
+  signal_model_name: zebrafish_hd_si
+  aggr_type: add
+  input_proj: mlp
+  output_proj: mlp
+  velocity_gate: pen_4scalar
+  lock_edge_signs: true
+  hidden_dim: 128
+  n_layers: 4
+  MLP_activation: relu
+  output_from_dipn_only: true
+plotting: {}
+training:
+  device: auto
+  seed: 0
+  n_runs: 1
+  n_epochs: 10
+  batch_size: 64
+  data_augmentation_loop: 1
+  lr: 0.002
+  lr_W_rec_schedule:
+  - 0.002
+  - 0.002
+  - 0.001
+  - 0.0005
+  - 0.0005
+  lr_scheduler: none
+  lr_W_ED: 0.001
+  grad_clip_W: 0.001
+  w_init_mode: w_con
+  lr_W_rec: 0.0
+  coeff_cos_distance: 0.0
+  coeff_norm_floor: 0.0
+  kappa_norm_floor: 0.05
+  coeff_tv_circular: 0.0
+  coeff_W_L1: 0.0
+  noise_recurrent_level: 0.05
+  snapshots_per_epoch: 5
+  n_steps_schedule:
+  - 100
+  - 200
+  - 300
+  - 400
+  - 500
+  torch_compile: false
+claude:
+  n_parallel: 10
+task:
+  task_type: swim_integration
+  task_only: true
+  swim_integration:
+    n_trials_train: 100000
+    n_trials_test: 10000
+    n_steps: 1000
+    dt: 0.01
+    swim_rate_hz: 0.5
+    swim_duration_s: 0.3
+    phase_impulse_mean_rad: 0.785
+    phase_impulse_std_rad:  0.40
+    backward_phase_mean_rad: 3.14
+    backward_phase_std_rad:  0.30
+    left_fraction:     0.40
+    right_fraction:    0.40
+    forward_fraction:  0.15
+    backward_fraction: 0.05
+    omega_noise_level: 0.0
+    seed: 0
