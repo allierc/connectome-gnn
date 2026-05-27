@@ -1316,7 +1316,12 @@ def _panel_trial_rollout(fig, subplotspec, test_trial: dict):
     ax_top.axhline(0, color="0.7", lw=0.3)
     ax_top.set_ylabel("ω (°/s)", fontsize=LABEL_FS)
     ax_top.tick_params(labelsize=TICK_FS, labelbottom=False)
-    ax_top.set_title(f"OU test trial #{int(test_trial['idx'])}",
+    # Honor a per-trial title prefix if the caller supplied one
+    # ("OU test trial" for the fly's path_integration, "swim test trial"
+    # for the zebrafish's swim_integration, or any task-specific label);
+    # falls back to a generic "test trial" otherwise.
+    trial_label = str(test_trial.get("label", "test trial"))
+    ax_top.set_title(f"{trial_label} #{int(test_trial['idx'])}",
                       fontsize=TITLE_FS)
 
     theta_true = np.arctan2(y_true[:, 1], y_true[:, 0])

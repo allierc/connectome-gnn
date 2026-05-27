@@ -320,15 +320,31 @@ def _save_training_snapshot(
             omega_deg_per_s=snapshot_omega_deg, device=device,
         )
         rollout["r_epg"] = rollout["r"][:, epg_indices]
-        pen_type_idx = [i for i, n in enumerate(type_names)
-                        if "PEN" in n and "PEG" not in n]
+        # Afferent population = union of the PEN-gate sub-population indicator
+        # buffers (`_pen_ind_pena_l/r/penb_l/r`) populated by the model from
+        # the loader's ``pen_subpop_ix``. Works species-agnostically: fly PEN
+        # (PEN_a/PEN_b L/R) or zebrafish RIPN + pt-IPN L/R, whichever the
+        # loader emitted. Falls back to a type-name lookup ("PEN" in name)
+        # for older models that don't carry the indicator buffers.
         pen_indices_arr = None
-        if pen_type_idx:
-            pen_idx_list: list[int] = []
-            nt = np.asarray(neuron_types)
-            for t in pen_type_idx:
-                pen_idx_list.extend(np.where(nt == t)[0].tolist())
-            pen_indices_arr = np.array(sorted(pen_idx_list), dtype=np.int64)
+        ind_keys = ("_pen_ind_pena_l", "_pen_ind_pena_r",
+                    "_pen_ind_penb_l", "_pen_ind_penb_r")
+        if all(hasattr(net, k) for k in ind_keys):
+            union = sum(getattr(net, k) for k in ind_keys)
+            idx = (union > 0).nonzero(as_tuple=True)[0].cpu().numpy()
+            if idx.size:
+                pen_indices_arr = idx.astype(np.int64)
+        else:
+            pen_type_idx = [i for i, n in enumerate(type_names)
+                            if "PEN" in n and "PEG" not in n]
+            if pen_type_idx:
+                pen_idx_list: list[int] = []
+                nt = np.asarray(neuron_types)
+                for t in pen_type_idx:
+                    pen_idx_list.extend(np.where(nt == t)[0].tolist())
+                pen_indices_arr = np.array(sorted(pen_idx_list),
+                                            dtype=np.int64)
+        if pen_indices_arr is not None:
             rollout["r_pen"] = rollout["r"][:, pen_indices_arr]
         epg_theta = cx_epg_directions(epg_glom_ix)
         W_con_np = (net.W_con.detach().cpu().numpy()

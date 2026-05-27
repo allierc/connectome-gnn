@@ -1,27 +1,24 @@
-"""Paper figure: drosophila_cx_pi training evolution (4 x 2 panels).
+"""Paper figure: zebrafish_hd_si training evolution (4 x 2 / 4 x 3 panels).
 
-Thin CLI shim. All panel rendering lives in
-``connectome_gnn.plot_cx.plot_cx_evolution`` (the public entry point),
-which is also imported by the training-time snapshot helper in
-``connectome_gnn.models.drosophila_cx_eval._save_training_snapshot``.
-That centralisation removed the importlib hack that used to load this
-file via a hard-coded path; the bulk of the panel code (formerly here,
-~700 lines of ``_panel_*`` helpers + ``build_figure``) now lives in
-``plot_cx`` alongside ``plot_cx_matrix``, ``plot_cx_training_snapshot``
-etc.
+Companion of figures/drosophila_cx/fig_evolution.py. Same panel layout
+(a–h in two-row mode, a–l with extras in three-row mode). All rendering
+is shared via ``connectome_gnn.plot_cx.plot_cx_evolution``; this file is
+just the CLI / data-loading shim that:
 
-What this file still does:
-
-    * ``_load_model_and_rollouts``: load a run directory's checkpoint,
-      run the deterministic constant-ω rollout + the integration-gain
-      sweep + pick an OU test trial. Produces the ``data`` dict that
-      ``plot_cx_evolution`` consumes.
-    * ``main``: argparse, iterate over run dirs, write one PNG each.
+  * loads a zebrafish run directory (``<data_root>/log/zebrafish/<run>/``),
+  * runs the same deterministic constant-ω rollout used by the
+    drosophila companion (the model integrates ω regardless of whether
+    ω came from an OU stream or a swim-impulse boxcar, so a
+    constant-ω probe is still meaningful for the bump trajectory),
+  * picks one swim-integration test trial,
+  * passes the species-specific axis labels (``r1π / dIPN`` for the
+    bump cells, ``RIPN / pt-IPN`` for the afferents) through to the
+    figure builder.
 
 Usage:
-    python figures/drosophila_cx/fig_evolution.py \
-        --run_dir /groups/saalfeld/home/allierc/GraphData/log/drosophila_cx/drosophila_cx_pi \
-        --out_dir figures/drosophila_cx/
+    python figures/zebrafish/fig_evolution.py \\
+        --run_dir /groups/saalfeld/home/allierc/GraphData/log/zebrafish/zebrafish_hd_si_dipn \\
+        --out_dir figures/zebrafish/
 """
 
 from __future__ import annotations
@@ -52,7 +49,7 @@ def _load_model_and_rollouts(
     trial_seed: int | None = None,
     trial_idx: int | None = None,
 ):
-    """Load model + run two rollouts + pick one OU test trial."""
+    """Load model + run rollouts + pick one swim-integration test trial."""
     import torch
     from connectome_gnn.config import NeuralGraphConfig
     from connectome_gnn.models.drosophila_cx_eval import _deterministic_sweep_rollout
@@ -66,11 +63,11 @@ def _load_model_and_rollouts(
         raise FileNotFoundError(f"config.yaml missing in {run_dir}")
     config = NeuralGraphConfig.from_yaml(cfg_path)
 
-    # Replicate load_run_config's dataset-prefixing + data-root setup. The
-    # run_dir is `<data_root>/log/<group>/<config_name>/`, so data_root is
-    # two parents up from run_dir and the dataset prefix is the group name.
+    # Replicate load_run_config's dataset-prefixing + data-root setup.
+    # run_dir = <data_root>/log/<group>/<config_name>/. data_root is two
+    # parents up; the prefix is the group name.
     run_dir_abs = os.path.abspath(run_dir)
-    group = os.path.basename(os.path.dirname(run_dir_abs))
+    group = os.path.basename(os.path.dirname(run_dir_abs))   # e.g. zebrafish
     data_root = os.path.dirname(os.path.dirname(os.path.dirname(run_dir_abs)))
     set_data_root(data_root)
     if group and not config.dataset.startswith(group + "/"):
@@ -80,13 +77,9 @@ def _load_model_and_rollouts(
     net = create_model(config.graph_model.signal_model_name,
                        aggr_type=config.graph_model.aggr_type,
                        config=config, device=device)
-    # Pick the highest-epoch checkpoint by default. Sort numerically by
-    # the trailing _<epoch>.pt — lexicographic sort would mis-order
-    # _9.pt vs _10.pt. Per-config override: the GNN tail-loss runs are
-    # best at epoch 5 (past that they overfit and degrade on the
-    # constant-ω extrapolation rollout).
+    # Pick the highest-epoch checkpoint by default.
     ckpts = glob.glob(os.path.join(run_dir, "models",
-                                     "best_model_with_*.pt"))
+                                    "best_model_with_*.pt"))
     if not ckpts:
         raise FileNotFoundError(f"no checkpoint under {run_dir}/models/")
 
@@ -95,34 +88,38 @@ def _load_model_and_rollouts(
         return int(m.group(1)) if m else -1
     ckpts.sort(key=_epoch_of)
     chosen = ckpts[-1]
-    run_basename = os.path.basename(os.path.abspath(run_dir))
-    if "gnn_tailloss" in run_basename:
-        prefer = [p for p in ckpts if _epoch_of(p) == 5]
-        if prefer:
-            chosen = prefer[0]
     sd = torch.load(chosen, map_location=device,
                     weights_only=False)["model_state_dict"]
     net.load_state_dict(sd, strict=False)
     net.eval()
 
+    # Deterministic constant-ω rollout (the network's "compass test"): the
+    # bump should rotate at a constant angular velocity. Probes the
+    # ring-attractor's gain regardless of whether the training stream was
+    # OU or swim impulses.
     rollout = _deterministic_sweep_rollout(
         net, n_steps=snapshot_n_steps,
         omega_deg_per_s=snapshot_omega_deg, device=device,
     )
     rollout["r_epg"] = rollout["r"][:, net.epg_indices]
-    pen_type_idx = [i for i, n in enumerate(net.type_names)
-                    if "PEN" in n and "PEG" not in n]
-    nt = np.asarray(net.neuron_types)
+
+    # Afferent population (RIPN + pt-IPN here, PEN_a/b L/R for the fly):
+    # union of the velocity-gate sub-population indicator buffers populated
+    # by the model from the loader's pen_subpop_ix. Buffer-based so the
+    # lookup is species-agnostic.
+    ind_keys = ("_pen_ind_pena_l", "_pen_ind_pena_r",
+                 "_pen_ind_penb_l", "_pen_ind_penb_r")
     pen_indices = None
-    if pen_type_idx:
-        pen_idx_list: list[int] = []
-        for t in pen_type_idx:
-            pen_idx_list.extend(np.where(nt == t)[0].tolist())
-        pen_indices = np.array(sorted(pen_idx_list), dtype=np.int64)
-        rollout["r_pen"] = rollout["r"][:, pen_indices]
+    if all(hasattr(net, k) for k in ind_keys):
+        union = sum(getattr(net, k) for k in ind_keys)
+        idx = (union > 0).nonzero(as_tuple=True)[0].cpu().numpy()
+        if idx.size:
+            pen_indices = idx.astype(np.int64)
+            rollout["r_pen"] = rollout["r"][:, pen_indices]
 
     epg_theta = cx_epg_directions(net.epg_glom_ix)
 
+    # Integration-gain sweeps
     gain_data = []
     for omega in gain_omegas:
         ro = _deterministic_sweep_rollout(
@@ -131,6 +128,7 @@ def _load_model_and_rollouts(
         )
         gain_data.append((float(omega), ro))
 
+    # One swim-integration test trial
     from connectome_gnn.utils import graphs_data_path
     root = graphs_data_path(config.dataset)
     u_test = load_raw_array(f"{root}/test/stimulus.zarr")
@@ -147,14 +145,25 @@ def _load_model_and_rollouts(
         u_t = torch.from_numpy(u_one[None]).to(device)
         y_pred, _ = net(u_t)
     y_pred = y_pred[0].cpu().numpy()
+    # dt comes from whichever task block this run uses (swim_integration
+    # for zebrafish, path_integration for the fly companion).
+    task_block = (config.task.path_integration
+                  if config.task.task_type == "path_integration"
+                  else config.task.swim_integration)
     test_trial = dict(
         idx=trial_idx,
         u=u_one,
         y_true=y_true,
         y_pred=y_pred,
-        dt=float(config.task.path_integration.dt),
-        label="OU test trial",
+        dt=float(task_block.dt),
+        label="swim test trial",
     )
+
+    # Species-specific display labels picked up from the model class
+    # (DrosophilaCxTaskRNN → "EPG"/"PEN", ZebrafishHdTaskRNN →
+    # "r1π / dIPN"/"RIPN / pt-IPN", same for the GNN subclasses).
+    bump_label = getattr(type(net), "bump_label", "EPG")
+    afferent_label = getattr(type(net), "afferent_label", "PEN")
 
     return dict(
         net=net,
@@ -170,6 +179,8 @@ def _load_model_and_rollouts(
         test_trial=test_trial,
         dt_s=float(net.dt),
         checkpoint=chosen,
+        bump_label=bump_label,
+        afferent_label=afferent_label,
     )
 
 
@@ -177,10 +188,10 @@ def _load_model_and_rollouts(
 
 
 DEFAULT_RUN_DIRS = [
-    "/groups/saalfeld/home/allierc/GraphData/log/drosophila_cx/drosophila_cx_pi",
-    "/groups/saalfeld/home/allierc/GraphData/log/drosophila_cx/drosophila_cx_pi_frozen_Wrec",
-    "/groups/saalfeld/home/allierc/GraphData/log/drosophila_cx/drosophila_cx_pi_fc",
-    "/groups/saalfeld/home/allierc/GraphData/log/drosophila_cx/drosophila_cx_pi_gnn",
+    "/groups/saalfeld/home/allierc/GraphData/log/zebrafish/zebrafish_hd_si_dipn",
+    "/groups/saalfeld/home/allierc/GraphData/log/zebrafish/zebrafish_hd_si_frozen_Wrec_dipn",
+    "/groups/saalfeld/home/allierc/GraphData/log/zebrafish/zebrafish_hd_si_fc_dipn",
+    "/groups/saalfeld/home/allierc/GraphData/log/zebrafish/zebrafish_hd_si_gnn_dipn",
 ]
 
 
@@ -198,7 +209,7 @@ def main():
     p.add_argument("--snapshot_n_steps", type=int, default=1500)
     p.add_argument("--snapshot_omega_deg", type=float, default=60.0)
     p.add_argument("--trial_seed", type=int, default=None,
-                    help="seed picking the OU test trial "
+                    help="seed picking the swim-integration test trial "
                          "(default: config.training.seed + 17)")
     p.add_argument("--trial_idx", type=int, default=None,
                     help="explicit test-trial index (overrides --trial_seed).")

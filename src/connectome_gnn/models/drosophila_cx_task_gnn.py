@@ -75,12 +75,33 @@ def _load_image_mask(path: str, N: int) -> torch.Tensor:
 class DrosophilaCxTaskGNN(nn.Module):
     """Sign-locked Drosophila CX path-integration GNN."""
 
+    # Display labels for the bump-carrying population (analog of EPG) and the
+    # angular-velocity-gated afferent population (analog of PEN). Read by the
+    # training-snapshot helper / plot_cx_evolution. Subclasses targeting a
+    # different organism (e.g. ZebrafishHdTaskGNN) override these.
+    bump_label: str = "EPG"
+    afferent_label: str = "PEN"
+
+    @staticmethod
+    def _load_connectome(datapath):
+        """Connectome loader hook. Default = hemibrain CX (Hulse 2025).
+
+        Subclasses targeting a different organism override this method to
+        return a dict with the same canonical keys (N, J_effective,
+        neuron_types, type_names, n_epg, epg_ix, pen_subpop_ix, ...).
+        See ``ZebrafishHdTaskGNN`` for the larval-zebrafish dIPN port.
+        """
+        from connectome_gnn.generators.connconstr_data import (
+            load_drosophila_cx_connectome,
+        )
+        return load_drosophila_cx_connectome(datapath)
+
     @staticmethod
     def _resolve_bump_only_readout(gm) -> bool:
         """Bump-only-readout config hook. Default reads the fly-historical
         ``output_from_epg_only`` flag. Subclasses targeting a different
         organism override to read their species-specific yaml flag (e.g.
-        ``output_from_dipn_only`` for a future ZebrafishHdTaskGNN)."""
+        ``output_from_dipn_only`` for ZebrafishHdTaskGNN)."""
         return bool(getattr(gm, "output_from_epg_only", False))
 
     def __init__(self, aggr_type: str = "add", config=None, device=None):
@@ -94,11 +115,12 @@ class DrosophilaCxTaskGNN(nn.Module):
 
         self.lock_edge_signs = bool(getattr(gm, "lock_edge_signs", True))
 
-        # --- Load hemibrain CX connectome -------------------------------
-        from connectome_gnn.generators.connconstr_data import (
-            load_drosophila_cx_connectome,
-        )
-        cx = load_drosophila_cx_connectome(sim.connconstr_datapath)
+        # --- Load connectome (drosophila CX or zebrafish dIPN) ----------
+        # Subclasses override ``_load_connectome`` to swap in a different
+        # loader; the rest of __init__ relies only on the canonical dict
+        # shape (N, J_effective, neuron_types, type_names, n_epg, epg_ix,
+        # pen_subpop_ix). See ``ZebrafishHdTaskGNN`` for the fish port.
+        cx = self._load_connectome(sim.connconstr_datapath)
         N = int(cx["N"])
         self.n_units = N
         self.n_input = 3
@@ -193,9 +215,22 @@ class DrosophilaCxTaskGNN(nn.Module):
                 f"'pen_4scalar', got {self.velocity_gate!r}"
             )
 
-        # --- Dynamics constants (from task.path_integration) ------------
-        self.tau = float(getattr(task.path_integration, "tau", 0.1))
-        self.dt = float(task.path_integration.dt)
+        # --- Dynamics constants -----------------------------------------
+        # ``dt`` is task-side data (matches the stimulus zarr grid); ``tau``
+        # is an RNN dynamics constant the task block may carry. Read from
+        # whichever task sub-block this run uses (path_integration for fly,
+        # swim_integration for zebrafish) so the model stays decoupled
+        # from the task name.
+        task_block = (task.path_integration if task.task_type == "path_integration"
+                      else task.swim_integration if task.task_type == "swim_integration"
+                      else None)
+        if task_block is None:
+            raise ValueError(
+                f"DrosophilaCxTaskGNN expects task_type in "
+                f"{{path_integration, swim_integration}}; got {task.task_type!r}"
+            )
+        self.tau = float(getattr(task_block, "tau", 0.1))
+        self.dt = float(task_block.dt)
 
         # --- Zero-diagonal mask -----------------------------------------
         self.register_buffer(
