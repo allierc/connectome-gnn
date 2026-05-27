@@ -1,0 +1,66 @@
+description: 'Smoke variant of zebrafish_hd_si_dipn — 60 train / 12 test trials.
+
+  Identical to zebrafish_hd_si_dipn.yaml except for the trial counts; used to
+  verify the GNN_Main `-o generate` integration end-to-end without paying the
+  100k-trial generation cost.'
+dataset: zebrafish_hd_si_task_smoke
+simulation:
+  params:
+  - - 1.0
+  connconstr_datapath: figures/zebrafish/zebrafish_connectome_HD
+  seed: 47006
+graph_model:
+  signal_model_name: zebrafish_hd_si
+  aggr_type: add
+  input_proj: matrix
+  output_proj: matrix
+  velocity_gate: pen_4scalar
+  lock_edge_signs: true
+  hidden_dim: 128
+  n_layers: 3
+  MLP_activation: relu
+  output_from_dipn_only: true
+plotting: {}
+training:
+  device: cpu
+  seed: 47506
+  n_runs: 1
+  n_epochs: 1
+  batch_size: 8
+  data_augmentation_loop: 1
+  lr: 0.002
+  lr_W_rec_schedule: [0.0005]
+  lr_scheduler: none
+  lr_W_ED: 0.0025
+  grad_clip_W: 2.5
+  coeff_cos_distance: 0.0
+  coeff_norm_floor: 0.0
+  kappa_norm_floor: 0.0
+  coeff_tv_circular: 0.0
+  coeff_W_L1: 0.0
+  noise_recurrent_level: 0.03
+  snapshots_per_epoch: 1
+  n_steps_schedule: [100]
+  coeff_tail_loss: 0.035
+  torch_compile: false
+  w_init_mode: w_con
+task:
+  task_type: swim_integration
+  task_only: true
+  swim_integration:
+    n_trials_train: 60
+    n_trials_test: 12
+    n_steps: 1000
+    dt: 0.01
+    swim_rate_hz: 0.5
+    swim_duration_s: 0.3
+    phase_impulse_mean_rad: 0.785
+    phase_impulse_std_rad:  0.40
+    backward_phase_mean_rad: 3.14
+    backward_phase_std_rad:  0.30
+    left_fraction:     0.40
+    right_fraction:    0.40
+    forward_fraction:  0.15
+    backward_fraction: 0.05
+    omega_noise_level: 0.0
+    seed: 0

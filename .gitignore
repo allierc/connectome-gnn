@@ -12,6 +12,8 @@ config/fly/archive_2/*
 !config/cortex/*.yaml
 !config/drosophila_cx/
 !config/drosophila_cx/*.yaml
+!config/zebrafish/
+!config/zebrafish/*.yaml
 
 # Ignore LLM-generated config files (environment-specific, stored in GraphData)
 config/**/*_Claude_*.yaml
@@ -21,6 +23,8 @@ config/**/*_winner.yaml
 !config/cortex/*_winner.yaml
 !config/drosophila_cx/*_Claude_*.yaml
 !config/drosophila_cx/*_winner.yaml
+!config/zebrafish/*_Claude_*.yaml
+!config/zebrafish/*_winner.yaml
 
 # Always track flyvis_hybrid_flywireRF configs, even in archive folders
 !config/fly/flyvis_hybrid_flywireRF_*.yaml
@@ -109,6 +113,11 @@ figures/flyvis/*
 !figures/flyvis/*.py
 !figures/flyvis/*.md
 !figures/flyvis/*.tex
+!figures/zebrafish/
+figures/zebrafish/*
+!figures/zebrafish/*.py
+!figures/zebrafish/*.md
+!figures/zebrafish/*.tex
 *.png
 *.pdf
 *.jpg

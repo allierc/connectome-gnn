@@ -75,6 +75,14 @@ def _load_image_mask(path: str, N: int) -> torch.Tensor:
 class DrosophilaCxTaskGNN(nn.Module):
     """Sign-locked Drosophila CX path-integration GNN."""
 
+    @staticmethod
+    def _resolve_bump_only_readout(gm) -> bool:
+        """Bump-only-readout config hook. Default reads the fly-historical
+        ``output_from_epg_only`` flag. Subclasses targeting a different
+        organism override to read their species-specific yaml flag (e.g.
+        ``output_from_dipn_only`` for a future ZebrafishHdTaskGNN)."""
+        return bool(getattr(gm, "output_from_epg_only", False))
+
     def __init__(self, aggr_type: str = "add", config=None, device=None):
         super().__init__()
         self.device = device
@@ -137,14 +145,6 @@ class DrosophilaCxTaskGNN(nn.Module):
             epg_idx = np.where(neuron_types == epg_t)[0]
             if epg_idx.size == epg_glom_ix.size:
                 ring_assignments["EPG"] = (epg_idx, epg_glom_ix)
-        pen_type_idx = [i for i, n in enumerate(type_names)
-                        if "PEN" in n and "PEG" not in n]
-        pen_idx_all: list[int] = []
-        for t in pen_type_idx:
-            pen_idx_all.extend(np.where(neuron_types == t)[0].tolist())
-        if pen_idx_all:
-            pen_idx_arr = np.array(sorted(pen_idx_all), dtype=np.int64)
-            ring_assignments["PEN"] = (pen_idx_arr, np.arange(pen_idx_arr.size))
         for name, (idx, pos) in ring_assignments.items():
             sort = np.argsort(np.asarray(pos, dtype=np.int64), kind="stable")
             order = torch.from_numpy(np.asarray(idx, dtype=np.int64)[sort]).long()
@@ -231,10 +231,10 @@ class DrosophilaCxTaskGNN(nn.Module):
         # --- Decoder W_out (matrix or MLP) ------------------------------
         # Hulse-style EPG-only readout option: decoder sees only the first
         # n_epg rows of r (EPG block). See DrosophilaCxTaskRNN for the
-        # rationale.
-        self.output_from_epg_only = bool(
-            getattr(gm, "output_from_epg_only", False)
-        )
+        # rationale. Subclasses (e.g. a future ZebrafishHdTaskGNN) can
+        # override ``_resolve_bump_only_readout`` to read a different
+        # yaml flag (e.g. ``output_from_dipn_only``).
+        self.output_from_epg_only = self._resolve_bump_only_readout(gm)
         self._readout_dim = int(n_epg) if self.output_from_epg_only else N
         self.output_proj = getattr(gm, "output_proj", "matrix")
         if self.output_proj == "matrix":
@@ -602,7 +602,7 @@ class DrosophilaCxTaskGNN(nn.Module):
         return lam * F.relu(g0 - g1).norm(2)
 
     def loss_tv_circular(self, h_buf: torch.Tensor, lam: float = 1.0) -> torch.Tensor:
-        """Circular total-variation penalty on EPG/PEN ring firing rates."""
+        """Circular total-variation penalty on EPG ring firing rates."""
         if not self._ring_names or lam == 0.0:
             return h_buf.new_zeros(())
         r = self._sigma(h_buf)

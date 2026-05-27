@@ -277,6 +277,284 @@ def load_drosophila_cx_connectome(datapath):
 
 
 # ---------------------------------------------------------------------------
+# Zebrafish anterior-hindbrain / dIPN heading-direction ring
+# ---------------------------------------------------------------------------
+
+# Cell-type prefixes that the loader treats as the four functional categories
+# of the larval-zebrafish HD circuit, after Petrucco et al. 2023 (Nature),
+# "Neural dynamics and architecture of the heading direction circuit in
+# zebrafish". The r1pi ring lives in dorsal IPN (IPNd* + IPNds*), driven by
+# afferents from habenula (RIPN*) and pretectum (pt-IPN*). All four type
+# families come from the fish2 neuprint server.
+_ZHD_BUMP_PREFIXES = ("IPNd", "IPNds")        # r1pi ring (analog: EPG)
+_ZHD_AFFERENT_PREFIXES = ("RIPN", "pt-IPN")    # input neurons (analog: PEN)
+
+# Cell types whose outgoing weights are sign-flipped (Dale, inhibitory). The
+# Petrucco paper shows the r1pi neurons (and therefore the IPNd*/IPNds*
+# dorsal IPN cells) are GABAergic, so they get the same treatment Hulse 2025
+# uses for Delta7/ER6 in the fly model: -|J| outgoing, optionally amplified.
+# RIPN* / pt-IPN* are left positive (no Dale annotation on the fish2 server,
+# and they act as drivers of the ring rather than inhibitors).
+_ZHD_INH_PREFIXES = ("IPNd", "IPNds")
+
+
+def _zhd_category(type_name: str) -> str:
+    """Map a fish2 type string to one of four HD circuit categories
+    ('IPNd', 'IPNds', 'RIPN', 'pt-IPN'), or '' if it doesn't belong.
+
+    The order of checks matters: 'IPNds' must be matched before 'IPNd',
+    and 'pt-IPN' is treated as a single category.
+    """
+    s = str(type_name)
+    if s.startswith("IPNds"):
+        return "IPNds"
+    if s.startswith("pt-IPN"):
+        return "pt-IPN"
+    if s.startswith("RIPN"):
+        return "RIPN"
+    if s.startswith("IPNd"):
+        return "IPNd"
+    return ""
+
+
+def load_zebrafish_hd_connectome(datapath, *, inh_amplify: float = 5.0,
+                                  spectral_target: float = 0.9):
+    """Load fish2 connectivity for the zebrafish heading-direction ring.
+
+    Companion to ``load_drosophila_cx_connectome``: returns a dict with the
+    same canonical keys (``N``, ``J_effective``, ``neuron_types``,
+    ``type_names``, ``n_epg``, ``epg_ix``, ``pen_subpop_ix``, ...) so the
+    same ``DrosophilaCxTaskRNN`` machinery can train against a zebrafish
+    circuit by swapping the loader call. The semantic mapping is:
+
+      * ``n_epg``         = number of dorsal-IPN HD cells (IPNd* + IPNds*),
+                            i.e. the r1pi ring per Petrucco et al. 2023.
+      * ``epg_ix``        = ring ordering of those cells. Petrucco derives
+                            it from the rPC angle of activity; the
+                            connectome-only proxy used here is mediolateral
+                            soma position (their Fig. 1g right panel shows
+                            the r1pi cells lie on an anatomical ring along
+                            this axis). The returned list has length
+                            ``n_epg`` and assigns each HD cell to one of
+                            ``n_glom`` ring bins.
+      * ``pen_subpop_ix`` = ``{'PENa_L', 'PENa_R', 'PENb_L', 'PENb_R'}``,
+                            populated with the RIPN (habenula afferents)
+                            and pt-IPN (pretectal afferents) indices, split
+                            by ``side``. The PEN_a/b key names are kept so
+                            the existing ``velocity_gate='pen_4scalar'``
+                            wiring in ``DrosophilaCxTaskRNN`` works without
+                            modification: PENa = RIPN, PENb = pt-IPN.
+
+    Dale treatment mirrors Hulse 2025 for the fly: inhibitory cell-type
+    outgoing columns are made strictly negative as
+    ``J2[:, inh_cols] = -inh_amplify * |J[:, inh_cols]|`` (default
+    ``inh_amplify = 5``) and the resulting matrix is rescaled so the
+    largest eigenvalue real part equals ``spectral_target`` (default 0.9).
+
+    Args:
+        datapath: directory containing ``neurons.csv`` and
+            ``connections.csv`` produced by
+            ``figures/zebrafish/fetch_zebrafish_connectivity_HD.py``.
+        inh_amplify: multiplier applied to the magnitude of inhibitory
+            outgoing weights (Hulse 2025 uses 5x).
+        spectral_target: target spectral radius after Dale flipping; the
+            matrix is rescaled to ``spectral_target / max(Re(eig))``.
+
+    Returns:
+        Dict with the same keys as ``load_drosophila_cx_connectome``. The
+        ``winp``/``wout`` arrays are zero-initialised placeholders so the
+        ``DrosophilaCxTaskRNN`` initialiser can run; the encoder/decoder
+        weights are learned end-to-end and these defaults are not used.
+    """
+    # --- Load tables ------------------------------------------------------
+    nrn_df = pd.read_csv(os.path.join(datapath, "neurons.csv"))
+    conn_df = pd.read_csv(os.path.join(datapath, "connections.csv"))
+
+    # Drop any neurons that don't fall into one of the four HD categories
+    # (defensive: the fetch script already filters by type list).
+    nrn_df = nrn_df.copy()
+    nrn_df["category"] = nrn_df["type"].apply(_zhd_category)
+    nrn_df = nrn_df[nrn_df["category"] != ""].reset_index(drop=True)
+
+    # --- Order neurons: HD ring first, then afferents --------------------
+    # Mirrors the drosophila loader which puts EPG first (ring-attractor
+    # core) followed by PEN/Delta7/PEG/ER6. Within the HD block, sort by
+    # category ('IPNd' before 'IPNds') and then by mediolateral soma
+    # position so the per-row order roughly traces the anatomical ring.
+    cat_order = {"IPNd": 0, "IPNds": 1, "RIPN": 2, "pt-IPN": 3}
+    nrn_df["_cat_rank"] = nrn_df["category"].map(cat_order)
+    # somaLocationX is the fish2 mediolateral axis (in nm at this stage).
+    # Missing values get pushed to the end via fillna with +inf.
+    nrn_df["_ml"] = nrn_df["somaLocationX"].fillna(float("inf"))
+    nrn_df = nrn_df.sort_values(
+        ["_cat_rank", "_ml", "bodyId"], kind="stable",
+    ).reset_index(drop=True)
+    nrn_df.drop(columns=["_cat_rank", "_ml"], inplace=True)
+
+    N = len(nrn_df)
+
+    # Map bodyId -> row index for the adjacency assembly below.
+    idhash = {int(b): i for i, b in enumerate(nrn_df["bodyId"].astype(int))}
+
+    # --- Assemble (N, N) raw weight matrix --------------------------------
+    # Convention: J[post, pre] = synapse weight from pre to post (matches
+    # the drosophila loader and the RNN's `r @ W_rec.T` recurrent input).
+    pre_ids = conn_df["bodyId_pre"].astype(int).to_numpy()
+    post_ids = conn_df["bodyId_post"].astype(int).to_numpy()
+    weights = conn_df["weight"].astype(np.float32).to_numpy()
+
+    # Drop edges whose endpoints aren't both in the HD set (shouldn't
+    # happen with the current fetcher but be defensive).
+    keep = np.array([(p in idhash) and (q in idhash)
+                     for p, q in zip(pre_ids, post_ids)])
+    pre_ids = pre_ids[keep]
+    post_ids = post_ids[keep]
+    weights = weights[keep]
+
+    pre_ix = np.array([idhash[p] for p in pre_ids], dtype=np.int64)
+    post_ix = np.array([idhash[p] for p in post_ids], dtype=np.int64)
+
+    J = np.zeros((N, N), dtype=np.float32)
+    # If duplicate (pre, post) rows exist in the CSV, sum them.
+    np.add.at(J, (post_ix, pre_ix), weights)
+
+    # --- Cell-type labels -------------------------------------------------
+    # `type_names` is the unique-type vocabulary in their first-occurrence
+    # order, matching the drosophila loader's behaviour.
+    uniqtypes = pd.unique(nrn_df["type"])
+    typehash = dict(zip(uniqtypes, np.arange(len(uniqtypes))))
+    typeclasses = np.array([typehash[t] for t in nrn_df["type"]],
+                            dtype=np.int64)
+
+    # --- Dale sign flip + spectral rescale --------------------------------
+    # Build a mask over presynaptic columns that belong to an inhibitory
+    # cell type, then flip + amplify those columns.
+    is_inh = nrn_df["category"].isin(_ZHD_INH_PREFIXES).to_numpy()
+    J2 = J.copy()
+    J2[:, is_inh] = -inh_amplify * np.abs(J[:, is_inh])
+
+    # Spectral-radius normalisation, mirroring Hulse 2025 (line 524 of the
+    # Beiran reference code).
+    eigvals = np.linalg.eigvals(J2)
+    max_re = float(np.max(np.real(eigvals)))
+    if abs(max_re) < 1e-12:
+        # Degenerate connectivity: skip the rescale rather than divide by
+        # zero. Caller can still train but the absolute scale is unset.
+        Jf = J2.astype(np.float32)
+    else:
+        Jf = (spectral_target * J2 / max_re).astype(np.float32)
+
+    # Log-space decomposition for downstream compatibility (some callers
+    # read `wrec_log` / `mwrec` directly).
+    wrec_log = Jf.copy()
+    nonzero = np.abs(wrec_log) > 0
+    wrec_log[nonzero] = np.log(np.abs(wrec_log[nonzero]))
+    wrec_log[~nonzero] = -20.0
+    mwrec = np.sign(Jf)
+
+    # --- HD ring metadata -------------------------------------------------
+    # The first n_epg rows are the dIPN HD cells (IPNd* + IPNds*); they are
+    # already sorted by mediolateral soma position from the ordering pass
+    # above, so `epg_ix` is simply a discretisation of that axis into bins.
+    is_bump = nrn_df["category"].isin(_ZHD_BUMP_PREFIXES).to_numpy()
+    n_epg = int(is_bump.sum())
+    # 16 ring bins matches the drosophila loader's n_glom for downstream
+    # decoder symmetry. Fine to change later via a kwarg.
+    n_glom = 16
+    bump_rows = np.where(is_bump)[0]
+    # Equal-count binning along the mediolateral soma position. Cells with
+    # missing soma_x (NaN) get pushed to the last bin.
+    ml = nrn_df.loc[bump_rows, "somaLocationX"].to_numpy(dtype=np.float64)
+    finite = np.isfinite(ml)
+    if finite.sum() < 2:
+        # No useful coordinate: assign all to bin 0 (fail soft).
+        epg_ix = [0] * n_epg
+    else:
+        ranks = np.argsort(np.argsort(ml[finite]))
+        bins = np.minimum((ranks * n_glom // finite.sum()).astype(np.int64),
+                          n_glom - 1)
+        epg_ix = np.full(n_epg, n_glom - 1, dtype=np.int64)
+        epg_ix[finite] = bins
+        epg_ix = epg_ix.tolist()
+
+    # --- Afferent subpopulations (PEN-gate analog) ------------------------
+    # Map RIPN -> PENa, pt-IPN -> PENb, and split each by side. The `side`
+    # column on the fish2 neuprint server is unpopulated, so parse the side
+    # suffix from `instance` instead: fish2 instances look like
+    # 'RIPN11_L', 'IPNd01_R(L6)', 'pt-IPN1_L'. Indices are into the full
+    # ordered neuron list so the RNN's `pen_4scalar` gate picks the right
+    # rows of W_in.
+    import re as _re
+    _side_re = _re.compile(r"_(L|R)(?:[\(_]|$)")
+    pen_subpop_ix: dict[str, list[int]] = {
+        "PENa_L": [], "PENa_R": [], "PENb_L": [], "PENb_R": [],
+    }
+    side_labels = []
+    for i, (cat, inst) in enumerate(
+        zip(nrn_df["category"], nrn_df["instance"].fillna("").astype(str))
+    ):
+        m = _side_re.search(inst)
+        side = m.group(1) if m else ""
+        side_labels.append(side)
+        if cat == "RIPN":
+            key_pre = "PENa"
+        elif cat == "pt-IPN":
+            key_pre = "PENb"
+        else:
+            continue
+        if side == "L":
+            pen_subpop_ix["{}_L".format(key_pre)].append(i)
+        elif side == "R":
+            pen_subpop_ix["{}_R".format(key_pre)].append(i)
+        # Cells with no side annotation are dropped from the gate (the
+        # encoder still trains free weights on them via channels 1-2).
+
+    # --- Encoder / decoder placeholder matrices ---------------------------
+    # The RNN initialiser builds its own W_in / W_out parameters from this
+    # input/output_size; the returned arrays here are unused fallbacks
+    # kept only for dict-shape parity with the drosophila loader.
+    input_size = n_epg + 2
+    output_size = 3 + n_epg
+    winp = np.zeros((input_size, N), dtype=np.float32)
+    wout = np.zeros((N, output_size), dtype=np.float32)
+    W_46to3 = np.zeros((3, n_epg), dtype=np.float32)
+    W_16to46 = np.zeros((n_epg, n_glom), dtype=np.float32)
+    for i, b in enumerate(epg_ix):
+        W_16to46[i, int(b)] = 1.0
+
+    return {
+        "pen_subpop_ix": {k: np.asarray(v, dtype=np.int64)
+                           for k, v in pen_subpop_ix.items()},
+        "J_effective": (np.exp(wrec_log) * mwrec).astype(np.float32),
+        "wrec_log": wrec_log,
+        "mwrec": mwrec,
+        "neuron_types": typeclasses,
+        "type_names": list(uniqtypes),
+        "epg_ix": list(epg_ix),
+        "N": N,
+        "n_epg": n_epg,
+        "winp": winp,
+        "sinp": np.zeros((input_size, 1), dtype=np.float32),
+        "wout": wout,
+        "input_size": input_size,
+        "output_size": output_size,
+        "W_46to3": W_46to3,
+        "W_16to46": W_16to46,
+        # Zebrafish-specific extras (not present in the drosophila loader);
+        # downstream analyses can read these directly without re-doing the
+        # category parse.
+        "bodyId": nrn_df["bodyId"].astype(int).to_numpy(),
+        "instance": nrn_df["instance"].astype(str).to_numpy(),
+        "side": np.asarray(side_labels),
+        "category": nrn_df["category"].to_numpy(),
+        "somaLocation": nrn_df[
+            ["somaLocationX", "somaLocationY", "somaLocationZ"]
+        ].to_numpy(dtype=np.float64),
+        "n_glom": n_glom,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Drosophila larva (two-population: premotor + motor)
 # ---------------------------------------------------------------------------
 

@@ -165,7 +165,8 @@ def config_path(*parts):
 
 # Known subdirectories under config/. Each corresponds to a simulation domain.
 # Add new entries here when a new config subdirectory is created.
-_VALID_PRE_FOLDERS = {'fly', 'drosophila_cx', 'cortex', 'larva', 'zebrafish_oculomotor'}
+_VALID_PRE_FOLDERS = {'fly', 'drosophila_cx', 'cortex', 'larva',
+                       'zebrafish', 'zebrafish_oculomotor'}
 
 
 def validate_pre_folder(pre_folder: str) -> None:
