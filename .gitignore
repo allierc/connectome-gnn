@@ -93,11 +93,22 @@ figures/*
 !figures/*.md
 !figures/*.tex
 # Source code under the per-biomodel subfolders is also tracked.
-!figures/drosophila/
-figures/drosophila/*
-!figures/drosophila/*.py
-!figures/drosophila/*.md
-!figures/drosophila/*.tex
+!figures/drosophila_cx/
+figures/drosophila_cx/*
+!figures/drosophila_cx/*.py
+!figures/drosophila_cx/*.md
+!figures/drosophila_cx/*.tex
+!figures/cortex/
+figures/cortex/*
+!figures/cortex/*.py
+!figures/cortex/*.md
+!figures/cortex/*.tex
+!figures/cortex/.gitkeep
+!figures/flyvis/
+figures/flyvis/*
+!figures/flyvis/*.py
+!figures/flyvis/*.md
+!figures/flyvis/*.tex
 *.png
 *.pdf
 *.jpg
