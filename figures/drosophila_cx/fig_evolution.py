@@ -100,6 +100,10 @@ def _load_model_and_rollouts(
         prefer = [p for p in ckpts if _epoch_of(p) == 5]
         if prefer:
             chosen = prefer[0]
+    elif "gnn_epg" in run_basename:
+        prefer = [p for p in ckpts if _epoch_of(p) == 3]
+        if prefer:
+            chosen = prefer[0]
     sd = torch.load(chosen, map_location=device,
                     weights_only=False)["model_state_dict"]
     net.load_state_dict(sd, strict=False)

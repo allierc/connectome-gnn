@@ -44,7 +44,7 @@ from connectome_gnn.generators.utils import generate_path_integration_batch
 
 
 MODELS = [
-    ("drosophila_cx_pi_epg",                   "Known-ODE RNN"),
+    ("drosophila_cx_pi_epg_tv_cv0",            "Known-ODE RNN"),
     ("drosophila_cx_pi_fc_epg",                "fully connected RNN"),
     ("drosophila_cx_pi_gnn_epg",               "GNN"),
 ]
@@ -62,6 +62,8 @@ def _load(config_name, device, prefer_epoch=None):
     # Per-config epoch override: GNN best at epoch 5.
     if prefer_epoch is None and "gnn_tailloss" in config_name:
         prefer_epoch = 5
+    elif prefer_epoch is None and "gnn_epg" in config_name:
+        prefer_epoch = 3
     ckpt_path = cands[-1]
     if prefer_epoch is not None:
         match = [p_ for p_ in cands

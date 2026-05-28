@@ -30,9 +30,9 @@ from connectome_gnn.generators.utils import generate_path_integration_batch
 
 
 MODELS = [
-    ("drosophila_cx_pi",                        "Known-ODE RNN"),
-    ("drosophila_cx_pi_fc",                     "fully connected RNN"),
-    ("drosophila_cx_pi_gnn_tailloss_unsquared", "GNN"),
+    ("drosophila_cx_pi_epg",                    "Known-ODE RNN"),
+    ("drosophila_cx_pi_fc_epg",                 "fully connected RNN"),
+    ("drosophila_cx_pi_gnn_epg",                "GNN"),
 ]
 
 # Same x-axis ordering and colour assignment as fig_hd_mi_summary.png, so
@@ -53,6 +53,8 @@ def _load(config_name, device, prefer_epoch=None):
         raise FileNotFoundError(f"no checkpoints under {ckpt_dir}")
     if prefer_epoch is None and "gnn_tailloss" in config_name:
         prefer_epoch = 5
+    elif prefer_epoch is None and "gnn_epg" in config_name:
+        prefer_epoch = 3
     ckpt_path = cands[-1]
     if prefer_epoch is not None:
         match = [p_ for p_ in cands

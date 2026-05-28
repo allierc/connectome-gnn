@@ -55,7 +55,7 @@ training:
   coeff_cos_distance: 0.0
   coeff_norm_floor: 0.0
   kappa_norm_floor: 0.0
-  coeff_tv_circular: 0.0
+  coeff_tv_circular: 0.003
   coeff_W_L1: 0.0
   noise_recurrent_level: 0.01
   coeff_f_theta_diff: 15.0

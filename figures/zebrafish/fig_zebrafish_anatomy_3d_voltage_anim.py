@@ -124,7 +124,13 @@ def _build_swim_batch(n_steps, dt, device, seed=0,
                       backward_phase_std_rad=0.30,
                       left_fraction=0.40, right_fraction=0.40,
                       forward_fraction=0.15, backward_fraction=0.05):
-    """Single-trial swim-integration stimulus (B=1)."""
+    """Single-trial swim-integration stimulus (B=1).
+
+    Default fractions are the original turn-heavy training distribution
+    (L/R = 80%) used by ``--swim``. ``--swim2`` overrides these with
+    a Petrucco/larval-zebrafish-realistic mix (~65% forward, ~17% L/R,
+    ~1% backward).
+    """
     rng = np.random.default_rng(seed)
     T = int(n_steps)
     L = max(1, int(round(swim_duration_s / dt)))
@@ -166,8 +172,12 @@ def _build_swim_batch(n_steps, dt, device, seed=0,
 
     # Combined traces: L/R turn rate (positive=L, negative=R) and F/B impulses
     turn_lr = np.zeros(T, dtype=np.float32)
-    turn_lr[m_left] = +np.rad2deg(mag_LR[m_left])
-    turn_lr[m_right] = -np.rad2deg(mag_LR[m_right])
+    # Display convention for the L/R panel: right swims point UP (red),
+    # left swims point DOWN (blue). Independent of the actual angular
+    # velocity delta_theta that drives the network, which keeps the
+    # math sign convention (CCW positive).
+    turn_lr[m_left] = -np.rad2deg(mag_LR[m_left])
+    turn_lr[m_right] = +np.rad2deg(mag_LR[m_right])
     swim_fb = np.zeros(T, dtype=np.float32)
     swim_fb[m_fwd] = +1.0
     swim_fb[m_back] = -1.0
@@ -358,6 +368,125 @@ def _paint_panel(ax, segs2d, seg_owner, rates_t, mesh_segs2d,
     ax.set_axis_off()
 
 
+# Dorsal (top-down) view of a larval zebrafish, nose to the LEFT at
+# theta=0. Outline: round head, pectoral fins, narrowing trunk, spread
+# caudal fin. Same head-on-the-left convention as the dorsal anatomy
+# panel; with the 180-deg trajectory flip below, motion and orientation
+# stay consistent.
+_FISH_SILHOUETTE_X = np.array([
+    -1.20, -0.95, -0.50, -0.30, -0.10,
+     0.30,  0.80,  1.30,  1.40,  1.30,
+     0.80,  0.30, -0.10, -0.30, -0.50, -0.95,
+])
+_FISH_SILHOUETTE_Y = np.array([
+     0.00,  0.30,  0.35,  0.55,  0.30,
+     0.20,  0.10,  0.40,  0.00, -0.40,
+    -0.10, -0.20, -0.30, -0.55, -0.35, -0.30,
+])
+# Two eyes on either side of the head (dorsal view).
+_FISH_EYES_X = np.array([-0.85, -0.85])
+_FISH_EYES_Y = np.array([ 0.20, -0.20])
+
+# Body-coord convention here: nose is at NEGATIVE x (head-on-the-left),
+# tail is at POSITIVE x. Vertices behind the waist (x > waist) get a
+# sinusoidal y displacement scaled by how far back along the body they
+# sit, so the caudal fin swishes side-to-side over time.
+_FISH_WAIST_X = 0.30
+_FISH_TAIL_TIP_X = 1.40
+
+
+def _fish_tail_swish(frame_t, phase_per_frame=0.18, amp=0.25):
+    """Per-vertex y offsets for the fish silhouette polygon.
+
+    Vertices forward of the waist (x < waist) are unaffected; tail
+    vertices get a sin(phase) displacement scaled by `((x - waist) /
+    tail_length) ** 1.5` so the caudal-fin tip swings the most."""
+    span = _FISH_TAIL_TIP_X - _FISH_WAIST_X
+    t_norm = np.clip((_FISH_SILHOUETTE_X - _FISH_WAIST_X) / span, 0.0, 1.0)
+    if frame_t is None:
+        return np.zeros_like(_FISH_SILHOUETTE_Y)
+    phase = phase_per_frame * float(frame_t)
+    return amp * (t_norm ** 1.5) * math.sin(phase)
+
+
+def _draw_fish_icon(ax, theta_rad, body_color="white", eye_color="black",
+                    frame_t=None):
+    """Draw a small fish silhouette in ``ax``, pointing at ``theta_rad``.
+
+    Convention: theta=0 -> fish nose to the right (east), theta=pi/2 ->
+    nose up, matching the HD ground-truth convention used elsewhere in
+    this script. Caller must give an axes with equal aspect, axis off.
+    """
+    ax.clear()
+    ax.set_xlim(-1.5, 1.5)
+    ax.set_ylim(-1.5, 1.5)
+    ax.set_aspect("equal")
+    ax.set_axis_off()
+    ax.patch.set_alpha(0.0)
+    c, s = math.cos(float(theta_rad)), math.sin(float(theta_rad))
+    sx = _FISH_SILHOUETTE_X
+    sy = _FISH_SILHOUETTE_Y + _fish_tail_swish(frame_t)
+    fx = c * sx - s * sy
+    fy = s * sx + c * sy
+    ax.fill(fx, fy, color=body_color, edgecolor="none", linewidth=0,
+            zorder=2)
+    # Two eyes (dorsal view).
+    ex = c * _FISH_EYES_X - s * _FISH_EYES_Y
+    ey = s * _FISH_EYES_X + c * _FISH_EYES_Y
+    ax.plot(ex, ey, linestyle="", marker="o", markersize=3.0,
+            color=eye_color, markeredgewidth=0, zorder=3)
+
+
+def _draw_fish_with_trail(ax, theta_rad, swim_x, swim_y, frame_t,
+                          body_color="white", eye_color="black",
+                          bg="black"):
+    """Draw the fish at swim_x[frame_t], swim_y[frame_t] with the
+    trajectory it has swum so far as a faint trail.
+
+    Panel limits are fixed to the full trajectory so the fish moves
+    smoothly within the same frame across frames. Fish size is set to
+    a constant fraction of the panel span so it stays visible whatever
+    the path length."""
+    ax.clear()
+    ax.set_aspect("equal")
+    ax.set_axis_off()
+    ax.patch.set_alpha(0.0)
+
+    x_lo, x_hi = float(swim_x.min()), float(swim_x.max())
+    y_lo, y_hi = float(swim_y.min()), float(swim_y.max())
+    span = max(x_hi - x_lo, y_hi - y_lo, 1.0)
+    pad = 0.12 * span
+    span = span + 2 * pad
+    cx = 0.5 * (x_lo + x_hi)
+    cy = 0.5 * (y_lo + y_hi)
+    ax.set_xlim(cx - span / 2, cx + span / 2)
+    ax.set_ylim(cy - span / 2, cy + span / 2)
+
+    # Trail up to current frame
+    trail_color = ((1.0, 1.0, 1.0, 0.35) if bg == "black"
+                   else (0.0, 0.0, 0.0, 0.35))
+    n = int(frame_t) + 1
+    if n > 1:
+        ax.plot(swim_x[:n], swim_y[:n], color=trail_color, lw=0.7,
+                zorder=1)
+
+    # Fish at the current position
+    fx_c = float(swim_x[int(frame_t)])
+    fy_c = float(swim_y[int(frame_t)])
+    fish_scale = span * 0.06
+    c, s = math.cos(float(theta_rad)), math.sin(float(theta_rad))
+    sx = _FISH_SILHOUETTE_X
+    sy = _FISH_SILHOUETTE_Y + _fish_tail_swish(frame_t)
+    fx = (c * sx - s * sy) * fish_scale + fx_c
+    fy = (s * sx + c * sy) * fish_scale + fy_c
+    ax.fill(fx, fy, color=body_color, edgecolor="none", linewidth=0,
+            zorder=2)
+    ex = (c * _FISH_EYES_X - s * _FISH_EYES_Y) * fish_scale + fx_c
+    ey = (s * _FISH_EYES_X + c * _FISH_EYES_Y) * fish_scale + fy_c
+    ax.plot(ex, ey, linestyle="", marker="o", markersize=2.5,
+            color=eye_color, markeredgewidth=0, zorder=3)
+
+
 def _style_trace_ax(ax, bg, ylabel, fontsize=11, bottom_labels=False):
     """Minimal styling shared by all trace sub-axes."""
     txt_color = "white" if bg == "black" else "black"
@@ -458,7 +587,8 @@ def _paint_traces(trace_axes, t_sec, frame_t, trace_data, bg="black",
     vis_idx_lr = np.nonzero((turn_lr[:n_now] != 0) & vis_mask)[0]
     if vis_idx_lr.size:
         vals = turn_lr[vis_idx_lr]
-        colors_lr = np.where(vals > 0, "#4488ff", "#ff4444")
+        # Red = LEFT swim (positive turn_lr), blue = RIGHT swim (negative).
+        colors_lr = np.where(vals > 0, "#ff4444", "#4488ff")
         ax.bar(t_sec[vis_idx_lr], vals, width=bar_w,
                color=colors_lr, alpha=0.9, linewidth=0)
     ax.axhline(0, color=dim, lw=0.3, alpha=0.4)
@@ -522,6 +652,24 @@ def _render_frame(out_path, view_data, seg_owner, rates_t,
                          hspace=0.03,
                          top=0.995, bottom=0.005, left=0.005, right=0.995)
             axes = [fig.add_subplot(gs[0]), fig.add_subplot(gs[1])]
+        # Fish-orientation overlay with motion trail: anchored to the
+        # upper-right corner of the dorsal anatomy panel so the fish
+        # heading and the brain top-down view share a frame of reference.
+        # Stashed on the figure so it survives the per-frame ax.clear()
+        # loop.
+        dorsal_ax = axes[1] if len(axes) > 1 else axes[0]
+        dorsal_bbox = dorsal_ax.get_position()
+        fig_w_inch, fig_h_inch = fig.get_size_inches()
+        fish_size_in = 1.70  # inches square (room for trail)
+        fish_w = fish_size_in / fig_w_inch
+        fish_h = fish_size_in / fig_h_inch
+        fish_x = dorsal_bbox.x1 - fish_w - 0.005
+        fish_y = dorsal_bbox.y1 - fish_h - 0.005
+        fish_ax = fig.add_axes([fish_x, fish_y, fish_w, fish_h])
+        fish_ax.set_aspect("equal")
+        fish_ax.set_axis_off()
+        fish_ax.patch.set_alpha(0.0)
+        fig._fish_ax = fish_ax
     else:
         fig, axes = fig_ref, axes_ref
         for a in axes:
@@ -548,6 +696,27 @@ def _render_frame(out_path, view_data, seg_owner, rates_t,
         _paint_traces(trace_axes, trace_data["t_sec"], frame_idx,
                       trace_data, bg=bg,
                       frame_label_idx=frame_idx, hd_deg=hd_deg)
+
+    # Fish silhouette moving along the integrated swim trajectory, with
+    # orientation matching the current ground-truth HD direction.
+    if hd_deg is not None and getattr(fig, "_fish_ax", None) is not None:
+        swim_x = trace_data.get("swim_x") if trace_data else None
+        swim_y = trace_data.get("swim_y") if trace_data else None
+        if (swim_x is not None and swim_y is not None
+                and frame_idx is not None
+                and 0 <= int(frame_idx) < len(swim_x)):
+            _draw_fish_with_trail(
+                fig._fish_ax, math.radians(float(hd_deg)),
+                swim_x, swim_y, int(frame_idx),
+                body_color=txt_color, eye_color=(0.30, 0.30, 0.30),
+                bg=bg,
+            )
+        else:
+            _draw_fish_icon(
+                fig._fish_ax, math.radians(float(hd_deg)),
+                body_color=txt_color, eye_color=(0.30, 0.30, 0.30),
+                frame_t=frame_idx,
+            )
 
     fig.savefig(out_path, dpi=300, facecolor=bg)
     return fig, axes
@@ -736,8 +905,12 @@ def main():
                    help="render a cell-type panel montage (frontal view) "
                         "instead of the two-panel frontal+dorsal view")
     p.add_argument("--swim", action="store_true",
-                   help="use swim-integration stimulus instead of "
-                        "constant-omega")
+                   help="use the original turn-heavy swim-integration "
+                        "stimulus (L/R = 80%, the training distribution)")
+    p.add_argument("--swim2", action="store_true",
+                   help="use a larval-zebrafish-realistic swim "
+                        "stimulus (Petrucco-like: ~65%% forward, "
+                        "~17%% L/R each, ~1%% backward)")
     p.add_argument("--scroll_window", type=float, default=10.0,
                    help="trace window width in seconds; traces grow "
                         "left-to-right then scroll once this width is "
@@ -757,8 +930,25 @@ def main():
         except FileNotFoundError:
             pass
 
+    use_swim = args.swim or args.swim2
+    if args.swim2:
+        # Petrucco-like larval-zebrafish swim statistics.
+        swim_kwargs = dict(
+            forward_fraction=0.65,
+            left_fraction=0.17,
+            right_fraction=0.17,
+            backward_fraction=0.01,
+        )
+    else:
+        swim_kwargs = {}
+
     if args.out_dir is None:
-        suffix = "swim" if args.swim else "const"
+        if args.swim2:
+            suffix = "swim2"
+        elif args.swim:
+            suffix = "swim"
+        else:
+            suffix = "const"
         args.out_dir = os.path.join(here, f"3D_voltage_{suffix}")
         print(f"[out_dir] auto: {args.out_dir}")
 
@@ -797,11 +987,13 @@ def main():
     print(f"      current LUT:    --z_lo={args.z_lo} --z_hi={args.z_hi}")
     print(f"      saturated bump: --z_lo=0.5 --z_hi={z_hi_sat}")
 
-    if args.swim:
-        print(f"[2/4] running swim-integration rollout, "
+    if use_swim:
+        flavour = "swim2 (realistic)" if args.swim2 else "swim (turn-heavy)"
+        print(f"[2/4] running swim-integration rollout [{flavour}], "
               f"n_steps={args.n_steps} seed={args.seed}")
         h_traj, theta, omega_trace, decoded_hd, turn_lr, swim_fb = \
-            _run_swim(net, args.n_steps, dt, device, seed=args.seed)
+            _run_swim(net, args.n_steps, dt, device, seed=args.seed,
+                      **swim_kwargs)
     else:
         print(f"[2/4] running constant-omega rollout, "
               f"n_steps={args.n_steps} omega={args.omega_deg}")
@@ -893,6 +1085,14 @@ def main():
     # ── trace data for the strip-chart ──────────────────────────────────
     n_total = rates_lit.shape[0]
     t_sec = np.arange(n_total) * dt
+    # Virtual swim trajectory: the fish moves one unit per second in its
+    # current heading. The 180-degree offset (negated cos/sin) keeps the
+    # motion direction consistent with the head-on-the-left silhouette
+    # convention: at theta=0 the fish points LEFT and the trajectory
+    # advances LEFT.
+    v_fish = 1.0
+    swim_x = np.cumsum(-v_fish * dt * np.cos(theta[:n_total]))
+    swim_y = np.cumsum(-v_fish * dt * np.sin(theta[:n_total]))
     trace_data = {
         "omega": omega_trace[:n_total],
         "theta": theta[:n_total],
@@ -902,6 +1102,8 @@ def main():
         "turn_lr": turn_lr[:n_total] if turn_lr is not None else None,
         "swim_fb": swim_fb[:n_total] if swim_fb is not None else None,
         "scroll_window": args.scroll_window,
+        "swim_x": swim_x,
+        "swim_y": swim_y,
     }
 
     # ── 4. render frames ─────────────────────────────────────────────────

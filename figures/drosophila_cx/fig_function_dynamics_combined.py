@@ -43,6 +43,8 @@ def _load_model(config_name: str, device: torch.device, prefer_epoch=None):
         raise FileNotFoundError(f"no checkpoints under {ckpt_dir}")
     if prefer_epoch is None and "gnn_tailloss" in config_name:
         prefer_epoch = 5
+    elif prefer_epoch is None and "gnn_epg" in config_name:
+        prefer_epoch = 3
     ckpt_path = cands[-1]
     if prefer_epoch is not None:
         match = [p_ for p_ in cands
@@ -144,10 +146,10 @@ def _quantile_range(samples: np.ndarray, lo_q: float = 0.001,
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--rnn_config",      default="drosophila_cx_pi")
-    p.add_argument("--coldale_config",  default="drosophila_cx_pi_fc")
+    p.add_argument("--rnn_config",      default="drosophila_cx_pi_epg")
+    p.add_argument("--coldale_config",  default="drosophila_cx_pi_fc_epg")
     p.add_argument("--gnn_config",
-                   default="drosophila_cx_pi_gnn_tailloss_unsquared")
+                   default="drosophila_cx_pi_gnn_epg")
     p.add_argument("--n_steps_ou", type=int, default=10000)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--v_range", type=float, default=3.0)

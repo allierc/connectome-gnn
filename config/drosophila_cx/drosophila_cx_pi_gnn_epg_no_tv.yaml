@@ -1,4 +1,5 @@
-description: "Path-integration TaskGNN \u2014 tail-loss variant + g_phi squaring DISABLED.\n\
+description:
+  "Path-integration TaskGNN \u2014 tail-loss variant + g_phi squaring DISABLED.\n\
   Identical to drosophila_cx_pi_gnn_tailloss.yaml except `g_phi_positive`\nis now\
   \ `false`: the per-edge message becomes\n`W_edge[e] \xB7 g_phi(v_src, a_src)` (signed,\
   \ single-power) instead of\n`W_edge[e] \xB7 g_phi(v_src, a_src)^2` (non-negative,\
@@ -17,7 +18,7 @@ description: "Path-integration TaskGNN \u2014 tail-loss variant + g_phi squaring
 dataset: drosophila_cx_pi_task
 simulation:
   params:
-  - - 1.0
+    - - 1.0
   connconstr_datapath: papers/Code_NN/Code_NN/Data/Figure5/exported-traced-adjacencies-v1.2
 graph_model:
   signal_model_name: drosophila_cx_pi_gnn
@@ -39,23 +40,30 @@ training:
   device: auto
   seed: 0
   n_runs: 1
-  n_epochs: 5
-  batch_size: 16
+  n_epochs: 10
+  batch_size: 8   # halved from 16 to stay within L4's 22 GB at the
+                  # widest n_steps_schedule stage (was OOM'ing around
+                  # iter 24K with bs=16).
   data_augmentation_loop: 1
   lr: 0.002
   lr_W_rec_schedule:
-  - 0.002
-  - 0.002
-  - 0.001
-  - 0.0005
-  - 0.0005
+    - 0.002
+    - 0.002
+    - 0.001
+    - 0.0005
+    - 0.0005
+    - 0.0005
+    - 0.0005
+    - 0.00025
+    - 0.0001
+    - 0.0001
   lr_scheduler: none
   lr_W_ED: 0.0005
   grad_clip_W: 1.0
   coeff_cos_distance: 0.0
   coeff_norm_floor: 0.0
-  kappa_norm_floor: 0.0
-  coeff_tv_circular: 0.0
+  coeff_tv_circular: 0.0   # NO-TV variant: bump-smoothness prior disabled
+                            # (with-TV cousin = drosophila_cx_pi_gnn_epg_tv).
   coeff_W_L1: 0.0
   noise_recurrent_level: 0.01
   coeff_f_theta_diff: 15.0
@@ -65,14 +73,19 @@ training:
   w_init_scale: 0.01
   snapshots_per_epoch: 5
   n_steps_schedule:
-  - 10
-  - 50
-  - 100
-  - 200
-  - 300
-  # disabled: multi-stage n_steps_schedule triggers a recompile per stage,
+    - 10
+    - 50
+    - 100
+    - 200
+    - 300
+    - 350
+    - 400
+    - 450
+    - 500
+    - 550
+  # disabled: 10-stage n_steps_schedule triggers a recompile per stage,
   # cached inductor / CUDA Graph artifacts pile up and OOM the L4 (22 GB)
-  # toward the end of training. Training works without compile (~30% slower).
+  # at iter ~17.5K. Training works without compile (~30% slower).
   torch_compile: false
 claude:
   n_epochs: 5

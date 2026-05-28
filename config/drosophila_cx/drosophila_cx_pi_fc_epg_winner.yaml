@@ -1,14 +1,13 @@
-description: "FC RNN with EPG-only readout (W_out reads only the 46 EPGs).
-
-  HPs are an EXACT copy of the agentic-search winner iter 86 / slot 5
-  (|r_roll_1k| = 0.999988) from
+description: "FC EPG best-iter config -- EXACT copy of the agentic-search winner
+  iter 86 / slot 5 (|r_roll_1k| = 0.999988) from
   log/Claude_exploration/LLM_drosophila_cx_pi_fc_epg/config/iter_086_slot_05.yaml.
 
-  PREVIOUS NOTE (kept for reference): an earlier version of this file rescaled
-  the budget as n_epochs=10, data_augmentation_loop=1 to match the
-  drosophila_cx_pi_epg schedule. That broke convergence (DAL=1 changes the
-  optimisation dynamics; CV r_roll_1k ~ 0.0 +/- 0.2). The winning iter uses
-  DAL=3 with a 5-stage n_steps curriculum; restored here."
+  The standing drosophila_cx_pi_fc_epg.yaml inherits the per-parameter winning
+  HPs but transferred the budget as n_epochs=10, data_augmentation_loop=1 to
+  match the drosophila_cx_pi_epg schedule. DAL=1 changes the optimisation
+  dynamics, not just the total step count, and the model fails to converge
+  (CV r_roll_1k ~ 0.0 +/- 0.2). This config restores DAL=3, n_epochs=5 as in
+  the winning iter."
 dataset: drosophila_cx_pi_task
 simulation:
   params:
