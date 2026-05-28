@@ -48,30 +48,35 @@ def _draw_block_grid(ax, type_ids, names, color="k", alpha=0.5, lw=0.3):
     ax.set_ylabel("postsynaptic", fontsize=9)
 
 
-def _panel_W(ax, W, type_ids, names):
+def _panel_W(ax, W, type_ids, names, dilate_iter=1, header=""):
+    """Dilate nonzero entries (signed) so individual edges are visible.
+    Positive entries propagate via maximum_filter, negative via minimum_filter;
+    the larger-magnitude value wins where both reach the same cell."""
+    from scipy.ndimage import maximum_filter, minimum_filter
     nz = W[W != 0]
     mu, sd = float(nz.mean()), float(nz.std())
     Z = np.where(W != 0, (W - mu) / max(sd, 1e-8), 0.0).clip(-3.0, 3.0)
-    im = ax.imshow(Z, cmap="RdBu_r", vmin=-3.0, vmax=3.0,
+    size = 2 * int(dilate_iter) + 1
+    Zpos = maximum_filter(np.where(Z > 0, Z, 0.0), size=size)
+    Zneg = minimum_filter(np.where(Z < 0, Z, 0.0), size=size)
+    Zvis = np.where(np.abs(Zpos) >= np.abs(Zneg), Zpos, Zneg)
+    im = ax.imshow(Zvis, cmap="RdBu_r", vmin=-3.0, vmax=3.0,
                    interpolation="nearest", aspect="equal")
     _draw_block_grid(ax, type_ids, names, color="k", alpha=0.5)
-    ax.set_title(r"$W^{\mathrm{con}}$ (signed, $z$-scored, $\pm 3$ clip)",
-                 fontsize=10)
     cb = plt.colorbar(im, ax=ax, fraction=0.04, pad=0.02, shrink=0.85)
     cb.ax.tick_params(labelsize=7)
 
 
-def _panel_mask(ax, W, type_ids, names):
-    M = (W != 0).astype(np.float32)
-    ax.imshow(M, cmap="binary", vmin=0, vmax=1,
+def _panel_mask(ax, W, type_ids, names, dilate_iter=1, header=""):
+    """Dilate the support mask so individual edges are visible at panel
+    resolution. Without dilation each entry is one pixel and the matrix
+    looks empty when rendered at the size used in the paper."""
+    from scipy.ndimage import binary_dilation
+    M = (W != 0)
+    Mvis = binary_dilation(M, iterations=dilate_iter).astype(np.float32)
+    ax.imshow(Mvis, cmap="binary", vmin=0, vmax=1,
               interpolation="nearest", aspect="equal")
     _draw_block_grid(ax, type_ids, names, color="r", alpha=0.6)
-    density = float(M.sum()) / float(M.size)
-    ax.set_title(
-        rf"$\mathrm{{supp}}(W^{{\mathrm{{con}}}})$  "
-        rf"(density $={density:.3f}$)",
-        fontsize=10,
-    )
 
 
 def main():
@@ -91,7 +96,14 @@ def main():
     names = list(cx["type_names"])
     N = cx["N"]
     nnz = int((W != 0).sum())
+    n_exc = int((W > 0).sum())
+    n_inh = int((W < 0).sum())
+    exc_ratio = (n_exc / nnz) if nnz else 0.0
+    inh_ratio = (n_inh / nnz) if nnz else 0.0
     print(f"N = {N}   non-zero edges = {nnz}   density = {nnz / W.size:.4f}")
+    print(f"  excitatory = {n_exc} ({100 * exc_ratio:.1f}%), "
+          f"inhibitory = {n_inh} ({100 * inh_ratio:.1f}%), "
+          f"ratio E:I = {(n_exc / n_inh) if n_inh else float('inf'):.2f}")
     print(f"n_epg (IPNd* + IPNds* = r1pi HD ring) = {cx['n_epg']}")
     print(f"pen_subpop_ix sizes: "
           f"{ {k: len(v) for k, v in cx['pen_subpop_ix'].items()} }")

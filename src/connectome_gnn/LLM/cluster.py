@@ -329,11 +329,14 @@ def _read_latest_training_metrics(log_dir):
         return None
     try:
         with open(path) as f:
-            # Skip header; return last non-empty data line.
+            header = None
             last = None
             for line in f:
                 line = line.strip()
-                if not line or line.startswith('iteration'):
+                if not line:
+                    continue
+                if line.startswith('iteration'):
+                    header = line
                     continue
                 last = line
         if last is None:
@@ -341,6 +344,36 @@ def _read_latest_training_metrics(log_dir):
         parts = last.split(',')
         if len(parts) < 4:
             return None
+
+        # Task-trainer metrics.log header is
+        #   iteration,epoch,loss,mse,cosd,norm,tv,l1S,pi_acc,fwhm_deg,
+        #   r_roll,rmse_roll_deg,r_roll_1k
+        # Detected via the presence of 'loss' as the third column. Returned
+        # under different keys so _print_training_metrics can branch.
+        if header is not None and 'loss' in header.split(',')[:5]:
+            def _f(idx):
+                if idx >= len(parts):
+                    return None
+                v = parts[idx].strip()
+                if not v or v.lower() == 'nan':
+                    return None
+                try:
+                    return float(v)
+                except ValueError:
+                    return None
+
+            return {
+                'kind':       'task',
+                'iter':       int(float(parts[0])),
+                'epoch':      _f(1),
+                'loss':       _f(2),
+                'mse':        _f(3),
+                'pi_acc':     _f(8),
+                'fwhm_deg':   _f(9),
+                'r_roll':     _f(10),
+                'rmse_roll':  _f(11),
+                'r_roll_1k':  _f(12),
+            }
 
         def _opt_float(idx):
             if len(parts) <= idx:
@@ -365,6 +398,7 @@ def _read_latest_training_metrics(log_dir):
                 return default
 
         return {
+            'kind':         'circuit',
             'iter':         int(parts[0]),
             'conn':         float(parts[1]),
             'vr':           float(parts[2]),
@@ -501,9 +535,18 @@ def _print_training_metrics(log_dirs, slots_active, prefix='  [metrics]'):
         sd = (sum((v - m) ** 2 for v in vals) / n) ** 0.5 if n > 1 else 0.0
         return m, sd, n
 
+    # Per-condition summary uses task r_roll_1k when available (task runs),
+    # else the circuit R²W.
+    def _summary_metric(tm):
+        if tm is None:
+            return None
+        if tm.get('kind') == 'task':
+            return tm.get('r_roll_1k')
+        return tm.get('conn')
+
     group_stats = {
-        c: _mean_sd_n([r['tm']['conn'] for r in rs
-                       if r['tm'] is not None and r['tm'].get('conn') is not None])
+        c: _mean_sd_n([v for v in (_summary_metric(r['tm']) for r in rs)
+                       if v is not None])
         for c, rs in groups.items()
     }
     ordered_conds = sorted(groups.keys(), key=lambda c: -group_stats[c][0])
@@ -525,18 +568,47 @@ def _print_training_metrics(log_dirs, slots_active, prefix='  [metrics]'):
         # — the per-slot row already shows that value, so a header would just
         # repeat it). The cond placeholder is padded to summary_lhs_w so the
         # `R²W =` token lands at the same column as `R²W=` on the rows below.
+        # For task runs the headline metric is r_roll_1k, not R²W.
         n_folds = len(rs)
+        is_task_block = any(r['tm'] is not None
+                            and r['tm'].get('kind') == 'task' for r in rs)
+        summary_label = 'r_roll_1k' if is_task_block else 'R²W'
         if n_folds > 1 and n > 0:
             lhs = cond.ljust(summary_lhs_w)
             print(f"  [summary] {lhs}  "
-                  f"{_r2_color(m)}R²W = {m:.3f} ± {sd:.3f}{_ANSI_RESET}  "
-                  f"(n={n}/{n_folds})")
+                  f"{_r2_color(m)}{summary_label} = {m:.3f} ± {sd:.3f}"
+                  f"{_ANSI_RESET}  (n={n}/{n_folds})")
 
         for r in rs:
             slot, log_dir, tm, cfg_tag = (r['slot'], r['log_dir'],
                                           r['tm'], r['cfg_tag'])
             if tm is None:
                 print(f"{prefix} slot {slot}: (no metrics.log yet)")
+                continue
+
+            # Task-trainer row: drop the circuit R²W/R²Vr/R²τ block and show
+            # the task metrics the trainer actually wrote (matches the
+            # direct-CLI `epoch X (T=N): ... r_roll= pi_acc= fwhm= loss=` line).
+            if tm.get('kind') == 'task':
+                def _v(name, fmt):
+                    val = tm.get(name)
+                    if val is None:
+                        return f"{name}=nan"
+                    return f"{name}={fmt.format(val)}"
+                fwhm = tm.get('fwhm_deg')
+                fwhm_str = f"fwhm={fwhm:.0f}°" if fwhm is not None else "fwhm=nan"
+                parts = [
+                    _v('r_roll_1k', '{:+.3f}'),
+                    _v('pi_acc',    '{:.3f}'),
+                    fwhm_str,
+                    _v('loss',      '{:.2e}'),
+                    _v('rmse_roll', '{:.1f}°'),
+                ]
+                slot_text = f"slot {slot}"
+                iter_str = r['iter_str']
+                print(f"{prefix} {slot_text:<{slot_w}}  "
+                      f"{cfg_tag:<{tag_w}}  {iter_str:<{iter_w}}  "
+                      + "  ".join(parts))
                 continue
 
             cl = _read_clustering_accuracy(log_dir)

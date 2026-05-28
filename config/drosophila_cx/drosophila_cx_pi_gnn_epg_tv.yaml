@@ -41,7 +41,9 @@ training:
   seed: 0
   n_runs: 1
   n_epochs: 10
-  batch_size: 16
+  batch_size: 8   # halved from 16 to stay within L4's 22 GB at the
+                  # widest n_steps_schedule stage (was OOM'ing around
+                  # iter 24K with bs=16).
   data_augmentation_loop: 1
   lr: 0.002
   lr_W_rec_schedule:
@@ -80,7 +82,10 @@ training:
     - 450
     - 500
     - 550
-  torch_compile: true
+  # disabled: 10-stage n_steps_schedule triggers a recompile per stage,
+  # cached inductor / CUDA Graph artifacts pile up and OOM the L4 (22 GB)
+  # at iter ~17.5K. Training works without compile (~30% slower).
+  torch_compile: false
 claude:
   n_epochs: 5
   data_augmentation_loop: 1

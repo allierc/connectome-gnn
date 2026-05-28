@@ -1,20 +1,14 @@
-description: "Path-integration TaskRNN -- W_rec frozen at the hemibrain connectome.
-  Only W_in / W_out / biases / velocity-gate scalars train. Tests whether the
-  connectome itself plus a learnable I/O is sufficient for HD.
-
-  (EPG-only-readout variant: W_out reads only from the 46 EPG neurons, matching
-  the Hulse 2021 wout layout.)
-
-  HPs are an EXACT copy of the agentic-search robustness winner iter 121 /
-  slot 0 (mean |r_roll_1k| = 0.701 +/- 0.009 across 8 seeds, 0/8 collapses)
-  from
+description: "Frozen-W_rec EPG best-iter config -- EXACT copy of the agentic-search
+  robustness winner iter 121 / slot 0 (batch 13, mean |r_roll_1k| = 0.701 +/- 0.009
+  across 8 seeds, 0/8 collapses) from
   log/Claude_exploration/LLM_drosophila_cx_pi_frozen_Wrec_epg/config/iter_121_slot_00.yaml.
 
-  PREVIOUS NOTE (kept for reference): an earlier version rescaled the budget
-  as n_epochs=10, data_augmentation_loop=1 to match drosophila_cx_pi_epg.
-  That broke convergence (CV r_roll_1k ~ 0.0 +/- 0.5). The winning iter uses
-  n_epochs=1, data_augmentation_loop=10 with a single-stage
-  n_steps_schedule=[500]; restored here."
+  The standing drosophila_cx_pi_frozen_Wrec_epg.yaml inherits the per-parameter
+  winning HPs but rescaled the budget as n_epochs=10, data_augmentation_loop=1
+  to match the drosophila_cx_pi_epg schedule. DAL=1 changes the optimisation
+  dynamics, not just the total step count, and the model fails to converge
+  (CV r_roll_1k ~ 0.0 +/- 0.5). This config restores n_epochs=1,
+  data_augmentation_loop=10 as in the winning iter."
 dataset: drosophila_cx_pi_task
 simulation:
   params:

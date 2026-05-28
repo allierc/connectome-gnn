@@ -302,7 +302,19 @@ def _build_test_trial(net, u_test, y_test, device, config):
               else u_one[None].to(device)
         y_pred_t, _ = net(u_t)
     y_pred_np = y_pred_t[0].cpu().numpy()
-    dt = float(config.task.path_integration.dt) if config else float(net.dt)
+    # Species-agnostic: drosophila uses task.path_integration, zebrafish
+    # uses task.swim_integration. Fall back to net.dt if neither block
+    # carries a dt (which would only happen for non-task models anyway).
+    if config is not None:
+        task_block = getattr(config, "task", None)
+        sub = None
+        for sub_name in ("path_integration", "swim_integration"):
+            sub = getattr(task_block, sub_name, None) if task_block else None
+            if sub is not None and getattr(sub, "dt", None) is not None:
+                break
+        dt = float(sub.dt) if sub is not None else float(net.dt)
+    else:
+        dt = float(net.dt)
     return dict(
         idx=trial_idx,
         u=u_one_np,

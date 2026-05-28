@@ -456,6 +456,14 @@ class CustomColorMap:
 
 
 def add_pre_folder(config_file_):
+    # Idempotent fast path: callers (e.g. cx_cv.generate_cv_datasets,
+    # GNN_Main with a path-style config_file like "drosophila_cx/foo_cv0")
+    # may already include the domain folder. Without this guard the per-
+    # domain branches below would double-prepend the folder, producing
+    # paths like config/drosophila_cx/drosophila_cx/<name>.yaml.
+    if '/' in config_file_:
+        head = config_file_.split('/', 1)[0]
+        return config_file_, head + '/'
 
     if 'arbitrary' in config_file_:
         config_file = os.path.join('arbitrary', config_file_)

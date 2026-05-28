@@ -130,6 +130,55 @@ def _load_rois(anatomy_dir: str):
     return out
 
 
+def _extract_somas_by_type(nl, types) -> dict:
+    """{category: (positions[N, 3], radii[N])}. fish2 SWCs don't tag the
+    soma either; the cell body is the only node whose radius is far above
+    the segmental baseline (segmental ~500 nm, somata ~2-3 kn after the
+    voxel->nm scale in fetch_zebrafish_anatomy_HD.py)."""
+    out: dict[str, tuple[list, list]] = {}
+    for n, nt in zip(nl, types):
+        nodes = n.nodes
+        i_max = int(nodes.radius.values.argmax())
+        row = nodes.iloc[i_max]
+        out.setdefault(str(nt), ([], []))
+        out[str(nt)][0].append([float(row.x), float(row.y), float(row.z)])
+        out[str(nt)][1].append(float(row.radius))
+    return {t: (np.asarray(p), np.asarray(r)) for t, (p, r) in out.items()}
+
+
+def _load_soma_meshes_by_type(anatomy_dir: str) -> dict:
+    """Load cropped per-neuron soma meshes from
+    `somas/<safe-type>__<bodyId>.obj` (written by
+    fetch_zebrafish_anatomy_HD.py --with_somas). Returns
+    {category: list[trimesh.Trimesh]}; empty {} when the folder is
+    missing or empty."""
+    import trimesh
+    out: dict[str, list] = {}
+    soma_dir = os.path.join(anatomy_dir, "somas")
+    if not os.path.isdir(soma_dir):
+        return out
+    for path in sorted(glob.glob(os.path.join(soma_dir, "*.obj"))):
+        stem = os.path.splitext(os.path.basename(path))[0]
+        safe_type, _, _ = stem.rpartition("__")
+        cat = _type_to_category(safe_type)
+        try:
+            mesh = trimesh.load(path, force="mesh")
+        except Exception as e:
+            print(f"  skip soma mesh {stem}: {e}")
+            continue
+        out.setdefault(cat, []).append(mesh)
+    return out
+
+
+def _unit_icosphere(subdivisions: int = 2):
+    """Cached unit icosphere (subdivisions=2 → 80-tri sphere) used to
+    draw the SWC-sphere fallback in panel (b) when no real soma meshes
+    are on disk."""
+    import trimesh
+    s = trimesh.creation.icosphere(subdivisions=subdivisions, radius=1.0)
+    return np.asarray(s.vertices), np.asarray(s.faces)
+
+
 def _project_2d(xyz: np.ndarray, elev: float, azim: float) -> np.ndarray:
     """Project (N, 3) world coords to (N, 2) screen coords matching the
     matplotlib mplot3d convention for (elev, azim) in degrees."""
@@ -141,23 +190,8 @@ def _project_2d(xyz: np.ndarray, elev: float, azim: float) -> np.ndarray:
     return xyz @ R.T
 
 
-def _render_fast(nl, types, rois, output_path,
-                 elev=20.0, azim=-60.0, roll=0.0,
-                 lw_large=0.2, lw_small=0.4,
-                 alpha_mesh=0.10, crop_rois=None,
-                 figsize=(8.5, 8.5), dpi=220,
-                 background="black",
-                 segs_by_type=None):
-    """Fast PNG via direct 3D->2D projection (no mplot3d depth sort)."""
+def _draw_mesh_outlines(ax, rois, elev, azim, alpha_mesh, mesh_color):
     from matplotlib.collections import LineCollection
-
-    text_color = "white" if background == "black" else "black"
-    mesh_color = (0.85, 0.85, 0.85) if background == "black" else (0.35, 0.35, 0.35)
-
-    fig, ax = plt.subplots(figsize=figsize, facecolor=background)
-    ax.set_facecolor(background)
-
-    # --- meshes: silhouette via projected outline -----------------------
     for name, mesh in rois.items():
         a_ = (alpha_mesh * 4.0) if name in CORE_ROIS else (alpha_mesh * 2.0)
         try:
@@ -169,25 +203,19 @@ def _render_fast(nl, types, rois, output_path,
                               for i in range(len(pts) - 1)])
             if not segs:
                 continue
-            segs3d = np.array(segs)                       # (E, 2, 3)
+            segs3d = np.array(segs)
             segs2d = _project_2d(segs3d.reshape(-1, 3),
                                   elev, azim).reshape(-1, 2, 2)
-            lc = LineCollection(segs2d, colors=[mesh_color],
-                                linewidths=0.4, alpha=a_)
-            ax.add_collection(lc)
+            ax.add_collection(LineCollection(
+                segs2d, colors=[mesh_color], linewidths=0.4, alpha=a_,
+            ))
         except Exception:
             pass
 
-    # --- skeletons, one LineCollection per cell type --------------------
-    type_counts = {t: int((types == t).sum()) for t in np.unique(types)}
-    draw_types = [t for t in TYPE_ORDER if type_counts.get(t, 0) > 0]
-    # Append any types that exist but aren't in TYPE_ORDER (defensive).
-    extra = [t for t in type_counts if t not in TYPE_ORDER]
-    draw_types += extra
-    draw_order = sorted(draw_types, key=lambda t: -type_counts.get(t, 0))
 
-    if segs_by_type is None:
-        segs_by_type = _extract_segments_by_type(nl, types)
+def _draw_skeletons(ax, segs_by_type, type_counts, draw_order,
+                    elev, azim, lw_large, lw_small):
+    from matplotlib.collections import LineCollection
     for t in draw_order:
         segs3d = segs_by_type.get(t)
         if segs3d is None or len(segs3d) == 0:
@@ -196,16 +224,68 @@ def _render_fast(nl, types, rois, output_path,
                               elev, azim).reshape(-1, 2, 2)
         big = type_counts[t] > 30
         color = TYPE_COLOR.get(t, (0.4, 0.4, 0.4))
-        lc = LineCollection(segs2d, colors=[color],
-                            linewidths=(lw_large if big else lw_small),
-                            alpha=(0.7 if big else 0.9))
-        ax.add_collection(lc)
+        ax.add_collection(LineCollection(
+            segs2d, colors=[color],
+            linewidths=(lw_large if big else lw_small),
+            alpha=(0.7 if big else 0.9),
+        ))
 
-    # --- axis cosmetics + legend ----------------------------------------
-    ax.set_aspect("equal")
-    ax.autoscale_view()
-    ax.set_axis_off()
 
+def _draw_soma_meshes(ax, soma_meshes_by_type, type_counts, draw_order,
+                       elev, azim):
+    """Project per-neuron cropped soma meshes (real DVID cell bodies) and
+    fill their triangles."""
+    from matplotlib.collections import PolyCollection
+    for t in draw_order:
+        meshes = soma_meshes_by_type.get(t)
+        if not meshes:
+            continue
+        big = type_counts[t] > 30
+        polys = []
+        for mesh in meshes:
+            if len(mesh.vertices) == 0 or len(mesh.faces) == 0:
+                continue
+            verts2d = _project_2d(np.asarray(mesh.vertices), elev, azim)
+            polys.append(verts2d[mesh.faces])
+        if not polys:
+            continue
+        polys = np.concatenate(polys, axis=0)
+        color = TYPE_COLOR.get(t, (0.4, 0.4, 0.4))
+        ax.add_collection(PolyCollection(
+            polys, facecolors=[color], edgecolors="none",
+            linewidths=0, alpha=(0.55 if big else 0.85), zorder=3,
+        ))
+
+
+def _draw_soma_icospheres(ax, somas_by_type, type_counts, draw_order,
+                           elev, azim):
+    """SWC-radius icospheres as a stand-in when real soma OBJs are absent.
+    Same projection / PolyCollection path as _draw_soma_meshes so the two
+    fallbacks look the same."""
+    from matplotlib.collections import PolyCollection
+    v_unit, faces = _unit_icosphere(subdivisions=2)
+    for t in draw_order:
+        entry = somas_by_type.get(t)
+        if entry is None:
+            continue
+        pos3d, rad = entry
+        if len(pos3d) == 0:
+            continue
+        big = type_counts[t] > 30
+        polys = []
+        for c, r in zip(pos3d, rad):
+            verts3d = v_unit * float(r) + c
+            verts2d = _project_2d(verts3d, elev, azim)
+            polys.append(verts2d[faces])
+        polys = np.concatenate(polys, axis=0)
+        color = TYPE_COLOR.get(t, (0.4, 0.4, 0.4))
+        ax.add_collection(PolyCollection(
+            polys, facecolors=[color], edgecolors="none",
+            linewidths=0, alpha=(0.7 if big else 0.9), zorder=3,
+        ))
+
+
+def _add_legend(ax, type_counts, draw_order, text_color):
     from matplotlib.lines import Line2D
     handles = [Line2D([0], [0], color=TYPE_COLOR.get(t, (0.4, 0.4, 0.4)),
                       lw=2.5, label=f"{t}  (n={type_counts[t]})")
@@ -216,11 +296,118 @@ def _render_fast(nl, types, rois, output_path,
     for txt in leg.get_texts():
         txt.set_color(text_color)
 
-    fig.subplots_adjust(left=0.02, right=0.78, top=0.98, bottom=0.02)
+
+def _render_fast(nl, types, rois, output_path,
+                 elev=20.0, azim=-60.0, roll=0.0,
+                 lw_large=0.2, lw_small=0.4,
+                 alpha_mesh=0.10, crop_rois=None,
+                 figsize=(13.0, 6.0), dpi=220,
+                 background="black",
+                 with_soma_panel=False,
+                 segs_by_type=None,
+                 somas_by_type=None,
+                 soma_meshes_by_type=None,
+                 ylim_pct=(0.5, 99.5)):
+    """Fast PNG via direct 3D->2D projection (no mplot3d depth sort).
+
+    If `with_soma_panel`, the output is a 2-panel figure stacked
+    vertically: (a) full skeletons on top, (b) just the soma cell
+    bodies underneath, sharing the same view so they're position-
+    comparable. Uses real per-neuron cropped soma meshes when
+    `somas/*.obj` is present, otherwise falls back to icospheres of
+    SWC radius at the SWC soma node.
+
+    ylim_pct: percentile clipping on projected y-coordinates so a few
+    far-out skeleton segments don't leave large blank bands.
+    """
+    text_color = "white" if background == "black" else "black"
+    mesh_color = (0.85, 0.85, 0.85) if background == "black" else (0.35, 0.35, 0.35)
+
+    if segs_by_type is None:
+        segs_by_type = _extract_segments_by_type(nl, types)
+    type_counts = {t: int((types == t).sum()) for t in np.unique(types)}
+    draw_types = [t for t in TYPE_ORDER if type_counts.get(t, 0) > 0]
+    extra = [t for t in type_counts if t not in TYPE_ORDER]
+    draw_types += extra
+    draw_order = sorted(draw_types, key=lambda t: -type_counts.get(t, 0))
+
+    if with_soma_panel:
+        if somas_by_type is None:
+            somas_by_type = _extract_somas_by_type(nl, types)
+        # For the dorsal view the brain is wider than tall, so each panel
+        # is short; stack two of them with figsize y = 2 * panel_height and
+        # zero inter-axis space -- subplots_adjust(hspace=0) below plus
+        # bbox_inches="tight" then crops out the white band that was
+        # appearing between the panels at the previous (1.9 * y) figsize.
+        fig, axes = plt.subplots(2, 1,
+                                  figsize=(figsize[0], figsize[1] * 0.9),
+                                  facecolor=background)
+        ax_skel, ax_soma = axes
+        for ax in axes:
+            ax.set_facecolor(background)
+    else:
+        fig, ax_skel = plt.subplots(figsize=figsize, facecolor=background)
+        ax_skel.set_facecolor(background)
+        ax_soma = None
+
+    # --- panel (a / single): meshes + full skeletons -------------------
+    _draw_mesh_outlines(ax_skel, rois, elev, azim, alpha_mesh, mesh_color)
+    _draw_skeletons(ax_skel, segs_by_type, type_counts, draw_order,
+                    elev, azim, lw_large, lw_small)
+
+    # --- panel (b): meshes + somas only --------------------------------
+    if ax_soma is not None:
+        _draw_mesh_outlines(ax_soma, rois, elev, azim, alpha_mesh, mesh_color)
+        if soma_meshes_by_type:
+            _draw_soma_meshes(ax_soma, soma_meshes_by_type, type_counts,
+                              draw_order, elev, azim)
+        else:
+            _draw_soma_icospheres(ax_soma, somas_by_type, type_counts,
+                                   draw_order, elev, azim)
+
+    # --- axis cosmetics, shared view, legend ---------------------------
+    ax_skel.set_aspect("equal")
+    ax_skel.autoscale_view()
+
+    # Tighten ylim on panel (a) so RIPN/pt-IPN tails don't leave bands.
+    if ylim_pct is not None and segs_by_type:
+        all_y = np.concatenate([
+            _project_2d(s.reshape(-1, 3), elev, azim)[:, 1]
+            for s in segs_by_type.values() if len(s)
+        ])
+        if all_y.size:
+            y_lo, y_hi = np.percentile(all_y, ylim_pct)
+            pad = 0.04 * (y_hi - y_lo)
+            ax_skel.set_ylim(y_lo - pad, y_hi + pad)
+
+    xlim = ax_skel.get_xlim()
+    ylim = ax_skel.get_ylim()
+    if ax_soma is not None:
+        ax_soma.set_aspect("equal")
+        ax_soma.set_xlim(xlim)
+        ax_soma.set_ylim(ylim)
+
+    panel_letters = ["a", "b"]
+    legend_ax = ax_soma if ax_soma is not None else ax_skel
+    for i, ax in enumerate([ax_skel] + ([ax_soma] if ax_soma is not None else [])):
+        ax.set_axis_off()
+        if ax_soma is not None:
+            ax.text(0.01, 0.99, panel_letters[i], transform=ax.transAxes,
+                    ha="left", va="top", fontsize=14, fontweight="bold",
+                    color=text_color)
+
+    _add_legend(legend_ax, type_counts, draw_order, text_color)
+
+    if ax_soma is not None:
+        fig.subplots_adjust(left=0.005, right=0.85, top=0.99, bottom=0.01,
+                            hspace=0.0)
+    else:
+        fig.subplots_adjust(left=0.005, right=0.88, top=0.99, bottom=0.005)
     fig.savefig(output_path, dpi=dpi, facecolor=background,
                 bbox_inches="tight")
     plt.close(fig)
-    print(f"wrote {output_path}  (fast 2D, bg={background})")
+    mode = "skel+soma" if with_soma_panel else "skel"
+    print(f"wrote {output_path}  (fast 2D, bg={background}, {mode})")
 
 
 def _render_matplotlib(nl, types, rois, output_path,
@@ -398,10 +585,14 @@ def main():
                    help="navis.downsample_neuron factor (preserves "
                         "branch/end points). 1 = no downsample.")
     p.add_argument("--out_dir", default=here)
-    p.add_argument("--elev", type=float, default=20.0)
-    p.add_argument("--azim", type=float, default=-60.0)
+    p.add_argument("--elev", type=float, default=90.0)
+    p.add_argument("--azim", type=float, default=-90.0)
     p.add_argument("--roll", type=float, default=0.0)
     p.add_argument("--bg", default="black", choices=["black", "white"])
+    p.add_argument("--with_soma_panel", action="store_true",
+                   help="render a 2-panel figure stacked vertically: "
+                        "(a) skeletons on top, (b) just the soma cell "
+                        "bodies underneath, sharing the same view")
     p.add_argument("--slow", action="store_true",
                    help="use the mplot3d renderer (~40 s) instead of the "
                         "fast 2D-projection path (~1 s)")
@@ -421,8 +612,9 @@ def main():
 
     nl, types = _load_skeletons(args.anatomy_dir, downsample=args.downsample)
     rois = _load_rois(args.anatomy_dir)
+    soma_meshes_by_type = _load_soma_meshes_by_type(args.anatomy_dir)
     print(f"loaded {len(nl)} neurons, {len(rois)} ROI meshes "
-          f"({sorted(rois.keys())})")
+          f"({sorted(rois.keys())}), {sum(len(v) for v in soma_meshes_by_type.values())} soma meshes")
     for t in TYPE_ORDER:
         n_t = int((types == t).sum())
         if n_t:
@@ -433,12 +625,17 @@ def main():
           f"roll={args.roll}  bg={args.bg}  "
           f"{'slow-3d' if args.slow else 'fast-2d'}")
     renderer = _render_matplotlib if args.slow else _render_fast
+    extra = ({} if args.slow else
+             {"with_soma_panel": args.with_soma_panel,
+              "soma_meshes_by_type": soma_meshes_by_type or None})
+    if args.slow and args.with_soma_panel:
+        print("warning: --with_soma_panel is only supported on the fast renderer; ignoring")
     renderer(nl, types, rois, out_png,
              elev=args.elev, azim=args.azim, roll=args.roll,
              alpha_mesh=args.alpha_mesh,
              crop_rois=tuple(args.crop_rois) if args.crop_rois else None,
              lw_large=args.png_lw_large, lw_small=args.png_lw_small,
-             background=args.bg)
+             background=args.bg, **extra)
     if args.plotly:
         out_html = os.path.join(args.out_dir, "fig_zebrafish_anatomy_3d_HD.html")
         _render_plotly(nl, types, rois, out_html,

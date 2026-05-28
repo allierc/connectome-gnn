@@ -5,9 +5,9 @@ drosophila_nullspace.py
 Structural null-space analysis for the drosophila CX RNN.
 
 Companion to ``flyvis_nullspace.py`` (Flyvis equivalent). Same overall
-structure, applied to the trained ``drosophila_cx_pi`` DrosophilaCxTaskRNN using
-noise-free voltage traces produced by
-``GNN_Main.py -o generate drosophila_cx_pi_voltage_noise_free.yaml``.
+structure, applied to the trained EPG-readout DrosophilaCxTaskRNN
+(``drosophila_cx_pi_epg``) using noise-free voltage traces produced by
+``GNN_Main.py -o generate drosophila_cx_pi_epg_voltage_noise_free``.
 
 Scientific context
 ------------------
@@ -69,10 +69,10 @@ from tqdm import tqdm
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__)
 ))))
-OUTPUT_DIR = os.path.join(REPO_ROOT, "figures", "drosophila")
+OUTPUT_DIR = os.path.join(REPO_ROOT, "figures", "drosophila_cx")
 
 DATA_DIR = ("/groups/saalfeld/home/allierc/GraphData/graphs_data/"
-            "drosophila_cx/drosophila_cx_pi_voltage_noise_free")
+            "drosophila_cx/drosophila_cx_pi_epg_voltage_noise_free")
 ODE_PARAMS_PATH = os.path.join(DATA_DIR, "ode_params.pt")
 
 # Rollout config (DrosophilaCxTaskRNN uses dt = 0.01 s, tau = 0.1 s).
@@ -202,7 +202,7 @@ def load_voltage_stim_types():
 
 def load_trained_decoder(
     ckpt_path="/groups/saalfeld/home/allierc/GraphData/log/"
-              "drosophila_cx/drosophila_cx_pi/models/"
+              "drosophila_cx/drosophila_cx_pi_epg/models/"
               "best_model_with_0_graphs_9.pt",
 ):
     """Return the trained DrosophilaCxTaskRNN's (W_out, b_out) for decoding HD."""
@@ -215,7 +215,7 @@ def load_trained_decoder(
 
 def load_W_con(
     ckpt_path="/groups/saalfeld/home/allierc/GraphData/log/"
-              "drosophila_cx/drosophila_cx_pi/models/"
+              "drosophila_cx/drosophila_cx_pi_epg/models/"
               "best_model_with_0_graphs_9.pt",
 ):
     """Return the baseline connectome template W_con (N, N) from the
@@ -920,16 +920,20 @@ def plot_sparsify_figure(W_gt, W_sparse_type, W_sparse_unit,
                            edge_index, neuron_types, type_names,
                            out_path,
                            pct_type, pct_unit, r_type, r_unit,
-                           hd_trial=None, b=None, tau=None, device=None):
-    """2x3 figure: top row = matrices, bottom row = HD on one OU test trial.
+                           hd_trial=None, b=None, tau=None, device=None,
+                           W_sparse_unit_calib=None, r_unit_calib=None):
+    """2x{3,4} figure: top row = matrices, bottom row = HD on one OU test
+    trial. If W_sparse_unit_calib is provided, a 4th column shows the
+    per-(i,alpha,instance) calibrated variant.
 
-    All three matrix panels share a z-score colour scale derived from the
-    GT non-zero entries. Each bottom-row HD panel shows the same OU test
+    All matrix panels share a z-score colour scale derived from the GT
+    non-zero entries. Each bottom-row HD panel shows the same OU test
     trial decoded by the corresponding W_rec; true HD in light green,
     decoded HD in black, both wrapped to (-pi, pi].
     """
     N = neuron_types.size
     src = edge_index[0]; dst = edge_index[1]
+    has_calib = W_sparse_unit_calib is not None
 
     def edges_to_dense(W_edge):
         M = np.zeros((N, N), dtype=np.float32)
@@ -939,6 +943,7 @@ def plot_sparsify_figure(W_gt, W_sparse_type, W_sparse_unit,
     M_gt   = edges_to_dense(W_gt)
     M_type = edges_to_dense(W_sparse_type)
     M_unit = edges_to_dense(W_sparse_unit)
+    M_unit_cal = edges_to_dense(W_sparse_unit_calib) if has_calib else None
 
     nz = W_gt[W_gt != 0]
     mu, sigma = float(nz.mean()), float(nz.std())
@@ -958,17 +963,18 @@ def plot_sparsify_figure(W_gt, W_sparse_type, W_sparse_unit,
     # doesn't shrink the top-row axes (which would misalign them against
     # the bottom row of HD panels). Bottom row has an empty cell in the
     # colorbar column.
-    fig = plt.figure(figsize=(20, 10))
+    n_col = 4 if has_calib else 3
+    fig = plt.figure(figsize=(20 + (6.7 if has_calib else 0), 10))
     gs = fig.add_gridspec(
-        2, 4,
-        width_ratios=[1.0, 1.0, 1.0, 0.035],
+        2, n_col + 1,
+        width_ratios=[1.0] * n_col + [0.035],
         height_ratios=[1.0, 0.50],
         wspace=0.32, hspace=0.32,
         left=0.06, right=0.96, top=0.94, bottom=0.08,
     )
-    ax_top = [fig.add_subplot(gs[0, j]) for j in range(3)]
-    cax    = fig.add_subplot(gs[0, 3])
-    ax_bot = [fig.add_subplot(gs[1, j]) for j in range(3)]
+    ax_top = [fig.add_subplot(gs[0, j]) for j in range(n_col)]
+    cax    = fig.add_subplot(gs[0, n_col])
+    ax_bot = [fig.add_subplot(gs[1, j]) for j in range(n_col)]
     axes = np.array([ax_top, ax_bot])
 
     matrix_panels = [
@@ -977,8 +983,13 @@ def plot_sparsify_figure(W_gt, W_sparse_type, W_sparse_unit,
         (axes[0, 1], zscore(M_type[order, :][:, order]),
          f"per-$(i,\\alpha)$ collapse"),
         (axes[0, 2], zscore(M_unit[order, :][:, order]),
-         f"per-$(i,\\alpha,\\mathrm{{instance}})$ collapse"),
+         f"per-$(i,\\alpha,\\mathrm{{instance}})$ collapse (sum)"),
     ]
+    if has_calib:
+        matrix_panels.append(
+            (axes[0, 3], zscore(M_unit_cal[order, :][:, order]),
+             f"per-$(i,\\alpha,\\mathrm{{instance}})$ collapse (calibrated)")
+        )
     for ax, Z, title in matrix_panels:
         # aspect='auto' so the matrix fills its gridspec cell (cell is
         # already proportioned to match the matrix's 1:1 data aspect).
@@ -1021,6 +1032,11 @@ def plot_sparsify_figure(W_gt, W_sparse_type, W_sparse_unit,
             (axes[1, 2], W_sparse_unit,
              f"$r = {r_unit:.2f}$ (sum-preserving, $50.2\\%$ zeroed)"),
         ]
+        if has_calib:
+            hd_panels.append(
+                (axes[1, 3], W_sparse_unit_calib,
+                 f"$r = {r_unit_calib:.2f}$ (calibrated, $50.2\\%$ zeroed)")
+            )
         for ax, W_edge, title in hd_panels:
             v = cx_rollout(W_edge, edge_index, b, tau,
                            stim_t, v0_t, n_steps=T_full, device=device)
@@ -1036,7 +1052,10 @@ def plot_sparsify_figure(W_gt, W_sparse_type, W_sparse_unit,
             W_out  = hd_trial["W_out"]
             b_out  = hd_trial["b_out"]
             r_sig  = torch.sigmoid(v).cpu().numpy()
-            y_pred = r_sig @ W_out.T + b_out[None, :]
+            # EPG-only-readout teachers slice to the EPG presynaptic subset.
+            readout_idx = hd_trial.get("readout_idx")
+            r_for_dec = r_sig if readout_idx is None else r_sig[:, readout_idx]
+            y_pred = r_for_dec @ W_out.T + b_out[None, :]
             dec_hd = np.arctan2(y_pred[:, 1], y_pred[:, 0])
             dec_wrap = np.angle(np.exp(1j * dec_hd))
 
@@ -1394,13 +1413,26 @@ def main():
         os.path.join(DATA_DIR, "x_list_test", "voltage.zarr"), mode="r"))[
         :N_ROLLOUT]
     r_gt = 1.0 / (1.0 + np.exp(-voltage_test))
-    y_gt = r_gt @ W_out_dec.T + b_out_dec[None, :]
+    # EPG-only-readout teachers (e.g. drosophila_cx_pi_epg) have W_out of
+    # shape (2, 46); slice r_gt to the matching presynaptic population.
+    if W_out_dec.shape[1] != r_gt.shape[1]:
+        epg_t = type_names.index("EPG") if "EPG" in type_names else 0
+        epg_idx = np.where(ntype == epg_t)[0]
+        assert epg_idx.size == W_out_dec.shape[1], (
+            f"W_out has {W_out_dec.shape[1]} cols but EPG population has "
+            f"{epg_idx.size} neurons")
+        r_gt_for_dec = r_gt[:, epg_idx]
+        hd_trial["readout_idx"] = epg_idx
+    else:
+        r_gt_for_dec = r_gt
+    y_gt = r_gt_for_dec @ W_out_dec.T + b_out_dec[None, :]
     hd_trial["y_true"] = y_gt.astype(np.float32)
 
     plot_sparsify_figure(
         W_gt=W_gt,
         W_sparse_type=W_sparse,
         W_sparse_unit=W_sparse_u,
+        W_sparse_unit_calib=W_calib_u,
         edge_index=edge_index,
         neuron_types=ntype,
         type_names=type_names,
@@ -1409,6 +1441,7 @@ def main():
         pct_unit=sp_u_stats["frac_zeroed"] * 100.0,
         r_type=sp_pearson,
         r_unit=sp_u_pearson,
+        r_unit_calib=cal_u_pearson,
         hd_trial=hd_trial, b=b, tau=tau, device=device,
     )
 

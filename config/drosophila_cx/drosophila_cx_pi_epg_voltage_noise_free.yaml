@@ -1,0 +1,86 @@
+description: |
+  Voltage-trace dataset from the EPG-readout teacher (drosophila_cx_pi_epg).
+  Same scheme as drosophila_cx_pi_voltage_noise_free.yaml but the rollout
+  is driven by the W_out-on-EPG-only teacher used for Appendix A.
+
+  Used by src/connectome_gnn/models/drosophila_nullspace.py to evaluate the
+  inverse-problem degeneracy of the EPG-readout RNN.
+
+dataset: drosophila_cx_pi_epg_voltage_noise_free
+
+simulation:
+  task_model_config_path: drosophila_cx_pi_epg
+
+  n_frames: 64000
+  delta_t: 0.01 # MUST match the task model's model.dt; the CX variant overrides this in-memory if it differs and prints a warning.
+  seed: 0
+  n_neurons: 156
+  n_neuron_types: 7  # EPG, EPGt, PEN_a, PEN_b, PEG, Delta7, ER6 (hemibrain 156-neuron spec)
+  # Opto target: only PEN_a / PEN_b rows of stimulus.zarr carry the drive
+  # (the rest are zeroed at write time). Mask resolution via
+  # _resolve_cx_cell_types using cx["pen_subpop_ix"] — no hardcoded indices.
+  input_cell_types: ["PEN_a", "PEN_b"]
+  n_input_neurons: 156
+  # Edge count auto-corrected on first train run (graph_trainer.py:264-267).
+  n_edges: 0
+  n_extra_null_edges: 0
+  noise_model_level: 0.0    # deterministic rollout — no σ·randn on h_t
+  noisy_test_data: false
+  params:
+    - - 1.0
+
+# GNN architecture — ported from drosophila_cx_gt_edges_noise_free.
+graph_model:
+  signal_model_name: drosophila_cx_voltage # routes to NeuralGNN (and bypasses DrosophilaCxODEParams)
+  prediction: first_derivative
+  input_size: 3
+  n_layers: 3
+  hidden_dim: 64
+  output_size: 1
+  input_size_update: 5
+  n_layers_update: 3
+  hidden_dim_update: 64
+  aggr_type: add
+  embedding_dim: 2
+  update_type: generic
+  g_phi_positive: true
+
+plotting:
+  colormap: tab10
+  arrow_length: 1
+  xlim: [-10, 10]
+  ylim: [-10, 10]
+  label_style: greek
+
+training:
+  n_epochs: 20
+  n_runs: 1
+  device: auto
+  batch_size: 8
+  batch_ratio: 1
+  small_init_batch_size: false
+  sparsity: none
+  data_augmentation_loop: 50
+  recurrent_training: false
+  use_gt_edges: true
+  lr_W: 5.0e-05
+  lr: 1.0e-03
+  lr_embedding: 1.0e-03
+  coeff_g_phi_diff: 1500
+  coeff_f_theta_msg_diff: 0
+  coeff_g_phi_norm: 10
+  coeff_g_phi_weight_L1: 0.0
+  coeff_f_theta_weight_L1: 0
+  coeff_g_phi_weight_L2: 0
+  coeff_f_theta_weight_L2: 0.001
+  coeff_W_L1: 0
+  coeff_W_L2: 0
+  coeff_W_sign: 0
+  coeff_f_theta_diff: 5
+  dale_law: false
+  regul_annealing_rate: 0
+  w_init_mode: uniform_scaled
+  w_init_scale: 0.01
+  lr_scheduler: none
+  seed: 42
+  torch_compile: false
