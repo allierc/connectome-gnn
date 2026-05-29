@@ -264,11 +264,23 @@ def _panel_block_means(ax, W_con, Ws, nt, names):
     cb.set_label(r"$\log_2$ ratio", fontsize=8)
 
 
+CONDITIONS_4 = [
+    ("drosophila_cx_pi_epg_no_tv",   "Known-ODE\nno TV"),
+    ("drosophila_cx_pi_epg_tv",      "Known-ODE\n$+$TV"),
+    ("drosophila_cx_pi_gnn_epg_no_tv","GNN\nno TV"),
+    ("drosophila_cx_pi_gnn_epg_tv",  "GNN\n$+$TV"),
+]
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--base", default="drosophila_cx_pi_epg_tv",
-                   help="config base name; the 10 folds are "
-                        "<base>_cv0..<base>_cv9.")
+    p.add_argument("--bases", nargs="+",
+                   default=[c[0] for c in CONDITIONS_4],
+                   help="4 condition config-base names; defaults to "
+                        "Known-ODE+/-TV and GNN+/-TV.")
+    p.add_argument("--labels", nargs="+",
+                   default=[c[1] for c in CONDITIONS_4],
+                   help="display labels for each condition.")
     p.add_argument("--n_folds", type=int, default=10)
     p.add_argument("--device", default="cpu")
     p.add_argument("--output_root", default=None)
@@ -285,32 +297,62 @@ def main():
             pass
 
     device = torch.device(args.device)
-    print(f"loading {args.n_folds} CV checkpoints ...")
-    W_con, Ws, nt, names = _load_cv_W_rec(args.base, args.n_folds, device)
-    print(f"W_con shape {W_con.shape}, Ws shape {Ws.shape}")
+    n_cond = len(args.bases)
+    assert len(args.labels) == n_cond, "labels must match number of bases"
 
-    fig = plt.figure(figsize=(16.5, 6.0))
-    gs = fig.add_gridspec(1, 3, width_ratios=[1, 1, 1], wspace=0.20,
-                          left=0.05, right=0.98, top=0.92, bottom=0.10)
-    ax_a = fig.add_subplot(gs[0, 0])
-    ax_b = fig.add_subplot(gs[0, 1])
-    ax_c = fig.add_subplot(gs[0, 2])
+    # Load every condition's stacked CV W's
+    cond_W = []
+    nt = names = W_con = None
+    for base in args.bases:
+        print(f"\n[{base}] loading {args.n_folds} CV checkpoints ...")
+        Wc, Ws, nt_, names_ = _load_cv_W_rec(base, args.n_folds, device)
+        if W_con is None:
+            W_con = Wc; nt = nt_; names = names_
+        else:
+            # Sanity: all conditions should share the same connectome / type
+            # layout. If not, the per-cell-type panel layout would diverge.
+            assert np.allclose(W_con, Wc), f"{base}: W_con mismatch"
+        cond_W.append(Ws)
+    print(f"\nloaded {n_cond} conditions, W_con shape {W_con.shape}")
 
-    stats = _panel_affinity(ax_a, W_con, Ws)
-    _panel_cv_grid(ax_b, Ws, W_con, nt, names)
-    _panel_block_means(ax_c, W_con, Ws, nt, names)
+    # 3 rows (affinity / per-block CV / per-block log-ratio) x n_cond cols.
+    fig = plt.figure(figsize=(4.2 * n_cond, 12.5))
+    gs = fig.add_gridspec(
+        3, n_cond, wspace=0.30, hspace=0.30,
+        left=0.05, right=0.98, top=0.94, bottom=0.06,
+    )
+    summary_print = []
+    for c, (label, Ws) in enumerate(zip(args.labels, cond_W)):
+        ax_a = fig.add_subplot(gs[0, c])
+        ax_b = fig.add_subplot(gs[1, c])
+        ax_d = fig.add_subplot(gs[2, c])
+        ax_a.set_title(label, fontsize=11, fontweight="bold")
+        stats = _panel_affinity(ax_a, W_con, Ws)
+        _panel_cv_grid(ax_b, Ws, W_con, nt, names)
+        _panel_block_means(ax_d, W_con, Ws, nt, names)
+        summary_print.append(
+            f"  {label.replace(chr(10), ' '):<22} "
+            f"inter-fold cos {stats['inter_model_mean']:.3f} "
+            f"± {stats['inter_model_std']:.3f}  |  "
+            f"vs Wcon {stats['vs_con_mean']:.3f} "
+            f"± {stats['vs_con_std']:.3f}"
+        )
+
+    # Row labels on the left
+    for r, txt in enumerate([
+        "(a) cosine sim. on connectome support",
+        "(b) per-block median CV across folds",
+        "(c) per-block $\\log_2$ ratio vs $W^{\\rm con}$",
+    ]):
+        fig.text(0.005, 0.92 - 0.32 * r - 0.16, txt,
+                 fontsize=10, rotation=90, va="center", ha="left")
 
     out_png = os.path.join(args.out_dir, "fig_w_rec_comparison.png")
     fig.savefig(out_png, dpi=200, bbox_inches="tight")
     plt.close(fig)
-    print(f"wrote {out_png}")
-    print(
-        "panel (a) stats: "
-        f"inter-model cos sim = {stats['inter_model_mean']:.3f} "
-        f"± {stats['inter_model_std']:.3f}; "
-        f"vs W_con = {stats['vs_con_mean']:.3f} "
-        f"± {stats['vs_con_std']:.3f}"
-    )
+    print(f"\nwrote {out_png}\n")
+    for line in summary_print:
+        print(line)
 
 
 if __name__ == "__main__":

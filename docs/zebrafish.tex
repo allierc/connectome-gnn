@@ -145,8 +145,6 @@ the two CSV files and returns a dictionary with the canonical keys
 \emph{N}, \emph{J\_effective}, \emph{neuron\_types},
 \emph{type\_names}, \emph{n\_ring}, \emph{ring\_ix},
 \emph{afferent\_subpop\_ix}. The \emph{ZebrafishHdTaskRNN} class
-(registered as \emph{zebrafish\_hd\_si} in
-\emph{src/connectome\_gnn/models/zebrafish\_hd\_task\_rnn.py})
 implements the sign-locked dynamics, the 4-scalar afferent gate, the
 HD-ring-only readout, and the regulariser machinery described in
 \cref{sec:methods}.
@@ -265,7 +263,14 @@ according to
   = \hat W^{\mathrm{out}}\sigma\big(\hat h(t)\big) + \hat b^{\mathrm{out}},
 \label{eq:zhd_readout}
 \end{equation}
-where $\sigma$ is the sigmoid, $\tau = 0.1\,\mathrm{s}$,
+Here $\hat y(t) \in \R^2$ is the network's inference of the
+head-direction signal, encoded as the
+$(\cos\hat\theta,\,\sin\hat\theta)$ pair so that the supervisory loss
+matches the ground-truth heading on the unit circle and avoids the
+$\pm 2\pi$ wraparound; the decoded heading is recovered as
+$\hat\theta(t) = \operatorname{atan2}\!\big(\hat y_2(t),\,\hat y_1(t)\big)$.
+The activation $\sigma$ is the sigmoid, the membrane time constant is
+$\tau = 0.1\,\mathrm{s}$, the integration step is
 $\Delta t = 0.01\,\mathrm{s}$, and the input
 $u(t) \in \R^3 = \big(s(t),\,\cos\theta_0\,\delta_{t,0},\,\sin\theta_0\,\delta_{t,0}\big)$
 carries a swim-triggered angular impulse $s(t)$ and a one-frame
@@ -378,17 +383,23 @@ and per-unit sparsification test --- is deferred to future work.
 The GNN model replaces the dense recurrent operator
 $\sum_j \hat W^{\mathrm{rec}}_{ij}\,\sigma(\hat h_j)$ of
 \cref{eq:zhd_dynamics} with a message-passing graph neural network
-(Gilmer \emph{et al.}\ 2017), and does \emph{not} hard-code the leak
-or the firing-rate nonlinearity. The GNN imposes only the connectome
-topology of \cref{sec:anatomy} and the input/output channels of
-\cref{eq:zhd_dynamics,eq:zhd_readout}; the leak $-\hat h_i$ and the
-rate non-linearity $\sigma$ must be \emph{discovered} inside the
-learned drift. Nodes correspond to neurons and edges to the
-non-zero entries of the zebrafish HD connectome template
-$W^{\mathrm{con}}$. The GNN learns a latent embedding $\mathbf a_i
-\in \R^d$ per neuron, representing compact cell-type-specific
-identity; $d = 4$ is our default, validated once the training runs
-are in place. Subthreshold activity evolves as
+(Gilmer \emph{et al.}\ 2017), and --- crucially --- does \emph{not}
+hard-code either the leak, the firing-rate nonlinearity, or the
+synaptic activation function: the linear leak $-\hat h_i/\tau$, the
+sigmoid $\sigma$, and the per-edge message that combines a
+presynaptic activity with its postsynaptic effect must all be
+discovered from the input--output map inside the learned drift
+$f_\theta$ and the learned signalling function $g_\phi$. Beyond
+removing this functional bias, the GNN also admits an explicit form
+of neuronal heterogeneity through a per-neuron learnable embedding
+$\mathbf a_i \in \R^d$ that enters both $f_\theta$ and $g_\phi$:
+same-type neurons share their architectural role but can specialise
+via their embedding, so a single pair of MLPs covers the $31$ fish2
+cell types of \cref{sec:anatomy} and all $N = 731$ instance-level
+distinctions without any further per-type parameter tying; we use
+$d = 4$ as the default. Nodes correspond to neurons and edges to
+the non-zero entries of the zebrafish HD connectome template
+$W^{\mathrm{con}}$, and the subthreshold activity evolves as
 \begin{equation}
 \tau\,\frac{d\hat h_i(t)}{dt}
   = f_\theta\!\Big(\hat h_i(t),\,\mathbf a_i,\,
@@ -575,7 +586,7 @@ having to invert the calcium kernel.
 \subsection{Functional partitioning of the HD circuit}
 \label{sec:results_four_classes}
 
-We use the trained \emph{zebrafish\_hd\_si\_dipn} RNN (configuration
+We use the trained RNN (configuration
 \cref{eq:zhd_dynamics,eq:zhd_readout,eq:zhd_swim_gate,eq:zhd_loss}) to
 ask, for each of the $N = 731$ neurons in the model, whether it
 \emph{represents} the heading-direction code, \emph{drives or updates}
@@ -871,7 +882,6 @@ question by overlaying the centred tuning curves of every HD-coding
 cell and comparing the population profile to a parametric reference
 bump.
 
-\paragraph{Factual results.}
 Of the $n = 366$ cells in the $\cls{R}\cup\cls{L}$ classes,
 \textbf{350 (96\%) pass the specificity threshold $\specf^\star =
 0.70$}; the histogram of $\specf$ (\cref{fig:zhd_tuning_sharpness}a)

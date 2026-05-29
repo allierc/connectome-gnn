@@ -306,7 +306,7 @@ def _run_const(net, n_steps, dt, omega_deg, theta0, device):
         y_hat, h = net(batch.stimulus)
     decoded_hd = np.arctan2(y_hat[0, :, 1].cpu().numpy(),
                             y_hat[0, :, 0].cpu().numpy())
-    return h[0].cpu().numpy(), theta, omega, decoded_hd, None, None
+    return h[0].cpu().numpy(), theta, omega, decoded_hd, None, None, theta
 
 
 def _build_swim_batch(n_steps, dt, device, seed=0,
@@ -380,6 +380,18 @@ def _build_swim_batch(n_steps, dt, device, seed=0,
     theta0 = rng.uniform(0, 2 * math.pi)
     theta_hd = theta0 + np.cumsum(np.deg2rad(omega)) * dt
     theta_hd[0] = theta0
+    # Display-only theta: backward swims yank delta_theta by ~π to model
+    # "the fish turns around to swim backward". The brain consumes that
+    # rotation, but for the fish icon we want backward ticks to translate
+    # only (orange tick = step backward, no spin), so we subtract the
+    # backward-event rotation contribution.
+    delta_theta_back = np.zeros(T, dtype=np.float32)
+    delta_theta_back[m_back] = delta_theta[m_back]
+    omega_rad_back = np.zeros(T, dtype=np.float32)
+    for k in range(L):
+        omega_rad_back[k:] += delta_theta_back[:T - k] / (L * dt)
+    theta_back_cum = np.cumsum(omega_rad_back) * dt
+    theta_display = theta_hd - theta_back_cum
 
     u = np.zeros((1, T, 3), dtype=np.float32)
     u[0, :, 0] = omega
@@ -396,7 +408,7 @@ def _build_swim_batch(n_steps, dt, device, seed=0,
         is_stop=torch.from_numpy((omega == 0).astype(np.float32)[None]).to(device),
         omega=torch.from_numpy(omega[None]).to(device),
     )
-    return batch, turn_lr, swim_fb
+    return batch, turn_lr, swim_fb, theta_display
 
 
 def _build_single_impulse_batch(n_steps, dt, device,
@@ -476,11 +488,11 @@ def _run_single_impulse(net, n_steps, dt, device, **kw):
         y_hat, h = net(batch.stimulus)
     decoded_hd = np.arctan2(y_hat[0, :, 1].cpu().numpy(),
                             y_hat[0, :, 0].cpu().numpy())
-    return h[0].cpu().numpy(), theta, omega, decoded_hd, turn_lr, swim_fb
+    return h[0].cpu().numpy(), theta, omega, decoded_hd, turn_lr, swim_fb, theta
 
 
 def _run_swim(net, n_steps, dt, device, seed=0, **swim_kw):
-    batch, turn_lr, swim_fb = _build_swim_batch(
+    batch, turn_lr, swim_fb, theta_display = _build_swim_batch(
         n_steps, dt, device, seed=seed, **swim_kw)
     theta = batch.theta_hd[0].cpu().numpy()
     omega = batch.omega[0].cpu().numpy()
@@ -488,7 +500,8 @@ def _run_swim(net, n_steps, dt, device, seed=0, **swim_kw):
         y_hat, h = net(batch.stimulus)
     decoded_hd = np.arctan2(y_hat[0, :, 1].cpu().numpy(),
                             y_hat[0, :, 0].cpu().numpy())
-    return h[0].cpu().numpy(), theta, omega, decoded_hd, turn_lr, swim_fb
+    return (h[0].cpu().numpy(), theta, omega, decoded_hd,
+            turn_lr, swim_fb, theta_display)
 
 
 # ── model-index → skeleton mapping ───────────────────────────────────────
@@ -1060,8 +1073,14 @@ def _render_frame(out_path, view_data, seg_owner, rates_t,
                 int(frame_idx), float(trace_data.get("dt", 0.05)),
                 trace_data.get("turn_lr"), trace_data.get("swim_fb"),
             )
+            # Icon orientation uses theta_display (backward events
+            # contribute translation only, not rotation).
+            theta_disp = trace_data.get("theta_display")
+            icon_theta_rad = (float(theta_disp[int(frame_idx)])
+                              if theta_disp is not None
+                              else math.radians(float(hd_deg)))
             _draw_fish_with_trail(
-                fig._fish_ax, math.radians(float(hd_deg)),
+                fig._fish_ax, icon_theta_rad,
                 swim_x, swim_y, int(frame_idx),
                 body_color=txt_color, eye_color=(0.30, 0.30, 0.30),
                 bg=bg, twitch_body=twitch_xy,
@@ -1422,7 +1441,7 @@ def main():
               f"{swim_init_dir} swim from t={args.swim_t_event_s:.2f}s, "
               f"mag={args.swim_magnitude_rad:.3f} rad, "
               f"n_steps={args.n_steps}")
-        h_traj, theta, omega_trace, decoded_hd, turn_lr, swim_fb = \
+        h_traj, theta, omega_trace, decoded_hd, turn_lr, swim_fb, theta_display = \
             _run_single_impulse(
                 net, args.n_steps, dt, device,
                 direction=swim_init_dir,
@@ -1435,13 +1454,13 @@ def main():
         flavour = "swim2 (realistic)" if args.swim2 else "swim (turn-heavy)"
         print(f"[2/4] running swim-integration rollout [{flavour}], "
               f"n_steps={args.n_steps} seed={args.seed}")
-        h_traj, theta, omega_trace, decoded_hd, turn_lr, swim_fb = \
+        h_traj, theta, omega_trace, decoded_hd, turn_lr, swim_fb, theta_display = \
             _run_swim(net, args.n_steps, dt, device, seed=args.seed,
                       **swim_kwargs)
     else:
         print(f"[2/4] running constant-omega rollout, "
               f"n_steps={args.n_steps} omega={args.omega_deg}")
-        h_traj, theta, omega_trace, decoded_hd, turn_lr, swim_fb = \
+        h_traj, theta, omega_trace, decoded_hd, turn_lr, swim_fb, theta_display = \
             _run_const(net, args.n_steps, dt, args.omega_deg, args.theta0,
                        device)
 
@@ -1561,8 +1580,11 @@ def main():
     # the original constant-velocity behaviour so the trail still shows.
     if (turn_lr is None) and (swim_fb is None):
         gate = np.ones(n_total, dtype=np.float32)
-    swim_x = np.cumsum(-v_fwd_max * dt * gate * np.cos(theta[:n_total]))
-    swim_y = np.cumsum(-v_fwd_max * dt * gate * np.sin(theta[:n_total]))
+    # Use the display-theta for the trail so the fish trajectory matches
+    # the icon orientation (which ignores backward-event rotation).
+    theta_for_icon = theta_display[:n_total]
+    swim_x = np.cumsum(-v_fwd_max * dt * gate * np.cos(theta_for_icon))
+    swim_y = np.cumsum(-v_fwd_max * dt * gate * np.sin(theta_for_icon))
     trace_data = {
         "omega": omega_trace[:n_total],
         "theta": theta[:n_total],
@@ -1574,6 +1596,7 @@ def main():
         "scroll_window": args.scroll_window,
         "swim_x": swim_x,
         "swim_y": swim_y,
+        "theta_display": theta_for_icon,
     }
 
     # ── 4. render frames ─────────────────────────────────────────────────
