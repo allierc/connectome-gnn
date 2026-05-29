@@ -315,12 +315,14 @@ def _build_swim_batch(n_steps, dt, device, seed=0,
                       phase_impulse_std_rad=0.40,
                       backward_phase_mean_rad=3.14,
                       backward_phase_std_rad=0.30,
-                      left_fraction=0.40, right_fraction=0.40,
-                      forward_fraction=0.15, backward_fraction=0.05):
+                      left_fraction=0.222, right_fraction=0.222,
+                      forward_fraction=0.417, backward_fraction=0.139):
     """Single-trial swim-integration stimulus (B=1).
 
-    Default fractions are the original turn-heavy training distribution
-    (L/R = 80%) used by ``--swim``. ``--swim2`` overrides these with
+    Default fractions for ``--swim``: original turn-heavy mix (L/R/F/B
+    = 0.40/0.40/0.15/0.05) with F and B multiplied by 5 and the whole
+    vector renormalised, so grey/orange F/B ticks fire ~5× more often
+    relative to red/blue L/R ticks. ``--swim2`` overrides these with
     a Petrucco/larval-zebrafish-realistic mix (~65% forward, ~17% L/R,
     ~1% backward).
     """
@@ -719,7 +721,7 @@ def _draw_fish_icon(ax, theta_rad, body_color="white", eye_color="black",
 
 
 def _fish_twitch_body(frame_t, dt, turn_lr, swim_fb,
-                       amp_lateral=0.12, amp_axial=0.60, decay_s=0.20):
+                       amp_lateral=0.05, amp_axial=0.60, decay_s=0.20):
     """Body-frame twitch (dx_body, dy_body) decaying after a recent
     trace-strip tick. Conventions: +y_body = fish's left flank,
     -x_body = nose-ward (forward), +x_body = tail-ward (backward).
@@ -1527,14 +1529,40 @@ def main():
     # ── trace data for the strip-chart ──────────────────────────────────
     n_total = rates_lit.shape[0]
     t_sec = np.arange(n_total) * dt
-    # Virtual swim trajectory: the fish moves one unit per second in its
-    # current heading. The 180-degree offset (negated cos/sin) keeps the
-    # motion direction consistent with the head-on-the-left silhouette
-    # convention: at theta=0 the fish points LEFT and the trajectory
-    # advances LEFT.
-    v_fish = 1.0
-    swim_x = np.cumsum(-v_fish * dt * np.cos(theta[:n_total]))
-    swim_y = np.cumsum(-v_fish * dt * np.sin(theta[:n_total]))
+    # Virtual swim trajectory: the fish translates only briefly after a
+    # swim event (L/R/F/B in the trace strip), then drifts to a halt.
+    # F/B events produce a much larger displacement than L/R events so
+    # turn-only swims rotate (almost) in place. The 180-degree offset
+    # (negated cos/sin) keeps motion consistent with the head-on-the-
+    # left silhouette: at theta=0 the fish points LEFT and advances LEFT.
+    v_fwd_max = 1.0
+    lr_gain = 0.10            # L/R gives a tiny forward kick
+    fb_gain = 1.00            # F/B gives the full kick
+    decay_s = 0.30            # gate falls to ~5% over decay_s
+    tau_frames = max(decay_s / dt / 3.0, 1.0)
+    gate = np.zeros(n_total, dtype=np.float32)
+    if turn_lr is not None:
+        ev = np.nonzero(turn_lr[:n_total] != 0)[0]
+        for k in ev:
+            tail = np.arange(n_total - k)
+            kick = lr_gain * np.exp(-tail / tau_frames)
+            gate[k:] = np.maximum(gate[k:], kick)
+    if swim_fb is not None:
+        ev = np.nonzero(swim_fb[:n_total] != 0)[0]
+        for k in ev:
+            sgn = 1.0 if swim_fb[k] > 0 else -1.0
+            tail = np.arange(n_total - k)
+            kick = sgn * fb_gain * np.exp(-tail / tau_frames)
+            # F/B can flip sign, so pick whichever has larger magnitude
+            cur = gate[k:]
+            new = np.where(np.abs(kick) > np.abs(cur), kick, cur)
+            gate[k:] = new
+    # No swim activity at all (e.g., constant-omega mode) → fall back to
+    # the original constant-velocity behaviour so the trail still shows.
+    if (turn_lr is None) and (swim_fb is None):
+        gate = np.ones(n_total, dtype=np.float32)
+    swim_x = np.cumsum(-v_fwd_max * dt * gate * np.cos(theta[:n_total]))
+    swim_y = np.cumsum(-v_fwd_max * dt * gate * np.sin(theta[:n_total]))
     trace_data = {
         "omega": omega_trace[:n_total],
         "theta": theta[:n_total],
