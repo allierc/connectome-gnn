@@ -52,7 +52,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from fig_zebrafish_anatomy_3d_voltage_anim import (
-    _run_const, _model_index_to_bodyid, _load_skeletons_in_model_order,
+    _run_const, _run_single_impulse,
+    _model_index_to_bodyid, _load_skeletons_in_model_order,
 )
 from fig_zebrafish_four_classes import (
     _load_with_override, _project_2d, _extract_per_neuron_segments,
@@ -229,8 +230,18 @@ def main():
     p.add_argument("--omega_deg_per_s", type=float, default=90.0,
                    help="constant turn rate for the rollout (deg/s). With "
                         "the default the heading sweeps 360 deg every 4 s.")
-    p.add_argument("--n_steps", type=int, default=6000)
+    p.add_argument("--n_steps", type=int, default=10000)
     p.add_argument("--burn_in_s", type=float, default=4.0)
+    p.add_argument("--rollout", default="periodic",
+                   choices=["const", "periodic"],
+                   help="probe stimulus. 'periodic' (default) matches "
+                        "the kinograph rollout: discrete L swim impulses "
+                        "every --swim_interval_s seconds at "
+                        "--swim_magnitude_rad rad. 'const' uses the "
+                        "smooth omega sweep from the previous version.")
+    p.add_argument("--swim_interval_s", type=float, default=0.3)
+    p.add_argument("--swim_magnitude_rad", type=float, default=0.393)
+    p.add_argument("--swim_direction", default="L", choices=["L", "R"])
     p.add_argument("--n_theta", type=int, default=36,
                    help="number of heading bins (default 36 = 10 deg)")
     p.add_argument("--theta0", type=float, default=0.0)
@@ -280,15 +291,31 @@ def main():
     type_per_neuron = np.array([type_names[t] for t in neuron_types])
     N = len(neuron_types)
 
-    # 2) const-omega rollout
-    print(f"[2/6] const rollout omega={args.omega_deg_per_s} deg/s, "
-          f"n_steps={args.n_steps} ({args.n_steps * dt:.1f} s)")
-    h, theta, _omega, _decoded, *_ = _run_const(
-        net, args.n_steps, dt, args.omega_deg_per_s, args.theta0, device)
+    # 2) rollout — periodic single-direction swim impulses by default
+    # (matches the kinograph rollout: discrete heading steps of
+    # `magnitude_rad` every `interval_s`); pass --rollout const for the
+    # smooth omega sweep used in the previous version of this figure.
+    if args.rollout == "const":
+        print(f"[2/6] const rollout omega={args.omega_deg_per_s} deg/s, "
+              f"n_steps={args.n_steps} ({args.n_steps * dt:.1f} s)")
+        h, theta, _omega, _decoded, *_ = _run_const(
+            net, args.n_steps, dt, args.omega_deg_per_s, args.theta0, device)
+    else:
+        print(f"[2/6] periodic-{args.swim_direction} rollout, "
+              f"Δt={args.swim_interval_s}s, "
+              f"mag={args.swim_magnitude_rad:.3f} rad, "
+              f"n_steps={args.n_steps} ({args.n_steps * dt:.1f} s)")
+        h, theta, _omega, _decoded, *_ = _run_single_impulse(
+            net, args.n_steps, dt, device,
+            direction=args.swim_direction,
+            magnitude_rad=args.swim_magnitude_rad,
+            t_event_s=0.0,
+            interval_s=args.swim_interval_s,
+            theta0=args.theta0,
+        )
     burn = int(args.burn_in_s / dt)
     h = h[burn:]
     theta = theta[burn:]
-    # Total heading swept in radians:
     span_rev = (theta[-1] - theta[0]) / (2 * np.pi)
     print(f"      swept {span_rev:+.1f} revolutions during the analysis window")
 

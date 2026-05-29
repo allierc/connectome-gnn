@@ -48,6 +48,199 @@ from fig_zebrafish_anatomy_3d_HD import (
     CORE_ROIS,
 )
 
+
+# Four anatomical ROIs (Fiji rectangles) drawn over the dorsal anatomy
+# panel of the rendered frame. Coordinates are in *Fiji image pixels*
+# (top-left origin, x_topleft, y_topleft, width, height) measured on
+# a no-swim full anim render with figsize=(10.0, 14.6) at dpi=300
+# (≈ 3000 × 4380 pixels — calibrated against the user-supplied
+# top-left makeRectangle(6, 0, 330, 198) and bottom-right
+# makeRectangle(2664, 4176, 330, 198) ROIs).
+ZHD_ROI_RECTS_FIJI = [
+    # name,   x_topleft, y_topleft, w, h
+    ("dIPN-L",  1404, 2508, 456, 180),  # dIPN ring, left hemisphere
+    ("dIPN-R",  1404, 2688, 456, 180),  # dIPN ring, right hemisphere  (x aligned with L)
+    ("dsIPN-L", 1182, 2472, 330, 198),  # dorsal-subset IPN, left
+    ("dsIPN-R", 1182, 2682, 330, 198),  # dorsal-subset IPN, right     (x aligned with L)
+]
+ZHD_ROI_REF_W = 3000   # canonical render width (10.0 * dpi 300)
+ZHD_ROI_REF_H = 4380   # canonical render height (14.6 * dpi 300)
+ZHD_ROI_COLORS = [
+    (0.95, 0.30, 0.30),   # dIPN-L  red
+    (0.30, 0.55, 0.95),   # dIPN-R  blue
+    (0.95, 0.65, 0.20),   # dsIPN-L orange
+    (0.40, 0.85, 0.40),   # dsIPN-R green
+]
+
+
+# Dorsal panel position in the no-swim reference render (figsize 10×14.6,
+# GridSpec [5, 5, 1, 1], top=0.995, bottom=0.04, hspace=0, left=0.10,
+# right=0.97). The Fiji ROIs were measured on that render so we convert
+# them to dorsal-axis-fraction once and then draw with ax.transAxes,
+# which makes the overlay follow the dorsal panel regardless of whether
+# the surrounding figure has the no-swim trace strip (4 trace rows of 1)
+# or the with-swim layout (also adds L/R + F/B trace rows).
+ZHD_ROI_REF_DORSAL_BBOX = dict(x0=0.10, x1=0.97, y0=0.1991, y1=0.5971)
+
+
+def _fiji_rects_to_dorsal_axis_fracs():
+    """Convert ZHD_ROI_RECTS_FIJI to (x, y, w, h) in dorsal-axis fraction
+    coords (origin at bottom-left of the dorsal panel)."""
+    bb = ZHD_ROI_REF_DORSAL_BBOX
+    bb_w = bb["x1"] - bb["x0"]
+    bb_h = bb["y1"] - bb["y0"]
+    out = []
+    for name, x, y, w, h in ZHD_ROI_RECTS_FIJI:
+        # First: Fiji-pixel → figure-fraction in the reference render
+        fx_l = x / ZHD_ROI_REF_W
+        fy_b = 1.0 - (y + h) / ZHD_ROI_REF_H      # flip y top→bottom
+        fw_f = w / ZHD_ROI_REF_W
+        fh_f = h / ZHD_ROI_REF_H
+        # Then: figure-fraction → dorsal-axis-fraction
+        ax_x = (fx_l - bb["x0"]) / bb_w
+        ax_y = (fy_b - bb["y0"]) / bb_h
+        ax_w = fw_f / bb_w
+        ax_h = fh_f / bb_h
+        out.append((name, ax_x, ax_y, ax_w, ax_h))
+    return out
+
+
+def _extract_zhd_roi_intensities(fig, channel=1, force_draw=True):
+    """Mean channel intensity inside each ROI rectangle from the figure's
+    current canvas. Mirrors drosophila's _extract_roi_intensities but for
+    axis-aligned rectangles defined in dorsal-axis fractions instead of
+    3-D wedge polygons. Returns (n_rois,) float array in [0, 255]."""
+    if len(fig.axes) < 2:
+        return np.zeros(len(ZHD_ROI_RECTS_FIJI), dtype=np.float32)
+    dorsal_ax = fig.axes[1]
+    if force_draw:
+        fig.canvas.draw()
+    Wpx, Hpx = fig.canvas.get_width_height()
+    buf = np.asarray(fig.canvas.buffer_rgba(), dtype=np.uint8)
+    if buf.shape[0] != Hpx or buf.shape[1] != Wpx:
+        buf = buf.reshape(Hpx, Wpx, 4)
+    img = buf[..., :3]
+    fracs = _fiji_rects_to_dorsal_axis_fracs()
+    intens = np.zeros(len(fracs), dtype=np.float32)
+    for k, (name, ax_x, ax_y, ax_w, ax_h) in enumerate(fracs):
+        x_disp_lo, y_disp_lo = dorsal_ax.transAxes.transform((ax_x, ax_y))
+        x_disp_hi, y_disp_hi = dorsal_ax.transAxes.transform(
+            (ax_x + ax_w, ax_y + ax_h))
+        x0 = int(max(np.floor(min(x_disp_lo, x_disp_hi)), 0))
+        x1 = int(min(np.ceil(max(x_disp_lo, x_disp_hi)), Wpx))
+        # display origin is bottom-left; image origin is top-left → flip y
+        y0 = int(max(np.floor(Hpx - max(y_disp_lo, y_disp_hi)), 0))
+        y1 = int(min(np.ceil(Hpx - min(y_disp_lo, y_disp_hi)), Hpx))
+        if x1 <= x0 or y1 <= y0:
+            continue
+        intens[k] = float(img[y0:y1, x0:x1, channel].mean())
+    return intens
+
+
+def _paint_zhd_roi_kinograph(ax, intens_buf, t_buf, scroll_window=10.0,
+                              bg="black", init_skip_s=1.0):
+    """Paint ΔF/F0 kinograph + image-based PVA on a single axes.
+    Adapted verbatim from drosophila's _paint_roi_kinograph (4 ROIs
+    instead of 16; ROI labels from ZHD_ROI_RECTS_FIJI).
+
+    ``init_skip_s`` discards the network's start-up transient when
+    computing the F0 baseline, the vmax for the green colormap, and the
+    PVA trace, so the steady-state dynamics aren't compressed by the
+    init spike. The kinograph image itself still spans the full time."""
+    ax.clear()
+    ax.set_facecolor(bg)
+    txt_color = "white" if bg == "black" else "black"
+    if intens_buf.shape[0] == 0:
+        return
+
+    n_w = intens_buf.shape[1]
+    t_now = float(t_buf[-1])
+    if t_now < scroll_window:
+        x_lo, x_hi = 0.0, scroll_window
+    else:
+        x_lo, x_hi = t_now - scroll_window, t_now
+
+    # F0 / vmax / PVA exclude the first init_skip_s seconds. Fall back
+    # to the full buffer when we haven't yet accumulated enough post-init
+    # samples (early frames).
+    post = t_buf >= float(init_skip_s)
+    if int(post.sum()) >= 4:
+        F0 = intens_buf[post].mean(axis=0) + 1e-6
+    else:
+        F0 = intens_buf.mean(axis=0) + 1e-6
+    dff = (intens_buf - F0[None, :]) / F0[None, :]
+
+    from matplotlib.colors import LinearSegmentedColormap
+    cmap = LinearSegmentedColormap.from_list(
+        "BlackGreen", [(0.0, 0.0, 0.0), (0.0, 1.0, 0.3)],
+    )
+    cmap.set_bad((0, 0, 0))
+    if int(post.sum()) >= 4:
+        vmax = float(np.percentile(np.clip(dff[post], 0, None), 95))
+    else:
+        vmax = float(np.percentile(np.clip(dff, 0, None), 95))
+    if vmax <= 0:
+        vmax = max(float(np.abs(dff).max()), 1e-3)
+    ax.imshow(
+        dff.T,
+        aspect="auto", origin="lower",
+        extent=(float(t_buf[0]), float(t_buf[-1]), 0.5, n_w + 0.5),
+        cmap=cmap, vmin=0.0, vmax=vmax,
+        interpolation="nearest",
+    )
+    ax.set_xlim(x_lo, x_hi)
+    ax.set_ylim(n_w + 0.5, 0.5)
+    roi_names = [n for n, *_ in ZHD_ROI_RECTS_FIJI]
+    ax.set_yticks(np.arange(1, n_w + 1))
+    ax.set_yticklabels(roi_names[:n_w], color=txt_color, fontsize=8)
+    ax.set_ylabel("dIPN ROI", color=txt_color, fontsize=10, labelpad=2)
+    ax.tick_params(axis="x", colors=txt_color, labelsize=9, length=3)
+    ax.tick_params(axis="y", colors=txt_color, length=3)
+    ax.set_xlabel("time (s)", color=txt_color, fontsize=10, labelpad=2)
+    ax.spines[:].set_visible(False)
+
+    # Per-ROI PVA: one trace per ROI, drawn on its own kinograph row in
+    # the ROI's overlay color. The trace is the post-init ΔF/F0
+    # normalised to its 95th-percentile and pinned to the row band
+    # (offset ranges within ±0.45 of the row centre), so each row's line
+    # shows the ROI's relative time-course at a glance.
+    if int(post.sum()) >= 2:
+        t_pva = t_buf[post]
+        dff_pva = dff[post]
+    else:
+        t_pva = t_buf
+        dff_pva = dff
+    for i in range(n_w):
+        row_y = i + 1
+        d_i = dff_pva[:, i]
+        d_max = max(float(np.percentile(np.clip(d_i, 0.0, None), 95)), 1e-6)
+        norm_i = np.clip(d_i / d_max, 0.0, 1.0)
+        ax.plot(t_pva, row_y - 0.45 * norm_i,
+                color=ZHD_ROI_COLORS[i], lw=1.2, zorder=4)
+
+
+def _draw_zhd_roi_overlay(fig, lw=1.4):
+    """Draw the four anatomical ROI rectangles on the dorsal panel in
+    axis-fraction coords. axes[1] is the dorsal panel (axes[0] is the
+    frontal anatomy panel)."""
+    from matplotlib.patches import Rectangle
+    if len(fig.axes) < 2:
+        return
+    dorsal_ax = fig.axes[1]
+    for (name, ax_x, ax_y, ax_w, ax_h), color in zip(
+            _fiji_rects_to_dorsal_axis_fracs(), ZHD_ROI_COLORS):
+        rect = Rectangle((ax_x, ax_y), ax_w, ax_h,
+                          transform=dorsal_ax.transAxes,
+                          fill=False, edgecolor=color,
+                          linewidth=lw, zorder=10000,
+                          clip_on=False)
+        dorsal_ax.add_patch(rect)
+        dorsal_ax.text(ax_x + ax_w / 2, ax_y + ax_h + 0.01, name,
+                       transform=dorsal_ax.transAxes,
+                       ha="center", va="bottom",
+                       color=color, fontsize=8, fontweight="bold",
+                       zorder=10001, clip_on=False)
+
 # ── model loading (same pattern as fig_kinographs_const_omega._load) ──────
 
 def _load(config_name, device, prefer_epoch=None):
@@ -204,6 +397,86 @@ def _build_swim_batch(n_steps, dt, device, seed=0,
     return batch, turn_lr, swim_fb
 
 
+def _build_single_impulse_batch(n_steps, dt, device,
+                                 direction="L",
+                                 magnitude_rad=0.785,
+                                 t_event_s=0.0,
+                                 interval_s=2.0,
+                                 theta0=0.0,
+                                 swim_duration_s=0.3):
+    """Periodic single-direction swim stimulus (B=1). Fires typed swim
+    impulses every ``interval_s`` seconds, starting at ``t_event_s``,
+    each with phase magnitude ``magnitude_rad`` (default π/4 = Petrucco
+    median). Pass ``interval_s <= 0`` for a single-shot impulse at
+    ``t_event_s`` only (initialisation / persistence test).
+
+    ``direction`` ∈ {"L", "R"} sets the sign of delta_theta and the
+    L/R display trace channel; the F/B channel is left at zero.
+    """
+    T = int(n_steps)
+    L = max(1, int(round(swim_duration_s / dt)))
+    k0 = int(round(max(0.0, t_event_s) / dt))
+    k0 = min(k0, T - 1)
+    sign = +1.0 if direction.upper() == "L" else -1.0
+    mag = float(abs(magnitude_rad))
+
+    if interval_s and interval_s > 0:
+        step_k = max(1, int(round(interval_s / dt)))
+        event_ks = np.arange(k0, T, step_k, dtype=np.int64)
+    else:
+        event_ks = np.array([k0], dtype=np.int64)
+
+    delta_theta = np.zeros(T, dtype=np.float32)
+    delta_theta[event_ks] = sign * mag
+
+    omega_rad = np.zeros(T, dtype=np.float32)
+    for k in range(L):
+        omega_rad[k:] += delta_theta[:T - k] / (L * dt)
+    omega = np.rad2deg(omega_rad).astype(np.float32)
+
+    # Display traces — L/R panel: left swims point DOWN, right UP
+    # (matches _build_swim_batch's display convention).
+    turn_lr = np.zeros(T, dtype=np.float32)
+    if direction.upper() == "L":
+        turn_lr[event_ks] = -np.rad2deg(mag)
+    else:
+        turn_lr[event_ks] = +np.rad2deg(mag)
+    swim_fb = np.zeros(T, dtype=np.float32)
+
+    theta0_f = float(theta0)
+    theta_hd = theta0_f + np.cumsum(np.deg2rad(omega)) * dt
+    theta_hd[0] = theta0_f
+
+    u = np.zeros((1, T, 3), dtype=np.float32)
+    u[0, :, 0] = omega
+    u[0, 0, 1] = math.cos(theta0_f)
+    u[0, 0, 2] = math.sin(theta0_f)
+    y = np.stack([np.cos(theta_hd), np.sin(theta_hd)],
+                 axis=-1).astype(np.float32)[None]
+    batch = TaskTrials(
+        task_family="swim_integration",
+        n_input=3, n_output=2, dt=float(dt),
+        stimulus=torch.from_numpy(u).to(device),
+        target=torch.from_numpy(y).to(device),
+        theta_hd=torch.from_numpy(theta_hd[None].astype(np.float32)).to(device),
+        is_stop=torch.from_numpy((omega == 0).astype(np.float32)[None]).to(device),
+        omega=torch.from_numpy(omega[None]).to(device),
+    )
+    return batch, turn_lr, swim_fb
+
+
+def _run_single_impulse(net, n_steps, dt, device, **kw):
+    batch, turn_lr, swim_fb = _build_single_impulse_batch(
+        n_steps, dt, device, **kw)
+    theta = batch.theta_hd[0].cpu().numpy()
+    omega = batch.omega[0].cpu().numpy()
+    with torch.no_grad():
+        y_hat, h = net(batch.stimulus)
+    decoded_hd = np.arctan2(y_hat[0, :, 1].cpu().numpy(),
+                            y_hat[0, :, 0].cpu().numpy())
+    return h[0].cpu().numpy(), theta, omega, decoded_hd, turn_lr, swim_fb
+
+
 def _run_swim(net, n_steps, dt, device, seed=0, **swim_kw):
     batch, turn_lr, swim_fb = _build_swim_batch(
         n_steps, dt, device, seed=seed, **swim_kw)
@@ -321,8 +594,14 @@ def _extract_soma_positions(neurons):
 def _paint_panel(ax, segs2d, seg_owner, rates_t, mesh_segs2d,
                  soma_2d, soma_valid,
                  xlim, ylim, bg, green, alpha_max,
-                 base_color, lw_base, lw_top, soma_size):
-    """Draw one view panel (base skeleton + green overlay + soma dots)."""
+                 base_color, lw_base, lw_top, soma_size,
+                 show_base=True):
+    """Draw one view panel (base skeleton + green overlay + soma dots).
+
+    ``show_base=False`` skips the dark-grey baseline skeleton and dim
+    soma markers (kept only for the active green overlay), so that
+    pixel-based ROI sampling on this panel isn't biased by the
+    baseline ink."""
     ax.set_facecolor(bg)
 
     if mesh_segs2d is not None and len(mesh_segs2d):
@@ -331,9 +610,10 @@ def _paint_panel(ax, segs2d, seg_owner, rates_t, mesh_segs2d,
             linewidths=0.25, alpha=0.12,
         ))
 
-    ax.add_collection(LineCollection(
-        segs2d, colors=[base_color], linewidths=lw_base, alpha=0.5,
-    ))
+    if show_base:
+        ax.add_collection(LineCollection(
+            segs2d, colors=[base_color], linewidths=lw_base, alpha=0.5,
+        ))
 
     alpha = rates_t[seg_owner] * alpha_max
     keep = alpha > 0.02
@@ -347,9 +627,10 @@ def _paint_panel(ax, segs2d, seg_owner, rates_t, mesh_segs2d,
 
     if soma_2d is not None and soma_valid is not None:
         sv = soma_valid
-        ax.scatter(soma_2d[sv, 0], soma_2d[sv, 1],
-                   s=soma_size * 0.5, c=[base_color], edgecolors="none",
-                   alpha=0.7, zorder=0)
+        if show_base:
+            ax.scatter(soma_2d[sv, 0], soma_2d[sv, 1],
+                       s=soma_size * 0.5, c=[base_color], edgecolors="none",
+                       alpha=0.7, zorder=0)
         keep_n = (rates_t > 0.02) & sv
         if keep_n.any():
             rgba_s = np.tile(np.array([*green, 1.0], dtype=np.float32),
@@ -437,9 +718,42 @@ def _draw_fish_icon(ax, theta_rad, body_color="white", eye_color="black",
             color=eye_color, markeredgewidth=0, zorder=3)
 
 
+def _fish_twitch_body(frame_t, dt, turn_lr, swim_fb,
+                       amp_lateral=0.12, amp_axial=0.60, decay_s=0.20):
+    """Body-frame twitch (dx_body, dy_body) decaying after a recent
+    trace-strip tick. Conventions: +y_body = fish's left flank,
+    -x_body = nose-ward (forward), +x_body = tail-ward (backward).
+
+    Sign mapping matches the trace-strip colors:
+      turn_lr > 0  (right swim, red tick)   → nudge to -y (fish-right)
+      turn_lr < 0  (left swim, blue tick)   → nudge to +y (fish-left)
+      swim_fb > 0  (forward, grey tick)     → nudge to -x (head-ward)
+      swim_fb < 0  (backward, orange tick)  → nudge to +x (tail-ward)
+    """
+    if frame_t is None:
+        return 0.0, 0.0
+    ft = int(frame_t)
+    if ft < 0:
+        return 0.0, 0.0
+    tau = max(decay_s / 3.0, 1e-6)
+    n_lookback = max(1, int(round(decay_s / max(dt, 1e-6))))
+    lo = max(0, ft - n_lookback)
+    dx = dy = 0.0
+    for i in range(lo, ft + 1):
+        age_s = (ft - i) * dt
+        decay = math.exp(-age_s / tau)
+        if turn_lr is not None and i < len(turn_lr) and turn_lr[i] != 0.0:
+            sign = -1.0 if turn_lr[i] > 0 else +1.0
+            dy += sign * amp_lateral * decay
+        if swim_fb is not None and i < len(swim_fb) and swim_fb[i] != 0.0:
+            sign = -1.0 if swim_fb[i] > 0 else +1.0
+            dx += sign * amp_axial * decay
+    return dx, dy
+
+
 def _draw_fish_with_trail(ax, theta_rad, swim_x, swim_y, frame_t,
                           body_color="white", eye_color="black",
-                          bg="black"):
+                          bg="black", twitch_body=(0.0, 0.0)):
     """Draw the fish at swim_x[frame_t], swim_y[frame_t] with the
     trajectory it has swum so far as a faint trail.
 
@@ -470,11 +784,15 @@ def _draw_fish_with_trail(ax, theta_rad, swim_x, swim_y, frame_t,
         ax.plot(swim_x[:n], swim_y[:n], color=trail_color, lw=0.7,
                 zorder=1)
 
-    # Fish at the current position
+    # Fish at the current position (with optional swim-tick twitch in
+    # body coords, rotated by theta and scaled into panel units).
     fx_c = float(swim_x[int(frame_t)])
     fy_c = float(swim_y[int(frame_t)])
     fish_scale = span * 0.06
     c, s = math.cos(float(theta_rad)), math.sin(float(theta_rad))
+    tbx, tby = float(twitch_body[0]), float(twitch_body[1])
+    fx_c += (c * tbx - s * tby) * fish_scale
+    fy_c += (s * tbx + c * tby) * fish_scale
     sx = _FISH_SILHOUETTE_X
     sy = _FISH_SILHOUETTE_Y + _fish_tail_swish(frame_t)
     fx = (c * sx - s * sy) * fish_scale + fx_c
@@ -619,7 +937,8 @@ def _render_frame(out_path, view_data, seg_owner, rates_t,
                   frame_idx=None, hd_deg=None,
                   fig_ref=None, axes_ref=None,
                   soma_valid=None, soma_size=18.0,
-                  trace_data=None):
+                  trace_data=None,
+                  roi_overlay=None):
     """Render three rows: frontal anatomy, trace strip, dorsal anatomy.
 
     view_data: list of dicts (frontal, dorsal).
@@ -629,29 +948,56 @@ def _render_frame(out_path, view_data, seg_owner, rates_t,
     has_traces = trace_data is not None
     has_swim = (has_traces and trace_data.get("turn_lr") is not None)
     n_trace_rows = (4 if has_swim else 2) if has_traces else 0
+    has_kinograph = bool(roi_overlay is not None
+                          and roi_overlay.get("kinograph_enabled", False))
 
     if fig_ref is None:
-        from matplotlib.gridspec import GridSpec
+        from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
         if has_traces:
-            trace_h = [1] * n_trace_rows
-            ratios = [5, 5] + trace_h
-            # Size total_h so the anatomy panel aspect (panel_w/panel_h)
-            # matches the data aspect (~1.5 wide:1 tall) — that's the only
-            # way equal-aspect produces zero L/R AND zero T/B blank.
-            # With fig_w=10, left=0.10, right=0.97 → panel_w=8.7; want
-            # panel_h = 8.7/1.5 = 5.8, so 5/(2*5+n_trace)*total_h*0.955 = 5.8.
-            total_h = 17.0 if has_swim else 14.6
-            fig = plt.figure(figsize=(10.0, total_h), facecolor=bg)
-            gs = GridSpec(len(ratios), 1, figure=fig,
-                         height_ratios=ratios, hspace=0.0,
-                         top=0.995, bottom=0.04, left=0.10, right=0.97)
-            axes = [fig.add_subplot(gs[i]) for i in range(len(ratios))]
+            # Side-by-side layout (landscape): anatomy (frontal + dorsal,
+            # stacked) on the left, trace strip + kinograph on the right.
+            # Replaces the previous stack-everything-vertically layout that
+            # made the figure too tall to view at a glance.
+            n_right_rows = n_trace_rows + (1 if has_kinograph else 0)
+            # kinograph row is ~2× a trace row (4 ROIs stay legible)
+            right_h = [1] * n_trace_rows + ([2] if has_kinograph else [])
+            total_w, total_h = 14.0, 9.0
+            fig = plt.figure(figsize=(total_w, total_h), facecolor=bg)
+            outer = GridSpec(1, 2, figure=fig, width_ratios=[1.3, 1.0],
+                             top=0.985, bottom=0.06,
+                             left=0.020, right=0.985, wspace=0.06)
+            left_gs = GridSpecFromSubplotSpec(
+                2, 1, subplot_spec=outer[0],
+                height_ratios=[1, 1], hspace=0.02)
+            right_gs = GridSpecFromSubplotSpec(
+                n_right_rows, 1, subplot_spec=outer[1],
+                height_ratios=right_h, hspace=0.0)
+            axes = [fig.add_subplot(left_gs[0]),   # frontal
+                    fig.add_subplot(left_gs[1])]   # dorsal
+            for i in range(n_trace_rows):
+                axes.append(fig.add_subplot(right_gs[i]))
+            if has_kinograph:
+                fig._kin_ax = fig.add_subplot(right_gs[n_right_rows - 1])
+                fig._kin_ax.set_facecolor(bg)
         else:
-            fig = plt.figure(figsize=(10.0, 11.0), facecolor=bg)
+            # No trace strip: two anatomy panels stacked, kinograph (if
+            # any) at the bottom — original layout suffices.
+            kino_h_in = 1.75 if has_kinograph else 0.0
+            base_total_h = 11.0
+            total_h = base_total_h + kino_h_in
+            fig = plt.figure(figsize=(10.0, total_h), facecolor=bg)
+            gs_bottom = 0.005 + (kino_h_in / total_h)
             gs = GridSpec(2, 1, figure=fig, height_ratios=[1, 1],
                          hspace=0.03,
-                         top=0.995, bottom=0.005, left=0.005, right=0.995)
+                         top=0.995, bottom=gs_bottom, left=0.005, right=0.995)
             axes = [fig.add_subplot(gs[0]), fig.add_subplot(gs[1])]
+            if has_kinograph:
+                kin_pad_bottom = 0.50 / total_h
+                kin_pad_top = 0.20 / total_h
+                kin_h_frac = (kino_h_in / total_h) - kin_pad_bottom - kin_pad_top
+                fig._kin_ax = fig.add_axes(
+                    [0.07, kin_pad_bottom, 0.90, kin_h_frac])
+                fig._kin_ax.set_facecolor(bg)
         # Fish-orientation overlay with motion trail: anchored to the
         # upper-right corner of the dorsal anatomy panel so the fish
         # heading and the brain top-down view share a frame of reference.
@@ -679,13 +1025,16 @@ def _render_frame(out_path, view_data, seg_owner, rates_t,
 
     txt_color = "white" if bg == "black" else "black"
 
-    # Anatomy panels: first two axes (frontal, dorsal)
+    # Anatomy panels: first two axes (frontal, dorsal). The dorsal panel
+    # (i=1) drops the dark-grey baseline skeleton so ROI pixel-sampling
+    # isn't biased by the static ink.
     for i, vd in enumerate(view_data):
         ax = axes[i]
         _paint_panel(ax, vd["segs2d"], seg_owner, rates_t,
                      vd["mesh_segs2d"], vd["soma_2d"], soma_valid,
                      vd["xlim"], vd["ylim"], bg, green, alpha_max,
-                     base_color, lw_base, lw_top, soma_size)
+                     base_color, lw_base, lw_top, soma_size,
+                     show_base=(i != 1))
         ax.text(0.02, 0.97, vd["title"], color=txt_color, fontsize=9,
                 family="monospace", ha="left", va="top",
                 transform=ax.transAxes)
@@ -705,11 +1054,15 @@ def _render_frame(out_path, view_data, seg_owner, rates_t,
         if (swim_x is not None and swim_y is not None
                 and frame_idx is not None
                 and 0 <= int(frame_idx) < len(swim_x)):
+            twitch_xy = _fish_twitch_body(
+                int(frame_idx), float(trace_data.get("dt", 0.05)),
+                trace_data.get("turn_lr"), trace_data.get("swim_fb"),
+            )
             _draw_fish_with_trail(
                 fig._fish_ax, math.radians(float(hd_deg)),
                 swim_x, swim_y, int(frame_idx),
                 body_color=txt_color, eye_color=(0.30, 0.30, 0.30),
-                bg=bg,
+                bg=bg, twitch_body=twitch_xy,
             )
         else:
             _draw_fish_icon(
@@ -717,6 +1070,35 @@ def _render_frame(out_path, view_data, seg_owner, rates_t,
                 body_color=txt_color, eye_color=(0.30, 0.30, 0.30),
                 frame_t=frame_idx,
             )
+
+    # ROI sampling + kinograph paint. Sample on the clean canvas before
+    # the overlay rectangles are drawn so the green-channel mean isn't
+    # skewed by the box borders.
+    if has_kinograph and frame_idx is not None:
+        try:
+            intens = _extract_zhd_roi_intensities(fig, channel=1)
+        except Exception as e:
+            print(f"      [kinograph] intensity extraction failed: {e}")
+            intens = None
+        if intens is not None:
+            buf = roi_overlay.setdefault("intens_buf", [])
+            t_buf = roi_overlay.setdefault("intens_t_buf", [])
+            buf.append(intens)
+            t_buf.append(float(frame_idx) * roi_overlay.get("dt", 0.01))
+            _paint_zhd_roi_kinograph(
+                fig._kin_ax, np.asarray(buf), np.asarray(t_buf),
+                scroll_window=roi_overlay.get("scroll_window", 10.0),
+                bg=bg,
+            )
+
+    # ROI rectangles. Gate on first_only (drosophila convention): when
+    # set, the overlay is a frame-0 anatomical reference and the rest of
+    # the animation shows only neural activity dynamics.
+    if roi_overlay is not None:
+        show = (not roi_overlay.get("first_only", False)
+                or int(frame_idx or 0) == 0)
+        if show:
+            _draw_zhd_roi_overlay(fig)
 
     fig.savefig(out_path, dpi=300, facecolor=bg)
     return fig, axes
@@ -911,10 +1293,41 @@ def main():
                    help="use a larval-zebrafish-realistic swim "
                         "stimulus (Petrucco-like: ~65%% forward, "
                         "~17%% L/R each, ~1%% backward)")
+    p.add_argument("--swim_left", action="store_true",
+                   help="deterministic train of LEFT impulses every "
+                        "--swim_interval seconds. Pass --swim_interval 0 "
+                        "for a single-shot impulse (bump init / "
+                        "persistence test).")
+    p.add_argument("--swim_right", action="store_true",
+                   help="deterministic train of RIGHT impulses every "
+                        "--swim_interval seconds.")
+    p.add_argument("--swim_interval", type=float, default=1.0,
+                   help="for --swim_left/--swim_right: seconds between "
+                        "successive deterministic impulses (0 = single "
+                        "shot). For --swim/--swim2: mean inter-swim "
+                        "period (s), so rate = 1/swim_interval. Default 1s.")
+    p.add_argument("--swim_magnitude_rad", type=float, default=0.393,
+                   help="magnitude of each deterministic impulse (rad); "
+                        "default π/8 ≈ 22.5° per turn (half the "
+                        "Petrucco median).")
+    p.add_argument("--swim_t_event_s", type=float, default=0.0,
+                   help="time of the first deterministic impulse (s)")
     p.add_argument("--scroll_window", type=float, default=10.0,
                    help="trace window width in seconds; traces grow "
                         "left-to-right then scroll once this width is "
                         "reached")
+    p.add_argument("--show_roi_overlay", action="store_true",
+                   help="draw the four anatomical ROI rectangles (dIPN-L/R, "
+                        "dsIPN-L/R) over the dorsal panel. Calibrated for "
+                        "the no-swim figsize=(10, 14.6) at dpi=300 render.")
+    p.add_argument("--show_roi_kinograph", action=argparse.BooleanOptionalAction,
+                   default=True,
+                   help="sample mean intensity inside each ROI from the "
+                        "rendered canvas per frame, then append a "
+                        "black-green kinograph with per-ROI ΔF/F0 traces "
+                        "(one colored line per ROI). Implies "
+                        "--show_roi_overlay. Pass --no-show_roi_kinograph "
+                        "to disable. (default: on)")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--device", default="cpu")
     p.add_argument("--output_root", default=None)
@@ -930,6 +1343,11 @@ def main():
         except FileNotFoundError:
             pass
 
+    if args.swim_left and args.swim_right:
+        raise SystemExit("--swim_left and --swim_right are mutually exclusive")
+    swim_init_dir = ("L" if args.swim_left
+                     else "R" if args.swim_right
+                     else None)
     use_swim = args.swim or args.swim2
     if args.swim2:
         # Petrucco-like larval-zebrafish swim statistics.
@@ -941,12 +1359,20 @@ def main():
         )
     else:
         swim_kwargs = {}
+    # --swim_interval also tunes the random --swim / --swim2 rate
+    # (swim_rate_hz = 1 / swim_interval).
+    if use_swim and args.swim_interval and args.swim_interval > 0:
+        swim_kwargs["swim_rate_hz"] = 1.0 / float(args.swim_interval)
 
     if args.out_dir is None:
-        if args.swim2:
-            suffix = "swim2"
+        if swim_init_dir == "L":
+            suffix = f"swim_left_{args.swim_interval:g}s"
+        elif swim_init_dir == "R":
+            suffix = f"swim_right_{args.swim_interval:g}s"
+        elif args.swim2:
+            suffix = f"swim2_{args.swim_interval:g}s"
         elif args.swim:
-            suffix = "swim"
+            suffix = f"swim_{args.swim_interval:g}s"
         else:
             suffix = "const"
         args.out_dir = os.path.join(here, f"3D_voltage_{suffix}")
@@ -987,7 +1413,23 @@ def main():
     print(f"      current LUT:    --z_lo={args.z_lo} --z_hi={args.z_hi}")
     print(f"      saturated bump: --z_lo=0.5 --z_hi={z_hi_sat}")
 
-    if use_swim:
+    if swim_init_dir is not None:
+        mode = ("single-shot" if args.swim_interval <= 0
+                else f"periodic Δt={args.swim_interval:.2f}s")
+        print(f"[2/4] running impulse rollout [{mode}]: "
+              f"{swim_init_dir} swim from t={args.swim_t_event_s:.2f}s, "
+              f"mag={args.swim_magnitude_rad:.3f} rad, "
+              f"n_steps={args.n_steps}")
+        h_traj, theta, omega_trace, decoded_hd, turn_lr, swim_fb = \
+            _run_single_impulse(
+                net, args.n_steps, dt, device,
+                direction=swim_init_dir,
+                magnitude_rad=args.swim_magnitude_rad,
+                t_event_s=args.swim_t_event_s,
+                interval_s=args.swim_interval,
+                theta0=args.theta0,
+            )
+    elif use_swim:
         flavour = "swim2 (realistic)" if args.swim2 else "swim (turn-heavy)"
         print(f"[2/4] running swim-integration rollout [{flavour}], "
               f"n_steps={args.n_steps} seed={args.seed}")
@@ -1116,6 +1558,19 @@ def main():
     fig, ax = None, None
     render_times = []
     fig_reset_every = 250
+    # --show_roi_kinograph implies --show_roi_overlay (drosophila convention).
+    if args.show_roi_kinograph:
+        args.show_roi_overlay = True
+    roi_overlay = None
+    if args.show_roi_overlay:
+        roi_overlay = {
+            "first_only": True,
+            "kinograph_enabled": bool(args.show_roi_kinograph),
+            "intens_buf": [],
+            "intens_t_buf": [],
+            "dt": dt,
+            "scroll_window": args.scroll_window,
+        }
     pbar = tqdm(frame_ids, desc="rendering", unit="frame", ncols=150)
     for k, t in enumerate(pbar):
         if k > 0 and k % fig_reset_every == 0 and fig is not None:
@@ -1143,6 +1598,7 @@ def main():
                 fig_ref=fig, axes_ref=ax,
                 soma_valid=soma_valid,
                 trace_data=trace_data,
+                roi_overlay=roi_overlay,
             )
         render_times.append(time.time() - tic)
         pbar.set_postfix(s_per_frame=f"{np.mean(render_times):.2f}")
@@ -1151,6 +1607,24 @@ def main():
     print(f"done: {len(frame_ids)} frames, "
           f"mean {np.mean(render_times):.2f}s/frame, "
           f"total {sum(render_times):.1f}s")
+
+    # Persist the per-frame ROI traces for downstream analysis.
+    if roi_overlay is not None and roi_overlay.get("intens_buf"):
+        import pandas as pd
+        t_arr = np.asarray(roi_overlay["intens_t_buf"], dtype=np.float32)
+        I_arr = np.asarray(roi_overlay["intens_buf"], dtype=np.float32)
+        names = [n for n, *_ in ZHD_ROI_RECTS_FIJI]
+        df = pd.DataFrame(I_arr, columns=names)
+        df.insert(0, "t_s", t_arr)
+        # image-based PVA (radians, in [0, 2π))
+        n_w = I_arr.shape[1]
+        ang = 2.0 * np.pi * np.arange(n_w) / n_w
+        w = np.clip(I_arr, 0.0, None) + 1e-9
+        df["pva_rad"] = np.arctan2(
+            (w * np.sin(ang)).sum(1), (w * np.cos(ang)).sum(1)) % (2.0 * np.pi)
+        csv_path = os.path.join(args.out_dir, "roi_kinograph.csv")
+        df.to_csv(csv_path, index=False)
+        print(f"wrote {csv_path}  ({len(t_arr)} samples)")
 
 
 if __name__ == "__main__":
@@ -1175,3 +1649,4 @@ if __name__ == "__main__":
 #     --max_frames 5 --z_lo 0 --z_hi 4
 
 # python /workspace/connectome-gnn-cx/figures/zebrafish/fig_zebrafish_anatomy_3d_voltage_anim.py --z_lo=0.0 --z_hi=6.0 --swim
+# python figures/zebrafish/fig_zebrafish_anatomy_3d_voltage_anim.py --model zebrafish_hd_si_dipn --n_steps 10000 --stride 5 --z_lo 0.0 --z_hi 15.0 --swim_left --swim_interval 0.3 --out_dir figures/zebrafish/3D_voltage_const
