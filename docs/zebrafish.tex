@@ -41,6 +41,12 @@
 \def\softplus{\mathrm{softplus}}
 \def\petrucco{Petrucco et al.\ 2023}
 \def\rpi{r1\ensuremath{\pi}}
+% Functional-class macros (Results section)
+\newcommand{\mi}{\mathcal{I}}
+\newcommand{\omag}{\mathcal{W}}
+\newcommand{\smod}{\mathcal{S}}
+\newcommand{\specf}{\mathcal{T}}
+\newcommand{\cls}[1]{\mathsf{#1}}
 
 \title{\textbf{Zebrafish anterior hindbrain / dIPN: a vertebrate ring attractor for heading direction}}
 \author{}
@@ -488,6 +494,272 @@ $\lambda_{\{0,1,2,3\}},\,\gamma_{\{0,1\}},\,\mu_{\{0,1,2,3\}}$ and the
 MLP widths/depths are tuned with an agentic optimisation procedure,
 with $r_{\mathrm{roll},1k}$ on a deterministic swim-impulse rollout
 as the primary score.
+
+\section{Results}
+\label{sec:results}
+
+\subsection{Functional partitioning of the HD circuit}
+\label{sec:results_four_classes}
+
+We use the trained \emph{zebrafish\_hd\_si\_dipn} RNN (configuration
+\cref{eq:zhd_dynamics,eq:zhd_readout,eq:zhd_swim_gate,eq:zhd_loss}) to
+ask, for each of the $N = 731$ neurons in the model, whether it
+\emph{represents} the heading-direction code, \emph{drives or updates}
+the bump, or does neither. The analysis combines three per-neuron
+scores computed on a $120$~s closed-loop swim rollout (seed~$=0$,
+$\Delta t = 0.01$~s, burn-in $5$~s):
+\begin{enumerate}
+  \item the heading mutual information
+        $\mi_i = I(\hat h_i ; \theta)$ in bits, estimated with the
+        plug-in histogram of the companion drosophila study
+        (Methods, \emph{Mutual-information estimators}) at
+        $n_\theta = 32$ heading bins and $n_r = 20$ activity bins,
+  \item the readout magnitude
+        $\omag_i = \|\hat W^{\mathrm{out}}_{:,i}\|_2$, identically zero
+        for $i \ge 443$ since the decoder of \cref{eq:zhd_readout}
+        slices the first $443 = n_{\mathrm{dIPN}}$ columns,
+  \item the swim-triggered modulation
+        $\smod_i = \mathrm{rms}_{t\in[-0.5\mathrm{s},+0.5\mathrm{s}]}
+          \,\big\langle \hat h_i(t_o + t) - \hat h_i(t_o - 0.5\mathrm{s})\big\rangle_o
+          \big/\,\sigma_{\mathrm{quiet}}(\hat h_i)$,
+        the root-mean-square of the swim-onset-locked
+        spike-triggered average over a $\pm 0.5$~s window, normalised
+        by the standard deviation of $\hat h_i$ in the swim-free
+        intervals between onsets. Swim onsets $t_o$ are the leading
+        edges of $|\omega(t)|$ exceeding $5\%$ of its peak; the rollout
+        contains 38 such onsets.
+\end{enumerate}
+We then split each axis at its sample median and assign every neuron
+to one of four mutually exclusive classes via a decision tree:
+\begin{align}
+  i \in \cls{R} \iff{}& \mi_i \ge \mi^\star \;\&\;
+                         \omag_i \ge \omag^\star \nonumber\\
+  i \in \cls{L} \iff{}& \mi_i \ge \mi^\star \;\&\;
+                         \omag_i < \omag^\star \nonumber\\
+  i \in \cls{D} \iff{}& \mi_i < \mi^\star \;\&\;
+                         \smod_i \ge \smod^\star \nonumber\\
+  i \in \cls{Z} \iff{}& \mi_i < \mi^\star \;\&\;
+                         \smod_i < \smod^\star,
+  \label{eq:four_classes}
+\end{align}
+where the thresholds were
+$\mi^\star = 1.44$~bits, $\omag^\star = 0.066$ (median over the $443$
+dIPN columns only), and $\smod^\star = 0.16$. Class~$\cls{R}$ is the
+\emph{readout-relevant bump representation} (high HD content, large
+$\hat W^{\mathrm{out}}$ column), class~$\cls{L}$ the \emph{latent /
+redundant} bump-correlated cells (high HD content but $\hat
+W^{\mathrm{out}}$ effectively zero), class~$\cls{D}$ the \emph{drivers
+/ updaters} (no HD content but strongly swim-modulated), and
+class~$\cls{Z}$ is the \emph{uninvolved / leaky} remainder.
+
+\Cref{fig:zhd_four_classes} maps the four classes back to the 3-D
+anatomy and \cref{tab:zhd_four_classes} summarises the per-cell-type
+breakdown. The partition is clean along the architectural priors of
+\cref{sec:methods}: \emph{all} $51$ \emph{pt-IPN1} and \emph{all} $34$
+\emph{pt-IPN2} cells fall into the driver class
+($\cls{D},\,85/85 = 100\%$), as do $40/40$ \emph{RIPN11},
+$10/10$ \emph{RIPN17} and $10/10$ \emph{RIPN16} --- exactly the
+afferent populations whose only access to the swim signal $s(t)$ is
+through the four-scalar PEN gate of \cref{eq:zhd_swim_gate}. Conversely
+\emph{no} \emph{pt-IPN} or \emph{RIPN} cell ends up in the readout
+class $\cls{R}$ ($0/170$), even though the slicing in
+\cref{eq:zhd_readout} is purely positional and the optimiser is free
+to push readout mass onto any dIPN cell. The bulk of $\cls{R}$ is
+carried by a small set of mediolateral dIPN subtypes:
+\emph{IPNd13E} ($27/30$), \emph{IPNd13C} ($23/26$), \emph{IPNds13B}
+($23/51$), \emph{IPNd13A} ($18/32$), \emph{IPNd14} ($18/27$), and
+\emph{IPNds13A} ($21/47$) account for $130/195 = 67\%$ of the
+$\cls{R}$ cells. This concentration --- $\sim\!50$ neurons supplying
+$> 50\%$ of $\|\hat W^{\mathrm{out}}\|_1$, in agreement with the
+heavy-tailed column-norm distribution of $\hat W^{\mathrm{out}}$
+described in \cref{sec:methods} --- emerges \emph{without} any
+explicit $\ell_1$ prior on $\hat W^{\mathrm{out}}$: the
+ring-attractor geometry plus the per-frame MSE on the cosine/sine
+readout makes most dIPN columns mutually redundant.
+
+The \emph{latent} class $\cls{L}$ is dominated by the
+\emph{IPNd17B}, \emph{IPNd13S} and \emph{IPNds} subtypes
+(together $60/171 = 35\%$). A more interesting entry is \emph{RIPN05}
+($14/17 = 82\%$ in $\cls{L}$): unlike the rest of the habenular
+afferents this subtype acquires high HD mutual information through
+recurrent integration but is invisible to the linear readout because
+it sits outside the dIPN slice of \cref{eq:zhd_readout}. The
+$\cls{Z}$ class is small ($45/731 = 6.2\%$ of cells), confirming that
+training under the connectome-prior regularisers of
+\cref{eq:zhd_loss} leaves almost no functionally idle units in the
+network. A small but suggestive exception is \emph{IPNd01}: $23/30$
+of these dIPN cells land in $\cls{D}$, not in $\cls{R}$ or $\cls{L}$.
+\emph{IPNd01} therefore behaves like a swim-locked input stage of the
+ring rather than part of the heading code itself.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{../figures/zebrafish/fig_zebrafish_four_classes.png}
+  \caption{\textbf{Four functional classes of zebrafish HD-circuit
+    neurons.} Dorsal view: each panel shows the skeletons and somata
+    of the neurons assigned to one class via \cref{eq:four_classes},
+    with the somata of the other three classes overlaid as faint grey
+    dots for spatial context.
+    \textbf{(a)}~$\cls{R}$ (red, $n=195$): readout-relevant bump
+    representation --- exclusively dIPN, concentrated in the
+    \emph{IPNd13/14} and \emph{IPNds13} sub-clusters.
+    \textbf{(b)}~$\cls{L}$ (orange, $n=170$): latent bump-correlated
+    cells that encode heading but are sliced out of the linear
+    readout. \textbf{(c)}~$\cls{D}$ (blue, $n=317$): swim-locked
+    drivers --- all \emph{pt-IPN} and most \emph{RIPN} cells fall
+    here. \textbf{(d)}~$\cls{Z}$ (grey, $n=45$): functionally idle.
+    Thresholds:
+    $\mi^\star = 1.44$~bits, $\omag^\star = 0.066$ (median over $\hat
+    W^{\mathrm{out}}$ columns), $\smod^\star = 0.16$. Per-cell counts
+    and the model-index $\to$ bodyId mapping are written to
+    \emph{figures/zebrafish/fig\_zebrafish\_four\_classes.csv}.}
+  \label{fig:zhd_four_classes}
+\end{figure}
+
+\begin{table}[H]
+  \centering
+  \small
+  \caption{\textbf{Per-cell-type breakdown across the four functional
+    classes of \cref{eq:four_classes}.} Rows are sorted by total
+    count; classes total $\cls{R}{=}195$, $\cls{L}{=}171$,
+    $\cls{D}{=}320$, $\cls{Z}{=}45$ over $N = 731$ model neurons.
+    Categories: I = \emph{IPNd}, Is = \emph{IPNds}, R = \emph{RIPN},
+    P = \emph{pt-IPN}.}
+  \label{tab:zhd_four_classes}
+  \begin{tabular}{l l r r r r r}
+    \toprule
+    cat & type & R & L & D & Z & total \\
+    \midrule
+    Is & IPNds13B  & 23 & 19 &  5 & 4 & 51 \\
+    P  & pt-IPN1   &  0 &  0 & 51 & 0 & 51 \\
+    I  & IPNd17B   & 15 & 23 &  7 & 5 & 50 \\
+    Is & IPNds13A  & 21 & 11 & 10 & 5 & 47 \\
+    R  & RIPN11    &  0 &  0 & 40 & 0 & 40 \\
+    I  & IPNd13S   & 15 & 18 &  3 & 4 & 40 \\
+    P  & pt-IPN2   &  0 &  0 & 34 & 0 & 34 \\
+    I  & IPNd13A   & 18 & 11 &  0 & 3 & 32 \\
+    I  & IPNd01    &  1 &  3 & 23 & 3 & 30 \\
+    I  & IPNd13E   & 27 &  2 &  1 & 0 & 30 \\
+    R  & RIPN01    &  0 &  5 & 23 & 1 & 29 \\
+    I  & IPNd14    & 18 &  3 &  4 & 2 & 27 \\
+    I  & IPNd13C   & 23 &  1 &  0 & 2 & 26 \\
+    I  & IPNd13B   & 13 &  9 &  0 & 1 & 23 \\
+    R  & RIPN12\_b &  0 &  1 & 21 & 0 & 22 \\
+    I  & IPNd13D   &  8 &  9 &  2 & 1 & 20 \\
+    I  & IPNd17A   &  6 & 10 &  2 & 1 & 19 \\
+    R  & RIPN03\_a &  0 &  0 & 18 & 1 & 19 \\
+    R  & RIPN02    &  0 &  1 & 17 & 1 & 19 \\
+    R  & RIPN05    &  0 & 14 &  1 & 2 & 17 \\
+    R  & RIPN12\_a &  0 &  0 & 17 & 0 & 17 \\
+    I  & IPNdp01   &  3 & 10 &  0 & 1 & 14 \\
+    I  & IPNd16    &  0 & 12 &  0 & 2 & 14 \\
+    R  & RIPN12\_c &  0 &  0 & 11 & 0 & 11 \\
+    R  & RIPN17    &  0 &  0 & 10 & 0 & 10 \\
+    R  & RIPN16    &  0 &  0 & 10 & 0 & 10 \\
+    I  & IPNd15    &  0 &  3 &  5 & 2 & 10 \\
+    R  & RIPN03\_b &  0 &  4 &  3 & 2 &  9 \\
+    Is & IPNds     &  3 &  0 &  1 & 1 &  5 \\
+    I  & IPNd      &  0 &  2 &  1 & 0 &  3 \\
+    Is & IPNds17   &  1 &  0 &  0 & 1 &  2 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Preferred-heading topography of the HD-coding cells}
+\label{sec:results_pref_angle}
+
+Among the $366$ neurons in classes $\cls{R} \cup \cls{L}$ identified
+above, we ask whether the network has self-organised a graded
+\emph{preferred-heading} representation across the dIPN neuropil. We
+run a deterministic constant-turn rollout ($\omega = 90^{\circ}/\mathrm{s}$,
+$60$~s, $5$~s burn-in, $\theta_0 = 0$) so the ground-truth heading
+sweeps the full circle $14$ times in the analysis window. For each
+neuron $i$ we bin $\hat h_i(t)$ by $\theta(t)$ into
+$n_\theta = 36$ heading bins ($10^{\circ}$ wide) to form a tuning
+curve $\bar r_i(\theta_k)$, then compute the centred resultant
+\begin{equation}
+  \rho_i\,e^{i\phi_i} \;=\;
+    \sum_{k=1}^{n_\theta}
+      \big(\bar r_i(\theta_k) - \langle\bar r_i\rangle\big)\,e^{i\theta_k},
+  \qquad
+  \specf_i \;=\;
+    \frac{|\rho_i|}{\sum_{k} |\bar r_i(\theta_k) - \langle\bar r_i\rangle|}\in[0,1].
+  \label{eq:pref_angle}
+\end{equation}
+$\phi_i$ is the cell's preferred heading and $\specf_i$ its
+\emph{specificity}: $\specf_i = 1$ corresponds to a $\delta$-shaped
+tuning curve, $\specf_i = 0$ to a uniform or bimodal one. The
+$\cls{R}/\cls{L}$ population is sharply unimodal --- the empirical
+distribution of $\specf_i$ has a tight peak at $0.75$ with a $10\%$
+shoulder below $0.71$. We discard the shoulder by retaining only the
+$\specf_i \ge \specf^\star = 0.70$ subset, leaving $333/366 = 91\%$
+of $\cls{R}\cup\cls{L}$ as bona-fide HD-tuned cells with a unique
+preferred direction.
+
+\Cref{fig:zhd_pref_angle} maps the preferred angle $\phi_i$ of the
+$333$ HD-tuned cells back to the 3-D anatomy. We partition
+$[-180^\circ, +180^\circ)$ into nine $40^\circ$ wedges and render one
+panel per wedge, drawing the somata and arbors of cells whose
+$\phi_i$ falls in that wedge in the wedge's central hue (cyclic HSV)
+on a dark-grey backbone of every available SWC. Each wedge contains
+$n = 21$ to $63$ cells ($\mathrm{mean}=37$), with the wedges that
+overlap the dominant left/right swim phases
+($\phi \approx \pm 180^\circ, 0^\circ$) carrying somewhat more
+cells, as expected from the swim-onset distribution that drove
+training.
+
+The figure makes one substantive negative observation explicit: the
+preferred angle is \emph{not} laid out as a spatial coordinate over
+the dIPN neuropil. Soma dots for every $40^\circ$ wedge fill
+essentially the same dIPN region, and the active patch does not
+translate as $\phi$ sweeps from panel~(a) to panel~(i). This is
+quantitative: regressing soma mediolateral position $x_i$ on the
+preferred phase within each hemisphere gives
+$\mathrm{Pearson}(x_i,\cos\phi_i) = -0.01$ (L), $-0.02$ (R) and
+$\mathrm{Pearson}(x_i,\sin\phi_i) = +0.02$ (L), $-0.10$ (R); the
+circular--circular mean resultant of (soma angle about the
+hemisphere centroid $-$ preferred angle) is $0.25$ (L) and $0.29$
+(R), close to the value expected for random preferred-angle
+assignment. The HD-tuned cells therefore form a sharply unimodal
+code in firing-rate space (specificity $\specf_i \approx 0.75$,
+\cref{eq:pref_angle}) but their preferred directions are
+\emph{interspersed} across the neuropil rather than topographically
+ordered, in contrast to the fly EPG ring on the ellipsoid body
+where preferred heading is one-to-one with anatomical position. The
+ring-attractor signature that the trained model does carry lives in
+\emph{activity space}: PC1--PC2 of the IPNd+IPNds population traces
+a closed circle as the heading sweeps (companion analysis
+\emph{fig\_zebrafish\_pca\_ring.py}). This is consistent with
+\petrucco{}~Fig.~1e--f, where the dIPN ring is reported in
+functional similarity-space rather than as an anatomical topography
+across cell-body positions.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{../figures/zebrafish/fig_zebrafish_pref_angle.png}
+  \caption{\textbf{Preferred-heading code is sharp in firing rate but
+    not topographic in anatomy.} Constant-omega rollout
+    ($\omega = 90^{\circ}/\mathrm{s}$, $60$~s) is used to estimate
+    each neuron's tuning curve and the centred resultant of
+    \cref{eq:pref_angle}. The $333$ cells in $\cls{R}\cup\cls{L}$
+    with specificity $\specf_i \ge 0.70$ are partitioned into nine
+    $40^\circ$-wide preferred-angle wedges and rendered one wedge
+    per panel: somata (dots) and skeleton arbors of cells in that
+    wedge, drawn in the wedge's central hue (cyclic HSV), on top of
+    a dark-grey backbone of every available SWC. Panel letters
+    (a--i) sweep from $\phi \in [-180^\circ, -140^\circ)$ through
+    $[-20^\circ, +20^\circ)$ to $[+140^\circ, +180^\circ)$; the
+    cell count per wedge is shown next to each panel letter. The
+    soma dots for every wedge fall in the same dIPN region:
+    preferred heading is not laid out as a spatial coordinate over
+    the neuropil (Pearson$(\mathrm{soma}_x,\cos\phi)$, $\sin\phi$
+    correlations $\le 0.10$ within each hemisphere). The shared
+    bottom colour bar shows the cyclic phase scale and the bin
+    edges. Per-cell values ($\phi_i$ and $\specf_i$, with the
+    kept/discarded flag) are written to
+    \emph{figures/zebrafish/fig\_zebrafish\_pref\_angle.csv}.}
+  \label{fig:zhd_pref_angle}
+\end{figure}
 
 \bibliographystyle{unsrtnat}
 \begin{thebibliography}{9}
