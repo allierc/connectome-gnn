@@ -888,8 +888,13 @@ near-sinusoidal (panel c) at the per-cell level. Panel a shows a
 single representative tuning curve for context.
 
 \paragraph{Computation, panel a (single-neuron tuning curves).}
-Panel a overlays the raw tuning curves $\bar r_i(\theta_k)$ of
-three example neurons before any centring or normalisation. The two
+Panel a overlays the tuning curves $\bar r_i(\theta_k) -
+\langle\bar r_i\rangle$ of three example neurons. The per-cell mean
+is subtracted (but no peak-normalisation is applied) so all three
+curves share a zero baseline and their relative amplitudes are
+preserved; without this subtraction the different DC offsets
+between cells dominate the $y$-axis and the actual bumps are
+invisible. The two
 specific cells (blue and green) sit near the median specificity of
 the kept population ($\specf \approx 0.75$, $0.73$) but have
 preferred angles roughly $180^\circ$ apart, so the reader can see
@@ -1005,14 +1010,17 @@ mis-fit the wraparound.
   \centering
   \includegraphics[width=\textwidth]{../figures/zebrafish/fig_zebrafish_tuning_sharpness.png}
   \caption{\textbf{Tuning-curve sharpness of HD-coding cells.}
-  \textbf{(a)} Raw tuning curves $\bar r_i(\theta)$ for three example
-  cells: two specific cells (blue $\specf = 0.75$, $\phi \approx
-  +25^\circ$; green $\specf = 0.73$, $\phi \approx -155^\circ$) and
-  one non-specific cell (grey $\specf = 0.18$, no resolvable peak).
-  Dashed verticals mark each cell's preferred angle in the matching
-  colour. Panels b--d are population summaries derived from many
-  such curves (the specific cells contribute, the non-specific cell
-  is excluded by $\specf \ge \specf^\star$).
+  \textbf{(a)} Mean-subtracted tuning curves $\bar r_i(\theta) -
+  \langle\bar r_i\rangle$ for three example cells: two specific
+  cells (blue $\specf = 0.75$, $\phi \approx +25^\circ$; green
+  $\specf = 0.73$, $\phi \approx -155^\circ$) and one non-specific
+  cell (grey $\specf = 0.18$, flat). Subtracting the per-cell mean
+  puts all curves on a shared zero baseline while preserving
+  relative amplitudes; dashed verticals mark each cell's preferred
+  angle in the matching colour. Panels b--d are population
+  summaries derived from many such curves (the specific cells
+  contribute, the non-specific cell is excluded by $\specf \ge
+  \specf^\star$).
   \textbf{(b)} Distribution of the specificity $\specf_i$ over the
   $n = 366$ cells in $\cls{R}\cup\cls{L}$; dashed red line at
   $\specf^\star = 0.70$ marks the cutoff used downstream. The

@@ -162,6 +162,11 @@ assets/*.html
 /docs/*.gz
 docs/*.tex
 docs/*.pdf
+# but track the main companion documents (sources + rendered PDFs)
+!docs/drosophila.tex
+!docs/zebrafish.tex
+!docs/drosophila.pdf
+!docs/zebrafish.pdf
 
 # Local-only data dirs (per-branch dev artefacts)
 gcamp/
