@@ -657,7 +657,7 @@ def _paint_roi_kinograph(ax, intens_buf, t_buf, scroll_window=10.0,
         vmax = max(float(np.abs(dff).max()), 1e-3)
     ax.imshow(
         dff.T,
-        aspect="auto", origin="upper",
+        aspect="auto", origin="lower",
         extent=(float(t_buf[0]), float(t_buf[-1]), 0.5, n_w + 0.5),
         cmap=cmap, vmin=0.0, vmax=vmax,
         interpolation="nearest",
@@ -666,7 +666,11 @@ def _paint_roi_kinograph(ax, intens_buf, t_buf, scroll_window=10.0,
     # theta = 0 has the bump near the top of the EB column index range
     # and the bump migrates to lower ROI numbers as HD rises -- with
     # ROI 1 at the top, that migration reads as upward on the screen,
-    # matching the HD trace above.
+    # matching the HD trace above. origin="lower" is required so that
+    # imshow row 0 (= ROI 1) sits at the axis bottom IN DATA COORDS;
+    # the set_ylim inversion below then maps that bottom to the
+    # display TOP, identically to how pva_roi=1 plots near the
+    # display TOP via the same inversion.
     ax.set_xlim(x_lo, x_hi)
     ax.set_ylim(n_w + 0.5, 0.5)
     ax.set_yticks([1, n_w // 2, n_w])
@@ -779,22 +783,38 @@ def _render_frame(out_path, segs2d, seg_owner, rates_t, mesh_segs2d,
         if has_traces:
             from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
             if has_kinograph:
-                fig = plt.figure(figsize=(7.5, 13.5), facecolor=bg)
-                gs = GridSpec(3, 1, figure=fig, height_ratios=[5, 2, 2],
+                # 3D dominates the frame; traces (omega+HD stacked) and
+                # the kinograph sit side-by-side in a thin strip below.
+                # figsize=(7.5, 8.4) with ratios [5, 1] keeps the 3D
+                # panel at ~6.55 inches tall (its original height).
+                fig = plt.figure(figsize=(7.5, 8.4), facecolor=bg)
+                gs = GridSpec(2, 1, figure=fig, height_ratios=[5, 1],
                               hspace=0.08)
-            else:
-                fig = plt.figure(figsize=(7.5, 12.0), facecolor=bg)
-                gs = GridSpec(2, 1, figure=fig, height_ratios=[5, 2],
-                              hspace=0.06)
-            ax = fig.add_subplot(gs[0])
-            gs_tr = GridSpecFromSubplotSpec(2, 1, subplot_spec=gs[1],
-                                             hspace=0.0)
-            ax_omega = fig.add_subplot(gs_tr[0])
-            ax_hd = fig.add_subplot(gs_tr[1])
-            ax_ref = [ax, ax_omega, ax_hd]
-            if has_kinograph:
-                ax_kino = fig.add_subplot(gs[2])
+                ax = fig.add_subplot(gs[0])
+                gs_bot = GridSpecFromSubplotSpec(
+                    1, 2, subplot_spec=gs[1],
+                    width_ratios=[1, 1], wspace=0.25,
+                )
+                gs_tr = GridSpecFromSubplotSpec(
+                    2, 1, subplot_spec=gs_bot[0],
+                    height_ratios=[1, 2], hspace=0.0,
+                )
+                ax_omega = fig.add_subplot(gs_tr[0])
+                ax_hd = fig.add_subplot(gs_tr[1])
+                ax_ref = [ax, ax_omega, ax_hd]
+                ax_kino = fig.add_subplot(gs_bot[1])
                 ax_ref.append(ax_kino)
+            else:
+                fig = plt.figure(figsize=(7.5, 8.0), facecolor=bg)
+                gs = GridSpec(2, 1, figure=fig, height_ratios=[5, 1],
+                              hspace=0.06)
+                ax = fig.add_subplot(gs[0])
+                gs_tr = GridSpecFromSubplotSpec(2, 1, subplot_spec=gs[1],
+                                                 height_ratios=[1, 1],
+                                                 hspace=0.0)
+                ax_omega = fig.add_subplot(gs_tr[0])
+                ax_hd = fig.add_subplot(gs_tr[1])
+                ax_ref = [ax, ax_omega, ax_hd]
         else:
             fig, ax = plt.subplots(figsize=(7.5, 8.5), facecolor=bg)
             ax_ref = ax
@@ -1566,12 +1586,18 @@ def main():
                   f"{'on' if pb_segs2d is not None else 'off'}; "
                   f"PVA from {epg_idx.size} EPGs")
 
-    # Frame-invariant view limits: union of every projected point + margin
-    pts = np.concatenate(
-        [segs2d.reshape(-1, 2)] +
-        ([mesh_segs2d.reshape(-1, 2)] if mesh_segs2d is not None else []),
-        axis=0,
-    )
+    # Frame-invariant view limits: crop to the CX neuropil mesh outlines
+    # (EB/PB/FB/NO) so wide-extent skeleton tendrils don't push the panel
+    # out and create blank margins. The EB wedge polygons that feed the
+    # kinograph are built from the same EB mesh, so they sit comfortably
+    # inside this bounding box; ax.transData.transform() in
+    # _extract_roi_intensities adapts to the tighter limits, so per-wedge
+    # pixel extraction just runs at higher EB resolution. Fall back to
+    # the union of all skeleton points when no mesh is available.
+    if mesh_segs2d is not None and len(mesh_segs2d):
+        pts = mesh_segs2d.reshape(-1, 2)
+    else:
+        pts = segs2d.reshape(-1, 2)
     pad = 0.04 * (pts.max(0) - pts.min(0))
     xlim = (pts[:, 0].min() - pad[0], pts[:, 0].max() + pad[0])
     ylim = (pts[:, 1].min() - pad[1], pts[:, 1].max() + pad[1])

@@ -38,7 +38,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from fig_zebrafish_anatomy_3d_voltage_anim import (
-    _load, _run_swim, _model_index_to_bodyid, _load_skeletons_in_model_order,
+    _load, _run_swim, _run_single_impulse,
+    _model_index_to_bodyid, _load_skeletons_in_model_order,
 )
 from fig_zebrafish_readout_mi import _mi_neuron, _category_of
 from connectome_gnn.utils import (
@@ -276,8 +277,19 @@ def main():
     p = argparse.ArgumentParser(description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--model", default="zebrafish_hd_si_dipn")
-    p.add_argument("--n_steps", type=int, default=8000,
-                   help="swim-rollout length")
+    p.add_argument("--n_steps", type=int, default=12000,
+                   help="swim-rollout length (in dt units)")
+    p.add_argument("--rollout", default="periodic",
+                   choices=["swim", "periodic"],
+                   help="probe stimulus to use. 'periodic' (default) "
+                        "fires one --swim_direction swim impulse every "
+                        "--swim_interval_s seconds for the entire "
+                        "rollout, matching the kinograph rollout; "
+                        "'swim' uses the Poisson training distribution.")
+    p.add_argument("--swim_interval_s", type=float, default=0.3)
+    p.add_argument("--swim_magnitude_rad", type=float, default=0.393)
+    p.add_argument("--swim_direction", default="L", choices=["L", "R"],
+                   help="direction of every impulse in the periodic train")
     p.add_argument("--burn_in_s", type=float, default=5.0)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--n_theta_bins", type=int, default=32)
@@ -336,11 +348,30 @@ def main():
     wmag[: W_out.shape[1]] = np.linalg.norm(W_out, axis=0)
     print(f"      N={N}  n_readout={W_out.shape[1]}  n_types={len(type_names)}")
 
-    # 2) rollout
-    print(f"[2/5] swim rollout n_steps={args.n_steps} "
-          f"({args.n_steps * dt:.0f} s, seed={args.seed})")
-    h, theta, omega, _decoded, _turn_lr, _swim_fb = _run_swim(
-        net, args.n_steps, dt, device, seed=args.seed)
+    # 2) rollout — periodic single-direction swim impulses (controlled
+    # probe, matches the kinograph rollout): every interval_s seconds we
+    # deliver one swim of magnitude `magnitude_rad`. Compared with the
+    # Poisson swim distribution used at training time this gives more
+    # swim onsets per second and a regular heading-sweep schedule, so
+    # the MI / W_out / swim-modulation scores are estimated on the same
+    # dynamical regime that drives the kinograph figure
+    # (\cref{fig:zhd_pref_angle_kinograph}).
+    if args.rollout == "swim":
+        print(f"[2/5] Poisson swim rollout n_steps={args.n_steps} "
+              f"({args.n_steps * dt:.0f} s, seed={args.seed})")
+        h, theta, omega, _decoded, _turn_lr, _swim_fb = _run_swim(
+            net, args.n_steps, dt, device, seed=args.seed)
+    else:
+        print(f"[2/5] periodic-{args.swim_direction} rollout n_steps={args.n_steps} "
+              f"({args.n_steps * dt:.0f} s; Δt={args.swim_interval_s}s, "
+              f"mag={args.swim_magnitude_rad:.3f} rad)")
+        h, theta, omega, _decoded, _turn_lr, _swim_fb = _run_single_impulse(
+            net, args.n_steps, dt, device,
+            direction=args.swim_direction,
+            magnitude_rad=args.swim_magnitude_rad,
+            t_event_s=0.0,
+            interval_s=args.swim_interval_s,
+        )
     burn = int(args.burn_in_s / dt)
     h = h[burn:]
     theta = theta[burn:]
