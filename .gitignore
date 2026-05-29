@@ -162,9 +162,38 @@ assets/*.html
 /docs/*.gz
 docs/*.tex
 docs/*.pdf
-# but track the main companion sources (PDFs are not tracked anymore)
+# but track the main companion sources (PDFs are not tracked anymore;
+# the figure assets they include are tracked through their real paths
+# under figures/{drosophila_cx,zebrafish}/).
 !docs/drosophila.tex
 !docs/zebrafish.tex
+# PNG assets needed to compile docs/drosophila.tex
+# (referenced via the docs/figure -> ../figures/drosophila_cx symlink)
+# and docs/zebrafish.tex (referenced directly from figures/zebrafish/).
+# These exceptions live after the broad `*.png` rule so they take effect.
+!figures/drosophila_cx/fig_connectome_summary.png
+!figures/drosophila_cx/fig_cx_anatomy_3d.png
+!figures/drosophila_cx/fig_cx_four_classes.png
+!figures/drosophila_cx/fig_evolution_drosophila_cx_pi_epg_no_tv_cv0.png
+!figures/drosophila_cx/fig_evolution_drosophila_cx_pi_epg_tv_cv0.png
+!figures/drosophila_cx/fig_evolution_drosophila_cx_pi_fc_epg_cv0.png
+!figures/drosophila_cx/fig_evolution_drosophila_cx_pi_frozen_Wrec_epg_cv0.png
+!figures/drosophila_cx/fig_evolution_drosophila_cx_pi_gnn_epg_no_tv_cv0.png
+!figures/drosophila_cx/fig_evolution_drosophila_cx_pi_gnn_epg_tv_cv0.png
+!figures/drosophila_cx/fig_function_dynamics_combined_epg.png
+!figures/drosophila_cx/fig_hd_mi_summary_nbins64.png
+!figures/drosophila_cx/fig_kinographs_both_sorts_epg.png
+!figures/drosophila_cx/fig_kinographs_const_omega_epg.png
+!figures/drosophila_cx/fig_omega_mi_summary_nbins32.png
+!figures/drosophila_cx/fig_sparsify_cx.png
+!figures/drosophila_cx/fig_traces_combined_epg.png
+!figures/drosophila_cx/fig_traces_const_omega_epg.png
+!figures/drosophila_cx/fig_w_rec_comparison.png
+!figures/zebrafish/fig_connectome_summary_HD.png
+!figures/zebrafish/fig_zebrafish_anatomy_3d_HD.png
+!figures/zebrafish/fig_zebrafish_four_classes.png
+!figures/zebrafish/fig_zebrafish_pref_angle.png
+!figures/zebrafish/fig_zebrafish_tuning_sharpness.png
 
 # Local-only data dirs (per-branch dev artefacts)
 gcamp/
