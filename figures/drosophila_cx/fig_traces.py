@@ -43,9 +43,12 @@ from connectome_gnn.generators.connconstr_data import load_drosophila_cx_connect
 
 
 MODELS = [
-    ("drosophila_cx_pi_epg_tv_cv0",            "Known-ODE RNN"),
-    ("drosophila_cx_pi_fc_epg",                "fully connected RNN"),
-    ("drosophila_cx_pi_gnn_epg",               "GNN"),
+    ("drosophila_cx_pi_epg_no_tv_cv0",        "Known-ODE no-TV"),
+    ("drosophila_cx_pi_epg_tv_cv0",           "Known-ODE $+$TV"),
+    ("drosophila_cx_pi_gnn_epg_no_tv_cv0",    "GNN no-TV"),
+    ("drosophila_cx_pi_gnn_epg_tv_cv0",       "GNN $+$TV"),
+    ("drosophila_cx_pi_fc_epg_cv0",           "fully connected"),
+    ("drosophila_cx_pi_frozen_Wrec_epg_cv0",  "frozen $W^{\\mathrm{rec}}$"),
 ]
 
 # Pipeline constants (mirroring `_cx_voltage_sanity_combined_plot`).
@@ -222,14 +225,17 @@ def _draw_panel(ax_raw, ax_hd, voltage, drive, theta_gt, y_pred, cx,
 
 
 def _build_figure(mode, n_steps, omega_deg, theta0, seed, device, out_path):
-    """Render a single-column trace figure (one row per converged model)."""
-    n_rows = len(MODELS)
-    fig = plt.figure(figsize=(10, 4.5 * n_rows))
-    outer = GridSpec(n_rows, 1, figure=fig, hspace=0.32,
-                     left=0.07, right=0.99, top=0.97, bottom=0.04)
+    """Render a two-column trace figure (one tile per parameterisation,
+    stacked into ``ceil(len(MODELS)/2)`` rows x 2 cols)."""
+    n_cols = 2
+    n_rows = (len(MODELS) + n_cols - 1) // n_cols
+    fig = plt.figure(figsize=(10 * n_cols, 6.75 * n_rows))
+    outer = GridSpec(n_rows, n_cols, figure=fig, hspace=0.32, wspace=0.18,
+                     left=0.05, right=0.99, top=0.97, bottom=0.04)
     letters = "abcdefghij"
 
     for k, (cfg, title) in enumerate(MODELS):
+        row, col = divmod(k, n_cols)
         net, config = _load(cfg, device)
         sim = config.simulation
         cx = load_drosophila_cx_connectome(sim.connconstr_datapath)
@@ -246,7 +252,7 @@ def _build_figure(mode, n_steps, omega_deg, theta0, seed, device, out_path):
         theta_gt, voltage, drive, y_pred = _run_one(net, batch)
 
         inner = GridSpecFromSubplotSpec(
-            2, 1, subplot_spec=outer[k, 0], height_ratios=[4.0, 1.0],
+            2, 1, subplot_spec=outer[row, col], height_ratios=[4.0, 1.0],
             hspace=0.18,
         )
         ax_raw = fig.add_subplot(inner[0, 0])

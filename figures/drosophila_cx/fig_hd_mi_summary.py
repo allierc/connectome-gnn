@@ -40,9 +40,12 @@ from connectome_gnn.generators.utils import generate_path_integration_batch
 
 
 MODELS = [
-    ("drosophila_cx_pi_epg",                    "Known-ODE RNN"),
-    ("drosophila_cx_pi_fc_epg",                 "fully connected RNN"),
-    ("drosophila_cx_pi_gnn_epg",                "GNN"),
+    ("drosophila_cx_pi_epg_no_tv_cv0",        "Known-ODE no-TV"),
+    ("drosophila_cx_pi_epg_tv_cv0",           "Known-ODE $+$TV"),
+    ("drosophila_cx_pi_gnn_epg_no_tv_cv0",    "GNN no-TV"),
+    ("drosophila_cx_pi_gnn_epg_tv_cv0",       "GNN $+$TV"),
+    ("drosophila_cx_pi_fc_epg_cv0",           "fully connected"),
+    ("drosophila_cx_pi_frozen_Wrec_epg_cv0",  "frozen $W^{\\mathrm{rec}}$"),
 ]
 
 
@@ -226,16 +229,23 @@ def main():
         palette = plt.get_cmap("tab10").colors
         cols = [palette[t % len(palette)] for t in type_order]
 
-        fig, axes = plt.subplots(len(MODELS), 2,
-                                  figsize=(11, 3.4 * len(MODELS)),
-                                  sharex=False)
+        # 3 rows x 4 columns: pair two conditions per row,
+        # each spanning (per-neuron, joint) columns.
+        n_per_row = 2
+        n_grid_rows = (len(MODELS) + n_per_row - 1) // n_per_row
+        n_grid_cols = 2 * n_per_row
+        fig, axes = plt.subplots(n_grid_rows, n_grid_cols,
+                                  figsize=(16.0, 3.4 * n_grid_rows),
+                                  sharex=False, squeeze=False)
         rng = np.random.default_rng(0)
 
-        panel_letters = ["a", "b", "c", "d", "e", "f", "g", "h"]
-        for row, (title, per, joint, joint_all, _) in enumerate(results):
+        panel_letters = [chr(ord("a") + i) for i in range(2 * len(MODELS))]
+        for r, (title, per, joint, joint_all, _) in enumerate(results):
+            grid_row = r // n_per_row
+            grid_col = (r % n_per_row) * 2
             means = np.array([np.mean(per.get(t, [0.0]) or [0.0])
                               for t in type_order])
-            ax = axes[row, 0]
+            ax = axes[grid_row, grid_col]
             xs = np.arange(len(type_order))
             ax.bar(xs, means, color=cols, edgecolor="0.3", linewidth=0.5,
                    alpha=0.75)
@@ -248,30 +258,31 @@ def main():
                            s=10, color="0.15", alpha=0.7, linewidths=0)
             ax.set_ylim(0, ymax_per)
             ax.set_xticks(xs)
-            ax.set_xticklabels(labels, rotation=30, ha="right", fontsize=8)
-            ax.set_ylabel("per-neuron MI (bits)", fontsize=10)
-            ax.set_title(title, fontsize=11)
-            ax.text(-0.13, 1.04, f"{panel_letters[2*row]}",
+            ax.set_xticklabels(labels, rotation=30, ha="right", fontsize=7)
+            ax.set_ylabel("per-neuron MI", fontsize=9)
+            ax.set_title(f"{title}: per-neuron", fontsize=9)
+            ax.text(-0.16, 1.04, f"{panel_letters[2*r]}",
                     transform=ax.transAxes, ha="left", va="top",
-                    fontsize=13, fontweight="bold")
+                    fontsize=12, fontweight="bold")
 
-            ax = axes[row, 1]
+            ax = axes[grid_row, grid_col + 1]
             joints = np.array([joint.get(t, 0.0) for t in type_order])
             ax.bar(xs, joints, color=cols, edgecolor="0.3", linewidth=0.5)
             ax.set_ylim(0, ymax_joint)
             ax.set_xticks(xs)
-            ax.set_xticklabels(labels, rotation=30, ha="right", fontsize=8)
-            ax.set_ylabel("joint MI (bits)", fontsize=10)
-            ax.set_title(title, fontsize=11)
+            ax.set_xticklabels(labels, rotation=30, ha="right", fontsize=7)
+            ax.set_ylabel("joint MI", fontsize=9)
+            ax.set_title(f"{title}: joint", fontsize=9)
             ax.text(0.02, 0.95,
-                    f"all-neurons joint = {joint_all:.2f} bits",
+                    f"pop. joint = {joint_all:.2f} bits",
                     transform=ax.transAxes, ha="left", va="top",
-                    fontsize=9)
-            ax.text(-0.13, 1.04, f"{panel_letters[2*row+1]}",
+                    fontsize=8)
+            ax.text(-0.16, 1.04, f"{panel_letters[2*r+1]}",
                     transform=ax.transAxes, ha="left", va="top",
-                    fontsize=13, fontweight="bold")
+                    fontsize=12, fontweight="bold")
 
-        plt.tight_layout()
+        fig.subplots_adjust(left=0.05, right=0.99, top=0.95, bottom=0.08,
+                             hspace=0.55, wspace=0.45)
         out = os.path.join(out_dir, f"fig_hd_mi_summary_nbins{n_bins}.png")
         fig.savefig(out, dpi=160, bbox_inches="tight")
         plt.close(fig)

@@ -131,7 +131,7 @@ def _panel(ax, v_samples, fn_samples, v_static, fn_static_mean, fn_static_std,
     ax.set_ylim(ylo, yhi)
     ax.set_xlabel(r"$\hat h(t)$", fontsize=11)
     ax.set_ylabel(ylabel, fontsize=11)
-    ax.set_title(title, fontsize=11)
+    ax.set_title(title, fontsize=9)
     ax.tick_params(labelsize=8)
     return hb
 
@@ -144,12 +144,71 @@ def _quantile_range(samples: np.ndarray, lo_q: float = 0.001,
     return lo - pad, hi + pad
 
 
+MODELS = [
+    ("drosophila_cx_pi_epg_no_tv_cv0",        "Known-ODE no-TV"),
+    ("drosophila_cx_pi_epg_tv_cv0",           "Known-ODE $+$TV"),
+    ("drosophila_cx_pi_gnn_epg_no_tv_cv0",    "GNN no-TV"),
+    ("drosophila_cx_pi_gnn_epg_tv_cv0",       "GNN $+$TV"),
+    ("drosophila_cx_pi_fc_epg_cv0",           "fully connected"),
+    ("drosophila_cx_pi_frozen_Wrec_epg_cv0",  "frozen $W^{\\mathrm{rec}}$"),
+]
+
+
+def _is_gnn_type(net) -> bool:
+    """GNN-type if it carries learned drift/message MLPs."""
+    return hasattr(net, "f_theta") and hasattr(net, "g_phi")
+
+
+def _drift_and_rate(net, h_traj, device, args):
+    """Return (v_samp, f_samp, g_samp, v_static, f_static_m, f_static_s,
+    g_static_m, g_static_s, xlim, f_ylim, g_ylim, f_label, g_label) for
+    one model. RNN-type uses hardcoded -h/tau + sigma; GNN-type uses
+    learned f_theta + g_phi (mean ± SD across nodes for the static curve).
+    """
+    if _is_gnn_type(net):
+        f_dyn, g_dyn, _ = _gnn_eval(net, h_traj, device)
+        v_static, f_static, g_static = _gnn_static(
+            net, args.v_range, args.n_static, device)
+        f_static_m = f_static.mean(0); f_static_s = f_static.std(0)
+        g_static_m = g_static.mean(0); g_static_s = g_static.std(0)
+        xlim   = _quantile_range(h_traj.reshape(-1))
+        f_ylim = _quantile_range(f_dyn.reshape(-1))
+        g_ylim = _quantile_range(g_dyn.reshape(-1))
+        return (h_traj.reshape(-1), f_dyn.reshape(-1), g_dyn.reshape(-1),
+                v_static, f_static_m, f_static_s, g_static_m, g_static_s,
+                xlim, f_ylim, g_ylim,
+                r"$f_\theta(\hat h_i, \mathbf{a}_i, m{=}0)$",
+                r"$g_\phi$")
+    # RNN-type teacher
+    V_RANGE_RNN = 10.0
+    v_static = np.linspace(-V_RANGE_RNN, V_RANGE_RNN, args.n_static)
+    tau = float(net.tau)
+    f_dyn = -h_traj / tau
+    sigma_fn = net._sigma
+    sigma_name = getattr(net, "recurrent_activation_name", "sigma")
+    with torch.no_grad():
+        g_dyn = sigma_fn(torch.from_numpy(h_traj).to(device)).cpu().numpy()
+        f_static = -v_static / tau
+        g_static = sigma_fn(torch.from_numpy(
+            v_static.astype(np.float32)).to(device)).cpu().numpy()
+    xlim   = (-V_RANGE_RNN, V_RANGE_RNN)
+    f_ylim = (-100.0, 100.0)
+    g_ylim = (-0.1, 1.1)
+    return (h_traj.reshape(-1), f_dyn.reshape(-1), g_dyn.reshape(-1),
+            v_static, f_static, None, g_static, None,
+            xlim, f_ylim, g_ylim,
+            rf"$-\hat h / \tau$  ($\tau = {tau:.3g}$ s)",
+            rf"$\sigma(\hat h)$  ($\sigma$ = {sigma_name})")
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--rnn_config",      default="drosophila_cx_pi_epg")
-    p.add_argument("--coldale_config",  default="drosophila_cx_pi_fc_epg")
-    p.add_argument("--gnn_config",
-                   default="drosophila_cx_pi_gnn_epg")
+    p.add_argument("--rnn_config",      default=None,
+                   help="legacy single-model override (overrides MODELS).")
+    p.add_argument("--coldale_config",  default=None,
+                   help="legacy: fully-connected config (overrides MODELS).")
+    p.add_argument("--gnn_config",      default=None,
+                   help="legacy: GNN config (overrides MODELS).")
     p.add_argument("--n_steps_ou", type=int, default=10000)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--v_range", type=float, default=3.0)
@@ -169,132 +228,63 @@ def main():
 
     device = torch.device(args.device)
 
-    # --- Load all three models ---
-    rnn     = _load_model(args.rnn_config,     device)
-    coldale = _load_model(args.coldale_config, device)
-    gnn     = _load_model(args.gnn_config,     device)
+    # Build the model list — legacy 3-config args override MODELS for
+    # backward compatibility with older invocations.
+    if args.rnn_config or args.coldale_config or args.gnn_config:
+        model_list = []
+        if args.rnn_config:
+            model_list.append((args.rnn_config, "Known-ODE RNN"))
+        if args.coldale_config:
+            model_list.append((args.coldale_config, "fully connected"))
+        if args.gnn_config:
+            model_list.append((args.gnn_config, "GNN"))
+    else:
+        model_list = list(MODELS)
 
-    # --- OU rollouts (same seed → same stimulus, different model dynamics) ---
-    h_rnn     = _run_ou(rnn,     args.n_steps_ou, device, args.seed)
-    h_coldale = _run_ou(coldale, args.n_steps_ou, device, args.seed)
-    h_gnn     = _run_ou(gnn,     args.n_steps_ou, device, args.seed)
-    print(f"OU rollouts: RNN {h_rnn.shape} | fully connected {h_coldale.shape} | "
-          f"GNN {h_gnn.shape}")
+    # Pair conditions two-per-row so the resulting grid is
+    # ceil(len(MODELS)/2) rows x 4 columns. Each row contains two
+    # conditions placed side by side, each occupying a (drift,
+    # firing-rate non-linearity) column pair.
+    n_per_row = 2
+    n_rows = (len(model_list) + n_per_row - 1) // n_per_row
+    n_cols = 2 * n_per_row
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(14.0, 2.17 * n_rows),
+                              squeeze=False)
+    letters = "abcdefghijklmnop"
+    handles = []
+    for r, (cfg, label) in enumerate(model_list):
+        net = _load_model(cfg, device)
+        h = _run_ou(net, args.n_steps_ou, device, args.seed)
+        (v_s, f_s, g_s, v_static, fsm, fss, gsm, gss,
+         xlim, f_ylim, g_ylim, f_label, g_label) = _drift_and_rate(
+            net, h, device, args)
+        row = r // n_per_row
+        col = (r % n_per_row) * 2
+        ax_f = axes[row, col]
+        ax_g = axes[row, col + 1]
+        hb_f = _panel(ax_f, v_s, f_s, v_static, fsm, fss,
+                      None, ylabel=f_label,
+                      title=f"{label}: drift", ylim=f_ylim, xlim=xlim)
+        hb_g = _panel(ax_g, v_s, g_s, v_static, gsm, gss,
+                      None, ylabel=g_label,
+                      title=f"{label}: $\\sigma(\\hat h)$",
+                      ylim=g_ylim, xlim=xlim)
+        handles.extend([(ax_f, hb_f), (ax_g, hb_g)])
+        ax_f.text(-0.12, 1.02, letters[2 * r], transform=ax_f.transAxes,
+                  fontsize=14, fontweight="bold", va="bottom", ha="right")
+        ax_g.text(-0.12, 1.02, letters[2 * r + 1], transform=ax_g.transAxes,
+                  fontsize=14, fontweight="bold", va="bottom", ha="right")
 
-    # --- RNN-type teachers: f(h) = -h/τ, g(h) = σ(h) ---
-    V_RANGE_RNN = 10.0
-    v_rnn_static = np.linspace(-V_RANGE_RNN, V_RANGE_RNN, args.n_static)
-
-    # Known-ODE RNN
-    tau_rnn = float(rnn.tau)
-    f_rnn = -h_rnn / tau_rnn
-    sigma_rnn_fn = rnn._sigma
-    sigma_rnn_name = getattr(rnn, "recurrent_activation_name", "sigma")
-    with torch.no_grad():
-        g_rnn = sigma_rnn_fn(torch.from_numpy(h_rnn).to(device)).cpu().numpy()
-        f_rnn_static = -v_rnn_static / tau_rnn
-        g_rnn_static = sigma_rnn_fn(torch.from_numpy(
-            v_rnn_static.astype(np.float32)).to(device)).cpu().numpy()
-
-    # fully connected RNN
-    tau_col = float(coldale.tau)
-    f_col = -h_coldale / tau_col
-    sigma_col_fn = coldale._sigma
-    sigma_col_name = getattr(coldale, "recurrent_activation_name", "sigma")
-    with torch.no_grad():
-        g_col = sigma_col_fn(torch.from_numpy(h_coldale).to(device)).cpu().numpy()
-        f_col_static = -v_rnn_static / tau_col
-        g_col_static = sigma_col_fn(torch.from_numpy(
-            v_rnn_static.astype(np.float32)).to(device)).cpu().numpy()
-
-    # --- GNN teacher ---
-    f_gnn, g_gnn, _ = _gnn_eval(gnn, h_gnn, device)
-    v_gnn_static, f_gnn_static, g_gnn_static = _gnn_static(
-        gnn, args.v_range, args.n_static, device)
-    f_gnn_static_mean, f_gnn_static_std = f_gnn_static.mean(0), f_gnn_static.std(0)
-    g_gnn_static_mean, g_gnn_static_std = g_gnn_static.mean(0), g_gnn_static.std(0)
-
-    # --- 3 × 2 figure: 3 teachers × (drift, firing-rate-NL). ---
-    # Row 1 (a, b): Known-ODE RNN     — hardcoded -h/τ and σ.
-    # Row 2 (c, d): fully connected RNN — same hardcoded form, different W_rec.
-    # Row 3 (e, f): GNN              — learned f_θ and g_φ.
-    fig, axes = plt.subplots(3, 2, figsize=(9, 10.5))
-    (ax_a, ax_b) = axes[0]
-    (ax_c, ax_d) = axes[1]
-    (ax_e, ax_f) = axes[2]
-
-    # Y-limits.
-    F_YLIM_RNN = (-100.0, 100.0)
-    G_YLIM_RNN = (-0.1,   1.1)
-
-    # Auto-tuned x and y limits for the GNN panels so the operating
-    # distribution + static curve fit cleanly.
-    GNN_XLIM   = _quantile_range(h_gnn.reshape(-1))
-    F_YLIM_GNN = _quantile_range(f_gnn.reshape(-1))
-    G_YLIM_GNN = _quantile_range(g_gnn.reshape(-1))
-
-    # (a, b) Known-ODE RNN
-    hb_a = _panel(ax_a,
-        h_rnn.reshape(-1), f_rnn.reshape(-1),
-        v_rnn_static, f_rnn_static, None, V_RANGE_RNN,
-        ylabel=rf"$-\hat h / \tau$  ($\tau = {tau_rnn:.3g}$ s)",
-        title="Known-ODE RNN — leak (OU rollout)",
-        ylim=F_YLIM_RNN)
-    hb_b = _panel(ax_b,
-        h_rnn.reshape(-1), g_rnn.reshape(-1),
-        v_rnn_static, g_rnn_static, None, V_RANGE_RNN,
-        ylabel=rf"$\sigma(\hat h)$  ($\sigma$ = {sigma_rnn_name})",
-        title=r"Known-ODE RNN — $\sigma$ (OU rollout)",
-        ylim=G_YLIM_RNN)
-
-    # (c, d) fully connected RNN
-    hb_c = _panel(ax_c,
-        h_coldale.reshape(-1), f_col.reshape(-1),
-        v_rnn_static, f_col_static, None, V_RANGE_RNN,
-        ylabel=rf"$-\hat h / \tau$  ($\tau = {tau_col:.3g}$ s)",
-        title="fully connected RNN — leak (OU rollout)",
-        ylim=F_YLIM_RNN)
-    hb_d = _panel(ax_d,
-        h_coldale.reshape(-1), g_col.reshape(-1),
-        v_rnn_static, g_col_static, None, V_RANGE_RNN,
-        ylabel=rf"$\sigma(\hat h)$  ($\sigma$ = {sigma_col_name})",
-        title=r"fully connected RNN — $\sigma$ (OU rollout)",
-        ylim=G_YLIM_RNN)
-
-    # (e, f) GNN
-    hb_e = _panel(ax_e,
-        h_gnn.reshape(-1), f_gnn.reshape(-1),
-        v_gnn_static, f_gnn_static_mean, f_gnn_static_std,
-        args.v_range,
-        ylabel=r"$f_\theta(\hat h_i, \mathbf{a}_i, m{=}0)$",
-        title=r"GNN — $f_\theta$ (OU rollout)",
-        ylim=F_YLIM_GNN, xlim=GNN_XLIM)
-    hb_f = _panel(ax_f,
-        h_gnn.reshape(-1), g_gnn.reshape(-1),
-        v_gnn_static, g_gnn_static_mean, g_gnn_static_std,
-        args.v_range, ylabel=r"$g_\phi$",
-        title=r"GNN — $g_\phi$ (OU rollout)",
-        ylim=G_YLIM_GNN, xlim=GNN_XLIM)
-
-    for ax, hb in [
-        (ax_a, hb_a), (ax_b, hb_b),
-        (ax_c, hb_c), (ax_d, hb_d),
-        (ax_e, hb_e), (ax_f, hb_f),
-    ]:
+    for ax, hb in handles:
         cb = fig.colorbar(hb, ax=ax, fraction=0.045, pad=0.02)
         cb.set_label("log10(count)", fontsize=8)
         cb.ax.tick_params(labelsize=7)
 
-    # Panel labels a–f at top-left of each subplot.
-    for ax, letter in zip(
-        [ax_a, ax_b, ax_c, ax_d, ax_e, ax_f],
-        list("abcdef"),
-    ):
-        ax.text(-0.12, 1.02, letter, transform=ax.transAxes,
-                fontsize=16, fontweight="bold", va="bottom", ha="right")
-
-    plt.tight_layout()
-
+    fig.subplots_adjust(left=0.06, right=0.98, top=0.94, bottom=0.10,
+                         hspace=0.55, wspace=0.55)
+    for r_, row in enumerate(axes):
+        for c_, ax_ in enumerate(row):
+            ax_.set_box_aspect(1.0)
     out = args.output or os.path.join(
         os.path.dirname(os.path.abspath(__file__)),
         "fig_function_dynamics_combined.png",

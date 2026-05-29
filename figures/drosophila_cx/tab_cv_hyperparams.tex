@@ -1,0 +1,16 @@
+% Training hyperparameters per condition (10 CV folds each).
+% Columns: condition | lr (rec) | lr (in/out, encoder/decoder) | lambda_tv | lambda_nf | epsilon (tail-loss) | mu_f, mu_g (GNN drift / message monotonicity) | n_epochs | batch
+\begin{tabular}{lrrrrrrrr}
+\toprule
+condition & $\eta_{\mathrm{rec}}$ & $\eta_{\mathrm{enc/dec}}$
+  & $\lambda_{\mathrm{tv}}$ & $\lambda_{\mathrm{nf}}$ & $\epsilon_{\mathrm{tail}}$
+  & $\mu_{f}/\mu_{g}$ & $n_{\mathrm{epochs}}$ & $|\mathcal B|$ \\
+\midrule
+Known-ODE $+$TV         & $2\!\times\!10^{-3}$ & $2.5\!\times\!10^{-3}$ & $10^{-2}$ & $0$    & $3.5\!\times\!10^{-2}$ & --              & 10 & 64 \\
+Known-ODE no-TV         & $2\!\times\!10^{-3}$ & $2.5\!\times\!10^{-3}$ & $0$       & $0$    & $3.5\!\times\!10^{-2}$ & --              & 10 & 64 \\
+GNN $+$TV               & $2\!\times\!10^{-3}$ & $5\!\times\!10^{-4}$   & $5\!\times\!10^{-3}$ & $0$ & $5\!\times\!10^{-2}$ & $15/15$ & 10 &  8 \\
+GNN no-TV               & $2\!\times\!10^{-3}$ & $5\!\times\!10^{-4}$   & $0$       & $0$    & $5\!\times\!10^{-2}$ & $15/15$ & 10 &  8 \\
+fully connected         & $2\!\times\!10^{-3}$ & $2.5\!\times\!10^{-3}$ & $0$       & $0.5$  & $5\!\times\!10^{-2}$ & --              &  5 & 64 \\
+frozen $W^{\mathrm{rec}}$ & $0$                & $6\!\times\!10^{-3}$   & $0$       & $0$    & $5\!\times\!10^{-2}$ & --              &  1 & 64 \\
+\bottomrule
+\end{tabular}
