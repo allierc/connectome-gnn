@@ -1,130 +1,170 @@
 # REFACTOR_drosophila_voltage.md
 
-**Headline: topology + task + voltage -> identifiable circuit.** Add a voltage-trace MSE loss inside the existing task training so the next paper reads as a direct continuation of `drosophila.tex`. **No new teacher/student class hierarchy** — the "teacher" is simply another already-trained `DrosophilaCxTaskRNN` / `DrosophilaCxTaskGNN` instance, and voltage targets are stored as `NeuronTimeSeries` (the existing on-disk format used by the data generators).
+**Headline: topology + task + activity -> identifiable circuit.** Add a single activity-observation loss term inside the existing task training so the next paper reads as a direct continuation of `drosophila.tex`. **No new teacher/student class hierarchy** — the "teacher" is simply another already-trained `DrosophilaCxTaskRNN` / `DrosophilaCxTaskGNN` instance, and targets are stored as `NeuronTimeSeries` (the existing on-disk format used by the data generators).
+
+**Four branches.** This refactor is one new loss term (`observation_loss`) exercised in four configurations that share the same student (`DrosophilaCxTaskGNN`), the same hemibrain connectome (N=156), and — except Branch 0 — the same heading task. They form a difficulty ladder; do them in order.
+
+| Branch | Supervision | Data | Task? | Question | Section |
+|---|---|---|---|---|---|
+| **0** | full per-neuron **voltage** rollout | frozen teacher RNN `drosophila_cx_pi_epg_no_tv_cv0` | no | given everything (full voltage + binary adjacency + Dale sign), does the GNN recover `W_rec`/`τ`/sigmoid? | C |
+| **1** | per-neuron **voltage** + heading | frozen teacher `…_tv_cv0`, fresh OU | yes | does task + sparse voltage pin the implementation? | C–D, G–I |
+| **2** | **ROI** ΔF/F + heading | real 2-photon (Turner-Evans 2020) | yes | does task + measured ROI activity transfer to real data? | D |
+| **3** | voltage + ROI (mixed) | synthetic + real, oversampled | yes | does real data **correct** (vs confirm) the synthetic teacher? | D |
+
+The branches are not symmetric: Branch 2 **cannot** supervise per-neuron voltage (the data is compartmental — ROI = neuropil wedge/glomerulus, not single-cell, §D), so it supervises `P · calcium(σ(h))` against measured ΔF/F. Branch 0 is the floor of the ladder: no task, full observation, the cleanest recovery test, and the cheapest to build (it reuses Branch 1's machinery with the task term off and a precomputed rollout). All four reduce to today's byte-equivalent training when the new coefficients are zero.
 
 ## A. Status quo
 
-The drosophila CX pipeline is fully end-to-end direct supervision on heading-direction targets `(cos theta_hd, sin theta_hd)`. `DrosophilaCxTaskRNN` and `DrosophilaCxTaskGNN` (`src/connectome_gnn/models/drosophila_cx_task_rnn.py`, `drosophila_cx_task_gnn.py`) both consume the dict returned by `load_drosophila_cx_connectome(...)` (`connconstr_data.py:63-276`) and return `(y_hat, h_buf)` of shapes `(B,T,2)` and `(B,T,N)`. Loss assembly lives in `graph_trainer.py:2074-2100`: an `F.mse_loss(y_hat, y)` term plus regularisers (`coeff_cos_distance`, `coeff_norm_floor`, `coeff_tv_circular`, `coeff_W_L1`, `coeff_f_theta_diff`, `coeff_g_phi_diff`). The hidden state `h_buf` is never compared against anything — it only feeds priors. The 6-condition CV harness in `cv_runner.py:211-350` rotates seeds per fold (`seed`, `seed+1000`) across `cv00..cv09`. The repo already defines `NeuronState` and `NeuronTimeSeries` (`src/connectome_gnn/neuron_state.py:36-178, 182-310`) as the canonical containers for per-frame and full-rollout circuit observables (`voltage`, `stimulus`, `calcium`, `fluorescence`, ...); the flyvis / cx ODE generators already round-trip simulation traces through `NeuronTimeSeries`.
+The drosophila CX pipeline is fully end-to-end direct supervision on heading-direction targets `(cos theta_hd, sin theta_hd)`. `DrosophilaCxTaskRNN` and `DrosophilaCxTaskGNN` (`src/connectome_gnn/models/drosophila_cx_task_rnn.py`, `drosophila_cx_task_gnn.py`) both consume the dict returned by `load_drosophila_cx_connectome(...)` (`connconstr_data.py:63-276`) and return `(y_hat, h_buf)` of shapes `(B,T,2)` and `(B,T,N)`. Loss assembly lives in `graph_trainer.py:2080-2100`: an `F.mse_loss(y_hat, y)` term plus regularisers (`coeff_cos_distance`, `coeff_norm_floor`, `coeff_tv_circular`, `coeff_W_L1`, `coeff_f_theta_diff`, `coeff_g_phi_diff`). The hidden state `h_buf` is never compared against anything — it only feeds priors. The CV harness in `cv_runner.py:211-350` rotates seeds per fold (`seed`, `seed+1000`) across `cv00..cv09`. The repo already defines `NeuronState` and `NeuronTimeSeries` (`neuron_state.py:36-178, 182-310`) as the canonical containers for per-frame and full-rollout circuit observables (`voltage`, `stimulus`, `calcium`, `fluorescence`, ...); the flyvis / cx ODE generators already round-trip simulation traces through `NeuronTimeSeries`.
 
 ## B. Goal
 
-`drosophila.tex` shows that **topology + task is insufficient** for full identifiability (the GNN converges in heading but f_theta / g_phi are not uniquely pinned). The next claim: **topology + task + a sparse set of voltage traces is sufficient.** Treat the "teacher" as another converged task model — concretely **Known-ODE +TV cv0** (`${GNN_OUTPUT_ROOT}/log/drosophila_cx/drosophila_cx_pi_epg_tv_cv0`), the bump-localised solution whose EPG-ring activity matches the canonical CX picture — whose `h_buf` rollouts are cached as `NeuronTimeSeries` on disk and supplied per training batch alongside the heading target. A single new loss term `L_voltage` is added to the existing task training. **No `TeacherNet`, no `VoltageTarget`, no separate distillation stage** — voltage supervision is just another regulariser, exactly like `coeff_tv_circular` is today.
+`drosophila.tex` shows that **topology + task is insufficient** for full identifiability (the GNN converges in heading but `f_theta` / `g_phi` / `W` are not uniquely pinned). The next claim: **topology + an activity signal closes the gap.** This is also the direct empirical follow-up to `neurips.tex` (flyvis), which states the open problems verbatim: "calcium/voltage imaging are nonlinear, lower-bandwidth proxies" and "partial observation … undermines Ŵ." We test this on a difficulty ladder (Branches 0→3), adding a single new loss term to the existing task training. **No `TeacherNet`, no separate distillation stage** — observation supervision is just another regulariser, exactly like `coeff_tv_circular` is today.
 
-## C. New entities
+## C. Branch 0 — voltage-rollout system identification (do this first)
 
-| Name | File | Public surface |
+The simplest, most reuse-heavy rung: **no task, full voltage observation, topology + sign prior.** Train a `DrosophilaCxTaskGNN` to reproduce the **full voltage rollout** of a frozen teacher RNN — **`drosophila_cx_pi_epg_no_tv_cv0`** (`${GNN_OUTPUT_ROOT}/log/drosophila_cx/drosophila_cx_pi_epg_no_tv_cv0`) — given **only** the **binary adjacency** (connectome support) and the **Dale sign** per edge, and recover the teacher's `W_rec`, `τ`, and sigmoid signalling.
+
+- **Why first.** It is the cleanest possible test: "given everything (full voltage + topology + signs), does the GNN recover the RNN?" If Branch 0 fails, the partial / ROI / task-only branches are hopeless; if it passes, it fixes the recovery ceiling. Strictly easier than §I's sanity check (which adds the task) and than Branch 1 (fresh OU + task).
+- **The "new to GNN training" piece.** The GNN consumes **only** `edge_index = nonzero(W_con)` (binary support) and `sign(W_con)` (Dale sign), **never** the teacher's `W` magnitudes. Sign-locking already exists in `DrosophilaCxTaskGNN` (`lock_edge_signs=True → W_eff = |W|·sign_GT`); Branch 0 trains those magnitudes + `f_theta` (→ drift/`τ`) + `g_phi` (→ sigmoid) to fit voltage.
+- **Data (reuse the generate→`NeuronTimeSeries`→zarr path).** Roll the frozen `no_tv_cv0` RNN forward once under OU (and constant-ω) stimulus; save `h_buf (T,N)` as the `voltage` field of a `NeuronTimeSeries`. Dataset `drosophila_cx_obs_branch0_v1`. No fresh generation per batch — Branch 0 fits a fixed rollout.
+- **Loss.** The voltage branch of the one primitive (§D): `observation_loss(h_buf, teacher_voltage, lam, P=None, sim=None)` — full per-neuron MSE in firing-rate space, `recorded_fraction=1.0`, heading-task weight 0. Same primitive as Branch 1, with the teacher fixed to `no_tv_cv0` and the task term off.
+- **Recovery diagnostics.** Identical to §I (panels k/l/m: `τ_eff`, sigmoid-ℓ2, `R²_W`), reused verbatim from `figures/drosophila_cx/fig_evolution.py`. **Pass:** `τ_eff` matches the teacher, sigmoid-ℓ2 < 0.05, `R²_W > 0.95` across folds.
+- **Reuse scorecard.** Existing sign-locking + existing recovery diagnostics + the same `observation_loss` primitive. New code beyond the §D primitive = the teacher-rollout dump (a thin script) and one config.
+
+## D. Reuse-first architecture: the single `observation_loss` primitive
+
+The earlier draft of this doc proposed a `cx_observation_model.py` with skeleton-based projections, `voltage_metrics`, `loss_voltage_mse`, `loss_roi_mse`, and a sibling real-data trainer. **That is superseded.** Almost everything already exists; the only genuinely new thing is one observation-loss term and a reused projection.
+
+**What already exists (reuse, do not rebuild):**
+
+| Piece | Location | Reuse |
 |---|---|---|
-| `loss_voltage_mse` (helper, not a class) | `src/connectome_gnn/models/voltage_loss.py` (new, ~30 lines) | `def loss_voltage_mse(h_pred: Tensor, h_target: Tensor, neuron_ix: LongTensor, lam: float, use_sigmoid: bool=True) -> Tensor` — masked MSE in firing-rate space over the recorded subset |
-| `voltage_metrics` (helpers, not a class) | `src/connectome_gnn/models/voltage_metrics.py` (new) | `def voltage_rmse(h_pred, h_gt, neuron_ix) -> float`; `def per_edge_recovery_r2(W_pred, W_gt, mask) -> float`; `def per_type_mi_alignment(h_pred, h_gt, neuron_types) -> dict[int, float]` |
-| `teacher` (just a frozen TaskRNN, held in trainer state) | resolved by `models/graph_trainer.py` from `tc.teacher_config` | `teacher = create_model(...).requires_grad_(False).eval()` after `_load(tc.teacher_config)` returns the frozen Known-ODE +TV cv0 checkpoint; the trainer calls `teacher(trials.stimulus)` once per batch (no_grad) and writes its `h_buf` into `trials.voltage_target`. No new class, no pre-caching, no disk footprint. The teacher RNN is small (156 neurons, scalar $\tau$, sigmoid) so its forward pass is cheap next to the student's. |
+| Calcium forward model (`ca += (dt/τ)(−ca+act(v)); F=αca+β`) | `generators/graph_data_generator.py:2918-2929` | extract to a shared helper |
+| Loss-assembly pattern (`term = model.loss_X(h_buf,λ) if λ>0 …; loss = mse+…`) | `models/graph_trainer.py:2080-2100` | add one term |
+| `TaskTrials` (`stimulus`, `target=[cos,sin]`, `theta_hd`, `omega`) | `generators/task_state.py` | real loader builds one |
+| Neuron→ROI assignment (`src_channel`, `src_roi`, `recorded_mask`) | converter `recorded.pt` (`real_calcium_twocolor.py:362-375`) | build `P` from it |
+| Frozen teacher = a `DrosophilaCxTaskRNN`/GNN ckpt | `log/drosophila_cx/drosophila_cx_pi_epg_{no_tv,tv}_cv0` | `create_model` + `load_state_dict` (pattern `graph_data_generator.py:3268`) |
+| Calcium config fields (`calcium_type/τ/α/β/activation`) | `config.py:417-441` | reuse as-is |
+| Sign-locking (`W_eff=|W|·sign_GT`) | `drosophila_cx_task_gnn.py` | Branch 0/1 recovery |
+| Recovery diagnostics (panels k/l/m) | `figures/drosophila_cx/fig_evolution.py` | §I, all branches |
+| CV / agentic harness (`claude:` block, fold/seed rotation) | `models/cv_runner.py:211-350` | HP search (§J) |
 
-**Reused entities (no changes needed unless noted):**
-- `NeuronTimeSeries` (`neuron_state.py:182`) — already has `voltage: (T, N) float32`, exactly the right shape for cached teacher rollouts. Zarr round-trip is already there (`zarr_io.py`).
-- `NeuronState` (`neuron_state.py:36`) — used inside the trainer for per-frame indexing into the cached `NeuronTimeSeries`.
-- `DrosophilaCxTaskRNN` / `DrosophilaCxTaskGNN` — these *are* the teacher network. Loading a frozen, no-grad copy of an existing checkpoint and calling its `.forward(u)` produces `h_buf` of shape `(B, T, N)`. No `TeacherNet` wrapper needed.
-- `TaskTrials` (`task_state.py`) — extended in (D) below to carry an optional pointer to the cached voltage; no new class.
+**New code (deliberately tiny):**
 
-## D. Modifications to existing code
+1. **`voltage_to_fluorescence(v, ca_prev, sim)`** — extract `graph_data_generator.py:2918-2929` verbatim (same arithmetic order + four activations); rewire the generator to call it. Shared by generator and loss. (Branch 0/1 voltage path doesn't even need it.)
+2. **`models/observation_loss.py` — one function** `observation_loss(h_buf, target, lam, *, sim=None, P=None, mask=None, sigma=None)`:
+   - **voltage branch** (Branch 0/1): `P=None, sim=None` → masked MSE of `h_buf` vs teacher `h` over the recorded subset.
+   - **ROI branch** (Branch 2/3): `sim, P, sigma` → `P · calcium(σ(h))` vs measured ΔF/F, masked.
+   - `lam<=0` → exact `new_zeros(())` (byte-equal off).
+3. **`build_roi_pooling(recorded, N=156) -> (P, keys)`** in `real_calcium_twocolor.py` (~10 lines) — sparse `(R,N)` averaging matrix from `src_channel/src_roi`; built once. `keys` fixes the row order shared with `roi_target`. (No skeletons in v1; arbor-weighted `P` is a named v2 refinement.)
+4. **`load_real_pooled(root, device, recorded_fraction)`** + **`real_batch(real, B, T, device, gen)`** in `real_calcium_twocolor.py` — pool the 175 recordings, build `P` once, sample `B` fixed-T windows (reject windows past a recording's end; `roi_mask` zeroes NaN frames). Rebuild `stimulus` to match the synthetic encoding exactly (`u[:,:,0]=ω deg/s`, `u[:,0,1:3]=[cosθ0,sinθ0]`), `target=[cos,sin](heading)`.
+5. **Config fields (`TrainingConfig`)**, defaults byte-equal: `coeff_observation=0.0`, `observation_target="none"` (`none|voltage|roi|hybrid`), `coeff_task=1.0` (Branch 0 sets `0.0`), `teacher_config=""`, `teacher_ckpt=""`, `real_data_root=""`, `mix_ratio=0.0`, `recorded_fraction=1.0`.
 
-- **`generators/task_state.py:33,35`.** Extend `TaskTrials` dataclass with `voltage_target: torch.Tensor | None = None  # (B,T,N) float32, sigmoid-space if so flagged`. Add `voltage_target` to `DYNAMIC_FIELDS` and `PI_FIELDS` so the existing `save` / `load` round-trip covers it.
-- **`generators/utils.py:754-854` (`generate_path_integration_batch`).** No change. The batch generator stays oblivious to the teacher; the trainer is the one place that runs the teacher forward pass.
-- **`generators/connconstr_data.py:63-276` (`load_drosophila_cx_connectome`).** No change.
-- **`models/drosophila_cx_task_rnn.py` / `drosophila_cx_task_gnn.py`.** No `__init__` changes, no forward-pass changes. Add a thin `loss_voltage_mse(self, h_pred, h_target, neuron_ix, lam)` method mirroring the existing `loss_tv_circular` signature (TaskRNN line ~511; GNN line ~575). Both delegate to `voltage_loss.loss_voltage_mse`. This keeps the architectures structurally identical to today — the same class is the "teacher" when frozen and the "student" when trained.
-- **`models/graph_trainer.py` (modify `_data_train_drosophila_cx_task` in place, do *not* fork a new function).** The 556-line function at line 1801 already supplies all the shared scaffolding — data load, three-group optimizer, scheduler, snapshot cadence, NaN guard, CV harness integration — and the zebrafish / cortex trainers at lines 2357 / 2390 call back into it. A sibling function would have to be kept bit-for-bit in sync. Two additions in-place. First, ahead of the training loop (where the student is built) resolve the teacher once:
-  ```python
-  teacher = None
-  if float(getattr(tc, 'coeff_voltage_mse', 0.0)) > 0 and tc.teacher_config:
-      teacher_cfg, _ = load_run_config(tc.teacher_config,
-                                       explicit_output_root=False, task='train')
-      teacher = _load_frozen(teacher_cfg, device)  # create_model + load_state_dict + eval()
-      for p in teacher.parameters():
-          p.requires_grad_(False)
-      voltage_ix = _select_neurons(
-          neuron_types=student.neuron_types,
-          mode=tc.voltage_neuron_selection,
-          fraction=tc.voltage_recorded_fraction,
-          seed=tc.seed + 2000 + fold_index,
-      ).to(device)
-  ```
-  Then inside the batch loop, right after `trials = generate_path_integration_batch(...)`:
-  ```python
-  if teacher is not None:
-      with torch.no_grad():
-          _, trials.voltage_target = teacher(trials.stimulus)
-  ```
-  And finally, in the loss assembly after `g_diff`:
-  ```python
-  cv = float(tc.coeff_voltage_mse)
-  if cv > 0 and trials.voltage_target is not None:
-      l_voltage = model.loss_voltage_mse(
-          h_buf, trials.voltage_target, voltage_ix, cv,
-      )
-  else:
-      l_voltage = u.new_zeros(())
-  loss = mse + cosd + norm + tv + l1S + f_diff + g_diff + l_voltage
-  ```
-- **`config.py` (TrainingConfig).** Add: `coeff_voltage_mse: float = 0.0`; `teacher_config: str = ''` (the yaml name of the teacher); `voltage_neuron_selection: Literal['all','stratified_cell_type','random','per_glomerulus'] = 'stratified_cell_type'`; `voltage_recorded_fraction: float = 1.0`; `voltage_in_sigmoid_space: bool = True`. Defaults keep `coeff_voltage_mse = 0.0`; with this default, the three new blocks in `_data_train_drosophila_cx_task` are guarded out, the function is byte-equivalent to today's path, and the byte-equality contract from Section I is trivially satisfied.
-- **`models/cv_runner.py:262-272`.** Forward the teacher fields through unchanged; per-fold randomisation of the recorded subset happens inside the trainer using `seed + 2000 + fold_index` (see snippet above) so the recorded-neuron noise is independent of `simulation.seed` and `training.seed`.
-- **`models/drosophila_cx_eval.py:328-453` (`_save_training_snapshot`).** Add `voltage_rmse(h_buf, trials.voltage_target, voltage_ix)` to the metrics dict when `tc.coeff_voltage_mse > 0`.
+**Trainer integration — 3 guarded blocks, no fork of `_data_train_drosophila_cx_task`** (the 556-line function at `graph_trainer.py:1801`, also reused by the zebrafish/cortex trainers):
 
-## E. Training-pipeline changes
+- **Setup** (~`graph_trainer.py:1872`): if `coeff_observation>0` and target ∈ {voltage,hybrid} → build the frozen teacher (`create_model` + `load_state_dict` + `eval` + `requires_grad_(False)`); if ∈ {roi,hybrid} → `load_real_pooled`. Branch 0 loads its fixed rollout dataset (or runs the teacher once).
+- **Batch loop** (~`graph_trainer.py:2055`): choose synthetic vs real for this iter (`use_real = roi`, or `hybrid & N%K==0` from `mix_ratio`); `y_hat, h_buf = model(u)`; the heading MSE is `coeff_task * mse` (Branch 0 → 0).
+- **Loss line** (`graph_trainer.py:2100`): `obs = observation_loss(...)` (voltage form under a `no_grad` teacher, or ROI form); `loss = coeff_task*mse + cosd + norm + tv + l1S + f_diff + g_diff + obs`. Call the teacher and `_sigma` through the **un-compiled** `eval_model` handle (pattern at `graph_trainer.py:2002`) to avoid `torch.compile` shape thrash.
 
-`L_voltage = lam_v * mean_{i in S} (sigmoid(h_pred_i) - sigmoid(h_target_i))^2` where `S` is the recorded subset. Apply on `sigmoid(h)` rather than raw h so the loss lives in firing-rate space (commensurable with TV and with the GNN's g_phi). Curriculum: weight tracks the existing `coeff_tail_loss` schedule, so voltage supervision turns on only after the heading curriculum has unrolled. Interaction with priors: `coeff_tv_circular` and `coeff_voltage_mse` are *not* mutually exclusive; a clean ablation needs both off, each alone, and both on. Monotonicity priors (`coeff_f_theta_diff`, `coeff_g_phi_diff`) stay independent of L_voltage. Grad-clip group stays the same; voltage gradients flow through `h_buf` into `W_rec` and into f_theta / g_phi for the GNN.
+This unifies the old §C/§D `loss_voltage_mse` and the old §J `loss_roi_mse` into the single `observation_loss`; Branches 0/1 are its voltage path, Branches 2/3 its ROI path.
 
-The teacher rollouts are computed **on the fly per batch**: the trainer holds a single frozen `DrosophilaCxTaskRNN` instance (Known-ODE $+$TV cv0, `${GNN_OUTPUT_ROOT}/log/drosophila_cx/drosophila_cx_pi_epg_tv_cv0/models/best_model_with_0_graphs_*.pt`) and calls `teacher(trials.stimulus)` under `no_grad()` immediately after each call to `generate_path_integration_batch(...)`. The result is stashed on `trials.voltage_target` and consumed by the loss. The teacher is small (156 neurons, scalar leak, sigmoid) so its forward pass adds milliseconds per step; pre-caching would cost $\sim$400 GB on disk for the same number of training batches and is not worth the complexity. The student gets fresh OU coverage every batch, matched 1-to-1 with the teacher's response to the same stimulus.
+## E. Performance: the bottleneck and the optimization (test-driven)
 
-**Heading target stays the original ground truth.** The teacher does *not* supply `theta_hd` or any heading-loss term. Both teacher and student see the same `trials.stimulus`, and `trials.target = (cos\theta_{hd}, sin\theta_{hd})` continues to come from `generate_path_integration_batch`. The teacher's only contribution is `h_buf` -> `trials.voltage_target`. This way the paper's claim is sharply scoped: "voltage supervision recovers the teacher's *implementation* while keeping the I/O ground truth identical to the existing pipeline".
+**Bottleneck:** the ROI branch's calcium recursion as a Python loop over T (≤1550) → O(T) graph depth, slow BPTT, T stored states. This is the only hot spot (the `(B,T,N)@(N,R)` projection with R≤18 is trivial; the voltage branch of Branch 0/1 has no recursion at all).
 
-## F. Experimental matrix
+**Strategy — each step validated against the sequential loop as oracle:**
 
-Teacher: **Known-ODE $+$TV cv0** (`config/drosophila_cx/drosophila_cx_pi_epg_tv_cv0.yaml`, checkpoints at `${GNN_OUTPUT_ROOT}/log/drosophila_cx/drosophila_cx_pi_epg_tv_cv0/models/best_model_with_0_graphs_*.pt`, highest-epoch picked by `_load`).
+1. **Pool-before-filter (exact).** `s=σ(h)` per neuron `(B,T,N)` → `s_roi = P@s (B,T,R)` → run the calcium filter on **R≤18** channels, not N=156. Valid because the leaky filter is linear with a _shared_ τ and pooling is linear, so `P·filter(s)=filter(P·s)`. ~9× fewer filter channels.
+2. **Conv, not loop.** The leaky integrator is an exponential IIR; replace the recursion with a depthwise **causal `conv1d`** using a truncated kernel `k[i]=α(1−α)^i`, `L=⌈log ε / log(1−α)⌉`. Fully parallel forward+backward, constant graph depth. FFT-conv fallback for long synthetic T.
+3. Keep the sequential loop only as the correctness oracle (never in the train path).
 
-Conditions to add (each x 10 CV folds):
+ROI input chain: feed `σ(h)` with `calcium_activation=identity` so `calcium(σ(h))` = rate→Ca→F (the right observation model).
 
-1. **GNN no-TV, voltage 1%** — 2 neurons (1 EPG + 1 PEN), random per fold.
-2. **GNN no-TV, voltage 10%** — ~15 neurons stratified across EPG/PEN/Delta7/PEG.
-3. **GNN no-TV, voltage 100%** — full N=156 trace (upper bound).
-4. **GNN $+$TV, voltage 10%** — TV + voltage composition test.
-5. **Known-ODE +voltage 10%** — control: does the Known-ODE already saturate?
-6. **GNN no-TV, voltage 10%, teacher = Known-ODE no-TV** — does teacher choice matter?
+## F. Tester (explicit deliverable) — `tests/test_observation_loss.py` (CPU, fast)
 
-Negative controls (must appear in agentic-loop provenance per project rule): **GNN no-TV, voltage 10%, random teacher** (untrained ckpt) — expect L_voltage minimised, heading degraded.
+- **Equivalence** (the optimization's correctness gate): conv/pool fast-path == sequential-reference within `atol`, over random shapes and τ values.
+- **gradcheck**: `torch.autograd.gradcheck` (float64, tiny B,T,N,R) on `observation_loss` → differentiability + correct grads (voltage and ROI branches).
+- **pool-commute**: `P·filter(s) == filter(P·s)`.
+- **masking**: NaN frames / dropped ROIs → masked MSE correct, finite grads.
+- **voltage branch**: identity projection == plain masked MSE to teacher `h`.
+- **benchmark**: forward+backward wall-clock + peak memory at `(B=64, T=1550, N=156, R=18)`; assert fast-path under budget and ≥K× faster than the naive loop (GPU when available).
+- **Gate A′** (generator byte-equality after the extraction): regenerate one `calcium_type=leaky` dataset pre/post, `sha256` the `fluorescence`/`y` zarr on all four activations — identical.
 
-## G. Identifiability metrics
+## G. Experimental matrix
 
-Mirror `drosophila.tex` Section 4 (CV-mean tables) plus three new columns:
+Branch 0 teacher: **Known-ODE no-TV cv0** (`drosophila_cx_pi_epg_no_tv_cv0`). Branch 1 teacher: **Known-ODE +TV cv0** (`drosophila_cx_pi_epg_tv_cv0`, highest-epoch checkpoint picked by `_load`). Conditions (each × CV folds):
 
-- **per-edge W_rec recovery R^2** between student and teacher `J_effective` after sign-locking (existing `nullspace.py:620-640` style).
-- **per-cell-type MI alignment** between `sigmoid(h_pred)` and `sigmoid(h_target)` aggregated by `neuron_types` -> reuse `hd_mi_summary` axis labels for direct continuity.
+- **B0.** GNN, voltage 100%, no task, teacher = no-TV cv0 — the recovery floor (§C, §I criteria).
+- **1.** GNN no-TV, voltage 1% — 2 neurons (1 EPG + 1 PEN), random per fold.
+- **2.** GNN no-TV, voltage 10% — ~15 neurons stratified across EPG/PEN/Delta7/PEG.
+- **3.** GNN no-TV, voltage 100% — full N=156 (task-on upper bound).
+- **4.** GNN +TV, voltage 10% — TV + voltage composition.
+- **5.** Known-ODE + voltage 10% — control: does the Known-ODE already saturate?
+- **6.** GNN no-TV, voltage 10%, teacher = Known-ODE no-TV — does teacher choice matter?
+- **R2/R3.** ROI 100% (Branch 2) and hybrid ρ ∈ {8:1, 4:1, 1:1, 1:4} (Branch 3).
+
+Negative control (must appear in agentic-loop provenance per project rule): **GNN no-TV, voltage 10%, random teacher** (untrained ckpt) — expect the observation loss minimised, heading degraded.
+
+## H. Identifiability metrics
+
+Mirror `drosophila.tex` Section 4 (CV-mean tables) plus:
+
+- **per-edge W_rec recovery R²** between student and teacher `J_effective` after sign-locking (`nullspace.py:620-640` style).
+- **per-cell-type MI alignment** between `sigmoid(h_pred)` and `sigmoid(h_target)` aggregated by `neuron_types` → reuse `hd_mi_summary` axis labels.
 - **embedding silhouette** on learned `a_i` (GNN only) clustered by ground-truth type.
-- Existing metrics retained: `r_roll_1k`, `bump_FWHM`, `chi^2` on cos/sin, four-classes total (used in `cx_four_classes`).
+- Existing: `r_roll_1k`, `bump_FWHM`, `chi^2` on cos/sin, four-classes total.
+- **Branch 2/3 (no GT `W`)**: replace per-edge R² with ROI ΔF/F RMSE on held-out recordings, bump-phase vs GT heading (circular r), and held-out-neuron / held-out-time ROI prediction.
 
-Tables in the next paper should re-use the column layout of `fig_drosophila_cx_four_classes.py` so the reader sees voltage rows slotted beside the existing 6 conditions.
+Tables in the next paper re-use the column layout of `fig_drosophila_cx_four_classes.py`.
 
-## H. First sanity-check experiment: parameter recovery from a Known-ODE teacher
+## I. Recovery diagnostics & sanity check (Branch 0 and Branch 1)
 
-Before any of the F-matrix conditions, the framework should be validated on a **fully known teacher**: train a `DrosophilaCxTaskGNN` student against the `DrosophilaCxTaskRNN` Known-ODE teacher at `${GNN_OUTPUT_ROOT}/log/drosophila_cx/drosophila_cx_pi_epg_tv_cv0` (`+TV` cv0, EPG-only readout, the bump-localised solution that motivates the paper's canonical alignment), with **100% voltage recording** so $L_{\mathrm{voltage}}$ is the only identifiability bottleneck. The teacher has three closed-form parameters that the GNN must recover:
+The teacher (`no_tv_cv0` for Branch 0, `tv_cv0` for Branch 1) has three closed-form quantities the GNN must recover:
 
-1. **The scalar leak $\tau = 0.1$ s** — the teacher's drift is $-\hat h_i / \tau$ for every neuron. The GNN's drift is $f_\theta(\hat h_i, \mathbf{a}_i, m{=}0)$; if recovery works, $f_\theta$ should converge to a line of slope $-1/\tau \approx -10$ for every neuron over its operating range, irrespective of $\mathbf{a}_i$ (i.e. the per-neuron $\tau_i$ derived from the slope should collapse onto the scalar 0.1 s).
-2. **The sigmoid firing-rate non-linearity $\sigma(h)$** — the teacher uses the standard sigmoid for the synaptic activation. The GNN's $g_\phi(\hat h_j, \mathbf{a}_j)$ should converge to that sigmoid, again irrespective of $\mathbf{a}_j$.
-3. **The per-edge weights $\hat W_{ij}$** on the connectome support — the teacher has a single trained $\hat W^{\mathrm{rec}}$ matrix. The GNN learns $\hat W_{ij}$ at the same edge positions. Identifiability under voltage supervision means the GNN's $\hat W$ should match the teacher's on the connectome support.
+1. **Scalar leak `τ`** — teacher drift is `−ĥ_i/τ`. The GNN's `f_θ(ĥ_i, a_i, m=0)` should converge to a line of slope `−1/τ` for every neuron, irrespective of `a_i` (per-neuron `τ_i` collapses onto the scalar).
+2. **Sigmoid firing-rate non-linearity** — the GNN's `g_φ(ĥ_j, a_j)` should converge to the sigmoid, irrespective of `a_j`.
+3. **Per-edge weights `Ŵ_ij`** on the connectome support — the GNN's `Ŵ` should match the teacher's.
 
-These are the three quantities that the current paper explicitly says are *not* recovered under task-only supervision (Section "GNN with learned neuronal dynamics: the implementation is not uniquely identified by the task"). The sanity check measures whether voltage supervision closes that gap.
+These are exactly the three quantities the current paper says are *not* recovered under task-only supervision. **In-training diagnostics** extend `fig_evolution.py` (do not build from scratch):
 
-**In-training diagnostics (extend `fig_evolution_pi_gnn_*.png` rather than building from scratch):**
+- **Panel k (drift / τ)**: learned `f_θ(ĥ_i, a_i, m=0)` in blue, reference `−ĥ/τ` in red; title annotates the linear-fit slope; summary `τ_eff = −1/mean(slope_i)`.
+- **Panel l (signalling / σ)**: learned `g_φ(ĥ_j, a_j)` in blue, reference `σ(ĥ)` in red; title annotates ℓ2 distance.
+- **New panel m (W recovery)**: scatter teacher `Ŵ_ij` (x) vs student `Ŵ_ij` (y) on the support; identity line; title annotates Pearson r / R².
 
-The existing `figures/drosophila_cx/fig_evolution.py` already plots the learned $f_\theta$ (panel k) and $g_\phi$ (panel l) every epoch. For the voltage-recovery runs, overlay the teacher's ground truth on those panels:
+Each is a one-shot scalar per epoch (`τ_eff`, sigmoid-ℓ2, `R²_W`) onto the trainer's `metrics.log`, so the agentic loop uses them as recovery scores alongside `r_roll_1k`. **Pass:** `τ_eff = 0.1 ± 0.02` s (or the teacher's `τ`), sigmoid-ℓ2 < 0.05, `R²_W > 0.95` across folds. If any fails, the supervision in that branch is *not* sufficient and the paper localises which piece (e.g. `g_φ` needs a monotonicity prior on top). If all pass, the partial-recording rows become the quantitative recovery curve.
 
-- **Panel k (drift / $\tau$ recovery)**: Per-neuron learned $f_\theta(\hat h_i, \mathbf{a}_i, m{=}0)$ in blue, the reference line $-\hat h / \tau$ for $\tau = 0.1$ s overlaid in red. Annotate the linear-fit slope of the learned $f_\theta$ in the panel title (`"slope = ${1/tau_eff:.2f} s^-1"`). Single-number summary: $\tau_{\mathrm{eff}} = -1 / \mathrm{mean}(\mathrm{slope}_i)$ vs. GT $\tau = 0.1$ s.
-- **Panel l (signalling function / $\sigma$ recovery)**: Per-neuron learned $g_\phi(\hat h_j, \mathbf{a}_j)$ in blue, reference $\sigma(\hat h)$ overlaid in red. Annotate $\ell_2$ distance to sigmoid in the panel title.
-- **New panel m (per-edge weight recovery)**: Scatter of teacher $\hat W^{\mathrm{rec}}_{ij}$ (GT, x-axis) vs. student $\hat W_{ij}$ (learned, y-axis) over the connectome support; identity line in red. Annotate Pearson $r$ and $R^2$ in the title. Mirror the per-cell-type colouring of the existing $\hat W^{\mathrm{rec}}$ visualisations.
+## J. Agentic-loop optimization (reuse the existing scheme)
 
-Each of these three diagnostics is a one-shot scalar per epoch ($\tau_{\mathrm{eff}}$, sigmoid-$\ell_2$, $R^2_W$) that drops onto the same training-time `metrics.log` the trainer already writes, so the agentic loop can use them as recovery scores in addition to $r_{\mathrm{roll},1k}$.
+The repo's exploration harness (`claude:` config block + `cv_runner` fold/seed rotation, histories in `log/Claude_exploration/LLM_*`) drives Branches 0/2/3 the same way it tunes cx configs:
 
-**Pass/fail criterion for the sanity check (and headline result for the next paper if it passes):**
+- **HP search:** `coeff_observation`, `mix_ratio`, `recorded_fraction`, `calcium_tau/alpha`, registration on/off → maximize the §H/§I identifiability metrics (Branch 0/1: `τ_eff`, `g_φ`-ℓ2, `R²_W`; Branch 2/3: ROI-RMSE, bump-vs-GT-heading circular-r, held-out prediction).
+- New `_v1` configs slot in as fresh search targets with distinct dataset/log names; the loop already writes `*_Claude_memory.md`.
 
-After the full curriculum, with $\sim$100% of neurons recorded, the GNN should converge to $\tau_{\mathrm{eff}} = 0.1 \pm 0.02$ s, sigmoid-$\ell_2 < 0.05$ over the visited operating range, and $R^2_W > 0.95$ on the connectome support — all across 10 CV folds. If any of the three fails, voltage supervision alone is *not* sufficient to identify the teacher's ODE, and the next paper has to localise which piece (e.g. $g_\phi$ requires monotonicity prior on top of voltage MSE) is missing. If all three pass, the F-matrix's "1% / 10% recording" rows become the quantitative recovery curve.
+## K. Artifact safety, golden gates, and step sequence (zebrafish discipline)
 
-## I. Composition with zebrafish circuit registry
+**`_v1` artifact safety:** new configs only — `drosophila_cx_obs_branch0_v1` / `_voltage_v1` / `_roi_v1` / `_hybrid_v1` → new dataset/log dirs. The `cv0` teachers (`no_tv_cv0`, `tv_cv0`) and `real_twocolor/` are **read-only**; the trainer never writes there.
 
-This refactor leans on the existing `NeuronState` / `NeuronTimeSeries` / `TaskTrials` triple that both biomodels already share, so no new abstractions are needed on the drosophila side to support voltage supervision. It does **not** introduce `circuits/` / `tasks/` / `io_mappings/` directories on the drosophila side yet — that is deferred until a second drosophila circuit (e.g. FB / NO) is needed. The voltage refactor sits orthogonally: the existing `DrosophilaCxTaskRNN` / `DrosophilaCxTaskGNN` keep their `_load_connectome` hook (lines 84-95 and 86-97), and a future registry move would simply wrap that hook. Byte-equality contract (golden gate B in the zebrafish doc) must hold for `coeff_voltage_mse=0`: a config with the new fields omitted produces identical training trajectories to the pre-refactor branch. Run gate D (omitted-vs-explicit-default) before merging.
+**Golden gates:** **A′** calcium-extraction hash (§F) · **B′** `cv0` inference golden (CPU constant-ω rollout, byte-identical after edits) · **C′** `coeff_observation=0` 1-epoch `metrics.log` matches pre-change · **D′** omitted-vs-explicit-default config-equivalence (byte-equal params + first-100-iter metrics).
+
+**Step sequence (each individually shippable, `coeff=0` byte-equal):**
+
+- **Step 0** — capture A′/B′/C′ baselines; tag the `cv0` source state.
+- **Step 1 — Branch 0.** Add `models/observation_loss.py` (voltage path; no generator touch), the config fields, the 3 guarded blocks (teacher + voltage + `coeff_task` gate), the teacher-rollout dump, `drosophila_cx_obs_branch0_v1.yaml`. **Unblocks the rest.** Accept: D′ byte-equal at 0; with `coeff>0` and `coeff_task=0`, the §I recovery (`τ_eff`, sigmoid-ℓ2, `R²_W`) passes against `no_tv_cv0`.
+- **Step 2 — Branch 1 + calcium extraction.** Turn the task back on (`coeff_task=1`), teacher = `tv_cv0`, run the §G recording-fraction sweep. Extract `voltage_to_fluorescence`; add the tester (§F). Accept: A′ identical hashes; tester green; recovery curve vs recorded-fraction.
+- **Step 3 — Branch 2 (real ROI).** Add `build_roi_pooling` + `load_real_pooled` + `real_batch` + the fast pooled-conv path; `drosophila_cx_obs_roi_v1.yaml`. Accept: masked ROI RMSE drops on held-out recs; benchmark under budget; D′ still byte-equal at 0.
+- **Step 4 — Branch 3 (hybrid).** Wire `mix_ratio`; `drosophila_cx_obs_hybrid_v1.yaml` + CV folds; launch the §J agentic search. Accept: `mix_ratio=0`→Step-2, `=1`→real-only; both losses track; recovery curve vs ρ.
+
+**Deferred to v2 (named, not built now):** arbor-weighted `P` from skeletons (`fig_cx_anatomy_3d_voltage_anim.py:_extract_per_neuron_segments`/`_eb_wedge_polygons_3d`, validated against the single raw `.tif`); per-fly circular ROI registration. v1 leans on heading MSE (offset-invariant) + the voltage teacher for ring shape.
+
+## L. Composition with the zebrafish circuit registry + verification
+
+This refactor leans on the existing `NeuronState` / `NeuronTimeSeries` / `TaskTrials` triple both biomodels share, so no new abstractions are needed. It does **not** introduce `circuits/` / `tasks/` / `io_mappings/` on the drosophila side yet — deferred until a second drosophila circuit. The byte-equality contract (golden gate B in the zebrafish doc) holds for `coeff_observation=0`: a config omitting the new fields trains identically to the pre-refactor branch. Run gate D′ before merging.
+
+**Verification (end-to-end):**
+
+1. `tests/test_observation_loss.py` green (equivalence, gradcheck, pool-commute, masking, benchmark).
+2. Gates A′–D′ pass.
+3. Step-1 Branch 0: §I recovery passes against `no_tv_cv0` (`τ_eff`, sigmoid-ℓ2, `R²_W`).
+4. Step-3 Branch 2: held-out masked ROI RMSE↓, decoded bump tracks GT `heading_rad`.
+5. Agentic loop produces a recovery curve vs `recorded_fraction` (Branch 1) and `mix_ratio` (Branch 3).
