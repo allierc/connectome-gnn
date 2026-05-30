@@ -969,8 +969,10 @@ def plot_sparsify_figure(W_gt, W_sparse_type, W_sparse_unit,
         2, n_col + 1,
         width_ratios=[1.0] * n_col + [0.035],
         height_ratios=[1.0, 0.50],
-        wspace=0.32, hspace=0.32,
-        left=0.06, right=0.96, top=0.94, bottom=0.08,
+        # extra row gap so the top-row "presynaptic" x-label + rotated tick
+        # labels clear the bottom-row panel titles (larger fonts).
+        wspace=0.32, hspace=0.62,
+        left=0.06, right=0.96, top=0.93, bottom=0.09,
     )
     ax_top = [fig.add_subplot(gs[0, j]) for j in range(n_col)]
     cax    = fig.add_subplot(gs[0, n_col])
@@ -1001,14 +1003,14 @@ def plot_sparsify_figure(W_gt, W_sparse_type, W_sparse_unit,
             ax.axvline(x, color="k", lw=0.3, alpha=0.5)
             ax.axhline(x, color="k", lw=0.3, alpha=0.5)
         ax.set_xticks(centres)
-        ax.set_xticklabels(tick_labels, fontsize=7, rotation=45, ha="right")
+        ax.set_xticklabels(tick_labels, fontsize=11, rotation=45, ha="right")
         ax.set_yticks(centres)
-        ax.set_yticklabels(tick_labels, fontsize=7)
-        ax.set_title(title, fontsize=10)
-        ax.set_xlabel("presynaptic", fontsize=8)
-        ax.set_ylabel("postsynaptic", fontsize=8)
+        ax.set_yticklabels(tick_labels, fontsize=11)
+        ax.set_title(title, fontsize=16)
+        ax.set_xlabel("presynaptic", fontsize=13)
+        ax.set_ylabel("postsynaptic", fontsize=13)
     cb = fig.colorbar(im, cax=cax)
-    cb.ax.tick_params(labelsize=8)
+    cb.ax.tick_params(labelsize=12)
 
     # --- Bottom row: HD on one OU test trial under each W_rec --------------
     if hd_trial is not None:
@@ -1064,22 +1066,28 @@ def plot_sparsify_figure(W_gt, W_sparse_type, W_sparse_unit,
             ax.plot(t_axis, dec_wrap, color="black", lw=0.0,
                     marker=".", ms=1.0)
             ax.set_yticks([-np.pi, 0, np.pi])
-            ax.set_yticklabels([r"$-\pi$", "0", r"$\pi$"], fontsize=7)
+            ax.set_yticklabels([r"$-\pi$", "0", r"$\pi$"], fontsize=12)
             ax.set_ylim(-np.pi - 0.15, np.pi + 0.15)
-            ax.set_xlabel("time (s)", fontsize=8)
-            ax.set_ylabel("HD (rad)", fontsize=8)
-            ax.set_title(title, fontsize=10)
-            ax.tick_params(labelsize=7)
+            ax.set_xlabel("time (s)", fontsize=13)
+            ax.set_ylabel("HD (rad)", fontsize=13)
+            ax.set_title(title, fontsize=16)
+            ax.tick_params(labelsize=11)
 
-    # Corner panel labels (a-f) — matches the convention in
-    # docs/figure/fig_evolution.py.
-    for ax, letter in zip(
-        [axes[0, 0], axes[0, 1], axes[0, 2],
-         axes[1, 0], axes[1, 1], axes[1, 2]],
-        ["a", "b", "c", "d", "e", "f"],
-    ):
-        ax.text(-0.12, 1.02, letter, transform=ax.transAxes,
-                 fontsize=16, fontweight="bold", va="bottom", ha="right")
+    # Corner panel labels — top row then bottom row, left-to-right, so the
+    # 4-column (calibrated) figure reads (a-d) across the matrices and
+    # (e-h) across the HD panels (matches the caption). The 3-column figure
+    # falls back to (a-c)/(d-f).
+    if has_calib:
+        _label_axes = [axes[0, 0], axes[0, 1], axes[0, 2], axes[0, 3],
+                       axes[1, 0], axes[1, 1], axes[1, 2], axes[1, 3]]
+        _letters = ["a", "b", "c", "d", "e", "f", "g", "h"]
+    else:
+        _label_axes = [axes[0, 0], axes[0, 1], axes[0, 2],
+                       axes[1, 0], axes[1, 1], axes[1, 2]]
+        _letters = ["a", "b", "c", "d", "e", "f"]
+    for ax, letter in zip(_label_axes, _letters):
+        ax.text(-0.10, 1.04, letter, transform=ax.transAxes,
+                 fontsize=22, fontweight="bold", va="bottom", ha="right")
 
     fig.savefig(out_path, dpi=180, bbox_inches="tight")
     if out_path.endswith(".pdf"):
