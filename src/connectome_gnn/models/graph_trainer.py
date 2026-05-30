@@ -302,6 +302,16 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
     print(f"{_c}[TRAIN] model.W={_w.shape if _w is not None else 'N/A'}  "
           f"config.n_edges={config.simulation.n_edges}  "
           f"{'OK' if _w_match else 'MISMATCH'}{_X}")
+
+    # Branch-0 hard Eq-10 sign-lock: register the GT connectome sign on the
+    # model from ode_params.W so messages use |W|·sign_GT. gt_weights is in the
+    # same edge order as model.W (use_gt_edges=True path). No-op otherwise.
+    if getattr(model, 'lock_edge_signs_from_connectome', False):
+        model.set_edge_sign_from_weights(gt_weights)
+        _frac_neg = float((model._edge_sign < 0).float().mean())
+        print(f"{_G}[TRAIN] Eq-10 hard sign-lock ON: registered {tuple(model._edge_sign.shape)} "
+              f"GT signs (frac_neg={_frac_neg:.3f}){_X}")
+        _logger.info(f'Eq-10 hard sign-lock: |W|·sign_GT, frac_neg={_frac_neg:.3f}')
     list_loss = []
 
     # Initialize embedding with equidistant points per cell type

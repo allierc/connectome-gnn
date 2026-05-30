@@ -580,6 +580,14 @@ class GraphModelConfig(BaseModel):
     # enforced via the mask, but Dale's law is relaxed. DrosophilaCxTaskRNN uses
     # `wrec_param` below instead.
     lock_edge_signs: bool = True
+    # NeuralGNN voltage-recovery path (Branch 0): hard Eq-10 sign-lock against
+    # the GT connectome. When True, the per-edge effective weight in the
+    # message is `|W| · sign_GT` (sign from ode_params.W, set by data_train_gnn
+    # after model build) — only magnitudes are learned. Distinct from the
+    # emergent `coeff_W_sign`/`dale_law` (which pick each neuron's own sign,
+    # not the connectome's). Default False keeps every existing neural_gnn
+    # config byte-equivalent.
+    lock_edge_signs_from_connectome: bool = False
     # DrosophilaCxTaskRNN: recurrent-matrix parameterisation.
     #   "edge_magnitude" — W_rec = |S| ⊙ sign(W_con); sparsity locked to W_con,
     #                      per-edge sign locked to connectome (Dale).
