@@ -299,6 +299,10 @@ validate_registry()
 
 def get_model_W(model) -> torch.Tensor:
     """Get the weight matrix from a model, handling low-rank factorization."""
+    # Prefer the effective weight (|W|·sign_GT under the hard sign-lock); when
+    # the lock is off this equals the raw W, so existing models are unaffected.
+    if hasattr(model, 'effective_W'):
+        return model.effective_W
     if hasattr(model, 'W'):
         return model.W
     elif hasattr(model, 'WL') and hasattr(model, 'WR'):

@@ -242,6 +242,18 @@ class NeuralGNN(nn.Module):
             W_init = torch.randn(n_w, device=self.device, dtype=torch.float32)
         self.W = nn.Parameter(W_init[:, None], requires_grad=True)
 
+        # Branch-0 hard Eq-10 sign-lock: when enabled, the effective per-edge
+        # weight in the message is |W|·sign_GT (the GT sign is registered by the
+        # trainer from ode_params.W via set_edge_sign_from_weights). Only the
+        # magnitudes are learned. Default off keeps every existing neural_gnn
+        # config byte-equivalent (the free-sign learned W path).
+        self.lock_edge_signs_from_connectome = bool(
+            getattr(model_config, "lock_edge_signs_from_connectome", False)
+        )
+        # registered as a buffer slot (None) so the trainer can assign the GT
+        # sign tensor later without a re-registration clash.
+        self.register_buffer("_edge_sign", None, persistent=False)
+
         if "visual" in model_config.field_type:
             if "instantNGP" in model_config.field_type:
                 # to be implemented
@@ -625,14 +637,54 @@ class NeuralGNN(nn.Module):
         if self.g_phi_positive:
             g_phi_out = g_phi_out**2
 
-        # weight by per-edge W
-        edge_msg = self.W[edge_W_idx] * g_phi_out  # (E, 1)
+        # weight by per-edge W (|W|·sign_GT when the hard sign-lock is on)
+        edge_msg = self._effective_edge_weights(edge_W_idx) * g_phi_out  # (E, 1)
 
         # aggregate: scatter_add messages to destination nodes
         msg = torch.zeros(v.shape[0], edge_msg.shape[1], device=self.device, dtype=v.dtype)
         msg.scatter_add_(0, dst.unsqueeze(1).expand_as(edge_msg), edge_msg)
 
         return msg
+
+    def _effective_edge_weights(self, edge_W_idx: torch.Tensor) -> torch.Tensor:
+        """Per-edge weight used in messages.
+
+        Hard Eq-10 sign-lock: ``|W|·sign_GT`` when
+        ``lock_edge_signs_from_connectome`` is on and the GT sign buffer is set;
+        otherwise the free-sign learned ``W`` (unchanged legacy behaviour).
+        """
+        W_e = self.W[edge_W_idx]
+        if self.lock_edge_signs_from_connectome and self._edge_sign is not None:
+            return W_e.abs() * self._edge_sign[edge_W_idx]
+        return W_e
+
+    @property
+    def effective_W(self) -> torch.Tensor:
+        """Full per-edge weight actually used in the dynamics — `|W|·sign_GT`
+        under the hard sign-lock, else the raw `W`. Metrics and plots should
+        read THIS (via get_model_W), not the raw parameter, whose sign is free
+        because only its magnitude enters the message."""
+        if self.lock_edge_signs_from_connectome and self._edge_sign is not None:
+            return self.W.abs() * self._edge_sign
+        return self.W
+
+    def set_edge_sign_from_weights(self, gt_weights: torch.Tensor) -> None:
+        """Register per-edge GT sign for the hard Eq-10 sign-lock (|W|·sign_GT).
+
+        ``gt_weights``: (n_edges,) or (n_edges, 1) GT effective weights with the
+        sign embedded (e.g. ``ode_params.W``), in the SAME edge order as the
+        model's ``W`` (i.e. ``use_gt_edges=True`` so ``edges == ode_params
+        .edge_index``). Any null edges get sign +1.
+        """
+        w = gt_weights.detach().reshape(-1).to(self.device)
+        sign = torch.sign(w).to(torch.float32)
+        n_w = self.n_edges + self.n_extra_null_edges
+        if sign.numel() < n_w:
+            pad = torch.ones(n_w - sign.numel(), device=self.device, dtype=torch.float32)
+            sign = torch.cat([sign, pad], dim=0)
+        elif sign.numel() > n_w:
+            sign = sign[:n_w]
+        self._edge_sign = sign[:, None]  # assign into the pre-registered buffer slot
 
     def forward(self, state: NeuronState, edge_index: torch.Tensor, data_id=[], k=[], return_all=False, **kwargs):
         """Forward pass: compute du/dt from neuron state and connectivity.
