@@ -69,9 +69,9 @@ parameterisations are trained on the same input--output map under
 regulariser on the EPG ring:
 a Known-ODE RNN, a frozen-connectome control, a fully connected RNN,
 and a message-passing GNN with learned neuronal signalling functions.
-The frozen-connectome control fails to reach path-integration accuracy ($p_{\mathrm{acc}} = 0.29$, 0/10 folds above $|r| \ge 0.9$); the non-trivial residual $|r| = 0.669$ shows the raw connectome fixes topology while training supplies the integrator gain;
+The frozen-connectome control fails to reach path-integration accuracy ($p_{\mathrm{acc}} = 0.29$, 0/10 folds above $|r| \ge 0.9$);
 the fully connected RNN converges only intermittently (3/10); the Known-ODE RNN and
-the GNN converge reliably (10/10 with TV). Across folds the learned
+the GNN converge reliably. Across folds the learned
 recurrent weights cluster more tightly with one another than with the
 raw hemibrain template, indicating that training supplies edge
 magnitudes the topology alone does not. The GNN reaches comparable
@@ -83,6 +83,20 @@ not a unique circuit implementation. Resolving these degeneracies will require a
 \end{abstract}
 
 \section{Introduction}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{figure/fig_cx_anatomy_3d.png}
+  \caption{\textbf{Anatomy of the 156 central-complex neurons modelled in this study and the flow of heading information through the circuit.}
+\textbf{(a)} Three-dimensional skeleton render of the seven CX cell classes (EPG, EPGt, PEN$_a$, PEN$*b$, $\Delta7$, PEG and ER6) overlaid on the major neuropils: protocerebral bridge (PB), fan-shaped body (FB), ellipsoid body (EB), noduli (NO) and bulb (BU$*{L/R}$). The view is rotated so dorsal is up, with PB at the top and the EB ring at the bottom. Colours identify cell types and are used consistently throughout the manuscript.
+
+The principal heading-direction pathway runs from EPG dendrites in the EB, where the activity bump is represented, to EPG axonal terminals in the PB, where heading information is distributed to downstream PEN, PEG and $\Delta7$ populations. PEN neurons receive angular-velocity input and project back toward the EB through the PB--NO pathway, providing the rotational drive that shifts the bump. $\Delta7$ neurons form broad inhibitory interactions across PB glomeruli, while PEG neurons participate in recurrent loops linking PB and EB. Together these populations implement the ring-attractor dynamics underlying path integration.
+
+\textbf{(b)} Soma locations of the same neurons. Cell bodies lie outside the neuropils within the surrounding cortex and connect to their arborisations through primary neurite tracts. The ring structure visible in the EB is therefore not a ring of somata but a ring of dendritic and axonal arborisations distributed across EB wedges. EPG, PEN, PEG and $\Delta7$ neurons are organised according to PB glomeruli and EB sectors, providing the anatomical substrate for the travelling activity bump observed during heading integration. The same colour scheme is used in the connectivity (\cref{fig:connectome_summary}) and information-coding analyses (\cref{fig:hd_mi_summary,fig:omega_mi_summary}).
+}
+
+  \label{fig:cx_anatomy_3d}
+\end{figure}
 
 
 \section{Methods}
@@ -188,7 +202,7 @@ The GNN hyperparameter space (embedding dimension, MLP widths and depths, the $\
 \noindent\emph{Why the agentic loop is methodologically primordial.} In high-dimensional recurrent systems, optimisation failure is not itself strong evidence against a mechanistic hypothesis. The non-convergence of a parameterisation may reflect poor hyperparameter selection, unstable training dynamics, or an unfavourable basin of the optimisation landscape rather than the absence of a valid solution. The agentic optimisation loop is therefore not merely a performance tool but a methodological requirement: without extensive closed-loop exploration of the training regime, it is easy to mistake optimisation failure for biological falsification.
 
 \medskip
-\noindent\emph{Two-stage agentic protocol.} We run each parameterisation through \emph{two} agentic loops with distinct objectives. The first loop is goal-driven: it searches the hyperparameter space until $r_{\mathrm{roll},1k}$ saturates at the behavioural ceiling, establishing that the parameterisation admits a converging recipe at all. The second loop is knowledge-driven: starting from the first loop's winner as a known floor, it conducts systematic single-axis sweeps across all hyperparameter families — learning rates, stabilisers, curriculum, regularisation, initialisation, architecture — under a strict causality rule (exactly one parameter changes per slot), interleaved with robustness batches (identical configuration, varied seeds) to separate genuine effects from seed variance. The two-stage split is essential because the first loop produces only the existence proof ("there is a recipe that converges") whereas the second produces the causal map the paper's interpretive claims rely on: which hyperparameters explain variance in the converged metric, which failure modes the parameterisation exhibits when training breaks, how robust the converged recipe is across seeds. Collapsing the two stages into a single optimisation pass yields a winning configuration without the mechanistic understanding such conclusions require.
+\noindent\emph{Two-stage agentic protocol.} We run each parameterisation through \emph{two} agentic loops. The first is goal-driven: it searches the hyperparameter space until $r_{\mathrm{roll},1k}$ saturates at the behavioural ceiling, proving the parameterisation admits a converging recipe. The second is knowledge-driven: from that winner, it runs systematic single-axis sweeps across all hyperparameter families (learning rates, stabilisers, curriculum, regularisation, initialisation, architecture) under a strict one-parameter-per-slot causality rule, interleaved with varied-seed batches to separate genuine effects from seed variance. The split matters because the first loop yields only an existence proof, whereas the second yields the causal map our interpretive claims rely on: which hyperparameters explain variance in the converged metric, which failure modes appear when training breaks, and how robust the recipe is across seeds.
 
 \paragraph{Mutual-information estimators.}\label{method:MI}
 We use mutual information to quantify how strongly each unit's
@@ -271,54 +285,7 @@ scatters / stacked-bar are reported in \cref{tab:cx_four_classes,fig:cx_four_cla
 
 \section{Results}
 
-\begin{figure}[H]
-  \centering
-  \includegraphics[width=\textwidth]{figure/fig_cx_anatomy_3d.png}
-  \caption{\textbf{Anatomical morphology of the 156 hemibrain CX
-  neurons modelled in this paper.} \textbf{(a)} 3-D skeleton render
-  of the seven cell types (EPG, EPGt, PEN$_a$/PEN$_b$, $\Delta 7$,
-  PEG, ER6; $n$ per type in the legend) overlaid on the neuropil
-  outlines of EB, PB, FB, NO and BU$_{L/R}$ (grey silhouettes).
-  View flipped so dorsal is up: PB at the top, FB in the middle,
-  EB ring at the bottom, BU$_{L/R}$ on the right.
-  \textbf{(b)} Same view restricted to the cell bodies. Each neuron
-  contributes its soma 3-D mesh, recovered from the hemibrain
-  segmentation by cropping the full per-neuron mesh to a sphere of
-  radius $1.4\,r_{\mathrm{soma}}$
-  around the soma node identified in the SWC skeleton (the soma is
-  the only node with radius $\gg$ the segmental baseline). The two
-  panels show \emph{spatially disjoint} compartments of the same set
-  of neurons: in (a) the dense ring / moustache / fan structures
-  (EB, PB, FB) are \emph{neuropils} --- regions of axo-dendritic
-  arborisation with no cell bodies inside --- and in (b) the somata
-  sit in the cortex around and above those neuropils, each connected
-  to its neuropil arbor by a thin primary-neurite tract visible in
-  (a). The EB ring in particular is therefore not a ring of cell
-  bodies but the toroidal neuropil substrate the EPG / PEN /
-  $\Delta 7$ arbors tile to support the ring-attractor dynamics.
-  In (a), the EPG axons terminate in the PB (top, 18 glomeruli per
-  the L1--L9 / R1--R9 numbering of \citet{hulse2021}) and their
-  dendrites tile the 16 wedges of the EB ring (centre);
-  $\Delta 7$ arborises across multiple PB glomeruli; ER6 lies
-  largely outside the CX core (right). Cell bodies (b) sit in the
-  cortex with no overlap with the neuropils in (a).
-  Cortical cell bodies of each population sit outside the neuropil
-  envelope in a stereotyped pattern --- e.g.\ the four ER6 somata
-  cluster in one anatomically distinct location while the 42
-  $\Delta 7$ somata wrap above the PB. The same colour assignment is used for
-  the per-cell-type bars in
-  \cref{fig:hd_mi_summary,fig:omega_mi_summary} and the row blocks
-  in \cref{fig:connectome_summary}, so the morphology, connectivity
-  and HD coding panels can be read against each other neuron type
-  by neuron type.}
-  \label{fig:cx_anatomy_3d}
-\end{figure}
-
 We compare four recurrent parameterisations on the same path-integration task, each with the EPG-only readout fixed and each evaluated under 10-fold cross-validation on independently seeded folds. The nominal training recipe runs without the EPG-ring TV regulariser ($\mathcal{L}_{\mathrm{tv}}$ of \cref{eq:cx_tv}; $\lambda_{\mathrm{tv}} = 0$); for the two convergent architectures (Known-ODE RNN and GNN) we additionally train paired $+$TV variants that turn the regulariser on, giving six conditions in total. The fully connected RNN and the frozen $W^{\mathrm{rec}}$ control are run only in the nominal no-TV configuration --- the former because TV did not improve its already-rare convergence, the latter because $\hat W^{\mathrm{rec}}$ is held fixed and the EPG-ring activity is determined by the encoder/decoder paths alone. The full set of per-condition learning rates and regularisation coefficients is listed in \cref{tab:cv_hyperparams} (Appendix B). Within each condition we report mean $\pm$ s.d.\ of $|r_{\mathrm{roll},1k}|$, path-integration accuracy $p_{\mathrm{acc}}$, EPG-bump FWHM, and constant-$\omega$ RMSE across the 10 folds, plus the number of folds that cross $|r_{\mathrm{roll},1k}| \ge 0.9$ (\cref{tab:cv_summary}).
-\textbf{(i)~Known-ODE RNN} (\cref{method:RNN}, \cref{fig:evolution_pi}). Connectome topology and Dale signs are imposed via $\hat{W}^{\mathrm{rec}} = |\hat{S}|\odot\mathrm{sign}(W^{\mathrm{con}})$; the per-edge magnitudes $\hat{S}$, the four PEN velocity scalars, the encoder/decoder and biases train end-to-end. The nominal no-TV recipe converges 10/10 with $|r| = 1.000 \pm 0.000$ and RMSE $4.6 \pm 2.3^\circ$; the $+$TV variant also converges 10/10 ($|r| = 1.000 \pm 0.000$) but at a higher constant-$\omega$ RMSE of $13.3 \pm 7.3^\circ$. Adding TV therefore raises the constant-$\omega$ RMSE roughly three-fold without changing the Pearson-$r$ ceiling, but tightens the inter-fold $W^{\mathrm{rec}}$ cosine similarity from $0.66$ (no-TV) to $0.71$ ($+$TV) (\cref{fig:w_rec_comparison}).
-\textbf{(ii)~Frozen-$W^{\mathrm{rec}}$ control} (\cref{fig:evolution_pi_frozen}). Same architecture with $\hat{W}^{\mathrm{rec}} \equiv W^{\mathrm{con}}$ held at the raw hemibrain values throughout training; only the encoder, decoder, biases, and PEN scalars train. 0/10 folds cross the $|r| \ge 0.9$ threshold; the mean $|r| = 0.669 \pm 0.094$ is non-trivial (the bump moves in the correct direction) but the path-integration accuracy collapses ($p_{\mathrm{acc}} = 0.29 \pm 0.13$, RMSE $= 95.7 \pm 16.3^\circ$): the connectome's nominal magnitudes set the right sign and topology of the recurrent operator but fail the gain that the heading readout requires.
-\textbf{(iii)~Fully connected RNN} (\cref{fig:evolution_pi_fc}). The connectome topology mask is dropped; only the column-wise Dale sign of each presynaptic neuron is enforced. Only 3/10 folds converge ($|r| = 0.535 \pm 0.360$ across all folds, $p_{\mathrm{acc}} = 0.93 \pm 0.06$, RMSE $= 68.9 \pm 52.8^\circ$): without the connectome topology mask and with the EPG-only readout, the optimiser must discover both the support and the magnitudes from scratch and rarely succeeds.
-\textbf{(iv)~Message-passing GNN} (\cref{fig:evolution_pi_gnn}). The dense recurrent operator is replaced by $f_\theta, g_\phi$ MLPs over a per-neuron embedding $\mathbf{a}_i$ (\cref{eq:cx_gnn_dynamics}); the leak and firing-rate non-linearity must emerge from these MLPs. The nominal no-TV recipe converges 9/10 ($|r| = 0.930 \pm 0.210$, one collapsed fold drags the mean), with the converged folds reaching RMSE $= 4.6 \pm 3.1^\circ$; the $+$TV variant converges 10/10 with $|r| = 1.000 \pm 0.001$ and RMSE $= 6.4 \pm 4.6^\circ$. The inter-fold $W$ similarity is $0.50$ no-TV and $0.52$ $+$TV, in both cases noticeably below the Known-ODE values.
 
 \begin{table}[H]
   \centering
@@ -456,8 +423,7 @@ sigmoid firing-rate non-linearity, hemibrain connectome topology +
 Dale signs on $\hat W^{\mathrm{rec}}$ --- and trains only the
 per-edge magnitudes $\hat S$. Across 10 independently initialised CV
 folds (per-fold randomised simulation, training, and task seeds; the
-winning recipe of \cref{para:agent_gnn}), every fold converges to
-$r_{\mathrm{roll},1k} = 1.000 \pm 0.000$ at $T = 1000$ frames. The
+winning recipe of \cref{para:agent_gnn}), every fold converges: the no-TV recipe reaches $r_{\mathrm{roll},1k} = 1.000 \pm 0.000$ at $T = 1000$ frames with constant-$\omega$ RMSE $4.6 \pm 2.3^\circ$ ($10/10$ folds), and the $+$TV variant also converges $10/10$ at $|r| = 1.000 \pm 0.000$ but at a roughly three-fold higher RMSE of $13.3 \pm 7.3^\circ$, leaving the Pearson-$r$ ceiling unchanged while tightening the inter-fold cosine (below). The
 recovered $\hat h$ trajectories cover both saturating tails of the
 sigmoid (\cref{fig:function_dynamics}a, b: hexbin density of
 $(\hat h, \sigma(\hat h))$ over a $T = 10{,}000$ frame OU rollout
@@ -1205,6 +1171,65 @@ quantitative shuffling of borderline cells.
   \label{fig:cx_four_classes}
 \end{figure}
 
+\paragraph{Tuning-curve sharpness of the HD-coding cells.}
+\label{para:tuning_sharpness}
+Beyond the per-cell binary $\cls{R}\cup\cls{L}$ partition of
+\cref{para:four_classes}, the HD code can also be characterised by
+the \emph{sharpness} of the per-cell tuning curves. Following the
+procedure used for the zebrafish HD circuit
+\citep{petrucco2023}, we estimate per-neuron heading tuning curves
+$\bar r_i(\theta_k)$ on the OU rollout, compute a specificity
+$\specf_i \in [0, 1]$ (ratio of the magnitude of the centred-curve
+first Fourier coefficient to its $\ell_1$ size) and a preferred
+angle $\phi_i = \arg\!\big(\sum_k (\bar r_i(\theta_k) -
+\langle\bar r_i\rangle)\,e^{i\theta_k}\big)$ for every cell in
+$\cls{R}\cup\cls{L}$. The same four panels (example tuning curves,
+specificity histogram, centred unit-peak overlay, preferred-angle
+histogram) are computed for each of the six parameterisations
+(\cref{fig:cx_tuning_sharpness}). The five trainable conditions
+all produce sharp single-peaked tuning curves with FWHM in the
+$\sim 30\text{--}160^\circ$ range and well-defined preferred-angle
+distributions; the frozen-$W^{\mathrm{rec}}$ control (bottom row)
+shows flat curves and a degenerate preferred-angle histogram,
+consistent with the absence of a heading-tracking bump observed
+elsewhere (\cref{fig:evolution_pi_frozen,fig:task_traces}).
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{figure/fig_cx_tuning_sharpness.png}
+  \caption{\textbf{Tuning-curve sharpness of HD-coding cells across
+  the six parameterisations.} 6 rows $\times$ 4 columns. Rows top
+  to bottom: Known-ODE no-TV, Known-ODE $+$TV, GNN no-TV, GNN $+$TV,
+  fully connected, frozen $W^{\mathrm{rec}}$ (label rotated on the
+  left edge of each row).
+  \textbf{Column 1 (a, e, i, m, q, u):} mean-subtracted tuning curves
+  $\bar r_i(\theta) - \langle\bar r_i\rangle$ for three example
+  cells per condition --- two specific cells (blue, green) and one
+  non-specific cell (grey).
+  \textbf{Column 2 (b, f, j, n, r, v):} distribution of the
+  specificity $\specf_i$ over the cells in $\cls{R}\cup\cls{L}$
+  (\cref{fig:cx_four_classes,method:four_classes}); dashed red line
+  marks the retention cutoff $\specf^\star = 0.70$ (or the
+  $\cls{R}\cup\cls{L}$ median when fewer than $20\%$ of cells pass
+  the requested cut).
+  \textbf{Column 3 (c, g, k, o, s, w):} centred (peak at
+  $0^\circ$) and unit-peak-normalised tuning curves of the cells
+  that pass the specificity cut, drawn as thin grey lines. Bold
+  red curve: across-cell mean. Red band: across-cell
+  25--75\,percentile envelope. Black dashed: $\ell_2$-fit unit-peak
+  von~Mises $f_\star(\theta;\kappa) =
+  \exp\!\big(\kappa(\cos\theta-1)\big)$ as a parametric reference.
+  \textbf{Column 4 (d, h, l, p, t, x):} distribution of preferred
+  angles $\phi_i$ across the kept cells. Red dashed line marks
+  the uniform-coverage expectation $n_\mathrm{kept}/K$.
+  The five trainable conditions produce sharp, well-defined bumps
+  with the canonical von~Mises shape; the frozen-$W^{\mathrm{rec}}$
+  row (u--x) shows flat tuning curves and a degenerate angular
+  distribution, consistent with the lack of a heading-tracking
+  bump in this control (\cref{fig:evolution_pi_frozen}).}
+  \label{fig:cx_tuning_sharpness}
+\end{figure}
+
 
 \clearpage
 
@@ -1233,16 +1258,12 @@ We solve \cref{eq:cx_linear_system} per neuron via column-equilibrated normal eq
 \end{equation}
 At $99\%$ variance, $r = 6$ --- only six modes carry $99\%$ of the population variance, reflecting the low-dimensional ring-attractor manifold --- and the bound spans $9{,}327$ edges ($90.9\%$). Tightening the threshold to $99.9\%$ raises $r$ to $15$ and shrinks the bound to $7{,}923$ edges ($77.2\%$); the null space remains large at every threshold. The two estimates disagree by more than an order of magnitude and neither is conclusive on its own. To pin down which directions are actually invariant for the trained model, we apply controlled perturbations to specific groups of edges and roll out the network. We test two partition schemes in the next two paragraphs.
 
-\paragraph{Per cell type.}
-For each postsynaptic neuron $i$ and presynaptic cell type $\alpha$, the $k_{i,\alpha}$ same-type incoming edges form a candidate $(i,\alpha)$ group; pairs with $k_{i,\alpha} \ge 2$ account for $9{,}400$ edges ($91.6\%$ of the $10{,}263$-edge connectome support; structural, identical across folds). The sum-zero perturbation is the natural test for this partition: when the $k_{i,\alpha}$ same-type presynaptic neurons carry correlated subthreshold activity, the recurrent drive $\sum_m W_{i,j_m}\,\sigma(\hat h_{j_m}(t)) \approx \sigma(\hat h(t))\,\sum_m W_{i,j_m}$ depends only on the group sum, so any perturbation on the same-type weights $W_{i,j_m} \to W_{i,j_m} + \delta_{j_m}$ with $\sum_m \delta_{j_m} = 0$ leaves the dynamics invariant under the lockstep assumption \citep{allier_connectome_2026}. We test this candidate null direction empirically by perturbing each fold's groups by a sum-zero vector at amplitude $\lambda \cdot \mathrm{mean}(|W_{\mathrm{group}}|)$ and rolling out for $1{,}000$ frames against that fold's own GT voltage; reported values average over the 10 folds (\cref{tab:variants_cx}). At $\lambda = 1$, all seven cell types preserve the dynamics ($R^{2}_{\mathbf{W}} \in [0.97, 1.00]$ across folds, Pearson $r$ in $[0.96, 1.00]$): the predicted directions are real \emph{locally} around the trained $\hat{W}^{\mathrm{rec}}$, and the result is reproducible across folds (per-cell-type $r$ SDs $\le 0.09$). At $\lambda = 2$ all $r$ remain above $0.88$ (PEG and $\Delta 7$ the loosest, the latter with the largest inter-fold spread, $r = 0.88 \pm 0.14$); at $\lambda = 4$, $R^{2}_{\mathbf{W}}$ drops to $[0.54, 0.97]$ and $\Delta 7$/PEG rollouts deteriorate most strongly ($r = 0.83 \pm 0.08$ / $0.86 \pm 0.12$). Pushing all the way to the extreme by collapsing each $(i,\alpha)$ group of $k_{i,\alpha}$ edges onto a single representative edge $e^{\star} = \arg\max_e |W_e|$ --- setting $W_{e^{\star}} = \sum_{e \in \mathrm{group}} W_e$ (sum-preserving) or $W_{e^{\star}}$ chosen by a one-scalar least-squares fit that minimises the per-group dynamics residual (calibrated), and zeroing the other $k_{i,\alpha} - 1$ edges --- removes $91.6\%$ of the edges. This is the analogue of the operation that preserves dynamics at $r \approx 0.95$ on the visual-system biomodel of \citep{allier_connectome_2026}, but it breaks the CX heading readout for both variants: sum-preserving rollout $r = 0.27 \pm 0.24$, calibrated rollout $r = 0.13 \pm 0.18$ (both averaged over 10 folds). The per-cell-type null space is therefore approximately null around the trained weights but cannot be saturated by a single representative per cell-type pair.
-
-\paragraph{Per unit.}
-The per-$(i,\alpha)$ partition lumps same-type neurons regardless of which PB glomerulus they innervate, but in the CX two EPGs in different glomeruli encode different headings and are not clones. The natural refinement groups same-type neurons by their hemibrain instance, the per-cell annotation that identifies a neuron's anatomical computational unit: for EPG/EPGt/PEG/PEN it is the PB glomerulus (e.g., \emph{EPG(PB08)\_L3} marks an EPG neuron in glomerulus L3); for $\Delta 7$ it is the set of glomeruli the neuron spans (e.g., \emph{Delta7(PB15)\_L1L9R8\_R}); for ER6 it is the hemisphere. Same-type neurons sharing an instance are clones as discussed in \citet{hulse2026}. The $(i,\alpha,\mathrm{instance})$ partition retains $5{,}150$ candidate edges ($50.2\%$ of $10{,}263$; structural, identical across folds). Applying the same collapse defined above to each $(i,\alpha,\mathrm{instance})$ group --- zeroing $50.2\%$ of the edges instead of $91.6\%$ --- yields, across 10 folds, sum-preserving rollout $r = 0.55 \pm 0.20$ and calibrated rollout $r = 0.25 \pm 0.28$, against $r = 0.27 \pm 0.24$ / $0.13 \pm 0.18$ for the analogous operations under the per-$(i,\alpha)$ partition. The per-unit sum-preserving collapse therefore continues to track heading more robustly than the per-cell-type one, confirming that the finer (instance-level) partition more closely respects the trained model's null space. The single-fold $r = 0.98$ calibrated value reported in the predecessor (no-TV-prior) analysis no longer holds once $\hat W^{\mathrm{rec}}$ is biased away from the per-instance null directions by the TV regulariser used in the present training recipe (\cref{para:agent_gnn}): across folds, the calibrated collapse falls below the sum-preserving one and has large inter-fold spread ($0.25 \pm 0.28$, 95\% CI spans the full $[0, 0.8]$ range). Mechanistically, this says that the trained $\hat W^{\mathrm{rec}}$ is not symmetric within an $(\alpha, \mathrm{instance})$ clone group: each fold finds a structurally similar but non-interchangeable per-clone allocation, and a single-scalar OLS fit cannot reproduce that asymmetry as accurately as the structural sum. In a retinotopic visual system \citep{allier_connectome_2026}, the $(i,\alpha)$ partition already saturates because columns of the same type encode the same scene; the CX requires the finer $(i,\alpha,\mathrm{instance})$ partition because heading is encoded per-glomerulus, not per-type --- but on the trained-weight side, the calibrated saturation that holds for the visual system is broken here by the TV-shaped solutions.
+We test two candidate partitions of the incoming edges of each postsynaptic neuron $i$. The \emph{per-cell-type} partition $(i,\alpha)$ groups the $k_{i,\alpha} \ge 2$ presynaptic neurons of the same cell type $\alpha$ ($9{,}400$ edges, $91.6\%$ of the $10{,}263$-edge support). The finer \emph{per-unit} partition groups only presynaptic neurons that share the same hemibrain instance --- the per-cell anatomical unit (e.g.\ the PB glomerulus), which already fixes the cell type, so the groups are equivalently $(i,\mathrm{instance})$ or $(i,\alpha,\mathrm{instance})$ ($5{,}150$ edges, $50.2\%$; the $156$ neurons span $81$ instances). Under the lockstep assumption that same-group presynaptic neurons carry correlated activity, the recurrent drive depends only on the group sum, so any sum-zero perturbation $W_{i,j_m} \to W_{i,j_m} + \delta_{j_m}$ with $\sum_m \delta_{j_m} = 0$ leaves the dynamics invariant \citep{allier_connectome_2026}. Perturbing each group by a random sum-zero vector at amplitude $\lambda \cdot \mathrm{mean}(|W_{\mathrm{group}}|)$ and rolling out for $1{,}000$ frames, both partitions are \emph{locally} degenerate up to $\lambda \approx 1$ (rollout $r \approx 0.97$ at $\lambda = 0.5$ and $\approx 0.92$ at $\lambda = 1$, decaying for $\lambda \ge 2$): the candidate directions are real null directions around the trained $\hat W^{\mathrm{rec}}$. Neither partition, however, can \emph{saturate} that null space: collapsing each group onto a single representative edge --- weighted by the group sum (sum-preserving) or by a one-scalar least-squares fit to the group's dynamics residual (calibrated), and zeroing the rest --- breaks the rollout for both partitions (\cref{fig:sparsify_cx}), with sum-preserving / calibrated rollout $r = 0.60$ / $0.38$ for the $(i,\alpha)$ collapse and $0.63$ / $0.20$ for the finer $(i,\alpha,\mathrm{instance})$ one. The trained $\hat W^{\mathrm{rec}}$ thus sits in a bounded local null basin --- small per-group re-weightings are dynamically silent --- but it uses the within-group degrees of freedom, so no group can be reduced to a single edge.
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=\textwidth]{figure/fig_sparsify_cx.png}
-\caption{\textbf{Sparsifying $\hat W^{\mathrm{rec}}$ along the candidate null directions.} Top row (a-d): recurrent matrices, sorted by cell type (block boundaries marked) and z-scored on the same scale (computed from the GT non-zero entries, clipped to $\pm 3$). Bottom row (e-h): heading on one OU test trial decoded from each rollout; true HD in light green, decoded HD in black, both wrapped to $(-\pi, \pi]$. \textbf{(a, e)} Learned $\hat W^{\mathrm{rec}}$ from the trained CxTaskRNN: GT and decoded HD coincide. \textbf{(b, f)} Per-$(i,\alpha)$ sum-preserving collapse, $91.6\%$ of edges zeroed: the bump-coding blocks (EPG, PEN$_a$, PEN$_b$, $\Delta 7$) lose most of their structure and the decoded HD drifts away from GT ($r = 0.04$). \textbf{(c, g)} Per-$(i,\alpha,\mathrm{instance})$ sum-preserving collapse, $50.2\%$ of edges zeroed: the block structure is preserved and the decoded HD partially tracks GT ($r = 0.53$). \textbf{(d, h)} Same per-$(i,\alpha,\mathrm{instance})$ partition but with a \emph{calibrated} one-scalar-per-group fit (each group of $k$ same-instance clones is replaced by a single representative edge whose weight is set by least-squares to minimise the per-group dynamics residual): the same $50.2\%$ of edges are zeroed yet the bump tracks GT at $r = 0.98$, demonstrating that the per-$(i,\alpha,\mathrm{instance})$ partition is near-fully saturable when intra-unit clones are summarised by a calibrated scalar instead of a naïve sum.}
+\caption{\textbf{Sparsifying $\hat W^{\mathrm{rec}}$ along the candidate null directions.} Top row (a-d): recurrent matrices, sorted by cell type (block boundaries marked) and z-scored on the same scale (computed from the GT non-zero entries, clipped to $\pm 3$). Bottom row (e-h): heading on one OU test trial decoded from each rollout; true HD in light green, decoded HD in black, both wrapped to $(-\pi, \pi]$. \textbf{(a, e)} Learned $\hat W^{\mathrm{rec}}$ from the trained CxTaskRNN: GT and decoded HD coincide. \textbf{(b, f)} Per-$(i,\alpha)$ sum-preserving collapse, $91.6\%$ of edges zeroed: the bump-coding blocks (EPG, PEN$_a$, PEN$_b$, $\Delta 7$) lose much of their structure and the decoded HD only partially tracks GT ($r = 0.60$). \textbf{(c, g)} Per-$(i,\alpha,\mathrm{instance})$ sum-preserving collapse, $50.2\%$ of edges zeroed: more of the block structure is preserved and the decoded HD tracks GT comparably ($r = 0.63$). \textbf{(d, h)} Same per-$(i,\alpha,\mathrm{instance})$ partition but with a \emph{calibrated} one-scalar-per-group fit (each group of $k$ same-instance clones is replaced by a single representative edge whose weight is set by least-squares to minimise the per-group dynamics residual): on this no-TV model the calibrated representative does not improve on the sum and the decoded HD drifts ($r = 0.20$), showing the clone groups are \emph{not} collapsible onto single representatives --- the trained $\hat W^{\mathrm{rec}}$ uses the within-group degrees of freedom rather than placing all the weight on one edge per group.}
 \label{fig:sparsify_cx}
 \end{figure}
 
