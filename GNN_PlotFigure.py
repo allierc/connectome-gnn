@@ -1614,7 +1614,11 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             _plot_curves_fast(ax2, rr_np, func_np,
                               type_np, cmap, linewidth=1, alpha=_curve_alpha)
             ax2.set_xlabel('$v_j$', fontsize=48)
-            ax2.set_ylabel(r'learned $g_\phi(a_j, v_j)$', fontsize=48)
+            # When g_phi_positive, the message uses g_phi^2, so the curve plotted
+            # here (post_fn=x^2) is the *effective* nonlinearity compared against
+            # the GT softplus on the left — label it as such.
+            ax2.set_ylabel(r'learned $g_\phi(a_j, v_j)^2$' if model_config.g_phi_positive
+                           else r'learned $g_\phi(a_j, v_j)$', fontsize=48)
             ax2.tick_params(axis='both', which='major', labelsize=24)
             ax2.set_xlim([-1, 5])
             ax2.set_ylim([-config.plotting.xlim[1]/10, config.plotting.xlim[1]*2])
