@@ -3719,7 +3719,14 @@ def _generate_voltage_from_cx_task_model(
             "[voltage_from_task/cx]   teacher has no explicit bias (GNN); "
             "saving V_i_rest = 0. Downstream V_rest_R2 is informational only."
         )
-    ode_params = FlyVisODEParams(
+    # Use the CX-voltage params class so the teacher's firing-rate nonlinearity
+    # (recurrent_activation, default sigmoid for drosophila_cx_pi) is recorded in
+    # ode_params.pt and drives the GT g_phi curve downstream — instead of the
+    # FlyVis ReLU/softplus default. The activation is a property of how the data
+    # was generated, so it belongs with the data, not the config.
+    from connectome_gnn.generators.ode_params import DrosophilaCxVoltageODEParams
+    _teacher_act = str(getattr(model, 'recurrent_activation_name', 'sigmoid')).lower()
+    ode_params = DrosophilaCxVoltageODEParams(
         tau_i=torch.from_numpy(tau_i_gt),
         V_i_rest=torch.from_numpy(V_i_rest_gt),
         edge_index=torch.from_numpy(edge_index_gt),
@@ -3728,7 +3735,9 @@ def _generate_voltage_from_cx_task_model(
         # plotters label rows by CX type (EPG / PEN_a / Delta7 / …)
         # instead of the generic Type0..Type6 fallback.
         type_names=list(cx["type_names"]),
+        activation=_teacher_act,
     )
+    logger.info(f"[voltage_from_task/cx]   teacher recurrent_activation = {_teacher_act}")
     ode_params.save(folder)
     logger.info(
         f"[voltage_from_task/cx] saved ode_params.pt: N={N}  E={W_gt.size}  "
