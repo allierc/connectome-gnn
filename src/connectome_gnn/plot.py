@@ -2725,8 +2725,15 @@ def plot_training_gnn(x_ts, model, config, epoch, N, log_dir, device, type_list,
         model, config, edges, x_ts, device, ode_params=ode_params)
 
     # Plot 3: Corrected weight comparison scatter plot — all edges.
+    # GT side: apply the model's effective-true-weight adjustment (g_phi gain for
+    # gain-entangled models; identity for flyvis / cx-voltage) so this matches
+    # plot_synaptic's corrected comparison exactly.
     fig, ax = plt.subplots(figsize=(8, 8))
-    _gt_w_full = to_numpy(gt_weights)
+    if ode_params is not None:
+        _gt_w_full = np.asarray(
+            ode_params.effective_true_weights(to_numpy(gt_weights), to_numpy(edges), n_neurons))
+    else:
+        _gt_w_full = to_numpy(gt_weights)
     _corr_w_full = to_numpy(corrected_W.squeeze())
     r_squared, _ = plot_weight_scatter(
         ax,

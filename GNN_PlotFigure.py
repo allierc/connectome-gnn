@@ -2252,6 +2252,22 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
 
             print(f"weights R²: {_r2_color(r_squared)}{r_squared:.4f}{_ANSI_RESET}  slope: {np.round(slope_corrected, 4)}")
             logger.info(f"weights R²: {r_squared:.4f}  slope: {np.round(slope_corrected, 4)}")
+            # Structure (scale-free) Pearson r and z-scored NSE R² over all non-zero
+            # edges (same set as connectivity_scatter.png). High structure r with a
+            # low weights R² == wiring recovered but under-scaled (W<->g_phi scale
+            # degeneracy); low r == wiring genuinely wrong. Global z-score
+            # z(x)=(x-mean)/std removes the scale. Written to metrics.txt for the
+            # agentic exploration (W_structure_r / W_zscored_R2).
+            _w_t = np.asarray(_tw_c).ravel(); _w_l = np.asarray(_lw_c).ravel()
+            _w_nz = _w_t != 0
+            _w_t, _w_l = _w_t[_w_nz], _w_l[_w_nz]
+            _w_struct_r = float(np.corrcoef(_w_t, _w_l)[0, 1]) if _w_t.size > 1 else float('nan')
+            _w_tz = (_w_t - _w_t.mean()) / (_w_t.std() + 1e-12)
+            _w_lz = (_w_l - _w_l.mean()) / (_w_l.std() + 1e-12)
+            _w_zscored_r2, _ = compute_r_squared_NSE(_w_tz, _w_lz)
+            print(f"weights r (structure): {_r2_color(_w_struct_r)}{_w_struct_r:.4f}{_ANSI_RESET}"
+                  f"   z-scored R²: {_r2_color(_w_zscored_r2)}{_w_zscored_r2:.4f}{_ANSI_RESET}")
+            logger.info(f"weights r (structure): {_w_struct_r:.4f}  z-scored R²: {_w_zscored_r2:.4f}")
             # Relative error |learned - true| / max(|true|, eps), full sample.
             # Mean ± SD intentionally omitted (heavy tails dominate); median + IQR only.
             _gt_w_arr  = np.asarray(_tw_c).ravel()
@@ -2265,6 +2281,8 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             with open(os.path.join(log_dir, 'results', 'metrics.txt'), 'a') as _mf:
                 _mf.write(f"W_rel_err_median: {_rel_err_w_med:.4f}\n")
                 _mf.write(f"W_rel_err_iqr: {_rel_err_w_iqr:.4f}\n")
+                _mf.write(f"W_structure_r: {_w_struct_r:.4f}\n")
+                _mf.write(f"W_zscored_R2: {_w_zscored_r2:.4f}\n")
             _rel_err_tau_med = _rel_err_tau_iqr = None
             _rel_err_v_med = _rel_err_v_iqr = None
 
@@ -2526,6 +2544,57 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 plt.savefig(f'{log_dir}/results/connectivity_matrix.png', dpi=200)
                 plt.close(fig_mat)
                 logger.info("saved connectivity_matrix.png")
+
+                # Scatter of the two matrices' edge values: GT vs corrected.
+                # Left  (raw scale)   = exactly what the NSE "weights R²" measures
+                #                       -> low when W is under-scaled (slope<1).
+                # Right (z-scored)    = what the eye sees in the bottom-right matrix
+                #                       panel (scale removed) -> structure-only R².
+                # The gap between the two panels IS the W<->g_phi scale degeneracy.
+                _gt_e   = np.asarray(true_weights).flatten()
+                _corr_e = to_numpy(corrected_W.squeeze()).flatten()
+                _m = min(_gt_e.size, _corr_e.size)
+                _gt_e, _corr_e = _gt_e[:_m], _corr_e[:_m]
+                _nz = _gt_e != 0
+                _gt_e, _corr_e = _gt_e[_nz], _corr_e[_nz]
+                _r2_raw, _slope_raw = compute_r_squared_NSE(_gt_e, _corr_e)
+                _pear = float(np.corrcoef(_gt_e, _corr_e)[0, 1]) if _gt_e.size > 1 else float('nan')
+                _gz = (_gt_e - _gt_e.mean()) / (_gt_e.std() + 1e-12)
+                _cz = (_corr_e - _corr_e.mean()) / (_corr_e.std() + 1e-12)
+                _r2_z, _slope_z = compute_r_squared_NSE(_gz, _cz)
+
+                fig_sc, (ax_sc1, ax_sc2) = plt.subplots(1, 2, figsize=(15, 7))
+                # raw-scale panel
+                ax_sc1.scatter(_gt_e, _corr_e, s=4, alpha=0.3, c='k')
+                _lo = float(min(_gt_e.min(), _corr_e.min()))
+                _hi = float(max(_gt_e.max(), _corr_e.max()))
+                ax_sc1.plot([_lo, _hi], [_lo, _hi], '--', color='gray', lw=1, label='identity')
+                ax_sc1.set_xlabel('true W', fontsize=14)
+                ax_sc1.set_ylabel('corrected learned W', fontsize=14)
+                ax_sc1.set_title(f'raw scale  —  NSE R²={_r2_raw:.3f}  slope={_slope_raw:.3f}\n'
+                                 f'(scale-sensitive; this is the reported weights R²)', fontsize=13)
+                ax_sc1.text(0.05, 0.95, f'Pearson r={_pear:.3f}\nr² (structure)={_pear**2:.3f}',
+                            transform=ax_sc1.transAxes, va='top', fontsize=13,
+                            bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
+                ax_sc1.legend(loc='lower right', fontsize=11)
+                # z-scored panel (scale removed — matches the matrix figure's panel)
+                ax_sc2.scatter(_gz, _cz, s=4, alpha=0.3, c='k')
+                ax_sc2.plot([-3, 3], [-3, 3], '--', color='gray', lw=1)
+                ax_sc2.set_xlabel('true W (z-scored)', fontsize=14)
+                ax_sc2.set_ylabel('corrected learned W (z-scored)', fontsize=14)
+                ax_sc2.set_title(f'z-scored (scale removed)  —  R²={_r2_z:.3f}  slope={_slope_z:.3f}\n'
+                                 f'(what the bottom-right matrix panel shows)', fontsize=13)
+                # mu/sigma used in the global z-score  z(x)=(x-mu)/sigma  (per vector)
+                ax_sc2.text(0.05, 0.95,
+                            f'true:       μ={_gt_e.mean():.3g}  σ={_gt_e.std():.3g}\n'
+                            f'corrected: μ={_corr_e.mean():.3g}  σ={_corr_e.std():.3g}',
+                            transform=ax_sc2.transAxes, va='top', fontsize=12, family='monospace',
+                            bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
+                fig_sc.tight_layout()
+                fig_sc.savefig(f'{log_dir}/results/connectivity_scatter.png', dpi=150)
+                plt.close(fig_sc)
+                logger.info(f"saved connectivity_scatter.png  (raw NSE R²={_r2_raw:.3f}, "
+                            f"structure r²={_pear**2:.3f})")
 
                 # Keep J_learned referencing the corrected matrix for any
                 # downstream code that reads it (e.g. zebrafish sort below).
