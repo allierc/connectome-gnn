@@ -48,6 +48,21 @@ def model_family(model) -> str:
     return fam
 
 
+def forward_kind(model) -> str:
+    """Which forward/rollout call interface a model uses (tester dispatch):
+    ``'rnn'`` (stateful packed call), ``'eed'`` (latent-space evolve),
+    ``'mlp'`` (flat packed call, no edges), ``'stimulus'`` (feed-forward, no
+    rollout), or ``'gnn'`` (default — full state + edges, e.g. NeuralGNN /
+    KnownODE). Reads the class attribute ``FORWARD_KIND``; unwraps a
+    ``torch.compile`` wrapper. Replaces the old ``signal_model_name`` substring
+    dispatch in graph_tester. This is the forward/rollout axis — distinct from
+    ``model_family`` (the connectivity-recovery axis)."""
+    fk = getattr(model, "FORWARD_KIND", None)
+    if fk is None:
+        fk = getattr(getattr(model, "_orig_mod", None), "FORWARD_KIND", "gnn")
+    return fk
+
+
 def restore_edge_sign_lock(model, gt_weights) -> bool:
     """Re-establish the Eq-10 hard sign-lock buffer after a checkpoint reload.
 
@@ -482,7 +497,6 @@ def set_trainable_parameters(model=[], lr_embedding=[], lr=[],  lr_update=[], lr
     optimizer = torch.optim.Adam(param_groups, fused=True)
 
     return optimizer, n_total_params
-
 
 def get_index_particles(x, n_neuron_types, dimension):
     index_particles = []

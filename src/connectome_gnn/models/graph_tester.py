@@ -31,6 +31,7 @@ from connectome_gnn.log import get_logger
 from connectome_gnn.models.utils import (
     ANSI_ORANGE,
     ANSI_RESET,
+    forward_kind,
     r2_color,
     restore_edge_sign_lock,
 )
@@ -459,7 +460,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
                 x.stimulus[:model.n_input_neurons] = visual_input.squeeze(-1)
                 x.stimulus[model.n_input_neurons:] = 0
 
-            if 'stimulus' in model_config.signal_model_name.lower():
+            if forward_kind(model) == 'stimulus':
                 tw = tc.time_window
                 if k < tw - 1:
                     continue
@@ -468,9 +469,9 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
                 all_pred.append(to_numpy(pred))
                 all_true.append(to_numpy(x_ts_eval.voltage[k]))
                 continue
-            elif 'rnn' in model_config.signal_model_name.lower():
+            elif forward_kind(model) == 'rnn':
                 pred = model(x.to_packed(), return_all=False)
-            elif 'mlp' in model_config.signal_model_name.lower() or 'eed' in model_config.signal_model_name.lower():
+            elif forward_kind(model) in ('mlp', 'eed'):
                 batched_state, _ = _batch_frames([x], edges)
                 pred = model(batched_state, data_id=data_id, return_all=False)
             else:
@@ -515,7 +516,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
 
     # Stimulus baseline: each prediction is independent (no recurrence),
     # so rollout is meaningless — return after one-step metrics.
-    if 'stimulus' in model_config.signal_model_name.lower():
+    if forward_kind(model) == 'stimulus':
         logger.info('stimulus model — skipping rollout (no recurrence)')
         return
 
@@ -538,7 +539,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     # EED rollout runs in pure latent space: encode the initial voltage
     # once, chain the evolver in z, decode each step. z_latent persists
     # across iterations so the activity-space re-encoding loop is bypassed.
-    is_eed = 'eed' in model_config.signal_model_name.lower()
+    is_eed = forward_kind(model) == 'eed'
     z_latent = None
     if is_eed:
         z_latent = model.encoder(x.voltage.unsqueeze(0))
@@ -570,12 +571,14 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
                 x.stimulus[:model.n_input_neurons] = visual_input.squeeze(-1)
                 x.stimulus[model.n_input_neurons:] = 0
 
-            # Model prediction
-            if 'rnn' in model_config.signal_model_name.lower():
+            # Model prediction (forward/rollout dispatch via FORWARD_KIND;
+            # 'lstm'/'mlp_ode' are vestigial — no registered class sets them).
+            _fk = forward_kind(model)
+            if _fk == 'rnn':
                 y, h_state = model(x.to_packed(), h=h_state, return_all=True)
-            elif 'lstm' in model_config.signal_model_name.lower():
+            elif _fk == 'lstm':
                 y, h_state, c_state = model(x.to_packed(), h=h_state, c=c_state, return_all=True)
-            elif 'mlp_ode' in model_config.signal_model_name.lower():
+            elif _fk == 'mlp_ode':
                 v = x.voltage.unsqueeze(-1)
                 if tc.training_selected_neurons:
                     I = x.stimulus.unsqueeze(-1)
@@ -590,7 +593,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
                 v_next = model.decoder(z_latent).squeeze(0)
                 # Emit dvdt so the shared Euler step lands on v_next exactly.
                 y = ((v_next - x.voltage) / sim.delta_t).unsqueeze(-1)
-            elif 'mlp' in model_config.signal_model_name.lower():
+            elif _fk == 'mlp':
                 y = model(x, data_id=data_id, return_all=False)
             elif hasattr(tc, 'neural_ODE_training') and tc.neural_ODE_training:
                 v0 = x.voltage.flatten()
@@ -611,7 +614,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
                 y = model(x, edges, data_id=data_id, return_all=False)
 
             # Integration step
-            if 'mlp_ode' in model_config.signal_model_name.lower():
+            if _fk == 'mlp_ode':
                 x.voltage = x.voltage + y.squeeze(-1)
             else:
                 x.voltage = x.voltage + sim.delta_t * y.squeeze(-1)
@@ -1253,11 +1256,11 @@ def data_test_gnn_special(
     x_generated = x.clone()
     x_generated_modified = x.clone()
 
-    # Initialize RNN hidden state
-    _smn_lower = model_config.signal_model_name.lower()
-    if 'rnn' in _smn_lower:
+    # Initialize RNN hidden state (forward/rollout dispatch via FORWARD_KIND)
+    _fk = forward_kind(model)
+    if _fk == 'rnn':
         h_state = None
-    if 'lstm' in _smn_lower:
+    if _fk == 'lstm':
         h_state = None
         c_state = None
 
@@ -1274,7 +1277,7 @@ def data_test_gnn_special(
 
     edges = ode_params.edge_index
 
-    if ('test_ablation' in test_mode) & ('MLP' not in model_config.signal_model_name) & ('rnn' not in _smn_lower) & ('lstm' not in _smn_lower):
+    if ('test_ablation' in test_mode) & ('MLP' not in model_config.signal_model_name) & (_fk != 'rnn') & (_fk != 'lstm'):
         #  test_mode="test_ablation_100"
         ablation_ratio = int(test_mode.split('_')[-1]) / 100
         if ablation_ratio > 0:
@@ -1495,27 +1498,27 @@ def data_test_gnn_special(
                     # Prediction step
                     if tc.training_selected_neurons:
                         x_selected.stimulus = x.stimulus[selected_neuron_ids].clone().detach()
-                        if 'rnn' in _smn_lower:
+                        if _fk == 'rnn':
                             y, h_state = model(x_selected.to_packed(), h=h_state, return_all=True)
-                        elif 'lstm' in _smn_lower:
+                        elif _fk == 'lstm':
                             y, h_state, c_state = model(x_selected.to_packed(), h=h_state, c=c_state, return_all=True)
-                        elif 'mlp_ode' in model_config.signal_model_name.lower():
+                        elif _fk == 'mlp_ode':
                             v = x_selected.voltage.unsqueeze(-1)
                             I = x_selected.stimulus.unsqueeze(-1)
                             y = model.rollout_step(v, I, dt=sim.delta_t, method='rk4') - v  # Return as delta
-                        elif 'mlp' in model_config.signal_model_name.lower() or 'eed' in model_config.signal_model_name.lower():
+                        elif _fk in ('mlp', 'eed'):
                             y = model(x_selected.to_packed(), data_id=None, return_all=False)
 
                     else:
-                        if 'rnn' in _smn_lower:
+                        if _fk == 'rnn':
                             y, h_state = model(x.to_packed(), h=h_state, return_all=True)
-                        elif 'lstm' in _smn_lower:
+                        elif _fk == 'lstm':
                             y, h_state, c_state = model(x.to_packed(), h=h_state, c=c_state, return_all=True)
-                        elif 'mlp_ode' in model_config.signal_model_name.lower():
+                        elif _fk == 'mlp_ode':
                             v = x.voltage.unsqueeze(-1)
                             I = x.stimulus[:sim.n_input_neurons].unsqueeze(-1)
                             y = model.rollout_step(v, I, dt=sim.delta_t, method='rk4') - v  # Return as delta
-                        elif 'mlp' in model_config.signal_model_name.lower() or 'eed' in model_config.signal_model_name.lower():
+                        elif _fk in ('mlp', 'eed'):
                             y = model(x.to_packed(), data_id=None, return_all=False)
                         elif tc.neural_ODE_training:
                             data_id = torch.zeros((x.n_neurons, 1), dtype=torch.int, device=device)
@@ -1569,18 +1572,18 @@ def data_test_gnn_special(
                         x_generated_modified.voltage = x_generated_modified.voltage + sim.delta_t * y_generated_modified.squeeze(-1)
 
                     if tc.training_selected_neurons:
-                        if 'mlp_ode' in model_config.signal_model_name.lower():
+                        if _fk == 'mlp_ode':
                             x_selected.voltage = x_selected.voltage + y.squeeze(-1)  # y already contains full update
                         else:
                             x_selected.voltage = x_selected.voltage + sim.delta_t * y.squeeze(-1)
-                        if (it <= warm_up_length) and ('rnn' in _smn_lower or 'lstm' in _smn_lower):
+                        if (it <= warm_up_length) and _fk in ('rnn', 'lstm'):
                             x_selected.voltage = x_generated.voltage[selected_neuron_ids].clone()
                     else:
-                        if 'mlp_ode' in model_config.signal_model_name.lower():
+                        if _fk == 'mlp_ode':
                             x.voltage = x.voltage + y.squeeze(-1)  # y already contains full update
                         else:
                             x.voltage = x.voltage + sim.delta_t * y.squeeze(-1)
-                        if (it <= warm_up_length) and ('rnn' in _smn_lower):
+                        if (it <= warm_up_length) and _fk in ('rnn', 'lstm'):
                             x.voltage = x_generated.voltage.clone()
 
                     # Guard against NaN / divergence from a poorly trained model

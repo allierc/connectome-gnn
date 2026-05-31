@@ -37,6 +37,10 @@ class StimulusBaseline(nn.Module):
     Output: predicted voltage       (B, n_neurons)
     """
 
+    # Forward/rollout dispatch tag (tester): feed-forward predict_voltage; no
+    # recurrence, so rollout is skipped.
+    FORWARD_KIND = "stimulus"
+
     def __init__(self, aggr_type='add', config=None, device=None):
         super().__init__()
 
