@@ -67,6 +67,7 @@ from connectome_gnn.metrics import (
     get_model_W,
     is_degenerate_gt,
     recovery_mae,
+    recovery_param_metrics,
     r2_scatter_text,
     compute_r_squared_NSE,
     compute_r_squared_filtered,
@@ -2312,94 +2313,59 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             else:
                 logger.info('outliers: 0  (no outliers detected)')
             if ode_params.has_tau():
-                if is_degenerate_gt(gt_taus_np):
-                    _tau_mae = recovery_mae(gt_taus_np, learned_tau)
-                    print(f"tau R²: {_ANSI_WHITE}N/A (const GT){_ANSI_RESET}  MAE: {_tau_mae:.3g}")
-                    logger.info(f"tau R²: N/A (const GT)  MAE: {_tau_mae:.4g}")
+                _tm = recovery_param_metrics(gt_taus_np, learned_tau, DELTA_TAU)
+                _rel_err_tau_med, _rel_err_tau_iqr = _tm['rel_err_median'], _tm['rel_err_iqr']
+                if _tm['degenerate']:
+                    print(f"tau R²: {_ANSI_WHITE}N/A (const GT){_ANSI_RESET}  MAE: {_tm['mae']:.3g}")
+                    logger.info(f"tau R²: N/A (const GT)  MAE: {_tm['mae']:.4g}")
                 else:
-                    print(f"tau R²: {_r2_color(r_squared_tau)}{r_squared_tau:.3f}{_ANSI_RESET}  slope: {slope_tau:.2f}")
-                    logger.info(f"tau R²: {r_squared_tau:.3f}  slope: {slope_tau:.2f}")
-                # Relative error |learned - true| / max(|true|, eps), full sample.
-                _gt_t_arr  = np.asarray(gt_taus_np).ravel()
-                _lrn_t_arr = np.asarray(learned_tau).ravel()
-                _rel_err_tau = np.abs(_lrn_t_arr - _gt_t_arr) / np.maximum(np.abs(_gt_t_arr), 1e-6)
-                _rel_err_tau_med  = float(np.median(_rel_err_tau))
-                _q1_t_re, _q3_t_re = np.percentile(_rel_err_tau, [25.0, 75.0])
-                _rel_err_tau_iqr  = float(_q3_t_re - _q1_t_re)
+                    print(f"tau R²: {_r2_color(_tm['r2'])}{_tm['r2']:.3f}{_ANSI_RESET}  slope: {_tm['slope']:.2f}")
+                    logger.info(f"tau R²: {_tm['r2']:.3f}  slope: {_tm['slope']:.2f}")
                 print(f"tau rel.err: {_ANSI_WHITE}median {100*_rel_err_tau_med:.1f}%  IQR {100*_rel_err_tau_iqr:.1f}%{_ANSI_RESET}")
                 logger.info(f"tau rel.err: median {100*_rel_err_tau_med:.2f}%  IQR {100*_rel_err_tau_iqr:.2f}%")
                 with open(os.path.join(log_dir, 'results', 'metrics.txt'), 'a') as _mf:
                     _mf.write(f"tau_rel_err_median: {_rel_err_tau_med:.4f}\n")
                     _mf.write(f"tau_rel_err_iqr: {_rel_err_tau_iqr:.4f}\n")
-                # Outlier count + trimmed R²/slope (|learned - true| > 0.1).
-                _tau_outlier_thresh_g = DELTA_TAU
-                _outlier_mask_t_g = np.abs(_lrn_t_arr - _gt_t_arr) > _tau_outlier_thresh_g
-                _inlier_mask_t_g  = ~_outlier_mask_t_g
-                n_outliers_tau_g = int(_outlier_mask_t_g.sum())
-                _pct_outliers_tau_g = (100.0 * n_outliers_tau_g / _gt_t_arr.size) if _gt_t_arr.size else 0.0
-                if int(_inlier_mask_t_g.sum()) >= 2:
-                    r2_tau_clean_g, slope_tau_clean_g = compute_r_squared_NSE(
-                        _gt_t_arr[_inlier_mask_t_g], _lrn_t_arr[_inlier_mask_t_g])
-                else:
-                    r2_tau_clean_g, slope_tau_clean_g = float('nan'), float('nan')
-                if is_degenerate_gt(_gt_t_arr):
+                if _tm['degenerate']:
                     print(f"tau (wo outliers) R²: {_ANSI_WHITE}N/A (const GT){_ANSI_RESET}")
                     logger.info("tau_wo_outliers R²: N/A (const GT)")
                 else:
-                    print(f"tau (wo outliers) R²: {_r2_color(r2_tau_clean_g)}{r2_tau_clean_g:.3f}{_ANSI_RESET}  "
-                          f"slope: {slope_tau_clean_g:.2f}  "
-                          f"outliers: {n_outliers_tau_g}/{_gt_t_arr.size} ({_pct_outliers_tau_g:.1f}%)")
-                    logger.info(f"tau_wo_outliers R²: {r2_tau_clean_g:.4f}  slope: {slope_tau_clean_g:.4f}  "
-                                f"outliers: {n_outliers_tau_g}/{_gt_t_arr.size} ({_pct_outliers_tau_g:.1f}%)")
+                    print(f"tau (wo outliers) R²: {_r2_color(_tm['r2_clean'])}{_tm['r2_clean']:.3f}{_ANSI_RESET}  "
+                          f"slope: {_tm['slope_clean']:.2f}  "
+                          f"outliers: {_tm['n_outliers']}/{_tm['n_total']} ({_tm['pct_outliers']:.1f}%)")
+                    logger.info(f"tau_wo_outliers R²: {_tm['r2_clean']:.4f}  slope: {_tm['slope_clean']:.4f}  "
+                                f"outliers: {_tm['n_outliers']}/{_tm['n_total']} ({_tm['pct_outliers']:.1f}%)")
                 with open(os.path.join(log_dir, 'results', 'metrics.txt'), 'a') as _mf:
-                    _mf.write(f"tau_no_outliers_R2: {r2_tau_clean_g:.4f}\n")
-                    _mf.write(f"tau_no_outliers_slope: {slope_tau_clean_g:.4f}\n")
-                    _mf.write(f"tau_n_outliers: {n_outliers_tau_g}\n")
+                    _mf.write(f"tau_no_outliers_R2: {_tm['r2_clean']:.4f}\n")
+                    _mf.write(f"tau_no_outliers_slope: {_tm['slope_clean']:.4f}\n")
+                    _mf.write(f"tau_n_outliers: {_tm['n_outliers']}\n")
             if ode_params.has_vrest():
-                if is_degenerate_gt(gt_vrest_np):
-                    _v_mae = recovery_mae(gt_vrest_np, learned_V_rest)
-                    print(f"V_rest R²: {_ANSI_WHITE}N/A (const GT){_ANSI_RESET}  MAE: {_v_mae:.3g}")
-                    logger.info(f"V_rest R²: N/A (const GT)  MAE: {_v_mae:.4g}")
+                _vm = recovery_param_metrics(gt_vrest_np, learned_V_rest, DELTA_VREST)
+                _rel_err_v_med, _rel_err_v_iqr = _vm['rel_err_median'], _vm['rel_err_iqr']
+                if _vm['degenerate']:
+                    print(f"V_rest R²: {_ANSI_WHITE}N/A (const GT){_ANSI_RESET}  MAE: {_vm['mae']:.3g}")
+                    logger.info(f"V_rest R²: N/A (const GT)  MAE: {_vm['mae']:.4g}")
                 else:
-                    print(f"V_rest R²: {_r2_color(r_squared_V_rest)}{r_squared_V_rest:.3f}{_ANSI_RESET}  slope: {slope_V_rest:.2f}")
-                    logger.info(f"V_rest R²: {r_squared_V_rest:.3f}  slope: {slope_V_rest:.2f}")
-                # Relative error |learned - true| / max(|true|, eps), full sample.
-                # Mean ± SD intentionally omitted (heavy tails dominate); median + IQR only.
-                _gt_v_arr  = np.asarray(gt_vrest_np).ravel()
-                _lrn_v_arr = np.asarray(learned_V_rest).ravel()
-                _rel_err_v = np.abs(_lrn_v_arr - _gt_v_arr) / np.maximum(np.abs(_gt_v_arr), 1e-6)
-                _rel_err_v_med  = float(np.median(_rel_err_v))
-                _q1_v_re, _q3_v_re = np.percentile(_rel_err_v, [25.0, 75.0])
-                _rel_err_v_iqr  = float(_q3_v_re - _q1_v_re)
+                    print(f"V_rest R²: {_r2_color(_vm['r2'])}{_vm['r2']:.3f}{_ANSI_RESET}  slope: {_vm['slope']:.2f}")
+                    logger.info(f"V_rest R²: {_vm['r2']:.3f}  slope: {_vm['slope']:.2f}")
                 print(f"V_rest rel.err: {_ANSI_WHITE}median {100*_rel_err_v_med:.1f}%  IQR {100*_rel_err_v_iqr:.1f}%{_ANSI_RESET}")
                 logger.info(f"V_rest rel.err: median {100*_rel_err_v_med:.2f}%  IQR {100*_rel_err_v_iqr:.2f}%")
                 with open(os.path.join(log_dir, 'results', 'metrics.txt'), 'a') as _mf:
                     _mf.write(f"V_rest_rel_err_median: {_rel_err_v_med:.4f}\n")
                     _mf.write(f"V_rest_rel_err_iqr: {_rel_err_v_iqr:.4f}\n")
-                # Outlier count + trimmed R²/slope (|learned - true| > 0.2).
-                _vrest_outlier_thresh_g = DELTA_VREST
-                _outlier_mask_v_g = np.abs(_lrn_v_arr - _gt_v_arr) > _vrest_outlier_thresh_g
-                _inlier_mask_v_g  = ~_outlier_mask_v_g
-                n_outliers_v_g = int(_outlier_mask_v_g.sum())
-                _pct_outliers_v_g = (100.0 * n_outliers_v_g / _gt_v_arr.size) if _gt_v_arr.size else 0.0
-                if int(_inlier_mask_v_g.sum()) >= 2:
-                    r2_v_clean_g, slope_v_clean_g = compute_r_squared_NSE(
-                        _gt_v_arr[_inlier_mask_v_g], _lrn_v_arr[_inlier_mask_v_g])
-                else:
-                    r2_v_clean_g, slope_v_clean_g = float('nan'), float('nan')
-                if is_degenerate_gt(_gt_v_arr):
+                if _vm['degenerate']:
                     print(f"V_rest (wo outliers) R²: {_ANSI_WHITE}N/A (const GT){_ANSI_RESET}")
                     logger.info("V_rest_wo_outliers R²: N/A (const GT)")
                 else:
-                    print(f"V_rest (wo outliers) R²: {_r2_color(r2_v_clean_g)}{r2_v_clean_g:.3f}{_ANSI_RESET}  "
-                          f"slope: {slope_v_clean_g:.2f}  "
-                          f"outliers: {n_outliers_v_g}/{_gt_v_arr.size} ({_pct_outliers_v_g:.1f}%)")
-                    logger.info(f"V_rest_wo_outliers R²: {r2_v_clean_g:.4f}  slope: {slope_v_clean_g:.4f}  "
-                                f"outliers: {n_outliers_v_g}/{_gt_v_arr.size} ({_pct_outliers_v_g:.1f}%)")
+                    print(f"V_rest (wo outliers) R²: {_r2_color(_vm['r2_clean'])}{_vm['r2_clean']:.3f}{_ANSI_RESET}  "
+                          f"slope: {_vm['slope_clean']:.2f}  "
+                          f"outliers: {_vm['n_outliers']}/{_vm['n_total']} ({_vm['pct_outliers']:.1f}%)")
+                    logger.info(f"V_rest_wo_outliers R²: {_vm['r2_clean']:.4f}  slope: {_vm['slope_clean']:.4f}  "
+                                f"outliers: {_vm['n_outliers']}/{_vm['n_total']} ({_vm['pct_outliers']:.1f}%)")
                 with open(os.path.join(log_dir, 'results', 'metrics.txt'), 'a') as _mf:
-                    _mf.write(f"V_rest_no_outliers_R2: {r2_v_clean_g:.4f}\n")
-                    _mf.write(f"V_rest_no_outliers_slope: {slope_v_clean_g:.4f}\n")
-                    _mf.write(f"V_rest_n_outliers: {n_outliers_v_g}\n")
+                    _mf.write(f"V_rest_no_outliers_R2: {_vm['r2_clean']:.4f}\n")
+                    _mf.write(f"V_rest_no_outliers_slope: {_vm['slope_clean']:.4f}\n")
+                    _mf.write(f"V_rest_n_outliers: {_vm['n_outliers']}\n")
             _summary_parts = [f"W rel err {100*_rel_err_w_med:.1f}±{100*_rel_err_w_iqr:.1f}%"]
             if _rel_err_tau_med is not None:
                 _summary_parts.append(f"tau rel err {100*_rel_err_tau_med:.1f}±{100*_rel_err_tau_iqr:.1f}%")

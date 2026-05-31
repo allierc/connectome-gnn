@@ -441,6 +441,48 @@ def fmt_r2_bar(val) -> str:
     return f'{val:.3f}'
 
 
+def recovery_param_metrics(gt: np.ndarray, learned: np.ndarray, outlier_thresh: float) -> dict:
+    """All recovery metrics for one per-neuron parameter (tau, V_rest), computed
+    ONCE so the scatter, console line and metrics.txt can't disagree.
+
+    Outlier rule: ``|learned - true| > outlier_thresh`` (the neurips.tex
+    eq:outlier_threshold band, delta_tau=0.1 / delta_Vrest=0.2).
+
+    Returns a dict with: ``r2``/``slope`` (full identity-line NSE),
+    ``r2_clean``/``slope_clean`` (inliers only; NaN if <2 inliers),
+    ``n_outliers``/``n_total``/``pct_outliers``, ``outlier_mask``/``inlier_mask``,
+    ``degenerate`` (bool, GT ~constant -> R² undefined), ``mae`` (fallback metric),
+    and ``rel_err_median``/``rel_err_iqr`` (|learned-true|/max(|true|,1e-6))."""
+    gt = np.asarray(gt).ravel()
+    learned = np.asarray(learned).ravel()
+    n = min(gt.size, learned.size)
+    gt, learned = gt[:n], learned[:n]
+    r2, slope = compute_r_squared_NSE(gt, learned)
+    out_mask = np.abs(learned - gt) > outlier_thresh
+    in_mask = ~out_mask
+    n_out = int(out_mask.sum())
+    n_tot = int(gt.size)
+    if int(in_mask.sum()) >= 2:
+        r2_clean, slope_clean = compute_r_squared_NSE(gt[in_mask], learned[in_mask])
+    else:
+        r2_clean, slope_clean = float('nan'), float('nan')
+    if n_tot:
+        rel = np.abs(learned - gt) / np.maximum(np.abs(gt), 1e-6)
+        rel_med = float(np.median(rel))
+        q1, q3 = np.percentile(rel, [25.0, 75.0])
+        rel_iqr = float(q3 - q1)
+    else:
+        rel_med = rel_iqr = float('nan')
+    return dict(
+        r2=r2, slope=slope, r2_clean=r2_clean, slope_clean=slope_clean,
+        n_outliers=n_out, n_total=n_tot,
+        pct_outliers=(100.0 * n_out / n_tot) if n_tot else 0.0,
+        outlier_mask=out_mask, inlier_mask=in_mask,
+        degenerate=is_degenerate_gt(gt), mae=recovery_mae(gt, learned),
+        rel_err_median=rel_med, rel_err_iqr=rel_iqr,
+    )
+
+
 # ------------------------------------------------------------------ #
 #  Vectorized helpers
 # ------------------------------------------------------------------ #
