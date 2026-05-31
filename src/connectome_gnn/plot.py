@@ -326,7 +326,10 @@ def plot_g_phi(ax, model, config, n_neurons, type_list, cmap, device, step=20,
     ax.set_xlim(config.plotting.xlim)
     ax.set_ylim([-config.plotting.xlim[1] / 10, config.plotting.xlim[1] * 1.2])
     ax.set_xlabel('$v_j$', fontsize=24)
-    ax.set_ylabel(r'$g_\phi(\mathbf{a}_j, v_j)$', fontsize=24)
+    # g_phi_positive squares g_phi in the message, so the curve here (post_fn=x^2)
+    # is the effective nonlinearity matched against the GT (e.g. softplus for cx).
+    ax.set_ylabel(r'$g_\phi(\mathbf{a}_j, v_j)^2$' if model_config.g_phi_positive
+                  else r'$g_\phi(\mathbf{a}_j, v_j)$', fontsize=24)
     if len(unique_types) <= 10:
         ax.legend(fontsize=16, frameon=False, loc='upper left')
     ax.tick_params(axis='both', which='major', labelsize=18)
