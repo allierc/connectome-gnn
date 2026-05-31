@@ -2266,8 +2266,8 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             _w_lz = (_w_l - _w_l.mean()) / (_w_l.std() + 1e-12)
             _w_zscored_r2, _ = compute_r_squared_NSE(_w_tz, _w_lz)
             print(f"weights r (structure): {_r2_color(_w_struct_r)}{_w_struct_r:.4f}{_ANSI_RESET}"
-                  f"   z-scored R²: {_r2_color(_w_zscored_r2)}{_w_zscored_r2:.4f}{_ANSI_RESET}")
-            logger.info(f"weights r (structure): {_w_struct_r:.4f}  z-scored R²: {_w_zscored_r2:.4f}")
+                  f"  (z-scored R²: {_r2_color(_w_zscored_r2)}{_w_zscored_r2:.4f}{_ANSI_RESET})")
+            logger.info(f"weights r (structure): {_w_struct_r:.4f}  (z-scored R²: {_w_zscored_r2:.4f})")
             # Relative error |learned - true| / max(|true|, eps), full sample.
             # Mean ± SD intentionally omitted (heavy tails dominate); median + IQR only.
             _gt_w_arr  = np.asarray(_tw_c).ravel()
@@ -2571,8 +2571,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 ax_sc1.plot([_lo, _hi], [_lo, _hi], '--', color='gray', lw=1, label='identity')
                 ax_sc1.set_xlabel('true W', fontsize=14)
                 ax_sc1.set_ylabel('corrected learned W', fontsize=14)
-                ax_sc1.set_title(f'raw scale  —  NSE R²={_r2_raw:.3f}  slope={_slope_raw:.3f}\n'
-                                 f'(scale-sensitive; this is the reported weights R²)', fontsize=13)
+                ax_sc1.set_title(f'raw scale  —  NSE R²={_r2_raw:.3f}  slope={_slope_raw:.3f}', fontsize=13)
                 ax_sc1.text(0.05, 0.95, f'Pearson r={_pear:.3f}\nr² (structure)={_pear**2:.3f}',
                             transform=ax_sc1.transAxes, va='top', fontsize=13,
                             bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
@@ -2582,8 +2581,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 ax_sc2.plot([-3, 3], [-3, 3], '--', color='gray', lw=1)
                 ax_sc2.set_xlabel('true W (z-scored)', fontsize=14)
                 ax_sc2.set_ylabel('corrected learned W (z-scored)', fontsize=14)
-                ax_sc2.set_title(f'z-scored (scale removed)  —  R²={_r2_z:.3f}  slope={_slope_z:.3f}\n'
-                                 f'(what the bottom-right matrix panel shows)', fontsize=13)
+                ax_sc2.set_title(f'z-scored  —  R²={_r2_z:.3f}  slope={_slope_z:.3f}', fontsize=13)
                 # mu/sigma used in the global z-score  z(x)=(x-mu)/sigma  (per vector)
                 ax_sc2.text(0.05, 0.95,
                             f'true:       μ={_gt_e.mean():.3g}  σ={_gt_e.std():.3g}\n'
