@@ -25,6 +25,51 @@ from connectome_gnn.utils import (
 logger = get_logger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Connectivity-recovery dispatch + sign-lock restore (single source of truth
+# shared by the trainer, the tester, and GNN_PlotFigure.plot_synaptic).
+# ---------------------------------------------------------------------------
+
+def model_family(model) -> str:
+    """Which connectivity-recovery path a model uses: ``'linear'`` (tau/V_rest/W
+    are direct params -> plot_training_linear), ``'gnn'`` (params live inside
+    f_theta/g_phi, extracted via slope fit + g_phi correction -> plot_training_gnn),
+    or ``'mlp'`` (no edges; connectivity from the Jacobian -> jacobian_connectivity).
+
+    Reads the class attribute ``MODEL_FAMILY``; defaults to ``'gnn'`` so legacy
+    GNN/RNN/eed models (which historically routed to the flyvis plotter) are
+    unchanged. Replaces the old substring matching on ``signal_model_name``.
+    Unwraps a ``torch.compile`` wrapper (``_orig_mod``) so the CX trainer's
+    recompiled model still resolves its family.
+    """
+    fam = getattr(model, "MODEL_FAMILY", None)
+    if fam is None:
+        fam = getattr(getattr(model, "_orig_mod", None), "MODEL_FAMILY", "gnn")
+    return fam
+
+
+def restore_edge_sign_lock(model, gt_weights) -> bool:
+    """Re-establish the Eq-10 hard sign-lock buffer after a checkpoint reload.
+
+    ``_edge_sign`` is a *non-persistent* buffer (neural_gnn), so it is dropped by
+    ``load_state_dict`` and the model would silently roll out on the raw (free-sign)
+    ``W`` -- which under sign-lock training carries the WRONG signs, collapsing the
+    rollout. The trainer sets the buffer once from ``ode_params.W``; the tester and
+    plot_synaptic must re-derive it the same way on reload. No-op unless the model
+    uses ``lock_edge_signs_from_connectome`` and ``gt_weights`` is available.
+
+    Returns True if the sign-lock was (re)applied.
+    """
+    if not getattr(model, "lock_edge_signs_from_connectome", False):
+        return False
+    if gt_weights is None:
+        logger.warning("restore_edge_sign_lock: model is sign-locked but no GT "
+                       "weights given; rollout/metrics will use the raw (wrong) sign.")
+        return False
+    model.set_edge_sign_from_weights(gt_weights)
+    return True
+
+
 def _resolve_config_path(yaml_path: str) -> str:
     """If yaml_path doesn't exist at the local repo, try each fallback config
     root from data_paths.json (cluster_data_dir/config, cluster_root_dir/config).

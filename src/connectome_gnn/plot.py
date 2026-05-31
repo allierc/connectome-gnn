@@ -23,6 +23,7 @@ from connectome_gnn.fitting_models import linear_model
 # Re-export all metrics functions for backward compatibility.
 # Callers can import from either connectome_gnn.metrics or connectome_gnn.plot.
 from connectome_gnn.metrics import (  # noqa: F401
+    r2_scatter_text,
     ANATOMICAL_ORDER,
     INDEX_TO_NAME,
     _batched_mlp_eval,
@@ -423,7 +424,7 @@ def plot_tau(ax, slopes_f_theta, gt_taus, n_neurons, mc=None):
 
     ax.scatter(gt_taus_np, learned_tau, c=mc, s=1, alpha=0.25)
     ax.text(0.05, 0.95,
-            f'$R^2$: {r_squared:.3f}\nslope: {slope:.2f}\nN: {len(gt_taus_np)}',
+            r2_scatter_text(gt_taus_np, learned_tau, label='$R^2$', n=len(gt_taus_np)),
             transform=ax.transAxes, verticalalignment='top', fontsize=24)
     ax.set_xlabel(r'true $\tau$', fontsize=32)
     ax.set_ylabel(r'learned $\tau$', fontsize=32)
@@ -452,7 +453,7 @@ def plot_vrest(ax, slopes_f_theta, offsets_f_theta, gt_V_rest, n_neurons, mc=Non
 
     ax.scatter(gt_vr_np, learned_V_rest, c=mc, s=1, alpha=0.25)
     ax.text(0.05, 0.95,
-            f'$R^2$: {r_squared:.3f}\nslope: {slope:.2f}\nN: {len(gt_vr_np)}',
+            r2_scatter_text(gt_vr_np, learned_V_rest, label='$R^2$', n=len(gt_vr_np)),
             transform=ax.transAxes, verticalalignment='top', fontsize=24)
     ax.set_xlabel(r'true $V_{rest}$', fontsize=32)
     ax.set_ylabel(r'learned $V_{rest}$', fontsize=32)
@@ -2659,9 +2660,9 @@ def plot_loss_from_file(log_dir):
 #  CONSOLIDATED FROM models/utils.py
 # ================================================================== #
 
-def plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_list,
-                         gt_weights, edges, n_neurons=None, n_neuron_types=None,
-                         ode_params=None, hidden_ids=None, anchor_ids=None):
+def plot_training_gnn(x_ts, model, config, epoch, N, log_dir, device, type_list,
+                      gt_weights, edges, n_neurons=None, n_neuron_types=None,
+                      ode_params=None, hidden_ids=None, anchor_ids=None):
     from connectome_gnn.plot import (
         plot_embedding,
         plot_f_theta,
@@ -2717,9 +2718,11 @@ def plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_li
                 dpi=87, bbox_inches='tight', pad_inches=0)
     plt.close()
 
-    # Compute corrected weights
+    # Compute corrected weights. Forward ode_params so each model uses its own
+    # g_phi fit (cx softplus/sigmoid vs flyvis ReLU) instead of the generic
+    # linear slope; without it the per-neuron g_phi correction is mis-scaled.
     corrected_W, _, _, _, _ = compute_all_corrected_weights(
-        model, config, edges, x_ts, device)
+        model, config, edges, x_ts, device, ode_params=ode_params)
 
     # Plot 3: Corrected weight comparison scatter plot — all edges.
     fig, ax = plt.subplots(figsize=(8, 8))
@@ -2842,6 +2845,11 @@ def plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_li
     plt.close()
 
     return r_squared, r_squared_visible, hidden_pearson, anchor_pearson
+
+
+# Backwards-compatible alias: this generic GNN training plotter was named for
+# its first use case (flyvis), but it also drives the drosophila_cx voltage GNN.
+plot_training_flyvis = plot_training_gnn
 
 
 def plot_training_linear(model, config, epoch, N, log_dir, device,

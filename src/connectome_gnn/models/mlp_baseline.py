@@ -29,6 +29,10 @@ class MLPBaseline(nn.Module):
     post-hoc via the Jacobian dF/dv.
     """
 
+    # Connectivity-recovery family: no explicit edges -> connectivity is read
+    # from the Jacobian dF/dv (compute_jacobian_connectivity_r2).
+    MODEL_FAMILY = "mlp"
+
     def __init__(self, aggr_type='add', config=None, device=None):
         super().__init__()
 

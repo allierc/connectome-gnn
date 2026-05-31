@@ -947,6 +947,13 @@ class TrainingConfig(BaseModel):
     # -- g_phi (edge message) regularizers --
     coeff_g_phi_diff: float = 0  # Positive-monotonicity prior on ∂g_phi/∂v (forces g_phi non-decreasing in presynaptic state — Dale-conformant when g_phi_positive=False)
     coeff_g_phi_norm: float = 0  # Norm penalty on g_phi edge messages
+    # g_phi_norm anchoring target — pins g_phi(2*xnorm)^2 to resolve the W<->g_phi
+    # scale degeneracy (the gain can float between W and g_phi, leaving W under-
+    # scaled). "auto": legacy trainer_type behaviour (1 for signal, 2*xnorm for
+    # flyvis). "unit": anchor to 1 (forces g_phi small so W carries the scale —
+    # use this when recovered W is under-scaled, e.g. drosophila_cx_voltage).
+    # "xnorm": anchor to 2*xnorm.
+    g_phi_norm_target: str = "auto"
     coeff_func_g_phi: float = 0.0  # Penalize g_phi output at zero input
     coeff_g_phi_weight_L1: float = 0  # L1 penalty on g_phi MLP weights
     coeff_g_phi_weight_L2: float = 0  # L2 penalty on g_phi MLP weights

@@ -48,6 +48,12 @@ class NeuralGNN(nn.Module):
     Uses explicit scatter_add for message passing (no PyG dependency).
     """
 
+    # Connectivity-recovery family (single source of truth for the trainer /
+    # tester / plot_synaptic dispatch). 'gnn': W/tau/V_rest live inside the
+    # learned f_theta/g_phi MLPs and must be extracted (slope fit + g_phi
+    # correction). See models.recovery / metrics.recovered_connectivity.
+    MODEL_FAMILY = "gnn"
+
     PARAMS_DOC = {
         "model_name": "NeuralGNN",
         "description": "GNN for neural signal dynamics with per-edge W: "

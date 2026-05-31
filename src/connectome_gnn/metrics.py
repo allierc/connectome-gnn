@@ -356,9 +356,15 @@ def compute_r_squared_NSE(true: np.ndarray, learned: np.ndarray) -> tuple[float,
     Slope from learned ≈ a·true + b diagnoses scale miscalibration when R² is low.
     """
     try:
-        var_true = float(np.var(true))
-        if var_true <= 0:
+        a = np.asarray(true).ravel()
+        # Effectively-constant GT -> identity-line R² is undefined and would
+        # explode to a huge negative number on tiny float-level variation
+        # (e.g. a tau that is 0.1 up to ~1e-6 noise, var≈1e-12). Return NaN so
+        # callers show 'N/A' + a MAE instead (see is_degenerate_gt/recovery_mae).
+        scale = max(float(np.mean(np.abs(a))), 1e-12)
+        if a.size < 2 or float(np.std(a)) / scale < 1e-4:
             return float('nan'), float('nan')
+        var_true = float(np.var(true))
         mse = float(np.mean((true - learned) ** 2))
         r_squared = 1.0 - mse / var_true
         slope = float(np.polyfit(true, learned, 1)[0])
@@ -385,6 +391,54 @@ def compute_r_squared_filtered(true: np.ndarray, learned: np.ndarray, outlier_th
 
     r_squared, slope = compute_r_squared_NSE(true_in, learned_in)
     return r_squared, slope, mask
+
+
+def is_degenerate_gt(true: np.ndarray, rel_eps: float = 1e-4) -> bool:
+    """True when the GT is effectively constant, so the identity-line (NSE) R²
+    is undefined (``1 - rss/var`` with ``var≈0``) and explodes to a huge negative
+    number on tiny float-level variation. Uses a *relative* test (coefficient of
+    variation ``std/|mean| < rel_eps``) so it is scale-robust — e.g. a tau that is
+    0.1 up to ~1e-6 float noise (var≈1e-12) is correctly flagged constant. For
+    such a parameter report a MAE instead of a garbage R²."""
+    a = np.asarray(true).ravel()
+    if a.size < 2:
+        return True
+    scale = max(float(np.mean(np.abs(a))), 1e-12)
+    return float(np.std(a)) / scale < rel_eps
+
+
+def recovery_mae(true: np.ndarray, learned: np.ndarray) -> float:
+    """Mean absolute error |true - learned| — the fallback metric for a recovered
+    parameter whose GT is constant (R² undefined)."""
+    a = np.asarray(true).ravel()
+    b = np.asarray(learned).ravel()
+    n = min(a.size, b.size)
+    return float(np.mean(np.abs(a[:n] - b[:n]))) if n else float('nan')
+
+
+def r2_scatter_text(true: np.ndarray, learned: np.ndarray, clean_r2: float = None,
+                    label: str = 'R²', n: int = None) -> str:
+    """Annotation text for a recovery scatter (tau, V_rest, ...).
+
+    Normal: ``'R²: 0.83\\nslope: 1.02'`` (or ``'R²: clean (all)\\nslope'`` when
+    ``clean_r2`` is given). When the GT has ~no variance the R² is undefined, so
+    it shows ``'R²: N/A (const GT)\\nMAE: 0.012'`` instead. Optional ``n`` appends
+    a sample-count line."""
+    tail = '' if n is None else f'\nN: {n}'
+    if is_degenerate_gt(true):
+        return f'{label}: N/A (const GT)\nMAE: {recovery_mae(true, learned):.3g}{tail}'
+    r2, slope = compute_r_squared_NSE(true, learned)
+    if clean_r2 is not None:
+        return f'{label}: {clean_r2:.2f} ({r2:.2f})\nslope: {slope:.2f}{tail}'
+    return f'{label}: {r2:.2f}\nslope: {slope:.2f}{tail}'
+
+
+def fmt_r2_bar(val) -> str:
+    """Progress-bar value: ``'N/A'`` when the R² is undefined (None/NaN, e.g. a
+    constant-GT parameter), else 3-dp."""
+    if val is None or (isinstance(val, float) and np.isnan(val)):
+        return 'N/A'
+    return f'{val:.3f}'
 
 
 # ------------------------------------------------------------------ #
