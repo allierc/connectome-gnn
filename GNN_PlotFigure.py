@@ -51,9 +51,13 @@ from connectome_gnn.zarr_io import load_simulation_data, load_raw_array
 from connectome_gnn.sparsify import clustering_gmm
 from connectome_gnn.models.neural_gnn import NeuralGNN  # noqa: F401 — kept for backwards compat
 from connectome_gnn.models.registry import create_model
+from connectome_gnn.models.utils import model_family, restore_edge_sign_lock
 from connectome_gnn.config import NeuralGraphConfig
 from connectome_gnn.metrics import (
     get_model_W,
+    is_degenerate_gt,
+    recovery_mae,
+    r2_scatter_text,
     compute_r_squared_NSE,
     compute_r_squared_filtered,
     compute_all_corrected_weights,
@@ -468,7 +472,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     fig = plt.figure(figsize=(10, 9))
     plt.scatter(gt_taus_np, learned_tau, c=mc, s=1, alpha=0.3)
     r_squared_tau, slope_tau = compute_r_squared_NSE(gt_taus_np, learned_tau)
-    plt.text(0.05, 0.95, f'R²: {r_squared_tau:.2f}\nslope: {slope_tau:.2f}',
+    plt.text(0.05, 0.95, r2_scatter_text(gt_taus_np, learned_tau),
              transform=plt.gca().transAxes, verticalalignment='top', fontsize=32)
     plt.xlabel(r'true $\tau$', fontsize=48)
     plt.ylabel(r'learned $\tau$', fontsize=48)
@@ -478,8 +482,13 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     plt.tight_layout()
     plt.savefig(f'{log_dir}/results/tau_comparison_{config_indices}.png', dpi=300)
     plt.close()
-    print(f"tau R²: {_r2_color(r_squared_tau)}{r_squared_tau:.3f}{_ANSI_RESET}  slope: {slope_tau:.2f}")
-    logger.info(f"tau R²: {r_squared_tau:.3f}  slope: {slope_tau:.2f}")
+    if is_degenerate_gt(gt_taus_np):
+        _tau_mae = recovery_mae(gt_taus_np, learned_tau)
+        print(f"tau R²: {_ANSI_WHITE}N/A (const GT){_ANSI_RESET}  MAE: {_tau_mae:.3g}")
+        logger.info(f"tau R²: N/A (const GT)  MAE: {_tau_mae:.4g}")
+    else:
+        print(f"tau R²: {_r2_color(r_squared_tau)}{r_squared_tau:.3f}{_ANSI_RESET}  slope: {slope_tau:.2f}")
+        logger.info(f"tau R²: {r_squared_tau:.3f}  slope: {slope_tau:.2f}")
     # Relative error |learned - true| / max(|true|, eps), full sample. Mean ± SD
     # intentionally omitted (heavy tails inflate them); median + IQR only.
     _gt_t_arr   = np.asarray(gt_taus_np).ravel()
@@ -599,7 +608,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     fig = plt.figure(figsize=(10, 9))
     plt.scatter(gt_V_rest_np, learned_V_rest, c=mc, s=1, alpha=0.3)
     r_squared_V_rest, slope_V_rest = compute_r_squared_NSE(gt_V_rest_np, learned_V_rest)
-    plt.text(0.05, 0.95, f'R²: {r_squared_V_rest:.2f}\nslope: {slope_V_rest:.2f}',
+    plt.text(0.05, 0.95, r2_scatter_text(gt_V_rest_np, learned_V_rest),
              transform=plt.gca().transAxes, verticalalignment='top', fontsize=32)
     plt.xlabel(r'true $V_{rest}$', fontsize=48)
     plt.ylabel(r'learned $V_{rest}$', fontsize=48)
@@ -609,8 +618,13 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     plt.tight_layout()
     plt.savefig(f'{log_dir}/results/V_rest_comparison_{config_indices}.png', dpi=300)
     plt.close()
-    print(f"V_rest R²: {_r2_color(r_squared_V_rest)}{r_squared_V_rest:.3f}{_ANSI_RESET}  slope: {slope_V_rest:.2f}")
-    logger.info(f"V_rest R²: {r_squared_V_rest:.3f}  slope: {slope_V_rest:.2f}")
+    if is_degenerate_gt(gt_V_rest_np):
+        _v_mae = recovery_mae(gt_V_rest_np, learned_V_rest)
+        print(f"V_rest R²: {_ANSI_WHITE}N/A (const GT){_ANSI_RESET}  MAE: {_v_mae:.3g}")
+        logger.info(f"V_rest R²: N/A (const GT)  MAE: {_v_mae:.4g}")
+    else:
+        print(f"V_rest R²: {_r2_color(r_squared_V_rest)}{r_squared_V_rest:.3f}{_ANSI_RESET}  slope: {slope_V_rest:.2f}")
+        logger.info(f"V_rest R²: {r_squared_V_rest:.3f}  slope: {slope_V_rest:.2f}")
     # Relative error |learned - true| / max(|true|, eps), full sample. Mean ± SD
     # intentionally omitted (heavy tails inflate them); median + IQR only.
     _gt_v_arr   = np.asarray(gt_V_rest_np).ravel()
@@ -1453,10 +1467,16 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             model.load_state_dict(state_dict['model_state_dict'], strict=False)
             model.edges = edges
 
+            # Re-establish the Eq-10 hard sign-lock dropped by load_state_dict
+            # (_edge_sign is non-persistent). Without it get_model_W/effective_W
+            # and any rollout here read the raw (wrong-sign) W.
+            if restore_edge_sign_lock(model, gt_weights):
+                logger.info('restored Eq-10 sign-lock from gt_weights')
+
             logger.info(f'net: {net}')
 
             # --- Linear model branch ---
-            if 'linear' in model_config.signal_model_name or 'known_ode' in model_config.signal_model_name:
+            if model_family(model) == 'linear':
                 _plot_synaptic_linear(
                     model, config, config_indices, log_dir, logger, mc,
                     edges, gt_weights, gt_taus, gt_V_Rest,
@@ -1761,7 +1781,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 fig = plt.figure(figsize=(10, 9))
                 plt.scatter(gt_taus_np, learned_tau, c=mc, s=_dot_s, alpha=_dot_alpha)
                 r_squared_tau, slope_tau = compute_r_squared_NSE(gt_taus_np, learned_tau)
-                plt.text(0.05, 0.95, f'R²: {r_squared_tau:.2f}\nslope: {slope_tau:.2f}',
+                plt.text(0.05, 0.95, r2_scatter_text(gt_taus_np, learned_tau),
                          transform=plt.gca().transAxes, verticalalignment='top', fontsize=42)
                 plt.xlabel(r'true $\tau$', fontsize=56)
                 plt.ylabel(r'learned $\tau$', fontsize=56)
@@ -1809,7 +1829,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                                color='black', fontweight='bold',
                                bbox=dict(boxstyle='round,pad=0.15', facecolor='white',
                                          edgecolor='gray', alpha=0.75, linewidth=0.5))
-                plt.text(0.05, 0.95, f'R²: {r_squared_tau:.2f}\nslope: {slope_tau:.2f}',
+                plt.text(0.05, 0.95, r2_scatter_text(gt_taus_np, learned_tau),
                          transform=ax_tc.transAxes, verticalalignment='top', fontsize=42)
                 plt.xlabel(r'true $\tau$', fontsize=56)
                 plt.ylabel(r'learned $\tau$', fontsize=56)
@@ -1839,8 +1859,8 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 _pct_outliers_tau = (100.0 * n_outliers_tau / _gt_t.size) if _gt_t.size else 0.0
                 _ax_tc3 = plt.gca()
                 _ax_tc3.text(0.05, 0.95,
-                             f'R²: {r2_tau_clean:.2f} ({r_squared_tau:.2f})\n'
-                             f'slope: {slope_tau_clean:.2f}',
+                             (r2_scatter_text(_gt_t, _lrn_t) if is_degenerate_gt(_gt_t)
+                              else f'R²: {r2_tau_clean:.2f} ({r_squared_tau:.2f})\nslope: {slope_tau_clean:.2f}'),
                              transform=_ax_tc3.transAxes, verticalalignment='top', fontsize=32)
                 _ax_tc3.text(0.05, 0.78,
                              f'outliers: {_pct_outliers_tau:.1f}%',
@@ -1867,7 +1887,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 fig = plt.figure(figsize=(10, 9))
                 plt.scatter(gt_vrest_np, learned_V_rest, c=mc, s=_dot_s, alpha=_dot_alpha)
                 r_squared_V_rest, slope_V_rest = compute_r_squared_NSE(gt_vrest_np, learned_V_rest)
-                plt.text(0.05, 0.95, f'R²: {r_squared_V_rest:.2f}\nslope: {slope_V_rest:.2f}',
+                plt.text(0.05, 0.95, r2_scatter_text(gt_vrest_np, learned_V_rest),
                          transform=plt.gca().transAxes, verticalalignment='top', fontsize=42)
                 plt.xlabel(r'true $V_{rest}$', fontsize=56)
                 plt.ylabel(r'learned $V_{rest}$', fontsize=56)
@@ -1905,7 +1925,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                                color='black', fontweight='bold',
                                bbox=dict(boxstyle='round,pad=0.15', facecolor='white',
                                          edgecolor='gray', alpha=0.75, linewidth=0.5))
-                plt.text(0.05, 0.95, f'R²: {r_squared_V_rest:.2f}\nslope: {slope_V_rest:.2f}',
+                plt.text(0.05, 0.95, r2_scatter_text(gt_vrest_np, learned_V_rest),
                          transform=ax_vc.transAxes, verticalalignment='top', fontsize=42)
                 plt.xlabel(r'true $V_{rest}$', fontsize=56)
                 plt.ylabel(r'learned $V_{rest}$', fontsize=56)
@@ -1935,8 +1955,8 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 _pct_outliers_v = (100.0 * n_outliers_v / _gt_v.size) if _gt_v.size else 0.0
                 _ax_vc3 = plt.gca()
                 _ax_vc3.text(0.05, 0.95,
-                             f'R²: {r2_v_clean:.2f} ({r_squared_V_rest:.2f})\n'
-                             f'slope: {slope_v_clean:.2f}',
+                             (r2_scatter_text(_gt_v, _lrn_v) if is_degenerate_gt(_gt_v)
+                              else f'R²: {r2_v_clean:.2f} ({r_squared_V_rest:.2f})\nslope: {slope_v_clean:.2f}'),
                              transform=_ax_vc3.transAxes, verticalalignment='top', fontsize=32)
                 _ax_vc3.text(0.05, 0.78,
                              f'outliers: {_pct_outliers_v:.1f}%',
@@ -2269,8 +2289,13 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             else:
                 logger.info('outliers: 0  (no outliers detected)')
             if ode_params.has_tau():
-                print(f"tau R²: {_r2_color(r_squared_tau)}{r_squared_tau:.3f}{_ANSI_RESET}  slope: {slope_tau:.2f}")
-                logger.info(f"tau R²: {r_squared_tau:.3f}  slope: {slope_tau:.2f}")
+                if is_degenerate_gt(gt_taus_np):
+                    _tau_mae = recovery_mae(gt_taus_np, learned_tau)
+                    print(f"tau R²: {_ANSI_WHITE}N/A (const GT){_ANSI_RESET}  MAE: {_tau_mae:.3g}")
+                    logger.info(f"tau R²: N/A (const GT)  MAE: {_tau_mae:.4g}")
+                else:
+                    print(f"tau R²: {_r2_color(r_squared_tau)}{r_squared_tau:.3f}{_ANSI_RESET}  slope: {slope_tau:.2f}")
+                    logger.info(f"tau R²: {r_squared_tau:.3f}  slope: {slope_tau:.2f}")
                 # Relative error |learned - true| / max(|true|, eps), full sample.
                 _gt_t_arr  = np.asarray(gt_taus_np).ravel()
                 _lrn_t_arr = np.asarray(learned_tau).ravel()
@@ -2294,18 +2319,27 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                         _gt_t_arr[_inlier_mask_t_g], _lrn_t_arr[_inlier_mask_t_g])
                 else:
                     r2_tau_clean_g, slope_tau_clean_g = float('nan'), float('nan')
-                print(f"tau (wo outliers) R²: {_r2_color(r2_tau_clean_g)}{r2_tau_clean_g:.3f}{_ANSI_RESET}  "
-                      f"slope: {slope_tau_clean_g:.2f}  "
-                      f"outliers: {n_outliers_tau_g}/{_gt_t_arr.size} ({_pct_outliers_tau_g:.1f}%)")
-                logger.info(f"tau_wo_outliers R²: {r2_tau_clean_g:.4f}  slope: {slope_tau_clean_g:.4f}  "
-                            f"outliers: {n_outliers_tau_g}/{_gt_t_arr.size} ({_pct_outliers_tau_g:.1f}%)")
+                if is_degenerate_gt(_gt_t_arr):
+                    print(f"tau (wo outliers) R²: {_ANSI_WHITE}N/A (const GT){_ANSI_RESET}")
+                    logger.info("tau_wo_outliers R²: N/A (const GT)")
+                else:
+                    print(f"tau (wo outliers) R²: {_r2_color(r2_tau_clean_g)}{r2_tau_clean_g:.3f}{_ANSI_RESET}  "
+                          f"slope: {slope_tau_clean_g:.2f}  "
+                          f"outliers: {n_outliers_tau_g}/{_gt_t_arr.size} ({_pct_outliers_tau_g:.1f}%)")
+                    logger.info(f"tau_wo_outliers R²: {r2_tau_clean_g:.4f}  slope: {slope_tau_clean_g:.4f}  "
+                                f"outliers: {n_outliers_tau_g}/{_gt_t_arr.size} ({_pct_outliers_tau_g:.1f}%)")
                 with open(os.path.join(log_dir, 'results', 'metrics.txt'), 'a') as _mf:
                     _mf.write(f"tau_no_outliers_R2: {r2_tau_clean_g:.4f}\n")
                     _mf.write(f"tau_no_outliers_slope: {slope_tau_clean_g:.4f}\n")
                     _mf.write(f"tau_n_outliers: {n_outliers_tau_g}\n")
             if ode_params.has_vrest():
-                print(f"V_rest R²: {_r2_color(r_squared_V_rest)}{r_squared_V_rest:.3f}{_ANSI_RESET}  slope: {slope_V_rest:.2f}")
-                logger.info(f"V_rest R²: {r_squared_V_rest:.3f}  slope: {slope_V_rest:.2f}")
+                if is_degenerate_gt(gt_vrest_np):
+                    _v_mae = recovery_mae(gt_vrest_np, learned_V_rest)
+                    print(f"V_rest R²: {_ANSI_WHITE}N/A (const GT){_ANSI_RESET}  MAE: {_v_mae:.3g}")
+                    logger.info(f"V_rest R²: N/A (const GT)  MAE: {_v_mae:.4g}")
+                else:
+                    print(f"V_rest R²: {_r2_color(r_squared_V_rest)}{r_squared_V_rest:.3f}{_ANSI_RESET}  slope: {slope_V_rest:.2f}")
+                    logger.info(f"V_rest R²: {r_squared_V_rest:.3f}  slope: {slope_V_rest:.2f}")
                 # Relative error |learned - true| / max(|true|, eps), full sample.
                 # Mean ± SD intentionally omitted (heavy tails dominate); median + IQR only.
                 _gt_v_arr  = np.asarray(gt_vrest_np).ravel()
@@ -2330,11 +2364,15 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                         _gt_v_arr[_inlier_mask_v_g], _lrn_v_arr[_inlier_mask_v_g])
                 else:
                     r2_v_clean_g, slope_v_clean_g = float('nan'), float('nan')
-                print(f"V_rest (wo outliers) R²: {_r2_color(r2_v_clean_g)}{r2_v_clean_g:.3f}{_ANSI_RESET}  "
-                      f"slope: {slope_v_clean_g:.2f}  "
-                      f"outliers: {n_outliers_v_g}/{_gt_v_arr.size} ({_pct_outliers_v_g:.1f}%)")
-                logger.info(f"V_rest_wo_outliers R²: {r2_v_clean_g:.4f}  slope: {slope_v_clean_g:.4f}  "
-                            f"outliers: {n_outliers_v_g}/{_gt_v_arr.size} ({_pct_outliers_v_g:.1f}%)")
+                if is_degenerate_gt(_gt_v_arr):
+                    print(f"V_rest (wo outliers) R²: {_ANSI_WHITE}N/A (const GT){_ANSI_RESET}")
+                    logger.info("V_rest_wo_outliers R²: N/A (const GT)")
+                else:
+                    print(f"V_rest (wo outliers) R²: {_r2_color(r2_v_clean_g)}{r2_v_clean_g:.3f}{_ANSI_RESET}  "
+                          f"slope: {slope_v_clean_g:.2f}  "
+                          f"outliers: {n_outliers_v_g}/{_gt_v_arr.size} ({_pct_outliers_v_g:.1f}%)")
+                    logger.info(f"V_rest_wo_outliers R²: {r2_v_clean_g:.4f}  slope: {slope_v_clean_g:.4f}  "
+                                f"outliers: {n_outliers_v_g}/{_gt_v_arr.size} ({_pct_outliers_v_g:.1f}%)")
                 with open(os.path.join(log_dir, 'results', 'metrics.txt'), 'a') as _mf:
                     _mf.write(f"V_rest_no_outliers_R2: {r2_v_clean_g:.4f}\n")
                     _mf.write(f"V_rest_no_outliers_slope: {slope_v_clean_g:.4f}\n")

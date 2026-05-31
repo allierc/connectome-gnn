@@ -27,6 +27,10 @@ class KnownODEBase(nn.Module):
     # `model.NNR_hidden is not None` to decide between fill-in and zero-silencing.
     NNR_hidden = None
 
+    # Connectivity-recovery family: tau/V_rest/W are direct learnable
+    # parameters (read straight off), so the recovery path is the linear one.
+    MODEL_FAMILY = "linear"
+
     def __init__(self, aggr_type='add', config=None, device=None):
         super().__init__()
 

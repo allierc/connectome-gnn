@@ -22,7 +22,7 @@ from tqdm import trange
 
 from connectome_gnn.figure_style import default_style
 from connectome_gnn.log import get_logger
-from connectome_gnn.metrics import compute_dynamics_r2
+from connectome_gnn.metrics import compute_dynamics_r2, fmt_r2_bar
 from connectome_gnn.models.neural_ode_wrapper import (
     debug_check_gradients,
     neural_ode_loss,
@@ -41,6 +41,7 @@ from connectome_gnn.models.utils import (
     _batch_frames,
     _quick_ngp_pearson,
     analyze_data_svd,
+    model_family,
     r2_color,
     set_trainable_parameters,
 )
@@ -48,7 +49,7 @@ from connectome_gnn.plot import (
     plot_jacobian_w_scatter,
     plot_metrics,
     plot_signal_loss,
-    plot_training_flyvis,
+    plot_training_gnn,
     plot_training_linear,
     plot_training_summary_panels,
     render_visual_field_video,
@@ -816,7 +817,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                     torch.save({'model_state_dict': model.state_dict(),
                                 'optimizer_state_dict': optimizer.state_dict()},
                                _intermediate_path)
-                if (is_regular_r2 or is_early_r2) and ('linear' in model_name or 'known_ode' in model_name):
+                if (is_regular_r2 or is_early_r2) and model_family(model) == 'linear':
                     last_connectivity_r2, last_tau_r2, last_vrest_r2, _dyn = plot_training_linear(
                         model, config, epoch, N, log_dir, device, gt_weights, n_neurons=n_neurons)
                     last_vrest_r2_clean = _dyn['vrest_r2_clean']
@@ -830,8 +831,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                                 f'{_fmt_metric(last_vrest_r2_clean)},{last_n_out_vrest},{last_n_total_vrest},'
                                 f'{_fmt_metric(last_tau_r2_clean)},{last_n_out_tau},{last_n_total_tau}\n')
                     _metrics_changed = True
-                elif (is_regular_r2 or is_early_r2) and 'mlp' not in model_name.lower():
-                    last_connectivity_r2, _r2_visible, _h_r2, _a_r2 = plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_list, gt_weights, edges, n_neurons=n_neurons, n_neuron_types=sim.n_neuron_types, ode_params=ode_params, hidden_ids=hidden_ids, anchor_ids=anchor_ids)
+                elif (is_regular_r2 or is_early_r2) and model_family(model) == 'gnn':
+                    last_connectivity_r2, _r2_visible, _h_r2, _a_r2 = plot_training_gnn(x_ts, model, config, epoch, N, log_dir, device, type_list, gt_weights, edges, n_neurons=n_neurons, n_neuron_types=sim.n_neuron_types, ode_params=ode_params, hidden_ids=hidden_ids, anchor_ids=anchor_ids)
                     last_connectivity_r2_visible = _r2_visible
                     if _h_r2 is not None:
                         last_hidden_r2 = _h_r2
@@ -917,10 +918,10 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                         bar_parts.append(f'{c_conn}{conn_str}{ANSI_RESET}')
                         if ode_params.has_vrest():
                             _vr_pct = (100.0 * last_n_out_vrest / last_n_total_vrest) if last_n_total_vrest > 0 else 0.0
-                            bar_parts.append(f'{r2_color(last_vrest_r2_clean)}Vr={last_vrest_r2_clean:.3f}({_vr_pct:.0f}%){ANSI_RESET}')
+                            bar_parts.append(f'{r2_color(last_vrest_r2_clean)}Vr={fmt_r2_bar(last_vrest_r2_clean)}({_vr_pct:.0f}%){ANSI_RESET}')
                         if ode_params.has_tau():
                             _tau_pct = (100.0 * last_n_out_tau / last_n_total_tau) if last_n_total_tau > 0 else 0.0
-                            bar_parts.append(f'{r2_color(last_tau_r2_clean)}τ={last_tau_r2_clean:.3f}({_tau_pct:.0f}%){ANSI_RESET}')
+                            bar_parts.append(f'{r2_color(last_tau_r2_clean)}τ={fmt_r2_bar(last_tau_r2_clean)}({_tau_pct:.0f}%){ANSI_RESET}')
                     if last_hidden_r2 is not None or last_anchor_r2 is not None:
                         # During warmup (injection_active=False), hidden
                         # voltages are zero-silenced so hidden_nnr_pearson
@@ -1225,7 +1226,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                                 'optimizer_state_dict': optimizer.state_dict()},
                                _intermediate_path)
 
-                if (is_regular_r2 or is_early_r2) and not test_neural_field and '_mlp' in model_name:
+                if (is_regular_r2 or is_early_r2) and not test_neural_field and model_family(model) == 'mlp':
                     from connectome_gnn.metrics import compute_jacobian_connectivity_r2
                     last_connectivity_r2 = compute_jacobian_connectivity_r2(
                         model, x_ts, ode_params, n_neurons=n_neurons, device=device)
@@ -1238,7 +1239,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                     plot_jacobian_w_scatter(model, x_ts, ode_params, gt_weights, n_neurons,
                                             log_dir, epoch, N, device)
                     _metrics_changed = True
-                elif (is_regular_r2 or is_early_r2) and not test_neural_field and ('linear' in model_name or 'known_ode' in model_name):
+                elif (is_regular_r2 or is_early_r2) and not test_neural_field and model_family(model) == 'linear':
                     last_connectivity_r2, last_tau_r2, last_vrest_r2, _dyn = plot_training_linear(
                         model, config, epoch, N, log_dir, device, gt_weights, n_neurons=n_neurons)
                     last_vrest_r2_clean = _dyn['vrest_r2_clean']
@@ -1252,8 +1253,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                                 f'{_fmt_metric(last_vrest_r2_clean)},{last_n_out_vrest},{last_n_total_vrest},'
                                 f'{_fmt_metric(last_tau_r2_clean)},{last_n_out_tau},{last_n_total_tau}\n')
                     _metrics_changed = True
-                elif (is_regular_r2 or is_early_r2) and not test_neural_field and 'mlp' not in model_name.lower():
-                    last_connectivity_r2, _r2_visible, _h_r2, _a_r2 = plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_list, gt_weights, edges, n_neurons=n_neurons, n_neuron_types=sim.n_neuron_types, ode_params=ode_params, hidden_ids=hidden_ids, anchor_ids=anchor_ids)
+                elif (is_regular_r2 or is_early_r2) and not test_neural_field and model_family(model) == 'gnn':
+                    last_connectivity_r2, _r2_visible, _h_r2, _a_r2 = plot_training_gnn(x_ts, model, config, epoch, N, log_dir, device, type_list, gt_weights, edges, n_neurons=n_neurons, n_neuron_types=sim.n_neuron_types, ode_params=ode_params, hidden_ids=hidden_ids, anchor_ids=anchor_ids)
                     last_connectivity_r2_visible = _r2_visible
                     if _h_r2 is not None:
                         last_hidden_r2 = _h_r2
@@ -1338,10 +1339,10 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                         bar_parts.append(f'{c_conn}{conn_str}{ANSI_RESET}')
                         if ode_params.has_vrest():
                             _vr_pct = (100.0 * last_n_out_vrest / last_n_total_vrest) if last_n_total_vrest > 0 else 0.0
-                            bar_parts.append(f'{r2_color(last_vrest_r2_clean)}Vr={last_vrest_r2_clean:.3f}({_vr_pct:.0f}%){ANSI_RESET}')
+                            bar_parts.append(f'{r2_color(last_vrest_r2_clean)}Vr={fmt_r2_bar(last_vrest_r2_clean)}({_vr_pct:.0f}%){ANSI_RESET}')
                         if ode_params.has_tau():
                             _tau_pct = (100.0 * last_n_out_tau / last_n_total_tau) if last_n_total_tau > 0 else 0.0
-                            bar_parts.append(f'{r2_color(last_tau_r2_clean)}τ={last_tau_r2_clean:.3f}({_tau_pct:.0f}%){ANSI_RESET}')
+                            bar_parts.append(f'{r2_color(last_tau_r2_clean)}τ={fmt_r2_bar(last_tau_r2_clean)}({_tau_pct:.0f}%){ANSI_RESET}')
                     if last_hidden_r2 is not None or last_anchor_r2 is not None:
                         # During warmup (injection_active=False), hidden
                         # voltages are zero-silenced so hidden_nnr_pearson

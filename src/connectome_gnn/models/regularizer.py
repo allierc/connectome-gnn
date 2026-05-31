@@ -345,11 +345,19 @@ class LossRegularizer:
                     msg_norm = model.g_phi(in_features_edge_norm[ids].clone().detach()) ** 2
                 else:
                     msg_norm = model.g_phi(in_features_edge_norm[ids].clone().detach())
-                # Different normalization target for signal vs flyvis
-                if self.trainer_type == 'signal':
-                    regul_term = (msg_norm - 1).norm(2) * _ct['g_phi_norm']
-                else:  # flyvis
-                    regul_term = (msg_norm - 2 * xnorm).norm(2) * _ct['g_phi_norm']
+                # Anchoring target for the g_phi message at v=2*xnorm. Pins the
+                # W<->g_phi scale degeneracy. Configurable via g_phi_norm_target;
+                # "auto" preserves the legacy per-trainer_type behaviour.
+                _gpn_target = getattr(tc, 'g_phi_norm_target', 'auto')
+                if _gpn_target == 'unit':
+                    _target = 1.0
+                elif _gpn_target == 'xnorm':
+                    _target = 2 * xnorm
+                elif self.trainer_type == 'signal':  # auto
+                    _target = 1.0
+                else:  # auto, flyvis
+                    _target = 2 * xnorm
+                regul_term = (msg_norm - _target).norm(2) * _ct['g_phi_norm']
                 total_regul = total_regul + regul_term
                 self._add('g_phi_norm', regul_term)
 

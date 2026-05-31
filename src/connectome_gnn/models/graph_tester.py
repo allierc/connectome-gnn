@@ -32,6 +32,7 @@ from connectome_gnn.models.utils import (
     ANSI_ORANGE,
     ANSI_RESET,
     r2_color,
+    restore_edge_sign_lock,
 )
 from connectome_gnn.metrics import INDEX_TO_NAME
 from connectome_gnn.models.neural_ode_wrapper import integrate_neural_ode
@@ -339,6 +340,24 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
             logger.warning(f'INR checkpoint not found at {inr_path}')
 
     model.eval()
+
+    # Re-establish the Eq-10 hard sign-lock. ``_edge_sign`` is non-persistent so
+    # load_state_dict drops it; without this the rollout would run on the raw
+    # (free-sign) W -- which under sign-lock training carries the WRONG signs,
+    # collapsing the rollout Pearson. Re-derive from the connectome (ode_params.W)
+    # exactly as the trainer does, using the model's own ODE registry entry.
+    if getattr(model, 'lock_edge_signs_from_connectome', False):
+        from connectome_gnn.generators.ode_params import get_ode_params_class
+        try:
+            _SignOdeCls = get_ode_params_class(model_config.signal_model_name)
+        except KeyError:
+            _SignOdeCls = FlyVisODEParams
+        try:
+            _sign_odep = _SignOdeCls.load(graphs_data_path(config.dataset), device=device)
+            if restore_edge_sign_lock(model, getattr(_sign_odep, 'W', None)):
+                logger.info('restored Eq-10 sign-lock from ode_params.W for rollout')
+        except Exception as _e:
+            logger.warning(f'could not restore sign-lock (rollout sign may be wrong): {_e}')
 
     # Apply ablation mask if test dataset has one
     mask_path = graphs_data_path(test_ds, 'ablation_mask.pt')
@@ -751,9 +770,10 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     n_neuron_types = sim.n_neuron_types
     n_neurons = len(neuron_types)
 
-    # Model-specific type names. Fall through to FlyVisODEParams when the
-    # signal_model_name isn't in the ODE registry (e.g. drosophila_cx_voltage),
-    # so the saved type_names list (if any) is still picked up.
+    # Model-specific type names from the model's own ODE registry entry. The
+    # KeyError/TypeError fallbacks remain only as defence for unregistered or
+    # schema-mismatched checkpoints; every shipped model (incl.
+    # drosophila_cx_voltage) is now registered, so they normally don't fire.
     from connectome_gnn.generators.ode_params import FlyVisODEParams, get_ode_params_class
     try:
         try:
