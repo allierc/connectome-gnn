@@ -652,6 +652,29 @@ class NeuralGNN(nn.Module):
 
         return msg
 
+    def _require_sign_lock_ready(self) -> None:
+        """Fail loudly if the Eq-10 sign-lock is on but the GT sign was never set.
+
+        ``_edge_sign`` is a *non-persistent* buffer: the sign is GT metadata
+        (``sign(connectome_W)``), re-derived from ``ode_params.W`` on load via
+        ``restore_edge_sign_lock`` — it is deliberately NOT baked into the
+        checkpoint (single source of truth = the connectome). The cost is that a
+        load-path must restore it; if one forgets, the model would silently roll
+        out on the free-sign (~50%-wrong) raw ``W``. We enforce only in **eval**
+        mode — during training the loop calls ``set_edge_sign_from_weights``
+        before the first step, so a transient unset state there is normal.
+        """
+        if (self.lock_edge_signs_from_connectome and self._edge_sign is None
+                and not self.training):
+            raise RuntimeError(
+                "Eq-10 sign-lock is ON but the GT sign buffer is unset on this "
+                "eval model. _edge_sign is non-persistent and must be re-derived "
+                "from the connectome after load: call "
+                "restore_edge_sign_lock(model, gt_weights) (or "
+                "model.set_edge_sign_from_weights(ode_params.W)) before "
+                "rollout/recovery — otherwise the model rolls out on the raw "
+                "free-sign W (~half the edges carry the wrong sign).")
+
     def _effective_edge_weights(self, edge_W_idx: torch.Tensor) -> torch.Tensor:
         """Per-edge weight used in messages.
 
@@ -660,8 +683,10 @@ class NeuralGNN(nn.Module):
         otherwise the free-sign learned ``W`` (unchanged legacy behaviour).
         """
         W_e = self.W[edge_W_idx]
-        if self.lock_edge_signs_from_connectome and self._edge_sign is not None:
-            return W_e.abs() * self._edge_sign[edge_W_idx]
+        if self.lock_edge_signs_from_connectome:
+            self._require_sign_lock_ready()
+            if self._edge_sign is not None:
+                return W_e.abs() * self._edge_sign[edge_W_idx]
         return W_e
 
     @property
@@ -670,8 +695,10 @@ class NeuralGNN(nn.Module):
         under the hard sign-lock, else the raw `W`. Metrics and plots should
         read THIS (via get_model_W), not the raw parameter, whose sign is free
         because only its magnitude enters the message."""
-        if self.lock_edge_signs_from_connectome and self._edge_sign is not None:
-            return self.W.abs() * self._edge_sign
+        if self.lock_edge_signs_from_connectome:
+            self._require_sign_lock_ready()
+            if self._edge_sign is not None:
+                return self.W.abs() * self._edge_sign
         return self.W
 
     def set_edge_sign_from_weights(self, gt_weights: torch.Tensor) -> None:
