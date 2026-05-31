@@ -36,6 +36,16 @@ _ANSI_BLUE = '\033[94m'
 _ANSI_WHITE = '\033[97m'
 _ANSI_RESET = '\033[0m'
 
+# Per-parameter outlier thresholds for the recovery scatters / R² / metrics.
+# Fixed by neurips.tex eq:outlier_threshold (|theta_hat - theta| > delta), held
+# constant across all conditions so outlier counts are comparable across tables.
+# Single source of truth for BOTH the linear and GNN plot paths so the figure,
+# console, and metrics.txt can't drift apart (they used to: V_rest figure 0.1 vs
+# console 0.2).
+DELTA_TAU = 0.1
+DELTA_VREST = 0.2
+
+
 def _r2_color(val):
     """Red < 0.3, orange < 0.7, green >= 0.7."""
     if val < 0.3: return _ANSI_RED
@@ -508,7 +518,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     # (cell-type labels) and Plot 3c (outlier viz) share the same mask.
     _gt_t   = np.asarray(gt_taus_np).ravel()
     _lrn_t  = np.asarray(learned_tau).ravel()
-    _tau_outlier_thresh = 0.1
+    _tau_outlier_thresh = DELTA_TAU
     _outlier_mask_t = np.abs(_lrn_t - _gt_t) > _tau_outlier_thresh
     _inlier_mask_t  = ~_outlier_mask_t
     n_outliers_tau = int(_outlier_mask_t.sum())
@@ -644,7 +654,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     # (cell-type labels) and Plot 4c (outlier viz) share the same mask.
     _gt_v   = np.asarray(gt_V_rest_np).ravel()
     _lrn_v  = np.asarray(learned_V_rest).ravel()
-    _vrest_outlier_thresh = 0.1
+    _vrest_outlier_thresh = DELTA_VREST
     _outlier_mask = np.abs(_lrn_v - _gt_v) > _vrest_outlier_thresh
     _inlier_mask  = ~_outlier_mask
     n_outliers = int(_outlier_mask.sum())
@@ -655,16 +665,11 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     plt.scatter(gt_V_rest_np, learned_V_rest,
                 c=cmap.color(to_numpy(type_list).astype(int)),
                 s=4, alpha=0.6)
-    # Label a type only when >50% of its neurons are outliers, so labels
-    # mark types that are systematically off rather than types with a few
-    # stragglers (whose centroid would land inside the ±thresh band).
+    # Label any type that has at least one outlier neuron (matches the GNN path's
+    # rule; was previously a >50%-outliers gate, which diverged between paths).
     for _t in np.unique(_type_list_np):
-        _type_mask = (_type_list_np == _t)
-        _n_type = int(_type_mask.sum())
-        if _n_type == 0:
-            continue
-        _t_mask = _type_mask & _outlier_mask
-        if _t_mask.sum() / _n_type <= 0.5:
+        _t_mask = (_type_list_np == _t) & _outlier_mask
+        if not _t_mask.any():
             continue
         _x_lbl = float(_gt_v[_t_mask].mean())
         _y_lbl = float(_lrn_v[_t_mask].mean())
@@ -1795,7 +1800,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 # Outlier mask on |learned - true| > 0.1, shared by both extra plots.
                 _gt_t   = np.asarray(gt_taus_np).ravel()
                 _lrn_t  = np.asarray(learned_tau).ravel()
-                _tau_outlier_thresh = 0.1
+                _tau_outlier_thresh = DELTA_TAU
                 _outlier_mask_t = np.abs(_lrn_t - _gt_t) > _tau_outlier_thresh
                 _inlier_mask_t  = ~_outlier_mask_t
                 n_outliers_tau = int(_outlier_mask_t.sum())
@@ -1901,7 +1906,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 # Outlier mask on |learned - true| > 0.2, shared by both extra plots.
                 _gt_v   = np.asarray(gt_vrest_np).ravel()
                 _lrn_v  = np.asarray(learned_V_rest).ravel()
-                _vrest_outlier_thresh = 0.1
+                _vrest_outlier_thresh = DELTA_VREST
                 _outlier_mask_v = np.abs(_lrn_v - _gt_v) > _vrest_outlier_thresh
                 _inlier_mask_v  = ~_outlier_mask_v
                 n_outliers_v = int(_outlier_mask_v.sum())
@@ -2327,7 +2332,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                     _mf.write(f"tau_rel_err_median: {_rel_err_tau_med:.4f}\n")
                     _mf.write(f"tau_rel_err_iqr: {_rel_err_tau_iqr:.4f}\n")
                 # Outlier count + trimmed R²/slope (|learned - true| > 0.1).
-                _tau_outlier_thresh_g = 0.1
+                _tau_outlier_thresh_g = DELTA_TAU
                 _outlier_mask_t_g = np.abs(_lrn_t_arr - _gt_t_arr) > _tau_outlier_thresh_g
                 _inlier_mask_t_g  = ~_outlier_mask_t_g
                 n_outliers_tau_g = int(_outlier_mask_t_g.sum())
@@ -2372,7 +2377,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                     _mf.write(f"V_rest_rel_err_median: {_rel_err_v_med:.4f}\n")
                     _mf.write(f"V_rest_rel_err_iqr: {_rel_err_v_iqr:.4f}\n")
                 # Outlier count + trimmed R²/slope (|learned - true| > 0.2).
-                _vrest_outlier_thresh_g = 0.2
+                _vrest_outlier_thresh_g = DELTA_VREST
                 _outlier_mask_v_g = np.abs(_lrn_v_arr - _gt_v_arr) > _vrest_outlier_thresh_g
                 _inlier_mask_v_g  = ~_outlier_mask_v_g
                 n_outliers_v_g = int(_outlier_mask_v_g.sum())
