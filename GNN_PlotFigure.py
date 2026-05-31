@@ -1601,6 +1601,20 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             # Ground truth g_phi via ODE params registry
             func_true_g_phi = ode_params.gt_g_phi_func(rr_np)
 
+            # Per-panel y-limits from the curve's own range (so a bounded GT like
+            # sigmoid, max 1, isn't squished by a ReLU-sized fixed window).
+            def _gp_ylim(arr):
+                try:
+                    a = np.asarray(arr, dtype=float)
+                    lo, hi = float(np.nanmin(a)), float(np.nanmax(a))
+                    if not (np.isfinite(lo) and np.isfinite(hi) and hi > lo):
+                        raise ValueError
+                    pad = 0.08 * (hi - lo)
+                    return (min(0.0, lo) - pad, hi + pad)
+                except Exception:
+                    _h = config.plotting.xlim[1]
+                    return (-_h / 10, _h * 2)
+
             # Side-by-side: true (left) vs learned (right)
             fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 9))
             _plot_curves_fast(ax1, rr_np, func_true_g_phi,
@@ -1609,19 +1623,19 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             ax1.set_ylabel(f'true {ode_params.g_phi_label()}', fontsize=48)
             ax1.tick_params(axis='both', which='major', labelsize=24)
             ax1.set_xlim([-1, 5])
-            ax1.set_ylim([-config.plotting.xlim[1]/10, config.plotting.xlim[1]*2])
+            ax1.set_ylim(_gp_ylim(func_true_g_phi))
 
             _plot_curves_fast(ax2, rr_np, func_np,
                               type_np, cmap, linewidth=1, alpha=_curve_alpha)
             ax2.set_xlabel('$v_j$', fontsize=48)
             # When g_phi_positive, the message uses g_phi^2, so the curve plotted
             # here (post_fn=x^2) is the *effective* nonlinearity compared against
-            # the GT softplus on the left — label it as such.
+            # the GT activation on the left — label it as such.
             ax2.set_ylabel(r'learned $g_\phi(a_j, v_j)^2$' if model_config.g_phi_positive
                            else r'learned $g_\phi(a_j, v_j)$', fontsize=48)
             ax2.tick_params(axis='both', which='major', labelsize=24)
             ax2.set_xlim([-1, 5])
-            ax2.set_ylim([-config.plotting.xlim[1]/10, config.plotting.xlim[1]*2])
+            ax2.set_ylim(_gp_ylim(func_np))
 
             plt.tight_layout()
             plt.savefig(f"{log_dir}/results/g_phi_{config_indices}_domain.png", dpi=300)
