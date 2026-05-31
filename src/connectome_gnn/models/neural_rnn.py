@@ -34,6 +34,9 @@ class NeuralRNN(nn.Module):
     Also exposes self.W and self.a for compatibility with plotting/analysis code.
     """
 
+    # Forward/rollout dispatch tag (tester): stateful packed-call interface.
+    FORWARD_KIND = "rnn"
+
     def __init__(self, aggr_type='add', config=None, device=None):
         super().__init__()
 

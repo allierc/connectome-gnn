@@ -33,6 +33,9 @@ class MLPBaseline(nn.Module):
     # from the Jacobian dF/dv (compute_jacobian_connectivity_r2).
     MODEL_FAMILY = "mlp"
 
+    # Forward/rollout dispatch tag (tester): flat packed-call, no edges.
+    FORWARD_KIND = "mlp"
+
     def __init__(self, aggr_type='add', config=None, device=None):
         super().__init__()
 

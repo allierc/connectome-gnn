@@ -83,6 +83,9 @@ class EEDBaseline(nn.Module):
     comment in config.py GraphModelConfig.
     """
 
+    # Forward/rollout dispatch tag (tester): pure latent-space encode-evolve-decode.
+    FORWARD_KIND = "eed"
+
     def __init__(self, aggr_type='add', config=None, device=None):
         super().__init__()
 
