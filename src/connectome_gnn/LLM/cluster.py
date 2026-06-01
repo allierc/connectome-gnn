@@ -434,9 +434,10 @@ def _read_total_iter(log_dir):
         return None
 
 
-def _read_clustering_accuracy(log_dir):
-    """Return clustering_accuracy float from <log_dir>/results/metrics.txt
-    (written by data_plot), or None if not available yet."""
+def _read_results_metric(log_dir, key):
+    """Return a float metric `key` from <log_dir>/results/metrics.txt (written by
+    data_plot), or None if absent. One-iteration-stale during training (reflects
+    the previous iteration's test+plot), like clustering_accuracy."""
     path = os.path.join(log_dir, 'results', 'metrics.txt')
     if not os.path.isfile(path):
         return None
@@ -445,11 +446,17 @@ def _read_clustering_accuracy(log_dir):
             for line in f:
                 if ':' not in line:
                     continue
-                key, val = line.split(':', 1)
-                if key.strip() == 'clustering_accuracy':
+                k, val = line.split(':', 1)
+                if k.strip() == key:
                     return float(val.strip())
     except (OSError, ValueError):
         return None
+    return None
+
+
+def _read_clustering_accuracy(log_dir):
+    """clustering_accuracy from <log_dir>/results/metrics.txt, or None."""
+    return _read_results_metric(log_dir, 'clustering_accuracy')
     return None
 
 
@@ -616,9 +623,19 @@ def _print_training_metrics(log_dirs, slots_active, prefix='  [metrics]'):
             cl = _read_clustering_accuracy(log_dir)
             cl_str = (f"{_r2_color(cl)}{cl:.2f}{_ANSI_RESET}"
                       if cl is not None else f"{_ANSI_RESET}n/a{_ANSI_RESET}")
+            # Post-hoc scale-free metrics (one-iteration-stale during training,
+            # like cluster) — the meaningful recovery signal vs the NSE R²W.
+            sr = _read_results_metric(log_dir, 'W_structure_r')
+            zr = _read_results_metric(log_dir, 'W_zscored_R2')
 
             parts = [
                 f"{_r2_color(tm['conn'])}R²W={tm['conn']:.3f}{_ANSI_RESET}",
+            ]
+            if sr is not None:
+                parts.append(f"{_r2_color(sr, thresholds=(0.8, 0.5, 0.3))}r_struct={sr:.3f}{_ANSI_RESET}")
+            if zr is not None:
+                parts.append(f"{_r2_color(zr, thresholds=(0.7, 0.4, 0.2))}zR²={zr:.3f}{_ANSI_RESET}")
+            parts += [
                 _fmt_R2_out('R²Vr', tm['vr_clean'], tm['vr'],
                             tm['n_out_vr'], tm['n_total_vr']),
                 _fmt_R2_out('R²τ', tm['tau_clean'], tm['tau'],
