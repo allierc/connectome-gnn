@@ -45,6 +45,9 @@ if __name__ == "__main__":
                         help="Root directory for log/ and  (default: cwd)")
     parser.add_argument("--force", action="store_true",
                         help="Force regeneration of data even if it already exists")
+    parser.add_argument("--resume", action="store_true",
+                        help="Resume training from the latest completed per-epoch checkpoint "
+                             "(continues at the next epoch, iter 0); does not erase the log dir")
     parser.add_argument("--skip_phase2", action="store_true", default=False,
                         help="CV: skip phase 2 (zero-shot DAVIS→hold-out test). Use when no pre-trained DAVIS model exists.")
     parser.add_argument("--test_mode", type=str, default="",
@@ -173,7 +176,8 @@ if __name__ == "__main__":
             if os.path.exists(_marker):
                 os.remove(_marker)
             data_train_task(
-                config=config, erase=True, best_model=best_model, device=device,
+                config=config, erase=not args.resume, best_model=best_model,
+                device=device, resume=args.resume,
             )
             with open(_marker, 'w') as f:
                 f.write(f"commit={sha}\nargv={sys.argv}\n")
@@ -209,10 +213,11 @@ if __name__ == "__main__":
                 os.remove(_marker)
             data_train(
                 config=config,
-                erase=True,
+                erase=not args.resume,
                 best_model=best_model,
                 style='color',
                 device=device,
+                resume=args.resume,
             )
             with open(_marker, 'w') as f:
                 f.write(f"commit={sha}\nargv={sys.argv}\n")
