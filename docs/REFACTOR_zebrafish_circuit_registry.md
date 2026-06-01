@@ -1,13 +1,13 @@
-# Refactor plan: circuit / task / IO-mapping registries (zebrafish branch)
+# Refactor: circuit / task / IO-mapping registries (zebrafish branch)
 
-A self-contained design + execution document so that a future session
-can pick up this refactor without re-deriving the discussion.
+A self-contained design + execution + status document so that a future
+session can pick up this refactor without re-deriving the discussion.
 
-**Context**: a zebrafish HD model is currently trained on a single 731-cell
-connectome pulled from neuprint-fish2. To add new cells (IPN12_a + IPN12_b
-= +108 cells -> 839 total) or to investigate other tasks (optic flow,
-visual reference, motor decoding), the current code path overwrites the
-existing dataset / log directory and would clobber the known-good
+**Context**: a zebrafish HD model was originally trained on a single
+731-cell connectome pulled from neuprint-fish2. To add new cells (IPN12_a
++ IPN12_b = +108 cells -> 839 total) or investigate other tasks (optic
+flow, visual reference, motor decoding), the original code path would
+overwrite existing dataset / log directories and clobber the known-good
 trained checkpoint. The refactor below isolates three axes — circuit,
 task, IO mapping — so new combinations live next to old ones, never on
 top of them.
@@ -20,6 +20,293 @@ top of them.
   not break.
 - `docs/drosophila.tex` — the sister document; useful as a reference for
   the methods prose we want to preserve.
+
+---
+
+## Implementation status (2026-06-01)
+
+Working branch: `feat/cx-observation`. Published-state tag
+`zebrafish-tex-frozen` (commit `b6fa108`) protects the original
+331-cell checkpoint. Three commits landed against the plan:
+
+| Commit  | Phase  | Scope                                                                                       |
+| ------- | ------ | ------------------------------------------------------------------------------------------- |
+| `855388e` | Step 0 | Standalone zebrafish RNN + GNN (no drosophila inheritance, fish-native vocab)               |
+| `2a7bf57` | Step 1+2 | Circuit registry + IPN12-extended 839-cell circuit + two new yamls + new §Circuit variants  |
+| `c8bce8d` | (docs)   | Refresh §Functional comparison with mid-epoch-3 numbers                                     |
+| `ae892f6` | (docs)   | Initial §Functional comparison draft                                                        |
+
+### What's done — Step 0 (unparent zebrafish models)
+
+`ZebrafishHdTaskRNN` and `ZebrafishHdTaskGNN` are now standalone
+`nn.Module` subclasses with zero runtime imports from the drosophila
+tree. The dynamics, sign-locking, 4-scalar afferent gate, and dIPN-only
+readout are duplicated verbatim from `DrosophilaCxTask{RNN,GNN}`, then
+renamed to fish-native vocabulary:
+
+| Renamed attribute                    | Why                                  |
+| ------------------------------------ | ------------------------------------ |
+| `n_epg` → `n_dipn`                   | The bump pool is the dIPN ring       |
+| `epg_ix`/`epg_indices`/`epg_glom_ix` | Same; `epg_*` aliases retained for back-compat with `graph_trainer.py:2237,2265-2266` |
+| `output_from_epg_only` → `output_from_dipn_only` | yaml-side flag already existed at `config.py:572` |
+| `pen_subpop_ix` (keys `PENa_L/R`, `PENb_L/R`) → `afferent_subpop_ix` (keys `RIPN_L/R`, `ptIPN_L/R`) | Habenula afferents = RIPN, pretectum = pt-IPN per Petrucco 2023 |
+| `v_pena_l/r` → `v_ripn_l/r`          | habenula gate scalars                |
+| `v_penb_l/r` → `v_ptipn_l/r`         | pretectum gate scalars               |
+| `_pen_ind_*` → `_afferent_ind_*`     | non-persistent indicator buffers     |
+
+NO state-dict back-compat shim was added (user's explicit instruction):
+`zebrafish-tex-frozen` checkpoints (with `v_pena_*`/`v_penb_*` keys) do
+NOT load into the new classes. Verification path was instead "fresh
+retraining via `python GNN_Main.py -o generate_train
+zebrafish_hd_si_dipn_bis` with eyeball-compare to prior metrics" — the
+user confirmed the first-iteration snapshot from the new run is
+byte-identical to the prior nominal training (panel `h` distribution
+match).
+
+`load_zebrafish_hd_connectome` in `connconstr_data.py` was extended
+additively to emit fish-native aliases (`n_dipn`, `dipn_ix`,
+`afferent_subpop_ix`) alongside the legacy keys; the 731-cell tables
+produce J_effective sha = `7d3f17f462a653c2` unchanged.
+
+### What's done — Step 1 (named-circuit registry, default-omit byte-equal)
+
+New file `src/connectome_gnn/generators/circuits.py` (398 LOC, no
+sub-package — user prefers a single file for now):
+
+- `Circuit` dataclass: `name`, `N`, `neuron_types`, `type_names`,
+  `J_effective`, `soma_xyz`, `subpops` (named index sets), `bump_ring_ix`,
+  `dale_signs`, `provenance` (with `J_effective_sha256` auto-set on
+  registration). Method `as_loader_dict()` returns the canonical
+  loader-output shape (both fish-native + fly-vocab keys) so model
+  classes can consume a Circuit via the registry while reusing the
+  legacy `cx[...]` access pattern.
+- Registry: `register_circuit(name, build_fn)`, `get_circuit(name)`
+  (lazy-built + cached), `list_circuits()`.
+- `_discover_circuits()` lazily imports/registers all built-in circuits
+  on first lookup.
+- "How to add a new circuit" recipe is at the top of the module file
+  (4-step contribution: cache CSVs → build fn + register → optional
+  yaml → optional docs/<organism>.tex section).
+- Built-in: `_register_zebrafish_hd_731()` wraps the existing loader
+  pointed at `figures/zebrafish/zebrafish_connectome_HD/`.
+
+`src/connectome_gnn/config.py`: added `CircuitConfig` (single `name:
+Optional[str] = None` field) + `NeuralGraphConfig.circuit:
+Optional[CircuitConfig] = None`. Default-omit = today's loader path,
+byte-equivalent.
+
+`src/connectome_gnn/models/zebrafish_hd_task_rnn.py` +
+`zebrafish_hd_task_gnn.py`: dispatch `config.circuit.name` →
+`get_circuit().as_loader_dict()`, falling through to the legacy
+`load_zebrafish_hd_connectome(sim.connconstr_datapath)` when unset.
+
+`src/connectome_gnn/generators/graph_data_generator.py`: when
+`circuit.name` is set, `_generate_swim_integration_task` writes
+`circuit_provenance.json` next to the train/test TaskTrials zarrs.
+JSON-only (user's choice — repo had no precedent for task-only dataset
+provenance; the `ode_params.pt` pattern doesn't fit a task-only
+generator). Carries `circuit_name`, `N`, `J_effective_sha256`, `dt`,
+`task_family`, `type_count`, `n_bump_cells`, `source_provenance`.
+
+`config/zebrafish/zebrafish_hd_si_dipn_v1.yaml`: explicit registry-path
+variant of `zebrafish_hd_si_dipn`. Smoke test:
+`hashlib.sha256(...)[:16] = "42df333a79e1725f"` whether the yaml has
+`circuit: {name: zebrafish_HD_731_v1}` or not (byte-equal params via
+both paths).
+
+### What's done — Step 2 (839-cell IPN12 extension)
+
+`connconstr_data.py`: extended `_zhd_category`, `cat_order`,
+`_ZHD_BUMP_PREFIXES`, `_ZHD_INH_PREFIXES` to recognise IPN12_a /
+IPN12_b and slot them into the bump pool with inhibitory Dale flip.
+Design choices (user-confirmed, see Step-2 discussion in chat history):
+  - IPN12 cells JOIN the bump ring (n_bump grows 443 → 551)
+  - IPN12 outgoing weights Dale-flipped to inhibitory (same as
+    IPNd/IPNds, consistent with IPN GABAergic biology)
+  - 4-scalar afferent gate untouched (IPN12 receives no ω input)
+  - Loader stays in `connconstr_data.py`; circuit build function in
+    `circuits.py` calls it
+
+731-cell tables (no IPN12 rows present) produce identical J_effective
+sha (`7d3f17f4`) after the extension — no behaviour change.
+
+`figures/zebrafish/fetch_zebrafish_connectivity_HD_IPN12.py`: one-off
+fetcher mirroring `fetch_zebrafish_connectivity_HD.py` with type filter
+extended by `IPN12_a` + `IPN12_b`. Live-run verified (user ran with
+the hardcoded JWT from `fetch_cx_anatomy.py:170`, level="noauth" token
+works against fish2): 839 neurons (731 HD + 51 IPN12_a + 57 IPN12_b),
+22,425 edges, every IPN12 cell has both in- and out-edges,
+HD↔IPN12 traffic ~30% of total. Output at
+`figures/zebrafish/zebrafish_connectome_HD_IPN12/` (CSV pair; NOT
+git-tracked, derived data).
+
+`circuits.py`: added `_register_zebrafish_hd_ipn12_839()` reading the
+extended CSV pair. Builds N=839, n_bump=551, J_effective sha =
+`c2f6609aac39f6d7`.
+
+`config/zebrafish/zebrafish_hd_si_ipn12_v1.yaml`: training recipe of
+`dipn_v1` pointed at `zebrafish_HD_IPN12_839_v1`. W_out shape (2,551),
+708,385 trainable params (vs 538k for the 731-cell circuit).
+
+`docs/zebrafish.tex`: two new subsections at the end of §Results:
+  - §Circuit variants and the IPN12 extension (in commit `2a7bf57`):
+    describes the two registered circuits, the IPN12 design choices,
+    the fetcher + loader paths.
+  - §Functional comparison: HD ring with vs without IPN12 (in `ae892f6`,
+    refreshed in `c8bce8d`): preliminary mid-epoch-3 numbers showing
+    the 839-cell run is ahead on every metric (loss 0.0027 vs 0.0052,
+    rmse_roll 1.9° vs 3.7°, FWHM 31° vs 45°-saturated, all with
+    matched hyperparameters and seeds). Gate-scalar trajectory analysis
+    showing the 839-cell run releases the pt-IPN gate scalars toward
+    zero (W^rec absorbs angular integration earlier) while the 731-cell
+    run is still inflating them.
+
+PDF rebuilt to 19 pages and pushed.
+
+### What's done — verification
+
+Steps 0/1/2 are running live as of commit `c8bce8d`:
+
+- `bsub … python GNN_Main.py -o generate_train zebrafish_hd_si_dipn_v1`
+  (job 150351976) — 538k params, mid-epoch-3, no errors.
+- `bsub … python GNN_Main.py -o generate_train zebrafish_hd_si_ipn12_v1`
+  (job 150351979) — 708k params, mid-epoch-3, converging faster than
+  dipn_v1 on every metric.
+
+Both write to distinct dataset and log directories:
+  - `${GNN_OUTPUT_ROOT}/graphs_data/zebrafish/zebrafish_hd_si_task_v1/`
+  - `${GNN_OUTPUT_ROOT}/graphs_data/zebrafish/zebrafish_hd_si_task_ipn12_v1/`
+  - `${GNN_OUTPUT_ROOT}/log/zebrafish/zebrafish_hd_si_dipn_v1/`
+  - `${GNN_OUTPUT_ROOT}/log/zebrafish/zebrafish_hd_si_ipn12_v1/`
+
+The original `zebrafish_hd_si_dipn` checkpoint is untouched (the §9
+artefact-safety rule).
+
+---
+
+## What remains
+
+### Immediate (epoch 10 of both runs)
+
+1. **Refresh `docs/zebrafish.tex` §Functional comparison** with the
+   epoch-10 (final) numbers. Three `%% TODO:` markers in
+   `docs/zebrafish.tex` flag the exact spots:
+   ```bash
+   cd /workspace/connectome-gnn-cx
+   grep -n '%% TODO' docs/zebrafish.tex
+   ```
+   Numbers to refresh:
+   - Convergence table (loss, pi_acc, r_roll_1k, rmse_roll, FWHM)
+   - Gate-scalar table (read from `best_model_with_0_graphs_9.pt` for
+     each run; see `tests/scripts/zebrafish_step0_baseline.py` for the
+     state-dict-unwrap pattern):
+     ```python
+     import torch
+     blob = torch.load(p, map_location='cpu', weights_only=True)
+     sd = blob['model_state_dict']
+     sd = {k[len('_orig_mod.'):] if k.startswith('_orig_mod.') else k: v
+           for k,v in sd.items()}
+     for k in ('v_ripn_l','v_ripn_r','v_ptipn_l','v_ptipn_r'):
+         print(k, float(sd[k]))
+     ```
+   - Add (or remove) the qualitative claim about pt-IPN gate-scalar
+     trajectory based on what the final values say.
+
+2. **Add a Figure to §Functional comparison** showing the gate-scalar
+   trajectories over training (read from `tmp_training/metrics.log` +
+   the saved snapshot checkpoints). One panel per circuit, four lines
+   per panel (`v_ripn_l/r`, `v_ptipn_l/r`). Source data is on disk;
+   figure source lives at `figures/zebrafish/fig_zebrafish_gate_scalars.py`
+   (TODO: create this).
+
+3. **Per-cell-type MI fingerprint comparison** — adapt
+   `figures/zebrafish/fig_zebrafish_four_classes.py` to run on both
+   converged checkpoints. Specifically: do IPN12_a / IPN12_b cells fall
+   in the R/L/D/Z classes the way IPNd cells do, or do they form a
+   distinct cluster? The 108 new cells either tile the bump ring with
+   distinct preferred angles (interesting, supports the "they extend
+   the HD code" story) or cluster narrowly (suggests they encode
+   something else — switch / context / state — and joining the bump
+   pool was the wrong design choice).
+
+### Step 3 — `tasks/` registry (deferred per §5)
+
+Required only when a second task family lands. Today the only task
+is `swim_integration`. When the second task arrives:
+
+- Create `src/connectome_gnn/generators/tasks.py` (single-file pattern
+  matching `circuits.py` per user preference).
+- `TaskSpec` dataclass: `name`, `n_input`, `n_output`, `dt`, build
+  function returning `(stimulus, target, aux)`.
+- Migrate `_generate_swim_integration_task` and
+  `_generate_path_integration_task` to register against this registry.
+- Add `task.name` to the yaml (with `task.task_type` kept as a
+  deprecated alias).
+- Models that wire IO from a TaskSpec (e.g. via the future IO mapping
+  registry) consume `task.n_input` / `task.n_output` to size their
+  encoder/decoder.
+
+Skipped now because there is no second task family on the roadmap.
+
+### Step 4 — `io_mappings/` registry (deferred per §5)
+
+Required only when (a) >1 IO mapping is in use, or (b) IPN12 cells
+need to be added to the input gate without forking the model class.
+Currently the 4-scalar afferent gate (RIPN_L/R, ptIPN_L/R) is the only
+IO mapping the zebrafish models support and it lives inline in
+`ZebrafishHdTask{RNN,GNN}.__init__`.
+
+If/when extracted:
+
+- Create `src/connectome_gnn/generators/io_mappings.py`.
+- `IOMapping` dataclass: `input_groups` (dict[str, ndarray]),
+  `output_indices`, self-validation (asserts `len(input_groups) ==
+  task.n_input`, etc.).
+- Move the `pen_4scalar` gate construction + the dIPN-only readout
+  slicing out of the model's `__init__` and into a function in
+  `io_mappings.py`.
+- Add `io_mapping.name` to the yaml.
+
+Skipped now — single IO mapping in production use, no second one on
+the roadmap.
+
+### Minor cleanups (anytime)
+
+- Migrate `eval_model.epg_indices` / `eval_model.epg_glom_ix` in
+  `graph_trainer.py:2237,2265-2266` to the fish-native names. Currently
+  the standalone zebrafish models keep `epg_*` as Python-attr aliases
+  for trainer compatibility; renaming requires touching the drosophila
+  path too (since the trainer is shared). Small mechanical change once
+  the comparison results are written up.
+- Deprecate the `velocity_gate: pen_4scalar` yaml token in favour of
+  `velocity_gate: afferent_4scalar`. The internal handler is already
+  named `_afferent_*`; only the yaml-side token kept fly vocab for
+  back-compat. One-cycle deprecation warning + remove.
+- Promote the hardcoded JWT in `fetch_cx_anatomy.py:170` /
+  `fetch_optic_lobe_anatomy.py:89` to a shared module-level constant
+  or env-var-only path. The token is a "noauth" public-read JWT (no
+  user credentials), but having it in three fetcher files (HD,
+  cx_anatomy, optic_lobe_anatomy) violates DRY.
+
+### Future circuits (template)
+
+To add a third zebrafish circuit (e.g. `zebrafish_HD_visual_v1` with
+RGC inputs):
+
+1. Fetch the extra cell types via a new
+   `fetch_zebrafish_connectivity_HD_<NAME>.py` (mirror the HD or
+   HD_IPN12 fetcher).
+2. Extend `_zhd_category` + `cat_order` + `_ZHD_*_PREFIXES` in
+   `connconstr_data.py` to recognise the new cell types.
+3. Add `_register_zebrafish_hd_<NAME>()` to `circuits.py` (call from
+   `_discover_circuits`).
+4. Write a new yaml `config/zebrafish/zebrafish_hd_si_<NAME>_v1.yaml`
+   with `circuit: {name: zebrafish_HD_<NAME>_v1}` and a distinct
+   dataset name.
+5. Add a section to `docs/zebrafish.tex` documenting the new circuit
+   + biological rationale.
+
+The Step 0+1+2 path is now generic enough that this is mechanical.
 
 ---
 
