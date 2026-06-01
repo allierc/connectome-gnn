@@ -76,14 +76,16 @@ hand-run golden checks) is validated — proceed.** Adjust as below.
    `recovery_param_metrics` work for any signed-W GNN. The Circuit's sign-locked
    `J_effective` plugs straight in; no per-circuit recovery code needed.
 
-**Branch-base correction (supersedes §9–§10).** Cut `feat/circuit-registry` off
-**`feat/cx-observation`** (which holds today's `MODEL_FAMILY`/`FORWARD_KIND`/
-`activation` foundation). Do **not** base it on `feat/janelia-cx`, and do **not**
-merge anything into `feat/janelia-cx` — that branch stays **frozen** as the
-published zebrafish.tex reference (§9 artefact safety). Both branches diverge
-from `bb68679`; `feat/janelia-cx` simply predates today's registry work, so the
-refactor inherits the registry foundation only by building on
-`feat/cx-observation`.
+**Branch strategy (supersedes §9–§10).** Continue the refactor **directly on
+`feat/janelia-cx`** — the single working branch; no separate
+`feat/circuit-registry`. First **merge today's `feat/cx-observation` work into
+`feat/janelia-cx`** so it carries the `MODEL_FAMILY`/`FORWARD_KIND`/`activation`
+foundation (both diverge from `bb68679`; `feat/janelia-cx` just predates today's
+registry work). The published zebrafish.tex state is protected by a **git tag +
+the out-of-git checkpoints** (§9), NOT by freezing the branch: tag the published
+commit *before* merging, and never overwrite a `log/`/`graphs_data/` dir
+(`_v1`/`_v2` naming) so the tagged source + untouched checkpoints stay
+reproducible.
 
 ---
 
