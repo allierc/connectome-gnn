@@ -18,15 +18,25 @@ scale degeneracy. `g_phi_norm_target: unit` + `coeff_g_phi_norm` should close th
 scale gap and raise `connectivity_R2` toward `W_structure_r`, without lowering
 `W_structure_r` or breaking `rollout_pearson`."
 
-## Metrics (ranked) — read these from the analysis log
+## Metrics (ranked) — WHERE to read them
 
-1. **`W_structure_r`** (PRIMARY) — scale-free Pearson r between corrected learned
-   W and GT W (over non-zero edges). "Did we recover the **wiring**." Baseline ≈ **0.87**.
-2. **`connectivity_R2`** (NSE, SECONDARY) + its **slope** — scale-sensitive. Low
-   (≈0.24, slope 0.13) only because W is under-scaled; the g_φ-norm knobs target
-   raising it toward `W_structure_r`. Also follow **`W_zscored_R2`** (structure, scale-removed).
-3. **`rollout_pearson`** (GUARD) — must stay **≥ 0.99**. If it drops, the recipe broke.
-4. g_φ shape (`g_phi Pearson r²`, sigmoid, ≈0.99) — sanity that g_φ matches the teacher's **sigmoid**.
+All metrics are in **`<exploration_dir>/r2_trajectory/iter_NNN.log`** (one file).
+The CSV rows are the training-loop trajectory (`connectivity_r2`, `vrest_r2`,
+`tau_r2` per iteration). The **post-hoc recovery metrics are injected as the
+trailing `# post_hoc …` line**: `W_structure_r`, `W_zscored_R2`, `W_corrected_R2`,
+`W_corrected_slope`, `rollout_pearson`, `clustering_accuracy`. Parse that line.
+
+1. **`W_structure_r`** (PRIMARY) — scale-free Pearson r between corrected learned W
+   and GT W (non-zero edges). "Did we recover the **wiring**." Baseline ≈ **0.87**.
+2. **`W_corrected_R2`** (= the NSE connectivity_R2) + **`W_corrected_slope`** —
+   scale-sensitive. Low (≈0.24, slope 0.13) only because W is under-scaled; the
+   g_φ-norm knobs target raising it toward `W_structure_r`. Also **`W_zscored_R2`**.
+3. **`rollout_pearson`** (GUARD) — must stay **≥ 0.99**. If it drops, the recipe broke
+   (a recipe can have high `W_structure_r` but a broken rollout — reject it).
+4. g_φ shape (sigmoid, ≈0.99) — sanity that g_φ matches the teacher's **sigmoid**.
+
+(`connectivity_r2` in the CSV rows is the *training-loop* NSE W R² — same axis as
+`W_corrected_R2`, useful for the per-iteration trajectory shape / failure modes.)
 
 **Ignore**: `tau_R2` / `V_rest_R2` — the teacher's τ is constant (degenerate R², shows N/A);
 V_rest is informational. Do NOT optimise them.
