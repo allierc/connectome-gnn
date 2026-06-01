@@ -23,6 +23,69 @@ top of them.
 
 ---
 
+## 0. Re-evaluation after the `feat/cx-observation` registry work (2026-05-31)
+
+Today's drosophila_cx refactor exercised exactly the registry pattern this plan
+proposes, end-to-end, and surfaced concrete refinements. **The core approach
+(registries by name; defaults preserve behaviour; fail-loud validation;
+hand-run golden checks) is validated — proceed.** Adjust as below.
+
+**Validated, no change needed:**
+- *Registries by name, not class hierarchies* (§2). We added `MODEL_FAMILY` and
+  `FORWARD_KIND` dispatch tags and extended the `ode_params` registry; the
+  by-name + "omitted field ⇒ today's behaviour" pattern held across
+  trainer/tester/plot. `circuit.name` / `task.name` / `io_mapping.name` as
+  **config choices** (§4) is the right call.
+- *Fail loudly at startup* (§8). Implemented as `NeuralGNN.effective_W` raising
+  in eval mode when the sign-lock is on but the GT sign is unset. Use the same
+  loud-guard style for the IOMapping↔Circuit↔Task compatibility asserts.
+- *Hand-run golden checks, no pytest infra* (§6). Every commit today was verified
+  by re-running `-o test_plot` and diffing `results/metrics.txt` byte-for-byte.
+  That worked well; keep exactly this.
+
+**Refinements (new, from today):**
+1. **Generation-properties live with the DATA, not config or class.** The teacher
+   firing-rate nonlinearity (`activation`, sigmoid) is now saved *into*
+   `ode_params.pt` and read by the grader — not a config field, not hardcoded in
+   a class. **Apply to Circuit:** persist `provenance` **and** the circuit's
+   structural fields into the dataset artifact (extend `ode_params.pt`; do not
+   invent a parallel store), so a checkpoint is self-describing about which
+   circuit + activation produced it. This upgrades §2.1's `provenance` from
+   in-memory to saved-with-data.
+2. **The three-way "where does it live" rule** (crystallised today, see memory
+   `feedback_class_attr_dispatch_only`): **config = user choices/values** (the
+   three `.name` fields, coeffs, lr); **class attribute = dispatch tag only**
+   (`MODEL_FAMILY`/`FORWARD_KIND` — never tunable values); **data artifact
+   (`ode_params.pt`) = how the data was generated** (activation, provenance,
+   `J_effective`, neuron types). Decide placement of every new field this way.
+3. **Don't duplicate the data schema.** `ode_params` already persists
+   `W`/`edge_index` (↔ `J_effective`), `neuron_types`, `type_names`, and now
+   `activation`. The Circuit dataclass is the **in-memory builder** the generator
+   consumes; the **persisted record** is `ode_params.pt`. Keep their fields
+   aligned. If zebrafish voltage data is generated, add a
+   `ZebrafishVoltageODEParams` peer carrying `activation` (mirror
+   `DrosophilaCxVoltageODEParams`).
+4. **Generalise the activation-save.** Only `_generate_voltage_from_cx_task_model`
+   records `activation` today; the generic / `cortex` / zebrafish voltage
+   generators still write `FlyVisODEParams` without it. Fold this into Step 1 (the
+   circuit wrapper) — cheap, and keeps zebrafish self-describing.
+   `ZebrafishHdTaskRNN(DrosophilaCxTaskRNN)` already exposes `recurrent_activation`
+   (default sigmoid).
+5. **Sign-lock + recovery are now generic — free for zebrafish.**
+   `restore_edge_sign_lock`, the `MODEL_FAMILY` recovery dispatch, and
+   `recovery_param_metrics` work for any signed-W GNN. The Circuit's sign-locked
+   `J_effective` plugs straight in; no per-circuit recovery code needed.
+
+**Branch-base correction (supersedes §9–§10).** Branch the refactor off
+**`feat/cx-observation`** (which holds today's `MODEL_FAMILY`/`FORWARD_KIND`/
+`activation` foundation), NOT `feat/janelia-cx`. Both diverge from `bb68679`;
+`feat/janelia-cx` predates today's registry work. Either merge
+`feat/cx-observation → feat/janelia-cx` first, or cut `feat/circuit-registry`
+from `feat/cx-observation`. (Keep the §9 artefact-safety rules — tag the
+published state, new names → new log dirs — unchanged.)
+
+---
+
 ## 1. The three axes
 
 | Axis | Owns | Today (one of each) | Tomorrow (many) |
