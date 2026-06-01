@@ -36,7 +36,48 @@ graph_model:
   output_from_dipn_only: true
 circuit:
   name: zebrafish_HD_IPN12_839_v1
-plotting: {}
+plotting:
+  # 3D anatomy-voltage snapshot (`-o test --anatomy_voltage`) - zebrafish defaults.
+  anatomy_voltage_elev: 90.0
+  anatomy_voltage_azim: -85.5
+  anatomy_voltage_z_lo: 0.0
+  anatomy_voltage_z_hi: 10.0
+  anatomy_voltage_alpha: 1.0
+  anatomy_voltage_downsample: 10
+  anatomy_voltage_bg: black
+  anatomy_voltage_show_base: true
+  anatomy_voltage_show_icon: true
+  anatomy_voltage_types: ["IPN12_a", "IPN12_b"]
+  # just the dIPN HD ring (no IPN12, no afferents) — 443 cells
+  # anatomy_voltage_types: ["IPNd", "IPNd01", "IPNd13A", "IPNd13B", "IPNd13C",
+  #                        "IPNd13D", "IPNd13E", "IPNd13S", "IPNd14", "IPNd15",
+  #                        "IPNd16", "IPNd17A", "IPNd17B", "IPNdp01",
+  #                        "IPNds", "IPNds13A", "IPNds13B", "IPNds17"]
+
+  # # bump pool incl. IPN12 (549 cells: dIPN ring + IPN12) — useful for the
+  # # 839-cell circuit's "what does the bump look like with the new cells?" view
+  # anatomy_voltage_types: ["IPNd", "IPNd01", "IPNd13A", "IPNd13B", "IPNd13C",
+  #                        "IPNd13D", "IPNd13E", "IPNd13S", "IPNd14", "IPNd15",
+  #                        "IPNd16", "IPNd17A", "IPNd17B", "IPNdp01",
+  #                        "IPNds", "IPNds13A", "IPNds13B", "IPNds17",
+  #                        "IPN12_a", "IPN12_b"]
+
+  # # just afferents (no bump) — show which inputs are active during a left swim
+  # anatomy_voltage_types: ["RIPN01", "RIPN02", "RIPN03_a", "RIPN03_b",
+  #                        "RIPN05", "RIPN11", "RIPN12_a", "RIPN12_b",
+  #                        "RIPN12_c", "RIPN16", "RIPN17",
+  #                        "pt-IPN1", "pt-IPN2"]
+  # Probe rollout (pattern + length + per-pattern params).
+  anatomy_voltage_pattern: swim_left
+  anatomy_voltage_n_steps: 10000
+  anatomy_voltage_stride: 5
+  anatomy_voltage_frame_idx: -1
+  anatomy_voltage_omega_deg: 60.0
+  anatomy_voltage_theta0_rad: 0.0
+  anatomy_voltage_swim_interval_s: 0.3
+  anatomy_voltage_swim_magnitude_rad: 0.393
+  anatomy_voltage_swim_t_event_s: 0.0
+  anatomy_voltage_seed: 0
 training:
   device: auto
   seed: 47506

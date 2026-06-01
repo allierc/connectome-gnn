@@ -163,6 +163,13 @@ class Circuit:
     a fallback by the ``column_dale`` wrec_param mode for orphan cells
     whose outgoing column-sum is zero in ``J_effective``."""
 
+    body_ids: Optional[np.ndarray] = None
+    """(N,) int64 — per-neuron source-DB body id (neuprint bodyId for the
+    drosophila / zebrafish fetches). Used by the anatomy-voltage render
+    helpers in :mod:`connectome_gnn.plot_anatomy_voltage` to find the
+    matching SWC skeleton under
+    ``provenance['anatomy_dir']/skeletons/<type>__<bodyId>.swc``."""
+
     provenance: dict = field(default_factory=dict)
     """Free-form: source server URL, dataset name, fetch date, raw type
     list, Dale-flip + spectral-rescale params, etc. ``J_effective_sha256``
@@ -301,6 +308,7 @@ def _discover_circuits() -> None:
     # Each circuit registers a build function. Add new circuits here.
     _register_zebrafish_hd_731()
     _register_zebrafish_hd_ipn12_839()
+    _register_drosophila_cx_156()
 
 
 _DISCOVERED: bool = False
@@ -359,11 +367,15 @@ def _register_zebrafish_hd_731() -> None:
             "server": "neuprint-fish2.janelia.org",
             "dataset": "fish2",
             "source_tables": "figures/zebrafish/zebrafish_connectome_HD/{neurons,connections}.csv",
+            "anatomy_dir": "figures/zebrafish/zebrafish_anatomy_HD",
             "dale_inh_amplify": 5.0,
             "dale_spectral_target": 0.9,
             "type_count": len(cx["type_names"]),
             "n_bump_cells": n_dipn,
         }
+
+        body_ids = (np.asarray(cx["bodyId"], dtype=np.int64)
+                    if "bodyId" in cx else None)
 
         return Circuit(
             name="zebrafish_HD_731_v1",
@@ -376,6 +388,7 @@ def _register_zebrafish_hd_731() -> None:
             bump_ring_ix=dipn_glom_ix,
             dale_signs=(np.asarray(cx["dale_signs"], dtype=np.float32)
                         if "dale_signs" in cx else None),
+            body_ids=body_ids,
             provenance=provenance,
         )
 
@@ -435,6 +448,11 @@ def _register_zebrafish_hd_ipn12_839() -> None:
             "dataset": "fish2",
             "source_tables":
                 "figures/zebrafish/zebrafish_connectome_HD_IPN12/{neurons,connections}.csv",
+            # Primary anatomy_dir holds the 731-cell HD SWCs (IPNd*/IPNds*/
+            # RIPN*/pt-IPN*). IPN12_a/b SWCs live alongside under a sibling
+            # cache; the render helper joins both at lookup time.
+            "anatomy_dir": "figures/zebrafish/zebrafish_anatomy_HD",
+            "anatomy_extra_dirs": ["figures/zebrafish/zebrafish_anatomy_IPN12"],
             "dale_inh_amplify": 5.0,
             "dale_spectral_target": 0.9,
             "type_count": len(cx["type_names"]),
@@ -445,6 +463,9 @@ def _register_zebrafish_hd_ipn12_839() -> None:
                 "§Circuit variants."
             ),
         }
+
+        body_ids = (np.asarray(cx["bodyId"], dtype=np.int64)
+                    if "bodyId" in cx else None)
 
         return Circuit(
             name="zebrafish_HD_IPN12_839_v1",
@@ -457,7 +478,110 @@ def _register_zebrafish_hd_ipn12_839() -> None:
             bump_ring_ix=bump_ring_ix,
             dale_signs=(np.asarray(cx["dale_signs"], dtype=np.float32)
                         if "dale_signs" in cx else None),
+            body_ids=body_ids,
             provenance=provenance,
         )
 
     register_circuit("zebrafish_HD_IPN12_839_v1", build)
+
+
+def _register_drosophila_cx_156() -> None:
+    """Register the 156-cell hemibrain CX as ``drosophila_cx_156_v1``.
+
+    The drosophila CX loader (``load_drosophila_cx_connectome``) returns
+    the canonical adjacency + cell-type fields but does NOT expose
+    bodyIds — those live in ``<datapath>/traced-neurons.csv`` and need
+    to be replayed in the same order the loader uses
+    (instance-sorted, then EPG glomerular permutation applied to the
+    first 46 rows). This logic is verbatim from
+    ``figures/drosophila_cx/fig_cx_anatomy_3d_voltage_anim._model_index_to_bodyid``.
+
+    Anatomy SWCs + ROI meshes live under
+    ``papers/janelia_cx/anatomy/cx_anatomy_test/``.
+    """
+    # Glomerular permutation reordering EPG indices 0..45 into the ring
+    # ordering used by the connectome loader. Same array as in
+    # connconstr_data.load_drosophila_cx_connectome.
+    _EPG_PERM = np.array([
+        23, 24, 0, 1, 42, 43, 44, 45, 2, 3, 39, 40, 41, 4, 5, 6,
+        36, 37, 38, 7, 8, 9, 33, 34, 35, 10, 11, 12,
+        30, 31, 32, 13, 14, 15, 27, 28, 29, 16, 17, 18,
+        25, 26, 19, 20, 21, 22,
+    ], dtype=np.int64)
+
+    def _cx_body_ids(datapath: str) -> np.ndarray:
+        import os
+        import pandas as pd
+        neuronsall = pd.read_csv(os.path.join(datapath, "traced-neurons.csv"))
+        neuronsall.sort_values(by=["instance"], ignore_index=True, inplace=True)
+        types = np.array(neuronsall.type).astype(str)
+        def _sub(t: str) -> np.ndarray:
+            return np.nonzero([t in x for x in types])[0]
+        epg, pen = _sub("EPG"), _sub("PEN")
+        peg, delta7 = _sub("PEG"), _sub("Delta7")
+        allcx = np.concatenate((epg, pen, delta7, peg))
+        allcx[0:46] = allcx[_EPG_PERM]
+        er6 = np.array(
+            [i for i, t in enumerate(types) if t == "ER6"], dtype=int,
+        )
+        if er6.size:
+            allcx = np.concatenate((allcx, er6))
+        return neuronsall.bodyId.values[allcx].astype(np.int64)
+
+    def build() -> Circuit:
+        from connectome_gnn.generators.connconstr_data import (
+            load_drosophila_cx_connectome,
+        )
+        datapath = "papers/Code_NN/Code_NN/Data/Figure5/exported-traced-adjacencies-v1.2"
+        cx = load_drosophila_cx_connectome(datapath)
+        N = int(cx["N"])
+        n_epg = int(cx["n_epg"])
+        body_ids = _cx_body_ids(datapath)
+        if body_ids.shape[0] != N:
+            raise RuntimeError(
+                f"drosophila_cx body-id resolver returned {body_ids.shape[0]} "
+                f"ids but loader expects N={N}; the EPG-permutation / cell-"
+                f"type indexing in _register_drosophila_cx_156 is out of sync "
+                f"with load_drosophila_cx_connectome."
+            )
+
+        pen = cx.get("pen_subpop_ix", {}) or {}
+        subpops = {
+            "bump":              np.arange(n_epg, dtype=np.int64),
+            "afferent_PENa_L":   np.asarray(pen.get("PENa_L", []), dtype=np.int64),
+            "afferent_PENa_R":   np.asarray(pen.get("PENa_R", []), dtype=np.int64),
+            "afferent_PENb_L":   np.asarray(pen.get("PENb_L", []), dtype=np.int64),
+            "afferent_PENb_R":   np.asarray(pen.get("PENb_R", []), dtype=np.int64),
+        }
+        bump_ring_ix = np.asarray(cx["epg_ix"], dtype=np.int64)
+
+        provenance = {
+            "server": "hemibrain v1.2.1",
+            "dataset": "hemibrain:v1.2.1",
+            "source_tables":
+                "papers/Code_NN/Code_NN/Data/Figure5/exported-traced-adjacencies-v1.2",
+            "anatomy_dir": "papers/janelia_cx/anatomy/cx_anatomy_test",
+            "type_count": len(cx["type_names"]),
+            "n_bump_cells": n_epg,
+            "design_note": (
+                "Hulse 2025 Model A (156 neurons: EPG + PEN + Delta7 + PEG + ER6); "
+                "Delta7+ER6 columns Dale-flipped to inhibitory and "
+                "spectrally rescaled to ρ=0.9."
+            ),
+        }
+
+        return Circuit(
+            name="drosophila_cx_156_v1",
+            N=N,
+            neuron_types=np.asarray(cx["neuron_types"], dtype=np.int64),
+            type_names=list(cx["type_names"]),
+            J_effective=np.asarray(cx["J_effective"], dtype=np.float32),
+            soma_xyz=None,
+            subpops=subpops,
+            bump_ring_ix=bump_ring_ix,
+            dale_signs=None,
+            body_ids=body_ids,
+            provenance=provenance,
+        )
+
+    register_circuit("drosophila_cx_156_v1", build)

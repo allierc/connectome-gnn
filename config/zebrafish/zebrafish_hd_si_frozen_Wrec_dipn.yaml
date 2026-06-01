@@ -27,7 +27,29 @@ graph_model:
   n_layers: 4
   MLP_activation: relu
   output_from_dipn_only: true
-plotting: {}
+plotting:
+  # 3D anatomy-voltage snapshot (`-o test --anatomy_voltage`) - zebrafish defaults.
+  anatomy_voltage_elev: 90.0
+  anatomy_voltage_azim: -85.5
+  anatomy_voltage_z_lo: 0.0
+  anatomy_voltage_z_hi: 15.0
+  anatomy_voltage_alpha: 1.0
+  anatomy_voltage_downsample: 10
+  anatomy_voltage_bg: black
+  anatomy_voltage_show_base: true
+  anatomy_voltage_show_icon: false
+  anatomy_voltage_types: []
+  # Probe rollout (pattern + length + per-pattern params).
+  anatomy_voltage_pattern: swim_left
+  anatomy_voltage_n_steps: 10000
+  anatomy_voltage_stride: 0
+  anatomy_voltage_frame_idx: -1
+  anatomy_voltage_omega_deg: 60.0
+  anatomy_voltage_theta0_rad: 0.0
+  anatomy_voltage_swim_interval_s: 0.3
+  anatomy_voltage_swim_magnitude_rad: 0.393
+  anatomy_voltage_swim_t_event_s: 0.0
+  anatomy_voltage_seed: 0
 training:
   device: auto
   seed: 0
