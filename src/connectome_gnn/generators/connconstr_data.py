@@ -286,28 +286,42 @@ def load_drosophila_cx_connectome(datapath):
 # zebrafish". The r1pi ring lives in dorsal IPN (IPNd* + IPNds*), driven by
 # afferents from habenula (RIPN*) and pretectum (pt-IPN*). All four type
 # families come from the fish2 neuprint server.
-_ZHD_BUMP_PREFIXES = ("IPNd", "IPNds")        # r1pi ring (analog: EPG)
+# Bump-ring categories: cells whose firing is the heading-direction code.
+# Default 731-cell fetch contains only IPNd* + IPNds* here. The 839-cell
+# IPN12 fetch (zebrafish_HD_IPN12_839_v1 circuit) extends the ring with
+# IPN12_a and IPN12_b — per the Step-2 design choice to join IPN12 cells
+# to the bump pool, so the bump-only decoder sees them and the
+# circular-TV regulariser includes them.
+_ZHD_BUMP_PREFIXES = ("IPNd", "IPNds", "IPN12_a", "IPN12_b")
 _ZHD_AFFERENT_PREFIXES = ("RIPN", "pt-IPN")    # input neurons (analog: PEN)
 
 # Cell types whose outgoing weights are sign-flipped (Dale, inhibitory). The
-# Petrucco paper shows the r1pi neurons (and therefore the IPNd*/IPNds*
-# dorsal IPN cells) are GABAergic, so they get the same treatment Hulse 2025
-# uses for Delta7/ER6 in the fly model: -|J| outgoing, optionally amplified.
-# RIPN* / pt-IPN* are left positive (no Dale annotation on the fish2 server,
-# and they act as drivers of the ring rather than inhibitors).
-_ZHD_INH_PREFIXES = ("IPNd", "IPNds")
+# Petrucco paper shows the r1pi neurons (IPNd*/IPNds*) are GABAergic, so
+# they get the same treatment Hulse 2025 uses for Delta7/ER6 in the fly
+# model: -|J| outgoing, optionally amplified. IPN12_a/IPN12_b are in the
+# same dorsal-IPN family and inherit the same Dale treatment. RIPN* /
+# pt-IPN* are left positive (no Dale annotation on the fish2 server, and
+# they act as drivers of the ring rather than inhibitors).
+_ZHD_INH_PREFIXES = ("IPNd", "IPNds", "IPN12_a", "IPN12_b")
 
 
 def _zhd_category(type_name: str) -> str:
-    """Map a fish2 type string to one of four HD circuit categories
-    ('IPNd', 'IPNds', 'RIPN', 'pt-IPN'), or '' if it doesn't belong.
+    """Map a fish2 type string to one of the recognised HD-circuit
+    categories — IPNd, IPNds, RIPN, pt-IPN (731-cell fetch) plus IPN12_a,
+    IPN12_b (839-cell fetch) — or '' if it doesn't belong.
 
-    The order of checks matters: 'IPNds' must be matched before 'IPNd',
-    and 'pt-IPN' is treated as a single category.
+    Order of checks matters: 'IPNds' must be matched before 'IPNd', and
+    'IPN12_a' / 'IPN12_b' must be matched before any plain 'IPN' prefix
+    sweep (none exists today; the explicit prefix list keeps the rule
+    obvious).
     """
     s = str(type_name)
     if s.startswith("IPNds"):
         return "IPNds"
+    if s.startswith("IPN12_a"):
+        return "IPN12_a"
+    if s.startswith("IPN12_b"):
+        return "IPN12_b"
     if s.startswith("pt-IPN"):
         return "pt-IPN"
     if s.startswith("RIPN"):
@@ -381,7 +395,10 @@ def load_zebrafish_hd_connectome(datapath, *, inh_amplify: float = 5.0,
     # core) followed by PEN/Delta7/PEG/ER6. Within the HD block, sort by
     # category ('IPNd' before 'IPNds') and then by mediolateral soma
     # position so the per-row order roughly traces the anatomical ring.
-    cat_order = {"IPNd": 0, "IPNds": 1, "RIPN": 2, "pt-IPN": 3}
+    # Bump-ring categories first (so the first n_bump rows are the
+    # IPNd*/IPNds*/IPN12_* HD-pool cells, in that order), then afferents.
+    cat_order = {"IPNd": 0, "IPNds": 1, "IPN12_a": 2, "IPN12_b": 3,
+                  "RIPN": 4, "pt-IPN": 5}
     nrn_df["_cat_rank"] = nrn_df["category"].map(cat_order)
     # somaLocationX is the fish2 mediolateral axis (in nm at this stage).
     # Missing values get pushed to the end via fillna with +inf.

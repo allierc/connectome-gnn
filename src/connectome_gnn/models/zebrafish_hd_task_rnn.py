@@ -121,15 +121,26 @@ class ZebrafishHdTaskRNN(nn.Module):
         w_init_mode = getattr(train_config, "w_init_mode", "const")
 
         # --- Load fish HD connectome ------------------------------------
-        # Loader returns the canonical dict shape (N, J_effective,
-        # neuron_types, type_names, n_epg, epg_ix, pen_subpop_ix, …) plus
-        # zebrafish-named aliases (n_dipn, dipn_ix, afferent_subpop_ix).
-        # We consume the aliases when present and fall back to the legacy
-        # keys so the loader can be updated independently.
-        from connectome_gnn.generators.connconstr_data import (
-            load_zebrafish_hd_connectome,
-        )
-        cx = load_zebrafish_hd_connectome(sim.connconstr_datapath)
+        # Two paths produce the same canonical dict shape (N, J_effective,
+        # neuron_types, type_names, n_dipn/n_epg, dipn_ix/epg_ix,
+        # afferent_subpop_ix/pen_subpop_ix, dale_signs, …):
+        #
+        #   1. ``config.circuit.name`` set → resolve via the named-circuit
+        #      registry (``connectome_gnn.generators.circuits``). The
+        #      Circuit dataclass is the in-memory builder; ``as_loader_dict``
+        #      flattens it back to the legacy access pattern below.
+        #   2. ``config.circuit`` absent / name empty → fall through to the
+        #      legacy ``load_zebrafish_hd_connectome(sim.connconstr_datapath)``
+        #      so existing yamls keep loading byte-equivalently.
+        circuit_cfg = getattr(config, "circuit", None)
+        if circuit_cfg is not None and getattr(circuit_cfg, "name", None):
+            from connectome_gnn.generators.circuits import get_circuit
+            cx = get_circuit(circuit_cfg.name).as_loader_dict()
+        else:
+            from connectome_gnn.generators.connconstr_data import (
+                load_zebrafish_hd_connectome,
+            )
+            cx = load_zebrafish_hd_connectome(sim.connconstr_datapath)
         N = int(cx["N"])
         self.n_units = N
         self.n_input = 3

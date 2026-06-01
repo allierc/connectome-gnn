@@ -455,6 +455,37 @@ def _generate_swim_integration_task(config, *, device, visualize: bool = True) -
     out_root = graphs_data_path(config.dataset)
     os.makedirs(out_root, exist_ok=True)
     logger.info(f"[task] swim_integration -> {out_root}")
+
+    # --- Circuit provenance ------------------------------------------------
+    # When a named circuit was selected (``config.circuit.name``), write a
+    # small JSON next to the train/test splits so the dataset folder is
+    # self-describing about which connectome it was generated against.
+    # swim_integration itself is connectome-agnostic (stimulus + heading
+    # target only), so this is purely metadata: a future tester / loader
+    # can read circuit_provenance.json and assert it matches the circuit
+    # baked into a checkpoint. Skipped silently when circuit.name is absent.
+    circuit_cfg = getattr(config, "circuit", None)
+    if circuit_cfg is not None and getattr(circuit_cfg, "name", None):
+        import json
+        from connectome_gnn.generators.circuits import get_circuit
+        c = get_circuit(circuit_cfg.name)
+        prov = {
+            "circuit_name": c.name,
+            "N": int(c.N),
+            "J_effective_sha256": c.provenance.get("J_effective_sha256", ""),
+            "dt": float(si.dt),
+            "task_family": "swim_integration",
+            "type_count": len(c.type_names),
+            "n_bump_cells": int(len(c.subpops.get("bump", []))),
+            "source_provenance": {
+                k: v for k, v in c.provenance.items()
+                if k != "J_effective_sha256"
+            },
+        }
+        with open(os.path.join(out_root, "circuit_provenance.json"), "w") as f:
+            json.dump(prov, f, indent=2, sort_keys=True)
+        logger.info(f"[task] wrote circuit_provenance.json for "
+                    f"{c.name!r} (sha={prov['J_effective_sha256'][:16]})")
     # Echo angles in degrees so they read off the same scale as ω (deg/s).
     # The underlying config fields stay in radians (suffix _rad) because the
     # heading-integration math is computed in radians; only the log line is

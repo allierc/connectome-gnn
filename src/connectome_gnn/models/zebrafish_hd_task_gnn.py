@@ -115,10 +115,19 @@ class ZebrafishHdTaskGNN(nn.Module):
         self.lock_edge_signs = bool(getattr(gm, "lock_edge_signs", True))
 
         # --- Load fish HD connectome ------------------------------------
-        from connectome_gnn.generators.connconstr_data import (
-            load_zebrafish_hd_connectome,
-        )
-        cx = load_zebrafish_hd_connectome(sim.connconstr_datapath)
+        # Either the named-circuit registry (``config.circuit.name``) or
+        # the legacy loader path. Both produce the same canonical dict
+        # shape consumed below. See zebrafish_hd_task_rnn.py for the
+        # rationale.
+        circuit_cfg = getattr(config, "circuit", None)
+        if circuit_cfg is not None and getattr(circuit_cfg, "name", None):
+            from connectome_gnn.generators.circuits import get_circuit
+            cx = get_circuit(circuit_cfg.name).as_loader_dict()
+        else:
+            from connectome_gnn.generators.connconstr_data import (
+                load_zebrafish_hd_connectome,
+            )
+            cx = load_zebrafish_hd_connectome(sim.connconstr_datapath)
         N = int(cx["N"])
         self.n_units = N
         self.n_input = 3

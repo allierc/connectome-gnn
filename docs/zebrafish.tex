@@ -1056,6 +1056,67 @@ mis-fit the wraparound.
   \label{fig:zhd_tuning_sharpness}
 \end{figure}
 
+\subsection{Circuit variants and the IPN12 extension}
+\label{sec:results_circuit_variants}
+
+To probe whether the recovered head-direction code depends on the
+specific cell-type carving used so far, we register two named
+connectome variants in a small registry sibling of the model registry
+(\texttt{connectome\_gnn.generators.circuits}). Each registration
+returns a \texttt{Circuit} dataclass that pins (a) the neuron set, (b)
+the sign-locked and spectrally-rescaled adjacency
+$J_{\mathrm{eff}}\in\mathbb{R}^{N\times N}$, (c) named sub-populations
+(\texttt{bump}, \texttt{afferent\_RIPN\_\{L,R\}},
+\texttt{afferent\_ptIPN\_\{L,R\}}), and (d) a SHA-256 of $J_{\mathrm{eff}}$
+that follows the data into the dataset folder as
+\texttt{circuit\_provenance.json}. A run can then select a variant via
+the single \texttt{circuit.name} yaml field; if omitted, the legacy
+loader path is used, so existing configurations remain
+byte-equivalent.
+
+\paragraph{\texttt{zebrafish\_HD\_731\_v1}.} The 731-cell pool used in
+the preceding sections (443 IPNd* + IPNds* HD-ring cells, 200 RIPN*
+habenular afferents, 88 pretectal pt-IPN* afferents; full pairwise
+adjacency under the Hulse 2025 Dale convention and a spectral target
+of $0.9$).
+
+\paragraph{\texttt{zebrafish\_HD\_IPN12\_839\_v1}.} Same fetch
+protocol but the cell-type filter is extended with the two IPN12
+sub-types, IPN12\_a (51 cells) and IPN12\_b (55 cells), yielding an
+$839$-cell pool. The IPN12 cells are dorsal-IPN neurons (Petrucco
+et~al. 2023; cached SWC skeletons at
+\texttt{figures/zebrafish/zebrafish\_anatomy\_IPN12/}). We make two
+design choices, both as the natural extension of the canonical HD
+loader.
+
+\textbf{(i) IPN12 cells join the bump ring.} Per the anatomy --- IPN12
+sub-types lie adjacent to the IPNd13 cluster in the same medial dorsal
+IPN volume --- we admit them into the bump pool rather than treating
+them as a separate output target. They are ordered immediately after
+IPNds (positions $443\ldots 548$ in the index), inflating
+$n_{\mathrm{bump}}$ from $443$ to $549$ while leaving the afferent
+pools (RIPN, pt-IPN) untouched. The decoder-only-from-bump readout
+flag (\texttt{output\_from\_dipn\_only}) therefore sees the IPN12
+firing rates as additional candidate HD outputs, and the circular-TV
+regulariser (when active) sweeps across the extended ring.
+
+\textbf{(ii) IPN12 outgoing weights are Dale-flipped to inhibitory},
+matching the treatment of IPNd / IPNds. This places the entire dorsal
+IPN block on a uniform GABAergic prior; should future data show IPN12
+to be excitatory, the sign can be restored via the loader's
+\texttt{inh\_amplify} hook without retraining infrastructure.
+
+The 4-scalar afferent gate is untouched: IPN12 cells receive no
+$\omega$-channel input. The 837-cell pool is fetched once via
+\texttt{figures/zebrafish/fetch\_zebrafish\_connectivity\_HD\_IPN12.py}
+and persisted as a separate CSV pair at
+\texttt{figures/zebrafish/zebrafish\_connectome\_HD\_IPN12/}, so the
+$731$-cell results above remain reproducible from the original tables
+and the two variants can be compared head-to-head under matched
+training hyperparameters
+(\texttt{config/zebrafish/zebrafish\_hd\_si\_dipn\_v1.yaml} and
+\texttt{config/zebrafish/zebrafish\_hd\_si\_ipn12\_v1.yaml}).
+
 \bibliographystyle{unsrtnat}
 \begin{thebibliography}{9}
 \bibitem[Petrucco et al.(2023)]{petrucco2023}
