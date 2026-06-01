@@ -2001,6 +2001,7 @@ def data_test_cortex_task_gnn(config, best_model=None, device=None, log_file=Non
 
 def data_test_path_integration_task(
     config, best_model=None, device=None, log_file=None,
+    anatomy_voltage: bool = False,
 ):
     """Test the trained CX path-integration model.
 
@@ -2098,6 +2099,16 @@ def data_test_path_integration_task(
     logger.info(f'  full test pi_acc (n={u_test.shape[0]}, '
                 f'T={u_test.shape[1]}): {full_pi:.4f}')
 
+    # Task-block resolver: this function supports both path_integration
+    # and swim_integration test runs. ``dt`` lives on whichever sub-block
+    # this run uses, so we look it up via the task's task_type once.
+    _ttype = str(getattr(config.task, 'task_type', '')).lower()
+    if _ttype == 'swim_integration':
+        _task_block = config.task.swim_integration
+    else:
+        _task_block = config.task.path_integration
+    _task_dt = float(_task_block.dt)
+
     # --- (a) 5 random test trials ------------------------------------------
     rng = np.random.default_rng(config.training.seed)
     idx_sample = rng.choice(u_test.shape[0], size=5, replace=False)
@@ -2122,13 +2133,44 @@ def data_test_path_integration_task(
         y=y_test_np[idx_sample],
         theta_hd=theta_test_np[idx_sample],
         is_stop=is_stop_test_np[idx_sample],
-        dt=float(config.task.path_integration.dt),
+        dt=_task_dt,
         out_path=random_plot_path,
         n_show=5,
         y_pred=y_pred_sample_np,
         metrics=metrics_random,
     )
     logger.info(f'  saved: {random_plot_path}')
+
+    # --- (a.5) Anatomy-voltage snapshot ------------------------------------
+    # The probe rollout (pattern / n_steps / stride / per-pattern params)
+    # is driven entirely by plotting.anatomy_voltage_* in the yaml. The
+    # rendering work (rollout + projection + frame writing) lives in
+    # connectome_gnn.plot_anatomy_voltage so this dispatcher stays small.
+    plot_cfg = config.plotting
+    yaml_toggle = bool(getattr(plot_cfg, 'anatomy_voltage_enabled', False))
+    circuit_cfg = getattr(config, 'circuit', None)
+    if (anatomy_voltage or yaml_toggle) and circuit_cfg is not None \
+            and getattr(circuit_cfg, 'name', None):
+        from connectome_gnn.generators.circuits import get_circuit
+        from connectome_gnn.plot_anatomy_voltage import run_anatomy_voltage_test
+        try:
+            c = get_circuit(circuit_cfg.name)
+            out = run_anatomy_voltage_test(
+                model, c, plot_cfg, log_dir, device=device,
+            )
+            if out is not None:
+                logger.info(f'  [anatomy_voltage] wrote: {out}')
+        except Exception as _e:
+            logger.warning(
+                f'  [anatomy_voltage] failed: {type(_e).__name__}: {_e}'
+            )
+    elif anatomy_voltage and (circuit_cfg is None
+                              or not getattr(circuit_cfg, 'name', None)):
+        logger.warning(
+            '  [anatomy_voltage] --anatomy_voltage set but config has no '
+            'circuit.name; skipping. Add `circuit: {name: <registered>}` '
+            'to the yaml.'
+        )
 
     # --- (b) 5 deterministic sweeps at ω ∈ {-120,-60,30,60,120}, T=2000 -----
     omega_set = [-120.0, -60.0, 30.0, 60.0, 120.0]
@@ -2170,7 +2212,7 @@ def data_test_path_integration_task(
         y=y_sweep_arr,
         theta_hd=theta_sweep_arr,
         is_stop=None,
-        dt=float(config.task.path_integration.dt),
+        dt=_task_dt,
         out_path=sweep_plot_path,
         n_show=5,
         y_pred=y_pred_sweep_arr,
@@ -2195,7 +2237,7 @@ def data_test_path_integration_task(
         theta_hd=np.stack(gain_theta, axis=0),
         y_pred=np.stack(gain_y_pred, axis=0),
         omega_deg_per_s=gain_omega_set,
-        dt=float(config.task.path_integration.dt),
+        dt=_task_dt,
         out_path=gain_plot_path,
     )
     logger.info(

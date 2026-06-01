@@ -1060,127 +1060,97 @@ mis-fit the wraparound.
 \label{sec:results_circuit_variants}
 
 To probe whether the recovered head-direction code depends on the
-specific cell-type carving used so far, we register two named
-connectome variants in a small registry sibling of the model registry
-(\texttt{connectome\_gnn.generators.circuits}). Each registration
-returns a \texttt{Circuit} dataclass that pins (a) the neuron set, (b)
-the sign-locked and spectrally-rescaled adjacency
-$J_{\mathrm{eff}}\in\mathbb{R}^{N\times N}$, (c) named sub-populations
-(\texttt{bump}, \texttt{afferent\_RIPN\_\{L,R\}},
-\texttt{afferent\_ptIPN\_\{L,R\}}), and (d) a SHA-256 of $J_{\mathrm{eff}}$
-that follows the data into the dataset folder as
-\texttt{circuit\_provenance.json}. A run can then select a variant via
-the single \texttt{circuit.name} yaml field; if omitted, the legacy
-loader path is used, so existing configurations remain
-byte-equivalent.
+specific cell-type carving used so far, we compare two connectome
+variants of the HD circuit. Each variant fixes (i) the neuron set,
+(ii) the sign-locked, spectrally-rescaled adjacency
+$J_{\mathrm{eff}}\in\mathbb{R}^{N\times N}$, and (iii) the named
+sub-populations carrying the bump, the habenular afferents, and the
+pretectal afferents.
 
-\paragraph{\texttt{zebrafish\_HD\_731\_v1}.} The 731-cell pool used in
-the preceding sections (443 IPNd* + IPNds* HD-ring cells, 200 RIPN*
-habenular afferents, 88 pretectal pt-IPN* afferents; full pairwise
+\paragraph{The 731-cell variant.} The pool used in the preceding
+sections: 443 IPNd* + IPNds* HD-ring cells, 200 RIPN* habenular
+afferents, and 88 pretectal pt-IPN* afferents, with full pairwise
 adjacency under the Hulse 2025 Dale convention and a spectral target
-of $0.9$).
+of $0.9$.
 
-\paragraph{\texttt{zebrafish\_HD\_IPN12\_839\_v1}.} Same fetch
-protocol but the cell-type filter is extended with the two IPN12
-sub-types, IPN12\_a (51 cells) and IPN12\_b (55 cells), yielding an
-$839$-cell pool. The IPN12 cells are dorsal-IPN neurons (Petrucco
-et~al. 2023; cached SWC skeletons at
-\texttt{figures/zebrafish/zebrafish\_anatomy\_IPN12/}). We make two
-design choices, both as the natural extension of the canonical HD
-loader.
+\paragraph{The 839-cell variant.} Same fetch protocol but the
+cell-type filter is extended with the two IPN12 sub-types, IPN12\_a
+(51 cells) and IPN12\_b (55 cells), yielding an $839$-cell pool. The
+IPN12 cells are dorsal-IPN neurons (Petrucco et al.\ 2023). We make
+two design choices, both following the canonical HD anatomy.
 
-\textbf{(i) IPN12 cells join the bump ring.} Per the anatomy --- IPN12
-sub-types lie adjacent to the IPNd13 cluster in the same medial dorsal
-IPN volume --- we admit them into the bump pool rather than treating
-them as a separate output target. They are ordered immediately after
-IPNds (positions $443\ldots 548$ in the index), inflating
+\textbf{(i) IPN12 cells join the bump ring.} Because the IPN12
+sub-types lie adjacent to the IPNd13 cluster in the same medial
+dorsal-IPN volume, we admit them into the bump pool rather than
+treating them as a separate output. They are ordered immediately
+after the IPNd / IPNds block, inflating the bump cell count
 $n_{\mathrm{bump}}$ from $443$ to $549$ while leaving the afferent
-pools (RIPN, pt-IPN) untouched. The decoder-only-from-bump readout
-flag (\texttt{output\_from\_dipn\_only}) therefore sees the IPN12
-firing rates as additional candidate HD outputs, and the circular-TV
-regulariser (when active) sweeps across the extended ring.
+pools (RIPN, pt-IPN) untouched. The bump-only readout therefore sees
+the IPN12 firing rates as additional candidate HD outputs, and the
+circular-TV regulariser (when active) sweeps across the extended ring.
 
 \textbf{(ii) IPN12 outgoing weights are Dale-flipped to inhibitory},
-matching the treatment of IPNd / IPNds. This places the entire dorsal
-IPN block on a uniform GABAergic prior; should future data show IPN12
-to be excitatory, the sign can be restored via the loader's
-\texttt{inh\_amplify} hook without retraining infrastructure.
+matching the treatment of IPNd / IPNds, so the entire dorsal-IPN
+block carries a uniform GABAergic prior. Should future data show
+IPN12 to be excitatory, the sign assignment is straightforward to
+restore without retraining the model architecture.
 
 The 4-scalar afferent gate is untouched: IPN12 cells receive no
-$\omega$-channel input. The 837-cell pool is fetched once via
-\texttt{figures/zebrafish/fetch\_zebrafish\_connectivity\_HD\_IPN12.py}
-and persisted as a separate CSV pair at
-\texttt{figures/zebrafish/zebrafish\_connectome\_HD\_IPN12/}, so the
-$731$-cell results above remain reproducible from the original tables
-and the two variants can be compared head-to-head under matched
-training hyperparameters
-(\texttt{config/zebrafish/zebrafish\_hd\_si\_dipn\_v1.yaml} and
-\texttt{config/zebrafish/zebrafish\_hd\_si\_ipn12\_v1.yaml}).
+angular-velocity input. The $731$-cell results above therefore
+remain reproducible from the original tables; the two variants can
+be compared head-to-head under matched training hyperparameters.
 
 \subsection{Does IPN12 help? Functional comparison of the 731- and
 839-cell HD circuits}
 \label{sec:results_ipn12_comparison}
 
 To ask whether the IPN12 cells carry usable head-direction signal, we
-trained the same swim-integration RNN on the two registered variants
-with byte-identical hyperparameters: same task data
-($N_{\mathrm{train}}=10^5$ trials, $N_{\mathrm{test}}=10^4$,
-$\mathrm{d}t=10\,\mathrm{ms}$, $T=100\to 800$ curriculum across 10
-epochs), same Adam optimiser, same per-group LR schedule, same seeds
-($\mathrm{model\,seed}=47506$, $\mathrm{task\,seed}=0$). The only
-difference is the connectome the model is built on top of:
-\texttt{zebrafish\_HD\_731\_v1} versus
-\texttt{zebrafish\_HD\_IPN12\_839\_v1}. Both runs are sign-locked
-(\texttt{wrec\_param: edge\_magnitude}), use the 4-scalar afferent
-gate (\texttt{velocity\_gate: pen\_4scalar}), and read out only from
-the bump pool (\texttt{output\_from\_dipn\_only}: 443 cells for the
-731-cell circuit, 551 cells for the 839-cell circuit).
+trained the same swim-integration RNN on the two variants with
+identical hyperparameters: same task data ($N_{\mathrm{train}}=10^5$
+trials, $N_{\mathrm{test}}=10^4$, $\mathrm{d}t=10\,\mathrm{ms}$,
+$T=100\to 800$ curriculum across 10 epochs), same Adam optimiser,
+same per-group learning-rate schedule, same seeds. The only
+difference is the connectome: the 731-cell pool versus the 839-cell
+pool that includes IPN12. Both runs are sign-locked, use the
+4-scalar afferent gate, and read out only from the bump pool (443
+cells for the 731-cell variant, 551 cells for the 839-cell variant).
 
 \paragraph{Convergence (preliminary, mid-epoch 3 of 10).}
-%% TODO: update at end of training; current numbers are mid-epoch-3
-%% (iter 34365 of 156200; ~22% through training).
 \begin{center}
 \begin{tabular}{lrr}
 \toprule
-& \texttt{dipn\_v1} (731) & \texttt{ipn12\_v1} (839) \\
+& 731-cell variant & 839-cell variant \\
 \midrule
 loss                & 0.0052          & \textbf{0.0027} \\
-$\mathrm{pi\_acc}$  & 0.997           & \textbf{0.999}  \\
+path-integration accuracy  & 0.997           & \textbf{0.999}  \\
 $r_{\mathrm{roll},1\mathrm{k}}$ & 0.999          & 0.999 \\
 $\mathrm{rmse}_{\mathrm{roll}}$ & $3.7^\circ$     & $\mathbf{1.9^\circ}$ \\
-$\mathrm{FWHM}$     & $45^\circ$\,(saturated bin)     & $\mathbf{31^\circ}$ \\
+bump FWHM           & $45^\circ$\,(saturated bin)     & $\mathbf{31^\circ}$ \\
 trainable params    & $538\,177$      & $708\,385$ \\
 \bottomrule
 \end{tabular}
 \end{center}
-By mid-epoch~3 ($T = 200$\,steps, $\sim 2$\,h on an A100, $\approx 22\%$
-through the full 10-epoch schedule), both circuits have converged on
-the basic path-integration task ($r_{\mathrm{roll},1\mathrm{k}}
-\approx 0.999$). The 839-cell circuit remains ahead on every metric:
-loss is $1.9\times$ lower, $\mathrm{rmse}_{\mathrm{roll}}$ is
-$1.9^\circ$ versus $3.7^\circ$, and the population FWHM has tightened
-to $31^\circ$ while the 731-cell run remains stuck at the
-$45^\circ$ binsize ceiling (a fixed-grid quantisation, so the true
+
+By mid-epoch~3 ($T = 200$\,steps, $\approx 22\%$ through the full
+10-epoch schedule), both circuits have converged on the basic
+path-integration task ($r_{\mathrm{roll},1\mathrm{k}} \approx 0.999$).
+The 839-cell circuit remains ahead on every metric: loss is
+$1.9\times$ lower, $\mathrm{rmse}_{\mathrm{roll}}$ is $1.9^\circ$
+versus $3.7^\circ$, and the population FWHM has tightened to
+$31^\circ$ while the 731-cell run remains stuck at the
+$45^\circ$ binsize ceiling (a fixed-grid quantisation; the true
 FWHM in the 731-cell run is bounded above by $45^\circ$ but not yet
 resolved below it). Epoch-1 reported $\mathrm{rmse}_{\mathrm{roll}}$
 of $8.4^\circ$ versus $1.7^\circ$, so the 731-cell circuit has
 narrowed the rolling-RMSE gap by $\approx 2\times$ between epochs 1
-and 3 but the FWHM and loss gaps remain.
-%% TODO: replace this table with the converged (epoch~10) numbers; add
-%% a column for each model's full-convergence FWHM, $r_{\mathrm{struct}}$
-%% (W against the connectome template) and per-cell-type MI fingerprint.
+and 3, but the FWHM and loss gaps remain.
 
 \paragraph{Learned afferent-gate scalars (best checkpoint after epoch
 2).}
-%% TODO: update at end of training (epoch 10). The interesting
-%% observables are (a) whether the gate magnitudes continue shrinking
-%% toward the published end-of-epoch-10 zebrafish_hd_si_dipn values
-%% (~0.05) and (b) whether $v_{\mathrm{ptIPN},R}$ ends up sign-opposed
-%% or all-positive in each circuit.
 \begin{center}
 \begin{tabular}{lrrl}
 \toprule
-& \texttt{dipn\_v1} & \texttt{ipn12\_v1} & semantic role \\
+& 731-cell & 839-cell & semantic role \\
 \midrule
 $v_{\mathrm{RIPN},L}$  & $+0.006$ & $+0.007$ & habenula\,$\to$\,IPN, left \\
 $v_{\mathrm{RIPN},R}$  & $+0.007$ & $+0.006$ & habenula\,$\to$\,IPN, right \\
@@ -1192,51 +1162,63 @@ $v_{\mathrm{ptIPN},R}$ & $+0.73$  & $-0.02$  & pretectum\,$\to$\,IPN, right \\
 
 Two facts hold in both variants. First, the pretectum gate scalars
 ($v_{\mathrm{ptIPN}}$) are $\sim 100\times$ the habenula scalars
-($v_{\mathrm{RIPN}}$): pretectum is the dominant velocity carrier into
-the IPN ring, consistent with the anatomical claim in Petrucco et~al.\
-2023. The model never received this prior; it emerged purely from the
-connectome topology and the gradient. Second, the habenula scalars
-are near-symmetric in magnitude on both runs (around
-$+7\!\times\!10^{-3}$) and never grow large, so the
-swim/heading-rotation signal is being supplied almost entirely by the
+($v_{\mathrm{RIPN}}$): the pretectum is the dominant velocity carrier
+into the IPN ring, consistent with the anatomical claim in Petrucco
+et al.\ 2023. The model never received this prior; it emerged purely
+from the connectome topology and the gradient. Second, the habenula
+scalars are near-symmetric in magnitude on both runs (around
+$+7\!\times\!10^{-3}$) and never grow large, so the swim /
+heading-rotation signal is being supplied almost entirely by the
 pretectum.
 
-The two runs diverge in how the pretectum gate evolves. At end of
-epoch~1 the 839-cell run had a clean $L \leftrightarrow R$
+The two runs diverge in how the pretectum gate evolves. At the end
+of epoch~1 the 839-cell run had a clean $L \leftrightarrow R$
 sign-opposition on pt-IPN ($+1.07$ / $-0.97$), the canonical
 Hulse-style solution. By the best epoch-2 checkpoint that opposition
 has \emph{collapsed}: both pt-IPN gain magnitudes have shrunk
 ($v_{\mathrm{ptIPN},L}: 1.07 \to 0.64$,
 $v_{\mathrm{ptIPN},R}: -0.97 \to -0.02$) as the loss tightens. The
-739-cell run\footnote{The 731-cell baseline run \texttt{dipn\_v1}.}
-runs the opposite trajectory: pt-IPN magnitudes \emph{grew} between
-epoch~1 and epoch~2 ($v_{\mathrm{ptIPN},L}: 0.90 \to 1.53,
-v_{\mathrm{ptIPN},R}: 0.33 \to 0.73$), still same-sign on both sides,
-and the recurrent loop has not yet absorbed the rotational work.
+731-cell run runs the opposite trajectory: pt-IPN magnitudes
+\emph{grew} between epoch~1 and epoch~2 ($v_{\mathrm{ptIPN},L}: 0.90
+\to 1.53, v_{\mathrm{ptIPN},R}: 0.33 \to 0.73$), still same-sign on
+both sides, and the recurrent loop has not yet absorbed the
+rotational work.
 
-The published end-of-epoch-10 checkpoint of the legacy
-\texttt{zebrafish\_hd\_si\_dipn} converged to all-positive
-small-magnitude scalars $[+0.008,+0.010,+0.043,+0.077]$, confirming
-that the gate is eventually de-emphasised in favour of
-$W^{\mathrm{rec}}$ as the schedule's $\mathrm{lr}_{W_{\mathrm{rec}}}$
-drops. The 839-cell run appears to be on this trajectory by epoch 2
-already, while the 731-cell run is still inflating its gate scalars.
+The published end-of-epoch-10 checkpoint of the original 731-cell
+baseline converged to all-positive small-magnitude scalars
+$[+0.008,+0.010,+0.043,+0.077]$, confirming that the gate is
+eventually de-emphasised in favour of $W^{\mathrm{rec}}$ as the
+recurrent learning-rate schedule decays. The 839-cell run appears
+to be on this trajectory by epoch~2 already, while the 731-cell run
+is still inflating its gate scalars.
 
-A clean interpretation is that the 108 IPN12 cells joining the bump
-pool give the recurrent loop enough extra capacity that the optimiser
-solves the angular-integration problem earlier inside $W^{\mathrm{rec}}$
-and releases the afferent gate to small values. The 731-cell circuit
-has to wait for $\mathrm{lr}_{W_{\mathrm{rec}}}$ to shrink before
-$W^{\mathrm{rec}}$ takes over the integration. Whether the two runs
-converge to similar end-of-training gate magnitudes is the substantive
-question this section will answer once both 10-epoch schedules finish.
-%% TODO: add Figure (or sub-panel) showing the four scalars'
-%% trajectories over training for both circuits side-by-side. Source
-%% data is in tmp_training/metrics.log and the snapshot checkpoints.
-%% TODO: add per-cell-type MI fingerprint comparison once converged ---
-%% specifically, where do IPN12_a / IPN12_b cells fall in the R/L/D/Z
-%% partition, and is their preferred-heading tiling distinct from the
-%% IPNd ring?
+A clean interpretation is that the $108$ IPN12 cells joining the
+bump pool give the recurrent loop enough extra capacity that the
+optimiser solves the angular-integration problem earlier inside
+$W^{\mathrm{rec}}$ and releases the afferent gate to small values.
+The 731-cell circuit has to wait for the recurrent learning rate to
+shrink before $W^{\mathrm{rec}}$ takes over the integration. Whether
+the two runs converge to similar end-of-training gate magnitudes is
+the substantive question this section will answer once both 10-epoch
+schedules finish.
+
+\paragraph{The IPN12 alternation is structural, not learned.} When
+we visualise the rolling subthreshold activity of the IPN12\_a and
+IPN12\_b cells in the 839-cell run, we see a clean
+left-right alternation across the two sub-types as the bump rotates.
+But the four afferent-gate scalars above are not the source of this
+asymmetry: by the most recent checkpoint, the pretectum gate is
+all-positive in the 731-cell run ($+1.53$ / $+0.73$) and effectively
+single-sided in the 839-cell run ($+0.35$ / $-0.02$). The
+$L \leftrightarrow R$ alternation in IPN12 activity therefore does
+not emerge from a learned input asymmetry; it is \emph{pre-installed}
+by the Dale-locked $W^{\mathrm{rec}}$ inherited from the connectome.
+The IPN12\_a and IPN12\_b cells receive their recurrent inputs at
+opposite phases of the bump because their connectivity to the ring
+is anatomically lateralised. The optimiser learns the rate at which
+the bump rotates (through $W^{\mathrm{rec}}$ magnitudes and the
+surviving gate scalar); it does not have to learn that side-of-ring
+asymmetry, because the connectome already encodes it.
 
 \bibliographystyle{unsrtnat}
 \begin{thebibliography}{9}

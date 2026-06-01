@@ -52,6 +52,12 @@ if __name__ == "__main__":
                         help="CV: skip phase 2 (zero-shot DAVIS→hold-out test). Use when no pre-trained DAVIS model exists.")
     parser.add_argument("--test_mode", type=str, default="",
                         help='Test-time variant, e.g. "test_ablation_50" (zero out 50%% of edges before rollout) or "test_modified_0.1" (add Gaussian noise σ=0.1 to W).')
+    parser.add_argument("--anatomy_voltage", action="store_true",
+                        help="On -o test runs that have a Circuit registered via "
+                             "config.circuit.name, also write a single 3D anatomy + "
+                             "voltage snapshot under <log_dir>/tmp_recons/. View / "
+                             "thresholds / type whitelist come from "
+                             "plotting.anatomy_voltage_* in the yaml.")
 
     print()
     device = []
@@ -68,11 +74,6 @@ if __name__ == "__main__":
     if args.option:
         print(f"Options: {args.option}")
     CONFIG_LISTS = {
-        # Yang 2019 cognitive battery — 20 single-task configs (all use the
-        # same TaskRNN free-W architecture and ruleset='all' for I/O shape,
-        # but differ in which rule is sampled). Use `python GNN_Main.py -o
-        # generate cortex_all_tasks` to generate the 20 per-task datasets in
-        # one process (sequential).
         'cortex_all_tasks': [
             'cortex_fdgo', 'cortex_reactgo', 'cortex_delaygo',
             'cortex_fdanti', 'cortex_reactanti', 'cortex_delayanti',
@@ -115,8 +116,8 @@ if __name__ == "__main__":
                 test_config_name = None
     else:
         best_model = ''
-        task = task = 'train'
-        config_list = ['drosophila_cx_pi_voltage_noise_005']
+        task = task = 'generate_train'
+        config_list = ['zebrafish_hd_si_dipn_bis']  #flyvis_noise_005_blank50_heaviside_var_cv00
         test_config_name = None
 
     if task == 'cv':
@@ -276,6 +277,7 @@ if __name__ == "__main__":
                 new_params=None,
                 rollout_without_noise=True,
                 test_config=test_config,
+                anatomy_voltage=args.anatomy_voltage,
             )
             with open(_marker, 'w') as f:
                 f.write(f"commit={sha}\nargv={sys.argv}\n")

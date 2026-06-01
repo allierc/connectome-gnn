@@ -808,6 +808,94 @@ class PlottingConfig(BaseModel):
     norm_x_start: float | None = None  # None = auto (0.85 * xnorm * 4 for training, 0.8 * xnorm for best)
     norm_x_stop: float | None = None   # None = auto (xnorm * 4 for training, xnorm for best)
 
+    # --- 3D anatomy-voltage snapshot --------------------------------------
+    # Consumed by connectome_gnn.plot_anatomy_voltage.render_*_anatomy_voltage,
+    # invoked from data_test when GNN_Main.py is launched with
+    # `--anatomy_voltage`. The render lives in `<log_dir>/tmp_recons/`
+    # alongside the per-trial trace plots. Defaults match the user's
+    # known-good settings for both drosophila CX (`--stride 5 --z_lo 0
+    # --z_hi 15 --alpha 1.0`) and zebrafish HD (`--stride 5 --z_lo 0
+    # --z_hi 15`). Per-yaml overrides are the expected customisation
+    # path.
+    anatomy_voltage_enabled: bool = False
+    """yaml-side toggle; when True the snapshot is rendered even without
+    the --anatomy_voltage CLI flag. Defaults to False."""
+    anatomy_voltage_pattern: str = "const"
+    """Probe rollout pattern. One of:
+        ``"const"``     constant-omega sweep (default)
+        ``"swim"``      stochastic swim-integration stimulus (zebrafish)
+        ``"swim_left"`` periodic left-impulse train (zebrafish)
+        ``"swim_right"`` periodic right-impulse train (zebrafish)
+        ``"ou"``        OU velocity stream (drosophila Hulse defaults)
+    Helpers live in :mod:`connectome_gnn.plot_anatomy_voltage`."""
+    anatomy_voltage_n_steps: int = 2000
+    """Length of the probe rollout (frames)."""
+    anatomy_voltage_stride: int = 0
+    """When 0, render a single PNG at ``anatomy_voltage_frame_idx``.
+    When > 0, render every Nth frame as an animation strip into a
+    sub-folder ``tmp_recons/anatomy_voltage_<organism>/frame_NNNN.png``
+    (mirrors the standalone scripts' frame-sequence output)."""
+    anatomy_voltage_frame_idx: int = -1
+    """Single-snapshot mode: which timestep of h_traj to visualise (-1 = last)."""
+    anatomy_voltage_trial_idx: int = 0
+    """Unused when ``anatomy_voltage_pattern`` is set (the probe rollout
+    replaces the random test trial). Kept for back-compat; ignored by the
+    v2 render entry point."""
+    anatomy_voltage_omega_deg: float = 60.0
+    """Constant-omega angular velocity (deg/s) for the ``const`` pattern."""
+    anatomy_voltage_theta0_rad: float = 0.0
+    """Initial bump heading (rad). Used by the const + swim_*  patterns."""
+    anatomy_voltage_swim_interval_s: float = 1.0
+    """Inter-impulse interval (s) for the swim_left/swim_right patterns,
+    and the mean Poisson period (1/swim_rate_hz) for ``swim``. Pass 0
+    for a single-shot impulse (swim_left/right)."""
+    anatomy_voltage_swim_magnitude_rad: float = 0.393
+    """Per-impulse magnitude (rad) for the swim_left/swim_right
+    patterns. Default π/8 ≈ 22.5° per turn (half the Petrucco median)."""
+    anatomy_voltage_swim_t_event_s: float = 0.0
+    """Time of the first deterministic impulse (s) for swim_left/right."""
+    anatomy_voltage_seed: int = 0
+    """RNG seed for stochastic patterns (``swim`` and ``ou``)."""
+    anatomy_voltage_elev: float = 90.0
+    """Camera elevation for the 3D->2D projection. Default 90.0 = dorsal
+    view (matches the zebrafish `--elev_top` default in
+    fig_zebrafish_anatomy_3d_voltage_anim.py). Drosophila CX yamls
+    override with -7.6 (the Hulse 2025 paper view used by
+    fig_cx_anatomy_3d_voltage_anim.py --elev)."""
+    anatomy_voltage_azim: float = -85.5
+    """Camera azimuth. Default -85.5 = dorsal view. Drosophila CX yamls
+    override with 86.6."""
+    anatomy_voltage_z_lo: float = 0.0
+    """z-score lower threshold (only z > z_lo lights up)."""
+    anatomy_voltage_z_hi: float = 15.0
+    """z-score saturation point (alpha = 1 at z >= z_hi)."""
+    anatomy_voltage_alpha: float = 1.0
+    """Global multiplier on per-segment green alpha."""
+    anatomy_voltage_downsample: int = 10
+    """SWC downsample factor for the skeleton lines (larger = sparser)."""
+    anatomy_voltage_bg: str = "black"
+    """Figure background: 'black' or 'white'."""
+    anatomy_voltage_show_base: bool = True
+    """When True, paint the dark-grey base skeleton beneath the green
+    lit-segment overlay (matches the new -o test --anatomy_voltage
+    default). When False, the base is dropped (matches the standalone
+    ``fig_zebrafish_anatomy_3d_voltage_anim.py`` dorsal panel, which
+    uses ``show_base=False`` so ROI pixel-sampling isn't biased by the
+    static ink)."""
+    anatomy_voltage_show_icon: bool = False
+    """When True, draw a small fish (zebrafish) or fly (drosophila)
+    silhouette in the top-right corner of every frame, oriented at the
+    current heading ``theta_hd[t]``. Mirrors the standalone scripts'
+    icon overlay. Default False."""
+    anatomy_voltage_types: list[str] = []
+    """Cell-type whitelist for the anatomy-voltage snapshot. Empty list
+    = plot every neuron (the default). When non-empty, only neurons
+    whose ``circuit.type_names[circuit.neuron_types[i]]`` is in this
+    list contribute skeletons. Useful for showing just the bump pool
+    (e.g. ``["EPG"]`` for fly or
+    ``["IPNd13B","IPNd13A","IPNds13A","IPNds13B","IPN12_a","IPN12_b"]``
+    for fish) without the surrounding afferents."""
+
 
 class TrainingConfig(BaseModel):
     # allow: LLM_code agents introduce new coeff_<name> keys per block; they

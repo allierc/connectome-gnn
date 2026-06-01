@@ -513,10 +513,15 @@ def _model_index_to_bodyid(connconstr_datapath: str) -> np.ndarray:
     return cx["bodyId"], cx["category"]
 
 
-def _load_skeletons_in_model_order(anatomy_dir: str, model_bodyids: np.ndarray,
+def _load_skeletons_in_model_order(anatomy_dir, model_bodyids: np.ndarray,
                                    model_categories: np.ndarray,
                                    downsample: int = 10):
     """Load SWC skeletons for each model neuron that has a skeleton.
+
+    ``anatomy_dir`` accepts either a single directory path (legacy 731-cell
+    case) or a list of paths (so the 839-cell IPN12 case can join the HD
+    and IPN12 caches without copying files). Skeleton paths in each
+    ``index.csv`` are resolved relative to that csv's directory.
 
     Returns:
         neurons: list of navis TreeNeurons (one per model neuron with a
@@ -526,21 +531,32 @@ def _load_skeletons_in_model_order(anatomy_dir: str, model_bodyids: np.ndarray,
     """
     import navis
 
-    index = pd.read_csv(os.path.join(anatomy_dir, "index.csv"))
-    bid_to_swc = {int(r.bodyId): r.swc for _, r in index.iterrows()}
+    dirs = [anatomy_dir] if isinstance(anatomy_dir, (str, bytes)) else list(anatomy_dir)
+    # Map bodyId -> (absolute swc path) by reading every index.csv. First
+    # entry wins on duplicate bodyIds.
+    bid_to_path: dict[int, str] = {}
+    for d in dirs:
+        idx_csv = os.path.join(d, "index.csv")
+        if not os.path.isfile(idx_csv):
+            continue
+        index = pd.read_csv(idx_csv)
+        for _, r in index.iterrows():
+            bid = int(r.bodyId)
+            if bid in bid_to_path:
+                continue
+            swc_rel = str(r.swc)
+            bid_to_path[bid] = (
+                swc_rel if os.path.isabs(swc_rel)
+                else os.path.join(d, swc_rel)
+            )
 
     neurons = []
     categories = []
     has_skel = np.zeros(len(model_bodyids), dtype=bool)
 
     for i, (bid, cat) in enumerate(zip(model_bodyids, model_categories)):
-        swc_rel = bid_to_swc.get(int(bid))
-        if swc_rel is None:
-            neurons.append(None)
-            categories.append(str(cat))
-            continue
-        path = os.path.join(anatomy_dir, swc_rel)
-        if not os.path.isfile(path):
+        path = bid_to_path.get(int(bid))
+        if path is None or not os.path.isfile(path):
             neurons.append(None)
             categories.append(str(cat))
             continue
@@ -1476,13 +1492,54 @@ def main():
     # ── 3. load skeletons ────────────────────────────────────────────────
     print(f"[3/4] loading skeletons + meshes (downsample={args.downsample}) ...")
     t0 = time.time()
-    model_bodyids, model_categories = _model_index_to_bodyid(
-        args.connconstr_datapath)
+
+    # Resolve body_ids + anatomy dirs from the named-circuit registry when
+    # config.circuit.name is set (Step 1 of the refactor); fall back to
+    # the legacy 731-cell-only loader path. This is the bridge that lets
+    # the script run on the 839-cell IPN12 circuit without copying SWCs:
+    # the registry exposes circuit.body_ids in model order AND
+    # provenance['anatomy_extra_dirs'] for the IPN12 cache.
+    _circuit_cfg = getattr(config, "circuit", None)
+    _circuit_name = (
+        getattr(_circuit_cfg, "name", None) if _circuit_cfg is not None
+        else None
+    )
+    if _circuit_name:
+        from connectome_gnn.generators.circuits import get_circuit
+        from connectome_gnn.generators.connconstr_data import _zhd_category
+        _circuit = get_circuit(_circuit_name)
+        if _circuit.body_ids is None:
+            raise SystemExit(
+                f"circuit {_circuit_name!r} has no body_ids in the registry; "
+                f"cannot map model indices to SWC skeletons."
+            )
+        model_bodyids = _circuit.body_ids
+        # Categories for the 4-bucket colour mapping (IPNd/IPNds/RIPN/pt-IPN).
+        # IPN12_a/b cells appear in the 839-cell pool with their own
+        # canonical type names and get bucketed under IPN12_a / IPN12_b
+        # by _zhd_category — coloured the same way the IPNd bucket is.
+        model_categories = np.array(
+            [_zhd_category(_circuit.type_names[t])
+             for t in _circuit.neuron_types],
+            dtype=object,
+        )
+        # Skeletons can live in multiple dirs (e.g. HD + IPN12); merge
+        # the registry's anatomy_dir + anatomy_extra_dirs into the list.
+        prov = _circuit.provenance
+        anatomy_dirs = [prov.get("anatomy_dir", args.anatomy_dir)]
+        anatomy_dirs.extend(prov.get("anatomy_extra_dirs", []) or [])
+        anatomy_arg = anatomy_dirs
+        print(f"      [registry] circuit={_circuit_name!r} "
+              f"N={_circuit.N} anatomy_dirs={anatomy_dirs}")
+    else:
+        model_bodyids, model_categories = _model_index_to_bodyid(
+            args.connconstr_datapath)
+        anatomy_arg = args.anatomy_dir
     assert len(model_bodyids) == rates_lit.shape[1], \
         f"model N={len(model_bodyids)} != rollout N={rates_lit.shape[1]}"
 
     neurons, types_str, has_skel = _load_skeletons_in_model_order(
-        args.anatomy_dir, model_bodyids, model_categories,
+        anatomy_arg, model_bodyids, model_categories,
         downsample=args.downsample,
     )
     n_with = int(has_skel.sum())
@@ -1701,3 +1758,4 @@ if __name__ == "__main__":
 
 # python /workspace/connectome-gnn-cx/figures/zebrafish/fig_zebrafish_anatomy_3d_voltage_anim.py --z_lo=0.0 --z_hi=6.0 --swim
 # python figures/zebrafish/fig_zebrafish_anatomy_3d_voltage_anim.py --model zebrafish_hd_si_dipn --n_steps 10000 --stride 5 --z_lo 0.0 --z_hi 15.0 --swim_left --swim_interval 0.3 --out_dir figures/zebrafish/3D_voltage_const
+# python figures/zebrafish/fig_zebrafish_anatomy_3d_voltage_anim.py --model zebrafish_hd_si_ipn12_v1 --n_steps 10000 --stride 5 --z_lo 0.0 --z_hi 15.0 --swim_left --swim_interval 0.3
