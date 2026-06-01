@@ -527,17 +527,32 @@ def load_zebrafish_hd_connectome(datapath, *, inh_amplify: float = 5.0,
     for i, b in enumerate(epg_ix):
         W_16to46[i, int(b)] = 1.0
 
+    pen_subpop_ix_np = {k: np.asarray(v, dtype=np.int64)
+                         for k, v in pen_subpop_ix.items()}
+    # Fish-native rekeying of the 4-scalar afferent gate: PENa → RIPN
+    # (habenula afferents), PENb → pt-IPN (pretectum afferents). The
+    # legacy ``pen_subpop_ix`` key stays for any caller that still reads
+    # the fly-historical name; ``afferent_subpop_ix`` is the canonical
+    # zebrafish-vocabulary alias.
+    afferent_subpop_ix_np = {
+        "RIPN_L":  pen_subpop_ix_np["PENa_L"],
+        "RIPN_R":  pen_subpop_ix_np["PENa_R"],
+        "ptIPN_L": pen_subpop_ix_np["PENb_L"],
+        "ptIPN_R": pen_subpop_ix_np["PENb_R"],
+    }
     return {
-        "pen_subpop_ix": {k: np.asarray(v, dtype=np.int64)
-                           for k, v in pen_subpop_ix.items()},
+        "pen_subpop_ix": pen_subpop_ix_np,
+        "afferent_subpop_ix": afferent_subpop_ix_np,   # fish-native alias
         "J_effective": (np.exp(wrec_log) * mwrec).astype(np.float32),
         "wrec_log": wrec_log,
         "mwrec": mwrec,
         "neuron_types": typeclasses,
         "type_names": list(uniqtypes),
         "epg_ix": list(epg_ix),
+        "dipn_ix": list(epg_ix),                       # fish-native alias
         "N": N,
         "n_epg": n_epg,
+        "n_dipn": n_epg,                               # fish-native alias
         "winp": winp,
         "sinp": np.zeros((input_size, 1), dtype=np.float32),
         "wout": wout,
