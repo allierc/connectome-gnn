@@ -1319,6 +1319,24 @@ class TaskConfig(BaseModel):
         return self
 
 
+class CircuitConfig(BaseModel):
+    """Optional named-circuit selector — sister of TaskConfig.
+
+    When ``name`` is set, the model class resolves the connectome via
+    ``connectome_gnn.generators.circuits.get_circuit(name)`` (the named
+    registry of pre-cached, sign-locked, spectrally-rescaled adjacency
+    templates). When unset (default), the model falls through to the
+    legacy ``load_<organism>_*_connectome(sim.connconstr_datapath)``
+    path — so existing yamls keep loading byte-equivalently.
+
+    See ``docs/REFACTOR_zebrafish_circuit_registry.md`` §4 for the
+    motivation.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    name: Optional[str] = None
+
+
 class NeuralGraphConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -1338,6 +1356,7 @@ class NeuralGraphConfig(BaseModel):
     training: TrainingConfig
     zarr: Optional[ZarrConfig] = None
     task: Optional[TaskConfig] = None
+    circuit: Optional[CircuitConfig] = None
 
     @staticmethod
     def from_yaml(file_name: str):
