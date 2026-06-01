@@ -29,7 +29,7 @@ from connectome_gnn.models.neural_ode_wrapper import (
 )
 from connectome_gnn.models.recurrent_step import recurrent_loss
 from connectome_gnn.models.registry import create_model
-from connectome_gnn.models.training_utils import build_lr_scheduler, build_model, dale_law_score, determine_load_fields, enforce_dale_law, load_flyvis_data
+from connectome_gnn.models.training_utils import build_lr_scheduler, build_model, dale_law_score, determine_load_fields, enforce_dale_law, find_latest_epoch_checkpoint, load_flyvis_data
 from connectome_gnn.models.utils import (
     ANSI_GREEN,
     ANSI_ORANGE,
@@ -66,7 +66,7 @@ from connectome_gnn.utils import (
 _logger = get_logger(__name__)
 
 
-def data_train(config=None, erase=False, best_model=None, style=None, device=None, log_file=None):
+def data_train(config=None, erase=False, best_model=None, style=None, device=None, log_file=None, resume=False):
     # plt.rcParams['text.usetex'] = False  # LaTeX disabled - use mathtext instead
     # rc('font', **{'family': 'serif', 'serif': ['Times New Roman', 'Liberation Serif', 'DejaVu Serif', 'serif']})
     # matplotlib.rcParams['savefig.pad_inches'] = 0
@@ -95,7 +95,7 @@ def data_train(config=None, erase=False, best_model=None, style=None, device=Non
     # of a populated task block — keeps train_subprocess.py / GNN_Main.py
     # routing transparent for both the LLM agentic loop and direct CLI use.
     if getattr(config, 'task', None) is not None:
-        data_train_task(config, erase, best_model, device, log_file=log_file)
+        data_train_task(config, erase, best_model, device, log_file=log_file, resume=resume)
         _logger.info("training completed.")
         return
 
@@ -115,14 +115,14 @@ def data_train(config=None, erase=False, best_model=None, style=None, device=Non
         elif 'rnn' in model_name or 'lstm' in model_name:
             data_train_gnn_RNN(config, erase, best_model, device)
         else:
-            data_train_gnn(config, erase, best_model, device, log_file=log_file)
+            data_train_gnn(config, erase, best_model, device, log_file=log_file, resume=resume)
     else:
         raise ValueError(f"Unknown dataset type: {config.dataset}")
 
     _logger.info("training completed.")
 
 
-def data_train_gnn(config, erase, best_model, device, log_file=None):
+def data_train_gnn(config, erase, best_model, device, log_file=None, resume=False):
     if torch.cuda.is_available():
         torch.set_float32_matmul_precision('high')
 
@@ -288,15 +288,24 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
     torch.save(gt_weights, os.path.join(log_dir, 'gt_weights.pt'))
     print(f"{_G}[TRAIN] saved training_edges.pt: {edges.shape}  gt_weights.pt: {gt_weights.shape}{_X}")
 
-    # Resolve checkpoint path from best_model argument
+    # Resolve checkpoint path. --resume auto-detects the latest completed
+    # per-epoch checkpoint and continues at the next epoch; otherwise an
+    # explicit pretrained_model from config is used (best_model no longer
+    # drives training resume — it stays a test-time epoch selector).
     checkpoint_path = None
-    if best_model and best_model != '' and best_model != 'None':
-        checkpoint_path = f"{log_dir}/models/best_model_with_{tc.n_runs - 1}_graphs_{best_model}.pt"
+    _resumed_epoch = -1
+    if resume:
+        checkpoint_path, _resumed_epoch = find_latest_epoch_checkpoint(log_dir, tc.n_runs)
+        if checkpoint_path is None:
+            _logger.warning('--resume: no per-epoch checkpoint found; starting from epoch 0')
     elif tc.pretrained_model != '':
         checkpoint_path = tc.pretrained_model
 
-    reset_epoch = (tc.pretrained_model != '' and not best_model)
+    reset_epoch = (tc.pretrained_model != '' and not resume)
     model, start_epoch = build_model(config, device, checkpoint_path=checkpoint_path, reset_epoch=reset_epoch)
+    if resume and checkpoint_path is not None:
+        start_epoch = _resumed_epoch + 1   # continue at the next epoch
+        _logger.info(f'--resume: loaded {checkpoint_path}; resuming at epoch {start_epoch}')
     _w = model.W if hasattr(model, 'W') else None
     _w_match = _w is not None and _w.shape[0] == config.simulation.n_edges
     _c = _G if _w_match else _R
@@ -1705,7 +1714,8 @@ from connectome_gnn.models.graph_trainer_inr import _generate_inr_video, data_tr
 
 def data_test(config=None, config_file=None, visualize=False, style='color frame', verbose=True, best_model=20, step=15, n_rollout_frames=600,
               ratio=1, run=0, test_mode='', sample_embedding=False, particle_of_interest=1, new_params = None, device=[],
-              rollout_without_noise: bool = False, log_file=None, test_config=None):
+              rollout_without_noise: bool = False, log_file=None, test_config=None,
+              anatomy_voltage: bool = False):
 
     dataset_name = config.dataset
     _logger.info(f"dataset_name: {dataset_name}")
@@ -1719,9 +1729,14 @@ def data_test(config=None, config_file=None, visualize=False, style='color frame
                 config, best_model=best_model, device=device, log_file=log_file,
             )
             return
-        if task_type == 'path_integration':
+        # Path-integration and swim-integration share the same dIPN-/EPG-style
+        # heading-rollout test pipeline; data_test_path_integration_task reads
+        # the matching task sub-block (path_integration or swim_integration)
+        # for dt/T at the call sites that need them.
+        if task_type in ('path_integration', 'swim_integration'):
             data_test_path_integration_task(
                 config, best_model=best_model, device=device, log_file=log_file,
+                anatomy_voltage=anatomy_voltage,
             )
             return
 
@@ -1784,7 +1799,7 @@ from connectome_gnn.models.graph_tester import (
 # Path-integration task trainer (TaskRNN)
 # ============================================================================
 
-def data_train_task(config, erase, best_model, device, log_file=None):
+def data_train_task(config, erase, best_model, device, log_file=None, resume=False):
     """Dispatch to the task-specific trainer based on `config.task.task_type`.
 
     - `path_integration` → CX trainer (TaskRNN sign_locked mode, Hulse aux
@@ -1799,9 +1814,9 @@ def data_train_task(config, erase, best_model, device, log_file=None):
     if task_type == "cortex":
         return _data_train_cortex_task(config, erase, best_model, device, log_file)
     elif task_type == "path_integration":
-        return _data_train_drosophila_cx_task(config, erase, best_model, device, log_file)
+        return _data_train_drosophila_cx_task(config, erase, best_model, device, log_file, resume=resume)
     elif task_type == "swim_integration":
-        return _data_train_zebrafish_hd_task(config, erase, best_model, device, log_file)
+        return _data_train_zebrafish_hd_task(config, erase, best_model, device, log_file, resume=resume)
     else:
         raise ValueError(
             f"data_train_task: unknown task_type {task_type!r}; "
@@ -1809,7 +1824,7 @@ def data_train_task(config, erase, best_model, device, log_file=None):
         )
 
 
-def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=None):
+def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=None, resume=False):
     """Train a TaskRNN on the path-integration task data.
 
     Mirrors the skeleton of `data_train_gnn`:
@@ -1853,7 +1868,10 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
 
     log_dir, logger = create_log_dir(config, erase)
     # Wipe tmp_training so snapshots, metrics, etc. don't mix across runs.
-    shutil.rmtree(os.path.join(log_dir, 'tmp_training'), ignore_errors=True)
+    # On --resume keep them: snapshots/metrics.log carry over from the
+    # interrupted run and metrics.log is appended below.
+    if not resume:
+        shutil.rmtree(os.path.join(log_dir, 'tmp_training'), ignore_errors=True)
     kinograph_dir = os.path.join(log_dir, 'tmp_training', 'evolution')
     os.makedirs(kinograph_dir, exist_ok=True)
 
@@ -1881,6 +1899,23 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
     n_total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     _logger.info(f'model {model_config.signal_model_name}: {n_total_params:,} trainable params')
     logger.info(f'model: {model_config.signal_model_name}  params: {n_total_params}')
+
+    # --- resume: load the latest completed per-epoch checkpoint ----------
+    # Continue at the next epoch (epoch-boundary granularity). The model
+    # state is loaded here (before torch.compile); the matching optimizer
+    # state is loaded right after the optimizer is built below.
+    start_epoch = 0
+    resume_ckpt = None
+    if resume:
+        ckpt_path, _resumed_epoch = find_latest_epoch_checkpoint(log_dir, tc.n_runs)
+        if ckpt_path is None:
+            _logger.warning('--resume: no per-epoch checkpoint found; starting from epoch 0')
+        else:
+            resume_ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
+            model.load_state_dict(resume_ckpt['model_state_dict'])
+            start_epoch = _resumed_epoch + 1
+            _logger.info(f'--resume: loaded {ckpt_path}; resuming at epoch {start_epoch + 1}')
+            logger.info(f'resume: loaded {os.path.basename(ckpt_path)}, start_epoch={start_epoch}')
 
     # --- optimizer + scheduler -------------------------------------------
     # three named param groups (always built; missing field → tc.lr fallback):
@@ -1928,6 +1963,9 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
         f'({len(grouped["w_ED"])} params, constant) | '
         f'other lr={tc.lr} ({len(grouped["other"])} params, constant)'
     )
+    if resume_ckpt is not None and 'optimizer_state_dict' in resume_ckpt:
+        optimizer.load_state_dict(resume_ckpt['optimizer_state_dict'])
+        _logger.info('--resume: restored optimizer state (Adam m/v)')
     lr_scheduler = build_lr_scheduler(optimizer, config)
     _logger.info(f'lr={tc.lr}  lr_scheduler={getattr(tc, "lr_scheduler", "none")}')
 
@@ -1958,7 +1996,9 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
     snap_every = max(1, Niter // max(1, snapshots_per_epoch))
     total_iters = tc.n_epochs * Niter
     best_loss = float('inf')
-    global_step = 0
+    # On --resume offset the global step so metrics.log iteration numbers stay
+    # continuous with the interrupted run (start_epoch completed epochs done).
+    global_step = start_epoch * Niter
     n_nan_skips = 0       # cumulative count of skipped optimizer steps
 
     # per-epoch trial-length curriculum. Slice the first T_epoch frames
@@ -1989,9 +2029,14 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
 
     metrics_log_path = os.path.join(log_dir, 'tmp_training', 'metrics.log')
     os.makedirs(os.path.dirname(metrics_log_path), exist_ok=True)
-    with open(metrics_log_path, 'w') as f:
-        f.write('iteration,epoch,loss,mse,cosd,norm,tv,l1S,pi_acc,fwhm_deg,'
-                'r_roll,rmse_roll_deg,r_roll_1k\n')
+    # On --resume append to the existing metrics so the interrupted run's
+    # history is preserved; otherwise truncate and write a fresh header.
+    if resume and os.path.exists(metrics_log_path):
+        _logger.info('--resume: appending to existing metrics.log')
+    else:
+        with open(metrics_log_path, 'w') as f:
+            f.write('iteration,epoch,loss,mse,cosd,norm,tv,l1S,pi_acc,fwhm_deg,'
+                    'r_roll,rmse_roll_deg,r_roll_1k\n')
 
     last_pi_acc = float('nan')
     last_fwhm = float('nan')
@@ -2039,7 +2084,7 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
     }
     last_good_opt_state = optimizer.state_dict()
 
-    for epoch in range(tc.n_epochs):
+    for epoch in range(start_epoch, tc.n_epochs):
         T_epoch = n_steps_schedule[epoch]
         # Per-epoch lr replacement for the named groups. Each schedule is
         # optional and drives only its own group; "other" always stays at lr.
@@ -2365,7 +2410,7 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
 # Zebrafish swim-integration task trainer (HD-ring dIPN port)
 # ============================================================================
 
-def _data_train_zebrafish_hd_task(config, erase, best_model, device, log_file=None):
+def _data_train_zebrafish_hd_task(config, erase, best_model, device, log_file=None, resume=False):
     """Train a ZebrafishHdTaskRNN/GNN on the swim-integration task data.
 
     Companion of ``_data_train_drosophila_cx_task`` for the larval-zebrafish
@@ -2390,7 +2435,7 @@ def _data_train_zebrafish_hd_task(config, erase, best_model, device, log_file=No
        overlays, etc.) can land here without touching the fly path.
     """
     return _data_train_drosophila_cx_task(
-        config, erase, best_model, device, log_file,
+        config, erase, best_model, device, log_file, resume=resume,
     )
 
 

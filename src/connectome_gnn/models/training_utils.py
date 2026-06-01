@@ -158,6 +158,35 @@ def build_model(config, device, checkpoint_path=None, reset_epoch=False):
     return model, start_epoch
 
 
+def find_latest_epoch_checkpoint(log_dir, n_runs):
+    """Locate the highest-numbered completed per-epoch checkpoint.
+
+    Per-epoch checkpoints are written as
+    ``best_model_with_{n_runs-1}_graphs_{E}.pt`` (E = 0-based epoch index) at
+    the end of each epoch. Used by ``--resume`` to continue from the next epoch.
+
+    Returns:
+        (path, epoch_index) for the largest E, or (None, -1) if none exist.
+        The plain ``best_model_with_{n_runs-1}_graphs.pt`` (no epoch suffix) is
+        skipped — only epoch-numbered checkpoints count as completed epochs.
+    """
+    prefix = f'best_model_with_{n_runs - 1}_graphs_'
+    pattern = os.path.join(log_dir, 'models', f'{prefix}*.pt')
+    best_path, best_epoch = None, -1
+    for path in glob.glob(pattern):
+        stem = os.path.basename(path)[:-len('.pt')]
+        suffix = stem[len(prefix):]
+        # Require a pure-digit suffix. NB int('2_3400') == 23400 in Python
+        # (underscore digit-grouping), so a mid-epoch "..._{E}_{N}.pt" name
+        # would otherwise be misread as a giant epoch — isdigit() rejects it.
+        if not suffix.isdigit():
+            continue
+        epoch = int(suffix)
+        if epoch > best_epoch:
+            best_path, best_epoch = path, epoch
+    return best_path, best_epoch
+
+
 def build_lr_scheduler(optimizer, config):
     """Build LR scheduler from config.
 
