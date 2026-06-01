@@ -338,6 +338,8 @@ def _read_latest_training_metrics(log_dir):
                 if line.startswith('iteration'):
                     header = line
                     continue
+                if line.startswith('#'):
+                    continue  # injected post-hoc metrics line — not a CSV data row
                 last = line
         if last is None:
             return None

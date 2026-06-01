@@ -980,6 +980,7 @@ def _print_batch_results(state: ExplorationState, batch: BatchInfo):
         conn_r2_vis   = _p('connectivity_R2_visible')
         struct_r      = _p('W_structure_r')      # scale-free wiring Pearson (PRIMARY for cx_voltage)
         zscore_r2     = _p('W_zscored_R2')       # structure R² (scale removed)
+        rollout_pear  = _p('rollout_pearson')    # autoregressive rollout Pearson (GUARD >=0.99)
         tau_r2        = _p('tau_R2')
         vrest_r2      = _p('V_rest_R2')
         hid_nnr_pear  = _p('hidden_nnr_pearson')
@@ -1000,6 +1001,8 @@ def _print_batch_results(state: ExplorationState, batch: BatchInfo):
             parts.append(f"r_struct={_color_metric(struct_r, 0.8, 0.5)}")
         if zscore_r2:
             parts.append(f"zR²={_color_metric(zscore_r2, 0.7, 0.4)}")
+        if rollout_pear:
+            parts.append(f"roll={_color_metric(rollout_pear, 0.99, 0.9)}")
         if vrest_r2:
             parts.append(f"Vr={_color_metric(vrest_r2, 0.9, 0.5)}")
         if tau_r2:

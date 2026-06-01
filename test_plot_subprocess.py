@@ -90,6 +90,33 @@ if __name__ == '__main__':
                 except OSError:
                     pass  # Stale NFS handle — ignore close error
 
+        # Inject the post-hoc recovery metrics into the TRAINING metrics.log so
+        # they ride along in r2_trajectory (the single trajectory the agentic loop
+        # reads). The training metrics.log only carries the live connectivity_r2 /
+        # vrest / tau; W_structure_r / rollout_pearson / slope are computed only in
+        # test+plot. Same append idiom as --error_log above. The line is prefixed
+        # with '#' so the CSV trajectory parser skips it (and so it never breaks
+        # _read_latest_training_metrics).
+        try:
+            _rl = log_path(config.config_file)
+            _mtxt = os.path.join(_rl, 'results', 'metrics.txt')
+            _mlog = os.path.join(_rl, 'tmp_training', 'metrics.log')
+            if os.path.exists(_mtxt) and os.path.exists(_mlog):
+                _keys = ('W_structure_r', 'W_zscored_R2', 'W_corrected_R2',
+                         'W_corrected_slope', 'rollout_pearson', 'clustering_accuracy')
+                _vals = {}
+                with open(_mtxt) as _f:
+                    for _ln in _f:
+                        if ':' in _ln:
+                            _k, _v = _ln.split(':', 1)
+                            if _k.strip() in _keys:
+                                _vals[_k.strip()] = _v.strip()
+                if _vals:
+                    with open(_mlog, 'a') as _f:
+                        _f.write('# post_hoc ' + ' '.join(f'{k}={v}' for k, v in _vals.items()) + '\n')
+        except Exception:
+            pass
+
         # Mark as complete
         run_log_dir = log_path(config.config_file)
         with open(os.path.join(run_log_dir, '_test_plot_complete'), 'w') as f:
