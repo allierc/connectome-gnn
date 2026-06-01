@@ -2307,6 +2307,12 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 _mf.write(f"W_rel_err_iqr: {_rel_err_w_iqr:.4f}\n")
                 _mf.write(f"W_structure_r: {_w_struct_r:.4f}\n")
                 _mf.write(f"W_zscored_R2: {_w_zscored_r2:.4f}\n")
+            # Also surface the scale-free structure metrics into the analysis log
+            # so the agentic exploration follows them (NSE connectivity_R2 is
+            # misleading under the W<->g_phi scale degeneracy).
+            if log_file:
+                log_file.write(f"W_structure_r: {_w_struct_r:.4f}\n")
+                log_file.write(f"W_zscored_R2: {_w_zscored_r2:.4f}\n")
             _rel_err_tau_med = _rel_err_tau_iqr = None
             _rel_err_v_med = _rel_err_v_iqr = None
 
