@@ -1136,48 +1136,56 @@ gate (\texttt{velocity\_gate: pen\_4scalar}), and read out only from
 the bump pool (\texttt{output\_from\_dipn\_only}: 443 cells for the
 731-cell circuit, 551 cells for the 839-cell circuit).
 
-\paragraph{Convergence (preliminary, end of epoch 1 of 10).}
-%% TODO: update at end of training; current numbers are end-of-epoch-1.
+\paragraph{Convergence (preliminary, mid-epoch 3 of 10).}
+%% TODO: update at end of training; current numbers are mid-epoch-3
+%% (iter 34365 of 156200; ~22% through training).
 \begin{center}
 \begin{tabular}{lrr}
 \toprule
 & \texttt{dipn\_v1} (731) & \texttt{ipn12\_v1} (839) \\
 \midrule
-loss                & 0.0078  & \textbf{0.0036} \\
-$\mathrm{pi\_acc}$  & 0.992   & \textbf{0.998}  \\
-$r_{\mathrm{roll},1\mathrm{k}}$ & 0.860 & \textbf{0.999} \\
-$\mathrm{rmse}_{\mathrm{roll}}$ & $8.4^\circ$ & $\mathbf{1.7^\circ}$ \\
-$\mathrm{FWHM}$     & $45^\circ$ & $36^\circ$ \\
-trainable params    & $538\,177$ & $708\,385$ \\
+loss                & 0.0052          & \textbf{0.0027} \\
+$\mathrm{pi\_acc}$  & 0.997           & \textbf{0.999}  \\
+$r_{\mathrm{roll},1\mathrm{k}}$ & 0.999          & 0.999 \\
+$\mathrm{rmse}_{\mathrm{roll}}$ & $3.7^\circ$     & $\mathbf{1.9^\circ}$ \\
+$\mathrm{FWHM}$     & $45^\circ$\,(saturated bin)     & $\mathbf{31^\circ}$ \\
+trainable params    & $538\,177$      & $708\,385$ \\
 \bottomrule
 \end{tabular}
 \end{center}
-After the first of ten curriculum epochs (T=100\,steps, $\sim 38$\,min
-on an A100), the 839-cell circuit has effectively cracked the task
-($r_{\mathrm{roll},1\mathrm{k}} \approx 0.999$, $\mathrm{rmse} \approx
-1.7^\circ$) while the 731-cell circuit is still resolving heading
-errors ($r_{\mathrm{roll},1\mathrm{k}} \approx 0.86$, $\mathrm{rmse}
-\approx 8.4^\circ$). The gap may close over the remaining 9 epochs;
-the late-training comparison is the load-bearing one.
+By mid-epoch~3 ($T = 200$\,steps, $\sim 2$\,h on an A100, $\approx 22\%$
+through the full 10-epoch schedule), both circuits have converged on
+the basic path-integration task ($r_{\mathrm{roll},1\mathrm{k}}
+\approx 0.999$). The 839-cell circuit remains ahead on every metric:
+loss is $1.9\times$ lower, $\mathrm{rmse}_{\mathrm{roll}}$ is
+$1.9^\circ$ versus $3.7^\circ$, and the population FWHM has tightened
+to $31^\circ$ while the 731-cell run remains stuck at the
+$45^\circ$ binsize ceiling (a fixed-grid quantisation, so the true
+FWHM in the 731-cell run is bounded above by $45^\circ$ but not yet
+resolved below it). Epoch-1 reported $\mathrm{rmse}_{\mathrm{roll}}$
+of $8.4^\circ$ versus $1.7^\circ$, so the 731-cell circuit has
+narrowed the rolling-RMSE gap by $\approx 2\times$ between epochs 1
+and 3 but the FWHM and loss gaps remain.
 %% TODO: replace this table with the converged (epoch~10) numbers; add
 %% a column for each model's full-convergence FWHM, $r_{\mathrm{struct}}$
 %% (W against the connectome template) and per-cell-type MI fingerprint.
 
-\paragraph{Learned afferent-gate scalars (end of epoch 1, same
-checkpoints).}
-%% TODO: update at end of training. The interesting observable is
-%% whether (a) the gate magnitudes shrink toward the published end-of-
-%% epoch-10 zebrafish_hd_si_dipn values, and (b) the $v_{\mathrm{ptIPN,R}}$
-%% sign-flip seen in the 731-cell run cleans up.
+\paragraph{Learned afferent-gate scalars (best checkpoint after epoch
+2).}
+%% TODO: update at end of training (epoch 10). The interesting
+%% observables are (a) whether the gate magnitudes continue shrinking
+%% toward the published end-of-epoch-10 zebrafish_hd_si_dipn values
+%% (~0.05) and (b) whether $v_{\mathrm{ptIPN},R}$ ends up sign-opposed
+%% or all-positive in each circuit.
 \begin{center}
 \begin{tabular}{lrrl}
 \toprule
 & \texttt{dipn\_v1} & \texttt{ipn12\_v1} & semantic role \\
 \midrule
-$v_{\mathrm{RIPN},L}$  & $+0.008$ & $+0.006$ & habenula\,$\to$\,IPN, left \\
-$v_{\mathrm{RIPN},R}$  & $+0.008$ & $+0.006$ & habenula\,$\to$\,IPN, right \\
-$v_{\mathrm{ptIPN},L}$ & $+0.90$  & $+1.07$  & pretectum\,$\to$\,IPN, left \\
-$v_{\mathrm{ptIPN},R}$ & $+0.33$  & $\mathbf{-0.97}$ & pretectum\,$\to$\,IPN, right \\
+$v_{\mathrm{RIPN},L}$  & $+0.006$ & $+0.007$ & habenula\,$\to$\,IPN, left \\
+$v_{\mathrm{RIPN},R}$  & $+0.007$ & $+0.006$ & habenula\,$\to$\,IPN, right \\
+$v_{\mathrm{ptIPN},L}$ & $+1.53$  & $+0.64$  & pretectum\,$\to$\,IPN, left \\
+$v_{\mathrm{ptIPN},R}$ & $+0.73$  & $-0.02$  & pretectum\,$\to$\,IPN, right \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -1187,33 +1195,41 @@ Two facts hold in both variants. First, the pretectum gate scalars
 ($v_{\mathrm{RIPN}}$): pretectum is the dominant velocity carrier into
 the IPN ring, consistent with the anatomical claim in Petrucco et~al.\
 2023. The model never received this prior; it emerged purely from the
-connectome topology and the gradient. Second, the habenula scalars are
-near-symmetric in magnitude on both runs and never grow large, so the
+connectome topology and the gradient. Second, the habenula scalars
+are near-symmetric in magnitude on both runs (around
+$+7\!\times\!10^{-3}$) and never grow large, so the
 swim/heading-rotation signal is being supplied almost entirely by the
 pretectum.
 
-The interesting differential is on $v_{\mathrm{ptIPN},R}$. The
-731-cell run gives $v_{\mathrm{ptIPN},L}=+0.90,\
-v_{\mathrm{ptIPN},R}=+0.33$ --- same sign, partial asymmetry. The
-839-cell run gives $v_{\mathrm{ptIPN},L}=+1.07,\
-v_{\mathrm{ptIPN},R}=-0.97$ --- a clean $L \leftrightarrow R$
-sign-opposition with matched magnitudes. The Hulse-style canonical
-solution to the path-integration problem requires opposite-sign drive
-on the L and R afferents so that positive $\omega$ rotates the bump
-through opposite torques on the two halves of the ring; that solution
-emerges immediately in the 839-cell run but the 731-cell run reaches
-it more slowly (or via a different route through the recurrent loop
---- the trained \emph{published} 731-cell checkpoint converges to
-all-positive small-magnitude scalars
-$[+0.008,+0.010,+0.043,+0.077]$, suggesting the gate is eventually
-de-emphasised in favour of W$^{\mathrm{rec}}$).
+The two runs diverge in how the pretectum gate evolves. At end of
+epoch~1 the 839-cell run had a clean $L \leftrightarrow R$
+sign-opposition on pt-IPN ($+1.07$ / $-0.97$), the canonical
+Hulse-style solution. By the best epoch-2 checkpoint that opposition
+has \emph{collapsed}: both pt-IPN gain magnitudes have shrunk
+($v_{\mathrm{ptIPN},L}: 1.07 \to 0.64$,
+$v_{\mathrm{ptIPN},R}: -0.97 \to -0.02$) as the loss tightens. The
+739-cell run\footnote{The 731-cell baseline run \texttt{dipn\_v1}.}
+runs the opposite trajectory: pt-IPN magnitudes \emph{grew} between
+epoch~1 and epoch~2 ($v_{\mathrm{ptIPN},L}: 0.90 \to 1.53,
+v_{\mathrm{ptIPN},R}: 0.33 \to 0.73$), still same-sign on both sides,
+and the recurrent loop has not yet absorbed the rotational work.
+
+The published end-of-epoch-10 checkpoint of the legacy
+\texttt{zebrafish\_hd\_si\_dipn} converged to all-positive
+small-magnitude scalars $[+0.008,+0.010,+0.043,+0.077]$, confirming
+that the gate is eventually de-emphasised in favour of
+$W^{\mathrm{rec}}$ as the schedule's $\mathrm{lr}_{W_{\mathrm{rec}}}$
+drops. The 839-cell run appears to be on this trajectory by epoch 2
+already, while the 731-cell run is still inflating its gate scalars.
 
 A clean interpretation is that the 108 IPN12 cells joining the bump
 pool give the recurrent loop enough extra capacity that the optimiser
-locates the symmetric Petrucco-style solution earlier and more
-robustly. Whether this advantage compresses or amplifies by epoch 10
-is the substantive question this section will answer once both runs
-finish.
+solves the angular-integration problem earlier inside $W^{\mathrm{rec}}$
+and releases the afferent gate to small values. The 731-cell circuit
+has to wait for $\mathrm{lr}_{W_{\mathrm{rec}}}$ to shrink before
+$W^{\mathrm{rec}}$ takes over the integration. Whether the two runs
+converge to similar end-of-training gate magnitudes is the substantive
+question this section will answer once both 10-epoch schedules finish.
 %% TODO: add Figure (or sub-panel) showing the four scalars'
 %% trajectories over training for both circuits side-by-side. Source
 %% data is in tmp_training/metrics.log and the snapshot checkpoints.
