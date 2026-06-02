@@ -308,6 +308,8 @@ def _discover_circuits() -> None:
     # Each circuit registers a build function. Add new circuits here.
     _register_zebrafish_hd_731()
     _register_zebrafish_hd_ipn12_839()
+    _register_zebrafish_hd_ipn12_exc_839()
+    _register_zebrafish_hd_ipn12_ablations()
     _register_drosophila_cx_156()
 
 
@@ -483,6 +485,193 @@ def _register_zebrafish_hd_ipn12_839() -> None:
         )
 
     register_circuit("zebrafish_HD_IPN12_839_v1", build)
+
+
+def _register_zebrafish_hd_ipn12_exc_839() -> None:
+    """Register the 839-cell HD pool with IPN12 treated as **excitatory**
+    (alternative biological hypothesis) as ``zebrafish_HD_IPN12_839_v2``.
+
+    Identical to v1 except the Dale-flip is restricted to the bump
+    cells of the IPNd / IPNds block; IPN12_a and IPN12_b outgoing
+    weights stay positive. Loader is the same; only the
+    ``inh_prefixes`` argument differs. Per §8 of the refactor plan,
+    re-deriving the same neuron pool with different Dale config gets a
+    new version tag (``_v2``) so v1 runs stay reproducible from the
+    original tables.
+    """
+
+    def build() -> Circuit:
+        from connectome_gnn.generators.connconstr_data import (
+            load_zebrafish_hd_connectome,
+        )
+        datapath = "figures/zebrafish/zebrafish_connectome_HD_IPN12"
+        cx = load_zebrafish_hd_connectome(
+            datapath,
+            inh_prefixes=("IPNd", "IPNds"),   # ← IPN12_a / _b EXCLUDED
+        )
+
+        N = int(cx["N"])
+        n_bump = int(cx.get("n_dipn", cx["n_epg"]))
+        soma = cx.get("somaLocation", None)
+        soma_xyz = np.asarray(soma, dtype=np.float64) if soma is not None else None
+
+        aff = cx.get("afferent_subpop_ix", None) or {}
+        pen = cx.get("pen_subpop_ix", {}) or {}
+
+        def _aff(k_fish: str, k_fly: str) -> np.ndarray:
+            arr = aff.get(k_fish, None)
+            if arr is None:
+                arr = pen.get(k_fly, np.array([], dtype=np.int64))
+            return np.asarray(arr, dtype=np.int64)
+
+        subpops = {
+            "bump":              np.arange(n_bump, dtype=np.int64),
+            "afferent_RIPN_L":   _aff("RIPN_L",  "PENa_L"),
+            "afferent_RIPN_R":   _aff("RIPN_R",  "PENa_R"),
+            "afferent_ptIPN_L":  _aff("ptIPN_L", "PENb_L"),
+            "afferent_ptIPN_R":  _aff("ptIPN_R", "PENb_R"),
+        }
+        bump_ring_ix = np.asarray(
+            cx.get("dipn_ix", cx["epg_ix"]), dtype=np.int64,
+        )
+
+        provenance = {
+            "server": "neuprint-fish2.janelia.org",
+            "dataset": "fish2",
+            "source_tables":
+                "figures/zebrafish/zebrafish_connectome_HD_IPN12/{neurons,connections}.csv",
+            "anatomy_dir": "figures/zebrafish/zebrafish_anatomy_HD",
+            "anatomy_extra_dirs": ["figures/zebrafish/zebrafish_anatomy_IPN12"],
+            "dale_inh_amplify": 5.0,
+            "dale_spectral_target": 0.9,
+            "dale_inh_prefixes": ["IPNd", "IPNds"],   # IPN12 omitted
+            "type_count": len(cx["type_names"]),
+            "n_bump_cells": n_bump,
+            "ipn12_design_note": (
+                "IPN12_a + IPN12_b joined the bump ring; outgoing "
+                "weights are LEFT POSITIVE (excitatory) — alternative "
+                "to v1's Dale-flipped inhibitory treatment. Used to "
+                "ablate the Dale-sign dependency of the IPN12 "
+                "alternation. See docs/zebrafish.tex §Functional "
+                "comparison."
+            ),
+        }
+
+        body_ids = (np.asarray(cx["bodyId"], dtype=np.int64)
+                    if "bodyId" in cx else None)
+
+        return Circuit(
+            name="zebrafish_HD_IPN12_839_v2",
+            N=N,
+            neuron_types=np.asarray(cx["neuron_types"], dtype=np.int64),
+            type_names=list(cx["type_names"]),
+            J_effective=np.asarray(cx["J_effective"], dtype=np.float32),
+            soma_xyz=soma_xyz,
+            subpops=subpops,
+            bump_ring_ix=bump_ring_ix,
+            dale_signs=(np.asarray(cx["dale_signs"], dtype=np.float32)
+                        if "dale_signs" in cx else None),
+            body_ids=body_ids,
+            provenance=provenance,
+        )
+
+    register_circuit("zebrafish_HD_IPN12_839_v2", build)
+
+
+# The 33 cell types present in the HD_IPN12 connectome (20 bump-pool types —
+# IPNd*/IPNds* + IPN12_a/b — plus 13 afferent types — RIPN*/pt-IPN*). Kept as
+# an explicit literal so the ablation variants can be registered (which needs
+# the names up front, at discovery time) without eagerly building the base
+# circuit; ``_register_zebrafish_hd_ipn12_ablations`` validates each name
+# against the live ``type_names`` at build time so a connectome change can't
+# silently register a stale type.
+_IPN12_ABLATION_TYPES = (
+    "IPNd", "IPNd01", "IPNd13A", "IPNd13B", "IPNd13C", "IPNd13D", "IPNd13E",
+    "IPNd13S", "IPNd14", "IPNd15", "IPNd16", "IPNd17A", "IPNd17B", "IPNdp01",
+    "IPNds", "IPNds13A", "IPNds13B", "IPNds17", "IPN12_a", "IPN12_b",
+    "RIPN01", "RIPN02", "RIPN03_a", "RIPN03_b", "RIPN05", "RIPN11",
+    "RIPN12_a", "RIPN12_b", "RIPN12_c", "RIPN16", "RIPN17",
+    "pt-IPN1", "pt-IPN2",
+)
+
+
+def ablation_type_token(type_name: str) -> str:
+    """Filesystem / registry-name-safe token for a cell type. Only ``-`` ->
+    ``_`` is needed (``pt-IPN1`` -> ``pt_IPN1``); every other type name is
+    already alphanumeric/underscore. Shared with the ablation runner so the
+    circuit name, config filename and log dir all agree on the token."""
+    return type_name.replace("-", "_")
+
+
+def _register_zebrafish_hd_ipn12_ablations() -> None:
+    """Register one connectivity-lesion variant per cell type of
+    ``zebrafish_HD_IPN12_839_v1`` as
+    ``zebrafish_HD_IPN12_839_v1_ablate_<token>``.
+
+    Each variant is identical to v1 except the ablated type's rows AND
+    columns in ``J_effective`` are zeroed — i.e. all incoming (row=post) and
+    outgoing (col=pre) recurrent edges of that type are removed. The neurons
+    keep their node identity: ``N=839`` is unchanged, as are the neuron
+    ordering, ``subpops``, bump ring and decoder dims, so every ablation is a
+    drop-in swap on the shared task dataset (no regeneration). Because the
+    RNN gates the trainable recurrent weight by ``W_con_mask = (W_con != 0)``
+    (see ``zebrafish_hd_task_rnn.py``), the zeroed edges stay off through
+    training — a true functional knockout rather than a soft prior.
+
+    Built by lesioning a copy of the cached v1 ``Circuit`` so the
+    non-ablated content is byte-identical to v1 (no duplicated assembly
+    logic). Consumed by
+    ``scripts/run_GNN_zebrafish_hd_si_ipn12_ablation.py``.
+    """
+    base_name = "zebrafish_HD_IPN12_839_v1"
+    for _type_name in _IPN12_ABLATION_TYPES:
+        cname = f"{base_name}_ablate_{ablation_type_token(_type_name)}"
+
+        def build(_type_name=_type_name, cname=cname) -> Circuit:
+            base = get_circuit(base_name)
+            type_names = list(base.type_names)
+            if _type_name not in type_names:
+                raise KeyError(
+                    f"ablation type {_type_name!r} not in {base_name} "
+                    f"type_names {type_names}"
+                )
+            tix = type_names.index(_type_name)
+            neuron_types = np.asarray(base.neuron_types, dtype=np.int64)
+            mask = neuron_types == tix
+            n_ablated = int(mask.sum())
+
+            J = np.asarray(base.J_effective, dtype=np.float32).copy()
+            J[mask, :] = 0.0   # remove incoming edges (row = post)
+            J[:, mask] = 0.0   # remove outgoing edges (col = pre)
+
+            prov = dict(base.provenance)
+            prov.pop("J_effective_sha256", None)  # recomputed for the lesioned J
+            prov.update({
+                "ablation_mode": "connectivity_lesion_keepN",
+                "ablated_type": _type_name,
+                "n_ablated_cells": n_ablated,
+                "base_circuit": base_name,
+            })
+
+            def _cp(a):
+                return None if a is None else np.array(a, copy=True)
+
+            return Circuit(
+                name=cname,
+                N=int(base.N),
+                neuron_types=neuron_types.copy(),
+                type_names=type_names,
+                J_effective=J,
+                soma_xyz=_cp(base.soma_xyz),
+                subpops={k: np.array(v, copy=True)
+                         for k, v in base.subpops.items()},
+                bump_ring_ix=_cp(base.bump_ring_ix),
+                dale_signs=_cp(base.dale_signs),
+                body_ids=_cp(base.body_ids),
+                provenance=prov,
+            )
+
+        register_circuit(cname, build)
 
 
 def _register_drosophila_cx_156() -> None:
