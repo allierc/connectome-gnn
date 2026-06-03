@@ -1624,9 +1624,24 @@ def _panel_calcium_compare(ax, cp):
         sd = M.std(0, keepdims=True)
         return (M - mu) / np.where(sd > 1e-6, sd, 1.0)
 
-    R = _z(real).T                                          # (K, T)
-    L = _z(learned).T
+    Rz = _z(real)                                           # (T, K), per-neuron z
+    Lz = _z(learned)
+    R = Rz.T                                                 # (K, T)
+    L = Lz.T
     K, T = R.shape
+
+    # Metrics over the K observed bump-pool neurons:
+    #  - z-MSE: exactly the per-neuron z-scored MSE used in the training loss
+    #    (= 2(1-corr) for unit-variance signals; lower is better).
+    #  - SSIM: structural similarity of the two z-scored kinograph images.
+    z_mse = float(np.mean((Rz - Lz) ** 2))
+    try:
+        from skimage.metrics import structural_similarity as _ssim
+        dr = float(max(Rz.max(), Lz.max()) - min(Rz.min(), Lz.min()))
+        ssim = float(_ssim(Rz, Lz, data_range=dr if dr > 0 else 1.0))
+    except Exception:
+        ssim = float("nan")
+
     gap = np.full((max(2, K // 20), T), np.nan, dtype=np.float32)
     img = np.concatenate([R, gap, L], axis=0)
     dt = float(cp.get("dt", 0.01))
@@ -1639,7 +1654,8 @@ def _panel_calcium_compare(ax, cp):
             ha="left", color="w", fontsize=TICK_FS)
     ax.set_xlabel("time (s)", fontsize=LABEL_FS)
     ax.set_ylabel(f"bump-pool neuron (n={K})", fontsize=LABEL_FS)
-    ax.set_title("calcium: real (top) vs learned (bottom)", fontsize=TITLE_FS)
+    ax.set_title(f"calcium  z-MSE={z_mse:.3f}  SSIM={ssim:.3f}",
+                 fontsize=TITLE_FS)
     ax.tick_params(labelsize=TICK_FS)
 
 
