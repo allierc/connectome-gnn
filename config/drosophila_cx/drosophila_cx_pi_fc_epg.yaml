@@ -11,6 +11,7 @@ description: "FC RNN with EPG-only readout (W_out reads only the 46 EPGs).
   DAL=3 with a 5-stage n_steps curriculum; restored here."
 dataset: drosophila_cx_pi_task
 simulation:
+  gcamp_kernel: gcamp6f
   params:
     - - 1.0
   connconstr_datapath: papers/Code_NN/Code_NN/Data/Figure5/exported-traced-adjacencies-v1.2

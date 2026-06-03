@@ -4,6 +4,7 @@ description: GNN circuit recovery from a rollout of the trained Column-Dale sign
   RNN).
 dataset: drosophila_cx_pi_fc_voltage
 simulation:
+  gcamp_kernel: gcamp6f
   task_model_config_path: drosophila_cx_pi_fc
   n_frames: 64000
   delta_t: 0.01

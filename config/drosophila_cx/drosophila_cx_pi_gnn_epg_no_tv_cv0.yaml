@@ -1,5 +1,4 @@
-description:
-  "Path-integration TaskGNN \u2014 tail-loss variant + g_phi squaring DISABLED.\n\
+description: "Path-integration TaskGNN \u2014 tail-loss variant + g_phi squaring DISABLED.\n\
   Identical to drosophila_cx_pi_gnn_tailloss.yaml except `g_phi_positive`\nis now\
   \ `false`: the per-edge message becomes\n`W_edge[e] \xB7 g_phi(v_src, a_src)` (signed,\
   \ single-power) instead of\n`W_edge[e] \xB7 g_phi(v_src, a_src)^2` (non-negative,\
@@ -15,12 +14,13 @@ description:
   \ identifiability, not to\nenforce biology; the connectome topology + per-edge weight\
   \ magnitudes\nstill encode the E/I row patterns.\n\n(EPG-only-readout variant: W_out\
   \ reads only from the 46 EPG neurons, matching the Hulse 2021 wout layout.)"
-dataset: drosophila_cx_pi_task
+dataset: drosophila_cx_pi_epg_tv_cv0
 simulation:
   gcamp_kernel: gcamp6f
   params:
-    - - 1.0
+  - - 1.0
   connconstr_datapath: papers/Code_NN/Code_NN/Data/Figure5/exported-traced-adjacencies-v1.2
+  seed: 100000
 graph_model:
   signal_model_name: drosophila_cx_pi_gnn
   aggr_type: add
@@ -36,60 +36,32 @@ graph_model:
   embedding_dim: 4
   g_phi_positive: false
   output_from_epg_only: true
-circuit:
-  name: drosophila_cx_156_v1
-plotting:
-  colormap: tab10
-  # 3D anatomy-voltage snapshot (`-o test --anatomy_voltage`) - drosophila defaults.
-  anatomy_voltage_elev: 7.6
-  anatomy_voltage_azim: 86.6
-  anatomy_voltage_z_lo: 0.0
-  anatomy_voltage_z_hi: 10.0
-  anatomy_voltage_alpha: 1.0
-  anatomy_voltage_downsample: 10
-  anatomy_voltage_bg: black
-  anatomy_voltage_show_base: true
-  anatomy_voltage_show_icon: false
-  anatomy_voltage_types: []
-  # Probe rollout (pattern + length + per-pattern params).
-  anatomy_voltage_pattern: const
-  anatomy_voltage_n_steps: 4000
-  anatomy_voltage_stride: 5
-  anatomy_voltage_frame_idx: -1
-  anatomy_voltage_omega_deg: 60.0
-  anatomy_voltage_theta0_rad: 0.0
-  anatomy_voltage_swim_interval_s: 1.0
-  anatomy_voltage_swim_magnitude_rad: 0.393
-  anatomy_voltage_swim_t_event_s: 0.0
-  anatomy_voltage_seed: 0
+plotting: {}
 training:
   device: auto
-  seed: 0
+  seed: 200000
   n_runs: 1
   n_epochs: 10
-  batch_size: 8   # halved from 16 to stay within L4's 22 GB at the
-                  # widest n_steps_schedule stage (was OOM'ing around
-                  # iter 24K with bs=16).
+  batch_size: 8
   data_augmentation_loop: 1
   lr: 0.002
   lr_W_rec_schedule:
-    - 0.002
-    - 0.002
-    - 0.001
-    - 0.0005
-    - 0.0005
-    - 0.0005
-    - 0.0005
-    - 0.00025
-    - 0.0001
-    - 0.0001
+  - 0.002
+  - 0.002
+  - 0.001
+  - 0.0005
+  - 0.0005
+  - 0.0005
+  - 0.0005
+  - 0.00025
+  - 0.0001
+  - 0.0001
   lr_scheduler: none
   lr_W_ED: 0.0005
   grad_clip_W: 1.0
   coeff_cos_distance: 0.0
   coeff_norm_floor: 0.0
-  coeff_tv_circular: 0.0   # NO-TV variant: bump-smoothness prior disabled
-                            # (with-TV cousin = drosophila_cx_pi_gnn_epg_tv).
+  coeff_tv_circular: 0.0
   coeff_W_L1: 0.0
   noise_recurrent_level: 0.01
   coeff_f_theta_diff: 15.0
@@ -99,19 +71,16 @@ training:
   w_init_scale: 0.01
   snapshots_per_epoch: 5
   n_steps_schedule:
-    - 10
-    - 50
-    - 100
-    - 200
-    - 300
-    - 350
-    - 400
-    - 450
-    - 500
-    - 550
-  # disabled: 10-stage n_steps_schedule triggers a recompile per stage,
-  # cached inductor / CUDA Graph artifacts pile up and OOM the L4 (22 GB)
-  # at iter ~17.5K. Training works without compile (~30% slower).
+  - 10
+  - 50
+  - 100
+  - 200
+  - 300
+  - 350
+  - 400
+  - 450
+  - 500
+  - 550
   torch_compile: false
 claude:
   n_epochs: 5
@@ -136,4 +105,4 @@ task:
     sigma_omega_deg: 40.0
     tau_corr: 0.12
     stop_fraction: 0.2
-    seed: 0
+    seed: 300000

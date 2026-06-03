@@ -119,18 +119,26 @@ def _zscore_global(M):
     return (M - mu) / (sd if sd > 1e-6 else 1.0)
 
 
-def gcamp7f_kernel(dt):
-    n = max(2, int(math.ceil(GCAMP7F["length_seconds"] / dt)))
-    t = np.arange(n) * dt
-    k = np.exp(-t / GCAMP7F["tau_decay"]) - np.exp(-t / GCAMP7F["tau_rise"])
-    return (k / k.sum()).astype(np.float32)
+def _gcamp_model(tau_rise=None, tau_decay=None, length_s=None):
+    """The shared voltage->calcium model (connectome_gnn.models.gcamp), built
+    with the panel's kernel time constants. Single source of truth for the
+    convolution; defaults reproduce the GCaMP7f figures."""
+    from connectome_gnn.models.gcamp import create_gcamp
+    return create_gcamp(
+        "double_exp",
+        tau_rise=GCAMP7F["tau_rise"] if tau_rise is None else tau_rise,
+        tau_decay=GCAMP7F["tau_decay"] if tau_decay is None else tau_decay,
+        length_s=length_s)
 
 
-def apply_gcamp(V, dt):
-    """Causal convolution of (T, N) voltage with the GCaMP7f kernel."""
-    from scipy.signal import fftconvolve
-    K = gcamp7f_kernel(dt)
-    return fftconvolve(V, K[:, None], mode="full", axes=0)[: V.shape[0]]
+def gcamp7f_kernel(dt, tau_rise=None, tau_decay=None, length_s=None):
+    return _gcamp_model(tau_rise, tau_decay, length_s).kernel(dt).cpu().numpy()
+
+
+def apply_gcamp(V, dt, tau_rise=None, tau_decay=None, length_s=None):
+    """Causal convolution of (T, N) voltage with the GCaMP kernel."""
+    g = _gcamp_model(tau_rise, tau_decay, length_s)
+    return g(np.asarray(V, dtype=np.float32), dt_in=dt)
 
 
 # --------------------------------------------------------------------------- #
@@ -339,7 +347,8 @@ def heading_to_drive(theta_deg, dt, src_dt=0.915):
 #  MODEL panel data — driven by the SAME omr stimulus as the real panel
 # --------------------------------------------------------------------------- #
 def model_panel(rows, log_dir, drive, device, model_circuit=None, warmup_s=10.0,
-                config_path=None, sample_steps=None, display=None):
+                config_path=None, sample_steps=None, display=None,
+                gcamp=None):
     import torch
     from connectome_gnn.config import NeuralGraphConfig
     from connectome_gnn.models.registry import create_model
@@ -388,8 +397,14 @@ def model_panel(rows, log_dir, drive, device, model_circuit=None, warmup_s=10.0,
     h_full = h[0].cpu().numpy()                 # (warm+T, N) voltage
     decoded = np.arctan2(y_hat[0, warm:, 1].cpu().numpy(),
                          y_hat[0, warm:, 0].cpu().numpy())
-    calcium = apply_gcamp(h_full, dt)[warm:]   # convolve full, then skip warmup
-    print(f"[model] warmup-skipped first {warmup_s}s ({warm} steps)")
+    g = gcamp or {}
+    calcium = apply_gcamp(h_full, dt, g.get("tau_rise"), g.get("tau_decay"),
+                          g.get("length_s"))[warm:]   # convolve full, skip warmup
+    K = gcamp7f_kernel(dt, g.get("tau_rise"), g.get("tau_decay"), g.get("length_s"))
+    print(f"[model] warmup-skipped first {warmup_s}s ({warm} steps); GCaMP "
+          f"tau_rise={g.get('tau_rise', GCAMP7F['tau_rise'])}s "
+          f"tau_decay={g.get('tau_decay', GCAMP7F['tau_decay'])}s "
+          f"support={len(K) * dt:.1f}s")
 
     # For the rotation task the stimulus (45°/s) is faster than the 1.09 Hz
     # imaging, so the model is run at the true rate then SAMPLED at imaging
@@ -587,6 +602,12 @@ def main():
     p.add_argument("--warmup-s", type=float, default=10.0,
                    help="model warmup seconds to run then discard (skip the "
                         "startup transient before the displayed window)")
+    p.add_argument("--gcamp-tau-rise", type=float, default=GCAMP7F["tau_rise"],
+                   help="GCaMP kernel rise time constant (s)")
+    p.add_argument("--gcamp-tau-decay", type=float, default=GCAMP7F["tau_decay"],
+                   help="GCaMP kernel decay time constant (s)")
+    p.add_argument("--gcamp-length", type=float, default=None,
+                   help="GCaMP kernel support (s); default max(7.2, 6*tau_decay)")
     p.add_argument("--model-circuit", default=None,
                    help="circuit name giving the model's neuron order/bodyIds "
                         "when the config has no circuit.name (e.g. "
@@ -679,7 +700,10 @@ def main():
         d = model_panel(panel_rows, args.log_dir, drive_model, device,
                         model_circuit=args.model_circuit, warmup_s=args.warmup_s,
                         config_path=args.config_path,
-                        sample_steps=sample_steps, display=display_drive)
+                        sample_steps=sample_steps, display=display_drive,
+                        gcamp=dict(tau_rise=args.gcamp_tau_rise,
+                                   tau_decay=args.gcamp_tau_decay,
+                                   length_s=args.gcamp_length))
         suffix = f"_{args.tag}" if args.tag else ""
         title = args.title or (
             f"model → GCaMP7f calcium — SAME {block} stimulus "

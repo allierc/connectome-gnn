@@ -1,0 +1,120 @@
+description: |
+  Branch 0 (Experiment 0) — voltage-rollout system identification.
+  Roll the trained no-TV teacher RNN (drosophila_cx_pi_epg_no_tv_cv0) to a
+  voltage dataset, then train a NeuralGNN on voltage only (binary adjacency +
+  hard Dale sign-lock, Eq 10) + the g_phi monotonicity prior (Eq 11), to
+  recover the teacher's W_rec / tau / sigmoid.
+  Companion plan: docs/IMPLEMENT_drosophila_observation.md (Exp0).
+
+dataset: drosophila_cx_obs_branch0_v1
+
+simulation:
+  gcamp_kernel: gcamp6f
+  task_model_config_path: /groups/saalfeld/home/allierc/GraphData/config/drosophila_cx/drosophila_cx_pi_epg_no_tv_cv0.yaml  # teacher = no-TV cv0
+
+  n_frames: 64000
+  delta_t: 0.01
+  seed: 0
+  n_neurons: 156
+  n_neuron_types: 7
+  input_cell_types: ["PEN_a", "PEN_b"]
+  n_input_neurons: 156
+  n_edges: 0
+  n_extra_null_edges: 0
+  noise_model_level: 0.0
+  noisy_test_data: false
+  params:
+    - - 1.0
+
+graph_model:
+  signal_model_name: drosophila_cx_voltage  # -> NeuralGNN
+  prediction: first_derivative
+  input_size: 3
+  n_layers: 3
+  hidden_dim: 64
+  output_size: 1
+  input_size_update: 5
+  n_layers_update: 3
+  hidden_dim_update: 64
+  aggr_type: add
+  embedding_dim: 2
+  update_type: generic
+  g_phi_positive: true
+  lock_edge_signs_from_connectome: true   # Eq 10 hard sign-lock (new)
+
+circuit:
+  name: drosophila_cx_156_v1
+plotting:
+  colormap: tab10
+  # 3D anatomy-voltage snapshot (`-o test --anatomy_voltage`) - drosophila defaults.
+  anatomy_voltage_elev: 7.6
+  anatomy_voltage_azim: 86.6
+  anatomy_voltage_z_lo: 0.0
+  anatomy_voltage_z_hi: 10.0
+  anatomy_voltage_alpha: 1.0
+  anatomy_voltage_downsample: 10
+  anatomy_voltage_bg: black
+  anatomy_voltage_show_base: true
+  anatomy_voltage_show_icon: false
+  anatomy_voltage_types: []
+  # Probe rollout (pattern + length + per-pattern params).
+  anatomy_voltage_pattern: const
+  anatomy_voltage_n_steps: 4000
+  anatomy_voltage_stride: 5
+  anatomy_voltage_frame_idx: -1
+  anatomy_voltage_omega_deg: 60.0
+  anatomy_voltage_theta0_rad: 0.0
+  anatomy_voltage_swim_interval_s: 1.0
+  anatomy_voltage_swim_magnitude_rad: 0.393
+  anatomy_voltage_swim_t_event_s: 0.0
+  anatomy_voltage_seed: 0
+training:
+  n_epochs: 20
+  n_runs: 1
+  device: auto
+  batch_size: 8
+  batch_ratio: 1
+  small_init_batch_size: false
+  sparsity: none
+  data_augmentation_loop: 50
+  recurrent_training: false
+  use_gt_edges: true
+  lr_W: 5.0e-05
+  lr: 1.0e-03
+  lr_embedding: 1.0e-03
+  coeff_g_phi_diff: 1500      # Eq 11 monotonicity prior (kept)
+  coeff_f_theta_msg_diff: 0
+  coeff_g_phi_norm: 10
+  g_phi_norm_target: unit     # anchor g_phi(2*xnorm)^2 -> 1 (signal-style); forces
+                              # the gain into W so the recovered W is not under-scaled
+                              # (was implicitly 2*xnorm via flyvis trainer_type -> slope 0.17)
+  coeff_g_phi_weight_L1: 0.0
+  coeff_f_theta_weight_L1: 0
+  coeff_g_phi_weight_L2: 0
+  coeff_f_theta_weight_L2: 0.001
+  coeff_W_L1: 0
+  coeff_W_L2: 0
+  coeff_W_sign: 0             # emergent Dale OFF — we use the hard GT sign-lock instead
+  coeff_f_theta_diff: 5
+  dale_law: false
+  regul_annealing_rate: 0
+  w_init_mode: uniform_scaled
+  w_init_scale: 0.01
+  lr_scheduler: none
+  seed: 42
+  torch_compile: false
+
+# Agentic-loop (GNN_LLM) settings for the Branch-0 conn_R2 HP search.
+# Fast iterations (few epochs, low DAL) — Exp0 recovery plateaus early, so this
+# is enough to evaluate each HP. node l4 per project convention for the loop.
+claude:
+  n_epochs: 4
+  data_augmentation_loop: 20          # STARTING DAL ~60 min/training on l4 (measured ~34 min/epoch @ DAL50 on l4, 4 epochs); the loop tunes it
+  n_iter_block: 24                     # 3 blocks of 24 = 3 batches x 8 slots (slot 0 control + 7 single-axis)
+  n_parallel: 8
+  node_name: l4
+  n_cpus: 8
+  generate_data: false                # reuse the existing voltage dataset (all 8 slots share it); do NOT regenerate
+  training_time_target_min: 60         # ~1 hour per training (DAL is the budget knob)
+  claude_call_timeout_min: 20
+  hard_runtime_limit_min: 180

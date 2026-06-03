@@ -2,6 +2,7 @@ description: "Drosophila adult central complex ring attractor \u2014 GT edges (f
   \ best clean FC config)"
 dataset: drosophila_cx_gt_edges_noise_free
 simulation:
+  gcamp_kernel: gcamp6f
   connectivity_file: to be specified
   adjacency_matrix: ''
   params:

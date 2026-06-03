@@ -18,6 +18,7 @@ description: "Larval-zebrafish dIPN HD circuit + IPN12_a/b — message-passing
   See docs/zebrafish.tex §Circuit variants and the IPN12 extension."
 dataset: zebrafish_hd_si_task_ipn12_v1
 simulation:
+  gcamp_kernel: gcamp7f
   params:
     - - 1.0
   connconstr_datapath: figures/zebrafish/zebrafish_connectome_HD_IPN12

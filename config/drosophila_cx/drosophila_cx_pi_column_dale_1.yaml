@@ -1,6 +1,7 @@
 description: column-Dale (L1=1e-3) — winner config + wrec_param=column_dale
 dataset: drosophila_cx_pi
 simulation:
+  gcamp_kernel: gcamp6f
   params:
     - - 1.0
   connconstr_datapath: papers/Code_NN/Code_NN/Data/Figure5/exported-traced-adjacencies-v1.2

@@ -1,18 +1,24 @@
-description:
-  "Larval-zebrafish dIPN head-direction circuit + IPN12_a/b, swim-integration
-  task — Step-2 milestone of the circuit-registry refactor.
+description: "Larval-zebrafish dIPN HD circuit + IPN12_a/b — ALTERNATIVE
+  EXCITATORY-IPN12 variant of zebrafish_hd_si_ipn12_v1.
 
-  Same training recipe as zebrafish_hd_si_dipn_v1 but the connectome is
-  the 837-cell pool (443 IPNd*+IPNds* + 51 IPN12_a + 55 IPN12_b joined
-  the bump ring → n_bump = 549; 200 RIPN* + 88 pt-IPN* unchanged as
-  afferents). The IPN12 cells are GABAergic (Dale-flipped to inhibitory
-  outgoing) and visible to the bump-only decoder readout. The 4-scalar
-  afferent gate is untouched.
+  Identical training recipe and identical 839-cell neuron pool as
+  zebrafish_hd_si_ipn12_v1; the only difference is the Dale-flip
+  convention. In v1 the IPN12_a and IPN12_b cells inherit the IPNd /
+  IPNds inhibitory prior; in v2 their outgoing weights are LEFT
+  POSITIVE (excitatory) — corresponding to the alternative biological
+  hypothesis that IPN12 cells are glutamatergic rather than GABAergic.
 
-  Prereq: run figures/zebrafish/fetch_zebrafish_connectivity_HD_IPN12.py
-  ONCE to produce figures/zebrafish/zebrafish_connectome_HD_IPN12/
-  {neurons.csv, connections.csv}. Without this directory the registry
-  build for zebrafish_HD_IPN12_839_v1 will fail with a clean FileNotFound.
+  This is the ablation that tests whether the L↔R alternation observed
+  in IPN12 activity (see docs/zebrafish.tex §Functional comparison) is
+  Dale-sign dependent or purely structural. If v2 still shows the
+  alternation, the asymmetry is in the connectome topology alone; if
+  v2 loses it, the inhibitory sign is load-bearing.
+
+  Dataset zarrs are SHARED with zebrafish_hd_si_ipn12_v1: same
+  swim_integration stimulus, same task seed, so the two trained
+  checkpoints are head-to-head comparable on identical test trials.
+  Different log_dir (zebrafish_hd_si_ipn12_v2) so the v1 checkpoint
+  stays intact.
 
   See docs/zebrafish.tex §Circuit variants and the IPN12 extension."
 dataset: zebrafish_hd_si_task_ipn12_v1
@@ -20,8 +26,6 @@ simulation:
   gcamp_kernel: gcamp7f
   params:
     - - 1.0
-  # Used only when circuit.name is unset. Kept here for schema completeness;
-  # the registry path supersedes it.
   connconstr_datapath: figures/zebrafish/zebrafish_connectome_HD_IPN12
   seed: 47006
 graph_model:
@@ -36,7 +40,7 @@ graph_model:
   MLP_activation: relu
   output_from_dipn_only: true
 circuit:
-  name: zebrafish_HD_IPN12_839_v1
+  name: zebrafish_HD_IPN12_839_v2
 plotting:
   # 3D anatomy-voltage snapshot (`-o test --anatomy_voltage`) - zebrafish defaults.
   anatomy_voltage_elev: 90.0
@@ -70,8 +74,8 @@ plotting:
   #                        "pt-IPN1", "pt-IPN2"]
   # Probe rollout (pattern + length + per-pattern params).
   anatomy_voltage_pattern: swim_left
-  anatomy_voltage_n_steps: 2000
-  anatomy_voltage_stride: 5   # 2000/5 = 400 frames
+  anatomy_voltage_n_steps: 10000
+  anatomy_voltage_stride: 5
   anatomy_voltage_frame_idx: -1
   anatomy_voltage_omega_deg: 60.0
   anatomy_voltage_theta0_rad: 0.0

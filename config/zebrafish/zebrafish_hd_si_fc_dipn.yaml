@@ -11,6 +11,7 @@ description: 'Zebrafish dIPN HD ring — fully-connected RNN (column-Dale).
   via output_from_dipn_only.'
 dataset: zebrafish_hd_si_task
 simulation:
+  gcamp_kernel: gcamp7f
   params:
   - - 1.0
   connconstr_datapath: figures/zebrafish/zebrafish_connectome_HD

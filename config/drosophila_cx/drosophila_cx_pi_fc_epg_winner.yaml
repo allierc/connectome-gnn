@@ -10,6 +10,7 @@ description: "FC EPG best-iter config -- EXACT copy of the agentic-search winner
   the winning iter."
 dataset: drosophila_cx_pi_task
 simulation:
+  gcamp_kernel: gcamp6f
   params:
     - - 1.0
   connconstr_datapath: papers/Code_NN/Code_NN/Data/Figure5/exported-traced-adjacencies-v1.2

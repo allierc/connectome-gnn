@@ -5,6 +5,7 @@ description: 'Smoke variant of zebrafish_hd_si_dipn — 60 train / 12 test trial
   100k-trial generation cost.'
 dataset: zebrafish_hd_si_task_smoke
 simulation:
+  gcamp_kernel: gcamp7f
   params:
   - - 1.0
   connconstr_datapath: figures/zebrafish/zebrafish_connectome_HD
