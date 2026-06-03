@@ -58,6 +58,22 @@ if __name__ == "__main__":
                              "voltage snapshot under <log_dir>/tmp_recons/. View / "
                              "thresholds / type whitelist come from "
                              "plotting.anatomy_voltage_* in the yaml.")
+    parser.add_argument("--anatomy_voltage_types", nargs="+", default=None,
+                        help="Override plotting.anatomy_voltage_types for the "
+                             "--anatomy_voltage render. Each token is one type "
+                             "group rendered to its own tmp_recons/<types>/ "
+                             "folder + <types>.mp4; comma-join a token for a "
+                             "multi-type group (e.g. IPNd IPNd01 IPN12_a,IPN12_b). "
+                             "Implies --anatomy_voltage.")
+    parser.add_argument("--anatomy_voltage_pattern", default=None,
+                        help="Override plotting.anatomy_voltage_pattern for the "
+                             "--anatomy_voltage render (const / swim / swim_left / "
+                             "swim_right / ou / zapbench_rotation). Implies "
+                             "--anatomy_voltage.")
+    parser.add_argument("--anatomy_voltage_stride", type=int, default=None,
+                        help="Override plotting.anatomy_voltage_stride (movie "
+                             "frame stride in model steps). For zapbench_rotation "
+                             "(~60k steps) use e.g. 92 ≈ one imaging frame.")
 
     print()
     device = []
@@ -261,6 +277,13 @@ if __name__ == "__main__":
                     test_config.config_file = tc_pre + test_config_name
                 print(f'cross-dataset test: model from {config.dataset}, test data from {test_config.dataset}')
 
+            # CLI overrides of the anatomy-voltage probe (pattern / movie stride)
+            # so the rotation sequence can be driven without editing the yaml.
+            if args.anatomy_voltage_pattern:
+                config.plotting.anatomy_voltage_pattern = args.anatomy_voltage_pattern
+            if args.anatomy_voltage_stride is not None:
+                config.plotting.anatomy_voltage_stride = args.anatomy_voltage_stride
+
             data_test(
                 config=config,
                 visualize=True,
@@ -277,7 +300,13 @@ if __name__ == "__main__":
                 new_params=None,
                 rollout_without_noise=True,
                 test_config=test_config,
-                anatomy_voltage=args.anatomy_voltage,
+                anatomy_voltage=(args.anatomy_voltage
+                                 or bool(args.anatomy_voltage_types)
+                                 or bool(args.anatomy_voltage_pattern)),
+                anatomy_voltage_type_groups=(
+                    [tok.split(",") for tok in args.anatomy_voltage_types]
+                    if args.anatomy_voltage_types else None
+                ),
             )
             with open(_marker, 'w') as f:
                 f.write(f"commit={sha}\nargv={sys.argv}\n")

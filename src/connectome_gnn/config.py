@@ -863,6 +863,16 @@ class PlottingConfig(BaseModel):
     """Time of the first deterministic impulse (s) for swim_left/right."""
     anatomy_voltage_seed: int = 0
     """RNG seed for stochastic patterns (``swim`` and ``ou``)."""
+    anatomy_voltage_warmup_s: float = 10.0
+    """Zero-ω warmup (s) prepended to the ``zapbench_rotation`` stimulus so the
+    bump settles; discarded after the rollout. 0 = no warmup."""
+    anatomy_voltage_zapbench_connectome: str = ""
+    """``zapbench_rotation`` only: connectome dir holding functional/
+    rotation_heading.npz (the cached 45°/s heading). Empty -> the packaged
+    figures/zebrafish/zebrafish_connectome_HD_IPN12 default."""
+    anatomy_voltage_zapbench_fishfuncem_data: str = ""
+    """``zapbench_rotation`` only: fishFuncEM data dir (onsets/stim) used to
+    (re)build the heading cache. Empty -> packaged papers/fishFuncEM/data."""
     anatomy_voltage_elev: float = 90.0
     """Camera elevation for the 3D->2D projection. Default 90.0 = dorsal
     view (matches the zebrafish `--elev_top` default in
