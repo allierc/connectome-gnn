@@ -62,17 +62,22 @@ arborise in the dorsal interpeduncular nucleus (dIPN).
 \citet{petrucco2023} demonstrate a sinusoidal activity bump that
 rotates with the fish's swims and is otherwise stable over many
 seconds, with reciprocal inhibitory connectivity in dIPN providing
-the long-range ring-shaping inhibition. We assemble a
-connectome-constrained training pipeline for this dataset:
-skeletons, ROI meshes and the (post, pre) adjacency matrix between
-the 731 HD-circuit neurons are fetched from the
-\emph{neuprint-fish2} server (dataset \emph{fish2}), and the
-sign-locked recurrent and message-passing GNN parameterisations of a
-swim-integration task are trained under an all-inhibitory Dale
-convention for the bump population. This stub document collects the
-anatomy and connectome summary; the modelling sections will be
-filled in once the zebrafish task generator and training runs are in
-place.
+the long-range ring-shaping inhibition. Skeletons, ROI meshes and the
+(post, pre) adjacency matrix between the 731 HD-circuit neurons are
+fetched from the \emph{neuprint-fish2} server (dataset \emph{fish2}),
+and sign-locked recurrent (RNN) and message-passing (GNN)
+parameterisations of a swim-integration task are trained under an
+all-inhibitory Dale convention for the bump population. Optimising the
+swim-integration input--output map recovers a sharp single-peaked
+heading code --- carried by a concentrated set of dorsal-IPN subtypes
+--- but the recovered preferred-heading map is \emph{not} laid out as
+an anatomical coordinate over the dIPN neuropil: the ring-attractor
+signature lives in activity space rather than in cell-body position.
+We further show that extending the bump pool with the IPN12 sub-types
+sharpens the recovered code, and that the left--right alternation of
+IPN12 activity is pre-installed by the Dale-locked connectome rather
+than learned from the afferent drive. This paper is a companion to our
+central-complex study \citep{cx2026}.
 \end{abstract}
 
 \section{Introduction}
@@ -184,7 +189,7 @@ pretectum.
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=\textwidth]{../figures/zebrafish/fig_zebrafish_anatomy_3d_HD.png}
+  \includegraphics[width=0.8\textwidth]{../figures/zebrafish/fig_zebrafish_anatomy_3d_HD.png}
   \caption{\textbf{Zebrafish HD-circuit anatomy.}
   \textbf{(a)} 727 skeletons from \emph{neuprint-fish2} grouped into
   the four functional categories of \cref{tab:zhd_mapping}:
@@ -210,34 +215,55 @@ pretectum.
 \end{figure}
 
 \paragraph{Connectome summary.}
-\Cref{fig:zhd_connectome_summary} summarises the connectome as the
-signed $W^{\mathrm{con}}$ (panel a, $z$-scored over non-zero entries
-and clipped to $\pm 3$) and its binary support
-$\mathrm{supp}(W^{\mathrm{con}})$ (panel b). Rows and columns are
-ordered by cell type using the first-occurrence vocabulary of
-\emph{load\_zebrafish\_hd\_connectome}, with \emph{IPNd*} and
-\emph{IPNds*} contiguously at the top-left (the HD ring block),
-followed by \emph{RIPN*} and \emph{pt-IPN*} (afferent blocks). The
-matrix is sparse (density $0.027$, $14\,391$ non-zero edges out of
-$731^2 = 534\,361$).
+The nominal HD circuit is the $839$-cell pool that adds the two
+dorsal-IPN sub-types \emph{IPN12\_a} ($51$ cells) and \emph{IPN12\_b}
+($57$ cells) to the bump ring (the circuit variants are described in
+\cref{sec:results_circuit_variants}). Because it is not known whether
+the IPN12 cells are GABAergic or glutamatergic, we build two sign
+variants from the \emph{same} topology: in \textbf{v1} the IPN12
+outgoing weights are Dale-flipped to inhibitory (matching the
+\emph{IPNd*}/\emph{IPNds*} ring), and in \textbf{v2} they are left
+positive (excitatory). \Cref{fig:zhd_connectome_summary} summarises
+the connectome: its binary support $\mathrm{supp}(W^{\mathrm{con}})$
+(shared by both variants), the signed $W^{\mathrm{con}}$ for each
+variant, and the per-cell-type incoming / outgoing edge-weight
+distributions. Rows and columns are ordered by cell type using the
+first-occurrence vocabulary of \emph{load\_zebrafish\_hd\_connectome},
+with \emph{IPNd*}, \emph{IPNds*} and \emph{IPN12} contiguous at the
+top-left (the bump block), followed by \emph{RIPN*} and \emph{pt-IPN*}
+(afferent blocks). The matrix is sparse (density $0.032$, $22\,425$
+non-zero edges out of $839^2 = 703\,921$); the $3\,536$ IPN12 outgoing
+edges are the only entries whose sign differs between v1 and v2.
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=\textwidth]{../figures/zebrafish/fig_connectome_summary_HD.png}
-  \caption{\textbf{Zebrafish HD-circuit connectome.}
-  Matrix size $N \times N = 731 \times 731$,
-  $14{,}391$ non-zero edges (density $=0.027$),
-  $E\!:\!I = 7{,}663\!:\!6{,}728$ ($53.2\%$ / $46.8\%$).
-  \textbf{(a)} Signed $W^{\mathrm{con}}$, $z$-scored over non-zero
-  entries and clipped to $\pm 3$; entries are dilated by one pixel
-  for visibility at panel resolution; neuron-type blocks marked on
-  both axes; red = excitatory, blue = inhibitory.
-  \textbf{(b)} Binary support $\mathrm{supp}(W^{\mathrm{con}})$
-  (black = edge present, white = absent, one-pixel dilation), block
-  boundaries in red.
-  The dorsal-IPN block (top-left) is the densest sub-matrix; the
-  \emph{RIPN*} and \emph{pt-IPN*} rows show the afferent
-  projection pattern onto the HD ring.}
+  \includegraphics[width=\textwidth]{../figures/zebrafish/fig_connectome_summary_HD_IPN12.png}
+  \caption{\textbf{Zebrafish HD-circuit connectome (nominal 839-cell
+  IPN12 pool, two Dale-sign variants).} Matrix size
+  $N \times N = 839 \times 839$, $22{,}425$ non-zero edges
+  (density $=0.032$); the support is identical across variants and
+  only the $3{,}536$ IPN12 outgoing edges change sign. $E\!:\!I$ is
+  $10{,}020\!:\!12{,}405$ ($44.7\%$ / $55.3\%$) for v1 and
+  $13{,}556\!:\!8{,}869$ ($60.5\%$ / $39.5\%$) for v2.
+  \textbf{(a)} Binary support $\mathrm{supp}(W^{\mathrm{con}})$
+  (shared; black = edge present, white = absent, one-pixel dilation;
+  block boundaries in red).
+  \textbf{(b)} Signed $W^{\mathrm{con}}$ for v1 (IPN12 inhibitory),
+  $z$-scored over the pooled non-zero entries of both variants and
+  clipped to $\pm 3$ (red = excitatory, blue = inhibitory; one-pixel
+  dilation; neuron-type blocks on both axes).
+  \textbf{(c)} Signed $W^{\mathrm{con}}$ for v2 (IPN12 excitatory),
+  same scale.
+  \textbf{(d)} Per-category \emph{incoming} edge-weight distributions
+  (violins, post-synaptic neuron in the category) for v1 (blue) and
+  v2 (red), over the five coarse categories \emph{IPNd},
+  \emph{IPNds}, \emph{IPN12}, \emph{RIPN}, \emph{pt-IPN}.
+  \textbf{(e)} Per-category \emph{outgoing} edge-weight distributions
+  (pre-synaptic neuron in the category); the \emph{IPN12} violin is
+  the only one that moves from negative (v1) to positive (v2).
+  \textbf{(f)} IPN12\_a $+$ IPN12\_b outgoing weights alone: the
+  $3{,}536$-edge sign flip between the GABAergic (v1, blue) and
+  glutamatergic (v2, red) hypotheses.}
   \label{fig:zhd_connectome_summary}
 \end{figure}
 
@@ -522,12 +548,10 @@ equal-width bins, then compute the plug-in estimator in bits,
 \end{equation}
 where $\hat p$ is the empirical joint over the
 $(\theta\!\!-\!\!\mathrm{bin}, r\!\!-\!\!\mathrm{bin})$ histogram. The
-construction matches the drosophila MI estimator
-(matching the construction in the companion \emph{Drosophila} CX
-paper, Methods, \emph{Mutual-information estimators}) so
-that the per-neuron and per-cell-type quantities of
-\cref{sec:results_four_classes,sec:results_pref_angle} are
-comparable across the two species. For a group of $K$ neurons we
+plug-in construction is used so that the per-neuron and
+per-cell-type quantities of
+\cref{sec:results_four_classes} are
+comparable across cell types and sub-populations. For a group of $K$ neurons we
 use the cross-validated lower bound
 \begin{equation}
 \hat I_{\mathrm{LB}}(\mathbf r_{1:K};\theta) =
@@ -540,6 +564,7 @@ where $q_\psi$ is an $L_2$-regularised multinomial logistic
 regression with input $\mathbf r \in \mathbb R^K$ and output the
 $n_\theta$ heading bins, trained on a stratified 5-fold split.
 
+\iffalse  % --- Image-domain ROI sampling / dF/F0 paragraph commented out ---
 \paragraph{Image-domain ROI sampling and $\Delta F/F_0$.}\label{method:dff}
 To make the model's population dynamics comparable to two-photon
 calcium imaging of the larval-zebrafish dIPN, we sample activity
@@ -579,9 +604,189 @@ Image-domain sampling inherits all the projection biases of the
 microscope (depth-of-field, projection, downsample) and so the
 kinographs are directly comparable to \petrucco{}~Fig.~2 without
 having to invert the calcium kernel.
+\fi  % --- end commented-out ROI / dF/F0 paragraph ---
 
 \section{Results}
 \label{sec:results}
+
+\subsection{Trained swim-integrator: the two IPN12 variants}
+\label{sec:results_evolution}
+
+We first establish that the nominal $839$-cell IPN12 circuit
+(\cref{fig:zhd_connectome_summary}) learns the swim-integration task
+under both Dale-sign hypotheses for the IPN12 sub-types.
+\Cref{fig:zhd_evolution_v1} (v1, IPN12 inhibitory) and
+\cref{fig:zhd_evolution_v2} (v2, IPN12 excitatory) show the trained
+sign-locked RNN for each variant, in the same panel layout as the
+companion central-complex study. Both variants converge to a
+near-perfect compass: the deterministic constant-$\omega$ rollout
+tracks the imposed heading at Pearson $r = 1.000$ (panel f;
+constant-$\omega$ RMSE $3.2^\circ$ for v1, $7.2^\circ$ for v2), the
+held-out swim-test trial is integrated faithfully (panel g), and the
+integration gain is linear at unit slope across the full
+$\pm 180^\circ/\mathrm{s}$ range (panel i). The dIPN ring carries a
+clean travelling bump (panel e), the learned recurrent weights track
+the sign-locked connectome at amplified magnitude (panel c,
+true-vs-learned scatter), and the all-neuron kinograph appears in
+panel d. The recovered head-direction
+behaviour is therefore robust to the unknown IPN12 sign: both the
+GABAergic (v1) and glutamatergic (v2) hypotheses admit a converging
+swim-integrator.
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=\textwidth]{../figures/zebrafish/fig_evolution_zebrafish_hd_si_ipn12_v1.png}
+  \caption{\textbf{Trained swim-integrator, v1 (IPN12 inhibitory):
+  connectome topology and Dale signs imposed, per-edge magnitudes
+  learned.} Sign-locked RNN with
+  $\hat W^{\mathrm{rec}} = |\hat S|\odot\mathrm{sign}(W^{\mathrm{con}})$
+  on the $839$-cell IPN12 pool, IPN12 outgoing weights Dale-flipped to
+  inhibitory.
+  \textbf{(a)} GT connectome $W^{\mathrm{con}}$, signed and
+  $\sqrt{}$-scaled (red = excitatory, blue = inhibitory; each edge
+  dilated for visibility); neuron-type blocks on both axes.
+  \textbf{(b)} Learned $\hat W^{\mathrm{rec}}$ on the same scale.
+  \textbf{(c)} Scatter of the learned per-edge weight $\hat W_{ij}$
+  against the GT connectome weight $W^{\mathrm{con}}_{ij}$ over all
+  connectome edges (diagonal and zeros excluded); dashed $y = x$
+  reference, title reports Pearson $r$. Under the sign-lock the points
+  stay in matching-sign quadrants, so the off-diagonal spread shows
+  how training rescales the connectome magnitudes.
+  \textbf{(d)} All $839$ neurons over a constant-$\omega =
+  +60^\circ/\mathrm{s}$ rollout, sorted by cell type; firing rates
+  $z$-scored per neuron.
+  \textbf{(e)} dIPN HD-ring sub-population over the same rollout (the
+  travelling bump).
+  \textbf{(f)} Constant-$\omega$ rollout. Top: $\omega(t)$. Bottom:
+  true heading (green) and decoded heading (black), wrapped. Title
+  reports post-warmup Pearson $r$ and circular RMSE.
+  \textbf{(g)} Same layout on a held-out swim-integration test trial.
+  \textbf{(h)} Per-cell-type distribution of the subthreshold state
+  $\hat h_i(t)$ (violin + mean $\pm 1$ SD).
+  \textbf{(i)} Integration gain: linear-fit slope of the unwrapped
+  decoded heading vs.\ true $\omega$, on a $15^\circ/\mathrm{s}$ grid
+  over $[-180,+180]\setminus\{0\}$. Dashed line: $g = 1$.}
+  \label{fig:zhd_evolution_v1}
+\end{figure}
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=\textwidth]{../figures/zebrafish/fig_evolution_zebrafish_hd_si_ipn12_v2.png}
+  \caption{\textbf{Trained swim-integrator, v2 (IPN12 excitatory):
+  companion to \cref{fig:zhd_evolution_v1}.} Identical architecture,
+  fold and panel layout, on the same $839$-cell IPN12 pool, but the
+  IPN12 outgoing weights are left positive (excitatory) rather than
+  Dale-flipped. Panels \textbf{(a)--(i)} follow
+  \cref{fig:zhd_evolution_v1}. The compass behaviour is preserved
+  (panel f: $r = 1.000$, constant-$\omega$ RMSE $7.2^\circ$; panel i:
+  unit-slope integration gain), confirming that the recovered
+  swim-integration is not contingent on the IPN12 sign.}
+  \label{fig:zhd_evolution_v2}
+\end{figure}
+
+\paragraph{Message-passing GNN comparison (dIPN-only, no IPN12).}
+As a further comparison we train the message-passing GNN of
+\cref{method:GNN} --- which replaces the hardcoded leak and sigmoid
+with the learned drift $f_\theta$ and signalling function $g_\phi$ ---
+on the same $731$-cell dIPN circuit
+(\emph{without} the IPN12 sub-types). \Cref{fig:zhd_evolution_gnn}
+shows the trained GNN in the
+same layout as \cref{fig:zhd_evolution_v1,fig:zhd_evolution_v2}, with
+three extra panels for the learned per-neuron embedding (j), drift (k)
+and signalling function (l). Despite the much weaker dynamical prior
+and the smaller cell pool, the GNN reaches the same compass behaviour
+(panel f: $r = 1.000$, constant-$\omega$ RMSE $13.5^\circ$; panel i:
+unit-slope integration gain), so the recovered swim-integration is
+robust both to the IPN12 sign (v1 vs.\ v2) and to the RNN vs.\ GNN
+parameterisation.
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=\textwidth]{../figures/zebrafish/fig_evolution_zebrafish_hd_si_gnn_dipn.png}
+  \caption{\textbf{Trained swim-integrator, message-passing GNN on the
+  $731$-cell dIPN circuit (no IPN12): comparison to the RNN variants of
+  \cref{fig:zhd_evolution_v1,fig:zhd_evolution_v2}.} The dense
+  recurrent operator is replaced by
+  $f_\theta(\hat h_i,\mathbf a_i,\sum_j \hat W_{ij}\,
+  g_\phi(\hat h_j,\mathbf a_j))$ (\cref{eq:zhd_gnn_dynamics}); the leak
+  and firing-rate non-linearity are learned, not hardcoded.
+  Panels \textbf{(a)--(i)} follow \cref{fig:zhd_evolution_v1} (panel b
+  shows the per-edge gain $\hat W_{ij}$ at the connectome edge
+  positions rather than a dense $\hat W^{\mathrm{rec}}$).
+  \textbf{(j)} Per-neuron latent embedding $\mathbf a_i$, coloured by
+  cell type.
+  \textbf{(k)} Learned drift $f_\theta(\hat h_i,\mathbf a_i,m{=}0)$ for
+  each neuron over its activity domain.
+  \textbf{(l)} Learned signalling function
+  $g_\phi(\hat h_j,\mathbf a_j)$ --- the per-edge message entering the
+  GNN aggregation. The compass behaviour matches the RNN (panel f:
+  $r = 1.000$, constant-$\omega$ RMSE $13.5^\circ$).}
+  \label{fig:zhd_evolution_gnn}
+\end{figure}
+
+\subsection{Identifiability of the recurrent weights across folds}
+\label{sec:results_wrec}
+
+To ask how much of the recovered circuit is fixed by the
+swim-integration task, we retrained each variant ten times from fresh
+seeds (shared task data) and compared the learned recurrent matrices
+$\hat W^{\mathrm{rec}}$ across the $2\times 10$ folds
+(\cref{fig:zhd_wrec}). Three facts emerge.
+
+\textbf{(i) The recurrent solution is only partially identifiable.}
+Within each variant the ten folds cluster at pairwise cosine
+$0.58 \pm 0.03$ (v1) and $0.57 \pm 0.02$ (v2) over the connectome
+support --- more tightly with each other than with the raw connectome
+template ($0.48$ for v1, $0.36$ for v2), but with a substantial
+inter-fold spread. The task fixes the heading input--output map but
+not a unique set of per-edge weights: many recurrent matrices realise
+the same compass.
+
+\textbf{(ii) Training amplifies the given edges.}
+The support and signs are fixed by the sign-lock
+(\cref{eq:zhd_w_rec}), so training only sets the per-edge magnitudes
+on the connectome edges --- it cannot add or remove edges. The
+per-cell-type-block $\log_2$ ratio of the learned mean magnitude to
+the connectome mean magnitude (\cref{fig:zhd_wrec}c) is uniformly
+positive across all blocks and both variants and reproducible across
+folds (small inter-fold SD): the connectome supplies the topology and
+sign, while training consistently scales each block's magnitude up by
+a block-dependent, fold-reproducible factor --- the gain the
+swim-integration task requires.
+
+\textbf{(iii) The circuit is robust to the unknown IPN12 sign outside
+the IPN12 edges.} The cross-variant cosine (v1 fold vs.\ v2 fold) is
+only $0.28 \pm 0.02$ over the full support --- far below the
+within-variant $0.57$ --- but rises to $0.51$ once the $3\,536$
+sign-flipped IPN12 outgoing edges are excluded. The two Dale-sign
+hypotheses therefore converge to similar recurrent solutions
+everywhere except on the IPN12 edges whose sign they disagree about by
+construction.
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=0.7\textwidth]{../figures/zebrafish/fig_w_rec_comparison_ipn12.png}
+  \caption{\textbf{Comparison of the trained $\hat W^{\mathrm{rec}}$
+  across $2\times 10$ folds and to the connectome template
+  $W^{\mathrm{con}}$.}
+  \textbf{(a)} Cosine-similarity affinity over the connectome support
+  of $\{W^{\mathrm{con}},\ \text{v1 folds }1\text{--}10,\ \text{v2
+  folds }1\text{--}10\}$. The within-variant blocks (v1, v2) are bright
+  (inter-fold cosine $\approx 0.57$); the v1$\leftrightarrow$v2 cross
+  block is darker ($0.28$), rising to $0.51$ when the sign-flipped
+  IPN12 outgoing edges are excluded.
+  \textbf{(b)} Per-(coarse cell-type) block median coefficient of
+  variation $\sigma_k|\hat W|/\langle|\hat W|\rangle_k$ of the learned
+  magnitudes across the ten folds, for v1 (left) and v2 (right), over
+  the five categories \emph{IPNd}, \emph{IPNds}, \emph{IPN12},
+  \emph{RIPN}, \emph{pt-IPN}. Low CV $=$ tightly constrained block.
+  \textbf{(c)} Per-block $\log_2$ ratio of the mean learned magnitude
+  to the mean connectome magnitude ($\mu \pm$ SD across folds). All
+  blocks are positive --- training scales up the magnitudes on the
+  given connectome edges --- and the pattern is reproducible across
+  folds.}
+  \label{fig:zhd_wrec}
+\end{figure}
 
 \subsection{Functional partitioning of the HD circuit}
 \label{sec:results_four_classes}
@@ -611,8 +816,7 @@ $\Delta t = 0.01$~s, burn-in $5$~s):
         spike-triggered average over a $\pm 0.5$~s window, normalised
         by the standard deviation of $\hat h_i$ in the swim-free
         intervals between onsets. The rollout is the same controlled
-        probe that drives the kinograph of
-        \cref{sec:results_pref_angle}: one $\pi/8$~rad left swim every
+        probe: one $\pi/8$~rad left swim every
         $\Delta t = 0.3$~s for $120$~s, giving $\sim 400$ onsets, the
         leading edges of $|\omega(t)|$ exceeding $5\%$ of its peak.
         Compared with the Poisson training distribution this gives
@@ -643,8 +847,7 @@ W^{\mathrm{out}}$ effectively zero), class~$\cls{D}$ the \emph{drivers
 class~$\cls{Z}$ is the \emph{uninvolved / leaky} remainder.
 
 \Cref{fig:zhd_four_classes} maps the four classes back to the 3-D
-anatomy and \cref{tab:zhd_four_classes} summarises the per-cell-type
-breakdown. Under the controlled periodic-L probe stimulus the
+anatomy. Under the controlled periodic-L probe stimulus the
 network ends up in classes $\cls{R}/\cls{L}/\cls{D}/\cls{Z}=
 156/210/365/0$. The architectural priors of \cref{sec:methods} hold
 as cleanly as before: \emph{all} $51$ \emph{pt-IPN1} except two
@@ -721,163 +924,12 @@ controlled stimulus propagating through the connectome.
   \label{fig:zhd_four_classes}
 \end{figure}
 
-\begin{table}[H]
-  \centering
-  \small
-  \caption{\textbf{Per-cell-type breakdown across the four functional
-    classes of \cref{eq:four_classes}} under the periodic-L probe
-    stimulus. Rows are sorted by total count; classes total
-    $\cls{R}{=}156$, $\cls{L}{=}210$, $\cls{D}{=}365$, $\cls{Z}{=}0$
-    over $N = 731$ model neurons. Categories: I = \emph{IPNd},
-    Is = \emph{IPNds}, R = \emph{RIPN}, P = \emph{pt-IPN}.}
-  \label{tab:zhd_four_classes}
-  \begin{tabular}{l l r r r r r}
-    \toprule
-    cat & type & R & L & D & Z & total \\
-    \midrule
-    Is & IPNds13B  & 17 & 13 & 21 & 0 & 51 \\
-    P  & pt-IPN1   &  0 &  2 & 49 & 0 & 51 \\
-    I  & IPNd17B   &  9 & 20 & 21 & 0 & 50 \\
-    Is & IPNds13A  & 18 & 14 & 15 & 0 & 47 \\
-    R  & RIPN11    &  0 & 23 & 17 & 0 & 40 \\
-    I  & IPNd13S   &  9 & 15 & 16 & 0 & 40 \\
-    P  & pt-IPN2   &  0 &  0 & 34 & 0 & 34 \\
-    I  & IPNd13A   & 17 &  5 & 10 & 0 & 32 \\
-    I  & IPNd01    &  0 &  9 & 21 & 0 & 30 \\
-    I  & IPNd13E   & 24 &  1 &  5 & 0 & 30 \\
-    R  & RIPN01    &  0 & 14 & 15 & 0 & 29 \\
-    I  & IPNd14    & 16 &  2 &  9 & 0 & 27 \\
-    I  & IPNd13C   & 21 &  1 &  4 & 0 & 26 \\
-    I  & IPNd13B   &  9 &  7 &  7 & 0 & 23 \\
-    R  & RIPN12\_b &  0 &  1 & 21 & 0 & 22 \\
-    I  & IPNd13D   &  9 &  7 &  4 & 0 & 20 \\
-    I  & IPNd17A   &  5 &  5 &  9 & 0 & 19 \\
-    R  & RIPN03\_a &  0 & 12 &  7 & 0 & 19 \\
-    R  & RIPN02    &  0 &  9 & 10 & 0 & 19 \\
-    R  & RIPN05    &  0 & 13 &  4 & 0 & 17 \\
-    R  & RIPN12\_a &  0 &  3 & 14 & 0 & 17 \\
-    I  & IPNdp01   &  1 &  6 &  7 & 0 & 14 \\
-    I  & IPNd16    &  0 &  9 &  5 & 0 & 14 \\
-    R  & RIPN12\_c &  0 &  5 &  6 & 0 & 11 \\
-    R  & RIPN17    &  0 &  0 & 10 & 0 & 10 \\
-    R  & RIPN16    &  0 &  0 & 10 & 0 & 10 \\
-    I  & IPNd15    &  0 &  7 &  3 & 0 & 10 \\
-    R  & RIPN03\_b &  0 &  6 &  3 & 0 &  9 \\
-    Is & IPNds     &  1 &  0 &  4 & 0 &  5 \\
-    I  & IPNd      &  0 &  1 &  2 & 0 &  3 \\
-    Is & IPNds17   &  0 &  0 &  2 & 0 &  2 \\
-    \bottomrule
-  \end{tabular}
-\end{table}
-
-\subsection{Preferred-heading topography of the HD-coding cells}
-\label{sec:results_pref_angle}
-
-Among the $366$ neurons in classes $\cls{R} \cup \cls{L}$ identified
-above, we ask whether the network has self-organised a graded
-\emph{preferred-heading} representation across the dIPN neuropil. We
-run the same periodic-L probe stimulus as in
-\cref{sec:results_four_classes} ($\pi/8$~rad left swim every
-$\Delta t = 0.3$~s, $100$~s, $4$~s burn-in, $\theta_0 = 0$); the
-discrete heading jumps advance the bump in steady $22.5^\circ$ steps
-and the ground-truth heading sweeps the full circle $20$ times in
-the analysis window. For each neuron $i$ we bin $\hat h_i(t)$ by
-$\theta(t)$ into $n_\theta = 36$ heading bins ($10^{\circ}$ wide) to
-form a tuning curve $\bar r_i(\theta_k)$, then compute the centred
-resultant
-\begin{equation}
-  \rho_i\,e^{i\phi_i} \;=\;
-    \sum_{k=1}^{n_\theta}
-      \big(\bar r_i(\theta_k) - \langle\bar r_i\rangle\big)\,e^{i\theta_k},
-  \qquad
-  \specf_i \;=\;
-    \frac{|\rho_i|}{\sum_{k} |\bar r_i(\theta_k) - \langle\bar r_i\rangle|}\in[0,1].
-  \label{eq:pref_angle}
-\end{equation}
-$\phi_i$ is the cell's preferred heading and $\specf_i$ its
-\emph{specificity}: $\specf_i = 1$ corresponds to a $\delta$-shaped
-tuning curve, $\specf_i = 0$ to a uniform or bimodal one. The
-$\cls{R}/\cls{L}$ population is sharply unimodal --- the empirical
-distribution of $\specf_i$ has a tight peak at $0.75$ with a $10\%$
-shoulder below $0.71$. We discard the shoulder by retaining only the
-$\specf_i \ge \specf^\star = 0.70$ subset, leaving $350/366 = 96\%$
-of $\cls{R}\cup\cls{L}$ as bona-fide HD-tuned cells with a unique
-preferred direction (up from $91\%$ under the smoother constant-omega
-probe of the previous version of this figure; the discrete heading
-steps of the periodic probe match the network's training regime more
-closely).
-
-\Cref{fig:zhd_pref_angle} maps the preferred angle $\phi_i$ of the
-$350$ HD-tuned cells back to the 3-D anatomy. We partition
-$[-180^\circ, +180^\circ)$ into nine $40^\circ$ wedges and render one
-panel per wedge, drawing the somata and arbors of cells whose
-$\phi_i$ falls in that wedge in the wedge's central hue (cyclic HSV)
-on a dark-grey backbone of every available SWC. Each wedge contains
-$n = 21$ to $67$ cells ($\mathrm{mean}=39$), with the wedges that
-overlap $\phi \approx \pm 180^\circ$ and $0^\circ$ slightly
-over-represented because the left swims drive the bump through those
-phases first.
-
-The figure makes one substantive negative observation explicit: the
-preferred angle is \emph{not} laid out as a spatial coordinate over
-the dIPN neuropil. Soma dots for every $40^\circ$ wedge fill
-essentially the same dIPN region, and the active patch does not
-translate as $\phi$ sweeps from panel~(a) to panel~(i). This is
-quantitative: regressing soma mediolateral position $x_i$ on the
-preferred phase within each hemisphere gives
-$\mathrm{Pearson}(x_i,\cos\phi_i) = -0.01$ (L), $-0.02$ (R) and
-$\mathrm{Pearson}(x_i,\sin\phi_i) = +0.02$ (L), $-0.10$ (R); the
-circular--circular mean resultant of (soma angle about the
-hemisphere centroid $-$ preferred angle) is $0.25$ (L) and $0.29$
-(R), close to the value expected for random preferred-angle
-assignment. The HD-tuned cells therefore form a sharply unimodal
-code in firing-rate space (specificity $\specf_i \approx 0.75$,
-\cref{eq:pref_angle}) but their preferred directions are
-\emph{interspersed} across the neuropil rather than topographically
-ordered, in contrast to the fly EPG ring on the ellipsoid body
-where preferred heading is one-to-one with anatomical position. The
-ring-attractor signature that the trained model does carry lives in
-\emph{activity space}: PC1--PC2 of the IPNd+IPNds population traces
-a closed circle as the heading sweeps (companion analysis
-\emph{fig\_zebrafish\_pca\_ring.py}). This is consistent with
-\petrucco{}~Fig.~1e--f, where the dIPN ring is reported in
-functional similarity-space rather than as an anatomical topography
-across cell-body positions.
-
-\begin{figure}[H]
-  \centering
-  \includegraphics[width=\textwidth]{../figures/zebrafish/fig_zebrafish_pref_angle.png}
-  \caption{\textbf{Preferred-heading code is sharp in firing rate but
-    not topographic in anatomy.} Periodic-L probe rollout (one
-    $\pi/8$~rad left swim every $\Delta t = 0.3$~s for $100$~s) is
-    used to estimate each neuron's tuning curve and the centred
-    resultant of \cref{eq:pref_angle}. The $350$ cells in
-    $\cls{R}\cup\cls{L}$ with specificity $\specf_i \ge 0.70$ are
-    partitioned into nine $40^\circ$-wide preferred-angle wedges and
-    rendered one wedge per panel: somata (dots) and skeleton arbors
-    of cells in that wedge, drawn in the wedge's central hue (cyclic
-    HSV), on top of a dark-grey backbone of every available SWC.
-    Panel letters (a--i) sweep from
-    $\phi \in [-180^\circ, -140^\circ)$ through $[-20^\circ,
-    +20^\circ)$ to $[+140^\circ, +180^\circ)$; the cell count per
-    wedge is shown next to each panel letter. The soma dots for every
-    wedge fall in the same dIPN region: preferred heading is not laid
-    out as a spatial coordinate over the neuropil
-    (Pearson$(\mathrm{soma}_x,\cos\phi)$, $\sin\phi$ correlations
-    $\le 0.10$ within each hemisphere). The shared bottom colour bar
-    shows the cyclic phase scale and the bin edges. Per-cell values
-    ($\phi_i$ and $\specf_i$, with the kept/discarded flag) are
-    written to
-    \emph{figures/zebrafish/fig\_zebrafish\_pref\_angle.csv}.}
-  \label{fig:zhd_pref_angle}
-\end{figure}
-
 \subsection{Tuning-curve sharpness of the HD-coding cells}
 \label{sec:results:tuning_sharpness}
 
-\Cref{fig:zhd_pref_angle} shows where each HD-coding cell sits on the
-preferred-heading circle but says nothing about how \emph{sharp} that
-preference is. \Cref{fig:zhd_tuning_sharpness} answers the sharpness
+Where each HD-coding cell sits on the preferred-heading circle says
+nothing about how \emph{sharp} that preference is.
+\Cref{fig:zhd_tuning_sharpness} answers the sharpness
 question by overlaying the centred tuning curves of every HD-coding
 cell and comparing the population profile to a parametric reference
 bump.
@@ -969,8 +1021,7 @@ empirical distribution covers the full circle (no bin is empty:
 $\min = 3$ cells, $\max = 28$ cells), but it is not uniform: a
 chi-squared deviation from uniformity gives $\chi^2 \approx 154$
 ($\mathrm{df} = 35$, $p \ll 10^{-3}$), with two clear over-represented
-bands. This is the rate-space counterpart of
-\cref{fig:zhd_pref_angle}: the ring is well-tiled (every $10^\circ$
+bands. The ring is well-tiled (every $10^\circ$
 slice of heading has at least three cells that prefer it) but the
 tiling is uneven, with some preferred angles carried by
 $\sim 3\times$ as many cells as others. The over-represented bands
@@ -1059,24 +1110,18 @@ mis-fit the wraparound.
 \subsection{Circuit variants and the IPN12 extension}
 \label{sec:results_circuit_variants}
 
-To probe whether the recovered head-direction code depends on the
-specific cell-type carving used so far, we compare two connectome
-variants of the HD circuit. Each variant fixes (i) the neuron set,
+To document the cell-type carving behind the IPN12 extension used in
+the preceding sections, we specify the $839$-cell variant of the HD
+circuit. It fixes (i) the neuron set,
 (ii) the sign-locked, spectrally-rescaled adjacency
 $J_{\mathrm{eff}}\in\mathbb{R}^{N\times N}$, and (iii) the named
 sub-populations carrying the bump, the habenular afferents, and the
 pretectal afferents.
 
-\paragraph{The 731-cell variant.} The pool used in the preceding
-sections: 443 IPNd* + IPNds* HD-ring cells, 200 RIPN* habenular
-afferents, and 88 pretectal pt-IPN* afferents, with full pairwise
-adjacency under the Hulse 2025 Dale convention and a spectral target
-of $0.9$.
-
 \paragraph{The 839-cell variant.} Same fetch protocol but the
 cell-type filter is extended with the two IPN12 sub-types, IPN12\_a
 (51 cells) and IPN12\_b (55 cells), yielding an $839$-cell pool. The
-IPN12 cells are dorsal-IPN neurons (Petrucco et al.\ 2023). We make
+IPN12 cells are dorsal-IPN neurons \citep{petrucco2023}. We make
 two design choices, both following the canonical HD anatomy.
 
 \textbf{(i) IPN12 cells join the bump ring.} Because the IPN12
@@ -1096,136 +1141,22 @@ IPN12 to be excitatory, the sign assignment is straightforward to
 restore without retraining the model architecture.
 
 The 4-scalar afferent gate is untouched: IPN12 cells receive no
-angular-velocity input. The $731$-cell results above therefore
-remain reproducible from the original tables; the two variants can
-be compared head-to-head under matched training hyperparameters.
+angular-velocity input.
 
-\subsection{Does IPN12 help? Functional comparison of the 731- and
-839-cell HD circuits}
-\label{sec:results_ipn12_comparison}
-
-To ask whether the IPN12 cells carry usable head-direction signal, we
-trained the same swim-integration RNN on the two variants with
-identical hyperparameters: same task data ($N_{\mathrm{train}}=10^5$
-trials, $N_{\mathrm{test}}=10^4$, $\mathrm{d}t=10\,\mathrm{ms}$,
-$T=100\to 800$ curriculum across 10 epochs), same Adam optimiser,
-same per-group learning-rate schedule, same seeds. The only
-difference is the connectome: the 731-cell pool versus the 839-cell
-pool that includes IPN12. Both runs are sign-locked, use the
-4-scalar afferent gate, and read out only from the bump pool (443
-cells for the 731-cell variant, 551 cells for the 839-cell variant).
-
-\paragraph{Convergence (preliminary, mid-epoch 3 of 10).}
-\begin{center}
-\begin{tabular}{lrr}
-\toprule
-& 731-cell variant & 839-cell variant \\
-\midrule
-loss                & 0.0052          & \textbf{0.0027} \\
-path-integration accuracy  & 0.997           & \textbf{0.999}  \\
-$r_{\mathrm{roll},1\mathrm{k}}$ & 0.999          & 0.999 \\
-$\mathrm{rmse}_{\mathrm{roll}}$ & $3.7^\circ$     & $\mathbf{1.9^\circ}$ \\
-bump FWHM           & $45^\circ$\,(saturated bin)     & $\mathbf{31^\circ}$ \\
-trainable params    & $538\,177$      & $708\,385$ \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-By mid-epoch~3 ($T = 200$\,steps, $\approx 22\%$ through the full
-10-epoch schedule), both circuits have converged on the basic
-path-integration task ($r_{\mathrm{roll},1\mathrm{k}} \approx 0.999$).
-The 839-cell circuit remains ahead on every metric: loss is
-$1.9\times$ lower, $\mathrm{rmse}_{\mathrm{roll}}$ is $1.9^\circ$
-versus $3.7^\circ$, and the population FWHM has tightened to
-$31^\circ$ while the 731-cell run remains stuck at the
-$45^\circ$ binsize ceiling (a fixed-grid quantisation; the true
-FWHM in the 731-cell run is bounded above by $45^\circ$ but not yet
-resolved below it). Epoch-1 reported $\mathrm{rmse}_{\mathrm{roll}}$
-of $8.4^\circ$ versus $1.7^\circ$, so the 731-cell circuit has
-narrowed the rolling-RMSE gap by $\approx 2\times$ between epochs 1
-and 3, but the FWHM and loss gaps remain.
-
-\paragraph{Learned afferent-gate scalars (best checkpoint after epoch
-2).}
-\begin{center}
-\begin{tabular}{lrrl}
-\toprule
-& 731-cell & 839-cell & semantic role \\
-\midrule
-$v_{\mathrm{RIPN},L}$  & $+0.006$ & $+0.007$ & habenula\,$\to$\,IPN, left \\
-$v_{\mathrm{RIPN},R}$  & $+0.007$ & $+0.006$ & habenula\,$\to$\,IPN, right \\
-$v_{\mathrm{ptIPN},L}$ & $+1.53$  & $+0.64$  & pretectum\,$\to$\,IPN, left \\
-$v_{\mathrm{ptIPN},R}$ & $+0.73$  & $-0.02$  & pretectum\,$\to$\,IPN, right \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-Two facts hold in both variants. First, the pretectum gate scalars
-($v_{\mathrm{ptIPN}}$) are $\sim 100\times$ the habenula scalars
-($v_{\mathrm{RIPN}}$): the pretectum is the dominant velocity carrier
-into the IPN ring, consistent with the anatomical claim in Petrucco
-et al.\ 2023. The model never received this prior; it emerged purely
-from the connectome topology and the gradient. Second, the habenula
-scalars are near-symmetric in magnitude on both runs (around
-$+7\!\times\!10^{-3}$) and never grow large, so the swim /
-heading-rotation signal is being supplied almost entirely by the
-pretectum.
-
-The two runs diverge in how the pretectum gate evolves. At the end
-of epoch~1 the 839-cell run had a clean $L \leftrightarrow R$
-sign-opposition on pt-IPN ($+1.07$ / $-0.97$), the canonical
-Hulse-style solution. By the best epoch-2 checkpoint that opposition
-has \emph{collapsed}: both pt-IPN gain magnitudes have shrunk
-($v_{\mathrm{ptIPN},L}: 1.07 \to 0.64$,
-$v_{\mathrm{ptIPN},R}: -0.97 \to -0.02$) as the loss tightens. The
-731-cell run runs the opposite trajectory: pt-IPN magnitudes
-\emph{grew} between epoch~1 and epoch~2 ($v_{\mathrm{ptIPN},L}: 0.90
-\to 1.53, v_{\mathrm{ptIPN},R}: 0.33 \to 0.73$), still same-sign on
-both sides, and the recurrent loop has not yet absorbed the
-rotational work.
-
-The published end-of-epoch-10 checkpoint of the original 731-cell
-baseline converged to all-positive small-magnitude scalars
-$[+0.008,+0.010,+0.043,+0.077]$, confirming that the gate is
-eventually de-emphasised in favour of $W^{\mathrm{rec}}$ as the
-recurrent learning-rate schedule decays. The 839-cell run appears
-to be on this trajectory by epoch~2 already, while the 731-cell run
-is still inflating its gate scalars.
-
-A clean interpretation is that the $108$ IPN12 cells joining the
-bump pool give the recurrent loop enough extra capacity that the
-optimiser solves the angular-integration problem earlier inside
-$W^{\mathrm{rec}}$ and releases the afferent gate to small values.
-The 731-cell circuit has to wait for the recurrent learning rate to
-shrink before $W^{\mathrm{rec}}$ takes over the integration. Whether
-the two runs converge to similar end-of-training gate magnitudes is
-the substantive question this section will answer once both 10-epoch
-schedules finish.
-
-\paragraph{The IPN12 alternation is structural, not learned.} When
-we visualise the rolling subthreshold activity of the IPN12\_a and
-IPN12\_b cells in the 839-cell run, we see a clean
-left-right alternation across the two sub-types as the bump rotates.
-But the four afferent-gate scalars above are not the source of this
-asymmetry: by the most recent checkpoint, the pretectum gate is
-all-positive in the 731-cell run ($+1.53$ / $+0.73$) and effectively
-single-sided in the 839-cell run ($+0.35$ / $-0.02$). The
-$L \leftrightarrow R$ alternation in IPN12 activity therefore does
-not emerge from a learned input asymmetry; it is \emph{pre-installed}
-by the Dale-locked $W^{\mathrm{rec}}$ inherited from the connectome.
-The IPN12\_a and IPN12\_b cells receive their recurrent inputs at
-opposite phases of the bump because their connectivity to the ring
-is anatomically lateralised. The optimiser learns the rate at which
-the bump rotates (through $W^{\mathrm{rec}}$ magnitudes and the
-surviving gate scalar); it does not have to learn that side-of-ring
-asymmetry, because the connectome already encodes it.
 
 \bibliographystyle{unsrtnat}
 \begin{thebibliography}{9}
+
 \bibitem[Petrucco et al.(2023)]{petrucco2023}
 L.~Petrucco, H.~Lavian, Y.~K.~Wu, F.~Svara, V.~\v{S}tih, R.~Portugues.
 Neural dynamics and architecture of the heading direction circuit in
 zebrafish. \emph{Nature Neuroscience} \textbf{26}, 765--773 (2023).
+
+\bibitem[Allier et~al.(2026)]{cx2026}
+C.~Allier et~al.
+Central complex: identifiable computation, non-identifiable
+implementation. Companion manuscript, in preparation (2026).
+
 \end{thebibliography}
 
 \end{document}

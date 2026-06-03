@@ -22,7 +22,7 @@ integrated to an implied heading (nominal rate).
 
 Run (env with fishfuncem + torch + the trained model):
   /workspace/.conda_envs/neural-graph-linux/bin/python \
-      scripts/zebrafish_functional_traces_panel.py
+      figures/zebrafish/zebrafish_functional_traces_panel.py
 """
 from __future__ import annotations
 
@@ -35,7 +35,8 @@ import sys
 import numpy as np
 import pandas as pd
 
-_REPO_ROOT = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
+_REPO_ROOT = os.path.abspath(
+    os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 sys.path.insert(0, os.path.join(_REPO_ROOT, "src"))
 sys.path.insert(0, os.path.join(_REPO_ROOT, "papers", "fishFuncEM"))
 
@@ -50,7 +51,7 @@ GCAMP7F = dict(tau_rise=0.150, tau_decay=1.200, length_seconds=7.2)
 
 # official zapbench rastermap permutation (same cache the whole-brain
 # kinograph uses) — lets the real panel order its rows exactly like
-# scripts/zapbench_full_kinograph.py instead of by hemisphere/ring bin.
+# figures/zebrafish/zapbench_full_kinograph.py instead of by hemisphere/ring bin.
 _GD = "/groups/saalfeld/home/allierc/GraphData/graphs_data/zebrafish"
 SORT_NPY = os.path.join(_GD, "zapbench_rastermap_sorting.npy")
 SORT_URL = ("https://storage.googleapis.com/zapbench-release/volumes/20240930/"
@@ -71,7 +72,7 @@ def _load_rastermap_sorting():
 
 def sort_rows_rastermap(rows):
     """Reorder rows by the official zapbench rastermap permutation, so the panel
-    kinograph matches the whole-brain kinograph (scripts/zapbench_full_kinograph
+    kinograph matches the whole-brain kinograph (figures/zebrafish/zapbench_full_kinograph
     .py) and the hemisphere (L/R) grouping is dropped. Unmatched rows (no
     zapbenchId) sort to the bottom, keeping their blanks contiguous."""
     perm = _load_rastermap_sorting()
@@ -82,6 +83,18 @@ def sort_rows_rastermap(rows):
                    perm.size + np.arange(len(rows)))
     return (rows.assign(_rm=pos).sort_values("_rm")
             .drop(columns="_rm").reset_index(drop=True))
+
+
+def sort_rows_ringbin(rows):
+    """Reorder rows by the connectome ring bin — the preferred-heading bin from
+    the mediolateral soma coordinate (build_rows' `ring_bin`), pooling both
+    hemispheres. This is the order in which a Petrucco-style rotating bump shows
+    up as a diagonal travelling wave that sweeps with the stimulus heading. If
+    the matched zapbench cells carry no rotating bump, the kinograph stays
+    unstructured w.r.t. the heading (no diagonal), which is the ring-attractor
+    read of the same cells the rastermap panel shows."""
+    return (rows.sort_values(["ring_bin", "side", "type"])
+            .reset_index(drop=True))
 
 
 # --------------------------------------------------------------------------- #
@@ -410,7 +423,7 @@ def real_panel(rows, connectome_dir, ts, drive, decoder="mlp"):
 #  rendering (shared layout)
 # --------------------------------------------------------------------------- #
 def render(d, rows, out_png, title, bg="black", cmap_name="black_green",
-           show_partition=True):
+           show_partition=True, show_swim_panels=True):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -421,8 +434,10 @@ def render(d, rows, out_png, title, bg="black", cmap_name="black_green",
     t = d["t_sec"]; x_lo, x_hi = float(t[0]), float(t[-1])
 
     fig = plt.figure(figsize=(15, 9), facecolor=bg)
-    gs = GridSpec(5, 1, figure=fig, height_ratios=[4.2, 1.0, 1.2, 0.8, 0.8],
-                  hspace=0.12)
+    # drop the L/R + F/B swim-tick panels when show_swim_panels is False
+    # (HD becomes the bottom axis with the time label).
+    ratios = [4.2, 1.0, 1.2, 0.8, 0.8] if show_swim_panels else [4.2, 1.0, 1.2]
+    gs = GridSpec(len(ratios), 1, figure=fig, height_ratios=ratios, hspace=0.12)
 
     def _style(ax, ylabel, bottom=False):
         ax.set_facecolor(bg)
@@ -489,27 +504,30 @@ def render(d, rows, out_png, title, bg="black", cmap_name="black_green",
         ax.text(d["split_t"], 150, " held-out →", color="0.7", fontsize=7,
                 ha="left", va="top")
     ax.set_ylim(-180, 180); ax.set_yticks([-180, 0, 180])
-    _style(ax, "HD (°)")
+    _style(ax, "HD (°)", bottom=not show_swim_panels)
+    if not show_swim_panels:
+        ax.set_xlabel("time (s)", color=txt, fontsize=11)
     ax.legend(fontsize=7, loc="upper right", facecolor=bg, edgecolor=dim,
               labelcolor=txt, framealpha=0.4)
 
-    # ── L/R ticks (sustained omr epochs -> coloured bands) ──────────────
-    ax = fig.add_subplot(gs[3])
-    lr = d["turn_lr"]
-    ax.fill_between(t, 0, lr, where=lr > 0, color=LR_RED, step="mid", linewidth=0)
-    ax.fill_between(t, 0, lr, where=lr < 0, color=LR_BLUE, step="mid", linewidth=0)
-    ax.axhline(0, color=dim, lw=0.3)
-    la = max(np.abs(lr).max(), 1.0); ax.set_ylim(-la * 1.2, la * 1.2)
-    _style(ax, "L / R")
+    if show_swim_panels:
+        # ── L/R ticks (sustained omr epochs -> coloured bands) ──────────
+        ax = fig.add_subplot(gs[3])
+        lr = d["turn_lr"]
+        ax.fill_between(t, 0, lr, where=lr > 0, color=LR_RED, step="mid", linewidth=0)
+        ax.fill_between(t, 0, lr, where=lr < 0, color=LR_BLUE, step="mid", linewidth=0)
+        ax.axhline(0, color=dim, lw=0.3)
+        la = max(np.abs(lr).max(), 1.0); ax.set_ylim(-la * 1.2, la * 1.2)
+        _style(ax, "L / R")
 
-    # ── F/B ticks ───────────────────────────────────────────────────────
-    ax = fig.add_subplot(gs[4])
-    fb = d["swim_fb"]
-    ax.fill_between(t, 0, fb, where=fb > 0, color=FB_GREY, step="mid", linewidth=0)
-    ax.fill_between(t, 0, fb, where=fb < 0, color=FB_ORANGE, step="mid", linewidth=0)
-    ax.axhline(0, color=dim, lw=0.3); ax.set_ylim(-1.5, 1.5)
-    _style(ax, "F / B", bottom=True)
-    ax.set_xlabel("time (s)", color=txt, fontsize=11)
+        # ── F/B ticks ───────────────────────────────────────────────────
+        ax = fig.add_subplot(gs[4])
+        fb = d["swim_fb"]
+        ax.fill_between(t, 0, fb, where=fb > 0, color=FB_GREY, step="mid", linewidth=0)
+        ax.fill_between(t, 0, fb, where=fb < 0, color=FB_ORANGE, step="mid", linewidth=0)
+        ax.axhline(0, color=dim, lw=0.3); ax.set_ylim(-1.5, 1.5)
+        _style(ax, "F / B", bottom=True)
+        ax.set_xlabel("time (s)", color=txt, fontsize=11)
 
     fig.savefig(out_png, dpi=130, facecolor=bg)
     plt.close(fig)
@@ -562,7 +580,7 @@ def main():
     p.add_argument("--kino-sort", choices=["side", "rastermap"],
                    default="rastermap",
                    help="real-panel kinograph row order: 'rastermap' = the same "
-                        "whole-brain order as scripts/zapbench_full_kinograph.py "
+                        "whole-brain order as figures/zebrafish/zapbench_full_kinograph.py "
                         "(drops the L/R partition, viridis LUT); 'side' = group "
                         "by hemisphere then ring bin (black-green LUT)")
     p.add_argument("--out", default=None)
@@ -571,7 +589,7 @@ def main():
 
     import torch
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    out_dir = args.out or os.path.join(args.connectome, "functional")
+    out_dir = args.out or os.path.join(_REPO_ROOT, "figures", "zebrafish")
     os.makedirs(out_dir, exist_ok=True)
 
     rows, circuit = build_rows(args.connectome, args.circuit)
@@ -625,8 +643,22 @@ def main():
     if args.which in ("real", "both"):
         d = real_panel(panel_rows, args.connectome, ts, drive_real,
                        decoder=args.real_decoder)
+        # white background, black predicted trace, no L/R + F/B swim panels
         render(d, panel_rows, os.path.join(out_dir, "functional_panel_real.png"),
-               real_title, **kino_kw)
+               real_title, bg="white", show_swim_panels=False, **kino_kw)
+
+        # Always also emit the SAME real data in ring-bin (preferred-heading)
+        # order — the order in which a rotating bump appears as a diagonal
+        # travelling wave. No CLI option: this is the ring-attractor read of
+        # the matched cells, the companion to the rastermap panel above.
+        ring_rows = sort_rows_ringbin(rows[rows["matched"]].reset_index(drop=True))
+        dr = real_panel(ring_rows, args.connectome, ts, drive_real,
+                        decoder=args.real_decoder)
+        render(dr, ring_rows,
+               os.path.join(out_dir, "functional_panel_real_ringbin.png"),
+               real_title + " — ring-bin (preferred-heading) order",
+               bg="white", show_swim_panels=False,
+               cmap_name="viridis", show_partition=False)
     if args.which in ("model", "both"):
         # Same 300-neuron rastermap row set: the model's GCaMP rows are filled by
         # bodyId; neurons the model lacks (e.g. IPN12 in the 731-cell dipn runs)
