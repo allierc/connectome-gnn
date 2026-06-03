@@ -60,7 +60,18 @@ def _load_model_and_rollouts(
 
     cfg_path = os.path.join(run_dir, "config.yaml")
     if not os.path.isfile(cfg_path):
-        raise FileNotFoundError(f"config.yaml missing in {run_dir}")
+        # CV runs keep no config.yaml in the log dir; fall back to the
+        # data-root config <data_root>/config/<group>/<run_basename>.yaml
+        _rda = os.path.abspath(run_dir)
+        _grp = os.path.basename(os.path.dirname(_rda))
+        _droot = os.path.dirname(os.path.dirname(os.path.dirname(_rda)))
+        _fallback = os.path.join(_droot, "config", _grp,
+                                 os.path.basename(_rda) + ".yaml")
+        if os.path.isfile(_fallback):
+            cfg_path = _fallback
+        else:
+            raise FileNotFoundError(
+                f"config.yaml missing in {run_dir} (and no {_fallback})")
     config = NeuralGraphConfig.from_yaml(cfg_path)
 
     # Replicate load_run_config's dataset-prefixing + data-root setup.
@@ -90,6 +101,17 @@ def _load_model_and_rollouts(
     chosen = ckpts[-1]
     sd = torch.load(chosen, map_location=device,
                     weights_only=False)["model_state_dict"]
+    # Back-compat: inheritance-era zebrafish checkpoints store the four
+    # afferent velocity-gate scalars under the fly names v_pen{a,b}_{l,r}.
+    # The current model expects v_ripn_{l,r} / v_ptipn_{l,r} (PENa=RIPN,
+    # PENb=pt-IPN per the loader). Without this remap strict=False silently
+    # drops them, the swim drive is lost, and the rollout collapses.
+    _legacy_gate = {"v_pena_l": "v_ripn_l", "v_pena_r": "v_ripn_r",
+                    "v_penb_l": "v_ptipn_l", "v_penb_r": "v_ptipn_r"}
+    _model_keys = set(net.state_dict().keys())
+    for _old, _new in _legacy_gate.items():
+        if _old in sd and _new in _model_keys and _new not in sd:
+            sd[_new] = sd.pop(_old)
     net.load_state_dict(sd, strict=False)
     net.eval()
 
@@ -107,15 +129,24 @@ def _load_model_and_rollouts(
     # union of the velocity-gate sub-population indicator buffers populated
     # by the model from the loader's pen_subpop_ix. Buffer-based so the
     # lookup is species-agnostic.
-    ind_keys = ("_pen_ind_pena_l", "_pen_ind_pena_r",
-                 "_pen_ind_penb_l", "_pen_ind_penb_r")
+    # Fly model registers _pen_ind_pen{a,b}_{l,r}; zebrafish registers
+    # _afferent_ind_{ripn,ptipn}_{l,r}. Try both so the afferent kinograph
+    # (panel d) is populated for either species.
+    afferent_key_sets = (
+        ("_pen_ind_pena_l", "_pen_ind_pena_r",
+         "_pen_ind_penb_l", "_pen_ind_penb_r"),
+        ("_afferent_ind_ripn_l", "_afferent_ind_ripn_r",
+         "_afferent_ind_ptipn_l", "_afferent_ind_ptipn_r"),
+    )
     pen_indices = None
-    if all(hasattr(net, k) for k in ind_keys):
-        union = sum(getattr(net, k) for k in ind_keys)
-        idx = (union > 0).nonzero(as_tuple=True)[0].cpu().numpy()
-        if idx.size:
-            pen_indices = idx.astype(np.int64)
-            rollout["r_pen"] = rollout["r"][:, pen_indices]
+    for ind_keys in afferent_key_sets:
+        if all(hasattr(net, k) for k in ind_keys):
+            union = sum(getattr(net, k) for k in ind_keys)
+            idx = (union > 0).nonzero(as_tuple=True)[0].cpu().numpy()
+            if idx.size:
+                pen_indices = idx.astype(np.int64)
+                rollout["r_pen"] = rollout["r"][:, pen_indices]
+            break
 
     epg_theta = cx_epg_directions(net.epg_glom_ix)
 
