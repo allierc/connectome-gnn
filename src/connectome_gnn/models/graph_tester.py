@@ -2001,7 +2001,7 @@ def data_test_cortex_task_gnn(config, best_model=None, device=None, log_file=Non
 
 def data_test_path_integration_task(
     config, best_model=None, device=None, log_file=None,
-    anatomy_voltage: bool = False,
+    anatomy_voltage: bool = False, anatomy_voltage_type_groups=None,
 ):
     """Test the trained CX path-integration model.
 
@@ -2109,10 +2109,11 @@ def data_test_path_integration_task(
         _task_block = config.task.path_integration
     _task_dt = float(_task_block.dt)
 
-    # --- (a) 5 random test trials ------------------------------------------
+    # --- (a) random test trials: per-trial RMSE/Pearson over a 512-trial
+    # sample (robust mean for cross-run comparison); only a few are plotted.
     rng = np.random.default_rng(config.training.seed)
-    idx_sample = rng.choice(u_test.shape[0], size=5, replace=False)
-    idx_sample = np.sort(idx_sample)
+    n_metric = int(min(512, u_test.shape[0]))
+    idx_sample = np.sort(rng.choice(u_test.shape[0], size=n_metric, replace=False))
     with torch.no_grad():
         y_pred_sample, _ = model(u_test[idx_sample])
     y_pred_sample_np = y_pred_sample.cpu().numpy()
@@ -2120,24 +2121,26 @@ def data_test_path_integration_task(
     metrics_random = _per_trial_heading_metrics(
         y_pred_sample_np, theta_test_np[idx_sample],
     )
+    _rm = np.array([m['rmse_deg'] for m in metrics_random], dtype=float)
+    _pr = np.array([m['pearson'] for m in metrics_random], dtype=float)
     logger.info(
-        f'  5 random test trials (idx={idx_sample.tolist()}): '
-        + '  '.join(
-            f"#{i}: r={_color_r(m['pearson'])}"
-            for i, m in zip(idx_sample, metrics_random)
-        )
+        f'  {n_metric} random test trials: '
+        f'rmse={np.nanmean(_rm):.2f}±{np.nanstd(_rm):.2f}°  '
+        f'r={np.nanmean(_pr):.4f}±{np.nanstd(_pr):.4f}'
     )
+    n_show = int(min(5, n_metric))
+    idx_show = idx_sample[:n_show]
     random_plot_path = os.path.join(results_dir, 'test_random_trials.png')
     plot_task_pi_traces(
-        u=u_test_np[idx_sample],
-        y=y_test_np[idx_sample],
-        theta_hd=theta_test_np[idx_sample],
-        is_stop=is_stop_test_np[idx_sample],
+        u=u_test_np[idx_show],
+        y=y_test_np[idx_show],
+        theta_hd=theta_test_np[idx_show],
+        is_stop=is_stop_test_np[idx_show],
         dt=_task_dt,
         out_path=random_plot_path,
-        n_show=5,
-        y_pred=y_pred_sample_np,
-        metrics=metrics_random,
+        n_show=n_show,
+        y_pred=y_pred_sample_np[:n_show],
+        metrics=metrics_random[:n_show],
     )
     logger.info(f'  saved: {random_plot_path}')
 
@@ -2157,6 +2160,7 @@ def data_test_path_integration_task(
             c = get_circuit(circuit_cfg.name)
             out = run_anatomy_voltage_test(
                 model, c, plot_cfg, log_dir, device=device,
+                type_groups=anatomy_voltage_type_groups,
             )
             if out is not None:
                 logger.info(f'  [anatomy_voltage] wrote: {out}')
@@ -2275,7 +2279,9 @@ def data_test_path_integration_task(
     # --- Aggregate metrics log --------------------------------------------
     log_path_ = os.path.join(log_dir, 'results_path_integration.log')
     with open(log_path_, 'w') as f:
-        f.write(f'full_test_pi_acc (n={u_test.shape[0]}, T={u_test.shape[1]}): {full_pi:.6f}\n\n')
+        f.write(f'full_test_pi_acc (n={u_test.shape[0]}, T={u_test.shape[1]}): {full_pi:.6f}\n')
+        f.write(f'mean_trial_rmse_deg (n={len(idx_sample)}): '
+                f'{np.nanmean(_rm):.4f} +- {np.nanstd(_rm):.4f}\n\n')
         f.write('# Random test trials\n')
         f.write('trial_idx,rmse_deg,pearson\n')
         for i, m in zip(idx_sample, metrics_random):
