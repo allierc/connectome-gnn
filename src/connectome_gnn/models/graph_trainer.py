@@ -1715,7 +1715,7 @@ from connectome_gnn.models.graph_trainer_inr import _generate_inr_video, data_tr
 def data_test(config=None, config_file=None, visualize=False, style='color frame', verbose=True, best_model=20, step=15, n_rollout_frames=600,
               ratio=1, run=0, test_mode='', sample_embedding=False, particle_of_interest=1, new_params = None, device=[],
               rollout_without_noise: bool = False, log_file=None, test_config=None,
-              anatomy_voltage: bool = False):
+              anatomy_voltage: bool = False, anatomy_voltage_type_groups=None):
 
     dataset_name = config.dataset
     _logger.info(f"dataset_name: {dataset_name}")
@@ -1737,6 +1737,7 @@ def data_test(config=None, config_file=None, visualize=False, style='color frame
             data_test_path_integration_task(
                 config, best_model=best_model, device=device, log_file=log_file,
                 anatomy_voltage=anatomy_voltage,
+                anatomy_voltage_type_groups=anatomy_voltage_type_groups,
             )
             return
 
@@ -1986,6 +1987,66 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
                  f'tv_circular={coeff_tv}  W_L1={coeff_l1S}  f_theta_diff={coeff_f_diff}  '
                  f'g_phi_diff={coeff_g_diff}  tail_loss={_coeff_tail_log}')
 
+    # --- calcium observation supervision (dataset B), optional -----------
+    # `use_calcium` is the single on/off flag (calcium_batch_size > 0). When on,
+    # each task batch is augmented by `calcium_batch_size` real-calcium trials
+    # (dataset B), the heading MSE runs over the combined batch, and the extra
+    # trials' rolled-out voltage is turned into calcium via the GCaMP class
+    # (sim.gcamp_kernel) and matched to the recorded ΔF/F with a scale-invariant
+    # loss weighted by coeff_observation. calcium_batch_size == 0 → byte-equal
+    # to task-only training (nothing below runs).
+    calcium_batch_size = int(getattr(tc, 'calcium_batch_size', 0))
+    coeff_obs = float(getattr(tc, 'coeff_observation', 0.0))
+    use_calcium = calcium_batch_size > 0
+    ca_u = ca_y = ca_target = ca_obs_ix = gcamp = None
+    ca_test_u = ca_test_target = ca_kino_model_ix = ca_kino_obs_ix = None
+    dt_model = float(getattr(model, 'dt', getattr(sim, 'delta_t', 0.01)))
+    n_calc = 0
+    if use_calcium:
+        import zarr as _zarr
+        # Resolve dataset B under the same species folder as dataset A.
+        # `config.dataset` was already prefixed by load_run_config (e.g.
+        # 'zebrafish/...'); `calcium_dataset` is the raw yaml value, so give it
+        # the same prefix when it's a bare name — the yaml points both datasets
+        # by their bare names, exactly like `dataset`.
+        calc_name = getattr(tc, 'calcium_dataset', '') or config.dataset
+        if '/' not in calc_name and '/' in config.dataset:
+            calc_name = config.dataset.rsplit('/', 1)[0] + '/' + calc_name
+        calc_root = graphs_data_path(calc_name)
+        _logger.info(f'loading calcium dataset B from {calc_root}/(train|test)/...')
+        _ct = TaskTrials.load(f"{calc_root}/train").to(device)
+        ca_u, ca_y = _ct.stimulus, _ct.target
+        ca_target = torch.from_numpy(
+            np.asarray(_zarr.open(f"{calc_root}/train/calcium.zarr", mode="r"))
+        ).to(device)                                       # (Bc_all, T, R)
+        n_calc = ca_u.shape[0]
+        _cte = TaskTrials.load(f"{calc_root}/test").to(device)
+        ca_test_u = _cte.stimulus
+        ca_test_target = torch.from_numpy(
+            np.asarray(_zarr.open(f"{calc_root}/test/calcium.zarr", mode="r"))
+        ).to(device)
+        _map = torch.load(f"{calc_root}/calcium_mapping.pt", weights_only=False)
+        ca_obs_ix = _map["model_index"].to(device).long()  # (R,) obs col -> model neuron
+        # rastermap-ordered bump-pool rows that are observed (panel h compare):
+        _kmask = _map["kino_obs_index"] >= 0
+        ca_kino_model_ix = _map["kino_model_index"][_kmask].to(device).long()
+        ca_kino_obs_ix = _map["kino_obs_index"][_kmask].to(device).long()
+        from connectome_gnn.models.gcamp import create_gcamp
+        gcamp = create_gcamp(sim.gcamp_kernel)
+        _logger.info(
+            f'calcium obs: dataset={calc_name} train={n_calc} test={ca_test_u.shape[0]} '
+            f'obs_neurons={ca_obs_ix.numel()} kino_obs={ca_kino_obs_ix.numel()} '
+            f'kernel={sim.gcamp_kernel} dt_in={dt_model} '
+            f'batch={calcium_batch_size} coeff_observation={coeff_obs}')
+        logger.info(f'calcium obs ON: B={calcium_batch_size} coeff={coeff_obs} '
+                    f'kernel={sim.gcamp_kernel} obs_neurons={ca_obs_ix.numel()}')
+
+    def _zscore_time(x, eps=1e-3):
+        """Per-(trial,neuron) z-score over time → scale+offset invariant."""
+        mu = x.mean(dim=1, keepdim=True)
+        sd = x.std(dim=1, keepdim=True)
+        return (x - mu) / sd.clamp_min(eps)
+
     # --- training loop ---------------------------------------------------
     n_trials, T_full = u_train.shape[0], u_train.shape[1]
     # data_augmentation_loop multiplies iters/epoch by cycling through
@@ -2111,29 +2172,58 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
         for N in pbar:
             global_step += 1
             idx = perm[N * tc.batch_size:(N + 1) * tc.batch_size]
+            # Curriculum slice length: 2*T_epoch (soft tail) or T_epoch (hard).
             if coeff_tail > 0:
-                # Soft-curriculum: roll forward to min(2*T_epoch, T_max), then
-                # weight the per-frame MSE = 1 for t < T_epoch and
-                # `coeff_tail_loss` for t >= T_epoch. Gives a non-zero gradient
-                # on the post-horizon segment (so late-time activity doesn't
-                # collapse) while keeping the rollout cost bounded at ~2x the
-                # truncated baseline.
-                T_max = u_train.shape[1]
-                T_eff = min(2 * T_epoch, T_max)
-                u = u_train[idx, :T_eff]
-                y = y_train[idx, :T_eff]
-                y_hat, h_buf = model(u)
-                w = torch.ones(T_eff, device=u.device)
-                if T_epoch < T_eff:
+                T_use = min(2 * T_epoch, u_train.shape[1])
+            else:
+                T_use = T_epoch
+            u = u_train[idx, :T_use]
+            y = y_train[idx, :T_use]
+            n_task = u.shape[0]
+
+            # Append the calcium (dataset B) batch to the SAME forward, so the
+            # heading MSE (first term) is computed over the combined task+calcium
+            # batch and the calcium trials' voltage is available for the
+            # observation loss. ca_c is the recorded ΔF/F target (model grid).
+            ca_c = None
+            if use_calcium:
+                gen_c = torch.Generator(device=device).manual_seed(
+                    tc.seed + 1_000_000 * (epoch + 1) + N)
+                cidx = torch.randint(0, n_calc, (calcium_batch_size,),
+                                     device=device, generator=gen_c)
+                u_in = torch.cat([u, ca_u[cidx, :T_use]], dim=0)
+                y_in = torch.cat([y, ca_y[cidx, :T_use]], dim=0)
+                ca_c = ca_target[cidx, :T_use]                  # (Bc, T_use, R)
+            else:
+                u_in, y_in = u, y
+
+            y_hat, h_buf = model(u_in)
+
+            # First loss term — heading MSE over the WHOLE (task+calcium) batch.
+            if coeff_tail > 0:
+                # Soft-curriculum: weight the per-frame MSE = 1 for t < T_epoch
+                # and `coeff_tail_loss` for t >= T_epoch (non-zero gradient on
+                # the post-horizon segment so late activity doesn't collapse).
+                w = torch.ones(T_use, device=u.device)
+                if T_epoch < T_use:
                     w[T_epoch:] = coeff_tail
-                sq_err = (y_hat - y).pow(2).mean(dim=-1)        # (B, T_eff)
+                sq_err = (y_hat - y_in).pow(2).mean(dim=-1)     # (B, T_use)
                 mse = ((sq_err * w[None, :]).sum(dim=-1) / w.sum()).mean()
             else:
-                # Hard-truncation curriculum (original behaviour).
-                u = u_train[idx, :T_epoch]
-                y = y_train[idx, :T_epoch]
-                y_hat, h_buf = model(u)
-                mse = F.mse_loss(y_hat, y)
+                mse = F.mse_loss(y_hat, y_in)
+
+            # Observation loss — convert the calcium-batch voltage to calcium via
+            # the GCaMP class (sim.gcamp_kernel), gather the observed neurons, and
+            # match the recorded ΔF/F with a scale+offset-invariant (per-trial,
+            # per-neuron z-scored over time) MSE. Scaled by coeff_observation.
+            if use_calcium and coeff_obs > 0:
+                h_calc = h_buf[n_task:]                          # (Bc, T_use, N)
+                ca_model = gcamp(h_calc, dt_in=dt_model)         # (Bc, T_use, N)
+                ca_model = ca_model.index_select(-1, ca_obs_ix)  # (Bc, T_use, R)
+                obs = coeff_obs * F.mse_loss(
+                    _zscore_time(ca_model), _zscore_time(ca_c))
+            else:
+                obs = u.new_zeros(())
             cosd = (model.loss_cos_distance(coeff_cos)
                     if coeff_cos > 0 else u.new_zeros(()))
             norm = (model.loss_norm_floor(coeff_norm, kappa_norm)
@@ -2153,7 +2243,7 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
             g_diff = (model.loss_g_phi_diff(h_buf, coeff_g_diff)
                       if coeff_g_diff > 0 and hasattr(model, 'loss_g_phi_diff')
                       else u.new_zeros(()))
-            loss = mse + cosd + norm + tv + l1S + f_diff + g_diff
+            loss = mse + cosd + norm + tv + l1S + f_diff + g_diff + obs
 
             optimizer.zero_grad(set_to_none=True)
             # NaN guardrail: if the loss itself is non-finite we know the
@@ -2300,6 +2390,21 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
                         omega_deg_per_s=snapshot_omega_deg,
                         device=device,
                     )
+                    # Calcium panel (panel h): roll one held-out real-calcium
+                    # test trial, convert voltage→calcium via the GCaMP class,
+                    # and pair it with the recorded ΔF/F over the bump-pool rows
+                    # (rastermap order) for a real-vs-learned kinograph compare.
+                    calcium_panel = None
+                    if use_calcium:
+                        T_show = min(ca_test_u.shape[1], 1000)
+                        _, h_one = eval_model(ca_test_u[:1, :T_show])
+                        ca_learn = gcamp(h_one[0], dt_in=dt_model)   # (T, N)
+                        calcium_panel = dict(
+                            real=ca_test_target[0, :T_show]
+                                .index_select(-1, ca_kino_obs_ix).cpu().numpy(),
+                            learned=ca_learn
+                                .index_select(-1, ca_kino_model_ix).cpu().numpy(),
+                            dt=dt_model)
                 _save_training_snapshot(
                     net=eval_model, log_dir=log_dir,
                     kinograph_dir=kinograph_dir,
@@ -2315,6 +2420,7 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
                     config=config,
                     u_test=u_test,
                     y_test=y_test,
+                    calcium_panel=calcium_panel,
                 )
                 with open(metrics_log_path, 'a') as f:
                     fwhm_deg = (np.degrees(last_fwhm)
@@ -2377,8 +2483,10 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
 
             pearson_str = f'{_fmt_r(last_pearson_roll)} ({_fmt_r(last_pearson_roll_1k)})'
             skips_str = f'  skips={n_nan_skips}' if n_nan_skips > 0 else ''
+            obs_str = f'obs={float(obs):.4f} ' if use_calcium else ''
             pbar.set_postfix_str(
                 f'loss={loss.item():.4f} '
+                f'{obs_str}'
                 f'rmse_roll={rmse_roll_str} '
                 f'r_roll={pearson_str} '
                 f'best={best_loss:.4f}{skips_str}'

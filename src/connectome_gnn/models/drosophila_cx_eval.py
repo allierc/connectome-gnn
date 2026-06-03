@@ -344,6 +344,7 @@ def _save_training_snapshot(
     config=None,
     u_test=None,
     y_test=None,
+    calcium_panel=None,
 ) -> None:
     """Render the combined kinograph+matrix snapshot.
 
@@ -430,6 +431,7 @@ def _save_training_snapshot(
             dt_s=float(net.dt),
             bump_label=bump_label,
             afferent_label=afferent_label,
+            calcium_panel=calcium_panel,
         )
         plot_cx_evolution(
             data, os.path.join(kinograph_dir, name), n_rows=2,

@@ -1608,6 +1608,41 @@ def _panel_voltage_distribution(ax, h_rollout, neuron_types, type_names):
     ax.tick_params(axis="y", labelsize=TICK_FS)
 
 
+def _panel_calcium_compare(ax, cp):
+    """Real-vs-learned calcium kinograph for one trial (zebrafish obs runs).
+
+    ``cp`` carries ``real`` / ``learned`` arrays of shape (T, K) over the same
+    K bump-pool neurons in the same (rastermap) row order. Both are per-neuron
+    z-scored for display and stacked — real on top, learned below — so the two
+    kinographs can be compared row-for-row.
+    """
+    real = np.asarray(cp["real"], dtype=np.float32)         # (T, K)
+    learned = np.asarray(cp["learned"], dtype=np.float32)   # (T, K)
+
+    def _z(M):
+        mu = M.mean(0, keepdims=True)
+        sd = M.std(0, keepdims=True)
+        return (M - mu) / np.where(sd > 1e-6, sd, 1.0)
+
+    R = _z(real).T                                          # (K, T)
+    L = _z(learned).T
+    K, T = R.shape
+    gap = np.full((max(2, K // 20), T), np.nan, dtype=np.float32)
+    img = np.concatenate([R, gap, L], axis=0)
+    dt = float(cp.get("dt", 0.01))
+    t1 = T * dt
+    ax.imshow(img, aspect="auto", cmap="viridis", vmin=-2, vmax=3,
+              extent=[0, t1, img.shape[0], 0], interpolation="nearest")
+    ax.text(0.01, 0.99, "real", transform=ax.transAxes, va="top", ha="left",
+            color="w", fontsize=TICK_FS)
+    ax.text(0.01, 0.01, "learned", transform=ax.transAxes, va="bottom",
+            ha="left", color="w", fontsize=TICK_FS)
+    ax.set_xlabel("time (s)", fontsize=LABEL_FS)
+    ax.set_ylabel(f"bump-pool neuron (n={K})", fontsize=LABEL_FS)
+    ax.set_title("calcium: real (top) vs learned (bottom)", fontsize=TITLE_FS)
+    ax.tick_params(labelsize=TICK_FS)
+
+
 def _panel_image_from_png(ax, png_path):
     """Embed a PNG file as a borderless axis."""
     if not os.path.isfile(png_path):
@@ -1843,12 +1878,18 @@ def plot_cx_evolution(data: dict, out_path: str, *,
     _panel_label(ax_f_top, "f")
     _panel_label(ax_g_top, "g")
 
-    h_rollout = np.asarray(data["rollout"]["h"])
-    _panel_voltage_distribution(
-        ax_h, h_rollout,
-        neuron_types=data["neuron_types"],
-        type_names=data["type_names"],
-    )
+    if data.get("calcium_panel") is not None:
+        # Real-calcium training (zebrafish): panel h compares the recorded ΔF/F
+        # against the model's voltage→GCaMP calcium on one held-out trial,
+        # row-for-row in the same rastermap order.
+        _panel_calcium_compare(ax_h, data["calcium_panel"])
+    else:
+        h_rollout = np.asarray(data["rollout"]["h"])
+        _panel_voltage_distribution(
+            ax_h, h_rollout,
+            neuron_types=data["neuron_types"],
+            type_names=data["type_names"],
+        )
     _panel_label(ax_h, "h")
 
     if n_rows < 3:
