@@ -116,6 +116,8 @@ def _render_real_sequences(args):
             drive = panel.stim_to_drive(stim, dt=0.915,
                                         nominal_omega=args.nominal_omega)
             title = "REAL zapbench ΔF/F — omr_turning (dIPN ring + IPN12)"
+        if args.no_title:
+            title = ""
         print(f"[stim] {seq}: {len(ts)} frames (~{len(ts) * 0.915 / 60:.1f} min)")
 
         d = panel.real_panel(panel_rows, args.connectome, ts, drive,
@@ -163,6 +165,8 @@ def main():
     p.add_argument("--out", default=None,
                    help="output dir (default: <log_dir>/results, or "
                         "figures/zebrafish for --sequence)")
+    p.add_argument("--no-title", action="store_true",
+                   help="suppress the kinograph title (for montage figures)")
     args = p.parse_args()
 
     # --sequence: REAL ΔF/F per zapbench block (no model). Handled up front so
@@ -255,10 +259,11 @@ def main():
              pred_label="readout decode", omega_label="ω (°/s)")
 
     out_png = os.path.join(out_dir, f"functional_panel_{stem}_{gcamp_name}.png")
+    title = ("" if args.no_title
+             else f"{stem} -> {gcamp_name} calcium — Rotations 45 deg/s")
     # white background; with bg="white" render uses black text, so the predicted
     # HD trace (drawn in the text colour) is black, not white.
-    panel.render(d, panel_rows, out_png,
-                 f"{stem} -> {gcamp_name} calcium — Rotations 45 deg/s",
+    panel.render(d, panel_rows, out_png, title,
                  bg="white", cmap_name="viridis", show_partition=False,
                  show_swim_panels=False)
     print(f"[done] {out_png}")
