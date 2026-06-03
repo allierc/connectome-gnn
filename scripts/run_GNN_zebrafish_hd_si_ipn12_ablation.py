@@ -283,11 +283,11 @@ def collect_test_results(variants, output_root) -> str:
         g = np.array(gains) if gains else np.array([np.nan])
         rows.append(dict(
             tok=_tok, pi=pi,
-            trial_rmse=float(np.mean(tr_rmse)) if tr_rmse else np.nan,
-            trial_r=float(np.mean(tr_r)) if tr_r else np.nan,
+            trial_rmse=float(np.nanmean(tr_rmse)) if tr_rmse else np.nan,
+            trial_r=float(np.nanmean(tr_r)) if tr_r else np.nan,
             mean_gain=float(np.nanmean(g)),
             gain_dev=float(np.nanmean(np.abs(g - 1.0))),
-            fit_r2=float(np.mean(r2)) if r2 else np.nan))
+            fit_r2=float(np.nanmean(r2)) if r2 else np.nan))
     runner_dir = os.path.join(output_root, "log", BIOMODEL,
                               "zebrafish_ipn12_ablation_runner")
     os.makedirs(runner_dir, exist_ok=True)

@@ -393,7 +393,7 @@ def _render_fast(nl, types, rois, output_path,
         ax.set_axis_off()
         if ax_soma is not None:
             ax.text(0.01, 0.99, panel_letters[i], transform=ax.transAxes,
-                    ha="left", va="top", fontsize=14, fontweight="bold",
+                    ha="left", va="top", fontsize=10, fontweight="bold",
                     color=text_color)
 
     _add_legend(legend_ax, type_counts, draw_order, text_color)

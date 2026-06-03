@@ -60,29 +60,28 @@
 \begin{document}
 \maketitle
 \begin{abstract}
-We study a vertebrate ring attractor for heading direction at
-single-neuron anatomical resolution: the GABAergic \rpi{} population
-of the larval-zebrafish anterior hindbrain (aHB), whose axons
-arborise in the dorsal interpeduncular nucleus (dIPN).
-\citet{petrucco2023} demonstrate a sinusoidal activity bump that
-rotates with the fish's swims and is otherwise stable over many
-seconds, with reciprocal inhibitory connectivity in dIPN providing
-the long-range ring-shaping inhibition. Skeletons, ROI meshes and the
-(post, pre) adjacency matrix between the 731 HD-circuit neurons are
-fetched from the \emph{neuprint-fish2} server (dataset \emph{fish2}),
-and sign-locked recurrent (RNN) and message-passing (GNN)
-parameterisations of a swim-integration task are trained under an
-all-inhibitory Dale convention for the bump population. Optimising the
-swim-integration input--output map recovers a sharp single-peaked
-heading code --- carried by a concentrated set of dorsal-IPN subtypes
---- but the recovered preferred-heading map is \emph{not} laid out as
-an anatomical coordinate over the dIPN neuropil: the ring-attractor
-signature lives in activity space rather than in cell-body position.
-We further show that extending the bump pool with the IPN12 sub-types
-sharpens the recovered code, and that the left--right alternation of
-IPN12 activity is pre-installed by the Dale-locked connectome rather
-than learned from the afferent drive. This paper is a companion to our
-central-complex study \citep{cx2026}.
+We study a vertebrate head-direction ring attractor at single-neuron
+anatomical resolution --- the GABAergic \rpi{} population of the
+larval-zebrafish anterior hindbrain, whose dorsal-interpeduncular (dIPN)
+axons form the reciprocal inhibitory ring described by
+\citet{petrucco2023}. From the \emph{neuprint-fish2} electron-microscopy
+reconstruction we build sign-locked recurrent (RNN) and message-passing
+(GNN) models whose connectivity is fixed to the connectome under an
+all-inhibitory Dale convention, and train them on a swim-integration task.
+Optimising the input--output map alone recovers a sharp single-peaked
+heading code, yet the preferred-heading map is not an anatomical
+coordinate over the neuropil: the ring lives in activity space, not
+cell-body position. The task, however, does not pin the implementation:
+across folds many connectome-consistent circuits integrate heading equally
+well and no single cell type is required, so the implementation is
+degenerate. Comparing against the real ZAPBench calcium recording, the
+task-only model predicts heading accurately but its population activity is
+far from the measured $\Delta F/F$, and a decoder trained on the recording
+cannot read heading out frame-by-frame --- the head-direction signal lives
+in the temporal dynamics, not in any single calcium frame. We therefore add
+a calcium-observation loss that matches predicted to recorded activity to
+partially break this degeneracy (training ongoing); this paper is a
+companion to our central-complex study \citep{cx2026}.
 \end{abstract}
 
 \section{Introduction}
@@ -125,17 +124,23 @@ Visual / context afferents & pretectum $\to$ IPN & \emph{pt-IPN*} & 88 \\
 \multicolumn{3}{l}{\emph{total with IPN12 extension}} & 839 \\
 \bottomrule
 \end{tabular}
-\caption{HD-circuit cell-type families identified in
-\citet{petrucco2023} and used throughout this document. The HD ring
-is all-inhibitory: the bump cells themselves provide the long-range
+\caption{HD-circuit cell-type families from the \emph{fish2}
+reconstruction, used throughout this document. The dorsal-IPN ring
+(\emph{IPNd*}/\emph{IPNds*}) corresponds to the r1$\pi$ population
+functionally identified by \citet{petrucco2023}; the afferent families
+(\emph{RIPN*}, \emph{pt-IPN*}) and the IPN12 sub-types are \emph{fish2}
+connectome types not assigned a function in that work. The HD ring is
+all-inhibitory: the bump cells themselves provide the long-range
 inhibition, hence the dash in the count column for that row. The
-afferent split (RIPN / pt-IPN) carries the swim-triggered and visual
-drives respectively; \emph{RIPN*} is functionally implicated as a
-swim-triggered driver of the bump, \emph{pt-IPN*} carries visual
-context. The asterisk in \emph{IPNd*} etc.\ is a wildcard: each row
-groups the many fine-grained \emph{fish2} subtypes whose name starts
-with that prefix (e.g.\ \emph{IPNd13B}, \emph{IPNd17A},
-\emph{IPNdp01}, \ldots --- 31 subtypes in total).}
+assignment of \emph{RIPN*} as the swim-triggered velocity afferent and
+\emph{pt-IPN*} as a visual/context afferent is our modelling choice, not a
+finding of \citet{petrucco2023} (whose candidate velocity input is a
+rhombomere-2/3 GABAergic population). Note \emph{IPN12*} (dorsal-IPN bump
+cells) and the unrelated \emph{RIPN12*} (habenular afferents) are distinct
+families despite the shared number. The asterisk in \emph{IPNd*} etc.\ is a
+wildcard: each row groups the fine-grained \emph{fish2} subtypes whose name
+starts with that prefix (e.g.\ \emph{IPNd13B}, \emph{IPNd17A},
+\emph{IPNdp01}); with the two IPN12 rows there are 33 subtypes in total.}
 \label{tab:zhd_mapping}
 \end{table}
 
@@ -231,44 +236,26 @@ The \rpi{} cells (\emph{IPNd*} and \emph{IPNds*}) are GABAergic
 \citep{petrucco2023}; their outgoing weights are sign-flipped and
 amplified by 5$\times$. \emph{RIPN*} and \emph{pt-IPN*} have no Dale
 annotation on the \emph{fish2} server and are kept positive
-(excitatory). The resulting signed matrix is rescaled so
-$\max(\mathrm{Re}(\lambda)) = 0.9$, a spectral-radius convention
-that keeps the linearised recurrent operator inside the stability
-margin used throughout the training runs.
+(excitatory). The resulting signed matrix is rescaled so its
+leading eigenvalue real part (the linear-stability abscissa)
+$\max(\mathrm{Re}(\lambda)) = 0.9$, which keeps the linearised recurrent
+operator inside the stability margin used throughout the training runs.
 
 \paragraph{Data.}
-Skeletons, ROI meshes and synaptic connections are fetched from
-\emph{neuprint-fish2.janelia.org}, dataset \emph{fish2}.
-\emph{\figdir/fetch\_zebrafish\_anatomy\_HD.py} writes
-SWC skeletons and OBJ meshes to
-\emph{zebrafish\_anatomy\_HD/}; \emph{fetch\_zebrafish\_connectivity\_HD.py}
-writes \emph{neurons.csv} (731 rows: 443 \emph{IPNd*} + \emph{IPNds*}
-ring cells, 200 \emph{RIPN*}, 88 \emph{pt-IPN*}) and
-\emph{connections.csv} ($14\,391$ directed edges)
-to \emph{zebrafish\_connectome\_HD/}. The loader
-\emph{load\_zebrafish\_hd\_connectome()} in
-\emph{src/connectome\_gnn/generators/connconstr\_data.py} reads
-the two CSV files and returns a dictionary with the canonical keys
-\emph{N}, \emph{J\_effective}, \emph{neuron\_types},
-\emph{type\_names}, \emph{n\_ring}, \emph{ring\_ix},
-\emph{afferent\_subpop\_ix}. The \emph{ZebrafishHdTaskRNN} class
-implements the sign-locked dynamics, the 4-scalar afferent gate, the
-HD-ring-only readout, and the regulariser machinery described in
-\cref{sec:methods}.
-
-The loader fields are:
-\begin{itemize}
-\item \emph{n\_ring} = 443: number of dorsal-IPN HD cells
-       (\emph{IPNd*} + \emph{IPNds*}), \ie{} the \rpi{} ring.
-\item \emph{ring\_ix}: ring ordering of the HD cells, computed from
-       the mediolateral soma coordinate \emph{somaLocationX}
-       (Petrucco's Fig.~1g right panel shows the \rpi{} cells lie on
-       an anatomical ring along this axis); cells are binned into
-       16 ring positions for the readout decoder.
-\item \emph{afferent\_subpop\_ix} = \emph{\{RIPN\_L, RIPN\_R,
-       ptIPN\_L, ptIPN\_R\}} split by side from the
-       \emph{instance} suffix; sizes $\{102, 101, 41, 44\}$.
-\end{itemize}
+Skeletons, ROI meshes and synaptic connections are taken from the
+\emph{neuprint-fish2} reconstruction (dataset \emph{fish2}). The HD circuit
+comprises $731$ neurons --- $443$ dorsal-IPN ring cells (\emph{IPNd*} $+$
+\emph{IPNds*}), $200$ habenular \emph{RIPN*} and $88$ pretectal
+\emph{pt-IPN*} afferents --- connected by $14\,391$ directed synaptic edges.
+The $443$ HD cells are ordered on a ring by their mediolateral soma
+coordinate as a decoder convention --- binned into $16$ positions for the
+readout --- and this ordering is \emph{not} claimed to reproduce the
+anatomical soma topography of \citet{petrucco2023} (indeed
+\cref{sec:results:tuning_sharpness} finds the preferred-heading map is not
+spatially organised). The afferents are split by side into left/right
+\emph{RIPN} and \emph{pt-IPN} pools of sizes $\{102, 101, 41, 44\}$. The model implements the sign-locked
+recurrent dynamics, the four-scalar afferent gate, the HD-ring-only readout,
+and the regulariser described in \cref{sec:methods}.
 
 \section{Methods}
 \label{sec:methods}
@@ -329,9 +316,9 @@ with four learnable scalars
 $\{v_{\mathrm{RIPN}_L},\,v_{\mathrm{RIPN}_R},\,
   v_{\mathrm{ptIPN}_L},\,v_{\mathrm{ptIPN}_R}\}$
 initialised antisymmetrically across hemispheres so that left swims
-and right swims drive the bump in opposite directions. The
-subpopulation membership comes from \emph{afferent\_subpop\_ix}
-returned by the loader (sizes $102 / 101 / 41 / 44$). The two
+and right swims drive the bump in opposite directions. These four
+gate scalars act on the left/right \emph{RIPN} and \emph{pt-IPN}
+subpopulations (sizes $102 / 101 / 41 / 44$). The two
 remaining input columns --- carrying the initial-heading impulse
 $(\cos\theta_0,\sin\theta_0)\,\delta_{t,0}$ --- stay free for all
 neurons. Both afferent populations (\emph{RIPN*} and \emph{pt-IPN*})
@@ -384,9 +371,87 @@ $\mathcal{L}_{\mathrm{cos}}$ is scale-invariant,
 $\mathcal{L}_{\mathrm{nf}}$ is required to prevent a degenerate
 solution in which the cosine prior is satisfied by an arbitrarily
 small recurrent magnitude. The type-pair vocabulary $\mathcal{P}$ is
-the cartesian product of the 31 fish2 cell types identified in
+the cartesian product of the 33 fish2 cell types identified in
 \cref{sec:anatomy}, restricted to pairs with at least one non-zero
 entry in $W^{\mathrm{con}}$.
+
+\bigskip
+\noindent\textbf{Calcium observation loss.}\label{method:obs}
+The heading loss of \cref{eq:zhd_loss} constrains only the
+two-dimensional readout $\hat y(t)$; the $N$-dimensional recurrent state
+$\hat h(t)$ is left unobserved, so the task alone does not pin the
+internal dynamics. To constrain the implementation we add an optional
+term that matches the model's predicted calcium to \emph{recorded}
+activity. A GCaMP indicator turns the model's per-neuron activity into a
+fluorescence trace by causal convolution with a unit-area
+difference-of-exponentials kernel,
+\begin{equation}
+k_{\mathrm{GCaMP}}(t) \;\propto\; e^{-t/\tau_d} - e^{-t/\tau_r},
+  \quad t \ge 0,
+\qquad
+\hat c_i(t) \;=\; \big(k_{\mathrm{GCaMP}} * \hat h_i\big)(t),
+\label{eq:zhd_gcamp}
+\end{equation}
+with rise/decay constants $(\tau_r,\tau_d) = (0.15,\,1.20)\,\mathrm{s}$
+for GCaMP7f. The kernel is normalised to unit area so the transform
+preserves the mean, the convolution is evaluated on the model grid
+$\Delta t$, and it is differentiable, so gradients flow from the
+fluorescence back into $\hat W^{\mathrm{rec}}$, the afferent gate and
+$\hat b$. Let $\mathcal{O}$ index the $|\mathcal{O}| = 481$ HD-circuit
+neurons matched to a recorded ROI (below) and let $c^{\star}_i(t)$ be the
+recorded $\Delta F/F$ of neuron $i$. Because the indicator gain and
+baseline are not identifiable, the term is made invariant to a per-neuron
+affine rescaling by $z$-scoring both signals over time before comparison,
+\begin{equation}
+\mathcal{L}_{\mathrm{obs}}
+  = \frac{1}{|\mathcal{O}|\,B_c T}\sum_{i\in\mathcal{O}}\sum_{b,t}
+    \big(z[\hat c_i]_{b,t} - z[c^{\star}_i]_{b,t}\big)^2 ,
+\qquad
+z[x]_{b,t} = \frac{x_{b,t} - \mu_{b,i}}{\sigma_{b,i}},
+\label{eq:zhd_obs}
+\end{equation}
+where $\mu_{b,i},\sigma_{b,i}$ are the per-trial, per-neuron mean and
+standard deviation over time. For unit-variance signals
+$\mathcal{L}_{\mathrm{obs}} = 2\,(1-\rho)$ with $\rho$ the Pearson
+correlation, so the term rewards temporal \emph{shape} agreement rather
+than absolute scale. The full objective adds it to \cref{eq:zhd_loss}
+with weight $\lambda_{\mathrm{obs}}$,
+$\mathcal{L}_{\mathrm{total}} = \mathcal{L}
+  + \lambda_{\mathrm{obs}}\,\mathcal{L}_{\mathrm{obs}}$;
+setting $\lambda_{\mathrm{obs}} = 0$ (or supplying no calcium trials)
+recovers the task-only model exactly.
+
+\bigskip
+\noindent\textbf{ZAPBench training data.}\label{method:zapbench}
+The recorded activity is the publicly released ZAPBench whole-brain
+light-sheet calcium recording of a larval zebrafish, registered to the
+same \emph{fish2} EM volume as the connectome (\cref{sec:anatomy}): the
+$\Delta F/F$ trace of every segmented cell is taken from the ZAPBench
+release and each connectome \emph{bodyId} is matched to its functional
+ROI through the EM\,$\leftrightarrow$\,functional registration. Of the
+$839$ neurons in the IPN12 circuit, $481$ carry a matched recording ---
+$300$ bump-pool cells (\emph{IPNd}/\emph{IPNds}/\emph{IPN12}, the set
+shown in the real-vs-model kinographs) and $181$ afferents (\emph{RIPN},
+\emph{pt-IPN}). We supervise on the ``Rotations'' block, in which a
+$45^\circ/\mathrm{s}$ drifting grating rotates the animal's virtual
+heading: the true heading is read from the recorded stimulus channel and
+differentiated to the angular-velocity drive $s(t)$, so the \emph{model}
+is driven by the \emph{same} stimulus that produced the recording. The
+block spans ${\sim}600\,\mathrm{s}$ ($656$ imaging frames at the
+$1.09\,\mathrm{Hz}$, $0.915\,\mathrm{s}$ imaging rate). Because the model
+runs at $\Delta t = 0.01\,\mathrm{s}$, the recorded $\Delta F/F$ is
+linearly interpolated up to the model grid (edge-padded), and each neuron
+is $z$-scored \emph{globally} over the whole block --- not per window ---
+so the target keeps a single, trial-independent scale. The block is then
+sliced into $1000$-frame ($10\,\mathrm{s}$) trials drawn from disjoint
+train/test time spans, in the same format as the synthetic
+swim-integration trials: channel~0 is the recorded drive $s(t)$ and the
+first frame carries the $(\cos\theta_0,\sin\theta_0)$ heading cue, with no
+warm-up. During training each task minibatch is augmented with $B_c$ of
+these calcium trials in a single forward pass; the heading MSE of
+\cref{eq:zhd_loss} is taken over the combined batch (the rotation trials
+also carry a true heading), while $\mathcal{L}_{\mathrm{obs}}$ is
+evaluated on the calcium trials only.
 
 \bigskip
 \noindent\textbf{Graph neural network model.}\label{method:GNN}
@@ -511,8 +576,9 @@ multiplicative degeneracy between $g_\phi$ and $\hat W$ in
 \cref{eq:zhd_gnn_dynamics}. Hyperparameters
 $\lambda_{\{0,1,2,3\}},\,\gamma_{\{0,1\}},\,\mu_{\{0,1,2,3\}}$ and the
 MLP widths/depths are tuned with an agentic optimisation procedure,
-with $r_{\mathrm{roll},1k}$ on a deterministic swim-impulse rollout
-as the primary score.
+with $r_{\mathrm{roll},1k}$ --- the Pearson correlation between the decoded
+and true heading over a $1\,000$-step deterministic swim-impulse rollout
+--- as the primary score.
 
 \paragraph{Mutual-information estimators.}\label{method:MI}
 We use mutual information to quantify how strongly each unit's
@@ -676,9 +742,11 @@ shows the trained GNN in the
 same layout as \cref{fig:zhd_evolution_v1,fig:zhd_evolution_v2}, with
 three extra panels for the learned per-neuron embedding (j), drift (k)
 and signalling function (l). Despite the much weaker dynamical prior,
-the GNN reaches the same compass behaviour
-(panel f: $r = 1.000$, constant-$\omega$ RMSE $36.2^\circ$; panel i:
-unit-slope integration gain), so the recovered swim-integration is
+the GNN reproduces the compass in correlation and gain (panel f:
+$r = 1.000$; panel i: unit-slope integration gain), though at coarser
+absolute precision than the RNN (constant-$\omega$ RMSE $36.2^\circ$, vs.\
+a few degrees for the RNN; this checkpoint is also earlier in training).
+The recovered swim-integration is therefore
 robust both to the IPN12 sign (v1 vs.\ v2) and to the RNN vs.\ GNN
 parameterisation.
 
@@ -701,8 +769,9 @@ parameterisation.
   each neuron over its activity domain.
   \textbf{(l)} Learned signalling function
   $g_\phi(\hat h_j,\mathbf a_j)$ --- the per-edge message entering the
-  GNN aggregation. The compass behaviour matches the RNN (panel f:
-  $r = 1.000$, constant-$\omega$ RMSE $36.2^\circ$).}
+  GNN aggregation. The compass matches the RNN in correlation and gain
+  (panel f: $r = 1.000$), at coarser absolute precision
+  (constant-$\omega$ RMSE $36.2^\circ$).}
   \label{fig:zhd_evolution_gnn}
 \end{figure}
 
@@ -714,36 +783,30 @@ swim-integration task, we retrained each variant ten times from fresh
 seeds (shared task data) and compared the learned recurrent matrices
 $\hat W^{\mathrm{rec}}$ across the $2\times 10$ folds
 (\cref{fig:zhd_wrec}). Three facts emerge.
-
-\textbf{(i) The recurrent solution is only partially identifiable.}
-Within each variant the ten folds cluster at pairwise cosine
-$0.58 \pm 0.03$ (v1) and $0.57 \pm 0.02$ (v2) over the connectome
-support --- more tightly with each other than with the raw connectome
-template ($0.48$ for v1, $0.36$ for v2), but with a substantial
-inter-fold spread. The task fixes the heading input--output map but
-not a unique set of per-edge weights: many recurrent matrices realise
-the same compass.
-
-\textbf{(ii) Training amplifies the given edges.}
-The support and signs are fixed by the sign-lock
-(\cref{eq:zhd_w_rec}), so training only sets the per-edge magnitudes
-on the connectome edges --- it cannot add or remove edges. The
-per-cell-type-block $\log_2$ ratio of the learned mean magnitude to
-the connectome mean magnitude (\cref{fig:zhd_wrec}c) is uniformly
-positive across all blocks and both variants and reproducible across
-folds (small inter-fold SD): the connectome supplies the topology and
-sign, while training consistently scales each block's magnitude up by
-a block-dependent, fold-reproducible factor --- the gain the
+(i)~The recurrent solution is only partially identifiable: within each
+variant the ten folds cluster at pairwise cosine $0.58 \pm 0.03$ (v1) and
+$0.57 \pm 0.02$ (v2) over the connectome support --- more tightly with
+each other than with the raw connectome template ($0.48$ for v1, $0.36$
+for v2), but with a substantial inter-fold spread; the task fixes the
+heading input--output map but not a unique set of per-edge weights, so
+many recurrent matrices realise the same compass.
+(ii)~Training amplifies the given edges: the support and signs are fixed
+by the sign-lock (\cref{eq:zhd_w_rec}), so training only sets the per-edge
+magnitudes on the connectome edges --- it cannot add or remove edges; the
+per-cell-type-block $\log_2$ ratio of the learned mean magnitude to the
+connectome mean magnitude (\cref{fig:zhd_wrec}c) is uniformly positive
+across all blocks and both variants and reproducible across folds (small
+inter-fold SD), so the connectome supplies the topology and sign while
+training consistently scales each block's magnitude up by a
+block-dependent, fold-reproducible factor --- the gain the
 swim-integration task requires.
-
-\textbf{(iii) The circuit is robust to the unknown IPN12 sign outside
-the IPN12 edges.} The cross-variant cosine (v1 fold vs.\ v2 fold) is
-only $0.28 \pm 0.02$ over the full support --- far below the
-within-variant $0.57$ --- but rises to $0.51$ once the $3\,536$
-sign-flipped IPN12 outgoing edges are excluded. The two Dale-sign
-hypotheses therefore converge to similar recurrent solutions
-everywhere except on the IPN12 edges whose sign they disagree about by
-construction.
+(iii)~The circuit is robust to the unknown IPN12 sign outside the IPN12
+edges: the cross-variant cosine (v1 fold vs.\ v2 fold) is only
+$0.28 \pm 0.02$ over the full support --- far below the within-variant
+$0.57$ --- but rises to $0.51$ once the $3\,536$ sign-flipped IPN12
+outgoing edges are excluded; the two Dale-sign hypotheses therefore
+converge to similar recurrent solutions everywhere except on the IPN12
+edges whose sign they disagree about by construction.
 
 \begin{figure}[p]
   \centering
@@ -823,8 +886,7 @@ of panel b and is excluded from panels c--d.
 For every cell $i$ we compute a tuning curve $\bar r_i(\theta_k)$ by
 binning the rollout heading $\theta(t)$ into $K = 36$ equal bins of
 $10^\circ$ and averaging the cell's activity $h_i(t)$ over the time
-points whose heading falls in each bin
-(\emph{fig\_zebrafish\_pref\_angle.\_tuning\_curves}). The
+points whose heading falls in each bin. The
 \emph{specificity}
 \[
   \specf_i \;=\;
@@ -921,40 +983,25 @@ convention rather than the data distribution.
 \subsection{Functional partitioning of the HD circuit}
 \label{sec:results_four_classes}
 
-We use the trained RNN (configuration
-\cref{eq:zhd_dynamics,eq:zhd_readout,eq:zhd_swim_gate,eq:zhd_loss}) to
-ask, for each of the $N = 731$ neurons in the model, whether it
-\emph{represents} the heading-direction code, \emph{drives or updates}
-the bump, or does neither. The analysis combines three per-neuron
-scores computed on a $120$~s closed-loop swim rollout (seed~$=0$,
-$\Delta t = 0.01$~s, burn-in $5$~s):
-\begin{enumerate}
-  \item the heading mutual information
-        $\mi_i = I(\hat h_i ; \theta)$ in bits, estimated with the
-        plug-in histogram of \cref{eq:zhd_mi_plugin}
-        (\cref{method:MI}) at $n_\theta = 32$ heading bins and
-        $n_r = 20$ activity bins,
-  \item the readout magnitude
-        $\omag_i = \|\hat W^{\mathrm{out}}_{:,i}\|_2$, identically zero
-        for $i \ge 443$ since the decoder of \cref{eq:zhd_readout}
-        slices the first $443 = n_{\mathrm{dIPN}}$ columns,
-  \item the swim-triggered modulation
-        $\smod_i = \mathrm{rms}_{t\in[-0.5\mathrm{s},+0.5\mathrm{s}]}
-          \,\big\langle \hat h_i(t_o + t) - \hat h_i(t_o - 0.5\mathrm{s})\big\rangle_o
-          \big/\,\sigma_{\mathrm{quiet}}(\hat h_i)$,
-        the root-mean-square of the swim-onset-locked
-        spike-triggered average over a $\pm 0.5$~s window, normalised
-        by the standard deviation of $\hat h_i$ in the swim-free
-        intervals between onsets. The rollout is the same controlled
-        probe: one $\pi/8$~rad left swim every
-        $\Delta t = 0.3$~s for $120$~s, giving $\sim 400$ onsets, the
-        leading edges of $|\omega(t)|$ exceeding $5\%$ of its peak.
-        Compared with the Poisson training distribution this gives
-        more onsets per second and a regular heading sweep, removing
-        the variance from random impulse fractions.
-\end{enumerate}
-We then split each axis at its sample median and assign every neuron
-to one of four mutually exclusive classes via a decision tree:
+This per-neuron functional partitioning (and the tuning-curve analysis of
+\cref{sec:results:tuning_sharpness}) is computed on the $731$-cell dIPN
+\emph{base} circuit, before the IPN12 extension --- so $N = 731$ and
+$n_{\mathrm{dIPN}} = 443$ here, whereas the trained swim-integrators of
+\cref{fig:zhd_evolution_v1,fig:zhd_evolution_v2} and the connectome of
+\cref{fig:zhd_connectome_summary} use the $839$-cell IPN12 pool.
+We classify each of the $N = 731$ model neurons by what it does for the
+heading code, from a $120$~s closed-loop swim rollout (seed~$0$,
+$\Delta t = 0.01$~s, $5$~s burn-in) under a controlled probe of one
+$\pi/8$~rad left swim every $0.3$~s. Three per-neuron scores drive the
+split: the heading mutual information $\mi_i = I(\hat h_i;\theta)$ (bits;
+plug-in histogram, \cref{eq:zhd_mi_plugin}, $32$ heading $\times$ $20$
+activity bins), the readout magnitude
+$\omag_i = \|\hat W^{\mathrm{out}}_{:,i}\|_2$ (identically zero for
+$i \ge 443$, since the decoder of \cref{eq:zhd_readout} slices the first
+$n_{\mathrm{dIPN}} = 443$ columns), and the swim-triggered modulation
+$\smod_i$ (RMS of the swim-onset-locked average of $\hat h_i$ over
+$\pm0.5$~s, normalised by its swim-free SD). Splitting each axis at its
+median assigns every neuron to one of four classes,
 \begin{align}
   i \in \cls{R} \iff{}& \mi_i \ge \mi^\star \;\&\;
                          \omag_i \ge \omag^\star \nonumber\\
@@ -966,67 +1013,29 @@ to one of four mutually exclusive classes via a decision tree:
                          \smod_i < \smod^\star,
   \label{eq:four_classes}
 \end{align}
-where the thresholds were
-$\mi^\star = 2.80$~bits, $\omag^\star = 0.066$ (median over the $443$
-dIPN columns only), and $\smod^\star = 0$. Class~$\cls{R}$ is the
-\emph{readout-relevant bump representation} (high HD content, large
-$\hat W^{\mathrm{out}}$ column), class~$\cls{L}$ the \emph{latent /
-redundant} bump-correlated cells (high HD content but $\hat
-W^{\mathrm{out}}$ effectively zero), class~$\cls{D}$ the \emph{drivers
-/ updaters} (no HD content but strongly swim-modulated), and
-class~$\cls{Z}$ is the \emph{uninvolved / leaky} remainder.
-
-\Cref{fig:zhd_four_classes} maps the four classes back to the 3-D
-anatomy. Under the controlled periodic-L probe stimulus the
-network ends up in classes $\cls{R}/\cls{L}/\cls{D}/\cls{Z}=
-156/210/365/0$. The architectural priors of \cref{sec:methods} hold
-as cleanly as before: \emph{all} $51$ \emph{pt-IPN1} except two
-(latent), \emph{all} $34$ \emph{pt-IPN2}, \emph{all} $10/10$
-\emph{RIPN17} and $10/10$ \emph{RIPN16} fall into the driver class
-$\cls{D}$ --- exactly the afferent populations whose only access to
-the swim signal $s(t)$ is through the four-scalar PEN gate of
-\cref{eq:zhd_swim_gate}. Conversely \emph{no} \emph{pt-IPN} or
-\emph{RIPN} cell ends up in $\cls{R}$ ($0/170$), even though the
-slicing in \cref{eq:zhd_readout} is purely positional and the
-optimiser is free to push readout mass onto any dIPN cell. The bulk
-of $\cls{R}$ is carried by a small set of mediolateral dIPN
-subtypes: \emph{IPNd13E} ($24/30$), \emph{IPNd13C} ($21/26$),
-\emph{IPNds13A} ($18/47$), \emph{IPNd17B} (then $9/50$),
-\emph{IPNd13A} ($17/32$), \emph{IPNds13B} ($17/51$) and
-\emph{IPNd14} ($16/27$) account for $113/156 = 72\%$ of the $\cls{R}$
-cells. This concentration --- $\sim\!50$ neurons supplying $> 50\%$
-of $\|\hat W^{\mathrm{out}}\|_1$, in agreement with the heavy-tailed
-column-norm distribution of $\hat W^{\mathrm{out}}$ described in
-\cref{sec:methods} --- emerges \emph{without} any explicit $\ell_1$
-prior on $\hat W^{\mathrm{out}}$: the ring-attractor geometry plus
-the per-frame MSE on the cosine/sine readout makes most dIPN columns
-mutually redundant.
-
-The \emph{latent} class $\cls{L}$ is now $210$ cells and is
-dominated by \emph{IPNd17B} ($20/50$), \emph{IPNd13S} ($15/40$),
-\emph{IPNds13A/B} ($27/98$) and the surprise entry
-\emph{RIPN05} ($13/17 = 76\%$ in $\cls{L}$): unlike the rest of the
-habenular afferents this subtype acquires high HD mutual information
-through recurrent integration but is invisible to the linear readout
-because it sits outside the dIPN slice of \cref{eq:zhd_readout}.
-\emph{RIPN11} ($23/40$) and \emph{RIPN01} ($14/29$) also acquire
-substantial $\cls{L}$ membership, indicating that the regular probe
-makes more of the habenular afferents inherit a heading-correlated
-component via the recurrence than the Poisson training distribution
-did.
-
-Under this regular probe the leak class $\cls{Z}$ \emph{vanishes}:
-the periodic stimulus persistently drives the network and the
-recurrent connectivity propagates the drive to every cell with
-non-zero outgoing edges. There are no functionally idle units. The
-swim-modulation median therefore drops to $\smod^\star = 0$ and
-every below-median-MI cell crosses the $\smod$ threshold by
-definition, so the $\cls{Z}$ partition is empty. The complementary
-$\cls{D} = 365$ population now includes \emph{IPNd01} ($21/30$,
-preserved), the entire \emph{RIPN12\_a} subtype ($14/17$), and a
-substantial fraction of the originally-leak \emph{IPNd13B/D},
-\emph{IPNd17A}, \emph{IPNdp01} cells, all consistent with the
-controlled stimulus propagating through the connectome.
+with $\mi^\star = 2.80$~bits, $\omag^\star = 0.066$ and $\smod^\star = 0$:
+$\cls{R}$ is the readout-relevant bump representation, $\cls{L}$ the
+latent/redundant bump-correlated cells (high HD content but zero readout),
+$\cls{D}$ the swim drivers/updaters, $\cls{Z}$ the uninvolved remainder.
+Under the periodic probe the network partitions as
+$\cls{R}/\cls{L}/\cls{D}/\cls{Z} = 156/210/365/0$
+(\cref{fig:zhd_four_classes}) and the architectural priors of
+\cref{sec:methods} hold cleanly: every \emph{pt-IPN} and habenular
+\emph{RIPN} afferent falls in the driver class $\cls{D}$ --- their only
+access to the swim signal $s(t)$ is the four-scalar gate of
+\cref{eq:zhd_swim_gate} --- while \emph{no} \emph{pt-IPN}/\emph{RIPN} cell
+reaches $\cls{R}$ ($0/170$), even though the readout slice is purely
+positional. The readout is carried by a small mediolateral dIPN set
+(\emph{IPNd13C/E}, \emph{IPNds13A/B}, \emph{IPNd13A}, \emph{IPNd14}):
+$\sim\!50$ neurons supply $>50\%$ of $\|\hat W^{\mathrm{out}}\|_1$, an
+emergent concentration with \emph{no} explicit $\ell_1$ prior --- the
+ring-attractor geometry plus the cosine/sine MSE makes most dIPN columns
+mutually redundant. A few habenular afferents (notably \emph{RIPN05},
+$13/17$) instead enter $\cls{L}$: they inherit heading information through
+the recurrence yet stay invisible to the linear readout because they sit
+outside the dIPN slice. Finally the leak class $\cls{Z}$ vanishes: the
+persistent periodic drive propagates through the recurrence to every cell
+with non-zero outgoing edges, so there are no functionally idle units.
 
 \begin{figure}[H]
   \centering
@@ -1048,9 +1057,7 @@ controlled stimulus propagating through the connectome.
     probe stimulus --- regular swim impulses propagate through the
     recurrent network and drive every cell. Thresholds:
     $\mi^\star = 2.80$~bits, $\omag^\star = 0.066$ (median over $\hat
-    W^{\mathrm{out}}$ columns), $\smod^\star = 0$. Per-cell counts
-    and the model-index $\to$ bodyId mapping are written to
-    \emph{\figdir/fig\_zebrafish\_four\_classes.csv}.}
+    W^{\mathrm{out}}$ columns), $\smod^\star = 0$.}
   \label{fig:zhd_four_classes}
 \end{figure}
 
@@ -1062,57 +1069,145 @@ heading computation, we lesioned each of the 33 \emph{fish2} subtypes in
 turn --- masking all of its incoming and outgoing edges out of the
 connectome and \emph{retraining the circuit from scratch} with the lesion
 held fixed --- and compared the converged swim-integration rollout to the
-unablated \textbf{v1} control (\cref{fig:zhd_ablation}).
-
-\textbf{The compass is robust to any single-type lesion.} Every knockout
-still solves the task: path-integration accuracy stays $\ge 0.995$ and the
-$1\,000$-step rollout correlation $\ge 0.9998$ in all 33 runs. No subtype
-is a structural bottleneck --- the connectome carries enough redundancy
-that the optimiser re-routes the integration around the lesion.
-
-\textbf{Only a handful of populations exceed the noise.} We score impact
-by the increase in rollout RMSE relative to the $2.4^\circ$ baseline. That
-RMSE itself fluctuates within a single run: across the converged
-($\ge$ epoch 4) snapshots the baseline alone ranges $0.8$--$4.2^\circ$
-(within-run $\sigma \approx 1.2^\circ$), so we take a $\pm 2.4^\circ$
-($2\sigma$) band as the noise floor (grey in \cref{fig:zhd_ablation}).
-Only five knockouts clear it: \emph{IPN12\_b} ($+6.7^\circ$),
-\emph{RIPN02} ($+5.3^\circ$), \emph{IPNd13D} ($+3.9^\circ$),
-\emph{IPNd13B} ($+3.5^\circ$) and \emph{RIPN01} ($+2.6^\circ$). The other
-28 knockouts --- including every \emph{apparent improvement} (negative
-$\Delta$RMSE down to $-1.6^\circ$) --- fall inside the band and are not
-interpretable: with a single seed per ablation these small deltas are
-training noise, not evidence that removing a cell type helps. Firm
-significance would require an ensemble of seeds per lesion.
-
-\textbf{Impact is not set by population size} (\cref{fig:zhd_ablation}b).
-The most damaging lesion, \emph{IPN12\_b} ($57$ cells), and the second,
-\emph{RIPN02} ($19$ cells), are far smaller than the dispensable
-\emph{pt-IPN1} ($51$ cells, within noise). The two IPN12 sub-types are
-strikingly asymmetric --- removing \emph{IPN12\_b} is the single most
-damaging lesion while \emph{IPN12\_a} sits inside the band --- and the
-pretectal afferents, the dominant velocity carrier in the trained model,
-are structurally dispensable: with \emph{pt-IPN} removed the retrained
-circuit routes the velocity drive through the habenular \emph{RIPN}
-afferents instead.
+unablated \textbf{v1} control (\cref{fig:zhd_ablation}). The compass is
+robust to any single-type lesion: every knockout still solves the task, with
+held-out path-integration accuracy $\ge 0.99$ in all 33 runs and integration
+gain within $3\%$ of unity. To bound the natural spread of these metrics we
+retrained the unablated circuit ten times from fresh seeds (shared data);
+over these ten folds $\mathrm{pi\_acc}=0.994\pm0.004$ and
+$|\mathrm{gain}-1|=0.032\pm0.013$ (mean\,$\pm$\,SD), and the precision score
+--- the per-trial heading RMSE over the held-out test trials ($512$ per run)
+--- is $5.6\pm1.4^\circ$ (mean\,$\pm$\,SD over the ten folds). A lesion is
+therefore significant only if it leaves the $\pm 2.8^\circ$ ($2$\,SD) seed
+band (grey in \cref{fig:zhd_ablation}a), and none of the 33 knockouts does:
+the most affected (\emph{IPN12\_b}, $7.0^\circ$) and the least
+(\emph{RIPN12\_c}, $3.0^\circ$) both sit inside the band, so the per-type
+spread is fully contained within the seed-to-seed spread, and every
+\emph{apparent improvement} is likewise a within-band fluctuation rather than
+a real benefit. The integration gain tells the same story
+(\cref{fig:zhd_ablation}b): every knockout keeps $\langle|g-1|\rangle$ inside
+its own fold band, so heading integration stays linear and near unit-gain
+whichever type is removed --- no single subtype is a structural bottleneck,
+and the connectome carries enough redundancy that the optimiser re-routes the
+integration around the lesion. Although nothing clears the band, the ranking
+is orderly: the dorsal-IPN \emph{bump} cells dominate the high-RMSE end (both
+\emph{IPN12\_a}/\emph{IPN12\_b} and the \emph{IPNd13} cluster), while the
+afferents --- the habenular \emph{RIPN*} and pretectal \emph{pt-IPN*} --- sit
+at the low-RMSE end, several below the unablated baseline. This is the
+expected polarity: the bump cells carry the linear readout
+(\cref{fig:zhd_four_classes}), so losing one nudges precision the most,
+whereas an afferent input can be re-routed during retraining --- consistent
+with the pretectum, the dominant velocity carrier in the \emph{trained}
+model, being structurally dispensable. The effect is a tendency, not a
+result; lifting any individual type above the seed band would need a per-seed
+ablation ensemble.
 
 \begin{figure}[p]
   \centering
   \includegraphics[width=\textwidth]{\figdir/fig_zebrafish_ablation.png}
   \caption{\textbf{Per-cell-type ablation of the zebrafish HD circuit
-  (v1).} Each of the 33 \emph{fish2} subtypes is lesioned (all its edges
-  masked) and the circuit retrained from scratch; bars and points are
-  coloured by cell family.
-  \textbf{(a)} Converged swim-integration rollout RMSE per knockout,
-  ranked. Dashed line: unablated baseline ($2.4^\circ$); grey band: the
-  $\pm 2.4^\circ$ ($2\sigma$) within-run noise floor. Only the five
-  knockouts to the right of the band are distinguishable from the control.
-  \textbf{(b)} Impact ($\Delta$RMSE vs.\ baseline) against ablated-population
-  size; grey band as in (a). Impact is uncorrelated with size --- the small
-  \emph{IPN12\_b} and \emph{RIPN02} dominate while large populations
-  (\emph{pt-IPN1}) stay within noise. Per-cell-type values are written to
-  \emph{\figdir/fig\_zebrafish\_ablation.csv}.}
+  (v1), on the trial-based test metrics.} Each of the 33 \emph{fish2}
+  subtypes is lesioned (all its edges masked) and the circuit retrained from
+  scratch; bars are coloured by cell family. Significance is judged against
+  the ten seed replicas of the unablated v1: the grey band is the
+  $\pm 2$\,SD fold band.
+  \textbf{(a)} Per-trial heading RMSE over the held-out test trials
+  ($512$/run), ranked. Dashed line: unablated baseline ($4.3^\circ$); solid
+  line + band: the 10-fold seed mean $5.6^\circ \pm 2.8^\circ$. \emph{No}
+  knockout leaves the band --- the per-type spread ($3.0$--$7.0^\circ$) is
+  contained within the seed-to-seed spread. The dorsal-IPN bump cells
+  (\emph{IPN12}, \emph{IPNd}) cluster at the high end and the afferents
+  (\emph{RIPN}, \emph{pt-IPN}) at the low end, but only as a sub-significant
+  trend.
+  \textbf{(b)} Integration-gain error $\langle|g-1|\rangle$ per knockout,
+  ranked, with its own 10-fold $\pm 2$\,SD band: every lesion keeps the
+  heading integration linear and near unit-gain.}
   \label{fig:zhd_ablation}
+\end{figure}
+
+\subsection{Task ability does not imply realistic activity}
+\label{sec:results_obs_baseline}
+
+The results so far establish that the connectome-constrained network learns
+to integrate heading accurately, and that the solution is robust to any
+single-type lesion. Accuracy on the task, however, says nothing about
+whether the network's \emph{internal activity} matches the brain. We test
+this directly by driving the trained baseline model
+(\emph{zebrafish\_hd\_si\_ipn12\_v1}, trained on the swim-integration task
+\emph{only}) with the recorded ZAPBench ``Rotations'' stimulus
+(\cref{method:zapbench}), converting its rolled-out activity to GCaMP7f
+calcium (\cref{eq:zhd_gcamp}), and comparing it to the recorded
+$\Delta F/F$ of the $300$ matched bump-pool neurons in the same
+rastermap row order (\cref{fig:zhd_obs_baseline}).
+
+The model is an excellent head-direction predictor --- its decoded heading
+tracks the $45^\circ/\mathrm{s}$ rotation closely
+(\cref{fig:zhd_obs_baseline}b, bottom) --- yet its population activity is
+plainly \emph{not} the recorded one: the learned kinograph is a clean,
+stimulus-locked set of bands, whereas the recording
+(\cref{fig:zhd_obs_baseline}a) is irregular, bursty and drift-laden. This
+is the degeneracy at the heart of the paper, now read out on real data:
+\emph{many circuits realise the same head-direction computation, and hence
+the same task ability, while producing different activity}. Task
+supervision constrains only the two-dimensional readout
+(\cref{eq:zhd_readout}); the $N$-dimensional state it leaves unobserved is
+exactly where implementations diverge.
+
+A natural objection is that the mismatch is merely cosmetic: perhaps the
+recorded activity still encodes heading, just in a form our eye does not
+read off the kinograph. We tested this directly by training a decoder ---
+a small neural network --- to predict the instantaneous heading
+$(\cos\theta,\sin\theta)$ from the recorded per-frame $\Delta F/F$ of the
+$300$ bump-pool neurons (fit on the first $70\%$ of the rotation block,
+evaluated on the held-out tail). The result was \emph{not} conclusive: the
+decoded heading (black in \cref{fig:zhd_obs_baseline}a) does not track the
+true rotation (green), in sharp contrast to the model's own readout, which
+recovers heading almost perfectly from its latent state
+(\cref{fig:zhd_obs_baseline}b). The implication is pointed: \emph{the
+instantaneous head-direction signal is not present, frame by frame, in the
+observed calcium activity}. This is not evidence that the circuit lacks an
+HD code --- the same cells are anatomically the ring --- but that the
+\emph{observable} destroys its per-frame legibility: the slow GCaMP
+kinetics ($\tau_d = 1.2\,\mathrm{s}$, \cref{eq:zhd_gcamp}) low-pass the
+fast $45^\circ/\mathrm{s}$ bump, the $1.09\,\mathrm{Hz}$ imaging
+undersamples a bump that completes a full revolution in $8\,\mathrm{s}$
+(temporal aliasing), and only the $300$ ring cells of $839$ are seen.
+Heading is carried in the \emph{temporal dynamics} of the population, not
+in any single calcium frame --- which is precisely why the observation
+loss matches the time-course of each neuron's trace
+(\cref{eq:zhd_obs}, a per-neuron shape loss) rather than asking the
+activity to decode heading frame-by-frame.
+
+This motivates the calcium observation loss (\cref{eq:zhd_obs}): by adding
+a term that pulls the model's predicted calcium toward the recorded
+$\Delta F/F$, we aim to \emph{partially break} this degeneracy ---
+selecting, among the task-equivalent circuits, those whose activity is
+also consistent with the measured brain. Runs that train with the
+observation loss are ongoing; \cref{fig:zhd_obs_baseline} is the
+no-observation-loss baseline against which they are compared.
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=0.9\textwidth]{\figdir/fig_zebrafish_calcium_baseline.png}
+  \caption{\textbf{Task-only model: accurate heading, unrealistic activity.}
+  The baseline network (\emph{zebrafish\_hd\_si\_ipn12\_v1}, swim-integration
+  task only --- no observation loss) is driven by the recorded ZAPBench
+  Rotations stimulus and its activity rendered as GCaMP7f calcium
+  (\cref{eq:zhd_gcamp}).
+  \textbf{(a)} Recorded $\Delta F/F$ for the $300$ matched bump-pool neurons
+  (\emph{IPNd}/\emph{IPNds}/\emph{IPN12}), rastermap-ordered, during the
+  $45^\circ/\mathrm{s}$ rotation block. Bottom: true heading (green) and the
+  heading decoded from the recorded activity by a trained network (black) ---
+  the decode fails to track the rotation, i.e.\ heading is not legible from
+  the per-frame calcium.
+  \textbf{(b)} The task-only model's predicted calcium for the \emph{same}
+  neurons in the \emph{same} row order, under the \emph{same} stimulus; its
+  readout-decoded heading (black, bottom) tracks the rotation (green) well.
+  The learned activity is a clean stimulus-locked banding far from the
+  irregular recorded pattern in (a) --- task ability without activity
+  realism. Breaking this degeneracy is the target of the observation loss
+  (\cref{eq:zhd_obs}); training with it is ongoing.}
+  \label{fig:zhd_obs_baseline}
 \end{figure}
 
 \bibliographystyle{unsrtnat}

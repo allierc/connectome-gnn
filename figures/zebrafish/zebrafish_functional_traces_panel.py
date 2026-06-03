@@ -85,18 +85,6 @@ def sort_rows_rastermap(rows):
             .drop(columns="_rm").reset_index(drop=True))
 
 
-def sort_rows_ringbin(rows):
-    """Reorder rows by the connectome ring bin — the preferred-heading bin from
-    the mediolateral soma coordinate (build_rows' `ring_bin`), pooling both
-    hemispheres. This is the order in which a Petrucco-style rotating bump shows
-    up as a diagonal travelling wave that sweeps with the stimulus heading. If
-    the matched zapbench cells carry no rotating bump, the kinograph stays
-    unstructured w.r.t. the heading (no diagonal), which is the ring-attractor
-    read of the same cells the rastermap panel shows."""
-    return (rows.sort_values(["ring_bin", "side", "type"])
-            .reset_index(drop=True))
-
-
 # --------------------------------------------------------------------------- #
 #  small shared helpers
 # --------------------------------------------------------------------------- #
@@ -646,19 +634,6 @@ def main():
         # white background, black predicted trace, no L/R + F/B swim panels
         render(d, panel_rows, os.path.join(out_dir, "functional_panel_real.png"),
                real_title, bg="white", show_swim_panels=False, **kino_kw)
-
-        # Always also emit the SAME real data in ring-bin (preferred-heading)
-        # order — the order in which a rotating bump appears as a diagonal
-        # travelling wave. No CLI option: this is the ring-attractor read of
-        # the matched cells, the companion to the rastermap panel above.
-        ring_rows = sort_rows_ringbin(rows[rows["matched"]].reset_index(drop=True))
-        dr = real_panel(ring_rows, args.connectome, ts, drive_real,
-                        decoder=args.real_decoder)
-        render(dr, ring_rows,
-               os.path.join(out_dir, "functional_panel_real_ringbin.png"),
-               real_title + " — ring-bin (preferred-heading) order",
-               bg="white", show_swim_panels=False,
-               cmap_name="viridis", show_partition=False)
     if args.which in ("model", "both"):
         # Same 300-neuron rastermap row set: the model's GCaMP rows are filled by
         # bodyId; neurons the model lacks (e.g. IPN12 in the 731-cell dipn runs)
