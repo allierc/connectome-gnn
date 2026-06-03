@@ -9,6 +9,7 @@ description: |
 dataset: drosophila_cx_pi_epg_voltage_noise_free
 
 simulation:
+  gcamp_kernel: gcamp6f
   task_model_config_path: drosophila_cx_pi_epg
 
   n_frames: 64000

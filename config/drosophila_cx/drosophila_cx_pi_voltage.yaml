@@ -4,6 +4,7 @@ description: 'GNN circuit recovery from a rollout of the trained sign-locked Dro
   which uses the GNN teacher).'
 dataset: drosophila_cx_pi_voltage
 simulation:
+  gcamp_kernel: gcamp6f
   task_model_config_path: drosophila_cx_pi
   n_frames: 64000
   delta_t: 0.01

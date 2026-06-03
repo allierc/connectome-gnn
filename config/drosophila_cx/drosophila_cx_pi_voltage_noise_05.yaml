@@ -10,6 +10,7 @@ description: |
 dataset: drosophila_cx_pi_voltage_noise_05
 
 simulation:
+  gcamp_kernel: gcamp6f
   task_model_config_path: drosophila_cx_pi
 
   n_frames: 64000

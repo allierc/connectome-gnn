@@ -1,19 +1,19 @@
-description: 'designed by Claude (parallel flyvis)
+description: "designed by Claude (parallel flyvis)
 
 
   (EPG-only-readout variant: W_out reads only from the 46 EPG neurons, matching the
   Hulse 2021 wout layout.)
 
 
-  Winner config from the LLM_drosophila_cx_drosophila_cx_pi_fc_epg agentic exploration.
-  Use as parent for the _epg2 understanding exploration.'
-dataset: drosophila_cx_pi_task
+  Winner config from the LLM_drosophila_cx_drosophila_cx_pi_epg agentic exploration.
+  Use as parent for the _epg2 understanding exploration."
+dataset: drosophila_cx_pi_epg_tv_cv0
 simulation:
   gcamp_kernel: gcamp6f
   params:
-  - - 1.0
+    - - 1.0
   connconstr_datapath: papers/Code_NN/Code_NN/Data/Figure5/exported-traced-adjacencies-v1.2
-  seed: 47006
+  seed: 100000
 graph_model:
   signal_model_name: drosophila_cx_pi
   aggr_type: add
@@ -21,7 +21,6 @@ graph_model:
   output_proj: matrix
   velocity_gate: pen_4scalar
   lock_edge_signs: true
-  wrec_param: column_dale
   hidden_dim: 128
   n_layers: 3
   MLP_activation: relu
@@ -41,9 +40,8 @@ plotting:
   anatomy_voltage_show_base: true
   anatomy_voltage_show_icon: false
   anatomy_voltage_types: []
-  # Probe rollout (pattern + length + per-pattern params).
   anatomy_voltage_pattern: const
-  anatomy_voltage_n_steps: 4000
+  anatomy_voltage_n_steps: 5000
   anatomy_voltage_stride: 5
   anatomy_voltage_frame_idx: -1
   anatomy_voltage_omega_deg: 60.0
@@ -54,36 +52,47 @@ plotting:
   anatomy_voltage_seed: 0
 training:
   device: auto
-  seed: 47506
+  seed: 200000
   n_runs: 1
-  n_epochs: 5
+  n_epochs: 10
   batch_size: 64
   data_augmentation_loop: 1
   lr: 0.002
   lr_W_rec_schedule:
-  - 0.002
-  - 0.002
-  - 0.001
-  - 0.0005
-  - 0.0005
+    - 0.0005
+    - 0.0005
+    - 0.00025
+    - 0.000125
+    - 0.000125
+    - 0.0001
+    - 0.0001
+    - 0.0001
+    - 5.0e-05
+    - 5.0e-05
   lr_scheduler: none
-  lr_W_ED: 0.0005
+  lr_W_ED: 0.0025
   grad_clip_W: 2.5
   coeff_cos_distance: 0.0
-  coeff_norm_floor: 0.5
-  kappa_norm_floor: 0.05
+  coeff_norm_floor: 0.0
+  kappa_norm_floor: 0.0
   coeff_tv_circular: 0.0
   coeff_W_L1: 0.0
-  noise_recurrent_level: 0.05
+  noise_recurrent_level: 0.03
   snapshots_per_epoch: 5
   n_steps_schedule:
-  - 100
-  - 200
-  - 300
-  - 400
-  - 500
+    - 100
+    - 200
+    - 200
+    - 200
+    - 300
+    - 400
+    - 500
+    - 600
+    - 700
+    - 800
+  coeff_tail_loss: 0.035
   torch_compile: false
-  coeff_tail_loss: 0.05
+  w_init_mode: w_con
 claude:
   n_epochs: 5
   data_augmentation_loop: 1
@@ -103,4 +112,4 @@ task:
     sigma_omega_deg: 40.0
     tau_corr: 0.12
     stop_fraction: 0.2
-    seed: 0
+    seed: 300000

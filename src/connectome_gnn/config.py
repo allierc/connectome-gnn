@@ -288,6 +288,11 @@ class SimulationConfig(BaseModel):
     # variant of _generate_voltage_from_task_model.
     input_cell_types: Optional[List[str]] = None
 
+    # GCaMP indicator used for the voltage->calcium observation model (registry
+    # name in connectome_gnn.models.gcamp, e.g. gcamp6f/6s/7f/8f/8m). Selects the
+    # rise/decay kinetics when rendering calcium from rolled-out voltage.
+    gcamp_kernel: str = "gcamp7f"
+
     model_id: str = "000"
     ensemble_id: str = "0000"
 
@@ -833,8 +838,10 @@ class PlottingConfig(BaseModel):
     anatomy_voltage_stride: int = 0
     """When 0, render a single PNG at ``anatomy_voltage_frame_idx``.
     When > 0, render every Nth frame as an animation strip into a
-    sub-folder ``tmp_recons/anatomy_voltage_<organism>/frame_NNNN.png``
-    (mirrors the standalone scripts' frame-sequence output)."""
+    per-type sub-folder ``tmp_recons/<types>/frame_NNNN.png`` (``<types>``
+    = the ``anatomy_voltage_types`` whitelist joined by ``_``, or ``all``
+    when empty), and assemble ``tmp_recons/<types>.mp4`` from the cropped
+    frames."""
     anatomy_voltage_frame_idx: int = -1
     """Single-snapshot mode: which timestep of h_traj to visualise (-1 = last)."""
     anatomy_voltage_trial_idx: int = 0
@@ -895,6 +902,11 @@ class PlottingConfig(BaseModel):
     (e.g. ``["EPG"]`` for fly or
     ``["IPNd13B","IPNd13A","IPNds13A","IPNds13B","IPN12_a","IPN12_b"]``
     for fish) without the surrounding afferents."""
+    anatomy_voltage_fps: int = 20
+    """Playback frame-rate for the mp4 assembled from the frame sequence
+    (``stride > 0``). The render writes frames to
+    ``tmp_recons/<types>/frame_NNNN.png`` and a movie
+    ``tmp_recons/<types>.mp4`` at this fps."""
 
 
 class TrainingConfig(BaseModel):

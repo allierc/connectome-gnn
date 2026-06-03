@@ -27,6 +27,7 @@ description: |
   the connectome itself plus a learnable I/O is sufficient for HD.
 dataset: drosophila_cx_pi
 simulation:
+  gcamp_kernel: gcamp6f
   params:
     - - 1.0
   connconstr_datapath: papers/Code_NN/Code_NN/Data/Figure5/exported-traced-adjacencies-v1.2
