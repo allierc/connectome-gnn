@@ -269,78 +269,12 @@ def stim_to_drive(stim, dt, nominal_omega):
 
 
 # --------------------------------------------------------------------------- #
-#  Rotations task — real heading from stimParam3 (the 8. Rotations sequence)
+#  Rotations task — real heading from stimParam3 (the 8. Rotations sequence).
+#  Moved to the package so the same probe is a first-class anatomy_voltage
+#  pattern (zapbench_rotation); re-imported here so this script is unchanged.
 # --------------------------------------------------------------------------- #
-ROT_TASK = 7                                   # 0-based onset index (trial_index 8)
-_ROT_OBJ = ("volumes/20240930/stimuli_raw/stimuli_and_ephys.10chFlt")
-_ROT_BUCKET = "zapbench-release"
-
-
-def rotation_headings(fishfuncem_data, connectome_dir, model_dt, src_dt=0.915):
-    """Real heading (deg) for the Rotations block from stimParam3 (ch6),
-    unwrapped at the full 6 kHz so the true 45°/s rotation is preserved.
-
-    Returns (theta_hr, frames, theta_frame):
-      theta_hr    — heading on the MODEL grid (model_dt); drives the model at
-                    the true ±45°/s so its bump rotates correctly.
-      frames      — imaging-frame indices of the block (for ΔF/F slicing).
-      theta_frame — heading at imaging-frame times (1.09 Hz); used for display
-                    and the MLP target. Sampling the true 45°/s rotation at
-                    1.09 Hz aliases — this is the unavoidable imaging limit, so
-                    the model output is sampled the SAME way for a fair compare.
-    Cached so the 288 MB GCS read happens once."""
-    cache = os.path.join(connectome_dir, "functional", "rotation_heading.npz")
-    from fishfuncem import FishFunctional
-    ff = FishFunctional.from_data_dir(fishfuncem_data)
-    f0 = int(np.asarray(ff.onsets_frames)[ROT_TASK])
-    f1 = int(np.asarray(ff.offsets_frames)[ROT_TASK])
-    frames = np.arange(f0, f1)
-    n_fr = len(frames)
-    dur = n_fr * src_dt
-    if os.path.isfile(cache):
-        z = np.load(cache)
-        if z["frames"].shape == frames.shape and abs(float(z["model_dt"]) - model_dt) < 1e-9:
-            return z["theta_hr"], frames, z["theta_frame"]
-    on = np.load(os.path.join(fishfuncem_data, "functional",
-                              "onsets_processed.npz"), allow_pickle=True
-                 )["onsets_dict"].item()
-    oe = np.asarray(on["onsets_ephys"]).astype(np.int64)
-    s0, s1 = int(oe[ROT_TASK]), int(oe[ROT_TASK + 1])
-    NCH = 10
-    import urllib.request
-    req = urllib.request.Request(
-        f"https://storage.googleapis.com/{_ROT_BUCKET}/{_ROT_OBJ}",
-        headers={"Range": f"bytes={s0 * NCH * 4}-{s1 * NCH * 4 - 1}"})
-    a = np.frombuffer(urllib.request.urlopen(req).read(),
-                      dtype="<f4").reshape(-1, NCH)
-    theta_full = np.unwrap(a[:, 6], period=90.0)        # true heading @ 6 kHz
-    src_t = np.linspace(0.0, dur, len(theta_full))
-    theta_hr = np.interp(np.arange(0.0, dur, model_dt), src_t, theta_full)
-    theta_frame = np.interp(np.arange(n_fr) * src_dt, src_t, theta_full)
-    np.savez(cache, theta_hr=theta_hr.astype(np.float32),
-             theta_frame=theta_frame.astype(np.float32),
-             frames=frames, model_dt=np.float32(model_dt))
-    print(f"[rotation] heading: {n_fr} frames, true 45°/s, "
-          f"|path|={np.abs(np.diff(theta_full)).sum()/360:.0f} turns over "
-          f"{dur/60:.1f} min (imaging-undersampled for display)")
-    return theta_hr.astype(np.float32), frames, theta_frame.astype(np.float32)
-
-
-def heading_to_drive(theta_deg, dt, src_dt=0.915):
-    """Build a drive (omega, theta, zero ticks, t_sec) on a `dt` grid from a
-    per-source-frame heading (deg). Rotation has no swim events, so the L/R and
-    F/B tick channels are zero."""
-    n_src = len(theta_deg)
-    T_src = (n_src - 1) * src_dt
-    t = np.arange(0.0, T_src, dt) if dt < src_dt else np.arange(n_src) * src_dt
-    th = np.interp(t, np.arange(n_src) * src_dt, theta_deg)   # deg
-    theta_rad = np.deg2rad(th)
-    omega = np.gradient(th, dt)                                # deg/s
-    return dict(omega=omega.astype(np.float32),
-                turn_lr=np.zeros_like(omega, np.float32),
-                swim_fb=np.zeros_like(omega, np.float32),
-                theta=theta_rad.astype(np.float32),
-                t_sec=t.astype(np.float32), rep=1)
+from connectome_gnn.generators.zapbench_stimulus import (  # noqa: E402
+    ROT_TASK, rotation_headings, heading_to_drive)
 
 
 # --------------------------------------------------------------------------- #

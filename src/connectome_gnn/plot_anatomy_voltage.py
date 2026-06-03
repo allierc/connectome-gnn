@@ -24,6 +24,7 @@ through ``data_test``.
 from __future__ import annotations
 
 import os
+import re
 from typing import Optional
 
 import numpy as np
@@ -349,11 +350,15 @@ def _draw_animal_icon(ax, organism: str, theta_rad: float,
 # Two-phase render: heavy one-time scene prep + cheap per-frame paint.
 # ---------------------------------------------------------------------------
 
-def _prepare_scene(circuit, plot_cfg, organism_label: str) -> dict:
-    """One-time work: load every SWC, project to 2D, compute per-segment
-    owner array, derive the static camera frame. Result is reused across
-    all frames in an animation pass; this is the speedup that takes the
-    per-frame time from O(seconds) to O(ms)."""
+def _prepare_projection(circuit, plot_cfg, organism_label: str) -> dict:
+    """Type-independent one-time work: load every SWC, project to 2D,
+    compute the per-segment owner array, and the static camera frame.
+
+    This is the heavy part (navis SWC loads + projection of ~80k
+    segments). It does NOT depend on the type whitelist, so a multi-group
+    render (one folder per type list) can reuse a single projection and
+    only recompute the cheap per-group keep mask via ``_scene_for_types``.
+    """
     elev = float(plot_cfg.anatomy_voltage_elev)
     azim = float(plot_cfg.anatomy_voltage_azim)
     downsample = int(plot_cfg.anatomy_voltage_downsample)
@@ -361,9 +366,6 @@ def _prepare_scene(circuit, plot_cfg, organism_label: str) -> dict:
 
     neurons, type_names_per, has_skel = _load_skeletons_for_circuit(
         circuit, downsample=downsample,
-    )
-    keep = _type_keep_mask(
-        type_names_per, list(plot_cfg.anatomy_voltage_types), has_skel,
     )
     _, seg_owner, all_segs = _extract_segments(neurons)
 
@@ -376,9 +378,6 @@ def _prepare_scene(circuit, plot_cfg, organism_label: str) -> dict:
     segs2d_full = _project_2d(
         all_segs.reshape(-1, 3), elev, azim,
     ).reshape(-1, 2, 2)
-    keep_owner = keep[seg_owner]
-    segs2d_lit = segs2d_full[keep_owner]
-    seg_owner_kept = seg_owner[keep_owner]
 
     # Static camera box (data range). Use the FULL set of segments so
     # that the camera frames the whole anatomy — the base skeleton (which
@@ -391,10 +390,10 @@ def _prepare_scene(circuit, plot_cfg, organism_label: str) -> dict:
 
     return {
         "empty": False,
-        "segs2d_full": segs2d_full,      # all neurons, for the base skeleton
-        "segs2d_lit": segs2d_lit,        # whitelisted neurons, for green overlay
-        "seg_owner_kept": seg_owner_kept,
-        "n_lit_neurons": int(keep.sum()),
+        "segs2d_full": segs2d_full,
+        "seg_owner": seg_owner,
+        "type_names_per": type_names_per,
+        "has_skel": has_skel,
         "n_total_neurons": int(circuit.N),
         "xlim": (float(x_lo - pad_x), float(x_hi + pad_x)),
         "ylim": (float(y_lo - pad_y), float(y_hi + pad_y)),
@@ -404,10 +403,51 @@ def _prepare_scene(circuit, plot_cfg, organism_label: str) -> dict:
     }
 
 
+def _scene_for_types(proj: dict, types: list) -> dict:
+    """Cheap per-group step: given a reusable projection from
+    ``_prepare_projection`` and a type whitelist, compute the lit-segment
+    subset + a scene dict ready for ``_render_frame_from_scene``."""
+    if proj.get("empty"):
+        return dict(proj)
+    keep = _type_keep_mask(
+        proj["type_names_per"], list(types or []), proj["has_skel"],
+    )
+    seg_owner = proj["seg_owner"]
+    segs2d_full = proj["segs2d_full"]
+    keep_owner = keep[seg_owner]
+    return {
+        "empty": False,
+        "segs2d_full": segs2d_full,      # all neurons, for the base skeleton
+        "segs2d_lit": segs2d_full[keep_owner],   # whitelist, for green overlay
+        "seg_owner_kept": seg_owner[keep_owner],
+        "n_lit_neurons": int(keep.sum()),
+        "n_total_neurons": proj["n_total_neurons"],
+        "xlim": proj["xlim"],
+        "ylim": proj["ylim"],
+        "bg": proj["bg"],
+        "circuit": proj["circuit"],
+        "organism_label": proj["organism_label"],
+    }
+
+
+def _prepare_scene(circuit, plot_cfg, organism_label: str) -> dict:
+    """One-time work: load every SWC, project to 2D, compute per-segment
+    owner array, derive the static camera frame. Result is reused across
+    all frames in an animation pass; this is the speedup that takes the
+    per-frame time from O(seconds) to O(ms).
+
+    Thin wrapper over ``_prepare_projection`` + ``_scene_for_types`` using
+    the single whitelist in ``plot_cfg.anatomy_voltage_types`` (preserves
+    the original single-group callers)."""
+    proj = _prepare_projection(circuit, plot_cfg, organism_label)
+    return _scene_for_types(proj, list(plot_cfg.anatomy_voltage_types))
+
+
 def _render_frame_from_scene(
     scene: dict, z_t: np.ndarray, frame_idx: int, T: int,
     plot_cfg, out_path: str,
     theta_hd_rad: float = 0.0,
+    neurons_label: Optional[str] = None,
 ) -> None:
     """Per-frame paint. Uses the prepared ``scene`` so the only work here
     is alpha lookup + LineCollection + savefig. Mirrors the standalone
@@ -488,8 +528,11 @@ def _render_frame_from_scene(
     import math
     hd_deg = math.degrees(theta_hd_rad)
     hd_deg = ((hd_deg + 180.0) % 360.0) - 180.0
-    whitelist = list(getattr(plot_cfg, "anatomy_voltage_types", []) or [])
-    neurons_str = "all" if not whitelist else ",".join(whitelist)
+    if neurons_label is not None:
+        neurons_str = neurons_label
+    else:
+        whitelist = list(getattr(plot_cfg, "anatomy_voltage_types", []) or [])
+        neurons_str = "all" if not whitelist else ",".join(whitelist)
     txt_color = "white" if bg == "black" else "black"
     ax.text(
         0.02, 0.97,
@@ -714,10 +757,30 @@ def _single_impulse_stimulus(n_steps: int, dt: float, direction: str,
 
 def _build_stimulus_from_plot_cfg(plot_cfg, dt: float):
     """Single entry point that picks the right stimulus builder based on
-    ``plot_cfg.anatomy_voltage_pattern`` and returns a (1, T, 3) tensor
-    plus a short label string for figure captioning."""
+    ``plot_cfg.anatomy_voltage_pattern`` and returns ``(u, label, extra)``:
+    a (1, T, 3) stimulus, a caption string, and an optional dict of
+    pattern-specific metadata (None for the synthetic patterns; for
+    ``zapbench_rotation`` it carries warm_steps / sample_steps / theta_frame /
+    n_frames so a caller can subsample the rollout at imaging frames)."""
     pat = str(getattr(plot_cfg, "anatomy_voltage_pattern", "const")).lower()
     n_steps = int(plot_cfg.anatomy_voltage_n_steps)
+    extra = None
+    if pat == "zapbench_rotation":
+        from connectome_gnn.generators.zapbench_stimulus import (
+            zapbench_rotation_stimulus)
+        drive = zapbench_rotation_stimulus(
+            dt,
+            warmup_s=float(getattr(plot_cfg, "anatomy_voltage_warmup_s", 10.0)),
+            connectome_dir=(getattr(plot_cfg,
+                                    "anatomy_voltage_zapbench_connectome", "")
+                            or None),
+            fishfuncem_data=(getattr(
+                plot_cfg, "anatomy_voltage_zapbench_fishfuncem_data", "")
+                or None))
+        u, label = drive["u"], drive["label"]
+        extra = {k: drive[k] for k in
+                 ("warm_steps", "sample_steps", "theta_frame", "n_frames")}
+        return u, label, extra
     if pat == "const":
         u = _const_omega_stimulus(
             n_steps, dt,
@@ -760,39 +823,44 @@ def _build_stimulus_from_plot_cfg(plot_cfg, dt: float):
     else:
         raise ValueError(
             f"unknown anatomy_voltage_pattern={pat!r}; expected one of "
-            f"const / swim / swim_left / swim_right / ou"
+            f"const / swim / swim_left / swim_right / ou / zapbench_rotation"
         )
-    return u, label
+    return u, label, extra
 
 
-def run_probe_rollout(model, plot_cfg, device) -> "tuple[np.ndarray, np.ndarray, str]":
+def run_task_rollout(model, plot_cfg, device):
     """Run the chosen probe rollout on ``model`` and return
-    ``(h_traj_numpy, theta_hd_numpy, label_string)``.
+    ``(h_traj, y_hat, theta_hd, label, extra)``.
 
-    ``theta_hd`` is integrated directly from the stimulus's ω channel
-    (channel 0, deg/s) with the initial heading recovered from channels
-    1-2 (cos θ₀ · δ_{t=0}, sin θ₀ · δ_{t=0}). Same convention the
-    TaskRNN consumes.
+    ``h_traj`` is the (T, N) hidden-state (voltage) trajectory — the series to
+    convolve with a GCaMP kernel for calcium. ``y_hat`` is the model's (T, 2)
+    readout (cos/sin heading). ``theta_hd`` is integrated directly from the
+    stimulus's ω channel (channel 0, deg/s) with θ₀ recovered from channels 1-2
+    (cos θ₀·δ_{t=0}, sin θ₀·δ_{t=0}). ``extra`` is the pattern metadata from
+    :func:`_build_stimulus_from_plot_cfg` (None except for zapbench_rotation).
 
     ``model`` must expose a ``dt`` attribute and a ``forward(u) -> (y_hat,
     h_buf)`` signature matching the standalone TaskRNN/TaskGNN classes."""
     import math
     import torch
     dt = float(model.dt)
-    u_np, label = _build_stimulus_from_plot_cfg(plot_cfg, dt)
+    u_np, label, extra = _build_stimulus_from_plot_cfg(plot_cfg, dt)
     u = torch.from_numpy(u_np).to(device)
     with torch.no_grad():
-        _, h_buf = model(u)
-    # Integrate omega → heading. theta0 lives only on the first frame of
-    # channels 1 (cos) and 2 (sin); for t > 0 they're zero by construction.
+        y_hat, h_buf = model(u)
     omega_rad = np.deg2rad(u_np[0, :, 0].astype(np.float64))
     theta0_rad = float(math.atan2(u_np[0, 0, 2], u_np[0, 0, 1]))
     theta_hd = theta0_rad + np.cumsum(omega_rad) * dt
-    return (
-        h_buf[0].detach().cpu().numpy(),
-        theta_hd.astype(np.float32),
-        label,
-    )
+    return (h_buf[0].detach().cpu().numpy(),
+            y_hat[0].detach().cpu().numpy(),
+            theta_hd.astype(np.float32), label, extra)
+
+
+def run_probe_rollout(model, plot_cfg, device) -> "tuple[np.ndarray, np.ndarray, str]":
+    """Thin wrapper over :func:`run_task_rollout` for the anatomy renderer:
+    returns ``(h_traj, theta_hd, label)`` (drops the readout + extras)."""
+    h_traj, _y, theta_hd, label, _extra = run_task_rollout(model, plot_cfg, device)
+    return h_traj, theta_hd, label
 
 
 # ---------------------------------------------------------------------------
@@ -828,6 +896,115 @@ def render_anatomy_voltage(
 
 
 # ---------------------------------------------------------------------------
+# Output helpers: types -> folder name, content crop, frames -> mp4
+# ---------------------------------------------------------------------------
+
+def types_folder_name(types) -> str:
+    """Filesystem-safe folder name for a type whitelist:
+    ``["IPN12_a", "IPN12_b"] -> "IPN12_a_IPN12_b"``; empty -> ``"all"``."""
+    parts = [str(t).strip() for t in (types or []) if str(t).strip()]
+    if not parts:
+        return "all"
+    # Keep underscores: the type names themselves contain them (IPN12_a)
+    # and "_" is also the join separator -> ["IPN12_a","IPN12_b"] ->
+    # "IPN12_a_IPN12_b". Only non [A-Za-z0-9_.+-] chars are replaced.
+    safe = [re.sub(r"[^A-Za-z0-9_.+-]", "-", p) for p in parts]
+    return "_".join(safe)
+
+
+def _ffmpeg_exe() -> str:
+    """Path to an ffmpeg binary: prefer the pip-bundled imageio-ffmpeg
+    (always present in our env), else the system ``ffmpeg``."""
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return "ffmpeg"
+
+
+def _content_bbox(frame_paths, bg: str = "black",
+                  sample: int = 60, pad_frac: float = 0.01):
+    """Union bounding box (left, upper, right, lower) of the non-background
+    content across a sample of frames, padded and rounded to even side
+    lengths (h264 needs even W/H). The dark-grey base skeleton is in every
+    frame, so this box is stable across frames and across type groups."""
+    from PIL import Image
+    paths = list(frame_paths)
+    if not paths:
+        return None
+    black_bg = str(bg).lower() == "black"
+    step = max(1, len(paths) // max(1, sample))
+    xlo = ylo = 1 << 30
+    xhi = yhi = -1
+    H = W = 0
+    for p in paths[::step]:
+        a = np.asarray(Image.open(p).convert("RGB"))
+        H, W = a.shape[:2]
+        mask = (a.max(2) > 12) if black_bg else (a.min(2) < 243)
+        ys, xs = np.where(mask)
+        if xs.size == 0:
+            continue
+        xlo = min(xlo, int(xs.min())); xhi = max(xhi, int(xs.max()))
+        ylo = min(ylo, int(ys.min())); yhi = max(yhi, int(ys.max()))
+    if xhi < 0:
+        return (0, 0, W, H)
+    px = int(pad_frac * (xhi - xlo + 1))
+    py = int(pad_frac * (yhi - ylo + 1))
+    xlo = max(0, xlo - px); ylo = max(0, ylo - py)
+    xhi = min(W - 1, xhi + px); yhi = min(H - 1, yhi + py)
+    w = (xhi - xlo + 1) & ~1   # force even
+    h = (yhi - ylo + 1) & ~1
+    return (xlo, ylo, xlo + w, ylo + h)
+
+
+def crop_frames_inplace(frame_paths, box) -> None:
+    """Crop each PNG to ``box`` (left, upper, right, lower), overwriting it.
+    No-op when ``box`` is None."""
+    if box is None:
+        return
+    from PIL import Image
+    for p in frame_paths:
+        im = Image.open(p)
+        im.crop(box).save(p)
+
+
+def frames_to_mp4(frame_paths, mp4_path: str, fps: int = 20) -> Optional[str]:
+    """Encode a list of (equal-size) PNG frames into an H.264 mp4 by piping
+    raw RGB into ffmpeg. Returns the mp4 path, or None if no frames."""
+    import subprocess
+    from PIL import Image
+    paths = list(frame_paths)
+    if not paths:
+        return None
+    a0 = np.asarray(Image.open(paths[0]).convert("RGB"))
+    H, W = a0.shape[:2]
+    os.makedirs(os.path.dirname(mp4_path) or ".", exist_ok=True)
+    cmd = [
+        _ffmpeg_exe(), "-y", "-loglevel", "error",
+        "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}",
+        "-r", str(int(fps)), "-i", "pipe:", "-an",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "20",
+        "-movflags", "+faststart", mp4_path,
+    ]
+    try:
+        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
+        for p in paths:
+            a = np.asarray(Image.open(p).convert("RGB"))
+            if a.shape[:2] != (H, W):  # safety: re-fit stray sizes
+                a = np.asarray(Image.open(p).convert("RGB").resize((W, H)))
+            proc.stdin.write(np.ascontiguousarray(a).tobytes())
+        proc.stdin.close()
+        rc = proc.wait()
+    except (OSError, FileNotFoundError) as e:
+        # ffmpeg missing / unwritable target: the frames are already on
+        # disk, so warn and continue rather than abort the whole render.
+        print(f"  [anatomy_voltage] mp4 encode skipped ({e}); frames kept "
+              f"under {os.path.dirname(mp4_path)}")
+        return None
+    return mp4_path if rc == 0 else None
+
+
+# ---------------------------------------------------------------------------
 # Test-pipeline entry point — one call from data_test_path_integration_task
 # ---------------------------------------------------------------------------
 
@@ -839,6 +1016,10 @@ def run_anatomy_voltage_test(
     *,
     device=None,
     organism: Optional[str] = None,
+    type_groups: "Optional[list]" = None,
+    crop: bool = True,
+    make_movie: bool = True,
+    fps: Optional[int] = None,
 ) -> "Optional[str]":
     """Run the probe rollout chosen by ``plot_cfg.anatomy_voltage_pattern``
     on ``model`` and render either a single PNG snapshot
@@ -847,8 +1028,23 @@ def run_anatomy_voltage_test(
     test pipeline) provides ``log_dir`` so we can place the output under
     ``<log_dir>/tmp_recons/``.
 
-    Returns the output path on success (single PNG) or the output
-    directory (animation), and None on early skip / failure.
+    Output layout (one sub-folder + one mp4 per type group)::
+
+        <log_dir>/tmp_recons/<folder>/frame_0000.png ...
+        <log_dir>/tmp_recons/<folder>.mp4
+
+    where ``<folder>`` is the type whitelist joined by ``_`` (e.g.
+    ``IPN12_a_IPN12_b``) or ``all`` when the whitelist is empty
+    (:func:`types_folder_name`). Frames are cropped to the anatomy's
+    content box (``crop``) and assembled into an mp4 (``make_movie``).
+
+    ``type_groups`` lets one rollout drive several whitelists: a list
+    where each element is itself a list of type names (``[]`` = all). When
+    None, the single whitelist in ``plot_cfg.anatomy_voltage_types`` is
+    used. The heavy SWC load + 2D projection is shared across groups.
+
+    Returns the last mp4 path (or the last frame path if movies are off),
+    and None on early skip / failure.
     """
     if circuit is None or circuit.body_ids is None:
         return None
@@ -857,7 +1053,12 @@ def run_anatomy_voltage_test(
                     else "drosophila")
     organism_label = "zebrafish" if organism == "zebrafish" else "drosophila CX"
 
-    # 1. Probe rollout under the chosen pattern.
+    if type_groups is None:
+        type_groups = [list(plot_cfg.anatomy_voltage_types)]
+    if fps is None:
+        fps = int(getattr(plot_cfg, "anatomy_voltage_fps", 20) or 20)
+
+    # 1. Probe rollout under the chosen pattern (shared across groups).
     h_traj, theta_hd, label = run_probe_rollout(model, plot_cfg, device)
     T, N = h_traj.shape
     if N != circuit.N:
@@ -867,19 +1068,9 @@ def run_anatomy_voltage_test(
         )
     z = _zscore_per_neuron(h_traj)
 
-    # 2. Always write a flat indexed sequence
-    # (tmp_recons/anatomy_voltage_NNNN.png) so the folder is directly
-    # ImageJ-stack-importable. ``stride <= 0`` means a single frame at
-    # frame_idx → one file, anatomy_voltage_0000.png.
     stride = int(getattr(plot_cfg, "anatomy_voltage_stride", 0) or 0)
     tmp_recons = os.path.join(log_dir, "tmp_recons")
     os.makedirs(tmp_recons, exist_ok=True)
-
-    # Clean stale ``anatomy_voltage_*.png`` from any prior run.
-    for fn in os.listdir(tmp_recons):
-        if fn.startswith("anatomy_voltage_") and fn.endswith(".png"):
-            try: os.remove(os.path.join(tmp_recons, fn))
-            except OSError: pass
 
     if stride <= 0:
         frame_ks = np.array(
@@ -889,36 +1080,69 @@ def run_anatomy_voltage_test(
     else:
         frame_ks = np.arange(stride - 1, T, stride, dtype=np.int64)
 
-    # 3. HEAVY one-time scene prep (SWCs, projection, segment-owner map,
-    # static camera box). Avoids the ~13 s/frame slowdown of re-loading
-    # 800+ SWCs and re-projecting 80k segments per frame.
+    # 2. HEAVY one-time, type-independent scene prep (SWCs, projection,
+    # segment-owner map, static camera box). Reused across every group so
+    # an N-group render pays the ~10-30 s SWC load + projection only once.
     import time as _time
-    _t0 = _time.time()
-    scene = _prepare_scene(circuit, plot_cfg, organism_label)
-    print(f"  [anatomy_voltage:{organism}] scene ready in "
-          f"{_time.time() - _t0:.1f}s "
-          f"(whitelist {scene.get('n_lit_neurons', 0)}/{circuit.N} neurons, "
-          f"{len(scene.get('segs2d_full', [])):,} segments)")
-
-    # 4. Cheap per-frame paint loop.
     from tqdm import tqdm
+    _t0 = _time.time()
+    proj = _prepare_projection(circuit, plot_cfg, organism_label)
+    print(f"  [anatomy_voltage:{organism}] projection ready in "
+          f"{_time.time() - _t0:.1f}s "
+          f"({len(proj.get('segs2d_full', [])):,} segments, "
+          f"{len(type_groups)} group(s))")
+
     last_out: Optional[str] = None
-    pbar = tqdm(
-        list(enumerate(frame_ks)),
-        desc=f"[anatomy_voltage:{organism}] rendering",
-        unit="frame",
-        ncols=150,
-        leave=True,
-    )
-    for ix, k in pbar:
-        out_path = os.path.join(
-            tmp_recons, f"anatomy_voltage_{ix:04d}.png",
+    for grp in type_groups:
+        types = list(grp or [])
+        folder = types_folder_name(types)
+        neurons_label = "all" if not types else ",".join(types)
+        out_dir = os.path.join(tmp_recons, folder)
+        os.makedirs(out_dir, exist_ok=True)
+        # Clean stale frames from a prior run of this group.
+        for fn in os.listdir(out_dir):
+            if fn.startswith("frame_") and fn.endswith(".png"):
+                try: os.remove(os.path.join(out_dir, fn))
+                except OSError: pass
+
+        scene = _scene_for_types(proj, types)
+        print(f"  [anatomy_voltage:{organism}] group '{folder}': "
+              f"whitelist {scene.get('n_lit_neurons', 0)}/{circuit.N} neurons")
+
+        frame_paths: list = []
+        crop_box = None   # fixed from the first frame; see note below
+        pbar = tqdm(
+            list(enumerate(frame_ks)),
+            desc=f"[anatomy_voltage:{organism}] {folder}",
+            unit="frame", ncols=150, leave=True,
         )
-        _render_frame_from_scene(
-            scene, z[int(k)], int(k), T, plot_cfg, out_path,
-            theta_hd_rad=float(theta_hd[int(k)]),
-        )
-        last_out = out_path
-        pbar.set_postfix_str(f"frame_t={int(k)}/{T-1}")
-    pbar.close()
+        for ix, k in pbar:
+            out_path = os.path.join(out_dir, f"frame_{ix:04d}.png")
+            _render_frame_from_scene(
+                scene, z[int(k)], int(k), T, plot_cfg, out_path,
+                theta_hd_rad=float(theta_hd[int(k)]),
+                neurons_label=neurons_label,
+            )
+            # 3. Crop away the blank margins as each frame is written, so the
+            # folder is tight even mid-run (and the user sees cropped frames
+            # while it renders). The dark-grey base skeleton (all neurons,
+            # drawn every frame) fixes the content box, so the first frame
+            # defines it for the whole group; the green overlay is always a
+            # subset of the base and can never fall outside it.
+            if crop:
+                if crop_box is None:
+                    crop_box = _content_bbox([out_path], bg=proj.get("bg", "black"))
+                crop_frames_inplace([out_path], crop_box)
+            frame_paths.append(out_path)
+            pbar.set_postfix_str(f"frame_t={int(k)}/{T-1}")
+        pbar.close()
+
+        # 4. Assemble the mp4 next to the folder: tmp_recons/<folder>.mp4.
+        last_out = frame_paths[-1] if frame_paths else None
+        if make_movie and len(frame_paths) > 1:
+            mp4_path = os.path.join(tmp_recons, f"{folder}.mp4")
+            mp4 = frames_to_mp4(frame_paths, mp4_path, fps=fps)
+            if mp4:
+                print(f"  [anatomy_voltage:{organism}] wrote movie: {mp4}")
+                last_out = mp4
     return last_out
