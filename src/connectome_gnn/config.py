@@ -1102,6 +1102,20 @@ class TrainingConfig(BaseModel):
     # behaviour. Typical value 0.1 prevents late-time activity collapse by
     # supplying a small gradient on the post-horizon segment.
     coeff_tail_loss: float = 0.0
+    # --- calcium observation supervision (zebrafish ZAPBench; optional) ------
+    # Number of real-calcium trials (dataset B, produced by
+    # generators/make_calcium_dataset.py) appended to each task batch. 0
+    # disables the whole observation branch — byte-equal to task-only training.
+    # This is the single on/off flag (`use_calcium = calcium_batch_size > 0`).
+    calcium_batch_size: int = 0
+    # Dataset-B name (a TaskTrials dir with an extra calcium.zarr +
+    # calcium_mapping.pt). Empty → reuse the task `dataset`. Unused when
+    # calcium_batch_size == 0.
+    calcium_dataset: str = ""
+    # Scale of the scale-invariant calcium observation loss relative to the
+    # heading MSE (the first loss term). The voltage→calcium model is chosen by
+    # `simulation.gcamp_kernel`.
+    coeff_observation: float = 0.0
     # Per-epoch learning-rate schedule (Hulse). Empty list → constant `lr`.
     # Padded with the last value if n_epochs > len(schedule).
     lr_schedule: List[float] = Field(default_factory=lambda: [5e-3, 1e-3, 5e-4, 2e-4, 1e-4])
