@@ -13,7 +13,7 @@ paper sorts rows by rastermap (cosmetic); we keep raw order so the ticks land
 at the actual indices we use.
 
   /workspace/.conda_envs/neural-graph-linux/bin/python \
-      scripts/zapbench_full_kinograph.py
+      figures/zebrafish/zapbench_full_kinograph.py
 """
 import argparse
 import os
@@ -22,7 +22,8 @@ import sys
 import numpy as np
 import pandas as pd
 
-_REPO = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
+_REPO = os.path.abspath(
+    os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 sys.path.insert(0, os.path.join(_REPO, "papers", "fishFuncEM"))
 
 _GD = "/groups/saalfeld/home/allierc/GraphData/graphs_data/zebrafish"
@@ -91,7 +92,6 @@ def main():
                          "(0..0.5); recommended with --bump-only")
     args = ap.parse_args()
     out = os.path.join(_REPO, "figures", "zebrafish",
-                       "zebrafish_connectome_HD_IPN12", "functional",
                        "zapbench_bump_kinograph.png" if args.bump_only
                        else "zapbench_full_kinograph.png")
     # matched rows — restrict to the bump pool (dIPN ring + IPN12), the same

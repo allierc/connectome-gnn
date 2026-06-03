@@ -501,16 +501,30 @@ def render_cx_snapshot_into_axes(
         #   y = row of M = post, x = col of M = pre, Dale visible on cols.
         J = M
         J_arr = np.asarray(J, dtype=np.float32)
-        nz = J_arr[J_arr != 0]
-        if nz.size:
-            mu = float(nz.mean())
-            sd = float(nz.std() + 1e-12)
-        else:
-            mu, sd = 0.0, 1.0
-        Z = np.where(J_arr != 0, (J_arr - mu) / sd, 0.0)
-        z_max = 3.0
+        nz = np.abs(J_arr[J_arr != 0])
+        # Zero-centred, sign-preserving scale so EVERY non-zero edge gets a
+        # clear colour (red = excitatory, blue = inhibitory) instead of the
+        # bulk washing out to white. A z-score centres the *most common*
+        # weight at white and the 5x-amplified inhibitory tail inflates the
+        # spread, so the matrix looked empty. The sqrt compresses that heavy
+        # tail so small and large edges are both visible; the 90th-percentile
+        # magnitude maps to full saturation.
+        scale = float(np.percentile(nz, 90)) if nz.size else 1.0
+        Z = np.sign(J_arr) * np.sqrt(np.abs(J_arr) / (scale + 1e-12))
+        z_max = 1.0
         Z = np.clip(Z, -z_max, z_max)
-        im = ax.imshow(Z, cmap="RdBu_r", vmin=-z_max, vmax=z_max,
+        # Dilate each 1-px edge into a blob so individual synapses are visible
+        # at panel resolution (a 731-839 node matrix shown this small renders
+        # single edges sub-pixel and washes out). The blob size scales with
+        # the matrix so the edges stay visible regardless of N. Signed:
+        # positive entries via max-filter, negative via min-filter, larger
+        # magnitude wins where blobs overlap (as in fig_connectome_summary).
+        from scipy.ndimage import maximum_filter, minimum_filter
+        blob = max(5, int(round(J_arr.shape[0] / 130.0)))  # ~5-7 px for N=731-839
+        Zpos = maximum_filter(np.where(Z > 0, Z, 0.0), size=blob)
+        Zneg = minimum_filter(np.where(Z < 0, Z, 0.0), size=blob)
+        Zvis = np.where(np.abs(Zpos) >= np.abs(Zneg), Zpos, Zneg)
+        im = ax.imshow(Zvis, cmap="RdBu_r", vmin=-z_max, vmax=z_max,
                        aspect="equal", interpolation="nearest", origin="upper")
         if neuron_types is not None and type_names is not None:
             bounds, centres, labels = [0], [], []
@@ -536,12 +550,12 @@ def render_cx_snapshot_into_axes(
             ax.set_title(title, fontsize=8)
         ax.set_xlabel("presynaptic"); ax.set_ylabel("postsynaptic")
         cb = fig.colorbar(im, ax=ax, fraction=0.04, pad=0.02, shrink=0.8)
-        cb.set_label("z-score", fontsize=11)
+        cb.set_label(r"sign$\cdot\sqrt{|W|}$ (norm.)", fontsize=10)
         cb.ax.tick_params(labelsize=9)
 
     # ---- (0,0) GT W_con (reference) + (0,1) learned W_rec ----
     if W_con is not None:
-        _render_matrix(ax_gt, W_con, "GT W_con (z-scored, $\\pm 3\\,\\sigma$)")
+        _render_matrix(ax_gt, W_con, "GT W_con (signed, $\\sqrt{}$-scaled)")
     else:
         ax_gt.text(0.5, 0.5, "no W_con provided", ha="center", va="center",
                    transform=ax_gt.transAxes, fontsize=11, color="0.5")
@@ -841,7 +855,7 @@ def plot_cx_training_snapshot(
             slope, intercept = np.polyfit(x, y, 1)
             r = float(np.corrcoef(x, y)[0, 1])
             r2 = r * r
-            ax_fw.scatter(x, y, s=8, c="0.2", alpha=0.1, edgecolors="none")
+            ax_fw.scatter(x, y, s=30, c="0.15", alpha=0.55, edgecolors="none")
             lo, hi = float(x.min()), float(x.max())
             xline = np.array([lo, hi])
             ax_fw.plot(xline, slope * xline + intercept, color="C3", lw=1.0)
@@ -1114,18 +1128,29 @@ def _panel_label(ax, letter: str):
 
 
 def _panel_matrix(ax, M: np.ndarray, neuron_types, type_names, title: str):
-    """Type-pair grouped W matrix, z-scored over non-zero entries (±3 clipped)."""
+    """Type-pair grouped W matrix, zero-centred signed-sqrt scaled and
+    edge-dilated so individual synapses are visible at panel resolution."""
     if M is None:
         ax.text(0.5, 0.5, "no matrix", ha="center", va="center",
                 transform=ax.transAxes); ax.axis("off"); return
-    nz = M[M != 0]
-    if nz.size:
-        mu, sigma = float(nz.mean()), float(nz.std())
-        sigma = max(sigma, 1e-8)
-    else:
-        mu, sigma = 0.0, 1.0
-    Z = np.where(M != 0, (M - mu) / sigma, 0.0).clip(-3.0, 3.0)
-    im = ax.imshow(Z, cmap="RdBu_r", vmin=-3.0, vmax=3.0,
+    Marr = np.asarray(M, dtype=np.float32)
+    nz = np.abs(Marr[Marr != 0])
+    # Zero-centred, sign-preserving scale (red = excitatory, blue =
+    # inhibitory) so EVERY non-zero edge gets a clear colour. A mean-
+    # subtracted z-score centres the most common weight at white and the
+    # 5x-amplified inhibitory tail inflates the spread, washing the matrix
+    # out; sqrt compresses that tail (90th-percentile magnitude saturates).
+    scale = float(np.percentile(nz, 90)) if nz.size else 1.0
+    Z = np.sign(Marr) * np.sqrt(np.abs(Marr) / (scale + 1e-12))
+    Z = np.clip(Z, -1.0, 1.0)
+    # Dilate each 1-px edge into a blob (size scales with N) so individual
+    # synapses are visible; signed max/min filters, larger magnitude wins.
+    from scipy.ndimage import maximum_filter, minimum_filter
+    blob = max(5, int(round(Marr.shape[0] / 130.0)))
+    Zpos = maximum_filter(np.where(Z > 0, Z, 0.0), size=blob)
+    Zneg = minimum_filter(np.where(Z < 0, Z, 0.0), size=blob)
+    Zvis = np.where(np.abs(Zpos) >= np.abs(Zneg), Zpos, Zneg)
+    im = ax.imshow(Zvis, cmap="RdBu_r", vmin=-1.0, vmax=1.0,
                     interpolation="nearest", aspect="equal")
     nt = np.asarray(neuron_types)
     if nt.size:
@@ -1145,7 +1170,51 @@ def _panel_matrix(ax, M: np.ndarray, neuron_types, type_names, title: str):
     ax.set_xlabel("presynaptic", fontsize=LABEL_FS)
     ax.set_ylabel("postsynaptic", fontsize=LABEL_FS)
     cb = plt.colorbar(im, ax=ax, fraction=0.04, pad=0.02, shrink=0.85)
+    cb.set_label(r"sign$\cdot\sqrt{|W|}$ (norm.)", fontsize=LABEL_FS)
     cb.ax.tick_params(labelsize=TICK_FS)
+
+
+def _panel_weight_scatter(ax, W_con, W_rec):
+    """Scatter of true (W_con, panel a) vs learned (W_rec, panel b) weights
+    over the connectome edges. Excludes the diagonal and zero entries; y=x
+    reference line and Pearson r annotated. Under the sign-lock the points
+    stay in matching-sign quadrants, so the spread off y=x shows how training
+    rescaled the connectome magnitudes."""
+    if W_con is None or W_rec is None:
+        ax.text(0.5, 0.5, "no weights", ha="center", va="center",
+                transform=ax.transAxes); ax.axis("off"); return
+    A = np.asarray(W_con, dtype=np.float64)
+    B = np.asarray(W_rec, dtype=np.float64)
+    mask = A != 0
+    np.fill_diagonal(mask, False)
+    x, y = A[mask], B[mask]
+    if x.size == 0:
+        ax.text(0.5, 0.5, "no edges", ha="center", va="center",
+                transform=ax.transAxes); ax.axis("off"); return
+    # Training rescales the connectome by a large global gain, so the raw
+    # cloud lies on a steep line and the per-edge deviations are invisible.
+    # Correct for that slope: fit a through-origin least-squares gain
+    # (sign-locked weights pass through 0) and divide it out, so the cloud
+    # centres on y=x and the residual scatter is the genuine per-edge
+    # reweighting. The removed slope is the mean connectome amplification.
+    denom = float(np.sum(x * x))
+    slope = float(np.sum(x * y) / denom) if denom > 0 else 1.0
+    if slope != 0:
+        y = y / slope
+    r = float(np.corrcoef(x, y)[0, 1]) if x.size > 1 else float("nan")
+    ax.scatter(x, y, s=4, alpha=0.25, color="0.25", edgecolors="none",
+               rasterized=True)
+    lo = float(min(x.min(), y.min())); hi = float(max(x.max(), y.max()))
+    pad = 0.05 * (hi - lo + 1e-9)
+    lo, hi = lo - pad, hi + pad
+    ax.plot([lo, hi], [lo, hi], color="0.55", lw=0.8, ls="--", zorder=0)
+    ax.axhline(0, color="0.8", lw=0.4); ax.axvline(0, color="0.8", lw=0.4)
+    ax.set_xlim(lo, hi); ax.set_ylim(lo, hi)
+    ax.set_aspect("equal", adjustable="box")
+    ax.set_title(rf"true vs. learned  ($r={r:.3f}$)", fontsize=TITLE_FS)
+    ax.set_xlabel(r"GT $W^{\mathrm{con}}_{ij}$", fontsize=LABEL_FS)
+    ax.set_ylabel(r"learned $\hat W_{ij}\,/\,m$", fontsize=LABEL_FS)
+    ax.tick_params(labelsize=TICK_FS)
 
 
 def _panel_neuron_kinograph(ax, r_pop, neuron_types_sub, type_names,
@@ -1585,8 +1654,8 @@ def _panel_embedding(ax, net, neuron_types, type_names):
     ax.set_ylabel(r"$a_1$", fontsize=LABEL_FS)
     ax.set_title(r"embedding $\mathbf{a}_i$", fontsize=TITLE_FS)
     ax.tick_params(labelsize=TICK_FS)
-    ax.legend(fontsize=TICK_FS - 1, loc="best", framealpha=0.85,
-              ncol=2, handletextpad=0.3, columnspacing=0.6)
+    ax.legend(fontsize=3.2, loc="best", framealpha=0.6,
+              ncol=2, markerscale=0.5, handletextpad=0.3, columnspacing=0.6)
 
 
 def _panel_function_curves(ax, net, mlp_name: str, h_rollout: np.ndarray,
@@ -1636,8 +1705,13 @@ def _panel_function_curves(ax, net, mlp_name: str, h_rollout: np.ndarray,
     ax.set_ylabel(ylabel, fontsize=LABEL_FS)
     ax.set_title(title, fontsize=TITLE_FS)
     ax.tick_params(labelsize=TICK_FS)
-    ax.legend(fontsize=TICK_FS - 1, loc="best", framealpha=0.85,
-              ncol=2, handletextpad=0.3, columnspacing=0.4)
+    # Many cell types (33 for zebrafish) -> keep the legend tiny so it does
+    # not swamp the curves. Small font, more columns, short handles.
+    n_types = len(getattr(ax, "lines", [])) or 1
+    leg_ncol = 3 if n_types <= 12 else 4
+    ax.legend(fontsize=3.2, loc="best", framealpha=0.6, ncol=leg_ncol,
+              handlelength=0.8, handletextpad=0.2, columnspacing=0.3,
+              labelspacing=0.18, borderpad=0.2)
 
 
 def _panel_integration_gain(ax, gain_data, dt: float, warmup: int = 10):
@@ -1745,24 +1819,17 @@ def plot_cx_evolution(data: dict, out_path: str, *,
 
     nt = np.asarray(data["neuron_types"])
 
-    _panel_all_neurons_kinograph(
-        ax_c, np.asarray(data["rollout"]["r"]),
-        neuron_types=data["neuron_types"], type_names=data["type_names"],
-        dt_s=data["dt_s"],
-    )
+    # (c) scatter of true (W_con) vs learned (W_rec) edge weights.
+    _panel_weight_scatter(ax_c, data["W_con"], data["W_rec"])
     _panel_label(ax_c, "c")
 
     bump_label = data.get("bump_label", "EPG")
-    afferent_label = data.get("afferent_label", "PEN")
-    pen_idx = data["pen_indices"]
-    if pen_idx is not None and pen_idx.size:
-        _panel_neuron_kinograph(
-            ax_d, np.asarray(data["rollout"]["r_pen"]),
-            neuron_types_sub=nt[pen_idx], type_names=data["type_names"],
-            dt_s=data["dt_s"], ylabel=f"{afferent_label} neuron",
-        )
-    else:
-        ax_d.axis("off")
+    # (d) all-neuron kinograph (previously panel c).
+    _panel_all_neurons_kinograph(
+        ax_d, np.asarray(data["rollout"]["r"]),
+        neuron_types=data["neuron_types"], type_names=data["type_names"],
+        dt_s=data["dt_s"],
+    )
     _panel_label(ax_d, "d")
 
     epg_indices = data["net"].epg_indices

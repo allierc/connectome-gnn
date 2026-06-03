@@ -35,7 +35,8 @@ sys.path.insert(0, os.path.join(_REPO, "papers", "fishFuncEM"))
 
 # Row set + rendering helpers live in the functional-panel script (figure
 # domain); the rollout/stimulus now come from the package (no duplication).
-_PANEL_PY = os.path.join(_REPO, "scripts", "zebrafish_functional_traces_panel.py")
+_PANEL_PY = os.path.join(_REPO, "figures", "zebrafish",
+                         "zebrafish_functional_traces_panel.py")
 _spec = importlib.util.spec_from_file_location("_ftp", _PANEL_PY)
 panel = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(panel)
@@ -84,8 +85,8 @@ def main():
     p.add_argument("--fishfuncem-data",
                    default=os.path.join(_REPO, "papers", "fishFuncEM", "data"))
     p.add_argument("--warmup-s", type=float, default=10.0)
-    p.add_argument("--out", default=os.path.join(_REPO, "figures", "zebrafish"),
-                   help="output dir (default: the figures/zebrafish root)")
+    p.add_argument("--out", default=None,
+                   help="output dir (default: <log_dir>/results)")
     args = p.parse_args()
 
     import torch
@@ -115,7 +116,8 @@ def main():
         raise SystemExit(f"no models/ under {log_dir} — is this a trained run?")
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    os.makedirs(args.out, exist_ok=True)
+    out_dir = args.out or os.path.join(log_dir, "results")
+    os.makedirs(out_dir, exist_ok=True)
 
     # ---- load the trained model ------------------------------------------- #
     model = create_model(cfg.graph_model.signal_model_name,
@@ -152,29 +154,42 @@ def main():
 
     # ---- fixed 300-neuron bump row set, fill by bodyId -------------------- #
     rows, _ = panel.build_rows(args.connectome, args.circuit)
-    panel_rows = panel.sort_rows_rastermap(
-        rows[rows["matched"]].reset_index(drop=True))
-    kino = np.full((len(panel_rows), n_frames), np.nan, dtype=np.float32)
-    n_fill = 0
-    for ri, b in enumerate(panel_rows["bodyId"].to_numpy()):
-        mi = idx_of.get(int(b))
-        if mi is not None and mi < calcium.shape[1]:
-            kino[ri] = calcium[:, mi]; n_fill += 1
-    kino = panel._zscore_global(kino)
-    print(f"[rows] {len(panel_rows)} mapped bump neurons; filled {n_fill}")
-
+    matched = rows[rows["matched"]].reset_index(drop=True)
     dd = heading_to_drive(theta_frame, dt=0.915, src_dt=0.915)   # display grid
-    d = dict(kino=kino, t_sec=dd["t_sec"], omega=dd["omega"], theta=dd["theta"],
-             decoded=decoded, turn_lr=dd["turn_lr"], swim_fb=dd["swim_fb"],
-             pred_label="readout decode", omega_label="ω (°/s)")
 
-    out_png = os.path.join(args.out, f"functional_panel_{stem}_{gcamp_name}.png")
-    # white background; with bg="white" render uses black text, so the predicted
-    # HD trace (drawn in the text colour) is black, not white.
-    panel.render(d, panel_rows, out_png,
-                 f"{stem} -> {gcamp_name} calcium — Rotations 45 deg/s",
-                 bg="white", cmap_name="viridis", show_partition=False)
-    print(f"[done] {out_png}")
+    def _fill_kino(prows):
+        """GCaMP calcium onto the ordered reference rows (blanks stay NaN)."""
+        k = np.full((len(prows), n_frames), np.nan, dtype=np.float32)
+        nf = 0
+        for ri, b in enumerate(prows["bodyId"].to_numpy()):
+            mi = idx_of.get(int(b))
+            if mi is not None and mi < calcium.shape[1]:
+                k[ri] = calcium[:, mi]; nf += 1
+        return panel._zscore_global(k), nf
+
+    # Two row orderings of the SAME matched cells: the whole-brain rastermap
+    # order (the default panel) and the connectome ring-bin (preferred-heading)
+    # order, in which a rotating bump reads as a diagonal travelling wave.
+    for prows, suffix, extra_title in [
+        (panel.sort_rows_rastermap(matched), "", ""),
+        (panel.sort_rows_ringbin(matched), "_ringbin",
+         " — ring-bin (preferred-heading) order")]:
+        kino, n_fill = _fill_kino(prows)
+        print(f"[rows] {len(prows)} mapped bump neurons; filled {n_fill}"
+              f"{' (ring-bin order)' if suffix else ''}")
+        d = dict(kino=kino, t_sec=dd["t_sec"], omega=dd["omega"], theta=dd["theta"],
+                 decoded=decoded, turn_lr=dd["turn_lr"], swim_fb=dd["swim_fb"],
+                 pred_label="readout decode", omega_label="ω (°/s)")
+        out_png = os.path.join(
+            out_dir, f"functional_panel_{stem}_{gcamp_name}{suffix}.png")
+        # white background; with bg="white" render uses black text, so the
+        # predicted HD trace (drawn in the text colour) is black, not white.
+        panel.render(d, prows, out_png,
+                     f"{stem} -> {gcamp_name} calcium — Rotations 45 deg/s"
+                     f"{extra_title}",
+                     bg="white", cmap_name="viridis", show_partition=False,
+                     show_swim_panels=False)
+        print(f"[done] {out_png}")
 
 
 if __name__ == "__main__":
