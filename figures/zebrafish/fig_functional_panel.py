@@ -51,6 +51,12 @@ def _resolve_config(arg: str) -> str:
                               "/groups/saalfeld/home/allierc/GraphData")
         cands = [os.path.join(root, "config", a), os.path.join(_REPO, "config", a),
                  os.path.join(_REPO, a), a]
+        # Fall back to the species subdirs (config/zebrafish/, config/drosophila_cx/,
+        # ...) so a bare config name resolves the same way the training CLI does.
+        if "/" not in a:
+            for cfg_root in (os.path.join(root, "config"),
+                             os.path.join(_REPO, "config")):
+                cands += sorted(glob.glob(os.path.join(cfg_root, "*", a)))
     for c in cands:
         if os.path.isfile(c):
             return os.path.abspath(c)
@@ -59,16 +65,74 @@ def _resolve_config(arg: str) -> str:
 
 def _log_dir_for(cfg_path: str) -> str:
     stem = cfg_path[:-5] if cfg_path.endswith(".yaml") else cfg_path
-    if os.sep + "config" + os.sep in stem:
-        return stem.replace(os.sep + "config" + os.sep, os.sep + "log" + os.sep)
+    # Training writes under GNN_OUTPUT_ROOT/log/<species>/<name>, not the
+    # repo-local log/. Take the part after .../config/ and join it there.
+    root = os.environ.get("GNN_OUTPUT_ROOT",
+                          "/groups/saalfeld/home/allierc/GraphData")
+    marker = os.sep + "config" + os.sep
+    if marker in stem:
+        rel = stem.split(marker, 1)[1]      # e.g. "zebrafish/<name>"
+        return os.path.join(root, "log", rel)
     return os.path.join(os.path.dirname(stem), "log", os.path.basename(stem))
+
+
+# zapbench task blocks (figures/zebrafish/zapbench_full_kinograph.py partitioning)
+# that carry a heading the HD circuit can be read against — the only blocks for
+# which a "true HD" trace + decode is defined.
+_SEQUENCES = ["rotation", "turning"]
+
+
+def _render_real_sequences(args):
+    """REAL zapbench ΔF/F functional panel, one per requested task block. Only
+    the heading-bearing blocks are supported (`rotation`, `turning`); `all` does
+    both. Reuses the row set / decode / render of zebrafish_functional_traces_
+    panel.py — this is the data-only counterpart of the model panel (no
+    checkpoint loaded). Rows are in the whole-brain rastermap order."""
+    seqs = _SEQUENCES if args.sequence == "all" else [args.sequence]
+    out_dir = args.out or os.path.join(_REPO, "figures", "zebrafish")
+    os.makedirs(out_dir, exist_ok=True)
+
+    rows, _ = panel.build_rows(args.connectome, args.circuit)
+    panel_rows = panel.sort_rows_rastermap(
+        rows[rows["matched"]].reset_index(drop=True))
+    z = np.load(os.path.join(args.connectome, "functional",
+                             "circuit_functional_traces.npz"), allow_pickle=True)
+    trace_len = int(z["traces"].shape[0])
+    print(f"[rows] {len(panel_rows)} mapped bump neurons; "
+          f"sequences={seqs}")
+
+    for seq in seqs:
+        if seq == "rotation":
+            _theta_hr, ts, theta_frame = panel.rotation_headings(
+                args.fishfuncem_data, args.connectome, 0.01)
+            keep = ts < trace_len
+            ts = ts[keep]; theta_frame = theta_frame[:len(ts)]
+            drive = panel.heading_to_drive(theta_frame, dt=0.915, src_dt=0.915)
+            title = ("REAL zapbench ΔF/F — Rotations "
+                     "(45°/s grating, imaging-sampled)")
+        else:  # turning (omr_turning)
+            stim, ts = panel.omr_block_stim(args.fishfuncem_data,
+                                            trace_len=trace_len)
+            drive = panel.stim_to_drive(stim, dt=0.915,
+                                        nominal_omega=args.nominal_omega)
+            title = "REAL zapbench ΔF/F — omr_turning (dIPN ring + IPN12)"
+        print(f"[stim] {seq}: {len(ts)} frames (~{len(ts) * 0.915 / 60:.1f} min)")
+
+        d = panel.real_panel(panel_rows, args.connectome, ts, drive,
+                             decoder="mlp")
+        out_png = os.path.join(out_dir, f"functional_panel_real_{seq}.png")
+        panel.render(d, panel_rows, out_png, title, bg="white",
+                     show_swim_panels=False, cmap_name="viridis",
+                     show_partition=False)
+        print(f"[done] {out_png}")
 
 
 def main():
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--config", required=True,
-                   help="config path or name (e.g. zebrafish/zebrafish_hd_si_ipn12_v1)")
+    p.add_argument("--config", default=None,
+                   help="config path or name (e.g. zebrafish/zebrafish_hd_si_ipn12_v1); "
+                        "required for the model panel, ignored with --sequence")
     p.add_argument("--gcamp", default=None,
                    help="GCaMP indicator name from connectome_gnn.models.gcamp "
                         "(e.g. gcamp6f/6s/7f/8f/8m); default = "
@@ -85,9 +149,29 @@ def main():
     p.add_argument("--fishfuncem-data",
                    default=os.path.join(_REPO, "papers", "fishFuncEM", "data"))
     p.add_argument("--warmup-s", type=float, default=10.0)
+    p.add_argument("--sequence", default=None,
+                   choices=["rotation", "turning", "all"],
+                   help="render the REAL zapbench ΔF/F panel for a task block "
+                        "instead of the model rollout. Only the blocks with a "
+                        "real heading drive are supported: 'rotation' (45°/s "
+                        "grating) and 'turning' (omr_turning directional "
+                        "labels); 'all' does both. The model checkpoint is not "
+                        "needed in this mode.")
+    p.add_argument("--nominal-omega", type=float, default=30.0,
+                   help="deg/s assigned to omr 'turning' left/right epochs "
+                        "(the true-HD trace for the turning block)")
     p.add_argument("--out", default=None,
-                   help="output dir (default: <log_dir>/results)")
+                   help="output dir (default: <log_dir>/results, or "
+                        "figures/zebrafish for --sequence)")
     args = p.parse_args()
+
+    # --sequence: REAL ΔF/F per zapbench block (no model). Handled up front so
+    # the trained checkpoint is not required for this data-only mode.
+    if args.sequence:
+        _render_real_sequences(args)
+        return
+    if not args.config:
+        p.error("--config is required for the model panel (omit only with --sequence)")
 
     import torch
     from connectome_gnn.config import NeuralGraphConfig
@@ -154,42 +238,30 @@ def main():
 
     # ---- fixed 300-neuron bump row set, fill by bodyId -------------------- #
     rows, _ = panel.build_rows(args.connectome, args.circuit)
-    matched = rows[rows["matched"]].reset_index(drop=True)
+    panel_rows = panel.sort_rows_rastermap(
+        rows[rows["matched"]].reset_index(drop=True))
+    kino = np.full((len(panel_rows), n_frames), np.nan, dtype=np.float32)
+    n_fill = 0
+    for ri, b in enumerate(panel_rows["bodyId"].to_numpy()):
+        mi = idx_of.get(int(b))
+        if mi is not None and mi < calcium.shape[1]:
+            kino[ri] = calcium[:, mi]; n_fill += 1
+    kino = panel._zscore_global(kino)
+    print(f"[rows] {len(panel_rows)} mapped bump neurons; filled {n_fill}")
+
     dd = heading_to_drive(theta_frame, dt=0.915, src_dt=0.915)   # display grid
+    d = dict(kino=kino, t_sec=dd["t_sec"], omega=dd["omega"], theta=dd["theta"],
+             decoded=decoded, turn_lr=dd["turn_lr"], swim_fb=dd["swim_fb"],
+             pred_label="readout decode", omega_label="ω (°/s)")
 
-    def _fill_kino(prows):
-        """GCaMP calcium onto the ordered reference rows (blanks stay NaN)."""
-        k = np.full((len(prows), n_frames), np.nan, dtype=np.float32)
-        nf = 0
-        for ri, b in enumerate(prows["bodyId"].to_numpy()):
-            mi = idx_of.get(int(b))
-            if mi is not None and mi < calcium.shape[1]:
-                k[ri] = calcium[:, mi]; nf += 1
-        return panel._zscore_global(k), nf
-
-    # Two row orderings of the SAME matched cells: the whole-brain rastermap
-    # order (the default panel) and the connectome ring-bin (preferred-heading)
-    # order, in which a rotating bump reads as a diagonal travelling wave.
-    for prows, suffix, extra_title in [
-        (panel.sort_rows_rastermap(matched), "", ""),
-        (panel.sort_rows_ringbin(matched), "_ringbin",
-         " — ring-bin (preferred-heading) order")]:
-        kino, n_fill = _fill_kino(prows)
-        print(f"[rows] {len(prows)} mapped bump neurons; filled {n_fill}"
-              f"{' (ring-bin order)' if suffix else ''}")
-        d = dict(kino=kino, t_sec=dd["t_sec"], omega=dd["omega"], theta=dd["theta"],
-                 decoded=decoded, turn_lr=dd["turn_lr"], swim_fb=dd["swim_fb"],
-                 pred_label="readout decode", omega_label="ω (°/s)")
-        out_png = os.path.join(
-            out_dir, f"functional_panel_{stem}_{gcamp_name}{suffix}.png")
-        # white background; with bg="white" render uses black text, so the
-        # predicted HD trace (drawn in the text colour) is black, not white.
-        panel.render(d, prows, out_png,
-                     f"{stem} -> {gcamp_name} calcium — Rotations 45 deg/s"
-                     f"{extra_title}",
-                     bg="white", cmap_name="viridis", show_partition=False,
-                     show_swim_panels=False)
-        print(f"[done] {out_png}")
+    out_png = os.path.join(out_dir, f"functional_panel_{stem}_{gcamp_name}.png")
+    # white background; with bg="white" render uses black text, so the predicted
+    # HD trace (drawn in the text colour) is black, not white.
+    panel.render(d, panel_rows, out_png,
+                 f"{stem} -> {gcamp_name} calcium — Rotations 45 deg/s",
+                 bg="white", cmap_name="viridis", show_partition=False,
+                 show_swim_panels=False)
+    print(f"[done] {out_png}")
 
 
 if __name__ == "__main__":
