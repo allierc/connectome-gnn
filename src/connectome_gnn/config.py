@@ -1116,6 +1116,15 @@ class TrainingConfig(BaseModel):
     # heading MSE (the first loss term). The voltage→calcium model is chosen by
     # `simulation.gcamp_kernel`.
     coeff_observation: float = 0.0
+    # Which shared observed neurons the observation loss supervises:
+    #   'all'              — every observed neuron mapped into the model
+    #                        (bump-pool + afferent RIPN/pt-IPN). Default.
+    #   'exclude_afferent' — drop the input/afferent neurons (the circuit's
+    #                        afferent_subpop_ix: RIPN + pt-IPN) and supervise
+    #                        only the recurrent bump-pool, so the calcium loss
+    #                        constrains the network's internal dynamics rather
+    #                        than the externally-driven inputs.
+    observation_neurons: str = "all"
     # Per-epoch learning-rate schedule (Hulse). Empty list → constant `lr`.
     # Padded with the last value if n_epochs > len(schedule).
     lr_schedule: List[float] = Field(default_factory=lambda: [5e-3, 1e-3, 5e-4, 2e-4, 1e-4])
