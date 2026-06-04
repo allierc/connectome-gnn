@@ -163,25 +163,49 @@ def build_full_block(theta_hr_deg, frames, traces, model_dt, src_dt):
 # Window sampling (time-disjoint train/test)
 # ---------------------------------------------------------------------------
 def sample_starts(T_model, n_steps, n_train, n_test, seed, test_frac=0.15):
-    """Sample window start indices for train/test from DISJOINT time regions.
+    """Sample window start indices for train/test.
 
-    The block is split in time at (1 - test_frac); train windows start in the
-    early region, test windows in the late region, so overlapping 10 s windows
-    never leak across the split.
+    The FIRST ``n_tile = T_model // n_steps`` train windows are DETERMINISTIC,
+    consecutive, non-overlapping tiles ``[0, n_steps, 2·n_steps, …]`` that pave
+    the whole block end-to-end. Rolling the trained model on these tiles and
+    concatenating the per-trial voltage reconstructs the full ~600 s recording
+    (this is what the ``-o test`` calcium-reconstruction panel does — see
+    ``graph_tester.data_test_path_integration_task`` section (e)). Because they
+    pave the whole block they intentionally span the late (test) region too:
+    they are a reconstruction probe, NOT held-out data.
+
+    The remaining ``n_train − n_tile`` train windows, and ALL test windows, keep
+    the original time-disjoint random sampling: the block is split in time at
+    (1 − test_frac); the random train windows start in the early region, test
+    windows in the late region, so overlapping 10 s random windows never leak
+    across the split.
+
+    Returns ``(train_starts, test_starts, n_tile)``; ``train_starts[:n_tile]``
+    are the consecutive block tiles, in time order.
     """
     last_start = T_model - n_steps
     if last_start <= 0:
         raise ValueError(f"block ({T_model}) shorter than n_steps ({n_steps})")
-    split = int(round(last_start * (1.0 - test_frac)))
     rng = np.random.default_rng(seed)
-    train = rng.integers(0, split + 1, size=n_train, dtype=np.int64)
+
+    # First n_tile train windows: consecutive tiles paving [0, n_tile·n_steps).
+    n_tile = int(min(T_model // n_steps, n_train))
+    tile_starts = np.arange(n_tile, dtype=np.int64) * n_steps
+
+    split = int(round(last_start * (1.0 - test_frac)))
+    n_rand_train = max(n_train - n_tile, 0)
+    rand_train = rng.integers(0, split + 1, size=n_rand_train, dtype=np.int64)
+    train = np.concatenate([tile_starts, rand_train])
     # test starts must not let a window reach back into train territory either;
     # they live entirely in [split+n_steps, last_start] when room allows.
     test_lo = min(split + n_steps, last_start)
     test = rng.integers(test_lo, last_start + 1, size=n_test, dtype=np.int64)
-    print(f"[windows] split @ step {split}/{last_start}; "
-          f"train starts in [0,{split}], test starts in [{test_lo},{last_start}]")
-    return train, test
+    print(f"[windows] first {n_tile} train = consecutive tiles paving "
+          f"[0,{n_tile * n_steps}) (full-block reconstruction set); "
+          f"split @ step {split}/{last_start}; "
+          f"{n_rand_train} random train starts in [0,{split}], "
+          f"test starts in [{test_lo},{last_start}]")
+    return train, test, n_tile
 
 
 # ---------------------------------------------------------------------------
@@ -254,14 +278,23 @@ def write_split(split_dir, starts, block, n_steps, model_dt, calcium_chunk=1000)
     return n_written, ca_windows
 
 
-def write_calcium_meta(out_dir, ca, block, sequence, model_dt, src_dt):
-    """Sidecar identifying the observed-neuron columns + norm stats."""
+def write_calcium_meta(out_dir, ca, block, sequence, model_dt, src_dt,
+                       n_block_tiles=0, n_steps=0):
+    """Sidecar identifying the observed-neuron columns + norm stats.
+
+    ``n_block_tiles`` / ``n_steps`` record that the first ``n_block_tiles`` train
+    trials are consecutive ``n_steps``-frame tiles that pave the whole block, so
+    ``-o test`` can reassemble them into the full ~600 s reconstruction.
+    """
     np.savez(os.path.join(out_dir, "calcium_meta.npz"),
              bodyId=ca["bodyId"], zapbenchId=ca["zapbenchId"],
              type=ca["type"], side=ca["side"],
              ca_mean=block["ca_mean"], ca_std=block["ca_std"],
              sequence=np.array(sequence), model_dt=np.float32(model_dt),
-             src_dt=np.float32(src_dt))
+             src_dt=np.float32(src_dt),
+             n_block_tiles=np.int64(n_block_tiles),
+             n_steps=np.int64(n_steps),
+             block_T_model=np.int64(block["calcium"].shape[0]))
 
 
 def write_mapping(out_dir, ca, circuit_name, connectome_dir):
@@ -439,7 +472,7 @@ def main():
     ca = load_calcium_traces(args.connectome)
     block = build_full_block(theta_hr, frames, ca["traces"], args.dt, args.src_dt)
 
-    train_starts, test_starts = sample_starts(
+    train_starts, test_starts, n_tile = sample_starts(
         block["calcium"].shape[0], args.n_steps,
         args.n_trials_train, args.n_trials_test, args.seed)
 
@@ -447,7 +480,8 @@ def main():
                               block, args.n_steps, args.dt)
     n_te, ca_te = write_split(os.path.join(args.out, "test"), test_starts,
                               block, args.n_steps, args.dt)
-    write_calcium_meta(args.out, ca, block, args.sequence, args.dt, args.src_dt)
+    write_calcium_meta(args.out, ca, block, args.sequence, args.dt, args.src_dt,
+                       n_block_tiles=n_tile, n_steps=args.n_steps)
     write_mapping(args.out, ca, args.circuit, args.connectome)
 
     plot_block_kinograph(os.path.join(args.out, f"calcium_block_{args.sequence}.png"),
@@ -455,8 +489,9 @@ def main():
     plot_example_trials(os.path.join(args.out, "calcium_traces_train.png"),
                         ca_tr, os.path.join(args.out, "train"), args.dt)
 
-    print(f"=== done: train={n_tr} test={n_te} trials, "
-          f"{ca['traces'].shape[1]} observed neurons, n_steps={args.n_steps} ===")
+    print(f"=== done: train={n_tr} (first {n_tile} = consecutive block tiles) "
+          f"test={n_te} trials, {ca['traces'].shape[1]} observed neurons, "
+          f"n_steps={args.n_steps} ===")
 
 
 if __name__ == "__main__":

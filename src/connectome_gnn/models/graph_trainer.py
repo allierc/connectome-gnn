@@ -2394,6 +2394,10 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
                     # test trial, convert voltage→calcium via the GCaMP class,
                     # and pair it with the recorded ΔF/F over the bump-pool rows
                     # (rastermap order) for a real-vs-learned kinograph compare.
+                    # This is the cheap single-10 s peek during training; the
+                    # full ~600 s block reconstruction (60 tiled trials stitched
+                    # + the continuous drift rollout) is produced at eval time by
+                    # graph_tester.data_test_path_integration_task section (e).
                     calcium_panel = None
                     if use_calcium:
                         T_show = min(ca_test_u.shape[1], 1000)

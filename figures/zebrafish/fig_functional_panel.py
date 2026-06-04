@@ -14,6 +14,14 @@ and renders.
                                        ->   .../log/<sub>/<name>
   circuit comes from the config's circuit.name (else --model-circuit).
 
+NOTE — this panel is the *continuous-rollout* (integration-drift) view: ONE
+600 s zapbench_rotation rollout, so HD error accumulates over the block. It is
+NOT the per-trial reconstruction: `GNN_Main -o test` section (e)
+(graph_tester.data_test_path_integration_task) instead stitches 60 independent
+10 s rollouts, each re-anchored from its cue (the regime the model is trained
+in), and reports both views side by side. Use this script for the paper drift
+figure; use `-o test` for the reconstruction/drift comparison.
+
 Run (env with fishfuncem + torch + the trained model):
   /workspace/.conda_envs/neural-graph-linux/bin/python \
       figures/zebrafish/fig_functional_panel.py \
