@@ -2027,6 +2027,31 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
         ).to(device)
         _map = torch.load(f"{calc_root}/calcium_mapping.pt", weights_only=False)
         ca_obs_ix = _map["model_index"].to(device).long()  # (R,) obs col -> model neuron
+        # Which observed neurons the obs-loss supervises (training.observation_neurons):
+        #   'all'              -> every shared observed neuron (default).
+        #   'exclude_afferent' -> drop the input/afferent neurons (RIPN / pt-IPN),
+        #      supervising only the recurrent bump-pool, via the circuit's
+        #      afferent_subpop_ix model-neuron sets (verified == type RIPN/pt-IPN).
+        # ca_keep_col indexes the R calcium.zarr columns that survive the filter;
+        # ca_obs_ix is reduced to the matching model-neuron indices.
+        obs_neurons_mode = str(getattr(tc, 'observation_neurons', 'all')).lower()
+        ca_keep_col = torch.arange(ca_obs_ix.numel(), device=device)
+        if obs_neurons_mode == 'exclude_afferent':
+            _cname = getattr(getattr(config, 'circuit', None), 'name', None)
+            if _cname is None:
+                _logger.warning('observation_neurons=exclude_afferent but config '
+                                'has no circuit.name; supervising ALL observed neurons.')
+            else:
+                from connectome_gnn.generators.circuits import get_circuit
+                _circ = get_circuit(_cname)
+                _aff = np.unique(np.concatenate(
+                    [np.asarray(_circ.subpops.get(k, []), np.int64) for k in
+                     ('afferent_RIPN_L', 'afferent_RIPN_R',
+                      'afferent_ptIPN_L', 'afferent_ptIPN_R')]
+                    + [np.zeros(0, np.int64)]))
+                _keep = ~np.isin(_map["model_index"].numpy(), _aff)
+                ca_keep_col = torch.from_numpy(np.where(_keep)[0]).to(device).long()
+                ca_obs_ix = _map["model_index"][torch.from_numpy(_keep)].to(device).long()
         # rastermap-ordered bump-pool rows that are observed (panel h compare):
         _kmask = _map["kino_obs_index"] >= 0
         ca_kino_model_ix = _map["kino_model_index"][_kmask].to(device).long()
@@ -2035,11 +2060,13 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
         gcamp = create_gcamp(sim.gcamp_kernel)
         _logger.info(
             f'calcium obs: dataset={calc_name} train={n_calc} test={ca_test_u.shape[0]} '
-            f'obs_neurons={ca_obs_ix.numel()} kino_obs={ca_kino_obs_ix.numel()} '
+            f'obs_neurons={ca_obs_ix.numel()} ({obs_neurons_mode}) '
+            f'kino_obs={ca_kino_obs_ix.numel()} '
             f'kernel={sim.gcamp_kernel} dt_in={dt_model} '
             f'batch={calcium_batch_size} coeff_observation={coeff_obs}')
         logger.info(f'calcium obs ON: B={calcium_batch_size} coeff={coeff_obs} '
-                    f'kernel={sim.gcamp_kernel} obs_neurons={ca_obs_ix.numel()}')
+                    f'kernel={sim.gcamp_kernel} '
+                    f'obs_neurons={ca_obs_ix.numel()} ({obs_neurons_mode})')
 
     def _zscore_time(x, eps=1e-3):
         """Per-(trial,neuron) z-score over time → scale+offset invariant."""
@@ -2219,9 +2246,12 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
             if use_calcium and coeff_obs > 0:
                 h_calc = h_buf[n_task:]                          # (Bc, T_use, N)
                 ca_model = gcamp(h_calc, dt_in=dt_model)         # (Bc, T_use, N)
-                ca_model = ca_model.index_select(-1, ca_obs_ix)  # (Bc, T_use, R)
+                # gather the supervised model neurons; ca_keep_col selects the
+                # matching real columns (== arange(R) unless exclude_afferent).
+                ca_model = ca_model.index_select(-1, ca_obs_ix)  # (Bc, T_use, n_sup)
+                ca_c_sup = ca_c.index_select(-1, ca_keep_col)    # (Bc, T_use, n_sup)
                 obs = coeff_obs * F.mse_loss(
-                    _zscore_time(ca_model), _zscore_time(ca_c))
+                    _zscore_time(ca_model), _zscore_time(ca_c_sup))
             else:
                 obs = u.new_zeros(())
             cosd = (model.loss_cos_distance(coeff_cos)
