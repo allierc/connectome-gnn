@@ -2276,6 +2276,144 @@ def data_test_path_integration_task(
         except Exception as exc:
             logger.warning(f'  function-dynamics plot failed: {exc}')
 
+    # --- (e) calcium 600 s reconstruction (dataset B / gcamp obs runs) ------
+    # When a calcium dataset B is wired to this run, REASSEMBLE the recording:
+    # its first `n_block_tiles` train trials are consecutive 10 s windows paving
+    # the whole ~600 s block. Roll the model on each window (re-anchored from its
+    # own cue — the regime the model is trained/evaluated in), stitch the per-
+    # trial voltage into one 600 s series, convert to calcium with the GCaMP
+    # class ONCE over the full series (no 60 kernel-edge artifacts), and compare
+    # to the recorded ΔF/F over the bump-pool rastermap rows. A continuous single
+    # rollout (zapbench_rotation) is overlaid as the integration-drift view. This
+    # is the full-block successor to the single-10 s training "panel h". Gated on
+    # the dataset existing; silently skipped otherwise (e.g. drosophila_cx).
+    calcium_metrics = None
+    try:
+        _calc_name = getattr(tc, 'calcium_dataset', '') or config.dataset
+        if '/' not in _calc_name and '/' in config.dataset:
+            _calc_name = config.dataset.rsplit('/', 1)[0] + '/' + _calc_name
+        _calc_root = graphs_data_path(_calc_name)
+        _has_ca = os.path.isdir(os.path.join(_calc_root, 'train', 'calcium.zarr'))
+    except Exception:
+        _has_ca = False
+    if _has_ca:
+        import zarr as _zarr
+        from connectome_gnn.models.gcamp import create_gcamp
+        from connectome_gnn.plot_anatomy_voltage import run_task_rollout
+        from connectome_gnn.plot_cx import plot_calcium_reconstruction
+        from connectome_gnn.task_state import TaskTrials as _TT
+        _repo = os.path.abspath(os.path.join(
+            os.path.dirname(__file__), '..', '..', '..'))
+        _meta = np.load(os.path.join(_calc_root, 'calcium_meta.npz'),
+                        allow_pickle=True)
+        n_tile = int(_meta['n_block_tiles']) if 'n_block_tiles' in _meta.files else 0
+        _map = torch.load(os.path.join(_calc_root, 'calcium_mapping.pt'),
+                          weights_only=False)
+        _kmask = _map['kino_obs_index'] >= 0
+        kino_model_ix = _map['kino_model_index'][_kmask].to(device).long()
+        kino_obs_ix = _map['kino_obs_index'][_kmask].cpu().numpy()
+        # Afferent neurons = observed columns NOT in the bump-pool kinograph
+        # (RIPN / pt-IPN inputs). The observation loss supervises these too, so
+        # plot them as their own real/learned group. Ordered by cell type for a
+        # readable kinograph. model_index maps every observed column (481/481).
+        _model_index_all = _map['model_index'].cpu().numpy()
+        _types_all = _meta['type'].astype(str)
+        _bump_cols = set(int(c) for c in kino_obs_ix)
+        aff_obs_ix = np.asarray(
+            sorted((c for c in range(len(_types_all))
+                    if c not in _bump_cols and _model_index_all[c] >= 0),
+                   key=lambda c: (str(_types_all[c]), c)), dtype=np.int64)
+        aff_model_ix = torch.as_tensor(
+            _model_index_all[aff_obs_ix], device=device).long()
+        gcamp_name = getattr(config.simulation, 'gcamp_kernel', 'gcamp7f')
+        gcamp = create_gcamp(gcamp_name)
+        dt = float(model.dt)
+        if n_tile <= 0:
+            logger.warning('  [calcium] n_block_tiles=0 in meta; regenerate '
+                           'dataset B for the block tiles — skipping reconstruction.')
+        else:
+            _ct = _TT.load(f"{_calc_root}/train")
+            ca_u = _ct.stimulus[:n_tile].to(device)            # (n_tile, T, 3)
+            ca_real = np.asarray(
+                _zarr.open(f"{_calc_root}/train/calcium.zarr", 'r'))[:n_tile]
+            n_steps_trial = ca_u.shape[1]
+            # --- stitched per-trial learned calcium + HD decode -----------
+            with torch.no_grad():
+                y_stitch, h_stitch = model(ca_u)               # (n_tile,T,2),(.,N)
+                h_full = h_stitch.reshape(n_tile * n_steps_trial, -1)  # (T_blk, N)
+                ca_full = gcamp(h_full, dt_in=dt)               # (T_blk, N)
+            learned_stitch = ca_full.index_select(
+                -1, kino_model_ix).cpu().numpy()                # (T_blk, K)
+            aff_stitch = ca_full.index_select(
+                -1, aff_model_ix).cpu().numpy()                 # (T_blk, K_aff)
+            # ω drive (deg/s) + true/decoded HD over the block, per-trial concat
+            omega_blk = ca_u[:, :, 0].reshape(-1).cpu().numpy()
+            dec_stitch = np.rad2deg(torch.atan2(
+                y_stitch[..., 1], y_stitch[..., 0]).reshape(-1).cpu().numpy())
+            if _ct.theta_hd is not None:
+                true_blk = np.rad2deg(
+                    _ct.theta_hd[:n_tile].reshape(-1).cpu().numpy())
+            else:
+                true_blk = np.rad2deg(np.cumsum(np.deg2rad(omega_blk)) * dt)
+            hd_info = {'stitch': {'true': true_blk, 'pred': dec_stitch}}
+            # --- real block: concat the tiled windows ---------------------
+            real_blk = ca_real.reshape(n_tile * n_steps_trial, -1)  # (T_blk, R)
+            real_kino = real_blk[:, kino_obs_ix]                # (T_blk, K)
+            real_aff = real_blk[:, aff_obs_ix]                  # (T_blk, K_aff)
+            # --- continuous single rollout (drift view), best-effort ------
+            learned_cont = None
+            aff_cont = None
+            try:
+                _conn = (getattr(config.plotting,
+                                 'anatomy_voltage_zapbench_connectome', '')
+                         or getattr(config.simulation, 'connconstr_datapath', '')
+                         or '')
+                if _conn and not os.path.isabs(_conn):
+                    _conn = os.path.join(_repo, _conn)
+                _ffe = (getattr(config.plotting,
+                                'anatomy_voltage_zapbench_fishfuncem_data', '')
+                        or os.path.join(_repo, 'papers', 'fishFuncEM', 'data'))
+                pc = config.plotting.model_copy(update=dict(
+                    anatomy_voltage_pattern='zapbench_rotation',
+                    anatomy_voltage_warmup_s=float(getattr(
+                        config.plotting, 'anatomy_voltage_warmup_s', 10.0)),
+                    anatomy_voltage_zapbench_connectome=_conn,
+                    anatomy_voltage_zapbench_fishfuncem_data=_ffe))
+                h_c, y_c, th_c, _labc, _exc = run_task_rollout(model, pc, device)
+                warm = int(_exc['warm_steps'])
+                with torch.no_grad():
+                    ca_c = gcamp(torch.from_numpy(h_c[warm:]).to(device), dt_in=dt)
+                learned_cont = ca_c.index_select(-1, kino_model_ix).cpu().numpy()
+                aff_cont = ca_c.index_select(-1, aff_model_ix).cpu().numpy()
+                hd_info['continuous'] = {
+                    'true': np.rad2deg(th_c[warm:]),
+                    'pred': np.rad2deg(np.arctan2(y_c[warm:, 1], y_c[warm:, 0]))}
+            except Exception as _e:
+                logger.warning(f'  [calcium] continuous rollout skipped: '
+                               f'{type(_e).__name__}: {_e}')
+            recon_path = os.path.join(results_dir,
+                                      'test_calcium_reconstruction.png')
+            ca_groups = [
+                {'name': 'bump-pool', 'real': real_kino,
+                 'stitch': learned_stitch, 'continuous': learned_cont},
+                {'name': 'afferent (RIPN/pt-IPN)', 'real': real_aff,
+                 'stitch': aff_stitch, 'continuous': aff_cont},
+            ]
+            calcium_metrics = plot_calcium_reconstruction(
+                ca_groups, dt, recon_path,
+                title=(f'{config.dataset} → {gcamp_name} calcium '
+                       f'reconstruction ({n_tile}×{n_steps_trial * dt:.0f}s '
+                       f'block)'),
+                omega=omega_blk, hd=hd_info, trial_s=n_steps_trial * dt)
+            logger.info(
+                f'  [calcium] {n_tile}-tile block reconstruction '
+                f'(n_bump={real_kino.shape[1]}, n_aff={real_aff.shape[1]}):')
+            for _gname, _gm in calcium_metrics.items():
+                logger.info('    ' + _gname + ': ' + '  '.join(
+                    f'{k} z-MSE={v["z_mse"]:.3f} SSIM={v["ssim"]:.3f}'
+                    for k, v in _gm.items()))
+            logger.info(f'  saved: {recon_path}')
+
     # --- Aggregate metrics log --------------------------------------------
     log_path_ = os.path.join(log_dir, 'results_path_integration.log')
     with open(log_path_, 'w') as f:
@@ -2297,6 +2435,16 @@ def data_test_path_integration_task(
                 f'{m["omega_deg"]:.1f},{m["slope_deg_per_s"]:.4f},'
                 f'{m["gain"]:.6f},{m["r2"]:.6f}\n'
             )
+        if calcium_metrics is not None:
+            f.write('\n# Calcium 600 s block reconstruction (per-neuron '
+                    'z-scored)\n')
+            f.write('neuron_group,rollout,z_mse,ssim,T_frames\n')
+            for gname, gm in calcium_metrics.items():
+                for key in ('stitch', 'continuous'):
+                    m = gm.get(key)
+                    if m is not None:
+                        f.write(f'{gname},{key},{m["z_mse"]:.6f},'
+                                f'{m["ssim"]:.6f},{int(m["T"])}\n')
     logger.info(f'  saved metrics log: {log_path_}')
     if log_file is not None:
         log_file.write('\n--- Path-integration test results ---\n')

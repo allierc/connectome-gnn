@@ -1608,16 +1608,17 @@ def _panel_voltage_distribution(ax, h_rollout, neuron_types, type_names):
     ax.tick_params(axis="y", labelsize=TICK_FS)
 
 
-def _panel_calcium_compare(ax, cp):
-    """Real-vs-learned calcium kinograph for one trial (zebrafish obs runs).
+def calcium_zmse_ssim(real, learned):
+    """Per-neuron z-scored MSE + SSIM between two (T, K) calcium kinographs.
 
-    ``cp`` carries ``real`` / ``learned`` arrays of shape (T, K) over the same
-    K bump-pool neurons in the same (rastermap) row order. Both are per-neuron
-    z-scored for display and stacked — real on top, learned below — so the two
-    kinographs can be compared row-for-row.
+    Returns ``(z_mse, ssim, Rz, Lz)`` where ``Rz``/``Lz`` are the per-neuron
+    (over time) z-scored arrays. ``z_mse`` is exactly the per-neuron z-scored
+    MSE used in the training observation loss (= 2(1-corr) for unit-variance
+    signals; lower is better); ``ssim`` is the structural similarity of the two
+    z-scored kinograph images (``nan`` if scikit-image is unavailable).
     """
-    real = np.asarray(cp["real"], dtype=np.float32)         # (T, K)
-    learned = np.asarray(cp["learned"], dtype=np.float32)   # (T, K)
+    real = np.asarray(real, dtype=np.float32)
+    learned = np.asarray(learned, dtype=np.float32)
 
     def _z(M):
         mu = M.mean(0, keepdims=True)
@@ -1626,14 +1627,6 @@ def _panel_calcium_compare(ax, cp):
 
     Rz = _z(real)                                           # (T, K), per-neuron z
     Lz = _z(learned)
-    R = Rz.T                                                 # (K, T)
-    L = Lz.T
-    K, T = R.shape
-
-    # Metrics over the K observed bump-pool neurons:
-    #  - z-MSE: exactly the per-neuron z-scored MSE used in the training loss
-    #    (= 2(1-corr) for unit-variance signals; lower is better).
-    #  - SSIM: structural similarity of the two z-scored kinograph images.
     z_mse = float(np.mean((Rz - Lz) ** 2))
     try:
         from skimage.metrics import structural_similarity as _ssim
@@ -1641,6 +1634,21 @@ def _panel_calcium_compare(ax, cp):
         ssim = float(_ssim(Rz, Lz, data_range=dr if dr > 0 else 1.0))
     except Exception:
         ssim = float("nan")
+    return z_mse, ssim, Rz, Lz
+
+
+def _panel_calcium_compare(ax, cp):
+    """Real-vs-learned calcium kinograph for one trial (zebrafish obs runs).
+
+    ``cp`` carries ``real`` / ``learned`` arrays of shape (T, K) over the same
+    K bump-pool neurons in the same (rastermap) row order. Both are per-neuron
+    z-scored for display and stacked — real on top, learned below — so the two
+    kinographs can be compared row-for-row.
+    """
+    z_mse, ssim, Rz, Lz = calcium_zmse_ssim(cp["real"], cp["learned"])
+    R = Rz.T                                                 # (K, T)
+    L = Lz.T
+    K, T = R.shape
 
     gap = np.full((max(2, K // 20), T), np.nan, dtype=np.float32)
     img = np.concatenate([R, gap, L], axis=0)
@@ -1657,6 +1665,144 @@ def _panel_calcium_compare(ax, cp):
     ax.set_title(f"calcium  z-MSE={z_mse:.3f}  SSIM={ssim:.3f}",
                  fontsize=TITLE_FS)
     ax.tick_params(labelsize=TICK_FS)
+
+
+def plot_calcium_reconstruction(groups, dt, out_path, title=None,
+                                omega=None, hd=None, trial_s=None):
+    """Full-block (~600 s) real-vs-learned calcium reconstruction figure.
+
+    Panels, top→bottom (all sharing the time axis):
+      * ω drive (deg/s)        — recorded angular-velocity stimulus (if ``omega``).
+      * per neuron-set GROUP, in order: real ΔF/F, learned per-trial stitch,
+        learned continuous. The observation loss supervises ALL observed neurons
+        (bump-pool + afferents), so each group (e.g. ``bump-pool``, ``afferent``)
+        gets its own real/stitch/continuous kinograph triplet.
+      * HD true-vs-predicted   — one panel per learned rollout (green = true,
+        black = readout decode), only for rollouts present in ``hd`` (heading is
+        group-independent, so these sit once at the bottom).
+
+    ``groups`` is a list of dicts ``{"name": str, "real": (T,K),
+    "stitch": (T,K), "continuous": (T,K)|None}``; per-trial stitch re-anchors
+    every 10 s (the trained regime), continuous is one unbroken rollout (drift).
+    Kinographs are per-neuron z-scored on a shared viridis scale.
+    ``omega``/``hd[<key>]['true'|'pred']`` are degree series on the model grid.
+    ``trial_s`` (e.g. 10) draws a scale bar of that many seconds on the top
+    panel — the per-trial stitch window length, so the eye can gauge how short
+    one re-anchoring window is against the 600 s block.
+    Returns ``{group_name: {stitch:{z_mse,ssim,T}, continuous:{…}}}``.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    GREEN = (0.0, 0.7, 0.25)
+    _ROLLOUTS = [("stitch", "per-trial stitch (training regime)"),
+                 ("continuous", "continuous 600 s rollout (drift)")]
+    hd = hd or {}
+
+    # Common time window: the shortest of every array supplied.
+    lens = []
+    for g in groups:
+        lens.append(np.asarray(g["real"]).shape[0])
+        for key, _ in _ROLLOUTS:
+            if g.get(key) is not None:
+                lens.append(np.asarray(g[key]).shape[0])
+    T = int(min(lens))
+    t = np.arange(T) * dt
+
+    def _z(M):
+        mu = M.mean(0, keepdims=True)
+        sd = M.std(0, keepdims=True)
+        return (M - mu) / np.where(sd > 1e-6, sd, 1.0)
+
+    def _wrap(a):
+        w = ((np.asarray(a, np.float64) + 180.0) % 360.0) - 180.0
+        if w.size > 1:
+            w[1:][np.abs(np.diff(w)) > 180.0] = np.nan
+        return w
+
+    # Build the panel stack: (kind, payload, height_ratio).
+    specs = []
+    if omega is not None:
+        specs.append(("omega", None, 1.0))
+    metrics = {}
+    for g in groups:
+        name = g["name"]
+        real = np.asarray(g["real"], np.float32)[:T]
+        metrics[name] = {}
+        specs.append(("kino", (name, f"{name}: real ΔF/F (recorded)", real),
+                      2.6))
+        for key, sub in _ROLLOUTS:
+            if g.get(key) is None:
+                continue
+            L = np.asarray(g[key], np.float32)[:T]
+            z_mse, ssim, _, _ = calcium_zmse_ssim(real, L)
+            metrics[name][key] = {"z_mse": z_mse, "ssim": ssim, "T": T}
+            specs.append(("kino", (name, f"{name}: learned {sub} — "
+                                   f"z-MSE={z_mse:.3f}  SSIM={ssim:.3f}", L),
+                          2.6))
+    for key, sub in _ROLLOUTS:
+        if key in hd:
+            specs.append(("hd", (sub, hd[key]), 1.4))
+
+    ratios = [r for _, _, r in specs]
+    fig, axs = plt.subplots(len(specs), 1, sharex=True,
+                            figsize=(13, 0.92 * sum(ratios)),
+                            gridspec_kw=dict(height_ratios=ratios),
+                            squeeze=False)
+    axl = axs[:, 0]
+    for i, (ax, (kind, payload, _r)) in enumerate(zip(axl, specs)):
+        bottom = (i == len(specs) - 1)
+        if kind == "omega":
+            ax.plot(t, np.asarray(omega)[:T], color="0.2", lw=0.8)
+            ax.axhline(0, color="0.7", lw=0.4)
+            ax.set_ylabel("ω (°/s)", fontsize=LABEL_FS)
+            ax.set_title("angular-velocity drive", fontsize=TITLE_FS)
+        elif kind == "kino":
+            name, sub, M = payload
+            ax.imshow(_z(M).T, aspect="auto", cmap="viridis", vmin=-2, vmax=3,
+                      extent=[0, T * dt, M.shape[1], 0],
+                      interpolation="nearest")
+            ax.set_ylabel(f"{name}\nneuron (n={M.shape[1]})", fontsize=LABEL_FS)
+            ax.set_title(sub, fontsize=TITLE_FS)
+        else:  # hd true-vs-predicted
+            sub, hdk = payload
+            ax.plot(t, _wrap(np.asarray(hdk["true"])[:T]), color=GREEN, lw=1.0,
+                    label="true")
+            ax.plot(t, _wrap(np.asarray(hdk["pred"])[:T]), color="black",
+                    lw=0.8, label="predicted")
+            ax.set_ylim(-185, 185); ax.set_yticks([-180, 0, 180])
+            ax.set_ylabel("HD (°)", fontsize=LABEL_FS)
+            ax.set_title(f"heading — {sub}", fontsize=TITLE_FS)
+            ax.legend(fontsize=TICK_FS, loc="upper right", framealpha=0.5)
+        ax.tick_params(labelsize=TICK_FS, labelbottom=bottom)
+        if bottom:
+            ax.set_xlabel("time (s)", fontsize=LABEL_FS)
+
+    # 10 s (one stitch trial) scale bar, lower-right of the bottom panel — x in
+    # data (seconds), y in axes fraction. A white halo keeps it legible whether
+    # the bottom panel is a (dark) kinograph or a (white) HD trace.
+    if trial_s:
+        import matplotlib.patheffects as pe
+        ax = axl[-1]
+        tr = ax.get_xaxis_transform()
+        x1 = T * dt * 0.99
+        x0 = x1 - trial_s
+        ax.plot([x0, x1], [0.10, 0.10], transform=tr, color="black", lw=3,
+                clip_on=False, solid_capstyle="butt",
+                path_effects=[pe.withStroke(linewidth=5, foreground="white")])
+        ax.text((x0 + x1) / 2, 0.17, f"{trial_s:.0f} s (1 trial)", transform=tr,
+                ha="center", va="bottom", fontsize=TICK_FS, color="black",
+                path_effects=[pe.withStroke(linewidth=2.5, foreground="white")])
+
+    if title:
+        fig.suptitle(title, fontsize=TITLE_FS + 1, y=0.997)
+        fig.tight_layout(rect=[0, 0, 1, 0.975])
+    else:
+        fig.tight_layout()
+    fig.savefig(out_path, dpi=130)
+    plt.close(fig)
+    return metrics
 
 
 def _panel_image_from_png(ax, png_path):
