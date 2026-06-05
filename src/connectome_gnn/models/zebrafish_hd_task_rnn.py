@@ -49,6 +49,7 @@ _ACT_MAP = {
     "relu": F.relu,
     "tanh": torch.tanh,
     "softplus": F.softplus,
+    "leaky_relu": F.leaky_relu,
 }
 
 
