@@ -2020,6 +2020,21 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
             np.asarray(_zarr.open(f"{calc_root}/train/calcium.zarr", mode="r"))
         ).to(device)                                       # (Bc_all, T, R)
         n_calc = ca_u.shape[0]
+        # Per-trial timestamp (start_frame, t0_seconds) — where in the ~600 s
+        # recording each trial was sliced from. ca_t0 [s] lets the loss /
+        # model condition on absolute time so the non-stationary real ΔF/F
+        # (drift across the block, despite periodic ω) can be tracked.
+        # Optional: datasets generated before trial_time.zarr existed fall
+        # back to t0=0 (time-conditioning then a no-op), staying loadable.
+        _tt_path = f"{calc_root}/train/trial_time.zarr"
+        if os.path.isdir(_tt_path):
+            _tt = np.asarray(_zarr.open(_tt_path, mode="r"))
+            ca_t0 = torch.from_numpy(_tt[:, 1].astype(np.float32)).to(device)  # (Bc_all,)
+        else:
+            _logger.warning(f'no trial_time.zarr at {_tt_path}; '
+                            'regenerate dataset B to get per-trial timestamps. '
+                            'Falling back to t0=0 (time-conditioning is a no-op).')
+            ca_t0 = torch.zeros(n_calc, device=device)
         _cte = TaskTrials.load(f"{calc_root}/test").to(device)
         ca_test_u = _cte.stimulus
         ca_test_target = torch.from_numpy(
@@ -2196,6 +2211,14 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
         pbar = trange(Niter, ncols=150,
                       desc=f'epoch {epoch+1} (T={T_epoch})', leave=True)
         coeff_tail = float(getattr(tc, 'coeff_tail_loss', 0.0))
+        # Task-target -> target-column map. rotation = heading (cosθ, sinθ);
+        # translation = displacement ξ. The selected columns (in order) define
+        # which of the dataset's up-to-3 target columns the MSE supervises and
+        # must match the model's n_output. Unset -> no slicing (legacy task).
+        _TARGET_COL_MAP = {"rotation": [0, 1], "translation": [2]}
+        _task_targets = list(getattr(tc, 'task_targets', None) or [])
+        target_cols = ([c for t in _task_targets for c in _TARGET_COL_MAP[t]]
+                       if _task_targets else None)
         for N in pbar:
             global_step += 1
             idx = perm[N * tc.batch_size:(N + 1) * tc.batch_size]
@@ -2221,12 +2244,28 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
                 u_in = torch.cat([u, ca_u[cidx, :T_use]], dim=0)
                 y_in = torch.cat([y, ca_y[cidx, :T_use]], dim=0)
                 ca_c = ca_target[cidx, :T_use]                  # (Bc, T_use, R)
+                # Absolute time of every frame in the calcium batch, in seconds
+                # into the recording: t0(trial) + frame_index * dt. Shape
+                # (Bc, T_use). Available for time-conditioning of the obs loss.
+                ca_t_abs = (ca_t0[cidx][:, None]
+                            + torch.arange(T_use, device=device)[None, :] * dt_model)
             else:
                 u_in, y_in = u, y
 
             y_hat, h_buf = model(u_in)
 
-            # First loss term — heading MSE over the WHOLE (task+calcium) batch.
+            # Task-target selection: the model always emits 3 columns
+            # [cosθ, sinθ, ξ] (so heading metrics stay defined); `task_targets`
+            # picks which the MSE supervises — rotation = (0,1), translation =
+            # (2). Both y_hat and the dataset target are sliced to those columns.
+            # Unset -> no slicing (legacy 2-column heading task).
+            if target_cols is not None:
+                y_hat_cmp = y_hat[..., target_cols]
+                y_cmp = y_in[..., target_cols]
+            else:
+                y_hat_cmp, y_cmp = y_hat, y_in
+
+            # First loss term — task MSE over the WHOLE (task+calcium) batch.
             if coeff_tail > 0:
                 # Soft-curriculum: weight the per-frame MSE = 1 for t < T_epoch
                 # and `coeff_tail_loss` for t >= T_epoch (non-zero gradient on
@@ -2234,10 +2273,10 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
                 w = torch.ones(T_use, device=u.device)
                 if T_epoch < T_use:
                     w[T_epoch:] = coeff_tail
-                sq_err = (y_hat - y_in).pow(2).mean(dim=-1)     # (B, T_use)
+                sq_err = (y_hat_cmp - y_cmp).pow(2).mean(dim=-1)   # (B, T_use)
                 mse = ((sq_err * w[None, :]).sum(dim=-1) / w.sum()).mean()
             else:
-                mse = F.mse_loss(y_hat, y_in)
+                mse = F.mse_loss(y_hat_cmp, y_cmp)
 
             # Observation loss — convert the calcium-batch voltage to calcium via
             # the GCaMP class (sim.gcamp_kernel), gather the observed neurons, and

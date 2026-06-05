@@ -144,8 +144,12 @@ class ZebrafishHdTaskRNN(nn.Module):
             cx = load_zebrafish_hd_connectome(sim.connconstr_datapath)
         N = int(cx["N"])
         self.n_units = N
-        self.n_input = 3
-        self.n_output = 2
+        # n_input / n_output are config-driven so the same model serves the
+        # rotation-only task (3-in / 2-out, default) and the translational
+        # self-motion task (4-in [ω, v_fwd, cosθ0, sinθ0] / up to 3-out
+        # [cosθ, sinθ, ξ]). 0/absent → the legacy 3/2 defaults.
+        self.n_input = int(getattr(gm, "n_input", 0)) or 3
+        self.n_output = int(getattr(gm, "n_output", 0)) or 2
 
         W_con = torch.from_numpy(cx["J_effective"].astype(np.float32))
         self.register_buffer("W_con", W_con)
@@ -441,6 +445,17 @@ class ZebrafishHdTaskRNN(nn.Module):
             h_buf: (B, T, N) subthreshold activity (for diagnostics and
                    the circular-TV regulariser).
         """
+        # Some eval/rollout probes (bump_fwhm, deterministic sweep) build the
+        # legacy 3-channel input [ω, cosθ0, sinθ0]; this model may have a wider
+        # input (e.g. 4-ch [ω, v_fwd, cosθ0, sinθ0]). Pad the missing middle
+        # (translational v_fwd) channels with zeros so ω stays in ch0 and the
+        # heading cue stays in the last two channels. No-op when already wide.
+        if u.shape[-1] < self.n_input:
+            pad = self.n_input - u.shape[-1]
+            u = torch.cat(
+                [u[..., :1], u.new_zeros(*u.shape[:-1], pad), u[..., 1:]],
+                dim=-1)
+
         B, T, _ = u.shape
         N = self.n_units
 

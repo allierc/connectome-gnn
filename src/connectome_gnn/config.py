@@ -1126,6 +1126,14 @@ class TrainingConfig(BaseModel):
     #                        constrains the network's internal dynamics rather
     #                        than the externally-driven inputs.
     observation_neurons: str = "all"
+    # Which task target(s) the swim-integration MSE supervises, selecting
+    # columns of the dataset target [cosθ, sinθ, ξ]:
+    #   'rotation'    — heading (cosθ, sinθ)  [columns 0,1]
+    #   'translation' — displacement ξ = ∫v_fwd  [column 2]
+    # The model's graph_model.n_output must equal the total selected columns
+    # (rotation→2, translation→1, both→3). Empty list → no slicing (legacy
+    # 2-column heading task, byte-identical to before).
+    task_targets: List[str] = Field(default_factory=list)
     # Per-epoch learning-rate schedule (Hulse). Empty list → constant `lr`.
     # Padded with the last value if n_epochs > len(schedule).
     lr_schedule: List[float] = Field(default_factory=lambda: [5e-3, 1e-3, 5e-4, 2e-4, 1e-4])
