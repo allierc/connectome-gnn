@@ -1352,6 +1352,18 @@ class SwimIntegrationTaskConfig(BaseModel):
     # corrupted. 0 = no noise. Mirrors PathIntegrationTaskConfig.
     omega_noise_level: float = 0.0
 
+    # --- Translational (forward/backward) drive ---------------------------
+    # The dataset ALWAYS writes the complete superset: forward/backward swims
+    # drive a translational velocity channel v_fwd that integrates to a
+    # displacement target ξ = ∫v_fwd·dt, in parallel to the rotational ω→heading
+    # (forward = +v_fwd, backward = −v_fwd). The input is 4-channel
+    # [ω, v_fwd, cosθ0·δ, sinθ0·δ] and the target is 3-column [cosθ, sinθ, ξ].
+    # v_fwd is a drive, ξ its readout — never both. WHICH target(s) are actually
+    # supervised (translation, rotation, or both) is a TRAINER choice, not a
+    # data choice — the data carries everything.
+    forward_vel_mean: float = 1.0   # mean |v_fwd| per forward/backward event (units/s)
+    forward_vel_std:  float = 0.40
+
     device: Literal["cpu", "cuda", "auto"] = "cpu"
 
     @model_validator(mode="after")
