@@ -456,6 +456,45 @@ def _generate_swim_integration_task(config, *, device, visualize: bool = True) -
     os.makedirs(out_root, exist_ok=True)
     logger.info(f"[task] swim_integration -> {out_root}")
 
+    # Skip regeneration when the dataset is already on disk (both splits
+    # populated with the TaskTrials meta.json). Two configs that share
+    # the same task dataset (e.g. zebrafish_hd_si_ipn12_v1 and
+    # zebrafish_hd_si_ipn12_v2 — same swim_integration recipe, different
+    # circuit) must be able to invoke `-o generate_train` independently
+    # without zarr v3 refusing to overwrite the prior run's nodes.
+    train_meta = os.path.join(out_root, "train", "meta.json")
+    test_meta = os.path.join(out_root, "test", "meta.json")
+    if os.path.isfile(train_meta) and os.path.isfile(test_meta):
+        logger.info(f"[task] swim_integration: dataset already present at "
+                    f"{out_root}, skipping regeneration (delete the folder "
+                    f"to force regenerate).")
+        # Still refresh circuit_provenance.json so the file reflects the
+        # current circuit selection (cheap; updates the sha + circuit name
+        # if the yaml's circuit.name changed between runs).
+        circuit_cfg = getattr(config, "circuit", None)
+        if circuit_cfg is not None and getattr(circuit_cfg, "name", None):
+            import json
+            from connectome_gnn.generators.circuits import get_circuit
+            c = get_circuit(circuit_cfg.name)
+            prov = {
+                "circuit_name": c.name,
+                "N": int(c.N),
+                "J_effective_sha256": c.provenance.get("J_effective_sha256", ""),
+                "dt": float(si.dt),
+                "task_family": "swim_integration",
+                "type_count": len(c.type_names),
+                "n_bump_cells": int(len(c.subpops.get("bump", []))),
+                "source_provenance": {
+                    k: v for k, v in c.provenance.items()
+                    if k != "J_effective_sha256"
+                },
+            }
+            with open(os.path.join(out_root, "circuit_provenance.json"), "w") as f:
+                json.dump(prov, f, indent=2, sort_keys=True)
+            logger.info(f"[task] refreshed circuit_provenance.json for "
+                        f"{c.name!r} (sha={prov['J_effective_sha256'][:16]})")
+        return
+
     # --- Circuit provenance ------------------------------------------------
     # When a named circuit was selected (``config.circuit.name``), write a
     # small JSON next to the train/test splits so the dataset folder is
@@ -552,18 +591,27 @@ def _generate_swim_integration_task(config, *, device, visualize: bool = True) -
             mean=math.log(max(float(si.backward_phase_mean_rad), 1e-6)),
             sigma=sigma_log_B,  size=(B, T))
 
-        # Per-event signed Δθ (radians) and per-event LABEL only at onsets.
+        # Per-event signed Δθ (radians, angular) and Δs (translational) at
+        # onsets. L/R drive heading (rotation); F/B drive the translational
+        # channel (forward = +, backward = −). The dataset carries both — which
+        # is supervised is a trainer choice.
         delta_theta = np.zeros((B, T), dtype=np.float32)
+        delta_fwd   = np.zeros((B, T), dtype=np.float32)
         delta_theta[(cat == LABEL_LEFT)  & onset] = (
             +mag_LR[(cat == LABEL_LEFT) & onset].astype(np.float32))
         delta_theta[(cat == LABEL_RIGHT) & onset] = (
             -mag_LR[(cat == LABEL_RIGHT) & onset].astype(np.float32))
-        # forward: Δθ = 0 (do nothing)
-        # backward: ±|Δθ_B|, sign random
-        bw_mask = (cat == LABEL_BACKWARD) & onset
-        bw_sign = np.where(np.random.uniform(size=(B, T)) < 0.5, +1.0, -1.0)
-        delta_theta[bw_mask] = (
-            bw_sign[bw_mask] * mag_B[bw_mask]).astype(np.float32)
+        # F/B -> translational displacement per event (units); magnitude from a
+        # lognormal on forward_vel_mean.
+        sigma_log_F = float(si.forward_vel_std) / max(
+            float(si.forward_vel_mean), 1e-6)
+        mag_F = np.random.lognormal(
+            mean=math.log(max(float(si.forward_vel_mean), 1e-6)),
+            sigma=sigma_log_F, size=(B, T))
+        delta_fwd[(cat == LABEL_FORWARD)  & onset] = (
+            +mag_F[(cat == LABEL_FORWARD) & onset].astype(np.float32))
+        delta_fwd[(cat == LABEL_BACKWARD) & onset] = (
+            -mag_F[(cat == LABEL_BACKWARD) & onset].astype(np.float32))
 
         # Onset-only labels (0 outside onsets).
         swim_label_onset = np.where(onset, cat, np.int8(0)).astype(np.int8)
@@ -573,10 +621,12 @@ def _generate_swim_integration_task(config, *, device, visualize: bool = True) -
         # contribution from past onsets within a sliding window of L frames.
         # Also stretch the per-frame label so the boxcar carries the type.
         omega_rad = np.zeros((B, T), dtype=np.float32)
+        vfwd      = np.zeros((B, T), dtype=np.float32)   # translational velocity
         swim_label = np.zeros((B, T), dtype=np.int8)
         for k in tqdm(range(L), desc=f"  {split} boxcar stretch",
                       ncols=150, leave=False):
             omega_rad[:, k:] += delta_theta[:, : T - k] / (L * dt)
+            vfwd[:, k:] += delta_fwd[:, : T - k] / (L * dt)
             # label: take the most recent onset's type (overwrite is fine
             # because we don't allow two onsets within L frames in expectation
             # — even when they do collide, last-onset wins, which is fine).
@@ -600,14 +650,20 @@ def _generate_swim_integration_task(config, *, device, visualize: bool = True) -
         theta0 = np.random.uniform(0.0, 2.0 * math.pi, size=B).astype(np.float32)
         theta_hd = theta0[:, None] + np.cumsum(np.deg2rad(omega), axis=1) * dt
         theta_hd[:, 0] = theta0
-        target_y = np.stack([np.cos(theta_hd), np.sin(theta_hd)],
-                             axis=-1).astype(np.float32)
 
-        # 5) 3-channel input — identical layout to PI.
-        stimulus = np.zeros((B, T, 3), dtype=np.float32)
+        # Displacement ξ = ∫ v_fwd dt (translational integral, starts at 0), in
+        # parallel to heading θ = ∫ ω dt. The dataset writes both targets.
+        disp = (np.cumsum(vfwd, axis=1) * dt).astype(np.float32)
+        disp[:, 0] = 0.0
+        # Target — 3 columns [cosθ, sinθ, ξ]: rotation (0,1) + translation (2).
+        target_y = np.stack([np.cos(theta_hd), np.sin(theta_hd), disp],
+                            axis=-1).astype(np.float32)
+        # Input — 4 channels [ω, v_fwd, cosθ0·δ, sinθ0·δ].
+        stimulus = np.zeros((B, T, 4), dtype=np.float32)
         stimulus[:, :, 0] = omega
-        stimulus[:, 0, 1] = np.cos(theta0)
-        stimulus[:, 0, 2] = np.sin(theta0)
+        stimulus[:, :, 1] = vfwd
+        stimulus[:, 0, 2] = np.cos(theta0)
+        stimulus[:, 0, 3] = np.sin(theta0)
         if si.omega_noise_level > 0:
             stimulus[:, :, 0] += (
                 si.omega_noise_level
@@ -636,8 +692,14 @@ def _generate_swim_integration_task(config, *, device, visualize: bool = True) -
         import zarr as _zarr
         _zarr.save(os.path.join(split_dir, "swim_label.zarr"),
                    swim_label.astype(np.int8))
+        # Extra fields: the translational velocity drive (input ch1) and its
+        # integral displacement (target col 2), split out for plotting/analysis.
+        _zarr.save(os.path.join(split_dir, "forward_vel.zarr"),
+                   vfwd.astype(np.float32))
+        _zarr.save(os.path.join(split_dir, "displacement.zarr"),
+                   disp.astype(np.float32))
         logger.info(f"[task]   {split}: wrote {B} trials of T={T} "
-                    f"(TaskTrials v2 layout + swim_label.zarr)")
+                    f"(TaskTrials v2 layout + swim_label/forward_vel/displacement.zarr)")
 
         if visualize:
             plot_task_swim_traces(
