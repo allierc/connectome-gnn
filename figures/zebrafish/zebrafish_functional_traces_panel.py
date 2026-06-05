@@ -411,7 +411,7 @@ def real_panel(rows, connectome_dir, ts, drive, decoder="mlp"):
 #  rendering (shared layout)
 # --------------------------------------------------------------------------- #
 def render(d, rows, out_png, title, bg="black", cmap_name="black_green",
-           show_partition=True, show_swim_panels=True):
+           show_partition=True, show_swim_panels=True, t_window=None):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -419,7 +419,11 @@ def render(d, rows, out_png, title, bg="black", cmap_name="black_green",
 
     txt = "white" if bg == "black" else "black"
     dim = "0.35"
-    t = d["t_sec"]; x_lo, x_hi = float(t[0]), float(t[-1])
+    t = d["t_sec"]; x_lo, x_hi_full = float(t[0]), float(t[-1])
+    # Optional display crop to the first `t_window` seconds (a zoom). The
+    # kinograph extent and the line data are unchanged; only the x-limits of
+    # every panel are tightened, so the same arrays render as a zoom-in.
+    x_hi = x_hi_full if t_window is None else min(x_hi_full, x_lo + float(t_window))
 
     fig = plt.figure(figsize=(15, 9), facecolor=bg)
     # drop the L/R + F/B swim-tick panels when show_swim_panels is False
@@ -449,7 +453,7 @@ def render(d, rows, out_png, title, bg="black", cmap_name="black_green",
     vmin = float(np.percentile(finite, 2)) if finite.size else -1.0
     vmax = float(np.percentile(finite, 99.5)) if finite.size else 4.0
     ax.imshow(d["kino"], aspect="auto", cmap=cmap, vmin=vmin, vmax=vmax,
-              extent=[x_lo, x_hi, len(rows), 0], interpolation="nearest")
+              extent=[x_lo, x_hi_full, len(rows), 0], interpolation="nearest")
     # hemisphere boundary + side bar (only when rows are grouped by hemisphere;
     # the rastermap order mixes L/R, so the partition is meaningless there)
     if show_partition:
@@ -551,7 +555,7 @@ def main():
     p.add_argument("--model-circuit", default=None,
                    help="circuit name giving the model's neuron order/bodyIds "
                         "when the config has no circuit.name (e.g. "
-                        "zebrafish_HD_731_v1 for the dipn/gnn_dipn models)")
+                        "zebrafish_HD_IPN12_839_v1)")
     p.add_argument("--config-path", default=None,
                    help="explicit config yaml for the model (when the log dir "
                         "has no config.yaml, e.g. cv runs)")

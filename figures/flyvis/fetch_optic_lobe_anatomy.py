@@ -86,7 +86,7 @@ def main() -> int:
     p.add_argument(
         "--token",
         default=os.environ.get("NEUPRINT_APPLICATION_CREDENTIALS")
-        or "***REMOVED***",
+        or os.environ.get("NEUPRINT_TOKEN"),
     )
     p.add_argument("--server", default="https://neuprint.janelia.org")
     p.add_argument("--dataset", default=DEFAULT_DATASET)

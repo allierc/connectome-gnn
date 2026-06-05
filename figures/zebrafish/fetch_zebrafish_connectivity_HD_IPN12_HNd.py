@@ -1,31 +1,22 @@
-"""One-off fetch of zebrafish fish2 HD-circuit connectivity (cells + edges).
+"""One-off fetch of the zebrafish fish2 HD circuit **extended with the HNd
+(dorsal-habenula) afferent population**.
 
-Companion to fetch_zebrafish_anatomy_HD.py: that script grabs SWC skeletons +
-ROI meshes for the 3-D figure; this script grabs the adjacency matrix between
-the same HD-circuit cells (IPNd*/IPNds* = r1pi HD ring, RIPN* = habenula
-afferents, pt-IPN* = pretectal afferents) so the connectome-constrained RNN
-loader has something to read.
+Companion to ``fetch_zebrafish_connectivity_HD_IPN12.py``: identical protocol and
+output schema, but the type list adds ``HNd`` — the single largest unmodelled
+input to the dIPN bump ring (the unrestricted partner census
+``census_zebrafish_partners_HD_IPN12.py`` shows HNd alone delivers more synaptic
+weight to the bump pool than all of RIPN + pt-IPN combined). The resulting CSV
+pair carries the 839-cell IPN12 pool + the HNd cells, and registers as
+``zebrafish_HD_IPN12_HNd_<N>_v1`` in ``connectome_gnn.generators.circuits``.
 
-Run ONCE on a machine with internet access and a neuprint-fish2 token; it
-writes `<out>/neurons.csv` and `<out>/connections.csv`, both consumed by
-`load_zebrafish_hd_connectome()` in
-`src/connectome_gnn/generators/connconstr_data.py`.
+Run ONCE on a machine with internet access and a neuprint-fish2 token::
 
-Server: neuprint-fish2.janelia.org, dataset 'fish2'.
-
-Prereqs:
     pip install neuprint-python pandas
     export NEUPRINT_APPLICATION_CREDENTIALS=<your-token>   # or pass --token
+    python fetch_zebrafish_connectivity_HD_IPN12_HNd.py \\
+        [--out zebrafish_connectome_HD_IPN12_HNd] [--token TOKEN]
 
-Usage:
-    python fetch_zebrafish_connectivity_HD.py [--out zebrafish_connectome_HD] \
-        [--token TOKEN] [--weight_thresh 1]
-
-Output tree:
-    <out>/
-        neurons.csv      bodyId, type, instance, side, somaLocation{X,Y,Z}
-        connections.csv  bodyId_pre, bodyId_post, weight  (one row per directed edge)
-        roiInfo.json     per-neuron ROI synapse breakdown (raw neuprint payload)
+Server: neuprint-fish2.janelia.org, dataset 'fish2'.
 """
 from __future__ import annotations
 
@@ -36,41 +27,30 @@ import sys
 
 import pandas as pd
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Reuse the exact 33-type HD+IPN12 list so the base pool can't drift.
+from fetch_zebrafish_connectivity_HD_IPN12 import HD_IPN12_TYPES  # noqa: E402
 
-# Same HD-circuit cell types as fetch_zebrafish_anatomy_HD.py.
-IPND_TYPES = ["IPNd", "IPNd01",
-              "IPNd13A", "IPNd13B", "IPNd13C", "IPNd13D", "IPNd13E", "IPNd13S",
-              "IPNd14", "IPNd15", "IPNd16",
-              "IPNd17A", "IPNd17B",
-              "IPNdp01"]
-IPNDS_TYPES = ["IPNds", "IPNds13A", "IPNds13B", "IPNds17"]
-RIPN_TYPES = ["RIPN01", "RIPN02", "RIPN03_a", "RIPN03_b",
-              "RIPN05", "RIPN11",
-              "RIPN12_a", "RIPN12_b", "RIPN12_c",
-              "RIPN16", "RIPN17"]
-PTIPN_TYPES = ["pt-IPN1", "pt-IPN2"]
-
-HD_TYPES = IPND_TYPES + IPNDS_TYPES + RIPN_TYPES + PTIPN_TYPES
+# The new afferent family. HNd appears as a single fish2 type (~214 cells in the
+# census); add subtypes here if a finer split shows up on fetch day.
+HND_TYPES = ["HNd"]
+HD_IPN12_HND_TYPES = HD_IPN12_TYPES + HND_TYPES
 
 
 def main() -> int:
     p = argparse.ArgumentParser(
-        description=__doc__,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    p.add_argument("--out", default="zebrafish_connectome_HD",
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--out", default="zebrafish_connectome_HD_IPN12_HNd",
                    help="output directory")
     p.add_argument(
         "--token",
         default=os.environ.get("NEUPRINT_APPLICATION_CREDENTIALS")
         or os.environ.get("NEUPRINT_TOKEN"),
-        help="neuprint-fish2 token (or set NEUPRINT_APPLICATION_CREDENTIALS / "
-             "NEUPRINT_TOKEN env var)",
-    )
+        help="neuprint-fish2 token (or NEUPRINT_APPLICATION_CREDENTIALS / "
+             "NEUPRINT_TOKEN env var)")
     p.add_argument("--server", default="https://neuprint-fish2.janelia.org")
     p.add_argument("--dataset", default="fish2")
-    p.add_argument("--types", nargs="+", default=HD_TYPES,
-                   help="neuron types to include (default: IPNd*/IPNds*/RIPN*/pt-IPN*)")
+    p.add_argument("--types", nargs="+", default=HD_IPN12_HND_TYPES)
     p.add_argument("--weight_thresh", type=int, default=1,
                    help="drop edges with synapse weight strictly below this")
     args = p.parse_args()
@@ -87,13 +67,9 @@ def main() -> int:
     client = Client(args.server, dataset=args.dataset, token=args.token)
     set_default_client(client)
     print(f"connected: {args.server} dataset={args.dataset}")
-
     os.makedirs(args.out, exist_ok=True)
 
     # --- Fetch neurons one type at a time --------------------------------
-    # We chunk per type rather than passing the whole list, so the
-    # per-type count is logged and a single bad name doesn't kill the
-    # whole fetch.
     all_neurons = []
     for t in args.types:
         nrns, _ = fetch_neurons(NC(type=t))
@@ -103,17 +79,12 @@ def main() -> int:
     if not all_neurons:
         sys.exit("no neurons found for any of the requested types")
     nrn_df = pd.concat(all_neurons, ignore_index=True)
-    print(f"total: {len(nrn_df)} HD-circuit neurons")
+    print(f"total: {len(nrn_df)} HD+IPN12+HNd neurons")
 
     body_ids = nrn_df["bodyId"].astype(int).tolist()
 
-    # --- Fetch adjacencies restricted to the HD set ----------------------
-    # `sources=body_ids, targets=body_ids` returns only edges where both
-    # endpoints are in the HD circuit; the second return value is the
-    # per-edge connection table we want.
-    _, conn_df = fetch_adjacencies(
-        sources=body_ids, targets=body_ids, client=client,
-    )
+    # --- Adjacencies restricted to the extended (closed) set -------------
+    _, conn_df = fetch_adjacencies(sources=body_ids, targets=body_ids, client=client)
     if args.weight_thresh > 0:
         before = len(conn_df)
         conn_df = conn_df[conn_df["weight"] >= args.weight_thresh].reset_index(drop=True)
@@ -122,12 +93,8 @@ def main() -> int:
         print(f"edges: {len(conn_df)}")
 
     # --- Write neurons.csv ----------------------------------------------
-    # Keep the columns the loader actually needs (bodyId, type, instance,
-    # side, soma coords); everything else (raw roiInfo blob, synweight,
-    # etc.) goes to a separate JSON dump for posterity.
     soma_xyz = nrn_df["somaLocation"].apply(
-        lambda v: v if isinstance(v, (list, tuple)) else (None, None, None)
-    )
+        lambda v: v if isinstance(v, (list, tuple)) else (None, None, None))
     nrn_out = pd.DataFrame({
         "bodyId": nrn_df["bodyId"].astype(int),
         "type": nrn_df["type"].fillna("").astype(str),
@@ -149,28 +116,19 @@ def main() -> int:
     print(f"wrote {os.path.join(args.out, 'connections.csv')}")
 
     # --- Raw roiInfo for posterity --------------------------------------
-    # roiInfo is a JSON string of per-ROI synapse counts. Keep it as a
-    # separate dump so the loader stays trivial but downstream analyses
-    # (e.g. per-ROI input current splits) can read it back if needed.
     if "roiInfo" in nrn_df.columns:
         roi_payload = {
             int(bid): (json.loads(blob) if isinstance(blob, str) else blob)
             for bid, blob in zip(nrn_df["bodyId"], nrn_df["roiInfo"])
-            if isinstance(blob, str) and blob.strip()
-        }
+            if isinstance(blob, str) and blob.strip()}
         with open(os.path.join(args.out, "roiInfo.json"), "w") as f:
             json.dump(roi_payload, f)
-        print(f"wrote {os.path.join(args.out, 'roiInfo.json')}")
 
-    # --- Quick connectivity summary -------------------------------------
-    # Spot-check that the matrix isn't trivially empty.
     counts = nrn_out["type"].value_counts()
-    print()
-    print("neurons per type:")
+    print("\nneurons per type:")
     for t, n in counts.items():
         print(f"  {t:18s} {n}")
-    print()
-    print(f"edge density: {len(edge_out)} / {len(body_ids)**2} = "
+    print(f"\nedge density: {len(edge_out)} / {len(body_ids)**2} = "
           f"{len(edge_out)/(len(body_ids)**2):.4f}")
     return 0
 
