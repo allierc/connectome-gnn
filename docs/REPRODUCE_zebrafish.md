@@ -7,6 +7,15 @@ checkpoint paths, and per-figure command lines, so a future refactor
 branch can rerun this pipeline and diff its outputs against the
 artefacts that ship with the document.
 
+> **⚠️ Migration note (2026-06):** the base model moved from the 731-cell
+> dIPN pool (`zebrafish_hd_si_dipn`, now removed) to the 839-cell IPN12 pool
+> (`zebrafish_hd_si_ipn12_v1_cv0`, RNN; `zebrafish_hd_si_gnn_ipn12_v1_cv0`,
+> GNN). Config/run/connectome-path references below have been repointed, but
+> the **figure-specific statistics are not yet regenerated** for the IPN12
+> model: the cell counts (§3 Figure 5: 350/366), the page count (§4: 16),
+> the §0 reference commit/branch, and the trained-checkpoint stats all still
+> reflect the old 731 run and must be re-derived against the new model.
+
 ---
 
 ## 0. Reference state
@@ -35,7 +44,7 @@ the repo and never change unless re-fetched.
 
 ```
 figures/zebrafish/zebrafish_anatomy_HD/          # SWC skeletons + OBJ ROIs for 727 HD-circuit neurons
-figures/zebrafish/zebrafish_connectome_HD/       # neurons.csv (731 rows) + connections.csv (14,391 edges)
+figures/zebrafish/zebrafish_connectome_HD_IPN12/       # neurons.csv (839 rows) + connections.csv (22,425 edges)
 figures/zebrafish/zebrafish_anatomy_IPN12/       # 106 IPN12_a / IPN12_b SWCs (companion only, not used by tex)
 ```
 
@@ -46,20 +55,19 @@ that can reach `neuprint-fish2.janelia.org`, currently gated by
 
 ```
 python figures/zebrafish/fetch_zebrafish_anatomy_HD.py
-python figures/zebrafish/fetch_zebrafish_connectivity_HD.py
+python figures/zebrafish/fetch_zebrafish_connectivity_HD_IPN12.py
 ```
 
 ### 1b. Generated task data (swim-integration)
 
 For training and for analyses that need a deterministic rollout, the
-dataset `drosophila_cx/zebrafish_hd_si_task` (or its `_tv` variant) must
-exist under `${GNN_OUTPUT_ROOT}/graphs_data/`. The seed that produced the
-existing data is captured inside the `_complete` marker; regenerating with
-the same simulation seed yields identical zarrs.
+dataset `zebrafish/zebrafish_hd_si_task_ipn12_v1` must exist under
+`${GNN_OUTPUT_ROOT}/graphs_data/`. The seed that produced the existing
+data is captured inside the `_complete` marker; regenerating with the same
+simulation seed yields identical zarrs.
 
 ```
-python GNN_Main.py -o generate zebrafish/zebrafish_hd_si_dipn      # base recipe
-python GNN_Main.py -o generate zebrafish/zebrafish_hd_si_dipn_tv   # TV-regularised recipe
+python GNN_Main.py -o generate zebrafish/zebrafish_hd_si_ipn12_v1_cv0      # base recipe
 ```
 
 ---
@@ -70,20 +78,20 @@ The figures load the trained dIPN-only RNN at:
 
 | | |
 |---|---|
-| Config name | `zebrafish_hd_si_dipn` |
-| Yaml source | `config/zebrafish/zebrafish_hd_si_dipn.yaml` |
-| Log dir | `${GNN_OUTPUT_ROOT}/log/zebrafish/zebrafish_hd_si_dipn/` |
+| Config name | `zebrafish_hd_si_ipn12_v1_cv0` |
+| Yaml source | `config/zebrafish/zebrafish_hd_si_ipn12_v1_cv0.yaml` |
+| Log dir | `${GNN_OUTPUT_ROOT}/log/zebrafish/zebrafish_hd_si_ipn12_v1_cv0/` |
 | Checkpoints | `models/best_model_with_0_graphs_{1..5}.pt` (five epochs) |
 | Default checkpoint used by figure scripts | `best_model_with_0_graphs_5.pt` (highest-epoch glob, picked by `_load(...)` in `fig_zebrafish_anatomy_3d_voltage_anim.py`) |
 
 The two analysis scripts that import `_load_with_override` from
 `fig_zebrafish_four_classes` also default to the same model
-(`--model zebrafish_hd_si_dipn`).
+(`--model zebrafish_hd_si_ipn12_v1_cv0`).
 
 Train from scratch (≈ 30 min on l4) with:
 
 ```
-python GNN_Main.py -o train_task zebrafish/zebrafish_hd_si_dipn
+python GNN_Main.py -o train_task zebrafish/zebrafish_hd_si_ipn12_v1_cv0
 ```
 
 Seeds are read from the yaml (`training.seed`, `task.swim_integration.seed`, `simulation.seed`); do not change them
@@ -105,13 +113,13 @@ python figures/zebrafish/fig_zebrafish_anatomy_3d_HD.py --bg white
 
 Reads `zebrafish_anatomy_HD/`. No checkpoint needed.
 
-### Figure 2 — `fig_connectome_summary_HD.png` (signed W^con + binary support)
+### Figure 2 — `fig_connectome_summary_HD_IPN12.png` (signed W^con + binary support)
 
 ```
-python figures/zebrafish/fig_connectome_summary_HD.py
+python figures/zebrafish/fig_connectome_summary_HD_IPN12.py
 ```
 
-Reads `zebrafish_connectome_HD/`. No checkpoint needed.
+Reads `zebrafish_connectome_HD_IPN12/`. No checkpoint needed.
 
 ### Figure 3 — `fig_zebrafish_four_classes.png` (R / L / D / Z partition)
 
@@ -123,9 +131,9 @@ restrict to `R ∪ L` cells.
 python figures/zebrafish/fig_zebrafish_four_classes.py
 ```
 
-Defaults: `--model zebrafish_hd_si_dipn`, decision-tree thresholds set by
+Defaults: `--model zebrafish_hd_si_ipn12_v1_cv0`, decision-tree thresholds set by
 `--mi_q / --w_q / --swim_q` quantiles inside the script. Loads the latest
-checkpoint under `${GNN_OUTPUT_ROOT}/log/zebrafish/zebrafish_hd_si_dipn/models/`.
+checkpoint under `${GNN_OUTPUT_ROOT}/log/zebrafish/zebrafish_hd_si_ipn12_v1_cv0/models/`.
 
 ### Figure 4 — `fig_zebrafish_pref_angle.png` (preferred-heading 3-D map)
 
@@ -181,7 +189,7 @@ connectome loader, confirm the three pillars from the design discussion:
 python - <<'PY'
 import hashlib, numpy as np
 from connectome_gnn.generators.connconstr_data import load_zebrafish_hd_connectome
-cx = load_zebrafish_hd_connectome("figures/zebrafish/zebrafish_connectome_HD")
+cx = load_zebrafish_hd_connectome("figures/zebrafish/zebrafish_connectome_HD_IPN12")
 for k in ("J_effective", "neuron_types"):
     a = np.asarray(cx[k])
     print(k, a.shape, a.dtype, hashlib.sha256(a.tobytes()).hexdigest()[:16])

@@ -17,7 +17,7 @@ just the CLI / data-loading shim that:
 
 Usage:
     python figures/zebrafish/fig_evolution.py \\
-        --run_dir /groups/saalfeld/home/allierc/GraphData/log/zebrafish/zebrafish_hd_si_dipn \\
+        --run_dir /groups/saalfeld/home/allierc/GraphData/log/zebrafish/zebrafish_hd_si_ipn12_v1_cv0 \\
         --out_dir figures/zebrafish/
 """
 
@@ -219,10 +219,8 @@ def _load_model_and_rollouts(
 
 
 DEFAULT_RUN_DIRS = [
-    "/groups/saalfeld/home/allierc/GraphData/log/zebrafish/zebrafish_hd_si_dipn",
-    "/groups/saalfeld/home/allierc/GraphData/log/zebrafish/zebrafish_hd_si_frozen_Wrec_dipn",
-    "/groups/saalfeld/home/allierc/GraphData/log/zebrafish/zebrafish_hd_si_fc_dipn",
-    "/groups/saalfeld/home/allierc/GraphData/log/zebrafish/zebrafish_hd_si_gnn_dipn",
+    "/groups/saalfeld/home/allierc/GraphData/log/zebrafish/zebrafish_hd_si_ipn12_v1_cv0",
+    "/groups/saalfeld/home/allierc/GraphData/log/zebrafish/zebrafish_hd_si_gnn_ipn12_v1_cv0",
 ]
 
 

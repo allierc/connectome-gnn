@@ -1720,6 +1720,6 @@ if __name__ == "__main__":
 
 # python /workspace/connectome-gnn-cx/figures/zebrafish/fig_zebrafish_anatomy_3d_voltage_anim.py \
 #   --z_lo=0.0 --z_hi=6.0 --swim --stride=5 \
-#   --model=zebrafish_hd_si_dipn --n_steps=10000 --max_frames=2000
+#   --model=zebrafish_hd_si_ipn12_v1_cv0 --n_steps=10000 --max_frames=2000
 # python figures/drosophila_cx/fig_cx_anatomy_3d_voltage_anim.py   --model drosophila_cx_pi_epg_tv --z_lo 0 --z_hi 15 --alpha 1.0 --n_steps 4000 --ou --out_dir figures/drosophila_cx/3D_epg_tv_ou
 # python figures/drosophila_cx/fig_cx_anatomy_3d_voltage_anim.py  --stride 5 --z_lo 0 --z_hi 15 --alpha 1.0 --n_steps 4000 --model drosophila_cx_pi_epg_tv --show_roi_overlay 
