@@ -623,7 +623,8 @@ class GraphModelConfig(BaseModel):
     W_param: Literal["sign_locked", "free"] = "sign_locked"
     # Recurrent activation σ in r = σ(h). "sigmoid" is the Hulse paper
     # default; "relu" / "softplus" are Yang's defaults for cortex tasks.
-    recurrent_activation: Literal["sigmoid", "relu", "tanh", "softplus"] = "sigmoid"
+    # "tanh"/"leaky_relu" allow a signed rate code (σ(h) not constrained ≥0).
+    recurrent_activation: Literal["sigmoid", "relu", "tanh", "softplus", "leaky_relu"] = "sigmoid"
     # Optional image-derived binary mask on W_rec — a fun structural prior
     # to test capacity / sparsity trade-offs. The image is resized to N×N
     # and thresholded at its median to produce a 0/1 mask; W_rec is
