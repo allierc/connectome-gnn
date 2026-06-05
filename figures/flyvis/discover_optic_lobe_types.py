@@ -8,15 +8,7 @@ Usage:
 from __future__ import annotations
 
 import os
-
-# Same hard-coded token as fetch_optic_lobe_anatomy.py
-DEFAULT_TOKEN = (
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
-    "eyJlbWFpbCI6ImFsbGllcmNlZEBnbWFpbC5jb20iLCJsZXZlbCI6Im5vYXV0aCIs"
-    "ImltYWdlLXVybCI6Imh0dHBzOi8vbGgzLmdvb2dsZXVzZXJjb250ZW50LmNvbS9hL0FDZzhvY0tLV2x3cWNkb1hKVzhTdDYyRERhOVhQMHdNX0xHNUpvekRoTmlEQ0pqRDN5SHBMdz1zOTYtYz9zej01MD9zej01MCIs"
-    "ImV4cCI6MTk1OTY2MjE2NH0."
-    "JyR51iYA78A1j74LUPEy-GIyT6AjjDgwq75PjyBt0JM"
-)
+import sys
 
 # Flyvis types that returned 0 neurons in the smoke test
 MISSING_FLYVIS_TYPES = [
@@ -30,7 +22,11 @@ MISSING_FLYVIS_TYPES = [
 def main():
     from neuprint import Client, set_default_client
 
-    token = os.environ.get("NEUPRINT_APPLICATION_CREDENTIALS") or DEFAULT_TOKEN
+    token = (os.environ.get("NEUPRINT_APPLICATION_CREDENTIALS")
+             or os.environ.get("NEUPRINT_TOKEN"))
+    if not token:
+        sys.exit("need a neuprint token via NEUPRINT_APPLICATION_CREDENTIALS "
+                 "/ NEUPRINT_TOKEN env var")
     client = Client("https://neuprint.janelia.org",
                      dataset="optic-lobe:v1.1", token=token)
     set_default_client(client)

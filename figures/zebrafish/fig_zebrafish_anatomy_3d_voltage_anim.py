@@ -265,7 +265,16 @@ def _load(config_name, device, prefer_epoch=None):
         config=config, device=device,
     )
     state = torch.load(ckpt_path, map_location=device, weights_only=False)
-    model.load_state_dict(state["model_state_dict"])
+    sd = state["model_state_dict"]
+    # Back-compat: inheritance-era checkpoints store the four afferent
+    # velocity-gate scalars under the fly PEN names; remap to RIPN/pt-IPN.
+    _legacy = {"v_pena_l": "v_ripn_l", "v_pena_r": "v_ripn_r",
+               "v_penb_l": "v_ptipn_l", "v_penb_r": "v_ptipn_r"}
+    _keys = set(model.state_dict().keys())
+    for _old, _new in _legacy.items():
+        if _old in sd and _new in _keys and _new not in sd:
+            sd[_new] = sd.pop(_old)
+    model.load_state_dict(sd, strict=False)
     model.eval()
     print(f"loaded {config_name}: {ckpt_path}")
     return model, config
@@ -1297,7 +1306,7 @@ def main():
     p.add_argument("--anatomy_dir",
                    default=os.path.join(here, "zebrafish_anatomy_HD"))
     p.add_argument("--connconstr_datapath",
-                   default=os.path.join(here, "zebrafish_connectome_HD"))
+                   default=os.path.join(here, "zebrafish_connectome_HD_IPN12"))
     p.add_argument("--model", default="zebrafish_hd_si_dipn",
                    help="config name for the trained checkpoint")
     p.add_argument("--n_steps", type=int, default=10000)

@@ -130,10 +130,11 @@ def _render_real_sequences(args):
 
         d = panel.real_panel(panel_rows, args.connectome, ts, drive,
                              decoder="mlp")
-        out_png = os.path.join(out_dir, f"functional_panel_real_{seq}.png")
+        win = "" if args.t_window is None else f"_z{int(args.t_window)}s"
+        out_png = os.path.join(out_dir, f"functional_panel_real_{seq}{win}.png")
         panel.render(d, panel_rows, out_png, title, bg="white",
                      show_swim_panels=False, cmap_name="viridis",
-                     show_partition=False)
+                     show_partition=False, t_window=args.t_window)
         print(f"[done] {out_png}")
 
 
@@ -150,7 +151,7 @@ def main():
     p.add_argument("--log-dir", default=None, help="override derived log dir")
     p.add_argument("--model-circuit", default=None,
                    help="circuit name when the config has no circuit.name "
-                        "(e.g. zebrafish_HD_731_v1 for the 731-cell dipn runs)")
+                        "(e.g. zebrafish_HD_IPN12_839_v1)")
     p.add_argument("--connectome",
                    default=os.path.join(_REPO, "figures", "zebrafish",
                                         "zebrafish_connectome_HD_IPN12"))
@@ -175,6 +176,10 @@ def main():
                         "figures/zebrafish for --sequence)")
     p.add_argument("--no-title", action="store_true",
                    help="suppress the kinograph title (for montage figures)")
+    p.add_argument("--t-window", type=float, default=None,
+                   help="display-crop every panel to the first T seconds "
+                        "(a zoom-in); the rollout/decode are unchanged. The "
+                        "output filename gains a _z<T>s suffix.")
     args = p.parse_args()
 
     # --sequence: REAL ΔF/F per zapbench block (no model). Handled up front so
@@ -266,14 +271,15 @@ def main():
              decoded=decoded, turn_lr=dd["turn_lr"], swim_fb=dd["swim_fb"],
              pred_label="readout decode", omega_label="ω (°/s)")
 
-    out_png = os.path.join(out_dir, f"functional_panel_{stem}_{gcamp_name}.png")
+    win = "" if args.t_window is None else f"_z{int(args.t_window)}s"
+    out_png = os.path.join(out_dir, f"functional_panel_{stem}_{gcamp_name}{win}.png")
     title = ("" if args.no_title
              else f"{stem} -> {gcamp_name} calcium — Rotations 45 deg/s")
     # white background; with bg="white" render uses black text, so the predicted
     # HD trace (drawn in the text colour) is black, not white.
     panel.render(d, panel_rows, out_png, title,
                  bg="white", cmap_name="viridis", show_partition=False,
-                 show_swim_panels=False)
+                 show_swim_panels=False, t_window=args.t_window)
     print(f"[done] {out_png}")
 
 

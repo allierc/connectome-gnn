@@ -287,13 +287,18 @@ def load_drosophila_cx_connectome(datapath):
 # afferents from habenula (RIPN*) and pretectum (pt-IPN*). All four type
 # families come from the fish2 neuprint server.
 # Bump-ring categories: cells whose firing is the heading-direction code.
-# Default 731-cell fetch contains only IPNd* + IPNds* here. The 839-cell
+# The base HD fetch contains only IPNd* + IPNds* here. The 839-cell
 # IPN12 fetch (zebrafish_HD_IPN12_839_v1 circuit) extends the ring with
 # IPN12_a and IPN12_b — per the Step-2 design choice to join IPN12 cells
 # to the bump pool, so the bump-only decoder sees them and the
 # circular-TV regulariser includes them.
 _ZHD_BUMP_PREFIXES = ("IPNd", "IPNds", "IPN12_a", "IPN12_b")
-_ZHD_AFFERENT_PREFIXES = ("RIPN", "pt-IPN")    # input neurons (analog: PEN)
+# Afferent (input) neurons. RIPN (habenula) + pt-IPN (pretectum) are the base
+# pair; HNd (dorsal habenula) is added in the zebrafish_HD_IPN12_HNd_* circuit —
+# the largest unmodelled input to the ring per the partner census. Kept
+# excitatory (not in _ZHD_INH_PREFIXES). Only present when the connectome CSVs
+# contain HNd rows; the base 839-cell pool has none, so its HNd subpops are empty.
+_ZHD_AFFERENT_PREFIXES = ("RIPN", "pt-IPN", "HNd")    # input neurons (analog: PEN)
 
 # Cell types whose outgoing weights are sign-flipped (Dale, inhibitory). The
 # Petrucco paper shows the r1pi neurons (IPNd*/IPNds*) are GABAergic, so
@@ -307,7 +312,7 @@ _ZHD_INH_PREFIXES = ("IPNd", "IPNds", "IPN12_a", "IPN12_b")
 
 def _zhd_category(type_name: str) -> str:
     """Map a fish2 type string to one of the recognised HD-circuit
-    categories — IPNd, IPNds, RIPN, pt-IPN (731-cell fetch) plus IPN12_a,
+    categories — IPNd, IPNds, RIPN, pt-IPN (base HD) plus IPN12_a,
     IPN12_b (839-cell fetch) — or '' if it doesn't belong.
 
     Order of checks matters: 'IPNds' must be matched before 'IPNd', and
@@ -326,13 +331,16 @@ def _zhd_category(type_name: str) -> str:
         return "pt-IPN"
     if s.startswith("RIPN"):
         return "RIPN"
+    if s.startswith("HNd"):
+        return "HNd"
     if s.startswith("IPNd"):
         return "IPNd"
     return ""
 
 
 def load_zebrafish_hd_connectome(datapath, *, inh_amplify: float = 5.0,
-                                  spectral_target: float = 0.9):
+                                  spectral_target: float = 0.9,
+                                  inh_prefixes: "tuple | None" = None):
     """Load fish2 connectivity for the zebrafish heading-direction ring.
 
     Companion to ``load_drosophila_cx_connectome``: returns a dict with the
@@ -368,7 +376,7 @@ def load_zebrafish_hd_connectome(datapath, *, inh_amplify: float = 5.0,
     Args:
         datapath: directory containing ``neurons.csv`` and
             ``connections.csv`` produced by
-            ``figures/zebrafish/fetch_zebrafish_connectivity_HD.py``.
+            ``figures/zebrafish/fetch_zebrafish_connectivity_HD_IPN12.py``.
         inh_amplify: multiplier applied to the magnitude of inhibitory
             outgoing weights (Hulse 2025 uses 5x).
         spectral_target: target spectral radius after Dale flipping; the
@@ -398,7 +406,7 @@ def load_zebrafish_hd_connectome(datapath, *, inh_amplify: float = 5.0,
     # Bump-ring categories first (so the first n_bump rows are the
     # IPNd*/IPNds*/IPN12_* HD-pool cells, in that order), then afferents.
     cat_order = {"IPNd": 0, "IPNds": 1, "IPN12_a": 2, "IPN12_b": 3,
-                  "RIPN": 4, "pt-IPN": 5}
+                  "RIPN": 4, "pt-IPN": 5, "HNd": 6}
     nrn_df["_cat_rank"] = nrn_df["category"].map(cat_order)
     # somaLocationX is the fish2 mediolateral axis (in nm at this stage).
     # Missing values get pushed to the end via fillna with +inf.
@@ -449,8 +457,15 @@ def load_zebrafish_hd_connectome(datapath, *, inh_amplify: float = 5.0,
     # per-cell Dale prior sign as ``dale_signs`` — used by the model's
     # ``column_dale`` path as a fallback for cells with zero net outgoing
     # weight in the HD subset (orphan leaves whose outgoing partners lie
-    # outside the 731-cell pool).
-    is_inh = nrn_df["category"].isin(_ZHD_INH_PREFIXES).to_numpy()
+    # outside the HD subset).
+    # Pick which categories to Dale-flip to inhibitory. The default
+    # follows _ZHD_INH_PREFIXES (IPNd, IPNds, IPN12_a, IPN12_b — the
+    # canonical zebrafish_HD_IPN12_839_v1 setting). Pass an explicit
+    # ``inh_prefixes`` tuple to override — e.g. circuit
+    # zebrafish_HD_IPN12_839_v2 passes ("IPNd", "IPNds") so IPN12 cells
+    # stay excitatory (alternative biological hypothesis).
+    inh_set = _ZHD_INH_PREFIXES if inh_prefixes is None else tuple(inh_prefixes)
+    is_inh = nrn_df["category"].isin(inh_set).to_numpy()
     dale_signs = np.where(is_inh, -1.0, +1.0).astype(np.float32)
     J2 = J.copy()
     J2[:, is_inh] = -inh_amplify * np.abs(J[:, is_inh])
@@ -511,6 +526,9 @@ def load_zebrafish_hd_connectome(datapath, *, inh_amplify: float = 5.0,
     pen_subpop_ix: dict[str, list[int]] = {
         "PENa_L": [], "PENa_R": [], "PENb_L": [], "PENb_R": [],
     }
+    # HNd (dorsal habenula) afferent — only populated when the connectome
+    # contains HNd cells (the HNd circuit); empty for the base 839 pool.
+    hnd_subpop_ix: dict[str, list[int]] = {"HNd_L": [], "HNd_R": []}
     side_labels = []
     for i, (cat, inst) in enumerate(
         zip(nrn_df["category"], nrn_df["instance"].fillna("").astype(str))
@@ -522,6 +540,10 @@ def load_zebrafish_hd_connectome(datapath, *, inh_amplify: float = 5.0,
             key_pre = "PENa"
         elif cat == "pt-IPN":
             key_pre = "PENb"
+        elif cat == "HNd":
+            if side in ("L", "R"):
+                hnd_subpop_ix["HNd_{}".format(side)].append(i)
+            continue
         else:
             continue
         if side == "L":
@@ -557,6 +579,9 @@ def load_zebrafish_hd_connectome(datapath, *, inh_amplify: float = 5.0,
         "ptIPN_L": pen_subpop_ix_np["PENb_L"],
         "ptIPN_R": pen_subpop_ix_np["PENb_R"],
     }
+    # HNd afferent (new family; empty unless the connectome includes HNd cells).
+    for _k, _v in hnd_subpop_ix.items():
+        afferent_subpop_ix_np[_k] = np.asarray(_v, dtype=np.int64)
     return {
         "pen_subpop_ix": pen_subpop_ix_np,
         "afferent_subpop_ix": afferent_subpop_ix_np,   # fish-native alias

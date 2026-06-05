@@ -114,7 +114,7 @@ def main():
                    help="if set, the anchor is sampled once every this "
                         "many seconds; otherwise every dt.")
     p.add_argument("--connconstr_datapath",
-                   default=os.path.join(here, "zebrafish_connectome_HD"))
+                   default=os.path.join(here, "zebrafish_connectome_HD_IPN12"))
     p.add_argument("--cell_types", nargs="+",
                    default=["IPNd", "IPNds"])
     p.add_argument("--top_anticorr", type=int, default=50,

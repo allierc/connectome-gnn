@@ -254,7 +254,7 @@ def main():
     p.add_argument("--anatomy_dir",
                    default=os.path.join(here, "zebrafish_anatomy_HD"))
     p.add_argument("--connectome_dir",
-                   default=os.path.join(here, "zebrafish_connectome_HD"))
+                   default=os.path.join(here, "zebrafish_connectome_HD_IPN12"))
     p.add_argument("--downsample", type=int, default=10)
     p.add_argument("--elev", type=float, default=90.0)
     p.add_argument("--azim", type=float, default=-90.0)

@@ -13,7 +13,7 @@ Public API::
         Circuit, register_circuit, get_circuit, list_circuits,
     )
 
-    cx = get_circuit("zebrafish_HD_731_v1")
+    cx = get_circuit("zebrafish_HD_IPN12_839_v1")
     cx.N, cx.J_effective.shape, list(cx.subpops)
 
 
@@ -35,8 +35,8 @@ unique.
 
    Use the existing fetchers as templates::
 
-       figures/zebrafish/fetch_zebrafish_connectivity_HD.py        # 731 cells
-       figures/zebrafish/fetch_zebrafish_connectivity_HD_IPN12.py  # 837 cells
+       figures/zebrafish/fetch_zebrafish_connectivity_HD_IPN12.py      # 839-cell HD pool
+       figures/zebrafish/fetch_zebrafish_connectivity_HD_IPN12_HNd.py  # + HNd afferents
 
    These run once on a machine with a neuprint token and write the
    tables locally. The fetch output is intentionally untouched by the
@@ -45,8 +45,8 @@ unique.
 
 2. **Write a build function in this file** that returns a fully
    populated ``Circuit`` and call ``register_circuit("<name>_vN",
-   build)`` at the bottom (see ``_register_zebrafish_hd_731`` for the
-   shortest example). Steps inside the build function::
+   build)`` at the bottom (see ``_register_zebrafish_hd_ipn12_839`` for
+   the reference example). Steps inside the build function::
 
        cx = load_zebrafish_hd_connectome("figures/<organism>/<dataset_name>")
        return Circuit(
@@ -58,7 +58,8 @@ unique.
            soma_xyz=np.asarray(cx.get("somaLocation"), dtype=np.float64),
            subpops={                            # any named index sets you need
                "bump": np.arange(cx["n_dipn"], dtype=np.int64),
-               "afferent_RIPN_L": ..., ...
+               "afferent_RIPN_L": ..., ...      # encoder side: W_in injects here
+               "readout": ..., ...              # decoder side: W_out reads here
            },
            bump_ring_ix=np.asarray(cx["dipn_ix"], dtype=np.int64),
            dale_signs=np.asarray(cx["dale_signs"], dtype=np.float32),
@@ -97,6 +98,98 @@ unique.
    what the new pool contains, where its data lives, and any design
    choices that aren't already encoded in the build function (which
    types are in the bump pool, Dale sign overrides, IO-gate wiring).
+
+5. **Regenerate the calcium-observation mapping** *(only if the new
+   circuit changes the neuron set / ordering and you train with the
+   ZAPBench obs loss).* Re-run::
+
+       python -m connectome_gnn.generators.make_calcium_dataset \
+           --circuit <new_name> \
+           --connectome figures/<organism>/<dataset_name> \
+           --out graphs_data/.../<new_calcium_dataset>
+
+   so ``calcium_mapping.pt`` re-derives ``model_index`` (the EM
+   bodyId -> model-neuron-index hop) into the NEW index space. The map
+   is bodyId-keyed so it re-derives automatically, but it MUST be
+   re-run: a mapping built for a different circuit will silently gather
+   the wrong model neurons. Point ``training.calcium_dataset`` at the
+   new dataset.
+
+
+═══════════════════════════════════════════════════════════════════════
+THE CRITICAL FORK: same afferent taxonomy vs a NEW afferent type
+═══════════════════════════════════════════════════════════════════════
+
+Steps 1–5 are COMPLETE only if the new circuit keeps the existing
+afferent taxonomy — the four L/R subpopulations RIPN_L/R, ptIPN_L/R
+(habenula + pretectum). That covers the common cases:
+
+    PROCEDURE A (same taxonomy) — just steps 1–5.
+      • a re-fetch of the same cell families,
+      • IPN12 Dale-sign variants (v1 inhibitory / v2 excitatory),
+      • per-type ablation/lesion circuits,
+      • spectral-target or Dale-amplify retunes.
+    These only change WHICH cells / WHAT signs are in the pool; the
+    input ports are unchanged, so nothing downstream needs touching.
+
+If the new circuit introduces a NEW afferent / input population — e.g.
+adding HNd (dorsal habenula), the single largest unmodelled input to
+the bump ring, or the rhombomere-2/3 commissural velocity candidate —
+then steps 1–5 are NOT sufficient. The afferent input path is
+hard-bound to exactly those four subpops at three coupled seams, and a
+new type is dropped or rejected at each:
+
+    PROCEDURE B (new afferent type) = Procedure A + un-hardcode the
+    afferent taxonomy at all of:
+
+      (i)   LOADER — connconstr_data._ZHD_AFFERENT_PREFIXES is the
+            fixed pair ("RIPN", "pt-IPN"); _zhd_category() RETURNS ""
+            for any unknown prefix, so a CSV row of type HNd is
+            rejected, not loaded. Add the new prefix to the category
+            map and to the afferent-subpop construction (the RIPN->PENa
+            / pt-IPN->PENb mapping that fills afferent_subpop_ix).
+
+      (ii)  BRIDGE — Circuit.to_dict() hardwires exactly the four keys
+            RIPN_L/R, ptIPN_L/R into afferent_subpop_ix and DROPS any
+            other declared subpop. Make it pass through every afferent
+            subpop the circuit declares.
+
+      (iii) MODEL GATE — models/zebrafish_hd_task_{rnn,gnn}.py:
+            velocity_gate='pen_4scalar' builds exactly four scalars and
+            RAISES if RIPN_L/R, ptIPN_L/R are not all present. Replace
+            with a gate over the N afferent subpops the circuit
+            declares (the per-(channel × subpop) gate matrix of the
+            extended multi-modal input model in docs/zebrafish.tex).
+
+      (iv)  n_input — the model pins self.n_input = 3 and IGNORES the
+            config `n_input`. A multi-channel input vector (visual +
+            self-motion + cue) needs this read from config / dataset
+            meta, not hardcoded.
+
+      (v)   READOUT (decoder-side mirror of the afferent gate) — the
+            decoder reads the first n_dipn cells by ORDERING convention:
+            output_from_dipn_only (config) + the positional slice
+            r[..., :n_dipn] in models/zebrafish_hd_task_{rnn,gnn}.py.
+            That is a contiguous prefix, NOT a declared index set, so a
+            circuit whose readout cells are a different / non-contiguous
+            set cannot be expressed. The clean parallel to the afferent
+            list: declare a ``readout`` (decoder) subpop and have W_out
+            gather it (index_select) instead of slicing [:n_dipn]. Same
+            widen-the-consumer refactor, encoder mirror image.
+
+    The seam to widen is the same in all of these: make the consumers
+    read the circuit's DECLARED subpops (Circuit.subpops is already a
+    free-form dict) — afferent_* on the encoder side, ``readout`` on the
+    decoder side — instead of the hardcoded RIPN/ptIPN four and the
+    [:n_dipn] readout slice. That generalization is exactly what the
+    extended-input model needs anyway, so Procedure B and the
+    extended-model refactor are one job.
+
+    Worked example (HNd): the unrestricted partner census
+    (figures/zebrafish/census_zebrafish_partners_HD_IPN12.py) shows HNd
+    alone delivers MORE synaptic weight to the bump pool than all of
+    RIPN+pt-IPN combined — i.e. the present circuit captures under half
+    the ring's real input. Adding it is the motivating case for B.
 """
 from __future__ import annotations
 
@@ -126,7 +219,7 @@ class Circuit:
     """
 
     name: str
-    """Stable registry name, e.g. ``zebrafish_HD_731_v1``."""
+    """Stable registry name, e.g. ``zebrafish_HD_IPN12_839_v1``."""
 
     N: int
     """Number of neurons."""
@@ -306,8 +399,8 @@ def _discover_circuits() -> None:
         return
     _DISCOVERED = True
     # Each circuit registers a build function. Add new circuits here.
-    _register_zebrafish_hd_731()
     _register_zebrafish_hd_ipn12_839()
+    _register_zebrafish_hd_ipn12_hnd()
     _register_zebrafish_hd_ipn12_exc_839()
     _register_zebrafish_hd_ipn12_ablations()
     _register_drosophila_cx_156()
@@ -319,83 +412,6 @@ _DISCOVERED: bool = False
 # =============================================================================
 # Built-in circuits
 # =============================================================================
-
-def _register_zebrafish_hd_731() -> None:
-    """Register the current 731-cell zebrafish HD pool as
-    ``zebrafish_HD_731_v1``. The build function reads the cached
-    neuprint-fish2 tables under ``figures/zebrafish/zebrafish_connectome_HD/``
-    and wraps :func:`load_zebrafish_hd_connectome`."""
-
-    def build() -> Circuit:
-        # Imported lazily so this module stays cheap when only
-        # Circuit/registry types are needed (e.g. type hints in config).
-        from connectome_gnn.generators.connconstr_data import (
-            load_zebrafish_hd_connectome,
-        )
-        # Resolve the connectome path relative to the repo root via the
-        # same fallback chain the model uses (get_data_root / repo cwd).
-        cx = load_zebrafish_hd_connectome(
-            "figures/zebrafish/zebrafish_connectome_HD"
-        )
-        N = int(cx["N"])
-        n_dipn = int(cx.get("n_dipn", cx["n_epg"]))
-        soma = cx.get("somaLocation", None)
-        soma_xyz = np.asarray(soma, dtype=np.float64) if soma is not None else None
-
-        # Build the named sub-populations from the loader output. The
-        # fish-native ``afferent_subpop_ix`` keys are preferred; the
-        # legacy ``pen_subpop_ix`` mapping is a last-resort fallback.
-        aff = cx.get("afferent_subpop_ix", None) or {}
-        pen = cx.get("pen_subpop_ix", {}) or {}
-        def _aff(k_fish: str, k_fly: str) -> np.ndarray:
-            arr = aff.get(k_fish, None)
-            if arr is None:
-                arr = pen.get(k_fly, np.array([], dtype=np.int64))
-            return np.asarray(arr, dtype=np.int64)
-
-        subpops = {
-            "bump":              np.arange(n_dipn, dtype=np.int64),
-            "afferent_RIPN_L":   _aff("RIPN_L",  "PENa_L"),
-            "afferent_RIPN_R":   _aff("RIPN_R",  "PENa_R"),
-            "afferent_ptIPN_L":  _aff("ptIPN_L", "PENb_L"),
-            "afferent_ptIPN_R":  _aff("ptIPN_R", "PENb_R"),
-        }
-
-        dipn_glom_ix = np.asarray(
-            cx.get("dipn_ix", cx["epg_ix"]), dtype=np.int64,
-        )
-
-        provenance = {
-            "server": "neuprint-fish2.janelia.org",
-            "dataset": "fish2",
-            "source_tables": "figures/zebrafish/zebrafish_connectome_HD/{neurons,connections}.csv",
-            "anatomy_dir": "figures/zebrafish/zebrafish_anatomy_HD",
-            "dale_inh_amplify": 5.0,
-            "dale_spectral_target": 0.9,
-            "type_count": len(cx["type_names"]),
-            "n_bump_cells": n_dipn,
-        }
-
-        body_ids = (np.asarray(cx["bodyId"], dtype=np.int64)
-                    if "bodyId" in cx else None)
-
-        return Circuit(
-            name="zebrafish_HD_731_v1",
-            N=N,
-            neuron_types=np.asarray(cx["neuron_types"], dtype=np.int64),
-            type_names=list(cx["type_names"]),
-            J_effective=np.asarray(cx["J_effective"], dtype=np.float32),
-            soma_xyz=soma_xyz,
-            subpops=subpops,
-            bump_ring_ix=dipn_glom_ix,
-            dale_signs=(np.asarray(cx["dale_signs"], dtype=np.float32)
-                        if "dale_signs" in cx else None),
-            body_ids=body_ids,
-            provenance=provenance,
-        )
-
-    register_circuit("zebrafish_HD_731_v1", build)
-
 
 def _register_zebrafish_hd_ipn12_839() -> None:
     """Register the extended 837-cell HD pool as ``zebrafish_HD_IPN12_839_v1``.
@@ -485,6 +501,103 @@ def _register_zebrafish_hd_ipn12_839() -> None:
         )
 
     register_circuit("zebrafish_HD_IPN12_839_v1", build)
+
+
+def _register_zebrafish_hd_ipn12_hnd() -> None:
+    """Register the 839-cell IPN12 pool **extended with the HNd (dorsal
+    habenula) afferent** as ``zebrafish_HD_IPN12_HNd_1062_v1``.
+
+    HNd is the single largest unmodelled input to the dIPN bump ring (the
+    partner census ``figures/zebrafish/census_zebrafish_partners_HD_IPN12.py``
+    shows it delivers more synaptic weight to the bump pool than all of
+    RIPN + pt-IPN combined). It is added as a third afferent family, kept
+    excitatory (not Dale-flipped), and declared as the ``afferent_HNd_L/R``
+    subpops alongside RIPN / pt-IPN. NOTE: the fish2 reconstruction labels
+    all 223 HNd cells left-sided (``HNd_L``), reflecting the zebrafish
+    habenula's L/R asymmetry — so ``afferent_HNd_R`` is empty.
+
+    Requires the HNd-extended CSV pair at
+    ``figures/zebrafish/zebrafish_connectome_HD_IPN12_HNd/{neurons,connections}.csv``,
+    produced once by
+    ``figures/zebrafish/fetch_zebrafish_connectivity_HD_IPN12_HNd.py``.
+
+    Using it to actually DRIVE the model through HNd needs the afferent-gate
+    generalisation (Procedure B in docs/HOWTO_add_zebrafish_circuit.md); this
+    registration only makes the circuit loadable.
+    """
+
+    def build() -> Circuit:
+        from connectome_gnn.generators.connconstr_data import (
+            load_zebrafish_hd_connectome,
+        )
+        datapath = "figures/zebrafish/zebrafish_connectome_HD_IPN12_HNd"
+        cx = load_zebrafish_hd_connectome(datapath)
+
+        N = int(cx["N"])
+        n_bump = int(cx.get("n_dipn", cx["n_epg"]))
+        soma = cx.get("somaLocation", None)
+        soma_xyz = np.asarray(soma, dtype=np.float64) if soma is not None else None
+
+        aff = cx.get("afferent_subpop_ix", None) or {}
+        pen = cx.get("pen_subpop_ix", {}) or {}
+
+        def _aff(k_fish: str, k_fly: str) -> np.ndarray:
+            arr = aff.get(k_fish, None)
+            if arr is None:
+                arr = pen.get(k_fly, np.array([], dtype=np.int64))
+            return np.asarray(arr, dtype=np.int64)
+
+        subpops = {
+            "bump":              np.arange(n_bump, dtype=np.int64),
+            "afferent_RIPN_L":   _aff("RIPN_L",  "PENa_L"),
+            "afferent_RIPN_R":   _aff("RIPN_R",  "PENa_R"),
+            "afferent_ptIPN_L":  _aff("ptIPN_L", "PENb_L"),
+            "afferent_ptIPN_R":  _aff("ptIPN_R", "PENb_R"),
+            "afferent_HNd_L":    _aff("HNd_L",   "HNd_L"),
+            "afferent_HNd_R":    _aff("HNd_R",   "HNd_R"),
+        }
+        bump_ring_ix = np.asarray(
+            cx.get("dipn_ix", cx["epg_ix"]), dtype=np.int64,
+        )
+
+        provenance = {
+            "server": "neuprint-fish2.janelia.org",
+            "dataset": "fish2",
+            "source_tables":
+                "figures/zebrafish/zebrafish_connectome_HD_IPN12_HNd/{neurons,connections}.csv",
+            "anatomy_dir": "figures/zebrafish/zebrafish_anatomy_HD",
+            "anatomy_extra_dirs": ["figures/zebrafish/zebrafish_anatomy_IPN12"],
+            "dale_inh_amplify": 5.0,
+            "dale_spectral_target": 0.9,
+            "type_count": len(cx["type_names"]),
+            "n_bump_cells": n_bump,
+            "hnd_design_note": (
+                "839-cell IPN12 pool + 223 HNd (dorsal habenula) afferents "
+                "(all left-sided in fish2). HNd kept excitatory. Largest "
+                "unmodelled bump input per the partner census. See "
+                "docs/HOWTO_add_zebrafish_circuit.md (Procedure B)."
+            ),
+        }
+
+        body_ids = (np.asarray(cx["bodyId"], dtype=np.int64)
+                    if "bodyId" in cx else None)
+
+        return Circuit(
+            name="zebrafish_HD_IPN12_HNd_1062_v1",
+            N=N,
+            neuron_types=np.asarray(cx["neuron_types"], dtype=np.int64),
+            type_names=list(cx["type_names"]),
+            J_effective=np.asarray(cx["J_effective"], dtype=np.float32),
+            soma_xyz=soma_xyz,
+            subpops=subpops,
+            bump_ring_ix=bump_ring_ix,
+            dale_signs=(np.asarray(cx["dale_signs"], dtype=np.float32)
+                        if "dale_signs" in cx else None),
+            body_ids=body_ids,
+            provenance=provenance,
+        )
+
+    register_circuit("zebrafish_HD_IPN12_HNd_1062_v1", build)
 
 
 def _register_zebrafish_hd_ipn12_exc_839() -> None:

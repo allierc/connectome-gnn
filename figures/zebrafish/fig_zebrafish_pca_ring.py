@@ -60,7 +60,7 @@ def main():
                         "pool is below this threshold (<0 = anticorrelated "
                         "partner exists). Set to 0 to disable selection.")
     p.add_argument("--connconstr_datapath",
-                   default=os.path.join(here, "zebrafish_connectome_HD"))
+                   default=os.path.join(here, "zebrafish_connectome_HD_IPN12"))
     p.add_argument("--output_root", default=None)
     p.add_argument("--out_path", default=None)
     args = p.parse_args()
