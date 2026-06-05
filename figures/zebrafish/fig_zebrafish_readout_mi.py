@@ -1,6 +1,6 @@
 """Readout-weight and HD mutual-information analysis on the zebrafish HD model.
 
-Two complementary questions on the trained zebrafish_hd_si_dipn model:
+Two complementary questions on the trained zebrafish_hd_si_ipn12_v1_cv0 model:
 
 1. **Where does the model read HD from?**  W_out is (2, 443) — the
    readout to (cos theta, sin theta). Rows of W_out give the
@@ -124,7 +124,7 @@ _CATEGORY_COLOR = {
 def main():
     here = os.path.dirname(os.path.abspath(__file__))
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--model", default="zebrafish_hd_si_dipn")
+    p.add_argument("--model", default="zebrafish_hd_si_ipn12_v1_cv0")
     p.add_argument("--n_steps", type=int, default=30000)
     p.add_argument("--burn_in_s", type=float, default=5.0)
     p.add_argument("--seed", type=int, default=0)

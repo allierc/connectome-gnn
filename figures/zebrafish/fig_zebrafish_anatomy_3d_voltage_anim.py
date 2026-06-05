@@ -1307,7 +1307,7 @@ def main():
                    default=os.path.join(here, "zebrafish_anatomy_HD"))
     p.add_argument("--connconstr_datapath",
                    default=os.path.join(here, "zebrafish_connectome_HD_IPN12"))
-    p.add_argument("--model", default="zebrafish_hd_si_dipn",
+    p.add_argument("--model", default="zebrafish_hd_si_ipn12_v1_cv0",
                    help="config name for the trained checkpoint")
     p.add_argument("--n_steps", type=int, default=10000)
     p.add_argument("--stride", type=int, default=10,
@@ -1766,5 +1766,5 @@ if __name__ == "__main__":
 #     --max_frames 5 --z_lo 0 --z_hi 4
 
 # python /workspace/connectome-gnn-cx/figures/zebrafish/fig_zebrafish_anatomy_3d_voltage_anim.py --z_lo=0.0 --z_hi=6.0 --swim
-# python figures/zebrafish/fig_zebrafish_anatomy_3d_voltage_anim.py --model zebrafish_hd_si_dipn --n_steps 10000 --stride 5 --z_lo 0.0 --z_hi 15.0 --swim_left --swim_interval 0.3 --out_dir figures/zebrafish/3D_voltage_const
+# python figures/zebrafish/fig_zebrafish_anatomy_3d_voltage_anim.py --model zebrafish_hd_si_ipn12_v1_cv0 --n_steps 10000 --stride 5 --z_lo 0.0 --z_hi 15.0 --swim_left --swim_interval 0.3 --out_dir figures/zebrafish/3D_voltage_const
 # python figures/zebrafish/fig_zebrafish_anatomy_3d_voltage_anim.py --model zebrafish_hd_si_ipn12_v1 --n_steps 10000 --stride 5 --z_lo 0.0 --z_hi 15.0 --swim_left --swim_interval 0.3

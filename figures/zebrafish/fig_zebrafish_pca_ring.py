@@ -40,7 +40,7 @@ from connectome_gnn.generators.connconstr_data import (
 def main():
     here = os.path.dirname(os.path.abspath(__file__))
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--model", default="zebrafish_hd_si_dipn")
+    p.add_argument("--model", default="zebrafish_hd_si_ipn12_v1_cv0")
     p.add_argument("--n_steps", type=int, default=30000,
                    help="rollout length in simulation steps (default 5 min "
                         "at dt=0.01)")

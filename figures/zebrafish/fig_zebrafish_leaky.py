@@ -98,7 +98,7 @@ def _rms_circular(a_rad, b_rad):
 def main():
     here = os.path.dirname(os.path.abspath(__file__))
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--model", default="zebrafish_hd_si_dipn")
+    p.add_argument("--model", default="zebrafish_hd_si_ipn12_v1_cv0")
     p.add_argument("--n_steps", type=int, default=30000)
     p.add_argument("--burn_in_s", type=float, default=5.0)
     p.add_argument("--seed", type=int, default=0)

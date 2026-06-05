@@ -1,6 +1,6 @@
 """Four functional classes of zebrafish HD-circuit neurons on the 3D anatomy.
 
-Classifies each of the 731 neurons in the trained ``zebrafish_hd_si_dipn``
+Classifies each of the 731 neurons in the trained ``zebrafish_hd_si_ipn12_v1_cv0``
 model by combining three per-neuron scores:
 
     mi[i]       = I(h[:, i] ; theta) — plug-in histogram MI in bits
@@ -49,7 +49,7 @@ from connectome_gnn.utils import (
 
 def _load_with_override(config_name, device, ckpt_dir=None):
     """``_load`` but with an optional checkpoint-directory override so a
-    config can be paired with a renamed run dir (e.g. ``zebrafish_hd_si_dipn``
+    config can be paired with a renamed run dir (e.g. ``zebrafish_hd_si_ipn12_v1_cv0``
     yaml + checkpoints from ``log/zebrafish/zebrafish_hd_si_dipn_L/``)."""
     if ckpt_dir is None:
         return _load(config_name, device)
@@ -276,7 +276,7 @@ def main():
     here = os.path.dirname(os.path.abspath(__file__))
     p = argparse.ArgumentParser(description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--model", default="zebrafish_hd_si_dipn")
+    p.add_argument("--model", default="zebrafish_hd_si_ipn12_v1_cv0")
     p.add_argument("--n_steps", type=int, default=12000,
                    help="swim-rollout length (in dt units)")
     p.add_argument("--rollout", default="periodic",

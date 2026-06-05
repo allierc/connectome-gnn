@@ -1,5 +1,5 @@
 """Tuning-curve sharpness of the HD-coding cells in the trained
-zebrafish_hd_si_dipn RNN.
+zebrafish_hd_si_ipn12_v1_cv0 RNN.
 
 Illustrates the claim that the preferred-heading code is sharp in
 firing-rate space, even though it is anatomically scrambled
@@ -74,7 +74,7 @@ def main():
     here = os.path.dirname(os.path.abspath(__file__))
     p = argparse.ArgumentParser(description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--model", default="zebrafish_hd_si_dipn")
+    p.add_argument("--model", default="zebrafish_hd_si_ipn12_v1_cv0")
     p.add_argument("--classes_csv",
                    default=os.path.join(here, "fig_zebrafish_four_classes.csv"))
     p.add_argument("--hd_classes", nargs="+", default=["R", "L"])

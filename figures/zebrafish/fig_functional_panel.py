@@ -25,7 +25,7 @@ figure; use `-o test` for the reconstruction/drift comparison.
 Run (env with fishfuncem + torch + the trained model):
   /workspace/.conda_envs/neural-graph-linux/bin/python \
       figures/zebrafish/fig_functional_panel.py \
-      --config zebrafish/zebrafish_hd_si_gnn_dipn_v1_cv0 [--gcamp gcamp7f]
+      --config zebrafish/zebrafish_hd_si_gnn_ipn12_v1_cv0 [--gcamp gcamp7f]
 """
 from __future__ import annotations
 
