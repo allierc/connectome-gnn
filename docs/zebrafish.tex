@@ -775,7 +775,8 @@ sign-locked re-scaling described in \cref{method:RNN}.
 
 \begin{figure}[p]
   \centering
-  \includegraphics[width=\textwidth]{\figdir/fig_evolution_zebrafish_hd_si_ipn12_artr_pt1_selfmotion_rotation.png}
+  \includegraphics[width=\textwidth]{\figdir/fig_evolution_zebrafish_hd_si_ipn12_artr_pt1_selfmotion_rotation.png}\\[0.4em]
+  \includegraphics[width=\textwidth]{\figdir/fig_test_zebrafish_hd_si_ipn12_artr_pt1_selfmotion_rotation.png}
   \caption{\textbf{Trained heading integrator on the ARTR / pt-IPN1
   variant of \cref{fig:zhd_3d}\textbf{c}.} Sign-locked RNN with
   $\hat W^{\mathrm{rec}} = |\hat S|\odot\mathrm{sign}(W^{\mathrm{con}})$
@@ -886,7 +887,8 @@ left blank.
 
 \begin{figure}[p]
   \centering
-  \includegraphics[width=\textwidth]{\figdir/fig_evolution_zebrafish_hd_si_ipn12_artr_pt1_selfmotion_translation.png}
+  \includegraphics[width=\textwidth]{\figdir/fig_evolution_zebrafish_hd_si_ipn12_artr_pt1_selfmotion_translation.png}\\[0.4em]
+  \includegraphics[width=\textwidth]{\figdir/fig_test_zebrafish_hd_si_ipn12_artr_pt1_selfmotion_translation.png}
   \caption{\textbf{Trained translation-only integrator, perfect target.}
   Same panel layout as \cref{fig:zhd_evolution_artr_pt1}. The
   one-output forward-distance head is supervised against
@@ -897,7 +899,8 @@ left blank.
 
 \begin{figure}[p]
   \centering
-  \includegraphics[width=\textwidth]{\figdir/fig_evolution_zebrafish_hd_si_ipn12_artr_pt1_selfmotion_translation_leaky.png}
+  \includegraphics[width=\textwidth]{\figdir/fig_evolution_zebrafish_hd_si_ipn12_artr_pt1_selfmotion_translation_leaky.png}\\[0.4em]
+  \includegraphics[width=\textwidth]{\figdir/fig_test_zebrafish_hd_si_ipn12_artr_pt1_selfmotion_translation_leaky.png}
   \caption{\textbf{Trained translation-only integrator, leaky target}
   ($\tau_d=0.5\,$s). Same panel layout as
   \cref{fig:zhd_evolution_artr_pt1}.}
@@ -924,7 +927,8 @@ problem of the translation-only run is task-, not input-, dependent.
 
 \begin{figure}[p]
   \centering
-  \includegraphics[width=\textwidth]{\figdir/fig_evolution_zebrafish_hd_si_ipn12_artr_pt1_selfmotion_both.png}
+  \includegraphics[width=\textwidth]{\figdir/fig_evolution_zebrafish_hd_si_ipn12_artr_pt1_selfmotion_both.png}\\[0.4em]
+  \includegraphics[width=\textwidth]{\figdir/fig_test_zebrafish_hd_si_ipn12_artr_pt1_selfmotion_both.png}
   \caption{\textbf{Trained rotation $+$ scalar-distance integrator,
   perfect target.} Same panel layout as
   \cref{fig:zhd_evolution_artr_pt1}; panel (g) overlays the GT and
@@ -934,7 +938,8 @@ problem of the translation-only run is task-, not input-, dependent.
 
 \begin{figure}[p]
   \centering
-  \includegraphics[width=\textwidth]{\figdir/fig_evolution_zebrafish_hd_si_ipn12_artr_pt1_selfmotion_both_leaky.png}
+  \includegraphics[width=\textwidth]{\figdir/fig_evolution_zebrafish_hd_si_ipn12_artr_pt1_selfmotion_both_leaky.png}\\[0.4em]
+  \includegraphics[width=\textwidth]{\figdir/fig_test_zebrafish_hd_si_ipn12_artr_pt1_selfmotion_both_leaky.png}
   \caption{\textbf{Trained rotation $+$ scalar-distance integrator,
   leaky target} ($\tau_d=0.5\,$s). Same panel layout as
   \cref{fig:zhd_evolution_both}.}
@@ -964,7 +969,8 @@ constant-drive probes even when the per-frame error is small. Panels
 
 \begin{figure}[p]
   \centering
-  \includegraphics[width=\textwidth]{\figdir/fig_evolution_zebrafish_hd_si_ipn12_artr_pt1_position_2d.png}
+  \includegraphics[width=\textwidth]{\figdir/fig_evolution_zebrafish_hd_si_ipn12_artr_pt1_position_2d.png}\\[0.4em]
+  \includegraphics[width=\textwidth]{\figdir/fig_test_zebrafish_hd_si_ipn12_artr_pt1_position_2d.png}
   \caption{\textbf{Trained 2-D path integrator, perfect target.}
   Panels (a)--(e), (h)--(i) follow \cref{fig:zhd_evolution_artr_pt1};
   panels (f)--(g) show the decoded path $(x,y)$ in spatial coordinates
@@ -974,7 +980,8 @@ constant-drive probes even when the per-frame error is small. Panels
 
 \begin{figure}[p]
   \centering
-  \includegraphics[width=\textwidth]{\figdir/fig_evolution_zebrafish_hd_si_ipn12_artr_pt1_position_2d_leaky.png}
+  \includegraphics[width=\textwidth]{\figdir/fig_evolution_zebrafish_hd_si_ipn12_artr_pt1_position_2d_leaky.png}\\[0.4em]
+  \includegraphics[width=\textwidth]{\figdir/fig_test_zebrafish_hd_si_ipn12_artr_pt1_position_2d_leaky.png}
   \caption{\textbf{Trained 2-D path integrator, leaky target}
   ($\tau_p=0.5\,$s). Same panel layout as
   \cref{fig:zhd_evolution_position2d}.}

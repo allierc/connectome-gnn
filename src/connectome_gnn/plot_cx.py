@@ -2280,7 +2280,12 @@ def plot_cx_evolution(data: dict, out_path: str, *,
     else:
         ax_g_top = fig.add_subplot(gs[1, 2])
         ax_g_top.axis("off")
+    # Panel h ("subthreshold h distribution by cell type") was dropped
+    # from the evolution figure; the third/fourth manuscript rows are
+    # the test composite (random trials + deterministic sweep) stacked
+    # via \includegraphics in the LaTeX figure block.
     ax_h = fig.add_subplot(gs[1, 3])
+    ax_h.axis("off")
 
     _panel_matrix(ax_a, data["W_con"],
                    data["neuron_types"], data["type_names"],
@@ -2318,19 +2323,14 @@ def plot_cx_evolution(data: dict, out_path: str, *,
     _panel_label(ax_f_top, "f")
     _panel_label(ax_g_top, "g")
 
+    # Panel h slot is hidden (was the per-cell-type subthreshold h
+    # violin); calcium-panel callers still get their comparison plot
+    # drawn into the same slot so the existing observation-loss
+    # figures keep working.
     if data.get("calcium_panel") is not None:
-        # Real-calcium training (zebrafish): panel h compares the recorded ΔF/F
-        # against the model's voltage→GCaMP calcium on one held-out trial,
-        # row-for-row in the same rastermap order.
+        ax_h.set_axis_on()
         _panel_calcium_compare(ax_h, data["calcium_panel"])
-    else:
-        h_rollout = np.asarray(data["rollout"]["h"])
-        _panel_voltage_distribution(
-            ax_h, h_rollout,
-            neuron_types=data["neuron_types"],
-            type_names=data["type_names"],
-        )
-    _panel_label(ax_h, "h")
+        _panel_label(ax_h, "h")
 
     if n_rows < 3:
         os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
