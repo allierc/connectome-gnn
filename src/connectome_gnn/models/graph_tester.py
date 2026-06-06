@@ -2280,6 +2280,80 @@ def data_test_path_integration_task(
         except Exception as exc:
             logger.warning(f'  translation random-trials plot failed: {exc}')
 
+    # --- (a'') 2D-position analog: random test trials in the (x, y) plane --
+    # Companion of test_deterministic_2d_sweep.png — sample held-out
+    # trials, run the model, plot the GT path (green) + decoded path
+    # (black) in spatial coordinates, with per-trial 2-D RMSE and
+    # mean per-axis Pearson in the title. Saves to
+    # results/test_random_trials.png.
+    if has_position_2d:
+        from connectome_gnn.models.bump_attractor_eval import (
+            _trajectory_metrics_2d as _tm_2d,
+        )
+        n_metric = int(min(512, u_test.shape[0]))
+        idx_sample_p = np.sort(rng.choice(u_test.shape[0],
+                                            size=n_metric, replace=False))
+        with torch.no_grad():
+            y_pred_p, _ = model(u_test[idx_sample_p])
+        y_pred_p_np = y_pred_p.cpu().numpy()
+        # (x, y) are the last two output columns.
+        true_xy = y_test_np[idx_sample_p][..., -2:]
+        dec_xy  = y_pred_p_np[..., -2:]
+        rms = np.sqrt(np.mean((dec_xy[:, 10:] - true_xy[:, 10:]) ** 2,
+                                axis=(1, 2)))
+        prs = []
+        for k in range(dec_xy.shape[0]):
+            rs = []
+            for axis in range(2):
+                a = dec_xy[k, 10:, axis]; b = true_xy[k, 10:, axis]
+                if a.std() > 1e-8 and b.std() > 1e-8:
+                    rs.append(float(np.corrcoef(a, b)[0, 1]))
+            prs.append(float(np.mean(rs)) if rs else float('nan'))
+        prs = np.asarray(prs)
+        logger.info(
+            f'  {n_metric} random 2D test trials: '
+            f'euclid_rmse={np.nanmean(rms):.3f}±{np.nanstd(rms):.3f}  '
+            f'r̄={np.nanmean(prs):.4f}±{np.nanstd(prs):.4f}'
+        )
+        n_show = int(min(5, n_metric))
+        idx_show_p = idx_sample_p[:n_show]
+        try:
+            import matplotlib.pyplot as plt
+            GT_COLOR = "#4daf4a"; PRED_COLOR = "black"
+            TICK_FS = 9; LABEL_FS = 11; TITLE_FS = 10
+            fig, axes = plt.subplots(
+                1, n_show, figsize=(2.8 * n_show, 3.0),
+            )
+            if n_show == 1:
+                axes = np.asarray([axes])
+            for col in range(n_show):
+                idx = int(idx_show_p[col])
+                ax = axes[col]
+                t_xy = true_xy[col]; d_xy = dec_xy[col]
+                ax.plot(t_xy[:, 0], t_xy[:, 1], color=GT_COLOR, lw=2.4,
+                        label='GT')
+                ax.plot(d_xy[:, 0], d_xy[:, 1], color=PRED_COLOR, lw=0.8,
+                        label='decoded')
+                ax.plot([0.0], [0.0], 'o', color='0.4', ms=4, zorder=5)
+                ax.set_aspect('equal', adjustable='datalim')
+                ax.set_title(
+                    f"trial #{idx}\nrmse={rms[col]:.2f}  r̄={prs[col]:+.3f}",
+                    fontsize=TITLE_FS,
+                )
+                ax.set_xlabel(r"$x$", fontsize=LABEL_FS)
+                if col == 0:
+                    ax.set_ylabel(r"$y$", fontsize=LABEL_FS)
+                    ax.legend(loc='best', fontsize=TICK_FS, frameon=False)
+                ax.tick_params(labelsize=TICK_FS)
+            fig.tight_layout()
+            pos2d_random_path = os.path.join(results_dir,
+                                              'test_random_trials.png')
+            fig.savefig(pos2d_random_path, dpi=150, bbox_inches='tight')
+            plt.close(fig)
+            logger.info(f'  saved: {pos2d_random_path}')
+        except Exception as exc:
+            logger.warning(f'  2D random-trials plot failed: {exc}')
+
     # --- (a.5) Anatomy-voltage snapshot ------------------------------------
     # The probe rollout (pattern / n_steps / stride / per-pattern params)
     # is driven entirely by plotting.anatomy_voltage_* in the yaml. The
