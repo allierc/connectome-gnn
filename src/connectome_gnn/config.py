@@ -1126,14 +1126,19 @@ class TrainingConfig(BaseModel):
     #                        constrains the network's internal dynamics rather
     #                        than the externally-driven inputs.
     observation_neurons: str = "all"
-    # Which task target(s) the swim-integration MSE supervises, selecting
-    # columns of the dataset target [cosθ, sinθ, ξ]:
-    #   'rotation'    — heading (cosθ, sinθ)  [columns 0,1]
-    #   'translation' — displacement ξ = ∫v_fwd  [column 2]
-    # The model's graph_model.n_output must equal the total selected columns
-    # (rotation→2, translation→1, both→3). Empty list → no slicing (legacy
-    # 2-column heading task, byte-identical to before).
-    task_targets: List[str] = Field(default_factory=list)
+    # Task mode for the swim-integration task — selects which sub-task the
+    # network is trained on and projects the 4-ch / 3-col on-disk superset
+    # onto the matching input / target sub-channels:
+    #   ['rotation']                — angular only.    in=[ω,cosθ0,sinθ0]  (3)
+    #                                                  out=[cosθ,sinθ]    (2)
+    #   ['translation']             — displacement.   in=[v_fwd]          (1)
+    #                                                  out=[ξ]            (1)
+    #   ['rotation','translation']  — both.            in=[ω,v_fwd,cos,sin] (4)
+    #                                                  out=[cos,sin,ξ]    (3)
+    # graph_model.n_input / n_output auto-derive from this when not explicitly
+    # set in the yaml. Legacy 3-ch on-disk datasets pass through unchanged
+    # (the slicing is gated on the dataset's 4-ch input width).
+    task_targets: List[str] = Field(default_factory=lambda: ['rotation'])
     # Per-epoch learning-rate schedule (Hulse). Empty list → constant `lr`.
     # Padded with the last value if n_epochs > len(schedule).
     lr_schedule: List[float] = Field(default_factory=lambda: [5e-3, 1e-3, 5e-4, 2e-4, 1e-4])

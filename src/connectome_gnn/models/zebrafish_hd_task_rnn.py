@@ -144,12 +144,24 @@ class ZebrafishHdTaskRNN(nn.Module):
             cx = load_zebrafish_hd_connectome(sim.connconstr_datapath)
         N = int(cx["N"])
         self.n_units = N
-        # n_input / n_output are config-driven so the same model serves the
-        # rotation-only task (3-in / 2-out, default) and the translational
-        # self-motion task (4-in [ω, v_fwd, cosθ0, sinθ0] / up to 3-out
-        # [cosθ, sinθ, ξ]). 0/absent → the legacy 3/2 defaults.
-        self.n_input = int(getattr(gm, "n_input", 0)) or 3
-        self.n_output = int(getattr(gm, "n_output", 0)) or 2
+        # n_input / n_output are derived from the task mode (training.task_targets)
+        # so the same model serves every swim sub-task:
+        #   ['rotation']               → 3-in [ω, cosθ0, sinθ0] / 2-out [cosθ, sinθ]
+        #   ['translation']            → 1-in [v_fwd]            / 1-out [ξ]
+        #   ['rotation','translation'] → 4-in [ω, v_fwd, cosθ0, sinθ0] / 3-out [cosθ, sinθ, ξ]
+        # An explicit graph_model.n_input / n_output in the yaml overrides
+        # the auto-derivation (escape hatch for non-standard variants).
+        _tt_raw = list(getattr(getattr(config, "training", None),
+                               "task_targets", None) or [])
+        _tt_key = tuple(t for t in ("rotation", "translation") if t in _tt_raw)
+        _TT_DIMS = {
+            ("rotation",):                (3, 2),
+            ("translation",):             (1, 1),
+            ("rotation", "translation"):  (4, 3),
+        }
+        _auto_in, _auto_out = _TT_DIMS.get(_tt_key, (3, 2))  # default = rotation
+        self.n_input = int(getattr(gm, "n_input", 0)) or _auto_in
+        self.n_output = int(getattr(gm, "n_output", 0)) or _auto_out
 
         W_con = torch.from_numpy(cx["J_effective"].astype(np.float32))
         self.register_buffer("W_con", W_con)
