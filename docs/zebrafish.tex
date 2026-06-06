@@ -214,12 +214,9 @@ positive (excitatory).
 \section{Methods}
 \label{sec:methods}
 
-\textbf{Recurrent neural network, anatomical gate and swim-integration task.}\label{method:RNN}\label{method:swim_task_modes}\label{method:xi_leaky}
-The RNN model is a sign-locked discrete-time recurrent network whose
-connectivity is constrained to the larval-zebrafish HD-circuit
-connectome (\cref{sec:anatomy}). For each neuron $i \in \{1,\dots,N\}$
-with $N = 731$ the subthreshold activity $\hat h_i(t)$ evolves
-according to
+\textbf{Recurrent neural network.}\label{method:RNN}
+The RNN is a sign-locked discrete-time recurrent network for
+$i\in\{1,\dots,N\}$ with $N=731$:
 \begin{equation}
 \tau\,\frac{d\hat h_i(t)}{dt}
   = -\hat h_i(t)
@@ -228,73 +225,103 @@ according to
   + \hat b_i,
 \label{eq:zhd_dynamics}
 \end{equation}
-\begin{equation}
-\hat y(t) = \big(\cos\hat\theta(t),\,\sin\hat\theta(t)\big)
-  = \hat W^{\mathrm{out}}\sigma\big(\hat h(t)\big) + \hat b^{\mathrm{out}},
-\label{eq:zhd_readout}
-\end{equation}
-Here $\hat y(t) \in \R^2$ is the network's inference of the
-head-direction signal, encoded as the
-$(\cos\hat\theta,\,\sin\hat\theta)$ pair so that the supervisory loss
-matches the ground-truth heading on the unit circle and avoids the
-$\pm 2\pi$ wraparound; the decoded heading is recovered as
-$\hat\theta(t) = \operatorname{atan2}\!\big(\hat y_2(t),\,\hat y_1(t)\big)$.
-The activation $\sigma$ is the sigmoid, the membrane time constant is
-$\tau = 0.1\,\mathrm{s}$, the integration step is
-$\Delta t = 0.01\,\mathrm{s}$, and the input
-$u(t) \in \R^3 = \big(s(t),\,\cos\theta_0\,\delta_{t,0},\,\sin\theta_0\,\delta_{t,0}\big)$
-carries a swim-triggered angular impulse $s(t)$ and a one-frame
-initial-heading cue. The readout from
-\cref{eq:zhd_readout} reads from the HD-ring-only block unless stated otherwise.
+$\sigma$ is the sigmoid, $\tau=0.1\,\mathrm{s}$, $\Delta t=0.01\,\mathrm{s}$.
 The recurrent matrix is sign-locked to the connectome template
-$W^{\mathrm{con}} \in \R^{N \times N}$: the trainable per-edge
-parameter is the magnitude $\hat S \in \R^{N \times N}$, and
+$W^{\mathrm{con}}\in\R^{N\times N}$ (built from the
+\emph{neuprint-fish2} reconstruction; outgoing columns of GABAergic
+HD-ring cells \emph{IPNd*}, \emph{IPNds*} are negated and amplified
+$5\times$): the trainable per-edge parameter is the magnitude
+$\hat S$, and
 \begin{equation}
 \hat W^{\mathrm{rec}}_{ij}
   = |\hat S_{ij}|\,\mathrm{sign}(W^{\mathrm{con}}_{ij}).
 \label{eq:zhd_w_rec}
 \end{equation}
-$W^{\mathrm{con}}$ is built directly from the EM connectome. The topology, the synapse
-counts and the cell-type labels that drive the sign flip all come from
-the \emph{neuprint-fish2} reconstruction. the outgoing columns of the GABAergic HD-ring
-cells (\emph{IPNd*}, \emph{IPNds*}) are negated and amplified by
-$5\times$ (heuristic inhibition gain). The swim-triggered drive is anatomically restricted to the afferent populations through a four-scalar gate on the first column
-of $\hat W^{\mathrm{in}}$:
+External drive enters via $\hat W^{\mathrm{in}}$
+(\cref{method:input_extended}) and is read out via
+$\hat W^{\mathrm{out}}$ (\cref{method:output_readout}); the ring
+cells receive no external input.
+
+\bigskip
+\noindent\textbf{Input gate on $\hat W^{\mathrm{in}}$: anatomically licensed afferent ports.}%
+\label{method:input_extended}
+What enters the network through $\hat W^{\mathrm{in}}$ is fixed by the
+afferent partition of \cref{fig:zhd_3d}\textbf{c}--\textbf{d}: a
+channel $c$ may drive only its anatomically licensed subpopulations
+$\mathcal{Q}_c$, and the ring cells (\emph{IPNd*}, \emph{IPNds*},
+\emph{IPN12}) remain input-free. With $q(i)\in\mathcal{Q}$ the
+subpopulation of afferent neuron $i$,
 \begin{equation}
-\hat W^{\mathrm{in}}_{i,s}
-  = v_q \quad \text{if } i \in q,\ \ q \in
-   \{\mathrm{RIPN}_L,\mathrm{RIPN}_R,\mathrm{ptIPN}_L,\mathrm{ptIPN}_R\},
+\hat W^{\mathrm{in}}_{i,c} =
+\begin{cases}
+v_{c,\,q(i)} & i\in\mathcal{A},\ q(i)\in\mathcal{Q}_c,\\
+0            & i\in\mathcal{A},\ q(i)\notin\mathcal{Q}_c,\\
+\text{free}  & c \in \mathrm{cue},
+\end{cases}
 \label{eq:zhd_swim_gate}
 \end{equation}
-with four learnable scalars
-$\{v_{\mathrm{RIPN}_L},\,v_{\mathrm{RIPN}_R},\,
-  v_{\mathrm{ptIPN}_L},\,v_{\mathrm{ptIPN}_R}\}$
-initialised antisymmetrically across hemispheres so that left swims
-and right swims drive the ring activity peak in opposite directions. These four
-gate scalars act on the left/right \emph{RIPN} and \emph{pt-IPN}
-subpopulations (sizes $102 / 101 / 41 / 44$). The two
-remaining input columns --- carrying the initial-heading impulse
-$(\cos\theta_0,\sin\theta_0)\,\delta_{t,0}$ --- stay free for all
-neurons. Both afferent populations (\emph{RIPN*} and \emph{pt-IPN*})
-are given gate scalars and left learnable, so the optimiser is free to
-choose how the angular-velocity drive enters the ring. The learnable parameters are
+where $\mathcal{A}$ is the union of afferent neurons. The licensed
+ports for the two production-circuit variants are
+\begin{equation}
+\mathcal{Q}_\omega=\{\mathrm{ARTR}_{L,R}\},\qquad
+\mathcal{Q}_{v_{\mathrm{fwd}}}=
+\begin{cases}
+\{\mathrm{ptIPN1}_{L,R}\} & (\text{Fig.~\ref{fig:zhd_3d}\textbf{c}, exteroceptive only}),\\
+\{\mathrm{ptIPN1}_{L,R},\,\mathrm{motor\_efferent}_{L,R}\} & (\text{Fig.~\ref{fig:zhd_3d}\textbf{d}, proprioception}).
+\end{cases}
+\label{eq:zhd_port_map}
+\end{equation}
+The same rule generalises to the full multi-modal driver across all
+nine ZAPBench conditions (\cref{fig:zhd_allblocks}): every visual
+channel $c\in\mathrm{vis}$ --- signed rotation/optic-flow velocity
+(Rotations, OMR~Turning, Gain), whole-field luminance (Flash), L/R
+light difference (Taxis), random-dot motion (Dots) --- takes
+$\mathcal{Q}_c=\{\mathrm{ptIPN}_{L,R}\}$, and every self-motion
+channel $c\in\mathrm{sm}=(u^{\mathrm{fwd}},u^{\mathrm{turn}})$
+derived from the tail EMG takes
+$\mathcal{Q}_c=\{\mathrm{RIPN}_{L,R}\}$. Directional channels are
+initialised antisymmetrically across hemispheres
+($v_{c,L}=-v_{c,R}$) so that leftward and rightward stimuli drive the
+ring activity peak in opposite directions; non-directional channels
+(forward-swim vigour, whole-field luminance) are initialised
+symmetrically. All gates are then free to be retuned --- anatomy
+fixes \emph{which port} a modality may use, not the strength or sign
+it settles on.
+
+\bigskip
+\noindent\textbf{Output readout on $\hat W^{\mathrm{out}}$: task-conditioned columns.}%
+\label{method:output_readout}
+$\hat W^{\mathrm{out}}$ reads from the HD ring (\emph{IPNd*},
+\emph{IPNds*}, \emph{IPN12 pool}) and never from the afferent
+populations. Its column dimension $n_{\mathrm{out}}$ is set by the
+active sub-task (\cref{fig:zhd_swim_task_modes}):
+\begin{equation}
+\hat y(t) =
+\begin{cases}
+(\cos\hat\theta,\sin\hat\theta)                 & n_{\mathrm{out}}=2 \ \ (\text{heading only}),\\
+(\cos\hat\theta,\sin\hat\theta,\hat d)          & n_{\mathrm{out}}=3 \ \ (\text{heading}+\text{forward distance}),\\
+(\cos\hat\theta,\sin\hat\theta,\hat x,\hat y)   & n_{\mathrm{out}}=4 \ \ (\text{2D path integration}),
+\end{cases}
+\label{eq:zhd_readout}
+\end{equation}
+with $\hat y = \hat W^{\mathrm{out}}\,\sigma\!\big(\hat h(t)\big)+\hat b^{\mathrm{out}}$,
+$\hat\theta=\operatorname{atan2}(\hat y_2,\hat y_1)$. The leaky-vs-perfect choice
+(\cref{eq:xi_leaky,eq:xy_pi}) changes only what $\hat d$ and
+$(\hat x,\hat y)$ are supervised against, not the readout shape.
+The learnable parameters of the model are
 \begin{equation*}
-\big\{\hat{W}^{rec}_{ij},\;
-v_{\mathrm{RIPN}_L},\,v_{\mathrm{RIPN}_R},\,
-v_{\mathrm{ptIPN}_L},\,v_{\mathrm{ptIPN}_R},\;
+\big\{\hat W^{\mathrm{rec}}_{ij},\;
+\{v_{c,q}\}_{c,\,q\in\mathcal{Q}_c},\;
 \hat W^{\mathrm{in}}_{:,\theta_0},\,\hat b,\,
 \hat W^{\mathrm{out}},\,\hat b^{\mathrm{out}}\big\};
 \end{equation*}
-the connectome template $W^{\mathrm{con}}$, the
-RIPN / pt-IPN subpopulation membership, the neuron-type assignments,
-$\tau$ and $\Delta t$ are given. The $443$ HD cells are ordered on a
-ring by their mediolateral soma coordinate as a decoder convention
-(binned into $16$ positions for the readout); this ordering is
-\emph{not} claimed to reproduce the anatomical soma topography of
-\citet{petrucco2023} ---
-\cref{sec:results:tuning_sharpness} finds the preferred-heading map
-is not spatially organised.
+the connectome template $W^{\mathrm{con}}$, the afferent
+subpopulation membership, the neuron-type assignments, $\tau$ and
+$\Delta t$ are given.
 
+\bigskip
+\noindent\textbf{Swim-integration task and target recipes.}%
+\label{method:swim_task_modes}\label{method:xi_leaky}
 The on-disk swim-integration dataset is a \emph{single superset} from
 which several sub-tasks are projected at training time. Swim events are
 sampled at a Poisson rate $r_{\mathrm{swim}}=0.5\,\mathrm{Hz}$ with
@@ -381,87 +408,10 @@ $\tau_p \, v_{\mathrm{fwd}} / \sqrt{1+(\tau_p\omega)^2}$.}
 \label{fig:zhd_swim_task_modes}
 \end{figure}
 
-\bigskip
-\noindent\textbf{Input gate on $\hat W^{\mathrm{in}}$: anatomically licensed afferent ports.}%
-\label{method:input_extended}
-What enters the network through $\hat W^{\mathrm{in}}$ is fixed by the
-afferent partition of \cref{fig:zhd_3d}\textbf{c}--\textbf{d}: a
-channel $c$ may drive only its anatomically licensed subpopulations
-$\mathcal{Q}_c$, and the ring cells (\emph{IPNd*}, \emph{IPNds*},
-\emph{IPN12}) remain input-free. With $q(i)\in\mathcal{Q}$ the
-subpopulation of afferent neuron $i$,
-\begin{equation}
-\hat W^{\mathrm{in}}_{i,c} =
-\begin{cases}
-v_{c,\,q(i)} & i\in\mathcal{A},\ q(i)\in\mathcal{Q}_c,\\
-0            & i\in\mathcal{A},\ q(i)\notin\mathcal{Q}_c,\\
-\text{free}  & c \in \mathrm{cue},
-\end{cases}
-\label{eq:zhd_input_gate_ext}
-\end{equation}
-where $\mathcal{A}$ is the union of afferent neurons. The licensed
-ports for the two production-circuit variants are
-\begin{equation}
-\mathcal{Q}_\omega=\{\mathrm{ARTR}_{L,R}\},\qquad
-\mathcal{Q}_{v_{\mathrm{fwd}}}=
-\begin{cases}
-\{\mathrm{ptIPN1}_{L,R}\} & (\text{Fig.~\ref{fig:zhd_3d}\textbf{c}, exteroceptive only}),\\
-\{\mathrm{ptIPN1}_{L,R},\,\mathrm{motor\_efferent}_{L,R}\} & (\text{Fig.~\ref{fig:zhd_3d}\textbf{d}, proprioception}).
-\end{cases}
-\label{eq:zhd_port_map}
-\end{equation}
-The same rule generalises to the full multi-modal driver across all
-nine ZAPBench conditions (\cref{fig:zhd_allblocks}): every visual
-channel $c\in\mathrm{vis}$ --- signed rotation/optic-flow velocity
-(Rotations, OMR~Turning, Gain), whole-field luminance (Flash), L/R
-light difference (Taxis), random-dot motion (Dots) --- takes
-$\mathcal{Q}_c=\{\mathrm{ptIPN}_{L,R}\}$, and every self-motion
-channel $c\in\mathrm{sm}=(u^{\mathrm{fwd}},u^{\mathrm{turn}})$
-derived from the tail EMG takes
-$\mathcal{Q}_c=\{\mathrm{RIPN}_{L,R}\}$. Directional channels are
-initialised antisymmetrically across hemispheres
-($v_{c,L}=-v_{c,R}$) so that leftward and rightward stimuli drive the
-ring activity peak in opposite directions; non-directional channels
-(forward-swim vigour, whole-field luminance) are initialised
-symmetrically. All gates are then free to be retuned --- anatomy
-fixes \emph{which port} a modality may use, not the strength or sign
-it settles on. The leaky-vs-perfect target choice
-(\cref{eq:xi_leaky,eq:xy_pi}) does not change $\hat W^{\mathrm{in}}$;
-setting a single velocity channel licensed to all of $\mathcal{Q}$
-recovers the base swim gate \cref{eq:zhd_swim_gate} verbatim.
-
-\bigskip
-\noindent\textbf{Output readout on $\hat W^{\mathrm{out}}$: task-conditioned columns.}%
-\label{method:output_readout}
-$\hat W^{\mathrm{out}}$ reads from the HD ring (\emph{IPNd*},
-\emph{IPNds*}, \emph{IPN12 pool}) and never from the afferent
-populations. Its column dimension $n_{\mathrm{out}}$ is set by the
-active sub-task (\cref{fig:zhd_swim_task_modes}):
-\begin{equation}
-\hat y(t) =
-\begin{cases}
-(\cos\hat\theta,\sin\hat\theta)                 & n_{\mathrm{out}}=2 \ \ (\text{heading only}),\\
-(\cos\hat\theta,\sin\hat\theta,\hat d)          & n_{\mathrm{out}}=3 \ \ (\text{heading}+\text{forward distance}),\\
-(\cos\hat\theta,\sin\hat\theta,\hat x,\hat y)   & n_{\mathrm{out}}=4 \ \ (\text{2D path integration}),
-\end{cases}
-\label{eq:zhd_readout_tasks}
-\end{equation}
-with $\hat y = \hat W^{\mathrm{out}}\,\sigma\!\big(\hat h(t)\big)+\hat b^{\mathrm{out}}$
-as in \cref{eq:zhd_readout}. The leaky-vs-perfect choice
-(\cref{eq:xi_leaky,eq:xy_pi}) changes only what $\hat d$ and
-$(\hat x,\hat y)$ are supervised against, not the readout shape.
-The learnable parameters of the model are
-\begin{equation*}
-\big\{\hat W^{\mathrm{rec}}_{ij},\;
-\{v_{c,q}\}_{c,\,q\in\mathcal{Q}_c},\;
-\hat W^{\mathrm{in}}_{:,\theta_0},\,\hat b,\,
-\hat W^{\mathrm{out}},\,\hat b^{\mathrm{out}}\big\}.
-\end{equation*}
-
 \paragraph{Closed-loop caveat.}
 For the Gain and Position blocks the visual channel is closed-loop: the optic
 flow the fish sees depends on its own swimming, so $u^{\mathrm{vis}}$ is not a
-clean exogenous drive there and \cref{eq:zhd_input_gate_ext} injects a signal
+clean exogenous drive there and \cref{eq:zhd_swim_gate} injects a signal
 that is partly a consequence of the network's own behaviour. We therefore treat
 those two blocks as calcium-observation targets (\cref{eq:zhd_obs}) under the
 multi-task mask $m^{(k)}_b$ of \cref{eq:zhd_multitask} rather than as clean
