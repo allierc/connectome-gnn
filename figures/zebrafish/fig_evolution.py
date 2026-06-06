@@ -164,6 +164,26 @@ def _load_model_and_rollouts(
     root = graphs_data_path(config.dataset)
     u_test = load_raw_array(f"{root}/test/stimulus.zarr")
     y_test = load_raw_array(f"{root}/test/target.zarr")
+    # task_targets projection: mirrors the trainer's slicing of the
+    # 4-ch / 3-col on-disk superset onto the active sub-task. Needed
+    # whenever the trained model was built for n_in<4 / n_out<3.
+    _PROFILE_BY_TARGET = {
+        (3, ("rotation",)):                ([0, 2, 3],    [0, 1]),
+        (3, ("translation",)):             ([1],          [2]),
+        (3, ("rotation", "translation")):  ([0, 1, 2, 3], [0, 1, 2]),
+        (4, ("rotation",)):                ([0, 2, 3],    [0, 1]),
+        (4, ("position_2d",)):             ([0, 1, 2, 3], [0, 1, 2, 3]),
+    }
+    _RECOGNISED = ("rotation", "translation", "position_2d")
+    _task_raw = list(getattr(config.training, "task_targets", None) or [])
+    _task_key = tuple(t for t in _RECOGNISED if t in _task_raw)
+    if u_test.shape[-1] >= 4 and _task_key:
+        n_out_disk = int(y_test.shape[-1])
+        _key = (n_out_disk, _task_key)
+        if _key in _PROFILE_BY_TARGET:
+            in_cols, out_cols = _PROFILE_BY_TARGET[_key]
+            u_test = u_test[..., in_cols]
+            y_test = y_test[..., out_cols]
     if trial_idx is None:
         if trial_seed is None:
             trial_seed = int(getattr(config.training, "seed", 0)) + 17

@@ -2183,7 +2183,14 @@ def _panel_function_curves(ax, net, mlp_name: str, h_rollout: np.ndarray,
 
 
 def _panel_integration_gain(ax, gain_data, dt: float, warmup: int = 10):
-    """Hulse-style scatter: measured slope (deg/s) vs true ω (deg/s)."""
+    """Hulse-style scatter: measured slope (deg/s) vs true ω (deg/s).
+
+    No-op (axes hidden) when the rollout does not decode heading
+    (e.g. translation-only models, where the output is forward distance
+    only and the rotation gain is undefined)."""
+    if not gain_data or "decoded_theta" not in (gain_data[0][1] or {}):
+        ax.set_axis_off()
+        return
     omegas, slopes = [], []
     for omega, ro in gain_data:
         dec = np.asarray(ro["decoded_theta"])
