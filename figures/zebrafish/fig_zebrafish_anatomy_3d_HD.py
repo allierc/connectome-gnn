@@ -336,6 +336,76 @@ def _add_legend(ax, type_counts, draw_order, text_color):
         txt.set_color(text_color)
 
 
+def draw_anatomy_panels(ax_skel, ax_soma, nl, types, rois,
+                        *, elev=90.0, azim=-90.0,
+                        lw_large=0.2, lw_small=0.4,
+                        alpha_mesh=0.10,
+                        background="white",
+                        segs_by_type=None,
+                        somas_by_type=None,
+                        soma_meshes_by_type=None,
+                        ylim_pct=(0.5, 99.5),
+                        legend=True):
+    """Draw the skeleton + soma panels onto provided axes.
+
+    Used by both the standalone _render_fast wrapper and the merged
+    Figure 1 script (so the four panels live in one matplotlib figure
+    with consistent label sizing).
+    """
+    text_color = "white" if background == "black" else "black"
+    mesh_color = (0.85, 0.85, 0.85) if background == "black" else (0.35, 0.35, 0.35)
+
+    if segs_by_type is None:
+        segs_by_type = _extract_segments_by_type(nl, types)
+    type_counts = {t: int((types == t).sum()) for t in np.unique(types)}
+    draw_types = [t for t in TYPE_ORDER if type_counts.get(t, 0) > 0]
+    extra = [t for t in type_counts if t not in TYPE_ORDER]
+    draw_types += extra
+    draw_order = sorted(draw_types, key=lambda t: -type_counts.get(t, 0))
+
+    _draw_mesh_outlines(ax_skel, rois, elev, azim, alpha_mesh, mesh_color)
+    _draw_skeletons(ax_skel, segs_by_type, type_counts, draw_order,
+                    elev, azim, lw_large, lw_small)
+
+    if ax_soma is not None:
+        if somas_by_type is None and not soma_meshes_by_type:
+            somas_by_type = _extract_somas_by_type(nl, types)
+        _draw_mesh_outlines(ax_soma, rois, elev, azim, alpha_mesh, mesh_color)
+        if soma_meshes_by_type:
+            _draw_soma_meshes(ax_soma, soma_meshes_by_type, type_counts,
+                              draw_order, elev, azim)
+        else:
+            _draw_soma_icospheres(ax_soma, somas_by_type, type_counts,
+                                   draw_order, elev, azim)
+
+    ax_skel.set_aspect("equal")
+    ax_skel.autoscale_view()
+    if ylim_pct is not None and segs_by_type:
+        all_y = np.concatenate([
+            _project_2d(s.reshape(-1, 3), elev, azim)[:, 1]
+            for s in segs_by_type.values() if len(s)
+        ])
+        if all_y.size:
+            y_lo, y_hi = np.percentile(all_y, ylim_pct)
+            pad = 0.04 * (y_hi - y_lo)
+            ax_skel.set_ylim(y_lo - pad, y_hi + pad)
+
+    xlim = ax_skel.get_xlim()
+    ylim = ax_skel.get_ylim()
+    if ax_soma is not None:
+        ax_soma.set_aspect("equal")
+        ax_soma.set_xlim(xlim)
+        ax_soma.set_ylim(ylim)
+
+    for ax in [ax_skel] + ([ax_soma] if ax_soma is not None else []):
+        ax.set_axis_off()
+
+    if legend:
+        legend_ax = ax_soma if ax_soma is not None else ax_skel
+        _add_legend(legend_ax, type_counts, draw_order, text_color)
+    return type_counts, draw_order
+
+
 def _render_fast(nl, types, rois, output_path,
                  elev=20.0, azim=-60.0, roll=0.0,
                  lw_large=0.2, lw_small=0.4,
@@ -426,14 +496,9 @@ def _render_fast(nl, types, rois, output_path,
         ax_soma.set_xlim(xlim)
         ax_soma.set_ylim(ylim)
 
-    panel_letters = ["a", "b"]
     legend_ax = ax_soma if ax_soma is not None else ax_skel
-    for i, ax in enumerate([ax_skel] + ([ax_soma] if ax_soma is not None else [])):
+    for ax in [ax_skel] + ([ax_soma] if ax_soma is not None else []):
         ax.set_axis_off()
-        if ax_soma is not None:
-            ax.text(0.01, 0.99, panel_letters[i], transform=ax.transAxes,
-                    ha="left", va="top", fontsize=14, fontweight="bold",
-                    color=text_color)
 
     _add_legend(legend_ax, type_counts, draw_order, text_color)
 
