@@ -408,15 +408,7 @@ $\tau_p \, v_{\mathrm{fwd}} / \sqrt{1+(\tau_p\omega)^2}$.}
 \label{fig:zhd_swim_task_modes}
 \end{figure}
 
-\paragraph{Closed-loop caveat.}
-For the Gain and Position blocks the visual channel is closed-loop: the optic
-flow the fish sees depends on its own swimming, so $u^{\mathrm{vis}}$ is not a
-clean exogenous drive there and \cref{eq:zhd_swim_gate} injects a signal
-that is partly a consequence of the network's own behaviour. We therefore treat
-those two blocks as calcium-observation targets (\cref{eq:zhd_obs}) under the
-multi-task mask $m^{(k)}_b$ of \cref{eq:zhd_multitask} rather than as clean
-input--output tasks, and reserve the open-loop visual blocks (Rotation, Flash,
-Taxis, Dots) for the licensed-injection model above.
+\paragraph{Training.}
 
 \bigskip
 Training optimises a per-frame MSE
@@ -747,53 +739,53 @@ having to invert the calcium kernel.
 \section{Results}
 \label{sec:results}
 
-\subsection{Trained swim-integrator: the two IPN12 variants}
+\subsection{Trained heading integrator on the ARTR / pt-IPN1 circuit}
 \label{sec:results_evolution}
 
-We first establish that the nominal $839$-cell IPN12 circuit
-(\cref{fig:zhd_connectome_summary}) learns the swim-integration task
-under both Dale-sign hypotheses for the IPN12 sub-types.
-\Cref{fig:zhd_evolution_v1} (v1, IPN12 inhibitory) and
-\cref{fig:zhd_evolution_v2} (v2, IPN12 excitatory) show the trained
-sign-locked RNN for each variant, in the same panel layout as the
-companion central-complex study. Both variants converge to a
-near-perfect compass: the deterministic constant-$\omega$ rollout
-tracks the imposed heading at Pearson $r = 1.000$ (panel f;
-constant-$\omega$ RMSE $3.2^\circ$ for v1, $7.2^\circ$ for v2), the
-held-out swim-test trial is integrated faithfully (panel g), and the
-integration gain is linear at unit slope across the full
-$\pm 180^\circ/\mathrm{s}$ range (panel i). The dIPN carries a
-clean travelling ring activity peak (panel e), the learned recurrent weights track
-the sign-locked connectome at amplified magnitude (panel c,
-true-vs-learned scatter), and the all-neuron kinograph appears in
-panel d. The recovered head-direction
-behaviour is therefore robust to the unknown IPN12 sign: both the
-GABAergic (v1) and glutamatergic (v2) hypotheses admit a converging
-swim-integrator.
+We train the sign-locked RNN of \cref{method:RNN} on the refined
+$839$-cell circuit of \cref{fig:zhd_3d}\textbf{c} --- angular drive
+$\omega$ routed exclusively to ARTR (\emph{RIPN01/02/03\_a/03\_b}),
+forward-swim $v_{\mathrm{fwd}}$ to \emph{pt-IPN1}, both via the
+cell-type-resolved gate of \cref{eq:zhd_swim_gate} --- on the
+rotation-only sub-task of \cref{fig:zhd_swim_task_modes} ($n_{\rm in}=3$
+channels, $n_{\rm out}=2$ outputs).
+\Cref{fig:zhd_evolution_artr_pt1} reports the trained network.
+After training, the deterministic constant-$\omega = +60^\circ/\mathrm{s}$
+rollout tracks the imposed heading at Pearson $r = 1.000$, with a
+circular RMSE of $24.9^\circ$ (panel \textbf{f}); the held-out
+swim-integration test trial is integrated correctly (panel \textbf{g});
+and the integration gain is linear at unit slope across the full
+$\pm 180^\circ/\mathrm{s}$ range (panel \textbf{i}). The dIPN carries
+a single travelling ring activity peak (panel \textbf{e}). The learned
+recurrent weights $\hat W^{\mathrm{rec}}$ sit on the signed connectome
+support by construction; the per-edge magnitude correlates with the
+connectome template at Pearson $r=0.377$
+(panel \textbf{c}, true-vs-learned scatter), consistent with the
+sign-locked re-scaling described in \cref{method:RNN}.
 
 \begin{figure}[p]
   \centering
-  \includegraphics[width=\textwidth]{\figdir/fig_evolution_zebrafish_hd_si_ipn12_v1.png}
-  \caption{\textbf{Trained swim-integrator, v1 (IPN12 inhibitory):
-  connectome topology and Dale signs imposed, per-edge magnitudes
-  learned.} Sign-locked RNN with
+  \includegraphics[width=\textwidth]{\figdir/fig_evolution_zebrafish_hd_si_ipn12_artr_pt1_selfmotion_rotation.png}
+  \caption{\textbf{Trained heading integrator on the ARTR / pt-IPN1
+  variant of \cref{fig:zhd_3d}\textbf{c}.} Sign-locked RNN with
   $\hat W^{\mathrm{rec}} = |\hat S|\odot\mathrm{sign}(W^{\mathrm{con}})$
-  on the $839$-cell IPN12 pool, IPN12 outgoing weights Dale-flipped to
-  inhibitory.
+  on the $839$-cell circuit (IPN12 v1, inhibitory). Drive: $\omega$
+  routed exclusively to ARTR
+  (\emph{RIPN01/02/03\_a/03\_b}) via the cell-type-resolved gate of
+  \cref{eq:zhd_swim_gate}. Task: rotation only ($n_{\rm in}=3$,
+  $n_{\rm out}=2$).
   \textbf{(a)} GT connectome $W^{\mathrm{con}}$, signed and
-  $\sqrt{}$-scaled (red = excitatory, blue = inhibitory; each edge
-  dilated for visibility); neuron-type blocks on both axes.
+  $\sqrt{\,}$-scaled (red excitatory, blue inhibitory; edges dilated for
+  visibility), neuron-type blocks on both axes.
   \textbf{(b)} Learned $\hat W^{\mathrm{rec}}$ on the same scale.
   \textbf{(c)} Scatter of the learned per-edge weight $\hat W_{ij}$
-  against the GT connectome weight $W^{\mathrm{con}}_{ij}$ over all
-  connectome edges (diagonal and zeros excluded); dashed $y = x$
-  reference, title reports Pearson $r$. Under the sign-lock the points
-  stay in matching-sign quadrants, so the off-diagonal spread shows
-  how training rescales the connectome magnitudes.
+  against $W^{\mathrm{con}}_{ij}$ over all connectome edges (diagonal
+  and zeros excluded); dashed $y = x$ reference, title reports Pearson
+  $r$.
   \textbf{(d)} All $839$ neurons over a constant-$\omega =
   +60^\circ/\mathrm{s}$ rollout, sorted by cell type; firing rates
   $z$-scored per neuron.
-  \textbf{(e)} dIPN HD-ring sub-population over the same rollout (the
+  \textbf{(e)} dIPN sub-population over the same rollout (the
   travelling ring activity).
   \textbf{(f)} Constant-$\omega$ rollout. Top: $\omega(t)$. Bottom:
   true heading (green) and decoded heading (black), wrapped. Title
@@ -804,352 +796,187 @@ swim-integrator.
   \textbf{(i)} Integration gain: linear-fit slope of the unwrapped
   decoded heading vs.\ true $\omega$, on a $15^\circ/\mathrm{s}$ grid
   over $[-180,+180]\setminus\{0\}$. Dashed line: $g = 1$.}
-  \label{fig:zhd_evolution_v1}
+  \label{fig:zhd_evolution_artr_pt1}
+\end{figure}
+
+\subsection{Sub-task variants on the same circuit}
+\label{sec:results_variants}
+
+The same $839$-cell circuit and sign-locked RNN trains successfully
+on every sub-task projection of the swim-integration superset
+(\cref{fig:zhd_swim_task_modes}). Each variant changes only the
+target column layout ($\hat W^{\mathrm{out}}$, \cref{method:output_readout})
+and, where applicable, the leaky-integrator time constant
+$\tau_d=\tau_p=0.5\,$s; the gate, connectome and recurrent dynamics
+are unchanged across all seven runs. Brief readout below; full panel
+layout matches \cref{fig:zhd_evolution_artr_pt1}.
+
+\paragraph{Translation only --- perfect and leaky.}
+\Cref{fig:zhd_evolution_translation,fig:zhd_evolution_translation_leaky}
+train on the $1$-channel translation sub-task
+($v_{\mathrm{fwd}}\to$ forward distance $d$, $n_{\rm in}=n_{\rm out}=1$).
+The perfect-integrator recipe reaches a test MSE of $0.029$ on the
+disk-stored target; the leaky variant ($\tau_d=0.5\,$s) reaches
+$2.1\times 10^{-4}$, with the bounded target preventing the loss from
+growing linearly with the rollout horizon. Heading is not supervised
+in either run, so the integration-gain panel is left blank.
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=\textwidth]{\figdir/fig_evolution_zebrafish_hd_si_ipn12_artr_pt1_selfmotion_translation.png}
+  \caption{\textbf{Trained translation-only integrator, perfect target.}
+  Same panel layout as \cref{fig:zhd_evolution_artr_pt1}. The
+  one-output forward-distance head is supervised against
+  $d(t)=\int v_{\mathrm{fwd}}\,ds$; integration-gain panel (i) is
+  blank because heading is not decoded.}
+  \label{fig:zhd_evolution_translation}
 \end{figure}
 
 \begin{figure}[p]
   \centering
-  \includegraphics[width=\textwidth]{\figdir/fig_evolution_zebrafish_hd_si_ipn12_v2.png}
-  \caption{\textbf{Trained swim-integrator, v2 (IPN12 excitatory):
-  companion to \cref{fig:zhd_evolution_v1}.} Identical architecture,
-  fold and panel layout, on the same $839$-cell IPN12 pool, but the
-  IPN12 outgoing weights are left positive (excitatory) rather than
-  Dale-flipped. Panels \textbf{(a)--(i)} follow
-  \cref{fig:zhd_evolution_v1}. The compass behaviour is preserved
-  (panel f: $r = 1.000$, constant-$\omega$ RMSE $7.2^\circ$; panel i:
-  unit-slope integration gain), confirming that the recovered
-  swim-integration is not contingent on the IPN12 sign.}
-  \label{fig:zhd_evolution_v2}
+  \includegraphics[width=\textwidth]{\figdir/fig_evolution_zebrafish_hd_si_ipn12_artr_pt1_selfmotion_translation_leaky.png}
+  \caption{\textbf{Trained translation-only integrator, leaky target}
+  ($\tau_d=0.5\,$s). Same panel layout as
+  \cref{fig:zhd_evolution_artr_pt1}.}
+  \label{fig:zhd_evolution_translation_leaky}
 \end{figure}
 
-\paragraph{Message-passing GNN comparison.}
-As a further comparison we train the message-passing GNN of
-\cref{method:GNN} --- which replaces the hardcoded leak and sigmoid
-with the learned drift $f_\theta$ and signalling function $g_\phi$ ---
-on the same $839$-cell circuit as the two RNN variants.
-\Cref{fig:zhd_evolution_gnn}
-shows the trained GNN in the
-same layout as \cref{fig:zhd_evolution_v1,fig:zhd_evolution_v2}, with
-three extra panels for the learned per-neuron embedding (j), drift (k)
-and signalling function (l). Despite the much weaker dynamical prior,
-the GNN reproduces the compass in correlation and gain (panel f:
-$r = 1.000$; panel i: unit-slope integration gain), though at coarser
-absolute precision than the RNN (constant-$\omega$ RMSE $36.2^\circ$, vs.\
-a few degrees for the RNN; this checkpoint is also earlier in training).
-The recovered swim-integration is therefore
-robust both to the IPN12 sign (v1 vs.\ v2) and to the RNN vs.\ GNN
-parameterisation.
+\paragraph{Rotation $+$ scalar distance.}
+\Cref{fig:zhd_evolution_both,fig:zhd_evolution_both_leaky} train on
+the joint heading-plus-forward-distance task
+($n_{\rm in}=4$, $n_{\rm out}=3$, target $(\cos\theta,\sin\theta,d)$).
+The perfect-integrator variant reaches per-frame test R² $=0.9998$ on
+both heading and distance, with constant-$\omega$ Pearson $r=1.000$
+and circular RMSE $3.5^\circ$ (panel f). The leaky variant
+($\tau_d=0.5\,$s) reaches per-frame test R² $=0.9998$ (heading) and
+$0.99998$ (leaky $d$); the joint training does not degrade the
+compass relative to the rotation-only variant of
+\cref{fig:zhd_evolution_artr_pt1}.
 
 \begin{figure}[p]
   \centering
-  \includegraphics[width=\textwidth]{\figdir/fig_evolution_zebrafish_hd_si_gnn_dipn_v1_cv0.png}
-  \caption{\textbf{Trained swim-integrator, message-passing GNN on the
-  $839$-cell circuit: comparison to the RNN variants of
-  \cref{fig:zhd_evolution_v1,fig:zhd_evolution_v2}.} The dense
-  recurrent operator is replaced by
-  $f_\theta(\hat h_i,\mathbf a_i,\sum_j \hat W_{ij}\,
-  g_\phi(\hat h_j,\mathbf a_j))$ (\cref{eq:zhd_gnn_dynamics}); the leak
-  and firing-rate non-linearity are learned, not hardcoded.
-  Panels \textbf{(a)--(i)} follow \cref{fig:zhd_evolution_v1} (panel b
-  shows the per-edge gain $\hat W_{ij}$ at the connectome edge
-  positions rather than a dense $\hat W^{\mathrm{rec}}$).
-  \textbf{(j)} Per-neuron latent embedding $\mathbf a_i$, coloured by
-  cell type.
-  \textbf{(k)} Learned drift $f_\theta(\hat h_i,\mathbf a_i,m{=}0)$ for
-  each neuron over its activity domain.
-  \textbf{(l)} Learned signalling function
-  $g_\phi(\hat h_j,\mathbf a_j)$ --- the per-edge message entering the
-  GNN aggregation. The compass matches the RNN in correlation and gain
-  (panel f: $r = 1.000$), at coarser absolute precision
-  (constant-$\omega$ RMSE $36.2^\circ$).}
-  \label{fig:zhd_evolution_gnn}
+  \includegraphics[width=\textwidth]{\figdir/fig_evolution_zebrafish_hd_si_ipn12_artr_pt1_selfmotion_both.png}
+  \caption{\textbf{Trained rotation $+$ scalar-distance integrator,
+  perfect target.} Same panel layout as
+  \cref{fig:zhd_evolution_artr_pt1}; panel (g) overlays the GT and
+  decoded forward-distance trace below the heading components.}
+  \label{fig:zhd_evolution_both}
 \end{figure}
-
-\subsection{Identifiability of the recurrent weights across folds}
-\label{sec:results_wrec}
-
-To ask how much of the recovered circuit is fixed by the
-swim-integration task, we retrained each variant ten times from fresh
-seeds (shared task data) and compared the learned recurrent matrices
-$\hat W^{\mathrm{rec}}$ across the $2\times 10$ folds
-(\cref{fig:zhd_wrec}). Three facts emerge.
-(i)~The recurrent solution is only partially identifiable: within each
-variant the ten folds cluster at pairwise cosine $0.58 \pm 0.03$ (v1) and
-$0.57 \pm 0.02$ (v2) over the connectome support --- more tightly with
-each other than with the raw connectome template ($0.48$ for v1, $0.36$
-for v2), but with a substantial inter-fold spread; the task fixes the
-heading input--output map but not a unique set of per-edge weights, so
-many recurrent matrices realise the same compass.
-(ii)~Training amplifies the given edges: the support and signs are fixed
-by the sign-lock (\cref{eq:zhd_w_rec}), so training only sets the per-edge
-magnitudes on the connectome edges --- it cannot add or remove edges; the
-per-cell-type-block $\log_2$ ratio of the learned mean magnitude to the
-connectome mean magnitude (\cref{fig:zhd_wrec}c) is uniformly positive
-across all blocks and both variants and reproducible across folds (small
-inter-fold SD), so the connectome supplies the topology and sign while
-training consistently scales each block's magnitude up by a
-block-dependent, fold-reproducible factor --- the gain the
-swim-integration task requires.
-(iii)~The circuit is robust to the unknown IPN12 sign outside the IPN12
-edges: the cross-variant cosine (v1 fold vs.\ v2 fold) is only
-$0.28 \pm 0.02$ over the full support --- far below the within-variant
-$0.57$ --- but rises to $0.51$ once the $3\,536$ sign-flipped IPN12
-outgoing edges are excluded; the two Dale-sign hypotheses therefore
-converge to similar recurrent solutions everywhere except on the IPN12
-edges whose sign they disagree about by construction.
 
 \begin{figure}[p]
   \centering
-  \includegraphics[width=0.7\textwidth]{\figdir/fig_w_rec_comparison_ipn12.png}
-  \caption{\textbf{Comparison of the trained $\hat W^{\mathrm{rec}}$
-  across $2\times 10$ folds and to the connectome template
-  $W^{\mathrm{con}}$.}
-  \textbf{(a)} Cosine-similarity affinity over the connectome support
-  of $\{W^{\mathrm{con}},\ \text{v1 folds }1\text{--}10,\ \text{v2
-  folds }1\text{--}10\}$. The within-variant blocks (v1, v2) are bright
-  (inter-fold cosine $\approx 0.57$); the v1$\leftrightarrow$v2 cross
-  block is darker ($0.28$), rising to $0.51$ when the sign-flipped
-  IPN12 outgoing edges are excluded.
-  \textbf{(b)} Per-(coarse cell-type) block median coefficient of
-  variation $\sigma_k|\hat W|/\langle|\hat W|\rangle_k$ of the learned
-  magnitudes across the ten folds, for v1 (left) and v2 (right), over
-  the five categories \emph{IPNd}, \emph{IPNds}, \emph{IPN12},
-  \emph{RIPN}, \emph{pt-IPN}. Low CV $=$ tightly constrained block.
-  \textbf{(c)} Per-block $\log_2$ ratio of the mean learned magnitude
-  to the mean connectome magnitude ($\mu \pm$ SD across folds). All
-  blocks are positive --- training scales up the magnitudes on the
-  given connectome edges --- and the pattern is reproducible across
-  folds.}
-  \label{fig:zhd_wrec}
+  \includegraphics[width=\textwidth]{\figdir/fig_evolution_zebrafish_hd_si_ipn12_artr_pt1_selfmotion_both_leaky.png}
+  \caption{\textbf{Trained rotation $+$ scalar-distance integrator,
+  leaky target} ($\tau_d=0.5\,$s). Same panel layout as
+  \cref{fig:zhd_evolution_both}.}
+  \label{fig:zhd_evolution_both_leaky}
 \end{figure}
 
-\subsection{Tuning-curve sharpness of the HD-coding cells}
-\label{sec:results:tuning_sharpness}
+\paragraph{2-D path integration.}
+\Cref{fig:zhd_evolution_position2d,fig:zhd_evolution_position2d_leaky}
+train on the full 2-D path task ($n_{\rm in}=4$, $n_{\rm out}=4$,
+target $(\cos\theta,\sin\theta,x,y)$ with
+$\dot x = v_{\mathrm{fwd}}\cos\theta$,
+$\dot y = v_{\mathrm{fwd}}\sin\theta$). Heading is still recovered at
+test R² $\geq 0.994$. The 2-D-position head is the harder regression:
+the perfect-integrator variant reaches per-frame test R² $=0.979$ on
+$(x,y)$; the leaky variant reaches $0.99998$. Panels (f)--(g) of these
+figures show the decoded $(x,y)$ trajectory as a 2-D path instead of
+the heading time-trace.
 
-Where each HD-coding cell sits on the preferred-heading circle says
-nothing about how \emph{sharp} that preference is.
-\Cref{fig:zhd_tuning_sharpness} answers the sharpness
-question by overlaying the centred tuning curves of every HD-coding
-cell and comparing the population profile to a parametric reference
-ring activity.
-
-Of the $n = 366$ cells in the $\cls{R}\cup\cls{L}$ classes,
-\textbf{350 (96\%) pass the specificity threshold $\specf^\star =
-0.70$}; the histogram of $\specf$ (\cref{fig:zhd_tuning_sharpness}a)
-peaks tightly around $0.75$ and has essentially no mass below $0.5$.
-The 350 retained cells, once centred on their preferred angle and
-normalised to unit peak, collapse onto a single sharp peak
-(\cref{fig:zhd_tuning_sharpness}b): the population mean has full
-width at half maximum (FWHM) of $\approx 100^\circ$ and a tight
-25--75\,percentile band. A unit-peak von Mises with concentration
-$\kappa \approx 2$ tracks the mean within the band over the full
-$\pm 180^\circ$ range. Together, panels a and b say that the trained
-network's HD code is not just present (panel b) but well-defined and
-near-sinusoidal (panel c) at the per-cell level. Panel a shows a
-single representative tuning curve for context.
-
-\paragraph{Computation, panel a (single-neuron tuning curves).}
-Panel a overlays the tuning curves $\bar r_i(\theta_k) -
-\langle\bar r_i\rangle$ of three example neurons. The per-cell mean
-is subtracted (but no peak-normalisation is applied) so all three
-curves share a zero baseline and their relative amplitudes are
-preserved; without this subtraction the different DC offsets
-between cells dominate the $y$-axis and the actual ring peaks are
-invisible. The two
-specific cells (blue and green) sit near the median specificity of
-the kept population ($\specf \approx 0.75$, $0.73$) but have
-preferred angles roughly $180^\circ$ apart, so the reader can see
-that a high $\specf$ does not commit a cell to one particular
-$\phi$. The non-specific cell (grey, $\specf = 0.18$) shows what
-$\specf \ll \specf^\star$ looks like in rate space: an essentially
-flat curve with no resolvable peak. Dashed vertical lines mark
-each cell's preferred angle $\phi_i$, computed as the argument of
-the circular resultant of the centred curve (same formula as the
-specificity numerator below). This panel is the single-cell view of
-the population summaries in panels b--d: the specific cells live in
-the right peak of the histogram in panel b, contribute one curve
-each to the overlay in panel c, and place one count each in the
-histogram of panel d; the non-specific cell sits in the left tail
-of panel b and is excluded from panels c--d.
-
-\paragraph{Computation, panel b (specificity histogram).}
-For every cell $i$ we compute a tuning curve $\bar r_i(\theta_k)$ by
-binning the rollout heading $\theta(t)$ into $K = 36$ equal bins of
-$10^\circ$ and averaging the cell's activity $h_i(t)$ over the time
-points whose heading falls in each bin. The
-\emph{specificity}
-\[
-  \specf_i \;=\;
-    \frac{\big|\!\sum_k\big(\bar r_i(\theta_k) - \langle\bar r_i\rangle\big)\,
-            e^{i\theta_k}\big|}
-         {\sum_k\big|\bar r_i(\theta_k) - \langle\bar r_i\rangle\big|}
-  \;\in\; [0, 1]
-\]
-is the ratio of the magnitude of the resultant (first Fourier
-coefficient) of the centred tuning curve to its $\ell_1$ size. A flat
-curve gives $\specf = 0$; a delta at one bin gives $\specf = 1$; a
-pure cosine sits near $\specf = 2/\pi \approx 0.64$. The histogram in
-panel a is over the $n = 366$ cells in the $\cls{R}\cup\cls{L}$
-classes (HD-coding R and L from the four-classes partition,
-\cref{fig:zhd_four_classes}); the red dashed line at
-$\specf^\star = 0.70$ is the cutoff used in panel c and in all
-downstream HD-population analyses.
-
-\paragraph{Computation, panel c (centred tuning curves).}
-For each of the 350 cells that pass $\specf \ge \specf^\star$:
-mean-subtract $\bar r_i$, circularly roll the curve so the peak bin
-sits at $\theta = 0^\circ$, and divide by the peak so the curve has
-unit height. All 350 normalised curves are drawn as thin grey lines.
-The bold red curve is their across-cell mean; the shaded red band is
-the across-cell 25--75 percentile envelope at each angular bin. The
-FWHM annotation at the panel title is read off the mean curve by
-linear interpolation between bins crossing the $0.5$ level.
-
-\paragraph{Computation, panel d (preferred-angle distribution).}
-Panel d counts how many HD-coding cells prefer each angular bin.
-For each cell that passes $\specf \ge \specf^\star$ we take its
-preferred angle $\phi_i = \arg\!\big(\sum_k(\bar r_i(\theta_k) -
-\langle\bar r_i\rangle)\,e^{i\theta_k}\big)$ --- the same circular
-mean used in the specificity numerator, returning a phase in
-$(-\pi, \pi]$ --- and bin $\phi_i$ in degrees into the same $K = 36$
-equal bins of $10^\circ$ used by the tuning curves. The red dashed
-horizontal line marks the uniform-coverage expectation
-$n_\mathrm{kept} / K = 350/36 \approx 9.7$ cells per bin. The
-empirical distribution covers the full circle (no bin is empty:
-$\min = 3$ cells, $\max = 28$ cells), but it is not uniform: a
-chi-squared deviation from uniformity gives $\chi^2 \approx 154$
-($\mathrm{df} = 35$, $p \ll 10^{-3}$), with two clear over-represented
-bands. The ring is well-tiled (every $10^\circ$
-slice of heading has at least three cells that prefer it) but the
-tiling is uneven, with some preferred angles carried by
-$\sim 3\times$ as many cells as others. The over-represented bands
-near $0^\circ$ and $180^\circ$ are expected: the readout channels
-are $(\cos\theta, \sin\theta)$, so neurons that contribute most to
-the cos channel must tile the cos axis ($0^\circ / 180^\circ$); the
-training initial heading $\theta_0$ is itself uniform on
-$[0, 2\pi)$, so the symmetry breaking comes from the readout
-convention rather than the data distribution.
-
-\begin{figure}[H]
+\begin{figure}[p]
   \centering
-  \includegraphics[width=\textwidth]{\figdir/fig_zebrafish_tuning_sharpness.png}
-  \caption{\textbf{Tuning-curve sharpness of HD-coding cells.}
-  \textbf{(a)} Mean-subtracted tuning curves $\bar r_i(\theta) -
-  \langle\bar r_i\rangle$ for three example cells: two specific
-  cells (blue $\specf = 0.75$, $\phi \approx +25^\circ$; green
-  $\specf = 0.73$, $\phi \approx -155^\circ$) and one non-specific
-  cell (grey $\specf = 0.18$, flat). Subtracting the per-cell mean
-  puts all curves on a shared zero baseline while preserving
-  relative amplitudes; dashed verticals mark each cell's preferred
-  angle in the matching colour. Panels b--d are population
-  summaries derived from many such curves (the specific cells
-  contribute, the non-specific cell is excluded by $\specf \ge
-  \specf^\star$).
-  \textbf{(b)} Distribution of the specificity $\specf_i$ over the
-  $n = 366$ cells in $\cls{R}\cup\cls{L}$; dashed red line at
-  $\specf^\star = 0.70$ marks the cutoff used downstream. The
-  distribution clusters tightly around $0.75$ with negligible mass
-  below $0.5$: most $\cls{R}\cup\cls{L}$ cells have a well-defined
-  preferred heading. \textbf{(c)} Centred (peak at $0^\circ$) and
-  unit-peak-normalised tuning curves of the $350 / 366$ cells that
-  pass the specificity cut, drawn as thin grey lines. Bold red curve:
-  across-cell mean. Red band: across-cell 25--75\,percentile envelope
-  at each angular bin. Black dashed: $\ell_2$-fit unit-peak von Mises
-  $f_\star(\theta;\kappa) = \exp\!\big(\kappa(\cos\theta-1)\big)$
-  with concentration $\kappa\approx 2$, shown as a parametric
-  reference (the empirical mean is the actual data). The population
-  ring activity has FWHM $\approx 100^\circ$ on the circle.
-  \textbf{(d)} Distribution of preferred angles $\phi_i$ across the
-  $350$ HD-coding cells that pass $\specf \ge \specf^\star$, binned
-  into the same $K = 36$ equal $10^\circ$ bins. The red dashed line
-  at $\approx 9.7$ marks the uniform-coverage expectation
-  $n_\mathrm{kept}/K$. Every bin contains at least three cells
-  ($\min = 3$, $\max = 28$, mean $\approx 9.7$), so the full circle
-  is tiled, but the tiling is significantly non-uniform
-  ($\chi^2 \approx 154$, $\mathrm{df} = 35$).}
-  \label{fig:zhd_tuning_sharpness}
+  \includegraphics[width=\textwidth]{\figdir/fig_evolution_zebrafish_hd_si_ipn12_artr_pt1_position_2d.png}
+  \caption{\textbf{Trained 2-D path integrator, perfect target.}
+  Panels (a)--(e), (h)--(i) follow \cref{fig:zhd_evolution_artr_pt1};
+  panels (f)--(g) show the decoded path $(x,y)$ in spatial coordinates
+  on the constant-$\omega$ rollout and on a held-out swim trial.}
+  \label{fig:zhd_evolution_position2d}
 \end{figure}
 
-\subsection{Functional partitioning of the HD circuit}
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=\textwidth]{\figdir/fig_evolution_zebrafish_hd_si_ipn12_artr_pt1_position_2d_leaky.png}
+  \caption{\textbf{Trained 2-D path integrator, leaky target}
+  ($\tau_p=0.5\,$s). Same panel layout as
+  \cref{fig:zhd_evolution_position2d}.}
+  \label{fig:zhd_evolution_position2d_leaky}
+\end{figure}
+
+\paragraph{Summary across variants.}
+All seven runs converge to a working integrator on the same connectome.
+The leaky variants do not improve the per-frame R² compared with
+their perfect counterparts on the joint tasks (both reach $\geq 0.999$),
+but they bound the supervisory target across the curriculum horizon
+and remove the linear-loss-scaling artefact of the perfect integrator,
+which makes cross-snapshot comparisons cleaner. The compass behaviour
+is robust to the task complexity: adding forward-distance or 2-D
+position regression alongside heading does not degrade the
+constant-$\omega$ integration gain (panel i is unit-slope in every
+heading-decoding run).
+
+\subsection{Cross-variant summary and the angular / displacement
+partition}
 \label{sec:results_four_classes}
 
-This per-neuron functional partitioning (and the tuning-curve analysis of
-\cref{sec:results:tuning_sharpness}) is computed on the $731$-cell dIPN
-\emph{base} circuit, before the IPN12 extension --- so $N = 731$ and
-$n_{\mathrm{dIPN}} = 443$ here, whereas the trained swim-integrators of
-\cref{fig:zhd_evolution_v1,fig:zhd_evolution_v2} and the connectome of
-\cref{fig:zhd_connectome_summary} use the $839$-cell IPN12 pool.
-We classify each of the $N = 731$ model neurons by what it does for the
-heading code, from a $120$~s closed-loop swim rollout (seed~$0$,
-$\Delta t = 0.01$~s, $5$~s burn-in) under a controlled probe of one
-$\pi/8$~rad left swim every $0.3$~s. Three per-neuron scores drive the
-split: the heading mutual information $\mi_i = I(\hat h_i;\theta)$ (bits;
-plug-in histogram, \cref{eq:zhd_mi_plugin}, $32$ heading $\times$ $20$
-activity bins), the readout magnitude
-$\omag_i = \|\hat W^{\mathrm{out}}_{:,i}\|_2$ (identically zero for
-$i \ge 443$, since the decoder of \cref{eq:zhd_readout} slices the first
-$n_{\mathrm{dIPN}} = 443$ columns), and the swim-triggered modulation
-$\smod_i$ (RMS of the swim-onset-locked average of $\hat h_i$ over
-$\pm0.5$~s, normalised by its swim-free SD). Splitting each axis at its
-median assigns every neuron to one of four classes,
-\begin{align}
-  i \in \cls{R} \iff{}& \mi_i \ge \mi^\star \;\&\;
-                         \omag_i \ge \omag^\star \nonumber\\
-  i \in \cls{L} \iff{}& \mi_i \ge \mi^\star \;\&\;
-                         \omag_i < \omag^\star \nonumber\\
-  i \in \cls{D} \iff{}& \mi_i < \mi^\star \;\&\;
-                         \smod_i \ge \smod^\star \nonumber\\
-  i \in \cls{Z} \iff{}& \mi_i < \mi^\star \;\&\;
-                         \smod_i < \smod^\star,
-  \label{eq:four_classes}
-\end{align}
-with $\mi^\star = 2.80$~bits, $\omag^\star = 0.066$ and $\smod^\star = 0$:
-$\cls{R}$ is the readout-relevant ring code, $\cls{L}$ the
-latent/redundant ring-correlated cells (high HD content but zero readout),
-$\cls{D}$ the swim drivers/updaters, $\cls{Z}$ the uninvolved remainder.
-Under the periodic probe the network partitions as
-$\cls{R}/\cls{L}/\cls{D}/\cls{Z} = 156/210/365/0$
-(\cref{fig:zhd_four_classes}) and the architectural priors of
-\cref{sec:methods} hold cleanly: every \emph{pt-IPN} and habenular
-\emph{RIPN} afferent falls in the driver class $\cls{D}$ --- their only
-access to the swim signal $s(t)$ is the four-scalar gate of
-\cref{eq:zhd_swim_gate} --- while \emph{no} \emph{pt-IPN}/\emph{RIPN} cell
-reaches $\cls{R}$ ($0/170$), even though the readout slice is purely
-positional. The readout is carried by a small mediolateral dIPN set
-(\emph{IPNd13C/E}, \emph{IPNds13A/B}, \emph{IPNd13A}, \emph{IPNd14}):
-$\sim\!50$ neurons supply $>50\%$ of $\|\hat W^{\mathrm{out}}\|_1$, an
-emergent concentration with \emph{no} explicit $\ell_1$ prior --- the
-ring-attractor geometry plus the cosine/sine MSE makes most dIPN columns
-mutually redundant. A few habenular afferents (notably \emph{RIPN05},
-$13/17$) instead enter $\cls{L}$: they inherit heading information through
-the recurrence yet stay invisible to the linear readout because they sit
-outside the dIPN slice. Finally the leak class $\cls{Z}$ vanishes: the
-persistent periodic drive propagates through the recurrence to every cell
-with non-zero outgoing edges, so there are no functionally idle units.
+\Cref{fig:zhd_artr_pt1_summary} aggregates the seven trained variants
+into one cross-model picture. Test-set R² is at ceiling ($\geq 0.99$)
+on every supervised head (panel \textbf{b}); the per-edge correlation
+between the learned magnitudes and the connectome template is
+modest and homogeneous across variants (Pearson
+$r(|\hat W^{\mathrm{rec}}|,|W^{\mathrm{con}}|) \in [0.15, 0.23]$,
+panel \textbf{c}), i.e.\ training rescales the connectome
+non-linearly; the per-cell-type amplification (panel \textbf{d})
+shows that \emph{pt-IPN} edges are amplified the most ($\sim 20$--$35\times$
+on average), the dIPN ring sub-types intermediate ($\sim 10$--$25\times$),
+and the IPN12 pool the least ($\sim 9$--$11\times$), reproducibly across
+variants.
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=\textwidth]{\figdir/fig_zebrafish_four_classes.png}
-  \caption{\textbf{Four functional classes of zebrafish HD-circuit
-    neurons.} Dorsal view: each panel shows the skeletons and somata
-    of the neurons assigned to one class via \cref{eq:four_classes},
-    with the somata of the other three classes overlaid as faint grey
-    dots for spatial context.
-    \textbf{(a)}~$\cls{R}$ (red, $n=156$): readout-relevant recurrent
-    representation --- exclusively dIPN, concentrated in the
-    \emph{IPNd13/14} and \emph{IPNds13} sub-clusters.
-    \textbf{(b)}~$\cls{L}$ (orange, $n=210$): latent ring-correlated
-    cells that encode heading but are sliced out of the linear
-    readout (notably \emph{RIPN05} and \emph{RIPN11}).
-    \textbf{(c)}~$\cls{D}$ (blue, $n=365$): swim-locked drivers --- all
-    \emph{pt-IPN} and most \emph{RIPN} cells fall here.
-    \textbf{(d)}~$\cls{Z}$ (grey, $n=0$): empty under the periodic
-    probe stimulus --- regular swim impulses propagate through the
-    recurrent network and drive every cell. Thresholds:
-    $\mi^\star = 2.80$~bits, $\omag^\star = 0.066$ (median over $\hat
-    W^{\mathrm{out}}$ columns), $\smod^\star = 0$.}
-  \label{fig:zhd_four_classes}
+  \includegraphics[width=\textwidth]{\figdir/fig_zebrafish_artr_pt1_summary.png}
+  \caption{\textbf{Compile / analyse panel for the
+  ARTR / pt-IPN1 head-direction model family.}
+  \textbf{(a)}~Final training MSE per variant (log scale).
+  \textbf{(b)}~Per-supervised-head test R² (one dot per output column
+  the variant supervises).
+  \textbf{(c)}~Pearson correlation between the learned
+  $|\hat W^{\mathrm{rec}}|$ and the connectome template
+  $|W^{\mathrm{con}}|$ over connectome edges.
+  \textbf{(d)}~Per-cell-type magnitude amplification
+  $\langle|\hat W^{\mathrm{rec}}|\rangle / \langle|W^{\mathrm{con}}|\rangle$
+  on outgoing edges, grouped by coarse cell-type block (\emph{IPNd},
+  \emph{IPNds}, \emph{IPN12}, \emph{RIPN}, \emph{pt-IPN}).}
+  \label{fig:zhd_artr_pt1_summary}
 \end{figure}
+
+\paragraph{Toward an angular / displacement partition.}
+The rotation $+$ scalar-distance variants
+(\cref{fig:zhd_evolution_both,fig:zhd_evolution_both_leaky}) and the
+2-D path variants
+(\cref{fig:zhd_evolution_position2d,fig:zhd_evolution_position2d_leaky})
+let us ask which neurons carry information about \emph{which} target.
+We will partition the $839$ cells by the mutual information they hold
+on each integrated quantity --- angular heading $\theta$, forward
+distance $d$, and the 2-D position $(x,y)$ --- and split them into
+three functional pools:
+\emph{angular} (high $I(\hat h_i;\theta)$, low $I(\hat h_i;d)$),
+\emph{displacement} (low $I(\hat h_i;\theta)$, high $I(\hat h_i;d)$),
+and \emph{shared} (high on both). This replaces the earlier R/L/D/Z
+labelling, which was tied to the rotation-only readout and to a
+hand-set readout-magnitude threshold; the new partition is
+target-symmetric (rotation and translation are treated on the same
+footing) and uses only model activity, no readout weights.
+Following the partition, the edge analysis
+$|\hat W^{\mathrm{rec}}|_{p\to q}$ between the three pools
+$p, q \in \{\text{angular}, \text{displacement}, \text{shared}\}$
+will test the micro-circuit hypothesis: a block-diagonal structure
+in pool-to-pool magnitudes would indicate two distinct computations
+on disjoint sub-circuits, while a uniformly dense cross-block would
+indicate that both integrations are spread across overlapping
+neurons. The new partition figure and edge-block analysis are in
+preparation; the present sub-section reports only the cross-variant
+training and weight-magnitude summary that supports them.
 
 \subsection{Single-cell-type ablations}
 \label{sec:results_ablation}
@@ -1185,7 +1012,7 @@ is orderly: the dorsal-IPN recurrent cells dominate the high-RMSE end (both
 afferents --- the habenular \emph{RIPN*} and pretectal \emph{pt-IPN*} --- sit
 at the low-RMSE end, several below the unablated baseline. This is the
 expected polarity: the recurrent cells carry the linear readout
-(\cref{fig:zhd_four_classes}), so losing one nudges precision the most,
+(\cref{sec:results_four_classes}), so losing one nudges precision the most,
 whereas an afferent input can be re-routed during retraining --- consistent
 with the pretectum, the dominant velocity carrier in the \emph{trained}
 model, being structurally dispensable. The effect is a tendency, not a
@@ -1482,61 +1309,6 @@ recurrent pool throughout.}
   0.1$) achieves most of the calcium gain in (b) without the heading
   degradation.}
   \label{fig:zhd_obs_compare}
-\end{figure}
-
-\subsection{All-neuron kinographs: the travelling ring activity under the observation loss}
-\label{sec:results_kinographs}
-
-To read the full population code rather than the two-dimensional readout,
-\cref{fig:zhd_kino_const} shows all $839$ neurons over a
-deterministic rollout, in three row orderings, for three converged models:
-the sign-locked RNN trained on the task alone (\emph{no-obs}) and with the
-calcium-observation loss (\emph{$+$obs}, $\lambda_{\mathrm{obs}}=1$), and
-the message-passing GNN trained on the task alone (\emph{no-obs}).
-The GNN\,$+$obs runs are omitted: every GNN trained with the observation loss
-($\lambda_{\mathrm{obs}} \ge 0.1$) diverged (constant-$\omega$ decode
-$r \approx 0$, exploding activity), so no converged GNN\,$+$obs checkpoint
-exists. The probe is a constant angular velocity
-(\cref{fig:zhd_kino_const}); the leftward swim-impulse drive of the natural
-task gives the same picture (no-obs travelling ring activity, RNN\,$+$obs stall) and is
-not shown separately.
-
-The pure preferred-phase sort (bottom row) exposes the ring-attractor
-\emph{travelling ring activity} directly: in both \emph{no-obs} columns (RNN and GNN)
-it is a clean set of diagonals whose slope is set by the drive --- the ring activity peak
-circulates steadily as the heading integrates. The cell-type sort (top) and
-the within-type phase sort (middle) show the \emph{same} activity
-reorganised; only the preferred-phase coordinate makes the migration legible,
-the population-code echo of the readout-vs-raw distinction of
-\cref{sec:results_obs_baseline}.
-
-The observation loss visibly trades clean integration for activity realism.
-The RNN\,$+$obs column carries a ring activity peak early in the rollout but its migration
-stalls --- the diagonals flatten into a near-stationary band after
-$\sim$\,$6\,\mathrm{s}$ --- and its constant-$\omega$ heading decode drops
-from $r = +0.999$ (no-obs) to $r = -0.58$: pulling the population toward the
-recorded $\Delta F/F$ degrades the deterministic compass the model is no
-longer purely optimised for. The GNN is the fragile extreme --- the same
-pressure makes its training diverge outright. This is the kinograph
-counterpart of the $\rho$-vs-$\lambda_{\mathrm{obs}}$ trade-off of
-\cref{sec:results_obs_sweep}: the more the activity is matched to the brain,
-the less clean the underlying heading integration.
-
-\begin{figure}[p]
-  \centering
-  \includegraphics[width=\textwidth]{\figdir/fig_zebrafish_kinographs_const.png}
-  \caption{\textbf{All-neuron kinographs under a constant angular velocity}
-  ($\omega = 60^\circ/\mathrm{s}$, $15\,\mathrm{s}$), in three row orderings.
-  Columns: RNN no-obs, RNN $+$obs ($\lambda_{\mathrm{obs}}=1$), GNN
-  no-obs; all $839$ neurons, per-neuron $z$-scored, $\pm 3$ colormap.
-  \textbf{(a--c)} cell-type sort; \textbf{(d--f)} cell-type primary,
-  preferred-phase $\varphi_i$ secondary within type; \textbf{(g--i)} pure
-  preferred-phase sort. The preferred-phase row reveals the travelling ring-activity
-  diagonals in both no-obs columns; the RNN $+$obs ring activity stalls after
-  $\sim$\,$6\,\mathrm{s}$ (degraded integration, $\omega$-decode
-  $r = -0.58$ vs.\ $+0.999$ no-obs). GNN $+$obs is omitted (its runs
-  diverged).}
-  \label{fig:zhd_kino_const}
 \end{figure}
 
 \subsection{Signals not yet accounted for: the fish's own behaviour}
