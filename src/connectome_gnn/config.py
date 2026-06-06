@@ -1392,6 +1392,38 @@ class SwimIntegrationTaskConfig(BaseModel):
     # (CLAUDE.md: a new variant = a new dataset name).
     xi_tau_s: Optional[float] = None
 
+    # Target representation written by the generator:
+    #   "scalar_xi"  (default) — 3-col target [cosθ, sinθ, ξ]. ξ is the
+    #                            scalar forward-axis displacement
+    #                            ξ = ∫ v_fwd dt (or its leaky variant via
+    #                            xi_tau_s). Heading is supervised separately.
+    #   "position_2d"         — 4-col target [cosθ, sinθ, x, y]. The fish
+    #                            actually moves in 2D: forward swim
+    #                            distance is projected through the
+    #                            current heading,
+    #                                dx/dt = v_fwd · cosθ
+    #                                dy/dt = v_fwd · sinθ
+    #                            so position integration is COUPLED to
+    #                            heading — the network must internally
+    #                            maintain θ to predict (x, y) at all.
+    #                            This is "true" path integration vs the
+    #                            scalar_xi sub-task which is the
+    #                            forward-axis projection.
+    # The two recipes write different on-disk target shapes, so they must
+    # live under separate dataset names — the trainer dispatches on
+    # u_train.shape / y_train.shape in concert with training.task_targets.
+    target_kind: Literal["scalar_xi", "position_2d"] = "scalar_xi"
+
+    # Leaky-integrator time constant for the 2D position target (x, y).
+    # Same semantics as xi_tau_s but applied to the position recurrence:
+    #     x(t+Δt) = (1 − Δt/τ) x(t) + v_fwd cosθ · Δt
+    #     y(t+Δt) = (1 − Δt/τ) y(t) + v_fwd sinθ · Δt
+    # None → perfect 2D integrator (the default; trajectories are
+    # unbounded random walks). τ > 0 → bounded "recent egocentric
+    # displacement" — the fish-relevant short-range readout. Only
+    # applies when target_kind == "position_2d".
+    position_tau_s: Optional[float] = None
+
     device: Literal["cpu", "cuda", "auto"] = "cpu"
 
     @model_validator(mode="after")

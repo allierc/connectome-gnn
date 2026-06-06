@@ -2067,31 +2067,49 @@ def data_test_path_integration_task(
     logger.info(f'  shapes: u={tuple(u_test.shape)}  y={tuple(y_test.shape)}')
 
     # --- task-mode channel selection (mirrors the trainer's slicing) -------
-    # When the on-disk dataset is the 4-ch swim superset and training.task_targets
-    # is set, project both u_test / y_test (numpy + torch) onto the sub-task's
-    # active channels so the model sees the layout it was trained on. Legacy
-    # 3-ch on-disk datasets pass through unchanged. Mirrors the load-time
-    # slicing in graph_trainer._data_train_drosophila_cx_task.
-    _TASK_PROFILES = {
-        ("rotation",):                ([0, 2, 3],    [0, 1]),
-        ("translation",):             ([1],          [2]),
-        ("rotation", "translation"):  ([0, 1, 2, 3], [0, 1, 2]),
+    # The on-disk target shape (3 or 4 cols) plus task_targets picks the
+    # profile. Mirrors the load-time slicing in
+    # graph_trainer._data_train_drosophila_cx_task — see that block for the
+    # detailed table.
+    _PROFILE_BY_TARGET = {
+        (3, ("rotation",)):                ([0, 2, 3],    [0, 1]),
+        (3, ("translation",)):             ([1],          [2]),
+        (3, ("rotation", "translation")):  ([0, 1, 2, 3], [0, 1, 2]),
+        (4, ("rotation",)):                ([0, 2, 3],    [0, 1]),
+        (4, ("position_2d",)):             ([0, 1, 2, 3], [0, 1, 2, 3]),
     }
+    _RECOGNISED = ("rotation", "translation", "position_2d")
     _task_raw = list(getattr(tc, 'task_targets', None) or [])
-    task_targets_canonical = [t for t in ("rotation", "translation") if t in _task_raw]
+    task_targets_canonical = [t for t in _RECOGNISED if t in _task_raw]
     _task_key = tuple(task_targets_canonical)
-    has_rotation = ("rotation" in task_targets_canonical
-                    or not task_targets_canonical)
-    has_translation = "translation" in task_targets_canonical
+    has_position_2d  = "position_2d" in task_targets_canonical
+    # Heading is supervised whenever cos/sin lead the target — that's true
+    # for legacy default (no task_targets), explicit 'rotation', AND
+    # position_2d (4-col target [cos, sin, x, y]). Translation-only is the
+    # one mode where heading isn't in the target.
+    has_rotation     = ("rotation" in task_targets_canonical
+                        or has_position_2d
+                        or not task_targets_canonical)
+    has_translation  = "translation" in task_targets_canonical
     if u_test.shape[-1] >= 4 and _task_key:
-        in_cols, out_cols = _TASK_PROFILES[_task_key]
+        n_out_disk = int(y_test.shape[-1])
+        _profile_key = (n_out_disk, _task_key)
+        if _profile_key not in _PROFILE_BY_TARGET:
+            raise ValueError(
+                f"task_targets={_task_raw!r} not a valid projection of an "
+                f"on-disk target with {n_out_disk} cols. scalar_xi (3-col): "
+                f"rotation / translation / rotation+translation. "
+                f"position_2d (4-col): rotation / position_2d."
+            )
+        in_cols, out_cols = _PROFILE_BY_TARGET[_profile_key]
         u_test = u_test[..., in_cols].contiguous()
         y_test = y_test[..., out_cols].contiguous()
         u_test_np = u_test_np[..., in_cols]
         y_test_np = y_test_np[..., out_cols]
-        logger.info(f'  task_targets={task_targets_canonical} → sliced 4-ch to '
-                    f'in_cols={in_cols} out_cols={out_cols}; '
-                    f'u={tuple(u_test.shape)} y={tuple(y_test.shape)}')
+        logger.info(f'  task_targets={task_targets_canonical} (on-disk y has '
+                    f'{n_out_disk} cols) → sliced to in_cols={in_cols} '
+                    f'out_cols={out_cols}; u={tuple(u_test.shape)} '
+                    f'y={tuple(y_test.shape)}')
 
     # --- Rebuild model from registry; load best checkpoint -----------------
     model = create_model(model_config.signal_model_name,
@@ -2363,6 +2381,67 @@ def data_test_path_integration_task(
             logger.info(f'  saved: {trans_sweep_path}')
         except Exception as exc:
             logger.warning(f'  v_fwd-sweep plot failed: {exc}')
+
+    # --- (b'') 2D PI analog: 5 deterministic (ω, v_fwd) sweeps --------------
+    # For position_2d models (n_out=4), probe with constant ω AND constant
+    # v_fwd: GT trajectory is a circle of radius v_fwd / |ω_rad| centred
+    # perpendicular to the initial heading. Reports per-rollout 2D RMSE and
+    # axis-averaged Pearson between decoded (x̂, ŷ) and GT (x, y). Saves a
+    # 5-panel figure with each panel showing GT path (green) + decoded path
+    # (black) in the (x, y) plane.
+    if has_position_2d:
+        from connectome_gnn.models.bump_attractor_eval import (
+            _rollout_position_metrics,
+        )
+        omega_v_set = [(-120.0, 1.0), (-60.0, 1.0), (30.0, 1.0),
+                       (60.0, 1.0),   (120.0, 1.0)]
+        rollouts_2d = []
+        for om, vf in omega_v_set:
+            ro = _deterministic_sweep_rollout(
+                model, n_steps=T_sweep, omega_deg_per_s=om,
+                v_fwd_per_s=vf, device=device,
+            )
+            rollouts_2d.append((om, vf, ro))
+        log_bits = []
+        for om, vf, ro in rollouts_2d:
+            rmse, r = _rollout_position_metrics(
+                model, n_steps=T_sweep, omega_deg_per_s=om,
+                v_fwd_per_s=vf, device=device,
+            )
+            log_bits.append(f"ω={om:+.0f},v={vf:+.1f}: r̄={_color_r(r)} "
+                            f"rmse={rmse:.2f}")
+        logger.info('  5 deterministic 2D-PI sweeps (T=' + str(T_sweep) + '): '
+                    + '  '.join(log_bits))
+        try:
+            import matplotlib.pyplot as plt
+            fig, axes = plt.subplots(
+                1, len(rollouts_2d),
+                figsize=(2.8 * len(rollouts_2d), 3.0),
+            )
+            for col, (om, vf, ro) in enumerate(rollouts_2d):
+                ax = axes[col]
+                true_xy = np.asarray(ro['true_xy'])
+                dec_xy = np.asarray(ro['decoded_xy'])
+                ax.plot(true_xy[:, 0], true_xy[:, 1], color='green', lw=1.0,
+                        label='GT')
+                ax.plot(dec_xy[:, 0],  dec_xy[:, 1],  color='k', lw=0.8,
+                        label='decoded')
+                ax.plot([0.0], [0.0], 'o', color='0.4', ms=4, zorder=5)
+                ax.set_aspect('equal', adjustable='datalim')
+                ax.set_title(f"ω={om:+.0f}°/s  v={vf:+.1f}", fontsize=9)
+                ax.set_xlabel('x', fontsize=8)
+                if col == 0:
+                    ax.set_ylabel('y', fontsize=8)
+                    ax.legend(loc='best', fontsize=7, frameon=False)
+                ax.tick_params(labelsize=7)
+            fig.tight_layout()
+            pos_sweep_path = os.path.join(
+                results_dir, 'test_deterministic_2d_sweep.png')
+            fig.savefig(pos_sweep_path, dpi=150, bbox_inches='tight')
+            plt.close(fig)
+            logger.info(f'  saved: {pos_sweep_path}')
+        except Exception as exc:
+            logger.warning(f'  2D-PI sweep plot failed: {exc}')
 
     # --- (d) Function dynamics along ω=60°/s rollout (GNN teachers only) ---
     # Hexbin of (h_i(t), f_theta(h_i(t))) and (h_j(t), g_phi(h_j(t))^2)

@@ -177,11 +177,11 @@ def _deterministic_sweep_rollout(
     """One trial with **constant ω and/or constant v_fwd**, no OU noise.
 
     Input shape adapts to ``net.n_input`` so the same probe works across
-    all three swim_integration sub-tasks:
+    every swim_integration sub-task:
 
       n_input == 3 → u = [ω, cosθ0, sinθ0]                (rotation-only)
       n_input == 1 → u = [v_fwd]                          (translation-only)
-      n_input == 4 → u = [ω, v_fwd, cosθ0, sinθ0]         (both)
+      n_input == 4 → u = [ω, v_fwd, cosθ0, sinθ0]         (both / position_2d)
 
     Constant drives from t=0 (no trial-start zeroing) — breaks parity with
     OU training data for a single frame, but produces a clean flat trace
@@ -190,24 +190,36 @@ def _deterministic_sweep_rollout(
 
     The returned dict always carries the I/O buffers; the
     ground-truth + decoded *integrated* quantities are present only for
-    the integrators the model implements:
+    the integrators the model implements (detected from ``net.n_output``):
 
-      always:           u, y_pred, h, r, n_steps, dt_s,
-                        omega_deg_per_s, v_fwd_per_s
-      rotation in net:  true_theta, decoded_theta    (radians, unwrapped GT)
-      translation in net: true_xi, decoded_xi        (linear displacement)
+      always:                u, y_pred, h, r, n_steps, dt_s,
+                             omega_deg_per_s, v_fwd_per_s
+      rotation in net:       true_theta, decoded_theta
+      translation in net:    true_xi, decoded_xi   (n_output ∈ {1, 3} —
+                             scalar forward-axis displacement)
+      position_2d in net:    true_xy, decoded_xy   (n_output == 4, shape (T, 2)
+                             true 2D path integration GT computed from the
+                             same constant drives via cumsum of v_fwd ·
+                             (cos θ(t), sin θ(t)) · Δt)
     """
     import math
     T = int(n_steps)
     dt = float(net.dt)
     n_in = int(getattr(net, "n_input", 3))
+    n_out = int(getattr(net, "n_output", 0))
 
+    # n_input decides what u channels look like; n_output decides which
+    # GT/decoded integrators we report (so the same u shape can serve both
+    # the scalar_xi "both" model (n_out=3) and the position_2d model
+    # (n_out=4) without confusing ξ with x).
     has_rot = n_in in (3, 4)
-    has_trans = n_in in (1, 4)
-    if not (has_rot or has_trans):
+    has_trans_xi = n_out in (1, 3)              # scalar ξ in y_pred
+    has_xy       = (n_out == 4)                  # 2D (x, y) in y_pred[:, 2:4]
+    if not (has_rot or has_trans_xi or has_xy):
         raise ValueError(
-            f"_deterministic_sweep_rollout: unsupported n_input={n_in} "
-            f"(expected 1, 3, or 4)"
+            f"_deterministic_sweep_rollout: unsupported (n_in, n_out) = "
+            f"({n_in}, {n_out}) — expected n_in ∈ {{1, 3, 4}} with "
+            f"n_out ∈ {{1, 2, 3, 4}}."
         )
 
     omega = np.full((1, T), float(omega_deg_per_s), dtype=np.float32)
@@ -260,13 +272,30 @@ def _deterministic_sweep_rollout(
         omega_rad = np.deg2rad(omega)
         out["true_theta"] = float(theta0_rad) + np.cumsum(omega_rad, axis=1)[0] * dt
         out["decoded_theta"] = np.arctan2(y_pred[:, 1], y_pred[:, 0])
-    if has_trans:
+    if has_trans_xi:
         # ξ = ∫ v_fwd dt (linear, unbounded). Column placement depends on
-        # n_output: translation-only puts ξ in y_pred[:, 0]; both mode puts
-        # ξ in y_pred[:, 2] after [cos, sin].
+        # n_output: translation-only (n_out=1) puts ξ in y_pred[:, 0];
+        # scalar_xi both mode (n_out=3) puts ξ in y_pred[:, 2] after
+        # [cosθ, sinθ]. position_2d (n_out=4) does NOT have ξ —
+        # y_pred[:, 2:4] is (x, y) there, gated separately below.
         out["true_xi"] = np.cumsum(v_fwd, axis=1)[0] * dt
-        xi_col = 2 if n_in == 4 else 0
+        xi_col = 2 if n_out == 3 else 0
         out["decoded_xi"] = y_pred[:, xi_col]
+
+    if has_xy:
+        # 2D path integration — model emits [cosθ, sinθ, x, y]. GT path
+        # is cumsum of v_fwd · (cos θ(t), sin θ(t)) · Δt; for constant
+        # drives this traces a circle of radius v_fwd / |ω_rad| centred
+        # perpendicular to the initial heading.
+        theta_gt = float(theta0_rad) + np.cumsum(np.deg2rad(omega), axis=1)[0] * dt
+        vx = v_fwd[0] * np.cos(theta_gt)
+        vy = v_fwd[0] * np.sin(theta_gt)
+        x_gt = np.cumsum(vx) * dt
+        y_gt = np.cumsum(vy) * dt
+        x_gt[0] = 0.0
+        y_gt[0] = 0.0
+        out["true_xy"] = np.stack([x_gt, y_gt], axis=-1).astype(np.float32)
+        out["decoded_xy"] = y_pred[:, 2:4].astype(np.float32)
 
     return out
 
@@ -345,6 +374,54 @@ def _rollout_translation_metrics(
     if decoded[warmup:].std() < 1e-8 or true_xi[warmup:].std() < 1e-8:
         return rmse, float("nan")
     pearson = float(np.corrcoef(decoded[warmup:], true_xi[warmup:])[0, 1])
+    return rmse, pearson
+
+
+def _rollout_position_metrics(
+    net,
+    *,
+    n_steps: int,
+    omega_deg_per_s: float,
+    v_fwd_per_s: float,
+    device: str,
+    warmup: int = 10,
+) -> tuple[float, float]:
+    """2D position analog of the heading / translation metric helpers.
+
+    - RMSE is the Euclidean per-frame distance between decoded (x̂, ŷ) and
+      GT (x, y), averaged over time (after a warmup).
+    - Pearson is the average of the per-axis correlations
+      (corr(x̂, x) + corr(ŷ, y)) / 2 — a single scalar that captures how
+      well both axes track.
+    Returns (nan, nan) on failure, degenerate input, or when the model
+    has no 2D-position output (i.e. n_output != 4).
+    """
+    try:
+        rollout = _deterministic_sweep_rollout(
+            net, n_steps=n_steps,
+            omega_deg_per_s=omega_deg_per_s,
+            v_fwd_per_s=v_fwd_per_s,
+            device=device,
+        )
+    except Exception:
+        return float("nan"), float("nan")
+    if "true_xy" not in rollout:
+        return float("nan"), float("nan")
+    true_xy = np.asarray(rollout["true_xy"])     # (T, 2)
+    decoded = np.asarray(rollout["decoded_xy"])  # (T, 2)
+    if true_xy.shape[0] <= warmup:
+        return float("nan"), float("nan")
+    err = decoded[warmup:] - true_xy[warmup:]
+    rmse = float(np.sqrt(np.mean(err ** 2)))  # mean of squared error over all (t, axis)
+    rs = []
+    for axis in range(2):
+        if (decoded[warmup:, axis].std() > 1e-8
+                and true_xy[warmup:, axis].std() > 1e-8):
+            rs.append(float(np.corrcoef(decoded[warmup:, axis],
+                                         true_xy[warmup:, axis])[0, 1]))
+    if not rs:
+        return rmse, float("nan")
+    pearson = float(np.mean(rs))
     return rmse, pearson
 
 
