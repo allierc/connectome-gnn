@@ -344,27 +344,17 @@ and metric comparisons stay clean.
 
 \begin{figure}[t!]
 \centering
-\includegraphics[width=\textwidth]{\figdir/fig_zebrafish_swim_task_modes.png}
-\caption{\textbf{Swim-integration task: input superset, scalar-$d$
-and 2D-position targets, and leaky integrator variants.}
-\textbf{(a)}~The $4$-channel input superset for one trial ---
-$\omega$ (boxcar-stretched $\Delta\theta$ at L/R onsets),
-$v_{\mathrm{fwd}}$ (likewise at F/B onsets; backward = negative), and
-the initial-heading impulse $(\cos\theta_0,\sin\theta_0)\,\delta_{t,0}$
-shown as stem markers with the per-trial value.
-\textbf{(b)}~The scalar-$d$ target for the same trial: $\cos\theta$,
-$\sin\theta$, and $d$. The $d$ row overlays the perfect integrator
-(green) and the leaky variant at $\tau_d=0.5\,$s (red dashed) on a
-shared axis.
-\textbf{(c)}~The 2D-position target for the same trial: heading components
-unchanged, plus $x$ and $y$ computed by projecting $v_{\mathrm{fwd}}$
-through $\theta$ and integrating each axis (\cref{eq:xy_pi}); perfect
-(green) and leaky $\tau_p=0.5\,$s (red dashed).
-\textbf{(d)}~The same trial's 2D trajectory $(x,y)$ in spatial
-coordinates --- perfect integrator (green) wanders unboundedly while
-leaky $\tau_p=0.5\,$s (red dashed) is pulled back toward the origin
-between swim events; both curves use the same colour / style
-convention as panel \textbf{c}.}
+\includegraphics[width=0.8\textwidth]{\figdir/fig_zebrafish_swim_task_modes.png}
+\caption{\textbf{Swim-integration task: input superset and target
+recipes.} \textbf{(a)}~$4$-channel input for one trial:
+$\omega$, $v_{\mathrm{fwd}}$, and the initial-heading impulse
+$(\cos\theta_0,\sin\theta_0)\,\delta_{t,0}$.
+\textbf{(b)}~Scalar-$d$ target: $\cos\theta$, $\sin\theta$, and
+forward distance $d$; perfect integrator (green) vs leaky
+$\tau_d=0.5\,$s (red dashed).
+\textbf{(c)}~2D-position target: heading components plus $(x, y)$,
+with the same perfect / leaky overlay.
+\textbf{(d)}~The same trial's 2D trajectory in spatial coordinates.}
 \label{fig:zhd_swim_task_modes}
 \end{figure}
 
