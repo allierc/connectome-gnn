@@ -188,7 +188,7 @@ flow and water-flow signals).
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=0.92\textwidth]{\figdir/fig_zebrafish_anatomy_3d_HD.png}\\[0.6em]
+  \includegraphics[width=\textwidth]{\figdir/fig_zebrafish_anatomy_3d_HD.png}\\[0.6em]
   \includegraphics[width=\textwidth]{\figdir/fig_zebrafish_circuit_variants.png}
   \caption{\textbf{Zebrafish HD / IPN circuit --- anatomy
   (\textbf{a}, \textbf{b}) and afferent partition (\textbf{c},
@@ -246,29 +246,20 @@ edges are the only entries whose sign differs between \textbf{v1} and \textbf{v2
   only the $3{,}536$ IPN12 outgoing edges change sign. $E\!:\!I$ is
   $10{,}020\!:\!12{,}405$ ($44.7\%$ / $55.3\%$) for \textbf{v1}  and
   $13{,}556\!:\!8{,}869$ ($60.5\%$ / $39.5\%$) for \textbf{v2} .
-  \textbf{(a)} Binary support $\mathrm{supp}(W^{\mathrm{con}})$
-  (block boundaries in red).
+  \textbf{(a)} Support mask with neurons sorted by the six-way
+  functional partition introduced in \cref{fig:zhd_3d} ---
+  \emph{dIPN} (amber, $n=443$), \emph{IPN12 pool} (rose, $n=108$),
+  \emph{ARTR} (blue, $n=76$), \emph{pt-IPN1} (orange, $n=51$),
+  \emph{motor\_efferent} (green, $n=68$), and \emph{other} (grey,
+  $n=93$). Colour-coded strips on the row and column axes mark each
+  partition block, and translucent column bands inside the matrix
+  carry the same colour code; colours match \cref{fig:zhd_3d} so the
+  partition reads consistently across the anatomy, connectome, and
+  circuit diagrams.
   \textbf{(b)} Signed $W^{\mathrm{con}}$ for \textbf{v1} (IPN12 inhibitory),
   $z$-scored.
   \textbf{(c)} Signed $W^{\mathrm{con}}$ for \textbf{v2} (IPN12 excitatory),
-  same scale.
-  \textbf{(d)} Same support mask as \textbf{(a)} but with neurons sorted
-  by the six-way functional partition introduced in
-  \cref{fig:zhd_3d} --- \emph{dIPN} (amber, $n=443$),
-  \emph{IPN12 pool} (rose, $n=108$), \emph{ARTR} (blue, $n=76$),
-  \emph{pt-IPN1} (orange, $n=51$), \emph{motor\_efferent} (green,
-  $n=68$), and \emph{other} (grey, $n=93$). Colour-coded strips on the
-  row and column axes mark each partition block; colours match
-  \cref{fig:zhd_3d} so the partition reads consistently across the
-  two anatomy / connectome figures and the circuit diagram of
-  \cref{fig:zhd_3d}.
-  \textbf{(e)} Per-category \emph{incoming} edge-weight distributions
-  (violins, post-synaptic neuron in the category) for \textbf{v1}  (blue) and
-  \textbf{v2} (red), over the five coarse type categories \emph{IPNd},
-  \emph{IPNds}, \emph{IPN12}, \emph{RIPN}, \emph{pt-IPN}.
-  \textbf{(f)} Per-category \emph{outgoing} edge-weight distributions
-  (pre-synaptic neuron in the category); the \emph{IPN12} violin is
-  the only one that moves from negative (v1) to positive (v2).}
+  same scale.}
   \label{fig:zhd_connectome_summary}
 \end{figure}
 

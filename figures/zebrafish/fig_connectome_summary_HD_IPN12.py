@@ -9,21 +9,16 @@ recurrent pool. Two circuits are built from the same topology:
                                   (glutamatergic / excitatory hypothesis)
 Only the IPN12 outgoing sign differs; the support is identical.
 
-2 x 3 panels:
-  (a) Binary support mask supp(W_con) (shared by v1 and v2).
-  (b) Signed W_con, v1 (IPN12 inhibitory), z-scored over non-zero
-      entries and clipped to +/-3.
-  (c) Signed W_con, v2 (IPN12 excitatory), same scale.
-  (d) Support mask with neurons sorted by the six-way functional
+1 x 3 panels:
+  (a) Support mask with neurons sorted by the six-way functional
       partition introduced in the proprioception circuit (ARTR,
       pt-IPN1, motor_efferent, dIPN, IPN12 pool, other), with
       colour-coded axis strips marking each block. Colour code is
       shared with Figure 1 of zebrafish.tex so the two figures read
       together.
-  (e) Per-cell-type INCOMING edge-weight distributions (violins,
-      v1 vs v2) on the coarse type categories.
-  (f) Per-cell-type OUTGOING edge-weight distributions (violins,
-      v1 vs v2).
+  (b) Signed W_con, v1 (IPN12 inhibitory), z-scored over non-zero
+      entries and clipped to +/-3.
+  (c) Signed W_con, v2 (IPN12 excitatory), same scale.
 
 Output: figures/zebrafish/fig_connectome_summary_HD_IPN12.png
 """
@@ -342,30 +337,16 @@ def main():
     # Shared z-score reference so v1 and v2 matrices are directly comparable.
     ref_nz = np.concatenate([W1[W1 != 0], W2[W2 != 0]])
 
-    # Layout: a = support, b = W_con v1, c = W_con v2,
-    #         d = partition-sorted matrix (NEW), e = incoming violins
-    #         (was d), f = outgoing violins (was e). The old IPN12
-    #         sign-flip histogram is removed.
-    fig, axes = plt.subplots(2, 3, figsize=(17, 11))
-    _panel_mask(axes[0, 0], W1, nt, names)
-    _panel_W(axes[0, 1], W1, nt, names, ref_nz=ref_nz,
+    # Layout: a = partition-sorted matrix, b = W_con v1, c = W_con v2.
+    fig, axes = plt.subplots(1, 3, figsize=(17, 6))
+    _panel_partition_matrix(axes[0], W1, partition)
+    _panel_W(axes[1], W1, nt, names, ref_nz=ref_nz,
              title=r"$W^{\mathrm{con}}$ v1 — IPN12 inhibitory")
-    _panel_W(axes[0, 2], W2, nt, names, ref_nz=ref_nz,
+    _panel_W(axes[2], W2, nt, names, ref_nz=ref_nz,
              title=r"$W^{\mathrm{con}}$ v2 — IPN12 excitatory")
-    _panel_partition_matrix(axes[1, 0], W1, partition)
-    _paired_violin(axes[1, 1],
-                   _collect(W1, coarse, "incoming"),
-                   _collect(W2, coarse, "incoming"),
-                   ylabel=r"signed $W^{\mathrm{con}}_{ij}$ (incoming)",
-                   title="incoming edge weights (post = category)")
-    _paired_violin(axes[1, 2],
-                   _collect(W1, coarse, "outgoing"),
-                   _collect(W2, coarse, "outgoing"),
-                   ylabel=r"signed $W^{\mathrm{con}}_{ij}$ (outgoing)",
-                   title="outgoing edge weights (pre = category)")
 
     for k, ax in enumerate(axes.flat):
-        ax.text(-0.12, 1.05, "abcdef"[k], transform=ax.transAxes,
+        ax.text(-0.12, 1.05, "abc"[k], transform=ax.transAxes,
                 ha="left", va="top", fontsize=14, fontweight="bold")
 
     plt.tight_layout()
