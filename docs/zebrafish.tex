@@ -196,35 +196,21 @@ positive (excitatory).
 \end{figure}
 
 
-\paragraph{Proprioception-extended variant.}
+\paragraph{Functional circuit.}
 \label{method:proprioception}
-A real fish does not estimate forward swim velocity from a single
-afferent channel. The same forward-translation signal reaches IPN
-through at least \emph{two} parallel pathways with different
-biophysical properties: an \emph{exteroceptive} channel via
-\emph{pt-IPN1} (optic flow plus lateral-line water flow, sub-stantially
-delayed by sensory processing but self-calibrating in closed loop), and
-a \emph{proprioceptive} channel carrying the swim motor command's
-efference copy directly back into IPN through the motor-efferent RIPN
-sub-types --- \emph{RIPN11}, \emph{RIPN12\_a}, and \emph{RIPN12\_c}, all
-tagged ``ascending / descending motor efferent, hSAG receiving'' in the
-inventory ($37 + 31$ cells per side, glutamatergic). Efference copy is
-prompt (no sensory delay) but its open-loop gain is uncalibrated --- the
-opposite trade-off to optic flow.
-
-The proprioception-extended variant adds these motor-efferent cells to
-the afferent partition as a third, anatomically distinct gate target
-(\cref{fig:zhd_3d}\textbf{d}). The companion gate routes
-$\omega$ to ARTR as before, and $v_{\mathrm{fwd}}$ to \emph{both}
-\emph{pt-IPN1} and \emph{motor\_efferent} populations in parallel, each
-with its own pair of learnable scalars. The connectome is unchanged
-($839$ cells, same $W^{\mathrm{con}}$, same Dale and spectral
-treatment); only the advertised afferent taxonomy and the gate
-architecture differ. In the first version studied here the
-exteroceptive and proprioceptive branches receive the same clean
-$v_{\mathrm{fwd}}$ drive; a follow-up will give the exteroceptive copy
-a sensory delay and a perturbed gain so the network has to learn to
-weight the two streams.
+Forward-swim velocity reaches IPN through two complementary
+pathways (\cref{fig:zhd_3d}\textbf{d}): an \emph{exteroceptive}
+channel via \emph{pt-IPN1} (optic / lateral-line flow --- delayed
+but self-calibrating) and a \emph{proprioceptive} channel via the
+motor-efferent RIPN sub-types \emph{RIPN11}, \emph{RIPN12\_a},
+\emph{RIPN12\_c} ($37+31$ cells per side, glutamatergic) carrying
+the swim command's efference copy (prompt but open-loop). The
+proprioception variant adds these cells as a third gate target:
+$\omega$ still routes to ARTR, $v_{\mathrm{fwd}}$ now drives both
+\emph{pt-IPN1} and \emph{motor\_efferent} in parallel, each with its
+own pair of learnable scalars. The connectome is unchanged
+(\cref{fig:zhd_3d}); only the afferent taxonomy and the gate
+architecture differ.
 
 \section{Methods}
 \label{sec:methods}
