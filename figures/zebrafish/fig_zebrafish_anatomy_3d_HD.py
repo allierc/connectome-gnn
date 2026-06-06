@@ -37,7 +37,7 @@ import numpy as np
 # routed through the velocity gate. Colour palette matches the circuit
 # diagram so the two figures read together.
 TYPE_ORDER = [
-    "dIPN ring",        # IPNd + IPNds       — recurrent (HD ring)
+    "dIPN recc",        # IPNd + IPNds       — recurrent (HD ring)
     "IPN12 pool",       # IPN12_a + IPN12_b  — recurrent (dorsal pool)
     "ARTR",             # RIPN01+02+03_a/b   — angular afferent
     "pt-IPN1",          # pt-IPN1            — exteroceptive translation afferent
@@ -45,7 +45,7 @@ TYPE_ORDER = [
     "other",            # other RIPN* + pt-IPN2 — not routed through the gate
 ]
 TYPE_COLOR = {
-    "dIPN ring":      "#d49a3a",   # amber  (recurrent ring; matches Fig 3 box)
+    "dIPN recc":      "#d49a3a",   # amber  (recurrent ring; matches Fig 3 box)
     "IPN12 pool":     "#b15a8e",   # rose   (recurrent dorsal pool)
     "ARTR":           "#1f6fb3",   # blue   (matches ω drive in Fig 3)
     "pt-IPN1":        "#e07b1a",   # orange (matches v_fwd extero in Fig 3)
@@ -79,7 +79,7 @@ def _type_to_category(safe_type: str) -> str:
     if safe_type.startswith("IPN12"):
         return "IPN12 pool"
     if safe_type.startswith("IPNds") or safe_type.startswith("IPNd"):
-        return "dIPN ring"
+        return "dIPN recc"
     # Residual afferents — other RIPN* sub-types (RIPN05, 12_b, 16, 17)
     # and pt-IPN2 — that aren't routed through the velocity gate.
     if safe_type.startswith("RIPN") or safe_type.startswith("pt-IPN"):

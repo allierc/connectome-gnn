@@ -2,7 +2,7 @@
 IPN12 circuit, in its two Dale-sign variants.
 
 The nominal circuit includes the IPN12_a / IPN12_b sub-types in the
-bump pool. Two circuits are built from the same topology:
+recurrent pool. Two circuits are built from the same topology:
   v1  zebrafish_HD_IPN12_839_v1 : IPN12 outgoing weights Dale-flipped
                                   to inhibitory (GABAergic hypothesis)
   v2  zebrafish_HD_IPN12_839_v2 : IPN12 outgoing weights left positive
@@ -16,7 +16,7 @@ Only the IPN12 outgoing sign differs; the support is identical.
   (c) Signed W_con, v2 (IPN12 excitatory), same scale.
   (d) Support mask with neurons sorted by the six-way functional
       partition introduced in the proprioception circuit (ARTR,
-      pt-IPN1, motor_efferent, dIPN ring, IPN12 pool, other), with
+      pt-IPN1, motor_efferent, dIPN recc, IPN12 pool, other), with
       colour-coded axis strips marking each block. Colour code is
       shared with Figure 1 of zebrafish.tex so the two figures read
       together.
@@ -65,10 +65,10 @@ V2_COLOR = "#cf222e"  # red   -> v2 (IPN12 excitatory)
 # (Figure 3 of zebrafish.tex). Same colour code as Figure 1 of the same
 # document so the partition reads consistently across figures.
 PARTITION_ORDER = [
-    "dIPN ring", "IPN12 pool", "ARTR", "pt-IPN1", "motor_efferent", "other",
+    "dIPN recc", "IPN12 pool", "ARTR", "pt-IPN1", "motor_efferent", "other",
 ]
 PARTITION_COLOR = {
-    "dIPN ring":      "#d49a3a",
+    "dIPN recc":      "#d49a3a",
     "IPN12 pool":     "#b15a8e",
     "ARTR":           "#1f6fb3",
     "pt-IPN1":        "#e07b1a",
@@ -104,7 +104,7 @@ def _partition_of(name):
     if name.startswith("IPN12"):
         return "IPN12 pool"
     if name.startswith("IPNds") or name.startswith("IPNd"):
-        return "dIPN ring"
+        return "dIPN recc"
     return "other"
 
 
@@ -227,7 +227,7 @@ def _panel_partition_matrix(ax, W, partition):
     Neurons are reordered so members of the same partition are
     contiguous; the matrix becomes a block-structured view of the
     connectome where the ARTR / pt-IPN1 / motor_efferent /
-    dIPN ring / IPN12 / other blocks are visible. Coloured strips on
+    dIPN recc / IPN12 / other blocks are visible. Coloured strips on
     the row and column axes carry the partition identity in the same
     palette used by Figure 1 of zebrafish.tex.
     """
