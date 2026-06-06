@@ -282,6 +282,104 @@ intermediate step between the single-channel angular-only gate of
 \cref{eq:zhd_swim_gate} and the multi-channel visual / self-motion port
 model described in \cref{method:input_extended}.
 
+\paragraph{Swim-integration task superset and per-mode projection.}
+\label{method:swim_task_modes}
+The on-disk swim-integration dataset is a \emph{single superset} that the
+trainer projects onto the active sub-task at load time. The generator
+(\texttt{generators.graph\_data\_generator.\_generate\_swim\_integration\_task})
+samples swim events at rate $r_{\mathrm{swim}}=0.5\,\mathrm{Hz}$ with
+event duration $\Delta t_{\mathrm{swim}}=0.3\,$s and writes:
+\begin{itemize}
+    \item a 4-channel input
+    $u\in\R^{B\times T\times 4}=[\,\omega,\,v_{\mathrm{fwd}},\,
+    \cos\theta_0\!\cdot\!\delta_{t,0},\,\sin\theta_0\!\cdot\!\delta_{t,0}\,]$
+    --- left/right swim events drive the angular channel $\omega$ via
+    signed phase impulses; forward/backward events drive the translational
+    channel $v_{\mathrm{fwd}}$; the heading cue $(\cos\theta_0,\sin\theta_0)$
+    is injected as a single-frame impulse at $t=0$ because the integrator
+    has no other reference for the absolute heading.
+    \item a 3-column target $y\in\R^{B\times T\times 3}=
+    [\,\cos\theta,\,\sin\theta,\,\xi\,]$ with
+    $\theta(t)=\theta_0+\int_0^t\omega\,ds$ (circular) and
+    $\xi(t)=\int_0^t v_{\mathrm{fwd}}\,ds$ (linear, $\xi(0)=0$).
+\end{itemize}
+There is \emph{no} initial-position cue analogous to the heading impulse
+because $\xi$ is defined to start at the origin by construction --- the
+target is "how far did I drift from where I started", not absolute
+position.
+
+The trainer's \texttt{training.task\_targets} field selects one of three
+sub-tasks and slices both $u$ and $y$ accordingly:
+\begin{equation*}
+\begin{array}{lcl}
+\texttt{[rotation]}                  &\to& u[\cdot,\,\{0,2,3\}],\ \ y[\cdot,\,\{0,1\}]
+                                          \quad (3\text{-in} / 2\text{-out}) \\
+\texttt{[translation]}               &\to& u[\cdot,\,\{1\}],\ \ y[\cdot,\,\{2\}]
+                                          \quad (1\text{-in} / 1\text{-out}) \\
+\texttt{[rotation, translation]}     &\to& u[\cdot,\,\{0,1,2,3\}],\ \ y[\cdot,\,\{0,1,2\}]
+                                          \quad (4\text{-in} / 3\text{-out})
+\end{array}
+\end{equation*}
+The model's $n_{\mathrm{in}}/n_{\mathrm{out}}$ auto-derive from
+\texttt{task\_targets} unless overridden, so a single connectome-locked
+RNN serves all three sub-tasks. \Cref{fig:zhd_swim_task_modes} summarises
+the superset, the per-mode projection, and the leaky-vs-perfect
+$\xi$ variants discussed next.
+
+\paragraph{Leaky vs perfect $\xi$ integrator
+(\texttt{task.swim\_integration.xi\_tau\_s}).}
+\label{method:xi_leaky}
+The default $\xi$ target is a perfect integrator
+$\xi(t)=\int_0^t v_{\mathrm{fwd}}\,ds$ which grows linearly with the
+swim-vigour bias --- the loss therefore grows with the curriculum
+horizon $T$, making cross-snapshot comparisons awkward. A finite time
+constant $\tau_\xi>0$ in \texttt{task.swim\_integration.xi\_tau\_s}
+replaces the cumulative sum with the leaky recurrence
+\begin{equation}
+\xi(t+\Delta t) = \left(1-\frac{\Delta t}{\tau_\xi}\right)\xi(t)
+    + v_{\mathrm{fwd}}(t)\,\Delta t,
+\qquad \xi(0)=0,
+\label{eq:xi_leaky}
+\end{equation}
+equivalent to $d\xi/dt=-\xi/\tau_\xi + v_{\mathrm{fwd}}$. Steady-state
+for constant $v_{\mathrm{fwd}}$ is $\tau_\xi\,v_{\mathrm{fwd}}$ so the
+target is bounded by construction. Biologically this is the natural
+choice: real integrators leak and what the fish actually encodes is a
+low-pass-filtered "recent forward swim vigour" rather than absolute
+displacement. \texttt{xi\_tau\_s=None} (the default) keeps the perfect
+integrator byte-identical to before; the production leaky variant uses
+$\tau_\xi=0.5\,$s under a separate dataset name
+(\texttt{zebrafish\_hd\_si\_task\_selfmotion\_leaky}) so the
+perfect-integrator dataset on disk stays untouched.
+
+\begin{figure}[t!]
+\centering
+\includegraphics[width=\textwidth]{\figdir/fig_zebrafish_swim_task_modes.png}
+\caption{\textbf{Swim-integration task: dataset superset, per-mode I/O
+projection, and leaky $\xi$ variant.}
+\textbf{(a)}~Swim-event raster for five sampled trials --- coloured
+ticks at onsets, L (red, $30\%$) / R (blue, $30\%$) / F (green, $20\%$)
+/ B (purple, $20\%$), Poisson rate $0.5\,\mathrm{Hz}$, event width
+$0.3\,$s.
+\textbf{(b)}~The 4-channel input superset for trial 0 ---
+$\omega$ (boxcar-stretched $\Delta\theta$ at L/R onsets),
+$v_{\mathrm{fwd}}$ (likewise at F/B onsets; backward = negative), and
+the initial-heading impulse $(\cos\theta_0,\sin\theta_0)\,\delta_{t,0}$
+shown as stem markers with the per-trial value.
+\textbf{(c)}~The 3-column output superset for the same trial --- $\cos\theta$,
+$\sin\theta$, and $\xi$. The $\xi$ row overlays the perfect integrator
+(green) and the leaky variant at $\tau_\xi=0.5\,$s (red dashed) so the
+two recipes share an axis.
+\textbf{(d)}~Channel-selection table the trainer applies at load time,
+mapping \texttt{task\_targets} $\to$ active input columns + supervised
+output columns.
+\textbf{(e)}~Same trial's $\xi$ under four integrator recipes: perfect
+(green, unbounded ramp) and leaky $\tau_\xi\in\{2.0,1.0,0.5\}\,$s
+(viridis); the steady-state $\tau_\xi v_{\mathrm{fwd}}$ is visible as a
+plateau after each F event.}
+\label{fig:zhd_swim_task_modes}
+\end{figure}
+
 \paragraph{Data.}
 Skeletons, ROI meshes and synaptic connections are taken from the
 \emph{neuprint-fish2} reconstruction (dataset \emph{fish2}). The HD circuit
