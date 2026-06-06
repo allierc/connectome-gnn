@@ -28,7 +28,7 @@ from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
 # Larger fonts throughout, no box outlines. Panel labels match the
 # anatomy figure's a/b labels (bold, fontsize 14) so the merged figure
 # reads consistently.
-PANEL_LABEL_FS = 14
+PANEL_LABEL_FS = 22
 TITLE_FS = 14
 LABEL_FS = 12
 COUNT_FS = 11
