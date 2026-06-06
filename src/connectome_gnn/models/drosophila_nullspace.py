@@ -119,7 +119,7 @@ def load_neuron_instances():
     """Per-neuron hemibrain `instance` string, in the same order as voltage.zarr.
 
     Replicates the row selection used by
-    ``connectome_gnn.generators.connconstr_data.load_drosophila_cx_connectome``
+    ``connectome_gnn.generators.connectome_loaders.load_drosophila_cx_connectome``
     (CSV sort by ``instance``; subselect EPG / PEN / Delta7 / PEG / ER6;
     EPG topological-ring reordering) without importing the loader (which
     depends on h5py, not available in every env). Returns a list of 156
@@ -151,7 +151,7 @@ def load_neuron_instances():
     peg    = getsubtype("PEG")
     delta7 = getsubtype("Delta7")
     allcx = np.concatenate((epg, pen, delta7, peg))
-    # EPG topological-ring reorder (matches connconstr_data lines 134-139).
+    # EPG topological-ring reorder (matches connectome_loaders lines 134-139).
     allcx[0:46] = allcx[[
         23, 24,  0,  1, 42, 43, 44, 45,  2,  3, 39, 40, 41,  4,  5,  6,
         36, 37, 38,  7,  8,  9, 33, 34, 35, 10, 11, 12,

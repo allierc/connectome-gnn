@@ -138,7 +138,7 @@ class ZebrafishHdTaskRNN(nn.Module):
             from connectome_gnn.generators.circuits import get_circuit
             cx = get_circuit(circuit_cfg.name).as_loader_dict()
         else:
-            from connectome_gnn.generators.connconstr_data import (
+            from connectome_gnn.generators.connectome_loaders import (
                 load_zebrafish_hd_connectome,
             )
             cx = load_zebrafish_hd_connectome(sim.connconstr_datapath)
@@ -292,10 +292,50 @@ class ZebrafishHdTaskRNN(nn.Module):
             self.v_ripn_r  = nn.Parameter(torch.tensor(-0.01))
             self.v_ptipn_l = nn.Parameter(torch.tensor(0.01))
             self.v_ptipn_r = nn.Parameter(torch.tensor(-0.01))
+        elif self.velocity_gate == "pen_artr_ptipn1":
+            # Refined gate (companion of the v2 circuit's afferent partition):
+            #   ω      → ARTR cells (RIPN01+02+03_a+03_b), bilateral signed
+            #            via v_artr_l/r — same wiring as v_ripn_l/r but on a
+            #            functionally narrower subpop (ARTR, not all RIPN).
+            #   v_fwd  → pt-IPN1 cells ("processed optic/water flow"),
+            #            bilateral signed via v_pt1_l/r — drops pt-IPN2
+            #            (thalamic, unrelated to optic flow).
+            # ω lives in input column 0 (always present when n_input ≥ 3).
+            # v_fwd lives in column 1 when the task mode includes
+            # 'translation' (both → n_input=4, translation-only → n_input=1
+            # with v_fwd in col 0). The gate-build below records the masks;
+            # column placement is decided per-forward in `_project_in`.
+            afferent = cx.get("afferent_subpop_ix", None) or {}
+            required = ("ARTR_L", "ARTR_R", "pt_IPN1_L", "pt_IPN1_R")
+            missing = [k for k in required
+                       if k not in afferent or len(afferent[k]) == 0]
+            if missing:
+                raise ValueError(
+                    f"velocity_gate='pen_artr_ptipn1' requires non-empty "
+                    f"afferent_subpop_ix for {required}; missing/empty: "
+                    f"{missing}. Use circuit zebrafish_HD_IPN12_839_artr_pt1 "
+                    f"(or any circuit that publishes the refined subpops)."
+                )
+            for key in required:
+                ind = torch.zeros(N, dtype=torch.float32)
+                ind[torch.as_tensor(afferent[key], dtype=torch.long)] = 1.0
+                self.register_buffer(
+                    f"_afferent_ind_{key.lower()}", ind, persistent=False,
+                )
+            # ω scalars (bilateral signed, mirrors pen_4scalar init):
+            self.v_artr_l = nn.Parameter(torch.tensor(0.01))
+            self.v_artr_r = nn.Parameter(torch.tensor(-0.01))
+            # v_fwd scalars. Both initialised positive — v_fwd's sign already
+            # encodes forward (+) vs backward (−); the pt-IPN1 gate just sets
+            # the magnitude / per-side balance. Small ±0.01 split breaks
+            # exact L/R symmetry the same way ARTR does.
+            self.v_pt1_l  = nn.Parameter(torch.tensor(0.01))
+            self.v_pt1_r  = nn.Parameter(torch.tensor(-0.01))
         elif self.velocity_gate != "none":
             raise ValueError(
-                f"graph_model.velocity_gate must be 'none', 'pen_only', or "
-                f"'pen_4scalar', got {self.velocity_gate!r}"
+                f"graph_model.velocity_gate must be 'none', 'pen_only', "
+                f"'pen_4scalar', or 'pen_artr_ptipn1', "
+                f"got {self.velocity_gate!r}"
             )
 
         # --- Dynamics constants -----------------------------------------
@@ -422,6 +462,35 @@ class ZebrafishHdTaskRNN(nn.Module):
                     + self._afferent_ind_ptipn_r * self.v_ptipn_r
                 )
                 W = torch.cat([v_col.unsqueeze(1), W[:, 1:]], dim=1)
+            elif self.velocity_gate == "pen_artr_ptipn1":
+                # Build the angular (ARTR) and translational (pt-IPN1) gated
+                # columns, then slot them in by task mode (determined by
+                # n_input — set in __init__ from task_targets):
+                #   n_input == 3 → [ω, cosθ0, sinθ0]: ARTR gate on col 0,
+                #                  rest free (rotation only — task_targets
+                #                  ['rotation']).
+                #   n_input == 1 → [v_fwd]:           pt-IPN1 gate on col 0
+                #                  (translation only — task_targets
+                #                  ['translation']).
+                #   n_input == 4 → [ω, v_fwd, cosθ0, sinθ0]: ARTR on col 0,
+                #                  pt-IPN1 on col 1, rest free (both —
+                #                  task_targets ['rotation','translation']).
+                v_col_artr = (
+                    self._afferent_ind_artr_l * self.v_artr_l
+                    + self._afferent_ind_artr_r * self.v_artr_r
+                )
+                v_col_pt1 = (
+                    self._afferent_ind_pt_ipn1_l * self.v_pt1_l
+                    + self._afferent_ind_pt_ipn1_r * self.v_pt1_r
+                )
+                if self.n_input == 1:
+                    W = v_col_pt1.unsqueeze(1)
+                elif self.n_input == 4:
+                    W = torch.cat(
+                        [v_col_artr.unsqueeze(1), v_col_pt1.unsqueeze(1),
+                         W[:, 2:]], dim=1)
+                else:   # n_input == 3 (rotation-only) — and any other shape
+                    W = torch.cat([v_col_artr.unsqueeze(1), W[:, 1:]], dim=1)
             else:
                 mask = getattr(self, "_W_in_mask", None)
                 if mask is not None:

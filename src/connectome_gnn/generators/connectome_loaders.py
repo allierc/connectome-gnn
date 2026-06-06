@@ -521,21 +521,46 @@ def load_zebrafish_hd_connectome(datapath, *, inh_amplify: float = 5.0,
     # 'RIPN11_L', 'IPNd01_R(L6)', 'pt-IPN1_L'. Indices are into the full
     # ordered neuron list so the RNN's `pen_4scalar` gate picks the right
     # rows of W_in.
+    #
+    # Beyond the coarse RIPN / pt-IPN aggregates (kept here for back-compat
+    # with the v1 circuit + `pen_4scalar` gate), we also expose two
+    # functionally narrower subpops keyed by the cell-type annotation that
+    # Liangyu/Xiao/Shin-ya curated on the fish2 server:
+    #   ARTR (angular drive)   = RIPN01 + RIPN02 + RIPN03_a + RIPN03_b
+    #                            (Rh2/Rh3, glutamate, "Likely ARTR from
+    #                             function/connections", split by side)
+    #   pt-IPN1 (forward drive) = the pt-IPN cells annotated
+    #                             "Processed optic/water flow input into IPN"
+    #                             (drops pt-IPN2, which is thalamic)
+    # The v2 circuit's `pen_artr_ptipn1` gate routes ω → ARTR_L/R and
+    # v_fwd → pt_IPN1_L/R via these refined subpops.
     import re as _re
     _side_re = _re.compile(r"_(L|R)(?:[\(_]|$)")
+    _ARTR_TYPES = ("RIPN01", "RIPN02", "RIPN03_a", "RIPN03_b")
     pen_subpop_ix: dict[str, list[int]] = {
         "PENa_L": [], "PENa_R": [], "PENb_L": [], "PENb_R": [],
     }
+    artr_ix: dict[str, list[int]] = {"ARTR_L": [], "ARTR_R": []}
+    pt_ipn1_ix: dict[str, list[int]] = {"pt_IPN1_L": [], "pt_IPN1_R": []}
     # HNd (dorsal habenula) afferent — only populated when the connectome
     # contains HNd cells (the HNd circuit); empty for the base 839 pool.
     hnd_subpop_ix: dict[str, list[int]] = {"HNd_L": [], "HNd_R": []}
     side_labels = []
-    for i, (cat, inst) in enumerate(
-        zip(nrn_df["category"], nrn_df["instance"].fillna("").astype(str))
+    for i, (cat, tp, inst) in enumerate(
+        zip(nrn_df["category"],
+            nrn_df["type"].fillna("").astype(str),
+            nrn_df["instance"].fillna("").astype(str))
     ):
         m = _side_re.search(inst)
         side = m.group(1) if m else ""
         side_labels.append(side)
+        # Refined gate-target subpops (v2 circuit) — same row, parallel to
+        # the coarse aggregates below. Side comes from the same `instance`
+        # parse, type from the `type` column.
+        if tp in _ARTR_TYPES and side in ("L", "R"):
+            artr_ix[f"ARTR_{side}"].append(i)
+        if tp == "pt-IPN1" and side in ("L", "R"):
+            pt_ipn1_ix[f"pt_IPN1_{side}"].append(i)
         if cat == "RIPN":
             key_pre = "PENa"
         elif cat == "pt-IPN":
@@ -574,10 +599,19 @@ def load_zebrafish_hd_connectome(datapath, *, inh_amplify: float = 5.0,
     # the fly-historical name; ``afferent_subpop_ix`` is the canonical
     # zebrafish-vocabulary alias.
     afferent_subpop_ix_np = {
+        # --- coarse aggregates (v1 circuit, used by `pen_4scalar` gate) ---
         "RIPN_L":  pen_subpop_ix_np["PENa_L"],
         "RIPN_R":  pen_subpop_ix_np["PENa_R"],
         "ptIPN_L": pen_subpop_ix_np["PENb_L"],
         "ptIPN_R": pen_subpop_ix_np["PENb_R"],
+        # --- refined gate targets (v2 circuit, used by `pen_artr_ptipn1`) ---
+        # ARTR_L/R drive ω; pt_IPN1_L/R drive v_fwd (optic / water flow).
+        # Empty arrays when no matching cells exist (e.g. base HD pool
+        # without RIPN03_a/b, or a connectome that lacks pt-IPN1).
+        "ARTR_L":    np.asarray(artr_ix["ARTR_L"], dtype=np.int64),
+        "ARTR_R":    np.asarray(artr_ix["ARTR_R"], dtype=np.int64),
+        "pt_IPN1_L": np.asarray(pt_ipn1_ix["pt_IPN1_L"], dtype=np.int64),
+        "pt_IPN1_R": np.asarray(pt_ipn1_ix["pt_IPN1_R"], dtype=np.int64),
     }
     # HNd afferent (new family; empty unless the connectome includes HNd cells).
     for _k, _v in hnd_subpop_ix.items():

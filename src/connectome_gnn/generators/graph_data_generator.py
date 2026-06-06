@@ -3708,7 +3708,7 @@ def _generate_voltage_from_cx_task_model(
         to bound activation memory.
     """
     from connectome_gnn.config import NeuralGraphConfig
-    from connectome_gnn.generators.connconstr_data import (
+    from connectome_gnn.generators.connectome_loaders import (
         load_drosophila_cx_connectome,
     )
     from connectome_gnn.generators.ode_params import FlyVisODEParams

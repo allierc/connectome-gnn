@@ -39,7 +39,7 @@ from connectome_gnn.models.utils import load_run_config
 from connectome_gnn.models.registry import create_model
 from connectome_gnn.generators.utils import generate_path_integration_batch
 from connectome_gnn.task_state import TaskTrials
-from connectome_gnn.generators.connconstr_data import load_drosophila_cx_connectome
+from connectome_gnn.generators.connectome_loaders import load_drosophila_cx_connectome
 
 
 MODELS = [

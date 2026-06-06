@@ -958,9 +958,9 @@ class ZebrafishODEParams(ODEParamsBase):
         """Construct from Goldman lab MATLAB data.
 
         Ref: nn_fig5_zebrafish_teacher.py lines 64-179
-        Uses load_zebrafish_connectome() from connconstr_data.py.
+        Uses load_zebrafish_connectome() from connectome_loaders.py.
         """
-        from connectome_gnn.generators.connconstr_data import (
+        from connectome_gnn.generators.connectome_loaders import (
             dense_to_sparse,
             load_zebrafish_connectome,
         )
@@ -985,7 +985,7 @@ class ZebrafishODEParams(ODEParamsBase):
 
         Ref: nn_fig5_zebrafish_teacher.py line 394
         """
-        from connectome_gnn.generators.connconstr_data import (
+        from connectome_gnn.generators.connectome_loaders import (
             dense_to_sparse,
             load_zebrafish_pretrained,
         )
@@ -1002,7 +1002,7 @@ class ZebrafishODEParams(ODEParamsBase):
 
         # Load neuron type labels from Goldman MATLAB data
         try:
-            from connectome_gnn.generators.connconstr_data import load_zebrafish_connectome
+            from connectome_gnn.generators.connectome_loaders import load_zebrafish_connectome
 
             goldman_dir = os.path.join(datapath, "goldman_data")
             if not os.path.isdir(goldman_dir):
@@ -1063,7 +1063,7 @@ class ZebrafishODEParams(ODEParamsBase):
         Ref: paper uses single I(t)*v_in (simulate_series line 172).
         We extend to multiple input channels for richer training data.
         """
-        from connectome_gnn.generators.connconstr_data import load_zebrafish_connectome
+        from connectome_gnn.generators.connectome_loaders import load_zebrafish_connectome
         import numpy as np
 
         rng = np.random.RandomState(sim.seed)
@@ -1215,9 +1215,9 @@ class DrosophilaCxODEParams(ODEParamsBase):
         """Construct from hemibrain CSV data.
 
         Ref: nn_fig5_drosophilaCx_teacher.py lines 431-598
-        Uses load_drosophila_cx_connectome() from connconstr_data.py.
+        Uses load_drosophila_cx_connectome() from connectome_loaders.py.
         """
-        from connectome_gnn.generators.connconstr_data import (
+        from connectome_gnn.generators.connectome_loaders import (
             dense_to_sparse,
             load_drosophila_cx_connectome,
         )
@@ -1272,7 +1272,7 @@ class DrosophilaCxODEParams(ODEParamsBase):
           arr_6 = alpha_  scalar
           arr_7 = si_  (48, 152) input scaling
         """
-        from connectome_gnn.generators.connconstr_data import (
+        from connectome_gnn.generators.connectome_loaders import (
             dense_to_sparse,
             load_drosophila_cx_connectome,
         )
@@ -1365,7 +1365,7 @@ class DrosophilaCxODEParams(ODEParamsBase):
 
     def generate_stimulus(self, n_frames, sim, device=None):
         """Returns per-neuron stimulus tensor (T, N)."""
-        from connectome_gnn.generators.connconstr_data import (
+        from connectome_gnn.generators.connectome_loaders import (
             generate_cx_stimulus,
             load_drosophila_cx_connectome,
         )
@@ -1614,9 +1614,9 @@ class LarvaODEParams(ODEParamsBase):
         """Construct from larva h5 connectivity data.
 
         Ref: setup.py loadconns() lines 68-81
-        Uses load_larva_connectome() from connconstr_data.py.
+        Uses load_larva_connectome() from connectome_loaders.py.
         """
-        from connectome_gnn.generators.connconstr_data import (
+        from connectome_gnn.generators.connectome_loaders import (
             dense_to_sparse,
             load_larva_connectome,
         )
@@ -1673,7 +1673,7 @@ class LarvaODEParams(ODEParamsBase):
 
         Ref: nn_fig5_plots_abc.py lines 31-41
         """
-        from connectome_gnn.generators.connconstr_data import (
+        from connectome_gnn.generators.connectome_loaders import (
             dense_to_sparse,
             load_larva_pretrained,
         )
@@ -1979,7 +1979,7 @@ class LarvaODEParams(ODEParamsBase):
         import re
 
         try:
-            from connectome_gnn.generators.connconstr_data import load_larva_connectome
+            from connectome_gnn.generators.connectome_loaders import load_larva_connectome
 
             data = load_larva_connectome(datapath)
             pnames = [p.decode() if isinstance(p, bytes) else str(p) for p in data["pnames"]]
@@ -2004,7 +2004,7 @@ class LarvaODEParams(ODEParamsBase):
 
     def init_state(self, voltage, datapath=None, device=None):
         try:
-            from connectome_gnn.generators.connconstr_data import load_larva_pretrained
+            from connectome_gnn.generators.connectome_loaders import load_larva_pretrained
 
             pretrained = load_larva_pretrained(datapath)
             if "p0" in pretrained and pretrained["p0"] is not None:

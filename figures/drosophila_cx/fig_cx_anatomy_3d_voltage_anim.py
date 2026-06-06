@@ -91,7 +91,7 @@ from connectome_gnn.utils import load_data_root_from_json, set_data_root
 
 
 # Permutation reordering EPG indices in the connectome loader (glomerular
-# ring order). Verbatim from connconstr_data.py.
+# ring order). Verbatim from connectome_loaders.py.
 EPG_PERM = np.array([
     23, 24, 0, 1, 42, 43, 44, 45, 2, 3, 39, 40, 41, 4, 5, 6,
     36, 37, 38, 7, 8, 9, 33, 34, 35, 10, 11, 12,

@@ -56,7 +56,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from fetch_zebrafish_connectivity_HD_IPN12 import HD_IPN12_TYPES  # noqa: E402
 
 # Bump-pool (HD ring) type prefixes -- the cells whose input budget we care
-# about most. Matches connconstr_data._ZHD_BUMP_PREFIXES.
+# about most. Matches connectome_loaders._ZHD_BUMP_PREFIXES.
 BUMP_PREFIXES = ("IPNd", "IPNds", "IPN12_a", "IPN12_b")
 
 

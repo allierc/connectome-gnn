@@ -13,7 +13,7 @@ the Step-2 design choice), so the resulting circuit registers as
 Run ONCE on a machine with internet access and a neuprint-fish2 token;
 it writes ``<out>/neurons.csv`` and ``<out>/connections.csv``, both
 consumed by ``load_zebrafish_hd_connectome()`` in
-``src/connectome_gnn/generators/connconstr_data.py``.
+``src/connectome_gnn/generators/connectome_loaders.py``.
 
 Server: neuprint-fish2.janelia.org, dataset 'fish2'.
 

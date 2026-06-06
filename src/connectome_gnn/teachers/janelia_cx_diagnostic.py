@@ -19,7 +19,7 @@ import os
 import numpy as np
 import torch
 
-from connectome_gnn.generators.connconstr_data import load_drosophila_cx_connectome
+from connectome_gnn.generators.connectome_loaders import load_drosophila_cx_connectome
 from connectome_gnn.plot_cx import (
     cx_epg_directions,
     plot_cx_anatomy_3d,

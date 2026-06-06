@@ -201,7 +201,7 @@ connectome loader, confirm the three pillars from the design discussion:
 ```
 python - <<'PY'
 import hashlib, numpy as np
-from connectome_gnn.generators.connconstr_data import load_drosophila_cx_connectome
+from connectome_gnn.generators.connectome_loaders import load_drosophila_cx_connectome
 cx = load_drosophila_cx_connectome("figures/drosophila_cx/drosophila_cx_connectome")
 for k in ("J_effective", "neuron_types"):
     a = np.asarray(cx[k])
