@@ -337,11 +337,51 @@ class ZebrafishHdTaskRNN(nn.Module):
             # exact L/R symmetry the same way ARTR does.
             self.v_pt1_l  = nn.Parameter(torch.tensor(0.01))
             self.v_pt1_r  = nn.Parameter(torch.tensor(-0.01))
+        elif self.velocity_gate == "pen_artr_ptipn1_propriocep":
+            # Proprioception-extended gate: same ω routing as
+            # pen_artr_ptipn1, but v_fwd is now delivered through TWO
+            # parallel sensory pathways:
+            #   exteroceptive (optic / water flow) → pt-IPN1
+            #   proprioceptive (motor efference)   → motor_efferent
+            # Same v_fwd signal feeds both branches in this first version
+            # — the only thing the optimiser sees per branch is the
+            # 4 scalars below. A follow-up can add per-channel delay /
+            # gain noise to make the latency difference between the two
+            # pathways trainable / testable.
+            afferent = cx.get("afferent_subpop_ix", None) or {}
+            required = ("ARTR_L", "ARTR_R",
+                        "pt_IPN1_L", "pt_IPN1_R",
+                        "motor_efferent_L", "motor_efferent_R")
+            missing = [k for k in required
+                       if k not in afferent or len(afferent[k]) == 0]
+            if missing:
+                raise ValueError(
+                    f"velocity_gate='pen_artr_ptipn1_propriocep' requires "
+                    f"non-empty afferent_subpop_ix for {required}; "
+                    f"missing/empty: {missing}. Use the proprioception "
+                    f"circuit (it publishes the three afferent families)."
+                )
+            for key in required:
+                ind = torch.zeros(N, dtype=torch.float32)
+                ind[torch.as_tensor(afferent[key], dtype=torch.long)] = 1.0
+                self.register_buffer(
+                    f"_afferent_ind_{key.lower()}", ind, persistent=False,
+                )
+            self.v_artr_l = nn.Parameter(torch.tensor(0.01))
+            self.v_artr_r = nn.Parameter(torch.tensor(-0.01))
+            self.v_pt1_l  = nn.Parameter(torch.tensor(0.01))
+            self.v_pt1_r  = nn.Parameter(torch.tensor(-0.01))
+            # Proprioceptive scalars — initialised at half the
+            # exteroceptive magnitude so the network starts with a
+            # weakly-mixed extero+propriocep estimate it can refine in
+            # either direction.
+            self.v_me_l   = nn.Parameter(torch.tensor(0.005))
+            self.v_me_r   = nn.Parameter(torch.tensor(-0.005))
         elif self.velocity_gate != "none":
             raise ValueError(
                 f"graph_model.velocity_gate must be 'none', 'pen_only', "
-                f"'pen_4scalar', or 'pen_artr_ptipn1', "
-                f"got {self.velocity_gate!r}"
+                f"'pen_4scalar', 'pen_artr_ptipn1', or "
+                f"'pen_artr_ptipn1_propriocep', got {self.velocity_gate!r}"
             )
 
         # --- Dynamics constants -----------------------------------------
@@ -496,6 +536,38 @@ class ZebrafishHdTaskRNN(nn.Module):
                         [v_col_artr.unsqueeze(1), v_col_pt1.unsqueeze(1),
                          W[:, 2:]], dim=1)
                 else:   # n_input == 3 (rotation-only) — and any other shape
+                    W = torch.cat([v_col_artr.unsqueeze(1), W[:, 1:]], dim=1)
+            elif self.velocity_gate == "pen_artr_ptipn1_propriocep":
+                # Proprioception-extended gate. ω routing identical to
+                # pen_artr_ptipn1; v_fwd is now SUMMED into the network
+                # via two parallel afferent columns — pt-IPN1
+                # (exteroceptive) AND motor_efferent (proprioceptive). The
+                # input column carrying v_fwd is replaced with the
+                # combined gated column so the model still sees a single
+                # v_fwd input channel.
+                v_col_artr = (
+                    self._afferent_ind_artr_l * self.v_artr_l
+                    + self._afferent_ind_artr_r * self.v_artr_r
+                )
+                v_col_pt1 = (
+                    self._afferent_ind_pt_ipn1_l * self.v_pt1_l
+                    + self._afferent_ind_pt_ipn1_r * self.v_pt1_r
+                )
+                v_col_me = (
+                    self._afferent_ind_motor_efferent_l * self.v_me_l
+                    + self._afferent_ind_motor_efferent_r * self.v_me_r
+                )
+                # Combined exteroceptive + proprioceptive v_fwd column —
+                # the two afferent populations share the same drive but
+                # different per-side gains.
+                v_col_trans = v_col_pt1 + v_col_me
+                if self.n_input == 1:
+                    W = v_col_trans.unsqueeze(1)
+                elif self.n_input == 4:
+                    W = torch.cat(
+                        [v_col_artr.unsqueeze(1), v_col_trans.unsqueeze(1),
+                         W[:, 2:]], dim=1)
+                else:   # n_input == 3 (rotation-only) — same as pen_artr_ptipn1
                     W = torch.cat([v_col_artr.unsqueeze(1), W[:, 1:]], dim=1)
             else:
                 mask = getattr(self, "_W_in_mask", None)

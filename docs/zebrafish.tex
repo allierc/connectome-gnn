@@ -53,6 +53,11 @@
 %   local repo (docs/ build):              \newcommand{\figdir}{../figures/zebrafish}
 \newcommand{\figdir}{../figures/zebrafish}
 
+% No first-line paragraph indent; add a small inter-paragraph skip so the
+% paragraph boundary stays visually obvious.
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.5em plus 0.1em minus 0.05em}
+
 \title{\textbf{Zebrafish anterior hindbrain / dIPN: a vertebrate ring attractor for heading direction}}
 \author{}
 \date{}
@@ -242,10 +247,9 @@ leading eigenvalue real part (the linear-stability abscissa)
 $\max(\mathrm{Re}(\lambda)) = 0.9$, which keeps the linearised recurrent
 operator inside the stability margin used throughout the training runs.
 
-\paragraph{Afferent-partition variant
-(\texttt{zebrafish\_HD\_IPN12\_839\_artr\_pt1}).}
+\paragraph{Afferent-partition variant.}
 \label{method:afferent_partition}
-The baseline \texttt{pen\_4scalar} gate of \cref{eq:zhd_swim_gate} routes the
+The baseline 4-scalar gate of \cref{eq:zhd_swim_gate} routes the
 angular-velocity drive $\omega$ jointly through both \emph{RIPN} and
 \emph{pt-IPN} aggregates, treating the two as equivalent
 angular ports. This conflates two functionally distinct afferent roles
@@ -256,127 +260,180 @@ turning region) --- \emph{RIPN01}, \emph{RIPN02}, \emph{RIPN03\_a},
 \emph{RIPN03\_b}, all Rh2/Rh3, glutamatergic --- are the canonical zebrafish
 heading / angular-velocity afferents \citep{dunn2016artr};
 \textbf{(ii)}~\emph{pt-IPN1} is annotated as ``processed optic/water-flow
-input into IPN'' (with the tectum\_pt cells, themselves AF5-RGC receiving,
-projecting onto it) and is therefore the natural translational / self-motion
-afferent; \textbf{(iii)}~the remaining \emph{RIPN*} sub-types are motor
-efferents (\emph{RIPN11}, \emph{RIPN12\_a/b/c}) or lateral-line receivers
-(\emph{RIPN16}, \emph{RIPN17}), and \emph{pt-IPN2} is annotated as likely
-thalamic rather than pretectal --- neither carries the rotation or
-translation drive directly.
+input into IPN'' (with the \emph{tectum\_pt} cells, themselves AF5-RGC
+receiving, projecting onto it) and is therefore the natural translational
+self-motion afferent; \textbf{(iii)}~the remaining \emph{RIPN*} sub-types are
+motor efferents (\emph{RIPN11}, \emph{RIPN12\_a/c}) or lateral-line
+receivers (\emph{RIPN16}, \emph{RIPN17}, \emph{RIPN12\_b}), and
+\emph{pt-IPN2} is annotated as likely thalamic rather than
+pretectal --- neither carries the rotation or translation drive directly.
 
-The refined circuit variant
-\texttt{zebrafish\_HD\_IPN12\_839\_artr\_pt1} uses the \emph{same}
-$839$-cell connectome (same $W^{\mathrm{con}}$, same Dale flip, same spectral
-rescale) but partitions the afferent indices by cell-type tag, exposing
+The refined circuit variant uses the \emph{same} $839$-cell connectome
+(same $W^{\mathrm{con}}$, same Dale flip, same spectral rescale) but
+partitions the afferent indices by cell-type tag, exposing
 $\{\mathrm{ARTR}_L,\mathrm{ARTR}_R,\mathrm{pt\text{-}IPN1}_L,
   \mathrm{pt\text{-}IPN1}_R\}$ of sizes $\{34, 42, 23, 28\}$ in place of the
 coarse $\{\mathrm{RIPN}_L,\mathrm{RIPN}_R,\mathrm{ptIPN}_L,\mathrm{ptIPN}_R\}$
-aggregates of \cref{eq:zhd_swim_gate}. The companion gate
-\texttt{pen\_artr\_ptipn1} routes $\omega$ exclusively to ARTR via two
-learnable scalars $\{v_{\mathrm{ARTR}_L},v_{\mathrm{ARTR}_R}\}$ and
-$v_{\mathrm{fwd}}$ exclusively to pt-IPN1 via
+aggregates of \cref{eq:zhd_swim_gate}. The companion gate routes
+$\omega$ exclusively to ARTR via two learnable scalars
+$\{v_{\mathrm{ARTR}_L},v_{\mathrm{ARTR}_R}\}$ and the forward-swim
+velocity $v_{\mathrm{fwd}}$ exclusively to pt-IPN1 via
 $\{v_{\mathrm{pt\text{-}IPN1}_L},v_{\mathrm{pt\text{-}IPN1}_R}\}$, fully
-separating the rotation and translation drive paths the
-\texttt{pen\_4scalar} gate had to share. The variant is the natural
-intermediate step between the single-channel angular-only gate of
+separating the rotation and translation drive paths the baseline gate
+had to share. \Cref{fig:zhd_circuit_variants}\textbf{b} schematises this
+partition next to the baseline. The variant is the natural intermediate
+step between the single-channel angular-only gate of
 \cref{eq:zhd_swim_gate} and the multi-channel visual / self-motion port
 model described in \cref{method:input_extended}.
 
-\paragraph{Swim-integration task superset and per-mode projection.}
+\paragraph{Proprioception-extended variant.}
+\label{method:proprioception}
+A real fish does not estimate forward swim velocity from a single
+afferent channel. The same forward-translation signal reaches IPN
+through at least \emph{two} parallel pathways with different
+biophysical properties: an \emph{exteroceptive} channel via
+\emph{pt-IPN1} (optic flow plus lateral-line water flow, sub-stantially
+delayed by sensory processing but self-calibrating in closed loop), and
+a \emph{proprioceptive} channel carrying the swim motor command's
+efference copy directly back into IPN through the motor-efferent RIPN
+sub-types --- \emph{RIPN11}, \emph{RIPN12\_a}, and \emph{RIPN12\_c}, all
+tagged ``ascending / descending motor efferent, hSAG receiving'' in the
+inventory ($37 + 31$ cells per side, glutamatergic). Efference copy is
+prompt (no sensory delay) but its open-loop gain is uncalibrated --- the
+opposite trade-off to optic flow.
+
+The proprioception-extended variant adds these motor-efferent cells to
+the afferent partition as a third, anatomically distinct gate target
+(\cref{fig:zhd_circuit_variants}\textbf{c}). The companion gate routes
+$\omega$ to ARTR as before, and $v_{\mathrm{fwd}}$ to \emph{both}
+\emph{pt-IPN1} and \emph{motor\_efferent} populations in parallel, each
+with its own pair of learnable scalars. The connectome is unchanged
+($839$ cells, same $W^{\mathrm{con}}$, same Dale and spectral
+treatment); only the advertised afferent taxonomy and the gate
+architecture differ. In the first version studied here the
+exteroceptive and proprioceptive branches receive the same clean
+$v_{\mathrm{fwd}}$ drive; a follow-up will give the exteroceptive copy
+a sensory delay and a perturbed gain so the network has to learn to
+weight the two streams.
+
+\begin{figure}[t!]
+\centering
+\includegraphics[width=\textwidth]{\figdir/fig_zebrafish_circuit_variants.png}
+\caption{\textbf{Three afferent-partition variants of the
+zebrafish HD / IPN circuit --- same $839$-cell connectome, three
+different gate-target taxonomies.} \textbf{(a)}~Baseline: $\omega$ is
+gated through the coarse RIPN and pt-IPN aggregates, mixing
+functionally distinct sub-types and conflating rotation with
+translation. \textbf{(b)}~Refined partition: $\omega$ routed
+exclusively to the ARTR cells (\emph{RIPN01}, \emph{RIPN02},
+\emph{RIPN03\_a/b}); $v_{\mathrm{fwd}}$ routed exclusively to
+\emph{pt-IPN1}, the optic / water-flow afferent identified by the
+inventory. Rotation and translation drive paths are now cleanly
+separated. \textbf{(c)}~Proprioception extension: a third gate target
+is added for $v_{\mathrm{fwd}}$, the motor-efferent RIPN sub-types
+(\emph{RIPN11}, \emph{RIPN12\_a/c}), modelling the canonical sensory
+plus efference-copy redundancy real fish use for forward-translation
+velocity. The recurrent bump network ($n=443$ dIPN + $108$ IPN12) and
+the decoder readout are identical across variants; only the gate-
+target taxonomy on the left differs.}
+\label{fig:zhd_circuit_variants}
+\end{figure}
+
+\paragraph{Swim-integration task: superset and sub-tasks.}
 \label{method:swim_task_modes}
-The on-disk swim-integration dataset is a \emph{single superset} that the
-trainer projects onto the active sub-task at load time. The generator
-(\texttt{generators.graph\_data\_generator.\_generate\_swim\_integration\_task})
-samples swim events at rate $r_{\mathrm{swim}}=0.5\,\mathrm{Hz}$ with
-event duration $\Delta t_{\mathrm{swim}}=0.3\,$s and writes:
+The on-disk swim-integration dataset is a \emph{single superset} from
+which several sub-tasks are projected at training time. Swim events are
+sampled at a Poisson rate $r_{\mathrm{swim}}=0.5\,\mathrm{Hz}$ with
+event duration $\Delta t_{\mathrm{swim}}=0.3\,$s, partitioned into four
+behavioural categories with fractions $L:R:F:B=0.3:0.3:0.2:0.2$. Left
+and right events drive an angular signed phase impulse, forward and
+backward events drive a signed forward-velocity impulse. The dataset
+writes:
 \begin{itemize}
-    \item a 4-channel input
+    \item a $4$-channel input
     $u\in\R^{B\times T\times 4}=[\,\omega,\,v_{\mathrm{fwd}},\,
     \cos\theta_0\!\cdot\!\delta_{t,0},\,\sin\theta_0\!\cdot\!\delta_{t,0}\,]$
-    --- left/right swim events drive the angular channel $\omega$ via
-    signed phase impulses; forward/backward events drive the translational
-    channel $v_{\mathrm{fwd}}$; the heading cue $(\cos\theta_0,\sin\theta_0)$
-    is injected as a single-frame impulse at $t=0$ because the integrator
-    has no other reference for the absolute heading.
-    \item a 3-column target $y\in\R^{B\times T\times 3}=
-    [\,\cos\theta,\,\sin\theta,\,\xi\,]$ with
-    $\theta(t)=\theta_0+\int_0^t\omega\,ds$ (circular) and
-    $\xi(t)=\int_0^t v_{\mathrm{fwd}}\,ds$ (linear, $\xi(0)=0$).
+    --- left/right events drive $\omega$, forward/backward events drive
+    $v_{\mathrm{fwd}}$, and the initial-heading cue $(\cos\theta_0,\sin\theta_0)$
+    is injected as a single-frame impulse at $t=0$ because the
+    integrator has no other reference for the absolute heading. There
+    is no analogous initial-\emph{position} cue: position is defined
+    to start at the origin by construction.
+    \item a target tensor whose column layout depends on the sub-task.
+    The \emph{scalar} recipe stores
+    $y=[\,\cos\theta,\,\sin\theta,\,\xi\,]$ with circular heading
+    $\theta(t)=\theta_0+\int_0^t\omega\,ds$ and a scalar forward-axis
+    displacement $\xi(t)=\int_0^t v_{\mathrm{fwd}}\,ds$ (linear,
+    $\xi(0)=0$). The \emph{2D path-integration} recipe stores
+    $y=[\,\cos\theta,\,\sin\theta,\,x,\,y\,]$, where the position is
+    obtained by projecting $v_{\mathrm{fwd}}$ through the current
+    heading and integrating each spatial axis independently
+    (\cref{eq:xy_pi}). The 2D recipe is the \emph{true} path-
+    integration target: it couples translation to heading, so a
+    network has to maintain $\theta$ internally to predict $(x,y)$ at
+    all.
 \end{itemize}
-There is \emph{no} initial-position cue analogous to the heading impulse
-because $\xi$ is defined to start at the origin by construction --- the
-target is "how far did I drift from where I started", not absolute
-position.
+\Cref{fig:zhd_swim_task_modes} illustrates the input superset
+(panel \textbf{a}), the scalar-$\xi$ target (panel \textbf{b}), the
+2D-position target on the same trial (panel \textbf{c}), and a
+comparison of the 2D trajectory under perfect and leaky integrator
+recipes (panel \textbf{d}; see next paragraph).
 
-The trainer's \texttt{training.task\_targets} field selects one of three
-sub-tasks and slices both $u$ and $y$ accordingly:
-\begin{equation*}
-\begin{array}{lcl}
-\texttt{[rotation]}                  &\to& u[\cdot,\,\{0,2,3\}],\ \ y[\cdot,\,\{0,1\}]
-                                          \quad (3\text{-in} / 2\text{-out}) \\
-\texttt{[translation]}               &\to& u[\cdot,\,\{1\}],\ \ y[\cdot,\,\{2\}]
-                                          \quad (1\text{-in} / 1\text{-out}) \\
-\texttt{[rotation, translation]}     &\to& u[\cdot,\,\{0,1,2,3\}],\ \ y[\cdot,\,\{0,1,2\}]
-                                          \quad (4\text{-in} / 3\text{-out})
-\end{array}
-\end{equation*}
-The model's $n_{\mathrm{in}}/n_{\mathrm{out}}$ auto-derive from
-\texttt{task\_targets} unless overridden, so a single connectome-locked
-RNN serves all three sub-tasks. \Cref{fig:zhd_swim_task_modes} summarises
-the superset, the per-mode projection, and the leaky-vs-perfect
-$\xi$ variants discussed next.
-
-\paragraph{Leaky vs perfect $\xi$ integrator
-(\texttt{task.swim\_integration.xi\_tau\_s}).}
+\paragraph{Leaky vs perfect integrators.}
 \label{method:xi_leaky}
-The default $\xi$ target is a perfect integrator
-$\xi(t)=\int_0^t v_{\mathrm{fwd}}\,ds$ which grows linearly with the
-swim-vigour bias --- the loss therefore grows with the curriculum
-horizon $T$, making cross-snapshot comparisons awkward. A finite time
-constant $\tau_\xi>0$ in \texttt{task.swim\_integration.xi\_tau\_s}
-replaces the cumulative sum with the leaky recurrence
+The default scalar $\xi$ and the default 2D position $(x, y)$ are both
+\emph{perfect} integrators of their respective drives. With a non-zero
+mean forward-swim drive these targets grow linearly with the
+curriculum horizon, so the loss scales with $T$ and cross-snapshot
+comparisons become awkward. A finite time constant $\tau>0$ replaces
+the cumulative sum with the leaky recurrence
 \begin{equation}
 \xi(t+\Delta t) = \left(1-\frac{\Delta t}{\tau_\xi}\right)\xi(t)
     + v_{\mathrm{fwd}}(t)\,\Delta t,
 \qquad \xi(0)=0,
 \label{eq:xi_leaky}
 \end{equation}
-equivalent to $d\xi/dt=-\xi/\tau_\xi + v_{\mathrm{fwd}}$. Steady-state
-for constant $v_{\mathrm{fwd}}$ is $\tau_\xi\,v_{\mathrm{fwd}}$ so the
-target is bounded by construction. Biologically this is the natural
-choice: real integrators leak and what the fish actually encodes is a
-low-pass-filtered "recent forward swim vigour" rather than absolute
-displacement. \texttt{xi\_tau\_s=None} (the default) keeps the perfect
-integrator byte-identical to before; the production leaky variant uses
-$\tau_\xi=0.5\,$s under a separate dataset name
-(\texttt{zebrafish\_hd\_si\_task\_selfmotion\_leaky}) so the
-perfect-integrator dataset on disk stays untouched.
+equivalent to $d\xi/dt=-\xi/\tau_\xi + v_{\mathrm{fwd}}$. For the
+2D-position target the same leaky law is applied independently to each
+axis,
+\begin{equation}
+\frac{dx}{dt} = -\frac{x}{\tau_p} + v_{\mathrm{fwd}}\cos\theta,
+\qquad
+\frac{dy}{dt} = -\frac{y}{\tau_p} + v_{\mathrm{fwd}}\sin\theta,
+\qquad x(0)=y(0)=0,
+\label{eq:xy_pi}
+\end{equation}
+which keeps the trajectory bounded near the recent egocentric
+displacement. Biologically this is the natural choice: real neural
+integrators leak, and what the fish actually encodes is a
+low-pass-filtered estimate of \emph{recent} forward swim vigour and
+recent displacement, not absolute long-horizon position. The
+production runs use $\tau_\xi=\tau_p=0.5\,$s, with the
+perfect-integrator recipes preserved as separate variants so the loss
+and metric comparisons stay clean.
 
 \begin{figure}[t!]
 \centering
 \includegraphics[width=\textwidth]{\figdir/fig_zebrafish_swim_task_modes.png}
-\caption{\textbf{Swim-integration task: dataset superset, per-mode I/O
-projection, and leaky $\xi$ variant.}
-\textbf{(a)}~Swim-event raster for five sampled trials --- coloured
-ticks at onsets, L (red, $30\%$) / R (blue, $30\%$) / F (green, $20\%$)
-/ B (purple, $20\%$), Poisson rate $0.5\,\mathrm{Hz}$, event width
-$0.3\,$s.
-\textbf{(b)}~The 4-channel input superset for trial 0 ---
+\caption{\textbf{Swim-integration task: input superset, scalar-$\xi$
+and 2D-position targets, and leaky integrator variants.}
+\textbf{(a)}~The $4$-channel input superset for one trial ---
 $\omega$ (boxcar-stretched $\Delta\theta$ at L/R onsets),
 $v_{\mathrm{fwd}}$ (likewise at F/B onsets; backward = negative), and
 the initial-heading impulse $(\cos\theta_0,\sin\theta_0)\,\delta_{t,0}$
 shown as stem markers with the per-trial value.
-\textbf{(c)}~The 3-column output superset for the same trial --- $\cos\theta$,
+\textbf{(b)}~The scalar-$\xi$ target for the same trial: $\cos\theta$,
 $\sin\theta$, and $\xi$. The $\xi$ row overlays the perfect integrator
-(green) and the leaky variant at $\tau_\xi=0.5\,$s (red dashed) so the
-two recipes share an axis.
-\textbf{(d)}~Channel-selection table the trainer applies at load time,
-mapping \texttt{task\_targets} $\to$ active input columns + supervised
-output columns.
-\textbf{(e)}~Same trial's $\xi$ under four integrator recipes: perfect
-(green, unbounded ramp) and leaky $\tau_\xi\in\{2.0,1.0,0.5\}\,$s
-(viridis); the steady-state $\tau_\xi v_{\mathrm{fwd}}$ is visible as a
-plateau after each F event.}
+(green) and the leaky variant at $\tau_\xi=0.5\,$s (red dashed) on a
+shared axis.
+\textbf{(c)}~The 2D-position target for the same trial: heading components
+unchanged, plus $x$ and $y$ computed by projecting $v_{\mathrm{fwd}}$
+through $\theta$ and integrating each axis (\cref{eq:xy_pi}); perfect
+(green) and leaky $\tau_p=0.5\,$s (red dashed).
+\textbf{(d)}~The same trial's 2D trajectory $(x,y)$ in spatial
+coordinates --- perfect (green) wanders unboundedly while leaky
+$\tau_p\in\{2.0,1.0,0.5\}\,$s (viridis) is pulled back toward the
+origin between events.}
 \label{fig:zhd_swim_task_modes}
 \end{figure}
 
@@ -1502,9 +1559,8 @@ swim-integration task (dataset~A) while augmenting each minibatch with
 $B_c$ recorded ``Rotations'' trials (dataset~B) and matching predicted
 to recorded calcium with the $z$-scored shape loss of \cref{eq:zhd_obs},
 sweeping the observation weight
-$\lambda_{\mathrm{obs}} \in \{0,\,0.1,\,0.5,\,1,\,5\}$ (configs
-\texttt{c0}--\texttt{c4}; \texttt{c0} is the task-only control,
-$\lambda_{\mathrm{obs}} = 0$). Each trained model is then driven by the
+$\lambda_{\mathrm{obs}} \in \{0,\,0.1,\,0.5,\,1,\,5\}$
+($\lambda_{\mathrm{obs}}=0$ is the task-only control). Each trained model is then driven by the
 held-out recorded stimulus and its rolled-out activity rendered to
 GCaMP7f calcium exactly as for the baseline (\cref{fig:zhd_obs_baseline}),
 and scored against the recorded $\Delta F/F$ over a continuous
@@ -1553,16 +1609,16 @@ that best balances calcium realism against task accuracy.
 \begin{table}[H]
 \centering
 \small
-\begin{tabular}{l c c c c c}
+\begin{tabular}{c c c c c}
 \toprule
-config & $\lambda_{\mathrm{obs}}$ & bump $z$-MSE & bump SSIM
+$\lambda_{\mathrm{obs}}$ & bump $z$-MSE & bump SSIM
        & aff.\ $z$-MSE & aff.\ SSIM \\
 \midrule
-\texttt{c0} & $0$   & $1.88$ & $\mathbf{0.29}$ & $1.83$ & $0.21$ \\
-\texttt{c1} & $0.1$ & $1.25$ & $0.17$ & $0.92$ & $\mathbf{0.44}$ \\
-\texttt{c2} & $0.5$ & $\mathbf{1.14}$ & $0.18$ & $0.98$ & $0.43$ \\
-\texttt{c3} & $1.0$ & $1.31$ & $0.16$ & $0.95$ & $0.37$ \\
-\texttt{c4} & $5.0$ & $1.21$ & $0.17$ & $\mathbf{0.90}$ & $0.22$ \\
+$0$   & $1.88$ & $\mathbf{0.29}$ & $1.83$ & $0.21$ \\
+$0.1$ & $1.25$ & $0.17$ & $0.92$ & $\mathbf{0.44}$ \\
+$0.5$ & $\mathbf{1.14}$ & $0.18$ & $0.98$ & $0.43$ \\
+$1.0$ & $1.31$ & $0.16$ & $0.95$ & $0.37$ \\
+$5.0$ & $1.21$ & $0.17$ & $\mathbf{0.90}$ & $0.22$ \\
 \bottomrule
 \end{tabular}
 \caption{\textbf{Calcium-reconstruction quality vs.\ observation weight
@@ -1584,7 +1640,7 @@ bump pool throughout.}
   \centering
   \includegraphics[width=0.8\textwidth]{\figdir/fig_zebrafish_calcium_reconstruction.png}
   \caption{\textbf{Calcium reconstruction with the observation loss on
-  ($\lambda_{\mathrm{obs}} = 0.1$, config \texttt{c1}).} The GNN trained
+  ($\lambda_{\mathrm{obs}} = 0.1$).} The GNN trained
   with the calcium-observation loss is driven by the held-out recorded
   ZAPBench Rotations stimulus (top: angular-velocity drive $s(t)$) and its
   rolled-out activity rendered to GCaMP7f calcium (\cref{eq:zhd_gcamp}).
@@ -1609,13 +1665,13 @@ bump pool throughout.}
   \begin{subfigure}[t]{0.49\textwidth}
     \centering
     \includegraphics[width=\textwidth]{\figdir/fig_zebrafish_calcium_reconstruction_c0.png}
-    \caption{$\lambda_{\mathrm{obs}} = 0$ (\texttt{c0}, task-only)}
+    \caption{$\lambda_{\mathrm{obs}} = 0$ (task-only)}
     \label{fig:zhd_obs_compare_c0}
   \end{subfigure}\hfill
   \begin{subfigure}[t]{0.49\textwidth}
     \centering
     \includegraphics[width=\textwidth]{\figdir/fig_zebrafish_calcium_reconstruction_c4.png}
-    \caption{$\lambda_{\mathrm{obs}} = 5$ (\texttt{c4}, strong)}
+    \caption{$\lambda_{\mathrm{obs}} = 5$ (strong)}
     \label{fig:zhd_obs_compare_c4}
   \end{subfigure}
   \caption{\textbf{Calcium reconstruction with the observation loss off
@@ -1631,7 +1687,7 @@ bump pool throughout.}
   $1.21/0.90$, $\rho \approx 0.40/0.55$), but at this large weight the
   decoded-heading panels (bottom) develop visible slips as the observation
   term competes with the heading MSE. The intermediate weight of
-  \cref{fig:zhd_obs_reconstruction} (\texttt{c1}, $\lambda_{\mathrm{obs}} =
+  \cref{fig:zhd_obs_reconstruction} ($\lambda_{\mathrm{obs}} =
   0.1$) achieves most of the calcium gain in (b) without the heading
   degradation.}
   \label{fig:zhd_obs_compare}
@@ -1643,9 +1699,9 @@ bump pool throughout.}
 To read the full population code rather than the two-dimensional readout,
 \cref{fig:zhd_kino_const} shows all $839$ neurons over a
 deterministic rollout, in three row orderings, for three converged models:
-the sign-locked RNN trained on the task alone (\emph{no-obs}, \texttt{c0})
-and with the calcium-observation loss (\emph{$+$obs}, \texttt{c3}), and the
-message-passing GNN trained on the task alone (\emph{no-obs}, \texttt{c0}).
+the sign-locked RNN trained on the task alone (\emph{no-obs}) and with the
+calcium-observation loss (\emph{$+$obs}, $\lambda_{\mathrm{obs}}=1$), and
+the message-passing GNN trained on the task alone (\emph{no-obs}).
 The GNN\,$+$obs runs are omitted: every GNN trained with the observation loss
 ($\lambda_{\mathrm{obs}} \ge 0.1$) diverged (constant-$\omega$ decode
 $r \approx 0$, exploding activity), so no converged GNN\,$+$obs checkpoint
@@ -1680,8 +1736,8 @@ the less clean the underlying heading integration.
   \includegraphics[width=\textwidth]{\figdir/fig_zebrafish_kinographs_const.png}
   \caption{\textbf{All-neuron kinographs under a constant angular velocity}
   ($\omega = 60^\circ/\mathrm{s}$, $15\,\mathrm{s}$), in three row orderings.
-  Columns: RNN no-obs (\texttt{c0}), RNN $+$obs (\texttt{c3}), GNN no-obs
-  (\texttt{c0}); all $839$ neurons, per-neuron $z$-scored, $\pm 3$ colormap.
+  Columns: RNN no-obs, RNN $+$obs ($\lambda_{\mathrm{obs}}=1$), GNN
+  no-obs; all $839$ neurons, per-neuron $z$-scored, $\pm 3$ colormap.
   \textbf{(a--c)} cell-type sort; \textbf{(d--f)} cell-type primary,
   preferred-phase $\varphi_i$ secondary within type; \textbf{(g--i)} pure
   preferred-phase sort. The preferred-phase row reveals the travelling-bump
@@ -1728,9 +1784,9 @@ is essentially uncorrelated with the stimulus magnitude
 ($|\rho| \lesssim 0.05$). It drifts on the tens-of-seconds-to-minutes
 timescale that dominates the bump pool's irregular activity, yet nothing
 in $s(t)$ carries it.\footnote{The forward/turning traces are derived from
-the two tail-EMG electrodes by the standard \texttt{fishfuncem} swim
-pipeline (windowed-variance envelope, swim-bout detection, per-bout
-weighting); we verified they are genuinely those channels by recovering
+the two tail-EMG electrodes by the standard ZAPBench swim-EMG pipeline
+(windowed-variance envelope, swim-bout detection, per-bout weighting);
+we verified they are genuinely those channels by recovering
 \emph{forward} from the bilateral EMG sum ($\rho \approx 0.57$) and
 \emph{turning} from the left$-$right difference ($\rho \approx 0.42$). The
 per-frame RMS shown here is a coarse envelope of the same channels.}
@@ -1780,7 +1836,7 @@ must average away. We leave this conditioning to future work.
   has no counterpart in the periodic stimulus; a deterministic model fed
   only $s(t)$ cannot reproduce it, which bounds the calcium reconstruction
   of \cref{fig:zhd_obs_reconstruction} from above. The two EMG panels
-  require the raw \texttt{stimuli\_and\_ephys.10chFlt} file; when it is
+  require the raw ZAPBench stimulus-and-ephys data file; when it is
   absent the figure renders them as placeholders.}
   \label{fig:zhd_unmodeled}
 \end{figure}
