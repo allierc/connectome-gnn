@@ -1,6 +1,6 @@
 """Cortex (Yang 2019) task evaluation + training snapshot.
 
-Sibling of `drosophila_cx_eval.py` (which serves the path-integration / drosophila_cx_pi
+Sibling of `bump_attractor_eval.py` (which serves the path-integration / drosophila_cx_pi
 trainer). Provides:
 
     compute_cortex_task_metrics(preds, tgts, cmasks) -> dict

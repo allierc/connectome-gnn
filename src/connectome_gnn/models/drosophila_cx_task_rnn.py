@@ -19,7 +19,7 @@ Single-purpose class: hemibrain connectome loaded at init, n_input=3
 Buffer protocol matches `teachers.JaneliaCxRNN`: W_rec, W_con, S,
 _block_mask_i, _ring_order_<name>, dt, n_units, neuron_types,
 type_names, epg_indices, epg_glom_ix — so the helpers in
-`models.drosophila_cx_eval` (path_integration_accuracy, bump_fwhm,
+`models.bump_attractor_eval` (path_integration_accuracy, bump_fwhm,
 _save_training_snapshot, _deterministic_sweep_rollout) work without
 branching.
 
@@ -37,7 +37,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from connectome_gnn.models.drosophila_cx_eval import build_type_pair_blocks
+from connectome_gnn.models.bump_attractor_eval import build_type_pair_blocks
 from connectome_gnn.models.MLP import MLP
 from connectome_gnn.models.registry import register_model
 
@@ -220,7 +220,7 @@ class DrosophilaCxTaskRNN(nn.Module):
             self.register_buffer(f"_ring_order_{safe}", order, persistent=False)
             self._ring_names.append(safe)
 
-        # --- Metadata for drosophila_cx_eval helpers --------------------
+        # --- Metadata for bump_attractor_eval helpers --------------------
         self.neuron_types = neuron_types
         self.type_names = type_names
         self.epg_indices = np.arange(n_epg, dtype=np.int64)

@@ -1094,7 +1094,7 @@ def plot_cx_anatomy_3d(
 
 # ===========================================================================
 # Evolution figure — paper figure + training-time snapshot. Moved here from
-# figures/drosophila_cx/fig_evolution.py so the trainer (drosophila_cx_eval._
+# figures/drosophila_cx/fig_evolution.py so the trainer (bump_attractor_eval._
 # save_training_snapshot) can import it via the normal package path instead
 # of the importlib hack it used to do. The standalone CLI in
 # figures/drosophila_cx/fig_evolution.py now imports plot_cx_evolution and
@@ -1315,65 +1315,183 @@ def _panel_population_kinograph(ax, rollout: dict, epg_theta: np.ndarray,
     cb.ax.tick_params(labelsize=TICK_FS)
 
 
+def _hd_track_r_str(true_theta, dec_theta, warmup):
+    """Pearson r between unwrapped decoded and GT heading after warmup."""
+    if true_theta.size <= warmup:
+        return "r = n/a"
+    d_uw = np.unwrap(dec_theta[warmup:])
+    if d_uw.std() < 1e-8 or true_theta[warmup:].std() < 1e-8:
+        return "r = n/a"
+    r = float(np.corrcoef(d_uw, true_theta[warmup:])[0, 1])
+    return f"r = {r:.3f}"
+
+
+def _xi_track_r_str(true_xi, dec_xi, warmup):
+    """Pearson r between decoded ξ and GT ξ after warmup."""
+    if true_xi.size <= warmup:
+        return "r = n/a"
+    if dec_xi[warmup:].std() < 1e-8 or true_xi[warmup:].std() < 1e-8:
+        return "r = n/a"
+    r = float(np.corrcoef(dec_xi[warmup:], true_xi[warmup:])[0, 1])
+    return f"r = {r:.3f}"
+
+
+def _draw_rotation_track(ax_drive, ax_track, t_axis, u_col, true_theta,
+                         dec_theta, warmup, title_prefix=""):
+    """Render the rotation half of the tracking panel into two given axes:
+    top axis = ω(t), bottom axis = wrapped heading (GT vs decoded)."""
+    ax_drive.plot(t_axis, u_col, color=GT_COLOR, lw=1.2)
+    ax_drive.axhline(0, color="0.7", lw=0.3)
+    ax_drive.set_ylabel("ω (°/s)", fontsize=LABEL_FS)
+    ax_drive.tick_params(labelsize=TICK_FS, labelbottom=False)
+    err = np.angle(np.exp(1j * (dec_theta - true_theta)))
+    rmse_deg = float(np.degrees(np.sqrt(np.mean(err ** 2))))
+    r_str = _hd_track_r_str(true_theta, dec_theta, warmup)
+    ax_drive.set_title(
+        f"{title_prefix}constant-ω rollout  ({r_str},  RMSE = {rmse_deg:.1f}°)",
+        fontsize=TITLE_FS,
+    )
+
+    true_wrap = np.angle(np.exp(1j * true_theta))
+    dec_wrap = np.angle(np.exp(1j * dec_theta))
+    ax_track.plot(t_axis, true_wrap, color=GT_COLOR, lw=0.0, marker=".", ms=2.5)
+    ax_track.plot(t_axis, dec_wrap, color=PRED_COLOR, lw=0.0, marker=".", ms=0.8)
+    ax_track.set_yticks([-np.pi, 0, np.pi])
+    ax_track.set_yticklabels([r"$-\pi$", "0", r"$\pi$"], fontsize=TICK_FS)
+    ax_track.set_ylim(-np.pi - 0.15, np.pi + 0.15)
+    ax_track.set_ylabel("HD (rad)", fontsize=LABEL_FS)
+    ax_track.tick_params(labelsize=TICK_FS)
+
+
+def _draw_translation_track(ax_drive, ax_track, t_axis, u_col, true_xi,
+                            dec_xi, warmup, title_prefix=""):
+    """Render the translation half of the tracking panel into two given axes:
+    top axis = v_fwd(t), bottom axis = ξ (GT vs decoded), linear unbounded."""
+    ax_drive.plot(t_axis, u_col, color=GT_COLOR, lw=1.2)
+    ax_drive.axhline(0, color="0.7", lw=0.3)
+    ax_drive.set_ylabel(r"$v_{\mathrm{fwd}}$", fontsize=LABEL_FS)
+    ax_drive.tick_params(labelsize=TICK_FS, labelbottom=False)
+    rmse = float(np.sqrt(np.mean((dec_xi - true_xi) ** 2)))
+    r_str = _xi_track_r_str(true_xi, dec_xi, warmup)
+    ax_drive.set_title(
+        f"{title_prefix}constant-$v_{{\\mathrm{{fwd}}}}$ rollout  "
+        f"({r_str},  RMSE = {rmse:.2f})",
+        fontsize=TITLE_FS,
+    )
+    ax_track.plot(t_axis, true_xi, color=GT_COLOR, lw=1.2)
+    ax_track.plot(t_axis, dec_xi,  color=PRED_COLOR, lw=0.8)
+    ax_track.set_ylabel(r"$\xi$", fontsize=LABEL_FS)
+    ax_track.tick_params(labelsize=TICK_FS)
+
+
 def _panel_hd_tracking_stacked(fig, subplotspec, rollout: dict, dt_s: float,
                                 warmup: int = 10):
-    """Constant-ω rollout in the same stacked layout as the OU panel:
-    top ω(t) (green), bottom HD true (green) + decoded (black).
+    """Mode-aware deterministic-rollout panel.
+
+    Picks the layout from what the rollout dict contains (set by
+    ``bump_attractor_eval._deterministic_sweep_rollout`` from
+    ``net.n_input``):
+
+      rotation in rollout + translation in rollout  → 4 stacked sub-axes
+          (ω, v_fwd, heading, ξ) — n_input == 4 mode.
+      rotation only                                 → 2 sub-axes
+          (ω, heading) — n_input == 3 (legacy CX) — byte-identical to the
+          previous implementation.
+      translation only                              → 2 sub-axes
+          (v_fwd, ξ)   — n_input == 1.
 
     Returns the top axis (to attach the panel label).
     """
-    sub = GridSpecFromSubplotSpec(2, 1, subplot_spec=subplotspec,
-                                   height_ratios=[1.0, 1.8], hspace=0.18)
-    ax_top = fig.add_subplot(sub[0])
-    ax_bot = fig.add_subplot(sub[1], sharex=ax_top)
-
-    true_t = np.asarray(rollout["true_theta"])
-    dec_t = np.asarray(rollout["decoded_theta"])
+    has_rot = "true_theta" in rollout
+    has_trans = "true_xi" in rollout
     u = np.asarray(rollout["u"])
-    T = true_t.size
+    T = u.shape[0]
     t_axis = np.arange(T) * dt_s
 
-    ax_top.plot(t_axis, u[:, 0], color=GT_COLOR, lw=1.2)
-    ax_top.axhline(0, color="0.7", lw=0.3)
-    ax_top.set_ylabel("ω (°/s)", fontsize=LABEL_FS)
-    ax_top.tick_params(labelsize=TICK_FS, labelbottom=False)
-    if T > warmup:
-        d_uw = np.unwrap(dec_t[warmup:])
-        if d_uw.std() > 1e-8 and true_t[warmup:].std() > 1e-8:
-            r = float(np.corrcoef(d_uw, true_t[warmup:])[0, 1])
-            r_str = f"r = {r:.3f}"
-        else:
-            r_str = "r = n/a"
-    else:
-        r_str = "r = n/a"
-    err = np.angle(np.exp(1j * (dec_t - true_t)))
-    rmse_deg = float(np.degrees(np.sqrt(np.mean(err ** 2))))
-    ax_top.set_title(f"constant-ω rollout  ({r_str},  RMSE = {rmse_deg:.1f}°)",
-                       fontsize=TITLE_FS)
-
-    true_wrap = np.angle(np.exp(1j * true_t))
-    dec_wrap = np.angle(np.exp(1j * dec_t))
-    ax_bot.plot(t_axis, true_wrap, color=GT_COLOR, lw=0.0, marker=".", ms=2.5)
-    ax_bot.plot(t_axis, dec_wrap, color=PRED_COLOR, lw=0.0, marker=".", ms=0.8)
-    ax_bot.set_yticks([-np.pi, 0, np.pi])
-    ax_bot.set_yticklabels([r"$-\pi$", "0", r"$\pi$"], fontsize=TICK_FS)
-    ax_bot.set_ylim(-np.pi - 0.15, np.pi + 0.15)
-    ax_bot.set_xlabel("time (s)", fontsize=LABEL_FS)
-    ax_bot.set_ylabel("HD (rad)", fontsize=LABEL_FS)
-    ax_bot.tick_params(labelsize=TICK_FS)
-    return ax_top
+    if has_rot and has_trans:
+        # Both: 4 stacked sub-axes. Drives compact on top (h.ratios 0.6),
+        # integrators larger (1.2) so the GT/decoded comparison is readable.
+        sub = GridSpecFromSubplotSpec(
+            4, 1, subplot_spec=subplotspec,
+            height_ratios=[0.6, 0.6, 1.2, 1.2], hspace=0.22,
+        )
+        ax_w  = fig.add_subplot(sub[0])
+        ax_vf = fig.add_subplot(sub[1], sharex=ax_w)
+        ax_hd = fig.add_subplot(sub[2], sharex=ax_w)
+        ax_xi = fig.add_subplot(sub[3], sharex=ax_w)
+        ax_w.tick_params(labelbottom=False)
+        ax_vf.tick_params(labelbottom=False)
+        ax_hd.tick_params(labelbottom=False)
+        _draw_rotation_track(
+            ax_w, ax_hd, t_axis, u[:, 0],
+            np.asarray(rollout["true_theta"]),
+            np.asarray(rollout["decoded_theta"]),
+            warmup,
+        )
+        # u[:, 1] is v_fwd in both mode; no separate title on the v_fwd row
+        # — the rotation row's title carries the headline metrics, the xi
+        # row's title carries the translation metrics.
+        _draw_translation_track(
+            ax_vf, ax_xi, t_axis, u[:, 1],
+            np.asarray(rollout["true_xi"]),
+            np.asarray(rollout["decoded_xi"]),
+            warmup,
+        )
+        ax_xi.set_xlabel("time (s)", fontsize=LABEL_FS)
+        return ax_w
+    if has_rot:
+        sub = GridSpecFromSubplotSpec(
+            2, 1, subplot_spec=subplotspec,
+            height_ratios=[1.0, 1.8], hspace=0.18,
+        )
+        ax_top = fig.add_subplot(sub[0])
+        ax_bot = fig.add_subplot(sub[1], sharex=ax_top)
+        _draw_rotation_track(
+            ax_top, ax_bot, t_axis, u[:, 0],
+            np.asarray(rollout["true_theta"]),
+            np.asarray(rollout["decoded_theta"]),
+            warmup,
+        )
+        ax_bot.set_xlabel("time (s)", fontsize=LABEL_FS)
+        return ax_top
+    if has_trans:
+        sub = GridSpecFromSubplotSpec(
+            2, 1, subplot_spec=subplotspec,
+            height_ratios=[1.0, 1.8], hspace=0.18,
+        )
+        ax_top = fig.add_subplot(sub[0])
+        ax_bot = fig.add_subplot(sub[1], sharex=ax_top)
+        # u[:, 0] is v_fwd in translation-only mode.
+        _draw_translation_track(
+            ax_top, ax_bot, t_axis, u[:, 0],
+            np.asarray(rollout["true_xi"]),
+            np.asarray(rollout["decoded_xi"]),
+            warmup,
+        )
+        ax_bot.set_xlabel("time (s)", fontsize=LABEL_FS)
+        return ax_top
+    # Defensive fallback — empty rollout, blank panel rather than crash.
+    sub = GridSpecFromSubplotSpec(1, 1, subplot_spec=subplotspec)
+    ax = fig.add_subplot(sub[0])
+    ax.axis("off")
+    return ax
 
 
 def _panel_trial_rollout(fig, subplotspec, test_trial: dict):
-    """Stacked sub-panels: top ω(t) in green, bottom HD true+decoded.
+    """One-trial rollout panel — mirrors the deterministic-rollout panel f
+    layout, but on a single OU / swim trial drawn from u_test:
+
+      rotation-only  (y_true.shape[-1] == 2) → 2 sub-axes  (ω, HD)
+      translation-only (== 1)                 → 2 sub-axes  (v_fwd, ξ)
+      both (== 3)                             → 4 sub-axes  (ω, v_fwd, HD, ξ)
+
+    Mode is detected from the trial's u / y_true shapes, which the trainer
+    already slices to the active task channels in
+    ``graph_trainer._data_train_drosophila_cx_task`` (via the
+    task_targets-driven projection at the top of training).
 
     Returns the *top* axis (used to attach the panel label).
     """
-    sub = GridSpecFromSubplotSpec(2, 1, subplot_spec=subplotspec,
-                                   height_ratios=[1.0, 1.8], hspace=0.18)
-    ax_top = fig.add_subplot(sub[0])
-    ax_bot = fig.add_subplot(sub[1], sharex=ax_top)
-
     u = np.asarray(test_trial["u"])
     y_true = np.asarray(test_trial["y_true"])
     y_pred = np.asarray(test_trial["y_pred"])
@@ -1381,31 +1499,88 @@ def _panel_trial_rollout(fig, subplotspec, test_trial: dict):
     T = u.shape[0]
     t_axis = np.arange(T) * dt
 
-    ax_top.plot(t_axis, u[:, 0], color=GT_COLOR, lw=0.8)
-    ax_top.axhline(0, color="0.7", lw=0.3)
-    ax_top.set_ylabel("ω (°/s)", fontsize=LABEL_FS)
-    ax_top.tick_params(labelsize=TICK_FS, labelbottom=False)
-    # Honor a per-trial title prefix if the caller supplied one
-    # ("OU test trial" for the fly's path_integration, "swim test trial"
-    # for the zebrafish's swim_integration, or any task-specific label);
-    # falls back to a generic "test trial" otherwise.
-    trial_label = str(test_trial.get("label", "test trial"))
-    ax_top.set_title(f"{trial_label} #{int(test_trial['idx'])}",
-                      fontsize=TITLE_FS)
+    n_in = int(u.shape[-1]) if u.ndim >= 2 else 0
+    n_out = int(y_true.shape[-1]) if y_true.ndim >= 2 else 0
+    has_rot = n_out >= 2   # cos, sin always lead the target when rotation is on
+    has_trans = (n_in == 1) or (n_in == 4 and n_out == 3)
 
-    theta_true = np.arctan2(y_true[:, 1], y_true[:, 0])
-    theta_pred = np.arctan2(y_pred[:, 1], y_pred[:, 0])
-    ax_bot.plot(t_axis, theta_true, color=GT_COLOR, lw=0.0,
-                marker=".", ms=2.0)
-    ax_bot.plot(t_axis, theta_pred, color=PRED_COLOR, lw=0.0,
-                marker=".", ms=0.6)
-    ax_bot.set_yticks([-np.pi, 0, np.pi])
-    ax_bot.set_yticklabels([r"$-\pi$", "0", r"$\pi$"], fontsize=TICK_FS)
-    ax_bot.set_ylim(-np.pi - 0.15, np.pi + 0.15)
-    ax_bot.set_xlabel("time (s)", fontsize=LABEL_FS)
-    ax_bot.set_ylabel("HD (rad)", fontsize=LABEL_FS)
-    ax_bot.tick_params(labelsize=TICK_FS)
-    return ax_top
+    trial_label = str(test_trial.get("label", "test trial"))
+    title_prefix = f"{trial_label} #{int(test_trial['idx'])}  "
+
+    def _draw_rot(ax_drive, ax_track, drive_col, is_top):
+        ax_drive.plot(t_axis, drive_col, color=GT_COLOR, lw=0.8)
+        ax_drive.axhline(0, color="0.7", lw=0.3)
+        ax_drive.set_ylabel("ω (°/s)", fontsize=LABEL_FS)
+        ax_drive.tick_params(labelsize=TICK_FS, labelbottom=False)
+        if is_top:
+            ax_drive.set_title(title_prefix.rstrip(), fontsize=TITLE_FS)
+        # Heading in y[:, 0:2] in both rotation-only and both modes.
+        theta_true = np.arctan2(y_true[:, 1], y_true[:, 0])
+        theta_pred = np.arctan2(y_pred[:, 1], y_pred[:, 0])
+        ax_track.plot(t_axis, theta_true, color=GT_COLOR, lw=0.0,
+                      marker=".", ms=2.0)
+        ax_track.plot(t_axis, theta_pred, color=PRED_COLOR, lw=0.0,
+                      marker=".", ms=0.6)
+        ax_track.set_yticks([-np.pi, 0, np.pi])
+        ax_track.set_yticklabels([r"$-\pi$", "0", r"$\pi$"], fontsize=TICK_FS)
+        ax_track.set_ylim(-np.pi - 0.15, np.pi + 0.15)
+        ax_track.set_ylabel("HD (rad)", fontsize=LABEL_FS)
+        ax_track.tick_params(labelsize=TICK_FS)
+
+    def _draw_trans(ax_drive, ax_track, drive_col, xi_col_idx, is_top):
+        ax_drive.plot(t_axis, drive_col, color=GT_COLOR, lw=0.8)
+        ax_drive.axhline(0, color="0.7", lw=0.3)
+        ax_drive.set_ylabel(r"$v_{\mathrm{fwd}}$", fontsize=LABEL_FS)
+        ax_drive.tick_params(labelsize=TICK_FS, labelbottom=False)
+        if is_top:
+            ax_drive.set_title(title_prefix.rstrip(), fontsize=TITLE_FS)
+        ax_track.plot(t_axis, y_true[:, xi_col_idx], color=GT_COLOR, lw=1.2)
+        ax_track.plot(t_axis, y_pred[:, xi_col_idx], color=PRED_COLOR, lw=0.8)
+        ax_track.set_ylabel(r"$\xi$", fontsize=LABEL_FS)
+        ax_track.tick_params(labelsize=TICK_FS)
+
+    if has_rot and has_trans:
+        sub = GridSpecFromSubplotSpec(
+            4, 1, subplot_spec=subplotspec,
+            height_ratios=[0.6, 0.6, 1.2, 1.2], hspace=0.22,
+        )
+        ax_w  = fig.add_subplot(sub[0])
+        ax_vf = fig.add_subplot(sub[1], sharex=ax_w)
+        ax_hd = fig.add_subplot(sub[2], sharex=ax_w)
+        ax_xi = fig.add_subplot(sub[3], sharex=ax_w)
+        ax_w.tick_params(labelbottom=False)
+        ax_vf.tick_params(labelbottom=False)
+        ax_hd.tick_params(labelbottom=False)
+        _draw_rot(ax_w, ax_hd, u[:, 0], is_top=True)
+        _draw_trans(ax_vf, ax_xi, u[:, 1], xi_col_idx=2, is_top=False)
+        ax_xi.set_xlabel("time (s)", fontsize=LABEL_FS)
+        return ax_w
+    if has_rot:
+        sub = GridSpecFromSubplotSpec(
+            2, 1, subplot_spec=subplotspec,
+            height_ratios=[1.0, 1.8], hspace=0.18,
+        )
+        ax_top = fig.add_subplot(sub[0])
+        ax_bot = fig.add_subplot(sub[1], sharex=ax_top)
+        _draw_rot(ax_top, ax_bot, u[:, 0], is_top=True)
+        ax_bot.set_xlabel("time (s)", fontsize=LABEL_FS)
+        return ax_top
+    if has_trans:
+        sub = GridSpecFromSubplotSpec(
+            2, 1, subplot_spec=subplotspec,
+            height_ratios=[1.0, 1.8], hspace=0.18,
+        )
+        ax_top = fig.add_subplot(sub[0])
+        ax_bot = fig.add_subplot(sub[1], sharex=ax_top)
+        # Translation-only: u[:, 0] is v_fwd, y_true[:, 0] is ξ.
+        _draw_trans(ax_top, ax_bot, u[:, 0], xi_col_idx=0, is_top=True)
+        ax_bot.set_xlabel("time (s)", fontsize=LABEL_FS)
+        return ax_top
+    # Defensive fallback — empty trial / unexpected shape.
+    sub = GridSpecFromSubplotSpec(1, 1, subplot_spec=subplotspec)
+    ax = fig.add_subplot(sub[0])
+    ax.axis("off")
+    return ax
 
 
 def _is_gnn(net) -> bool:
@@ -1970,7 +2145,7 @@ def plot_cx_evolution(data: dict, out_path: str, *,
 
     Public entry point used by both the standalone CLI
     (``figures/drosophila_cx/fig_evolution.py``) and the training-time
-    snapshot (``drosophila_cx_eval._save_training_snapshot``). Previously
+    snapshot (``bump_attractor_eval._save_training_snapshot``). Previously
     lived as ``build_figure`` in the CLI script and was loaded via
     ``importlib`` from the trainer; centralised here so the trainer can
     just ``from connectome_gnn.plot_cx import plot_cx_evolution``.

@@ -123,7 +123,7 @@ class CortexTaskRNN(nn.Module):
         self._W_rec_free = nn.Parameter(W_init)
 
         # --- CX-side compat surface ------------------------------------
-        # drosophila_cx_eval helpers and the trainer's loss branch read these as
+        # bump_attractor_eval helpers and the trainer's loss branch read these as
         # "is there a connectome?" sentinels; empty lists mean "no
         # type-pair regularisation / no ring TV".
         self._block_names: list[str] = []

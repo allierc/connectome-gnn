@@ -1845,7 +1845,7 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
     """
     import torch.nn.functional as F
 
-    from connectome_gnn.models.drosophila_cx_eval import (
+    from connectome_gnn.models.bump_attractor_eval import (
         _rollout_heading_metrics,
         _save_training_snapshot,
         bump_fwhm,
@@ -2022,6 +2022,10 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
     snapshots_per_epoch = int(getattr(tc, 'snapshots_per_epoch', 5))
     snapshot_n_steps = int(getattr(tc, 'snapshot_n_steps', 1500))
     snapshot_omega_deg = float(getattr(tc, 'snapshot_omega_deg', 60.0))
+    # Constant v_fwd for the deterministic translation rollout (snapshot
+    # panel f when 'translation' is in task_targets). Default matches the
+    # generator's forward_vel_mean.
+    snapshot_v_fwd = float(getattr(tc, 'snapshot_v_fwd', 1.0))
     _coeff_tail_log = float(getattr(tc, 'coeff_tail_loss', 0.0))
     _logger.info(f'losses: cos_distance={coeff_cos}  norm_floor={coeff_norm} (κ={kappa_norm})  '
                  f'tv_circular={coeff_tv}  W_L1={coeff_l1S}  f_theta_diff={coeff_f_diff}  '
@@ -2529,6 +2533,7 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
                     device=device,
                     snapshot_n_steps=snapshot_n_steps,
                     snapshot_omega_deg=snapshot_omega_deg,
+                    snapshot_v_fwd=snapshot_v_fwd,
                     config=config,
                     u_test=u_test,
                     y_test=y_test,

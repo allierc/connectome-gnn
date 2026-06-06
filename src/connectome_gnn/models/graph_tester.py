@@ -2021,7 +2021,7 @@ def data_test_path_integration_task(
     Aggregate mean ± std across both rollout sets is written to
     `<log_dir>/results_path_integration.log`.
     """
-    from connectome_gnn.models.drosophila_cx_eval import (
+    from connectome_gnn.models.bump_attractor_eval import (
         _deterministic_sweep_rollout,
         path_integration_accuracy_from_data,
     )
@@ -2066,6 +2066,33 @@ def data_test_path_integration_task(
     y_test = torch.from_numpy(y_test_np).to(device)
     logger.info(f'  shapes: u={tuple(u_test.shape)}  y={tuple(y_test.shape)}')
 
+    # --- task-mode channel selection (mirrors the trainer's slicing) -------
+    # When the on-disk dataset is the 4-ch swim superset and training.task_targets
+    # is set, project both u_test / y_test (numpy + torch) onto the sub-task's
+    # active channels so the model sees the layout it was trained on. Legacy
+    # 3-ch on-disk datasets pass through unchanged. Mirrors the load-time
+    # slicing in graph_trainer._data_train_drosophila_cx_task.
+    _TASK_PROFILES = {
+        ("rotation",):                ([0, 2, 3],    [0, 1]),
+        ("translation",):             ([1],          [2]),
+        ("rotation", "translation"):  ([0, 1, 2, 3], [0, 1, 2]),
+    }
+    _task_raw = list(getattr(tc, 'task_targets', None) or [])
+    task_targets_canonical = [t for t in ("rotation", "translation") if t in _task_raw]
+    _task_key = tuple(task_targets_canonical)
+    has_rotation = ("rotation" in task_targets_canonical
+                    or not task_targets_canonical)
+    has_translation = "translation" in task_targets_canonical
+    if u_test.shape[-1] >= 4 and _task_key:
+        in_cols, out_cols = _TASK_PROFILES[_task_key]
+        u_test = u_test[..., in_cols].contiguous()
+        y_test = y_test[..., out_cols].contiguous()
+        u_test_np = u_test_np[..., in_cols]
+        y_test_np = y_test_np[..., out_cols]
+        logger.info(f'  task_targets={task_targets_canonical} → sliced 4-ch to '
+                    f'in_cols={in_cols} out_cols={out_cols}; '
+                    f'u={tuple(u_test.shape)} y={tuple(y_test.shape)}')
+
     # --- Rebuild model from registry; load best checkpoint -----------------
     model = create_model(model_config.signal_model_name,
                          aggr_type=model_config.aggr_type,
@@ -2092,12 +2119,19 @@ def data_test_path_integration_task(
     # Test does no backward pass, so we use a much larger batch than training.
     # The training-side `tc.batch_size` is tuned to fit BPTT memory; here we
     # only need forward passes so 256 fits comfortably even for the GNN.
+    # pi_acc is cos-similarity on a (cos, sin) target — meaningful only when
+    # heading is supervised. Skip in translation-only mode.
     test_bs = max(int(tc.batch_size), 256)
-    full_pi = path_integration_accuracy_from_data(
-        model, u_test, y_test, warmup=10, batch_size=test_bs,
-    )
-    logger.info(f'  full test pi_acc (n={u_test.shape[0]}, '
-                f'T={u_test.shape[1]}): {full_pi:.4f}')
+    if has_rotation:
+        full_pi = path_integration_accuracy_from_data(
+            model, u_test, y_test, warmup=10, batch_size=test_bs,
+        )
+        logger.info(f'  full test pi_acc (n={u_test.shape[0]}, '
+                    f'T={u_test.shape[1]}): {full_pi:.4f}')
+    else:
+        full_pi = float('nan')
+        logger.info(f'  full test pi_acc: n/a (translation-only mode, '
+                    f'no heading target)')
 
     # Task-block resolver: this function supports both path_integration
     # and swim_integration test runs. ``dt`` lives on whichever sub-block
@@ -2111,38 +2145,45 @@ def data_test_path_integration_task(
 
     # --- (a) random test trials: per-trial RMSE/Pearson over a 512-trial
     # sample (robust mean for cross-run comparison); only a few are plotted.
+    # plot_task_pi_traces / _per_trial_heading_metrics consume (cos θ, sin θ)
+    # targets — meaningful only when heading is supervised, so we gate them
+    # on has_rotation. In translation-only mode we skip the panel entirely
+    # (the deterministic v_fwd sweep below is the analogous diagnostic).
     rng = np.random.default_rng(config.training.seed)
-    n_metric = int(min(512, u_test.shape[0]))
-    idx_sample = np.sort(rng.choice(u_test.shape[0], size=n_metric, replace=False))
-    with torch.no_grad():
-        y_pred_sample, _ = model(u_test[idx_sample])
-    y_pred_sample_np = y_pred_sample.cpu().numpy()
+    if has_rotation:
+        n_metric = int(min(512, u_test.shape[0]))
+        idx_sample = np.sort(rng.choice(u_test.shape[0], size=n_metric, replace=False))
+        with torch.no_grad():
+            y_pred_sample, _ = model(u_test[idx_sample])
+        y_pred_sample_np = y_pred_sample.cpu().numpy()
 
-    metrics_random = _per_trial_heading_metrics(
-        y_pred_sample_np, theta_test_np[idx_sample],
-    )
-    _rm = np.array([m['rmse_deg'] for m in metrics_random], dtype=float)
-    _pr = np.array([m['pearson'] for m in metrics_random], dtype=float)
-    logger.info(
-        f'  {n_metric} random test trials: '
-        f'rmse={np.nanmean(_rm):.2f}±{np.nanstd(_rm):.2f}°  '
-        f'r={np.nanmean(_pr):.4f}±{np.nanstd(_pr):.4f}'
-    )
-    n_show = int(min(5, n_metric))
-    idx_show = idx_sample[:n_show]
-    random_plot_path = os.path.join(results_dir, 'test_random_trials.png')
-    plot_task_pi_traces(
-        u=u_test_np[idx_show],
-        y=y_test_np[idx_show],
-        theta_hd=theta_test_np[idx_show],
-        is_stop=is_stop_test_np[idx_show],
-        dt=_task_dt,
-        out_path=random_plot_path,
-        n_show=n_show,
-        y_pred=y_pred_sample_np[:n_show],
-        metrics=metrics_random[:n_show],
-    )
-    logger.info(f'  saved: {random_plot_path}')
+        metrics_random = _per_trial_heading_metrics(
+            y_pred_sample_np, theta_test_np[idx_sample],
+        )
+        _rm = np.array([m['rmse_deg'] for m in metrics_random], dtype=float)
+        _pr = np.array([m['pearson'] for m in metrics_random], dtype=float)
+        logger.info(
+            f'  {n_metric} random test trials: '
+            f'rmse={np.nanmean(_rm):.2f}±{np.nanstd(_rm):.2f}°  '
+            f'r={np.nanmean(_pr):.4f}±{np.nanstd(_pr):.4f}'
+        )
+        n_show = int(min(5, n_metric))
+        idx_show = idx_sample[:n_show]
+        random_plot_path = os.path.join(results_dir, 'test_random_trials.png')
+        plot_task_pi_traces(
+            u=u_test_np[idx_show],
+            y=y_test_np[idx_show],
+            theta_hd=theta_test_np[idx_show],
+            is_stop=is_stop_test_np[idx_show],
+            dt=_task_dt,
+            out_path=random_plot_path,
+            n_show=n_show,
+            y_pred=y_pred_sample_np[:n_show],
+            metrics=metrics_random[:n_show],
+        )
+        logger.info(f'  saved: {random_plot_path}')
+    else:
+        logger.info('  (a) random test trials: skipped (translation-only mode)')
 
     # --- (a.5) Anatomy-voltage snapshot ------------------------------------
     # The probe rollout (pattern / n_steps / stride / per-pattern params)
@@ -2176,89 +2217,160 @@ def data_test_path_integration_task(
             'to the yaml.'
         )
 
-    # --- (b) 5 deterministic sweeps at ω ∈ {-120,-60,30,60,120}, T=2000 -----
-    omega_set = [-120.0, -60.0, 30.0, 60.0, 120.0]
     T_sweep = 2000
-    u_sweep, y_sweep, theta_sweep, y_pred_sweep = [], [], [], []
-    for omega in omega_set:
-        rollout = _deterministic_sweep_rollout(
-            model, n_steps=T_sweep, omega_deg_per_s=omega, device=device,
-        )
-        u_sweep.append(rollout['u'])
-        theta_t = rollout['true_theta']
-        theta_sweep.append(theta_t)
-        # Ground-truth (cos, sin) target from theta_t.
-        y_sweep.append(np.stack(
-            [np.cos(theta_t), np.sin(theta_t)], axis=-1
-        ).astype(np.float32))
-        y_pred_sweep.append(rollout['y_pred'])
-    u_sweep_arr = np.stack(u_sweep, axis=0)
-    y_sweep_arr = np.stack(y_sweep, axis=0)
-    theta_sweep_arr = np.stack(theta_sweep, axis=0)
-    y_pred_sweep_arr = np.stack(y_pred_sweep, axis=0)
+    # --- (b) 5 deterministic sweeps at ω ∈ {-120,-60,30,60,120}, T=2000 -----
+    # Heading-only — gated on has_rotation. In translation-only mode the
+    # rollout would build a 1-ch v_fwd input and the heading-frame plotting
+    # would be meaningless. See section (b') below for the translation analog.
+    if has_rotation:
+        omega_set = [-120.0, -60.0, 30.0, 60.0, 120.0]
+        u_sweep, y_sweep, theta_sweep, y_pred_sweep = [], [], [], []
+        for omega in omega_set:
+            rollout = _deterministic_sweep_rollout(
+                model, n_steps=T_sweep, omega_deg_per_s=omega, device=device,
+            )
+            u_sweep.append(rollout['u'])
+            theta_t = rollout['true_theta']
+            theta_sweep.append(theta_t)
+            # Ground-truth (cos, sin) target from theta_t.
+            y_sweep.append(np.stack(
+                [np.cos(theta_t), np.sin(theta_t)], axis=-1
+            ).astype(np.float32))
+            y_pred_sweep.append(rollout['y_pred'])
+        u_sweep_arr = np.stack(u_sweep, axis=0)
+        y_sweep_arr = np.stack(y_sweep, axis=0)
+        theta_sweep_arr = np.stack(theta_sweep, axis=0)
+        y_pred_sweep_arr = np.stack(y_pred_sweep, axis=0)
 
-    metrics_sweep = _per_trial_heading_metrics(
-        y_pred_sweep_arr, theta_sweep_arr,
-    )
-    # Inject ω into metrics so the plot title shows it.
-    for m, omega in zip(metrics_sweep, omega_set):
-        m['omega_deg'] = float(omega)
-    logger.info(
-        '  5 deterministic sweeps (T=2000): '
-        + '  '.join(
-            f"ω={o:+.0f}: r={_color_r(m['pearson'])}"
-            for o, m in zip(omega_set, metrics_sweep)
+        metrics_sweep = _per_trial_heading_metrics(
+            y_pred_sweep_arr, theta_sweep_arr,
         )
-    )
-    sweep_plot_path = os.path.join(results_dir, 'test_deterministic_sweep.png')
-    plot_task_pi_traces(
-        u=u_sweep_arr,
-        y=y_sweep_arr,
-        theta_hd=theta_sweep_arr,
-        is_stop=None,
-        dt=_task_dt,
-        out_path=sweep_plot_path,
-        n_show=5,
-        y_pred=y_pred_sweep_arr,
-        metrics=metrics_sweep,
-    )
-    logger.info(f'  saved: {sweep_plot_path}')
+        # Inject ω into metrics so the plot title shows it.
+        for m, omega in zip(metrics_sweep, omega_set):
+            m['omega_deg'] = float(omega)
+        logger.info(
+            '  5 deterministic ω sweeps (T=2000): '
+            + '  '.join(
+                f"ω={o:+.0f}: r={_color_r(m['pearson'])}"
+                for o, m in zip(omega_set, metrics_sweep)
+            )
+        )
+        sweep_plot_path = os.path.join(results_dir, 'test_deterministic_sweep.png')
+        plot_task_pi_traces(
+            u=u_sweep_arr,
+            y=y_sweep_arr,
+            theta_hd=theta_sweep_arr,
+            is_stop=None,
+            dt=_task_dt,
+            out_path=sweep_plot_path,
+            n_show=5,
+            y_pred=y_pred_sweep_arr,
+            metrics=metrics_sweep,
+        )
+        logger.info(f'  saved: {sweep_plot_path}')
 
-    # --- (c) Integration-gain analysis (Hulse-style slope test) ------------
-    # Denser ω scan than the 5-panel deterministic_sweep so the gain curve
-    # has enough points to resolve where integration breaks down.
-    gain_omega_set = [-180.0, -150.0, -120.0, -90.0, -60.0, -30.0,
-                       30.0,  60.0,  90.0, 120.0, 150.0, 180.0]
-    gain_theta, gain_y_pred = [], []
-    for omega in gain_omega_set:
-        ro = _deterministic_sweep_rollout(
-            model, n_steps=T_sweep, omega_deg_per_s=omega, device=device,
+        # --- (c) Integration-gain analysis (Hulse-style slope test) --------
+        # Denser ω scan than the 5-panel deterministic_sweep so the gain
+        # curve has enough points to resolve where integration breaks down.
+        gain_omega_set = [-180.0, -150.0, -120.0, -90.0, -60.0, -30.0,
+                           30.0,  60.0,  90.0, 120.0, 150.0, 180.0]
+        gain_theta, gain_y_pred = [], []
+        for omega in gain_omega_set:
+            ro = _deterministic_sweep_rollout(
+                model, n_steps=T_sweep, omega_deg_per_s=omega, device=device,
+            )
+            gain_theta.append(ro['true_theta'])
+            gain_y_pred.append(ro['y_pred'])
+        gain_plot_path = os.path.join(results_dir, 'test_integration_gain.png')
+        gain_metrics = plot_integration_gain(
+            theta_hd=np.stack(gain_theta, axis=0),
+            y_pred=np.stack(gain_y_pred, axis=0),
+            omega_deg_per_s=gain_omega_set,
+            dt=_task_dt,
+            out_path=gain_plot_path,
         )
-        gain_theta.append(ro['true_theta'])
-        gain_y_pred.append(ro['y_pred'])
-    gain_plot_path = os.path.join(results_dir, 'test_integration_gain.png')
-    gain_metrics = plot_integration_gain(
-        theta_hd=np.stack(gain_theta, axis=0),
-        y_pred=np.stack(gain_y_pred, axis=0),
-        omega_deg_per_s=gain_omega_set,
-        dt=_task_dt,
-        out_path=gain_plot_path,
-    )
-    logger.info(
-        f'  {len(gain_omega_set)} integration gains (slope ÷ ω): '
-        + '  '.join(
-            f"ω={m['omega_deg']:+.0f}: g={m['gain']:+.3f}"
-            for m in gain_metrics
+        logger.info(
+            f'  {len(gain_omega_set)} integration gains (slope ÷ ω): '
+            + '  '.join(
+                f"ω={m['omega_deg']:+.0f}: g={m['gain']:+.3f}"
+                for m in gain_metrics
+            )
         )
-    )
-    logger.info(f'  saved: {gain_plot_path}')
+        logger.info(f'  saved: {gain_plot_path}')
+    else:
+        logger.info('  (b)/(c) deterministic ω sweeps + gain: skipped '
+                    '(translation-only mode)')
+
+    # --- (b') Translation analog: 5 deterministic v_fwd sweeps, T=2000 ------
+    # Constant-v_fwd rollouts. Reports per-rollout RMSE on ξ and Pearson r
+    # between decoded ξ and GT ξ = v_fwd × t. Saves a simple 5-row figure
+    # (v_fwd top, ξ true vs decoded bottom). Only runs when the model
+    # carries a translation output.
+    if has_translation:
+        v_fwd_set = [-2.0, -1.0, 0.5, 1.0, 2.0]
+        rollouts_trans = []
+        for v in v_fwd_set:
+            ro = _deterministic_sweep_rollout(
+                model, n_steps=T_sweep, v_fwd_per_s=v, device=device,
+            )
+            rollouts_trans.append((v, ro))
+        # Per-rollout summary.
+        log_bits = []
+        for v, ro in rollouts_trans:
+            xi_true = np.asarray(ro['true_xi'])
+            xi_pred = np.asarray(ro['decoded_xi'])
+            rmse = float(np.sqrt(np.mean((xi_pred - xi_true) ** 2)))
+            if (xi_pred[10:].std() > 1e-8 and xi_true[10:].std() > 1e-8):
+                r = float(np.corrcoef(xi_pred[10:], xi_true[10:])[0, 1])
+            else:
+                r = float('nan')
+            log_bits.append(f"v={v:+.1f}: r={_color_r(r)} rmse={rmse:.2f}")
+        logger.info('  5 deterministic v_fwd sweeps (T=2000): '
+                    + '  '.join(log_bits))
+        # Save the figure: one row per sweep, top axis v_fwd, bottom ξ.
+        try:
+            import matplotlib.pyplot as plt
+            fig, axes = plt.subplots(
+                2, len(rollouts_trans),
+                figsize=(2.6 * len(rollouts_trans), 4.0),
+                sharex='col',
+            )
+            for col, (v, ro) in enumerate(rollouts_trans):
+                T = ro['n_steps']
+                t = np.arange(T) * _task_dt
+                ax_top = axes[0, col]
+                ax_bot = axes[1, col]
+                u_col = ro['u'][:, 0]  # v_fwd in translation-only mode
+                if u_col.std() < 1e-8 and ro['u'].shape[-1] >= 2:
+                    # Both mode: v_fwd is in column 1, not 0.
+                    u_col = ro['u'][:, 1]
+                ax_top.plot(t, u_col, color='k', lw=1.0)
+                ax_top.set_title(f"v_fwd = {v:+.1f}", fontsize=9)
+                ax_top.set_ylabel('v_fwd' if col == 0 else '')
+                ax_top.tick_params(labelbottom=False, labelsize=8)
+                ax_bot.plot(t, ro['true_xi'], color='k', lw=1.2, label='true ξ')
+                ax_bot.plot(t, ro['decoded_xi'], color='r', lw=0.8, label='decoded')
+                ax_bot.set_xlabel('time (s)')
+                ax_bot.set_ylabel('ξ' if col == 0 else '')
+                ax_bot.tick_params(labelsize=8)
+                if col == 0:
+                    ax_bot.legend(loc='upper left', fontsize=7)
+            fig.tight_layout()
+            trans_sweep_path = os.path.join(
+                results_dir, 'test_deterministic_v_fwd_sweep.png')
+            fig.savefig(trans_sweep_path, dpi=150, bbox_inches='tight')
+            plt.close(fig)
+            logger.info(f'  saved: {trans_sweep_path}')
+        except Exception as exc:
+            logger.warning(f'  v_fwd-sweep plot failed: {exc}')
 
     # --- (d) Function dynamics along ω=60°/s rollout (GNN teachers only) ---
     # Hexbin of (h_i(t), f_theta(h_i(t))) and (h_j(t), g_phi(h_j(t))^2)
-    # over the ω = +60°/s rollout already computed in (b), with the
-    # static curves of fig 4 (k)/(l) overlaid. Skipped for non-GNN
-    # teachers (TaskRNN has no f_theta / g_phi).
-    if all(hasattr(model, name) for name in ("a", "g_phi", "f_theta")):
+    # over the ω = +60°/s rollout, with the static curves of fig 4 (k)/(l)
+    # overlaid. Skipped for non-GNN teachers (TaskRNN has no f_theta /
+    # g_phi). Also skipped in translation-only mode — no ω drive to probe.
+    if has_rotation and all(hasattr(model, name)
+                            for name in ("a", "g_phi", "f_theta")):
         # Re-run the +60°/s sweep with T_sweep frames; cheap (~ms on l4)
         # and lets us cleanly extract the per-neuron h trajectory.
         ro_60 = _deterministic_sweep_rollout(

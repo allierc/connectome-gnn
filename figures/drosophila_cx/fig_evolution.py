@@ -3,7 +3,7 @@
 Thin CLI shim. All panel rendering lives in
 ``connectome_gnn.plot_cx.plot_cx_evolution`` (the public entry point),
 which is also imported by the training-time snapshot helper in
-``connectome_gnn.models.drosophila_cx_eval._save_training_snapshot``.
+``connectome_gnn.models.bump_attractor_eval._save_training_snapshot``.
 That centralisation removed the importlib hack that used to load this
 file via a hard-coded path; the bulk of the panel code (formerly here,
 ~700 lines of ``_panel_*`` helpers + ``build_figure``) now lives in
@@ -55,7 +55,7 @@ def _load_model_and_rollouts(
     """Load model + run two rollouts + pick one OU test trial."""
     import torch
     from connectome_gnn.config import NeuralGraphConfig
-    from connectome_gnn.models.drosophila_cx_eval import _deterministic_sweep_rollout
+    from connectome_gnn.models.bump_attractor_eval import _deterministic_sweep_rollout
     from connectome_gnn.models.registry import create_model
     from connectome_gnn.plot_cx import cx_epg_directions
     from connectome_gnn.utils import set_data_root
