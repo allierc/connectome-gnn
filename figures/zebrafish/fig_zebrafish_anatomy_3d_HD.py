@@ -31,29 +31,60 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-# Four categories collapse the ~30 IPN subtype names into colour groups.
-# Order = depth/role ordering: HD ring first, then sub-population, then inputs.
-TYPE_ORDER = ["IPNd", "IPNds", "RIPN", "pt-IPN"]
+# Six-way partition matching the proprioception-extended circuit
+# (Figure 3 of zebrafish.tex): three afferent populations + the
+# two recurrent pools + a catch-all "other" for sub-types that aren't
+# routed through the velocity gate. Colour palette matches the circuit
+# diagram so the two figures read together.
+TYPE_ORDER = [
+    "dIPN ring",        # IPNd + IPNds       — recurrent (HD ring)
+    "IPN12 pool",       # IPN12_a + IPN12_b  — recurrent (dorsal pool)
+    "ARTR",             # RIPN01+02+03_a/b   — angular afferent
+    "pt-IPN1",          # pt-IPN1            — exteroceptive translation afferent
+    "motor_efferent",   # RIPN11+12_a+12_c   — proprioceptive translation afferent
+    "other",            # other RIPN* + pt-IPN2 — not routed through the gate
+]
 TYPE_COLOR = {
-    "IPNd":   (0.90, 0.20, 0.20),   # red:    dorsal IPN, HD ring
-    "IPNds":  (1.00, 0.55, 0.10),   # orange: dorsal-subset IPN
-    "RIPN":   (0.20, 0.55, 0.90),   # blue:   habenula -> IPN afferents
-    "pt-IPN": (0.65, 0.30, 0.80),   # purple: pretectum -> IPN afferents
+    "dIPN ring":      "#d49a3a",   # amber  (recurrent ring; matches Fig 3 box)
+    "IPN12 pool":     "#b15a8e",   # rose   (recurrent dorsal pool)
+    "ARTR":           "#1f6fb3",   # blue   (matches ω drive in Fig 3)
+    "pt-IPN1":        "#e07b1a",   # orange (matches v_fwd extero in Fig 3)
+    "motor_efferent": "#2a9d3d",   # green  (matches v_fwd propriocep in Fig 3)
+    "other":          "#888888",   # grey   (residual afferents)
 }
+
+# Full type names (not prefixes) that the inventory tags as part of each
+# functional afferent population. Everything else falls to "other" or to
+# the prefix-based recurrent categories.
+_ARTR_TYPES = {"RIPN01", "RIPN02", "RIPN03_a", "RIPN03_b"}
+_MOTOR_EFFERENT_TYPES = {"RIPN11", "RIPN12_a", "RIPN12_c"}
 
 
 def _type_to_category(safe_type: str) -> str:
-    """Map a fish2 type (or its _safe() form) to the four-way HD colour
-    category. Order of checks matters: 'IPNds' must be matched before 'IPNd'."""
-    if safe_type.startswith("IPNds"):
-        return "IPNds"
-    if safe_type.startswith("pt-IPN"):
-        return "pt-IPN"
-    if safe_type.startswith("RIPN"):
-        return "RIPN"
-    if safe_type.startswith("IPNd"):
-        return "IPNd"
-    return safe_type  # fall back to literal name for anything unexpected
+    """Map a fish2 type (or its _safe() form) to the six-way partition.
+
+    Cell-type-specific tags (ARTR, motor_efferent, pt-IPN1) take precedence
+    over the coarse prefix sweep so the inventory's identification of
+    functionally distinct sub-types isn't lost.
+    """
+    # Functional afferent populations — exact type names.
+    if safe_type in _ARTR_TYPES:
+        return "ARTR"
+    if safe_type in _MOTOR_EFFERENT_TYPES:
+        return "motor_efferent"
+    if safe_type == "pt-IPN1":
+        return "pt-IPN1"
+    # Recurrent network — coarse prefixes. IPN12 must precede IPNd; IPNds
+    # must precede IPNd.
+    if safe_type.startswith("IPN12"):
+        return "IPN12 pool"
+    if safe_type.startswith("IPNds") or safe_type.startswith("IPNd"):
+        return "dIPN ring"
+    # Residual afferents — other RIPN* sub-types (RIPN05, 12_b, 16, 17)
+    # and pt-IPN2 — that aren't routed through the velocity gate.
+    if safe_type.startswith("RIPN") or safe_type.startswith("pt-IPN"):
+        return "other"
+    return "other"
 
 
 # ROIs that get a brighter silhouette than the default backdrop. Names

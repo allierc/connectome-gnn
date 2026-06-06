@@ -96,16 +96,19 @@ This paper is a companion to our central-complex study \citep{cx2026}.
 In the larval zebrafish, head-direction information is carried by a
 population of $\sim 50$--$100$ GABAergic neurons (the \rpi{} cells)
 located in rhombomere~1 of the anterior hindbrain \citep{petrucco2023}.
-A sinusoidal bump of activity travels around this network in a
-direction opposite to the fish's swims, persists for tens of seconds
-in the absence of motor activity, and tracks an estimated heading
-angle whose magnitude per swim ($\approx \pi/4$~rad) matches the
-behaviourally measured turn. The connectivity scheme that supports
-the bump --- short-range excitation and long-range, out-of-phase
-inhibition --- is the classical ring-attractor architecture, and
-electron-microscopy reconstructions of the \rpi{} axons show
-reciprocal inhibitory connectivity in the dIPN consistent with this
-picture.
+A sinusoidal bump of activity travels around the functional ring
+(cells ordered by preferred heading, not by anatomical position) in
+a direction opposite to the fish's swims, persists for tens of
+seconds in the absence of motor activity, and tracks an estimated
+heading angle whose magnitude per swim ($\approx \pi/4$~rad) matches
+the behaviourally measured turn. The connectivity scheme that
+supports the bump --- short-range excitation and long-range,
+out-of-phase inhibition --- is the classical ring-attractor
+architecture, and electron-microscopy reconstructions of the \rpi{}
+axons reveal reciprocal connectivity in the dIPN consistent with
+this picture; the inhibitory sign is not read out from the EM but
+imposed here by an all-inhibitory Dale convention on the \rpi{}
+population.
 
 \paragraph{Cell-type vocabulary.}
 \Cref{tab:zhd_mapping} lists the four functional categories of
@@ -154,38 +157,51 @@ starts with that prefix (e.g.\ \emph{IPNd13B}, \emph{IPNd17A},
 \label{sec:anatomy}
 
 \paragraph{3-D anatomy.}
-\Cref{fig:zhd_3d} shows the four HD-circuit cell-type families
-(\emph{IPNd*}, \emph{IPNds*}, \emph{RIPN*}, \emph{pt-IPN*})
-rendered in 3-D against the Habenula / dIPN / vIPN ROI meshes. The
-\emph{IPNd}/\emph{IPNds} arbors form the compact midline
-ring-attractor structure; \emph{RIPN} fibres descend from the
-habenula and \emph{pt-IPN} fibres sweep in from the lateral
-pretectum.
+\Cref{fig:zhd_3d} shows the HD-circuit cell families rendered in
+3-D and colour-coded by the same six-way functional partition used
+in the circuit diagram (\cref{fig:zhd_circuit_variants}): the
+recurrent ring substrate (\emph{dIPN ring} $=$ \emph{IPNd*} $+$
+\emph{IPNds*}); the three afferent populations that the velocity
+gate routes the angular and translational drives through
+(\emph{ARTR} $=$ \emph{RIPN01/02/03\_a/03\_b}, \emph{pt-IPN1}, and
+\emph{motor\_efferent} $=$ \emph{RIPN11/12\_a/12\_c}); and a residual
+``other'' category for sub-types not routed through the gate
+(\emph{RIPN05/12\_b/16/17}, \emph{pt-IPN2}). The \emph{IPN12 pool}
+(\emph{IPN12\_a} $+$ \emph{IPN12\_b}) is part of the recurrent
+network but lives in a sibling anatomy cache and is omitted from
+the 3-D render. Spatially, the \emph{dIPN ring} substrate forms the
+compact midline neuropil; \emph{RIPN}-derived afferents descend from
+the habenula and \emph{pt-IPN}-derived afferents sweep in from the
+lateral pretectum.
 
 \begin{figure}[H]
   \centering
   \includegraphics[width=0.8\textwidth]{\figdir/fig_zebrafish_anatomy_3d_HD.png}
-  \caption{\textbf{Zebrafish HD-circuit anatomy.}
-  \textbf{(a)} 727 skeletons from \emph{neuprint-fish2} grouped into
-  the four functional categories of \cref{tab:zhd_mapping}:
-  \emph{IPNd*} (red, dIPN HD ring), \emph{IPNds*} (orange,
-  dorsal-subset), \emph{RIPN*} (blue, habenula $\to$ IPN afferents),
-  \emph{pt-IPN*} (purple, pretectum $\to$ IPN afferents).
-  Dorsal view, elevation $+90^\circ$, azimuth $-0.5^\circ$. ROI
-  meshes: \emph{Habenula\_dIPN}, \emph{Habenula\_vIPN},
-  \emph{dIPN(L1)/(R1)}, \emph{dsIPN(L)/(R)},
-  \emph{iIPN(L/R)\{1,2,3\}}, \emph{Pretectum}, \emph{Habenula}
-  (faint silhouette outlines).
-  \textbf{(b)} Same view restricted to the cell bodies, with each
-  soma drawn from the SWC soma node (the only node whose radius is
-  $\gg$ the segmental baseline). The two panels show \emph{spatially
-  disjoint} compartments of the same neurons: the dense central
-  region of (a) is the dIPN / iIPN \emph{neuropil} --- a region of
-  axo-dendritic arborisation containing no cell bodies --- and the
-  somata in (b) sit in the cortex around it, each connected to its
-  neuropil arbor by a thin primary-neurite tract visible in (a).
-  The HD-ring substrate is therefore not a ring of cell bodies but
-  the neuropil into which IPNd / RIPN / pt-IPN arbors converge.}
+  \caption{\textbf{Zebrafish HD-circuit anatomy, partitioned to match
+  \cref{fig:zhd_circuit_variants}.} Cell-family colour code is shared
+  with that figure: \emph{dIPN ring} (amber, $n=442$ skeletons cached
+  --- the recurrent ring substrate), \emph{ARTR} (blue, $n=76$ ---
+  angular afferent), \emph{pt-IPN1} (orange, $n=51$ --- exteroceptive
+  translational afferent), \emph{motor\_efferent} (green, $n=67$ ---
+  proprioceptive translational afferent), \emph{other} (grey,
+  $n=91$ --- residual RIPN sub-types and pt-IPN2 that are not routed
+  through the velocity gate). \textbf{(a)}~Skeletons from
+  \emph{neuprint-fish2} rendered against the Habenula / dIPN / vIPN
+  ROI meshes (faint silhouette outlines: \emph{Habenula\_dIPN},
+  \emph{Habenula\_vIPN}, \emph{dIPN(L1)/(R1)}, \emph{dsIPN(L)/(R)},
+  \emph{iIPN(L/R)\{1,2,3\}}, \emph{Pretectum}, \emph{Habenula}). Dorsal
+  view, elevation $+90^\circ$, azimuth $-90^\circ$. \textbf{(b)}~Same
+  view restricted to the cell bodies, with each soma drawn from the
+  SWC soma node (the only node whose radius is $\gg$ the segmental
+  baseline). The two panels show \emph{spatially disjoint} compartments
+  of the same neurons: the dense central region of \textbf{(a)} is the
+  dIPN / iIPN \emph{neuropil} --- a region of axo-dendritic
+  arborisation containing no cell bodies --- and the somata in
+  \textbf{(b)} sit in the cortex around it, each connected to its
+  neuropil arbor by a thin primary-neurite tract visible in
+  \textbf{(a)}. The HD-ring substrate is therefore not a ring of cell
+  bodies but the neuropil into which the afferents and the recurrent
+  ring arbors converge.}
   \label{fig:zhd_3d}
 \end{figure}
 
@@ -224,16 +240,23 @@ edges are the only entries whose sign differs between \textbf{v1} and \textbf{v2
   $z$-scored.
   \textbf{(c)} Signed $W^{\mathrm{con}}$ for \textbf{v2} (IPN12 excitatory),
   same scale.
-  \textbf{(d)} Per-category \emph{incoming} edge-weight distributions
+  \textbf{(d)} Same support mask as \textbf{(a)} but with neurons sorted
+  by the six-way functional partition introduced in
+  \cref{fig:zhd_circuit_variants} --- \emph{dIPN ring} (amber, $n=443$),
+  \emph{IPN12 pool} (rose, $n=108$), \emph{ARTR} (blue, $n=76$),
+  \emph{pt-IPN1} (orange, $n=51$), \emph{motor\_efferent} (green,
+  $n=68$), and \emph{other} (grey, $n=93$). Colour-coded strips on the
+  row and column axes mark each partition block; colours match
+  \cref{fig:zhd_3d} so the partition reads consistently across the
+  two anatomy / connectome figures and the circuit diagram of
+  \cref{fig:zhd_circuit_variants}.
+  \textbf{(e)} Per-category \emph{incoming} edge-weight distributions
   (violins, post-synaptic neuron in the category) for \textbf{v1}  (blue) and
-  \textbf{v2} (red), over the five coarse categories \emph{IPNd},
+  \textbf{v2} (red), over the five coarse type categories \emph{IPNd},
   \emph{IPNds}, \emph{IPN12}, \emph{RIPN}, \emph{pt-IPN}.
-  \textbf{(e)} Per-category \emph{outgoing} edge-weight distributions
+  \textbf{(f)} Per-category \emph{outgoing} edge-weight distributions
   (pre-synaptic neuron in the category); the \emph{IPN12} violin is
-  the only one that moves from negative (v1) to positive (v2).
-  \textbf{(f)} IPN12\_a $+$ IPN12\_b outgoing weights alone: the
-  $3{,}536$-edge sign flip between the GABAergic (\textbf{v1}, blue) and
-  glutamatergic (\textbf{v2}, red) hypotheses.}
+  the only one that moves from negative (v1) to positive (v2).}
   \label{fig:zhd_connectome_summary}
 \end{figure}
 

@@ -1,10 +1,8 @@
 """Zebrafish HD-circuit connectome summary for the nominal 839-cell
-IPN12 circuit, in its two Dale-sign variants (companion to
-figures/drosophila_cx/fig_connectome_summary.py).
+IPN12 circuit, in its two Dale-sign variants.
 
-The nominal circuit now includes the IPN12_a / IPN12_b sub-types in the
-bump pool. We do not know whether IPN12 cells are inhibitory or
-excitatory, so two circuits are built from the same topology:
+The nominal circuit includes the IPN12_a / IPN12_b sub-types in the
+bump pool. Two circuits are built from the same topology:
   v1  zebrafish_HD_IPN12_839_v1 : IPN12 outgoing weights Dale-flipped
                                   to inhibitory (GABAergic hypothesis)
   v2  zebrafish_HD_IPN12_839_v2 : IPN12 outgoing weights left positive
@@ -16,17 +14,16 @@ Only the IPN12 outgoing sign differs; the support is identical.
   (b) Signed W_con, v1 (IPN12 inhibitory), z-scored over non-zero
       entries and clipped to +/-3.
   (c) Signed W_con, v2 (IPN12 excitatory), same scale.
-  (d) Per-cell-type INCOMING edge-weight distributions (violins,
-      v1 vs v2), drosophila-2c style on coarse categories.
-  (e) Per-cell-type OUTGOING edge-weight distributions (violins,
-      v1 vs v2), drosophila-2d style.
-  (f) IPN12_a + IPN12_b outgoing weights only: the load-bearing sign
-      flip between v1 (inhibitory) and v2 (excitatory).
-
-Data source: each circuit's effective connectome is read straight off
-the trained-model template via create_model(...).W_con, so the figure
-uses the same Dale-flip + spectral-rescaling the registry applies for
-training (no re-derivation here).
+  (d) Support mask with neurons sorted by the six-way functional
+      partition introduced in the proprioception circuit (ARTR,
+      pt-IPN1, motor_efferent, dIPN ring, IPN12 pool, other), with
+      colour-coded axis strips marking each block. Colour code is
+      shared with Figure 1 of zebrafish.tex so the two figures read
+      together.
+  (e) Per-cell-type INCOMING edge-weight distributions (violins,
+      v1 vs v2) on the coarse type categories.
+  (f) Per-cell-type OUTGOING edge-weight distributions (violins,
+      v1 vs v2).
 
 Output: figures/zebrafish/fig_connectome_summary_HD_IPN12.png
 """
@@ -64,6 +61,23 @@ COARSE_COLOR = {
 V1_COLOR = "#1f6feb"  # blue  -> v1 (IPN12 inhibitory)
 V2_COLOR = "#cf222e"  # red   -> v2 (IPN12 excitatory)
 
+# Six-way functional partition introduced in the proprioception circuit
+# (Figure 3 of zebrafish.tex). Same colour code as Figure 1 of the same
+# document so the partition reads consistently across figures.
+PARTITION_ORDER = [
+    "dIPN ring", "IPN12 pool", "ARTR", "pt-IPN1", "motor_efferent", "other",
+]
+PARTITION_COLOR = {
+    "dIPN ring":      "#d49a3a",
+    "IPN12 pool":     "#b15a8e",
+    "ARTR":           "#1f6fb3",
+    "pt-IPN1":        "#e07b1a",
+    "motor_efferent": "#2a9d3d",
+    "other":          "#888888",
+}
+_ARTR_TYPES = {"RIPN01", "RIPN02", "RIPN03_a", "RIPN03_b"}
+_MOTOR_EFFERENT_TYPES = {"RIPN11", "RIPN12_a", "RIPN12_c"}
+
 
 def _coarse_of(name):
     if name.startswith("IPN12"):
@@ -77,6 +91,26 @@ def _coarse_of(name):
     if name.startswith("pt-IPN") or name.startswith("ptIPN"):
         return "pt-IPN"
     return "other"
+
+
+def _partition_of(name):
+    """Six-way functional partition matching the proprioception circuit."""
+    if name in _ARTR_TYPES:
+        return "ARTR"
+    if name in _MOTOR_EFFERENT_TYPES:
+        return "motor_efferent"
+    if name == "pt-IPN1":
+        return "pt-IPN1"
+    if name.startswith("IPN12"):
+        return "IPN12 pool"
+    if name.startswith("IPNds") or name.startswith("IPNd"):
+        return "dIPN ring"
+    return "other"
+
+
+def _partition_ids(nt, names):
+    """Per-neuron partition label for each neuron index."""
+    return np.array([_partition_of(names[int(t)]) for t in nt], dtype=object)
 
 
 def _load_W(config_name, device):
@@ -187,21 +221,79 @@ def _paired_violin(ax, d1, d2, ylabel, title):
               fontsize=7, loc="upper right", frameon=False)
 
 
-def _panel_ipn12(ax, W1, W2, coarse):
-    idx = np.where(coarse == "IPN12")[0]
-    o1 = W1[:, idx].ravel(); o1 = o1[o1 != 0]
-    o2 = W2[:, idx].ravel(); o2 = o2[o2 != 0]
-    lo = float(min(o1.min(), o2.min())); hi = float(max(o1.max(), o2.max()))
-    bins = np.linspace(lo, hi, 41)
-    ax.hist(o1, bins=bins, color=V1_COLOR, alpha=0.6,
-            label=f"v1 inhib. (mean {o1.mean():+.3f})")
-    ax.hist(o2, bins=bins, color=V2_COLOR, alpha=0.6,
-            label=f"v2 excit. (mean {o2.mean():+.3f})")
-    ax.axvline(0.0, color="0.4", lw=0.6)
-    ax.set_xlabel(r"signed $W^{\mathrm{con}}_{ij}$ (IPN12 outgoing)", fontsize=9)
-    ax.set_ylabel("edge count", fontsize=9)
-    ax.set_title(f"IPN12 outgoing sign flip ({o1.size} edges)", fontsize=10)
-    ax.legend(fontsize=7, frameon=False)
+def _panel_partition_matrix(ax, W, partition):
+    """Support mask with neurons sorted by the functional partition.
+
+    Neurons are reordered so members of the same partition are
+    contiguous; the matrix becomes a block-structured view of the
+    connectome where the ARTR / pt-IPN1 / motor_efferent /
+    dIPN ring / IPN12 / other blocks are visible. Coloured strips on
+    the row and column axes carry the partition identity in the same
+    palette used by Figure 1 of zebrafish.tex.
+    """
+    from matplotlib.collections import PatchCollection
+    from matplotlib.patches import Rectangle
+    from scipy.ndimage import binary_dilation
+    # Stable order: PARTITION_ORDER groups, then original index within.
+    order_key = {k: i for i, k in enumerate(PARTITION_ORDER)}
+    perm = np.argsort(
+        [order_key.get(p, len(PARTITION_ORDER)) for p in partition],
+        kind="stable",
+    )
+    W_sorted = W[np.ix_(perm, perm)]
+    part_sorted = partition[perm]
+
+    # Support mask, lightly dilated for visibility at panel resolution.
+    M = (W_sorted != 0)
+    Mvis = binary_dilation(M, iterations=1).astype(np.float32)
+    ax.imshow(Mvis, cmap="binary", vmin=0, vmax=1,
+              interpolation="nearest", aspect="equal")
+
+    # Block boundaries between partitions.
+    b = np.where(np.diff(
+        np.array([order_key.get(p, len(PARTITION_ORDER)) for p in part_sorted])
+    ) != 0)[0] + 0.5
+    for x in b:
+        ax.axvline(x, color="r", lw=0.5, alpha=0.7)
+        ax.axhline(x, color="r", lw=0.5, alpha=0.7)
+    boundaries = np.concatenate([[0], b + 0.5, [part_sorted.size]])
+
+    # Strip width as a fraction of the axes — drawn as rectangles
+    # outside the matrix area so the partition is visible without
+    # cluttering the connectivity.
+    N = part_sorted.size
+    strip = max(8, int(N * 0.015))
+    for lo, hi in zip(boundaries[:-1], boundaries[1:]):
+        lo = int(round(lo)); hi = int(round(hi))
+        cat = part_sorted[lo]
+        col = PARTITION_COLOR.get(cat, "0.5")
+        # Top strip (along columns).
+        ax.add_patch(Rectangle(
+            (lo - 0.5, -strip - 0.5), hi - lo, strip,
+            facecolor=col, edgecolor="none", clip_on=False, zorder=4,
+        ))
+        # Left strip (along rows).
+        ax.add_patch(Rectangle(
+            (-strip - 0.5, lo - 0.5), strip, hi - lo,
+            facecolor=col, edgecolor="none", clip_on=False, zorder=4,
+        ))
+
+    ax.set_xlim(-strip - 0.5, N - 0.5)
+    ax.set_ylim(N - 0.5, -strip - 0.5)
+    ax.set_xticks([]); ax.set_yticks([])
+    ax.set_xlabel("presynaptic (sorted by partition)", fontsize=9)
+    ax.set_ylabel("postsynaptic (sorted by partition)", fontsize=9)
+    ax.set_title("functional partition (matches Figure 1 colour code)",
+                 fontsize=10)
+
+    # Compact legend below the panel — Figure 1's same colour swatches.
+    from matplotlib.patches import Patch
+    handles = [Patch(facecolor=PARTITION_COLOR[k], edgecolor="none",
+                     label=f"{k} (n={int((part_sorted==k).sum())})")
+               for k in PARTITION_ORDER if (part_sorted == k).any()]
+    ax.legend(handles=handles, loc="center left",
+              bbox_to_anchor=(1.02, 0.5), fontsize=7,
+              frameon=False, handlelength=1.4)
 
 
 def main():
@@ -229,32 +321,41 @@ def main():
     assert names == names2 and np.array_equal(nt, nt2), \
         "v1 and v2 must share neuron ordering / type vocabulary"
     coarse = _coarse_ids(nt, names)
+    partition = _partition_ids(nt, names)
 
     for tag, W in (("v1", W1), ("v2", W2)):
         nnz = int((W != 0).sum())
         print(f"{tag}: N={W.shape[0]} nnz={nnz} dens={nnz / W.size:.4f} "
               f"E={int((W > 0).sum())} I={int((W < 0).sum())}")
+    print("partition counts:")
+    for k in PARTITION_ORDER:
+        n_k = int((partition == k).sum())
+        print(f"  {k:18s}  {n_k}")
 
     # Shared z-score reference so v1 and v2 matrices are directly comparable.
     ref_nz = np.concatenate([W1[W1 != 0], W2[W2 != 0]])
 
+    # Layout: a = support, b = W_con v1, c = W_con v2,
+    #         d = partition-sorted matrix (NEW), e = incoming violins
+    #         (was d), f = outgoing violins (was e). The old IPN12
+    #         sign-flip histogram is removed.
     fig, axes = plt.subplots(2, 3, figsize=(17, 11))
     _panel_mask(axes[0, 0], W1, nt, names)
     _panel_W(axes[0, 1], W1, nt, names, ref_nz=ref_nz,
              title=r"$W^{\mathrm{con}}$ v1 — IPN12 inhibitory")
     _panel_W(axes[0, 2], W2, nt, names, ref_nz=ref_nz,
              title=r"$W^{\mathrm{con}}$ v2 — IPN12 excitatory")
-    _paired_violin(axes[1, 0],
+    _panel_partition_matrix(axes[1, 0], W1, partition)
+    _paired_violin(axes[1, 1],
                    _collect(W1, coarse, "incoming"),
                    _collect(W2, coarse, "incoming"),
                    ylabel=r"signed $W^{\mathrm{con}}_{ij}$ (incoming)",
                    title="incoming edge weights (post = category)")
-    _paired_violin(axes[1, 1],
+    _paired_violin(axes[1, 2],
                    _collect(W1, coarse, "outgoing"),
                    _collect(W2, coarse, "outgoing"),
                    ylabel=r"signed $W^{\mathrm{con}}_{ij}$ (outgoing)",
                    title="outgoing edge weights (pre = category)")
-    _panel_ipn12(axes[1, 2], W1, W2, coarse)
 
     for k, ax in enumerate(axes.flat):
         ax.text(-0.12, 1.05, "abcdef"[k], transform=ax.transAxes,
