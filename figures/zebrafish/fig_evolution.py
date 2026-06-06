@@ -298,7 +298,10 @@ def main():
             args.out_dir,
             f"fig_evolution_{os.path.basename(os.path.abspath(run_dir))}.png",
         )
-        plot_cx_evolution(data, out_path, run_dir=run_dir)
+        # n_rows=2 keeps the figure compact (a–h, no empty third row);
+        # integration gain is in slot h. GNN-only panels (j, k, l) are
+        # not produced here.
+        plot_cx_evolution(data, out_path, run_dir=run_dir, n_rows=2)
 
 
 if __name__ == "__main__":
