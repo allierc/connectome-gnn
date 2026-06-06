@@ -1891,43 +1891,60 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
     _logger.info(f'task data: train u={tuple(u_train.shape)} y={tuple(y_train.shape)}  '
                  f'test u={tuple(u_test.shape)} y={tuple(y_test.shape)}')
 
-    # ---- task-mode channel selection (4-ch / 3-col superset → sub-task) ---
-    # Generator A always writes the 4-ch input [ω, v_fwd, cosθ0, sinθ0] and
-    # 3-col target [cosθ, sinθ, ξ]. task_targets picks the sub-task and slices
-    # both u and y onto the active channels:
-    #   ['rotation']               → in [0,2,3]   out [0,1]   (3-in, 2-out)
-    #   ['translation']            → in [1]        out [2]     (1-in, 1-out)
-    #   ['rotation','translation'] → in [0,1,2,3]  out [0,1,2] (4-in, 3-out)
+    # ---- task-mode channel selection (4-ch superset → sub-task) ----------
+    # Generator A always writes the 4-ch input [ω, v_fwd, cosθ0, sinθ0]. The
+    # on-disk target shape depends on task.swim_integration.target_kind:
+    #     scalar_xi   → 3-col [cosθ, sinθ, ξ]                 (legacy default)
+    #     position_2d → 4-col [cosθ, sinθ, x, y]              (true 2D PI)
+    # task_targets selects the sub-task and slices both u and y onto the
+    # active channels. Profiles depend on the on-disk target shape:
+    #
+    #   scalar_xi dataset (target_kind='scalar_xi', y has 3 cols):
+    #     ['rotation']                 → in [0,2,3]    out [0,1]   (3, 2)
+    #     ['translation']              → in [1]         out [2]     (1, 1)
+    #     ['rotation','translation']   → in [0,1,2,3]   out [0,1,2] (4, 3)
+    #
+    #   position_2d dataset (target_kind='position_2d', y has 4 cols):
+    #     ['rotation']                 → in [0,2,3]    out [0,1]    (3, 2)
+    #     ['position_2d']              → in [0,1,2,3]  out [0,1,2,3] (4, 4)
+    #
     # Legacy 3-ch on-disk datasets (u_train.shape[-1] == 3) pre-date the
-    # 4-ch layout and pass through unchanged — the model's n_input/n_output
-    # then defaults to 3/2 (their original task), so old runs are
-    # byte-identical.
-    _TASK_PROFILES = {
-        ("rotation",):                ([0, 2, 3],    [0, 1]),
-        ("translation",):             ([1],          [2]),
-        ("rotation", "translation"):  ([0, 1, 2, 3], [0, 1, 2]),
+    # 4-ch layout and pass through unchanged (n_in/n_out default to 3/2).
+    _PROFILE_BY_TARGET = {
+        # Keyed by (y_cols, sorted_task_targets_tuple).
+        (3, ("rotation",)):                ([0, 2, 3],    [0, 1]),
+        (3, ("translation",)):             ([1],          [2]),
+        (3, ("rotation", "translation")):  ([0, 1, 2, 3], [0, 1, 2]),
+        (4, ("rotation",)):                ([0, 2, 3],    [0, 1]),
+        (4, ("position_2d",)):             ([0, 1, 2, 3], [0, 1, 2, 3]),
     }
     _task_raw = list(getattr(tc, 'task_targets', None) or [])
-    # Canonical key: rotation always before translation (enforces a stable
-    # ordering across the in/out col lists, the model n_input dim, and the
-    # eval probe gating below).
-    _task_key = tuple(t for t in ("rotation", "translation") if t in _task_raw)
+    # Canonical key: rotation always before translation; position_2d listed
+    # separately. Sorting is by a fixed enumeration so the key is stable.
+    _RECOGNISED = ("rotation", "translation", "position_2d")
+    _task_key = tuple(t for t in _RECOGNISED if t in _task_raw)
     task_targets_canonical = list(_task_key)
     if u_train.shape[-1] >= 4 and _task_key:
-        if _task_key not in _TASK_PROFILES:
+        n_out_disk = int(y_train.shape[-1])
+        _profile_key = (n_out_disk, _task_key)
+        if _profile_key not in _PROFILE_BY_TARGET:
             raise ValueError(
-                f"training.task_targets must be a non-empty subset of "
-                f"{{'rotation','translation'}}; got {_task_raw!r}"
+                f"training.task_targets={_task_raw!r} is not a valid "
+                f"projection for an on-disk target with {n_out_disk} cols. "
+                f"scalar_xi (3-col): rotation / translation / "
+                f"rotation+translation. position_2d (4-col): rotation / "
+                f"position_2d."
             )
-        in_cols, out_cols = _TASK_PROFILES[_task_key]
+        in_cols, out_cols = _PROFILE_BY_TARGET[_profile_key]
         u_train = u_train[..., in_cols].contiguous()
         y_train = y_train[..., out_cols].contiguous()
         u_test  = u_test[...,  in_cols].contiguous()
         y_test  = y_test[...,  out_cols].contiguous()
         _logger.info(
-            f"task_targets={task_targets_canonical} → sliced 4-ch dataset to "
-            f"in_cols={in_cols} out_cols={out_cols}; "
-            f"train u={tuple(u_train.shape)} y={tuple(y_train.shape)}"
+            f"task_targets={task_targets_canonical} (on-disk y has "
+            f"{n_out_disk} cols) → sliced to in_cols={in_cols} "
+            f"out_cols={out_cols}; train u={tuple(u_train.shape)} "
+            f"y={tuple(y_train.shape)}"
         )
 
     logger.info(f'train trials: {u_train.shape[0]}  test trials: {u_test.shape[0]}  '
@@ -2467,7 +2484,12 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
                     # only when the network is trained on rotation. In a pure
                     # translation run there is no ω in the input and no
                     # cos/sin in the target, so skip them and write nan.
+                    # Heading is in the target whenever cos/sin lead it —
+                    # rotation, both (rotation+translation), and
+                    # position_2d all have it. Translation-only is the
+                    # one mode where heading isn't supervised.
                     _has_rotation = ("rotation" in task_targets_canonical
+                                     or "position_2d" in task_targets_canonical
                                      or not task_targets_canonical)
                     if _has_rotation:
                         last_pi_acc = path_integration_accuracy_from_data(
@@ -2624,7 +2646,9 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
 
     # --- Final eval on full test split (full T) -------------------------
     # pi_acc is heading-only — skip in a pure translation run.
-    if ("rotation" in task_targets_canonical or not task_targets_canonical):
+    if ("rotation" in task_targets_canonical
+            or "position_2d" in task_targets_canonical
+            or not task_targets_canonical):
         final_pi = path_integration_accuracy_from_data(
             eval_model, u_test, y_test, warmup=10, batch_size=tc.batch_size,
         )

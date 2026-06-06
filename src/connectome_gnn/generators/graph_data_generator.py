@@ -531,10 +531,19 @@ def _generate_swim_integration_task(config, *, device, visualize: bool = True) -
     # converted.
     lr_deg = math.degrees(si.phase_impulse_mean_rad)
     bw_deg = math.degrees(si.backward_phase_mean_rad)
-    _xi_tau = getattr(si, "xi_tau_s", None)
-    _xi_str = ("perfect (cumsum)"
-               if _xi_tau is None or float(_xi_tau) <= 0.0
-               else f"leaky τ={float(_xi_tau):.3f}s")
+    _tgt_kind = str(getattr(si, "target_kind", "scalar_xi")).lower()
+    if _tgt_kind == "position_2d":
+        _pos_tau = getattr(si, "position_tau_s", None)
+        _int_str = ("perfect (cumsum)"
+                    if _pos_tau is None or float(_pos_tau) <= 0.0
+                    else f"leaky τ={float(_pos_tau):.3f}s")
+        _int_label = "(x,y)-integrator"
+    else:
+        _xi_tau = getattr(si, "xi_tau_s", None)
+        _int_str = ("perfect (cumsum)"
+                    if _xi_tau is None or float(_xi_tau) <= 0.0
+                    else f"leaky τ={float(_xi_tau):.3f}s")
+        _int_label = "ξ-integrator"
     logger.info(
         f"[task] T={si.n_steps} dt={si.dt} rate={si.swim_rate_hz}Hz "
         f"swim_dur={si.swim_duration_s}s "
@@ -544,7 +553,7 @@ def _generate_swim_integration_task(config, *, device, visualize: bool = True) -
         f"F{si.forward_fraction:.2f}/B{si.backward_fraction:.2f} "
         f"train={si.n_trials_train} test={si.n_trials_test} "
         f"omega_noise_level={si.omega_noise_level} "
-        f"ξ-integrator={_xi_str}"
+        f"target_kind={_tgt_kind} {_int_label}={_int_str}"
     )
 
     T = int(si.n_steps)
@@ -656,31 +665,63 @@ def _generate_swim_integration_task(config, *, device, visualize: bool = True) -
         theta_hd = theta0[:, None] + np.cumsum(np.deg2rad(omega), axis=1) * dt
         theta_hd[:, 0] = theta0
 
-        # Displacement ξ in parallel to heading θ = ∫ ω dt. Two integrator
-        # variants, selected by task.swim_integration.xi_tau_s:
-        #   None / ≤ 0  → perfect integrator  ξ(t) = Σ_{k≤t} v_fwd(k) Δt
-        #                 (the default, byte-identical to the original).
-        #   τ > 0       → leaky integrator    ξ(t+Δt) = α ξ(t) + v_fwd(t) Δt
-        #                 with α = 1 − Δt/τ (clamped to [0, 1)). Steady-
-        #                 state for constant v_fwd is τ·v_fwd so the
-        #                 target stays bounded and the loss doesn't grow
-        #                 with curriculum T. Both paths start at ξ(0)=0.
-        _xi_tau = getattr(si, "xi_tau_s", None)
-        if _xi_tau is None or float(_xi_tau) <= 0.0:
+        # ------ TARGET ASSEMBLY ----------------------------------------------
+        # Two recipes selected by task.swim_integration.target_kind. Each
+        # supports an optional leaky-integrator τ (xi_tau_s / position_tau_s);
+        # τ None or ≤ 0 → perfect integrator (byte-identical to the original
+        # for the scalar_xi case).
+        _target_kind = str(getattr(si, "target_kind", "scalar_xi")).lower()
+
+        def _integrate_leaky(drive: np.ndarray, tau: "float | None") -> np.ndarray:
+            """Forward-Euler integrator. tau = None / ≤ 0 → perfect cumsum."""
+            if tau is None or float(tau) <= 0.0:
+                out = (np.cumsum(drive, axis=1) * dt).astype(np.float32)
+            else:
+                alpha = max(0.0, min(1.0 - dt / float(tau), 1.0))
+                out = np.zeros_like(drive, dtype=np.float32)
+                # T ≤ 1000 so a Python loop with batch-vector ops is fine
+                # (runs once at generation time).
+                for _t in range(1, drive.shape[1]):
+                    out[:, _t] = alpha * out[:, _t - 1] + drive[:, _t] * dt
+            out[:, 0] = 0.0
+            return out
+
+        if _target_kind == "position_2d":
+            # 2D path integration: project v_fwd through the *current*
+            # heading and integrate the two axes independently. This
+            # couples translation to heading — the network has to
+            # internally maintain θ to predict (x, y).
+            #     dx/dt = v_fwd · cosθ ;  dy/dt = v_fwd · sinθ
+            cos_th = np.cos(theta_hd).astype(np.float32)
+            sin_th = np.sin(theta_hd).astype(np.float32)
+            vx = (vfwd * cos_th).astype(np.float32)
+            vy = (vfwd * sin_th).astype(np.float32)
+            _pos_tau = getattr(si, "position_tau_s", None)
+            x_pos = _integrate_leaky(vx, _pos_tau)
+            y_pos = _integrate_leaky(vy, _pos_tau)
+            # Target — 4 columns [cosθ, sinθ, x, y]: heading (0,1) +
+            # 2D position (2,3). disp is unused but kept as a side-array
+            # for the swim_label / forward_vel / displacement sidecars
+            # below (cheap; keeps the sidecar contract uniform across
+            # target_kind).
             disp = (np.cumsum(vfwd, axis=1) * dt).astype(np.float32)
+            disp[:, 0] = 0.0
+            target_y = np.stack(
+                [cos_th, sin_th, x_pos, y_pos], axis=-1,
+            ).astype(np.float32)
+        elif _target_kind == "scalar_xi":
+            # Scalar forward-axis displacement ξ — heading and translation
+            # supervised independently (no coupling on the target side).
+            _xi_tau = getattr(si, "xi_tau_s", None)
+            disp = _integrate_leaky(vfwd, _xi_tau)
+            # Target — 3 columns [cosθ, sinθ, ξ]: rotation (0,1) + translation (2).
+            target_y = np.stack([np.cos(theta_hd), np.sin(theta_hd), disp],
+                                axis=-1).astype(np.float32)
         else:
-            tau = float(_xi_tau)
-            alpha = max(0.0, min(1.0 - dt / tau, 1.0))
-            disp = np.zeros_like(vfwd, dtype=np.float32)
-            # Forward recurrence; T is at most ~1000 so a Python loop with
-            # vectorised per-step ops over the trial axis is fine
-            # (~1000 * B vector ops at generation time, runs once).
-            for _t in range(1, vfwd.shape[1]):
-                disp[:, _t] = alpha * disp[:, _t - 1] + vfwd[:, _t] * dt
-        disp[:, 0] = 0.0
-        # Target — 3 columns [cosθ, sinθ, ξ]: rotation (0,1) + translation (2).
-        target_y = np.stack([np.cos(theta_hd), np.sin(theta_hd), disp],
-                            axis=-1).astype(np.float32)
+            raise ValueError(
+                f"task.swim_integration.target_kind must be 'scalar_xi' or "
+                f"'position_2d'; got {_target_kind!r}"
+            )
         # Input — 4 channels [ω, v_fwd, cosθ0·δ, sinθ0·δ].
         stimulus = np.zeros((B, T, 4), dtype=np.float32)
         stimulus[:, :, 0] = omega

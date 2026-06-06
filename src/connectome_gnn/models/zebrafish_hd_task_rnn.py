@@ -149,15 +149,21 @@ class ZebrafishHdTaskRNN(nn.Module):
         #   ['rotation']               → 3-in [ω, cosθ0, sinθ0] / 2-out [cosθ, sinθ]
         #   ['translation']            → 1-in [v_fwd]            / 1-out [ξ]
         #   ['rotation','translation'] → 4-in [ω, v_fwd, cosθ0, sinθ0] / 3-out [cosθ, sinθ, ξ]
+        #   ['position_2d']            → 4-in [ω, v_fwd, cosθ0, sinθ0] / 4-out [cosθ, sinθ, x, y]
+        # (the position_2d task supervises heading + (x, y) together because
+        # 2D PI requires θ to be maintained internally; it's not an
+        # arbitrary mix of channels.)
         # An explicit graph_model.n_input / n_output in the yaml overrides
         # the auto-derivation (escape hatch for non-standard variants).
+        _RECOGNISED = ("rotation", "translation", "position_2d")
         _tt_raw = list(getattr(getattr(config, "training", None),
                                "task_targets", None) or [])
-        _tt_key = tuple(t for t in ("rotation", "translation") if t in _tt_raw)
+        _tt_key = tuple(t for t in _RECOGNISED if t in _tt_raw)
         _TT_DIMS = {
             ("rotation",):                (3, 2),
             ("translation",):             (1, 1),
             ("rotation", "translation"):  (4, 3),
+            ("position_2d",):             (4, 4),
         }
         _auto_in, _auto_out = _TT_DIMS.get(_tt_key, (3, 2))  # default = rotation
         self.n_input = int(getattr(gm, "n_input", 0)) or _auto_in

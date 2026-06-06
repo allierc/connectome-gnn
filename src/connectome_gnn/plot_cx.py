@@ -1404,9 +1404,66 @@ def _panel_hd_tracking_stacked(fig, subplotspec, rollout: dict, dt_s: float,
     """
     has_rot = "true_theta" in rollout
     has_trans = "true_xi" in rollout
+    has_xy = "true_xy" in rollout
     u = np.asarray(rollout["u"])
     T = u.shape[0]
     t_axis = np.arange(T) * dt_s
+
+    if has_xy:
+        # position_2d mode (n_input=4, n_output=4). Drives are ω and v_fwd
+        # (compact time traces); the main panel is a square 2D path plot
+        # comparing GT (x, y) in green to decoded (x̂, ŷ) in black. The
+        # ξ trace is replaced by the 2D path because in 2D PI the
+        # informative quantity is the *spatial* trajectory rather than a
+        # 1D time series.
+        sub = GridSpecFromSubplotSpec(
+            3, 1, subplot_spec=subplotspec,
+            height_ratios=[0.5, 0.5, 2.5], hspace=0.30,
+        )
+        ax_w   = fig.add_subplot(sub[0])
+        ax_vf  = fig.add_subplot(sub[1], sharex=ax_w)
+        ax_xy  = fig.add_subplot(sub[2])
+        # Drives.
+        ax_w.plot(t_axis, u[:, 0], color=GT_COLOR, lw=1.0)
+        ax_w.axhline(0, color="0.7", lw=0.3)
+        ax_w.set_ylabel("ω (°/s)", fontsize=LABEL_FS)
+        ax_w.tick_params(labelsize=TICK_FS, labelbottom=False)
+        ax_vf.plot(t_axis, u[:, 1], color=GT_COLOR, lw=1.0)
+        ax_vf.axhline(0, color="0.7", lw=0.3)
+        ax_vf.set_ylabel(r"$v_{\mathrm{fwd}}$", fontsize=LABEL_FS)
+        ax_vf.tick_params(labelsize=TICK_FS)
+        ax_vf.set_xlabel("time (s)", fontsize=LABEL_FS)
+        # 2D path.
+        true_xy = np.asarray(rollout["true_xy"])
+        dec_xy = np.asarray(rollout["decoded_xy"])
+        if true_xy.shape[0] > warmup:
+            err = dec_xy[warmup:] - true_xy[warmup:]
+            rmse_xy = float(np.sqrt(np.mean(err ** 2)))
+            rs = []
+            for axis in range(2):
+                a = dec_xy[warmup:, axis]
+                b = true_xy[warmup:, axis]
+                if a.std() > 1e-8 and b.std() > 1e-8:
+                    rs.append(float(np.corrcoef(a, b)[0, 1]))
+            r_str = f"r̄ = {np.mean(rs):.3f}" if rs else "r̄ = n/a"
+            ax_xy.set_title(
+                f"2D path  ({r_str},  RMSE = {rmse_xy:.2f})",
+                fontsize=TITLE_FS,
+            )
+        else:
+            ax_xy.set_title("2D path", fontsize=TITLE_FS)
+        ax_xy.plot(true_xy[:, 0], true_xy[:, 1], color=GT_COLOR, lw=1.0,
+                   label="GT")
+        ax_xy.plot(dec_xy[:, 0],  dec_xy[:, 1],  color=PRED_COLOR, lw=0.8,
+                   label="decoded")
+        # Origin marker (trial start).
+        ax_xy.plot([0.0], [0.0], "o", color="0.4", ms=4, zorder=5)
+        ax_xy.set_xlabel("x", fontsize=LABEL_FS)
+        ax_xy.set_ylabel("y", fontsize=LABEL_FS)
+        ax_xy.set_aspect("equal", adjustable="datalim")
+        ax_xy.legend(loc="best", fontsize=TICK_FS, frameon=False)
+        ax_xy.tick_params(labelsize=TICK_FS)
+        return ax_w
 
     if has_rot and has_trans:
         # Both: 4 stacked sub-axes. Drives compact on top (h.ratios 0.6),
@@ -1503,6 +1560,7 @@ def _panel_trial_rollout(fig, subplotspec, test_trial: dict):
     n_out = int(y_true.shape[-1]) if y_true.ndim >= 2 else 0
     has_rot = n_out >= 2   # cos, sin always lead the target when rotation is on
     has_trans = (n_in == 1) or (n_in == 4 and n_out == 3)
+    has_xy = (n_in == 4 and n_out == 4)   # position_2d: heading + (x, y)
 
     trial_label = str(test_trial.get("label", "test trial"))
     title_prefix = f"{trial_label} #{int(test_trial['idx'])}  "
@@ -1538,6 +1596,44 @@ def _panel_trial_rollout(fig, subplotspec, test_trial: dict):
         ax_track.plot(t_axis, y_pred[:, xi_col_idx], color=PRED_COLOR, lw=0.8)
         ax_track.set_ylabel(r"$\xi$", fontsize=LABEL_FS)
         ax_track.tick_params(labelsize=TICK_FS)
+
+    if has_xy:
+        # position_2d: ω(t) + v_fwd(t) on small upper traces, square 2D path
+        # below (GT green, decoded black). The trial's u is time-varying so
+        # the drives need their full time series; the path plot replaces
+        # the standard HD/ξ time-series since the informative quantity in
+        # 2D PI is the spatial trajectory.
+        sub = GridSpecFromSubplotSpec(
+            3, 1, subplot_spec=subplotspec,
+            height_ratios=[0.5, 0.5, 2.5], hspace=0.30,
+        )
+        ax_w   = fig.add_subplot(sub[0])
+        ax_vf  = fig.add_subplot(sub[1], sharex=ax_w)
+        ax_xy  = fig.add_subplot(sub[2])
+        ax_w.plot(t_axis, u[:, 0], color=GT_COLOR, lw=0.8)
+        ax_w.axhline(0, color="0.7", lw=0.3)
+        ax_w.set_ylabel("ω (°/s)", fontsize=LABEL_FS)
+        ax_w.set_title(title_prefix.rstrip(), fontsize=TITLE_FS)
+        ax_w.tick_params(labelsize=TICK_FS, labelbottom=False)
+        ax_vf.plot(t_axis, u[:, 1], color=GT_COLOR, lw=0.8)
+        ax_vf.axhline(0, color="0.7", lw=0.3)
+        ax_vf.set_ylabel(r"$v_{\mathrm{fwd}}$", fontsize=LABEL_FS)
+        ax_vf.tick_params(labelsize=TICK_FS)
+        ax_vf.set_xlabel("time (s)", fontsize=LABEL_FS)
+        # 2D path — y_true / y_pred columns [2, 3].
+        true_xy = y_true[:, 2:4]
+        dec_xy = y_pred[:, 2:4]
+        ax_xy.plot(true_xy[:, 0], true_xy[:, 1], color=GT_COLOR, lw=1.0,
+                   label="GT")
+        ax_xy.plot(dec_xy[:, 0],  dec_xy[:, 1],  color=PRED_COLOR, lw=0.8,
+                   label="decoded")
+        ax_xy.plot([0.0], [0.0], "o", color="0.4", ms=4, zorder=5)
+        ax_xy.set_xlabel("x", fontsize=LABEL_FS)
+        ax_xy.set_ylabel("y", fontsize=LABEL_FS)
+        ax_xy.set_aspect("equal", adjustable="datalim")
+        ax_xy.legend(loc="best", fontsize=TICK_FS, frameon=False)
+        ax_xy.tick_params(labelsize=TICK_FS)
+        return ax_w
 
     if has_rot and has_trans:
         sub = GridSpecFromSubplotSpec(
