@@ -2203,6 +2203,83 @@ def data_test_path_integration_task(
     else:
         logger.info('  (a) random test trials: skipped (translation-only mode)')
 
+    # --- (a') Translation analog: random test trials on the d head -----
+    # When the model has a translation head (and no rotation), there's
+    # no cos/sin to score; we instead report per-trial d-RMSE and Pearson
+    # between decoded d and true d on a sample of trials, and plot
+    # v_fwd (top) + d true vs decoded (bottom). Matches the rotation
+    # plot's colour scheme (green = GT, black = decoded) and font sizes.
+    if has_translation and not has_rotation:
+        n_metric = int(min(512, u_test.shape[0]))
+        idx_sample_t = np.sort(rng.choice(u_test.shape[0],
+                                            size=n_metric, replace=False))
+        with torch.no_grad():
+            y_pred_t, _ = model(u_test[idx_sample_t])
+        y_pred_t_np = y_pred_t.cpu().numpy()
+        # In translation-only the model output is the scalar d (col 0).
+        d_pred = y_pred_t_np[..., 0]
+        d_true = y_test_np[idx_sample_t][..., 0]
+        rms = np.sqrt(np.mean((d_pred[:, 10:] - d_true[:, 10:]) ** 2, axis=1))
+        prs = []
+        for k in range(d_pred.shape[0]):
+            a = d_pred[k, 10:]; b = d_true[k, 10:]
+            if a.std() > 1e-8 and b.std() > 1e-8:
+                prs.append(float(np.corrcoef(a, b)[0, 1]))
+            else:
+                prs.append(float('nan'))
+        prs = np.asarray(prs)
+        logger.info(
+            f'  {n_metric} random translation test trials: '
+            f'rmse={np.nanmean(rms):.3f}±{np.nanstd(rms):.3f}  '
+            f'r={np.nanmean(prs):.4f}±{np.nanstd(prs):.4f}'
+        )
+        n_show = int(min(5, n_metric))
+        idx_show_t = idx_sample_t[:n_show]
+        try:
+            import matplotlib.pyplot as plt
+            GT_COLOR = "#4daf4a"; PRED_COLOR = "black"
+            INP_BG, OUT_BG = "0.92", "0.97"
+            TICK_FS = 9; LABEL_FS = 11; TITLE_FS = 10
+            fig, axes = plt.subplots(2, n_show,
+                                       figsize=(2.6 * n_show, 4.0),
+                                       sharex='col', sharey='row')
+            if n_show == 1:
+                axes = axes.reshape(2, 1)
+            for col in range(n_show):
+                idx = int(idx_show_t[col])
+                T_loc = u_test_np.shape[1]
+                t = np.arange(T_loc) * _task_dt
+                u_one = u_test_np[idx, :, 0]  # v_fwd channel
+                ax_top = axes[0, col]
+                ax_bot = axes[1, col]
+                ax_top.set_facecolor(INP_BG)
+                ax_top.plot(t, u_one, color=GT_COLOR, lw=2.0)
+                ax_top.set_title(
+                    f"trial #{idx}\nrmse={rms[col]:.2f}  r={prs[col]:+.3f}",
+                    fontsize=TITLE_FS,
+                )
+                if col == 0:
+                    ax_top.set_ylabel(r"$v_{\rm fwd}$", fontsize=LABEL_FS)
+                ax_top.tick_params(labelbottom=False, labelsize=TICK_FS)
+                ax_bot.set_facecolor(OUT_BG)
+                ax_bot.plot(t, d_true[col], color=GT_COLOR, lw=2.8, label='GT')
+                ax_bot.plot(t, d_pred[col], color=PRED_COLOR, lw=0.5,
+                            label='decoded')
+                ax_bot.set_xlabel('time (s)', fontsize=LABEL_FS)
+                if col == 0:
+                    ax_bot.set_ylabel(r"$d$", fontsize=LABEL_FS)
+                    ax_bot.legend(loc='best', fontsize=TICK_FS,
+                                   frameon=False)
+                ax_bot.tick_params(labelsize=TICK_FS)
+            fig.tight_layout()
+            trans_random_path = os.path.join(results_dir,
+                                              'test_random_trials.png')
+            fig.savefig(trans_random_path, dpi=150, bbox_inches='tight')
+            plt.close(fig)
+            logger.info(f'  saved: {trans_random_path}')
+        except Exception as exc:
+            logger.warning(f'  translation random-trials plot failed: {exc}')
+
     # --- (a.5) Anatomy-voltage snapshot ------------------------------------
     # The probe rollout (pattern / n_steps / stride / per-pattern params)
     # is driven entirely by plotting.anatomy_voltage_* in the yaml. The
@@ -2345,34 +2422,63 @@ def data_test_path_integration_task(
             log_bits.append(f"v={v:+.1f}: r={_color_r(r)} rmse={rmse:.2f}")
         logger.info('  5 deterministic v_fwd sweeps (T=2000): '
                     + '  '.join(log_bits))
-        # Save the figure: one row per sweep, top axis v_fwd, bottom ξ.
+        # Save the figure: 2 rows × n_sweeps cols. Companion of the
+        # rotation test_deterministic_sweep.png — same colour scheme
+        # (green = GT, black = decoded), same line widths, same font
+        # sizes (tick 9, label 11, title 10).
         try:
             import matplotlib.pyplot as plt
+            GT_COLOR = "#4daf4a"
+            PRED_COLOR = "black"
+            INP_BG, OUT_BG = "0.92", "0.97"
+            TICK_FS = 9
+            LABEL_FS = 11
+            TITLE_FS = 10
+            n_cols = len(rollouts_trans)
             fig, axes = plt.subplots(
-                2, len(rollouts_trans),
-                figsize=(2.6 * len(rollouts_trans), 4.0),
-                sharex='col',
+                2, n_cols,
+                figsize=(2.6 * n_cols, 1.5 * 2 + 1.0),
+                sharex='col', sharey='row',
             )
+            if n_cols == 1:
+                axes = axes.reshape(2, 1)
             for col, (v, ro) in enumerate(rollouts_trans):
-                T = ro['n_steps']
-                t = np.arange(T) * _task_dt
+                T_loc = ro['n_steps']
+                t = np.arange(T_loc) * _task_dt
                 ax_top = axes[0, col]
                 ax_bot = axes[1, col]
-                u_col = ro['u'][:, 0]  # v_fwd in translation-only mode
+                u_col = ro['u'][:, 0]  # translation-only mode: v_fwd in col 0
                 if u_col.std() < 1e-8 and ro['u'].shape[-1] >= 2:
-                    # Both mode: v_fwd is in column 1, not 0.
-                    u_col = ro['u'][:, 1]
-                ax_top.plot(t, u_col, color='k', lw=1.0)
-                ax_top.set_title(f"v_fwd = {v:+.1f}", fontsize=9)
-                ax_top.set_ylabel('v_fwd' if col == 0 else '')
-                ax_top.tick_params(labelbottom=False, labelsize=8)
-                ax_bot.plot(t, ro['true_xi'], color='k', lw=1.2, label='true ξ')
-                ax_bot.plot(t, ro['decoded_xi'], color='r', lw=0.8, label='decoded')
-                ax_bot.set_xlabel('time (s)')
-                ax_bot.set_ylabel('ξ' if col == 0 else '')
-                ax_bot.tick_params(labelsize=8)
+                    u_col = ro['u'][:, 1]   # "both" mode: v_fwd in col 1
+                ax_top.set_facecolor(INP_BG)
+                ax_top.plot(t, u_col, color=GT_COLOR, lw=2.0)
+                # Per-column title: v_fwd + r + rmse on the rollout.
+                xi_true = np.asarray(ro['true_xi'])
+                xi_pred = np.asarray(ro['decoded_xi'])
+                rmse = float(np.sqrt(np.mean((xi_pred[10:] - xi_true[10:]) ** 2)))
+                if xi_pred[10:].std() > 1e-8 and xi_true[10:].std() > 1e-8:
+                    r = float(np.corrcoef(xi_pred[10:], xi_true[10:])[0, 1])
+                else:
+                    r = float('nan')
+                ax_top.set_title(
+                    fr"$v_{{\rm fwd}}={v:+.1f}$"
+                    f"\nrmse={rmse:.2f}  r={r:+.3f}",
+                    fontsize=TITLE_FS,
+                )
                 if col == 0:
-                    ax_bot.legend(loc='upper left', fontsize=7)
+                    ax_top.set_ylabel(r"$v_{\rm fwd}$", fontsize=LABEL_FS)
+                ax_top.tick_params(labelbottom=False, labelsize=TICK_FS)
+
+                ax_bot.set_facecolor(OUT_BG)
+                ax_bot.plot(t, xi_true, color=GT_COLOR, lw=2.8, label='GT')
+                ax_bot.plot(t, xi_pred, color=PRED_COLOR, lw=0.5,
+                            label='decoded')
+                ax_bot.set_xlabel('time (s)', fontsize=LABEL_FS)
+                if col == 0:
+                    ax_bot.set_ylabel(r"$d$", fontsize=LABEL_FS)
+                    ax_bot.legend(loc='best', fontsize=TICK_FS,
+                                   frameon=False)
+                ax_bot.tick_params(labelsize=TICK_FS)
             fig.tight_layout()
             trans_sweep_path = os.path.join(
                 results_dir, 'test_deterministic_v_fwd_sweep.png')
@@ -2381,6 +2487,58 @@ def data_test_path_integration_task(
             logger.info(f'  saved: {trans_sweep_path}')
         except Exception as exc:
             logger.warning(f'  v_fwd-sweep plot failed: {exc}')
+
+    # ---- write an aggregated trajectory_metrics.txt for the run -------
+    # Every numeric scalar produced by the sweep blocks above (and below)
+    # is collected into a single per-run text file so cross-model
+    # comparison tables can be assembled without re-running the sweeps.
+    trajectory_metrics_path = os.path.join(results_dir,
+                                            "trajectory_metrics.txt")
+    _traj_rows: list[str] = []
+
+    def _emit(prefix: str, mdict: dict):
+        if not mdict:
+            return
+        for k, v in mdict.items():
+            try:
+                _traj_rows.append(f"{prefix}.{k}={float(v):.6g}")
+            except (TypeError, ValueError):
+                _traj_rows.append(f"{prefix}.{k}={v}")
+
+    # Heading sweep extended metrics (rotation-bearing models).
+    if has_rotation:
+        from connectome_gnn.models.bump_attractor_eval import (
+            _trajectory_metrics_1d as _tm_1d,
+        )
+        for om in [-120.0, -60.0, 60.0, 120.0]:
+            try:
+                ro = _deterministic_sweep_rollout(
+                    model, n_steps=T_sweep, omega_deg_per_s=om, device=device,
+                )
+                if "true_theta" in ro and "decoded_theta" in ro:
+                    th_true = np.unwrap(np.asarray(ro["true_theta"]))
+                    th_dec  = np.unwrap(np.asarray(ro["decoded_theta"]))
+                    _emit(f"heading_w{int(om):+d}",
+                          _tm_1d(np.degrees(th_true), np.degrees(th_dec)))
+            except Exception:
+                pass
+
+    # Translation sweep extended metrics.
+    if has_translation:
+        from connectome_gnn.models.bump_attractor_eval import (
+            _trajectory_metrics_1d as _tm_1d,
+        )
+        for vf in [-2.0, -1.0, 0.5, 1.0, 2.0]:
+            try:
+                ro = _deterministic_sweep_rollout(
+                    model, n_steps=T_sweep, v_fwd_per_s=vf, device=device,
+                )
+                if "true_xi" in ro and "decoded_xi" in ro:
+                    _emit(f"distance_v{vf:+.1f}",
+                          _tm_1d(np.asarray(ro["true_xi"]),
+                                  np.asarray(ro["decoded_xi"])))
+            except Exception:
+                pass
 
     # --- (b'') 2D PI analog: 5 deterministic (ω, v_fwd) sweeps --------------
     # For position_2d models (n_out=4), probe with constant ω AND constant
@@ -2392,6 +2550,7 @@ def data_test_path_integration_task(
     if has_position_2d:
         from connectome_gnn.models.bump_attractor_eval import (
             _rollout_position_metrics,
+            _trajectory_metrics_2d as _tm_2d,
         )
         omega_v_set = [(-120.0, 1.0), (-60.0, 1.0), (30.0, 1.0),
                        (60.0, 1.0),   (120.0, 1.0)]
@@ -2410,6 +2569,14 @@ def data_test_path_integration_task(
             )
             log_bits.append(f"ω={om:+.0f},v={vf:+.1f}: r̄={_color_r(r)} "
                             f"rmse={rmse:.2f}")
+            # Extended trajectory metrics on the same rollout.
+            try:
+                if "true_xy" in ro and "decoded_xy" in ro:
+                    _emit(f"path2d_w{int(om):+d}_v{vf:+.1f}",
+                          _tm_2d(np.asarray(ro["true_xy"]),
+                                  np.asarray(ro["decoded_xy"])))
+            except Exception:
+                pass
         logger.info('  5 deterministic 2D-PI sweeps (T=' + str(T_sweep) + '): '
                     + '  '.join(log_bits))
         try:
@@ -2609,23 +2776,24 @@ def data_test_path_integration_task(
     log_path_ = os.path.join(log_dir, 'results_path_integration.log')
     with open(log_path_, 'w') as f:
         f.write(f'full_test_pi_acc (n={u_test.shape[0]}, T={u_test.shape[1]}): {full_pi:.6f}\n')
-        f.write(f'mean_trial_rmse_deg (n={len(idx_sample)}): '
-                f'{np.nanmean(_rm):.4f} +- {np.nanstd(_rm):.4f}\n\n')
-        f.write('# Random test trials\n')
-        f.write('trial_idx,rmse_deg,pearson\n')
-        for i, m in zip(idx_sample, metrics_random):
-            f.write(f'{int(i)},{m["rmse_deg"]:.4f},{m["pearson"]:.6f}\n')
-        f.write('\n# Deterministic sweeps (T=2000)\n')
-        f.write('omega_deg,rmse_deg,pearson\n')
-        for o, m in zip(omega_set, metrics_sweep):
-            f.write(f'{o:.1f},{m["rmse_deg"]:.4f},{m["pearson"]:.6f}\n')
-        f.write('\n# Integration gain (decoded HD slope / true ω)\n')
-        f.write('omega_deg,slope_deg_per_s,gain,fit_r2\n')
-        for m in gain_metrics:
-            f.write(
-                f'{m["omega_deg"]:.1f},{m["slope_deg_per_s"]:.4f},'
-                f'{m["gain"]:.6f},{m["r2"]:.6f}\n'
-            )
+        if has_rotation:
+            f.write(f'mean_trial_rmse_deg (n={len(idx_sample)}): '
+                    f'{np.nanmean(_rm):.4f} +- {np.nanstd(_rm):.4f}\n\n')
+            f.write('# Random test trials\n')
+            f.write('trial_idx,rmse_deg,pearson\n')
+            for i, m in zip(idx_sample, metrics_random):
+                f.write(f'{int(i)},{m["rmse_deg"]:.4f},{m["pearson"]:.6f}\n')
+            f.write('\n# Deterministic sweeps (T=2000)\n')
+            f.write('omega_deg,rmse_deg,pearson\n')
+            for o, m in zip(omega_set, metrics_sweep):
+                f.write(f'{o:.1f},{m["rmse_deg"]:.4f},{m["pearson"]:.6f}\n')
+            f.write('\n# Integration gain (decoded HD slope / true ω)\n')
+            f.write('omega_deg,slope_deg_per_s,gain,fit_r2\n')
+            for m in gain_metrics:
+                f.write(
+                    f'{m["omega_deg"]:.1f},{m["slope_deg_per_s"]:.4f},'
+                    f'{m["gain"]:.6f},{m["r2"]:.6f}\n'
+                )
         if calcium_metrics is not None:
             f.write('\n# Calcium 600 s block reconstruction (per-neuron '
                     'z-scored)\n')
@@ -2646,6 +2814,14 @@ def data_test_path_integration_task(
             'sweep mean pearson: '
             f'{np.nanmean([m["pearson"] for m in metrics_sweep]):.3f}\n'
         )
+
+    # Persist all extended trajectory metrics from the sweep blocks.
+    if _traj_rows:
+        with open(trajectory_metrics_path, 'w') as f:
+            f.write(f'# trajectory metrics for {os.path.basename(log_dir)}\n')
+            for line in _traj_rows:
+                f.write(line + '\n')
+        logger.info(f'  saved trajectory metrics: {trajectory_metrics_path}')
 
 
 def _color_r(r: float) -> str:

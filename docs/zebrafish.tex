@@ -750,17 +750,27 @@ cell-type-resolved gate of \cref{eq:zhd_swim_gate} --- on the
 rotation-only sub-task of \cref{fig:zhd_swim_task_modes} ($n_{\rm in}=3$
 channels, $n_{\rm out}=2$ outputs).
 \Cref{fig:zhd_evolution_artr_pt1} reports the trained network.
-After training, the deterministic constant-$\omega = +60^\circ/\mathrm{s}$
-rollout tracks the imposed heading at Pearson $r = 1.000$, with a
-circular RMSE of $24.9^\circ$ (panel \textbf{f}); the held-out
-swim-integration test trial is integrated correctly (panel \textbf{g});
-and the integration gain is linear at unit slope across the full
-$\pm 180^\circ/\mathrm{s}$ range (panel \textbf{i}). The dIPN carries
-a single travelling ring activity peak (panel \textbf{e}). The learned
-recurrent weights $\hat W^{\mathrm{rec}}$ sit on the signed connectome
-support by construction; the per-edge magnitude correlates with the
-connectome template at Pearson $r=0.377$
-(panel \textbf{c}, true-vs-learned scatter), consistent with the
+Quantitative test-set evaluation (run via
+\texttt{GNN\_Main.py -o test}; metrics written to
+\texttt{results/trajectory\_metrics.txt}) shows that after training the
+heading code is correctly recovered. On the full $10{,}000$-trial test
+set the per-frame heading accuracy is $\mathrm{pi\_acc}=0.998$ (cosine
+similarity of decoded vs.\ ground-truth heading vector), with a
+mean per-trial circular RMSE of $3.6^\circ \pm 2.4^\circ$ and Pearson
+$r=0.995 \pm 0.042$ over the $512$-trial sample. Four
+constant-$\omega$ deterministic rollouts of $T=2000$ frames at
+$\omega \in \{\pm 60, \pm 120\}^\circ/\mathrm{s}$ give a circular
+RMSE of $17.6^\circ$ averaged over the four runs (per-run:
+$5.1^\circ, 14.2^\circ, 33.4^\circ, 17.6^\circ$) and a growth-rate
+ratio
+$\dot{\hat\theta}/\dot\theta = 1.021 \pm 0.020$ (heading is
+integrated at near-unit slope across the full $\pm 180^\circ/\mathrm{s}$
+range; panel \textbf{i}). Pearson on the unwrapped trajectories is
+$\ge 0.99997$ for every sweep. The dIPN carries a single travelling
+ring activity peak (panel \textbf{e}). The learned recurrent weights
+$\hat W^{\mathrm{rec}}$ sit on the signed connectome support by
+construction; the per-edge magnitude correlates with the connectome
+template at Pearson $r=0.377$ (panel \textbf{c}), consistent with the
 sign-locked re-scaling described in \cref{method:RNN}.
 
 \begin{figure}[p]
@@ -808,18 +818,71 @@ on every sub-task projection of the swim-integration superset
 target column layout ($\hat W^{\mathrm{out}}$, \cref{method:output_readout})
 and, where applicable, the leaky-integrator time constant
 $\tau_d=\tau_p=0.5\,$s; the gate, connectome and recurrent dynamics
-are unchanged across all seven runs. Brief readout below; full panel
-layout matches \cref{fig:zhd_evolution_artr_pt1}.
+are unchanged across all seven runs. The quantitative
+trajectory-precision metrics below are aggregated from
+\texttt{GNN\_Main.py -o test} on each checkpoint
+(constant-$\omega$ and constant-$v_{\mathrm{fwd}}$ rollouts at
+$T=2000$ frames, written to
+\texttt{results/trajectory\_metrics.txt}).
+\Cref{tab:zhd_subtask_metrics} summarises the headline numbers; full
+panel layout in each figure matches \cref{fig:zhd_evolution_artr_pt1}.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{l c c c c}
+\toprule
+Variant & Heading RMSE & Heading slope & 2-D Euclid. RMSE & 2-D path-length ratio \\
+ & (deg) & ratio & (units) & (decoded / true) \\
+\midrule
+\texttt{rotation}                 & $17.6$ & $1.02$ & --- & --- \\
+\texttt{both} (perfect)           & $33.1$ & $0.97$ & --- & --- \\
+\texttt{both} leaky               & $\phantom{0}8.1$ & $0.99$ & --- & --- \\
+\texttt{translation} (perfect)    & ---     & ---    & --- & $0.04$--$0.21$ \\
+\texttt{translation} leaky        & ---     & ---    & --- & $0.002$--$0.003$ \\
+\texttt{position\_2d} (perfect)   & ---     & ---    & $2.10$ & $0.23$--$1.85$ \\
+\texttt{position\_2d} leaky       & ---     & ---    & $0.98$ & $0.28$--$0.98$ \\
+\bottomrule
+\end{tabular}
+\caption{Trajectory-precision summary across the seven sub-task
+variants. Heading metrics are averaged over four constant-$\omega$
+sweeps ($\omega \in \{\pm 60, \pm 120\}^\circ/\mathrm{s}$, $T=2000$);
+2-D metrics over five $(\omega, v_{\mathrm{fwd}})$ sweeps with
+$v_{\mathrm{fwd}}=+1$. Heading-slope ratio:
+$\dot{\hat\theta}/\dot\theta$ (unity = perfect integration).
+2-D Euclidean RMSE: per-frame
+$\sqrt{\langle \|(\hat x,\hat y)-(x,y)\|^2\rangle_t}$.
+Path-length ratio:
+$\sum_t \|(\hat x,\hat y)_{t+1}-(\hat x,\hat y)_t\|
+/ \sum_t \|(x,y)_{t+1}-(x,y)_t\|$ (unity = correct path
+arc-length).}
+\label{tab:zhd_subtask_metrics}
+\end{table}
 
 \paragraph{Translation only --- perfect and leaky.}
 \Cref{fig:zhd_evolution_translation,fig:zhd_evolution_translation_leaky}
 train on the $1$-channel translation sub-task
 ($v_{\mathrm{fwd}}\to$ forward distance $d$, $n_{\rm in}=n_{\rm out}=1$).
-The perfect-integrator recipe reaches a test MSE of $0.029$ on the
-disk-stored target; the leaky variant ($\tau_d=0.5\,$s) reaches
-$2.1\times 10^{-4}$, with the bounded target preventing the loss from
-growing linearly with the rollout horizon. Heading is not supervised
-in either run, so the integration-gain panel is left blank.
+On natural held-out trials (\texttt{test\_random\_trials.png},
+$n=512$) both variants integrate $d$ correctly: per-trial
+$\mathrm{RMSE}=0.26 \pm 0.27$ and Pearson $r=0.94 \pm 0.11$ for the
+perfect-integrator recipe; $\mathrm{RMSE}=0.008 \pm 0.007$ and
+$r=0.999 \pm 0.002$ for the leaky variant. The deterministic
+constant-$v_{\mathrm{fwd}}$ rollout at $T=2000$ frames is the
+extrapolation stress test: the slope ratio
+$\dot{\hat d}/\dot d$ averaged over the five
+constant-$v_{\mathrm{fwd}}$ sweeps drops to $0.094$ (perfect) and
+$0.0027$ (leaky), i.e.\ the decoded distance \emph{grows orders of
+magnitude more slowly} than the true target on a sustained drive
+the model never saw during training. Pearson on the rollout is
+$0.55$--$0.77$ (perfect) and $0.34$--$0.39$ (leaky), and the RMSE
+on $d$ scales linearly with $|v_{\mathrm{fwd}}|$ (from $\approx 4$
+at $v=+0.5$ to $\approx 22$ at $|v|=2$). The translation-only
+readout therefore fits the swim-event training distribution well
+but fails to extrapolate to a sustained constant drive --- heading
+is not supervised in this variant, so the recurrent dynamics lose
+the absolute-distance anchor, and the integration-gain panel is
+left blank.
 
 \begin{figure}[p]
   \centering
@@ -845,13 +908,19 @@ in either run, so the integration-gain panel is left blank.
 \Cref{fig:zhd_evolution_both,fig:zhd_evolution_both_leaky} train on
 the joint heading-plus-forward-distance task
 ($n_{\rm in}=4$, $n_{\rm out}=3$, target $(\cos\theta,\sin\theta,d)$).
-The perfect-integrator variant reaches per-frame test R² $=0.9998$ on
-both heading and distance, with constant-$\omega$ Pearson $r=1.000$
-and circular RMSE $3.5^\circ$ (panel f). The leaky variant
-($\tau_d=0.5\,$s) reaches per-frame test R² $=0.9998$ (heading) and
-$0.99998$ (leaky $d$); the joint training does not degrade the
-compass relative to the rotation-only variant of
-\cref{fig:zhd_evolution_artr_pt1}.
+Per-frame test R² is $\ge 0.9998$ on both heading and distance for
+both variants. The constant-$\omega$ trajectory metrics over four
+sweeps give a mean heading RMSE of $33.1^\circ$ (slope ratio $0.97$)
+for the perfect variant and $8.1^\circ$ (slope ratio $0.99$) for the
+leaky variant: \emph{the leaky-target supervision actually produces
+a sharper compass} than the perfect-target version of the joint task
+(and is comparable to the rotation-only model of
+\cref{fig:zhd_evolution_artr_pt1}). The scalar distance head behaves
+like the translation-only models: average $d$-RMSE over the five
+constant-$v_{\mathrm{fwd}}$ sweeps is $10.9$ (perfect) and $13.9$
+(leaky), with slope-ratio $\dot{\hat d}/\dot d$ of $0.14$ (perfect)
+/ $0.003$ (leaky), confirming that the constant-input extrapolation
+problem of the translation-only run is task-, not input-, dependent.
 
 \begin{figure}[p]
   \centering
@@ -878,11 +947,20 @@ train on the full 2-D path task ($n_{\rm in}=4$, $n_{\rm out}=4$,
 target $(\cos\theta,\sin\theta,x,y)$ with
 $\dot x = v_{\mathrm{fwd}}\cos\theta$,
 $\dot y = v_{\mathrm{fwd}}\sin\theta$). Heading is still recovered at
-test R² $\geq 0.994$. The 2-D-position head is the harder regression:
-the perfect-integrator variant reaches per-frame test R² $=0.979$ on
-$(x,y)$; the leaky variant reaches $0.99998$. Panels (f)--(g) of these
-figures show the decoded $(x,y)$ trajectory as a 2-D path instead of
-the heading time-trace.
+test R² $\ge 0.994$ on the disk-stored target. The 2-D-position head
+is the harder regression: averaged over five $(\omega, v_{\mathrm{fwd}})$
+sweeps at $v_{\mathrm{fwd}}=+1$, the per-frame Euclidean RMSE between
+decoded $(\hat x,\hat y)$ and true $(x,y)$ is $2.10$ for the perfect
+variant and $0.98$ for the leaky variant --- the leaky target
+\emph{halves} the trajectory error. Mean endpoint error
+$\|(\hat x,\hat y)_T - (x,y)_T\|$ similarly drops from $3.72$ to
+$1.78$. The path-length ratio
+$\sum\|\Delta(\hat x,\hat y)\|/\sum\|\Delta(x,y)\|$ is highly
+variable across sweeps (perfect $0.23$--$1.85$, leaky $0.28$--$0.98$),
+indicating that the absolute arc-length is unreliable on deterministic
+constant-drive probes even when the per-frame error is small. Panels
+(f)--(g) of these figures show the decoded $(x,y)$ trajectory as a
+2-D path instead of the heading time-trace.
 
 \begin{figure}[p]
   \centering
