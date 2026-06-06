@@ -68,37 +68,24 @@ connectome-locked circuit}}
 \maketitle
 \begin{abstract}
 We study a vertebrate self-motion integrator at single-neuron
-anatomical resolution --- the GABAergic \rpi{} population of the
-larval-zebrafish anterior hindbrain, whose dorsal-interpeduncular (dIPN)
-axons form the reciprocal inhibitory ring described by
-\citet{petrucco2023}, together with the three afferent populations the
-\emph{fish2} inventory identifies as carrying its angular and
-translational drives. From the \emph{neuprint-fish2} electron-microscopy
-reconstruction we build sign-locked recurrent (RNN) and message-passing
-(GNN) models whose connectivity is fixed to the connectome under an
-all-inhibitory Dale convention. The same circuit is trained on three
-progressively harder integration sub-tasks: (i) heading direction
-($\theta = \int\omega\,dt$) from L/R swim drive routed through ARTR;
-(ii) heading $+$ scalar forward displacement ($d = \int v_{\rm fwd}\,dt$);
-and (iii) true 2-D path integration ($x,y = \int v_{\rm fwd}\,(\cos\theta,
-\sin\theta)\,dt$), where translation is delivered through a dual
-exteroceptive (pt-IPN1) plus proprioceptive (motor-efferent RIPN
-sub-types) afferent that mirrors the canonical sensory $+$ efference-copy
-redundancy real fish use. Leaky-integrator variants of each scalar and
-2-D target replace the cumulative sums with bounded $\tau$-recurrences,
-matching the low-pass-filtered readout neural circuits actually compute.
-Optimising the input--output map alone recovers a sharp single-peaked
-heading code, yet the preferred-heading map is not an anatomical
-coordinate over the neuropil --- the ring lives in activity space, not
-cell-body position --- and across folds many connectome-consistent
-circuits integrate heading equally well, so the implementation is
-degenerate. Comparing against the real ZAPBench calcium recording, the
-task-only model predicts heading accurately but its population activity is
-far from the measured $\Delta F/F$. We therefore add a calcium-observation
-loss that matches predicted to recorded activity, raising the
-predicted-vs-recorded per-neuron correlation from $\rho \approx 0.06$ to
-$0.4$--$0.55$ while leaving heading accurately decoded, partially closing
-the activity gap.
+resolution: the GABAergic \rpi{} population of the larval-zebrafish
+anterior hindbrain (\citealp{petrucco2023}), together with the three
+afferent populations the \emph{fish2} inventory identifies as carrying
+its angular and translational drives. From the \emph{neuprint-fish2}
+EM reconstruction we build sign-locked RNN and message-passing GNN
+models whose connectivity is fixed to the connectome under an
+all-inhibitory Dale convention, and train the same circuit on three
+progressively harder integration sub-tasks: heading, heading $+$
+forward distance, and 2-D path integration with a dual exteroceptive
+$+$ proprioceptive translation afferent. Optimising the
+input--output map alone recovers a sharp heading code, but the
+preferred-heading map is not anatomically organised and many
+connectome-consistent circuits integrate equally well, so the
+implementation is degenerate. The task-only model's population
+activity is also far from the measured ZAPBench calcium; adding a
+calcium-observation loss raises the predicted-vs-recorded per-neuron
+correlation from $\rho \approx 0.06$ to $0.4$--$0.55$ while leaving
+heading accurately decoded.
 \end{abstract}
 
 \section{Introduction}
