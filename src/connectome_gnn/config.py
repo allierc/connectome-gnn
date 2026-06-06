@@ -1378,6 +1378,20 @@ class SwimIntegrationTaskConfig(BaseModel):
     forward_vel_mean: float = 1.0   # mean |v_fwd| per forward/backward event (units/s)
     forward_vel_std:  float = 0.40
 
+    # Leaky-integrator time constant for the displacement target ξ. None (or
+    # ≤ 0) → perfect integrator ξ = ∫ v_fwd dt (the default, byte-identical
+    # to the original generator). A finite value τ > 0 replaces cumsum with
+    # the leaky recurrence
+    #     ξ(t+Δt) = (1 − Δt/τ) ξ(t) + v_fwd(t) Δt,   ξ(0)=0,
+    # i.e. dξ/dt = −ξ/τ + v_fwd. Steady-state for constant v_fwd is τ·v_fwd
+    # so the target is bounded and the loss no longer grows with curriculum
+    # T. Biologically defensible — real neural integrators leak; the
+    # quantity then tracks "recent forward swim vigour" rather than
+    # absolute displacement. Use a new dataset name when generating with
+    # a non-None τ so the on-disk recipe stays self-describing
+    # (CLAUDE.md: a new variant = a new dataset name).
+    xi_tau_s: Optional[float] = None
+
     device: Literal["cpu", "cuda", "auto"] = "cpu"
 
     @model_validator(mode="after")
