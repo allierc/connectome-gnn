@@ -1890,6 +1890,46 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
     u_test,  y_test  = trials_test.stimulus,  trials_test.target
     _logger.info(f'task data: train u={tuple(u_train.shape)} y={tuple(y_train.shape)}  '
                  f'test u={tuple(u_test.shape)} y={tuple(y_test.shape)}')
+
+    # ---- task-mode channel selection (4-ch / 3-col superset → sub-task) ---
+    # Generator A always writes the 4-ch input [ω, v_fwd, cosθ0, sinθ0] and
+    # 3-col target [cosθ, sinθ, ξ]. task_targets picks the sub-task and slices
+    # both u and y onto the active channels:
+    #   ['rotation']               → in [0,2,3]   out [0,1]   (3-in, 2-out)
+    #   ['translation']            → in [1]        out [2]     (1-in, 1-out)
+    #   ['rotation','translation'] → in [0,1,2,3]  out [0,1,2] (4-in, 3-out)
+    # Legacy 3-ch on-disk datasets (u_train.shape[-1] == 3) pre-date the
+    # 4-ch layout and pass through unchanged — the model's n_input/n_output
+    # then defaults to 3/2 (their original task), so old runs are
+    # byte-identical.
+    _TASK_PROFILES = {
+        ("rotation",):                ([0, 2, 3],    [0, 1]),
+        ("translation",):             ([1],          [2]),
+        ("rotation", "translation"):  ([0, 1, 2, 3], [0, 1, 2]),
+    }
+    _task_raw = list(getattr(tc, 'task_targets', None) or [])
+    # Canonical key: rotation always before translation (enforces a stable
+    # ordering across the in/out col lists, the model n_input dim, and the
+    # eval probe gating below).
+    _task_key = tuple(t for t in ("rotation", "translation") if t in _task_raw)
+    task_targets_canonical = list(_task_key)
+    if u_train.shape[-1] >= 4 and _task_key:
+        if _task_key not in _TASK_PROFILES:
+            raise ValueError(
+                f"training.task_targets must be a non-empty subset of "
+                f"{{'rotation','translation'}}; got {_task_raw!r}"
+            )
+        in_cols, out_cols = _TASK_PROFILES[_task_key]
+        u_train = u_train[..., in_cols].contiguous()
+        y_train = y_train[..., out_cols].contiguous()
+        u_test  = u_test[...,  in_cols].contiguous()
+        y_test  = y_test[...,  out_cols].contiguous()
+        _logger.info(
+            f"task_targets={task_targets_canonical} → sliced 4-ch dataset to "
+            f"in_cols={in_cols} out_cols={out_cols}; "
+            f"train u={tuple(u_train.shape)} y={tuple(y_train.shape)}"
+        )
+
     logger.info(f'train trials: {u_train.shape[0]}  test trials: {u_test.shape[0]}  '
                 f'T: {u_train.shape[1]}  in: {u_train.shape[2]}  out: {y_train.shape[2]}')
 
@@ -2211,14 +2251,6 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
         pbar = trange(Niter, ncols=150,
                       desc=f'epoch {epoch+1} (T={T_epoch})', leave=True)
         coeff_tail = float(getattr(tc, 'coeff_tail_loss', 0.0))
-        # Task-target -> target-column map. rotation = heading (cosθ, sinθ);
-        # translation = displacement ξ. The selected columns (in order) define
-        # which of the dataset's up-to-3 target columns the MSE supervises and
-        # must match the model's n_output. Unset -> no slicing (legacy task).
-        _TARGET_COL_MAP = {"rotation": [0, 1], "translation": [2]}
-        _task_targets = list(getattr(tc, 'task_targets', None) or [])
-        target_cols = ([c for t in _task_targets for c in _TARGET_COL_MAP[t]]
-                       if _task_targets else None)
         for N in pbar:
             global_step += 1
             idx = perm[N * tc.batch_size:(N + 1) * tc.batch_size]
@@ -2254,18 +2286,10 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
 
             y_hat, h_buf = model(u_in)
 
-            # Task-target selection: the model always emits 3 columns
-            # [cosθ, sinθ, ξ] (so heading metrics stay defined); `task_targets`
-            # picks which the MSE supervises — rotation = (0,1), translation =
-            # (2). Both y_hat and the dataset target are sliced to those columns.
-            # Unset -> no slicing (legacy 2-column heading task).
-            if target_cols is not None:
-                y_hat_cmp = y_hat[..., target_cols]
-                y_cmp = y_in[..., target_cols]
-            else:
-                y_hat_cmp, y_cmp = y_hat, y_in
-
             # First loss term — task MSE over the WHOLE (task+calcium) batch.
+            # u_train / y_train were already sliced to the active task channels
+            # at load time (see _TASK_PROFILES above), so y_hat and y_in are
+            # in the same column basis here — no per-iter slicing.
             if coeff_tail > 0:
                 # Soft-curriculum: weight the per-frame MSE = 1 for t < T_epoch
                 # and `coeff_tail_loss` for t >= T_epoch (non-zero gradient on
@@ -2273,10 +2297,10 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
                 w = torch.ones(T_use, device=u.device)
                 if T_epoch < T_use:
                     w[T_epoch:] = coeff_tail
-                sq_err = (y_hat_cmp - y_cmp).pow(2).mean(dim=-1)   # (B, T_use)
+                sq_err = (y_hat - y_in).pow(2).mean(dim=-1)        # (B, T_use)
                 mse = ((sq_err * w[None, :]).sum(dim=-1) / w.sum()).mean()
             else:
-                mse = F.mse_loss(y_hat_cmp, y_cmp)
+                mse = F.mse_loss(y_hat, y_in)
 
             # Observation loss — convert the calcium-batch voltage to calcium via
             # the GCaMP class (sim.gcamp_kernel), gather the observed neurons, and
@@ -2433,32 +2457,47 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
                     # B=64/T=T_epoch for fwhm, B=1/T=snapshot_n_steps for the
                     # rollout) — pass the un-compiled module so we don't
                     # thrash the CUDA-Graph cache or trip dynamo tracer bugs.
-                    last_pi_acc = path_integration_accuracy_from_data(
-                        eval_model, u_test[:512, :T_epoch], y_test[:512, :T_epoch],
-                        warmup=10, batch_size=tc.batch_size,
-                    )
-                    last_fwhm = bump_fwhm(
-                        eval_model, eval_model.epg_indices, eval_model.epg_glom_ix,
-                        n_trials=64, n_steps=T_epoch, device=device,
-                    )
-                    # Primary rollout at the current curriculum horizon —
-                    # tracks training progress at the length actually trained.
-                    last_rmse_roll, last_pearson_roll = _rollout_heading_metrics(
-                        eval_model,
-                        n_steps=T_epoch,
-                        omega_deg_per_s=snapshot_omega_deg,
-                        device=device,
-                    )
-                    # Reference rollout at fixed T=1000 — the evolution plot
-                    # also uses T=1000 for its `heading tracking on snapshot
-                    # rollout` panel, so the second value in r_roll=A (B)
-                    # equals the `r=` printed in that panel's title.
-                    _, last_pearson_roll_1k = _rollout_heading_metrics(
-                        eval_model,
-                        n_steps=1000,
-                        omega_deg_per_s=snapshot_omega_deg,
-                        device=device,
-                    )
+                    # All four metrics below are heading-only — pi_acc needs a
+                    # cos/sin target column, bump_fwhm and the rollouts build a
+                    # 3-channel [ω, cos, sin] probe input. They're meaningful
+                    # only when the network is trained on rotation. In a pure
+                    # translation run there is no ω in the input and no
+                    # cos/sin in the target, so skip them and write nan.
+                    _has_rotation = ("rotation" in task_targets_canonical
+                                     or not task_targets_canonical)
+                    if _has_rotation:
+                        last_pi_acc = path_integration_accuracy_from_data(
+                            eval_model, u_test[:512, :T_epoch], y_test[:512, :T_epoch],
+                            warmup=10, batch_size=tc.batch_size,
+                        )
+                        last_fwhm = bump_fwhm(
+                            eval_model, eval_model.epg_indices, eval_model.epg_glom_ix,
+                            n_trials=64, n_steps=T_epoch, device=device,
+                        )
+                        # Primary rollout at the current curriculum horizon —
+                        # tracks training progress at the length actually trained.
+                        last_rmse_roll, last_pearson_roll = _rollout_heading_metrics(
+                            eval_model,
+                            n_steps=T_epoch,
+                            omega_deg_per_s=snapshot_omega_deg,
+                            device=device,
+                        )
+                        # Reference rollout at fixed T=1000 — the evolution plot
+                        # also uses T=1000 for its `heading tracking on snapshot
+                        # rollout` panel, so the second value in r_roll=A (B)
+                        # equals the `r=` printed in that panel's title.
+                        _, last_pearson_roll_1k = _rollout_heading_metrics(
+                            eval_model,
+                            n_steps=1000,
+                            omega_deg_per_s=snapshot_omega_deg,
+                            device=device,
+                        )
+                    else:
+                        last_pi_acc = float('nan')
+                        last_fwhm = float('nan')
+                        last_rmse_roll = float('nan')
+                        last_pearson_roll = float('nan')
+                        last_pearson_roll_1k = float('nan')
                     # Calcium panel (panel h): roll one held-out real-calcium
                     # test trial, convert voltage→calcium via the GCaMP class,
                     # and pair it with the recorded ΔF/F over the bump-pool rows
@@ -2579,12 +2618,17 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
         )
 
     # --- Final eval on full test split (full T) -------------------------
-    final_pi = path_integration_accuracy_from_data(
-        eval_model, u_test, y_test, warmup=10, batch_size=tc.batch_size,
-    )
-    _logger.info(f'final test pi_acc: {final_pi:.4f}  '
-                 f'(n_test={u_test.shape[0]}, T={u_test.shape[1]})')
-    logger.info(f'final test pi_acc: {final_pi:.4f}')
+    # pi_acc is heading-only — skip in a pure translation run.
+    if ("rotation" in task_targets_canonical or not task_targets_canonical):
+        final_pi = path_integration_accuracy_from_data(
+            eval_model, u_test, y_test, warmup=10, batch_size=tc.batch_size,
+        )
+        _logger.info(f'final test pi_acc: {final_pi:.4f}  '
+                     f'(n_test={u_test.shape[0]}, T={u_test.shape[1]})')
+        logger.info(f'final test pi_acc: {final_pi:.4f}')
+    else:
+        _logger.info(f'final test pi_acc: n/a (task_targets={task_targets_canonical}, '
+                     f'translation-only — heading metric not defined)')
 
 
 # ============================================================================
