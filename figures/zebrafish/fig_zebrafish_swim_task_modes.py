@@ -181,20 +181,42 @@ def generate_swim_batch(B: int, *, seed: int = 0):
     stimulus[:, 0, 3] = np.sin(theta0)
 
     swim_label_onset = np.where(onset, cat, np.int8(0))
-    return stimulus, target, swim_label_onset, omega_deg, vfwd
+    return stimulus, target, swim_label_onset, omega_deg, vfwd, theta_hd
 
 
-def leaky_xi(vfwd: np.ndarray, tau_s: float) -> np.ndarray:
-    """Leaky integrator on v_fwd. tau_s = None / ≤ 0 → perfect cumsum."""
+def leaky_integrate(drive: np.ndarray, tau_s: "float | None") -> np.ndarray:
+    """Forward-Euler integrator on `drive` (shape (B, T)).
+
+    `tau_s` None / ≤ 0 → perfect cumsum; finite τ > 0 → leaky recurrence
+    with α = 1 − dt/τ. Initial condition is zero.
+    """
     if tau_s is None or tau_s <= 0:
-        out = (np.cumsum(vfwd, axis=1) * DT).astype(np.float32)
+        out = (np.cumsum(drive, axis=1) * DT).astype(np.float32)
     else:
         alpha = max(0.0, min(1.0 - DT / float(tau_s), 1.0))
-        out = np.zeros_like(vfwd, dtype=np.float32)
-        for t in range(1, vfwd.shape[1]):
-            out[:, t] = alpha * out[:, t - 1] + vfwd[:, t] * DT
+        out = np.zeros_like(drive, dtype=np.float32)
+        for t in range(1, drive.shape[1]):
+            out[:, t] = alpha * out[:, t - 1] + drive[:, t] * DT
     out[:, 0] = 0.0
     return out
+
+
+def position_2d(vfwd: np.ndarray, theta_hd: np.ndarray,
+                tau_s: "float | None"):
+    """2D path integration: (x, y) = ∫ v_fwd · (cosθ, sinθ) dt.
+
+    `tau_s` None → perfect 2D integrator (unbounded). Finite τ → leaky
+    2D recurrence — both axes share the same time constant.
+    Returns (x, y) each of shape (B, T).
+    """
+    vx = vfwd * np.cos(theta_hd)
+    vy = vfwd * np.sin(theta_hd)
+    return leaky_integrate(vx, tau_s), leaky_integrate(vy, tau_s)
+
+
+# Back-compat alias used in earlier panels.
+def leaky_xi(vfwd: np.ndarray, tau_s: "float | None") -> np.ndarray:
+    return leaky_integrate(vfwd, tau_s)
 
 
 # ---------------------------------------------------------------------------
@@ -330,31 +352,70 @@ def _panel_mode_table(ax):
                  "(applied at trainer load time)", fontsize=TITLE_FS)
 
 
-def _panel_tau_sweep(ax, vfwd: np.ndarray):
-    """ξ(t) for several integrator τ values on the same trial."""
-    T = vfwd.size
+def _draw_position_2d_stack(fig, gs_cell, target: np.ndarray,
+                             vfwd: np.ndarray, theta_hd: np.ndarray,
+                             title: str):
+    """Render the 4-stack 2D-PI target (cos θ, sin θ, x, y) with the leaky
+    variant of (x, y) overlaid in red dashed."""
+    sub = GridSpecFromSubplotSpec(4, 1, subplot_spec=gs_cell, hspace=0.18)
+    T = target.shape[0]
     t_axis = np.arange(T) * DT
-    tau_set = [(None, "perfect (cumsum)", "0.20"),
-               (2.0,  r"leaky $\tau=2.0\,$s",  "0.55"),
-               (1.0,  r"leaky $\tau=1.0\,$s",  "0.75"),
-               (0.5,  r"leaky $\tau=0.5\,$s",  "0.92")]
+    x_perf, y_perf = position_2d(vfwd[None, :], theta_hd[None, :], tau_s=None)
+    x_leak, y_leak = position_2d(vfwd[None, :], theta_hd[None, :], tau_s=0.5)
+    rows = [
+        (r"$\cos\theta$", target[:, 0], None,        None),
+        (r"$\sin\theta$", target[:, 1], None,        None),
+        (r"$x$",          x_perf[0],    x_leak[0],   r"leaky $\tau=0.5\,$s"),
+        (r"$y$",          y_perf[0],    y_leak[0],   r"leaky $\tau=0.5\,$s"),
+    ]
+    ax0 = None
+    for k, (lab, perfect, leaky, leaky_label) in enumerate(rows):
+        ax = fig.add_subplot(sub[k], sharex=ax0 if ax0 is not None else None)
+        if ax0 is None:
+            ax0 = ax
+        ax.plot(t_axis, perfect, color=GT_COLOR, lw=1.0,
+                label="perfect" if leaky is not None else None)
+        if leaky is not None:
+            ax.plot(t_axis, leaky, color=LEAKY_COLOR, lw=1.0, ls="--",
+                    label=leaky_label)
+            if k == 2:
+                ax.legend(loc="upper left", fontsize=TICK_FS, frameon=False)
+        ax.axhline(0, color="0.7", lw=0.3)
+        ax.set_ylabel(lab, fontsize=LABEL_FS)
+        ax.tick_params(labelsize=TICK_FS, labelbottom=(k == 3))
+        if k == 0:
+            ax.set_title(title, fontsize=TITLE_FS)
+        if k == 3:
+            ax.set_xlabel("time (s)", fontsize=LABEL_FS)
+    return ax0
+
+
+def _panel_2d_path_tau_sweep(ax, vfwd: np.ndarray, theta_hd: np.ndarray):
+    """(x, y) trajectory for several integrator τ values on the same trial.
+
+    Drawn in spatial coordinates with equal aspect — shows how the leaky
+    recurrence pulls the trajectory toward the origin while the perfect
+    integrator wanders freely.
+    """
+    tau_set = [(None, "perfect", GT_COLOR, 1.2, "-"),
+               (2.0,  r"leaky $\tau=2.0\,$s", None, 1.0, "-"),
+               (1.0,  r"leaky $\tau=1.0\,$s", None, 1.0, "-"),
+               (0.5,  r"leaky $\tau=0.5\,$s", None, 1.0, "-")]
     cmap = plt.get_cmap("viridis")
-    for tau, label, _ in tau_set:
-        xi = leaky_xi(vfwd[None, :], tau_s=tau)[0]
-        if tau is None:
-            color = GT_COLOR
-            ls = "-"
-            lw = 1.2
-        else:
-            # Pick a colour by τ rank — shorter τ darker.
-            color = cmap(0.85 - 0.20 * [2.0, 1.0, 0.5].index(tau))
-            ls = "-"
-            lw = 1.0
-        ax.plot(t_axis, xi, color=color, ls=ls, lw=lw, label=label)
-    ax.axhline(0, color="0.7", lw=0.3)
-    ax.set_xlabel("time (s)", fontsize=LABEL_FS)
-    ax.set_ylabel(r"$\xi$", fontsize=LABEL_FS)
-    ax.set_title(r"$\xi$ integrator: perfect vs leaky $\tau$ on the same trial",
+    leaky_tau_ranks = [2.0, 1.0, 0.5]
+    for tau, label, color, lw, ls in tau_set:
+        x, y = position_2d(vfwd[None, :], theta_hd[None, :], tau_s=tau)
+        x = x[0]; y = y[0]
+        if tau is not None:
+            color = cmap(0.85 - 0.20 * leaky_tau_ranks.index(tau))
+        ax.plot(x, y, color=color, ls=ls, lw=lw, label=label)
+    ax.plot([0.0], [0.0], "o", color="0.4", ms=5, zorder=5)
+    ax.set_aspect("equal", adjustable="datalim")
+    ax.axhline(0, color="0.85", lw=0.3, zorder=0)
+    ax.axvline(0, color="0.85", lw=0.3, zorder=0)
+    ax.set_xlabel("x", fontsize=LABEL_FS)
+    ax.set_ylabel("y", fontsize=LABEL_FS)
+    ax.set_title(r"2D path $(x,y)$ — perfect vs leaky $\tau$ on the same trial",
                  fontsize=TITLE_FS)
     ax.legend(loc="best", fontsize=TICK_FS, frameon=False)
     ax.tick_params(labelsize=TICK_FS)
@@ -364,52 +425,52 @@ def _panel_tau_sweep(ax, vfwd: np.ndarray):
 # Figure
 # ---------------------------------------------------------------------------
 
-def build_figure(out_path: str, seed: int = 7):
-    # Generate a small batch — 5 trials for the raster, trial 0 for the
-    # stim / target / τ-sweep panels.
-    stim, target, sw_label, omega_deg, vfwd = generate_swim_batch(B=5, seed=seed)
+def build_figure(out_path: str, seed: int = 3):
+    # Generate a small batch — only trial 0 is shown; B=5 just lets the
+    # event sampler average out a bit per-trial so trial 0 isn't a
+    # degenerate empty trial.
+    stim, target, sw_label, omega_deg, vfwd, theta_hd = generate_swim_batch(
+        B=5, seed=seed)
 
-    fig = plt.figure(figsize=(13, 12))
+    fig = plt.figure(figsize=(13, 11))
     gs = GridSpec(
-        3, 2, figure=fig,
-        height_ratios=[0.7, 1.4, 0.7],
+        2, 2, figure=fig,
+        height_ratios=[1.2, 1.2],
         width_ratios=[1.0, 1.0],
-        hspace=0.42, wspace=0.28,
-        left=0.07, right=0.97, top=0.94, bottom=0.06,
+        hspace=0.42, wspace=0.30,
+        left=0.07, right=0.97, top=0.93, bottom=0.06,
     )
 
-    # (a) Swim event raster — full top row.
-    ax_a = fig.add_subplot(gs[0, :])
-    _panel_swim_raster(ax_a, sw_label)
-    _panel_label(ax_a, "a", dx=-0.04)
-
-    # (b) Stimulus — 4 stacked channels (trial 0).
-    ax_b_top = _draw_4ch_stack(
-        fig, gs[1, 0], stim[0],
+    # (a) Stimulus — 4 stacked channels (trial 0).
+    ax_a_top = _draw_4ch_stack(
+        fig, gs[0, 0], stim[0],
         title="stimulus — 4-channel input superset (trial 0)",
+    )
+    _panel_label(ax_a_top, "a", dx=-0.16)
+
+    # (b) scalar_xi target — 3 stacked columns, ξ overlays perfect + leaky.
+    ax_b_top = _draw_target_stack(
+        fig, gs[0, 1], target[0], vfwd[0],
+        title=r"scalar-$\xi$ target — $[\cos\theta,\sin\theta,\xi]$ (trial 0)",
     )
     _panel_label(ax_b_top, "b", dx=-0.16)
 
-    # (c) Target — 3 stacked columns, ξ shows perfect + leaky overlay.
-    ax_c_top = _draw_target_stack(
-        fig, gs[1, 1], target[0], vfwd[0],
-        title="target — 3-column output superset (trial 0)",
+    # (c) position_2d target — 4 stacked columns, (x, y) overlay perfect +
+    # leaky on the same trial.
+    ax_c_top = _draw_position_2d_stack(
+        fig, gs[1, 0], target[0], vfwd[0], theta_hd[0],
+        title=r"position-2D target — $[\cos\theta,\sin\theta,x,y]$ (trial 0)",
     )
     _panel_label(ax_c_top, "c", dx=-0.16)
 
-    # (d) Mode table — bottom-left.
-    ax_d = fig.add_subplot(gs[2, 0])
-    _panel_mode_table(ax_d)
-    _panel_label(ax_d, "d", dx=-0.04)
-
-    # (e) Integrator τ sweep — bottom-right.
-    ax_e = fig.add_subplot(gs[2, 1])
-    _panel_tau_sweep(ax_e, vfwd[0])
-    _panel_label(ax_e, "e", dx=-0.12)
+    # (d) 2D path τ sweep — square spatial plot.
+    ax_d = fig.add_subplot(gs[1, 1])
+    _panel_2d_path_tau_sweep(ax_d, vfwd[0], theta_hd[0])
+    _panel_label(ax_d, "d", dx=-0.12)
 
     fig.suptitle(
-        "zebrafish swim-integration task — dataset superset, "
-        "per-mode I/O projection, and leaky ξ variant",
+        "zebrafish swim-integration task — input superset, scalar-ξ and "
+        "2D-position targets, and leaky integrator variants",
         fontsize=12, fontweight="bold", y=0.985,
     )
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
@@ -425,7 +486,7 @@ def main():
         "fig_zebrafish_swim_task_modes.png",
     )
     ap.add_argument("--out", default=default_out)
-    ap.add_argument("--seed", type=int, default=7)
+    ap.add_argument("--seed", type=int, default=3)
     args = ap.parse_args()
     build_figure(args.out, seed=args.seed)
 

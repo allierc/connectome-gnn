@@ -309,6 +309,13 @@ class Circuit:
             "ARTR_R":    np.asarray(self.subpops.get("afferent_ARTR_R",    []), dtype=np.int64),
             "pt_IPN1_L": np.asarray(self.subpops.get("afferent_pt_IPN1_L", []), dtype=np.int64),
             "pt_IPN1_R": np.asarray(self.subpops.get("afferent_pt_IPN1_R", []), dtype=np.int64),
+            # Proprioceptive / efference-copy afferent — motor-efferent
+            # RIPN cells (RIPN11 + RIPN12_a + RIPN12_c). Used by the
+            # proprioception circuit + its accompanying 6-scalar gate.
+            "motor_efferent_L": np.asarray(
+                self.subpops.get("afferent_motor_efferent_L", []), dtype=np.int64),
+            "motor_efferent_R": np.asarray(
+                self.subpops.get("afferent_motor_efferent_R", []), dtype=np.int64),
         }
         pen = {  # fly-vocab back-compat
             "PENa_L": afferent["RIPN_L"],
@@ -411,6 +418,7 @@ def _discover_circuits() -> None:
     # Each circuit registers a build function. Add new circuits here.
     _register_zebrafish_hd_ipn12_839()
     _register_zebrafish_hd_ipn12_839_artr_pt1()
+    _register_zebrafish_hd_ipn12_839_artr_pt1_proprioception()
     _register_zebrafish_hd_ipn12_hnd()
     _register_zebrafish_hd_ipn12_exc_839()
     _register_zebrafish_hd_ipn12_ablations()
@@ -638,6 +646,128 @@ def _register_zebrafish_hd_ipn12_839_artr_pt1() -> None:
         )
 
     register_circuit("zebrafish_HD_IPN12_839_artr_pt1", build)
+
+
+def _register_zebrafish_hd_ipn12_839_artr_pt1_proprioception() -> None:
+    """Register the 839-cell HD pool with the **proprioception-extended
+    afferent partition** as
+    ``zebrafish_HD_IPN12_839_artr_pt1_proprioception``.
+
+    Identical connectome to v1 / artr_pt1 (same 839 cells, same Dale flip,
+    same spectral rescale). What changes is the advertised afferent
+    taxonomy — on top of the artr_pt1 split (ARTR for ω, pt-IPN1 for
+    exteroceptive v_fwd), this variant exposes a THIRD afferent subpop:
+
+      motor_efferent  =  RIPN11 + RIPN12_a + RIPN12_c   (37 L / 31 R cells)
+
+    These are the cells the fish2 inventory tags as ascending / descending
+    motor efferent — they carry the swim motor command (or its efference
+    copy) back into IPN and so are the candidate proprioceptive afferent
+    for forward-translation velocity.
+
+    The companion 6-scalar gate routes:
+      ω      → ARTR_L/R                 (v_artr_l/r — same as artr_pt1)
+      v_fwd  → pt_IPN1_L/R              (v_pt1_l/r  — exteroceptive copy)
+      v_fwd  → motor_efferent_L/R       (v_me_l/r   — proprioceptive copy)
+
+    The same v_fwd signal feeds both translation branches in this first
+    version — exteroceptive and proprioceptive afferents share a clean
+    drive. A follow-up can add per-channel delay / gain noise to model
+    the latency difference between optic-flow (delayed) and efference-copy
+    (prompt). Cell-type annotations from the literature-referenced
+    inventory by Liangyu/Xiao/Shin-ya.
+    """
+
+    def build() -> Circuit:
+        from connectome_gnn.generators.connectome_loaders import (
+            load_zebrafish_hd_connectome,
+        )
+        datapath = "figures/zebrafish/zebrafish_connectome_HD_IPN12"
+        cx = load_zebrafish_hd_connectome(datapath)
+
+        N = int(cx["N"])
+        n_bump = int(cx.get("n_dipn", cx["n_epg"]))
+        soma = cx.get("somaLocation", None)
+        soma_xyz = np.asarray(soma, dtype=np.float64) if soma is not None else None
+
+        aff = cx.get("afferent_subpop_ix", None) or {}
+        pen = cx.get("pen_subpop_ix", {}) or {}
+
+        def _aff(k_fish: str, k_fly: str) -> np.ndarray:
+            arr = aff.get(k_fish, None)
+            if arr is None:
+                arr = pen.get(k_fly, np.array([], dtype=np.int64))
+            return np.asarray(arr, dtype=np.int64)
+
+        subpops = {
+            "bump":                       np.arange(n_bump, dtype=np.int64),
+            "afferent_ARTR_L":            _aff("ARTR_L",            ""),
+            "afferent_ARTR_R":            _aff("ARTR_R",            ""),
+            "afferent_pt_IPN1_L":         _aff("pt_IPN1_L",         ""),
+            "afferent_pt_IPN1_R":         _aff("pt_IPN1_R",         ""),
+            "afferent_motor_efferent_L":  _aff("motor_efferent_L",  ""),
+            "afferent_motor_efferent_R":  _aff("motor_efferent_R",  ""),
+        }
+        bump_ring_ix = np.asarray(
+            cx.get("dipn_ix", cx["epg_ix"]), dtype=np.int64,
+        )
+
+        # Loud guard — proprioception variant makes no sense if any of
+        # the six refined subpops are empty.
+        for _k in ("afferent_ARTR_L", "afferent_ARTR_R",
+                   "afferent_pt_IPN1_L", "afferent_pt_IPN1_R",
+                   "afferent_motor_efferent_L", "afferent_motor_efferent_R"):
+            if subpops[_k].size == 0:
+                raise ValueError(
+                    f"zebrafish_HD_IPN12_839_artr_pt1_proprioception: subpop "
+                    f"{_k!r} is empty; the connectome at {datapath!r} appears "
+                    f"to lack the required type tags (RIPN01/02/03_a/03_b for "
+                    f"ARTR, pt-IPN1 for exteroceptive translation, "
+                    f"RIPN11/RIPN12_a/RIPN12_c for motor efferent)."
+                )
+
+        provenance = {
+            "server": "neuprint-fish2.janelia.org",
+            "dataset": "fish2",
+            "source_tables":
+                "figures/zebrafish/zebrafish_connectome_HD_IPN12/{neurons,connections}.csv",
+            "anatomy_dir": "figures/zebrafish/zebrafish_anatomy_HD",
+            "anatomy_extra_dirs": ["figures/zebrafish/zebrafish_anatomy_IPN12"],
+            "dale_inh_amplify": 5.0,
+            "dale_spectral_target": 0.9,
+            "type_count": len(cx["type_names"]),
+            "n_bump_cells": n_bump,
+            "afferent_partition_note": (
+                "Proprioception-extended afferent partition: ω → ARTR "
+                "(RIPN01+02+03_a+03_b), exteroceptive v_fwd → pt-IPN1, "
+                "proprioceptive v_fwd → motor_efferent (RIPN11+12_a+12_c). "
+                "Same connectome as v1 / artr_pt1; the three-way split "
+                "exposes the canonical sensory + efference-copy redundancy "
+                "real fish use for forward-translation velocity. Use with "
+                "velocity_gate='pen_artr_ptipn1_propriocep'."
+            ),
+        }
+
+        body_ids = (np.asarray(cx["bodyId"], dtype=np.int64)
+                    if "bodyId" in cx else None)
+
+        return Circuit(
+            name="zebrafish_HD_IPN12_839_artr_pt1_proprioception",
+            N=N,
+            neuron_types=np.asarray(cx["neuron_types"], dtype=np.int64),
+            type_names=list(cx["type_names"]),
+            J_effective=np.asarray(cx["J_effective"], dtype=np.float32),
+            soma_xyz=soma_xyz,
+            subpops=subpops,
+            bump_ring_ix=bump_ring_ix,
+            dale_signs=(np.asarray(cx["dale_signs"], dtype=np.float32)
+                        if "dale_signs" in cx else None),
+            body_ids=body_ids,
+            provenance=provenance,
+        )
+
+    register_circuit(
+        "zebrafish_HD_IPN12_839_artr_pt1_proprioception", build)
 
 
 def _register_zebrafish_hd_ipn12_hnd() -> None:

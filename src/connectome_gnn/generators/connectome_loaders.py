@@ -537,11 +537,19 @@ def load_zebrafish_hd_connectome(datapath, *, inh_amplify: float = 5.0,
     import re as _re
     _side_re = _re.compile(r"_(L|R)(?:[\(_]|$)")
     _ARTR_TYPES = ("RIPN01", "RIPN02", "RIPN03_a", "RIPN03_b")
+    # Motor-efferent RIPN sub-types — the inventory tags these as
+    # "Ascending / Descending motor efferent, hSAG receiving". They carry
+    # the swim motor command (or its efference copy) back into IPN and so
+    # are the proprioceptive companion of the exteroceptive pt-IPN1
+    # (optic/water-flow) translation afferent. RIPN12_b is excluded — it's
+    # tagged as a lateral-line receiver, not motor.
+    _MOTOR_EFFERENT_TYPES = ("RIPN11", "RIPN12_a", "RIPN12_c")
     pen_subpop_ix: dict[str, list[int]] = {
         "PENa_L": [], "PENa_R": [], "PENb_L": [], "PENb_R": [],
     }
     artr_ix: dict[str, list[int]] = {"ARTR_L": [], "ARTR_R": []}
     pt_ipn1_ix: dict[str, list[int]] = {"pt_IPN1_L": [], "pt_IPN1_R": []}
+    me_ix: dict[str, list[int]] = {"motor_efferent_L": [], "motor_efferent_R": []}
     # HNd (dorsal habenula) afferent — only populated when the connectome
     # contains HNd cells (the HNd circuit); empty for the base 839 pool.
     hnd_subpop_ix: dict[str, list[int]] = {"HNd_L": [], "HNd_R": []}
@@ -561,6 +569,8 @@ def load_zebrafish_hd_connectome(datapath, *, inh_amplify: float = 5.0,
             artr_ix[f"ARTR_{side}"].append(i)
         if tp == "pt-IPN1" and side in ("L", "R"):
             pt_ipn1_ix[f"pt_IPN1_{side}"].append(i)
+        if tp in _MOTOR_EFFERENT_TYPES and side in ("L", "R"):
+            me_ix[f"motor_efferent_{side}"].append(i)
         if cat == "RIPN":
             key_pre = "PENa"
         elif cat == "pt-IPN":
@@ -610,6 +620,8 @@ def load_zebrafish_hd_connectome(datapath, *, inh_amplify: float = 5.0,
         # without RIPN03_a/b, or a connectome that lacks pt-IPN1).
         "ARTR_L":    np.asarray(artr_ix["ARTR_L"], dtype=np.int64),
         "ARTR_R":    np.asarray(artr_ix["ARTR_R"], dtype=np.int64),
+        "motor_efferent_L": np.asarray(me_ix["motor_efferent_L"], dtype=np.int64),
+        "motor_efferent_R": np.asarray(me_ix["motor_efferent_R"], dtype=np.int64),
         "pt_IPN1_L": np.asarray(pt_ipn1_ix["pt_IPN1_L"], dtype=np.int64),
         "pt_IPN1_R": np.asarray(pt_ipn1_ix["pt_IPN1_R"], dtype=np.int64),
     }

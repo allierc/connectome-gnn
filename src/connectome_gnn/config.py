@@ -610,7 +610,8 @@ class GraphModelConfig(BaseModel):
     #                 opposite for L vs R.
     # "none"        — W_in fully free (default).
     velocity_gate: Literal["none", "pen_only", "pen_4scalar",
-                           "pen_artr_ptipn1"] = "none"
+                           "pen_artr_ptipn1",
+                           "pen_artr_ptipn1_propriocep"] = "none"
 
     # TaskRNN (cortex/free-W mode): explicit recurrent population size + I/O
     # dimensions. For sign_locked (CX) mode these are derived from the
