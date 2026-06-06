@@ -1,20 +1,18 @@
 """fig_zebrafish_circuit_variants.py
 =====================================
 
-Schematic of the three afferent-partition variants of the zebrafish HD /
-IPN circuit. Same connectome in every variant (839 cells: 443 dIPN + 108
-IPN12 + 200 RIPN + 88 pt-IPN); what changes is **which afferent
-subpopulations the velocity gate routes ω and v_fwd through**.
+Schematic of the two production afferent-partition variants of the
+zebrafish HD / IPN circuit. Same 839-cell connectome (443 dIPN + 108
+IPN12 + 200 RIPN + 88 pt-IPN) in both panels; what changes is **which
+afferent subpopulations the velocity gate routes ω and v_fwd through**.
 
-Three panels (a–c), each laid out left-to-right:
+Two panels (a–b), each laid out left-to-right:
     afferent populations ─→ bump ring ─→ decoder readout
 
-  (a) baseline: RIPN and pt-IPN aggregates both receive ω (4-scalar
-      gate; translation conflated with rotation).
-  (b) refined partition: ω routed to ARTR only (RIPN01+02+03_a+03_b);
-      v_fwd routed to pt-IPN1 only (optic / water-flow afferents);
-      rotation and translation drive paths cleanly separated.
-  (c) proprioception extension: same as (b) plus a third afferent
+  (a) refined partition: ω routed to ARTR (RIPN01+02+03_a+03_b);
+      v_fwd routed to pt-IPN1 (optic / water-flow afferents); rotation
+      and translation drive paths cleanly separated.
+  (b) proprioception extension: same as (a) plus a third afferent
       route — v_fwd is now delivered through TWO parallel pathways,
       pt-IPN1 (exteroceptive) AND motor_efferent (proprioceptive copy
       of the swim command: RIPN11 + RIPN12_a + RIPN12_c).
@@ -268,19 +266,17 @@ def _draw_propriocep_panel(ax):
 
 
 def build_figure(out_path: str):
-    fig, axes = plt.subplots(1, 3, figsize=(18.5, 6.0))
-    fig.subplots_adjust(left=0.02, right=0.99, top=0.88, bottom=0.05,
-                        wspace=0.06)
-    _draw_v1_panel(axes[0])
+    fig, axes = plt.subplots(1, 2, figsize=(13.5, 6.0))
+    fig.subplots_adjust(left=0.03, right=0.99, top=0.88, bottom=0.05,
+                        wspace=0.08)
+    _draw_artr_pt1_panel(axes[0])
     _panel_label(axes[0], "a")
-    _draw_artr_pt1_panel(axes[1])
+    _draw_propriocep_panel(axes[1])
     _panel_label(axes[1], "b")
-    _draw_propriocep_panel(axes[2])
-    _panel_label(axes[2], "c")
 
     fig.suptitle(
         "zebrafish HD / IPN circuit variants — same 839-cell connectome, "
-        "three afferent partitions",
+        "two afferent partitions",
         fontsize=13, fontweight="bold", y=0.99,
     )
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
