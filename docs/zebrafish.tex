@@ -946,33 +946,81 @@ across variants.
   \label{fig:zhd_artr_pt1_summary}
 \end{figure}
 
-\paragraph{Toward an angular / displacement partition.}
-The rotation $+$ scalar-distance variants
-(\cref{fig:zhd_evolution_both,fig:zhd_evolution_both_leaky}) and the
-2-D path variants
-(\cref{fig:zhd_evolution_position2d,fig:zhd_evolution_position2d_leaky})
-let us ask which neurons carry information about \emph{which} target.
-We will partition the $839$ cells by the mutual information they hold
-on each integrated quantity --- angular heading $\theta$, forward
-distance $d$, and the 2-D position $(x,y)$ --- and split them into
-three functional pools:
-\emph{angular} (high $I(\hat h_i;\theta)$, low $I(\hat h_i;d)$),
-\emph{displacement} (low $I(\hat h_i;\theta)$, high $I(\hat h_i;d)$),
-and \emph{shared} (high on both). This replaces the earlier R/L/D/Z
-labelling, which was tied to the rotation-only readout and to a
-hand-set readout-magnitude threshold; the new partition is
-target-symmetric (rotation and translation are treated on the same
-footing) and uses only model activity, no readout weights.
-Following the partition, the edge analysis
-$|\hat W^{\mathrm{rec}}|_{p\to q}$ between the three pools
-$p, q \in \{\text{angular}, \text{displacement}, \text{shared}\}$
-will test the micro-circuit hypothesis: a block-diagonal structure
-in pool-to-pool magnitudes would indicate two distinct computations
-on disjoint sub-circuits, while a uniformly dense cross-block would
-indicate that both integrations are spread across overlapping
-neurons. The new partition figure and edge-block analysis are in
-preparation; the present sub-section reports only the cross-variant
-training and weight-magnitude summary that supports them.
+\paragraph{Angular / displacement partition (recurrent pool only).}
+The joint-target variants
+(\cref{fig:zhd_evolution_both,fig:zhd_evolution_both_leaky,fig:zhd_evolution_position2d,fig:zhd_evolution_position2d_leaky})
+let us ask which \emph{recurrent} neurons carry information about
+\emph{which} target. The analysis is restricted to the recurrent pool
+(\emph{IPNd*}, \emph{IPNds*}, \emph{IPN12}; $n=551$ of the $839$
+cells); the afferents (ARTR, pt-IPN1, motor\_efferent) are excluded
+by construction, since their activity is driven directly by the
+gate-injected $\omega$ or $v_{\mathrm{fwd}}$ and their MI on the
+corresponding integrated quantity is trivially high. For each
+recurrent neuron $i$ we compute the per-neuron mutual information on
+the heading $I(\hat h_i;\theta)$ and on the forward distance
+$I(\hat h_i;d)$ from a concatenation of $64$ held-out test trials of
+the position-2D leaky model (10\,s each, $1{,}000$ frames; circular
+MI for $\theta$, plug-in MI for $d$). Splitting each axis at its
+recurrent-pool median assigns every cell to one of four quadrants:
+\emph{angular} ($I(\hat h_i;\theta) \ge \tau_\theta$, $I(\hat h_i;d) < \tau_d$),
+\emph{displacement} ($I(\hat h_i;\theta) < \tau_\theta$, $I(\hat h_i;d) \ge \tau_d$),
+\emph{shared} (high on both), and a residual \emph{neither} group.
+On the position-2D leaky checkpoint this gives
+$\text{angular}/\text{displacement}/\text{shared}/\text{neither}
+= 37/37/239/238$ --- the recurrent pool splits into a dominant
+shared population and a small target-specialised tail. This new
+partition replaces the earlier R/L/D/Z labelling: it is
+target-symmetric (rotation and translation are on the same footing),
+restricted to the cells that actually \emph{integrate}, and uses
+only model activity (no readout weights).
+
+\paragraph{Edge-block analysis: micro-circuits or distributed?}
+On the same checkpoint we compute the mean magnitude
+$\langle|\hat W^{\mathrm{rec}}_{p\to q}|\rangle$ over recurrent$\to$
+recurrent connectome edges between the three pools $p, q \in
+\{\text{angular}, \text{shared}, \text{displacement}\}$ (the
+\emph{neither} pool is dropped from the edge analysis). The
+resulting $3 \times 3$ matrix
+(\cref{fig:zhd_mi_partition}\textbf{b}) is \emph{not} block-diagonal:
+the off-diagonal angular$\leftrightarrow$displacement entries
+($0.466$ and $0.644$) are comparable to the within-pool diagonals
+($0.622$ angular$\to$angular, $0.734$ displacement$\to$displacement),
+and the \emph{shared} pool exchanges substantial weight with both
+endpoints. The integrated heading and integrated distance are
+therefore \emph{not} computed on disjoint sub-circuits; the two
+codes are carried by overlapping recurrent neurons connected by
+edges of similar magnitude across the partition. The dominant
+within-pool block is shared$\to$displacement ($0.766$), consistent
+with the displacement signal being read out of the same recurrent
+substrate that also encodes heading.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{\figdir/fig_zebrafish_mi_partition.png}
+  \caption{\textbf{MI-based partition of the recurrent pool and
+  recurrent$\to$recurrent edge-block analysis.} Trained on
+  \texttt{zebrafish\_hd\_si\_ipn12\_artr\_pt1\_position\_2d\_leaky}
+  ($n_{\rm in}=4$, $n_{\rm out}=4$). MI estimated from $64$ held-out
+  test trials.
+  \textbf{(a)}~Per-recurrent-neuron MI on heading
+  $I(\hat h_i;\theta)$ (circular, $24$ heading bins) versus MI on
+  forward distance $I(\hat h_i;d)$ (plug-in, $32 \times 20$ bins),
+  $n=551$ dots. Dashed lines: median thresholds
+  $\tau_\theta, \tau_d$; colours mark the four quadrants
+  (angular blue, displacement orange, shared green, neither grey;
+  counts in legend). Afferents (ARTR, pt-IPN1, motor\_efferent) are
+  excluded.
+  \textbf{(b)}~Mean magnitude
+  $\langle|\hat W^{\mathrm{rec}}_{p\to q}|\rangle$ on
+  recurrent$\to$recurrent connectome edges between the three
+  task-aligned pools (rows = post-synaptic pool, columns = pre).
+  The \emph{neither} pool is excluded. The matrix is not
+  block-diagonal: angular and displacement neurons share comparable
+  edge magnitudes both within and across pools, so the two
+  integrations are distributed across overlapping recurrent
+  micro-circuits rather than carried by disjoint sub-populations.}
+  \label{fig:zhd_mi_partition}
+\end{figure}
 
 \subsection{Single-cell-type ablations}
 \label{sec:results_ablation}
