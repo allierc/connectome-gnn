@@ -38,9 +38,17 @@ COL_OMEGA    = "#1f6fb3"      # ω (angular velocity)
 COL_VFWD_EXT = "#e07b1a"      # v_fwd exteroceptive
 COL_VFWD_PRO = "#2a9d3d"      # v_fwd proprioceptive
 
-# Box fills — no edge stroke; colour alone identifies the role.
-COL_AFF_FILL = "#f4f1ec"      # afferent (warm grey)
-COL_REC_FILL = "#f6e6ce"      # recurrent network (pale amber)
+# Box fills — pastel versions of the partition palette used by
+# Figure 1 (the 3-D anatomy render) so the same colour identifies
+# the same cell population across the two figures. Each fill is the
+# partition's saturated hex code lightened toward white so it doesn't
+# fight the text on top.
+COL_ARTR_FILL    = "#c7d8e8"   # ARTR (matches #1f6fb3)
+COL_PT1_FILL     = "#f5d3b3"   # pt-IPN1 (matches #e07b1a)
+COL_ME_FILL      = "#c0e2c5"   # motor_efferent (matches #2a9d3d)
+COL_DIPN_FILL    = "#f0dfae"   # dIPN recc (matches #d49a3a)
+COL_IPN12_FILL   = "#e6c4d4"   # IPN12 pool (matches #b15a8e)
+COL_REC_FILL = "#f6e6ce"      # outer recurrent container (pale amber)
 COL_DEC_FILL = "#e6efde"      # decoder readout (pale leaf)
 
 
@@ -114,20 +122,23 @@ def _text(ax, xy, lines, fontsize=LABEL_FS, va="center", ha="center"):
 
 
 def _draw_recurrent_block(ax):
-    """Centre column: bump network block (no ring schematic, per the rework
-    brief). Two stacked panels — the IPNd ring pool and the IPN12 pool —
-    both labelled as part of the same recurrent network."""
+    """Centre column: recurrent network block. Two stacked tiles — the
+    dIPN recurrent pool and the IPN12 pool — both labelled as part of
+    the same recurrent network."""
     cx = 0.55
-    # Outer container.
+    # Outer container — neutral pale amber so the two coloured inner tiles
+    # (dIPN recc + IPN12 pool, matching their partition swatches in
+    # Figure 1) stand out.
     _box(ax, (0.40, 0.30), (0.30, 0.48), fill=COL_REC_FILL)
     _text(ax, (cx, 0.74), ["recurrent network"], fontsize=TITLE_FS)
-    # Two stacked tiles inside (no graphical ring — text only).
-    _box(ax, (0.43, 0.55), (0.24, 0.13), fill="#fff1d8", zorder=4)
+    # dIPN recc tile — amber pastel matching the Figure 1 swatch.
+    _box(ax, (0.43, 0.55), (0.24, 0.13), fill=COL_DIPN_FILL, zorder=4)
     _text(ax, (cx, 0.615),
-          [r"$d$IPN heading ring",
+          [r"$d$IPN recc",
            r"($n=443$, $r1\pi$ cells)"],
           fontsize=LABEL_FS)
-    _box(ax, (0.43, 0.36), (0.24, 0.13), fill="#fff1d8", zorder=4)
+    # IPN12 pool tile — rose pastel matching the Figure 1 swatch.
+    _box(ax, (0.43, 0.36), (0.24, 0.13), fill=COL_IPN12_FILL, zorder=4)
     _text(ax, (cx, 0.425),
           ["IPN12 pool",
            r"($n=108$)"],
@@ -140,14 +151,20 @@ def _draw_decoder_block(ax, out_lines):
     _text(ax, (0.88, 0.50), out_lines, fontsize=LABEL_FS)
 
 
-def _draw_afferent_block(ax, xy, wh, name, count, sub_lines=None):
+def _draw_afferent_block(ax, xy, wh, name, count, sub_lines=None,
+                         fill=None):
     """Afferent population box — fill only, no edge stroke.
+
+    `fill` selects the partition pastel that matches the Figure 1 colour
+    code (e.g. COL_ARTR_FILL, COL_PT1_FILL, COL_ME_FILL). Defaults to a
+    neutral warm grey for any afferent whose role isn't on the production
+    gate.
 
     Three lines stacked top-to-bottom: name, count, optional sub_lines.
     Positions are measured from the box's vertical centre so the layout
     stays balanced as the font sizes scale up.
     """
-    _box(ax, xy, wh, fill=COL_AFF_FILL)
+    _box(ax, xy, wh, fill=fill if fill is not None else "#f4f1ec")
     cx = xy[0] + wh[0] / 2
     cy = xy[1] + wh[1] / 2
     if sub_lines:
@@ -176,10 +193,12 @@ def _draw_artr_pt1_panel(ax):
 
     _draw_afferent_block(ax, (0.04, 0.60), (0.28, 0.17),
                          "ARTR L / R", r"$n=34+42$",
-                         sub_lines=["RIPN01/02/03_a/03_b"])
+                         sub_lines=["RIPN01/02/03_a/03_b"],
+                         fill=COL_ARTR_FILL)
     _draw_afferent_block(ax, (0.04, 0.32), (0.28, 0.17),
                          "pt-IPN1 L / R", r"$n=23+28$",
-                         sub_lines=["optic / water flow"])
+                         sub_lines=["optic / water flow"],
+                         fill=COL_PT1_FILL)
 
     _draw_recurrent_block(ax)
     _draw_decoder_block(ax, [r"$[\cos\theta,\sin\theta,\xi]$",
@@ -209,13 +228,16 @@ def _draw_propriocep_panel(ax):
           fontsize=TITLE_FS, ha="left")
 
     _draw_afferent_block(ax, (0.04, 0.72), (0.28, 0.13),
-                         "ARTR L / R", r"$n=34+42$")
+                         "ARTR L / R", r"$n=34+42$",
+                         fill=COL_ARTR_FILL)
     _draw_afferent_block(ax, (0.04, 0.43), (0.28, 0.16),
                          "pt-IPN1 L / R", r"$n=23+28$",
-                         sub_lines=["optic / water flow"])
+                         sub_lines=["optic / water flow"],
+                         fill=COL_PT1_FILL)
     _draw_afferent_block(ax, (0.04, 0.15), (0.28, 0.16),
                          "motor_efferent L / R", r"$n=37+31$",
-                         sub_lines=["RIPN11+12_a+12_c"])
+                         sub_lines=["RIPN11+12_a+12_c"],
+                         fill=COL_ME_FILL)
 
     _draw_recurrent_block(ax)
     _draw_decoder_block(ax, [r"$[\cos\theta,\sin\theta,x,y]$"])
@@ -245,18 +267,25 @@ def _draw_propriocep_panel(ax):
 # Figure
 # ---------------------------------------------------------------------------
 
-def build_figure(out_path: str):
+def build_figure(out_path: str, labels=("c", "d")):
+    """Render the two-panel circuit-variants diagram.
+
+    `labels` controls the panel letters; the production embeds this
+    diagram as the bottom row of a merged anatomy + circuit figure, so
+    the panels default to (c) and (d) to follow the anatomy panels
+    (a)/(b) above them.
+    """
     fig, axes = plt.subplots(1, 2, figsize=(13.5, 6.0))
     fig.subplots_adjust(left=0.03, right=0.99, top=0.97, bottom=0.04,
                         wspace=0.06)
     _draw_artr_pt1_panel(axes[0])
-    _panel_label(axes[0], "a")
+    _panel_label(axes[0], labels[0])
     _draw_propriocep_panel(axes[1])
-    _panel_label(axes[1], "b")
+    _panel_label(axes[1], labels[1])
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     fig.savefig(out_path, dpi=180, bbox_inches="tight")
     plt.close(fig)
-    print(f"[fig] wrote {out_path}")
+    print(f"[fig] wrote {out_path}  (panel labels: {labels[0]}, {labels[1]})")
 
 
 def main():
@@ -266,8 +295,11 @@ def main():
         "fig_zebrafish_circuit_variants.png",
     )
     ap.add_argument("--out", default=default_out)
+    ap.add_argument("--labels", nargs=2, default=("c", "d"),
+                    help="Panel letter labels (default: c d, matching the "
+                         "merged anatomy + circuit figure)")
     args = ap.parse_args()
-    build_figure(args.out)
+    build_figure(args.out, labels=tuple(args.labels))
 
 
 if __name__ == "__main__":
