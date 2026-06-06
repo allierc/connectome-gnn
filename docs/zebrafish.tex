@@ -239,36 +239,6 @@ $v_{\mathrm{fwd}}$ drive; a follow-up will give the exteroceptive copy
 a sensory delay and a perturbed gain so the network has to learn to
 weight the two streams.
 
-\paragraph{Walk-through of \cref{fig:zhd_3d}, panels \textbf{c}--\textbf{d}.}
-\label{method:circuit_variants_walkthrough}
-The bottom two panels of \cref{fig:zhd_3d} make two points side by
-side. First, the recurrent network on which every learning experiment
-runs is identical in both panels --- the same $839$-cell connectome,
-the same dorsal-IPN heading ring of $443$ $r1\pi$ cells joined by the
-IPN12 pool of $108$ cells, and the same decoder that reads heading and
-either scalar displacement $d$ or 2-D position $(x,y)$ depending on
-the active sub-task. Anatomy is shared. Second, what differs between
-the two variants is purely the identity of the cells the velocity gate
-routes the angular and translational drives \emph{into}. Panel
-\textbf{c} assigns $\omega$ exclusively to the ARTR pool (cell-type-
-tagged subsets of RIPN, sizes $34\!+\!42$ left/right) and
-$v_{\mathrm{fwd}}$ exclusively to pt-IPN1 (the optic and water-flow
-afferent, $23\!+\!28$), so rotation and translation reach the ring
-through anatomically disjoint ports. Panel \textbf{d} keeps that
-angular path and \emph{adds} a second translational port: the same
-$v_{\mathrm{fwd}}$ signal is also delivered to the motor-efferent RIPN
-sub-types ($37\!+\!31$ cells) that carry the swim command's efference
-copy. The result is a circuit in which the forward-velocity estimate
-is forced through a dual exteroceptive plus proprioceptive afferent
---- the canonical sensory redundancy real fish exploit --- without
-changing a single recurrent edge. The figure therefore separates two
-questions cleanly: \textit{``which cells get the drive''}
-(\textbf{c} vs \textbf{d}) is an afferent-taxonomy choice;
-\textit{``how the ring $+$ decoder turn drive into heading and
-position''} (the centre and right columns of both panels) is
-identical and is treated by the same training pipeline across both
-variants.
-
 \paragraph{Swim-integration task: superset and sub-tasks.}
 \label{method:swim_task_modes}
 The on-disk swim-integration dataset is a \emph{single superset} from
@@ -348,48 +318,21 @@ and metric comparisons stay clean.
 \caption{\textbf{Swim-integration task: input superset and target
 recipes.} \textbf{(a)}~$4$-channel input for one trial:
 $\omega$, $v_{\mathrm{fwd}}$, and the initial-heading impulse
-$(\cos\theta_0,\sin\theta_0)\,\delta_{t,0}$.
+$(\cos\theta_0,\sin\theta_0)\,\delta_{t,0}$ (non-zero only at $t=0$;
+shown as stem markers carrying the per-trial value).
 \textbf{(b)}~Scalar-$d$ target: $\cos\theta$, $\sin\theta$, and
 forward distance $d$; perfect integrator (green) vs leaky
 $\tau_d=0.5\,$s (red dashed).
 \textbf{(c)}~2D-position target: heading components plus $(x, y)$,
-with the same perfect / leaky overlay.
-\textbf{(d)}~The same trial's 2D trajectory in spatial coordinates.}
+with the same perfect / leaky overlay --- only the bottom two rows
+change between (b) and (c), so the 2D task is an additive extension
+of the scalar task rather than a replacement.
+\textbf{(d)}~The same trial's 2D trajectory in spatial coordinates:
+the perfect path drifts unboundedly from the origin, while the leaky
+path's steady-state radius is bounded by
+$\tau_p \, v_{\mathrm{fwd}} / \sqrt{1+(\tau_p\omega)^2}$.}
 \label{fig:zhd_swim_task_modes}
 \end{figure}
-
-\paragraph{Walk-through of \cref{fig:zhd_swim_task_modes}.}
-\label{method:swim_task_modes_walkthrough}
-The figure shows what the network sees and what it has to predict on a
-single example trial. Panel \textbf{a} is the input superset, four
-channels stacked: $\omega$ (rotational drive, boxcar-stretched at L/R
-swim onsets), $v_{\mathrm{fwd}}$ (translational drive at F/B onsets;
-backward = negative), and the two single-frame impulses
-$\cos\theta_0\!\cdot\!\delta_{t,0}$ and $\sin\theta_0\!\cdot\!\delta_{t,0}$
-that carry the absolute-heading reference at trial start. The impulse
-channels look near-empty on a $10\,$s time axis because they are
-non-zero only at $t=0$; the stem markers carry the actual value.
-Panels \textbf{b} and \textbf{c} are the two target families on the
-\emph{same} trial. In \textbf{b}, the scalar-$d$ recipe stores
-heading via $(\cos\theta,\sin\theta)$ and the integrated forward-axis
-distance $d$; the green / red-dashed overlay on $d$ contrasts the
-perfect integrator (unbounded ramps that climb during forward swim
-events and plateau between them) with the leaky variant
-$\tau_d=0.5\,$s (decays back to zero in the absence of drive). In
-\textbf{c}, the 2D-position recipe replaces $d$ with the two spatial
-components $(x,y)$, computed by projecting $v_{\mathrm{fwd}}$ through
-the current heading and integrating each axis; the same perfect /
-leaky overlay is applied to each. Note that heading $(\cos\theta,
-\sin\theta)$ is shared with \textbf{b} --- only the bottom two rows
-change between recipes, so the figure makes plain that the 2D task is
-an \emph{additive extension} of the scalar task rather than a
-replacement. Panel \textbf{d} re-plots the same trial's 2D trajectory
-in spatial coordinates and is the most direct read of why the leaky
-integrator matters: the perfect path drifts arbitrarily from the
-origin (a property of any noise-free cumulative sum of a non-zero-mean
-drive), while the leaky path's steady-state radius is bounded by
-$\tau_p \, v_{\mathrm{fwd}} / \sqrt{1 + (\tau_p\,\omega)^2}$, keeping
-the trained target on a comparable scale across the entire curriculum.
 
 \paragraph{Data.}
 Skeletons, ROI meshes and synaptic connections are taken from the
