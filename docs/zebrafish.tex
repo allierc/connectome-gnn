@@ -226,121 +226,10 @@ $v_{\mathrm{fwd}}$ drive; a follow-up will give the exteroceptive copy
 a sensory delay and a perturbed gain so the network has to learn to
 weight the two streams.
 
-\paragraph{Swim-integration task: superset and sub-tasks.}
-\label{method:swim_task_modes}
-The on-disk swim-integration dataset is a \emph{single superset} from
-which several sub-tasks are projected at training time. Swim events are
-sampled at a Poisson rate $r_{\mathrm{swim}}=0.5\,\mathrm{Hz}$ with
-event duration $\Delta t_{\mathrm{swim}}=0.3\,$s, partitioned into four
-behavioural categories with fractions $L:R:F:B=0.3:0.3:0.2:0.2$. Left
-and right events drive an angular signed phase impulse, forward and
-backward events drive a signed forward-velocity impulse. The dataset
-writes:
-\begin{itemize}
-    \item a $4$-channel input
-    $u\in\R^{B\times T\times 4}=[\,\omega,\,v_{\mathrm{fwd}},\,
-    \cos\theta_0\!\cdot\!\delta_{t,0},\,\sin\theta_0\!\cdot\!\delta_{t,0}\,]$
-    --- left/right events drive $\omega$, forward/backward events drive
-    $v_{\mathrm{fwd}}$, and the initial-heading cue $(\cos\theta_0,\sin\theta_0)$
-    is injected as a single-frame impulse at $t=0$ because the
-    integrator has no other reference for the absolute heading. There
-    is no analogous initial-\emph{position} cue: position is defined
-    to start at the origin by construction.
-    \item a target tensor whose column layout depends on the sub-task.
-    The \emph{scalar} recipe stores
-    $y=[\,\cos\theta,\,\sin\theta,\,d\,]$ with circular heading
-    $\theta(t)=\theta_0+\int_0^t\omega\,ds$ and a scalar forward-axis
-    displacement $d(t)=\int_0^t v_{\mathrm{fwd}}\,ds$ (linear,
-    $d(0)=0$). The \emph{2D path-integration} recipe stores
-    $y=[\,\cos\theta,\,\sin\theta,\,x,\,y\,]$, where the position is
-    obtained by projecting $v_{\mathrm{fwd}}$ through the current
-    heading and integrating each spatial axis independently
-    (\cref{eq:xy_pi}). The 2D recipe is the \emph{true} path-
-    integration target: it couples translation to heading, so a
-    network has to maintain $\theta$ internally to predict $(x,y)$ at
-    all.
-\end{itemize}
-\Cref{fig:zhd_swim_task_modes} illustrates the input superset
-(panel \textbf{a}), the scalar-$d$ target (panel \textbf{b}), the
-2D-position target on the same trial (panel \textbf{c}), and a
-comparison of the 2D trajectory under perfect and leaky integrator
-recipes (panel \textbf{d}; see next paragraph).
-
-\paragraph{Leaky vs perfect integrators.}
-\label{method:xi_leaky}
-The default scalar $d$ and the default 2D position $(x, y)$ are both
-\emph{perfect} integrators of their respective drives. With a non-zero
-mean forward-swim drive these targets grow linearly with the
-curriculum horizon, so the loss scales with $T$ and cross-snapshot
-comparisons become awkward. A finite time constant $\tau>0$ replaces
-the cumulative sum with the leaky recurrence
-\begin{equation}
-d(t+\Delta t) = \left(1-\frac{\Delta t}{\tau_d}\right)d(t)
-    + v_{\mathrm{fwd}}(t)\,\Delta t,
-\qquad d(0)=0,
-\label{eq:xi_leaky}
-\end{equation}
-equivalent to $\dot d = -d/\tau_d + v_{\mathrm{fwd}}$. For the
-2D-position target the same leaky law is applied independently to each
-axis,
-\begin{equation}
-\frac{dx}{dt} = -\frac{x}{\tau_p} + v_{\mathrm{fwd}}\cos\theta,
-\qquad
-\frac{dy}{dt} = -\frac{y}{\tau_p} + v_{\mathrm{fwd}}\sin\theta,
-\qquad x(0)=y(0)=0,
-\label{eq:xy_pi}
-\end{equation}
-which keeps the trajectory bounded near the recent egocentric
-displacement. Biologically this is the natural choice: real neural
-integrators leak, and what the fish actually encodes is a
-low-pass-filtered estimate of \emph{recent} forward swim vigour and
-recent displacement, not absolute long-horizon position. The
-production runs use $\tau_d=\tau_p=0.5\,$s, with the
-perfect-integrator recipes preserved as separate variants so the loss
-and metric comparisons stay clean.
-
-\begin{figure}[t!]
-\centering
-\includegraphics[width=0.8\textwidth]{\figdir/fig_zebrafish_swim_task_modes.png}
-\caption{\textbf{Swim-integration task: input superset and target
-recipes.} \textbf{(a)}~$4$-channel input for one trial:
-$\omega$, $v_{\mathrm{fwd}}$, and the initial-heading impulse
-$(\cos\theta_0,\sin\theta_0)\,\delta_{t,0}$ (non-zero only at $t=0$;
-shown as stem markers carrying the per-trial value).
-\textbf{(b)}~Scalar-$d$ target: $\cos\theta$, $\sin\theta$, and
-forward distance $d$; perfect integrator (green) vs leaky
-$\tau_d=0.5\,$s (red dashed).
-\textbf{(c)}~2D-position target: heading components plus $(x, y)$,
-with the same perfect / leaky overlay --- only the bottom two rows
-change between (b) and (c), so the 2D task is an additive extension
-of the scalar task rather than a replacement.
-\textbf{(d)}~The same trial's 2D trajectory in spatial coordinates:
-the perfect path drifts unboundedly from the origin, while the leaky
-path's steady-state radius is bounded by
-$\tau_p \, v_{\mathrm{fwd}} / \sqrt{1+(\tau_p\omega)^2}$.}
-\label{fig:zhd_swim_task_modes}
-\end{figure}
-
-\paragraph{Data.}
-Skeletons, ROI meshes and synaptic connections are taken from the
-\emph{neuprint-fish2} reconstruction (dataset \emph{fish2}). The HD circuit
-comprises $731$ neurons --- $443$ dorsal-IPN ring cells (\emph{IPNd*} $+$
-\emph{IPNds*}), $200$ habenular \emph{RIPN*} and $88$ pretectal
-\emph{pt-IPN*} afferents --- connected by $14\,391$ directed synaptic edges.
-The $443$ HD cells are ordered on a ring by their mediolateral soma
-coordinate as a decoder convention --- binned into $16$ positions for the
-readout --- and this ordering is \emph{not} claimed to reproduce the
-anatomical soma topography of \citet{petrucco2023} (indeed
-\cref{sec:results:tuning_sharpness} finds the preferred-heading map is not
-spatially organised). The afferents are split by side into left/right
-\emph{RIPN} and \emph{pt-IPN} pools of sizes $\{102, 101, 41, 44\}$. The model implements the sign-locked
-recurrent dynamics, the four-scalar afferent gate, the HD-ring-only readout,
-and the regulariser described in \cref{sec:methods}.
-
 \section{Methods}
 \label{sec:methods}
 
-\textbf{Recurrent neural network.}\label{method:RNN}
+\textbf{Recurrent neural network, anatomical gate and swim-integration task.}\label{method:RNN}\label{method:swim_task_modes}\label{method:xi_leaky}
 The RNN model is a sign-locked discrete-time recurrent network whose
 connectivity is constrained to the larval-zebrafish HD-circuit
 connectome (\cref{sec:anatomy}). For each neuron $i \in \{1,\dots,N\}$
@@ -413,7 +302,99 @@ v_{\mathrm{ptIPN}_L},\,v_{\mathrm{ptIPN}_R},\;
 \end{equation*}
 the connectome template $W^{\mathrm{con}}$, the
 RIPN / pt-IPN subpopulation membership, the neuron-type assignments,
-$\tau$ and $\Delta t$ are given.
+$\tau$ and $\Delta t$ are given. The $443$ HD cells are ordered on a
+ring by their mediolateral soma coordinate as a decoder convention
+(binned into $16$ positions for the readout); this ordering is
+\emph{not} claimed to reproduce the anatomical soma topography of
+\citet{petrucco2023} ---
+\cref{sec:results:tuning_sharpness} finds the preferred-heading map
+is not spatially organised.
+
+The on-disk swim-integration dataset is a \emph{single superset} from
+which several sub-tasks are projected at training time. Swim events are
+sampled at a Poisson rate $r_{\mathrm{swim}}=0.5\,\mathrm{Hz}$ with
+event duration $\Delta t_{\mathrm{swim}}=0.3\,$s, partitioned into four
+behavioural categories with fractions $L:R:F:B=0.3:0.3:0.2:0.2$. Left
+and right events drive an angular signed phase impulse, forward and
+backward events drive a signed forward-velocity impulse. The dataset
+writes:
+\begin{itemize}
+    \item a $4$-channel input
+    $u\in\R^{B\times T\times 4}=[\,\omega,\,v_{\mathrm{fwd}},\,
+    \cos\theta_0\!\cdot\!\delta_{t,0},\,\sin\theta_0\!\cdot\!\delta_{t,0}\,]$
+    --- left/right events drive $\omega$, forward/backward events drive
+    $v_{\mathrm{fwd}}$, and the initial-heading cue $(\cos\theta_0,\sin\theta_0)$
+    is injected as a single-frame impulse at $t=0$ because the
+    integrator has no other reference for the absolute heading. There
+    is no analogous initial-\emph{position} cue: position is defined
+    to start at the origin by construction.
+    \item a target tensor whose column layout depends on the sub-task.
+    The \emph{scalar} recipe stores
+    $y=[\,\cos\theta,\,\sin\theta,\,d\,]$ with circular heading
+    $\theta(t)=\theta_0+\int_0^t\omega\,ds$ and a scalar forward-axis
+    displacement $d(t)=\int_0^t v_{\mathrm{fwd}}\,ds$ (linear,
+    $d(0)=0$). The \emph{2D path-integration} recipe stores
+    $y=[\,\cos\theta,\,\sin\theta,\,x,\,y\,]$, where the position is
+    obtained by projecting $v_{\mathrm{fwd}}$ through the current
+    heading and integrating each spatial axis independently
+    (\cref{eq:xy_pi}). The 2D recipe is the \emph{true} path-
+    integration target: it couples translation to heading, so a
+    network has to maintain $\theta$ internally to predict $(x,y)$ at
+    all.
+\end{itemize}
+
+The default scalar $d$ and the default 2D position $(x, y)$ are both
+\emph{perfect} integrators of their respective drives. With a non-zero
+mean forward-swim drive these targets grow linearly with the
+curriculum horizon, so the loss scales with $T$ and cross-snapshot
+comparisons become awkward. A finite time constant $\tau>0$ replaces
+the cumulative sum with the leaky recurrence
+\begin{equation}
+d(t+\Delta t) = \left(1-\frac{\Delta t}{\tau_d}\right)d(t)
+    + v_{\mathrm{fwd}}(t)\,\Delta t,
+\qquad d(0)=0,
+\label{eq:xi_leaky}
+\end{equation}
+equivalent to $\dot d = -d/\tau_d + v_{\mathrm{fwd}}$. For the
+2D-position target the same leaky law is applied independently to each
+axis,
+\begin{equation}
+\frac{dx}{dt} = -\frac{x}{\tau_p} + v_{\mathrm{fwd}}\cos\theta,
+\qquad
+\frac{dy}{dt} = -\frac{y}{\tau_p} + v_{\mathrm{fwd}}\sin\theta,
+\qquad x(0)=y(0)=0,
+\label{eq:xy_pi}
+\end{equation}
+which keeps the trajectory bounded near the recent egocentric
+displacement. Biologically this is the natural choice: real neural
+integrators leak, and what the fish actually encodes is a
+low-pass-filtered estimate of \emph{recent} forward swim vigour and
+recent displacement, not absolute long-horizon position. The
+production runs use $\tau_d=\tau_p=0.5\,$s, with the
+perfect-integrator recipes preserved as separate variants so the loss
+and metric comparisons stay clean.
+
+\begin{figure}[t!]
+\centering
+\includegraphics[width=0.8\textwidth]{\figdir/fig_zebrafish_swim_task_modes.png}
+\caption{\textbf{Swim-integration task: input superset and target
+recipes.} \textbf{(a)}~$4$-channel input for one trial:
+$\omega$, $v_{\mathrm{fwd}}$, and the initial-heading impulse
+$(\cos\theta_0,\sin\theta_0)\,\delta_{t,0}$ (non-zero only at $t=0$;
+shown as stem markers carrying the per-trial value).
+\textbf{(b)}~Scalar-$d$ target: $\cos\theta$, $\sin\theta$, and
+forward distance $d$; perfect integrator (green) vs leaky
+$\tau_d=0.5\,$s (red dashed).
+\textbf{(c)}~2D-position target: heading components plus $(x, y)$,
+with the same perfect / leaky overlay --- only the bottom two rows
+change between (b) and (c), so the 2D task is an additive extension
+of the scalar task rather than a replacement.
+\textbf{(d)}~The same trial's 2D trajectory in spatial coordinates:
+the perfect path drifts unboundedly from the origin, while the leaky
+path's steady-state radius is bounded by
+$\tau_p \, v_{\mathrm{fwd}} / \sqrt{1+(\tau_p\omega)^2}$.}
+\label{fig:zhd_swim_task_modes}
+\end{figure}
 
 \bigskip
 \noindent\textbf{Multi-modal afferent input injection (extended model).}%
