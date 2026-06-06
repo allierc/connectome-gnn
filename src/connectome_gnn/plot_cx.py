@@ -2280,12 +2280,11 @@ def plot_cx_evolution(data: dict, out_path: str, *,
     else:
         ax_g_top = fig.add_subplot(gs[1, 2])
         ax_g_top.axis("off")
-    # Panel h ("subthreshold h distribution by cell type") was dropped
-    # from the evolution figure; the third/fourth manuscript rows are
-    # the test composite (random trials + deterministic sweep) stacked
-    # via \includegraphics in the LaTeX figure block.
+    # Panel h slot was the "subthreshold h distribution by cell type"
+    # violin; that panel was dropped. Slot h now hosts the
+    # integration-gain panel (previously panel i in the standalone
+    # 3-row layout) so the evolution figure stays at 8 panels (a–h).
     ax_h = fig.add_subplot(gs[1, 3])
-    ax_h.axis("off")
 
     _panel_matrix(ax_a, data["W_con"],
                    data["neuron_types"], data["type_names"],
@@ -2323,14 +2322,18 @@ def plot_cx_evolution(data: dict, out_path: str, *,
     _panel_label(ax_f_top, "f")
     _panel_label(ax_g_top, "g")
 
-    # Panel h slot is hidden (was the per-cell-type subthreshold h
-    # violin); calcium-panel callers still get their comparison plot
-    # drawn into the same slot so the existing observation-loss
-    # figures keep working.
+    # Panel h: calcium-comparison plot for observation-loss runs, or
+    # the integration-gain scatter (was panel i) for task-only runs.
     if data.get("calcium_panel") is not None:
-        ax_h.set_axis_on()
         _panel_calcium_compare(ax_h, data["calcium_panel"])
-        _panel_label(ax_h, "h")
+    elif data.get("gain_data"):
+        _panel_integration_gain(
+            ax_h, data["gain_data"], data["test_trial"]["dt"]
+            if data.get("test_trial") else data.get("dt_s", 0.01),
+        )
+    else:
+        ax_h.axis("off")
+    _panel_label(ax_h, "h")
 
     if n_rows < 3:
         os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
@@ -2382,13 +2385,11 @@ def plot_cx_evolution(data: dict, out_path: str, *,
         )
         _panel_label(ax_l, "l")
     else:
-        _panel_integration_gain(
-            ax_i, data["gain_data"], data["test_trial"]["dt"],
-        )
-        _panel_label(ax_i, "i")
-        ax_j.axis("off")
-        ax_k.axis("off")
-        ax_l.axis("off")
+        # RNN n_rows=3 path: integration gain is already in slot h,
+        # so the third row is unused. Hide everything to avoid
+        # duplicating panels.
+        for ax in (ax_i, ax_j, ax_k, ax_l):
+            ax.axis("off")
 
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     fig.savefig(out_path, dpi=180, bbox_inches="tight")
