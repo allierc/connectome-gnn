@@ -222,41 +222,29 @@ def main():
         sys.exit("no run dirs found")
 
     # ---- plot ---------------------------------------------------------
-    fig, axes = plt.subplots(2, 2, figsize=(13, 8.5))
+    # Two-panel layout: (a) connectome-magnitude correlation across
+    # variants, (b) per-cell-type recurrent-magnitude amplification.
+    # Final training loss and per-head test R² panels were dropped
+    # (saturated / uninformative at convergence).
+    fig, axes = plt.subplots(1, 2, figsize=(15, 5.5))
     xs = np.arange(len(rows))
     labels = [r["label"] for r in rows]
 
-    # (a) final train MSE
-    ax = axes[0, 0]
-    ax.bar(xs, [r["mse"] for r in rows], color="#1f6fb3")
-    ax.set_xticks(xs); ax.set_xticklabels(labels, fontsize=8)
-    ax.set_yscale("log")
-    ax.set_ylabel("final train MSE (log)")
-    ax.set_title("(a) Final training loss per variant")
+    LABEL_FS = 14
+    TICK_FS = 12
+    LETTER_FS = 20
 
-    # (b) per-output-head test R² (max of available R² heads per variant)
-    ax = axes[0, 1]
-    for i, r in enumerate(rows):
-        r2s = [v for v in r["r2_vals"] if 0 <= v <= 1.0001]
-        if not r2s:
-            continue
-        ax.scatter([i] * len(r2s), r2s, s=30, color="#2a9d3d",
-                   edgecolor="black", linewidth=0.4)
-    ax.set_xticks(xs); ax.set_xticklabels(labels, fontsize=8)
-    ax.set_ylabel("per-head test R²")
-    ax.set_ylim(-0.02, 1.05)
-    ax.set_title("(b) Per-output-head test R² (one dot per supervised head)")
-
-    # (c) Pearson r(|W_rec|, |W_con|)
-    ax = axes[1, 0]
+    # (a) Pearson r(|W_rec|, |W_con|)
+    ax = axes[0]
     ax.bar(xs, [r["rho_wrec_wcon"] for r in rows], color="#d49a3a")
-    ax.set_xticks(xs); ax.set_xticklabels(labels, fontsize=8)
-    ax.set_ylabel(r"Pearson $r(|\hat W^{rec}|, |W^{con}|)$")
-    ax.set_title("(c) Connectome-magnitude correlation")
+    ax.set_xticks(xs); ax.set_xticklabels(labels, fontsize=TICK_FS)
+    ax.tick_params(axis="y", labelsize=TICK_FS)
+    ax.set_ylabel(r"Pearson $r(|\hat W^{rec}|, |W^{con}|)$",
+                   fontsize=LABEL_FS)
     ax.set_ylim(0, 1)
 
-    # (d) per-cell-type amplification, grouped bars
-    ax = axes[1, 1]
+    # (b) per-cell-type amplification, grouped bars
+    ax = axes[1]
     n_var = len(rows); n_cls = len(COARSE_ORDER)
     width = 0.8 / max(n_var, 1)
     cmap = plt.get_cmap("tab10")
@@ -266,14 +254,17 @@ def main():
         ax.bar(x, vals, width=width, color=cmap(i % 10),
                label=r["label"].replace("\n", " "))
     ax.set_xticks(np.arange(n_cls))
-    ax.set_xticklabels(COARSE_ORDER, fontsize=9)
-    ax.set_ylabel(r"$\langle|\hat W^{rec}|\rangle/\langle|W^{con}|\rangle$")
-    ax.set_title("(d) Per-cell-type magnitude amplification")
-    ax.legend(fontsize=6, ncol=2, loc="upper right", frameon=False)
+    ax.set_xticklabels(COARSE_ORDER, fontsize=TICK_FS)
+    ax.tick_params(axis="y", labelsize=TICK_FS)
+    ax.set_ylabel(r"$\langle|\hat W^{rec}|\rangle/\langle|W^{con}|\rangle$",
+                   fontsize=LABEL_FS)
+    ax.legend(fontsize=TICK_FS - 2, ncol=2, loc="upper right",
+              frameon=False)
 
-    for letter, ax in zip("abcd", axes.flat):
+    for letter, ax in zip("ab", axes):
         ax.text(-0.10, 1.04, letter, transform=ax.transAxes,
-                fontsize=14, fontweight="bold", ha="left", va="bottom")
+                fontsize=LETTER_FS, fontweight="bold",
+                ha="left", va="bottom")
 
     plt.tight_layout()
     fig.savefig(args.out, dpi=170, bbox_inches="tight")

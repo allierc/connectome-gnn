@@ -920,30 +920,26 @@ partition}
 \label{sec:results_four_classes}
 
 \Cref{fig:zhd_artr_pt1_summary} aggregates the seven trained variants
-into one cross-model picture. Test-set R² is at ceiling ($\geq 0.99$)
-on every supervised head (panel \textbf{b}); the per-edge correlation
-between the learned magnitudes and the connectome template is
-modest and homogeneous across variants (Pearson
+into one cross-model picture. The per-edge correlation between the
+learned magnitudes and the connectome template is modest and
+homogeneous across variants (Pearson
 $r(|\hat W^{\mathrm{rec}}|,|W^{\mathrm{con}}|) \in [0.15, 0.23]$,
-panel \textbf{c}), i.e.\ training rescales the connectome
-non-linearly; the per-cell-type amplification (panel \textbf{d})
-shows that \emph{pt-IPN} edges are amplified the most ($\sim 20$--$35\times$
-on average), the dIPN ring sub-types intermediate ($\sim 10$--$25\times$),
-and the IPN12 pool the least ($\sim 9$--$11\times$), reproducibly across
-variants.
+panel \textbf{a}), i.e.\ training rescales the connectome non-linearly;
+the per-cell-type amplification (panel \textbf{b}) shows that
+\emph{pt-IPN} edges are amplified the most ($\sim 20$--$35\times$ on
+average), the dIPN ring sub-types intermediate ($\sim 10$--$25\times$),
+and the IPN12 pool the least ($\sim 9$--$11\times$), reproducibly
+across variants.
 
 \begin{figure}[H]
   \centering
   \includegraphics[width=\textwidth]{\figdir/fig_zebrafish_artr_pt1_summary.png}
-  \caption{\textbf{Compile / analyse panel for the
-  ARTR / pt-IPN1 head-direction model family.}
-  \textbf{(a)}~Final training MSE per variant (log scale).
-  \textbf{(b)}~Per-supervised-head test R² (one dot per output column
-  the variant supervises).
-  \textbf{(c)}~Pearson correlation between the learned
+  \caption{\textbf{Cross-variant summary of the ARTR / pt-IPN1
+  head-direction model family.}
+  \textbf{(a)}~Pearson correlation between the learned
   $|\hat W^{\mathrm{rec}}|$ and the connectome template
-  $|W^{\mathrm{con}}|$ over connectome edges.
-  \textbf{(d)}~Per-cell-type magnitude amplification
+  $|W^{\mathrm{con}}|$ over connectome edges, per variant.
+  \textbf{(b)}~Per-cell-type magnitude amplification
   $\langle|\hat W^{\mathrm{rec}}|\rangle / \langle|W^{\mathrm{con}}|\rangle$
   on outgoing edges, grouped by coarse cell-type block (\emph{IPNd},
   \emph{IPNds}, \emph{IPN12}, \emph{RIPN}, \emph{pt-IPN}).}
