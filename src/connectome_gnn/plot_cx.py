@@ -1380,7 +1380,7 @@ def _draw_translation_track(ax_drive, ax_track, t_axis, u_col, true_xi,
     )
     ax_track.plot(t_axis, true_xi, color=GT_COLOR, lw=1.2)
     ax_track.plot(t_axis, dec_xi,  color=PRED_COLOR, lw=0.8)
-    ax_track.set_ylabel(r"$\xi$", fontsize=LABEL_FS)
+    ax_track.set_ylabel(r"$d$", fontsize=LABEL_FS)
     ax_track.tick_params(labelsize=TICK_FS)
 
 
@@ -1594,7 +1594,7 @@ def _panel_trial_rollout(fig, subplotspec, test_trial: dict):
             ax_drive.set_title(title_prefix.rstrip(), fontsize=TITLE_FS)
         ax_track.plot(t_axis, y_true[:, xi_col_idx], color=GT_COLOR, lw=1.2)
         ax_track.plot(t_axis, y_pred[:, xi_col_idx], color=PRED_COLOR, lw=0.8)
-        ax_track.set_ylabel(r"$\xi$", fontsize=LABEL_FS)
+        ax_track.set_ylabel(r"$d$", fontsize=LABEL_FS)
         ax_track.tick_params(labelsize=TICK_FS)
 
     if has_xy:

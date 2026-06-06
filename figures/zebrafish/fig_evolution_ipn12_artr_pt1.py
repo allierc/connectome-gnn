@@ -61,7 +61,7 @@ def main():
         default="/groups/saalfeld/home/allierc/GraphData",
         help="GraphData root; run dirs are <data_root>/log/zebrafish/<run>/.")
     p.add_argument("--out_dir", default=HERE)
-    p.add_argument("--snapshot_n_steps", type=int, default=1500)
+    p.add_argument("--snapshot_n_steps", type=int, default=1000)
     p.add_argument("--snapshot_omega_deg", type=float, default=60.0)
     p.add_argument("--trial_seed", type=int, default=None)
     p.add_argument("--trial_idx", type=int, default=None)

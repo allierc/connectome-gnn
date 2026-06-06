@@ -185,10 +185,23 @@ def _load_model_and_rollouts(
             u_test = u_test[..., in_cols]
             y_test = y_test[..., out_cols]
     if trial_idx is None:
+        # Match _build_test_trial used by the training-time snapshot:
+        # sample K=32 candidates and keep the one whose centred target has
+        # the largest column-wise amplitude. Reproduces the trial shown in
+        # tmp_training/evolution/epoch_*.png exactly.
         if trial_seed is None:
             trial_seed = int(getattr(config.training, "seed", 0)) + 17
         rng = np.random.default_rng(trial_seed)
-        trial_idx = int(rng.integers(0, u_test.shape[0]))
+        n_test = u_test.shape[0]
+        K = int(min(32, n_test))
+        cand_idx = np.sort(rng.choice(n_test, size=K, replace=False))
+        y_cand = np.asarray(y_test[cand_idx])
+        if y_cand.size:
+            y_centred = y_cand - y_cand.mean(axis=1, keepdims=True)
+            scores = np.abs(y_centred).max(axis=(1, 2))
+            trial_idx = int(cand_idx[int(np.argmax(scores))])
+        else:
+            trial_idx = int(rng.integers(0, n_test))
     trial_idx = int(trial_idx) % u_test.shape[0]
     u_one = u_test[trial_idx]
     y_true = y_test[trial_idx]
