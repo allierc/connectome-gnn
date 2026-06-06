@@ -247,13 +247,10 @@ leading eigenvalue real part (the linear-stability abscissa)
 $\max(\mathrm{Re}(\lambda)) = 0.9$, which keeps the linearised recurrent
 operator inside the stability margin used throughout the training runs.
 
-\paragraph{Afferent-partition variant.}
+\paragraph{Afferent partition by cell type.}
 \label{method:afferent_partition}
-The baseline 4-scalar gate of \cref{eq:zhd_swim_gate} routes the
-angular-velocity drive $\omega$ jointly through both \emph{RIPN} and
-\emph{pt-IPN} aggregates, treating the two as equivalent
-angular ports. This conflates two functionally distinct afferent roles
-revealed by a cell-type inventory curated on the \emph{fish2} server
+The afferent drive into IPN is partitioned by cell-type tag,
+following the curated inventory on the \emph{fish2} server
 (Liangyu, Xiao, Shin-ya; literature-referenced for every type):
 \textbf{(i)}~the cells annotated as \emph{ARTR} (anterior rhombencephalic
 turning region) --- \emph{RIPN01}, \emph{RIPN02}, \emph{RIPN03\_a},
@@ -266,25 +263,24 @@ self-motion afferent; \textbf{(iii)}~the remaining \emph{RIPN*} sub-types are
 motor efferents (\emph{RIPN11}, \emph{RIPN12\_a/c}) or lateral-line
 receivers (\emph{RIPN16}, \emph{RIPN17}, \emph{RIPN12\_b}), and
 \emph{pt-IPN2} is annotated as likely thalamic rather than
-pretectal --- neither carries the rotation or translation drive directly.
+pretectal --- the latter four families therefore do not carry the
+rotation or translation drive directly.
 
-The refined circuit variant uses the \emph{same} $839$-cell connectome
-(same $W^{\mathrm{con}}$, same Dale flip, same spectral rescale) but
-partitions the afferent indices by cell-type tag, exposing
+The production circuit uses an $839$-cell connectome with the cell-type
+partition above as the gate-target taxonomy. The afferent index sets
 $\{\mathrm{ARTR}_L,\mathrm{ARTR}_R,\mathrm{pt\text{-}IPN1}_L,
-  \mathrm{pt\text{-}IPN1}_R\}$ of sizes $\{34, 42, 23, 28\}$ in place of the
-coarse $\{\mathrm{RIPN}_L,\mathrm{RIPN}_R,\mathrm{ptIPN}_L,\mathrm{ptIPN}_R\}$
-aggregates of \cref{eq:zhd_swim_gate}. The companion gate routes
-$\omega$ exclusively to ARTR via two learnable scalars
+  \mathrm{pt\text{-}IPN1}_R\}$ have sizes $\{34, 42, 23, 28\}$.
+The gate routes the angular drive $\omega$ exclusively to ARTR via two
+learnable scalars
 $\{v_{\mathrm{ARTR}_L},v_{\mathrm{ARTR}_R}\}$ and the forward-swim
 velocity $v_{\mathrm{fwd}}$ exclusively to pt-IPN1 via
-$\{v_{\mathrm{pt\text{-}IPN1}_L},v_{\mathrm{pt\text{-}IPN1}_R}\}$, fully
-separating the rotation and translation drive paths the baseline gate
-had to share. \Cref{fig:zhd_circuit_variants}\textbf{b} schematises this
-partition next to the baseline. The variant is the natural intermediate
-step between the single-channel angular-only gate of
-\cref{eq:zhd_swim_gate} and the multi-channel visual / self-motion port
-model described in \cref{method:input_extended}.
+$\{v_{\mathrm{pt\text{-}IPN1}_L},v_{\mathrm{pt\text{-}IPN1}_R}\}$, so
+rotation and translation drive paths are anatomically separated.
+\Cref{fig:zhd_circuit_variants}\textbf{a} schematises this partition.
+The configuration is the natural intermediate step between the
+single-channel angular-only gate of \cref{eq:zhd_swim_gate} and the
+multi-channel visual / self-motion port model described in
+\cref{method:input_extended}.
 
 \paragraph{Proprioception-extended variant.}
 \label{method:proprioception}
@@ -304,7 +300,7 @@ opposite trade-off to optic flow.
 
 The proprioception-extended variant adds these motor-efferent cells to
 the afferent partition as a third, anatomically distinct gate target
-(\cref{fig:zhd_circuit_variants}\textbf{c}). The companion gate routes
+(\cref{fig:zhd_circuit_variants}\textbf{b}). The companion gate routes
 $\omega$ to ARTR as before, and $v_{\mathrm{fwd}}$ to \emph{both}
 \emph{pt-IPN1} and \emph{motor\_efferent} populations in parallel, each
 with its own pair of learnable scalars. The connectome is unchanged
@@ -319,17 +315,14 @@ weight the two streams.
 \begin{figure}[t!]
 \centering
 \includegraphics[width=\textwidth]{\figdir/fig_zebrafish_circuit_variants.png}
-\caption{\textbf{Three afferent-partition variants of the
-zebrafish HD / IPN circuit --- same $839$-cell connectome, three
-different gate-target taxonomies.} \textbf{(a)}~Baseline: $\omega$ is
-gated through the coarse RIPN and pt-IPN aggregates, mixing
-functionally distinct sub-types and conflating rotation with
-translation. \textbf{(b)}~Refined partition: $\omega$ routed
+\caption{\textbf{Two afferent-partition variants of the zebrafish HD /
+IPN circuit --- same $839$-cell connectome, two different gate-target
+taxonomies.} \textbf{(a)}~Cell-type partition: $\omega$ routed
 exclusively to the ARTR cells (\emph{RIPN01}, \emph{RIPN02},
 \emph{RIPN03\_a/b}); $v_{\mathrm{fwd}}$ routed exclusively to
 \emph{pt-IPN1}, the optic / water-flow afferent identified by the
-inventory. Rotation and translation drive paths are now cleanly
-separated. \textbf{(c)}~Proprioception extension: a third gate target
+inventory. Rotation and translation drive paths are anatomically
+separated. \textbf{(b)}~Proprioception extension: a third gate target
 is added for $v_{\mathrm{fwd}}$, the motor-efferent RIPN sub-types
 (\emph{RIPN11}, \emph{RIPN12\_a/c}), modelling the canonical sensory
 plus efference-copy redundancy real fish use for forward-translation
