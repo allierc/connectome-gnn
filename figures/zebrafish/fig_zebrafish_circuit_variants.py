@@ -46,7 +46,7 @@ COL_VFWD_PRO = "#2a9d3d"      # v_fwd proprioceptive
 COL_ARTR_FILL    = "#c7d8e8"   # ARTR (matches #1f6fb3)
 COL_PT1_FILL     = "#f5d3b3"   # pt-IPN1 (matches #e07b1a)
 COL_ME_FILL      = "#c0e2c5"   # motor_efferent (matches #2a9d3d)
-COL_DIPN_FILL    = "#f0dfae"   # dIPN recc (matches #d49a3a)
+COL_DIPN_FILL    = "#f0dfae"   # dIPN (matches #d49a3a)
 COL_IPN12_FILL   = "#e6c4d4"   # IPN12 pool (matches #b15a8e)
 COL_REC_FILL = "#f6e6ce"      # outer recurrent container (pale amber)
 COL_DEC_FILL = "#e6efde"      # decoder readout (pale leaf)
@@ -101,10 +101,10 @@ def _arrow(ax, xy_from, xy_to, color="0.25", lw=1.5, ls="-",
 
 def _drive_legend(ax, has_propriocep: bool):
     items = [(COL_OMEGA,    r"$\omega$"),
-             (COL_VFWD_EXT, r"$v_{\mathrm{fwd}}$ (extero)")]
+             (COL_VFWD_EXT, r"$v_{\mathrm{fwd}}$ (exteroceptive)")]
     if has_propriocep:
         items.append((COL_VFWD_PRO,
-                       r"$v_{\mathrm{fwd}}$ (propriocep)"))
+                       r"$v_{\mathrm{fwd}}$ (proprioceptive)"))
     x0, y0, dy = 0.60, 0.13, -0.045
     for i, (col, lab) in enumerate(items):
         ax.plot([x0, x0 + 0.05], [y0 + i * dy, y0 + i * dy],
@@ -127,14 +127,14 @@ def _draw_recurrent_block(ax):
     the same recurrent network."""
     cx = 0.55
     # Outer container — neutral pale amber so the two coloured inner tiles
-    # (dIPN recc + IPN12 pool, matching their partition swatches in
+    # (dIPN + IPN12 pool, matching their partition swatches in
     # Figure 1) stand out.
     _box(ax, (0.40, 0.30), (0.30, 0.48), fill=COL_REC_FILL)
     _text(ax, (cx, 0.74), ["recurrent network"], fontsize=TITLE_FS)
-    # dIPN recc tile — amber pastel matching the Figure 1 swatch.
+    # dIPN tile — amber pastel matching the Figure 1 swatch.
     _box(ax, (0.43, 0.55), (0.24, 0.13), fill=COL_DIPN_FILL, zorder=4)
     _text(ax, (cx, 0.615),
-          [r"$d$IPN recc",
+          [r"$d$IPN",
            r"($n=443$, $r1\pi$ cells)"],
           fontsize=LABEL_FS)
     # IPN12 pool tile — rose pastel matching the Figure 1 swatch.
@@ -186,11 +186,6 @@ def _draw_artr_pt1_panel(ax):
     ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.axis("off")
     _drive_legend(ax, has_propriocep=False)
 
-    # Header — pushed a bit right and down so it doesn't collide with the
-    # ω input label or the panel letter (a/b) in the top-left margin.
-    _text(ax, (0.22, 0.93), ["afferent populations"],
-          fontsize=TITLE_FS, ha="left")
-
     _draw_afferent_block(ax, (0.04, 0.60), (0.28, 0.17),
                          "ARTR L / R", r"$n=34+42$",
                          sub_lines=["RIPN01/02/03_a/03_b"],
@@ -201,7 +196,7 @@ def _draw_artr_pt1_panel(ax):
                          fill=COL_PT1_FILL)
 
     _draw_recurrent_block(ax)
-    _draw_decoder_block(ax, [r"$[\cos\theta,\sin\theta,\xi]$",
+    _draw_decoder_block(ax, [r"$[\cos\theta,\sin\theta,d]$",
                              r"or $[\cos\theta,\sin\theta,x,y]$"])
 
     # Input labels + arrows on the LEFT of the afferent boxes.
@@ -224,11 +219,9 @@ def _draw_propriocep_panel(ax):
     ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.axis("off")
     _drive_legend(ax, has_propriocep=True)
 
-    _text(ax, (0.22, 0.93), ["afferent populations"],
-          fontsize=TITLE_FS, ha="left")
-
-    _draw_afferent_block(ax, (0.04, 0.72), (0.28, 0.13),
+    _draw_afferent_block(ax, (0.04, 0.70), (0.28, 0.15),
                          "ARTR L / R", r"$n=34+42$",
+                         sub_lines=["RIPN01/02/03_a/03_b"],
                          fill=COL_ARTR_FILL)
     _draw_afferent_block(ax, (0.04, 0.43), (0.28, 0.16),
                          "pt-IPN1 L / R", r"$n=23+28$",
@@ -240,7 +233,8 @@ def _draw_propriocep_panel(ax):
                          fill=COL_ME_FILL)
 
     _draw_recurrent_block(ax)
-    _draw_decoder_block(ax, [r"$[\cos\theta,\sin\theta,x,y]$"])
+    _draw_decoder_block(ax, [r"$[\cos\theta,\sin\theta,d]$",
+                             r"or $[\cos\theta,\sin\theta,x,y]$"])
 
     # Input labels.
     _text(ax, (0.03, 0.89), [r"$\omega$"], fontsize=LABEL_FS + 2)

@@ -37,7 +37,7 @@ import numpy as np
 # routed through the velocity gate. Colour palette matches the circuit
 # diagram so the two figures read together.
 TYPE_ORDER = [
-    "dIPN recc",        # IPNd + IPNds       — recurrent (HD ring)
+    "dIPN",        # IPNd + IPNds       — recurrent (HD ring)
     "IPN12 pool",       # IPN12_a + IPN12_b  — recurrent (dorsal pool)
     "ARTR",             # RIPN01+02+03_a/b   — angular afferent
     "pt-IPN1",          # pt-IPN1            — exteroceptive translation afferent
@@ -45,7 +45,7 @@ TYPE_ORDER = [
     "other",            # other RIPN* + pt-IPN2 — not routed through the gate
 ]
 TYPE_COLOR = {
-    "dIPN recc":      "#d49a3a",   # amber  (recurrent ring; matches Fig 3 box)
+    "dIPN":      "#d49a3a",   # amber  (recurrent ring; matches Fig 3 box)
     "IPN12 pool":     "#b15a8e",   # rose   (recurrent dorsal pool)
     "ARTR":           "#1f6fb3",   # blue   (matches ω drive in Fig 3)
     "pt-IPN1":        "#e07b1a",   # orange (matches v_fwd extero in Fig 3)
@@ -79,7 +79,7 @@ def _type_to_category(safe_type: str) -> str:
     if safe_type.startswith("IPN12"):
         return "IPN12 pool"
     if safe_type.startswith("IPNds") or safe_type.startswith("IPNd"):
-        return "dIPN recc"
+        return "dIPN"
     # Residual afferents — other RIPN* sub-types (RIPN05, 12_b, 16, 17)
     # and pt-IPN2 — that aren't routed through the velocity gate.
     if safe_type.startswith("RIPN") or safe_type.startswith("pt-IPN"):
@@ -96,13 +96,21 @@ CORE_ROIS = {
 }
 
 
-def _load_skeletons(anatomy_dir: str, downsample: int = 10):
+def _load_skeletons(anatomy_dir: str, downsample: int = 10,
+                    extra_dirs: tuple = ()):
     """Load all SWCs as a navis.NeuronList, returning (neurons, categories).
 
     Each skeleton's filename starts with its fish2 cell-type prefix; we map
-    those down to the four colour categories via _type_to_category()."""
+    those down to the four colour categories via _type_to_category().
+
+    extra_dirs: additional anatomy caches (each with a skeletons/ child)
+    whose SWCs are concatenated in. Used to pull the IPN12 pool from its
+    sibling cache so the recurrent dorsal pool appears in the render even
+    though its SWCs live outside the main HD cache."""
     import navis
     swc_paths = sorted(glob.glob(os.path.join(anatomy_dir, "skeletons", "*.swc")))
+    for d in extra_dirs:
+        swc_paths.extend(sorted(glob.glob(os.path.join(d, "skeletons", "*.swc"))))
     if not swc_paths:
         sys.exit(f"no SWCs under {anatomy_dir}/skeletons/ -- "
                  "run fetch_zebrafish_anatomy_HD.py first")
@@ -612,6 +620,9 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--anatomy_dir",
                    default=os.path.join(here, "zebrafish_anatomy_HD"))
+    p.add_argument("--extra_anatomy_dirs", nargs="+", default=None,
+                   help="additional anatomy caches to merge in; defaults "
+                        "to zebrafish_anatomy_IPN12 (the IPN12 pool)")
     p.add_argument("--downsample", type=int, default=10,
                    help="navis.downsample_neuron factor (preserves "
                         "branch/end points). 1 = no downsample.")
@@ -641,7 +652,13 @@ def main():
         sys.exit(f"{args.anatomy_dir} does not exist -- "
                  "run fetch_zebrafish_anatomy_HD.py first")
 
-    nl, types = _load_skeletons(args.anatomy_dir, downsample=args.downsample)
+    if args.extra_anatomy_dirs is None:
+        default_extra = os.path.join(here, "zebrafish_anatomy_IPN12")
+        extra_dirs = (default_extra,) if os.path.isdir(default_extra) else ()
+    else:
+        extra_dirs = tuple(args.extra_anatomy_dirs)
+    nl, types = _load_skeletons(args.anatomy_dir, downsample=args.downsample,
+                                extra_dirs=extra_dirs)
     rois = _load_rois(args.anatomy_dir)
     soma_meshes_by_type = _load_soma_meshes_by_type(args.anatomy_dir)
     print(f"loaded {len(nl)} neurons, {len(rois)} ROI meshes "

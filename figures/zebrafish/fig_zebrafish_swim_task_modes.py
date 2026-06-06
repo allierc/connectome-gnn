@@ -295,11 +295,11 @@ def _draw_4ch_stack(fig, gs_cell, stim: np.ndarray, title: str):
 
 def _draw_target_stack(fig, gs_cell, target: np.ndarray,
                        vfwd: np.ndarray, title: str):
-    """Render the 3-col target stack with the leaky ξ overlay on column 2."""
+    """Render the 3-col target stack with the leaky d overlay on column 2."""
     sub = GridSpecFromSubplotSpec(3, 1, subplot_spec=gs_cell, hspace=0.18)
     T = target.shape[0]
     t_axis = np.arange(T) * DT
-    labels = [r"$\cos\theta$", r"$\sin\theta$", r"$\xi$"]
+    labels = [r"$\cos\theta$", r"$\sin\theta$", r"$d$"]
     ax0 = None
     for k in range(3):
         ax = fig.add_subplot(sub[k], sharex=ax0 if ax0 is not None else None)
@@ -325,8 +325,8 @@ def _panel_mode_table(ax):
     ax.axis("off")
     rows = [
         ("rotation",                 "[0, 2, 3]",   r"$[\omega,\cos\theta_0,\sin\theta_0]$",  "3", "[0, 1]",      r"$[\cos\theta,\sin\theta]$",        "2"),
-        ("translation",              "[1]",         r"$[v_{\mathrm{fwd}}]$",                  "1", "[2]",         r"$[\xi]$",                          "1"),
-        ("rotation + translation",   "[0,1,2,3]",   r"$[\omega,v_{\mathrm{fwd}},\cos\theta_0,\sin\theta_0]$", "4", "[0,1,2]",     r"$[\cos\theta,\sin\theta,\xi]$",    "3"),
+        ("translation",              "[1]",         r"$[v_{\mathrm{fwd}}]$",                  "1", "[2]",         r"$[d]$",                            "1"),
+        ("rotation + translation",   "[0,1,2,3]",   r"$[\omega,v_{\mathrm{fwd}},\cos\theta_0,\sin\theta_0]$", "4", "[0,1,2]",     r"$[\cos\theta,\sin\theta,d]$",      "3"),
     ]
     # Manual table layout — easier than matplotlib.table to format math.
     col_titles = ["mode (task_targets)", "in_cols", "model sees", r"$n_{\mathrm{in}}$",
@@ -432,10 +432,10 @@ def build_figure(out_path: str, seed: int = 3):
     )
     _panel_label(ax_a_top, "a", dx=-0.16)
 
-    # (b) scalar_xi target — 3 stacked columns, ξ overlays perfect + leaky.
+    # (b) scalar_d target — 3 stacked columns, d overlays perfect + leaky.
     ax_b_top = _draw_target_stack(
         fig, gs[0, 1], target[0], vfwd[0],
-        title=r"scalar-$\xi$ target — $[\cos\theta,\sin\theta,\xi]$ (trial 0)",
+        title=r"scalar-$d$ target — $[\cos\theta,\sin\theta,d]$ (trial 0)",
     )
     _panel_label(ax_b_top, "b", dx=-0.16)
 
