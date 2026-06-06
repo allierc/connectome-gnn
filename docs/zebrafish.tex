@@ -104,7 +104,7 @@ architecture. The electron-microscopy reconstructions of the \rpi{}
 axons reveal reciprocal connectivity in the dIPN consistent with
 this picture.
 
-\section{Anatomy and connectome}
+\section{Anatomy, functions and connectome}
 \label{sec:anatomy}
 
 \paragraph{3-D anatomy.}
@@ -382,87 +382,78 @@ $\tau_p \, v_{\mathrm{fwd}} / \sqrt{1+(\tau_p\omega)^2}$.}
 \end{figure}
 
 \bigskip
-\noindent\textbf{Multi-modal afferent input injection (extended model).}%
+\noindent\textbf{Input gate on $\hat W^{\mathrm{in}}$: anatomically licensed afferent ports.}%
 \label{method:input_extended}
-The single-channel swim/velocity gate of \cref{eq:zhd_swim_gate} is the
-$\mathcal{B}=\{\text{Rotations}\}$ special case of a more general input model
-that lets a \emph{shared}, connectome-locked circuit be driven across all nine
-ZAPBench conditions (\cref{fig:zhd_allblocks}). The world reaches the dIPN
-only through its two reconstructed afferent families, so we inject every
-measured observable through one of two anatomically distinct ports and keep the
-ring (\emph{IPNd*}, \emph{IPNds*}) input-free.
-
-\paragraph{Observable input vector.}
-We collect the per-frame observables into a single input vector
-$u(t)\in\R^{C}$ partitioned into a \emph{visual} block $u^{\mathrm{vis}}(t)$, a
-\emph{self-motion} block $u^{\mathrm{sm}}(t)$, and the initial-heading cue,
-\begin{equation}
-u(t) =
-\big(\;\underbrace{u^{\mathrm{vis}}(t)}_{\text{pretectum}},\;
-      \underbrace{u^{\mathrm{sm}}(t)}_{\text{habenula}},\;
-      \underbrace{(\cos\theta_0,\sin\theta_0)\,\delta_{t,0}}_{\text{cue}}\;\big).
-\label{eq:zhd_input_vector}
-\end{equation}
-The visual channels $u^{\mathrm{vis}}$ are the exogenous stimulus signals lifted
-from the ZAPBench stimulus log --- the signed rotation/optic-flow velocity
-(Rotations, OMR~Turning, Gain), whole-field luminance (Flash), the
-left$-$right light difference (Taxis), random-dot motion (Dots), and the
-closed-loop feedback gain (Gain, Position). The self-motion channels
-$u^{\mathrm{sm}}=(u^{\mathrm{fwd}},u^{\mathrm{turn}})$ are derived from the tail
-EMG and are available \emph{continuously in every block}: $u^{\mathrm{fwd}}$ is
-the bilateral envelope (a non-negative swim-vigour signal) and
-$u^{\mathrm{turn}}$ the left$-$right asymmetry (a signed turning signal). The
-cue is unchanged from \cref{eq:zhd_dynamics}.
-
-\paragraph{Anatomical injection.}
-Let $\mathcal{Q}=\{\mathrm{RIPN}_L,\mathrm{RIPN}_R,
-\mathrm{ptIPN}_L,\mathrm{ptIPN}_R\}$ be the four afferent subpopulations and
-$q(i)\in\mathcal{Q}$ the subpopulation of afferent neuron $i$. Each input
-channel $c$ is licensed to drive only its anatomically appropriate port,
-\begin{equation}
-\mathcal{Q}_c =
-\begin{cases}
-\{\mathrm{ptIPN}_L,\mathrm{ptIPN}_R\} & c \in \mathrm{vis}
-   \quad(\text{retinorecipient pretectum}),\\[2pt]
-\{\mathrm{RIPN}_L,\mathrm{RIPN}_R\}   & c \in \mathrm{sm}
-   \quad(\text{habenular self-motion afferent}),
-\end{cases}
-\label{eq:zhd_port_map}
-\end{equation}
-and the input weight is a learnable per-(channel, subpopulation) gate
-restricted to the licensed pairs,
+What enters the network through $\hat W^{\mathrm{in}}$ is fixed by the
+afferent partition of \cref{fig:zhd_3d}\textbf{c}--\textbf{d}: a
+channel $c$ may drive only its anatomically licensed subpopulations
+$\mathcal{Q}_c$, and the ring cells (\emph{IPNd*}, \emph{IPNds*},
+\emph{IPN12}) remain input-free. With $q(i)\in\mathcal{Q}$ the
+subpopulation of afferent neuron $i$,
 \begin{equation}
 \hat W^{\mathrm{in}}_{i,c} =
 \begin{cases}
-v_{c,\,q(i)} & i \in q(i)\ \text{and}\ q(i)\in\mathcal{Q}_c,\\
-0            & i \in \mathcal{A}\ \text{and}\ q(i)\notin\mathcal{Q}_c,\\
+v_{c,\,q(i)} & i\in\mathcal{A},\ q(i)\in\mathcal{Q}_c,\\
+0            & i\in\mathcal{A},\ q(i)\notin\mathcal{Q}_c,\\
 \text{free}  & c \in \mathrm{cue},
 \end{cases}
 \label{eq:zhd_input_gate_ext}
 \end{equation}
-where $\mathcal{A}$ is the union of all afferent neurons. The gate
-$V=\{v_{c,q}\}\in\R^{C\times|\mathcal{Q}|}$ thus has the block-sparse support of
-\cref{eq:zhd_port_map}: visual channels carry non-zero gates only on the two
-\emph{pt-IPN} columns, self-motion channels only on the two \emph{RIPN} columns.
-The ring cells and the cue columns are exactly as in the base model; setting $C=1$ with a
-single velocity channel licensed to all of $\mathcal{Q}$ recovers
-\cref{eq:zhd_swim_gate} verbatim.
+where $\mathcal{A}$ is the union of afferent neurons. The licensed
+ports for the two production-circuit variants are
+\begin{equation}
+\mathcal{Q}_\omega=\{\mathrm{ARTR}_{L,R}\},\qquad
+\mathcal{Q}_{v_{\mathrm{fwd}}}=
+\begin{cases}
+\{\mathrm{ptIPN1}_{L,R}\} & (\text{Fig.~\ref{fig:zhd_3d}\textbf{c}, exteroceptive only}),\\
+\{\mathrm{ptIPN1}_{L,R},\,\mathrm{motor\_efferent}_{L,R}\} & (\text{Fig.~\ref{fig:zhd_3d}\textbf{d}, proprioception}).
+\end{cases}
+\label{eq:zhd_port_map}
+\end{equation}
+The same rule generalises to the full multi-modal driver across all
+nine ZAPBench conditions (\cref{fig:zhd_allblocks}): every visual
+channel $c\in\mathrm{vis}$ --- signed rotation/optic-flow velocity
+(Rotations, OMR~Turning, Gain), whole-field luminance (Flash), L/R
+light difference (Taxis), random-dot motion (Dots) --- takes
+$\mathcal{Q}_c=\{\mathrm{ptIPN}_{L,R}\}$, and every self-motion
+channel $c\in\mathrm{sm}=(u^{\mathrm{fwd}},u^{\mathrm{turn}})$
+derived from the tail EMG takes
+$\mathcal{Q}_c=\{\mathrm{RIPN}_{L,R}\}$. Directional channels are
+initialised antisymmetrically across hemispheres
+($v_{c,L}=-v_{c,R}$) so that leftward and rightward stimuli drive the
+ring activity peak in opposite directions; non-directional channels
+(forward-swim vigour, whole-field luminance) are initialised
+symmetrically. All gates are then free to be retuned --- anatomy
+fixes \emph{which port} a modality may use, not the strength or sign
+it settles on. The leaky-vs-perfect target choice
+(\cref{eq:xi_leaky,eq:xy_pi}) does not change $\hat W^{\mathrm{in}}$;
+setting a single velocity channel licensed to all of $\mathcal{Q}$
+recovers the base swim gate \cref{eq:zhd_swim_gate} verbatim.
 
-\paragraph{Initialisation by directionality.}
-Directional channels (rotation/optic-flow velocity, turning swim, L/R light,
-dot motion) are initialised \emph{antisymmetrically} across hemispheres,
-$v_{c,L}=-v_{c,R}$, so that a leftward stimulus drives the ring activity peak opposite to a
-rightward one --- the same prior that \cref{eq:zhd_swim_gate} placed on the
-single swim channel. Non-directional channels (forward-swim vigour, whole-field
-luminance) are initialised \emph{symmetrically}, $v_{c,L}=v_{c,R}$, carrying no
-hemispheric bias. All gates remain free to be retuned by the optimiser, so the
-anatomy fixes \emph{which port} a modality may use, not the strength or sign it
-settles on. The learnable parameters extend those of
-\cref{eq:zhd_dynamics} by replacing the four swim scalars with the gate matrix
-$V$,
+\bigskip
+\noindent\textbf{Output readout on $\hat W^{\mathrm{out}}$: task-conditioned columns.}%
+\label{method:output_readout}
+$\hat W^{\mathrm{out}}$ reads from the HD ring (\emph{IPNd*},
+\emph{IPNds*}, \emph{IPN12 pool}) and never from the afferent
+populations. Its column dimension $n_{\mathrm{out}}$ is set by the
+active sub-task (\cref{fig:zhd_swim_task_modes}):
+\begin{equation}
+\hat y(t) =
+\begin{cases}
+(\cos\hat\theta,\sin\hat\theta)                 & n_{\mathrm{out}}=2 \ \ (\text{heading only}),\\
+(\cos\hat\theta,\sin\hat\theta,\hat d)          & n_{\mathrm{out}}=3 \ \ (\text{heading}+\text{forward distance}),\\
+(\cos\hat\theta,\sin\hat\theta,\hat x,\hat y)   & n_{\mathrm{out}}=4 \ \ (\text{2D path integration}),
+\end{cases}
+\label{eq:zhd_readout_tasks}
+\end{equation}
+with $\hat y = \hat W^{\mathrm{out}}\,\sigma\!\big(\hat h(t)\big)+\hat b^{\mathrm{out}}$
+as in \cref{eq:zhd_readout}. The leaky-vs-perfect choice
+(\cref{eq:xi_leaky,eq:xy_pi}) changes only what $\hat d$ and
+$(\hat x,\hat y)$ are supervised against, not the readout shape.
+The learnable parameters of the model are
 \begin{equation*}
 \big\{\hat W^{\mathrm{rec}}_{ij},\;
-V=\{v_{c,q}\}_{c\in\mathrm{vis}\cup\mathrm{sm},\,q\in\mathcal{Q}_c},\;
+\{v_{c,q}\}_{c,\,q\in\mathcal{Q}_c},\;
 \hat W^{\mathrm{in}}_{:,\theta_0},\,\hat b,\,
 \hat W^{\mathrm{out}},\,\hat b^{\mathrm{out}}\big\}.
 \end{equation*}
