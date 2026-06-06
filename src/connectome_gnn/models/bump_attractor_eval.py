@@ -425,6 +425,94 @@ def _rollout_position_metrics(
     return rmse, pearson
 
 
+def _trajectory_metrics_2d(true_xy: np.ndarray, decoded_xy: np.ndarray,
+                            warmup: int = 10) -> dict:
+    """Extended 2-D trajectory comparison.
+
+    Returns a dict with:
+        euclid_rmse_per_frame:   sqrt(mean ||(x̂,ŷ) - (x,y)||²)
+        mean_euclid_error:       mean ||(x̂,ŷ) - (x,y)||
+        max_euclid_error:        max  ||(x̂,ŷ) - (x,y)||
+        endpoint_error:          ||(x̂,ŷ)_T - (x,y)_T||
+        path_length_true:        sum ||(x,y)_{t+1} - (x,y)_t||
+        path_length_decoded:     sum ||(x̂,ŷ)_{t+1} - (x̂,ŷ)_t||
+        path_length_ratio:       decoded / true
+        cosine_velocity:         mean cosine between dxy_dt true and decoded
+        pearson_x, pearson_y:    per-axis Pearson r
+        pearson_mean:            (pearson_x + pearson_y) / 2
+    """
+    true_xy = np.asarray(true_xy)
+    decoded_xy = np.asarray(decoded_xy)
+    if true_xy.shape[0] <= warmup + 2:
+        return {}
+    tx = true_xy[warmup:]
+    dx = decoded_xy[warmup:]
+    err = dx - tx
+    euclid = np.sqrt((err ** 2).sum(axis=-1))
+    out = {
+        "euclid_rmse_per_frame": float(np.sqrt(np.mean(err ** 2))),
+        "mean_euclid_error":     float(np.mean(euclid)),
+        "max_euclid_error":      float(np.max(euclid)),
+        "endpoint_error":        float(np.linalg.norm(dx[-1] - tx[-1])),
+    }
+    dtx = np.diff(tx, axis=0)
+    ddx = np.diff(dx, axis=0)
+    pl_true = float(np.sum(np.linalg.norm(dtx, axis=-1)))
+    pl_dec  = float(np.sum(np.linalg.norm(ddx, axis=-1)))
+    out["path_length_true"]    = pl_true
+    out["path_length_decoded"] = pl_dec
+    out["path_length_ratio"]   = (pl_dec / pl_true) if pl_true > 0 else float("nan")
+    norm_t = np.linalg.norm(dtx, axis=-1) + 1e-12
+    norm_d = np.linalg.norm(ddx, axis=-1) + 1e-12
+    cos_v = (dtx * ddx).sum(axis=-1) / (norm_t * norm_d)
+    out["cosine_velocity"] = float(np.mean(cos_v))
+    rxs = []
+    for axis, name in ((0, "pearson_x"), (1, "pearson_y")):
+        if dx[:, axis].std() > 1e-8 and tx[:, axis].std() > 1e-8:
+            r = float(np.corrcoef(dx[:, axis], tx[:, axis])[0, 1])
+        else:
+            r = float("nan")
+        out[name] = r
+        if np.isfinite(r):
+            rxs.append(r)
+    out["pearson_mean"] = float(np.mean(rxs)) if rxs else float("nan")
+    return out
+
+
+def _trajectory_metrics_1d(true_y: np.ndarray, decoded_y: np.ndarray,
+                            warmup: int = 10) -> dict:
+    """Scalar-trajectory comparison (forward distance d, or heading drift).
+
+    Returns: rmse, pearson, endpoint_error, growth_rate_ratio (decoded /
+    true mean slope), and mean / max absolute error.
+    """
+    ty = np.asarray(true_y).reshape(-1)
+    dy = np.asarray(decoded_y).reshape(-1)
+    if ty.size <= warmup + 2:
+        return {}
+    ty = ty[warmup:]; dy = dy[warmup:]
+    err = dy - ty
+    out = {
+        "rmse":              float(np.sqrt(np.mean(err ** 2))),
+        "mean_abs_error":    float(np.mean(np.abs(err))),
+        "max_abs_error":     float(np.max(np.abs(err))),
+        "endpoint_error":    float(abs(dy[-1] - ty[-1])),
+    }
+    t_axis = np.arange(ty.size)
+    if t_axis.std() > 1e-8:
+        slope_true = float(np.polyfit(t_axis, ty, 1)[0])
+        slope_dec  = float(np.polyfit(t_axis, dy, 1)[0])
+        out["slope_true"]        = slope_true
+        out["slope_decoded"]     = slope_dec
+        out["growth_rate_ratio"] = (slope_dec / slope_true
+                                     if abs(slope_true) > 1e-12 else float("nan"))
+    if dy.std() > 1e-8 and ty.std() > 1e-8:
+        out["pearson"] = float(np.corrcoef(dy, ty)[0, 1])
+    else:
+        out["pearson"] = float("nan")
+    return out
+
+
 def load_pi_fwhm_history(metrics_log_path: str):
     """Read pi_acc, fwhm_deg, and RMSE histories from a trainer metrics.log.
 
