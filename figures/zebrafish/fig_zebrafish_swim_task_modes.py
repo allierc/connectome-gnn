@@ -83,6 +83,7 @@ PANEL_LABEL_FS = 14
 TITLE_FS = 10
 LABEL_FS = 9
 TICK_FS = 8
+LEGEND_FS = 11   # bumped from TICK_FS so legends read at a glance
 
 
 def _panel_label(ax, letter: str, dx: float = -0.12, dy: float = 1.02):
@@ -287,8 +288,6 @@ def _draw_4ch_stack(fig, gs_cell, stim: np.ndarray, title: str):
         ax.axhline(0, color="0.7", lw=0.3)
         ax.set_ylabel(labels[k], fontsize=LABEL_FS)
         ax.tick_params(labelsize=TICK_FS, labelbottom=(k == 3))
-        if k == 0:
-            ax.set_title(title, fontsize=TITLE_FS)
         if k == 3:
             ax.set_xlabel("time (s)", fontsize=LABEL_FS)
     return ax0
@@ -312,12 +311,10 @@ def _draw_target_stack(fig, gs_cell, target: np.ndarray,
             xi_leaky = leaky_xi(vfwd[None, :], tau_s=0.5)[0]
             ax.plot(t_axis, xi_leaky, color=LEAKY_COLOR, lw=1.0, ls="--",
                     label=r"leaky $\tau=0.5\,$s")
-            ax.legend(loc="upper left", fontsize=TICK_FS, frameon=False)
+            ax.legend(loc="upper left", fontsize=LEGEND_FS, frameon=False)
         ax.axhline(0, color="0.7", lw=0.3)
         ax.set_ylabel(labels[k], fontsize=LABEL_FS)
         ax.tick_params(labelsize=TICK_FS, labelbottom=(k == 2))
-        if k == 0:
-            ax.set_title(title, fontsize=TITLE_FS)
         if k == 2:
             ax.set_xlabel("time (s)", fontsize=LABEL_FS)
     return ax0
@@ -379,45 +376,32 @@ def _draw_position_2d_stack(fig, gs_cell, target: np.ndarray,
             ax.plot(t_axis, leaky, color=LEAKY_COLOR, lw=1.0, ls="--",
                     label=leaky_label)
             if k == 2:
-                ax.legend(loc="upper left", fontsize=TICK_FS, frameon=False)
+                ax.legend(loc="upper left", fontsize=LEGEND_FS, frameon=False)
         ax.axhline(0, color="0.7", lw=0.3)
         ax.set_ylabel(lab, fontsize=LABEL_FS)
         ax.tick_params(labelsize=TICK_FS, labelbottom=(k == 3))
-        if k == 0:
-            ax.set_title(title, fontsize=TITLE_FS)
         if k == 3:
             ax.set_xlabel("time (s)", fontsize=LABEL_FS)
     return ax0
 
 
 def _panel_2d_path_tau_sweep(ax, vfwd: np.ndarray, theta_hd: np.ndarray):
-    """(x, y) trajectory for several integrator τ values on the same trial.
-
-    Drawn in spatial coordinates with equal aspect — shows how the leaky
-    recurrence pulls the trajectory toward the origin while the perfect
-    integrator wanders freely.
+    """(x, y) trajectory for two integrator recipes on the same trial:
+    perfect (green solid) and leaky τ=0.5 s (red dashed) — same colour /
+    style convention as panel (c).
     """
-    tau_set = [(None, "perfect", GT_COLOR, 1.2, "-"),
-               (2.0,  r"leaky $\tau=2.0\,$s", None, 1.0, "-"),
-               (1.0,  r"leaky $\tau=1.0\,$s", None, 1.0, "-"),
-               (0.5,  r"leaky $\tau=0.5\,$s", None, 1.0, "-")]
-    cmap = plt.get_cmap("viridis")
-    leaky_tau_ranks = [2.0, 1.0, 0.5]
-    for tau, label, color, lw, ls in tau_set:
-        x, y = position_2d(vfwd[None, :], theta_hd[None, :], tau_s=tau)
-        x = x[0]; y = y[0]
-        if tau is not None:
-            color = cmap(0.85 - 0.20 * leaky_tau_ranks.index(tau))
-        ax.plot(x, y, color=color, ls=ls, lw=lw, label=label)
+    x_perf, y_perf = position_2d(vfwd[None, :], theta_hd[None, :], tau_s=None)
+    x_leak, y_leak = position_2d(vfwd[None, :], theta_hd[None, :], tau_s=0.5)
+    ax.plot(x_perf[0], y_perf[0], color=GT_COLOR, lw=1.2, label="perfect")
+    ax.plot(x_leak[0], y_leak[0], color=LEAKY_COLOR, lw=1.0, ls="--",
+            label=r"leaky $\tau=0.5\,$s")
     ax.plot([0.0], [0.0], "o", color="0.4", ms=5, zorder=5)
     ax.set_aspect("equal", adjustable="datalim")
     ax.axhline(0, color="0.85", lw=0.3, zorder=0)
     ax.axvline(0, color="0.85", lw=0.3, zorder=0)
     ax.set_xlabel("x", fontsize=LABEL_FS)
     ax.set_ylabel("y", fontsize=LABEL_FS)
-    ax.set_title(r"2D path $(x,y)$ — perfect vs leaky $\tau$ on the same trial",
-                 fontsize=TITLE_FS)
-    ax.legend(loc="best", fontsize=TICK_FS, frameon=False)
+    ax.legend(loc="best", fontsize=LEGEND_FS, frameon=False)
     ax.tick_params(labelsize=TICK_FS)
 
 
@@ -438,7 +422,7 @@ def build_figure(out_path: str, seed: int = 3):
         height_ratios=[1.2, 1.2],
         width_ratios=[1.0, 1.0],
         hspace=0.42, wspace=0.30,
-        left=0.07, right=0.97, top=0.93, bottom=0.06,
+        left=0.07, right=0.97, top=0.97, bottom=0.06,
     )
 
     # (a) Stimulus — 4 stacked channels (trial 0).
@@ -468,11 +452,6 @@ def build_figure(out_path: str, seed: int = 3):
     _panel_2d_path_tau_sweep(ax_d, vfwd[0], theta_hd[0])
     _panel_label(ax_d, "d", dx=-0.12)
 
-    fig.suptitle(
-        "zebrafish swim-integration task — input superset, scalar-ξ and "
-        "2D-position targets, and leaky integrator variants",
-        fontsize=12, fontweight="bold", y=0.985,
-    )
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     fig.savefig(out_path, dpi=170, bbox_inches="tight")
     plt.close(fig)
