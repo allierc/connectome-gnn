@@ -52,7 +52,7 @@ def _load_model_and_rollouts(
     """Load model + run rollouts + pick one swim-integration test trial."""
     import torch
     from connectome_gnn.config import NeuralGraphConfig
-    from connectome_gnn.models.drosophila_cx_eval import _deterministic_sweep_rollout
+    from connectome_gnn.models.bump_attractor_eval import _deterministic_sweep_rollout
     from connectome_gnn.models.registry import create_model
     from connectome_gnn.plot_cx import cx_epg_directions
     from connectome_gnn.utils import set_data_root
