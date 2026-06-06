@@ -531,6 +531,10 @@ def _generate_swim_integration_task(config, *, device, visualize: bool = True) -
     # converted.
     lr_deg = math.degrees(si.phase_impulse_mean_rad)
     bw_deg = math.degrees(si.backward_phase_mean_rad)
+    _xi_tau = getattr(si, "xi_tau_s", None)
+    _xi_str = ("perfect (cumsum)"
+               if _xi_tau is None or float(_xi_tau) <= 0.0
+               else f"leaky τ={float(_xi_tau):.3f}s")
     logger.info(
         f"[task] T={si.n_steps} dt={si.dt} rate={si.swim_rate_hz}Hz "
         f"swim_dur={si.swim_duration_s}s "
@@ -539,7 +543,8 @@ def _generate_swim_integration_task(config, *, device, visualize: bool = True) -
         f"fractions=L{si.left_fraction:.2f}/R{si.right_fraction:.2f}/"
         f"F{si.forward_fraction:.2f}/B{si.backward_fraction:.2f} "
         f"train={si.n_trials_train} test={si.n_trials_test} "
-        f"omega_noise_level={si.omega_noise_level}"
+        f"omega_noise_level={si.omega_noise_level} "
+        f"ξ-integrator={_xi_str}"
     )
 
     T = int(si.n_steps)
@@ -651,9 +656,27 @@ def _generate_swim_integration_task(config, *, device, visualize: bool = True) -
         theta_hd = theta0[:, None] + np.cumsum(np.deg2rad(omega), axis=1) * dt
         theta_hd[:, 0] = theta0
 
-        # Displacement ξ = ∫ v_fwd dt (translational integral, starts at 0), in
-        # parallel to heading θ = ∫ ω dt. The dataset writes both targets.
-        disp = (np.cumsum(vfwd, axis=1) * dt).astype(np.float32)
+        # Displacement ξ in parallel to heading θ = ∫ ω dt. Two integrator
+        # variants, selected by task.swim_integration.xi_tau_s:
+        #   None / ≤ 0  → perfect integrator  ξ(t) = Σ_{k≤t} v_fwd(k) Δt
+        #                 (the default, byte-identical to the original).
+        #   τ > 0       → leaky integrator    ξ(t+Δt) = α ξ(t) + v_fwd(t) Δt
+        #                 with α = 1 − Δt/τ (clamped to [0, 1)). Steady-
+        #                 state for constant v_fwd is τ·v_fwd so the
+        #                 target stays bounded and the loss doesn't grow
+        #                 with curriculum T. Both paths start at ξ(0)=0.
+        _xi_tau = getattr(si, "xi_tau_s", None)
+        if _xi_tau is None or float(_xi_tau) <= 0.0:
+            disp = (np.cumsum(vfwd, axis=1) * dt).astype(np.float32)
+        else:
+            tau = float(_xi_tau)
+            alpha = max(0.0, min(1.0 - dt / tau, 1.0))
+            disp = np.zeros_like(vfwd, dtype=np.float32)
+            # Forward recurrence; T is at most ~1000 so a Python loop with
+            # vectorised per-step ops over the trial axis is fine
+            # (~1000 * B vector ops at generation time, runs once).
+            for _t in range(1, vfwd.shape[1]):
+                disp[:, _t] = alpha * disp[:, _t - 1] + vfwd[:, _t] * dt
         disp[:, 0] = 0.0
         # Target — 3 columns [cosθ, sinθ, ξ]: rotation (0,1) + translation (2).
         target_y = np.stack([np.cos(theta_hd), np.sin(theta_hd), disp],
