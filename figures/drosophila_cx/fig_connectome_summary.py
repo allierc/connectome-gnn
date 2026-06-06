@@ -15,7 +15,7 @@ palette as fig_hd_mi_summary so the two figures read as a matched pair.
 
 Data source: the W_con matrix is the same effective connectome the trained
 Known-ODE / GNN models see, loaded via
-connectome_gnn.generators.connconstr_data.load_drosophila_cx_connectome
+connectome_gnn.generators.connectome_loaders.load_drosophila_cx_connectome
 from the hemibrain export
 (papers/Code_NN/Code_NN/Data/Figure5/exported-traced-adjacencies-v1.2/),
 combining traced-neurons.csv and traced-total-connections.csv, with the

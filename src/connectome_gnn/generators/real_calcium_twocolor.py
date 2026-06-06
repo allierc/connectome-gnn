@@ -78,7 +78,7 @@ import scipy.io as sio  # noqa: E402
 
 from connectome_gnn.neuron_state import NeuronState
 from connectome_gnn.zarr_io import ZarrSimulationWriterV3
-from connectome_gnn.generators.connconstr_data import load_drosophila_cx_connectome
+from connectome_gnn.generators.connectome_loaders import load_drosophila_cx_connectome
 
 
 # --------------------------------------------------------------------------- #

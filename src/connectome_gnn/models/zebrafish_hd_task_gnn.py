@@ -125,7 +125,7 @@ class ZebrafishHdTaskGNN(nn.Module):
             from connectome_gnn.generators.circuits import get_circuit
             cx = get_circuit(circuit_cfg.name).as_loader_dict()
         else:
-            from connectome_gnn.generators.connconstr_data import (
+            from connectome_gnn.generators.connectome_loaders import (
                 load_zebrafish_hd_connectome,
             )
             cx = load_zebrafish_hd_connectome(sim.connconstr_datapath)

@@ -242,6 +242,46 @@ leading eigenvalue real part (the linear-stability abscissa)
 $\max(\mathrm{Re}(\lambda)) = 0.9$, which keeps the linearised recurrent
 operator inside the stability margin used throughout the training runs.
 
+\paragraph{Afferent-partition variant
+(\texttt{zebrafish\_HD\_IPN12\_839\_artr\_pt1}).}
+\label{method:afferent_partition}
+The baseline \texttt{pen\_4scalar} gate of \cref{eq:zhd_swim_gate} routes the
+angular-velocity drive $\omega$ jointly through both \emph{RIPN} and
+\emph{pt-IPN} aggregates, treating the two as equivalent
+angular ports. This conflates two functionally distinct afferent roles
+revealed by a cell-type inventory curated on the \emph{fish2} server
+(Liangyu, Xiao, Shin-ya; literature-referenced for every type):
+\textbf{(i)}~the cells annotated as \emph{ARTR} (anterior rhombencephalic
+turning region) --- \emph{RIPN01}, \emph{RIPN02}, \emph{RIPN03\_a},
+\emph{RIPN03\_b}, all Rh2/Rh3, glutamatergic --- are the canonical zebrafish
+heading / angular-velocity afferents \citep{dunn2016artr};
+\textbf{(ii)}~\emph{pt-IPN1} is annotated as ``processed optic/water-flow
+input into IPN'' (with the tectum\_pt cells, themselves AF5-RGC receiving,
+projecting onto it) and is therefore the natural translational / self-motion
+afferent; \textbf{(iii)}~the remaining \emph{RIPN*} sub-types are motor
+efferents (\emph{RIPN11}, \emph{RIPN12\_a/b/c}) or lateral-line receivers
+(\emph{RIPN16}, \emph{RIPN17}), and \emph{pt-IPN2} is annotated as likely
+thalamic rather than pretectal --- neither carries the rotation or
+translation drive directly.
+
+The refined circuit variant
+\texttt{zebrafish\_HD\_IPN12\_839\_artr\_pt1} uses the \emph{same}
+$839$-cell connectome (same $W^{\mathrm{con}}$, same Dale flip, same spectral
+rescale) but partitions the afferent indices by cell-type tag, exposing
+$\{\mathrm{ARTR}_L,\mathrm{ARTR}_R,\mathrm{pt\text{-}IPN1}_L,
+  \mathrm{pt\text{-}IPN1}_R\}$ of sizes $\{34, 42, 23, 28\}$ in place of the
+coarse $\{\mathrm{RIPN}_L,\mathrm{RIPN}_R,\mathrm{ptIPN}_L,\mathrm{ptIPN}_R\}$
+aggregates of \cref{eq:zhd_swim_gate}. The companion gate
+\texttt{pen\_artr\_ptipn1} routes $\omega$ exclusively to ARTR via two
+learnable scalars $\{v_{\mathrm{ARTR}_L},v_{\mathrm{ARTR}_R}\}$ and
+$v_{\mathrm{fwd}}$ exclusively to pt-IPN1 via
+$\{v_{\mathrm{pt\text{-}IPN1}_L},v_{\mathrm{pt\text{-}IPN1}_R}\}$, fully
+separating the rotation and translation drive paths the
+\texttt{pen\_4scalar} gate had to share. The variant is the natural
+intermediate step between the single-channel angular-only gate of
+\cref{eq:zhd_swim_gate} and the multi-channel visual / self-motion port
+model described in \cref{method:input_extended}.
+
 \paragraph{Data.}
 Skeletons, ROI meshes and synaptic connections are taken from the
 \emph{neuprint-fish2} reconstruction (dataset \emph{fish2}). The HD circuit
@@ -1847,6 +1887,12 @@ H.~Dana, Y.~Sun, B.~Mohar, et~al.
 High-performance calcium sensors for imaging activity in neuronal
 populations and microcompartments. \emph{Nature Methods} \textbf{16},
 649--657 (2019).
+
+\bibitem[Dunn et al.(2016)]{dunn2016artr}
+T.~W.~Dunn, Y.~Mu, S.~Narayan, O.~Randlett, E.~A.~Naumann, C.~T.~Yang,
+A.~F.~Schier, J.~Freeman, F.~Engert, M.~B.~Ahrens.
+Brain-wide mapping of neural activity controlling zebrafish exploratory
+locomotion. \emph{eLife} \textbf{5}, e12741 (2016).
 
 \end{thebibliography}
 

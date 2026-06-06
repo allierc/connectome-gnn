@@ -142,7 +142,7 @@ new type is dropped or rejected at each:
     PROCEDURE B (new afferent type) = Procedure A + un-hardcode the
     afferent taxonomy at all of:
 
-      (i)   LOADER — connconstr_data._ZHD_AFFERENT_PREFIXES is the
+      (i)   LOADER — connectome_loaders._ZHD_AFFERENT_PREFIXES is the
             fixed pair ("RIPN", "pt-IPN"); _zhd_category() RETURNS ""
             for any unknown prefix, so a CSV row of type HNd is
             rejected, not loaded. Add the new prefix to the category
@@ -209,7 +209,7 @@ class Circuit:
     """A named connectome subset.
 
     Fields mirror the canonical dict returned by the per-organism loaders
-    in :mod:`connectome_gnn.generators.connconstr_data`, but renamed to
+    in :mod:`connectome_gnn.generators.connectome_loaders`, but renamed to
     species-neutral vocabulary so the same dataclass shape can describe
     drosophila CX, zebrafish HD, larva, etc.
 
@@ -295,10 +295,20 @@ class Circuit:
                      else np.array([], dtype=np.int64))
 
         afferent = {
+            # Coarse aggregates — v1 circuit + `pen_4scalar` gate read these.
             "RIPN_L":  np.asarray(self.subpops.get("afferent_RIPN_L",  []), dtype=np.int64),
             "RIPN_R":  np.asarray(self.subpops.get("afferent_RIPN_R",  []), dtype=np.int64),
             "ptIPN_L": np.asarray(self.subpops.get("afferent_ptIPN_L", []), dtype=np.int64),
             "ptIPN_R": np.asarray(self.subpops.get("afferent_ptIPN_R", []), dtype=np.int64),
+            # Refined gate targets — v2 circuit + `pen_artr_ptipn1` gate read
+            # these (ARTR drives ω, pt-IPN1 drives v_fwd). Empty arrays when
+            # the registered circuit didn't populate the subpop (the v1
+            # circuit registers only the coarse keys above), keeping the
+            # dict's shape uniform across registrations.
+            "ARTR_L":    np.asarray(self.subpops.get("afferent_ARTR_L",    []), dtype=np.int64),
+            "ARTR_R":    np.asarray(self.subpops.get("afferent_ARTR_R",    []), dtype=np.int64),
+            "pt_IPN1_L": np.asarray(self.subpops.get("afferent_pt_IPN1_L", []), dtype=np.int64),
+            "pt_IPN1_R": np.asarray(self.subpops.get("afferent_pt_IPN1_R", []), dtype=np.int64),
         }
         pen = {  # fly-vocab back-compat
             "PENa_L": afferent["RIPN_L"],
@@ -400,6 +410,7 @@ def _discover_circuits() -> None:
     _DISCOVERED = True
     # Each circuit registers a build function. Add new circuits here.
     _register_zebrafish_hd_ipn12_839()
+    _register_zebrafish_hd_ipn12_839_artr_pt1()
     _register_zebrafish_hd_ipn12_hnd()
     _register_zebrafish_hd_ipn12_exc_839()
     _register_zebrafish_hd_ipn12_ablations()
@@ -430,7 +441,7 @@ def _register_zebrafish_hd_ipn12_839() -> None:
     """
 
     def build() -> Circuit:
-        from connectome_gnn.generators.connconstr_data import (
+        from connectome_gnn.generators.connectome_loaders import (
             load_zebrafish_hd_connectome,
         )
         datapath = "figures/zebrafish/zebrafish_connectome_HD_IPN12"
@@ -503,6 +514,132 @@ def _register_zebrafish_hd_ipn12_839() -> None:
     register_circuit("zebrafish_HD_IPN12_839_v1", build)
 
 
+def _register_zebrafish_hd_ipn12_839_artr_pt1() -> None:
+    """Register the 839-cell HD pool with the **refined afferent partition**
+    as ``zebrafish_HD_IPN12_839_artr_pt1``.
+
+    Same connectome as v1 (839 cells, same Dale-flip + spectral rescale,
+    same neurons.csv / connections.csv files at
+    ``figures/zebrafish/zebrafish_connectome_HD_IPN12``). The only
+    difference is the afferent taxonomy:
+
+      v1 (`pen_4scalar` gate)             v2 (`pen_artr_ptipn1` gate)
+      ──────────────────────────────────  ──────────────────────────────────
+      RIPN_L/R  = ALL RIPN cells by side  ARTR_L/R    = RIPN01+02+03_a+03_b
+                  (lumps ARTR, motor                   only — the cells
+                  efferents, lateral-line                annotated as the
+                  receivers, ...)                       angular-velocity
+                                                        source (Petrucco
+                                                        et al. 2023, Dunn
+                                                        et al. 2016)
+      ptIPN_L/R = pt-IPN1 + pt-IPN2       pt_IPN1_L/R = pt-IPN1 only — the
+                  (lumps pretectal +                   "processed optic /
+                  thalamic)                            water flow input to
+                                                        IPN" cells. Drops
+                                                        pt-IPN2 (thalamic,
+                                                        unrelated to optic
+                                                        flow).
+
+    With the v2 partition, ω is routed exclusively to ARTR and v_fwd is
+    routed exclusively to pt-IPN1 — separating the rotation and
+    translation drive paths, which the v1 `pen_4scalar` gate conflated by
+    pushing ω through both RIPN and pt-IPN aggregates. See
+    ``docs/zebrafish.tex`` §Circuit variants for the rationale.
+
+    Cell-type annotations are from Liangyu/Xiao/Shin-ya's literature-
+    referenced inventory (RIPN01-03 = ARTR; pt-IPN1 = optic/water flow).
+    """
+
+    def build() -> Circuit:
+        from connectome_gnn.generators.connectome_loaders import (
+            load_zebrafish_hd_connectome,
+        )
+        datapath = "figures/zebrafish/zebrafish_connectome_HD_IPN12"
+        cx = load_zebrafish_hd_connectome(datapath)
+
+        N = int(cx["N"])
+        n_bump = int(cx.get("n_dipn", cx["n_epg"]))
+        soma = cx.get("somaLocation", None)
+        soma_xyz = np.asarray(soma, dtype=np.float64) if soma is not None else None
+
+        aff = cx.get("afferent_subpop_ix", None) or {}
+        pen = cx.get("pen_subpop_ix", {}) or {}
+
+        def _aff(k_fish: str, k_fly: str) -> np.ndarray:
+            arr = aff.get(k_fish, None)
+            if arr is None:
+                arr = pen.get(k_fly, np.array([], dtype=np.int64))
+            return np.asarray(arr, dtype=np.int64)
+
+        subpops = {
+            "bump":                np.arange(n_bump, dtype=np.int64),
+            # v2 publishes ONLY the refined subpops — the coarse RIPN/ptIPN
+            # aggregates are not advertised here, so a config that wires
+            # this circuit to `velocity_gate=pen_4scalar` fails loudly
+            # rather than silently mixing taxonomies.
+            "afferent_ARTR_L":     _aff("ARTR_L",    ""),
+            "afferent_ARTR_R":     _aff("ARTR_R",    ""),
+            "afferent_pt_IPN1_L":  _aff("pt_IPN1_L", ""),
+            "afferent_pt_IPN1_R":  _aff("pt_IPN1_R", ""),
+        }
+        bump_ring_ix = np.asarray(
+            cx.get("dipn_ix", cx["epg_ix"]), dtype=np.int64,
+        )
+
+        # Loud guard — v2 makes no sense if the refined subpops are empty
+        # (would mean the connectome lacks the curated cell-type tags).
+        for _k in ("afferent_ARTR_L", "afferent_ARTR_R",
+                   "afferent_pt_IPN1_L", "afferent_pt_IPN1_R"):
+            if subpops[_k].size == 0:
+                raise ValueError(
+                    f"zebrafish_HD_IPN12_839_artr_pt1: subpop {_k!r} is empty; "
+                    f"the connectome at {datapath!r} appears to lack the "
+                    f"required type tags (RIPN01/02/03_a/03_b for ARTR, "
+                    f"pt-IPN1 for translation)."
+                )
+
+        provenance = {
+            "server": "neuprint-fish2.janelia.org",
+            "dataset": "fish2",
+            "source_tables":
+                "figures/zebrafish/zebrafish_connectome_HD_IPN12/{neurons,connections}.csv",
+            "anatomy_dir": "figures/zebrafish/zebrafish_anatomy_HD",
+            "anatomy_extra_dirs": ["figures/zebrafish/zebrafish_anatomy_IPN12"],
+            "dale_inh_amplify": 5.0,
+            "dale_spectral_target": 0.9,
+            "type_count": len(cx["type_names"]),
+            "n_bump_cells": n_bump,
+            "afferent_partition_note": (
+                "v2 splits the afferent gate by functional role: ARTR "
+                "(RIPN01+02+03_a+03_b) drives ω; pt-IPN1 drives v_fwd. "
+                "Cell-type tags from the literature-referenced inventory "
+                "by Liangyu/Xiao/Shin-ya. Same connectome as v1, refined "
+                "afferent taxonomy only. Use with velocity_gate="
+                "'pen_artr_ptipn1'."
+            ),
+        }
+
+        body_ids = (np.asarray(cx["bodyId"], dtype=np.int64)
+                    if "bodyId" in cx else None)
+
+        return Circuit(
+            name="zebrafish_HD_IPN12_839_artr_pt1",
+            N=N,
+            neuron_types=np.asarray(cx["neuron_types"], dtype=np.int64),
+            type_names=list(cx["type_names"]),
+            J_effective=np.asarray(cx["J_effective"], dtype=np.float32),
+            soma_xyz=soma_xyz,
+            subpops=subpops,
+            bump_ring_ix=bump_ring_ix,
+            dale_signs=(np.asarray(cx["dale_signs"], dtype=np.float32)
+                        if "dale_signs" in cx else None),
+            body_ids=body_ids,
+            provenance=provenance,
+        )
+
+    register_circuit("zebrafish_HD_IPN12_839_artr_pt1", build)
+
+
 def _register_zebrafish_hd_ipn12_hnd() -> None:
     """Register the 839-cell IPN12 pool **extended with the HNd (dorsal
     habenula) afferent** as ``zebrafish_HD_IPN12_HNd_1062_v1``.
@@ -527,7 +664,7 @@ def _register_zebrafish_hd_ipn12_hnd() -> None:
     """
 
     def build() -> Circuit:
-        from connectome_gnn.generators.connconstr_data import (
+        from connectome_gnn.generators.connectome_loaders import (
             load_zebrafish_hd_connectome,
         )
         datapath = "figures/zebrafish/zebrafish_connectome_HD_IPN12_HNd"
@@ -614,7 +751,7 @@ def _register_zebrafish_hd_ipn12_exc_839() -> None:
     """
 
     def build() -> Circuit:
-        from connectome_gnn.generators.connconstr_data import (
+        from connectome_gnn.generators.connectome_loaders import (
             load_zebrafish_hd_connectome,
         )
         datapath = "figures/zebrafish/zebrafish_connectome_HD_IPN12"
@@ -803,7 +940,7 @@ def _register_drosophila_cx_156() -> None:
     """
     # Glomerular permutation reordering EPG indices 0..45 into the ring
     # ordering used by the connectome loader. Same array as in
-    # connconstr_data.load_drosophila_cx_connectome.
+    # connectome_loaders.load_drosophila_cx_connectome.
     _EPG_PERM = np.array([
         23, 24, 0, 1, 42, 43, 44, 45, 2, 3, 39, 40, 41, 4, 5, 6,
         36, 37, 38, 7, 8, 9, 33, 34, 35, 10, 11, 12,
@@ -831,7 +968,7 @@ def _register_drosophila_cx_156() -> None:
         return neuronsall.bodyId.values[allcx].astype(np.int64)
 
     def build() -> Circuit:
-        from connectome_gnn.generators.connconstr_data import (
+        from connectome_gnn.generators.connectome_loaders import (
             load_drosophila_cx_connectome,
         )
         datapath = "papers/Code_NN/Code_NN/Data/Figure5/exported-traced-adjacencies-v1.2"

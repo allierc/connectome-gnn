@@ -41,7 +41,7 @@ from connectome_gnn.utils import log_path, load_data_root_from_json, set_data_ro
 from connectome_gnn.models.utils import load_run_config
 from connectome_gnn.models.registry import create_model
 from connectome_gnn.task_state import TaskTrials
-from connectome_gnn.generators.connconstr_data import load_zebrafish_hd_connectome
+from connectome_gnn.generators.connectome_loaders import load_zebrafish_hd_connectome
 
 from fig_zebrafish_anatomy_3d_HD import (
     TYPE_COLOR, TYPE_ORDER, _load_rois, _project_2d, _type_to_category,
@@ -1515,7 +1515,7 @@ def main():
     )
     if _circuit_name:
         from connectome_gnn.generators.circuits import get_circuit
-        from connectome_gnn.generators.connconstr_data import _zhd_category
+        from connectome_gnn.generators.connectome_loaders import _zhd_category
         _circuit = get_circuit(_circuit_name)
         if _circuit.body_ids is None:
             raise SystemExit(

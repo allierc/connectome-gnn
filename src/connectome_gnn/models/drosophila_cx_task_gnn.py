@@ -92,7 +92,7 @@ class DrosophilaCxTaskGNN(nn.Module):
         neuron_types, type_names, n_epg, epg_ix, pen_subpop_ix, ...).
         See ``ZebrafishHdTaskGNN`` for the larval-zebrafish dIPN port.
         """
-        from connectome_gnn.generators.connconstr_data import (
+        from connectome_gnn.generators.connectome_loaders import (
             load_drosophila_cx_connectome,
         )
         return load_drosophila_cx_connectome(datapath)

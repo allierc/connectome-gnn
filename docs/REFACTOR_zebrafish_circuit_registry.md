@@ -63,7 +63,7 @@ user confirmed the first-iteration snapshot from the new run is
 byte-identical to the prior nominal training (panel `h` distribution
 match).
 
-`load_zebrafish_hd_connectome` in `connconstr_data.py` was extended
+`load_zebrafish_hd_connectome` in `connectome_loaders.py` was extended
 additively to emit fish-native aliases (`n_dipn`, `dipn_ix`,
 `afferent_subpop_ix`) alongside the legacy keys; the 731-cell tables
 produce J_effective sha = `7d3f17f462a653c2` unchanged.
@@ -116,7 +116,7 @@ both paths).
 
 ### What's done — Step 2 (839-cell IPN12 extension)
 
-`connconstr_data.py`: extended `_zhd_category`, `cat_order`,
+`connectome_loaders.py`: extended `_zhd_category`, `cat_order`,
 `_ZHD_BUMP_PREFIXES`, `_ZHD_INH_PREFIXES` to recognise IPN12_a /
 IPN12_b and slot them into the bump pool with inhibitory Dale flip.
 Design choices (user-confirmed, see Step-2 discussion in chat history):
@@ -124,7 +124,7 @@ Design choices (user-confirmed, see Step-2 discussion in chat history):
   - IPN12 outgoing weights Dale-flipped to inhibitory (same as
     IPNd/IPNds, consistent with IPN GABAergic biology)
   - 4-scalar afferent gate untouched (IPN12 receives no ω input)
-  - Loader stays in `connconstr_data.py`; circuit build function in
+  - Loader stays in `connectome_loaders.py`; circuit build function in
     `circuits.py` calls it
 
 731-cell tables (no IPN12 rows present) produce identical J_effective
@@ -297,7 +297,7 @@ RGC inputs):
    `fetch_zebrafish_connectivity_HD_<NAME>.py` (mirror the HD or
    HD_IPN12 fetcher).
 2. Extend `_zhd_category` + `cat_order` + `_ZHD_*_PREFIXES` in
-   `connconstr_data.py` to recognise the new cell types.
+   `connectome_loaders.py` to recognise the new cell types.
 3. Add `_register_zebrafish_hd_<NAME>()` to `circuits.py` (call from
    `_discover_circuits`).
 4. Write a new yaml `config/zebrafish/zebrafish_hd_si_<NAME>_v1.yaml`
@@ -518,7 +518,7 @@ The smallest commit that unlocks adding IPN12 without overwrite risk.
 - Add `src/connectome_gnn/circuits/_base.py` (dataclass + registry).
 - Add `src/connectome_gnn/circuits/zebrafish_hd_731.py` which is just a
   thin wrapper around `load_zebrafish_hd_connectome()` in
-  `src/connectome_gnn/generators/connconstr_data.py`. The wrapper
+  `src/connectome_gnn/generators/connectome_loaders.py`. The wrapper
   registers under `zebrafish_HD_731_v1`.
 - Make `ZebrafishHdTaskRNN.__init__` accept `circuit_name` (default
   `zebrafish_HD_731_v1`); when set, look up via the registry; when
@@ -586,7 +586,7 @@ no pytest infra needed.
 
 ```python
 import hashlib, numpy as np
-from connectome_gnn.generators.connconstr_data import load_zebrafish_hd_connectome
+from connectome_gnn.generators.connectome_loaders import load_zebrafish_hd_connectome
 cx = load_zebrafish_hd_connectome("figures/zebrafish/zebrafish_connectome_HD")
 for k in ("J_effective", "neuron_types"):
     a = np.asarray(cx[k])

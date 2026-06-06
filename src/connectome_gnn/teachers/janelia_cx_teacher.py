@@ -369,7 +369,7 @@ def train_janelia_cx_teacher(
     Returns a dict with training stats.
     """
     import os
-    from connectome_gnn.generators.connconstr_data import load_drosophila_cx_connectome
+    from connectome_gnn.generators.connectome_loaders import load_drosophila_cx_connectome
 
     torch.manual_seed(int(seed))
     np.random.seed(int(seed))

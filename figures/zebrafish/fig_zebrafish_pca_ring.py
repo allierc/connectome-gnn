@@ -32,7 +32,7 @@ import matplotlib.pyplot as plt
 
 from fig_zebrafish_anatomy_3d_voltage_anim import _load, _run_swim
 from connectome_gnn.utils import load_data_root_from_json, set_data_root
-from connectome_gnn.generators.connconstr_data import (
+from connectome_gnn.generators.connectome_loaders import (
     load_zebrafish_hd_connectome,
 )
 

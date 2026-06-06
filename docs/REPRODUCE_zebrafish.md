@@ -188,7 +188,7 @@ connectome loader, confirm the three pillars from the design discussion:
 ```
 python - <<'PY'
 import hashlib, numpy as np
-from connectome_gnn.generators.connconstr_data import load_zebrafish_hd_connectome
+from connectome_gnn.generators.connectome_loaders import load_zebrafish_hd_connectome
 cx = load_zebrafish_hd_connectome("figures/zebrafish/zebrafish_connectome_HD_IPN12")
 for k in ("J_effective", "neuron_types"):
     a = np.asarray(cx[k])
