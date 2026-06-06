@@ -154,6 +154,22 @@ flow and water-flow signals).
   \label{fig:zhd_3d}
 \end{figure}
 
+\paragraph{Functional circuit.}
+\label{method:proprioception}
+Forward-swim velocity reaches IPN through two complementary
+pathways (\cref{fig:zhd_3d}\textbf{d}): an \emph{exteroceptive}
+channel via \emph{pt-IPN1} (optic / lateral-line flow --- delayed
+but self-calibrating) and a \emph{proprioceptive} channel via the
+motor-efferent RIPN sub-types \emph{RIPN11}, \emph{RIPN12\_a},
+\emph{RIPN12\_c} ($37+31$ cells per side, glutamatergic) carrying
+the swim command's efference copy (prompt but open-loop). The
+proprioception variant adds these cells as a third gate target:
+$\omega$ still routes to ARTR, $v_{\mathrm{fwd}}$ now drives both
+\emph{pt-IPN1} and \emph{motor\_efferent} in parallel, each with its
+own pair of learnable scalars. The connectome is unchanged
+(\cref{fig:zhd_3d}); only the afferent taxonomy and the gate
+architecture differ.
+
 \paragraph{Connectome.}
 \Cref{fig:zhd_connectome_summary} summarises depicts the $839$-cell circuits, its binary support $\mathrm{supp}(W^{\mathrm{con}})$
 and the signed $W^{\mathrm{con}}$. The matrix is sparse (density $0.032$, $22\,425$
@@ -166,7 +182,7 @@ the IPN12 cells are GABAergic or glutamatergic, we build two sign
 variants from the \emph{same} topology: in \textbf{v1} the IPN12
 outgoing weights are Dale-flipped to inhibitory (matching the
 \emph{IPNd*}/\emph{IPNds*} ring), and in \textbf{v2} they are left
-positive (excitatory). 
+positive (excitatory).
 
 \begin{figure}[H]
   \centering
@@ -194,23 +210,6 @@ positive (excitatory).
   same scale.}
   \label{fig:zhd_connectome_summary}
 \end{figure}
-
-
-\paragraph{Functional circuit.}
-\label{method:proprioception}
-Forward-swim velocity reaches IPN through two complementary
-pathways (\cref{fig:zhd_3d}\textbf{d}): an \emph{exteroceptive}
-channel via \emph{pt-IPN1} (optic / lateral-line flow --- delayed
-but self-calibrating) and a \emph{proprioceptive} channel via the
-motor-efferent RIPN sub-types \emph{RIPN11}, \emph{RIPN12\_a},
-\emph{RIPN12\_c} ($37+31$ cells per side, glutamatergic) carrying
-the swim command's efference copy (prompt but open-loop). The
-proprioception variant adds these cells as a third gate target:
-$\omega$ still routes to ARTR, $v_{\mathrm{fwd}}$ now drives both
-\emph{pt-IPN1} and \emph{motor\_efferent} in parallel, each with its
-own pair of learnable scalars. The connectome is unchanged
-(\cref{fig:zhd_3d}); only the afferent taxonomy and the gate
-architecture differ.
 
 \section{Methods}
 \label{sec:methods}
