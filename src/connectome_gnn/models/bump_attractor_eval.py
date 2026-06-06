@@ -381,7 +381,17 @@ def load_pi_fwhm_history(metrics_log_path: str):
 
 
 def _build_test_trial(net, u_test, y_test, device, config):
-    """Build a test_trial dict from a single OU test trial for panel g.
+    """Build a test_trial dict from a single OU / swim test trial for panel g.
+
+    The trial is picked by sampling K candidates and keeping the one with
+    the most informative target — defined as the column-wise max of
+    |y_true - mean(y_true)| over time. For rotation-only this almost
+    always picks a non-trivial trial (heading varies whenever ω is
+    non-zero); for translation-only it skips the ~14% of trials that have
+    no F/B events (v_fwd ≡ 0 ⇒ ξ ≡ 0, nothing to integrate) and finds
+    one where displacement actually accumulates. For both-mode it picks
+    a trial whose ξ varies — the heading half is always present anyway,
+    so prioritising ξ-variation gives the most informative joint panel.
 
     Returns None when u_test / y_test are not provided (backwards-compat).
     """
@@ -391,7 +401,29 @@ def _build_test_trial(net, u_test, y_test, device, config):
     seed = int(getattr(config.training, "seed", 0)) + 17 if config else 17
     rng = np.random.default_rng(seed)
     n_test = u_test.shape[0]
-    trial_idx = int(rng.integers(0, n_test))
+
+    # Sample K candidate indices, score each on the spread of its
+    # target trajectory, and take the most informative one. K=32 keeps
+    # the snapshot cost negligible (K target reads, no extra forwards).
+    # Fully random sampling stays the rotation-only fallback for any
+    # exotic mode where the scoring is degenerate.
+    K = int(min(32, n_test))
+    cand_idx = np.sort(rng.choice(n_test, size=K, replace=False))
+    if hasattr(y_test, "cpu"):
+        y_cand = y_test[cand_idx].cpu().numpy()
+    else:
+        y_cand = np.asarray(y_test)[cand_idx]
+    # Score = max column-wise centred amplitude (so a constant trial scores
+    # ~0). For translation mode (y has the ξ column), this directly tracks
+    # how far the network *should* drift over the trial — exactly the
+    # quantity that's interesting to see decoded.
+    if y_cand.size:
+        y_centred = y_cand - y_cand.mean(axis=1, keepdims=True)
+        scores = np.abs(y_centred).max(axis=(1, 2))
+        best_in_cand = int(np.argmax(scores))
+        trial_idx = int(cand_idx[best_in_cand])
+    else:
+        trial_idx = int(rng.integers(0, n_test))
     u_one = u_test[trial_idx]                    # (T, N_in) tensor or ndarray
     y_true = y_test[trial_idx]
     if hasattr(u_one, "cpu"):
