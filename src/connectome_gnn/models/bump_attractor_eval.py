@@ -1,16 +1,26 @@
-"""Path-integration evaluation + snapshot helpers for CX recurrent models.
+"""Evaluation + snapshot helpers for the bump-attractor sign-locked RNN
+family — shared between the drosophila CX path-integration model and the
+zebrafish dIPN swim-integration model.
 
 These helpers are duck-typed against any module exposing:
     .dt          (float)            — Euler step
     .n_units     (int)              — recurrent unit count
+    .n_input     (int)              — input dim (1 = translation-only,
+                                       3 = rotation-only [legacy CX],
+                                       4 = rotation+translation)
     .W_rec       (Tensor (N, N))    — effective recurrent weight (read-only)
-    forward(u)  -> (y_hat, h_buf)  — (B, T, 3) -> (B, T, 2), (B, T, N)
+    forward(u)  -> (y_hat, h_buf)  — (B, T, n_in) -> (B, T, n_out), (B, T, N)
 
-so they work on both `teachers.JaneliaCxRNN` and `models.TaskRNN`.
+so they work on `teachers.JaneliaCxRNN`, `models.DrosophilaCxTaskRNN`, and
+`models.ZebrafishHdTaskRNN`. Rotation channels are in u[:, :, 0] (ω) +
+heading cue [cosθ0, sinθ0]; translation channel is v_fwd in u[:, :, 1]
+(both mode) or u[:, :, 0] (translation-only mode).
 
 History: lifted out of `teachers/janelia_cx_teacher.py` to keep the new
-`data_train_task` from importing the teacher module.  The teacher
-re-exports these names for backwards compat.
+`data_train_task` from importing the teacher module. Renamed from
+`drosophila_cx_eval.py` to drop the species prefix once the zebrafish
+HD trainer started using it. The teacher re-exports these names for
+backwards compat.
 """
 
 from __future__ import annotations
@@ -159,28 +169,64 @@ def _deterministic_sweep_rollout(
     net,
     *,
     n_steps: int,
-    omega_deg_per_s: float,
+    omega_deg_per_s: float = 60.0,
+    v_fwd_per_s: float = 1.0,
+    theta0_rad: float = 0.0,
     device: str,
 ) -> dict:
-    """One trial with **constant ω**, no OU noise, no standing pauses.
+    """One trial with **constant ω and/or constant v_fwd**, no OU noise.
 
-    Designed to span the full HD circle by the end of the rollout so the
-    kinograph shows the bump migrating across the full orientation axis.
+    Input shape adapts to ``net.n_input`` so the same probe works across
+    all three swim_integration sub-tasks:
+
+      n_input == 3 → u = [ω, cosθ0, sinθ0]                (rotation-only)
+      n_input == 1 → u = [v_fwd]                          (translation-only)
+      n_input == 4 → u = [ω, v_fwd, cosθ0, sinθ0]         (both)
+
+    Constant drives from t=0 (no trial-start zeroing) — breaks parity with
+    OU training data for a single frame, but produces a clean flat trace
+    in the panel. The 10-frame warmup in any metric computation absorbs
+    that one-frame offset.
+
+    The returned dict always carries the I/O buffers; the
+    ground-truth + decoded *integrated* quantities are present only for
+    the integrators the model implements:
+
+      always:           u, y_pred, h, r, n_steps, dt_s,
+                        omega_deg_per_s, v_fwd_per_s
+      rotation in net:  true_theta, decoded_theta    (radians, unwrapped GT)
+      translation in net: true_xi, decoded_xi        (linear displacement)
     """
+    import math
     T = int(n_steps)
-    omega = np.full((1, T), float(omega_deg_per_s), dtype=np.float32)
-    # Constant ω from t=0 — no trial-start zeroing. This breaks parity with
-    # the OU training data (where ω[0]=0 by OU initial condition) for a
-    # single frame, but produces a clean flat ω trace in the sweep plot. The
-    # 10-frame warmup in the metric computation absorbs any one-frame offset
-    # in the resulting theta_hd ramp.
-    omega_rad = np.deg2rad(omega)
-    theta_hd = np.cumsum(omega_rad, axis=1) * float(net.dt)
+    dt = float(net.dt)
+    n_in = int(getattr(net, "n_input", 3))
 
-    u = np.zeros((1, T, 3), dtype=np.float32)
-    u[:, :, 0] = omega
-    u[:, 0, 1] = 1.0
-    u[:, 0, 2] = 0.0
+    has_rot = n_in in (3, 4)
+    has_trans = n_in in (1, 4)
+    if not (has_rot or has_trans):
+        raise ValueError(
+            f"_deterministic_sweep_rollout: unsupported n_input={n_in} "
+            f"(expected 1, 3, or 4)"
+        )
+
+    omega = np.full((1, T), float(omega_deg_per_s), dtype=np.float32)
+    v_fwd = np.full((1, T), float(v_fwd_per_s),     dtype=np.float32)
+
+    if n_in == 3:
+        u = np.zeros((1, T, 3), dtype=np.float32)
+        u[:, :, 0] = omega
+        u[:, 0, 1] = math.cos(float(theta0_rad))
+        u[:, 0, 2] = math.sin(float(theta0_rad))
+    elif n_in == 1:
+        u = np.zeros((1, T, 1), dtype=np.float32)
+        u[:, :, 0] = v_fwd
+    else:  # n_in == 4
+        u = np.zeros((1, T, 4), dtype=np.float32)
+        u[:, :, 0] = omega
+        u[:, :, 1] = v_fwd
+        u[:, 0, 2] = math.cos(float(theta0_rad))
+        u[:, 0, 3] = math.sin(float(theta0_rad))
 
     u_t = torch.from_numpy(u).to(device)
     # eval()/train() toggle so the deterministic-sweep is truly deterministic
@@ -196,17 +242,33 @@ def _deterministic_sweep_rollout(
             net.train()
     r = torch.sigmoid(h[0]).cpu().numpy()
     y_pred = y_hat[0].cpu().numpy()
-    return {
+
+    out: dict = {
         "u": u[0],
         "y_pred": y_pred,
-        "true_theta": theta_hd[0],
-        "decoded_theta": np.arctan2(y_pred[:, 1], y_pred[:, 0]),
         "h": h[0].cpu().numpy(),
         "r": r,
         "n_steps": T,
         "omega_deg_per_s": float(omega_deg_per_s),
-        "dt_s": float(net.dt),
+        "v_fwd_per_s":     float(v_fwd_per_s),
+        "dt_s": dt,
     }
+    if has_rot:
+        # Heading occupies y_pred[:, 0:2] in every rotation-bearing mode
+        # (rotation-only: n_output=2 [cos, sin]; both: n_output=3
+        # [cos, sin, ξ]). cumsum(deg2rad(ω)) * dt is the unwrapped GT angle.
+        omega_rad = np.deg2rad(omega)
+        out["true_theta"] = float(theta0_rad) + np.cumsum(omega_rad, axis=1)[0] * dt
+        out["decoded_theta"] = np.arctan2(y_pred[:, 1], y_pred[:, 0])
+    if has_trans:
+        # ξ = ∫ v_fwd dt (linear, unbounded). Column placement depends on
+        # n_output: translation-only puts ξ in y_pred[:, 0]; both mode puts
+        # ξ in y_pred[:, 2] after [cos, sin].
+        out["true_xi"] = np.cumsum(v_fwd, axis=1)[0] * dt
+        xi_col = 2 if n_in == 4 else 0
+        out["decoded_xi"] = y_pred[:, xi_col]
+
+    return out
 
 
 def _rollout_heading_metrics(
@@ -222,7 +284,8 @@ def _rollout_heading_metrics(
     - RMSE is computed on the wrapped angular residual decoded − true.
     - Pearson is computed between the unwrapped decoded trajectory and the
       (already-monotone) ground-truth trajectory, after a short warmup.
-    Returns (nan, nan) on failure or degenerate input.
+    Returns (nan, nan) on failure, degenerate input, or when the model
+    has no heading output (translation-only mode).
     """
     try:
         rollout = _deterministic_sweep_rollout(
@@ -230,6 +293,9 @@ def _rollout_heading_metrics(
             omega_deg_per_s=omega_deg_per_s, device=device,
         )
     except Exception:
+        return float("nan"), float("nan")
+    if "true_theta" not in rollout:
+        # Translation-only model: no heading to score.
         return float("nan"), float("nan")
     true_theta = np.asarray(rollout["true_theta"])
     decoded = np.asarray(rollout["decoded_theta"])
@@ -243,6 +309,43 @@ def _rollout_heading_metrics(
         return rmse_deg, float("nan")
     pearson = float(np.corrcoef(decoded_unwrapped, true_theta[warmup:])[0, 1])
     return rmse_deg, pearson
+
+
+def _rollout_translation_metrics(
+    net,
+    *,
+    n_steps: int,
+    v_fwd_per_s: float,
+    device: str,
+    warmup: int = 10,
+) -> tuple[float, float]:
+    """Translation analog of ``_rollout_heading_metrics``.
+
+    - RMSE is computed on the linear residual decoded_xi − true_xi (units
+      match v_fwd × time — there is no wrapping).
+    - Pearson is computed between decoded_xi and true_xi after warmup.
+    Returns (nan, nan) on failure, degenerate input, or when the model
+    has no displacement output (rotation-only mode).
+    """
+    try:
+        rollout = _deterministic_sweep_rollout(
+            net, n_steps=n_steps,
+            v_fwd_per_s=v_fwd_per_s, device=device,
+        )
+    except Exception:
+        return float("nan"), float("nan")
+    if "true_xi" not in rollout:
+        return float("nan"), float("nan")
+    true_xi = np.asarray(rollout["true_xi"])
+    decoded = np.asarray(rollout["decoded_xi"])
+    if true_xi.size <= warmup:
+        return float("nan"), float("nan")
+    err = decoded[warmup:] - true_xi[warmup:]
+    rmse = float(np.sqrt(np.mean(err ** 2)))
+    if decoded[warmup:].std() < 1e-8 or true_xi[warmup:].std() < 1e-8:
+        return rmse, float("nan")
+    pearson = float(np.corrcoef(decoded[warmup:], true_xi[warmup:])[0, 1])
+    return rmse, pearson
 
 
 def load_pi_fwhm_history(metrics_log_path: str):
@@ -339,6 +442,7 @@ def _save_training_snapshot(
     device: str,
     snapshot_n_steps: int,
     snapshot_omega_deg: float,
+    snapshot_v_fwd: float = 1.0,
     iter_in_epoch: int | None = None,
     matrix_dir: str | None = None,    # backwards-compat; ignored
     config=None,
@@ -362,13 +466,19 @@ def _save_training_snapshot(
         name = f"step_{global_step:07d}.png"
 
     try:
-        # Constant-ω rollout at T=1000 — the snapshot panels' `r=` matches the
-        # `r_roll_1k` printed in the trainer postfix (also evaluated at T=1000).
-        # `snapshot_n_steps` is kept in the signature for backwards compatibility
-        # but is no longer used for the rollout length.
+        # Constant-ω and/or constant-v_fwd rollout at T=1000 — the snapshot
+        # panel's `r=` matches the `r_roll_1k` printed in the trainer postfix
+        # (also evaluated at T=1000) for rotation-bearing models. The
+        # generalized rollout helper builds the input matching net.n_input
+        # so the same call works in rotation-only, translation-only, and
+        # both modes. `snapshot_n_steps` is kept in the signature for
+        # backwards compatibility but is no longer used for the rollout
+        # length (1000 is the canonical comparison horizon).
         rollout = _deterministic_sweep_rollout(
             net, n_steps=1000,
-            omega_deg_per_s=snapshot_omega_deg, device=device,
+            omega_deg_per_s=snapshot_omega_deg,
+            v_fwd_per_s=snapshot_v_fwd,
+            device=device,
         )
         rollout["r_epg"] = rollout["r"][:, epg_indices]
         # Afferent population = union of the PEN-gate sub-population indicator
@@ -437,7 +547,7 @@ def _save_training_snapshot(
             data, os.path.join(kinograph_dir, name), n_rows=2,
         )
     except Exception as exc:
-        print(f"[drosophila_cx_eval] kinograph snapshot failed @ step {global_step}: {exc}")
+        print(f"[bump_attractor_eval] kinograph snapshot failed @ step {global_step}: {exc}")
 
     # TaskGNN-only: render embedding scatter + g_phi / f_theta function
     # plots into tmp_training/{embedding,function/{g_phi,f_theta}}/.
@@ -452,7 +562,7 @@ def _save_training_snapshot(
                 neuron_types=neuron_types, type_names=type_names,
             )
         except Exception as exc:
-            print(f"[drosophila_cx_eval] gnn function plots failed @ step {global_step}: {exc}")
+            print(f"[bump_attractor_eval] gnn function plots failed @ step {global_step}: {exc}")
 
 
 def _plot_gnn_functions(

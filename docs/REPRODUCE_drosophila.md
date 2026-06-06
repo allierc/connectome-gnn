@@ -213,7 +213,7 @@ PY
 
 A deterministic constant-omega rollout from the trained checkpoint
 (e.g. via `_deterministic_sweep_rollout(net, 1000, 60.0, 'cpu')` from
-`drosophila_cx_eval.py`) should produce a `decoded_hd` array that is
+`bump_attractor_eval.py`) should produce a `decoded_hd` array that is
 bit-identical before and after a refactor on CPU. Stash the array as a
 `.npz` baseline once; re-run and assert
 `np.allclose(..., atol=0, rtol=0)` after the refactor.
