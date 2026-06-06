@@ -112,66 +112,18 @@ a direction opposite to the fish's swims, persists for tens of
 seconds in the absence of motor activity, and tracks an estimated
 heading angle whose magnitude per swim ($\approx \pi/4$~rad) matches
 the behaviourally measured turn. The connectivity scheme that
-supports the ring activity peak --- short-range excitation and long-range,
-out-of-phase inhibition --- is the classical ring-attractor
-architecture, and electron-microscopy reconstructions of the \rpi{}
+supports the ring activity is the classical ring-attractor
+architecture. The electron-microscopy reconstructions of the \rpi{}
 axons reveal reciprocal connectivity in the dIPN consistent with
-this picture; the inhibitory sign is not read out from the EM but
-imposed here by an all-inhibitory Dale convention on the \rpi{}
-population.
-
-\paragraph{Cell-type vocabulary.}
-\Cref{tab:zhd_mapping} lists the four functional categories of
-HD-circuit neurons exposed by the \emph{fish2} neuprint server,
-together with their roles and \emph{fish2} type prefixes.
-
-\begin{table}[H]
-\centering
-\small
-\resizebox{\textwidth}{!}{%
-\begin{tabular}{l l l r l}
-\toprule
-Role & Zebrafish population & \emph{fish2} type prefix & $n$ & Sign / source \\
-\midrule
-Recurrent (HD ring) & dorsal IPN (\rpi) & \emph{IPNd*} & 338 & inh.\ (Dale); \rpi{} pop.\ of \citet{petrucco2023} \\
-Recurrent (HD ring, subset) & dorsal-subset IPN & \emph{IPNds*} & 105 & inh.\ (Dale) \\
-Recurrent (HD ring, IPN12) & dorsal IPN & \emph{IPN12\_a} & 51 & inh.\ (v1) / exc.\ (v2) \\
-Recurrent (HD ring, IPN12) & dorsal IPN & \emph{IPN12\_b} & 57 & inh.\ (v1) / exc.\ (v2) \\
-Angular afferent (ARTR) & habenula $\to$ IPN & \emph{RIPN01/02/03\_a/03\_b} & 76 & ARTR \citep{dunn2016artr}, Rh2/3, glut.\ \\
-Proprioceptive motor efferent & motor $\to$ IPN & \emph{RIPN11/12\_a/12\_c} & 68 & efference-copy (our assignment) \\
-Other RIPN (residual) & habenula $\to$ IPN & \emph{RIPN05/12\_b/16/17} & 56 & not gate-routed \\
-Exteroceptive translational afferent & pretectum $\to$ IPN & \emph{pt-IPN1} & 51 & optic / water-flow (our assignment) \\
-Other pretectal afferents & pretectum $\to$ IPN & \emph{pt-IPN2} & 37 & not gate-routed \\
-\midrule
-\multicolumn{4}{l}{\emph{total}} & 839 \\
-\bottomrule
-\end{tabular}%
-}
-\caption{HD-circuit cell-type families from the \emph{fish2}
-reconstruction. \emph{Role}: how the cell is wired into the model
-(recurrent ring, gate-routed afferent, or residual). \emph{Population}:
-the corresponding zebrafish anatomical pool. \emph{fish2 type prefix}:
-the \emph{fish2} connectome type name; the asterisk is a wildcard
-grouping all sub-types with that prefix (e.g.\ \emph{IPNd13B},
-\emph{IPNd17A}, \emph{IPNdp01} all match \emph{IPNd*}). $n$: cell
-count in this pool. \emph{Sign / source}: Dale sign used in this work
-(\emph{v1} and \emph{v2} are the two IPN12 sign variants), and the
-functional identification or its origin --- a citation when the pool
-matches a previously named population, ``our assignment'' when the
-functional label is introduced here. \emph{IPN12*} (dorsal-IPN
-recurrent) and the unrelated \emph{RIPN12*} (habenular afferent) are
-distinct families despite the shared number.}
-\label{tab:zhd_mapping}
-\end{table}
+this picture.
 
 \section{Anatomy and connectome}
 \label{sec:anatomy}
 
 \paragraph{3-D anatomy.}
-\Cref{fig:zhd_3d} shows the HD-circuit cell families rendered in
+\Cref{fig:zhd_3d} shows the circuit cell families rendered in
 3-D and colour-coded by the same six-way functional partition used
-in the circuit diagram (panels \textbf{c}--\textbf{d} of the
-same figure): the
+in the circuit diagram: the
 recurrent ring substrate (\emph{dIPN} $=$ \emph{IPNd*} $+$
 \emph{IPNds*}); the three afferent populations that the velocity
 gate routes the angular and translational drives through
@@ -198,8 +150,7 @@ flow and water-flow signals).
   exteroceptive translation), \emph{motor\_efferent} (green, $n=68$;
   proprioceptive translation), \emph{other} (grey, $n=93$).
   \textbf{(a)}~Full \emph{neuprint-fish2} skeletons against Habenula /
-  dIPN / vIPN ROI silhouettes; dorsal view (elev.~$+90^\circ$,
-  az.~$-90^\circ$).
+  dIPN / vIPN ROI silhouettes; dorsal view.
   \textbf{(b)}~Same view restricted to cell bodies (SWC soma nodes).
   Panels (a, b) show spatially disjoint compartments of the same
   neurons: the dense central region of (a) is the dIPN / iIPN
@@ -217,23 +168,18 @@ flow and water-flow signals).
 \end{figure}
 
 \paragraph{Connectome.}
-The nominal HD circuit is the $839$-cell pool that adds the two
-dorsal-IPN sub-types \emph{IPN12\_a} ($51$ cells) and \emph{IPN12\_b}
-($57$ cells) to the dIPN. Because it is not known whether
+\Cref{fig:zhd_connectome_summary} summarises depicts the $839$-cell circuits, its binary support $\mathrm{supp}(W^{\mathrm{con}})$
+and the signed $W^{\mathrm{con}}$. The matrix is sparse (density $0.032$, $22\,425$
+non-zero edges out of $839^2 = 703\,921$). The \rpi{} cells (\emph{IPNd*} and \emph{IPNds*}) are GABAergic
+\citep{petrucco2023}; their outgoing weights are sign-flipped and
+amplified by 5$\times$. \emph{RIPN*} and \emph{pt-IPN*} have no Dale
+annotation on the \emph{fish2} server and are kept positive
+(excitatory). Because it is not known whether
 the IPN12 cells are GABAergic or glutamatergic, we build two sign
 variants from the \emph{same} topology: in \textbf{v1} the IPN12
 outgoing weights are Dale-flipped to inhibitory (matching the
 \emph{IPNd*}/\emph{IPNds*} ring), and in \textbf{v2} they are left
-positive (excitatory). \Cref{fig:zhd_connectome_summary} summarises
-the connectome: its binary support $\mathrm{supp}(W^{\mathrm{con}})$
-(shared by both variants), the signed $W^{\mathrm{con}}$ for each
-variant, and the per-cell-type incoming / outgoing edge-weight
-distributions. Rows and columns are ordered by cell type,
-with \emph{IPNd*}, \emph{IPNds*} and \emph{IPN12} contiguous at the
-top-left (the ring block), followed by \emph{RIPN*} and \emph{pt-IPN*}
-(afferent blocks). The matrix is sparse (density $0.032$, $22\,425$
-non-zero edges out of $839^2 = 703\,921$); the $3\,536$ IPN12 outgoing
-edges are the only entries whose sign differs between \textbf{v1} and \textbf{v2} .
+positive (excitatory). 
 
 \begin{figure}[H]
   \centering
@@ -262,50 +208,6 @@ edges are the only entries whose sign differs between \textbf{v1} and \textbf{v2
   \label{fig:zhd_connectome_summary}
 \end{figure}
 
-\paragraph{Dale convention.}
-The \rpi{} cells (\emph{IPNd*} and \emph{IPNds*}) are GABAergic
-\citep{petrucco2023}; their outgoing weights are sign-flipped and
-amplified by 5$\times$. \emph{RIPN*} and \emph{pt-IPN*} have no Dale
-annotation on the \emph{fish2} server and are kept positive
-(excitatory). The resulting signed matrix is rescaled so its
-leading eigenvalue real part (the linear-stability abscissa)
-$\max(\mathrm{Re}(\lambda)) = 0.9$, which keeps the linearised recurrent
-operator inside the stability margin used throughout the training runs.
-
-\paragraph{Afferent partition by cell type.}
-\label{method:afferent_partition}
-The afferent drive into IPN is partitioned by cell-type tag,
-following the curated inventory on the \emph{fish2} server
-(Liangyu, Xiao, Shin-ya; literature-referenced for every type):
-\textbf{(i)}~the cells annotated as \emph{ARTR} (anterior rhombencephalic
-turning region) --- \emph{RIPN01}, \emph{RIPN02}, \emph{RIPN03\_a},
-\emph{RIPN03\_b}, all Rh2/Rh3, glutamatergic --- are the canonical zebrafish
-heading / angular-velocity afferents \citep{dunn2016artr};
-\textbf{(ii)}~\emph{pt-IPN1} is annotated as ``processed optic/water-flow
-input into IPN'' (with the \emph{tectum\_pt} cells, themselves AF5-RGC
-receiving, projecting onto it) and is therefore the natural translational
-self-motion afferent; \textbf{(iii)}~the remaining \emph{RIPN*} sub-types are
-motor efferents (\emph{RIPN11}, \emph{RIPN12\_a/c}) or lateral-line
-receivers (\emph{RIPN16}, \emph{RIPN17}, \emph{RIPN12\_b}), and
-\emph{pt-IPN2} is annotated as likely thalamic rather than
-pretectal --- the latter four families therefore do not carry the
-rotation or translation drive directly.
-
-The production circuit uses an $839$-cell connectome with the cell-type
-partition above as the gate-target taxonomy. The afferent index sets
-$\{\mathrm{ARTR}_L,\mathrm{ARTR}_R,\mathrm{pt\text{-}IPN1}_L,
-  \mathrm{pt\text{-}IPN1}_R\}$ have sizes $\{34, 42, 23, 28\}$.
-The gate routes the angular drive $\omega$ exclusively to ARTR via two
-learnable scalars
-$\{v_{\mathrm{ARTR}_L},v_{\mathrm{ARTR}_R}\}$ and the forward-swim
-velocity $v_{\mathrm{fwd}}$ exclusively to pt-IPN1 via
-$\{v_{\mathrm{pt\text{-}IPN1}_L},v_{\mathrm{pt\text{-}IPN1}_R}\}$, so
-rotation and translation drive paths are anatomically separated.
-\Cref{fig:zhd_3d}\textbf{c} schematises this partition.
-The configuration is the natural intermediate step between the
-single-channel angular-only gate of \cref{eq:zhd_swim_gate} and the
-multi-channel visual / self-motion port model described in
-\cref{method:input_extended}.
 
 \paragraph{Proprioception-extended variant.}
 \label{method:proprioception}
@@ -2084,6 +1986,55 @@ already in hand.
   encoding-side evidence for a behaviour-linked second variable.}
   \label{fig:zhd_blockenc}
 \end{figure}
+
+\appendix
+
+\section{Cell-type vocabulary}
+\label{app:celltype_vocabulary}
+
+\Cref{tab:zhd_mapping} lists the cell-type families of the HD circuit
+exposed by the \emph{fish2} neuprint server, together with their roles
+and \emph{fish2} type prefixes, and is referenced throughout the main
+text whenever a cell-type tag is introduced.
+
+\begin{table}[H]
+\centering
+\small
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{l l l r l}
+\toprule
+Role & Zebrafish population & \emph{fish2} type prefix & $n$ & Sign / source \\
+\midrule
+Recurrent (HD ring) & dorsal IPN (\rpi) & \emph{IPNd*} & 338 & inh.\ (Dale); \rpi{} pop.\ of \citet{petrucco2023} \\
+Recurrent (HD ring, subset) & dorsal-subset IPN & \emph{IPNds*} & 105 & inh.\ (Dale) \\
+Recurrent (HD ring, IPN12) & dorsal IPN & \emph{IPN12\_a} & 51 & inh.\ (v1) / exc.\ (v2) \\
+Recurrent (HD ring, IPN12) & dorsal IPN & \emph{IPN12\_b} & 57 & inh.\ (v1) / exc.\ (v2) \\
+Angular afferent (ARTR) & habenula $\to$ IPN & \emph{RIPN01/02/03\_a/03\_b} & 76 & ARTR \citep{dunn2016artr}, Rh2/3, glut.\ \\
+Proprioceptive motor efferent & motor $\to$ IPN & \emph{RIPN11/12\_a/12\_c} & 68 & efference-copy (our assignment) \\
+Other RIPN (residual) & habenula $\to$ IPN & \emph{RIPN05/12\_b/16/17} & 56 & not gate-routed \\
+Exteroceptive translational afferent & pretectum $\to$ IPN & \emph{pt-IPN1} & 51 & optic / water-flow (our assignment) \\
+Other pretectal afferents & pretectum $\to$ IPN & \emph{pt-IPN2} & 37 & not gate-routed \\
+\midrule
+\multicolumn{4}{l}{\emph{total}} & 839 \\
+\bottomrule
+\end{tabular}%
+}
+\caption{HD-circuit cell-type families from the \emph{fish2}
+reconstruction. \emph{Role}: how the cell is wired into the model
+(recurrent ring, gate-routed afferent, or residual). \emph{Population}:
+the corresponding zebrafish anatomical pool. \emph{fish2 type prefix}:
+the \emph{fish2} connectome type name; the asterisk is a wildcard
+grouping all sub-types with that prefix (e.g.\ \emph{IPNd13B},
+\emph{IPNd17A}, \emph{IPNdp01} all match \emph{IPNd*}). $n$: cell
+count in this pool. \emph{Sign / source}: Dale sign used in this work
+(\emph{v1} and \emph{v2} are the two IPN12 sign variants), and the
+functional identification or its origin --- a citation when the pool
+matches a previously named population, ``our assignment'' when the
+functional label is introduced here. \emph{IPN12*} (dorsal-IPN
+recurrent) and the unrelated \emph{RIPN12*} (habenular afferent) are
+distinct families despite the shared number.}
+\label{tab:zhd_mapping}
+\end{table}
 
 \bibliographystyle{unsrtnat}
 \begin{thebibliography}{9}

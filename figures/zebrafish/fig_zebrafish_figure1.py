@@ -56,18 +56,16 @@ def build_figure(out_path, anatomy_dir, extra_anatomy_dirs=(),
     print(f"loaded {len(nl)} neurons, {len(rois)} ROI meshes, "
           f"{sum(len(v) for v in soma_meshes_by_type.values())} soma meshes")
 
-    fig = plt.figure(figsize=(13.5, 11.0), facecolor=background)
-    # Anatomy rows take ~57% of the height, circuit row the rest.
-    # Top two rows are stacked anatomy panels (a, b); third row splits
-    # into (c, d).
-    gs = GridSpec(3, 2, figure=fig,
-                  height_ratios=[2.2, 2.2, 3.2],
-                  hspace=0.04, wspace=0.06,
-                  left=0.02, right=0.85, top=0.99, bottom=0.02)
-    ax_a = fig.add_subplot(gs[0, :])
-    ax_b = fig.add_subplot(gs[1, :])
-    ax_c = fig.add_subplot(gs[2, 0])
-    ax_d = fig.add_subplot(gs[2, 1])
+    fig = plt.figure(figsize=(14.0, 8.5), facecolor=background)
+    # 2×2 layout: (a, b) anatomy on top, (c, d) circuit diagrams below.
+    gs = GridSpec(2, 2, figure=fig,
+                  height_ratios=[3.5, 4.0],
+                  hspace=0.06, wspace=0.04,
+                  left=0.02, right=0.88, top=0.99, bottom=0.02)
+    ax_a = fig.add_subplot(gs[0, 0])
+    ax_b = fig.add_subplot(gs[0, 1])
+    ax_c = fig.add_subplot(gs[1, 0])
+    ax_d = fig.add_subplot(gs[1, 1])
 
     for ax in (ax_a, ax_b, ax_c, ax_d):
         ax.set_facecolor(background)
