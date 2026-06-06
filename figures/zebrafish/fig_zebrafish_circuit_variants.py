@@ -25,15 +25,15 @@ import numpy as np
 from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
 
 # --- Style ------------------------------------------------------------------
-# Larger fonts throughout, no box outlines. Panel labels match the
-# anatomy figure's a/b labels (bold, fontsize 14) so the merged figure
-# reads consistently.
-PANEL_LABEL_FS = 14
-TITLE_FS = 14
-LABEL_FS = 12
-COUNT_FS = 11
-SUB_FS = 10
-LEGEND_FS = 12
+# No box outlines; panel labels suppressed (the merged Figure 1 carries
+# the a/b/c/d labels through the LaTeX caption only, since the two
+# subfigures render at different physical scales and matching matplotlib
+# fontsizes across them is unreliable).
+TITLE_FS = 11
+LABEL_FS = 10
+COUNT_FS = 9
+SUB_FS = 8
+LEGEND_FS = 9
 
 # Drive-type palette — deep, saturated colours for the arrows.
 COL_OMEGA    = "#1f6fb3"      # ω (angular velocity)
@@ -55,10 +55,8 @@ COL_DEC_FILL = "#e6efde"      # decoder readout (pale leaf)
 
 
 def _panel_label(ax, letter: str):
-    # Top-left, bold — matches the anatomy figure's a/b labels.
-    ax.text(0.01, 0.99, letter, transform=ax.transAxes,
-            fontsize=PANEL_LABEL_FS, fontweight="bold",
-            va="top", ha="left")
+    # Intentional no-op: panel labels are carried by the LaTeX caption.
+    pass
 
 
 # ---------------------------------------------------------------------------
@@ -271,7 +269,7 @@ def build_figure(out_path: str, labels=("c", "d")):
     the panels default to (c) and (d) to follow the anatomy panels
     (a)/(b) above them.
     """
-    fig, axes = plt.subplots(1, 2, figsize=(13.5, 6.0))
+    fig, axes = plt.subplots(1, 2, figsize=(13.5, 4.8))
     fig.subplots_adjust(left=0.03, right=0.99, top=0.97, bottom=0.04,
                         wspace=0.06)
     _draw_artr_pt1_panel(axes[0])
