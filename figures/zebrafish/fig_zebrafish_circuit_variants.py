@@ -25,8 +25,10 @@ import numpy as np
 from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
 
 # --- Style ------------------------------------------------------------------
-# Larger fonts throughout, no bold anywhere, no box outlines.
-PANEL_LABEL_FS = 20
+# Larger fonts throughout, no box outlines. Panel labels match the
+# anatomy figure's a/b labels (bold, fontsize 14) so the merged figure
+# reads consistently.
+PANEL_LABEL_FS = 14
 TITLE_FS = 14
 LABEL_FS = 12
 COUNT_FS = 11
@@ -53,10 +55,10 @@ COL_DEC_FILL = "#e6efde"      # decoder readout (pale leaf)
 
 
 def _panel_label(ax, letter: str):
-    # Push the letter a bit further outside the axes so the larger
-    # in-panel labels don't collide with it.
-    ax.text(-0.04, 1.04, letter, transform=ax.transAxes,
-            fontsize=PANEL_LABEL_FS, va="bottom", ha="right")
+    # Top-left, bold — matches the anatomy figure's a/b labels.
+    ax.text(0.01, 0.99, letter, transform=ax.transAxes,
+            fontsize=PANEL_LABEL_FS, fontweight="bold",
+            va="top", ha="left")
 
 
 # ---------------------------------------------------------------------------

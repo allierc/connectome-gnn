@@ -432,7 +432,7 @@ def _render_fast(nl, types, rois, output_path,
         ax.set_axis_off()
         if ax_soma is not None:
             ax.text(0.01, 0.99, panel_letters[i], transform=ax.transAxes,
-                    ha="left", va="top", fontsize=10, fontweight="bold",
+                    ha="left", va="top", fontsize=14, fontweight="bold",
                     color=text_color)
 
     _add_legend(legend_ax, type_counts, draw_order, text_color)
@@ -630,7 +630,7 @@ def main():
     p.add_argument("--elev", type=float, default=90.0)
     p.add_argument("--azim", type=float, default=-90.0)
     p.add_argument("--roll", type=float, default=0.0)
-    p.add_argument("--bg", default="black", choices=["black", "white"])
+    p.add_argument("--bg", default="white", choices=["black", "white"])
     p.add_argument("--with_soma_panel", action="store_true",
                    help="render a 2-panel figure stacked vertically: "
                         "(a) skeletons on top, (b) just the soma cell "
