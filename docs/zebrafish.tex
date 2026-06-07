@@ -305,7 +305,7 @@ active sub-task (\cref{fig:zhd_swim_task_modes}):
 \label{eq:zhd_readout}
 \end{equation}
 with $\hat y = \hat W^{\mathrm{out}}\,\sigma\!\big(\hat h(t)\big)+\hat b^{\mathrm{out}}$,
-$\hat\theta=\operatorname{atan2}(\hat y_2,\hat y_1)$. The leaky-vs-perfect choice
+$\hat\theta=\operatorname{atan2}(\hat y_2,\hat y_1)$. The leaky-vs-cumulative choice
 (\cref{eq:xi_leaky,eq:xy_pi}) changes only what $\hat d$ and
 $(\hat x,\hat y)$ are supervised against, not the readout shape.
 The learnable parameters of the model are
@@ -356,7 +356,7 @@ writes:
 \end{itemize}
 
 The default scalar $d$ and the default 2D position $(x, y)$ are both
-\emph{perfect} integrators of their respective drives. With a non-zero
+\emph{cumulative} integrators of their respective drives. With a non-zero
 mean forward-swim drive these targets grow linearly with the
 curriculum horizon, so the loss scales with $T$ and cross-snapshot
 comparisons become awkward. A finite time constant $\tau>0$ replaces
@@ -383,7 +383,7 @@ integrators leak, and what the fish actually encodes is a
 low-pass-filtered estimate of \emph{recent} forward swim vigour and
 recent displacement, not absolute long-horizon position. The
 production runs use $\tau_d=\tau_p=0.5\,$s, with the
-perfect-integrator recipes preserved as separate variants so the loss
+cumulative-integrator recipes preserved as separate variants so the loss
 and metric comparisons stay clean.
 
 \begin{figure}[t!]
@@ -395,14 +395,14 @@ $\omega$, $v_{\mathrm{fwd}}$, and the initial-heading impulse
 $(\cos\theta_0,\sin\theta_0)\,\delta_{t,0}$ (non-zero only at $t=0$;
 shown as stem markers carrying the per-trial value).
 \textbf{(b)}~Scalar-$d$ target: $\cos\theta$, $\sin\theta$, and
-forward distance $d$; perfect integrator (green) vs leaky
+forward distance $d$; cumulative integrator (green) vs leaky
 $\tau_d=0.5\,$s (red dashed).
 \textbf{(c)}~2D-position target: heading components plus $(x, y)$,
-with the same perfect / leaky overlay --- only the bottom two rows
+with the same cumulative / leaky overlay --- only the bottom two rows
 change between (b) and (c), so the 2D task is an additive extension
 of the scalar task rather than a replacement.
 \textbf{(d)}~The same trial's 2D trajectory in spatial coordinates:
-the perfect path drifts unboundedly from the origin, while the leaky
+the cumulative path drifts unboundedly from the origin, while the leaky
 path's steady-state radius is bounded by
 $\tau_p \, v_{\mathrm{fwd}} / \sqrt{1+(\tau_p\omega)^2}$.}
 \label{fig:zhd_swim_task_modes}
@@ -836,11 +836,11 @@ Variant & Heading RMSE & Heading slope & 2-D Euclid. RMSE & 2-D path-length rati
  & (deg) & ratio & (units) & (decoded / true) \\
 \midrule
 \texttt{rotation}                 & $17.6$ & $1.02$ & --- & --- \\
-\texttt{both} (perfect)           & $33.1$ & $0.97$ & --- & --- \\
+\texttt{both} (cumulative)           & $33.1$ & $0.97$ & --- & --- \\
 \texttt{both} leaky               & $\phantom{0}8.1$ & $0.99$ & --- & --- \\
-\texttt{translation} (perfect)    & ---     & ---    & --- & $0.04$--$0.21$ \\
+\texttt{translation} (cumulative)    & ---     & ---    & --- & $0.04$--$0.21$ \\
 \texttt{translation} leaky        & ---     & ---    & --- & $0.002$--$0.003$ \\
-\texttt{position\_2d} (perfect)   & ---     & ---    & $2.10$ & $0.23$--$1.85$ \\
+\texttt{position\_2d} (cumulative)   & ---     & ---    & $2.10$ & $0.23$--$1.85$ \\
 \texttt{position\_2d} leaky       & ---     & ---    & $0.98$ & $0.28$--$0.98$ \\
 \bottomrule
 \end{tabular}
@@ -849,7 +849,7 @@ variants. Heading metrics are averaged over four constant-$\omega$
 sweeps ($\omega \in \{\pm 60, \pm 120\}^\circ/\mathrm{s}$, $T=2000$);
 2-D metrics over five $(\omega, v_{\mathrm{fwd}})$ sweeps with
 $v_{\mathrm{fwd}}=+1$. Heading-slope ratio:
-$\dot{\hat\theta}/\dot\theta$ (unity = perfect integration).
+$\dot{\hat\theta}/\dot\theta$ (unity = cumulative integration).
 2-D Euclidean RMSE: per-frame
 $\sqrt{\langle \|(\hat x,\hat y)-(x,y)\|^2\rangle_t}$.
 Path-length ratio:
@@ -859,23 +859,23 @@ arc-length).}
 \label{tab:zhd_subtask_metrics}
 \end{table}
 
-\paragraph{Translation only --- perfect and leaky.}
+\paragraph{Translation only --- cumulative and leaky.}
 \Cref{fig:zhd_evolution_translation,fig:zhd_evolution_translation_leaky}
 train on the $1$-channel translation sub-task
 ($v_{\mathrm{fwd}}\to$ forward distance $d$, $n_{\rm in}=n_{\rm out}=1$).
 On natural held-out trials (\texttt{test\_random\_trials.png},
 $n=512$) both variants integrate $d$ correctly: per-trial
 $\mathrm{RMSE}=0.26 \pm 0.27$ and Pearson $r=0.94 \pm 0.11$ for the
-perfect-integrator recipe; $\mathrm{RMSE}=0.008 \pm 0.007$ and
+cumulative-integrator recipe; $\mathrm{RMSE}=0.008 \pm 0.007$ and
 $r=0.999 \pm 0.002$ for the leaky variant. The deterministic
 constant-$v_{\mathrm{fwd}}$ rollout at $T=2000$ frames is the
 extrapolation stress test: the slope ratio
 $\dot{\hat d}/\dot d$ averaged over the five
-constant-$v_{\mathrm{fwd}}$ sweeps drops to $0.094$ (perfect) and
+constant-$v_{\mathrm{fwd}}$ sweeps drops to $0.094$ (cumulative) and
 $0.0027$ (leaky), i.e.\ the decoded distance \emph{grows orders of
 magnitude more slowly} than the true target on a sustained drive
 the model never saw during training. Pearson on the rollout is
-$0.55$--$0.77$ (perfect) and $0.34$--$0.39$ (leaky), and the RMSE
+$0.55$--$0.77$ (cumulative) and $0.34$--$0.39$ (leaky), and the RMSE
 on $d$ scales linearly with $|v_{\mathrm{fwd}}|$ (from $\approx 4$
 at $v=+0.5$ to $\approx 22$ at $|v|=2$). The translation-only
 readout therefore fits the swim-event training distribution well
@@ -886,8 +886,8 @@ left blank.
 
 \begin{figure}[p]
   \centering
-  \includegraphics[width=\textwidth]{\figdir/fig_evolution_zebrafish_hd_si_ipn12_artr_pt1_selfmotion_translation.png}
-  \caption{\textbf{Trained translation-only integrator, perfect target.}
+  \includegraphics[width=0.8\textwidth]{\figdir/fig_evolution_zebrafish_hd_si_ipn12_artr_pt1_selfmotion_translation.png}
+  \caption{\textbf{Trained translation-only integrator, cumulative target.}
   Same panel layout as \cref{fig:zhd_evolution_artr_pt1}. The
   one-output forward-distance head is supervised against
   $d(t)=\int v_{\mathrm{fwd}}\,ds$; integration-gain panel (i) is
@@ -897,7 +897,7 @@ left blank.
 
 \begin{figure}[p]
   \centering
-  \includegraphics[width=\textwidth]{\figdir/fig_evolution_zebrafish_hd_si_ipn12_artr_pt1_selfmotion_translation_leaky.png}
+  \includegraphics[width=0.8\textwidth]{\figdir/fig_evolution_zebrafish_hd_si_ipn12_artr_pt1_selfmotion_translation_leaky.png}
   \caption{\textbf{Trained translation-only integrator, leaky target}
   ($\tau_d=0.5\,$s). Same panel layout as
   \cref{fig:zhd_evolution_artr_pt1}.}
@@ -911,22 +911,22 @@ the joint heading-plus-forward-distance task
 Per-frame test R² is $\ge 0.9998$ on both heading and distance for
 both variants. The constant-$\omega$ trajectory metrics over four
 sweeps give a mean heading RMSE of $33.1^\circ$ (slope ratio $0.97$)
-for the perfect variant and $8.1^\circ$ (slope ratio $0.99$) for the
+for the cumulative variant and $8.1^\circ$ (slope ratio $0.99$) for the
 leaky variant: \emph{the leaky-target supervision actually produces
-a sharper compass} than the perfect-target version of the joint task
+a sharper compass} than the cumulative-target version of the joint task
 (and is comparable to the rotation-only model of
 \cref{fig:zhd_evolution_artr_pt1}). The scalar distance head behaves
 like the translation-only models: average $d$-RMSE over the five
-constant-$v_{\mathrm{fwd}}$ sweeps is $10.9$ (perfect) and $13.9$
-(leaky), with slope-ratio $\dot{\hat d}/\dot d$ of $0.14$ (perfect)
+constant-$v_{\mathrm{fwd}}$ sweeps is $10.9$ (cumulative) and $13.9$
+(leaky), with slope-ratio $\dot{\hat d}/\dot d$ of $0.14$ (cumulative)
 / $0.003$ (leaky), confirming that the constant-input extrapolation
 problem of the translation-only run is task-, not input-, dependent.
 
 \begin{figure}[p]
   \centering
-  \includegraphics[width=\textwidth]{\figdir/fig_evolution_zebrafish_hd_si_ipn12_artr_pt1_selfmotion_both.png}
+  \includegraphics[width=0.8\textwidth]{\figdir/fig_evolution_zebrafish_hd_si_ipn12_artr_pt1_selfmotion_both.png}
   \caption{\textbf{Trained rotation $+$ scalar-distance integrator,
-  perfect target.} Same panel layout as
+  cumulative target.} Same panel layout as
   \cref{fig:zhd_evolution_artr_pt1}; panel (g) overlays the GT and
   decoded forward-distance trace below the heading components.}
   \label{fig:zhd_evolution_both}
@@ -934,7 +934,7 @@ problem of the translation-only run is task-, not input-, dependent.
 
 \begin{figure}[p]
   \centering
-  \includegraphics[width=\textwidth]{\figdir/fig_evolution_zebrafish_hd_si_ipn12_artr_pt1_selfmotion_both_leaky.png}
+  \includegraphics[width=0.8\textwidth]{\figdir/fig_evolution_zebrafish_hd_si_ipn12_artr_pt1_selfmotion_both_leaky.png}
   \caption{\textbf{Trained rotation $+$ scalar-distance integrator,
   leaky target} ($\tau_d=0.5\,$s). Same panel layout as
   \cref{fig:zhd_evolution_both}.}
@@ -950,13 +950,13 @@ $\dot y = v_{\mathrm{fwd}}\sin\theta$). Heading is still recovered at
 test R² $\ge 0.994$ on the disk-stored target. The 2-D-position head
 is the harder regression: averaged over five $(\omega, v_{\mathrm{fwd}})$
 sweeps at $v_{\mathrm{fwd}}=+1$, the per-frame Euclidean RMSE between
-decoded $(\hat x,\hat y)$ and true $(x,y)$ is $2.10$ for the perfect
+decoded $(\hat x,\hat y)$ and true $(x,y)$ is $2.10$ for the cumulative
 variant and $0.98$ for the leaky variant --- the leaky target
 \emph{halves} the trajectory error. Mean endpoint error
 $\|(\hat x,\hat y)_T - (x,y)_T\|$ similarly drops from $3.72$ to
 $1.78$. The path-length ratio
 $\sum\|\Delta(\hat x,\hat y)\|/\sum\|\Delta(x,y)\|$ is highly
-variable across sweeps (perfect $0.23$--$1.85$, leaky $0.28$--$0.98$),
+variable across sweeps (cumulative $0.23$--$1.85$, leaky $0.28$--$0.98$),
 indicating that the absolute arc-length is unreliable on deterministic
 constant-drive probes even when the per-frame error is small. Panels
 (f)--(g) of these figures show the decoded $(x,y)$ trajectory as a
@@ -965,7 +965,7 @@ constant-drive probes even when the per-frame error is small. Panels
 \begin{figure}[p]
   \centering
   \includegraphics[width=\textwidth]{\figdir/fig_evolution_zebrafish_hd_si_ipn12_artr_pt1_position_2d.png}
-  \caption{\textbf{Trained 2-D path integrator, perfect target.}
+  \caption{\textbf{Trained 2-D path integrator, cumulative target.}
   Panels (a)--(e), (h)--(i) follow \cref{fig:zhd_evolution_artr_pt1};
   panels (f)--(g) show the decoded path $(x,y)$ in spatial coordinates
   on the constant-$\omega$ rollout and on a held-out swim trial.}
@@ -984,9 +984,9 @@ constant-drive probes even when the per-frame error is small. Panels
 \paragraph{Summary across variants.}
 All seven runs converge to a working integrator on the same connectome.
 The leaky variants do not improve the per-frame R² compared with
-their perfect counterparts on the joint tasks (both reach $\geq 0.999$),
+their cumulative counterparts on the joint tasks (both reach $\geq 0.999$),
 but they bound the supervisory target across the curriculum horizon
-and remove the linear-loss-scaling artefact of the perfect integrator,
+and remove the linear-loss-scaling artefact of the cumulative integrator,
 which makes cross-snapshot comparisons cleaner. The compass behaviour
 is robust to the task complexity: adding forward-distance or 2-D
 position regression alongside heading does not degrade the

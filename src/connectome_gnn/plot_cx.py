@@ -2267,10 +2267,16 @@ def plot_cx_evolution(data: dict, out_path: str, *,
     """
     plt.style.use("default")
     is_gnn = _is_gnn(data["net"])
+    # For the n_rows==4 paper figure, joint-target ("both") tasks
+    # need 4 test rows (HD random, d random, HD sweep, d sweep)
+    # instead of 2 — so the figure is taller. Detect early so the
+    # figsize and gridspec match.
+    _kind_early = data.get("task_kind", "hd")
+    _is_both = (n_rows == 4 and _kind_early == "both")
     if n_rows == 2:
         figsize = (20, 9.5)
     elif n_rows == 4:
-        figsize = (20, 17.5)
+        figsize = (20, 24.0) if _is_both else (20, 17.5)
     else:
         figsize = (20, 14)
     fig = plt.figure(figsize=figsize)
@@ -2283,15 +2289,16 @@ def plot_cx_evolution(data: dict, out_path: str, *,
         # Two nested gridspecs sharing identical left/right margins so
         # the leftmost column of the 4-wide upper grid starts at the
         # same x as the leftmost column of the 5-wide lower grid (and
-        # the rightmost column ends at the same x). A single 4×20 macro
-        # grid would let wspace shift the columns relative to each
-        # other.
+        # the rightmost column ends at the same x).
+        n_test_rows = 4 if _is_both else 2
         outer = fig.add_gridspec(
-            2, 1, height_ratios=[2.0, 2.0], hspace=0.18,
+            2, 1, height_ratios=[2.0, float(n_test_rows)],
+            hspace=0.18,
             left=0.05, right=0.97, top=0.97, bottom=0.04,
         )
         gs_top = outer[0].subgridspec(2, 4, hspace=0.55, wspace=0.42)
-        gs_bot = outer[1].subgridspec(2, 5, hspace=0.55, wspace=0.30)
+        gs_bot = outer[1].subgridspec(n_test_rows, 5,
+                                       hspace=0.55, wspace=0.30)
         # `gs` kept as an alias so the older n_rows<4 path below still
         # has something to reference (unused outside the n_rows==4
         # block).
@@ -2383,103 +2390,215 @@ def plot_cx_evolution(data: dict, out_path: str, *,
         return
 
     if n_rows == 4:
-        # Rows i, j: 5 columns each, plotting the integrated quantity
-        # (HD for rotation, d for translation, (x,y) for position_2d).
+        # Test rows (i, j[, k, l]): 5 columns each. Single integrated
+        # quantity per task except for "both" (rotation + d), which
+        # gets 4 rows: i=HD random, j=d random, k=HD sweep, l=d sweep.
         # Same fonts, line widths, and colour scheme as the upper rows.
         n_show = 5
         kind = data.get("task_kind", "hd")
         random_trials = data.get("random_trials") or {}
-        sweep = data.get("sweep_for_test") or []
+        sweep_dict = data.get("sweep_for_test")
+        # Legacy callers may pass a list — wrap as the single-kind dict.
+        if isinstance(sweep_dict, list):
+            sweep_dict = {kind: sweep_dict}
+        sweep_dict = sweep_dict or {}
         dt_test = float(data.get("test_trial", {}).get("dt", data["dt_s"])
                         if isinstance(data.get("test_trial"), dict)
                         else data["dt_s"])
 
-        def _ax_bot(row, col5):  # row is 0 (row i) or 1 (row j)
+        def _ax_bot(row, col5):
             return fig.add_subplot(gs_bot[row, col5])
 
-        # ---- Row i: random held-out trials -------------------------------
-        u_show = random_trials.get("u")
-        y_true_show = random_trials.get("y_true")
-        y_pred_show = random_trials.get("y_pred")
-        idx_show = random_trials.get("idx")
-        if (u_show is not None and y_true_show is not None
-                and y_pred_show is not None):
+        def _circ_rmse_deg(true_a, pred_a):
+            err = np.angle(np.exp(1j * (np.asarray(pred_a)
+                                         - np.asarray(true_a))))
+            return float(np.degrees(np.sqrt(np.mean(err[10:] ** 2))))
+
+        def _pearson(a, b):
+            a = np.asarray(a)[10:]; b = np.asarray(b)[10:]
+            if a.std() < 1e-8 or b.std() < 1e-8:
+                return float("nan")
+            return float(np.corrcoef(a, b)[0, 1])
+
+        def _annotate(ax, txt):
+            ax.text(0.02, 0.98, txt, transform=ax.transAxes,
+                    ha="left", va="top", fontsize=TICK_FS - 1,
+                    bbox=dict(facecolor="white", edgecolor="none",
+                              alpha=0.8, boxstyle="round,pad=0.18"))
+
+        def _plot_wrapped_hd(ax, t, angles, color, lw):
+            """Plot wrapped HD with line breaks at ±π discontinuities,
+            so the wrap-around does not draw a vertical bar across the
+            panel."""
+            a = np.angle(np.exp(1j * np.asarray(angles)))
+            # A wrap is a jump in the wrapped trace larger than π.
+            jumps = np.where(np.abs(np.diff(a)) > np.pi)[0]
+            if jumps.size == 0:
+                ax.plot(t, a, color=color, lw=lw)
+                return
+            t_segs = np.split(t, jumps + 1)
+            a_segs = np.split(a, jumps + 1)
+            for ts, asg in zip(t_segs, a_segs):
+                ax.plot(ts, asg, color=color, lw=lw)
+
+        def _plot_hd_random(row, letter):
+            y_true_show = random_trials.get("y_true")
+            y_pred_show = random_trials.get("y_pred")
+            if y_true_show is None or y_pred_show is None:
+                return
             T_r = y_true_show.shape[1]
             t_r = np.arange(T_r) * dt_test
             for col in range(min(n_show, y_true_show.shape[0])):
-                ax = _ax_bot(0, col)
-                if kind == "hd":
-                    true_hd = np.arctan2(y_true_show[col, :, 1],
-                                          y_true_show[col, :, 0])
-                    pred_hd = np.arctan2(y_pred_show[col, :, 1],
-                                          y_pred_show[col, :, 0])
-                    ax.plot(t_r, true_hd, color=GT_COLOR, lw=GT_LW)
-                    ax.plot(t_r, pred_hd, color=PRED_COLOR, lw=PRED_LW)
-                    ax.set_ylim(-np.pi - 0.2, np.pi + 0.2)
-                    if col == 0:
-                        ax.set_ylabel("HD (rad)", fontsize=LABEL_FS)
-                elif kind == "d":
-                    d_col = (0 if y_true_show.shape[-1] == 1 else 2)
-                    ax.plot(t_r, y_true_show[col, :, d_col],
-                            color=GT_COLOR, lw=GT_LW)
-                    ax.plot(t_r, y_pred_show[col, :, d_col],
-                            color=PRED_COLOR, lw=PRED_LW)
-                    if col == 0:
-                        ax.set_ylabel(r"$d$", fontsize=LABEL_FS)
-                else:  # xy
-                    tx = y_true_show[col, :, 2]; ty = y_true_show[col, :, 3]
-                    dx = y_pred_show[col, :, 2]; dy = y_pred_show[col, :, 3]
-                    ax.plot(tx, ty, color=GT_COLOR, lw=GT_LW)
-                    ax.plot(dx, dy, color=PRED_COLOR, lw=PRED_LW)
-                    ax.plot([0], [0], 'o', color='0.4', ms=4, zorder=5)
-                    ax.set_aspect('equal', adjustable='datalim')
-                    ax.set_xlabel(r"$x$", fontsize=LABEL_FS)
-                    if col == 0:
-                        ax.set_ylabel(r"$y$", fontsize=LABEL_FS)
-                if kind != "xy":
-                    ax.set_xlabel("time (s)", fontsize=LABEL_FS)
+                ax = _ax_bot(row, col)
+                true_hd = np.arctan2(y_true_show[col, :, 1],
+                                      y_true_show[col, :, 0])
+                pred_hd = np.arctan2(y_pred_show[col, :, 1],
+                                      y_pred_show[col, :, 0])
+                _plot_wrapped_hd(ax, t_r, true_hd, GT_COLOR, GT_LW)
+                _plot_wrapped_hd(ax, t_r, pred_hd, PRED_COLOR, PRED_LW)
+                ax.set_ylim(-np.pi - 0.2, np.pi + 0.2)
                 ax.tick_params(labelsize=TICK_FS)
-                if col == 0 and idx_show is not None:
-                    _panel_label(ax, "i")
-
-        # ---- Row j: deterministic constant-input sweeps -------------------
-        if sweep:
-            for col, item in enumerate(sweep[:n_show]):
-                ax = _ax_bot(1, col)
-                om, vf, ro = item
-                T_s = int(ro.get("n_steps", len(ro.get("u", []))))
-                t_s = np.arange(T_s) * dt_test
-                if kind == "hd" and "true_theta" in ro:
-                    th_true = np.asarray(ro["true_theta"])
-                    th_dec  = np.asarray(ro["decoded_theta"])
-                    wrap = lambda a: np.angle(np.exp(1j * a))
-                    ax.plot(t_s, wrap(th_true), color=GT_COLOR, lw=GT_LW)
-                    ax.plot(t_s, wrap(th_dec),  color=PRED_COLOR, lw=PRED_LW)
-                    ax.set_ylim(-np.pi - 0.2, np.pi + 0.2)
-                    if col == 0:
-                        ax.set_ylabel("HD (rad)", fontsize=LABEL_FS)
-                elif kind == "d" and "true_xi" in ro:
-                    ax.plot(t_s, np.asarray(ro["true_xi"]),
-                            color=GT_COLOR, lw=GT_LW)
-                    ax.plot(t_s, np.asarray(ro["decoded_xi"]),
-                            color=PRED_COLOR, lw=PRED_LW)
-                    if col == 0:
-                        ax.set_ylabel(r"$d$", fontsize=LABEL_FS)
-                elif kind == "xy" and "true_xy" in ro:
-                    tx = np.asarray(ro["true_xy"])
-                    dx_ = np.asarray(ro["decoded_xy"])
-                    ax.plot(tx[:, 0], tx[:, 1], color=GT_COLOR, lw=GT_LW)
-                    ax.plot(dx_[:, 0], dx_[:, 1], color=PRED_COLOR, lw=PRED_LW)
-                    ax.plot([0], [0], 'o', color='0.4', ms=4, zorder=5)
-                    ax.set_aspect('equal', adjustable='datalim')
-                    ax.set_xlabel(r"$x$", fontsize=LABEL_FS)
-                    if col == 0:
-                        ax.set_ylabel(r"$y$", fontsize=LABEL_FS)
-                if kind != "xy":
-                    ax.set_xlabel("time (s)", fontsize=LABEL_FS)
-                ax.tick_params(labelsize=TICK_FS)
+                ax.set_xlabel("time (s)", fontsize=LABEL_FS)
                 if col == 0:
-                    _panel_label(ax, "j")
+                    ax.set_ylabel("HD (rad)", fontsize=LABEL_FS)
+                    _panel_label(ax, letter)
+                _annotate(ax,
+                           f"rmse={_circ_rmse_deg(true_hd, pred_hd):.1f}°"
+                           f"\nr={_pearson(np.unwrap(true_hd), np.unwrap(pred_hd)):+.3f}")
+
+        def _plot_d_random(row, letter):
+            y_true_show = random_trials.get("y_true")
+            y_pred_show = random_trials.get("y_pred")
+            if y_true_show is None or y_pred_show is None:
+                return
+            d_col = (0 if y_true_show.shape[-1] == 1
+                     else 2 if y_true_show.shape[-1] == 3
+                     else 2)
+            T_r = y_true_show.shape[1]
+            t_r = np.arange(T_r) * dt_test
+            for col in range(min(n_show, y_true_show.shape[0])):
+                ax = _ax_bot(row, col)
+                tr = y_true_show[col, :, d_col]
+                pr = y_pred_show[col, :, d_col]
+                ax.plot(t_r, tr, color=GT_COLOR, lw=GT_LW)
+                ax.plot(t_r, pr, color=PRED_COLOR, lw=PRED_LW)
+                ax.tick_params(labelsize=TICK_FS)
+                ax.set_xlabel("time (s)", fontsize=LABEL_FS)
+                if col == 0:
+                    ax.set_ylabel(r"$d$", fontsize=LABEL_FS)
+                    _panel_label(ax, letter)
+                rmse = float(np.sqrt(np.mean((pr[10:] - tr[10:]) ** 2)))
+                _annotate(ax,
+                           f"rmse={rmse:.2f}\nr={_pearson(tr, pr):+.3f}")
+
+        def _plot_xy_random(row, letter):
+            y_true_show = random_trials.get("y_true")
+            y_pred_show = random_trials.get("y_pred")
+            if y_true_show is None or y_pred_show is None:
+                return
+            for col in range(min(n_show, y_true_show.shape[0])):
+                ax = _ax_bot(row, col)
+                tx = y_true_show[col, :, 2]; ty = y_true_show[col, :, 3]
+                dx = y_pred_show[col, :, 2]; dy = y_pred_show[col, :, 3]
+                ax.plot(tx, ty, color=GT_COLOR, lw=GT_LW)
+                ax.plot(dx, dy, color=PRED_COLOR, lw=PRED_LW)
+                ax.plot([0], [0], 'o', color='0.4', ms=4, zorder=5)
+                ax.set_aspect('equal', adjustable='datalim')
+                ax.tick_params(labelsize=TICK_FS)
+                ax.set_xlabel(r"$x$", fontsize=LABEL_FS)
+                if col == 0:
+                    ax.set_ylabel(r"$y$", fontsize=LABEL_FS)
+                    _panel_label(ax, letter)
+                err = np.sqrt((dx[10:] - tx[10:]) ** 2 + (dy[10:] - ty[10:]) ** 2)
+                rmse = float(np.sqrt(np.mean(err ** 2)))
+                r_x = _pearson(tx, dx); r_y = _pearson(ty, dy)
+                r_mean = float(np.nanmean([r_x, r_y]))
+                _annotate(ax,
+                           f"rmse={rmse:.2f}\nr̄={r_mean:+.3f}")
+
+        def _plot_hd_sweep(row, letter):
+            sweep = sweep_dict.get("hd") or []
+            for col, (om, vf, ro) in enumerate(sweep[:n_show]):
+                if "true_theta" not in ro:
+                    continue
+                ax = _ax_bot(row, col)
+                th_true = np.asarray(ro["true_theta"])
+                th_dec  = np.asarray(ro["decoded_theta"])
+                T_s = th_true.size
+                t_s = np.arange(T_s) * dt_test
+                _plot_wrapped_hd(ax, t_s, th_true, GT_COLOR, GT_LW)
+                _plot_wrapped_hd(ax, t_s, th_dec,  PRED_COLOR, PRED_LW)
+                ax.set_ylim(-np.pi - 0.2, np.pi + 0.2)
+                ax.tick_params(labelsize=TICK_FS)
+                ax.set_xlabel("time (s)", fontsize=LABEL_FS)
+                if col == 0:
+                    ax.set_ylabel("HD (rad)", fontsize=LABEL_FS)
+                    _panel_label(ax, letter)
+                _annotate(ax,
+                           f"rmse={_circ_rmse_deg(th_true, th_dec):.1f}°"
+                           f"\nr={_pearson(np.unwrap(th_true), np.unwrap(th_dec)):+.3f}")
+
+        def _plot_d_sweep(row, letter):
+            sweep = sweep_dict.get("d") or []
+            for col, (om, vf, ro) in enumerate(sweep[:n_show]):
+                if "true_xi" not in ro:
+                    continue
+                ax = _ax_bot(row, col)
+                tr = np.asarray(ro["true_xi"])
+                pr = np.asarray(ro["decoded_xi"])
+                T_s = tr.size
+                t_s = np.arange(T_s) * dt_test
+                ax.plot(t_s, tr, color=GT_COLOR, lw=GT_LW)
+                ax.plot(t_s, pr, color=PRED_COLOR, lw=PRED_LW)
+                ax.tick_params(labelsize=TICK_FS)
+                ax.set_xlabel("time (s)", fontsize=LABEL_FS)
+                if col == 0:
+                    ax.set_ylabel(r"$d$", fontsize=LABEL_FS)
+                    _panel_label(ax, letter)
+                rmse = float(np.sqrt(np.mean((pr[10:] - tr[10:]) ** 2)))
+                _annotate(ax,
+                           f"rmse={rmse:.2f}\nr={_pearson(tr, pr):+.3f}")
+
+        def _plot_xy_sweep(row, letter):
+            sweep = sweep_dict.get("xy") or []
+            for col, (om, vf, ro) in enumerate(sweep[:n_show]):
+                if "true_xy" not in ro:
+                    continue
+                ax = _ax_bot(row, col)
+                tx = np.asarray(ro["true_xy"])
+                dx_ = np.asarray(ro["decoded_xy"])
+                ax.plot(tx[:, 0], tx[:, 1], color=GT_COLOR, lw=GT_LW)
+                ax.plot(dx_[:, 0], dx_[:, 1], color=PRED_COLOR, lw=PRED_LW)
+                ax.plot([0], [0], 'o', color='0.4', ms=4, zorder=5)
+                ax.set_aspect('equal', adjustable='datalim')
+                ax.tick_params(labelsize=TICK_FS)
+                ax.set_xlabel(r"$x$", fontsize=LABEL_FS)
+                if col == 0:
+                    ax.set_ylabel(r"$y$", fontsize=LABEL_FS)
+                    _panel_label(ax, letter)
+                err = np.sqrt((dx_[10:, 0] - tx[10:, 0]) ** 2
+                               + (dx_[10:, 1] - tx[10:, 1]) ** 2)
+                rmse = float(np.sqrt(np.mean(err ** 2)))
+                r_x = _pearson(tx[:, 0], dx_[:, 0])
+                r_y = _pearson(tx[:, 1], dx_[:, 1])
+                _annotate(ax,
+                           f"rmse={rmse:.2f}\nr̄={float(np.nanmean([r_x, r_y])):+.3f}")
+
+        # ---- Dispatch by task kind ----------------------------------------
+        if kind == "hd":
+            _plot_hd_random(0, "i")
+            _plot_hd_sweep(1, "j")
+        elif kind == "d":
+            _plot_d_random(0, "i")
+            _plot_d_sweep(1, "j")
+        elif kind == "xy":
+            _plot_xy_random(0, "i")
+            _plot_xy_sweep(1, "j")
+        elif kind == "both":
+            _plot_hd_random(0, "i")
+            _plot_d_random(1, "j")
+            _plot_hd_sweep(2, "k")
+            _plot_d_sweep(3, "l")
 
         os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
         fig.savefig(out_path, dpi=180, bbox_inches="tight")
