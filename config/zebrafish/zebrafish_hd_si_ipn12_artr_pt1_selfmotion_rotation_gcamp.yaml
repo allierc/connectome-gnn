@@ -1,13 +1,14 @@
-description: Self-motion swim task — rotation mode on the refined v2 circuit
+description: |
+  Self-motion swim task — rotation mode on the refined v2 circuit
   (zebrafish_HD_IPN12_839_artr_pt1) PLUS real-calcium observation supervision.
   Same connectome and synthetic swim-integration rotation task as
   zebrafish_hd_si_ipn12_artr_pt1_selfmotion_rotation; each task batch is
   augmented by training.calcium_batch_size real-calcium trials from dataset B
   (zebrafish_hd_si_calcium_rotation), the trial voltage is turned into calcium
   via simulation.gcamp_kernel and matched to the recorded ΔF/F with a scale-
-  invariant z-scored loss weighted by coeff_observation. coeff_observation: 1.0
-  is one point in the c0..c5 sweep of the legacy IPN12 v1 GNN; calcium_batch_size: 0
-  recovers task-only training byte-for-byte.
+  invariant z-scored loss weighted by coeff_observation=1.0 (one point in the
+  c0..c5 sweep of the legacy IPN12 v1 GNN). calcium_batch_size=0 recovers
+  task-only training byte-for-byte.
 dataset: zebrafish_hd_si_task_selfmotion
 simulation:
   params:
