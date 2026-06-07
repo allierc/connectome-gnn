@@ -3,7 +3,7 @@
 
 Explanatory figure for the zebrafish swim-integration task dataset and
 its three sub-task projections (rotation / translation / both), plus the
-leaky vs perfect ξ-integrator variants.
+leaky vs cumulative ξ-integrator variants.
 
 What it shows
 -------------
@@ -23,14 +23,14 @@ The figure illustrates that projection plus the leaky-integrator option
         u[:, 3] = sinθ₀·δ_{t=0}.
     (c) Target (the 3-column output superset) for the same trial:
         y[:, 0] = cosθ, y[:, 1] = sinθ, y[:, 2] = ξ. Panel c overlays
-        the leaky ξ at τ = 0.5 s on top of the perfect cumsum.
+        the leaky ξ at τ = 0.5 s on top of the cumulative cumsum.
     (d) Channel-selection table — which input columns each mode keeps
         and which target columns it supervises:
             rotation     → in [0, 2, 3]    / out [0, 1]   (3-in / 2-out)
             translation  → in [1]           / out [2]      (1-in / 1-out)
             both         → in [0, 1, 2, 3]  / out [0, 1, 2] (4-in / 3-out)
     (e) Integrator τ sweep on the same trial: ξ(t) for
-        τ ∈ {∞ (perfect), 2.0 s, 1.0 s, 0.5 s}. Steady-state goes from
+        τ ∈ {∞ (cumulative), 2.0 s, 1.0 s, 0.5 s}. Steady-state goes from
         unbounded (linear ramp) to bounded ≈ τ·v̄_fwd, illustrating why
         the leaky variant keeps the loss bounded across the curriculum.
 
@@ -103,7 +103,7 @@ def generate_swim_batch(B: int, *, seed: int = 0):
     Returns
     -------
     stimulus : (B, T, 4) float32 — [ω, v_fwd, cosθ₀·δ, sinθ₀·δ]
-    target   : (B, T, 3) float32 — [cosθ, sinθ, ξ_perfect]
+    target   : (B, T, 3) float32 — [cosθ, sinθ, ξ_cumulative]
     swim_label_onset : (B, T) int8 — non-zero at onsets, value ∈ {L,R,F,B}
     omega    : (B, T) float32 — same as stimulus[..., 0]
     v_fwd    : (B, T) float32 — same as stimulus[..., 1]
@@ -188,7 +188,7 @@ def generate_swim_batch(B: int, *, seed: int = 0):
 def leaky_integrate(drive: np.ndarray, tau_s: "float | None") -> np.ndarray:
     """Forward-Euler integrator on `drive` (shape (B, T)).
 
-    `tau_s` None / ≤ 0 → perfect cumsum; finite τ > 0 → leaky recurrence
+    `tau_s` None / ≤ 0 → cumulative cumsum; finite τ > 0 → leaky recurrence
     with α = 1 − dt/τ. Initial condition is zero.
     """
     if tau_s is None or tau_s <= 0:

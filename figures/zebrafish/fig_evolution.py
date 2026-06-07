@@ -235,37 +235,49 @@ def _load_model_and_rollouts(
         y_pred=y_pred_show.cpu().numpy(),
     )
 
-    # --- 5 representative deterministic sweeps for row j ---------------
-    # Same shape as the constant-input sweep tests run from
-    # GNN_Main.py -o test. T=2000 frames matches the publication metric.
+    # --- 5 representative deterministic sweeps for the test rows ------
+    # T=2000 frames matches the publication metric.
     has_rotation_local = ("rotation" in _task_key) or (not _task_key)
     has_translation_local = "translation" in _task_key
     has_position_2d_local = "position_2d" in _task_key
     T_sweep_test = 2000
-    sweep_for_test = []
+    # sweep_for_test is a dict keyed by quantity ("hd", "d", "xy") so
+    # joint-target ("both") tasks can carry separate ω-sweeps for HD
+    # and v_fwd-sweeps for d.
+    sweep_for_test = {}
     if has_position_2d_local:
         omega_v_set = [(-120.0, 1.0), (-60.0, 1.0), (30.0, 1.0),
                         (60.0, 1.0), (120.0, 1.0)]
-        for om, vf in omega_v_set:
-            ro = _deterministic_sweep_rollout(
+        sweep_for_test["xy"] = [
+            (om, vf, _deterministic_sweep_rollout(
                 net, n_steps=T_sweep_test,
-                omega_deg_per_s=om, v_fwd_per_s=vf, device=device,
-            )
-            sweep_for_test.append((om, vf, ro))
-    elif has_rotation_local:
-        for om in [-120.0, -60.0, 60.0, 120.0, 180.0]:
-            ro = _deterministic_sweep_rollout(
+                omega_deg_per_s=om, v_fwd_per_s=vf, device=device))
+            for om, vf in omega_v_set
+        ]
+    if has_rotation_local:
+        sweep_for_test["hd"] = [
+            (om, None, _deterministic_sweep_rollout(
                 net, n_steps=T_sweep_test,
-                omega_deg_per_s=om, device=device,
-            )
-            sweep_for_test.append((om, None, ro))
-    elif has_translation_local:
-        for vf in [-2.0, -1.0, 0.5, 1.0, 2.0]:
-            ro = _deterministic_sweep_rollout(
+                omega_deg_per_s=om, device=device))
+            for om in [-120.0, -60.0, 60.0, 120.0, 180.0]
+        ]
+    if has_translation_local or (has_rotation_local
+                                  and not has_position_2d_local
+                                  and "translation" in _task_key):
+        sweep_for_test["d"] = [
+            (None, vf, _deterministic_sweep_rollout(
                 net, n_steps=T_sweep_test,
-                v_fwd_per_s=vf, device=device,
-            )
-            sweep_for_test.append((None, vf, ro))
+                v_fwd_per_s=vf, device=device))
+            for vf in [-2.0, -1.0, 0.5, 1.0, 2.0]
+        ]
+    # For "both" task (rotation+translation), also include d sweeps.
+    if has_rotation_local and has_translation_local and "d" not in sweep_for_test:
+        sweep_for_test["d"] = [
+            (None, vf, _deterministic_sweep_rollout(
+                net, n_steps=T_sweep_test,
+                v_fwd_per_s=vf, device=device))
+            for vf in [-2.0, -1.0, 0.5, 1.0, 2.0]
+        ]
     # dt comes from whichever task block this run uses (swim_integration
     # for zebrafish, path_integration for the fly companion).
     task_block = (config.task.path_integration
@@ -301,6 +313,8 @@ def _load_model_and_rollouts(
         random_trials=random_trials,
         sweep_for_test=sweep_for_test,
         task_kind=("xy" if has_position_2d_local
+                   else "both" if (has_translation_local
+                                    and has_rotation_local)
                    else "d" if (has_translation_local
                                 and not has_rotation_local)
                    else "hd"),
