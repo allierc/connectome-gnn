@@ -2077,6 +2077,29 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
         _logger.info(f'loading calcium dataset B from {calc_root}/(train|test)/...')
         _ct = TaskTrials.load(f"{calc_root}/train").to(device)
         ca_u, ca_y = _ct.stimulus, _ct.target
+        # Apply the same task_targets projection to the calcium dataset
+        # so its u / y match the synthetic batch's column count and the
+        # batch-cat below doesn't trip a shape mismatch.
+        if _task_key and (ca_u.shape[-1], _task_key) in _PROFILE_BY_TARGET:
+            _ic, _oc = _PROFILE_BY_TARGET[(ca_u.shape[-1], _task_key)]
+            ca_u = ca_u[..., _ic].contiguous()
+            ca_y = ca_y[..., _oc].contiguous()
+            _logger.info(f'calcium dataset sliced to in_cols={_ic} out_cols={_oc}'
+                          f' (task_targets={task_targets_canonical})')
+        elif _task_key:
+            # Profile lookup failed — e.g. calcium dataset has a different
+            # on-disk column count than the synthetic superset. Apply the
+            # synthetic in_cols / out_cols only if they fit; otherwise
+            # surface a loud error.
+            try:
+                ca_u = ca_u[..., in_cols].contiguous()
+                ca_y = ca_y[..., out_cols].contiguous()
+            except (IndexError, NameError):
+                raise RuntimeError(
+                    f"calcium dataset {calc_name} has stimulus.shape[-1]="
+                    f"{ca_u.shape[-1]} / target.shape[-1]={ca_y.shape[-1]}; "
+                    f"no task_targets projection matches "
+                    f"{task_targets_canonical}")
         ca_target = torch.from_numpy(
             np.asarray(_zarr.open(f"{calc_root}/train/calcium.zarr", mode="r"))
         ).to(device)                                       # (Bc_all, T, R)
@@ -2098,6 +2121,9 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
             ca_t0 = torch.zeros(n_calc, device=device)
         _cte = TaskTrials.load(f"{calc_root}/test").to(device)
         ca_test_u = _cte.stimulus
+        if _task_key and (ca_test_u.shape[-1], _task_key) in _PROFILE_BY_TARGET:
+            _ic, _oc = _PROFILE_BY_TARGET[(ca_test_u.shape[-1], _task_key)]
+            ca_test_u = ca_test_u[..., _ic].contiguous()
         ca_test_target = torch.from_numpy(
             np.asarray(_zarr.open(f"{calc_root}/test/calcium.zarr", mode="r"))
         ).to(device)
