@@ -2071,35 +2071,44 @@ def data_test_path_integration_task(
     # profile. Mirrors the load-time slicing in
     # graph_trainer._data_train_drosophila_cx_task — see that block for the
     # detailed table.
+    # Keyed by (n_in_disk, n_out_disk, sorted_task_targets) — mirrors
+    # the trainer table so propriocep-split (5-col disk stim) routes
+    # cleanly at test time.
     _PROFILE_BY_TARGET = {
-        (3, ("rotation",)):                ([0, 2, 3],    [0, 1]),
-        (3, ("translation",)):             ([1],          [2]),
-        (3, ("rotation", "translation")):  ([0, 1, 2, 3], [0, 1, 2]),
-        (4, ("rotation",)):                ([0, 2, 3],    [0, 1]),
-        (4, ("position_2d",)):             ([0, 1, 2, 3], [0, 1, 2, 3]),
+        # scalar_xi (4-col stim, 3-col target):
+        (4, 3, ("rotation",)):                ([0, 2, 3],    [0, 1]),
+        (4, 3, ("translation",)):             ([1],          [2]),
+        (4, 3, ("rotation", "translation")):  ([0, 1, 2, 3], [0, 1, 2]),
+        # position_2d (4-col stim, 4-col target):
+        (4, 4, ("rotation",)):                ([0, 2, 3],    [0, 1]),
+        (4, 4, ("position_2d",)):             ([0, 1, 2, 3], [0, 1, 2, 3]),
+        # propriocep-split (5-col stim — col 2 carries v_proprio):
+        (5, 3, ("rotation",)):                ([0, 3, 4],       [0, 1]),
+        (5, 3, ("translation",)):             ([1, 2],          [2]),
+        (5, 3, ("rotation", "translation")):  ([0, 1, 2, 3, 4], [0, 1, 2]),
+        (5, 4, ("rotation",)):                ([0, 3, 4],       [0, 1]),
+        (5, 4, ("position_2d",)):             ([0, 1, 2, 3, 4], [0, 1, 2, 3]),
     }
     _RECOGNISED = ("rotation", "translation", "position_2d")
     _task_raw = list(getattr(tc, 'task_targets', None) or [])
     task_targets_canonical = [t for t in _RECOGNISED if t in _task_raw]
     _task_key = tuple(task_targets_canonical)
     has_position_2d  = "position_2d" in task_targets_canonical
-    # Heading is supervised whenever cos/sin lead the target — that's true
-    # for legacy default (no task_targets), explicit 'rotation', AND
-    # position_2d (4-col target [cos, sin, x, y]). Translation-only is the
-    # one mode where heading isn't in the target.
     has_rotation     = ("rotation" in task_targets_canonical
                         or has_position_2d
                         or not task_targets_canonical)
     has_translation  = "translation" in task_targets_canonical
     if u_test.shape[-1] >= 4 and _task_key:
+        n_in_disk = int(u_test.shape[-1])
         n_out_disk = int(y_test.shape[-1])
-        _profile_key = (n_out_disk, _task_key)
+        _profile_key = (n_in_disk, n_out_disk, _task_key)
         if _profile_key not in _PROFILE_BY_TARGET:
             raise ValueError(
-                f"task_targets={_task_raw!r} not a valid projection of an "
-                f"on-disk target with {n_out_disk} cols. scalar_xi (3-col): "
-                f"rotation / translation / rotation+translation. "
-                f"position_2d (4-col): rotation / position_2d."
+                f"task_targets={_task_raw!r} not a valid projection of "
+                f"an on-disk stimulus with {n_in_disk} cols / target "
+                f"with {n_out_disk} cols. Recognised "
+                f"(n_in, n_out, targets) keys: "
+                f"{sorted(_PROFILE_BY_TARGET.keys())}."
             )
         in_cols, out_cols = _PROFILE_BY_TARGET[_profile_key]
         u_test = u_test[..., in_cols].contiguous()
@@ -2790,6 +2799,9 @@ def data_test_path_integration_task(
                 except Exception:
                     return None
 
+            _propriocep_split = bool(getattr(
+                getattr(config.task, "swim_integration", None),
+                "propriocep_split", False))
             _needs_vfwd = bool(_task_key) and (
                 "translation" in _task_key or "position_2d" in _task_key)
             _has_super = False
@@ -2805,20 +2817,30 @@ def data_test_path_integration_task(
                 if swim_fwd.dim() == 3:
                     swim_fwd = swim_fwd[..., 0]
                 swim_fwd = swim_fwd[:n_tile, :n_steps_trial]
+                n_super = 5 if _propriocep_split else 4
                 ca_u_super = torch.zeros(
-                    (ca_u.shape[0], ca_u.shape[1], 4),
+                    (ca_u.shape[0], ca_u.shape[1], n_super),
                     dtype=ca_u.dtype, device=device)
-                ca_u_super[..., 0] = ca_u[..., 0]              # ω
-                ca_u_super[..., 1] = swim_fwd                  # v_fwd
-                ca_u_super[..., 2] = ca_u[..., 1]              # cos θ₀·δ
-                ca_u_super[..., 3] = ca_u[..., 2]              # sin θ₀·δ
+                if _propriocep_split:
+                    # [ω, v_extero, v_proprio, cos θ₀·δ, sin θ₀·δ]
+                    ca_u_super[..., 0] = ca_u[..., 0]
+                    ca_u_super[..., 1] = swim_fwd          # v_extero
+                    ca_u_super[..., 2] = swim_fwd          # v_proprio
+                    ca_u_super[..., 3] = ca_u[..., 1]
+                    ca_u_super[..., 4] = ca_u[..., 2]
+                else:
+                    # [ω, v_fwd, cos θ₀·δ, sin θ₀·δ]
+                    ca_u_super[..., 0] = ca_u[..., 0]
+                    ca_u_super[..., 1] = swim_fwd
+                    ca_u_super[..., 2] = ca_u[..., 1]
+                    ca_u_super[..., 3] = ca_u[..., 2]
                 ca_u = ca_u_super
                 _has_super = True
 
             # Synthetic target columns: 2 for rotation-only datasets, 3
             # once the v_fwd column was added (target gains a d head).
             _y_cols_for_profile = 3 if _has_super else 2
-            _prof_key = (_y_cols_for_profile, _task_key)
+            _prof_key = (ca_u.shape[-1], _y_cols_for_profile, _task_key)
             if _task_key and _prof_key in _PROFILE_BY_TARGET:
                 _ic, _oc = _PROFILE_BY_TARGET[_prof_key]
                 ca_u = ca_u[..., _ic].contiguous()
@@ -2875,8 +2897,10 @@ def data_test_path_integration_task(
                 # omega_blk above from the raw 3-col stimulus.
                 T_blk = n_tile * n_steps_trial
                 # swim_forward concatenated across the same n_tile trials
-                # — needed whenever the model expects v_fwd (n_in ∈ {1, 4}).
-                if n_in in (1, 4):
+                # — needed whenever the model expects v_fwd
+                # (n_in ∈ {1, 2, 4, 5}; the propriocep-split layouts
+                # carry it on two parallel columns).
+                if n_in in (1, 2, 4, 5):
                     sw = _maybe_load_zarr(
                         f"{_calc_root}/train/swim_forward.zarr")
                     if sw is None:
@@ -2891,18 +2915,36 @@ def data_test_path_integration_task(
                 u_cont = torch.zeros((1, T_blk, n_in), device=device,
                                       dtype=torch.float32)
                 if n_in == 3:
+                    # [ω, cosθ₀, sinθ₀]
                     u_cont[0, :, 0] = torch.as_tensor(
                         omega_blk, device=device, dtype=torch.float32)
                     u_cont[0, 0, 1] = 1.0     # cos θ₀ = 1, sin θ₀ = 0
                 elif n_in == 1:
+                    # [v_fwd] (translation-only, non-propriocep)
                     u_cont[0, :, 0] = torch.as_tensor(
                         v_fwd_blk, device=device, dtype=torch.float32)
+                elif n_in == 2:
+                    # [v_extero, v_proprio] (translation-only, propriocep-split)
+                    vf = torch.as_tensor(
+                        v_fwd_blk, device=device, dtype=torch.float32)
+                    u_cont[0, :, 0] = vf       # v_extero
+                    u_cont[0, :, 1] = vf       # v_proprio
                 elif n_in == 4:
+                    # [ω, v_fwd, cosθ₀, sinθ₀]
                     u_cont[0, :, 0] = torch.as_tensor(
                         omega_blk, device=device, dtype=torch.float32)
                     u_cont[0, :, 1] = torch.as_tensor(
                         v_fwd_blk, device=device, dtype=torch.float32)
                     u_cont[0, 0, 2] = 1.0     # cos θ₀ = 1, sin θ₀ = 0
+                elif n_in == 5:
+                    # [ω, v_extero, v_proprio, cosθ₀, sinθ₀]
+                    vf = torch.as_tensor(
+                        v_fwd_blk, device=device, dtype=torch.float32)
+                    u_cont[0, :, 0] = torch.as_tensor(
+                        omega_blk, device=device, dtype=torch.float32)
+                    u_cont[0, :, 1] = vf       # v_extero
+                    u_cont[0, :, 2] = vf       # v_proprio
+                    u_cont[0, 0, 3] = 1.0     # cos θ₀ = 1, sin θ₀ = 0
                 else:
                     raise RuntimeError(f"unsupported n_in={n_in}")
                 with torch.no_grad():
