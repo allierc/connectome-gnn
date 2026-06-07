@@ -2077,9 +2077,63 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
         _logger.info(f'loading calcium dataset B from {calc_root}/(train|test)/...')
         _ct = TaskTrials.load(f"{calc_root}/train").to(device)
         ca_u, ca_y = _ct.stimulus, _ct.target
-        # Apply the same task_targets projection to the calcium dataset
-        # so its u / y match the synthetic batch's column count and the
-        # batch-cat below doesn't trip a shape mismatch.
+
+        # The calcium dataset's `stimulus.zarr` is rotation-shaped 3-col
+        # [ω, cos θ₀·δ, sin θ₀·δ] (no v_fwd channel) and `target.zarr`
+        # is 2-col [cos θ, sin θ] (no d head). For task_targets that
+        # involve translation, fetch `swim_forward.zarr` (the tail-EMG
+        # forward envelope shown in Fig. 17) and assemble a synthetic-
+        # superset-shaped ca_u / ca_y on the fly so the batch-cat below
+        # matches the synthetic shapes.
+        def _maybe_load_zarr(path):
+            try:
+                return torch.from_numpy(
+                    np.asarray(_zarr.open(path, mode="r"))
+                ).to(device).float()
+            except Exception:
+                return None
+
+        _needs_vfwd = bool(_task_key) and ("translation" in _task_key
+                                            or "position_2d" in _task_key)
+        if _needs_vfwd and ca_u.shape[-1] == 3:
+            swim_fwd = _maybe_load_zarr(f"{calc_root}/train/swim_forward.zarr")
+            if swim_fwd is None:
+                raise RuntimeError(
+                    f"calcium dataset {calc_name} is rotation-shaped (3 stim "
+                    f"channels, no v_fwd) and swim_forward.zarr is missing; "
+                    f"cannot drive a translation/position_2d task_targets "
+                    f"{task_targets_canonical} from it.")
+            # swim_fwd may be (Bc, T) or (Bc, T, 1) — collapse to (Bc, T).
+            if swim_fwd.dim() == 3:
+                swim_fwd = swim_fwd[..., 0]
+            # Build the 4-col synthetic superset: [ω, v_fwd, cos θ₀·δ, sin θ₀·δ].
+            ca_u_super = torch.zeros(
+                (ca_u.shape[0], ca_u.shape[1], 4),
+                dtype=ca_u.dtype, device=device,
+            )
+            ca_u_super[..., 0] = ca_u[..., 0]              # ω
+            ca_u_super[..., 1] = swim_fwd                  # v_fwd
+            ca_u_super[..., 2] = ca_u[..., 1]              # cos θ₀·δ
+            ca_u_super[..., 3] = ca_u[..., 2]              # sin θ₀·δ
+            ca_u = ca_u_super
+            # Build the 3-col synthetic target: [cos θ, sin θ, d_integrated].
+            # d_integrated = cumsum(v_fwd) * dt — the same cumulative
+            # recipe the synthetic generator uses for `disp`.
+            dt_ds = float(getattr(config.task.swim_integration, "dt", 0.01))
+            d_int = torch.cumsum(swim_fwd, dim=1) * dt_ds  # (Bc, T)
+            ca_y_super = torch.zeros(
+                (ca_y.shape[0], ca_y.shape[1], 3),
+                dtype=ca_y.dtype, device=device,
+            )
+            ca_y_super[..., 0] = ca_y[..., 0]              # cos θ
+            ca_y_super[..., 1] = ca_y[..., 1]              # sin θ
+            ca_y_super[..., 2] = d_int                     # cumulative d
+            ca_y = ca_y_super
+            _logger.info(f'calcium dataset augmented with swim_forward.zarr '
+                          f'→ ca_u {tuple(ca_u.shape)}, ca_y {tuple(ca_y.shape)}')
+
+        # Apply the same task_targets projection to ca_u / ca_y so the
+        # batch-cat shapes match the synthetic batch.
         if _task_key and (ca_u.shape[-1], _task_key) in _PROFILE_BY_TARGET:
             _ic, _oc = _PROFILE_BY_TARGET[(ca_u.shape[-1], _task_key)]
             ca_u = ca_u[..., _ic].contiguous()
@@ -2087,19 +2141,11 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
             _logger.info(f'calcium dataset sliced to in_cols={_ic} out_cols={_oc}'
                           f' (task_targets={task_targets_canonical})')
         elif _task_key:
-            # Profile lookup failed — e.g. calcium dataset has a different
-            # on-disk column count than the synthetic superset. Apply the
-            # synthetic in_cols / out_cols only if they fit; otherwise
-            # surface a loud error.
-            try:
-                ca_u = ca_u[..., in_cols].contiguous()
-                ca_y = ca_y[..., out_cols].contiguous()
-            except (IndexError, NameError):
-                raise RuntimeError(
-                    f"calcium dataset {calc_name} has stimulus.shape[-1]="
-                    f"{ca_u.shape[-1]} / target.shape[-1]={ca_y.shape[-1]}; "
-                    f"no task_targets projection matches "
-                    f"{task_targets_canonical}")
+            raise RuntimeError(
+                f"calcium dataset {calc_name} has stimulus.shape[-1]="
+                f"{ca_u.shape[-1]} / target.shape[-1]={ca_y.shape[-1]}; "
+                f"no task_targets projection matches "
+                f"{task_targets_canonical}")
         ca_target = torch.from_numpy(
             np.asarray(_zarr.open(f"{calc_root}/train/calcium.zarr", mode="r"))
         ).to(device)                                       # (Bc_all, T, R)
@@ -2121,6 +2167,24 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
             ca_t0 = torch.zeros(n_calc, device=device)
         _cte = TaskTrials.load(f"{calc_root}/test").to(device)
         ca_test_u = _cte.stimulus
+        # Mirror the same superset-augmentation logic on the test split:
+        # for translation / position_2d tasks the 3-col rotation-shaped
+        # ca_test_u is widened to 4 cols by inserting swim_forward as
+        # col 1, then the standard slicing keeps only the licensed cols.
+        if _needs_vfwd and ca_test_u.shape[-1] == 3:
+            _swim_fwd_t = _maybe_load_zarr(f"{calc_root}/test/swim_forward.zarr")
+            if _swim_fwd_t is not None:
+                if _swim_fwd_t.dim() == 3:
+                    _swim_fwd_t = _swim_fwd_t[..., 0]
+                _ca_test_super = torch.zeros(
+                    (ca_test_u.shape[0], ca_test_u.shape[1], 4),
+                    dtype=ca_test_u.dtype, device=device,
+                )
+                _ca_test_super[..., 0] = ca_test_u[..., 0]
+                _ca_test_super[..., 1] = _swim_fwd_t
+                _ca_test_super[..., 2] = ca_test_u[..., 1]
+                _ca_test_super[..., 3] = ca_test_u[..., 2]
+                ca_test_u = _ca_test_super
         if _task_key and (ca_test_u.shape[-1], _task_key) in _PROFILE_BY_TARGET:
             _ic, _oc = _PROFILE_BY_TARGET[(ca_test_u.shape[-1], _task_key)]
             ca_test_u = ca_test_u[..., _ic].contiguous()
