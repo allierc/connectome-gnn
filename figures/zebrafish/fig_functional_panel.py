@@ -135,6 +135,19 @@ def _render_real_sequences(args):
         panel.render(d, panel_rows, out_png, title, bg="white",
                      show_swim_panels=False, cmap_name="viridis",
                      show_partition=False, t_window=args.t_window)
+        # Dump the kino array (300 × T, rastermap-ordered) and the
+        # display-grid dt so downstream analyses (e.g. spectral panels
+        # on figures/zebrafish/fig_zebrafish_calcium_baseline.py) can
+        # reload it without re-running the rollout.
+        try:
+            t_sec = np.asarray(d.get("t_sec"))
+            dt_sec = float(t_sec[1] - t_sec[0]) if t_sec.size > 1 else 0.915
+            np.savez(out_png.replace(".png", ".npz"),
+                      kino=np.asarray(d["kino"]),
+                      t_sec=t_sec,
+                      dt_sec=np.float32(dt_sec))
+        except Exception as _e:
+            print(f"[warn] failed to dump kino npz: {_e}")
         print(f"[done] {out_png}")
 
 
@@ -280,6 +293,18 @@ def main():
     panel.render(d, panel_rows, out_png, title,
                  bg="white", cmap_name="viridis", show_partition=False,
                  show_swim_panels=False, t_window=args.t_window)
+    # Companion .npz so the calcium-baseline figure and the
+    # best-observed-match analysis can reload the same kino without
+    # re-running the rollout.
+    try:
+        t_sec = np.asarray(d.get("t_sec"))
+        dt_sec = float(t_sec[1] - t_sec[0]) if t_sec.size > 1 else 0.915
+        np.savez(out_png.replace(".png", ".npz"),
+                  kino=np.asarray(d["kino"]),
+                  t_sec=t_sec,
+                  dt_sec=np.float32(dt_sec))
+    except Exception as _e:
+        print(f"[warn] failed to dump kino npz: {_e}")
     print(f"[done] {out_png}")
 
 
