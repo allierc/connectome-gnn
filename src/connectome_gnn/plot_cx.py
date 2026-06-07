@@ -1110,6 +1110,8 @@ LABEL_FS = 11
 TICK_FS = 9
 GT_COLOR = "#4daf4a"
 PRED_COLOR = "black"
+GT_LW = 2.4         # ground-truth trace line width
+PRED_LW = 0.6       # prediction trace line width
 
 
 def _type_tick_fs(n_labels: int) -> float:
@@ -2255,6 +2257,11 @@ def plot_cx_evolution(data: dict, out_path: str, *,
 
     ``n_rows = 3``: full paper figure with panels a–l.
     ``n_rows = 2``: training-time snapshot — panels a–h only.
+    ``n_rows = 4``: paper figure with two extra rows (i, j) showing
+        random held-out trials and constant-input deterministic sweeps
+        in 5 columns each (requires ``data["random_trials"]`` and
+        ``data["sweep_for_test"]``; rendered with the same fonts and
+        line widths as the upper panels).
 
     ``data["test_trial"]`` may be None when n_rows=2: panel g is hidden.
     """
@@ -2262,29 +2269,49 @@ def plot_cx_evolution(data: dict, out_path: str, *,
     is_gnn = _is_gnn(data["net"])
     if n_rows == 2:
         figsize = (20, 9.5)
+    elif n_rows == 4:
+        figsize = (20, 17.5)
     else:
         figsize = (20, 14)
     fig = plt.figure(figsize=figsize)
-    gs = fig.add_gridspec(n_rows, 4, hspace=0.55, wspace=0.42,
-                          left=0.05, right=0.97, top=0.96, bottom=0.05)
-
-    ax_a = fig.add_subplot(gs[0, 0])
-    ax_b = fig.add_subplot(gs[0, 1])
-    ax_c = fig.add_subplot(gs[0, 2])
-    ax_d = fig.add_subplot(gs[0, 3])
-    ax_e = fig.add_subplot(gs[1, 0])
-    ax_f_top = _panel_hd_tracking_stacked(
-        fig, gs[1, 1], data["rollout"], data["dt_s"])
-    if data.get("test_trial") is not None:
-        ax_g_top = _panel_trial_rollout(fig, gs[1, 2], data["test_trial"])
+    # For 4-row paper figure, rows 0-1 hold the 4-column panels a-h and
+    # rows 2-3 hold the 5-column test rows i/j. Use a 4×20 macro grid so
+    # both column counts share the same gridspec horizontally
+    # (lcm(4, 5) = 20): the upper rows span 5 macro columns each, the
+    # lower rows span 4 macro columns each.
+    if n_rows == 4:
+        gs = fig.add_gridspec(4, 20, hspace=0.55, wspace=2.4,
+                              left=0.05, right=0.97, top=0.97, bottom=0.04)
+        def _ax_top(row, col4):  # 4-column row
+            return fig.add_subplot(gs[row, col4 * 5:(col4 + 1) * 5])
+        def _gs_top(row, col4):
+            return gs[row, col4 * 5:(col4 + 1) * 5]
     else:
-        ax_g_top = fig.add_subplot(gs[1, 2])
+        gs = fig.add_gridspec(n_rows, 4, hspace=0.55, wspace=0.42,
+                              left=0.05, right=0.97, top=0.96, bottom=0.05)
+        def _ax_top(row, col4):
+            return fig.add_subplot(gs[row, col4])
+        def _gs_top(row, col4):
+            return gs[row, col4]
+
+    ax_a = _ax_top(0, 0)
+    ax_b = _ax_top(0, 1)
+    ax_c = _ax_top(0, 2)
+    ax_d = _ax_top(0, 3)
+    ax_e = _ax_top(1, 0)
+    ax_f_top = _panel_hd_tracking_stacked(
+        fig, _gs_top(1, 1), data["rollout"], data["dt_s"])
+    if data.get("test_trial") is not None:
+        ax_g_top = _panel_trial_rollout(fig, _gs_top(1, 2),
+                                          data["test_trial"])
+    else:
+        ax_g_top = _ax_top(1, 2)
         ax_g_top.axis("off")
     # Panel h slot was the "subthreshold h distribution by cell type"
     # violin; that panel was dropped. Slot h now hosts the
     # integration-gain panel (previously panel i in the standalone
     # 3-row layout) so the evolution figure stays at 8 panels (a–h).
-    ax_h = fig.add_subplot(gs[1, 3])
+    ax_h = _ax_top(1, 3)
 
     _panel_matrix(ax_a, data["W_con"],
                    data["neuron_types"], data["type_names"],
@@ -2339,6 +2366,111 @@ def plot_cx_evolution(data: dict, out_path: str, *,
         os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
         fig.savefig(out_path, dpi=180, bbox_inches="tight")
         plt.close(fig)
+        return
+
+    if n_rows == 4:
+        # Rows i, j: 5 columns each, plotting the integrated quantity
+        # (HD for rotation, d for translation, (x,y) for position_2d).
+        # Same fonts, line widths, and colour scheme as the upper rows.
+        n_show = 5
+        kind = data.get("task_kind", "hd")
+        random_trials = data.get("random_trials") or {}
+        sweep = data.get("sweep_for_test") or []
+        dt_test = float(data.get("test_trial", {}).get("dt", data["dt_s"])
+                        if isinstance(data.get("test_trial"), dict)
+                        else data["dt_s"])
+
+        def _ax_bot(row, col5):  # 5-column row
+            return fig.add_subplot(gs[row, col5 * 4:(col5 + 1) * 4])
+
+        # ---- Row i: random held-out trials -------------------------------
+        u_show = random_trials.get("u")
+        y_true_show = random_trials.get("y_true")
+        y_pred_show = random_trials.get("y_pred")
+        idx_show = random_trials.get("idx")
+        if (u_show is not None and y_true_show is not None
+                and y_pred_show is not None):
+            T_r = y_true_show.shape[1]
+            t_r = np.arange(T_r) * dt_test
+            for col in range(min(n_show, y_true_show.shape[0])):
+                ax = _ax_bot(2, col)
+                if kind == "hd":
+                    true_hd = np.arctan2(y_true_show[col, :, 1],
+                                          y_true_show[col, :, 0])
+                    pred_hd = np.arctan2(y_pred_show[col, :, 1],
+                                          y_pred_show[col, :, 0])
+                    ax.plot(t_r, true_hd, color=GT_COLOR, lw=GT_LW)
+                    ax.plot(t_r, pred_hd, color=PRED_COLOR, lw=PRED_LW)
+                    ax.set_ylim(-np.pi - 0.2, np.pi + 0.2)
+                    if col == 0:
+                        ax.set_ylabel("HD (rad)", fontsize=LABEL_FS)
+                elif kind == "d":
+                    d_col = (0 if y_true_show.shape[-1] == 1 else 2)
+                    ax.plot(t_r, y_true_show[col, :, d_col],
+                            color=GT_COLOR, lw=GT_LW)
+                    ax.plot(t_r, y_pred_show[col, :, d_col],
+                            color=PRED_COLOR, lw=PRED_LW)
+                    if col == 0:
+                        ax.set_ylabel(r"$d$", fontsize=LABEL_FS)
+                else:  # xy
+                    tx = y_true_show[col, :, 2]; ty = y_true_show[col, :, 3]
+                    dx = y_pred_show[col, :, 2]; dy = y_pred_show[col, :, 3]
+                    ax.plot(tx, ty, color=GT_COLOR, lw=GT_LW)
+                    ax.plot(dx, dy, color=PRED_COLOR, lw=PRED_LW)
+                    ax.plot([0], [0], 'o', color='0.4', ms=4, zorder=5)
+                    ax.set_aspect('equal', adjustable='datalim')
+                    ax.set_xlabel(r"$x$", fontsize=LABEL_FS)
+                    if col == 0:
+                        ax.set_ylabel(r"$y$", fontsize=LABEL_FS)
+                if kind != "xy":
+                    ax.set_xlabel("time (s)", fontsize=LABEL_FS)
+                ax.tick_params(labelsize=TICK_FS)
+                if col == 0 and idx_show is not None:
+                    _panel_label(ax, "i")
+
+        # ---- Row j: deterministic constant-input sweeps -------------------
+        if sweep:
+            for col, item in enumerate(sweep[:n_show]):
+                ax = _ax_bot(3, col)
+                om, vf, ro = item
+                T_s = int(ro.get("n_steps", len(ro.get("u", []))))
+                t_s = np.arange(T_s) * dt_test
+                if kind == "hd" and "true_theta" in ro:
+                    th_true = np.asarray(ro["true_theta"])
+                    th_dec  = np.asarray(ro["decoded_theta"])
+                    wrap = lambda a: np.angle(np.exp(1j * a))
+                    ax.plot(t_s, wrap(th_true), color=GT_COLOR, lw=GT_LW)
+                    ax.plot(t_s, wrap(th_dec),  color=PRED_COLOR, lw=PRED_LW)
+                    ax.set_ylim(-np.pi - 0.2, np.pi + 0.2)
+                    if col == 0:
+                        ax.set_ylabel("HD (rad)", fontsize=LABEL_FS)
+                elif kind == "d" and "true_xi" in ro:
+                    ax.plot(t_s, np.asarray(ro["true_xi"]),
+                            color=GT_COLOR, lw=GT_LW)
+                    ax.plot(t_s, np.asarray(ro["decoded_xi"]),
+                            color=PRED_COLOR, lw=PRED_LW)
+                    if col == 0:
+                        ax.set_ylabel(r"$d$", fontsize=LABEL_FS)
+                elif kind == "xy" and "true_xy" in ro:
+                    tx = np.asarray(ro["true_xy"])
+                    dx_ = np.asarray(ro["decoded_xy"])
+                    ax.plot(tx[:, 0], tx[:, 1], color=GT_COLOR, lw=GT_LW)
+                    ax.plot(dx_[:, 0], dx_[:, 1], color=PRED_COLOR, lw=PRED_LW)
+                    ax.plot([0], [0], 'o', color='0.4', ms=4, zorder=5)
+                    ax.set_aspect('equal', adjustable='datalim')
+                    ax.set_xlabel(r"$x$", fontsize=LABEL_FS)
+                    if col == 0:
+                        ax.set_ylabel(r"$y$", fontsize=LABEL_FS)
+                if kind != "xy":
+                    ax.set_xlabel("time (s)", fontsize=LABEL_FS)
+                ax.tick_params(labelsize=TICK_FS)
+                if col == 0:
+                    _panel_label(ax, "j")
+
+        os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+        fig.savefig(out_path, dpi=180, bbox_inches="tight")
+        plt.close(fig)
+        print(f"[plot_cx_evolution] wrote {out_path}")
         return
 
     ax_i = fig.add_subplot(gs[2, 0])
