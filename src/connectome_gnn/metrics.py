@@ -1263,3 +1263,232 @@ def compute_all_corrected_weights(model, config, edges, x_ts, device,
         model, edges, slopes_f_theta, g_phi_correction, grad_msg)
 
     return corrected_W, slopes_f_theta, g_phi_correction, offsets_f_theta, g_phi_fitted
+
+
+# ------------------------------------------------------------------ #
+#  Calcium / time-series spectral comparison
+# ------------------------------------------------------------------ #
+# Used by:
+#   - figures/zebrafish/fig_zebrafish_calcium_baseline.py — power-
+#     spectrum panel on real vs.\ modelled ΔF/F.
+#   - figures/zebrafish/best_match_to_model.py (and analogs) — score
+#     every observed neuron against every modelled neuron by spectral
+#     distance (and/or correlation) to find best-matching candidates
+#     from the ~70 k-cell recording.
+# Implemented as a thin numpy layer so it stays cheap and reusable.
+
+def fft_power_spectrum(
+    x: np.ndarray,
+    dt: float = 1.0,
+    *,
+    axis: int = -1,
+    detrend: bool = True,
+    window: str = "hann",
+    one_sided: bool = True,
+):
+    """Per-trace FFT power spectrum.
+
+    Parameters
+    ----------
+    x : np.ndarray
+        Time series. Frequencies are computed along ``axis``.
+    dt : float
+        Sample interval in seconds. ``1/dt`` is the sampling rate.
+    axis : int
+        Time axis. Default ``-1``.
+    detrend : bool
+        Subtract the per-trace mean before the FFT so the DC bin doesn't
+        dominate (and the per-frame baseline drift in ΔF/F doesn't leak
+        into the lowest few bins).
+    window : ``"hann"`` | ``"hamming"`` | ``None``
+        Optional tapering window. ``"hann"`` is sensible for irregularly
+        sampled ZAPBench-style ΔF/F (no implicit periodicity assumption).
+    one_sided : bool
+        Keep only non-negative frequencies (``rfft`` semantics).
+
+    Returns
+    -------
+    freqs : np.ndarray, shape ``(F,)``
+        Frequency bin centres in Hz.
+    power : np.ndarray, same shape as ``x`` except the time axis is
+        replaced by ``F``. Single-sided power $|X(f)|^2$ (the windowed,
+        detrended FFT magnitude squared); not normalised — this is the
+        raw spectrum so callers can pick their own normalisation.
+    """
+    x = np.asarray(x, dtype=np.float64)
+    x = np.moveaxis(x, axis, -1)
+    T = int(x.shape[-1])
+    if detrend:
+        x = x - x.mean(axis=-1, keepdims=True)
+    if window == "hann":
+        w = np.hanning(T)
+    elif window == "hamming":
+        w = np.hamming(T)
+    else:
+        w = None
+    if w is not None:
+        x = x * w
+    if one_sided:
+        X = np.fft.rfft(x, n=T, axis=-1)
+        freqs = np.fft.rfftfreq(T, d=dt)
+    else:
+        X = np.fft.fft(x, n=T, axis=-1)
+        freqs = np.fft.fftfreq(T, d=dt)
+    power = (X.real ** 2 + X.imag ** 2)
+    power = np.moveaxis(power, -1, axis)
+    return freqs, power
+
+
+def _normalise_pdf(p: np.ndarray, axis: int = -1, eps: float = 1e-12):
+    """Normalise the spectrum to a probability mass function along
+    ``axis`` so spectral-distance metrics that assume a PMF are
+    well-defined.
+
+    Used internally by :func:`spectrum_distance`. Zero or negative
+    inputs (numerical noise) are clipped before normalisation.
+    """
+    p = np.maximum(p, 0.0)
+    s = p.sum(axis=axis, keepdims=True)
+    return p / (s + eps)
+
+
+def spectrum_distance(
+    p: np.ndarray,
+    q: np.ndarray,
+    *,
+    metric: str = "l2",
+    axis: int = -1,
+):
+    """Distance between two power spectra ``p`` and ``q``.
+
+    Both inputs should be the power output of :func:`fft_power_spectrum`
+    (any non-negative array works). The arrays must have the same shape
+    along ``axis`` (the frequency axis); other axes broadcast.
+
+    Parameters
+    ----------
+    metric : ``"l2"`` | ``"l1"`` | ``"cosine"`` | ``"jsd"``
+        - ``"l2"``: Euclidean distance over a log-1+ transform of the
+          unit-sum spectrum (matches what eye balls do — low-frequency
+          differences dominate without small numerical bins exploding).
+        - ``"l1"``: total-variation distance after unit-sum
+          normalisation. Cheap, bounded in ``[0, 2]``.
+        - ``"cosine"``: ``1 - dot(p, q) / (||p|| ||q||)``. Insensitive
+          to absolute amplitude — good for comparing shape.
+        - ``"jsd"``: Jensen–Shannon divergence on the unit-sum
+          normalised spectra (symmetric, bounded ``[0, ln 2]``).
+
+    Returns
+    -------
+    np.ndarray
+        Distance scalar per non-axis index. Broadcasts over the
+        non-frequency axes of ``p`` and ``q``.
+    """
+    p = np.asarray(p, dtype=np.float64)
+    q = np.asarray(q, dtype=np.float64)
+    if metric == "cosine":
+        num = (p * q).sum(axis=axis)
+        denom = (np.sqrt((p * p).sum(axis=axis))
+                 * np.sqrt((q * q).sum(axis=axis)))
+        return 1.0 - num / (denom + 1e-12)
+    pn = _normalise_pdf(p, axis=axis)
+    qn = _normalise_pdf(q, axis=axis)
+    if metric == "l1":
+        return np.abs(pn - qn).sum(axis=axis)
+    if metric == "l2":
+        return float(np.linalg.norm(
+            np.log1p(pn) - np.log1p(qn), axis=axis,
+        )) if pn.ndim == 1 else np.linalg.norm(
+            np.log1p(pn) - np.log1p(qn), axis=axis,
+        )
+    if metric == "jsd":
+        m = 0.5 * (pn + qn)
+        def _kl(a, b):
+            mask = a > 0
+            r = np.zeros_like(a)
+            r[mask] = a[mask] * (np.log(a[mask]) - np.log(b[mask] + 1e-12))
+            return r.sum(axis=axis)
+        return 0.5 * _kl(pn, m) + 0.5 * _kl(qn, m)
+    raise ValueError(
+        f"spectrum_distance: unknown metric {metric!r}; expected one of "
+        f"'l2', 'l1', 'cosine', 'jsd'.")
+
+
+def best_observed_match(
+    obs: np.ndarray,
+    model: np.ndarray,
+    dt: float,
+    *,
+    metric: str = "cosine",
+    band_hz: tuple | None = None,
+    return_scores: bool = False,
+):
+    """For every modelled trace, find the observed trace whose power
+    spectrum is the closest match.
+
+    Used to search the ~70 k observed-neuron pool from a recording for
+    the cells that best explain each modelled cell, regardless of which
+    481 neurons were anatomy-matched at training time.
+
+    Parameters
+    ----------
+    obs : np.ndarray, shape ``(N_obs, T)``
+        Observed traces (ΔF/F or voltage), one per row.
+    model : np.ndarray, shape ``(N_model, T)``
+        Modelled traces, one per row. Must have the same ``T`` as
+        ``obs`` (resample or trim before calling).
+    dt : float
+        Sample interval in seconds. Forwarded to
+        :func:`fft_power_spectrum`.
+    metric : str
+        Spectral-distance metric (see :func:`spectrum_distance`).
+        ``"cosine"`` is shape-only; ``"l2"`` weights low-frequency
+        differences more.
+    band_hz : tuple ``(f_lo, f_hi)`` or None
+        Restrict the comparison to a frequency band. ``None`` uses the
+        full spectrum.
+    return_scores : bool
+        When ``True``, also return the full ``(N_model, N_obs)``
+        distance matrix.
+
+    Returns
+    -------
+    best_idx : np.ndarray, shape ``(N_model,)``
+        For each modelled trace, the index into ``obs`` of the
+        best-matching observed trace.
+    best_score : np.ndarray, shape ``(N_model,)``
+        The matching distance (lower = better fit).
+    scores : np.ndarray, shape ``(N_model, N_obs)``
+        Only when ``return_scores=True``: the full distance matrix.
+    """
+    obs = np.asarray(obs, dtype=np.float64)
+    model = np.asarray(model, dtype=np.float64)
+    if obs.shape[-1] != model.shape[-1]:
+        raise ValueError(
+            f"best_observed_match: time axis mismatch obs.T={obs.shape[-1]} "
+            f"vs model.T={model.shape[-1]} — resample first.")
+    freqs, p_obs = fft_power_spectrum(obs, dt=dt, axis=-1)
+    _, p_mod = fft_power_spectrum(model, dt=dt, axis=-1)
+    if band_hz is not None:
+        f_lo, f_hi = band_hz
+        mask = (freqs >= f_lo) & (freqs <= f_hi)
+        p_obs = p_obs[..., mask]
+        p_mod = p_mod[..., mask]
+    # Vectorised pairwise: tile to (N_model, N_obs, F) — cheap when
+    # F is small (~rfft of a few-min trace) but heavy when N_obs is
+    # ~70 k. Chunk over N_obs to bound memory.
+    n_model = p_mod.shape[0]
+    n_obs = p_obs.shape[0]
+    scores = np.empty((n_model, n_obs), dtype=np.float64)
+    CHUNK = max(1, int(2**24 // max(p_obs.shape[-1], 1)))
+    for j0 in range(0, n_obs, CHUNK):
+        j1 = min(j0 + CHUNK, n_obs)
+        scores[:, j0:j1] = spectrum_distance(
+            p_mod[:, None, :], p_obs[None, j0:j1, :],
+            metric=metric, axis=-1,
+        )
+    best_idx = np.argmin(scores, axis=1)
+    best_score = scores[np.arange(n_model), best_idx]
+    if return_scores:
+        return best_idx, best_score, scores
+    return best_idx, best_score

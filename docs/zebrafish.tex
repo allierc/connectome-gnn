@@ -750,9 +750,7 @@ cell-type-resolved gate of \cref{eq:zhd_swim_gate} --- on the
 rotation-only sub-task of \cref{fig:zhd_swim_task_modes} ($n_{\rm in}=3$
 channels, $n_{\rm out}=2$ outputs).
 \Cref{fig:zhd_evolution_artr_pt1} reports the trained network.
-Quantitative test-set evaluation (run via
-\texttt{GNN\_Main.py -o test}; metrics written to
-\texttt{results/trajectory\_metrics.txt}) shows that after training the
+Quantitative test-set evaluation shows that after training the
 heading code is correctly recovered. On the full $10{,}000$-trial test
 set the per-frame heading accuracy is $\mathrm{pi\_acc}=0.998$ (cosine
 similarity of decoded vs.\ ground-truth heading vector), with a
@@ -819,11 +817,10 @@ target column layout ($\hat W^{\mathrm{out}}$, \cref{method:output_readout})
 and, where applicable, the leaky-integrator time constant
 $\tau_d=\tau_p=0.5\,$s; the gate, connectome and recurrent dynamics
 are unchanged across all seven runs. The quantitative
-trajectory-precision metrics below are aggregated from
-\texttt{GNN\_Main.py -o test} on each checkpoint
-(constant-$\omega$ and constant-$v_{\mathrm{fwd}}$ rollouts at
-$T=2000$ frames, written to
-\texttt{results/trajectory\_metrics.txt}).
+trajectory-precision metrics below are aggregated from held-out test
+trials on each trained checkpoint, with constant-$\omega$ and
+constant-$v_{\mathrm{fwd}}$ deterministic rollouts at $T=2000$ frames
+as the extrapolation probe.
 \Cref{tab:zhd_subtask_metrics} summarises the headline numbers; full
 panel layout in each figure matches \cref{fig:zhd_evolution_artr_pt1}.
 
@@ -834,13 +831,14 @@ panel layout in each figure matches \cref{fig:zhd_evolution_artr_pt1}.
 \toprule
 Variant & $r_\theta$ (HD) & $r_d$ (distance) & $\bar r_{xy}$ (2-D) & $T_{\rm follow}$ (s) \\
 \midrule
-\texttt{rotation}                  & $0.998 \pm 0.023$ & ---               & ---               & --- \\
-\texttt{translation} (cumulative)  & ---               & $0.995 \pm 0.034$ & ---               & $8.6 \pm 2.7$ \\
-\texttt{translation} leaky         & ---               & $0.998 \pm 0.022$ & ---               & $2.5 \pm 0.0$ \\
-\texttt{both} (cumulative)         & $0.995 \pm 0.035$ & $0.989 \pm 0.053$ & ---               & $7.3 \pm 2.7$ \\
-\texttt{both} leaky                & $0.997 \pm 0.033$ & $0.997 \pm 0.027$ & ---               & $2.5 \pm 0.0$ \\
-\texttt{position\_2d} (cumulative) & ---               & ---               & $0.760 \pm 0.268$ & --- \\
-\texttt{position\_2d} leaky        & ---               & ---               & $0.945 \pm 0.152$ & --- \\
+Heading                      & $0.998 \pm 0.023$ & ---               & ---               & --- \\
+Distance (cumulative)        & ---               & $0.995 \pm 0.034$ & ---               & $8.6 \pm 2.7$ \\
+Distance (leaky)             & ---               & $0.998 \pm 0.022$ & ---               & $2.5 \pm 0.0$ \\
+Heading $+$ distance (cumulative)
+                             & $0.995 \pm 0.035$ & $0.989 \pm 0.053$ & ---               & $7.3 \pm 2.7$ \\
+Heading $+$ distance (leaky) & $0.997 \pm 0.033$ & $0.997 \pm 0.027$ & ---               & $2.5 \pm 0.0$ \\
+2-D path (cumulative)        & ---               & ---               & $0.760 \pm 0.268$ & --- \\
+2-D path (leaky)             & ---               & ---               & $0.945 \pm 0.152$ & --- \\
 \bottomrule
 \end{tabular}
 \caption{Per-trial Pearson $r$ (mean $\pm$ SD across all $n=10\,000$
@@ -1051,8 +1049,8 @@ substrate that also encodes heading.
   \centering
   \includegraphics[width=\textwidth]{\figdir/fig_zebrafish_mi_partition.png}
   \caption{\textbf{MI-based partition of the recurrent pool and
-  recurrent$\to$recurrent edge-block analysis.} Trained on
-  \texttt{zebrafish\_hd\_si\_ipn12\_artr\_pt1\_position\_2d\_leaky}
+  recurrent$\to$recurrent edge-block analysis.} Trained on the leaky
+  2-D path-integration variant of the ARTR / pt-IPN1 circuit
   ($n_{\rm in}=4$, $n_{\rm out}=4$). MI estimated from $64$ held-out
   test trials.
   \textbf{(a)}~Per-recurrent-neuron MI on heading
@@ -1204,8 +1202,9 @@ observation loss are reported in \cref{sec:results_obs_sweep};
 \subsection{Calcium-observation loss partially closes the activity gap}
 \label{sec:results_obs_sweep}
 
-We now turn the observation loss on. Using the GNN model
-(\cref{method:GNN}) we trained the $839$-cell circuit on the
+We now turn the observation loss on. Using the sign-locked RNN of
+\cref{method:RNN} (the same connectome and recurrent dynamics used
+throughout Section 4) we trained the $839$-cell circuit on the
 swim-integration task (dataset~A) while augmenting each minibatch with
 $B_c$ recorded ``Rotations'' trials (dataset~B) and matching predicted
 to recorded calcium with the $z$-scored shape loss of \cref{eq:zhd_obs},
