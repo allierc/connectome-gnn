@@ -1154,6 +1154,10 @@ def _panel_matrix(ax, M: np.ndarray, neuron_types, type_names, title: str):
     Zvis = np.where(np.abs(Zpos) >= np.abs(Zneg), Zpos, Zneg)
     im = ax.imshow(Zvis, cmap="RdBu_r", vmin=-1.0, vmax=1.0,
                     interpolation="nearest", aspect="equal")
+    # Pin the square axes box to the NW corner of its allocated cell so
+    # the leftmost column's panel label (placed via ax.transAxes) aligns
+    # with the leftmost column of every other row.
+    ax.set_anchor("NW")
     nt = np.asarray(neuron_types)
     if nt.size:
         order = np.argsort(nt, kind="stable")
@@ -1213,6 +1217,7 @@ def _panel_weight_scatter(ax, W_con, W_rec):
     ax.axhline(0, color="0.8", lw=0.4); ax.axvline(0, color="0.8", lw=0.4)
     ax.set_xlim(lo, hi); ax.set_ylim(lo, hi)
     ax.set_aspect("equal", adjustable="box")
+    ax.set_anchor("NW")
     ax.set_title(rf"true vs. learned  ($r={r:.3f}$)", fontsize=TITLE_FS)
     ax.set_xlabel(r"GT $W^{\mathrm{con}}_{ij}$", fontsize=LABEL_FS)
     ax.set_ylabel(r"learned $\hat W_{ij}\,/\,m$", fontsize=LABEL_FS)
@@ -2238,6 +2243,7 @@ def _panel_integration_gain(ax, gain_data, dt: float, warmup: int = 10):
 
     ax.set_xlim(-lim, lim); ax.set_ylim(-lim, lim)
     ax.set_aspect("equal", adjustable="box")
+    ax.set_anchor("NW")
     ax.set_xlabel("true ω (°/s)", fontsize=LABEL_FS)
     ax.set_ylabel("measured slope (°/s)", fontsize=LABEL_FS)
     ax.set_title("integration gain  (target: y = x)", fontsize=TITLE_FS)
@@ -2395,6 +2401,13 @@ def plot_cx_evolution(data: dict, out_path: str, *,
         # gets 4 rows: i=HD random, j=d random, k=HD sweep, l=d sweep.
         # Same fonts, line widths, and colour scheme as the upper rows.
         n_show = 5
+        # Test-row fonts: bump up from the figure default so axis labels
+        # and the metric annotation stay legible at 0.8\textwidth in the
+        # PDF. _T_TICK_FS, _T_LABEL_FS, _T_ANN_FS shadow the module-level
+        # defaults only inside this block.
+        _T_TICK_FS = 13
+        _T_LABEL_FS = 15
+        _T_ANN_FS = 12
         kind = data.get("task_kind", "hd")
         random_trials = data.get("random_trials") or {}
         sweep_dict = data.get("sweep_for_test")
@@ -2422,7 +2435,7 @@ def plot_cx_evolution(data: dict, out_path: str, *,
 
         def _annotate(ax, txt):
             ax.text(0.02, 0.98, txt, transform=ax.transAxes,
-                    ha="left", va="top", fontsize=TICK_FS - 1,
+                    ha="left", va="top", fontsize=_T_ANN_FS,
                     bbox=dict(facecolor="white", edgecolor="none",
                               alpha=0.8, boxstyle="round,pad=0.18"))
 
@@ -2457,10 +2470,10 @@ def plot_cx_evolution(data: dict, out_path: str, *,
                 _plot_wrapped_hd(ax, t_r, true_hd, GT_COLOR, GT_LW)
                 _plot_wrapped_hd(ax, t_r, pred_hd, PRED_COLOR, PRED_LW)
                 ax.set_ylim(-np.pi - 0.2, np.pi + 0.2)
-                ax.tick_params(labelsize=TICK_FS)
-                ax.set_xlabel("time (s)", fontsize=LABEL_FS)
+                ax.tick_params(labelsize=_T_TICK_FS)
+                ax.set_xlabel("time (s)", fontsize=_T_LABEL_FS)
                 if col == 0:
-                    ax.set_ylabel("HD (rad)", fontsize=LABEL_FS)
+                    ax.set_ylabel("HD (rad)", fontsize=_T_LABEL_FS)
                     _panel_label(ax, letter)
                 _annotate(ax,
                            f"rmse={_circ_rmse_deg(true_hd, pred_hd):.1f}°"
@@ -2482,10 +2495,10 @@ def plot_cx_evolution(data: dict, out_path: str, *,
                 pr = y_pred_show[col, :, d_col]
                 ax.plot(t_r, tr, color=GT_COLOR, lw=GT_LW)
                 ax.plot(t_r, pr, color=PRED_COLOR, lw=PRED_LW)
-                ax.tick_params(labelsize=TICK_FS)
-                ax.set_xlabel("time (s)", fontsize=LABEL_FS)
+                ax.tick_params(labelsize=_T_TICK_FS)
+                ax.set_xlabel("time (s)", fontsize=_T_LABEL_FS)
                 if col == 0:
-                    ax.set_ylabel(r"$d$", fontsize=LABEL_FS)
+                    ax.set_ylabel(r"$d$", fontsize=_T_LABEL_FS)
                     _panel_label(ax, letter)
                 rmse = float(np.sqrt(np.mean((pr[10:] - tr[10:]) ** 2)))
                 _annotate(ax,
@@ -2504,10 +2517,10 @@ def plot_cx_evolution(data: dict, out_path: str, *,
                 ax.plot(dx, dy, color=PRED_COLOR, lw=PRED_LW)
                 ax.plot([0], [0], 'o', color='0.4', ms=4, zorder=5)
                 ax.set_aspect('equal', adjustable='datalim')
-                ax.tick_params(labelsize=TICK_FS)
-                ax.set_xlabel(r"$x$", fontsize=LABEL_FS)
+                ax.tick_params(labelsize=_T_TICK_FS)
+                ax.set_xlabel(r"$x$", fontsize=_T_LABEL_FS)
                 if col == 0:
-                    ax.set_ylabel(r"$y$", fontsize=LABEL_FS)
+                    ax.set_ylabel(r"$y$", fontsize=_T_LABEL_FS)
                     _panel_label(ax, letter)
                 err = np.sqrt((dx[10:] - tx[10:]) ** 2 + (dy[10:] - ty[10:]) ** 2)
                 rmse = float(np.sqrt(np.mean(err ** 2)))
@@ -2529,10 +2542,10 @@ def plot_cx_evolution(data: dict, out_path: str, *,
                 _plot_wrapped_hd(ax, t_s, th_true, GT_COLOR, GT_LW)
                 _plot_wrapped_hd(ax, t_s, th_dec,  PRED_COLOR, PRED_LW)
                 ax.set_ylim(-np.pi - 0.2, np.pi + 0.2)
-                ax.tick_params(labelsize=TICK_FS)
-                ax.set_xlabel("time (s)", fontsize=LABEL_FS)
+                ax.tick_params(labelsize=_T_TICK_FS)
+                ax.set_xlabel("time (s)", fontsize=_T_LABEL_FS)
                 if col == 0:
-                    ax.set_ylabel("HD (rad)", fontsize=LABEL_FS)
+                    ax.set_ylabel("HD (rad)", fontsize=_T_LABEL_FS)
                     _panel_label(ax, letter)
                 _annotate(ax,
                            f"rmse={_circ_rmse_deg(th_true, th_dec):.1f}°"
@@ -2550,10 +2563,10 @@ def plot_cx_evolution(data: dict, out_path: str, *,
                 t_s = np.arange(T_s) * dt_test
                 ax.plot(t_s, tr, color=GT_COLOR, lw=GT_LW)
                 ax.plot(t_s, pr, color=PRED_COLOR, lw=PRED_LW)
-                ax.tick_params(labelsize=TICK_FS)
-                ax.set_xlabel("time (s)", fontsize=LABEL_FS)
+                ax.tick_params(labelsize=_T_TICK_FS)
+                ax.set_xlabel("time (s)", fontsize=_T_LABEL_FS)
                 if col == 0:
-                    ax.set_ylabel(r"$d$", fontsize=LABEL_FS)
+                    ax.set_ylabel(r"$d$", fontsize=_T_LABEL_FS)
                     _panel_label(ax, letter)
                 rmse = float(np.sqrt(np.mean((pr[10:] - tr[10:]) ** 2)))
                 _annotate(ax,
@@ -2571,10 +2584,10 @@ def plot_cx_evolution(data: dict, out_path: str, *,
                 ax.plot(dx_[:, 0], dx_[:, 1], color=PRED_COLOR, lw=PRED_LW)
                 ax.plot([0], [0], 'o', color='0.4', ms=4, zorder=5)
                 ax.set_aspect('equal', adjustable='datalim')
-                ax.tick_params(labelsize=TICK_FS)
-                ax.set_xlabel(r"$x$", fontsize=LABEL_FS)
+                ax.tick_params(labelsize=_T_TICK_FS)
+                ax.set_xlabel(r"$x$", fontsize=_T_LABEL_FS)
                 if col == 0:
-                    ax.set_ylabel(r"$y$", fontsize=LABEL_FS)
+                    ax.set_ylabel(r"$y$", fontsize=_T_LABEL_FS)
                     _panel_label(ax, letter)
                 err = np.sqrt((dx_[10:, 0] - tx[10:, 0]) ** 2
                                + (dx_[10:, 1] - tx[10:, 1]) ** 2)
