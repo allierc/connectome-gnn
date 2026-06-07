@@ -2280,12 +2280,26 @@ def plot_cx_evolution(data: dict, out_path: str, *,
     # (lcm(4, 5) = 20): the upper rows span 5 macro columns each, the
     # lower rows span 4 macro columns each.
     if n_rows == 4:
-        gs = fig.add_gridspec(4, 20, hspace=0.55, wspace=2.4,
-                              left=0.05, right=0.97, top=0.97, bottom=0.04)
-        def _ax_top(row, col4):  # 4-column row
-            return fig.add_subplot(gs[row, col4 * 5:(col4 + 1) * 5])
+        # Two nested gridspecs sharing identical left/right margins so
+        # the leftmost column of the 4-wide upper grid starts at the
+        # same x as the leftmost column of the 5-wide lower grid (and
+        # the rightmost column ends at the same x). A single 4×20 macro
+        # grid would let wspace shift the columns relative to each
+        # other.
+        outer = fig.add_gridspec(
+            2, 1, height_ratios=[2.0, 2.0], hspace=0.18,
+            left=0.05, right=0.97, top=0.97, bottom=0.04,
+        )
+        gs_top = outer[0].subgridspec(2, 4, hspace=0.55, wspace=0.42)
+        gs_bot = outer[1].subgridspec(2, 5, hspace=0.55, wspace=0.30)
+        # `gs` kept as an alias so the older n_rows<4 path below still
+        # has something to reference (unused outside the n_rows==4
+        # block).
+        gs = gs_top
+        def _ax_top(row, col4):
+            return fig.add_subplot(gs_top[row, col4])
         def _gs_top(row, col4):
-            return gs[row, col4 * 5:(col4 + 1) * 5]
+            return gs_top[row, col4]
     else:
         gs = fig.add_gridspec(n_rows, 4, hspace=0.55, wspace=0.42,
                               left=0.05, right=0.97, top=0.96, bottom=0.05)
@@ -2380,8 +2394,8 @@ def plot_cx_evolution(data: dict, out_path: str, *,
                         if isinstance(data.get("test_trial"), dict)
                         else data["dt_s"])
 
-        def _ax_bot(row, col5):  # 5-column row
-            return fig.add_subplot(gs[row, col5 * 4:(col5 + 1) * 4])
+        def _ax_bot(row, col5):  # row is 0 (row i) or 1 (row j)
+            return fig.add_subplot(gs_bot[row, col5])
 
         # ---- Row i: random held-out trials -------------------------------
         u_show = random_trials.get("u")
@@ -2393,7 +2407,7 @@ def plot_cx_evolution(data: dict, out_path: str, *,
             T_r = y_true_show.shape[1]
             t_r = np.arange(T_r) * dt_test
             for col in range(min(n_show, y_true_show.shape[0])):
-                ax = _ax_bot(2, col)
+                ax = _ax_bot(0, col)
                 if kind == "hd":
                     true_hd = np.arctan2(y_true_show[col, :, 1],
                                           y_true_show[col, :, 0])
@@ -2431,7 +2445,7 @@ def plot_cx_evolution(data: dict, out_path: str, *,
         # ---- Row j: deterministic constant-input sweeps -------------------
         if sweep:
             for col, item in enumerate(sweep[:n_show]):
-                ax = _ax_bot(3, col)
+                ax = _ax_bot(1, col)
                 om, vf, ro = item
                 T_s = int(ro.get("n_steps", len(ro.get("u", []))))
                 t_s = np.arange(T_s) * dt_test
