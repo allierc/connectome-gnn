@@ -138,8 +138,8 @@ def _draw_block_grid(ax, type_ids, names, color="k", alpha=0.5, lw=0.3):
     ax.set_xticks(centres); ax.set_xticklabels(lab, fontsize=5,
                                                 rotation=60, ha="right")
     ax.set_yticks(centres); ax.set_yticklabels(lab, fontsize=5)
-    ax.set_xlabel("presynaptic", fontsize=9)
-    ax.set_ylabel("postsynaptic", fontsize=9)
+    ax.set_xlabel("presynaptic", fontsize=13)
+    ax.set_ylabel("postsynaptic", fontsize=13)
 
 
 def _panel_W(ax, W, type_ids, names, ref_nz=None, title="", dilate_iter=1):
@@ -154,10 +154,10 @@ def _panel_W(ax, W, type_ids, names, ref_nz=None, title="", dilate_iter=1):
     im = ax.imshow(Zvis, cmap="RdBu_r", vmin=-3.0, vmax=3.0,
                    interpolation="nearest", aspect="equal")
     _draw_block_grid(ax, type_ids, names, color="k", alpha=0.5)
-    if title:
-        ax.set_title(title, fontsize=10)
+    # Per-panel titles are dropped (CLAUDE.md rule); the manuscript
+    # caption carries them.
     cb = plt.colorbar(im, ax=ax, fraction=0.04, pad=0.02, shrink=0.85)
-    cb.ax.tick_params(labelsize=7)
+    cb.ax.tick_params(labelsize=11)
 
 
 def _panel_mask(ax, W, type_ids, names, dilate_iter=1):
@@ -167,9 +167,6 @@ def _panel_mask(ax, W, type_ids, names, dilate_iter=1):
     ax.imshow(Mvis, cmap="binary", vmin=0, vmax=1,
               interpolation="nearest", aspect="equal")
     _draw_block_grid(ax, type_ids, names, color="r", alpha=0.6)
-    density = float(M.sum()) / float(M.size)
-    ax.set_title(rf"$\mathrm{{supp}}(W^{{\mathrm{{con}}}})$ "
-                 rf"(shared; density $={density:.3f}$)", fontsize=10)
 
 
 def _collect(W, coarse, mode):
@@ -206,14 +203,13 @@ def _paired_violin(ax, d1, d2, ylabel, title):
             parts["cmeans"].set_color("0.15"); parts["cmeans"].set_linewidth(1.0)
     ax.axhline(0.0, color="0.6", lw=0.5)
     ax.set_xticks(xs); ax.set_xticklabels(COARSE_ORDER, rotation=20, ha="right",
-                                          fontsize=8)
-    ax.set_ylabel(ylabel, fontsize=9)
-    ax.set_title(title, fontsize=10)
+                                          fontsize=12)
+    ax.set_ylabel(ylabel, fontsize=13)
     ax.legend(handles=[Patch(facecolor=V1_COLOR, alpha=0.78,
                              label="v1 (IPN12 inhib.)"),
                        Patch(facecolor=V2_COLOR, alpha=0.78,
                              label="v2 (IPN12 excit.)")],
-              fontsize=7, loc="upper right", frameon=False)
+              fontsize=12, loc="upper right", frameon=False)
 
 
 def _panel_partition_matrix(ax, W, partition):
@@ -283,10 +279,8 @@ def _panel_partition_matrix(ax, W, partition):
     ax.set_xlim(-strip - 0.5, N - 0.5)
     ax.set_ylim(N - 0.5, -strip - 0.5)
     ax.set_xticks([]); ax.set_yticks([])
-    ax.set_xlabel("presynaptic (sorted by partition)", fontsize=9)
-    ax.set_ylabel("postsynaptic (sorted by partition)", fontsize=9)
-    ax.set_title("functional partition (matches Figure 1 colour code)",
-                 fontsize=10)
+    ax.set_xlabel("presynaptic (sorted by partition)", fontsize=13)
+    ax.set_ylabel("postsynaptic (sorted by partition)", fontsize=13)
 
     # Compact legend below the panel — Figure 1's same colour swatches.
     from matplotlib.patches import Patch
@@ -294,7 +288,7 @@ def _panel_partition_matrix(ax, W, partition):
                      label=f"{k} (n={int((part_sorted==k).sum())})")
                for k in PARTITION_ORDER if (part_sorted == k).any()]
     ax.legend(handles=handles, loc="center left",
-              bbox_to_anchor=(1.02, 0.5), fontsize=7,
+              bbox_to_anchor=(1.02, 0.5), fontsize=12,
               frameon=False, handlelength=1.4)
 
 
@@ -340,10 +334,8 @@ def main():
     # Layout: a = partition-sorted matrix, b = W_con v1, c = W_con v2.
     fig, axes = plt.subplots(1, 3, figsize=(17, 6))
     _panel_partition_matrix(axes[0], W1, partition)
-    _panel_W(axes[1], W1, nt, names, ref_nz=ref_nz,
-             title=r"$W^{\mathrm{con}}$ v1 — IPN12 inhibitory")
-    _panel_W(axes[2], W2, nt, names, ref_nz=ref_nz,
-             title=r"$W^{\mathrm{con}}$ v2 — IPN12 excitatory")
+    _panel_W(axes[1], W1, nt, names, ref_nz=ref_nz, title="")
+    _panel_W(axes[2], W2, nt, names, ref_nz=ref_nz, title="")
 
     for k, ax in enumerate(axes.flat):
         ax.text(-0.12, 1.05, "abc"[k], transform=ax.transAxes,

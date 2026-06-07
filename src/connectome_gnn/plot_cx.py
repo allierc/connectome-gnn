@@ -1946,7 +1946,9 @@ def _panel_calcium_compare(ax, cp):
 
 
 def plot_calcium_reconstruction(groups, dt, out_path, title=None,
-                                omega=None, hd=None, trial_s=None):
+                                omega=None, v_fwd=None,
+                                hd=None, d=None, trial_s=None,
+                                show_stitch=True):
     """Full-block (~600 s) real-vs-learned calcium reconstruction figure.
 
     Panels, top→bottom (all sharing the time axis):
@@ -1976,6 +1978,8 @@ def plot_calcium_reconstruction(groups, dt, out_path, title=None,
     GREEN = (0.0, 0.7, 0.25)
     _ROLLOUTS = [("stitch", "per-trial stitch (training regime)"),
                  ("continuous", "continuous 600 s rollout (drift)")]
+    if not show_stitch:
+        _ROLLOUTS = [(k, lbl) for k, lbl in _ROLLOUTS if k != "stitch"]
     hd = hd or {}
 
     # Common time window: the shortest of every array supplied.
@@ -2003,6 +2007,8 @@ def plot_calcium_reconstruction(groups, dt, out_path, title=None,
     specs = []
     if omega is not None:
         specs.append(("omega", None, 1.0))
+    if v_fwd is not None:
+        specs.append(("vfwd", None, 1.0))
     metrics = {}
     for g in groups:
         name = g["name"]
@@ -2022,6 +2028,10 @@ def plot_calcium_reconstruction(groups, dt, out_path, title=None,
     for key, sub in _ROLLOUTS:
         if key in hd:
             specs.append(("hd", (sub, hd[key]), 1.4))
+    d = d or {}
+    for key, sub in _ROLLOUTS:
+        if key in d:
+            specs.append(("d", (sub, d[key]), 1.4))
 
     ratios = [r for _, _, r in specs]
     fig, axs = plt.subplots(len(specs), 1, sharex=True,
@@ -2035,15 +2045,19 @@ def plot_calcium_reconstruction(groups, dt, out_path, title=None,
             ax.plot(t, np.asarray(omega)[:T], color="0.2", lw=0.8)
             ax.axhline(0, color="0.7", lw=0.4)
             ax.set_ylabel("ω (°/s)", fontsize=LABEL_FS)
-            ax.set_title("angular-velocity drive", fontsize=TITLE_FS)
+        elif kind == "vfwd":
+            ax.plot(t, np.asarray(v_fwd)[:T], color="tab:purple", lw=0.6)
+            ax.axhline(0, color="0.7", lw=0.4)
+            ax.set_ylabel(r"$v_{\mathrm{fwd}}$ (a.u.)", fontsize=LABEL_FS)
         elif kind == "kino":
             name, sub, M = payload
             ax.imshow(_z(M).T, aspect="auto", cmap="viridis", vmin=-2, vmax=3,
                       extent=[0, T * dt, M.shape[1], 0],
                       interpolation="nearest")
             ax.set_ylabel(f"{name}\nneuron (n={M.shape[1]})", fontsize=LABEL_FS)
-            ax.set_title(sub, fontsize=TITLE_FS)
-        else:  # hd true-vs-predicted
+            ax.text(0.005, 0.97, sub, transform=ax.transAxes, va="top",
+                    ha="left", color="w", fontsize=TICK_FS)
+        elif kind == "hd":
             sub, hdk = payload
             ax.plot(t, _wrap(np.asarray(hdk["true"])[:T]), color=GREEN, lw=1.0,
                     label="true")
@@ -2051,7 +2065,19 @@ def plot_calcium_reconstruction(groups, dt, out_path, title=None,
                     lw=0.8, label="predicted")
             ax.set_ylim(-185, 185); ax.set_yticks([-180, 0, 180])
             ax.set_ylabel("HD (°)", fontsize=LABEL_FS)
-            ax.set_title(f"heading — {sub}", fontsize=TITLE_FS)
+            ax.text(0.005, 0.97, sub, transform=ax.transAxes, va="top",
+                    ha="left", fontsize=TICK_FS)
+            ax.legend(fontsize=TICK_FS, loc="upper right", framealpha=0.5)
+        else:  # kind == "d"  (translation true vs predicted)
+            sub, dk = payload
+            d_true = np.asarray(dk["true"])[:T]
+            d_pred = np.asarray(dk["pred"])[:T]
+            ax.plot(t, d_true, color=GREEN, lw=1.0, label="true (cumulative)")
+            ax.plot(t, d_pred, color="black", lw=0.8, label="predicted")
+            ax.axhline(0, color="0.7", lw=0.4)
+            ax.set_ylabel(r"$d$", fontsize=LABEL_FS)
+            ax.text(0.005, 0.97, sub, transform=ax.transAxes, va="top",
+                    ha="left", fontsize=TICK_FS)
             ax.legend(fontsize=TICK_FS, loc="upper right", framealpha=0.5)
         ax.tick_params(labelsize=TICK_FS, labelbottom=bottom)
         if bottom:
@@ -2073,11 +2099,7 @@ def plot_calcium_reconstruction(groups, dt, out_path, title=None,
                 ha="center", va="bottom", fontsize=TICK_FS, color="black",
                 path_effects=[pe.withStroke(linewidth=2.5, foreground="white")])
 
-    if title:
-        fig.suptitle(title, fontsize=TITLE_FS + 1, y=0.997)
-        fig.tight_layout(rect=[0, 0, 1, 0.975])
-    else:
-        fig.tight_layout()
+    fig.tight_layout()
     fig.savefig(out_path, dpi=130)
     plt.close(fig)
     return metrics

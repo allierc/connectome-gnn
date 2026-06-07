@@ -115,7 +115,21 @@ ZAPBENCH_ONSET_IDX = {
 # supervised). Only Rotation has a reconstructed continuous heading so far;
 # Turning's OMR heading is derivable later. The remaining obs blocks are driven
 # by the self-motion (forward-swim) covariate alone, so heading is masked off.
-ZAPBENCH_HAS_HEADING = {"rotation": True}
+# Blocks that carry a heading channel in the generated dataset.
+# Rotation has a directly reconstructed heading from the recorded
+# stimParam3 (45°/s grating).  Turning synthesises one by mapping the
+# OMR L/R direction codes to a piecewise-constant nominal ω and
+# integrating (see ``load_sequence_heading``).  Other blocks still
+# return zeros and have heading task masked off.
+ZAPBENCH_HAS_HEADING = {"rotation": True, "turning": True}
+# Nominal angular velocity (deg/s) assigned to each omr_turning L/R
+# epoch — the magnitude of the open-loop grating; the sign is set by
+# the L/R direction code.  Matches the convention used in
+# zebrafish_functional_traces_panel.stim_to_drive.
+TURNING_NOMINAL_OMEGA_DEG = 30.0
+# OMR turning task index (0-based) in fishfuncem onsets — same as
+# panels.OMR_TASK in the figure scripts.
+_OMR_TASK_IDX = 4
 # The obs-supervisable set: structured blocks carrying real bump-pool signal
 # (Rotation, OMR-Turning, Flash, Taxis). Each gets one calcium dataset.
 OBS_BLOCKS = ["rotation", "turning", "flash", "taxis"]
@@ -190,14 +204,67 @@ def load_sequence_heading(sequence, connectome_dir, fishfuncem_data, model_dt,
     if sequence not in ZAPBENCH_ONSET_IDX:
         raise ValueError(f"unknown block {sequence!r}; "
                          f"known: {list(ZAPBENCH_ONSET_IDX)}")
-    # Heading-free block: frames from onsets, zero heading on the model grid.
     f0, f1 = block_frame_range(fishfuncem_data, sequence, n_total)
     frames = np.arange(f0, f1, dtype=np.int64)
     n_fr = len(frames)
     T_model = int(round(n_fr * src_dt / model_dt))
+
+    if sequence == "turning":
+        # Synthesise a piecewise-constant heading from the OMR L/R
+        # direction codes.  stim_info_frames carries one integer label
+        # per imaging frame; the open-loop omr_turning grating drifts
+        # leftward (label -2) or rightward (label 4) in alternating
+        # epochs and the nominal angular velocity of the rendered
+        # grating is the same magnitude across both.  Mapping each
+        # epoch to ± TURNING_NOMINAL_OMEGA_DEG and integrating gives a
+        # frame-resolution heading that is *not* the fish's actual
+        # heading (the fish does not turn in OMR), but it is the
+        # heading the model would have to track if it correctly
+        # mirrored the stimulus drift — exactly the channel the
+        # rotation-only model expects in column 0 of its stimulus.
+        ff = _import_fishfunctional()(fishfuncem_data)  # type: ignore
+        stim_info = np.rint(np.asarray(ff.stim_info_frames)).astype(int)
+        # Slice to this block's frame window; the omr block index in
+        # ``stim_info_frames`` may not exactly match ``[f0, f1)`` (the
+        # latter comes from ``onsets_frames``), but they should be
+        # consistent — clip defensively.
+        stim_blk = stim_info[f0:f1] if f1 <= len(stim_info) else stim_info[f0:]
+        omega_frame = np.zeros(n_fr, np.float32)
+        omega_frame[stim_blk == -2] = +TURNING_NOMINAL_OMEGA_DEG
+        omega_frame[stim_blk ==  4] = -TURNING_NOMINAL_OMEGA_DEG
+        # Imaging-frame -> model-grid (constant within each frame).
+        rep = max(1, int(round(src_dt / model_dt)))
+        omega_model = np.repeat(omega_frame[:T_model // rep + 1],
+                                 rep)[:T_model].astype(np.float32)
+        theta_hr_deg = np.cumsum(omega_model) * model_dt
+        theta_frame = theta_hr_deg[::rep][:n_fr].astype(np.float64)
+        n_left = int((stim_blk == -2).sum())
+        n_right = int((stim_blk ==  4).sum())
+        print(f"[heading] block {sequence!r}: frames [{f0},{f1}) "
+              f"({n_fr} fr), synthesised ω from L/R codes "
+              f"(L: {n_left} fr → +{TURNING_NOMINAL_OMEGA_DEG}°/s; "
+              f"R: {n_right} fr → -{TURNING_NOMINAL_OMEGA_DEG}°/s); "
+              f"|θ_end|={float(abs(theta_hr_deg[-1])):.0f}°")
+        return (theta_hr_deg.astype(np.float64), frames, theta_frame)
+
+    # Other heading-free blocks: zero heading on the model grid.
     print(f"[heading] block {sequence!r}: frames [{f0},{f1}) ({n_fr} fr), "
           f"no reconstructed heading -> zeros (heading task masked off)")
     return (np.zeros(T_model, np.float64), frames, np.zeros(n_fr, np.float64))
+
+
+def _import_fishfunctional():
+    try:
+        from fishfuncem import FishFunctional
+    except ModuleNotFoundError:
+        import sys
+        ff_dir = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
+                os.path.abspath(__file__))))), "papers", "fishFuncEM")
+        if os.path.isdir(ff_dir) and ff_dir not in sys.path:
+            sys.path.insert(0, ff_dir)
+        from fishfuncem import FishFunctional
+    return FishFunctional.from_data_dir
 
 
 def load_calcium_traces(connectome_dir):

@@ -280,14 +280,14 @@ def main():
     for p in POOL_ORDER:
         mask = pool == p
         ax.scatter(I_theta[mask], I_d[mask], s=22,
-                   color=POOL_COLOR[p], edgecolor="black", linewidth=0.3,
+                   color=POOL_COLOR[p], edgecolor="none",
                    alpha=0.85, label=f"{p} (n={counts[p]})")
     ax.axvline(tau_theta, color="0.4", lw=0.7, linestyle="--")
     ax.axhline(tau_d,     color="0.4", lw=0.7, linestyle="--")
     ax.set_xlabel(r"$I(\hat h_i;\,\theta)$  (bits)", fontsize=13)
     ax.set_ylabel(r"$I(\hat h_i;\,d)$  (bits)", fontsize=13)
     ax.tick_params(labelsize=11)
-    ax.legend(fontsize=10, loc="upper right", frameon=False)
+    ax.legend(fontsize=10, loc="upper left", frameon=False)
     ax.text(-0.10, 1.04, "a", transform=ax.transAxes,
             fontsize=13, fontweight="bold")
 

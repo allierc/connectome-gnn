@@ -79,11 +79,13 @@ SWIM_COLORS = {
 }
 SWIM_NAMES = {LABEL_L: "L", LABEL_R: "R", LABEL_F: "F", LABEL_B: "B"}
 
-PANEL_LABEL_FS = 14
-TITLE_FS = 10
-LABEL_FS = 9
-TICK_FS = 8
-LEGEND_FS = 11   # bumped from TICK_FS so legends read at a glance
+PANEL_LABEL_FS = 14   # panel-letter size unchanged; only the
+                      # in-panel text scales up so the figure reads
+                      # at \textwidth without crowding the labels.
+TITLE_FS = 13
+LABEL_FS = 12
+TICK_FS = 11
+LEGEND_FS = 13
 
 
 def _panel_label(ax, letter: str, dx: float = -0.12, dy: float = 1.02):

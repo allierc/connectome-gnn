@@ -103,15 +103,24 @@ def _find_ephys_file():
     """Locate the raw 10-channel ephys binary, or None if absent.
 
     Searches ``$FISH_EPHYS_FILE`` first, then any ``*.10chFlt`` under
-    ``papers/fishFuncEM/data`` (the cloned-repo / GCS download location).
+    ``papers/fishFuncEM/data`` (the cloned-repo / GCS download
+    location), then the configured data root
+    (``$GNN_OUTPUT_ROOT/graphs_data/zebrafish/``).
     """
     import glob
     env = os.environ.get("FISH_EPHYS_FILE")
     if env and os.path.isfile(env):
         return env
-    hits = sorted(glob.glob(os.path.join(FISHDATA, "**", "*.10chFlt"),
-                            recursive=True))
-    return hits[0] if hits else None
+    search_dirs = [FISHDATA]
+    data_root = os.environ.get("GNN_OUTPUT_ROOT",
+                                "/groups/saalfeld/home/allierc/GraphData")
+    search_dirs.append(os.path.join(data_root, "graphs_data", "zebrafish"))
+    for d in search_dirs:
+        hits = sorted(glob.glob(os.path.join(d, "**", "*.10chFlt"),
+                                 recursive=True))
+        if hits:
+            return hits[0]
+    return None
 
 
 def _load_ephys_per_frame_rms(path, markers, f0, f1):
@@ -240,33 +249,26 @@ def make_figure(out_png=None):
     axs[0].plot(d["t_model"], d["omega"], color="0.2", lw=0.6)
     axs[0].axhline(0, color="0.7", lw=0.4)
     axs[0].set_ylabel("ω (°/s)")
-    axs[0].set_title("angular-velocity drive (model input — PERIODIC)")
 
     # 2) heading (wrapped)
     axs[1].plot(t, _wrap_deg(d["heading_deg"]), color="0.2", lw=0.7)
     axs[1].set_ylim(-185, 185); axs[1].set_yticks([-180, 0, 180])
     axs[1].set_ylabel("heading (°)")
-    axs[1].set_title("heading (∫ω)")
 
     # 3) stimulus direction (±1)
     axs[2].plot(t, d["stim_dir"], color="0.4", lw=0.7, drawstyle="steps-mid")
     axs[2].set_ylabel("stim dir")
-    axs[2].set_title("stimulus direction code (stim_info — PERIODIC)")
 
     # 4) swim behaviour — forward (bilateral tail-EMG amplitude); slow drift.
     # Neutral purple: red/blue are reserved below for the two L/R raw channels.
     axs[3].plot(t, d["forward"], color="tab:purple", lw=0.7)
     axs[3].axhline(0, color="0.8", lw=0.4)
     axs[3].set_ylabel("forward (a.u.)")
-    axs[3].set_title("swim behaviour — forward (bilateral tail-EMG amplitude): "
-                     "slow drift, ~indep. of ω")
 
     # 5) swim behaviour — turning (L/R tail-EMG asymmetry); tracks ω (r≈0.76)
     axs[4].plot(t, d["turning"], color="tab:olive", lw=0.7)
     axs[4].axhline(0, color="0.8", lw=0.4)
     axs[4].set_ylabel("turning (a.u.)")
-    axs[4].set_title("swim behaviour — turning (L/R tail-EMG asymmetry): "
-                     "tracks ω, r≈0.76 (optomotor following)")
 
     # 6-7) raw tail-EMG per-frame RMS — the SOURCE of panels 4-5.
     #      ch0 = left (red), ch1 = right (blue) — two distinct sources.
@@ -275,7 +277,6 @@ def make_figure(out_png=None):
         if have_emg:
             ax.plot(t, d[key], color=col, lw=0.6)
             ax.set_ylabel(f"EMG {lab}\nRMS (a.u.)")
-            ax.set_title(f"raw tail-EMG {lab} (per-frame RMS — independent motor signal)")
         else:
             ax.text(0.5, 0.5, f"raw tail-EMG {lab}: .10chFlt not found\n"
                     "(set $FISH_EPHYS_FILE or drop it under papers/fishFuncEM/data/)",
@@ -290,7 +291,6 @@ def make_figure(out_png=None):
                   vmin=VIRIDIS_VMIN, vmax=VIRIDIS_VMAX,
                   extent=[t[0], t[-1], n, 0], interpolation="nearest")
     axs[7].set_ylabel(f"bump-pool\nneuron (n={n})")
-    axs[7].set_title("bump-pool: real ΔF/F (recorded — NON-periodic)")
     axs[7].set_xlabel("time (s)")
 
     for ax in axs:

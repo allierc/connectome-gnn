@@ -48,6 +48,7 @@ def _load_model_and_rollouts(
     ])),
     trial_seed: int | None = None,
     trial_idx: int | None = None,
+    random_trials_seed: int | None = None,
 ):
     """Load model + run rollouts + pick one swim-integration test trial."""
     import torch
@@ -213,9 +214,14 @@ def _load_model_and_rollouts(
     # --- 5 random held-out trials for the bottom-row paper figure ------
     # Picks the 5 most-informative trials (largest centred-amplitude
     # over a K=32 candidate sample) so the trace plots are not flat
-    # zeros for trials that happened to have no events.
-    rng_r = np.random.default_rng(
-        int(getattr(config.training, "seed", 0)) + 17)
+    # zeros for trials that happened to have no events. The
+    # default seed (training.seed + 17) is overridable via
+    # ``random_trials_seed`` for variants where the default pick
+    # contains a degenerate trial (e.g.\ v_fwd ≈ 0 in one of the 5).
+    _train_seed = int(getattr(config.training, "seed", 0))
+    _rt_seed = (_train_seed + 17 if random_trials_seed is None
+                else int(random_trials_seed))
+    rng_r = np.random.default_rng(_rt_seed)
     K_r = int(min(32, u_test.shape[0]))
     cand_r = np.sort(rng_r.choice(u_test.shape[0], size=K_r,
                                     replace=False))

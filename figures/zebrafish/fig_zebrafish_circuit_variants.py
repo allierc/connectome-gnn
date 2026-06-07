@@ -29,11 +29,11 @@ from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
 # the a/b/c/d labels through the LaTeX caption only, since the two
 # subfigures render at different physical scales and matching matplotlib
 # fontsizes across them is unreliable).
-TITLE_FS = 11
-LABEL_FS = 10
-COUNT_FS = 9
-SUB_FS = 8
-LEGEND_FS = 9
+TITLE_FS = 14
+LABEL_FS = 13
+COUNT_FS = 12
+SUB_FS = 11
+LEGEND_FS = 12
 
 # Drive-type palette — deep, saturated colours for the arrows.
 COL_OMEGA    = "#1f6fb3"      # ω (angular velocity)
@@ -101,10 +101,9 @@ def _arrow(ax, xy_from, xy_to, color="0.25", lw=1.5, ls="-",
 
 def _drive_legend(ax, has_propriocep: bool):
     items = [(COL_OMEGA,    r"$\omega$"),
-             (COL_VFWD_EXT, r"$v_{\mathrm{fwd}}$ (exteroceptive)")]
+             (COL_VFWD_EXT, r"$v_{\mathrm{extero}}$")]
     if has_propriocep:
-        items.append((COL_VFWD_PRO,
-                       r"$v_{\mathrm{fwd}}$ (proprioceptive)"))
+        items.append((COL_VFWD_PRO, r"$v_{\mathrm{proprio}}$"))
     x0, y0, dy = 0.60, 0.13, -0.045
     for i, (col, lab) in enumerate(items):
         ax.plot([x0, x0 + 0.05], [y0 + i * dy, y0 + i * dy],
@@ -125,20 +124,20 @@ def _draw_recurrent_block(ax):
     """Centre column: recurrent network block. Two stacked tiles — the
     dIPN recurrent pool and the IPN12 pool — both labelled as part of
     the same recurrent network."""
-    cx = 0.55
+    cx = 0.61
     # Outer container — neutral pale amber so the two coloured inner tiles
     # (dIPN + IPN12 pool, matching their partition swatches in
     # Figure 1) stand out.
-    _box(ax, (0.40, 0.30), (0.30, 0.48), fill=COL_REC_FILL)
+    _box(ax, (0.46, 0.30), (0.30, 0.48), fill=COL_REC_FILL)
     _text(ax, (cx, 0.74), ["recurrent network"], fontsize=TITLE_FS)
     # dIPN tile — amber pastel matching the Figure 1 swatch.
-    _box(ax, (0.43, 0.55), (0.24, 0.13), fill=COL_DIPN_FILL, zorder=4)
+    _box(ax, (0.49, 0.55), (0.24, 0.13), fill=COL_DIPN_FILL, zorder=4)
     _text(ax, (cx, 0.615),
           [r"$d$IPN",
            r"($n=443$, $r1\pi$ cells)"],
           fontsize=LABEL_FS)
     # IPN12 pool tile — rose pastel matching the Figure 1 swatch.
-    _box(ax, (0.43, 0.36), (0.24, 0.13), fill=COL_IPN12_FILL, zorder=4)
+    _box(ax, (0.49, 0.36), (0.24, 0.13), fill=COL_IPN12_FILL, zorder=4)
     _text(ax, (cx, 0.425),
           ["IPN12 pool",
            r"($n=108$)"],
@@ -146,9 +145,9 @@ def _draw_recurrent_block(ax):
 
 
 def _draw_decoder_block(ax, out_lines):
-    _box(ax, (0.78, 0.40), (0.20, 0.30), fill=COL_DEC_FILL)
-    _text(ax, (0.88, 0.62), ["decoder"], fontsize=TITLE_FS)
-    _text(ax, (0.88, 0.50), out_lines, fontsize=LABEL_FS)
+    _box(ax, (0.82, 0.40), (0.17, 0.30), fill=COL_DEC_FILL)
+    _text(ax, (0.905, 0.62), ["decoder"], fontsize=TITLE_FS)
+    _text(ax, (0.905, 0.50), out_lines, fontsize=LABEL_FS)
 
 
 def _draw_afferent_block(ax, xy, wh, name, count, sub_lines=None,

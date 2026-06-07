@@ -2769,57 +2769,171 @@ def data_test_path_integration_task(
             ca_real = np.asarray(
                 _zarr.open(f"{_calc_root}/train/calcium.zarr", 'r'))[:n_tile]
             n_steps_trial = ca_u.shape[1]
+            # ω is column 0 of the 3-col rotation-shape stimulus; stash
+            # it now because the task_targets projection below may slice
+            # ca_u down to a single non-ω channel for translation-only
+            # variants.
+            omega_blk = ca_u[:, :, 0].reshape(-1).cpu().numpy()
+
+            # Match the trainer's calcium-dataset reshape (see
+            # graph_trainer.py: build 4-col superset from
+            # swim_forward.zarr, then apply the task_targets in_cols
+            # projection) so the model sees its training-time n_in
+            # at test time too. Without this the calcium dataset's
+            # rotation-shaped 3-col stimulus is fed straight into a
+            # 1-col translation-only model and crashes _project_in.
+            def _maybe_load_zarr(path):
+                try:
+                    return torch.from_numpy(
+                        np.asarray(_zarr.open(path, mode="r"))
+                    ).to(device).float()
+                except Exception:
+                    return None
+
+            _needs_vfwd = bool(_task_key) and (
+                "translation" in _task_key or "position_2d" in _task_key)
+            _has_super = False
+            if _needs_vfwd and ca_u.shape[-1] == 3:
+                swim_fwd = _maybe_load_zarr(
+                    f"{_calc_root}/train/swim_forward.zarr")
+                if swim_fwd is None:
+                    raise RuntimeError(
+                        f"calcium dataset {_calc_name} is rotation-shaped "
+                        f"(3 stim channels) and swim_forward.zarr is "
+                        f"missing; cannot drive task_targets "
+                        f"{task_targets_canonical} at test time.")
+                if swim_fwd.dim() == 3:
+                    swim_fwd = swim_fwd[..., 0]
+                swim_fwd = swim_fwd[:n_tile, :n_steps_trial]
+                ca_u_super = torch.zeros(
+                    (ca_u.shape[0], ca_u.shape[1], 4),
+                    dtype=ca_u.dtype, device=device)
+                ca_u_super[..., 0] = ca_u[..., 0]              # ω
+                ca_u_super[..., 1] = swim_fwd                  # v_fwd
+                ca_u_super[..., 2] = ca_u[..., 1]              # cos θ₀·δ
+                ca_u_super[..., 3] = ca_u[..., 2]              # sin θ₀·δ
+                ca_u = ca_u_super
+                _has_super = True
+
+            # Synthetic target columns: 2 for rotation-only datasets, 3
+            # once the v_fwd column was added (target gains a d head).
+            _y_cols_for_profile = 3 if _has_super else 2
+            _prof_key = (_y_cols_for_profile, _task_key)
+            if _task_key and _prof_key in _PROFILE_BY_TARGET:
+                _ic, _oc = _PROFILE_BY_TARGET[_prof_key]
+                ca_u = ca_u[..., _ic].contiguous()
+                logger.info(
+                    f'  [calcium] ca_u sliced to in_cols={_ic} '
+                    f'(task_targets={task_targets_canonical})')
+
             # --- stitched per-trial learned calcium + HD decode -----------
             with torch.no_grad():
-                y_stitch, h_stitch = model(ca_u)               # (n_tile,T,2),(.,N)
+                y_stitch, h_stitch = model(ca_u)               # (n_tile,T,?),(.,N)
                 h_full = h_stitch.reshape(n_tile * n_steps_trial, -1)  # (T_blk, N)
                 ca_full = gcamp(h_full, dt_in=dt)               # (T_blk, N)
             learned_stitch = ca_full.index_select(
                 -1, kino_model_ix).cpu().numpy()                # (T_blk, K)
             aff_stitch = ca_full.index_select(
                 -1, aff_model_ix).cpu().numpy()                 # (T_blk, K_aff)
-            # ω drive (deg/s) + true/decoded HD over the block, per-trial concat
-            omega_blk = ca_u[:, :, 0].reshape(-1).cpu().numpy()
-            dec_stitch = np.rad2deg(torch.atan2(
-                y_stitch[..., 1], y_stitch[..., 0]).reshape(-1).cpu().numpy())
-            if _ct.theta_hd is not None:
-                true_blk = np.rad2deg(
-                    _ct.theta_hd[:n_tile].reshape(-1).cpu().numpy())
-            else:
-                true_blk = np.rad2deg(np.cumsum(np.deg2rad(omega_blk)) * dt)
-            hd_info = {'stitch': {'true': true_blk, 'pred': dec_stitch}}
+            # HD decode requires a 2-col (cos, sin) readout; skip on
+            # translation-only models whose readout is the 1-col d.
+            hd_info = {}
+            if has_rotation and y_stitch.shape[-1] >= 2:
+                dec_stitch = np.rad2deg(torch.atan2(
+                    y_stitch[..., 1], y_stitch[..., 0]).reshape(-1).cpu().numpy())
+                if _ct.theta_hd is not None:
+                    true_blk = np.rad2deg(
+                        _ct.theta_hd[:n_tile].reshape(-1).cpu().numpy())
+                else:
+                    true_blk = np.rad2deg(
+                        np.cumsum(np.deg2rad(omega_blk)) * dt)
+                hd_info = {'stitch': {'true': true_blk, 'pred': dec_stitch}}
             # --- real block: concat the tiled windows ---------------------
             real_blk = ca_real.reshape(n_tile * n_steps_trial, -1)  # (T_blk, R)
             real_kino = real_blk[:, kino_obs_ix]                # (T_blk, K)
             real_aff = real_blk[:, aff_obs_ix]                  # (T_blk, K_aff)
             # --- continuous single rollout (drift view), best-effort ------
+            # Builds an n_in-aware continuous stimulus over the n_tile-trial
+            # block (NOT the rolled-out rotation-only zapbench probe), so a
+            # 4-input "both" model gets the recorded swim_forward in
+            # column 1 instead of zeros. Channel 0 is the recorded ω
+            # (already in ca_u_super[..., 0]), channel 1 (when n_in == 4)
+            # is swim_forward concatenated trial-by-trial, channels 2/3
+            # carry (cos θ₀, sin θ₀) on the first frame only --- exactly
+            # the contract the model was trained on. The 1-col
+            # translation variant gets v_fwd in column 0.
             learned_cont = None
             aff_cont = None
+            v_fwd_blk = None
+            d_info = {}
             try:
-                _conn = (getattr(config.plotting,
-                                 'anatomy_voltage_zapbench_connectome', '')
-                         or getattr(config.simulation, 'connconstr_datapath', '')
-                         or '')
-                if _conn and not os.path.isabs(_conn):
-                    _conn = os.path.join(_repo, _conn)
-                _ffe = (getattr(config.plotting,
-                                'anatomy_voltage_zapbench_fishfuncem_data', '')
-                        or os.path.join(_repo, 'papers', 'fishFuncEM', 'data'))
-                pc = config.plotting.model_copy(update=dict(
-                    anatomy_voltage_pattern='zapbench_rotation',
-                    anatomy_voltage_warmup_s=float(getattr(
-                        config.plotting, 'anatomy_voltage_warmup_s', 10.0)),
-                    anatomy_voltage_zapbench_connectome=_conn,
-                    anatomy_voltage_zapbench_fishfuncem_data=_ffe))
-                h_c, y_c, th_c, _labc, _exc = run_task_rollout(model, pc, device)
-                warm = int(_exc['warm_steps'])
+                n_in = int(getattr(model, 'n_input', None)
+                            or getattr(model, 'n_inputs', None)
+                            or ca_u.shape[-1])
+                # Recorded ω across the block (rotation-shape stim col 0)
+                # before any task_targets slicing. We already computed
+                # omega_blk above from the raw 3-col stimulus.
+                T_blk = n_tile * n_steps_trial
+                # swim_forward concatenated across the same n_tile trials
+                # — needed whenever the model expects v_fwd (n_in ∈ {1, 4}).
+                if n_in in (1, 4):
+                    sw = _maybe_load_zarr(
+                        f"{_calc_root}/train/swim_forward.zarr")
+                    if sw is None:
+                        raise RuntimeError(
+                            "swim_forward.zarr missing — cannot build "
+                            f"continuous rollout for n_in={n_in} model.")
+                    if sw.dim() == 3:
+                        sw = sw[..., 0]
+                    sw = sw[:n_tile, :n_steps_trial].reshape(-1).cpu().numpy()
+                    v_fwd_blk = sw.astype(np.float32)
+                # Build the n_in-shaped continuous stimulus
+                u_cont = torch.zeros((1, T_blk, n_in), device=device,
+                                      dtype=torch.float32)
+                if n_in == 3:
+                    u_cont[0, :, 0] = torch.as_tensor(
+                        omega_blk, device=device, dtype=torch.float32)
+                    u_cont[0, 0, 1] = 1.0     # cos θ₀ = 1, sin θ₀ = 0
+                elif n_in == 1:
+                    u_cont[0, :, 0] = torch.as_tensor(
+                        v_fwd_blk, device=device, dtype=torch.float32)
+                elif n_in == 4:
+                    u_cont[0, :, 0] = torch.as_tensor(
+                        omega_blk, device=device, dtype=torch.float32)
+                    u_cont[0, :, 1] = torch.as_tensor(
+                        v_fwd_blk, device=device, dtype=torch.float32)
+                    u_cont[0, 0, 2] = 1.0     # cos θ₀ = 1, sin θ₀ = 0
+                else:
+                    raise RuntimeError(f"unsupported n_in={n_in}")
                 with torch.no_grad():
-                    ca_c = gcamp(torch.from_numpy(h_c[warm:]).to(device), dt_in=dt)
-                learned_cont = ca_c.index_select(-1, kino_model_ix).cpu().numpy()
-                aff_cont = ca_c.index_select(-1, aff_model_ix).cpu().numpy()
-                hd_info['continuous'] = {
-                    'true': np.rad2deg(th_c[warm:]),
-                    'pred': np.rad2deg(np.arctan2(y_c[warm:, 1], y_c[warm:, 0]))}
+                    y_c, h_c = model(u_cont)
+                h_c = h_c[0].cpu().numpy()
+                y_c = y_c[0].cpu().numpy()
+                with torch.no_grad():
+                    ca_c = gcamp(torch.from_numpy(h_c).to(device), dt_in=dt)
+                learned_cont = ca_c.index_select(
+                    -1, kino_model_ix).cpu().numpy()
+                aff_cont = ca_c.index_select(
+                    -1, aff_model_ix).cpu().numpy()
+                # Heading decode (uses readout cols 0/1 = cosθ, sinθ).
+                if has_rotation and y_c.shape[-1] >= 2:
+                    th_true = np.cumsum(np.deg2rad(omega_blk)) * dt
+                    hd_info['continuous'] = {
+                        'true': np.rad2deg(th_true),
+                        'pred': np.rad2deg(
+                            np.arctan2(y_c[:, 1], y_c[:, 0]))}
+                # Translation decode (d head). The cumulative GT is
+                # cumsum(v_fwd)·dt for the cumulative variant; the leaky
+                # variant decays to v_fwd·τ in steady state but the GT
+                # the model was trained on is recorded in
+                # ``ca_y[..., 2]``. We display the cumulative reference
+                # so the reader can see what unleaked PI would look like.
+                if has_translation and v_fwd_blk is not None:
+                    d_true_cum = np.cumsum(v_fwd_blk) * dt
+                    d_col = 2 if y_c.shape[-1] >= 3 else 0
+                    d_pred = y_c[:, d_col]
+                    d_info['continuous'] = {
+                        'true': d_true_cum, 'pred': d_pred}
             except Exception as _e:
                 logger.warning(f'  [calcium] continuous rollout skipped: '
                                f'{type(_e).__name__}: {_e}')
@@ -2836,7 +2950,9 @@ def data_test_path_integration_task(
                 title=(f'{config.dataset} → {gcamp_name} calcium '
                        f'reconstruction ({n_tile}×{n_steps_trial * dt:.0f}s '
                        f'block)'),
-                omega=omega_blk, hd=hd_info, trial_s=n_steps_trial * dt)
+                omega=omega_blk, v_fwd=v_fwd_blk,
+                hd=hd_info, d=d_info,
+                trial_s=n_steps_trial * dt, show_stitch=False)
             logger.info(
                 f'  [calcium] {n_tile}-tile block reconstruction '
                 f'(n_bump={real_kino.shape[1]}, n_aff={real_aff.shape[1]}):')

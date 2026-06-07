@@ -53,6 +53,16 @@ VARIANTS = [
     ("position_2d_leaky",             "rotation + 2D path (leaky)"),
 ]
 
+# Per-variant override for the random_trials seed in
+# fig_evolution._load_model_and_rollouts. Default is
+# ``training.seed + 17``; override here when the default pick
+# contains a degenerate trial (e.g.\ v_fwd ≈ 0 in one of the 5 random
+# trials) so the figure renders informative panels.
+PER_VARIANT_RT_SEED = {
+    "selfmotion_both_leaky": 543,
+    "position_2d_leaky":     2024,
+}
+
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
@@ -89,6 +99,7 @@ def main():
                 snapshot_omega_deg=args.snapshot_omega_deg,
                 trial_seed=args.trial_seed,
                 trial_idx=args.trial_idx,
+                random_trials_seed=PER_VARIANT_RT_SEED.get(suffix),
             )
             out_path = os.path.join(args.out_dir,
                                      f"fig_evolution_{run_name}.png")
