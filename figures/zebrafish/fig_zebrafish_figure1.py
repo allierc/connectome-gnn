@@ -56,12 +56,14 @@ def build_figure(out_path, anatomy_dir, extra_anatomy_dirs=(),
     print(f"loaded {len(nl)} neurons, {len(rois)} ROI meshes, "
           f"{sum(len(v) for v in soma_meshes_by_type.values())} soma meshes")
 
-    fig = plt.figure(figsize=(14.0, 8.5), facecolor=background)
-    # 2×2 layout: (a, b) anatomy on top, (c, d) circuit diagrams below.
+    fig = plt.figure(figsize=(14.0, 10.0), facecolor=background)
+    # 2×2 layout: (a, b) anatomy on top (taller — the dorsal brain view
+    # is wide and benefits from extra vertical room to fill its column),
+    # (c, d) circuit diagrams below.
     gs = GridSpec(2, 2, figure=fig,
-                  height_ratios=[3.5, 4.0],
-                  hspace=0.06, wspace=0.04,
-                  left=0.02, right=0.88, top=0.99, bottom=0.02)
+                  height_ratios=[6.0, 4.0],
+                  hspace=0.04, wspace=0.02,
+                  left=0.01, right=0.88, top=0.99, bottom=0.02)
     ax_a = fig.add_subplot(gs[0, 0])
     ax_b = fig.add_subplot(gs[0, 1])
     ax_c = fig.add_subplot(gs[1, 0])
