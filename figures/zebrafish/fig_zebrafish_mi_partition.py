@@ -289,7 +289,7 @@ def main():
     ax.tick_params(labelsize=11)
     ax.legend(fontsize=10, loc="upper right", frameon=False)
     ax.text(-0.10, 1.04, "a", transform=ax.transAxes,
-            fontsize=20, fontweight="bold")
+            fontsize=13, fontweight="bold")
 
     # (b) edge-block matrix
     ax = axes[1]
@@ -311,7 +311,7 @@ def main():
                  fontsize=11)
     cb.ax.tick_params(labelsize=10)
     ax.text(-0.10, 1.04, "b", transform=ax.transAxes,
-            fontsize=20, fontweight="bold")
+            fontsize=13, fontweight="bold")
 
     plt.tight_layout()
     fig.savefig(args.out, dpi=170, bbox_inches="tight")
