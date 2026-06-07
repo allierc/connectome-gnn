@@ -127,7 +127,7 @@ flow and water-flow signals).
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=\textwidth]{\figdir/fig_zebrafish_figure1.png}
+  \includegraphics[width=\textwidth]{\figdir/fig_1_overview.png}
   \caption{\textbf{Zebrafish HD / IPN circuit --- anatomy
   (\textbf{a}, \textbf{b}) and afferent partition (\textbf{c},
   \textbf{d}).} Six-way colour code shared across panels:
@@ -143,14 +143,15 @@ flow and water-flow signals).
   neurons: the dense central region of (a) is the dIPN / iIPN
   neuropil (no cell bodies), the somata sit in the surrounding cortex.
   \textbf{(c)}~Velocity-gate partition on the $839$-cell connectome:
-  $\omega$ routed exclusively to ARTR, $v_{\mathrm{fwd}}$ exclusively
-  to pt-IPN1; rotation and translation paths are anatomically
-  separated.
-  \textbf{(d)}~Proprioception extension: $v_{\mathrm{fwd}}$ is also
-  delivered through the motor-efferent RIPN sub-types
-  (RIPN11/12\_a/12\_c), modelling sensory plus efference-copy
-  redundancy. Recurrent network and decoder are identical between
-  (c) and (d); only the gate-target taxonomy differs.}
+  $\omega$ routed exclusively to ARTR and the exteroceptive forward
+  channel $v_{\mathrm{ext}}$ routed exclusively to pt-IPN1; rotation
+  and translation paths are anatomically separated.
+  \textbf{(d)}~Proprioception extension: a separate proprioceptive
+  forward channel $v_{\mathrm{prop}}$ is delivered through the
+  motor-efferent RIPN sub-types (RIPN11/12\_a/12\_c) in parallel with
+  $v_{\mathrm{ext}}$, modelling sensory plus efference-copy redundancy.
+  Recurrent network and decoder are identical between (c) and (d);
+  only the gate-target taxonomy differs.}
   \label{fig:zhd_3d}
 \end{figure}
 
@@ -186,7 +187,7 @@ positive (excitatory).
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=\textwidth]{\figdir/fig_connectome_summary_HD_IPN12.png}
+  \includegraphics[width=\textwidth]{\figdir/fig_2_connectome.png}
   \caption{\textbf{Zebrafish HD-circuit connectome (nominal 839-cell
   IPN12 pool, two Dale-sign variants).} Matrix size
   $N \times N = 839 \times 839$, $22{,}425$ non-zero edges
@@ -260,17 +261,40 @@ v_{c,\,q(i)} & i\in\mathcal{A},\ q(i)\in\mathcal{Q}_c,\\
 \end{cases}
 \label{eq:zhd_swim_gate}
 \end{equation}
-where $\mathcal{A}$ is the union of afferent neurons. The licensed
-ports for the two production-circuit variants are
+where $\mathcal{A}$ is the union of afferent neurons. Each anatomically
+distinct afferent population is therefore driven by its \emph{own}
+input channel: there is no shared column in $\hat W^{\mathrm{in}}$
+that fans out to more than one population. Concretely, the two
+production-circuit variants use the input-channel sets
 \begin{equation}
-\mathcal{Q}_\omega=\{\mathrm{ARTR}_{L,R}\},\qquad
-\mathcal{Q}_{v_{\mathrm{fwd}}}=
-\begin{cases}
-\{\mathrm{ptIPN1}_{L,R}\} & (\text{Fig.~\ref{fig:zhd_3d}\textbf{c}, exteroceptive only}),\\
-\{\mathrm{ptIPN1}_{L,R},\,\mathrm{motor\_efferent}_{L,R}\} & (\text{Fig.~\ref{fig:zhd_3d}\textbf{d}, proprioception}).
-\end{cases}
+\begin{aligned}
+\text{exteroceptive (\cref{fig:zhd_3d}\textbf{c}):}\quad &
+   u(t)=\bigl(\omega,\,v_{\mathrm{fwd}},\,\cos\theta_0\!\cdot\!\delta_{t_0},\,\sin\theta_0\!\cdot\!\delta_{t_0}\bigr),\\
+& \mathcal{Q}_\omega=\{\mathrm{ARTR}_{L,R}\},\quad
+  \mathcal{Q}_{v_{\mathrm{fwd}}}=\{\mathrm{ptIPN1}_{L,R}\};\\[4pt]
+\text{proprioception (\cref{fig:zhd_3d}\textbf{d}):}\quad &
+   u(t)=\bigl(\omega,\,v_{\mathrm{extero}},\,v_{\mathrm{proprio}},\,\cos\theta_0\!\cdot\!\delta_{t_0},\,\sin\theta_0\!\cdot\!\delta_{t_0}\bigr),\\
+& \mathcal{Q}_\omega=\{\mathrm{ARTR}_{L,R}\},\
+  \mathcal{Q}_{v_{\mathrm{extero}}}=\{\mathrm{ptIPN1}_{L,R}\},\
+  \mathcal{Q}_{v_{\mathrm{proprio}}}=\{\mathrm{motor\_efferent}_{L,R}\}.
+\end{aligned}
 \label{eq:zhd_port_map}
 \end{equation}
+The proprioception variant therefore has \emph{two} separate
+$\hat W^{\mathrm{in}}$ columns for forward swim --- one routed to
+pt-IPN1 (the exteroceptive optic/water-flow afferent) and one routed
+to motor\_efferent (RIPN11 + RIPN12\_a + RIPN12\_c, the
+efference-copy afferents) --- so the two pathways are anatomically and
+parameterically independent. This is the default and only behaviour
+for the proprioception circuit; the previous single-column gate that
+fanned a shared $v_{\mathrm{fwd}}$ out to both populations through
+two scalars is removed. In the first version of the model the two
+channels carry the same driver, $v_{\mathrm{extero}}(t) =
+v_{\mathrm{proprio}}(t) = v_{\mathrm{fwd}}(t)$, so the model sees the
+same forward swim signal plumbed through two anatomically distinct
+ports; differential delay or noise on the exteroceptive channel
+(visual feedback latency) is a one-line follow-up that does not
+change the equation above.
 The same rule generalises to the full multi-modal driver across all
 nine ZAPBench conditions (\cref{fig:zhd_allblocks}): every visual
 channel $c\in\mathrm{vis}$ --- signed rotation/optic-flow velocity

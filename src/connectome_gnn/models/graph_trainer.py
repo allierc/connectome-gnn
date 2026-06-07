@@ -1910,13 +1910,24 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
     #
     # Legacy 3-ch on-disk datasets (u_train.shape[-1] == 3) pre-date the
     # 4-ch layout and pass through unchanged (n_in/n_out default to 3/2).
+    # Keyed by (n_in_disk, n_out_disk, sorted_task_targets_tuple). The
+    # propriocep-split layout (5-col disk stim) adds a 3rd input
+    # carrying v_proprio and gets its own (5, ·, ·) entries; the rest
+    # are unchanged.
     _PROFILE_BY_TARGET = {
-        # Keyed by (y_cols, sorted_task_targets_tuple).
-        (3, ("rotation",)):                ([0, 2, 3],    [0, 1]),
-        (3, ("translation",)):             ([1],          [2]),
-        (3, ("rotation", "translation")):  ([0, 1, 2, 3], [0, 1, 2]),
-        (4, ("rotation",)):                ([0, 2, 3],    [0, 1]),
-        (4, ("position_2d",)):             ([0, 1, 2, 3], [0, 1, 2, 3]),
+        # scalar_xi (4-col stim, 3-col target):
+        (4, 3, ("rotation",)):                ([0, 2, 3],    [0, 1]),
+        (4, 3, ("translation",)):             ([1],          [2]),
+        (4, 3, ("rotation", "translation")):  ([0, 1, 2, 3], [0, 1, 2]),
+        # position_2d (4-col stim, 4-col target):
+        (4, 4, ("rotation",)):                ([0, 2, 3],    [0, 1]),
+        (4, 4, ("position_2d",)):             ([0, 1, 2, 3], [0, 1, 2, 3]),
+        # propriocep-split (5-col stim — col 2 carries v_proprio):
+        (5, 3, ("rotation",)):                ([0, 3, 4],       [0, 1]),
+        (5, 3, ("translation",)):             ([1, 2],          [2]),
+        (5, 3, ("rotation", "translation")):  ([0, 1, 2, 3, 4], [0, 1, 2]),
+        (5, 4, ("rotation",)):                ([0, 3, 4],       [0, 1]),
+        (5, 4, ("position_2d",)):             ([0, 1, 2, 3, 4], [0, 1, 2, 3]),
     }
     _task_raw = list(getattr(tc, 'task_targets', None) or [])
     # Canonical key: rotation always before translation; position_2d listed
@@ -1925,15 +1936,16 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
     _task_key = tuple(t for t in _RECOGNISED if t in _task_raw)
     task_targets_canonical = list(_task_key)
     if u_train.shape[-1] >= 4 and _task_key:
+        n_in_disk = int(u_train.shape[-1])
         n_out_disk = int(y_train.shape[-1])
-        _profile_key = (n_out_disk, _task_key)
+        _profile_key = (n_in_disk, n_out_disk, _task_key)
         if _profile_key not in _PROFILE_BY_TARGET:
             raise ValueError(
                 f"training.task_targets={_task_raw!r} is not a valid "
-                f"projection for an on-disk target with {n_out_disk} cols. "
-                f"scalar_xi (3-col): rotation / translation / "
-                f"rotation+translation. position_2d (4-col): rotation / "
-                f"position_2d."
+                f"projection for an on-disk stimulus with {n_in_disk} "
+                f"cols / target with {n_out_disk} cols. Recognised "
+                f"(n_in, n_out, targets) keys: "
+                f"{sorted(_PROFILE_BY_TARGET.keys())}."
             )
         in_cols, out_cols = _PROFILE_BY_TARGET[_profile_key]
         u_train = u_train[..., in_cols].contiguous()
@@ -2093,6 +2105,16 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
             except Exception:
                 return None
 
+        # Build the synthetic superset shape used by the calcium batch.
+        # When the synthetic training data is propriocep-split (5-col
+        # stimulus [ω, v_extero, v_proprio, cosθ₀, sinθ₀]) we need to
+        # match that shape on the calcium side too; the swim_forward
+        # signal is plumbed through BOTH v_extero and v_proprio columns
+        # (same driver, two anatomically distinct ports). Otherwise
+        # the legacy 4-col superset [ω, v_fwd, cosθ₀, sinθ₀] is built.
+        _propriocep_split = bool(getattr(
+            getattr(config.task, "swim_integration", None),
+            "propriocep_split", False))
         _needs_vfwd = bool(_task_key) and ("translation" in _task_key
                                             or "position_2d" in _task_key)
         if _needs_vfwd and ca_u.shape[-1] == 3:
@@ -2106,38 +2128,86 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
             # swim_fwd may be (Bc, T) or (Bc, T, 1) — collapse to (Bc, T).
             if swim_fwd.dim() == 3:
                 swim_fwd = swim_fwd[..., 0]
-            # Build the 4-col synthetic superset: [ω, v_fwd, cos θ₀·δ, sin θ₀·δ].
+            n_super = 5 if _propriocep_split else 4
             ca_u_super = torch.zeros(
-                (ca_u.shape[0], ca_u.shape[1], 4),
+                (ca_u.shape[0], ca_u.shape[1], n_super),
                 dtype=ca_u.dtype, device=device,
             )
-            ca_u_super[..., 0] = ca_u[..., 0]              # ω
-            ca_u_super[..., 1] = swim_fwd                  # v_fwd
-            ca_u_super[..., 2] = ca_u[..., 1]              # cos θ₀·δ
-            ca_u_super[..., 3] = ca_u[..., 2]              # sin θ₀·δ
+            if _propriocep_split:
+                # [ω, v_extero, v_proprio, cos θ₀·δ, sin θ₀·δ]
+                ca_u_super[..., 0] = ca_u[..., 0]          # ω
+                ca_u_super[..., 1] = swim_fwd              # v_extero
+                ca_u_super[..., 2] = swim_fwd              # v_proprio
+                ca_u_super[..., 3] = ca_u[..., 1]          # cos θ₀·δ
+                ca_u_super[..., 4] = ca_u[..., 2]          # sin θ₀·δ
+            else:
+                # [ω, v_fwd, cos θ₀·δ, sin θ₀·δ]
+                ca_u_super[..., 0] = ca_u[..., 0]
+                ca_u_super[..., 1] = swim_fwd
+                ca_u_super[..., 2] = ca_u[..., 1]
+                ca_u_super[..., 3] = ca_u[..., 2]
             ca_u = ca_u_super
-            # Build the 3-col synthetic target: [cos θ, sin θ, d_integrated].
-            # d_integrated = cumsum(v_fwd) * dt — the same cumulative
-            # recipe the synthetic generator uses for `disp`.
+            # Build the synthetic target matching the synthetic-data
+            # target_kind:
+            #   scalar_xi / both:  3 cols [cos θ, sin θ, d_integrated]
+            #   position_2d:       4 cols [cos θ, sin θ, x, y] where
+            #                      x = cumsum(v_fwd · cos θ)·dt and
+            #                      y = cumsum(v_fwd · sin θ)·dt — the
+            #                      same 2D PI integration the synthetic
+            #                      generator does.
             dt_ds = float(getattr(config.task.swim_integration, "dt", 0.01))
-            d_int = torch.cumsum(swim_fwd, dim=1) * dt_ds  # (Bc, T)
-            ca_y_super = torch.zeros(
-                (ca_y.shape[0], ca_y.shape[1], 3),
-                dtype=ca_y.dtype, device=device,
-            )
-            ca_y_super[..., 0] = ca_y[..., 0]              # cos θ
-            ca_y_super[..., 1] = ca_y[..., 1]              # sin θ
-            ca_y_super[..., 2] = d_int                     # cumulative d
+            _tgt_kind = str(getattr(getattr(config.task, "swim_integration", None),
+                                     "target_kind", "scalar_xi")).lower()
+            if _tgt_kind == "position_2d":
+                cos_t = ca_y[..., 0]                          # (Bc, T)
+                sin_t = ca_y[..., 1]
+                # Leaky vs cumulative — same recipe as the synthetic
+                # generator (graph_data_generator._integrate_leaky).
+                pos_tau = getattr(
+                    getattr(config.task, "swim_integration", None),
+                    "position_tau_s", None)
+                vx = swim_fwd * cos_t
+                vy = swim_fwd * sin_t
+                if pos_tau is None or float(pos_tau) <= 0.0:
+                    x_pos = torch.cumsum(vx, dim=1) * dt_ds
+                    y_pos = torch.cumsum(vy, dim=1) * dt_ds
+                else:
+                    alpha = max(0.0, min(1.0 - dt_ds / float(pos_tau), 1.0))
+                    x_pos = torch.zeros_like(vx)
+                    y_pos = torch.zeros_like(vy)
+                    for _t in range(1, vx.shape[1]):
+                        x_pos[:, _t] = alpha * x_pos[:, _t - 1] + vx[:, _t] * dt_ds
+                        y_pos[:, _t] = alpha * y_pos[:, _t - 1] + vy[:, _t] * dt_ds
+                ca_y_super = torch.zeros(
+                    (ca_y.shape[0], ca_y.shape[1], 4),
+                    dtype=ca_y.dtype, device=device,
+                )
+                ca_y_super[..., 0] = cos_t
+                ca_y_super[..., 1] = sin_t
+                ca_y_super[..., 2] = x_pos
+                ca_y_super[..., 3] = y_pos
+            else:
+                d_int = torch.cumsum(swim_fwd, dim=1) * dt_ds   # (Bc, T)
+                ca_y_super = torch.zeros(
+                    (ca_y.shape[0], ca_y.shape[1], 3),
+                    dtype=ca_y.dtype, device=device,
+                )
+                ca_y_super[..., 0] = ca_y[..., 0]               # cos θ
+                ca_y_super[..., 1] = ca_y[..., 1]               # sin θ
+                ca_y_super[..., 2] = d_int                       # cumulative d
             ca_y = ca_y_super
-            _logger.info(f'calcium dataset augmented with swim_forward.zarr '
-                          f'→ ca_u {tuple(ca_u.shape)}, ca_y {tuple(ca_y.shape)}')
+            _logger.info(
+                f'calcium dataset augmented with swim_forward.zarr '
+                f'(propriocep_split={_propriocep_split}, '
+                f'target_kind={_tgt_kind}) → ca_u '
+                f'{tuple(ca_u.shape)}, ca_y {tuple(ca_y.shape)}')
 
         # Apply the same task_targets projection to ca_u / ca_y so the
         # batch-cat shapes match the synthetic batch. Profile is keyed
-        # by (target-cols, task_key) — same lookup as for the synthetic
-        # u_train / y_train above.
-        if _task_key and (ca_y.shape[-1], _task_key) in _PROFILE_BY_TARGET:
-            _ic, _oc = _PROFILE_BY_TARGET[(ca_y.shape[-1], _task_key)]
+        # by (n_in_disk, n_out_disk, task_targets).
+        _prof_key_cal = (ca_u.shape[-1], ca_y.shape[-1], _task_key)
+        if _task_key and _prof_key_cal in _PROFILE_BY_TARGET:
+            _ic, _oc = _PROFILE_BY_TARGET[_prof_key_cal]
             ca_u = ca_u[..., _ic].contiguous()
             ca_y = ca_y[..., _oc].contiguous()
             _logger.info(f'calcium dataset sliced to in_cols={_ic} out_cols={_oc}'

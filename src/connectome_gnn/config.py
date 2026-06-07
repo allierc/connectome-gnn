@@ -1425,6 +1425,17 @@ class SwimIntegrationTaskConfig(BaseModel):
     # applies when target_kind == "position_2d".
     position_tau_s: Optional[float] = None
 
+    # Proprioception-split input layout. When True the on-disk stimulus
+    # gains a 3rd column carrying v_proprio so the
+    # ``pen_artr_ptipn1_propriocep`` gate's two parallel pathways
+    # (v_extero → pt-IPN1, v_proprio → motor_efferent) are anatomically
+    # and parameterically independent rather than sharing a single
+    # input column. For the first version v_proprio = v_extero =
+    # v_fwd (same Poisson swim drive routed twice); per-channel delay
+    # or noise can be added later. Stimulus layout becomes
+    # ``[ω, v_extero, v_proprio, cos θ₀·δ, sin θ₀·δ]`` (5 channels).
+    propriocep_split: bool = False
+
     device: Literal["cpu", "cuda", "auto"] = "cpu"
 
     @model_validator(mode="after")

@@ -159,12 +159,26 @@ class ZebrafishHdTaskRNN(nn.Module):
         _tt_raw = list(getattr(getattr(config, "training", None),
                                "task_targets", None) or [])
         _tt_key = tuple(t for t in _RECOGNISED if t in _tt_raw)
-        _TT_DIMS = {
-            ("rotation",):                (3, 2),
-            ("translation",):             (1, 1),
-            ("rotation", "translation"):  (4, 3),
-            ("position_2d",):             (4, 4),
-        }
+        # On the propriocep gate v_fwd is split into two independent
+        # input columns (v_extero → pt-IPN1, v_proprio → motor_efferent)
+        # so any task with translation gains one extra input channel.
+        _is_propriocep_split = (
+            str(getattr(gm, "velocity_gate", "none"))
+            == "pen_artr_ptipn1_propriocep")
+        if _is_propriocep_split:
+            _TT_DIMS = {
+                ("rotation",):                (3, 2),
+                ("translation",):             (2, 1),
+                ("rotation", "translation"):  (5, 3),
+                ("position_2d",):             (5, 4),
+            }
+        else:
+            _TT_DIMS = {
+                ("rotation",):                (3, 2),
+                ("translation",):             (1, 1),
+                ("rotation", "translation"):  (4, 3),
+                ("position_2d",):             (4, 4),
+            }
         _auto_in, _auto_out = _TT_DIMS.get(_tt_key, (3, 2))  # default = rotation
         self.n_input = int(getattr(gm, "n_input", 0)) or _auto_in
         self.n_output = int(getattr(gm, "n_output", 0)) or _auto_out
@@ -338,16 +352,19 @@ class ZebrafishHdTaskRNN(nn.Module):
             self.v_pt1_l  = nn.Parameter(torch.tensor(0.01))
             self.v_pt1_r  = nn.Parameter(torch.tensor(-0.01))
         elif self.velocity_gate == "pen_artr_ptipn1_propriocep":
-            # Proprioception-extended gate: same ω routing as
-            # pen_artr_ptipn1, but v_fwd is now delivered through TWO
-            # parallel sensory pathways:
-            #   exteroceptive (optic / water flow) → pt-IPN1
-            #   proprioceptive (motor efference)   → motor_efferent
-            # Same v_fwd signal feeds both branches in this first version
-            # — the only thing the optimiser sees per branch is the
-            # 4 scalars below. A follow-up can add per-channel delay /
-            # gain noise to make the latency difference between the two
-            # pathways trainable / testable.
+            # Proprioception-extended gate (split-input, default and
+            # only behaviour): the two afferent pathways for forward
+            # swim get TWO independent input columns and TWO independent
+            # gated W_in columns — pt-IPN1 (exteroceptive) is driven by
+            # u[:, v_extero] and motor_efferent (proprioceptive) by
+            # u[:, v_proprio]. No summation into a shared v_fwd column.
+            # Channel layout (set by n_input — derived from
+            # task_targets):
+            #   n_input == 5 → [ω, v_extero, v_proprio, cosθ₀, sinθ₀]
+            #                  joint heading + path integration.
+            #   n_input == 2 → [v_extero, v_proprio]
+            #                  translation-only on the propriocep circuit.
+            # ω still routes to ARTR (col 0 for n_input==5).
             afferent = cx.get("afferent_subpop_ix", None) or {}
             required = ("ARTR_L", "ARTR_R",
                         "pt_IPN1_L", "pt_IPN1_R",
@@ -369,12 +386,14 @@ class ZebrafishHdTaskRNN(nn.Module):
                 )
             self.v_artr_l = nn.Parameter(torch.tensor(0.01))
             self.v_artr_r = nn.Parameter(torch.tensor(-0.01))
+            # Exteroceptive scalars — gate the column carrying
+            # v_extero onto pt-IPN1.
             self.v_pt1_l  = nn.Parameter(torch.tensor(0.01))
             self.v_pt1_r  = nn.Parameter(torch.tensor(-0.01))
-            # Proprioceptive scalars — initialised at half the
+            # Proprioceptive scalars — gate the column carrying
+            # v_proprio onto motor_efferent. Initialised at half the
             # exteroceptive magnitude so the network starts with a
-            # weakly-mixed extero+propriocep estimate it can refine in
-            # either direction.
+            # weakly-mixed extero+propriocep estimate.
             self.v_me_l   = nn.Parameter(torch.tensor(0.005))
             self.v_me_r   = nn.Parameter(torch.tensor(-0.005))
         elif self.velocity_gate != "none":
@@ -538,13 +557,11 @@ class ZebrafishHdTaskRNN(nn.Module):
                 else:   # n_input == 3 (rotation-only) — and any other shape
                     W = torch.cat([v_col_artr.unsqueeze(1), W[:, 1:]], dim=1)
             elif self.velocity_gate == "pen_artr_ptipn1_propriocep":
-                # Proprioception-extended gate. ω routing identical to
-                # pen_artr_ptipn1; v_fwd is now SUMMED into the network
-                # via two parallel afferent columns — pt-IPN1
-                # (exteroceptive) AND motor_efferent (proprioceptive). The
-                # input column carrying v_fwd is replaced with the
-                # combined gated column so the model still sees a single
-                # v_fwd input channel.
+                # Proprioception-extended gate (split-input, default
+                # and only behaviour). v_extero is on its own input
+                # column, gated onto pt-IPN1; v_proprio is on its own
+                # input column, gated onto motor_efferent. No summed
+                # v_fwd column.
                 v_col_artr = (
                     self._afferent_ind_artr_l * self.v_artr_l
                     + self._afferent_ind_artr_r * self.v_artr_r
@@ -557,18 +574,35 @@ class ZebrafishHdTaskRNN(nn.Module):
                     self._afferent_ind_motor_efferent_l * self.v_me_l
                     + self._afferent_ind_motor_efferent_r * self.v_me_r
                 )
-                # Combined exteroceptive + proprioceptive v_fwd column —
-                # the two afferent populations share the same drive but
-                # different per-side gains.
-                v_col_trans = v_col_pt1 + v_col_me
-                if self.n_input == 1:
-                    W = v_col_trans.unsqueeze(1)
-                elif self.n_input == 4:
+                if self.n_input == 5:
+                    # [ω, v_extero, v_proprio, cosθ₀, sinθ₀] — joint
+                    # task (heading + (1D or 2D) path integration).
                     W = torch.cat(
-                        [v_col_artr.unsqueeze(1), v_col_trans.unsqueeze(1),
-                         W[:, 2:]], dim=1)
-                else:   # n_input == 3 (rotation-only) — same as pen_artr_ptipn1
-                    W = torch.cat([v_col_artr.unsqueeze(1), W[:, 1:]], dim=1)
+                        [v_col_artr.unsqueeze(1),
+                         v_col_pt1.unsqueeze(1),
+                         v_col_me.unsqueeze(1),
+                         W[:, 3:]], dim=1)
+                elif self.n_input == 2:
+                    # [v_extero, v_proprio] — translation-only.
+                    W = torch.cat(
+                        [v_col_pt1.unsqueeze(1),
+                         v_col_me.unsqueeze(1)], dim=1)
+                elif self.n_input == 3:
+                    # [ω, cosθ₀, sinθ₀] — rotation-only on the
+                    # propriocep circuit: ARTR gate on col 0, free on
+                    # rest. The proprioception cells receive no input
+                    # in this mode (v_pt1 / v_me unused).
+                    W = torch.cat(
+                        [v_col_artr.unsqueeze(1), W[:, 1:]], dim=1)
+                else:
+                    raise ValueError(
+                        f"velocity_gate='pen_artr_ptipn1_propriocep' "
+                        f"expects n_input ∈ {{2, 3, 5}}, got "
+                        f"n_input={self.n_input}. The split-input "
+                        f"propriocep gate requires v_extero and "
+                        f"v_proprio on their own input columns; the "
+                        f"old single-column 'shared v_fwd' layout is "
+                        f"no longer supported.")
             else:
                 mask = getattr(self, "_W_in_mask", None)
                 if mask is not None:
