@@ -830,32 +830,35 @@ panel layout in each figure matches \cref{fig:zhd_evolution_artr_pt1}.
 \begin{table}[H]
 \centering
 \small
-\begin{tabular}{l c c c}
+\begin{tabular}{l c c c c}
 \toprule
-Variant & $r_\theta$ (HD) & $r_d$ (distance) & $\bar r_{xy}$ (2-D) \\
+Variant & $r_\theta$ (HD) & $r_d$ (distance) & $\bar r_{xy}$ (2-D) & $T_{\rm follow}$ (s) \\
 \midrule
-\texttt{rotation}                  & $0.998 \pm 0.023$ & ---               & --- \\
-\texttt{translation} (cumulative)  & ---               & $0.995 \pm 0.034$ & --- \\
-\texttt{translation} leaky         & ---               & $0.998 \pm 0.022$ & --- \\
-\texttt{both} (cumulative)         & $0.995 \pm 0.035$ & $0.989 \pm 0.053$ & --- \\
-\texttt{both} leaky                & $0.997 \pm 0.033$ & $0.997 \pm 0.027$ & --- \\
-\texttt{position\_2d} (cumulative) & ---               & ---               & $0.760 \pm 0.268$ \\
-\texttt{position\_2d} leaky        & ---               & ---               & $0.945 \pm 0.152$ \\
+\texttt{rotation}                  & $0.998 \pm 0.023$ & ---               & ---               & --- \\
+\texttt{translation} (cumulative)  & ---               & $0.995 \pm 0.034$ & ---               & $8.6 \pm 2.7$ \\
+\texttt{translation} leaky         & ---               & $0.998 \pm 0.022$ & ---               & $2.5 \pm 0.0$ \\
+\texttt{both} (cumulative)         & $0.995 \pm 0.035$ & $0.989 \pm 0.053$ & ---               & $7.3 \pm 2.7$ \\
+\texttt{both} leaky                & $0.997 \pm 0.033$ & $0.997 \pm 0.027$ & ---               & $2.5 \pm 0.0$ \\
+\texttt{position\_2d} (cumulative) & ---               & ---               & $0.760 \pm 0.268$ & --- \\
+\texttt{position\_2d} leaky        & ---               & ---               & $0.945 \pm 0.152$ & --- \\
 \bottomrule
 \end{tabular}
 \caption{Per-trial Pearson $r$ (mean $\pm$ SD across all $n=10\,000$
-held-out test trials, NaN-trial removed). $r_\theta$: correlation of
-unwrapped decoded vs.\ ground-truth heading after a $10$-frame
-warmup. $r_d$: correlation of decoded vs.\ ground-truth forward
-distance $d$. $\bar r_{xy}$: mean of per-axis Pearson on $(x,y)$.
-The two integrations behave differently. For the scalar distance
-$d$, training jointly with heading (variants \texttt{both}) gives
-similar per-trial $r$ to the translation-only run, but the leaky
-recipe reduces the trial-to-trial variance (SD $\downarrow$) on both
-\texttt{translation} and \texttt{both}. The 2-D path is the hardest
+held-out test trials, NaN-trial removed) plus the cumulative-distance
+tracking time $T_{\rm follow}$ from a constant-$v_{\mathrm{fwd}}$
+sweep. $r_\theta$: correlation of unwrapped decoded vs.\
+ground-truth heading after a $10$-frame warmup. $r_d$: correlation
+of decoded vs.\ ground-truth forward distance $d$. $\bar r_{xy}$:
+mean of per-axis Pearson on $(x,y)$. $T_{\rm follow}$: first time
+(after warmup) at which the decoded $d$ deviates from GT by more
+than $10\%$ of the final GT value, averaged over the five
+$v_{\mathrm{fwd}}\in\{\pm 2, \pm 1, +0.5\}$ deterministic rollouts
+($T=2000$). The leaky variants saturate at $\tau_d v_{\mathrm{fwd}}$
+so they match GT only over $\sim\!2.5$\,s by construction; the
+cumulative variants extrapolate to $\sim 5$--$13$\,s before the
+recurrent integrator falls behind. The 2-D path is the hardest
 target: $\bar r_{xy}$ jumps from $0.76$ (cumulative) to $0.94$
-(leaky), confirming the leaky-target supervision is materially
-better for path integration.}
+(leaky).}
 \label{tab:zhd_subtask_metrics}
 \end{table}
 
