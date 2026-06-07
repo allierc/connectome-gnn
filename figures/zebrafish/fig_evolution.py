@@ -209,6 +209,63 @@ def _load_model_and_rollouts(
         u_t = torch.from_numpy(u_one[None]).to(device)
         y_pred, _ = net(u_t)
     y_pred = y_pred[0].cpu().numpy()
+
+    # --- 5 random held-out trials for the bottom-row paper figure ------
+    # Picks the 5 most-informative trials (largest centred-amplitude
+    # over a K=32 candidate sample) so the trace plots are not flat
+    # zeros for trials that happened to have no events.
+    rng_r = np.random.default_rng(
+        int(getattr(config.training, "seed", 0)) + 17)
+    K_r = int(min(32, u_test.shape[0]))
+    cand_r = np.sort(rng_r.choice(u_test.shape[0], size=K_r,
+                                    replace=False))
+    y_cand_r = np.asarray(y_test[cand_r])
+    y_centred_r = y_cand_r - y_cand_r.mean(axis=1, keepdims=True)
+    scores_r = np.abs(y_centred_r).max(axis=(1, 2))
+    idx_show = np.sort(cand_r[np.argsort(-scores_r)[:5]])
+    with torch.no_grad():
+        u_show = torch.from_numpy(
+            np.asarray(u_test[idx_show])
+        ).to(device)
+        y_pred_show, _ = net(u_show)
+    random_trials = dict(
+        idx=idx_show,
+        u=np.asarray(u_test[idx_show]),
+        y_true=np.asarray(y_test[idx_show]),
+        y_pred=y_pred_show.cpu().numpy(),
+    )
+
+    # --- 5 representative deterministic sweeps for row j ---------------
+    # Same shape as the constant-input sweep tests run from
+    # GNN_Main.py -o test. T=2000 frames matches the publication metric.
+    has_rotation_local = ("rotation" in _task_key) or (not _task_key)
+    has_translation_local = "translation" in _task_key
+    has_position_2d_local = "position_2d" in _task_key
+    T_sweep_test = 2000
+    sweep_for_test = []
+    if has_position_2d_local:
+        omega_v_set = [(-120.0, 1.0), (-60.0, 1.0), (30.0, 1.0),
+                        (60.0, 1.0), (120.0, 1.0)]
+        for om, vf in omega_v_set:
+            ro = _deterministic_sweep_rollout(
+                net, n_steps=T_sweep_test,
+                omega_deg_per_s=om, v_fwd_per_s=vf, device=device,
+            )
+            sweep_for_test.append((om, vf, ro))
+    elif has_rotation_local:
+        for om in [-120.0, -60.0, 60.0, 120.0, 180.0]:
+            ro = _deterministic_sweep_rollout(
+                net, n_steps=T_sweep_test,
+                omega_deg_per_s=om, device=device,
+            )
+            sweep_for_test.append((om, None, ro))
+    elif has_translation_local:
+        for vf in [-2.0, -1.0, 0.5, 1.0, 2.0]:
+            ro = _deterministic_sweep_rollout(
+                net, n_steps=T_sweep_test,
+                v_fwd_per_s=vf, device=device,
+            )
+            sweep_for_test.append((None, vf, ro))
     # dt comes from whichever task block this run uses (swim_integration
     # for zebrafish, path_integration for the fly companion).
     task_block = (config.task.path_integration
@@ -241,6 +298,12 @@ def _load_model_and_rollouts(
         epg_theta=epg_theta,
         gain_data=gain_data,
         test_trial=test_trial,
+        random_trials=random_trials,
+        sweep_for_test=sweep_for_test,
+        task_kind=("xy" if has_position_2d_local
+                   else "d" if (has_translation_local
+                                and not has_rotation_local)
+                   else "hd"),
         dt_s=float(net.dt),
         checkpoint=chosen,
         bump_label=bump_label,
@@ -298,10 +361,11 @@ def main():
             args.out_dir,
             f"fig_evolution_{os.path.basename(os.path.abspath(run_dir))}.png",
         )
-        # n_rows=2 keeps the figure compact (a–h, no empty third row);
-        # integration gain is in slot h. GNN-only panels (j, k, l) are
-        # not produced here.
-        plot_cx_evolution(data, out_path, run_dir=run_dir, n_rows=2)
+        # n_rows=4: 4×5 macro layout — rows 0-1 hold the 4-column
+        # panels a-h, rows 2-3 hold the 5-column test rows i, j (random
+        # held-out trials, constant-input deterministic sweeps). One
+        # matplotlib figure, no PNG montage.
+        plot_cx_evolution(data, out_path, run_dir=run_dir, n_rows=4)
 
 
 if __name__ == "__main__":

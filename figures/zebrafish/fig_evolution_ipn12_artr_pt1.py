@@ -92,7 +92,10 @@ def main():
             )
             out_path = os.path.join(args.out_dir,
                                      f"fig_evolution_{run_name}.png")
-            plot_cx_evolution(data, out_path, run_dir=run_dir)
+            # n_rows=4: 4×5 macro layout — rows 0-1 hold the 4-column
+            # panels a-h, rows 2-3 hold the 5-column test rows i, j.
+            # One matplotlib figure, no PNG montage.
+            plot_cx_evolution(data, out_path, run_dir=run_dir, n_rows=4)
             print(f"[fig_evolution_ipn12_artr_pt1] {label}: wrote {out_path} "
                   f"(from {os.path.basename(data['checkpoint'])})")
         except Exception as e:
