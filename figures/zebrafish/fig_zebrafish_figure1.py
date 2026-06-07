@@ -35,7 +35,7 @@ from fig_zebrafish_circuit_variants import (  # noqa: E402
 )
 
 
-PANEL_LABEL_FS = 18
+PANEL_LABEL_FS = 13
 PANEL_LABEL_KW = dict(
     fontsize=PANEL_LABEL_FS, fontweight="bold",
     va="top", ha="left",
@@ -56,21 +56,20 @@ def build_figure(out_path, anatomy_dir, extra_anatomy_dirs=(),
     print(f"loaded {len(nl)} neurons, {len(rois)} ROI meshes, "
           f"{sum(len(v) for v in soma_meshes_by_type.values())} soma meshes")
 
-    fig = plt.figure(figsize=(14.0, 8.5), facecolor=background)
-    # 2×2 layout: (a, b) anatomy on top, (c, d) circuit diagrams below.
-    # The dorsal brain view is wide and short; using set_anchor("N")
-    # below pins each anatomy axes to the top of its slot so the
-    # vertical space the wide-but-short brain doesn't fill is reclaimed
-    # via tight bbox + small hspace, eliminating the blank band between
-    # rows.
-    gs = GridSpec(2, 2, figure=fig,
+    fig = plt.figure(figsize=(17.0, 8.5), facecolor=background)
+    # 3-column layout: a, b stacked top-left; c spans bottom-left;
+    # d is a tall right column spanning both rows. Visual separation between
+    # c and d comes from the in-panel layout (ω / v_fwd labels are placed at
+    # the LEFT of the afferent boxes, shifting d's content to the right).
+    gs = GridSpec(2, 3, figure=fig,
                   height_ratios=[4.2, 4.0],
+                  width_ratios=[1.0, 1.0, 1.05],
                   hspace=0.0, wspace=0.02,
-                  left=0.01, right=0.88, top=0.99, bottom=0.02)
+                  left=0.01, right=0.99, top=0.99, bottom=0.02)
     ax_a = fig.add_subplot(gs[0, 0])
     ax_b = fig.add_subplot(gs[0, 1])
-    ax_c = fig.add_subplot(gs[1, 0])
-    ax_d = fig.add_subplot(gs[1, 1])
+    ax_c = fig.add_subplot(gs[1, 0:2])
+    ax_d = fig.add_subplot(gs[0:2, 2])
 
     for ax in (ax_a, ax_b, ax_c, ax_d):
         ax.set_facecolor(background)

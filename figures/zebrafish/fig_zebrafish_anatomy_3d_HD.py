@@ -330,7 +330,7 @@ def _add_legend(ax, type_counts, draw_order, text_color):
                       lw=2.5, label=f"{t}  (n={type_counts[t]})")
                for t in draw_order]
     leg = ax.legend(handles=handles, loc="center left",
-                    bbox_to_anchor=(1.02, 0.5), fontsize=9,
+                    bbox_to_anchor=(1.02, 0.5), fontsize=12,
                     frameon=False, handlelength=1.4)
     for txt in leg.get_texts():
         txt.set_color(text_color)
@@ -606,7 +606,7 @@ def _render_matplotlib(nl, types, rois, output_path,
                       lw=2.5, label=f"{t}  (n={type_counts[t]})")
                for t in draw_order]
     leg = ax.legend(handles=handles, loc="center left",
-                    bbox_to_anchor=(1.02, 0.5), fontsize=9,
+                    bbox_to_anchor=(1.02, 0.5), fontsize=12,
                     frameon=False, handlelength=1.4)
     for txt in leg.get_texts():
         txt.set_color(text_color)

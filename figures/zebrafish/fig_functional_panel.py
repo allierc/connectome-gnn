@@ -145,7 +145,10 @@ def _render_real_sequences(args):
             np.savez(out_png.replace(".png", ".npz"),
                       kino=np.asarray(d["kino"]),
                       t_sec=t_sec,
-                      dt_sec=np.float32(dt_sec))
+                      dt_sec=np.float32(dt_sec),
+                      omega=np.asarray(d["omega"]),
+                      theta=np.asarray(d["theta"]),
+                      decoded=np.asarray(d["decoded"]))
         except Exception as _e:
             print(f"[warn] failed to dump kino npz: {_e}")
         print(f"[done] {out_png}")
@@ -302,9 +305,32 @@ def main():
         np.savez(out_png.replace(".png", ".npz"),
                   kino=np.asarray(d["kino"]),
                   t_sec=t_sec,
-                  dt_sec=np.float32(dt_sec))
+                  dt_sec=np.float32(dt_sec),
+                  omega=np.asarray(d["omega"]),
+                  theta=np.asarray(d["theta"]),
+                  decoded=np.asarray(d["decoded"]))
     except Exception as _e:
         print(f"[warn] failed to dump kino npz: {_e}")
+    # Also dump the FULL (N=839, T) per-cell calcium trace + the
+    # circuit's bodyId list so the UMAP / oscillator analyses can run
+    # on every modeled neuron, not just the 300-cell ring pool. This
+    # goes into a separate companion (..._full.npz) so the existing
+    # figure scripts that read the kino npz are untouched.
+    try:
+        body_ids = np.asarray(get_circuit(cc).body_ids, dtype=np.int64)
+        ca = np.asarray(calcium, dtype=np.float32)           # (n_frames, N)
+        full_path = out_png.replace(".png", "_full.npz")
+        np.savez(full_path,
+                  calcium=ca.T,                              # (N, n_frames)
+                  body_ids=body_ids,
+                  t_sec=t_sec,
+                  dt_sec=np.float32(dt_sec),
+                  decoded=np.asarray(d["decoded"]),
+                  theta=np.asarray(d["theta"]),
+                  omega=np.asarray(d["omega"]))
+        print(f"[dump-full] wrote {full_path}  calcium {ca.T.shape}")
+    except Exception as _e:
+        print(f"[warn] failed to dump full calcium npz: {_e}")
     print(f"[done] {out_png}")
 
 

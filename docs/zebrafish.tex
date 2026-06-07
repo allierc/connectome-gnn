@@ -1159,12 +1159,12 @@ observation loss are reported in \cref{sec:results_obs_sweep};
   block and the first $100\,\mathrm{s}$; bottom strip: true heading
   (green) vs.\ heading decoded from the recording (black). \textbf{(b,
   d)} Same for the model's predicted calcium under the same stimulus
-  and row order. \textbf{(e)} Per-neuron power spectrum (median $\pm$
-  IQR over the $n=300$ traces) of recorded vs.\ modelled calcium ---
-  the model's energy concentrates at the rotation drive and its
-  harmonics, while the recorded activity carries broad-band power
-  away from those bins. Breaking this degeneracy is the target of the
-  observation loss (\cref{eq:zhd_obs};
+  and row order. \textbf{(e)} Per-neuron power spectrum (median
+  $\pm$ IQR over the $n=300$ traces) of recorded vs.\ modelled
+  calcium --- the model's energy concentrates at the rotation drive
+  and its harmonics, while the recorded activity carries broad-band
+  power away from those bins. Breaking this degeneracy is the target
+  of the observation loss (\cref{eq:zhd_obs};
   \cref{sec:results_obs_sweep}).}
   \label{fig:zhd_obs_baseline}
 \end{figure}
@@ -1187,6 +1187,92 @@ observation loss are reported in \cref{sec:results_obs_sweep};
   $0.14$, so the observable is a substantial but not sole cause of the
   per-frame decode failure.}
   \label{fig:zhd_obs_control}
+\end{figure}
+
+\subsection{Signals not yet accounted for: the fish's own behaviour}
+\label{sec:results_unmodeled}
+
+The task-only model's calcium is essentially uncorrelated with the
+recording (\cref{sec:results_obs_baseline}; \cref{fig:zhd_obs_baseline}),
+and the ceiling on what any model can recover here is set in part by
+what the model is \emph{allowed to see}. The only time-varying input
+to the network is the angular-velocity drive $s(t)$, which for the
+Rotations block is an essentially periodic $\pm 45^\circ/\mathrm{s}$
+square wave. A deterministic circuit driven by a periodic input can
+only produce (after transients) a periodic output, so \emph{any}
+non-periodic structure in the recorded $\Delta F/F$ is, by construction,
+outside the model's reach --- and the recorded ring activity is
+conspicuously non-periodic across the $600\,\mathrm{s}$ block even
+though the stimulus repeats.
+
+\Cref{fig:zhd_unmodeled} lays the recording's covariates side by side
+over the rotation block to make the missing signals explicit. Above
+the recorded $\Delta F/F$ we plot, from the raw ZAPBench ephys, the
+fish's own swimming behaviour --- the quantity the model never
+receives. The two bottom traces are the left and right tail-muscle
+EMG channels (the independent motor readout); the larval-zebrafish
+swim decode summarises them as a \emph{forward} drive (bilateral
+envelope) and a \emph{turning} signal (left/right asymmetry). These
+behave very differently with respect to the stimulus. Turning is
+largely stimulus-locked --- it correlates with the drive at
+$\rho \approx 0.76$, the expected optomotor following of the grating
+--- and so a stimulus-driven model can in principle capture it.
+Forward drive, by contrast, is a slow, non-periodic latent: its
+lag-one autocorrelation is $\approx 0.97$ and it is essentially
+uncorrelated with the stimulus magnitude ($|\rho| \lesssim 0.05$). It
+drifts on the tens-of-seconds-to-minutes timescale that dominates the
+recurrent pool's irregular activity, yet nothing in $s(t)$ carries
+it.\footnote{The forward/turning traces are derived from the two
+tail-EMG electrodes by the standard ZAPBench swim-EMG pipeline
+(windowed-variance envelope, swim-bout detection, per-bout weighting);
+we verified they are genuinely those channels by recovering
+\emph{forward} from the bilateral EMG sum ($\rho \approx 0.57$) and
+\emph{turning} from the left$-$right difference ($\rho \approx 0.42$).
+The per-frame RMS shown here is a coarse envelope of the same
+channels.}
+
+Three classes of signal are therefore present in the recording but
+absent from the current model. (i) \emph{Self-generated motor drive}
+--- the forward/turning behaviour above, which is internally generated
+and not a deterministic function of the visual stimulus; the forward
+component in particular injects exactly the slow, aperiodic variation
+the model cannot synthesise. (ii) \emph{Slow physiological and state
+drift} --- bleaching, arousal, and adaptation accumulate over the
+block, which is why per-trial $z$-scoring is necessary in
+\cref{eq:zhd_obs} to remove this component rather than fit it.
+(iii) \emph{Unmodelled sensory channels} --- the recording also
+carries the raw visual-velocity and other stimulus channels at full
+temporal resolution, of which the model receives only the distilled
+heading drive. None of these are failures of identifiability: they
+are inputs the network is simply not given. With this in mind we now
+turn the observation loss on (\cref{sec:results_obs_sweep}) and see
+how far it can close the gap.
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=\textwidth]{\figdir/fig_zebrafish_rotation_covariates.png}
+  \caption{\textbf{Signals present in the recording but not given to the
+  model, over the ZAPBench Rotations block} (imaging frames
+  $6623$--$7279$, $656$ frames $\approx 600\,\mathrm{s}$; all panels share
+  the time axis). \textbf{Top three (periodic, modelled):} the
+  angular-velocity drive $s(t)$ that \emph{is} the model's input
+  (rendered on the fine integration grid), the heading $\int s$, and the
+  stimulus direction code --- all strictly periodic.
+  \textbf{Middle two (swim behaviour):} the larval-zebrafish swim decode
+  --- \emph{forward} drive (bilateral tail-EMG envelope; a slow,
+  $\sim$stimulus-independent drift) and \emph{turning} (left/right
+  asymmetry; largely stimulus-locked, $\rho \approx 0.76$ with $s(t)$).
+  \textbf{Bottom-but-one two (raw motor signal):} the left (ch0) and right
+  (ch1) tail-muscle EMG channels, per-frame RMS --- the independent motor
+  readout the forward/turning traces are computed from, showing discrete
+  swim bouts. \textbf{Bottom (the target):} the recorded ring-pool
+  $\Delta F/F$ ($n{=}300$ observed cells, same rastermap order and colour
+  scale as the recorded panels of \cref{fig:zhd_obs_baseline}). The
+  recorded activity inherits slow, aperiodic structure that tracks the
+  behavioural drive but has no counterpart in the periodic stimulus; a
+  deterministic model fed only $s(t)$ cannot reproduce it, which bounds
+  the calcium reconstruction of \cref{sec:results_obs_sweep} from above.}
+  \label{fig:zhd_unmodeled}
 \end{figure}
 
 \subsection{Calcium-observation loss partially closes the activity gap}
@@ -1220,9 +1306,7 @@ smallest weight $\lambda_{\mathrm{obs}} = 0.1$ the ring-pool $z$-MSE
 drops to $1.25$ ($\rho \approx 0.38$) and the afferent pool to $0.92$
 ($\rho \approx 0.54$) --- and larger weights buy little further reduction
 ($z$-MSE plateaus at $1.1$--$1.3$ for the ring activity peak and $0.90$--$0.98$ for the
-afferents across $\lambda_{\mathrm{obs}} \in [0.1, 5]$;
-\cref{fig:zhd_obs_compare} contrasts the off and strong extremes
-directly). Most of the
+afferents across $\lambda_{\mathrm{obs}} \in [0.1, 5]$). Most of the
 benefit is therefore captured by the mere presence of the term rather
 than its magnitude. The afferent (\emph{RIPN}/\emph{pt-IPN}) pool is
 reconstructed markedly better than the recurrent pool (afferent
@@ -1276,154 +1360,107 @@ recurrent pool throughout.}
 \label{tab:zhd_obs_sweep}
 \end{table}
 
+\paragraph{Task generalisation across the gcamp family.}
+The observation-loss recipe is task-agnostic --- the per-neuron
+$z$-scored shape loss does not refer to heading, distance, or any
+other behavioural variable --- so the same training procedure can
+be swapped onto the other swim-integration sub-tasks of
+\cref{sec:results_variants}. We train two such companions of
+\cref{fig:zhd_obs_reconstruction}, both supervised against the
+recorded \emph{Rotations} block of dataset~B: (i) the joint
+heading-plus-distance task (\cref{fig:zhd_obs_reconstruction_both},
+the ``selfmotion\_both'' four-input variant) and (ii) the
+translation-only task
+(\cref{fig:zhd_obs_reconstruction_translation},
+``selfmotion\_translation''). For the four-input model the
+continuous test-time rollout is now driven jointly by the recorded
+$\omega(t)$ and the recorded swim-forward envelope
+$v_{\mathrm{fwd}}(t)$ (read from the calcium dataset's
+swim-forward channel, the same channel the trainer feeds into the
+calcium-batch trials) --- i.e.\ the model sees at test exactly the
+four channels it was trained on. For the translation-only model
+the rollout is driven by $v_{\mathrm{fwd}}$ alone. The pattern is
+consistent across these two variants: the afferent pool
+reconstructs at $\rho \approx 0.4$ (SSIM $0.39$--$0.48$), the
+recurrent ring-pool at $\rho \approx 0.2$--$0.3$ (SSIM
+$0.20$--$0.25$), and the per-frame task readouts (heading and/or
+distance) remain accurately decoded in every case; the observation
+loss does not collapse onto the task heads. The Turning block of
+dataset~B is excluded from this comparison because its recorded
+stimulus is stored as discrete L/R direction codes (no angular
+velocity in the dataset's first channel), which leaves the input
+gate driving the trained rotation-only model with zeros and
+therefore cannot supervise the heading-driven activity meaningfully.
+
 \begin{figure}[p]
   \centering
   \includegraphics[width=0.8\textwidth]{\figdir/fig_zebrafish_calcium_reconstruction.png}
   \caption{\textbf{Calcium reconstruction with the observation loss on
-  ($\lambda_{\mathrm{obs}} = 0.1$).} The GNN trained
-  with the calcium-observation loss is driven by the held-out recorded
-  ZAPBench Rotations stimulus (top: angular-velocity drive $s(t)$) and its
-  rolled-out activity rendered to GCaMP7f calcium (\cref{eq:zhd_gcamp}).
-  For each of the recurrent pool ($300$ cells) and the afferent
-  \emph{RIPN}/\emph{pt-IPN} pool, the rows show the recorded $\Delta F/F$,
-  the model's calcium under the training regime (per-trial stitch), and
-  its calcium under a continuous $600\,\mathrm{s}$ rollout (drift), in
-  matched rastermap row order; per-panel $z$-MSE and SSIM are inset.
-  Bottom: true heading (green) and the model's readout-decoded heading
-  (black), per-trial and over the continuous rollout. Relative to the
-  task-only baseline (\cref{fig:zhd_obs_baseline}) the predicted calcium is
-  now visibly banded in register with the recording --- most clearly for
-  the stimulus-locked afferents (SSIM $0.44$, $\rho \approx 0.54$) --- while
-  heading remains accurately decoded. \Cref{tab:zhd_obs_sweep} reports the
-  full $\lambda_{\mathrm{obs}}$ sweep; this is the intermediate-weight
-  operating point.}
+  ($\lambda_{\mathrm{obs}} = 1$, rotation task).} The
+  sign-locked RNN of \cref{method:RNN}, trained on the
+  rotation-only task ($n_{\mathrm{in}} = 3$, $n_{\mathrm{out}} = 2$,
+  target $(\cos\theta, \sin\theta)$) with calcium-observation
+  supervision, is driven by the held-out recorded ZAPBench Rotations
+  stimulus (top: angular-velocity drive $\omega(t)$) and its
+  rolled-out activity rendered to GCaMP7f calcium
+  (\cref{eq:zhd_gcamp}). For each of the recurrent pool ($300$ cells)
+  and the afferent \emph{RIPN}/\emph{pt-IPN} pool, two rows are
+  shown: the recorded $\Delta F/F$ and the model's calcium under a
+  continuous $600\,\mathrm{s}$ rollout, in matched rastermap row
+  order; per-panel $z$-MSE and SSIM are inset. Bottom: true heading
+  (green) and the model's readout-decoded heading (black) over the
+  same continuous rollout. Relative to the task-only baseline
+  (\cref{fig:zhd_obs_baseline}) the predicted calcium is now visibly
+  banded in register with the recording --- most clearly for the
+  stimulus-locked afferents --- while heading remains accurately
+  decoded. \Cref{tab:zhd_obs_sweep} reports the full
+  $\lambda_{\mathrm{obs}}$ sweep.}
   \label{fig:zhd_obs_reconstruction}
 \end{figure}
 
 \begin{figure}[p]
   \centering
-  \begin{subfigure}[t]{0.49\textwidth}
-    \centering
-    \includegraphics[width=\textwidth]{\figdir/fig_zebrafish_calcium_reconstruction_c0.png}
-    \caption{$\lambda_{\mathrm{obs}} = 0$ (task-only)}
-    \label{fig:zhd_obs_compare_c0}
-  \end{subfigure}\hfill
-  \begin{subfigure}[t]{0.49\textwidth}
-    \centering
-    \includegraphics[width=\textwidth]{\figdir/fig_zebrafish_calcium_reconstruction_c4.png}
-    \caption{$\lambda_{\mathrm{obs}} = 5$ (strong)}
-    \label{fig:zhd_obs_compare_c4}
-  \end{subfigure}
-  \caption{\textbf{Calcium reconstruction with the observation loss off
-  vs.\ strong.} Same layout as \cref{fig:zhd_obs_reconstruction}, for the
-  two extremes of the sweep.
-  \textbf{(a)} $\lambda_{\mathrm{obs}} = 0$: the task-only model decodes
-  heading cleanly (bottom panels) but its predicted calcium is unrelated
-  to the recording (ring-pool/afferent $z$-MSE $1.88/1.83$, $\rho \approx 0.06$)
-  --- the clean stimulus-locked bands bear no resemblance to the recorded
-  $\Delta F/F$.
-  \textbf{(b)} $\lambda_{\mathrm{obs}} = 5$: the predicted calcium is
-  pulled into register with the recording (ring-pool/afferent $z$-MSE
-  $1.21/0.90$, $\rho \approx 0.40/0.55$), but at this large weight the
-  decoded-heading panels (bottom) develop visible slips as the observation
-  term competes with the heading MSE. The intermediate weight of
-  \cref{fig:zhd_obs_reconstruction} ($\lambda_{\mathrm{obs}} =
-  0.1$) achieves most of the calcium gain in (b) without the heading
-  degradation.}
-  \label{fig:zhd_obs_compare}
+  \includegraphics[width=0.8\textwidth]{\figdir/fig_zebrafish_calcium_reconstruction_both_gcamp.png}
+  \caption{\textbf{Calcium reconstruction --- joint
+  heading-plus-forward-distance task} ($\lambda_{\mathrm{obs}} =
+  1$). Same layout as \cref{fig:zhd_obs_reconstruction} for the
+  joint rotation $+$ scalar-distance variant
+  (``selfmotion\_both''): $n_{\mathrm{in}} = 4$, $n_{\mathrm{out}}
+  = 3$, target $(\cos\theta, \sin\theta, d)$ with $d$ the
+  \emph{cumulative} forward distance $d(t)=\int v_{\mathrm{fwd}}\,ds$
+  (no leak --- the parent ``selfmotion\_both'' config has no
+  $\xi$-decay time constant). Both drive channels the trained
+  $4$-input model expects are now plotted at the top: $\omega(t)$
+  is the recorded ZAPBench Rotations angular-velocity drive, and
+  $v_{\mathrm{fwd}}(t)$ is the recorded swim-forward envelope read
+  from the calcium dataset's $\mathrm{swim\_forward.zarr}$ (the
+  same tail-EMG channel the trainer feeds into the calcium-batch
+  trials, \cref{fig:zhd_unmodeled}); the continuous rollout below
+  is driven by both. The bottom panel shows the model's decoded
+  $d$ (black) against the cumulative reference
+  $\int v_{\mathrm{fwd}}\,ds$ (green) over the continuous
+  $600\,\mathrm{s}$ block.}
+  \label{fig:zhd_obs_reconstruction_both}
 \end{figure}
-
-\subsection{Signals not yet accounted for: the fish's own behaviour}
-\label{sec:results_unmodeled}
-
-The observation loss closes only part of the gap --- the ring-pool
-correlation plateaus near $\rho \approx 0.4$
-(\cref{tab:zhd_obs_sweep}) and the continuous rollout stays visibly more
-periodic and more deterministic than the recording
-(\cref{fig:zhd_obs_reconstruction}). This ceiling is not only a property
-of the loss; it also reflects what the model is \emph{allowed to see}.
-The only time-varying input to the network is the angular-velocity drive
-$s(t)$, which for the Rotations block is an essentially periodic
-$\pm 45^\circ/\mathrm{s}$ square wave. A deterministic circuit driven by a
-periodic input can only produce (after transients) a periodic output, so
-\emph{any} non-periodic structure in the recorded $\Delta F/F$ is, by
-construction, outside the model's reach --- and the recorded ring activity
-activity is conspicuously non-periodic across the $600\,\mathrm{s}$ block
-even though the stimulus repeats.
-
-\Cref{fig:zhd_unmodeled} lays the recording's covariates side by side over
-the rotation block to make the missing signals explicit. Above the
-recorded $\Delta F/F$ we plot, from the raw ZAPBench ephys, the fish's own
-swimming behaviour --- the quantity the model never receives. The two
-bottom traces are the left and right tail-muscle EMG channels (the
-independent motor readout); the larval-zebrafish swim decode summarises
-them as a \emph{forward} drive (bilateral envelope) and a \emph{turning}
-signal (left/right asymmetry). These behave very differently with respect
-to the stimulus. Turning is largely stimulus-locked --- it correlates with
-the drive at $\rho \approx 0.76$, the expected optomotor following of the
-grating --- and so a stimulus-driven model can in principle capture it
-(consistent with the better-reconstructed, stimulus-locked afferent pool,
-\cref{sec:results_obs_sweep}). Forward drive, by contrast, is a slow,
-non-periodic latent: its lag-one autocorrelation is $\approx 0.97$ and it
-is essentially uncorrelated with the stimulus magnitude
-($|\rho| \lesssim 0.05$). It drifts on the tens-of-seconds-to-minutes
-timescale that dominates the recurrent pool's irregular activity, yet nothing
-in $s(t)$ carries it.\footnote{The forward/turning traces are derived from
-the two tail-EMG electrodes by the standard ZAPBench swim-EMG pipeline
-(windowed-variance envelope, swim-bout detection, per-bout weighting);
-we verified they are genuinely those channels by recovering
-\emph{forward} from the bilateral EMG sum ($\rho \approx 0.57$) and
-\emph{turning} from the left$-$right difference ($\rho \approx 0.42$). The
-per-frame RMS shown here is a coarse envelope of the same channels.}
-
-Three classes of signal are therefore present in the recording but absent
-from the current model. (i) \emph{Self-generated motor drive} --- the
-forward/turning behaviour above, which is internally generated and not a
-deterministic function of the visual stimulus; the forward component in
-particular injects exactly the slow, aperiodic variation the model cannot
-synthesise. (ii) \emph{Slow physiological and state drift} --- bleaching,
-arousal, and adaptation accumulate over the block, which is why even the
-per-trial--stitched reconstruction (re-anchored every $10\,\mathrm{s}$)
-matches better than the continuous $600\,\mathrm{s}$ rollout, and why the
-per-trial $z$-scoring in \cref{eq:zhd_obs} silently removes this component
-rather than fitting it. (iii) \emph{Unmodelled sensory channels} --- the
-recording also carries the raw visual-velocity and other stimulus channels
-at full temporal resolution, of which the model receives only the distilled
-heading drive. None of these are failures of identifiability: they are
-inputs the network is simply not given. The natural next step --- and the
-motivation for the per-trial timestamp now stored alongside dataset~B ---
-is to provide the model with these covariates (the behavioural drive
-and/or an explicit slow-time input) so that the aperiodic, behaviour-locked
-structure becomes something it can express rather than something the loss
-must average away. We leave this conditioning to future work.
 
 \begin{figure}[p]
   \centering
-  \includegraphics[width=\textwidth]{\figdir/fig_zebrafish_rotation_covariates.png}
-  \caption{\textbf{Signals present in the recording but not given to the
-  model, over the ZAPBench Rotations block} (imaging frames
-  $6623$--$7279$, $656$ frames $\approx 600\,\mathrm{s}$; all panels share
-  the time axis). \textbf{Top three (periodic, modelled):} the
-  angular-velocity drive $s(t)$ that \emph{is} the model's input
-  (rendered on the fine integration grid), the heading $\int s$, and the
-  stimulus direction code --- all strictly periodic.
-  \textbf{Middle two (swim behaviour):} the larval-zebrafish swim decode
-  --- \emph{forward} drive (bilateral tail-EMG envelope; a slow,
-  $\sim$stimulus-independent drift) and \emph{turning} (left/right
-  asymmetry; largely stimulus-locked, $\rho \approx 0.76$ with $s(t)$).
-  \textbf{Bottom-but-one two (raw motor signal):} the left (ch0) and right
-  (ch1) tail-muscle EMG channels, per-frame RMS --- the independent motor
-  readout the forward/turning traces are computed from, showing discrete
-  swim bouts. \textbf{Bottom (the target):} the recorded ring-pool
-  $\Delta F/F$ ($n{=}300$ observed cells, same rastermap order and colour
-  scale as \cref{fig:zhd_obs_reconstruction}). The recorded activity
-  inherits slow, aperiodic structure that tracks the behavioural drive but
-  has no counterpart in the periodic stimulus; a deterministic model fed
-  only $s(t)$ cannot reproduce it, which bounds the calcium reconstruction
-  of \cref{fig:zhd_obs_reconstruction} from above. The two EMG panels
-  require the raw ZAPBench stimulus-and-ephys data file; when it is
-  absent the figure renders them as placeholders.}
-  \label{fig:zhd_unmodeled}
+  \includegraphics[width=0.8\textwidth]{\figdir/fig_zebrafish_calcium_reconstruction_translation_gcamp.png}
+  \caption{\textbf{Calcium reconstruction --- translation-only task}
+  ($\lambda_{\mathrm{obs}} = 1$). Translation-only variant
+  (``selfmotion\_translation''): $n_{\mathrm{in}} = 1$,
+  $n_{\mathrm{out}} = 1$, target $d(t) = \int v_{\mathrm{fwd}}\,ds$
+  (cumulative). The drive at the top is the recorded swim-forward
+  envelope $v_{\mathrm{fwd}}(t)$ (the only channel this $1$-input
+  model receives at test time); the $\omega$ panel of
+  \cref{fig:zhd_obs_reconstruction_both} is absent here because the
+  model has no rotation input. Below: bump-pool and afferent real /
+  continuous-rollout kinographs in matched rastermap order, per-pool
+  $z$-MSE / SSIM inset. Bottom: decoded forward distance $d$ (black)
+  against the cumulative reference $\int v_{\mathrm{fwd}}\,ds$
+  (green) over the continuous $600\,\mathrm{s}$ block; no heading
+  panel since heading is not decoded in this variant.}
+  \label{fig:zhd_obs_reconstruction_translation}
 \end{figure}
 
 \section{Outlook: one circuit, many tasks across the ZAPBench conditions}
@@ -1607,6 +1644,76 @@ already in hand.
   encoding-side evidence for a behaviour-linked second variable.}
   \label{fig:zhd_blockenc}
 \end{figure}
+
+\section{Outlook: which circuit properties are necessary, sufficient,
+and biologically meaningful?}
+\label{sec:outlook_future}
+
+The results above establish that the $839$-cell connectome-constrained
+circuit can integrate heading and translation, learn under multiple
+behavioural target families, and produce calcium activity that
+visibly matches the recorded ZAPBench data when the observation loss
+is on. They leave open the harder question of \emph{what about this
+particular network} is actually doing the work. Six directions
+follow directly from the experiments already in this paper and
+together would convert the present existence proof into a structural
+account of the computation.
+
+\paragraph{Is the connectome necessary?} Re-training the same task
+family on random networks matched for size, density, and E/I ratio
+--- and on systematically rewired versions of the measured
+connectome --- isolates how much of the observed performance comes
+from the wiring as opposed to the network's capacity. The expected
+gradient (intact $\to$ degree-preserved rewiring $\to$
+Erd\H{o}s--R\'enyi at matched density) directly speaks to whether
+the larval brain's connectivity is computationally efficient or
+merely sufficient.
+
+\paragraph{What E/I ratio supports joint heading + translation?}
+The recurrent pool is predominantly inhibitory, and the v1 vs v2
+connectome variants flip the IPN12 sign while keeping every other
+edge fixed. Sweeping a softer version of that switch --- a controlled
+inhibitory fraction at constant density --- and re-fitting the joint
+swim-integration task would identify the E/I window inside which
+both heading and forward distance remain decodable, and how close
+the measured ratio sits to its centre.
+
+\paragraph{Minimum connectivity for path integration.} An edge-pruning
+sweep against the trained both / position-2D models, scoring the
+task error as edges are removed in order of magnitude, gives the
+sparsity floor below which integration fails. The same sweep
+distinguishes a smoothly degrading regime (graceful) from a
+brittle one (cliff at a critical sparsity), and identifies the
+small core of edges that carries the computation.
+
+\paragraph{Specialised or mixed-selectivity coding?} The
+angular/displacement partition of \cref{sec:results_four_classes} is
+a coarse readout of how the trained recurrent pool divides the work.
+A finer per-neuron mutual-information analysis on $\hat\theta$,
+$\hat d$, and their interaction would say whether the circuit
+converges on disjoint heading and distance subpopulations or relies
+on neurons that jointly encode both --- and whether mixed selectivity
+emerges only when the task complexity demands it.
+
+\paragraph{How much does calcium supervision reduce solution
+degeneracy?} The observation loss already shifts each model toward a
+small neighbourhood of recordings-consistent solutions
+(\cref{sec:results_obs_sweep}). Training $K$ independent seeds with
+$\lambda_{\mathrm{obs}} = 0$ and again with $\lambda_{\mathrm{obs}}
+> 0$ and comparing the spread of $W^{\mathrm{rec}}$, $W^{\mathrm{in}}$,
+$W^{\mathrm{out}}$, and the resulting per-cell tuning would quantify
+how much identifiability the observation loss adds beyond the
+connectome support and the task loss alone.
+
+\paragraph{Exteroceptive vs proprioceptive translation.} The
+proprioceptive variant (\cref{method:proprioception}) routes
+$v_{\mathrm{fwd}}$ through motor-efferent cells in parallel with the
+exteroceptive (pt-IPN1) pathway. Ablating each pathway in turn at
+test time --- on the same trained circuit --- decomposes the
+translation drive into the two physiologically distinct sources and
+predicts which calcium signatures should disappear under selective
+silencing of either limb, providing a directly testable bridge to
+in-vivo perturbation experiments.
 
 \appendix
 
