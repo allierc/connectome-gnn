@@ -2439,6 +2439,49 @@ def plot_cx_evolution(data: dict, out_path: str, *,
                     bbox=dict(facecolor="white", edgecolor="none",
                               alpha=0.8, boxstyle="round,pad=0.18"))
 
+        # ---- Cumulative-reference overlay (leaky variants only) ----------
+        # On leaky-target variants the GT trace is the leaky integrator;
+        # overlay the cumulative integral (cumsum of v_fwd * dt) in
+        # green dashed so the reader sees how much the leaky target
+        # discards vs.\ a pure path integrator on the same input.
+        _config = data.get("config")
+        _si = getattr(getattr(_config, "task", None),
+                       "swim_integration", None)
+        _xi_tau  = float(getattr(_si, "xi_tau_s", None) or 0.0)
+        _pos_tau = float(getattr(_si, "position_tau_s", None) or 0.0)
+        _show_cum_d  = (_xi_tau  > 0.0) and (kind in ("d", "both"))
+        _show_cum_xy = (_pos_tau > 0.0) and (kind == "xy")
+
+        def _cum_d_from_u(u_one):
+            """v_fwd channel: col 0 for translation-only (n_in=1),
+            col 1 for joint tasks (n_in=4)."""
+            n_in = u_one.shape[-1]
+            v = (u_one[:, 0] if n_in == 1
+                 else u_one[:, 1] if n_in >= 4
+                 else u_one[:, 0])
+            return np.cumsum(v) * dt_test
+
+        def _cum_xy_from_u(u_one):
+            """For n_in=4 superset [ω, v_fwd, cosθ₀·δ, sinθ₀·δ].
+            θ(t) = θ₀ + Σ ω·dt; x = Σ v_fwd·cosθ·dt, y = Σ v_fwd·sinθ·dt."""
+            n_in = u_one.shape[-1]
+            if n_in < 4:
+                return None, None
+            omega = u_one[:, 0]
+            v = u_one[:, 1]
+            theta0 = float(np.arctan2(u_one[0, 3], u_one[0, 2]))
+            theta_t = theta0 + np.cumsum(np.deg2rad(omega)) * dt_test
+            x = np.cumsum(v * np.cos(theta_t)) * dt_test
+            y = np.cumsum(v * np.sin(theta_t)) * dt_test
+            return x, y
+
+        def _cum_d_from_sweep(ro):
+            u = np.asarray(ro["u"])
+            return _cum_d_from_u(u)
+
+        def _cum_xy_from_sweep(ro):
+            return _cum_xy_from_u(np.asarray(ro["u"]))
+
         def _plot_wrapped_hd(ax, t, angles, color, lw):
             """Plot wrapped HD with line breaks at ±π discontinuities,
             so the wrap-around does not draw a vertical bar across the
@@ -2482,6 +2525,7 @@ def plot_cx_evolution(data: dict, out_path: str, *,
         def _plot_d_random(row, letter):
             y_true_show = random_trials.get("y_true")
             y_pred_show = random_trials.get("y_pred")
+            u_show = random_trials.get("u")
             if y_true_show is None or y_pred_show is None:
                 return
             d_col = (0 if y_true_show.shape[-1] == 1
@@ -2495,6 +2539,13 @@ def plot_cx_evolution(data: dict, out_path: str, *,
                 pr = y_pred_show[col, :, d_col]
                 ax.plot(t_r, tr, color=GT_COLOR, lw=GT_LW)
                 ax.plot(t_r, pr, color=PRED_COLOR, lw=PRED_LW)
+                # Cumulative reference (leaky variants only) — drawn in
+                # the same GT green but dashed so it doesn't compete
+                # with the leaky GT solid line.
+                if _show_cum_d and u_show is not None:
+                    d_cum = _cum_d_from_u(u_show[col])
+                    ax.plot(t_r, d_cum, color=GT_COLOR, lw=GT_LW * 0.7,
+                            ls="--", alpha=0.85)
                 ax.tick_params(labelsize=_T_TICK_FS)
                 ax.set_xlabel("time (s)", fontsize=_T_LABEL_FS)
                 if col == 0:
@@ -2507,6 +2558,7 @@ def plot_cx_evolution(data: dict, out_path: str, *,
         def _plot_xy_random(row, letter):
             y_true_show = random_trials.get("y_true")
             y_pred_show = random_trials.get("y_pred")
+            u_show = random_trials.get("u")
             if y_true_show is None or y_pred_show is None:
                 return
             for col in range(min(n_show, y_true_show.shape[0])):
@@ -2515,6 +2567,11 @@ def plot_cx_evolution(data: dict, out_path: str, *,
                 dx = y_pred_show[col, :, 2]; dy = y_pred_show[col, :, 3]
                 ax.plot(tx, ty, color=GT_COLOR, lw=GT_LW)
                 ax.plot(dx, dy, color=PRED_COLOR, lw=PRED_LW)
+                if _show_cum_xy and u_show is not None:
+                    cx, cy = _cum_xy_from_u(u_show[col])
+                    if cx is not None:
+                        ax.plot(cx, cy, color=GT_COLOR, lw=GT_LW * 0.7,
+                                ls="--", alpha=0.85)
                 ax.plot([0], [0], 'o', color='0.4', ms=4, zorder=5)
                 ax.set_aspect('equal', adjustable='datalim')
                 ax.tick_params(labelsize=_T_TICK_FS)
@@ -2563,6 +2620,10 @@ def plot_cx_evolution(data: dict, out_path: str, *,
                 t_s = np.arange(T_s) * dt_test
                 ax.plot(t_s, tr, color=GT_COLOR, lw=GT_LW)
                 ax.plot(t_s, pr, color=PRED_COLOR, lw=PRED_LW)
+                if _show_cum_d:
+                    d_cum = _cum_d_from_sweep(ro)
+                    ax.plot(t_s, d_cum, color=GT_COLOR, lw=GT_LW * 0.7,
+                            ls="--", alpha=0.85)
                 ax.tick_params(labelsize=_T_TICK_FS)
                 ax.set_xlabel("time (s)", fontsize=_T_LABEL_FS)
                 if col == 0:
@@ -2582,6 +2643,11 @@ def plot_cx_evolution(data: dict, out_path: str, *,
                 dx_ = np.asarray(ro["decoded_xy"])
                 ax.plot(tx[:, 0], tx[:, 1], color=GT_COLOR, lw=GT_LW)
                 ax.plot(dx_[:, 0], dx_[:, 1], color=PRED_COLOR, lw=PRED_LW)
+                if _show_cum_xy:
+                    cx, cy = _cum_xy_from_sweep(ro)
+                    if cx is not None:
+                        ax.plot(cx, cy, color=GT_COLOR, lw=GT_LW * 0.7,
+                                ls="--", alpha=0.85)
                 ax.plot([0], [0], 'o', color='0.4', ms=4, zorder=5)
                 ax.set_aspect('equal', adjustable='datalim')
                 ax.tick_params(labelsize=_T_TICK_FS)
