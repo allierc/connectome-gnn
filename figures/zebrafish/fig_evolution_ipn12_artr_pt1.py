@@ -6,7 +6,7 @@ motor_efferent) is trained as a family of sub-tasks projected from one
 on-disk swim-integration superset (see ``method:swim_task_modes``):
 
     selfmotion_rotation           — rotation only        (n_in=3, n_out=2)
-    selfmotion_translation        — translation only     (n_in=1, n_out=1, perfect d)
+    selfmotion_translation        — translation only     (n_in=1, n_out=1, cumulative d)
     selfmotion_translation_leaky  — translation only     (n_in=1, n_out=1, leaky d)
     selfmotion_both               — rotation + scalar d  (n_in=4, n_out=3, perfect)
     selfmotion_both_leaky         — rotation + scalar d  (n_in=4, n_out=3, leaky)
@@ -45,11 +45,11 @@ PREFIX = "zebrafish_hd_si_ipn12_artr_pt1_"
 VARIANTS = [
     # (suffix, short label used in console messages)
     ("selfmotion_rotation",           "rotation only"),
-    ("selfmotion_translation",        "translation only (perfect d)"),
+    ("selfmotion_translation",        "translation only (cumulative d)"),
     ("selfmotion_translation_leaky",  "translation only (leaky d)"),
-    ("selfmotion_both",               "rotation + scalar d (perfect)"),
+    ("selfmotion_both",               "rotation + scalar d (cumulative)"),
     ("selfmotion_both_leaky",         "rotation + scalar d (leaky)"),
-    ("position_2d",                   "rotation + 2D path (perfect)"),
+    ("position_2d",                   "rotation + 2D path (cumulative)"),
     ("position_2d_leaky",             "rotation + 2D path (leaky)"),
 ]
 
