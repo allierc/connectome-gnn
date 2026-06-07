@@ -48,5 +48,18 @@ Add a biomodel/model = **register a class**, keyed by `signal_model_name`. Do **
   named constants = single source of truth across figure/console/metrics.
 - Plot colours: **green/black** = GT vs predicted; **red/blue** = two distinct sources
   (L/R, two cells); a single trace gets any neutral colour.
+- Figure styling: **never** add titles to panels (`ax.set_title(...)`) or to the figure
+  (`fig.suptitle(...)`) — titles belong in the LaTeX caption, not the image. Panel labels
+  (`a`, `b`, `c`, …) use **bold** font: `ax.text(..., fontweight='bold')`.
+- Visual consistency within a figure: every panel uses the **same** font size (axis labels,
+  tick labels, panel label), same linewidth, same marker size, same tick length. Set these
+  once at the top of the script via `plt.rcParams` (or a shared style helper) — do **not**
+  pass per-panel overrides. Mismatched panel sizes/typography across a single figure are
+  a regression.
+- **One script = one figure.** Each script in `figures/<biomodel>/` produces exactly one
+  final PNG/PDF using a single `plt.figure(...)` + `gridspec`/`subplots` layout.
+  **No** post-hoc PNG montages, no Inkscape/PowerPoint compositing, no `PIL.Image.paste`
+  of pre-rendered subfigures. If a figure has panels `a`–`j`, they are laid out by one
+  gridspec in one script, so font sizes, axes, and spacing are guaranteed consistent.
 - Git: never stage `config/**/*.yaml` in routine commits; push with `--no-verify` (git-lfs
   absent in the devcontainer); branch before committing on the default branch.
