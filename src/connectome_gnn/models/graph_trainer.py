@@ -2133,9 +2133,11 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
                           f'→ ca_u {tuple(ca_u.shape)}, ca_y {tuple(ca_y.shape)}')
 
         # Apply the same task_targets projection to ca_u / ca_y so the
-        # batch-cat shapes match the synthetic batch.
-        if _task_key and (ca_u.shape[-1], _task_key) in _PROFILE_BY_TARGET:
-            _ic, _oc = _PROFILE_BY_TARGET[(ca_u.shape[-1], _task_key)]
+        # batch-cat shapes match the synthetic batch. Profile is keyed
+        # by (target-cols, task_key) — same lookup as for the synthetic
+        # u_train / y_train above.
+        if _task_key and (ca_y.shape[-1], _task_key) in _PROFILE_BY_TARGET:
+            _ic, _oc = _PROFILE_BY_TARGET[(ca_y.shape[-1], _task_key)]
             ca_u = ca_u[..., _ic].contiguous()
             ca_y = ca_y[..., _oc].contiguous()
             _logger.info(f'calcium dataset sliced to in_cols={_ic} out_cols={_oc}'
@@ -2185,8 +2187,13 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
                 _ca_test_super[..., 2] = ca_test_u[..., 1]
                 _ca_test_super[..., 3] = ca_test_u[..., 2]
                 ca_test_u = _ca_test_super
-        if _task_key and (ca_test_u.shape[-1], _task_key) in _PROFILE_BY_TARGET:
-            _ic, _oc = _PROFILE_BY_TARGET[(ca_test_u.shape[-1], _task_key)]
+        # Profile keyed by target columns; when we augmented ca_test_u
+        # to the 4-col superset above, the matching target shape is 3
+        # (cos θ, sin θ, d) — same as the train branch.
+        _y_cols_for_profile = (3 if _needs_vfwd and ca_test_u.shape[-1] == 4
+                                else int(_cte.target.shape[-1]))
+        if _task_key and (_y_cols_for_profile, _task_key) in _PROFILE_BY_TARGET:
+            _ic, _oc = _PROFILE_BY_TARGET[(_y_cols_for_profile, _task_key)]
             ca_test_u = ca_test_u[..., _ic].contiguous()
         ca_test_target = torch.from_numpy(
             np.asarray(_zarr.open(f"{calc_root}/test/calcium.zarr", mode="r"))
