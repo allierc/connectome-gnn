@@ -28,9 +28,14 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.image as mpimg
 import matplotlib.pyplot as plt
+import numpy as np
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO = os.path.abspath(os.path.join(_HERE, "..", ".."))
+# Make the in-repo metrics module importable for the spectrum panel.
+_SRC = os.path.join(_REPO, "src")
+if _SRC not in sys.path:
+    sys.path.insert(0, _SRC)
 _PANEL_PY = os.path.join(_HERE, "fig_functional_panel.py")
 _DEFAULT_CONFIG = "zebrafish/zebrafish_hd_si_ipn12_artr_pt1_selfmotion_rotation"
 _DEFAULT_OUT = os.path.join(_HERE, "fig_zebrafish_calcium_baseline.png")
@@ -90,26 +95,116 @@ def main():
             _run_panel(["--config", args.config, "--gcamp", args.gcamp, *zarg],
                        panel_dir)                                                    # d
 
+    # ---- frequency-analysis panel (e): per-neuron power spectrum,
+    # recorded vs.\ modelled, median + IQR. Reads the companion .npz
+    # files dumped by fig_functional_panel.py. Silently skips if
+    # missing (the figure still works with just the kinograph rows).
+    spectrum_data = _load_spectrum_pair(
+        real_png.replace(".png", ".npz"),
+        model_png.replace(".png", ".npz"),
+    )
+
+    # Layout: kinographs + (optional zoom) on rows 1–2, the shared
+    # spectrum panel as a wide single axes on row 3.
+    has_spec = spectrum_data is not None
     if zoom is None:
-        fig, axs = plt.subplots(2, 1, figsize=(11, 11))
+        n_rows = 2 + (1 if has_spec else 0)
+        height = 6 + (5 if has_spec else 0)
+        fig, axs = plt.subplots(n_rows, 1, figsize=(11, height))
         _panel(axs[0], real_png, "a")
         _panel(axs[1], model_png, "b")
+        if has_spec:
+            _spectrum_panel(axs[2], spectrum_data, "c")
     else:
         # rows = recorded / model, columns = full block / first-`zoom`-s zoom.
         # Both panel PNGs share the same 15:9 canvas, so equal columns render
         # the zoom at the same size as the full block (a ~6x temporal zoom).
-        fig, axs = plt.subplots(2, 2, figsize=(20, 11))
+        n_rows = 2 + (1 if has_spec else 0)
+        height = 11 + (4.5 if has_spec else 0)
+        fig = plt.figure(figsize=(20, height))
+        gs = fig.add_gridspec(
+            n_rows, 2,
+            height_ratios=([1, 1, 0.7] if has_spec else [1, 1]),
+        )
+        axs = np.empty((n_rows, 2), dtype=object)
+        for i in range(n_rows):
+            for j in range(2):
+                axs[i, j] = fig.add_subplot(gs[i, j])
         _panel(axs[0, 0], real_png, "a")
         _panel(axs[1, 0], model_png, "b")
         _panel(axs[0, 1], real_zoom, "c")
         _panel(axs[1, 1], model_zoom, "d")
+        if has_spec:
+            ax_spec = fig.add_subplot(gs[2, :])
+            for j in range(2):
+                axs[2, j].axis("off")
+            _spectrum_panel(ax_spec, spectrum_data, "e")
         axs[0, 0].set_title("full Rotations block", fontsize=12)
         axs[0, 1].set_title(f"first {int(zoom)} s (zoom)", fontsize=12)
-    fig.subplots_adjust(left=0.03, right=0.99, top=0.96, bottom=0.01,
-                        hspace=0.05, wspace=0.04)
+    fig.subplots_adjust(left=0.04, right=0.99, top=0.97, bottom=0.04,
+                        hspace=0.12, wspace=0.04)
     fig.savefig(args.out, dpi=150)
     plt.close(fig)
     print(f"[fig] wrote {args.out}")
+
+
+def _load_spectrum_pair(real_npz, model_npz):
+    import os
+    if not (os.path.isfile(real_npz) and os.path.isfile(model_npz)):
+        print(f"[spec] SKIP — missing {real_npz} or {model_npz}; "
+              f"rerun panels to dump the companion .npz")
+        return None
+    try:
+        import numpy as np
+        from connectome_gnn.metrics import fft_power_spectrum
+        real = np.load(real_npz)
+        modl = np.load(model_npz)
+        # kino arrays: (N_rows, T) z-scored ΔF/F. Match T (recording
+        # is sometimes longer than the rollout); align to the shorter.
+        T = min(real["kino"].shape[-1], modl["kino"].shape[-1])
+        # Drop NaN rows (unmatched bodyId fills) before spectrum.
+        def _clean(k):
+            k = k[:, :T]
+            mask = np.isfinite(k).all(axis=1)
+            return k[mask]
+        real_k = _clean(real["kino"])
+        modl_k = _clean(modl["kino"])
+        dt = float(real["dt_sec"])
+        freqs, p_real = fft_power_spectrum(real_k, dt=dt)
+        _,    p_modl = fft_power_spectrum(modl_k, dt=dt)
+        return dict(freqs=freqs, p_real=p_real, p_modl=p_modl,
+                     n_real=int(real_k.shape[0]),
+                     n_modl=int(modl_k.shape[0]))
+    except Exception as e:
+        print(f"[spec] SKIP — {type(e).__name__}: {e}")
+        return None
+
+
+def _spectrum_panel(ax, sd, label):
+    """Median + IQR power-spectrum overlay: green = recorded, black = model."""
+    import numpy as np
+    freqs = sd["freqs"][1:]                # drop the DC bin
+    p_real = sd["p_real"][:, 1:]
+    p_modl = sd["p_modl"][:, 1:]
+    GT_COLOR = "#4daf4a"; PRED_COLOR = "black"
+    for population, color, lbl, n in [
+        (p_real, GT_COLOR,   "recorded", sd["n_real"]),
+        (p_modl, PRED_COLOR, "modelled", sd["n_modl"]),
+    ]:
+        med = np.median(population, axis=0)
+        q25 = np.percentile(population, 25, axis=0)
+        q75 = np.percentile(population, 75, axis=0)
+        ax.fill_between(freqs, q25, q75, color=color, alpha=0.18, lw=0)
+        ax.plot(freqs, med, color=color, lw=1.6,
+                label=f"{lbl}  (n={n})")
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.set_xlabel("frequency (Hz)", fontsize=12)
+    ax.set_ylabel(r"$|X(f)|^{2}$", fontsize=12)
+    ax.tick_params(labelsize=10)
+    ax.legend(fontsize=11, frameon=False, loc="upper right")
+    ax.text(-0.01, 1.02, label, transform=ax.transAxes,
+            ha="right", va="bottom", fontsize=16, fontweight="bold")
 
 
 if __name__ == "__main__":

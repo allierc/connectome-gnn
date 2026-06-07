@@ -1152,30 +1152,20 @@ observation loss are reported in \cref{sec:results_obs_sweep};
   \centering
   \includegraphics[width=\textwidth]{\figdir/fig_zebrafish_calcium_baseline.png}
   \caption{\textbf{Task-only model: accurate heading, unrealistic activity.}
-  The baseline network (\emph{zebrafish\_hd\_si\_ipn12\_v1}, swim-integration
-  task only --- no observation loss) is driven by the recorded ZAPBench
-  Rotations stimulus and its activity rendered as GCaMP7f calcium
-  (\cref{eq:zhd_gcamp}). \textbf{Left column (a,b): the full Rotations block;
-  right column (c,d): the first $100\,\mathrm{s}$ of the same two panels,
-  temporally magnified $\sim$\,6$\times$.}
-  \textbf{(a)} Recorded $\Delta F/F$ for the $300$ matched ring-pool neurons
-  (\emph{IPNd}/\emph{IPNds}/\emph{IPN12}), rastermap-ordered, during the
-  $45^\circ/\mathrm{s}$ rotation block. Bottom: true heading (green) and the
-  heading decoded from the recorded activity by a trained network (black) ---
-  the decode fails to track the rotation, i.e.\ heading is not legible from
-  the per-frame calcium.
-  \textbf{(b)} The task-only model's predicted calcium for the \emph{same}
-  neurons in the \emph{same} row order, under the \emph{same} stimulus; its
-  readout-decoded heading (black, bottom) tracks the rotation (green) well.
-  The learned activity is a clean stimulus-locked banding far from the
-  irregular recorded pattern in (a) --- task ability without activity
-  realism.
-  \textbf{(c, d)} First-$100\,\mathrm{s}$ zoom of (a) and (b): at this
-  magnification the recorded activity (c) is plainly bursty and drift-laden
-  while the model's (d) is a regular, stimulus-locked banding, making the
-  per-frame mismatch explicit at single-rotation resolution. Breaking this
-  degeneracy is the target of the observation loss
-  (\cref{eq:zhd_obs}; \cref{sec:results_obs_sweep}).}
+  Baseline (task only, no observation loss) driven by the recorded
+  ZAPBench Rotations stimulus, rendered as GCaMP7f calcium
+  (\cref{eq:zhd_gcamp}). \textbf{(a, c)} Recorded $\Delta F/F$ for the
+  $300$ matched ring-pool neurons (rastermap order) over the full
+  block and the first $100\,\mathrm{s}$; bottom strip: true heading
+  (green) vs.\ heading decoded from the recording (black). \textbf{(b,
+  d)} Same for the model's predicted calcium under the same stimulus
+  and row order. \textbf{(e)} Per-neuron power spectrum (median $\pm$
+  IQR over the $n=300$ traces) of recorded vs.\ modelled calcium ---
+  the model's energy concentrates at the rotation drive and its
+  harmonics, while the recorded activity carries broad-band power
+  away from those bins. Breaking this degeneracy is the target of the
+  observation loss (\cref{eq:zhd_obs};
+  \cref{sec:results_obs_sweep}).}
   \label{fig:zhd_obs_baseline}
 \end{figure}
 
