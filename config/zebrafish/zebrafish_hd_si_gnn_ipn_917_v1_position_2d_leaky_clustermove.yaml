@@ -1,0 +1,138 @@
+description: Message-passing GNN companion (cluster-move embedding) of
+  zebrafish_hd_si_ipn_917_v1_position_2d_leaky — same 917-cell artr_pt1 circuit,
+  same pen_artr_ptipn1 gate, same 2D path-integration task (LEAKY integrator,
+  τ=2.0 s), and the SAME on-disk dataset (zebrafish_hd_si_task_917_position_2d_leaky)
+  so the GNN and the sign-locked RNN are head-to-head on identical trials.
+  signal_model_name=zebrafish_hd_si_gnn replaces the dense recurrent operator
+  with a per-edge GNN (f_theta + g_phi MLPs over a per-neuron embedding a_i); the
+  leak and firing-rate nonlinearity must emerge from (f_theta, g_phi, a).
+  g_phi_positive=false + sign-locked per-edge weights restore Dale's law without
+  a ± degeneracy. embedding_cell_type_init + coeff_embedding_cluster keep the
+  embedding clustered by cell type while letting the clusters move during
+  training. training.task_targets=['position_2d'] → [omega, v_fwd, cos0, sin0]
+  (n_in=4) / [cos, sin, x, y] (n_out=4); leaky (x,y) via position_tau_s=2.0. GNN
+  hyperparams from the archived zebrafish_hd_si_gnn_ipn12_v1.
+dataset: zebrafish_hd_si_task_917_position_2d_leaky
+simulation:
+  params:
+    - - 1.0
+  connconstr_datapath: figures/zebrafish/zebrafish_connectome_HD_IPN_917
+  seed: 47006
+graph_model:
+  signal_model_name: zebrafish_hd_si_gnn
+  aggr_type: add
+  input_proj: matrix
+  output_proj: matrix
+  velocity_gate: pen_artr_ptipn1
+  lock_edge_signs: true
+  hidden_dim: 64
+  n_layers: 2
+  hidden_dim_update: 64
+  n_layers_update: 2
+  MLP_activation: tanh
+  embedding_dim: 2
+  g_phi_positive: false
+  output_from_dipn_only: true
+circuit:
+  name: zebrafish_HD_IPN_917_artr_pt1
+plotting:
+  anatomy_voltage_elev: 90.0
+  anatomy_voltage_azim: -85.5
+  anatomy_voltage_z_lo: 0.0
+  anatomy_voltage_z_hi: 10.0
+  anatomy_voltage_alpha: 1.0
+  anatomy_voltage_downsample: 10
+  anatomy_voltage_bg: black
+  anatomy_voltage_show_base: true
+  anatomy_voltage_show_icon: true
+  anatomy_voltage_types:
+    - IPN12_a
+    - IPN12_b
+  anatomy_voltage_pattern: swim_left
+  anatomy_voltage_n_steps: 2000
+  anatomy_voltage_stride: 5
+  anatomy_voltage_frame_idx: -1
+  anatomy_voltage_omega_deg: 60.0
+  anatomy_voltage_theta0_rad: 0.0
+  anatomy_voltage_swim_interval_s: 0.3
+  anatomy_voltage_swim_magnitude_rad: 0.393
+  anatomy_voltage_swim_t_event_s: 0.0
+  anatomy_voltage_seed: 0
+training:
+  device: auto
+  seed: 47506
+  n_runs: 1
+  n_epochs: 5
+  batch_size: 16
+  data_augmentation_loop: 5
+  lr: 0.002
+  lr_W_rec_schedule:
+    - 0.002
+    - 0.002
+    - 0.001
+    - 0.0005
+    - 0.0005
+  lr_scheduler: none
+  lr_W_ED: 0.0005
+  grad_clip_W: 1.0
+  coeff_cos_distance: 0.0
+  coeff_norm_floor: 0.0
+  kappa_norm_floor: 0.0
+  coeff_tv_circular: 0.0
+  coeff_W_L1: 0.0
+  noise_recurrent_level: 0.01
+  coeff_f_theta_diff: 15.0
+  coeff_g_phi_diff: 15.0
+  coeff_tail_loss: 0.05
+  w_init_mode: zeros
+  w_init_scale: 0.01
+  embedding_cell_type_init: true # a_i starts at its cell type's equidistant 2-D cluster point
+  embedding_cell_type_scale: 1.0
+  fix_embedding: false # NOT frozen
+  coeff_embedding_cluster: 0.01 # soft pull to per-type centroid: weaker pull = 10x more freedom for clusters to move/spread; tune this
+  snapshots_per_epoch: 5
+  n_steps_schedule:
+    - 10
+    - 50
+    - 100
+    - 200
+    - 300
+  torch_compile: true
+  task_targets:
+    - position_2d
+claude:
+  n_epochs: 5
+  data_augmentation_loop: 1
+  n_iter_block: 20
+  ucb_c: 1.414
+  generate_data: false
+  training_time_target_min: 90
+  hard_runtime_limit_min: 180
+  node_name: a100
+  n_cpus: 8
+  n_parallel: 10
+  conda_env: connectome-gnn
+task:
+  task_type: swim_integration
+  task_only: true
+  swim_integration:
+    n_trials_train: 100000
+    n_trials_test: 10000
+    n_steps: 1000
+    dt: 0.01
+    swim_rate_hz: 0.5
+    swim_duration_s: 0.3
+    phase_impulse_mean_rad: 0.785
+    phase_impulse_std_rad: 0.4
+    backward_phase_mean_rad: 3.14
+    backward_phase_std_rad: 0.3
+    left_fraction: 0.3
+    right_fraction: 0.3
+    forward_fraction: 0.2
+    backward_fraction: 0.2
+    omega_noise_level: 0.0
+    seed: 0
+    forward_vel_mean: 1.0
+    forward_vel_std: 0.4
+    target_kind: position_2d
+    position_tau_s: 2.0

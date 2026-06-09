@@ -131,8 +131,26 @@ class ZebrafishHdTaskGNN(nn.Module):
             cx = load_zebrafish_hd_connectome(sim.connconstr_datapath)
         N = int(cx["N"])
         self.n_units = N
-        self.n_input = 3
-        self.n_output = 2
+        # n_input / n_output derived from the sub-task (training.task_targets),
+        # mirroring ZebrafishHdTaskRNN so the GNN serves rotation AND the
+        # heading+(x,y) position_2d task:
+        #   ['rotation']    → 3-in [ω, cosθ0, sinθ0]        / 2-out [cosθ, sinθ]
+        #   ['rotation','translation'] → 4-in [ω, v_fwd, cosθ0, sinθ0] / 3-out [cosθ, sinθ, ξ]
+        #   ['position_2d'] → 4-in [ω, v_fwd, cosθ0, sinθ0] / 4-out [cosθ, sinθ, x, y]
+        # An explicit graph_model.n_input / n_output overrides the auto value.
+        _RECOGNISED = ("rotation", "translation", "position_2d")
+        _tt_raw = list(getattr(getattr(config, "training", None),
+                               "task_targets", None) or [])
+        _tt_key = tuple(t for t in _RECOGNISED if t in _tt_raw)
+        _TT_DIMS = {
+            ("rotation",):                (3, 2),
+            ("translation",):             (1, 1),
+            ("rotation", "translation"):  (4, 3),
+            ("position_2d",):             (4, 4),
+        }
+        _auto_in, _auto_out = _TT_DIMS.get(_tt_key, (3, 2))
+        self.n_input = int(getattr(gm, "n_input", 0)) or _auto_in
+        self.n_output = int(getattr(gm, "n_output", 0)) or _auto_out
 
         W_con = torch.from_numpy(cx["J_effective"].astype(np.float32))
         self.register_buffer("W_con", W_con)
@@ -515,14 +533,23 @@ class ZebrafishHdTaskGNN(nn.Module):
                 )
                 W = torch.cat([v_col.unsqueeze(1), W[:, 1:]], dim=1)
             elif self.velocity_gate == "pen_artr_ptipn1":
-                # ω (input col 0) → ARTR via v_artr_l/r (sign-locked);
-                # heading-cue cols 1-2 stay free. The GNN is rotation-only
-                # (n_input=3), so pt-IPN1 (v_fwd) carries no input column here.
+                # ω (input col 0) → ARTR via v_artr_l/r (sign-locked). For the
+                # 4-channel layouts (both / position_2d) col 1 = v_fwd → pt-IPN1
+                # via v_pt1_l/r; the trailing heading-cue columns stay free.
                 v_col_artr = (
                     self._afferent_ind_artr_l * self._sgn_l(self.v_artr_l)
                     + self._afferent_ind_artr_r * self._sgn_r(self.v_artr_r)
                 )
-                W = torch.cat([v_col_artr.unsqueeze(1), W[:, 1:]], dim=1)
+                if self.n_input >= 4:
+                    v_col_pt1 = (
+                        self._afferent_ind_pt_ipn1_l * self._sgn_l(self.v_pt1_l)
+                        + self._afferent_ind_pt_ipn1_r * self._sgn_r(self.v_pt1_r)
+                    )
+                    W = torch.cat(
+                        [v_col_artr.unsqueeze(1), v_col_pt1.unsqueeze(1),
+                         W[:, 2:]], dim=1)
+                else:
+                    W = torch.cat([v_col_artr.unsqueeze(1), W[:, 1:]], dim=1)
             else:
                 mask = getattr(self, "_W_in_mask", None)
                 if mask is not None:
