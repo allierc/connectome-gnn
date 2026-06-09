@@ -636,6 +636,12 @@ def _build_test_trial(net, u_test, y_test, device, config):
         dt = float(sub.dt) if sub is not None else float(net.dt)
     else:
         dt = float(net.dt)
+    # rotation_mismatch task → panel g renders the two-integral-path view
+    # (ω vs ω_proprio, θ_obs vs θ_pro, true vs decoded ∫(ω−ω_proprio)).
+    _is_mismatch = (config is not None
+                    and str(getattr(getattr(getattr(config, "task", None),
+                                            "swim_integration", None),
+                                    "target_kind", "")) == "rotation_mismatch")
     return dict(
         idx=trial_idx,
         u=u_one_np,
@@ -643,6 +649,7 @@ def _build_test_trial(net, u_test, y_test, device, config):
         y_pred=y_pred_np,
         dt=dt,
         label="OU test trial",
+        mismatch=_is_mismatch,
     )
 
 
@@ -699,6 +706,16 @@ def _save_training_snapshot(
             device=device,
         )
         rollout["r_epg"] = rollout["r"][:, epg_indices]
+        # rotation_mismatch: the constant-ω probe runs with ω_proprio = ω
+        # (zero mismatch) and the 3rd output column is NOT a translation
+        # distance here, so drop the translation keys → panel f renders
+        # rotation-only (ω + HD). The mismatch is shown in panel g via the
+        # two-integral-path view (_panel_trial_rollout).
+        if config is not None and str(getattr(getattr(getattr(
+                config, "task", None), "swim_integration", None),
+                "target_kind", "")) == "rotation_mismatch":
+            rollout.pop("true_xi", None)
+            rollout.pop("decoded_xi", None)
         # Afferent population = union of the PEN-gate sub-population indicator
         # buffers (`_pen_ind_pena_l/r/penb_l/r`) populated by the model from
         # the loader's ``pen_subpop_ix``. Works species-agnostically: fly PEN
@@ -800,7 +817,7 @@ def _plot_gnn_functions(
 
     from connectome_gnn.metrics import _batched_mlp_eval, _build_g_phi_features
     from connectome_gnn.plot import plot_embedding, plot_g_phi
-    from connectome_gnn.utils import CustomColorMap
+    from connectome_gnn.utils import CustomColorMap, qualitative_colors
 
     name = f"step_{global_step:07d}.png"
     n_neurons = int(net.n_units)
@@ -857,12 +874,15 @@ def _plot_gnn_functions(
     type_np = nt_np.astype(int).ravel()
     x_np = rr_1d.detach().cpu().numpy()
     func_np = func.detach().cpu().numpy()
+    # Per-type qualitative LUT keyed by type id (good for >32 types); avoids the
+    # CustomColorMap.color(t)=t/nmap bunching that maps all high types to ~cyan.
+    _type_cols = qualitative_colors(int(type_np.max()) + 1)
     for t in np.unique(type_np):
         mask = type_np == int(t)
         curves = func_np[mask]
         mean = curves.mean(axis=0)
         std = curves.std(axis=0)
-        color = cmap.color(int(t))
+        color = _type_cols[int(t)] if int(t) < len(_type_cols) else cmap.color(int(t))
         label = (type_names[int(t)]
                  if int(t) < len(type_names) else f"type {int(t)}")
         ax.plot(x_np, mean, linewidth=1.5, color=color, label=label)

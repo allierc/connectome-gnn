@@ -185,10 +185,11 @@ def _draw_afferent_block(ax, xy, wh, name, count, sub_lines=None,
 # Panels
 # ---------------------------------------------------------------------------
 
-def _draw_artr_pt1_panel(ax):
+def _draw_artr_pt1_panel(ax, legend=True):
     """ω → ARTR;  v_extero → pt-IPN1."""
     ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.axis("off")
-    _drive_legend(ax, has_propriocep=False)
+    if legend:
+        _drive_legend(ax, has_propriocep=False)
 
     _draw_afferent_block(ax, (0.13, 0.60), (0.28, 0.17),
                          "ARTR L / R", r"$n=35+41$",
@@ -219,12 +220,13 @@ def _draw_artr_pt1_panel(ax):
     _arrow(ax, (0.76, 0.54), (0.79, 0.55), color="0.4", lw=1.5)
 
 
-def _draw_propriocep_panel(ax):
+def _draw_propriocep_panel(ax, legend=True):
     """ω → ARTR;  ω_proprio → motor_efferent (angular companion);
     v_ext → pt-IPN1. The green motor_efferent box sits between the blue
     ARTR and orange pt-IPN1 boxes — both angular drives are at the top."""
     ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.axis("off")
-    _drive_legend(ax, has_propriocep=True)
+    if legend:
+        _drive_legend(ax, has_propriocep=True)
 
     # ARTR (blue, ω) top — motor_efferent (green, ω_proprio) middle —
     # pt-IPN1 (orange, v_ext) bottom, so the two angular afferents are

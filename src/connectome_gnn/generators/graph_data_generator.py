@@ -538,6 +538,11 @@ def _generate_swim_integration_task(config, *, device, visualize: bool = True) -
                     if _pos_tau is None or float(_pos_tau) <= 0.0
                     else f"leaky τ={float(_pos_tau):.3f}s")
         _int_label = "(x,y)-integrator"
+    elif _tgt_kind == "rotation_mismatch":
+        _int_str = (f"g∈[{float(getattr(si,'proprio_gain_min',0.0)):.2f},"
+                    f"{float(getattr(si,'proprio_gain_max',1.5)):.2f}] "
+                    f"seg={float(getattr(si,'proprio_gain_segment_s',2.0)):.2f}s")
+        _int_label = "ω_proprio-gain"
     else:
         _xi_tau = getattr(si, "xi_tau_s", None)
         _int_str = ("perfect (cumsum)"
@@ -686,6 +691,11 @@ def _generate_swim_integration_task(config, *, device, visualize: bool = True) -
             out[:, 0] = 0.0
             return out
 
+        # ω_proprio defaults to ω (no proprioceptive mismatch); the
+        # rotation_mismatch recipe below overrides it with g(t)·ω.
+        omega_proprio = omega
+        proprio_gain = None
+
         if _target_kind == "position_2d":
             # 2D path integration: project v_fwd through the *current*
             # heading and integrate the two axes independently. This
@@ -717,10 +727,39 @@ def _generate_swim_integration_task(config, *, device, visualize: bool = True) -
             # Target — 3 columns [cosθ, sinθ, ξ]: rotation (0,1) + translation (2).
             target_y = np.stack([np.cos(theta_hd), np.sin(theta_hd), disp],
                                 axis=-1).astype(np.float32)
+        elif _target_kind == "rotation_mismatch":
+            # Proprioceptive-gain mismatch task. The proprioceptive (effective)
+            # angular velocity is a time-varying gain g(t) of the observed ω:
+            #     ω_proprio(t) = g(t) · ω(t),   g(t) ∈ [g_min, g_max]
+            # g(t) is PIECEWISE-CONSTANT — it holds for ~segment_s seconds then
+            # steps to a new uniform draw (a discrete proprioceptive-gain
+            # regime switch). The supervised scalar is the integral of the
+            # mismatch ∫(ω − ω_proprio) dt in radians — the accumulated
+            # sensory-vs-proprioceptive heading discrepancy the recurrent
+            # circuit must recover from its two afferent streams (ω → ARTR,
+            # ω_proprio → motor_efferent).
+            g_min = float(getattr(si, "proprio_gain_min", 0.0))
+            g_max = float(getattr(si, "proprio_gain_max", 1.5))
+            seg_s = float(getattr(si, "proprio_gain_segment_s", 2.0))
+            n_seg = max(1, int(round((T * dt) / max(seg_s, dt))))
+            seg_gains = np.random.uniform(
+                g_min, g_max, size=(B, n_seg)).astype(np.float32)
+            proprio_gain = np.zeros((B, T), dtype=np.float32)
+            bounds = np.linspace(0, T, n_seg + 1).astype(int)
+            for _s in range(n_seg):
+                proprio_gain[:, bounds[_s]:bounds[_s + 1]] = seg_gains[:, _s:_s + 1]
+            omega_proprio = (proprio_gain * omega).astype(np.float32)
+            mismatch = (np.cumsum(np.deg2rad(omega - omega_proprio), axis=1)
+                        * dt).astype(np.float32)
+            mismatch[:, 0] = 0.0
+            disp = mismatch  # reuse the displacement sidecar slot
+            target_y = np.stack(
+                [np.cos(theta_hd), np.sin(theta_hd), mismatch], axis=-1,
+            ).astype(np.float32)
         else:
             raise ValueError(
-                f"task.swim_integration.target_kind must be 'scalar_xi' or "
-                f"'position_2d'; got {_target_kind!r}"
+                f"task.swim_integration.target_kind must be 'scalar_xi', "
+                f"'position_2d' or 'rotation_mismatch'; got {_target_kind!r}"
             )
         # Input — channel layout selected by ``propriocep_split``:
         #   default (False): 4 channels [ω, v_fwd, cos θ₀·δ, sin θ₀·δ]
@@ -731,12 +770,15 @@ def _generate_swim_integration_task(config, *, device, visualize: bool = True) -
         # angular proprioceptive efference copy ω_proprio (= ω in this first
         # version) routed to motor_efferent, a companion of the ω drive to
         # ARTR. v_fwd routes to pt-IPN1 only.
-        _propriocep_split = bool(getattr(si, "propriocep_split", False))
+        # rotation_mismatch always uses the 5-channel propriocep layout (it
+        # needs the separate ω_proprio column routed to motor_efferent).
+        _propriocep_split = bool(getattr(si, "propriocep_split", False)) \
+            or _target_kind == "rotation_mismatch"
         if _propriocep_split:
             stimulus = np.zeros((B, T, 5), dtype=np.float32)
             stimulus[:, :, 0] = omega
             stimulus[:, :, 1] = vfwd      # v_fwd → pt-IPN1
-            stimulus[:, :, 2] = omega     # ω_proprio (angular efference) → motor_efferent
+            stimulus[:, :, 2] = omega_proprio  # ω_proprio (= g(t)·ω) → motor_efferent
             stimulus[:, 0, 3] = np.cos(theta0)
             stimulus[:, 0, 4] = np.sin(theta0)
         else:
@@ -779,6 +821,14 @@ def _generate_swim_integration_task(config, *, device, visualize: bool = True) -
                    vfwd.astype(np.float32))
         _zarr.save(os.path.join(split_dir, "displacement.zarr"),
                    disp.astype(np.float32))
+        # rotation_mismatch sidecars: the proprioceptive angular drive and its
+        # time-varying gain g(t), for the training-evolution mismatch plot.
+        if _target_kind == "rotation_mismatch":
+            _zarr.save(os.path.join(split_dir, "omega_proprio.zarr"),
+                       omega_proprio.astype(np.float32))
+            if proprio_gain is not None:
+                _zarr.save(os.path.join(split_dir, "proprio_gain.zarr"),
+                           proprio_gain.astype(np.float32))
         logger.info(f"[task]   {split}: wrote {B} trials of T={T} "
                     f"(TaskTrials v2 layout + swim_label/forward_vel/displacement.zarr)")
 

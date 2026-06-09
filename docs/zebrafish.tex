@@ -172,8 +172,39 @@ turn command's efference copy. The proprioception variant adds these
 cells as a companion \emph{angular} gate target: $\omega$ now drives
 both \emph{ARTR} and \emph{motor\_efferent} in parallel (each with its
 own pair of learnable scalars), while $v_{\mathrm{fwd}}$ routes only
-to \emph{pt-IPN1}. The connectome is unchanged (\cref{fig:zhd_3d});
-only the afferent taxonomy and the gate architecture differ.
+to \emph{pt-IPN1}. This rotation/translation split of the afferent
+partition (\cref{fig:zhd_3d}) mirrors the functional organisation
+\citet{feierstein2023} report in the zebrafish hindbrain: applying
+reduced-rank regression to whole-brain GCaMP6s imaging, they find that
+behaviour-related population activity is low-dimensional --- captured by
+two features --- and that the corresponding voxels segregate into a
+vergent-movement/swimming (translational) cluster and two rotation
+clusters that lie selectively in the left and right hemispheres.
+
+\paragraph{Afferent cell types.}
+The constituent afferent sub-types carry distinct, identifiable
+signals. \emph{ARTR} --- the Anterior Rhombomere Turning Region --- is
+a long-time-constant population that typically becomes active only
+after the first turning event and then sustains its activity over a
+relatively long window. It is built from two similar pairs.
+\emph{RIPN01} and \emph{RIPN03\_a} share a connectivity pattern that
+differs essentially only in their ring target: \emph{RIPN01} projects
+to \emph{dIPN}, whereas \emph{RIPN03\_a} projects to \emph{dsIPN}
+($=$\emph{IPNds*}), a small region just posterior to dIPN.
+\emph{RIPN02} and \emph{RIPN03\_b} form a second, structurally similar
+pair --- with the targets swapped (\emph{RIPN03\_b}$\to$\emph{dIPN},
+\emph{RIPN02}$\to$\emph{dsIPN}) --- that reads out the \emph{hSAG}
+pathway carrying horizontal rotational signals; these cells are not yet
+reliably driven in the present data (their activity resembles noise),
+but their connectivity places them with ARTR.
+\emph{pt-IPN1} integrates optic-flow and water-flow signals and divides
+into roughly four groups, each encoding a different direction.
+The motor-efference cells split by efferent source: \emph{RIPN11}
+receives \emph{ascending} motor efferents together with the \emph{hSAG}
+pathway and is our leading candidate for moving the heading bump, while
+\emph{RIPN12\_a} and \emph{RIPN12\_c} --- best treated as a single
+group --- receive \emph{descending} motor efferents together with
+\emph{hSAG}.
 
 \paragraph{Connectome.}
 \Cref{fig:zhd_connectome_summary} depicts the nominal $917$-cell
@@ -218,8 +249,8 @@ no Dale annotation on the \emph{fish2} server and are kept positive
 \label{sec:methods}
 
 \textbf{Recurrent neural network.}\label{method:RNN}
-The RNN is a sign-locked discrete-time recurrent network for
-$i\in\{1,\dots,N\}$ with $N=731$:
+The RNN is a discrete-time recurrent network for
+$i\in\{1,\dots,N\}$ with $N=917$:
 \begin{equation}
 \tau\,\frac{d\hat h_i(t)}{dt}
   = -\hat h_i(t)
@@ -232,92 +263,99 @@ $\sigma$ is the sigmoid, $\tau=0.1\,\mathrm{s}$, $\Delta t=0.01\,\mathrm{s}$.
 The recurrent matrix is sign-locked to the connectome template
 $W^{\mathrm{con}}\in\R^{N\times N}$ (built from the
 \emph{neuprint-fish2} reconstruction; outgoing columns of GABAergic
-HD-ring cells \emph{IPNd*}, \emph{IPNds*} are negated and amplified
-$5\times$): the trainable per-edge parameter is the magnitude
-$\hat S$, and
+HD-ring cells \emph{IPNd*}, \emph{IPNds*} are negated, and the whole
+matrix is spectrally normalised to radius $0.9$): the trainable
+per-edge parameter is the magnitude $\hat S$, and
 \begin{equation}
 \hat W^{\mathrm{rec}}_{ij}
   = |\hat S_{ij}|\,\mathrm{sign}(W^{\mathrm{con}}_{ij}).
 \label{eq:zhd_w_rec}
 \end{equation}
-External drive enters via $\hat W^{\mathrm{in}}$
-(\cref{method:input_extended}) and is read out via
-$\hat W^{\mathrm{out}}$ (\cref{method:output_readout}); the ring
-cells receive no external input.
-
 \bigskip
 \noindent\textbf{Input gate on $\hat W^{\mathrm{in}}$: anatomically licensed afferent ports.}%
 \label{method:input_extended}
-What enters the network through $\hat W^{\mathrm{in}}$ is fixed by the
-afferent partition of \cref{fig:zhd_3d}\textbf{c}--\textbf{d}: a
-channel $c$ may drive only its anatomically licensed subpopulations
-$\mathcal{Q}_c$, and the ring cells (\emph{IPNd*}, \emph{IPNds*},
-\emph{IPN12}) remain input-free. With $q(i)\in\mathcal{Q}$ the
-subpopulation of afferent neuron $i$,
+$\hat W^{\mathrm{in}}\in\R^{N\times n_{\mathrm{in}}}$ has one row per
+neuron ($N=917$) and one column per input channel
+($n_{\mathrm{in}}=\dim u(t)$). At every step it injects the external
+drive $\hat W^{\mathrm{in}}u(t)\in\R^{N}$ into the dynamics, added to
+the recurrent term $\hat W^{\mathrm{rec}}\sigma(\hat h)$ of
+\cref{eq:zhd_dynamics}. The rule is that each input variable may touch
+only the one afferent cell type that
+\cref{fig:zhd_3d}\textbf{c}--\textbf{d} assigns to it; the three
+afferent types are the only entry points, and the ring cells
+(\emph{IPNd*}, \emph{IPNds*}, \emph{IPN12}) never receive external
+input.
+
+Take the exteroceptive variant of \cref{fig:zhd_3d}\textbf{c}, with the
+four-channel drive
+\begin{equation*}
+u(t)=\bigl(\,\omega,\ v_{\mathrm{fwd}},\
+   \cos\theta_0\!\cdot\!\delta_{t_0},\
+   \sin\theta_0\!\cdot\!\delta_{t_0}\,\bigr)^{\!\top},\qquad
+\omega\to\mathrm{ARTR},\quad v_{\mathrm{fwd}}\to\text{pt-IPN1}.
+\end{equation*}
+Grouping the $N$ rows by population, the signal injected into the
+network at time $t$ --- the $+\hat W^{\mathrm{in}}u(t)$ term of
+\cref{eq:zhd_dynamics} --- is the matrix--vector product
 \begin{equation}
-\hat W^{\mathrm{in}}_{i,c} =
-\begin{cases}
-v_{c,\,q(i)} & i\in\mathcal{A},\ q(i)\in\mathcal{Q}_c,\\
-0            & i\in\mathcal{A},\ q(i)\notin\mathcal{Q}_c,\\
-\text{free}  & c \in \mathrm{cue},
-\end{cases}
+\begin{gathered}
+\hat W^{\mathrm{in}}\,u(t)=
+\bordermatrix{%
+ & \omega & v_{\mathrm{fwd}} & \cos\theta_0 & \sin\theta_0 \cr
+\mathrm{ARTR}_L   & -\softplus(\tilde v_\omega^{L}) & 0 & * & * \cr
+\mathrm{ARTR}_R   & +\softplus(\tilde v_\omega^{R}) & 0 & * & * \cr
+\text{pt-IPN1}_L  & 0 & v_{\mathrm{fwd}}^{L} & * & * \cr
+\text{pt-IPN1}_R  & 0 & v_{\mathrm{fwd}}^{R} & * & * \cr
+\text{ring}       & 0 & 0 & * & * \cr
+\text{other aff.} & 0 & 0 & * & * \cr}
+\begin{pmatrix}\omega\\[1pt] v_{\mathrm{fwd}}\\[1pt]
+   \cos\theta_0\,\delta_{t_0}\\[1pt] \sin\theta_0\,\delta_{t_0}\end{pmatrix}
+\\[6pt]
+=\ \omega\,\mathbf{w}_\omega+v_{\mathrm{fwd}}\,\mathbf{w}_{v}
+  +\delta_{t_0}\bigl(\cos\theta_0\,\mathbf{c}+\sin\theta_0\,\mathbf{s}\bigr)
+  \ \in\R^{N},
+\end{gathered}
 \label{eq:zhd_swim_gate}
 \end{equation}
-where $\mathcal{A}$ is the union of afferent neurons. Each anatomically
-distinct afferent population is therefore driven by its \emph{own}
-input channel: there is no shared column in $\hat W^{\mathrm{in}}$
-that fans out to more than one population. Concretely, the two
-production-circuit variants use the input-channel sets
-\begin{equation}
-\begin{aligned}
-\text{exteroceptive (\cref{fig:zhd_3d}\textbf{c}):}\quad &
-   u(t)=\bigl(\omega,\,v_{\mathrm{fwd}},\,\cos\theta_0\!\cdot\!\delta_{t_0},\,\sin\theta_0\!\cdot\!\delta_{t_0}\bigr),\\
-& \mathcal{Q}_\omega=\{\mathrm{ARTR}_{L,R}\},\quad
-  \mathcal{Q}_{v_{\mathrm{fwd}}}=\{\mathrm{ptIPN1}_{L,R}\};\\[4pt]
-\text{proprioception (\cref{fig:zhd_3d}\textbf{d}):}\quad &
-   u(t)=\bigl(\omega,\,v_{\mathrm{fwd}},\,\omega_{\mathrm{proprio}},\,\cos\theta_0\!\cdot\!\delta_{t_0},\,\sin\theta_0\!\cdot\!\delta_{t_0}\bigr),\\
-& \mathcal{Q}_\omega=\{\mathrm{ARTR}_{L,R}\},\
-  \mathcal{Q}_{v_{\mathrm{fwd}}}=\{\mathrm{ptIPN1}_{L,R}\},\
-  \mathcal{Q}_{\omega_{\mathrm{proprio}}}=\{\mathrm{motor\_efferent}_{L,R}\}.
-\end{aligned}
-\label{eq:zhd_port_map}
-\end{equation}
-The proprioception variant therefore has \emph{two} separate
-$\hat W^{\mathrm{in}}$ columns carrying the \emph{angular} drive --- one
-routed to ARTR (the sensory head-direction afferent) and a companion
-$\omega_{\mathrm{proprio}}$ column routed to motor\_efferent
-(RIPN11 + RIPN12\_a + RIPN12\_c, which the \emph{fish2} inventory ties
-to head direction rather than forward swim, carrying the turn
-command's efference copy) --- while $v_{\mathrm{fwd}}$ routes only to
-pt-IPN1. This is the default and only behaviour for the proprioception
-circuit; the previous gate that routed a forward $v_{\mathrm{proprio}}$
-to motor\_efferent is removed. In the first version of the model the
-two angular columns carry the same driver,
-$\omega_{\mathrm{proprio}}(t) = \omega(t)$, so the model sees the
-same heading signal plumbed through two anatomically distinct ports;
-differential delay or noise on the efference channel is a one-line
-follow-up that does not change the equation above.
-The same rule generalises to the full multi-modal driver across all
+where ``$*$'' marks a free (unconstrained) entry and
+$\mathbf{w}_\omega,\mathbf{w}_{v},\mathbf{c},\mathbf{s}\in\R^{N}$ are
+the four columns of $\hat W^{\mathrm{in}}$. The three column kinds are:
+the \emph{sign-locked turn column} $\mathbf{w}_\omega$
+($\omega\!\to\!$ARTR), nonzero only on ARTR with its left half forced
+inhibitory and right half excitatory via $\mp\softplus$ --- the two
+scalars $\tilde v_\omega^{L},\tilde v_\omega^{R}$ are the only learned
+parameters, and the lock makes left/right turns drive the ring peak in
+opposite directions (a same-sign gate would integrate heading equally
+well but drive both hemispheres in phase, unlike the data); the
+\emph{unlocked vigour column} $\mathbf{w}_{v}$
+($v_{\mathrm{fwd}}\!\to\!$pt-IPN1), non-directional, keeping the pt-IPN1
+restriction but dropping the lock (one free scalar per side, either
+sign); and the \emph{free cue columns} $\mathbf{c},\mathbf{s}$
+($\cos\theta_0,\sin\theta_0$), dense and fully free over all $N$ rows,
+which $\delta_{t_0}$ switches on only at the first frame $t_0$ to plant
+the starting heading bump into the ring before they fall silent.
+The proprioception variant of \cref{fig:zhd_3d}\textbf{d} adds
+a fifth channel,
+\begin{equation*}
+u(t)=\bigl(\,\omega,\ v_{\mathrm{fwd}},\ \omega_{\mathrm{proprio}},\
+   \cos\theta_0\!\cdot\!\delta_{t_0},\
+   \sin\theta_0\!\cdot\!\delta_{t_0}\,\bigr)^{\!\top},\qquad
+\omega_{\mathrm{proprio}}\to\mathrm{motor\_efferent},
+\end{equation*}
+i.e.\ a \emph{second} sign-locked angular column routed to
+motor\_efferent (RIPN11 + RIPN12\_a + RIPN12\_c, which the \emph{fish2}
+inventory ties to head direction, carrying the turn command's efference
+copy), while $v_{\mathrm{fwd}}$ still routes only to pt-IPN1. In the
+first model version the two angular columns share a driver,
+$\omega_{\mathrm{proprio}}(t)=\omega(t)$, each with its own pair of
+scalars. The same rule scales to the full multi-modal driver of the
 nine ZAPBench conditions (\cref{fig:zhd_allblocks}): every visual
-channel $c\in\mathrm{vis}$ --- signed rotation/optic-flow velocity
-(Rotations, OMR~Turning, Gain), whole-field luminance (Flash), L/R
-light difference (Taxis), random-dot motion (Dots) --- takes
-$\mathcal{Q}_c=\{\mathrm{ptIPN}_{L,R}\}$, and every self-motion
-channel $c\in\mathrm{sm}=(u^{\mathrm{fwd}},u^{\mathrm{turn}})$
-derived from the tail EMG takes
-$\mathcal{Q}_c=\{\mathrm{RIPN}_{L,R}\}$. The per-hemisphere gate
-scalars of each directional channel are \emph{sign-locked} to opposite
-polarity --- $v_{c,L}=-\softplus(\tilde v_{c,L})\le 0$ and
-$v_{c,R}=+\softplus(\tilde v_{c,R})\ge 0$, the magnitude
-$|\tilde v|$ left free --- so leftward and rightward stimuli always
-drive the ring activity peak in opposite directions, matching the
-recorded ARTR L/R anti-correlation. Without this lock the input--output
-loss alone is degenerate: a task-only gate can collapse to a same-sign
-solution that integrates heading equally well yet drives both
-hemispheres \emph{in phase} (symmetric L/R), unlike the data. Non-
-directional channels (forward-swim vigour, whole-field luminance) carry
-no such lock. Anatomy thus fixes \emph{which port} a modality uses and
-the sign-lock fixes the L/R \emph{polarity}; only the gain is free.
+channel (rotation/optic-flow velocity, whole-field luminance, L/R light
+difference, random-dot motion) drives pt-IPN1, and every tail-EMG
+self-motion channel drives RIPN, each gated by \cref{eq:zhd_swim_gate}.
+Anatomy fixes \emph{which} port a modality uses, the sign-lock fixes its
+L/R \emph{polarity}, and only the gain $\softplus(\tilde v_c^{L,R})$ is
+free.
 
 \bigskip
 \noindent\textbf{Output readout on $\hat W^{\mathrm{out}}$: task-conditioned columns.}%
@@ -342,7 +380,7 @@ $(\hat x,\hat y)$ are supervised against, not the readout shape.
 The learnable parameters of the model are
 \begin{equation*}
 \big\{\hat W^{\mathrm{rec}}_{ij},\;
-\{v_{c,q}\}_{c,\,q\in\mathcal{Q}_c},\;
+\{\tilde v_c^{L},\tilde v_c^{R}\}_c,\;
 \hat W^{\mathrm{in}}_{:,\theta_0},\,\hat b,\,
 \hat W^{\mathrm{out}},\,\hat b^{\mathrm{out}}\big\};
 \end{equation*}
@@ -608,8 +646,8 @@ removing this functional bias, the GNN also admits an explicit form
 of neuronal heterogeneity through a per-neuron learnable embedding
 $\mathbf a_i \in \R^d$ that enters both $f_\theta$ and $g_\phi$:
 same-type neurons share their architectural role but can specialise
-via their embedding, so a single pair of MLPs covers the $31$ fish2
-cell types of \cref{sec:anatomy} and all $N = 731$ instance-level
+via their embedding, so a single pair of MLPs covers the $34$ fish2
+cell types of \cref{sec:anatomy} and all $N = 917$ instance-level
 distinctions without any further per-type parameter tying; we use
 $d = 4$ as the default. Nodes correspond to neurons and edges to
 the non-zero entries of the zebrafish HD connectome template
@@ -799,68 +837,64 @@ having to invert the calcium kernel.
 \subsection{Trained heading integrator on the ARTR / pt-IPN1 circuit}
 \label{sec:results_evolution}
 
-We train the sign-locked RNN of \cref{method:RNN} on the refined
-$839$-cell circuit of \cref{fig:zhd_3d}\textbf{c} --- angular drive
-$\omega$ routed exclusively to ARTR (\emph{RIPN01/02/03\_a/03\_b}),
-forward-swim $v_{\mathrm{fwd}}$ to \emph{pt-IPN1}, both via the
-cell-type-resolved gate of \cref{eq:zhd_swim_gate} --- on the
+We train the sign-locked RNN of \cref{method:RNN} on the nominal
+$917$-cell circuit of \cref{fig:zhd_3d}\textbf{c} --- angular drive
+$\omega$ routed exclusively to ARTR (\emph{RIPN01/02/03\_a/03\_b})
+--- on the
 rotation-only sub-task of \cref{fig:zhd_swim_task_modes} ($n_{\rm in}=3$
 channels, $n_{\rm out}=2$ outputs).
 \Cref{fig:zhd_evolution_artr_pt1} reports the trained network.
-Quantitative test-set evaluation shows that after training the
-heading code is correctly recovered. On the full $10{,}000$-trial test
-set the per-frame heading accuracy is $\mathrm{pi\_acc}=0.998$ (cosine
-similarity of decoded vs.\ ground-truth heading vector), with a
-mean per-trial circular RMSE of $3.6^\circ \pm 2.4^\circ$ and Pearson
-$r=0.995 \pm 0.042$ over the $512$-trial sample. Four
-constant-$\omega$ deterministic rollouts of $T=2000$ frames at
-$\omega \in \{\pm 60, \pm 120\}^\circ/\mathrm{s}$ give a circular
-RMSE of $17.6^\circ$ averaged over the four runs (per-run:
-$5.1^\circ, 14.2^\circ, 33.4^\circ, 17.6^\circ$) and a growth-rate
-ratio
-$\dot{\hat\theta}/\dot\theta = 1.021 \pm 0.020$ (heading is
-integrated at near-unit slope across the full $\pm 180^\circ/\mathrm{s}$
-range; panel \textbf{i}). Pearson on the unwrapped trajectories is
-$\ge 0.99997$ for every sweep. The dIPN carries a single travelling
+After training the heading code is correctly recovered. Across the
+five held-out swim-integration test trials (panel \textbf{i}) the
+decoded heading tracks ground truth with a mean per-trial circular
+RMSE of $5.9^\circ \pm 2.5^\circ$ and Pearson $r=0.997 \pm 0.003$.
+Constant-$\omega$ deterministic rollouts of $T=2000$ frames spanning
+the full $\pm 180^\circ/\mathrm{s}$ range (panels \textbf{h},
+\textbf{j}) integrate heading at a near-unit gain: the linear-fit slope
+of decoded vs.\ true $\omega$ is $1.07$ (mean local gain
+$1.04 \pm 0.05$; panel \textbf{h}), and the Pearson correlation on the
+unwrapped trajectories is $\ge 0.999$ for every
+sweep. The dIPN carries a single travelling
 ring activity peak (panel \textbf{e}). The learned recurrent weights
 $\hat W^{\mathrm{rec}}$ sit on the signed connectome support by
 construction; the per-edge magnitude correlates with the connectome
-template at Pearson $r=0.377$ (panel \textbf{c}), consistent with the
+template at Pearson $r=0.430$ (panel \textbf{c}), consistent with the
 sign-locked re-scaling described in \cref{method:RNN}.
 
 \begin{figure}[p]
   \centering
-  \includegraphics[width=\textwidth]{\figdir/fig_evolution_zebrafish_hd_si_ipn12_artr_pt1_selfmotion_rotation.png}
+  \includegraphics[width=\textwidth]{\figdir/fig_evolution_zebrafish_hd_si_ipn_917_v1_selfmotion_rotation.png}
   \caption{\textbf{Trained heading integrator on the ARTR / pt-IPN1
   variant of \cref{fig:zhd_3d}\textbf{c}.} Sign-locked RNN with
   $\hat W^{\mathrm{rec}} = |\hat S|\odot\mathrm{sign}(W^{\mathrm{con}})$
-  on the $839$-cell circuit (IPN12 v1, inhibitory). Drive: $\omega$
-  routed exclusively to ARTR
-  (\emph{RIPN01/02/03\_a/03\_b}) via the cell-type-resolved gate of
-  \cref{eq:zhd_swim_gate}. Task: rotation only ($n_{\rm in}=3$,
+  on the nominal $917$-cell circuit ($917$ v1, inhibitory). Drive:
+  $\omega$ routed exclusively to ARTR
+  (\emph{RIPN01/02/03\_a/03\_b}). Task: rotation only ($n_{\rm in}=3$,
   $n_{\rm out}=2$).
-  \textbf{(a)} GT connectome $W^{\mathrm{con}}$, signed and
-  $\sqrt{\,}$-scaled (red excitatory, blue inhibitory; edges dilated for
-  visibility), neuron-type blocks on both axes.
+  \textbf{(a)} GT connectome $W^{\mathrm{con}}$, neuron-type blocks on
+  both axes.
   \textbf{(b)} Learned $\hat W^{\mathrm{rec}}$ on the same scale.
   \textbf{(c)} Scatter of the learned per-edge weight $\hat W_{ij}$
-  against $W^{\mathrm{con}}_{ij}$ over all connectome edges (diagonal
-  and zeros excluded); dashed $y = x$ reference, title reports Pearson
-  $r$.
-  \textbf{(d)} All $839$ neurons over a constant-$\omega =
-  +60^\circ/\mathrm{s}$ rollout, sorted by cell type; firing rates
+  against $W^{\mathrm{con}}_{ij}$ over all connectome edges (per-edge
+  Pearson $r=0.430$).
+  \textbf{(d)} All $917$ neurons over a constant-$\omega =
+  +60^\circ/\mathrm{s}$ rollout, sorted by cell type.
+  \textbf{(e)} dIPN sub-population over the same rollout; firing rates
   $z$-scored per neuron.
-  \textbf{(e)} dIPN sub-population over the same rollout (the
-  travelling ring activity).
   \textbf{(f)} Constant-$\omega$ rollout. Top: $\omega(t)$. Bottom:
   true heading (green) and decoded heading (black), wrapped. Title
   reports post-warmup Pearson $r$ and circular RMSE.
   \textbf{(g)} Same layout on a held-out swim-integration test trial.
-  \textbf{(h)} Per-cell-type distribution of the subthreshold state
-  $\hat h_i(t)$ (violin + mean $\pm 1$ SD).
-  \textbf{(i)} Integration gain: linear-fit slope of the unwrapped
-  decoded heading vs.\ true $\omega$, on a $15^\circ/\mathrm{s}$ grid
-  over $[-180,+180]\setminus\{0\}$. Dashed line: $g = 1$.}
+  \textbf{(h)} Integration gain (Hulse-style scatter): measured slope
+  of the unwrapped decoded heading vs.\ true $\omega$, on a
+  $15^\circ/\mathrm{s}$ grid over $[-180,+180]$; the
+  near-linear domain is shaded, dashed line $g = 1$.
+  \textbf{(i)} Five held-out swim-integration test trials: true
+  heading (green) and decoded heading (black); per-panel circular RMSE
+  and Pearson $r$.
+  \textbf{(j)} Five constant-$\omega$ deterministic sweeps
+  ($T=2000$ frames): same overlay; per-panel circular RMSE and Pearson
+  $r$ on the unwrapped trajectories.}
   \label{fig:zhd_evolution_artr_pt1}
 \end{figure}
 
@@ -1137,20 +1171,20 @@ The results so far establish that the connectome-constrained network learns
 to integrate heading accurately, and that the solution is robust to any
 single-type lesion. Accuracy on the task, however, says nothing about
 whether the network's \emph{internal activity} matches the brain. We test
-this directly by driving the trained baseline model
-(\emph{zebrafish\_hd\_si\_ipn12\_v1}, trained on the swim-integration task
-\emph{only}) with the recorded ZAPBench ``Rotations'' stimulus
-(\cref{method:zapbench}), converting its rolled-out activity to GCaMP7f
-calcium (\cref{eq:zhd_gcamp}), and comparing it to the recorded
-$\Delta F/F$ of the $300$ matched ring-pool neurons in the same
-rastermap row order (\cref{fig:zhd_obs_baseline}).
+this directly by driving the trained task-only model
+(\emph{zebrafish\_hd\_si\_ipn\_917\_v1}, the nominal $917$-cell circuit,
+trained on the rotation task \emph{only}) with the recorded ZAPBench
+``Rotations'' stimulus (\cref{method:zapbench}), converting its
+rolled-out activity to GCaMP7f calcium (\cref{eq:zhd_gcamp}), and
+comparing it to the recorded $\Delta F/F$ of the $279$ matched ring-pool
+neurons in the same rastermap row order (\cref{fig:zhd_obs_baseline}).
 
 The model is an excellent head-direction predictor --- its decoded heading
 tracks the $45^\circ/\mathrm{s}$ rotation closely
-(\cref{fig:zhd_obs_baseline}b, bottom) --- yet its population activity is
-plainly \emph{not} the recorded one: the learned kinograph is a clean,
-stimulus-locked set of bands, whereas the recording
-(\cref{fig:zhd_obs_baseline}a) is irregular, bursty and drift-laden. This
+(\cref{fig:zhd_obs_baseline}, bottom panel) --- yet its population activity is
+plainly \emph{not} the recorded one: the model's learned kinograph is a
+clean, stimulus-locked set of bands, whereas the recorded $\Delta F/F$
+above it is irregular, bursty and drift-laden. This
 is the degeneracy at the heart of the paper, now read out on real data:
 \emph{many circuits realise the same head-direction computation, and hence
 the same task ability, while producing different activity}. Task
@@ -1163,12 +1197,13 @@ recorded activity still encodes heading, just in a form our eye does not
 read off the kinograph. We tested this directly by training a decoder ---
 a small neural network --- to predict the instantaneous heading
 $(\cos\theta,\sin\theta)$ from the recorded per-frame $\Delta F/F$ of the
-$300$ ring-pool neurons (fit on the first $70\%$ of the rotation block,
+ring-pool neurons (fit on the first $70\%$ of the rotation block,
 evaluated on the held-out tail). The result was \emph{not} conclusive: the
-decoded heading (black in \cref{fig:zhd_obs_baseline}a) does not track the
-true rotation (green), in sharp contrast to the model's own readout, which
+decoded heading does not track the true rotation
+(\cref{fig:zhd_obs_control}; recorded-$\Delta F/F$ decode at circular
+$r=0.14$), in sharp contrast to the model's own readout, which
 recovers heading almost perfectly from its latent state
-(\cref{fig:zhd_obs_baseline}b). The implication is that \emph{the
+(\cref{fig:zhd_obs_baseline}, bottom panel). The implication is that \emph{the
 instantaneous head-direction signal is hard to read, frame by frame, from
 the observed calcium activity}.
 
@@ -1209,27 +1244,27 @@ observation loss are reported in \cref{sec:results_obs_sweep};
   \centering
   \includegraphics[width=\textwidth]{\figdir/fig_zebrafish_calcium_baseline.png}
   \caption{\textbf{Task-only model: accurate heading, unrealistic activity.}
-  Baseline (task only, no observation loss) driven by the recorded
-  ZAPBench Rotations stimulus, rendered as GCaMP7f calcium
-  (\cref{eq:zhd_gcamp}). \textbf{(a)} Recorded $\Delta F/F$ for
-  the $300$ matched ring-pool neurons (official ZAPBench rastermap
-  row order; see Stringer et~al.\ 2024 for the algorithm) over the
-  full block; bottom strip: true heading (green) vs.\ heading
-  decoded from the recording (black). \textbf{(b)} Same for the
-  model's predicted calcium under the same stimulus and the same row
-  order, so each row is the same recorded ring cell across a and b.
-  \textbf{(c--h)} The three velocity-gate afferent classes ---
-  \emph{ARTR} (\textbf{c}, \textbf{d}), \emph{pt-IPN1} (\textbf{e},
-  \textbf{f}), \emph{motor\_efferent} (\textbf{g}, \textbf{h}) --- each
-  shown as recorded $\Delta F/F$ then model calcium, with cells sorted
-  by per-cell preferred-heading angle (\cref{fig:zhd_unmodeled}), the
-  same order across the recorded and model rows.
-  \textbf{(i)} Per-neuron power spectrum (median $\pm$ IQR over the
-  $n=300$ traces) of recorded vs.\ modelled calcium --- the model's
-  energy concentrates at the rotation drive and its harmonics, while
-  the recorded activity carries broad-band power away from those
-  bins. Breaking this degeneracy is the target of the observation
-  loss (\cref{eq:zhd_obs}; \cref{sec:results_obs_sweep}).}
+  The nominal $917$-cell model
+  (\emph{zebrafish\_hd\_si\_ipn\_917\_v1}, rotation task only, no
+  observation loss) driven by the recorded ZAPBench Rotations stimulus
+  and rendered as GCaMP7f calcium (\cref{eq:zhd_gcamp}), in the same
+  reconstruction layout as \cref{fig:zhd_obs_reconstruction}. Top:
+  recorded angular-velocity drive $\omega(t)$. For the bump-pool
+  ($n=279$ matched ring-pool neurons, official ZAPBench rastermap row
+  order) and the \emph{ARTR} afferent class ($n=33$, sorted by per-cell
+  preferred-heading angle, \cref{fig:zhd_unmodeled}), two rows are
+  shown: the recorded $\Delta F/F$ and the model's calcium under a
+  continuous $600\,\mathrm{s}$ rollout, with per-panel $z$-MSE and SSIM
+  inset; each row is the same recorded cell across the recorded and
+  model panels. Bottom: true heading (green) and the model's
+  readout-decoded heading (black) over the same rollout. The model
+  decodes heading accurately, yet its predicted calcium is clean,
+  stimulus-locked banding ($\mathrm{SSIM}\!\le\!0.08$) bearing little
+  resemblance to the irregular, drift-laden recording --- the
+  degeneracy the observation loss (\cref{eq:zhd_obs};
+  \cref{sec:results_obs_sweep}) targets. pt-IPN1 and motor\_efferent are
+  omitted here (shown with the observation loss on in
+  \cref{fig:zhd_obs_reconstruction}).}
   \label{fig:zhd_obs_baseline}
 \end{figure}
 
@@ -1925,181 +1960,119 @@ distinct families despite the shared number.}
 \label{tab:zhd_mapping}
 \end{table}
 
-\section{ARTR: antiphase L/R coding versus an intrinsic oscillator}
-\label{app:artr}
+\subsection{ARTR: opponent L/R gate and the origin of the oscillation}
+\label{sec:results_artr}
 
-The angular afferent pool (\emph{ARTR} $=$
-\emph{RIPN01/02/03\_a/03\_b}; \cref{tab:zhd_mapping}) is the anterior
-rhombencephalic turning region of \citet{dunn2016artr}. Its defining
-biological signature is a slow ($\sim$10--20\,s) \emph{antiphase}
-oscillation between the left and right clusters --- an intrinsic
-mutual-inhibition flip-flop that persists \emph{without} sensory input
-and biases the direction of successive swim bouts. In our model $\omega$
-enters ARTR through the velocity gate (\cref{eq:zhd_swim_gate}) under a
-sign-antisymmetric initialisation $v_{c,L}=-v_{c,R}$ that mirrors this
-L/R opponency, and ARTR additionally receives recurrent feedback from
-the IPN ring. Two questions follow.
+The angular afferent pool (ARTR $=$ \emph{RIPN01/02/03\_a/03\_b};
+\cref{tab:zhd_mapping}) is the anterior rhombencephalic turning region of
+\citet{dunn2016artr}: a slow ($\sim$10--20\,s) antiphase oscillation between
+the left and right clusters that biases successive swim bouts.
 
-\paragraph{Does the trained model reproduce the antiphase L/R code?}
-Fitting the heading task alone does not: the task-only models drive both
-gate scalars to the \emph{same} sign ($v_{\mathrm{artr},L}=-0.019$,
-$v_{\mathrm{artr},R}=-0.017$) and the two hemispheres co-vary
-($r(\mathrm{ARTR}_L,\mathrm{ARTR}_R)=+0.85$ on a held-out swim trial).
-Only when the model is additionally constrained to reproduce the
-recorded calcium activity (the \emph{gcamp} runs of
-\cref{sec:results_obs_sweep}) does the gate become antisymmetric
-($v_{\mathrm{artr},L}=-0.034$, $v_{\mathrm{artr},R}=+0.051$) and the
-activity antiphase, with opponent $\omega$-tuning. The L/R opponency is
-supplied by the recorded activity, not by the task. Driven by the
-\emph{recorded} $\omega$ through this gate, the model then reproduces the
-recorded ARTR antiphase L/R block structure
-(\cref{fig:zhd_artr_kino}): the two hemispheres alternate with the turn
-command in both data and model
-($r(\mathrm{ARTR}_L,\mathrm{ARTR}_R)=-0.55$ recorded, $-0.97$ model,
-matched on the same $33$ neurons; the GCaMP convolution does not change
-the sign of the opponency).
+\paragraph{Sign-locked opponent gate.}
+\emph{Hypothesis:} the recorded ARTR L/R anti-correlation needs an opponent
+gate the heading task does not by itself impose. \emph{Test:} train the
+angular gate unconstrained versus locked to opposite polarity
+($v_{c,L}=-\softplus(\tilde v_{c,L})\le 0$,
+$v_{c,R}=+\softplus(\tilde v_{c,R})\ge 0$, magnitudes free). \emph{Result:} the
+unconstrained gate converges to a same-sign solution --- it integrates heading
+equally well but drives both hemispheres in phase; the lock restores opponency
+at no cost to task accuracy. Non-directional channels (forward-swim vigour,
+luminance) carry no lock.
 
-\paragraph{Is the alternation intrinsic or inherited?}
-Merely observing ARTR ``oscillate'' during a swim trial is
-uninformative, because the $\omega$ swim command is itself an
-alternating square wave and the heading bump rotates at $|\omega|/360$\,Hz;
-a fast ARTR oscillation can be \emph{inherited} from either source
-without ARTR being an oscillator. \Cref{fig:zhd_artr_osc} resolves this
-with three probes on the activity-constrained model.
-
-\begin{description}
-\item[Test.] (i)~Sweep a \emph{constant} $\omega$ and measure ARTR's
-  oscillation period $T_{\mathrm{ARTR}}$ and amplitude; (ii)~drive an
-  alternating square wave; (iii)~free-run from a small perturbation with
-  \emph{zero} input.
-\item[Expectation.] An \emph{intrinsic} oscillator has a period set by
-  its own time constants: $T_{\mathrm{ARTR}}$ should be \emph{invariant}
-  to $\omega$, its amplitude sustained, and the oscillation should
-  \emph{persist} under zero input. An \emph{inherited} oscillation
-  should instead track the bump period ($T_{\mathrm{ARTR}}\approx
-  360/|\omega|$\,s, i.e.\ \emph{shorter} as $\omega$ grows) and
-  \emph{vanish} when the drive is removed.
-\item[Result.] Under constant $\omega$ the amplitude collapses to zero
-  for $\omega\gtrsim30^\circ/$s, and where it survives (low $\omega$) its
-  period tracks the bump period $360/|\omega|$\,s rather than staying
-  fixed (\cref{fig:zhd_artr_osc}\textbf{a,b}). Under the square wave ARTR
-  follows the drive, the faster ($\sim$8\,s at $45^\circ/$s) ripple being
-  the rotating bump reflected through ring feedback
-  (\cref{fig:zhd_artr_osc}\textbf{c}). The zero-input free-run decays to
-  a fixed point (amplitude $0.003$; \cref{fig:zhd_artr_osc}\textbf{d}).
-\item[Conclusion.] The model reproduces ARTR's \emph{turn-laterality
-  opponent code} but \emph{not} the \citet{dunn2016artr} \emph{intrinsic
-  oscillator}: its L/R alternation is inherited from the swim command
-  and the rotating bump, not generated by ARTR's own dynamics. This is
-  expected --- the afferents carry no Dale annotation and are kept
-  excitatory (no learned L$\leftrightarrow$R mutual inhibition), and the
-  membrane time constant ($\tau=0.1$\,s) is two orders of magnitude
-  shorter than the ARTR period. Reproducing the spontaneous oscillation
-  would require inhibitory cross-hemisphere ARTR coupling and a slow
-  adaptation variable; whether such a circuit is recoverable under the
-  same calcium constraint is a sharp, falsifiable target for future
-  work.
-\end{description}
-
-\begin{figure}[H]
-  \centering
-  \includegraphics[width=\textwidth]{\figdir/fig_zebrafish_artr_oscillation.png}
-  \caption{\textbf{ARTR L/R alternation is inherited, not an intrinsic
-  oscillator} (activity-constrained \emph{gcamp} rotation model).
-  \textbf{(a)}~Dominant ARTR oscillation period $T_{\mathrm{ARTR}}$ (s)
-  versus constant $\omega$ (purple), against the bump-rotation period
-  $360/|\omega|$\,s (dashed); the shaded region marks the $\omega$ at which
-  ARTR has settled to a fixed point (no oscillation). $T_{\mathrm{ARTR}}$
-  follows the bump period, not a fixed intrinsic period.
-  \textbf{(b)}~ARTR oscillation amplitude
-  versus constant $\omega$: it collapses to zero for $\omega\gtrsim
-  30^\circ/$s --- not self-sustained. \textbf{(c)}~Alternating
-  square-wave drive (grey, right axis): ARTR$_L$ (red) and ARTR$_R$
-  (blue) alternate in antiphase, following the command; the fast ripple
-  is the bump carrier via ring feedback. \textbf{(d)}~Zero-input
-  free-run from a perturbation: with no drive the population relaxes to a
-  fixed point --- the decisive negative test for an intrinsic
-  oscillator. Generated by
-  \texttt{figures/zebrafish/fig\_zebrafish\_artr\_oscillation.py}.}
-  \label{fig:zhd_artr_osc}
-\end{figure}
+\paragraph{Two timescales.}
+\emph{Hypothesis:} ARTR carries a slow stimulus-locked rhythm plus a faster
+component of unknown origin (inherited vs intrinsic). \emph{Test:} band-split
+the L/R means at a $16$\,s period and compare L/R coherence
+(\cref{fig:zhd_artr_timescales}). \emph{Result:} the slow band ($>16$\,s,
+$\sim$60\,s) is the turn-block --- antiphase and $\omega$-locked in both data
+($r_{LR}=-0.57$) and model ($-0.96$), hence inherited. The fast band
+($<16$\,s, $\sim$8\,s) is the heading-bump carrier ($360/|\omega|$) in the
+model and is L/R phase-locked ($|r_{LR}|=0.80$); in the recording it is
+incoherent ($r_{LR}=+0.03$) and left-lateralised ($7$\,L vs $1$--$2$\,R cells)
+where the model is bilateral. An inherited
+carrier is necessarily L/R-locked, so the recorded fast band is a graded mix
+--- inherited carrier plus a cell-specific component at or below the
+imaging-SNR floor.
 
 \begin{figure}[H]
   \centering
   \includegraphics[width=\textwidth]{\figdir/fig_zebrafish_artr_kinograph.png}
-  \caption{\textbf{Recorded versus modelled ARTR kinograph --- the
-  antiphase code is recruited by the observation loss} under the ZAPBench
-  rotation block, grouped by hemisphere (L block above the white divider,
-  R block below), the $33$ recorded ARTR neurons matched to their modelled
-  counterparts by body ID. \textbf{(a)}~Angular drive $\omega(t)$.
-  \textbf{(b)}~Recorded ARTR $\Delta F/F$ ($n=33$; per-row $z$-scored):
-  the L and R blocks brighten in \emph{antiphase}, alternating with the
-  turn command ($r(\mathrm{ARTR}_L,\mathrm{ARTR}_R)=-0.55$). The orange
-  bracket marks the $5$ ``fast'' L cells (period $8$--$13$\,s; see
-  text) sorted to the block's outer edge.
-  \textbf{(c)}~Model trained \emph{with} the calcium-observation loss
-  (the \emph{gcamp} run), driven by the recorded $\omega$ through its
-  velocity gate and GCaMP-convolved (same neuron order as \textbf{b}): the
-  antiphase L/R block structure is reproduced and clean ($r=-0.97$).
-  \textbf{(d)}~Model trained \emph{without} the observation loss (the
-  task-only run, identical architecture and drive): the two hemispheres
-  instead \emph{co-vary} ($r=+0.65$) --- the heading task alone does not
-  recruit the L/R opponency. \textbf{(e--g)}~L/R population means
-  (normalised; ARTR$_L$ red, ARTR$_R$ blue), one panel per condition:
-  recorded (\textbf{e}, antiphase), with-observation model (\textbf{f},
-  antiphase), without-observation model (\textbf{g}, co-varying). Fitting
-  the recorded activity, not the task, supplies ARTR's antiphase
-  turn-laterality code; and \cref{fig:zhd_artr_osc} shows that even this
-  antiphase is driven, not an intrinsic oscillation. Generated by
-  \texttt{figures/zebrafish/fig\_zebrafish\_artr\_oscillation.py
-  -{}-kinograph}.}
-  \label{fig:zhd_artr_kino}
+  \caption{\textbf{Recorded versus modelled ARTR.} The $33$ recorded ARTR
+  neurons matched to their counterparts in the sign-constrained $917$-cell
+  model (driven by the recorded $\omega$), grouped by hemisphere (L block below
+  the white divider, R above; original ZAPBench order). \textbf{(a)}~Angular
+  drive $\omega(t)$: a $\pm30^\circ/$s square wave, period $\approx60$\,s.
+  \textbf{(b)}~Recorded ARTR $\Delta F/F$ ($N=33$; L $n=18$, R $n=15$; per-row
+  $z$-scored): L and R alternate in antiphase ($r_{LR}=-0.55$).
+  \textbf{(c)}~Model (sign-locked opponent gate), GCaMP-convolved, same neuron
+  order as \textbf{b}: genuinely antiphase ($r_{LR}=-0.90$).
+  \textbf{(d)}~Recorded L/R population mean (ARTR$_L$ red, ARTR$_R$ blue; line
+  $=$ mean, shading $=\pm$SD across cells; $n$ per hemisphere).
+  \textbf{(e)}~Its slow band ($>16$\,s, the $\sim$60\,s turn-block;
+  $r_{LR}=-0.57$). \textbf{(f, g)}~The learned model traces for each ARTR cell
+  ($z$-scored), ARTR$_L$ (\textbf{f}, $18$ traces) and ARTR$_R$ (\textbf{g},
+  $15$ traces), with the population mean in black.}
+  \label{fig:zhd_artr_timescales}
 \end{figure}
 
-\paragraph{Two timescales in the recorded ARTR.}
-A per-neuron spectral analysis of the recorded panel
-(\cref{fig:zhd_artr_kino}\textbf{b}) splits the $33$ ARTR cells by
-dominant timescale. Most ($28/33$) carry only the slow turn-block
-rhythm --- spectral centroids of $0.02$--$0.05$\,Hz, i.e.\ periods of
-$\sim$$20$--$50$\,s --- which is the L/R opponent alternation that
-tracks the $\omega$ command. A minority ($5/33$, the orange sub-band)
-\emph{additionally} carry a fast component with periods of
-$7.5$--$13.4$\,s. These five are genuine ARTR --- one cell from each
-\emph{fish2} sub-type (\emph{RIPN01}, \emph{RIPN02}$\times2$,
-\emph{RIPN03\_a}, \emph{RIPN03\_b}), not a leak of \emph{pt-IPN1} or
-\emph{motor\_efferent} cells into the ARTR body-ID set --- and they are
-\emph{not} heading-tuned (variance explained by $[\cos\theta,\sin\theta]$
-is $\approx0$, as for the whole pool). Their $\sim$$8$--$13$\,s period
-overlaps the bump-rotation carrier ($8$\,s at $45^\circ/$s) but, being
-heading-independent, is not a simple bump echo; it is either a faster
-intrinsic ARTR component or imaging noise. Crucially, \emph{neither}
-model reproduces it: both the with- and without-observation runs are
-pure slow opponent encoders locked to the $\sim$$43$\,s block rate
-(zero fast cells under the same analysis). The fast subset is therefore
-a recorded feature that the present circuit --- which has no
-intra-ARTR recurrence to set a second, faster timescale --- does not
-capture, consistent with the absence of an intrinsic ARTR oscillator
-(\cref{fig:zhd_artr_osc}).
+\paragraph{Origin: inherited, not intrinsic.}
+\emph{Hypothesis:} an intrinsic oscillator has a period set by its own time
+constants --- invariant to $\omega$, sustained, and persistent without input;
+an inherited one tracks the drive and stops with it. \emph{Test:} a
+constant-$\omega$ sweep and a zero-input free-run on the model
+(\cref{fig:zhd_artr_oscillation}). \emph{Result:} under constant $\omega$ the
+period tracks the bump period $360/|\omega|$ (\textbf{a}) and the amplitude
+collapses to zero for $\omega\gtrsim30^\circ/\mathrm{s}$ (\textbf{b}); the
+free-run decays toward a fixed point (amplitude $0.05$; \textbf{d}). The model
+oscillation is inherited, not intrinsic. This is structural: an intrinsic
+rhythm needs L$\leftrightarrow$R inhibition (bistability) and a slow adaptation
+variable (to set the $\sim$10--20\,s period), whereas our ARTR is
+all-excitatory with $\tau=0.1$\,s and would latch rather than oscillate.
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=\textwidth]{\figdir/fig_zebrafish_artr_kinograph_gcamp_compare.png}
-  \caption{\textbf{ARTR kinograph with and without the GCaMP forward model.} The
-  same activity-constrained model of \cref{fig:zhd_artr_kino}, driven by the
-  recorded $\omega$, shown two ways against the recorded $\Delta F/F$
-  (\textbf{b}). \textbf{(c)}~Model $+$ GCaMP: the voltage convolved with the
-  GCaMP7f kernel (the panel of \cref{fig:zhd_artr_kino}). \textbf{(d)}~Model
-  without GCaMP: the raw voltage. \textbf{(e)}~L/R population means: recorded
-  (solid), $+$GCaMP (dashed), no GCaMP (dotted). The L/R antiphase is
-  \emph{identical} with and without the indicator ($r_{LR}=-0.97$ in both) ---
-  the turn-laterality code lives in the voltage --- but the GCaMP kinetics supply
-  the slow rise/decay that matches the recorded $\Delta F/F$, whereas the raw
-  voltage is a near-instantaneous square-wave response to the turn command. The
-  GCaMP model's contribution is thus \emph{temporal} (the calcium-indicator
-  low-pass), not the laterality structure. Generated by
-  \texttt{figures/zebrafish/fig\_zebrafish\_artr\_oscillation.py
-  -{}-kinograph\_compare}.}
-  \label{fig:zhd_artr_kino_gcamp_compare}
+  \includegraphics[width=0.7\textwidth]{\figdir/fig_zebrafish_artr_oscillation.png}
+  \caption{\textbf{ARTR oscillation diagnostic}
+  (sign-constrained $917$-cell model, recorded $\omega$).
+  \textbf{(a)}~Dominant ARTR oscillation period $T_{\mathrm{ARTR}}$ (s)
+  versus constant $\omega$ (purple), against the bump-rotation period
+  $360/|\omega|$\,s (dashed); the shaded region marks the $\omega$ values at
+  which ARTR has settled to a fixed point (no oscillation, period undefined).
+  \textbf{(b)}~ARTR oscillation amplitude (std of the population mean) versus
+  constant $\omega$. \textbf{(c)}~Alternating square-wave $\omega$ drive
+  (grey, right axis) with ARTR$_L$ (red) and ARTR$_R$ (blue) population means
+  over time. \textbf{(d)}~Zero-input free-run ($\omega=0$) from a small
+  initial perturbation.}
+  \label{fig:zhd_artr_oscillation}
+\end{figure}
+
+\paragraph{Darkness: a test for the missing oscillator.}
+\emph{Hypothesis:} if the recorded ARTR is intrinsic it keeps oscillating once
+the command is removed; the command-driven model does not. \emph{Test:} the
+ZAPBench session runs a rotation block straight into a darkness block in the
+same fish; drive the model identically (recorded rotation $\omega$, then zero
+input) and compare (\cref{fig:zhd_artr_dark}). \emph{Result:} in the dark the
+recorded ARTR keeps alternating ($|L-R|$ std $=0.72$) while the model is
+near-flat ($0.14$, $\sim$5$\times$ smaller). The recording carries an intrinsic dark-state rhythm
+(cf.\ \citealp{dunn2016artr}) the model largely lacks; its much-reduced dark
+response is expected by construction, so this is a prediction--data gap that names the
+missing ingredients (recurrent inhibition $+$ slow adaptation) --- a
+falsifiable target for future work.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{\figdir/fig_zebrafish_artr_dark.png}
+  \caption{\textbf{ARTR at the rotation$\to$dark transition.} The continuous
+  ZAPBench \emph{open loop} $\to$ \emph{rotation} $\to$ \emph{dark} blocks; the
+  model is driven with the recorded rotation $\omega$ followed by zero input
+  (dark block, shaded). \textbf{(a)}~Angular drive $\omega(t)$: zero in open
+  loop, the $\pm30^\circ/$s square wave in rotation, zero in dark.
+  \textbf{(b)}~Recorded ARTR L/R population mean (ARTR$_L$ red, ARTR$_R$ blue),
+  normalised. \textbf{(c)}~Model ARTR L/R population mean, normalised.
+  \textbf{(d, e)}~Recorded and modelled ARTR
+  kinographs (per-row $z$-scored, L block below the white divider; dashed lines
+  mark the rotation and dark onsets).}
+  \label{fig:zhd_artr_dark}
 \end{figure}
 
 \bibliographystyle{unsrtnat}
@@ -2120,6 +2093,13 @@ H.~Dana, Y.~Sun, B.~Mohar, et~al.
 High-performance calcium sensors for imaging activity in neuronal
 populations and microcompartments. \emph{Nature Methods} \textbf{16},
 649--657 (2019).
+
+\bibitem[Feierstein et al.(2023)]{feierstein2023}
+C.~E.~Feierstein, M.~H.~M.~de~Goeij, A.~D.~Ostrovsky, A.~Laborde,
+R.~Portugues, M.~B.~Orger, C.~K.~Machens.
+Dimensionality reduction reveals separate translation and rotation
+populations in the zebrafish hindbrain. \emph{Current Biology}
+\textbf{33}, 3911--3925 (2023).
 
 \bibitem[Dunn et al.(2016)]{dunn2016artr}
 T.~W.~Dunn, Y.~Mu, S.~Narayan, O.~Randlett, E.~A.~Naumann, C.~T.~Yang,

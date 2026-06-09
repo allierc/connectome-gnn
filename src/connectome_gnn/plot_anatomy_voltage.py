@@ -1005,6 +1005,105 @@ def frames_to_mp4(frame_paths, mp4_path: str, fps: int = 20) -> Optional[str]:
 
 
 # ---------------------------------------------------------------------------
+# Companion "sliding kinograph" movie — neuron x time heatmap with a vertical
+# time-cursor that slides in lock-step with the anatomy frames.
+# ---------------------------------------------------------------------------
+
+def render_kinograph_movie(
+    z: np.ndarray,
+    frame_ks: np.ndarray,
+    row_mask: np.ndarray,
+    theta_hd: np.ndarray,
+    out_dir: str,
+    mp4_path: str,
+    plot_cfg,
+    *,
+    dt: float,
+    fps: int = 20,
+    label: str = "",
+    neurons_label: str = "all",
+    max_rows: int = 400,
+) -> "Optional[str]":
+    """Render a sliding-cursor kinograph movie of the probe rollout.
+
+    ``z`` is the (T, N) per-neuron z-scored voltage (same array the anatomy
+    render paints). ``row_mask`` is a (N,) bool selecting which neurons
+    become kinograph rows (the group whitelist). Rows are sorted by
+    time-of-peak so a travelling bump reads as a diagonal. One frame is
+    written per entry of ``frame_ks`` (the SAME strided indices the anatomy
+    movie uses), each showing the full heatmap plus a vertical white cursor
+    at the current time and the head-direction trace overlaid — so the kino
+    movie and the anatomy movie play frame-for-frame in sync.
+
+    Returns the mp4 path (or last frame path if encoding is unavailable).
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    T, N = z.shape
+    rows = np.where(row_mask)[0]
+    if rows.size == 0:
+        rows = np.arange(N)
+    # Keep the panel readable: cap row count by uniform subsampling.
+    if rows.size > max_rows:
+        rows = rows[np.linspace(0, rows.size - 1, max_rows).astype(np.int64)]
+    kino = z[:, rows].T                      # (n_rows, T)
+    # Sort rows by time-of-peak so a travelling bump is a clean diagonal.
+    order = np.argsort(np.argmax(kino, axis=1))
+    kino = kino[order]
+    n_rows = kino.shape[0]
+
+    vmax = float(np.percentile(np.abs(kino), 99)) or 1.0
+    t_s = np.arange(T) * float(dt)
+    # HD trace wrapped to [-180, 180]°, rescaled into the row range so it
+    # overlays the heatmap without a second axis.
+    hd_deg = np.degrees(np.asarray(theta_hd, dtype=np.float64))
+    hd_deg = ((hd_deg + 180.0) % 360.0) - 180.0
+    hd_row = (hd_deg + 180.0) / 360.0 * (n_rows - 1)
+
+    os.makedirs(out_dir, exist_ok=True)
+    for fn in os.listdir(out_dir):
+        if fn.startswith("frame_") and fn.endswith(".png"):
+            try: os.remove(os.path.join(out_dir, fn))
+            except OSError: pass
+
+    from tqdm import tqdm
+    frame_paths: list = []
+    extent = [t_s[0], t_s[-1], 0, n_rows]
+    pbar = tqdm(list(enumerate(frame_ks)), desc="[kinograph]",
+                unit="frame", ncols=150, leave=True)
+    for ix, k in pbar:
+        k = int(k)
+        fig, ax = plt.subplots(figsize=(8.0, 4.0), dpi=120)
+        ax.imshow(kino, aspect="auto", origin="lower", cmap="inferno",
+                  vmin=-vmax, vmax=vmax, extent=extent, interpolation="nearest")
+        ax.plot(t_s, hd_row, color="#39ff7a", lw=0.8, alpha=0.7)
+        ax.axvline(t_s[k], color="white", lw=1.5)
+        ax.set_xlim(t_s[0], t_s[-1])
+        ax.set_ylim(0, n_rows)
+        ax.set_xlabel("time (s)", fontsize=9)
+        ax.set_ylabel(f"neuron (sorted by peak)  [{neurons_label}]", fontsize=9)
+        ax.set_title(f"{label}   t={t_s[k]:.2f}s   frame {ix}/{len(frame_ks) - 1}",
+                     fontsize=9)
+        ax.tick_params(labelsize=8)
+        fig.tight_layout()
+        out_path = os.path.join(out_dir, f"frame_{ix:04d}.png")
+        fig.savefig(out_path, dpi=120)
+        plt.close(fig)
+        frame_paths.append(out_path)
+        pbar.set_postfix_str(f"frame_t={k}/{T - 1}")
+    pbar.close()
+
+    if len(frame_paths) > 1:
+        mp4 = frames_to_mp4(frame_paths, mp4_path, fps=fps)
+        if mp4:
+            print(f"  [kinograph] wrote movie: {mp4}")
+            return mp4
+    return frame_paths[-1] if frame_paths else None
+
+
+# ---------------------------------------------------------------------------
 # Test-pipeline entry point — one call from data_test_path_integration_task
 # ---------------------------------------------------------------------------
 
@@ -1108,6 +1207,24 @@ def run_anatomy_voltage_test(
         scene = _scene_for_types(proj, types)
         print(f"  [anatomy_voltage:{organism}] group '{folder}': "
               f"whitelist {scene.get('n_lit_neurons', 0)}/{circuit.N} neurons")
+
+        # Companion sliding kinograph, synced to the SAME frame indices so it
+        # plays in lock-step with the anatomy movie. Rendered FIRST because
+        # it's the cheap part (~seconds) and shouldn't be lost if the slow
+        # anatomy frame loop below is interrupted.
+        if bool(getattr(plot_cfg, "anatomy_voltage_kinograph", False)):
+            row_mask = _type_keep_mask(
+                proj["type_names_per"], types, proj["has_skel"],
+            )
+            kino_out = render_kinograph_movie(
+                z, frame_ks, row_mask, theta_hd,
+                os.path.join(tmp_recons, f"{folder}_kino"),
+                os.path.join(tmp_recons, f"{folder}_kino.mp4"),
+                plot_cfg, dt=float(model.dt), fps=fps,
+                label=label, neurons_label=neurons_label,
+            )
+            if kino_out is not None:
+                last_out = kino_out
 
         frame_paths: list = []
         crop_box = None   # fixed from the first frame; see note below

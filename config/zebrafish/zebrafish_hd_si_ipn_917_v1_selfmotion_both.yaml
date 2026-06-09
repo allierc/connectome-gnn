@@ -1,13 +1,13 @@
-description: Message-passing GNN companion of
-  zebrafish_hd_si_ipn_917_v1_selfmotion_rotation — same 917-cell artr_pt1 circuit,
-  same pen_4scalar gate, same rotation task, and the SAME on-disk dataset
-  (zebrafish_hd_si_task_917_selfmotion) so the GNN and the sign-locked RNN are
-  head-to-head on identical trials. signal_model_name=zebrafish_hd_si_gnn
-  replaces the dense recurrent operator with a per-edge GNN (f_theta + g_phi
-  MLPs over a per-neuron embedding a_i); the leak and firing-rate nonlinearity
-  must emerge from (f_theta, g_phi, a). g_phi_positive=false + sign-locked
-  per-edge weights restore Dale's law without a ± degeneracy. GNN hyperparams
-  from the archived zebrafish_hd_si_gnn_ipn12_v1.
+description: Self-motion swim task — combined rotation+translation mode on the NEW
+  nominal 917-cell circuit (zebrafish_HD_IPN_917_artr_pt1 — ω → ARTR, v_fwd →
+  pt-IPN1 — fully separated angular and translational drive paths). Fresh-start
+  917 companion of the archived zebrafish_hd_si_ipn12_artr_pt1_selfmotion_both.yaml.
+  training.task_targets=['rotation','translation'] feeds the full 4-ch / 3-col
+  on-disk superset (zebrafish_hd_si_task_917_selfmotion, the SAME dataset as the
+  rotation run); model sees [omega, v_fwd, cos0, sin0] (n_in=4) and predicts
+  [cos, sin, xi] (n_out=3). velocity_gate=pen_artr_ptipn1 gates ω via v_artr_l/r
+  and v_fwd via v_pt1_l/r in parallel (column 0 → ARTR, column 1 → pt-IPN1, rest
+  free). Synapse-area weights, spectrally normalised to ρ=0.9, w_init_mode=w_con.
 dataset: zebrafish_hd_si_task_917_selfmotion
 simulation:
   params:
@@ -15,19 +15,15 @@ simulation:
   connconstr_datapath: figures/zebrafish/zebrafish_connectome_HD_IPN_917
   seed: 47006
 graph_model:
-  signal_model_name: zebrafish_hd_si_gnn
+  signal_model_name: zebrafish_hd_si
   aggr_type: add
   input_proj: matrix
   output_proj: matrix
   velocity_gate: pen_artr_ptipn1
   lock_edge_signs: true
-  hidden_dim: 64
-  n_layers: 2
-  hidden_dim_update: 64
-  n_layers_update: 2
-  MLP_activation: tanh
-  embedding_dim: 2
-  g_phi_positive: false
+  hidden_dim: 128
+  n_layers: 3
+  MLP_activation: relu
   output_from_dipn_only: true
 circuit:
   name: zebrafish_HD_IPN_917_artr_pt1
@@ -56,57 +52,78 @@ plotting:
   anatomy_voltage_seed: 0
 training:
   device: auto
-  seed: 47506
+  seed: 547506
   n_runs: 1
-  n_epochs: 5
-  batch_size: 16
-  data_augmentation_loop: 5
+  n_epochs: 10
+  batch_size: 64
+  data_augmentation_loop: 10
   lr: 0.002
   lr_W_rec_schedule:
-  - 0.002
-  - 0.002
-  - 0.001
   - 0.0005
   - 0.0005
+  - 0.00025
+  - 0.000125
+  - 0.000125
+  - 0.0001
+  - 0.0001
+  - 0.0001
+  - 5.0e-05
+  - 5.0e-05
+  - 5.0e-05
+  - 5.0e-05
+  - 5.0e-05
+  - 5.0e-05
+  - 5.0e-05
+  - 5.0e-05
+  - 5.0e-05
+  - 5.0e-05
+  - 5.0e-05
+  - 5.0e-05
   lr_scheduler: none
-  lr_W_ED: 0.0005
-  grad_clip_W: 1.0
+  lr_W_ED: 0.0025
+  grad_clip_W: 2.5
   coeff_cos_distance: 0.0
   coeff_norm_floor: 0.0
   kappa_norm_floor: 0.0
   coeff_tv_circular: 0.0
   coeff_W_L1: 0.0
-  noise_recurrent_level: 0.01
-  coeff_f_theta_diff: 15.0
-  coeff_g_phi_diff: 15.0
-  coeff_tail_loss: 0.05
-  w_init_mode: zeros
-  w_init_scale: 0.01
-  embedding_cell_type_init: true   # a_i starts at its cell type's equidistant 2-D cluster point
-  embedding_cell_type_scale: 1.0
-  fix_embedding: false             # NOT frozen — embedding is learnable from the cluster init
+  noise_recurrent_level: 0.03
   snapshots_per_epoch: 5
   n_steps_schedule:
-  - 10
-  - 50
+  - 100
   - 100
   - 200
+  - 200
   - 300
-  torch_compile: true
+  - 400
+  - 500
+  - 600
+  - 700
+  - 800
+  - 800
+  - 800
+  - 800
+  - 800
+  - 800
+  - 800
+  - 800
+  - 800
+  - 800
+  - 800
+  coeff_tail_loss: 0.035
+  torch_compile: false
+  w_init_mode: w_con
   task_targets:
   - rotation
+  - translation
 claude:
   n_epochs: 5
   data_augmentation_loop: 1
-  n_iter_block: 20
-  ucb_c: 1.414
-  generate_data: false
-  training_time_target_min: 90
-  hard_runtime_limit_min: 180
-  node_name: a100
-  n_cpus: 8
+  n_iter_block: 40
   n_parallel: 10
-  conda_env: connectome-gnn
+  node_name: l4
+  generate_data: false
+  training_time_target_min: 30
 task:
   task_type: swim_integration
   task_only: true

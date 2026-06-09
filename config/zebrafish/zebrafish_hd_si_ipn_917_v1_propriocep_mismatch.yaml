@@ -1,13 +1,15 @@
-description: Self-motion swim task — rotation mode on the NEW nominal 917-cell
-  circuit (zebrafish_HD_IPN_917_artr_pt1, pen_4scalar gate — coarse RIPN/pt-IPN
-  afferents). Fresh-start companion of the archived
-  zebrafish_hd_si_ipn12_artr_pt1_selfmotion_rotation.yaml, retargeted from the
-  839 artr_pt1 circuit to the 917 artr_pt1 circuit. training.task_targets=['rotation']
-  projects the 4-ch / 3-col on-disk superset to [omega, cos0, sin0] (n_in=3) →
-  [cos, sin] (n_out=2); velocity_gate=pen_4scalar routes ω → all RIPN (coarse)
-  via v_ripn_l/r. Synapse-area weights, spectrally normalised to ρ=0.9, so
-  w_init_mode=w_con is well-scaled.
-dataset: zebrafish_hd_si_task_917_selfmotion
+description: Proprioceptive-gain MISMATCH swim task on the NEW nominal 917-cell
+  PROPRIOCEPTION circuit (zebrafish_HD_IPN_917_artr_pt1_proprioception). The
+  observed angular velocity ω is routed to ARTR, while a separate proprioceptive
+  copy ω_proprio = g(t)·ω (g piecewise-constant in [0, 1.5], stepping every ~2 s)
+  is routed to motor_efferent via the pen_artr_ptipn1_propriocep gate. The 3rd
+  target column is the integral of the mismatch ∫(ω − ω_proprio)dt (radians) —
+  the accumulated sensory-vs-proprioceptive heading discrepancy the recurrent
+  circuit must recover from its two afferent streams. Stimulus is the 5-channel
+  propriocep layout [ω, v_fwd, ω_proprio, cos0, sin0] (n_in=5); model predicts
+  [cos, sin, mismatch] (n_out=3). task_targets=['rotation','translation'] reuses
+  the (5,3) passthrough projection; target_kind=rotation_mismatch.
+dataset: zebrafish_hd_si_task_917_propriocep_mismatch
 simulation:
   params:
   - - 1.0
@@ -18,14 +20,14 @@ graph_model:
   aggr_type: add
   input_proj: matrix
   output_proj: matrix
-  velocity_gate: pen_artr_ptipn1
+  velocity_gate: pen_artr_ptipn1_propriocep
   lock_edge_signs: true
   hidden_dim: 128
   n_layers: 3
   MLP_activation: relu
   output_from_dipn_only: true
 circuit:
-  name: zebrafish_HD_IPN_917_artr_pt1
+  name: zebrafish_HD_IPN_917_artr_pt1_proprioception
 plotting:
   anatomy_voltage_elev: 90.0
   anatomy_voltage_azim: -85.5
@@ -114,6 +116,7 @@ training:
   w_init_mode: w_con
   task_targets:
   - rotation
+  - translation
 claude:
   n_epochs: 5
   data_augmentation_loop: 1
@@ -144,3 +147,8 @@ task:
     seed: 0
     forward_vel_mean: 1.0
     forward_vel_std: 0.4
+    target_kind: rotation_mismatch
+    propriocep_split: true
+    proprio_gain_min: 0.0
+    proprio_gain_max: 1.5
+    proprio_gain_segment_s: 2.0

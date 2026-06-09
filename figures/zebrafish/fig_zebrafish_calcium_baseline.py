@@ -40,7 +40,13 @@ _SRC = os.path.join(_REPO, "src")
 if _SRC not in sys.path:
     sys.path.insert(0, _SRC)
 _PANEL_PY = os.path.join(_HERE, "fig_functional_panel.py")
-_DEFAULT_CONFIG = "zebrafish/zebrafish_hd_si_ipn12_artr_pt1_selfmotion_rotation"
+_DEFAULT_CONFIG = "zebrafish/zebrafish_hd_si_ipn_917_v1_selfmotion_rotation"
+_DEFAULT_CIRCUIT = "zebrafish_HD_IPN_917_artr_pt1"
+# The recorded-cell matching (functional/bodyid_zapbench_map.csv +
+# circuit_functional_traces.npz) is bodyId-keyed, so the IPN12 copy is
+# reused for the 917 circuit — build_rows intersects it with the 917
+# body_ids (414 of the 481 matched cells survive).
+_DEFAULT_CONNECTOME = os.path.join(_HERE, "zebrafish_connectome_HD_IPN12")
 _DEFAULT_OUT = os.path.join(_HERE, "fig_zebrafish_calcium_baseline.png")
 _PAIRS_T_S = 200.0   # time window (s) for the example-pairs panel (e)
 
@@ -131,8 +137,13 @@ def _compute_sort_by_bodyId(config_name, calcium_mapping_pt,
     return out
 
 
-def _run_panel(extra_args, out_dir):
-    cmd = [sys.executable, _PANEL_PY, "--no-title", "--out", out_dir, *extra_args]
+def _run_panel(extra_args, out_dir, *, connectome=None, circuit=None):
+    cmd = [sys.executable, _PANEL_PY, "--no-title", "--out", out_dir]
+    if connectome is not None:
+        cmd += ["--connectome", connectome]
+    if circuit is not None:
+        cmd += ["--circuit", circuit]
+    cmd += [*extra_args]
     print("[gen]", " ".join(cmd))
     subprocess.run(cmd, check=True, cwd=_REPO)
 
@@ -419,14 +430,72 @@ def _kino_only(fig, ss, kino, label, ylabel):
             va="bottom", fontsize=FS_PANEL, fontweight="bold")
 
 
+def _render_like_fig16(real_npz, model_npz, model_full_p, out_path,
+                        classes=("ARTR",)):
+    """Render Figure 13 in the Figure-16 reconstruction layout.
+
+    Stacks, top→bottom: the recorded ω drive; for the bump-pool and each
+    requested afferent ``classes`` a (recorded ΔF/F, model continuous)
+    kinograph pair with per-panel z-MSE / SSIM; and the true-vs-decoded
+    heading at the bottom. Same renderer as Fig. 16
+    (``plot_calcium_reconstruction``); the task-only 917 model is driven by
+    the recorded ZAPBench Rotations stimulus over the full block. Default
+    ``classes=("ARTR",)`` drops pt-IPN1 and motor_efferent.
+    """
+    from connectome_gnn.plot_cx import plot_calcium_reconstruction
+
+    dt = float(real_npz["dt_sec"])
+    real_pool = np.asarray(real_npz["kino"], np.float64)     # (K, T)
+    model_pool = np.asarray(model_npz["kino"], np.float64)   # (K, T)
+    T = min(real_pool.shape[1], model_pool.shape[1])
+    groups = [{
+        "name": "bump-pool",
+        "real": real_pool[:, :T].T,                          # (T, K)
+        "stitch": None,
+        "continuous": model_pool[:, :T].T,
+    }]
+    # Afferent classes (recorded + matched model rows, preferred-heading
+    # sorted), filtered to `classes`.
+    for nm, rz, mz in _afferent_panels(real_npz, model_full_p):
+        if nm not in classes:
+            continue
+        Ta = min(rz.shape[1], mz.shape[1], T)
+        groups.append({
+            "name": nm,
+            "real": rz[:, :Ta].T,
+            "stitch": None,
+            "continuous": mz[:, :Ta].T,
+        })
+
+    omega = np.asarray(model_npz["omega"], np.float64)
+    theta_deg = np.degrees(np.asarray(model_npz["theta"], np.float64))
+    dec_deg = np.degrees(np.asarray(model_npz["decoded"], np.float64))
+    hd = {"continuous": {"true": theta_deg, "pred": dec_deg}}
+
+    plot_calcium_reconstruction(
+        groups, dt, out_path, omega=omega, hd=hd,
+        show_stitch=False, trial_s=None)
+    names = ", ".join(g["name"] for g in groups)
+    print(f"[fig] wrote {out_path} (Fig-16 layout; groups: {names})")
+
+
 def main():
     p = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--config", default=_DEFAULT_CONFIG,
                    help="model config for panels b/d (default: task-only baseline)")
+    p.add_argument("--circuit", default=_DEFAULT_CIRCUIT,
+                   help="circuit registry name for recorded-cell row matching "
+                        "(must match the model's circuit)")
+    p.add_argument("--connectome", default=_DEFAULT_CONNECTOME,
+                   help="connectome dir holding functional/ (bodyId↔zapbench "
+                        "map + recorded traces); reused across circuits")
     p.add_argument("--gcamp", default="gcamp7f")
     p.add_argument("--out", default=_DEFAULT_OUT, help="output PNG path")
+    p.add_argument("--like-fig16", action="store_true",
+                   help="render in the Fig-16 reconstruction layout "
+                        "(bump-pool + ARTR only) instead of the a–i baseline")
     p.add_argument("--panel-dir", default=None,
                    help="dir for the kinograph .npz companions "
                         "(default: alongside --out)")
@@ -448,9 +517,12 @@ def main():
     if not args.skip_generate:
         # The kinograph PNGs are no longer consumed by this script, but
         # fig_functional_panel.py still writes the companion .npz that
-        # we read below. Drive it once for real, once for model.
-        _run_panel(["--sequence", "rotation"], panel_dir)
-        _run_panel(["--config", args.config, "--gcamp", args.gcamp], panel_dir)
+        # we read below. Drive it once for real, once for model. Both use
+        # the SAME circuit so panels a/b share the matched row order.
+        _run_panel(["--sequence", "rotation"], panel_dir,
+                   connectome=args.connectome, circuit=args.circuit)
+        _run_panel(["--config", args.config, "--gcamp", args.gcamp], panel_dir,
+                   connectome=args.connectome, circuit=args.circuit)
 
     for path in (real_npz_p, model_npz_p):
         if not os.path.isfile(path):
@@ -459,12 +531,18 @@ def main():
 
     real_npz = np.load(real_npz_p)
     model_npz = np.load(model_npz_p)
+    model_full_p = model_npz_p.replace(".npz", "_full.npz")
+
+    # Fig-16 reconstruction layout (bump-pool + ARTR only): reuse the same
+    # renderer as Figure 16, then stop.
+    if args.like_fig16:
+        _render_like_fig16(real_npz, model_npz, model_full_p, args.out)
+        return
 
     # ── afferent kinographs (ARTR / pt-IPN1 / motor_efferent) ────────
     # Recorded + matched-model rows per class, each sorted by preferred-
     # heading angle (Fig. 15 sort). Built from the recorded afferent
     # arrays in the real npz and the full per-cell model calcium dump.
-    model_full_p = model_npz_p.replace(".npz", "_full.npz")
     aff = _afferent_panels(real_npz, model_full_p)
 
     # ── outer layout ────────────────────────────────────────────────

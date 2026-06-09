@@ -233,10 +233,35 @@ class ZebrafishHdTaskGNN(nn.Module):
             self.v_ripn_r  = self._gate_scalar(0.01, 'r')
             self.v_ptipn_l = self._gate_scalar(0.01, 'l')
             self.v_ptipn_r = self._gate_scalar(0.01, 'r')
+        elif self.velocity_gate == "pen_artr_ptipn1":
+            # Refined gate (mirrors ZebrafishHdTaskRNN): ω → ARTR cells
+            # (RIPN01/02/03_a/03_b) via v_artr_l/r, v_fwd → pt-IPN1 via
+            # v_pt1_l/r. Builds the ARTR / pt-IPN1 indicator buffers the
+            # ARTR-analysis figures need.
+            afferent = cx.get("afferent_subpop_ix", None) or {}
+            required = ("ARTR_L", "ARTR_R", "pt_IPN1_L", "pt_IPN1_R")
+            missing = [k for k in required
+                       if k not in afferent or len(afferent[k]) == 0]
+            if missing:
+                raise ValueError(
+                    f"velocity_gate='pen_artr_ptipn1' requires non-empty "
+                    f"afferent_subpop_ix for {required}; missing/empty: "
+                    f"{missing}. Use a circuit that publishes the refined "
+                    f"subpops (e.g. zebrafish_HD_IPN_917_artr_pt1).")
+            for key in required:
+                ind = torch.zeros(N, dtype=torch.float32)
+                ind[torch.as_tensor(afferent[key], dtype=torch.long)] = 1.0
+                self.register_buffer(
+                    f"_afferent_ind_{key.lower()}", ind, persistent=False)
+            self.v_artr_l = self._gate_scalar(0.01, 'l')
+            self.v_artr_r = self._gate_scalar(0.01, 'r')
+            self.v_pt1_l  = self._gate_scalar(0.01, 'l')
+            self.v_pt1_r  = self._gate_scalar(0.01, 'r')
         elif self.velocity_gate != "none":
             raise ValueError(
-                f"graph_model.velocity_gate must be 'none', 'pen_only', or "
-                f"'pen_4scalar', got {self.velocity_gate!r}"
+                f"graph_model.velocity_gate must be 'none', 'pen_only', "
+                f"'pen_4scalar', or 'pen_artr_ptipn1', got "
+                f"{self.velocity_gate!r}"
             )
 
         # --- Dynamics constants -----------------------------------------
@@ -489,6 +514,15 @@ class ZebrafishHdTaskGNN(nn.Module):
                     + self._afferent_ind_ptipn_r * self._sgn_r(self.v_ptipn_r)
                 )
                 W = torch.cat([v_col.unsqueeze(1), W[:, 1:]], dim=1)
+            elif self.velocity_gate == "pen_artr_ptipn1":
+                # ω (input col 0) → ARTR via v_artr_l/r (sign-locked);
+                # heading-cue cols 1-2 stay free. The GNN is rotation-only
+                # (n_input=3), so pt-IPN1 (v_fwd) carries no input column here.
+                v_col_artr = (
+                    self._afferent_ind_artr_l * self._sgn_l(self.v_artr_l)
+                    + self._afferent_ind_artr_r * self._sgn_r(self.v_artr_r)
+                )
+                W = torch.cat([v_col_artr.unsqueeze(1), W[:, 1:]], dim=1)
             else:
                 mask = getattr(self, "_W_in_mask", None)
                 if mask is not None:
