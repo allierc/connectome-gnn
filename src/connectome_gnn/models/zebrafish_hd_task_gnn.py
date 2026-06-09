@@ -584,6 +584,16 @@ class ZebrafishHdTaskGNN(nn.Module):
             y_hat: (B, T, n_output) readout.
             h_buf: (B, T, N) subthreshold activity.
         """
+        # Some eval/rollout probes (bump_fwhm, deterministic sweep) build the
+        # legacy 3-channel input [ω, cosθ0, sinθ0]; this model may be wider
+        # (4-ch [ω, v_fwd, cosθ0, sinθ0]). Pad the missing middle (v_fwd)
+        # channels with zeros so ω stays in ch0 and the heading cue stays in
+        # the last two channels. No-op when already wide (mirrors the RNN).
+        if u.shape[-1] < self.n_input:
+            pad = self.n_input - u.shape[-1]
+            u = torch.cat(
+                [u[..., :1], u.new_zeros(*u.shape[:-1], pad), u[..., 1:]],
+                dim=-1)
         B, T, _ = u.shape
         N = self.n_units
 
