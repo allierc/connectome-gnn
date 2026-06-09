@@ -725,16 +725,18 @@ def _generate_swim_integration_task(config, *, device, visualize: bool = True) -
         # Input — channel layout selected by ``propriocep_split``:
         #   default (False): 4 channels [ω, v_fwd, cos θ₀·δ, sin θ₀·δ]
         #   propriocep_split: 5 channels
-        #                     [ω, v_extero, v_proprio, cos θ₀·δ, sin θ₀·δ]
-        # with v_extero = v_proprio = v_fwd in this first version so
-        # the two pathways carry the same driver routed through two
-        # anatomically distinct input columns.
+        #                     [ω, v_fwd, ω_proprio, cos θ₀·δ, sin θ₀·δ]
+        # The motor-efferent RIPN cells are tied to head direction, NOT
+        # forward swim (biologist correction): channel 2 is a separate
+        # angular proprioceptive efference copy ω_proprio (= ω in this first
+        # version) routed to motor_efferent, a companion of the ω drive to
+        # ARTR. v_fwd routes to pt-IPN1 only.
         _propriocep_split = bool(getattr(si, "propriocep_split", False))
         if _propriocep_split:
             stimulus = np.zeros((B, T, 5), dtype=np.float32)
             stimulus[:, :, 0] = omega
-            stimulus[:, :, 1] = vfwd      # v_extero → pt-IPN1
-            stimulus[:, :, 2] = vfwd      # v_proprio → motor_efferent
+            stimulus[:, :, 1] = vfwd      # v_fwd → pt-IPN1
+            stimulus[:, :, 2] = omega     # ω_proprio (angular efference) → motor_efferent
             stimulus[:, 0, 3] = np.cos(theta0)
             stimulus[:, 0, 4] = np.sin(theta0)
         else:

@@ -212,13 +212,18 @@ def _deterministic_sweep_rollout(
     # GT/decoded integrators we report (so the same u shape can serve both
     # the scalar_xi "both" model (n_out=3) and the position_2d model
     # (n_out=4) without confusing ξ with x).
-    has_rot = n_in in (3, 4)
+    # ω occupies channel 0 in every rotation-bearing input layout: the
+    # rotation-only (3) / both (4) gates and the proprioception-split (5)
+    # gate [ω, v_extero, v_proprio, cosθ₀, sinθ₀]. n_in ∈ {1, 2} are the
+    # translation-only layouts (2 = propriocep-split, two parallel v_fwd
+    # ports) and carry no heading drive.
+    has_rot = n_in in (3, 4, 5)
     has_trans_xi = n_out in (1, 3)              # scalar ξ in y_pred
     has_xy       = (n_out == 4)                  # 2D (x, y) in y_pred[:, 2:4]
     if not (has_rot or has_trans_xi or has_xy):
         raise ValueError(
             f"_deterministic_sweep_rollout: unsupported (n_in, n_out) = "
-            f"({n_in}, {n_out}) — expected n_in ∈ {{1, 3, 4}} with "
+            f"({n_in}, {n_out}) — expected n_in ∈ {{1, 2, 3, 4, 5}} with "
             f"n_out ∈ {{1, 2, 3, 4}}."
         )
 
@@ -233,6 +238,22 @@ def _deterministic_sweep_rollout(
     elif n_in == 1:
         u = np.zeros((1, T, 1), dtype=np.float32)
         u[:, :, 0] = v_fwd
+    elif n_in == 2:
+        # propriocep-split translation-only: [v_extero, v_proprio], both
+        # carrying the same clean v_fwd drive.
+        u = np.zeros((1, T, 2), dtype=np.float32)
+        u[:, :, 0] = v_fwd
+        u[:, :, 1] = v_fwd
+    elif n_in == 5:
+        # propriocep-split rotation + translation:
+        # [ω, v_fwd, ω_proprio, cosθ₀, sinθ₀]. Channel 2 is the angular
+        # efference copy ω_proprio (= ω) routed to motor_efferent.
+        u = np.zeros((1, T, 5), dtype=np.float32)
+        u[:, :, 0] = omega
+        u[:, :, 1] = v_fwd
+        u[:, :, 2] = omega
+        u[:, 0, 3] = math.cos(float(theta0_rad))
+        u[:, 0, 4] = math.sin(float(theta0_rad))
     else:  # n_in == 4
         u = np.zeros((1, T, 4), dtype=np.float32)
         u[:, :, 0] = omega
