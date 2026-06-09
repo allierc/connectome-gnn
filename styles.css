@@ -2,4 +2,26 @@
 figcaption {
   margin: auto;
   text-align: center;
+  font-size: 0.9em;
+  color: #555;
+}
+
+/* center embedded videos and give them a sensible max width */
+.quarto-video, video {
+  display: block;
+  margin: 1.2em auto;
+  max-width: 1100px;
+  width: 100%;
+  border-radius: 6px;
+}
+
+/* lead paragraph on the landing page */
+.lead {
+  font-size: 1.15em;
+  line-height: 1.6;
+}
+
+/* tighten the result tables a little */
+table {
+  font-size: 0.92em;
 }

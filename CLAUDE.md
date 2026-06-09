@@ -61,5 +61,11 @@ Add a biomodel/model = **register a class**, keyed by `signal_model_name`. Do **
   **No** post-hoc PNG montages, no Inkscape/PowerPoint compositing, no `PIL.Image.paste`
   of pre-rendered subfigures. If a figure has panels `a`–`j`, they are laid out by one
   gridspec in one script, so font sizes, axes, and spacing are guaranteed consistent.
+- LaTeX writing: when editing `.tex` files (paper, supplement, captions), **never**
+  mention code-level identifiers — no variable names, config filenames, function names,
+  module paths, class names, or YAML keys. Describe the *concept* (e.g. "the recurrent
+  time constant", not "`gt_tau`"; "the GNN recovery variant", not
+  "`zebrafish_hd_si_gnn_ipn12_c3_gcamp.yaml`"). Override only if the user explicitly asks
+  for the identifier in the text.
 - Git: never stage `config/**/*.yaml` in routine commits; push with `--no-verify` (git-lfs
   absent in the devcontainer); branch before committing on the default branch.
