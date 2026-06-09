@@ -292,7 +292,14 @@ def load_drosophila_cx_connectome(datapath):
 # IPN12_a and IPN12_b — per the Step-2 design choice to join IPN12 cells
 # to the bump pool, so the bump-only decoder sees them and the
 # circular-TV regulariser includes them.
-_ZHD_BUMP_PREFIXES = ("IPNd", "IPNds", "IPN12_a", "IPN12_b")
+# IPN-core families that exist only in the refreshed 943-cell reconstruction
+# (zebrafish_HD_IPN12_943_*). They join the readout bump ring and are
+# Dale-flipped inhibitory (circuit-owner decision). Mapped to the single
+# category "IPNc" by ``_zhd_category``. Inert for the 839-cell CSVs, which
+# contain none of these exact type names.
+_ZHD_CORE_TYPES = ("IPN28", "IPN29", "IPN31", "IPN32",
+                   "IPN33", "IPN34", "IPN35", "IPN36")
+_ZHD_BUMP_PREFIXES = ("IPNd", "IPNds", "IPN12_a", "IPN12_b", "IPNc")
 # Afferent (input) neurons. RIPN (habenula) + pt-IPN (pretectum) are the base
 # pair; HNd (dorsal habenula) is added in the zebrafish_HD_IPN12_HNd_* circuit —
 # the largest unmodelled input to the ring per the partner census. Kept
@@ -307,7 +314,7 @@ _ZHD_AFFERENT_PREFIXES = ("RIPN", "pt-IPN", "HNd")    # input neurons (analog: P
 # same dorsal-IPN family and inherit the same Dale treatment. RIPN* /
 # pt-IPN* are left positive (no Dale annotation on the fish2 server, and
 # they act as drivers of the ring rather than inhibitors).
-_ZHD_INH_PREFIXES = ("IPNd", "IPNds", "IPN12_a", "IPN12_b")
+_ZHD_INH_PREFIXES = ("IPNd", "IPNds", "IPN12_a", "IPN12_b", "IPNc")
 
 
 def _zhd_category(type_name: str) -> str:
@@ -335,11 +342,13 @@ def _zhd_category(type_name: str) -> str:
         return "HNd"
     if s.startswith("IPNd"):
         return "IPNd"
+    if s in _ZHD_CORE_TYPES:
+        return "IPNc"
     return ""
 
 
 def load_zebrafish_hd_connectome(datapath, *, inh_amplify: float = 5.0,
-                                  spectral_target: float = 0.9,
+                                  spectral_target: "float | None" = 0.9,
                                   inh_prefixes: "tuple | None" = None):
     """Load fish2 connectivity for the zebrafish heading-direction ring.
 
@@ -405,8 +414,8 @@ def load_zebrafish_hd_connectome(datapath, *, inh_amplify: float = 5.0,
     # position so the per-row order roughly traces the anatomical ring.
     # Bump-ring categories first (so the first n_bump rows are the
     # IPNd*/IPNds*/IPN12_* HD-pool cells, in that order), then afferents.
-    cat_order = {"IPNd": 0, "IPNds": 1, "IPN12_a": 2, "IPN12_b": 3,
-                  "RIPN": 4, "pt-IPN": 5, "HNd": 6}
+    cat_order = {"IPNd": 0, "IPNds": 1, "IPN12_a": 2, "IPN12_b": 3, "IPNc": 4,
+                  "RIPN": 5, "pt-IPN": 6, "HNd": 7}
     nrn_df["_cat_rank"] = nrn_df["category"].map(cat_order)
     # somaLocationX is the fish2 mediolateral axis (in nm at this stage).
     # Missing values get pushed to the end via fillna with +inf.
@@ -471,15 +480,20 @@ def load_zebrafish_hd_connectome(datapath, *, inh_amplify: float = 5.0,
     J2[:, is_inh] = -inh_amplify * np.abs(J[:, is_inh])
 
     # Spectral-radius normalisation, mirroring Hulse 2025 (line 524 of the
-    # Beiran reference code).
-    eigvals = np.linalg.eigvals(J2)
-    max_re = float(np.max(np.real(eigvals)))
-    if abs(max_re) < 1e-12:
-        # Degenerate connectivity: skip the rescale rather than divide by
-        # zero. Caller can still train but the absolute scale is unset.
+    # Beiran reference code). ``spectral_target=None`` skips the rescale
+    # entirely — used by the 943-cell circuit, whose synapse-area edge
+    # magnitudes are meaningful and must be preserved verbatim (sign only).
+    if spectral_target is None:
         Jf = J2.astype(np.float32)
     else:
-        Jf = (spectral_target * J2 / max_re).astype(np.float32)
+        eigvals = np.linalg.eigvals(J2)
+        max_re = float(np.max(np.real(eigvals)))
+        if abs(max_re) < 1e-12:
+            # Degenerate connectivity: skip the rescale rather than divide by
+            # zero. Caller can still train but the absolute scale is unset.
+            Jf = J2.astype(np.float32)
+        else:
+            Jf = (spectral_target * J2 / max_re).astype(np.float32)
 
     # Log-space decomposition for downstream compatibility (some callers
     # read `wrec_log` / `mwrec` directly).
@@ -499,20 +513,39 @@ def load_zebrafish_hd_connectome(datapath, *, inh_amplify: float = 5.0,
     # decoder symmetry. Fine to change later via a kwarg.
     n_glom = 16
     bump_rows = np.where(is_bump)[0]
-    # Equal-count binning along the mediolateral soma position. Cells with
-    # missing soma_x (NaN) get pushed to the last bin.
-    ml = nrn_df.loc[bump_rows, "somaLocationX"].to_numpy(dtype=np.float64)
-    finite = np.isfinite(ml)
-    if finite.sum() < 2:
-        # No useful coordinate: assign all to bin 0 (fail soft).
-        epg_ix = [0] * n_epg
+    if "angle" in nrn_df.columns:
+        # Refreshed 943-cell reconstruction ships a per-cell functional
+        # preferred-heading angle (deg). Bin the bump ring directly by angle
+        # into n_glom equal-width sectors over [-180, 180) — the functional
+        # ring order, not the soma-x mediolateral proxy used below. Cells
+        # with missing angle (NaN) fall into the last bin.
+        ang_ring = nrn_df.loc[bump_rows, "angle"].to_numpy(dtype=np.float64)
+        ang_ring = ((ang_ring + 180.0) % 360.0) - 180.0
+        finite = np.isfinite(ang_ring)
+        if finite.sum() < 2:
+            epg_ix = [0] * n_epg
+        else:
+            bins = np.clip(
+                np.floor((ang_ring + 180.0) / 360.0 * n_glom).astype(np.int64),
+                0, n_glom - 1)
+            epg_ix = np.full(n_epg, n_glom - 1, dtype=np.int64)
+            epg_ix[finite] = bins[finite]
+            epg_ix = epg_ix.tolist()
     else:
-        ranks = np.argsort(np.argsort(ml[finite]))
-        bins = np.minimum((ranks * n_glom // finite.sum()).astype(np.int64),
-                          n_glom - 1)
-        epg_ix = np.full(n_epg, n_glom - 1, dtype=np.int64)
-        epg_ix[finite] = bins
-        epg_ix = epg_ix.tolist()
+        # Equal-count binning along the mediolateral soma position. Cells with
+        # missing soma_x (NaN) get pushed to the last bin.
+        ml = nrn_df.loc[bump_rows, "somaLocationX"].to_numpy(dtype=np.float64)
+        finite = np.isfinite(ml)
+        if finite.sum() < 2:
+            # No useful coordinate: assign all to bin 0 (fail soft).
+            epg_ix = [0] * n_epg
+        else:
+            ranks = np.argsort(np.argsort(ml[finite]))
+            bins = np.minimum((ranks * n_glom // finite.sum()).astype(np.int64),
+                              n_glom - 1)
+            epg_ix = np.full(n_epg, n_glom - 1, dtype=np.int64)
+            epg_ix[finite] = bins
+            epg_ix = epg_ix.tolist()
 
     # --- Afferent subpopulations (PEN-gate analog) ------------------------
     # Map RIPN -> PENa, pt-IPN -> PENb, and split each by side. The `side`

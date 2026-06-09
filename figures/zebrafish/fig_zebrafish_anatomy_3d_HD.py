@@ -38,18 +38,20 @@ import numpy as np
 # diagram so the two figures read together.
 TYPE_ORDER = [
     "dIPN",        # IPNd + IPNds       — recurrent (HD ring)
-    "IPN12 pool",       # IPN12_a + IPN12_b  — recurrent (dorsal pool)
+    "IPN12",            # IPN12_a + IPN12_b  — recurrent (dorsal pool)
+    "IPN-core",         # IPN28/29/31-36     — recurrent (joined the ring)
     "ARTR",             # RIPN01+02+03_a/b   — angular afferent
     "pt-IPN1",          # pt-IPN1            — exteroceptive translation afferent
-    "motor_efferent",   # RIPN11+12_a+12_c   — proprioceptive translation afferent
-    "other",            # other RIPN* + pt-IPN2 — not routed through the gate
+    "motor_efferent",   # RIPN11+12_a+12_c   — angular (heading) efference afferent
+    "other",            # other RIPN* — not routed through the gate
 ]
 TYPE_COLOR = {
     "dIPN":      "#d49a3a",   # amber  (recurrent ring; matches Fig 3 box)
-    "IPN12 pool":     "#b15a8e",   # rose   (recurrent dorsal pool)
+    "IPN12":          "#b15a8e",   # rose   (recurrent dorsal IPN12 pool)
+    "IPN-core":       "#17a39a",   # teal   (recurrent IPN-core)
     "ARTR":           "#1f6fb3",   # blue   (matches ω drive in Fig 3)
     "pt-IPN1":        "#e07b1a",   # orange (matches v_fwd extero in Fig 3)
-    "motor_efferent": "#2a9d3d",   # green  (matches v_fwd propriocep in Fig 3)
+    "motor_efferent": "#2a9d3d",   # green  (matches ω efference in Fig 3)
     "other":          "#888888",   # grey   (residual afferents)
 }
 
@@ -58,6 +60,10 @@ TYPE_COLOR = {
 # the prefix-based recurrent categories.
 _ARTR_TYPES = {"RIPN01", "RIPN02", "RIPN03_a", "RIPN03_b"}
 _MOTOR_EFFERENT_TYPES = {"RIPN11", "RIPN12_a", "RIPN12_c"}
+# IPN-core families in the refreshed 917-cell reconstruction (IPN20/26
+# dropped). Grouped with IPN12 into the single "IPN" recurrent partition.
+_IPN_CORE_TYPES = {"IPN28", "IPN29", "IPN31",
+                   "IPN32", "IPN33", "IPN34", "IPN35", "IPN36"}
 
 
 def _type_to_category(safe_type: str) -> str:
@@ -74,10 +80,12 @@ def _type_to_category(safe_type: str) -> str:
         return "motor_efferent"
     if safe_type == "pt-IPN1":
         return "pt-IPN1"
-    # Recurrent network — coarse prefixes. IPN12 must precede IPNd; IPNds
-    # must precede IPNd.
+    # Recurrent network — IPN12 and IPN-core are separate partitions; dIPN
+    # (IPNd*/IPNds*) is the ring substrate. IPNds must precede IPNd.
+    if safe_type in _IPN_CORE_TYPES:
+        return "IPN-core"
     if safe_type.startswith("IPN12"):
-        return "IPN12 pool"
+        return "IPN12"
     if safe_type.startswith("IPNds") or safe_type.startswith("IPNd"):
         return "dIPN"
     # Residual afferents — other RIPN* sub-types (RIPN05, 12_b, 16, 17)
@@ -97,7 +105,7 @@ CORE_ROIS = {
 
 
 def _load_skeletons(anatomy_dir: str, downsample: int = 10,
-                    extra_dirs: tuple = ()):
+                    extra_dirs: tuple = (), keep_bodyids=None):
     """Load all SWCs as a navis.NeuronList, returning (neurons, categories).
 
     Each skeleton's filename starts with its fish2 cell-type prefix; we map
@@ -106,7 +114,12 @@ def _load_skeletons(anatomy_dir: str, downsample: int = 10,
     extra_dirs: additional anatomy caches (each with a skeletons/ child)
     whose SWCs are concatenated in. Used to pull the IPN12 pool from its
     sibling cache so the recurrent dorsal pool appears in the render even
-    though its SWCs live outside the main HD cache."""
+    though its SWCs live outside the main HD cache.
+
+    keep_bodyids: optional set of bodyIds to restrict the render to (parsed
+    from the ``<type>__<bodyId>.swc`` filename). Used to match the exact
+    943-cell circuit selection when a cache holds more cells per type than
+    the circuit keeps."""
     import navis
     swc_paths = sorted(glob.glob(os.path.join(anatomy_dir, "skeletons", "*.swc")))
     for d in extra_dirs:
@@ -118,13 +131,19 @@ def _load_skeletons(anatomy_dir: str, downsample: int = 10,
     neurons = []
     categories = []
     for path in swc_paths:
+        stem = os.path.splitext(os.path.basename(path))[0]
+        safe_type, _, bid = stem.rpartition("__")
+        if keep_bodyids is not None:
+            try:
+                if int(bid) not in keep_bodyids:
+                    continue
+            except ValueError:
+                continue
         n = navis.read_swc(path)
         if downsample and downsample > 1:
             n = navis.downsample_neuron(n, downsampling_factor=downsample,
                                          preserve_nodes=None)
         neurons.append(n)
-        stem = os.path.splitext(os.path.basename(path))[0]
-        safe_type, _, _ = stem.rpartition("__")
         categories.append(_type_to_category(safe_type))
 
     nl = navis.NeuronList(neurons)
@@ -324,14 +343,26 @@ def _draw_soma_icospheres(ax, somas_by_type, type_counts, draw_order,
         ))
 
 
-def _add_legend(ax, type_counts, draw_order, text_color):
+def _add_legend(ax, type_counts, draw_order, text_color, inside=False):
+    """Cell-type legend. With ``inside=True`` the legend is placed inside
+    the axes at the upper-right with a compact font, so it does not overflow
+    the figure bbox (used by the merged Figure 1, where overflowing the
+    figure makes panel b appear wider than panel a after savefig's
+    bbox_inches='tight'). Default behaviour (outside-right) is preserved
+    for the standalone anatomy renders."""
     from matplotlib.lines import Line2D
     handles = [Line2D([0], [0], color=TYPE_COLOR.get(t, (0.4, 0.4, 0.4)),
                       lw=2.5, label=f"{t}  (n={type_counts[t]})")
                for t in draw_order]
-    leg = ax.legend(handles=handles, loc="center left",
-                    bbox_to_anchor=(1.02, 0.5), fontsize=12,
-                    frameon=False, handlelength=1.4)
+    if inside:
+        leg = ax.legend(handles=handles, loc="upper right",
+                        bbox_to_anchor=(0.99, 0.99), fontsize=9,
+                        frameon=False, handlelength=1.0,
+                        labelspacing=0.25, borderaxespad=0.0)
+    else:
+        leg = ax.legend(handles=handles, loc="center left",
+                        bbox_to_anchor=(1.02, 0.5), fontsize=12,
+                        frameon=False, handlelength=1.4)
     for txt in leg.get_texts():
         txt.set_color(text_color)
 
@@ -345,7 +376,7 @@ def draw_anatomy_panels(ax_skel, ax_soma, nl, types, rois,
                         somas_by_type=None,
                         soma_meshes_by_type=None,
                         ylim_pct=(0.5, 99.5),
-                        legend=True):
+                        legend=True, legend_inside=False):
     """Draw the skeleton + soma panels onto provided axes.
 
     Used by both the standalone _render_fast wrapper and the merged
@@ -402,7 +433,8 @@ def draw_anatomy_panels(ax_skel, ax_soma, nl, types, rois,
 
     if legend:
         legend_ax = ax_soma if ax_soma is not None else ax_skel
-        _add_legend(legend_ax, type_counts, draw_order, text_color)
+        _add_legend(legend_ax, type_counts, draw_order, text_color,
+                    inside=legend_inside)
     return type_counts, draw_order
 
 
