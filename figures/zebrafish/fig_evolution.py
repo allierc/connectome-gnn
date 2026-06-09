@@ -151,7 +151,13 @@ def _load_model_and_rollouts(
 
     epg_theta = cx_epg_directions(net.epg_glom_ix)
 
-    # Integration-gain sweeps
+    # Integration-gain sweeps. Two complementary probes:
+    #   gain_data        — sweep ω at v_fwd = 1; tests rotation gain
+    #                      (used by panel h on rotation-bearing models).
+    #   gain_data_v_fwd  — sweep v_fwd at ω = 0; tests translation gain
+    #                      (used by panel h on translation-capable
+    #                      models — both translation-only and the
+    #                      joint "both" task).
     gain_data = []
     for omega in gain_omegas:
         ro = _deterministic_sweep_rollout(
@@ -159,6 +165,19 @@ def _load_model_and_rollouts(
             omega_deg_per_s=float(omega), device=device,
         )
         gain_data.append((float(omega), ro))
+
+    gain_data_v_fwd = []
+    v_fwd_grid = tuple(float(v) for v in np.concatenate([
+        np.arange(-3.0, -0.49, 0.5),
+        np.arange(0.5, 3.01, 0.5),
+    ]))
+    for v_fwd in v_fwd_grid:
+        ro = _deterministic_sweep_rollout(
+            net, n_steps=snapshot_n_steps,
+            omega_deg_per_s=0.0,
+            v_fwd_per_s=float(v_fwd), device=device,
+        )
+        gain_data_v_fwd.append((float(v_fwd), ro))
 
     # One swim-integration test trial
     from connectome_gnn.utils import graphs_data_path
@@ -315,6 +334,7 @@ def _load_model_and_rollouts(
         rollout=rollout,
         epg_theta=epg_theta,
         gain_data=gain_data,
+        gain_data_v_fwd=gain_data_v_fwd,
         test_trial=test_trial,
         random_trials=random_trials,
         sweep_for_test=sweep_for_test,
