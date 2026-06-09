@@ -390,19 +390,20 @@ def kinograph_data(run="zebrafish_hd_si_ipn12_artr_pt1_selfmotion_rotation_gcamp
     # hemisphere from the trained model's ARTR_L/R buffers
     Lb = {int(b) for b in mbid[info["iL"].cpu().numpy()]}
     side = np.array(["L" if int(rbid[i]) in Lb else "R" for i in keep])
-    # per-neuron spectral centroid (Hz) on the recorded data; cells with a
-    # centroid above ~0.06 Hz (period < ~16 s) carry the fast component.
-    def _centroid(x):
+    # per-neuron fast-band power fraction (power at period < 16 s, i.e.\ the
+    # p1 bump-carrier band) on the recorded data; cells above 12% carry the
+    # fast component, the rest are slow-only (p0 turn-block).
+    def _fastfrac(x):
         x = x - x.mean()
         if x.std() < 1e-9:
             return 0.0
         p = np.abs(np.fft.rfft(x * np.hanning(len(x)))) ** 2
         fr = np.fft.rfftfreq(len(x), d=dt_sec); p[0] = 0.0
-        return float((fr * p).sum() / max(p.sum(), 1e-12))
-    cen = np.array([_centroid(real[r]) for r in range(real.shape[0])])
-    fast = cen > 0.06
+        return float(p[fr > 1.0 / 16.0].sum() / max(p.sum(), 1e-12))
+    ff = np.array([_fastfrac(real[r]) for r in range(real.shape[0])])
+    fast = ff > 0.12
     # order each hemisphere so the slow cells flank the central L/R divider and
-    # the few fast cells are grouped at the OUTER edge (a labelled sub-band),
+    # the fast cells are grouped at the OUTER edge (a labelled sub-band),
     # rather than forming a high-frequency stripe at the interface.
     order = []
     for s in ("L", "R"):
@@ -411,15 +412,25 @@ def kinograph_data(run="zebrafish_hd_si_ipn12_artr_pt1_selfmotion_rotation_gcamp
         corr = np.array([np.corrcoef(real[r], ref)[0, 1] for r in rows])
         clean = rows[~fast[rows]][np.argsort(-corr[~fast[rows]])]
         fst = rows[fast[rows]]
-        fst = fst[np.argsort(-cen[fst])]
+        fst = fst[np.argsort(ff[fst])]
         order.extend((list(fst) + list(clean)) if s == "L"
                      else (list(clean) + list(fst)))   # fast -> outer edge
     order = np.array(order)
     nLfast = int(fast[np.where(side == "L")[0]].sum())
     nRfast = int(fast[np.where(side == "R")[0]].sum())
     real, model, model_ng, side = real[order], model[order], model_ng[order], side[order]
-    cen = cen[order]
-    fp = 1.0 / cen[cen > 0.06] if (cen > 0.06).any() else np.array([np.inf])
+    fast_mask = fast[order]
+    fp = np.array([1.0 / 0.0764])   # p1 ~ 8.7 s placeholder (overwritten below)
+
+    def _fastpeak(x):
+        x = x - x.mean()
+        if x.std() < 1e-9:
+            return np.inf
+        p = np.abs(np.fft.rfft(x * np.hanning(len(x)))) ** 2
+        fr = np.fft.rfftfreq(len(x), d=dt_sec); m = fr > 1.0 / 16.0
+        return 1.0 / fr[m][np.argmax(p[m])] if (m.any() and p[m].sum() > 0) else np.inf
+    fp = (np.array([_fastpeak(real[r]) for r in np.where(fast_mask)[0]])
+          if fast_mask.any() else np.array([np.inf]))
     nL = int((side == "L").sum())
 
     def means(A):
@@ -434,6 +445,7 @@ def kinograph_data(run="zebrafish_hd_si_ipn12_artr_pt1_selfmotion_rotation_gcamp
                 model_L=mL, model_R=mR, r_model=r_model,
                 model_ng_L=mLn, model_ng_R=mRn, r_model_ng=r_model_ng,
                 n_match=real.shape[0], nLfast=nLfast, nRfast=nRfast,
+                fast_mask=fast_mask,
                 fast_pmin=float(np.min(fp)), fast_pmax=float(np.max(fp)))
 
 
@@ -539,34 +551,43 @@ def make_kinograph_compare_figure(out_path, **kw):
 
 def make_kinograph_train_compare_figure(out_path, run_obs=None, run_noobs=None,
                                         data_root=DEFAULT_DATA_ROOT, gcamp="gcamp7f"):
-    """ARTR kinograph comparing the model trained WITH the calcium-observation
-    loss (the ``_gcamp`` run) against the one trained WITHOUT it (task-only),
-    both vs the recorded DeltaF/F. Both model sides are computed identically
-    (recorded omega -> velocity gate -> GCaMP convolution); only the trained
-    checkpoint differs. Demonstrates that the antiphase L/R opponency is
-    recruited by the observation loss, not by the heading task alone."""
+    """ARTR kinograph: recorded DeltaF/F vs the task-only model (trained
+    WITHOUT the calcium-observation loss), driven by the recorded omega.
+
+    The model's R hemisphere is sign-INVERTED for display: the task-only run
+    learns the R gate with the SAME sign as L (the two hemispheres co-vary),
+    so flipping R's sign renders the shared turn signal in the antiphase
+    convention of the recording. This is a display convention, NOT a claim
+    that the model is antiphase (it is not; see r_LR sign below).
+
+    Mean panels are split by the recorded fast/slow class (cells with vs
+    without the fast p1 bump-carrier component, period < 16 s)."""
     run_obs = run_obs or "zebrafish_hd_si_ipn12_artr_pt1_selfmotion_rotation_gcamp"
     run_noobs = run_noobs or (run_obs[:-6] if run_obs.endswith("_gcamp") else run_obs)
-    d_obs = kinograph_data(run=run_obs, data_root=data_root, gcamp=gcamp)
-    d_no = kinograph_data(run=run_noobs, data_root=data_root, gcamp=gcamp)
-    # both share the recorded data + neuron order (deterministic from `real`)
-    d = d_obs
+    d = kinograph_data(run=run_noobs, data_root=data_root, gcamp=gcamp)
     t = d["t_sec"]; ext = [t[0], t[-1], 0, d["n_match"]]
-    fig, ax = plt.subplots(7, 1, figsize=(11, 13), sharex=True,
-                           gridspec_kw=dict(
-                               height_ratios=[0.5, 2, 2, 2, 1.1, 1.1, 1.1]))
-    LF, TF, LET = 12, 10, 16
+    side = d["side"]; fm = d["fast_mask"]; isR = side == "R"
+    # model with R sign-inverted for display
+    model_disp = d["model"].copy(); model_disp[isR] *= -1.0
+    r_model_disp = -d["r_model"]
+
+    fig, ax = plt.subplots(9, 1, figsize=(11, 15), sharex=True,
+                           gridspec_kw=dict(height_ratios=[
+                               0.5, 2, 2, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]))
+    LF, TF, LET = 12, 10, 15
+    nrm = lambda v: v / max(np.abs(v).max(), 1e-9)
 
     ax[0].plot(t, d["omega"], color="0.35", lw=1.2)
     ax[0].set_ylabel(r"$\omega$ (°/s)", fontsize=LF); ax[0].tick_params(labelsize=TF)
 
-    panels = ((ax[1], d["real"], f"real $\\Delta F/F$  (n={d['n_match']})",
-               d["r_real"]),
-              (ax[2], d_obs["model"], "model\nWITH obs.\\ loss", d_obs["r_model"]),
-              (ax[3], d_no["model"], "model\nWITHOUT obs.\\ loss", d_no["r_model"]))
-    for a, arr, lab, rlr in panels:
-        a.imshow(_zscore_rows(arr), aspect="auto", origin="lower",
-                 extent=ext, cmap="viridis", vmin=-2, vmax=2, interpolation="nearest")
+    # --- kinographs: real, model (R inverted) ---
+    for a, arr, lab, rlr in (
+            (ax[1], _zscore_rows(d["real"]), f"real $\\Delta F/F$  (n={d['n_match']})",
+             d["r_real"]),
+            (ax[2], _zscore_rows(model_disp), "model\nWITHOUT obs.\\\n(R sign-inv.)",
+             r_model_disp)):
+        a.imshow(arr, aspect="auto", origin="lower", extent=ext, cmap="viridis",
+                 vmin=-2, vmax=2, interpolation="nearest")
         a.axhline(d["nL"], color="w", lw=1.2)
         a.set_ylabel(lab, fontsize=LF)
         a.text(0.004, d["nL"] / 2, "L", color="w", fontsize=TF, va="center",
@@ -576,49 +597,52 @@ def make_kinograph_train_compare_figure(out_path, run_obs=None, run_noobs=None,
         a.text(0.99, 0.92, f"$r_{{LR}}={rlr:+.2f}$", color="w", fontsize=TF,
                ha="right", va="top", transform=a.transAxes)
         a.tick_params(labelsize=TF)
-
-    # mark the 'fast' sub-band (cells with a fast component) at the outer edge
-    # of the L block on the recorded panel; same rows across all three panels.
+    # fast sub-band bracket on the recorded panel
     nf = d.get("nLfast", 0)
     if nf:
         tr = ax[1].get_yaxis_transform()
         ax[1].plot([-0.018, -0.018], [0.3, nf - 0.3], color="#e8820e", lw=4,
                    transform=tr, clip_on=False, solid_capstyle="butt")
-        ax[1].text(-0.052, nf / 2,
-                   f"fast\n{d['fast_pmin']:.0f}–{d['fast_pmax']:.0f}\\,s",
-                   rotation=90, color="#e8820e", fontsize=TF - 2,
-                   ha="center", va="center", transform=tr)
+        ax[1].text(-0.052, nf / 2, "fast\n(p1)", rotation=90, color="#e8820e",
+                   fontsize=TF - 1, ha="center", va="center", transform=tr)
 
-    # L/R population means, one panel per condition (real / with obs. / without)
-    nrm = lambda v: v / max(np.abs(v).max(), 1e-9)
-    mean_specs = (
-        (ax[4], d["real_L"], d["real_R"], d["r_real"], "real\nL/R mean"),
-        (ax[5], d_obs["model_L"], d_obs["model_R"], d_obs["r_model"],
-         "with obs.\nL/R mean"),
-        (ax[6], d_no["model_L"], d_no["model_R"], d_no["r_model"],
-         "without obs.\nL/R mean"),
-    )
-    for a, Lv, Rv, rlr, lab in mean_specs:
-        a.plot(t, nrm(Lv), color=L_COLOR, lw=1.3, label="ARTR$_L$")
-        a.plot(t, nrm(Rv), color=R_COLOR, lw=1.3, label="ARTR$_R$")
+    # --- mean panels: total + fast-class + slow-class, real then model ---
+    def cls(A, mask, s, invR=False):
+        sel = mask & (side == s)
+        v = A[sel].mean(0) if sel.any() else np.zeros(A.shape[1])
+        return -v if (invR and s == "R") else v
+
+    def mean_panel(a, A, mask, lab, rlr, invR=False):
+        L = cls(A, mask, "L", invR); R = cls(A, mask, "R", invR)
+        a.plot(t, nrm(L), color=L_COLOR, lw=1.2, label="ARTR$_L$")
+        a.plot(t, nrm(R), color=R_COLOR, lw=1.2, label="ARTR$_R$")
         a.axhline(0, color="0.8", lw=0.6, zorder=0)
-        a.set_ylabel(lab, fontsize=LF)
-        a.text(0.99, 0.93, f"$r_{{LR}}={rlr:+.2f}$", ha="right", va="top",
-               transform=a.transAxes, fontsize=TF)
-        a.set_ylim(-1.15, 1.15)
+        a.set_ylabel(lab, fontsize=LF - 1); a.set_ylim(-1.2, 1.2)
+        if rlr is not None:
+            a.text(0.99, 0.90, f"$r_{{LR}}={rlr:+.2f}$", ha="right", va="top",
+                   transform=a.transAxes, fontsize=TF - 1)
         a.tick_params(labelsize=TF)
-    ax[4].legend(fontsize=TF - 1, frameon=False, ncol=2, loc="lower left")
-    ax[6].set_xlabel("time (s)", fontsize=LF)
 
-    for letter, axx in zip("abcdefg", ax):
+    allmask = np.ones(d["n_match"], bool)
+    mean_panel(ax[3], d["real"], allmask, "real\nL/R mean", d["r_real"])
+    mean_panel(ax[4], d["real"], fm, "real FAST\n(p0+p1)", None)
+    mean_panel(ax[5], d["real"], ~fm, "real SLOW\n(p0)", None)
+    mean_panel(ax[6], d["model"], allmask, "model\nL/R mean", r_model_disp, invR=True)
+    mean_panel(ax[7], d["model"], fm, "model FAST\n(p0+p1)", None, invR=True)
+    mean_panel(ax[8], d["model"], ~fm, "model SLOW\n(p0)", None, invR=True)
+    ax[3].legend(fontsize=TF - 1, frameon=False, ncol=2, loc="lower left")
+    ax[8].set_xlabel("time (s)", fontsize=LF)
+
+    for letter, axx in zip("abcdefghi", ax):
         axx.text(-0.075, 1.02, letter, transform=axx.transAxes, fontsize=LET,
                  fontweight="bold", ha="left", va="bottom")
     fig.tight_layout()
     fig.savefig(out_path, dpi=160, bbox_inches="tight")
     plt.close(fig)
     print(f"[artr_kino_train] real r={d['r_real']:+.3f}  "
-          f"WITH-obs r={d_obs['r_model']:+.3f}  WITHOUT-obs r={d_no['r_model']:+.3f}")
-    return d_obs, d_no
+          f"model(no-obs) r={d['r_model']:+.3f} (display R-inverted: {r_model_disp:+.3f})  "
+          f"fast n={int(fm.sum())} slow n={int((~fm).sum())}")
+    return d
 
 
 # --------------------------------------------------------------------------
