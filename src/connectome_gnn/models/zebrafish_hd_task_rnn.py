@@ -277,6 +277,12 @@ class ZebrafishHdTaskRNN(nn.Module):
         # ``zebrafish-tex-frozen`` configs.
         # Channels 1-2 (initial-bump cue) stay free for all rows.
         self.velocity_gate = str(getattr(gm, "velocity_gate", "none")).lower()
+        # Sign-lock the bilateral gate scalars (left ≤0, right ≥0) so the L/R
+        # afferents are driven in antiphase (matches the recorded ARTR L/R
+        # anti-correlation; stops a task-only model collapsing to a degenerate
+        # same-sign gate). When on, the stored parameter is a pre-softplus raw
+        # whose softplus is the magnitude; the sign is applied at use time.
+        self.sign_constrain_gate = bool(getattr(gm, "sign_constrain_gate", True))
         if self.velocity_gate == "pen_only":
             mask = torch.zeros(N, self.n_input, dtype=torch.float32)
             mask[:, 1:] = 1.0
@@ -308,10 +314,10 @@ class ZebrafishHdTaskRNN(nn.Module):
                 self.register_buffer(
                     f"_afferent_ind_{key.lower()}", ind, persistent=False,
                 )
-            self.v_ripn_l  = nn.Parameter(torch.tensor(0.01))
-            self.v_ripn_r  = nn.Parameter(torch.tensor(-0.01))
-            self.v_ptipn_l = nn.Parameter(torch.tensor(0.01))
-            self.v_ptipn_r = nn.Parameter(torch.tensor(-0.01))
+            self.v_ripn_l  = self._gate_scalar(0.01, 'l')
+            self.v_ripn_r  = self._gate_scalar(0.01, 'r')
+            self.v_ptipn_l = self._gate_scalar(0.01, 'l')
+            self.v_ptipn_r = self._gate_scalar(0.01, 'r')
         elif self.velocity_gate == "pen_artr_ptipn1":
             # Refined gate (companion of the v2 circuit's afferent partition):
             #   ω      → ARTR cells (RIPN01+02+03_a+03_b), bilateral signed
@@ -343,14 +349,14 @@ class ZebrafishHdTaskRNN(nn.Module):
                     f"_afferent_ind_{key.lower()}", ind, persistent=False,
                 )
             # ω scalars (bilateral signed, mirrors pen_4scalar init):
-            self.v_artr_l = nn.Parameter(torch.tensor(0.01))
-            self.v_artr_r = nn.Parameter(torch.tensor(-0.01))
+            self.v_artr_l = self._gate_scalar(0.01, 'l')
+            self.v_artr_r = self._gate_scalar(0.01, 'r')
             # v_fwd scalars. Both initialised positive — v_fwd's sign already
             # encodes forward (+) vs backward (−); the pt-IPN1 gate just sets
             # the magnitude / per-side balance. Small ±0.01 split breaks
             # exact L/R symmetry the same way ARTR does.
-            self.v_pt1_l  = nn.Parameter(torch.tensor(0.01))
-            self.v_pt1_r  = nn.Parameter(torch.tensor(-0.01))
+            self.v_pt1_l  = self._gate_scalar(0.01, 'l')
+            self.v_pt1_r  = self._gate_scalar(0.01, 'r')
         elif self.velocity_gate == "pen_artr_ptipn1_propriocep":
             # Proprioception-extended gate (split-input, default and
             # only behaviour): the two afferent pathways for forward
@@ -384,18 +390,18 @@ class ZebrafishHdTaskRNN(nn.Module):
                 self.register_buffer(
                     f"_afferent_ind_{key.lower()}", ind, persistent=False,
                 )
-            self.v_artr_l = nn.Parameter(torch.tensor(0.01))
-            self.v_artr_r = nn.Parameter(torch.tensor(-0.01))
+            self.v_artr_l = self._gate_scalar(0.01, 'l')
+            self.v_artr_r = self._gate_scalar(0.01, 'r')
             # Exteroceptive scalars — gate the column carrying
             # v_extero onto pt-IPN1.
-            self.v_pt1_l  = nn.Parameter(torch.tensor(0.01))
-            self.v_pt1_r  = nn.Parameter(torch.tensor(-0.01))
+            self.v_pt1_l  = self._gate_scalar(0.01, 'l')
+            self.v_pt1_r  = self._gate_scalar(0.01, 'r')
             # Proprioceptive scalars — gate the column carrying
             # v_proprio onto motor_efferent. Initialised at half the
             # exteroceptive magnitude so the network starts with a
             # weakly-mixed extero+propriocep estimate.
-            self.v_me_l   = nn.Parameter(torch.tensor(0.005))
-            self.v_me_r   = nn.Parameter(torch.tensor(-0.005))
+            self.v_me_l   = self._gate_scalar(0.005, 'l')
+            self.v_me_r   = self._gate_scalar(0.005, 'r')
         elif self.velocity_gate != "none":
             raise ValueError(
                 f"graph_model.velocity_gate must be 'none', 'pen_only', "
@@ -512,6 +518,31 @@ class ZebrafishHdTaskRNN(nn.Module):
         return W * self._no_diag * self._image_mask
 
     # ------------------------------------------------------------------
+    # Velocity-gate scalar sign-lock helpers
+    # ------------------------------------------------------------------
+
+    def _gate_scalar(self, magnitude: float, side: str) -> nn.Parameter:
+        """Build a bilateral gate-scalar Parameter. ``side`` ∈ {'l','r'}.
+        When ``sign_constrain_gate`` is on the stored value is a pre-softplus
+        raw whose softplus is ≈ ``|magnitude|`` (the effective sign is applied
+        by ``_sgn_l``/``_sgn_r`` at use time); when off it is the signed
+        scalar directly (l → +|m|, r → −|m|, the legacy ±init)."""
+        m = abs(float(magnitude))
+        if self.sign_constrain_gate:
+            raw = math.log(math.expm1(m)) if m > 0 else -20.0
+            return nn.Parameter(torch.tensor(float(raw)))
+        signed = m if side == "l" else -m
+        return nn.Parameter(torch.tensor(float(signed)))
+
+    def _sgn_l(self, v: torch.Tensor) -> torch.Tensor:
+        """Effective LEFT gate scalar: ≤ 0 when constrained, else raw."""
+        return -F.softplus(v) if self.sign_constrain_gate else v
+
+    def _sgn_r(self, v: torch.Tensor) -> torch.Tensor:
+        """Effective RIGHT gate scalar: ≥ 0 when constrained, else raw."""
+        return F.softplus(v) if self.sign_constrain_gate else v
+
+    # ------------------------------------------------------------------
     # Forward path
     # ------------------------------------------------------------------
 
@@ -521,10 +552,10 @@ class ZebrafishHdTaskRNN(nn.Module):
             W = self.W_in
             if self.velocity_gate == "pen_4scalar":
                 v_col = (
-                    self._afferent_ind_ripn_l  * self.v_ripn_l
-                    + self._afferent_ind_ripn_r  * self.v_ripn_r
-                    + self._afferent_ind_ptipn_l * self.v_ptipn_l
-                    + self._afferent_ind_ptipn_r * self.v_ptipn_r
+                    self._afferent_ind_ripn_l  * self._sgn_l(self.v_ripn_l)
+                    + self._afferent_ind_ripn_r  * self._sgn_r(self.v_ripn_r)
+                    + self._afferent_ind_ptipn_l * self._sgn_l(self.v_ptipn_l)
+                    + self._afferent_ind_ptipn_r * self._sgn_r(self.v_ptipn_r)
                 )
                 W = torch.cat([v_col.unsqueeze(1), W[:, 1:]], dim=1)
             elif self.velocity_gate == "pen_artr_ptipn1":
@@ -541,12 +572,12 @@ class ZebrafishHdTaskRNN(nn.Module):
                 #                  pt-IPN1 on col 1, rest free (both —
                 #                  task_targets ['rotation','translation']).
                 v_col_artr = (
-                    self._afferent_ind_artr_l * self.v_artr_l
-                    + self._afferent_ind_artr_r * self.v_artr_r
+                    self._afferent_ind_artr_l * self._sgn_l(self.v_artr_l)
+                    + self._afferent_ind_artr_r * self._sgn_r(self.v_artr_r)
                 )
                 v_col_pt1 = (
-                    self._afferent_ind_pt_ipn1_l * self.v_pt1_l
-                    + self._afferent_ind_pt_ipn1_r * self.v_pt1_r
+                    self._afferent_ind_pt_ipn1_l * self._sgn_l(self.v_pt1_l)
+                    + self._afferent_ind_pt_ipn1_r * self._sgn_r(self.v_pt1_r)
                 )
                 if self.n_input == 1:
                     W = v_col_pt1.unsqueeze(1)
@@ -558,24 +589,26 @@ class ZebrafishHdTaskRNN(nn.Module):
                     W = torch.cat([v_col_artr.unsqueeze(1), W[:, 1:]], dim=1)
             elif self.velocity_gate == "pen_artr_ptipn1_propriocep":
                 # Proprioception-extended gate (split-input, default
-                # and only behaviour). v_extero is on its own input
-                # column, gated onto pt-IPN1; v_proprio is on its own
-                # input column, gated onto motor_efferent. No summed
-                # v_fwd column.
+                # and only behaviour). v_fwd is on its own input column,
+                # gated onto pt-IPN1; the separate angular proprioceptive
+                # efference copy ω_proprio is on its own input column
+                # (channel 2), gated onto motor_efferent — a companion of
+                # the ω→ARTR drive (motor-efferent cells code head
+                # direction, not forward swim). No summed v_fwd column.
                 v_col_artr = (
-                    self._afferent_ind_artr_l * self.v_artr_l
-                    + self._afferent_ind_artr_r * self.v_artr_r
+                    self._afferent_ind_artr_l * self._sgn_l(self.v_artr_l)
+                    + self._afferent_ind_artr_r * self._sgn_r(self.v_artr_r)
                 )
                 v_col_pt1 = (
-                    self._afferent_ind_pt_ipn1_l * self.v_pt1_l
-                    + self._afferent_ind_pt_ipn1_r * self.v_pt1_r
+                    self._afferent_ind_pt_ipn1_l * self._sgn_l(self.v_pt1_l)
+                    + self._afferent_ind_pt_ipn1_r * self._sgn_r(self.v_pt1_r)
                 )
                 v_col_me = (
-                    self._afferent_ind_motor_efferent_l * self.v_me_l
-                    + self._afferent_ind_motor_efferent_r * self.v_me_r
+                    self._afferent_ind_motor_efferent_l * self._sgn_l(self.v_me_l)
+                    + self._afferent_ind_motor_efferent_r * self._sgn_r(self.v_me_r)
                 )
                 if self.n_input == 5:
-                    # [ω, v_extero, v_proprio, cosθ₀, sinθ₀] — joint
+                    # [ω, v_fwd, ω_proprio, cosθ₀, sinθ₀] — joint
                     # task (heading + (1D or 2D) path integration).
                     W = torch.cat(
                         [v_col_artr.unsqueeze(1),

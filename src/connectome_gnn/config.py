@@ -612,6 +612,13 @@ class GraphModelConfig(BaseModel):
     velocity_gate: Literal["none", "pen_only", "pen_4scalar",
                            "pen_artr_ptipn1",
                            "pen_artr_ptipn1_propriocep"] = "none"
+    # Sign-lock the bilateral velocity-gate scalars so the left port is ≤0 and
+    # the right port is ≥0 (effective = ∓softplus(raw), magnitude free). This
+    # forces the L/R afferents to be driven in antiphase — matching the
+    # recorded ARTR L/R anti-correlation — instead of letting a task-only
+    # model collapse to a degenerate same-sign (symmetric) gate. True by
+    # default; set false for the unconstrained legacy gate.
+    sign_constrain_gate: bool = True
 
     # TaskRNN (cortex/free-W mode): explicit recurrent population size + I/O
     # dimensions. For sign_locked (CX) mode these are derived from the

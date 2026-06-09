@@ -195,6 +195,12 @@ class ZebrafishHdTaskGNN(nn.Module):
         #     v_ptipn_l/r  ← pretectum → IPN afferents
         # Channels 1-2 (initial-bump cue) stay free for all rows.
         self.velocity_gate = str(getattr(gm, "velocity_gate", "none")).lower()
+        # Sign-lock the bilateral gate scalars (left ≤0, right ≥0) so the L/R
+        # afferents are driven in antiphase (matches the recorded ARTR L/R
+        # anti-correlation; stops a task-only model collapsing to a degenerate
+        # same-sign gate). When on, the stored parameter is a pre-softplus raw
+        # whose softplus is the magnitude; the sign is applied at use time.
+        self.sign_constrain_gate = bool(getattr(gm, "sign_constrain_gate", True))
         if self.velocity_gate == "pen_only":
             mask = torch.zeros(N, self.n_input, dtype=torch.float32)
             mask[:, 1:] = 1.0
@@ -223,10 +229,10 @@ class ZebrafishHdTaskGNN(nn.Module):
                 self.register_buffer(
                     f"_afferent_ind_{key.lower()}", ind, persistent=False,
                 )
-            self.v_ripn_l  = nn.Parameter(torch.tensor(0.01))
-            self.v_ripn_r  = nn.Parameter(torch.tensor(-0.01))
-            self.v_ptipn_l = nn.Parameter(torch.tensor(0.01))
-            self.v_ptipn_r = nn.Parameter(torch.tensor(-0.01))
+            self.v_ripn_l  = self._gate_scalar(0.01, 'l')
+            self.v_ripn_r  = self._gate_scalar(0.01, 'r')
+            self.v_ptipn_l = self._gate_scalar(0.01, 'l')
+            self.v_ptipn_r = self._gate_scalar(0.01, 'r')
         elif self.velocity_gate != "none":
             raise ValueError(
                 f"graph_model.velocity_gate must be 'none', 'pen_only', or "
@@ -446,6 +452,28 @@ class ZebrafishHdTaskGNN(nn.Module):
         return self.f_theta(feat).squeeze(-1)                 # (B, N)
 
     # ------------------------------------------------------------------
+    # Velocity-gate scalar sign-lock helpers (mirror ZebrafishHdTaskRNN)
+    # ------------------------------------------------------------------
+
+    def _gate_scalar(self, magnitude: float, side: str) -> nn.Parameter:
+        """Bilateral gate-scalar Parameter; ``side`` ∈ {'l','r'}. When
+        ``sign_constrain_gate`` is on the stored value is a pre-softplus raw
+        whose softplus is ≈ ``|magnitude|`` (sign applied by _sgn_l/_sgn_r);
+        when off it is the signed scalar directly (l → +|m|, r → −|m|)."""
+        m = abs(float(magnitude))
+        if self.sign_constrain_gate:
+            raw = math.log(math.expm1(m)) if m > 0 else -20.0
+            return nn.Parameter(torch.tensor(float(raw)))
+        signed = m if side == "l" else -m
+        return nn.Parameter(torch.tensor(float(signed)))
+
+    def _sgn_l(self, v: torch.Tensor) -> torch.Tensor:
+        return -F.softplus(v) if self.sign_constrain_gate else v
+
+    def _sgn_r(self, v: torch.Tensor) -> torch.Tensor:
+        return F.softplus(v) if self.sign_constrain_gate else v
+
+    # ------------------------------------------------------------------
     # Forward path
     # ------------------------------------------------------------------
 
@@ -455,10 +483,10 @@ class ZebrafishHdTaskGNN(nn.Module):
             W = self.W_in
             if self.velocity_gate == "pen_4scalar":
                 v_col = (
-                    self._afferent_ind_ripn_l  * self.v_ripn_l
-                    + self._afferent_ind_ripn_r  * self.v_ripn_r
-                    + self._afferent_ind_ptipn_l * self.v_ptipn_l
-                    + self._afferent_ind_ptipn_r * self.v_ptipn_r
+                    self._afferent_ind_ripn_l  * self._sgn_l(self.v_ripn_l)
+                    + self._afferent_ind_ripn_r  * self._sgn_r(self.v_ripn_r)
+                    + self._afferent_ind_ptipn_l * self._sgn_l(self.v_ptipn_l)
+                    + self._afferent_ind_ptipn_r * self._sgn_r(self.v_ptipn_r)
                 )
                 W = torch.cat([v_col.unsqueeze(1), W[:, 1:]], dim=1)
             else:
