@@ -1970,6 +1970,38 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
     _logger.info(f'model {model_config.signal_model_name}: {n_total_params:,} trainable params')
     logger.info(f'model: {model_config.signal_model_name}  params: {n_total_params}')
 
+    # --- optional: cluster the per-neuron embedding by cell type + freeze ---
+    # embedding_cell_type_init: set each neuron's a_i to its cell type's
+    # equidistant 2-D cluster point (so the embedding is a clean per-type
+    # cluster map); fix_embedding: freeze a (requires_grad off → excluded
+    # from the optimizer). Ported from data_train_gnn so the zebrafish / CX
+    # swim-integration GNN can train on a frozen type-clustered embedding.
+    # Must be set before the optimizer is built (below). Requires
+    # embedding_dim == 2.
+    if getattr(tc, 'embedding_cell_type_init', False) and hasattr(model, 'a'):
+        from connectome_gnn.utils import get_equidistant_points
+        emb_dim = int(getattr(model_config, 'embedding_dim', 0))
+        type_ids = np.asarray(model.neuron_types).astype(int)
+        n_types = int(len(model.type_names))
+        if emb_dim != 2:
+            _logger.warning(
+                f'embedding_cell_type_init requires embedding_dim=2, got '
+                f'{emb_dim} — skipping')
+        else:
+            scale = float(getattr(tc, 'embedding_cell_type_scale', 1.0))
+            ex, ey = get_equidistant_points(n_types)
+            pts = (np.stack([ex, ey], axis=1) * scale).astype(np.float32)
+            with torch.no_grad():
+                model.a.copy_(torch.tensor(
+                    pts[type_ids], dtype=torch.float32, device=device))
+            _logger.info(
+                f'embedding initialised with equidistant points for '
+                f'{n_types} cell types (scale={scale})')
+    if getattr(tc, 'fix_embedding', False) and hasattr(model, 'a'):
+        model.a.requires_grad_(False)
+        _logger.info(
+            'embedding is fixed (requires_grad=False, excluded from optimizer)')
+
     # --- resume: load the latest completed per-epoch checkpoint ----------
     # Continue at the next epoch (epoch-boundary granularity). The model
     # state is loaded here (before torch.compile); the matching optimizer
@@ -2047,6 +2079,18 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
     coeff_l1S = float(tc.coeff_W_L1)
     coeff_f_diff = float(getattr(tc, 'coeff_f_theta_diff', 0.0))
     coeff_g_diff = float(getattr(tc, 'coeff_g_phi_diff', 0.0))
+    # Soft embedding-cluster pull: each neuron's a_i toward the centroid of
+    # its cell type (centroid computed on-the-fly from model.a, so the whole
+    # cluster is free to drift during training). Ported from the LossRegular-
+    # iser used by data_train_gnn. Only active when a is learnable.
+    coeff_emb_cluster = float(getattr(tc, 'coeff_embedding_cluster', 0.0))
+    _emb_type_ids = _emb_type_count = None
+    if coeff_emb_cluster > 0 and hasattr(model, 'a'):
+        _emb_type_ids = torch.as_tensor(
+            np.asarray(model.neuron_types).astype(np.int64), device=device)
+        _emb_n_types = int(len(model.type_names))
+        _emb_type_count = torch.bincount(
+            _emb_type_ids, minlength=_emb_n_types).clamp(min=1).float().unsqueeze(-1)
     grad_clip = float(getattr(tc, 'grad_clip_W', 0.0))
     snapshots_per_epoch = int(getattr(tc, 'snapshots_per_epoch', 5))
     snapshot_n_steps = int(getattr(tc, 'snapshot_n_steps', 1500))
@@ -2524,7 +2568,19 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
             g_diff = (model.loss_g_phi_diff(h_buf, coeff_g_diff)
                       if coeff_g_diff > 0 and hasattr(model, 'loss_g_phi_diff')
                       else u.new_zeros(()))
-            loss = mse + cosd + norm + tv + l1S + f_diff + g_diff + obs
+            # embedding-cluster pull (only when a is learnable; centroid
+            # computed on-the-fly so the cluster drifts with training).
+            if (coeff_emb_cluster > 0 and hasattr(model, 'a')
+                    and model.a.requires_grad and _emb_type_ids is not None):
+                _a = model.a
+                _sum = _a.new_zeros((_emb_type_count.shape[0], _a.shape[1]))
+                _sum.scatter_add_(
+                    0, _emb_type_ids.unsqueeze(-1).expand(-1, _a.shape[1]), _a)
+                _neuron_means = (_sum / _emb_type_count)[_emb_type_ids]
+                emb_cluster = (_a - _neuron_means).norm(2) * coeff_emb_cluster
+            else:
+                emb_cluster = u.new_zeros(())
+            loss = mse + cosd + norm + tv + l1S + f_diff + g_diff + obs + emb_cluster
 
             optimizer.zero_grad(set_to_none=True)
             # NaN guardrail: if the loss itself is non-finite we know the
