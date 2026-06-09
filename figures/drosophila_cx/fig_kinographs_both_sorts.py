@@ -44,10 +44,8 @@ from connectome_gnn.generators.utils import generate_path_integration_batch
 
 
 MODELS = [
-    ("drosophila_cx_pi_epg_no_tv_cv0",        "Known-ODE no-TV"),
-    ("drosophila_cx_pi_epg_tv_cv0",           "Known-ODE $+$TV"),
-    ("drosophila_cx_pi_gnn_epg_no_tv_cv0",    "GNN no-TV"),
-    ("drosophila_cx_pi_gnn_epg_tv_cv0",       "GNN $+$TV"),
+    ("drosophila_cx_pi_epg_no_tv_cv0",        "Known-ODE"),
+    ("drosophila_cx_pi_gnn_epg_no_tv_cv0",    "GNN"),
     ("drosophila_cx_pi_fc_epg_cv0",           "fully connected"),
     ("drosophila_cx_pi_frozen_Wrec_epg_cv0",  "frozen $W^{\\mathrm{rec}}$"),
 ]
