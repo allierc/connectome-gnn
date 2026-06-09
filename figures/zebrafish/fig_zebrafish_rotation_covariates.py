@@ -207,6 +207,13 @@ def load_rotation_block():
                       np.int64)
     ca = np.asarray(npz["traces"], np.float32)[f0:f1][:, obs_ix]   # (656, n_bump)
 
+    # --- three velocity-gate afferent classes (Fig. 1 colour code) ----------
+    # ARTR (ω), pt-IPN1 (v_ext), motor_efferent (v_prop): recorded ΔF/F over
+    # the same rotation slice, matched cells only.
+    import zebrafish_afferent_kino as aff
+    afferents = [(name, colour, tr[f0:f1])
+                 for name, colour, tr in aff.load_afferent_traces(CONNECTOME)]
+
     # --- raw tail-EMG channels (ch0=L, ch1=R), if the .10chFlt is present ----
     # markers[f] = 6 kHz ephys sample indices of frame f (onsets_processed.npz).
     emg_L = emg_R = None
@@ -225,7 +232,7 @@ def load_rotation_block():
                 omega=omega, heading_deg=theta_frame_deg,
                 stim_dir=stim_rot, forward=forward_rot, turning=turning_rot,
                 emg_L=emg_L, emg_R=emg_R, ephys_path=ephys_path,
-                calcium=ca, n_bump=ca.shape[1])
+                calcium=ca, n_bump=ca.shape[1], afferents=afferents)
 
 
 def make_figure(out_png=None):
@@ -238,8 +245,12 @@ def make_figure(out_png=None):
     t = d["t_frame"]
     have_emg = d["emg_L"] is not None
 
-    # ω | heading | stim | forward | turning | EMG ch0(L) | EMG ch1(R) | kinograph
-    ratios = [1.0, 1.0, 0.8, 1.0, 1.0, 1.0, 1.0, 2.8]
+    # ω | heading | stim | forward | turning | EMG ch0(L) | EMG ch1(R)
+    # | ARTR | pt-IPN1 | motor_efferent
+    # | kinograph_rastermap_global | kinograph_preferred_angle
+    aff_rows = d["afferents"]
+    n_aff = len(aff_rows)
+    ratios = [1.0, 1.0, 0.8, 1.0, 1.0, 1.0, 1.0] + [1.4] * n_aff + [2.4, 2.4]
     fig, axs = plt.subplots(len(ratios), 1, sharex=True,
                             figsize=(13, 0.95 * sum(ratios)),
                             gridspec_kw=dict(height_ratios=ratios),
@@ -263,20 +274,20 @@ def make_figure(out_png=None):
     # Neutral purple: red/blue are reserved below for the two L/R raw channels.
     axs[3].plot(t, d["forward"], color="tab:purple", lw=0.7)
     axs[3].axhline(0, color="0.8", lw=0.4)
-    axs[3].set_ylabel("forward (a.u.)")
+    axs[3].set_ylabel("forward\n(a.u.)")
 
     # 5) swim behaviour — turning (L/R tail-EMG asymmetry); tracks ω (r≈0.76)
     axs[4].plot(t, d["turning"], color="tab:olive", lw=0.7)
     axs[4].axhline(0, color="0.8", lw=0.4)
-    axs[4].set_ylabel("turning (a.u.)")
+    axs[4].set_ylabel("turning\n(a.u.)")
 
     # 6-7) raw tail-EMG per-frame RMS — the SOURCE of panels 4-5.
     #      ch0 = left (red), ch1 = right (blue) — two distinct sources.
-    for ax, key, lab, col in ((axs[5], "emg_L", "ch0 left", "tab:red"),
-                              (axs[6], "emg_R", "ch1 right", "tab:blue")):
+    for ax, key, lab, col in ((axs[5], "emg_L", "L", "tab:red"),
+                              (axs[6], "emg_R", "R", "tab:blue")):
         if have_emg:
             ax.plot(t, d[key], color=col, lw=0.6)
-            ax.set_ylabel(f"EMG {lab}\nRMS (a.u.)")
+            ax.set_ylabel(f"EMG {lab}\nRMS")
         else:
             ax.text(0.5, 0.5, f"raw tail-EMG {lab}: .10chFlt not found\n"
                     "(set $FISH_EPHYS_FILE or drop it under papers/fishFuncEM/data/)",
@@ -285,13 +296,46 @@ def make_figure(out_png=None):
             ax.set_ylabel(f"EMG {lab}")
             ax.set_yticks([])
 
-    # 8) bump-pool real ΔF/F kinograph — non-periodic (matches Fig. 12 real panel)
-    n = d["n_bump"]
-    axs[7].imshow(_zscore_cols(d["calcium"]).T, aspect="auto", cmap="viridis",
+    # 8–10) the three velocity-gate afferent classes (recorded ΔF/F), in the
+    # Fig. 1 colour code — ARTR (ω), pt-IPN1 (v_ext), motor_efferent (v_prop).
+    # Same viridis LUT and per-neuron z-score as the bump-pool kinographs;
+    # class name labelled in its Fig. 1 colour.
+    for j, (name, colour, tr) in enumerate(aff_rows):
+        ax = axs[7 + j]
+        na = tr.shape[1]
+        ax.imshow(_zscore_cols(tr).T, aspect="auto", cmap="viridis",
                   vmin=VIRIDIS_VMIN, vmax=VIRIDIS_VMAX,
-                  extent=[t[0], t[-1], n, 0], interpolation="nearest")
-    axs[7].set_ylabel(f"bump-pool\nneuron (n={n})")
-    axs[7].set_xlabel("time (s)")
+                  extent=[t[0], t[-1], na, 0], interpolation="nearest")
+        ax.set_ylabel(f"{name}\n(n={na})", color=colour, fontweight="bold")
+        ax.set_yticks([])
+
+    # 11–12) two views of the same 300-cell bump-pool ΔF/F kinograph
+    # under different row orderings:
+    #   first: official global ZAPBench rastermap permutation (the
+    #          same order Fig. 12's real panel uses).
+    #   second: rows sorted by per-neuron preferred heading angle
+    #          φ_i = arg(Σ_t ΔF/F_i(t)·e^{iθ(t)}) — i.e. the angle
+    #          each neuron prefers, low-φ at top.
+    n = d["n_bump"]
+    ca_z = _zscore_cols(d["calcium"]).astype(np.float32)        # (T, n)
+    theta_rad = np.deg2rad(np.asarray(d["heading_deg"], np.float64))
+    act = ca_z - ca_z.mean(axis=0, keepdims=True)
+    phi = np.arctan2(
+        (act * np.sin(theta_rad)[:, None]).sum(axis=0),
+        (act * np.cos(theta_rad)[:, None]).sum(axis=0),
+    )
+    order_angle = np.argsort(phi, kind="stable")
+    bump0 = 7 + n_aff
+    for row_ix, order, label in (
+        (bump0, np.arange(n, dtype=np.int64), "rastermap\n(global)"),
+        (bump0 + 1, order_angle, "preferred\nangle"),
+    ):
+        axs[row_ix].imshow(ca_z[:, order].T, aspect="auto", cmap="viridis",
+                            vmin=VIRIDIS_VMIN, vmax=VIRIDIS_VMAX,
+                            extent=[t[0], t[-1], n, 0],
+                            interpolation="nearest")
+        axs[row_ix].set_ylabel(label)
+    axs[bump0 + 1].set_xlabel("time (s)")
 
     for ax in axs:
         ax.set_xlim(t[0], t[-1])
