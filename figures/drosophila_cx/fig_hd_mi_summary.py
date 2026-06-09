@@ -1,5 +1,5 @@
-"""Per-cell-type HD mutual-information summary across the three converged
-CX models. 3 rows (Known-ODE RNN, fully connected RNN, GNN) x 2 cols:
+"""Per-cell-type HD mutual-information summary across the converged
+CX models. Conditions are paired two per row x 2 cols each:
 
   col 1: per-neuron mean MI per cell type (bar = mean, dots = individual
          neurons). Captures the "average HD informativeness of a cell of
@@ -40,10 +40,8 @@ from connectome_gnn.generators.utils import generate_path_integration_batch
 
 
 MODELS = [
-    ("drosophila_cx_pi_epg_no_tv_cv0",        "Known-ODE no-TV"),
-    ("drosophila_cx_pi_epg_tv_cv0",           "Known-ODE $+$TV"),
-    ("drosophila_cx_pi_gnn_epg_no_tv_cv0",    "GNN no-TV"),
-    ("drosophila_cx_pi_gnn_epg_tv_cv0",       "GNN $+$TV"),
+    ("drosophila_cx_pi_epg_no_tv_cv0",        "Known-ODE"),
+    ("drosophila_cx_pi_gnn_epg_no_tv_cv0",    "GNN"),
     ("drosophila_cx_pi_fc_epg_cv0",           "fully connected"),
     ("drosophila_cx_pi_frozen_Wrec_epg_cv0",  "frozen $W^{\\mathrm{rec}}$"),
 ]

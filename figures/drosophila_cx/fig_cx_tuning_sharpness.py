@@ -27,7 +27,7 @@ Requires:
 
 CLI:
     python figures/drosophila_cx/fig_cx_tuning_sharpness.py \
-        --model drosophila_cx_pi_epg_tv_cv0
+        --model drosophila_cx_pi_epg_no_tv_cv0
 """
 from __future__ import annotations
 
@@ -160,39 +160,205 @@ def _fit_kappa(mean_curve, theta_grid):
 
 
 def _fwhm(curve_unit_peak, theta_grid):
-    """Full width at half maximum of a unit-peak curve on a circular
-    grid, by linear interpolation around the peak."""
+    """Full width at half maximum of a unit-peak curve. Assumes the
+    peak is near the centre of the grid (after _centre_and_normalise)
+    and the curve decreases monotonically away from the peak on
+    either side, so we can walk left/right without modular wrap."""
     K = len(theta_grid)
     i_peak = int(np.argmax(curve_unit_peak))
     if curve_unit_peak[i_peak] < 0.5:
         return float("nan")
     half = 0.5
-    def _cross(lo, hi, direction):
-        for j in range(K):
-            i0 = (i_peak + direction * j) % K
-            i1 = (i_peak + direction * (j + 1)) % K
-            v0 = curve_unit_peak[i0]; v1 = curve_unit_peak[i1]
-            if (v0 - half) * (v1 - half) <= 0:
-                t = (half - v0) / max(1e-9, (v1 - v0))
-                return theta_grid[i0] + t * (theta_grid[i1] - theta_grid[i0])
+
+    def _interp_cross(i_lo, i_hi):
+        """Linear-interpolate the theta at which the curve crosses 0.5
+        between grid indices i_lo (further from peak) and i_hi (closer)."""
+        v_lo, v_hi = curve_unit_peak[i_lo], curve_unit_peak[i_hi]
+        denom = v_hi - v_lo
+        if abs(denom) < 1e-9:
+            return theta_grid[i_lo]
+        t = (half - v_lo) / denom
+        return theta_grid[i_lo] + t * (theta_grid[i_hi] - theta_grid[i_lo])
+
+    left = None
+    for j in range(1, K):
+        i = i_peak - j
+        if i < 0:
+            break
+        if curve_unit_peak[i] <= half:
+            left = _interp_cross(i, i + 1)
+            break
+
+    right = None
+    for j in range(1, K):
+        i = i_peak + j
+        if i >= K:
+            break
+        if curve_unit_peak[i] <= half:
+            right = _interp_cross(i, i - 1)
+            break
+
+    if left is None or right is None:
         return float("nan")
-    left = _cross(None, None, -1)
-    right = _cross(None, None, +1)
-    if not (np.isfinite(left) and np.isfinite(right)):
-        return float("nan")
-    delta = right - left
-    if delta < 0:
-        delta += 2 * math.pi
-    return float(np.degrees(delta))
+    return float(np.degrees(right - left))
+
+
+MODELS = [
+    ("drosophila_cx_pi_epg_no_tv_cv0",        "Known-ODE"),
+    ("drosophila_cx_pi_gnn_epg_no_tv_cv0",    "GNN"),
+    ("drosophila_cx_pi_fc_epg_cv0",           "fully connected"),
+    ("drosophila_cx_pi_frozen_Wrec_epg_cv0",  "frozen $W^{\\mathrm{rec}}$"),
+]
+
+
+def _compute(net, cfg_name, four_classes_dir, n_steps, seed, n_bins, spec_cut):
+    """Return all per-row quantities needed to render one condition."""
+    type_names = list(net.type_names)
+    nt = np.asarray(net.neuron_types).astype(int)
+    N = len(nt)
+
+    h, theta = _run_ou(net, n_steps, torch.device("cpu"), seed)
+    tc, centres, _ = _tuning_curves(h, theta, n_bins=n_bins)
+    spec_all, phi_all = _specificity_and_angle(tc, centres)
+
+    fc_csv = os.path.join(four_classes_dir,
+                          f"fig_cx_four_classes__{cfg_name}.csv")
+    if os.path.exists(fc_csv):
+        df_cls = pd.read_csv(fc_csv)
+        RLmask = df_cls["klass"].isin(["R", "L"]).to_numpy()
+        if len(RLmask) != N:
+            RLmask = spec_all >= np.median(spec_all)
+    else:
+        # FC / frozen do not have a four_classes csv; use spec-median.
+        RLmask = spec_all >= np.median(spec_all)
+
+    n_RL = int(RLmask.sum())
+    spec_RL = spec_all[RLmask]
+    phi_RL = phi_all[RLmask]
+    tc_RL = tc[RLmask]
+
+    keep = spec_RL >= spec_cut
+    n_keep = int(keep.sum())
+    cut_used = float(spec_cut)
+    if n_keep < max(5, n_RL // 5):
+        cut_used = float(np.quantile(spec_RL, 0.50)) if n_RL else 0.0
+        keep = spec_RL >= cut_used
+        n_keep = int(keep.sum())
+
+    norm_curves = _centre_and_normalise(tc_RL[keep], centres,
+                                         peak_to_zero=True)
+    if n_keep:
+        mean_curve = norm_curves.mean(axis=0)
+        q25 = np.percentile(norm_curves, 25, axis=0)
+        q75 = np.percentile(norm_curves, 75, axis=0)
+    else:
+        mean_curve = np.zeros_like(centres)
+        q25 = np.zeros_like(centres); q75 = np.zeros_like(centres)
+
+    theta_grid_centred = centres - centres[len(centres) // 2]
+    kappa = _fit_kappa(mean_curve, theta_grid_centred) if n_keep else 0.0
+    fwhm = _fwhm(mean_curve, theta_grid_centred) if n_keep else float("nan")
+
+    centred_RL = tc_RL - tc_RL.mean(axis=1, keepdims=True)
+
+    return dict(
+        N=N, n_RL=n_RL, n_keep=n_keep, cut=cut_used,
+        spec_all=spec_all, phi_all=phi_all,
+        spec_RL=spec_RL, phi_RL=phi_RL,
+        centres=centres, theta_grid_centred=theta_grid_centred,
+        norm_curves=norm_curves, mean_curve=mean_curve,
+        q25=q25, q75=q75, kappa=kappa, fwhm=fwhm,
+        centred_RL=centred_RL, keep=keep,
+        type_names=type_names, neuron_types=nt,
+    )
+
+
+def _draw_row(axes_row, data, spec_cut, n_bins, letter_offset):
+    """Render the four panels for one condition into the given (ax_a..ax_d)."""
+    spec_RL = data["spec_RL"]; phi_RL = data["phi_rad"] if "phi_rad" in data else data["phi_RL"]
+    keep = data["keep"]; centres = data["centres"]
+    centred_RL = data["centred_RL"]; n_RL = data["n_RL"]; n_keep = data["n_keep"]
+    norm_curves = data["norm_curves"]; mean_curve = data["mean_curve"]
+    q25 = data["q25"]; q75 = data["q75"]
+    theta_grid_centred = data["theta_grid_centred"]
+    kappa = data["kappa"]; fwhm = data["fwhm"]; cut_used = data["cut"]
+    ax_a, ax_b, ax_c, ax_d = axes_row
+
+    # (a) example tuning curves
+    if keep.sum() >= 2:
+        order = np.argsort(np.abs(spec_RL - np.median(spec_RL[keep])))
+        ex1 = order[0]
+        ex2_cands = order[1:]
+        ex2 = ex2_cands[np.argmax(np.abs(
+            ((phi_RL[ex2_cands] - phi_RL[ex1] + math.pi) % (2 * math.pi))
+            - math.pi))]
+    elif len(spec_RL):
+        ex1 = ex2 = 0
+    else:
+        ex1 = ex2 = -1
+    nonspec_cands = np.where(spec_RL < 0.3)[0]
+    ex3 = (nonspec_cands[0] if len(nonspec_cands)
+           else (int(np.argmin(spec_RL)) if len(spec_RL) else -1))
+    for ex, color in [(ex1, "tab:blue"), (ex2, "tab:green"), (ex3, "0.5")]:
+        if ex < 0:
+            continue
+        ax_a.plot(np.degrees(centres), centred_RL[ex], lw=1.2, color=color)
+        ax_a.axvline(np.degrees(phi_RL[ex]),
+                      ls="--", color=color, lw=0.5, alpha=0.6)
+    ax_a.axhline(0, ls=":", color="0.5", lw=0.4)
+    ax_a.set_xlabel("heading (deg)", fontsize=8)
+    ax_a.set_ylabel(r"$\bar r_i - \langle\bar r_i\rangle$", fontsize=8)
+    ax_a.tick_params(labelsize=7)
+
+    # (b) specificity histogram
+    if len(spec_RL):
+        ax_b.hist(spec_RL, bins=np.linspace(0, 1, 31),
+                   color="0.4", edgecolor="white", linewidth=0.3)
+    ax_b.axvline(cut_used, ls="--", color="red", lw=1.0)
+    ax_b.set_xlabel(r"specificity $s_i$", fontsize=8)
+    ax_b.set_ylabel("# cells", fontsize=8)
+    ax_b.tick_params(labelsize=7)
+
+    # (c) centred normalised curves
+    if n_keep > 0:
+        for c in norm_curves:
+            ax_c.plot(np.degrees(theta_grid_centred), c, lw=0.3,
+                       color="0.7", alpha=0.5)
+        ax_c.fill_between(np.degrees(theta_grid_centred), q25, q75,
+                           color="red", alpha=0.18)
+        ax_c.plot(np.degrees(theta_grid_centred), mean_curve,
+                   color="red", lw=1.6)
+        ax_c.plot(np.degrees(theta_grid_centred),
+                   _von_mises_unit(theta_grid_centred, kappa),
+                   color="black", lw=1.0, ls="--")
+    ax_c.set_xlabel(r"$\theta - \phi_i$ (deg)", fontsize=8)
+    ax_c.set_ylabel("normalised rate", fontsize=8)
+    ax_c.tick_params(labelsize=7)
+
+    # (d) preferred-angle histogram
+    phi_keep = phi_RL[keep] if len(spec_RL) else np.array([])
+    if len(phi_keep):
+        edges = np.linspace(-math.pi, math.pi, n_bins + 1)
+        ax_d.hist(np.degrees(phi_keep), bins=np.degrees(edges),
+                   color="0.4", edgecolor="white", linewidth=0.3)
+        ax_d.axhline(len(phi_keep) / n_bins, ls="--", color="red", lw=1.0)
+    ax_d.set_xlabel(r"$\phi_i$ (deg)", fontsize=8)
+    ax_d.set_ylabel("# cells", fontsize=8)
+    ax_d.tick_params(labelsize=7)
+
+    # Bold single-letter panel labels (a, b, c, ... in row-major order)
+    letters = "abcdefghijklmnopqrstuvwxyz"
+    for k, ax in enumerate(axes_row):
+        ax.text(-0.18, 1.06, letters[letter_offset + k],
+                 transform=ax.transAxes,
+                 fontsize=12, fontweight="bold", va="bottom", ha="right")
 
 
 def main():
     here = os.path.dirname(os.path.abspath(__file__))
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--model", default="drosophila_cx_pi_epg_tv_cv0")
-    p.add_argument("--four_classes_csv",
-                   default=os.path.join(here,
-                       "fig_cx_four_classes__drosophila_cx_pi_epg_tv_cv0.csv"))
+    p.add_argument("--four_classes_dir", default=here,
+                   help="directory containing fig_cx_four_classes__<config>.csv files")
     p.add_argument("--n_steps", type=int, default=10000)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--n_bins", type=int, default=36)
@@ -215,166 +381,51 @@ def main():
 
     device = torch.device(args.device)
 
-    print(f"[1/5] loading model {args.model}")
-    net = _load(args.model, device)
-    type_names = list(net.type_names)
-    nt = np.asarray(net.neuron_types).astype(int)
-    tps = np.array([type_names[t] for t in nt])
-    N = len(nt)
+    rows = []
+    for cfg, label in MODELS:
+        print(f"[{label}] loading + scoring")
+        net = _load(cfg, device)
+        data = _compute(net, cfg, args.four_classes_dir,
+                         args.n_steps, args.seed, args.n_bins, args.spec_cut)
+        print(f"  |R cup L| = {data['n_RL']} of {data['N']};  "
+              f"kept {data['n_keep']} at spec >= {data['cut']:.3f};  "
+              f"FWHM = {data['fwhm']:.0f} deg;  kappa = {data['kappa']:.2f}")
+        rows.append((cfg, label, data))
 
-    print(f"[2/5] OU rollout n_steps={args.n_steps}")
-    h, theta = _run_ou(net, args.n_steps, device, args.seed)
+    n_rows = len(rows)
+    fig, axes = plt.subplots(n_rows, 4, figsize=(16.0, 2.6 * n_rows),
+                              squeeze=False)
+    for r, (cfg, label, data) in enumerate(rows):
+        _draw_row(axes[r], data, args.spec_cut, args.n_bins,
+                   letter_offset=4 * r)
 
-    print(f"[3/5] tuning curves K={args.n_bins}")
-    tc, centres, _ = _tuning_curves(h, theta, n_bins=args.n_bins)
-    spec_all, phi_all = _specificity_and_angle(tc, centres)
+    fig.subplots_adjust(left=0.10, right=0.98, top=0.97, bottom=0.04,
+                         hspace=0.55, wspace=0.45)
 
-    print(f"[4/5] selecting R \cup L cells from {args.four_classes_csv}")
-    if os.path.exists(args.four_classes_csv):
-        df_cls = pd.read_csv(args.four_classes_csv)
-        RLmask = df_cls["klass"].isin(["R", "L"]).to_numpy()
-        if len(RLmask) != N:
-            print(f"  warning: csv N={len(RLmask)} != model N={N}; "
-                  f"falling back to MI-median split")
-            RLmask = spec_all >= np.median(spec_all)
-    else:
-        print(f"  no csv found; using spec-median as the R \cup L proxy")
-        RLmask = spec_all >= np.median(spec_all)
-
-    n_RL = int(RLmask.sum())
-    print(f"  |R \\cup L| = {n_RL} of {N}")
-
-    spec_RL = spec_all[RLmask]
-    phi_RL = phi_all[RLmask]
-    tc_RL = tc[RLmask]
-
-    keep = spec_RL >= args.spec_cut
-    n_keep = int(keep.sum())
-    # Fall back to the R \cup L median if too few cells pass the
-    # requested cut, so the figure always renders.
-    if n_keep < max(5, n_RL // 5):
-        fallback = float(np.quantile(spec_RL, 0.50)) if n_RL else 0.0
-        print(f"  only {n_keep} cells pass spec >= {args.spec_cut}; "
-              f"falling back to spec >= {fallback:.3f} (R\\cupL median)")
-        args.spec_cut = fallback
-        keep = spec_RL >= args.spec_cut
-        n_keep = int(keep.sum())
-    print(f"  kept {n_keep}/{n_RL} cells at spec >= {args.spec_cut:.3f}")
-
-    norm_curves = _centre_and_normalise(tc_RL[keep], centres,
-                                         peak_to_zero=True)
-    if n_keep:
-        mean_curve = norm_curves.mean(axis=0)
-        q25 = np.percentile(norm_curves, 25, axis=0)
-        q75 = np.percentile(norm_curves, 75, axis=0)
-    else:
-        mean_curve = np.zeros_like(centres)
-        q25 = np.zeros_like(centres); q75 = np.zeros_like(centres)
-
-    theta_grid_centred = centres - centres[len(centres) // 2]
-    kappa = _fit_kappa(mean_curve, theta_grid_centred)
-    fwhm = _fwhm(mean_curve, theta_grid_centred)
-    print(f"  kappa (vM fit) = {kappa:.2f}   FWHM = {fwhm:.1f} deg")
-
-    print(f"[5/5] rendering {args.out}")
-    fig, axes = plt.subplots(1, 4, figsize=(16.0, 4.0))
-
-    # Panel a: three example tuning curves
-    ax = axes[0]
-    centred_RL = tc_RL - tc_RL.mean(axis=1, keepdims=True)
-    if keep.sum() >= 2:
-        order = np.argsort(np.abs(spec_RL - np.median(spec_RL[keep])))
-        ex1 = order[0]
-        # pick another with a different preferred angle
-        ex2_cands = order[1:]
-        ex2 = ex2_cands[np.argmax(np.abs(
-            ((phi_RL[ex2_cands] - phi_RL[ex1] + math.pi) % (2 * math.pi))
-            - math.pi))]
-    else:
-        ex1 = ex2 = 0
-    nonspec_cands = np.where(spec_RL < 0.3)[0]
-    ex3 = nonspec_cands[0] if len(nonspec_cands) else np.argmin(spec_RL)
-    for ex, color, label in [
-        (ex1, "tab:blue", f"spec={spec_RL[ex1]:.2f}, $\\phi$={np.degrees(phi_RL[ex1]):+.0f}$^\\circ$"),
-        (ex2, "tab:green", f"spec={spec_RL[ex2]:.2f}, $\\phi$={np.degrees(phi_RL[ex2]):+.0f}$^\\circ$"),
-        (ex3, "0.5", f"spec={spec_RL[ex3]:.2f}, flat"),
-    ]:
-        ax.plot(np.degrees(centres), centred_RL[ex], lw=1.4, color=color,
-                label=label)
-        ax.axvline(np.degrees(phi_RL[ex]), ls="--", color=color, lw=0.6, alpha=0.7)
-    ax.axhline(0, ls=":", color="0.5", lw=0.5)
-    ax.set_xlabel("heading (deg)", fontsize=9)
-    ax.set_ylabel(r"$\bar r_i(\theta) - \langle\bar r_i\rangle$", fontsize=9)
-    ax.set_title("a  example tuning curves", fontsize=10, loc="left")
-    ax.legend(fontsize=7, frameon=False)
-
-    # Panel b: specificity histogram
-    ax = axes[1]
-    ax.hist(spec_RL, bins=np.linspace(0, 1, 31), color="0.4",
-            edgecolor="white", linewidth=0.4)
-    ax.axvline(args.spec_cut, ls="--", color="red", lw=1.2,
-               label=f"$s^*={args.spec_cut}$")
-    ax.set_xlabel(r"specificity $s_i$", fontsize=9)
-    ax.set_ylabel("# cells", fontsize=9)
-    ax.set_title(rf"b  $|\mathsf{{R}}\cup\mathsf{{L}}|={n_RL}$, "
-                 rf"kept {n_keep}", fontsize=10, loc="left")
-    ax.legend(fontsize=8, frameon=False, loc="upper left")
-
-    # Panel c: centred normalised curves overlay
-    ax = axes[2]
-    if n_keep > 0:
-        for c in norm_curves:
-            ax.plot(np.degrees(theta_grid_centred), c, lw=0.4, color="0.7",
-                    alpha=0.5)
-        ax.fill_between(np.degrees(theta_grid_centred), q25, q75,
-                        color="red", alpha=0.18)
-        ax.plot(np.degrees(theta_grid_centred), mean_curve,
-                color="red", lw=2.0, label="mean")
-        ax.plot(np.degrees(theta_grid_centred),
-                _von_mises_unit(theta_grid_centred, kappa),
-                color="black", lw=1.2, ls="--",
-                label=fr"von Mises $\kappa={kappa:.1f}$")
-    ax.set_xlabel(r"$\theta - \phi_i$ (deg)", fontsize=9)
-    ax.set_ylabel("normalised rate", fontsize=9)
-    ax.set_title(f"c  FWHM $\\approx {fwhm:.0f}^\\circ$",
-                  fontsize=10, loc="left")
-    ax.legend(fontsize=8, frameon=False, loc="upper left")
-
-    # Panel d: preferred-angle histogram
-    ax = axes[3]
-    phi_keep = phi_RL[keep]
-    if len(phi_keep):
-        edges = np.linspace(-math.pi, math.pi, args.n_bins + 1)
-        ax.hist(np.degrees(phi_keep), bins=np.degrees(edges),
-                color="0.4", edgecolor="white", linewidth=0.4)
-        ax.axhline(len(phi_keep) / args.n_bins, ls="--", color="red", lw=1.2,
-                   label=f"$n/K \\approx {len(phi_keep)/args.n_bins:.1f}$")
-        ax.legend(fontsize=8, frameon=False, loc="upper left")
-    ax.set_xlabel(r"$\phi_i$ (deg)", fontsize=9)
-    ax.set_ylabel("# cells", fontsize=9)
-    ax.set_title("d  preferred-angle coverage", fontsize=10, loc="left")
-
-    fig.tight_layout()
-    fig.savefig(args.out, dpi=180, bbox_inches="tight")
+    # Bold condition label on the left edge of each row.
+    for r, (cfg, label, data) in enumerate(rows):
+        bbox = axes[r, 0].get_position()
+        y = (bbox.y0 + bbox.y1) / 2
+        fig.text(0.025, y, label,
+                  rotation=90, va="center", ha="center",
+                  fontsize=11, fontweight="bold")
+    fig.savefig(args.out, dpi=160, bbox_inches="tight")
     plt.close(fig)
     print(f"wrote {args.out}")
 
-    df = pd.DataFrame({
-        "model_ix": np.arange(N),
-        "type":     tps,
-        "spec":     spec_all,
-        "phi_rad":  phi_all,
-        "in_RL":    RLmask.astype(int),
-        "kept":     (RLmask & (spec_all >= args.spec_cut)).astype(int),
-    })
-    df.to_csv(args.csv_out, index=False)
+    # CSV: stack per-cell rows across conditions with a condition column.
+    csv_rows = []
+    for cfg, label, data in rows:
+        df = pd.DataFrame({
+            "condition": cfg,
+            "model_ix":  np.arange(data["N"]),
+            "spec":      data["spec_all"],
+            "phi_rad":   data["phi_all"],
+        })
+        csv_rows.append(df)
+    df_all = pd.concat(csv_rows, ignore_index=True)
+    df_all.to_csv(args.csv_out, index=False)
     print(f"wrote {args.csv_out}")
-
-    # Per-cell-type summary for the kept population
-    print("\n=== kept (R\\cupL & spec>=cut) per type ===")
-    by_type = (df[df.kept.astype(bool)]
-                .groupby("type").size().sort_values(ascending=False))
-    print(by_type.to_string())
 
 
 if __name__ == "__main__":

@@ -88,12 +88,7 @@ not a unique circuit implementation. Resolving these degeneracies will require a
   \centering
   \includegraphics[width=\textwidth]{figure/fig_cx_anatomy_3d.png}
   \caption{\textbf{Anatomy of the 156 central-complex neurons modelled in this study and the flow of heading information through the circuit.}
-\textbf{(a)} Three-dimensional skeleton render of the seven CX cell classes (EPG, EPGt, PEN$_a$, PEN$*b$, $\Delta7$, PEG and ER6) overlaid on the major neuropils: protocerebral bridge (PB), fan-shaped body (FB), ellipsoid body (EB), noduli (NO) and bulb (BU$*{L/R}$). The view is rotated so dorsal is up, with PB at the top and the EB ring at the bottom. Colours identify cell types and are used consistently throughout the manuscript.
-
-The principal heading-direction pathway runs from EPG dendrites in the EB, where the activity bump is represented, to EPG axonal terminals in the PB, where heading information is distributed to downstream PEN, PEG and $\Delta7$ populations. PEN neurons receive angular-velocity input and project back toward the EB through the PB--NO pathway, providing the rotational drive that shifts the bump. $\Delta7$ neurons form broad inhibitory interactions across PB glomeruli, while PEG neurons participate in recurrent loops linking PB and EB. Together these populations implement the ring-attractor dynamics underlying path integration.
-
-\textbf{(b)} Soma locations of the same neurons. Cell bodies lie outside the neuropils within the surrounding cortex and connect to their arborisations through primary neurite tracts. The ring structure visible in the EB is therefore not a ring of somata but a ring of dendritic and axonal arborisations distributed across EB wedges. EPG, PEN, PEG and $\Delta7$ neurons are organised according to PB glomeruli and EB sectors, providing the anatomical substrate for the travelling activity bump observed during heading integration. The same colour scheme is used in the connectivity (\cref{fig:connectome_summary}) and information-coding analyses (\cref{fig:hd_mi_summary,fig:omega_mi_summary}).
-}
+\textbf{(a)} Three-dimensional skeleton render of the seven CX cell classes (EPG, EPGt, PEN$_a$, PEN$*b$, $\Delta7$, PEG and ER6) overlaid on the major neuropils: protocerebral bridge (PB), fan-shaped body (FB), ellipsoid body (EB), noduli (NO) and bulb (BU$*{L/R}$). Colours identify cell types and are used consistently throughout the manuscript. The principal heading-direction pathway runs from EPG dendrites in the EB, where the activity bump is represented, to EPG axonal terminals in the PB, where heading information is distributed to downstream PEN, PEG and $\Delta7$ populations. PEN neurons receive angular-velocity input and project back toward the EB through the PB--NO pathway, providing the rotational drive that shifts the bump. $\Delta7$ neurons form broad inhibitory interactions across PB glomeruli, while PEG neurons participate in recurrent loops linking PB and EB. Together these populations implement the ring-attractor dynamics underlying path integration. \textbf{(b)} Soma locations of the same neurons. Cell bodies lie outside the neuropils within the surrounding cortex and connect to their arborisations through primary neurite tracts. The ring structure visible in the EB is therefore not a ring of somata but a ring of dendritic and axonal arborisations distributed across EB wedges. EPG, PEN, PEG and $\Delta7$ neurons are organised according to PB glomeruli and EB sectors, providing the anatomical substrate for the travelling activity bump observed during heading integration.}
 
   \label{fig:cx_anatomy_3d}
 \end{figure}
@@ -103,7 +98,7 @@ The principal heading-direction pathway runs from EPG dendrites in the EB, where
 \label{sec:methods}
 
 \textbf{Recurrent neural network.}\label{method:RNN}
-The RNN model is a sign-locked discrete-time recurrent network whose connectivity is constrained to the \emph{Drosophila} hemibrain central-complex connectome. For each neuron $i\in\{1,\dots,N\}$ the subthreshold activity $\hat{h}_i(t)$ evolves according to
+The RNN model is a sign-locked discrete-time recurrent network whose connectivity is constrained to the \emph{Drosophila} hemibrain central-complex connectome. For each neuron $i\in\{1,\dots,N\}$ the activity $\hat{h}_i(t)$ evolves according to
 \begin{equation}
 \tau\,\frac{d\hat{h}_i(t)}{dt} = -\hat{h}_i(t)
   + \sum_j \hat{W}^{\mathrm{rec}}_{ij}\,\sigma\!\big(\hat{h}_j(t)\big)
@@ -115,9 +110,9 @@ The RNN model is a sign-locked discrete-time recurrent network whose connectivit
 \hat{y}(t) = \big(\cos\hat{\theta}(t),\,\sin\hat{\theta}(t)\big) = \hat{W}^{\mathrm{out}}\sigma\big(\hat{h}(t)\big) + \hat{b}^{\mathrm{out}},
 \label{eq:cx_readout}
 \end{equation}
-where $\hat{y}(t)\in\mathbb{R}^2$ is the network's inference of the head-direction signal, encoded as the $(\cos\hat\theta,\sin\hat\theta)$ pair so that the supervisory loss matches the ground-truth heading on the unit circle and avoids the $\pm 2\pi$ wraparound; the decoded heading is recovered as $\hat\theta(t) = \mathrm{atan2}\big(\hat y_2(t), \hat y_1(t)\big)$. The activation $\sigma$ is the sigmoid, the membrane time constant is $\tau = 0.1\,\mathrm{s}$ and the integration step is $\Delta t = 0.01\,\mathrm{s}$. The input $u(t)\in\mathbb{R}^3 = (\omega(t),\,\cos\theta_0\,\delta_{t,0},\,\sin\theta_0\,\delta_{t,0})$ encodes angular velocity and a one-frame initial-heading impulse. The recurrent matrix is sign-locked to the connectome template $W^{\mathrm{con}}\in\mathbb{R}^{N\times N}$: the trainable per-edge parameter is the magnitude $\hat{S}\in\mathbb{R}^{N\times N}$, and
+where $\hat{y}(t)\in\mathbb{R}^2$ is the network's inference of the head-direction signal, encoded as $(\cos\hat\theta,\sin\hat\theta)$ pair. The decoded heading is recovered as $\hat\theta(t) = \mathrm{atan2}\big(\hat y_2(t), \hat y_1(t)\big)$. The activation $\sigma$ is the sigmoid, the membrane time constant is $\tau = 0.1\,\mathrm{s}$ and the integration step is $\Delta t = 0.01\,\mathrm{s}$. The input $u(t)\in\mathbb{R}^3 = (\omega(t),\,\cos\theta_0\,\delta_{t,0},\,\sin\theta_0\,\delta_{t,0})$ encodes angular velocity and a one-frame initial-heading impulse. The recurrent matrix is sign-locked to the connectome template $W^{\mathrm{con}}\in\mathbb{R}^{N\times N}$: the trainable per-edge parameter is the magnitude $\hat{S}\in\mathbb{R}^{N\times N}$, and
 \begin{equation}
-\hat{W}^{\mathrm{rec}}_{ij} = |\hat{S}_{ij}|\,\mathrm{sign}(W^{\mathrm{con}}_{ij})\,(1-\delta_{ij}).
+\hat{W}^{\mathrm{rec}}_{ij} = |\hat{S}_{ij}|\,\mathrm{sign}(W^{\mathrm{con}}_{ij}).
 \label{eq:cx_w_rec}
 \end{equation}
 The angular-velocity input is anatomically restricted to the PEN subpopulations through a strict four-scalar gate on the angular-velocity column of $\hat{W}^{\mathrm{in}}$,
@@ -157,8 +152,8 @@ The cosine-distance term $\mathcal{L}_{\mathrm{cos}}$ anchors each block to the 
 
 \bigskip
 \noindent\textbf{Graph neural network model.}\label{method:GNN}
-The GNN model replaces the dense recurrent operator $\sum_j \hat{W}^{\mathrm{rec}}_{ij}\sigma(\hat{h}_j)$ of \cref{eq:cx_dynamics} with a message-passing graph neural network \citep{gilmer_neural_2017}, and --- crucially --- does \emph{not} hard-code either the leak, the firing-rate nonlinearity, or the synaptic activation function: the linear leak $-\hat{h}_i/\tau$, the sigmoid $\sigma$, and the per-edge message that combines a presynaptic activity with its postsynaptic effect must all be \emph{discovered} from the input--output map inside the learned drift $f_\theta$ and the learned signalling function $g_\phi$.
-Beyond removing this functional bias, the GNN also admits an explicit form of neuronal heterogeneity through a per-neuron learnable embedding $\mathbf{a}_i\in\mathbb{R}^2$ that enters both $f_\theta$ and $g_\phi$: same-type neurons share their architectural role but can specialise via their embedding, so a single pair of MLPs covers the seven CX cell types and a hundred-plus instance-level distinctions without any further per-type parameter tying. Nodes correspond to neurons and edges to the non-zero entries of the hemibrain connectome template $W^{\mathrm{con}}$, and the subthreshold activity evolves as
+The GNN model replaces the dense recurrent operator $\sum_j \hat{W}^{\mathrm{rec}}_{ij}\sigma(\hat{h}_j)$ of \cref{eq:cx_dynamics} with a message-passing graph neural network \citep{gilmer_neural_2017}, and --- crucially --- does \emph{not} hard-code either the leak, the firing-rate nonlinearity, or the synaptic activation function: the linear leak $-\hat{h}_i/\tau$, the sigmoid $\sigma$, and the per-edge message that combines a presynaptic activity with its postsynaptic effect must all be \emph{learned} from the input--output map inside the learned drift $f_\theta$ and the learned signalling function $g_\phi$.
+Beyond removing this functional bias, the GNN also admits an explicit form of neuronal heterogeneity through a per-neuron learnable embedding $\mathbf{a}_i\in\mathbb{R}^2$ that enters both $f_\theta$ and $g_\phi$: same-type neurons share their architectural role but can specialise via their embedding, so a single pair of MLPs covers the seven CX cell types and a hundred-plus instance-level distinctions without any further per-type parameter tying. Nodes correspond to neurons and edges to the non-zero entries of the hemibrain connectome template $W^{\mathrm{con}}$, and the activity evolves as
 \begin{equation}
 \tau\frac{d\hat{h}_i(t)}{dt} =
   f_\theta\!\Big(\hat{h}_i(t),\,\mathbf{a}_i,\,
@@ -168,7 +163,7 @@ Beyond removing this functional bias, the GNN also admits an explicit form of ne
 \end{equation}
 with the same readout (\cref{eq:cx_readout}), PEN-gated encoder (\cref{eq:cx_pen_gate}), and dynamics constants ($\tau,\Delta t$) as the RNN. The neighbour set is fixed by the connectome topology, $\mathcal{N}_i = \{j : W^{\mathrm{con}}_{ij}\neq 0\}$. The node update $f_\theta$ and edge message $g_\phi$ are three-layer perceptrons (width 64, ReLU, linear output). $g_\phi$ maps the presynaptic state $\hat{h}_j$ to a per-edge message conditioned on the latent embedding $\mathbf{a}_j$ and weighted by the per-edge gain $\hat{W}_{ij}$; $f_\theta$ then processes the postsynaptic state $\hat{h}_i$, the embedding $\mathbf{a}_i$, and the aggregated synaptic drive. We constrain $g_\phi$ to be monotonically increasing in $\hat{h}_j$ via the prior $\partial g_\phi/\partial \hat{h} \ge 0$ (see \cref{eq:cx_gnn_loss}); combined with the sign-locked $\hat{W}_{ij}$ (\cref{eq:cx_gnn_w}) this restores Dale's law at the per-edge level without introducing a $\pm$-sign degeneracy. The leak, the firing-rate nonlinearity, and any departure from a linear synapse must emerge from $(f_\theta, g_\phi, \mathbf{a})$ themselves; the monotonicity priors below provide the minimum inductive bias for $f_\theta, g_\phi$ to behave like a neuron (postsynaptic drive increases with net excitatory input). The per-edge weight is sign-locked to the connectome as in the RNN,
 \begin{equation}
-\hat{W}_{ij} = |W_{ij}|\,\mathrm{sign}(W^{\mathrm{con}}_{ij})\,(1-\delta_{ij}),
+\hat{W}_{ij} = |W_{ij}|\,\mathrm{sign}(W^{\mathrm{con}}_{ij}),
 \label{eq:cx_gnn_w}
 \end{equation}
 where $W_{ij}\in\mathbb{R}$ is the trainable per-edge magnitude. The learnable parameters are
@@ -178,7 +173,6 @@ v_{\mathrm{PENa}_L},\,v_{\mathrm{PENa}_R},\,v_{\mathrm{PENb}_L},\,v_{\mathrm{PEN
 \hat{W}^{\mathrm{in}}_{:,\theta_0},\,\hat{b},\,\hat{W}^{\mathrm{out}},\,\hat{b}^{\mathrm{out}}\big\};
 \end{equation*}
 the connectome template $W^{\mathrm{con}}$, PEN subpopulation membership, neuron-type assignments, $\tau$, $\Delta t$, and ring orderings are given.
-
 As with the RNN, heading recovery from cos/sin readouts is fundamentally non-unique: many distinct $(\theta,\phi,\mathbf{a},W)$ configurations produce identical readouts. We constrain the solution space with the same connectome-prior regularisers as the RNN ($\mathcal{L}_{\mathrm{cos}}$, $\mathcal{L}_{\mathrm{nf}}$ from \cref{eq:cx_cos,eq:cx_nf}, computed on the per-edge gain surface $\hat{W}_{ij}$ with floor threshold $\kappa$), the same circular-TV calcium-imaging prior $\mathcal{L}_{\mathrm{tv}}$ on the EPG ring firing rates (\cref{eq:cx_tv}), and sparsity and monotonicity priors on the MLPs:
 \begin{align}
 \mathcal{L} \;=\;& \tfrac{1}{BT}\sum_{b,t}\|\hat{y}_{b,t} - y_{b,t}\|_2^2
@@ -193,7 +187,7 @@ As with the RNN, heading recovery from cos/sin readouts is fundamentally non-uni
    +\;\mu_3\,\big\|g_\phi(h_\star,\mathbf{a})-h_\star\big\|,
 \label{eq:cx_gnn_loss}
 \end{align}
-where $m = \sum_{j\in\mathcal{N}_i}\hat{W}_{ij}\,g_\phi(\hat{h}_j,\mathbf{a}_j)$ is the aggregated synaptic input. The $\ell_1$ penalties $\lambda_0,\lambda_1$ on the MLP weights bias $f_\theta,g_\phi$ toward sparser, simpler functions; the $\ell_2$ penalties $\lambda_2,\lambda_3$ prevent weight explosion. The leak-monotonicity term $\mu_0$ penalises \emph{positive} slopes of $f_\theta$ in the postsynaptic state $\hat{h}$, encoding the prior that the drift contains a leak ($\partial f_\theta/\partial \hat{h} \le 0$); $\mu_1$ penalises negative slopes of $f_\theta$ in the aggregated input $m$, encoding the prior that postsynaptic drive increases with net excitatory input. Together, $\mu_0$ and $\mu_1$ force the discovered drift to be decreasing in self-voltage and increasing in synaptic input --- the two qualitative signatures of \cref{eq:cx_dynamics}. The term $\mu_2$ enforces the analogous monotonicity prior on $g_\phi$ in the presynaptic voltage. The normalisation term $\mu_3$ anchors $g_\phi$ at a reference subthreshold value $h_\star$, removing the multiplicative degeneracy between $g_\phi$ and $\hat{W}$ in \cref{eq:cx_gnn_dynamics}. Hyperparameters $\lambda_{\{0,1,2,3\}},\,\gamma_{\{0,1\}},\,\mu_{\{0,1,2,3\}}$ and the MLP widths/depths are tuned with the agentic optimisation procedure of \citep{allier_connectome_2026}.
+where $m = \sum_{j\in\mathcal{N}_i}\hat{W}_{ij}\,g_\phi(\hat{h}_j,\mathbf{a}_j)$ is the aggregated synaptic input. The $\ell_1$ penalties $\lambda_0,\lambda_1$ on the MLP weights bias $f_\theta,g_\phi$ toward sparser, simpler functions; the $\ell_2$ penalties $\lambda_2,\lambda_3$ prevent weight explosion. The leak-monotonicity term $\mu_0$ penalises \emph{positive} slopes of $f_\theta$ in the postsynaptic state $\hat{h}$, encoding the prior that the drift contains a leak ($\partial f_\theta/\partial \hat{h} \le 0$); $\mu_1$ penalises negative slopes of $f_\theta$ in the aggregated input $m$, encoding the prior that postsynaptic drive increases with net excitatory input. Together, $\mu_0$ and $\mu_1$ force the discovered drift to be decreasing in self-voltage and increasing in synaptic input --- the two qualitative signatures of \cref{eq:cx_dynamics}. The term $\mu_2$ enforces the analogous monotonicity prior on $g_\phi$ in the presynaptic voltage. The normalisation term $\mu_3$ anchors $g_\phi$ at a reference value $h_\star$, removing the multiplicative degeneracy between $g_\phi$ and $\hat{W}$ in \cref{eq:cx_gnn_dynamics}. Hyperparameters $\lambda_{\{0,1,2,3\}},\,\gamma_{\{0,1\}},\,\mu_{\{0,1,2,3\}}$ and the MLP widths/depths are tuned with the agentic optimisation procedure of \citep{allier_connectome_2026}.
 
 \paragraph{Agentic hyperparameter optimisation.}\label{para:agent_gnn}
 The GNN hyperparameter space (embedding dimension, MLP widths and depths, the $\lambda$, $\gamma$, $\mu$ coefficients, learning rates, and the curriculum on the rollout length $T$) is too large for grid search; we tune it with the closed-loop LLM-agent protocol of \citep{allier_connectome_2026}, using the deterministic-sweep rollout correlation $r_{\mathrm{roll},1k}$ (Pearson $r$ on the decoded heading at $\omega = 60^\circ/\mathrm{s}$, $T = 1000$ frames, warm-up $10$) as the primary score. The per-condition winning configurations selected by this procedure are listed in \cref{tab:cv_hyperparams} (Appendix B); empirical findings from this search --- including the embedding-dimension sweep --- are summarised in the Results.
@@ -348,7 +342,7 @@ We compare four recurrent parameterisations on the same path-integration task, e
   \textbf{(e)}~EPG sub-population over the same rollout.
   \textbf{(f)}~Constant-$\omega$ rollout. Top: $\omega(t)$. Bottom: true heading (green) and decoded heading (black), wrapped. Title reports post-warmup Pearson $r$ and circular $\mathrm{RMSE}$.
   \textbf{(g)}~Same layout on a held-out OU test trial.
-  \textbf{(h)}~Per-cell-type distribution of the subthreshold state $\hat{h}_i(t)$ (violin + mean $\pm 1$ SD), revealing where each population's activity sits relative to the sigmoid's linear regime.
+  \textbf{(h)}~Per-cell-type distribution of the state $\hat{h}_i(t)$ (violin + mean $\pm 1$ SD), revealing where each population's activity sits relative to the sigmoid's linear regime.
   \textbf{(i)}~Integration gain: linear-fit slope of the unwrapped decoded heading vs true $\omega$, on a $15^\circ/\mathrm{s}$ grid over $[-180, +180]\setminus\{0\}$. Dashed line: $g = 1$; grey band marks the linear-tracking domain.
   }
   \label{fig:evolution_pi}
@@ -878,7 +872,7 @@ and $\Delta 7$ as HD-tuned.
   \textbf{(d)} GNN no-TV, \textbf{(e)} fully connected,
   \textbf{(f)} frozen $W^{\mathrm{rec}}$. The five converged
   parameterisations reproduce path integration on this rollout
-  (decoded HD tracks GT) but the underlying subthreshold dynamics
+  (decoded HD tracks GT) but the underlying dynamics
   differ visibly: the four RNN variants drive every neuron through a
   full bump-traversal cycle as heading changes, while the GNN
   concentrates most cells in a near-zero silent plateau and lets only
@@ -891,7 +885,7 @@ and $\Delta 7$ as HD-tuned.
   \centering
   \includegraphics[width=0.85\textwidth]{figure/fig_kinographs_const_omega_epg.png}
   \caption{\textbf{All-neurons-by-time kinographs of the six
-  parameterisations' subthreshold state under a deterministic constant
+  parameterisations' state under a deterministic constant
   angular velocity stimulus $\omega = 60^\circ$/s ($T = 1\,500$ frames
   at $dt = 0.01$ s $= 15$ s $= 2.5$ full turns), in three row
   orderings.} Each tile shows the per-neuron z-scored

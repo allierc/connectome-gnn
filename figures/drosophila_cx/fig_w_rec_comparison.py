@@ -118,10 +118,6 @@ def _panel_affinity(ax, W_con, Ws):
                     color="white" if v < 0.6 else "black")
     cb = plt.colorbar(im, ax=ax, fraction=0.04, pad=0.02, shrink=0.85)
     cb.ax.tick_params(labelsize=7)
-    ax.set_title(
-        "(a) pairwise cosine similarity over the connectome support",
-        fontsize=10,
-    )
 
     # Also report the bottom-right 10x10 block stats for caption.
     sub = S[1:, 1:]
@@ -195,10 +191,6 @@ def _panel_cv_grid(ax, Ws, W_con, nt, names):
     ax.set_yticklabels(labels, fontsize=8)
     ax.set_xlabel("presynaptic", fontsize=9, labelpad=2)
     ax.set_ylabel("postsynaptic", fontsize=9, labelpad=2)
-    ax.set_title(
-        "(b) per-block median CV across 10 learned models",
-        fontsize=10,
-    )
     cb = plt.colorbar(im, ax=ax, fraction=0.04, pad=0.02, shrink=0.85)
     cb.ax.tick_params(labelsize=7)
     cb.set_label(r"median $\sigma_k|\hat W|/\langle|\hat W|\rangle_k$",
@@ -255,20 +247,14 @@ def _panel_block_means(ax, W_con, Ws, nt, names):
     ax.set_yticklabels(labels, fontsize=8)
     ax.set_xlabel("presynaptic", fontsize=9, labelpad=2)
     ax.set_ylabel("postsynaptic", fontsize=9, labelpad=2)
-    ax.set_title(
-        r"(c) per-block $\log_2 \langle|\hat W|\rangle / \langle|W^{\rm con}|\rangle$",
-        fontsize=10,
-    )
     cb = plt.colorbar(im, ax=ax, fraction=0.04, pad=0.02, shrink=0.85)
     cb.ax.tick_params(labelsize=7)
     cb.set_label(r"$\log_2$ ratio", fontsize=8)
 
 
 CONDITIONS_4 = [
-    ("drosophila_cx_pi_epg_no_tv",   "Known-ODE\nno TV"),
-    ("drosophila_cx_pi_epg_tv",      "Known-ODE\n$+$TV"),
-    ("drosophila_cx_pi_gnn_epg_no_tv","GNN\nno TV"),
-    ("drosophila_cx_pi_gnn_epg_tv",  "GNN\n$+$TV"),
+    ("drosophila_cx_pi_epg_no_tv",   "Known-ODE"),
+    ("drosophila_cx_pi_gnn_epg_no_tv","GNN"),
 ]
 
 
@@ -276,8 +262,8 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--bases", nargs="+",
                    default=[c[0] for c in CONDITIONS_4],
-                   help="4 condition config-base names; defaults to "
-                        "Known-ODE+/-TV and GNN+/-TV.")
+                   help="condition config-base names; defaults to "
+                        "Known-ODE and GNN.")
     p.add_argument("--labels", nargs="+",
                    default=[c[1] for c in CONDITIONS_4],
                    help="display labels for each condition.")
@@ -322,14 +308,18 @@ def main():
         left=0.05, right=0.98, top=0.94, bottom=0.06,
     )
     summary_print = []
+    row_axes = [[], [], []]
     for c, (label, Ws) in enumerate(zip(args.labels, cond_W)):
         ax_a = fig.add_subplot(gs[0, c])
         ax_b = fig.add_subplot(gs[1, c])
         ax_d = fig.add_subplot(gs[2, c])
-        ax_a.set_title(label, fontsize=11, fontweight="bold")
+        ax_a.set_title(label, fontsize=11)
         stats = _panel_affinity(ax_a, W_con, Ws)
         _panel_cv_grid(ax_b, Ws, W_con, nt, names)
         _panel_block_means(ax_d, W_con, Ws, nt, names)
+        row_axes[0].append(ax_a)
+        row_axes[1].append(ax_b)
+        row_axes[2].append(ax_d)
         summary_print.append(
             f"  {label.replace(chr(10), ' '):<22} "
             f"inter-fold cos {stats['inter_model_mean']:.3f} "
@@ -338,14 +328,12 @@ def main():
             f"± {stats['vs_con_std']:.3f}"
         )
 
-    # Row labels on the left
-    for r, txt in enumerate([
-        "(a) cosine sim. on connectome support",
-        "(b) per-block median CV across folds",
-        "(c) per-block $\\log_2$ ratio vs $W^{\\rm con}$",
-    ]):
-        fig.text(0.005, 0.92 - 0.32 * r - 0.16, txt,
-                 fontsize=10, rotation=90, va="center", ha="left")
+    # Bold panel letter on the top-left of the leftmost tile of each row.
+    for r, letter in enumerate(("a", "b", "c")):
+        row_axes[r][0].text(-0.18, 1.04, letter,
+                             transform=row_axes[r][0].transAxes,
+                             fontsize=16, fontweight="bold",
+                             va="bottom", ha="right")
 
     out_png = os.path.join(args.out_dir, "fig_w_rec_comparison.png")
     fig.savefig(out_png, dpi=200, bbox_inches="tight")

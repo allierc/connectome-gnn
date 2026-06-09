@@ -59,10 +59,8 @@ from connectome_gnn.task_state import TaskTrials
 
 
 MODELS = [
-    ("drosophila_cx_pi_epg_no_tv_cv0",     "Known-ODE no-TV"),
-    ("drosophila_cx_pi_epg_tv_cv0",        "Known-ODE +TV"),
-    ("drosophila_cx_pi_gnn_epg_no_tv_cv0", "GNN no-TV"),
-    ("drosophila_cx_pi_gnn_epg_tv_cv0",    "GNN +TV"),
+    ("drosophila_cx_pi_epg_no_tv_cv0",     "Known-ODE"),
+    ("drosophila_cx_pi_gnn_epg_no_tv_cv0", "GNN"),
 ]
 
 CLASS_COLOR = {
@@ -335,10 +333,10 @@ def main():
 
     # Combined LaTeX table:
     #   one row per cell type, four blocks (R/L/D/Z) per model column.
-    # Compact: show only Known-ODE +TV and GNN +TV side-by-side.
+    # Compact: show only Known-ODE and GNN side-by-side.
     PRESENT_MODELS = [
-        ("drosophila_cx_pi_epg_no_tv_cv0",     "Known-ODE no-TV"),
-        ("drosophila_cx_pi_gnn_epg_no_tv_cv0", "GNN no-TV"),
+        ("drosophila_cx_pi_epg_no_tv_cv0",     "Known-ODE"),
+        ("drosophila_cx_pi_gnn_epg_no_tv_cv0", "GNN"),
     ]
     type_order_present = []
     for cfg, label in PRESENT_MODELS:
