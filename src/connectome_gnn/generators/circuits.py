@@ -419,6 +419,7 @@ def _discover_circuits() -> None:
     _register_zebrafish_hd_ipn12_839()
     _register_zebrafish_hd_ipn12_839_artr_pt1()
     _register_zebrafish_hd_ipn12_839_artr_pt1_proprioception()
+    _register_zebrafish_hd_ipn_917()
     _register_zebrafish_hd_ipn12_hnd()
     _register_zebrafish_hd_ipn12_exc_839()
     _register_zebrafish_hd_ipn12_ablations()
@@ -956,6 +957,159 @@ def _register_zebrafish_hd_ipn12_exc_839() -> None:
         )
 
     register_circuit("zebrafish_HD_IPN12_839_v2", build)
+
+
+# Refreshed 917-cell reconstruction (colleagues' IPN_sortedData_060826.pkl,
+# converted by figures/zebrafish/build_connectome_HD_IPN12_943_from_pickle.py).
+_ZHD_917_DATAPATH = "figures/zebrafish/zebrafish_connectome_HD_IPN_917"
+
+
+def _build_zebrafish_hd_ipn_917(name: str, gate: str) -> "Circuit":
+    """Shared builder for the 917-cell ``zebrafish_HD_IPN_917_*`` family.
+
+    Same neuron pool / connectome for all three; only the advertised afferent
+    taxonomy (``gate``) differs, mirroring the 839 family:
+
+      ``pen_4scalar``    → coarse RIPN_L/R + ptIPN_L/R
+      ``artr_pt1``       → ARTR_L/R + pt_IPN1_L/R
+      ``proprioception`` → ARTR + pt_IPN1 + motor_efferent (L/R)
+
+    Differences from the 839 circuit (all per the circuit owner):
+      * 917 cells (34 fish2 types): the 839 HD pool + the IPN-core families
+        IPN28/29/31-36 (184 cells; IPN20/26 dropped per the colleague's
+        request), which JOIN the readout bump ring (n_bump ≈ 700) and are
+        Dale-flipped inhibitory.
+      * Edge weight is synapse contact area (adjacency_matrix_size). No 5×
+        inhibitory amplification (``inh_amplify=1.0``) — so the relative E/I
+        area magnitudes are kept — but the matrix IS spectrally normalised
+        (``spectral_target=0.9``, a single global scalar that preserves all
+        relative magnitudes while bringing J to a trainable scale).
+      * Ring order is the per-cell functional preferred-heading angle
+        (``angle`` column), not the soma-x mediolateral proxy.
+    """
+    from connectome_gnn.generators.connectome_loaders import (
+        load_zebrafish_hd_connectome,
+    )
+    cx = load_zebrafish_hd_connectome(
+        _ZHD_917_DATAPATH, inh_amplify=1.0, spectral_target=0.9)
+
+    N = int(cx["N"])
+    n_bump = int(cx.get("n_dipn", cx["n_epg"]))
+    soma = cx.get("somaLocation", None)
+    soma_xyz = np.asarray(soma, dtype=np.float64) if soma is not None else None
+
+    aff = cx.get("afferent_subpop_ix", None) or {}
+    pen = cx.get("pen_subpop_ix", {}) or {}
+
+    def _aff(k_fish: str, k_fly: str) -> np.ndarray:
+        arr = aff.get(k_fish, None)
+        if arr is None:
+            arr = pen.get(k_fly, np.array([], dtype=np.int64))
+        return np.asarray(arr, dtype=np.int64)
+
+    subpops = {"bump": np.arange(n_bump, dtype=np.int64)}
+    if gate == "pen_4scalar":
+        subpops.update({
+            "afferent_RIPN_L":  _aff("RIPN_L",  "PENa_L"),
+            "afferent_RIPN_R":  _aff("RIPN_R",  "PENa_R"),
+            "afferent_ptIPN_L": _aff("ptIPN_L", "PENb_L"),
+            "afferent_ptIPN_R": _aff("ptIPN_R", "PENb_R"),
+        })
+        required: tuple = ()
+        gate_note = "velocity_gate='pen_4scalar' (coarse RIPN / pt-IPN)."
+    elif gate == "artr_pt1":
+        subpops.update({
+            "afferent_ARTR_L":    _aff("ARTR_L",    ""),
+            "afferent_ARTR_R":    _aff("ARTR_R",    ""),
+            "afferent_pt_IPN1_L": _aff("pt_IPN1_L", ""),
+            "afferent_pt_IPN1_R": _aff("pt_IPN1_R", ""),
+        })
+        required = ("afferent_ARTR_L", "afferent_ARTR_R",
+                    "afferent_pt_IPN1_L", "afferent_pt_IPN1_R")
+        gate_note = ("velocity_gate='pen_artr_ptipn1' (ω→ARTR, "
+                     "v_fwd→pt-IPN1).")
+    elif gate == "proprioception":
+        subpops.update({
+            "afferent_ARTR_L":           _aff("ARTR_L",           ""),
+            "afferent_ARTR_R":           _aff("ARTR_R",           ""),
+            "afferent_pt_IPN1_L":        _aff("pt_IPN1_L",        ""),
+            "afferent_pt_IPN1_R":        _aff("pt_IPN1_R",        ""),
+            "afferent_motor_efferent_L": _aff("motor_efferent_L", ""),
+            "afferent_motor_efferent_R": _aff("motor_efferent_R", ""),
+        })
+        required = ("afferent_ARTR_L", "afferent_ARTR_R",
+                    "afferent_pt_IPN1_L", "afferent_pt_IPN1_R",
+                    "afferent_motor_efferent_L", "afferent_motor_efferent_R")
+        gate_note = ("velocity_gate='pen_artr_ptipn1_propriocep' "
+                     "(ω→ARTR, v_fwd→pt-IPN1 + motor_efferent).")
+    else:
+        raise ValueError(f"unknown gate {gate!r} for {name!r}")
+
+    for _k in required:
+        if subpops[_k].size == 0:
+            raise ValueError(
+                f"{name}: subpop {_k!r} is empty; the connectome at "
+                f"{_ZHD_917_DATAPATH!r} appears to lack the required type tags."
+            )
+
+    bump_ring_ix = np.asarray(cx.get("dipn_ix", cx["epg_ix"]), dtype=np.int64)
+    body_ids = (np.asarray(cx["bodyId"], dtype=np.int64)
+                if "bodyId" in cx else None)
+
+    provenance = {
+        "server": "neuprint-fish2.janelia.org",
+        "dataset": "fish2",
+        "source_pickle": "IPN_sortedData_060826.pkl",
+        "source_tables":
+            f"{_ZHD_917_DATAPATH}/{{neurons,connections}}.csv",
+        "converter":
+            "figures/zebrafish/build_connectome_HD_IPN12_943_from_pickle.py",
+        "anatomy_dir": "figures/zebrafish/zebrafish_anatomy_HD",
+        "anatomy_extra_dirs": ["figures/zebrafish/zebrafish_anatomy_IPN12"],
+        "edge_weight": "synapse contact area (adjacency_matrix_size)",
+        "dale_inh_amplify": 1.0,          # relative E/I area magnitudes kept
+        "dale_spectral_target": 0.9,      # global spectral rescale to ρ=0.9
+        "ring_order": "per-cell IPN_angles (functional preferred heading)",
+        "type_count": len(cx["type_names"]),
+        "n_bump_cells": n_bump,
+        "design_note": (
+            "Refreshed 917-cell IPN reconstruction (34 fish2 types). The "
+            "IPN-core families IPN28/29/31-36 (184 cells; IPN20/26 dropped) "
+            "join the readout bump ring and are Dale-flipped inhibitory. "
+            "Synapse-area "
+            "edge weights with no 5× inhibitory amplify (relative E/I "
+            "magnitudes kept), spectrally normalised to ρ=0.9. " + gate_note
+        ),
+    }
+
+    return Circuit(
+        name=name,
+        N=N,
+        neuron_types=np.asarray(cx["neuron_types"], dtype=np.int64),
+        type_names=list(cx["type_names"]),
+        J_effective=np.asarray(cx["J_effective"], dtype=np.float32),
+        soma_xyz=soma_xyz,
+        subpops=subpops,
+        bump_ring_ix=bump_ring_ix,
+        dale_signs=(np.asarray(cx["dale_signs"], dtype=np.float32)
+                    if "dale_signs" in cx else None),
+        body_ids=body_ids,
+        provenance=provenance,
+    )
+
+
+def _register_zebrafish_hd_ipn_917() -> None:
+    """Register the 917-cell refreshed-reconstruction circuit family."""
+    for _nm, _gate in (
+        ("zebrafish_HD_IPN_917_v1",                      "pen_4scalar"),
+        ("zebrafish_HD_IPN_917_artr_pt1",                "artr_pt1"),
+        ("zebrafish_HD_IPN_917_artr_pt1_proprioception", "proprioception"),
+    ):
+        register_circuit(
+            _nm,
+            (lambda nm=_nm, gate=_gate:
+                _build_zebrafish_hd_ipn_917(nm, gate)),
+        )
 
 
 # The 33 cell types present in the HD_IPN12 connectome (20 bump-pool types —
