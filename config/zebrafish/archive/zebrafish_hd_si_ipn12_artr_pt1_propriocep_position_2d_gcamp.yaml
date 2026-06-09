@@ -1,0 +1,170 @@
+description: |
+  2D path-integration swim task (CUMULATIVE integrator) on the
+  proprioception-extended circuit PLUS real-calcium observation
+  supervision against the ZAPBench Rotations block. Same task-only
+  base as zebrafish_hd_si_ipn12_artr_pt1_propriocep_position_2d:
+  ω routes through ARTR (RIPN01+02+03_a+03_b); v_fwd is delivered to
+  IPN through TWO parallel afferent pathways simulating the canonical
+  sensory + efference-copy redundancy real fish use:
+      exteroceptive  → pt-IPN1 (optic / water flow input)
+      proprioceptive → motor_efferent (RIPN11 + RIPN12_a + RIPN12_c —
+                       the cells tagged as ascending / descending motor
+                       efferent, carrying the swim command or its
+                       efference copy back into IPN)
+  Both branches share the same clean v_fwd signal in this first
+  version. training.task_targets=['position_2d'] supervises all 4
+  target columns (heading + 2D position) on the cumulative integrator.
+  Observation branch: each task batch is augmented by
+  training.calcium_batch_size real-calcium trials from dataset B
+  (zebrafish_hd_si_calcium_rotation); the trial voltage is turned
+  into calcium via simulation.gcamp_kernel and matched to the
+  recorded delta F over F with a scale-invariant z-scored loss
+  weighted by coeff_observation (=1.0 here). Default
+  training.observation_neurons=all, so the loss covers ALL 481
+  observed neurons — including the 50 motor_efferent cells
+  (RIPN11: 32, RIPN12_a: 11, RIPN12_c: 7; both sides) that receive
+  the proprioceptive v_fwd drive in this variant. Companion of
+  zebrafish_hd_si_ipn12_artr_pt1_propriocep_position_2d_leaky_gcamp.
+dataset: zebrafish_hd_si_task_position_2d_propriocep
+simulation:
+  params:
+  - - 1.0
+  connconstr_datapath: figures/zebrafish/zebrafish_connectome_HD_IPN12
+  seed: 47006
+  gcamp_kernel: gcamp7f
+graph_model:
+  signal_model_name: zebrafish_hd_si
+  aggr_type: add
+  input_proj: matrix
+  output_proj: matrix
+  velocity_gate: pen_artr_ptipn1_propriocep
+  lock_edge_signs: true
+  hidden_dim: 128
+  n_layers: 3
+  MLP_activation: relu
+  output_from_dipn_only: true
+circuit:
+  name: zebrafish_HD_IPN12_839_artr_pt1_proprioception
+plotting:
+  anatomy_voltage_elev: 90.0
+  anatomy_voltage_azim: -85.5
+  anatomy_voltage_z_lo: 0.0
+  anatomy_voltage_z_hi: 10.0
+  anatomy_voltage_alpha: 1.0
+  anatomy_voltage_downsample: 10
+  anatomy_voltage_bg: black
+  anatomy_voltage_show_base: true
+  anatomy_voltage_show_icon: true
+  anatomy_voltage_types:
+  - IPN12_a
+  - IPN12_b
+  anatomy_voltage_pattern: swim_left
+  anatomy_voltage_n_steps: 2000
+  anatomy_voltage_stride: 5
+  anatomy_voltage_frame_idx: -1
+  anatomy_voltage_omega_deg: 60.0
+  anatomy_voltage_theta0_rad: 0.0
+  anatomy_voltage_swim_interval_s: 0.3
+  anatomy_voltage_swim_magnitude_rad: 0.393
+  anatomy_voltage_swim_t_event_s: 0.0
+  anatomy_voltage_seed: 0
+training:
+  device: auto
+  seed: 547506
+  n_runs: 1
+  n_epochs: 10
+  batch_size: 64
+  data_augmentation_loop: 10
+  lr: 0.002
+  lr_W_rec_schedule:
+  - 0.0005
+  - 0.0005
+  - 0.00025
+  - 0.000125
+  - 0.000125
+  - 0.0001
+  - 0.0001
+  - 0.0001
+  - 5.0e-05
+  - 5.0e-05
+  - 5.0e-05
+  - 5.0e-05
+  - 5.0e-05
+  - 5.0e-05
+  - 5.0e-05
+  - 5.0e-05
+  - 5.0e-05
+  - 5.0e-05
+  - 5.0e-05
+  - 5.0e-05
+  lr_scheduler: none
+  lr_W_ED: 0.0025
+  grad_clip_W: 2.5
+  coeff_cos_distance: 0.0
+  coeff_norm_floor: 0.0
+  kappa_norm_floor: 0.0
+  coeff_tv_circular: 0.0
+  coeff_W_L1: 0.0
+  noise_recurrent_level: 0.03
+  snapshots_per_epoch: 5
+  n_steps_schedule:
+  - 100
+  - 100
+  - 200
+  - 200
+  - 300
+  - 400
+  - 500
+  - 600
+  - 700
+  - 800
+  - 800
+  - 800
+  - 800
+  - 800
+  - 800
+  - 800
+  - 800
+  - 800
+  - 800
+  - 800
+  coeff_tail_loss: 0.035
+  torch_compile: false
+  w_init_mode: w_con
+  task_targets:
+  - position_2d
+  calcium_batch_size: 8
+  calcium_dataset: zebrafish_hd_si_calcium_rotation
+  coeff_observation: 1.0
+claude:
+  n_epochs: 5
+  data_augmentation_loop: 1
+  n_iter_block: 40
+  n_parallel: 10
+  node_name: l4
+  generate_data: false
+  training_time_target_min: 30
+task:
+  task_type: swim_integration
+  task_only: true
+  swim_integration:
+    n_trials_train: 100000
+    n_trials_test: 10000
+    n_steps: 1000
+    dt: 0.01
+    swim_rate_hz: 0.5
+    swim_duration_s: 0.3
+    phase_impulse_mean_rad: 0.785
+    phase_impulse_std_rad: 0.4
+    backward_phase_mean_rad: 3.14
+    backward_phase_std_rad: 0.3
+    left_fraction: 0.3
+    right_fraction: 0.3
+    forward_fraction: 0.2
+    backward_fraction: 0.2
+    omega_noise_level: 0.0
+    seed: 0
+    forward_vel_mean: 1.0
+    forward_vel_std: 0.4
+    propriocep_split: true
+    target_kind: position_2d

@@ -1,22 +1,19 @@
 description: |
-  2D path-integration swim task (PERFECT integrator) on the
-  proprioception-extended circuit. ω routes through ARTR
-  (RIPN01+02+03_a+03_b) as in the artr_pt1 variant; v_fwd is now
-  delivered to IPN through TWO parallel afferent pathways simulating
-  the canonical sensory + efference-copy redundancy real fish use:
-      exteroceptive  → pt-IPN1 (optic / water flow input)
-      proprioceptive → motor_efferent (RIPN11 + RIPN12_a + RIPN12_c —
-                       the cells tagged as ascending / descending motor
-                       efferent, carrying the swim command or its
-                       efference copy back into IPN)
-  Both branches share the same clean v_fwd signal in this first
-  version; per-branch delay / gain noise can be added in a follow-up
-  to model the latency difference between visual feedback (delayed)
-  and efference copy (prompt). training.task_targets=['position_2d']
-  supervises all 4 target columns (heading + 2D position).
-  Companion of zebrafish_hd_si_ipn12_artr_pt1_propriocep_position_2d_leaky.
-  Production hyperparams from zebrafish_hd_si_ipn12_v1_cv0.
-dataset: zebrafish_hd_si_task_position_2d
+  2D path-integration swim task (LEAKY integrator) on the
+  proprioception-extended circuit. Same coupled 2D recurrence as the
+  perfect variant but with finite time constant τ=0.5 s,
+      dx/dt = -x/τ + v_fwd cosθ
+      dy/dt = -y/τ + v_fwd sinθ
+  so (x, y) tracks recent egocentric displacement rather than absolute
+  position. v_fwd is delivered through the dual exteroceptive +
+  proprioceptive afferent pathway (pt-IPN1 + motor_efferent) — the
+  canonical sensory + efference-copy redundancy fish use for
+  forward-translation velocity. training.task_targets=['position_2d']
+  supervises all 4 target columns (cosθ, sinθ, x, y).
+  Companion of zebrafish_hd_si_ipn12_artr_pt1_propriocep_position_2d
+  (perfect integrator). Production hyperparams from
+  zebrafish_hd_si_ipn12_v1_cv0.
+dataset: zebrafish_hd_si_task_position_2d_propriocep_leaky
 simulation:
   params:
   - - 1.0
@@ -154,3 +151,5 @@ task:
     forward_vel_mean: 1.0
     forward_vel_std: 0.4
     target_kind: position_2d
+    position_tau_s: 0.5
+    propriocep_split: true
