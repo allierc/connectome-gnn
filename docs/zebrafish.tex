@@ -297,6 +297,7 @@ u(t)=\bigl(\,\omega,\ v_{\mathrm{fwd}},\
 Grouping the $N$ rows by population, the signal injected into the
 network at time $t$ --- the $+\hat W^{\mathrm{in}}u(t)$ term of
 \cref{eq:zhd_dynamics} --- is the matrix--vector product
+{\small
 \begin{equation}
 \begin{gathered}
 \hat W^{\mathrm{in}}\,u(t)=
@@ -317,6 +318,7 @@ network at time $t$ --- the $+\hat W^{\mathrm{in}}u(t)$ term of
 \end{gathered}
 \label{eq:zhd_swim_gate}
 \end{equation}
+}
 where ``$*$'' marks a free (unconstrained) entry and
 $\mathbf{w}_\omega,\mathbf{w}_{v},\mathbf{c},\mathbf{s}\in\R^{N}$ are
 the four columns of $\hat W^{\mathrm{in}}$. The three column kinds are:
@@ -397,32 +399,21 @@ sampled at a Poisson rate $r_{\mathrm{swim}}=0.5\,\mathrm{Hz}$ with
 event duration $\Delta t_{\mathrm{swim}}=0.3\,$s, partitioned into four
 behavioural categories with fractions $L:R:F:B=0.3:0.3:0.2:0.2$. Left
 and right events drive an angular signed phase impulse, forward and
-backward events drive a signed forward-velocity impulse. The dataset
-writes:
-\begin{itemize}
-    \item a $4$-channel input
-    $u\in\R^{B\times T\times 4}=[\,\omega,\,v_{\mathrm{fwd}},\,
-    \cos\theta_0\!\cdot\!\delta_{t,0},\,\sin\theta_0\!\cdot\!\delta_{t,0}\,]$
-    --- left/right events drive $\omega$, forward/backward events drive
-    $v_{\mathrm{fwd}}$, and the initial-heading cue $(\cos\theta_0,\sin\theta_0)$
-    is injected as a single-frame impulse at $t=0$ because the
-    integrator has no other reference for the absolute heading. There
-    is no analogous initial-\emph{position} cue: position is defined
-    to start at the origin by construction.
-    \item a target tensor whose column layout depends on the sub-task.
-    The \emph{scalar} recipe stores
-    $y=[\,\cos\theta,\,\sin\theta,\,d\,]$ with circular heading
-    $\theta(t)=\theta_0+\int_0^t\omega\,ds$ and a scalar forward-axis
-    displacement $d(t)=\int_0^t v_{\mathrm{fwd}}\,ds$ (linear,
-    $d(0)=0$). The \emph{2D path-integration} recipe stores
-    $y=[\,\cos\theta,\,\sin\theta,\,x,\,y\,]$, where the position is
-    obtained by projecting $v_{\mathrm{fwd}}$ through the current
-    heading and integrating each spatial axis independently
-    (\cref{eq:xy_pi}). The 2D recipe is the \emph{true} path-
-    integration target: it couples translation to heading, so a
-    network has to maintain $\theta$ internally to predict $(x,y)$ at
-    all.
-\end{itemize}
+backward events drive a signed forward-velocity impulse. The input is a
+$4$-channel stream $u\in\R^{B\times T\times 4}=[\,\omega,\,v_{\mathrm{fwd}},\,
+\cos\theta_0\!\cdot\!\delta_{t,0},\,\sin\theta_0\!\cdot\!\delta_{t,0}\,]$:
+left/right events drive $\omega$, forward/backward events drive
+$v_{\mathrm{fwd}}$, and the initial heading $(\cos\theta_0,\sin\theta_0)$
+enters as a single-frame impulse at $t=0$ (position needs no such cue, as it
+starts at the origin). The target column layout depends on the sub-task: the
+\emph{scalar} recipe stores $y=[\,\cos\theta,\,\sin\theta,\,d\,]$ with
+$\theta(t)=\theta_0+\int_0^t\omega\,ds$ and $d(t)=\int_0^t v_{\mathrm{fwd}}\,ds$
+($d(0)=0$), while the \emph{2D path-integration} recipe stores
+$y=[\,\cos\theta,\,\sin\theta,\,x,\,y\,]$, projecting $v_{\mathrm{fwd}}$ through
+the current heading and integrating each spatial axis independently
+(\cref{eq:xy_pi}). The 2D recipe is the \emph{true} path-integration target: it
+couples translation to heading, so the network must maintain $\theta$
+internally to predict $(x,y)$.
 
 The default scalar $d$ and the default 2D position $(x, y)$ are both
 \emph{cumulative} integrators of their respective drives. With a non-zero
