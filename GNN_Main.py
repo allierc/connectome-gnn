@@ -132,8 +132,8 @@ if __name__ == "__main__":
                 test_config_name = None
     else:
         best_model = ''
-        task = task = 'generate_train'
-        config_list = ['zebrafish_hd_si_dipn_bis']  #flyvis_noise_005_blank50_heaviside_var_cv00
+        task = task = 'train'
+        config_list = ['zebrafish_hd_si_gnn_ipn12_c0_gcamp']  #flyvis_noise_005_blank50_heaviside_var_cv00
         test_config_name = None
 
     if task == 'cv':

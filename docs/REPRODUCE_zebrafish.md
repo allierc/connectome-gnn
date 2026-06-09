@@ -113,10 +113,10 @@ python figures/zebrafish/fig_zebrafish_anatomy_3d_HD.py --bg white
 
 Reads `zebrafish_anatomy_HD/`. No checkpoint needed.
 
-### Figure 2 — `fig_connectome_summary_HD_IPN12.png` (signed W^con + binary support)
+### Figure 2 — `fig_2_connectome.png` (signed W^con + binary support)
 
 ```
-python figures/zebrafish/fig_connectome_summary_HD_IPN12.py
+python figures/zebrafish/fig_2_connectome.py
 ```
 
 Reads `zebrafish_connectome_HD_IPN12/`. No checkpoint needed.

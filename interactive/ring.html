@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Heading-Direction Circuits — interactive</title>
+<style>
+  :root{
+    --bg:#0e1116; --panel:#161b22; --panel2:#1c232d; --ink:#e6edf3;
+    --muted:#9aa7b4; --line:#2a313c; --accent:#58a6ff; --warm:#ffb454;
+    --gt:#3fb950; --pred:#e6edf3;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  header{padding:48px 24px 28px;max-width:1100px;margin:0 auto;}
+  h1{font-size:30px;line-height:1.2;margin:0 0 12px;font-weight:700;letter-spacing:-.01em}
+  h1 .sub{display:block;font-size:17px;font-weight:400;color:var(--muted);margin-top:8px}
+  h2{font-size:22px;margin:0 0 6px;font-weight:650}
+  .lead{font-size:18px;color:#cdd6e0;max-width:780px}
+  main{max-width:1100px;margin:0 auto;padding:0 24px 80px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:22px;margin:26px 0;box-shadow:0 1px 0 rgba(255,255,255,.02) inset}
+  .tag{display:inline-block;font-size:12px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--accent);font-weight:700;margin-bottom:6px}
+  .row{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start}
+  .col{flex:1 1 340px;min-width:300px}
+  canvas{display:block;background:#0a0d12;border-radius:10px;border:1px solid var(--line)}
+  .controls{display:flex;flex-wrap:wrap;gap:14px 22px;align-items:center;margin:16px 0 4px}
+  .controls label{font-size:13px;color:var(--muted);display:flex;flex-direction:column;gap:4px}
+  input[type=range]{width:190px;accent-color:var(--accent)}
+  button{background:var(--panel2);color:var(--ink);border:1px solid var(--line);
+    padding:8px 14px;border-radius:8px;font-size:14px;cursor:pointer}
+  button:hover{border-color:var(--accent)}
+  button.on{background:var(--accent);color:#0b0f14;border-color:var(--accent);font-weight:600}
+  .readout{font-variant-numeric:tabular-nums;color:var(--muted);font-size:13px;margin-top:10px}
+  .readout b{color:var(--ink)}
+  .cap{color:var(--muted);font-size:13.5px;margin-top:14px;max-width:900px}
+  .eq{background:#0a0d12;border:1px solid var(--line);border-radius:8px;padding:10px 14px;
+    color:#cdd6e0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;overflow-x:auto}
+  .legend{display:flex;gap:16px;font-size:12px;color:var(--muted);margin-top:8px;flex-wrap:wrap}
+  .sw{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:5px;vertical-align:middle}
+  a{color:var(--accent)}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  @media(max-width:720px){.grid2{grid-template-columns:1fr}}
+  .note{font-size:13px;color:var(--muted);border-left:3px solid var(--line);padding-left:14px;margin:18px 0}
+  footer{max-width:1100px;margin:0 auto;padding:24px;color:var(--muted);font-size:13px;border-top:1px solid var(--line)}
+  .kpi{font-size:26px;font-weight:700;color:var(--warm);font-variant-numeric:tabular-nums}
+</style>
+</head>
+<body>
+<header>
+  <h1>Heading-direction circuits
+    <span class="sub">Identifiable computation, non-identifiable implementation — an interactive companion to the central-complex &amp; zebrafish manuscripts</span>
+  </h1>
+  <p class="lead">As an animal turns, a single <b>bump</b> of activity travels around a recurrently
+  connected ring of neurons and tracks where it is facing — an internal compass built by
+  <i>path integration</i> of angular velocity. Below, the bump is not drawn — it
+  <b>emerges</b> from the recurrent dynamics, live in your browser. Drag the angular velocity
+  and watch heading integrate; then scramble the synaptic weights and watch the computation survive.</p>
+</header>
+
+<main>
+
+  <!-- ============ PANEL 1: RING ATTRACTOR ============ -->
+  <section class="card">
+    <span class="tag">Interactive 1 · the ring attractor</span>
+    <h2>A heading bump, integrating angular velocity</h2>
+    <p class="cap" style="margin-top:4px">46 EPG-ring neurons with Mexican-hat recurrent connectivity
+    (local excitation, broad inhibition). Each dot is one neuron; its glow is its firing rate.
+    The needle is the population-decoded heading. Drag <b>angular velocity</b> — the bump rotates and
+    heading accumulates. Set velocity to zero: the bump <b>holds its position</b> — that persistent
+    memory <i>is</i> the attractor.</p>
+
+    <div class="row">
+      <div class="col" style="flex:0 0 380px">
+        <canvas id="ring" width="380" height="380"></canvas>
+        <div class="legend">
+          <span><span class="sw" style="background:var(--warm)"></span>neuron firing rate</span>
+          <span><span class="sw" style="background:var(--pred)"></span>decoded heading</span>
+          <span><span class="sw" style="background:var(--gt)"></span>ideal path integral</span>
+        </div>
+      </div>
+      <div class="col">
+        <canvas id="kino" width="520" height="200"></canvas>
+        <canvas id="trace" width="520" height="150" style="margin-top:10px"></canvas>
+        <div class="legend">
+          <span>top: bump activity over time (kinograph)</span>
+          <span>bottom: <span style="color:var(--pred)">decoded</span> vs <span style="color:var(--gt)">ideal</span> heading</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <label>angular velocity (rad/s)
+        <input id="vel" type="range" min="-2.5" max="2.5" step="0.01" value="0">
+      </label>
+      <button id="auto1">Auto-wander</button>
+      <button id="play1" class="on">⏸ Pause</button>
+      <button id="reset1">↺ Reset</button>
+      <span class="readout">v = <b id="vval">0.00</b> rad/s &nbsp;·&nbsp; decoded heading = <b id="hval">0°</b>
+        &nbsp;·&nbsp; bump peak = <b id="pval">0.00</b></span>
+    </div>
+
+    <div class="eq">τ ḣᵢ = −hᵢ + Σⱼ Wᵢⱼ·g(hⱼ) + I₀ &nbsp;&nbsp;|&nbsp;&nbsp;
+      Wᵢⱼ = (1/N)(−J₀ + J₁cos(φᵢ−φⱼ)) + (γ·v/N)·sin(φᵢ−φⱼ) &nbsp;&nbsp;|&nbsp;&nbsp; g = tanh∘ReLU</div>
+    <p class="cap">This is the Known-ODE recurrent model from the manuscript (τ = 0.1 s), reduced to the
+    EPG ring so it runs live. The symmetric cosine term holds a stationary bump; the velocity-gated
+    <i>antisymmetric</i> sin term — the role played anatomically by the left/right PEN populations —
+    shifts it. Heading is read out by population vector, exactly the cos/sin readout the full model is trained on.</p>
+  </section>
+
+  <!-- ============ PANEL 2: DEGENERACY ============ -->
+  <section class="card">
+    <span class="tag">Interactive 2 · the degeneracy</span>
+    <h2>Many circuits, one computation</h2>
+    <p class="cap" style="margin-top:4px">Two circuits run side by side on the <b>same</b> velocity command.
+    <b>Circuit A</b> is the clean ring. <b>Circuit B</b> has its recurrent weights randomly rescaled,
+    edge by edge — a different <i>implementation</i> consistent with the same ring topology. Turn up
+    <b>implementation diversity</b>: the weight matrix visibly scrambles, yet both bumps track the
+    same heading. <i>The task identifies the computation, not a unique circuit.</i></p>
+
+    <div class="controls">
+      <label>implementation diversity (per-edge weight randomness)
+        <input id="div" type="range" min="0" max="1.4" step="0.01" value="0.0">
+      </label>
+      <button id="play2" class="on">⏸ Pause</button>
+      <span class="readout">diversity = <b id="dval">0.00</b> &nbsp;·&nbsp;
+        heading mismatch A↔B = <b id="errval">0.0°</b></span>
+    </div>
+
+    <div class="grid2">
+      <div>
+        <div class="readout" style="margin:0 0 6px"><b>Circuit A</b> — reference ring</div>
+        <div class="row" style="gap:12px">
+          <canvas id="ringA" width="180" height="180"></canvas>
+          <canvas id="matA" width="180" height="180"></canvas>
+        </div>
+      </div>
+      <div>
+        <div class="readout" style="margin:0 0 6px"><b>Circuit B</b> — scrambled weights</div>
+        <div class="row" style="gap:12px">
+          <canvas id="ringB" width="180" height="180"></canvas>
+          <canvas id="matB" width="180" height="180"></canvas>
+        </div>
+      </div>
+    </div>
+    <canvas id="trace2" width="1040" height="140" style="margin-top:14px;width:100%"></canvas>
+    <div class="legend">
+      <span><span class="sw" style="background:var(--accent)"></span>Circuit A heading</span>
+      <span><span class="sw" style="background:var(--warm)"></span>Circuit B heading</span>
+      <span>right squares: recurrent weight matrices W (<span style="color:#ff6b6b">excit.</span>/<span style="color:#5b8cff">inhib.</span>)</span>
+    </div>
+    <p class="cap"><b>Verified:</b> the heading readout survives per-edge weight randomness up to ±140%
+    (the bump persists; integration gain stays within a factor of ~1.4). This mirrors the manuscript
+    result that across cross-validation folds many connectome-consistent weight matrices — and even the
+    message-passing GNN with its different mechanism — integrate heading equally well. Breaking the
+    degeneracy requires going beyond the task: confronting the model with <i>measured neural activity</i>
+    (the zebrafish calcium-observation loss).</p>
+  </section>
+
+  <!-- ============ CONTEXT ============ -->
+  <section class="card">
+    <span class="tag">the science</span>
+    <h2>Two brains, one ring attractor</h2>
+    <div class="grid2">
+      <div>
+        <p><b>Fly — central complex.</b> 156 neurons across seven classes (EPG, EPG<sub>t</sub>,
+        PEN<sub>a</sub>, PEN<sub>b</sub>, Δ7, PEG, ER6). The heading bump lives in the ellipsoid body;
+        PEN neurons inject angular velocity to rotate it. Connectome from Hulse et al. 2021; RNN model
+        from Vafidis et al. 2022.</p>
+      </div>
+      <div>
+        <p><b>Fish — anterior hindbrain / dIPN.</b> A GABAergic ring attractor at single-neuron
+        resolution, all-inhibitory under Dale's law, integrating swim-triggered angular impulses
+        (≈ π/4 rad each). Built on Petrucco et al. 2023 and the ZAPBench whole-brain calcium recording.</p>
+      </div>
+    </div>
+    <p class="note">We lock each synapse to its anatomical sign (Dale's law) and topology, then train
+    constrained RNN and message-passing GNN models on path-/swim-integration under cross-validation.
+    The result is the same in fly and fish: <b>the computation is identifiable, the implementation is not.</b>
+    Optimising the input–output map reliably recovers the ring attractor, but does not pin down a unique circuit.</p>
+  </section>
+
+</main>
+
+<footer>
+  Companion to the central-complex and zebrafish manuscripts · Saalfeld Lab, 2026.
+  Interactive dynamics are a reduced live re-implementation of the Known-ODE model; numbers and
+  equations are condensed from the source LaTeX. Built with Claude, reviewed by C. Allier.
+</footer>
+
+<script>
+"use strict";
+// ---------- shared ring-attractor engine (parameters verified in /tmp tests) ----------
+const N=46, tau=0.1, dt=0.004;
+const PHI=[], COSv=[], SINv=[];
+for(let i=0;i<N;i++) PHI.push(2*Math.PI*i/N);
+const J0=4, J1=16, I0=0.5, GAIN=1.5;
+const GAINdisp=0.93; // measured rad/s per unit v -> used for the "ideal" reference line
+
+// precompute pairwise cos/sin
+const COS=[], SIN=[];
+for(let i=0;i<N;i++){COS.push(new Float64Array(N)); SIN.push(new Float64Array(N));
+  for(let j=0;j<N;j++){const d=PHI[i]-PHI[j]; COS[i][j]=Math.cos(d); SIN[i][j]=Math.sin(d);}}
+const sat = x => x>0 ? Math.tanh(x) : 0;
+
+// seeded RNG for reproducible weight scrambling
+function mulberry(seed){return function(){seed|=0;seed=seed+0x6D2B79F5|0;
+  let t=Math.imul(seed^seed>>>15,1|seed); t=t+Math.imul(t^t>>>7,61|t)^t;
+  return((t^t>>>14)>>>0)/4294967296;};}
+
+class Ring{
+  constructor(scrambleAmp=0, seed=7){
+    this.h=new Float64Array(N);
+    for(let i=0;i<N;i++) this.h[i]=0.1+0.3*Math.cos(PHI[i]);
+    // base symmetric kernel
+    this.base=[];
+    const rng=mulberry(seed);
+    this.gauss=()=>{let u=0,v=0;while(u===0)u=rng();while(v===0)v=rng();
+      return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);};
+    for(let i=0;i<N;i++){this.base.push(new Float64Array(N));
+      for(let j=0;j<N;j++){
+        let w=(1/N)*(-J0+J1*COS[i][j]);
+        if(scrambleAmp>0) w*=(1+scrambleAmp*this.gauss());
+        this.base[i][j]=w;
+      }}
+    this.heading=0;
+  }
+  rates(){const r=new Float64Array(N);for(let i=0;i<N;i++)r[i]=sat(this.h[i]);return r;}
+  step(v){
+    const r=this.rates(); const sc=GAIN*v/N; const hn=new Float64Array(N);
+    for(let i=0;i<N;i++){let s=0; const B=this.base[i], S=SIN[i];
+      for(let j=0;j<N;j++) s+=(B[j]+sc*S[j])*r[j];
+      hn[i]=this.h[i]+(dt/tau)*(-this.h[i]+s+I0);}
+    this.h=hn;
+  }
+  decode(){const r=this.rates();let cx=0,cy=0;
+    for(let i=0;i<N;i++){cx+=r[i]*Math.cos(PHI[i]);cy+=r[i]*Math.sin(PHI[i]);}
+    return Math.atan2(cy,cx);}
+  peak(){let m=0;for(let i=0;i<N;i++){const x=sat(this.h[i]);if(x>m)m=x;}return m;}
+}
+
+// ---------- colormaps ----------
+function inferno(t){ // 0..1 -> warm glow
+  t=Math.max(0,Math.min(1,t));
+  const r=Math.min(255, 40+t*255*1.3);
+  const g=Math.min(255, Math.max(0,(t-0.25)*255*1.2));
+  const b=Math.min(255, Math.max(0, (t<0.5? t*120 : (1-t)*180+40)));
+  return `rgb(${r|0},${g|0},${b|0})`;
+}
+function diverge(x,mx){ // signed weight -> blue..white..red
+  const t=Math.max(-1,Math.min(1,x/(mx||1)));
+  if(t>=0){const c=255-Math.round(t*150);return `rgb(255,${c},${c})`;}
+  const c=255-Math.round(-t*150);return `rgb(${c},${c},255)`;
+}
+
+// ---------- drawing helpers ----------
+function drawRing(ctx, ring, R, showNeedles, refHeading){
+  const w=ctx.canvas.width, h=ctx.canvas.height, cx=w/2, cy=h/2;
+  ctx.clearRect(0,0,w,h);
+  const r=ring.rates();
+  // faint ring guide
+  ctx.strokeStyle="#1b222c"; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.arc(cx,cy,R,0,2*Math.PI); ctx.stroke();
+  for(let i=0;i<N;i++){
+    const a=PHI[i]-Math.PI/2; // put 0 at top
+    const x=cx+R*Math.cos(a), y=cy+R*Math.sin(a);
+    const act=r[i];
+    // glow
+    const rad=2.2+act*7.5;
+    ctx.beginPath(); ctx.fillStyle=inferno(act);
+    ctx.shadowColor=inferno(act); ctx.shadowBlur=act*16;
+    ctx.arc(x,y,rad,0,2*Math.PI); ctx.fill();
+  }
+  ctx.shadowBlur=0;
+  if(showNeedles){
+    const dh=ring.decode();
+    // ideal reference needle (green)
+    if(refHeading!==undefined){
+      const a2=refHeading-Math.PI/2;
+      ctx.strokeStyle="#3fb950"; ctx.lineWidth=2; ctx.beginPath();
+      ctx.moveTo(cx,cy); ctx.lineTo(cx+(R-18)*Math.cos(a2),cy+(R-18)*Math.sin(a2)); ctx.stroke();
+    }
+    // decoded needle (white)
+    const a=dh-Math.PI/2;
+    ctx.strokeStyle="#e6edf3"; ctx.lineWidth=3; ctx.beginPath();
+    ctx.moveTo(cx,cy); ctx.lineTo(cx+(R-8)*Math.cos(a),cy+(R-8)*Math.sin(a)); ctx.stroke();
+    ctx.fillStyle="#e6edf3"; ctx.beginPath(); ctx.arc(cx,cy,3.5,0,2*Math.PI); ctx.fill();
+  }
+}
+function drawMatrix(ctx, base){
+  const w=ctx.canvas.width, h=ctx.canvas.height; const cell=w/N;
+  let mx=0; for(let i=0;i<N;i++)for(let j=0;j<N;j++){const a=Math.abs(base[i][j]);if(a>mx)mx=a;}
+  for(let i=0;i<N;i++)for(let j=0;j<N;j++){
+    ctx.fillStyle=diverge(base[i][j],mx);
+    ctx.fillRect(j*cell,i*cell,Math.ceil(cell),Math.ceil(cell));
+  }
+}
+
+// ---------- PANEL 1 ----------
+const ring1=new Ring();
+const ringCtx=document.getElementById("ring").getContext("2d");
+const kinoCv=document.getElementById("kino"), kinoCtx=kinoCv.getContext("2d");
+const traceCv=document.getElementById("trace"), traceCtx=traceCv.getContext("2d");
+const velEl=document.getElementById("vel");
+let auto1=false, play1=true, ref1=0;
+const headHist=[], refHist=[];
+kinoCtx.fillStyle="#0a0d12"; kinoCtx.fillRect(0,0,kinoCv.width,kinoCv.height);
+
+document.getElementById("auto1").onclick=e=>{auto1=!auto1;e.target.classList.toggle("on",auto1);};
+document.getElementById("play1").onclick=e=>{play1=!play1;
+  e.target.classList.toggle("on",play1);e.target.textContent=play1?"⏸ Pause":"▶ Play";};
+document.getElementById("reset1").onclick=()=>{
+  const v=new Ring(); ring1.h=v.h; ring1.base=v.base; ref1=0; headHist.length=0; refHist.length=0;
+  kinoCtx.fillStyle="#0a0d12"; kinoCtx.fillRect(0,0,kinoCv.width,kinoCv.height);};
+
+let velAuto=0, velAutoT=0;
+function getV1(){
+  if(auto1){ // smooth wandering velocity (OU-ish)
+    velAuto += (-velAuto*0.02 + (Math.random()-0.5)*0.35);
+    velAuto=Math.max(-2.5,Math.min(2.5,velAuto));
+    velEl.value=velAuto.toFixed(2);
+    return velAuto;
+  }
+  return parseFloat(velEl.value);
+}
+
+function scrollKino(r){
+  // shift left by 1px, draw new column on right
+  const w=kinoCv.width,h=kinoCv.height;
+  const img=kinoCtx.getImageData(1,0,w-1,h);
+  kinoCtx.putImageData(img,0,0);
+  for(let i=0;i<N;i++){
+    const y0=Math.floor(i*h/N), y1=Math.floor((i+1)*h/N);
+    kinoCtx.fillStyle=inferno(r[i]);
+    kinoCtx.fillRect(w-1,y0,1,Math.max(1,y1-y0));
+  }
+}
+function drawTrace(ctx,hist,hist2){
+  const w=ctx.canvas.width,h=ctx.canvas.height; ctx.clearRect(0,0,w,h);
+  ctx.fillStyle="#0a0d12"; ctx.fillRect(0,0,w,h);
+  ctx.strokeStyle="#222a35"; ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(0,h/2);ctx.lineTo(w,h/2);ctx.stroke();
+  const plot=(arr,color)=>{
+    ctx.strokeStyle=color;ctx.lineWidth=2;ctx.beginPath();
+    const n=arr.length; for(let k=0;k<n;k++){
+      const x=w-(n-k); const y=h/2 - (arr[k]/Math.PI)*(h/2-6);
+      if(k===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);}
+    ctx.stroke();};
+  if(hist2)plot(hist2,"#3fb950");
+  plot(hist,"#e6edf3");
+}
+
+// ---------- PANEL 2 ----------
+let scrambleAmp=0;
+let ringA=new Ring(0,7), ringB=new Ring(0.0,42);
+const ringAc=document.getElementById("ringA").getContext("2d");
+const ringBc=document.getElementById("ringB").getContext("2d");
+const matAc=document.getElementById("matA").getContext("2d");
+const matBc=document.getElementById("matB").getContext("2d");
+const trace2Cv=document.getElementById("trace2"), trace2Ctx=trace2Cv.getContext("2d");
+const divEl=document.getElementById("div");
+let play2=true; let velAuto2=0;
+const histA=[], histB=[];
+function rebuildB(){
+  scrambleAmp=parseFloat(divEl.value);
+  const nb=new Ring(scrambleAmp,42);
+  ringB.base=nb.base; // keep current h so it adapts smoothly
+  drawMatrix(matBc, ringB.base);
+  document.getElementById("dval").textContent=scrambleAmp.toFixed(2);
+}
+divEl.oninput=rebuildB;
+document.getElementById("play2").onclick=e=>{play2=!play2;
+  e.target.classList.toggle("on",play2);e.target.textContent=play2?"⏸ Pause":"▶ Play";};
+drawMatrix(matAc, ringA.base);
+drawMatrix(matBc, ringB.base);
+
+// ---------- main loop ----------
+function angDiff(a,b){let d=a-b;while(d>Math.PI)d-=2*Math.PI;while(d<-Math.PI)d+=2*Math.PI;return d;}
+const STEPS_PER_FRAME=4; // 4*dt = 16ms ~ realtime
+
+function frame(){
+  // panel 1
+  if(play1){
+    const v=getV1();
+    for(let s=0;s<STEPS_PER_FRAME;s++){ ring1.step(v); ref1+=GAINdisp*v*dt; }
+    document.getElementById("vval").textContent=v.toFixed(2);
+    const dh=ring1.decode();
+    document.getElementById("hval").textContent=Math.round(dh*180/Math.PI)+"°";
+    document.getElementById("pval").textContent=ring1.peak().toFixed(2);
+    scrollKino(ring1.rates());
+    headHist.push(angDiff(dh,0)); if(headHist.length>520)headHist.shift();
+    let rf=Math.atan2(Math.sin(ref1),Math.cos(ref1));
+    refHist.push(rf); if(refHist.length>520)refHist.shift();
+    drawTrace(traceCtx,headHist,refHist);
+  }
+  drawRing(ringCtx,ring1,150,true,Math.atan2(Math.sin(ref1),Math.cos(ref1)));
+
+  // panel 2
+  if(play2){
+    velAuto2 += (-velAuto2*0.02 + (Math.random()-0.5)*0.30);
+    velAuto2=Math.max(-2.2,Math.min(2.2,velAuto2));
+    for(let s=0;s<STEPS_PER_FRAME;s++){ ringA.step(velAuto2); ringB.step(velAuto2); }
+    const da=ringA.decode(), db=ringB.decode();
+    histA.push(da); if(histA.length>1040)histA.shift();
+    histB.push(db); if(histB.length>1040)histB.shift();
+    document.getElementById("errval").textContent=
+      Math.abs(Math.round(angDiff(da,db)*180/Math.PI))+"°";
+    // trace
+    const ctx=trace2Ctx,w=trace2Cv.width,h=trace2Cv.height;
+    ctx.fillStyle="#0a0d12";ctx.fillRect(0,0,w,h);
+    ctx.strokeStyle="#222a35";ctx.beginPath();ctx.moveTo(0,h/2);ctx.lineTo(w,h/2);ctx.stroke();
+    const plot=(arr,color)=>{ctx.strokeStyle=color;ctx.lineWidth=2;ctx.beginPath();
+      const n=arr.length;for(let k=0;k<n;k++){const x=w-(n-k);
+        const y=h/2-(arr[k]/Math.PI)*(h/2-6);if(k===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);}ctx.stroke();};
+    plot(histA,"#58a6ff"); plot(histB,"#ffb454");
+  }
+  drawRing(ringAc,ringA,70,true);
+  drawRing(ringBc,ringB,70,true);
+
+  requestAnimationFrame(frame);
+}
+// warm up both panels so a bump is already present on load
+for(let t=0;t<2500;t++){ring1.step(0);ringA.step(0);ringB.step(0);}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
