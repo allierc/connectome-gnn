@@ -1,24 +1,22 @@
 description:
-  "Larval-zebrafish dIPN head-direction circuit, swim-integration task.
-
-  Companion of config/drosophila_cx/drosophila_cx_pi_epg.yaml: same
-  DrosophilaCxTaskRNN class (connectome_loader switched to zebrafish_hd),
-  same PEN-gate machinery (now wired to RIPN_L/R and pt-IPN_L/R subpops),
-  same IPNd-ring-only decoder (output_from_epg_only=True slices the first
-  n_epg=443 columns, which are the IPNd*/IPNds* HD ring by loader
-  construction). Input is a sparse Poisson sequence of typed swim events
-  (left, right, forward, backward) instead of the OU angular-velocity
-  stream of the drosophila version.
-
-  See docs/zebrafish.tex §2 for the connectome remapping and §3 for the
-  modelling equations."
-dataset: zebrafish_hd_si_task
+  "Larval-zebrafish dIPN HD RNN (839-cell IPN12 v1) trained with REAL\
+  \ calcium observation supervision.\nIdentical to zebrafish_hd_si_ipn12_v1_cv0 (same\
+  \ connectome, same synthetic swim-integration task = dataset A) but with an extra\
+  \ calcium observation branch: each task batch is augmented by training.calcium_batch_size\
+  \ real-calcium trials from dataset B (zebrafish_hd_si_calcium_rotation,\
+  \ 10s windows of the ZAPBench Rotations block with per-neuron ΔF/F interpolated\
+  \ to the model grid). The heading MSE (first term) runs over the combined batch;\
+  \ the extra trials' rolled-out voltage is converted to calcium through the GCaMP\
+  \ class (simulation.gcamp_kernel) and matched to the recorded ΔF/F with a\
+  \ scale-invariant (per-trial-per-neuron z-scored) loss weighted by coeff_observation.\
+  \ calcium_batch_size: 0 recovers task-only training byte-for-byte."
+dataset: zebrafish_hd_si_task_ipn12_v1
 simulation:
-  gcamp_kernel: gcamp7f
   params:
     - - 1.0
-  connconstr_datapath: figures/zebrafish/zebrafish_connectome_HD
+  connconstr_datapath: figures/zebrafish/zebrafish_connectome_HD_IPN12
   seed: 47006
+  gcamp_kernel: gcamp7f
 graph_model:
   signal_model_name: zebrafish_hd_si
   aggr_type: add
@@ -30,22 +28,24 @@ graph_model:
   n_layers: 3
   MLP_activation: relu
   output_from_dipn_only: true
+circuit:
+  name: zebrafish_HD_IPN12_839_v1
 plotting:
-  # 3D anatomy-voltage snapshot (`-o test --anatomy_voltage`) - zebrafish defaults.
   anatomy_voltage_elev: 90.0
   anatomy_voltage_azim: -85.5
   anatomy_voltage_z_lo: 0.0
-  anatomy_voltage_z_hi: 15.0
+  anatomy_voltage_z_hi: 10.0
   anatomy_voltage_alpha: 1.0
   anatomy_voltage_downsample: 10
   anatomy_voltage_bg: black
   anatomy_voltage_show_base: true
-  anatomy_voltage_show_icon: false
-  anatomy_voltage_types: []
-  # Probe rollout (pattern + length + per-pattern params).
+  anatomy_voltage_show_icon: true
+  anatomy_voltage_types:
+    - IPN12_a
+    - IPN12_b
   anatomy_voltage_pattern: swim_left
-  anatomy_voltage_n_steps: 10000
-  anatomy_voltage_stride: 0
+  anatomy_voltage_n_steps: 2000
+  anatomy_voltage_stride: 5
   anatomy_voltage_frame_idx: -1
   anatomy_voltage_omega_deg: 60.0
   anatomy_voltage_theta0_rad: 0.0
@@ -55,7 +55,7 @@ plotting:
   anatomy_voltage_seed: 0
 training:
   device: auto
-  seed: 47506
+  seed: 547506
   n_runs: 1
   n_epochs: 10
   batch_size: 64
@@ -67,9 +67,9 @@ training:
     - 0.00025
     - 0.000125
     - 0.000125
-    - 1.0e-4
-    - 1.0e-4
-    - 1.0e-4
+    - 0.0001
+    - 0.0001
+    - 0.0001
     - 5.0e-05
     - 5.0e-05
     - 5.0e-05
@@ -88,8 +88,9 @@ training:
   coeff_cos_distance: 0.0
   coeff_norm_floor: 0.0
   kappa_norm_floor: 0.0
-  coeff_tv_circular: 0.003
+  coeff_tv_circular: 0.0
   coeff_W_L1: 0.0
+  coeff_tail_loss: 0.035
   noise_recurrent_level: 0.03
   snapshots_per_epoch: 5
   n_steps_schedule:
@@ -113,8 +114,11 @@ training:
     - 800
     - 800
     - 800
-  coeff_tail_loss: 0.035
-  torch_compile: false
+
+  calcium_batch_size: 8
+  calcium_dataset: zebrafish_hd_si_calcium_rotation
+  coeff_observation: 10.0
+  torch_compile: true
   w_init_mode: w_con
 claude:
   n_epochs: 5
@@ -132,14 +136,14 @@ task:
     n_trials_test: 10000
     n_steps: 1000
     dt: 0.01
-    swim_rate_hz: 0.5 # mean Poisson rate of swim onsets
-    swim_duration_s: 0.3 # boxcar width per swim event
-    phase_impulse_mean_rad: 0.785 # ≈π/4, Petrucco Fig 3c median 0.83 rad
-    phase_impulse_std_rad: 0.40
+    swim_rate_hz: 0.5
+    swim_duration_s: 0.3
+    phase_impulse_mean_rad: 0.785
+    phase_impulse_std_rad: 0.4
     backward_phase_mean_rad: 3.14
-    backward_phase_std_rad: 0.30
-    left_fraction: 0.40
-    right_fraction: 0.40
+    backward_phase_std_rad: 0.3
+    left_fraction: 0.4
+    right_fraction: 0.4
     forward_fraction: 0.15
     backward_fraction: 0.05
     omega_noise_level: 0.0
