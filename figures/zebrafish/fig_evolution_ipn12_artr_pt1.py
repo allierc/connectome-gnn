@@ -51,6 +51,10 @@ VARIANTS = [
     ("selfmotion_both_leaky",         "rotation + scalar d (leaky)"),
     ("position_2d",                   "rotation + 2D path (cumulative)"),
     ("position_2d_leaky",             "rotation + 2D path (leaky)"),
+    ("propriocep_position_2d_gcamp",
+     "proprioception 2D path (cumulative) + gcamp obs"),
+    ("propriocep_position_2d_leaky_gcamp",
+     "proprioception 2D path (leaky) + gcamp obs"),
 ]
 
 # Per-variant override for the random_trials seed in

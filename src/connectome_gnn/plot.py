@@ -180,13 +180,19 @@ def plot_embedding(ax, model, type_list, n_types, cmap):
     if n_neurons < 100:
         _dot_s = max(60, _dot_s)
 
+    # LUT good for >32 categories — tab10/tab20 (and CustomColorMap mapped
+    # over n_neurons) collapse the 34 fish2 cell types into a few hues; use a
+    # 60-colour qualitative palette so every type is distinguishable.
+    from connectome_gnn.utils import qualitative_colors
+    _type_cols = qualitative_colors(int(n_types))
+
     if embedding.shape[1] < 2:
         # 1D embedding: plot as histogram-like strip
         for n in range(n_types):
             mask = (type_np == n)
             if np.any(mask):
                 ax.scatter(embedding[mask, 0], np.zeros(mask.sum()),
-                           c=cmap.color(n), s=_dot_s, edgecolors='none')
+                           c=[_type_cols[n]], s=_dot_s, edgecolors='none')
         ax.set_xlabel('$a_0$', fontsize=32)
         ax.set_ylabel('')
     else:
@@ -194,7 +200,7 @@ def plot_embedding(ax, model, type_list, n_types, cmap):
             mask = (type_np == n)
             if np.any(mask):
                 ax.scatter(embedding[mask, 0], embedding[mask, 1],
-                           c=cmap.color(n), s=_dot_s, edgecolors='none')
+                           c=[_type_cols[n]], s=_dot_s, edgecolors='none')
         ax.set_xlabel('$a_0$', fontsize=32)
         ax.set_ylabel('$a_1$', fontsize=32)
     ax.tick_params(axis='both', which='major', labelsize=24)
