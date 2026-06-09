@@ -927,6 +927,14 @@ class PlottingConfig(BaseModel):
     (``stride > 0``). The render writes frames to
     ``tmp_recons/<types>/frame_NNNN.png`` and a movie
     ``tmp_recons/<types>.mp4`` at this fps."""
+    anatomy_voltage_kinograph: bool = False
+    """When True, also render a companion *sliding kinograph* movie next to
+    the anatomy movie: a (neuron x time) z-scored heatmap of the same
+    probe rollout, rows sorted by peak time, with a vertical time-cursor
+    that slides across in lock-step with the anatomy frames (same
+    ``stride`` / ``fps``). Written to
+    ``tmp_recons/<types>_kino/frame_NNNN.png`` + ``tmp_recons/<types>_kino.mp4``.
+    Toggle on the CLI with ``--anatomy_voltage_kinograph``."""
 
 
 class TrainingConfig(BaseModel):
@@ -1420,7 +1428,7 @@ class SwimIntegrationTaskConfig(BaseModel):
     # The two recipes write different on-disk target shapes, so they must
     # live under separate dataset names — the trainer dispatches on
     # u_train.shape / y_train.shape in concert with training.task_targets.
-    target_kind: Literal["scalar_xi", "position_2d"] = "scalar_xi"
+    target_kind: Literal["scalar_xi", "position_2d", "rotation_mismatch"] = "scalar_xi"
 
     # Leaky-integrator time constant for the 2D position target (x, y).
     # Same semantics as xi_tau_s but applied to the position recurrence:
@@ -1442,6 +1450,21 @@ class SwimIntegrationTaskConfig(BaseModel):
     # or noise can be added later. Stimulus layout becomes
     # ``[ω, v_extero, v_proprio, cos θ₀·δ, sin θ₀·δ]`` (5 channels).
     propriocep_split: bool = False
+
+    # --- Proprioceptive-gain mismatch task (target_kind="rotation_mismatch") ---
+    # Models a time-varying discrepancy between the OBSERVED angular velocity
+    # ω (the sensory ARTR drive) and the PROPRIOCEPTIVE / effective angular
+    # velocity ω_proprio routed to motor_efferent: ω_proprio(t) = g(t) · ω(t),
+    # where the gain g(t) is a PIECEWISE-CONSTANT process in
+    # [proprio_gain_min, proprio_gain_max] that steps to a new random value
+    # every ~proprio_gain_segment_s seconds. The 3rd target column is the
+    # integral of the mismatch, ∫(ω − ω_proprio) dt (radians), which the
+    # recurrent circuit must recover from the two afferent streams. Forces the
+    # 5-channel propriocep_split stimulus layout [ω, v_fwd, ω_proprio, cos0,
+    # sin0]. Only used when target_kind == "rotation_mismatch".
+    proprio_gain_min: float = 0.0
+    proprio_gain_max: float = 1.5
+    proprio_gain_segment_s: float = 2.0
 
     device: Literal["cpu", "cuda", "auto"] = "cpu"
 

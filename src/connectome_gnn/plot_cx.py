@@ -863,6 +863,8 @@ def plot_cx_training_snapshot(
             ax_fw.axvline(0, color="0.6", lw=0.3)
             ax_fw.set_xlabel(r"GT $W_{rec}$", fontsize=10)
             ax_fw.set_ylabel(r"learned $\hat W_{rec}$", fontsize=10)
+            ax_fw.set_xlim(-0.75, 0.75)
+            ax_fw.set_ylim(-0.75, 0.75)
             ax_fw.set_title(f"slope = {slope:.3f},  $R^2$ = {r2:.3f}",
                             fontsize=8)
             ax_fw.tick_params(labelsize=8)
@@ -1812,6 +1814,52 @@ def _panel_trial_rollout(fig, subplotspec, test_trial: dict):
 
     trial_label = str(test_trial.get("label", "test trial"))
     title_prefix = f"{trial_label} #{int(test_trial['idx'])}  "
+
+    # --- proprioceptive-gain mismatch task --------------------------------
+    # u = [ω, v_fwd, ω_proprio, cos θ₀, sin θ₀]; y[:,2] = ∫(ω − ω_proprio)dt.
+    # Show the TWO diverging integral paths (observed θ_obs=∫ω and
+    # proprioceptive θ_pro=∫ω_proprio) and the recovered mismatch (their
+    # difference), true vs decoded.
+    if test_trial.get("mismatch") and n_in >= 5 and n_out >= 3:
+        om = u[:, 0].astype(np.float64)
+        om_pro = u[:, 2].astype(np.float64)
+        th_obs = np.cumsum(np.deg2rad(om)) * dt
+        th_pro = np.cumsum(np.deg2rad(om_pro)) * dt
+        mis_true = y_true[:, 2]
+        mis_pred = y_pred[:, 2]
+        ORANGE = "#e8820c"
+        sub = GridSpecFromSubplotSpec(
+            3, 1, subplot_spec=subplotspec,
+            height_ratios=[0.8, 1.4, 1.4], hspace=0.30,
+        )
+        ax_dr = fig.add_subplot(sub[0])
+        ax_in = fig.add_subplot(sub[1], sharex=ax_dr)
+        ax_mm = fig.add_subplot(sub[2], sharex=ax_dr)
+        # drives ω vs ω_proprio
+        ax_dr.plot(t_axis, om, color=GT_COLOR, lw=0.7, label=r"$\omega$")
+        ax_dr.plot(t_axis, om_pro, color=ORANGE, lw=0.7,
+                   label=r"$\omega_{\mathrm{proprio}}$")
+        ax_dr.axhline(0, color="0.7", lw=0.3)
+        ax_dr.set_ylabel("°/s", fontsize=LABEL_FS)
+        ax_dr.legend(fontsize=TICK_FS, frameon=False, ncol=2, loc="upper right")
+        ax_dr.tick_params(labelsize=TICK_FS, labelbottom=False)
+        # two integral paths
+        ax_in.plot(t_axis, th_obs, color=GT_COLOR, lw=1.2,
+                   label=r"$\theta_{\mathrm{obs}}=\int\omega$")
+        ax_in.plot(t_axis, th_pro, color=ORANGE, lw=1.2,
+                   label=r"$\theta_{\mathrm{pro}}=\int\omega_{\mathrm{proprio}}$")
+        ax_in.set_ylabel("path (rad)", fontsize=LABEL_FS)
+        ax_in.legend(fontsize=TICK_FS, frameon=False, loc="best")
+        ax_in.tick_params(labelsize=TICK_FS, labelbottom=False)
+        # recovered mismatch: true (green) vs decoded (black)
+        ax_mm.plot(t_axis, mis_true, color=GT_COLOR, lw=1.4, label="true")
+        ax_mm.plot(t_axis, mis_pred, color=PRED_COLOR, lw=0.9, label="decoded")
+        ax_mm.axhline(0, color="0.7", lw=0.3)
+        ax_mm.set_ylabel(r"$\int(\omega-\omega_{\mathrm{pro}})$", fontsize=LABEL_FS)
+        ax_mm.set_xlabel("time (s)", fontsize=LABEL_FS)
+        ax_mm.legend(fontsize=TICK_FS, frameon=False, loc="best")
+        ax_mm.tick_params(labelsize=TICK_FS)
+        return ax_dr
 
     def _draw_rot(ax_drive, ax_track, drive_col, is_top):
         ax_drive.plot(t_axis, drive_col, color=GT_COLOR, lw=0.8)

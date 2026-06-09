@@ -90,8 +90,8 @@ def build_figure(out_path, anatomy_dir, extra_anatomy_dirs=(),
         soma_meshes_by_type=soma_meshes_by_type or None,
         legend=True, legend_inside=True,
     )
-    _draw_artr_pt1_panel(ax_c)
-    _draw_propriocep_panel(ax_d)
+    _draw_artr_pt1_panel(ax_c, legend=False)
+    _draw_propriocep_panel(ax_d, legend=False)
 
     _panel_letter(ax_a, "a")
     _panel_letter(ax_b, "b")

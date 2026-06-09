@@ -1,5 +1,5 @@
 description: Message-passing GNN companion of
-  zebrafish_hd_si_ipn_917_v1_selfmotion_rotation — same 917-cell v1 circuit,
+  zebrafish_hd_si_ipn_917_v1_selfmotion_rotation — same 917-cell artr_pt1 circuit,
   same pen_4scalar gate, same rotation task, and the SAME on-disk dataset
   (zebrafish_hd_si_task_917_selfmotion) so the GNN and the sign-locked RNN are
   head-to-head on identical trials. signal_model_name=zebrafish_hd_si_gnn
@@ -19,7 +19,7 @@ graph_model:
   aggr_type: add
   input_proj: matrix
   output_proj: matrix
-  velocity_gate: pen_4scalar
+  velocity_gate: pen_artr_ptipn1
   lock_edge_signs: true
   hidden_dim: 64
   n_layers: 2
@@ -30,7 +30,7 @@ graph_model:
   g_phi_positive: false
   output_from_dipn_only: true
 circuit:
-  name: zebrafish_HD_IPN_917_v1
+  name: zebrafish_HD_IPN_917_artr_pt1
 plotting:
   anatomy_voltage_elev: 90.0
   anatomy_voltage_azim: -85.5

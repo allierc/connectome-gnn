@@ -60,6 +60,33 @@ sys.path.insert(0, os.path.join(REPO, "src"))
 
 DEFAULT_DATA_ROOT = "/groups/saalfeld/home/allierc/GraphData"
 L_COLOR, R_COLOR = "#c0392b", "#2c6fbb"   # red = ARTR_L, blue = ARTR_R (L/R convention)
+_CONNECTOME_DIR = os.path.join(HERE, "zebrafish_connectome_HD_IPN12")
+_ARTR_CELL_TYPES = {"RIPN01", "RIPN02", "RIPN03_a", "RIPN03_b"}
+
+
+def _artr_indices_and_bodyids(cfg, device):
+    """ARTR L/R cell indices + circuit body-id ordering, derived from the
+    circuit cell TYPE and the connectome instance side (_L/_R). Gate-agnostic:
+    works for the refined pen_artr_ptipn1 gate and the coarse pen_4scalar /
+    917 gate alike (the latter has no ARTR buffers)."""
+    import re as _re
+    import pandas as _pd
+    from connectome_gnn.generators.circuits import get_circuit
+    cc = getattr(getattr(cfg, "circuit", None), "name", None)
+    cx = get_circuit(cc)
+    body_ids = np.asarray(cx.body_ids, dtype=np.int64)
+    ctypes = np.asarray(cx.type_names)[np.asarray(cx.neuron_types)]
+    ndf = _pd.read_csv(os.path.join(_CONNECTOME_DIR, "neurons.csv"))
+    inst = {int(b): str(i) for b, i in zip(ndf["bodyId"], ndf["instance"])}
+
+    def _side(b):
+        m = _re.search(r"_(L|R)(?:[\(_]|$)", inst.get(int(b), ""))
+        return m.group(1) if m else "?"
+    is_artr = np.array([str(t) in _ARTR_CELL_TYPES for t in ctypes])
+    sides = np.array([_side(b) for b in body_ids])
+    iL = torch.tensor(np.where(is_artr & (sides == "L"))[0], dtype=torch.long, device=device)
+    iR = torch.tensor(np.where(is_artr & (sides == "R"))[0], dtype=torch.long, device=device)
+    return body_ids, iL, iR
 
 
 # --------------------------------------------------------------------------
@@ -128,22 +155,22 @@ def load_artr_model(run: str, data_root: str = DEFAULT_DATA_ROOT,
     net.load_state_dict(sd, strict=False)
     net.eval()
 
-    if not (hasattr(net, "_afferent_ind_artr_l") and
-            hasattr(net, "_afferent_ind_artr_r")):
-        raise RuntimeError(
-            f"{run} has no ARTR sub-population buffers — needs a "
-            f"velocity_gate='pen_artr_ptipn1[_propriocep]' circuit.")
+    body_ids, iL, iR = _artr_indices_and_bodyids(cfg, dev)
+
+    def _gate_val(side_key):
+        for nm in (f"v_artr_{side_key}", f"v_ripn_{side_key}"):
+            if hasattr(net, nm):
+                v = getattr(net, nm)
+                if hasattr(net, "_sgn_l"):
+                    v = (net._sgn_l if side_key == "l" else net._sgn_r)(v)
+                return float(v)
+        return float("nan")
     info = dict(
         run=os.path.basename(run_dir),
         checkpoint=os.path.basename(ckpts[-1]),
-        iL=(net._afferent_ind_artr_l > 0).nonzero(as_tuple=True)[0],
-        iR=(net._afferent_ind_artr_r > 0).nonzero(as_tuple=True)[0],
+        iL=iL, iR=iR, body_ids=body_ids,
         dt=float(net.dt), tau=float(net.tau),
-        # effective (sign-locked) gate scalars when sign_constrain_gate is on
-        v_artr_l=float(net._sgn_l(net.v_artr_l)) if hasattr(net, "_sgn_l")
-                 else float(net.v_artr_l),
-        v_artr_r=float(net._sgn_r(net.v_artr_r)) if hasattr(net, "_sgn_r")
-                 else float(net.v_artr_r),
+        v_artr_l=_gate_val("l"), v_artr_r=_gate_val("r"),
         device=dev,
     )
     return net, info
@@ -348,27 +375,28 @@ def _zscore_rows(A):
     return (A - m) / np.where(s < 1e-6, 1.0, s)
 
 
-def kinograph_data(run="zebrafish_hd_si_ipn12_artr_pt1_selfmotion_rotation_gcamp",
-                   real_npz=REAL_NPZ_DEFAULT, model_full_npz=MODEL_FULL_NPZ_DEFAULT,
-                   data_root=DEFAULT_DATA_ROOT, gcamp="gcamp7f"):
+def kinograph_data(run="zebrafish_hd_si_ipn_917_v1_selfmotion_rotation",
+                   real_npz=REAL_NPZ_DEFAULT, data_root=DEFAULT_DATA_ROOT,
+                   gcamp="gcamp7f", sign_constrain_gate=True):
     """Match the recorded ARTR neurons to their modelled counterparts and
     group them by hemisphere. Returns real/model kinographs (n_match x T),
     side labels, omega(t), and the L/R population means + correlations.
 
     The model side is computed by driving the trained network with the
-    *recorded* omega through its velocity gate (the way the model is actually
-    used), then GCaMP-convolving the voltage to match the real DeltaF/F domain.
-    (We do NOT read the stored anatomy_voltage calcium dump: that rollout drives
-    the net differently and does not route omega through the ARTR gate.)"""
+    *recorded* omega through its velocity gate, then GCaMP-convolving the
+    voltage. Recorded cells are matched to model columns by the model's own
+    circuit body-id ordering; hemisphere comes from the connectome instance
+    side (gate-agnostic, so it works for the 917 pen_4scalar model too)."""
+    import re as _re
+    import pandas as _pd
     import torch
     from connectome_gnn.models.gcamp import create_gcamp
     R = np.load(real_npz, allow_pickle=True)
-    M = np.load(model_full_npz, allow_pickle=True)
     real, rbid, omega = R["aff_ARTR"], R["affbid_ARTR"], R["omega"]
     t_sec = R["t_sec"]; dt_sec = float(R["dt_sec"])
-    mbid = M["body_ids"]                       # circuit neuron ordering only
 
-    net, info = load_artr_model(run, data_root)
+    net, info = load_artr_model(run, data_root, sign_constrain_gate=sign_constrain_gate)
+    mbid = info["body_ids"]                     # model circuit neuron ordering
     dt = info["dt"]
     # drive the recorded omega through the gate (upsample imaging grid -> model dt)
     reps = max(1, int(round(dt_sec / dt)))
@@ -387,9 +415,12 @@ def kinograph_data(run="zebrafish_hd_si_ipn12_artr_pt1_selfmotion_rotation_gcamp
     colidx = np.array([idx[int(rbid[i])] for i in keep])
     model = ca[:, colidx].T                                   # (n_keep, T) GCaMP-convolved
     model_ng = volt[:, colidx].T                              # (n_keep, T) raw voltage (no GCaMP)
-    # hemisphere from the trained model's ARTR_L/R buffers
-    Lb = {int(b) for b in mbid[info["iL"].cpu().numpy()]}
-    side = np.array(["L" if int(rbid[i]) in Lb else "R" for i in keep])
+    # hemisphere from the connectome instance side (_L/_R), gate-agnostic
+    _ndf = _pd.read_csv(os.path.join(_CONNECTOME_DIR, "neurons.csv"))
+    _inst = {int(b): str(i) for b, i in zip(_ndf["bodyId"], _ndf["instance"])}
+    def _cside(b):
+        m = _re.search(r"_(L|R)(?:[\(_]|$)", _inst.get(int(b), "")); return m.group(1) if m else "?"
+    side = np.array([_cside(rbid[i]) for i in keep])
     # per-neuron fast-band power fraction (power at period < 16 s, i.e.\ the
     # p1 bump-carrier band) on the recorded data; cells above 12% carry the
     # fast component, the rest are slow-only (p0 turn-block).
@@ -402,20 +433,10 @@ def kinograph_data(run="zebrafish_hd_si_ipn12_artr_pt1_selfmotion_rotation_gcamp
         return float(p[fr > 1.0 / 16.0].sum() / max(p.sum(), 1e-12))
     ff = np.array([_fastfrac(real[r]) for r in range(real.shape[0])])
     fast = ff > 0.12
-    # order each hemisphere so the slow cells flank the central L/R divider and
-    # the fast cells are grouped at the OUTER edge (a labelled sub-band),
-    # rather than forming a high-frequency stripe at the interface.
-    order = []
-    for s in ("L", "R"):
-        rows = np.where(side == s)[0]
-        ref = real[rows].mean(0)
-        corr = np.array([np.corrcoef(real[r], ref)[0, 1] for r in rows])
-        clean = rows[~fast[rows]][np.argsort(-corr[~fast[rows]])]
-        fst = rows[fast[rows]]
-        fst = fst[np.argsort(ff[fst])]
-        order.extend((list(fst) + list(clean)) if s == "L"
-                     else (list(clean) + list(fst)))   # fast -> outer edge
-    order = np.array(order)
+    # original (zapbench rastermap) order, grouped only by hemisphere:
+    # L block then R block, cells kept in their source order within each block
+    # (no activity / fast-slow re-sort).
+    order = np.concatenate([np.where(side == "L")[0], np.where(side == "R")[0]])
     nLfast = int(fast[np.where(side == "L")[0]].sum())
     nRfast = int(fast[np.where(side == "R")[0]].sum())
     real, model, model_ng, side = real[order], model[order], model_ng[order], side[order]
@@ -549,100 +570,266 @@ def make_kinograph_compare_figure(out_path, **kw):
     return d
 
 
-def make_kinograph_train_compare_figure(out_path, run_obs=None, run_noobs=None,
-                                        data_root=DEFAULT_DATA_ROOT, gcamp="gcamp7f"):
-    """ARTR kinograph: recorded DeltaF/F vs the task-only model (trained
-    WITHOUT the calcium-observation loss), driven by the recorded omega.
+def make_kinograph_train_compare_figure(out_path, run=None, data_root=DEFAULT_DATA_ROOT,
+                                        gcamp="gcamp7f", sign_constrain_gate=True,
+                                        invert_R=False):
+    """ARTR kinograph: recorded DeltaF/F vs the sign-constrained model
+    (917 circuit, pen_4scalar opponent gate), driven by the recorded omega.
 
-    The model's R hemisphere is sign-INVERTED for display: the task-only run
-    learns the R gate with the SAME sign as L (the two hemispheres co-vary),
-    so flipping R's sign renders the shared turn signal in the antiphase
-    convention of the recording. This is a display convention, NOT a claim
-    that the model is antiphase (it is not; see r_LR sign below).
+    The sign-locked gate makes the model genuinely antiphase, so no display
+    sign-flip is needed (invert_R defaults False; set True only for an
+    unconstrained model whose hemispheres co-vary).
 
-    Mean panels are split by the recorded fast/slow class (cells with vs
-    without the fast p1 bump-carrier component, period < 16 s)."""
-    run_obs = run_obs or "zebrafish_hd_si_ipn12_artr_pt1_selfmotion_rotation_gcamp"
-    run_noobs = run_noobs or (run_obs[:-6] if run_obs.endswith("_gcamp") else run_obs)
-    d = kinograph_data(run=run_noobs, data_root=data_root, gcamp=gcamp)
+    Mean panels are split into the slow (>16 s) and fast (<16 s) bands."""
+    run = run or "zebrafish_hd_si_ipn_917_v1_selfmotion_rotation"
+    d = kinograph_data(run=run, data_root=data_root, gcamp=gcamp,
+                       sign_constrain_gate=sign_constrain_gate)
     t = d["t_sec"]; ext = [t[0], t[-1], 0, d["n_match"]]
     side = d["side"]; fm = d["fast_mask"]; isR = side == "R"
-    # model with R sign-inverted for display
-    model_disp = d["model"].copy(); model_disp[isR] *= -1.0
-    r_model_disp = -d["r_model"]
+    if invert_R:
+        model_disp = d["model"].copy(); model_disp[isR] *= -1.0
+        r_model_disp = -d["r_model"]
+    else:
+        model_disp = d["model"]; r_model_disp = d["r_model"]
 
-    fig, ax = plt.subplots(9, 1, figsize=(11, 15), sharex=True,
+    fig, ax = plt.subplots(7, 1, figsize=(11, 12), sharex=True,
                            gridspec_kw=dict(height_ratios=[
-                               0.5, 2, 2, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]))
+                               0.5, 2, 2, 1.0, 1.0, 1.3, 1.3]))
     LF, TF, LET = 12, 10, 15
     nrm = lambda v: v / max(np.abs(v).max(), 1e-9)
 
     ax[0].plot(t, d["omega"], color="0.35", lw=1.2)
     ax[0].set_ylabel(r"$\omega$ (°/s)", fontsize=LF); ax[0].tick_params(labelsize=TF)
 
-    # --- kinographs: real, model (R inverted) ---
+    # --- kinographs (original zapbench order; L block / R block) ---
+    nLc = d["nL"]; nRc = d["n_match"] - nLc
     for a, arr, lab, rlr in (
-            (ax[1], _zscore_rows(d["real"]), f"real $\\Delta F/F$  (n={d['n_match']})",
-             d["r_real"]),
-            (ax[2], _zscore_rows(model_disp), "model\nWITHOUT obs.\\\n(R sign-inv.)",
-             r_model_disp)):
+            (ax[1], _zscore_rows(d["real"]), "real $\\Delta F/F$", d["r_real"]),
+            (ax[2], _zscore_rows(model_disp),
+             "model\n(R sign-inv.)" if invert_R else "model", r_model_disp)):
         a.imshow(arr, aspect="auto", origin="lower", extent=ext, cmap="viridis",
                  vmin=-2, vmax=2, interpolation="nearest")
-        a.axhline(d["nL"], color="w", lw=1.2)
+        a.axhline(nLc, color="w", lw=1.2)
         a.set_ylabel(lab, fontsize=LF)
-        a.text(0.004, d["nL"] / 2, "L", color="w", fontsize=TF, va="center",
-               transform=a.get_yaxis_transform())
-        a.text(0.004, (d["nL"] + d["n_match"]) / 2, "R", color="w", fontsize=TF,
+        a.text(0.004, nLc / 2, f"L\nn={nLc}", color="w", fontsize=TF - 1,
                va="center", transform=a.get_yaxis_transform())
-        a.text(0.99, 0.92, f"$r_{{LR}}={rlr:+.2f}$", color="w", fontsize=TF,
-               ha="right", va="top", transform=a.transAxes)
+        a.text(0.004, (nLc + d["n_match"]) / 2, f"R\nn={nRc}", color="w",
+               fontsize=TF - 1, va="center", transform=a.get_yaxis_transform())
+        a.text(0.99, 0.92, f"$r_{{LR}}={rlr:+.2f}$  ($N={d['n_match']}$)",
+               color="w", fontsize=TF, ha="right", va="top", transform=a.transAxes)
         a.tick_params(labelsize=TF)
-    # fast sub-band bracket on the recorded panel
-    nf = d.get("nLfast", 0)
-    if nf:
-        tr = ax[1].get_yaxis_transform()
-        ax[1].plot([-0.018, -0.018], [0.3, nf - 0.3], color="#e8820e", lw=4,
-                   transform=tr, clip_on=False, solid_capstyle="butt")
-        ax[1].text(-0.052, nf / 2, "fast\n(p1)", rotation=90, color="#e8820e",
-                   fontsize=TF - 1, ha="center", va="center", transform=tr)
 
-    # --- mean panels: total + fast-class + slow-class, real then model ---
-    def cls(A, mask, s, invR=False):
-        sel = mask & (side == s)
+    # --- mean panels: total L/R mean, then the slow (>16 s) and fast (<16 s)
+    # bands plotted separately. r_LR (L/R correlation) is shown for each band.
+    dti = float(t[1] - t[0]) if len(t) > 1 else 0.915
+    def _band(x, lo, hi):
+        X = np.fft.rfft(x); fr = np.fft.rfftfreq(len(x), d=dti)
+        return np.fft.irfft(X * ((fr >= lo) & (fr < hi)), n=len(x))
+    def _hemi(A, s, band, invR=False):          # population MEAN trace (for r_LR)
+        sel = side == s
         v = A[sel].mean(0) if sel.any() else np.zeros(A.shape[1])
-        return -v if (invR and s == "R") else v
-
-    def mean_panel(a, A, mask, lab, rlr, invR=False):
-        L = cls(A, mask, "L", invR); R = cls(A, mask, "R", invR)
-        a.plot(t, nrm(L), color=L_COLOR, lw=1.2, label="ARTR$_L$")
-        a.plot(t, nrm(R), color=R_COLOR, lw=1.2, label="ARTR$_R$")
+        if invR and s == "R":
+            v = -v
+        return _band(v, *band) if band is not None else v
+    def _cells(A, s, band, invR=False):         # per-cell band-filtered traces n×T
+        M = A[side == s].astype(float)
+        if invR and s == "R":
+            M = -M
+        if band is not None and len(M):
+            M = np.stack([_band(c, *band) for c in M])
+        return M
+    def _corr(a, b):
+        return (float(np.corrcoef(a, b)[0, 1])
+                if a.std() > 1e-9 and b.std() > 1e-9 else float("nan"))
+    def _musd(a, M, col, label):
+        # mean +/- SD across cells, normalised by max(|mu|+SD) so the band fits
+        # (tight band => coherent across cells; wide band => incoherent).
+        if len(M) == 0:
+            return
+        mu = M.mean(0); sd = M.std(0)
+        sc = max(float((np.abs(mu) + sd).max()), 1e-9)
+        a.fill_between(t, (mu - sd) / sc, (mu + sd) / sc, color=col, alpha=0.18, lw=0)
+        a.plot(t, mu / sc, color=col, lw=1.2, label=label)
+    def lr_panel(a, A, band, lab, invR=False, leg=False):
+        ML = _cells(A, "L", band, invR); MR = _cells(A, "R", band, invR)
+        _musd(a, ML, L_COLOR, f"ARTR$_L$ ($n={len(ML)}$)")
+        _musd(a, MR, R_COLOR, f"ARTR$_R$ ($n={len(MR)}$)")
         a.axhline(0, color="0.8", lw=0.6, zorder=0)
-        a.set_ylabel(lab, fontsize=LF - 1); a.set_ylim(-1.2, 1.2)
-        if rlr is not None:
-            a.text(0.99, 0.90, f"$r_{{LR}}={rlr:+.2f}$", ha="right", va="top",
-                   transform=a.transAxes, fontsize=TF - 1)
+        a.set_ylabel(lab, fontsize=LF - 1); a.set_ylim(-1.25, 1.25)
+        a.text(0.99, 0.90, f"$r_{{LR}}={_corr(ML.mean(0), MR.mean(0)):+.2f}$",
+               ha="right", va="top", transform=a.transAxes, fontsize=TF - 1)
+        if leg:
+            a.legend(fontsize=TF - 2, frameon=False, ncol=2, loc="lower left")
+        a.tick_params(labelsize=TF)
+    def one_panel(a, A, s, band, lab, invR=False, rfast=None):
+        M = _cells(A, s, band, invR)
+        _musd(a, M, (L_COLOR if s == "L" else R_COLOR), None)
+        a.axhline(0, color="0.8", lw=0.6, zorder=0)
+        a.set_ylabel(lab, fontsize=LF - 1); a.set_ylim(-1.25, 1.25)
+        a.text(0.99, 0.90, f"ARTR$_{s}$  $n={len(M)}$", ha="right", va="top",
+               transform=a.transAxes, fontsize=TF - 1)
+        if rfast is not None:
+            a.text(0.99, 0.06, f"$r_{{LR}}$(fast)$={rfast:+.2f}$", ha="right",
+                   va="bottom", transform=a.transAxes, fontsize=TF - 2)
         a.tick_params(labelsize=TF)
 
-    allmask = np.ones(d["n_match"], bool)
-    mean_panel(ax[3], d["real"], allmask, "real\nL/R mean", d["r_real"])
-    mean_panel(ax[4], d["real"], fm, "real FAST\n(p0+p1)", None)
-    mean_panel(ax[5], d["real"], ~fm, "real SLOW\n(p0)", None)
-    mean_panel(ax[6], d["model"], allmask, "model\nL/R mean", r_model_disp, invR=True)
-    mean_panel(ax[7], d["model"], fm, "model FAST\n(p0+p1)", None, invR=True)
-    mean_panel(ax[8], d["model"], ~fm, "model SLOW\n(p0)", None, invR=True)
-    ax[3].legend(fontsize=TF - 1, frameon=False, ncol=2, loc="lower left")
-    ax[8].set_xlabel("time (s)", fontsize=LF)
+    P0 = (0.0, 1.0 / 16.0)        # slow band: period > 16 s
+    rs_real = _corr(_hemi(d["real"], "L", P0), _hemi(d["real"], "R", P0))
+    rs_model = _corr(_hemi(d["model"], "L", P0, invert_R), _hemi(d["model"], "R", P0, invert_R))
 
-    for letter, axx in zip("abcdefghi", ax):
+    def traces_panel(a, A, s, lab, invR=False):
+        # individual learned per-cell traces (z-scored) + population mean
+        M = _cells(A, s, None, invR)
+        col = L_COLOR if s == "L" else R_COLOR
+        Mz = (M - M.mean(1, keepdims=True)) / np.where(
+            M.std(1, keepdims=True) < 1e-9, 1.0, M.std(1, keepdims=True))
+        for c in Mz:
+            a.plot(t, c, color=col, lw=0.4, alpha=0.30)
+        a.plot(t, Mz.mean(0), color="k", lw=1.4)
+        a.axhline(0, color="0.8", lw=0.6, zorder=0)
+        a.set_ylabel(lab, fontsize=LF - 1); a.set_ylim(-3, 3)
+        a.text(0.99, 0.93, f"{len(M)} traces", ha="right", va="top",
+               transform=a.transAxes, fontsize=TF - 1)
+        a.tick_params(labelsize=TF)
+
+    lr_panel(ax[3], d["real"], None, "real\nL/R mean", leg=True)
+    lr_panel(ax[4], d["real"], P0, "real slow\n(>16 s)")
+    traces_panel(ax[5], d["model"], "L", "model ARTR$_L$\n(learned)", invR=invert_R)
+    traces_panel(ax[6], d["model"], "R", "model ARTR$_R$\n(learned)", invR=invert_R)
+    ax[6].set_xlabel("time (s)", fontsize=LF)
+
+    for letter, axx in zip("abcdefg", ax):
         axx.text(-0.075, 1.02, letter, transform=axx.transAxes, fontsize=LET,
                  fontweight="bold", ha="left", va="bottom")
     fig.tight_layout()
     fig.savefig(out_path, dpi=160, bbox_inches="tight")
     plt.close(fig)
-    print(f"[artr_kino_train] real r={d['r_real']:+.3f}  "
-          f"model(no-obs) r={d['r_model']:+.3f} (display R-inverted: {r_model_disp:+.3f})  "
-          f"fast n={int(fm.sum())} slow n={int((~fm).sum())}")
+    nLm = int((side == "L").sum()); nRm = int((side == "R").sum())
+    print(f"[artr_kino] real:  total r={d['r_real']:+.2f}  slow r={rs_real:+.2f}")
+    print(f"[artr_kino] model: total r={r_model_disp:+.2f}  slow r={rs_model:+.2f}  "
+          f"learned traces L={nLm} R={nRm}")
     return d
+
+
+# --------------------------------------------------------------------------
+# ZAPBench rotation -> dark transition (spontaneous-oscillation probe)
+# --------------------------------------------------------------------------
+_TRACES_NPZ = os.path.join(HERE, "zebrafish_connectome_HD_IPN12", "functional",
+                           "circuit_functional_traces.npz")
+_ROT_HEADING_NPZ = os.path.join(HERE, "zebrafish_connectome_HD_IPN12",
+                                "functional", "rotation_heading.npz")
+# imaging-frame block boundaries (TASKS / FishFunctional.onsets_frames)
+_BLK = dict(OPENLOOP=(5638, 6623), ROTATION=(6623, 7279), DARK=(7279, 7870))
+_ARTR_TYPES = {"RIPN01", "RIPN02", "RIPN03_a", "RIPN03_b"}
+_FRAME_SEC = 0.915
+
+
+def make_dark_figure(out_path, run="zebrafish_hd_si_ipn_917_v1_selfmotion_rotation",
+                     data_root=DEFAULT_DATA_ROOT, gcamp="gcamp7f", invert_R=False,
+                     sign_constrain_gate=True, openloop_tail=200):
+    """Rotation->Dark transition: does ARTR keep oscillating once the turning
+    command stops? Real recorded ARTR DeltaF/F vs the model driven with the
+    recorded rotation omega followed by zero input (dark). A small tail of the
+    open-loop/rotation block initialises the state (rotation and dark are
+    continuous in the recording)."""
+    import torch
+    from connectome_gnn.models.gcamp import create_gcamp
+    from connectome_gnn.generators.zapbench_stimulus import heading_to_drive
+
+    net, info = load_artr_model(run, data_root, sign_constrain_gate=sign_constrain_gate)
+    dt = info["dt"]; iL = info["iL"].cpu().numpy(); iR = info["iR"].cpu().numpy()
+
+    # --- recorded ARTR over [open-loop tail | rotation | dark] -------------
+    Z = np.load(_TRACES_NPZ, allow_pickle=True)
+    traces = np.asarray(Z["traces"]); typ = np.array([str(x) for x in Z["type"]])
+    sde = np.array([str(x) for x in Z["side"]])
+    art = np.array([x in _ARTR_TYPES for x in typ])
+    r0, r1 = _BLK["ROTATION"]; d1 = _BLK["DARK"][1]
+    w0 = r0 - openloop_tail; w1 = d1
+    real = traces[w0:w1][:, art].T                      # (n_art, Twin)
+    rside = sde[art]
+    Twin = w1 - w0
+    # block edges within the window (frames relative to w0)
+    rot_s = r0 - w0; rot_e = r1 - w0; dark_s = r1 - w0
+
+    # --- omega: 0 in open-loop tail, recorded rotation omega, 0 in dark -----
+    rh = np.load(_ROT_HEADING_NPZ, allow_pickle=True)
+    om_rot = np.asarray(heading_to_drive(np.asarray(rh["theta_frame"]),
+                                         dt=_FRAME_SEC, src_dt=_FRAME_SEC)["omega"])
+    omega = np.zeros(Twin, np.float32)
+    nrot = min(rot_e - rot_s, len(om_rot))
+    omega[rot_s:rot_s + nrot] = om_rot[:nrot]
+
+    # --- drive the model: omega -> gate -> GCaMP --------------------------
+    reps = max(1, int(round(_FRAME_SEC / dt)))
+    om_hi = np.repeat(omega, reps)
+    u = np.zeros((1, len(om_hi), 3), np.float32); u[0, :, 0] = om_hi; u[0, 0, 1] = 1.0
+    with torch.no_grad():
+        _, h = net(torch.from_numpy(u).to(info["device"]))
+    ca = create_gcamp(gcamp)(h[0], dt_in=dt).cpu().numpy()[::reps][:Twin]   # (Twin, N)
+    mL = ca[:, iL].mean(1); mR = ca[:, iR].mean(1)
+    if invert_R:
+        mR = -mR
+    rL = real[rside == "left"].mean(0); rR = real[rside == "right"].mean(0)
+    t = np.arange(Twin) * _FRAME_SEC
+
+    # dark-block oscillation amplitude (std of L-R after the command stops)
+    dk = slice(dark_s + 20, Twin)
+    amp_real = float(np.std((rL - rR)[dk])); amp_model = float(np.std((mL - mR)[dk]))
+
+    def _z(A):
+        A = np.asarray(A, float)
+        return (A - A.mean(1, keepdims=True)) / np.where(
+            A.std(1, keepdims=True) < 1e-6, 1.0, A.std(1, keepdims=True))
+
+    def _kino(a, A, sidearr, lab):
+        order = np.concatenate([np.where(sidearr == "left")[0],
+                                np.where(sidearr == "right")[0]])
+        nLk = int((sidearr == "left").sum())
+        a.imshow(_z(A[order]), aspect="auto", origin="lower",
+                 extent=[t[0], t[-1], 0, len(A)], cmap="viridis",
+                 vmin=-2, vmax=2, interpolation="nearest")
+        a.axhline(nLk, color="w", lw=1.0)
+        a.set_ylabel(lab, fontsize=11)
+
+    fig, ax = plt.subplots(5, 1, figsize=(12, 9), sharex=True,
+                           gridspec_kw=dict(height_ratios=[0.5, 1, 1, 1.6, 1.6]))
+    nrm = lambda v: v / max(np.abs(v).max(), 1e-9)
+    # block shading (trace panels only; on kinographs it would cover imshow)
+    # + dashed block boundaries on every panel.
+    for i, a in enumerate(ax):
+        if i < 3:
+            a.axvspan(t[dark_s], t[-1], color="0.92", lw=0, zorder=0)
+        for x in (t[rot_s], t[dark_s]):
+            a.axvline(x, color=("w" if i >= 3 else "0.5"), lw=1.0, ls="--", zorder=3)
+    ax[0].plot(t, omega, color="0.3", lw=1.0); ax[0].set_ylabel(r"$\omega$ (°/s)", fontsize=11)
+    for x, nm in ((t[rot_s] * 0.5, "open loop"),
+                  (0.5 * (t[rot_s] + t[dark_s]), "ROTATION"),
+                  (0.5 * (t[dark_s] + t[-1]), "DARK")):
+        ax[0].text(x, 1.15, nm, transform=ax[0].get_xaxis_transform(),
+                   ha="center", va="bottom", fontsize=10, fontweight="bold")
+    for a, L, R, lab, amp in ((ax[1], rL, rR, "real ARTR\nL/R mean", amp_real),
+                              (ax[2], mL, mR, "model ARTR\nL/R mean", amp_model)):
+        a.plot(t, nrm(L), color=L_COLOR, lw=1.1, label="ARTR$_L$")
+        a.plot(t, nrm(R), color=R_COLOR, lw=1.1, label="ARTR$_R$")
+        a.axhline(0, color="0.85", lw=0.6); a.set_ylabel(lab, fontsize=11)
+        a.text(0.5 * (t[dark_s] + t[-1]), 0.92, f"dark $|L-R|$ std$={amp:.3f}$",
+               transform=a.get_xaxis_transform(), ha="center", va="top", fontsize=9)
+    ax[1].legend(fontsize=9, frameon=False, ncol=2, loc="lower left")
+    _kino(ax[3], real, rside, f"real ARTR\n$\\Delta F/F$ (n={int(art.sum())})")
+    _kino(ax[4], ca[:, np.concatenate([iL, iR])].T,
+          np.array(["left"] * len(iL) + ["right"] * len(iR)),
+          f"model ARTR\n(n={len(iL) + len(iR)})")
+    ax[4].set_xlabel("time (s)", fontsize=11)
+    for letter, a in zip("abcde", ax):
+        a.text(-0.06, 1.02, letter, transform=a.transAxes, fontsize=15,
+               fontweight="bold", ha="left", va="bottom")
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=160, bbox_inches="tight")
+    plt.close(fig)
+    print(f"[artr_dark] DARK-block L-R oscillation amplitude: "
+          f"real={amp_real:.4f}  model={amp_model:.4f}")
+    return dict(amp_real=amp_real, amp_model=amp_model)
 
 
 # --------------------------------------------------------------------------
@@ -650,15 +837,14 @@ def main():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--run",
-                   default="zebrafish_hd_si_ipn12_artr_pt1_selfmotion_rotation_gcamp",
+                   default="zebrafish_hd_si_ipn_917_v1_selfmotion_rotation",
                    help="run name (searched under log/zebrafish[/archive]) or abs path")
     p.add_argument("--data_root", default=DEFAULT_DATA_ROOT)
     p.add_argument("--out", default=None)
     p.add_argument("--device", default=None)
-    p.add_argument("--run_noobs", default=None,
-                   help="task-only run (trained WITHOUT the calcium-observation "
-                        "loss) for the kinograph comparison; default = --run with "
-                        "the trailing '_gcamp' stripped")
+    p.add_argument("--no_sign_constrain", action="store_true",
+                   help="load with sign_constrain_gate=False (for legacy "
+                        "unconstrained checkpoints); default is sign-constrained")
     p.add_argument("--kinograph", action="store_true",
                    help="render the ARTR kinograph comparing real vs model trained "
                         "WITH obs. loss vs model trained WITHOUT obs. loss")
@@ -667,29 +853,28 @@ def main():
     p.add_argument("--kinograph_compare", action="store_true",
                    help="render the kinograph comparing the model WITH GCaMP vs "
                         "WITHOUT GCaMP (raw voltage) against the recorded DeltaF/F")
+    p.add_argument("--dark", action="store_true",
+                   help="render the rotation->dark transition (spontaneous-"
+                        "oscillation probe): recorded vs modelled ARTR")
     args = p.parse_args()
+    scg = not args.no_sign_constrain
+
+    if args.dark:
+        out = args.out or os.path.join(HERE, "fig_zebrafish_artr_dark.png")
+        make_dark_figure(out, run=args.run, data_root=args.data_root,
+                         sign_constrain_gate=scg)
+        print(f"[artr_dark] wrote {out}")
+        return
 
     if args.kinograph:
         out = args.out or os.path.join(HERE, "fig_zebrafish_artr_kinograph.png")
         make_kinograph_train_compare_figure(
-            out, run_obs=args.run, run_noobs=args.run_noobs,
-            data_root=args.data_root)
+            out, run=args.run, data_root=args.data_root, sign_constrain_gate=scg)
         print(f"[artr_kino] wrote {out}")
         return
 
-    if args.kinograph_single:
-        out = args.out or os.path.join(HERE, "fig_zebrafish_artr_kinograph_single.png")
-        make_kinograph_figure(out, run=args.run, data_root=args.data_root)
-        print(f"[artr_kino] wrote {out}")
-        return
-
-    if args.kinograph_compare:
-        out = args.out or os.path.join(HERE, "fig_zebrafish_artr_kinograph_gcamp_compare.png")
-        make_kinograph_compare_figure(out, run=args.run, data_root=args.data_root)
-        print(f"[artr_kino_cmp] wrote {out}")
-        return
-
-    net, info = load_artr_model(args.run, args.data_root, args.device)
+    net, info = load_artr_model(args.run, args.data_root, args.device,
+                                sign_constrain_gate=scg)
     print(f"[artr_osc] loaded {info['run']} ({info['checkpoint']}) "
           f"dt={info['dt']:.3f} tau={info['tau']:.3f}  "
           f"ARTR_L={info['iL'].numel()} ARTR_R={info['iR'].numel()}  "

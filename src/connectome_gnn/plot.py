@@ -44,7 +44,7 @@ from connectome_gnn.metrics import (  # noqa: F401
     extract_g_phi_slopes,
     get_model_W,
 )
-from connectome_gnn.utils import to_numpy
+from connectome_gnn.utils import to_numpy, qualitative_colors
 
 # ------------------------------------------------------------------ #
 #  Helpers
@@ -236,13 +236,19 @@ def plot_f_theta(ax, model, config, n_neurons, type_list, cmap, device, step=20,
     func_np = to_numpy(func)
     unique_types = np.unique(type_np)
     mpl_cmap = plt.cm.get_cmap('tab10', max(len(unique_types), 1))
+    # Per-type qualitative LUT keyed by type id (good for >32 types); avoids the
+    # CustomColorMap.color(t)=t/nmap bunching that maps all high types to ~cyan.
+    _type_cols = qualitative_colors(int(unique_types.max()) + 1)
+
+    def _type_color(t, idx):
+        return _type_cols[int(t)] if 0 <= int(t) < len(_type_cols) else mpl_cmap(idx)
 
     for idx, t in enumerate(unique_types):
         mask = type_np == t
         curves = func_np[mask]
         mean = curves.mean(axis=0)
         std = curves.std(axis=0)
-        color = cmap.color(t) if hasattr(cmap, 'color') else mpl_cmap(idx)
+        color = _type_color(t, idx)
         label = type_names[idx] if type_names and idx < len(type_names) else f"type {t}"
         ax.plot(x_np, mean, linewidth=1.5, color=color, label=label)
         if std.max() > 1e-6:
@@ -256,7 +262,7 @@ def plot_f_theta(ax, model, config, n_neurons, type_list, cmap, device, step=20,
             if not np.any(mask):
                 continue
             gt_mean = gt_curves[mask].mean(axis=0)
-            color = cmap.color(t) if hasattr(cmap, 'color') else mpl_cmap(idx)
+            color = _type_color(t, idx)
             ax.plot(gt_v_range, gt_mean, linewidth=1.5, color=color, linestyle='--', alpha=0.7)
 
     ax.axhline(0, color='#aaa', linewidth=0.5, linestyle='--')
@@ -300,13 +306,19 @@ def plot_g_phi(ax, model, config, n_neurons, type_list, cmap, device, step=20,
     func_np = to_numpy(func)
     unique_types = np.unique(type_np)
     mpl_cmap = plt.cm.get_cmap('tab10', max(len(unique_types), 1))
+    # Per-type qualitative LUT keyed by type id (good for >32 types); avoids the
+    # CustomColorMap.color(t)=t/nmap bunching that maps all high types to ~cyan.
+    _type_cols = qualitative_colors(int(unique_types.max()) + 1)
+
+    def _type_color(t, idx):
+        return _type_cols[int(t)] if 0 <= int(t) < len(_type_cols) else mpl_cmap(idx)
 
     for idx, t in enumerate(unique_types):
         mask = type_np == t
         curves = func_np[mask]
         mean = curves.mean(axis=0)
         std = curves.std(axis=0)
-        color = cmap.color(t) if hasattr(cmap, 'color') else mpl_cmap(idx)
+        color = _type_color(t, idx)
         label = type_names[idx] if type_names and idx < len(type_names) else f"type {t}"
         ax.plot(x_np, mean, linewidth=1.5, color=color, label=label)
         if std.max() > 1e-6:
@@ -324,7 +336,7 @@ def plot_g_phi(ax, model, config, n_neurons, type_list, cmap, device, step=20,
                 if not np.any(mask):
                     continue
                 gt_mean = gt_curves[mask].mean(axis=0)
-                color = cmap.color(t) if hasattr(cmap, 'color') else mpl_cmap(idx)
+                color = _type_color(t, idx)
                 ax.plot(gt_v_range, gt_mean, linewidth=1.5, color=color, linestyle='--', alpha=0.7)
 
     ax.axhline(0, color='#aaa', linewidth=0.5, linestyle='--')

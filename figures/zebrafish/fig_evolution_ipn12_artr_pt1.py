@@ -81,16 +81,24 @@ def main():
     p.add_argument("--trial_idx", type=int, default=None)
     p.add_argument("--only", nargs="+", default=None,
                    help="render only these suffixes (e.g. selfmotion_rotation)")
+    p.add_argument("--run", nargs="+", default=None,
+                   help="render these explicit run names instead of the "
+                        "PREFIX+VARIANT family (e.g. "
+                        "zebrafish_hd_si_ipn_917_v1_selfmotion_rotation)")
     args = p.parse_args()
 
     from connectome_gnn.plot_cx import plot_cx_evolution
 
     os.makedirs(args.out_dir, exist_ok=True)
-    wanted = set(args.only) if args.only else None
-    for suffix, label in VARIANTS:
-        if wanted is not None and suffix not in wanted:
-            continue
-        run_name = PREFIX + suffix
+    if args.run:
+        jobs = [(rn, rn) for rn in args.run]
+    else:
+        wanted = set(args.only) if args.only else None
+        jobs = [(PREFIX + suffix, label)
+                for suffix, label in VARIANTS
+                if wanted is None or suffix in wanted]
+    for run_name, label in jobs:
+        suffix = run_name[len(PREFIX):] if run_name.startswith(PREFIX) else run_name
         run_dir = os.path.join(args.data_root, "log", "zebrafish", run_name)
         if not os.path.isdir(run_dir):
             print(f"[fig_evolution_ipn12_artr_pt1] SKIP {label}: "

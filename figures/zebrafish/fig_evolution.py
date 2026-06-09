@@ -125,6 +125,12 @@ def _load_model_and_rollouts(
         omega_deg_per_s=snapshot_omega_deg, device=device,
     )
     rollout["r_epg"] = rollout["r"][:, net.epg_indices]
+    # rotation_mismatch: drop the (degenerate) translation keys so panel f is
+    # rotation-only; the mismatch is shown in panel g (two-integral-path view).
+    if str(getattr(getattr(config.task, "swim_integration", None),
+                   "target_kind", "")) == "rotation_mismatch":
+        rollout.pop("true_xi", None)
+        rollout.pop("decoded_xi", None)
 
     # Afferent population (RIPN + pt-IPN here, PEN_a/b L/R for the fly):
     # union of the velocity-gate sub-population indicator buffers populated
@@ -187,19 +193,26 @@ def _load_model_and_rollouts(
     # task_targets projection: mirrors the trainer's slicing of the
     # 4-ch / 3-col on-disk superset onto the active sub-task. Needed
     # whenever the trained model was built for n_in<4 / n_out<3.
+    # Keyed by (n_in_disk, n_out_disk, task_key) — mirrors the trainer's
+    # _PROFILE_BY_TARGET (graph_trainer) so the propriocep 5-col layout passes
+    # through all five channels instead of silently dropping the sin θ₀ column.
     _PROFILE_BY_TARGET = {
-        (3, ("rotation",)):                ([0, 2, 3],    [0, 1]),
-        (3, ("translation",)):             ([1],          [2]),
-        (3, ("rotation", "translation")):  ([0, 1, 2, 3], [0, 1, 2]),
-        (4, ("rotation",)):                ([0, 2, 3],    [0, 1]),
-        (4, ("position_2d",)):             ([0, 1, 2, 3], [0, 1, 2, 3]),
+        (4, 3, ("rotation",)):                ([0, 2, 3],       [0, 1]),
+        (4, 3, ("translation",)):             ([1],             [2]),
+        (4, 3, ("rotation", "translation")):  ([0, 1, 2, 3],    [0, 1, 2]),
+        (4, 4, ("rotation",)):                ([0, 2, 3],       [0, 1]),
+        (4, 4, ("position_2d",)):             ([0, 1, 2, 3],    [0, 1, 2, 3]),
+        (5, 3, ("rotation",)):                ([0, 3, 4],       [0, 1]),
+        (5, 3, ("translation",)):             ([1, 2],          [2]),
+        (5, 3, ("rotation", "translation")):  ([0, 1, 2, 3, 4], [0, 1, 2]),
+        (5, 4, ("rotation",)):                ([0, 3, 4],       [0, 1]),
+        (5, 4, ("position_2d",)):             ([0, 1, 2, 3, 4], [0, 1, 2, 3]),
     }
     _RECOGNISED = ("rotation", "translation", "position_2d")
     _task_raw = list(getattr(config.training, "task_targets", None) or [])
     _task_key = tuple(t for t in _RECOGNISED if t in _task_raw)
     if u_test.shape[-1] >= 4 and _task_key:
-        n_out_disk = int(y_test.shape[-1])
-        _key = (n_out_disk, _task_key)
+        _key = (int(u_test.shape[-1]), int(y_test.shape[-1]), _task_key)
         if _key in _PROFILE_BY_TARGET:
             in_cols, out_cols = _PROFILE_BY_TARGET[_key]
             u_test = u_test[..., in_cols]
@@ -308,6 +321,7 @@ def _load_model_and_rollouts(
     task_block = (config.task.path_integration
                   if config.task.task_type == "path_integration"
                   else config.task.swim_integration)
+    _is_mismatch = str(getattr(task_block, "target_kind", "")) == "rotation_mismatch"
     test_trial = dict(
         idx=trial_idx,
         u=u_one,
@@ -315,6 +329,7 @@ def _load_model_and_rollouts(
         y_pred=y_pred,
         dt=float(task_block.dt),
         label="swim test trial",
+        mismatch=_is_mismatch,
     )
 
     # Species-specific display labels picked up from the model class

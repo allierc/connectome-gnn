@@ -74,6 +74,12 @@ if __name__ == "__main__":
                         help="Override plotting.anatomy_voltage_stride (movie "
                              "frame stride in model steps). For zapbench_rotation "
                              "(~60k steps) use e.g. 92 ≈ one imaging frame.")
+    parser.add_argument("--anatomy_voltage_kinograph", action="store_true",
+                        help="Also render the companion sliding-kinograph movie "
+                             "(neuron x time heatmap with a time-cursor synced to "
+                             "the anatomy frames) under tmp_recons/<types>_kino/. "
+                             "Sets plotting.anatomy_voltage_kinograph and implies "
+                             "--anatomy_voltage.")
 
     print()
     device = []
@@ -283,6 +289,8 @@ if __name__ == "__main__":
                 config.plotting.anatomy_voltage_pattern = args.anatomy_voltage_pattern
             if args.anatomy_voltage_stride is not None:
                 config.plotting.anatomy_voltage_stride = args.anatomy_voltage_stride
+            if args.anatomy_voltage_kinograph:
+                config.plotting.anatomy_voltage_kinograph = True
 
             data_test(
                 config=config,
@@ -302,7 +310,8 @@ if __name__ == "__main__":
                 test_config=test_config,
                 anatomy_voltage=(args.anatomy_voltage
                                  or bool(args.anatomy_voltage_types)
-                                 or bool(args.anatomy_voltage_pattern)),
+                                 or bool(args.anatomy_voltage_pattern)
+                                 or args.anatomy_voltage_kinograph),
                 anatomy_voltage_type_groups=(
                     [tok.split(",") for tok in args.anatomy_voltage_types]
                     if args.anatomy_voltage_types else None
