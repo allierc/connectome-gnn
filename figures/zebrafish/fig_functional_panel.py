@@ -142,13 +142,33 @@ def _render_real_sequences(args):
         try:
             t_sec = np.asarray(d.get("t_sec"))
             dt_sec = float(t_sec[1] - t_sec[0]) if t_sec.size > 1 else 0.915
+            # Recorded afferent kinographs (ARTR / pt-IPN1 / motor_efferent),
+            # RAW ΔF/F sliced to this block's frames `ts`, plus the per-class
+            # bodyId order so the calcium-baseline figure can gather the
+            # matched MODEL afferent rows from a full per-cell calcium dump.
+            aff_kw = {}
+            if seq == "rotation":
+                import zebrafish_afferent_kino as _aff
+                _names = []
+                for _nm, _col, _tr in _aff.load_afferent_traces(args.connectome):
+                    aff_kw[f"aff_{_nm}"] = np.asarray(_tr)[ts].T.astype(
+                        np.float32)                       # (n_class, T_block)
+                    _names.append(_nm)
+                for _nm, _col, _bids in _aff.load_afferent_bodyids(
+                        args.connectome):
+                    aff_kw[f"affbid_{_nm}"] = np.asarray(_bids, np.int64)
+                aff_kw["aff_names"] = np.asarray(_names)
             np.savez(out_png.replace(".png", ".npz"),
                       kino=np.asarray(d["kino"]),
                       t_sec=t_sec,
                       dt_sec=np.float32(dt_sec),
                       omega=np.asarray(d["omega"]),
                       theta=np.asarray(d["theta"]),
-                      decoded=np.asarray(d["decoded"]))
+                      decoded=np.asarray(d["decoded"]),
+                      row_type=panel_rows["type"].astype(str).to_numpy(),
+                      row_bodyId=panel_rows["bodyId"].to_numpy()
+                                  .astype(np.int64),
+                      **aff_kw)
         except Exception as _e:
             print(f"[warn] failed to dump kino npz: {_e}")
         print(f"[done] {out_png}")

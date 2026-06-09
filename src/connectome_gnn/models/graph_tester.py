@@ -2822,10 +2822,12 @@ def data_test_path_integration_task(
                     (ca_u.shape[0], ca_u.shape[1], n_super),
                     dtype=ca_u.dtype, device=device)
                 if _propriocep_split:
-                    # [ω, v_extero, v_proprio, cos θ₀·δ, sin θ₀·δ]
+                    # [ω, v_fwd, ω_proprio, cos θ₀·δ, sin θ₀·δ] — channel 2
+                    # is the angular efference copy ω_proprio (= ω), routed
+                    # to motor_efferent (head-direction cells, not forward).
                     ca_u_super[..., 0] = ca_u[..., 0]
-                    ca_u_super[..., 1] = swim_fwd          # v_extero
-                    ca_u_super[..., 2] = swim_fwd          # v_proprio
+                    ca_u_super[..., 1] = swim_fwd          # v_fwd → pt-IPN1
+                    ca_u_super[..., 2] = ca_u[..., 0]      # ω_proprio → motor_efferent
                     ca_u_super[..., 3] = ca_u[..., 1]
                     ca_u_super[..., 4] = ca_u[..., 2]
                 else:
@@ -2888,6 +2890,7 @@ def data_test_path_integration_task(
             aff_cont = None
             v_fwd_blk = None
             d_info = {}
+            traj_info = {}
             try:
                 n_in = int(getattr(model, 'n_input', None)
                             or getattr(model, 'n_inputs', None)
@@ -2937,13 +2940,15 @@ def data_test_path_integration_task(
                         v_fwd_blk, device=device, dtype=torch.float32)
                     u_cont[0, 0, 2] = 1.0     # cos θ₀ = 1, sin θ₀ = 0
                 elif n_in == 5:
-                    # [ω, v_extero, v_proprio, cosθ₀, sinθ₀]
+                    # [ω, v_fwd, ω_proprio, cosθ₀, sinθ₀] — channel 2 is the
+                    # angular efference copy ω_proprio (= ω) → motor_efferent.
                     vf = torch.as_tensor(
                         v_fwd_blk, device=device, dtype=torch.float32)
-                    u_cont[0, :, 0] = torch.as_tensor(
+                    om = torch.as_tensor(
                         omega_blk, device=device, dtype=torch.float32)
-                    u_cont[0, :, 1] = vf       # v_extero
-                    u_cont[0, :, 2] = vf       # v_proprio
+                    u_cont[0, :, 0] = om
+                    u_cont[0, :, 1] = vf       # v_fwd → pt-IPN1
+                    u_cont[0, :, 2] = om       # ω_proprio → motor_efferent
                     u_cont[0, 0, 3] = 1.0     # cos θ₀ = 1, sin θ₀ = 0
                 else:
                     raise RuntimeError(f"unsupported n_in={n_in}")
@@ -2976,24 +2981,67 @@ def data_test_path_integration_task(
                     d_pred = y_c[:, d_col]
                     d_info['continuous'] = {
                         'true': d_true_cum, 'pred': d_pred}
+                # 2-D path-integration trajectory (position_2d models,
+                # readout cols 2/3 = x, y). True path is the cumulative
+                # PI reference x=∫v_fwd cosθ, y=∫v_fwd sinθ (θ from the
+                # recorded ω), matching the cumulative-d reference above;
+                # for the leaky variant the decoded path stays bounded
+                # while the reference grows.
+                if has_position_2d and y_c.shape[-1] >= 4 \
+                        and v_fwd_blk is not None:
+                    th_blk = np.cumsum(np.deg2rad(omega_blk)) * dt
+                    x_true = np.cumsum(v_fwd_blk * np.cos(th_blk)) * dt
+                    y_true = np.cumsum(v_fwd_blk * np.sin(th_blk)) * dt
+                    traj_info['continuous'] = {
+                        'true_xy': np.stack([x_true, y_true], axis=1),
+                        'pred_xy': y_c[:, 2:4]}
             except Exception as _e:
                 logger.warning(f'  [calcium] continuous rollout skipped: '
                                f'{type(_e).__name__}: {_e}')
             recon_path = os.path.join(results_dir,
                                       'test_calcium_reconstruction.png')
+            # Split the single afferent kinograph into the three velocity-gate
+            # afferent classes (ARTR / pt-IPN1 / motor_efferent), each sorted
+            # by per-cell preferred-heading angle φ_i = arg(Σ ΔF/F_i·e^{iθ})
+            # computed from the recorded ΔF/F (same sort as Fig. 15), so the
+            # real and model rows share the per-class ordering.
+            from connectome_gnn.plot_cx import (
+                _preferred_phase, _HD_ARTR_TYPES, _HD_MOTOR_EFFERENT_TYPES,
+            )
+            _AFF_CLASSES = [
+                ("ARTR",           _HD_ARTR_TYPES),
+                ("pt-IPN1",        {"pt-IPN1"}),
+                ("motor_efferent", _HD_MOTOR_EFFERENT_TYPES),
+            ]
+            _aff_types = np.asarray(_types_all)[aff_obs_ix]      # type per col
+            _theta_rad = np.cumsum(np.deg2rad(omega_blk)) * dt   # recorded HD
             ca_groups = [
                 {'name': 'bump-pool', 'real': real_kino,
                  'stitch': learned_stitch, 'continuous': learned_cont},
-                {'name': 'afferent (RIPN/pt-IPN)', 'real': real_aff,
-                 'stitch': aff_stitch, 'continuous': aff_cont},
             ]
+            for _cname, _ctypes in _AFF_CLASSES:
+                _m = np.array([str(t) in _ctypes for t in _aff_types])
+                if not _m.any():
+                    continue
+                _r = real_aff[:, _m]
+                _st = aff_stitch[:, _m] if aff_stitch is not None else None
+                _co = aff_cont[:, _m] if aff_cont is not None else None
+                # preferred-heading sort from the recorded ΔF/F of this class
+                _phi = _preferred_phase(_r, _theta_rad[:_r.shape[0]])
+                _order = np.argsort(_phi, kind="stable")
+                ca_groups.append({
+                    'name': _cname,
+                    'real': _r[:, _order],
+                    'stitch': _st[:, _order] if _st is not None else None,
+                    'continuous': _co[:, _order] if _co is not None else None,
+                })
             calcium_metrics = plot_calcium_reconstruction(
                 ca_groups, dt, recon_path,
                 title=(f'{config.dataset} → {gcamp_name} calcium '
                        f'reconstruction ({n_tile}×{n_steps_trial * dt:.0f}s '
                        f'block)'),
                 omega=omega_blk, v_fwd=v_fwd_blk,
-                hd=hd_info, d=d_info,
+                hd=hd_info, d=d_info, traj=traj_info,
                 trial_s=n_steps_trial * dt, show_stitch=False)
             logger.info(
                 f'  [calcium] {n_tile}-tile block reconstruction '

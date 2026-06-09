@@ -707,6 +707,21 @@ def get_equidistant_points(n_points=1024):
     return x, y
 
 
+def qualitative_colors(n):
+    """Return ``n`` visually distinct RGBA colours, suitable for >32
+    categorical classes (e.g. the 34 fish2 cell types) where tab10/tab20
+    repeat. Concatenates tab20 + tab20b + tab20c (60 distinct colours); for
+    ``n > 60`` falls back to sampling the perceptually-spread 'gist_ncar'
+    continuous map so every class still gets a different colour."""
+    base = []
+    for name in ("tab20", "tab20b", "tab20c"):
+        base.extend(plt.colormaps.get_cmap(name).colors)
+    if n <= len(base):
+        return [base[i] for i in range(n)]
+    cm = plt.colormaps.get_cmap("gist_ncar")
+    return [cm(i / max(n - 1, 1)) for i in range(n)]
+
+
 def compute_feve(true, pred, n_repeats=None):
     """
     Compute FEVE metric (Stringer et al.)

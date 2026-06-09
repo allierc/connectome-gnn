@@ -1104,10 +1104,10 @@ def plot_cx_anatomy_3d(
 # All _panel_* helpers below are private to this module.
 # ===========================================================================
 
-PANEL_LABEL_FS = 16
-TITLE_FS = 12
-LABEL_FS = 11
-TICK_FS = 9
+PANEL_LABEL_FS = 18
+TITLE_FS = 15
+LABEL_FS = 15
+TICK_FS = 13
 GT_COLOR = "#4daf4a"
 PRED_COLOR = "black"
 GT_LW = 2.4         # ground-truth trace line width
@@ -1123,19 +1123,159 @@ def _type_tick_fs(n_labels: int) -> float:
     return max(4.0, min(float(TICK_FS), 130.0 / max(int(n_labels), 1)))
 
 
+# --- Zebrafish HD circuit: six-way functional partition (Fig. 2) -------------
+# Same labels and colours as fig_2_connectome.py so a partition-sorted matrix
+# or kinograph here reads identically to the connectome-summary figure.
+_HD_PARTITION_ORDER = [
+    "dIPN", "IPN12", "other", "ARTR", "pt-IPN1", "motor_efferent",
+]
+_HD_PARTITION_COLOR = {
+    "dIPN":           "#d49a3a",
+    "IPN12":          "#b15a8e",
+    "ARTR":           "#1f6fb3",
+    "pt-IPN1":        "#e07b1a",
+    "motor_efferent": "#2a9d3d",
+    "other":          "#888888",
+}
+_HD_ARTR_TYPES = {"RIPN01", "RIPN02", "RIPN03_a", "RIPN03_b"}
+_HD_MOTOR_EFFERENT_TYPES = {"RIPN11", "RIPN12_a", "RIPN12_c"}
+
+
+def _hd_partition_of(name: str) -> str:
+    """Map a fish2 cell-type name to its six-way functional partition."""
+    if name in _HD_ARTR_TYPES:
+        return "ARTR"
+    if name in _HD_MOTOR_EFFERENT_TYPES:
+        return "motor_efferent"
+    if name == "pt-IPN1":
+        return "pt-IPN1"
+    if name.startswith("IPN12"):
+        return "IPN12"
+    if name.startswith("IPNds") or name.startswith("IPNd"):
+        return "dIPN"
+    return "other"
+
+
+def _hd_partition_ids(neuron_types, type_names) -> "np.ndarray | None":
+    """Per-neuron partition label, or None when the vocab isn't fish2-like
+    (the fly CX circuit has different cell-type names and gets no
+    partition sort)."""
+    names = list(type_names)
+    nt = np.asarray(neuron_types).astype(int)
+    fish_keys = {"IPNd", "IPNds", "IPN12_a", "IPN12_b", "RIPN01", "RIPN11",
+                 "pt-IPN1"}
+    if not any(any(k in n for k in fish_keys) for n in names):
+        return None
+    return np.array([_hd_partition_of(names[int(t)]) for t in nt],
+                    dtype=object)
+
+
+def _hd_partition_sort(partition: np.ndarray) -> np.ndarray:
+    """Stable argsort that puts neurons in PARTITION_ORDER groups."""
+    key = {k: i for i, k in enumerate(_HD_PARTITION_ORDER)}
+    rank = np.array([key.get(p, len(_HD_PARTITION_ORDER))
+                     for p in partition])
+    return np.argsort(rank, kind="stable")
+
+
+def _hd_set_partition_ticks(ax, part_sorted, *, axis="both",
+                            fontsize=10, rotation=30):
+    """Place the six partition-group names at each block centre."""
+    key = {k: i for i, k in enumerate(_HD_PARTITION_ORDER)}
+    rank = np.array([key.get(p, len(_HD_PARTITION_ORDER))
+                     for p in part_sorted])
+    changes = np.where(np.diff(rank) != 0)[0] + 0.5
+    bnds = np.concatenate([[0], changes + 0.5, [rank.size]])
+    centres = (bnds[:-1] + bnds[1:]) / 2 - 0.5
+    lab = [part_sorted[int(round(c))] for c in centres]
+    if axis in ("x", "both"):
+        ax.set_xticks(centres)
+        ax.set_xticklabels(lab, fontsize=fontsize, rotation=rotation,
+                            ha="right")
+    if axis in ("y", "both"):
+        ax.set_yticks(centres)
+        ax.set_yticklabels(lab, fontsize=fontsize)
+
+
+def _hd_draw_partition_boundaries(ax, part_sorted, *, color="k", lw=0.4,
+                                   alpha=0.7, axis="both"):
+    """Draw the boundary lines between the six partition groups."""
+    key = {k: i for i, k in enumerate(_HD_PARTITION_ORDER)}
+    rank = np.array([key.get(p, len(_HD_PARTITION_ORDER))
+                     for p in part_sorted])
+    for x in np.where(np.diff(rank) != 0)[0] + 0.5:
+        if axis in ("x", "both"):
+            ax.axvline(x, color=color, lw=lw, alpha=alpha)
+        if axis in ("y", "both"):
+            ax.axhline(x, color=color, lw=lw, alpha=alpha)
+
+
+def _preferred_phase(h_traj: np.ndarray, theta: np.ndarray) -> np.ndarray:
+    """Per-neuron preferred heading phase φ_i =
+    arg( Σ_t (h_i(t) − <h_i>) · e^{iθ(t)} ).
+    Mirrors fig_kinographs_const_omega._preferred_phase (drosophila CX
+    Fig. 13, third row sort)."""
+    h = np.asarray(h_traj)
+    th = np.asarray(theta)
+    act = h - h.mean(axis=0, keepdims=True)
+    return np.arctan2((act * np.sin(th)[:, None]).sum(axis=0),
+                      (act * np.cos(th)[:, None]).sum(axis=0))
+
+
+def _preferred_d(h_traj: np.ndarray, d_traj: np.ndarray) -> np.ndarray:
+    """Per-neuron preferred forward-distance signed-correlation
+    ρ_i = corr(h_i(t), d(t)), in [-1, 1]. Positive ρ -> neuron is
+    activated by forward swim; negative ρ -> suppressed. This is the
+    scalar analogue of _preferred_phase for translation-only tasks,
+    where the target is a 1-D integrated distance d rather than an
+    angular heading θ.
+    """
+    h = np.asarray(h_traj)
+    d = np.asarray(d_traj)
+    T_min = min(h.shape[0], d.size)
+    h = h[:T_min]
+    d = d[:T_min]
+    act = h - h.mean(axis=0, keepdims=True)
+    drv = d - d.mean()
+    num = (act * drv[:, None]).sum(axis=0)
+    denom = np.sqrt((act ** 2).sum(axis=0)) * np.sqrt((drv ** 2).sum())
+    out = np.zeros(h.shape[1], dtype=np.float64)
+    mask = denom > 1e-12
+    out[mask] = num[mask] / denom[mask]
+    return out
+
+
 def _panel_label(ax, letter: str):
     ax.text(-0.12, 1.02, letter, transform=ax.transAxes,
             fontsize=PANEL_LABEL_FS, fontweight="bold",
             va="bottom", ha="right")
 
 
-def _panel_matrix(ax, M: np.ndarray, neuron_types, type_names, title: str):
+def _panel_matrix(ax, M: np.ndarray, neuron_types, type_names, title: str,
+                   *, partition=None, show_cbar=True, show_title=True,
+                   show_axis_labels=True):
     """Type-pair grouped W matrix, zero-centred signed-sqrt scaled and
-    edge-dilated so individual synapses are visible at panel resolution."""
+    edge-dilated so individual synapses are visible at panel resolution.
+
+    When ``partition`` is a per-neuron partition vector (six-way
+    functional partition from Fig. 2 — dIPN / IPN12 / other / ARTR /
+    pt-IPN1 / motor_efferent), rows and columns are reordered into
+    those partition blocks, the tick labels become the six partition
+    group names, and boundary lines mark the block edges. Otherwise
+    the legacy cell-type sort is used.
+    """
     if M is None:
         ax.text(0.5, 0.5, "no matrix", ha="center", va="center",
                 transform=ax.transAxes); ax.axis("off"); return
     Marr = np.asarray(M, dtype=np.float32)
+    nt = np.asarray(neuron_types)
+    if partition is not None and len(partition) == Marr.shape[0]:
+        perm = _hd_partition_sort(np.asarray(partition, dtype=object))
+        Marr = Marr[np.ix_(perm, perm)]
+        nt = nt[perm]
+        part_sorted = np.asarray(partition, dtype=object)[perm]
+    else:
+        part_sorted = None
     nz = np.abs(Marr[Marr != 0])
     # Zero-centred, sign-preserving scale (red = excitatory, blue =
     # inhibitory) so EVERY non-zero edge gets a clear colour. A mean-
@@ -1158,8 +1298,11 @@ def _panel_matrix(ax, M: np.ndarray, neuron_types, type_names, title: str):
     # the leftmost column's panel label (placed via ax.transAxes) aligns
     # with the leftmost column of every other row.
     ax.set_anchor("NW")
-    nt = np.asarray(neuron_types)
-    if nt.size:
+    if part_sorted is not None:
+        _hd_draw_partition_boundaries(ax, part_sorted)
+        _hd_set_partition_ticks(ax, part_sorted, fontsize=TICK_FS,
+                                 rotation=45)
+    elif nt.size:
         order = np.argsort(nt, kind="stable")
         b = np.where(np.diff(nt[order]) != 0)[0] + 0.5
         for x in b:
@@ -1172,12 +1315,15 @@ def _panel_matrix(ax, M: np.ndarray, neuron_types, type_names, title: str):
         ax.set_xticks(centres); ax.set_xticklabels(labels, fontsize=type_fs,
                                                      rotation=45, ha="right")
         ax.set_yticks(centres); ax.set_yticklabels(labels, fontsize=type_fs)
-    ax.set_title(title, fontsize=TITLE_FS)
-    ax.set_xlabel("presynaptic", fontsize=LABEL_FS)
-    ax.set_ylabel("postsynaptic", fontsize=LABEL_FS)
-    cb = plt.colorbar(im, ax=ax, fraction=0.04, pad=0.02, shrink=0.85)
-    cb.set_label(r"sign$\cdot\sqrt{|W|}$ (norm.)", fontsize=LABEL_FS)
-    cb.ax.tick_params(labelsize=TICK_FS)
+    if show_title and title:
+        ax.set_title(title, fontsize=TITLE_FS)
+    if show_axis_labels:
+        ax.set_xlabel("presynaptic", fontsize=LABEL_FS)
+        ax.set_ylabel("postsynaptic", fontsize=LABEL_FS)
+    if show_cbar:
+        cb = plt.colorbar(im, ax=ax, fraction=0.04, pad=0.02, shrink=0.85)
+        cb.set_label(r"sign$\cdot\sqrt{|W|}$ (norm.)", fontsize=LABEL_FS)
+        cb.ax.tick_params(labelsize=TICK_FS)
 
 
 def _panel_weight_scatter(ax, W_con, W_rec):
@@ -1208,7 +1354,7 @@ def _panel_weight_scatter(ax, W_con, W_rec):
     if slope != 0:
         y = y / slope
     r = float(np.corrcoef(x, y)[0, 1]) if x.size > 1 else float("nan")
-    ax.scatter(x, y, s=4, alpha=0.25, color="0.25", edgecolors="none",
+    ax.scatter(x, y, s=4, alpha=0.5, color="0.25", edgecolors="none",
                rasterized=True)
     lo = float(min(x.min(), y.min())); hi = float(max(x.max(), y.max()))
     pad = 0.05 * (hi - lo + 1e-9)
@@ -1218,7 +1364,6 @@ def _panel_weight_scatter(ax, W_con, W_rec):
     ax.set_xlim(lo, hi); ax.set_ylim(lo, hi)
     ax.set_aspect("equal", adjustable="box")
     ax.set_anchor("NW")
-    ax.set_title(rf"true vs. learned  ($r={r:.3f}$)", fontsize=TITLE_FS)
     ax.set_xlabel(r"GT $W^{\mathrm{con}}_{ij}$", fontsize=LABEL_FS)
     ax.set_ylabel(r"learned $\hat W_{ij}\,/\,m$", fontsize=LABEL_FS)
     ax.tick_params(labelsize=TICK_FS)
@@ -1252,40 +1397,149 @@ def _panel_neuron_kinograph(ax, r_pop, neuron_types_sub, type_names,
 
 
 def _panel_all_neurons_kinograph(ax, r_full: np.ndarray, neuron_types,
-                                   type_names, dt_s: float):
+                                   type_names, dt_s: float,
+                                   *, partition=None, show_cbar=True):
     """Per-neuron firing-rate kinograph for ALL neurons.
 
-    Neurons are reordered by neuron type so cell-type blocks are visible.
+    When ``partition`` is supplied (six-way functional partition of
+    Fig. 2), rows are reordered into those partition blocks and tick
+    labels become the partition group names. Otherwise the legacy
+    cell-type sort is used.
+
     Z-scored per neuron (column-wise), clipped to ±3.
     """
     if r_full is None or r_full.size == 0:
         ax.text(0.5, 0.5, "no data", ha="center", va="center",
                 transform=ax.transAxes); ax.axis("off"); return
     nt = np.asarray(neuron_types)
-    order = np.argsort(nt, kind="stable")
+    if partition is not None and len(partition) == r_full.shape[1]:
+        part_arr = np.asarray(partition, dtype=object)
+        order = _hd_partition_sort(part_arr)
+        part_sorted = part_arr[order]
+    else:
+        order = np.argsort(nt, kind="stable")
+        part_sorted = None
     r_sorted = r_full[:, order]
     T = r_sorted.shape[0]
     mu = r_sorted.mean(axis=0, keepdims=True)
     sd = r_sorted.std(axis=0, keepdims=True); sd[sd < 1e-8] = 1.0
     z = ((r_sorted - mu) / sd).clip(-3.0, 3.0)
-    im = ax.imshow(z.T, aspect="auto", origin="lower", cmap="RdBu_r",
+    im = ax.imshow(z.T, aspect="auto", origin="upper", cmap="RdBu_r",
                     vmin=-3.0, vmax=3.0,
-                    extent=[0, T * dt_s, 0, z.shape[1]],
+                    extent=[0, T * dt_s, z.shape[1], 0],
                     interpolation="nearest")
-    nt_sorted = nt[order]
-    boundaries = np.where(np.diff(nt_sorted) != 0)[0] + 0.5
-    for b in boundaries:
-        ax.axhline(b, color="k", lw=0.3, alpha=0.6)
-    bounds_full = np.concatenate([[0], boundaries + 0.5, [nt_sorted.size]])
-    centres = (bounds_full[:-1] + bounds_full[1:]) / 2 - 0.5
-    labels = [type_names[int(nt_sorted[int(c)])] for c in centres]
-    ax.set_yticks(centres)
-    ax.set_yticklabels(labels, fontsize=_type_tick_fs(len(labels)))
+    if part_sorted is not None:
+        _hd_draw_partition_boundaries(ax, part_sorted, axis="y", lw=0.4)
+        # Place partition group names on the y axis (kinograph rows
+        # are neurons, columns are time). First-in-PARTITION_ORDER
+        # group (dIPN) is at the TOP — same orientation as the
+        # partition-sorted matrices in panels a/b.
+        key = {k: i for i, k in enumerate(_HD_PARTITION_ORDER)}
+        rank = np.array([key.get(p, len(_HD_PARTITION_ORDER))
+                         for p in part_sorted])
+        changes = np.where(np.diff(rank) != 0)[0] + 0.5
+        bnds = np.concatenate([[0], changes + 0.5, [rank.size]])
+        centres = (bnds[:-1] + bnds[1:]) / 2 - 0.5
+        labels = [part_sorted[int(round(c))] for c in centres]
+        ax.set_yticks(centres)
+        ax.set_yticklabels(labels, fontsize=TICK_FS)
+    else:
+        nt_sorted = nt[order]
+        boundaries = np.where(np.diff(nt_sorted) != 0)[0] + 0.5
+        for b in boundaries:
+            ax.axhline(b, color="k", lw=0.3, alpha=0.6)
+        bounds_full = np.concatenate([[0], boundaries + 0.5, [nt_sorted.size]])
+        centres = (bounds_full[:-1] + bounds_full[1:]) / 2 - 0.5
+        labels = [type_names[int(nt_sorted[int(c)])] for c in centres]
+        ax.set_yticks(centres)
+        ax.set_yticklabels(labels, fontsize=_type_tick_fs(len(labels)))
+        ax.set_ylabel("neuron type", fontsize=LABEL_FS)
     ax.set_xlabel("time (s)", fontsize=LABEL_FS)
-    ax.set_ylabel("neuron type", fontsize=LABEL_FS)
     ax.tick_params(axis="x", labelsize=TICK_FS)
-    cb = plt.colorbar(im, ax=ax, fraction=0.04, pad=0.02, shrink=0.85)
-    cb.ax.tick_params(labelsize=TICK_FS)
+    if show_cbar:
+        cb = plt.colorbar(im, ax=ax, fraction=0.04, pad=0.02, shrink=0.85)
+        cb.ax.tick_params(labelsize=TICK_FS)
+
+
+def _panel_phase_sorted_kinograph(ax, r_full: np.ndarray, theta_traj,
+                                    dt_s: float, *, partition=None,
+                                    show_cbar=True, sort_key=None,
+                                    sort_label=r"$\varphi$"):
+    """Per-neuron z-scored firing-rate kinograph with rows reordered by
+    a scalar sort key. By default the key is the preferred heading
+    phase φ_i = arg( Σ_t (r_i(t) − <r_i>) · e^{iθ(t)} ) computed from
+    ``theta_traj`` (drosophila Fig. 13 row 3 sort). When the caller
+    supplies its own ``sort_key`` (per-neuron 1-D array), that array
+    is used instead — useful for translation tasks where the natural
+    sort is preferred-d ρ_i = corr(r_i, d(t)) (see
+    :func:`_preferred_d`).
+
+    When ``partition`` is supplied, the partition blocks of panels a /
+    b / d are preserved (dIPN, IPN12, other, ARTR, pt-IPN1,
+    motor_efferent — top to bottom), and rows are reordered by the
+    sort key *within each block* (drosophila Fig. 13 row 2 sort).
+    """
+    if r_full is None or r_full.size == 0:
+        ax.text(0.5, 0.5, "no data", ha="center", va="center",
+                transform=ax.transAxes); ax.axis("off"); return
+    r = np.asarray(r_full)
+    if sort_key is None:
+        if theta_traj is None:
+            ax.text(0.5, 0.5, "no data", ha="center", va="center",
+                    transform=ax.transAxes); ax.axis("off"); return
+        th = np.asarray(theta_traj)
+        T_min = min(r.shape[0], th.size)
+        r = r[:T_min]
+        th = th[:T_min]
+        phi = _preferred_phase(r, th)
+    else:
+        phi = np.asarray(sort_key)
+        if phi.size != r.shape[1]:
+            ax.text(0.5, 0.5, "no data", ha="center", va="center",
+                    transform=ax.transAxes); ax.axis("off"); return
+    if partition is not None and len(partition) == r.shape[1]:
+        # Partition-primary, phase-secondary sort. ``lexsort`` sorts by
+        # the LAST key first, so we pass (phi, rank) — rank is primary,
+        # phi is the within-group tiebreaker.
+        part_arr = np.asarray(partition, dtype=object)
+        key = {k: i for i, k in enumerate(_HD_PARTITION_ORDER)}
+        rank = np.array([key.get(p, len(_HD_PARTITION_ORDER))
+                         for p in part_arr])
+        order = np.lexsort((phi, rank))
+        part_sorted = part_arr[order]
+    else:
+        order = np.argsort(phi, kind="stable")
+        part_sorted = None
+    r_sorted = r[:, order]
+    T = r_sorted.shape[0]
+    mu = r_sorted.mean(axis=0, keepdims=True)
+    sd = r_sorted.std(axis=0, keepdims=True); sd[sd < 1e-8] = 1.0
+    z = ((r_sorted - mu) / sd).clip(-3.0, 3.0)
+    # Same orientation as panel d: origin="upper" + extent flipped on
+    # the y axis so the first sort key (dIPN) sits at the top.
+    im = ax.imshow(z.T, aspect="auto", origin="upper", cmap="RdBu_r",
+                    vmin=-3.0, vmax=3.0,
+                    extent=[0, T * dt_s, z.shape[1], 0],
+                    interpolation="nearest")
+    if part_sorted is not None:
+        _hd_draw_partition_boundaries(ax, part_sorted, axis="y", lw=0.4)
+        key2 = {k: i for i, k in enumerate(_HD_PARTITION_ORDER)}
+        rank2 = np.array([key2.get(p, len(_HD_PARTITION_ORDER))
+                          for p in part_sorted])
+        changes = np.where(np.diff(rank2) != 0)[0] + 0.5
+        bnds = np.concatenate([[0], changes + 0.5, [rank2.size]])
+        centres = (bnds[:-1] + bnds[1:]) / 2 - 0.5
+        labels = [part_sorted[int(round(c))] for c in centres]
+        ax.set_yticks(centres)
+        ax.set_yticklabels(labels, fontsize=TICK_FS)
+    else:
+        ax.set_ylabel(rf"neuron (sorted by {sort_label})",
+                      fontsize=LABEL_FS)
+    ax.set_xlabel("time (s)", fontsize=LABEL_FS)
+    ax.tick_params(axis="x", labelsize=TICK_FS)
+    if show_cbar:
+        cb = plt.colorbar(im, ax=ax, fraction=0.04, pad=0.02, shrink=0.85)
+        cb.ax.tick_params(labelsize=TICK_FS)
 
 
 def _panel_population_kinograph(ax, rollout: dict, epg_theta: np.ndarray,
@@ -1351,13 +1605,9 @@ def _draw_rotation_track(ax_drive, ax_track, t_axis, u_col, true_theta,
     ax_drive.axhline(0, color="0.7", lw=0.3)
     ax_drive.set_ylabel("ω (°/s)", fontsize=LABEL_FS)
     ax_drive.tick_params(labelsize=TICK_FS, labelbottom=False)
-    err = np.angle(np.exp(1j * (dec_theta - true_theta)))
-    rmse_deg = float(np.degrees(np.sqrt(np.mean(err ** 2))))
-    r_str = _hd_track_r_str(true_theta, dec_theta, warmup)
-    ax_drive.set_title(
-        f"{title_prefix}constant-ω rollout  ({r_str},  RMSE = {rmse_deg:.1f}°)",
-        fontsize=TITLE_FS,
-    )
+    # Title carried by the LaTeX caption (CLAUDE.md rule). The r and
+    # RMSE annotations live inside the panel via fig-level text where
+    # callers want them, not on a per-panel title.
 
     true_wrap = np.angle(np.exp(1j * true_theta))
     dec_wrap = np.angle(np.exp(1j * dec_theta))
@@ -1378,13 +1628,7 @@ def _draw_translation_track(ax_drive, ax_track, t_axis, u_col, true_xi,
     ax_drive.axhline(0, color="0.7", lw=0.3)
     ax_drive.set_ylabel(r"$v_{\mathrm{fwd}}$", fontsize=LABEL_FS)
     ax_drive.tick_params(labelsize=TICK_FS, labelbottom=False)
-    rmse = float(np.sqrt(np.mean((dec_xi - true_xi) ** 2)))
-    r_str = _xi_track_r_str(true_xi, dec_xi, warmup)
-    ax_drive.set_title(
-        f"{title_prefix}constant-$v_{{\\mathrm{{fwd}}}}$ rollout  "
-        f"({r_str},  RMSE = {rmse:.2f})",
-        fontsize=TITLE_FS,
-    )
+    # Title carried by the LaTeX caption (CLAUDE.md rule).
     ax_track.plot(t_axis, true_xi, color=GT_COLOR, lw=1.2)
     ax_track.plot(t_axis, dec_xi,  color=PRED_COLOR, lw=0.8)
     ax_track.set_ylabel(r"$d$", fontsize=LABEL_FS)
@@ -1453,12 +1697,9 @@ def _panel_hd_tracking_stacked(fig, subplotspec, rollout: dict, dt_s: float,
                 if a.std() > 1e-8 and b.std() > 1e-8:
                     rs.append(float(np.corrcoef(a, b)[0, 1]))
             r_str = f"r̄ = {np.mean(rs):.3f}" if rs else "r̄ = n/a"
-            ax_xy.set_title(
-                f"2D path  ({r_str},  RMSE = {rmse_xy:.2f})",
-                fontsize=TITLE_FS,
-            )
+            pass  # title carried by LaTeX caption
         else:
-            ax_xy.set_title("2D path", fontsize=TITLE_FS)
+            pass  # title carried by LaTeX caption
         ax_xy.plot(true_xy[:, 0], true_xy[:, 1], color=GT_COLOR, lw=1.0,
                    label="GT")
         ax_xy.plot(dec_xy[:, 0],  dec_xy[:, 1],  color=PRED_COLOR, lw=0.8,
@@ -1578,7 +1819,7 @@ def _panel_trial_rollout(fig, subplotspec, test_trial: dict):
         ax_drive.set_ylabel("ω (°/s)", fontsize=LABEL_FS)
         ax_drive.tick_params(labelsize=TICK_FS, labelbottom=False)
         if is_top:
-            ax_drive.set_title(title_prefix.rstrip(), fontsize=TITLE_FS)
+            pass  # title carried by LaTeX caption
         # Heading in y[:, 0:2] in both rotation-only and both modes.
         theta_true = np.arctan2(y_true[:, 1], y_true[:, 0])
         theta_pred = np.arctan2(y_pred[:, 1], y_pred[:, 0])
@@ -1598,7 +1839,7 @@ def _panel_trial_rollout(fig, subplotspec, test_trial: dict):
         ax_drive.set_ylabel(r"$v_{\mathrm{fwd}}$", fontsize=LABEL_FS)
         ax_drive.tick_params(labelsize=TICK_FS, labelbottom=False)
         if is_top:
-            ax_drive.set_title(title_prefix.rstrip(), fontsize=TITLE_FS)
+            pass  # title carried by LaTeX caption
         ax_track.plot(t_axis, y_true[:, xi_col_idx], color=GT_COLOR, lw=1.2)
         ax_track.plot(t_axis, y_pred[:, xi_col_idx], color=PRED_COLOR, lw=0.8)
         ax_track.set_ylabel(r"$d$", fontsize=LABEL_FS)
@@ -1620,7 +1861,7 @@ def _panel_trial_rollout(fig, subplotspec, test_trial: dict):
         ax_w.plot(t_axis, u[:, 0], color=GT_COLOR, lw=0.8)
         ax_w.axhline(0, color="0.7", lw=0.3)
         ax_w.set_ylabel("ω (°/s)", fontsize=LABEL_FS)
-        ax_w.set_title(title_prefix.rstrip(), fontsize=TITLE_FS)
+        pass  # title carried by LaTeX caption
         ax_w.tick_params(labelsize=TICK_FS, labelbottom=False)
         ax_vf.plot(t_axis, u[:, 1], color=GT_COLOR, lw=0.8)
         ax_vf.axhline(0, color="0.7", lw=0.3)
@@ -1947,7 +2188,7 @@ def _panel_calcium_compare(ax, cp):
 
 def plot_calcium_reconstruction(groups, dt, out_path, title=None,
                                 omega=None, v_fwd=None,
-                                hd=None, d=None, trial_s=None,
+                                hd=None, d=None, traj=None, trial_s=None,
                                 show_stitch=True):
     """Full-block (~600 s) real-vs-learned calcium reconstruction figure.
 
@@ -2032,15 +2273,32 @@ def plot_calcium_reconstruction(groups, dt, out_path, title=None,
     for key, sub in _ROLLOUTS:
         if key in d:
             specs.append(("d", (sub, d[key]), 1.4))
+    # 2-D path-integration trajectory (x–y spatial path) — used in place of
+    # the scalar-d panel for position_2d models. Tall + square aspect.
+    traj = traj or {}
+    for key, sub in _ROLLOUTS:
+        if key in traj:
+            specs.append(("traj", (sub, traj[key]), 4.0))
 
     ratios = [r for _, _, r in specs]
-    fig, axs = plt.subplots(len(specs), 1, sharex=True,
-                            figsize=(13, 0.92 * sum(ratios)),
-                            gridspec_kw=dict(height_ratios=ratios),
-                            squeeze=False)
-    axl = axs[:, 0]
+    fig = plt.figure(figsize=(13, 0.92 * sum(ratios)))
+    gs = fig.add_gridspec(len(specs), 1, height_ratios=ratios)
+    # The trajectory panel is a spatial x–y plot and must NOT inherit the
+    # seconds x-axis shared by the kinograph / time-trace panels above it,
+    # so build axes by hand and share x only among the non-traj panels.
+    time_idx = [i for i, (k, _, _) in enumerate(specs) if k != "traj"]
+    last_time_i = time_idx[-1] if time_idx else (len(specs) - 1)
+    axl = np.empty(len(specs), dtype=object)
+    share_ax = None
+    for i, (kind, _p, _r) in enumerate(specs):
+        if kind == "traj":
+            axl[i] = fig.add_subplot(gs[i, 0])
+        else:
+            axl[i] = fig.add_subplot(gs[i, 0], sharex=share_ax)
+            if share_ax is None:
+                share_ax = axl[i]
     for i, (ax, (kind, payload, _r)) in enumerate(zip(axl, specs)):
-        bottom = (i == len(specs) - 1)
+        bottom = (i == last_time_i)
         if kind == "omega":
             ax.plot(t, np.asarray(omega)[:T], color="0.2", lw=0.8)
             ax.axhline(0, color="0.7", lw=0.4)
@@ -2068,7 +2326,7 @@ def plot_calcium_reconstruction(groups, dt, out_path, title=None,
             ax.text(0.005, 0.97, sub, transform=ax.transAxes, va="top",
                     ha="left", fontsize=TICK_FS)
             ax.legend(fontsize=TICK_FS, loc="upper right", framealpha=0.5)
-        else:  # kind == "d"  (translation true vs predicted)
+        elif kind == "d":  # translation true vs predicted (scalar distance)
             sub, dk = payload
             d_true = np.asarray(dk["true"])[:T]
             d_pred = np.asarray(dk["pred"])[:T]
@@ -2079,16 +2337,35 @@ def plot_calcium_reconstruction(groups, dt, out_path, title=None,
             ax.text(0.005, 0.97, sub, transform=ax.transAxes, va="top",
                     ha="left", fontsize=TICK_FS)
             ax.legend(fontsize=TICK_FS, loc="upper right", framealpha=0.5)
-        ax.tick_params(labelsize=TICK_FS, labelbottom=bottom)
-        if bottom:
-            ax.set_xlabel("time (s)", fontsize=LABEL_FS)
+        else:  # kind == "traj"  (2-D path, decoded vs true, spatial x–y)
+            sub, tk = payload
+            xy_t = np.asarray(tk["true_xy"], np.float64)[:T]
+            xy_p = np.asarray(tk["pred_xy"], np.float64)[:T]
+            ax.plot(xy_t[:, 0], xy_t[:, 1], color=GREEN, lw=1.0,
+                    label="true (cumulative PI)")
+            ax.plot(xy_p[:, 0], xy_p[:, 1], color="black", lw=0.8,
+                    label="decoded")
+            ax.scatter([xy_t[0, 0]], [xy_t[0, 1]], s=18, color="0.3",
+                       zorder=5, label="start")
+            ax.set_aspect("equal", adjustable="datalim")
+            ax.set_xlabel(r"$x$", fontsize=LABEL_FS)
+            ax.set_ylabel(r"$y$", fontsize=LABEL_FS)
+            ax.text(0.005, 0.97, sub, transform=ax.transAxes, va="top",
+                    ha="left", fontsize=TICK_FS)
+            ax.legend(fontsize=TICK_FS, loc="best", framealpha=0.5)
+        if kind == "traj":
+            ax.tick_params(labelsize=TICK_FS, labelbottom=True)
+        else:
+            ax.tick_params(labelsize=TICK_FS, labelbottom=bottom)
+            if bottom:
+                ax.set_xlabel("time (s)", fontsize=LABEL_FS)
 
     # 10 s (one stitch trial) scale bar, lower-right of the bottom panel — x in
     # data (seconds), y in axes fraction. A white halo keeps it legible whether
     # the bottom panel is a (dark) kinograph or a (white) HD trace.
     if trial_s:
         import matplotlib.patheffects as pe
-        ax = axl[-1]
+        ax = axl[last_time_i]
         tr = ax.get_xaxis_transform()
         x1 = T * dt * 0.99
         x0 = x1 - trial_s
@@ -2138,7 +2415,9 @@ def _panel_embedding(ax, net, neuron_types, type_names):
     emb = net.a.detach().cpu().numpy()
     nt = np.asarray(neuron_types).astype(int)
     n_types = len(type_names)
-    palette = plt.get_cmap("tab10").colors
+    # LUT good for >32 cell types (tab10 repeats after 10).
+    from connectome_gnn.utils import qualitative_colors
+    palette = qualitative_colors(n_types)
     for t in range(n_types):
         mask = (nt == t)
         if not mask.any():
@@ -2268,7 +2547,69 @@ def _panel_integration_gain(ax, gain_data, dt: float, warmup: int = 10):
     ax.set_anchor("NW")
     ax.set_xlabel("true ω (°/s)", fontsize=LABEL_FS)
     ax.set_ylabel("measured slope (°/s)", fontsize=LABEL_FS)
-    ax.set_title("integration gain  (target: y = x)", fontsize=TITLE_FS)
+    # Title carried by the LaTeX caption.
+
+
+def _panel_translation_gain(ax, gain_data, dt: float, warmup: int = 10):
+    """Translation companion of :func:`_panel_integration_gain`:
+    scatter of measured d-slope vs true v_fwd. For each rollout the
+    decoded ξ trajectory is linearly fit on the post-warmup window;
+    the slope is plotted against the constant v_fwd that drove the
+    rollout (gain = slope / v_fwd; perfect integrator → unit slope).
+
+    No-op (axes hidden) when no rollout in ``gain_data`` decodes ξ
+    (e.g. rotation-only models)."""
+    if not gain_data or "decoded_xi" not in (gain_data[0][1] or {}):
+        ax.set_axis_off()
+        return
+    vs, slopes = [], []
+    for v_fwd, ro in gain_data:
+        dec = np.asarray(ro["decoded_xi"])
+        T = dec.size
+        t = np.arange(T) * dt
+        if T <= warmup:
+            continue
+        d_post = dec[warmup:]
+        t_post = t[warmup:]
+        if d_post.std() < 1e-8 or t_post.size < 2:
+            slope = 0.0
+        else:
+            slope, _ = np.polyfit(t_post, d_post, 1)
+        vs.append(float(v_fwd))
+        slopes.append(float(slope))
+    vs = np.array(vs); slopes = np.array(slopes)
+    lim = max(float(np.abs(vs).max()),
+               float(np.abs(slopes).max()) if slopes.size else 1.0,
+               1.0) * 1.10
+    ax.plot([-lim, lim], [-lim, lim], color="0.5", lw=0.8, ls="--")
+    ax.axhline(0, color="0.8", lw=0.4)
+    ax.axvline(0, color="0.8", lw=0.4)
+
+    linearity_tol = 0.25
+    valid = np.abs(vs) > 1e-8
+    gains = np.full_like(vs, np.nan)
+    gains[valid] = slopes[valid] / vs[valid]
+    linear_mask = np.isfinite(gains) & (np.abs(gains - 1.0) <= linearity_tol)
+    if linear_mask.sum() >= 2:
+        v_ok = vs[linear_mask]
+        v_lo, v_hi = float(v_ok.min()), float(v_ok.max())
+        ax.axvspan(v_lo, v_hi, color="0.6", alpha=0.18, zorder=0)
+        domain_str = f"linear: $[{v_lo:+.1f}, {v_hi:+.1f}]$"
+    else:
+        domain_str = "linear: none"
+
+    ax.scatter(vs, slopes, s=10, c=PRED_COLOR, zorder=3)
+    ax.text(0.03, 0.97, domain_str, transform=ax.transAxes,
+             va="top", ha="left", fontsize=TICK_FS,
+             bbox=dict(facecolor="white", edgecolor="none", alpha=0.8,
+                        boxstyle="round,pad=0.2"))
+
+    ax.set_xlim(-lim, lim); ax.set_ylim(-lim, lim)
+    ax.set_aspect("equal", adjustable="box")
+    ax.set_anchor("NW")
+    ax.set_xlabel(r"true $v_{\mathrm{fwd}}$", fontsize=LABEL_FS)
+    ax.set_ylabel(r"measured slope $\hat d / s$", fontsize=LABEL_FS)
+    # Title carried by the LaTeX caption.
     ax.tick_params(labelsize=TICK_FS)
 
 
@@ -2301,6 +2642,12 @@ def plot_cx_evolution(data: dict, out_path: str, *,
     # figsize and gridspec match.
     _kind_early = data.get("task_kind", "hd")
     _is_both = (n_rows == 4 and _kind_early == "both")
+    # Tasks whose f/g panels stack ω + v_fwd + integrated quantity
+    # (vs. just ω + heading for rotation-only): both (4 rows) and
+    # position_2d (3 rows including the 2D path plot). These need a
+    # wider hspace so the panel labels e/f/g/h clear the partition
+    # tick labels at the bottom of d.
+    _is_xy = (n_rows == 4 and _kind_early == "xy")
     if n_rows == 2:
         figsize = (20, 9.5)
     elif n_rows == 4:
@@ -2324,7 +2671,15 @@ def plot_cx_evolution(data: dict, out_path: str, *,
             hspace=0.18,
             left=0.05, right=0.97, top=0.97, bottom=0.04,
         )
-        gs_top = outer[0].subgridspec(2, 4, hspace=0.55, wspace=0.42)
+        # Vertical gap between the two upper rows. The "both" and
+        # "xy" (position_2d) tasks have multi-stack rollout panels
+        # (f, g) with extra sub-axes (ω, v_fwd, ...) that consume
+        # more vertical space in row 2 and push the panel labels
+        # e / f / g / h up against the partition tick labels at the
+        # bottom of d — wider hspace clears them.
+        _gs_top_hspace = 1.4 if (_is_both or _is_xy) else 1.0
+        gs_top = outer[0].subgridspec(
+            2, 4, hspace=_gs_top_hspace, wspace=0.42)
         gs_bot = outer[1].subgridspec(n_test_rows, 5,
                                        hspace=0.55, wspace=0.30)
         # `gs` kept as an alias so the older n_rows<4 path below still
@@ -2362,51 +2717,111 @@ def plot_cx_evolution(data: dict, out_path: str, *,
     # 3-row layout) so the evolution figure stays at 8 panels (a–h).
     ax_h = _ax_top(1, 3)
 
+    # Partition vector (six-way fish2 functional partition of Fig. 2):
+    # used to sort the matrix and kinograph rows into anatomically
+    # meaningful blocks. Returns None on non-fish2 vocabularies so the
+    # legacy cell-type sort still kicks in for the drosophila CX
+    # evolution figure.
+    _hd_part = _hd_partition_ids(
+        data["neuron_types"], data["type_names"])
+
+    # Panels a (GT W_con) and b (learned W_rec): partition-sorted, no
+    # colorbar, no title — labels carried by the LaTeX caption.
     _panel_matrix(ax_a, data["W_con"],
-                   data["neuron_types"], data["type_names"],
-                   "GT $W_{\\mathrm{con}}$")
+                   data["neuron_types"], data["type_names"], "",
+                   partition=_hd_part, show_cbar=False, show_title=False)
     _panel_label(ax_a, "a")
 
+    # Panel b drops the presynaptic/postsynaptic axis labels — they're
+    # already on a in the same row, no need to repeat.
     _panel_matrix(ax_b, data["W_rec"],
-                   data["neuron_types"], data["type_names"],
-                   "learned $\\hat W_{\\mathrm{rec}}$")
+                   data["neuron_types"], data["type_names"], "",
+                   partition=_hd_part, show_cbar=False, show_title=False,
+                   show_axis_labels=False)
     _panel_label(ax_b, "b")
 
     nt = np.asarray(data["neuron_types"])
 
-    # (c) scatter of true (W_con) vs learned (W_rec) edge weights.
+    # (c) scatter of true (W_con) vs learned (W_rec) edge weights —
+    # title stripped, alpha bumped to 0.5 (handled inside the helper).
     _panel_weight_scatter(ax_c, data["W_con"], data["W_rec"])
     _panel_label(ax_c, "c")
 
     bump_label = data.get("bump_label", "EPG")
-    # (d) all-neuron kinograph (previously panel c).
+    # (d) all-neuron kinograph, partition-sorted, no colorbar.
+    r_traj = np.asarray(data["rollout"]["r"])
     _panel_all_neurons_kinograph(
-        ax_d, np.asarray(data["rollout"]["r"]),
+        ax_d, r_traj,
         neuron_types=data["neuron_types"], type_names=data["type_names"],
         dt_s=data["dt_s"],
+        partition=_hd_part, show_cbar=False,
     )
     _panel_label(ax_d, "d")
 
-    epg_indices = data["net"].epg_indices
-    _panel_neuron_kinograph(
-        ax_e, np.asarray(data["rollout"]["r_epg"]),
-        neuron_types_sub=nt[epg_indices], type_names=data["type_names"],
-        dt_s=data["dt_s"], ylabel=f"{bump_label} neuron",
-    )
+    # (e) same all-neuron rate kinograph but rows reordered within
+    # each partition block by a task-appropriate scalar tuning:
+    #   rotation models (heading available) → preferred phase φ_i
+    #     = arg(Σ act · e^{iθ}) — drosophila Fig. 13 row 2 sort.
+    #   translation-only models (no heading) → preferred-d
+    #     ρ_i = corr(act_i, d(t)) — same idea for a 1-D target.
+    # Falls back to the EPG sub-population kinograph on non-fish2
+    # circuits.
+    _rollout = data["rollout"]
+    _theta_for_phase = None
+    for _k in ("true_theta", "theta"):
+        if _k in _rollout:
+            _theta_for_phase = np.asarray(_rollout[_k]); break
+    _d_for_corr = None
+    for _k in ("true_xi", "xi"):
+        if _k in _rollout:
+            _d_for_corr = np.asarray(_rollout[_k]); break
+    if _hd_part is not None and _theta_for_phase is not None:
+        _panel_phase_sorted_kinograph(
+            ax_e, r_traj, _theta_for_phase, dt_s=data["dt_s"],
+            partition=_hd_part, show_cbar=False,
+        )
+    elif _hd_part is not None and _d_for_corr is not None:
+        # Translation-only model: sort within partition by per-neuron
+        # correlation with d(t). Positive-ρ neurons cluster at the
+        # top of each block, negative-ρ at the bottom.
+        _sort_d = _preferred_d(r_traj, _d_for_corr)
+        _panel_phase_sorted_kinograph(
+            ax_e, r_traj, None, dt_s=data["dt_s"],
+            partition=_hd_part, sort_key=_sort_d,
+            sort_label=r"$\rho(\cdot, d)$", show_cbar=False,
+        )
+    else:
+        epg_indices = data["net"].epg_indices
+        _panel_neuron_kinograph(
+            ax_e, np.asarray(data["rollout"]["r_epg"]),
+            neuron_types_sub=nt[epg_indices], type_names=data["type_names"],
+            dt_s=data["dt_s"], ylabel=f"{bump_label} neuron",
+        )
     _panel_label(ax_e, "e")
 
     _panel_label(ax_f_top, "f")
     _panel_label(ax_g_top, "g")
 
     # Panel h: calcium-comparison plot for observation-loss runs, or
-    # the integration-gain scatter (was panel i) for task-only runs.
+    # the integration-gain scatter for task-only runs. For
+    # rotation-bearing models (rotation, both, position_2d) the
+    # rotation gain is shown (measured slope of decoded heading vs
+    # true ω); for translation-only models the translation gain is
+    # shown instead (measured slope of decoded d vs true v_fwd) — the
+    # natural companion of the rotation gain when the integrated
+    # quantity is forward distance rather than heading.
+    _dt_for_h = (data["test_trial"]["dt"]
+                  if data.get("test_trial") else data.get("dt_s", 0.01))
+    _gain_rot = data.get("gain_data")
+    _gain_trn = data.get("gain_data_v_fwd")
     if data.get("calcium_panel") is not None:
         _panel_calcium_compare(ax_h, data["calcium_panel"])
-    elif data.get("gain_data"):
-        _panel_integration_gain(
-            ax_h, data["gain_data"], data["test_trial"]["dt"]
-            if data.get("test_trial") else data.get("dt_s", 0.01),
-        )
+    elif _gain_rot and "decoded_theta" in (_gain_rot[0][1] or {}):
+        _panel_integration_gain(ax_h, _gain_rot, _dt_for_h)
+    elif _gain_trn and "decoded_xi" in (_gain_trn[0][1] or {}):
+        _panel_translation_gain(ax_h, _gain_trn, _dt_for_h)
+    elif _gain_rot:
+        _panel_integration_gain(ax_h, _gain_rot, _dt_for_h)
     else:
         ax_h.axis("off")
     _panel_label(ax_h, "h")
@@ -2536,7 +2951,8 @@ def plot_cx_evolution(data: dict, out_path: str, *,
                 _plot_wrapped_hd(ax, t_r, pred_hd, PRED_COLOR, PRED_LW)
                 ax.set_ylim(-np.pi - 0.2, np.pi + 0.2)
                 ax.tick_params(labelsize=_T_TICK_FS)
-                ax.set_xlabel("time (s)", fontsize=_T_LABEL_FS)
+                if col == 2:
+                    ax.set_xlabel("time (s)", fontsize=_T_LABEL_FS)
                 if col == 0:
                     ax.set_ylabel("HD (rad)", fontsize=_T_LABEL_FS)
                     _panel_label(ax, letter)
@@ -2569,7 +2985,8 @@ def plot_cx_evolution(data: dict, out_path: str, *,
                     ax.plot(t_r, d_cum, color=GT_COLOR, lw=GT_LW * 0.7,
                             ls="--", alpha=0.85)
                 ax.tick_params(labelsize=_T_TICK_FS)
-                ax.set_xlabel("time (s)", fontsize=_T_LABEL_FS)
+                if col == 2:
+                    ax.set_xlabel("time (s)", fontsize=_T_LABEL_FS)
                 if col == 0:
                     ax.set_ylabel(r"$d$", fontsize=_T_LABEL_FS)
                     _panel_label(ax, letter)
@@ -2622,7 +3039,8 @@ def plot_cx_evolution(data: dict, out_path: str, *,
                 _plot_wrapped_hd(ax, t_s, th_dec,  PRED_COLOR, PRED_LW)
                 ax.set_ylim(-np.pi - 0.2, np.pi + 0.2)
                 ax.tick_params(labelsize=_T_TICK_FS)
-                ax.set_xlabel("time (s)", fontsize=_T_LABEL_FS)
+                if col == 2:
+                    ax.set_xlabel("time (s)", fontsize=_T_LABEL_FS)
                 if col == 0:
                     ax.set_ylabel("HD (rad)", fontsize=_T_LABEL_FS)
                     _panel_label(ax, letter)
@@ -2647,7 +3065,8 @@ def plot_cx_evolution(data: dict, out_path: str, *,
                     ax.plot(t_s, d_cum, color=GT_COLOR, lw=GT_LW * 0.7,
                             ls="--", alpha=0.85)
                 ax.tick_params(labelsize=_T_TICK_FS)
-                ax.set_xlabel("time (s)", fontsize=_T_LABEL_FS)
+                if col == 2:
+                    ax.set_xlabel("time (s)", fontsize=_T_LABEL_FS)
                 if col == 0:
                     ax.set_ylabel(r"$d$", fontsize=_T_LABEL_FS)
                     _panel_label(ax, letter)

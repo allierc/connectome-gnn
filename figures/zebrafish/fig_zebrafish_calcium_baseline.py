@@ -48,11 +48,87 @@ _PAIRS_T_S = 200.0   # time window (s) for the example-pairs panel (e)
 FS_LABEL  = 16
 FS_TICK   = 13
 FS_LEGEND = 13
-FS_PANEL  = 22
+FS_PANEL  = 16
 LW_TRACE  = 1.4
 LW_SPEC   = 2.0
 GT_COLOR   = "#4daf4a"
 PRED_COLOR = "black"
+
+
+def _compute_sort_by_bodyId(config_name, calcium_mapping_pt,
+                              n_steps=1500, omega_deg_per_s=60.0):
+    """For each observed bodyId, return (partition_label, preferred_phase).
+
+    Runs a single constant-ω rollout on the trained model (the same
+    probe used by Fig. 4 panel e), computes the per-cell preferred
+    heading phase φ_i = arg(Σ (h_i - <h_i>) · e^{iθ(t)}), and bridges
+    via calcium_mapping.pt (bodyId ↔ model_index). Result: a dict
+    bodyId -> (partition_label, φ). Cached so the function is cheap to
+    call several times in the same Python process.
+    """
+    cache_key = (config_name, n_steps, omega_deg_per_s)
+    cache = getattr(_compute_sort_by_bodyId, "_cache", {})
+    if cache_key in cache:
+        return cache[cache_key]
+    import torch
+    from connectome_gnn.config import NeuralGraphConfig
+    from connectome_gnn.models.registry import create_model
+    from connectome_gnn.models.bump_attractor_eval import (
+        _deterministic_sweep_rollout,
+    )
+    from connectome_gnn.plot_cx import (
+        _preferred_phase, _hd_partition_of,
+    )
+    from connectome_gnn.utils import (
+        config_path, log_path, migrate_state_dict, set_data_root,
+    )
+    import glob
+    set_data_root(os.environ.get(
+        "GNN_OUTPUT_ROOT", "/groups/saalfeld/home/allierc/GraphData"))
+    cfg_path = config_path(f"{config_name}.yaml")
+    cfg = NeuralGraphConfig.from_yaml(cfg_path)
+    cfg.config_file = config_name
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model = create_model(cfg.graph_model.signal_model_name,
+                          aggr_type=cfg.graph_model.aggr_type,
+                          config=cfg, device=device).to(device)
+    log_dir = log_path(config_name)
+    ck = max(glob.glob(f"{log_dir}/models/best_model_with_*.pt"),
+              key=os.path.getmtime)
+    sd = torch.load(ck, map_location=device, weights_only=False)
+    migrate_state_dict(sd)
+    model.load_state_dict(sd["model_state_dict"], strict=False)
+    model.eval()
+    ro = _deterministic_sweep_rollout(
+        model, n_steps=n_steps, omega_deg_per_s=omega_deg_per_s,
+        device=device,
+    )
+    h_traj = np.asarray(ro["h"])                   # (T, N)
+    theta = np.asarray(ro["true_theta"])           # (T,)
+    phi_per_model_ix = _preferred_phase(h_traj, theta)  # (N,)
+    # Cell types per model index, for the partition label.
+    nt = np.asarray(model.neuron_types).astype(int)
+    type_names = list(model.type_names)
+    partition_per_model_ix = [
+        _hd_partition_of(type_names[int(t)]) for t in nt
+    ]
+    cm = torch.load(calcium_mapping_pt, map_location="cpu",
+                      weights_only=False)
+    obs_body = np.asarray(cm["obs_bodyId"], dtype=np.int64)
+    obs_model_ix = np.asarray(cm["model_index"], dtype=np.int64)
+    out = {}
+    for b, mi in zip(obs_body, obs_model_ix):
+        if 0 <= int(mi) < phi_per_model_ix.size:
+            out[int(b)] = (
+                partition_per_model_ix[int(mi)],
+                float(phi_per_model_ix[int(mi)]),
+            )
+    cache[cache_key] = out
+    setattr(_compute_sort_by_bodyId, "_cache", cache)
+    print(f"[sort] computed partition+φ from constant-ω rollout on "
+          f"{os.path.basename(ck)}; "
+          f"{len(out)}/{len(obs_body)} bodyIds resolved")
+    return out
 
 
 def _run_panel(extra_args, out_dir):
@@ -67,7 +143,8 @@ def _wrap_deg(rad):
     return (d + 180.0) % 360.0 - 180.0
 
 
-def _kinograph_block(fig, outer_ss, npz, label, *, t_window=None):
+def _kinograph_block(fig, outer_ss, npz, label, *, t_window=None,
+                      row_order=None, row_partition=None):
     """Render one (kinograph + ω + HD) block into the given outer subplotspec.
 
     Reads kino / omega / theta / decoded / t_sec from `npz`. Uses the
@@ -80,6 +157,17 @@ def _kinograph_block(fig, outer_ss, npz, label, *, t_window=None):
     omega   = np.asarray(npz["omega"])
     theta   = np.asarray(npz["theta"])
     decoded = np.asarray(npz["decoded"])
+    # Optional row permutation (partition-primary, preferred-phase
+    # secondary — same sort key as Figure 4 panel e). The caller
+    # computes ``row_order`` and ``row_partition`` once from a
+    # constant-ω rollout on the trained model so both the recorded
+    # and predicted kinographs share identical rows.
+    if row_order is not None and len(row_order) == kino.shape[0]:
+        kino = kino[np.asarray(row_order, np.int64)]
+        if row_partition is not None:
+            row_partition = np.asarray(
+                row_partition, dtype=object)[np.asarray(row_order,
+                                                         np.int64)]
 
     x_lo, x_hi_full = float(t[0]), float(t[-1])
     x_hi = x_hi_full if t_window is None else min(x_hi_full,
@@ -88,9 +176,12 @@ def _kinograph_block(fig, outer_ss, npz, label, *, t_window=None):
     s = max(1, len(t) // 4000)
     td = t[::s]
 
+    # hspace bumped from 0.10 → 0.40 so the trace panels (ω, HD) sit
+    # cleanly below the kinograph instead of overlapping into its
+    # bottom row.
     gs = GridSpecFromSubplotSpec(
         3, 1, subplot_spec=outer_ss,
-        height_ratios=[4.2, 1.0, 1.2], hspace=0.10)
+        height_ratios=[8.4, 1.0, 1.2], hspace=0.40)
 
     # ── kinograph ────────────────────────────────────────────────────
     ax_k = fig.add_subplot(gs[0])
@@ -102,11 +193,29 @@ def _kinograph_block(fig, outer_ss, npz, label, *, t_window=None):
     ax_k.imshow(kino, aspect="auto", cmap=cmap, vmin=vmin, vmax=vmax,
                 extent=[x_lo, x_hi_full, kino.shape[0], 0],
                 interpolation="nearest")
-    ax_k.set_yticks([])
     ax_k.set_xlim(x_lo, x_hi)
     ax_k.tick_params(axis="x", labelbottom=False, length=3)
-    ax_k.set_ylabel(f"bump-pool neuron  (n={kino.shape[0]})",
-                    fontsize=FS_LABEL, labelpad=6)
+    if row_partition is not None:
+        # Partition group names at each block centre (Fig. 4 panel e).
+        from connectome_gnn.plot_cx import (
+            _HD_PARTITION_ORDER, _hd_draw_partition_boundaries,
+        )
+        key = {k: i for i, k in enumerate(_HD_PARTITION_ORDER)}
+        rank = np.array([key.get(p, len(_HD_PARTITION_ORDER))
+                         for p in row_partition])
+        changes = np.where(np.diff(rank) != 0)[0] + 0.5
+        bnds = np.concatenate([[0], changes + 0.5, [rank.size]])
+        centres = (bnds[:-1] + bnds[1:]) / 2 - 0.5
+        labels = [row_partition[int(round(c))] for c in centres]
+        ax_k.set_yticks(centres)
+        ax_k.set_yticklabels(labels, fontsize=FS_TICK)
+        _hd_draw_partition_boundaries(ax_k, row_partition,
+                                       axis="y", color="w",
+                                       lw=0.6, alpha=0.7)
+    else:
+        ax_k.set_yticks([])
+        ax_k.set_ylabel("obs. neurons",
+                        fontsize=FS_LABEL, labelpad=6)
     for sp in ax_k.spines.values():
         sp.set_visible(False)
     # panel letter — pushed left of the ylabel so it does not overlap
@@ -244,6 +353,72 @@ def _pair_panel(ax, real_npz, model_npz, t_window_s, label):
             fontsize=FS_PANEL, fontweight="bold")
 
 
+def _zc(M):
+    """Per-cell (row) z-score over time."""
+    M = np.asarray(M, np.float64)
+    mu = M.mean(axis=1, keepdims=True)
+    sd = M.std(axis=1, keepdims=True)
+    return (M - mu) / np.where(sd > 1e-6, sd, 1.0)
+
+
+def _afferent_panels(real_npz, model_full_p):
+    """Build the three afferent-class kinographs (recorded + model), each
+    sorted by per-cell preferred-heading angle φ_i = arg(Σ ΔF/F_i·e^{iθ})
+    computed from the recorded ΔF/F (same sort Fig. 15 uses for the bump
+    pool), with the SAME row order applied to the matched model rows.
+
+    Returns ``[(name, real_kino_sorted, model_kino_sorted), ...]`` or [] if
+    the companions lack the afferent arrays.
+    """
+    if "aff_names" not in getattr(real_npz, "files", []):
+        return []
+    if not os.path.isfile(model_full_p):
+        print(f"[aff] model full-calcium dump missing: {model_full_p}")
+        return []
+    from connectome_gnn.plot_cx import _preferred_phase
+    full = np.load(model_full_p, allow_pickle=True)
+    cal = np.asarray(full["calcium"])                       # (N, T)
+    bids = np.asarray(full["body_ids"], np.int64)
+    row_of = {int(b): i for i, b in enumerate(bids)}
+    th_rad = np.deg2rad(np.asarray(real_npz["theta"], np.float64))
+    out = []
+    for nm in [str(x) for x in real_npz["aff_names"]]:
+        r = np.asarray(real_npz[f"aff_{nm}"], np.float64)   # (n, T) recorded
+        cb = np.asarray(real_npz[f"affbid_{nm}"], np.int64)
+        T = min(r.shape[1], cal.shape[1])
+        m_rows, keep = [], []
+        for k, b in enumerate(cb):
+            ri = row_of.get(int(b))
+            if ri is not None:
+                m_rows.append(cal[ri, :T]); keep.append(k)
+        if not m_rows:
+            continue
+        keep = np.asarray(keep, int)
+        rz = _zc(r[keep, :T])
+        mz = _zc(np.asarray(m_rows, np.float64))
+        phi = _preferred_phase(rz.T, th_rad[:T])
+        order = np.argsort(phi, kind="stable")
+        out.append((nm, rz[order], mz[order]))
+    return out
+
+
+def _kino_only(fig, ss, kino, label, ylabel):
+    """A single kinograph strip (no ω / HD traces), name-labelled."""
+    ax = fig.add_subplot(ss)
+    finite = kino[np.isfinite(kino)]
+    vmin = float(np.percentile(finite, 2.0))  if finite.size else -1.0
+    vmax = float(np.percentile(finite, 99.5)) if finite.size else  4.0
+    ax.imshow(kino, aspect="auto", cmap="viridis", vmin=vmin, vmax=vmax,
+              extent=[0, kino.shape[1], kino.shape[0], 0],
+              interpolation="nearest")
+    ax.set_xticks([]); ax.set_yticks([])
+    ax.set_ylabel(ylabel, fontsize=FS_TICK)
+    for sp in ax.spines.values():
+        sp.set_visible(False)
+    ax.text(-0.07, 1.04, label, transform=ax.transAxes, ha="right",
+            va="bottom", fontsize=FS_PANEL, fontweight="bold")
+
+
 def main():
     p = argparse.ArgumentParser(
         description=__doc__,
@@ -285,32 +460,41 @@ def main():
     real_npz = np.load(real_npz_p)
     model_npz = np.load(model_npz_p)
 
-    # ── outer layout ────────────────────────────────────────────────
-    # 3 outer rows × 2 outer cols. Rows 1–2 each hold a kinograph
-    # block (3 nested sub-rows: kino + ω + HD); row 3 col-0 holds the
-    # power-spectrum panel. Same outer column widths so a/c and b/d
-    # are exactly aligned, and panel e sits in column 0 of row 3 so
-    # its width matches a + b above.
-    # Layout: 3 outer rows × 2 cols. Rows 1-2 hold the kinographs
-    # (a,b full block; c,d zoom). Row 3 holds the power-spectrum
-    # overlay (panel e) in column 0 only, width-matched to a + b.
-    fig = plt.figure(figsize=(20, 16.5))
-    outer = fig.add_gridspec(
-        3, 2,
-        height_ratios=[1.0, 1.0, 0.85],
-        hspace=0.32, wspace=0.12,
-        left=0.085, right=0.985, top=0.955, bottom=0.045,
-    )
+    # ── afferent kinographs (ARTR / pt-IPN1 / motor_efferent) ────────
+    # Recorded + matched-model rows per class, each sorted by preferred-
+    # heading angle (Fig. 15 sort). Built from the recorded afferent
+    # arrays in the real npz and the full per-cell model calcium dump.
+    model_full_p = model_npz_p.replace(".npz", "_full.npz")
+    aff = _afferent_panels(real_npz, model_full_p)
 
+    # ── outer layout ────────────────────────────────────────────────
+    # a (real ring, full block) | b (model ring) | then per afferent
+    # class a recorded + a model strip | c (power-spectrum overlay).
+    # The bump-pool kinographs stay in the official ZAPBench rastermap
+    # row order (the partition + preferred-phase sort wiring is kept in
+    # _kinograph_block + _compute_sort_by_bodyId for future use).
+    ratios = [1.0, 1.0] + [0.46] * (2 * len(aff)) + [0.42]
+    fig = plt.figure(figsize=(20, 4.6 * sum(ratios)))
+    outer = fig.add_gridspec(
+        len(ratios), 1, height_ratios=ratios, hspace=0.32,
+        left=0.085, right=0.985, top=0.985, bottom=0.035,
+    )
     _kinograph_block(fig, outer[0, 0], real_npz,  "a")
     _kinograph_block(fig, outer[1, 0], model_npz, "b")
-    _kinograph_block(fig, outer[0, 1], real_npz,  "c", t_window=zoom)
-    _kinograph_block(fig, outer[1, 1], model_npz, "d", t_window=zoom)
+    _letters = "cdefghijkl"
+    _ri = 2
+    for _k, (_nm, _r, _m) in enumerate(aff):
+        _kino_only(fig, outer[_ri, 0], _r, _letters[2 * _k],
+                   f"{_nm}\nreal ΔF/F (n={_r.shape[0]})")
+        _kino_only(fig, outer[_ri + 1, 0], _m, _letters[2 * _k + 1],
+                   f"{_nm}\nmodel")
+        _ri += 2
 
     freqs, p_real, p_modl, n_real, n_modl = _compute_spectrum(
         real_npz_p, model_npz_p)
-    ax_e = fig.add_subplot(outer[2, 0])
-    _spectrum_panel(ax_e, freqs, p_real, p_modl, n_real, n_modl, "e")
+    ax_e = fig.add_subplot(outer[_ri, 0])
+    _spectrum_panel(ax_e, freqs, p_real, p_modl, n_real, n_modl,
+                    _letters[2 * len(aff)])
 
     fig.savefig(args.out, dpi=150)
     plt.close(fig)
