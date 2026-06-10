@@ -1156,6 +1156,18 @@ class TrainingConfig(BaseModel):
     # set in the yaml. Legacy 3-ch on-disk datasets pass through unchanged
     # (the slicing is gated on the dataset's 4-ch input width).
     task_targets: List[str] = Field(default_factory=lambda: ['rotation'])
+    # Heading-bin ablation. When False (default): standard cos/sin readout
+    # and (cos θ₀, sin θ₀) input cue. When True: replace BOTH with a
+    # K-bin one-hot representation — input cue becomes a one-hot bump
+    # over `n_heading_bins` channels at t=0, output is K-bin logits trained
+    # with cross-entropy. Purpose: remove the circular geometry of the
+    # cos/sin target/cue from the supervision so the recurrent code is not
+    # pushed toward a sinusoidal embedding of θ. The on-disk dataset is
+    # untouched (cos/sin format); conversion happens at training time and
+    # in the rollout helpers. Affects rotation-bearing task_targets only;
+    # downstream targets (ξ, x, y) pass through unchanged.
+    use_heading_bins: bool = False
+    n_heading_bins: int = 64
     # Per-epoch learning-rate schedule (Hulse). Empty list → constant `lr`.
     # Padded with the last value if n_epochs > len(schedule).
     lr_schedule: List[float] = Field(default_factory=lambda: [5e-3, 1e-3, 5e-4, 2e-4, 1e-4])

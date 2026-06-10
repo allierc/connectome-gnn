@@ -236,12 +236,38 @@ def _load_model_and_rollouts(
         else:
             trial_idx = int(rng.integers(0, n_test))
     trial_idx = int(trial_idx) % u_test.shape[0]
+    # Heading-bin model: the model expects a one-hot K-bin initial-heading
+    # cue, not the on-disk (cos θ₀, sin θ₀) impulse. Convert the cue BEFORE
+    # the forward (as the training-time snapshot does) — otherwise θ₀ is
+    # mis-anchored and every decoded trial carries a spurious constant
+    # offset. K-bin logits are then decoded back to a (cos, sin) view.
+    _use_bins = bool(getattr(net, "use_heading_bins", False))
+    _Kbin = int(getattr(net, "n_heading_bins", 0))
+
+    def _net_fwd(u_t):
+        if _use_bins:
+            from connectome_gnn.models.heading_bins import (
+                convert_cos_sin_input_to_bin_cue_torch,
+            )
+            u_t = convert_cos_sin_input_to_bin_cue_torch(u_t, _Kbin)
+        return net(u_t)
+
+    def _decode_bins(yp):
+        if _use_bins:
+            from connectome_gnn.models.heading_bins import (
+                softmax_logits_to_cos_sin_np,
+            )
+            return softmax_logits_to_cos_sin_np(yp, _Kbin)
+        return yp
+
     u_one = u_test[trial_idx]
     y_true = y_test[trial_idx]
     with torch.no_grad():
         u_t = torch.from_numpy(u_one[None]).to(device)
-        y_pred, _ = net(u_t)
-    y_pred = y_pred[0].cpu().numpy()
+        y_pred, _ = _net_fwd(u_t)
+    y_pred_raw = y_pred[0].cpu().numpy()
+    test_trial_bins = y_pred_raw if _use_bins else None   # (T, K) logits
+    y_pred = _decode_bins(y_pred_raw)
 
     # --- 5 random held-out trials for the bottom-row paper figure ------
     # Picks the 5 most-informative trials (largest centred-amplitude
@@ -265,12 +291,19 @@ def _load_model_and_rollouts(
         u_show = torch.from_numpy(
             np.asarray(u_test[idx_show])
         ).to(device)
-        y_pred_show, _ = net(u_show)
+        y_pred_show, _ = _net_fwd(u_show)
+    # Convert the cue (inside _net_fwd) and decode the K-bin logits back to
+    # a (cos θ̂, sin θ̂) view so the HD plotters (which atan2 cols 0/1) work.
+    y_pred_show_raw = y_pred_show.cpu().numpy()
+    y_pred_show = _decode_bins(y_pred_show_raw)
     random_trials = dict(
         idx=idx_show,
         u=np.asarray(u_test[idx_show]),
         y_true=np.asarray(y_test[idx_show]),
-        y_pred=y_pred_show.cpu().numpy(),
+        y_pred=y_pred_show,
+        # Raw K-bin logits (B, T, K) for the bin-posterior panels (i);
+        # None for the cos/sin models.
+        y_pred_bins=(y_pred_show_raw if _use_bins else None),
     )
 
     # --- 5 representative deterministic sweeps for the test rows ------
@@ -327,6 +360,7 @@ def _load_model_and_rollouts(
         u=u_one,
         y_true=y_true,
         y_pred=y_pred,
+        y_pred_bins=test_trial_bins,   # (T, K) logits for bins, else None
         dt=float(task_block.dt),
         label="swim test trial",
         mismatch=_is_mismatch,
@@ -353,7 +387,8 @@ def _load_model_and_rollouts(
         test_trial=test_trial,
         random_trials=random_trials,
         sweep_for_test=sweep_for_test,
-        task_kind=("xy" if has_position_2d_local
+        task_kind=("mismatch" if _is_mismatch
+                   else "xy" if has_position_2d_local
                    else "both" if (has_translation_local
                                     and has_rotation_local)
                    else "d" if (has_translation_local

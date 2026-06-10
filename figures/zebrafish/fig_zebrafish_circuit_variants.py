@@ -148,11 +148,27 @@ def _draw_recurrent_block(ax):
           fontsize=LABEL_FS)
 
 
-def _draw_decoder_block(ax, out_lines):
-    # Larger decoder box so the readout vector sits comfortably inside.
-    _box(ax, (0.79, 0.34), (0.20, 0.42), fill=COL_DEC_FILL)
-    _text(ax, (0.89, 0.66), ["decoder"], fontsize=TITLE_FS)
-    _text(ax, (0.89, 0.52), out_lines, fontsize=LABEL_FS)
+def _draw_decoder_block(ax, *, propriocep=False):
+    """Decoder readout. The afferents deliver angular / forward VELOCITIES
+    (ω ≡ dθ/dt, ω_proprio, v_ext); the recurrent network INTEGRATES them, so
+    the readout makes the integral relationship explicit: heading θ = ∫ω and
+    2-D position (x, y) = ∫v_ext, emitted as [cosθ, sinθ, x, y]. The
+    proprioception panel carries the two angular integrals separately,
+    θ_obs = ∫ω and θ_pro = ∫ω_proprio."""
+    _box(ax, (0.79, 0.30), (0.20, 0.50), fill=COL_DEC_FILL)
+    _text(ax, (0.89, 0.745), ["decoder"], fontsize=TITLE_FS)
+    if propriocep:
+        lines = [r"$\theta_{\mathrm{obs}}=\int\omega$",
+                 r"$\theta_{\mathrm{pro}}=\int\omega_{\mathrm{proprio}}$",
+                 r"$(x,y)=\int v_{\mathrm{ext}}$"]
+    else:
+        lines = [r"$\theta=\int\omega$",
+                 r"$(x,y)=\int v_{\mathrm{ext}}$"]
+    y0, dy = 0.645, -0.072
+    for i, ln in enumerate(lines):
+        _text(ax, (0.89, y0 + i * dy), [ln], fontsize=LABEL_FS)
+    _text(ax, (0.89, y0 + len(lines) * dy - 0.005),
+          [r"$[\cos\theta,\sin\theta,x,y]$"], fontsize=SUB_FS)
 
 
 def _draw_afferent_block(ax, xy, wh, name, count, sub_lines=None,
@@ -201,16 +217,18 @@ def _draw_artr_pt1_panel(ax, legend=True):
                          fill=COL_PT1_FILL)
 
     _draw_recurrent_block(ax)
-    _draw_decoder_block(ax, [r"$[\cos\theta,\sin\theta,x,y]$"])
+    _draw_decoder_block(ax, propriocep=False)
 
     # Input labels + horizontal arrows on the LEFT of the afferent boxes.
-    _text(ax, (0.005, 0.685), [r"$\omega$"], fontsize=LABEL_FS + 2,
+    # The drives are VELOCITIES (ω ≡ dθ/dt, v_ext ≡ dx/dt) that the recurrent
+    # network integrates into the heading / position readout.
+    _text(ax, (0.005, 0.685), [r"$\omega\!=\!\dot\theta$"], fontsize=LABEL_FS + 2,
           ha="left")
     _arrow(ax, (0.055, 0.685), (0.13, 0.685),
            color=COL_OMEGA, lw=2.2)
-    _text(ax, (0.005, 0.405), [r"$v_{\mathrm{ext}}$"],
+    _text(ax, (0.005, 0.405), [r"$v_{\mathrm{ext}}\!=\!\dot x$"],
           fontsize=LABEL_FS + 2, ha="left")
-    _arrow(ax, (0.085, 0.405), (0.13, 0.405),
+    _arrow(ax, (0.115, 0.405), (0.13, 0.405),
            color=COL_VFWD_EXT, lw=2.2)
 
     # Afferents → recurrent.
@@ -245,20 +263,23 @@ def _draw_propriocep_panel(ax, legend=True):
                          fill=COL_PT1_FILL)
 
     _draw_recurrent_block(ax)
-    _draw_decoder_block(ax, [r"$[\cos\theta,\sin\theta,x,y]$"])
+    _draw_decoder_block(ax, propriocep=True)
 
     # Input labels + horizontal arrows on the LEFT of each afferent box.
-    _text(ax, (0.005, 0.775), [r"$\omega$"], fontsize=LABEL_FS + 2,
+    # All three drives are VELOCITIES (ω ≡ dθ/dt, ω_proprio, v_ext ≡ dx/dt);
+    # the recurrent network integrates them into the heading / position readout
+    # (θ_obs = ∫ω, θ_pro = ∫ω_proprio, (x,y) = ∫v_ext).
+    _text(ax, (0.005, 0.775), [r"$\omega\!=\!\dot\theta$"], fontsize=LABEL_FS + 2,
           ha="left")
-    _arrow(ax, (0.055, 0.775), (0.13, 0.775),
+    _arrow(ax, (0.105, 0.775), (0.13, 0.775),
            color=COL_OMEGA, lw=2.2)
     _text(ax, (0.005, 0.510), [r"$\omega_{\mathrm{proprio}}$"],
-          fontsize=LABEL_FS + 2, ha="left")
-    _arrow(ax, (0.105, 0.510), (0.13, 0.510),
+          fontsize=LABEL_FS + 1, ha="left")
+    _arrow(ax, (0.115, 0.510), (0.13, 0.510),
            color=COL_VFWD_PRO, lw=2.2)
-    _text(ax, (0.005, 0.230), [r"$v_{\mathrm{ext}}$"],
+    _text(ax, (0.005, 0.230), [r"$v_{\mathrm{ext}}\!=\!\dot x$"],
           fontsize=LABEL_FS + 2, ha="left")
-    _arrow(ax, (0.085, 0.230), (0.13, 0.230),
+    _arrow(ax, (0.115, 0.230), (0.13, 0.230),
            color=COL_VFWD_EXT, lw=2.2)
 
     # Afferents → recurrent.

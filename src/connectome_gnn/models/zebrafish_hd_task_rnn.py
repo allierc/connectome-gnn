@@ -180,6 +180,30 @@ class ZebrafishHdTaskRNN(nn.Module):
                 ("position_2d",):             (4, 4),
             }
         _auto_in, _auto_out = _TT_DIMS.get(_tt_key, (3, 2))  # default = rotation
+        # Heading-bin ablation (training.use_heading_bins). Replaces the
+        # (cos θ₀, sin θ₀) cue with a K-bin one-hot bump and the (cos θ, sin θ)
+        # readout with K-bin logits. Only the rotation-only task_targets layout
+        # is supported in bins mode for now: n_in = 1 (ω) + K cue channels,
+        # n_out = K. Any other task_targets combination falls back to the
+        # standard cos/sin layout (an explicit error is preferred over silent
+        # mis-shaping for the bins case — fail loudly).
+        self.use_heading_bins = bool(getattr(
+            getattr(config, "training", None), "use_heading_bins", False))
+        self.n_heading_bins = int(getattr(
+            getattr(config, "training", None), "n_heading_bins", 64))
+        if self.use_heading_bins:
+            if _tt_key != ("rotation",):
+                raise ValueError(
+                    f"training.use_heading_bins=True is implemented only for "
+                    f"task_targets=['rotation']; got task_targets={_tt_raw!r}."
+                )
+            if self.n_heading_bins < 4:
+                raise ValueError(
+                    f"training.n_heading_bins must be ≥ 4 to discretise S^1; "
+                    f"got {self.n_heading_bins}."
+                )
+            _auto_in = 1 + self.n_heading_bins   # [ω, one-hot K-bin cue]
+            _auto_out = self.n_heading_bins      # K-bin logits
         self.n_input = int(getattr(gm, "n_input", 0)) or _auto_in
         self.n_output = int(getattr(gm, "n_output", 0)) or _auto_out
 

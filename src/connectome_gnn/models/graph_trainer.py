@@ -1851,6 +1851,10 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
         bump_fwhm,
         path_integration_accuracy_from_data,
     )
+    from connectome_gnn.models.heading_bins import (
+        convert_cos_sin_input_to_bin_cue_torch,
+        convert_cos_sin_target_to_bin_labels_torch,
+    )
     from connectome_gnn.zarr_io import load_raw_array
 
     if torch.cuda.is_available():
@@ -2431,6 +2435,18 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
     # those varying shapes well and triggers tracer errors. Eval through
     # the un-compiled forward — small batches, negligible perf cost.
     eval_model = model
+    # Heading-bin ablation (training.use_heading_bins). The model was built
+    # with n_input=1+K and n_output=K when the flag is on; here we hoist the
+    # flag + K so the inner training loop can swap (cos/sin) layout for
+    # K-bin layout on the fly. eval_model is the un-compiled handle, so the
+    # attributes are always reachable (torch.compile wraps it below).
+    use_bins = bool(getattr(eval_model, 'use_heading_bins', False))
+    K_bins = int(getattr(eval_model, 'n_heading_bins', 64))
+    if use_bins:
+        _logger.info(
+            f'heading-bin ablation ON: K={K_bins} bins, '
+            f'CE loss replaces cos/sin MSE on the heading head'
+        )
     if getattr(tc, 'torch_compile', True):
         try:
             model = torch.compile(model, mode='reduce-overhead', fullgraph=True)
@@ -2516,13 +2532,42 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
             else:
                 u_in, y_in = u, y
 
+            # Heading-bin ablation. The on-disk u_in is (B, T, 3) with the
+            # last two channels carrying the (cos θ₀, sin θ₀) cue impulse at
+            # t=0; convert to (B, T, 1+K) with a K-bin one-hot bump at t=0
+            # before the forward. y_in stays (B, T, 2) on the wire — we map
+            # it to (B, T) bin labels inside the loss.
+            if use_bins:
+                u_in = convert_cos_sin_input_to_bin_cue_torch(u_in, K_bins)
+
             y_hat, h_buf = model(u_in)
 
-            # First loss term — task MSE over the WHOLE (task+calcium) batch.
-            # u_train / y_train were already sliced to the active task channels
-            # at load time (see _TASK_PROFILES above), so y_hat and y_in are
-            # in the same column basis here — no per-iter slicing.
-            if coeff_tail > 0:
+            # First loss term — task supervision over the WHOLE (task+calcium)
+            # batch. u_train / y_train were already sliced to the active task
+            # channels at load time (see _TASK_PROFILES above), so y_hat and
+            # y_in are in the same column basis here — no per-iter slicing.
+            #   bins off: MSE on cos/sin (Hulse-style heading head).
+            #   bins on : CrossEntropy on K-bin logits, with the cos/sin
+            #             target converted to bin labels on the fly.
+            if use_bins:
+                # y_in: (B, T, 2) → (B, T) long. Per-frame CE, then optional
+                # soft-curriculum tail weighting (same shape as the MSE
+                # branch so the rest of the loss assembly is unchanged).
+                y_lbl = convert_cos_sin_target_to_bin_labels_torch(
+                    y_in, K_bins)                                 # (B, T_use)
+                ce_pf = F.cross_entropy(
+                    y_hat.reshape(-1, K_bins),
+                    y_lbl.reshape(-1),
+                    reduction='none',
+                ).view_as(y_lbl)                                  # (B, T_use)
+                if coeff_tail > 0:
+                    w = torch.ones(T_use, device=u.device)
+                    if T_epoch < T_use:
+                        w[T_epoch:] = coeff_tail
+                    mse = ((ce_pf * w[None, :]).sum(dim=-1) / w.sum()).mean()
+                else:
+                    mse = ce_pf.mean()
+            elif coeff_tail > 0:
                 # Soft-curriculum: weight the per-frame MSE = 1 for t < T_epoch
                 # and `coeff_tail_loss` for t >= T_epoch (non-zero gradient on
                 # the post-horizon segment so late activity doesn't collapse).
@@ -2715,14 +2760,26 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
                                      or "position_2d" in task_targets_canonical
                                      or not task_targets_canonical)
                     if _has_rotation:
-                        last_pi_acc = path_integration_accuracy_from_data(
-                            eval_model, u_test[:512, :T_epoch], y_test[:512, :T_epoch],
-                            warmup=10, batch_size=tc.batch_size,
-                        )
-                        last_fwhm = bump_fwhm(
-                            eval_model, eval_model.epg_indices, eval_model.epg_glom_ix,
-                            n_trials=64, n_steps=T_epoch, device=device,
-                        )
+                        # pi_acc and bump_fwhm both assume a 3-channel
+                        # [ω, cos θ₀, sin θ₀] input and a (cos, sin) target,
+                        # which the heading-bin ablation replaces with a
+                        # K-bin one-hot cue / K-bin logit head. Skip them
+                        # in bins mode and let the rollout-based heading
+                        # metrics below (which go through the bins-aware
+                        # _deterministic_sweep_rollout) carry the heading
+                        # accuracy signal.
+                        if use_bins:
+                            last_pi_acc = float('nan')
+                            last_fwhm = float('nan')
+                        else:
+                            last_pi_acc = path_integration_accuracy_from_data(
+                                eval_model, u_test[:512, :T_epoch], y_test[:512, :T_epoch],
+                                warmup=10, batch_size=tc.batch_size,
+                            )
+                            last_fwhm = bump_fwhm(
+                                eval_model, eval_model.epg_indices, eval_model.epg_glom_ix,
+                                n_trials=64, n_steps=T_epoch, device=device,
+                            )
                         # Primary rollout at the current curriculum horizon —
                         # tracks training progress at the length actually trained.
                         last_rmse_roll, last_pearson_roll = _rollout_heading_metrics(
@@ -2758,7 +2815,11 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
                     calcium_panel = None
                     if use_calcium:
                         T_show = min(ca_test_u.shape[1], 1000)
-                        _, h_one = eval_model(ca_test_u[:1, :T_show])
+                        ca_u_in = ca_test_u[:1, :T_show]
+                        if use_bins:
+                            ca_u_in = convert_cos_sin_input_to_bin_cue_torch(
+                                ca_u_in, K_bins)
+                        _, h_one = eval_model(ca_u_in)
                         ca_learn = gcamp(h_one[0], dt_in=dt_model)   # (T, N)
                         calcium_panel = dict(
                             real=ca_test_target[0, :T_show]

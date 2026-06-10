@@ -1247,8 +1247,8 @@ def _preferred_d(h_traj: np.ndarray, d_traj: np.ndarray) -> np.ndarray:
     return out
 
 
-def _panel_label(ax, letter: str):
-    ax.text(-0.12, 1.02, letter, transform=ax.transAxes,
+def _panel_label(ax, letter: str, y: float = 1.02):
+    ax.text(-0.12, y, letter, transform=ax.transAxes,
             fontsize=PANEL_LABEL_FS, fontweight="bold",
             va="bottom", ha="right")
 
@@ -1600,9 +1600,14 @@ def _xi_track_r_str(true_xi, dec_xi, warmup):
 
 
 def _draw_rotation_track(ax_drive, ax_track, t_axis, u_col, true_theta,
-                         dec_theta, warmup, title_prefix=""):
+                         dec_theta, warmup, title_prefix="",
+                         bins_logits=None, n_bins=None):
     """Render the rotation half of the tracking panel into two given axes:
-    top axis = ω(t), bottom axis = wrapped heading (GT vs decoded)."""
+    top axis = ω(t), bottom axis = wrapped heading (GT vs decoded).
+
+    For a K-bin-decoder model, pass ``bins_logits`` (T, K) + ``n_bins`` and
+    the bottom axis instead shows the K-bin softmax posterior with the
+    true-θ bin overlaid (the same representation as panel h)."""
     ax_drive.plot(t_axis, u_col, color=GT_COLOR, lw=1.2)
     ax_drive.axhline(0, color="0.7", lw=0.3)
     ax_drive.set_ylabel("ω (°/s)", fontsize=LABEL_FS)
@@ -1610,6 +1615,13 @@ def _draw_rotation_track(ax_drive, ax_track, t_axis, u_col, true_theta,
     # Title carried by the LaTeX caption (CLAUDE.md rule). The r and
     # RMSE annotations live inside the panel via fig-level text where
     # callers want them, not on a per-panel title.
+
+    if bins_logits is not None and n_bins:
+        dt_s = float(t_axis[1] - t_axis[0]) if len(t_axis) > 1 else 0.01
+        _draw_kbin_posterior(ax_track, bins_logits, true_theta, dt_s,
+                             int(n_bins), ann=None)
+        ax_track.set_ylabel(f"bin (K={int(n_bins)})", fontsize=LABEL_FS)
+        return
 
     true_wrap = np.angle(np.exp(1j * true_theta))
     dec_wrap = np.angle(np.exp(1j * dec_theta))
@@ -1679,13 +1691,12 @@ def _panel_hd_tracking_stacked(fig, subplotspec, rollout: dict, dt_s: float,
         # Drives.
         ax_w.plot(t_axis, u[:, 0], color=GT_COLOR, lw=1.0)
         ax_w.axhline(0, color="0.7", lw=0.3)
-        ax_w.set_ylabel("ω (°/s)", fontsize=LABEL_FS)
-        ax_w.tick_params(labelsize=TICK_FS, labelbottom=False)
+        ax_w.set_ylabel("ω", fontsize=LABEL_FS)
+        ax_w.tick_params(labelsize=TICK_FS, labelbottom=False, labelleft=False)
         ax_vf.plot(t_axis, u[:, 1], color=GT_COLOR, lw=1.0)
         ax_vf.axhline(0, color="0.7", lw=0.3)
-        ax_vf.set_ylabel(r"$v_{\mathrm{fwd}}$", fontsize=LABEL_FS)
-        ax_vf.tick_params(labelsize=TICK_FS)
-        ax_vf.set_xlabel("time (s)", fontsize=LABEL_FS)
+        ax_vf.set_ylabel("v", fontsize=LABEL_FS)
+        ax_vf.tick_params(labelsize=TICK_FS, labelleft=False)
         # 2D path.
         true_xy = np.asarray(rollout["true_xy"])
         dec_xy = np.asarray(rollout["decoded_xy"])
@@ -1753,11 +1764,14 @@ def _panel_hd_tracking_stacked(fig, subplotspec, rollout: dict, dt_s: float,
         )
         ax_top = fig.add_subplot(sub[0])
         ax_bot = fig.add_subplot(sub[1], sharex=ax_top)
+        _bins = rollout.get("y_pred_bins")
         _draw_rotation_track(
             ax_top, ax_bot, t_axis, u[:, 0],
             np.asarray(rollout["true_theta"]),
             np.asarray(rollout["decoded_theta"]),
             warmup,
+            bins_logits=(None if _bins is None else np.asarray(_bins)),
+            n_bins=(None if _bins is None else np.asarray(_bins).shape[-1]),
         )
         ax_bot.set_xlabel("time (s)", fontsize=LABEL_FS)
         return ax_top
@@ -1868,6 +1882,16 @@ def _panel_trial_rollout(fig, subplotspec, test_trial: dict):
         ax_drive.tick_params(labelsize=TICK_FS, labelbottom=False)
         if is_top:
             pass  # title carried by LaTeX caption
+        # K-bin decoder: bottom axis shows the bin posterior (like panel h).
+        _bins = test_trial.get("y_pred_bins")
+        if _bins is not None:
+            _bins = np.asarray(_bins)
+            theta_true_b = np.arctan2(y_true[:, 1], y_true[:, 0])
+            dt_s = float(t_axis[1] - t_axis[0]) if len(t_axis) > 1 else 0.01
+            _draw_kbin_posterior(ax_track, _bins, theta_true_b, dt_s,
+                                 _bins.shape[-1], ann=None)
+            ax_track.set_ylabel(f"bin (K={_bins.shape[-1]})", fontsize=LABEL_FS)
+            return
         # Heading in y[:, 0:2] in both rotation-only and both modes.
         theta_true = np.arctan2(y_true[:, 1], y_true[:, 0])
         theta_pred = np.arctan2(y_pred[:, 1], y_pred[:, 0])
@@ -1908,14 +1932,13 @@ def _panel_trial_rollout(fig, subplotspec, test_trial: dict):
         ax_xy  = fig.add_subplot(sub[2])
         ax_w.plot(t_axis, u[:, 0], color=GT_COLOR, lw=0.8)
         ax_w.axhline(0, color="0.7", lw=0.3)
-        ax_w.set_ylabel("ω (°/s)", fontsize=LABEL_FS)
+        ax_w.set_ylabel("ω", fontsize=LABEL_FS)
         pass  # title carried by LaTeX caption
-        ax_w.tick_params(labelsize=TICK_FS, labelbottom=False)
+        ax_w.tick_params(labelsize=TICK_FS, labelbottom=False, labelleft=False)
         ax_vf.plot(t_axis, u[:, 1], color=GT_COLOR, lw=0.8)
         ax_vf.axhline(0, color="0.7", lw=0.3)
-        ax_vf.set_ylabel(r"$v_{\mathrm{fwd}}$", fontsize=LABEL_FS)
-        ax_vf.tick_params(labelsize=TICK_FS)
-        ax_vf.set_xlabel("time (s)", fontsize=LABEL_FS)
+        ax_vf.set_ylabel("v", fontsize=LABEL_FS)
+        ax_vf.tick_params(labelsize=TICK_FS, labelleft=False)
         # 2D path — y_true / y_pred columns [2, 3].
         true_xy = y_true[:, 2:4]
         dec_xy = y_pred[:, 2:4]
@@ -2661,6 +2684,79 @@ def _panel_translation_gain(ax, gain_data, dt: float, warmup: int = 10):
     ax.tick_params(labelsize=TICK_FS)
 
 
+def _panel_kbin_posterior(ax, rollout: dict, dt_s: float, n_bins: int):
+    """K-bin posterior heatmap for the heading-bin ablation.
+
+    Shows the softmax over the K-bin readout as a (K × T) heatmap with
+    time on the x-axis and bin index on the y-axis, plus the true-θ
+    bin trajectory overlaid in green. A correctly integrating circuit
+    produces a diagonal stripe whose slope tracks ω; a collapsed
+    head produces a horizontal band at a single bin (the failure mode
+    of an untrained K-bin model).
+
+    Expects rollout["y_pred_bins"] (T, K) — set by
+    ``_deterministic_sweep_rollout`` whenever the net is in bins
+    mode — and rollout["true_theta"] (T,) for the GT overlay. Hides
+    itself if either is missing (defensive: a non-bins rollout reuses
+    the same panel slot).
+    """
+    if "y_pred_bins" not in rollout or "true_theta" not in rollout:
+        ax.set_axis_off()
+        return
+    logits = np.asarray(rollout["y_pred_bins"])           # (T, K)
+    if logits.ndim != 2 or logits.shape[1] != n_bins:
+        ax.set_axis_off()
+        return
+    _draw_kbin_posterior(ax, logits, np.asarray(rollout["true_theta"]),
+                         float(dt_s), int(n_bins))
+    ax.set_xlabel("time (s)", fontsize=LABEL_FS)
+    ax.set_ylabel(f"bin index (K={int(n_bins)})", fontsize=LABEL_FS)
+
+
+def _draw_kbin_posterior(ax, logits, true_theta, dt_s, n_bins, *,
+                          fs_lab=None, fs_tick=None, ann="spread"):
+    """Render a K-bin softmax-posterior heatmap (time × bin) with the
+    true-θ bin trajectory overlaid in green. Shared by the heading-bin
+    panel h and the per-trial / per-sweep rows (g, i, j) so they all use
+    the same '64 bins vs. ground-truth' representation."""
+    fs_lab = LABEL_FS if fs_lab is None else fs_lab
+    fs_tick = TICK_FS if fs_tick is None else fs_tick
+    logits = np.asarray(logits)
+    m = logits.max(axis=-1, keepdims=True)
+    e = np.exp(logits - m, dtype=np.float64)
+    p = (e / e.sum(axis=-1, keepdims=True)).astype(np.float32)  # (T, K)
+    T = p.shape[0]; K = int(n_bins)
+    t = np.arange(T) * float(dt_s)
+    extent = (t[0], t[-1] if T > 1 else 1.0, -0.5, K - 0.5)
+    ax.imshow(p.T, aspect="auto", origin="lower", extent=extent,
+              cmap="magma", vmin=0.0, vmax=1.0, interpolation="nearest")
+    th_wrap = (np.asarray(true_theta) + np.pi) % (2.0 * np.pi) - np.pi
+    true_bin = np.clip(np.floor((th_wrap + np.pi) * K / (2.0 * np.pi)
+                                ).astype(np.int64), 0, K - 1)
+    breaks = np.where(np.abs(np.diff(true_bin)) > K // 2)[0]
+    segments = (np.split(np.arange(T), breaks + 1) if breaks.size
+                else [np.arange(T)])
+    for seg in segments:
+        if seg.size >= 2:
+            ax.plot(t[seg], true_bin[seg], color=GT_COLOR, lw=1.2)
+        else:
+            ax.plot(t[seg], true_bin[seg], color=GT_COLOR, marker=".",
+                    ms=2, ls="none")
+    ax.set_xlim(t[0], t[-1] if T > 1 else 1.0)
+    ax.set_ylim(-0.5, K - 0.5)
+    ax.tick_params(labelsize=fs_tick)
+    if ann == "spread":
+        arg = p.argmax(axis=-1)
+        ax.text(0.03, 0.97,
+                f"argmax bin: {int(arg.min())}–{int(arg.max())} "
+                f"(spread {int(arg.max() - arg.min())}/{K-1})",
+                transform=ax.transAxes, va="top", ha="left", fontsize=fs_tick,
+                color="white",
+                bbox=dict(facecolor="black", edgecolor="none", alpha=0.55,
+                          boxstyle="round,pad=0.2"))
+    return fs_lab
+
+
 def plot_cx_evolution(data: dict, out_path: str, *,
                        run_dir: str | None = None, n_rows: int = 3):
     """Render the drosophila CX evolution figure.
@@ -2696,10 +2792,15 @@ def plot_cx_evolution(data: dict, out_path: str, *,
     # wider hspace so the panel labels e/f/g/h clear the partition
     # tick labels at the bottom of d.
     _is_xy = (n_rows == 4 and _kind_early == "xy")
+    # Proprioceptive-gain mismatch: 3 test rows (HD random, mismatch
+    # random = companion of panel g, HD sweep) — no translation row.
+    _is_mismatch = (n_rows == 4 and _kind_early == "mismatch")
     if n_rows == 2:
         figsize = (20, 9.5)
     elif n_rows == 4:
-        figsize = (20, 24.0) if _is_both else (20, 17.5)
+        figsize = ((20, 24.0) if _is_both
+                   else (20, 20.5) if _is_mismatch
+                   else (20, 17.5))
     else:
         figsize = (20, 14)
     fig = plt.figure(figsize=figsize)
@@ -2713,7 +2814,7 @@ def plot_cx_evolution(data: dict, out_path: str, *,
         # the leftmost column of the 4-wide upper grid starts at the
         # same x as the leftmost column of the 5-wide lower grid (and
         # the rightmost column ends at the same x).
-        n_test_rows = 4 if _is_both else 2
+        n_test_rows = 4 if _is_both else 3 if _is_mismatch else 2
         outer = fig.add_gridspec(
             2, 1, height_ratios=[2.0, float(n_test_rows)],
             hspace=0.18,
@@ -2725,7 +2826,7 @@ def plot_cx_evolution(data: dict, out_path: str, *,
         # more vertical space in row 2 and push the panel labels
         # e / f / g / h up against the partition tick labels at the
         # bottom of d — wider hspace clears them.
-        _gs_top_hspace = 1.4 if (_is_both or _is_xy) else 1.0
+        _gs_top_hspace = 0.7 if (_is_both or _is_xy or _is_mismatch) else 1.0
         gs_top = outer[0].subgridspec(
             2, 4, hspace=_gs_top_hspace, wspace=0.42)
         gs_bot = outer[1].subgridspec(n_test_rows, 5,
@@ -2845,10 +2946,12 @@ def plot_cx_evolution(data: dict, out_path: str, *,
             neuron_types_sub=nt[epg_indices], type_names=data["type_names"],
             dt_s=data["dt_s"], ylabel=f"{bump_label} neuron",
         )
-    _panel_label(ax_e, "e")
+    _panel_label(ax_e, "e", y=1.05)
 
-    _panel_label(ax_f_top, "f")
-    _panel_label(ax_g_top, "g")
+    # f and g attach their label to a short top sub-axis (the ω drive
+    # strip), so the letter needs a larger offset to clear the trace.
+    _panel_label(ax_f_top, "f", y=1.22)
+    _panel_label(ax_g_top, "g", y=1.22)
 
     # Panel h: calcium-comparison plot for observation-loss runs, or
     # the integration-gain scatter for task-only runs. For
@@ -2862,7 +2965,25 @@ def plot_cx_evolution(data: dict, out_path: str, *,
                   if data.get("test_trial") else data.get("dt_s", 0.01))
     _gain_rot = data.get("gain_data")
     _gain_trn = data.get("gain_data_v_fwd")
-    if data.get("calcium_panel") is not None:
+    # Heading-bin ablation: when the model emits K-bin logits, the
+    # cos/sin-based integration-gain scatter (linear fit of decoded
+    # heading slope vs ω) is meaningless because the gain is set by
+    # the bin-step rate, not a continuous slope. Replace panel h with
+    # the (T × K) softmax-posterior heatmap so the figure carries a
+    # direct visualisation of the K-bin readout — a diagonal stripe
+    # means the bump is travelling around the ring at ω, a flat band
+    # means the head is collapsed onto a constant bin (the failure
+    # mode the trainer's early epochs hit before integration kicks
+    # in). Falls through to the gain/calcium logic when bins mode is
+    # off OR when y_pred_bins is missing (e.g. an older snapshot).
+    _net = data.get("net")
+    _use_bins = bool(getattr(_net, "use_heading_bins", False))
+    _K_bins = int(getattr(_net, "n_heading_bins", 0))
+    if (_use_bins and _K_bins > 0
+            and "y_pred_bins" in (data.get("rollout") or {})):
+        _panel_kbin_posterior(ax_h, data["rollout"],
+                              data.get("dt_s", 0.01), _K_bins)
+    elif data.get("calcium_panel") is not None:
         _panel_calcium_compare(ax_h, data["calcium_panel"])
     elif _gain_rot and "decoded_theta" in (_gain_rot[0][1] or {}):
         _panel_integration_gain(ax_h, _gain_rot, _dt_for_h)
@@ -2872,7 +2993,7 @@ def plot_cx_evolution(data: dict, out_path: str, *,
         _panel_integration_gain(ax_h, _gain_rot, _dt_for_h)
     else:
         ax_h.axis("off")
-    _panel_label(ax_h, "h")
+    _panel_label(ax_h, "h", y=1.05)
 
     if n_rows < 3:
         os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
@@ -2989,10 +3110,31 @@ def plot_cx_evolution(data: dict, out_path: str, *,
                 return
             T_r = y_true_show.shape[1]
             t_r = np.arange(T_r) * dt_test
+            _bins_show = random_trials.get("y_pred_bins")
             for col in range(min(n_show, y_true_show.shape[0])):
                 ax = _ax_bot(row, col)
                 true_hd = np.arctan2(y_true_show[col, :, 1],
                                       y_true_show[col, :, 0])
+                if _bins_show is not None:
+                    # K-bin decoder: show the softmax posterior (like h),
+                    # with the true-θ bin overlaid in green.
+                    from connectome_gnn.models.heading_bins import (
+                        softmax_logits_to_decoded_theta_np,
+                    )
+                    lg = np.asarray(_bins_show[col]); Kc = lg.shape[-1]
+                    _draw_kbin_posterior(ax, lg, true_hd, dt_test, Kc,
+                                         fs_lab=_T_LABEL_FS, fs_tick=_T_TICK_FS,
+                                         ann=None)
+                    pred_hd = softmax_logits_to_decoded_theta_np(lg, Kc)
+                    if col == 2:
+                        ax.set_xlabel("time (s)", fontsize=_T_LABEL_FS)
+                    if col == 0:
+                        ax.set_ylabel(f"bin index (K={Kc})", fontsize=_T_LABEL_FS)
+                        _panel_label(ax, letter)
+                    _annotate(ax,
+                               f"rmse={_circ_rmse_deg(true_hd, pred_hd):.1f}°"
+                               f"\nr={_pearson(np.unwrap(true_hd), np.unwrap(pred_hd)):+.3f}")
+                    continue
                 pred_hd = np.arctan2(y_pred_show[col, :, 1],
                                       y_pred_show[col, :, 0])
                 _plot_wrapped_hd(ax, t_r, true_hd, GT_COLOR, GT_LW)
@@ -3036,7 +3178,10 @@ def plot_cx_evolution(data: dict, out_path: str, *,
                 if col == 2:
                     ax.set_xlabel("time (s)", fontsize=_T_LABEL_FS)
                 if col == 0:
-                    ax.set_ylabel(r"$d$", fontsize=_T_LABEL_FS)
+                    ax.set_ylabel(
+                        r"$\int(\omega-\omega_{\mathrm{proprio}})$"
+                        if kind == "mismatch" else r"$d$",
+                        fontsize=_T_LABEL_FS)
                     _panel_label(ax, letter)
                 rmse = float(np.sqrt(np.mean((pr[10:] - tr[10:]) ** 2)))
                 _annotate(ax,
@@ -3083,6 +3228,23 @@ def plot_cx_evolution(data: dict, out_path: str, *,
                 th_dec  = np.asarray(ro["decoded_theta"])
                 T_s = th_true.size
                 t_s = np.arange(T_s) * dt_test
+                _lg = ro.get("y_pred_bins")
+                if _lg is not None:
+                    # K-bin decoder: softmax posterior + true-θ bin overlay.
+                    _lg = np.asarray(_lg)
+                    _draw_kbin_posterior(ax, _lg, th_true, dt_test,
+                                         _lg.shape[-1], fs_lab=_T_LABEL_FS,
+                                         fs_tick=_T_TICK_FS, ann=None)
+                    if col == 2:
+                        ax.set_xlabel("time (s)", fontsize=_T_LABEL_FS)
+                    if col == 0:
+                        ax.set_ylabel(f"bin index (K={_lg.shape[-1]})",
+                                      fontsize=_T_LABEL_FS)
+                        _panel_label(ax, letter)
+                    _annotate(ax,
+                               f"rmse={_circ_rmse_deg(th_true, th_dec):.1f}°"
+                               f"\nr={_pearson(np.unwrap(th_true), np.unwrap(th_dec)):+.3f}")
+                    continue
                 _plot_wrapped_hd(ax, t_s, th_true, GT_COLOR, GT_LW)
                 _plot_wrapped_hd(ax, t_s, th_dec,  PRED_COLOR, PRED_LW)
                 ax.set_ylim(-np.pi - 0.2, np.pi + 0.2)
@@ -3167,6 +3329,13 @@ def plot_cx_evolution(data: dict, out_path: str, *,
             _plot_d_random(1, "j")
             _plot_hd_sweep(2, "k")
             _plot_d_sweep(3, "l")
+        elif kind == "mismatch":
+            # HD over trials; the integrated mismatch over trials (the
+            # companion of panel g); HD constant-ω sweep. No translation
+            # row — the 3rd readout is the mismatch, not a distance.
+            _plot_hd_random(0, "i")
+            _plot_d_random(1, "j")
+            _plot_hd_sweep(2, "k")
 
         os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
         fig.savefig(out_path, dpi=180, bbox_inches="tight")

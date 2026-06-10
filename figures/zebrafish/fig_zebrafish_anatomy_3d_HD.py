@@ -392,7 +392,17 @@ def draw_anatomy_panels(ax_skel, ax_soma, nl, types, rois,
     draw_types = [t for t in TYPE_ORDER if type_counts.get(t, 0) > 0]
     extra = [t for t in type_counts if t not in TYPE_ORDER]
     draw_types += extra
-    draw_order = sorted(draw_types, key=lambda t: -type_counts.get(t, 0))
+
+    # Draw the grey skeletons (the residual "other" population and any
+    # un-mapped extras that fall back to the default grey) FIRST so they sit
+    # BELOW the coloured functional populations. Within each group, larger
+    # populations are drawn first (sit lowest); the small coloured afferents
+    # stay on top.
+    def _is_grey(t):
+        return t == "other" or t not in TYPE_COLOR
+    draw_order = sorted(
+        draw_types,
+        key=lambda t: (0 if _is_grey(t) else 1, -type_counts.get(t, 0)))
 
     _draw_mesh_outlines(ax_skel, rois, elev, azim, alpha_mesh, mesh_color)
     _draw_skeletons(ax_skel, segs_by_type, type_counts, draw_order,
@@ -470,7 +480,17 @@ def _render_fast(nl, types, rois, output_path,
     draw_types = [t for t in TYPE_ORDER if type_counts.get(t, 0) > 0]
     extra = [t for t in type_counts if t not in TYPE_ORDER]
     draw_types += extra
-    draw_order = sorted(draw_types, key=lambda t: -type_counts.get(t, 0))
+
+    # Draw the grey skeletons (the residual "other" population and any
+    # un-mapped extras that fall back to the default grey) FIRST so they sit
+    # BELOW the coloured functional populations. Within each group, larger
+    # populations are drawn first (sit lowest); the small coloured afferents
+    # stay on top.
+    def _is_grey(t):
+        return t == "other" or t not in TYPE_COLOR
+    draw_order = sorted(
+        draw_types,
+        key=lambda t: (0 if _is_grey(t) else 1, -type_counts.get(t, 0)))
 
     if with_soma_panel:
         if somas_by_type is None:
@@ -584,7 +604,17 @@ def _render_matplotlib(nl, types, rois, output_path,
     draw_types = [t for t in TYPE_ORDER if type_counts.get(t, 0) > 0]
     extra = [t for t in type_counts if t not in TYPE_ORDER]
     draw_types += extra
-    draw_order = sorted(draw_types, key=lambda t: -type_counts.get(t, 0))
+
+    # Draw the grey skeletons (the residual "other" population and any
+    # un-mapped extras that fall back to the default grey) FIRST so they sit
+    # BELOW the coloured functional populations. Within each group, larger
+    # populations are drawn first (sit lowest); the small coloured afferents
+    # stay on top.
+    def _is_grey(t):
+        return t == "other" or t not in TYPE_COLOR
+    draw_order = sorted(
+        draw_types,
+        key=lambda t: (0 if _is_grey(t) else 1, -type_counts.get(t, 0)))
     for t in draw_order:
         segs_t = []
         for n, nt in zip(nl, types):

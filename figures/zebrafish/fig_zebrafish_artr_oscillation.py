@@ -226,9 +226,18 @@ def square_wave_drive(net, info, omega_amp=45.0, half_s=40.0, total_s=120.0):
     om = np.zeros(T, np.float32)
     for b in range(0, T, half):
         om[b:b + half] = omega_amp if (b // half) % 2 == 0 else -omega_amp
-    u = np.zeros((1, T, 3), np.float32)
+    n_in = int(getattr(net, "n_input", 3))
+    u = np.zeros((1, T, n_in), np.float32)
     u[0, :, 0] = om
-    u[0, 0, 1] = 1.0   # heading cue at t=0 only
+    # heading cue at t=0 — layout depends on the decoder/input convention.
+    if bool(getattr(net, "use_heading_bins", False)):
+        from connectome_gnn.models.heading_bins import theta_to_bin_np
+        K = int(getattr(net, "n_heading_bins", 0))
+        u[0, 0, 1 + int(theta_to_bin_np(0.0, K).item())] = 1.0   # θ₀ = 0 bin
+    elif n_in == 5:
+        u[0, 0, 3] = 1.0   # propriocep layout: cos θ₀ at col 3 (θ₀ = 0)
+    else:
+        u[0, 0, 1] = 1.0   # cos/sin layout: cos θ₀ at col 1
     _, h = net(torch.from_numpy(u).to(info["device"]))
     L, R = _artr_traces(net, info, h.cpu().numpy())
     t = np.arange(T) * dt
@@ -241,7 +250,8 @@ def free_run(net, info, total_s=80.0, eps=1.0, seed=1):
     dt, tau = info["dt"], info["tau"]
     T = int(total_s / dt)
     Wrec = net.W_rec
-    u = torch.zeros(1, 3, device=info["device"])     # omega = 0, no cue
+    u = torch.zeros(1, int(getattr(net, "n_input", 3)),
+                    device=info["device"])            # omega = 0, no cue
     h = (eps * torch.randn(1, net.n_units,
                            generator=torch.Generator().manual_seed(seed))
          ).to(info["device"])
@@ -293,11 +303,11 @@ def make_figure(net, info, out_path, omegas=None):
     f_bump = np.array([r["f_bump"] for r in sweep])
     osc = amp > 0.05
 
-    fig, ax = plt.subplots(2, 2, figsize=(13, 9))
+    fig, ax = plt.subplots(1, 2, figsize=(11, 4.6))
     LF, TF, LET = 13, 11, 18
 
     # (a) period sweep: ARTR period vs bump period reference (seconds)
-    a = ax[0, 0]
+    a = ax[0]
     artr_T = 1e3 / np.maximum(f_artr, 1e-9)          # ms->s: 1000/mHz
     bump_T = 360.0 / np.maximum(np.abs(om), 1e-9)    # s per bump revolution
     a.plot(om[osc], bump_T[osc], "k--s", mfc="none", ms=6, lw=1.5,
@@ -317,37 +327,14 @@ def make_figure(net, info, out_path, omegas=None):
     a.tick_params(labelsize=TF)
 
     # (b) amplitude vs omega -> collapse = not self-sustained
-    a = ax[0, 1]
+    a = ax[1]
     a.plot(om, amp, "o-", color="#7b2d8e", ms=7)
     a.axhline(0, color="grey", lw=0.8)
     a.set_xlabel(r"constant $\omega$  (deg/s)", fontsize=LF)
     a.set_ylabel(r"ARTR oscillation amplitude (std of $\bar h_L$)", fontsize=LF)
     a.tick_params(labelsize=TF)
 
-    # (c) square-wave drive: antiphase L/R following the drive
-    a = ax[1, 0]
-    a2 = a.twinx()
-    a2.plot(t_sq, om_sq, color="0.6", lw=1.2)
-    a2.set_ylabel(r"$\omega$ drive (deg/s)", fontsize=LF, color="0.5")
-    a2.tick_params(labelsize=TF, colors="0.5")
-    a.plot(t_sq, L_sq, color=L_COLOR, lw=1.4, label="ARTR$_L$")
-    a.plot(t_sq, R_sq, color=R_COLOR, lw=1.4, label="ARTR$_R$")
-    a.set_xlabel("time (s)", fontsize=LF)
-    a.set_ylabel(r"ARTR $\bar h$", fontsize=LF)
-    a.legend(fontsize=TF, frameon=False, loc="upper right")
-    a.tick_params(labelsize=TF)
-    a.set_zorder(a2.get_zorder() + 1); a.patch.set_visible(False)
-
-    # (d) zero-input free-run: decay to fixed point = not intrinsic
-    a = ax[1, 1]
-    a.plot(t_fr, L_fr, color=L_COLOR, lw=1.4, label="ARTR$_L$")
-    a.plot(t_fr, R_fr, color=R_COLOR, lw=1.4, label="ARTR$_R$")
-    a.set_xlabel("time (s)  —  $\\omega=0$, free-run from perturbation", fontsize=LF)
-    a.set_ylabel(r"ARTR $\bar h$", fontsize=LF)
-    a.legend(fontsize=TF, frameon=False, loc="upper right")
-    a.tick_params(labelsize=TF)
-
-    for letter, axx in zip("abcd", ax.ravel()):
+    for letter, axx in zip("ab", ax.ravel()):
         axx.text(-0.12, 1.04, letter, transform=axx.transAxes,
                  fontsize=LET, fontweight="bold", ha="left", va="bottom")
 
@@ -401,8 +388,17 @@ def kinograph_data(run="zebrafish_hd_si_ipn_917_v1_selfmotion_rotation",
     # drive the recorded omega through the gate (upsample imaging grid -> model dt)
     reps = max(1, int(round(dt_sec / dt)))
     om_hi = np.repeat(omega.astype(np.float32), reps)
-    u = np.zeros((1, len(om_hi), 3), np.float32)
-    u[0, :, 0] = om_hi; u[0, 0, 1] = 1.0       # heading cue at t=0 only
+    n_in = int(getattr(net, "n_input", 3))
+    u = np.zeros((1, len(om_hi), n_in), np.float32)
+    u[0, :, 0] = om_hi                          # heading cue at t=0 only:
+    if bool(getattr(net, "use_heading_bins", False)):
+        from connectome_gnn.models.heading_bins import theta_to_bin_np
+        K = int(getattr(net, "n_heading_bins", 0))
+        u[0, 0, 1 + int(theta_to_bin_np(0.0, K).item())] = 1.0   # θ₀ = 0 bin
+    elif n_in == 5:
+        u[0, 0, 3] = 1.0                        # propriocep layout: cos θ₀
+    else:
+        u[0, 0, 1] = 1.0                        # cos/sin layout: cos θ₀
     with torch.no_grad():
         _, h = net(torch.from_numpy(u).to(info["device"]))
     ca = create_gcamp(gcamp)(h[0], dt_in=dt).cpu().numpy()    # (T_hi, N)
@@ -592,9 +588,9 @@ def make_kinograph_train_compare_figure(out_path, run=None, data_root=DEFAULT_DA
     else:
         model_disp = d["model"]; r_model_disp = d["r_model"]
 
-    fig, ax = plt.subplots(7, 1, figsize=(11, 12), sharex=True,
+    fig, ax = plt.subplots(8, 1, figsize=(11, 13), sharex=True,
                            gridspec_kw=dict(height_ratios=[
-                               0.5, 2, 2, 1.0, 1.0, 1.3, 1.3]))
+                               0.5, 2, 2, 1.0, 1.0, 1.0, 1.3, 1.3]))
     LF, TF, LET = 12, 10, 15
     nrm = lambda v: v / max(np.abs(v).max(), 1e-9)
 
@@ -674,8 +670,11 @@ def make_kinograph_train_compare_figure(out_path, run=None, data_root=DEFAULT_DA
         a.tick_params(labelsize=TF)
 
     P0 = (0.0, 1.0 / 16.0)        # slow band: period > 16 s
+    P1 = (1.0 / 16.0, np.inf)     # fast band: period < 16 s (bump carrier)
     rs_real = _corr(_hemi(d["real"], "L", P0), _hemi(d["real"], "R", P0))
     rs_model = _corr(_hemi(d["model"], "L", P0, invert_R), _hemi(d["model"], "R", P0, invert_R))
+    rf_real = _corr(_hemi(d["real"], "L", P1), _hemi(d["real"], "R", P1))
+    rf_model = _corr(_hemi(d["model"], "L", P1, invert_R), _hemi(d["model"], "R", P1, invert_R))
 
     def traces_panel(a, A, s, lab, invR=False):
         # individual learned per-cell traces (z-scored) + population mean
@@ -694,19 +693,20 @@ def make_kinograph_train_compare_figure(out_path, run=None, data_root=DEFAULT_DA
 
     lr_panel(ax[3], d["real"], None, "real\nL/R mean", leg=True)
     lr_panel(ax[4], d["real"], P0, "real slow\n(>16 s)")
-    traces_panel(ax[5], d["model"], "L", "model ARTR$_L$\n(learned)", invR=invert_R)
-    traces_panel(ax[6], d["model"], "R", "model ARTR$_R$\n(learned)", invR=invert_R)
-    ax[6].set_xlabel("time (s)", fontsize=LF)
+    lr_panel(ax[5], d["real"], P1, "real fast\n(<16 s)")
+    traces_panel(ax[6], d["model"], "L", "model ARTR$_L$\n(learned)", invR=invert_R)
+    traces_panel(ax[7], d["model"], "R", "model ARTR$_R$\n(learned)", invR=invert_R)
+    ax[7].set_xlabel("time (s)", fontsize=LF)
 
-    for letter, axx in zip("abcdefg", ax):
+    for letter, axx in zip("abcdefgh", ax):
         axx.text(-0.075, 1.02, letter, transform=axx.transAxes, fontsize=LET,
                  fontweight="bold", ha="left", va="bottom")
     fig.tight_layout()
     fig.savefig(out_path, dpi=160, bbox_inches="tight")
     plt.close(fig)
     nLm = int((side == "L").sum()); nRm = int((side == "R").sum())
-    print(f"[artr_kino] real:  total r={d['r_real']:+.2f}  slow r={rs_real:+.2f}")
-    print(f"[artr_kino] model: total r={r_model_disp:+.2f}  slow r={rs_model:+.2f}  "
+    print(f"[artr_kino] real:  total r={d['r_real']:+.2f}  slow r={rs_real:+.2f}  fast r={rf_real:+.2f}")
+    print(f"[artr_kino] model: total r={r_model_disp:+.2f}  slow r={rs_model:+.2f}  fast r={rf_model:+.2f}  "
           f"learned traces L={nLm} R={nRm}")
     return d
 
