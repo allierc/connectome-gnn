@@ -189,6 +189,7 @@ docs/*.pdf
 !figures/drosophila_cx/fig_traces_combined_epg.png
 !figures/drosophila_cx/fig_traces_const_omega_epg.png
 !figures/drosophila_cx/fig_w_rec_comparison.png
+!figures/drosophila_cx/fig_cx_tuning_sharpness.png
 !figures/zebrafish/fig_connectome_summary_HD.png
 !figures/zebrafish/fig_zebrafish_anatomy_3d_HD.png
 !figures/zebrafish/fig_zebrafish_four_classes.png

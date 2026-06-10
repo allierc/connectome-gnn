@@ -1,33 +1,32 @@
-"""MI-based partition of the recurrent pool + W^rec edge-block analysis.
+"""MI-based partition of the recurrent pool, four joint-task models.
 
-Run on a trained joint-task model (rotation + scalar-d or
-rotation + 2-D position). For each recurrent neuron i (dIPN + IPN12
-pool, n=551 of 839 — afferents are excluded by construction) we
-compute the per-neuron MI on the integrated heading θ and on the
-forward distance d, then split into three pools:
+Run across four trained joint-task models (rotation+distance and 2-D
+path, each cumulative and leaky). For each recurrent neuron i — the
+whole GABAergic substrate dIPN + dsIPN + IPN12 + IPN-core
+(IPN28/29/31-36); afferents RIPN*/pt-IPN* are excluded by construction —
+we compute the per-neuron MI on the integrated heading θ and on the
+forward displacement d, then split into four pools:
 
     angular      :  I(h_i;θ) ≥ τθ, I(h_i;d) < τd
     displacement :  I(h_i;θ) < τθ, I(h_i;d) ≥ τd
     shared       :  I(h_i;θ) ≥ τθ, I(h_i;d) ≥ τd
+    neither      :  low on both
 
 The thresholds (τθ, τd) default to the per-axis medians, so each pool
-is a quadrant of the MI scatter. The fourth quadrant (low on both)
-is the residual "neither" group, kept on the scatter but not in the
-edge analysis.
+is a quadrant of the MI scatter.
 
-Two panels:
-    (a) MI scatter I(h;θ) vs I(h;d), one dot per recurrent neuron,
-        coloured by pool. Thresholds drawn as dashed lines.
-    (b) Edge-block magnitude
-        avg |W^rec_{p→q}|  over recurrent→recurrent edges only,
-        between the three pools. A block-diagonal pattern would
-        indicate two disjoint micro-circuits; a dense cross-block
-        would indicate distributed computation.
+Four rows × four columns (one column per model):
+    row 1  MI scatter I(h;θ) vs I(h;d), coloured by functional pool.
+    row 2  the SAME scatter, coloured by anatomical family
+           (dIPN, dsIPN, IPN12, IPN-core).
+    row 3  per-family functional-pool composition (stacked bars).
+    row 4  per-cell-type functional-pool composition (stacked bars):
+           does the functional split line up with anatomy?
 
 Usage:
     python figures/zebrafish/fig_zebrafish_mi_partition.py
     python figures/zebrafish/fig_zebrafish_mi_partition.py \\
-        --run zebrafish_hd_si_ipn12_artr_pt1_position_2d_leaky
+        --runs RUN1 RUN2 RUN3 RUN4 --device cuda
 """
 from __future__ import annotations
 
@@ -55,26 +54,46 @@ from connectome_gnn.utils import graphs_data_path  # noqa: E402
 
 # Recurrent-pool cell-type prefixes (everything that's *not* an
 # afferent: dIPN, IPNds, IPN12).
-RECURRENT_PREFIXES = ("IPNd", "IPNds", "IPN12")
+RECURRENT_PREFIXES = ("IPNd", "IPNds", "IPN12", "IPN-core")
 POOL_ORDER = ("angular", "shared", "displacement", "neither")
+# Okabe-Ito-derived qualitative palette (colour-blind safe, prints well).
 POOL_COLOR = {
-    "angular":      "#1f6fb3",   # blue — heading-tuned
-    "displacement": "#e07b1a",   # orange — distance-tuned
-    "shared":       "#2a9d3d",   # green — both
-    "neither":      "#888888",   # grey — low on both
+    "angular":      "#0072b2",   # blue          — heading-tuned (bottom-right)
+    "displacement": "#e69f00",   # orange        — distance-tuned (top-left)
+    "shared":       "#009e73",   # bluish green  — both (top-right)
+    "neither":      "#cccccc",   # light grey    — low on both (bottom-left)
 }
 
 
-def _is_recurrent(name: str) -> bool:
-    # Order matters: IPN12 starts with IPN1 which would prefix-match
-    # 'IPNd' if we weren't careful — use exact prefix tests.
-    if name.startswith("IPN12"):
-        return True
+# Coarse recurrent-substrate families (for the cell-type colouring of
+# the bottom row). dsIPN (IPNds*) is split out from dIPN (IPNd*) so the
+# three anatomical families of the ring substrate are distinguishable.
+REC_FAMILY_ORDER = ("dIPN", "dsIPN", "IPN12", "IPN-core")
+REC_FAMILY_COLOR = {
+    "dIPN":     "#d29922",   # amber
+    "dsIPN":    "#2aa198",   # teal
+    "IPN12":    "#c9468a",   # rose
+    "IPN-core": "#6a51a3",   # purple
+}
+
+
+def _rec_family(name: str) -> str:
+    """Map a recurrent cell-type name to its coarse anatomical family."""
     if name.startswith("IPNds"):
-        return True
+        return "dsIPN"
+    if name.startswith("IPN12"):
+        return "IPN12"
     if name.startswith("IPNd"):
-        return True
-    return False
+        return "dIPN"
+    return "IPN-core"      # IPN28/29/31-36
+
+
+def _is_recurrent(name: str) -> bool:
+    # The recurrent GABAergic substrate is every IPN* cell type: dIPN
+    # (IPNd*), dsIPN (IPNds*), the IPN12 pool, and the IPN-core families
+    # (IPN28/29/31-36). The afferents are RIPN* and pt-IPN*, neither of
+    # which starts with "IPN", so a single prefix test suffices.
+    return name.startswith("IPN")
 
 
 def _mi_plugin(x: np.ndarray, y: np.ndarray, n_bins_x=32, n_bins_y=20) -> float:
@@ -176,11 +195,79 @@ def _accumulate_hidden(net, u_test, y_test, device, n_trials):
     return H, theta, d
 
 
+# The four joint-target models compared across the columns. Each carries
+# both a heading target θ and a forward-displacement target (scalar d for
+# the "both" task, the 2-D path for "position_2d"), so the I(h;θ) vs I(h;d)
+# partition is well defined for all four.
+DEFAULT_RUNS = (
+    "zebrafish_hd_si_ipn_917_v1_selfmotion_both",
+    "zebrafish_hd_si_ipn_917_v1_selfmotion_both_leaky",
+    "zebrafish_hd_si_ipn_917_v1_position_2d",
+    "zebrafish_hd_si_ipn_917_v1_position_2d_leaky",
+)
+
+_PROFILE_BY_TARGET = {
+    (3, ("rotation",)):                ([0, 2, 3],    [0, 1]),
+    (3, ("translation",)):             ([1],          [2]),
+    (3, ("rotation", "translation")):  ([0, 1, 2, 3], [0, 1, 2]),
+    (4, ("rotation",)):                ([0, 2, 3],    [0, 1]),
+    (4, ("position_2d",)):             ([0, 1, 2, 3], [0, 1, 2, 3]),
+}
+_RECOGNISED = ("rotation", "translation", "position_2d")
+
+
+def _compute_run(run_basename: str, data_root: str, n_trials: int, device):
+    """Load one trained run, roll out, and return the per-recurrent-neuron
+    MI partition plus the cell-type family of each neuron."""
+    run_dir = os.path.join(data_root, "log", "zebrafish", run_basename)
+    print(f"  loading {run_dir}")
+    net, config = _load_run(run_dir, device)
+    type_names = list(net.type_names)
+    nt = np.asarray(net.neuron_types).astype(int)
+    is_rec = np.array([_is_recurrent(type_names[int(t)]) for t in nt])
+    rec_ix = np.where(is_rec)[0]
+    fam = np.array([_rec_family(type_names[int(nt[i])]) for i in rec_ix],
+                   dtype=object)
+    ctype = np.array([type_names[int(nt[i])] for i in rec_ix], dtype=object)
+
+    root = graphs_data_path(config.dataset)
+    u_test = load_raw_array(f"{root}/test/stimulus.zarr")
+    y_test = load_raw_array(f"{root}/test/target.zarr")
+    _task_raw = list(getattr(config.training, "task_targets", None) or [])
+    _task_key = tuple(t for t in _RECOGNISED if t in _task_raw)
+    if u_test.shape[-1] >= 4 and _task_key:
+        key = (int(y_test.shape[-1]), _task_key)
+        if key in _PROFILE_BY_TARGET:
+            in_cols, out_cols = _PROFILE_BY_TARGET[key]
+            u_test = u_test[..., in_cols]
+            y_test = y_test[..., out_cols]
+
+    H, theta, d = _accumulate_hidden(net, u_test, y_test, device, n_trials)
+    I_theta = np.zeros(rec_ix.size)
+    I_d = np.zeros(rec_ix.size)
+    for k, i in enumerate(rec_ix):
+        x = H[:, i]
+        I_theta[k] = _circular_mi(x, theta)
+        I_d[k] = _mi_plugin(x, d)
+
+    tau_theta = float(np.median(I_theta))
+    tau_d = float(np.median(I_d))
+    pool = np.full(rec_ix.size, "neither", dtype=object)
+    pool[(I_theta >= tau_theta) & (I_d <  tau_d)] = "angular"
+    pool[(I_theta <  tau_theta) & (I_d >= tau_d)] = "displacement"
+    pool[(I_theta >= tau_theta) & (I_d >= tau_d)] = "shared"
+    counts = {p: int(np.sum(pool == p)) for p in POOL_ORDER}
+    fam_counts = {f: int(np.sum(fam == f)) for f in REC_FAMILY_ORDER}
+    print(f"    n_rec={rec_ix.size}  τθ={tau_theta:.3f} τd={tau_d:.3f}  "
+          f"pools={counts}  families={fam_counts}")
+    return dict(I_theta=I_theta, I_d=I_d, pool=pool, counts=counts,
+                fam=fam, ctype=ctype, tau_theta=tau_theta, tau_d=tau_d)
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--run",
-                   default="zebrafish_hd_si_ipn12_artr_pt1_position_2d_leaky",
-                   help="trained run directory basename")
+    p.add_argument("--runs", nargs="+", default=list(DEFAULT_RUNS),
+                   help="four trained run directory basenames (one per column)")
     p.add_argument("--data_root",
                    default="/groups/saalfeld/home/allierc/GraphData")
     p.add_argument("--n_trials", type=int, default=64,
@@ -196,131 +283,109 @@ def main():
         pass
 
     device = torch.device(args.device)
-    run_dir = os.path.join(args.data_root, "log", "zebrafish", args.run)
-    print(f"[1/4] loading {run_dir}")
-    net, config = _load_run(run_dir, device)
-    type_names = list(net.type_names)
-    nt = np.asarray(net.neuron_types).astype(int)
-    N = nt.size
-    is_rec = np.array([_is_recurrent(type_names[int(t)]) for t in nt])
-    rec_ix = np.where(is_rec)[0]
-    print(f"      N={N}, recurrent neurons: {rec_ix.size}")
+    results = []
+    for j, run in enumerate(args.runs):
+        print(f"[{j + 1}/{len(args.runs)}] {run}")
+        results.append(_compute_run(run, args.data_root, args.n_trials, device))
 
-    # Load test trials with task_targets slicing.
-    print(f"[2/4] loading test trials and applying task_targets slicing")
-    root = graphs_data_path(config.dataset)
-    u_test = load_raw_array(f"{root}/test/stimulus.zarr")
-    y_test = load_raw_array(f"{root}/test/target.zarr")
-    _PROFILE_BY_TARGET = {
-        (3, ("rotation",)):                ([0, 2, 3],    [0, 1]),
-        (3, ("translation",)):             ([1],          [2]),
-        (3, ("rotation", "translation")):  ([0, 1, 2, 3], [0, 1, 2]),
-        (4, ("rotation",)):                ([0, 2, 3],    [0, 1]),
-        (4, ("position_2d",)):             ([0, 1, 2, 3], [0, 1, 2, 3]),
-    }
-    _RECOGNISED = ("rotation", "translation", "position_2d")
-    _task_raw = list(getattr(config.training, "task_targets", None) or [])
-    _task_key = tuple(t for t in _RECOGNISED if t in _task_raw)
-    if u_test.shape[-1] >= 4 and _task_key:
-        key = (int(y_test.shape[-1]), _task_key)
-        if key in _PROFILE_BY_TARGET:
-            in_cols, out_cols = _PROFILE_BY_TARGET[key]
-            u_test = u_test[..., in_cols]
-            y_test = y_test[..., out_cols]
-    print(f"      u={u_test.shape}  y={y_test.shape}")
+    # ---- plot: 4 rows x N cols -------------------------------------------
+    # Row 1: MI scatter coloured by functional pool.
+    # Row 2: the SAME scatter coloured by anatomical FAMILY (4 families).
+    # Row 3: per-family functional-pool composition (stacked bars).
+    # Row 4: per-cell-type functional-pool composition (stacked bars).
+    # Column identity (the four models) is given in the caption.
+    from matplotlib.lines import Line2D
+    ncol = len(results)
+    LF, TF, LET = 13, 11, 14
+    fig, axes = plt.subplots(4, ncol, figsize=(4.6 * ncol, 17.2))
+    letters = "abcdefghijklmnopqrstuvwxyz"
+    xmax = max(float(r["I_theta"].max()) for r in results) * 1.05
+    ymax = max(float(r["I_d"].max()) for r in results) * 1.05
+    all_types = sorted({t for r in results for t in set(r["ctype"])})
 
-    print(f"[3/4] rollout {args.n_trials} trials, computing MI per recurrent neuron")
-    H, theta, d = _accumulate_hidden(net, u_test, y_test, device,
-                                       args.n_trials)
-    print(f"      H={H.shape}, θ samples={theta.size}, d range={d.min():.3f}..{d.max():.3f}")
+    def _stacked_pool_bars(ax, groups, group_of):
+        """Stacked per-group functional-pool fractions on ``ax``.
+        ``group_of`` maps each recurrent neuron to its group key."""
+        x = np.arange(len(groups))
+        bottom = np.zeros(len(groups))
+        gk = group_of
+        for pl in POOL_ORDER:
+            frac = np.array([
+                float(np.mean((gk == g) & (r["pool"] == pl))
+                      / max(np.mean(gk == g), 1e-9))
+                if (gk == g).any() else 0.0 for g in groups])
+            ax.bar(x, frac, bottom=bottom, width=0.82,
+                   color=POOL_COLOR[pl], edgecolor="none")
+            bottom += frac
+        ax.set_xticks(x)
+        ax.set_ylim(0, 1)
+        ax.set_xlim(-0.6, len(groups) - 0.4)
+        return x
 
-    I_theta = np.zeros(rec_ix.size)
-    I_d = np.zeros(rec_ix.size)
-    for k, i in enumerate(rec_ix):
-        x = H[:, i]
-        I_theta[k] = _circular_mi(x, theta)
-        I_d[k] = _mi_plugin(x, d)
-
-    tau_theta = float(np.median(I_theta))
-    tau_d = float(np.median(I_d))
-    print(f"      thresholds: τθ={tau_theta:.3f}, τd={tau_d:.3f}")
-
-    pool = np.full(rec_ix.size, "neither", dtype=object)
-    pool[(I_theta >= tau_theta) & (I_d <  tau_d)] = "angular"
-    pool[(I_theta <  tau_theta) & (I_d >= tau_d)] = "displacement"
-    pool[(I_theta >= tau_theta) & (I_d >= tau_d)] = "shared"
-    pool[(I_theta <  tau_theta) & (I_d <  tau_d)] = "neither"
-    counts = {p: int(np.sum(pool == p)) for p in POOL_ORDER}
-    print(f"      pool counts: {counts}")
-
-    # ---- panel (b): edge-block magnitudes on recurrent→recurrent edges ----
-    print(f"[4/4] computing edge-block magnitudes (recurrent→recurrent)")
-    W_rec = net.W_rec.detach().cpu().numpy()        # (N, N), row=post, col=pre
-    # Restrict to recurrent×recurrent block.
-    W_rr = W_rec[np.ix_(rec_ix, rec_ix)]            # (n_rec, n_rec)
-    blocks = {p: np.where(pool == p)[0] for p in POOL_ORDER}
-    M = np.zeros((3, 3))                            # angular/shared/displacement
-    pools_3 = ("angular", "shared", "displacement")
-    for i, p_pre in enumerate(pools_3):
-        for j, p_post in enumerate(pools_3):
-            pre = blocks[p_pre]; post = blocks[p_post]
-            if pre.size == 0 or post.size == 0:
-                M[j, i] = np.nan
+    for j, r in enumerate(results):
+        # --- row 1: scatter coloured by functional pool ---
+        ax = axes[0, j]
+        for pl in POOL_ORDER:
+            m = r["pool"] == pl
+            if not m.any():
                 continue
-            sub = np.abs(W_rr[np.ix_(post, pre)])
-            # Mean over non-zero (connectome support) entries.
-            nz = sub[sub > 0]
-            M[j, i] = float(nz.mean()) if nz.size else 0.0
+            ax.scatter(r["I_theta"][m], r["I_d"][m], s=18,
+                       color=POOL_COLOR[pl], edgecolor="none", alpha=0.85,
+                       label=f"{pl} (n={r['counts'][pl]})")
+        ax.axvline(r["tau_theta"], color="0.4", lw=0.7, ls="--")
+        ax.axhline(r["tau_d"],     color="0.4", lw=0.7, ls="--")
+        ax.set_xlim(0, xmax); ax.set_ylim(0, ymax)
+        if j == 0:
+            # Axis titles written once, on panel a only.
+            ax.set_xlabel(r"$I(\hat h_i;\,\theta)$  (bits, heading)", fontsize=LF)
+            ax.set_ylabel(r"$I(\hat h_i;\,d)$  (bits, translation)", fontsize=LF)
+            ax.legend(fontsize=9, loc="upper right", frameon=False)
+        ax.tick_params(labelsize=TF)
+        ax.text(-0.10, 1.04, letters[j], transform=ax.transAxes,
+                fontsize=LET, fontweight="bold")
 
-    # ---- plot --------------------------------------------------------
-    fig, axes = plt.subplots(1, 2, figsize=(13, 5.8))
+        # --- row 2: scatter coloured by anatomical family ---
+        ax = axes[1, j]
+        for famk in REC_FAMILY_ORDER:
+            m = r["fam"] == famk
+            if not m.any():
+                continue
+            ax.scatter(r["I_theta"][m], r["I_d"][m], s=18,
+                       color=REC_FAMILY_COLOR[famk], edgecolor="none",
+                       alpha=0.85, label=f"{famk} (n={int(m.sum())})")
+        ax.axvline(r["tau_theta"], color="0.4", lw=0.7, ls="--")
+        ax.axhline(r["tau_d"],     color="0.4", lw=0.7, ls="--")
+        ax.set_xlim(0, xmax); ax.set_ylim(0, ymax)
+        if j == 0:
+            ax.legend(fontsize=9, loc="upper right", frameon=False)
+        ax.tick_params(labelsize=TF)
+        ax.text(-0.10, 1.04, letters[ncol + j], transform=ax.transAxes,
+                fontsize=LET, fontweight="bold")
 
-    # (a) MI scatter
-    ax = axes[0]
-    for p in POOL_ORDER:
-        mask = pool == p
-        ax.scatter(I_theta[mask], I_d[mask], s=22,
-                   color=POOL_COLOR[p], edgecolor="none",
-                   alpha=0.85, label=f"{p} (n={counts[p]})")
-    ax.axvline(tau_theta, color="0.4", lw=0.7, linestyle="--")
-    ax.axhline(tau_d,     color="0.4", lw=0.7, linestyle="--")
-    ax.set_xlabel(r"$I(\hat h_i;\,\theta)$  (bits)", fontsize=13)
-    ax.set_ylabel(r"$I(\hat h_i;\,d)$  (bits)", fontsize=13)
-    ax.tick_params(labelsize=11)
-    ax.legend(fontsize=10, loc="upper left", frameon=False)
-    ax.text(-0.10, 1.04, "a", transform=ax.transAxes,
-            fontsize=13, fontweight="bold")
+        # --- row 3: per-family pool composition ---
+        ax = axes[2, j]
+        _stacked_pool_bars(ax, REC_FAMILY_ORDER, r["fam"])
+        ax.set_xticklabels(REC_FAMILY_ORDER, rotation=30, ha="right", fontsize=8)
+        if j == 0:
+            ax.set_ylabel("pool fraction", fontsize=LF)
+        ax.tick_params(axis="y", labelsize=TF)
+        ax.text(-0.10, 1.04, letters[2 * ncol + j], transform=ax.transAxes,
+                fontsize=LET, fontweight="bold")
 
-    # (b) edge-block matrix
-    ax = axes[1]
-    cmap = plt.get_cmap("viridis")
-    im = ax.imshow(M, cmap=cmap, vmin=0, aspect="auto")
-    ax.set_xticks(range(3)); ax.set_xticklabels(pools_3, fontsize=12)
-    ax.set_yticks(range(3)); ax.set_yticklabels(pools_3, fontsize=12)
-    ax.set_xlabel("pre-synaptic pool", fontsize=13)
-    ax.set_ylabel("post-synaptic pool", fontsize=13)
-    for i in range(3):
-        for j in range(3):
-            val = M[j, i]
-            if np.isfinite(val):
-                ax.text(i, j, f"{val:.3f}",
-                        ha="center", va="center", fontsize=11,
-                        color="white" if val < M.max() * 0.5 else "black")
-    cb = plt.colorbar(im, ax=ax, fraction=0.045)
-    cb.set_label(r"mean $|\hat W^{rec}_{p\to q}|$ over edges",
-                 fontsize=11)
-    cb.ax.tick_params(labelsize=10)
-    ax.text(-0.10, 1.04, "b", transform=ax.transAxes,
-            fontsize=13, fontweight="bold")
+        # --- row 4: per-cell-type pool composition ---
+        ax = axes[3, j]
+        _stacked_pool_bars(ax, all_types, r["ctype"])
+        ax.set_xticklabels(all_types, rotation=90, fontsize=6)
+        if j == 0:
+            ax.set_ylabel("pool fraction", fontsize=LF)
+        ax.tick_params(axis="y", labelsize=TF)
+        ax.text(-0.10, 1.04, letters[3 * ncol + j], transform=ax.transAxes,
+                fontsize=LET, fontweight="bold")
 
     plt.tight_layout()
     fig.savefig(args.out, dpi=170, bbox_inches="tight")
     plt.close(fig)
     print(f"[fig_mi_partition] wrote {args.out}")
-    print(f"[fig_mi_partition] pool counts: {counts}")
-    print(f"[fig_mi_partition] edge-block matrix (rows=post, cols=pre):")
-    for row, p in zip(M, pools_3):
-        print(f"  {p:13s}  {row}")
 
 
 if __name__ == "__main__":

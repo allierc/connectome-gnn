@@ -149,6 +149,25 @@ class ZebrafishHdTaskGNN(nn.Module):
             ("position_2d",):             (4, 4),
         }
         _auto_in, _auto_out = _TT_DIMS.get(_tt_key, (3, 2))
+        # Heading-bin ablation — mirror of the RNN logic. See
+        # ZebrafishHdTaskRNN.__init__ and TrainingConfig.use_heading_bins.
+        self.use_heading_bins = bool(getattr(
+            getattr(config, "training", None), "use_heading_bins", False))
+        self.n_heading_bins = int(getattr(
+            getattr(config, "training", None), "n_heading_bins", 64))
+        if self.use_heading_bins:
+            if _tt_key != ("rotation",):
+                raise ValueError(
+                    f"training.use_heading_bins=True is implemented only for "
+                    f"task_targets=['rotation']; got task_targets={_tt_raw!r}."
+                )
+            if self.n_heading_bins < 4:
+                raise ValueError(
+                    f"training.n_heading_bins must be ≥ 4 to discretise S^1; "
+                    f"got {self.n_heading_bins}."
+                )
+            _auto_in = 1 + self.n_heading_bins
+            _auto_out = self.n_heading_bins
         self.n_input = int(getattr(gm, "n_input", 0)) or _auto_in
         self.n_output = int(getattr(gm, "n_output", 0)) or _auto_out
 

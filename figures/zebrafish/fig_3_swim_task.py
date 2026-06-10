@@ -20,6 +20,11 @@ is portable and reproducible — no on-disk dataset needed.
         computed from the same ω / v_ext inputs shown in panel a; the
         leaky path is bounded ≈ τ · v̄_ext, while the cumulative path
         drifts unboundedly from the origin.
+    (d) Proprioceptive-gain MISMATCH task for the same trial's ω:
+        a piecewise-constant gain g(t) ∈ [0, 1.5] sets the
+        proprioceptive copy ω_proprio = g·ω (routed to motor_efferent),
+        and the supervised scalar is the integrated mismatch
+        ∫(ω − ω_proprio) dt.
 
 Usage
 -----
@@ -245,6 +250,62 @@ def _panel_2d_path(ax, vfwd: np.ndarray, theta_hd: np.ndarray):
     ax.tick_params(labelsize=TICK_FS)
 
 
+# --- Proprioceptive-gain mismatch task (target_kind = rotation_mismatch) -----
+PROPRIO_COLOR = "#e8820c"     # orange (proprioceptive copy ω_proprio)
+GAIN_COLOR = "#9467bd"        # purple (gain g(t))
+
+
+def mismatch_signals(omega_deg, *, seed=0, g_min=0.0, g_max=1.5, seg_s=2.0):
+    """Piecewise-constant gain g(t), proprioceptive copy ω_proprio = g·ω,
+    and the integrated mismatch ∫(ω − ω_proprio) dt (radians)."""
+    rng = np.random.default_rng(seed)
+    T_ = omega_deg.shape[0]
+    n_seg = max(1, int(round((T_ * DT) / max(seg_s, DT))))
+    seg_gains = rng.uniform(g_min, g_max, size=n_seg).astype(np.float32)
+    g = np.zeros(T_, dtype=np.float32)
+    bounds = np.linspace(0, T_, n_seg + 1).astype(int)
+    for s in range(n_seg):
+        g[bounds[s]:bounds[s + 1]] = seg_gains[s]
+    omega_pro = (g * omega_deg).astype(np.float32)
+    mismatch = (np.cumsum(np.deg2rad(omega_deg - omega_pro)) * DT).astype(np.float32)
+    mismatch[0] = 0.0
+    return g, omega_pro, mismatch
+
+
+def _draw_mismatch_stack(fig, gs_cell, omega_deg, *, seed=0):
+    """3 stacked sub-axes depicting the mismatch task: g(t); ω vs ω_proprio;
+    the integrated-mismatch target."""
+    sub = GridSpecFromSubplotSpec(3, 1, subplot_spec=gs_cell, hspace=0.20)
+    T_ = omega_deg.shape[0]
+    t_axis = np.arange(T_) * DT
+    g, omega_pro, mismatch = mismatch_signals(omega_deg, seed=seed)
+
+    ax0 = fig.add_subplot(sub[0])
+    ax0.plot(t_axis, g, color=GAIN_COLOR, lw=1.3)
+    ax0.axhline(1.0, color="0.7", lw=0.5, ls=":")
+    ax0.set_ylim(-0.1, 1.65)
+    ax0.set_ylabel(r"$g(t)$", fontsize=LABEL_FS)
+    ax0.tick_params(labelsize=TICK_FS, labelbottom=False)
+
+    ax1 = fig.add_subplot(sub[1], sharex=ax0)
+    ax1.plot(t_axis, omega_deg, color=GT_COLOR, lw=0.8, label=r"$\omega$")
+    ax1.plot(t_axis, omega_pro, color=PROPRIO_COLOR, lw=0.8,
+             label=r"$\omega_{\mathrm{proprio}}=g\,\omega$")
+    ax1.axhline(0, color="0.7", lw=0.3)
+    ax1.set_ylabel(r"°/s", fontsize=LABEL_FS)
+    ax1.legend(loc="upper right", fontsize=LEGEND_FS - 3, frameon=False)
+    ax1.tick_params(labelsize=TICK_FS, labelbottom=False)
+
+    ax2 = fig.add_subplot(sub[2], sharex=ax0)
+    ax2.plot(t_axis, mismatch, color=GT_COLOR, lw=1.2)
+    ax2.axhline(0, color="0.7", lw=0.3)
+    ax2.set_ylabel(r"$\int(\omega-\omega_{\mathrm{proprio}})\,dt$",
+                   fontsize=LABEL_FS - 2)
+    ax2.set_xlabel("time (s)", fontsize=LABEL_FS)
+    ax2.tick_params(labelsize=TICK_FS)
+    return ax0
+
+
 # ---------------------------------------------------------------------------
 # Figure
 # ---------------------------------------------------------------------------
@@ -253,12 +314,12 @@ def build_figure(out_path: str, seed: int = 3):
     stim, target, omega_deg, vfwd, theta_hd = generate_swim_batch(
         B=5, seed=seed)
 
-    fig = plt.figure(figsize=(17.5, 6.0))
+    fig = plt.figure(figsize=(22.5, 6.0))
     gs = GridSpec(
-        1, 3, figure=fig,
-        width_ratios=[1.0, 1.0, 1.0],
-        wspace=0.32,
-        left=0.05, right=0.98, top=0.95, bottom=0.10,
+        1, 4, figure=fig,
+        width_ratios=[1.0, 1.0, 1.0, 1.0],
+        wspace=0.34,
+        left=0.04, right=0.985, top=0.95, bottom=0.10,
     )
 
     ax_a_top = _draw_4ch_stack(fig, gs[0, 0], stim[0])
@@ -270,6 +331,9 @@ def build_figure(out_path: str, seed: int = 3):
     ax_c = fig.add_subplot(gs[0, 2])
     _panel_2d_path(ax_c, vfwd[0], theta_hd[0])
     _panel_label(ax_c, "c", dx=-0.12)
+
+    ax_d_top = _draw_mismatch_stack(fig, gs[0, 3], omega_deg[0], seed=seed)
+    _panel_label(ax_d_top, "d")
 
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     fig.savefig(out_path, dpi=170, bbox_inches="tight")

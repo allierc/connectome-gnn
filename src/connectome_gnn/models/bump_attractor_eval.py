@@ -208,6 +208,17 @@ def _deterministic_sweep_rollout(
     n_in = int(getattr(net, "n_input", 3))
     n_out = int(getattr(net, "n_output", 0))
 
+    # Heading-bin ablation: rotation-only model with K-bin one-hot cue and
+    # K-bin logit readout (n_in = 1 + K, n_out = K). The standard cos/sin
+    # rotation-only branch (n_in == 3, n_out == 2) below is the
+    # use_heading_bins=False reference; bins mode follows the same code
+    # path with a different cue and decode step. has_rot is forced True so
+    # the heading GT/decode block is populated regardless of the K-bin
+    # n_out value (which would otherwise look like a "both"-mode n_out=3
+    # ξ-bearing model and break the GT/decoded slicing below).
+    use_bins = bool(getattr(net, "use_heading_bins", False))
+    K_bins = int(getattr(net, "n_heading_bins", 0))
+
     # n_input decides what u channels look like; n_output decides which
     # GT/decoded integrators we report (so the same u shape can serve both
     # the scalar_xi "both" model (n_out=3) and the position_2d model
@@ -217,9 +228,9 @@ def _deterministic_sweep_rollout(
     # gate [ω, v_extero, v_proprio, cosθ₀, sinθ₀]. n_in ∈ {1, 2} are the
     # translation-only layouts (2 = propriocep-split, two parallel v_fwd
     # ports) and carry no heading drive.
-    has_rot = n_in in (3, 4, 5)
-    has_trans_xi = n_out in (1, 3)              # scalar ξ in y_pred
-    has_xy       = (n_out == 4)                  # 2D (x, y) in y_pred[:, 2:4]
+    has_rot = use_bins or (n_in in (3, 4, 5))
+    has_trans_xi = (not use_bins) and (n_out in (1, 3))   # scalar ξ in y_pred
+    has_xy       = (not use_bins) and (n_out == 4)         # 2D (x, y) in y_pred[:, 2:4]
     if not (has_rot or has_trans_xi or has_xy):
         raise ValueError(
             f"_deterministic_sweep_rollout: unsupported (n_in, n_out) = "
@@ -230,7 +241,15 @@ def _deterministic_sweep_rollout(
     omega = np.full((1, T), float(omega_deg_per_s), dtype=np.float32)
     v_fwd = np.full((1, T), float(v_fwd_per_s),     dtype=np.float32)
 
-    if n_in == 3:
+    if use_bins:
+        # Heading-bin ablation: input layout is [ω, K-bin one-hot cue at t=0].
+        # Same bin convention as the trainer (connectome_gnn.models.heading_bins).
+        from connectome_gnn.models.heading_bins import theta_to_bin_np
+        u = np.zeros((1, T, 1 + K_bins), dtype=np.float32)
+        u[:, :, 0] = omega
+        bin_idx = int(theta_to_bin_np(float(theta0_rad), K_bins).item())
+        u[:, 0, 1 + bin_idx] = 1.0
+    elif n_in == 3:
         u = np.zeros((1, T, 3), dtype=np.float32)
         u[:, :, 0] = omega
         u[:, 0, 1] = math.cos(float(theta0_rad))
@@ -292,7 +311,30 @@ def _deterministic_sweep_rollout(
         # [cos, sin, ξ]). cumsum(deg2rad(ω)) * dt is the unwrapped GT angle.
         omega_rad = np.deg2rad(omega)
         out["true_theta"] = float(theta0_rad) + np.cumsum(omega_rad, axis=1)[0] * dt
-        out["decoded_theta"] = np.arctan2(y_pred[:, 1], y_pred[:, 0])
+        if use_bins:
+            # K-bin logits → circular-mean softmax decode. Also synthesise a
+            # (T, 2) cos/sin view of y_pred so downstream plotters
+            # (plot_cx_evolution and friends) — which read y_pred[:, :2] and
+            # atan2 it — keep working unchanged. The synthetic cos/sin pair
+            # has magnitude in (0, 1] reflecting softmax sharpness; the
+            # plotters only consume its angle, so the magnitude is harmless.
+            from connectome_gnn.models.heading_bins import (
+                softmax_logits_to_cos_sin_np,
+                softmax_logits_to_decoded_theta_np,
+            )
+            out["decoded_theta"] = softmax_logits_to_decoded_theta_np(
+                y_pred, K_bins)
+            cs = softmax_logits_to_cos_sin_np(y_pred, K_bins)
+            # Replace y_pred in the rollout with a 2-col cos/sin view so the
+            # plotter (which reads `rollout["y_pred"]` in some panels and
+            # `rollout["decoded_theta"]` in others) sees a consistent
+            # 2-channel layout matching the cos/sin baseline.
+            out["y_pred"] = cs
+            # Keep the raw K-bin logits available for any downstream caller
+            # that wants the full distribution.
+            out["y_pred_bins"] = y_pred
+        else:
+            out["decoded_theta"] = np.arctan2(y_pred[:, 1], y_pred[:, 0])
     if has_trans_xi:
         # ξ = ∫ v_fwd dt (linear, unbounded). Column placement depends on
         # n_output: translation-only (n_out=1) puts ξ in y_pred[:, 0];
@@ -618,11 +660,30 @@ def _build_test_trial(net, u_test, y_test, device, config):
     else:
         u_one_np = np.asarray(u_one)
         y_true_np = np.asarray(y_test[trial_idx])
+    # Heading-bin ablation: the on-disk u_one_np is (T, 3) with the (cos θ₀,
+    # sin θ₀) cue impulse at t=0; the trained model expects (T, 1+K) with a
+    # one-hot K-bin cue. Convert u BEFORE the forward, then decode the K-bin
+    # logits y_pred (T, K) back to a (T, 2) cos/sin view so the downstream
+    # plot_cx_evolution panel — which atan2's y_pred[:, :2] — works
+    # unchanged. y_true is also rewritten to its (T, 2) cos/sin form (it
+    # already IS cos/sin on disk; no conversion needed).
+    use_bins = bool(getattr(net, "use_heading_bins", False))
+    K_bins = int(getattr(net, "n_heading_bins", 0))
     with torch.no_grad():
         u_t = torch.from_numpy(u_one_np[None]).to(device) if not hasattr(u_one, "to") \
               else u_one[None].to(device)
+        if use_bins:
+            from connectome_gnn.models.heading_bins import (
+                convert_cos_sin_input_to_bin_cue_torch,
+            )
+            u_t = convert_cos_sin_input_to_bin_cue_torch(u_t, K_bins)
         y_pred_t, _ = net(u_t)
     y_pred_np = y_pred_t[0].cpu().numpy()
+    if use_bins:
+        from connectome_gnn.models.heading_bins import (
+            softmax_logits_to_cos_sin_np,
+        )
+        y_pred_np = softmax_logits_to_cos_sin_np(y_pred_np, K_bins)
     # Species-agnostic: drosophila uses task.path_integration, zebrafish
     # uses task.swim_integration. Fall back to net.dt if neither block
     # carries a dt (which would only happen for non-task models anyway).
