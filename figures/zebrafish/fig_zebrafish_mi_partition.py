@@ -134,6 +134,68 @@ def _circular_mi(x: np.ndarray, theta: np.ndarray, n_bins_x=32, n_bins_theta=24)
     return float(np.nansum(term))
 
 
+# --- whole-pool group MI (decoder lower bound) for the red-cross reference ---
+# What ALL recurrent neurons jointly encode about θ and d, as a population
+# decoder lower bound H(y)−CE_test in bits. Shown as a red "+" on each scatter
+# so the single-cell cloud can be read against the population ceiling. This is
+# a DIFFERENT estimator from the per-neuron plug-in MIs (comparable across the
+# four columns, but not numerically to the individual dots).
+from sklearn.linear_model import LogisticRegression  # noqa: E402
+from sklearn.preprocessing import StandardScaler  # noqa: E402
+from sklearn.model_selection import train_test_split  # noqa: E402
+
+N_THETA_BINS = 16
+N_D_BINS = 16
+MAX_DECODER_SAMPLES = 9000
+
+
+def _bin_theta_dec(theta):
+    th = ((np.asarray(theta) + np.pi) % (2 * np.pi)) - np.pi
+    edges = np.linspace(-np.pi, np.pi + 1e-9, N_THETA_BINS + 1)
+    return np.clip(np.digitize(th, edges) - 1, 0, N_THETA_BINS - 1)
+
+
+def _bin_quantile_dec(d, n_bins):
+    d = np.asarray(d, dtype=float)
+    qs = np.unique(np.quantile(d, np.linspace(0, 1, n_bins + 1)))
+    if qs.size < 3:
+        return np.zeros(d.size, dtype=int)
+    return np.clip(np.digitize(d, qs[1:-1]), 0, qs.size - 2)
+
+
+def _group_mi_bits(X, ybin):
+    """Cross-validated decoder lower bound H(y)−CE_test (bits) for a whole
+    population block X (T, n_neurons) predicting the binned target ybin."""
+    vals, counts = np.unique(ybin, return_counts=True)
+    keep = np.isin(ybin, vals[counts >= 4])
+    X, ybin = X[keep], ybin[keep]
+    if X.shape[0] < 50 or np.unique(ybin).size < 2:
+        return 0.0
+    Xtr, Xte, ytr, yte = train_test_split(
+        X, ybin, test_size=0.33, random_state=0, stratify=ybin)
+    sc = StandardScaler().fit(Xtr)
+    clf = LogisticRegression(max_iter=300, C=1.0).fit(sc.transform(Xtr), ytr)
+    proba = clf.predict_proba(sc.transform(Xte))
+    idx = {c: i for i, c in enumerate(clf.classes_)}
+    p = np.clip([proba[i, idx[y]] if y in idx else 1e-12
+                 for i, y in enumerate(yte)], 1e-12, 1.0)
+    ce = float(-np.mean(np.log2(p)))
+    v, c = np.unique(yte, return_counts=True)
+    py = c / c.sum()
+    return max(float(-(py * np.log2(py)).sum()) - ce, 0.0)
+
+
+def _disp_decode_label(d, pos2d):
+    """Binned target for the population displacement decode. For the 2-D
+    models, the JOINT (x,y) position on an 8×8 grid — the quantity the rollout
+    metric scores — so the population reference matches the trajectory error.
+    For the 1-D distance tasks, a 16-bin quantile of the scalar displacement."""
+    if pos2d is not None:
+        return (_bin_quantile_dec(pos2d[:, 0], 8) * 8
+                + _bin_quantile_dec(pos2d[:, 1], 8))
+    return _bin_quantile_dec(d, N_D_BINS)
+
+
 def _load_run(run_dir: str, device):
     config_name = os.path.basename(run_dir)
     config, _ = load_run_config(config_name, explicit_output_root=False,
@@ -165,34 +227,45 @@ def _run_trial(net, u, device):
 
 
 def _accumulate_hidden(net, u_test, y_test, device, n_trials):
-    """Concatenate hidden state, true heading, true d across n_trials."""
-    hs, thetas, ds = [], [], []
+    """Concatenate hidden state, heading θ, a scalar displacement d, and (for
+    the 2-D models) the joint position ``pos2d`` across n_trials.
+
+    For the 1-D distance tasks (3-col target [cosθ,sinθ,ξ]) d is the supervised
+    scalar ξ. For the 2-D path tasks (4-col target [cosθ,sinθ,x,y]) the model
+    outputs the bounded leaky position (x,y); the per-neuron displacement
+    scalar is the RADIAL distance r=|(x,y)| (the proper 2-D analogue of ξ, and
+    a quantity the bounded state actually represents) — NOT the trajectory arc
+    length, which is ~monotone in elapsed time and which a leaky integrator
+    forgets by design (so MI on it is low even when the model integrates the
+    path well). ``pos2d`` returns (x,y) so callers can score the JOINT 2-D
+    position — the quantity the rollout metric reports — at the population
+    level."""
+    hs, thetas, ds, xs, ys = [], [], [], [], []
     n_trials = min(n_trials, u_test.shape[0])
     has_d_target = y_test.shape[-1] >= 3
+    is_2d = y_test.shape[-1] == 4
     for k in range(n_trials):
         h = _run_trial(net, u_test[k], device)  # (T, N)
         y = y_test[k]                            # (T, n_out)
         # heading: atan2(sinθ, cosθ) from y[:, :2]
         theta = np.arctan2(y[:, 1], y[:, 0])
         hs.append(h); thetas.append(theta)
-        if has_d_target:
-            # in scalar_xi 3-col target, d is col 2; in position_2d 4-col it's missing.
-            if y.shape[-1] == 3:
-                ds.append(y[:, 2])
-            elif y.shape[-1] == 4:
-                # use cumulative travelled distance as a proxy:
-                # √(Δx² + Δy²) accumulated
-                dx = np.diff(y[:, 2], prepend=y[0, 2])
-                dy = np.diff(y[:, 3], prepend=y[0, 3])
-                ds.append(np.cumsum(np.sqrt(dx**2 + dy**2)))
-            else:
-                ds.append(np.zeros_like(theta))
+        if has_d_target and y.shape[-1] == 3:
+            ds.append(y[:, 2])
+            xs.append(y[:, 2]); ys.append(np.zeros_like(theta))
+        elif is_2d:
+            x = y[:, 2]; yp = y[:, 3]
+            ds.append(np.sqrt(x ** 2 + yp ** 2))   # radial distance r = |pos|
+            xs.append(x); ys.append(yp)
         else:
             ds.append(np.zeros_like(theta))
+            xs.append(np.zeros_like(theta)); ys.append(np.zeros_like(theta))
     H = np.concatenate(hs, axis=0)            # (n_trials*T, N)
     theta = np.concatenate(thetas)
     d = np.concatenate(ds)
-    return H, theta, d
+    pos2d = (np.stack([np.concatenate(xs), np.concatenate(ys)], axis=1)
+             if is_2d else None)
+    return H, theta, d, pos2d
 
 
 # The four joint-target models compared across the columns. Each carries
@@ -216,7 +289,8 @@ _PROFILE_BY_TARGET = {
 _RECOGNISED = ("rotation", "translation", "position_2d")
 
 
-def _compute_run(run_basename: str, data_root: str, n_trials: int, device):
+def _compute_run(run_basename: str, data_root: str, n_trials: int, device,
+                 tau_theta_fixed: float = 1.5, tau_d_fixed: float = 1.5):
     """Load one trained run, roll out, and return the per-recurrent-neuron
     MI partition plus the cell-type family of each neuron."""
     run_dir = os.path.join(data_root, "log", "zebrafish", run_basename)
@@ -242,7 +316,7 @@ def _compute_run(run_basename: str, data_root: str, n_trials: int, device):
             u_test = u_test[..., in_cols]
             y_test = y_test[..., out_cols]
 
-    H, theta, d = _accumulate_hidden(net, u_test, y_test, device, n_trials)
+    H, theta, d, pos2d = _accumulate_hidden(net, u_test, y_test, device, n_trials)
     I_theta = np.zeros(rec_ix.size)
     I_d = np.zeros(rec_ix.size)
     for k, i in enumerate(rec_ix):
@@ -250,18 +324,64 @@ def _compute_run(run_basename: str, data_root: str, n_trials: int, device):
         I_theta[k] = _circular_mi(x, theta)
         I_d[k] = _mi_plugin(x, d)
 
-    tau_theta = float(np.median(I_theta))
-    tau_d = float(np.median(I_d))
+    # Fixed, SYMMETRIC thresholds (shared across all four models so the
+    # columns are directly comparable) rather than per-model medians.
+    # τθ=τd=1.5: 1 bit is barely a left/right distinction, so we require a
+    # genuine ≥1.5-bit single-cell code on each axis. Only cells above the
+    # cutoff are called angular/displacement/shared; the low-MI core falls in
+    # "neither" — honest for the harder (2-D, leaky) tasks where the code
+    # compresses into a blob with little per-neuron MI.
+    tau_theta = float(tau_theta_fixed)
+    tau_d = float(tau_d_fixed)
     pool = np.full(rec_ix.size, "neither", dtype=object)
     pool[(I_theta >= tau_theta) & (I_d <  tau_d)] = "angular"
     pool[(I_theta <  tau_theta) & (I_d >= tau_d)] = "displacement"
     pool[(I_theta >= tau_theta) & (I_d >= tau_d)] = "shared"
     counts = {p: int(np.sum(pool == p)) for p in POOL_ORDER}
     fam_counts = {f: int(np.sum(fam == f)) for f in REC_FAMILY_ORDER}
+
+    # Per-group joint MI in the SAME (θ, d) plane as the per-neuron scatter,
+    # for the merged group-MI row: one dot per cell type, one per family, and
+    # one for the whole pool. Cross-validated decoder lower bound; for the 2-D
+    # models the displacement target is the joint (x,y) position. Dot size will
+    # be ∝ log(count), so single-cell-type dots (small) sit low and the whole
+    # pool (large) sits near the ceiling — the redundancy / pooling story.
+    Hrec = H[:, rec_ix]
+    Tn = Hrec.shape[0]
+    _rng = np.random.default_rng(0)
+    sel = (_rng.choice(Tn, MAX_DECODER_SAMPLES, replace=False)
+           if Tn > MAX_DECODER_SAMPLES else np.arange(Tn))
+    Xs = Hrec[sel]
+    yb_theta = _bin_theta_dec(theta)[sel]
+    yb_disp = _disp_decode_label(d, pos2d)[sel]
+
+    def _grp(mask):
+        Xg = Xs[:, mask]
+        return _group_mi_bits(Xg, yb_theta), _group_mi_bits(Xg, yb_disp)
+
+    groups = []
+    for ct in sorted(set(ctype)):                        # cell types
+        m = (ctype == ct); gt, gd = _grp(m)
+        groups.append(dict(name=ct, kind="ctype", fam=_rec_family(ct),
+                           n=int(m.sum()), grp_theta=gt, grp_d=gd))
+    for f in REC_FAMILY_ORDER:                           # families
+        m = (fam == f)
+        if not m.any():
+            continue
+        gt, gd = _grp(m)
+        groups.append(dict(name=f, kind="family", fam=f,
+                           n=int(m.sum()), grp_theta=gt, grp_d=gd))
+    gt_all, gd_all = _grp(np.ones(rec_ix.size, dtype=bool))   # whole pool
+    groups.append(dict(name="ALL", kind="total", fam=None,
+                       n=int(rec_ix.size), grp_theta=gt_all, grp_d=gd_all))
+    grp_theta_all, grp_d_all = gt_all, gd_all
     print(f"    n_rec={rec_ix.size}  τθ={tau_theta:.3f} τd={tau_d:.3f}  "
-          f"pools={counts}  families={fam_counts}")
+          f"pools={counts}  group_all θ={gt_all:.2f} d={gd_all:.2f} bits "
+          f"({len(groups)} group dots)")
     return dict(I_theta=I_theta, I_d=I_d, pool=pool, counts=counts,
-                fam=fam, ctype=ctype, tau_theta=tau_theta, tau_d=tau_d)
+                fam=fam, ctype=ctype, tau_theta=tau_theta, tau_d=tau_d,
+                grp_theta_all=grp_theta_all, grp_d_all=grp_d_all,
+                groups=groups)
 
 
 def main():
@@ -275,6 +395,10 @@ def main():
     p.add_argument("--device", default="cpu")
     p.add_argument("--out", default=os.path.join(
         HERE, "fig_zebrafish_mi_partition.png"))
+    p.add_argument("--tau_theta", type=float, default=1.5,
+                   help="fixed I(h;theta) threshold (vertical line), shared across models")
+    p.add_argument("--tau_d", type=float, default=1.5,
+                   help="fixed I(h;d) threshold (horizontal line), shared across models")
     args = p.parse_args()
 
     try:
@@ -286,101 +410,81 @@ def main():
     results = []
     for j, run in enumerate(args.runs):
         print(f"[{j + 1}/{len(args.runs)}] {run}")
-        results.append(_compute_run(run, args.data_root, args.n_trials, device))
+        results.append(_compute_run(run, args.data_root, args.n_trials, device,
+                                     tau_theta_fixed=args.tau_theta,
+                                     tau_d_fixed=args.tau_d))
 
-    # ---- plot: 4 rows x N cols -------------------------------------------
-    # Row 1: MI scatter coloured by functional pool.
-    # Row 2: the SAME scatter coloured by anatomical FAMILY (4 families).
-    # Row 3: per-family functional-pool composition (stacked bars).
-    # Row 4: per-cell-type functional-pool composition (stacked bars).
-    # Column identity (the four models) is given in the caption.
+    # ---- plot: 2x2, MI in the (heading, displacement) plane ----------------
+    # One panel per task model. Dots: single neurons (per-neuron MI, faint
+    # cloud), per-cell-type and whole-pool joint MI, dot area growing with
+    # group size — the cloud climbs from single cells (low MI) to the whole
+    # pool (near the ceiling): more neurons pooled → more information, and more
+    # for the richer (2-D + heading) tasks. Light grey diagonals mark constant
+    # total information (heading MI + displacement MI = each integer bit).
     from matplotlib.lines import Line2D
-    ncol = len(results)
     LF, TF, LET = 13, 11, 14
-    fig, axes = plt.subplots(4, ncol, figsize=(4.6 * ncol, 17.2))
+    fig, axes = plt.subplots(2, 2, figsize=(9.0, 9.0), sharex=True, sharey=True)
+    axes = axes.ravel()
     letters = "abcdefghijklmnopqrstuvwxyz"
-    xmax = max(float(r["I_theta"].max()) for r in results) * 1.05
-    ymax = max(float(r["I_d"].max()) for r in results) * 1.05
-    all_types = sorted({t for r in results for t in set(r["ctype"])})
+    xmax = ymax = 4.0
 
-    def _stacked_pool_bars(ax, groups, group_of):
-        """Stacked per-group functional-pool fractions on ``ax``.
-        ``group_of`` maps each recurrent neuron to its group key."""
-        x = np.arange(len(groups))
-        bottom = np.zeros(len(groups))
-        gk = group_of
-        for pl in POOL_ORDER:
-            frac = np.array([
-                float(np.mean((gk == g) & (r["pool"] == pl))
-                      / max(np.mean(gk == g), 1e-9))
-                if (gk == g).any() else 0.0 for g in groups])
-            ax.bar(x, frac, bottom=bottom, width=0.82,
-                   color=POOL_COLOR[pl], edgecolor="none")
-            bottom += frac
-        ax.set_xticks(x)
-        ax.set_ylim(0, 1)
-        ax.set_xlim(-0.6, len(groups) - 0.4)
-        return x
+    # Dot area ∝ count**S_P (S_P<1 keeps single cells visible while still
+    # spreading cell type / whole pool clearly apart). Tunable via S_A / S_P.
+    S_A, S_P = 14.0, 0.55
+
+    def _dsize(n):
+        return S_A * (max(float(n), 1.0) ** S_P)
 
     for j, r in enumerate(results):
-        # --- row 1: scatter coloured by functional pool ---
-        ax = axes[0, j]
-        for pl in POOL_ORDER:
-            m = r["pool"] == pl
-            if not m.any():
-                continue
-            ax.scatter(r["I_theta"][m], r["I_d"][m], s=18,
-                       color=POOL_COLOR[pl], edgecolor="none", alpha=0.85,
-                       label=f"{pl} (n={r['counts'][pl]})")
-        ax.axvline(r["tau_theta"], color="0.4", lw=0.7, ls="--")
-        ax.axhline(r["tau_d"],     color="0.4", lw=0.7, ls="--")
-        ax.set_xlim(0, xmax); ax.set_ylim(0, ymax)
-        if j == 0:
-            # Axis titles written once, on panel a only.
-            ax.set_xlabel(r"$I(\hat h_i;\,\theta)$  (bits, heading)", fontsize=LF)
-            ax.set_ylabel(r"$I(\hat h_i;\,d)$  (bits, translation)", fontsize=LF)
-            ax.legend(fontsize=9, loc="upper right", frameon=False)
-        ax.tick_params(labelsize=TF)
-        ax.text(-0.10, 1.04, letters[j], transform=ax.transAxes,
-                fontsize=LET, fontweight="bold")
-
-        # --- row 2: scatter coloured by anatomical family ---
-        ax = axes[1, j]
+        ax = axes[j]
+        row, col = divmod(j, 2)
+        # iso-total-information diagonals at every integer bit:
+        # heading MI + displacement MI = c
+        for c in range(1, 9):
+            x0, x1 = max(0.0, c - 4.0), min(4.0, c)
+            ax.plot([x0, x1], [c - x0, c - x1], color="0.85", lw=0.7, zorder=0)
+            if j == 1 and c < 8:                  # label the diagonals once
+                ax.text(x0 + 0.05, (c - x0) - 0.05, f"{c}", color="0.72",
+                        fontsize=6.5, rotation=-45, ha="left", va="top",
+                        zorder=1)
+        # single neurons: faint family-coloured cloud (per-neuron plug-in MI)
         for famk in REC_FAMILY_ORDER:
             m = r["fam"] == famk
             if not m.any():
                 continue
-            ax.scatter(r["I_theta"][m], r["I_d"][m], s=18,
+            ax.scatter(r["I_theta"][m], r["I_d"][m], s=_dsize(1),
                        color=REC_FAMILY_COLOR[famk], edgecolor="none",
-                       alpha=0.85, label=f"{famk} (n={int(m.sum())})")
-        ax.axvline(r["tau_theta"], color="0.4", lw=0.7, ls="--")
-        ax.axhline(r["tau_d"],     color="0.4", lw=0.7, ls="--")
+                       alpha=0.38, zorder=2)
+        # pooled groups: cell type and whole pool (family dots omitted)
+        for g in sorted(r["groups"], key=lambda z: -z["n"]):
+            if g["kind"] == "family":
+                continue
+            dcol = "k" if g["kind"] == "total" else REC_FAMILY_COLOR[g["fam"]]
+            ax.scatter(g["grp_theta"], g["grp_d"], s=_dsize(g["n"]),
+                       color=dcol, edgecolor="none", alpha=0.80, zorder=5)
         ax.set_xlim(0, xmax); ax.set_ylim(0, ymax)
-        if j == 0:
-            ax.legend(fontsize=9, loc="upper right", frameon=False)
-        ax.tick_params(labelsize=TF)
-        ax.text(-0.10, 1.04, letters[ncol + j], transform=ax.transAxes,
+        ax.text(-0.04, 1.03, letters[j], transform=ax.transAxes,
                 fontsize=LET, fontweight="bold")
-
-        # --- row 3: per-family pool composition ---
-        ax = axes[2, j]
-        _stacked_pool_bars(ax, REC_FAMILY_ORDER, r["fam"])
-        ax.set_xticklabels(REC_FAMILY_ORDER, rotation=30, ha="right", fontsize=8)
-        if j == 0:
-            ax.set_ylabel("pool fraction", fontsize=LF)
-        ax.tick_params(axis="y", labelsize=TF)
-        ax.text(-0.10, 1.04, letters[2 * ncol + j], transform=ax.transAxes,
-                fontsize=LET, fontweight="bold")
-
-        # --- row 4: per-cell-type pool composition ---
-        ax = axes[3, j]
-        _stacked_pool_bars(ax, all_types, r["ctype"])
-        ax.set_xticklabels(all_types, rotation=90, fontsize=6)
-        if j == 0:
-            ax.set_ylabel("pool fraction", fontsize=LF)
-        ax.tick_params(axis="y", labelsize=TF)
-        ax.text(-0.10, 1.04, letters[3 * ncol + j], transform=ax.transAxes,
-                fontsize=LET, fontweight="bold")
+        if col == 0:
+            ax.set_ylabel("displacement (bits)", fontsize=LF)
+        if row == 1:
+            ax.set_xlabel("heading (bits)", fontsize=LF)
+        ax.tick_params(labelsize=TF, labelleft=(col == 0),
+                       labelbottom=(row == 1))
+        if j == 0:                                # family-colour key
+            fhandles = [Line2D([0], [0], marker="o", ls="none", ms=7,
+                               color=REC_FAMILY_COLOR[f], label=f)
+                        for f in REC_FAMILY_ORDER]
+            ax.legend(handles=fhandles, fontsize=8, loc="upper left",
+                      frameon=False)
+        if j == len(results) - 1:                 # dot-size key on panel d
+            size_ref = [(1, "single cell"), (20, "cell type"), (700, "all rec")]
+            shandles = [Line2D([0], [0], marker="o", ls="none", color="0.5",
+                               markersize=float(np.sqrt(_dsize(n))), label=lab)
+                        for n, lab in size_ref]
+            ax.legend(handles=shandles, fontsize=8, loc="upper left",
+                      frameon=False, labelspacing=1.5, borderpad=1.0,
+                      handletextpad=1.5)
 
     plt.tight_layout()
     fig.savefig(args.out, dpi=170, bbox_inches="tight")

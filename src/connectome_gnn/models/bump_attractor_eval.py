@@ -994,3 +994,91 @@ def build_type_pair_blocks(
             tp_name = f"{type_names[int(p)]}->{type_names[int(q)]}"
             blocks[tp_name] = torch.from_numpy(block.astype(np.bool_))
     return blocks
+
+
+def precision_horizon_metrics(
+    net, *, device, thr_deg: float = 15.0, thr_d: float = 0.4,
+    leaky: bool = False, n_seed: int = 4, n_steps: int = 6000,
+    dt: float | None = None,
+) -> dict:
+    """Discriminative integrator metrics on a long *naturalistic* rollout.
+
+    Rollout Pearson saturates (~0.99) over a short trial, so we instead drive
+    the model with an Ornstein--Uhlenbeck angular velocity ω(t) and forward
+    speed v_fwd(t) for ``n_steps`` and watch the error grow:
+
+      tau_theta_s  -- time the decoded heading stays within ``thr_deg`` of the
+                      integrated truth (precision horizon, seconds).
+      heading_gain_err -- |slope(decoded vs true unwrapped heading) - 1|, the
+                      ω-independent driver of heading drift.
+      tau_d_s      -- displacement precision horizon (seconds); only meaningful
+                      for the LEAKY (bounded) integrators (returned None
+                      otherwise -- a cumulative target leaves its trained range
+                      over a 60 s rollout and the horizon then measures
+                      extrapolation, not integration).
+
+    Values are averaged over ``n_seed`` OU realisations; a horizon that never
+    crosses the threshold is right-censored at ``n_steps * dt`` seconds.
+    """
+    import math
+    dt = float(net.dt) if dt is None else float(dt)
+    T = int(n_steps)
+    n_in = int(getattr(net, "n_input", 3))
+    n_out = int(getattr(net, "n_output", 0))
+    is_2d = (n_out == 4)
+    leak_alpha = 1.0 - dt / 2.0          # xi/position_tau_s = 2.0 s
+
+    def _ou(rng, tau, sd, mu, lo, hi):
+        a = math.exp(-dt / tau)
+        x = np.empty(T, np.float32); x[0] = mu
+        for t in range(1, T):
+            x[t] = mu + a * (x[t - 1] - mu) + math.sqrt(1 - a * a) * rng.normal(0, sd)
+        return np.clip(x, lo, hi)
+
+    def _leaky(v):
+        o = np.zeros(T, np.float32)
+        for t in range(1, T):
+            o[t] = leak_alpha * o[t - 1] + v[t] * dt
+        return o
+
+    def _first(err, thr):
+        ix = np.where(err[10:] > thr)[0]
+        return (ix[0] + 10) * dt if len(ix) else T * dt
+
+    was_training = net.training
+    net.eval()
+    th, gain, td = [], [], []
+    try:
+        for s in range(n_seed):
+            rng = np.random.default_rng(s)
+            om = _ou(rng, 1.0, 55.0, 0.0, -150, 150)
+            vf = _ou(rng, 1.5, 0.4, 1.0, 0, 3)
+            u = np.zeros((1, T, n_in), np.float32)
+            u[0, :, 0] = om
+            if n_in >= 4:
+                u[0, :, 1] = vf; u[0, 0, 2] = 1.0
+            elif n_in == 3:
+                u[0, 0, 1] = 1.0
+            with torch.no_grad():
+                yp, _ = net(torch.from_numpy(u).to(device))
+            yp = yp[0].cpu().numpy()
+            th_true = np.cumsum(np.deg2rad(om)) * dt
+            th_pred = np.arctan2(yp[:, 1], yp[:, 0])
+            err = np.abs(np.degrees(np.angle(np.exp(1j * (th_pred - th_true)))))
+            th.append(_first(err, thr_deg))
+            gain.append(np.polyfit(th_true[10:], np.unwrap(th_pred)[10:], 1)[0])
+            if leaky and is_2d:
+                xt = _leaky(vf * np.cos(th_true)); yt = _leaky(vf * np.sin(th_true))
+                perr = np.sqrt((yp[:, 2] - xt) ** 2 + (yp[:, 3] - yt) ** 2)
+                td.append(_first(perr, thr_d))
+            elif leaky and n_out == 3:
+                td.append(_first(np.abs(yp[:, 2] - _leaky(vf)), thr_d))
+    finally:
+        if was_training:
+            net.train()
+    return dict(
+        tau_theta_s=float(np.mean(th)),
+        heading_gain_err=float(np.mean(np.abs(np.array(gain) - 1.0))),
+        tau_d_s=(float(np.mean(td)) if td else None),
+        thr_deg=thr_deg, thr_d=thr_d, n_seed=n_seed, horizon_s=T * dt,
+    )
