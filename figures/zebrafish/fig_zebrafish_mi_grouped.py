@@ -130,10 +130,11 @@ def _compute_grouped(run_basename, data_root, n_trials, device, rng):
             u_test = u_test[..., in_cols]
             y_test = y_test[..., out_cols]
 
-    H, theta, d = _accumulate_hidden(net, u_test, y_test, device, n_trials)
+    H, theta, d, pos2d = _accumulate_hidden(net, u_test, y_test, device, n_trials)
     Hrec = H[:, rec_ix]                       # (T, n_rec)
 
-    # per-neuron MI (for the summed reference)
+    # per-neuron MI (for the summed reference). For the 2-D models d is the
+    # radial distance r=|pos| (see _accumulate_hidden), not the arc length.
     I_theta = np.array([_circular_mi(Hrec[:, k], theta)
                         for k in range(Hrec.shape[1])])
     I_d = np.array([_mi_plugin(Hrec[:, k], d) for k in range(Hrec.shape[1])])
@@ -146,8 +147,17 @@ def _compute_grouped(run_basename, data_root, n_trials, device, rng):
         sel = np.arange(T)
     Xs = Hrec[sel]
     yb_theta = _bin_theta(theta)[sel]
-    yb_d, _ = _bin_quantile(d, N_D_BINS)
-    yb_d = yb_d[sel]
+    # Displacement decode target: JOINT (x,y) on an 8×8 grid for the 2-D models
+    # (the quantity the rollout metric scores), else a 16-bin quantile of the
+    # scalar displacement. This is what makes the group MI consistent with the
+    # 2-D rollout Pearson — a 1-D arc-length scalar does not.
+    if pos2d is not None:
+        lx, _ = _bin_quantile(pos2d[:, 0], 8)
+        ly, _ = _bin_quantile(pos2d[:, 1], 8)
+        yb_d = (lx * 8 + ly)[sel]
+    else:
+        yb_d, _ = _bin_quantile(d, N_D_BINS)
+        yb_d = yb_d[sel]
 
     groups = list(REC_FAMILY_ORDER) + sorted(set(ctype))
     rows = []
@@ -158,7 +168,7 @@ def _compute_grouped(run_basename, data_root, n_trials, device, rng):
             continue
         Xg = Xs[:, gm]
         rows.append(dict(
-            group=g, is_family=g in REC_FAMILY_ORDER, n=k,
+            group=g, is_family=g in REC_FAMILY_ORDER, is_all=False, n=k,
             sum_theta=float(I_theta[gm].sum()),
             sum_d=float(I_d[gm].sum()),
             grp_theta=_decoder_mi_bits(Xg, yb_theta, rng),
@@ -168,6 +178,15 @@ def _compute_grouped(run_basename, data_root, n_trials, device, rng):
         print(f"    {g:12s} n={k:3d}  Σθ={rows[-1]['sum_theta']:6.1f} "
               f"grpθ={rows[-1]['grp_theta']:.2f}  "
               f"Σd={rows[-1]['sum_d']:6.1f} grpd={rows[-1]['grp_d']:.2f}")
+    # Whole-pool point (all recurrent neurons jointly) — the red cross.
+    rows.append(dict(
+        group="ALL", is_family=False, is_all=True, n=Hrec.shape[1],
+        sum_theta=float(I_theta.sum()), sum_d=float(I_d.sum()),
+        grp_theta=_decoder_mi_bits(Xs, yb_theta, rng),
+        grp_d=_decoder_mi_bits(Xs, yb_d, rng), fam=None))
+    print(f"    {'ALL':12s} n={Hrec.shape[1]:3d}  Σθ={rows[-1]['sum_theta']:6.1f} "
+          f"grpθ={rows[-1]['grp_theta']:.2f}  "
+          f"Σd={rows[-1]['sum_d']:6.1f} grpd={rows[-1]['grp_d']:.2f}")
     return rows
 
 
@@ -206,15 +225,14 @@ def main():
 
     xmax = max(row[s] for res in results for row in res
                for s in ("sum_theta", "sum_d")) * 1.3
-    ymax = max(row[g] for res in results for row in res
-               for g in ("grp_theta", "grp_d")) * 1.15 + 0.2
+    ymax = 4.0   # fixed 0–4 bit group-MI axis, consistent across MI figures
 
     for i, (skey, gkey, tlabel) in enumerate(targets):
         for j, res in enumerate(results):
             ax = axes[i, j]
             # cell types: small dots
             for row in res:
-                if row["is_family"]:
+                if row["is_family"] or row.get("is_all"):
                     continue
                 ax.scatter(row[skey], row[gkey], s=22, alpha=0.7,
                            color=REC_FAMILY_COLOR[row["fam"]],
@@ -226,8 +244,34 @@ def main():
                 ax.scatter(row[skey], row[gkey], s=130, alpha=0.95,
                            color=REC_FAMILY_COLOR[row["fam"]],
                            edgecolor="k", linewidth=0.8, marker="D", zorder=5)
+            # whole pool: red cross (all recurrent neurons jointly)
+            for row in res:
+                if not row.get("is_all"):
+                    continue
+                ax.plot(row[skey], row[gkey], marker="+", color="red",
+                        ms=13, mew=2.2, ls="none", zorder=8)
+            # Log x: on log-summed-MI the group joint MI rises ~linearly —
+            # a logarithmic redundancy law I_group ≈ a + b·log10(Σ). We fit
+            # it (cell types + families, excluding the whole-pool point) and
+            # overlay the line + slope/R² so the law is explicit; the shallow
+            # slope b is the quantitative diminishing-returns statement.
+            pts = [(row[skey], row[gkey]) for row in res
+                   if not row.get("is_all") and row[skey] > 0]
+            if len(pts) >= 4:
+                xs_ = np.array([p[0] for p in pts]); ys_ = np.array([p[1] for p in pts])
+                lx = np.log10(xs_); bb, aa = np.polyfit(lx, ys_, 1)
+                xf = np.logspace(np.log10(xs_.min()), np.log10(xs_.max()), 50)
+                ax.plot(xf, aa + bb * np.log10(xf), color="0.35", lw=1.1,
+                        ls="--", zorder=1)
+                ss = np.sum((ys_ - (aa + bb * lx)) ** 2)
+                st = np.sum((ys_ - ys_.mean()) ** 2)
+                rr = 1.0 - ss / max(st, 1e-9)
+                ax.text(0.96, 0.07,
+                        rf"$b$={bb:.2f}, $R^2$={rr:.2f}",
+                        transform=ax.transAxes, ha="right", va="bottom",
+                        fontsize=8, color="0.35")
             ax.set_xscale("log")
-            ax.set_xlim(0.5, xmax)
+            ax.set_xlim(0.7, xmax)
             ax.set_ylim(0, ymax)
             if i == 0 and j == 0:
                 ax.set_ylabel(r"group joint MI  (bits)", fontsize=LF)
@@ -245,6 +289,8 @@ def main():
                for f in REC_FAMILY_ORDER]
     handles.append(Line2D([0], [0], marker="o", ls="none", ms=6, color="0.5",
                           label="cell type"))
+    handles.append(Line2D([0], [0], marker="+", ls="none", ms=10, mew=2,
+                          color="red", label="all rec"))
     axes[0, 0].legend(handles=handles, fontsize=8, loc="lower right",
                       frameon=False)
     plt.tight_layout()

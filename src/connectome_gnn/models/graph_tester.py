@@ -2479,6 +2479,29 @@ def data_test_path_integration_task(
         logger.info('  (b)/(c) deterministic ω sweeps + gain: skipped '
                     '(translation-only mode)')
 
+    # --- (c') Precision horizons on a long naturalistic (OU) drive ----------
+    # Rollout Pearson saturates over a short trial, so we drive the model with
+    # an Ornstein--Uhlenbeck ω(t)/v_fwd(t) for 60 s and report the time the
+    # decoded heading stays within 15° (tau_theta), the heading integration-gain
+    # error, and — for the LEAKY (bounded) integrators only — the displacement
+    # precision horizon. Guarded so it can never break the rest of the test.
+    try:
+        from connectome_gnn.models.bump_attractor_eval import (
+            precision_horizon_metrics,
+        )
+        _leaky_run = bool(getattr(tc, 'xi_decay_tau_s', None)) or (
+            'leaky' in str(getattr(config, 'dataset', '')).lower())
+        ph = precision_horizon_metrics(
+            model, device=device, leaky=_leaky_run)
+        _td = (f"{ph['tau_d_s']:.1f}s" if ph['tau_d_s'] is not None
+               else '-- (cumulative: extrapolation-limited)')
+        logger.info(
+            f"  precision horizon (60 s naturalistic drive, "
+            f"{ph['n_seed']} seeds): tau_theta(15deg)={ph['tau_theta_s']:.1f}s  "
+            f"|g_theta-1|={ph['heading_gain_err']:.3f}  tau_d={_td}")
+    except Exception as exc:                       # never break the test
+        logger.warning(f'  precision-horizon metrics failed: {exc}')
+
     # --- (b') Translation analog: 5 deterministic v_fwd sweeps, T=2000 ------
     # Constant-v_fwd rollouts. Reports per-rollout RMSE on ξ and Pearson r
     # between decoded ξ and GT ξ = v_fwd × t. Saves a simple 5-row figure
