@@ -184,9 +184,8 @@ def main() -> int:
                    help="config name(s) to run (default: EVERY config/drosophila_cx/*.yaml)")
     p.add_argument("--cluster", choices=["l4", "a100", "h100"], default="l4")
     p.add_argument("--n-cpus", type=int, default=8)
-    p.add_argument("--hard-runtime-min", type=int, default=600,
-                   help="bsub -W wall-clock limit (default 600 = 10 h; 10 epochs "
-                        "x ~30 min/epoch on l4 + margin)")
+    p.add_argument("--hard-runtime-min", type=int, default=1440,
+                   help="bsub -W wall-clock limit in minutes (default 1440 = 24 h)")
     p.add_argument("--interval", type=int, default=300,
                    help="seconds between progress prints (default 300)")
     p.add_argument("--ssh", default=SSH_TARGET,
