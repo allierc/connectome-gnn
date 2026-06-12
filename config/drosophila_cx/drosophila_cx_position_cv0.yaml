@@ -1,4 +1,4 @@
-description: "Drosophila CX 2-D path-integration task (mimics zebrafish position_2d) on drosophila_cx_338_v1. omega->PEN, v_fwd->PFN; supervises [cos,sin,x,y]; readouts d<-PFNa, (x,y)<-hDeltaB/PFR."
+description: "2-D path integration (mimics zebrafish position_2d). omega->PEN, v_fwd->PFN; supervises [cos,sin,x,y]; intended readouts d<-PFNa, (x,y)<-hDeltaB/PFR. drosophila_cx_338_v1."
 dataset: drosophila_cx_swim_position_2d_cv0
 simulation:
   gcamp_kernel: gcamp6f

@@ -1,4 +1,4 @@
-description: "Drosophila CX companion to the zebrafish heading integrator: rotation (heading-only) task on drosophila_cx_338_v1. omega->PEN gate; heading read from EPG. swim_integration generator (4-ch superset; task_targets [rotation] slices to [omega,cos,sin])."
+description: "Drosophila CX heading task with v_fwd KEPT in the input (latent path-integration probe; mimics zebrafish rotation_vfwd) on drosophila_cx_338_v1. omega->PEN, v_fwd->PFN (pen_pfn); only heading supervised."
 dataset: drosophila_cx_swim_scalar_xi_cv0
 simulation:
   gcamp_kernel: gcamp6f
@@ -11,7 +11,7 @@ graph_model:
   aggr_type: add
   input_proj: matrix
   output_proj: matrix
-  velocity_gate: pen_4scalar
+  velocity_gate: pen_pfn
   lock_edge_signs: true
   hidden_dim: 128
   n_layers: 3
@@ -64,7 +64,7 @@ training:
   coeff_tail_loss: 0.035
   torch_compile: false
   w_init_mode: w_con
-  task_targets: [rotation]
+  task_targets: [rotation_vfwd]
 task:
   task_type: swim_integration
   task_only: true
