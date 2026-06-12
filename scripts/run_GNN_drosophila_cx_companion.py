@@ -145,13 +145,44 @@ def _submit(cfg: str, *, cluster: str, n_cpus: int, w_min: int, log_dir: str,
     return jid, log
 
 
-def _job_state(jid: str, *, ssh: str | None) -> str:
-    """RUN / PEND / DONE / EXIT — DONE once the job leaves the queue."""
-    r = _lsf(f"bjobs {jid}", ssh=ssh)
-    for tok in ("RUN", "PEND", "EXIT", "DONE"):
-        if tok in r.stdout:
-            return tok
-    return "DONE"  # no longer in bjobs -> finished
+# LSF/ssh transient failures that must NOT be mistaken for "job finished".
+_LSF_TRANSIENT = ("cannot connect", "not responding", "batch system",
+                  "please wait", "try again", "connection closed",
+                  "connection timed out", "timed out", "broken pipe",
+                  "connection refused", "no route to host")
+_LSF_STATES = ("RUN", "PEND", "DONE", "EXIT", "SSUSP", "PSUSP", "USUSP")
+
+
+def _job_states(jids, *, ssh: str | None) -> dict:
+    """Batched jid -> RUN/PEND/DONE/EXIT/SUSP/UNKNOWN via ONE bjobs call.
+
+    One query per poll (not one ssh per job): with dozens of jobs, a separate
+    `ssh ... bjobs` each would routinely hit a transient hiccup whose empty
+    output the old code read as DONE -> jobs falsely reported 'finished' while
+    still RUN. Here a job ABSENT from a healthy response has genuinely left the
+    queue (-> DONE), but if the response looks like an ssh/LSF failure every
+    job is marked UNKNOWN so the monitor keeps polling instead of false-finishing.
+    """
+    jids = list(jids)
+    if not jids:
+        return {}
+    r = _lsf('bjobs -a -o "jobid stat" ' + " ".join(jids), ssh=ssh)
+    blob = ((r.stdout or "") + "\n" + (r.stderr or "")).lower()
+    transient = any(k in blob for k in _LSF_TRANSIENT)
+    seen = {}
+    for ln in (r.stdout or "").splitlines():
+        p = ln.split()
+        if len(p) >= 2 and p[0] in jids and p[1] in _LSF_STATES:
+            seen[p[0]] = p[1]
+    out = {}
+    for j in jids:
+        if j in seen:
+            out[j] = seen[j]
+        elif transient:
+            out[j] = "UNKNOWN"          # query failed: keep polling
+        else:
+            out[j] = "DONE"             # absent from a healthy bjobs -a -> gone
+    return out
 
 
 def _latest(log: str) -> tuple[str, str]:
@@ -233,16 +264,20 @@ def main() -> int:
         while jobs:
             time.sleep(args.interval)
             stamp = time.strftime("%H:%M:%S")
+            # ONE batched bjobs for all live jobs (not one ssh per job).
+            states = _job_states([jid for jid, _ in jobs.values()], ssh=ssh)
             done = []
             for cfg, (jid, log) in jobs.items():
-                st = _job_state(jid, ssh=ssh)
+                st = states.get(jid, "UNKNOWN")
                 status, prog = _latest(log)
-                col = _STATE_COL.get(st, "")
+                col = _STATE_COL.get(st, _DIM)
                 line = (f"[{_DIM}{stamp}{_R}] {_CYN}{cfg:38s}{_R} "
-                        f"{col}{st:4s}{_R} | {status}")
+                        f"{col}{st[:4]:4s}{_R} | {status}")
                 if prog:
                     line += f"  |  {_B}{_GRN}{prog}{_R}"
                 print(line, flush=True)
+                # Only retire on an EXPLICIT terminal state; UNKNOWN (failed
+                # poll) keeps the job so a transient hiccup never false-finishes.
                 if st in ("DONE", "EXIT"):
                     done.append(cfg)
             for cfg in done:
