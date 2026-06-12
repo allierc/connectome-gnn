@@ -1,5 +1,18 @@
-description: "Drosophila CX companion to the zebrafish heading integrator: rotation (heading-only) task on drosophila_cx_338_v1. omega->PEN gate; heading read from EPG. swim_integration generator (4-ch superset; task_targets [rotation] slices to [omega,cos,sin])."
-dataset: drosophila_cx_swim_scalar_xi_cv0
+description: "Drosophila CX heading (rotation) task on the path-integration-extended
+  connectome drosophila_cx_338_v1 (156-cell heading core + PFNd/PFNv afferents +
+  PFNa/hDeltaB/PFR vector cells).
+
+
+  Companion test to drosophila_cx_pi_epg_no_tv_cv0: identical Known-ODE RNN, EPG-only
+  readout, rotation task and trials — the ONLY change is circuit.name (156 -> 338).
+  Asks whether adding the 182 FB columnar / vector cells to the recurrent connectome
+  perturbs heading integration. The extra cells ride along recurrently (unsupervised);
+  omega still gates PEN, heading is still read from the 46 EPG cells.
+
+
+  Reuses the existing rotation trials (dataset: drosophila_cx_pi_epg_tv_cv0) since the
+  task stimulus/target are circuit-independent."
+dataset: drosophila_cx_pi_epg_tv_cv0
 simulation:
   gcamp_kernel: gcamp6f
   params:
@@ -49,7 +62,17 @@ training:
   batch_size: 64
   data_augmentation_loop: 1
   lr: 0.002
-  lr_W_rec_schedule: [0.0005, 0.0005, 0.00025, 0.000125, 0.000125, 0.0001, 0.0001, 0.0001, 5.0e-05, 5.0e-05]
+  lr_W_rec_schedule:
+    - 0.0005
+    - 0.0005
+    - 0.00025
+    - 0.000125
+    - 0.000125
+    - 0.0001
+    - 0.0001
+    - 0.0001
+    - 5.0e-05
+    - 5.0e-05
   lr_scheduler: none
   lr_W_ED: 0.0025
   grad_clip_W: 2.5
@@ -60,32 +83,37 @@ training:
   coeff_W_L1: 0.0
   noise_recurrent_level: 0.03
   snapshots_per_epoch: 5
-  n_steps_schedule: [100, 200, 200, 200, 300, 400, 500, 600, 700, 800]
+  n_steps_schedule:
+    - 100
+    - 200
+    - 200
+    - 200
+    - 300
+    - 400
+    - 500
+    - 600
+    - 700
+    - 800
   coeff_tail_loss: 0.035
   torch_compile: false
   w_init_mode: w_con
-  task_targets: [rotation]
+claude:
+  n_epochs: 5
+  data_augmentation_loop: 1
+  n_iter_block: 40
+  n_parallel: 10
+  node_name: a100
+  generate_data: false
+  training_time_target_min: 30
 task:
-  task_type: swim_integration
+  task_type: path_integration
   task_only: true
-  swim_integration:
+  path_integration:
     n_trials_train: 100000
     n_trials_test: 10000
     n_steps: 1000
     dt: 0.01
-    swim_rate_hz: 0.5
-    swim_duration_s: 0.3
-    phase_impulse_mean_rad: 0.785
-    phase_impulse_std_rad: 0.4
-    backward_phase_mean_rad: 3.14
-    backward_phase_std_rad: 0.3
-    left_fraction: 0.3
-    right_fraction: 0.3
-    forward_fraction: 0.2
-    backward_fraction: 0.2
-    omega_noise_level: 0.0
-    forward_vel_mean: 1.0
-    forward_vel_std: 0.4
-    xi_tau_s: 2.0
-    target_kind: scalar_xi
+    sigma_omega_deg: 40.0
+    tau_corr: 0.12
+    stop_fraction: 0.2
     seed: 300000
