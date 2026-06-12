@@ -87,7 +87,7 @@ def main():
                         "zebrafish_hd_si_ipn_917_v1_selfmotion_rotation)")
     args = p.parse_args()
 
-    from connectome_gnn.plot_cx import plot_cx_evolution
+    from connectome_gnn.plot_cx import plot_evolution
 
     os.makedirs(args.out_dir, exist_ok=True)
     if args.run:
@@ -118,7 +118,7 @@ def main():
             # n_rows=4: 4×5 macro layout — rows 0-1 hold the 4-column
             # panels a-h, rows 2-3 hold the 5-column test rows i, j.
             # One matplotlib figure, no PNG montage.
-            plot_cx_evolution(data, out_path, run_dir=run_dir, n_rows=4)
+            plot_evolution(data, out_path, run_dir=run_dir, n_rows=4)
             print(f"[fig_evolution_ipn12_artr_pt1] {label}: wrote {out_path} "
                   f"(from {os.path.basename(data['checkpoint'])})")
         except Exception as e:

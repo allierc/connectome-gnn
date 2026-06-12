@@ -317,11 +317,18 @@ class Circuit:
             "motor_efferent_R": np.asarray(
                 self.subpops.get("afferent_motor_efferent_R", []), dtype=np.int64),
         }
-        pen = {  # fly-vocab back-compat
-            "PENa_L": afferent["RIPN_L"],
-            "PENa_R": afferent["RIPN_R"],
-            "PENb_L": afferent["ptIPN_L"],
-            "PENb_R": afferent["ptIPN_R"],
+        def _sp(key):
+            return np.asarray(self.subpops.get(key, []), dtype=np.int64)
+
+        # Fly-vocab angular-velocity gate targets. Drosophila CX circuits
+        # store the PEN afferents directly as ``afferent_PEN{a,b}_{L,R}``;
+        # fall back to the fish RIPN->PENa / ptIPN->PENb mapping for circuits
+        # that only publish the coarse fish aggregates.
+        pen = {
+            "PENa_L": _sp("afferent_PENa_L") if "afferent_PENa_L" in self.subpops else afferent["RIPN_L"],
+            "PENa_R": _sp("afferent_PENa_R") if "afferent_PENa_R" in self.subpops else afferent["RIPN_R"],
+            "PENb_L": _sp("afferent_PENb_L") if "afferent_PENb_L" in self.subpops else afferent["ptIPN_L"],
+            "PENb_R": _sp("afferent_PENb_R") if "afferent_PENb_R" in self.subpops else afferent["ptIPN_R"],
         }
 
         out: dict = {
@@ -340,6 +347,17 @@ class Circuit:
             "_circuit_name": self.name,
             "_circuit_sha256": self.provenance.get("J_effective_sha256", ""),
         }
+        if any(k.startswith("afferent_PFN") for k in self.subpops):
+            out["pfn_subpop_ix"] = {
+                "PFNd_L": _sp("afferent_PFNd_L"), "PFNd_R": _sp("afferent_PFNd_R"),
+                "PFNv_L": _sp("afferent_PFNv_L"), "PFNv_R": _sp("afferent_PFNv_R"),
+            }
+        if any(k.startswith("readout_") for k in self.subpops):
+            out["readout_ix"] = {
+                "heading":  _sp("readout_heading"),
+                "distance": _sp("readout_distance"),
+                "position": _sp("readout_position"),
+            }
         if self.dale_signs is not None:
             out["dale_signs"] = np.asarray(self.dale_signs, dtype=np.float32)
         if self.soma_xyz is not None:

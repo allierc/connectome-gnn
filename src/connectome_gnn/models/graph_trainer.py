@@ -1814,10 +1814,12 @@ def data_train_task(config, erase, best_model, device, log_file=None, resume=Fal
     task_type = str(getattr(config.task, "task_type", "path_integration")).lower()
     if task_type == "cortex":
         return _data_train_cortex_task(config, erase, best_model, device, log_file)
-    elif task_type == "path_integration":
-        return _data_train_drosophila_cx_task(config, erase, best_model, device, log_file, resume=resume)
-    elif task_type == "swim_integration":
-        return _data_train_zebrafish_hd_task(config, erase, best_model, device, log_file, resume=resume)
+    elif task_type in ("path_integration", "swim_integration"):
+        # One shared trainer for both the Drosophila CX (path_integration)
+        # and the larval-zebrafish dIPN (swim_integration) self-motion tasks:
+        # the TaskTrials on-disk layout and the eval helpers are identical;
+        # the species differences live entirely in the model class + circuit.
+        return _data_train_task_pi(config, erase, best_model, device, log_file, resume=resume)
     else:
         raise ValueError(
             f"data_train_task: unknown task_type {task_type!r}; "
@@ -1825,7 +1827,7 @@ def data_train_task(config, erase, best_model, device, log_file=None, resume=Fal
         )
 
 
-def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=None, resume=False):
+def _data_train_task_pi(config, erase, best_model, device, log_file=None, resume=False):
     """Train a TaskRNN on the path-integration task data.
 
     Mirrors the skeleton of `data_train_gnn`:
@@ -2948,33 +2950,13 @@ def _data_train_drosophila_cx_task(config, erase, best_model, device, log_file=N
 # Zebrafish swim-integration task trainer (HD-ring dIPN port)
 # ============================================================================
 
-def _data_train_zebrafish_hd_task(config, erase, best_model, device, log_file=None, resume=False):
-    """Train a ZebrafishHdTaskRNN/GNN on the swim-integration task data.
-
-    Companion of ``_data_train_drosophila_cx_task`` for the larval-zebrafish
-    dIPN heading-direction ring (see ``docs/zebrafish.tex``). The TaskTrials
-    on-disk layout is byte-identical to the fly PI dataset — stimulus is
-    still (B, T, 3) ``[ω(t), cos θ₀·δ, sin θ₀·δ]``, target is (B, T, 2)
-    ``(cos θ_hd, sin θ_hd)`` — and the eval helpers
-    (``path_integration_accuracy_from_data``, ``bump_fwhm``,
-    ``_rollout_heading_metrics``, ``_save_training_snapshot``) read only the
-    canonical attributes (``epg_indices``, ``epg_glom_ix``, ``neuron_types``,
-    ``type_names``) which ``ZebrafishHdTaskRNN`` inherits from the fly base
-    class with zebrafish-populated values (n_epg = 443 dIPN cells,
-    epg_glom_ix = mediolateral ring binning). So this function delegates
-    straight to the fly trainer.
-
-    Kept as a named entry point so:
-
-    1. The dispatcher in ``data_train_task`` reads species-by-species
-       rather than hiding zebrafish behind the fly literal.
-    2. Future swim-specific behaviour (constant-swim-train rollouts as the
-       analogue of the fly's constant-ω probe, swim-typed kinograph
-       overlays, etc.) can land here without touching the fly path.
-    """
-    return _data_train_drosophila_cx_task(
-        config, erase, best_model, device, log_file, resume=resume,
-    )
+# Back-compat aliases. The Drosophila CX (path_integration) and larval-
+# zebrafish dIPN (swim_integration) self-motion tasks now share ONE trainer,
+# ``_data_train_task_pi`` (the ``data_train_task`` dispatcher routes both task
+# types to it). These names are retained so any external reference to the
+# old species-specific entry points still resolves.
+_data_train_drosophila_cx_task = _data_train_task_pi
+_data_train_zebrafish_hd_task = _data_train_task_pi
 
 
 # ============================================================================

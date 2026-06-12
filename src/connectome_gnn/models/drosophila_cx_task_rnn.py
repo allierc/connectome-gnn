@@ -122,16 +122,53 @@ class DrosophilaCxTaskRNN(nn.Module):
         train_config = config.training
         w_init_mode = getattr(train_config, "w_init_mode", "const")
 
-        # --- Load hemibrain CX connectome -------------------------------
-        # Subclasses (e.g. ZebrafishHdTaskRNN) override ``_load_connectome``
-        # to swap in a different loader; the rest of __init__ relies only
-        # on the canonical dict shape (N, J_effective, neuron_types,
-        # type_names, n_epg, epg_ix, pen_subpop_ix).
-        cx = self._load_connectome(sim.connconstr_datapath)
+        # --- Load CX connectome -----------------------------------------
+        # Two paths produce the same canonical dict shape (N, J_effective,
+        # neuron_types, type_names, n_epg, epg_ix, pen_subpop_ix, ...):
+        #   1. ``config.circuit.name`` set -> resolve via the named-circuit
+        #      registry (``connectome_gnn.generators.circuits``);
+        #      ``Circuit.as_loader_dict`` flattens it to the legacy access
+        #      pattern. This is the same registry path the zebrafish model
+        #      uses, and lets a single config select drosophila_cx_156_v1,
+        #      drosophila_cx_338_v1 (path-integration extension), etc.
+        #   2. ``config.circuit`` absent / name empty -> fall through to the
+        #      legacy ``_load_connectome(sim.connconstr_datapath)`` hook so
+        #      existing yamls without a circuit block load byte-equivalently.
+        # NB: drosophila_cx_156_v1's build() calls the same legacy loader, so
+        # routing a 156 config through the registry is byte-equivalent to the
+        # old direct-load path.
+        circuit_cfg = getattr(config, "circuit", None)
+        if circuit_cfg is not None and getattr(circuit_cfg, "name", None):
+            from connectome_gnn.generators.circuits import get_circuit
+            cx = get_circuit(circuit_cfg.name).as_loader_dict()
+        else:
+            cx = self._load_connectome(sim.connconstr_datapath)
         N = int(cx["N"])
         self.n_units = N
-        self.n_input = 3
-        self.n_output = 2
+        # n_input / n_output derive from the supervised task targets
+        # (training.task_targets), mirroring the zebrafish model so the same
+        # class serves heading-only and path-integration sub-tasks:
+        #   ['rotation'] / absent       → 3-in [ω, cosθ0, sinθ0]        / 2-out [cosθ, sinθ]
+        #   ['rotation_vfwd']           → 4-in [ω, v_fwd, cosθ0, sinθ0] / 2-out [cosθ, sinθ]
+        #       (heading-only supervision but v_fwd KEPT in the input — the
+        #        latent path-integration probe: does the recurrent circuit
+        #        build a translation representation it is never asked for?)
+        #   ['rotation','translation'] → 4-in / 3-out [cosθ, sinθ, d]
+        #   ['position_2d']            → 4-in / 4-out [cosθ, sinθ, x, y]
+        # An explicit graph_model.n_input / n_output overrides the auto value.
+        _RECOGNISED = ("rotation", "translation", "position_2d", "rotation_vfwd")
+        _tt_raw = list(getattr(config.training, "task_targets", None) or [])
+        _tt_key = tuple(t for t in _RECOGNISED if t in _tt_raw)
+        _TT_DIMS = {
+            ("rotation",):                (3, 2),
+            ("rotation_vfwd",):           (4, 2),
+            ("rotation", "translation"):  (4, 3),
+            ("position_2d",):             (4, 4),
+            ("translation",):             (1, 1),
+        }
+        _auto_in, _auto_out = _TT_DIMS.get(_tt_key, (3, 2))  # default = rotation
+        self.n_input = int(getattr(gm, "n_input", 0)) or _auto_in
+        self.n_output = int(getattr(gm, "n_output", 0)) or _auto_out
 
         W_con = torch.from_numpy(cx["J_effective"].astype(np.float32))
         self.register_buffer("W_con", W_con)
@@ -256,10 +293,46 @@ class DrosophilaCxTaskRNN(nn.Module):
             self.v_pena_r = nn.Parameter(torch.tensor(-0.01))
             self.v_penb_l = nn.Parameter(torch.tensor(0.01))
             self.v_penb_r = nn.Parameter(torch.tensor(-0.01))
+        elif self.velocity_gate == "pen_pfn":
+            # Drosophila path-integration gate (companion of the zebrafish
+            # ``pen_artr_ptipn1``): ω → PEN (PENa/PENb L/R) on input col 0,
+            # v_fwd → PFN (PFNd/PFNv L/R) on input col 1. Requires a circuit
+            # that publishes both pen_subpop_ix and pfn_subpop_ix (i.e.
+            # drosophila_cx_338_v1). With n_input==3 (rotation only) the PFN
+            # column is unused; with n_input>=4 ([ω, v_fwd, cosθ0, sinθ0])
+            # v_fwd is anatomically routed to the PFN afferents.
+            pen_subpop = cx.get("pen_subpop_ix", {})
+            pfn_subpop = cx.get("pfn_subpop_ix", {})
+            pen_req = ("PENa_L", "PENa_R", "PENb_L", "PENb_R")
+            pfn_req = ("PFNd_L", "PFNd_R", "PFNv_L", "PFNv_R")
+            missing = [k for k in pen_req if len(pen_subpop.get(k, [])) == 0] \
+                + [k for k in pfn_req if len(pfn_subpop.get(k, [])) == 0]
+            if missing:
+                raise ValueError(
+                    f"velocity_gate='pen_pfn' requires non-empty pen_subpop_ix "
+                    f"{pen_req} and pfn_subpop_ix {pfn_req}; missing/empty: "
+                    f"{missing}. Use circuit drosophila_cx_338_v1."
+                )
+            for key in pen_req:
+                ind = torch.zeros(N, dtype=torch.float32)
+                ind[torch.as_tensor(pen_subpop[key], dtype=torch.long)] = 1.0
+                self.register_buffer(f"_pen_ind_{key.lower()}", ind, persistent=False)
+            for key in pfn_req:
+                ind = torch.zeros(N, dtype=torch.float32)
+                ind[torch.as_tensor(pfn_subpop[key], dtype=torch.long)] = 1.0
+                self.register_buffer(f"_pfn_ind_{key.lower()}", ind, persistent=False)
+            self.v_pena_l = nn.Parameter(torch.tensor(0.01))
+            self.v_pena_r = nn.Parameter(torch.tensor(-0.01))
+            self.v_penb_l = nn.Parameter(torch.tensor(0.01))
+            self.v_penb_r = nn.Parameter(torch.tensor(-0.01))
+            self.v_pfnd_l = nn.Parameter(torch.tensor(0.01))
+            self.v_pfnd_r = nn.Parameter(torch.tensor(-0.01))
+            self.v_pfnv_l = nn.Parameter(torch.tensor(0.01))
+            self.v_pfnv_r = nn.Parameter(torch.tensor(-0.01))
         elif self.velocity_gate != "none":
             raise ValueError(
-                f"graph_model.velocity_gate must be 'none', 'pen_only', or "
-                f"'pen_4scalar', got {self.velocity_gate!r}"
+                f"graph_model.velocity_gate must be 'none', 'pen_only', "
+                f"'pen_4scalar', or 'pen_pfn', got {self.velocity_gate!r}"
             )
 
         # --- Dynamics constants -----------------------------------------
@@ -406,6 +479,28 @@ class DrosophilaCxTaskRNN(nn.Module):
                     + self._pen_ind_penb_r * self.v_penb_r
                 )
                 W = torch.cat([v_col.unsqueeze(1), W[:, 1:]], dim=1)
+            elif self.velocity_gate == "pen_pfn":
+                # ω → PEN on col 0; v_fwd → PFN on col 1 (when present).
+                v_col_pen = (
+                    self._pen_ind_pena_l * self.v_pena_l
+                    + self._pen_ind_pena_r * self.v_pena_r
+                    + self._pen_ind_penb_l * self.v_penb_l
+                    + self._pen_ind_penb_r * self.v_penb_r
+                )
+                v_col_pfn = (
+                    self._pfn_ind_pfnd_l * self.v_pfnd_l
+                    + self._pfn_ind_pfnd_r * self.v_pfnd_r
+                    + self._pfn_ind_pfnv_l * self.v_pfnv_l
+                    + self._pfn_ind_pfnv_r * self.v_pfnv_r
+                )
+                if self.n_input >= 4:
+                    # [ω, v_fwd, cosθ0, sinθ0]: ω→PEN, v_fwd→PFN, cue free.
+                    W = torch.cat(
+                        [v_col_pen.unsqueeze(1), v_col_pfn.unsqueeze(1),
+                         W[:, 2:]], dim=1)
+                else:
+                    # [ω, cosθ0, sinθ0]: ω→PEN col 0 only (PFN unused).
+                    W = torch.cat([v_col_pen.unsqueeze(1), W[:, 1:]], dim=1)
             else:
                 mask = getattr(self, "_W_in_mask", None)
                 if mask is not None:
@@ -441,6 +536,17 @@ class DrosophilaCxTaskRNN(nn.Module):
             h_buf: (B, T, N)        subthreshold activity (for diagnostics
                                    and the circular-TV regulariser).
         """
+        # Eval/rollout probes (bump_fwhm, deterministic sweep) build the
+        # legacy 3-channel input [ω, cosθ0, sinθ0]; this model may have a
+        # wider input (e.g. 4-ch [ω, v_fwd, cosθ0, sinθ0]). Pad the missing
+        # middle (translational) channels with zeros so ω stays in ch0 and
+        # the heading cue stays in the last two. No-op when already wide.
+        if u.shape[-1] < self.n_input:
+            pad = self.n_input - u.shape[-1]
+            u = torch.cat(
+                [u[..., :1], u.new_zeros(*u.shape[:-1], pad), u[..., 1:]],
+                dim=-1)
+
         B, T, _ = u.shape
         N = self.n_units
 
