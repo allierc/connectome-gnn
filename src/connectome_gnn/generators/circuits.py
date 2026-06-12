@@ -449,6 +449,7 @@ def _discover_circuits() -> None:
     _register_zebrafish_hd_ipn12_ablations()
     _register_drosophila_cx_156()
     _register_drosophila_cx_338()
+    _register_drosophila_cx_338_nulls()
 
 
 _DISCOVERED: bool = False
@@ -1538,3 +1539,88 @@ def _register_drosophila_cx_338() -> None:
         )
 
     register_circuit("drosophila_cx_338_v1", build)
+
+
+def _find_drosophila_cx_null(stem: str) -> str:
+    """Locate ``graphs_data/drosophila_cx/er_connectomes/<stem>.npz`` across the
+    configured data root + cluster fallbacks. Produced by
+    ``figures/drosophila_cx/build_null_connectomes.py``. ``stem`` is e.g.
+    ``er_3`` / ``er_ei_2`` / ``bs_5``."""
+    from connectome_gnn.utils import get_data_root, load_data_fallback_roots
+    rel = os.path.join("graphs_data", "drosophila_cx", "er_connectomes",
+                       f"{stem}.npz")
+    for root in [get_data_root(), *load_data_fallback_roots()]:
+        cand = os.path.join(root, rel)
+        if os.path.isfile(cand):
+            return cand
+    raise FileNotFoundError(
+        f"null connectome {stem}.npz not found (expected at "
+        f"<data_root>/{rel}). Generate it with "
+        f"`python figures/drosophila_cx/build_null_connectomes.py`."
+    )
+
+
+def _register_drosophila_cx_338_nulls() -> None:
+    """Register the null-connectome variants of ``drosophila_cx_338_v1`` as
+    ``drosophila_cx_338_v1_{er_<i>, er_ei_<i>, bs_<i>}`` — the 'is the measured
+    wiring necessary?' control, the fly companion of
+    ``zebrafish_HD_IPN_917_artr_pt1_{er,er_ei,bs}``.
+
+    Each is byte-identical to drosophila_cx_338_v1 in node identity (cell types,
+    PEN/PFN gate targets, EPG ring order, declared readouts, Dale signs) and
+    differs ONLY in ``J_effective`` --- swapped for the matched null produced by
+    ``figures/drosophila_cx/build_null_connectomes.py``:
+      er_1..4     full ER, recurrent inhibitory-fraction sweep
+      er_ei_1..10 full ER matched to the measured ~31% inhibitory fraction
+      bs_1..10    block-preserving shuffle (per (post,pre) cell-type block)
+    N=338 and the ordering are fixed, so each is a drop-in swap on the task
+    datasets (no regeneration). The npz is read lazily on first get_circuit.
+    """
+    base_name = "drosophila_cx_338_v1"
+    stems = ([f"er_{i}" for i in (1, 2, 3, 4)]
+             + [f"er_ei_{i}" for i in range(1, 11)]
+             + [f"bs_{i}" for i in range(1, 11)])
+    for _stem in stems:
+        cname = f"{base_name}_{_stem}"
+
+        def build(_stem=_stem, cname=cname) -> Circuit:
+            import json as _json
+            base = get_circuit(base_name)
+            npz_path = _find_drosophila_cx_null(_stem)
+            with np.load(npz_path, allow_pickle=True) as data:
+                J = np.asarray(data["J_effective"], dtype=np.float32)
+                prov_null = _json.loads(str(data["provenance"]))
+            if J.shape != (int(base.N), int(base.N)):
+                raise ValueError(
+                    f"{cname}: null J_effective shape {J.shape} != "
+                    f"({base.N}, {base.N})")
+
+            prov = dict(base.provenance)
+            prov.pop("J_effective_sha256", None)
+            prov.update({
+                "ablation_mode": "null_connectome_keepN",
+                "null_stem": _stem,
+                "null_source": npz_path,
+                "base_circuit": base_name,
+                **{f"null_{k}": v for k, v in prov_null.items()},
+            })
+
+            def _cp(a):
+                return None if a is None else np.array(a, copy=True)
+
+            return Circuit(
+                name=cname,
+                N=int(base.N),
+                neuron_types=np.asarray(base.neuron_types, dtype=np.int64).copy(),
+                type_names=list(base.type_names),
+                J_effective=J,
+                soma_xyz=_cp(base.soma_xyz),
+                subpops={k: np.array(v, copy=True)
+                         for k, v in base.subpops.items()},
+                bump_ring_ix=_cp(base.bump_ring_ix),
+                dale_signs=_cp(base.dale_signs),
+                body_ids=_cp(base.body_ids),
+                provenance=prov,
+            )
+
+        register_circuit(cname, build)
