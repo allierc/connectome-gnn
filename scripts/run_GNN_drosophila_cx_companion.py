@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import shlex
 import subprocess
 import time
 
@@ -94,14 +95,16 @@ def _q(s: str) -> str:
 def _submit(cfg: str, *, cluster: str, n_cpus: int, w_min: int, log_dir: str,
             ssh: str | None, repo: str, conda_env: str) -> tuple[str | None, str]:
     log = os.path.join(log_dir, f"{cfg}.lsf.log")
-    # Activate the conda env BEFORE bsub so LSF copies its PATH into the job
-    # (a non-interactive job's base python lacks matplotlib/torch; the
-    # interactive `-Is` bsub worked only because the shell was already
-    # activated). GNN_OUTPUT_ROOT is likewise inherited from this shell.
-    cmd = (f"conda activate {conda_env} && cd {repo} && "
-           f"bsub -n {n_cpus} -gpu num=1 -q gpu_{cluster} "
-           f"-W {w_min} -o {log} -J {cfg} "
+    # The bsub JOB runs `bash -lc 'conda run -n <env> python ...'` so the
+    # compute node sources conda itself and runs in the right env — robust to
+    # LSF not propagating the submission environment (a plain `python` job
+    # lands in base and dies on ModuleNotFoundError: matplotlib). Mirrors
+    # connectome_gnn.LLM.cluster (bash -l + conda run). --no-capture-output
+    # keeps tqdm streaming to the log so the 300 s monitor can read progress.
+    job = (f"cd {repo} && conda run --no-capture-output -n {conda_env} "
            f"python GNN_Main.py -o train_task {cfg}")
+    cmd = (f"cd {repo} && bsub -n {n_cpus} -gpu num=1 -q gpu_{cluster} "
+           f"-W {w_min} -oo {log} -J {cfg} bash -lc {shlex.quote(job)}")
     out = _lsf(cmd, ssh=ssh)
     m = re.search(r"Job <(\d+)>", out.stdout)
     jid = m.group(1) if m else None
