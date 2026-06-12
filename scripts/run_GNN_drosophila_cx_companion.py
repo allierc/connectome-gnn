@@ -32,6 +32,11 @@ import time
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+# ANSI colours for the terminal metrics print.
+_R = "\033[0m"; _B = "\033[1m"; _DIM = "\033[2m"
+_GRN = "\033[92m"; _YEL = "\033[93m"; _RED = "\033[91m"; _CYN = "\033[96m"; _BLU = "\033[94m"
+_STATE_COL = {"RUN": _GRN, "PEND": _YEL, "EXIT": _RED, "DONE": _BLU}
+
 # The fresh companion suite (RNN + GNN), ordered heading-first (the GNN heading
 # run is the fastest / most precise — a good convergence canary).
 SUITE = [
@@ -109,8 +114,9 @@ def _submit(cfg: str, *, cluster: str, n_cpus: int, w_min: int, log_dir: str,
     m = re.search(r"Job <(\d+)>", out.stdout)
     jid = m.group(1) if m else None
     err = (out.stderr or out.stdout).strip().splitlines()
-    state = f"job {jid}" if jid else f"SUBMIT FAILED ({err[-1][:90] if err else '?'})"
-    print(f"  {cfg:38s} -> {state}   log: {log}")
+    state = (f"{_GRN}job {jid}{_R}" if jid
+             else f"{_RED}SUBMIT FAILED ({err[-1][:90] if err else '?'}){_R}")
+    print(f"  {_CYN}{cfg:38s}{_R} -> {state}")
     return jid, log
 
 
@@ -193,9 +199,11 @@ def main() -> int:
             for cfg, (jid, log) in jobs.items():
                 st = _job_state(jid, ssh=ssh)
                 epoch, prog = _latest(log)
-                line = f"[{stamp}] {cfg:38s} job {jid} {st:4s} | {epoch}"
+                col = _STATE_COL.get(st, "")
+                line = (f"[{_DIM}{stamp}{_R}] {_CYN}{cfg:38s}{_R} "
+                        f"{col}{st:4s}{_R} | {epoch}")
                 if prog:
-                    line += f"  |  {prog}"
+                    line += f"  |  {_B}{_GRN}{prog}{_R}"
                 print(line, flush=True)
                 if st in ("DONE", "EXIT"):
                     done.append(cfg)
