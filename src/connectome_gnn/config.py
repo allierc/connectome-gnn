@@ -611,7 +611,8 @@ class GraphModelConfig(BaseModel):
     # "none"        — W_in fully free (default).
     velocity_gate: Literal["none", "pen_only", "pen_4scalar",
                            "pen_artr_ptipn1",
-                           "pen_artr_ptipn1_propriocep"] = "none"
+                           "pen_artr_ptipn1_propriocep",
+                           "pen_pfn"] = "none"
     # Sign-lock the bilateral velocity-gate scalars so the left port is ≤0 and
     # the right port is ≥0 (effective = ∓softplus(raw), magnitude free). This
     # forces the L/R afferents to be driven in antiphase — matching the

@@ -314,7 +314,7 @@ def _deterministic_sweep_rollout(
         if use_bins:
             # K-bin logits → circular-mean softmax decode. Also synthesise a
             # (T, 2) cos/sin view of y_pred so downstream plotters
-            # (plot_cx_evolution and friends) — which read y_pred[:, :2] and
+            # (plot_evolution and friends) — which read y_pred[:, :2] and
             # atan2 it — keep working unchanged. The synthetic cos/sin pair
             # has magnitude in (0, 1] reflecting softmax sharpness; the
             # plotters only consume its angle, so the magnitude is harmless.
@@ -664,7 +664,7 @@ def _build_test_trial(net, u_test, y_test, device, config):
     # sin θ₀) cue impulse at t=0; the trained model expects (T, 1+K) with a
     # one-hot K-bin cue. Convert u BEFORE the forward, then decode the K-bin
     # logits y_pred (T, K) back to a (T, 2) cos/sin view so the downstream
-    # plot_cx_evolution panel — which atan2's y_pred[:, :2] — works
+    # plot_evolution panel — which atan2's y_pred[:, :2] — works
     # unchanged. y_true is also rewritten to its (T, 2) cos/sin form (it
     # already IS cos/sin on disk; no conversion needed).
     use_bins = bool(getattr(net, "use_heading_bins", False))
@@ -807,13 +807,13 @@ def _save_training_snapshot(
         W_con_np = (net.W_con.detach().cpu().numpy()
                     if hasattr(net, "W_con") else None)
 
-        # Use plot_cx_evolution (two-row mode) for the training snapshot so
+        # Use plot_evolution (two-row mode) for the training snapshot so
         # the in-training plot matches the paper figure exactly. Function
         # lives in connectome_gnn.plot_cx alongside every other CX-specific
         # plotting helper; it used to live in figures/drosophila_cx/
         # fig_evolution.py and be loaded via importlib here, which broke
         # when the figures/ directory was reorganised.
-        from connectome_gnn.plot_cx import plot_cx_evolution
+        from connectome_gnn.plot_cx import plot_evolution
 
         # Species-specific axis labels for panels d, e (afferent and
         # bump-carrying populations). Defaults to fly EPG/PEN via the base
@@ -839,7 +839,7 @@ def _save_training_snapshot(
             afferent_label=afferent_label,
             calcium_panel=calcium_panel,
         )
-        plot_cx_evolution(
+        plot_evolution(
             data, os.path.join(kinograph_dir, name), n_rows=2,
         )
     except Exception as exc:

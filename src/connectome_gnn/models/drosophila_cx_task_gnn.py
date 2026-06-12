@@ -116,16 +116,41 @@ class DrosophilaCxTaskGNN(nn.Module):
 
         self.lock_edge_signs = bool(getattr(gm, "lock_edge_signs", True))
 
-        # --- Load connectome (drosophila CX or zebrafish dIPN) ----------
-        # Subclasses override ``_load_connectome`` to swap in a different
-        # loader; the rest of __init__ relies only on the canonical dict
-        # shape (N, J_effective, neuron_types, type_names, n_epg, epg_ix,
-        # pen_subpop_ix). See ``ZebrafishHdTaskGNN`` for the fish port.
-        cx = self._load_connectome(sim.connconstr_datapath)
+        # --- Load connectome --------------------------------------------
+        # ``config.circuit.name`` set -> resolve via the named-circuit
+        # registry (drosophila_cx_156_v1 / drosophila_cx_338_v1 / ...);
+        # else fall back to the legacy ``_load_connectome`` hook so configs
+        # without a circuit block keep loading byte-equivalently. Mirrors the
+        # zebrafish model's resolution path. drosophila_cx_156_v1's build()
+        # calls the same legacy loader, so routing a 156 config through the
+        # registry is byte-equivalent to the old direct-load path.
+        circuit_cfg = getattr(config, "circuit", None)
+        if circuit_cfg is not None and getattr(circuit_cfg, "name", None):
+            from connectome_gnn.generators.circuits import get_circuit
+            cx = get_circuit(circuit_cfg.name).as_loader_dict()
+        else:
+            cx = self._load_connectome(sim.connconstr_datapath)
         N = int(cx["N"])
         self.n_units = N
-        self.n_input = 3
-        self.n_output = 2
+        # n_input / n_output derive from training.task_targets (mirrors the
+        # zebrafish model + DrosophilaCxTaskRNN):
+        #   ['rotation'] / absent → 3/2 ; ['rotation_vfwd'] → 4/2 (v_fwd kept
+        #   in the input, heading-only supervision — latent PI probe) ;
+        #   ['rotation','translation'] → 4/3 ; ['position_2d'] → 4/4.
+        # graph_model.n_input / n_output override the auto value.
+        _RECOGNISED = ("rotation", "translation", "position_2d", "rotation_vfwd")
+        _tt_raw = list(getattr(config.training, "task_targets", None) or [])
+        _tt_key = tuple(t for t in _RECOGNISED if t in _tt_raw)
+        _TT_DIMS = {
+            ("rotation",):                (3, 2),
+            ("rotation_vfwd",):           (4, 2),
+            ("rotation", "translation"):  (4, 3),
+            ("position_2d",):             (4, 4),
+            ("translation",):             (1, 1),
+        }
+        _auto_in, _auto_out = _TT_DIMS.get(_tt_key, (3, 2))
+        self.n_input = int(getattr(gm, "n_input", 0)) or _auto_in
+        self.n_output = int(getattr(gm, "n_output", 0)) or _auto_out
 
         W_con = torch.from_numpy(cx["J_effective"].astype(np.float32))
         self.register_buffer("W_con", W_con)
@@ -210,10 +235,42 @@ class DrosophilaCxTaskGNN(nn.Module):
             self.v_pena_r = nn.Parameter(torch.tensor(-0.01))
             self.v_penb_l = nn.Parameter(torch.tensor(0.01))
             self.v_penb_r = nn.Parameter(torch.tensor(-0.01))
+        elif self.velocity_gate == "pen_pfn":
+            # Path-integration gate (companion of zebrafish pen_artr_ptipn1):
+            # ω → PEN col 0, v_fwd → PFN col 1. Requires drosophila_cx_338_v1
+            # (publishes pfn_subpop_ix). PFN column unused when n_input==3.
+            pen_subpop = cx.get("pen_subpop_ix", {})
+            pfn_subpop = cx.get("pfn_subpop_ix", {})
+            pen_req = ("PENa_L", "PENa_R", "PENb_L", "PENb_R")
+            pfn_req = ("PFNd_L", "PFNd_R", "PFNv_L", "PFNv_R")
+            missing = [k for k in pen_req if len(pen_subpop.get(k, [])) == 0] \
+                + [k for k in pfn_req if len(pfn_subpop.get(k, [])) == 0]
+            if missing:
+                raise ValueError(
+                    f"velocity_gate='pen_pfn' requires non-empty pen_subpop_ix "
+                    f"{pen_req} and pfn_subpop_ix {pfn_req}; missing/empty: "
+                    f"{missing}. Use circuit drosophila_cx_338_v1."
+                )
+            for key in pen_req:
+                ind = torch.zeros(N, dtype=torch.float32)
+                ind[torch.as_tensor(pen_subpop[key], dtype=torch.long)] = 1.0
+                self.register_buffer(f"_pen_ind_{key.lower()}", ind, persistent=False)
+            for key in pfn_req:
+                ind = torch.zeros(N, dtype=torch.float32)
+                ind[torch.as_tensor(pfn_subpop[key], dtype=torch.long)] = 1.0
+                self.register_buffer(f"_pfn_ind_{key.lower()}", ind, persistent=False)
+            self.v_pena_l = nn.Parameter(torch.tensor(0.01))
+            self.v_pena_r = nn.Parameter(torch.tensor(-0.01))
+            self.v_penb_l = nn.Parameter(torch.tensor(0.01))
+            self.v_penb_r = nn.Parameter(torch.tensor(-0.01))
+            self.v_pfnd_l = nn.Parameter(torch.tensor(0.01))
+            self.v_pfnd_r = nn.Parameter(torch.tensor(-0.01))
+            self.v_pfnv_l = nn.Parameter(torch.tensor(0.01))
+            self.v_pfnv_r = nn.Parameter(torch.tensor(-0.01))
         elif self.velocity_gate != "none":
             raise ValueError(
-                f"graph_model.velocity_gate must be 'none', 'pen_only', or "
-                f"'pen_4scalar', got {self.velocity_gate!r}"
+                f"graph_model.velocity_gate must be 'none', 'pen_only', "
+                f"'pen_4scalar', or 'pen_pfn', got {self.velocity_gate!r}"
             )
 
         # --- Dynamics constants -----------------------------------------
@@ -469,6 +526,25 @@ class DrosophilaCxTaskGNN(nn.Module):
                     + self._pen_ind_penb_r * self.v_penb_r
                 )
                 W = torch.cat([v_col.unsqueeze(1), W[:, 1:]], dim=1)
+            elif self.velocity_gate == "pen_pfn":
+                v_col_pen = (
+                    self._pen_ind_pena_l * self.v_pena_l
+                    + self._pen_ind_pena_r * self.v_pena_r
+                    + self._pen_ind_penb_l * self.v_penb_l
+                    + self._pen_ind_penb_r * self.v_penb_r
+                )
+                v_col_pfn = (
+                    self._pfn_ind_pfnd_l * self.v_pfnd_l
+                    + self._pfn_ind_pfnd_r * self.v_pfnd_r
+                    + self._pfn_ind_pfnv_l * self.v_pfnv_l
+                    + self._pfn_ind_pfnv_r * self.v_pfnv_r
+                )
+                if self.n_input >= 4:
+                    W = torch.cat(
+                        [v_col_pen.unsqueeze(1), v_col_pfn.unsqueeze(1),
+                         W[:, 2:]], dim=1)
+                else:
+                    W = torch.cat([v_col_pen.unsqueeze(1), W[:, 1:]], dim=1)
             else:
                 mask = getattr(self, "_W_in_mask", None)
                 if mask is not None:
@@ -503,6 +579,15 @@ class DrosophilaCxTaskGNN(nn.Module):
             y_hat: (B, T, n_output) readout.
             h_buf: (B, T, N)        subthreshold activity.
         """
+        # Pad a legacy 3-ch probe input [ω, cosθ0, sinθ0] up to a wider
+        # n_input (e.g. 4-ch [ω, v_fwd, cosθ0, sinθ0]) with zeros in the
+        # middle. No-op when already wide. Mirrors the RNN / zebrafish model.
+        if u.shape[-1] < self.n_input:
+            pad = self.n_input - u.shape[-1]
+            u = torch.cat(
+                [u[..., :1], u.new_zeros(*u.shape[:-1], pad), u[..., 1:]],
+                dim=-1)
+
         B, T, _ = u.shape
         N = self.n_units
 
