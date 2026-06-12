@@ -1325,7 +1325,89 @@ We test two candidate partitions of the incoming edges of each postsynaptic neur
 
 \clearpage
 
-\section*{Appendix B: Training hyperparameters}
+\section*{Appendix B: Null connectomes (necessity control)}
+\label{app:er_null}
+
+To ask whether the heading computation is specific to the \emph{measured}
+central-complex wiring, we construct random null connectomes against which the
+same rotation task can be re-fitted, in three families that isolate
+progressively finer aspects of the wiring. All are matched to the measured
+$338$-cell circuit on the number of nodes ($N=338$), the edge count (and hence
+density: $19{,}470$ edges, density $0.171$) and the weight scale --- each random
+magnitude drawn independently from the empirical distribution of the measured
+$|W^{\mathrm{con}}|$ --- and all inherit the \emph{node identities} unchanged
+(cell-type assignment, PEN/PFN gate targets, EPG ring order, declared readouts),
+so every null remains a valid drop-in substrate for the same trained model. The
+families differ in how much of the measured connectivity they preserve, and are
+produced by \texttt{figures/drosophila\_cx/build\_null\_connectomes.py} (five
+independent draws each) and registered as
+\texttt{drosophila\_cx\_338\_v1\_\{er,er\_ei,bs\}\_\{1..5\}}.
+
+\paragraph{Full-network rewiring, inhibitory-fraction sweep
+($\mathrm{er}_{1..5}$).} A brand-new random support is drawn uniformly over the
+whole adjacency matrix, destroying the block structure entirely. Following
+Dale's law each cell keeps a single output polarity; a controlled fraction
+$p_{\mathrm{inh}}\in\{0.2,0.4,0.6,0.8,1.0\}$ of the recurrent (inhibitory-capable)
+pool is made inhibitory, spanning overall inhibitory edge fractions of
+$2.9\%$--$13.5\%$.
+
+\paragraph{Full-network rewiring, E/I matched ($\mathrm{er\_ei}_{1..5}$).} The
+same full-network rewiring but with its overall inhibitory edge fraction matched
+to the measured $30.9\%$; five independent draws give the null-model variance.
+This is the necessity control proper: it asks whether \emph{any} random network
+of the measured size, density, weight scale and E/I balance reproduces the
+computation, or whether the specific measured wiring is required. Because the
+fly's inhibitory pool ($\Delta 7 + \mathrm{ER6}$, $46$ of $338$ cells) is far
+too small to carry $\sim31\%$ of edges under a recurrent-only assignment, the
+matched null lets \emph{any} cell take inhibitory polarity until the measured
+fraction is reached.
+
+\paragraph{Block-preserving shuffle ($\mathrm{bs}_{1..5}$).} The intermediate
+null keeps the measured block-to-block connectivity exactly --- every
+(post-type, pre-type) cell-type block retains its edge count and magnitude
+distribution --- and randomises only \emph{which} cells within those blocks are
+wired. The coarse block architecture is therefore identical to the measured
+circuit while the microscopic wiring is scrambled. A computation that survives
+the block-preserving shuffle but fails the full-network nulls is carried by the
+block-level organisation; one that fails even the shuffle depends on the precise
+cell-to-cell connectivity.
+
+\Cref{fig:cx_er_connectomes} renders the measured connectome alongside one
+representative of each family in the same $z$-scored, cell-type-sorted signed
+format as \cref{fig:connectome_summary}. Quantitatively, the block-preserving
+shuffle reproduces the measured block-density map almost exactly (block-density
+correlation $\approx 1.00$) at the measured $30.9\%$ inhibitory fraction,
+whereas both full-network rewirings erase the block structure (correlation
+$\approx 0$). Re-fitting the rotation task on each family and comparing the
+recovered integration accuracy against the intact circuit is the necessity
+experiment; the matched random substrates and the training configurations
+(\texttt{drosophila\_cx\_rotation\_\{er,er\_ei,bs\}\_\{1..5\}}) are prepared
+here.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{figure/fig_drosophila_cx_null_connectomes.png}
+  \caption{\textbf{Three null-connectome families vs.\ the measured Drosophila
+  CX.} Same $z$-scored, cell-type-sorted signed-matrix rendering as
+  \cref{fig:connectome_summary} (red excitatory, blue inhibitory; cell-type
+  block boundaries on both axes), for the measured $338$-cell circuit and one
+  representative of each null family. \textbf{(a)}~The measured connectome,
+  block-structured by cell type. \textbf{(b)}~A full-network random rewiring
+  ($\mathrm{er}_5$, $p_{\mathrm{inh}}=1$): the block structure is destroyed.
+  \textbf{(c)}~A full-network rewiring matched to the measured $30.9\%$
+  inhibitory fraction ($\mathrm{er\_ei}_1$): still structureless, matched
+  colour balance. \textbf{(d)}~A block-preserving shuffle ($\mathrm{bs}_1$): the
+  block-to-block connectivity is kept while the fine within-block wiring is
+  randomised. All nulls match the measured size, density and weight scale and
+  inherit the node identities. Block-density correlation to the measured
+  circuit: $\approx 0$ for both full-network rewirings, $1.00$ for the
+  block-preserving shuffle.}
+  \label{fig:cx_er_connectomes}
+\end{figure}
+
+\clearpage
+
+\section*{Appendix C: Training hyperparameters}
 \label{app:hyperparams}
 
 \Cref{tab:cv_hyperparams} lists the training hyperparameters used
