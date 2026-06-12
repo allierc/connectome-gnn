@@ -16,7 +16,7 @@ default wall-clock limit is generous.
 
 Usage::
 
-    python scripts/run_GNN_drosophila_cx_companion.py                 # whole suite on l4
+    python scripts/run_GNN_drosophila_cx_companion.py                 # ALL configs on l4
     python scripts/run_GNN_drosophila_cx_companion.py --config drosophila_cx_gnn_rotation
     python scripts/run_GNN_drosophila_cx_companion.py --cluster a100 --config drosophila_cx_rotation drosophila_cx_both
     python scripts/run_GNN_drosophila_cx_companion.py --no-monitor    # submit only, don't watch
@@ -37,9 +37,10 @@ _R = "\033[0m"; _B = "\033[1m"; _DIM = "\033[2m"
 _GRN = "\033[92m"; _YEL = "\033[93m"; _RED = "\033[91m"; _CYN = "\033[96m"; _BLU = "\033[94m"
 _STATE_COL = {"RUN": _GRN, "PEND": _YEL, "EXIT": _RED, "DONE": _BLU}
 
-# The fresh companion suite (RNN + GNN), ordered heading-first (the GNN heading
-# run is the fastest / most precise — a good convergence canary).
-SUITE = [
+# Heading-first ordering hint (the GNN heading run is the fastest / most precise
+# convergence canary). Configs not listed here are appended alphabetically, so
+# the default (no --config) runs EVERY config/drosophila_cx/*.yaml.
+_ORDER_HINT = [
     "drosophila_cx_gnn_rotation",      "drosophila_cx_rotation",
     "drosophila_cx_gnn_rotation_vfwd", "drosophila_cx_rotation_vfwd",
     "drosophila_cx_gnn_both",          "drosophila_cx_both",
@@ -48,6 +49,20 @@ SUITE = [
     "drosophila_cx_gnn_position_2d_leaky", "drosophila_cx_position_2d_leaky",
     "drosophila_cx_rotation_mlpdec",   "drosophila_cx_rotation_kbins",
 ]
+
+
+def _all_configs() -> list[str]:
+    """Every config/drosophila_cx/*.yaml (top level, not archive/), ordered with
+    the core suite first then the rest (nulls, rep folds, ...) alphabetically."""
+    import glob
+    d = os.path.join(REPO, "config", "drosophila_cx")
+    names = sorted(os.path.splitext(os.path.basename(f))[0]
+                   for f in glob.glob(os.path.join(d, "*.yaml")))
+    if not names:
+        return list(_ORDER_HINT)
+    head = [c for c in _ORDER_HINT if c in names]
+    rest = [c for c in names if c not in head]
+    return head + rest
 
 # Parse the trainer's log lines, e.g.
 #   start training: 10 epochs × 31250 iters/epoch ...
@@ -166,7 +181,7 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--config", nargs="+", default=None,
-                   help="config name(s) to run (default: the whole companion suite)")
+                   help="config name(s) to run (default: EVERY config/drosophila_cx/*.yaml)")
     p.add_argument("--cluster", choices=["l4", "a100", "h100"], default="l4")
     p.add_argument("--n-cpus", type=int, default=8)
     p.add_argument("--hard-runtime-min", type=int, default=600,
@@ -191,7 +206,7 @@ def main() -> int:
     args = p.parse_args()
 
     ssh = None if args.local else args.ssh
-    configs = args.config or SUITE
+    configs = args.config or _all_configs()
     log_dir = os.path.join(args.output_root, "log", "drosophila_cx",
                            "_companion_runner")
     os.makedirs(log_dir, exist_ok=True)
