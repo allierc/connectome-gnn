@@ -1,4 +1,4 @@
-description: "Drosophila CX rotation on the Erdos-Renyi (E/I-matched null) er_ei_6 of drosophila_cx_338_v1 (necessity control; same task/dataset, randomised recurrent wiring)."
+description: "Drosophila CX rotation on the Erdos-Renyi (recurrent inh-fraction sweep) er_5 of drosophila_cx_338_v1 (necessity control; same task/dataset, randomised recurrent wiring)."
 dataset: drosophila_cx_si_task_338_scalar_xi
 simulation:
   gcamp_kernel: gcamp6f
@@ -18,7 +18,7 @@ graph_model:
   MLP_activation: relu
   output_from_epg_only: true
 circuit:
-  name: drosophila_cx_338_v1_er_ei_6
+  name: drosophila_cx_338_v1_er_5
 plotting:
   colormap: tab10
   anatomy_voltage_elev: 7.6

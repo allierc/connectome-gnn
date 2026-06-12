@@ -36,10 +36,10 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(_HERE, "..", "..", "src"))
 
 BASE_CIRCUIT = "drosophila_cx_338_v1"
-P_INH_SWEEP = (0.4, 0.6, 0.8, 1.0)
-SEEDS_ER = (40260, 40261, 40262, 40263)
-SEEDS_EI = tuple(range(40270, 40280))    # 10 nominal-E/I replicates
-SEEDS_BS = tuple(range(40280, 40290))    # 10 block-shuffle replicates
+P_INH_SWEEP = (0.2, 0.4, 0.6, 0.8, 1.0)
+SEEDS_ER = (40260, 40261, 40262, 40263, 40264)
+SEEDS_EI = tuple(range(40270, 40275))    # 5 nominal-E/I replicates
+SEEDS_BS = tuple(range(40280, 40285))    # 5 block-shuffle replicates
 
 
 def _cell_polarity(J, N):
