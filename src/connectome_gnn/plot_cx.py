@@ -520,7 +520,11 @@ def render_cx_snapshot_into_axes(
         # positive entries via max-filter, negative via min-filter, larger
         # magnitude wins where blobs overlap (as in fig_connectome_summary).
         from scipy.ndimage import maximum_filter, minimum_filter
-        blob = max(5, int(round(J_arr.shape[0] / 130.0)))  # ~5-7 px for N=731-839
+        # Edge-blob size scales with N so the apparent dot size is constant
+        # across circuits: ~1 px at N≈156 (drosophila CX) up to ~7 px at
+        # N≈917 (zebrafish). The old max(5, …) floor over-inflated small-N
+        # matrices (the 156-cell fly dots looked ~5× too big vs the fish).
+        blob = max(1, int(round(J_arr.shape[0] / 130.0)))
         Zpos = maximum_filter(np.where(Z > 0, Z, 0.0), size=blob)
         Zneg = minimum_filter(np.where(Z < 0, Z, 0.0), size=blob)
         Zvis = np.where(np.abs(Zpos) >= np.abs(Zneg), Zpos, Zneg)
