@@ -341,6 +341,8 @@ def make_figure(net, info, out_path, omegas=None):
     # No on-figure title (paper convention: panel letters only, no titles).
     # The verdict is returned + printed for the caption, not drawn on the figure.
     fig.tight_layout()
+    from _despine import open_axes
+    open_axes(fig)
     fig.savefig(out_path, dpi=160, bbox_inches="tight")
     plt.close(fig)
     return verdict, sweep, a_fr
@@ -505,6 +507,8 @@ def make_kinograph_figure(out_path, **kw):
         axx.text(-0.075, 1.02, letter, transform=axx.transAxes, fontsize=LET,
                  fontweight="bold", ha="left", va="bottom")
     fig.tight_layout()
+    from _despine import open_axes
+    open_axes(fig)
     fig.savefig(out_path, dpi=160, bbox_inches="tight")
     plt.close(fig)
     print(f"[artr_kino] real r(L,R)={d['r_real']:+.3f}  model r(L,R)={d['r_model']:+.3f}"
@@ -559,6 +563,8 @@ def make_kinograph_compare_figure(out_path, **kw):
         axx.text(-0.075, 1.02, letter, transform=axx.transAxes, fontsize=LET,
                  fontweight="bold", ha="left", va="bottom")
     fig.tight_layout()
+    from _despine import open_axes
+    open_axes(fig)
     fig.savefig(out_path, dpi=160, bbox_inches="tight")
     plt.close(fig)
     print(f"[artr_kino_cmp] real r={d['r_real']:+.3f}  +GCaMP r={d['r_model']:+.3f}  "
@@ -702,6 +708,8 @@ def make_kinograph_train_compare_figure(out_path, run=None, data_root=DEFAULT_DA
         axx.text(-0.075, 1.02, letter, transform=axx.transAxes, fontsize=LET,
                  fontweight="bold", ha="left", va="bottom")
     fig.tight_layout()
+    from _despine import open_axes
+    open_axes(fig)
     fig.savefig(out_path, dpi=160, bbox_inches="tight")
     plt.close(fig)
     nLm = int((side == "L").sum()); nRm = int((side == "R").sum())
@@ -825,11 +833,220 @@ def make_dark_figure(out_path, run="zebrafish_hd_si_ipn_917_v1_selfmotion_rotati
         a.text(-0.06, 1.02, letter, transform=a.transAxes, fontsize=15,
                fontweight="bold", ha="left", va="bottom")
     fig.tight_layout()
+    from _despine import open_axes
+    open_axes(fig)
     fig.savefig(out_path, dpi=160, bbox_inches="tight")
     plt.close(fig)
     print(f"[artr_dark] DARK-block L-R oscillation amplitude: "
           f"real={amp_real:.4f}  model={amp_model:.4f}")
     return dict(amp_real=amp_real, amp_model=amp_model)
+
+
+# --------------------------------------------------------------------------
+# Merged figures across heading decoders (cos/sin, 64-bin, MLP)
+# --------------------------------------------------------------------------
+# The three trained heading decoders on the same 917-cell circuit and gate.
+DECODER_RUNS = [
+    ("zebrafish_hd_si_ipn_917_v1_selfmotion_rotation",        r"$(\cos\theta,\sin\theta)$"),
+    ("zebrafish_hd_si_ipn_917_v1_selfmotion_rotation_kbins",  "64-bin"),
+    ("zebrafish_hd_si_ipn_917_v1_selfmotion_rotation_mlpdec", "MLP"),
+]
+DECODER_COLORS = ["#7b2d8e", "#1b9e77", "#d95f02"]   # purple / teal / orange
+
+
+def make_osc_multi_figure(out_path, runs=None, data_root=DEFAULT_DATA_ROOT,
+                          device=None, sign_constrain_gate=True, omegas=None):
+    """Merged ARTR oscillation diagnostic across the three heading decoders.
+
+    Overlays the (cos/sin, 64-bin, MLP) models on the same two axes so the
+    decoder-invariance of the inherited-oscillator signature is read off
+    directly: (a) ARTR oscillation period vs constant omega against the bump
+    period 360/|omega|; (b) amplitude vs omega. The zero-input free-run
+    amplitude per decoder is printed for the caption (all decay to a fixed
+    point; the rotation->dark figure carries that probe)."""
+    if runs is None:
+        runs = DECODER_RUNS
+    if omegas is None:
+        omegas = [5., 10., 15., 22.5, 30., 45., 60., 90., 135.]
+    series = []
+    for run, lab in runs:
+        net, info = load_artr_model(run, data_root, device,
+                                    sign_constrain_gate=sign_constrain_gate)
+        sweep = const_omega_sweep(net, info, omegas)
+        t_fr, L_fr, R_fr = free_run(net, info)
+        _, a_fr = _peak_freq_mhz(L_fr - R_fr, info["dt"], warm=int(20 / info["dt"]))
+        series.append(dict(lab=lab, sweep=sweep, a_fr=a_fr))
+        print(f"[osc_multi] {lab:18s}  free-run(omega=0) amp={a_fr:.4f}")
+
+    fig, ax = plt.subplots(1, 2, figsize=(11, 4.6))
+    LF, TF, LET = 13, 11, 18
+
+    om0 = np.array([r["omega"] for r in series[0]["sweep"]])
+    bump_T = 360.0 / np.maximum(np.abs(om0), 1e-9)
+    ax[0].plot(om0, bump_T, "k--", lw=1.6, label=r"bump period $360/|\omega|$", zorder=1)
+    for s, col in zip(series, DECODER_COLORS):
+        om = np.array([r["omega"] for r in s["sweep"]])
+        amp = np.array([r["amp"] for r in s["sweep"]])
+        f_artr = np.array([r["f_artr"] for r in s["sweep"]])
+        osc = amp > 0.05
+        artr_T = 1e3 / np.maximum(f_artr, 1e-9)
+        ax[0].plot(om[osc], artr_T[osc], "o-", color=col, ms=6, lw=1.4, label=s["lab"])
+        ax[1].plot(om, amp, "o-", color=col, ms=6, lw=1.4, label=s["lab"])
+
+    ax[0].set_xlabel(r"constant $\omega$  (deg/s)", fontsize=LF)
+    ax[0].set_ylabel("ARTR oscillation period (s)", fontsize=LF)
+    ax[0].legend(fontsize=TF - 1, frameon=False, loc="upper right")
+    ax[1].set_xlabel(r"constant $\omega$  (deg/s)", fontsize=LF)
+    ax[1].set_ylabel(r"ARTR oscillation amplitude (std of $\bar h_L$)", fontsize=LF)
+    ax[1].axhline(0, color="grey", lw=0.8)
+    ax[1].legend(fontsize=TF - 1, frameon=False, loc="upper left")
+    for a in ax:
+        a.tick_params(labelsize=TF)
+    for letter, axx in zip("ab", ax):
+        axx.text(-0.12, 1.04, letter, transform=axx.transAxes, fontsize=LET,
+                 fontweight="bold", ha="left", va="bottom")
+    fig.tight_layout()
+    from _despine import open_axes
+    open_axes(fig)
+    fig.savefig(out_path, dpi=160, bbox_inches="tight")
+    plt.close(fig)
+    print(f"[osc_multi] wrote {out_path}")
+    return series
+
+
+def make_kino_multi_figure(out_path, runs=None, data_root=DEFAULT_DATA_ROOT,
+                           gcamp="gcamp7f", sign_constrain_gate=True):
+    """Merged ARTR kinograph: recorded DeltaF/F vs the model under the three
+    heading decoders (cos/sin, 64-bin, MLP), driven by the recorded omega.
+
+    One figure, four columns (recorded | cos/sin | 64-bin | MLP). The recorded
+    omega drive spans the top (a); row (b) shows the L-block/R-block kinographs
+    (per-row z-scored, r_LR annotated). Rows (c, d) give the per-hemisphere
+    band decomposition of the population mean --- ARTR_L (red) and ARTR_R (blue)
+    in separate panels, each as an offset stack of the full trace (sum), its
+    slow band (period > 16 s, the turn-block) and its fast band (< 16 s, the
+    bump carrier), so that sum = slow + fast is read off directly. The per-band
+    L/R correlations are annotated on the ARTR_L row."""
+    import matplotlib.gridspec as gridspec
+    if runs is None:
+        runs = DECODER_RUNS
+    cols = []
+    for run, lab in runs:
+        d = kinograph_data(run=run, data_root=data_root, gcamp=gcamp,
+                           sign_constrain_gate=sign_constrain_gate)
+        cols.append((lab, d))
+        print(f"[kino_multi] {lab:18s}  model r_LR={d['r_model']:+.2f}  "
+              f"(n={d['n_match']})")
+    d0 = cols[0][1]
+    t = d0["t_sec"]
+    dt_b = float(t[1] - t[0]) if len(t) > 1 else 0.915
+
+    # --- band split: slow (period > 16 s) and fast (< 16 s); sum = slow + fast
+    def _bands(x):
+        X = np.fft.rfft(x); fr = np.fft.rfftfreq(len(x), d=dt_b)
+        slow = np.fft.irfft(X * (fr < 1.0 / 16.0), n=len(x))
+        fast = np.fft.irfft(X * (fr >= 1.0 / 16.0), n=len(x))
+        return slow, fast, slow + fast
+
+    def _corr(a, b):
+        return (float(np.corrcoef(a, b)[0, 1])
+                if a.std() > 1e-9 and b.std() > 1e-9 else float("nan"))
+
+    OFF = 2.5                                       # vertical offset between bands
+    STACK = ((2, "sum"), (1, "slow"), (0, "fast"))  # row index in the offset stack
+
+    def _decomp_panel(ax, x, col, label_traces=False):
+        slow, fast, full = _bands(x)
+        sc = max(np.abs(full).max(), 1e-9)
+        for (k, _), y in zip(STACK, (full, slow, fast)):
+            off = (k - 1) * OFF
+            ax.axhline(off, color="0.85", lw=0.5, zorder=0)
+            ax.plot(t, y / sc + off, color=col, lw=1.0)
+        if label_traces:
+            for k, name in STACK:
+                ax.text(0.992, (k - 1) * OFF + 0.55, name, transform=
+                        ax.get_yaxis_transform(), ha="right", va="bottom",
+                        fontsize=TF - 1, color="0.35")
+        ax.set_ylim(-OFF - 1.4, OFF + 1.4); ax.set_xlim(t[0], t[-1])
+        ax.set_yticks([]); ax.tick_params(labelsize=TF)
+        for sp in ("top", "right"):
+            ax.spines[sp].set_visible(False)
+
+    ncol = len(cols) + 1                          # recorded + one per decoder
+    fig = plt.figure(figsize=(4.3 * ncol, 9.0))
+    gs = gridspec.GridSpec(4, ncol, height_ratios=[0.4, 2.0, 1.5, 1.5],
+                           hspace=0.28, wspace=0.24)
+    LF, TF, LET = 12, 9.5, 15
+
+    axw = fig.add_subplot(gs[0, :])
+    axw.plot(t, d0["omega"], color="0.35", lw=1.1)
+    axw.set_ylabel(r"$\omega$ (°/s)", fontsize=LF)
+    axw.set_xlim(t[0], t[-1]); axw.tick_params(labelsize=TF)
+    for sp in ("top", "right"):
+        axw.spines[sp].set_visible(False)
+    # b/c/d sit at axes-x = LABX of a single column; map the same figure-x onto
+    # the full-width omega axis so panel letter 'a' lines up with them.
+    LABX = -0.20
+    _pk = gs[1, 0].get_position(fig); _pw = gs[0, :].get_position(fig)
+    _xa = (_pk.x0 + LABX * _pk.width - _pw.x0) / _pw.width
+    axw.text(_xa, 1.06, "a", transform=axw.transAxes, fontsize=LET,
+             fontweight="bold", ha="right", va="bottom")
+
+    def _kino_panel(ax, A, nLc, ntot, ylab, rlr):
+        ax.imshow(_zscore_rows(A), aspect="auto", origin="lower",
+                  extent=[t[0], t[-1], 0, ntot], cmap="viridis",
+                  vmin=-2, vmax=2, interpolation="nearest")
+        ax.axhline(nLc, color="w", lw=1.0)
+        ax.set_ylabel(ylab, fontsize=LF)
+        ax.text(0.012, nLc / 2, "L", color="w", fontsize=TF, va="center",
+                transform=ax.get_yaxis_transform())
+        ax.text(0.012, (nLc + ntot) / 2, "R", color="w", fontsize=TF, va="center",
+                transform=ax.get_yaxis_transform())
+        ax.text(0.97, 0.06, f"$r_{{LR}}={rlr:+.2f}$", color="w", ha="right",
+                va="bottom", transform=ax.transAxes, fontsize=TF)
+        ax.tick_params(labelsize=TF)
+
+    # per-column source: recorded for column 0, model for the decoder columns
+    def _src(j):
+        if j == 0:
+            return d0["real"], d0["nL"], d0["n_match"], d0["real_L"], d0["real_R"], \
+                   f"recorded $\\Delta F/F$\n(n={d0['n_match']})", d0["r_real"]
+        lab, d = cols[j - 1]
+        return d["model"], d["nL"], d["n_match"], d["model_L"], d["model_R"], \
+               f"model — {lab}", d["r_model"]
+
+    for j in range(ncol):
+        A, nLc, ntot, xL, xR, ylab, rlr = _src(j)
+        # (b) kinograph
+        axk = fig.add_subplot(gs[1, j])
+        _kino_panel(axk, A, nLc, ntot, ylab, rlr)
+        # (c) ARTR_L band decomposition (red)
+        axL = fig.add_subplot(gs[2, j])
+        _decomp_panel(axL, xL, L_COLOR, label_traces=(j == 0))
+        slowL, fastL, _ = _bands(xL); slowR, fastR, _ = _bands(xR)
+        axL.text(0.5, 1.0, f"slow $r_{{LR}}={_corr(slowL, slowR):+.2f}$   "
+                 f"fast $r_{{LR}}={_corr(fastL, fastR):+.2f}$", transform=axL.transAxes,
+                 ha="center", va="bottom", fontsize=TF - 1)
+        # (d) ARTR_R band decomposition (blue)
+        axR = fig.add_subplot(gs[3, j])
+        _decomp_panel(axR, xR, R_COLOR, label_traces=(j == 0))
+        axR.set_xlabel("time (s)", fontsize=LF)
+        if j == 0:
+            axk.text(-0.20, 1.06, "b", transform=axk.transAxes, fontsize=LET,
+                     fontweight="bold", ha="right", va="bottom")
+            axL.set_ylabel("ARTR$_L$\n(norm., offset)", fontsize=LF)
+            axR.set_ylabel("ARTR$_R$\n(norm., offset)", fontsize=LF)
+            axL.text(-0.20, 1.10, "c", transform=axL.transAxes, fontsize=LET,
+                     fontweight="bold", ha="right", va="bottom")
+            axR.text(-0.20, 1.06, "d", transform=axR.transAxes, fontsize=LET,
+                     fontweight="bold", ha="right", va="bottom")
+
+    from _despine import open_axes
+    open_axes(fig)
+    fig.savefig(out_path, dpi=160, bbox_inches="tight")
+    plt.close(fig)
+    print(f"[kino_multi] wrote {out_path}")
+    return cols
 
 
 # --------------------------------------------------------------------------
@@ -856,8 +1073,25 @@ def main():
     p.add_argument("--dark", action="store_true",
                    help="render the rotation->dark transition (spontaneous-"
                         "oscillation probe): recorded vs modelled ARTR")
+    p.add_argument("--osc_multi", action="store_true",
+                   help="merged oscillation diagnostic across the cos/sin, "
+                        "64-bin and MLP decoders (one figure, overlaid)")
+    p.add_argument("--kino_multi", action="store_true",
+                   help="merged ARTR kinograph: recorded vs the cos/sin, 64-bin "
+                        "and MLP decoder models (one figure, four columns)")
     args = p.parse_args()
     scg = not args.no_sign_constrain
+
+    if args.osc_multi:
+        out = args.out or os.path.join(HERE, "fig_zebrafish_artr_oscillation_decoders.png")
+        make_osc_multi_figure(out, data_root=args.data_root, device=args.device,
+                              sign_constrain_gate=scg)
+        return
+
+    if args.kino_multi:
+        out = args.out or os.path.join(HERE, "fig_zebrafish_artr_kinograph_decoders.png")
+        make_kino_multi_figure(out, data_root=args.data_root, sign_constrain_gate=scg)
+        return
 
     if args.dark:
         out = args.out or os.path.join(HERE, "fig_zebrafish_artr_dark.png")

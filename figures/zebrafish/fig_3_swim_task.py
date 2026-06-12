@@ -336,6 +336,8 @@ def build_figure(out_path: str, seed: int = 3):
     _panel_label(ax_d_top, "d")
 
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+    from _despine import open_axes
+    open_axes(fig)
     fig.savefig(out_path, dpi=170, bbox_inches="tight")
     plt.close(fig)
     print(f"[fig] wrote {out_path}")

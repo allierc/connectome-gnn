@@ -197,6 +197,8 @@ def main():
     for sp in ("top", "right"):
         axB.spines[sp].set_visible(False)
     fig.tight_layout()
+    from _despine import open_axes
+    open_axes(fig)
     fig.savefig(args.out, dpi=150, bbox_inches="tight")
     print(f"[fig] wrote {args.out}")
 

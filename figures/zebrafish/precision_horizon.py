@@ -49,7 +49,7 @@ def main():
                    default="/groups/saalfeld/home/allierc/GraphData")
     p.add_argument("--device", default="cuda")
     p.add_argument("--thr_deg", type=float, default=15.0)
-    p.add_argument("--thr_d", type=float, default=0.4)
+    p.add_argument("--rel_d", type=float, default=0.20)
     p.add_argument("--n_seed", type=int, default=4)
     args = p.parse_args()
     try:
@@ -61,7 +61,7 @@ def main():
         net, _ = _load_run(
             os.path.join(args.data_root, "log", "zebrafish", rn), dev)
         m = precision_horizon_metrics(
-            net, device=dev, thr_deg=args.thr_deg, thr_d=args.thr_d,
+            net, device=dev, thr_deg=args.thr_deg, rel_d=args.rel_d,
             leaky=("leaky" in rn), n_seed=args.n_seed)
         td = f"{m['tau_d_s']:.1f}s" if m["tau_d_s"] is not None else "--"
         print(f"{rn:50s}  tau_theta={m['tau_theta_s']:5.1f}s  "

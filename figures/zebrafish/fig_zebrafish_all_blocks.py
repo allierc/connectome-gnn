@@ -157,6 +157,8 @@ def main():
 
     fig.tight_layout()
     out = os.path.join(_HERE, "fig_zebrafish_all_blocks.png")
+    from _despine import open_axes
+    open_axes(fig)
     fig.savefig(out, dpi=120)
     plt.close(fig)
     print(f"[fig] wrote {out}  (n_bump={n}, T={T})")

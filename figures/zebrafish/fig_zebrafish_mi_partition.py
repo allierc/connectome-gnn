@@ -465,9 +465,8 @@ def main():
         ax.set_xlim(0, xmax); ax.set_ylim(0, ymax)
         ax.text(-0.04, 1.03, letters[j], transform=ax.transAxes,
                 fontsize=LET, fontweight="bold")
-        if col == 0:
-            ax.set_ylabel("displacement (bits)", fontsize=LF)
-        if row == 1:
+        if j == 2:                                # axis titles only on panel c
+            ax.set_ylabel("translation (bits)", fontsize=LF)
             ax.set_xlabel("heading (bits)", fontsize=LF)
         ax.tick_params(labelsize=TF, labelleft=(col == 0),
                        labelbottom=(row == 1))
@@ -487,6 +486,8 @@ def main():
                       handletextpad=1.5)
 
     plt.tight_layout()
+    from _despine import open_axes
+    open_axes(fig)
     fig.savefig(args.out, dpi=170, bbox_inches="tight")
     plt.close(fig)
     print(f"[fig_mi_partition] wrote {args.out}")

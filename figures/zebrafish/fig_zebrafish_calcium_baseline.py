@@ -574,6 +574,8 @@ def main():
     _spectrum_panel(ax_e, freqs, p_real, p_modl, n_real, n_modl,
                     _letters[2 * len(aff)])
 
+    from _despine import open_axes
+    open_axes(fig)
     fig.savefig(args.out, dpi=150)
     plt.close(fig)
     print(f"[fig] wrote {args.out}")

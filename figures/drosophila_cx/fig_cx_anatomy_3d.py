@@ -27,11 +27,20 @@ import numpy as np
 import pandas as pd
 
 
-# Colour assignment matches docs/figure/fig_hd_mi_summary.py: tab10 indexed
-# by neuron_type id in load_drosophila_cx_connectome() order
-# (EPG, EPGt, PEN_a(PEN1), PEN_b(PEN2), Delta7, PEG, ER6).
-TYPE_ORDER = ["EPG", "EPGt", "PEN_a(PEN1)", "PEN_b(PEN2)", "Delta7", "PEG", "ER6"]
-TYPE_COLOR = {t: matplotlib.cm.tab10(i)[:3] for i, t in enumerate(TYPE_ORDER)}
+# Colour assignment for the 13 cell classes of the path-integration-extended
+# circuit (drosophila_cx_338_v1). The first seven entries are the heading
+# core (EPG/EPGt/PEN/Delta7/PEG/ER6) and keep their original tab10(0..6)
+# colours so all cross-references to fig_hd_mi_summary / fig_connectome_summary
+# stay valid; the six FB columnar / vector families appended for the
+# path-integration extension (PFNd, PFNv, PFNa, hDeltaB, PFR_a, PFR_b) get a
+# distinct second palette (tab20b hue families).
+HD_CORE_ORDER = ["EPG", "EPGt", "PEN_a(PEN1)", "PEN_b(PEN2)", "Delta7", "PEG", "ER6"]
+PI_EXT_ORDER = ["PFNd", "PFNv", "PFNa", "hDeltaB", "PFR_a", "PFR_b"]
+TYPE_ORDER = HD_CORE_ORDER + PI_EXT_ORDER
+_PI_COLOR_IX = [0, 4, 8, 12, 16, 18]  # one per tab20b hue family (+1 extra)
+TYPE_COLOR = {t: matplotlib.cm.tab10(i)[:3] for i, t in enumerate(HD_CORE_ORDER)}
+TYPE_COLOR.update({t: matplotlib.cm.tab20b(j)[:3]
+                   for t, j in zip(PI_EXT_ORDER, _PI_COLOR_IX)})
 
 
 def _load_skeletons(anatomy_dir: str, downsample: int = 10):
@@ -328,13 +337,20 @@ def _render_fast(nl, types, rois, output_path,
                     elev, azim, lw_large, lw_small)
 
     # --- panel (b): soma cell bodies only ------------------------------
+    # Cropped DVID soma meshes exist only for the heading core (the PI-extension
+    # families were fetched skeleton-only). Draw the real meshes where we have
+    # them and fall back to the SWC max-radius sphere for every type without a
+    # mesh, so panel (b) shows the cell bodies of all neurons uniformly.
     if ax_soma is not None:
         _draw_mesh_outlines(ax_soma, rois, elev, azim, alpha_mesh, mesh_color)
+        have_mesh = set(soma_meshes_by_type or {})
         if soma_meshes_by_type:
             _draw_soma_meshes(ax_soma, soma_meshes_by_type, type_counts,
                               draw_order, elev, azim)
-        else:
-            _draw_somas(ax_soma, somas_by_type, type_counts, draw_order,
+        missing = {t: somas_by_type[t] for t in somas_by_type
+                   if t not in have_mesh}
+        if missing:
+            _draw_somas(ax_soma, missing, type_counts, draw_order,
                         elev, azim, edgecolor=soma_edge)
 
     # --- axis cosmetics + legend ---------------------------------------
