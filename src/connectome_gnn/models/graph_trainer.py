@@ -1828,7 +1828,20 @@ def data_train_task(config, erase, best_model, device, log_file=None, resume=Fal
 
 
 def _data_train_task_pi(config, erase, best_model, device, log_file=None, resume=False):
-    """Train a TaskRNN on the path-integration task data.
+    """Train a TaskRNN/GNN on the self-motion-integration task data — the
+    SINGLE shared trainer for both the Drosophila CX path-integration task
+    (``task_type='path_integration'``) and the larval-zebrafish dIPN
+    swim-integration task (``task_type='swim_integration'``).
+
+    The two species share one trainer because the TaskTrials on-disk layout
+    is byte-identical (stimulus ``[ω, (v_fwd,) cosθ₀·δ, sinθ₀·δ]``, target
+    ``[cosθ, sinθ, ...]``) and the eval helpers
+    (``path_integration_accuracy_from_data``, ``bump_fwhm``,
+    ``_rollout_heading_metrics``, ``_save_training_snapshot``) read only the
+    canonical model attributes (``epg_indices``, ``epg_glom_ix``,
+    ``neuron_types``, ``type_names``) that both ``DrosophilaCxTask*`` and
+    ``ZebrafishHdTask*`` expose. All species differences live in the model
+    class + circuit, not here.
 
     Mirrors the skeleton of `data_train_gnn`:
     config → log_dir → data load → model (registry) → optimizer → epoch loop
@@ -1928,6 +1941,13 @@ def _data_train_task_pi(config, erase, best_model, device, log_file=None, resume
         # position_2d (4-col stim, 4-col target):
         (4, 4, ("rotation",)):                ([0, 2, 3],    [0, 1]),
         (4, 4, ("position_2d",)):             ([0, 1, 2, 3], [0, 1, 2, 3]),
+        # heading-only supervision but KEEP v_fwd in the input (latent
+        # path-integration probe): full 4-ch input, 2-col heading target.
+        # Works on either the scalar_xi (3-col) or position_2d (4-col) disk
+        # target; only heading [0,1] is supervised, the rest is unused GT
+        # available for post-hoc decoding.
+        (4, 3, ("rotation_vfwd",)):           ([0, 1, 2, 3], [0, 1]),
+        (4, 4, ("rotation_vfwd",)):           ([0, 1, 2, 3], [0, 1]),
         # propriocep-split (5-col stim — col 2 carries v_proprio):
         (5, 3, ("rotation",)):                ([0, 3, 4],       [0, 1]),
         (5, 3, ("translation",)):             ([1, 2],          [2]),
@@ -1938,7 +1958,7 @@ def _data_train_task_pi(config, erase, best_model, device, log_file=None, resume
     _task_raw = list(getattr(tc, 'task_targets', None) or [])
     # Canonical key: rotation always before translation; position_2d listed
     # separately. Sorting is by a fixed enumeration so the key is stable.
-    _RECOGNISED = ("rotation", "translation", "position_2d")
+    _RECOGNISED = ("rotation", "translation", "position_2d", "rotation_vfwd")
     _task_key = tuple(t for t in _RECOGNISED if t in _task_raw)
     task_targets_canonical = list(_task_key)
     if u_train.shape[-1] >= 4 and _task_key:
@@ -2038,8 +2058,16 @@ def _data_train_task_pi(config, erase, best_model, device, log_file=None, resume
     #              Constant — schedule does not touch.
     lr_W_rec = getattr(tc, 'lr_W_rec', None)
     lr_W_ED = getattr(tc, 'lr_W_ED', None)
+    # Opt-in: split the per-neuron embedding ``a`` into its own constant-lr
+    # group (``lr_embedding``) instead of riding the schedule-driven w_rec
+    # group. Default False → ``a`` stays in w_rec, so untouched configs are
+    # unchanged. Lets the embedding move at its own rate (e.g. when the
+    # cluster is meant to drift freely with coeff_embedding_cluster=0).
+    _emb_separate = bool(getattr(tc, 'embedding_separate_lr', False))
 
     def _name_to_group(name: str) -> str:
+        if _emb_separate and name == "a":
+            return "embedding"
         if name in ("S", "W", "a") or name.startswith(("g_phi.", "f_theta.")):
             return "w_rec"
         if (name in ("W_in", "W_out")
@@ -2048,28 +2076,35 @@ def _data_train_task_pi(config, erase, best_model, device, log_file=None, resume
             return "w_ED"
         return "other"
 
-    grouped: dict[str, list] = {"w_rec": [], "w_ED": [], "other": []}
+    grouped: dict[str, list] = {"w_rec": [], "w_ED": [], "other": [], "embedding": []}
     for _name, _p in model.named_parameters():
         grouped[_name_to_group(_name)].append(_p)
 
-    optimizer = torch.optim.Adam(
-        [
-            {"params": grouped["w_rec"],
-             "lr": float(lr_W_rec) if lr_W_rec is not None else tc.lr,
-             "name": "w_rec"},
-            {"params": grouped["w_ED"],
-             "lr": float(lr_W_ED) if lr_W_ED is not None else tc.lr,
-             "name": "w_ED"},
-            {"params": grouped["other"], "lr": tc.lr, "name": "other"},
-        ]
-    )
+    _opt_groups = [
+        {"params": grouped["w_rec"],
+         "lr": float(lr_W_rec) if lr_W_rec is not None else tc.lr,
+         "name": "w_rec"},
+        {"params": grouped["w_ED"],
+         "lr": float(lr_W_ED) if lr_W_ED is not None else tc.lr,
+         "name": "w_ED"},
+        {"params": grouped["other"], "lr": tc.lr, "name": "other"},
+    ]
+    if grouped["embedding"]:
+        _opt_groups.append(
+            {"params": grouped["embedding"], "lr": float(tc.lr_embedding),
+             "name": "embedding"})
+    optimizer = torch.optim.Adam(_opt_groups)
+    _emb_log = (f' | embedding lr={float(tc.lr_embedding)} '
+                f'({len(grouped["embedding"])} params, constant)'
+                if grouped["embedding"] else '')
     _logger.info(
-        f'three-group optimizer: '
+        f'optimizer groups: '
         f'w_rec lr={float(lr_W_rec) if lr_W_rec is not None else tc.lr} '
         f'({len(grouped["w_rec"])} params, schedule-driven) | '
         f'w_ED lr={float(lr_W_ED) if lr_W_ED is not None else tc.lr} '
         f'({len(grouped["w_ED"])} params, constant) | '
         f'other lr={tc.lr} ({len(grouped["other"])} params, constant)'
+        + _emb_log
     )
     if resume_ckpt is not None and 'optimizer_state_dict' in resume_ckpt:
         optimizer.load_state_dict(resume_ckpt['optimizer_state_dict'])
@@ -2760,6 +2795,7 @@ def _data_train_task_pi(config, erase, best_model, device, log_file=None, resume
                     # one mode where heading isn't supervised.
                     _has_rotation = ("rotation" in task_targets_canonical
                                      or "position_2d" in task_targets_canonical
+                                     or "rotation_vfwd" in task_targets_canonical
                                      or not task_targets_canonical)
                     if _has_rotation:
                         # pi_acc and bump_fwhm both assume a 3-channel
@@ -2934,6 +2970,7 @@ def _data_train_task_pi(config, erase, best_model, device, log_file=None, resume
     # pi_acc is heading-only — skip in a pure translation run.
     if ("rotation" in task_targets_canonical
             or "position_2d" in task_targets_canonical
+            or "rotation_vfwd" in task_targets_canonical
             or not task_targets_canonical):
         final_pi = path_integration_accuracy_from_data(
             eval_model, u_test, y_test, warmup=10, batch_size=tc.batch_size,

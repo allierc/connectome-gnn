@@ -194,6 +194,7 @@ new type is dropped or rejected at each:
 from __future__ import annotations
 
 import hashlib
+import os
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
@@ -347,6 +348,10 @@ class Circuit:
             "_circuit_name": self.name,
             "_circuit_sha256": self.provenance.get("J_effective_sha256", ""),
         }
+        # Drosophila path-integration extension subpops (present only on the
+        # 338-cell circuit): the forward-velocity afferent gate and the
+        # declared decoder readout sets. Absent keys -> empty arrays, so the
+        # dict shape stays uniform and heading-only consumers ignore them.
         if any(k.startswith("afferent_PFN") for k in self.subpops):
             out["pfn_subpop_ix"] = {
                 "PFNd_L": _sp("afferent_PFNd_L"), "PFNd_R": _sp("afferent_PFNd_R"),
@@ -438,6 +443,7 @@ def _discover_circuits() -> None:
     _register_zebrafish_hd_ipn12_839_artr_pt1()
     _register_zebrafish_hd_ipn12_839_artr_pt1_proprioception()
     _register_zebrafish_hd_ipn_917()
+    _register_zebrafish_hd_ipn_917_er()
     _register_zebrafish_hd_ipn12_hnd()
     _register_zebrafish_hd_ipn12_exc_839()
     _register_zebrafish_hd_ipn12_ablations()
@@ -1129,6 +1135,102 @@ def _register_zebrafish_hd_ipn_917() -> None:
             (lambda nm=_nm, gate=_gate:
                 _build_zebrafish_hd_ipn_917(nm, gate)),
         )
+
+
+def _find_er_connectome(stem: str) -> str:
+    """Locate ``graphs_data/zebrafish/er_connectomes/<stem>.npz`` across the
+    configured data root and the cluster fallback roots. Raises a clear,
+    actionable error if it is missing (the file is produced by
+    ``figures/zebrafish/build_er_connectomes.py``). ``stem`` is e.g.
+    ``er_3`` (inhibitory-fraction sweep) or ``er_ei_2`` (nominal-E/I)."""
+    from connectome_gnn.utils import (
+        get_data_root,
+        load_data_fallback_roots,
+    )
+    rel = os.path.join("graphs_data", "zebrafish", "er_connectomes",
+                       f"{stem}.npz")
+    roots = [get_data_root(), *load_data_fallback_roots()]
+    for root in roots:
+        cand = os.path.join(root, rel)
+        if os.path.isfile(cand):
+            return cand
+    raise FileNotFoundError(
+        f"ER connectome {stem}.npz not found under any of {roots} "
+        f"(expected at <data_root>/{rel}). Generate it first with "
+        f"`python figures/zebrafish/build_er_connectomes.py`."
+    )
+
+
+def _register_zebrafish_hd_ipn_917_er() -> None:
+    """Register the 4 Erdos-Renyi null-connectome variants of
+    ``zebrafish_HD_IPN_917_artr_pt1`` as
+    ``zebrafish_HD_IPN_917_artr_pt1_er_<i>`` (i = 1..4).
+
+    Each is byte-identical to the base circuit in node identity (cell types,
+    ARTR / pt-IPN1 gate targets, dIPN ring order, soma coordinates, Dale
+    fallback) and differs ONLY in ``J_effective`` --- swapped for the
+    full-network ER random rewiring produced by
+    ``figures/zebrafish/build_er_connectomes.py`` (matched size + density +
+    empirical |W|; recurrent inhibitory-fraction sweep). Like the ablation
+    variants this keeps ``N = 917`` and the ordering fixed, so the ER circuit
+    is a drop-in swap on the rotation task dataset (no regeneration). The
+    saved matrix file is read lazily on first ``get_circuit`` so importing
+    this module never depends on the generated data being present.
+    """
+    base_name = "zebrafish_HD_IPN_917_artr_pt1"
+    # er_1..4:    full-network ER, recurrent inhibitory-fraction sweep.
+    # er_ei_1..10: full-network ER, nominal-E/I replicates (overall inh matched).
+    # bs_1..10:   block-preserving shuffle (block-pair connectivity kept, fine
+    #             within-block wiring randomised); built by
+    #             figures/zebrafish/build_block_shuffle_connectomes.py.
+    er_stems = [f"er_{i}" for i in (1, 2, 3, 4)] \
+        + [f"er_ei_{i}" for i in range(1, 11)] \
+        + [f"bs_{i}" for i in range(1, 11)]
+    for _stem in er_stems:
+        cname = f"{base_name}_{_stem}"
+
+        def build(_stem=_stem, cname=cname) -> Circuit:
+            import json as _json
+            base = get_circuit(base_name)
+            npz_path = _find_er_connectome(_stem)
+            with np.load(npz_path, allow_pickle=True) as data:
+                J = np.asarray(data["J_effective"], dtype=np.float32)
+                prov_er = _json.loads(str(data["provenance"]))
+            if J.shape != (int(base.N), int(base.N)):
+                raise ValueError(
+                    f"{cname}: ER J_effective shape {J.shape} != "
+                    f"({base.N}, {base.N})")
+
+            prov = dict(base.provenance)
+            prov.pop("J_effective_sha256", None)
+            prov.update({
+                "ablation_mode": "er_null_connectome_keepN",
+                "er_stem": _stem,
+                "er_source": npz_path,
+                "base_circuit": base_name,
+                **{f"er_{k}": v for k, v in prov_er.items()},
+            })
+
+            def _cp(a):
+                return None if a is None else np.array(a, copy=True)
+
+            return Circuit(
+                name=cname,
+                N=int(base.N),
+                neuron_types=np.asarray(base.neuron_types,
+                                        dtype=np.int64).copy(),
+                type_names=list(base.type_names),
+                J_effective=J,
+                soma_xyz=_cp(base.soma_xyz),
+                subpops={k: np.array(v, copy=True)
+                         for k, v in base.subpops.items()},
+                bump_ring_ix=_cp(base.bump_ring_ix),
+                dale_signs=_cp(base.dale_signs),
+                body_ids=_cp(base.body_ids),
+                provenance=prov,
+            )
+
+        register_circuit(cname, build)
 
 
 # The 33 cell types present in the HD_IPN12 connectome (20 bump-pool types —

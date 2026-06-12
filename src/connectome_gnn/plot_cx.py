@@ -20,6 +20,21 @@ import numpy as np
 from matplotlib.gridspec import GridSpecFromSubplotSpec
 
 
+def open_axes(fig):
+    """Drop the top and right spines from every line/scatter panel of ``fig``
+    (leaving only the x and y axis); panels holding an image (imshow / matrix)
+    or a colorbar keep their full frame. Call just before ``fig.savefig`` for
+    the open-axes figure convention used across the paper."""
+    for ax in fig.axes:
+        if getattr(ax, "images", None) or getattr(ax, "_colorbar", None) is not None:
+            continue
+        spines = getattr(ax, "spines", {})
+        for sp in ("top", "right"):
+            if sp in spines:
+                spines[sp].set_visible(False)
+    return fig
+
+
 # ---------------------------------------------------------------------------
 # Preferred-direction helpers
 # ---------------------------------------------------------------------------
@@ -2452,6 +2467,7 @@ def plot_calcium_reconstruction(groups, dt, out_path, title=None,
                 path_effects=[pe.withStroke(linewidth=2.5, foreground="white")])
 
     fig.tight_layout()
+    open_axes(fig)
     fig.savefig(out_path, dpi=130)
     plt.close(fig)
     return metrics
@@ -3001,6 +3017,7 @@ def plot_evolution(data: dict, out_path: str, *,
 
     if n_rows < 3:
         os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+        open_axes(fig)
         fig.savefig(out_path, dpi=180, bbox_inches="tight")
         plt.close(fig)
         return
@@ -3342,6 +3359,7 @@ def plot_evolution(data: dict, out_path: str, *,
             _plot_hd_sweep(2, "k")
 
         os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+        open_axes(fig)
         fig.savefig(out_path, dpi=180, bbox_inches="tight")
         plt.close(fig)
         print(f"[plot_cx_evolution] wrote {out_path}")
@@ -3398,11 +3416,13 @@ def plot_evolution(data: dict, out_path: str, *,
             ax.axis("off")
 
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+    open_axes(fig)
     fig.savefig(out_path, dpi=180, bbox_inches="tight")
     plt.close(fig)
     print(f"[plot_cx_evolution] wrote {out_path}")
 
 
+# ===========================================================================
 # Shared evolution-figure data loader (organism-agnostic)
 # ===========================================================================
 # Relocated from figures/zebrafish/fig_evolution.py so BOTH the Drosophila CX

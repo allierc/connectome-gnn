@@ -2088,13 +2088,18 @@ def data_test_path_integration_task(
         (5, 3, ("rotation", "translation")):  ([0, 1, 2, 3, 4], [0, 1, 2]),
         (5, 4, ("rotation",)):                ([0, 3, 4],       [0, 1]),
         (5, 4, ("position_2d",)):             ([0, 1, 2, 3, 4], [0, 1, 2, 3]),
+        # heading-only supervision but KEEP v_fwd in the input (latent
+        # path-integration probe): full 4-ch input, 2-col heading target.
+        (4, 3, ("rotation_vfwd",)):           ([0, 1, 2, 3], [0, 1]),
+        (4, 4, ("rotation_vfwd",)):           ([0, 1, 2, 3], [0, 1]),
     }
-    _RECOGNISED = ("rotation", "translation", "position_2d")
+    _RECOGNISED = ("rotation", "translation", "position_2d", "rotation_vfwd")
     _task_raw = list(getattr(tc, 'task_targets', None) or [])
     task_targets_canonical = [t for t in _RECOGNISED if t in _task_raw]
     _task_key = tuple(task_targets_canonical)
     has_position_2d  = "position_2d" in task_targets_canonical
     has_rotation     = ("rotation" in task_targets_canonical
+                        or "rotation_vfwd" in task_targets_canonical
                         or has_position_2d
                         or not task_targets_canonical)
     has_translation  = "translation" in task_targets_canonical
@@ -2494,7 +2499,7 @@ def data_test_path_integration_task(
         ph = precision_horizon_metrics(
             model, device=device, leaky=_leaky_run)
         _td = (f"{ph['tau_d_s']:.1f}s" if ph['tau_d_s'] is not None
-               else '-- (cumulative: extrapolation-limited)')
+               else '-- (heading-only)')
         logger.info(
             f"  precision horizon (60 s naturalistic drive, "
             f"{ph['n_seed']} seeds): tau_theta(15deg)={ph['tau_theta_s']:.1f}s  "

@@ -155,7 +155,11 @@ class ZebrafishHdTaskRNN(nn.Module):
         # arbitrary mix of channels.)
         # An explicit graph_model.n_input / n_output in the yaml overrides
         # the auto-derivation (escape hatch for non-standard variants).
-        _RECOGNISED = ("rotation", "translation", "position_2d")
+        #   ['rotation_vfwd']          → 4-in [ω, v_fwd, cosθ0, sinθ0] / 2-out [cosθ, sinθ]
+        #     (heading-only supervision but v_fwd KEPT in the input — the
+        #     latent path-integration probe: does the recurrent circuit
+        #     build a translation representation it is never asked for?)
+        _RECOGNISED = ("rotation", "translation", "position_2d", "rotation_vfwd")
         _tt_raw = list(getattr(getattr(config, "training", None),
                                "task_targets", None) or [])
         _tt_key = tuple(t for t in _RECOGNISED if t in _tt_raw)
@@ -178,6 +182,7 @@ class ZebrafishHdTaskRNN(nn.Module):
                 ("translation",):             (1, 1),
                 ("rotation", "translation"):  (4, 3),
                 ("position_2d",):             (4, 4),
+                ("rotation_vfwd",):           (4, 2),
             }
         _auto_in, _auto_out = _TT_DIMS.get(_tt_key, (3, 2))  # default = rotation
         # Heading-bin ablation (training.use_heading_bins). Replaces the
