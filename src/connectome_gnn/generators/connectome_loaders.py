@@ -276,6 +276,182 @@ def load_drosophila_cx_connectome(datapath):
     }
 
 
+# Path-integration extension cell types (FB columnar / vector populations),
+# fetched into the partition-flexible zebrafish CSV schema by
+# figures/drosophila_cx/fetch_cx_connectivity_pfn.py. Afferent forward-
+# velocity gate (PFNd/PFNv), recurrent + displacement readout (PFNa, hDeltaB,
+# PFR_a, PFR_b). hemibrain v1.2.1 type names.
+_DCX_PFN_AFFERENT_TYPES = ("PFNd", "PFNv")
+_DCX_VECTOR_TYPES = ("PFNa", "hDeltaB", "PFR_a", "PFR_b")
+
+
+def load_drosophila_cx_pi_connectome(datapath, inh_type_names=("Delta7", "ER6")):
+    """Load the path-integration-extended Drosophila CX from a neuprint CSV
+    pair (``neurons.csv`` + ``connections.csv``, the same partition-flexible
+    schema the zebrafish loader consumes), produced by
+    ``figures/drosophila_cx/fetch_cx_connectivity_pfn.py``.
+
+    This is a STRICT SUPERSET of :func:`load_drosophila_cx_connectome`: the
+    heading core (EPG, PEN, Delta7, PEG, ER6) is selected, ordered and
+    EPG-ring-permuted EXACTLY as in the 156-cell loader (same instance sort,
+    same 46-element EPG permutation, same ``epg_ix`` glomerulus map), so rows
+    0..155 are identity-equivalent to ``drosophila_cx_156``. The new FB
+    columnar / vector families are then appended:
+
+        afferent (forward-velocity gate):  PFNd, PFNv
+        recurrent + displacement readout:  PFNa, hDeltaB, PFR_a, PFR_b
+
+    Dale flip (``inh_type_names`` columns -> ``-5*|J|``) is applied to Delta7
+    and ER6 only; the new families are kept excitatory (PROVISIONAL — set
+    from a neurotransmitter prediction once available). Spectral rescale to
+    rho=0.9 and the log-space (``wrec_log``, ``mwrec``) decomposition match
+    the 156-cell loader.
+
+    Returns the same dict contract as :func:`load_drosophila_cx_connectome`,
+    PLUS:
+        ``pfn_subpop_ix``  {PFNd_L/R, PFNv_L/R}        — forward-velocity gate
+        ``readout_ix``     {heading: EPG 0..45,
+                            distance: PFNa indices,
+                            position: hDeltaB + PFR_a + PFR_b indices}
+    """
+    import re as _re
+
+    neuronsall = pd.read_csv(os.path.join(datapath, "neurons.csv"))
+    neuronsall.sort_values(by=["instance"], ignore_index=True, inplace=True)
+    conns = pd.read_csv(os.path.join(datapath, "connections.csv"))
+
+    Nall = len(neuronsall)
+    Jall = np.zeros([Nall, Nall], dtype=np.float64)
+    idhash = dict(zip(neuronsall.bodyId, np.arange(Nall)))
+    preinds = np.array([idhash[x] for x in conns.bodyId_pre], dtype=np.int64)
+    postinds = np.array([idhash[x] for x in conns.bodyId_post], dtype=np.int64)
+    # connections.csv from fetch_adjacencies has one row per (pre, post, ROI);
+    # SUM over ROIs to the total edge weight (matches traced-total-connections
+    # and the zebrafish loader's np.add.at convention — a plain assignment
+    # would keep only the last ROI's partial weight).
+    np.add.at(Jall, (postinds, preinds), conns.weight.to_numpy(dtype=np.float64))
+
+    types = np.array(neuronsall.type).astype(str)
+
+    def getsubtype(t):
+        return np.nonzero([t in x for x in types])[0]
+
+    def getexacttype(t):
+        return np.array([i for i, x in enumerate(types) if x == t], dtype=int)
+
+    # --- heading core, IDENTICAL ordering to load_drosophila_cx_connectome --
+    epg = getsubtype("EPG")
+    pen = getsubtype("PEN")
+    peg = getsubtype("PEG")
+    delta7 = getsubtype("Delta7")
+    allcx = np.concatenate((epg, pen, delta7, peg))
+    allcx[0:46] = allcx[[
+        23, 24, 0, 1, 42, 43, 44, 45, 2, 3, 39, 40, 41, 4, 5, 6,
+        36, 37, 38, 7, 8, 9, 33, 34, 35, 10, 11, 12,
+        30, 31, 32, 13, 14, 15, 27, 28, 29, 16, 17, 18,
+        25, 26, 19, 20, 21, 22
+    ]]
+    er6 = getexacttype("ER6")
+    if er6.size:
+        allcx = np.concatenate((allcx, er6))
+
+    epg_ix = [
+        0, 0, 1, 1, 2, 2, 2, 2, 3, 3, 4, 4, 4, 5, 5, 5,
+        6, 6, 6, 7, 7, 7, 8, 8, 8, 9, 9, 9,
+        10, 10, 10, 11, 11, 11, 12, 12, 12, 13, 13, 13,
+        14, 14, 15, 15, 15, 15
+    ]
+
+    # --- append the path-integration families -----------------------------
+    for tname in _DCX_PFN_AFFERENT_TYPES + _DCX_VECTOR_TYPES:
+        ix = getexacttype(tname)
+        if ix.size:
+            allcx = np.concatenate((allcx, ix))
+
+    J = 1.0 * Jall[allcx, :][:, allcx]
+    N = J.shape[0]
+
+    neurons = neuronsall.iloc[allcx, :].reset_index(drop=True)
+    uniqtypes = pd.unique(neurons.type)
+    typehash = dict(zip(uniqtypes, np.arange(len(uniqtypes))))
+    typeclasses = np.array([typehash[x] for x in neurons.type])
+
+    # L/R subpops parsed from the instance suffix. PEN: "PEN_a(PB06a)_L4";
+    # PFN: "PFNd(PB04)_L5_C4" (column suffix after side) -> non-anchored.
+    _side_re = _re.compile(r"_(L|R)\d+")
+
+    def _subpops(prefixes):
+        out = {f"{p}_{s}": [] for p in prefixes for s in ("L", "R")}
+        for i, (t, inst) in enumerate(zip(neurons.type, neurons.instance)):
+            key = None
+            for p, token in prefixes.items():
+                if token in str(t):
+                    key = p
+                    break
+            if key is None:
+                continue
+            m = _side_re.search(str(inst))
+            if m is None:
+                continue
+            out[f"{key}_{m.group(1)}"].append(i)
+        return {k: np.asarray(v, dtype=np.int64) for k, v in out.items()}
+
+    pen_subpop_ix = _subpops({"PENa": "PEN_a", "PENb": "PEN_b"})
+    pfn_subpop_ix = _subpops({"PFNd": "PFNd", "PFNv": "PFNv"})
+
+    # Declared readout (decoder) index sets — the mirror of the afferent
+    # gate. heading <- EPG ring; distance <- PFNa; position <- hDeltaB + PFR.
+    def _type_ix(tname):
+        return np.where(neurons.type.values == tname)[0].astype(np.int64)
+
+    readout_ix = {
+        "heading": np.arange(46, dtype=np.int64),
+        "distance": _type_ix("PFNa"),
+        "position": np.concatenate([
+            _type_ix("hDeltaB"), _type_ix("PFR_a"), _type_ix("PFR_b"),
+        ]).astype(np.int64),
+    }
+
+    # --- Dale flip (Delta7, ER6) + spectral rescale + log decomposition ----
+    Ntype = len(uniqtypes)
+    types_1hot = np.zeros([N, Ntype])
+    types_1hot[np.arange(N), typeclasses] = 1.0
+    J2 = np.copy(J)
+    uniqtypes_list = list(uniqtypes)
+    dale_signs = np.ones(N, dtype=np.float32)
+    for tname in inh_type_names:
+        if tname not in uniqtypes_list:
+            continue
+        col = uniqtypes_list.index(tname)
+        mask_pre = types_1hot[:, col] == 1.0
+        J2[:, mask_pre] = -5 * np.abs(J[:, mask_pre])
+        dale_signs[mask_pre] = -1.0
+    u = np.linalg.eigvals(J2)
+    Jf = 0.9 * J2 / np.max(np.real(u))
+
+    wrec_log = np.copy(Jf)
+    nonzero = np.abs(wrec_log) > 0
+    wrec_log[nonzero] = np.log(np.abs(wrec_log[nonzero]))
+    wrec_log[~nonzero] = -20.0
+    mwrec = np.sign(Jf)
+
+    return {
+        "pen_subpop_ix": pen_subpop_ix,
+        "pfn_subpop_ix": pfn_subpop_ix,
+        "readout_ix": readout_ix,
+        "J_effective": np.exp(wrec_log) * mwrec,
+        "wrec_log": wrec_log,
+        "mwrec": mwrec,
+        "neuron_types": typeclasses,
+        "type_names": list(uniqtypes),
+        "dale_signs": dale_signs,
+        "epg_ix": epg_ix,
+        "N": N,
+        "n_epg": 46,
+        "bodyId": neurons.bodyId.values.astype(np.int64),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Zebrafish anterior-hindbrain / dIPN heading-direction ring
 # ---------------------------------------------------------------------------
