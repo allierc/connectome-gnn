@@ -1025,6 +1025,14 @@ class TrainingConfig(BaseModel):
 
     lr: float = 0.001
     lr_embedding: float = 0.001
+    # Swim/CX-task GNN trainer only: when True, the per-neuron embedding ``a``
+    # is pulled out of the schedule-driven ``w_rec`` param group into its own
+    # constant-lr ``embedding`` group at ``lr_embedding`` (so the embedding can
+    # be driven faster/slower than the recurrent weights — useful when the
+    # cluster is meant to move freely, e.g. coeff_embedding_cluster=0). When
+    # False (default) ``a`` stays in ``w_rec`` exactly as before, so existing
+    # configs are byte-for-byte unchanged.
+    embedding_separate_lr: bool = False
     lr_update: float = 0.0
     lr_W: float = 0.0001
     # CX task trainer (_data_train_drosophila_cx_task): separate LR for the recurrent-

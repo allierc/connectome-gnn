@@ -138,7 +138,7 @@ class ZebrafishHdTaskGNN(nn.Module):
         #   ['rotation','translation'] → 4-in [ω, v_fwd, cosθ0, sinθ0] / 3-out [cosθ, sinθ, ξ]
         #   ['position_2d'] → 4-in [ω, v_fwd, cosθ0, sinθ0] / 4-out [cosθ, sinθ, x, y]
         # An explicit graph_model.n_input / n_output overrides the auto value.
-        _RECOGNISED = ("rotation", "translation", "position_2d")
+        _RECOGNISED = ("rotation", "translation", "position_2d", "rotation_vfwd")
         _tt_raw = list(getattr(getattr(config, "training", None),
                                "task_targets", None) or [])
         _tt_key = tuple(t for t in _RECOGNISED if t in _tt_raw)
@@ -147,6 +147,9 @@ class ZebrafishHdTaskGNN(nn.Module):
             ("translation",):             (1, 1),
             ("rotation", "translation"):  (4, 3),
             ("position_2d",):             (4, 4),
+            # heading-only supervision, v_fwd KEPT in the input (latent
+            # path-integration probe).
+            ("rotation_vfwd",):           (4, 2),
         }
         _auto_in, _auto_out = _TT_DIMS.get(_tt_key, (3, 2))
         # Heading-bin ablation — mirror of the RNN logic. See

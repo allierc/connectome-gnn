@@ -997,7 +997,8 @@ def build_type_pair_blocks(
 
 
 def precision_horizon_metrics(
-    net, *, device, thr_deg: float = 15.0, thr_d: float = 0.4,
+    net, *, device, thr_deg: float = 15.0, rel_d: float = 0.20,
+    floor_d: float = 0.5,
     leaky: bool = False, n_seed: int = 4, n_steps: int = 6000,
     dt: float | None = None,
 ) -> dict:
@@ -1011,11 +1012,13 @@ def precision_horizon_metrics(
                       integrated truth (precision horizon, seconds).
       heading_gain_err -- |slope(decoded vs true unwrapped heading) - 1|, the
                       ω-independent driver of heading drift.
-      tau_d_s      -- displacement precision horizon (seconds); only meaningful
-                      for the LEAKY (bounded) integrators (returned None
-                      otherwise -- a cumulative target leaves its trained range
-                      over a 60 s rollout and the horizon then measures
-                      extrapolation, not integration).
+      tau_d_s      -- displacement precision horizon (seconds): time the
+                      decoded distance / 2-D position stays within ``rel_d`` of
+                      the true displacement (a *relative* band, since the
+                      cumulative targets are unbounded; evaluated once the true
+                      displacement clears ``floor_d``). Ground truth is the
+                      leaky or cumulative integral per ``leaky``; None for
+                      heading-only models.
 
     Values are averaged over ``n_seed`` OU realisations; a horizon that never
     crosses the threshold is right-censored at ``n_steps * dt`` seconds.
@@ -1045,6 +1048,13 @@ def precision_horizon_metrics(
         ix = np.where(err[10:] > thr)[0]
         return (ix[0] + 10) * dt if len(ix) else T * dt
 
+    def _first_rel(err, true):
+        # first time |err| exceeds rel_d * |true displacement|, once the true
+        # displacement has cleared floor_d (skips the near-zero start).
+        bad = (np.abs(true) > floor_d) & (err > rel_d * np.abs(true))
+        ix = np.where(bad[10:])[0]
+        return (ix[0] + 10) * dt if len(ix) else T * dt
+
     was_training = net.training
     net.eval()
     th, gain, td = [], [], []
@@ -1067,12 +1077,21 @@ def precision_horizon_metrics(
             err = np.abs(np.degrees(np.angle(np.exp(1j * (th_pred - th_true)))))
             th.append(_first(err, thr_deg))
             gain.append(np.polyfit(th_true[10:], np.unwrap(th_pred)[10:], 1)[0])
-            if leaky and is_2d:
-                xt = _leaky(vf * np.cos(th_true)); yt = _leaky(vf * np.sin(th_true))
+            # displacement horizon (relative tolerance). Ground-truth is the
+            # leaky or cumulative integral per the task; first time the error
+            # exceeds rel_d of the true displacement.
+            if is_2d:
+                if leaky:
+                    xt = _leaky(vf * np.cos(th_true))
+                    yt = _leaky(vf * np.sin(th_true))
+                else:
+                    xt = np.cumsum(vf * np.cos(th_true)) * dt
+                    yt = np.cumsum(vf * np.sin(th_true)) * dt
                 perr = np.sqrt((yp[:, 2] - xt) ** 2 + (yp[:, 3] - yt) ** 2)
-                td.append(_first(perr, thr_d))
-            elif leaky and n_out == 3:
-                td.append(_first(np.abs(yp[:, 2] - _leaky(vf)), thr_d))
+                td.append(_first_rel(perr, np.sqrt(xt ** 2 + yt ** 2)))
+            elif n_out == 3:
+                xi = _leaky(vf) if leaky else np.cumsum(vf) * dt
+                td.append(_first_rel(np.abs(yp[:, 2] - xi), xi))
     finally:
         if was_training:
             net.train()
@@ -1080,5 +1099,5 @@ def precision_horizon_metrics(
         tau_theta_s=float(np.mean(th)),
         heading_gain_err=float(np.mean(np.abs(np.array(gain) - 1.0))),
         tau_d_s=(float(np.mean(td)) if td else None),
-        thr_deg=thr_deg, thr_d=thr_d, n_seed=n_seed, horizon_s=T * dt,
+        thr_deg=thr_deg, rel_d=rel_d, n_seed=n_seed, horizon_s=T * dt,
     )
