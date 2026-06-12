@@ -1,5 +1,5 @@
-description: "Drosophila CX RNN companion: position_2d."
-dataset: drosophila_cx_si_task_338_position_2d
+description: "Rotation with K-bin heading decoder (use_heading_bins, K=64), mirrors zebrafish _kbins."
+dataset: drosophila_cx_si_task_338_scalar_xi
 simulation:
   gcamp_kernel: gcamp6f
   params:
@@ -11,7 +11,7 @@ graph_model:
   aggr_type: add
   input_proj: matrix
   output_proj: matrix
-  velocity_gate: pen_pfn
+  velocity_gate: pen_4scalar
   lock_edge_signs: true
   hidden_dim: 128
   n_layers: 3
@@ -64,7 +64,9 @@ training:
   coeff_tail_loss: 0.035
   torch_compile: false
   w_init_mode: w_con
-  task_targets: ['position_2d']
+  task_targets: ['rotation']
+  use_heading_bins: true
+  n_heading_bins: 64
 task:
   task_type: swim_integration
   task_only: true
@@ -86,5 +88,5 @@ task:
     omega_noise_level: 0.0
     forward_vel_mean: 1.0
     forward_vel_std: 0.4
-    target_kind: position_2d
+    target_kind: scalar_xi
     seed: 300000
