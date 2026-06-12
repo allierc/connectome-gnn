@@ -1,5 +1,14 @@
 # CLAUDE.md — connectome-gnn architecture rules
 
+## Python environment (run everything with this)
+Use the **`neural-graph-linux`** conda env — it has torch + the full stack; the
+devcontainer's default `python3` has **no torch**. Don't go searching for it:
+- interpreter: `/workspace/.conda_envs/neural-graph-linux/bin/python`
+- always `PYTHONPATH=src` and `GNN_OUTPUT_ROOT=/groups/saalfeld/home/allierc/GraphData`
+  (data/checkpoints live there; it's writable from the devcontainer).
+- e.g. `GNN_OUTPUT_ROOT=… PYTHONPATH=src /workspace/.conda_envs/neural-graph-linux/bin/python GNN_Main.py -o generate <config>`.
+- cluster training uses `bsub … "python GNN_Main.py -o … <config>"` (relative paths).
+
 Neural-circuit GNN for the **inverse problem** (dynamics → connectome) across biomodels
 (flyvis, drosophila_cx, larva, zebrafish). Two registries keyed by `signal_model_name`
 drive everything:
