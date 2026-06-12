@@ -92,11 +92,14 @@ def _q(s: str) -> str:
 
 
 def _submit(cfg: str, *, cluster: str, n_cpus: int, w_min: int, log_dir: str,
-            ssh: str | None, repo: str) -> tuple[str | None, str]:
+            ssh: str | None, repo: str, conda_env: str) -> tuple[str | None, str]:
     log = os.path.join(log_dir, f"{cfg}.lsf.log")
-    # No `export`/`;` in the bsub command (keeps it a single program for LSF);
-    # GNN_OUTPUT_ROOT is inherited from the login shell that bsub copies.
-    cmd = (f"cd {repo} && bsub -n {n_cpus} -gpu num=1 -q gpu_{cluster} "
+    # Activate the conda env BEFORE bsub so LSF copies its PATH into the job
+    # (a non-interactive job's base python lacks matplotlib/torch; the
+    # interactive `-Is` bsub worked only because the shell was already
+    # activated). GNN_OUTPUT_ROOT is likewise inherited from this shell.
+    cmd = (f"conda activate {conda_env} && cd {repo} && "
+           f"bsub -n {n_cpus} -gpu num=1 -q gpu_{cluster} "
            f"-W {w_min} -o {log} -J {cfg} "
            f"python GNN_Main.py -o train_task {cfg}")
     out = _lsf(cmd, ssh=ssh)
@@ -145,6 +148,9 @@ def main() -> int:
                    help="run bsub/bjobs locally (use when already ON a login node)")
     p.add_argument("--cluster-repo", default=CLUSTER_REPO,
                    help=f"cluster checkout to bsub from (default {CLUSTER_REPO})")
+    p.add_argument("--conda-env", default="connectome-gnn",
+                   help="conda env activated before bsub so the job inherits its "
+                        "python (default connectome-gnn)")
     p.add_argument("--output_root", default=CLUSTER_DATA,
                    help="GraphData root where job logs are written (shared /groups)")
     p.add_argument("--no-monitor", dest="monitor", action="store_false",
@@ -164,7 +170,8 @@ def main() -> int:
     for cfg in configs:
         jid, log = _submit(cfg, cluster=args.cluster, n_cpus=args.n_cpus,
                            w_min=args.hard_runtime_min, log_dir=log_dir,
-                           ssh=ssh, repo=args.cluster_repo)
+                           ssh=ssh, repo=args.cluster_repo,
+                           conda_env=args.conda_env)
         if jid:
             jobs[cfg] = (jid, log)
 
