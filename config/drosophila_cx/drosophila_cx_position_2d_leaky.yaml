@@ -1,5 +1,5 @@
-description: "Drosophila CX companion to the zebrafish heading integrator: rotation (heading-only) task on drosophila_cx_338_v1. omega->PEN gate; heading read from EPG. swim_integration generator (4-ch superset; task_targets [rotation] slices to [omega,cos,sin])."
-dataset: drosophila_cx_swim_scalar_xi_cv0
+description: "2-D path integration, LEAKY integrator (position_tau_s=2 s; zebrafish position_2d_leaky). omega->PEN, v_fwd->PFN."
+dataset: drosophila_cx_si_task_338_position_2d_leaky
 simulation:
   gcamp_kernel: gcamp6f
   params:
@@ -11,7 +11,7 @@ graph_model:
   aggr_type: add
   input_proj: matrix
   output_proj: matrix
-  velocity_gate: pen_4scalar
+  velocity_gate: pen_pfn
   lock_edge_signs: true
   hidden_dim: 128
   n_layers: 3
@@ -64,7 +64,7 @@ training:
   coeff_tail_loss: 0.035
   torch_compile: false
   w_init_mode: w_con
-  task_targets: [rotation]
+  task_targets: [position_2d]
 task:
   task_type: swim_integration
   task_only: true
@@ -86,6 +86,6 @@ task:
     omega_noise_level: 0.0
     forward_vel_mean: 1.0
     forward_vel_std: 0.4
-    xi_tau_s: 2.0
-    target_kind: scalar_xi
+    target_kind: position_2d
+    position_tau_s: 2.0
     seed: 300000
