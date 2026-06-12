@@ -49,11 +49,11 @@ training:
   device: auto
   seed: 200000
   n_runs: 1
-  n_epochs: 5
+  n_epochs: 10
   batch_size: 16
   data_augmentation_loop: 5
   lr: 0.002
-  lr_W_rec_schedule: [0.002, 0.002, 0.001, 0.0005, 0.0005]
+  lr_W_rec_schedule: [0.002, 0.002, 0.001, 0.0005, 0.0005, 0.0005, 0.00025, 0.00025, 0.0001, 0.0001]
   lr_scheduler: none
   lr_W_ED: 0.0005
   grad_clip_W: 1.0
@@ -72,7 +72,7 @@ training:
   embedding_cell_type_scale: 1.0
   fix_embedding: false
   snapshots_per_epoch: 5
-  n_steps_schedule: [10, 50, 100, 200, 300]
+  n_steps_schedule: [10, 50, 100, 200, 300, 400, 500, 600, 700, 800]
   torch_compile: true
   task_targets: ['rotation_vfwd']
 task:
