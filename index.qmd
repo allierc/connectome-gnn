@@ -53,7 +53,7 @@ cross-validation. The result is the same in fly and fish:
 ## The two substrates
 
 ::: {layout-ncol=2}
-![**Fly.** Seven central-complex cell classes (EPG, EPG~t~, PEN~a~, PEN~b~, Δ7, PEG, ER6) on the protocerebral bridge, ellipsoid body, fan-shaped body, noduli and bulb. The heading bump lives in the EB; PEN neurons inject angular velocity to rotate it.](figures/drosophila_cx/fig_cx_anatomy_3d.png)
+![**Fly.** The 338-cell central-complex path-integration circuit — the seven heading-core cell classes (EPG, EPG~t~, PEN~a~, PEN~b~, Δ7, PEG, ER6) plus the six fan-shaped-body columnar / vector families (PFN~d~, PFN~v~, PFN~a~, hΔB, PFR~a~, PFR~b~) — on the protocerebral bridge, ellipsoid body, fan-shaped body, noduli and bulb. The heading bump lives in the EB; PEN neurons inject angular velocity to rotate it.](figures/drosophila_cx/fig_cx_anatomy_3d.png)
 
 ![**Fish.** The GABAergic r1π / dorsal-IPN population of the anterior hindbrain, with habenular (RIPN) and pretectal (pt-IPN) afferents, reconstructed from the *neuprint-fish2* EM volume. The ring lives in the neuropil, not in a ring of cell bodies.](figures/zebrafish/fig_zebrafish_anatomy_3d_HD.png)
 :::

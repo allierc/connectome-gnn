@@ -18,6 +18,9 @@
 \usepackage{float}
 \usepackage[table]{xcolor}
 \usepackage{subcaption}
+% Long multi-line captions overflow the caption single-line measurement box
+% ("Dimension too large"); these captions are always typeset as blocks anyway.
+\captionsetup{singlelinecheck=false}
 \usepackage{cleveref}
 \crefname{equation}{Eq.\@}{Eqs.\@}
 \Crefname{equation}{Eq.\@}{Eqs.\@}
@@ -84,6 +87,37 @@ not a unique circuit implementation. Resolving these degeneracies will require a
 
 \section{Introduction}
 
+The \emph{Drosophila} central complex (CX) represents the fly's heading as a
+single bump of activity that travels around a ring of neurons as the animal
+turns \citep{seelig2015,kim2017,green2017}. The heading pathway runs from EPG
+dendrites in the ellipsoid body (EB), where the bump lives, to EPG axon
+terminals in the protocerebral bridge (PB), which distribute heading to the
+PEN, PEG and $\Delta7$ populations. PEN neurons receive an angular-velocity
+drive and project back to the EB through the PB--NO pathway, supplying the
+rotational drive that shifts the bump; $\Delta7$ neurons mediate broad
+inhibition across PB glomeruli and PEG neurons close recurrent PB--EB loops.
+Together these seven heading-core cell classes (EPG, EPGt, PEN$_a$, PEN$_b$,
+$\Delta7$, PEG, ER6; 156 neurons) implement the ring-attractor dynamics
+underlying heading integration (\cref{fig:cx_anatomy_3d}). The experiments in
+this paper use this implemented heading-integration circuit, in which the
+angular-velocity drive $\omega=\dot\theta$ enters only through the
+PEN$_a$/PEN$_b$ gate (\cref{eq:cx_pen_gate}) and the heading readout
+$[\cos\theta,\sin\theta]$ is taken from EPG.
+
+Path integration additionally requires tracking translation. We therefore also
+consider the anatomically complete circuit (338 neurons), which appends the
+fan-shaped-body (FB) columnar and vector families (PFN$_d$, PFN$_v$, PFN$_a$,
+h$\Delta$B, PFR$_a$, PFR$_b$; 182 neurons). In the proposed extension a
+forward-velocity drive $v_{\mathrm{fwd}}=\dot x$ enters through a PFN$_d$/PFN$_v$
+gate that is multiplicatively gated by the EPG heading estimate, so the FB
+columns carry a head-direction-rotated translation signal; downstream vector
+cells (h$\Delta$B, PFR, PFN$_a$) accumulate it, and the decoder reads heading
+$\theta=\int\omega$, forward distance $d=\int v_{\mathrm{fwd}}$ and allocentric
+position $(x,y)=\int v_{\mathrm{fwd}}\,e^{i\theta}$. This heading-only
+vs.\ heading$+$translation hierarchy mirrors the zebrafish self-motion
+integrator. The translation pathway is anatomically present but not yet wired
+into the model (dashed elements in \cref{fig:cx_anatomy_3d}d).
+
 \begin{figure}[H]
   \centering
   \includegraphics[width=\textwidth]{figure/fig_cx_anatomy_3d.png}
@@ -92,11 +126,25 @@ not a unique circuit implementation. Resolving these degeneracies will require a
 
   \includegraphics[width=\textwidth]{figure/fig_cx_circuit_variants.png}
 
-  \caption{\textbf{Anatomy of the 156 central-complex neurons modelled in this study and the flow of heading information through the circuit.}
-\textbf{(a)} Three-dimensional skeleton render of the seven CX cell classes (EPG, EPGt, PEN$_a$, PEN$_b$, $\Delta7$, PEG and ER6) overlaid on the major neuropils: protocerebral bridge (PB), fan-shaped body (FB), ellipsoid body (EB), noduli (NO) and bulb (BU$_{L/R}$). Colours identify cell types and are used consistently throughout the manuscript. The principal heading-direction pathway runs from EPG dendrites in the EB, where the activity bump is represented, to EPG axonal terminals in the PB, where heading information is distributed to downstream PEN, PEG and $\Delta7$ populations. PEN neurons receive angular-velocity input and project back toward the EB through the PB--NO pathway, providing the rotational drive that shifts the bump. $\Delta7$ neurons form broad inhibitory interactions across PB glomeruli, while PEG neurons participate in recurrent loops linking PB and EB. Together these populations implement the ring-attractor dynamics underlying path integration. \textbf{(b)} Soma locations of the same neurons. Cell bodies lie outside the neuropils within the surrounding cortex and connect to their arborisations through primary neurite tracts. The ring structure visible in the EB is therefore not a ring of somata but a ring of dendritic and axonal arborisations distributed across EB wedges. EPG, PEN, PEG and $\Delta7$ neurons are organised according to PB glomeruli and EB sectors, providing the anatomical substrate for the travelling activity bump observed during heading integration.
-\textbf{(c)}~Input/output partition of the \emph{implemented} heading-integration circuit (the variant used throughout this paper), laid out afferent gate $\to$ recurrent network $\to$ decoder. The angular-velocity drive $\omega=\dot\theta$ enters only through the PEN$_a$/PEN$_b$ gate (\cref{eq:cx_pen_gate}); the recurrent HD ring substrate (EPG, EPGt, PEG, $\Delta7$, ER6) integrates it, and the heading readout $\theta=\int\omega$, emitted as $[\cos\theta,\sin\theta]$, is taken from EPG.
-\textbf{(d)}~Proposed path-integration extension to the full
-$\{$EPG, EPGt, PEG, ER6, PEN$_a$, PEN$_b$, $\Delta7$, PFN$_d$, PFN$_v$, PFN$_a$, h$\Delta$B, PFR$\}$ circuit (\emph{dashed boxes / arrows $=$ not yet implemented}). The heading pathway of (c) is retained; a separate forward-velocity drive $v_{\mathrm{fwd}}=\dot x$ enters through a new PFN$_d$/PFN$_v$ gate, multiplicatively gated by the EPG heading estimate (blue dashed arrow) so the PFN population carries a head-direction-rotated translation signal. The downstream vector cells (h$\Delta$B, PFR, PFN$_a$) accumulate this signal; the decoder reads heading $\theta=\int\omega$, forward distance $d=\int v_{\mathrm{fwd}}$ (from PFN$_a$) and allocentric position $(x,y)=\int v_{\mathrm{fwd}}\,e^{i\theta}$ (from h$\Delta$B/PFR), emitted as $[\cos\theta,\sin\theta,x,y]$. This mirrors the heading-only vs.\ heading$+$translation task hierarchy of the zebrafish self-motion integrator.}
+  \caption{\textbf{The 338-neuron \emph{Drosophila} central-complex
+  path-integration circuit.} Colours identify the thirteen cell classes and
+  are used consistently throughout the manuscript.
+  \textbf{(a)}~Three-dimensional skeleton render of all 338 neurons over the
+  major neuropils --- protocerebral bridge (PB), fan-shaped body (FB),
+  ellipsoid body (EB), noduli (NO) and bulb (BU$_{L/R}$). The seven
+  heading-core classes (EPG, EPGt, PEN$_a$, PEN$_b$, $\Delta7$, PEG, ER6; 156
+  neurons) and the six FB columnar / vector families (PFN$_d$, PFN$_v$,
+  PFN$_a$, h$\Delta$B, PFR$_a$, PFR$_b$; 182 neurons) are shown together.
+  \textbf{(b)}~Soma locations of the same neurons (real cropped soma meshes
+  for the heading core; max-radius SWC node for the FB families, which were
+  fetched skeleton-only).
+  \textbf{(c)}~Input/output partition of the \emph{implemented}
+  heading-integration circuit used throughout the paper, laid out afferent
+  gate $\to$ recurrent network $\to$ decoder (\cref{eq:cx_pen_gate}).
+  \textbf{(d)}~Proposed path-integration extension to the full circuit
+  (\emph{dashed boxes / arrows $=$ not yet implemented in the model}): a
+  forward-velocity gate (PFN$_d$/PFN$_v$) and vector cells (h$\Delta$B, PFR,
+  PFN$_a$) add forward-distance and allocentric-position readouts.}
 
   \label{fig:cx_anatomy_3d}
 \end{figure}
@@ -303,39 +351,36 @@ We compare four recurrent parameterisations on the same path-integration task, e
   \label{tab:cv_summary}
 \end{table}
 
+\paragraph{Connectome.}
+\Cref{fig:connectome_summary} shows the effective $338$-cell connectome
+$W^{\mathrm{con}}$ the trained Known-ODE / GNN models see, fetched from the
+hemibrain export (\emph{hemibrain:v1.2.1}). Following the Hulse-2025
+preparation, $\Delta7$ and ER6 outputs are sign-flipped to inhibitory and ER6
+outputs amplified $5\times$ before $W^{\mathrm{con}}$ is normalised to spectral
+radius $0.9$ (\cref{eq:cx_w_rec}, \cref{method:RNN}); the appended FB families
+are kept excitatory. The matrix has $19\,470$ non-zero edges (density $0.170$,
+$E\!:\!I = 13\,460\!:\!6\,010$). For display, neurons are sorted by a four-way
+\emph{functional} partition of the heading-integration circuit
+(\cref{fig:cx_anatomy_3d}c,d): \emph{HD ring} (recurrent substrate: EPG, EPGt,
+PEG, $\Delta7$, ER6; $n=114$), \emph{PEN} (angular-velocity gate; $n=42$),
+\emph{PFN} (forward-velocity gate: PFN$_d$, PFN$_v$; $n=60$) and \emph{vector}
+(displacement readout: PFN$_a$, h$\Delta$B, PFR$_a$, PFR$_b$; $n=122$). The
+partition colour code matches \cref{fig:cx_anatomy_3d} and mirrors the
+zebrafish self-motion integrator (angular afferent $=$ blue, translation
+afferent $=$ orange, recurrent ring $=$ amber, readout $=$ green).
+
 \begin{figure}[H]
   \centering
-  \includegraphics[width=0.7\textwidth]{figure/fig_connectome_summary.png}
-  \caption{\textbf{CX connectome $W^{\mathrm{con}}$: structure and
-  per-cell-type edge-weight distributions.} The matrix is the
-  effective connectome the trained Known-ODE / GNN models see,
-  derived from the hemibrain export
-  (\emph{papers/Code\_NN/Code\_NN/Data/Figure5/exported-traced-adjacencies-v1.2/},
-  files \emph{traced-neurons.csv} and
-  \emph{traced-total-connections.csv}); it follows the Hulse-2025
-  preparation in which $\Delta 7$ and ER6 outputs are sign-flipped
-  (inhibitory) and ER6 outputs are amplified $5\times$ before
-  $W^{\mathrm{con}}$ is normalised to spectral radius $0.9$
-  (\cref{eq:cx_w_rec}, \cref{method:RNN}).
-  \textbf{(a)}~Signed $W^{\mathrm{con}}$, $z$-scored over non-zero
-  entries and clipped to $\pm 3$; neuron-type blocks marked on
-  both axes; red = excitatory, blue = inhibitory.
-  \textbf{(b)}~Binary support $\mathrm{supp}(W^{\mathrm{con}})$
-  (black = edge present, white = absent); the matrix is sparse
-  (density 0.42, $10\,263$ non-zero edges out of $156^2 = 24\,336$).
-  \textbf{(c)}~Per-cell-type \emph{incoming} edge-weight distributions
-  (violin, mean marked): for each type $t$, the data are the non-zero
-  $W^{\mathrm{con}}_{ij}$ with the post-synaptic neuron $i$ in $t$
-  (variation across all pre-synaptic partners $j$).
-  \textbf{(d)}~Per-cell-type \emph{outgoing} edge-weight distributions:
-  for each type $t$, the data are the non-zero $W^{\mathrm{con}}_{ij}$
-  with the pre-synaptic neuron $j$ in $t$ (variation across all
-  post-synaptic partners $i$). Dale's law is visible in (d) as
-  one-sided violins: every type is uniformly excitatory except
-  $\Delta 7$ and ER6, whose outgoing distributions sit entirely
-  below zero. Cell-type ordering and colour assignment match
-  \cref{fig:hd_mi_summary,fig:omega_mi_summary}, so the rows there
-  can be read off directly against the connectome statistics here.}
+  \includegraphics[width=\textwidth]{figure/fig_connectome_summary.png}
+  \caption{\textbf{CX path-integration connectome $W^{\mathrm{con}}$
+  ($N=338$).} Both panels share the row/column ordering of the four-way
+  functional partition (HD ring / PEN / PFN / vector); colour-coded strips on
+  the row and column axes mark the partition blocks.
+  \textbf{(a)}~Binary support $\mathrm{supp}(W^{\mathrm{con}})$
+  (black = edge present, white = absent); translucent column bands carry the
+  partition colour code.
+  \textbf{(b)}~Signed $W^{\mathrm{con}}$, $z$-scored over non-zero entries and
+  clipped to $\pm 3$ (red = excitatory, blue = inhibitory).}
   \label{fig:connectome_summary}
 \end{figure}
 
@@ -493,8 +538,9 @@ the heading readout alone cannot resolve.
   RNN and loosens as the dynamical prior is relaxed (GNN).
   \textbf{(b)} Per-block median coefficient of variation across the
   10 folds, $\sigma_k |\hat W_k| / \langle |\hat W_k| \rangle_k$,
-  for each (post-type, pre-type) cell-type pair on the same $7
-  \times 7$ block layout as \cref{fig:connectome_summary}c, d. Low
+  for each (post-type, pre-type) cell-type pair on the $7
+  \times 7$ block layout of the seven heading-core cell types
+  (cf.\ \cref{fig:hd_mi_summary,fig:omega_mi_summary}). Low
   CV $=$ tightly constrained block; high CV $=$ free block. Empty
   grey cells have no connectome edges between that cell-type pair.
   \textbf{(c)} Per-block $\log_2$ ratio of the mean learned magnitude
