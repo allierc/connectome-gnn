@@ -49,10 +49,20 @@ SUITE = [
     "drosophila_cx_rotation_mlpdec",   "drosophila_cx_rotation_kbins",
 ]
 
-# tqdm postfix written by the trainer, e.g.
-#   loss=0.0370 rmse_roll=31.8° r_roll=1.000 (0.861) best=0.0266
+# Parse the trainer's log lines, e.g.
+#   start training: 10 epochs × 31250 iters/epoch ...
+#   epoch 3 (T=200):  74%|...| 1157/1562 [06:32<02:14, ..., loss=0.0098 ... best=0.0043]
+#   epoch 3/10 done — ...
 _PROG_RE = re.compile(r"loss=[-\d.]+.*?best=[-\d.]+")
-_EPOCH_RE = re.compile(r"epoch \d+/\d+ done[^\n]*")
+_TOTEP_RE = re.compile(r"start training:\s*(\d+)\s+epochs")
+_EPTQDM_RE = re.compile(r"epoch (\d+)\s*\(T=")          # current epoch (tqdm header)
+_DONE_RE = re.compile(r"epoch (\d+)/(\d+) done")        # last completed epoch / total
+_ITER_RE = re.compile(r"(\d+)/(\d+) \[")                # tqdm iter / total
+
+
+def _k(n) -> str:
+    n = int(n)
+    return f"{n / 1000:.1f}K" if n >= 1000 else str(n)
 
 
 # LSF only exists on the cluster login nodes, reached over SSH (the devcontainer
@@ -130,12 +140,26 @@ def _job_state(jid: str, *, ssh: str | None) -> str:
 
 
 def _latest(log: str) -> tuple[str, str]:
+    """Return (status, progress) where status = 'epoch C/T  iterK/totK'."""
     if not os.path.isfile(log):
         return "(pending)", ""
     txt = open(log, errors="ignore").read().replace("\r", "\n")
     prog = _PROG_RE.findall(txt)
-    epoch = _EPOCH_RE.findall(txt)
-    return (epoch[-1] if epoch else "(starting)"), (prog[-1] if prog else "")
+    prog = prog[-1] if prog else ""
+    tot_ep = _TOTEP_RE.findall(txt)
+    T = tot_ep[-1] if tot_ep else "?"
+    cur = None
+    if (tq := _EPTQDM_RE.findall(txt)):
+        cur = int(tq[-1])
+    if (dn := _DONE_RE.findall(txt)):
+        cur = max(cur or 0, int(dn[-1][0]))
+    if cur is None:
+        return "(starting)", prog
+    it = _ITER_RE.findall(txt)
+    status = f"epoch {cur}/{T}"
+    if it:
+        status += f"  {_k(it[-1][0])}/{_k(it[-1][1])}"
+    return status, prog
 
 
 def main() -> int:
@@ -198,10 +222,10 @@ def main() -> int:
             done = []
             for cfg, (jid, log) in jobs.items():
                 st = _job_state(jid, ssh=ssh)
-                epoch, prog = _latest(log)
+                status, prog = _latest(log)
                 col = _STATE_COL.get(st, "")
                 line = (f"[{_DIM}{stamp}{_R}] {_CYN}{cfg:38s}{_R} "
-                        f"{col}{st:4s}{_R} | {epoch}")
+                        f"{col}{st:4s}{_R} | {status}")
                 if prog:
                     line += f"  |  {_B}{_GRN}{prog}{_R}"
                 print(line, flush=True)
