@@ -1570,16 +1570,16 @@ def _register_drosophila_cx_338_nulls() -> None:
     PEN/PFN gate targets, EPG ring order, declared readouts, Dale signs) and
     differs ONLY in ``J_effective`` --- swapped for the matched null produced by
     ``figures/drosophila_cx/build_null_connectomes.py``:
-      er_1..4     full ER, recurrent inhibitory-fraction sweep
-      er_ei_1..10 full ER matched to the measured ~31% inhibitory fraction
-      bs_1..10    block-preserving shuffle (per (post,pre) cell-type block)
+      er_1..5    full ER, recurrent inhibitory-fraction sweep (p_inh 0.2..1.0)
+      er_ei_1..5 full ER matched to the measured ~31% inhibitory fraction
+      bs_1..5    block-preserving shuffle (per (post,pre) cell-type block)
     N=338 and the ordering are fixed, so each is a drop-in swap on the task
     datasets (no regeneration). The npz is read lazily on first get_circuit.
     """
     base_name = "drosophila_cx_338_v1"
-    stems = ([f"er_{i}" for i in (1, 2, 3, 4)]
-             + [f"er_ei_{i}" for i in range(1, 11)]
-             + [f"bs_{i}" for i in range(1, 11)])
+    stems = ([f"er_{i}" for i in range(1, 6)]
+             + [f"er_ei_{i}" for i in range(1, 6)]
+             + [f"bs_{i}" for i in range(1, 6)])
     for _stem in stems:
         cname = f"{base_name}_{_stem}"
 
