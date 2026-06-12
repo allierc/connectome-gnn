@@ -1,5 +1,5 @@
-description: "Latent path-integration probe (mimics zebrafish rotation_vfwd): v_fwd KEPT in the input but only heading supervised. omega->PEN, v_fwd->PFN (pen_pfn) on drosophila_cx_338_v1."
-dataset: drosophila_cx_swim_scalar_xi_cv0
+description: "Heading + forward-distance (zebrafish selfmotion_both), PERFECT integrator. omega->PEN, v_fwd->PFN; supervises [cos,sin,d]."
+dataset: drosophila_cx_si_task_338_selfmotion
 simulation:
   gcamp_kernel: gcamp6f
   params:
@@ -64,7 +64,7 @@ training:
   coeff_tail_loss: 0.035
   torch_compile: false
   w_init_mode: w_con
-  task_targets: [rotation_vfwd]
+  task_targets: [rotation, translation]
 task:
   task_type: swim_integration
   task_only: true
@@ -86,6 +86,5 @@ task:
     omega_noise_level: 0.0
     forward_vel_mean: 1.0
     forward_vel_std: 0.4
-    xi_tau_s: 2.0
     target_kind: scalar_xi
     seed: 300000

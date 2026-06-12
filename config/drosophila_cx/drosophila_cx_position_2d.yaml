@@ -1,5 +1,5 @@
-description: "Heading + forward-distance task (mimics zebrafish selfmotion_both). omega->PEN, v_fwd->PFN; supervises [cos,sin,d]. drosophila_cx_338_v1."
-dataset: drosophila_cx_swim_scalar_xi_cv0
+description: "2-D path integration (zebrafish position_2d), PERFECT integrator. omega->PEN, v_fwd->PFN; supervises [cos,sin,x,y]."
+dataset: drosophila_cx_si_task_338_position_2d
 simulation:
   gcamp_kernel: gcamp6f
   params:
@@ -64,7 +64,7 @@ training:
   coeff_tail_loss: 0.035
   torch_compile: false
   w_init_mode: w_con
-  task_targets: [rotation, translation]
+  task_targets: [position_2d]
 task:
   task_type: swim_integration
   task_only: true
@@ -86,6 +86,5 @@ task:
     omega_noise_level: 0.0
     forward_vel_mean: 1.0
     forward_vel_std: 0.4
-    xi_tau_s: 2.0
-    target_kind: scalar_xi
+    target_kind: position_2d
     seed: 300000
