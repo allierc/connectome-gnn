@@ -346,6 +346,8 @@ def make_figure(out_png=None):
 
     if out_png is None:
         out_png = os.path.join(_HERE, "fig_zebrafish_rotation_covariates.png")
+    from _despine import open_axes
+    open_axes(fig)
     fig.savefig(out_png, dpi=120)
     plt.close(fig)
     print(f"[fig] wrote {out_png}")
