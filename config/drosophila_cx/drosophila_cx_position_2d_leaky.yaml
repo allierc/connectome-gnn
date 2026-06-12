@@ -1,4 +1,4 @@
-description: "2-D path integration, LEAKY integrator (position_tau_s=2 s; zebrafish position_2d_leaky). omega->PEN, v_fwd->PFN."
+description: "Drosophila CX RNN companion: position_2d_leaky."
 dataset: drosophila_cx_si_task_338_position_2d_leaky
 simulation:
   gcamp_kernel: gcamp6f
@@ -64,7 +64,7 @@ training:
   coeff_tail_loss: 0.035
   torch_compile: false
   w_init_mode: w_con
-  task_targets: [position_2d]
+  task_targets: ['position_2d']
 task:
   task_type: swim_integration
   task_only: true

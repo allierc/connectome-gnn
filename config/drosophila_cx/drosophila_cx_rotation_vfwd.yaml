@@ -1,5 +1,5 @@
-description: "Latent path-integration probe (zebrafish rotation_vfwd): v_fwd kept in input, heading-only supervised. omega->PEN, v_fwd->PFN."
-dataset: drosophila_cx_si_task_338_selfmotion
+description: "Drosophila CX RNN companion: rotation_vfwd."
+dataset: drosophila_cx_si_task_338_scalar_xi
 simulation:
   gcamp_kernel: gcamp6f
   params:
@@ -64,7 +64,7 @@ training:
   coeff_tail_loss: 0.035
   torch_compile: false
   w_init_mode: w_con
-  task_targets: [rotation_vfwd]
+  task_targets: ['rotation_vfwd']
 task:
   task_type: swim_integration
   task_only: true

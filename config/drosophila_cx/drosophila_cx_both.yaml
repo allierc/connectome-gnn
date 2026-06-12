@@ -1,5 +1,5 @@
-description: "Heading + forward-distance (zebrafish selfmotion_both), PERFECT integrator. omega->PEN, v_fwd->PFN; supervises [cos,sin,d]."
-dataset: drosophila_cx_si_task_338_selfmotion
+description: "Drosophila CX RNN companion: both."
+dataset: drosophila_cx_si_task_338_scalar_xi
 simulation:
   gcamp_kernel: gcamp6f
   params:
@@ -64,7 +64,7 @@ training:
   coeff_tail_loss: 0.035
   torch_compile: false
   w_init_mode: w_con
-  task_targets: [rotation, translation]
+  task_targets: ['rotation', 'translation']
 task:
   task_type: swim_integration
   task_only: true

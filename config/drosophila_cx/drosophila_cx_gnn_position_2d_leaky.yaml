@@ -1,5 +1,5 @@
-description: "Drosophila CX RNN companion: position_2d."
-dataset: drosophila_cx_si_task_338_position_2d
+description: "Drosophila CX GNN companion: position_2d_leaky (faster + more precise on heading)."
+dataset: drosophila_cx_si_task_338_position_2d_leaky
 simulation:
   gcamp_kernel: gcamp6f
   params:
@@ -7,15 +7,19 @@ simulation:
   connconstr_datapath: papers/Code_NN/Code_NN/Data/Figure5/exported-traced-adjacencies-v1.2
   seed: 100000
 graph_model:
-  signal_model_name: drosophila_cx_pi
+  signal_model_name: drosophila_cx_pi_gnn
   aggr_type: add
   input_proj: matrix
   output_proj: matrix
   velocity_gate: pen_pfn
   lock_edge_signs: true
-  hidden_dim: 128
-  n_layers: 3
-  MLP_activation: relu
+  hidden_dim: 64
+  n_layers: 2
+  hidden_dim_update: 64
+  n_layers_update: 2
+  MLP_activation: tanh
+  embedding_dim: 2
+  g_phi_positive: false
   output_from_epg_only: true
 circuit:
   name: drosophila_cx_338_v1
@@ -45,25 +49,31 @@ training:
   device: auto
   seed: 200000
   n_runs: 1
-  n_epochs: 10
-  batch_size: 64
-  data_augmentation_loop: 1
+  n_epochs: 5
+  batch_size: 16
+  data_augmentation_loop: 5
   lr: 0.002
-  lr_W_rec_schedule: [0.0005, 0.0005, 0.00025, 0.000125, 0.000125, 0.0001, 0.0001, 0.0001, 5.0e-05, 5.0e-05]
+  lr_W_rec_schedule: [0.002, 0.002, 0.001, 0.0005, 0.0005]
   lr_scheduler: none
-  lr_W_ED: 0.0025
-  grad_clip_W: 2.5
+  lr_W_ED: 0.0005
+  grad_clip_W: 1.0
   coeff_cos_distance: 0.0
   coeff_norm_floor: 0.0
   kappa_norm_floor: 0.0
   coeff_tv_circular: 0.0
   coeff_W_L1: 0.0
-  noise_recurrent_level: 0.03
+  noise_recurrent_level: 0.01
+  coeff_f_theta_diff: 15.0
+  coeff_g_phi_diff: 15.0
+  coeff_tail_loss: 0.05
+  w_init_mode: zeros
+  w_init_scale: 0.01
+  embedding_cell_type_init: true
+  embedding_cell_type_scale: 1.0
+  fix_embedding: false
   snapshots_per_epoch: 5
-  n_steps_schedule: [100, 200, 200, 200, 300, 400, 500, 600, 700, 800]
-  coeff_tail_loss: 0.035
-  torch_compile: false
-  w_init_mode: w_con
+  n_steps_schedule: [10, 50, 100, 200, 300]
+  torch_compile: true
   task_targets: ['position_2d']
 task:
   task_type: swim_integration
@@ -87,4 +97,5 @@ task:
     forward_vel_mean: 1.0
     forward_vel_std: 0.4
     target_kind: position_2d
+    position_tau_s: 2.0
     seed: 300000
