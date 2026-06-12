@@ -47,7 +47,7 @@ training:
   n_runs: 1
   n_epochs: 10
   batch_size: 64
-  data_augmentation_loop: 1
+  data_augmentation_loop: 3
   lr: 0.002
   lr_W_rec_schedule: [0.0005, 0.0005, 0.00025, 0.000125, 0.000125, 0.0001, 0.0001, 0.0001, 5.0e-05, 5.0e-05]
   lr_scheduler: none
