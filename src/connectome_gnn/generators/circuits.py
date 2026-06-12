@@ -424,6 +424,7 @@ def _discover_circuits() -> None:
     _register_zebrafish_hd_ipn12_exc_839()
     _register_zebrafish_hd_ipn12_ablations()
     _register_drosophila_cx_156()
+    _register_drosophila_cx_338()
 
 
 _DISCOVERED: bool = False
@@ -1308,3 +1309,112 @@ def _register_drosophila_cx_156() -> None:
         )
 
     register_circuit("drosophila_cx_156_v1", build)
+
+
+def _register_drosophila_cx_338() -> None:
+    """Register the path-integration-extended hemibrain CX as
+    ``drosophila_cx_338_v1`` — the drosophila companion to the zebrafish
+    self-motion integrator.
+
+    Strict superset of ``drosophila_cx_156_v1``: the 156-cell heading core
+    (EPG/EPGt/PEN/Delta7/PEG/ER6) keeps its exact identity and ordering, and
+    the FB columnar / vector populations are appended (182 cells, N=338):
+
+        afferent (forward-velocity gate):  PFNd (40), PFNv (20)
+        recurrent + displacement readout:  PFNa (58), hDeltaB (19),
+                                           PFR_a (29), PFR_b (16)
+
+    Data fetched once from neuprint (hemibrain:v1.2.1) into the partition-
+    flexible zebrafish CSV schema by
+    ``figures/drosophila_cx/fetch_cx_connectivity_pfn.py``; SWC skeletons for
+    the new families by ``fetch_cx_skeletons_pfn.py``.
+
+    Declares the afferent gate targets (PEN + PFN, L/R) and the decoder
+    readout sets (heading<-EPG, distance<-PFNa, position<-hDeltaB/PFR) as
+    free-form subpops. Like the zebrafish ``..._HNd_1062_v1`` registration,
+    this only makes the circuit LOADABLE; actually DRIVING the model through
+    the new forward-velocity gate and the displacement readouts needs the
+    model-side generalisation (the drosophila analogue of Procedure B in
+    docs/HOWTO_add_zebrafish_circuit.md: n_input>3, a PFN velocity gate, and
+    declared multi-readout decoding beyond the [:46] EPG slice).
+    """
+
+    def build() -> Circuit:
+        from connectome_gnn.generators.connectome_loaders import (
+            load_drosophila_cx_pi_connectome,
+        )
+        datapath = "figures/drosophila_cx/drosophila_cx_connectome_338"
+        cx = load_drosophila_cx_pi_connectome(datapath)
+        N = int(cx["N"])
+        n_epg = int(cx["n_epg"])
+
+        pen = cx.get("pen_subpop_ix", {}) or {}
+        pfn = cx.get("pfn_subpop_ix", {}) or {}
+        readout = cx.get("readout_ix", {}) or {}
+
+        def _ix(d, k):
+            return np.asarray(d.get(k, []), dtype=np.int64)
+
+        subpops = {
+            "bump":               np.arange(n_epg, dtype=np.int64),
+            # encoder side — angular-velocity gate (existing) ...
+            "afferent_PENa_L":    _ix(pen, "PENa_L"),
+            "afferent_PENa_R":    _ix(pen, "PENa_R"),
+            "afferent_PENb_L":    _ix(pen, "PENb_L"),
+            "afferent_PENb_R":    _ix(pen, "PENb_R"),
+            # ... and forward-velocity gate (new) ...
+            "afferent_PFNd_L":    _ix(pfn, "PFNd_L"),
+            "afferent_PFNd_R":    _ix(pfn, "PFNd_R"),
+            "afferent_PFNv_L":    _ix(pfn, "PFNv_L"),
+            "afferent_PFNv_R":    _ix(pfn, "PFNv_R"),
+            # decoder side — declared readout sets (mirror of the gate) ...
+            "readout_heading":    _ix(readout, "heading"),
+            "readout_distance":   _ix(readout, "distance"),
+            "readout_position":   _ix(readout, "position"),
+        }
+        bump_ring_ix = np.asarray(cx["epg_ix"], dtype=np.int64)
+        body_ids = np.asarray(cx["bodyId"], dtype=np.int64)
+
+        provenance = {
+            "server": "neuprint.janelia.org",
+            "dataset": "hemibrain:v1.2.1",
+            "source_tables":
+                "figures/drosophila_cx/drosophila_cx_connectome_338/"
+                "{neurons,connections}.csv",
+            "fetcher":
+                "figures/drosophila_cx/fetch_cx_connectivity_pfn.py",
+            "anatomy_dir": "papers/janelia_cx/anatomy/cx_anatomy_test",
+            "anatomy_skeletons_fetcher":
+                "figures/drosophila_cx/fetch_cx_skeletons_pfn.py",
+            "type_count": len(cx["type_names"]),
+            "n_bump_cells": n_epg,
+            "dale_inh_types": ["Delta7", "ER6"],
+            "dale_spectral_target": 0.9,
+            "design_note": (
+                "Path-integration companion to the zebrafish integrator. "
+                "156-cell heading core (identity-equal to drosophila_cx_156) "
+                "+ PFNd/PFNv afferents + PFNa/hDeltaB/PFR_a/PFR_b vector "
+                "cells. Delta7+ER6 Dale-flipped inhibitory (5x), spectrally "
+                "rescaled to rho=0.9; new families kept excitatory "
+                "(PROVISIONAL). Readouts: heading<-EPG, distance<-PFNa, "
+                "position<-hDeltaB/PFR. Loadable-only until the model-side "
+                "forward-velocity gate + multi-readout decoder land."
+            ),
+        }
+
+        return Circuit(
+            name="drosophila_cx_338_v1",
+            N=N,
+            neuron_types=np.asarray(cx["neuron_types"], dtype=np.int64),
+            type_names=list(cx["type_names"]),
+            J_effective=np.asarray(cx["J_effective"], dtype=np.float32),
+            soma_xyz=None,
+            subpops=subpops,
+            bump_ring_ix=bump_ring_ix,
+            dale_signs=(np.asarray(cx["dale_signs"], dtype=np.float32)
+                        if "dale_signs" in cx else None),
+            body_ids=body_ids,
+            provenance=provenance,
+        )
+
+    register_circuit("drosophila_cx_338_v1", build)
