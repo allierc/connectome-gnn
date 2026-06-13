@@ -2039,6 +2039,15 @@ def data_test_path_integration_task(
     os.makedirs(results_dir, exist_ok=True)
     logger.info(f'[pi test] results dir: {results_dir}')
 
+    # Machine-loadable export. Every raw decoded-vs-true trace + per-trial
+    # metric produced below is stashed here and written once to
+    # results/test_metrics.npz at the end, so downstream analysis loads the
+    # heading and displacement trajectories with a single np.load(). Keys are
+    # grouped by drive: ``*_random_*`` are the held-out naturalistic (OU)
+    # swim trials, ``*_sweep_*`` / ``gain_*`` are the deterministic
+    # constant-velocity probes.
+    npz_bundle: dict = {}
+
     # --- Load test data ----------------------------------------------------
     # Refactor: single TaskTrials.load instead of four zarr reads.
     # On legacy datasets without theta_hd.zarr / is_stop.zarr these fields
@@ -2194,6 +2203,22 @@ def data_test_path_integration_task(
         )
         _rm = np.array([m['rmse_deg'] for m in metrics_random], dtype=float)
         _pr = np.array([m['pearson'] for m in metrics_random], dtype=float)
+        # OU (naturalistic) held-out heading trials: raw decoded (cos,sin),
+        # true heading, and per-trial metrics over the full 512-trial sample.
+        npz_bundle.update(
+            heading_full_pi_acc=np.float32(full_pi),
+            heading_random_idx=idx_sample.astype(np.int64),
+            heading_random_theta_true=theta_test_np[idx_sample].astype(np.float32),
+            heading_random_pred=y_pred_sample_np.astype(np.float32),
+            # Full target for these OU trials: cols [0,1]=(cosθ,sinθ); on
+            # joint tasks col 2 is true d and cols [2,3] are true (x,y), so
+            # displacement on the OU trials is recoverable for "both" /
+            # position_2d runs without a separate sample.
+            heading_random_target_true=y_test_np[idx_sample].astype(np.float32),
+            heading_random_u=u_test_np[idx_sample].astype(np.float32),
+            heading_random_rmse_deg=_rm.astype(np.float32),
+            heading_random_pearson=_pr.astype(np.float32),
+        )
         logger.info(
             f'  {n_metric} random test trials: '
             f'rmse={np.nanmean(_rm):.2f}±{np.nanstd(_rm):.2f}°  '
@@ -2242,6 +2267,14 @@ def data_test_path_integration_task(
             else:
                 prs.append(float('nan'))
         prs = np.asarray(prs)
+        # OU (naturalistic) held-out translation trials: decoded vs true d.
+        npz_bundle.update(
+            d_random_idx=idx_sample_t.astype(np.int64),
+            d_random_d_true=d_true.astype(np.float32),
+            d_random_d_pred=d_pred.astype(np.float32),
+            d_random_rmse=rms.astype(np.float32),
+            d_random_pearson=prs.astype(np.float32),
+        )
         logger.info(
             f'  {n_metric} random translation test trials: '
             f'rmse={np.nanmean(rms):.3f}±{np.nanstd(rms):.3f}  '
@@ -2324,6 +2357,14 @@ def data_test_path_integration_task(
                     rs.append(float(np.corrcoef(a, b)[0, 1]))
             prs.append(float(np.mean(rs)) if rs else float('nan'))
         prs = np.asarray(prs)
+        # OU (naturalistic) held-out 2D-position trials: decoded vs true (x,y).
+        npz_bundle.update(
+            xy_random_idx=idx_sample_p.astype(np.int64),
+            xy_random_true=true_xy.astype(np.float32),
+            xy_random_pred=dec_xy.astype(np.float32),
+            xy_random_rmse=rms.astype(np.float32),
+            xy_random_pearson=prs.astype(np.float32),
+        )
         logger.info(
             f'  {n_metric} random 2D test trials: '
             f'euclid_rmse={np.nanmean(rms):.3f}±{np.nanstd(rms):.3f}  '
@@ -2431,6 +2472,16 @@ def data_test_path_integration_task(
         # Inject ω into metrics so the plot title shows it.
         for m, omega in zip(metrics_sweep, omega_set):
             m['omega_deg'] = float(omega)
+        # Constant-ω heading sweeps: raw decoded (cos,sin) + true heading.
+        npz_bundle.update(
+            heading_sweep_omega_deg=np.asarray(omega_set, np.float32),
+            heading_sweep_theta_true=theta_sweep_arr.astype(np.float32),
+            heading_sweep_pred_cossin=y_pred_sweep_arr.astype(np.float32),
+            heading_sweep_rmse_deg=np.asarray(
+                [m['rmse_deg'] for m in metrics_sweep], np.float32),
+            heading_sweep_pearson=np.asarray(
+                [m['pearson'] for m in metrics_sweep], np.float32),
+        )
         logger.info(
             '  5 deterministic ω sweeps (T=2000): '
             + '  '.join(
@@ -2471,6 +2522,19 @@ def data_test_path_integration_task(
             omega_deg_per_s=gain_omega_set,
             dt=_task_dt,
             out_path=gain_plot_path,
+        )
+        # Constant-ω integration-gain curve + the raw rollouts behind it.
+        npz_bundle.update(
+            gain_omega_deg=np.asarray(
+                [m['omega_deg'] for m in gain_metrics], np.float32),
+            gain_slope_deg_per_s=np.asarray(
+                [m.get('slope_deg_per_s', np.nan) for m in gain_metrics],
+                np.float32),
+            gain=np.asarray([m['gain'] for m in gain_metrics], np.float32),
+            gain_fit_r2=np.asarray(
+                [m.get('fit_r2', np.nan) for m in gain_metrics], np.float32),
+            gain_theta_true=np.stack(gain_theta, axis=0).astype(np.float32),
+            gain_pred_cossin=np.stack(gain_y_pred, axis=0).astype(np.float32),
         )
         logger.info(
             f'  {len(gain_omega_set)} integration gains (slope ÷ ω): '
@@ -2520,6 +2584,16 @@ def data_test_path_integration_task(
                 model, n_steps=T_sweep, v_fwd_per_s=v, device=device,
             )
             rollouts_trans.append((v, ro))
+        # Constant-v_fwd displacement sweeps: raw decoded vs true ξ (= d).
+        npz_bundle.update(
+            vfwd_sweep_v=np.asarray([v for v, _ in rollouts_trans], np.float32),
+            vfwd_sweep_xi_true=np.stack(
+                [np.asarray(ro['true_xi']) for _, ro in rollouts_trans],
+                axis=0).astype(np.float32),
+            vfwd_sweep_xi_pred=np.stack(
+                [np.asarray(ro['decoded_xi']) for _, ro in rollouts_trans],
+                axis=0).astype(np.float32),
+        )
         # Per-rollout summary.
         log_bits = []
         for v, ro in rollouts_trans:
@@ -2672,6 +2746,19 @@ def data_test_path_integration_task(
                 v_fwd_per_s=vf, device=device,
             )
             rollouts_2d.append((om, vf, ro))
+        # Constant-(ω, v_fwd) 2D-path sweeps: raw decoded vs true (x, y).
+        npz_bundle.update(
+            xy_sweep_omega_deg=np.asarray(
+                [om for om, _, _ in rollouts_2d], np.float32),
+            xy_sweep_v_fwd=np.asarray(
+                [vf for _, vf, _ in rollouts_2d], np.float32),
+            xy_sweep_true=np.stack(
+                [np.asarray(ro['true_xy']) for _, _, ro in rollouts_2d],
+                axis=0).astype(np.float32),
+            xy_sweep_pred=np.stack(
+                [np.asarray(ro['decoded_xy']) for _, _, ro in rollouts_2d],
+                axis=0).astype(np.float32),
+        )
         log_bits = []
         for om, vf, ro in rollouts_2d:
             rmse, r = _rollout_position_metrics(
@@ -3130,6 +3217,18 @@ def data_test_path_integration_task(
             for line in _traj_rows:
                 f.write(line + '\n')
         logger.info(f'  saved trajectory metrics: {trajectory_metrics_path}')
+
+    # Single machine-loadable bundle of every raw decoded-vs-true trace and
+    # per-trial metric (held-out OU trials + constant-velocity sweeps), so
+    # downstream analysis loads heading/displacement with one np.load().
+    if npz_bundle:
+        try:
+            npz_path = os.path.join(results_dir, 'test_metrics.npz')
+            np.savez(npz_path, **npz_bundle)
+            logger.info(f'  saved metrics bundle: {npz_path} '
+                        f'({len(npz_bundle)} arrays)')
+        except Exception as exc:
+            logger.warning(f'  metrics-bundle save failed: {exc}')
 
 
 def _color_r(r: float) -> str:

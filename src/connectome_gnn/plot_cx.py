@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import glob
 import os
+import re
 from typing import Optional
 
 import matplotlib.pyplot as plt
@@ -1308,8 +1309,12 @@ def _panel_matrix(ax, M: np.ndarray, neuron_types, type_names, title: str,
     Z = np.clip(Z, -1.0, 1.0)
     # Dilate each 1-px edge into a blob (size scales with N) so individual
     # synapses are visible; signed max/min filters, larger magnitude wins.
+    # The blob is kept proportional to N (one blob ~ a fixed fraction of the
+    # matrix) with a small floor of 2 px: at the zebrafish scale (N~900) this
+    # is ~7 px, while the smaller fly CX (N=338) gets ~3 px rather than the
+    # old hard floor of 5, which looked oversized on the 338-cell matrix.
     from scipy.ndimage import maximum_filter, minimum_filter
-    blob = max(5, int(round(Marr.shape[0] / 130.0)))
+    blob = max(2, int(round(Marr.shape[0] / 130.0)))
     Zpos = maximum_filter(np.where(Z > 0, Z, 0.0), size=blob)
     Zneg = minimum_filter(np.where(Z < 0, Z, 0.0), size=blob)
     Zvis = np.where(np.abs(Zpos) >= np.abs(Zneg), Zpos, Zneg)
@@ -1347,12 +1352,16 @@ def _panel_matrix(ax, M: np.ndarray, neuron_types, type_names, title: str,
         cb.ax.tick_params(labelsize=TICK_FS)
 
 
-def _panel_weight_scatter(ax, W_con, W_rec):
+def _panel_weight_scatter(ax, W_con, W_rec, *, lim=0.75):
     """Scatter of true (W_con, panel a) vs learned (W_rec, panel b) weights
     over the connectome edges. Excludes the diagonal and zero entries; y=x
     reference line and Pearson r annotated. Under the sign-lock the points
     stay in matching-sign quadrants, so the spread off y=x shows how training
-    rescaled the connectome magnitudes."""
+    rescaled the connectome magnitudes.
+
+    ``lim`` fixes the (symmetric) axis range to ``[-lim, +lim]`` so the dense
+    cloud near the origin is legible at a consistent zoom across runs; pass
+    ``lim=None`` to fall back to the data-driven min/max box."""
     if W_con is None or W_rec is None:
         ax.text(0.5, 0.5, "no weights", ha="center", va="center",
                 transform=ax.transAxes); ax.axis("off"); return
@@ -1377,9 +1386,12 @@ def _panel_weight_scatter(ax, W_con, W_rec):
     r = float(np.corrcoef(x, y)[0, 1]) if x.size > 1 else float("nan")
     ax.scatter(x, y, s=4, alpha=0.5, color="0.25", edgecolors="none",
                rasterized=True)
-    lo = float(min(x.min(), y.min())); hi = float(max(x.max(), y.max()))
-    pad = 0.05 * (hi - lo + 1e-9)
-    lo, hi = lo - pad, hi + pad
+    if lim is not None:
+        lo, hi = -float(lim), float(lim)
+    else:
+        lo = float(min(x.min(), y.min())); hi = float(max(x.max(), y.max()))
+        pad = 0.05 * (hi - lo + 1e-9)
+        lo, hi = lo - pad, hi + pad
     ax.plot([lo, hi], [lo, hi], color="0.55", lw=0.8, ls="--", zorder=0)
     ax.axhline(0, color="0.8", lw=0.4); ax.axvline(0, color="0.8", lw=0.4)
     ax.set_xlim(lo, hi); ax.set_ylim(lo, hi)
@@ -2944,6 +2956,7 @@ def plot_evolution(data: dict, out_path: str, *,
     for _k in ("true_xi", "xi"):
         if _k in _rollout:
             _d_for_corr = np.asarray(_rollout[_k]); break
+    _epg_idx_e = getattr(data["net"], "epg_indices", None)
     if _hd_part is not None and _theta_for_phase is not None:
         _panel_phase_sorted_kinograph(
             ax_e, r_traj, _theta_for_phase, dt_s=data["dt_s"],
@@ -2958,6 +2971,17 @@ def plot_evolution(data: dict, out_path: str, *,
             ax_e, r_traj, None, dt_s=data["dt_s"],
             partition=_hd_part, sort_key=_sort_d,
             sort_label=r"$\rho(\cdot, d)$", show_cbar=False,
+        )
+    elif (_theta_for_phase is not None and _epg_idx_e is not None
+          and "r_epg" in _rollout):
+        # Fly CX (no fish2 partition): phase-sort the EPG heading ring by
+        # preferred heading φ_i, the analog of the zebrafish dIPN sorted
+        # kinograph. (The old fallback showed the EPG sub-population in
+        # cell-type order, which did not reveal the travelling bump.)
+        _panel_phase_sorted_kinograph(
+            ax_e, np.asarray(_rollout["r_epg"]), _theta_for_phase,
+            dt_s=data["dt_s"], partition=None,
+            sort_label=rf"$\varphi$ ({bump_label})", show_cbar=False,
         )
     else:
         epg_indices = data["net"].epg_indices
@@ -3964,9 +3988,26 @@ def plot_gnn_dashboard(data, out_path):
         if _k in rollout:
             _theta = np.asarray(rollout[_k])
             break
+    _epg_idx = getattr(net, "epg_indices", None)
     if hd_part is not None and _theta is not None:
+        # fish2 vocab: within-partition phase sort over all neurons.
         _panel_phase_sorted_kinograph(
             ax_e, r_traj, _theta, dt_s=dt_s, partition=hd_part,
+            show_cbar=False)
+    elif _theta is not None and _epg_idx is not None and "r_epg" in rollout:
+        # Fly CX (no fish2 partition): phase-sort the EPG heading ring by
+        # preferred heading φ_i — the analog of the zebrafish dIPN sorted
+        # kinograph, so panel e shows the travelling bump rather than an
+        # empty axis. Matches plot_evolution's panel e.
+        _panel_phase_sorted_kinograph(
+            ax_e, np.asarray(rollout["r_epg"]), _theta, dt_s=dt_s,
+            partition=None,
+            sort_label=rf"$\varphi$ ({data.get('bump_label', 'EPG')})",
+            show_cbar=False)
+    elif _theta is not None:
+        # last resort: phase-sort all neurons together.
+        _panel_phase_sorted_kinograph(
+            ax_e, r_traj, _theta, dt_s=dt_s, partition=None,
             show_cbar=False)
     else:
         ax_e.axis("off")
@@ -4013,3 +4054,36 @@ def plot_gnn_dashboard(data, out_path):
         pass
     fig.savefig(out_path, dpi=180, bbox_inches="tight")
     plt.close(fig)
+
+
+def save_run_dashboard(run_dir, out_dir=None, *,
+                       snapshot_n_steps: int = 1500,
+                       snapshot_omega_deg: float = 60.0):
+    """Build and save the multi-panel training dashboard for a CX /
+    zebrafish task run.
+
+    Dispatches on the model family: message-passing GNN runs (the model
+    exposes ``a`` / ``g_phi`` / ``f_theta``) render the a–k GNN dashboard
+    (:func:`plot_gnn_dashboard`); the sign-locked RNN renders the a–j
+    evolution figure (:func:`plot_evolution`, ``n_rows=4``) --- the same
+    panel layout as the zebrafish Fig. 4 dashboard.
+
+    The figure is written into ``out_dir`` (default ``<run_dir>/results``)
+    as ``fig_gnn_dashboard_<run>.png`` or ``fig_evolution_<run>.png``.
+    Returns the written path, or ``None`` if the run carries no loadable
+    rollout (e.g. a non-task config).
+    """
+    data = load_evolution_data(
+        run_dir, snapshot_n_steps=snapshot_n_steps,
+        snapshot_omega_deg=snapshot_omega_deg)
+    if out_dir is None:
+        out_dir = os.path.join(run_dir, "results")
+    os.makedirs(out_dir, exist_ok=True)
+    base = os.path.basename(os.path.abspath(run_dir))
+    if _is_gnn(data["net"]):
+        out_path = os.path.join(out_dir, f"fig_gnn_dashboard_{base}.png")
+        plot_gnn_dashboard(data, out_path)
+    else:
+        out_path = os.path.join(out_dir, f"fig_evolution_{base}.png")
+        plot_evolution(data, out_path, run_dir=run_dir, n_rows=4)
+    return out_path

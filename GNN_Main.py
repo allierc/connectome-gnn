@@ -331,6 +331,20 @@ if __name__ == "__main__":
             folder_name = log_path(pre_folder, 'tmp_results') + '/'
             os.makedirs(folder_name, exist_ok=True)
             data_plot(config=config, epoch_list=['best'], style='color', extended='plots', device=device, apply_weight_correction=True, skip_svd=True)
+            # CX / zebrafish navigation-task runs: also emit the multi-panel
+            # training dashboard into <log_dir>/results/ (the a–j evolution
+            # figure for the sign-locked RNN, the a–k panel layout for the
+            # message-passing GNN). Dispatch is on the loaded model family.
+            _ttype = str(getattr(getattr(config, 'task', None), 'task_type', '')).lower()
+            if _ttype in ('swim_integration', 'path_integration'):
+                try:
+                    from connectome_gnn.plot_cx import save_run_dashboard
+                    _dash = save_run_dashboard(run_log_dir)
+                    if _dash:
+                        print(f'[plot] dashboard: {_dash}')
+                except Exception as _e:
+                    print(f'[warn] dashboard generation failed: '
+                          f'{type(_e).__name__}: {_e}')
             with open(_marker, 'w') as f:
                 f.write(f"commit={sha}\nargv={sys.argv}\n")
 
