@@ -1,0 +1,143 @@
+description: Heading-integration (rotation) task on the C. elegans 300-neuron
+  chemical connectome (celegans_300_v1). A measured whole-connectome that never
+  evolved a head-direction ring, trained on the IDENTICAL task as the zebrafish
+  and drosophila_cx circuits, to test whether the ring attractor is task-induced
+  on any connectome of sufficient recurrence. Reuses the general zebrafish_hd_si
+  RNN. velocity_gate=none (free W_in injects omega on all neurons; no L/R
+  afferent anatomy) and output_from_dipn_only=false (decode cos/sin from all 300
+  neurons; no predefined ring). Dale signs from 26 GABAergic neurons; spectrally
+  normalised to rho=0.9 so w_init_mode=w_con is well-scaled.
+dataset: celegans_hd_si_task_selfmotion
+simulation:
+  params:
+  - - 1.0
+  connconstr_datapath: figures/celegans/celegans_connectome_300
+  seed: 47006
+graph_model:
+  signal_model_name: zebrafish_hd_si
+  aggr_type: add
+  input_proj: matrix
+  output_proj: matrix
+  velocity_gate: none
+  lock_edge_signs: true
+  hidden_dim: 128
+  n_layers: 3
+  MLP_activation: relu
+  output_from_dipn_only: false
+circuit:
+  name: celegans_300_v1
+plotting:
+  anatomy_voltage_elev: 90.0
+  anatomy_voltage_azim: -85.5
+  anatomy_voltage_z_lo: 0.0
+  anatomy_voltage_z_hi: 10.0
+  anatomy_voltage_alpha: 1.0
+  anatomy_voltage_downsample: 10
+  anatomy_voltage_bg: black
+  anatomy_voltage_show_base: true
+  anatomy_voltage_show_icon: true
+  anatomy_voltage_pattern: swim_left
+  anatomy_voltage_n_steps: 2000
+  anatomy_voltage_stride: 5
+  anatomy_voltage_frame_idx: -1
+  anatomy_voltage_omega_deg: 60.0
+  anatomy_voltage_theta0_rad: 0.0
+  anatomy_voltage_swim_interval_s: 0.3
+  anatomy_voltage_swim_magnitude_rad: 0.393
+  anatomy_voltage_swim_t_event_s: 0.0
+  anatomy_voltage_seed: 0
+training:
+  device: auto
+  seed: 547506
+  n_runs: 1
+  n_epochs: 10
+  batch_size: 64
+  data_augmentation_loop: 10
+  lr: 0.002
+  lr_W_rec_schedule:
+  - 0.0005
+  - 0.0005
+  - 0.00025
+  - 0.000125
+  - 0.000125
+  - 0.0001
+  - 0.0001
+  - 0.0001
+  - 5.0e-05
+  - 5.0e-05
+  - 5.0e-05
+  - 5.0e-05
+  - 5.0e-05
+  - 5.0e-05
+  - 5.0e-05
+  - 5.0e-05
+  - 5.0e-05
+  - 5.0e-05
+  - 5.0e-05
+  - 5.0e-05
+  lr_scheduler: none
+  lr_W_ED: 0.0025
+  grad_clip_W: 2.5
+  coeff_cos_distance: 0.0
+  coeff_norm_floor: 0.0
+  kappa_norm_floor: 0.0
+  coeff_tv_circular: 0.0
+  coeff_W_L1: 0.0
+  noise_recurrent_level: 0.03
+  snapshots_per_epoch: 5
+  n_steps_schedule:
+  - 100
+  - 100
+  - 200
+  - 200
+  - 300
+  - 400
+  - 500
+  - 600
+  - 700
+  - 800
+  - 800
+  - 800
+  - 800
+  - 800
+  - 800
+  - 800
+  - 800
+  - 800
+  - 800
+  - 800
+  coeff_tail_loss: 0.035
+  torch_compile: false
+  w_init_mode: w_con
+  task_targets:
+  - rotation
+claude:
+  n_epochs: 10
+  data_augmentation_loop: 1
+  n_iter_block: 40
+  n_parallel: 10
+  node_name: l4
+  generate_data: false
+  training_time_target_min: 30
+task:
+  task_type: swim_integration
+  task_only: true
+  swim_integration:
+    n_trials_train: 100000
+    n_trials_test: 10000
+    n_steps: 1000
+    dt: 0.01
+    swim_rate_hz: 0.5
+    swim_duration_s: 0.3
+    phase_impulse_mean_rad: 0.785
+    phase_impulse_std_rad: 0.4
+    backward_phase_mean_rad: 3.14
+    backward_phase_std_rad: 0.3
+    left_fraction: 0.3
+    right_fraction: 0.3
+    forward_fraction: 0.2
+    backward_fraction: 0.2
+    omega_noise_level: 0.0
+    seed: 0
+    forward_vel_mean: 1.0
+    forward_vel_std: 0.4

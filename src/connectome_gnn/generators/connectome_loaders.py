@@ -1391,3 +1391,80 @@ def generate_larva_stimulus(mnorder, B, S, dt):
         s[:, bi, 1] = square_pulse
 
     return mtarg, s
+
+
+# ---------------------------------------------------------------------------
+# C. elegans whole-connectome loader (added for the cross-connectome study).
+# A measured connectome that never evolved a head-direction ring: used as a
+# third substrate for the heading-integration task. Mirrors the dict schema
+# the zebrafish/CX circuit builders consume via Circuit/as_loader_dict.
+# ---------------------------------------------------------------------------
+def load_celegans_connectome(datapath: str = "figures/celegans/celegans_connectome_300",
+                             inh_amplify: float = 1.0,
+                             spectral_target: float = 0.9):
+    """Load the 300-neuron C. elegans chemical connectome, assign Dale signs
+    from the known GABAergic neurons, Dale-flip their outgoing edges to
+    inhibitory, and spectrally rescale to ``spectral_target``.
+
+    The on-disk ``connectivity.pt`` is an unsigned (0..1) adjacency with the
+    convention row=source(pre), col=target(post). We transpose to the
+    framework layout J[post, pre] (matching ``r @ W_rec.T`` in the forward
+    pass), so a presynaptic GABAergic neuron's outgoing edges are a COLUMN of
+    J and are negated.
+
+    Returns the canonical loader dict consumed by ``_build_celegans_300``.
+    """
+    import json
+
+    A = torch.load(os.path.join(datapath, "connectivity.pt"),
+                   map_location="cpu", weights_only=False)
+    A = A.detach().cpu().numpy().astype(np.float64)        # (N,N) row=pre, col=post
+    N = A.shape[0]
+    names = json.load(open(os.path.join(datapath, "all_neuron_list.json")))
+    sensory = set(json.load(open(os.path.join(datapath, "sensory_neuron_list.json"))))
+    inter = set(json.load(open(os.path.join(datapath, "inter_neuron_list.json"))))
+    motor = set(json.load(open(os.path.join(datapath, "motor_neuron_list.json"))))
+
+    # framework layout J[post, pre]
+    J = A.T.copy()
+
+    # Dale signs from known GABAergic neurons (McIntire 1993 + updates)
+    gaba_prefix = ("DD", "VD", "RME", "RIS", "AVL", "DVB")
+    is_inh = np.array([n.startswith(gaba_prefix) for n in names])
+    dale_signs = np.where(is_inh, -1.0, 1.0).astype(np.float32)
+    # negate outgoing (pre = column) edges of inhibitory neurons; optional amplify
+    J[:, is_inh] = -inh_amplify * np.abs(J[:, is_inh])
+
+    # spectral rescale to target radius
+    ev = np.linalg.eigvals(J)
+    max_re = float(np.max(ev.real))
+    if abs(max_re) < 1e-9:
+        max_re = float(np.max(np.abs(ev))) or 1.0
+    J_eff = (spectral_target / max_re) * J
+
+    # 3-way functional type taxonomy
+    def _cls(nm):
+        if nm in sensory:
+            return 0
+        if nm in inter:
+            return 1
+        if nm in motor:
+            return 2
+        return 3
+    neuron_types = np.array([_cls(n) for n in names], dtype=np.int64)
+    type_names = ["sensory", "inter", "motor", "other"]
+
+    afferent = {"sensory": np.array([i for i, n in enumerate(names) if n in sensory],
+                                    dtype=np.int64)}
+    return {
+        "N": N,
+        "J_effective": J_eff.astype(np.float32),
+        "neuron_types": neuron_types,
+        "type_names": type_names,
+        "dale_signs": dale_signs,
+        "n_epg": N, "n_dipn": N,           # whole net is the readout/"bump" pool
+        "epg_ix": [], "dipn_ix": [],       # no head-direction ring
+        "afferent_subpop_ix": afferent,
+        "all_names": names,
+        "frac_inhibitory": float(is_inh.mean()),
+    }

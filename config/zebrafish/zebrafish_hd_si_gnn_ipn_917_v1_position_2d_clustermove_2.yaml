@@ -1,14 +1,19 @@
-description: Message-passing GNN companion of
-  zebrafish_hd_si_ipn_917_v1_selfmotion_rotation — same 917-cell artr_pt1 circuit,
-  same pen_4scalar gate, same rotation task, and the SAME on-disk dataset
-  (zebrafish_hd_si_task_917_selfmotion) so the GNN and the sign-locked RNN are
-  head-to-head on identical trials. signal_model_name=zebrafish_hd_si_gnn
-  replaces the dense recurrent operator with a per-edge GNN (f_theta + g_phi
-  MLPs over a per-neuron embedding a_i); the leak and firing-rate nonlinearity
-  must emerge from (f_theta, g_phi, a). g_phi_positive=false + sign-locked
-  per-edge weights restore Dale's law without a ± degeneracy. GNN hyperparams
-  from the archived zebrafish_hd_si_gnn_ipn12_v1.
-dataset: zebrafish_hd_si_task_917_selfmotion
+# EMBEDDING-COHESION SWEEP step 2/5 | coeff_embedding_cluster=0.001 (0=blob .. 0.01=tight) | lr_embedding=0.004 FIXED across the sweep
+description: Message-passing GNN companion (cluster-move embedding) of
+  zebrafish_hd_si_ipn_917_v1_position_2d — same 917-cell artr_pt1 circuit, same
+  pen_artr_ptipn1 gate, same 2D path-integration task (PERFECT integrator), and
+  the SAME on-disk dataset (zebrafish_hd_si_task_917_position_2d) so the GNN and
+  the sign-locked RNN are head-to-head on identical trials.
+  signal_model_name=zebrafish_hd_si_gnn replaces the dense recurrent operator
+  with a per-edge GNN (f_theta + g_phi MLPs over a per-neuron embedding a_i); the
+  leak and firing-rate nonlinearity must emerge from (f_theta, g_phi, a).
+  g_phi_positive=false + sign-locked per-edge weights restore Dale's law without
+  a ± degeneracy. embedding_cell_type_init + coeff_embedding_cluster keep the
+  embedding clustered by cell type while letting the clusters move during
+  training. training.task_targets=['position_2d'] → [omega, v_fwd, cos0, sin0]
+  (n_in=4) / [cos, sin, x, y] (n_out=4). GNN hyperparams from the archived
+  zebrafish_hd_si_gnn_ipn12_v1.
+dataset: zebrafish_hd_si_task_917_position_2d
 simulation:
   params:
     - - 1.0
@@ -71,7 +76,7 @@ training:
   lr_scheduler: none
   lr_W_ED: 0.0005
   embedding_separate_lr: true # pull a_i out of the w_rec schedule into its own constant-lr group
-  lr_embedding: 0.005 # embedding moves a bit faster than the recurrent weights so clusters can drift/spread
+  lr_embedding: 0.004 # FIXED across the _1.._5 sweep so only the cohesion knob varies
   grad_clip_W: 1.0
   coeff_cos_distance: 0.0
   coeff_norm_floor: 0.0
@@ -87,7 +92,7 @@ training:
   embedding_cell_type_init: true # a_i starts at its cell type's equidistant 2-D cluster point
   embedding_cell_type_scale: 1.0
   fix_embedding: false # NOT frozen
-  coeff_embedding_cluster: 0.0 # 0 = NO per-type-centroid pull: clusters move/spread freely (initialised at type centroids via embedding_cell_type_init, then unconstrained)
+  coeff_embedding_cluster: 0.001 # sweep step 2/5 (0=blob/no cohesion ... 0.01=tight point-like); structured-vs-blob knob
   snapshots_per_epoch: 5
   n_steps_schedule:
     - 10
@@ -97,7 +102,7 @@ training:
     - 300
   torch_compile: true
   task_targets:
-    - rotation
+    - position_2d
 claude:
   n_epochs: 5
   data_augmentation_loop: 1
@@ -132,3 +137,4 @@ task:
     seed: 0
     forward_vel_mean: 1.0
     forward_vel_std: 0.4
+    target_kind: position_2d

@@ -450,9 +450,64 @@ def _discover_circuits() -> None:
     _register_drosophila_cx_156()
     _register_drosophila_cx_338()
     _register_drosophila_cx_338_nulls()
+    _register_celegans_300()
 
 
 _DISCOVERED: bool = False
+
+
+def _register_celegans_300() -> None:
+    """Register the 300-neuron C. elegans chemical connectome as
+    ``celegans_300_v1``.
+
+    A measured whole-connectome that never evolved a head-direction ring,
+    used as a third substrate for the heading-integration task. There is no
+    ring (``bump_ring_ix=None``) and no L/R velocity afferent, so the
+    consuming config must use ``velocity_gate: none`` and
+    ``output_from_dipn_only: false`` (decode from all N). The whole network
+    is registered as the ``bump`` pool so ``as_loader_dict`` reports
+    ``n_dipn = N``.
+    """
+    def build() -> Circuit:
+        from connectome_gnn.generators.connectome_loaders import (
+            load_celegans_connectome,
+        )
+        ce = load_celegans_connectome("figures/celegans/celegans_connectome_300")
+        N = int(ce["N"])
+        subpops = {
+            "bump": np.arange(N, dtype=np.int64),
+            "afferent_sensory": np.asarray(
+                ce["afferent_subpop_ix"]["sensory"], dtype=np.int64),
+        }
+        provenance = {
+            "source": "C. elegans chemical connectome (Cook et al. variant), "
+                      "lab NeuralGraph wormvae dataset",
+            "tables": "figures/celegans/celegans_connectome_300",
+            "type_count": len(ce["type_names"]),
+            "n_bump_cells": N,
+            "frac_inhibitory": ce["frac_inhibitory"],
+            "design_note": (
+                "300-neuron whole connectome; 26 GABAergic neurons "
+                "(DD/VD/RME/RIS/AVL/DVB) Dale-flipped to inhibitory and "
+                "spectrally rescaled to rho=0.9. No HD ring; whole net is the "
+                "readout pool (velocity_gate=none, output_from_dipn_only=false)."
+            ),
+        }
+        return Circuit(
+            name="celegans_300_v1",
+            N=N,
+            neuron_types=np.asarray(ce["neuron_types"], dtype=np.int64),
+            type_names=list(ce["type_names"]),
+            J_effective=np.asarray(ce["J_effective"], dtype=np.float32),
+            soma_xyz=None,
+            subpops=subpops,
+            bump_ring_ix=None,
+            dale_signs=np.asarray(ce["dale_signs"], dtype=np.float32),
+            body_ids=None,
+            provenance=provenance,
+        )
+
+    register_circuit("celegans_300_v1", build)
 
 
 # =============================================================================

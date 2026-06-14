@@ -4,7 +4,8 @@ data_paths.json
 # Track only biomodel config folders (fly, drosophila_cx, larva, zebrafish_oculomotor, cortex)
 config/*
 !config/fly/
-config/fly/*.yaml
+# fly/*.yaml now tracked too (user request 2026-06-14); archives stay ignored.
+!config/fly/*.yaml
 config/fly/archive/*
 config/fly/archive_2/*
 # cortex/ and drosophila_cx/ task fixtures ARE tracked (user request 2026-05-15).
@@ -14,6 +15,9 @@ config/fly/archive_2/*
 !config/drosophila_cx/*.yaml
 !config/zebrafish/
 !config/zebrafish/*.yaml
+# CElegans configs tracked (user request 2026-06-14).
+!config/CElegans/
+!config/CElegans/*.yaml
 
 # Ignore LLM-generated config files (environment-specific, stored in GraphData)
 config/**/*_Claude_*.yaml

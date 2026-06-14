@@ -1,0 +1,160 @@
+description: Decoder-capacity sweep variant 3 (MLP hidden_dim=128, n_layers=2). Self-motion swim task — rotation mode on the 917-cell circuit
+  (zebrafish_HD_IPN_917_artr_pt1, pen_artr_ptipn1 gate), MLP-decoder companion of
+  zebrafish_hd_si_ipn_917_v1_selfmotion_rotation.yaml. SAME circuit, SAME gate,
+  SAME on-disk dataset (zebrafish_hd_si_task_917_selfmotion), SAME task projection
+  (rotation, n_in=3, n_out=2) and SAME recurrent dynamics; only output_proj=mlp
+  swaps the linear readout y_hat = W_out sigma(h) + b_out for a nonlinear MLP
+  head y_hat = MLP_phi(sigma(h_dIPN)). The MLP uses n_layers=2 / hidden_dim=128 /
+  tanh — small enough that it cannot absorb arbitrary population structure,
+  large enough to extract heading from a non-sinusoidal latent code. Purpose
+  ablation against the cos/sin-readout bias on the dIPN ring activity peak — if
+  the travelling peak and per-neuron sinusoidal tuning survive a nonlinear
+  decoder, the structure is connectome+integration forced, not readout forced.
+  n_layers/hidden_dim are unused under output_proj=matrix in the parent config,
+  so reducing them here changes only the readout MLP size, not the recurrent
+  dynamics.
+dataset: zebrafish_hd_si_task_917_selfmotion
+simulation:
+  params:
+  - - 1.0
+  connconstr_datapath: figures/zebrafish/zebrafish_connectome_HD_IPN_917
+  seed: 47006
+graph_model:
+  signal_model_name: zebrafish_hd_si
+  aggr_type: add
+  input_proj: matrix
+  output_proj: mlp
+  velocity_gate: pen_artr_ptipn1
+  lock_edge_signs: true
+  hidden_dim: 128
+  n_layers: 2
+  MLP_activation: tanh
+  output_from_dipn_only: true
+circuit:
+  name: zebrafish_HD_IPN_917_artr_pt1
+plotting:
+  anatomy_voltage_elev: 90.0
+  anatomy_voltage_azim: -85.5
+  anatomy_voltage_z_lo: 0.0
+  anatomy_voltage_z_hi: 10.0
+  anatomy_voltage_alpha: 1.0
+  anatomy_voltage_downsample: 10
+  anatomy_voltage_bg: black
+  anatomy_voltage_show_base: true
+  anatomy_voltage_show_icon: true
+  anatomy_voltage_types:
+  - IPN12_a
+  - IPN12_b
+  anatomy_voltage_pattern: swim_left
+  anatomy_voltage_n_steps: 2000
+  anatomy_voltage_stride: 5
+  anatomy_voltage_frame_idx: -1
+  anatomy_voltage_omega_deg: 60.0
+  anatomy_voltage_theta0_rad: 0.0
+  anatomy_voltage_swim_interval_s: 0.3
+  anatomy_voltage_swim_magnitude_rad: 0.393
+  anatomy_voltage_swim_t_event_s: 0.0
+  anatomy_voltage_seed: 0
+training:
+  device: auto
+  seed: 547507
+  n_runs: 1
+  n_epochs: 10
+  batch_size: 64
+  data_augmentation_loop: 10
+  lr: 0.002
+  # MLP-decoder rebalance (vs the linear parent): with output_proj=mlp the
+  # flexible decoder otherwise learns ~5x faster than the recurrent core
+  # (old lr_W_ED=0.0025 vs lr_W_rec=5e-4) and collapses to the target mean
+  # (MSE~0.5, chance) before the connectome-locked ring can form — a
+  # chicken-and-egg that a *linear* readout avoids (its optimum requires a
+  # structured ring). Fix: let the recurrent core LEAD (higher, gently
+  # decaying lr_W_rec) and the decoder FOLLOW (lr_W_ED below the recurrent
+  # rate) so the two co-adapt instead of the decoder racing to chance.
+  lr_W_rec_schedule:
+  - 0.001
+  - 0.001
+  - 0.001
+  - 0.001
+  - 0.0008
+  - 0.0008
+  - 0.0005
+  - 0.0005
+  - 0.00025
+  - 0.00025
+  - 0.0001
+  - 0.0001
+  - 0.0001
+  - 5.0e-05
+  - 5.0e-05
+  - 5.0e-05
+  - 5.0e-05
+  - 5.0e-05
+  - 5.0e-05
+  - 5.0e-05
+  lr_scheduler: none
+  lr_W_ED: 0.0005
+  grad_clip_W: 2.5
+  coeff_cos_distance: 0.0
+  coeff_norm_floor: 0.0
+  kappa_norm_floor: 0.0
+  coeff_tv_circular: 0.0
+  coeff_W_L1: 0.0
+  noise_recurrent_level: 0.03
+  snapshots_per_epoch: 5
+  n_steps_schedule:
+  - 100
+  - 100
+  - 200
+  - 200
+  - 300
+  - 400
+  - 500
+  - 600
+  - 700
+  - 800
+  - 800
+  - 800
+  - 800
+  - 800
+  - 800
+  - 800
+  - 800
+  - 800
+  - 800
+  - 800
+  coeff_tail_loss: 0.035
+  torch_compile: false
+  w_init_mode: w_con
+  task_targets:
+  - rotation
+claude:
+  n_epochs: 5
+  data_augmentation_loop: 1
+  n_iter_block: 40
+  n_parallel: 10
+  node_name: l4
+  generate_data: false
+  training_time_target_min: 30
+task:
+  task_type: swim_integration
+  task_only: true
+  swim_integration:
+    n_trials_train: 100000
+    n_trials_test: 10000
+    n_steps: 1000
+    dt: 0.01
+    swim_rate_hz: 0.5
+    swim_duration_s: 0.3
+    phase_impulse_mean_rad: 0.785
+    phase_impulse_std_rad: 0.4
+    backward_phase_mean_rad: 3.14
+    backward_phase_std_rad: 0.3
+    left_fraction: 0.3
+    right_fraction: 0.3
+    forward_fraction: 0.2
+    backward_fraction: 0.2
+    omega_noise_level: 0.0
+    seed: 0
+    forward_vel_mean: 1.0
+    forward_vel_std: 0.4

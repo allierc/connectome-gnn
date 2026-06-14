@@ -142,15 +142,30 @@ class ZebrafishHdTaskGNN(nn.Module):
         _tt_raw = list(getattr(getattr(config, "training", None),
                                "task_targets", None) or [])
         _tt_key = tuple(t for t in _RECOGNISED if t in _tt_raw)
-        _TT_DIMS = {
-            ("rotation",):                (3, 2),
-            ("translation",):             (1, 1),
-            ("rotation", "translation"):  (4, 3),
-            ("position_2d",):             (4, 4),
-            # heading-only supervision, v_fwd KEPT in the input (latent
-            # path-integration probe).
-            ("rotation_vfwd",):           (4, 2),
-        }
+        # On the proprioception gate the swim afferents split into two input
+        # columns (v_extero → pt-IPN1, ω_proprio → motor_efferent), so any
+        # rotation-bearing task gains one extra input channel (mirrors
+        # ZebrafishHdTaskRNN).
+        _is_propriocep_split = (
+            str(getattr(gm, "velocity_gate", "none"))
+            == "pen_artr_ptipn1_propriocep")
+        if _is_propriocep_split:
+            _TT_DIMS = {
+                ("rotation",):                (3, 2),
+                ("translation",):             (2, 1),
+                ("rotation", "translation"):  (5, 3),
+                ("position_2d",):             (5, 4),
+            }
+        else:
+            _TT_DIMS = {
+                ("rotation",):                (3, 2),
+                ("translation",):             (1, 1),
+                ("rotation", "translation"):  (4, 3),
+                ("position_2d",):             (4, 4),
+                # heading-only supervision, v_fwd KEPT in the input (latent
+                # path-integration probe).
+                ("rotation_vfwd",):           (4, 2),
+            }
         _auto_in, _auto_out = _TT_DIMS.get(_tt_key, (3, 2))
         # Heading-bin ablation — mirror of the RNN logic. See
         # ZebrafishHdTaskRNN.__init__ and TrainingConfig.use_heading_bins.
@@ -297,11 +312,42 @@ class ZebrafishHdTaskGNN(nn.Module):
             self.v_artr_r = self._gate_scalar(0.01, 'r')
             self.v_pt1_l  = self._gate_scalar(0.01, 'l')
             self.v_pt1_r  = self._gate_scalar(0.01, 'r')
+        elif self.velocity_gate == "pen_artr_ptipn1_propriocep":
+            # Proprioception-extended gate (mirrors ZebrafishHdTaskRNN): ω →
+            # ARTR (v_artr_l/r), exteroceptive v_fwd → pt-IPN1 (v_pt1_l/r),
+            # and a separate proprioceptive efference copy ω_proprio →
+            # motor_efferent (v_me_l/r). Requires the proprioception circuit
+            # (publishes all three afferent families).
+            afferent = cx.get("afferent_subpop_ix", None) or {}
+            required = ("ARTR_L", "ARTR_R",
+                        "pt_IPN1_L", "pt_IPN1_R",
+                        "motor_efferent_L", "motor_efferent_R")
+            missing = [k for k in required
+                       if k not in afferent or len(afferent[k]) == 0]
+            if missing:
+                raise ValueError(
+                    f"velocity_gate='pen_artr_ptipn1_propriocep' requires "
+                    f"non-empty afferent_subpop_ix for {required}; "
+                    f"missing/empty: {missing}. Use the proprioception "
+                    f"circuit (it publishes the three afferent families).")
+            for key in required:
+                ind = torch.zeros(N, dtype=torch.float32)
+                ind[torch.as_tensor(afferent[key], dtype=torch.long)] = 1.0
+                self.register_buffer(
+                    f"_afferent_ind_{key.lower()}", ind, persistent=False)
+            self.v_artr_l = self._gate_scalar(0.01, 'l')
+            self.v_artr_r = self._gate_scalar(0.01, 'r')
+            self.v_pt1_l  = self._gate_scalar(0.01, 'l')
+            self.v_pt1_r  = self._gate_scalar(0.01, 'r')
+            # Proprioceptive scalars at half the exteroceptive magnitude so
+            # the network starts from a weakly-mixed extero+propriocep estimate.
+            self.v_me_l   = self._gate_scalar(0.005, 'l')
+            self.v_me_r   = self._gate_scalar(0.005, 'r')
         elif self.velocity_gate != "none":
             raise ValueError(
                 f"graph_model.velocity_gate must be 'none', 'pen_only', "
-                f"'pen_4scalar', or 'pen_artr_ptipn1', got "
-                f"{self.velocity_gate!r}"
+                f"'pen_4scalar', 'pen_artr_ptipn1', or "
+                f"'pen_artr_ptipn1_propriocep', got {self.velocity_gate!r}"
             )
 
         # --- Dynamics constants -----------------------------------------
@@ -572,6 +618,38 @@ class ZebrafishHdTaskGNN(nn.Module):
                          W[:, 2:]], dim=1)
                 else:
                     W = torch.cat([v_col_artr.unsqueeze(1), W[:, 1:]], dim=1)
+            elif self.velocity_gate == "pen_artr_ptipn1_propriocep":
+                # ω (col 0) → ARTR; exteroceptive v_fwd (col 1) → pt-IPN1;
+                # proprioceptive efference ω_proprio (col 2) → motor_efferent.
+                # Mirrors ZebrafishHdTaskRNN; n_input ∈ {2, 3, 5}.
+                v_col_artr = (
+                    self._afferent_ind_artr_l * self._sgn_l(self.v_artr_l)
+                    + self._afferent_ind_artr_r * self._sgn_r(self.v_artr_r)
+                )
+                v_col_pt1 = (
+                    self._afferent_ind_pt_ipn1_l * self._sgn_l(self.v_pt1_l)
+                    + self._afferent_ind_pt_ipn1_r * self._sgn_r(self.v_pt1_r)
+                )
+                v_col_me = (
+                    self._afferent_ind_motor_efferent_l * self._sgn_l(self.v_me_l)
+                    + self._afferent_ind_motor_efferent_r * self._sgn_r(self.v_me_r)
+                )
+                if self.n_input == 5:
+                    # [ω, v_fwd, ω_proprio, cosθ₀, sinθ₀] — heading + path int.
+                    W = torch.cat(
+                        [v_col_artr.unsqueeze(1), v_col_pt1.unsqueeze(1),
+                         v_col_me.unsqueeze(1), W[:, 3:]], dim=1)
+                elif self.n_input == 2:
+                    # [v_extero, v_proprio] — translation-only.
+                    W = torch.cat(
+                        [v_col_pt1.unsqueeze(1), v_col_me.unsqueeze(1)], dim=1)
+                elif self.n_input == 3:
+                    # [ω, cosθ₀, sinθ₀] — rotation-only on the propriocep circuit.
+                    W = torch.cat([v_col_artr.unsqueeze(1), W[:, 1:]], dim=1)
+                else:
+                    raise ValueError(
+                        f"velocity_gate='pen_artr_ptipn1_propriocep' expects "
+                        f"n_input ∈ {{2, 3, 5}}, got n_input={self.n_input}.")
             else:
                 mask = getattr(self, "_W_in_mask", None)
                 if mask is not None:

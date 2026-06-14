@@ -1,0 +1,156 @@
+description: Self-motion swim task — rotation mode on the 917-cell circuit
+  (zebrafish_HD_IPN_917_artr_pt1, pen_artr_ptipn1 gate), K-BIN ablation companion
+  of zebrafish_hd_si_ipn_917_v1_selfmotion_rotation.yaml. SAME circuit, SAME
+  gate, SAME on-disk dataset (zebrafish_hd_si_task_917_selfmotion), SAME
+  recurrent dynamics. The two cos/sin entry points are both replaced by a
+  64-bin one-hot representation. First, the initial heading cue (cos t0,
+  sin t0) becomes a 64-channel one-hot bump over theta0 at t=0, so n_in goes
+  from 3 to 65 (omega + 64 cue channels). Second, the (cos theta, sin theta)
+  target becomes a 64-class softmax head trained with cross-entropy, so
+  n_out goes from 2 to 64. Purpose ablation against the cos/sin readout AND
+  cue bias on the dIPN ring activity peak — removes the circular geometry
+  of the supervision so the population is no longer pushed toward a
+  sinusoidal embedding of theta. Conversion happens at training time and
+  inside the rollout/test-trial helpers; the on-disk swim_integration
+  dataset is reused unchanged. output_proj stays matrix to isolate the
+  cue+target effect — the MLP-decoder companion (..._mlpdec.yaml) tests
+  the linear-readout bias separately.
+dataset: zebrafish_hd_si_task_917_selfmotion
+simulation:
+  params:
+  - - 1.0
+  connconstr_datapath: figures/zebrafish/zebrafish_connectome_HD_IPN_917
+  seed: 47006
+graph_model:
+  signal_model_name: zebrafish_hd_si
+  aggr_type: add
+  input_proj: matrix
+  output_proj: matrix
+  velocity_gate: pen_artr_ptipn1
+  lock_edge_signs: true
+  hidden_dim: 128
+  n_layers: 3
+  MLP_activation: relu
+  output_from_dipn_only: true
+circuit:
+  name: zebrafish_HD_IPN_917_artr_pt1
+plotting:
+  anatomy_voltage_elev: 90.0
+  anatomy_voltage_azim: -85.5
+  anatomy_voltage_z_lo: 0.0
+  anatomy_voltage_z_hi: 10.0
+  anatomy_voltage_alpha: 1.0
+  anatomy_voltage_downsample: 10
+  anatomy_voltage_bg: black
+  anatomy_voltage_show_base: true
+  anatomy_voltage_show_icon: true
+  anatomy_voltage_types:
+  - IPN12_a
+  - IPN12_b
+  anatomy_voltage_pattern: swim_left
+  anatomy_voltage_n_steps: 2000
+  anatomy_voltage_stride: 5
+  anatomy_voltage_frame_idx: -1
+  anatomy_voltage_omega_deg: 60.0
+  anatomy_voltage_theta0_rad: 0.0
+  anatomy_voltage_swim_interval_s: 0.3
+  anatomy_voltage_swim_magnitude_rad: 0.393
+  anatomy_voltage_swim_t_event_s: 0.0
+  anatomy_voltage_seed: 0
+training:
+  device: auto
+  seed: 547508
+  n_runs: 1
+  n_epochs: 10
+  batch_size: 64
+  data_augmentation_loop: 10
+  lr: 0.002
+  lr_W_rec_schedule:
+  - 0.0005
+  - 0.0005
+  - 0.00025
+  - 0.000125
+  - 0.000125
+  - 0.0001
+  - 0.0001
+  - 0.0001
+  - 5.0e-05
+  - 5.0e-05
+  - 5.0e-05
+  - 5.0e-05
+  - 5.0e-05
+  - 5.0e-05
+  - 5.0e-05
+  - 5.0e-05
+  - 5.0e-05
+  - 5.0e-05
+  - 5.0e-05
+  - 5.0e-05
+  lr_scheduler: none
+  lr_W_ED: 0.0025
+  grad_clip_W: 2.5
+  coeff_cos_distance: 0.0
+  coeff_norm_floor: 0.0
+  kappa_norm_floor: 0.0
+  coeff_tv_circular: 0.0
+  coeff_W_L1: 0.0
+  noise_recurrent_level: 0.03
+  snapshots_per_epoch: 5
+  n_steps_schedule:
+  - 100
+  - 100
+  - 200
+  - 200
+  - 300
+  - 400
+  - 500
+  - 600
+  - 700
+  - 800
+  - 800
+  - 800
+  - 800
+  - 800
+  - 800
+  - 800
+  - 800
+  - 800
+  - 800
+  - 800
+  coeff_tail_loss: 0.035
+  torch_compile: false
+  w_init_mode: w_con
+  task_targets:
+  - rotation
+  use_heading_bins: true
+  n_heading_bins: 64
+claude:
+  n_epochs: 5
+  data_augmentation_loop: 1
+  n_iter_block: 40
+  n_parallel: 10
+  node_name: l4
+  generate_data: false
+  training_time_target_min: 30
+task:
+  task_type: swim_integration
+  task_only: true
+  swim_integration:
+    n_trials_train: 100000
+    n_trials_test: 10000
+    n_steps: 1000
+    dt: 0.01
+    swim_rate_hz: 0.5
+    swim_duration_s: 0.3
+    phase_impulse_mean_rad: 0.785
+    phase_impulse_std_rad: 0.4
+    backward_phase_mean_rad: 3.14
+    backward_phase_std_rad: 0.3
+    left_fraction: 0.3
+    right_fraction: 0.3
+    forward_fraction: 0.2
+    backward_fraction: 0.2
+    omega_noise_level: 0.0
+    seed: 0
+    forward_vel_mean: 1.0
+    forward_vel_std: 0.4

@@ -1,17 +1,14 @@
-description: Message-passing GNN companion of
-  zebrafish_hd_si_ipn_917_v1_selfmotion_rotation — same 917-cell artr_pt1 circuit,
-  same pen_4scalar gate, same rotation task, and the SAME on-disk dataset
-  (zebrafish_hd_si_task_917_selfmotion) so the GNN and the sign-locked RNN are
-  head-to-head on identical trials. signal_model_name=zebrafish_hd_si_gnn
-  replaces the dense recurrent operator with a per-edge GNN (f_theta + g_phi
-  MLPs over a per-neuron embedding a_i); the leak and firing-rate nonlinearity
-  must emerge from (f_theta, g_phi, a). g_phi_positive=false + sign-locked
-  per-edge weights restore Dale's law without a ± degeneracy. GNN hyperparams
-  from the archived zebrafish_hd_si_gnn_ipn12_v1.
-dataset: zebrafish_hd_si_task_917_selfmotion
+description: 'Zebrafish HD/IPN GNN, PROPRIOCEPTION + TRANSLATION: the proprioception circuit (omega ->
+  ARTR, exteroceptive v_fwd -> pt-IPN1, efference omega_proprio=omega -> motor_efferent, via the pen_artr_ptipn1_propriocep
+  gate on zebrafish_HD_IPN_917_artr_pt1_proprioception) combined with forward-translation integration
+  -- forward distance (cumulative). Stimulus is the 5-channel propriocep layout [omega, v_fwd, omega_proprio,
+  cos0, sin0] (n_in=5). target_kind=scalar_xi; task_targets=[''rotation'', ''translation'']. Here omega_proprio=omega
+  (redundant sensory+efference, no mismatch); set target_kind=rotation_mismatch for the angular-mismatch
+  task.'
+dataset: zebrafish_hd_si_task_917_propriocep_distance
 simulation:
   params:
-    - - 1.0
+  - - 1.0
   connconstr_datapath: figures/zebrafish/zebrafish_connectome_HD_IPN_917
   seed: 47006
 graph_model:
@@ -19,7 +16,7 @@ graph_model:
   aggr_type: add
   input_proj: matrix
   output_proj: matrix
-  velocity_gate: pen_artr_ptipn1
+  velocity_gate: pen_artr_ptipn1_propriocep
   lock_edge_signs: true
   hidden_dim: 64
   n_layers: 2
@@ -30,7 +27,7 @@ graph_model:
   g_phi_positive: false
   output_from_dipn_only: true
 circuit:
-  name: zebrafish_HD_IPN_917_artr_pt1
+  name: zebrafish_HD_IPN_917_artr_pt1_proprioception
 plotting:
   anatomy_voltage_elev: 90.0
   anatomy_voltage_azim: -85.5
@@ -42,8 +39,8 @@ plotting:
   anatomy_voltage_show_base: true
   anatomy_voltage_show_icon: true
   anatomy_voltage_types:
-    - IPN12_a
-    - IPN12_b
+  - IPN12_a
+  - IPN12_b
   anatomy_voltage_pattern: swim_left
   anatomy_voltage_n_steps: 2000
   anatomy_voltage_stride: 5
@@ -63,15 +60,13 @@ training:
   data_augmentation_loop: 5
   lr: 0.002
   lr_W_rec_schedule:
-    - 0.002
-    - 0.002
-    - 0.001
-    - 0.0005
-    - 0.0005
+  - 0.002
+  - 0.002
+  - 0.001
+  - 0.0005
+  - 0.0005
   lr_scheduler: none
   lr_W_ED: 0.0005
-  embedding_separate_lr: true # pull a_i out of the w_rec schedule into its own constant-lr group
-  lr_embedding: 0.005 # embedding moves a bit faster than the recurrent weights so clusters can drift/spread
   grad_clip_W: 1.0
   coeff_cos_distance: 0.0
   coeff_norm_floor: 0.0
@@ -84,20 +79,21 @@ training:
   coeff_tail_loss: 0.05
   w_init_mode: zeros
   w_init_scale: 0.01
-  embedding_cell_type_init: true # a_i starts at its cell type's equidistant 2-D cluster point
+  embedding_cell_type_init: true
   embedding_cell_type_scale: 1.0
-  fix_embedding: false # NOT frozen
-  coeff_embedding_cluster: 0.0 # 0 = NO per-type-centroid pull: clusters move/spread freely (initialised at type centroids via embedding_cell_type_init, then unconstrained)
+  fix_embedding: false
+  coeff_embedding_cluster: 0.01
   snapshots_per_epoch: 5
   n_steps_schedule:
-    - 10
-    - 50
-    - 100
-    - 200
-    - 300
+  - 10
+  - 50
+  - 100
+  - 200
+  - 300
   torch_compile: true
   task_targets:
-    - rotation
+  - rotation
+  - translation
 claude:
   n_epochs: 5
   data_augmentation_loop: 1
@@ -132,3 +128,5 @@ task:
     seed: 0
     forward_vel_mean: 1.0
     forward_vel_std: 0.4
+    target_kind: scalar_xi
+    propriocep_split: true
