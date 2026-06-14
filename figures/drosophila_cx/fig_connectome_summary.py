@@ -149,12 +149,17 @@ def _partition_perm(partition):
 
 def _panel_mask(ax, W, partition, dilate_iter=1):
     """Support mask sorted by the functional partition, with colour strips."""
-    from scipy.ndimage import binary_dilation
+    from scipy.ndimage import maximum_filter
     perm = _partition_perm(partition)
     W_sorted = W[np.ix_(perm, perm)]
     part_sorted = partition[perm]
-    M = (W_sorted != 0)
-    Mvis = binary_dilation(M, iterations=dilate_iter).astype(np.float32)
+    M = (W_sorted != 0).astype(np.float32)
+    # Square (box) dilation so each synapse renders as the same blob as the
+    # signed panel (b). binary_dilation's default structuring element is a
+    # 4-connected cross, which drew every edge as a "+"; a size=(2k+1)
+    # maximum_filter matches panel b's max/min-filter blob exactly.
+    size = 2 * int(dilate_iter) + 1
+    Mvis = (maximum_filter(M, size=size) > 0).astype(np.float32)
     ax.imshow(Mvis, cmap="binary", vmin=0, vmax=1,
               interpolation="nearest", aspect="equal")
     _add_partition_strips(ax, part_sorted, alpha_overlay=0.16,
@@ -196,6 +201,9 @@ def main():
                    help="registry circuit name")
     p.add_argument("--output_root", default=None)
     p.add_argument("--out", default=os.path.join(here, "fig_connectome_summary.png"))
+    p.add_argument("--dilate", type=int, default=0,
+                   help="edge-blob dilation iterations for both panels "
+                        "(0 = one pixel per synapse; 1 = 3x3 blob).")
     args = p.parse_args()
 
     if args.output_root:
@@ -216,8 +224,8 @@ def main():
 
     fig, axes = plt.subplots(1, 2, figsize=(12.5, 6),
                              gridspec_kw={"wspace": 0.34})
-    _panel_mask(axes[0], W, partition)
-    _panel_W(axes[1], W, partition, show_cbar=True)
+    _panel_mask(axes[0], W, partition, dilate_iter=args.dilate)
+    _panel_W(axes[1], W, partition, dilate_iter=args.dilate, show_cbar=True)
 
     # Partition legend below the support-mask panel.
     handles = [Patch(facecolor=PARTITION_COLOR[k], edgecolor="none", label=k)

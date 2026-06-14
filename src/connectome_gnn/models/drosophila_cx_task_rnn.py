@@ -159,13 +159,28 @@ class DrosophilaCxTaskRNN(nn.Module):
         _RECOGNISED = ("rotation", "translation", "position_2d", "rotation_vfwd")
         _tt_raw = list(getattr(config.training, "task_targets", None) or [])
         _tt_key = tuple(t for t in _RECOGNISED if t in _tt_raw)
-        _TT_DIMS = {
-            ("rotation",):                (3, 2),
-            ("rotation_vfwd",):           (4, 2),
-            ("rotation", "translation"):  (4, 3),
-            ("position_2d",):             (4, 4),
-            ("translation",):             (1, 1),
-        }
+        # On the proprioceptive gate the angular drive is split into two
+        # independent input columns (sensory ω and efference ω_proprio), so the
+        # on-disk stimulus is the 5-channel [ω, v_fwd, ω_proprio, cos0, sin0]
+        # layout and any rotation-bearing task gains one extra input channel
+        # (mirrors the zebrafish pen_artr_ptipn1_propriocep gate).
+        _is_propriocep_split = str(getattr(gm, "velocity_gate", "none")).lower() \
+            in ("pen_propriocep", "pen_propriocep_swap")
+        if _is_propriocep_split:
+            _TT_DIMS = {
+                ("rotation",):                (4, 2),
+                ("translation",):             (2, 1),
+                ("rotation", "translation"):  (5, 3),
+                ("position_2d",):             (5, 4),
+            }
+        else:
+            _TT_DIMS = {
+                ("rotation",):                (3, 2),
+                ("rotation_vfwd",):           (4, 2),
+                ("rotation", "translation"):  (4, 3),
+                ("position_2d",):             (4, 4),
+                ("translation",):             (1, 1),
+            }
         _auto_in, _auto_out = _TT_DIMS.get(_tt_key, (3, 2))  # default = rotation
         self.n_input = int(getattr(gm, "n_input", 0)) or _auto_in
         self.n_output = int(getattr(gm, "n_output", 0)) or _auto_out
@@ -293,14 +308,18 @@ class DrosophilaCxTaskRNN(nn.Module):
             self.v_pena_r = nn.Parameter(torch.tensor(-0.01))
             self.v_penb_l = nn.Parameter(torch.tensor(0.01))
             self.v_penb_r = nn.Parameter(torch.tensor(-0.01))
-        elif self.velocity_gate == "pen_pfn":
-            # Drosophila path-integration gate (companion of the zebrafish
-            # ``pen_artr_ptipn1``): ω → PEN (PENa/PENb L/R) on input col 0,
-            # v_fwd → PFN (PFNd/PFNv L/R) on input col 1. Requires a circuit
-            # that publishes both pen_subpop_ix and pfn_subpop_ix (i.e.
-            # drosophila_cx_338_v1). With n_input==3 (rotation only) the PFN
-            # column is unused; with n_input>=4 ([ω, v_fwd, cosθ0, sinθ0])
-            # v_fwd is anatomically routed to the PFN afferents.
+        elif self.velocity_gate in ("pen_pfn", "pen_propriocep",
+                                    "pen_propriocep_swap"):
+            # pen_pfn — Drosophila path-integration gate (companion of the
+            #   zebrafish ``pen_artr_ptipn1``): ω → PEN (PENa/PENb L/R) on
+            #   input col 0, v_fwd → PFN (PFNd/PFNv L/R) on input col 1.
+            # pen_propriocep — sensory/efference angular split (companion of
+            #   the zebrafish ``pen_artr_ptipn1_propriocep``): on the
+            #   5-channel [ω, v_fwd, ω_proprio, cos0, sin0] layout, sensory
+            #   ω → PEN_a, efference ω_proprio → PEN_b, v_fwd → PFN.
+            #   pen_propriocep_swap reverses the PEN_a/PEN_b roles (control).
+            # All require a circuit that publishes both pen_subpop_ix and
+            # pfn_subpop_ix (i.e. drosophila_cx_338_v1).
             pen_subpop = cx.get("pen_subpop_ix", {})
             pfn_subpop = cx.get("pfn_subpop_ix", {})
             pen_req = ("PENa_L", "PENa_R", "PENb_L", "PENb_R")
@@ -309,9 +328,9 @@ class DrosophilaCxTaskRNN(nn.Module):
                 + [k for k in pfn_req if len(pfn_subpop.get(k, [])) == 0]
             if missing:
                 raise ValueError(
-                    f"velocity_gate='pen_pfn' requires non-empty pen_subpop_ix "
-                    f"{pen_req} and pfn_subpop_ix {pfn_req}; missing/empty: "
-                    f"{missing}. Use circuit drosophila_cx_338_v1."
+                    f"velocity_gate={self.velocity_gate!r} requires non-empty "
+                    f"pen_subpop_ix {pen_req} and pfn_subpop_ix {pfn_req}; "
+                    f"missing/empty: {missing}. Use circuit drosophila_cx_338_v1."
                 )
             for key in pen_req:
                 ind = torch.zeros(N, dtype=torch.float32)
@@ -332,7 +351,8 @@ class DrosophilaCxTaskRNN(nn.Module):
         elif self.velocity_gate != "none":
             raise ValueError(
                 f"graph_model.velocity_gate must be 'none', 'pen_only', "
-                f"'pen_4scalar', or 'pen_pfn', got {self.velocity_gate!r}"
+                f"'pen_4scalar', 'pen_pfn', 'pen_propriocep', or "
+                f"'pen_propriocep_swap', got {self.velocity_gate!r}"
             )
 
         # --- Dynamics constants -----------------------------------------
@@ -501,6 +521,38 @@ class DrosophilaCxTaskRNN(nn.Module):
                 else:
                     # [ω, cosθ0, sinθ0]: ω→PEN col 0 only (PFN unused).
                     W = torch.cat([v_col_pen.unsqueeze(1), W[:, 1:]], dim=1)
+            elif self.velocity_gate in ("pen_propriocep", "pen_propriocep_swap"):
+                # 5-channel propriocep layout [ω, v_fwd, ω_proprio, cos0, sin0]:
+                # sensory ω→PEN_a, efference ω_proprio→PEN_b (swapped for
+                # pen_propriocep_swap), v_fwd→PFN, cue columns (3:) free.
+                v_col_pena = (
+                    self._pen_ind_pena_l * self.v_pena_l
+                    + self._pen_ind_pena_r * self.v_pena_r
+                )
+                v_col_penb = (
+                    self._pen_ind_penb_l * self.v_penb_l
+                    + self._pen_ind_penb_r * self.v_penb_r
+                )
+                v_col_pfn = (
+                    self._pfn_ind_pfnd_l * self.v_pfnd_l
+                    + self._pfn_ind_pfnd_r * self.v_pfnd_r
+                    + self._pfn_ind_pfnv_l * self.v_pfnv_l
+                    + self._pfn_ind_pfnv_r * self.v_pfnv_r
+                )
+                if self.velocity_gate == "pen_propriocep_swap":
+                    v_col_sensory, v_col_efference = v_col_penb, v_col_pena
+                else:
+                    v_col_sensory, v_col_efference = v_col_pena, v_col_penb
+                if self.n_input < 5:
+                    raise ValueError(
+                        f"velocity_gate={self.velocity_gate!r} expects the "
+                        f"5-channel propriocep stimulus "
+                        f"[ω, v_fwd, ω_proprio, cos0, sin0]; got "
+                        f"n_input={self.n_input}."
+                    )
+                W = torch.cat(
+                    [v_col_sensory.unsqueeze(1), v_col_pfn.unsqueeze(1),
+                     v_col_efference.unsqueeze(1), W[:, 3:]], dim=1)
             else:
                 mask = getattr(self, "_W_in_mask", None)
                 if mask is not None:
