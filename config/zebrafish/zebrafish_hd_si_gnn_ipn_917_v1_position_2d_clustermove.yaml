@@ -74,6 +74,8 @@ training:
     - 0.0005
   lr_scheduler: none
   lr_W_ED: 0.0005
+  embedding_separate_lr: true # pull a_i out of the w_rec schedule into its own constant-lr group
+  lr_embedding: 0.005 # embedding moves a bit faster than the recurrent weights so clusters can drift/spread
   grad_clip_W: 1.0
   coeff_cos_distance: 0.0
   coeff_norm_floor: 0.0
@@ -89,7 +91,7 @@ training:
   embedding_cell_type_init: true # a_i starts at its cell type's equidistant 2-D cluster point
   embedding_cell_type_scale: 1.0
   fix_embedding: false # NOT frozen
-  coeff_embedding_cluster: 0.01 # soft pull to per-type centroid: weaker pull = 10x more freedom for clusters to move/spread; tune this
+  coeff_embedding_cluster: 0.0 # 0 = NO per-type-centroid pull: clusters move/spread freely (initialised at type centroids via embedding_cell_type_init, then unconstrained)
   snapshots_per_epoch: 5
   n_steps_schedule:
     - 10

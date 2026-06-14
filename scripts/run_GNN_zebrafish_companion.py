@@ -1,25 +1,26 @@
-"""Submit + live-monitor the Drosophila CX companion training runs.
+"""Submit + live-monitor the zebrafish HD/IPN companion training runs.
 
-Companion to ``run_GNN_drosophila_cx_pi_epg_no_tv_cv10.py`` but for the fresh
-single-run task suite (drosophila_paper.tex): it ``bsub``-submits one GPU job
-per config and then prints, **every 300 s**, the latest training-progress line
-of each job — e.g.
+Zebrafish twin of ``run_GNN_drosophila_cx_companion.py``: it ``bsub``-submits
+one GPU job per ``config/zebrafish/*.yaml`` and then prints, **every 300 s**,
+the latest training-progress line of each job — e.g.
 
-    [drosophila_cx_gnn_rotation  job 1513xxxx RUN ] epoch 3/10 done  |  loss=0.0370 rmse_roll=31.8° r_roll=1.000 (0.861) best=0.0266
+    [zebrafish_hd_si_gnn_ipn_917_v1_propriocep_distance  job 1513xxxx RUN ] epoch 3/5 done  |  loss=0.0370 rmse_roll=31.8° r_roll=1.000 (0.861) best=0.0266
 
 so you can watch convergence from one terminal without tailing logs by hand.
 
+By default the auto-discovered set SKIPS configs that already have a checkpoint
+(only untrained ones run); pass --rerun-trained to include them, or name configs
+explicitly with --config.
+
 Each job runs ``python GNN_Main.py -o train_task <config>`` on the chosen GPU
-queue (default l4). The configs ship n_epochs=10; with data_augmentation_loop=3
-an RNN epoch is ~15 min on a100 / ~30 min on l4 (≈5 h for 10 epochs), so the
-default wall-clock limit is generous.
+queue (default l4).
 
 Usage::
 
-    python scripts/run_GNN_drosophila_cx_companion.py                 # ALL configs on l4
-    python scripts/run_GNN_drosophila_cx_companion.py --config drosophila_cx_gnn_rotation
-    python scripts/run_GNN_drosophila_cx_companion.py --cluster a100 --config drosophila_cx_rotation drosophila_cx_both
-    python scripts/run_GNN_drosophila_cx_companion.py --no-monitor    # submit only, don't watch
+    python scripts/run_GNN_zebrafish_companion.py                 # untrained config/zebrafish/*.yaml on l4
+    python scripts/run_GNN_zebrafish_companion.py --config zebrafish_hd_si_ipn_917_v1_propriocep_distance
+    python scripts/run_GNN_zebrafish_companion.py --cluster a100 --rerun-trained
+    python scripts/run_GNN_zebrafish_companion.py --no-monitor    # submit only, don't watch
 """
 from __future__ import annotations
 
@@ -32,7 +33,7 @@ import sys
 import time
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-GROUP = "drosophila_cx"   # config/<GROUP>/, log/<GROUP>/, graphs_data/<GROUP>/
+GROUP = "zebrafish"   # config/<GROUP>/, log/<GROUP>/, graphs_data/<GROUP>/
 
 # ANSI colours for the terminal metrics print.
 _R = "\033[0m"; _B = "\033[1m"; _DIM = "\033[2m"
@@ -41,50 +42,52 @@ _STATE_COL = {"RUN": _GRN, "PEND": _YEL, "EXIT": _RED, "DONE": _BLU}
 
 # Heading-first ordering hint (the GNN heading run is the fastest / most precise
 # convergence canary). Configs not listed here are appended alphabetically, so
-# the default (no --config) runs EVERY config/drosophila_cx/*.yaml.
+# the default (no --config) runs EVERY config/zebrafish/*.yaml.
 _ORDER_HINT = [
-    "drosophila_cx_gnn_rotation",      "drosophila_cx_rotation",
-    "drosophila_cx_gnn_rotation_vfwd", "drosophila_cx_rotation_vfwd",
-    "drosophila_cx_gnn_both",          "drosophila_cx_both",
-    "drosophila_cx_gnn_both_leaky",    "drosophila_cx_both_leaky",
-    "drosophila_cx_gnn_position_2d",   "drosophila_cx_position_2d",
-    "drosophila_cx_gnn_position_2d_leaky", "drosophila_cx_position_2d_leaky",
-    "drosophila_cx_rotation_mlpdec",   "drosophila_cx_rotation_kbins",
+    # NEW — proprioception + translation (run these first; most else is trained
+    # and skipped by default).
+    "zebrafish_hd_si_ipn_917_v1_propriocep_distance",
+    "zebrafish_hd_si_gnn_ipn_917_v1_propriocep_distance",
+    "zebrafish_hd_si_ipn_917_v1_propriocep_distance_leaky",
+    "zebrafish_hd_si_gnn_ipn_917_v1_propriocep_distance_leaky",
+    "zebrafish_hd_si_ipn_917_v1_propriocep_position_2d",
+    "zebrafish_hd_si_gnn_ipn_917_v1_propriocep_position_2d",
+    "zebrafish_hd_si_ipn_917_v1_propriocep_position_2d_leaky",
+    "zebrafish_hd_si_gnn_ipn_917_v1_propriocep_position_2d_leaky",
+    # core self-motion suite (RNN + GNN).
+    "zebrafish_hd_si_gnn_ipn_917_v1_selfmotion_rotation", "zebrafish_hd_si_ipn_917_v1_selfmotion_rotation",
+    "zebrafish_hd_si_gnn_ipn_917_v1_selfmotion_both",     "zebrafish_hd_si_ipn_917_v1_selfmotion_both",
+    "zebrafish_hd_si_gnn_ipn_917_v1_selfmotion_both_leaky", "zebrafish_hd_si_ipn_917_v1_selfmotion_both_leaky",
+    "zebrafish_hd_si_ipn_917_v1_position_2d",             "zebrafish_hd_si_ipn_917_v1_position_2d_leaky",
+    "zebrafish_hd_si_ipn_917_v1_propriocep_mismatch",
 ]
 
 # ---------------------------------------------------------------------------
 # Config inventory (status note as of 2026-06-13). The runner auto-discovers
-# EVERY config/drosophila_cx/*.yaml; this is just a record of what is already
-# trained vs. what still needs a run, not a filter.
+# EVERY config/zebrafish/*.yaml and SKIPS already-trained ones by default; this
+# is a record of what is trained vs. what still needs a run.
 #
-# ALREADY TRAINED (checkpoints in log/drosophila_cx/<cfg>/models/):
-#   core task suite (RNN + GNN):
-#     drosophila_cx_rotation              / drosophila_cx_gnn_rotation
-#     drosophila_cx_rotation_vfwd         / drosophila_cx_gnn_rotation_vfwd
-#     drosophila_cx_both                  / drosophila_cx_gnn_both
-#     drosophila_cx_both_leaky            / drosophila_cx_gnn_both_leaky
-#     drosophila_cx_position_2d           / drosophila_cx_gnn_position_2d
-#     drosophila_cx_position_2d_leaky     / drosophila_cx_gnn_position_2d_leaky
-#     drosophila_cx_rotation_kbins, drosophila_cx_rotation_mlpdec
-#   seed replicates:  {drosophila_cx_,drosophila_cx_gnn_}rotation_rep_1..5
-#   null / batch-shuffle controls (RNN):
-#     drosophila_cx_rotation_bs_1..5, _er_1..5, _er_ei_1..5
-#   proprioceptive-gain MISMATCH (sensory omega vs efference omega_proprio=g*omega):
-#     drosophila_cx_propriocep_mismatch   / drosophila_cx_gnn_propriocep_mismatch
+# ALREADY TRAINED (checkpoints in log/zebrafish/<cfg>/models/):
+#   the 917-cell artr_pt1 self-motion suite (RNN + GNN): selfmotion_rotation,
+#   selfmotion_both(_leaky), position_2d(_leaky), rotation_kbins / _mlpdec,
+#   the clustermove GNN variants, the bs / er / er_ei null controls, and the
+#   proprioceptive-gain MISMATCH pair
+#   (zebrafish_hd_si_ipn_917_v1_propriocep_mismatch + its GNN twin).
 #
-# NEW — PROPRIOCEPTION + TRANSLATION (pen_propriocep gate; NOT yet trained):
-#   sensory omega -> PEN_a, efference omega_proprio=omega -> PEN_b, v_fwd -> PFN;
-#   5-channel stimulus [omega, v_fwd, omega_proprio, cos0, sin0].
+# NEW — PROPRIOCEPTION + TRANSLATION (pen_artr_ptipn1_propriocep gate; NOT yet
+# trained). The proprioception circuit (zebrafish_HD_IPN_917_artr_pt1_
+# proprioception) with omega -> ARTR, exteroceptive v_fwd -> pt-IPN1, efference
+# omega_proprio=omega -> motor_efferent; 5-channel stimulus
+# [omega, v_fwd, omega_proprio, cos0, sin0]. RNN = zebrafish_hd_si,
+# GNN = zebrafish_hd_si_gnn (gate ported in this change).
 #   forward distance (target_kind=scalar_xi):
-#     drosophila_cx_propriocep_distance         / drosophila_cx_gnn_propriocep_distance         (cumulative)
-#     drosophila_cx_propriocep_distance_leaky   / drosophila_cx_gnn_propriocep_distance_leaky   (leaky, tau_d=0.5 s)
+#     zebrafish_hd_si_ipn_917_v1_propriocep_distance        / ..._gnn_..._propriocep_distance         (cumulative)
+#     zebrafish_hd_si_ipn_917_v1_propriocep_distance_leaky  / ..._gnn_..._propriocep_distance_leaky   (leaky, tau_d=0.5 s)
 #   2-D position (target_kind=position_2d):
-#     drosophila_cx_propriocep_position_2d      / drosophila_cx_gnn_propriocep_position_2d      (cumulative)
-#     drosophila_cx_propriocep_position_2d_leaky/ drosophila_cx_gnn_propriocep_position_2d_leaky(leaky, tau_p=0.5 s)
-#   sensory/efference control for any of the above: set
-#     graph_model.velocity_gate: pen_propriocep_swap   (omega -> PEN_b, omega_proprio -> PEN_a).
-#   Each RNN/GNN pair shares one dataset (drosophila_cx_si_task_338_propriocep_*);
-#   only propriocep_position_2d is generated so far — the rest build on first run.
+#     zebrafish_hd_si_ipn_917_v1_propriocep_position_2d     / ..._gnn_..._propriocep_position_2d      (cumulative)
+#     zebrafish_hd_si_ipn_917_v1_propriocep_position_2d_leaky/..._gnn_..._propriocep_position_2d_leaky(leaky, tau_p=0.5 s)
+#   Each RNN/GNN pair shares one dataset (zebrafish_hd_si_task_917_propriocep_*),
+#   generated on first run.
 # ---------------------------------------------------------------------------
 
 
@@ -136,16 +139,16 @@ def _is_trained(cfg: str, output_root: str) -> bool:
     writes to the shared /groups log dir, which the devcontainer also mounts,
     so the glob resolves locally."""
     import glob
-    patt = os.path.join(output_root, "log", "drosophila_cx", cfg, "models",
+    patt = os.path.join(output_root, "log", "zebrafish", cfg, "models",
                         "best_model_with_*.pt")
     return bool(glob.glob(patt))
 
 
 def _all_configs() -> list[str]:
-    """Every config/drosophila_cx/*.yaml (top level, not archive/), ordered with
+    """Every config/zebrafish/*.yaml (top level, not archive/), ordered with
     the core suite first then the rest (nulls, rep folds, ...) alphabetically."""
     import glob
-    d = os.path.join(REPO, "config", "drosophila_cx")
+    d = os.path.join(REPO, "config", "zebrafish")
     names = sorted(os.path.splitext(os.path.basename(f))[0]
                    for f in glob.glob(os.path.join(d, "*.yaml")))
     if not names:
@@ -302,7 +305,7 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--config", nargs="+", default=None,
-                   help="config name(s) to run (default: EVERY config/drosophila_cx/*.yaml)")
+                   help="config name(s) to run (default: EVERY config/zebrafish/*.yaml)")
     p.add_argument("--cluster", choices=["l4", "a100", "h100"], default="l4")
     p.add_argument("--n-cpus", type=int, default=8)
     p.add_argument("--hard-runtime-min", type=int, default=1440,
@@ -355,7 +358,7 @@ def main() -> int:
     if args.generate:
         _generate_missing(configs, args.output_root)
 
-    log_dir = os.path.join(args.output_root, "log", "drosophila_cx",
+    log_dir = os.path.join(args.output_root, "log", "zebrafish",
                            "_companion_runner")
     os.makedirs(log_dir, exist_ok=True)
 

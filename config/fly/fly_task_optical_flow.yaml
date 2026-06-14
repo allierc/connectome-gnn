@@ -1,0 +1,39 @@
+description: "Stub fixture: optical-flow task data on flyvis hex grid. Generator lands in PR2."
+dataset: task_of_smoke
+simulation:
+  params:
+    - - 1.0
+graph_model:
+  aggr_type: add
+plotting: {}
+training: {}
+task:
+  task_type: optical_flow
+  task_only: true
+  optical_flow:
+    n_trials_train: 8
+    n_trials_test: 4
+    n_steps: 80
+    dt: 0.041666667        # 1/24 s, video framerate
+    seed: 0
+
+    # PR2 will pick a path here. sintel_gt is recommended (true GT flow from
+    # the renderer); raft_pseudo uses DAVIS + torchvision RAFT (pseudo-labels).
+    flow_target: sintel_gt
+    train_test_split: video_held_out
+    raft_model: raft_large
+
+    # Used by raft_pseudo / photometric_selfsup; ignored for sintel_gt.
+    datavis_roots: []
+    truncate_max_frames: 80
+    flywire_stimulus: false
+    all_columns: false
+    steady_state_value: 0.5
+
+    # Optional input decorrelation on luminance channels (PR2).
+    # input_perturbation:
+    #   channel_mask: null
+    #   waveform:
+    #     kind: white_noise
+    #     noise_level: 0.05
+    #     seed: 0
