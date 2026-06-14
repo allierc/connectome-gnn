@@ -3988,7 +3988,7 @@ def plot_gnn_dashboard(data, out_path):
         if _k in rollout:
             _theta = np.asarray(rollout[_k])
             break
-    _epg_idx = getattr(net, "epg_indices", None)
+    _epg_idx = getattr(data["net"], "epg_indices", None)
     if hd_part is not None and _theta is not None:
         # fish2 vocab: within-partition phase sort over all neurons.
         _panel_phase_sorted_kinograph(
