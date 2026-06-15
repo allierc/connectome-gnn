@@ -39,6 +39,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.utils.checkpoint
 
 from connectome_gnn.models.bump_attractor_eval import build_type_pair_blocks
 from connectome_gnn.models.MLP import MLP
@@ -384,6 +385,18 @@ class DrosophilaCxTaskGNN(nn.Module):
             getattr(config.training, "noise_recurrent_level", 0.0)
         )
 
+        # --- Activation checkpointing over the rollout -----------------
+        # The per-step recurrent drive materialises (B, E, hidden) edge
+        # messages (E = #synapses ≫ N). Retaining them for every one of the
+        # up-to-800 rollout steps blows past GPU memory (the dense RNN, with
+        # only (B, N) activations per step, fits; this GNN OOMs by T≈100 on a
+        # 22 GB L4 and would exceed even an 80 GB A100 at T=800). Recomputing
+        # the drive in the backward pass instead of storing it bounds the
+        # rollout's activation memory to ~O(1) in T (only h_buf, (B, T, N), is
+        # kept). On by default for this model; disable with
+        # graph_model.gnn_grad_checkpoint: false.
+        self.grad_checkpoint = bool(getattr(gm, "gnn_grad_checkpoint", True))
+
         # --- GNN-specific components -----------------------------------
         emb_dim = int(getattr(gm, "embedding_dim", 2))
         hidden_dim = int(getattr(gm, "hidden_dim", 64))
@@ -659,7 +672,13 @@ class DrosophilaCxTaskGNN(nn.Module):
             # leak is added outside the MLP, matching the flyvis GNN convention
             # (dv/dt = f_theta(v, a, m, ...)). f_theta must learn the decay
             # slope on its own (it need not be exactly -1 in dt/tau units).
-            rec = self._gnn_recurrent_drive(h)
+            if self.grad_checkpoint and self.training:
+                # Recompute the (B, E, hidden) edge messages in backward
+                # rather than storing them for every rollout step.
+                rec = torch.utils.checkpoint.checkpoint(
+                    self._gnn_recurrent_drive, h, use_reentrant=False)
+            else:
+                rec = self._gnn_recurrent_drive(h)
             inp = self._project_in(u[:, t, :])
             h = h + dt_over_tau * (rec + inp)
             if noise_lvl > 0:

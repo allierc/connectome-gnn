@@ -493,10 +493,17 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
 
     # Try to compile with torch.compile if enabled, but fall back to non-compiled if Triton fails
     if tc.torch_compile:
-        model = torch.compile(model, mode='reduce-overhead', fullgraph=True)
+        # 'reduce-overhead' enables CUDA graphs, which pin static buffers and
+        # conflict with activation checkpointing's recompute-in-backward (the
+        # GNN rollout uses torch.utils.checkpoint to fit memory). Use plain
+        # 'default' mode for checkpointed models — same Triton kernels, no
+        # CUDA-graph memory/capture.
+        _ckpt = bool(getattr(model, 'grad_checkpoint', False))
+        _mode = 'default' if _ckpt else 'reduce-overhead'
+        model = torch.compile(model, mode=_mode, fullgraph=not _ckpt)
         regularizer.compute = torch.compile(regularizer.compute, mode='reduce-overhead', fullgraph=True)
         regularizer.compute_update_regul = torch.compile(regularizer.compute_update_regul, mode='reduce-overhead', fullgraph=True)
-        logger.info("torch.compile enabled")
+        logger.info(f"torch.compile enabled (mode={_mode}, grad_checkpoint={_ckpt})")
     else:
         logger.info("torch.compile disabled via config (torch_compile: false)")
 
