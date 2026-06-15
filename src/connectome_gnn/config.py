@@ -637,6 +637,13 @@ class GraphModelConfig(BaseModel):
     # default; "relu" / "softplus" are Yang's defaults for cortex tasks.
     # "tanh"/"leaky_relu" allow a signed rate code (σ(h) not constrained ≥0).
     recurrent_activation: Literal["sigmoid", "relu", "tanh", "softplus", "leaky_relu"] = "sigmoid"
+    # Activation checkpointing over the GNN rollout: recompute the per-step
+    # (B, E, hidden) edge messages in backward instead of storing them for
+    # every one of the up-to-800 rollout steps. Bounds the GNN's rollout
+    # activation memory to ~O(1) in T so it fits a single GPU (without it the
+    # message-passing model OOMs by T≈100 on a 22 GB L4). Used only by the
+    # GNN task models (DrosophilaCxTaskGNN); the dense RNN ignores it.
+    gnn_grad_checkpoint: bool = True
     # Optional image-derived binary mask on W_rec — a fun structural prior
     # to test capacity / sparsity trade-offs. The image is resized to N×N
     # and thresholded at its median to produce a 0/1 mask; W_rec is
