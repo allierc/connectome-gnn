@@ -42,6 +42,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.utils.checkpoint
 
 from connectome_gnn.models.MLP import MLP
 from connectome_gnn.models.registry import register_model
@@ -428,6 +429,14 @@ class ZebrafishHdTaskGNN(nn.Module):
             getattr(config.training, "noise_recurrent_level", 0.0)
         )
 
+        # --- Activation checkpointing over the rollout -----------------
+        # The per-step recurrent drive materialises (B, E, hidden) edge
+        # messages (E = #synapses ≫ N=917). Retaining them for every rollout
+        # step OOMs the GPU; recomputing them in backward bounds the rollout's
+        # activation memory to ~O(1) in T (only h_buf, (B, T, N), is kept).
+        # On by default; disable with graph_model.gnn_grad_checkpoint: false.
+        self.grad_checkpoint = bool(getattr(gm, "gnn_grad_checkpoint", True))
+
         # --- GNN-specific components -----------------------------------
         emb_dim = int(getattr(gm, "embedding_dim", 2))
         hidden_dim = int(getattr(gm, "hidden_dim", 64))
@@ -710,7 +719,14 @@ class ZebrafishHdTaskGNN(nn.Module):
             # GNN core sees the raw subthreshold state (v ≡ h). f_theta is
             # responsible for the full -h + recurrent-drive term; no explicit
             # leak outside the MLP (flyvis GNN convention).
-            rec = self._gnn_recurrent_drive(h)
+            if self.grad_checkpoint and self.training:
+                # Recompute the (B, E, hidden) edge messages in backward
+                # rather than storing them for every rollout step (E≫N → O(T)
+                # activation memory would OOM the GPU; see __init__ note).
+                rec = torch.utils.checkpoint.checkpoint(
+                    self._gnn_recurrent_drive, h, use_reentrant=False)
+            else:
+                rec = self._gnn_recurrent_drive(h)
             inp = self._project_in(u[:, t, :])
             h = h + dt_over_tau * (rec + inp)
             if noise_lvl > 0:
