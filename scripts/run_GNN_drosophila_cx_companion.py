@@ -159,7 +159,7 @@ def _is_trained(cfg: str, output_root: str) -> bool:
     writes to the shared /groups log dir, which the devcontainer also mounts,
     so the glob resolves locally."""
     import glob
-    patt = os.path.join(output_root, "log", "drosophila_cx", cfg, "models",
+    patt = os.path.join(output_root, "log", GROUP, cfg, "models",
                         "best_model_with_*.pt")
     return bool(glob.glob(patt))
 
@@ -168,7 +168,7 @@ def _all_configs() -> list[str]:
     """Every config/drosophila_cx/*.yaml (top level, not archive/), ordered with
     the core suite first then the rest (nulls, rep folds, ...) alphabetically."""
     import glob
-    d = os.path.join(REPO, "config", "drosophila_cx")
+    d = os.path.join(REPO, "config", GROUP)
     names = sorted(os.path.splitext(os.path.basename(f))[0]
                    for f in glob.glob(os.path.join(d, "*.yaml")))
     if not names:
@@ -390,7 +390,7 @@ def main() -> int:
     if args.generate:
         _generate_missing(configs, args.output_root)
 
-    log_dir = os.path.join(args.output_root, "log", "drosophila_cx",
+    log_dir = os.path.join(args.output_root, "log", GROUP,
                            "_companion_runner")
     os.makedirs(log_dir, exist_ok=True)
 
