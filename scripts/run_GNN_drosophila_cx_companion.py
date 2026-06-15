@@ -52,6 +52,29 @@ _ORDER_HINT = [
     "drosophila_cx_rotation_mlpdec",   "drosophila_cx_rotation_kbins",
 ]
 
+# Default re-run set: the 18 trainings that did NOT reach n_epochs in the
+# 2026-06-12..14 batch. All 16 GNN runs OOM'd at epoch 2 (the T=100 rollout
+# step) on the L4 before the gradient-checkpointing fix (commit 702557b); the
+# two RNN runs were killed by the owner. Bare `python run_GNN_..._companion.py`
+# now relaunches exactly these on a100. Delete their log/drosophila_cx/<cfg>/
+# folders first (or pass --all) so the runner does not skip them as "trained".
+_RERUN_GNN_FIXED = [
+    "drosophila_cx_gnn_rotation",
+    "drosophila_cx_gnn_rotation_vfwd",
+    "drosophila_cx_gnn_rotation_rep_1", "drosophila_cx_gnn_rotation_rep_2",
+    "drosophila_cx_gnn_rotation_rep_3", "drosophila_cx_gnn_rotation_rep_4",
+    "drosophila_cx_gnn_rotation_rep_5",
+    "drosophila_cx_gnn_both", "drosophila_cx_gnn_both_leaky",
+    "drosophila_cx_gnn_position_2d", "drosophila_cx_gnn_position_2d_leaky",
+    "drosophila_cx_gnn_propriocep_distance",
+    "drosophila_cx_gnn_propriocep_distance_leaky",
+    "drosophila_cx_gnn_propriocep_mismatch",
+    "drosophila_cx_gnn_propriocep_position_2d",
+    "drosophila_cx_gnn_propriocep_position_2d_leaky",
+    "drosophila_cx_rotation",
+    "drosophila_cx_propriocep_position_2d",
+]
+
 # ---------------------------------------------------------------------------
 # Config inventory (status note as of 2026-06-13). The runner auto-discovers
 # EVERY config/drosophila_cx/*.yaml; this is just a record of what is already
@@ -302,8 +325,13 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--config", nargs="+", default=None,
-                   help="config name(s) to run (default: EVERY config/drosophila_cx/*.yaml)")
-    p.add_argument("--cluster", choices=["l4", "a100", "h100"], default="l4")
+                   help="config name(s) to run (default: the 18-run GNN/RNN "
+                        "re-run set _RERUN_GNN_FIXED; pass --all for EVERY "
+                        "config/drosophila_cx/*.yaml)")
+    p.add_argument("--all", action="store_true",
+                   help="run EVERY config/drosophila_cx/*.yaml instead of the "
+                        "default 18-run re-run set")
+    p.add_argument("--cluster", choices=["l4", "a100", "h100"], default="a100")
     p.add_argument("--n-cpus", type=int, default=8)
     p.add_argument("--hard-runtime-min", type=int, default=1440,
                    help="bsub -W wall-clock limit in minutes (default 1440 = 24 h)")
@@ -336,11 +364,18 @@ def main() -> int:
     args = p.parse_args()
 
     ssh = None if args.local else args.ssh
-    explicit = args.config is not None
-    configs = args.config or _all_configs()
-    # Auto-discovered set: skip configs that are already trained (unless
-    # --rerun-trained). Explicit --config always runs what the user named.
-    if not explicit and not args.rerun_trained:
+    # Config set: explicit --config wins; else --all = every yaml; else the
+    # curated 18-run re-run set (default).
+    if args.config is not None:
+        configs = args.config
+    elif args.all:
+        configs = _all_configs()
+    else:
+        configs = list(_RERUN_GNN_FIXED)
+    # Skip already-trained only for the broad --all sweep; the explicit and the
+    # default re-run sets always run what is named (the re-run set is exactly
+    # the failed jobs we want to relaunch).
+    if args.all and args.config is None and not args.rerun_trained:
         skipped = [c for c in configs if _is_trained(c, args.output_root)]
         configs = [c for c in configs if not _is_trained(c, args.output_root)]
         if skipped:
