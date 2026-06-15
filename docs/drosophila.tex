@@ -1462,6 +1462,59 @@ RNNs).}
 
 \clearpage
 
+\section{Configuration families}
+\label{app:config_families}
+
+The 64 training configurations in \texttt{config/drosophila\_cx/} group
+into a small number of families; each varies one axis (task, readout,
+weight prior, connectome, or seed) about the base heading-integration run.
+Every task in the suite is trained both as the sign-locked recurrent network
+(\texttt{drosophila\_cx\_*}) and as the message-passing GNN
+(\texttt{drosophila\_cx\_gnn\_*}); the RNN/GNN columns count the members of
+each. All share the measured 338-cell circuit
+(\texttt{drosophila\_cx\_338\_v1}) unless the family replaces the connectome.
+
+\begin{table}[h]
+\centering\small
+\begin{tabular}{@{}l c c p{7.6cm}@{}}
+\toprule
+Family (config suffix) & RNN & GNN & Description \\
+\midrule
+\multicolumn{4}{@{}l}{\emph{Task suite} --- one sign-locked RNN and one \texttt{gnn\_} GNN each}\\
+\texttt{rotation}                       & 1 & 1 & Heading-only integration: $\omega\!\to\!\theta$, $\cos/\sin$ readout (base task).\\
+\texttt{rotation\_vfwd}                  & 1 & 1 & Heading-only readout, but $v_{\mathrm{fwd}}$ is also fed --- latent-translation probe.\\
+\texttt{both}, \texttt{both\_leaky}      & 2 & 2 & Heading $+$ forward distance $\xi$ ($\omega,v_{\mathrm{fwd}}$); cumulative and leaky.\\
+\texttt{position\_2d}, \texttt{\_leaky}  & 2 & 2 & Full 2-D path integration to $(x,y)$; cumulative and leaky.\\
+\texttt{propriocep\_*}                   & 5 & 5 & Proprioceptive gate (sensory $\omega$ $+$ efference copy): distance, 2-D, and gain-mismatch sub-tasks.\\
+\midrule
+\multicolumn{4}{@{}l}{\emph{Readout ablations} (heading-only RNN)}\\
+\texttt{rotation\_kbins}                 & 1 & 0 & $K{=}64$-bin heading-classifier readout (vs.\ $\cos/\sin$).\\
+\texttt{rotation\_mlpdec}                & 1 & 0 & Nonlinear MLP readout (vs.\ linear).\\
+\midrule
+\multicolumn{4}{@{}l}{\emph{Connectome weight prior} (Hulse-style block-cosine)}\\
+\texttt{\{rotation,both,position\_2d\}\_cos\{000..100\}} & 15 & 0 & Anchors each (post,\,pre) cell-type block of $W^{\mathrm{rec}}$ to the connectome direction at strength $0.00$--$1.00$ (5 levels $\times$ 3 tasks).\\
+\midrule
+\multicolumn{4}{@{}l}{\emph{Null connectomes} (heading-only RNN; necessity controls, \cref{app:er_null})}\\
+\texttt{rotation\_bs\_\{1..5\}}          & 5 & 0 & Block-shuffle: per (post-,\,pre-type) block the edge count/$|W|$/sign is preserved, fine wiring randomised.\\
+\texttt{rotation\_er\_\{1..5\}}          & 5 & 0 & Erd\H{o}s--R\'enyi, size/density/$|W|$-matched ($p_{\mathrm{inh}}$ sweep).\\
+\texttt{rotation\_er\_ei\_\{1..5\}}      & 5 & 0 & ER matched to the measured inhibitory fraction.\\
+\midrule
+\multicolumn{4}{@{}l}{\emph{Seed replicates} (solution variability)}\\
+\texttt{rotation\_rep\_\{1..5\}} (\,$+$\,\texttt{gnn\_}) & 5 & 5 & Independent random seeds of the base heading task.\\
+\midrule
+\textbf{Total} & \textbf{48} & \textbf{16} & \textbf{64 configurations}\\
+\bottomrule
+\end{tabular}
+\caption{\textbf{Configuration families for the Drosophila CX study.}
+Suffixes are relative to the family base (e.g.\ \texttt{rotation} $\equiv$
+\texttt{drosophila\_cx\_rotation}; its GNN companion is
+\texttt{drosophila\_cx\_gnn\_rotation}). Leaky variants supervise a
+finite-$\tau$ leaky integrator instead of a cumulative one.}
+\label{tab:cx_config_families}
+\end{table}
+
+\clearpage
+
 \begin{thebibliography}{9}
 
 \bibitem[Allier et~al.(2026a)]{allier_connectome_2026}

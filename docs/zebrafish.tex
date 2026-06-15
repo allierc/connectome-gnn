@@ -2596,6 +2596,64 @@ $839$-cell precursor used for the observation-loss runs of
 \label{tab:zhd_mapping}
 \end{table}
 
+\section{Configuration families}
+\label{app:config_families}
+
+The $80$ training configurations in \texttt{config/zebrafish/} group into a
+small number of families; each varies one axis (task, readout, weight prior,
+connectome, stimulus, or seed) about the base heading-integration run. Most
+tasks are trained both as the sign-locked recurrent network
+(\texttt{zebrafish\_hd\_si\_ipn\_917\_v1\_*}) and as the message-passing GNN
+(\texttt{zebrafish\_hd\_si\_gnn\_ipn\_917\_v1\_*}); the RNN/GNN columns count
+the members of each. All share the nominal $917$-cell circuit unless the family
+replaces the connectome. Suffixes below are relative to the
+\texttt{...\_selfmotion\_rotation} base.
+
+\begin{table}[h]
+\centering\small
+\begin{tabular}{@{}l c c p{7.4cm}@{}}
+\toprule
+Family (config suffix) & RNN & GNN & Description \\
+\midrule
+\multicolumn{4}{@{}l}{\emph{Task suite}}\\
+\texttt{rotation}                       & 1 & 1 & Heading-only integration: $\omega\!\to\!\theta$, $\cos/\sin$ readout (base task).\\
+\texttt{rotation\_vfwd}                  & 1 & 1 & Heading-only readout, but $v_{\mathrm{fwd}}$ is also fed --- latent-translation probe (\cref{app:latent_translation}).\\
+\texttt{both}, \texttt{both\_leaky}      & 2 & 2 & Heading $+$ forward distance; cumulative and leaky.\\
+\texttt{position\_2d}, \texttt{\_leaky}  & 2 & 0 & 2-D path integration to $(x,y)$ (the GNN 2-D runs sit under the clustered-motion family below).\\
+\texttt{propriocep\_*}                   & 5 & 4 & Proprioceptive gate (sensory $\omega$ $+$ efference copy): distance, 2-D, and gain-mismatch sub-tasks.\\
+\midrule
+\multicolumn{4}{@{}l}{\emph{Readout ablations} (heading-only RNN)}\\
+\texttt{rotation\_kbins}                 & 1 & 0 & $K{=}64$-bin heading-classifier readout (vs.\ $\cos/\sin$).\\
+\texttt{rotation\_mlpdec}\,(\,$+$\,\texttt{\_\{1..5\}}) & 6 & 0 & Nonlinear MLP readout (vs.\ linear), with 5 seed replicates.\\
+\midrule
+\multicolumn{4}{@{}l}{\emph{Connectome weight prior} (Hulse-style block-cosine)}\\
+\texttt{\{rotation,both,position\_2d\}\_cos\{000..100\}} & 15 & 0 & Anchors each (post,\,pre) cell-type block of $W^{\mathrm{rec}}$ to the connectome direction at strength $0.00$--$1.00$ (5 levels $\times$ 3 tasks).\\
+\midrule
+\multicolumn{4}{@{}l}{\emph{Null connectomes} (necessity controls, \cref{app:er_null})}\\
+\texttt{\{rotation,rotation\_vfwd\}\_bs\_\{1..5\}} & 10 & 0 & Block-shuffle: per (post-,\,pre-type) block edge count/$|W|$/sign preserved, fine wiring randomised.\\
+\texttt{rotation\_er\{,\_1..4\}}         & 1 & 4 & Erd\H{o}s--R\'enyi, size/density/$|W|$-matched.\\
+\texttt{rotation\_er\_ei\_\{1..5\}}      & 0 & 5 & ER matched to the measured inhibitory fraction.\\
+\midrule
+\multicolumn{4}{@{}l}{\emph{Stimulus / embedding variants} (GNN)}\\
+\texttt{\{rotation,position\_2d\}\_clustermove\{,\_1..5\}} & 0 & 13 & Clustered self-motion stimulus regime (bouts), with seed replicates.\\
+\texttt{rotation\_freezeemb}             & 0 & 1 & Type-cluster embedding held frozen (no-learning ablation).\\
+\midrule
+\multicolumn{4}{@{}l}{\emph{Seed replicates} (solution variability)}\\
+\texttt{rotation\_vfwd\_rep\_\{1..5\}}   & 5 & 0 & Independent random seeds of the heading\,$+\,v_{\mathrm{fwd}}$ probe.\\
+\midrule
+\textbf{Total} & \textbf{49} & \textbf{31} & \textbf{80 configurations}\\
+\bottomrule
+\end{tabular}
+\caption{\textbf{Configuration families for the zebrafish HD study.}
+Suffixes are relative to the \texttt{...\_selfmotion\_rotation} base (e.g.\
+\texttt{both} $\equiv$
+\texttt{zebrafish\_hd\_si\_ipn\_917\_v1\_selfmotion\_both}). Leaky variants
+supervise a finite-$\tau$ leaky integrator instead of a cumulative one.}
+\label{tab:zhd_config_families}
+\end{table}
+
+\clearpage
+
 \bibliographystyle{unsrtnat}
 \begin{thebibliography}{9}
 
