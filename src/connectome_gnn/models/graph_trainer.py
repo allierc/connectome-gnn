@@ -1881,6 +1881,7 @@ def _data_train_task_pi(config, erase, best_model, device, log_file=None, resume
         _rollout_heading_metrics,
         _save_training_snapshot,
         _save_place_snapshot,
+        _save_torus_snapshot,
         bump_fwhm,
         path_integration_accuracy_from_data,
     )
@@ -2153,6 +2154,9 @@ def _data_train_task_pi(config, erase, best_model, device, log_file=None, resume
     is_place = (("place_cells" in task_targets_canonical
                  or "grid_cells" in task_targets_canonical)
                 and hasattr(model, 'place_per_frame_loss'))
+    # torus_position: Net1-only task (no place model); gets the 3-D torus
+    # snapshot instead of the heading kinograph.
+    is_torus = ("torus_position" in task_targets_canonical)
     coeff_place = float(getattr(tc, 'coeff_place', 1.0))
     coeff_pos = float(getattr(tc, 'coeff_pos', 1.0))
     coeff_consistency = float(getattr(tc, 'coeff_consistency', 0.0))
@@ -2953,6 +2957,14 @@ def _data_train_task_pi(config, erase, best_model, device, log_file=None, resume
                             u_test, y_test, device)
                     except Exception as _e:
                         _logger.warning(f'place snapshot failed @ step '
+                                        f'{global_step}: {_e}')
+                elif is_torus:
+                    try:
+                        _save_torus_snapshot(
+                            eval_model, log_dir, global_step, epoch + 1,
+                            u_test, y_test, device)
+                    except Exception as _e:
+                        _logger.warning(f'torus snapshot failed @ step '
                                         f'{global_step}: {_e}')
                 else:
                     _save_training_snapshot(

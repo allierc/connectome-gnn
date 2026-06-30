@@ -881,6 +881,67 @@ def _save_training_snapshot(
             print(f"[bump_attractor_eval] gnn function plots failed @ step {global_step}: {exc}")
 
 
+def _save_torus_snapshot(net, log_dir, global_step, epoch, u_test, y_test,
+                         device, trial_idx: int = 0):
+    """3-D torus snapshot for the torus_position task → tmp_training/
+    torus_evolution/. Net1's 6-col output is [cosθ, sinθ, cosφx, sinφx, cosφy,
+    sinφy]; the two phases (φx,φy) are a point on a torus, embedded in 3-D so
+    the wrap-around draws as a clean continuous path. Panels: (1) 3-D donut
+    with true (green) vs decoded (black) trajectory; (2) φx, (3) φy, (4)
+    heading — each true vs decoded over time."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    out_dir = os.path.join(log_dir, "tmp_training", "torus_evolution")
+    os.makedirs(out_dir, exist_ok=True)
+    was_training = net.training
+    net.eval()
+    with torch.no_grad():
+        T = int(min(u_test.shape[1], 1000))
+        yh, _ = net(u_test[trial_idx:trial_idx + 1, :T])     # (1,T,6)
+        yh = yh[0].cpu().numpy()
+    if was_training:
+        net.train()
+    yt = y_test[trial_idx, :T].detach().cpu().numpy()
+    ph = lambda a, i: np.arctan2(a[:, i + 1], a[:, i])       # phase from (cos,sin)
+    thT, thD = ph(yt, 0), ph(yh, 0)
+    pxT, pxD = ph(yt, 2), ph(yh, 2)
+    pyT, pyD = ph(yt, 4), ph(yh, 4)
+    t = np.arange(T) * float(net.dt)
+    GT, PR = "tab:green", "black"
+    R, r = 1.0, 0.4
+
+    def emb(phx, phy):
+        return ((R + r * np.cos(phy)) * np.cos(phx),
+                (R + r * np.cos(phy)) * np.sin(phx),
+                r * np.sin(phy))
+
+    fig = plt.figure(figsize=(15.5, 3.6))
+    ax = fig.add_subplot(1, 4, 1, projection="3d")
+    uu = np.linspace(0, 2 * np.pi, 60); vv = np.linspace(0, 2 * np.pi, 30)
+    U, V = np.meshgrid(uu, vv)
+    Xs, Ys, Zs = emb(U, V)
+    ax.plot_surface(Xs, Ys, Zs, color="0.8", alpha=0.15, linewidth=0,
+                    antialiased=True)
+    xt, yt3, zt = emb(pxT, pyT); ax.plot(xt, yt3, zt, color=GT, lw=1.3)
+    xd, yd, zd = emb(pxD, pyD); ax.plot(xd, yd, zd, color=PR, lw=0.8)
+    ax.set_box_aspect((1, 1, 0.5)); ax.set_axis_off()
+    ax.set_title("torus position (green=true, black=decoded)", fontsize=9)
+    for k, (aT, aD, lab) in enumerate(
+            [(pxT, pxD, r"$\varphi_x$"), (pyT, pyD, r"$\varphi_y$"),
+             (thT, thD, "HD")]):
+        a2 = fig.add_subplot(1, 4, k + 2)
+        a2.plot(t, np.angle(np.exp(1j * aT)), color=GT, lw=0, marker=".", ms=2)
+        a2.plot(t, np.angle(np.exp(1j * aD)), color=PR, lw=0, marker=".", ms=1)
+        a2.set_yticks([-np.pi, 0, np.pi]); a2.set_yticklabels([r"$-\pi$", "0", r"$\pi$"])
+        a2.set_ylim(-np.pi - 0.15, np.pi + 0.15)
+        a2.set_xlabel("time (s)"); a2.set_ylabel(lab); a2.set_box_aspect(1)
+    fig.tight_layout()
+    fig.savefig(os.path.join(out_dir, f"torus_step_{global_step:06d}.png"),
+                dpi=140, bbox_inches="tight")
+    plt.close(fig)
+
+
 def _save_place_snapshot(net, log_dir, global_step, epoch, u_test, y_test,
                          device, trial_idx: int = 0):
     """4×1 place-cell training snapshot into tmp_training/place_evolution/.
