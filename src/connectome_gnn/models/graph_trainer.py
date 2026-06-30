@@ -2958,6 +2958,15 @@ def _data_train_task_pi(config, erase, best_model, device, log_file=None, resume
                     except Exception as _e:
                         _logger.warning(f'place snapshot failed @ step '
                                         f'{global_step}: {_e}')
+                    # grid runs also get the 3-D torus viz (same folder).
+                    if getattr(eval_model, 'grid_mode', False):
+                        try:
+                            _save_torus_snapshot(
+                                eval_model, log_dir, global_step, epoch + 1,
+                                u_test, y_test, device)
+                        except Exception as _e:
+                            _logger.warning(f'grid torus snapshot failed @ step '
+                                            f'{global_step}: {_e}')
                 elif is_torus:
                     try:
                         _save_torus_snapshot(
