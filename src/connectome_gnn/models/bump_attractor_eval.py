@@ -76,8 +76,20 @@ def path_integration_accuracy_from_data(
 ) -> float:
     """Same metric as `path_integration_accuracy`, but on a pre-built
     (u, y) test split (the trainer already has this in GPU memory).
+
+    Heading-bin ablation (net.use_heading_bins): the model emits K-bin logits,
+    not a 2-D (cos,sin) pair, so we first decode the logits to (cos,sin) via the
+    softmax circular mean — the same convention as
+    heading_bins.softmax_logits_to_cos_sin_np and the deterministic-sweep
+    decode — and then apply the identical cosine-to-target metric.
     """
     from tqdm import tqdm
+
+    use_bins = bool(getattr(net, "use_heading_bins", False))
+    K_bins = int(getattr(net, "n_heading_bins", 0))
+    bin_centers = None
+    if use_bins:
+        from connectome_gnn.models.heading_bins import bin_centers_torch
 
     net.eval()
     cosines = []
@@ -91,9 +103,17 @@ def path_integration_accuracy_from_data(
     with torch.no_grad():
         for i in iterator:
             yh, _ = net(u[i : i + batch_size])
-            yh_n = yh[:, warmup:, :] / (
-                yh[:, warmup:, :].norm(dim=-1, keepdim=True) + 1e-8
-            )
+            yh = yh[:, warmup:, :]
+            if use_bins:
+                # (B, T, K) logits -> circular-mean (cos, sin).
+                if bin_centers is None:
+                    bin_centers = bin_centers_torch(
+                        K_bins, device=yh.device, dtype=yh.dtype)
+                p = torch.softmax(yh, dim=-1)
+                yh = torch.stack((( p * torch.cos(bin_centers)).sum(dim=-1),
+                                  ( p * torch.sin(bin_centers)).sum(dim=-1)),
+                                 dim=-1)
+            yh_n = yh / (yh.norm(dim=-1, keepdim=True) + 1e-8)
             yt = y[i : i + batch_size, warmup:, :]
             c = (yh_n * yt).sum(dim=-1).mean().item()
             cosines.append(c)
@@ -859,6 +879,87 @@ def _save_training_snapshot(
             )
         except Exception as exc:
             print(f"[bump_attractor_eval] gnn function plots failed @ step {global_step}: {exc}")
+
+
+def _save_place_snapshot(net, log_dir, global_step, epoch, u_test, y_test,
+                         device, trial_idx: int = 0):
+    """4×1 place-cell training snapshot into tmp_training/place_evolution/.
+
+    Panels: (a) arena trajectory true vs population-vector decoded; (b) the
+    predicted place-code map at the final frame with the true position marked;
+    (c) decoded vs true x/y over time; (d) the Net1 compass heading true vs
+    decoded. ``u_test``/``y_test`` are the trainer's channel-sliced tensors
+    (y_test cols [cosθ, sinθ, ξ, x, y])."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    out_dir = os.path.join(log_dir, "tmp_training", "place_evolution")
+    os.makedirs(out_dir, exist_ok=True)
+    was_training = net.training
+    net.eval()
+    with torch.no_grad():
+        T = int(min(u_test.shape[1], 1000))
+        u = u_test[trial_idx:trial_idx + 1, :T]
+        y_hat, _ = net(u)                               # (1, T, 3+K)
+        K = int(net.net2_n_place)
+        p = torch.softmax(y_hat[0, :, 3:3 + K], dim=-1)  # (T, K)
+        centers = net.place_centers                      # (K, 2)
+        xy_dec = (p @ centers).cpu().numpy()             # (T, 2)
+        th_dec = torch.atan2(y_hat[0, :, 1], y_hat[0, :, 0]).cpu().numpy()
+        p_np = p.cpu().numpy()
+    if was_training:
+        net.train()
+    yt = y_test[trial_idx, :T].detach().cpu().numpy()
+    xy_true = yt[:, 3:5]
+    th_true = np.arctan2(yt[:, 1], yt[:, 0])
+    A = float(net.arena_half)
+    grid = int(round(np.sqrt(K)))
+    t = np.arange(T) * float(net.dt)
+    GT, PR = "tab:green", "black"
+
+    fig, axes = plt.subplots(1, 4, figsize=(16.5, 4.1))
+    # (a) trajectory
+    ax = axes[0]
+    ax.plot(xy_true[:, 0], xy_true[:, 1], color=GT, lw=1.2, label="true")
+    ax.plot(xy_dec[:, 0], xy_dec[:, 1], color=PR, lw=0.9, label="decoded")
+    ax.add_patch(plt.Rectangle((-A, -A), 2 * A, 2 * A, fill=False, ec="0.5"))
+    ax.set_xlim(-A * 1.05, A * 1.05); ax.set_ylim(-A * 1.05, A * 1.05)
+    ax.set_aspect("equal"); ax.legend(fontsize=7, frameon=False)
+    ax.set_title("(a) arena trajectory"); ax.set_xlabel("x"); ax.set_ylabel("y")
+    # (b) predicted place code map at the final frame
+    ax = axes[1]
+    tf = T - 1
+    im = ax.imshow(p_np[tf].reshape(grid, grid), origin="lower",
+                   extent=[-A, A, -A, A], cmap="viridis", aspect="equal")
+    ax.plot(xy_true[tf, 0], xy_true[tf, 1], "o", mec="r", mfc="none",
+            ms=11, mew=1.6)
+    ax.set_title(f"(b) place code @ t={t[tf]:.1f}s (○ true)")
+    ax.set_xlabel("x"); ax.set_ylabel("y")
+    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.02)
+    # (c) decoded vs true position over time
+    ax = axes[2]
+    ax.plot(t, xy_true[:, 0], color=GT, lw=1.0)
+    ax.plot(t, xy_dec[:, 0], color=PR, lw=0.7)
+    ax.plot(t, xy_true[:, 1], color=GT, lw=1.0, ls="--")
+    ax.plot(t, xy_dec[:, 1], color=PR, lw=0.7, ls="--")
+    ax.set_title("(c) x (—) / y (– –): true=green, decoded=black")
+    ax.set_xlabel("time (s)"); ax.set_ylabel("position")
+    # (d) Net1 compass heading
+    ax = axes[3]
+    ax.plot(t, np.angle(np.exp(1j * th_true)), color=GT, lw=0, marker=".", ms=2)
+    ax.plot(t, np.angle(np.exp(1j * th_dec)), color=PR, lw=0, marker=".", ms=1)
+    ax.set_yticks([-np.pi, 0, np.pi]); ax.set_yticklabels([r"$-\pi$", "0", r"$\pi$"])
+    ax.set_ylim(-np.pi - 0.15, np.pi + 0.15)
+    ax.set_title("(d) heading (Net1): true=green, decoded=black")
+    ax.set_xlabel("time (s)"); ax.set_ylabel("HD (rad)")
+
+    pos_rmse = float(np.sqrt(((xy_dec[10:] - xy_true[10:]) ** 2).sum(-1).mean()))
+    fig.suptitle(f"place snapshot — step {global_step} (epoch {epoch}) — "
+                 f"position RMSE = {pos_rmse:.3f} (arena ±{A:g})", fontsize=11)
+    fig.tight_layout(rect=(0, 0, 1, 0.95))
+    fig.savefig(os.path.join(out_dir, f"place_step_{global_step:06d}.png"),
+                dpi=140, bbox_inches="tight")
+    plt.close(fig)
 
 
 def _plot_gnn_functions(

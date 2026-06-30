@@ -1870,6 +1870,7 @@ def _data_train_task_pi(config, erase, best_model, device, log_file=None, resume
     from connectome_gnn.models.bump_attractor_eval import (
         _rollout_heading_metrics,
         _save_training_snapshot,
+        _save_place_snapshot,
         bump_fwhm,
         path_integration_accuracy_from_data,
     )
@@ -1961,11 +1962,17 @@ def _data_train_task_pi(config, erase, best_model, device, log_file=None, resume
         (5, 3, ("rotation", "translation")):  ([0, 1, 2, 3, 4], [0, 1, 2]),
         (5, 4, ("rotation",)):                ([0, 3, 4],       [0, 1]),
         (5, 4, ("position_2d",)):             ([0, 1, 2, 3, 4], [0, 1, 2, 3]),
+        # place_cells (4-col stim, 5-col target [cosθ, sinθ, ξ, x, y]): the
+        # model (drosophila_cx_pi_place) emits 3 heading+distance cols + K
+        # place logits; the trainer keeps all 5 target cols (heading+distance
+        # supervised directly, (x,y) used to build the place code on the fly).
+        (4, 5, ("place_cells",)):             ([0, 1, 2, 3], [0, 1, 2, 3, 4]),
     }
     _task_raw = list(getattr(tc, 'task_targets', None) or [])
     # Canonical key: rotation always before translation; position_2d listed
     # separately. Sorting is by a fixed enumeration so the key is stable.
-    _RECOGNISED = ("rotation", "translation", "position_2d", "rotation_vfwd")
+    _RECOGNISED = ("rotation", "translation", "position_2d", "rotation_vfwd",
+                   "place_cells")
     _task_key = tuple(t for t in _RECOGNISED if t in _task_raw)
     task_targets_canonical = list(_task_key)
     if u_train.shape[-1] >= 4 and _task_key:
@@ -2125,6 +2132,13 @@ def _data_train_task_pi(config, erase, best_model, device, log_file=None, resume
     kappa_norm = float(tc.kappa_norm_floor)
     coeff_tv = float(tc.coeff_tv_circular)
     coeff_l1S = float(tc.coeff_W_L1)
+    # place-cell task (model drosophila_cx_pi_place): KL-distribution + aux
+    # position-decode weights, and a flag selecting the place loss branch.
+    is_place = ("place_cells" in task_targets_canonical
+                and hasattr(model, 'place_per_frame_loss'))
+    coeff_place = float(getattr(tc, 'coeff_place', 1.0))
+    coeff_pos = float(getattr(tc, 'coeff_pos', 1.0))
+    last_place_score = float('nan')
     coeff_f_diff = float(getattr(tc, 'coeff_f_theta_diff', 0.0))
     coeff_g_diff = float(getattr(tc, 'coeff_g_phi_diff', 0.0))
     # Soft embedding-cluster pull: each neuron's a_i toward the centroid of
@@ -2493,10 +2507,23 @@ def _data_train_task_pi(config, erase, best_model, device, log_file=None, resume
         )
     if getattr(tc, 'torch_compile', True):
         try:
-            model = torch.compile(model, mode='reduce-overhead', fullgraph=True)
-            logger.info('torch.compile enabled (mode=reduce-overhead, fullgraph=True); '
+            # 'reduce-overhead' (CUDA Graphs) pins a static buffer pool per
+            # input shape and conflicts with activation checkpointing's
+            # recompute-in-backward. The task GNN checkpoints its T-loop
+            # (grad_checkpoint, default True) precisely to bound rollout memory
+            # to O(1) in T, and the n_steps curriculum recompiles every epoch as
+            # T grows — so CUDA Graphs both defeat the checkpoint savings and
+            # accumulate one un-freed pool per T, OOMing at the long-T epochs
+            # (T=500 on an 80 GB A100). Use plain 'default' for checkpointed
+            # models — same Triton kernels, no CUDA-graph capture. Mirrors the
+            # connectivity-recovery compile site above.
+            _ckpt = bool(getattr(eval_model, 'grad_checkpoint', False))
+            _mode = 'default' if _ckpt else 'reduce-overhead'
+            model = torch.compile(model, mode=_mode, fullgraph=not _ckpt)
+            logger.info(f'torch.compile enabled (mode={_mode}, '
+                        f'grad_checkpoint={_ckpt}); '
                         'eval/snapshot forward stays eager via _orig_mod')
-            _logger.info('torch.compile enabled (eval via _orig_mod)')
+            _logger.info(f'torch.compile enabled (mode={_mode}, eval via _orig_mod)')
         except Exception as exc:
             _logger.warning(f'torch.compile failed, falling back to eager: {exc}')
             logger.info(f'torch.compile failed: {exc}')
@@ -2593,7 +2620,22 @@ def _data_train_task_pi(config, erase, best_model, device, log_file=None, resume
             #   bins off: MSE on cos/sin (Hulse-style heading head).
             #   bins on : CrossEntropy on K-bin logits, with the cos/sin
             #             target converted to bin labels on the fly.
-            if use_bins:
+            if is_place:
+                # Place-cell task: per-frame loss = heading+distance MSE +
+                # coeff_place·KL(q‖softmax(place_logits)) + coeff_pos·position
+                # decode, with the same soft-curriculum tail weighting as the
+                # MSE branch. The [0,1] place score feeds the progress bar.
+                place_pf, _pscore, _ppos = eval_model.place_per_frame_loss(
+                    y_hat, y_in, coeff_place, coeff_pos)        # pf: (B, T_use)
+                last_place_score = float(_pscore)
+                if coeff_tail > 0:
+                    w = torch.ones(T_use, device=u.device)
+                    if T_epoch < T_use:
+                        w[T_epoch:] = coeff_tail
+                    mse = ((place_pf * w[None, :]).sum(dim=-1) / w.sum()).mean()
+                else:
+                    mse = place_pf.mean()
+            elif use_bins:
                 # y_in: (B, T, 2) → (B, T) long. Per-frame CE, then optional
                 # soft-curriculum tail weighting (same shape as the MSE
                 # branch so the rest of the loss assembly is unchanged).
@@ -2872,24 +2914,36 @@ def _data_train_task_pi(config, erase, best_model, device, log_file=None, resume
                             learned=ca_learn
                                 .index_select(-1, ca_kino_model_ix).cpu().numpy(),
                             dt=dt_model)
-                _save_training_snapshot(
-                    net=eval_model, log_dir=log_dir,
-                    kinograph_dir=kinograph_dir,
-                    global_step=global_step, epoch=epoch + 1,
-                    iter_in_epoch=N + 1,
-                    neuron_types=eval_model.neuron_types,
-                    type_names=eval_model.type_names,
-                    epg_indices=eval_model.epg_indices,
-                    epg_glom_ix=eval_model.epg_glom_ix,
-                    device=device,
-                    snapshot_n_steps=snapshot_n_steps,
-                    snapshot_omega_deg=snapshot_omega_deg,
-                    snapshot_v_fwd=snapshot_v_fwd,
-                    config=config,
-                    u_test=u_test,
-                    y_test=y_test,
-                    calcium_panel=calcium_panel,
-                )
+                if is_place:
+                    # Place task: render the 4×1 place dashboard instead of the
+                    # heading compass kinograph (which assumes a 3-ch heading
+                    # probe). Net1's heading is still visible in panel (d).
+                    try:
+                        _save_place_snapshot(
+                            eval_model, log_dir, global_step, epoch + 1,
+                            u_test, y_test, device)
+                    except Exception as _e:
+                        _logger.warning(f'place snapshot failed @ step '
+                                        f'{global_step}: {_e}')
+                else:
+                    _save_training_snapshot(
+                        net=eval_model, log_dir=log_dir,
+                        kinograph_dir=kinograph_dir,
+                        global_step=global_step, epoch=epoch + 1,
+                        iter_in_epoch=N + 1,
+                        neuron_types=eval_model.neuron_types,
+                        type_names=eval_model.type_names,
+                        epg_indices=eval_model.epg_indices,
+                        epg_glom_ix=eval_model.epg_glom_ix,
+                        device=device,
+                        snapshot_n_steps=snapshot_n_steps,
+                        snapshot_omega_deg=snapshot_omega_deg,
+                        snapshot_v_fwd=snapshot_v_fwd,
+                        config=config,
+                        u_test=u_test,
+                        y_test=y_test,
+                        calcium_panel=calcium_panel,
+                    )
                 with open(metrics_log_path, 'a') as f:
                     fwhm_deg = (np.degrees(last_fwhm)
                                 if not np.isnan(last_fwhm) else float('nan'))
@@ -2952,8 +3006,11 @@ def _data_train_task_pi(config, erase, best_model, device, log_file=None, resume
             pearson_str = f'{_fmt_r(last_pearson_roll)} ({_fmt_r(last_pearson_roll_1k)})'
             skips_str = f'  skips={n_nan_skips}' if n_nan_skips > 0 else ''
             obs_str = f'obs={float(obs):.4f} ' if use_calcium else ''
+            place_str = (f'place={last_place_score:.3f} '
+                         if is_place and not np.isnan(last_place_score) else '')
             pbar.set_postfix_str(
                 f'loss={loss.item():.4f} '
+                f'{place_str}'
                 f'{obs_str}'
                 f'rmse_roll={rmse_roll_str} '
                 f'r_roll={pearson_str} '
@@ -2974,7 +3031,10 @@ def _data_train_task_pi(config, erase, best_model, device, log_file=None, resume
         )
 
     # --- Final eval on full test split (full T) -------------------------
-    # pi_acc is heading-only — skip in a pure translation run.
+    # pi_acc is heading-only — skip in a pure translation run. The heading-bin
+    # ablation (use_bins) is handled inside path_integration_accuracy_from_data,
+    # which decodes the K-bin logits to (cos,sin) before the cosine metric, so
+    # the bins model reports a real pi_acc here just like the cos/sin models.
     if ("rotation" in task_targets_canonical
             or "position_2d" in task_targets_canonical
             or "rotation_vfwd" in task_targets_canonical
@@ -3196,10 +3256,23 @@ def _data_train_cortex_task(config, erase, best_model, device, log_file=None):
     eval_model = model
     if getattr(tc, 'torch_compile', True):
         try:
-            model = torch.compile(model, mode='reduce-overhead', fullgraph=True)
-            logger.info('torch.compile enabled (mode=reduce-overhead, fullgraph=True); '
+            # 'reduce-overhead' (CUDA Graphs) pins a static buffer pool per
+            # input shape and conflicts with activation checkpointing's
+            # recompute-in-backward. The task GNN checkpoints its T-loop
+            # (grad_checkpoint, default True) precisely to bound rollout memory
+            # to O(1) in T, and the n_steps curriculum recompiles every epoch as
+            # T grows — so CUDA Graphs both defeat the checkpoint savings and
+            # accumulate one un-freed pool per T, OOMing at the long-T epochs
+            # (T=500 on an 80 GB A100). Use plain 'default' for checkpointed
+            # models — same Triton kernels, no CUDA-graph capture. Mirrors the
+            # connectivity-recovery compile site above.
+            _ckpt = bool(getattr(eval_model, 'grad_checkpoint', False))
+            _mode = 'default' if _ckpt else 'reduce-overhead'
+            model = torch.compile(model, mode=_mode, fullgraph=not _ckpt)
+            logger.info(f'torch.compile enabled (mode={_mode}, '
+                        f'grad_checkpoint={_ckpt}); '
                         'eval/snapshot forward stays eager via _orig_mod')
-            _logger.info('torch.compile enabled (eval via _orig_mod)')
+            _logger.info(f'torch.compile enabled (mode={_mode}, eval via _orig_mod)')
         except Exception as exc:
             _logger.warning(f'torch.compile failed, falling back to eager: {exc}')
             logger.info(f'torch.compile failed: {exc}')

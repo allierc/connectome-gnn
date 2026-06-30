@@ -419,6 +419,321 @@ def _generate_path_integration_task(config, *, device, visualize: bool = True) -
             )
 
 
+# ---------------------------------------------------------------------------
+# Place-cell task helpers (target_kind="place_cells")
+# ---------------------------------------------------------------------------
+def _reflecting_arena_trajectory(omega_deg_base, vfwd_base, theta0, dt, A, L_turn):
+    """Forage a bounded square arena [-A, A]² with reflecting walls.
+
+    Walls are modelled as a *stop-and-turn*: when a forward step would leave
+    the arena the agent freezes its translation and rotates in place toward
+    the specular-reflected heading over ``L_turn`` frames, then resumes. This
+    keeps the angular velocity bounded (a leaky bump can physically track it)
+    and — by construction — preserves the integrator identities exactly:
+
+        θ(t)      = θ(t-1) + ω_real(t)·dt
+        (x,y)(t)  = (x,y)(t-1) + v_real(t)·(cosθ, sinθ)(t)·dt
+
+    so the realized ω_real / v_real drives (returned, in deg/s and units/s)
+    reproduce the heading and position the network is supervised on.
+
+    Inputs are the swim-event base drives ``omega_deg_base`` (B,T, deg/s) and
+    ``vfwd_base`` (B,T), the per-trial initial heading ``theta0`` (B,), the
+    time step ``dt``, arena half-width ``A`` and turn duration ``L_turn``
+    (frames). Returns realized ``theta_hd, x, y`` (B,T) and the realized
+    drives ``omega_deg_real, vfwd_real`` (B,T). Random start positions are
+    drawn from the global ``np.random`` stream (seeded by the caller).
+    """
+    B, T = omega_deg_base.shape
+    w_base = np.deg2rad(omega_deg_base.astype(np.float64))
+    v_base = vfwd_base.astype(np.float64)
+    theta = theta0.astype(np.float64).copy()
+    x = np.random.uniform(-A * 0.8, A * 0.8, size=B)
+    y = np.random.uniform(-A * 0.8, A * 0.8, size=B)
+    th_o = np.zeros((B, T)); xo = np.zeros((B, T)); yo = np.zeros((B, T))
+    wo = np.zeros((B, T)); vo = np.zeros((B, T))
+    th_o[:, 0] = theta; xo[:, 0] = x; yo[:, 0] = y
+    turn_rem = np.zeros(B, dtype=np.int64)
+    turn_w = np.zeros(B)
+    for t in range(1, T):
+        turning = turn_rem > 0
+        w = np.where(turning, turn_w, w_base[:, t])
+        v = np.where(turning, 0.0, v_base[:, t])
+        th_prop = theta + w * dt
+        xt = x + v * np.cos(th_prop) * dt
+        yt = y + v * np.sin(th_prop) * dt
+        ox = (~turning) & ((xt > A) | (xt < -A))
+        oy = (~turning) & ((yt > A) | (yt < -A))
+        newhit = ox | oy
+        th_ref = th_prop.copy()
+        th_ref = np.where(ox, np.pi - th_ref, th_ref)   # reflect across x-wall
+        th_ref = np.where(oy, -th_ref, th_ref)          # reflect across y-wall
+        d = np.angle(np.exp(1j * (th_ref - theta)))     # shortest turn to it
+        turn_w = np.where(newhit, d / (L_turn * dt), turn_w)
+        # Realized drives this frame: newhit → freeze (0,0); turning →
+        # (turn_w, 0); moving → (base, base). Commit position only when moving.
+        wo[:, t] = np.rad2deg(np.where(newhit, 0.0, w))
+        vo[:, t] = np.where(newhit, 0.0, v)
+        theta = np.where(newhit, theta, th_prop)
+        x = np.where(newhit, x, xt)
+        y = np.where(newhit, y, yt)
+        turn_rem = np.where(turning, turn_rem - 1, turn_rem)
+        turn_rem = np.where(newhit, L_turn, turn_rem)
+        th_o[:, t] = theta; xo[:, t] = x; yo[:, t] = y
+    return (th_o.astype(np.float32), xo.astype(np.float32), yo.astype(np.float32),
+            wo.astype(np.float32), vo.astype(np.float32))
+
+
+def place_cell_centers(grid: int, arena_half: float) -> np.ndarray:
+    """(K=grid², 2) regular grid of place-field centres over [-A, A]²."""
+    ax = np.linspace(-arena_half, arena_half, grid)
+    gx, gy = np.meshgrid(ax, ax, indexing="xy")
+    return np.stack([gx.ravel(), gy.ravel()], axis=-1).astype(np.float32)
+
+
+def place_cell_activation(xy: np.ndarray, centers: np.ndarray,
+                          sigma: float) -> np.ndarray:
+    """Gaussian place-field activations p_k = exp(-‖xy-c_k‖²/2σ²).
+
+    ``xy`` is (..., 2), ``centers`` is (K, 2); returns (..., K). Used both for
+    the example figure here and (on the fly) by the trainer/plots so the place
+    code is never materialised to disk.
+    """
+    xy = np.asarray(xy, dtype=np.float32)
+    d2 = ((xy[..., None, :] - centers[None, ...]) ** 2).sum(-1)
+    return np.exp(-d2 / (2.0 * sigma * sigma)).astype(np.float32)
+
+
+def _generate_net2_connectivity(n_inter, n_place, sparsity, ei_ratio, seed):
+    """Synthetic sign-locked E/I recurrent connectome for Net2.
+
+    Returns ``(W2, neuron_types, ei, type_names)``: ``W2`` (N2,N2) in
+    [post, pre] layout (same convention as Net1's W_con), ``neuron_types``
+    (N2,) 0=interneuron / 1=place_cell (contiguous blocks), ``ei`` (N2,) +1
+    excitatory / -1 inhibitory (Dale's law — every outgoing weight of a
+    neuron carries its sign), ``type_names`` ['interneuron','place_cell'].
+    Sparse at density ``sparsity`` (no self-loops), excitatory fraction
+    ``ei_ratio``, deterministic given ``seed``.
+    """
+    rng = np.random.default_rng(seed)
+    N2 = n_inter + n_place
+    neuron_types = np.concatenate(
+        [np.zeros(n_inter, dtype=np.int64), np.ones(n_place, dtype=np.int64)])
+    type_names = ["interneuron", "place_cell"]
+    n_exc = int(round(ei_ratio * N2))
+    ei = -np.ones(N2, dtype=np.int64)
+    ei[rng.choice(N2, size=n_exc, replace=False)] = 1
+    mask = rng.random((N2, N2)) < float(sparsity)
+    np.fill_diagonal(mask, False)
+    mag = np.abs(rng.normal(0.0, 1.0, size=(N2, N2)))
+    # Column j = presynaptic neuron j → its sign (Dale) multiplies its column.
+    W2 = (mag * mask) * ei[None, :].astype(np.float64)
+    kin = mask.sum(axis=1, keepdims=True).clip(min=1)
+    W2 = (W2 / np.sqrt(kin)).astype(np.float32)
+    return W2, neuron_types, ei, type_names
+
+
+def _plot_net2_matrix(W2, neuron_types, ei, type_names, out_path):
+    """Matrix heatmap of Net2's recurrent connectome with type blocks."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    N2 = W2.shape[0]
+    n_inter = int((neuron_types == 0).sum())
+    vmax = float(np.abs(W2).max()) or 1.0
+    fig, ax = plt.subplots(figsize=(7.2, 6.4))
+    im = ax.imshow(W2, cmap="RdBu_r", vmin=-vmax, vmax=vmax,
+                   interpolation="nearest", origin="upper")
+    # Block boundary between interneuron and place-cell blocks.
+    for b in (n_inter,):
+        ax.axhline(b - 0.5, color="k", lw=0.8)
+        ax.axvline(b - 0.5, color="k", lw=0.8)
+    ax.set_xticks([n_inter / 2, n_inter + (N2 - n_inter) / 2])
+    ax.set_xticklabels(type_names)
+    ax.set_yticks([n_inter / 2, n_inter + (N2 - n_inter) / 2])
+    ax.set_yticklabels(type_names, rotation=90, va="center")
+    ax.set_xlabel("presynaptic"); ax.set_ylabel("postsynaptic")
+    n_exc = int((ei == 1).sum())
+    ax.set_title(f"Net2 $W^{{(2)}}_{{\\mathrm{{con}}}}$  (N={N2}: "
+                 f"{n_inter} interneurons + {N2 - n_inter} place cells; "
+                 f"E/I={n_exc}/{N2 - n_exc}, density="
+                 f"{(np.abs(W2) > 0).mean():.2f})", fontsize=10)
+    cb = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.02)
+    cb.ax.tick_params(labelsize=8)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=160, bbox_inches="tight")
+    plt.close(fig)
+
+
+def _plot_place_field_examples(centers, sigma, arena_half, out_path, n=4):
+    """4×1 column of example place-cell Gaussian receptive fields (heatmaps)."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    A = float(arena_half)
+    g = np.linspace(-A, A, 120)
+    gx, gy = np.meshgrid(g, g, indexing="xy")
+    grid_xy = np.stack([gx.ravel(), gy.ravel()], -1)
+    K = centers.shape[0]
+    # Four representative cells: lower-left, off-centre, centre, upper-right.
+    picks = [0, K // 4 + 2, K // 2 + int(np.sqrt(K)) // 2, K - 1]
+    fig, axes = plt.subplots(1, n, figsize=(3.4 * n, 3.4))
+    for j, (ax, k) in enumerate(zip(np.atleast_1d(axes), picks[:n])):
+        act = place_cell_activation(grid_xy, centers[k:k + 1], sigma).reshape(gx.shape)
+        im = ax.imshow(act, extent=[-A, A, -A, A], origin="lower",
+                       cmap="viridis", vmin=0, vmax=1, aspect="equal")
+        ax.set_title(f"place cell {k}  c=({centers[k,0]:+.2f},{centers[k,1]:+.2f}), "
+                     f"σ={sigma:g}", fontsize=9, fontweight="normal")
+        ax.set_xlabel("x")
+        if j == 0:
+            ax.set_ylabel("y")
+        fig.colorbar(im, ax=ax, fraction=0.046, pad=0.02)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=160, bbox_inches="tight")
+    plt.close(fig)
+
+
+def _plot_place_cells_setup(W2, neuron_types, ei, type_names, centers, sigma,
+                            arena_half, out_path):
+    """Combined setup figure: (left) Net2 connectome, (right) 2×2 place fields."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    A = float(arena_half)
+    N2 = W2.shape[0]
+    n_inter = int((neuron_types == 0).sum())
+    n_exc = int((ei == 1).sum())
+    grid = int(round(np.sqrt(centers.shape[0])))
+    fig = plt.figure(figsize=(13.0, 6.2))
+    gs = fig.add_gridspec(2, 4, wspace=0.40, hspace=0.30)
+
+    # (a) Net2 recurrent connectome — left 2×2 block (square).
+    axm = fig.add_subplot(gs[0:2, 0:2])
+    vmax = float(np.abs(W2).max()) or 1.0
+    im = axm.imshow(W2, cmap="RdBu_r", vmin=-vmax, vmax=vmax,
+                    interpolation="nearest", origin="upper")
+    axm.axhline(n_inter - 0.5, color="k", lw=0.8)
+    axm.axvline(n_inter - 0.5, color="k", lw=0.8)
+    axm.set_xticks([n_inter / 2, n_inter + (N2 - n_inter) / 2])
+    axm.set_xticklabels(type_names, fontsize=8)
+    axm.set_yticks([n_inter / 2, n_inter + (N2 - n_inter) / 2])
+    axm.set_yticklabels(type_names, rotation=90, va="center", fontsize=8)
+    axm.set_xlabel("presynaptic"); axm.set_ylabel("postsynaptic")
+    axm.set_title(f"(a) Net2 $W^{{(2)}}$  (N={N2}: {n_inter} interneurons "
+                  f"+ {N2 - n_inter} place cells;\nE/I={n_exc}/{N2 - n_exc}, "
+                  f"density={(np.abs(W2) > 0).mean():.2f})", fontsize=9)
+    fig.colorbar(im, ax=axm, fraction=0.046, pad=0.02).ax.tick_params(labelsize=7)
+
+    # (b) 2×2 example place fields — right block, laid out to match arena
+    # geometry (top row = high y, left column = low x).
+    g = np.linspace(-A, A, 120)
+    gx, gy = np.meshgrid(g, g, indexing="xy")
+    grid_xy = np.stack([gx.ravel(), gy.ravel()], -1)
+    rows_iy = [3 * grid // 4, grid // 4]
+    cols_ix = [grid // 4, 3 * grid // 4]
+    for ri, iy in enumerate(rows_iy):
+        for ci, ix in enumerate(cols_ix):
+            k = iy * grid + ix
+            ax = fig.add_subplot(gs[ri, 2 + ci])
+            act = place_cell_activation(grid_xy, centers[k:k + 1], sigma).reshape(gx.shape)
+            im2 = ax.imshow(act, extent=[-A, A, -A, A], origin="lower",
+                            cmap="viridis", vmin=0, vmax=1, aspect="equal")
+            ax.set_title(f"cell {k}: $c$=({centers[k,0]:+.2f},{centers[k,1]:+.2f})",
+                         fontsize=8, fontweight="normal")
+            ax.tick_params(labelsize=7)
+            if ri == 1:
+                ax.set_xlabel("x", fontsize=8)
+            if ci == 0:
+                ax.set_ylabel("y", fontsize=8)
+    # one shared title for the right block
+    fig.text(0.74, 0.965, f"(b) example Gaussian place fields ($\\sigma$={sigma:g})",
+             ha="center", fontsize=9)
+    fig.colorbar(im2, ax=fig.axes[1:], fraction=0.025, pad=0.02).ax.tick_params(labelsize=7)
+    fig.savefig(out_path, dpi=160, bbox_inches="tight")
+    plt.close(fig)
+
+
+def _plot_trajectory_examples(xy, arena_half, out_path, nrows=3, ncols=3):
+    """nrows×ncols grid of example arena trajectories (colour = time)."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.collections import LineCollection
+    A = float(arena_half)
+    n = nrows * ncols
+    xy = np.asarray(xy)
+    T = xy.shape[1]
+    tcol = np.linspace(0.0, 1.0, T)
+    fig, axes = plt.subplots(nrows, ncols, figsize=(3.0 * ncols, 3.0 * nrows))
+    for i, ax in enumerate(np.atleast_1d(axes).ravel()[:n]):
+        p = xy[i]
+        pts = p.reshape(-1, 1, 2)
+        segs = np.concatenate([pts[:-1], pts[1:]], axis=1)
+        lc = LineCollection(segs, cmap="viridis", array=tcol[:-1], lw=0.8)
+        ax.add_collection(lc)
+        ax.plot(p[0, 0], p[0, 1], "o", color="lime", ms=5, zorder=5)   # start
+        ax.plot(p[-1, 0], p[-1, 1], "s", color="red", ms=5, zorder=5)  # end
+        ax.add_patch(plt.Rectangle((-A, -A), 2 * A, 2 * A, fill=False,
+                                   ec="0.5", lw=1.0))
+        ax.set_xlim(-A * 1.06, A * 1.06); ax.set_ylim(-A * 1.06, A * 1.06)
+        ax.set_aspect("equal")
+        ax.set_xticks([-A, 0, A]); ax.set_yticks([-A, 0, A])
+        ax.tick_params(labelsize=7)
+    fig.suptitle("Example arena trajectories (colour = time; "
+                 "● start, ■ end)", fontsize=10)
+    fig.tight_layout(rect=(0, 0, 1, 0.97))
+    fig.savefig(out_path, dpi=160, bbox_inches="tight")
+    plt.close(fig)
+
+
+def _plot_occupancy_map(xy, arena_half, out_path, bins=50, centers=None,
+                        sigma=None, grid=None):
+    """Global exploration map averaged over all trajectories. Panels:
+    (1) linear occupancy, (2) log occupancy (reveals under-explored edges),
+    (3) per-place-cell mean target activation on the place grid — the actual
+    spatial class imbalance the place-cell loss sees."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    A = float(arena_half)
+    xy = np.asarray(xy)
+    x = xy[..., 0].ravel(); y = xy[..., 1].ravel()
+    H, xe, ye = np.histogram2d(x, y, bins=bins, range=[[-A, A], [-A, A]])
+    H = H / max(H.sum(), 1.0)
+    have_cells = centers is not None and sigma is not None and grid is not None
+    ncol = 3 if have_cells else 2
+    fig, axes = plt.subplots(1, ncol, figsize=(5.6 * ncol, 4.8))
+    for ax, dat, lab in (
+        (axes[0], H.T, "occupancy (fraction of time)"),
+        (axes[1], np.log10(H.T + 1e-9), "$\\log_{10}$ occupancy")):
+        im = ax.imshow(dat, origin="lower", extent=[-A, A, -A, A],
+                       cmap="viridis", aspect="equal")
+        ax.set_title(lab, fontsize=10); ax.set_xlabel("x"); ax.set_ylabel("y")
+        fig.colorbar(im, ax=ax, fraction=0.046, pad=0.02).ax.tick_params(labelsize=7)
+    ratio_txt = ""
+    if have_cells:
+        # Per-cell mean activation on a subsample (the loss-relevant imbalance).
+        nsub = min(xy.shape[0], 1500)
+        P = place_cell_activation(xy[:nsub], centers, float(sigma)).mean((0, 1))
+        Pm = P.reshape(int(grid), int(grid))    # (iy, ix) since k = iy*grid+ix
+        ax = axes[2]
+        im = ax.imshow(Pm, origin="lower", extent=[-A, A, -A, A],
+                       cmap="viridis", aspect="equal")
+        ax.set_title("per-place-cell mean target activation", fontsize=10)
+        ax.set_xlabel("x"); ax.set_ylabel("y")
+        fig.colorbar(im, ax=ax, fraction=0.046, pad=0.02).ax.tick_params(labelsize=7)
+        c = np.abs(centers) < 0.4 * A
+        k = np.abs(centers) > 0.8 * A
+        ctr = P[(c[:, 0] & c[:, 1])].mean()
+        cor = P[(k[:, 0] & k[:, 1])].mean()
+        ratio_txt = (f" — corner place cells fire {ctr / max(cor, 1e-9):.1f}× "
+                     f"less than centre (mean act {cor:.3f} vs {ctr:.3f})")
+    fig.suptitle("Arena occupancy over all trajectories" + ratio_txt, fontsize=11)
+    fig.tight_layout(rect=(0, 0, 1, 0.95))
+    fig.savefig(out_path, dpi=160, bbox_inches="tight")
+    plt.close(fig)
+
+
 def _generate_swim_integration_task(config, *, device, visualize: bool = True) -> None:
     """Generate the larval-zebrafish swim-integration task data.
 
@@ -756,10 +1071,32 @@ def _generate_swim_integration_task(config, *, device, visualize: bool = True) -
             target_y = np.stack(
                 [np.cos(theta_hd), np.sin(theta_hd), mismatch], axis=-1,
             ).astype(np.float32)
+        elif _target_kind == "place_cells":
+            # Head-direction + distance + PLACE-CELL task. The agent forages a
+            # bounded arena [-A, A]² with reflecting walls (stop-and-turn), so
+            # the swim-event ω/v_fwd are re-realised as bounded drives that
+            # keep the path inside the box while preserving θ=∫ω·dt and
+            # (x,y)=∫v·dir·dt exactly. We OVERWRITE ω, v_fwd, θ_hd and is_stop
+            # with the realised quantities so the stimulus and sidecars stay
+            # self-consistent. On-disk target is 5-col [cosθ, sinθ, ξ, x, y];
+            # the K=place_grid² Gaussian place activations are derived on the
+            # fly (a dense (B,T,K) target would be ~160 GB), from these (x,y)
+            # and the saved place_centers/σ.
+            _A = float(getattr(si, "arena_half", 1.0))
+            theta_hd, x_pos, y_pos, omega, vfwd = _reflecting_arena_trajectory(
+                omega, vfwd, theta0, dt, _A, L)
+            is_stop = (omega == 0).astype(np.float32)
+            disp = (np.cumsum(vfwd, axis=1) * dt).astype(np.float32)
+            disp[:, 0] = 0.0
+            target_y = np.stack(
+                [np.cos(theta_hd), np.sin(theta_hd), disp, x_pos, y_pos],
+                axis=-1,
+            ).astype(np.float32)
         else:
             raise ValueError(
                 f"task.swim_integration.target_kind must be 'scalar_xi', "
-                f"'position_2d' or 'rotation_mismatch'; got {_target_kind!r}"
+                f"'position_2d', 'rotation_mismatch' or 'place_cells'; "
+                f"got {_target_kind!r}"
             )
         # Input — channel layout selected by ``propriocep_split``:
         #   default (False): 4 channels [ω, v_fwd, cos θ₀·δ, sin θ₀·δ]
@@ -838,6 +1175,69 @@ def _generate_swim_integration_task(config, *, device, visualize: bool = True) -
                 swim_label=swim_label, dt=dt,
                 out_path=os.path.join(out_root, f"task_traces_{split}.png"),
             )
+
+    # --- Place-cell task artefacts (target_kind="place_cells") -------------
+    # Generated once per dataset, saved next to the train/test splits so the
+    # model and every plot share one fixed Net2 connectome and place-field
+    # geometry. (a) Net2's synthetic sign-locked E/I connectome + its matrix
+    # plot; (b) the place-field centres + σ; (c) a 4×1 example-field figure.
+    if str(getattr(si, "target_kind", "")).lower() == "place_cells":
+        import json
+        _A = float(getattr(si, "arena_half", 1.0))
+        grid = int(getattr(si, "place_grid", 20))
+        sigma = float(getattr(si, "place_sigma", 0.2))
+        centers = place_cell_centers(grid, _A)
+        n_place = centers.shape[0]
+        n_inter = int(getattr(si, "net2_n_interneurons", 200))
+        W2, n_types, ei, type_names = _generate_net2_connectivity(
+            n_inter, n_place,
+            float(getattr(si, "net2_sparsity", 0.10)),
+            float(getattr(si, "net2_ei_ratio", 0.60)),
+            int(getattr(si, "net2_seed", 700000)))
+        np.savez(os.path.join(out_root, "net2_Wcon.npz"),
+                 W2_con=W2, neuron_types=n_types, ei=ei,
+                 type_names=np.array(type_names),
+                 n_interneurons=np.int64(n_inter), n_place=np.int64(n_place))
+        np.savez(os.path.join(out_root, "place_geometry.npz"),
+                 centers=centers, sigma=np.float32(sigma),
+                 grid=np.int64(grid), arena_half=np.float32(_A))
+        with open(os.path.join(out_root, "place_meta.json"), "w") as f:
+            json.dump({"place_grid": grid, "n_place": int(n_place),
+                       "place_sigma": sigma, "arena_half": _A,
+                       "net2_n_interneurons": n_inter,
+                       "net2_n_neurons": int(n_inter + n_place),
+                       "net2_sparsity": float(getattr(si, "net2_sparsity", 0.10)),
+                       "net2_ei_ratio": float(getattr(si, "net2_ei_ratio", 0.60)),
+                       "net2_seed": int(getattr(si, "net2_seed", 700000))},
+                      f, indent=2, sort_keys=True)
+        if visualize:
+            _plot_net2_matrix(W2, n_types, ei, type_names,
+                              os.path.join(out_root, "net2_Wcon.png"))
+            _plot_place_field_examples(
+                centers, sigma, _A,
+                os.path.join(out_root, "place_fields_examples.png"))
+            # Combined paper figure: Net2 matrix (left) + 2×2 place fields (right).
+            _plot_place_cells_setup(
+                W2, n_types, ei, type_names, centers, sigma, _A,
+                os.path.join(out_root, "place_cells_setup.png"))
+            # 3×3 grid of example arena trajectories (exploration check). The
+            # (x,y) path lives in target columns 3:5 of the test split.
+            try:
+                import zarr as _z
+                _xy = np.asarray(_z.load(
+                    os.path.join(out_root, "test", "target.zarr")))[:9, :, 3:5]
+                _plot_trajectory_examples(
+                    _xy, _A, os.path.join(out_root, "trajectory_examples.png"))
+                _xy_all = np.asarray(_z.load(
+                    os.path.join(out_root, "test", "target.zarr")))[..., 3:5]
+                _plot_occupancy_map(
+                    _xy_all, _A, os.path.join(out_root, "occupancy_map.png"),
+                    centers=centers, sigma=sigma, grid=grid)
+            except Exception as _e:
+                logger.info(f"[task]   place_cells: trajectory plot skipped ({_e})")
+        logger.info(f"[task]   place_cells: wrote net2_Wcon.npz "
+                    f"(N2={n_inter + n_place}), place_geometry.npz "
+                    f"(K={n_place}, σ={sigma}, arena=±{_A}), and plots")
 
 
 def _generate_cortex_task(config, *, device, visualize: bool = True) -> None:
