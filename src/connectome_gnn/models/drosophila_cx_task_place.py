@@ -66,19 +66,26 @@ class DrosophilaCxTaskPlace(DrosophilaCxTaskRNN):
         self.net2_N = N2
 
         # --- synthetic sign-locked E/I recurrent connectome W2 -------------
-        root = graphs_data_path(config.dataset)
-        npz = np.load(os.path.join(root, "net2_Wcon.npz"))
-        W2 = torch.from_numpy(npz["W2_con"].astype(np.float32))
-        if W2.shape[0] != N2:
-            raise ValueError(
-                f"net2_Wcon.npz has N2={W2.shape[0]} but config implies "
-                f"{n_inter}+{K}={N2}; regenerate the dataset.")
+        # Built deterministically from the config params (net2_sparsity /
+        # net2_ei_ratio / net2_seed) rather than loaded from the dataset, so
+        # sweeping sparsity / E/I in the config changes W2 without needing a
+        # new dataset. For the base params this reproduces the dataset's saved
+        # net2_Wcon.npz exactly (same seed → same matrix).
+        from connectome_gnn.generators.graph_data_generator import (
+            _generate_net2_connectivity,
+        )
+        W2_np, n_types, ei, type_names = _generate_net2_connectivity(
+            n_inter, K,
+            float(getattr(si, "net2_sparsity", 0.10)),
+            float(getattr(si, "net2_ei_ratio", 0.60)),
+            int(getattr(si, "net2_seed", 700000)))
+        W2 = torch.from_numpy(W2_np.astype(np.float32))
         self.register_buffer("W2_con", W2)
         self.register_buffer("W2_con_sign", torch.sign(W2))
         # per-neuron metadata (functional type + Dale sign) for plots/tests
-        self.net2_neuron_types = np.asarray(npz["neuron_types"]).astype(np.int64)
-        self.net2_type_names = [str(s) for s in list(npz["type_names"])]
-        self.net2_ei = np.asarray(npz["ei"]).astype(np.int64)
+        self.net2_neuron_types = np.asarray(n_types).astype(np.int64)
+        self.net2_type_names = [str(s) for s in list(type_names)]
+        self.net2_ei = np.asarray(ei).astype(np.int64)
         # sign-locked: W2_rec = |S2| ⊙ sign(W2_con); init so W2_rec == W2_con
         self.S2 = nn.Parameter(W2.abs().clone())
         self.register_buffer("net2_place_idx",
@@ -99,7 +106,8 @@ class DrosophilaCxTaskPlace(DrosophilaCxTaskRNN):
         self.net2_tau = float(getattr(si, "net2_tau_s", self.tau))
 
         # --- place-field geometry (centres + σ) for loss / decode ----------
-        pg = np.load(os.path.join(root, "place_geometry.npz"))
+        pg = np.load(os.path.join(graphs_data_path(config.dataset),
+                                  "place_geometry.npz"))
         self.register_buffer(
             "place_centers", torch.from_numpy(pg["centers"].astype(np.float32)))
         self.place_sigma = float(pg["sigma"])
