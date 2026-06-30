@@ -917,23 +917,23 @@ def _save_place_snapshot(net, log_dir, global_step, epoch, u_test, y_test,
     t = np.arange(T) * float(net.dt)
     GT, PR = "tab:green", "black"
 
-    fig, axes = plt.subplots(1, 4, figsize=(16.5, 4.1))
-    # (a) trajectory
+    tf = T - 1
+    # Square cells (width≈height) so the equal-aspect (a)/(b) panels fill their
+    # columns — no big blanks. No per-panel titles (bold a–d labels instead),
+    # no arena box / legend on (a).
+    fig, axes = plt.subplots(1, 4, figsize=(13.5, 4.0))
+    # (a) trajectory — no bounding box, no legend, no title
     ax = axes[0]
-    ax.plot(xy_true[:, 0], xy_true[:, 1], color=GT, lw=1.2, label="true")
-    ax.plot(xy_dec[:, 0], xy_dec[:, 1], color=PR, lw=0.9, label="decoded")
-    ax.add_patch(plt.Rectangle((-A, -A), 2 * A, 2 * A, fill=False, ec="0.5"))
-    ax.set_xlim(-A * 1.05, A * 1.05); ax.set_ylim(-A * 1.05, A * 1.05)
-    ax.set_aspect("equal"); ax.legend(fontsize=7, frameon=False)
-    ax.set_title("(a) arena trajectory"); ax.set_xlabel("x"); ax.set_ylabel("y")
+    ax.plot(xy_true[:, 0], xy_true[:, 1], color=GT, lw=1.2)
+    ax.plot(xy_dec[:, 0], xy_dec[:, 1], color=PR, lw=0.9)
+    ax.set_xlim(-A, A); ax.set_ylim(-A, A); ax.set_aspect("equal")
+    ax.set_xlabel("x"); ax.set_ylabel("y")
     # (b) predicted place code map at the final frame
     ax = axes[1]
-    tf = T - 1
     im = ax.imshow(p_np[tf].reshape(grid, grid), origin="lower",
                    extent=[-A, A, -A, A], cmap="viridis", aspect="equal")
     ax.plot(xy_true[tf, 0], xy_true[tf, 1], "o", mec="r", mfc="none",
             ms=11, mew=1.6)
-    ax.set_title(f"(b) place code @ t={t[tf]:.1f}s (○ true)")
     ax.set_xlabel("x"); ax.set_ylabel("y")
     fig.colorbar(im, ax=ax, fraction=0.046, pad=0.02)
     # (c) decoded vs true position over time
@@ -942,21 +942,32 @@ def _save_place_snapshot(net, log_dir, global_step, epoch, u_test, y_test,
     ax.plot(t, xy_dec[:, 0], color=PR, lw=0.7)
     ax.plot(t, xy_true[:, 1], color=GT, lw=1.0, ls="--")
     ax.plot(t, xy_dec[:, 1], color=PR, lw=0.7, ls="--")
-    ax.set_title("(c) x (—) / y (– –): true=green, decoded=black")
-    ax.set_xlabel("time (s)"); ax.set_ylabel("position")
+    ax.set_xlabel("time (s)"); ax.set_ylabel("position  x (—) / y (– –)")
     # (d) Net1 compass heading
     ax = axes[3]
     ax.plot(t, np.angle(np.exp(1j * th_true)), color=GT, lw=0, marker=".", ms=2)
     ax.plot(t, np.angle(np.exp(1j * th_dec)), color=PR, lw=0, marker=".", ms=1)
     ax.set_yticks([-np.pi, 0, np.pi]); ax.set_yticklabels([r"$-\pi$", "0", r"$\pi$"])
     ax.set_ylim(-np.pi - 0.15, np.pi + 0.15)
-    ax.set_title("(d) heading (Net1): true=green, decoded=black")
     ax.set_xlabel("time (s)"); ax.set_ylabel("HD (rad)")
+
+    # The two equal-aspect spatial panels shrink to squares inside their
+    # columns; anchor (a) to the right and (b) to the left so the slack moves
+    # to the figure edges and the a–b gap closes.
+    axes[0].set_anchor("E")
+    axes[1].set_anchor("W")
+
+    # Bold a–d panel labels, top-left, horizontally aligned (all panels share
+    # one row → transAxes y is the same height), clear of the plots.
+    for ax, lab in zip(axes, "abcd"):
+        ax.text(0.0, 1.03, lab, transform=ax.transAxes, fontsize=14,
+                fontweight="bold", va="bottom", ha="left")
 
     pos_rmse = float(np.sqrt(((xy_dec[10:] - xy_true[10:]) ** 2).sum(-1).mean()))
     fig.suptitle(f"place snapshot — step {global_step} (epoch {epoch}) — "
-                 f"position RMSE = {pos_rmse:.3f} (arena ±{A:g})", fontsize=11)
-    fig.tight_layout(rect=(0, 0, 1, 0.95))
+                 f"position RMSE = {pos_rmse:.3f} (true=green, decoded=black)",
+                 fontsize=10)
+    fig.tight_layout(rect=(0, 0, 1, 0.93))
     fig.savefig(os.path.join(out_dir, f"place_step_{global_step:06d}.png"),
                 dpi=140, bbox_inches="tight")
     plt.close(fig)

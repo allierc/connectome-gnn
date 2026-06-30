@@ -595,19 +595,22 @@ def _plot_place_field_examples(centers, sigma, arena_half, out_path, n=4):
 
 def _plot_place_cells_setup(W2, neuron_types, ei, type_names, centers, sigma,
                             arena_half, out_path):
-    """Combined setup figure: (left) Net2 connectome, (right) 2×2 place fields."""
+    """Combined setup figure: (left) Net2 connectome, (right) 2×2 place fields.
+
+    No panel titles; bold ``a`` / ``b`` panel labels (paper convention),
+    horizontally aligned above the panels and clear of the plots."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     A = float(arena_half)
     N2 = W2.shape[0]
     n_inter = int((neuron_types == 0).sum())
-    n_exc = int((ei == 1).sum())
     grid = int(round(np.sqrt(centers.shape[0])))
     fig = plt.figure(figsize=(13.0, 6.2))
-    gs = fig.add_gridspec(2, 4, wspace=0.40, hspace=0.30)
+    gs = fig.add_gridspec(2, 4, wspace=0.40, hspace=0.30,
+                          left=0.06, right=0.97, top=0.92, bottom=0.10)
 
-    # (a) Net2 recurrent connectome — left 2×2 block (square).
+    # (a) Net2 recurrent connectome — left 2×2 block (square). No title.
     axm = fig.add_subplot(gs[0:2, 0:2])
     vmax = float(np.abs(W2).max()) or 1.0
     im = axm.imshow(W2, cmap="RdBu_r", vmin=-vmax, vmax=vmax,
@@ -619,18 +622,16 @@ def _plot_place_cells_setup(W2, neuron_types, ei, type_names, centers, sigma,
     axm.set_yticks([n_inter / 2, n_inter + (N2 - n_inter) / 2])
     axm.set_yticklabels(type_names, rotation=90, va="center", fontsize=8)
     axm.set_xlabel("presynaptic"); axm.set_ylabel("postsynaptic")
-    axm.set_title(f"(a) Net2 $W^{{(2)}}$  (N={N2}: {n_inter} interneurons "
-                  f"+ {N2 - n_inter} place cells;\nE/I={n_exc}/{N2 - n_exc}, "
-                  f"density={(np.abs(W2) > 0).mean():.2f})", fontsize=9)
     fig.colorbar(im, ax=axm, fraction=0.046, pad=0.02).ax.tick_params(labelsize=7)
 
     # (b) 2×2 example place fields — right block, laid out to match arena
-    # geometry (top row = high y, left column = low x).
+    # geometry (top row = high y, left column = low x). No titles.
     g = np.linspace(-A, A, 120)
     gx, gy = np.meshgrid(g, g, indexing="xy")
     grid_xy = np.stack([gx.ravel(), gy.ravel()], -1)
     rows_iy = [3 * grid // 4, grid // 4]
     cols_ix = [grid // 4, 3 * grid // 4]
+    place_axes = []
     for ri, iy in enumerate(rows_iy):
         for ci, ix in enumerate(cols_ix):
             k = iy * grid + ix
@@ -638,17 +639,23 @@ def _plot_place_cells_setup(W2, neuron_types, ei, type_names, centers, sigma,
             act = place_cell_activation(grid_xy, centers[k:k + 1], sigma).reshape(gx.shape)
             im2 = ax.imshow(act, extent=[-A, A, -A, A], origin="lower",
                             cmap="viridis", vmin=0, vmax=1, aspect="equal")
-            ax.set_title(f"cell {k}: $c$=({centers[k,0]:+.2f},{centers[k,1]:+.2f})",
-                         fontsize=8, fontweight="normal")
             ax.tick_params(labelsize=7)
             if ri == 1:
                 ax.set_xlabel("x", fontsize=8)
             if ci == 0:
                 ax.set_ylabel("y", fontsize=8)
-    # one shared title for the right block
-    fig.text(0.74, 0.965, f"(b) example Gaussian place fields ($\\sigma$={sigma:g})",
-             ha="center", fontsize=9)
-    fig.colorbar(im2, ax=fig.axes[1:], fraction=0.025, pad=0.02).ax.tick_params(labelsize=7)
+            place_axes.append(ax)
+    fig.colorbar(im2, ax=place_axes, fraction=0.025, pad=0.02).ax.tick_params(labelsize=7)
+
+    # Bold panel labels a / b, horizontally aligned just above the panels
+    # (figure coords, so the two letters share one baseline and never touch
+    # the axes). Positions taken from the final axes geometry.
+    pa = axm.get_position()
+    pb = place_axes[0].get_position()
+    y_lab = max(pa.y1, pb.y1) + 0.025
+    for x0, lab in ((pa.x0, "a"), (pb.x0, "b")):
+        fig.text(x0 - 0.012, y_lab, lab, fontsize=18, fontweight="bold",
+                 va="bottom", ha="right")
     fig.savefig(out_path, dpi=160, bbox_inches="tight")
     plt.close(fig)
 
