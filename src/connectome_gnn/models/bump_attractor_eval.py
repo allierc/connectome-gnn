@@ -906,6 +906,7 @@ def _save_place_snapshot(net, log_dir, global_step, epoch, u_test, y_test,
         centers = net.place_centers                      # (K, 2)
         xy_dec = (p @ centers).cpu().numpy()             # (T, 2)
         th_dec = torch.atan2(y_hat[0, :, 1], y_hat[0, :, 0]).cpu().numpy()
+        d_dec = y_hat[0, :, 2].cpu().numpy()             # Net1 scalar distance
         p_np = p.cpu().numpy()
     if was_training:
         net.train()
@@ -918,45 +919,48 @@ def _save_place_snapshot(net, log_dir, global_step, epoch, u_test, y_test,
     GT, PR = "tab:green", "black"
 
     tf = T - 1
-    # Square cells (width≈height) so the equal-aspect (a)/(b) panels fill their
-    # columns — no big blanks. No per-panel titles (bold a–d labels instead),
-    # no arena box / legend on (a).
-    fig, axes = plt.subplots(1, 4, figsize=(13.5, 4.0))
-    # (a) trajectory — no bounding box, no legend, no title
+    d_true = yt[:, 2]
+    # Five equal-sized square panels (set_box_aspect(1) on all): arena
+    # trajectory, place-code map, position(x,y), distance d, heading. Covers
+    # all three learned quantities — direction (heading), distance, and the
+    # place/position code. No titles, no colorbar (clean training diagnostic).
+    fig, axes = plt.subplots(1, 5, figsize=(15.5, 3.3))
+    # (1) arena trajectory — true vs population-vector-decoded position
     ax = axes[0]
     ax.plot(xy_true[:, 0], xy_true[:, 1], color=GT, lw=1.2)
     ax.plot(xy_dec[:, 0], xy_dec[:, 1], color=PR, lw=0.9)
-    ax.set_xlim(-A, A); ax.set_ylim(-A, A); ax.set_aspect("equal")
+    ax.set_xlim(-A, A); ax.set_ylim(-A, A)
     ax.set_xlabel("x"); ax.set_ylabel("y")
-    # (b) predicted place code map at the final frame
+    # (2) predicted place-code map at the final frame (○ = true position)
     ax = axes[1]
-    im = ax.imshow(p_np[tf].reshape(grid, grid), origin="lower",
-                   extent=[-A, A, -A, A], cmap="viridis", aspect="equal")
+    ax.imshow(p_np[tf].reshape(grid, grid), origin="lower",
+              extent=[-A, A, -A, A], cmap="viridis", aspect="auto")
     ax.plot(xy_true[tf, 0], xy_true[tf, 1], "o", mec="r", mfc="none",
-            ms=11, mew=1.6)
+            ms=10, mew=1.5)
     ax.set_xlabel("x"); ax.set_ylabel("y")
-    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.02)
-    # (c) decoded vs true position over time
+    # (3) position x/y over time (pop-vector decode vs truth)
     ax = axes[2]
     ax.plot(t, xy_true[:, 0], color=GT, lw=1.0)
     ax.plot(t, xy_dec[:, 0], color=PR, lw=0.7)
     ax.plot(t, xy_true[:, 1], color=GT, lw=1.0, ls="--")
     ax.plot(t, xy_dec[:, 1], color=PR, lw=0.7, ls="--")
     ax.set_xlabel("time (s)"); ax.set_ylabel("position  x (—) / y (– –)")
-    # (d) Net1 compass heading
+    # (4) Net1 scalar distance d — true vs decoded
     ax = axes[3]
+    ax.plot(t, d_true, color=GT, lw=1.2)
+    ax.plot(t, d_dec, color=PR, lw=0.8)
+    ax.set_xlabel("time (s)"); ax.set_ylabel(r"distance $d$")
+    # (5) Net1 compass heading — true vs decoded
+    ax = axes[4]
     ax.plot(t, np.angle(np.exp(1j * th_true)), color=GT, lw=0, marker=".", ms=2)
     ax.plot(t, np.angle(np.exp(1j * th_dec)), color=PR, lw=0, marker=".", ms=1)
     ax.set_yticks([-np.pi, 0, np.pi]); ax.set_yticklabels([r"$-\pi$", "0", r"$\pi$"])
     ax.set_ylim(-np.pi - 0.15, np.pi + 0.15)
     ax.set_xlabel("time (s)"); ax.set_ylabel("HD (rad)")
 
-    # The two equal-aspect spatial panels shrink to squares inside their
-    # columns; anchor (a) to the right and (b) to the left so the slack moves
-    # to the figure edges and the a–b gap closes.
-    axes[0].set_anchor("E")
-    axes[1].set_anchor("W")
-
+    # Uniform panel size: force every axes box square.
+    for ax in axes:
+        ax.set_box_aspect(1)
     # No suptitle, no panel letters (clean training diagnostic).
     fig.tight_layout()
     fig.savefig(os.path.join(out_dir, f"place_step_{global_step:06d}.png"),
