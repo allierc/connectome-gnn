@@ -1492,8 +1492,23 @@ class SwimIntegrationTaskConfig(BaseModel):
     #                            (Net2) reads Net1's state and emits the place
     #                            code; its synthetic connectome is generated
     #                            and saved next to the dataset (net2_Wcon.*).
+    #   "grid_cells"          — head-direction + distance + GRID-CELL task: the
+    #                            place task on a TORUS. The agent forages
+    #                            freely (unbounded 2-D path integration, NO
+    #                            walls); the K=grid_grid² cells tile a torus
+    #                            [0,λ)² (λ=grid_period) and fire
+    #                            exp(-d_torus(pos mod λ, c_k)²/2σ²) with WRAPPED
+    #                            distance, so each fires on a periodic lattice
+    #                            in real space (grid cells). On-disk target is
+    #                            5-col [cosθ, sinθ, ξ, x, y] (x,y unbounded);
+    #                            the grid code + circular position decode are
+    #                            derived on the fly from (x,y) mod λ and the
+    #                            saved grid geometry. Canonical toroidal
+    #                            continuous-attractor target (cf. Burak & Fiete
+    #                            2009; Gardner et al. 2022).
     target_kind: Literal[
-        "scalar_xi", "position_2d", "rotation_mismatch", "place_cells"
+        "scalar_xi", "position_2d", "rotation_mismatch", "place_cells",
+        "grid_cells"
     ] = "scalar_xi"
 
     # --- Place-cell task (target_kind="place_cells") -----------------------
@@ -1516,6 +1531,15 @@ class SwimIntegrationTaskConfig(BaseModel):
     net2_ei_ratio: float = 0.60     # fraction excitatory (Dale's law sign-lock)
     net2_seed: int = 700000
     net2_tau_s: float = 0.1         # Net2 membrane time constant (s)
+
+    # --- Grid-cell task (target_kind="grid_cells") -------------------------
+    # Spatial period λ of the torus the grid cells tile (real position units).
+    # Each of grid_grid² cells centres on a regular [0,λ)² torus grid; a cell
+    # fires whenever (x,y) mod λ is near its centre → a periodic lattice in
+    # real space. grid_sigma is the toroidal Gaussian width (real units).
+    grid_period: float = 0.5
+    grid_grid: int = 20
+    grid_sigma: float = 0.1
 
     # Leaky-integrator time constant for the 2D position target (x, y).
     # Same semantics as xi_tau_s but applied to the position recurrence:
