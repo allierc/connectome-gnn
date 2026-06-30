@@ -957,17 +957,8 @@ def _save_place_snapshot(net, log_dir, global_step, epoch, u_test, y_test,
     axes[0].set_anchor("E")
     axes[1].set_anchor("W")
 
-    # Bold a–d panel labels, top-left, horizontally aligned (all panels share
-    # one row → transAxes y is the same height), clear of the plots.
-    for ax, lab in zip(axes, "abcd"):
-        ax.text(0.0, 1.03, lab, transform=ax.transAxes, fontsize=14,
-                fontweight="bold", va="bottom", ha="left")
-
-    pos_rmse = float(np.sqrt(((xy_dec[10:] - xy_true[10:]) ** 2).sum(-1).mean()))
-    fig.suptitle(f"place snapshot — step {global_step} (epoch {epoch}) — "
-                 f"position RMSE = {pos_rmse:.3f} (true=green, decoded=black)",
-                 fontsize=10)
-    fig.tight_layout(rect=(0, 0, 1, 0.93))
+    # No suptitle, no panel letters (clean training diagnostic).
+    fig.tight_layout()
     fig.savefig(os.path.join(out_dir, f"place_step_{global_step:06d}.png"),
                 dpi=140, bbox_inches="tight")
     plt.close(fig)
