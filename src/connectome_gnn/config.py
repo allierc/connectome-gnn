@@ -1144,6 +1144,12 @@ class TrainingConfig(BaseModel):
     # ‖Σ_k p̂_k c_k − (x,y)‖². Heading+distance keep their unit-weight MSE.
     coeff_place: float = 1.0
     coeff_pos: float = 1.0
+    # Net1 warm-up: for the first ``place_warmup_epochs`` epochs the place loss
+    # (KL + position decode) is switched off (coeffs forced to 0), so only the
+    # heading+distance MSE trains — Net1's compass converges before Net2 has to
+    # read it. 0 = no warm-up (place loss on from step 1). Net2 still runs but
+    # receives no gradient during warm-up.
+    place_warmup_epochs: int = 0
     # --- calcium observation supervision (zebrafish ZAPBench; optional) ------
     # Number of real-calcium trials (dataset B, produced by
     # generators/make_calcium_dataset.py) appended to each task batch. 0
