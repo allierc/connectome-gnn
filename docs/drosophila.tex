@@ -332,6 +332,48 @@ The partition mirrors the zebrafish HD-circuit classification of
 angular-velocity modulation. Per-cell-type counts and the underlying
 scatters / stacked-bar are reported in \cref{tab:cx_four_classes,fig:cx_four_classes}.
 
+\paragraph{Head-direction $+$ distance $+$ place cells.}\label{method:placecells}
+To test whether the compass code can be folded into an \emph{allocentric place}
+code, we extend the self-motion task with a downstream, learnable network and a
+spatial readout. The agent forages a bounded square arena $[-1,1]^2$ with
+reflecting walls implemented as a \emph{stop-and-turn}: a step that would leave
+the arena freezes translation and rotates the heading toward the specularly
+reflected angle over one swim boxcar, so the integrator identities
+$\theta=\theta_0+\!\int\!\omega$ and
+$(x,y)=\!\int v_{\mathrm{fwd}}(\cos\theta,\sin\theta)$ hold exactly while the
+path stays inside the box and $\omega$ stays bounded. A population of
+$K=20\times20=400$ place cells tiles the arena; the target activation of cell
+$k$ is a Gaussian field $p_k(t)=\exp(-\lVert(x,y)-c_k\rVert^2/2\sigma^2)$,
+$\sigma=0.2$ (\cref{fig:cx_placecells}b). At any instant only a $\sim\!4\times4$
+patch is active, so the code is $\sim\!85\%$ silent. The place code is produced
+by a second recurrent network (Net2) of $600$ neurons --- $200$ interneurons
+$+$ the $400$ place cells --- on a \emph{synthetic} sign-locked connectome
+$W^{(2)}$ that is $10\%$ sparse with a $60{:}40$ E/I split, generated once from
+a fixed seed (\cref{fig:cx_placecells}a); as for the central complex only the
+per-edge magnitudes are learned, the Dale signs locked. Net2 reads the full
+$338$-cell compass state each step through an encoder MLP into its interneurons,
+and the place cells emit the spatial code through a decoder; the two networks
+are trained jointly. The objective adds to the self-motion MSE a spatial term
+that supervises the place code as a normalised population distribution
+$q_k=p_k/\sum_{k'}p_{k'}$ with a cross-entropy/KL loss (imbalance-free) plus an
+auxiliary population-vector position decode $\sum_k\hat q_k c_k$ regressed on
+the true arena position. The trajectory generator, the synthetic $W^{(2)}$ and
+the place-field geometry are produced by the data pipeline and saved with the
+dataset so training, testing and plotting share one fixed arena and one fixed
+Net2.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{figure/fig_place_cells_setup.png}
+  \caption{\textbf{Place-cell task setup.} \textbf{(a)}~Net2's synthetic
+  sign-locked recurrent connectome $W^{(2)}$ ($N=600$: $200$ interneurons $+$
+  $400$ place cells; $60{:}40$ E/I, $10\%$ density), interneuron/place-cell
+  type blocks marked. \textbf{(b)}~Four example Gaussian place fields
+  ($\sigma=0.2$) over the arena $[-1,1]^2$, arranged to match their arena
+  positions; the $K=400$ cells tile a $20\times20$ grid.}
+  \label{fig:cx_placecells}
+\end{figure}
+
 
 \section{Results}
 

@@ -1,0 +1,177 @@
+"""DrosophilaCxTaskPlace — heading + distance + place-cell model.
+
+Two coupled networks, trained jointly end-to-end:
+
+  * Net1 = the sign-locked CX path-integration RNN (``DrosophilaCxTaskRNN``),
+    supervised on heading + distance exactly as the ``both`` task. This class
+    *subclasses* it so the trainer sees the same ``S`` / ``W_rec`` / ``b`` /
+    ``loss_*`` / ``neuron_types`` / ``epg_*`` attributes (param-group naming,
+    regularisers and the heading snapshot all keep working unchanged).
+
+  * Net2 = a second, learnable recurrent network that reads Net1's full
+    338-cell state each step and emits an allocentric place code. It has
+    ``net2_n_interneurons`` interneurons + ``place_grid**2`` place cells on a
+    *synthetic* sign-locked Dale connectome ``W2`` (10 %% sparse, 60/40 E/I)
+    generated at data-generation time and loaded from the dataset. Only the
+    per-edge magnitudes of ``W2`` are learned; an ``encoder`` MLP injects
+    Net1's state into the interneurons and a ``decoder`` MLP reads the place
+    cells out to ``K`` place-field logits.
+
+Output is ``y_hat = concat(net1 heading+distance [B,T,3], place logits
+[B,T,K])``. The place loss/score (KL on the normalised place distribution +
+auxiliary population-vector position decode, plus a [0,1] cosine-similarity
+score) are encapsulated here so the trainer only adds a small dispatch.
+
+Registered name: ``drosophila_cx_pi_place``.
+"""
+
+from __future__ import annotations
+
+import os
+
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+from connectome_gnn.models.drosophila_cx_task_rnn import DrosophilaCxTaskRNN
+from connectome_gnn.models.MLP import MLP
+from connectome_gnn.models.registry import register_model
+from connectome_gnn.utils import graphs_data_path
+
+
+@register_model("drosophila_cx_pi_place")
+class DrosophilaCxTaskPlace(DrosophilaCxTaskRNN):
+
+    bump_label = "EPG"
+    afferent_label = "PEN"
+
+    def __init__(self, aggr_type: str = "add", config=None, device=None):
+        # Build Net1 as the heading+distance ("both") CX RNN: force its
+        # task_targets so n_input=4 / n_output=3 regardless of the place
+        # config's task_targets.
+        net1_cfg = config.model_copy(deep=True)
+        net1_cfg.training.task_targets = ["rotation", "translation"]
+        super().__init__(aggr_type=aggr_type, config=net1_cfg, device=device)
+        self._n_head_out = int(self.n_output)          # 3 = [cosθ, sinθ, d]
+
+        si = config.task.swim_integration
+        gm = config.graph_model
+        n_inter = int(getattr(si, "net2_n_interneurons", 200))
+        grid = int(getattr(si, "place_grid", 20))
+        K = grid * grid
+        N2 = n_inter + K
+        self.net2_n_inter = n_inter
+        self.net2_n_place = K
+        self.net2_N = N2
+
+        # --- synthetic sign-locked E/I recurrent connectome W2 -------------
+        root = graphs_data_path(config.dataset)
+        npz = np.load(os.path.join(root, "net2_Wcon.npz"))
+        W2 = torch.from_numpy(npz["W2_con"].astype(np.float32))
+        if W2.shape[0] != N2:
+            raise ValueError(
+                f"net2_Wcon.npz has N2={W2.shape[0]} but config implies "
+                f"{n_inter}+{K}={N2}; regenerate the dataset.")
+        self.register_buffer("W2_con", W2)
+        self.register_buffer("W2_con_sign", torch.sign(W2))
+        # per-neuron metadata (functional type + Dale sign) for plots/tests
+        self.net2_neuron_types = np.asarray(npz["neuron_types"]).astype(np.int64)
+        self.net2_type_names = [str(s) for s in list(npz["type_names"])]
+        self.net2_ei = np.asarray(npz["ei"]).astype(np.int64)
+        # sign-locked: W2_rec = |S2| ⊙ sign(W2_con); init so W2_rec == W2_con
+        self.S2 = nn.Parameter(W2.abs().clone())
+        self.register_buffer("net2_place_idx",
+                             torch.arange(n_inter, N2, dtype=torch.long))
+
+        # --- encoder / decoder MLPs (free, dense) --------------------------
+        self.net2_encoder = MLP(
+            input_size=self.n_units, output_size=n_inter,
+            nlayers=int(gm.n_layers), hidden_size=int(gm.hidden_dim),
+            activation=gm.MLP_activation, device=device)
+        self.net2_decoder = MLP(
+            input_size=K, output_size=K,
+            nlayers=int(gm.n_layers), hidden_size=int(gm.hidden_dim),
+            activation=gm.MLP_activation, device=device)
+
+        # --- Net2 dynamics constants --------------------------------------
+        self.net2_dt = float(self.dt)
+        self.net2_tau = float(getattr(si, "net2_tau_s", self.tau))
+
+        # --- place-field geometry (centres + σ) for loss / decode ----------
+        pg = np.load(os.path.join(root, "place_geometry.npz"))
+        self.register_buffer(
+            "place_centers", torch.from_numpy(pg["centers"].astype(np.float32)))
+        self.place_sigma = float(pg["sigma"])
+        self.arena_half = float(pg["arena_half"])
+
+        # total output width = heading+distance (3) + place logits (K)
+        self.n_output = self._n_head_out + K
+        if device is not None:
+            self.to(device)
+
+    # ------------------------------------------------------------------
+    @property
+    def W2_rec(self) -> torch.Tensor:
+        """Sign-locked Net2 recurrent matrix |S2| ⊙ sign(W2_con)."""
+        return self.S2.abs() * self.W2_con_sign
+
+    def forward(self, u, h0=None):
+        # Net1 (CX) rollout → heading+distance readout y1 and full state h1.
+        y1, h1 = super().forward(u, h0=h0)        # y1 (B,T,3), h1 (B,T,N=338)
+        r1 = self._sigma(h1)                       # full Net1 state, (B,T,338)
+        B, T, _ = r1.shape
+        drive = self.net2_encoder(r1)              # (B,T,n_inter) — all t at once
+        W2T = self.W2_rec.t()
+        a = self.net2_dt / self.net2_tau
+        h2 = r1.new_zeros(B, self.net2_N)
+        logits = r1.new_empty(B, T, self.net2_n_place)
+        pad_K = (0, self.net2_n_place)             # right-pad interneuron drive
+        for t in range(T):
+            r2 = self._sigma(h2)
+            rec2 = r2 @ W2T
+            inp2 = F.pad(drive[:, t], pad_K)        # (B,N2): drive→interneurons
+            h2 = h2 + a * (-h2 + rec2 + inp2)
+            place_r = self._sigma(h2)[:, self.net2_place_idx]   # (B,K)
+            logits[:, t] = self.net2_decoder(place_r)
+        # h1 (Net1 state) is returned as h_buf so the trainer's circular-TV
+        # regulariser and the heading snapshot operate on the compass.
+        return torch.cat([y1, logits], dim=-1), h1
+
+    # ------------------------------------------------------------------
+    # Place-cell target / loss / score (encapsulated; trainer just dispatches)
+    # ------------------------------------------------------------------
+    def place_targets(self, xy: torch.Tensor) -> torch.Tensor:
+        """Normalised Gaussian place distribution q (B,T,K), Σ_k q=1."""
+        d2 = (xy.unsqueeze(-2) - self.place_centers).pow(2).sum(-1)   # (B,T,K)
+        p = torch.exp(-d2 / (2.0 * self.place_sigma * self.place_sigma))
+        return p / (p.sum(-1, keepdim=True) + 1e-9)
+
+    def place_per_frame_loss(self, y_hat, y_true,
+                             coeff_place: float = 1.0, coeff_pos: float = 1.0,
+                             warmup: int = 10):
+        """Per-frame place loss (B,T) + a [0,1] place score + position RMSE.
+
+        ``y_hat`` = [cosθ, sinθ, d, place_logits(K)]; ``y_true`` =
+        [cosθ, sinθ, d, x, y] (the place code is derived from (x,y) on the
+        fly). Loss = heading+distance MSE + coeff_place·KL(q‖softmax(logits))
+        + coeff_pos·‖popvec_decode − (x,y)‖². Score = mean cosine similarity
+        between predicted softmax and target distribution (∈[0,1]).
+        """
+        K = self.net2_n_place
+        head_mse = (y_hat[..., :3] - y_true[..., :3]).pow(2).mean(-1)   # (B,T)
+        logits = y_hat[..., 3:3 + K]
+        xy_true = y_true[..., 3:5]
+        q = self.place_targets(xy_true)                    # (B,T,K)
+        logp = F.log_softmax(logits, dim=-1)
+        p = logp.exp()
+        kl = (q * (torch.log(q + 1e-9) - logp)).sum(-1)    # (B,T)
+        xy_dec = p @ self.place_centers                    # (B,T,2) pop-vector
+        pos_se = (xy_dec - xy_true).pow(2).sum(-1)         # (B,T)
+        pf = head_mse + coeff_place * kl + coeff_pos * pos_se
+        with torch.no_grad():
+            pp, qq = p[:, warmup:], q[:, warmup:]
+            cos = (pp * qq).sum(-1) / (pp.norm(dim=-1) * qq.norm(dim=-1) + 1e-9)
+            score = cos.mean()
+            pos_rmse = pos_se[:, warmup:].mean().sqrt()
+        return pf, score, pos_rmse

@@ -1138,6 +1138,12 @@ class TrainingConfig(BaseModel):
     # behaviour. Typical value 0.1 prevents late-time activity collapse by
     # supplying a small gradient on the post-horizon segment.
     coeff_tail_loss: float = 0.0
+    # --- place-cell task (target_kind='place_cells', model drosophila_cx_pi_place) ---
+    # Weight on the place-cell distribution loss KL(q‖softmax(place_logits))
+    # and on the auxiliary population-vector position decode
+    # ‖Σ_k p̂_k c_k − (x,y)‖². Heading+distance keep their unit-weight MSE.
+    coeff_place: float = 1.0
+    coeff_pos: float = 1.0
     # --- calcium observation supervision (zebrafish ZAPBench; optional) ------
     # Number of real-calcium trials (dataset B, produced by
     # generators/make_calcium_dataset.py) appended to each task batch. 0
@@ -1458,7 +1464,47 @@ class SwimIntegrationTaskConfig(BaseModel):
     # The two recipes write different on-disk target shapes, so they must
     # live under separate dataset names — the trainer dispatches on
     # u_train.shape / y_train.shape in concert with training.task_targets.
-    target_kind: Literal["scalar_xi", "position_2d", "rotation_mismatch"] = "scalar_xi"
+    #   "place_cells"         — head-direction + distance + PLACE-CELL task.
+    #                            The agent forages a bounded square arena
+    #                            [-arena_half, +arena_half]² with REFLECTING
+    #                            walls (modelled as a stop-and-turn: forward
+    #                            motion freezes and the heading rotates to the
+    #                            specular-reflected angle over one swim-boxcar
+    #                            so θ=∫ω·dt and (x,y)=∫v·dir·dt stay exact and
+    #                            the path stays inside the arena). On-disk
+    #                            target is 5-col [cosθ, sinθ, ξ, x, y]; the
+    #                            K=place_grid² Gaussian place-cell activations
+    #                            are NOT stored (a dense (B,T,K) array is
+    #                            prohibitively large) but computed on the fly
+    #                            from (x,y) and the saved place_centers/σ. A
+    #                            second learnable sign-locked E/I network
+    #                            (Net2) reads Net1's state and emits the place
+    #                            code; its synthetic connectome is generated
+    #                            and saved next to the dataset (net2_Wcon.*).
+    target_kind: Literal[
+        "scalar_xi", "position_2d", "rotation_mismatch", "place_cells"
+    ] = "scalar_xi"
+
+    # --- Place-cell task (target_kind="place_cells") -----------------------
+    # Square arena half-width: the agent is confined to
+    # [-arena_half, +arena_half]² by reflecting walls.
+    arena_half: float = 1.0
+    # K = place_grid² place cells tile the arena on a regular grid; their
+    # centres span [-arena_half, +arena_half] on each axis.
+    place_grid: int = 20
+    # Gaussian place-field width σ (arena units): the target activation of
+    # cell k at time t is exp(-‖(x,y)-c_k‖² / (2σ²)). Tunable.
+    place_sigma: float = 0.2
+    # Net2 — the synthetic sign-locked E/I network that reads Net1's state and
+    # produces the place code. Its recurrent connectome is generated at
+    # data-generation time and saved as net2_Wcon.* next to the dataset so
+    # train/test/plot share one fixed matrix. n_place is derived (place_grid²);
+    # total Net2 size = net2_n_interneurons + n_place.
+    net2_n_interneurons: int = 200
+    net2_sparsity: float = 0.10     # recurrent connection density
+    net2_ei_ratio: float = 0.60     # fraction excitatory (Dale's law sign-lock)
+    net2_seed: int = 700000
+    net2_tau_s: float = 0.1         # Net2 membrane time constant (s)
 
     # Leaky-integrator time constant for the 2D position target (x, y).
     # Same semantics as xi_tau_s but applied to the position recurrence:
