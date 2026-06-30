@@ -892,21 +892,37 @@ def _save_torus_snapshot(net, log_dir, global_step, epoch, u_test, y_test,
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    out_dir = os.path.join(log_dir, "tmp_training", "torus_evolution")
+    # Two sources of (φx, φy): the torus_position model emits them as (cos,sin)
+    # output pairs; the grid model (grid_mode) emits place logits, so the phases
+    # come from its circular position decode. Grid runs write into the grid
+    # snapshot folder; torus_position runs into their own.
+    grid_mode = bool(getattr(net, "grid_mode", False))
+    out_dir = os.path.join(log_dir, "tmp_training",
+                           "grid_evolution" if grid_mode else "torus_evolution")
     os.makedirs(out_dir, exist_ok=True)
     was_training = net.training
     net.eval()
     with torch.no_grad():
         T = int(min(u_test.shape[1], 1000))
-        yh, _ = net(u_test[trial_idx:trial_idx + 1, :T])     # (1,T,6)
-        yh = yh[0].cpu().numpy()
+        yhat, _ = net(u_test[trial_idx:trial_idx + 1, :T])
+        yt = y_test[trial_idx, :T].detach().cpu().numpy()
+        if grid_mode:
+            Kp = int(net.net2_n_place); L = float(net.grid_period)
+            p = torch.softmax(yhat[0, :, 3:3 + Kp], dim=-1)
+            xyD = net.decode_position(p).cpu().numpy()       # (T,2) in (-L/2,L/2]
+            thD = torch.atan2(yhat[0, :, 1], yhat[0, :, 0]).cpu().numpy()
+            xyT = yt[:, 3:5]; thT = np.arctan2(yt[:, 1], yt[:, 0])
+            two_pi_L = 2.0 * np.pi / L
+            pxD, pyD = two_pi_L * xyD[:, 0], two_pi_L * xyD[:, 1]
+            pxT, pyT = two_pi_L * xyT[:, 0], two_pi_L * xyT[:, 1]
+        else:
+            yh = yhat[0].cpu().numpy()
+            ph = lambda a, i: np.arctan2(a[:, i + 1], a[:, i])
+            thT, thD = ph(yt, 0), ph(yh, 0)
+            pxT, pxD = ph(yt, 2), ph(yh, 2)
+            pyT, pyD = ph(yt, 4), ph(yh, 4)
     if was_training:
         net.train()
-    yt = y_test[trial_idx, :T].detach().cpu().numpy()
-    ph = lambda a, i: np.arctan2(a[:, i + 1], a[:, i])       # phase from (cos,sin)
-    thT, thD = ph(yt, 0), ph(yh, 0)
-    pxT, pxD = ph(yt, 2), ph(yh, 2)
-    pyT, pyD = ph(yt, 4), ph(yh, 4)
     t = np.arange(T) * float(net.dt)
     GT, PR = "tab:green", "black"
     R, r = 1.0, 0.4
