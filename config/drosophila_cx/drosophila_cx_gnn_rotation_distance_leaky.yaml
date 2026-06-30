@@ -1,5 +1,5 @@
-description: "Drosophila CX GNN companion: both (faster + more precise on heading)."
-dataset: drosophila_cx_si_task_338_scalar_xi
+description: "Drosophila CX GNN companion: rotation_distance_leaky (faster + more precise on heading)."
+dataset: drosophila_cx_si_task_338_scalar_xi_leaky
 simulation:
   gcamp_kernel: gcamp6f
   params:
@@ -97,4 +97,5 @@ task:
     forward_vel_mean: 1.0
     forward_vel_std: 0.4
     target_kind: scalar_xi
+    xi_tau_s: 2.0
     seed: 300000

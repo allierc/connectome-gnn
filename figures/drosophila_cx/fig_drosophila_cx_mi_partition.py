@@ -31,7 +31,7 @@ Usage:
     /workspace/.conda_envs/neural-graph-linux/bin/python \\
         figures/drosophila_cx/fig_drosophila_cx_mi_partition.py --device cuda
     # GNN companion:
-    ... --runs drosophila_cx_gnn_both drosophila_cx_gnn_both_leaky \\
+    ... --runs drosophila_cx_gnn_rotation_distance drosophila_cx_gnn_rotation_distance_leaky \\
               drosophila_cx_gnn_position_2d drosophila_cx_gnn_position_2d_leaky \\
         --out figures/drosophila_cx/fig_drosophila_cx_mi_partition_gnn.png
 """
@@ -277,8 +277,8 @@ def _accumulate_hidden(net, u_test, y_test, device, n_trials):
 # well defined for all four. Swap to the drosophila_cx_gnn_* runs for the GNN
 # companion figure.
 DEFAULT_RUNS = (
-    "drosophila_cx_both",
-    "drosophila_cx_both_leaky",
+    "drosophila_cx_rotation_distance",
+    "drosophila_cx_rotation_distance_leaky",
     "drosophila_cx_position_2d",
     "drosophila_cx_position_2d_leaky",
 )
