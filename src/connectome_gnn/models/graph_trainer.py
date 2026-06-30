@@ -2138,7 +2138,12 @@ def _data_train_task_pi(config, erase, best_model, device, log_file=None, resume
                 and hasattr(model, 'place_per_frame_loss'))
     coeff_place = float(getattr(tc, 'coeff_place', 1.0))
     coeff_pos = float(getattr(tc, 'coeff_pos', 1.0))
+    place_warmup_epochs = int(getattr(tc, 'place_warmup_epochs', 0))
     last_place_score = float('nan')
+    if is_place and place_warmup_epochs > 0:
+        _logger.info(f'place: Net1 warm-up for {place_warmup_epochs} epoch(s) '
+                     f'(place loss off; heading+distance only), then '
+                     f'coeff_place={coeff_place} coeff_pos={coeff_pos}')
     coeff_f_diff = float(getattr(tc, 'coeff_f_theta_diff', 0.0))
     coeff_g_diff = float(getattr(tc, 'coeff_g_phi_diff', 0.0))
     # Soft embedding-cluster pull: each neuron's a_i toward the centroid of
@@ -2625,8 +2630,13 @@ def _data_train_task_pi(config, erase, best_model, device, log_file=None, resume
                 # coeff_place·KL(q‖softmax(place_logits)) + coeff_pos·position
                 # decode, with the same soft-curriculum tail weighting as the
                 # MSE branch. The [0,1] place score feeds the progress bar.
+                # Net1 warm-up: zero the place coeffs for the first
+                # place_warmup_epochs epochs so only heading+distance trains.
+                _warm = epoch < place_warmup_epochs
+                _cp = 0.0 if _warm else coeff_place
+                _cq = 0.0 if _warm else coeff_pos
                 place_pf, _pscore, _ppos = eval_model.place_per_frame_loss(
-                    y_hat, y_in, coeff_place, coeff_pos)        # pf: (B, T_use)
+                    y_hat, y_in, _cp, _cq)                      # pf: (B, T_use)
                 last_place_score = float(_pscore)
                 if coeff_tail > 0:
                     w = torch.ones(T_use, device=u.device)
