@@ -1999,6 +1999,124 @@ def data_test_cortex_task_gnn(config, best_model=None, device=None, log_file=Non
 # Path-integration task test (DrosophilaCxTaskRNN / DrosophilaCxTaskGNN)
 # ============================================================================
 
+def data_test_place_task(config, best_model=None, device=None, log_file=None):
+    """Test the heading+distance+place model (drosophila_cx_pi_place).
+
+    Computes held-out metrics (heading RMSE, place-code score, population-
+    vector position RMSE, distance correlation) over a test sample, writes
+    them to results/test_metrics.npz + results_path_integration.log, and
+    renders MP4 animations of a few high-motion trials (the animated 5-panel
+    place diagnostic) into results/."""
+    from connectome_gnn.models.bump_attractor_eval import (
+        animate_place_trial, _save_place_snapshot,
+    )
+    from connectome_gnn.task_state import TaskTrials
+
+    tc = config.training
+    mc = config.graph_model
+    log_dir = log_path(config.config_file)
+    results_dir = os.path.join(log_dir, 'results')
+    os.makedirs(results_dir, exist_ok=True)
+    logger.info(f'[place test] results dir: {results_dir}')
+
+    root = graphs_data_path(config.dataset)
+    te = TaskTrials.load(f"{root}/test")
+    u_test = te.stimulus.to(device)            # (N, T, 4)
+    y_test = te.target.to(device)              # (N, T, 5) [cos,sin,d,x,y]
+    dt = float(config.task.swim_integration.dt)
+    logger.info(f'[place test] u={tuple(u_test.shape)} y={tuple(y_test.shape)}')
+
+    model = create_model(mc.signal_model_name, aggr_type=mc.aggr_type,
+                         config=config, device=device)
+    ckpt_dir = os.path.join(log_dir, 'models')
+
+    def _epoch_of(p):
+        try:
+            return int(os.path.basename(p).rsplit('_', 1)[1].split('.')[0])
+        except Exception:
+            return -1
+    bm = int(best_model) if isinstance(best_model, str) and best_model.isdigit() \
+        else best_model
+    if isinstance(bm, int):
+        ckpt_path = os.path.join(
+            ckpt_dir, f'best_model_with_{tc.n_runs - 1}_graphs_{bm}.pt')
+    else:
+        cand = sorted(glob.glob(os.path.join(
+            ckpt_dir, f'best_model_with_{tc.n_runs - 1}_graphs_*.pt')),
+            key=_epoch_of)
+        if not cand:
+            raise FileNotFoundError(f'no checkpoint in {ckpt_dir}; train first.')
+        ckpt_path = cand[-1]
+    logger.info(f'[place test] loading {ckpt_path}')
+    model.load_state_dict(
+        torch.load(ckpt_path, map_location=device,
+                   weights_only=False)['model_state_dict'])
+    model.eval()
+    K = int(model.net2_n_place)
+    centers = model.place_centers
+    sig2 = 2.0 * model.place_sigma * model.place_sigma
+
+    # --- metrics over a test sample ---------------------------------------
+    nseg = int(min(256, u_test.shape[0]))
+    rmse_deg, place_score, pos_rmse, dist_r = [], [], [], []
+    with torch.no_grad():
+        for i in range(0, nseg, 64):
+            u = u_test[i:i + 64]; y = y_test[i:i + 64]
+            yh, _ = model(u)
+            tht = torch.atan2(y[..., 1], y[..., 0])
+            thp = torch.atan2(yh[..., 1], yh[..., 0])
+            d = thp[:, 10:] - tht[:, 10:]
+            e = torch.atan2(torch.sin(d), torch.cos(d))
+            rmse_deg += (e.pow(2).mean(1).sqrt() * 180.0 / np.pi).cpu().tolist()
+            p = torch.softmax(yh[..., 3:3 + K], -1)
+            xy = y[..., 3:5]
+            d2 = (xy.unsqueeze(-2) - centers).pow(2).sum(-1)
+            q = torch.exp(-d2 / sig2); q = q / (q.sum(-1, keepdim=True) + 1e-9)
+            cs = ((p[:, 10:] * q[:, 10:]).sum(-1)
+                  / (p[:, 10:].norm(dim=-1) * q[:, 10:].norm(dim=-1) + 1e-9))
+            place_score += cs.mean(1).cpu().tolist()
+            xyd = p @ centers
+            pos_rmse += (xyd[:, 10:] - xy[:, 10:]).pow(2).sum(-1).mean(1).sqrt().cpu().tolist()
+            dt_, dd = y[..., 2].cpu().numpy(), yh[..., 2].cpu().numpy()
+            for b in range(u.shape[0]):
+                a1, a2 = dt_[b, 10:], dd[b, 10:]
+                if a1.std() > 1e-6 and a2.std() > 1e-6:
+                    dist_r.append(float(np.corrcoef(a1, a2)[0, 1]))
+    summary = (f"[place test] n={nseg} ckpt={os.path.basename(ckpt_path)}  "
+               f"heading_rmse={np.mean(rmse_deg):.2f}±{np.std(rmse_deg):.2f}deg  "
+               f"place_score={np.mean(place_score):.3f}±{np.std(place_score):.3f}  "
+               f"pos_rmse={np.mean(pos_rmse):.3f}±{np.std(pos_rmse):.3f}  "
+               f"dist_r={np.mean(dist_r):.3f}±{np.std(dist_r):.3f}")
+    logger.info(summary)
+    np.savez(os.path.join(results_dir, 'test_metrics.npz'),
+             heading_rmse_deg=np.asarray(rmse_deg),
+             place_score=np.asarray(place_score),
+             pos_rmse=np.asarray(pos_rmse), dist_r=np.asarray(dist_r))
+    with open(os.path.join(log_dir, 'results_path_integration.log'), 'a') as f:
+        f.write(summary + "\n")
+
+    # --- MP4 animations of the most dynamic trials ------------------------
+    # Rank by total path length AND total turning (not just bounding-box
+    # span), so the chosen trials have lots of movement and lots of turns.
+    xy = y_test[..., 3:5]
+    path_len = (xy[:, 1:] - xy[:, :-1]).norm(dim=-1).sum(1)            # total path
+    th = torch.atan2(y_test[..., 1], y_test[..., 0])
+    dth = th[:, 1:] - th[:, :-1]
+    turning = torch.atan2(torch.sin(dth), torch.cos(dth)).abs().sum(1)  # Σ|Δθ|
+    score = (path_len / (path_len.std() + 1e-9)
+             + turning / (turning.std() + 1e-9))
+    idx = torch.argsort(score, descending=True)[:3].cpu().tolist()
+    for j, ti in enumerate(idx):
+        out = os.path.join(results_dir, f'place_trial_{j}_idx{ti}.mp4')
+        animate_place_trial(model, u_test[ti], y_test[ti], out,
+                            dt=dt, device=device)
+        logger.info(f'[place test] wrote {out}')
+    # one static 5-panel snapshot for quick reference
+    _save_place_snapshot(model, log_dir, _epoch_of(ckpt_path), 0,
+                         u_test[idx[:1]], y_test[idx[:1]], device)
+    logger.info('[place test] done')
+
+
 def data_test_path_integration_task(
     config, best_model=None, device=None, log_file=None,
     anatomy_voltage: bool = False, anatomy_voltage_type_groups=None,
@@ -2156,6 +2274,24 @@ def data_test_path_integration_task(
     model.load_state_dict(state['model_state_dict'])
     model.eval()
 
+    # Heading-bin ablation: the model was built with n_input = 1 + K (ω drive +
+    # K-bin one-hot heading cue) and emits K-bin logits. The on-disk stimulus is
+    # the cos/sin layout, so convert u_test's trailing (cos θ₀, sin θ₀) cue to
+    # the K-bin one-hot the model expects — mirrors the trainer's load-time
+    # conversion (graph_trainer use_bins path). Model outputs are decoded back
+    # to (cos,sin) downstream: path_integration_accuracy_from_data does it
+    # internally, block (a) via softmax_logits_to_cos_sin_np, and the
+    # deterministic sweep builds its own bin cue + decode.
+    use_bins = bool(getattr(model, 'use_heading_bins', False))
+    K_bins = int(getattr(model, 'n_heading_bins', 64))
+    if use_bins:
+        from connectome_gnn.models.heading_bins import (
+            convert_cos_sin_input_to_bin_cue_torch,
+        )
+        u_test = convert_cos_sin_input_to_bin_cue_torch(u_test, K_bins)
+        logger.info(f'  heading-bin ablation: K={K_bins}; converted u_test cue '
+                    f'to K-bin one-hot → u={tuple(u_test.shape)}')
+
     # --- Aggregate test pi_acc on full split (T=u_test.shape[1]) -----------
     # Test does no backward pass, so we use a much larger batch than training.
     # The training-side `tc.batch_size` is tuned to fit BPTT memory; here we
@@ -2197,6 +2333,15 @@ def data_test_path_integration_task(
         with torch.no_grad():
             y_pred_sample, _ = model(u_test[idx_sample])
         y_pred_sample_np = y_pred_sample.cpu().numpy()
+        if use_bins:
+            # K-bin logits → (cos,sin) circular-mean decode so the heading
+            # metrics + trace plot consume the same 2-D layout as the cos/sin
+            # models. Same convention as the deterministic-sweep decode.
+            from connectome_gnn.models.heading_bins import (
+                softmax_logits_to_cos_sin_np,
+            )
+            y_pred_sample_np = softmax_logits_to_cos_sin_np(
+                y_pred_sample_np, K_bins)
 
         metrics_random = _per_trial_heading_metrics(
             y_pred_sample_np, theta_test_np[idx_sample],

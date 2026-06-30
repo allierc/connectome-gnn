@@ -968,6 +968,100 @@ def _save_place_snapshot(net, log_dir, global_step, epoch, u_test, y_test,
     plt.close(fig)
 
 
+def animate_place_trial(net, u_trial, y_trial, out_mp4, *, dt, device,
+                        fps=25, stride=2):
+    """MP4 of one place test trial (same 5 panels as the snapshot, animated):
+    (1) red dot moving along the green arena path; (2) the predicted place-code
+    map per frame (○ = true position); (3) position x/y, (4) distance d,
+    (5) heading — each with a red marker tracking the green truth at the
+    current frame. Uses the imageio-ffmpeg writer (no system ffmpeg needed)."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import imageio
+    was_training = net.training
+    net.eval()
+    with torch.no_grad():
+        yh, _ = net(u_trial[None].to(device))            # (1, T, 3+K)
+        K = int(net.net2_n_place)
+        p = torch.softmax(yh[0, :, 3:3 + K], dim=-1)
+        centers = net.place_centers
+        xy_dec = (p @ centers).cpu().numpy()
+        th_dec = torch.atan2(yh[0, :, 1], yh[0, :, 0]).cpu().numpy()
+        d_dec = yh[0, :, 2].cpu().numpy()
+        p_np = p.cpu().numpy()
+    if was_training:
+        net.train()
+    yt = y_trial.detach().cpu().numpy()
+    T = yt.shape[0]
+    xy_true = yt[:, 3:5]; th_true = np.arctan2(yt[:, 1], yt[:, 0]); d_true = yt[:, 2]
+    A = float(net.arena_half); grid = int(round(np.sqrt(K)))
+    t = np.arange(T) * float(dt)
+    GT, PR, RD = "tab:green", "black", "red"
+    pmap = p_np.reshape(T, grid, grid)
+
+    # dpi=100 → 1550×330 px (both even → libx264-safe, macro_block_size=1).
+    fig, ax = plt.subplots(1, 5, figsize=(15.5, 3.3), dpi=100)
+    # (1) arena path + moving red dot
+    ax[0].plot(xy_true[:, 0], xy_true[:, 1], color=GT, lw=1.2)
+    dotA, = ax[0].plot([], [], "o", color=RD, ms=8, zorder=5)
+    ax[0].set_xlim(-A, A); ax[0].set_ylim(-A, A)
+    ax[0].set_xlabel("x"); ax[0].set_ylabel("y")
+    # (2) place-code map (updates) + true-position circle (moves)
+    imB = ax[1].imshow(pmap[0], origin="lower", extent=[-A, A, -A, A],
+                       cmap="viridis", aspect="auto",
+                       vmin=0.0, vmax=float(p_np.max()))
+    circB, = ax[1].plot([], [], "o", mec=RD, mfc="none", ms=10, mew=1.6, zorder=5)
+    ax[1].set_xlabel("x"); ax[1].set_ylabel("y")
+    # (3) position x/y
+    ax[2].plot(t, xy_true[:, 0], color=GT, lw=1.0)
+    ax[2].plot(t, xy_dec[:, 0], color=PR, lw=0.7)
+    ax[2].plot(t, xy_true[:, 1], color=GT, lw=1.0, ls="--")
+    ax[2].plot(t, xy_dec[:, 1], color=PR, lw=0.7, ls="--")
+    vC = ax[2].axvline(t[0], color=RD, lw=0.8, alpha=0.6)
+    dCx, = ax[2].plot([], [], "o", color=RD, ms=5)
+    dCy, = ax[2].plot([], [], "o", color=RD, ms=5)
+    ax[2].set_xlabel("time (s)"); ax[2].set_ylabel("position  x (—) / y (– –)")
+    # (4) distance d
+    ax[3].plot(t, d_true, color=GT, lw=1.2)
+    ax[3].plot(t, d_dec, color=PR, lw=0.8)
+    vD = ax[3].axvline(t[0], color=RD, lw=0.8, alpha=0.6)
+    dD, = ax[3].plot([], [], "o", color=RD, ms=5)
+    ax[3].set_xlabel("time (s)"); ax[3].set_ylabel(r"distance $d$")
+    # (5) heading
+    thw = np.angle(np.exp(1j * th_true))
+    ax[4].plot(t, thw, color=GT, lw=0, marker=".", ms=2)
+    ax[4].plot(t, np.angle(np.exp(1j * th_dec)), color=PR, lw=0, marker=".", ms=1)
+    vE = ax[4].axvline(t[0], color=RD, lw=0.8, alpha=0.6)
+    dE, = ax[4].plot([], [], "o", color=RD, ms=5)
+    ax[4].set_yticks([-np.pi, 0, np.pi]); ax[4].set_yticklabels([r"$-\pi$", "0", r"$\pi$"])
+    ax[4].set_ylim(-np.pi - 0.15, np.pi + 0.15)
+    ax[4].set_xlabel("time (s)"); ax[4].set_ylabel("HD (rad)")
+    for a in ax:
+        a.set_box_aspect(1)
+    fig.tight_layout()
+
+    os.makedirs(os.path.dirname(out_mp4) or ".", exist_ok=True)
+    writer = imageio.get_writer(out_mp4, fps=fps, codec="libx264",
+                                quality=8, macro_block_size=1)
+    for ti in range(0, T, stride):
+        dotA.set_data([xy_true[ti, 0]], [xy_true[ti, 1]])
+        imB.set_data(pmap[ti])
+        circB.set_data([xy_true[ti, 0]], [xy_true[ti, 1]])
+        for v in (vC, vD, vE):
+            v.set_xdata([t[ti], t[ti]])
+        dCx.set_data([t[ti]], [xy_true[ti, 0]])
+        dCy.set_data([t[ti]], [xy_true[ti, 1]])
+        dD.set_data([t[ti]], [d_true[ti]])
+        dE.set_data([t[ti]], [thw[ti]])
+        fig.canvas.draw()
+        frame = np.asarray(fig.canvas.buffer_rgba())[..., :3]
+        writer.append_data(frame)
+    writer.close()
+    plt.close(fig)
+    return out_mp4
+
+
 def _plot_gnn_functions(
     *,
     net, config, log_dir: str, global_step: int, device: str,
