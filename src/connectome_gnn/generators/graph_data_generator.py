@@ -618,11 +618,10 @@ def _plot_place_cells_setup(W2, neuron_types, ei, type_names, centers, sigma,
     axm.axhline(n_inter - 0.5, color="k", lw=0.8)
     axm.axvline(n_inter - 0.5, color="k", lw=0.8)
     axm.set_xticks([n_inter / 2, n_inter + (N2 - n_inter) / 2])
-    axm.set_xticklabels(type_names, fontsize=8)
+    axm.set_xticklabels(type_names, fontsize=6)
     axm.set_yticks([n_inter / 2, n_inter + (N2 - n_inter) / 2])
-    axm.set_yticklabels(type_names, rotation=90, va="center", fontsize=8)
-    axm.set_xlabel("presynaptic"); axm.set_ylabel("postsynaptic")
-    fig.colorbar(im, ax=axm, fraction=0.046, pad=0.02).ax.tick_params(labelsize=7)
+    axm.set_yticklabels(type_names, rotation=90, va="center", fontsize=6)
+    axm.set_xlabel("presynaptic", fontsize=7); axm.set_ylabel("postsynaptic", fontsize=7)
 
     # (b) 2×2 example place fields — right block, laid out to match arena
     # geometry (top row = high y, left column = low x). No titles.
@@ -639,13 +638,13 @@ def _plot_place_cells_setup(W2, neuron_types, ei, type_names, centers, sigma,
             act = place_cell_activation(grid_xy, centers[k:k + 1], sigma).reshape(gx.shape)
             im2 = ax.imshow(act, extent=[-A, A, -A, A], origin="lower",
                             cmap="viridis", vmin=0, vmax=1, aspect="equal")
-            ax.tick_params(labelsize=7)
+            ax.tick_params(labelsize=6)
             if ri == 1:
-                ax.set_xlabel("x", fontsize=8)
+                ax.set_xlabel("x", fontsize=7)
             if ci == 0:
-                ax.set_ylabel("y", fontsize=8)
+                ax.set_ylabel("y", fontsize=7)
             place_axes.append(ax)
-    fig.colorbar(im2, ax=place_axes, fraction=0.025, pad=0.02).ax.tick_params(labelsize=7)
+    # (colorbars removed)
 
     # Bold panel labels a / b, horizontally aligned just above the panels
     # (figure coords, so the two letters share one baseline and never touch
@@ -654,7 +653,7 @@ def _plot_place_cells_setup(W2, neuron_types, ei, type_names, centers, sigma,
     pb = place_axes[0].get_position()
     y_lab = max(pa.y1, pb.y1) + 0.025
     for x0, lab in ((pa.x0, "a"), (pb.x0, "b")):
-        fig.text(x0 - 0.012, y_lab, lab, fontsize=18, fontweight="bold",
+        fig.text(x0 - 0.012, y_lab, lab, fontsize=13, fontweight="bold",
                  va="bottom", ha="right")
     fig.savefig(out_path, dpi=160, bbox_inches="tight")
     plt.close(fig)
