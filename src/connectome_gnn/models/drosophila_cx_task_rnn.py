@@ -156,7 +156,8 @@ class DrosophilaCxTaskRNN(nn.Module):
         #   ['rotation','translation'] → 4-in / 3-out [cosθ, sinθ, d]
         #   ['position_2d']            → 4-in / 4-out [cosθ, sinθ, x, y]
         # An explicit graph_model.n_input / n_output overrides the auto value.
-        _RECOGNISED = ("rotation", "translation", "position_2d", "rotation_vfwd")
+        _RECOGNISED = ("rotation", "translation", "position_2d", "rotation_vfwd",
+                       "torus_position")
         _tt_raw = list(getattr(config.training, "task_targets", None) or [])
         _tt_key = tuple(t for t in _RECOGNISED if t in _tt_raw)
         # On the proprioceptive gate the angular drive is split into two
@@ -180,6 +181,9 @@ class DrosophilaCxTaskRNN(nn.Module):
                 ("rotation", "translation"):  (4, 3),
                 ("position_2d",):             (4, 4),
                 ("translation",):             (1, 1),
+                # torus position: 4-ch input, 6-col target [cosθ, sinθ,
+                # cosφx, sinφx, cosφy, sinφy] (Net1-only, no Net2).
+                ("torus_position",):          (4, 6),
             }
         _auto_in, _auto_out = _TT_DIMS.get(_tt_key, (3, 2))  # default = rotation
         self.n_input = int(getattr(gm, "n_input", 0)) or _auto_in

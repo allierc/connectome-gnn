@@ -2219,8 +2219,11 @@ def data_test_path_integration_task(
         # path-integration probe): full 4-ch input, 2-col heading target.
         (4, 3, ("rotation_vfwd",)):           ([0, 1, 2, 3], [0, 1]),
         (4, 4, ("rotation_vfwd",)):           ([0, 1, 2, 3], [0, 1]),
+        # torus_position: 6-col target, Net1-only (heading metrics use cols 0,1).
+        (4, 6, ("torus_position",)):          ([0, 1, 2, 3], [0, 1, 2, 3, 4, 5]),
     }
-    _RECOGNISED = ("rotation", "translation", "position_2d", "rotation_vfwd")
+    _RECOGNISED = ("rotation", "translation", "position_2d", "rotation_vfwd",
+                   "torus_position")
     _task_raw = list(getattr(tc, 'task_targets', None) or [])
     task_targets_canonical = [t for t in _RECOGNISED if t in _task_raw]
     _task_key = tuple(task_targets_canonical)

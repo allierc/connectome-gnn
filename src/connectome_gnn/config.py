@@ -1506,9 +1506,19 @@ class SwimIntegrationTaskConfig(BaseModel):
     #                            saved grid geometry. Canonical toroidal
     #                            continuous-attractor target (cf. Burak & Fiete
     #                            2009; Gardner et al. 2022).
+    #   "torus_position"      — head-direction + TORUS-POSITION task, read
+    #                            directly off Net1 (NO Net2). The agent forages
+    #                            freely (unbounded 2-D PI); position is encoded
+    #                            as two toroidal phases φ=2π·(x,y)/λ, each a
+    #                            (cos,sin) pair like the heading ring. On-disk
+    #                            target is 6-col [cosθ, sinθ, cosφx, sinφx,
+    #                            cosφy, sinφy]; trained with plain MSE (the
+    #                            cos/sin encoding is circular). Net1 must read
+    #                            from the full state (output_from_epg_only:
+    #                            false), since position lives in PFN/hΔ.
     target_kind: Literal[
         "scalar_xi", "position_2d", "rotation_mismatch", "place_cells",
-        "grid_cells"
+        "grid_cells", "torus_position"
     ] = "scalar_xi"
 
     # --- Place-cell task (target_kind="place_cells") -----------------------
