@@ -1980,12 +1980,15 @@ def _data_train_task_pi(config, erase, best_model, device, log_file=None, resume
         # grid_cells (torus): identical on-disk layout to place_cells; the
         # model switches to toroidal targets / circular decode via grid_mode.
         (4, 5, ("grid_cells",)):              ([0, 1, 2, 3], [0, 1, 2, 3, 4]),
+        # torus_position: Net1-only, 6-col target [cosθ,sinθ,cosφx,sinφx,
+        # cosφy,sinφy], plain MSE (circular via the cos/sin encoding).
+        (4, 6, ("torus_position",)):          ([0, 1, 2, 3], [0, 1, 2, 3, 4, 5]),
     }
     _task_raw = list(getattr(tc, 'task_targets', None) or [])
     # Canonical key: rotation always before translation; position_2d listed
     # separately. Sorting is by a fixed enumeration so the key is stable.
     _RECOGNISED = ("rotation", "translation", "position_2d", "rotation_vfwd",
-                   "place_cells", "grid_cells")
+                   "place_cells", "grid_cells", "torus_position")
     _task_key = tuple(t for t in _RECOGNISED if t in _task_raw)
     task_targets_canonical = list(_task_key)
     if u_train.shape[-1] >= 4 and _task_key:

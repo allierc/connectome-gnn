@@ -1165,11 +1165,29 @@ def _generate_swim_integration_task(config, *, device, visualize: bool = True) -
                 [np.cos(theta_hd), np.sin(theta_hd), disp, x_pos, y_pos],
                 axis=-1,
             ).astype(np.float32)
+        elif _target_kind == "torus_position":
+            # Net1 reads its own position as two toroidal phases (no Net2).
+            # Free unbounded 2-D PI; φ=2π·(x,y)/λ encoded (cos,sin) per axis.
+            _L = float(getattr(si, "grid_period", 0.5))
+            cos_th = np.cos(theta_hd).astype(np.float32)
+            sin_th = np.sin(theta_hd).astype(np.float32)
+            x_pos = (np.cumsum(vfwd * cos_th, axis=1) * dt).astype(np.float32)
+            y_pos = (np.cumsum(vfwd * sin_th, axis=1) * dt).astype(np.float32)
+            x_pos[:, 0] = 0.0; y_pos[:, 0] = 0.0
+            phx = (2.0 * np.pi / _L) * x_pos
+            phy = (2.0 * np.pi / _L) * y_pos
+            disp = (np.cumsum(vfwd, axis=1) * dt).astype(np.float32)
+            disp[:, 0] = 0.0          # kept only for the displacement sidecar
+            target_y = np.stack(
+                [np.cos(theta_hd), np.sin(theta_hd),
+                 np.cos(phx), np.sin(phx), np.cos(phy), np.sin(phy)],
+                axis=-1,
+            ).astype(np.float32)
         else:
             raise ValueError(
                 f"task.swim_integration.target_kind must be 'scalar_xi', "
-                f"'position_2d', 'rotation_mismatch', 'place_cells' or "
-                f"'grid_cells'; got {_target_kind!r}"
+                f"'position_2d', 'rotation_mismatch', 'place_cells', "
+                f"'grid_cells' or 'torus_position'; got {_target_kind!r}"
             )
         # Input — channel layout selected by ``propriocep_split``:
         #   default (False): 4 channels [ω, v_fwd, cos θ₀·δ, sin θ₀·δ]
@@ -1351,6 +1369,24 @@ def _generate_swim_integration_task(config, *, device, visualize: bool = True) -
         logger.info(f"[task]   grid_cells: wrote net2_Wcon.npz "
                     f"(N2={n_inter + n_place}), grid_geometry.npz "
                     f"(K={n_place}, σ={sigma}, λ={period}), and plots")
+
+    # --- Torus-position task artefacts (target_kind="torus_position") ------
+    # Net1-only task: just record the torus period λ so the test/decode can
+    # map the (cos,sin) phase pairs back to position. No Net2.
+    if str(getattr(si, "target_kind", "")).lower() == "torus_position":
+        import json
+        period = float(getattr(si, "grid_period", 0.5))
+        np.savez(os.path.join(out_root, "torus_geometry.npz"),
+                 period=np.float32(period))
+        with open(os.path.join(out_root, "torus_meta.json"), "w") as f:
+            json.dump({"torus_period": period,
+                       "target_cols": ["cos_theta", "sin_theta",
+                                       "cos_phi_x", "sin_phi_x",
+                                       "cos_phi_y", "sin_phi_y"]},
+                      f, indent=2, sort_keys=True)
+        logger.info(f"[task]   torus_position: wrote torus_geometry.npz "
+                    f"(λ={period}); 6-col target [cosθ,sinθ,cosφx,sinφx,"
+                    f"cosφy,sinφy]")
 
 
 def _generate_cortex_task(config, *, device, visualize: bool = True) -> None:
