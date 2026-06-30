@@ -149,6 +149,7 @@ class DrosophilaCxTaskPlace(DrosophilaCxTaskRNN):
 
     def place_per_frame_loss(self, y_hat, y_true,
                              coeff_place: float = 1.0, coeff_pos: float = 1.0,
+                             coeff_consistency: float = 0.0,
                              warmup: int = 10):
         """Per-frame place loss (B,T) + a [0,1] place score + position RMSE.
 
@@ -169,6 +170,18 @@ class DrosophilaCxTaskPlace(DrosophilaCxTaskRNN):
         xy_dec = p @ self.place_centers                    # (B,T,2) pop-vector
         pos_se = (xy_dec - xy_true).pow(2).sum(-1)         # (B,T)
         pf = head_mse + coeff_place * kl + coeff_pos * pos_se
+        if coeff_consistency > 0.0:
+            # Net1↔Net2 integrator consistency: per step the magnitude of
+            # Net2's decoded position change must equal Net1's decoded
+            # forward-distance change (both = |v_fwd|·dt). Heading-independent,
+            # so it's robust while the compass is still forming, and it pulls
+            # Net1's distance back when it overshoots what Net2's (bounded)
+            # position supports.
+            d_hat = y_hat[..., 2]
+            sp2 = (xy_dec[:, 1:] - xy_dec[:, :-1]).norm(dim=-1)   # (B,T-1)
+            sp1 = (d_hat[:, 1:] - d_hat[:, :-1]).abs()            # (B,T-1)
+            cons = F.pad((sp2 - sp1).pow(2), (1, 0))             # (B,T)
+            pf = pf + coeff_consistency * cons
         with torch.no_grad():
             pp, qq = p[:, warmup:], q[:, warmup:]
             cos = (pp * qq).sum(-1) / (pp.norm(dim=-1) * qq.norm(dim=-1) + 1e-9)
