@@ -27,6 +27,7 @@ Registered name: ``drosophila_cx_pi_place``.
 
 from __future__ import annotations
 
+import math
 import os
 
 import numpy as np
@@ -105,13 +106,22 @@ class DrosophilaCxTaskPlace(DrosophilaCxTaskRNN):
         self.net2_dt = float(self.dt)
         self.net2_tau = float(getattr(si, "net2_tau_s", self.tau))
 
-        # --- place-field geometry (centres + σ) for loss / decode ----------
-        pg = np.load(os.path.join(graphs_data_path(config.dataset),
-                                  "place_geometry.npz"))
+        # --- place / grid geometry (centres + σ) for loss / decode ---------
+        # grid_mode: target is a toroidal grid-cell code (target_kind=
+        # "grid_cells") — toroidal Gaussian targets + circular position decode;
+        # otherwise the bounded place-cell code.
+        self.grid_mode = str(getattr(si, "target_kind", "")).lower() == "grid_cells"
+        geo_file = "grid_geometry.npz" if self.grid_mode else "place_geometry.npz"
+        geo = np.load(os.path.join(graphs_data_path(config.dataset), geo_file))
         self.register_buffer(
-            "place_centers", torch.from_numpy(pg["centers"].astype(np.float32)))
-        self.place_sigma = float(pg["sigma"])
-        self.arena_half = float(pg["arena_half"])
+            "place_centers", torch.from_numpy(geo["centers"].astype(np.float32)))
+        self.place_sigma = float(geo["sigma"])
+        if self.grid_mode:
+            self.grid_period = float(geo["period"])
+            self.arena_half = self.grid_period       # torus extent for plots
+        else:
+            self.grid_period = None
+            self.arena_half = float(geo["arena_half"])
 
         # total output width = heading+distance (3) + place logits (K)
         self.n_output = self._n_head_out + K
@@ -150,10 +160,35 @@ class DrosophilaCxTaskPlace(DrosophilaCxTaskRNN):
     # Place-cell target / loss / score (encapsulated; trainer just dispatches)
     # ------------------------------------------------------------------
     def place_targets(self, xy: torch.Tensor) -> torch.Tensor:
-        """Normalised Gaussian place distribution q (B,T,K), Σ_k q=1."""
-        d2 = (xy.unsqueeze(-2) - self.place_centers).pow(2).sum(-1)   # (B,T,K)
+        """Normalised Gaussian target distribution q (B,T,K), Σ_k q=1.
+        Place: Euclidean Gaussian. Grid: toroidal (wrapped per-axis distance
+        on the torus of period λ)."""
+        d = xy.unsqueeze(-2) - self.place_centers          # (B,T,K,2)
+        if self.grid_mode:
+            L = self.grid_period
+            d = d - L * torch.round(d / L)                 # wrap to [-L/2, L/2)
+        d2 = d.pow(2).sum(-1)
         p = torch.exp(-d2 / (2.0 * self.place_sigma * self.place_sigma))
         return p / (p.sum(-1, keepdim=True) + 1e-9)
+
+    def decode_position(self, p: torch.Tensor) -> torch.Tensor:
+        """Decode (x,y) from the code p (...,K). Place: linear population
+        vector Σ_k p_k c_k. Grid: per-axis circular decode on the torus."""
+        if not self.grid_mode:
+            return p @ self.place_centers
+        L = self.grid_period
+        ang = (2.0 * math.pi / L) * self.place_centers     # (K,2) centre phases
+        mc = p @ torch.cos(ang)                            # (...,2)
+        ms = p @ torch.sin(ang)
+        return torch.atan2(ms, mc) * (L / (2.0 * math.pi))  # → (-L/2, L/2]
+
+    def _pos_sqerr(self, xy_dec, xy_true):
+        """Squared position error (...): Euclidean (place) or toroidal (grid)."""
+        d = xy_dec - xy_true
+        if self.grid_mode:
+            L = self.grid_period
+            d = d - L * torch.round(d / L)
+        return d.pow(2).sum(-1)
 
     def place_per_frame_loss(self, y_hat, y_true,
                              coeff_place: float = 1.0, coeff_pos: float = 1.0,
@@ -175,18 +210,20 @@ class DrosophilaCxTaskPlace(DrosophilaCxTaskRNN):
         logp = F.log_softmax(logits, dim=-1)
         p = logp.exp()
         kl = (q * (torch.log(q + 1e-9) - logp)).sum(-1)    # (B,T)
-        xy_dec = p @ self.place_centers                    # (B,T,2) pop-vector
-        pos_se = (xy_dec - xy_true).pow(2).sum(-1)         # (B,T)
+        xy_dec = self.decode_position(p)                   # (B,T,2)
+        pos_se = self._pos_sqerr(xy_dec, xy_true)          # (B,T)
         pf = head_mse + coeff_place * kl + coeff_pos * pos_se
         if coeff_consistency > 0.0:
             # Net1↔Net2 integrator consistency: per step the magnitude of
             # Net2's decoded position change must equal Net1's decoded
-            # forward-distance change (both = |v_fwd|·dt). Heading-independent,
-            # so it's robust while the compass is still forming, and it pulls
-            # Net1's distance back when it overshoots what Net2's (bounded)
-            # position supports.
+            # forward-distance change (both = |v_fwd|·dt). On the torus the
+            # position delta is wrapped before taking its magnitude.
             d_hat = y_hat[..., 2]
-            sp2 = (xy_dec[:, 1:] - xy_dec[:, :-1]).norm(dim=-1)   # (B,T-1)
+            dxy = xy_dec[:, 1:] - xy_dec[:, :-1]                  # (B,T-1,2)
+            if self.grid_mode:
+                L = self.grid_period
+                dxy = dxy - L * torch.round(dxy / L)
+            sp2 = dxy.norm(dim=-1)                                # (B,T-1)
             sp1 = (d_hat[:, 1:] - d_hat[:, :-1]).abs()            # (B,T-1)
             cons = F.pad((sp2 - sp1).pow(2), (1, 0))             # (B,T)
             pf = pf + coeff_consistency * cons

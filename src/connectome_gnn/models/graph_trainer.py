@@ -1977,12 +1977,15 @@ def _data_train_task_pi(config, erase, best_model, device, log_file=None, resume
         # place logits; the trainer keeps all 5 target cols (heading+distance
         # supervised directly, (x,y) used to build the place code on the fly).
         (4, 5, ("place_cells",)):             ([0, 1, 2, 3], [0, 1, 2, 3, 4]),
+        # grid_cells (torus): identical on-disk layout to place_cells; the
+        # model switches to toroidal targets / circular decode via grid_mode.
+        (4, 5, ("grid_cells",)):              ([0, 1, 2, 3], [0, 1, 2, 3, 4]),
     }
     _task_raw = list(getattr(tc, 'task_targets', None) or [])
     # Canonical key: rotation always before translation; position_2d listed
     # separately. Sorting is by a fixed enumeration so the key is stable.
     _RECOGNISED = ("rotation", "translation", "position_2d", "rotation_vfwd",
-                   "place_cells")
+                   "place_cells", "grid_cells")
     _task_key = tuple(t for t in _RECOGNISED if t in _task_raw)
     task_targets_canonical = list(_task_key)
     if u_train.shape[-1] >= 4 and _task_key:
@@ -2144,7 +2147,8 @@ def _data_train_task_pi(config, erase, best_model, device, log_file=None, resume
     coeff_l1S = float(tc.coeff_W_L1)
     # place-cell task (model drosophila_cx_pi_place): KL-distribution + aux
     # position-decode weights, and a flag selecting the place loss branch.
-    is_place = ("place_cells" in task_targets_canonical
+    is_place = (("place_cells" in task_targets_canonical
+                 or "grid_cells" in task_targets_canonical)
                 and hasattr(model, 'place_per_frame_loss'))
     coeff_place = float(getattr(tc, 'coeff_place', 1.0))
     coeff_pos = float(getattr(tc, 'coeff_pos', 1.0))

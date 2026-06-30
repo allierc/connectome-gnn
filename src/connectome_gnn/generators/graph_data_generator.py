@@ -504,6 +504,56 @@ def place_cell_activation(xy: np.ndarray, centers: np.ndarray,
     return np.exp(-d2 / (2.0 * sigma * sigma)).astype(np.float32)
 
 
+def grid_cell_centers(grid: int, period: float) -> np.ndarray:
+    """(K=grid², 2) regular grid of grid-cell centres on the torus [0, λ)²."""
+    ax = np.linspace(0.0, period, grid, endpoint=False)
+    gx, gy = np.meshgrid(ax, ax, indexing="xy")
+    return np.stack([gx.ravel(), gy.ravel()], axis=-1).astype(np.float32)
+
+
+def grid_cell_activation(xy: np.ndarray, centers: np.ndarray,
+                         sigma: float, period: float) -> np.ndarray:
+    """Toroidal Gaussian grid-cell activations on the torus of period λ:
+    g_k = exp(-d_torus(xy, c_k)²/2σ²), where the per-axis distance is the
+    wrapped difference (xy and centres compared modulo λ). ``xy`` (...,2) may
+    be unbounded; returns (..., K). Each cell fires on a periodic real-space
+    lattice."""
+    xy = np.asarray(xy, dtype=np.float32)
+    d = xy[..., None, :] - centers[None, ...]          # (..., K, 2)
+    d = d - period * np.round(d / period)              # wrap to [-λ/2, λ/2)
+    d2 = (d ** 2).sum(-1)
+    return np.exp(-d2 / (2.0 * sigma * sigma)).astype(np.float32)
+
+
+def _plot_grid_field_examples(centers, sigma, period, out_path, n=4,
+                              view_periods=3.0):
+    """1×4 row of example grid cells, each over a ±view_periods·λ real-space
+    window so the periodic firing lattice is visible (viridis, non-bold)."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    L = float(period); A = view_periods * L
+    g = np.linspace(-A, A, 200)
+    gx, gy = np.meshgrid(g, g, indexing="xy")
+    grid_xy = np.stack([gx.ravel(), gy.ravel()], -1)
+    K = centers.shape[0]
+    picks = [0, K // 4 + 2, K // 2 + int(np.sqrt(K)) // 2, K - 1]
+    fig, axes = plt.subplots(1, n, figsize=(3.4 * n, 3.4))
+    for j, (ax, k) in enumerate(zip(np.atleast_1d(axes), picks[:n])):
+        act = grid_cell_activation(grid_xy, centers[k:k + 1], sigma, L).reshape(gx.shape)
+        im = ax.imshow(act, extent=[-A, A, -A, A], origin="lower",
+                       cmap="viridis", vmin=0, vmax=1, aspect="equal")
+        ax.set_title(f"grid cell {k}  (λ={L:g}, σ={sigma:g})",
+                     fontsize=9, fontweight="normal")
+        ax.set_xlabel("x")
+        if j == 0:
+            ax.set_ylabel("y")
+        fig.colorbar(im, ax=ax, fraction=0.046, pad=0.02)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=160, bbox_inches="tight")
+    plt.close(fig)
+
+
 def _generate_net2_connectivity(n_inter, n_place, sparsity, ei_ratio, seed):
     """Synthetic sign-locked E/I recurrent connectome for Net2.
 
@@ -1098,11 +1148,28 @@ def _generate_swim_integration_task(config, *, device, visualize: bool = True) -
                 [np.cos(theta_hd), np.sin(theta_hd), disp, x_pos, y_pos],
                 axis=-1,
             ).astype(np.float32)
+        elif _target_kind == "grid_cells":
+            # Grid-cell torus task: free 2-D path integration (UNBOUNDED, no
+            # walls) — same coupling as position_2d, plus the distance column.
+            # The grid code (torus of period λ) + circular decode are derived
+            # on the fly from (x,y); position is intentionally unbounded so the
+            # phase (x,y) mod λ covers the whole torus.
+            cos_th = np.cos(theta_hd).astype(np.float32)
+            sin_th = np.sin(theta_hd).astype(np.float32)
+            x_pos = (np.cumsum(vfwd * cos_th, axis=1) * dt).astype(np.float32)
+            y_pos = (np.cumsum(vfwd * sin_th, axis=1) * dt).astype(np.float32)
+            x_pos[:, 0] = 0.0; y_pos[:, 0] = 0.0
+            disp = (np.cumsum(vfwd, axis=1) * dt).astype(np.float32)
+            disp[:, 0] = 0.0
+            target_y = np.stack(
+                [np.cos(theta_hd), np.sin(theta_hd), disp, x_pos, y_pos],
+                axis=-1,
+            ).astype(np.float32)
         else:
             raise ValueError(
                 f"task.swim_integration.target_kind must be 'scalar_xi', "
-                f"'position_2d', 'rotation_mismatch' or 'place_cells'; "
-                f"got {_target_kind!r}"
+                f"'position_2d', 'rotation_mismatch', 'place_cells' or "
+                f"'grid_cells'; got {_target_kind!r}"
             )
         # Input — channel layout selected by ``propriocep_split``:
         #   default (False): 4 channels [ω, v_fwd, cos θ₀·δ, sin θ₀·δ]
@@ -1244,6 +1311,46 @@ def _generate_swim_integration_task(config, *, device, visualize: bool = True) -
         logger.info(f"[task]   place_cells: wrote net2_Wcon.npz "
                     f"(N2={n_inter + n_place}), place_geometry.npz "
                     f"(K={n_place}, σ={sigma}, arena=±{_A}), and plots")
+
+    # --- Grid-cell torus task artefacts (target_kind="grid_cells") ---------
+    if str(getattr(si, "target_kind", "")).lower() == "grid_cells":
+        import json
+        period = float(getattr(si, "grid_period", 0.5))
+        grid = int(getattr(si, "grid_grid", 20))
+        sigma = float(getattr(si, "grid_sigma", 0.1))
+        centers = grid_cell_centers(grid, period)
+        n_place = centers.shape[0]
+        n_inter = int(getattr(si, "net2_n_interneurons", 200))
+        W2, n_types, ei, type_names = _generate_net2_connectivity(
+            n_inter, n_place,
+            float(getattr(si, "net2_sparsity", 0.10)),
+            float(getattr(si, "net2_ei_ratio", 0.60)),
+            int(getattr(si, "net2_seed", 700000)))
+        np.savez(os.path.join(out_root, "net2_Wcon.npz"),
+                 W2_con=W2, neuron_types=n_types, ei=ei,
+                 type_names=np.array(type_names),
+                 n_interneurons=np.int64(n_inter), n_place=np.int64(n_place))
+        np.savez(os.path.join(out_root, "grid_geometry.npz"),
+                 centers=centers, sigma=np.float32(sigma),
+                 grid=np.int64(grid), period=np.float32(period))
+        with open(os.path.join(out_root, "grid_meta.json"), "w") as f:
+            json.dump({"grid_grid": grid, "n_grid": int(n_place),
+                       "grid_sigma": sigma, "grid_period": period,
+                       "net2_n_interneurons": n_inter,
+                       "net2_n_neurons": int(n_inter + n_place),
+                       "net2_sparsity": float(getattr(si, "net2_sparsity", 0.10)),
+                       "net2_ei_ratio": float(getattr(si, "net2_ei_ratio", 0.60)),
+                       "net2_seed": int(getattr(si, "net2_seed", 700000))},
+                      f, indent=2, sort_keys=True)
+        if visualize:
+            _plot_net2_matrix(W2, n_types, ei, type_names,
+                              os.path.join(out_root, "net2_Wcon.png"))
+            _plot_grid_field_examples(
+                centers, sigma, period,
+                os.path.join(out_root, "grid_fields_examples.png"))
+        logger.info(f"[task]   grid_cells: wrote net2_Wcon.npz "
+                    f"(N2={n_inter + n_place}), grid_geometry.npz "
+                    f"(K={n_place}, σ={sigma}, λ={period}), and plots")
 
 
 def _generate_cortex_task(config, *, device, visualize: bool = True) -> None:

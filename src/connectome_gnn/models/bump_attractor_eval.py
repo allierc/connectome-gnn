@@ -893,7 +893,9 @@ def _save_place_snapshot(net, log_dir, global_step, epoch, u_test, y_test,
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    out_dir = os.path.join(log_dir, "tmp_training", "place_evolution")
+    grid_mode = bool(getattr(net, "grid_mode", False))
+    out_dir = os.path.join(log_dir, "tmp_training",
+                           "grid_evolution" if grid_mode else "place_evolution")
     os.makedirs(out_dir, exist_ok=True)
     was_training = net.training
     net.eval()
@@ -903,8 +905,7 @@ def _save_place_snapshot(net, log_dir, global_step, epoch, u_test, y_test,
         y_hat, _ = net(u)                               # (1, T, 3+K)
         K = int(net.net2_n_place)
         p = torch.softmax(y_hat[0, :, 3:3 + K], dim=-1)  # (T, K)
-        centers = net.place_centers                      # (K, 2)
-        xy_dec = (p @ centers).cpu().numpy()             # (T, 2)
+        xy_dec = net.decode_position(p).cpu().numpy()    # (T,2) grid-aware
         th_dec = torch.atan2(y_hat[0, :, 1], y_hat[0, :, 0]).cpu().numpy()
         d_dec = y_hat[0, :, 2].cpu().numpy()             # Net1 scalar distance
         p_np = p.cpu().numpy()
@@ -913,7 +914,14 @@ def _save_place_snapshot(net, log_dir, global_step, epoch, u_test, y_test,
     yt = y_test[trial_idx, :T].detach().cpu().numpy()
     xy_true = yt[:, 3:5]
     th_true = np.arctan2(yt[:, 1], yt[:, 0])
-    A = float(net.arena_half)
+    # On the torus, show position folded into one period [0, λ); place stays
+    # in the bounded arena [-A, A].
+    if grid_mode:
+        L = float(net.grid_period)
+        xy_true = np.mod(xy_true, L); xy_dec = np.mod(xy_dec, L)
+        lo, hi = 0.0, L
+    else:
+        A = float(net.arena_half); lo, hi = -A, A
     grid = int(round(np.sqrt(K)))
     t = np.arange(T) * float(net.dt)
     GT, PR = "tab:green", "black"
@@ -925,16 +933,21 @@ def _save_place_snapshot(net, log_dir, global_step, epoch, u_test, y_test,
     # all three learned quantities — direction (heading), distance, and the
     # place/position code. No titles, no colorbar (clean training diagnostic).
     fig, axes = plt.subplots(1, 5, figsize=(15.5, 3.3))
-    # (1) arena trajectory — true vs population-vector-decoded position
+    # (1) arena (or torus) trajectory — true vs decoded position. On the torus
+    # use markers so the wrap-arounds don't draw spurious lines.
     ax = axes[0]
-    ax.plot(xy_true[:, 0], xy_true[:, 1], color=GT, lw=1.2)
-    ax.plot(xy_dec[:, 0], xy_dec[:, 1], color=PR, lw=0.9)
-    ax.set_xlim(-A, A); ax.set_ylim(-A, A)
+    if grid_mode:
+        ax.plot(xy_true[:, 0], xy_true[:, 1], color=GT, lw=0, marker=".", ms=2)
+        ax.plot(xy_dec[:, 0], xy_dec[:, 1], color=PR, lw=0, marker=".", ms=1.5)
+    else:
+        ax.plot(xy_true[:, 0], xy_true[:, 1], color=GT, lw=1.2)
+        ax.plot(xy_dec[:, 0], xy_dec[:, 1], color=PR, lw=0.9)
+    ax.set_xlim(lo, hi); ax.set_ylim(lo, hi)
     ax.set_xlabel("x"); ax.set_ylabel("y")
-    # (2) predicted place-code map at the final frame (○ = true position)
+    # (2) predicted code map at the final frame (○ = true position)
     ax = axes[1]
     ax.imshow(p_np[tf].reshape(grid, grid), origin="lower",
-              extent=[-A, A, -A, A], cmap="viridis", aspect="auto")
+              extent=[lo, hi, lo, hi], cmap="viridis", aspect="auto")
     ax.plot(xy_true[tf, 0], xy_true[tf, 1], "o", mec="r", mfc="none",
             ms=10, mew=1.5)
     ax.set_xlabel("x"); ax.set_ylabel("y")
