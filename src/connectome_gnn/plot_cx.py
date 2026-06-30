@@ -1829,7 +1829,8 @@ def _panel_hd_tracking_stacked(fig, subplotspec, rollout: dict, dt_s: float,
     return ax
 
 
-def _panel_trial_rollout(fig, subplotspec, test_trial: dict):
+def _panel_trial_rollout(fig, subplotspec, test_trial: dict,
+                         annotate: str | None = None):
     """One-trial rollout panel — mirrors the deterministic-rollout panel f
     layout, but on a single OU / swim trial drawn from u_test:
 
@@ -2010,6 +2011,11 @@ def _panel_trial_rollout(fig, subplotspec, test_trial: dict):
         ax_bot = fig.add_subplot(sub[1], sharex=ax_top)
         _draw_rot(ax_top, ax_bot, u[:, 0], is_top=True)
         ax_bot.set_xlabel("time (s)", fontsize=LABEL_FS)
+        if annotate:
+            ax_bot.text(0.02, 0.04, annotate, transform=ax_bot.transAxes,
+                        ha="left", va="bottom", fontsize=TICK_FS,
+                        bbox=dict(facecolor="white", edgecolor="none",
+                                  alpha=0.8, boxstyle="round,pad=0.18"))
         return ax_top
     if has_trans:
         sub = GridSpecFromSubplotSpec(
@@ -2812,6 +2818,20 @@ def plot_evolution(data: dict, out_path: str, *,
     """
     plt.style.use("default")
     is_gnn = _is_gnn(data["net"])
+    # --- Drosophila CX paper layout -------------------------------------
+    # The fly central-complex paper figures use a compact a–h layout: a
+    # uniform 2×4 grid (every panel the size of panel a), with the i/j
+    # test rows dropped, panel h (integration gain) placed *before* g
+    # (held-out trial) since h is the quantitative companion of f, and a
+    # mean±SD-over-trials annotation printed in g. Detected from the
+    # dataset group so the zebrafish dashboards keep their full a–j
+    # layout. Forcing n_rows=2 reuses the existing 2×4 grid path and
+    # skips the i/j block below (those panels are intentionally not
+    # rendered for the CX figures — see the kind-dispatch block).
+    _dataset_name = str(getattr(data.get("config", None), "dataset", "") or "")
+    _is_cx_paper = "drosophila_cx" in _dataset_name
+    if _is_cx_paper and n_rows == 4:
+        n_rows = 2
     # For the n_rows==4 paper figure, joint-target ("both") tasks
     # need 4 test rows (HD random, d random, HD sweep, d sweep)
     # instead of 2 — so the figure is taller. Detect early so the
@@ -2886,17 +2906,65 @@ def plot_evolution(data: dict, out_path: str, *,
     ax_e = _ax_top(1, 0)
     ax_f_top = _panel_hd_tracking_stacked(
         fig, _gs_top(1, 1), data["rollout"], data["dt_s"])
+    # CX paper layout: place h (integration gain) before g (held-out
+    # trial) — h is the quantitative companion of f, so f, h, g read
+    # left-to-right. Zebrafish keeps the historical e, f, g, h order.
+    _g_col, _h_col = (3, 2) if _is_cx_paper else (2, 3)
+    # Mean±SD of the per-trial decoding metrics — printed in panel g now
+    # that the per-trial panels (i) are dropped from the CX figure. HD
+    # (rotation) tasks only. Preferred source is the run's full held-out
+    # test set (results/test_metrics.npz, n≈512 trials, written by
+    # `GNN_Main.py -o test_plot`); falls back to the handful of random
+    # trials carried in `data` when that bundle is absent (e.g. a
+    # training-time snapshot).
+    _g_txt = None
+    if _is_cx_paper and data.get("task_kind", "hd") == "hd":
+        _npz = os.path.join(run_dir or "", "results", "test_metrics.npz")
+        if run_dir and os.path.isfile(_npz):
+            try:
+                _tm = np.load(_npz, allow_pickle=True)
+                _r = np.asarray(_tm["heading_random_pearson"], dtype=float)
+                _rm = np.asarray(_tm["heading_random_rmse_deg"], dtype=float)
+                _n = int(np.isfinite(_r).sum())
+                _g_txt = (
+                    f"r = {np.nanmean(_r):.3f} ± {np.nanstd(_r):.3f}\n"
+                    f"rmse = {np.nanmean(_rm):.1f} ± {np.nanstd(_rm):.1f}°"
+                    f"  (n={_n})")
+            except Exception:
+                _g_txt = None
+        if _g_txt is None:
+            _rt = data.get("random_trials") or {}
+            _yt = _rt.get("y_true"); _yp = _rt.get("y_pred")
+            if (_yt is not None and _yp is not None
+                    and np.asarray(_yt).ndim == 3
+                    and np.asarray(_yt).shape[-1] >= 2):
+                _yt = np.asarray(_yt); _yp = np.asarray(_yp)
+                _rs, _rmses = [], []
+                for _b in range(_yt.shape[0]):
+                    _tt = np.unwrap(np.arctan2(_yt[_b, :, 1], _yt[_b, :, 0]))
+                    _pp = np.unwrap(np.arctan2(_yp[_b, :, 1], _yp[_b, :, 0]))
+                    _err = np.angle(np.exp(1j * (_pp[10:] - _tt[10:])))
+                    _rmses.append(float(np.degrees(np.sqrt(np.mean(_err ** 2)))))
+                    if _tt[10:].std() > 1e-8 and _pp[10:].std() > 1e-8:
+                        _rs.append(float(np.corrcoef(_tt[10:], _pp[10:])[0, 1]))
+                if _rs and _rmses:
+                    _g_txt = (
+                        f"r = {np.mean(_rs):.3f} ± {np.std(_rs):.3f}\n"
+                        f"rmse = {np.mean(_rmses):.1f} ± {np.std(_rmses):.1f}°"
+                        f"  (n={_yt.shape[0]})")
     if data.get("test_trial") is not None:
-        ax_g_top = _panel_trial_rollout(fig, _gs_top(1, 2),
-                                          data["test_trial"])
+        ax_g_top = _panel_trial_rollout(fig, _gs_top(1, _g_col),
+                                          data["test_trial"],
+                                          annotate=_g_txt)
     else:
-        ax_g_top = _ax_top(1, 2)
+        ax_g_top = _ax_top(1, _g_col)
         ax_g_top.axis("off")
     # Panel h slot was the "subthreshold h distribution by cell type"
     # violin; that panel was dropped. Slot h now hosts the
     # integration-gain panel (previously panel i in the standalone
     # 3-row layout) so the evolution figure stays at 8 panels (a–h).
-    ax_h = _ax_top(1, 3)
+    # ``ax_h`` is created later (just before the panel-h dispatch) so its
+    # column can follow the CX f/h/g reorder.
 
     # Partition vector (six-way fish2 functional partition of Fig. 2):
     # used to sort the matrix and kinograph rows into anatomically
@@ -2906,12 +2974,16 @@ def plot_evolution(data: dict, out_path: str, *,
     _hd_part = _hd_partition_ids(
         data["neuron_types"], data["type_names"])
 
+    # Lift the a/b/c/d panel letters a little higher on the CX figure so
+    # they sit clear of the top-row tick labels instead of touching them.
+    _lab_y = 1.08 if _is_cx_paper else 1.02
+
     # Panels a (GT W_con) and b (learned W_rec): partition-sorted, no
     # colorbar, no title — labels carried by the LaTeX caption.
     _panel_matrix(ax_a, data["W_con"],
                    data["neuron_types"], data["type_names"], "",
                    partition=_hd_part, show_cbar=False, show_title=False)
-    _panel_label(ax_a, "a")
+    _panel_label(ax_a, "a", y=_lab_y)
 
     # Panel b drops the presynaptic/postsynaptic axis labels — they're
     # already on a in the same row, no need to repeat.
@@ -2919,14 +2991,14 @@ def plot_evolution(data: dict, out_path: str, *,
                    data["neuron_types"], data["type_names"], "",
                    partition=_hd_part, show_cbar=False, show_title=False,
                    show_axis_labels=False)
-    _panel_label(ax_b, "b")
+    _panel_label(ax_b, "b", y=_lab_y)
 
     nt = np.asarray(data["neuron_types"])
 
     # (c) scatter of true (W_con) vs learned (W_rec) edge weights —
     # title stripped, alpha bumped to 0.5 (handled inside the helper).
     _panel_weight_scatter(ax_c, data["W_con"], data["W_rec"])
-    _panel_label(ax_c, "c")
+    _panel_label(ax_c, "c", y=_lab_y)
 
     bump_label = data.get("bump_label", "EPG")
     # (d) all-neuron kinograph, partition-sorted, no colorbar.
@@ -2937,7 +3009,7 @@ def plot_evolution(data: dict, out_path: str, *,
         dt_s=data["dt_s"],
         partition=_hd_part, show_cbar=False,
     )
-    _panel_label(ax_d, "d")
+    _panel_label(ax_d, "d", y=_lab_y)
 
     # (e) same all-neuron rate kinograph but rows reordered within
     # each partition block by a task-appropriate scalar tuning:
@@ -2991,6 +3063,10 @@ def plot_evolution(data: dict, out_path: str, *,
             dt_s=data["dt_s"], ylabel=f"{bump_label} neuron",
         )
     _panel_label(ax_e, "e", y=1.05)
+    # CX paper: the sort key is spelled out in the caption, so the y
+    # axis just reads "neurons (sorted)".
+    if _is_cx_paper:
+        ax_e.set_ylabel("neurons (sorted)", fontsize=LABEL_FS)
 
     # f and g attach their label to a short top sub-axis (the ω drive
     # strip), so the letter needs a larger offset to clear the trace.
@@ -3005,6 +3081,7 @@ def plot_evolution(data: dict, out_path: str, *,
     # shown instead (measured slope of decoded d vs true v_fwd) — the
     # natural companion of the rotation gain when the integrated
     # quantity is forward distance rather than heading.
+    ax_h = _ax_top(1, _h_col)
     _dt_for_h = (data["test_trial"]["dt"]
                   if data.get("test_trial") else data.get("dt_s", 0.01))
     _gain_rot = data.get("gain_data")
