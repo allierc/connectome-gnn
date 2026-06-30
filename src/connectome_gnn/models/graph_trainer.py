@@ -1741,6 +1741,15 @@ def data_test(config=None, config_file=None, visualize=False, style='color frame
         # the matching task sub-block (path_integration or swim_integration)
         # for dt/T at the call sites that need them.
         if task_type in ('path_integration', 'swim_integration'):
+            # Place-cell model has a 3+K output (heading+distance + place
+            # logits) the heading test can't parse — route to the dedicated
+            # place test (metrics + MP4 animations).
+            if str(getattr(config.graph_model, 'signal_model_name', '')) \
+                    == 'drosophila_cx_pi_place':
+                data_test_place_task(
+                    config, best_model=best_model, device=device,
+                    log_file=log_file)
+                return
             data_test_path_integration_task(
                 config, best_model=best_model, device=device, log_file=log_file,
                 anatomy_voltage=anatomy_voltage,
@@ -1800,6 +1809,7 @@ from connectome_gnn.models.graph_tester import (
     data_test_gnn,
     data_test_gnn_special,
     data_test_path_integration_task,
+    data_test_place_task,
 )
 
 
@@ -2138,6 +2148,7 @@ def _data_train_task_pi(config, erase, best_model, device, log_file=None, resume
                 and hasattr(model, 'place_per_frame_loss'))
     coeff_place = float(getattr(tc, 'coeff_place', 1.0))
     coeff_pos = float(getattr(tc, 'coeff_pos', 1.0))
+    coeff_consistency = float(getattr(tc, 'coeff_consistency', 0.0))
     place_warmup_epochs = int(getattr(tc, 'place_warmup_epochs', 0))
     last_place_score = float('nan')
     if is_place and place_warmup_epochs > 0:
@@ -2635,8 +2646,9 @@ def _data_train_task_pi(config, erase, best_model, device, log_file=None, resume
                 _warm = epoch < place_warmup_epochs
                 _cp = 0.0 if _warm else coeff_place
                 _cq = 0.0 if _warm else coeff_pos
+                _cc = 0.0 if _warm else coeff_consistency
                 place_pf, _pscore, _ppos = eval_model.place_per_frame_loss(
-                    y_hat, y_in, _cp, _cq)                      # pf: (B, T_use)
+                    y_hat, y_in, _cp, _cq, _cc)                 # pf: (B, T_use)
                 last_place_score = float(_pscore)
                 if coeff_tail > 0:
                     w = torch.ones(T_use, device=u.device)
