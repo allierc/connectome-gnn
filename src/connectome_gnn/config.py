@@ -1144,6 +1144,11 @@ class TrainingConfig(BaseModel):
     # ‖Σ_k p̂_k c_k − (x,y)‖². Heading+distance keep their unit-weight MSE.
     coeff_place: float = 1.0
     coeff_pos: float = 1.0
+    # Net1↔Net2 integrator-consistency weight: penalises the per-step mismatch
+    # between Net2's decoded position speed ‖Δ(x̂,ŷ)‖ and Net1's decoded
+    # forward-distance speed |Δd̂| (both = |v_fwd|·dt). 0 = off. Couples the two
+    # integrators so Net1's distance can't run away from Net2's position.
+    coeff_consistency: float = 0.0
     # Net1 warm-up: for the first ``place_warmup_epochs`` epochs the place loss
     # (KL + position decode) is switched off (coeffs forced to 0), so only the
     # heading+distance MSE trains — Net1's compass converges before Net2 has to
