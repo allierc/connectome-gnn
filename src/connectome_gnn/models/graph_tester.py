@@ -2062,21 +2062,24 @@ def data_test_place_task(config, best_model=None, device=None, log_file=None):
     with torch.no_grad():
         for i in range(0, nseg, 64):
             u = u_test[i:i + 64]; y = y_test[i:i + 64]
-            yh, _ = model(u)
+            yh, _ = model(u, pos0=y[:, 0, 3:5])      # PI anchor (start pos)
             tht = torch.atan2(y[..., 1], y[..., 0])
             thp = torch.atan2(yh[..., 1], yh[..., 0])
             d = thp[:, 10:] - tht[:, 10:]
             e = torch.atan2(torch.sin(d), torch.cos(d))
             rmse_deg += (e.pow(2).mean(1).sqrt() * 180.0 / np.pi).cpu().tolist()
-            p = torch.softmax(yh[..., 3:3 + K], -1)
+            place = yh[..., 3:3 + K]                       # tanh field ∈(-1,1)
             xy = y[..., 3:5]
-            d2 = (xy.unsqueeze(-2) - centers).pow(2).sum(-1)
-            q = torch.exp(-d2 / sig2); q = q / (q.sum(-1, keepdim=True) + 1e-9)
-            cs = ((p[:, 10:] * q[:, 10:]).sum(-1)
-                  / (p[:, 10:].norm(dim=-1) * q[:, 10:].norm(dim=-1) + 1e-9))
+            g = model.place_field(xy)                      # raw Gaussian target
+            pr, gg = torch.relu(place[:, 10:]), g[:, 10:]
+            cs = ((pr * gg).sum(-1)
+                  / (pr.norm(dim=-1) * gg.norm(dim=-1) + 1e-9))
             place_score += cs.mean(1).cpu().tolist()
-            xyd = p @ centers
-            pos_rmse += (xyd[:, 10:] - xy[:, 10:]).pow(2).sum(-1).mean(1).sqrt().cpu().tolist()
+            pp = model.place_prob(place)                   # rectified pop code
+            xyd = (model.decode_position_anchored(pp, y[:, 0, 3:5])
+                   if getattr(model, "place_anchor", False)
+                   else model.decode_position(pp))
+            pos_rmse += model._pos_sqerr(xyd[:, 10:], xy[:, 10:]).mean(1).sqrt().cpu().tolist()
             dt_, dd = y[..., 2].cpu().numpy(), yh[..., 2].cpu().numpy()
             for b in range(u.shape[0]):
                 a1, a2 = dt_[b, 10:], dd[b, 10:]
@@ -2219,11 +2222,11 @@ def data_test_path_integration_task(
         # path-integration probe): full 4-ch input, 2-col heading target.
         (4, 3, ("rotation_vfwd",)):           ([0, 1, 2, 3], [0, 1]),
         (4, 4, ("rotation_vfwd",)):           ([0, 1, 2, 3], [0, 1]),
-        # torus_position: 6-col target, Net1-only (heading metrics use cols 0,1).
-        (4, 6, ("torus_position",)):          ([0, 1, 2, 3], [0, 1, 2, 3, 4, 5]),
+        # rotation_torus: 6-col target, Net1-only (heading metrics use cols 0,1).
+        (4, 6, ("rotation_torus",)):          ([0, 1, 2, 3], [0, 1, 2, 3, 4, 5]),
     }
     _RECOGNISED = ("rotation", "translation", "position_2d", "rotation_vfwd",
-                   "torus_position")
+                   "rotation_torus")
     _task_raw = list(getattr(tc, 'task_targets', None) or [])
     task_targets_canonical = [t for t in _RECOGNISED if t in _task_raw]
     _task_key = tuple(task_targets_canonical)

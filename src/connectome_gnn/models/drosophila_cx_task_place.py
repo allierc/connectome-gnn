@@ -92,13 +92,13 @@ class DrosophilaCxTaskPlace(DrosophilaCxTaskRNN):
         self.register_buffer("net2_place_idx",
                              torch.arange(n_inter, N2, dtype=torch.long))
 
-        # --- encoder / decoder MLPs (free, dense) --------------------------
+        # --- encoder MLP (free, dense): Net1 state → interneuron drive -------
+        # No decoder: the K place cells ARE the place-field code. Their output
+        # layer is a plain tanh (∈(-1,1)); cell k is trained (MSE) to fire its
+        # Gaussian place field g_k directly, so the code isn't scrambled by a
+        # learnable readout and the anchored seed shows straight through.
         self.net2_encoder = MLP(
             input_size=self.n_units, output_size=n_inter,
-            nlayers=int(gm.n_layers), hidden_size=int(gm.hidden_dim),
-            activation=gm.MLP_activation, device=device)
-        self.net2_decoder = MLP(
-            input_size=K, output_size=K,
             nlayers=int(gm.n_layers), hidden_size=int(gm.hidden_dim),
             activation=gm.MLP_activation, device=device)
 
@@ -123,6 +123,10 @@ class DrosophilaCxTaskPlace(DrosophilaCxTaskRNN):
             self.grid_period = None
             self.arena_half = float(geo["arena_half"])
 
+        # Path-integration anchor: seed the place-cell population at t=0 with
+        # the Gaussian code of the (given) start position, then integrate.
+        self.place_anchor = bool(getattr(config.training, "place_anchor", False))
+
         # total output width = heading+distance (3) + place logits (K)
         self.n_output = self._n_head_out + K
         if device is not None:
@@ -134,7 +138,23 @@ class DrosophilaCxTaskPlace(DrosophilaCxTaskRNN):
         """Sign-locked Net2 recurrent matrix |S2| ⊙ sign(W2_con)."""
         return self.S2.abs() * self.W2_con_sign
 
-    def forward(self, u, h0=None):
+    def place_field(self, xy: torch.Tensor) -> torch.Tensor:
+        """Raw Gaussian place-field activations g_k ∈ [0,1] (peak 1 at the
+        cell's centre) evaluated at position ``xy`` (...,2) → (...,K). This is
+        BOTH the anchor seed (at the start) and the tanh-output MSE target
+        (every frame). Toroidal wrap in grid_mode."""
+        d = xy.unsqueeze(-2) - self.place_centers          # (...,K,2)
+        if self.grid_mode:
+            L = self.grid_period
+            d = d - L * torch.round(d / L)
+        d2 = d.pow(2).sum(-1)
+        return torch.exp(-d2 / (2.0 * self.place_sigma * self.place_sigma))
+
+    # back-compat alias (start-position bump == place field at pos0)
+    def _place_bump(self, pos0: torch.Tensor) -> torch.Tensor:
+        return self.place_field(pos0)
+
+    def forward(self, u, h0=None, pos0=None):
         # Net1 (CX) rollout → heading+distance readout y1 and full state h1.
         y1, h1 = super().forward(u, h0=h0)        # y1 (B,T,3), h1 (B,T,N=338)
         r1 = self._sigma(h1)                       # full Net1 state, (B,T,338)
@@ -143,18 +163,23 @@ class DrosophilaCxTaskPlace(DrosophilaCxTaskRNN):
         W2T = self.W2_rec.t()
         a = self.net2_dt / self.net2_tau
         h2 = r1.new_zeros(B, self.net2_N)
-        logits = r1.new_empty(B, T, self.net2_n_place)
+        # PI anchor: seed the place cells so their tanh OUTPUT at t=0 equals the
+        # start-position Gaussian, i.e. h2_place = atanh(g(pos0)).
+        if self.place_anchor and pos0 is not None:
+            g0 = self.place_field(pos0.to(r1)).clamp(max=0.999)  # (B,K)
+            h2 = h2.index_copy(1, self.net2_place_idx, torch.atanh(g0).to(r1.dtype))
+        place = r1.new_empty(B, T, self.net2_n_place)
         pad_K = (0, self.net2_n_place)             # right-pad interneuron drive
         for t in range(T):
             r2 = self._sigma(h2)
             rec2 = r2 @ W2T
             inp2 = F.pad(drive[:, t], pad_K)        # (B,N2): drive→interneurons
             h2 = h2 + a * (-h2 + rec2 + inp2)
-            place_r = self._sigma(h2)[:, self.net2_place_idx]   # (B,K)
-            logits[:, t] = self.net2_decoder(place_r)
+            # tanh output layer: the place cells directly emit their field ∈(-1,1)
+            place[:, t] = torch.tanh(h2[:, self.net2_place_idx])   # (B,K)
         # h1 (Net1 state) is returned as h_buf so the trainer's circular-TV
         # regulariser and the heading snapshot operate on the compass.
-        return torch.cat([y1, logits], dim=-1), h1
+        return torch.cat([y1, place], dim=-1), h1
 
     # ------------------------------------------------------------------
     # Place-cell target / loss / score (encapsulated; trainer just dispatches)
@@ -182,6 +207,21 @@ class DrosophilaCxTaskPlace(DrosophilaCxTaskRNN):
         ms = p @ torch.sin(ang)
         return torch.atan2(ms, mc) * (L / (2.0 * math.pi))  # → (-L/2, L/2]
 
+    def decode_position_anchored(self, p: torch.Tensor,
+                                 pos0: torch.Tensor) -> torch.Tensor:
+        """Anchored path-integration readout: the trial start ``pos0`` is given
+        (the PI anchor), so absolute position = pos0 + the network's decoded
+        *relative* displacement (decode(t) − decode(t=0)). This pins t=0 to the
+        true start and removes the constant per-trial offset that the raw place
+        decode carries (the random Net2 tracks displacement well but never
+        anchors absolute position). ``p`` (...,T,K), ``pos0`` (...,2)."""
+        xy = self.decode_position(p)                       # (...,T,2)
+        d = xy - xy[..., :1, :]                            # relative displacement
+        if self.grid_mode:
+            L = self.grid_period
+            d = d - L * torch.round(d / L)
+        return pos0.unsqueeze(-2) + d
+
     def _pos_sqerr(self, xy_dec, xy_true):
         """Squared position error (...): Euclidean (place) or toroidal (grid)."""
         d = xy_dec - xy_true
@@ -190,29 +230,41 @@ class DrosophilaCxTaskPlace(DrosophilaCxTaskRNN):
             d = d - L * torch.round(d / L)
         return d.pow(2).sum(-1)
 
+    def place_prob(self, place: torch.Tensor) -> torch.Tensor:
+        """Non-negative, normalised population code from the tanh field output
+        (...,K), for population-vector position decoding."""
+        p = F.relu(place)
+        return p / (p.sum(-1, keepdim=True) + 1e-9)
+
     def place_per_frame_loss(self, y_hat, y_true,
                              coeff_place: float = 1.0, coeff_pos: float = 1.0,
                              coeff_consistency: float = 0.0,
                              warmup: int = 10):
         """Per-frame place loss (B,T) + a [0,1] place score + position RMSE.
 
-        ``y_hat`` = [cosθ, sinθ, d, place_logits(K)]; ``y_true`` =
-        [cosθ, sinθ, d, x, y] (the place code is derived from (x,y) on the
-        fly). Loss = heading+distance MSE + coeff_place·KL(q‖softmax(logits))
-        + coeff_pos·‖popvec_decode − (x,y)‖². Score = mean cosine similarity
-        between predicted softmax and target distribution (∈[0,1]).
+        ``y_hat`` = [cosθ, sinθ, d, place(K)] with place = the tanh place-cell
+        field ∈(-1,1); ``y_true`` = [cosθ, sinθ, d, x, y]. Loss = heading+
+        distance MSE + coeff_place·MSE(place, g) where g_k = Gaussian place
+        field at (x,y) (the cells are trained to BE their fields). Position is
+        read out as a population vector over the positive activations (used for
+        the score, the consistency term and the reported RMSE). Score = mean
+        cosine similarity between the (rectified) field and the target g (∈[0,1]).
         """
         K = self.net2_n_place
         head_mse = (y_hat[..., :3] - y_true[..., :3]).pow(2).mean(-1)   # (B,T)
-        logits = y_hat[..., 3:3 + K]
+        place = y_hat[..., 3:3 + K]                        # tanh field (B,T,K)
         xy_true = y_true[..., 3:5]
-        q = self.place_targets(xy_true)                    # (B,T,K)
-        logp = F.log_softmax(logits, dim=-1)
-        p = logp.exp()
-        kl = (q * (torch.log(q + 1e-9) - logp)).sum(-1)    # (B,T)
-        xy_dec = self.decode_position(p)                   # (B,T,2)
+        g = self.place_field(xy_true)                      # raw Gaussian (B,T,K)
+        field_mse = (place - g).pow(2).mean(-1)            # (B,T)
+        pf = head_mse + coeff_place * field_mse
+        # population-vector position readout (rectified field → distribution),
+        # anchored to the given start so absolute position is pinned at t=0.
+        p = self.place_prob(place)                         # (B,T,K)
+        if self.place_anchor:
+            xy_dec = self.decode_position_anchored(p, y_true[:, 0, 3:5])  # (B,T,2)
+        else:
+            xy_dec = self.decode_position(p)               # (B,T,2)
         pos_se = self._pos_sqerr(xy_dec, xy_true)          # (B,T)
-        pf = head_mse + coeff_place * kl + coeff_pos * pos_se
         if coeff_consistency > 0.0:
             # Net1↔Net2 integrator consistency: per step the magnitude of
             # Net2's decoded position change must equal Net1's decoded
@@ -228,8 +280,8 @@ class DrosophilaCxTaskPlace(DrosophilaCxTaskRNN):
             cons = F.pad((sp2 - sp1).pow(2), (1, 0))             # (B,T)
             pf = pf + coeff_consistency * cons
         with torch.no_grad():
-            pp, qq = p[:, warmup:], q[:, warmup:]
-            cos = (pp * qq).sum(-1) / (pp.norm(dim=-1) * qq.norm(dim=-1) + 1e-9)
+            pp = F.relu(place[:, warmup:]); gg = g[:, warmup:]
+            cos = (pp * gg).sum(-1) / (pp.norm(dim=-1) * gg.norm(dim=-1) + 1e-9)
             score = cos.mean()
             pos_rmse = pos_se[:, warmup:].mean().sqrt()
         return pf, score, pos_rmse

@@ -1,4 +1,4 @@
-description: "Drosophila CX place cells — Net2 sweep: sparsity=0.1, E/I ratio=0.8."
+description: "Drosophila CX place cells, PI-anchored — Net2 sweep: sparsity=0.6, E/I ratio=0.5."
 dataset: drosophila_cx_si_task_338_place_cells
 simulation:
   gcamp_kernel: gcamp6f
@@ -71,6 +71,7 @@ training:
   task_targets: ['place_cells']
   coeff_place: 1.0
   coeff_pos: 1.0
+  place_anchor: true   # PI anchor: seed place/grid cells at the start position (t=0)
 task:
   task_type: swim_integration
   task_only: true
@@ -99,7 +100,7 @@ task:
     place_sigma: 0.2
     # Net2 synthetic sign-locked E/I connectome
     net2_n_interneurons: 200
-    net2_sparsity: 0.1
-    net2_ei_ratio: 0.8
+    net2_sparsity: 0.6
+    net2_ei_ratio: 0.5
     net2_seed: 700000
     seed: 300000

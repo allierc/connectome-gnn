@@ -883,7 +883,7 @@ def _save_training_snapshot(
 
 def _save_torus_snapshot(net, log_dir, global_step, epoch, u_test, y_test,
                          device, trial_idx: int = 0):
-    """3-D torus snapshot for the torus_position task → tmp_training/
+    """3-D torus snapshot for the rotation_torus task → tmp_training/
     torus_evolution/. Net1's 6-col output is [cosθ, sinθ, cosφx, sinφx, cosφy,
     sinφy]; the two phases (φx,φy) are a point on a torus, embedded in 3-D so
     the wrap-around draws as a clean continuous path. Panels: (1) 3-D donut
@@ -892,10 +892,10 @@ def _save_torus_snapshot(net, log_dir, global_step, epoch, u_test, y_test,
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    # Two sources of (φx, φy): the torus_position model emits them as (cos,sin)
+    # Two sources of (φx, φy): the rotation_torus model emits them as (cos,sin)
     # output pairs; the grid model (grid_mode) emits place logits, so the phases
     # come from its circular position decode. Grid runs write into the grid
-    # snapshot folder; torus_position runs into their own.
+    # snapshot folder; rotation_torus runs into their own.
     grid_mode = bool(getattr(net, "grid_mode", False))
     out_dir = os.path.join(log_dir, "tmp_training",
                            "grid_evolution" if grid_mode else "torus_evolution")
@@ -904,12 +904,15 @@ def _save_torus_snapshot(net, log_dir, global_step, epoch, u_test, y_test,
     net.eval()
     with torch.no_grad():
         T = int(min(u_test.shape[1], 1000))
-        yhat, _ = net(u_test[trial_idx:trial_idx + 1, :T])
+        pos0 = y_test[trial_idx:trial_idx + 1, 0, 3:5].to(u_test.device)
+        yhat, _ = net(u_test[trial_idx:trial_idx + 1, :T], pos0=pos0)
         yt = y_test[trial_idx, :T].detach().cpu().numpy()
         if grid_mode:
             Kp = int(net.net2_n_place); L = float(net.grid_period)
-            p = torch.softmax(yhat[0, :, 3:3 + Kp], dim=-1)
-            xyD = net.decode_position(p).cpu().numpy()       # (T,2) in (-L/2,L/2]
+            p = net.place_prob(yhat[0, :, 3:3 + Kp])          # rectified pop code
+            xyD = (net.decode_position_anchored(p, pos0[0]) if
+                   getattr(net, "place_anchor", False)
+                   else net.decode_position(p)).cpu().numpy()  # (T,2)
             thD = torch.atan2(yhat[0, :, 1], yhat[0, :, 0]).cpu().numpy()
             xyT = yt[:, 3:5]; thT = np.arctan2(yt[:, 1], yt[:, 0])
             two_pi_L = 2.0 * np.pi / L
@@ -979,13 +982,18 @@ def _save_place_snapshot(net, log_dir, global_step, epoch, u_test, y_test,
     with torch.no_grad():
         T = int(min(u_test.shape[1], 1000))
         u = u_test[trial_idx:trial_idx + 1, :T]
-        y_hat, _ = net(u)                               # (1, T, 3+K)
+        pos0 = y_test[trial_idx:trial_idx + 1, 0, 3:5].to(device)  # PI anchor
+        y_hat, _ = net(u, pos0=pos0)                    # (1, T, 3+K)
         K = int(net.net2_n_place)
-        p = torch.softmax(y_hat[0, :, 3:3 + K], dim=-1)  # (T, K)
-        xy_dec = net.decode_position(p).cpu().numpy()    # (T,2) grid-aware
+        place = y_hat[0, :, 3:3 + K]                      # tanh place field (T,K)
+        p = net.place_prob(place)                        # rectified pop code
+        if getattr(net, "place_anchor", False):
+            xy_dec = net.decode_position_anchored(p, pos0[0]).cpu().numpy()
+        else:
+            xy_dec = net.decode_position(p).cpu().numpy()  # (T,2) grid-aware
         th_dec = torch.atan2(y_hat[0, :, 1], y_hat[0, :, 0]).cpu().numpy()
         d_dec = y_hat[0, :, 2].cpu().numpy()             # Net1 scalar distance
-        p_np = p.cpu().numpy()
+        p_np = place.cpu().numpy()                        # panel b = the field
     if was_training:
         net.train()
     yt = y_test[trial_idx, :T].detach().cpu().numpy()
@@ -1024,7 +1032,8 @@ def _save_place_snapshot(net, log_dir, global_step, epoch, u_test, y_test,
     # (2) predicted code map at the final frame (○ = true position)
     ax = axes[1]
     ax.imshow(p_np[tf].reshape(grid, grid), origin="lower",
-              extent=[lo, hi, lo, hi], cmap="viridis", aspect="auto")
+              extent=[lo, hi, lo, hi], cmap="viridis", aspect="auto",
+              vmin=0.0, vmax=1.0)   # tanh place field ∈(-1,1); show [0,1]
     ax.plot(xy_true[tf, 0], xy_true[tf, 1], "o", mec="r", mfc="none",
             ms=10, mew=1.5)
     ax.set_xlabel("x"); ax.set_ylabel("y")
@@ -1072,14 +1081,19 @@ def animate_place_trial(net, u_trial, y_trial, out_mp4, *, dt, device,
     was_training = net.training
     net.eval()
     with torch.no_grad():
-        yh, _ = net(u_trial[None].to(device))            # (1, T, 3+K)
+        pos0 = y_trial[None, 0, 3:5].to(device)          # PI anchor (start pos)
+        yh, _ = net(u_trial[None].to(device), pos0=pos0)  # (1, T, 3+K)
         K = int(net.net2_n_place)
-        p = torch.softmax(yh[0, :, 3:3 + K], dim=-1)
+        place = yh[0, :, 3:3 + K]                          # tanh place field (T,K)
+        p = net.place_prob(place)                          # rectified pop code
         centers = net.place_centers
-        xy_dec = (p @ centers).cpu().numpy()
+        if getattr(net, "place_anchor", False):
+            xy_dec = net.decode_position_anchored(p, pos0[0]).cpu().numpy()
+        else:
+            xy_dec = net.decode_position(p).cpu().numpy()
         th_dec = torch.atan2(yh[0, :, 1], yh[0, :, 0]).cpu().numpy()
         d_dec = yh[0, :, 2].cpu().numpy()
-        p_np = p.cpu().numpy()
+        p_np = place.cpu().numpy()                          # panel b = the field
     if was_training:
         net.train()
     yt = y_trial.detach().cpu().numpy()
@@ -1088,62 +1102,89 @@ def animate_place_trial(net, u_trial, y_trial, out_mp4, *, dt, device,
     A = float(net.arena_half); grid = int(round(np.sqrt(K)))
     t = np.arange(T) * float(dt)
     GT, PR, RD = "tab:green", "black", "red"
+    GRN, CUR = "lime", "0.6"   # moving dot = green; time-cursor = neutral gray
     pmap = p_np.reshape(T, grid, grid)
+    LFS, TFS = 16, 13   # label / tick font sizes (default ~10 reads tiny here)
 
-    # dpi=100 → 1550×330 px (both even → libx264-safe, macro_block_size=1).
-    fig, ax = plt.subplots(1, 5, figsize=(15.5, 3.3), dpi=100)
+    # dpi=100 → 1700×400 px (both even → libx264-safe, macro_block_size=1).
+    fig, ax = plt.subplots(1, 5, figsize=(17.0, 4.0), dpi=100)
     # (1) arena path + moving red dot
-    ax[0].plot(xy_true[:, 0], xy_true[:, 1], color=GT, lw=1.2)
-    dotA, = ax[0].plot([], [], "o", color=RD, ms=8, zorder=5)
+    # green tail = ground-truth-position history (grows to the current frame)
+    tailA_gt, = ax[0].plot([], [], color=GT, lw=1.4, zorder=3)
+    # dotted-black tail = inferred-position history (decoded from place code)
+    tailA, = ax[0].plot([], [], ls=":", color="black", lw=1.1, zorder=4)
+    # green dot = ground truth, red dot = inferred (place-cell decode)
+    dotA_gt, = ax[0].plot([], [], "o", color=GRN, mec="black", mew=0.6, ms=9, zorder=6)
+    dotA_pr, = ax[0].plot([], [], "o", color=RD,  mec="black", mew=0.6, ms=9, zorder=5)
     ax[0].set_xlim(-A, A); ax[0].set_ylim(-A, A)
-    ax[0].set_xlabel("x"); ax[0].set_ylabel("y")
+    ax[0].set_xlabel("x", fontsize=LFS); ax[0].set_ylabel("y", fontsize=LFS)
     # (2) place-code map (updates) + true-position circle (moves)
     imB = ax[1].imshow(pmap[0], origin="lower", extent=[-A, A, -A, A],
                        cmap="viridis", aspect="auto",
-                       vmin=0.0, vmax=float(p_np.max()))
-    circB, = ax[1].plot([], [], "o", mec=RD, mfc="none", ms=10, mew=1.6, zorder=5)
-    ax[1].set_xlabel("x"); ax[1].set_ylabel("y")
-    # (3) position x/y
-    ax[2].plot(t, xy_true[:, 0], color=GT, lw=1.0)
-    ax[2].plot(t, xy_dec[:, 0], color=PR, lw=0.7)
-    ax[2].plot(t, xy_true[:, 1], color=GT, lw=1.0, ls="--")
-    ax[2].plot(t, xy_dec[:, 1], color=PR, lw=0.7, ls="--")
-    vC = ax[2].axvline(t[0], color=RD, lw=0.8, alpha=0.6)
-    dCx, = ax[2].plot([], [], "o", color=RD, ms=5)
-    dCy, = ax[2].plot([], [], "o", color=RD, ms=5)
-    ax[2].set_xlabel("time (s)"); ax[2].set_ylabel("position  x (—) / y (– –)")
-    # (4) distance d
-    ax[3].plot(t, d_true, color=GT, lw=1.2)
-    ax[3].plot(t, d_dec, color=PR, lw=0.8)
-    vD = ax[3].axvline(t[0], color=RD, lw=0.8, alpha=0.6)
-    dD, = ax[3].plot([], [], "o", color=RD, ms=5)
-    ax[3].set_xlabel("time (s)"); ax[3].set_ylabel(r"distance $d$")
-    # (5) heading
+                       vmin=0.0, vmax=1.0)   # tanh place field ∈(-1,1); show [0,1]
+    circB_gt, = ax[1].plot([], [], "o", color=GRN, mec="black", mew=0.6, ms=9, zorder=6)
+    circB_pr, = ax[1].plot([], [], "o", color=RD,  mec="black", mew=0.6, ms=9, zorder=5)
+    ax[1].set_xlabel("x", fontsize=LFS); ax[1].set_ylabel("y", fontsize=LFS)
+    # (3) position x/y  — trails (true = green, pred = black; x solid, y dashed)
+    trCx_gt, = ax[2].plot([], [], color=GT, lw=1.0)
+    trCx_pr, = ax[2].plot([], [], color=PR, lw=0.7)
+    trCy_gt, = ax[2].plot([], [], color=GT, lw=1.0, ls="--")
+    trCy_pr, = ax[2].plot([], [], color=PR, lw=0.7, ls="--")
+    vC = ax[2].axvline(t[0], color=CUR, lw=0.8, alpha=0.8)
+    dCx, = ax[2].plot([], [], "o", color=GRN, mec="black", mew=0.5, ms=6)
+    dCy, = ax[2].plot([], [], "o", color=GRN, mec="black", mew=0.5, ms=6)
+    dCx_pr, = ax[2].plot([], [], "o", color=RD, mec="black", mew=0.5, ms=6)
+    dCy_pr, = ax[2].plot([], [], "o", color=RD, mec="black", mew=0.5, ms=6)
+    _yc = np.concatenate([xy_true[:, :2].ravel(), xy_dec[:, :2].ravel()])
+    ax[2].set_xlim(t[0], t[-1]); ax[2].set_ylim(_yc.min() - 0.05, _yc.max() + 0.05)
+    ax[2].set_xlabel("time (s)", fontsize=LFS); ax[2].set_ylabel("position  x (—) / y (– –)", fontsize=LFS)
+    # (4) distance d — trails
+    trD_gt, = ax[3].plot([], [], color=GT, lw=1.2)
+    trD_pr, = ax[3].plot([], [], color=PR, lw=0.8)
+    vD = ax[3].axvline(t[0], color=CUR, lw=0.8, alpha=0.8)
+    dD, = ax[3].plot([], [], "o", color=GRN, mec="black", mew=0.5, ms=6)
+    dD_pr, = ax[3].plot([], [], "o", color=RD, mec="black", mew=0.5, ms=6)
+    _yd = np.concatenate([d_true, d_dec])
+    ax[3].set_xlim(t[0], t[-1]); ax[3].set_ylim(_yd.min() - 0.05, _yd.max() + 0.05)
+    ax[3].set_xlabel("time (s)", fontsize=LFS); ax[3].set_ylabel(r"distance $d$", fontsize=LFS)
+    # (5) heading — trails
     thw = np.angle(np.exp(1j * th_true))
-    ax[4].plot(t, thw, color=GT, lw=0, marker=".", ms=2)
-    ax[4].plot(t, np.angle(np.exp(1j * th_dec)), color=PR, lw=0, marker=".", ms=1)
-    vE = ax[4].axvline(t[0], color=RD, lw=0.8, alpha=0.6)
-    dE, = ax[4].plot([], [], "o", color=RD, ms=5)
+    thw_dec = np.angle(np.exp(1j * th_dec))
+    trE_gt, = ax[4].plot([], [], color=GT, lw=0, marker=".", ms=2)
+    trE_pr, = ax[4].plot([], [], color=PR, lw=0, marker=".", ms=1)
+    vE = ax[4].axvline(t[0], color=CUR, lw=0.8, alpha=0.8)
+    dE, = ax[4].plot([], [], "o", color=GRN, mec="black", mew=0.5, ms=6)
+    dE_pr, = ax[4].plot([], [], "o", color=RD, mec="black", mew=0.5, ms=6)
     ax[4].set_yticks([-np.pi, 0, np.pi]); ax[4].set_yticklabels([r"$-\pi$", "0", r"$\pi$"])
-    ax[4].set_ylim(-np.pi - 0.15, np.pi + 0.15)
-    ax[4].set_xlabel("time (s)"); ax[4].set_ylabel("HD (rad)")
+    ax[4].set_xlim(t[0], t[-1]); ax[4].set_ylim(-np.pi - 0.15, np.pi + 0.15)
+    ax[4].set_xlabel("time (s)", fontsize=LFS); ax[4].set_ylabel("HD (rad)", fontsize=LFS)
     for a in ax:
         a.set_box_aspect(1)
+        a.tick_params(labelsize=TFS)
     fig.tight_layout()
 
     os.makedirs(os.path.dirname(out_mp4) or ".", exist_ok=True)
     writer = imageio.get_writer(out_mp4, fps=fps, codec="libx264",
                                 quality=8, macro_block_size=1)
     for ti in range(0, T, stride):
-        dotA.set_data([xy_true[ti, 0]], [xy_true[ti, 1]])
+        dotA_gt.set_data([xy_true[ti, 0]], [xy_true[ti, 1]])
+        dotA_pr.set_data([xy_dec[ti, 0]], [xy_dec[ti, 1]])
+        tailA_gt.set_data(xy_true[:ti + 1, 0], xy_true[:ti + 1, 1])
+        tailA.set_data(xy_dec[:ti + 1, 0], xy_dec[:ti + 1, 1])
         imB.set_data(pmap[ti])
-        circB.set_data([xy_true[ti, 0]], [xy_true[ti, 1]])
+        circB_gt.set_data([xy_true[ti, 0]], [xy_true[ti, 1]])
+        circB_pr.set_data([xy_dec[ti, 0]], [xy_dec[ti, 1]])
         for v in (vC, vD, vE):
             v.set_xdata([t[ti], t[ti]])
-        dCx.set_data([t[ti]], [xy_true[ti, 0]])
-        dCy.set_data([t[ti]], [xy_true[ti, 1]])
-        dD.set_data([t[ti]], [d_true[ti]])
-        dE.set_data([t[ti]], [thw[ti]])
+        sl = slice(0, ti + 1)
+        trCx_gt.set_data(t[sl], xy_true[sl, 0]); trCx_pr.set_data(t[sl], xy_dec[sl, 0])
+        trCy_gt.set_data(t[sl], xy_true[sl, 1]); trCy_pr.set_data(t[sl], xy_dec[sl, 1])
+        trD_gt.set_data(t[sl], d_true[sl]);      trD_pr.set_data(t[sl], d_dec[sl])
+        trE_gt.set_data(t[sl], thw[sl]);         trE_pr.set_data(t[sl], thw_dec[sl])
+        dCx.set_data([t[ti]], [xy_true[ti, 0]]); dCx_pr.set_data([t[ti]], [xy_dec[ti, 0]])
+        dCy.set_data([t[ti]], [xy_true[ti, 1]]); dCy_pr.set_data([t[ti]], [xy_dec[ti, 1]])
+        dD.set_data([t[ti]], [d_true[ti]]);      dD_pr.set_data([t[ti]], [d_dec[ti]])
+        dE.set_data([t[ti]], [thw[ti]]);         dE_pr.set_data([t[ti]], [thw_dec[ti]])
         fig.canvas.draw()
         frame = np.asarray(fig.canvas.buffer_rgba())[..., :3]
         writer.append_data(frame)

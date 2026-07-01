@@ -1,5 +1,5 @@
-description: "Drosophila CX place cells + Net1<->Net2 integrator-consistency loss (coeff_consistency=0.5) + 2-epoch Net1 warm-up."
-dataset: drosophila_cx_si_task_338_place_cells
+description: "Drosophila CX grid cells (torus), PI-anchored — Net2 sweep: sparsity=0.6, E/I ratio=0.5."
+dataset: drosophila_cx_si_task_338_grid_cells
 simulation:
   gcamp_kernel: gcamp6f
   params:
@@ -68,11 +68,10 @@ training:
   torch_compile: false
   w_init_mode: w_con
   # Net1 (CX) supervises heading+distance; Net2 the place code.
-  task_targets: ['place_cells']
+  task_targets: ['grid_cells']
   coeff_place: 1.0
   coeff_pos: 1.0
-  coeff_consistency: 0.5
-  place_warmup_epochs: 2
+  place_anchor: true   # PI anchor: seed place/grid cells at the start position (t=0)
 task:
   task_type: swim_integration
   task_only: true
@@ -94,14 +93,18 @@ task:
     omega_noise_level: 0.0
     forward_vel_mean: 1.0
     forward_vel_std: 0.4
-    target_kind: place_cells
+    target_kind: grid_cells
     # Arena / place-field geometry
     arena_half: 1.0
     place_grid: 20
     place_sigma: 0.2
+    # --- grid-cell torus geometry ---
+    grid_period: 0.5
+    grid_grid: 20
+    grid_sigma: 0.1
     # Net2 synthetic sign-locked E/I connectome
     net2_n_interneurons: 200
-    net2_sparsity: 0.10
-    net2_ei_ratio: 0.60
+    net2_sparsity: 0.6
+    net2_ei_ratio: 0.5
     net2_seed: 700000
     seed: 300000

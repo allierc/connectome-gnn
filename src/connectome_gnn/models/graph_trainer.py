@@ -1981,15 +1981,15 @@ def _data_train_task_pi(config, erase, best_model, device, log_file=None, resume
         # grid_cells (torus): identical on-disk layout to place_cells; the
         # model switches to toroidal targets / circular decode via grid_mode.
         (4, 5, ("grid_cells",)):              ([0, 1, 2, 3], [0, 1, 2, 3, 4]),
-        # torus_position: Net1-only, 6-col target [cosθ,sinθ,cosφx,sinφx,
+        # rotation_torus: Net1-only, 6-col target [cosθ,sinθ,cosφx,sinφx,
         # cosφy,sinφy], plain MSE (circular via the cos/sin encoding).
-        (4, 6, ("torus_position",)):          ([0, 1, 2, 3], [0, 1, 2, 3, 4, 5]),
+        (4, 6, ("rotation_torus",)):          ([0, 1, 2, 3], [0, 1, 2, 3, 4, 5]),
     }
     _task_raw = list(getattr(tc, 'task_targets', None) or [])
     # Canonical key: rotation always before translation; position_2d listed
     # separately. Sorting is by a fixed enumeration so the key is stable.
     _RECOGNISED = ("rotation", "translation", "position_2d", "rotation_vfwd",
-                   "place_cells", "grid_cells", "torus_position")
+                   "place_cells", "grid_cells", "rotation_torus")
     _task_key = tuple(t for t in _RECOGNISED if t in _task_raw)
     task_targets_canonical = list(_task_key)
     if u_train.shape[-1] >= 4 and _task_key:
@@ -2154,9 +2154,9 @@ def _data_train_task_pi(config, erase, best_model, device, log_file=None, resume
     is_place = (("place_cells" in task_targets_canonical
                  or "grid_cells" in task_targets_canonical)
                 and hasattr(model, 'place_per_frame_loss'))
-    # torus_position: Net1-only task (no place model); gets the 3-D torus
+    # rotation_torus: Net1-only task (no place model); gets the 3-D torus
     # snapshot instead of the heading kinograph.
-    is_torus = ("torus_position" in task_targets_canonical)
+    is_torus = ("rotation_torus" in task_targets_canonical)
     coeff_place = float(getattr(tc, 'coeff_place', 1.0))
     coeff_pos = float(getattr(tc, 'coeff_pos', 1.0))
     coeff_consistency = float(getattr(tc, 'coeff_consistency', 0.0))
@@ -2638,7 +2638,13 @@ def _data_train_task_pi(config, erase, best_model, device, log_file=None, resume
             if use_bins:
                 u_in = convert_cos_sin_input_to_bin_cue_torch(u_in, K_bins)
 
-            y_hat, h_buf = model(u_in)
+            if is_place:
+                # PI anchor: hand the model the start position (y cols [3,4] at
+                # t=0) so it can seed the place cells. Ignored unless the model
+                # was built with place_anchor=True.
+                y_hat, h_buf = model(u_in, pos0=y_in[:, 0, 3:5])
+            else:
+                y_hat, h_buf = model(u_in)
 
             # First loss term — task supervision over the WHOLE (task+calcium)
             # batch. u_train / y_train were already sliced to the active task
@@ -2649,9 +2655,9 @@ def _data_train_task_pi(config, erase, best_model, device, log_file=None, resume
             #             target converted to bin labels on the fly.
             if is_place:
                 # Place-cell task: per-frame loss = heading+distance MSE +
-                # coeff_place·KL(q‖softmax(place_logits)) + coeff_pos·position
-                # decode, with the same soft-curriculum tail weighting as the
-                # MSE branch. The [0,1] place score feeds the progress bar.
+                # coeff_place·MSE(tanh place field, Gaussian g_k), with the same
+                # soft-curriculum tail weighting as the MSE branch. The [0,1]
+                # place score (field vs g cosine) feeds the progress bar.
                 # Net1 warm-up: zero the place coeffs for the first
                 # place_warmup_epochs epochs so only heading+distance trains.
                 _warm = epoch < place_warmup_epochs
