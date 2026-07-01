@@ -71,6 +71,7 @@ training:
   task_targets: ['place_cells']
   coeff_place: 1.0
   coeff_pos: 1.0
+  place_anchor: true   # PI anchor: seed place/grid cells at the start position (t=0)
 task:
   task_type: swim_integration
   task_only: true

@@ -1155,6 +1155,15 @@ class TrainingConfig(BaseModel):
     # read it. 0 = no warm-up (place loss on from step 1). Net2 still runs but
     # receives no gradient during warm-up.
     place_warmup_epochs: int = 0
+    # Path-integration anchor: at t=0 seed Net2's place-cell population with the
+    # Gaussian place-field code of the true start position (σ = place_sigma),
+    # then let Net2 integrate velocity from there. Trajectories start at random
+    # points in the arena, so absolute position is unobservable from the
+    # velocity drive alone — this anchor supplies the one unrecoverable piece
+    # (where the trial started), exactly as standard PI models do (Banino 2018,
+    # Cueva & Wei 2018). False = no anchor (legacy behaviour). Eval/test/MP4
+    # honour the same flag via the model so train/eval stay consistent.
+    place_anchor: bool = False
     # --- calcium observation supervision (zebrafish ZAPBench; optional) ------
     # Number of real-calcium trials (dataset B, produced by
     # generators/make_calcium_dataset.py) appended to each task batch. 0
@@ -1506,7 +1515,7 @@ class SwimIntegrationTaskConfig(BaseModel):
     #                            saved grid geometry. Canonical toroidal
     #                            continuous-attractor target (cf. Burak & Fiete
     #                            2009; Gardner et al. 2022).
-    #   "torus_position"      — head-direction + TORUS-POSITION task, read
+    #   "rotation_torus"      — head-direction + TORUS-POSITION task, read
     #                            directly off Net1 (NO Net2). The agent forages
     #                            freely (unbounded 2-D PI); position is encoded
     #                            as two toroidal phases φ=2π·(x,y)/λ, each a
@@ -1518,7 +1527,7 @@ class SwimIntegrationTaskConfig(BaseModel):
     #                            false), since position lives in PFN/hΔ.
     target_kind: Literal[
         "scalar_xi", "position_2d", "rotation_mismatch", "place_cells",
-        "grid_cells", "torus_position"
+        "grid_cells", "rotation_torus"
     ] = "scalar_xi"
 
     # --- Place-cell task (target_kind="place_cells") -----------------------
