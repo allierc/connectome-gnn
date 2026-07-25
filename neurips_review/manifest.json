@@ -115,6 +115,54 @@
       "test": "adapt"
     },
     {
+      "config": "nr2_cad_K1_unified_cv00",
+      "dataset": "nr2_dt_M10_cv00",
+      "model": "gnn",
+      "test": "cadence"
+    },
+    {
+      "config": "nr2_cad_K1_known_ode_cv00",
+      "dataset": "nr2_dt_M10_cv00",
+      "model": "known_ode",
+      "test": "cadence"
+    },
+    {
+      "config": "nr2_cad_K2_unified_cv00",
+      "dataset": "nr2_dt_M10_cv00",
+      "model": "gnn",
+      "test": "cadence"
+    },
+    {
+      "config": "nr2_cad_K2_known_ode_cv00",
+      "dataset": "nr2_dt_M10_cv00",
+      "model": "known_ode",
+      "test": "cadence"
+    },
+    {
+      "config": "nr2_cad_K5_unified_cv00",
+      "dataset": "nr2_dt_M10_cv00",
+      "model": "gnn",
+      "test": "cadence"
+    },
+    {
+      "config": "nr2_cad_K5_known_ode_cv00",
+      "dataset": "nr2_dt_M10_cv00",
+      "model": "known_ode",
+      "test": "cadence"
+    },
+    {
+      "config": "nr2_cad_K10_unified_cv00",
+      "dataset": "nr2_dt_M10_cv00",
+      "model": "gnn",
+      "test": "cadence"
+    },
+    {
+      "config": "nr2_cad_K10_known_ode_cv00",
+      "dataset": "nr2_dt_M10_cv00",
+      "model": "known_ode",
+      "test": "cadence"
+    },
+    {
       "config": "nr2_mono_ctrl_cv00",
       "dataset": "flyvis_noise_005_blank50_cv00",
       "model": "gnn",

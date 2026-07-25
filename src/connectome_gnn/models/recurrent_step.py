@@ -95,6 +95,10 @@ def _standard_recurrent_loss(
 ):
     batch_size = tc.batch_size
     n_neurons = sim.n_neurons
+    # Observation-cadence sweep: data is at full 20ms rate (not subsampled), the
+    # unroll is fed the known native-rate stimulus, and the target is time_step
+    # steps ahead (supervision only at the K-th step).
+    _full_stim = getattr(tc, 'recurrent_full_stimulus', False)
     data_id = torch.zeros((n_neurons * batch_size, 1), dtype=torch.int, device=device)
 
     state_batch = []
@@ -127,7 +131,12 @@ def _standard_recurrent_loss(
         if torch.isnan(x.voltage).any():
             continue
 
-        y = x_ts.voltage[k + (1 if time_step > 1 else time_step)].unsqueeze(-1)
+        # Full-stimulus mode keeps native-rate frames, so the K-step target sits
+        # time_step frames ahead (not the subsampled k+1).
+        _tgt_off = time_step if _full_stim else (1 if time_step > 1 else time_step)
+        if k + _tgt_off >= x_ts.n_frames:
+            continue
+        y = x_ts.voltage[k + _tgt_off].unsqueeze(-1)
         if torch.isnan(y).any():
             continue
 
@@ -194,6 +203,12 @@ def _standard_recurrent_loss(
                 vi = model.forward_visual(state_batch[b_idx], k_current)
                 state_batch[b_idx].stimulus[:model.n_input_neurons] = vi.squeeze(-1)
                 state_batch[b_idx].stimulus[model.n_input_neurons:] = 0
+            elif _full_stim:
+                # feed the known native-rate (20ms) stimulus at this unroll step,
+                # so slow observation is decoupled from unobserved intermediate drive
+                k_stim = k_list[b_idx] + step + 1
+                if k_stim < x_ts.n_frames:
+                    state_batch[b_idx].stimulus = x_ts.stimulus[k_stim]
             else:
                 pass  # stimulus held constant during unroll (subsampled x_ts; intermediate frames not available)
 
