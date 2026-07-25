@@ -41,16 +41,20 @@ def log(msg):
 
 
 def main():
+    # test groups to drive from argv (default dt+adapt); a separate instance can
+    # run "cadence" without touching the already-running dt/adapt finisher.
+    groups = tuple(sys.argv[1:]) or ("dt", "adapt")
     man = json.load(open(os.path.join(HERE, "manifest.json")))
-    dt_adapt = [t for t in man["train"] if t["test"] in ("dt", "adapt")]
-    all_cfgs = [t["config"] for t in man["train"]]
+    dt_adapt = [t for t in man["train"] if t["test"] in groups]
+    all_cfgs = [t["config"] for t in dt_adapt]
+    log(f"driving groups={groups}: {len(all_cfgs)} configs")
 
     sj = os.path.join(HERE, "submitted_jobs.json")
     submitted = {k: v for k, v in json.load(open(sj)).items() if v} if os.path.exists(sj) else {}
 
-    # 1+2. Incrementally submit each dt/adapt job as soon as its dataset is ready
+    # 1+2. Incrementally submit each job as soon as its dataset is ready
     #      (overlaps local generation with cluster training). Loop until every
-    #      dt/adapt config is submitted or its data timed out.
+    #      target config is submitted or its data timed out.
     t0 = time.time()
     while (time.time() - t0) < DATA_MAX_H * 3600:
         pending = [t for t in dt_adapt

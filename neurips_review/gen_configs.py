@@ -79,12 +79,14 @@ def make_gen(base_unified, name, dataset, sim_updates, descr):
     return _dump(cfg, name)
 
 
-def make_train(base_tmpl, name, dataset, train_updates, descr):
+def make_train(base_tmpl, name, dataset, train_updates, descr, sim_updates=None):
     """Cluster training config: clean of any misspec keys."""
     cfg = copy.deepcopy(base_tmpl)
     cfg["description"] = descr
     cfg["dataset"] = dataset
     _strip_misspec(cfg["simulation"])  # ensure no new keys reach the cluster parser
+    if sim_updates:
+        cfg["simulation"].update(sim_updates)  # e.g. delta_t = observation cadence
     if train_updates:
         cfg["training"].update(train_updates)
     cfg["config_file"] = f"fly/{name}"
@@ -127,6 +129,29 @@ def main():
             {"adapt_g": ga, "adapt_tau_ms": 200.0},
             f"Test3 unobserved adaptation g_a={ga}, tau_a=200ms (latent c_i outside the graph)",
         )
+
+    # ---- Cadence sweep: K-step BPTT with native-rate stimulus (AC §2) ----
+    # Fine-truth data (M10: h=2ms integration, stimulus@20ms, tau_median=19.8ms).
+    # The model steps at 20ms under its own predictions and is supervised ONLY at
+    # step K = Δt_obs/20ms (K-step BPTT), with the KNOWN native-rate stimulus fed
+    # during the unroll (recurrent_full_stimulus) — so slow observation is decoupled
+    # from unobserved intermediate drive, and the coarse-cadence one-step target
+    # (dead beyond ~2τ) is avoided. Same M10 data for every K => data volume matched;
+    # only the supervision horizon (observation cadence) varies. K∈{1,2,5,10} =>
+    # Δt_obs∈{20,40,100,200}ms, Δt_obs/τ∈{1,2,5,10}. 100ms (K=5) ≈ Supp.Tab.4
+    # 1/5-frames R²_W=0.30 sanity gate. No new generation (reuses the M10 recording).
+    CAD_DATASET = f"{PREFIX}_dt_M10_cv00"
+    for K in [1, 2, 5, 10]:
+        dtobs_ms = 20 * K
+        tag = (f"Cadence Δt_obs={dtobs_ms}ms (K={K}-step BPTT on fine-truth M10, "
+               f"native-rate 20ms stimulus, model steps 20ms, sparse supervision), "
+               f"Δt_obs/τ≈{dtobs_ms/19.8:.0f}, single-seed cv00")
+        rec = {"recurrent_training": True, "recurrent_full_stimulus": True,
+               "time_step": K, "multi_start_recurrent": False}
+        make_train(unified, f"{PREFIX}_cad_K{K}_unified_cv00", CAD_DATASET, rec, tag + " | GNN consensus")
+        make_train(knownode, f"{PREFIX}_cad_K{K}_known_ode_cv00", CAD_DATASET, rec, tag + " | Known-ODE oracle")
+        manifest["train"].append({"config": f"{PREFIX}_cad_K{K}_unified_cv00", "dataset": CAD_DATASET, "model": "gnn", "test": "cadence"})
+        manifest["train"].append({"config": f"{PREFIX}_cad_K{K}_known_ode_cv00", "dataset": CAD_DATASET, "model": "known_ode", "test": "cadence"})
 
     # ---- Test 2: Monotonicity ablation (reuse base blank50 data; GNN only) ----
     for tag, upd in TEST2:

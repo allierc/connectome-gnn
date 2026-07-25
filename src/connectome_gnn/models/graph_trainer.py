@@ -174,7 +174,11 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
     # After subsampling, consecutive frames in x_ts are time_step original steps apart,
     # so the BPTT unroll of time_step steps spans exactly the same physical duration
     # as before, but GPU memory scales with n_frames/time_step instead of n_frames.
-    stride = tc.time_step if (tc.recurrent_training and tc.time_step > 1) else 1
+    # recurrent_full_stimulus (observation-cadence sweep): keep the full 20ms data
+    # so the K-step BPTT unroll can feed the known native-rate stimulus and be
+    # supervised only at the K-th step. In that mode we must NOT subsample.
+    _full_stim = getattr(tc, 'recurrent_full_stimulus', False)
+    stride = tc.time_step if (tc.recurrent_training and tc.time_step > 1 and not _full_stim) else 1
     if stride > 1:
         from tqdm import tqdm as _tqdm
         _fields_to_stride = ['voltage', 'stimulus', 'calcium', 'fluorescence', 'noise']
