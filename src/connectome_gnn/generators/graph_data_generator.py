@@ -3368,6 +3368,20 @@ def _run_ode_generation(
     it = it_start
     id_fig = id_fig_start
 
+    # --- NeurIPS-2026 rebuttal: model-misspecification knobs (graded flyvis path) ---
+    # Defaults reproduce the base single-Euler-step generator byte-for-byte.
+    _n_sub = max(1, int(getattr(sim, 'n_generation_substeps', 1)))
+    _fd_target = bool(getattr(sim, 'finite_difference_target', False))
+    _adapt_g = float(getattr(sim, 'adapt_g', 0.0))
+    _adapt_tau_s = float(getattr(sim, 'adapt_tau_ms', 200.0)) / 1000.0  # ms -> same time unit as delta_t (s)
+    _need_substep_loop = (_n_sub > 1) or (_adapt_g > 0.0)
+    adapt_c = None  # latent per-neuron adaptation state c_i (Test 3); persists across the loop
+    if _n_sub > 1 or _fd_target or _adapt_g > 0.0:
+        logger.info(
+            f"\033[95m[misspec] n_substeps={_n_sub}  finite_diff_target={_fd_target}  "
+            f"adapt_g={_adapt_g}  adapt_tau_ms={getattr(sim, 'adapt_tau_ms', 200.0)}\033[0m"
+        )
+
     tile_labels = None
     tile_codes_torch = None
     tile_period = None
@@ -3433,6 +3447,8 @@ def _run_ode_generation(
             for data_idx, data in enumerate(tqdm(stimulus_sequences, desc="processing stimulus data", ncols=100)):
                 if sim.simulation_initial_state:
                     x.voltage[:] = initial_state
+                    if _adapt_g > 0.0 and adapt_c is not None:
+                        adapt_c[:] = x.voltage  # reset latent adaptation to c_i(0)=v_i(0) on state reset
                     if sim.only_noise_visual_input > 0:
                         x.stimulus[: sim.n_input_neurons] = torch.clamp(
                             torch.relu(
@@ -3647,6 +3663,14 @@ def _run_ode_generation(
                     else:
                         y = pde(x, edge_index, has_field=False)
                         dv_step = y.squeeze()
+                        if _adapt_g > 0.0:
+                            # Subtract latent adaptation current -g_a*c_i/tau_i so the
+                            # stored analytic target y is the TRUE (adaptation-including)
+                            # dv/dt of the observed voltage. c_i is never observed.
+                            if adapt_c is None:
+                                adapt_c = x.voltage.clone()
+                            dv_step = dv_step - _adapt_g * adapt_c / pde.ode_params.tau_i
+                            y = dv_step.unsqueeze(-1)
 
                     # Generate measurement noise for this timestep.
                     # AR(1) recursion when noise_ar1_rho > 0; falls back to i.i.d. otherwise.
@@ -3669,14 +3693,45 @@ def _run_ode_generation(
                     x_writer.append_state(x)
 
                     if not (has_gates and hh_substeps > 1):
-                        if noise_model_level > 0:
-                            x.voltage = (
-                                x.voltage
-                                + sim.delta_t * dv_step
-                                + torch.randn(n_neurons, dtype=torch.float32, device=device) * noise_model_level
-                            )
+                        _v_before = x.voltage.clone() if _fd_target else None
+                        if _need_substep_loop:
+                            # Integrate the graded ODE with M Euler substeps of h=delta_t/M
+                            # (Test 1: finer than the delta_t inference step) and/or step the
+                            # latent adaptation state c_i (Test 3). Process noise is scaled by
+                            # 1/sqrt(M) so the per-observed-frame noise variance matches base.
+                            # Stimulus is held constant across substeps (observed cadence=delta_t).
+                            _h = sim.delta_t / _n_sub
+                            for _sub in range(_n_sub):
+                                if _sub == 0:
+                                    _dv = dv_step  # reuse the derivative already computed above
+                                else:
+                                    _dv = pde(x, edge_index, has_field=False).squeeze()
+                                    if _adapt_g > 0.0:
+                                        _dv = _dv - _adapt_g * adapt_c / pde.ode_params.tau_i
+                                if noise_model_level > 0:
+                                    x.voltage = (
+                                        x.voltage
+                                        + _h * _dv
+                                        + torch.randn(n_neurons, dtype=torch.float32, device=device)
+                                        * noise_model_level / (_n_sub ** 0.5)
+                                    )
+                                else:
+                                    x.voltage = x.voltage + _h * _dv
+                                if _adapt_g > 0.0:
+                                    adapt_c = adapt_c + _h * (x.voltage - adapt_c) / _adapt_tau_s
                         else:
-                            x.voltage = x.voltage + sim.delta_t * dv_step
+                            if noise_model_level > 0:
+                                x.voltage = (
+                                    x.voltage
+                                    + sim.delta_t * dv_step
+                                    + torch.randn(n_neurons, dtype=torch.float32, device=device) * noise_model_level
+                                )
+                            else:
+                                x.voltage = x.voltage + sim.delta_t * dv_step
+                        if _fd_target:
+                            # Test 1: overwrite target with the OBSERVED one-step finite
+                            # difference at delta_t (curvature-biased vs the analytic drift).
+                            y = ((x.voltage - _v_before) / sim.delta_t).unsqueeze(-1)
                         if has_gates:
                             pde.step_gates(x, sim.delta_t)
 

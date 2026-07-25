@@ -440,6 +440,26 @@ class SimulationConfig(BaseModel):
     repeat_short_sequence_factor: int = 1
     noisy_test_data: bool = False  # if True, test split uses the same noise levels as train; default keeps test deterministic
     derivative_smoothing_window: int = 1  # temporal smoothing window for noisy derivatives (1 = no smoothing)
+    # --- NeurIPS-2026 rebuttal: model-misspecification knobs (flyvis/graded ODE) ---
+    # All default to base behaviour; the flyvis Euler path is byte-identical when
+    # n_generation_substeps==1, finite_difference_target==False, adapt_g==0.
+    # Test 1 (Δt mismatch): integrate the flyvis ODE with M Euler substeps of
+    # h = delta_t / M per OBSERVED frame (finer than the fixed delta_t inference
+    # step), with process noise scaled by 1/sqrt(M) so the per-observation noise
+    # variance is unchanged. The observed cadence stays at delta_t.
+    n_generation_substeps: int = 1
+    # Test 1: store the target y as the OBSERVED one-step finite difference
+    # (v[t+delta_t] - v[t]) / delta_t instead of the analytic derivative pde(x_t),
+    # so the GNN/oracle is trained on what a delta_t observer can actually measure
+    # (curvature-biased when the true trajectory is integrated more finely).
+    finite_difference_target: bool = False
+    # Test 3 (unobserved adaptation current): add a slow per-neuron adaptation
+    # current -adapt_g * c_i to the flyvis ODE, with c_i integrated as
+    # dc_i/dt = (v_i - c_i) / adapt_tau (tau in ms). c_i is NEVER observed or
+    # written, so it is a latent variable outside the graph that violates the
+    # first-order-in-observables assumption. adapt_g==0 disables it entirely.
+    adapt_g: float = 0.0
+    adapt_tau_ms: float = 200.0
     calcium_saturation_kd: float = 1.0  # for nonlinear saturation models
     calcium_num_compartments: int = 1
     calcium_down_sample: int = 1  # down-sample [Ca] time series by this factor
