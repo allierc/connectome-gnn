@@ -1,0 +1,5 @@
+# transient run artifacts
+_*.log
+submitted_jobs.json
+results_table.csv
+__pycache__/

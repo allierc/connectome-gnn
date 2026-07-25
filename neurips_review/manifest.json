@@ -1,0 +1,146 @@
+{
+  "gen": [
+    {
+      "config": "nr2_dt_M1_cv00_gen",
+      "dataset": "nr2_dt_M1_cv00"
+    },
+    {
+      "config": "nr2_dt_M2_cv00_gen",
+      "dataset": "nr2_dt_M2_cv00"
+    },
+    {
+      "config": "nr2_dt_M5_cv00_gen",
+      "dataset": "nr2_dt_M5_cv00"
+    },
+    {
+      "config": "nr2_dt_M10_cv00_gen",
+      "dataset": "nr2_dt_M10_cv00"
+    },
+    {
+      "config": "nr2_adapt_ga00_cv00_gen",
+      "dataset": "nr2_adapt_ga00_cv00"
+    },
+    {
+      "config": "nr2_adapt_ga01_cv00_gen",
+      "dataset": "nr2_adapt_ga01_cv00"
+    },
+    {
+      "config": "nr2_adapt_ga03_cv00_gen",
+      "dataset": "nr2_adapt_ga03_cv00"
+    }
+  ],
+  "train": [
+    {
+      "config": "nr2_dt_M1_cv00_unified",
+      "dataset": "nr2_dt_M1_cv00",
+      "model": "gnn",
+      "test": "dt"
+    },
+    {
+      "config": "nr2_dt_M1_cv00_known_ode",
+      "dataset": "nr2_dt_M1_cv00",
+      "model": "known_ode",
+      "test": "dt"
+    },
+    {
+      "config": "nr2_dt_M2_cv00_unified",
+      "dataset": "nr2_dt_M2_cv00",
+      "model": "gnn",
+      "test": "dt"
+    },
+    {
+      "config": "nr2_dt_M2_cv00_known_ode",
+      "dataset": "nr2_dt_M2_cv00",
+      "model": "known_ode",
+      "test": "dt"
+    },
+    {
+      "config": "nr2_dt_M5_cv00_unified",
+      "dataset": "nr2_dt_M5_cv00",
+      "model": "gnn",
+      "test": "dt"
+    },
+    {
+      "config": "nr2_dt_M5_cv00_known_ode",
+      "dataset": "nr2_dt_M5_cv00",
+      "model": "known_ode",
+      "test": "dt"
+    },
+    {
+      "config": "nr2_dt_M10_cv00_unified",
+      "dataset": "nr2_dt_M10_cv00",
+      "model": "gnn",
+      "test": "dt"
+    },
+    {
+      "config": "nr2_dt_M10_cv00_known_ode",
+      "dataset": "nr2_dt_M10_cv00",
+      "model": "known_ode",
+      "test": "dt"
+    },
+    {
+      "config": "nr2_adapt_ga00_cv00_unified",
+      "dataset": "nr2_adapt_ga00_cv00",
+      "model": "gnn",
+      "test": "adapt"
+    },
+    {
+      "config": "nr2_adapt_ga00_cv00_known_ode",
+      "dataset": "nr2_adapt_ga00_cv00",
+      "model": "known_ode",
+      "test": "adapt"
+    },
+    {
+      "config": "nr2_adapt_ga01_cv00_unified",
+      "dataset": "nr2_adapt_ga01_cv00",
+      "model": "gnn",
+      "test": "adapt"
+    },
+    {
+      "config": "nr2_adapt_ga01_cv00_known_ode",
+      "dataset": "nr2_adapt_ga01_cv00",
+      "model": "known_ode",
+      "test": "adapt"
+    },
+    {
+      "config": "nr2_adapt_ga03_cv00_unified",
+      "dataset": "nr2_adapt_ga03_cv00",
+      "model": "gnn",
+      "test": "adapt"
+    },
+    {
+      "config": "nr2_adapt_ga03_cv00_known_ode",
+      "dataset": "nr2_adapt_ga03_cv00",
+      "model": "known_ode",
+      "test": "adapt"
+    },
+    {
+      "config": "nr2_mono_ctrl_cv00",
+      "dataset": "flyvis_noise_005_blank50_cv00",
+      "model": "gnn",
+      "test": "mono"
+    },
+    {
+      "config": "nr2_mono_mu0off_cv00",
+      "dataset": "flyvis_noise_005_blank50_cv00",
+      "model": "gnn",
+      "test": "mono"
+    },
+    {
+      "config": "nr2_mono_mu1off_cv00",
+      "dataset": "flyvis_noise_005_blank50_cv00",
+      "model": "gnn",
+      "test": "mono"
+    }
+  ],
+  "datasets": [
+    "nr2_dt_M1_cv00",
+    "nr2_dt_M2_cv00",
+    "nr2_dt_M5_cv00",
+    "nr2_dt_M10_cv00",
+    "nr2_adapt_ga00_cv00",
+    "nr2_adapt_ga01_cv00",
+    "nr2_adapt_ga03_cv00"
+  ],
+  "config_dir": "/groups/saalfeld/home/allierc/GraphData/config/fly"
+}
