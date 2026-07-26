@@ -1,0 +1,326 @@
+key,label,type,type_idx,n_neurons,excl_rate,excl_rate_sd,enrichment,share_of_excluded,median_act_frac,median_in_deg
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_0,0,796,0.9972,0.0055,2.444,0.0387,0.0000,14.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_5,5,796,0.9955,0.0030,2.439,0.0386,0.0000,226.5
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_6,6,796,0.9932,0.0055,2.434,0.0386,0.0000,233.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_21,21,796,0.9884,0.0050,2.422,0.0384,0.9768,332.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_51,51,796,0.9575,0.0175,2.346,0.0372,1.0000,21.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_28,28,796,0.9538,0.0124,2.337,0.0370,1.0000,41.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_27,27,796,0.9457,0.0136,2.317,0.0367,1.0000,53.5
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_19,19,796,0.9211,0.0421,2.257,0.0357,1.0000,56.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_7,7,796,0.8771,0.0869,2.149,0.0341,0.9273,203.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_8,8,796,0.8764,0.0180,2.148,0.0340,1.0000,218.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_59,59,796,0.8731,0.0583,2.139,0.0339,0.9983,207.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_26,26,796,0.8515,0.0437,2.087,0.0331,1.0000,42.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_10,10,132,0.8500,0.2284,2.083,0.0055,0.0000,20.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_23,23,796,0.8437,0.0427,2.067,0.0327,1.0000,52.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_29,29,796,0.8231,0.0897,2.017,0.0319,0.5962,135.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_31,31,796,0.8113,0.0227,1.988,0.0315,0.7230,186.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_11,11,132,0.8076,0.0935,1.979,0.0052,0.0280,91.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_50,50,796,0.7525,0.1539,1.844,0.0290,0.2603,417.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_22,22,796,0.6796,0.2650,1.665,0.0262,0.9542,302.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_64,64,796,0.6603,0.1122,1.618,0.0256,1.0000,32.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_61,61,796,0.6246,0.1901,1.531,0.0239,0.7576,79.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_38,38,796,0.6095,0.2008,1.494,0.0233,0.6212,340.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_16,16,796,0.5362,0.2238,1.314,0.0205,1.0000,14.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_63,63,796,0.5309,0.0746,1.301,0.0205,1.0000,366.5
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_12,12,796,0.5131,0.3406,1.257,0.0198,0.9761,293.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_34,34,796,0.5058,0.0949,1.239,0.0197,0.6783,214.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_35,35,796,0.4927,0.1503,1.207,0.0192,0.5424,374.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_60,60,796,0.4920,0.0768,1.206,0.0191,1.0000,353.5
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_18,18,796,0.4181,0.0593,1.024,0.0162,0.6215,196.5
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_54,54,796,0.4083,0.1355,1.000,0.0161,0.9992,16.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_55,55,796,0.3912,0.2728,0.959,0.0148,0.8965,285.5
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_32,32,796,0.3849,0.0742,0.943,0.0149,1.0000,462.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_4,4,796,0.3641,0.3337,0.892,0.0137,1.0000,7.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_33,33,796,0.3387,0.1019,0.830,0.0132,0.9973,308.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_37,37,796,0.3183,0.0957,0.780,0.0124,0.5603,366.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_62,62,796,0.2905,0.0439,0.712,0.0112,0.9919,112.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_47,47,796,0.2432,0.0879,0.596,0.0093,0.9178,19.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_15,15,796,0.2314,0.1488,0.567,0.0089,1.0000,14.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_53,53,796,0.1945,0.1133,0.477,0.0074,1.0000,28.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_58,58,796,0.1882,0.1459,0.461,0.0072,0.0134,101.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_13,13,796,0.1824,0.0502,0.447,0.0071,0.8528,19.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_2,2,796,0.1437,0.0682,0.352,0.0055,0.9992,337.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_48,48,796,0.1322,0.0454,0.324,0.0051,1.0000,384.5
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_46,46,796,0.1256,0.0436,0.308,0.0048,1.0000,199.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_36,36,796,0.1191,0.0614,0.292,0.0046,0.4322,349.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_9,9,796,0.1156,0.0623,0.283,0.0044,0.9523,228.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_41,41,796,0.1148,0.0771,0.281,0.0045,0.0305,342.5
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_56,56,796,0.1033,0.2059,0.253,0.0036,0.9998,15.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_44,44,796,0.0967,0.0436,0.237,0.0038,0.6788,24.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_42,42,796,0.0940,0.0728,0.230,0.0037,0.1101,330.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_39,39,796,0.0812,0.0591,0.199,0.0032,0.1127,347.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_57,57,796,0.0759,0.0453,0.186,0.0030,0.8995,25.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_3,3,796,0.0668,0.0246,0.164,0.0026,1.0000,7.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_40,40,796,0.0601,0.0426,0.147,0.0023,0.0460,340.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_45,45,796,0.0435,0.0138,0.107,0.0017,0.6651,345.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_1,1,796,0.0427,0.0530,0.105,0.0016,1.0000,354.5
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_43,43,796,0.0369,0.0438,0.091,0.0014,1.0000,330.5
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_17,17,796,0.0332,0.0075,0.081,0.0013,0.9990,17.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_20,20,796,0.0183,0.0256,0.045,0.0007,1.0000,3.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_24,24,796,0.0045,0.0015,0.011,0.0002,1.0000,51.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_52,52,796,0.0025,0.0011,0.006,0.0001,0.9117,10.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_14,14,796,0.0000,0.0000,0.000,0.0000,1.0000,2.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_25,25,796,0.0000,0.0000,0.000,0.0000,1.0000,42.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_30,30,796,0.0000,0.0000,0.000,0.0000,1.0000,121.0
+fulleye_prox_gnn,"FlyWire full eye, proximal nulls (GNN)",type_49,49,796,0.0000,0.0000,0.000,0.0000,0.9933,1.0
+stride5_gnn,1/5 frames (GNN),Am,0,217,1.0000,0.0000,1.776,0.0281,0.0000,14.0
+stride5_gnn,1/5 frames (GNN),L1,5,217,1.0000,0.0000,1.776,0.0281,0.0000,19.0
+stride5_gnn,1/5 frames (GNN),L2,6,217,1.0000,0.0000,1.776,0.0281,0.0000,17.0
+stride5_gnn,1/5 frames (GNN),Lawf1,10,35,1.0000,0.0000,1.776,0.0045,0.0000,20.0
+stride5_gnn,1/5 frames (GNN),Mi2,19,217,0.9991,0.0018,1.774,0.0281,1.0000,17.0
+stride5_gnn,1/5 frames (GNN),R7,29,217,0.9945,0.0045,1.766,0.0280,0.5975,1.0
+stride5_gnn,1/5 frames (GNN),Mi4,21,217,0.9788,0.0181,1.738,0.0275,0.9675,51.0
+stride5_gnn,1/5 frames (GNN),Tm4,50,217,0.9650,0.0132,1.714,0.0272,0.2160,58.0
+stride5_gnn,1/5 frames (GNN),TmY14,58,217,0.9650,0.0132,1.714,0.0271,0.0282,99.0
+stride5_gnn,1/5 frames (GNN),R6,28,217,0.9585,0.0000,1.702,0.0270,1.0000,2.0
+stride5_gnn,1/5 frames (GNN),R5,27,217,0.9401,0.0082,1.669,0.0265,1.0000,3.0
+stride5_gnn,1/5 frames (GNN),T1,31,217,0.9281,0.0164,1.648,0.0261,0.7163,13.0
+stride5_gnn,1/5 frames (GNN),T2a,33,217,0.9189,0.0190,1.632,0.0258,0.3217,24.0
+stride5_gnn,1/5 frames (GNN),T5c,41,217,0.8931,0.0542,1.586,0.0251,0.4392,66.0
+stride5_gnn,1/5 frames (GNN),Mi1,12,217,0.8857,0.1255,1.573,0.0251,0.8825,33.0
+stride5_gnn,1/5 frames (GNN),R1,23,217,0.8857,0.0018,1.573,0.0249,1.0000,4.0
+stride5_gnn,1/5 frames (GNN),R4,26,217,0.8857,0.0018,1.573,0.0249,1.0000,3.0
+stride5_gnn,1/5 frames (GNN),L4,8,217,0.8811,0.0034,1.565,0.0248,1.0000,11.0
+stride5_gnn,1/5 frames (GNN),Tm2,45,217,0.8710,0.0395,1.547,0.0245,0.6518,25.0
+stride5_gnn,1/5 frames (GNN),CT1(M10),4,217,0.8700,0.1520,1.545,0.0243,1.0000,7.0
+stride5_gnn,1/5 frames (GNN),T3,34,217,0.8654,0.0449,1.537,0.0243,0.4105,31.0
+stride5_gnn,1/5 frames (GNN),TmY9,64,217,0.8516,0.0390,1.512,0.0239,1.0000,30.0
+stride5_gnn,1/5 frames (GNN),T5d,42,217,0.8498,0.0568,1.509,0.0239,0.5838,69.0
+stride5_gnn,1/5 frames (GNN),Lawf2,11,35,0.8400,0.0291,1.492,0.0038,0.0820,90.0
+stride5_gnn,1/5 frames (GNN),TmY15,59,217,0.8332,0.0432,1.480,0.0234,0.9927,194.0
+stride5_gnn,1/5 frames (GNN),T4c,37,217,0.7834,0.0231,1.391,0.0221,0.4925,88.0
+stride5_gnn,1/5 frames (GNN),TmY18,60,217,0.7779,0.1374,1.381,0.0217,1.0000,61.0
+stride5_gnn,1/5 frames (GNN),Mi13,16,217,0.7263,0.0989,1.290,0.0203,1.0000,14.0
+stride5_gnn,1/5 frames (GNN),T5a,39,217,0.7171,0.0932,1.273,0.0201,0.3190,80.0
+stride5_gnn,1/5 frames (GNN),T4d,38,217,0.6876,0.1350,1.221,0.0193,0.4940,59.0
+stride5_gnn,1/5 frames (GNN),T5b,40,217,0.6848,0.0736,1.216,0.0192,0.2400,74.0
+stride5_gnn,1/5 frames (GNN),L5,9,217,0.6783,0.0701,1.205,0.0192,0.5142,16.0
+stride5_gnn,1/5 frames (GNN),C3,2,217,0.6719,0.3191,1.193,0.0186,0.9998,25.0
+stride5_gnn,1/5 frames (GNN),T4a,35,217,0.6359,0.1187,1.129,0.0179,0.5033,109.0
+stride5_gnn,1/5 frames (GNN),TmY3,61,217,0.6000,0.0715,1.065,0.0169,0.6340,79.0
+stride5_gnn,1/5 frames (GNN),Mi15,18,217,0.5770,0.1217,1.025,0.0161,0.5510,18.0
+stride5_gnn,1/5 frames (GNN),TmY13,57,217,0.5327,0.2597,0.946,0.0146,0.9847,25.0
+stride5_gnn,1/5 frames (GNN),Tm5Y,51,217,0.5005,0.0734,0.889,0.0140,1.0000,21.0
+stride5_gnn,1/5 frames (GNN),Tm9,55,217,0.4756,0.3104,0.844,0.0129,0.9065,26.0
+stride5_gnn,1/5 frames (GNN),T2,32,217,0.4700,0.1031,0.835,0.0131,0.9998,80.0
+stride5_gnn,1/5 frames (GNN),L3,7,217,0.4240,0.1663,0.753,0.0117,0.9143,16.0
+stride5_gnn,1/5 frames (GNN),TmY5a,63,217,0.4092,0.1142,0.727,0.0117,1.0000,45.0
+stride5_gnn,1/5 frames (GNN),Mi9,22,217,0.4046,0.3403,0.718,0.0109,0.9320,32.0
+stride5_gnn,1/5 frames (GNN),Tm1,43,217,0.3871,0.1629,0.687,0.0106,1.0000,30.0
+stride5_gnn,1/5 frames (GNN),R2,24,217,0.3530,0.2617,0.627,0.0100,1.0000,3.0
+stride5_gnn,1/5 frames (GNN),Tm5b,53,217,0.3429,0.0662,0.609,0.0096,1.0000,28.0
+stride5_gnn,1/5 frames (GNN),T4b,36,217,0.3373,0.1317,0.599,0.0094,0.4900,71.0
+stride5_gnn,1/5 frames (GNN),Tm5a,52,217,0.3124,0.0716,0.555,0.0088,0.9287,10.0
+stride5_gnn,1/5 frames (GNN),Tm16,44,217,0.2940,0.2483,0.522,0.0079,0.8275,24.0
+stride5_gnn,1/5 frames (GNN),TmY10,56,217,0.2608,0.1279,0.463,0.0075,0.9965,15.0
+stride5_gnn,1/5 frames (GNN),TmY4,62,217,0.2221,0.0163,0.394,0.0062,0.9995,102.0
+stride5_gnn,1/5 frames (GNN),Tm3,48,217,0.2083,0.0702,0.370,0.0060,1.0000,51.0
+stride5_gnn,1/5 frames (GNN),Tm5c,54,217,0.1714,0.1903,0.304,0.0046,0.9995,16.0
+stride5_gnn,1/5 frames (GNN),Mi3,20,217,0.1088,0.0271,0.193,0.0031,1.0000,3.0
+stride5_gnn,1/5 frames (GNN),Tm28,47,217,0.1078,0.0541,0.191,0.0031,0.9630,19.0
+stride5_gnn,1/5 frames (GNN),Tm20,46,217,0.0959,0.0643,0.170,0.0026,1.0000,17.0
+stride5_gnn,1/5 frames (GNN),Mi10,13,217,0.0940,0.0721,0.167,0.0027,0.7778,19.0
+stride5_gnn,1/5 frames (GNN),CT1(Lo1),3,217,0.0498,0.0107,0.088,0.0014,1.0000,7.0
+stride5_gnn,1/5 frames (GNN),Mi12,15,217,0.0313,0.0138,0.056,0.0009,1.0000,14.0
+stride5_gnn,1/5 frames (GNN),R3,25,217,0.0092,0.0077,0.016,0.0003,1.0000,3.0
+stride5_gnn,1/5 frames (GNN),C2,1,217,0.0000,0.0000,0.000,0.0000,1.0000,25.0
+stride5_gnn,1/5 frames (GNN),Mi11,14,217,0.0000,0.0000,0.000,0.0000,1.0000,2.0
+stride5_gnn,1/5 frames (GNN),Mi14,17,217,0.0000,0.0000,0.000,0.0000,0.9898,17.0
+stride5_gnn,1/5 frames (GNN),R8,30,217,0.0000,0.0000,0.000,0.0000,1.0000,1.0
+stride5_gnn,1/5 frames (GNN),Tm30,49,217,0.0000,0.0000,0.000,0.0000,0.9927,1.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),CT1(M10),4,217,1.0000,0.0000,2.039,0.0323,1.0000,7.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),L1,5,217,1.0000,0.0000,2.039,0.0323,0.0000,19.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),L2,6,217,1.0000,0.0000,2.039,0.0323,0.0000,17.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),Lawf1,10,35,1.0000,0.0000,2.039,0.0052,0.0000,20.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),Mi2,19,217,1.0000,0.0000,2.039,0.0323,1.0000,17.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),Mi9,22,217,1.0000,0.0000,2.039,0.0323,0.9325,32.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),R7,29,217,1.0000,0.0000,2.039,0.0323,0.5982,1.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),Tm4,50,217,1.0000,0.0000,2.039,0.0323,0.2140,58.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),Mi4,21,217,0.9972,0.0055,2.033,0.0322,0.9675,51.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),L3,7,217,0.9899,0.0181,2.018,0.0319,0.9147,16.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),T3,34,217,0.9862,0.0087,2.010,0.0318,0.4103,31.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),Am,0,217,0.9751,0.0332,1.988,0.0315,0.0000,14.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),T4a,35,217,0.9604,0.0265,1.958,0.0310,0.5050,109.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),R6,28,217,0.9585,0.0000,1.954,0.0309,1.0000,2.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),L5,9,217,0.9465,0.0156,1.930,0.0305,0.5102,16.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),T4b,36,217,0.9364,0.0188,1.909,0.0302,0.4905,71.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),T4c,37,217,0.9272,0.0523,1.890,0.0299,0.4985,88.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),R5,27,217,0.9217,0.0000,1.879,0.0297,1.0000,3.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),T2,32,217,0.9217,0.0187,1.879,0.0297,0.9998,80.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),T2a,33,217,0.9207,0.0018,1.877,0.0297,0.3215,24.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),L4,8,217,0.8940,0.0140,1.823,0.0289,1.0000,11.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),R4,26,217,0.8839,0.0018,1.802,0.0285,1.0000,3.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),R1,23,217,0.8820,0.0023,1.798,0.0285,1.0000,4.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),Lawf2,11,35,0.8571,0.0599,1.747,0.0045,0.0830,90.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),T4d,38,217,0.8516,0.0132,1.736,0.0275,0.4927,59.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),TmY3,61,217,0.8018,0.3736,1.635,0.0264,0.6350,79.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),Mi1,12,217,0.8009,0.3982,1.633,0.0259,0.8817,33.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),Tm3,48,217,0.6894,0.3473,1.405,0.0220,1.0000,51.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),Mi10,13,217,0.6802,0.3339,1.387,0.0221,0.7755,19.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),TmY14,58,217,0.6332,0.2856,1.291,0.0201,0.0280,99.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),Tm2,45,217,0.4949,0.3991,1.009,0.0155,0.6513,25.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),Mi15,18,217,0.4949,0.3877,1.009,0.0160,0.5505,18.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),T5c,41,217,0.4876,0.2606,0.994,0.0154,0.4440,66.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),Mi13,16,217,0.4507,0.2467,0.919,0.0143,1.0000,14.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),Tm28,47,217,0.4129,0.3421,0.842,0.0135,0.9632,19.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),Tm20,46,217,0.3972,0.3467,0.810,0.0125,1.0000,17.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),T5d,42,217,0.3751,0.2733,0.765,0.0117,0.5810,69.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),T1,31,217,0.3300,0.3685,0.673,0.0109,0.7170,13.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),Tm5c,54,217,0.3244,0.3867,0.661,0.0101,0.9995,16.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),T5a,39,217,0.3198,0.3263,0.652,0.0099,0.3232,80.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),TmY9,64,217,0.3180,0.2338,0.648,0.0102,1.0000,30.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),T5b,40,217,0.1687,0.2387,0.344,0.0051,0.2380,74.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),TmY15,59,217,0.1594,0.0569,0.325,0.0052,0.9925,194.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),TmY4,62,217,0.1530,0.0399,0.312,0.0049,0.9995,102.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),TmY18,60,217,0.1244,0.2307,0.254,0.0042,1.0000,61.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),TmY5a,63,217,0.0912,0.0237,0.186,0.0029,1.0000,45.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),C3,2,217,0.0304,0.0380,0.062,0.0010,0.9998,25.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),TmY10,56,217,0.0175,0.0161,0.036,0.0006,0.9962,15.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),TmY13,57,217,0.0175,0.0147,0.036,0.0006,0.9843,25.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),Mi3,20,217,0.0147,0.0144,0.030,0.0005,1.0000,3.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),CT1(Lo1),3,217,0.0092,0.0162,0.019,0.0003,1.0000,7.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),Tm5Y,51,217,0.0074,0.0107,0.015,0.0002,1.0000,21.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),Mi12,15,217,0.0037,0.0034,0.008,0.0001,1.0000,14.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),Tm5b,53,217,0.0009,0.0018,0.002,0.0000,1.0000,28.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),C2,1,217,0.0000,0.0000,0.000,0.0000,1.0000,25.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),Mi11,14,217,0.0000,0.0000,0.000,0.0000,1.0000,2.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),Mi14,17,217,0.0000,0.0000,0.000,0.0000,0.9895,17.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),R2,24,217,0.0000,0.0000,0.000,0.0000,1.0000,3.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),R3,25,217,0.0000,0.0000,0.000,0.0000,1.0000,3.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),R8,30,217,0.0000,0.0000,0.000,0.0000,1.0000,1.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),Tm1,43,217,0.0000,0.0000,0.000,0.0000,1.0000,30.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),Tm16,44,217,0.0000,0.0000,0.000,0.0000,0.8290,24.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),Tm30,49,217,0.0000,0.0000,0.000,0.0000,0.9933,1.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),Tm5a,52,217,0.0000,0.0000,0.000,0.0000,0.9295,10.0
+midmeas_gnn,mid meas. noise gamma=0.2 (GNN),Tm9,55,217,0.0000,0.0000,0.000,0.0000,0.9062,26.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),C3,2,217,1.0000,0.0000,2.035,0.0321,0.9998,25.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),CT1(M10),4,217,1.0000,0.0000,2.035,0.0321,1.0000,7.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),L2,6,217,1.0000,0.0000,2.035,0.0321,0.0000,17.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),L4,8,217,1.0000,0.0000,2.035,0.0321,1.0000,11.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),Lawf1,10,35,1.0000,0.0000,2.035,0.0052,0.0000,20.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),Mi1,12,217,1.0000,0.0000,2.035,0.0321,0.8817,33.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),Mi2,19,217,1.0000,0.0000,2.035,0.0321,1.0000,17.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),Mi4,21,217,1.0000,0.0000,2.035,0.0321,0.9675,51.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),Mi9,22,217,1.0000,0.0000,2.035,0.0321,0.9325,32.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),Tm20,46,217,1.0000,0.0000,2.035,0.0321,1.0000,17.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),Tm4,50,217,1.0000,0.0000,2.035,0.0321,0.2140,58.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),Tm5b,53,217,1.0000,0.0000,2.035,0.0321,1.0000,28.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),TmY18,60,217,1.0000,0.0000,2.035,0.0321,1.0000,61.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),TmY9,64,217,1.0000,0.0000,2.035,0.0321,1.0000,30.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),L5,9,217,0.9991,0.0018,2.034,0.0321,0.5102,16.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),Tm28,47,217,0.9908,0.0050,2.017,0.0319,0.9632,19.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),Lawf2,11,35,0.9600,0.0140,1.954,0.0050,0.0830,90.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),R6,28,217,0.9585,0.0000,1.951,0.0308,1.0000,2.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),TmY15,59,217,0.9502,0.0079,1.934,0.0305,0.9925,194.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),R5,27,217,0.9456,0.0079,1.925,0.0304,1.0000,3.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),L1,5,217,0.9244,0.0023,1.882,0.0297,0.0000,19.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),R4,26,217,0.9180,0.0054,1.868,0.0295,1.0000,3.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),R1,23,217,0.9069,0.0125,1.846,0.0292,1.0000,4.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),Mi10,13,217,0.8876,0.0234,1.807,0.0285,0.7755,19.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),T4d,38,217,0.8737,0.0103,1.778,0.0281,0.4927,59.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),R2,24,217,0.8433,0.0077,1.717,0.0271,1.0000,3.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),TmY14,58,217,0.8359,0.0358,1.702,0.0269,0.0280,99.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),T2a,33,217,0.8111,0.0101,1.651,0.0261,0.3215,24.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),Mi12,15,217,0.7373,0.0220,1.501,0.0237,1.0000,14.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),Mi13,16,217,0.5558,0.0266,1.131,0.0179,1.0000,14.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),L3,7,217,0.4977,0.0414,1.013,0.0160,0.9147,16.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),T2,32,217,0.4756,0.0292,0.968,0.0153,0.9998,80.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),TmY3,61,217,0.4728,0.0454,0.962,0.0152,0.6350,79.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),TmY10,56,217,0.4083,0.0286,0.831,0.0131,0.9962,15.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),CT1(Lo1),3,217,0.3530,0.1044,0.719,0.0113,1.0000,7.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),T5b,40,217,0.3171,0.0074,0.645,0.0102,0.2380,74.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),Tm3,48,217,0.2931,0.0309,0.597,0.0094,1.0000,51.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),Tm9,55,217,0.2931,0.0174,0.597,0.0094,0.9062,26.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),T5d,42,217,0.2682,0.0107,0.546,0.0086,0.5810,69.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),T5a,39,217,0.2304,0.0065,0.469,0.0074,0.3232,80.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),Tm5Y,51,217,0.1880,0.0477,0.383,0.0060,1.0000,21.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),Tm5a,52,217,0.1714,0.0309,0.349,0.0055,0.9295,10.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),T3,34,217,0.1373,0.0079,0.280,0.0044,0.4103,31.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),TmY5a,63,217,0.1290,0.0050,0.263,0.0041,1.0000,45.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),T4c,37,217,0.1023,0.0045,0.208,0.0033,0.4985,88.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),T4a,35,217,0.0931,0.0089,0.189,0.0030,0.5050,109.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),T4b,36,217,0.0912,0.0144,0.186,0.0029,0.4905,71.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),T5c,41,217,0.0802,0.0069,0.163,0.0026,0.4440,66.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),Mi15,18,217,0.0341,0.0145,0.069,0.0011,0.5505,18.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),TmY4,62,217,0.0065,0.0023,0.013,0.0002,0.9995,102.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),Am,0,217,0.0055,0.0045,0.011,0.0002,0.0000,14.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),R3,25,217,0.0037,0.0034,0.008,0.0001,1.0000,3.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),Tm1,43,217,0.0018,0.0023,0.004,0.0001,1.0000,30.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),Mi3,20,217,0.0009,0.0018,0.002,0.0000,1.0000,3.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),R7,29,217,0.0009,0.0018,0.002,0.0000,0.5982,1.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),C2,1,217,0.0000,0.0000,0.000,0.0000,1.0000,25.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),Mi11,14,217,0.0000,0.0000,0.000,0.0000,1.0000,2.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),Mi14,17,217,0.0000,0.0000,0.000,0.0000,0.9895,17.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),R8,30,217,0.0000,0.0000,0.000,0.0000,1.0000,1.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),T1,31,217,0.0000,0.0000,0.000,0.0000,0.7170,13.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),Tm16,44,217,0.0000,0.0000,0.000,0.0000,0.8290,24.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),Tm2,45,217,0.0000,0.0000,0.000,0.0000,0.6513,25.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),Tm30,49,217,0.0000,0.0000,0.000,0.0000,0.9933,1.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),Tm5c,54,217,0.0000,0.0000,0.000,0.0000,0.9995,16.0
+lowmeas_ko,low meas. noise gamma=0.1 (Known-ODE),TmY13,57,217,0.0000,0.0000,0.000,0.0000,0.9843,25.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),CT1(M10),4,217,1.0000,0.0000,1.473,0.0233,1.0000,7.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),L2,6,217,1.0000,0.0000,1.473,0.0233,0.0000,17.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),L3,7,217,1.0000,0.0000,1.473,0.0233,0.9147,16.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),L4,8,217,1.0000,0.0000,1.473,0.0233,1.0000,11.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),Lawf1,10,35,1.0000,0.0000,1.473,0.0038,0.0000,20.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),Mi1,12,217,1.0000,0.0000,1.473,0.0233,0.8817,33.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),Mi2,19,217,1.0000,0.0000,1.473,0.0233,1.0000,17.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),Mi4,21,217,1.0000,0.0000,1.473,0.0233,0.9675,51.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),Mi9,22,217,1.0000,0.0000,1.473,0.0233,0.9325,32.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),R7,29,217,1.0000,0.0000,1.473,0.0233,0.5982,1.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),Tm4,50,217,1.0000,0.0000,1.473,0.0233,0.2140,58.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),TmY9,64,217,1.0000,0.0000,1.473,0.0233,1.0000,30.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),L5,9,217,0.9991,0.0018,1.472,0.0232,0.5102,16.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),TmY10,56,217,0.9982,0.0023,1.470,0.0232,0.9962,15.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),Mi13,16,217,0.9963,0.0034,1.468,0.0232,1.0000,14.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),TmY18,60,217,0.9954,0.0041,1.466,0.0232,1.0000,61.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),Mi10,13,217,0.9908,0.0050,1.460,0.0230,0.7755,19.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),T3,34,217,0.9880,0.0037,1.455,0.0230,0.4103,31.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),Lawf2,11,35,0.9829,0.0140,1.448,0.0037,0.0830,90.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),R5,27,217,0.9788,0.0023,1.442,0.0228,1.0000,3.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),C3,2,217,0.9733,0.0068,1.434,0.0226,0.9998,25.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),Tm5b,53,217,0.9696,0.0055,1.428,0.0226,1.0000,28.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),Tm20,46,217,0.9641,0.0079,1.420,0.0224,1.0000,17.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),L1,5,217,0.9585,0.0029,1.412,0.0223,0.0000,19.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),R6,28,217,0.9585,0.0000,1.412,0.0223,1.0000,2.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),R4,26,217,0.9539,0.0029,1.405,0.0222,1.0000,3.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),T2,32,217,0.9539,0.0146,1.405,0.0222,0.9998,80.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),Tm28,47,217,0.9493,0.0065,1.398,0.0221,0.9632,19.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),T2a,33,217,0.9475,0.0023,1.396,0.0220,0.3215,24.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),TmY3,61,217,0.9465,0.0111,1.394,0.0220,0.6350,79.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),T4a,35,217,0.9447,0.0065,1.392,0.0220,0.5050,109.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),T4d,38,217,0.9419,0.0103,1.388,0.0219,0.4927,59.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),R1,23,217,0.9401,0.0077,1.385,0.0219,1.0000,4.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),T4b,36,217,0.9281,0.0037,1.367,0.0216,0.4905,71.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),R2,24,217,0.8995,0.0061,1.325,0.0209,1.0000,3.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),CT1(Lo1),3,217,0.8968,0.0199,1.321,0.0209,1.0000,7.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),Am,0,217,0.8866,0.0190,1.306,0.0206,0.0000,14.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),T4c,37,217,0.8415,0.0047,1.240,0.0196,0.4985,88.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),Tm5a,52,217,0.8028,0.0114,1.183,0.0187,0.9295,10.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),TmY15,59,217,0.7677,0.0355,1.131,0.0179,0.9925,194.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),TmY14,58,217,0.7364,0.0388,1.085,0.0171,0.0280,99.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),TmY4,62,217,0.7171,0.0139,1.056,0.0167,0.9995,102.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),Mi12,15,217,0.7124,0.0207,1.049,0.0166,1.0000,14.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),Tm2,45,217,0.7115,0.0262,1.048,0.0166,0.6513,25.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),Tm5Y,51,217,0.6406,0.0602,0.944,0.0149,1.0000,21.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),TmY5a,63,217,0.5512,0.0449,0.812,0.0128,1.0000,45.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),Mi15,18,217,0.3364,0.0101,0.496,0.0078,0.5505,18.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),T5b,40,217,0.2876,0.0075,0.424,0.0067,0.2380,74.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),T5a,39,217,0.2756,0.0125,0.406,0.0064,0.3232,80.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),T5d,42,217,0.2599,0.0080,0.383,0.0060,0.5810,69.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),Tm9,55,217,0.2599,0.0257,0.383,0.0060,0.9062,26.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),Tm3,48,217,0.2138,0.0295,0.315,0.0050,1.0000,51.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),R3,25,217,0.1668,0.0209,0.246,0.0039,1.0000,3.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),Mi3,20,217,0.1226,0.0119,0.181,0.0029,1.0000,3.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),T5c,41,217,0.0959,0.0034,0.141,0.0022,0.4440,66.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),TmY13,57,217,0.0885,0.0061,0.130,0.0021,0.9843,25.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),Tm1,43,217,0.0424,0.0098,0.062,0.0010,1.0000,30.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),Mi14,17,217,0.0323,0.0130,0.048,0.0008,0.9895,17.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),Tm5c,54,217,0.0230,0.0130,0.034,0.0005,0.9995,16.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),Tm16,44,217,0.0129,0.0094,0.019,0.0003,0.8290,24.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),T1,31,217,0.0083,0.0034,0.012,0.0002,0.7170,13.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),C2,1,217,0.0000,0.0000,0.000,0.0000,1.0000,25.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),Mi11,14,217,0.0000,0.0000,0.000,0.0000,1.0000,2.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),R8,30,217,0.0000,0.0000,0.000,0.0000,1.0000,1.0
+midmeas_ko,mid meas. noise gamma=0.2 (Known-ODE),Tm30,49,217,0.0000,0.0000,0.000,0.0000,0.9933,1.0

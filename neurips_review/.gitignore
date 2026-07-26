@@ -3,3 +3,11 @@ _*.log
 submitted_jobs.json
 results_table.csv
 __pycache__/
+
+# latex build artifacts
+*.aux
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz
