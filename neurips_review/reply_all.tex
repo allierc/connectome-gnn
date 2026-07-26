@@ -344,8 +344,8 @@ assemblies with no anatomy, whose random weights carry no columnar degeneracy,
 hence $\Rw = 1.00$ there against $0.89$ here at $\sigma = 0$. The formulation is
 additively separable in self-state and drive, where ours nests them,
 $\widehat{\dot v}_i = f_\theta(v_i, \Mat{a}_i, m_i, I_i)$ with
-$m_i = \sum_j \widehat W_{ij}\, g_\phi(v_j,\Mat{a}_j)^2$, not additive in
-$(v_i, m_i)$. The delta is the columnar identifiability analysis, the degradation
+$m_i = \sum_j \widehat W_{ij}\, g_\phi(v_j,\Mat{a}_j)^2$.
+The delta is the columnar identifiability analysis, the degradation
 battery, the FlyWire-scale result and the edge ablation, not the decomposition.
 No head-to-head was run.
 
@@ -466,8 +466,8 @@ n.r.\ = not reported.}
 Strong recurrence with rich activity is not the hard case; the first row shows
 that. A ring attractor is: it contracts onto a low-dimensional manifold of bump
 positions, so weights moving a state along the ring are constrained by the
-recording while those pushing it off are undone by the attractor and constrained
-by nothing. Fit quality stays high while they stay unknown.
+recording while those pushing it off are undone by the attractor. Fit quality
+stays high while they stay unknown.
 
 \textbf{Provisional.} The CX row is $156$ neurons, $7$ types, $10{,}263$
 hemibrain edges at $180\times$ Flyvis's density, so it separates recurrence from
@@ -488,27 +488,29 @@ measured instance of their prescription rather than an independent finding. The
 failures differ: theirs is a false edge where no synapse exists, ours a true edge
 unidentifiable against its same-type neighbours.
 
-\emph{On [1].} Pruned Dale-constrained RNNs are a good generator here. We do
-not assume Dale's law: $\widehat W_{ij}$ is unconstrained and $g_\phi^2$ carries
-only magnitude. Such a benchmark would test sign recovery, not sign compliance.
+\emph{On [1].} Pruned Dale-constrained RNNs are a good generator here. We do not
+assume Dale's law: $\widehat W_{ij}$ is unconstrained, $g_\phi^2$ carries only
+magnitude. Such a benchmark tests sign recovery, not sign compliance.
 
 \paragraph{Q2. Calcium-like observation model.}
 Accepted, and it is the change that most improves transfer to real recordings.
 The submitted degradations never compose: $1/5$ frames ($\Rw = 0.30$) is
-subsampling alone, measurement noise ($0.63$ at $\gamma = 0.1$) an additive term
-alone.
+subsampling alone, measurement noise ($0.63$ at $\gamma = 0.1$) additive alone.
 
-We have now built the composition: a GCaMP6f kernel, Hill saturation at
-$K_d = 1.57\times$ the trace SD, a $500$~ms exposure ($2$~Hz imaging) and shot
-noise matched in SNR to our $\gamma$ rows, on the same trajectories. Before any
-fitting, the derivative signal identifying $\Mat{W}$ falls to $0.40$ of baseline
-under saturation, $0.70$ under rate and $0.26$ under all three. Deconvolving the
-indicator kernel, as an experimenter would, recovers voltage at $r = 0.90$ from
-blur alone, $0.35$ once the rate drops and $0.23$ for the full model. Saturation
-is the instructive case: $r$ barely moves ($0.90 \to 0.88$) while RMSE triples
-($0.12 \to 0.37$). A linear inverse cannot undo a static nonlinearity, so the
-amplitudes carrying the weight information stay compressed while the correlation
-looks healthy. Recovery arms are running. \textbf{[pending]}
+We have now built it, as four observables on the same trajectories:
+(i)~the GCaMP6f kernel alone; (ii)~kernel plus indicator saturation, the
+response flattening once the excursion passes $K_d$, set at $1.57\times$ the
+trace SD; (iii)~kernel plus a $500$~ms exposure ($2$~Hz imaging); (iv)~all of
+these with shot noise matched in SNR to our $\gamma$ rows. Before any fitting,
+the $\dot C$ signal that identifies $\Mat{W}$ retains, against (i), $0.40$ under
+(ii), $0.70$ under (iii) and $0.26$ under (iv). Deconvolving the kernel to
+estimate voltage from the calcium trace, as an experimenter would, and scoring
+that estimate against the true voltage gives $r = 0.90$ under (i), $0.35$ under
+(iii) and $0.23$ under (iv). Saturation is the instructive case: $r$ barely moves
+($0.90 \to 0.88$) while RMSE triples ($0.12 \to 0.37$), since a linear inverse
+cannot undo a static nonlinearity. The amplitudes carrying the weight
+information stay compressed while the correlation looks healthy. Recovery arms
+are running. \textbf{[pending]}
 
 \paragraph{Q3. Out-of-distribution test.}
 Our evidence for ``black boxes predict but do not recover'' is indirect; this
@@ -533,18 +535,17 @@ current injection, $5\%$ of neurons, $20\sigma_I$ & $0.9748$ & $0.9985$ & [pendi
 In distribution the two are indistinguishable. Spatially uniform white noise
 barely moves either, which is informative: the drive still arrives through the
 photoreceptors, so the circuit is not taken far from the states it was fitted on.
-Current injection does take it off the manifold, and a gap opens that grows with
+Current injection does take it off the manifold, and a gap opens growing with
 amplitude, $0.0008$ at $1\sigma_I$ to $0.0237$ at $20\sigma_I$ ($\sigma_I$ = SD
 of the visual drive), so $1\sigma_I$ is not yet out of distribution and sets the
-scale at which this test discriminates. The oracle stays above $0.998$, exact by
-construction; the GNN degrades gently.
+scale at which this test discriminates.
 
 \emph{What this does and does not settle.} It bounds our own off-manifold
 fidelity but does not yet make the comparison asked for: the gap is between our
-model and an oracle that knows the equation, not between a mechanistic model and
-one that only predicts. The recurrent-MLP and EED checkpoints are held by a
-co-author who is away, so that column stays blank and will be filled during the
-discussion; it needs rollouts, not retraining.
+model and an oracle knowing the equation, not between a mechanistic model and one
+that only predicts. The recurrent-MLP and EED checkpoints are held by a co-author
+who is away, so that column stays blank and will be filled during the discussion;
+it needs rollouts, not retraining.
 
 \paragraph{Q4. GNN and Known-ODE Jacobians.}
 Agreed: Supp.~Fig.~18 uses a Jacobian mismatch against the MLP and never
@@ -579,7 +580,7 @@ diagonal $J_{ii}$     & Known-ODE     & $0.944$   & $0.975$   & n/a             
 The GNN matches the true off-diagonal Jacobian at $R^2 = 0.970$, within $0.007$
 of the oracle, so it has the right local dynamics, not merely plausible
 parameters. Not an artefact of silent edges: $92.9\%$ carry a nonzero
-ground-truth Jacobian and restricting to those moves $R^2$ by under $10^{-3}$.
+ground-truth Jacobian and restricting to those moves $R^2$ by $<10^{-3}$.
 The diagonal is weaker for the GNN, $0.865$ against $0.944$, because the oracle
 holds $-1/\tau_i$ as a parameter while the GNN expresses the leak through
 $\partial f_\theta / \partial v$.
@@ -621,7 +622,7 @@ extraction panel out into the section that will describe it.
 We thank the reviewer. Two of the five weaknesses concern framing rather than
 results and we accept both: the decomposition is inherited rather than new, and
 ``mechanism recovery'' covers several claims that are not equivalent. We answer
-in the order of the letter, W1 to W5 then Q1 to Q2, and where a point recurs across
+in the order of the letter, and where a point recurs across
 reviews we answer in the same words: three inconsistent replies would only
 confirm the imprecision you identify.
 
@@ -634,8 +635,8 @@ electrode arrays, learning its adjacency adaptively from a correlation-matrix
 initialisation ``to stabilize the learning process''. On synthetic linear systems
 it does recover a known adjacency ($F_1 = 0.88$ to $0.93$, one-step forecasting),
 but the units are electrode channels rather than identified neurons, and the real
-recordings carry no ground-truth connectivity: validation there is by recovering
-channel spatial proximity. Its own finding that recovery tracks the training
+recordings carry no ground-truth connectivity: validation is by channel spatial
+proximity. Its own finding that recovery tracks the training
 objective, $F_1$ falling to $0.63$ under reconstruction, is the dissociation we
 report between fit quality and structure recovery.
 
