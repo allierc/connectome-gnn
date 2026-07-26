@@ -1,0 +1,24 @@
+{
+  "n_steps": 1000,
+  "n_neurons": 13741,
+  "dt": 0.02,
+  "gnn_config": "flyvis_noise_005_blank50_unified_cv00",
+  "known_ode_config": "flyvis_noise_005_blank50_known_ode_cv00",
+  "inject_frac": 0.05,
+  "n_injected": 687,
+  "inject_sd": 20.0,
+  "conditions": {
+    "id": {
+      "gnn_rollout_r": 0.9999620873896814,
+      "known_ode_rollout_r": 0.9999680873094862
+    },
+    "white": {
+      "gnn_rollout_r": 0.9986053799883743,
+      "known_ode_rollout_r": 0.9992274046919516
+    },
+    "inject": {
+      "gnn_rollout_r": 0.97482197110806,
+      "known_ode_rollout_r": 0.9984972588121908
+    }
+  }
+}
