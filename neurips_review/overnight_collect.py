@@ -132,9 +132,15 @@ def local_running() -> set[str]:
 
 
 def submit_deferred(submitted: set[str]) -> None:
-    """Submit each oracle arm once its twin's dataset generation has landed."""
+    """Submit each oracle arm once its twin's dataset generation has landed.
+
+    The guard is a marker file, not just the in-memory set: restarting the
+    collector would otherwise re-submit an arm that is already queued, and two
+    jobs writing one log dir corrupt each other. This happened once already.
+    """
     for oracle, twin in DEFERRED.items():
-        if oracle in submitted or is_complete(oracle):
+        marker = CX / "neurips_review" / f".submitted_{oracle}"
+        if oracle in submitted or marker.exists() or is_complete(oracle):
             continue
         if not (run_dir(twin) / "_completed_generate").exists():
             continue
@@ -147,6 +153,7 @@ def submit_deferred(submitted: set[str]) -> None:
         out = ssh(cmd, timeout=180)
         if out and "is submitted" in out:
             submitted.add(oracle)
+            marker.write_text(out.strip().splitlines()[-1] + "\n")
             log(f"  SUBMITTED deferred oracle arm {oracle}: {out.strip().splitlines()[-1]}")
         else:
             log(f"  deferred submit for {oracle} did not confirm -- will retry next pass")
