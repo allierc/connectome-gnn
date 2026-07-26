@@ -166,8 +166,9 @@ each claim to one of them; fix the excluded set a priori rather than by residual
 and report full-sample metrics for every table (Reviewer 1bPK, Q2).
 
 \paragraph{5. Methodological novelty overstated.}
-Partially accepted. The decomposition is inherited from Allier et al.; AMAG refines an
-adjacency it initialises rather than inferring one; Yoon et al.\ [2025] infer a
+Partially accepted. The decomposition is inherited from \textbf{Allier et al.\
+[2026]}; \textbf{AMAG [2023]} refines an adjacency it initialises rather than
+inferring one; \textbf{Yoon et al.\ [2025]} infer a
 $100$-neuron ring from $19$ observed cells, recovering a smooth weight profile
 rather than individually free weights. The degeneracy itself is older still,
 Prinz, Bucher and Marder [2004] and Golowasch, Goldman, Abbott and Marder
@@ -434,63 +435,63 @@ outside the regime we tested. We answer all four.
 \paragraph{Q1. Strongly recurrent benchmarks.}
 Accepted. We chose Flyvis for anatomy and scale: $13{,}741$ neurons, $65$ cell
 types, $434{,}112$ measured synapses at $0.23\%$ density, the sparse
-repeat-column structure that makes the biological inverse problem hard. Flyvis is
-predominantly feedforward, and the paper measures it: a stimulus-only MLP that
-never sees the connectome predicts
-every voltage at $r = 0.97$ from $16$ past frames (Appx.~H.2). Limitation~5
-reports this, adding that ``stronger recurrent regimes are untested, though
-[Allier et al., 2026] suggests they need not be harder''.
+repeat-column structure that makes the biological inverse problem hard. It is
+predominantly feedforward, and the paper measures that: a stimulus-only MLP
+never seeing the connectome predicts every voltage at $r = 0.97$ from $16$ past
+frames (Appx.~H.2), which Limitation~5 reports, adding that ``stronger recurrent
+regimes are untested, though [Allier et al., 2026] suggests they need not be
+harder''.
 
 Three systems, differing in wiring, recurrence and activity:
 
 \begin{center}
-{\footnotesize
-\begin{tabular}{llll c}
+{\scriptsize
+\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{lll ccc ccc}
 \toprule
-system & connectivity & recurrence & activity & $\Rw$ ($\sigma{=}0$) \\
+system & recurrence & activity & GNN $0$ & GNN $.05$ & GNN $.5$ & ODE $0$ & ODE $.05$ & ODE $.5$ \\
 \midrule
-random assemblies [Allier et al., 2026] & random, dense      & strong & chaotic, rich    & $1.00$ \\
-Flyvis-217 (this paper)                 & measured, $0.23\%$ & weak   & stimulus-driven  & $0.89$ \\
-\emph{Drosophila} CX                    & measured, $42\%$   & ring attractor & manifold-confined & $0.60$\,* \\
+random assemblies [Allier 2026] & strong & chaotic & $1.00$ & --- & --- & --- & --- & --- \\
+Flyvis-217, $0.23\%$ & weak & stimulus-driven & $0.89$ & $0.99$ & $1.00$ & $0.96$ & $0.99$ & $1.00$ \\
+\emph{Drosophila} CX, $42\%$ & ring attractor & manifold-bound & $0.60$* & $0.88$* & $1.00$* & n.c.* & $1.00$* & $1.00$* \\
 \bottomrule
 \end{tabular}}
 
-{\footnotesize * provisional; see below.}
+{\footnotesize Cells are $\Rw$ at process noise $\sigma$; ODE = Known-ODE
+oracle. * provisional, single seed, still training; n.c.\ = did not converge;
+--- = not reported.}
 \end{center}
 
 Strong recurrence with rich activity is not the hard case; the first row shows
-that. A ring attractor is. Its dynamics contract onto a one-dimensional manifold
-of bump positions, so weights that move a state along the ring are constrained
-by the recording, while weights that would push it off are undone by the
-attractor and constrained by nothing. Fit quality stays high while those
-directions stay unknown.
+that. A ring attractor is: it contracts onto a low-dimensional manifold of bump
+positions, so weights moving a state along the ring are constrained by the
+recording while weights pushing it off are undone by the attractor and
+constrained by nothing. Fit quality stays high while those directions stay
+unknown.
 
-\textbf{Provisional.} We ran the \emph{Drosophila} central complex --- $156$
-neurons, $7$ types, $10{,}263$ hemibrain edges at $180\times$ the density of
-Flyvis, separating recurrence from sparsity --- through the identical pipeline.
-Single seed, still training: $\Rw$ (GNN) $= 0.60$ at $\sigma = 0$, $0.88$ at
-$0.05$, $1.00$ at $0.5$; the oracle $1.00$ at both $\sigma > 0$, not converging
-at $\sigma = 0$. Our prediction holds --- below Flyvis's $0.89$ noise-free,
-steeper in $\sigma$ --- and the generator says why: activity
-effective rank$(90\%)$ rises $7 \to 37$ from $\sigma = 0.05$ to $0.5$ while
-$\Mat{W}$ stays at $11$. Recovery tracks how much of the space the activity
-visits, not how recurrent the circuit is. It is also why Yoon et al.'s [2025]
-smooth ring profile over $19$ of $100$ neurons is a weaker object than
-$4\times10^5$ free weights on a connectome.
+\textbf{Provisional.} The CX row is $156$ neurons, $7$ types, $10{,}263$
+hemibrain edges at $180\times$ Flyvis's density, so it separates recurrence from
+sparsity; single seed, still training. The prediction we recorded holds, and the
+reason is visible before any fitting. $\Mat{W}$ carries $12$ significant
+directions ($90\%$ of its spectral energy) and is identical across $\sigma$,
+since the noise enters the dynamics and not the weights; what changes is how
+many directions the activity explores --- $6$ at $\sigma = 0$, $7$ at $0.05$,
+$95$ at $0.5$. Recovery is partial exactly where the recording spans fewer
+directions than $\Mat{W}$ needs and exact once it spans more: what governs it is
+how rich the activity is, not how recurrent the circuit is.
 
 \emph{On [2].} Das and Fiete show that in strongly recurrent circuits
 activity-based inference invents connections between unconnected but correlated
 neurons, and that noise or perturbation reduces the bias by enriching the
-activity distribution. That is our mechanism, so we will cite our
-process-noise result as a measured instance of their prescription rather than an
-independent finding. The failures differ: theirs is a false edge where no
-synapse exists, ours a true edge whose weight is unidentifiable against its
-same-type neighbours.
+activity distribution --- our mechanism, so we will cite our process-noise
+result as a measured instance of their prescription rather than an independent
+finding. The failures differ: theirs is a false edge where no synapse exists,
+ours a true edge unidentifiable against its same-type neighbours.
 
-\emph{On [1].} Pruned Dale-constrained RNNs are a good generator here. Our
-method does not assume Dale's law, since $\widehat W_{ij}$ is unconstrained and
-$g_\phi^2$ carries only magnitude, so such a benchmark would test sign recovery
-rather than sign compliance.
+\emph{On [1].} Pruned Dale-constrained RNNs are a good generator here. We do
+not assume Dale's law --- $\widehat W_{ij}$ is unconstrained, $g_\phi^2$ carries
+only magnitude --- so such a benchmark would test sign recovery, not sign
+compliance.
 
 \paragraph{Q2. Calcium-like observation model.}
 Accepted, and it is the change that most improves transfer to real recordings.
@@ -510,10 +511,10 @@ it to be worse than any single row of Supp.~Tab.~4, and intend to present it as 
 failure mode rather than a robustness result.
 
 \paragraph{Q3. Out-of-distribution test.}
-We accept that our evidence for ``black boxes predict but do not recover'' is
-indirect. This test makes it direct and needs no retraining: vary $I_i(t)$ only,
-roll out the frozen checkpoints for $1000$ steps ($20$~s), and score against
-ground truth integrated from Eq.~1 under the same drive.
+Our evidence for ``black boxes predict but do not recover'' is indirect; this
+test makes it direct and needs no retraining. Vary $I_i(t)$ only, roll the
+frozen checkpoints out for $1000$ steps ($20$~s), score against ground truth
+integrated from Eq.~1 under the same drive.
 
 \begin{center}
 {\footnotesize
@@ -540,15 +541,15 @@ test discriminates. The oracle stays above $0.998$, exact by construction; the
 GNN degrades gently.
 
 \emph{What this does and does not settle.} It bounds our own model's
-off-manifold fidelity, but does not yet make the comparison asked for: the gap
-above is between our model and an oracle that knows the equation, not between a
+off-manifold fidelity but does not yet make the comparison asked for: the gap is
+between our model and an oracle that knows the equation, not between a
 mechanistic model and one that only predicts. The recurrent-MLP and EED
 checkpoints are held by a co-author who is away, so that column stays blank and
-will be filled during the discussion period; it needs rollouts, not retraining.
+will be filled during the discussion; it needs rollouts, not retraining.
 
 \paragraph{Q4. GNN and Known-ODE Jacobians.}
-Agreed. Supp.~Fig.~18 uses a Jacobian mismatch to argue against the MLP and
-never applies the same test to our own model.
+Agreed: Supp.~Fig.~18 uses a Jacobian mismatch against the MLP and never
+applies the same test to our own model.
 
 At each of $200$ held-out frames we compute
 $J_{ij} = \partial \dot v_i / \partial v_j$ for every model. Differentiating
@@ -595,11 +596,11 @@ oracle the whole gap is the rescaling ($0.964 \to 0.969$ after $1/\tau_i$, $\to
 vector field therefore cannot separate a recovered connectome from a dynamically
 equivalent one, which is our argument about BrainTrace to Reviewer 1bPK.
 
-Two entries carry less than they appear to. The fraction of
-$\sum_{i \neq j} |J_{ij}|$ on unconnected pairs is zero by construction for both
-our models, so it reports the hypothesis class, not what was learned. Sign
-agreement of $0.88$ reduces, once averaged over frames, to sign recovery of
-$\Mat{W}$; the oracle sits at the same $0.882$.
+Two entries carry less than they appear to. The off-graph fraction of
+$\sum_{i \neq j}|J_{ij}|$ is zero by construction for both our models, so it
+reports the hypothesis class, not what was learned; and sign agreement of $0.88$
+reduces, averaged over frames, to sign recovery of $\Mat{W}$, the oracle sitting
+at the same $0.882$.
 
 \textbf{What we'll change.} Add these panels and metrics beside Supp.~Fig.~18,
 with the MLP row once its checkpoints return, and state what this measurement
@@ -626,17 +627,17 @@ equivalent. We answer in the order of the letter, weaknesses W1--W5 then Questio
 reviews we answer in the same words: three inconsistent replies would only
 confirm the imprecision you identify.
 
-\paragraph{W1. Novelty against AMAG and Yoon et al.\ [2025].}
+\paragraph{W1. Novelty against AMAG [2023] and Yoon et al.\ [2025].}
 Accepted that the decomposition is not new. The two cited works differ from
 ours, and from each other, in what they infer and at what scale.
 
-\emph{AMAG.} It operates on electrode channels and, as Yoon et al.\ themselves
+\textbf{AMAG [2023].} It operates on electrode channels and, as Yoon et al.\ themselves
 put it, ``initializes the adjacency matrix from random weights or
 correlation-based heuristics, focusing on refining rather than inferring
 connectivity''. It is validated by recovering channel spatial proximity, not
 synaptic weights.
 
-\emph{Yoon et al.\ [2025].} They do infer connectivity: on a $100$-neuron ring
+\textbf{Yoon et al.\ [2025].} They do infer connectivity: on a $100$-neuron ring
 attractor with auxiliary nodes for unobserved cells, and on real head-direction
 data where $19$ recorded cells sit in a ring of $N = 100$. What is recovered is
 a weight profile over angular distance, one smooth function, not $4\times10^5$
@@ -645,7 +646,7 @@ connections to neurons that are either unconnected or only weakly connected'',
 driven by ``strong correlations in neural activity'' --- the failure Das and
 Fiete identify, separated from ours under W2.
 
-\emph{Ours.} A \emph{measured} connectome as a binary prior rather than a graph
+\textbf{Ours.} A \emph{measured} connectome as a binary prior rather than a graph
 to infer, at $13{,}741$--$50{,}412$ neurons, with per-neuron $\tau$ and
 $V^{\mathrm{rest}}$ alongside the weights, and the degeneracy quantified rather
 than described: Appx.~C measures which weight directions the activity leaves
