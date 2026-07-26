@@ -1,0 +1,29 @@
+1. Nat Neurosci. 2004 Dec;7(12):1345-52. doi: 10.1038/nn1352. Epub 2004 Nov 21.
+
+Similar network activity from disparate circuit parameters.
+
+Prinz AA(1), Bucher D, Marder E.
+
+Author information:
+(1)Volen Center and Biology Department, Brandeis University, Mail Stop 013, 415 
+South Street, Waltham, Massachusetts 02454-9110, USA. prinz@brandeis.edu 
+<prinz@brandeis.edu>
+
+Comment in
+    Nat Neurosci. 2004 Dec;7(12):1287-8. doi: 10.1038/nn1204-1287.
+
+It is often assumed that cellular and synaptic properties need to be regulated 
+to specific values to allow a neuronal network to function properly. To 
+determine how tightly neuronal properties and synaptic strengths need to be 
+tuned to produce a given network output, we simulated more than 20 million 
+versions of a three-cell model of the pyloric network of the crustacean 
+stomatogastric ganglion using different combinations of synapse strengths and 
+neuron properties. We found that virtually indistinguishable network activity 
+can arise from widely disparate sets of underlying mechanisms, suggesting that 
+there could be considerable animal-to-animal variability in many of the 
+parameters that control network activity, and that many different combinations 
+of synaptic strengths and intrinsic membrane properties can be consistent with 
+appropriate network performance.
+
+DOI: 10.1038/nn1352
+PMID: 15558066 [Indexed for MEDLINE]
