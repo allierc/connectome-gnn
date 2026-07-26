@@ -431,12 +431,12 @@ recovering mechanism currently rests on one quantitative test, the $50\%$-edge
 ablation both sequence baselines fail, and one qualitative panel, the Jacobian
 comparison for the recurrent MLP in Supp.~Fig.~18. Q4 and Q3 make it
 quantitative and apply it to our own model; Q1 and Q2 ask whether it survives
-outside the regime we tested. We answer all four.
+outside the regime we tested.
 
 \paragraph{Q1. Strongly recurrent benchmarks.}
 Accepted. We chose Flyvis for anatomy and scale: $13{,}741$ neurons, $65$ cell
-types, $434{,}112$ measured synapses at $0.23\%$ density, the sparse
-repeat-column structure that makes the biological inverse problem hard. It is
+types, $434{,}112$ synapses at $0.23\%$ density, the sparse repeat-column
+structure that makes the biological inverse problem hard. It is
 predominantly feedforward, and the paper measures that: a stimulus-only MLP
 never seeing the connectome predicts every voltage at $r = 0.97$ from $16$ past
 frames (Appx.~H.2), which Limitation~5 reports, adding that ``stronger recurrent
@@ -470,7 +470,7 @@ recording while those pushing it off are undone by the attractor. Fit quality
 stays high while they stay unknown.
 
 \textbf{Provisional.} The CX row is $156$ neurons, $7$ types, $10{,}263$
-hemibrain edges at $180\times$ Flyvis's density, so it separates recurrence from
+hemibrain edges at $180\times$ Flyvis's density, separating recurrence from
 sparsity; single seed, still training. The prediction we recorded holds, and the
 reason is visible before any fitting. $\Mat{W}$ carries $12$ significant
 directions ($90\%$ of its spectral energy) and is identical across $\sigma$,
@@ -509,8 +509,8 @@ that estimate against the true voltage gives $r = 0.90$ under (i), $0.35$ under
 (iii) and $0.23$ under (iv). Saturation is the instructive case: $r$ barely moves
 ($0.90 \to 0.88$) while RMSE triples ($0.12 \to 0.37$), since a linear inverse
 cannot undo a static nonlinearity. The amplitudes carrying the weight
-information stay compressed while the correlation looks healthy. Recovery arms
-are running. \textbf{[pending]}
+information stay compressed while the correlation looks healthy. Recovery arms running.
+\textbf{[pending]}
 
 \paragraph{Q3. Out-of-distribution test.}
 Our evidence for ``black boxes predict but do not recover'' is indirect; this
@@ -558,7 +558,7 @@ $J_{ii} = -1/\tau_i$, $\mathrm{ReLU}'$ being $1$ when $v_j$ is above the
 rectifier threshold at zero. The Known-ODE has the same form in
 $\widehat W, \hat\tau$; the GNN is differentiated by autograd through $f_\theta$
 and $g_\phi$, since the ReLU kinks make finite differences unusable. All models
-see the same states, on the noise-free blank50 run Supp.~Fig.~18 uses.
+see the same states, on the noise-free blank50 run of Supp.~Fig.~18.
 
 \begin{center}
 {\footnotesize
