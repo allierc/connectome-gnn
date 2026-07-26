@@ -509,10 +509,10 @@ through the known kernel to give an estimate of voltage, scored against the true
 voltage. Each distortion alone is largely invertible, $r = 0.98$ under (i),
 $0.93$ under (ii), $0.90$ under (iii); the shot noise is what defeats it, $0.42$
 under (iv), since inverting a low-pass filter amplifies just what noise fills in.
-Saturation is instructive: $r$ stays high while RMSE more than triples
+Saturation is instructive: $r$ stays high while RMSE triples
 ($0.14 \to 0.48$), a linear inverse being unable to undo a static nonlinearity,
 so the amplitudes carrying the weight information stay compressed while the
-correlation looks healthy. GNN and oracle arms are now training on the
+correlation looks healthy. GNN and oracle arms are training on the
 deconvolved traces. \textbf{[pending]}
 
 \paragraph{Q3. Out-of-distribution test.}
