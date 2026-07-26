@@ -1,5 +1,5 @@
-description: "Drosophila CX ring attractor (hemibrain, 156 neurons, 7 types, 10263 edges) - NeurIPS rebuttal Vzfg Q1 - GNN, sigma=0"
-dataset: nr2_cx_ring_s00
+description: "Drosophila CX ring attractor (hemibrain, 156 neurons, 7 types, 10263 edges) - NeurIPS rebuttal Vzfg Q1 - Known-ODE, sigma=0.05"
+dataset: nr2_cx_ring_s005
 simulation:
   gcamp_kernel: gcamp6f
   connectivity_file: to be specified
@@ -14,14 +14,14 @@ simulation:
   n_frames: 10000
   delta_t: 0.1
   baseline_value: 0
-  noise_model_level: 0.0
+  noise_model_level: 0.05
   seed: 42
   connconstr_datapath: papers/Code_NN/Code_NN/Data/Figure5
   connconstr_model: drosophila_cx
   connconstr_n_trials: 50
   connconstr_use_pretrained: true
 graph_model:
-  signal_model_name: drosophila_cx
+  signal_model_name: drosophila_cx_known_ode
   prediction: first_derivative
   input_size: 3
   n_layers: 3

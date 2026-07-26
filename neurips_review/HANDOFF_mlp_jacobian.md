@@ -80,8 +80,8 @@ and for the MLP the off-graph fraction of `sum_{i != j} |J_ij|`.
 
 One caveat worth knowing before reading the MLP row against these: the condition
 is noise-free (sigma = 0) to match Supp. Fig. 18's panels, and that is the
-degenerate regime the rebuttal explicitly restricts against elsewhere. A
-sigma = 0.05 rerun is on the list.
+degenerate regime the rebuttal explicitly restricts against elsewhere. Matching
+Supp. Fig. 18 is what the reviewer asked for, so the comparison stays there.
 
 Script: `figures/flyvis/fig_jacobian_gnn_knownode.py`
 Context: `neurips_review/reply_all.tex`, Reviewer Vzfg, Q4.
