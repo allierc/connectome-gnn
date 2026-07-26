@@ -87,6 +87,7 @@ training:
   coeff_f_theta_diff: 0
   dale_law: false
   freeze_known_ode_gain: true
+  freeze_known_ode_bias: true
   regul_annealing_rate: 0
   w_init_mode: zeros
   w_init_scale: 0.01

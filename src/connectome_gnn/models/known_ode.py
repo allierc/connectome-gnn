@@ -185,6 +185,15 @@ class DrosophilaCxKnownODE(KnownODEBase):
         if getattr(config.training, 'freeze_known_ode_gain', False):
             self.g.requires_grad_(False)
 
+        # b is a second per-source gain wherever the neuron sits in the
+        # softplus tail: softplus_beta(v+b) -> exp(beta*b)*exp(beta*v)/beta for
+        # v+b << 0. Freezing g alone leaves the same degeneracy open through b,
+        # which is what happened: b drifted to mean 0.38, max 2.60 against a
+        # ground truth of 0 while R2_W fell to -1.75. The generator sets
+        # g = b = tau_raw = 0 exactly, so anchoring both costs no expressiveness.
+        if getattr(config.training, 'freeze_known_ode_bias', False):
+            self.bias.requires_grad_(False)
+
     def _activation(self, v):
         # v is (E, 1) from source neurons — need per-source g and b
         # This is called with v[src], so we need source indices
