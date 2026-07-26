@@ -99,17 +99,20 @@ $2$~ms  & $200$~ms & (running)         &         & $0.287$ / $0.490$ & $0.980$ \
 $(\Delta t/2)\,\ddot v$, neuron-specific rather than a global rescaling, costing
 $0.16$ $\Rw$.
 
-\emph{Coarse observation} is the real limitation: $\Rw$ falls to $0.287$ at
-$10\tau$, reproducing the published $1/5$-frames row ($0.30$ at $100$~ms), while
-rollout $r$ stays above $0.97$ throughout, so prediction cannot detect the
-violation. Limitation~2 reads ``inference and simulation share $\Delta t =
+\emph{Coarse observation} is the real limitation: the GNN falls to $\Rw = 0.315$
+at $\Delta t_{\mathrm{obs}} = 100$~ms ($5\tau$), reproducing the published
+$1/5$-frames row ($0.30$) at the same cadence, and the oracle to $0.287$ at
+$200$~ms ($10\tau$), while rollout $r$ stays above $0.97$ throughout, so
+prediction cannot detect the violation. Limitation~2 reads ``inference and simulation share $\Delta t =
 20$~ms, so the piecewise-linear update is exact rather than approximate''. It
 names the idealization but gives no tolerance; we will add the one this sweep
 measures, $\Delta t_{\mathrm{obs}} \lesssim \tau$, beyond which $\Mat{W}$ is not
 recovered.
 
 \textbf{What we revise.} Known-ODE degrades in step with the GNN, so the cost is in the inverse problem,
-not the hypothesis class: the GNN stays within $0.023$ $\Rw$ of it. We retain
+not the hypothesis class: the GNN stays within $0.023$ $\Rw$ of it out to
+$\Delta t_{\mathrm{obs}} = 40$~ms, and falls $0.134$ below at $100$~ms, where
+neither recovers $\Mat{W}$. We retain
 ``on par with an oracle'' as a claim about the GNN, and drop ``without assuming
 the form of the dynamical equation'': the scalar nonlinearities are learned, but
 first-order dynamics and additive pairwise aggregation over the supplied graph
