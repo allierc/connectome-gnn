@@ -1,0 +1,5 @@
+arm,degradation,deconv_pearson_r,deconv_rmse,dCdt_signal_retained
+kernel,GCaMP6f blur only,0.8961,0.1221,1.000
+sat,+ indicator saturation (kd=1.0),0.8804,0.3708,0.403
+rate25,+ 1/25 imaging rate (500 ms exposure),0.3542,0.2614,0.699
+full25,+ saturation + rate + shot noise (g=0.1),0.2261,0.4250,0.258
