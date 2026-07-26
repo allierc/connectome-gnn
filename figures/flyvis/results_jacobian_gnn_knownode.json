@@ -1,0 +1,35 @@
+{
+  "n_frames": 10,
+  "n_neurons": 13741,
+  "n_edges": 434112,
+  "gnn_config": "flyvis_noise_free_blank50_unified_cv00",
+  "known_ode_config": "flyvis_noise_free_blank50_known_ode_cv00",
+  "edges": {
+    "known_ode": {
+      "r2": 0.9773587847288443,
+      "pearson_r": 0.9886286162108266,
+      "sign_agreement": 0.881639328193236
+    },
+    "gnn": {
+      "r2": 0.968498415903662,
+      "pearson_r": 0.9870286670006571,
+      "sign_agreement": 0.8801019421107072
+    }
+  },
+  "diagonal": {
+    "known_ode": {
+      "r2": 0.9437577001268357,
+      "pearson_r": 0.9752722631130656,
+      "sign_agreement": 1.0
+    },
+    "gnn": {
+      "r2": 0.8604259743661493,
+      "pearson_r": 0.9616240168381782,
+      "sign_agreement": 1.0
+    }
+  },
+  "off_support_mass": {
+    "known_ode": 0.0,
+    "gnn": 0.0
+  }
+}
