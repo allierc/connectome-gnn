@@ -176,6 +176,15 @@ class DrosophilaCxKnownODE(KnownODEBase):
         self.alpha = 1.0
         self.beta = 5.0
 
+        # msg_i = sum_j W_ij * exp(g_j) * softplus(v_j + b_j): scaling the
+        # outgoing weights of j by c and exp(g_j) by 1/c leaves the dynamics
+        # unchanged, so W and g are jointly unidentifiable. Left free, W drifts
+        # off by one scalar per presynaptic neuron (measured R2_W = -2.9, but
+        # 0.95 after removing that scalar). Anchoring the gain plays the role
+        # mu_2 plays for the GNN's g_phi.
+        if getattr(config.training, 'freeze_known_ode_gain', False):
+            self.g.requires_grad_(False)
+
     def _activation(self, v):
         # v is (E, 1) from source neurons — need per-source g and b
         # This is called with v[src], so we need source indices
