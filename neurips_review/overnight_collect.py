@@ -61,6 +61,12 @@ RUNS: dict[str, tuple[str, str, str]] = {
     "nr2_ca_calcium_sat_known_ode":    ("fly", "kernel+saturation", "oracle"),
     "nr2_ca_calcium_rate25_known_ode": ("fly", "kernel+rate 1/25",  "oracle"),
     "nr2_ca_calcium_full25_known_ode": ("fly", "full obs model",    "oracle"),
+    # Deconvolved observable: the calcium trace pushed back through the known
+    # kernel, i.e. what an experimenter would hand a fitting pipeline.
+    "nr2_ca_deconv_kernel_unified":    ("fly", "deconv kernel-only", "gnn"),
+    "nr2_ca_deconv_kernel_known_ode":  ("fly", "deconv kernel-only", "oracle"),
+    "nr2_ca_deconv_sat_unified":       ("fly", "deconv saturation",  "gnn"),
+    "nr2_ca_deconv_sat_known_ode":     ("fly", "deconv saturation",  "oracle"),
 }
 
 # oracle arm -> GNN twin whose generate pass creates the shared dataset
