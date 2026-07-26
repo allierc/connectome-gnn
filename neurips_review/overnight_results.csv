@@ -1,0 +1,2 @@
+config,biomodel,arm,model,W_corrected_R2,W_corrected_slope,rollout_pearson,rollout_RMSE,tau_R2,tau_no_outliers_R2,tau_n_outliers,V_rest_R2,V_rest_no_outliers_R2,V_rest_n_outliers,clustering_accuracy
+nr2_ca_calcium_known_ode,fly,kernel only,oracle,0.3305,0.7761,0.111,0.1945,-106524.7081,-28.3146,10859,-12.3289,0.8783,10839,0.6936
