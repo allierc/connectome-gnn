@@ -497,19 +497,21 @@ Accepted, and it is the change that most improves transfer to real recordings.
 The submitted degradations never compose: $1/5$ frames ($\Rw = 0.30$) is
 subsampling alone, measurement noise ($0.63$ at $\gamma = 0.1$) additive alone.
 
-We have now built it, as four observables on the same trajectories:
-(i)~the GCaMP6f kernel alone; (ii)~kernel plus indicator saturation, the
-response flattening once the excursion passes $K_d$, set at $1.57\times$ the
-trace SD; (iii)~kernel plus a $500$~ms exposure ($2$~Hz imaging); (iv)~all of
-these with shot noise matched in SNR to our $\gamma$ rows. Before any fitting,
-the $\dot C$ signal that identifies $\Mat{W}$ retains, against (i), $0.40$ under
-(ii), $0.70$ under (iii) and $0.26$ under (iv). Deconvolving the kernel to
-estimate voltage from the calcium trace, as an experimenter would, and scoring
-that estimate against the true voltage gives $r = 0.90$ under (i), $0.35$ under
-(iii) and $0.23$ under (iv). Saturation is the instructive case: $r$ barely moves
+We have now built it, four observables on the same trajectories:
+(i)~the GCaMP6f kernel alone; (ii)~plus indicator saturation, the response
+flattening once the excursion passes $K_d$, set at $1.57\times$ the trace SD;
+(iii)~plus a $500$~ms exposure ($2$~Hz imaging); (iv)~all of these with shot
+noise matched in SNR to our $\gamma$ rows. Before any fitting, the
+$\dot C$ signal identifying $\Mat{W}$ retains, against (i), $0.40$ under (ii),
+$0.70$ under (iii) and $0.26$ under (iv).
+
+We then deconvolve, as an experimenter would: the calcium trace goes back
+through the known kernel to give an estimate of voltage, which we score against
+the true voltage. That estimate reaches $r = 0.90$ under (i), $0.35$ under (iii)
+and $0.23$ under (iv). Saturation is instructive: $r$ barely moves
 ($0.90 \to 0.88$) while RMSE triples ($0.12 \to 0.37$), since a linear inverse
-cannot undo a static nonlinearity. The amplitudes carrying the weight
-information stay compressed while the correlation looks healthy. Recovery arms running.
+cannot undo a static nonlinearity. Amplitudes carrying the weight information
+stay compressed while the correlation looks healthy. Recovery arms running.
 \textbf{[pending]}
 
 \paragraph{Q3. Out-of-distribution test.}
