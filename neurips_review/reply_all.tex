@@ -621,9 +621,9 @@ extraction panel out into the section that will describe it.
 
 \section*{Reviewer PVbi}
 We thank the reviewer. Two of the five weaknesses concern framing rather than
-results, and we accept both: the decomposition is inherited rather than new, and
-``mechanism recovery'' is used in the paper for several claims that are not
-equivalent. We answer in the order of the letter, weaknesses W1--W5 then Questions 1--2, and where a point recurs across
+results and we accept both: the decomposition is inherited rather than new, and
+``mechanism recovery'' covers several claims that are not equivalent. We answer
+in the order of the letter, W1--W5 then Q1--Q2, and where a point recurs across
 reviews we answer in the same words: three inconsistent replies would only
 confirm the imprecision you identify.
 
@@ -650,8 +650,12 @@ $\|\Mat{W}-\widehat{\Mat{W}}\|_F/\|\Mat{W}\|_F$. The target is what differs: the
 ground-truth ring is rotationally symmetric, each row a phase-shifted copy of one
 profile, so it holds $O(N)$ degrees of freedom rather than $N^2$, and the
 evaluation uses that, aligning rows to a common phase and fitting one global
-scale first --- the same gain degeneracy our $\mu_2$ anchor addresses (W5). Ours
-is $4\times10^5$ independently drawn weights with no such symmetry. The failure
+scale first --- the same gain degeneracy our $\mu_2$ anchor addresses (W5).
+Flyvis-217 is convolutional too, $434{,}112$ edges tiled from $2{,}355$
+templates, and that symmetry is what Appx.~C measures; the differences are that
+we do not exploit it in evaluation, and that our FlyWire hybrids break it with
+column-resolved wiring, $\Rw = 0.94$ on $327{,}358$ measured edges and $0.97$ on
+$1{,}266{,}378$ across $50{,}412$ neurons. The failure
 they report in other methods, ``connections to neurons that are either
 unconnected or only weakly connected'' driven by ``strong correlations in neural
 activity'', is Das and Fiete's, separated from ours under W2.
@@ -660,19 +664,16 @@ activity'', is Das and Fiete's, separated from ours under W2.
 to infer, at $13{,}741$--$50{,}412$ neurons, with per-neuron $\tau$ and
 $V^{\mathrm{rest}}$ alongside the weights, and the degeneracy quantified rather
 than described: Appx.~C measures which weight directions the activity leaves
-unconstrained, and the sweep in our reply to the meta-review measures how noise
-removes them.
+unconstrained, and our meta-review reply measures how noise removes them.
 
-\emph{On being given the graph.} The prior is not simply accepted, and the paper
-measures both directions. Inflating it, ``the GNN correctly identifies
-the $80\%$ of inflated edges as zero-weight and recovers the true $\widehat
-{\Mat{W}}$ at $R^2 = 0.96$ even at $5\times$ the true edge count'', which is edge
-inference within a supplied superset. Deleting from it, recovery ``degrades under
-$-20\%$ edge removal ($\Rw = 0.78$) but breaks down at $-50\%$ removal
-($\Rw = 0.19$, rollout $r = 0.56$)'', because ``the remaining edges cannot absorb
-their contribution''. The method prunes but cannot add: it finds which supplied
-candidates carry weight, and fails when a true edge is absent. That is narrower
-than inferring a graph, and we should have stated it as the boundary rather than
+\emph{On being given the graph.} The prior is not simply accepted; the paper
+measures both directions. Inflated, the GNN zeroes the $80\%$ of false edges and
+still recovers $\widehat{\Mat{W}}$ at $R^2 = 0.96$ at $5\times$ the true edge
+count, which is edge inference within a supplied superset. Deleted, recovery
+degrades at $-20\%$ ($\Rw = 0.78$) and breaks at $-50\%$ ($\Rw = 0.19$, rollout
+$r = 0.56$). The method prunes but cannot add: it finds which supplied candidates
+carry weight and fails when a true edge is absent. That is narrower than
+inferring a graph, and we should have stated it as the boundary rather than
 leaving the two ablations to be read separately.
 
 \textbf{What we'll change.} State the delta explicitly in Sect.~2: a measured
@@ -703,16 +704,16 @@ contribution as a benchmark of these ideas rather than their origin.
 Conceded, and your form of the point is the sharper one: Flyvis is a
 hand-designed ODE with simplified neuron and synapse dynamics, so recovering it
 demonstrates recovery of a simulator. No dataset pairs synapse-resolution
-connectivity with dense activity in one animal, which is the premise of the work
-rather than an oversight.
+connectivity with dense activity in one animal, the premise of the work rather
+than an oversight.
 
-Two things bound what that costs. The class is not arbitrary: the fly optic lobe
-is non-spiking and graded-potential, which is why a first-order voltage model is
-the appropriate form for it rather than a convenient one. And the hand-designed
-form is precisely what the new runs attack. We add an unobserved adaptation
-current, which is neither first order in the observables nor decomposable into
-pairwise messages, and we integrate the generator below the model's own step.
-Recovery then degrades in an ordered, measurable way rather than collapsing,
+Two things bound the cost. The class is not arbitrary: the fly optic lobe is
+non-spiking and graded-potential, so a first-order voltage model is the
+appropriate form rather than a convenient one. And the hand-designed form is what
+the new runs attack. We add an unobserved adaptation
+current, neither first order in the observables nor decomposable into pairwise
+messages, and we integrate the generator below the model's own step. Recovery
+degrades in an ordered, measurable way rather than collapsing,
 $V^{\mathrm{rest}}$ first, $W$ next, $\tau$ last (Reviewer 1bPK, Q1). How far the
 result survives a wrong equation is the most this design supports without paired
 data.
@@ -747,11 +748,11 @@ unqualified claim, and we withdraw it for $V^{\mathrm{rest}}$.
 a graph tests whether each uses that graph, not whether either has the right
 weights on it: a necessary condition, and we will present it as one.
 
-\textbf{What we'll change.} State the four senses in Sect.~1 and attach every claim
-to one of them; report full-sample metrics for all four tables and label a
+\textbf{What we'll change.} State the four senses in Sect.~1 and attach every
+claim to one; report full-sample metrics for all four tables, labelling a
 parameter recovered only at full-sample $R^2 > 0.9$; and fix the excluded set a
 priori, from zero in-degree ($44$ neurons) and neurons never crossing threshold,
-so that filtering is not defined by the residual it excuses.
+so filtering is not defined by the residual it excuses.
 
 \paragraph{W5. Clarity: relation to Flyvis, GNN against the oracle.}
 Both points accepted. Flyvis obtained $\tau$, $V^{\mathrm{rest}}$ and $\Mat{W}$
