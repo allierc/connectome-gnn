@@ -1,6 +1,13 @@
-% Consolidated reply to Reviewer 1bPK. Standalone: compiles on its own.
+% Consolidated reply to all reviewers, NeurIPS 2026 submission 28595.
+% Single working document: R1 and R2 evolve together here.
+%
 % Sources for every number: neurips_review/results_table.csv (new runs) and
 % figures/flyvis/*_fullsample.tex (full-sample twins of Tabs. 1, 2, Supp. 4, 7).
+%
+% OUTSTANDING (see neurips_review/rebuttal_QA.md and PLAN_R2.md):
+%   R1   - GNN joint pair (g_a=0.3 at h=2 ms) and the 200 ms cadence cell
+%   R2   - all four questions; every [pending] marks a number that does not exist
+%   PVbi - not drafted
 \documentclass[11pt]{article}
 \usepackage[margin=1in]{geometry}
 \usepackage{amsmath,amssymb}
@@ -112,11 +119,11 @@ recovered.
 \textbf{What we revise.} Known-ODE degrades in step with the GNN, so the cost is in the inverse problem,
 not the hypothesis class: the GNN stays within $0.023$ $\Rw$ of it out to
 $\Delta t_{\mathrm{obs}} = 40$~ms, and falls $0.134$ below at $100$~ms, where
-neither recovers $\Mat{W}$. We retain
-``on par with an oracle'' as a claim about the GNN, and drop ``without assuming
-the form of the dynamical equation'': the scalar nonlinearities are learned, but
-first-order dynamics and additive pairwise aggregation over the supplied graph
-are assumed.
+neither recovers $\Mat{W}$. We intend to retain
+``on par with an oracle'' as a claim about the GNN, and to drop ``without
+assuming the form of the dynamical equation'': the scalar nonlinearities are
+learned, but first-order dynamics and additive pairwise aggregation over the
+supplied graph are assumed.
 
 \textbf{Simulator-only.} Conceded: no dataset pairs synapse-resolution
 connectivity with dense activity in the same animal. We will retitle to
@@ -162,15 +169,16 @@ $10\%$ hidden               & Supp.~4 & $0.94\,(-0.87)$ & $0.62\,(-149.37)\,[21.
 \textbf{What we revise.} $\tau$ survives: full-sample $0.99$ against the oracle's
 $1.00$ at $\sigma = 0.05$; noise-free it does not ($-11.80$ against $0.09$).
 $V^{\mathrm{rest}}$ does not: $0.76$ against $0.95$ at $\sigma = 0.05$, and
-negative in every degraded row. We keep ``on par with an oracle'' for $W$ and
-$\tau$ at $\sigma > 0$, drop it for $V^{\mathrm{rest}}$, and report degraded rows
-as not recovered. On the criterion: filtering must not be defined by the residual
-it excuses, so the excluded set will be fixed a priori, from zero in-degree ($44$
-neurons) and neurons never crossing threshold; a parameter is then recovered at
-full-sample $R^2 > 0.9$, partial below that, not recovered at $R^2 \leq 0$. The
-Known-ODE runs were filtered at $\delta_V = 0.1$, not the stated $0.2$, so their
-inlier $V^{\mathrm{rest}}$ is twice as tightly filtered as the GNN's; full-sample
-is unaffected and we will recompute.
+negative in every degraded row. We intend to keep ``on par with an oracle'' for
+$W$ and $\tau$ at $\sigma > 0$, to drop it for $V^{\mathrm{rest}}$, and to
+report degraded rows as not recovered. On the criterion: filtering must not be
+defined by the residual it excuses, so we intend to fix the excluded set a
+priori, from zero in-degree ($44$ neurons) and neurons never crossing threshold,
+and to call a parameter recovered at full-sample $R^2 > 0.9$, partial below
+that, not recovered at $R^2 \leq 0$. The Known-ODE runs were filtered at
+$\delta_V = 0.1$, not the stated $0.2$, so their inlier $V^{\mathrm{rest}}$ is
+twice as tightly filtered as the GNN's; full-sample is unaffected and we intend
+to recompute.
 
 \paragraph{Q3.}
 We restrict the claim to $\sigma > 0$ and present the noise-free row as the
@@ -292,5 +300,191 @@ non-deterministic GPU floor. We will report three decimals, so these read
 $\pm 0.002$. The $0.90 \pm 0.21$ entry is one fold: noise-free GNN rollout $r$ is
 $1.000, 1.000, 0.999, 0.482, 0.998$, which the degeneracy predicts, and why we
 restrict the claim to $\sigma > 0$.
+
+
+\bigskip
+\hrule
+\bigskip
+
+ 
+\section*{Reviewer Vzfg}
+We thank the reviewer. Our claim that predicting activity is not the same as
+recovering mechanism currently rests on one quantitative test, the $50\%$-edge
+ablation that both sequence baselines fail, plus one qualitative panel, the
+Jacobian comparison for the recurrent MLP in Supp.~Fig.~18. Q4 and Q3 make it
+quantitative and apply it to our own model; Q1 and Q2 ask whether the result
+survives outside the regime we tested. We answer all four.
+
+\paragraph{Q1. Strongly recurrent benchmarks.}
+Accepted. We chose Flyvis for anatomy and scale: $13{,}741$ neurons, $65$ cell
+types, $434{,}112$ measured synapses at $0.23\%$ density, the sparse
+repeat-column structure that makes the biological inverse problem hard. The cost
+is the one the reviewer names. Flyvis is predominantly feedforward, and the
+paper measures it: a stimulus-only MLP that never sees the connectome predicts
+every voltage at $r = 0.97$ from $16$ past frames (Appx.~H.2). Limitation~5
+reports this, adding that ``stronger recurrent regimes are untested, though
+[Allier et al., 2026] suggests they need not be harder''.
+
+Three systems, differing in wiring, recurrence and activity:
+
+\begin{center}
+{\footnotesize
+\begin{tabular}{llll c}
+\toprule
+system & connectivity & recurrence & activity & $\Rw$ ($\sigma{=}0$) \\
+\midrule
+random assemblies [Allier et al., 2026] & random, dense      & strong & chaotic, rich    & $1.00$ \\
+Flyvis-217 (this paper)                 & measured, $0.23\%$ & weak   & stimulus-driven  & $0.89$ \\
+\emph{Drosophila} CX                    & measured, dense    & ring attractor & manifold-confined & [pending] \\
+\bottomrule
+\end{tabular}}
+\end{center}
+
+Strong recurrence with rich activity is not the hard case; the first row shows
+that. A ring attractor is. Its dynamics contract onto a one-dimensional manifold
+of bump positions, so weights that move a state along the ring are constrained
+by the recording, while weights that would push it off the ring are undone by
+the attractor and constrained by nothing. Fit quality stays high while those
+directions stay unknown.
+
+\textbf{[pending]} We are running the \emph{Drosophila} central complex, $152$
+neurons and $6$ cell types from the hemibrain, through the identical pipeline.
+We expect $\Rw$ at $\sigma = 0$ below the $0.89$ of Flyvis, and a steeper
+$\sigma$ dependence. If it lands otherwise we will report that.
+
+\emph{On [2].} Das and Fiete show that in strongly recurrent circuits
+activity-based inference invents connections between unconnected but correlated
+neurons, and that noise or perturbation reduces the bias by enriching the
+activity distribution. That is our mechanism, so we intend to cite our
+process-noise result as a measured instance of their prescription rather than an
+independent finding. The failures differ: theirs is a false edge where no
+synapse exists, ours a true edge whose weight is unidentifiable against its
+same-type neighbours.
+
+\emph{On [1].} Pruned Dale-constrained RNNs are a good generator here. Our
+method does not assume Dale's law, since $\widehat W_{ij}$ is unconstrained and
+$g_\phi^2$ carries only magnitude, so such a benchmark would test sign recovery
+rather than sign compliance.
+
+\paragraph{Q2. Calcium-like observation model.}
+Accepted, and it is the change that most improves transfer to real recordings.
+The submitted degradations decompose the problem but never compose it: $1/5$
+frames ($\Rw = 0.30$) is subsampling alone, measurement noise ($0.63$ at
+$\gamma = 0.1$, $0.38$ at $\gamma = 0.2$) an additive term alone. A calcium
+model applies both at once and adds a saturation that compresses the large
+excursions carrying the weight information.
+
+\textbf{[pending]} A causal double-exponential indicator kernel
+(GCaMP6f/6s/7f/8f/8m) and anti-aliased resampling to a slower imaging rate are
+already implemented. We add the saturation and the shot/read term, apply the
+composite to the same trajectories so nothing else changes, and report recovery
+on raw $\Delta F/F$ and after deconvolution, since the practical question is
+whether standard preprocessing recovers what the observation model destroyed. We
+expect it to be worse than any single row of Supp.~Tab.~4, and intend to present
+it as a failure mode rather than a robustness result.
+
+\paragraph{Q3. Out-of-distribution test.}
+We accept that our evidence for ``black boxes predict but do not recover'' is
+indirect. This test makes it direct and needs no retraining: vary $I_i(t)$ only,
+roll out the fixed checkpoints.
+
+\begin{center}
+{\footnotesize
+\begin{tabular}{lccc}
+\toprule
+stimulus & GNN roll.\ $r$ & Known-ODE roll.\ $r$ & recurrent MLP roll.\ $r$ \\
+\midrule
+naturalistic held-out (ID reference) & [pending] & [pending] & [pending] \\
+full-field white noise               & [pending] & [pending] & [pending] \\
+drifting gratings                    & [pending] & [pending] & [pending] \\
+sparse optogenetic drive             & [pending] & [pending] & [pending] \\
+\bottomrule
+\end{tabular}}
+\end{center}
+
+We expect in-distribution rollout $r$ to be matched, as it already is in the
+paper, and the gap to open only off the data manifold, largest under direct
+current injection, which no visual stimulus can produce.
+
+\emph{On ``all models''.} The recurrent-MLP and EED checkpoints are temporarily
+inaccessible, held by a co-author who is away. We would rather report the
+original models than retrain substitutes, so those entries stay blank and will
+be filled from the original checkpoints; the test needs rollouts, not
+retraining.
+
+\paragraph{Q4. GNN and Known-ODE Jacobians.}
+Agreed. Supp.~Fig.~18 uses a Jacobian mismatch to argue against the MLP and
+never applies the same test to our own model.
+
+At each of $200$ held-out frames we compute
+$J_{ij} = \partial \dot v_i / \partial v_j$ for every model. Differentiating
+Eq.~1 gives $J_{ij} = W_{ij}\,\mathrm{ReLU}'(v_j)/\tau_i$ and
+$J_{ii} = -1/\tau_i$, where $\mathrm{ReLU}'$ is $1$ when $v_j$ is above the
+rectifier threshold at zero and $0$ otherwise. The Known-ODE has the same form
+in $\widehat W, \hat\tau$; the GNN is differentiated by autograd through
+$f_\theta$ and $g_\phi$, since the ReLU kinks make finite differences unusable.
+All models see the same states, on the noise-free blank50 run Supp.~Fig.~18
+uses.
+
+\begin{center}
+{\footnotesize
+\begin{tabular}{llcccc}
+\toprule
+block & model & $R^2$ vs GT $J$ & Pearson $r$ & $|J|$ off graph & sign agr. \\
+\midrule
+off-diagonal $J_{ij}$ & Known-ODE     & $0.977$   & $0.988$   & $0$ by construction & $0.882$ \\
+                      & GNN           & $0.970$   & $0.988$   & $0$ by construction & $0.878$ \\
+                      & recurrent MLP & [pending] & [pending] & [pending]           & [pending] \\
+\midrule
+diagonal $J_{ii}$     & Known-ODE     & $0.944$   & $0.975$   & ---                 & $1.000$ \\
+                      & GNN           & $0.865$   & $0.963$   & ---                 & $1.000$ \\
+                      & recurrent MLP & [pending] & [pending] & [pending]           & [pending] \\
+\bottomrule
+\end{tabular}}
+\end{center}
+
+The GNN matches the true off-diagonal Jacobian at $R^2 = 0.970$, within $0.007$
+of the oracle, so it has the right local dynamics and not merely plausible
+parameters. This is not an artefact of silent edges: $92.9\%$ carry a nonzero
+ground-truth Jacobian, and restricting to those moves $R^2$ by under $10^{-3}$.
+The diagonal is weaker for the GNN, $0.865$ against $0.944$, because the oracle
+holds $-1/\tau_i$ as a parameter while the GNN expresses the leak through
+$\partial f_\theta / \partial v$.
+
+A good Jacobian is not a recovered connectome, and we would rather say so than
+let the number carry more than it should. $J$ is $\Mat{W}$ rescaled twice: by
+$1/\tau_i$, and, once averaged over frames, by the fraction $a_j$ of them in
+which neuron $j$ sits above zero. Those rescalings change which edges dominate
+the score, which is why $J$ scores higher than $\Mat{W}$ itself. On this fold
+the GNN reaches $0.970$ against $\Rw = 0.913$, the oracle $0.977$ against
+$0.964$; for the oracle the whole gap is the rescaling, $0.964$ to $0.969$ after
+dividing by $\tau_i$, to $0.977$ after the activity factor, with no change to
+the fit. Agreement with the vector field therefore cannot separate a recovered
+connectome from a dynamically equivalent one, which is the argument we make
+about BrainTrace to Reviewer 1bPK.
+
+Two entries in the table carry less than they appear to. The fraction of
+$\sum_{i \neq j} |J_{ij}|$ on unconnected pairs is zero by construction for both
+our models, so it reports the hypothesis class rather than what was learned.
+Sign agreement of $0.88$ reduces, once averaged over frames, to sign recovery of
+$\Mat{W}$; the oracle sits at the same $0.882$, and both reflect the noise-free
+condition Supp.~Fig.~18 uses.
+
+\textbf{What we revise.} We intend to add these panels and metrics beside
+Supp.~Fig.~18, with the $\sigma = 0.05$ row and the MLP row once its checkpoints
+return, and to state what this measurement forces: recovering the vector field
+is weaker than recovering the connectome. That qualification belongs beside the
+Appx.~C degeneracy argument, which so far we apply to other people's fits and
+not to our own.
+
+\paragraph{Minor comments.}
+\emph{Extraction in Appx.~F.2.} Agreed. The mapping from $f_\theta, g_\phi$ to
+$\hat\tau, \widehat V^{\mathrm{rest}}, \widehat W$ is what makes the GNN
+interpretable rather than another black box, and we intend to move it to the
+main text.
+
+\emph{Figs.~1 and~2 fonts.} Agreed. We intend to reset both at main-text size,
+and to split Fig.~1's extraction panel out into the section that will describe
+it.
 
 \end{document}
