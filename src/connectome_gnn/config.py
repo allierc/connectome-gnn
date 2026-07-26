@@ -1310,6 +1310,7 @@ class TrainingConfig(BaseModel):
     coeff_W_L1_proximal: float = 0.0  # proximal L1 soft-thresholding on W after optimizer step, 0 = disabled
     dale_law: bool = False  # enforce Dale's law: force each column of W to a consistent sign, 3 times per epoch
     freeze_known_ode_gain: bool = False  # drosophila_cx known-ODE: hold the per-neuron gain g fixed, so W is not free up to a per-source scale
+    freeze_known_ode_bias: bool = False  # drosophila_cx known-ODE: hold the per-neuron bias b fixed; in the softplus tail b is a second per-source gain
 
     alternate_training: bool = False  # two-stage training: joint warmup then V_rest focus
     alternate_joint_ratio: float = 0.4  # fraction of total iterations for joint phase (all components at full LR)
