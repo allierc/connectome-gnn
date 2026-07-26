@@ -23,7 +23,10 @@ N_GPUS = 2
 
 
 def load_manifest():
-    with open(os.path.join(HERE, "manifest.json")) as f:
+    # optional argv[1]: alternate manifest (e.g. manifest_joint.json)
+    import sys
+    name = sys.argv[1] if len(sys.argv) > 1 else "manifest.json"
+    with open(name if os.path.isabs(name) else os.path.join(HERE, name)) as f:
         return json.load(f)
 
 

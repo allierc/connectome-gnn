@@ -1,0 +1,48 @@
+% Reply to Reviewer 1, Q3 (noise-free gap; restrict "on par with an oracle").
+% Numbers: figures/flyvis/cv_table_known_ode_vs_gnn_fullsample.tex (Tab. 1 twin).
+% V_rest row is the FULL-SAMPLE value (see Q2); cluster and R2_W are unfiltered.
+
+\paragraph{Q3.}
+We restrict the claim. ``On par with an oracle'' will be stated for
+$\sigma > 0$, and the noise-free row will be presented as what it is, the regime
+where the inverse problem is ill-posed.
+
+\begin{center}
+{\footnotesize
+\begin{tabular}{lcccc}
+\toprule
+ & GNN $\sigma = 0$ & Known ODE $\sigma = 0$ & GNN $\sigma = 0.05$ & Known ODE $\sigma = 0.05$ \\
+\midrule
+$R^2_{\widehat{W}}$                                & $0.89$  & $0.96$ & $0.99$ & $0.99$ \\
+$R^2_{\widehat{V}^{\mathrm{rest}}}$ (full-sample)  & $-0.39$ & $0.86$ & $0.76$ & $0.95$ \\
+cluster acc.                                       & $0.86$  & $0.92$ & $0.92$ & $0.93$ \\
+\bottomrule
+\end{tabular}}
+\end{center}
+
+\textbf{Why the gap is there.} Noise-free, Appx.~C gives $115{,}223$ near-null
+directions ($26.5\%$ of edges). Along those directions the estimate is set by the
+prior rather than by the data, and the oracle's prior is the true equation with
+$\ell_1/\ell_2$ on its own parameters, while the GNN must identify $f_\theta$ and
+$g_\phi$ as well. It therefore pays more for the same degeneracy. Process noise
+removes the degeneracy and with it the gap.
+
+\textbf{On the premise.} $\sigma$ is process noise. We have not calibrated its
+level against biology and do not claim to know it, but transmission from neuron
+to neuron is stochastic: release is probabilistic, channels are noisy, and
+membrane potentials fluctuate under background drive. So the open question is
+where real circuits sit on the $\sigma$ axis, not whether $\sigma = 0$; the
+noise-free setting is the artificial one, a knob we can turn off in silico and
+nothing turns off in vivo. We report both ends of the axis, $\sigma = 0$ and
+$\sigma = 0.5$, so that a reader can bracket any real value. What real recordings
+add instead is
+measurement noise $\gamma$, and there we agree the method is not yet usable
+(W4): $R^2_{\widehat{W}} = 0.63$ at $\gamma = 0.1$ for the GNN and $0.69$ for the
+oracle. The binding constraint for real data is $\gamma$, not $\sigma = 0$, which
+is why we do not treat the noise-free gap as the headline.
+
+We keep the noise-free row as evidence for the paper's thesis rather than as a
+result to defend. One-step $r = 1.00$ with $R^2_{\widehat{W}} = 0.89$ and
+$R^2_{\widehat{V}^{\mathrm{rest}}} = -0.39$ over all neurons is prediction
+without mechanism, which is what the identifiability analysis predicts and what
+the paper is about.

@@ -88,9 +88,11 @@ def main():
                     help="only submit these test groups (subset of: dt mono adapt)")
     ap.add_argument("--poll-secs", type=int, default=120)
     ap.add_argument("--max-hours", type=float, default=12.0)
+    ap.add_argument("--manifest", default="manifest.json")
     args = ap.parse_args()
 
-    man = json.load(open(os.path.join(HERE, "manifest.json")))
+    man = json.load(open(args.manifest if os.path.isabs(args.manifest)
+                         else os.path.join(HERE, args.manifest)))
     entries = man["train"]
     if args.test:
         entries = [t for t in entries if t["test"] in set(args.test)]

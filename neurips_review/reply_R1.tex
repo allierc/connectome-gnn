@@ -1,0 +1,293 @@
+% Consolidated reply to Reviewer 1bPK. Standalone: compiles on its own.
+% Sources for every number: neurips_review/results_table.csv (new runs) and
+% figures/flyvis/*_fullsample.tex (full-sample twins of Tabs. 1, 2, Supp. 4, 7).
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage[colorlinks=true,allcolors=blue]{hyperref}
+\setlength{\parskip}{5pt}
+\setlength{\parindent}{0pt}
+\newcommand{\Rw}{R^2_{\widehat W}}
+\newcommand{\Rt}{R^2_{\hat\tau}}
+\newcommand{\Rv}{R^2_{\hat V^{\mathrm{rest}}}}
+\newcommand{\Mat}[1]{\mathbf{#1}}
+
+\title{}
+\date{}
+\author{}
+
+\begin{document}
+\maketitle
+\vspace{-3.5em}
+
+\section*{Reviewer 1bPK}
+We thank the reviewer. The weaknesses are well-founded; acting on Q1 and Q2
+produced new results.
+
+\paragraph{Q1.}
+The three idealizations are coupled and never separated in the paper. We ran two
+mismatch experiments; all runs are single-seed, Flyvis-217, $\sigma = 0.05$,
+consensus hyperparameters, median $\tau = 19.8$~ms.
+
+\textbf{Model-class match.} A slow adaptation current leaving the hypothesis class
+in two ways at once: not first order in the observables, not decomposable into
+pairwise messages:
+\[
+  \tau_i \dot v_i = -v_i + V^{\mathrm{rest}}_i
+  + \sum_j W_{ij}\,\mathrm{ReLU}(v_j) - g_a c_i + I_i ,
+  \qquad
+  \dot c_i = (v_i - c_i)/\tau_a ,
+\]
+The GNN is unchanged; the target is the observed $\dot v_i$ including the new
+term, $\tau_a = 200$~ms $\gg \tau$, $c_i$ never observed.
+
+\begin{center}
+{\footnotesize
+\begin{tabular}{lcccc}
+\toprule
+$g_a$ & GNN $\Rw$ / slope & GNN $\Rt$ & GNN $\Rv$ & Known-ODE $\Rw$ \\
+\midrule
+$0$   & $0.987$ / $0.982$ & $0.99\,(0.99)\,[0.0]$ & $0.97\,(0.63)\,[5.0]$   & $0.986$ \\
+$0.1$ & $0.974$ / $0.983$ & $0.99\,(0.99)\,[0.0]$ & $0.80\,(0.62)\,[5.7]$   & $0.972$ \\
+$0.3$ & $0.909$ / $0.960$ & $0.98\,(0.98)\,[0.0]$ & $0.54\,(-0.35)\,[27.7]$ & $0.923$ \\
+\bottomrule
+\end{tabular}}
+
+{\footnotesize $\tau$ / $V^{\mathrm{rest}}$ cells read inlier (full-sample)
+[excluded \%].}
+\end{center}
+
+Degradation is ordered: $V^{\mathrm{rest}}$ first, $W$ next, $\tau$ last; the
+oracle matches. A slow per-neuron offset is what $\widehat V^{\mathrm{rest}}$
+absorbs and biases $\widehat W$; $\tau$ is read off the local slope of $f_\theta$.
+The priors called class-narrowing are not load-bearing: $\mu_0 = 0$ in every run,
+and $\mu_1 = 0$ leaves $\Rw$ at $0.988$ against $0.987$. No sign convention is
+imposed: $\widehat W_{ij} \in \mathbb{R}$ carries the sign and $g_\phi^2$ only the
+magnitude. Conductance-like coupling needs a
+different loss and architecture and is deferred; the adaptation current tests the
+same two assumptions. Both mismatches were also applied jointly, $g_a = 0.3$ at
+$h = 2$~ms. For Known-ODE their costs in $\Rw$ are near-additive: from $0.955$
+matched, adaptation alone costs $0.055$ and the fine step $0.120$; jointly they
+cost $0.202$, giving $\Rw = 0.753$ against the $0.781$ a sum would predict. The
+GNN pair is still training.
+
+\textbf{Temporal match.} With the model always predicting at $20$~ms:
+(i)~generator integrated below the model step, observed at $20$~ms;
+(ii)~generator at $2$~ms, state observed every $20$ to $200$~ms.
+
+\begin{center}
+{\footnotesize
+\begin{tabular}{cccccc}
+\toprule
+$\Delta t$ generated & $\Delta t$ observed & GNN $\Rw$ / slope & GNN roll.\ $r$ & Known ODE $\Rw$ / slope & Known ODE roll.\ $r$ \\
+\midrule
+$20$~ms & $20$~ms  & $0.970$ / $0.965$ & $0.999$ & $0.955$ / $1.025$ & $0.999$ \\
+$10$~ms & $20$~ms  & $0.864$ / $0.796$ & $0.981$ & $0.873$ / $0.854$ & $0.981$ \\
+$4$~ms  & $20$~ms  & $0.822$ / $0.722$ & $0.978$ & $0.844$ / $0.826$ & $0.976$ \\
+$2$~ms  & $20$~ms  & $0.812$ / $0.712$ & $0.977$ & $0.835$ / $0.819$ & $0.974$ \\
+\midrule
+$2$~ms  & $40$~ms  & $0.720$ / $0.717$ & $0.981$ & $0.711$ / $0.723$ & $0.983$ \\
+$2$~ms  & $100$~ms & $0.315$ / $0.603$ & $0.980$ & $0.449$ / $0.581$ & $0.986$ \\
+$2$~ms  & $200$~ms & (running)         &         & $0.287$ / $0.490$ & $0.980$ \\
+\bottomrule
+\end{tabular}}
+\end{center}
+
+\emph{Fine generation.} $20/20$~ms is the matched case, where the generator
+\emph{is} the model's Euler map. A finer step adds the truncation bias
+$(\Delta t/2)\,\ddot v$, neuron-specific rather than a global rescaling, costing
+$0.16$ $\Rw$.
+
+\emph{Coarse observation} is the real limitation: $\Rw$ falls to $0.287$ at
+$10\tau$, reproducing the published $1/5$-frames row ($0.30$ at $100$~ms), while
+rollout $r$ stays above $0.97$ throughout, so prediction cannot detect the
+violation. Limitation~2 reads ``inference and simulation share $\Delta t =
+20$~ms, so the piecewise-linear update is exact rather than approximate''. It
+names the idealization but gives no tolerance; we will add the one this sweep
+measures, $\Delta t_{\mathrm{obs}} \lesssim \tau$, beyond which $\Mat{W}$ is not
+recovered.
+
+\textbf{What we revise.} Known-ODE degrades in step with the GNN, so the cost is in the inverse problem,
+not the hypothesis class: the GNN stays within $0.023$ $\Rw$ of it. We retain
+``on par with an oracle'' as a claim about the GNN, and drop ``without assuming
+the form of the dynamical equation'': the scalar nonlinearities are learned, but
+first-order dynamics and additive pairwise aggregation over the supplied graph
+are assumed.
+
+\textbf{Simulator-only.} Conceded: no dataset pairs synapse-resolution
+connectivity with dense activity in the same animal. We will retitle to
+``\dots from simulated neural activity''.
+
+\paragraph{Q2.}
+Computed for all four tables (Tabs.~1, 2, Supp.~Tabs.~4 and~7); the twins replace
+the submitted ones. Cells read inlier (full-sample) [excluded \%].
+
+\begin{center}
+{\footnotesize
+\begin{tabular}{llcc}
+\toprule
+model & $\sigma$ & $\Rt$ in (full) [out.\ \%] & $\Rv$ in (full) [out.\ \%] \\
+\midrule
+Known ODE & $0$    & $1.00\,(0.09)\,[1.9]$   & $0.97\,(0.86)\,[10.2]$ \\
+          & $0.05$ & $1.00\,(1.00)\,[0.0]$   & $0.99\,(0.95)\,[4.7]$ \\
+          & $0.5$  & $1.00\,(1.00)\,[0.0]$   & $1.00\,(1.00)\,[0.0]$ \\
+\midrule
+GNN       & $0$    & $0.94\,(-11.80)\,[3.1]$ & $0.76\,(-0.39)\,[13.7]$ \\
+          & $0.05$ & $0.99\,(0.99)\,[0.0]$   & $0.93\,(0.76)\,[3.3]$ \\
+          & $0.5$  & $1.00\,(1.00)\,[0.0]$   & $0.98\,(0.97)\,[0.0]$ \\
+\bottomrule
+\end{tabular}}
+\end{center}
+
+Where exclusion is small the two agree. Worst rows of Tab.~2 and Supp.~Tab.~4:
+
+\begin{center}
+{\footnotesize
+\begin{tabular}{llcc}
+\toprule
+condition & table & $\Rt$ in (full) & $\Rv$ in (full) [out.\ \%] \\
+\midrule
+$1/5$ frames                & Supp.~4 & $0.83\,(0.35)$  & $0.49\,(-5.09)\,[56.3]$ \\
+meas.\ noise $\gamma = 0.2$ & Supp.~4 & $0.08\,(-0.04)$ & $0.61\,(-5.63)\,[49.1]$ \\
+uncert.\ edges, FlyWire eye & Tab.~2  & $0.95\,(0.38)$  & $0.61\,(-9.90)\,[40.8]$ \\
+$10\%$ hidden               & Supp.~4 & $0.94\,(-0.87)$ & $0.62\,(-149.37)\,[21.1]$ \\
+\bottomrule
+\end{tabular}}
+\end{center}
+
+\textbf{What we revise.} $\tau$ survives: full-sample $0.99$ against the oracle's
+$1.00$ at $\sigma = 0.05$; noise-free it does not ($-11.80$ against $0.09$).
+$V^{\mathrm{rest}}$ does not: $0.76$ against $0.95$ at $\sigma = 0.05$, and
+negative in every degraded row. We keep ``on par with an oracle'' for $W$ and
+$\tau$ at $\sigma > 0$, drop it for $V^{\mathrm{rest}}$, and report degraded rows
+as not recovered. On the criterion: filtering must not be defined by the residual
+it excuses, so the excluded set will be fixed a priori, from zero in-degree ($44$
+neurons) and neurons never crossing threshold; a parameter is then recovered at
+full-sample $R^2 > 0.9$, partial below that, not recovered at $R^2 \leq 0$. The
+Known-ODE runs were filtered at $\delta_V = 0.1$, not the stated $0.2$, so their
+inlier $V^{\mathrm{rest}}$ is twice as tightly filtered as the GNN's; full-sample
+is unaffected and we will recompute.
+
+\paragraph{Q3.}
+We restrict the claim to $\sigma > 0$ and present the noise-free row as the
+ill-posed regime.
+
+\begin{center}
+{\footnotesize
+\begin{tabular}{lcccc}
+\toprule
+& GNN $\sigma{=}0$ & Known ODE $\sigma{=}0$ & GNN $\sigma{=}0.05$ & Known ODE $\sigma{=}0.05$ \\
+\midrule
+$\Rw$               & $0.89$  & $0.96$ & $0.99$ & $0.99$ \\
+$\Rv$ (full-sample) & $-0.39$ & $0.86$ & $0.76$ & $0.95$ \\
+\bottomrule
+\end{tabular}}
+\end{center}
+
+On the premise, $\sigma$ is not an experimenter knob but intrinsic stochasticity:
+release is probabilistic, channels are noisy, membrane potentials fluctuate. We
+have not calibrated its level, so the question is where real circuits sit on the
+$\sigma$ axis, not whether $\sigma = 0$.
+
+\paragraph{Q4.}
+We have no such baseline and accept the reframing. No random or Bayesian search
+was run at matched compute, so the claim that it yields better configurations is
+unsupported; it also optimises $\Rw$ against ground truth, unavailable in the
+intended application. It becomes a methods note rather than contribution~(3),
+with the logs replaced by a curated summary and the self-assessments removed. We
+retain only the outcome: one configuration used unchanged everywhere
+(Supp.~Tab.~6).
+
+\paragraph{Q5.}
+\textbf{Timing.} The \textbf{Allier et al.\ [2026]} preprint appeared February
+2026, three months before the deadline: prior work, not concurrent.
+
+\textbf{Different system.} Random recurrent assemblies, no anatomy. Random
+weights carry no columnar degeneracy, hence $\Rw = 1.00$ there against $0.89$
+here at $\sigma = 0$.
+
+\textbf{Different formulation.} Additively separable there,
+$\widehat{\dot v}_i = \phi^*(\Mat{a}_i, v_i)
+ + \Omega^*_i(t)\sum_j W_{ij}\,\psi^*(\Mat{a}_i,\Mat{a}_j,v_j)$, nested here,
+$\widehat{\dot v}_i = f_\theta(v_i, \Mat{a}_i, m_i, I_i(t))$ with
+$m_i = \sum_j \widehat W_{ij}\, g_\phi(v_j,\Mat{a}_j)^2$. Since $f_\theta$ is not
+additive in $(v_i, m_i)$, our class is more expressive in how self-state and
+drive combine. The delta is not the decomposition but the columnar
+identifiability analysis, the degradation battery, the FlyWire-scale result and
+the edge ablation; no head-to-head was run.
+
+% Reply to Reviewer 1bPK, Q6 / W5b (Shiu et al. 2024; BrainTrace 2026).
+% Facts checked against both papers:
+%  - Shiu: LIF on FlyWire, per-edge weights from connectome, sign from
+%    neurotransmitter prediction; ONE free parameter W_syn, calibrated so that
+%    100 Hz sugar-GRN drive gives ~80% of maximal MN9 firing. 91% of 164
+%    testable predictions consistent (84% excluding the split-GAL4 screen).
+%  - BrainTrace: Nat Commun (2026) 17:1745. Uses Shiu's LIF dynamics
+%    (W_syn = 0.275 mV, T_mbr = 20 ms), >125k neurons, 50M synapses, W from
+%    FlyWire, and TRAINS the synaptic weights on 17 min of neuropil calcium.
+%    Supervision at 1.2 Hz (833 ms per sample) vs T_mbr = 20 ms, i.e. ~42 tau;
+%    loss is at neuropil level, not per neuron; no ground-truth W.
+
+\paragraph{Q6.}
+\textbf{Shiu et al.\ [2024]} is a forward model, not an activity fit: weights from
+the connectome, sign from neurotransmitter prediction, one global scalar
+calibrated once. It is also a counterexample to our own claim that large-scale
+simulations have struggled to be predictive: their whole-brain model matches
+$91\%$ of $164$ tested predictions. We will correct that sentence. Forward
+simulation from a connectome is predictive at brain scale; the inverse direction
+remains open.
+
+\textbf{BrainTrace [2026]} is the activity-fitting descendant, and poses the same
+inverse problem as our Known-ODE control: the form is fixed (the Shiu LIF), the
+connectome supplies the support of $\Mat{W}$, weights optimised so simulated
+activity matches recordings. That is the best case in our study, and Appx.~C
+shows $\Mat{W}$ is already underdetermined there.
+
+It is also harder: the loss is on \emph{neuropil-level} rates, so each residual
+constrains a sum over thousands of neurons, not one cell. Supervision is at $1.2$~Hz,
+one sample per $833$~ms against $T_{\mathrm{mbr}} = 20$~ms, i.e.\ $42\tau$: the state relaxes many times between constraints. Our sweep reaches
+$10\tau$, where the oracle already falls to $\Rw = 0.287$. With no ground-truth
+$\Mat{W}$ for a real fly, fit quality is the only signal, and Appx.~C shows it
+cannot distinguish a recovered connectome from a dynamically equivalent one: such
+weights are one member of an equivalence class, not recovered connectivity.
+
+Sect.~2 will separate forward models (Shiu) from fits to activity (BrainTrace,
+Mi, Pospisil, Lappalainen).
+
+\paragraph{W4.}
+Agreed, and it will not stay in Limitations. Here $\gamma$ is the standard
+deviation of Gaussian noise added to the voltages after simulation,
+$v_i^{\mathrm{obs}} = v_i + \gamma\,\epsilon_i$: unlike $\sigma$ it corrupts the
+recording, not the trajectory. At $\gamma = 0.1$, $\Rw = 0.63$ (GNN) and $0.69$
+(Known-ODE); at $\gamma = 0.2$, $0.38$ and $0.42$. The oracle degrades as much as
+the GNN, so the failure is in the inverse problem rather than in our
+architecture, but that does not make the method usable at these levels. The
+contributions, not only the Limitations, will say the method is demonstrated
+under process noise, not at realistic measurement noise.
+
+\paragraph{W7 and W8.}
+Both abstract claims are overstated and will be softened. For W7 the evidence is
+intrinsic noise in silico and optogenetics is an untested analogy, so the
+abstract will claim only that noise and perturbation help in simulation. For W8
+the SIREN rollout is scored on training-frame indices and the stimulus is largely
+present in the photoreceptor activities, so ``recovers unknown visual stimuli''
+comes out of the abstract. The experiment stays in the appendix, restated as
+partial stimulus recovery scored on training-frame indices.
+
+\paragraph{W9.}
+\emph{$N$.} $13{,}741$ neurons, $13{,}697$ with at least one incoming edge, $44$
+with none: Appx.~C counts the former, so the discrepancy is neurons with no
+\emph{input}, not no output. $\sum_i \max(0, d_i - 45) = 115{,}223$ matches
+Appx.~C exactly.
+
+\emph{$\pm 0.00$.} Rounding, not under-dispersion. At four decimals the GNN folds
+at $\sigma = 0.05$ span $0.9829$ to $0.9886$ (SD $0.0021$), against SD $0.0002$
+for Known-ODE, whose fit is least squares in the true parameters. A
+byte-identical rerun differs by $0.0014$, so the GNN spread sits near the
+non-deterministic GPU floor. We will report three decimals, so these read
+$\pm 0.002$. The $0.90 \pm 0.21$ entry is one fold: noise-free GNN rollout $r$ is
+$1.000, 1.000, 0.999, 0.482, 0.998$, which the degeneracy predicts, and why we
+restrict the claim to $\sigma > 0$.
+
+\end{document}
