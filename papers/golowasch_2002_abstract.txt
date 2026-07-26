@@ -1,0 +1,27 @@
+1. J Neurophysiol. 2002 Feb;87(2):1129-31. doi: 10.1152/jn.00412.2001.
+
+Failure of averaging in the construction of a conductance-based neuron model.
+
+Golowasch J(1), Goldman MS, Abbott LF, Marder E.
+
+Author information:
+(1)Volen Center for Complex Systems and Department of Biology, Brandeis 
+University, Waltham, MA 02454, USA. golowasch@stg.rutgers.edu
+
+Parameters for models of biological systems are often obtained by averaging over 
+experimental results from a number of different preparations. To explore the 
+validity of this procedure, we studied the behavior of a conductance-based model 
+neuron with five voltage-dependent conductances. We randomly varied the maximal 
+conductance of each of the active currents in the model and identified sets of 
+maximal conductances that generate bursting neurons that fire a single action 
+potential at the peak of a slow membrane potential depolarization. A model 
+constructed using the means of the maximal conductances of this population is 
+not itself a one-spike burster, but rather fires three action potentials per 
+burst. Averaging fails because the maximal conductances of the population of 
+one-spike bursters lie in a highly concave region of parameter space that does 
+not contain its mean. This demonstrates that averages over multiple samples can 
+fail to characterize a system whose behavior depends on interactions involving a 
+number of highly variable components.
+
+DOI: 10.1152/jn.00412.2001
+PMID: 11826077 [Indexed for MEDLINE]
