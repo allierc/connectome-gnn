@@ -1309,6 +1309,7 @@ class TrainingConfig(BaseModel):
     w_init_scale: float = 1.0  # scaling factor for 'randn_scaled' mode
     coeff_W_L1_proximal: float = 0.0  # proximal L1 soft-thresholding on W after optimizer step, 0 = disabled
     dale_law: bool = False  # enforce Dale's law: force each column of W to a consistent sign, 3 times per epoch
+    freeze_known_ode_gain: bool = False  # drosophila_cx known-ODE: hold the per-neuron gain g fixed, so W is not free up to a per-source scale
 
     alternate_training: bool = False  # two-stage training: joint warmup then V_rest focus
     alternate_joint_ratio: float = 0.4  # fraction of total iterations for joint phase (all components at full LR)
@@ -1579,6 +1580,14 @@ class SwimIntegrationTaskConfig(BaseModel):
     grid_period: float = 0.5
     grid_grid: int = 20
     grid_sigma: float = 0.1
+
+    # Diagnostic: append the velocity×heading conjunction vx=v·cosθ, vy=v·sinθ
+    # as two extra input channels, so the network only has to INTEGRATE (not
+    # learn the multiplication) to recover 2-D position. Adds 2 channels to the
+    # stimulus (n_input += 2); use with velocity_gate: none (free W_in). Tests
+    # whether the position-integration failure is the conjunction or the
+    # integrator/attractor.
+    conjunction_input: bool = False
 
     # Leaky-integrator time constant for the 2D position target (x, y).
     # Same semantics as xi_tau_s but applied to the position recurrence:

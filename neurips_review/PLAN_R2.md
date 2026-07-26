@@ -43,6 +43,27 @@ Do not try to run calcium or opto from `-cx`.
 
 ---
 
+## Stage 0/3 — CX: RESOLVED, running (2026-07-26)
+
+The CUDA device-side assert was an out-of-bounds `scatter_add_` in
+`regularizer.py:108`: the config declared `n_neuron_types: 6` / `n_neurons: 152`,
+but the generated hemibrain data has **7** types (EPG, EPGt, PEN_a, PEN_b,
+Delta7, PEG, ER6) and **156** neurons, **10,263** edges (42% density, 180x
+Flyvis). Settles the 152-vs-338 question: it is 156.
+
+Four arms running locally (2 per A6000, ~2.5 h each), not on the cluster:
+`nr2_cx_ring_{s00,s005}{,_known_ode}`.
+
+**Finding — the CX oracle has a per-source gain degeneracy.** Its message is
+`W_ij * exp(g_j) * softplus(v_j + b_j)` with `g` a free per-neuron parameter, so
+scaling `W_.j` by c and `exp(g_j)` by 1/c is unobservable. Measured at epoch 6 of
+`nr2_cx_ring_s00_known_ode`: raw `R2_W = -2.93` (Pearson r = 0.28), but **0.954**
+after fitting one scalar per presynaptic neuron. The GNN does not suffer this
+because mu_2 anchors `g_phi` at a reference voltage; the CX known-ODE has no
+anchor. Before quoting a CX oracle number, either freeze `g = 0` (the generator
+has g = b = tau_raw = 0 exactly) or report recovery up to per-source gain.
+This is the same degeneracy described in the reply to PVbi, W5.
+
 ## Stage 0 — CX smoke test (minutes, CPU, no cluster)
 
 Gate for Stage 3. Confirms the archived config still runs, the hemibrain path
