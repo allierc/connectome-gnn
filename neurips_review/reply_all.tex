@@ -190,8 +190,8 @@ describes it.
 The weaknesses are well-founded; acting on Q1 and Q2 produced new results.
 
 \paragraph{Q1.}
-The three idealizations are coupled and never separated. We ran two
-mismatch experiments; all runs single-seed, Flyvis-217, $\sigma = 0.05$,
+The three idealizations are coupled and never separated. Two mismatch
+experiments; all runs single-seed, Flyvis-217, $\sigma = 0.05$,
 consensus hyperparameters, median $\tau = 19.8$~ms.
 
 \textbf{Model-class match.} A slow adaptation current leaves the class twice
@@ -227,9 +227,11 @@ The class-narrowing priors are not load-bearing: $\mu_0 = 0$ throughout, and
 $\mu_1 = 0$ leaves $\Rw$ at $0.988$ against $0.987$. No sign convention is
 imposed: $\widehat W_{ij}$ carries the sign, $g_\phi^2$ only the magnitude. Conductance-like coupling needs a different loss and architecture and
 is deferred; the adaptation current tests the same two assumptions. Applied
-jointly at $g_a = 0.3$, $h = 2$~ms, the costs are near-additive: from $0.955$,
-adaptation costs $0.055$, the fine step $0.120$, jointly $0.202$, giving $0.753$
-against an additive $0.781$. The GNN pair is still training.
+jointly at $g_a = 0.3$, $h = 2$~ms, the two costs are near-additive in both
+models, deviating in opposite directions. Known-ODE: from $0.955$, adaptation
+costs $0.054$ and the fine step $0.120$, jointly $0.202$ against a sum of
+$0.174$. GNN: from $0.970$, $0.026$ and $0.158$, jointly $0.161$ against $0.184$.
+Neither amplifies the other by more than $0.03$.
 
 \textbf{Temporal match.} The model always predicts at $20$~ms; the generator
 runs below that step (i), or at $2$~ms with the state observed every $20$ to
@@ -260,9 +262,9 @@ neuron-specific rather than a global rescaling, costing $0.16$.
 \emph{Coarse observation} is the real limitation. The GNN falls to $0.315$ at
 $\Delta t_{\mathrm{obs}} = 100$~ms ($5\tau$), reproducing the published
 $1/5$-frames row ($0.30$), and the oracle to $0.287$ at $200$~ms ($10\tau$),
-while rollout $r$ stays above $0.97$ throughout, so prediction cannot detect it. Limitation~2 names this idealization but gives no tolerance; we
-intend to add the one this sweep measures,
-$\Delta t_{\mathrm{obs}} \lesssim \tau$.
+while rollout $r$ stays above $0.97$, so prediction cannot detect it.
+Limitation~2 names this idealization but gives no tolerance; we intend to add the
+one this sweep measures, $\Delta t_{\mathrm{obs}} \lesssim \tau$.
 
 \textbf{What we revise.} Known-ODE degrades in step with the GNN, so the cost
 lies in the inverse problem, not the hypothesis class: the GNN stays within
@@ -273,8 +275,8 @@ nonlinearities are learned, but first-order dynamics and additive pairwise
 aggregation over the graph are assumed.
 
 \textbf{Simulator-only.} Conceded: no dataset pairs synapse-resolution
-connectivity with dense activity in one animal. We intend to retitle to
-``\dots from simulated neural activity''.
+connectivity with dense activity in one animal. We intend to retitle to ``\dots
+from simulated neural activity''.
 
 \paragraph{Q2.}
 Computed for all four tables (Tabs.~1, 2, Supp.~4, 7); the twins replace the
@@ -343,18 +345,17 @@ $\Rv$ (full-sample) & $-0.39$ & $0.86$ & $0.76$ & $0.95$ \\
 \end{tabular}}
 \end{center}
 
-On the premise, $\sigma$ is not an experimenter knob but intrinsic
-stochasticity: release is probabilistic, channels noisy, potentials fluctuate. We have not calibrated its level, so the question is where real
-circuits sit on the $\sigma$ axis, not whether $\sigma = 0$.
+On the premise, $\sigma$ is intrinsic stochasticity, not an experimenter knob:
+release is probabilistic, channels noisy, potentials fluctuate. We have not
+calibrated its level, so the question is where real circuits sit on the $\sigma$
+axis.
 
 \paragraph{Q4.}
 We have no such baseline and accept the reframing. No matched-compute random or
 Bayesian search was run, so the claim that it yields better configurations is
 unsupported, and it optimises $\Rw$ against ground truth, unavailable in the
 intended application. We intend to demote it from contribution~(3) to a methods
-note, replacing the logs with a curated summary and dropping the
-self-assessments, keeping only the outcome: one configuration used everywhere
-(Supp.~6).
+note, keeping only the outcome: one configuration used everywhere (Supp.~6).
 
 \paragraph{Q5.}
 The \textbf{Allier et al.\ [2026]} preprint appeared February 2026, three months
@@ -439,7 +440,7 @@ Appx.~C.
 \emph{$\pm 0.00$.} Rounding, not under-dispersion. At four decimals the GNN
 folds at $\sigma = 0.05$ span $0.9829$--$0.9886$ (SD $0.0021$) against SD
 $0.0002$ for Known-ODE, whose fit is least squares in the true parameters; a
-byte-identical rerun differs by $0.0014$, so the GNN spread sits near the
+byte-identical rerun differs by $0.0014$, so the spread sits near the
 non-deterministic GPU floor. We intend to report three decimals, giving
 $\pm 0.002$. The $0.90 \pm 0.21$ entry is one bad fold, rollout $r \geq 0.998$ on
 four and $0.482$ on the fifth, which the degeneracy predicts and why we restrict
