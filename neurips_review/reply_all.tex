@@ -632,23 +632,29 @@ Accepted that the decomposition is not new. The two cited works differ from
 ours, and from each other, in what they infer and at what scale.
 
 \textbf{AMAG [2023].} It forecasts field potentials and $\mu$ECoG from macaque
-electrode arrays, and learns its adjacency adaptively, initialised from the
-recordings' correlation matrix ``to stabilize the learning process''. It is
-validated by ``recovering the channel spatial proximity in the learned adjacency
-matrix'': interactions between electrode channels, not synaptic weights between
-identified neurons.
+electrode arrays, learning its adjacency adaptively from a correlation-matrix
+initialisation ``to stabilize the learning process''. On synthetic linear systems
+it does recover a known adjacency ($F_1 = 0.88$--$0.93$, one-step forecasting),
+but the units are electrode channels rather than identified neurons, and the real
+recordings carry no ground-truth connectivity: validation there is by recovering
+channel spatial proximity. Its own finding that recovery tracks the training
+objective, $F_1$ falling to $0.63$ under reconstruction, is the dissociation we
+report between fit quality and structure recovery.
 
 \textbf{Yoon [2025].} This work does infer connectivity: on a $100$-neuron ring
 attractor with auxiliary nodes for unobserved cells, and on real head-direction
-data where $19$ recorded cells sit in a ring of $N = 100$. What is compared
-against ground truth in their Fig.~2a is a \emph{weight profile}: synaptic weight
-as a single curve over the angular offset between two neurons on the ring, the
-full $\widehat{\Mat{W}}$ appearing only as an inset. On a ring every pair at the
-same angular offset shares one weight, so that curve is a handful of numbers
-rather than $4\times10^5$ free ones. The reported failure of other methods, that
-they ``tend to mistakenly infer connections to neurons that are either
+data where $19$ recorded cells sit in a ring of $N = 100$. Their
+$\widehat{\Mat{W}}$ is fully free, predicted per edge by an MLP over learned
+embeddings and scored on the whole matrix as
+$\|\Mat{W}-\widehat{\Mat{W}}\|_F/\|\Mat{W}\|_F$. The target is what differs: their
+ground-truth ring is rotationally symmetric, each row a phase-shifted copy of one
+profile, so it holds $O(N)$ degrees of freedom rather than $N^2$, and the
+evaluation uses that, aligning rows to a common phase and fitting one global
+scale first --- the same gain degeneracy our $\mu_2$ anchor addresses (W5). Ours
+is $4\times10^5$ independently drawn weights with no such symmetry. The failure
+they report in other methods, ``connections to neurons that are either
 unconnected or only weakly connected'' driven by ``strong correlations in neural
-activity'', is the one Das and Fiete identify, separated from ours under W2.
+activity'', is Das and Fiete's, separated from ours under W2.
 
 \textbf{Ours.} A \emph{measured} connectome as a binary prior rather than a graph
 to infer, at $13{,}741$--$50{,}412$ neurons, with per-neuron $\tau$ and
@@ -677,21 +683,17 @@ scale, with the degeneracy counted rather than described.
 Accepted, and the precedent runs further back than [3]. That many different
 circuits produce indistinguishable activity is Prinz, Bucher and Marder's result
 [Nat.\ Neurosci.\ 2004], and Golowasch, Goldman, Abbott and Marder
-[J.\ Neurophysiol.\ 2002] showed the equivalent parameter sets occupy a
-non-convex region, so their mean is not itself a valid model. That bears on our
-own wording: when we claim recovery up to an equivalence class, reporting a
-representative member is not a hedge but the only defensible form, since
-interpolating between members can leave the class. Das and Fiete drew the
-consequence for inference, which is the part that bears directly on us: in strongly recurrent circuits activity-based inference invents
-connections between unconnected but correlated neurons, and noise or perturbation
-reduces the bias by enriching the activity distribution. That is our mechanism,
-so we will cite our process-noise result as a measured instance of their
-prescription rather than an independent finding. The failures differ: theirs is a
-false edge where no synapse exists, ours a true edge whose weight is
-unidentifiable against its same-type neighbours. We accept the reframing. What
-we add is not the insight but its measurement at connectome scale, where the
-degenerate directions can be counted rather than inferred from the failure of a
-fit.
+[J.\ Neurophysiol.\ 2002] showed those parameter sets occupy a non-convex region,
+so their mean is not itself a valid model. That bears on our wording: claiming
+recovery up to an equivalence class, reporting a representative member is not a
+hedge but the only defensible form, since interpolating between members can leave
+the class. Das and Fiete drew the consequence for inference, and we give them the
+same answer as Reviewer Vzfg: their failure is a false edge where no synapse
+exists, ours a true edge unidentifiable against its same-type neighbours, and we
+will cite our process-noise result as a measured instance of their prescription
+rather than an independent finding. We accept the reframing: what we add is not
+the insight but its measurement at connectome scale, where the degenerate
+directions can be counted rather than inferred from a failed fit.
 
 \textbf{What we'll change.} Cite Prinz et al.\ and Das and Fiete at the point where
 the identifiability claim is made, not only in related work, and describe the
@@ -741,10 +743,9 @@ $\sigma = 0.05$. $V^{\mathrm{rest}}$ does not: $0.76$ against $0.95$, and negati
 in every degraded row. A high $R^2$ on the surviving subset does not license an
 unqualified claim, and we withdraw it for $V^{\mathrm{rest}}$.
 
-\emph{On the ablation.} Also accepted. Applying the same random mask to two
-models that share a graph tests whether each model uses that graph, not whether
-either has the right weights on it. It is a necessary condition and we will
-present it as one.
+\emph{On the ablation.} Also accepted. The same random mask on two models sharing
+a graph tests whether each uses that graph, not whether either has the right
+weights on it: a necessary condition, and we will present it as one.
 
 \textbf{What we'll change.} State the four senses in Sect.~1 and attach every claim
 to one of them; report full-sample metrics for all four tables and label a
