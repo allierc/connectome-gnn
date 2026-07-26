@@ -168,7 +168,7 @@ and report full-sample metrics for every table (Reviewer 1bPK, Q2).
 \paragraph{5. Methodological novelty overstated.}
 Partially accepted. The decomposition is inherited from \textbf{Allier et al.\
 [2026]}; \textbf{AMAG [2023]} refines an adjacency it initialises rather than
-inferring one; \textbf{Yoon et al.\ [2025]} infer a
+inferring one; \textbf{Yoon [2025]} infers a
 $100$-neuron ring from $19$ observed cells, recovering a smooth weight profile
 rather than individually free weights. The degeneracy itself is older still,
 Prinz, Bucher and Marder [2004] and Golowasch, Goldman, Abbott and Marder
@@ -627,24 +627,28 @@ equivalent. We answer in the order of the letter, weaknesses W1--W5 then Questio
 reviews we answer in the same words: three inconsistent replies would only
 confirm the imprecision you identify.
 
-\paragraph{W1. Novelty against AMAG [2023] and Yoon et al.\ [2025].}
+\paragraph{W1. Novelty against AMAG [2023] and Yoon [2025].}
 Accepted that the decomposition is not new. The two cited works differ from
 ours, and from each other, in what they infer and at what scale.
 
-\textbf{AMAG [2023].} It operates on electrode channels and, as Yoon et al.\ themselves
-put it, ``initializes the adjacency matrix from random weights or
-correlation-based heuristics, focusing on refining rather than inferring
-connectivity''. It is validated by recovering channel spatial proximity, not
-synaptic weights.
+\textbf{AMAG [2023].} It forecasts field potentials and $\mu$ECoG from macaque
+electrode arrays, and learns its adjacency adaptively, initialised from the
+recordings' correlation matrix ``to stabilize the learning process''. It is
+validated by ``recovering the channel spatial proximity in the learned adjacency
+matrix'': interactions between electrode channels, not synaptic weights between
+identified neurons.
 
-\textbf{Yoon et al.\ [2025].} They do infer connectivity: on a $100$-neuron ring
+\textbf{Yoon [2025].} This work does infer connectivity: on a $100$-neuron ring
 attractor with auxiliary nodes for unobserved cells, and on real head-direction
-data where $19$ recorded cells sit in a ring of $N = 100$. What is recovered is
-a weight profile over angular distance, one smooth function, not $4\times10^5$
-free weights. They also report that inference methods ``tend to mistakenly infer
-connections to neurons that are either unconnected or only weakly connected'',
-driven by ``strong correlations in neural activity'' --- the failure Das and
-Fiete identify, separated from ours under W2.
+data where $19$ recorded cells sit in a ring of $N = 100$. What is compared
+against ground truth in their Fig.~2a is a \emph{weight profile}: synaptic weight
+as a single curve over the angular offset between two neurons on the ring, the
+full $\widehat{\Mat{W}}$ appearing only as an inset. On a ring every pair at the
+same angular offset shares one weight, so that curve is a handful of numbers
+rather than $4\times10^5$ free ones. The reported failure of other methods, that
+they ``tend to mistakenly infer connections to neurons that are either
+unconnected or only weakly connected'' driven by ``strong correlations in neural
+activity'', is the one Das and Fiete identify, separated from ours under W2.
 
 \textbf{Ours.} A \emph{measured} connectome as a binary prior rather than a graph
 to infer, at $13{,}741$--$50{,}412$ neurons, with per-neuron $\tau$ and
