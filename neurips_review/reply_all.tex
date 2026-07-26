@@ -5,6 +5,7 @@
 % figures/flyvis/*_fullsample.tex (full-sample twins of Tabs. 1, 2, Supp. 4, 7).
 %
 % OUTSTANDING (see neurips_review/rebuttal_QA.md and PLAN_R2.md):
+%   AC   - Appendix C response (kernel -> ker_eps, C.1/C.2 split, noise sweep)
 %   R1   - GNN joint pair (g_a=0.3 at h=2 ms) and the 200 ms cadence cell
 %   R2   - all four questions; every [pending] marks a number that does not exist
 %   PVbi - not drafted
@@ -28,26 +29,181 @@
 \maketitle
 \vspace{-3.5em}
 
+\section*{Area Chair 4ZQS}
+We answer the six weaknesses in order. Concern~1 is where the new work is; the
+rest state what we concede and what we intend to change.
+
+\paragraph{1. Identifiability analysis internally inconsistent.}
+The inconsistency is real. Appx.~C asserted that process noise breaks the
+columnar degeneracies; we have now measured that.
+
+\emph{Eq.~(11) is a count, not a kernel.} $308{,}160 = \sum_{i,\alpha}
+(k_{i\alpha}-1)$ is correct as computed: it counts sum-zero directions within
+same-type presynaptic groups, a structural property of the connectome. Calling
+that set a kernel was the error. Same-type neurons deliver near-identical,
+time-shifted copies of one signal, so raising one input and lowering a sibling
+leaves the summed drive almost unchanged; but time-shifted signals are
+correlated, not identical, so those directions carry small \emph{nonzero}
+singular values.
+
+\emph{The two percentages are two points on one curve.} They answer different
+questions at different tolerances on the same spectrum, which the submission
+never said. Ranking weight directions by $\epsilon = \lambda_k/\lambda_{\max}$
+and counting the share of edges degenerate at each tolerance, the numerical
+$6.4\%$ is the value at $\epsilon = 10^{-22}$ and Eq.~(11)'s $71\%$ is reached at
+$\epsilon = 2.5\times10^{-6}$, read off the same $\sigma = 0$ curve rather than
+chosen. A strict tolerance counts only edges the data cannot constrain at all; a
+looser one also counts weakly constrained columnar ones.
+
+\emph{Why process noise helps, now measured.} Appx.~C writes the noise-free ODE
+as a per-neuron linear system $A_i \theta_i = b_i$, one row per timestep and one
+column per unknown of neuron $i$. We take the singular values of $A_i$ by SVD and
+rank each weight direction by $\epsilon = (\sigma_k/\sigma_1)^2$; a direction
+below a fixed tolerance is one the activity does not constrain, and an edge
+counts as degenerate once a direction supporting it falls below it. No weights
+are fitted and no solver runs, so this measures the conditioning of the inverse
+problem, not the behaviour of our GNN.
+
+\begin{center}
+{\footnotesize
+\begin{tabular}{lcc}
+\toprule
+process noise $\sigma$ & degenerate $W$ null (\%) & degenerate $W$ sloppy (\%) \\
+\midrule
+$0$    & $6.35 \pm 0.02$ & $4.01 \pm 0.36$ \\
+$0.05$ & $2.44 \pm 0.01$ & $0.32 \pm 0.00$ \\
+$0.5$  & $0.00 \pm 0.00$ & $0.00 \pm 0.00$ \\
+\bottomrule
+\end{tabular}}
+
+{\footnotesize Tolerances $\epsilon \leq 10^{-22}$ (null) and $\leq 10^{-12}$
+(sloppy); mean\,$\pm$\,SD over five folds. The horizon is fixed across $\sigma$
+and $\epsilon$ is scale-invariant, so the trend is not an artefact of record
+length or of noise inflating variance.}
+\end{center}
+
+Two competing readings are excluded. That noise merely smooths the GNN's loss
+landscape is ruled out by the oracle, which has no learned functions to
+regularise yet improves identically ($\Rw: 0.96 \to 0.99 \to 1.00$). That noise
+lifts the spectrum by a numerical floor is ruled out by column equilibration,
+which fixes the sum of squared singular values, so noise can only redistribute a
+fixed total by decorrelating columns. We claim only what the table supports:
+process noise improves the conditioning. Whether it acts selectively on the
+columnar directions or lifts the spectrum generally the degenerate-edge fraction
+cannot say, and we will report that rather than assert it.
+
+\textbf{What we revise.} State both thresholds as $\epsilon \leq 10^{-22}$ and
+$\leq 10^{-12}$, which reproduce the reported $\approx\!10\%$ where the printed
+$64000\times$ factor does not; replace ``kernel'' with $\ker_\epsilon$ at that
+tolerance, keeping $308{,}160$ as an exact count; split Appx.~C into C.1
+(identifiability) and C.2 (dynamical equivalence at an explicit tolerance),
+promoting C.2 as the analytical backbone of the prediction $\neq$ mechanism
+claim; and replace the asserted noise interpretation, in the appendix and in
+every claim citing it, with the measurement above.
+
+\paragraph{2. The setting is strongly model-matched.}
+Accepted. Of the nine listed items, three are properties of the preparation
+rather than the method, since a measured connectome, a known stimulus and a
+blank interval are all available in a real experiment and the paper already
+degrades the first two; two are inaccurate as stated, since no sign convention
+is imposed and only the aggregation is additive; and four are genuine:
+first-order dynamics, direct voltage observation, matched $\Delta t$, and the
+monotonicity priors. We tested three of the four. The GNN holds within $0.023$
+$\Rw$ of the oracle out to $\Delta t_{\mathrm{obs}} = 40$~ms and falls to
+$0.315$ at $100$~ms; an unobserved adaptation current costs $0.078$ at
+$g_a = 0.3$; the monotonicity priors are not load-bearing. Numbers in our reply
+to Reviewer 1bPK, Q1.
+
+\textbf{What we revise.} Scope the title, abstract and contributions to
+model-matched in-silico feasibility, and replace ``without assuming the form of
+the dynamical equation'' with the class actually assumed: first-order dynamics
+with additive pairwise aggregation over the supplied graph, agnostic only to the
+scalar nonlinearities.
+
+\paragraph{3. Biological and practical relevance.}
+Conceded on the premise: no dataset pairs synapse-resolution connectivity with
+dense activity in one animal. Measurement noise remains the bottleneck,
+$\Rw = 0.63$ and $\Rt = 0.28$ at $\gamma = 0.1$, $0.38$ and $0.08$ at
+$\gamma = 0.2$, with the oracle failing alongside, which places the limit in the
+inverse problem rather than in our architecture. [PENDING: calcium observation
+model and a strongly recurrent circuit, both running; Reviewer Vzfg, Q1 and Q2.]
+
+\textbf{What we revise.} Move measurement noise from Limitations into the
+contributions, state the method as demonstrated under process noise and not at
+realistic measurement noise, and present the optogenetics analogy as an untested
+hypothesis rather than a prescription.
+
+\paragraph{4. ``Mechanism recovery'' is ambiguous.}
+Accepted; the paper uses one phrase for four claims of decreasing strength.
+Exact parameter equality we do not claim. Recovery up to an equivalence class we
+do claim, for $\sigma > 0$. Agreement of the local vector field we now measure:
+$R^2 = 0.970$ against the true Jacobian, with the oracle at $0.977$. Counterfactual
+competence under edge ablation is necessary but not sufficient, since it does not
+establish uniqueness. The third is weaker than the second, and we say so: a
+Jacobian is $\Mat{W}$ rescaled by $1/\tau_i$ and by each source's active
+fraction, so agreement there cannot separate a recovered connectome from a
+dynamically equivalent one.
+
+\textbf{What we revise.} State the four senses explicitly in Sect.~1 and attach
+each claim to one of them; fix the excluded set a priori rather than by residual,
+and report full-sample metrics for every table (Reviewer 1bPK, Q2).
+
+\paragraph{5. Methodological novelty overstated.}
+Accepted. The decomposition is inherited from Allier et al.; AMAG refines an
+adjacency it initialises rather than inferring one; Yoon et al.\ [2025] infer a
+$100$-neuron ring from $19$ observed cells, recovering a smooth weight profile
+rather than individually free weights. The degeneracy itself is older still,
+Prinz, Bucher and Marder [2004] and Golowasch, Goldman, Abbott and Marder
+[2002], with Das and Fiete drawing the consequence for inference. The defensible
+contribution is the connectome-scale characterisation, the identifiability
+analysis, the degradation battery and the edge ablation.
+
+\textbf{What we revise.} Reframe the contribution as a large-scale benchmark of
+these ideas rather than their origin, and add a Sect.~2 paragraph separating
+forward connectome models (Shiu) from fits to activity (BrainTrace, Mi,
+Pospisil, Lappalainen).
+
+\paragraph{6. Agentic hyperparameter search.}
+Accepted in full: no matched-compute baseline against random or Bayesian search,
+and it optimises $\Rw$ against ground truth, which is unavailable in the intended
+application.
+
+\textbf{What we revise.} Demote it from contribution~(3) to a methods note,
+replace the raw logs with a curated summary, remove the self-assessments, and
+retain only the outcome: one configuration used unchanged everywhere.
+
+\paragraph{Reporting issues.}
+$N$ reconciled: $13{,}697$ neurons have at least one incoming edge and $44$ have
+none, so Appx.~C counts the former. The $\pm 0.00$ entries are rounding, not
+under-dispersion.
+
+\textbf{What we revise.} Report three decimals throughout, spell out SIREN at
+first use, add unfiltered metrics to all four tables, and reset Figs.~1 and~2 at
+main-text font size, splitting Fig.~1's extraction panel into the section that
+describes it.
+
+\bigskip
+\hrule
+\bigskip
+
 \section*{Reviewer 1bPK}
-We thank the reviewer. The weaknesses are well-founded; acting on Q1 and Q2
-produced new results.
+The weaknesses are well-founded; acting on Q1 and Q2 produced new results.
 
 \paragraph{Q1.}
-The three idealizations are coupled and never separated in the paper. We ran two
-mismatch experiments; all runs are single-seed, Flyvis-217, $\sigma = 0.05$,
+The three idealizations are coupled and never separated. We ran two
+mismatch experiments; all runs single-seed, Flyvis-217, $\sigma = 0.05$,
 consensus hyperparameters, median $\tau = 19.8$~ms.
 
-\textbf{Model-class match.} A slow adaptation current leaving the hypothesis class
-in two ways at once: not first order in the observables, not decomposable into
-pairwise messages:
+\textbf{Model-class match.} A slow adaptation current leaves the class twice
+over, neither first order in the observables nor decomposable into pairwise
+messages:
 \[
   \tau_i \dot v_i = -v_i + V^{\mathrm{rest}}_i
   + \sum_j W_{ij}\,\mathrm{ReLU}(v_j) - g_a c_i + I_i ,
   \qquad
   \dot c_i = (v_i - c_i)/\tau_a ,
 \]
-The GNN is unchanged; the target is the observed $\dot v_i$ including the new
-term, $\tau_a = 200$~ms $\gg \tau$, $c_i$ never observed.
+with $\tau_a = 200$~ms $\gg \tau$, $c_i$ never observed. The GNN is unchanged.
 
 \begin{center}
 {\footnotesize
@@ -61,77 +217,68 @@ $0.3$ & $0.909$ / $0.960$ & $0.98\,(0.98)\,[0.0]$ & $0.54\,(-0.35)\,[27.7]$ & $0
 \bottomrule
 \end{tabular}}
 
-{\footnotesize $\tau$ / $V^{\mathrm{rest}}$ cells read inlier (full-sample)
-[excluded \%].}
+{\footnotesize $\tau$, $V^{\mathrm{rest}}$: inlier (full-sample) [excl.\ \%].}
 \end{center}
 
-Degradation is ordered: $V^{\mathrm{rest}}$ first, $W$ next, $\tau$ last; the
-oracle matches. A slow per-neuron offset is what $\widehat V^{\mathrm{rest}}$
-absorbs and biases $\widehat W$; $\tau$ is read off the local slope of $f_\theta$.
-The priors called class-narrowing are not load-bearing: $\mu_0 = 0$ in every run,
-and $\mu_1 = 0$ leaves $\Rw$ at $0.988$ against $0.987$. No sign convention is
-imposed: $\widehat W_{ij} \in \mathbb{R}$ carries the sign and $g_\phi^2$ only the
-magnitude. Conductance-like coupling needs a
-different loss and architecture and is deferred; the adaptation current tests the
-same two assumptions. Both mismatches were also applied jointly, $g_a = 0.3$ at
-$h = 2$~ms. For Known-ODE their costs in $\Rw$ are near-additive: from $0.955$
-matched, adaptation alone costs $0.055$ and the fine step $0.120$; jointly they
-cost $0.202$, giving $\Rw = 0.753$ against the $0.781$ a sum would predict. The
-GNN pair is still training.
+Degradation is ordered, $V^{\mathrm{rest}}$ first, $W$ next, $\tau$ last, and
+the oracle matches: $\widehat V^{\mathrm{rest}}$ absorbs the slow offset, $\widehat W$
+inherits its bias, $\tau$ comes from the slope of $f_\theta$.
+The class-narrowing priors are not load-bearing: $\mu_0 = 0$ throughout, and
+$\mu_1 = 0$ leaves $\Rw$ at $0.988$ against $0.987$. No sign convention is
+imposed: $\widehat W_{ij}$ carries the sign, $g_\phi^2$ only the magnitude. Conductance-like coupling needs a different loss and architecture and
+is deferred; the adaptation current tests the same two assumptions. Applied
+jointly at $g_a = 0.3$, $h = 2$~ms, the costs are near-additive: from $0.955$,
+adaptation costs $0.055$, the fine step $0.120$, jointly $0.202$, giving $0.753$
+against an additive $0.781$. The GNN pair is still training.
 
-\textbf{Temporal match.} With the model always predicting at $20$~ms:
-(i)~generator integrated below the model step, observed at $20$~ms;
-(ii)~generator at $2$~ms, state observed every $20$ to $200$~ms.
+\textbf{Temporal match.} The model always predicts at $20$~ms; the generator
+runs below that step (i), or at $2$~ms with the state observed every $20$ to
+$200$~ms (ii).
 
 \begin{center}
 {\footnotesize
-\begin{tabular}{cccccc}
+\begin{tabular}{cccc}
 \toprule
-$\Delta t$ generated & $\Delta t$ observed & GNN $\Rw$ / slope & GNN roll.\ $r$ & Known ODE $\Rw$ / slope & Known ODE roll.\ $r$ \\
+$\Delta t$ gen. & $\Delta t$ obs. & GNN $\Rw$ / slope & Known ODE $\Rw$ / slope \\
 \midrule
-$20$~ms & $20$~ms  & $0.970$ / $0.965$ & $0.999$ & $0.955$ / $1.025$ & $0.999$ \\
-$10$~ms & $20$~ms  & $0.864$ / $0.796$ & $0.981$ & $0.873$ / $0.854$ & $0.981$ \\
-$4$~ms  & $20$~ms  & $0.822$ / $0.722$ & $0.978$ & $0.844$ / $0.826$ & $0.976$ \\
-$2$~ms  & $20$~ms  & $0.812$ / $0.712$ & $0.977$ & $0.835$ / $0.819$ & $0.974$ \\
+$20$~ms & $20$~ms  & $0.970$ / $0.965$ & $0.955$ / $1.025$ \\
+$10$~ms & $20$~ms  & $0.864$ / $0.796$ & $0.873$ / $0.854$ \\
+$4$~ms  & $20$~ms  & $0.822$ / $0.722$ & $0.844$ / $0.826$ \\
+$2$~ms  & $20$~ms  & $0.812$ / $0.712$ & $0.835$ / $0.819$ \\
 \midrule
-$2$~ms  & $40$~ms  & $0.720$ / $0.717$ & $0.981$ & $0.711$ / $0.723$ & $0.983$ \\
-$2$~ms  & $100$~ms & $0.315$ / $0.603$ & $0.980$ & $0.449$ / $0.581$ & $0.986$ \\
-$2$~ms  & $200$~ms & (running)         &         & $0.287$ / $0.490$ & $0.980$ \\
+$2$~ms  & $40$~ms  & $0.720$ / $0.717$ & $0.711$ / $0.723$ \\
+$2$~ms  & $100$~ms & $0.315$ / $0.603$ & $0.449$ / $0.581$ \\
+$2$~ms  & $200$~ms & (running)         & $0.287$ / $0.490$ \\
 \bottomrule
 \end{tabular}}
 \end{center}
 
-\emph{Fine generation.} $20/20$~ms is the matched case, where the generator
-\emph{is} the model's Euler map. A finer step adds the truncation bias
-$(\Delta t/2)\,\ddot v$, neuron-specific rather than a global rescaling, costing
-$0.16$ $\Rw$.
+\emph{Fine generation.} At $20/20$~ms the generator \emph{is} the model's Euler
+map. A finer step adds the truncation bias $(\Delta t/2)\,\ddot v$,
+neuron-specific rather than a global rescaling, costing $0.16$.
 
-\emph{Coarse observation} is the real limitation: the GNN falls to $\Rw = 0.315$
-at $\Delta t_{\mathrm{obs}} = 100$~ms ($5\tau$), reproducing the published
-$1/5$-frames row ($0.30$) at the same cadence, and the oracle to $0.287$ at
-$200$~ms ($10\tau$), while rollout $r$ stays above $0.97$ throughout, so
-prediction cannot detect the violation. Limitation~2 reads ``inference and simulation share $\Delta t =
-20$~ms, so the piecewise-linear update is exact rather than approximate''. It
-names the idealization but gives no tolerance; we will add the one this sweep
-measures, $\Delta t_{\mathrm{obs}} \lesssim \tau$, beyond which $\Mat{W}$ is not
-recovered.
+\emph{Coarse observation} is the real limitation. The GNN falls to $0.315$ at
+$\Delta t_{\mathrm{obs}} = 100$~ms ($5\tau$), reproducing the published
+$1/5$-frames row ($0.30$), and the oracle to $0.287$ at $200$~ms ($10\tau$),
+while rollout $r$ stays above $0.97$ throughout, so prediction cannot detect it. Limitation~2 names this idealization but gives no tolerance; we
+intend to add the one this sweep measures,
+$\Delta t_{\mathrm{obs}} \lesssim \tau$.
 
-\textbf{What we revise.} Known-ODE degrades in step with the GNN, so the cost is in the inverse problem,
-not the hypothesis class: the GNN stays within $0.023$ $\Rw$ of it out to
-$\Delta t_{\mathrm{obs}} = 40$~ms, and falls $0.134$ below at $100$~ms, where
-neither recovers $\Mat{W}$. We intend to retain
-``on par with an oracle'' as a claim about the GNN, and to drop ``without
-assuming the form of the dynamical equation'': the scalar nonlinearities are
-learned, but first-order dynamics and additive pairwise aggregation over the
-supplied graph are assumed.
+\textbf{What we revise.} Known-ODE degrades in step with the GNN, so the cost
+lies in the inverse problem, not the hypothesis class: the GNN stays within
+$0.023$ of it out to $40$~ms and falls $0.134$ below at $100$~ms, where neither
+recovers $\Mat{W}$. We intend to retain ``on par with an oracle'' for the GNN and
+drop ``without assuming the form of the dynamical equation'': the scalar
+nonlinearities are learned, but first-order dynamics and additive pairwise
+aggregation over the graph are assumed.
 
 \textbf{Simulator-only.} Conceded: no dataset pairs synapse-resolution
-connectivity with dense activity in the same animal. We will retitle to
+connectivity with dense activity in one animal. We intend to retitle to
 ``\dots from simulated neural activity''.
 
 \paragraph{Q2.}
-Computed for all four tables (Tabs.~1, 2, Supp.~Tabs.~4 and~7); the twins replace
-the submitted ones. Cells read inlier (full-sample) [excluded \%].
+Computed for all four tables (Tabs.~1, 2, Supp.~4, 7); the twins replace the
+submitted ones. Cells: inlier (full-sample) [excluded \%].
 
 \begin{center}
 {\footnotesize
@@ -150,7 +297,7 @@ GNN       & $0$    & $0.94\,(-11.80)\,[3.1]$ & $0.76\,(-0.39)\,[13.7]$ \\
 \end{tabular}}
 \end{center}
 
-Where exclusion is small the two agree. Worst rows of Tab.~2 and Supp.~Tab.~4:
+Where exclusion is small the two agree. Worst rows of Tab.~2 and Supp.~4:
 
 \begin{center}
 {\footnotesize
@@ -166,19 +313,19 @@ $10\%$ hidden               & Supp.~4 & $0.94\,(-0.87)$ & $0.62\,(-149.37)\,[21.
 \end{tabular}}
 \end{center}
 
-\textbf{What we revise.} $\tau$ survives: full-sample $0.99$ against the oracle's
-$1.00$ at $\sigma = 0.05$; noise-free it does not ($-11.80$ against $0.09$).
-$V^{\mathrm{rest}}$ does not: $0.76$ against $0.95$ at $\sigma = 0.05$, and
-negative in every degraded row. We intend to keep ``on par with an oracle'' for
-$W$ and $\tau$ at $\sigma > 0$, to drop it for $V^{\mathrm{rest}}$, and to
-report degraded rows as not recovered. On the criterion: filtering must not be
-defined by the residual it excuses, so we intend to fix the excluded set a
-priori, from zero in-degree ($44$ neurons) and neurons never crossing threshold,
-and to call a parameter recovered at full-sample $R^2 > 0.9$, partial below
-that, not recovered at $R^2 \leq 0$. The Known-ODE runs were filtered at
-$\delta_V = 0.1$, not the stated $0.2$, so their inlier $V^{\mathrm{rest}}$ is
-twice as tightly filtered as the GNN's; full-sample is unaffected and we intend
-to recompute.
+\textbf{What we revise.} $\tau$ survives, full-sample $0.99$ against the
+oracle's $1.00$ at $\sigma = 0.05$, though noise-free it does not ($-11.80$
+against $0.09$). $V^{\mathrm{rest}}$ does not: $0.76$ against $0.95$, negative in every degraded
+row. We intend to keep ``on par with an oracle'' for $W$ and
+$\tau$ at $\sigma > 0$, drop it for $V^{\mathrm{rest}}$, and report degraded
+rows (exclusions $21.1$--$56.3\%$) as not recovered.
+Filtering must not be defined by the residual it excuses, so we intend to fix the
+excluded set a priori, from zero in-degree ($44$ neurons) and neurons never
+crossing threshold, and to call a parameter recovered at full-sample
+$R^2 > 0.9$, partial below, not recovered at $R^2 \leq 0$. The Known-ODE runs
+were filtered at $\delta_V = 0.1$, not the stated $0.2$, so their inlier
+$V^{\mathrm{rest}}$ is twice as tightly filtered; full-sample is unaffected and
+we intend to recompute.
 
 \paragraph{Q3.}
 We restrict the claim to $\sigma > 0$ and present the noise-free row as the
@@ -196,37 +343,34 @@ $\Rv$ (full-sample) & $-0.39$ & $0.86$ & $0.76$ & $0.95$ \\
 \end{tabular}}
 \end{center}
 
-On the premise, $\sigma$ is not an experimenter knob but intrinsic stochasticity:
-release is probabilistic, channels are noisy, membrane potentials fluctuate. We
-have not calibrated its level, so the question is where real circuits sit on the
-$\sigma$ axis, not whether $\sigma = 0$.
+On the premise, $\sigma$ is not an experimenter knob but intrinsic
+stochasticity: release is probabilistic, channels noisy, potentials fluctuate. We have not calibrated its level, so the question is where real
+circuits sit on the $\sigma$ axis, not whether $\sigma = 0$.
 
 \paragraph{Q4.}
-We have no such baseline and accept the reframing. No random or Bayesian search
-was run at matched compute, so the claim that it yields better configurations is
-unsupported; it also optimises $\Rw$ against ground truth, unavailable in the
-intended application. It becomes a methods note rather than contribution~(3),
-with the logs replaced by a curated summary and the self-assessments removed. We
-retain only the outcome: one configuration used unchanged everywhere
-(Supp.~Tab.~6).
+We have no such baseline and accept the reframing. No matched-compute random or
+Bayesian search was run, so the claim that it yields better configurations is
+unsupported, and it optimises $\Rw$ against ground truth, unavailable in the
+intended application. We intend to demote it from contribution~(3) to a methods
+note, replacing the logs with a curated summary and dropping the
+self-assessments, keeping only the outcome: one configuration used everywhere
+(Supp.~6).
 
 \paragraph{Q5.}
-\textbf{Timing.} The \textbf{Allier et al.\ [2026]} preprint appeared February
-2026, three months before the deadline: prior work, not concurrent.
+The \textbf{Allier et al.\ [2026]} preprint appeared February 2026, three months
+before the deadline: prior work, not concurrent.
 
 \textbf{Different system.} Random recurrent assemblies, no anatomy. Random
 weights carry no columnar degeneracy, hence $\Rw = 1.00$ there against $0.89$
 here at $\sigma = 0$.
 
-\textbf{Different formulation.} Additively separable there,
-$\widehat{\dot v}_i = \phi^*(\Mat{a}_i, v_i)
- + \Omega^*_i(t)\sum_j W_{ij}\,\psi^*(\Mat{a}_i,\Mat{a}_j,v_j)$, nested here,
-$\widehat{\dot v}_i = f_\theta(v_i, \Mat{a}_i, m_i, I_i(t))$ with
-$m_i = \sum_j \widehat W_{ij}\, g_\phi(v_j,\Mat{a}_j)^2$. Since $f_\theta$ is not
-additive in $(v_i, m_i)$, our class is more expressive in how self-state and
-drive combine. The delta is not the decomposition but the columnar
-identifiability analysis, the degradation battery, the FlyWire-scale result and
-the edge ablation; no head-to-head was run.
+\textbf{Different formulation.} Theirs is additively separable in self-state and
+drive. Ours nests them, $\widehat{\dot v}_i = f_\theta(v_i, \Mat{a}_i, m_i, I_i)$
+with $m_i = \sum_j \widehat W_{ij}\, g_\phi(v_j,\Mat{a}_j)^2$, and $f_\theta$ is
+not additive in $(v_i, m_i)$, so our class is the more expressive in how the two
+combine. The delta is not the decomposition but the columnar identifiability
+analysis, the degradation battery, the FlyWire-scale result and the edge
+ablation. No head-to-head was run.
 
 % Reply to Reviewer 1bPK, Q6 / W5b (Shiu et al. 2024; BrainTrace 2026).
 % Facts checked against both papers:
@@ -241,65 +385,65 @@ the edge ablation; no head-to-head was run.
 %    loss is at neuropil level, not per neuron; no ground-truth W.
 
 \paragraph{Q6.}
-\textbf{Shiu et al.\ [2024]} is a forward model, not an activity fit: weights from
-the connectome, sign from neurotransmitter prediction, one global scalar
-calibrated once. It is also a counterexample to our own claim that large-scale
-simulations have struggled to be predictive: their whole-brain model matches
-$91\%$ of $164$ tested predictions. We will correct that sentence. Forward
-simulation from a connectome is predictive at brain scale; the inverse direction
-remains open.
+\textbf{Shiu et al.\ [2024]} is a forward model, not an activity fit: weights
+from the connectome, sign from neurotransmitter prediction, one global scalar
+calibrated once. It also refutes our claim that large-scale simulations have
+struggled to be predictive, matching $91\%$ of $164$ tested predictions, and we
+intend to correct that sentence. Forward simulation from a connectome is
+predictive at brain scale; the inverse direction is open.
 
-\textbf{BrainTrace [2026]} is the activity-fitting descendant, and poses the same
-inverse problem as our Known-ODE control: the form is fixed (the Shiu LIF), the
-connectome supplies the support of $\Mat{W}$, weights optimised so simulated
-activity matches recordings. That is the best case in our study, and Appx.~C
-shows $\Mat{W}$ is already underdetermined there.
-
-It is also harder: the loss is on \emph{neuropil-level} rates, so each residual
-constrains a sum over thousands of neurons, not one cell. Supervision is at $1.2$~Hz,
-one sample per $833$~ms against $T_{\mathrm{mbr}} = 20$~ms, i.e.\ $42\tau$: the state relaxes many times between constraints. Our sweep reaches
-$10\tau$, where the oracle already falls to $\Rw = 0.287$. With no ground-truth
-$\Mat{W}$ for a real fly, fit quality is the only signal, and Appx.~C shows it
-cannot distinguish a recovered connectome from a dynamically equivalent one: such
-weights are one member of an equivalence class, not recovered connectivity.
-
-Sect.~2 will separate forward models (Shiu) from fits to activity (BrainTrace,
-Mi, Pospisil, Lappalainen).
+\textbf{BrainTrace [2026]} is the activity-fitting descendant, posing the same
+inverse problem as our Known-ODE control: form fixed (the Shiu LIF), connectome
+supplying the support of $\Mat{W}$, weights optimised so simulated activity
+matches recordings. That is the best case in our study, where Appx.~C already
+shows $\Mat{W}$ underdetermined. It is also harder: the loss is on
+\emph{neuropil-level} rates, so each residual constrains a sum over thousands of
+neurons rather than one cell, and supervision is at $1.2$~Hz against
+$T_{\mathrm{mbr}} = 20$~ms, $42\tau$, so the state relaxes many times
+between constraints. Our sweep reaches $10\tau$, where the oracle already falls
+to $0.287$. With no ground-truth $\Mat{W}$ for a real fly, fit quality is the
+only signal, and Appx.~C shows it cannot separate a recovered connectome from a
+dynamically equivalent one. Sect.~2 will separate forward models (Shiu) from fits
+to activity (BrainTrace, Mi, Pospisil, Lappalainen).
 
 \paragraph{W4.}
-Agreed, and it will not stay in Limitations. Here $\gamma$ is the standard
-deviation of Gaussian noise added to the voltages after simulation,
+Agreed, and it will not stay in Limitations. Here $\gamma$ is the SD of Gaussian
+noise added to the voltages after simulation,
 $v_i^{\mathrm{obs}} = v_i + \gamma\,\epsilon_i$: unlike $\sigma$ it corrupts the
-recording, not the trajectory. At $\gamma = 0.1$, $\Rw = 0.63$ (GNN) and $0.69$
-(Known-ODE); at $\gamma = 0.2$, $0.38$ and $0.42$. The oracle degrades as much as
-the GNN, so the failure is in the inverse problem rather than in our
-architecture, but that does not make the method usable at these levels. The
-contributions, not only the Limitations, will say the method is demonstrated
-under process noise, not at realistic measurement noise.
+recording, not the trajectory. At $\gamma = 0.1$, $\Rw = 0.63$ (GNN) and
+$0.69$ (Known-ODE); at $\gamma = 0.2$, $0.38$ and $0.42$; $\Rt$ falls to $0.28$
+and $0.08$. The oracle degrades as much, so the failure is in the inverse problem,
+not our architecture, though the method remains unusable here. The
+contributions, not only the Limitations, will say it is demonstrated under
+process noise, not realistic measurement noise.
 
 \paragraph{W7 and W8.}
-Both abstract claims are overstated and will be softened. For W7 the evidence is
-intrinsic noise in silico and optogenetics is an untested analogy, so the
+On ``expected almost by construction'': decorrelation is the mechanism, but its
+size was asserted, not measured. We now measure it, and the oracle rules out the
+reading that noise merely regularises GNN training, having no learned functions
+yet improving identically ($\Rw: 0.96 \to 0.99 \to 1.00$); see our reply to the
+meta-review. Both abstract claims are nonetheless overstated. For W7 the evidence
+is intrinsic noise in silico and optogenetics an untested analogy, so the
 abstract will claim only that noise and perturbation help in simulation. For W8
-the SIREN rollout is scored on training-frame indices and the stimulus is largely
+the SIREN rollout is scored on training frames and the stimulus is largely
 present in the photoreceptor activities, so ``recovers unknown visual stimuli''
-comes out of the abstract. The experiment stays in the appendix, restated as
-partial stimulus recovery scored on training-frame indices.
+comes out of the abstract; the experiment stays in the appendix, restated as
+partial recovery.
 
 \paragraph{W9.}
 \emph{$N$.} $13{,}741$ neurons, $13{,}697$ with at least one incoming edge, $44$
 with none: Appx.~C counts the former, so the discrepancy is neurons with no
 \emph{input}, not no output. $\sum_i \max(0, d_i - 45) = 115{,}223$ matches
-Appx.~C exactly.
+Appx.~C.
 
-\emph{$\pm 0.00$.} Rounding, not under-dispersion. At four decimals the GNN folds
-at $\sigma = 0.05$ span $0.9829$ to $0.9886$ (SD $0.0021$), against SD $0.0002$
-for Known-ODE, whose fit is least squares in the true parameters. A
+\emph{$\pm 0.00$.} Rounding, not under-dispersion. At four decimals the GNN
+folds at $\sigma = 0.05$ span $0.9829$--$0.9886$ (SD $0.0021$) against SD
+$0.0002$ for Known-ODE, whose fit is least squares in the true parameters; a
 byte-identical rerun differs by $0.0014$, so the GNN spread sits near the
-non-deterministic GPU floor. We will report three decimals, so these read
-$\pm 0.002$. The $0.90 \pm 0.21$ entry is one fold: noise-free GNN rollout $r$ is
-$1.000, 1.000, 0.999, 0.482, 0.998$, which the degeneracy predicts, and why we
-restrict the claim to $\sigma > 0$.
+non-deterministic GPU floor. We intend to report three decimals, giving
+$\pm 0.002$. The $0.90 \pm 0.21$ entry is one bad fold, rollout $r \geq 0.998$ on
+four and $0.482$ on the fifth, which the degeneracy predicts and why we restrict
+the claim to $\sigma > 0$.
 
 
 \bigskip
@@ -348,9 +492,13 @@ the attractor and constrained by nothing. Fit quality stays high while those
 directions stay unknown.
 
 \textbf{[pending]} We are running the \emph{Drosophila} central complex, $152$
-neurons and $6$ cell types from the hemibrain, through the identical pipeline.
-We expect $\Rw$ at $\sigma = 0$ below the $0.89$ of Flyvis, and a steeper
-$\sigma$ dependence. If it lands otherwise we will report that.
+neurons and $6$ cell types from the hemibrain, through the identical pipeline,
+and will post the numbers during the discussion period. We expect $\Rw$ at
+$\sigma = 0$ below the $0.89$ of Flyvis, and a steeper $\sigma$ dependence.
+Yoon et al.\ [2025] recover a smooth ring weight profile from $19$ of $100$
+neurons, so if our expectation is wrong the informative comparison is between a
+low-dimensional profile and $4\times10^5$ individually free weights on a measured
+connectome.
 
 \emph{On [2].} Das and Fiete show that in strongly recurrent circuits
 activity-based inference invents connections between unconnected but correlated
@@ -386,7 +534,8 @@ it as a failure mode rather than a robustness result.
 \paragraph{Q3. Out-of-distribution test.}
 We accept that our evidence for ``black boxes predict but do not recover'' is
 indirect. This test makes it direct and needs no retraining: vary $I_i(t)$ only,
-roll out the fixed checkpoints.
+roll out the frozen checkpoints for $1000$ steps ($20$~s), and score against
+ground truth integrated from Eq.~1 under the same drive.
 
 \begin{center}
 {\footnotesize
@@ -394,23 +543,33 @@ roll out the fixed checkpoints.
 \toprule
 stimulus & GNN roll.\ $r$ & Known-ODE roll.\ $r$ & recurrent MLP roll.\ $r$ \\
 \midrule
-naturalistic held-out (ID reference) & [pending] & [pending] & [pending] \\
-full-field white noise               & [pending] & [pending] & [pending] \\
-drifting gratings                    & [pending] & [pending] & [pending] \\
-sparse optogenetic drive             & [pending] & [pending] & [pending] \\
+naturalistic held-out (ID reference) & $1.0000$ & $1.0000$ & [pending] \\
+full-field white noise               & $0.9986$ & $0.9992$ & [pending] \\
+current injection, $5\%$ of neurons, $5\sigma_I$  & $0.9895$ & $0.9998$ & [pending] \\
+current injection, $5\%$ of neurons, $20\sigma_I$ & $0.9748$ & $0.9985$ & [pending] \\
 \bottomrule
 \end{tabular}}
 \end{center}
 
-We expect in-distribution rollout $r$ to be matched, as it already is in the
-paper, and the gap to open only off the data manifold, largest under direct
-current injection, which no visual stimulus can produce.
+In distribution the two are indistinguishable. Replacing natural video with
+spatially uniform white noise barely moves either, which is itself informative:
+the drive is still delivered through the photoreceptors, so the circuit is not
+taken far from the states it was fitted on. Direct current injection does take
+it off the manifold, and there a gap opens and grows with amplitude, $0.0103$ at
+$5\sigma_I$ and $0.0237$ at $20\sigma_I$, where $\sigma_I$ is the SD of the
+visual drive. The oracle stays above $0.998$ throughout, as it must, being exact
+by construction; the GNN degrades gently. At $1\sigma_I$ the gap is $0.0008$,
+i.e.\ that perturbation is not yet out of distribution, which we report because
+it sets the scale at which this test starts to discriminate.
 
-\emph{On ``all models''.} The recurrent-MLP and EED checkpoints are temporarily
-inaccessible, held by a co-author who is away. We would rather report the
-original models than retrain substitutes, so those entries stay blank and will
-be filled from the original checkpoints; the test needs rollouts, not
-retraining.
+\emph{What this does and does not settle.} It bounds our own model's
+off-manifold fidelity, which is the part we control. It does not yet make the
+black-box comparison the reviewer asks for: the gap above is between our model
+and an oracle that knows the equation, not between a mechanistic model and one
+that only predicts. The recurrent-MLP and EED checkpoints are temporarily
+inaccessible, held by a co-author who is away, and we would rather report the
+original models than retrain substitutes, so that column stays blank and will be
+filled during the discussion period. It needs rollouts, not retraining.
 
 \paragraph{Q4. GNN and Known-ODE Jacobians.}
 Agreed. Supp.~Fig.~18 uses a Jacobian mismatch to argue against the MLP and
@@ -486,5 +645,163 @@ main text.
 \emph{Figs.~1 and~2 fonts.} Agreed. We intend to reset both at main-text size,
 and to split Fig.~1's extraction panel out into the section that will describe
 it.
+
+\bigskip
+\hrule
+\bigskip
+
+\section*{Reviewer PVbi}
+We thank the reviewer. Two of the five weaknesses concern framing rather than
+results, and we accept both: the decomposition is inherited rather than new, and
+``mechanism recovery'' is used in the paper for several claims that are not
+equivalent. We answer in the order of the letter, weaknesses W1--W5 then Questions 1--2, and where a point recurs across
+reviews we answer in the same words: three inconsistent replies would only
+confirm the imprecision you identify.
+
+\paragraph{W1. Novelty against AMAG and Yoon et al.\ [2025].}
+Accepted that the decomposition is not new. The two cited works differ from
+ours, and from each other, in what they infer and at what scale.
+
+\emph{AMAG.} It operates on electrode channels and, as Yoon et al.\ themselves
+put it, ``initializes the adjacency matrix from random weights or
+correlation-based heuristics, focusing on refining rather than inferring
+connectivity''. It is validated by recovering channel spatial proximity, not
+synaptic weights.
+
+\emph{Yoon et al.\ [2025].} They do infer connectivity: on a $100$-neuron ring
+attractor with auxiliary nodes for unobserved cells, and on real head-direction
+data where $19$ recorded cells sit in a ring of $N = 100$. What is recovered is
+a weight profile over angular distance, one smooth function, not $4\times10^5$
+free weights. They also report that inference methods ``tend to mistakenly infer
+connections to neurons that are either unconnected or only weakly connected'',
+driven by ``strong correlations in neural activity'' --- the failure Das and
+Fiete identify, separated from ours under W2.
+
+\emph{Ours.} A \emph{measured} connectome as a binary prior rather than a graph
+to infer, at $13{,}741$--$50{,}412$ neurons, with per-neuron $\tau$ and
+$V^{\mathrm{rest}}$ alongside the weights, and the degeneracy quantified rather
+than described: Appx.~C measures which weight directions the activity leaves
+unconstrained, and the sweep in our reply to the meta-review measures how noise
+removes them.
+
+\emph{On being given the graph.} The prior is not simply accepted, and the paper
+measures both directions. Inflating it, ``the GNN correctly identifies
+the $80\%$ of inflated edges as zero-weight and recovers the true $\widehat
+{\Mat{W}}$ at $R^2 = 0.96$ even at $5\times$ the true edge count'', which is edge
+inference within a supplied superset. Deleting from it, recovery ``degrades under
+$-20\%$ edge removal ($\Rw = 0.78$) but breaks down at $-50\%$ removal
+($\Rw = 0.19$, rollout $r = 0.56$)'', because ``the remaining edges cannot absorb
+their contribution''. The method prunes but cannot add: it finds which supplied
+candidates carry weight, and fails when a true edge is absent. That is narrower
+than inferring a graph, and we should have stated it as the boundary rather than
+leaving the two ablations to be read separately.
+
+\textbf{What we revise.} State the delta explicitly in Sect.~2: a measured
+connectome used as a prior rather than a graph to be inferred, at connectome
+scale, with the degeneracy counted rather than described.
+
+\paragraph{W2. Das and Fiete precedent.}
+Accepted, and the precedent runs further back than [3]. That many different
+circuits produce indistinguishable activity is Prinz, Bucher and Marder's result
+[Nat.\ Neurosci.\ 2004], and Golowasch, Goldman, Abbott and Marder
+[J.\ Neurophysiol.\ 2002] showed the equivalent parameter sets occupy a
+non-convex region, so their mean is not itself a valid model. That bears on our
+own wording: when we claim recovery up to an equivalence class, reporting a
+representative member is not a hedge but the only defensible form, since
+interpolating between members can leave the class. Das and Fiete drew the
+consequence for inference, which is the part that bears directly on us: in strongly recurrent circuits activity-based inference invents
+connections between unconnected but correlated neurons, and noise or perturbation
+reduces the bias by enriching the activity distribution. That is our mechanism,
+so we intend to cite our process-noise result as a measured instance of their
+prescription rather than an independent finding. The failures differ: theirs is a
+false edge where no synapse exists, ours a true edge whose weight is
+unidentifiable against its same-type neighbours. We accept the reframing. What
+we add is not the insight but its measurement at connectome scale, where the
+degenerate directions can be counted rather than inferred from the failure of a
+fit.
+
+\textbf{What we revise.} Cite Prinz et al.\ and Das and Fiete at the point where
+the identifiability claim is made, not only in related work, and describe the
+contribution as a benchmark of these ideas rather than their origin.
+
+\paragraph{W3. Flyvis is a simulator, not paired real data.}
+Conceded, and your form of the point is the sharper one: Flyvis is a
+hand-designed ODE with simplified neuron and synapse dynamics, so recovering it
+demonstrates recovery of a simulator. No dataset pairs synapse-resolution
+connectivity with dense activity in one animal, which is the premise of the work
+rather than an oversight.
+
+Two things bound what that costs. The class is not arbitrary: the fly optic lobe
+is non-spiking and graded-potential, which is why a first-order voltage model is
+the appropriate form for it rather than a convenient one. And the hand-designed
+form is precisely what the new runs attack. We add an unobserved adaptation
+current, which is neither first order in the observables nor decomposable into
+pairwise messages, and we integrate the generator below the model's own step.
+Recovery then degrades in an ordered, measurable way rather than collapsing,
+$V^{\mathrm{rest}}$ first, $W$ next, $\tau$ last (Reviewer 1bPK, Q1). How far the
+result survives a wrong equation is the most this design supports without paired
+data.
+
+\textbf{What we revise.} Retitle to ``\dots from simulated neural activity'',
+scope the abstract and contributions to model-matched in-silico feasibility, and
+name measurement noise rather than scale as the obstacle to real recordings.
+
+\paragraph{W4. Senses of ``mechanism recovery''.}
+Accepted; the paper uses one phrase for four claims of decreasing strength.
+Exact parameter equality we do not claim. Recovery up to an equivalence class we
+do claim, for $\sigma > 0$. Agreement of the local vector field we now measure:
+$R^2 = 0.970$ against the true Jacobian, with the oracle at $0.977$.
+Counterfactual competence under edge ablation is necessary but not sufficient,
+since it does not establish uniqueness. The third is weaker than the second, and
+we say so: a Jacobian is $\Mat{W}$ rescaled by $1/\tau_i$ and by each source's
+active fraction, so agreement there cannot separate a recovered connectome from a
+dynamically equivalent one. The second is also weaker than it sounds, for the
+reason given under W2: the equivalent set is non-convex, so a representative is
+all that can be reported.
+
+\emph{On the filtering.} You are right that $\tau$ and $V^{\mathrm{rest}}$ are
+extracted by local linearisation and reported after residual filtering, with
+exclusions reaching $40.8\%$ in Tab.~2, $49.1\%$ under measurement noise and
+$56.3\%$ under temporal subsampling. We have recomputed all four tables without
+the filter. $\tau$ survives, full-sample $0.99$ against the oracle's $1.00$ at
+$\sigma = 0.05$. $V^{\mathrm{rest}}$ does not: $0.76$ against $0.95$, and negative
+in every degraded row. A high $R^2$ on the surviving subset does not license an
+unqualified claim, and we withdraw it for $V^{\mathrm{rest}}$.
+
+\emph{On the ablation.} Also accepted. Applying the same random mask to two
+models that share a graph tests whether each model uses that graph, not whether
+either has the right weights on it. It is a necessary condition and we will
+present it as one.
+
+\textbf{What we revise.} State the four senses in Sect.~1 and attach every claim
+to one of them; report full-sample metrics for all four tables and label a
+parameter recovered only at full-sample $R^2 > 0.9$; and fix the excluded set a
+priori, from zero in-degree ($44$ neurons) and neurons never crossing threshold,
+so that filtering is not defined by the residual it excuses.
+
+\paragraph{W5. Clarity: relation to Flyvis, GNN against the oracle.}
+Both points accepted. Flyvis obtained $\tau$, $V^{\mathrm{rest}}$ and $\Mat{W}$
+by task optimisation on optical flow, never fitting activity; we recover the same
+quantities from activity alone. The novelty is the inverse problem, not the
+parameter types, and the paper should say so where it introduces them.
+
+On the comparison: the oracle knows Eq.~1 and fits three parameter families,
+while the GNN learns $f_\theta$, $g_\phi$, the embeddings $\Mat{a}_i$ and
+$\widehat{\Mat{W}}$. You ask whether those learned functions are identifiable,
+and the answer is only up to a gain: rescaling $g_\phi$ can be absorbed into
+$\widehat{\Mat{W}}$ without changing the dynamics. That is why $\mu_2$ anchors
+$g_\phi$ at a reference voltage, and why the Appx.~F.2 extraction exists at all.
+The learned functions are not the parameters; the map between them is what makes
+the GNN interpretable, and it is currently in an appendix.
+
+\textbf{What we revise.} State the Flyvis contrast where the parameters are
+introduced, give the gain degeneracy and its fix beside the loss, and move the
+extraction into the main text.
+
+\paragraph{Q1.} SIREN is a sinusoidal representation network; we will spell it
+out at first use.
+
+\paragraph{Q2.} The $0.9$ green shading is a readability aid with no statistical
+meaning; we will say so in the captions or drop it.
 
 \end{document}
