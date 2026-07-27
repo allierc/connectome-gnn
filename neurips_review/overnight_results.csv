@@ -1,2 +1,24 @@
 config,biomodel,arm,model,W_corrected_R2,W_corrected_slope,rollout_pearson,rollout_RMSE,tau_R2,tau_no_outliers_R2,tau_n_outliers,V_rest_R2,V_rest_no_outliers_R2,V_rest_n_outliers,clustering_accuracy
+nr2_ca_calcium_full25_known_ode,fly,full obs model,oracle,-0.1000,0.0123,0.044,0.9061,-1501309.2956,nan,13741,-7.5982,0.7907,11470,0.4462
+nr2_ca_calcium_full25_unified,fly,full obs model,gnn,-0.0109,0.0000,-0.010,0.3196,-15795.1347,-7.5755,9967,-11024473084888.5156,0.3699,12816,0.1344
 nr2_ca_calcium_known_ode,fly,kernel only,oracle,0.3305,0.7761,0.111,0.1945,-106524.7081,-28.3146,10859,-12.3289,0.8783,10839,0.6936
+nr2_ca_calcium_rate25_known_ode,fly,kernel+rate 1/25,oracle,0.2753,0.6113,0.459,0.1724,-27442.6531,-20.0111,12346,-11.0219,0.9094,11095,0.6645
+nr2_ca_calcium_rate25_unified,fly,kernel+rate 1/25,gnn,-0.0101,0.0000,0.172,0.3965,-16488.8067,-5.0617,11274,-56883665717533.5312,0.8392,12021,0.2300
+nr2_ca_calcium_sat_known_ode,fly,kernel+saturation,oracle,0.0072,0.3329,-0.014,0.4794,-317877.1131,-9.7766,12927,-11.0316,0.8616,11243,0.5305
+nr2_ca_calcium_sat_unified,fly,kernel+saturation,gnn,-0.0101,-0.0000,0.043,0.3937,-20882.2794,-4.5542,12648,-29726877290519.8633,-2.2390,13726,0.1947
+nr2_ca_calcium_shot01_known_ode,fly,kernel+shot g=0.1,oracle,-0.3753,0.1246,0.019,0.7703,-369163.1568,nan,13741,-41.8514,0.8722,11640,0.5699
+nr2_ca_calcium_shot01_unified,fly,kernel+shot g=0.1,gnn,-0.0101,-0.0000,0.041,0.5315,-20260.9478,-28.7315,11894,-7492524927121.8428,nan,13718,0.2576
+nr2_ca_calcium_shot02_known_ode,fly,kernel+shot g=0.2,oracle,-0.3224,0.0692,0.008,1.0764,-957597.4734,nan,13741,-47.1610,0.8633,11819,0.4987
+nr2_ca_calcium_shot02_unified,fly,kernel+shot g=0.2,gnn,-0.0101,0.0000,0.041,0.5315,-24354.2454,-4.9298,13716,-142928828208.6799,nan,13741,0.2835
+nr2_ca_calcium_unified,fly,kernel only,gnn,-0.0101,-0.0000,0.041,0.5315,-6647.7545,-3.6438,6250,-36483982070570.0781,-3.3507,13598,0.2613
+nr2_ca_deconv_kernel_known_ode,fly,deconv kernel-only,oracle,0.2949,1.2318,0.647,0.1813,-18.4336,-8.2216,3102,-4.6911,0.9393,9529,0.8594
+nr2_ca_deconv_kernel_unified,fly,deconv kernel-only,gnn,0.0724,1.2192,0.688,0.1818,-13.0075,-4.3028,2555,-1.5339,0.4279,4544,0.7458
+nr2_ca_deconv_sat_known_ode,fly,deconv saturation,oracle,-0.9839,1.1378,0.080,1.8182,-190769.0039,-3.9865,5236,-10.9077,0.8498,11090,0.7595
+nr2_ca_deconv_sat_unified,fly,deconv saturation,gnn,-0.0101,-0.0000,0.060,0.1599,-263.8197,nan,13741,-6.8444,0.2682,8571,0.3403
+nr2_ca_voltage_unified,fly,voltage control,gnn,0.9828,0.9922,1.000,0.0074,0.9908,0.9923,7,0.7719,0.9379,771,0.9268
+nr2_cx_ring_s00,drosophila_cx,CX sigma=0,gnn,0.5417,0.9210,1.000,0.0056,nan,nan,2,,,,0.1282
+nr2_cx_ring_s005,drosophila_cx,CX sigma=0.05,gnn,0.8404,1.0136,1.000,0.0056,nan,nan,0,,,,0.1282
+nr2_cx_ring_s005_known_ode,drosophila_cx,CX sigma=0.05,oracle,1.0000,1.0003,1.000,0.0012,nan,nan,0,nan,nan,0,0.1410
+nr2_cx_ring_s00_known_ode,drosophila_cx,CX sigma=0,oracle,-2.0684,0.9408,1.000,0.0072,nan,nan,43,nan,nan,0,0.1410
+nr2_cx_ring_s05,drosophila_cx,CX sigma=0.5,gnn,1.0000,1.0014,1.000,0.0042,nan,nan,0,,,,0.1346
+nr2_cx_ring_s05_known_ode,drosophila_cx,CX sigma=0.5,oracle,1.0000,1.0000,1.000,0.0009,nan,nan,0,nan,nan,0,0.1218
