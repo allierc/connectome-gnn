@@ -55,9 +55,14 @@ class FlyVisConductanceODE(nn.Module):
         n_neuron_types=None,
         device=None,
         delta_t=None,
+        integration="euler_floored",
     ):
         super().__init__()
 
+        if integration not in ("euler_floored", "exponential"):
+            raise ValueError(
+                f"integration must be 'euler_floored' or 'exponential', got {integration!r}"
+            )
         if isinstance(ode_params, dict):
             ode_params = FlyVisConductanceODEParams(**ode_params)
         self.ode_params = ode_params
@@ -65,6 +70,7 @@ class FlyVisConductanceODE(nn.Module):
         self.model_type = model_type
         self.device = device
         self.delta_t = delta_t
+        self.integration = integration
 
         if self.ode_params is not None:
             self.ode_params.to(device)
@@ -113,10 +119,38 @@ class FlyVisConductanceODE(nn.Module):
         leak = 1.0 + total
         v_inf = (v_rest + e + drive) / leak
         tau_eff = tau / leak
+
+        if self.integration == "exponential" and self.delta_t is not None:
+            # Exact relaxation over one step with the coefficients held fixed:
+            #   v(t+dt) = v_inf + (v - v_inf) exp(-dt/tau_eff)
+            # returned as the derivative that reproduces it under the caller's
+            # forward-Euler update, v + dt*dv. Unconditionally stable for any dt
+            # without distorting tau_eff, and it reduces to (v_inf - v)/tau_eff
+            # as dt -> 0.
+            decay = -torch.expm1(-self.delta_t / tau_eff)  # 1 - exp(-dt/tau_eff)
+            return (v_inf - v) * decay / self.delta_t
+
         if self.delta_t is not None:
+            # Floor tau_eff so a forward-Euler step cannot overshoot the fixed
+            # point. This is a property of the integrator, not of the model: it
+            # makes the simulated dynamics mildly dt-dependent wherever it binds.
+            # Use integration="exponential" to avoid it entirely.
             tau_eff = torch.clamp(tau_eff, min=self.delta_t)
 
         return (v_inf - v) / tau_eff
+
+    def floor_binding_fraction(self, state: NeuronState, edge_index: torch.Tensor) -> float:
+        """Fraction of neurons whose tau/(1+G) currently sits below delta_t.
+
+        Where this is zero the floored and exponential integrators agree, and the
+        simulated dynamics carry no dt dependence beyond ordinary Euler error.
+        """
+        if self.delta_t is None:
+            return 0.0
+        v = state.voltage.unsqueeze(-1)
+        total, _ = self._compute_conductances(v, edge_index)
+        tau_eff = self.ode_params.tau_i[:, None] / (1.0 + total)
+        return float((tau_eff < self.delta_t).float().mean())
 
     def func(self, u, type, function):
         """Isolated release / update functions, for comparison against a fitted GNN."""
