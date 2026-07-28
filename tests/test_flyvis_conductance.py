@@ -510,3 +510,88 @@ def test_conductance_r2_recovers_a_perfect_match(tmp_path, monkeypatch,
     scores = compute_conductance_r2(model, x_ts, config, "cpu", n_neurons)
     assert scores["conductance_r2"] > 0.99
     assert scores["reversal_r2"] > 0.99
+
+
+# --- integration scheme ------------------------------------------------------
+
+
+def test_exponential_integration_is_stable_at_any_step(tiny_params):
+    """The floored scheme needs delta_t to stay sane; the exponential one does not.
+
+    With a large conductance the effective time constant tau/(1+G) falls far
+    below any usable step. Plain forward Euler would overshoot and diverge; both
+    schemes here must stay put, but only the exponential one does so without
+    distorting tau_eff.
+    """
+    strong = tiny_params.clone()
+    strong.G = torch.tensor([200.0, 0.0])
+    for scheme in ("euler_floored", "exponential"):
+        ode = FlyVisConductanceODE(
+            ode_params=strong, device="cpu", delta_t=0.05, integration=scheme
+        )
+        state = _state(torch.tensor([1.0, 0.0, 0.0]))
+        for _ in range(200):
+            dv = ode(state, strong.edge_index)
+            state.voltage = state.voltage + 0.05 * dv.squeeze(-1)
+        assert torch.isfinite(state.voltage).all(), scheme
+        assert float(state.voltage[2]) < strong.reversal_exc + 1e-3, scheme
+        assert float(state.voltage[2]) > strong.reversal_inh - 1e-3, scheme
+
+
+def test_exponential_step_lands_on_the_exact_relaxation(tiny_params):
+    """v + dt*dv must equal v_inf + (v - v_inf) exp(-dt/tau_eff)."""
+    delta_t = 0.03
+    ode = FlyVisConductanceODE(
+        ode_params=tiny_params, device="cpu", delta_t=delta_t, integration="exponential"
+    )
+    v = torch.tensor([1.0, 2.0, 0.4])
+    dv = ode(_state(v), tiny_params.edge_index)
+
+    g_exc = 0.3 * torch.relu(v[0])
+    g_inh = 0.2 * torch.relu(v[1])
+    leak = 1 + g_exc + g_inh
+    v_inf = (0.5 + g_exc * 3.0 + g_inh * (-2.0)) / leak
+    tau_eff = 0.05 / leak
+    expected = v_inf + (v[2] - v_inf) * torch.exp(torch.tensor(-delta_t) / tau_eff)
+    assert float(v[2] + delta_t * dv[2, 0]) == pytest.approx(float(expected), rel=1e-5)
+
+
+def test_the_two_schemes_agree_as_the_step_shrinks(tiny_params):
+    """Both are consistent discretizations of the same dt-free ODE.
+
+    Compared relative to the derivative's own magnitude, which is O(10) here
+    because tau_eff is a few tens of milliseconds — an absolute tolerance would
+    say nothing.
+    """
+    v = torch.tensor([1.0, 2.0, 0.4])
+    previous = None
+    for delta_t in (1e-2, 1e-3, 1e-4):
+        floored = FlyVisConductanceODE(
+            ode_params=tiny_params, device="cpu", delta_t=delta_t,
+            integration="euler_floored",
+        )(_state(v), tiny_params.edge_index)
+        exponential = FlyVisConductanceODE(
+            ode_params=tiny_params, device="cpu", delta_t=delta_t,
+            integration="exponential",
+        )(_state(v), tiny_params.edge_index)
+        scale = float(floored.abs().max())
+        gap = float((floored - exponential).abs().max()) / scale
+        if previous is not None:
+            assert gap < previous / 5  # first order: ~10x per decade of dt
+        previous = gap
+    assert previous < 1e-3
+
+
+def test_floor_binding_fraction_reports_when_dt_matters(tiny_params):
+    """Zero binding means the floor never fires, so the model carries no dt."""
+    ode = FlyVisConductanceODE(ode_params=tiny_params, device="cpu", delta_t=1e-4)
+    state = _state(torch.tensor([1.0, 2.0, 0.4]))
+    assert ode.floor_binding_fraction(state, tiny_params.edge_index) == 0.0
+
+    coarse = FlyVisConductanceODE(ode_params=tiny_params, device="cpu", delta_t=1.0)
+    assert coarse.floor_binding_fraction(state, tiny_params.edge_index) == 1.0
+
+
+def test_unknown_integration_scheme_is_rejected(tiny_params):
+    with pytest.raises(ValueError, match="integration"):
+        FlyVisConductanceODE(ode_params=tiny_params, device="cpu", integration="rk4")
