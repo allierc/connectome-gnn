@@ -1171,29 +1171,25 @@ def data_generate_voltage(
             f"nonzero={int((p.W != 0).sum())}/{len(p.W)} edges"
         )
     elif is_conductance:
+        from connectome_gnn.generators.flyvis_conductance_fit import ensure_conductance_twin
         from connectome_gnn.generators.flyvis_conductance_ode import FlyVisConductanceODE
-        from connectome_gnn.generators.ode_params import FlyVisConductanceODEParams
 
-        if not sim.conductance_twin_path:
-            raise ValueError(
-                f"ground_truth_model '{ground_truth}' needs simulation.conductance_twin_path "
-                "pointing at a derived twin; build one with "
-                "python -m connectome_gnn.generators.flyvis_conductance_fit"
-            )
         # accept either a literal path or one relative to graphs_data/, the way
-        # `dataset` is interpreted
-        twin_path = sim.conductance_twin_path
+        # `dataset` is interpreted; default to one twin per extent, since a twin
+        # is only valid for the connectome it was derived on
+        twin_path = sim.conductance_twin_path or f"fly/conductance_twin_extent{extent}"
         if not os.path.exists(os.path.join(twin_path, "ode_params.pt")):
             twin_path = graphs_data_path(twin_path)
-        twin = FlyVisConductanceODEParams.load(twin_path, device=device)
-        if twin.G is None:
-            raise ValueError(f"{twin_path}/ode_params.pt holds no conductances; it is not a twin")
-        if twin.G.shape[0] != ode_params.W.shape[0]:
-            raise ValueError(
-                f"the twin at {twin_path} has {twin.G.shape[0]} edges but this connectome has "
-                f"{ode_params.W.shape[0]}; derive the twin from the same ensemble_id/model_id "
-                "and extent"
-            )
+        # Derived on first use if absent, from *this* network and *this* stimulus
+        # dataset, so the twin cannot end up at the wrong extent or fitted on
+        # clips the run will never show it.
+        twin = ensure_conductance_twin(
+            net,
+            twin_path,
+            dataset=stimulus_dataset if "DAVIS" not in sim.visual_input_type else None,
+            extent=extent,
+            delta_t=sim.delta_t,
+        ).to(device)
         pde = FlyVisConductanceODE(ode_params=twin, device=device, delta_t=sim.delta_t)
         # The twin has no single signed weight: its synaptic current is
         # G * relu(v_j) * (E - v_i). What a presynaptic-only message function can
