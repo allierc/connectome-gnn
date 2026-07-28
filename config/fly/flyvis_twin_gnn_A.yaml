@@ -1,0 +1,85 @@
+description: 'Experiment 1: the presynaptic-only GNN (flyvis_A) on conductance-twin
+  rollouts. The data comes from the conductance-based twin of the pretrained flyvis
+  model; the GNN is unchanged, so its message cannot see the postsynaptic voltage and
+  cannot represent the driving force (E - v_i). This run measures what that costs.
+  Derive the twin first:
+  python -m connectome_gnn.generators.flyvis_conductance_fit --extent 8 --n-concat 4
+  --out graphs_data/fly/conductance_twin_extent8'
+dataset: flyvis_twin_gnn_A
+simulation:
+  connectivity_file: to be specified
+  adjacency_matrix: ''
+  params:
+  - - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+  # extent-8 connectome, as graph_data_generator builds it
+  n_neurons: 13741
+  n_input_neurons: 1736
+  n_neuron_types: 65
+  n_edges: 434112
+  n_frames: 64000
+  # the twin is fitted at dt=0.01 and should be simulated there: the integrator
+  # floors the effective time constant tau/(1+G) at delta_t to stop forward Euler
+  # overshooting, and at a coarser step that floor binds much more often
+  delta_t: 0.01
+  baseline_value: 0
+  visual_input_type: sintel
+  noise_model_level: 0.0
+  measurement_noise_level: 0.0
+  seed: 42
+  # which ODE generates the data, independently of which GNN learns it
+  ground_truth_model: flyvis_conductance
+  conductance_twin_path: fly/conductance_twin_extent8
+graph_model:
+  signal_model_name: flyvis_A
+  prediction: first_derivative
+  input_size: 3
+  n_layers: 3
+  hidden_dim: 80
+  output_size: 1
+  input_size_update: 5
+  n_layers_update: 3
+  hidden_dim_update: 80
+  aggr_type: add
+  embedding_dim: 2
+  update_type: generic
+  g_phi_positive: true
+plotting:
+  colormap: tab20
+  arrow_length: 1
+  xlim:
+  - -2.5
+  - 2.5
+  ylim:
+  - -100
+  - 100
+training:
+  n_runs: 1
+  device: auto
+  recurrent_training: false
+  batch_size: 6
+  batch_ratio: 1
+  small_init_batch_size: false
+  sparsity: none
+  lr_W: 0.0009
+  lr: 0.0018
+  lr_embedding: 0.002325
+  coeff_g_phi_diff: 1200
+  coeff_f_theta_msg_diff: 0
+  coeff_g_phi_norm: 0.9
+  coeff_g_phi_weight_L1: 0.28
+  coeff_f_theta_weight_L1: 0.05
+  coeff_g_phi_weight_L2: 0
+  coeff_f_theta_weight_L2: 0.001
+  coeff_W_L1: 0.00015
+  coeff_W_L2: 1.5e-06
+  w_init_mode: randn_scaled
+  w_init_scale: 1.0
+  use_gt_edges: true
+  regul_annealing_rate: 0
+  seed: 42
+  n_epochs: 1
+  data_augmentation_loop: 30
+config_file: fly/flyvis_twin_gnn_A

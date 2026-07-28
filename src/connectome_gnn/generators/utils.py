@@ -692,6 +692,27 @@ def is_hodgkin_huxley_model(signal_model_name: str) -> bool:
         return False
 
 
+def is_conductance_model(signal_model_name: str) -> bool:
+    """Check if signal_model_name maps to the conductance-twin ODE params class."""
+    from connectome_gnn.generators.ode_params import FlyVisConductanceODEParams, get_ode_params_class
+
+    try:
+        return get_ode_params_class(signal_model_name) is FlyVisConductanceODEParams
+    except KeyError:
+        return False
+
+
+def ground_truth_model_name(config) -> str:
+    """Name of the ODE that generates the data.
+
+    Defaults to the GNN's own model name, which is the historical behaviour.
+    Setting ``simulation.ground_truth_model`` decouples the two, so a GNN of one
+    kind can be trained on rollouts of another — e.g. the presynaptic-only
+    flyvis_A on rollouts of the conductance twin.
+    """
+    return getattr(config.simulation, "ground_truth_model", "") or config.graph_model.signal_model_name
+
+
 def is_connconstr_model(signal_model_name: str) -> bool:
     """Check if signal_model_name maps to a connconstr ODE params class."""
     from connectome_gnn.generators.ode_params import (

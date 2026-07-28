@@ -68,7 +68,9 @@ from connectome_gnn.generators.utils import (
     generate_compressed_video_mp4,
     get_equidistant_points,
     greedy_blue_mask,
+    ground_truth_model_name,
     is_adex_model,
+    is_conductance_model,
     is_connconstr_model,
     is_flyvis_hybrid_model,
     is_hodgkin_huxley_model,
@@ -168,7 +170,7 @@ def data_generate(
                 save=save,
                 compute_ranks=compute_ranks,
             )
-        elif is_hodgkin_huxley_model(config.graph_model.signal_model_name):
+        elif is_hodgkin_huxley_model(ground_truth_model_name(config)):
             data_generate_voltage(
                 config,
                 visualize=visualize,
@@ -893,7 +895,22 @@ def data_generate_voltage(
     from connectome_gnn.generators.ode_params import FlyVisHodgkinHuxleyODEParams, FlyVisODEParams, get_ode_params_class
     from connectome_gnn.utils import setup_flyvis_model_path
 
-    is_hh = is_hodgkin_huxley_model(model_config.signal_model_name)
+    ground_truth = ground_truth_model_name(config)
+    is_hh = is_hodgkin_huxley_model(ground_truth)
+    is_conductance = is_conductance_model(ground_truth)
+    if is_conductance:
+        logger.info(f"ground-truth dynamics: {ground_truth} (conductance twin)")
+        # These two rewrite ode_params.W / edge_index before the ODE is built,
+        # and the twin carries its own G and edge_index, so they would be
+        # silently ignored rather than applied. Refuse instead of simulating
+        # something other than what was asked for. (edge_removal_ratio is fine:
+        # it only subsets what is saved, after the rollout.)
+        if sim.n_extra_null_edges > 0 or sim.ablation_ratio > 0:
+            raise NotImplementedError(
+                "n_extra_null_edges and ablation_ratio are not wired through the conductance "
+                "twin yet; they would not reach the simulated dynamics. Derive an ablated twin "
+                "instead, or use edge_removal_ratio, which is applied after the rollout."
+            )
 
     logging.getLogger().setLevel(logging.WARNING)
     setup_flyvis_model_path()
@@ -1152,6 +1169,48 @@ def data_generate_voltage(
         logger.info(
             f"[HH] connectome: W range=[{p.W.min():.3f}, {p.W.max():.3f}] mean={p.W.mean():.4f} "
             f"nonzero={int((p.W != 0).sum())}/{len(p.W)} edges"
+        )
+    elif is_conductance:
+        from connectome_gnn.generators.flyvis_conductance_ode import FlyVisConductanceODE
+        from connectome_gnn.generators.ode_params import FlyVisConductanceODEParams
+
+        if not sim.conductance_twin_path:
+            raise ValueError(
+                f"ground_truth_model '{ground_truth}' needs simulation.conductance_twin_path "
+                "pointing at a derived twin; build one with "
+                "python -m connectome_gnn.generators.flyvis_conductance_fit"
+            )
+        # accept either a literal path or one relative to graphs_data/, the way
+        # `dataset` is interpreted
+        twin_path = sim.conductance_twin_path
+        if not os.path.exists(os.path.join(twin_path, "ode_params.pt")):
+            twin_path = graphs_data_path(twin_path)
+        twin = FlyVisConductanceODEParams.load(twin_path, device=device)
+        if twin.G is None:
+            raise ValueError(f"{twin_path}/ode_params.pt holds no conductances; it is not a twin")
+        if twin.G.shape[0] != ode_params.W.shape[0]:
+            raise ValueError(
+                f"the twin at {twin_path} has {twin.G.shape[0]} edges but this connectome has "
+                f"{ode_params.W.shape[0]}; derive the twin from the same ensemble_id/model_id "
+                "and extent"
+            )
+        pde = FlyVisConductanceODE(ode_params=twin, device=device, delta_t=sim.delta_t)
+        # The twin has no single signed weight: its synaptic current is
+        # G * relu(v_j) * (E - v_i). What a presynaptic-only message function can
+        # recover at best is the small-signal weight at the postsynaptic
+        # operating point, so that is what ode_params.W — and therefore the
+        # connectivity metric — carries. G and E themselves are saved alongside,
+        # for models that factorize the message and can be scored on them.
+        ode_params.tau_i = twin.tau_i.clone()
+        ode_params.V_i_rest = twin.V_i_rest.clone()
+        twin.refresh_effective_weights()
+        ode_params.W = twin.W.clone()
+        if save:
+            twin.save(graphs_data_path(config.dataset), filename="conductance_params.pt")
+        logger.info(
+            f"conductance twin from {twin_path}: G in [{twin.G.min():.2e}, {twin.G.max():.2e}], "
+            f"E_inh={twin.reversal_inh:.3f} E_exc={twin.reversal_exc:.3f}, "
+            f"effective W in [{ode_params.W.min():.3f}, {ode_params.W.max():.3f}]"
         )
     else:
         pde = FlyVisODE(
