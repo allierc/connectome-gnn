@@ -443,6 +443,48 @@ def group_conductances(index: ConductanceIndex, edge_conductance: torch.Tensor):
     return total / count.clamp(min=1)
 
 
+def conductance_pruning_stats(index: ConductanceIndex, conductance: torch.Tensor,
+                             threshold: float = 1e-10) -> Dict[str, float]:
+    """How much of the connectome the non-negative fit drove to zero.
+
+    Stage 2 constrains G >= 0 while the sign of the driving force is fixed by the
+    connectome. Where a shared group's contribution is better explained with the
+    opposite polarity — or is collinear with another group onto the same cell
+    type — the NNLS clamps it to zero. The twin is then not merely "the same
+    network with conductances": it is also effectively sparser, and a GNN trained
+    on its rollouts is being asked to recover a connectivity in which those edges
+    really do carry no weight.
+
+    That is self-consistent (connectivity_r2 compares against the twin's own W),
+    but it makes numbers from twin rollouts not directly comparable with numbers
+    from current-based rollouts, so it is worth recording per derivation rather
+    than left to be discovered.
+
+    Args:
+        index: connectome bookkeeping.
+        conductance: (E,) per-edge peak conductances.
+        threshold: per-group scale at or below which a group counts as pruned.
+
+    Returns:
+        Dict with the pruned group and edge counts, and the share of the
+        teacher's total |W| those edges carried.
+    """
+    scale = group_conductances(index, conductance)
+    pruned_groups = scale <= threshold
+    pruned_edges = pruned_groups[index.edge_group]
+    weight = index.edge_weight.abs()
+    total = float(weight.sum())
+    return {
+        "n_groups": int(index.n_groups),
+        "n_pruned_groups": int(pruned_groups.sum()),
+        "pruned_group_fraction": float(pruned_groups.float().mean()),
+        "pruned_edge_fraction": float(pruned_edges.float().mean()),
+        "pruned_share_of_teacher_weight": float(weight[pruned_edges].sum() / total)
+        if total > 0
+        else 0.0,
+    }
+
+
 # ---------------------------------------------------------------------------
 # stage 2: convex synaptic-current matching
 # ---------------------------------------------------------------------------
@@ -704,47 +746,48 @@ def fit_rollouts(
     ode = FlyVisConductanceODE(ode_params=working, device=device, delta_t=delta_t)
 
     history: List[float] = []
-    for epoch in range(epochs):
-        for sequence, (teacher, stimulus) in enumerate(zip(teacher_voltages, stimuli)):
-            teacher = teacher.to(device)
-            stimulus = stimulus.to(device)
-            optimizer.zero_grad(set_to_none=True)
 
-            def materialize():
-                working.G = conductance_of(raw_conductance)
-                working.tau_i = tau_of(raw_tau)
-                working.V_i_rest = node_of(raw_rest)
+    def materialize():
+        working.G = conductance_of(raw_conductance)
+        working.tau_i = tau_of(raw_tau)
+        working.V_i_rest = node_of(raw_rest)
 
+    def fit_one(teacher, stimulus):
+        """One truncated-BPTT pass over a sequence; returns its mean loss."""
+        optimizer.zero_grad(set_to_none=True)
+        materialize()
+        with torch.no_grad():
+            state = steady_state(ode, working, index.input_index, index.n_nodes, delta_t)
+
+        loss_value = 0.0
+        for window in _bptt_windows(teacher.shape[0], bptt_steps):
+            # re-derive the parameters so each window gets its own graph
             materialize()
-            with torch.no_grad():
-                state = steady_state(
-                    ode, working, index.input_index, index.n_nodes, delta_t
-                )
+            voltages = rollout(ode, working, stimulus[window], state, delta_t, grad=True)
+            loss = ((voltages - teacher[window]) / scale).pow(2).mean()
+            weight = (window.stop - window.start) / teacher.shape[0]
+            (loss * weight).backward()
+            loss_value += float(loss.detach()) * weight
+            state = voltages[-1].detach()
 
-            loss_value = 0.0
-            for window in _bptt_windows(teacher.shape[0], bptt_steps):
-                # re-derive the parameters so each window gets its own graph
-                materialize()
-                voltages = rollout(
-                    ode, working, stimulus[window], state, delta_t, grad=True
-                )
-                loss = ((voltages - teacher[window]) / scale).pow(2).mean()
-                weight = (window.stop - window.start) / teacher.shape[0]
-                (loss * weight).backward()
-                loss_value += float(loss.detach()) * weight
-                state = voltages[-1].detach()
+        if grad_clip:
+            torch.nn.utils.clip_grad_norm_([raw_conductance, raw_tau, raw_rest], grad_clip)
+        optimizer.step()
+        return loss_value
 
-            if grad_clip:
-                torch.nn.utils.clip_grad_norm_(
-                    [raw_conductance, raw_tau, raw_rest], grad_clip
-                )
-            optimizer.step()
-            history.append(loss_value)
-            if log_every and sequence % log_every == 0:
-                logger.info(
-                    "epoch %d sequence %d normalized voltage MSE %.5f",
-                    epoch, sequence, loss_value,
-                )
+    # Enable grad explicitly rather than relying on the ambient mode: the data
+    # generator disables it globally before it ever gets here, which would leave
+    # the materialized parameters without a grad_fn and break BPTT.
+    with torch.enable_grad():
+        for epoch in range(epochs):
+            for sequence, (teacher, stimulus) in enumerate(zip(teacher_voltages, stimuli)):
+                loss_value = fit_one(teacher.to(device), stimulus.to(device))
+                history.append(loss_value)
+                if log_every and sequence % log_every == 0:
+                    logger.info(
+                        "epoch %d sequence %d normalized voltage MSE %.5f",
+                        epoch, sequence, loss_value,
+                    )
 
     with torch.no_grad():
         twin_params.G = conductance_of(raw_conductance).detach()
@@ -1048,6 +1091,15 @@ def derive_conductance_twin(
     diagnostics["unexplained_current_fraction"] = stage2[
         "unexplained_current_fraction"
     ]
+    diagnostics["pruning"] = conductance_pruning_stats(index, twin.G)
+    logger.info(
+        "non-negativity pruned %d/%d shared groups (%.1f%% of edges, carrying %.2f%% "
+        "of the teacher's total |W|)",
+        diagnostics["pruning"]["n_pruned_groups"],
+        diagnostics["pruning"]["n_groups"],
+        100 * diagnostics["pruning"]["pruned_edge_fraction"],
+        100 * diagnostics["pruning"]["pruned_share_of_teacher_weight"],
+    )
     logger.info(
         "unexplained synaptic-current variance %.5f",
         stage2["unexplained_current_fraction"],
@@ -1065,6 +1117,124 @@ def derive_conductance_twin(
         )
 
     return twin, index, diagnostics
+
+
+def ensure_conductance_twin(
+    net,
+    folder: str,
+    dataset=None,
+    extent: Optional[int] = None,
+    delta_t: float = 1 / 100,
+    n_train: int = 12,
+    n_test: int = 4,
+    n_concat: int = 4,
+    epochs: int = 6,
+    write_tables_too: bool = True,
+    **derive_kwargs,
+) -> FlyVisConductanceODEParams:
+    """Load the twin at `folder`, deriving and saving it first if it is absent.
+
+    Lets a config point at a twin that has not been built yet: the submission
+    branch stays small and whoever runs the pipeline gets the twin derived on
+    first use instead of a missing-file error.
+
+    Deriving from the caller's own ``net`` and ``dataset`` is what makes this
+    safe. The alternative — reloading flyvis here — would have to guess the
+    extent and the Sintel settings, and a twin derived at the wrong extent has
+    the wrong number of edges. Passing the network the data will actually be
+    generated with removes that class of mismatch.
+
+    Args:
+        net: the flyvis network the rollouts will be generated with.
+        folder: where the twin lives, or should be written.
+        dataset: an AugmentedSintel to draw the fitting clips from. Pass None
+            when the run's own stimuli are not Sintel (DAVIS, say) and one will
+            be built — in which case ``extent`` must be given, or the rendering
+            will not match the connectome.
+        extent: hexagonal extent of ``net``, used only when building a dataset.
+        delta_t: integration step; the twin should be simulated at the step it
+            was fitted at.
+        n_train: clips to fit on.
+        n_test: clips held out for the reported R².
+        n_concat: clips joined per fitting sequence, so sequences outlast the
+            BPTT window.
+        epochs: rollout-matching epochs; 0 stops after the convex stage.
+        write_tables_too: also write nodes.csv / edges.parquet / meta.json.
+        **derive_kwargs: forwarded to :func:`derive_conductance_twin`.
+
+    Returns:
+        The twin, loaded from disk if it was already there.
+
+    Raises:
+        ValueError: if an existing twin at `folder` does not match ``net``.
+    """
+    existing = os.path.join(folder, "ode_params.pt")
+    if os.path.exists(existing):
+        twin = FlyVisConductanceODEParams.load(folder)
+        if twin.G is None:
+            raise ValueError(f"{existing} holds no conductances; it is not a twin")
+        if twin.G.shape[0] != net.n_edges:
+            raise ValueError(
+                f"the twin at {folder} has {twin.G.shape[0]} edges but this connectome has "
+                f"{net.n_edges}; delete it to re-derive, or point at the twin for this extent"
+            )
+        logger.info("using the conductance twin at %s", folder)
+        return twin
+
+    logger.info(
+        "no conductance twin at %s — deriving one now (%d neurons, %d edges); "
+        "this takes a few minutes and only happens once",
+        folder, net.n_nodes, net.n_edges,
+    )
+    if dataset is None:
+        if extent is None:
+            raise ValueError(
+                "ensure_conductance_twin needs either a dataset to draw clips from or the "
+                "extent to build one at; a rendering that does not match the connectome "
+                "would silently produce a twin with the wrong number of input hexals"
+            )
+        _, dataset = naturalistic_movies(
+            dt=delta_t, n_sequences=1, n_frames=19, tasks=["flow"], interpolate=True,
+            boxfilter=dict(extent=extent, kernel_size=13), vertical_splits=3,
+            center_crop_fraction=0.7,
+        )
+    movies = concatenated_movies(dataset, n_concat=n_concat, n_sequences=n_train + n_test)
+    if len(movies) < n_train + n_test:
+        raise ValueError(
+            f"the stimulus dataset yields only {len(movies)} sequences of {n_concat} joined "
+            f"clips, fewer than the {n_train + n_test} the fit asks for; lower n_concat"
+        )
+
+    twin, index, diagnostics = derive_conductance_twin(
+        net, movies[:n_train], delta_t=delta_t, epochs=epochs, **derive_kwargs
+    )
+
+    teacher_ode, teacher_params = current_based_ode(net)
+    initial = steady_state(
+        teacher_ode, teacher_params, index.input_index, index.n_nodes, delta_t
+    )
+    stimuli, voltages = [], []
+    for movie in movies[n_train:]:
+        stimulus = stimulus_from_movie(movie, index.input_index, index.n_nodes)
+        stimuli.append(stimulus)
+        voltages.append(
+            rollout(teacher_ode, teacher_params, stimulus, initial.clone(), delta_t)
+        )
+    if voltages:
+        diagnostics["held_out_r2"] = evaluate_twin(
+            twin, index, voltages, stimuli, delta_t
+        )["r2"]
+        logger.info("derived twin: held-out voltage r2 %.4f", diagnostics["held_out_r2"])
+
+    os.makedirs(folder, exist_ok=True)
+    twin.save(folder)
+    if write_tables_too:
+        meta = write_tables(net, twin, folder)
+        meta["diagnostics"] = diagnostics
+        with open(os.path.join(folder, "meta.json"), "w") as handle:
+            json.dump(meta, handle, indent=2)
+    logger.info("saved the derived twin to %s", folder)
+    return twin
 
 
 # ---------------------------------------------------------------------------
@@ -1284,7 +1454,8 @@ def main(args) -> None:
         net, train, delta_t=args.dt,
         reversal_margin=(args.margin_inh, args.margin_exc),
         epochs=args.epochs, bptt_steps=args.bptt_steps,
-        time_chunk=args.time_chunk, share=not args.per_edge, device=args.device,
+        time_chunk=args.time_chunk, ridge=args.ridge, share=not args.per_edge,
+        device=args.device,
     )
 
     teacher_ode, teacher_params = current_based_ode(net, device=args.device)
@@ -1347,6 +1518,12 @@ if __name__ == "__main__":
     parser.add_argument("--epochs", type=int, default=8)
     parser.add_argument("--bptt-steps", type=int, default=20)
     parser.add_argument("--time-chunk", type=int, default=8)
+    parser.add_argument(
+        "--ridge", type=float, default=1e-6,
+        help="Tikhonov weight pulling the convex stage towards the closed-form "
+             "prior, relative to the mean diagonal of the normal equations. "
+             "Raise it to keep more shared groups off zero at some cost in fit.",
+    )
     parser.add_argument(
         "--per-edge", action="store_true",
         help="free every synapse and neuron in the rollout stage instead of "

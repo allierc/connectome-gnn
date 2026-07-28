@@ -2,10 +2,8 @@ description: 'Experiment 2: the conductance GNN on conductance-twin rollouts. Sa
   data as flyvis_twin_gnn_A, but the message factorizes into a non-negative
   conductance and an explicit driving force towards a learned per-edge reversal
   potential, so G and E can be read straight off the model and scored directly.
-  Derive the twin first:
-  python -m connectome_gnn.generators.flyvis_conductance_fit --extent 8 --n-concat 4
-  --out graphs_data/fly/conductance_twin_extent8'
-dataset: flyvis_twin_gnn_cond
+'
+dataset: flyvis_twin_gnn_cond_e8
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ''
@@ -29,9 +27,10 @@ simulation:
   noise_model_level: 0.0
   measurement_noise_level: 0.0
   seed: 42
-  # which ODE generates the data, independently of which GNN learns it
+  # which ODE generates the data, independently of which GNN learns it. The twin
+  # defaults to fly/conductance_twin_extent{8,15} and is derived on first use if
+  # absent; set conductance_twin_path to override.
   ground_truth_model: flyvis_conductance
-  conductance_twin_path: fly/conductance_twin_extent8
 graph_model:
   # msg_j = (W[edge] * g_phi(v_j, a_j))^2 * (e_psi(a_i, a_j) - v_i)
   # Use flyvis_conductance (input_size 6) for the unfactorized variant, whose
@@ -88,4 +87,4 @@ training:
   seed: 42
   n_epochs: 1
   data_augmentation_loop: 30
-config_file: fly/flyvis_twin_gnn_cond
+config_file: fly/flyvis_twin_gnn_cond_e8

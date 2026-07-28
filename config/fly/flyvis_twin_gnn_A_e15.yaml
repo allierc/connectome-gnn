@@ -2,10 +2,8 @@ description: 'Experiment 1: the presynaptic-only GNN (flyvis_A) on conductance-t
   rollouts. The data comes from the conductance-based twin of the pretrained flyvis
   model; the GNN is unchanged, so its message cannot see the postsynaptic voltage and
   cannot represent the driving force (E - v_i). This run measures what that costs.
-  Derive the twin first:
-  python -m connectome_gnn.generators.flyvis_conductance_fit --extent 8 --n-concat 4
-  --out graphs_data/fly/conductance_twin_extent8'
-dataset: flyvis_twin_gnn_A
+'
+dataset: flyvis_twin_gnn_A_e15
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ''
@@ -14,11 +12,12 @@ simulation:
     - 1.0
     - 1.0
     - 1.0
-  # extent-8 connectome, as graph_data_generator builds it
-  n_neurons: 13741
-  n_input_neurons: 1736
+  # extent-15 connectome: all 721 retinotopic columns
+  all_columns: true
+  n_neurons: 45669
+  n_input_neurons: 5768
   n_neuron_types: 65
-  n_edges: 434112
+  n_edges: 1513231
   n_frames: 64000
   # the twin is fitted at dt=0.01 and should be simulated there: the integrator
   # floors the effective time constant tau/(1+G) at delta_t to stop forward Euler
@@ -29,9 +28,10 @@ simulation:
   noise_model_level: 0.0
   measurement_noise_level: 0.0
   seed: 42
-  # which ODE generates the data, independently of which GNN learns it
+  # which ODE generates the data, independently of which GNN learns it. The twin
+  # defaults to fly/conductance_twin_extent{8,15} and is derived on first use if
+  # absent; set conductance_twin_path to override.
   ground_truth_model: flyvis_conductance
-  conductance_twin_path: fly/conductance_twin_extent8
 graph_model:
   signal_model_name: flyvis_A
   prediction: first_derivative
@@ -82,4 +82,4 @@ training:
   seed: 42
   n_epochs: 1
   data_augmentation_loop: 30
-config_file: fly/flyvis_twin_gnn_A
+config_file: fly/flyvis_twin_gnn_A_e15
