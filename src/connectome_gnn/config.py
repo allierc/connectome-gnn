@@ -161,6 +161,16 @@ class SimulationConfig(BaseModel):
     model_id: str = "000"
     ensemble_id: str = "0000"
 
+    # Which ODE generates the ground-truth rollouts. Empty means "the same model
+    # the GNN is", i.e. graph_model.signal_model_name, which is the historical
+    # behaviour. Set it to train a GNN of one kind on data from another — e.g.
+    # ground_truth_model: flyvis_conductance with signal_model_name: flyvis_A.
+    ground_truth_model: str = ""
+    # Folder holding a derived conductance twin (ode_params.pt), required when
+    # ground_truth_model is a conductance model. Built by
+    # connectome_gnn.generators.flyvis_conductance_fit.
+    conductance_twin_path: str = ""
+
     sub_sampling: int = 1
     delta_t: float = 1
 

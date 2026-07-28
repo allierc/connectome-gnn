@@ -646,6 +646,98 @@ def compute_dynamics_r2(model, x_ts, config, device, n_neurons):
     return out
 
 
+_CONDUCTANCE_R2_EMPTY = {
+    'conductance_r2': float('nan'),
+    'reversal_r2':    float('nan'),
+}
+
+
+def compute_conductance_r2(model, x_ts, config, device, n_neurons):
+    """R² of a factorized GNN's learned conductance and reversal potential.
+
+    ``connectivity_r2`` scores the learned per-edge W against the twin's
+    small-signal weight ``G (E - v_rest)``, which is the best a presynaptic-only
+    message function can do. A model that factorizes its message into a
+    non-negative conductance and an explicit driving force exposes ``G`` and
+    ``E`` separately, so it can be scored on them directly — the sharper
+    question: did it recover the two factors, or only their product?
+
+    Both are evaluated at each neuron's mean activity, the operating point the
+    small-signal weight is defined at.
+
+    Note ``reversal_r2`` is a two-group separation, not a fit to a continuum: E
+    takes exactly two values, so it says whether the model told excitatory and
+    inhibitory edges apart.
+
+    Args:
+        model: a model exposing ``edge_conductance(v, embedding, edge_index)``.
+        x_ts: the rollout, for the per-neuron mean activity.
+        config: run config; ``config.dataset`` locates conductance_params.pt.
+        device: torch device.
+        n_neurons: number of neurons.
+
+    Returns:
+        dict with keys conductance_r2 and reversal_r2. Both nan when the model
+        does not factorize its message or the dataset has no conductance ground
+        truth.
+    """
+    import os
+
+    from connectome_gnn.generators.ode_params import FlyVisConductanceODEParams
+
+    if not hasattr(model, 'edge_conductance'):
+        return dict(_CONDUCTANCE_R2_EMPTY)
+
+    folder = graphs_data_path(config.dataset)
+    if not os.path.exists(os.path.join(folder, 'conductance_params.pt')):
+        return dict(_CONDUCTANCE_R2_EMPTY)
+    twin = FlyVisConductanceODEParams.load(folder, device=device, filename='conductance_params.pt')
+    if twin.G is None or twin.E_rev is None:
+        return dict(_CONDUCTANCE_R2_EMPTY)
+
+    mu, _ = compute_activity_stats(x_ts, device)
+    voltage = torch.as_tensor(mu, dtype=torch.float32, device=device)[:n_neurons, None]
+    embedding = model.a[torch.arange(n_neurons, device=device)]
+    if embedding.dim() == 1:
+        embedding = embedding.unsqueeze(-1)
+    edge_index = twin.edge_index.to(device)
+
+    try:
+        with torch.no_grad():
+            conductance, reversal = model.edge_conductance(voltage, embedding, edge_index)
+    except NotImplementedError:
+        # the unfactorized variant cannot separate the two factors
+        return dict(_CONDUCTANCE_R2_EMPTY)
+
+    def is_flat(values):
+        # "constant up to float noise", not "exactly constant": an untrained
+        # model has identical embeddings on every edge, so e_psi sees identical
+        # inputs and its spread across edges is pure batched-matmul rounding.
+        # Fitting a line through that noise yields an R² of anything at all.
+        # The threshold sits above float32 epsilon (~1.2e-7) and far below any
+        # spread a trained model would produce, which is O(1) relative.
+        scale = max(float(np.abs(values).max()), 1.0)
+        return float(np.std(values)) <= 1e-6 * scale
+
+    def safe_r2(true, learned):
+        # a flat prediction makes R² undefined, not zero; reporting 0.0 would
+        # read as "wrong" rather than "nothing to compare yet"
+        if is_flat(learned) or is_flat(true):
+            return float('nan')
+        # NSE, matching connectivity_r2, tau_r2 and vrest_r2 on this branch: it
+        # penalizes scale and bias errors rather than fitting them away, so
+        # these numbers are read on the same footing as the others
+        try:
+            return float(compute_r_squared_NSE(true, learned)[0])
+        except Exception:
+            return float('nan')
+
+    return {
+        'conductance_r2': safe_r2(to_numpy(twin.G), to_numpy(conductance.squeeze())),
+        'reversal_r2':    safe_r2(to_numpy(twin.E_rev), to_numpy(reversal.squeeze())),
+    }
+
+
 def compute_dynamics_r2_linear(model, config, device, n_neurons):
     """Compute V_rest R² and tau R² for LinearODE (direct parameter comparison).
 
