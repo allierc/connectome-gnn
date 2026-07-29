@@ -1,5 +1,5 @@
-description: "Drosophila CX grid cells (torus), PI-anchored — Net2 sweep: sparsity=0.4, E/I ratio=0.6."
-dataset: drosophila_cx_si_task_338_grid_cells
+description: "Drosophila CX rotation_torus + conjunction input (vx,vy given): tests whether position integration works once the velocity*heading multiply is handed to the net."
+dataset: drosophila_cx_si_task_338_rotation_torus_conj
 simulation:
   gcamp_kernel: gcamp6f
   params:
@@ -10,16 +10,18 @@ graph_model:
   # Net1 = sign-locked CX path-integration RNN (heading+distance); Net2 =
   # learnable sign-locked E/I place network reading Net1's state. The wrapper
   # model builds both. (For pure data generation only the task block matters.)
-  signal_model_name: drosophila_cx_pi_place
+  signal_model_name: drosophila_cx_pi
   aggr_type: add
   input_proj: matrix
   output_proj: matrix
-  velocity_gate: pen_pfn
+  velocity_gate: none          # free W_in for the 6 input channels
+  n_input: 6
+  n_output: 6
   lock_edge_signs: true
   hidden_dim: 128
   n_layers: 3
   MLP_activation: relu
-  output_from_epg_only: true
+  output_from_epg_only: false   # position lives in PFN/hΔ, not the EPG ring
 circuit:
   name: drosophila_cx_338_v1
 plotting:
@@ -68,10 +70,9 @@ training:
   torch_compile: false
   w_init_mode: w_con
   # Net1 (CX) supervises heading+distance; Net2 the place code.
-  task_targets: ['grid_cells']
+  task_targets: ['rotation_torus']
   coeff_place: 1.0
   coeff_pos: 1.0
-  place_anchor: true   # PI anchor: seed place/grid cells at the start position (t=0)
 task:
   task_type: swim_integration
   task_only: true
@@ -93,18 +94,19 @@ task:
     omega_noise_level: 0.0
     forward_vel_mean: 1.0
     forward_vel_std: 0.4
-    target_kind: grid_cells
+    target_kind: rotation_torus
     # Arena / place-field geometry
     arena_half: 1.0
     place_grid: 20
     place_sigma: 0.2
     # --- grid-cell torus geometry ---
-    grid_period: 2.0
+    grid_period: 0.5
     grid_grid: 20
-    grid_sigma: 0.4
+    grid_sigma: 0.1
+    conjunction_input: true   # append vx=v*cos(theta), vy=v*sin(theta)
     # Net2 synthetic sign-locked E/I connectome
     net2_n_interneurons: 200
-    net2_sparsity: 0.4
-    net2_ei_ratio: 0.6
+    net2_sparsity: 0.10
+    net2_ei_ratio: 0.60
     net2_seed: 700000
     seed: 300000

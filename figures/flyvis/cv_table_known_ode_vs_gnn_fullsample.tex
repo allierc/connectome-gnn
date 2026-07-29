@@ -1,0 +1,39 @@
+% FULL-SAMPLE twin of cv_table_known_ode_vs_gnn.tex (rows only).
+% Cols: ... | tau R^2 | Vrest R^2 | cluster.  tau/Vrest cell = inlier R^2 (FULL-SAMPLE R^2) [excluded %], mean{\pm}SD over 5 folds; excluded %% = mean(n_outliers/n_neurons). Full-sample = Supp. Eq. 23 over ALL neurons (variant A: tau_hat clipped to [0, 1]). W R^2 and cluster are unfiltered (unchanged). Colour on full-sample value.
+Known ODE  & noise-free  & $0$
+  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
+  & \good{$0.96{\pm}0.00$}
+  & \bad{$1.00{\pm}0.00\,(0.09{\pm}0.02)\,[1.9]$}
+  & $0.97{\pm}0.00\,(0.86{\pm}0.00)\,[10.2]$
+  & \good{$0.92{\pm}0.00$} \\
+           & low noise   & $0.05$
+  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
+  & \good{$0.99{\pm}0.00$}
+  & \good{$1.00{\pm}0.00\,(1.00{\pm}0.00)\,[0.0]$}
+  & \good{$0.99{\pm}0.00\,(0.95{\pm}0.00)\,[4.7]$}
+  & \good{$0.93{\pm}0.00$} \\
+           & high noise  & $0.5$
+  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
+  & \good{$1.00{\pm}0.00$}
+  & \good{$1.00{\pm}0.00\,(1.00{\pm}0.00)\,[0.0]$}
+  & \good{$1.00{\pm}0.00\,(1.00{\pm}0.00)\,[0.0]$}
+  & \good{$0.93{\pm}0.00$} \\
+\midrule
+GNN (ours) & noise-free  & $0$
+  & \good{$1.00{\pm}0.00$} & $0.90{\pm}0.21$
+  & $0.89{\pm}0.04$
+  & \bad{$0.94{\pm}0.03\,(-11.80{\pm}14.81)\,[3.1]$}
+  & \bad{$0.76{\pm}0.09\,(-0.39{\pm}0.55)\,[13.7]$}
+  & $0.86{\pm}0.02$ \\
+           & low noise   & $0.05$
+  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
+  & \good{$0.99{\pm}0.00$}
+  & \good{$0.99{\pm}0.00\,(0.99{\pm}0.00)\,[0.0]$}
+  & $0.93{\pm}0.01\,(0.76{\pm}0.13)\,[3.3]$
+  & \good{$0.92{\pm}0.01$} \\
+           & high noise  & $0.5$
+  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
+  & \good{$1.00{\pm}0.00$}
+  & \good{$1.00{\pm}0.00\,(1.00{\pm}0.00)\,[0.0]$}
+  & \good{$0.98{\pm}0.03\,(0.97{\pm}0.04)\,[0.0]$}
+  & \good{$0.92{\pm}0.01$} \\

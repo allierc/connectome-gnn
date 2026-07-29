@@ -397,6 +397,13 @@ class SimulationConfig(BaseModel):
     connconstr_datapath: str = ""      # path to external data files (hemibrain CSVs, goldman_data/, etc.)
     connconstr_model: str = ""         # which model: drosophila_cx, larva, zebrafish
     connconstr_n_trials: int = 50      # number of stimulus trials (CX model)
+    # Drosophila CX input streams. "full" = Hulse Model A (EPG landmark cues +
+    # PEN_a angular velocity). "velocity_only" drops the landmark cues after
+    # cx_seed_frames so EPG activity comes from recurrence rather than injection;
+    # the seed window exists because the velocity drive is rotationally symmetric
+    # and cannot break symmetry to form a bump on its own.
+    cx_drive: str = "full"             # "full" | "velocity_only"
+    cx_seed_frames: int = 100          # landmark-cue seed window for velocity_only
     connconstr_use_pretrained: bool = True  # use pre-trained teacher params if available
 
     connectivity_file: str = ""

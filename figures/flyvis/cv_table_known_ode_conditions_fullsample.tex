@@ -1,0 +1,50 @@
+% FULL-SAMPLE twin of cv_table_known_ode_conditions.tex (Supp. Tab. 7, 8 Known-ODE degradations; rows only).
+% Cols: ... | tau R^2 | Vrest R^2 | cluster.  tau/Vrest cell = inlier R^2 (FULL-SAMPLE R^2) [excluded %], mean{\pm}SD over 5 folds; excluded %% = mean(n_outliers/n_neurons). Full-sample = Supp. Eq. 23 over ALL neurons (variant A: tau_hat clipped to [0, 1]). W R^2 and cluster are unfiltered (unchanged). Colour on full-sample value.
+noise-free               & $0$ & $0$ & $434\,112$
+  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
+  & \good{$0.96{\pm}0.00$}
+  & \bad{$1.00{\pm}0.00\,(0.09{\pm}0.02)\,[1.9]$}
+  & $0.97{\pm}0.00\,(0.86{\pm}0.00)\,[10.2]$
+  & \good{$0.92{\pm}0.00$} \\
+low model noise          & $0.05$ & $0$ & $434\,112$
+  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
+  & \good{$0.99{\pm}0.00$}
+  & \good{$1.00{\pm}0.00\,(1.00{\pm}0.00)\,[0.0]$}
+  & \good{$0.99{\pm}0.00\,(0.95{\pm}0.00)\,[4.7]$}
+  & \good{$0.93{\pm}0.00$} \\
+high model noise         & $0.5$ & $0$ & $434\,112$
+  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
+  & \good{$1.00{\pm}0.00$}
+  & \good{$1.00{\pm}0.00\,(1.00{\pm}0.00)\,[0.0]$}
+  & \good{$1.00{\pm}0.00\,(1.00{\pm}0.00)\,[0.0]$}
+  & \good{$0.93{\pm}0.00$} \\
+low meas. noise          & $0.05$ & $0.1$ & $434\,112$
+  & \good{$0.99{\pm}0.00$} & \good{$0.96{\pm}0.00$}
+  & $0.69{\pm}0.00$
+  & \bad{$0.31{\pm}0.00\,(0.17{\pm}0.00)\,[7.9]$}
+  & \bad{$0.88{\pm}0.00\,(-1.32{\pm}0.02)\,[49.1]$}
+  & $0.88{\pm}0.01$ \\
+mid meas. noise          & $0.05$ & $0.2$ & $434\,112$
+  & \good{$0.96{\pm}0.00$} & \good{$0.92{\pm}0.00$}
+  & $0.42{\pm}0.00$
+  & \bad{$0.06{\pm}0.01\,(-0.04{\pm}0.00)\,[9.7]$}
+  & \bad{$0.89{\pm}0.00\,(-2.95{\pm}0.03)\,[67.9]$}
+  & $0.87{\pm}0.01$ \\
+$+400\%$ null edges      & $0.05$ & $0$ & $2\,170\,560$
+  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
+  & \good{$0.95{\pm}0.00$}
+  & \good{$1.00{\pm}0.00\,(1.00{\pm}0.00)\,[0.0]$}
+  & $1.00{\pm}0.00\,(0.64{\pm}0.00)\,[11.8]$
+  & \good{$0.90{\pm}0.01$} \\
+$-20\%$ edges removed    & $0.05$ & $0$ & $347\,000$
+  & \good{$1.00{\pm}0.00$} & \good{$0.99{\pm}0.00$}
+  & $0.82{\pm}0.00$
+  & \good{$0.99{\pm}0.00\,(0.96{\pm}0.00)\,[0.3]$}
+  & \bad{$0.94{\pm}0.00\,(-1.14{\pm}0.03)\,[31.5]$}
+  & $0.71{\pm}0.01$ \\
+$-50\%$ edges removed    & $0.05$ & $0$ & $217\,056$
+  & \good{$0.98{\pm}0.00$} & \good{$0.94{\pm}0.00$}
+  & \bad{$0.26{\pm}0.00$}
+  & $0.96{\pm}0.00\,(0.88{\pm}0.01)\,[0.9]$
+  & \bad{$0.92{\pm}0.00\,(-4.16{\pm}0.05)\,[57.8]$}
+  & $0.62{\pm}0.02$ \\

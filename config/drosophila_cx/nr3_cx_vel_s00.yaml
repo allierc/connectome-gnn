@@ -1,0 +1,110 @@
+description: "Drosophila CX, VELOCITY-ONLY drive (no EPG landmark cues after frame 100) - tests whether the CX result is about recurrence or about a loss dominated by injected drive"
+dataset: nr3_cx_vel_s00
+simulation:
+  gcamp_kernel: gcamp6f
+  connectivity_file: to be specified
+  adjacency_matrix: ''
+  params:
+  - - 1.0
+    - 1.0
+  n_neurons: 156
+  n_input_neurons: 156
+  n_neuron_types: 7
+  n_edges: 10263
+  n_frames: 10000
+  delta_t: 0.1
+  baseline_value: 0
+  noise_model_level: 0.0
+  seed: 42
+  connconstr_datapath: papers/Code_NN/Code_NN/Data/Figure5
+  connconstr_model: drosophila_cx
+  cx_drive: velocity_only
+  cx_seed_frames: 100
+  connconstr_n_trials: 50
+  connconstr_use_pretrained: true
+graph_model:
+  signal_model_name: drosophila_cx
+  prediction: first_derivative
+  input_size: 3
+  n_layers: 3
+  hidden_dim: 64
+  output_size: 1
+  input_size_update: 5
+  n_layers_update: 3
+  hidden_dim_update: 64
+  aggr_type: add
+  embedding_dim: 2
+  update_type: generic
+  g_phi_positive: true
+circuit:
+  name: drosophila_cx_156_v1
+plotting:
+  colormap: tab10
+  # 3D anatomy-voltage snapshot (`-o test --anatomy_voltage`) - drosophila defaults.
+  anatomy_voltage_elev: 7.6
+  anatomy_voltage_azim: 86.6
+  anatomy_voltage_z_lo: 0.0
+  anatomy_voltage_z_hi: 10.0
+  anatomy_voltage_alpha: 1.0
+  anatomy_voltage_downsample: 10
+  anatomy_voltage_bg: black
+  anatomy_voltage_show_base: true
+  anatomy_voltage_show_icon: false
+  anatomy_voltage_types: []
+  # Probe rollout (pattern + length + per-pattern params).
+  anatomy_voltage_pattern: const
+  anatomy_voltage_n_steps: 4000
+  anatomy_voltage_stride: 5
+  anatomy_voltage_frame_idx: -1
+  anatomy_voltage_omega_deg: 60.0
+  anatomy_voltage_theta0_rad: 0.0
+  anatomy_voltage_swim_interval_s: 1.0
+  anatomy_voltage_swim_magnitude_rad: 0.393
+  anatomy_voltage_swim_t_event_s: 0.0
+  anatomy_voltage_seed: 0
+training:
+  n_epochs: 20
+  n_runs: 1
+  device: auto
+  batch_size: 2
+  batch_ratio: 1
+  small_init_batch_size: false
+  sparsity: none
+  data_augmentation_loop: 50
+  recurrent_training: false
+  use_gt_edges: true
+  lr_W: 5.0e-05
+  lr: 0.001
+  lr_embedding: 0.001
+  coeff_g_phi_diff: 1500
+  coeff_f_theta_msg_diff: 0
+  coeff_g_phi_norm: 0
+  coeff_g_phi_weight_L1: 0.0
+  coeff_f_theta_weight_L1: 0
+  coeff_g_phi_weight_L2: 0
+  coeff_f_theta_weight_L2: 0.001
+  coeff_W_L1: 3.0e-06
+  coeff_W_L2: 1.0e-05
+  coeff_W_sign: 0.01
+  coeff_f_theta_diff: 0
+  dale_law: false
+  regul_annealing_rate: 0
+  w_init_mode: zeros
+  w_init_scale: 0.01
+  lr_scheduler: none
+  lr_scheduler_warmup_iters: 100
+  lr_scheduler_T0: 1000
+  lr_scheduler_T_mult: 2
+  lr_scheduler_eta_min_ratio: 0.01
+  seed: 42
+  torch_compile: false
+claude:
+  n_epochs: 2
+  data_augmentation_loop: 50
+  n_iter_block: 12
+  ucb_c: 0
+  n_parallel: 4
+  node_name: l4
+  n_cpus: 1
+  generate_data: true
+  training_time_target_min: 60

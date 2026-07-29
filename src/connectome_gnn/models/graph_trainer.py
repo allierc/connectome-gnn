@@ -1988,6 +1988,8 @@ def _data_train_task_pi(config, erase, best_model, device, log_file=None, resume
         # rotation_torus: Net1-only, 6-col target [cosθ,sinθ,cosφx,sinφx,
         # cosφy,sinφy], plain MSE (circular via the cos/sin encoding).
         (4, 6, ("rotation_torus",)):          ([0, 1, 2, 3], [0, 1, 2, 3, 4, 5]),
+        # conjunction_input: 6-ch stimulus (base 4 + vx, vy)
+        (6, 6, ("rotation_torus",)):          ([0, 1, 2, 3, 4, 5], [0, 1, 2, 3, 4, 5]),
     }
     _task_raw = list(getattr(tc, 'task_targets', None) or [])
     # Canonical key: rotation always before translation; position_2d listed

@@ -1383,6 +1383,29 @@ class DrosophilaCxODEParams(ODEParamsBase):
             seed=sim.seed,
         )
         winp_np = to_numpy(self.winp)
+
+        # sim.cx_drive selects which of the two input streams reach the circuit.
+        #   'full'          both, as in Hulse Model A (default, back-compatible)
+        #   'velocity_only' angular velocity into PEN_a only; the EPG landmark
+        #                   cues are dropped so EPG activity is produced by
+        #                   recurrence rather than injection.
+        # Motivation: winp[ii, ii] = 2.0 maps landmark channel ii one-to-one onto
+        # EPG ii, which makes EPG dv/dt 81% linearly predictable from its own
+        # injected drive while the 46 EPG carry 93% of an unweighted L2 loss over
+        # all 156 neurons. The 90 purely recurrent neurons -- the ones whose
+        # dynamics constrain W -- carry 2.8%.
+        drive = str(getattr(sim, "cx_drive", "full"))
+        if drive == "velocity_only":
+            # Without landmark cues the velocity drive is rotationally symmetric
+            # and cannot break symmetry to seed a bump, which at sigma = 0 would
+            # leave the ring uniform. Keep the cues for a short seed window, then
+            # free-run: the recording is recurrent for all but the first frames.
+            seed_n = int(getattr(sim, "cx_seed_frames", 100))
+            cx_inps = cx_inps.copy()
+            cx_inps[seed_n:, :46] = 0.0
+        elif drive != "full":
+            raise ValueError(f"unknown sim.cx_drive={drive!r} (expected 'full' or 'velocity_only')")
+
         stim_projected = cx_inps @ winp_np
         # Scale to produce activity in [-10, 10] range (baseline gives ±4)
         return torch.tensor(2.5 * stim_projected, dtype=torch.float32, device=device)

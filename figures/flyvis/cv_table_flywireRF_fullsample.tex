@@ -1,0 +1,71 @@
+\begin{table}[h]
+\centering
+\caption{GNN recovery on hybrid connectome variants (full-sample twin of the
+submitted table). All runs use low model noise $\sigma = 0.05$ ($65$ cell types).
+Eye map is either the flyvis hex lattice ($13{,}741$ neurons, extent $= 8$) or
+the larger flywire eye map ($50{,}412$ neurons, extent $= 15$).
+$R^2_{\hat{\tau}}$ and $R^2_{\hat{V}^{\mathrm{rest}}}$ cells report the
+inlier $R^2$ (full-sample $R^2$) [excluded \%]: the inlier value is
+\cref{eq:r2_identity} over the residual-filtered set (\cref{eq:outlier_threshold}),
+the parenthetical value is the same statistic over \emph{all} neurons (may be
+negative), and the bracketed value is the percentage of neurons excluded.
+$\hat{\tau}$ is variant~(A), $-1/s_i$ clipped to $[0,1]$.
+\textcolor{green!50!black}{Green}: full-sample $> 0.9$. \bad{Orange}: full-sample $< 0.3$.}
+\label{tab:zero_edge_fullsample}
+\tiny
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{llccrrrrrr}
+\toprule
+& & & & & \multicolumn{2}{c}{prediction} & \multicolumn{3}{c}{parameter recovery} \\
+model & condition & neurons & edges & eye map
+  & one-step $r$ & rollout $r$
+  & $R^2_{\widehat{W}}$
+  & $R^2_{\widehat{\tau}}$ in (full) [out.\ \%]
+  & $R^2_{\widehat{V}^{\mathrm{rest}}}$ in (full) [out.\ \%] \\
+\midrule
+Known ODE                & het.\ RF                     & $13\,741$  & $327\,358$     & flyvis hex lattice
+  & \good{$1.00$} & \good{$1.00$}
+  & \good{$0.98$}
+  & \good{$1.00\,(1.00)\,[0.0]$}
+  & \good{$0.99\,(0.93)\,[5.6]$} \\
+                         & het.\ RF + uncert.\ edges    & $13\,741$  & $2\,418\,403$  & flyvis hex lattice
+  & \good{$1.00$} & \good{$1.00$}
+  & \good{$0.93$}
+  & \good{$0.99\,(0.99)\,[0.0]$}
+  & $0.98\,(0.89)\,[4.3]$ \\
+  \cmidrule[0.2pt](lr){2-10}
+\textit{larger}          & het.\ RF                     & $50\,412$  & $1\,266\,378$  & flywire eye map
+  & \good{$1.00$} & \good{$1.00$}
+  & \good{$0.98$}
+  & \good{$1.00\,(1.00)\,[0.0]$}
+  & \good{$0.99\,(0.94)\,[5.3]$} \\
+\textit{visual field}    & het.\ RF + uncert.\ edges    & $50\,412$  & $9\,642\,335$  & flywire eye map
+  & \good{$1.00$} & \good{$1.00$}
+  & \good{$0.92$}
+  & \good{$0.99\,(0.99)\,[0.0]$}
+  & $0.98\,(0.85)\,[9.2]$ \\
+\midrule
+GNN                      & het.\ RF                     & $13\,741$  & $327\,358$     & flyvis hex lattice
+  & \good{$1.00$} & \good{$1.00$}
+  & \good{$0.93$}
+  & \good{$0.99\,(0.97)\,[0.2]$}
+  & \bad{$0.86\,(-0.46)\,[7.3]$} \\
+                         & het.\ RF + uncert.\ edges    & $13\,741$  & $2\,418\,403$  & flyvis hex lattice
+  & \good{$1.00$} & \good{$0.99$}
+  & $0.89$
+  & $0.96\,(0.86)\,[1.4]$
+  & \bad{$0.67\,(-1.37)\,[24.7]$} \\
+  \cmidrule[0.2pt](lr){2-10}
+\textit{larger}          & het.\ RF                     & $50\,412$  & $1\,266\,378$  & flywire eye map
+  & \good{$1.00$} & \good{$1.00$}
+  & \good{$0.97$}
+  & \good{$0.99\,(0.99)\,[0.0]$}
+  & $0.93\,(0.77)\,[3.7]$ \\
+\textit{visual field}    & het.\ RF + uncert.\ edges    & $50\,412$  & $9\,642\,335$  & flywire eye map
+  & \good{$0.99$} & \good{$1.00$}
+  & $0.83$
+  & $0.95\,(0.38)\,[1.0]$
+  & \bad{$0.61\,(-9.90)\,[40.8]$} \\
+\bottomrule
+\end{tabular}
+\end{table}

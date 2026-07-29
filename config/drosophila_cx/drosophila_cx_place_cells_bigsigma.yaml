@@ -1,5 +1,5 @@
-description: "Drosophila CX grid cells (torus), PI-anchored — Net2 sweep: sparsity=0.4, E/I ratio=0.6."
-dataset: drosophila_cx_si_task_338_grid_cells
+description: "Place cells, broad fields (sigma 0.5): coarser, slower-varying population code."
+dataset: drosophila_cx_si_task_338_place_cells_bigsigma
 simulation:
   gcamp_kernel: gcamp6f
   params:
@@ -68,7 +68,7 @@ training:
   torch_compile: false
   w_init_mode: w_con
   # Net1 (CX) supervises heading+distance; Net2 the place code.
-  task_targets: ['grid_cells']
+  task_targets: ['place_cells']
   coeff_place: 1.0
   coeff_pos: 1.0
   place_anchor: true   # PI anchor: seed place/grid cells at the start position (t=0)
@@ -93,18 +93,14 @@ task:
     omega_noise_level: 0.0
     forward_vel_mean: 1.0
     forward_vel_std: 0.4
-    target_kind: grid_cells
+    target_kind: place_cells
     # Arena / place-field geometry
     arena_half: 1.0
     place_grid: 20
-    place_sigma: 0.2
-    # --- grid-cell torus geometry ---
-    grid_period: 2.0
-    grid_grid: 20
-    grid_sigma: 0.4
+    place_sigma: 0.5
     # Net2 synthetic sign-locked E/I connectome
     net2_n_interneurons: 200
-    net2_sparsity: 0.4
-    net2_ei_ratio: 0.6
+    net2_sparsity: 0.10
+    net2_ei_ratio: 0.60
     net2_seed: 700000
     seed: 300000

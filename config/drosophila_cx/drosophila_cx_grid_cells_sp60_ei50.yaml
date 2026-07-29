@@ -99,9 +99,9 @@ task:
     place_grid: 20
     place_sigma: 0.2
     # --- grid-cell torus geometry ---
-    grid_period: 0.5
+    grid_period: 2.0
     grid_grid: 20
-    grid_sigma: 0.1
+    grid_sigma: 0.4
     # Net2 synthetic sign-locked E/I connectome
     net2_n_interneurons: 200
     net2_sparsity: 0.6

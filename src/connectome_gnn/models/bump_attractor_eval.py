@@ -904,10 +904,11 @@ def _save_torus_snapshot(net, log_dir, global_step, epoch, u_test, y_test,
     net.eval()
     with torch.no_grad():
         T = int(min(u_test.shape[1], 1000))
-        pos0 = y_test[trial_idx:trial_idx + 1, 0, 3:5].to(u_test.device)
-        yhat, _ = net(u_test[trial_idx:trial_idx + 1, :T], pos0=pos0)
         yt = y_test[trial_idx, :T].detach().cpu().numpy()
         if grid_mode:
+            # grid model (place Net2): anchored + place_prob decode
+            pos0 = y_test[trial_idx:trial_idx + 1, 0, 3:5].to(u_test.device)
+            yhat, _ = net(u_test[trial_idx:trial_idx + 1, :T], pos0=pos0)
             Kp = int(net.net2_n_place); L = float(net.grid_period)
             p = net.place_prob(yhat[0, :, 3:3 + Kp])          # rectified pop code
             xyD = (net.decode_position_anchored(p, pos0[0]) if
@@ -919,6 +920,8 @@ def _save_torus_snapshot(net, log_dir, global_step, epoch, u_test, y_test,
             pxD, pyD = two_pi_L * xyD[:, 0], two_pi_L * xyD[:, 1]
             pxT, pyT = two_pi_L * xyT[:, 0], two_pi_L * xyT[:, 1]
         else:
+            # rotation_torus (Net1-only): forward has no pos0 arg
+            yhat, _ = net(u_test[trial_idx:trial_idx + 1, :T])
             yh = yhat[0].cpu().numpy()
             ph = lambda a, i: np.arctan2(a[:, i + 1], a[:, i])
             thT, thD = ph(yt, 0), ph(yh, 0)
@@ -935,27 +938,35 @@ def _save_torus_snapshot(net, log_dir, global_step, epoch, u_test, y_test,
                 (R + r * np.cos(phy)) * np.sin(phx),
                 r * np.sin(phy))
 
-    fig = plt.figure(figsize=(15.5, 3.6))
-    ax = fig.add_subplot(1, 4, 1, projection="3d")
+    fig = plt.figure(figsize=(16.0, 4.0))
+    gs = fig.add_gridspec(1, 4, width_ratios=[1.8, 1, 1, 1], wspace=0.35)
+    ax = fig.add_subplot(gs[0, 0], projection="3d")
     uu = np.linspace(0, 2 * np.pi, 60); vv = np.linspace(0, 2 * np.pi, 30)
     U, V = np.meshgrid(uu, vv)
     Xs, Ys, Zs = emb(U, V)
     ax.plot_surface(Xs, Ys, Zs, color="0.8", alpha=0.15, linewidth=0,
                     antialiased=True)
-    xt, yt3, zt = emb(pxT, pyT); ax.plot(xt, yt3, zt, color=GT, lw=1.3)
-    xd, yd, zd = emb(pxD, pyD); ax.plot(xd, yd, zd, color=PR, lw=0.8)
-    ax.set_box_aspect((1, 1, 0.5)); ax.set_axis_off()
-    ax.set_title("torus position (green=true, black=decoded)", fontsize=9)
+    xt, yt3, zt = emb(pxT, pyT); ax.plot(xt, yt3, zt, color=GT, lw=1.5)
+    xd, yd, zd = emb(pxD, pyD); ax.plot(xd, yd, zd, color=PR, lw=0.9)
+    # tight limits + zoom so the donut fills the (wider) panel instead of
+    # floating small in a padded box.
+    ax.set_xlim(-1.55, 1.55); ax.set_ylim(-1.55, 1.55); ax.set_zlim(-0.85, 0.85)
+    try:
+        ax.set_box_aspect((1, 1, 0.55), zoom=1.35)
+    except TypeError:
+        ax.set_box_aspect((1, 1, 0.55))
+    ax.set_axis_off()
+    ax.set_title("torus position (green=true, black=decoded)", fontsize=10)
     for k, (aT, aD, lab) in enumerate(
             [(pxT, pxD, r"$\varphi_x$"), (pyT, pyD, r"$\varphi_y$"),
              (thT, thD, "HD")]):
-        a2 = fig.add_subplot(1, 4, k + 2)
+        a2 = fig.add_subplot(gs[0, k + 2])
         a2.plot(t, np.angle(np.exp(1j * aT)), color=GT, lw=0, marker=".", ms=2)
         a2.plot(t, np.angle(np.exp(1j * aD)), color=PR, lw=0, marker=".", ms=1)
         a2.set_yticks([-np.pi, 0, np.pi]); a2.set_yticklabels([r"$-\pi$", "0", r"$\pi$"])
         a2.set_ylim(-np.pi - 0.15, np.pi + 0.15)
         a2.set_xlabel("time (s)"); a2.set_ylabel(lab); a2.set_box_aspect(1)
-    fig.tight_layout()
+    fig.subplots_adjust(left=0.01, right=0.99, top=0.90, bottom=0.16, wspace=0.35)
     fig.savefig(os.path.join(out_dir, f"torus_step_{global_step:06d}.png"),
                 dpi=140, bbox_inches="tight")
     plt.close(fig)
@@ -1185,6 +1196,144 @@ def animate_place_trial(net, u_trial, y_trial, out_mp4, *, dt, device,
         dCy.set_data([t[ti]], [xy_true[ti, 1]]); dCy_pr.set_data([t[ti]], [xy_dec[ti, 1]])
         dD.set_data([t[ti]], [d_true[ti]]);      dD_pr.set_data([t[ti]], [d_dec[ti]])
         dE.set_data([t[ti]], [thw[ti]]);         dE_pr.set_data([t[ti]], [thw_dec[ti]])
+        fig.canvas.draw()
+        frame = np.asarray(fig.canvas.buffer_rgba())[..., :3]
+        writer.append_data(frame)
+    writer.close()
+    plt.close(fig)
+    return out_mp4
+
+
+def animate_torus_trial(net, u_trial, y_trial, out_mp4, *, dt, device,
+                        fps=25, stride=3):
+    """MP4 of one torus-position trial with a 3-D torus panel (matching the
+    tmp_training evolution snapshot). Handles both rotation_torus (Net1, 6-col
+    cos/sin output) and grid_cells (place model, grid_mode: phases from the
+    circular position decode). Panels: (1) 3-D torus donut with true (green) /
+    decoded (red) trajectory + growing trails and moving points; (2) φx, (3) φy,
+    (4) heading over time (true green vs decoded black, green/red markers)."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import imageio
+    grid_mode = bool(getattr(net, "grid_mode", False))
+    was = net.training
+    net.eval()
+    yt = y_trial.detach().cpu().numpy()
+    fmap = None                                          # (T, g, g) grid-cell field
+    with torch.no_grad():
+        if grid_mode:
+            pos0 = y_trial[None, 0, 3:5].to(device)
+            yhat, _ = net(u_trial[None].to(device), pos0=pos0)
+            K = int(net.net2_n_place); L = float(net.grid_period)
+            p = net.place_prob(yhat[0, :, 3:3 + K])
+            xyD = (net.decode_position_anchored(p, pos0[0]) if
+                   getattr(net, "place_anchor", False)
+                   else net.decode_position(p)).cpu().numpy()
+            thD = torch.atan2(yhat[0, :, 1], yhat[0, :, 0]).cpu().numpy()
+            xyT = yt[:, 3:5]; thT = np.arctan2(yt[:, 1], yt[:, 0])
+            c = 2.0 * np.pi / L
+            pxT, pyT = c * xyT[:, 0], c * xyT[:, 1]
+            pxD, pyD = c * xyD[:, 0], c * xyD[:, 1]
+            _gs = int(round(np.sqrt(K)))                 # raw 20x20 tanh field
+            fmap = yhat[0, :, 3:3 + K].cpu().numpy().reshape(-1, _gs, _gs)
+        else:
+            yhat, _ = net(u_trial[None].to(device))
+            yh = yhat[0].cpu().numpy()
+            ph = lambda a, i: np.arctan2(a[:, i + 1], a[:, i])
+            thT, thD = ph(yt, 0), ph(yh, 0)
+            pxT, pxD = ph(yt, 2), ph(yh, 2)
+            pyT, pyD = ph(yt, 4), ph(yh, 4)
+    if was:
+        net.train()
+    T = yt.shape[0]
+    t = np.arange(T) * float(dt)
+    GT, RD, CUR = "tab:green", "red", "0.6"
+    LFS, TFS = 15, 12
+    pi = np.pi
+    Rr, rr = 1.0, 0.4
+
+    def emb(phx, phy):
+        return ((Rr + rr * np.cos(phy)) * np.cos(phx),
+                (Rr + rr * np.cos(phy)) * np.sin(phx),
+                rr * np.sin(phy))
+
+    xT, yT3, zT = emb(pxT, pyT)
+    xD, yD3, zD = emb(pxD, pyD)
+    wrap = lambda a: np.angle(np.exp(1j * a))
+
+    have_hm = fmap is not None                  # grid task → 20x20 heatmap panel
+    ncol = 5 if have_hm else 4
+    wr = [2.3] + ([1.05] if have_hm else []) + [1, 1, 1]
+    fig = plt.figure(figsize=(3.6 * ncol + 1.8, 4.2), dpi=100)
+    gs = fig.add_gridspec(1, ncol, width_ratios=wr, wspace=0.38)
+    # (1) 3-D torus donut (wider panel + tight limits + zoom so it fills the box)
+    ax0 = fig.add_subplot(gs[0, 0], projection="3d")
+    uu = np.linspace(0, 2 * pi, 60); vv = np.linspace(0, 2 * pi, 30)
+    UU, VV = np.meshgrid(uu, vv); Xs, Ys, Zs = emb(UU, VV)
+    ax0.plot_surface(Xs, Ys, Zs, color="0.8", alpha=0.12, linewidth=0, antialiased=True)
+    # grey coordinate circles through each dot: every torus point lies on two
+    # circles — constant φy (around the ring) and constant φx (around the tube).
+    fine = np.linspace(0, 2 * pi, 120)
+    cTx, = ax0.plot([], [], [], color="0.45", lw=0.9, zorder=2)              # true, const φy
+    cTy, = ax0.plot([], [], [], color="0.45", lw=0.9, zorder=2)              # true, const φx
+    cDx, = ax0.plot([], [], [], color="0.55", lw=0.9, ls=(0, (3, 2)), zorder=2)  # decoded
+    cDy, = ax0.plot([], [], [], color="0.55", lw=0.9, ls=(0, (3, 2)), zorder=2)
+    trT, = ax0.plot([], [], [], color=GT, lw=1.5, zorder=3)
+    trD, = ax0.plot([], [], [], color="black", lw=0.9, zorder=4)
+    dT,  = ax0.plot([], [], [], "o", color=GT, mec="black", mew=0.5, ms=9, zorder=6)
+    dD,  = ax0.plot([], [], [], "o", color=RD, mec="black", mew=0.5, ms=8, zorder=5)
+    ax0.set_xlim(-1.5, 1.5); ax0.set_ylim(-1.5, 1.5); ax0.set_zlim(-0.85, 0.85)
+    try:
+        ax0.set_box_aspect((1, 1, 0.55), zoom=1.45)
+    except TypeError:
+        ax0.set_box_aspect((1, 1, 0.55))
+    ax0.set_axis_off()
+    ax0.set_title("torus position", fontsize=LFS)
+    col = 1
+    # (2) raw 20x20 grid-cell field heatmap (grid task only)
+    imH = None
+    if have_hm:
+        axh = fig.add_subplot(gs[0, col]); col += 1
+        imH = axh.imshow(fmap[0], origin="lower", cmap="viridis",
+                         vmin=0.0, vmax=1.0, aspect="auto")
+        axh.set_xticks([]); axh.set_yticks([]); axh.set_box_aspect(1)
+        axh.set_title(r"grid cells (20$\times$20)", fontsize=LFS)
+    # (…) φx, φy, HD over time
+    tp = [(pxT, pxD, r"$\varphi_x$"), (pyT, pyD, r"$\varphi_y$"), (thT, thD, "HD")]
+    T_lines = []
+    for k, (aT, aD, lab) in enumerate(tp):
+        a = fig.add_subplot(gs[0, col + k])
+        gtr, = a.plot([], [], ".", color=GT, ms=2, zorder=3)
+        dtr, = a.plot([], [], ".", color="black", ms=1, zorder=4)
+        gm,  = a.plot([], [], "o", color=GT, mec="black", mew=0.5, ms=6, zorder=6)
+        dm,  = a.plot([], [], "o", color=RD, mec="black", mew=0.5, ms=6, zorder=5)
+        cur = a.axvline(t[0], color=CUR, lw=0.8, alpha=0.8)
+        a.set_xlim(t[0], t[-1]); a.set_ylim(-pi - 0.15, pi + 0.15)
+        a.set_yticks([-pi, 0, pi]); a.set_yticklabels([r"$-\pi$", "0", r"$\pi$"])
+        a.set_xlabel("time (s)", fontsize=LFS); a.set_ylabel(lab, fontsize=LFS)
+        a.set_box_aspect(1); a.tick_params(labelsize=TFS)
+        T_lines.append((gtr, dtr, gm, dm, cur, aT, aD))
+    fig.subplots_adjust(left=0.01, right=0.99, top=0.92, bottom=0.17, wspace=0.38)
+
+    os.makedirs(os.path.dirname(out_mp4) or ".", exist_ok=True)
+    writer = imageio.get_writer(out_mp4, fps=fps, codec="libx264",
+                                quality=8, macro_block_size=1)
+    for ti in range(0, T, stride):
+        sl = slice(0, ti + 1)
+        trT.set_data_3d(xT[sl], yT3[sl], zT[sl]); trD.set_data_3d(xD[sl], yD3[sl], zD[sl])
+        dT.set_data_3d([xT[ti]], [yT3[ti]], [zT[ti]]); dD.set_data_3d([xD[ti]], [yD3[ti]], [zD[ti]])
+        # grey coordinate circles through the current true / decoded dots
+        ex, ey, ez = emb(fine, np.full_like(fine, pyT[ti])); cTx.set_data_3d(ex, ey, ez)
+        ex, ey, ez = emb(np.full_like(fine, pxT[ti]), fine); cTy.set_data_3d(ex, ey, ez)
+        ex, ey, ez = emb(fine, np.full_like(fine, pyD[ti])); cDx.set_data_3d(ex, ey, ez)
+        ex, ey, ez = emb(np.full_like(fine, pxD[ti]), fine); cDy.set_data_3d(ex, ey, ez)
+        if imH is not None:
+            imH.set_data(fmap[ti])
+        for (gtr, dtr, gm, dm, cur, aT, aD) in T_lines:
+            gtr.set_data(t[sl], wrap(aT[sl])); dtr.set_data(t[sl], wrap(aD[sl]))
+            gm.set_data([t[ti]], [wrap(aT[ti])]); dm.set_data([t[ti]], [wrap(aD[ti])])
+            cur.set_xdata([t[ti], t[ti]])
         fig.canvas.draw()
         frame = np.asarray(fig.canvas.buffer_rgba())[..., :3]
         writer.append_data(frame)

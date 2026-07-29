@@ -327,7 +327,7 @@ def main():
             'ci': col['config_indices'],
         })
 
-    out_base = os.path.join(REPO_ROOT, 'figures',
+    out_base = os.path.join(_SCRIPT_DIR,
                             'fig_gnn_params_3col_noise_comparison')
     assemble(blocks, out_base)
 

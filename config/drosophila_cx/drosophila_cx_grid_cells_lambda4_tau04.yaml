@@ -1,5 +1,5 @@
-description: "Drosophila CX grid cells (torus), PI-anchored — Net2 sweep: sparsity=0.4, E/I ratio=0.6."
-dataset: drosophila_cx_si_task_338_grid_cells
+description: "Grid lambda4, slower Net2 leak (tau 0.4): better integrator, attacks drift."
+dataset: drosophila_cx_si_task_338_grid_cells_lambda4
 simulation:
   gcamp_kernel: gcamp6f
   params:
@@ -99,12 +99,13 @@ task:
     place_grid: 20
     place_sigma: 0.2
     # --- grid-cell torus geometry ---
-    grid_period: 2.0
+    grid_period: 4.0
     grid_grid: 20
-    grid_sigma: 0.4
+    grid_sigma: 0.8
     # Net2 synthetic sign-locked E/I connectome
     net2_n_interneurons: 200
     net2_sparsity: 0.4
-    net2_ei_ratio: 0.6
+    net2_ei_ratio: 0.5
     net2_seed: 700000
+    net2_tau_s: 0.4
     seed: 300000

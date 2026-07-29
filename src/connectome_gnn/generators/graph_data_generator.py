@@ -1165,7 +1165,7 @@ def _generate_swim_integration_task(config, *, device, visualize: bool = True) -
                 [np.cos(theta_hd), np.sin(theta_hd), disp, x_pos, y_pos],
                 axis=-1,
             ).astype(np.float32)
-        elif _target_kind == "torus_position":
+        elif _target_kind == "rotation_torus":
             # Net1 reads its own position as two toroidal phases (no Net2).
             # Free unbounded 2-D PI; φ=2π·(x,y)/λ encoded (cos,sin) per axis.
             _L = float(getattr(si, "grid_period", 0.5))
@@ -1187,7 +1187,7 @@ def _generate_swim_integration_task(config, *, device, visualize: bool = True) -
             raise ValueError(
                 f"task.swim_integration.target_kind must be 'scalar_xi', "
                 f"'position_2d', 'rotation_mismatch', 'place_cells', "
-                f"'grid_cells' or 'torus_position'; got {_target_kind!r}"
+                f"'grid_cells' or 'rotation_torus'; got {_target_kind!r}"
             )
         # Input — channel layout selected by ``propriocep_split``:
         #   default (False): 4 channels [ω, v_fwd, cos θ₀·δ, sin θ₀·δ]
@@ -1220,6 +1220,14 @@ def _generate_swim_integration_task(config, *, device, visualize: bool = True) -
                 si.omega_noise_level
                 * np.random.standard_normal(size=(B, T)).astype(np.float32)
             )
+        # Diagnostic conjunction input: append vx=v·cosθ, vy=v·sinθ (world-frame
+        # velocity) so the network only has to integrate. Uses the realised
+        # heading θ_hd and forward speed v_fwd of this trajectory.
+        if bool(getattr(si, "conjunction_input", False)):
+            _vx = (vfwd * np.cos(theta_hd)).astype(np.float32)
+            _vy = (vfwd * np.sin(theta_hd)).astype(np.float32)
+            stimulus = np.concatenate(
+                [stimulus, _vx[:, :, None], _vy[:, :, None]], axis=-1)
 
         split_dir = os.path.join(out_root, split)
         os.makedirs(split_dir, exist_ok=True)
@@ -1370,10 +1378,10 @@ def _generate_swim_integration_task(config, *, device, visualize: bool = True) -
                     f"(N2={n_inter + n_place}), grid_geometry.npz "
                     f"(K={n_place}, σ={sigma}, λ={period}), and plots")
 
-    # --- Torus-position task artefacts (target_kind="torus_position") ------
+    # --- Torus-position task artefacts (target_kind="rotation_torus") ------
     # Net1-only task: just record the torus period λ so the test/decode can
     # map the (cos,sin) phase pairs back to position. No Net2.
-    if str(getattr(si, "target_kind", "")).lower() == "torus_position":
+    if str(getattr(si, "target_kind", "")).lower() == "rotation_torus":
         import json
         period = float(getattr(si, "grid_period", 0.5))
         np.savez(os.path.join(out_root, "torus_geometry.npz"),
@@ -1384,7 +1392,7 @@ def _generate_swim_integration_task(config, *, device, visualize: bool = True) -
                                        "cos_phi_x", "sin_phi_x",
                                        "cos_phi_y", "sin_phi_y"]},
                       f, indent=2, sort_keys=True)
-        logger.info(f"[task]   torus_position: wrote torus_geometry.npz "
+        logger.info(f"[task]   rotation_torus: wrote torus_geometry.npz "
                     f"(λ={period}); 6-col target [cosθ,sinθ,cosφx,sinφx,"
                     f"cosφy,sinφy]")
 

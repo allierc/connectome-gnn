@@ -1,0 +1,370 @@
+OpenReview
+.net
+Notifications13
+Activity
+Tasks
+Cedric Allier
+back arrowGo to NeurIPS 2026 Conference homepage
+Graph neural networks recover interpretable circuit models from neural activity
+Download PDF
+Cedric Allier, Janne K Lappalainen, Vijay Kumar, Stephan Saalfeld
+05 May 2026 (modified: 28 May 2026)NeurIPS 2026 Conference SubmissionConference, Senior Area Chairs, Area Chairs, Reviewers, Authors
+Revisions
+CC BY 4.0
+TL;DR: GNNs recover the unknown per-neuron update functions and per-synapse interaction functions, together with effective connectivity weights, membrane time constants, resting potentials, and unsupervised cell-type clusters from neural activity.
+Abstract:
+
+Synapse-level connectomes describe the structure of neural circuits but not their dynamics; neural activity recordings capture dynamics but not structure. Recovering circuit parameters from activity alone is possible when both connectivity and activity are sufficiently rich and identifiable. This may fail on the sparse, repeat-column architectures of biological nervous systems, where parameter symmetries and limited state-space coverage can make additional constraints from connectivity or perturbations necessary to disambiguate the inverse problem. We explore conditions under which mechanistic inference from connectivity and activity is feasible, using a connectome-constrained simulator. We train graph neural networks (GNNs) on a \emph{Drosophila} visual-system simulation with 13,741 neurons, 65 cell types, and up to 434,112 synaptic connections, driven by naturalistic video. Given the binary connectome graph and activity, the GNNs recover the unknown per-neuron update functions and per-synapse interaction functions, together with effective connectivity weights, membrane time constants, resting potentials, and unsupervised cell-type clusters---on par with an oracle that knows the true ODE form. A SIREN extension additionally recovers unknown visual stimuli. Recovery remains robust when the connectome prior is relaxed by adding +400% random edges, and across FlyWire-derived connectome variants with heterogeneous wiring. We find that per-neuron noise breaks degeneracies that otherwise render the system unidentifiable, suggesting that perturbations enhancing data diversity are essential when activity alone is insufficient. ML baselines match one-step activity prediction but their learned dynamics do not encode the underlying connectivity neural dynamics, showing that fitting activity is a poor proxy for recovering mechanism.
+Checklist Confirmation: I confirm that I have included a paper checklist in the paper PDF.
+Supplementary Material:  zip
+Responsible Reviewing: We acknowledge the responsible reviewing obligations as authors.
+Primary Area: Neuroscience and cognitive science (e.g., neural coding, brain-computer interfaces)
+Secondary Area: AI and network science (e.g., graph neural networks, communication)
+Contribution Type: General: Most submissions will fall into this type.
+Academic Integrity: I acknowledge that I have read the NeurIPS Handbook and commit to adhering to all policies in the Handbook (https://neurips.cc/Conferences/2026/MainTrackHandbook), the NeurIPS Code of Conduct and the NeurIPS Academic Integrity Policy.
+LLM Usage: Facilitating or running experiments, Editing (e.g., grammar, spelling, word choice), Drafting sections of the paper, Understanding technical concepts, Implementing methods where LLM plays an original, non-standard role, Implementing standard methods, Visualizing results for submission
+Other LLM Usage: Agentic hyperparameter optimization
+LLM Experiment: Opt in to include this paper in the LLM-assisted peer review experiment.
+Declaration: I confirm that the above information is accurate.
+Reviewer Nomination:  Stephan Saalfeld
+Submission Number: 28595
+
+    Discussion
+
+Filter by reply type...
+Filter by author...
+4 / 4 replies shown
+Add:
+Meta Review of Submission28595 by Area Chair 4ZQS
+Meta Reviewby Area Chair 4ZQS19 Jul 2026, 10:59 (modified: 23 Jul 2026, 20:26)Senior Area Chairs, Area Chairs, Authors, Reviewers Submitted, Program Chairs, Area Chair 4ZQSRevisions
+Metareview:
+
+** Recommendation:** Heading toward rejection
+Overall assessment
+
+The paper studies an important problem and contains a technically substantial simulation study. In particular, the large-scale Flyvis/FlyWire experiments, the comparison with a Known-ODE oracle, and the demonstration that accurate activity prediction need not imply correct circuit structure are valuable.
+
+Nevertheless, I currently lean toward rejection. The main concern is not presentation or the absence of one additional baseline. Rather, the paper’s strongest claims about equation-agnostic mechanism recovery and analytical identifiability are not adequately supported by the submitted evidence. Recovery is demonstrated only in a strongly model-matched, fully observed, simulator-only setting, while the most biologically relevant degradation tested—measurement noise—substantially degrades parameter recovery. In addition, Appendix C appears to contain an unresolved inconsistency between its numerical rank analysis and its claimed 71% exact null space.
+
+These concerns affect the interpretation of the main contribution and would require substantial new analysis, robustness experiments, and reframing. Authors should rebut if any of the concerns below are based on factual misunderstandings. If they are accurate, however, I do not believe they can be fully addressed within a rebuttal, and I would encourage the authors to revise the work substantially and resubmit.
+(a) Summary of the scientific claims and findings
+
+The paper considers whether a mechanistic neural-circuit model can be inferred from a binary structural connectome, dense neural activity, and visual input. Because no real dataset provides complete synapse-resolution connectivity and dense activity from the same animal, the authors treat the Flyvis simulator as in-silico ground truth.
+
+The proposed continuous-time message-passing GNN learns a shared per-neuron update function, a shared per-synapse interaction function, per-neuron latent embeddings, and effective edge weights on a supplied connectome. Membrane time constants, resting potentials, and effective synaptic weights are obtained through post-hoc local linearization of the learned functions.
+
+The principal experiments use a Flyvis circuit with 13,741 neurons and 434,112 edges, followed by hybrid Flyvis/FlyWire graphs containing up to 50,412 neurons and 9.6 million candidate edges. The model is compared with a Known-ODE oracle and several structure-agnostic prediction baselines.
+
+The main reported findings are:
+
+    Under low or high independent process noise, the GNN approaches the Known-ODE oracle in recovering weights, time constants, resting potentials, and cell-type clusters.
+
+    In the deterministic condition, recovery is weaker: the GNN obtains weight (R^2=0.89), resting-potential (R^2=0.76) after excluding 13.7% of neurons, and rollout correlation (0.90\pm0.21).
+
+    Recovery is robust to many false-positive candidate edges but sensitive to missing true edges. Adding 400% null edges retains weight recovery around (R^2=0.96), whereas removing 50% of true edges reduces it to approximately (R^2=0.19).
+
+    Independent per-neuron process noise breaks correlations between repeated visual columns and improves identifiability. The authors use this result to motivate active perturbation experiments.
+
+    Recurrent MLP and latent-state baselines can achieve high one-step and rollout accuracy without recovering the simulator’s dependency structure. The GNN also predicts activity after the same random edge-ablation mask is applied to both the simulator and learned model.
+
+    Measurement noise substantially harms parameter recovery. At the two tested levels, weight recovery falls from (R^2=0.99) to 0.63 and 0.38, while time-constant recovery falls to 0.28 and 0.08.
+
+    A SIREN extension reconstructs hidden photoreceptor input, although evaluation is performed on training-frame indices, the SIREN cannot extrapolate temporally, and much of the input is already represented in observed photoreceptor activity.
+
+(b) Main strengths
+
+    Relating connectome structure and neural activity to intervention-capable circuit models is an important problem at the intersection of neuroscience, system identification, and machine learning.
+
+    The black-box baselines reproduce trajectories while learning different local dependencies. This is a valuable demonstration that forecasting performance alone is insufficient evidence of mechanistic recovery.
+
+    The experiments cover more neurons and edges than most controlled neural system-identification studies and examine numerous degradation conditions.
+
+    The Known-ODE baseline usefully separates difficulties caused by unknown functional form from limitations of the inverse problem itself.
+
+    The paper reports substantial failures under missing edges, measurement noise, temporal subsampling, and resting-potential estimation rather than hiding them.
+
+    The Flyvis/FlyWire setting, degradation map, and intervention-based evaluation could form the basis of a useful benchmark after the claims and analyses are revised.
+
+(c) Main weaknesses and missing elements
+1. The central identifiability analysis appears internally inconsistent
+
+Appendix C first presents a numerical eigendecomposition in which approximately 6.4% of edge dimensions are null and another 4.0% are sloppy. This is broadly consistent with the main-text statement that approximately 10% of the circuit parameters cannot be uniquely identified.
+
+However, Eq. (11) subsequently claims an exact null-space dimension of 308,160, corresponding to 71% of all edges. The derivation assumes that (k) presynaptic neurons of the same cell type provide a rank-one activity block and therefore contribute (k-1) kernel directions. Yet the paper describes these activities as time-shifted and states that the block has rank “approximately” one. Highly correlated or time-shifted signals do not generally constitute identical columns and therefore do not establish an exact (k-1)-dimensional kernel.
+
+The empirical experiments show approximate functional equivalence: substantially different weights can produce rollout correlations of approximately 0.94–0.98. They do not establish that these perturbations lie in an exact null space. The paper consequently appears to conflate exact non-identifiability, numerical sloppiness, and approximate dynamical equivalence.
+
+This issue directly affects one of the paper’s central analytical contributions and its interpretation of why process noise improves recovery.
+2. The experimental setting is strongly model-matched
+
+Although the GNN does not contain the exact scalar Flyvis equation, its hypothesis class incorporates much of the generator’s structure:
+
+    first-order dynamics;
+    additive pairwise message aggregation;
+    a supplied graph containing the true edges;
+    direct observation of every neuron’s voltage;
+    access to the external visual input;
+    matched simulation and inference time steps;
+    monotonicity constraints;
+    squared nonnegative message functions; and
+    a 50% null-stimulus interval that helps expose resting dynamics.
+
+Thus, the generator lies within the intended model family. The method is flexible with respect to the scalar nonlinearities, but it is not broadly agnostic to dynamical form, interaction order, coupling structure, observation process, or temporal discretization.
+
+There is no experiment involving even mild model misspecification, such as a different observation cadence, conductance-like coupling, multiplicative interactions, latent variables outside the graph, or a generator whose update does not decompose into additive pairwise messages. Consequently, the experiments demonstrate recovery of a matched simulator, not general recovery of biological circuit mechanisms.
+3. Biological and practical relevance remains unestablished
+
+The study uses only simulated voltage activity. The full state and input are available, connectome/activity registration is perfect, and the process noise that improves recovery is independent across neurons.
+
+By contrast, the measurement-noise experiments—the closest tested analogue to realistic recordings—produce substantial deterioration. At measurement noise (\gamma=0.1), weight recovery falls to (R^2=0.63) and time-constant recovery to 0.28. At (\gamma=0.2), the corresponding values are 0.38 and 0.08. The Known-ODE oracle also fails under these conditions, demonstrating that this is a limitation of the inverse problem and observation model rather than merely the GNN architecture.
+
+The experiments do not include calcium-like temporal filtering, fluorescence saturation, deconvolution uncertainty, correlated noise, strongly recurrent dynamics, or activity/connectome registration errors. The hybrid FlyWire graphs add real anatomical variability, but their dynamics and parameters remain derived from Flyvis, and unregistered portions of the graph fall back to the Flyvis template.
+
+The analogy from independent simulated process noise to targeted optogenetic or voltage-clamp experiments is plausible but remains untested. It should be presented as a future hypothesis, not as an established experimental prescription.
+4. The meaning of “mechanism recovery” is ambiguous
+
+Several different targets are treated under the same terminology:
+
+    exact recovery of generating parameters;
+    recovery of a regularization-selected representative from a non-identifiable equivalence class;
+    local vector-field approximation over the observed activity range;
+    successful prediction under one matched graph intervention; and
+    recovery of functionally equivalent dynamics.
+
+These are not equivalent forms of mechanistic identification.
+
+Time constants and resting potentials are extracted through local linearization and reported after hard residual filtering. Exclusion fractions reach 25.4%–40.8% in Table 2, 49.1% under measurement noise, and 56.3% under temporal subsampling. Reporting a high (R^2) on the remaining subset does not justify an unqualified claim of recovering these parameters throughout the circuit.
+
+Similarly, “on par with an oracle” is supported mainly under added independent process noise. The deterministic results show a meaningful gap, and the measurement-noise experiments show poor parameter recovery for both methods. Full-sample results are required to evaluate the actual extent of recovery.
+
+The edge-ablation experiment is a useful functional test, but it applies the same random graph mask to two models with the same pairwise graph structure. Passing this test does not certify uniqueness or biological correctness of the learned mechanism.
+5. Methodological novelty is overstated
+
+The shared update/message-function decomposition with latent node identities is inherited from Allier et al. The closely related 2026 work already studies recovery of connectivity, neuronal types, signaling functions, and hidden stimuli in simulated neural assemblies.
+
+Prior GNN studies also infer latent neural interactions from activity, including AMAG and recent self-supervised circuit-discovery approaches. Earlier work on strongly recurrent networks established that high predictive performance can coexist with incorrect inferred connectivity and that non-equilibrium perturbations can mitigate inference bias.
+
+The paper’s strongest defensible novelty is therefore the large-scale Flyvis/FlyWire characterization, the columnar-connectome application, parameter-level evaluation, degradation study, and edge-ablation test—not a fundamentally new GNN decomposition or the first discovery that prediction differs from mechanism.
+
+The paper should also be positioned against whole-brain FlyWire modeling and activity-fitting work, including models trained on real fly calcium activity.
+6. The agentic hyperparameter search is not validated as a contribution
+
+The search directly optimizes ground-truth connectivity (R^2), which would be unavailable in the intended real-data application. It is therefore unclear how hyperparameters could be selected without privileged simulator labels.
+
+No matched-compute comparison with random search, Bayesian optimization, or a conventional ablation protocol is provided. The method also relies on a proprietary stochastic LLM, and the appendix includes raw working-memory text containing unjustified assertions of optimality.
+
+The agentic loop may be a useful implementation aid, but the current evidence does not support presenting it as a scientific contribution.
+
+Additional reporting issues include the inconsistent neuron counts of 13,697 and 13,741, unexplained entries rounded to “±0.00,” small and dense figures, undefined SIREN terminology at first use, and incomplete reporting of unfiltered parameter metrics.
+(d) Could the author response significantly change the recommendation?
+
+The authors should respond if any of the following reservations are factually incorrect:
+
+    Reconcile the approximately 6.4% null plus 4.0% sloppy edge dimensions with the claimed 71% exact null space. Establish mathematically why time-shifted trajectories yield exact rank-one blocks, or acknowledge that Eq. (11) describes an approximate/sloppy subspace and revise the associated conclusions.
+
+    Report full-sample recovery metrics for time constants and resting potentials in all principal conditions. Clarify whether excluded neurons represent rare numerical failures or a substantial part of the circuit for which recovery is unsuccessful.
+
+    State whether the target is exact parameter recovery, recovery up to an equivalence class, local vector-field recovery, or intervention-level functional equivalence. Explain which conditions genuinely support comparison with the Known-ODE oracle.
+
+    If the authors already have relevant experiments under temporal or dynamical model mismatch, these results could materially affect my assessment. Otherwise, the title, abstract, and conclusions should be restricted to model-matched in-silico feasibility.
+
+    Provide a precise comparison with the closest GNN circuit-inference work and explain what remains novel. Either validate the agentic search against standard alternatives and explain how tuning works without ground truth, or remove it as a headline contribution.
+
+A sufficiently strong factual resolution of the Appendix C issue, together with unexpectedly strong full-sample or existing model-mismatch results, could increase the odds of acceptance. However, if the concerns above are accurate, the required work goes beyond rebuttal clarification: it would require new misspecification and observation-model experiments, revised analysis of identifiability, complete parameter reporting, and substantial reframing of the contribution.
+
+For that reason, I currently recommend rejection and encourage the authors to revise and resubmit rather than attempting to address the full set of concerns within the rebuttal period.
+Add:
+Official Review of Submission28595 by Reviewer 1bPK
+Official Reviewby Reviewer 1bPK25 Jun 2026, 05:15 (modified: 23 Jul 2026, 18:34)Program Chairs, Senior Area Chairs, Area Chairs, Reviewers Submitted, Authors, Reviewer 1bPKRevisions
+Summary:
+
+The paper studies the connectome-inverse problem: given (i) a binary structural connectome (which neuron pairs are connected) and (ii) recordings of neural activity, when can one recover the underlying mechanistic circuit — the per-neuron and per-synapse dynamical rules and their parameters — rather than merely predicting future activity? Because no real dataset today pairs synapse-resolution connectivity with dense activity from the same animal, the authors use the connectome-constrained Flyvis simulator [Lappalainen et al., 2024] of the Drosophila visual system as in-silico ground truth: a continuous-time, non-spiking voltage model (Eq. 1) on the real fly optic-lobe connectome (13,741 neurons, 65 cell types, 434,112 edges at "Flyvis-217" scale; up to 50,412 neurons and ~9.6M edges on FlyWire-derived variants), driven by naturalistic DAVIS video.
+
+The central method is an interpretable continuous-time message-passing GNN (Eq. 2) that does not fix the functional form of the ODE. It learns two shared MLPs — a per-neuron update function f_θ and a per-synapse interaction function g_φ — conditioned on a learned 2-D per-neuron latent embedding a_i, jointly with effective connectivity weights Ŵ. After training on the one-step derivative-matching loss (Eq. 3) plus a battery of sparsity/monotonicity regularizers, biophysical quantities (Ŵ, τ̂, V̂_rest) are extracted by a post-hoc linearization of f_θ, g_φ around each neuron's working point (Appx. F.2). The GNN is benchmarked against a Known-ODE oracle (true equation form, learns only parameters) and three structure-agnostic predictors (Stimulus-driven MLP, Recurrent MLP, EED).
+
+The headline findings are: (1) the GNN recovers Ŵ, τ, V_rest, and unsupervised cell-type clusters at a level approaching the Known-ODE oracle, with cell-type identity emerging in the 2-D embedding; (2) the connectome is most valuable as a binary prior — recovery tolerates +400% random / +661% spatially-plausible false-positive edges (R²_Ŵ ≈ 0.96 even at 5× inflation) but collapses when 50% of true edges are removed (R²_Ŵ = 0.19); (3) activity richness is the binding constraint — naturalistic stimulation alone leaves the inverse problem degenerate (analytically characterized in Appx. C), and per-neuron process noise is what breaks the columnar degeneracies and lifts recovery to oracle level; (4) prediction is not mechanism — structure-agnostic baselines reach one-step r ≥ 0.95 yet learn Jacobians inconsistent with the connectome (Supp. Fig. 18) and cannot support interventions such as 50%-edge ablation; (5) measurement noise on voltage is the principal open bottleneck (γ = 0.1 collapses R²_Ŵ from 0.99 to 0.63). A SIREN extension reconstructs the photoreceptor drive, and an "agentic" LLM-in-the-loop hyperparameter search (Appx. G) is used to find a single training configuration applied across all conditions. To my knowledge this is the first systematic in-silico characterization of connectome-inverse feasibility at this scale with an equation-form-agnostic learner.
+Contribution Type: General: Most submissions will fall into this type.
+Strengths And Weaknesses:
+Strengths
+
+S1 — A genuinely valuable conceptual message, well operationalized: "prediction ≠ mechanism." The paper does not just assert this; it demonstrates it. Three high-capacity predictors (Recurrent MLP 29M, EED 19.5M, Stimulus-driven MLP ~8M params) match one-step and even 8,000-frame rollout r > 0.95 (Tab. 1, Supp. Tab. 8) yet (a) carry no recoverable Ŵ, and (b) learn Jacobians that diverge structurally from the ground-truth ODE (Supp. Fig. 18 — the MLP discovers a 217-periodic stimulus→neuron reassignment that mimics dynamics without respecting wiring). This is a clean, convincing dissociation and is, in my view, the paper's strongest contribution.
+
+S2 — Unusually rigorous identifiability analysis (Appx. C). Rewriting the noise-free ODE as a per-neuron linear system A_i θ_i = b_i (Eqs. 5–7) is exact for voltage-based firing-rate models (not a linearization), and the authors derive the null-space dimension induced by columnar repeat structure analytically — dim ker(H) = 308,160 (71% of edges, Eq. 11) — then verify it empirically by constructing sum-zero weight perturbations that leave rollouts invariant (r > 0.94 while R²_W drops to 0.28–1.0; Supp. Tab. 5). The finding that a 29%-of-edges variant reproduces full-circuit activity at r = 0.95 is a striking, well-supported demonstration of why activity alone is insufficient. This level of analysis is above the norm for an empirical NeuroAI submission.
+
+S3 — The Known-ODE oracle is the right baseline and is used honestly. Quantifying the residual gap between data-driven inference and full-equation knowledge is exactly what this problem needs, and it disciplines the claims (e.g., it reveals where the GNN trails the ceiling).
+
+S4 — Broad, multi-axis degradation study. The evaluation spans process-noise levels (σ ∈ {0, 0.05, 0.5}), measurement noise (γ ∈ {0.1, 0.2}), false-positive edges (+400% / +661%), false negatives (−20% / −50%), temporal subsampling (1/5 frames), spatial subsampling (10%/20% hidden), unknown stimulus, FlyWire heterogeneous per-column wiring, and scaling to 50K neurons / 9.6M edges (Tabs. 1–2, Supp. Tabs. 4, 7). Few inverse-problem papers map the feasibility frontier this thoroughly.
+
+S5 — The edge-ablation mechanistic certificate is a clever, reusable idea. Zeroing 50% of edges in both the simulator and the learned Ŵ, then checking rollout agreement without retraining (r ≥ 0.99, Supp. Fig. 8), is a cheap test that a predictor lacking a learned Ŵ structurally cannot pass. I expect this to be adopted as a check by others.
+
+S6 — Candid reporting of failure modes. The authors state plainly where recovery breaks (−50% edges: R²_Ŵ = 0.19; measurement noise; V_rest at scale; SIREN cannot extrapolate). The Limitations section (Sec. 6) is specific and unusually honest about simulator-to-reality gaps.
+Weaknesses
+
+W1 — The central claim ("recover circuit models from neural activity," "on par with an oracle") is established only in a model-matched, Δt-matched, simulator-only regime, and the title/abstract over-generalize it. Three coupled idealizations make the recovery problem substantially easier than the title implies, and their joint effect is never quantified:
+
+    Model-class match. The data are generated by Eq. (1); the GNN's hypothesis class (Eq. 2: first-order dynamics, additive pairwise messages over the true edge set, squared/monotone messages) contains that generator. There is no model misspecification anywhere in the paper. "Does not assume the form of the dynamical equation" is therefore much weaker than it sounds — see W2.
+    Temporal match. Inference and simulation share Δt = 20 ms, so (Limitation 2, l. 348) "the piecewise-linear update is exact rather than approximate." The GNN is effectively fitting a known discrete map, not a continuous system observed at a coarser cadence than its true timescale.
+    Simulator-only. No real neural data appear anywhere. The title says "from neural activity"; all activity is synthetic.
+
+W2 — The "equation-form-agnostic" framing understates how much structure is hard-coded. Eq. (2) is a continuous-time, first-order ODE with additive aggregation of pairwise messages on the given connectome — i.e., the structural skeleton of Eq. (1). The monotonicity penalties µ0, µ1 (Eq. 4) explicitly encode that the postsynaptic derivative increases with net drive and that synaptic drive increases with presynaptic voltage; the squared g_φ enforces nonnegative messages. So the method is agnostic only to the specific scalar nonlinearity, not to the order, coupling structure, sign conventions, or edge set. The abstract should temper "without assuming the form of the dynamical equation."
+
+W3 — Headline parameter-recovery R² are outlier-corrected, sometimes excluding a large minority of neurons; full-sample numbers are not given in the main tables. τ̂ and V̂_rest R² are reported on an inlier set after hard-threshold filtering (Eq. 24), with outlier fractions that reach 13.7% (Tab. 1), 25.4% and 40.8% (Tab. 2, +n.e. rows), 30.4%/49.1% under measurement noise, and 56.3% under 1/5-frame sampling (Supp. Tab. 4). A V_rest R² = 0.61 computed on 59% of neurons is a very different claim from recovery over all neurons. R²_Ŵ is not outlier-filtered (good), but the per-neuron parameters are.
+
+W4 — The measurement-noise result, on the most realistic axis, shows the method does not yet work — and this bounds the contribution. Real voltage/calcium imaging is dominated by measurement (not process) noise. At γ = 0.1, R²_Ŵ collapses to 0.63 (GNN) / 0.69 (even the oracle), τ recovery to 0.28/0.32; at γ = 0.2, R²_Ŵ = 0.38 and R²_τ = 0.08 (Supp. Tabs. 4, 7). So on the degradation that real experiments will certainly impose, both the GNN and the oracle fail to recover weights. The authors flag this honestly as "the principal open bottleneck," but it means the practical reach of the method, as-is, is unestablished — which should temper the significance framing rather than appear only in Limitations.
+
+W5 — Architectural novelty is limited and partly concurrent. The paper states (l. 112–113) that the GNN "inherits its decomposition principle from Allier et al.'s [2024, 2026] work." The shared-f_θ/g_φ-with-latent-embedding decomposition is therefore not new here; the genuine deltas are the biological columnar setting, the identifiability analysis (Appx. C), the degradation/FlyWire characterization, and the edge-ablation test. Moreover, Allier et al. [2026] (arXiv:2602.13325, Feb 2026) appears essentially concurrent. The contribution is real but is a characterization/application + analysis contribution, not a new architecture, and the writing sometimes blurs this.
+
+W5b — The most directly relevant connectome-constrained activity-fitting line is absent from Related Work. The paper's taxonomy of prior art (Sec. 2; foundation models [Wang 2025] vs. fixed-form connectome-constrained models [Mi 2021, Lappalainen 2024, Pospisil 2024]) omits the FlyWire whole-brain leaky-integrate-and-fire line: Shiu et al.'s LIF model of the entire adult Drosophila brain (https://www.nature.com/articles/s41586-024-07763-9), and its recent descendant BrainTrace (https://www.nature.com/articles/s41467-026-68453-w), which trains FlyWire-connectome synaptic weights to reproduce real whole-brain calcium activity and inter-regional functional connectivity — explicitly because "connectome anatomy alone is insufficient to reproduce observed activity." This is the closest existing neighbor to the paper's setting, on real data, at whole-brain scale.
+
+W6 — The "agentic HPO" is presented as a scientific contribution (#3) but is not benchmarked against standard HPO and is hard to reproduce. Appendix G describes a Claude-Code-driven hyperparameter loop and pastes raw agent "working memory" (e.g., l. 883–1037), including self-assessments like "champion config is definitively optimal" — an overstatement for any HPO. There is no comparison to random search / Bayesian optimization under matched compute (the loop itself cost ~99 GPU-h for the GNN, Supp. Tab. 9), so the claim that the agent yields better configurations or genuine "interpretable scientific output" is unsubstantiated, and reproducibility depends on a proprietary, stochastic LLM.
+
+W7 — "Noise breaks degeneracies" is partly a restatement of the linear-algebra fact, and the practical recommendation rests on an untested analogy. Adding independent per-neuron process noise to the generator (Eq. 1) decorrelates the time-shifted same-type column signals that cause ker(H) (Appx. C) — so improved identifiability at σ > 0 is expected almost by construction. That is fine and even elegant, but the leap to "perturbations such as targeted optogenetic stimulation are likely more informative than passive recordings" is, as the authors concede (Sec. 6), "by analogy and to be tested." The abstract states it more strongly ("perturbations … are essential") than the evidence (intrinsic stochastic noise in-silico) supports.
+
+W8 — The SIREN "unknown stimulus" result is in-distribution and not genuinely unobserved. The rollout r = 0.59 ± 0.32 is reported on training-frame indices because "the SIREN cannot extrapolate" (l. 263), and the authors themselves note (l. 265–268) the stimulus "is not truly unobserved" since it is largely present in the 1,736 photoreceptor activities. Presenting this in the abstract as "additionally recovers unknown visual stimuli" overstates a preliminary, overfit result.
+
+W9 — Statistical-variability reporting is inconsistent and possibly under-dispersed. Many entries report ± 0.00 while one key entry (Tab. 1, GNN noise-free rollout) is 0.90 ± 0.21 — a very large spread implying some folds roll out poorly. With only 5 CV folds and SD "driven by independent training and data-generation seeds," it is unclear whether the ± 0.00 rows reflect genuine seed-level stability or rounding, and whether the dominant uncertainty (seed-to-seed in Ŵ) is captured. Also N = 13,697 in Appx. C (l. 516) vs 13,741 neurons in the main text — please reconcile.
+Quality: 3: good
+Clarity: 3: good
+Significance: 3: good
+Originality: 3: good
+Questions:
+
+    How much of "recovery" depends on (a) the GNN's hypothesis class containing the true generator and (b) Δt_inference = Δt_simulation? Please add at least one mismatch experiment: e.g., generate data with a finer integration step than the GNN uses, and/or add a dynamical term outside the additive-pairwise form (a multiplicative/conductance-like coupling, cf. Limitation 3), and report R²_Ŵ, R²_τ, R²_{V_rest}. This is the single largest determinant of my score: if recovery degrades sharply under mild misspecification, the title/abstract must be scoped to "model-matched in-silico feasibility." Conversely, robustness to mismatch would substantially strengthen the paper.
+
+    Please report the full-sample (no outlier filtering) R² for τ̂ and V̂_rest next to the inlier values in Tabs. 1, 2 and Supp. Tab. 4, given outlier fractions up to 40.8% (Tab. 2) and 56.3% (Supp. Tab. 4). If full-sample R² are much lower, the "recovers time constants / resting potentials … on par with an oracle" claims should be revised. Under what criterion would you consider the un-filtered numbers acceptable?
+
+    In the noise-free Flyvis-217 setting (Tab. 1), the GNN trails the oracle (R²_Ŵ 0.89 vs 0.96; R²_{V_rest} 0.76 vs 0.97; cluster 0.86 vs 0.92). Since real passive recordings will not have an experimenter-controlled intrinsic-noise knob, why is the noise-free gap not the headline number? Please reconcile "on par with an oracle" with this regime, or restrict the claim to σ > 0.
+
+    Can you provide a matched-compute comparison of the agentic loop against random and/or Bayesian search, with a quantitative statement of what the agent buys (final R², search efficiency)? Absent such a baseline, would you consider reframing contribution (3) as a methods note rather than a headline contribution, and moving the raw agent logs (Appx. G) to a non-load-bearing appendix?
+
+    Please add a precise delineation versus Allier et al. [2024, 2026]: which capabilities here are not in that work, and is [2026] concurrent? A small head-to-head (your GNN vs the Allier formulation on the same columnar circuit) would substantiate the architectural delta.
+
+    Please position the work against the FlyWire whole-brain LIF activity-fitting line — Shiu et al.'s connectome LIF model and BrainTrace — which fit real Drosophila activity/functional connectivity on the connectome with a fixed dynamical form. A single sentence applying your Appendix C degeneracy result to that setting (i.e., that weights fit to reproduce activity are expected to be non-identifiable) would make your "prediction ≠ mechanism" thesis concretely real-data-grounded. I treat BrainTrace as plausibly concurrent and will not penalize its omission; the Shiu et al. predecessor and the qualification of the "scaling has proven harder" motivation (l. 28–30), however, I do expect to be addressed (see W5b, R1–R3). This question does not, by itself, change my score.
+
+Limitations:
+
+Adequately discussed, with notable omissions.
+Rating: 3: Borderline reject: Technically solid paper where reasons to reject, e.g., limited evaluation, outweigh reasons to accept, e.g., good evaluation. Please use sparingly.
+Confidence: 4: You are confident in your assessment, but not absolutely certain. It is unlikely, but not impossible, that you did not understand some parts of the submission or that you are unfamiliar with some pieces of related work.
+Ethical Concerns: NO or VERY MINOR ethics concerns only
+Paper Formatting Concerns:
+
+    Internal numeric inconsistency: neuron count is 13,741 in the main text/abstract but N = 13,697 in Appx. C (l. 516) — please reconcile (likely zero-degree/no-output neurons excluded) and state the exclusion explicitly.
+    Variability reporting: the mix of ± 0.00 and ± 0.21 (Tab. 1) entries should be explained; state the fold/seed design and whether ± 0.00 is rounding.
+    Appendix hygiene: Appendix G reproduces raw LLM "working-memory" logs (e.g., l. 883–1037) containing informal claims ("definitively optimal"); these should be summarized/curated rather than pasted verbatim into a scientific appendix.
+
+Code Of Conduct Acknowledgement: Yes
+Responsible Reviewing Acknowledgement: Yes
+Add:
+Official Review of Submission28595 by Reviewer Vzfg
+Official Reviewby Reviewer Vzfg24 Jun 2026, 20:06 (modified: 23 Jul 2026, 18:34)Program Chairs, Senior Area Chairs, Area Chairs, Reviewers Submitted, Authors, Reviewer VzfgRevisions
+Summary:
+
+The authors consider the problem of inferring the parameters of a dynamical model of neural circuits, incorporating connectome and neural activity measurements. They develop a GNN ODE architecture, train it on a previously published ODE of the fly visual circuit (Flyvis, ~13K to ~50K neurons). The GNN is constrained to the binary connectome mask and trained on the voltage time series generated from Flyvis. Especially when the Flyvis data is simulated with intrinsic noise, the ODE parameters can be extracted from the GNN. This works as well as using the original ODE to directly infer parameters. The approach is robust to false edges, and various data degradations, but sensitive to missing true edges in the connectome. Meanwhile, a black-box MLP approach has can achieve equal good next-step prediction but deteriorates when the system has high intrinsic noise and there is no easy way to extract parameters.
+Contribution Type: General: Most submissions will fall into this type.
+Strengths And Weaknesses:
+
+Strengths: The authors address an important and timely problem in neuroscience: how to integrate recent advances in connectome data with neural recordings to push our knowledge of neural circuits. The main novelty is adapting, applying and stress-testing the GNN architecture for large-scale connectome-constrained neural circuit recovery with biologically structured degeneracies and realistic connectome perturbations. This setup is fairly clear and the work is transparent about its scope and limitations. Centering the work on synthetic simulations seems justified. The difference between prediction and mechanistic recovery is largely clear (see Question about OOD). This work has several strong and promising results, aside from the recovery of parameters, especially it’s improvement under noisier GT dynamics. Tolerance to 400% false edges. As the model is linear in the parameters, authors systematically identify parameter sloppiness based on data variance.
+
+Weaknesses: As this work is currently limited to synthetic benchmarks, the paper could have included a few more systems, with increasingly difficulty.
+
+The claim that black-box baselines predict activity but fail to recover the true dynamics is plausible, but only partially demonstrated. It is currently largely based on the authors failure to extract GT parameters and map the black-box dynamics to the connectome as well as the qualitative Jacobian comparison for the Recurrent MLP in Supp. Fig. 18.
+
+While the authors demonstrate robustness of the GNN to data degradations like partial observations in space and time, there still appears to be a gap between the high quality of the synthetic benchmark data versus real neural recordings in flies which they admit in the Limitations Section. Sharing how the method fails under more realistic data degradations would identify and highlight the gaps for future work.
+
+Minor comments:
+
+The post-hoc extraction of parameters from from the GNN is an important contribution but somewhat buried in Appendix F.2.
+
+Fig 1 could be cleaned up. Fonts are quite small. The figure appears quite dense for a main text but perhaps it’s necessary.
+
+Fig 2 fonts are also quite small. Should be comparable to main text font size.
+Quality: 3: good
+Clarity: 3: good
+Significance: 2: not good
+Originality: 3: good
+Questions:
+
+    Recurrent benchmarks: The Flyvis system appears to be very weakly recurrent, largely input driven. How would you expect the method to perform on a known strongly recurrent system, such as a ring attractor circuit, where recurrent kernel recovery and perturbation responses could be directly evaluated? Another simple choice: RNNs trained on standard neuroscience tasks, k-bit flip flop etc, with various nonlinearities. RNNs can be trained with sparse connectivity using pruning+Dale’s law constraints [1]. Demonstrating parameter recovery in more challenging [2] recurrent settings could hugely boost it’s utility and value to the community.
+
+    Data degradation to Calcium-like instead of voltage: Can the authors test a calcium-like observation model—temporal low-pass filtering, nonlinear fluorescence saturation, shot/read noise, and possible deconvolution—rather than only additive voltage noise and frame subsampling? This would better assess transfer to real neural recordings.
+
+    MLP baseline learns incorrect dynamics: My understanding is that the black-box (e.g. MLP) baselines learn the correct dynamical function along the data, as demonstrated by good one-step prediction. However off the neural data manifold, i.e., out-of-distribution (OOD), one might expect a mismatch, as suggested by the jacobian mismatch Supp. Fig. 18. Could the authors test all models on very OOD circumstances, e.g., non-naturalistic visual input, under sparse optogenetic stimulation, or voltage clamp?
+
+    Include GNN Jacobian: Since Supp. Fig. 18 uses Jacobian mismatch to argue that the MLP does not recover the true dynamics, can the authors include the same Jacobian comparison for the GNN and known-ODE models? This would directly show whether the GNN recovers the local vector field, not only extracted parameters and rollouts.
+
+Efforts to address these questions, especially 1,2,3, will boost my score. Presumably, 4 should be very easy.
+
+[1] Aishwarya Balwani et al., Constructing biologically constrained RNNs via Dale’s backpropagation and topologically informed pruning. Sci. Adv. 11, eadw4970(2025). https://doi.org/10.1126/sciadv.adw4970
+
+[2] Das, A., Fiete, I.R. Systematic errors in connectivity inferred from activity in strongly recurrent networks. Nat Neurosci 23, 1286–1296 (2020). https://doi.org/10.1038/s41593-020-0699-2
+Limitations:
+
+Yes.
+Rating: 4: Borderline accept: Technically solid paper where reasons to accept outweigh reasons to reject, e.g., limited evaluation. Please use sparingly.
+Confidence: 4: You are confident in your assessment, but not absolutely certain. It is unlikely, but not impossible, that you did not understand some parts of the submission or that you are unfamiliar with some pieces of related work.
+Ethical Concerns: NO or VERY MINOR ethics concerns only
+Paper Formatting Concerns:
+
+No major formatting concerns.
+Code Of Conduct Acknowledgement: Yes
+Responsible Reviewing Acknowledgement: Yes
+Add:
+Official Review of Submission28595 by Reviewer PVbi
+Official Reviewby Reviewer PVbi17 Jun 2026, 15:12 (modified: 23 Jul 2026, 18:34)Program Chairs, Senior Area Chairs, Area Chairs, Reviewers Submitted, Authors, Reviewer PVbiRevisions
+Summary:
+
+This paper studies whether mechanistic circuit models can be recovered from neural activity when partial structural information about the circuit is available. Using the Flyvis simulator as an in silico ground truth, the authors train a continuous-time graph neural network that receives neural activity and a binary connectome prior and attempts to recover effective synaptic weights, neuron-level parameters such as time constants and resting potentials, and flexible neuron/synapse interaction functions. The paper compares this approach against a Known-ODE oracle and several non-mechanistic prediction baselines, and evaluates recovery under different sources of data degradation, including model noise, measurement noise, incomplete connectivity, false-positive edges, partial observations, and FlyWire-derived heterogeneous wiring. The central message is that activity prediction alone is insufficient for mechanistic understanding, whereas a connectome-constrained GNN can, under favorable conditions, recover local circuit dynamics and support mechanistic interventions such as edge ablation.
+Contribution Type: General: Most submissions will fall into this type.
+Strengths And Weaknesses:
+Strengths
+
+    The authors address an important problem at the intersection of connectomics, neural system identification, and mechanistic modeling: whether one can infer not only neural activity but also the underlying circuit mechanism from activity and structural priors. The use of Flyvis as a large-scale biologically motivated simulator is a strength.
+    It provides a realistic and structured testbed, and the inclusion of FlyWire-derived heterogeneous wiring is a useful step beyond the idealized convolutional template used in the original Flyvis model.
+    The paper also makes a valuable distinction between predictive accuracy and mechanistic recovery. The comparison to non-mechanistic sequence models is useful, because it shows that high one-step or rollout prediction accuracy does not necessarily imply recovery of interpretable synaptic or neuronal parameters. The edge-ablation experiment is also a meaningful operational test of whether the learned model captures local circuit rules rather than merely memorizing trajectories.
+
+Weaknesses
+
+    The paper’s claims regarding novelty and mechanism recovery appear somewhat overstated. A major part of the contribution is framed as recovering connectivity and circuit mechanisms from activity using a GNN trained through an activity prediction objective. However, this general idea is closely related to prior work on GNN-based latent connectivity inference from neural population activity [1,2], including work that handles partially observed circuits using hidden or auxiliary nodes. Relative to this line of work, the main difference here appears to be the use of the Flyvis simulator, continuous-time voltage dynamics, and parameter-level evaluation of time constants and resting potentials. These are meaningful extensions, but the paper should more clearly separate what is methodologically new from what is an application or scaling of existing GNN-based circuit inference ideas.
+    Similarly, the identifiability message is important but not entirely new. Prior work on connectivity inference in strongly coupled recurrent circuits [3] has already shown that activity-based inference can produce systematic false connections between unconnected but strongly correlated neurons, that prediction performance can be misleading as evidence for biological connectivity, and that perturbations or noise may help reduce inference bias by enriching the activity distribution. The current paper extends this theme to a Flyvis-scale connectome-constrained inverse modeling setting, but it does not fully acknowledge how much of the conceptual point has already been established. The paper would be stronger if it framed its contribution as a large-scale, Flyvis/FlyWire-based benchmark of these ideas rather than as introducing the central identifiability insight itself.
+    The experimental design is generally thoughtful, and the Known-ODE oracle is a useful upper bound. The extensive degradation experiments are also valuable. However, the reliance on Flyvis as the ground truth imposes an important limitation. Flyvis itself is a model with a hand-designed ODE and simplified neuron/synapse dynamics, not a real paired connectome-and-activity dataset. Therefore, successful recovery in this setting demonstrates recovery of a simulator, not necessarily recovery of biological circuit mechanism.
+    I am also concerned that “mechanism recovery” is sometimes used in a strong sense, as if the true underlying mechanism is recovered, and elsewhere in a weaker operational sense, as if the learned model produces functionally equivalent dynamics under certain interventions. These are not the same claim. The results suggest that the GNN can approach the Known-ODE oracle under favorable noise or perturbation conditions, but they also show that exact recovery is limited by non-identifiability. The paper should be more precise about whether it claims exact parameter recovery, recovery up to an equivalence class, or merely recovery of counterfactually useful dynamics.
+    The paper is mostly understandable, but the framing could be improved. The relationship to Flyvis should be stated more explicitly. Flyvis learned time constants, resting potentials, and synaptic strengths through task optimization without fitting neural activity, whereas this paper attempts to recover similar quantities from activity. This is an important distinction, but the current presentation could make it easier for readers to understand that the novelty is not the parameter types themselves, but the inverse problem formulation. The distinction between the GNN and the Known-ODE oracle should also be sharpened: the GNN does not know the ODE form and learns flexible update/message functions, but the extent to which these learned functions are identifiable or unique remains unclear.
+
+[1] AMAG: Additive, Multiplicative and Adaptive Graph Neural Network for Forecasting Neural Activity https://proceedings.neurips.cc/paper_files/paper/2023/file/1c70ba3591d0694a535089e1c25888d7-Paper-Conference.pdf
+
+[2] Self-Supervised Discovery of Neural Circuits in Spatially Patterned Neural Responses with Graph Neural Networks https://papers.nips.cc/paper_files/paper/2025/file/d56296582d3121ecb7fc8f6a3fb31bdf-Paper-Conference.pdf
+
+[3] Systematic errors in connectivity inferred from activity in strongly recurrent networks. https://www.nature.com/articles/s41593-020-0699-2
+Quality: 3: good
+Clarity: 2: not good
+Significance: 3: good
+Originality: 2: not good
+Questions:
+
+    The acronym “SIREN” is introduced in the abstract without definition. Please spell out the full term at first use and briefly clarify its role in the proposed framework.
+    In Tables 1 and 2, values greater than 0.9 are highlighted in green, but the rationale for using 0.9 as the threshold is not explained. Please justify this cutoff or describe it in the table caption.
+
+Limitations:
+
+yes
+Rating: 3: Borderline reject: Technically solid paper where reasons to reject, e.g., limited evaluation, outweigh reasons to accept, e.g., good evaluation. Please use sparingly.
+Confidence: 4: You are confident in your assessment, but not absolutely certain. It is unlikely, but not impossible, that you did not understand some parts of the submission or that you are unfamiliar with some pieces of related work.
+Ethical Concerns: NO or VERY MINOR ethics concerns only
+Paper Formatting Concerns:
+
+The citation links in the main text should be checked, as they do not consistently point to the correct papers in the reference list.
+Code Of Conduct Acknowledgement: Yes
+Responsible Reviewing Acknowledgement: Yes
+Add:
+About OpenReview
+Contact
+FAQ
+Hosting a Venue
+Sponsors
+Terms of Use / Privacy Policy
+All Venues
+Donate
+News
+
+OpenReview is a long-term project to advance science through improved peer review with legal nonprofit status. We gratefully acknowledge the support of the OpenReview Sponsors. © 2026 OpenReview

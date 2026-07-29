@@ -153,7 +153,11 @@ def _participation_ratio(R):
     s = np.linalg.svd(Rc, full_matrices=False, compute_uv=False)
     lam = s ** 2
     pr = (lam.sum() ** 2) / (lam ** 2).sum()
-    return float(pr), lam / lam.sum()
+    # numerical rank (np.linalg.matrix_rank tolerance) for comparison: the hard
+    # dimension the activity occupies, vs PR's variance-weighted effective one.
+    tol = s.max() * max(Rc.shape) * np.finfo(s.dtype).eps
+    rank = int((s > tol).sum())
+    return float(pr), rank, lam / lam.sum()
 
 
 def _tdr(R, Z, is_2d):
@@ -269,7 +273,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--data_root",
                     default="/groups/saalfeld/home/allierc/GraphData")
-    ap.add_argument("--n_trials", type=int, default=20)
+    ap.add_argument("--n_trials", type=int, default=200)
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--lam", type=float, default=5.0)
     ap.add_argument("--out", default=os.path.join(
@@ -288,16 +292,16 @@ def main():
         net, cfg = _load_run(run, args.data_root, device)
         u, y = _load_test(cfg)
         R, Z = _rates_recpool(net, u, y, device, args.n_trials)
-        pr, varfrac = _participation_ratio(R)
+        pr, rank, varfrac = _participation_ratio(R)
         head, trans, pa = _tdr(R, Z, is_2d)
         kmax = min(140, R.shape[1])
         k_list = list(range(1, 13)) + list(range(14, 41, 3)) + list(range(45, kmax + 1, 10))
         dec = _decode_vs_rank(R, Z, is_2d, k_list)
         hr2 = _heading_r2(R, Z)
-        geom.append(dict(run=run, lab=lab, is_2d=is_2d, pr=pr, varfrac=varfrac,
-                         head=head, trans=trans, pa=pa, dec=dec, hr2=hr2,
-                         R=R, Z=Z))
-        print(f"[geom] {lab:16s} PR={pr:.2f} pa(head,trans)="
+        geom.append(dict(run=run, lab=lab, is_2d=is_2d, pr=pr, rank=rank,
+                         varfrac=varfrac, head=head, trans=trans, pa=pa,
+                         dec=dec, hr2=hr2, R=R, Z=Z))
+        print(f"[geom] {lab:16s} PR={pr:.2f} rank={rank:d} pa(head,trans)="
               f"{np.array2string(pa, precision=0)} deg  head R2={hr2:.3f}"
               f"  pos R2_full={dec['pos_full']:.3f} topq={dec['topq']:.3f} k*={dec['kstar']}")
     # cross-task subspace alignment (same neuron basis)
@@ -314,54 +318,9 @@ def main():
     print("[geom] translation cross-task mean angle (deg):\n", np.array2string(trans_ang, precision=0))
     print(f"[geom] heading reused {head_reuse:.0f} deg, translation rotated {trans_rot:.0f} deg")
 
-    # ================ panel C: translation MI vs group size =================
-    # cross-validated decoder lower bound, one estimator across every scale
-    # (single neurons -> cell types -> families -> whole pool), 2-D model.
-    from fig_zebrafish_mi_partition import (  # noqa: E402
-        _accumulate_hidden, _is_recurrent, _rec_family,
-        REC_FAMILY_ORDER, REC_FAMILY_COLOR,
-    )
-    from fig_zebrafish_mi_grouped import _decoder_mi_bits, _bin_quantile  # noqa: E402
-
+    # ===================== panel E: RRR loading plane ========================
     net_f, cfg_f = _load_run(FEATURE_RUN, args.data_root, device)
     u_f, y_f = _load_test(cfg_f)
-    H, theta, d, pos2d = _accumulate_hidden(net_f, u_f, y_f, device, args.n_trials)
-    tn = list(net_f.type_names)
-    nt_f = np.asarray(net_f.neuron_types).astype(int)
-    rec_mask = np.array([_is_recurrent(tn[int(t)]) for t in nt_f])
-    rec_ix = np.where(rec_mask)[0]
-    ctype = np.array([tn[int(nt_f[i])] for i in rec_ix], dtype=object)
-    fam = np.array([_rec_family(tn[int(nt_f[i])]) for i in rec_ix], dtype=object)
-    Hrec = H[:, rec_ix]
-    rngC = np.random.default_rng(0)
-    T = Hrec.shape[0]
-    sel = (rngC.choice(T, 9000, replace=False) if T > 9000 else np.arange(T))
-    Xs = Hrec[sel]
-    lx, _ = _bin_quantile(pos2d[sel, 0], 8)
-    ly, _ = _bin_quantile(pos2d[sel, 1], 8)
-    yb_pos = lx * 8 + ly                       # joint (x,y) on an 8x8 grid
-
-    micurve = {"single": [], "type": [], "family": [], "all": None}
-    single_ix = rngC.choice(Xs.shape[1], min(40, Xs.shape[1]), replace=False)
-    for j in single_ix:
-        micurve["single"].append((1, _decoder_mi_bits(Xs[:, [j]], yb_pos, rngC),
-                                  fam[j]))
-    for ct in sorted(set(ctype)):
-        m = ctype == ct
-        micurve["type"].append((int(m.sum()),
-                                _decoder_mi_bits(Xs[:, m], yb_pos, rngC),
-                                _rec_family(ct)))
-    for g in REC_FAMILY_ORDER:
-        m = fam == g
-        if m.any():
-            micurve["family"].append((int(m.sum()),
-                                      _decoder_mi_bits(Xs[:, m], yb_pos, rngC), g))
-    micurve["all"] = (Xs.shape[1], _decoder_mi_bits(Xs, yb_pos, rngC))
-    print(f"[mi] single-neuron median translation MI = "
-          f"{np.median([v for _, v, _ in micurve['single']]):.3f} bits; "
-          f"whole pool = {micurve['all'][1]:.3f} bits")
-
-    # ===================== panel E: RRR loading plane ========================
     R_all, B_all = _rates_all(net_f, u_f, y_f, device, args.n_trials, True)
     X, prov = _design(B_all, net_f.dt)
     Vr, feat, Bmap = _rrr_fit(X.reshape(-1, X.shape[-1]),
@@ -397,8 +356,8 @@ def main():
         "ytick.labelsize": 9.5, "legend.fontsize": 8.5, "lines.linewidth": 1.7,
         "axes.linewidth": 0.9, "xtick.major.size": 3.2, "ytick.major.size": 3.2,
     })
-    fig = plt.figure(figsize=(14.5, 9.2))
-    gs = gridspec.GridSpec(2, 3, figure=fig, hspace=0.34, wspace=0.34)
+    fig = plt.figure(figsize=(10.0, 9.2))
+    gs = gridspec.GridSpec(2, 2, figure=fig, hspace=0.34, wspace=0.34)
 
     def _pl(ax, s, dx=-0.18):
         ax.text(dx, 1.06, s, transform=ax.transAxes, fontweight="bold",
@@ -411,17 +370,15 @@ def main():
     ph = Rc @ ref["head"]
     th = np.arctan2(ref["Z"][:, 1], ref["Z"][:, 0])
     rng = np.random.default_rng(0)
-    sub = rng.choice(ph.shape[0], min(4000, ph.shape[0]), replace=False)
+    sub = rng.choice(ph.shape[0], min(40000, ph.shape[0]), replace=False)
     axA = fig.add_subplot(gs[0, 0])
-    scb = axA.scatter(ph[sub, 0], ph[sub, 1], c=th[sub], cmap="twilight",
+    scb = axA.scatter(ph[sub, 0], ph[sub, 1], c=th[sub], cmap="viridis",
                       s=5, alpha=0.6, edgecolor="none")
     axA.set_xlabel("heading axis 1"); axA.set_ylabel("heading axis 2")
     axA.set_aspect("equal", "box")
-    cb = fig.colorbar(scb, ax=axA, fraction=0.046, pad=0.04)
-    cb.set_label("true heading", fontsize=9)
-    axA.text(0.5, 0.5, f"ring attractor\nPR = {ref['pr']:.0f}\n"
-             f"heading decode\n$R^2$ = {ref['hr2']:.2f}",
-             transform=axA.transAxes, fontsize=8.5, va="center", ha="center")
+    cb = fig.colorbar(scb, ax=axA, fraction=0.030, pad=0.04, shrink=0.62)
+    cb.set_label("true heading", fontsize=12)
+    cb.ax.tick_params(labelsize=8)
     _pl(axA, "a")
 
     # ---- (b) 3-D manifold: translation axis lifts out of the heading ring -
@@ -456,77 +413,14 @@ def main():
     axB.set_xticklabels([]); axB.set_yticklabels([]); axB.set_zticklabels([])
     axB.view_init(elev=18, azim=-58)
     axB.set_box_aspect((1, 1, 0.75))
-    cbB = fig.colorbar(scB, ax=axB, fraction=0.030, pad=0.02)
-    cbB.set_label("true distance", fontsize=9)
+    cbB = fig.colorbar(scB, ax=axB, fraction=0.022, pad=0.13, shrink=0.55)
+    cbB.set_label("true distance", fontsize=12)
+    cbB.ax.tick_params(labelsize=8)
     axB.text2D(-0.06, 1.02, "b", transform=axB.transAxes, fontweight="bold",
                fontsize=15)
 
-    # ---- (c) translation MI vs group size ---------------------------------
-    axC = fig.add_subplot(gs[0, 2])
-    sx = np.array([n for n, _, _ in micurve["single"]], dtype=float)
-    sv = np.array([v for _, v, _ in micurve["single"]])
-    axC.scatter(sx * rng.uniform(0.85, 1.15, sx.size), sv, s=14, color="0.55",
-                alpha=0.7, edgecolor="none", label="single neurons", zorder=2)
-    for n, v, f in micurve["type"]:
-        axC.scatter(n, v, s=26, color=REC_FAMILY_COLOR[f], alpha=0.85,
-                    edgecolor="none", zorder=3)
-    for n, v, f in micurve["family"]:
-        axC.scatter(n, v, s=130, color=REC_FAMILY_COLOR[f], marker="D",
-                    edgecolor="k", linewidth=0.8, zorder=5)
-    axC.plot(micurve["all"][0], micurve["all"][1], marker="+", color="red",
-             ms=15, mew=2.4, ls="none", zorder=8)
-    # log trend through every group (excluding the whole-pool point)
-    allpts = ([(n, v) for n, v, _ in micurve["single"]]
-              + [(n, v) for n, v, _ in micurve["type"]]
-              + [(n, v) for n, v, _ in micurve["family"]])
-    apx = np.array([p[0] for p in allpts]); apy = np.array([p[1] for p in allpts])
-    good = apx > 0
-    bb, aa = np.polyfit(np.log10(apx[good]), apy[good], 1)
-    xf = np.logspace(0, np.log10(micurve["all"][0]), 60)
-    axC.plot(xf, aa + bb * np.log10(xf), color="0.35", ls="--", lw=1.1, zorder=1)
-    axC.set_xscale("log")
-    axC.set_xlabel("group size (neurons)")
-    axC.set_ylabel("translation information (bits)")
-    axC.set_ylim(-0.1, max(3.6, micurve["all"][1] * 1.1))
-    hC = [Line2D([0], [0], marker="o", ls="none", ms=6, color="0.55",
-                 label="single neurons"),
-          Line2D([0], [0], marker="o", ls="none", ms=6, color="0.5",
-                 label="cell types"),
-          Line2D([0], [0], marker="D", ls="none", ms=8, mec="k", color="0.5",
-                 label="families"),
-          Line2D([0], [0], marker="+", ls="none", ms=11, mew=2, color="red",
-                 label="whole pool")]
-    axC.legend(handles=hC, loc="upper left", frameon=False, fontsize=8)
-    _pl(axC, "c")
-
-    # ---- (d) decode R^2 vs #PCs  vs  task readout -------------------------
-    axD = fig.add_subplot(gs[1, 0])
-    for j, g in enumerate(geom):
-        if not g["is_2d"]:
-            continue
-        dd = g["dec"]
-        prim = (j == REF_IX)
-        axD.plot(dd["k_list"], dd["pos"], color=GEOM_COL[j],
-                 lw=2.0 if prim else 1.3, alpha=1.0 if prim else 0.55,
-                 label="top-variance PCs" if prim else None, zorder=3 if prim else 2)
-        axD.plot(2, dd["topq"], marker="*", ms=14, color=GEOM_COL[j], mec="k",
-                 mew=0.5, zorder=6)
-    dref = ref["dec"]
-    axD.axhline(dref["pos_full"], color="0.25", ls=":", lw=1.4)
-    axD.annotate(f"task-tuned readout: $R^2$ = {dref['pos_full']:.2f}",
-                 xy=(axD.get_xlim()[1] * 0.55, dref["pos_full"]),
-                 xytext=(0, -14), textcoords="offset points", fontsize=8.5,
-                 ha="center", va="top", color="0.25")
-    axD.annotate(f"top 2 PCs: $R^2$ = {dref['topq']:.2f}", xy=(2, dref["topq"]),
-                 xytext=(16, 26), textcoords="offset points", fontsize=8.5,
-                 arrowprops=dict(arrowstyle="->", color="0.4", lw=1.0))
-    axD.set_xlabel("number of top-variance PCs")
-    axD.set_ylabel(r"translation decode $R^2$")
-    axD.set_xlim(0, 90); axD.set_ylim(-0.05, 1.05)
-    _pl(axD, "d")
-
-    # ---- (e) Feierstein loading plane -------------------------------------
-    axE = fig.add_subplot(gs[1, 1])
+    # ---- (c) Feierstein loading plane -------------------------------------
+    axE = fig.add_subplot(gs[1, 0])
     for pop in POP_ORDER:
         m = pops == pop
         if not m.any():
@@ -539,13 +433,13 @@ def main():
                            "ptIPN1": "pt-IPN1 (translation)", "recurrent": "recurrent",
                            "other": "other"}[pop])
     axE.axhline(0, color="0.85", lw=0.7); axE.axvline(0, color="0.85", lw=0.7)
-    axE.set_xlabel("heading feature loading")
-    axE.set_ylabel("translation feature loading")
+    axE.set_xlabel("heading feature")
+    axE.set_ylabel("translation feature")
     axE.legend(loc="upper right", frameon=False, fontsize=7.3, handletextpad=0.2)
-    _pl(axE, "e")
+    _pl(axE, "c")
 
-    # ---- (f) cross-task geometry schematic --------------------------------
-    axF = fig.add_subplot(gs[1, 2])
+    # ---- (d) cross-task geometry schematic --------------------------------
+    axF = fig.add_subplot(gs[1, 1])
     axF.set_xlim(0, 1); axF.set_ylim(0, 1); axF.axis("off")
     blue, orange = "#0072b2", "#e69f00"
     for cx, title in ((0.27, "1-D distance"), (0.73, "2-D path")):
@@ -573,7 +467,7 @@ def main():
              color=blue, fontsize=8.5)
     axF.text(0.5, 0.74, f"translation\nrotates {trans_rot:.0f}$^\\circ$",
              ha="center", color="#b07400", fontsize=8.5)
-    _pl(axF, "f", dx=-0.05)
+    _pl(axF, "d", dx=-0.05)
 
     from _despine import open_axes
     open_axes(fig)

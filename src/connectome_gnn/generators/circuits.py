@@ -451,9 +451,58 @@ def _discover_circuits() -> None:
     _register_drosophila_cx_338()
     _register_drosophila_cx_338_nulls()
     _register_celegans_300()
+    _register_celegans_300_ernull()
 
 
 _DISCOVERED: bool = False
+
+
+def _register_celegans_300_ernull() -> None:
+    """Degree/sign/density-matched Erdos-Renyi null of the worm connectome
+    (``celegans_300_ernull_v1``). Same N, same number of edges, same global
+    E:I fraction (Dale-consistent: each neuron all-one-sign outgoing), and
+    magnitudes resampled from the worm's magnitude distribution; random support.
+    Tests whether the worm WIRING adds anything beyond its second-order
+    statistics."""
+    def build() -> Circuit:
+        from connectome_gnn.generators.connectome_loaders import (
+            load_celegans_connectome,
+        )
+        ce = load_celegans_connectome("figures/celegans/celegans_connectome_300")
+        J = np.asarray(ce["J_effective"], dtype=np.float64)
+        N = int(ce["N"])
+        rng = np.random.default_rng(12345)
+        mask = J != 0
+        n_edges = int(mask.sum())
+        mags = np.abs(J[mask])
+        frac_inh = float(ce["frac_inhibitory"])
+        # Dale-consistent per-neuron sign (presynaptic = column)
+        is_inh = rng.random(N) < frac_inh
+        col_sign = np.where(is_inh, -1.0, 1.0)
+        # random support: pick n_edges off-diagonal positions
+        off = np.array([(i, j) for i in range(N) for j in range(N) if i != j])
+        sel = off[rng.choice(len(off), size=n_edges, replace=False)]
+        Jn = np.zeros((N, N))
+        m = rng.permutation(mags)
+        for k, (i, j) in enumerate(sel):
+            Jn[i, j] = m[k] * col_sign[j]
+        ev = np.linalg.eigvals(Jn); mr = float(np.max(ev.real))
+        if abs(mr) < 1e-9:
+            mr = float(np.max(np.abs(ev))) or 1.0
+        Jn = (0.9 / mr) * Jn
+        return Circuit(
+            name="celegans_300_ernull_v1", N=N,
+            neuron_types=np.asarray(ce["neuron_types"], dtype=np.int64),
+            type_names=list(ce["type_names"]),
+            J_effective=Jn.astype(np.float32), soma_xyz=None,
+            subpops={"bump": np.arange(N, dtype=np.int64)},
+            bump_ring_ix=None,
+            dale_signs=col_sign.astype(np.float32), body_ids=None,
+            provenance={"design_note": "Dale-consistent ER null of worm "
+                        "connectome: matched N, #edges, E:I fraction, magnitude "
+                        "distribution; random support. Spectral radius 0.9."})
+
+    register_circuit("celegans_300_ernull_v1", build)
 
 
 def _register_celegans_300() -> None:
