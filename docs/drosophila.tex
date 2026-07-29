@@ -348,19 +348,30 @@ $\sigma=0.2$ (\cref{fig:cx_placecells}b). At any instant only a $\sim\!4\times4$
 patch is active, so the code is $\sim\!85\%$ silent. The place code is produced
 by a second recurrent network (Net2) of $600$ neurons --- $200$ interneurons
 $+$ the $400$ place cells --- on a \emph{synthetic} sign-locked connectome
-$W^{(2)}$ that is $10\%$ sparse with a $60{:}40$ E/I split, generated once from
-a fixed seed (\cref{fig:cx_placecells}a); as for the central complex only the
-per-edge magnitudes are learned, the Dale signs locked. Net2 reads the full
-$338$-cell compass state each step through an encoder MLP into its interneurons,
-and the place cells emit the spatial code through a decoder; the two networks
-are trained jointly. The objective adds to the self-motion MSE a spatial term
-that supervises the place code as a normalised population distribution
-$q_k=p_k/\sum_{k'}p_{k'}$ with a cross-entropy/KL loss (imbalance-free) plus an
-auxiliary population-vector position decode $\sum_k\hat q_k c_k$ regressed on
-the true arena position. The trajectory generator, the synthetic $W^{(2)}$ and
-the place-field geometry are produced by the data pipeline and saved with the
-dataset so training, testing and plotting share one fixed arena and one fixed
-Net2.
+$W^{(2)}$ (density and E/I ratio configurable; a denser $\sim\!40\%$, $50{:}50$
+scaffold works best), generated once from a fixed seed
+(\cref{fig:cx_placecells}a); as for the central complex only the per-edge
+magnitudes are learned, the Dale signs locked. Net2 reads the full $338$-cell
+compass state each step through an encoder MLP into its interneurons, and the
+$400$ place cells \emph{are} the spatial code: their output layer is a plain
+$\tanh$, so cell $k$ emits its place-field activation directly with no learnable
+readout, $\hat p=\tanh(\hat h^{(2)}_{\mathcal P})\in(-1,1)^{400}$. The two
+networks are trained jointly. The objective adds to the self-motion MSE a
+per-cell field-matching term $\lVert\hat p-g\rVert_2^2$ training each place cell
+to reproduce its Gaussian field $g_k=p_k$ --- dropping the decoder makes the
+fields live in the population itself, so the code is not scrambled by a free
+readout (a bounded $\tanh$ output also cannot be sharpened by the earlier
+softmax/KL loss); position, when needed, is a population vector over the
+rectified activations $\sum_k[\hat p_k]_+c_k$. Because trajectories start at a
+\emph{random} location, absolute position is unobservable from self-motion
+alone, so a path-integration anchor seeds the place cells at $t=0$ with the field
+of the true start
+($\hat h^{(2)}_{\mathcal P}(0)=\operatorname{atanh}g((x_0,y_0))$) and reads
+position relative to it,
+$(x_0,y_0)+[\mathrm{decode}(t)-\mathrm{decode}(0)]$ (Banino et al.\ 2018;
+Cueva \& Wei 2018). The trajectory generator, the synthetic $W^{(2)}$ and the
+place-field geometry are saved with the dataset so training, testing and
+plotting share one fixed arena and one fixed Net2.
 
 \begin{figure}[H]
   \centering
@@ -372,6 +383,71 @@ Net2.
   ($\sigma=0.2$) over the arena $[-1,1]^2$, arranged to match their arena
   positions; the $K=400$ cells tile a $20\times20$ grid.}
   \label{fig:cx_placecells}
+\end{figure}
+
+\paragraph{Grid cells: the place readout on a torus (Net2).}\label{method:cx_gridcells}
+The bounded arena anchors the place code to walls and forces Net2 to learn a
+2-D integrator against a boundary. Replacing the box with a \emph{torus} turns
+the same network into a grid-cell circuit on the canonical learnable substrate
+--- a periodic continuous attractor (Burak \& Fiete 2009), whose toroidal
+population topology was later confirmed experimentally for grid modules (Gardner
+et al.\ 2022). The agent now forages freely (unbounded 2-D path integration, no
+walls); the $K=20\times20$ cells tile a torus $[0,\lambda)^2$ and fire a toroidal
+Gaussian $g_k=\exp(-d_{\mathrm{torus}}((x,y)\bmod\lambda,c_k)^2/2\sigma^2)$ with
+the wrapped per-axis distance, so each cell fires on a \emph{periodic lattice} in
+real space (\cref{fig:cx_gridcells}). The architecture is identical to the place
+network --- the same synthetic sign-locked E/I Net2, encoder, $\tanh$ place-field
+output, field-matching MSE and start-field anchor --- but the target field and
+the position decode become \emph{circular}: cell $k$'s target is the toroidal
+Gaussian and the population vector is the per-axis circular mean
+$\arg\sum_k[\hat p_k]_+ e^{i 2\pi c_k/\lambda}$. With no boundary every cell is
+translation-equivalent and occupancy is uniform, removing the corner imbalance
+of the bounded place code. This is a single \emph{square} torus module (not the
+biological hexagonal lattice), so being periodic it recovers position only
+\emph{modulo} $\lambda$.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{figure/fig_grid_fields_examples.png}
+  \caption{\textbf{Grid-cell torus task.} Four example grid cells, each over
+  $\pm3\lambda$ of real space: the toroidal Gaussian target ($\lambda=0.5$,
+  $\sigma=0.1$) makes every cell fire on a periodic lattice --- a grid code.
+  The same Net2 as the place task reads them out, on a torus rather than a
+  bounded arena.}
+  \label{fig:cx_gridcells}
+\end{figure}
+
+\paragraph{Reading position off the compass: a torus on Net1 alone.}\label{method:cx_toruspos}
+The torus framing invites a sharper question: can the central complex
+\emph{itself} carry an allocentric position code, with no downstream network at
+all? We drop Net2 and instead add two readout \emph{rings} to the compass. Net1
+path-integrates position and reads it out as two toroidal phases
+$\varphi=2\pi(x,y)/\lambda$, each a $(\cos,\sin)$ pair exactly like the heading
+ring; the six-column readout
+$[\cos\theta,\sin\theta,\cos\varphi_x,\sin\varphi_x,\cos\varphi_y,\sin\varphi_y]$
+is thus \emph{three rings} --- heading plus the two position phases --- trained
+with plain MSE (circular through the cos/sin encoding). Position is decoded from
+the \emph{full} recurrent state rather than the EPG ring alone, because the
+allocentric vector lives in the PFN/h$\Delta$ columns, not the heading ring (Lyu
+et al.\ 2022; Lu et al.\ 2022). This is the fly's own vector-memory circuitry
+asked to hold a 2-D toroidal position: if it learns, the measured connectome
+alone path-integrates space, read directly off Net1 (\cref{fig:cx_toruspos}).
+These trajectories start at the origin, so absolute position is identifiable
+without an anchor. Two diagnostic variants isolate why the position torus is
+harder than the heading ring: one supplies the world-frame velocity
+$(v\cos\theta,v\sin\theta)$ as extra inputs so the network need only integrate
+(separating the velocity$\times$heading conjunction from the integration), and
+one enlarges the period $\lambda$ so the phase varies as slowly as heading
+(separating the target's fast phase-wrap from the integration itself).
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.55\textwidth]{figure/fig_torus_position.png}
+  \caption{\textbf{Position on a torus, read off Net1.} The two position phases
+  $(\varphi_x,\varphi_y)$ trace a point on a torus (3-D embedding; one held-out
+  trajectory). Net1 emits them as two $(\cos,\sin)$ rings alongside the heading
+  ring --- no second network.}
+  \label{fig:cx_toruspos}
 \end{figure}
 
 
@@ -1321,6 +1397,113 @@ elsewhere (\cref{fig:evolution_pi_frozen,fig:task_traces}).
 \end{figure}
 
 
+\paragraph{Energetics of the heading code.}
+The information analysis above quantifies \emph{what} the circuit computes;
+we close by asking what that computation \emph{costs}. In his Silliman
+lectures \citep{vonNeumann1966} von Neumann compared three energies for a
+single ``binary act'': the thermodynamic minimum $kT\ln 2$, the
+$\sim\!3\times10^{-3}$\,erg dissipated by a neuron, and the
+$\sim\!6\times10^{2}$\,erg of a vacuum tube, and observed an unexplained
+$\sim\!10^{11}$ gap between the neuron and the thermodynamic floor that he
+attributed to ``a desire for reliability of operation.'' Our model lets us
+re-cast this comparison for a \emph{continuous} heading estimate carrying a
+\emph{measured} $I_{\mathrm{pop}}$ bits, rather than a hypothetical one-bit
+act, and to test his reliability conjecture directly. We place the trained
+\texttt{drosophila\_cx\_both} circuit (recurrent substrate $N=236$, heading
+$I_{\mathrm{pop}}=3.5$ bits, \cref{fig:cx_energetics}) on a three-tier ladder.
+
+\emph{(i) Thermodynamic floor.} Each bit costs at least
+$kT\ln 2 = 2.9\times10^{-21}\,\mathrm{J}$ at $T=301$\,K (von Neumann's
+$3\times10^{-14}$\,erg) \citep{landauer1961}. A static estimate is free under
+Landauer's principle; dissipation is mandatory only for \emph{erasure}, and
+the model's leak makes the erasure rate explicit. A leaky integrator with
+state time constant $\tau$ overwrites its estimate at rate $1/\tau$, so the
+floor is
+\begin{equation}
+P_{\min} \;=\; \frac{I_{\mathrm{pop}}}{\tau}\,kT\ln 2
+\;\approx\; 1.0\times10^{-19}\,\mathrm{W}
+\qquad (\tau = 0.1\,\mathrm{s}).
+\label{eq:cx_landauer}
+\end{equation}
+
+\emph{(ii) Biological cost.} With the recurrent pool firing at a mean rate
+$\langle r\rangle = r_{\max}\,\langle\sigma(\hat h)\rangle \approx 12$\,Hz
+read from the model's own rates ($r_{\max}=30$\,Hz) and a small-vertebrate
+per-spike cost $E_{\mathrm{spike}}\approx10^{8}$ ATP
+$\approx 8\times10^{-12}$\,J \citep{attwell2001,laughlin1998},
+\begin{equation}
+P_{\mathrm{bio}} \;=\; N\,\langle r\rangle\,E_{\mathrm{spike}}
+\;\approx\; 2.4\times10^{-8}\,\mathrm{W},
+\qquad
+\frac{P_{\mathrm{bio}}\,\tau}{I_{\mathrm{pop}}} \approx 6.7\times10^{-10}\,
+\mathrm{J/bit}.
+\label{eq:cx_bio}
+\end{equation}
+
+\emph{(iii) Silicon model.} The silicon cost is not a single number but a
+\emph{range}, from an accelerator lower bound to measured dissipation, and we
+report it as such. The dense recurrent operator dominates the forward pass at
+$\sim\!2N^2$ FLOP per step; charging each \emph{useful} FLOP at the amortized
+energy of a fully-loaded A100 (board power over sustained throughput,
+$400\,\mathrm{W} / 10\,\mathrm{TFLOP/s}\approx 4\times10^{-11}$\,J/FLOP) gives,
+at $\Delta t = 0.01$\,s, a lower bound $P_{\mathrm{si}}\gtrsim4.5\times10^{-4}$\,W
+($\eta_{\mathrm{si}}\gtrsim1.3\times10^{-5}$\,J/bit). This counts the
+computation, not the computer: it is the optimistic end, realised only when
+$\sim\!10^{6}$ such circuits are batched to saturate the board (a single
+$236$-neuron circuit fills only $\sim\!10^{-6}$ of the card). The honest
+silicon number is \emph{measured} --- net GPU board power (\texttt{nvidia-smi}
+power draw, run minus idle) or wall-plug power during the rollout, divided by
+the recovered $I_{\mathrm{pop}}$ --- and lies above this bound; the script
+reports all three tiers (\texttt{--silicon\_mode flop|measured\_gpu|wall}) so
+the FLOP figure is never mistaken for measured dissipation. The gaps below use
+the FLOP lower bound, and are therefore conservative.
+
+The gaps reproduce von Neumann's structure from a connectome-constrained
+model that actually runs: biology sits $2.3\times10^{11}$ above the
+thermodynamic floor (his $\sim\!10^{11}$), and our silicon emulation a
+further $1.9\times10^{4}$ above biology even in the amortized best case (his
+vacuum tube was $\sim\!2\times10^5$ above the neuron). Crucially, the model also \emph{operationalizes} the reliability
+premium von Neumann could only conjecture. The mean per-neuron heading
+information is $\bar I_1 \approx 1.8$ bits (cf.\ the per-cell-type budget of
+\cref{fig:hd_mi_summary}), so $N_{\mathrm{eff}} = I_{\mathrm{pop}}/\bar I_1
+\approx 2$ statistically independent cells would suffice to carry the heading
+code, yet the circuit spends $N=236$ --- a redundancy of $\approx\!120\times$.
+The logarithmic growth of pooled information with population size
+(\cref{fig:cx_energetics}\textbf{b}) is the direct signature of this overlap.
+This places the energetics squarely within the paper's central theme: the
+heading \emph{computation} is pinned by the task at $I_{\mathrm{pop}}\approx
+3.5$ bits, while the redundancy --- and hence the metabolic price --- is part
+of the non-identifiable \emph{implementation} that the connectome supplies on
+top of it. The absolute powers depend on order-of-magnitude constants
+($r_{\max}$, $E_{\mathrm{spike}}$, J/FLOP, all stated in the script and freely
+overridable); the inter-tier \emph{ratios} and the redundancy factor are
+information-based and robust to them.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{figure/fig_drosophila_cx_energetics.png}
+  \caption{\textbf{Energetics of the heading code (von Neumann's three-tier
+  ladder, re-derived from the trained CX model).}
+  \textbf{(a)}~Energy per bit of heading for the thermodynamic floor
+  ($kT\ln 2$; grey), the biological circuit
+  (\cref{eq:cx_bio}; amber) and the silicon model (purple), log scale; grey
+  labels give the inter-tier gap factors. Biology lies $2.3\times10^{11}$
+  above the Landauer floor (von Neumann's $\sim\!10^{11}$) and the silicon
+  emulation, charged at an amortized A100's $\sim\!4\times10^{-11}$\,J/FLOP, a
+  further $1.9\times10^{4}$ above biology.
+  \textbf{(b)}~Pooled heading information $I(\theta)$ (decoder lower bound,
+  same estimator as \cref{fig:hd_mi_summary}) versus number of recurrent
+  neurons pooled (blue), against the non-redundant expectation
+  $N\,\bar I_1$ (grey dashed) and the population ceiling (dotted). Information
+  saturates after $\sim\!2$ cells' worth of bits: the $N=236$-cell pool is
+  $\approx\!120\times$ redundant, estimating the ``reliability'' premium von
+  Neumann conjectured. Numbers from
+  \texttt{figures/drosophila\_cx/fig\_drosophila\_cx\_energetics.py
+  --species drosophila\_cx}.}
+  \label{fig:cx_energetics}
+\end{figure}
+
+
 \clearpage
 
 \section*{Appendix A: Degeneracy of the inverse problem}
@@ -1620,6 +1803,29 @@ L.~Petrucco, H.~Lavian, Y.~K. Wu, F.~Svara, V.~\v{S}tih, R.~Portugues.
 \newblock Neural dynamics and architecture of the heading direction
   circuit in zebrafish.
 \newblock \emph{Nature Neuroscience}, 26:765--773, 2023.
+
+\bibitem[von Neumann(1966)]{vonNeumann1966}
+J.~von Neumann.
+\newblock \emph{Theory of Self-Reproducing Automata}.
+\newblock University of Illinois Press, Urbana, 1966.
+\newblock Edited and completed by A.~W. Burks; see ``The Role of High
+  Complication'', pp.~66--67.
+
+\bibitem[Landauer(1961)]{landauer1961}
+R.~Landauer.
+\newblock Irreversibility and heat generation in the computing process.
+\newblock \emph{IBM Journal of Research and Development}, 5(3):183--191, 1961.
+
+\bibitem[Attwell and Laughlin(2001)]{attwell2001}
+D.~Attwell and S.~B. Laughlin.
+\newblock An energy budget for signaling in the grey matter of the brain.
+\newblock \emph{Journal of Cerebral Blood Flow \& Metabolism},
+  21(10):1133--1145, 2001.
+
+\bibitem[Laughlin et~al.(1998)]{laughlin1998}
+S.~B. Laughlin, R.~R. de~Ruyter~van~Steveninck, and J.~C. Anderson.
+\newblock The metabolic cost of neural information.
+\newblock \emph{Nature Neuroscience}, 1(1):36--41, 1998.
 
 \end{thebibliography}
 

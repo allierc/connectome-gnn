@@ -164,6 +164,43 @@ def _is_trained(cfg: str, output_root: str) -> bool:
     return bool(glob.glob(patt))
 
 
+def _train_complete(cfg: str, output_root: str) -> bool:
+    """True if training ran to the last epoch. GNN_Main writes a
+    log/<GROUP>/<cfg>/_completed_train marker only after train_task finishes all
+    epochs, so a run that stopped early (wall-clock / OOM) — which still left a
+    best_model checkpoint — is correctly seen as INCOMPLETE and routed to a
+    resume-train job rather than a test-only job."""
+    return os.path.isfile(os.path.join(output_root, "log", GROUP, cfg,
+                                       "_completed_train"))
+
+
+def _latest_mtime(paths) -> float | None:
+    """Newest mtime among existing paths, or None if none exist."""
+    ts = [os.path.getmtime(p) for p in paths if os.path.exists(p)]
+    return max(ts) if ts else None
+
+
+def _test_is_fresh(cfg: str, output_root: str) -> bool:
+    """True iff a test result newer than the newest model checkpoint exists.
+
+    The decision rule the user asked for: a results file written AFTER the last
+    model write means the current model has already been tested, so we skip it.
+    No results at all, or results older than the model (stale — produced by an
+    earlier checkpoint that has since been retrained), counts as NOT fresh, so a
+    `-o test_plot` job is (re)launched. Test artefacts are
+    log/<GROUP>/<cfg>/results_*.log and everything under log/<GROUP>/<cfg>/results/;
+    models are log/<GROUP>/<cfg>/models/*.pt."""
+    import glob
+    base = os.path.join(output_root, "log", GROUP, cfg)
+    model_t = _latest_mtime(glob.glob(os.path.join(base, "models", "*.pt")))
+    if model_t is None:
+        return False                      # no model -> nothing has been tested
+    result_t = _latest_mtime(
+        glob.glob(os.path.join(base, "results_*.log"))
+        + glob.glob(os.path.join(base, "results", "*")))
+    return result_t is not None and result_t >= model_t
+
+
 def _all_configs() -> list[str]:
     """Every config/drosophila_cx/*.yaml (top level, not archive/), ordered with
     the core suite first then the rest (nulls, rep folds, ...) alphabetically."""
@@ -235,8 +272,37 @@ def _q(s: str) -> str:
     return "'" + s.replace("'", "'\\''") + "'"
 
 
+def _job_group_name(ssh: str | None) -> str:
+    """LSF job-group path for the concurrency cap, namespaced by cluster user."""
+    user = _CFG.get("cluster_user", "allierc")
+    return f"/{user}/{GROUP}_companion"
+
+
+def _setup_job_group(limit: int, *, ssh: str | None) -> str | None:
+    """Create (or re-limit) an LSF job group capping CONCURRENTLY RUNNING jobs at
+    `limit`. All jobs submitted with `-g <group>` then run at most `limit` at a
+    time — LSF queues the rest and starts them as slots free, so the cap holds
+    even if the monitor is Ctrl-C'd. Returns the group name, or None on failure
+    (caller falls back to no cap)."""
+    g = _job_group_name(ssh)
+    # bgadd is idempotent-ish: it errors if the group exists, so always follow
+    # with bgmod to set the limit to the requested value either way.
+    _lsf(f"bgadd -L {limit} {g}", ssh=ssh)
+    r = _lsf(f"bgmod -L {limit} {g}", ssh=ssh)
+    blob = ((r.stdout or "") + (r.stderr or "")).lower()
+    if "no matching" in blob or "not found" in blob or "cannot" in blob:
+        print(f"{_RED}could not set up job group {g} (limit {limit}); "
+              f"submitting without a concurrency cap.{_R}")
+        return None
+    print(f"{_CYN}job group {g}: max {limit} concurrent running jobs "
+          f"(rest queue, cap survives Ctrl-C).{_R}")
+    return g
+
+
 def _submit(cfg: str, *, cluster: str, n_cpus: int, w_min: int, log_dir: str,
-            ssh: str | None, repo: str, conda_env: str) -> tuple[str | None, str]:
+            ssh: str | None, repo: str, conda_env: str,
+            resume: bool = False, op: str = "train_task",
+            job_group: str | None = None) -> tuple[str | None, str]:
     log = os.path.join(log_dir, f"{cfg}.lsf.log")
     # The bsub JOB runs `bash -lc 'conda run -n <env> python ...'` so the
     # compute node sources conda itself and runs in the right env — robust to
@@ -244,10 +310,18 @@ def _submit(cfg: str, *, cluster: str, n_cpus: int, w_min: int, log_dir: str,
     # lands in base and dies on ModuleNotFoundError: matplotlib). Mirrors
     # connectome_gnn.LLM.cluster (bash -l + conda run). --no-capture-output
     # keeps tqdm streaming to the log so the 300 s monitor can read progress.
+    # --resume continues from the last per-epoch checkpoint and, crucially,
+    # runs GNN_Main with erase=False so the existing models/ are NOT wiped.
+    # `op` is the GNN_Main -o operation: "train_task" (train only),
+    # "train_task_test_plot" (train then test+plot in one job, with a CUDA
+    # cleanup between the two stages), or "test_plot" (test+plot only, loads the
+    # existing best_model — never trains, never erases).
+    resume_flag = " --resume" if resume else ""
     job = (f"cd {repo} && conda run --no-capture-output -n {conda_env} "
-           f"python GNN_Main.py -o train_task {cfg}")
+           f"python GNN_Main.py -o {op} {cfg}{resume_flag}")
+    grp = f"-g {job_group} " if job_group else ""
     cmd = (f"cd {repo} && bsub -n {n_cpus} -gpu num=1 -q gpu_{cluster} "
-           f"-W {w_min} -oo {log} -J {cfg} bash -lc {shlex.quote(job)}")
+           f"-W {w_min} {grp}-oo {log} -J {cfg} bash -lc {shlex.quote(job)}")
     out = _lsf(cmd, ssh=ssh)
     m = re.search(r"Job <(\d+)>", out.stdout)
     jid = m.group(1) if m else None
@@ -333,8 +407,44 @@ def main() -> int:
                         "default 18-run re-run set")
     p.add_argument("--cluster", choices=["l4", "a100", "h100"], default="a100")
     p.add_argument("--n-cpus", type=int, default=8)
-    p.add_argument("--hard-runtime-min", type=int, default=1440,
-                   help="bsub -W wall-clock limit in minutes (default 1440 = 24 h)")
+    p.add_argument("--hard-runtime-min", type=int, default=5760,
+                   help="bsub -W wall-clock limit in minutes (default 5760 = 96 h). "
+                        "NB the chosen queue may cap this lower; verify with "
+                        "`bqueues -l gpu_<cluster>`.")
+    p.add_argument("--resume", action="store_true",
+                   help="continue each run from its latest per-epoch checkpoint "
+                        "(passes --resume to GNN_Main, so erase=False and the "
+                        "existing models/ are PRESERVED, not wiped). Use this to "
+                        "relaunch jobs killed by the wall-clock limit.")
+    p.add_argument("--rnn-only", action="store_true",
+                   help="run ONLY the RNN task configs — drop every GNN run "
+                        "(any config whose name contains '_gnn_'). IMPLIES "
+                        "--resume so each RNN checkpoint is CONTINUED and the "
+                        "bsub job never erases models/ (train_task erases iff "
+                        "NOT --resume). Use to finish the RNN trainings on their "
+                        "own without touching the GNN runs.")
+    p.add_argument("--gnn-only", action="store_true",
+                   help="run ONLY the GNN task configs — keep every config whose "
+                        "name contains '_gnn_', drop the rest. Inverse of "
+                        "--rnn-only. Does NOT force --resume (pass --resume "
+                        "yourself to continue OOM-killed GNN runs; the safety "
+                        "guard refuses a non-resume submit that would erase an "
+                        "existing checkpoint). Use to finish the GNN trainings "
+                        "without touching the RNN runs.")
+    p.add_argument("--test", action="store_true",
+                   help="also run the test+plot stage. Per config: an UNTRAINED "
+                        "(or --resume) run trains then tests in ONE job "
+                        "(-o train_task_test_plot); an ALREADY-TRAINED run is "
+                        "NOT retrained — it gets a test-only job (-o test_plot) "
+                        "ONLY when its test results are missing or older than the "
+                        "latest model checkpoint, and is skipped when results are "
+                        "already newer than the model. test_plot never erases.")
+    p.add_argument("--max-concurrent", type=int, default=0,
+                   help="cap CONCURRENTLY RUNNING jobs at this many via an LSF "
+                        "job group (e.g. --max-concurrent 16). All jobs are "
+                        "submitted at once; LSF queues the surplus and starts "
+                        "them as slots free, so the cap holds even if you Ctrl-C "
+                        "the monitor. 0 = no cap (default).")
     p.add_argument("--interval", type=int, default=300,
                    help="seconds between progress prints (default 300)")
     p.add_argument("--ssh", default=SSH_TARGET,
@@ -372,10 +482,46 @@ def main() -> int:
         configs = _all_configs()
     else:
         configs = list(_RERUN_GNN_FIXED)
+    # --rnn-only: keep only the RNN task configs and force resume so the bsub
+    # NEVER erases. GNN runs are named "*_gnn_*"; the RNN runs are the same
+    # names without that infix. Forcing --resume is the safety the user asked
+    # for: train_task passes erase=not --resume, so with resume on no models/
+    # dir is ever wiped — these RNN trainings only ever continue. A config with
+    # no checkpoint yet simply starts at epoch 0 (nothing to erase).
+    if args.rnn_only and args.gnn_only:
+        print(f"{_RED}--rnn-only and --gnn-only are mutually exclusive.{_R}")
+        return 1
+    if args.rnn_only:
+        before = len(configs)
+        configs = [c for c in configs if "_gnn_" not in c]
+        if not args.resume:
+            args.resume = True
+            print(f"{_YEL}--rnn-only implies --resume: forcing resume=True so no "
+                  f"RNN checkpoint is erased.{_R}")
+        print(f"{_CYN}--rnn-only: {len(configs)} RNN config(s) kept "
+              f"(dropped {before - len(configs)} GNN '_gnn_' run(s)).{_R}")
+        if not configs:
+            print("nothing to run: the selected set has no RNN (non-_gnn_) "
+                  "configs.")
+            return 0
+    # --gnn-only: inverse filter. Unlike --rnn-only it does NOT force resume —
+    # the erase safety guard below refuses a non-resume submit that would wipe an
+    # existing GNN checkpoint, so the user passes --resume explicitly to continue
+    # the OOM-killed runs (or --rerun-trained to intentionally restart fresh).
+    if args.gnn_only:
+        before = len(configs)
+        configs = [c for c in configs if "_gnn_" in c]
+        print(f"{_CYN}--gnn-only: {len(configs)} GNN config(s) kept "
+              f"(dropped {before - len(configs)} non-GNN run(s)).{_R}")
+        if not configs:
+            print("nothing to run: the selected set has no GNN (_gnn_) configs.")
+            return 0
     # Skip already-trained only for the broad --all sweep; the explicit and the
     # default re-run sets always run what is named (the re-run set is exactly
-    # the failed jobs we want to relaunch).
-    if args.all and args.config is None and not args.rerun_trained:
+    # the failed jobs we want to relaunch). NOT under --test: there the trained
+    # configs are precisely the ones we want to (re)test, and the --test plan
+    # below routes each one (test-only when results are stale, skip when fresh).
+    if args.all and args.config is None and not args.rerun_trained and not args.test:
         skipped = [c for c in configs if _is_trained(c, args.output_root)]
         configs = [c for c in configs if not _is_trained(c, args.output_root)]
         if skipped:
@@ -387,22 +533,90 @@ def main() -> int:
             print("nothing to run: every discovered config is already trained "
                   "(use --rerun-trained or --config to force).")
             return 0
+    # Per-config submission plan: (cfg, op, resume). Without --test every config
+    # runs the plain train_task op (legacy). With --test we route each config:
+    #   * untrained (or --resume): train THEN test in one job
+    #     (-o train_task_test_plot) — the resume continues the run, the test+plot
+    #     stage follows automatically when training finishes.
+    #   * already trained, results stale/missing: test-only (-o test_plot) — no
+    #     retraining, never erases. "stale" = no results newer than the latest
+    #     model checkpoint (see _test_is_fresh).
+    #   * already trained, results already newer than the model: skipped.
+    if args.test:
+        plan, tested_skip = [], []
+        for cfg in configs:
+            if _train_complete(cfg, args.output_root):
+                if _test_is_fresh(cfg, args.output_root):
+                    tested_skip.append(cfg)
+                else:
+                    plan.append((cfg, "test_plot", False))
+            else:
+                # not finished (early-stopped or never ran) -> resume training,
+                # then test in the same job.
+                plan.append((cfg, "train_task_test_plot", args.resume))
+        n_train = sum("train" in op for _, op, _ in plan)
+        print(f"{_CYN}--test: {n_train} train+test job(s), {len(plan) - n_train} "
+              f"test-only job(s); {len(tested_skip)} already-tested config(s) "
+              f"skipped (results newer than model).{_R}")
+        if tested_skip:
+            print(f"{_DIM}  skipped: {', '.join(tested_skip[:6])}"
+                  f"{' …+%d more' % (len(tested_skip) - 6) if len(tested_skip) > 6 else ''}{_R}")
+    else:
+        plan = [(cfg, "train_task", args.resume) for cfg in configs]
+    if not plan:
+        print("nothing to run.")
+        return 0
+
+    # SAFETY GUARD against the destructive default: a TRAIN job WITHOUT --resume
+    # runs GNN_Main with erase=True, which DELETES every checkpoint in
+    # log/<GROUP>/<cfg>/models/ before training (create_log_dir). Refuse to
+    # submit when that would silently wipe an existing trained run; force the
+    # user to choose --resume (continue) or --rerun-trained (intentional fresh).
+    # test_plot ops never train, so they are never an erase risk.
+    would_erase = [cfg for cfg, op, res in plan
+                   if "train" in op and not res
+                   and _is_trained(cfg, args.output_root)]
+    resuming = [cfg for cfg, op, res in plan
+                if "train" in op and res and _is_trained(cfg, args.output_root)]
+    if resuming:
+        print(f"{_CYN}--resume: {len(resuming)} run(s) continue from a checkpoint "
+              f"(models/ preserved).{_R}")
+    if would_erase and not args.rerun_trained:
+        print(f"{_RED}{_B}REFUSING TO SUBMIT:{_R}{_RED} {len(would_erase)} "
+              f"target config(s) already have checkpoints that a non-resume train "
+              f"run would ERASE before training (erase = not --resume):{_R}")
+        for c in would_erase[:12]:
+            print(f"    {_RED}{c}{_R}")
+        if len(would_erase) > 12:
+            print(f"    {_DIM}…+{len(would_erase) - 12} more{_R}")
+        print(f"{_YEL}Pass --resume to CONTINUE them from the last per-epoch "
+              f"checkpoint (safe), or --rerun-trained to intentionally restart "
+              f"from scratch (this wipes the checkpoints).{_R}")
+        return 1
+
     if args.generate:
-        _generate_missing(configs, args.output_root)
+        _generate_missing([cfg for cfg, _, _ in plan], args.output_root)
 
     log_dir = os.path.join(args.output_root, "log", GROUP,
                            "_companion_runner")
     os.makedirs(log_dir, exist_ok=True)
 
+    # Optional concurrency cap: an LSF job group limits how many of these jobs
+    # RUN at once; the rest queue and start as slots free (cap survives Ctrl-C).
+    job_group = None
+    if args.max_concurrent and args.max_concurrent > 0:
+        job_group = _setup_job_group(args.max_concurrent, ssh=ssh)
+
     where = "locally" if ssh is None else f"via ssh {ssh}"
-    print(f"submitting {len(configs)} job(s) to gpu_{args.cluster} {where} "
+    print(f"submitting {len(plan)} job(s) to gpu_{args.cluster} {where} "
           f"(cd {args.cluster_repo}; -W {args.hard_runtime_min} min):")
     jobs = {}  # cfg -> (jid, log)
-    for cfg in configs:
+    for cfg, op, res in plan:
         jid, log = _submit(cfg, cluster=args.cluster, n_cpus=args.n_cpus,
                            w_min=args.hard_runtime_min, log_dir=log_dir,
                            ssh=ssh, repo=args.cluster_repo,
-                           conda_env=args.conda_env)
+                           conda_env=args.conda_env, resume=res, op=op,
+                           job_group=job_group)
         if jid:
             jobs[cfg] = (jid, log)
 

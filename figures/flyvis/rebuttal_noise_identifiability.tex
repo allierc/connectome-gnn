@@ -1,0 +1,190 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage[colorlinks=true,allcolors=blue]{hyperref}
+\usepackage{enumitem}
+\setlength{\parskip}{4pt}
+\newcommand{\lmax}{\lambda_{\max}}
+\newcommand{\Rw}{R^2_{\widehat W}}
+
+\title{\vspace{-2.5em}Response to Reviewer: Appendix~C identifiability and the role of process noise}
+\date{}
+\author{}
+
+\begin{document}
+\maketitle
+\vspace{-3em}
+
+We thank the reviewer for the careful reading. The concern is sound: as written,
+Appendix~C conflates two distinct analyses and Eq.~(11) is stated imprecisely.
+Acting on it did not weaken the noise interpretation. It forced us to
+\emph{measure} the mechanism that the submission had only asserted, and the
+result is stronger than the original text. We address the three points in turn.
+
+\paragraph{(a) Eq.~(11): an exact \emph{count}, not an exact kernel.}
+The quantity $308{,}160=\sum_{i,\alpha}(k_{i\alpha}-1)$ is correct as computed:
+it counts the \emph{sum-zero directions within same-type presynaptic groups}, a
+purely structural property of the connectome graph. What was wrong is calling
+that set a \emph{kernel}. In the fly eye, many presynaptic neurons of the same
+cell type deliver near-identical, time-shifted copies of the same signal to a
+target neuron. A weight change that raises one such input and lowers an identical
+sibling by the same amount is a ``sum-zero'' combination within the same-type
+group, what we call a \textbf{columnar direction}; it leaves the summed drive,
+and hence the dynamics, almost unchanged. Because time-shifted signals are highly
+correlated but \emph{not identical}, these directions are associated with
+\emph{small but nonzero} singular values of the per-neuron design matrix, not with
+zeros. We will write $\ker_\epsilon$ with the tolerance $\epsilon$ stated
+throughout, and remove ``exact null space'' and ``leaves $H_iw_i$ unchanged.''
+
+\paragraph{(b) Identifiability and dynamical equivalence are two different
+questions.}
+The $6.4\%$ and the $71\%$ answer different questions at different tolerances on
+the \emph{same} spectrum, and we will separate them into two subsections:
+\begin{itemize}[leftmargin=1.4em,itemsep=1pt,topsep=2pt]
+  \item \textbf{C.1: Identifiability.} Given the activity $v(t)$, which
+  parameters can be recovered? The numerical eigendecomposition leaves
+  $\sim\!10\%$ of $W$-directions unrecoverable at the estimation floor
+  ($\epsilon=\lambda_k/\lmax\le 10^{-12}$).
+  \item \textbf{C.2: Dynamical equivalence at a stated tolerance.} How far can
+  $W$ be moved before the dynamics visibly change? At a perturbation of $8\times$
+  the mean same-type group weight, $308{,}160$ edges ($71\%$) can be zeroed while
+  rollout $r\ge0.95$, with $\Rw=0.10$.
+\end{itemize}
+Figure~\ref{fig:spec}a makes the reconciliation explicit. We rank each weight
+direction by how weakly the recorded activity constrains it, using the relative
+tolerance $\epsilon=\lambda_k/\lmax$. Here $\lambda_1\ge\lambda_2\ge\cdots\ge0$ are
+the eigenvalues of Appendix~C's per-neuron least-squares problem (equivalently the
+squared singular values $\sigma_k^2$ of its design matrix, so
+$\epsilon=(\sigma_k/\sigma_1)^2$), and $\lmax=\lambda_1$ is the largest; each
+$\lambda_k$ measures how strongly the data constrain one weight direction. The
+scale-free ratio $\lambda_k/\lmax\in(0,1]$ is close to $1$ for a well-constrained
+direction and small precisely for the directions the data barely pin down. We then let $\Phi^{\mathrm{edge}}_\sigma(\epsilon)$ be the percentage of
+edges that are degenerate at tolerance $\epsilon$ under process noise $\sigma$, an
+edge counting as soon as some direction that supports it falls below $\epsilon$.
+The numerical $6.4\%$ is the value at the strict tolerance $\epsilon=10^{-22}$.
+Eq.~(11)'s $71\%$ is then not an independently chosen tolerance: reading along the
+same $\sigma=0$ curve, the degenerate fraction reaches $71\%$ at
+$\epsilon=2.5\times10^{-6}$, a value we \emph{read off} the curve (the $\epsilon$
+at which $\Phi^{\mathrm{edge}}_{\sigma=0}$ equals Eq.~(11)'s count), not one we
+pick. The two percentages are therefore two points on the single monotone curve
+$\Phi^{\mathrm{edge}}_{\sigma=0}(\epsilon)$: a strict tolerance counts only the
+edges the data cannot constrain at all, a looser one also counts the weakly
+constrained columnar ones. C.2 becomes its own subsection, stated as
+\emph{approximate} equivalence at an explicit tolerance. It is the analytical
+backbone of our \emph{prediction $\ne$ mechanism} claim, not a second
+identifiability result.
+
+\paragraph{(c) Why process noise improves recovery.}
+Along the realized noisy trajectory the ODE still holds exactly, with the process
+noise entering as an additive term on the right-hand side,
+\[
+  -\tau_i\dot{\tilde v}_i+V_i^{\mathrm{rest}}+\textstyle\sum_j W_{ij}h_j(t)
+  \;=\;\tilde v_i(t)-I_i(t)\;-\;\sigma\xi_i(t),
+  \qquad\text{i.e.}\quad A_i\theta_i=b_i-\sigma\xi_i .
+\]
+Stacking this identity over all recorded timesteps gives a linear system for the
+unknown parameters $\theta_i=(\tau_i,V_i^{\mathrm{rest}},\{W_{ij}\}_j)$ of neuron
+$i$. Its coefficient matrix $A_i$ is the per-neuron \emph{design matrix}: one row
+per timestep, one column per unknown (the regressors $\dot{\tilde v}_i$, a
+constant, and each presynaptic input $h_j=\mathrm{ReLU}(\tilde v_j)$).
+
+We now measure the step the submission had only asserted: why the unrecoverable
+weight directions actually shrink as noise rises. This is a new analysis, not in
+the submission. For each neuron we take the matrix $A_i$ above and look at its
+singular values directly. A weight direction is recoverable only where the
+recorded activity actually constrains it; concretely, the smaller a singular value
+of $A_i$ is relative to the largest (the smaller the $\epsilon$ defined above), the
+less the data pin down the corresponding combination of weights, and below a fixed
+tolerance ($\epsilon\le10^{-12}$) we call that direction degenerate. This asks only how well-conditioned the inverse
+problem is: no weights are fitted and no solver is run. Repeating it on the
+$\sigma=0.05$ and $\sigma=0.5$ trajectories, the fraction of degenerate
+$W$-directions collapses monotonically (Table~\ref{tab:frac}):
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lcc}
+\toprule
+process noise $\sigma$ & degenerate $W$ null (\%) & degenerate $W$ sloppy (\%) \\
+\midrule
+$0$    & $6.35\pm0.02$ & $4.01\pm0.36$ \\
+$0.05$ & $2.44\pm0.01$ & $0.32\pm0.00$ \\
+$0.5$  & $0.00\pm0.00$ & $0.00\pm0.00$ \\
+\bottomrule
+\end{tabular}
+\caption{Singular values of the per-neuron design matrix $A_i$, computed by SVD
+(not via the Gram $A_i^{\!\top}A_i$, which squares the conditioning and would floor
+the resolution at $\sim\!10^{-16}$); edge-incidence
+fractions at fixed relative tolerances $\lambda_k/\lmax\le10^{-22}$ (null) and
+$\le10^{-12}$ (sloppy), i.e.\ singular-value ratios $\sigma_k/\sigma_1<10^{-11}$ and
+$<10^{-6}$; these reproduce Fig.~12 and the paper's $\approx\!10\%$ unrecoverable
+($6.35\%+4.01\%$). Mean\,$\pm$\,SD over five cross-validation folds; horizon $T$ is
+held fixed across $\sigma$, and $\lambda_k/\lmax$ is scale-invariant by
+construction, so the trend is not an artifact of $T$ or of noise inflating overall
+variance.}
+\label{tab:frac}
+\end{table}
+
+\noindent The effect is in the conditioning of the inverse problem, not in how the
+network is trained. A competing explanation would be that the noise merely
+regularizes the GNN's optimization, the familiar effect where injecting noise
+smooths a network's loss landscape and improves its fit, rather than changing the
+inverse problem itself. The Known-ODE oracle rules this out: it recovers the same
+weights using the true ODE with no learned functions, so it has no optimization to
+regularize, yet it improves identically ($\Rw:0.96\to0.99\to1.00$). The gain must
+therefore come from the data, the conditioning of $A_i$, and not from the
+estimator.
+
+\paragraph{The lift is real signal, not a numerical artifact.}
+One might worry that the effect is a trivial artifact: that adding independent
+noise gives each column of $A_i$ its own small random component and lifts every
+singular value by a comparable amount, a numerical floor unrelated to structure.
+Column equilibration rules this out. It rescales every column of $A_i$ to unit
+norm, so the squared singular values always sum to the number of columns, at every
+noise level. Noise therefore cannot lift the whole spectrum together, by a common
+factor or a common offset; it can only redistribute the fixed total by
+decorrelating columns. Figure~\ref{fig:spec}b
+plots, at each tolerance $\epsilon$, the share of the degenerate directions that
+lie in the columnar sum-zero subspace. The $\sigma=0$ and $\sigma=0.05$
+share-curves nearly coincide, so which directions are columnar is a fixed property
+of the connectome that noise does not alter.
+
+We therefore claim only what the results support. Process noise reduces the
+degeneracy of the inverse problem: in Table~\ref{tab:frac} the degenerate-edge
+fraction falls $6.35\%\to2.44\%\to0\%$ at the null tolerance, and panel~a shows the
+whole curve shifting down and to the right as $\sigma$ grows. It leaves the
+columnar composition of the degenerate directions essentially unchanged, as
+panel~b shows. The improvement is thus a general gain in the conditioning of the
+inverse problem, not a selective removal of the columnar sum-zero directions.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\textwidth]{fig_lstsq_eigenspectrum_noise.pdf}
+\caption{\textbf{Estimator-free identifiability sweep across process noise.}
+\textbf{(a)} Edge-incidence degeneracy $\Phi^{\mathrm{edge}}_\sigma(\epsilon)$
+versus relative tolerance $\epsilon=\lambda_k/\lmax=(\sigma_k/\sigma_1)^2$. The
+numerical $6.4\%$ (Fig.~12, at $\epsilon=10^{-22}$) and Eq.~(11)'s $71\%$ (at
+$\epsilon=2.5\times10^{-6}$) are two tolerances on the \emph{same} $\sigma=0$
+curve; process noise (blue, red) shifts the curve down and to the right.
+\textbf{(b)} Columnar share $\rho_\sigma(\epsilon)$ of the directions below
+$\epsilon$. Two populations: a structural floor (shaded, $\epsilon\lesssim10^{-8}$)
+and columnar redundancy at moderate $\epsilon$, whose location is fixed
+independently by the Supp.~Tab.~5 correlation $r\approx0.94$ (dashed line at
+$\lambda/\lmax=0.031$), not by threshold choice.}
+\label{fig:spec}
+\end{figure}
+
+\paragraph{Summary of revisions.} We will (i) replace ``kernel/null space'' with
+$\ker_\epsilon$ at a stated $\epsilon$ throughout, retaining $308{,}160$ as an
+exact count of columnar sum-zero directions; (ii) split Appendix~C into C.1
+(identifiability) and C.2 (dynamical equivalence at an explicit tolerance),
+promoting C.2; (iii) add the noise sweep of Table~\ref{tab:frac} and
+Figure~\ref{fig:spec}, converting the noise interpretation from an assertion into
+a measurement anchored by the oracle control; and (iv) make the degeneracy
+thresholds in Appendix~C consistent, stated as relative eigenvalues
+$\lambda_k/\lmax\le10^{-22}$ (null) and $\le10^{-12}$ (sloppy), which reproduce the
+reported $\approx\!10\%$ (the current $64000\times$ factor does not).
+
+\end{document}

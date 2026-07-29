@@ -207,15 +207,69 @@ class DrosophilaCxTaskPlace(DrosophilaCxTaskRNN):
         ms = p @ torch.sin(ang)
         return torch.atan2(ms, mc) * (L / (2.0 * math.pi))  # → (-L/2, L/2]
 
+    def decode_position_peak(self, p: torch.Tensor,
+                             radius: float = None) -> torch.Tensor:
+        """Winner-take-all position decode, robust to multimodal codes. The
+        plain population vector Σ_k p_k c_k averages a bimodal code to the
+        midpoint between the lobes; instead we pick the peak cell (argmax) and
+        take the population-vector centroid over only the cells within ``radius``
+        of it — sub-grid precision without a distant second mode dragging the
+        estimate to the middle. Toroidal (grid) uses wrapped offsets so the
+        window and centroid are computed on the torus. ``p`` (...,K)."""
+        C = self.place_centers                             # (K,2)
+        if radius is None:
+            radius = 0.7 * self.grid_period if self.grid_mode else 0.35
+        peak = p.argmax(-1)                                 # (...)
+        c_peak = C[peak]                                    # (...,2)
+        diff = C - c_peak.unsqueeze(-2)                     # (...,K,2)
+        if self.grid_mode:
+            L = self.grid_period
+            diff = diff - L * torch.round(diff / L)
+        d = diff.pow(2).sum(-1).sqrt()                     # (...,K)
+        w = p * (d < radius).to(p.dtype)                   # keep near-peak only
+        off = (w.unsqueeze(-1) * diff).sum(-2) / (w.sum(-1, keepdim=True) + 1e-9)
+        return c_peak + off                                # (...,2)
+
+    def decode_position_template(self, p: torch.Tensor,
+                                 fine: int = 64) -> torch.Tensor:
+        """MAP / template-matching decode (the literature-standard for known
+        Gaussian tuning): x̂ = argmax_x Σ_k p_k g_k(x), i.e. smooth the decoded
+        population by the place-field kernel and take the argmax over a fine
+        candidate grid. Robust to bimodal codes — it picks the single
+        best-matching position instead of averaging lobes. Place: bounded arena
+        grid; grid: toroidal candidate grid over one period. ``p`` (...,K)."""
+        dev = p.device
+        if self.grid_mode:
+            L = self.grid_period
+            ax = torch.linspace(-L / 2, L / 2, fine, device=dev)
+        else:
+            A = self.arena_half
+            ax = torch.linspace(-A, A, fine, device=dev)
+        gx, gy = torch.meshgrid(ax, ax, indexing="xy")
+        cand = torch.stack([gx.reshape(-1), gy.reshape(-1)], -1)   # (F,2)
+        diff = cand.unsqueeze(1) - self.place_centers.unsqueeze(0)  # (F,K,2)
+        if self.grid_mode:
+            diff = diff - self.grid_period * torch.round(diff / self.grid_period)
+        G = torch.exp(-diff.pow(2).sum(-1) / (2.0 * self.place_sigma ** 2))  # (F,K)
+        resp = p @ G.t()                                   # (...,F)
+        return cand[resp.argmax(-1)]                       # (...,2)
+
     def decode_position_anchored(self, p: torch.Tensor,
-                                 pos0: torch.Tensor) -> torch.Tensor:
+                                 pos0: torch.Tensor,
+                                 mode: str = "popvec") -> torch.Tensor:
         """Anchored path-integration readout: the trial start ``pos0`` is given
         (the PI anchor), so absolute position = pos0 + the network's decoded
         *relative* displacement (decode(t) − decode(t=0)). This pins t=0 to the
         true start and removes the constant per-trial offset that the raw place
-        decode carries (the random Net2 tracks displacement well but never
-        anchors absolute position). ``p`` (...,T,K), ``pos0`` (...,2)."""
-        xy = self.decode_position(p)                       # (...,T,2)
+        decode carries. ``mode`` selects the base decode: "popvec" (population
+        vector), "peak" (winner-take-all local centroid), or "template" (MAP /
+        template matching — robust to bimodal codes). ``p`` (...,T,K)."""
+        if mode == "template":
+            xy = self.decode_position_template(p)
+        elif mode == "peak":
+            xy = self.decode_position_peak(p)
+        else:
+            xy = self.decode_position(p)
         d = xy - xy[..., :1, :]                            # relative displacement
         if self.grid_mode:
             L = self.grid_period

@@ -2008,7 +2008,7 @@ def data_test_place_task(config, best_model=None, device=None, log_file=None):
     renders MP4 animations of a few high-motion trials (the animated 5-panel
     place diagnostic) into results/."""
     from connectome_gnn.models.bump_attractor_eval import (
-        animate_place_trial, _save_place_snapshot,
+        animate_place_trial, animate_torus_trial, _save_place_snapshot,
     )
     from connectome_gnn.task_state import TaskTrials
 
@@ -2109,10 +2109,18 @@ def data_test_place_task(config, best_model=None, device=None, log_file=None):
     score = (path_len / (path_len.std() + 1e-9)
              + turning / (turning.std() + 1e-9))
     idx = torch.argsort(score, descending=True)[:3].cpu().tolist()
+    _grid = bool(getattr(model, "grid_mode", False))
     for j, ti in enumerate(idx):
-        out = os.path.join(results_dir, f'place_trial_{j}_idx{ti}.mp4')
-        animate_place_trial(model, u_test[ti], y_test[ti], out,
-                            dt=dt, device=device)
+        # grid task lives on a torus → animate on the 3-D torus donut; the
+        # bounded place task → the arena animation.
+        pfx = 'torus_trial' if _grid else 'place_trial'
+        out = os.path.join(results_dir, f'{pfx}_{j}_idx{ti}.mp4')
+        if _grid:
+            animate_torus_trial(model, u_test[ti], y_test[ti], out,
+                                dt=dt, device=device)
+        else:
+            animate_place_trial(model, u_test[ti], y_test[ti], out,
+                                dt=dt, device=device)
         logger.info(f'[place test] wrote {out}')
     # one static 5-panel snapshot for quick reference
     _save_place_snapshot(model, log_dir, _epoch_of(ckpt_path), 0,
@@ -2224,6 +2232,8 @@ def data_test_path_integration_task(
         (4, 4, ("rotation_vfwd",)):           ([0, 1, 2, 3], [0, 1]),
         # rotation_torus: 6-col target, Net1-only (heading metrics use cols 0,1).
         (4, 6, ("rotation_torus",)):          ([0, 1, 2, 3], [0, 1, 2, 3, 4, 5]),
+        # conjunction_input: 6-ch stimulus (base 4 + vx, vy)
+        (6, 6, ("rotation_torus",)):          ([0, 1, 2, 3, 4, 5], [0, 1, 2, 3, 4, 5]),
     }
     _RECOGNISED = ("rotation", "translation", "position_2d", "rotation_vfwd",
                    "rotation_torus")
@@ -2325,6 +2335,36 @@ def data_test_path_integration_task(
     else:
         _task_block = config.task.path_integration
     _task_dt = float(_task_block.dt)
+
+    # --- Torus position metric (rotation_torus: 6-col output) --------------
+    # Heading (cols 0,1) is scored above; here we score whether the 2-D TORUS
+    # POSITION is recovered. φx=(cols 2,3 as cos,sin), φy=(cols 4,5). We report
+    # the circular RMSE of the decoded vs true phases and a drift time constant
+    # tau_pos (first time the mean circular error crosses 30°). Chance (decoded
+    # phase independent of truth) ≈ 104° circ-RMSE.
+    if int(y_test.shape[-1]) >= 6:
+        n_t = int(min(512, u_test.shape[0]))
+        idx_t = np.arange(n_t)
+        with torch.no_grad():
+            yh_t = model(u_test[idx_t])[0].cpu().numpy()
+        yt_t = y_test[idx_t].cpu().numpy()
+        def _cerr(a, b):
+            d = a - b
+            return np.abs(np.arctan2(np.sin(d), np.cos(d)))
+        phx_t = np.arctan2(yt_t[..., 3], yt_t[..., 2]); phx_d = np.arctan2(yh_t[..., 3], yh_t[..., 2])
+        phy_t = np.arctan2(yt_t[..., 5], yt_t[..., 4]); phy_d = np.arctan2(yh_t[..., 5], yh_t[..., 4])
+        _ex = _cerr(phx_d[:, 10:], phx_t[:, 10:]); _ey = _cerr(phy_d[:, 10:], phy_t[:, 10:])
+        torus_phi_rmse_deg = float(np.sqrt(((_ex ** 2 + _ey ** 2) / 2).mean()) * 180.0 / np.pi)
+        _mean_err_t = np.sqrt((_cerr(phx_d, phx_t) ** 2 + _cerr(phy_d, phy_t) ** 2) / 2).mean(0)
+        _over = np.where(_mean_err_t > np.deg2rad(30.0))[0]
+        torus_tau_pos_s = float(_over[0] * _task_dt) if len(_over) else float('nan')
+        logger.info(f'  TORUS POSITION: phi circ-RMSE={torus_phi_rmse_deg:.1f}deg  '
+                    f'tau_pos(30deg)={torus_tau_pos_s:.1f}s  (chance ~104deg)')
+        npz_bundle.update(torus_phi_rmse_deg=np.float32(torus_phi_rmse_deg),
+                          torus_tau_pos_s=np.float32(torus_tau_pos_s))
+        with open(os.path.join(log_dir, 'results_path_integration.log'), 'a') as _f:
+            _f.write(f'torus_phi_circ_rmse_deg={torus_phi_rmse_deg:.2f}  '
+                     f'tau_pos_30deg_s={torus_tau_pos_s:.2f}\n')
 
     # --- (a) random test trials: per-trial RMSE/Pearson over a 512-trial
     # sample (robust mean for cross-run comparison); only a few are plotted.
