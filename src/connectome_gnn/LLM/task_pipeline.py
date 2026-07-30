@@ -1,0 +1,669 @@
+"""Task-trainer (path-integration) variant of the LLM exploration pipeline.
+
+Sibling of pipeline.py for the `data_train_task` route. The only
+task-specific bits are:
+
+- Schema-specific metric reading / printing / collapse detection
+  (`tmp_training/metrics.log` columns differ from the flyvis schema).
+- Skipping the test+plot phase (the trainer's own snapshots and metrics.log
+  are the authoritative output).
+
+Everything else is reused from existing code:
+- `submit_cluster_job` + `wait_for_cluster_jobs` (cluster.py) — the
+  `train_subprocess.py` cluster command works unchanged because the
+  `data_train` dispatcher routes any config with a `task` block to
+  `data_train_task`.
+- `data_train` (graph_trainer.py) for the local path — same dispatcher.
+- `setup_exploration`, `init_*`, `run_batch_0`, `load_configs_and_seeds`,
+  `save_artifacts`, `run_claude_analysis`, `finalize_batch` (pipeline.py)
+  for the orchestration.
+"""
+from __future__ import annotations
+
+import os
+import time
+
+from connectome_gnn.LLM.cluster import (
+    check_cluster_repo,
+    submit_cluster_job,
+    wait_for_cluster_jobs,
+)
+from connectome_gnn.LLM.state import BatchInfo, ExplorationState
+from connectome_gnn.utils import get_data_root, log_path
+
+_ANSI_RESET   = '\033[0m'
+_ANSI_GREEN   = '\033[92m'
+_ANSI_YELLOW  = '\033[93m'
+_ANSI_ORANGE  = '\033[38;5;208m'
+_ANSI_RED     = '\033[91m'
+_ANSI_BLUE    = '\033[94m'
+_ANSI_GREY    = '\033[90m'
+
+
+# ---------------------------------------------------------------------------
+# Metrics readers / printers (task schema)
+# ---------------------------------------------------------------------------
+
+
+_PI_COLS = {'iteration', 'epoch', 'loss', 'mse', 'cosd', 'norm', 'tv',
+            'l1S', 'pi_acc', 'fwhm_deg'}
+_CORTEX_COLS = {'iteration', 'epoch', 'loss', 'mse', 'motor_max',
+                'motor_peak_mean', 'r2', 'direction_acc'}
+
+
+def _read_all_task_metrics(log_dir: str) -> list:
+    """Read every data row of `<log_dir>/tmp_training/metrics.log`.
+
+    Two schemas are supported (detected by header row):
+
+      PI (data_train_pi_task_gnn):
+        iteration,epoch,loss,mse,cosd,norm,tv,l1S,pi_acc,fwhm_deg
+      Cortex (data_train_cortex_task_gnn):
+        iteration,epoch,loss,mse,motor_max,motor_peak_mean,r2,direction_acc
+
+    Each returned dict carries the union of fields (missing fields = None).
+    Two synthetic fields are added so downstream code stays uniform:
+      `primary`      — the headline metric (pi_acc for PI, r2 for cortex).
+                       PI's pi_acc is in [0, 1]; cortex r2 is in (-inf, 1].
+      `primary_name` — string label for displays/logs.
+    Returns [] if the file is missing or empty.
+    """
+    path = os.path.join(log_dir, 'tmp_training', 'metrics.log')
+    if not os.path.isfile(path):
+        return []
+    rows: list = []
+    try:
+        with open(path) as f:
+            header = f.readline().strip()
+            if not header:
+                return []
+            cols = [c.strip() for c in header.split(',')]
+            col_index = {c: i for i, c in enumerate(cols)}
+
+            def _f(parts, name):
+                idx = col_index.get(name)
+                if idx is None or idx >= len(parts):
+                    return None
+                v = parts[idx].strip()
+                if not v or v.lower() == 'nan':
+                    return None
+                try:
+                    return float(v)
+                except ValueError:
+                    return None
+
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('iteration'):
+                    continue
+                parts = line.split(',')
+                if len(parts) != len(cols):
+                    continue
+                row = {
+                    'iter':   int(float(parts[col_index['iteration']])),
+                    'epoch':  int(float(parts[col_index['epoch']])),
+                    'loss':   _f(parts, 'loss'),
+                    'mse':    _f(parts, 'mse'),
+                    # PI fields (None when cortex)
+                    'cosd':   _f(parts, 'cosd'),
+                    'norm':   _f(parts, 'norm'),
+                    'tv':     _f(parts, 'tv'),
+                    'l1S':    _f(parts, 'l1S'),
+                    'pi_acc': _f(parts, 'pi_acc'),
+                    'fwhm':   _f(parts, 'fwhm_deg'),
+                    'r_roll':    _f(parts, 'r_roll'),
+                    'rmse_roll': _f(parts, 'rmse_roll_deg'),
+                    # Cortex fields (None when PI)
+                    'motor_max':        _f(parts, 'motor_max'),
+                    'motor_peak_mean':  _f(parts, 'motor_peak_mean'),
+                    'r2':               _f(parts, 'r2'),
+                    'direction_acc':    _f(parts, 'direction_acc'),
+                    # Filtered cortex fields (added 2026-05; outlier threshold=5
+                    # on channel error, mirroring flyvis NeurIPS convention).
+                    'r2_filtered':            _f(parts, 'r2_filtered'),
+                    'direction_acc_filtered': _f(parts, 'direction_acc_filtered'),
+                    'pct_outliers':           _f(parts, 'pct_outliers'),
+                }
+                # Primary metric for collapse detection / display.
+                #   PI:     r_roll_1k (Pearson on T=1000 rollout) is the headline
+                #           — it measures the deployment-horizon integration, so
+                #           a slot with high r_roll at T_epoch but low r_roll_1k
+                #           (overfit to the short curriculum) is correctly
+                #           flagged. Falls back to r_roll (T_epoch column) for
+                #           legacy logs that don't have r_roll_1k, then to
+                #           pi_acc for even older logs.
+                #   Cortex: r2.
+                row_r_roll_1k = _f(parts, 'r_roll_1k')
+                row['r_roll_1k'] = row_r_roll_1k
+                if row_r_roll_1k is not None:
+                    row['primary'] = row_r_roll_1k
+                    row['primary_name'] = 'r_roll_1k'
+                elif row['r_roll'] is not None:
+                    row['primary'] = row['r_roll']
+                    row['primary_name'] = 'r_roll'
+                elif row['pi_acc'] is not None:
+                    row['primary'] = row['pi_acc']
+                    row['primary_name'] = 'pi_acc'
+                elif row['r2_filtered'] is not None:
+                    row['primary'] = row['r2_filtered']
+                    row['primary_name'] = 'r2_filtered'
+                elif row['r2'] is not None:
+                    row['primary'] = row['r2']
+                    row['primary_name'] = 'r2'
+                elif row['direction_acc'] is not None:
+                    row['primary'] = row['direction_acc']
+                    row['primary_name'] = 'direction_acc'
+                else:
+                    row['primary'] = None
+                    row['primary_name'] = 'metric'
+                rows.append(row)
+    except OSError:
+        return []
+    return rows
+
+
+def _read_latest_task_metrics(log_dir: str) -> dict | None:
+    rows = _read_all_task_metrics(log_dir)
+    return rows[-1] if rows else None
+
+
+def _per_epoch_task_summary(log_dir: str) -> list:
+    """For each epoch present in metrics.log, return dict with end-of-epoch
+    + best-of-epoch primary/loss/fwhm. Useful for diagnosing collapse mid-run.
+    The `primary` field is `pi_acc` for path-integration and `direction_acc`
+    for cortex; both are stored as `primary_end`/`primary_best` so display
+    code stays uniform across tasks.
+    """
+    rows = _read_all_task_metrics(log_dir)
+    if not rows:
+        return []
+    by_ep: dict = {}
+    for r in rows:
+        by_ep.setdefault(r['epoch'], []).append(r)
+    summary = []
+    for ep in sorted(by_ep.keys()):
+        ep_rows = by_ep[ep]
+        last = ep_rows[-1]
+        pr_vals = [r['primary'] for r in ep_rows if r['primary'] is not None]
+        loss_vals = [r['loss'] for r in ep_rows if r['loss'] is not None]
+        summary.append({
+            'epoch':        ep,
+            'iter_last':    last['iter'],
+            'primary_name': last['primary_name'],
+            'primary_end':  last['primary'],
+            'primary_best': max(pr_vals) if pr_vals else None,
+            # PI-specific (None for cortex)
+            'pi_acc_end':   last['pi_acc'],
+            'pi_acc_best': (max((r['pi_acc'] for r in ep_rows
+                                 if r['pi_acc'] is not None), default=None)),
+            'fwhm_end':     last['fwhm'],
+            'cosd_end':     last['cosd'],
+            'norm_end':     last['norm'],
+            'tv_end':       last['tv'],
+            # Cortex-specific (None for PI)
+            'r2_end':            last['r2'],
+            'r2_best':           (max((r['r2'] for r in ep_rows
+                                       if r['r2'] is not None), default=None)),
+            'r2_filtered_end':   last.get('r2_filtered'),
+            'r2_filtered_best':  (max((r['r2_filtered'] for r in ep_rows
+                                       if r.get('r2_filtered') is not None),
+                                      default=None)),
+            'direction_acc_end': last['direction_acc'],
+            'direction_acc_filtered_end': last.get('direction_acc_filtered'),
+            'pct_outliers_end':  last.get('pct_outliers'),
+            'motor_max_end':     last['motor_max'],
+            'motor_peak_mean_end': last['motor_peak_mean'],
+            # Shared
+            'loss_end':    last['loss'],
+            'loss_best':   min(loss_vals) if loss_vals else None,
+            'mse_end':     last['mse'],
+        })
+    return summary
+
+
+def _detect_collapse(per_epoch: list, drop_thresh: float = 0.4) -> str | None:
+    """Return a one-line diagnostic if the primary metric collapses by
+    >drop_thresh between consecutive epochs (curriculum instability)."""
+    if len(per_epoch) < 2:
+        return None
+    for prev, cur in zip(per_epoch[:-1], per_epoch[1:]):
+        a, b = prev['primary_end'], cur['primary_end']
+        if a is None or b is None:
+            continue
+        if a - b >= drop_thresh:
+            name = prev.get('primary_name', 'metric')
+            return (f"collapse_detected: epoch {prev['epoch']} {name}={a:.3f}"
+                    f" → epoch {cur['epoch']} {name}={b:.3f}"
+                    f" (drop={a - b:.3f})")
+    return None
+
+
+def _pi_color(val):
+    """Color the primary task metric (pi_acc or direction_acc, both in [0,1]):
+    ≥0.9 green, ≥0.5 yellow, ≥0 orange, <0 red."""
+    if val is None:
+        return _ANSI_GREY
+    if val >= 0.9:
+        return _ANSI_GREEN
+    if val >= 0.5:
+        return _ANSI_YELLOW
+    if val >= 0.0:
+        return _ANSI_ORANGE
+    return _ANSI_RED
+
+
+def _read_n_steps_schedule(log_dir: str) -> list | None:
+    """Read training.n_steps_schedule from the slot's config yaml.
+
+    The slot config lives at `<data_root>/config/<pre>/<slot_name>.yaml`
+    (LLM exploration emits it there). `log_dir` follows the parallel layout
+    `<data_root>/log/<pre>/<slot_name>` — so we derive the config path by
+    swapping `/log/` → `/config/` and appending `.yaml`. Falls back to
+    `<log_dir>/config.yaml` for legacy runs that bundled it under log_dir.
+
+    Returns None if no config can be found or the schedule field is absent.
+    Used by `_print_task_metrics` to surface the current curriculum BPTT
+    horizon `T_epoch` alongside the iteration counters.
+    """
+    candidates = []
+    # Primary: swap /log/ → /config/ in the log_dir path.
+    log_dir_abs = os.path.abspath(log_dir)
+    if os.sep + 'log' + os.sep in log_dir_abs:
+        cfg_dir = log_dir_abs.replace(
+            os.sep + 'log' + os.sep, os.sep + 'config' + os.sep, 1
+        )
+        candidates.append(cfg_dir + '.yaml')
+    # Fallback: legacy in-log_dir config.
+    candidates.append(os.path.join(log_dir, 'config.yaml'))
+    for cfg_path in candidates:
+        if not os.path.isfile(cfg_path):
+            continue
+        try:
+            import yaml
+            with open(cfg_path) as f:
+                cfg = yaml.safe_load(f)
+        except Exception:
+            continue
+        sched = cfg.get('training', {}).get('n_steps_schedule')
+        if sched:
+            return list(sched)
+    return None
+
+
+def _slot_config_path(log_dir: str) -> str | None:
+    """Map a slot's log_dir to its yaml config path.
+
+    The agentic loop writes slot configs to `<data_root>/config/<sub>/<name>.yaml`
+    while training logs land at `<data_root>/log/<sub>/<name>/`. We invert
+    that by replacing the first `/log/` segment with `/config/` and appending
+    `.yaml`. Falls back to `<log_dir>/config.yaml` (legacy path) and returns
+    None if neither exists.
+    """
+    norm = os.path.normpath(log_dir).rstrip('/')
+    candidates: list[str] = []
+    parts = norm.split(os.sep)
+    if 'log' in parts:
+        i = parts.index('log')
+        repl = parts[:i] + ['config'] + parts[i + 1:]
+        candidates.append(os.sep.join(repl) + '.yaml')
+    candidates.append(os.path.join(log_dir, 'config.yaml'))
+    for c in candidates:
+        if os.path.isfile(c):
+            return c
+    return None
+
+
+def _read_total_iters(log_dir: str) -> int | None:
+    """Compute the slot's total iter count from its yaml config.
+
+    total = (n_trials_train // batch_size) * data_augmentation_loop * n_epochs
+
+    Mirrors the trainer's Niter math (graph_trainer.py: Niter computation
+    inside both PI and cortex trainers). Returns None if any field is
+    missing or the file can't be read.
+    """
+    cfg_path = _slot_config_path(log_dir)
+    if cfg_path is None:
+        return None
+    try:
+        import yaml
+        with open(cfg_path) as f:
+            cfg = yaml.safe_load(f)
+    except Exception:
+        return None
+    tr = cfg.get('training', {}) or {}
+    bs = tr.get('batch_size')
+    dal = tr.get('data_augmentation_loop', 1)
+    n_ep = tr.get('n_epochs')
+    task_cfg = (cfg.get('task', {}) or {}).get(
+        cfg.get('task', {}).get('task_type', ''), {}) or {}
+    n_trials = task_cfg.get('n_trials_train')
+    if not (bs and n_ep and n_trials):
+        return None
+    return max(1, (int(n_trials) // int(bs)) * int(dal)) * int(n_ep)
+
+
+def _print_task_metrics(log_dirs: dict, slots: list, prefix: str = '  [metrics]'):
+    """Per-slot summary of latest snapshot + per-epoch trajectory so the
+    curriculum collapse pattern (T=100 OK → T=500 explodes) is visible
+    while training is still running.
+    """
+    for slot in sorted(slots):
+        log_dir = log_dirs.get(slot)
+        if not log_dir:
+            print(f"{prefix} slot {slot}: (no log_dir)")
+            continue
+        m = _read_latest_task_metrics(log_dir)
+        if m is None:
+            print(f"{prefix} slot {slot}: (no metrics.log yet)")
+            continue
+        loss = m['loss']
+        loss_str = f"{loss:.2e}" if loss is not None else "nan"
+
+        # Current curriculum horizon T_epoch (BPTT length the slot is
+        # training at right now). Read from the slot's config.yaml and
+        # indexed by epoch (1-based in metrics.log → 0-based in the list).
+        sched = _read_n_steps_schedule(log_dir)
+        t_epoch_str = ""
+        if sched is not None and 1 <= m['epoch'] <= len(sched):
+            t_epoch_str = f" T={sched[m['epoch'] - 1]}"
+
+        # Build the "headline + secondaries" segment.
+        # For PI: lead with `r_roll_1k` (the actual primary metric used by
+        # the LLM mutation loop) so the colour-coded value is the first
+        # thing visible; pi_acc + fwhm follow as secondary context.
+        # For cortex: filtered R² (coloured) + filtered dir_acc + outlier %.
+        r2_v = m.get('r2')
+        r2_f = m.get('r2_filtered')
+        da_v = m.get('direction_acc')
+        da_f = m.get('direction_acc_filtered')
+        pct  = m.get('pct_outliers')
+        pi_v = m.get('pi_acc')
+        fwhm_v = m.get('fwhm')
+        rr1k_v = m.get('r_roll_1k')
+        parts = []
+        if r2_v is not None or r2_f is not None:
+            primary_r2 = r2_f if r2_f is not None else r2_v
+            primary_da = da_f if da_f is not None else da_v
+            r2_str = f"{_pi_color(primary_r2)}R2={primary_r2:.3f}{_ANSI_RESET}"
+            if r2_v is not None and r2_f is not None and r2_v != r2_f:
+                r2_str += f" ({r2_v:.3f})"
+            parts.append(r2_str)
+            if primary_da is not None:
+                da_str = f"{_pi_color(primary_da)}dir_acc={primary_da:.2f}{_ANSI_RESET}"
+                if da_v is not None and da_f is not None and da_v != da_f:
+                    da_str += f" ({da_v:.2f})"
+                parts.append(da_str)
+            if pct is not None:
+                if pct > 15:
+                    parts.append(f"{_ANSI_ORANGE}outlier={pct:.0f}%{_ANSI_RESET}")
+                else:
+                    parts.append(f"outlier={pct:.0f}%")
+        elif pi_v is not None:
+            if rr1k_v is not None:
+                parts.append(
+                    f"{_pi_color(rr1k_v)}r_roll_1k={rr1k_v:.3f}{_ANSI_RESET}"
+                )
+            parts.append(f"pi_acc={pi_v:.3f}")
+            if fwhm_v is not None:
+                parts.append(f"fwhm={fwhm_v:.0f}°")
+        elif da_v is not None:
+            # Old cortex schema (no r2 column yet) — colour direction_acc.
+            parts.append(f"{_pi_color(da_v)}dir_acc={da_v:.2f}{_ANSI_RESET}")
+        head = "  ".join(parts)
+
+        total_iters = _read_total_iters(log_dir)
+        iter_str = (f"{m['iter']:>5d}/{total_iters}" if total_iters is not None
+                    else f"{m['iter']:>5d}")
+        print(
+            f"{prefix} slot {slot}  it={iter_str}{t_epoch_str}  "
+            f"{head}  loss={loss_str}"
+        )
+
+
+
+# ---------------------------------------------------------------------------
+# Per-batch metric extraction → analysis log (Claude reads this)
+# ---------------------------------------------------------------------------
+
+
+def _write_task_metrics_to_analysis_log(log_dir: str, analysis_log_path: str,
+                                        slot: int, iteration: int) -> dict | None:
+    """Append final + per-epoch summary to the slot's analysis log.
+
+    Claude reads this file to make the next mutation decision. We surface:
+      - The end-of-run row (final pi_acc / fwhm / losses).
+      - A per-epoch table so collapse during the curriculum is obvious
+        (e.g. pi_acc=0.999 at T=100, then 0.000 at T=500 = numerical
+        instability, very different from "didn't converge yet").
+      - A `collapse_detected:` flag the LLM can grep for.
+    """
+    rows = _read_all_task_metrics(log_dir)
+    if not rows:
+        with open(analysis_log_path, 'a') as f:
+            f.write(f"\n--- slot {slot} iter {iteration} ---\n")
+            f.write("ERROR: no metrics.log found\n")
+        return None
+    final = rows[-1]
+    per_epoch = _per_epoch_task_summary(log_dir)
+    collapse = _detect_collapse(per_epoch)
+
+    pname = final.get('primary_name', 'metric')
+    with open(analysis_log_path, 'a') as f:
+        f.write(f"\n--- slot {slot} iter {iteration} ---\n")
+        f.write(f"final {pname}: {final['primary']}\n")
+        f.write(f"final loss: {final['loss']}\n")
+        f.write(f"final mse: {final['mse']}\n")
+        # PI-specific lines (omitted when cortex)
+        if final.get('fwhm') is not None or pname == 'pi_acc':
+            f.write(f"final fwhm_deg: {final['fwhm']}\n")
+            f.write(f"final cosd: {final['cosd']}\n")
+            f.write(f"final norm: {final['norm']}\n")
+            f.write(f"final tv: {final['tv']}\n")
+        # Cortex-specific lines (omitted when PI).
+        cortex_row = (final.get('motor_max') is not None
+                      or pname in ('r2', 'direction_acc'))
+        if cortex_row:
+            f.write(f"final r2: {final.get('r2')}\n")
+            f.write(f"final r2_filtered: {final.get('r2_filtered')}\n")
+            f.write(f"final direction_acc: {final['direction_acc']}\n")
+            f.write(f"final direction_acc_filtered: {final.get('direction_acc_filtered')}\n")
+            f.write(f"final pct_outliers: {final.get('pct_outliers')}\n")
+        f.write(f"final iter: {final['iter']}  epoch: {final['epoch']}\n")
+        f.write("\nper-epoch trajectory:\n")
+        if cortex_row:
+            f.write("  ep | r2_end  r2_best | r2_filt_end | dir_acc_end | "
+                    "dir_filt_end | out% | loss_end loss_best | mse_end\n")
+        else:
+            f.write("  ep | pi_acc_end pi_acc_best | fwhm_end | "
+                    "loss_end loss_best | mse_end cosd_end norm_end tv_end\n")
+        for e in per_epoch:
+            def _fmt(v, w=6):
+                return ("nan".ljust(w) if v is None
+                        else f"{v:.3f}".ljust(w))
+            if cortex_row:
+                f.write(
+                    f"  {e['epoch']:>2d} | {_fmt(e.get('r2_end'))} "
+                    f"{_fmt(e.get('r2_best'))} | "
+                    f"{_fmt(e.get('r2_filtered_end'))} | "
+                    f"{_fmt(e['direction_acc_end'])} | "
+                    f"{_fmt(e.get('direction_acc_filtered_end'))} | "
+                    f"{_fmt(e.get('pct_outliers_end'))} | "
+                    f"{_fmt(e['loss_end'])} {_fmt(e['loss_best'])} | "
+                    f"{_fmt(e['mse_end'])}\n"
+                )
+            else:
+                f.write(
+                    f"  {e['epoch']:>2d} | {_fmt(e['pi_acc_end'])} {_fmt(e['pi_acc_best'])}"
+                    f" | {_fmt(e['fwhm_end'])} | "
+                    f"{_fmt(e['loss_end'])} {_fmt(e['loss_best'])} | "
+                    f"{_fmt(e['mse_end'])} {_fmt(e['cosd_end'])} "
+                    f"{_fmt(e['norm_end'])} {_fmt(e['tv_end'])}\n"
+                )
+        if collapse:
+            f.write(f"\n{collapse}\n")
+        else:
+            f.write("\ncollapse_detected: no\n")
+    final['per_epoch'] = per_epoch
+    final['collapse'] = collapse
+    return final
+
+
+def _print_task_batch_results(state: ExplorationState, batch: BatchInfo,
+                              metrics_per_slot: dict):
+    """Final coloured summary: per-epoch trajectory + collapse warning."""
+    print(f"\n{_ANSI_BLUE}{'=' * 70}{_ANSI_RESET}")
+    print(f"{_ANSI_BLUE}BATCH RESULTS: iterations "
+          f"{batch.batch_first}-{batch.batch_last}{_ANSI_RESET}")
+    print(f"{_ANSI_BLUE}{'=' * 70}{_ANSI_RESET}")
+    for slot_idx, iteration in enumerate(batch.iterations):
+        ok = batch.job_results.get(slot_idx, False)
+        if not ok:
+            print(f"  Slot {slot_idx} (iter {iteration}):  {_ANSI_RED}FAILED{_ANSI_RESET}")
+            continue
+        m = metrics_per_slot.get(slot_idx)
+        if m is None:
+            print(f"  Slot {slot_idx} (iter {iteration}):  {_ANSI_GREY}no metrics{_ANSI_RESET}")
+            continue
+
+        pname = m.get('primary_name', 'metric')
+        primary = m['primary']
+        # pi_acc prints uncoloured; r2 / direction_acc keep the colour ramp.
+        pi_col = "" if pname == 'pi_acc' else _pi_color(primary)
+        pi_reset = "" if pname == 'pi_acc' else _ANSI_RESET
+        primary_str = f"{primary:.3f}" if primary is not None else "n/a"
+        loss = f"{m['loss']:.4f}" if m['loss'] is not None else "n/a"
+        if m.get('fwhm') is not None:
+            secondary = f"fwhm={m['fwhm']:.0f}°"
+        elif m.get('pct_outliers') is not None:
+            secondary = f"out={m['pct_outliers']:.0f}%"
+        else:
+            secondary = ""
+
+        print(f"  Slot {slot_idx} (iter {iteration}):  "
+              f"final {pi_col}{pname}={primary_str}{pi_reset}  "
+              f"{secondary}  loss={loss}")
+        if m.get('collapse'):
+            print(f"     {_ANSI_RED}{m['collapse']}{_ANSI_RESET}")
+
+
+# ---------------------------------------------------------------------------
+# Cluster + local runners
+# ---------------------------------------------------------------------------
+
+
+def run_task_cluster_training(state: ExplorationState, batch: BatchInfo):
+    """Submit task-trainer cluster jobs, wait, parse final metrics → analysis log.
+
+    Reuses `submit_cluster_job` (which calls train_subprocess.py, which routes
+    to data_train_task via the data_train dispatcher). No test+plot phase
+    — the trainer's own snapshots and metrics.log are the authoritative output.
+    """
+    print(f"\n{_ANSI_YELLOW}PHASE 2: Submitting {batch.n_slots} task-trainer "
+          f"jobs to cluster (gpu_{state.node_name}){_ANSI_RESET}")
+
+    if not check_cluster_repo():
+        print(f"{_ANSI_YELLOW}WARNING: cluster repo has uncommitted changes — "
+              f"proceeding anyway{_ANSI_RESET}")
+
+    job_ids = {}
+    for slot_idx, iteration in enumerate(batch.iterations):
+        slot = slot_idx
+        config = batch.configs[slot]
+        jid = submit_cluster_job(
+            slot=slot,
+            config_path=state.config_paths[slot],
+            analysis_log_path=state.analysis_log_paths[slot],
+            config_file_field=config.config_file,
+            log_dir=state.log_dir,
+            erase=True,
+            node_name=state.node_name,
+            conda_env=state.conda_env,
+            n_cpus=state.n_cpus,
+            device=config.training.device,
+            exploration_dir=state.exploration_dir,
+            iteration=iteration,
+            output_root=get_data_root(),
+            hard_runtime_limit_min=state.hard_runtime_limit_min,
+        )
+        if jid:
+            job_ids[slot] = jid
+        else:
+            batch.job_results[slot] = False
+
+    metrics_per_slot: dict = {}
+    if job_ids:
+        print(f"\n{_ANSI_YELLOW}PHASE 3: Waiting for {len(job_ids)} jobs"
+              f"{_ANSI_RESET}")
+        slot_log_dirs = {s: log_path(batch.configs[s].config_file) for s in job_ids}
+
+        # Reuse the existing cluster waiter (it polls bjobs and returns
+        # {slot: bool}). Periodic in-flight metric printing happens in a
+        # tiny side-thread that tails each slot's tmp_training/metrics.log.
+        import threading
+        stop_print = threading.Event()
+
+        def _periodic_print():
+            while not stop_print.wait(timeout=300):
+                _print_task_metrics(slot_log_dirs, list(job_ids.keys()),
+                                    prefix='  [metrics]')
+
+        printer = threading.Thread(target=_periodic_print, daemon=True)
+        printer.start()
+        try:
+            cluster_results = wait_for_cluster_jobs(
+                job_ids, log_dir=state.log_dir, poll_interval=300,
+                job_prefix='cluster_train',
+            )
+        finally:
+            stop_print.set()
+            printer.join(timeout=1.0)
+
+        batch.job_results.update(cluster_results)
+        # Final per-slot metric snapshot (Claude reads the analysis log).
+        for slot, ok in cluster_results.items():
+            if ok:
+                m = _write_task_metrics_to_analysis_log(
+                    slot_log_dirs[slot], state.analysis_log_paths[slot],
+                    slot, batch.iterations[slot],
+                )
+                metrics_per_slot[slot] = m
+
+    _print_task_batch_results(state, batch, metrics_per_slot)
+
+
+def run_task_local_pipeline(state: ExplorationState, batch: BatchInfo):
+    """Local-mode runner: train each slot sequentially via the data_train
+    dispatcher (which routes task configs to data_train_task)."""
+    from connectome_gnn.models.graph_trainer import data_train
+
+    print(f"\n{_ANSI_YELLOW}PHASE 2: Training {batch.n_slots} task-models "
+          f"locally (sequential){_ANSI_RESET}")
+    metrics_per_slot: dict = {}
+    for slot_idx, iteration in enumerate(batch.iterations):
+        slot = slot_idx
+        config = batch.configs[slot]
+        print(f"{_ANSI_GREY}  slot {slot} (iter {iteration}): training locally..."
+              f"{_ANSI_RESET}")
+        log_file = open(state.analysis_log_paths[slot], 'w')
+        try:
+            data_train(
+                config=config, erase=True,
+                best_model=state.best_model, device=state.device,
+                log_file=log_file,
+            )
+            batch.job_results[slot] = True
+        except Exception as exc:
+            batch.job_results[slot] = False
+            log_file.write(f"\nERROR: training crashed: {exc}\n")
+            print(f"{_ANSI_RED}  slot {slot}: training FAILED ({exc}){_ANSI_RESET}")
+        finally:
+            log_file.close()
+        slot_log_dir = log_path(config.config_file)
+        m = _write_task_metrics_to_analysis_log(
+            slot_log_dir, state.analysis_log_paths[slot],
+            slot, iteration,
+        )
+        metrics_per_slot[slot] = m
+
+    _print_task_batch_results(state, batch, metrics_per_slot)

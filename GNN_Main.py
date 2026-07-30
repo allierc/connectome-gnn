@@ -8,65 +8,18 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 import matplotlib
 matplotlib.use('Agg')  # set non-interactive backend before other imports
 import argparse
-import re
 
 from connectome_gnn.config import NeuralGraphConfig
 from connectome_gnn.generators.graph_data_generator import data_generate
-from connectome_gnn.models.graph_trainer import data_train, data_test, data_train_INR
-# SPEND-style Noise2Noise trainer (sibling of data_train, data_train_INR).
-# Cite: https://github.com/buchenglab/SPEND  (Ding et al. 2025, Newton 1, 100195)
-from connectome_gnn.models.graph_trainer_spend import data_train_spend
+from connectome_gnn.models.graph_trainer import (
+    data_train, data_test, data_train_INR, data_train_task,
+)
+from connectome_gnn.models.utils import load_run_config
 from connectome_gnn.utils import (
     set_device, add_pre_folder, log_path, config_path, validate_pre_folder,
-    set_data_root, git_sha, git_dirty_files, get_repo_root, graphs_data_path,
-    load_config_fallback_roots, load_data_fallback_roots,
+    set_data_root, git_sha, git_dirty_files,
 )
 
-
-def _yellow(msg: str) -> str:
-    return f"\033[33m{msg}\033[0m"
-
-
-def _resolve_config_path(yaml_path: str) -> str:
-    """If yaml_path doesn't exist at the local repo, try each fallback config
-    root from data_paths.json (cluster_data_dir/config, cluster_root_dir/config).
-    Returns the first existing path (with a yellow warning), or the original
-    path if nothing is found.
-    """
-    if os.path.isfile(yaml_path):
-        return yaml_path
-    repo_config_root = os.path.join(get_repo_root(), 'config')
-    if not yaml_path.startswith(repo_config_root + os.sep):
-        return yaml_path
-    rel = os.path.relpath(yaml_path, repo_config_root)
-    for root in load_config_fallback_roots():
-        candidate = os.path.join(root, rel)
-        if os.path.isfile(candidate):
-            print(_yellow(f"  config not found at {yaml_path}"))
-            print(_yellow(f"  using fallback config: {candidate}"))
-            return candidate
-    return yaml_path
-
-
-def _maybe_fallback_data_root(config, explicit_output_root: bool, task: str) -> None:
-    """If the dataset is missing at the current data root, try each fallback
-    data root from data_paths.json (cluster_data_dir). Switch the data root to
-    the first one that has it (and print a yellow warning). Skipped when
-    --output_root / GNN_OUTPUT_ROOT was explicitly provided or when generating
-    fresh data locally.
-    """
-    if explicit_output_root or 'generate' in task:
-        return
-    dataset_dir = graphs_data_path(config.dataset)
-    if os.path.isdir(dataset_dir):
-        return
-    for root in load_data_fallback_roots():
-        candidate = os.path.join(root, 'graphs_data', config.dataset)
-        if os.path.isdir(candidate):
-            print(_yellow(f"  data not found at {dataset_dir}"))
-            print(_yellow(f"  switching data root to: {root}"))
-            set_data_root(root)
-            return
 
 # Optional imports (not available in flyvis-gnn spinoff)
 try:
@@ -92,10 +45,41 @@ if __name__ == "__main__":
                         help="Root directory for log/ and  (default: cwd)")
     parser.add_argument("--force", action="store_true",
                         help="Force regeneration of data even if it already exists")
+    parser.add_argument("--resume", action="store_true",
+                        help="Resume training from the latest completed per-epoch checkpoint "
+                             "(continues at the next epoch, iter 0); does not erase the log dir")
     parser.add_argument("--skip_phase2", action="store_true", default=False,
                         help="CV: skip phase 2 (zero-shot DAVIS→hold-out test). Use when no pre-trained DAVIS model exists.")
     parser.add_argument("--test_mode", type=str, default="",
                         help='Test-time variant, e.g. "test_ablation_50" (zero out 50%% of edges before rollout) or "test_modified_0.1" (add Gaussian noise σ=0.1 to W).')
+    parser.add_argument("--anatomy_voltage", action="store_true",
+                        help="On -o test runs that have a Circuit registered via "
+                             "config.circuit.name, also write a single 3D anatomy + "
+                             "voltage snapshot under <log_dir>/tmp_recons/. View / "
+                             "thresholds / type whitelist come from "
+                             "plotting.anatomy_voltage_* in the yaml.")
+    parser.add_argument("--anatomy_voltage_types", nargs="+", default=None,
+                        help="Override plotting.anatomy_voltage_types for the "
+                             "--anatomy_voltage render. Each token is one type "
+                             "group rendered to its own tmp_recons/<types>/ "
+                             "folder + <types>.mp4; comma-join a token for a "
+                             "multi-type group (e.g. IPNd IPNd01 IPN12_a,IPN12_b). "
+                             "Implies --anatomy_voltage.")
+    parser.add_argument("--anatomy_voltage_pattern", default=None,
+                        help="Override plotting.anatomy_voltage_pattern for the "
+                             "--anatomy_voltage render (const / swim / swim_left / "
+                             "swim_right / ou / zapbench_rotation). Implies "
+                             "--anatomy_voltage.")
+    parser.add_argument("--anatomy_voltage_stride", type=int, default=None,
+                        help="Override plotting.anatomy_voltage_stride (movie "
+                             "frame stride in model steps). For zapbench_rotation "
+                             "(~60k steps) use e.g. 92 ≈ one imaging frame.")
+    parser.add_argument("--anatomy_voltage_kinograph", action="store_true",
+                        help="Also render the companion sliding-kinograph movie "
+                             "(neuron x time heatmap with a time-cursor synced to "
+                             "the anatomy frames) under tmp_recons/<types>_kino/. "
+                             "Sets plotting.anatomy_voltage_kinograph and implies "
+                             "--anatomy_voltage.")
 
     print()
     device = []
@@ -112,81 +96,14 @@ if __name__ == "__main__":
     if args.option:
         print(f"Options: {args.option}")
     CONFIG_LISTS = {
-        'flyvis_baselines': [
-            '/groups/saalfeld/home/allierc/GraphData/config/fly/flyvis_noise_005_baseline_00',
-            '/groups/saalfeld/home/allierc/GraphData/config/fly/flyvis_noise_005_010_baseline_00',
-            '/groups/saalfeld/home/allierc/GraphData/config/fly/flyvis_noise_005_stride_5_baseline_00',
-            '/groups/saalfeld/home/allierc/GraphData/config/fly/flyvis_noise_005_stride_5_yt_baseline_00',
-        ],
-        'drosophila_cx_baselines': [
-            'drosophila_cx_known_ode',
-            'drosophila_cx_rnn',
-            'drosophila_cx_neuralode',
-        ],
-        'known_ode': [
-            'flyvis_noise_free_known_ode',
-            'flyvis_noise_005_known_ode',
-            'flyvis_noise_05_known_ode',
-            'flyvis_noise_005_INR_known_ode',
-        ],
-        'retest_noisy_rollouts': [
-            *[f'flyvis_noise_005_cv{i:02d}' for i in range(10)],
-            *[f'flyvis_noise_05_cv{i:02d}' for i in range(10)],
-            *[f'flyvis_noise_free_default_cv{i:02d}' for i in range(10)],
-            *[f'flyvis_noise_005_default_cv{i:02d}' for i in range(10)],
-            *[f'flyvis_noise_05_default_cv{i:02d}' for i in range(10)],
-        ],
-        'flyvis_blank_sweep': [
-            'flyvis_noise_005_blank01',
-            'flyvis_noise_005_blank05',
-            'flyvis_noise_005_blank10',
-            'flyvis_noise_005_blank25',
-            'flyvis_noise_005_blank50',
-        ],
-        # Three blank50 datasets pinned to the same DAVIS2017-partial-test
-        # root (and the same seed=42) so panels d/e/f of fig_simulations.py
-        # see bit-identical stimulus sequences. Use:
-        #   python GNN_Main.py -o generate flyvis_blank50_davispt
-        # to regenerate all three from scratch.
-        'flyvis_blank50_davispt': [
-            'flyvis_noise_free_blank50_davispt',
-            'flyvis_noise_005_blank50_davispt',
-            'flyvis_noise_05_blank50_davispt',
-        ],
-        'flyvis_noise_free_blank50_unified_cv': [
-            'flyvis_noise_free_blank50_unified_cv00',
-            'flyvis_noise_free_blank50_unified_cv01',
-            'flyvis_noise_free_blank50_unified_cv02',
-            'flyvis_noise_free_blank50_unified_cv03',
-            'flyvis_noise_free_blank50_unified_cv04',
-        ],
-        'flyvis_noise_005_blank50_unified_cv': [
-            'flyvis_noise_005_blank50_unified_cv00',
-            'flyvis_noise_005_blank50_unified_cv01',
-            'flyvis_noise_005_blank50_unified_cv02',
-            'flyvis_noise_005_blank50_unified_cv03',
-            'flyvis_noise_005_blank50_unified_cv04',
-        ],
-        'flyvis_noise_05_blank50_unified_cv': [
-            'flyvis_noise_05_blank50_unified_cv00',
-            'flyvis_noise_05_blank50_unified_cv01',
-            'flyvis_noise_05_blank50_unified_cv02',
-            'flyvis_noise_05_blank50_unified_cv03',
-            'flyvis_noise_05_blank50_unified_cv04',
-        ],
-        'hybrid_flywireRF_variants': [
-            'e8_flywireRF_noise_005',
-            'full_eye_flywireRF_noise_005',
-            'e8_flywireRF_proximal_nulls_noise_005',
-            'full_eye_flywireRF_proximal_nulls_noise_005',
-        ],
-        # SPEND-style Noise2Noise trainer; invoke with -o train_SPEND flyvis_spend.
-        # Cite: https://github.com/buchenglab/SPEND
-        'flyvis_spend': [
-            'flyvis_noise_005_010_spend_replay',
-            'flyvis_noise_005_010_spend_time',
-            'flyvis_noise_005_010_spend_typed',
-            'flyvis_noise_005_010_spend_combined',
+        'cortex_all_tasks': [
+            'cortex_fdgo', 'cortex_reactgo', 'cortex_delaygo',
+            'cortex_fdanti', 'cortex_reactanti', 'cortex_delayanti',
+            'cortex_dm1', 'cortex_dm2',
+            'cortex_contextdm1', 'cortex_contextdm2', 'cortex_multidm',
+            'cortex_delaydm1', 'cortex_delaydm2',
+            'cortex_contextdelaydm1', 'cortex_contextdelaydm2', 'cortex_multidelaydm',
+            'cortex_dmsgo', 'cortex_dmsnogo', 'cortex_dmcgo', 'cortex_dmcnogo',
         ],
     }
 
@@ -222,7 +139,7 @@ if __name__ == "__main__":
     else:
         best_model = ''
         task = task = 'train'
-        config_list = ['flyvis_noise_005_hidden_010_blank50_consensus_ngp_light']
+        config_list = ['zebrafish_hd_si_gnn_ipn12_c0_gcamp']  #flyvis_noise_005_blank50_heaviside_var_cv00
         test_config_name = None
 
     if task == 'cv':
@@ -237,46 +154,7 @@ if __name__ == "__main__":
     for config_file_ in config_list:
         print(" ")
 
-        if os.path.isfile(config_file_) or os.path.isabs(config_file_):
-            # config_file_ is a direct filesystem path — load without repo lookup.
-            # Append .yaml if not already present.
-            # pre_folder is derived from the parent directory name.
-            yaml_file = config_file_ if config_file_.endswith('.yaml') else config_file_ + '.yaml'
-            parent = os.path.basename(os.path.dirname(os.path.abspath(yaml_file)))
-            pre_folder = parent + "/" if parent else ""
-            validate_pre_folder(pre_folder)
-            config = NeuralGraphConfig.from_yaml(yaml_file)
-            if not config.dataset.startswith(pre_folder):
-                config.dataset = pre_folder + config.dataset
-            # If config_file is still the default "none", derive it from the YAML path
-            # so logs go to log/<domain>/<config_name>/ not log/none/
-            if config.config_file == "none":
-                stem = os.path.splitext(os.path.basename(yaml_file))[0]
-                config.config_file = pre_folder + stem
-        else:
-            config_file, pre_folder = add_pre_folder(config_file_)
-
-            # load config — if YAML not found, try stripping _cvNN suffix (CV folds
-            # share a base config; the cv_runner overrides dataset/config_file at runtime)
-            yaml_path = _resolve_config_path(config_path(f"{config_file}.yaml"))
-            cv_match = re.search(r'_cv(\d+)$', config_file_)
-            if not os.path.isfile(yaml_path) and cv_match:
-                base_name = config_file_[:cv_match.start()]
-                base_file, _ = add_pre_folder(base_name)
-                print(f"  CV fold detected: loading base config {base_name}.yaml, "
-                      f"dataset/log -> {config_file_}")
-                yaml_file = _resolve_config_path(config_path(f"{base_file}.yaml"))
-                config = NeuralGraphConfig.from_yaml(yaml_file)
-                config.dataset = pre_folder + config_file_
-                config.config_file = pre_folder + config_file_
-            else:
-                yaml_file = yaml_path
-                config = NeuralGraphConfig.from_yaml(yaml_file)
-                if not config.dataset.startswith(pre_folder):
-                    config.dataset = pre_folder + config.dataset
-                config.config_file = pre_folder + config_file_
-
-        _maybe_fallback_data_root(config, explicit_output_root, task)
+        config, yaml_file = load_run_config(config_file_, explicit_output_root, task)
 
         if device == []:
             device = set_device(config.training.device)
@@ -316,7 +194,18 @@ if __name__ == "__main__":
             with open(_marker, 'w') as f:
                 f.write(f"commit={sha}\nargv={sys.argv}\n")
 
-        if 'train_NGP' in task:
+        if 'train_task' in task:
+            _marker = os.path.join(run_log_dir, '_completed_train')
+            if os.path.exists(_marker):
+                os.remove(_marker)
+            data_train_task(
+                config=config, erase=not args.resume, best_model=best_model,
+                device=device, resume=args.resume,
+            )
+            with open(_marker, 'w') as f:
+                f.write(f"commit={sha}\nargv={sys.argv}\n")
+
+        elif 'train_NGP' in task:
             _marker = os.path.join(run_log_dir, '_completed_train')
             if os.path.exists(_marker):
                 os.remove(_marker)
@@ -341,33 +230,17 @@ if __name__ == "__main__":
             with open(_marker, 'w') as f:
                 f.write(f"commit={sha}\nargv={sys.argv}\n")
 
-        elif 'train_SPEND' in task:
-            _marker = os.path.join(run_log_dir, '_completed_train')
-            if os.path.exists(_marker):
-                os.remove(_marker)
-            # SPEND-style Noise2Noise trainer.
-            # Cite: https://github.com/buchenglab/SPEND
-            # usage: -o train_SPEND <config>          (single config)
-            #        -o train_SPEND flyvis_spend      (CONFIG_LIST -> 4 SPEND yamls)
-            data_train_spend(
-                config=config,
-                erase=True,
-                best_model=best_model,
-                device=device,
-            )
-            with open(_marker, 'w') as f:
-                f.write(f"commit={sha}\nargv={sys.argv}\n")
-
         elif "train" in task:
             _marker = os.path.join(run_log_dir, '_completed_train')
             if os.path.exists(_marker):
                 os.remove(_marker)
             data_train(
                 config=config,
-                erase=True,
+                erase=not args.resume,
                 best_model=best_model,
                 style='color',
                 device=device,
+                resume=args.resume,
             )
             with open(_marker, 'w') as f:
                 f.write(f"commit={sha}\nargv={sys.argv}\n")
@@ -410,6 +283,15 @@ if __name__ == "__main__":
                     test_config.config_file = tc_pre + test_config_name
                 print(f'cross-dataset test: model from {config.dataset}, test data from {test_config.dataset}')
 
+            # CLI overrides of the anatomy-voltage probe (pattern / movie stride)
+            # so the rotation sequence can be driven without editing the yaml.
+            if args.anatomy_voltage_pattern:
+                config.plotting.anatomy_voltage_pattern = args.anatomy_voltage_pattern
+            if args.anatomy_voltage_stride is not None:
+                config.plotting.anatomy_voltage_stride = args.anatomy_voltage_stride
+            if args.anatomy_voltage_kinograph:
+                config.plotting.anatomy_voltage_kinograph = True
+
             data_test(
                 config=config,
                 visualize=True,
@@ -426,6 +308,14 @@ if __name__ == "__main__":
                 new_params=None,
                 rollout_without_noise=True,
                 test_config=test_config,
+                anatomy_voltage=(args.anatomy_voltage
+                                 or bool(args.anatomy_voltage_types)
+                                 or bool(args.anatomy_voltage_pattern)
+                                 or args.anatomy_voltage_kinograph),
+                anatomy_voltage_type_groups=(
+                    [tok.split(",") for tok in args.anatomy_voltage_types]
+                    if args.anatomy_voltage_types else None
+                ),
             )
             with open(_marker, 'w') as f:
                 f.write(f"commit={sha}\nargv={sys.argv}\n")
@@ -434,9 +324,27 @@ if __name__ == "__main__":
             _marker = os.path.join(run_log_dir, '_completed_plot')
             if os.path.exists(_marker):
                 os.remove(_marker)
+            # `pre_folder` used to be set inline before load_run_config absorbed
+            # the config-loading block. Derive it from config.config_file
+            # (which now has the form "<pre_folder>/<config_name>").
+            pre_folder = os.path.dirname(config.config_file)
             folder_name = log_path(pre_folder, 'tmp_results') + '/'
             os.makedirs(folder_name, exist_ok=True)
             data_plot(config=config, epoch_list=['best'], style='color', extended='plots', device=device, apply_weight_correction=True, skip_svd=True)
+            # CX / zebrafish navigation-task runs: also emit the multi-panel
+            # training dashboard into <log_dir>/results/ (the a–j evolution
+            # figure for the sign-locked RNN, the a–k panel layout for the
+            # message-passing GNN). Dispatch is on the loaded model family.
+            _ttype = str(getattr(getattr(config, 'task', None), 'task_type', '')).lower()
+            if _ttype in ('swim_integration', 'path_integration'):
+                try:
+                    from connectome_gnn.plot_cx import save_run_dashboard
+                    _dash = save_run_dashboard(run_log_dir)
+                    if _dash:
+                        print(f'[plot] dashboard: {_dash}')
+                except Exception as _e:
+                    print(f'[warn] dashboard generation failed: '
+                          f'{type(_e).__name__}: {_e}')
             with open(_marker, 'w') as f:
                 f.write(f"commit={sha}\nargv={sys.argv}\n")
 
@@ -484,3 +392,5 @@ if __name__ == "__main__":
 #  bsub -n 8 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o train_test_plot config/fly/full_eye_flywireRF_proximal_nulls_known_ode_noise_005 --force"
 #  bsub -n 8 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o test_plot config/fly/e8_flywireRF_proximal_nulls_known_ode_noise_005 --force"
 # python GNN_Main.py -o plot flyvis_noise_free_blank50_unified_cv00
+
+# python GNN_Main.py -o train flyvis_noise_005_blank50_heaviside_var_cv00

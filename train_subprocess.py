@@ -54,6 +54,9 @@ if __name__ == '__main__':
 
         log_file = open(args.log_file, 'w', buffering=1) if args.log_file else None
         try:
+            # data_train auto-dispatches to data_train_task when the config
+            # has a populated `task` block (see graph_trainer.data_train
+            # line ~96), so no special routing is needed here.
             data_train(
                 config=config,
                 erase=args.erase,

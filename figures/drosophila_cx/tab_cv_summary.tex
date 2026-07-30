@@ -1,0 +1,12 @@
+\begin{tabular}{lccccc}
+\toprule
+Condition & $n_{\mathrm{conv}}$/10 & $|r_{\mathrm{roll},1k}|$ & $p_{\mathrm{acc}}$ & FWHM ($^\circ$) & RMSE ($^\circ$) \\
+\midrule
+Known-ODE RNN, no TV & 10/10 & $1.000\pm0.000$ & $0.996\pm0.002$ & $44.3\pm7.4$ & $4.6\pm2.3$ \\
+Known-ODE RNN +TV & 10/10 & $1.000\pm0.000$ & $0.996\pm0.002$ & $84.0\pm8.0$ & $13.3\pm7.3$ \\
+GNN, no TV & 9/10 & $0.930\pm0.210$ & $1.000\pm0.000$ & $41.3\pm12.9$ & $4.6\pm3.1$ \\
+GNN +TV & 10/10 & $1.000\pm0.001$ & $0.999\pm0.001$ & $89.4\pm12.7$ & $6.4\pm4.6$ \\
+Fully connected RNN & 3/10 & $0.535\pm0.360$ & $0.930\pm0.064$ & $31.6\pm9.2$ & $68.9\pm52.8$ \\
+Frozen $W^{\mathrm{rec}}$ & 0/10 & $0.669\pm0.094$ & $0.294\pm0.134$ & $28.3\pm9.0$ & $95.7\pm16.3$ \\
+\bottomrule
+\end{tabular}

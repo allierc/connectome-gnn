@@ -334,6 +334,226 @@ class ZarrSimulationWriterV3:
         return self._total_frames
 
 
+class ZarrTaskTrialsWriter:
+    """Streaming per-trial writer for task data — TaskState analogue of
+    :class:`ZarrSimulationWriterV3`.
+
+    The atom is a ``TaskState`` (one trial, T-major); the aggregate is a
+    ``TaskTrials`` (B-major). Each populated tensor field on the first
+    appended ``TaskState`` becomes a separate zarr array; missing fields
+    are not written.
+
+    Storage structure (path/):
+        meta.json               # task_family, n_input, n_output, dt, rules, ...
+        stimulus.zarr           # (B, T, N_i)
+        target.zarr             # (B, T, N_o)
+        theta_hd.zarr           # (B, T, 1)
+        is_stop.zarr            # (B, T, 1)
+        omega.zarr              # (B, T, 1)
+        c_mask.zarr             # (B, T, N_o)         — cortex only
+        stimulus_canonical.zarr # (B, T, N_i)         — cortex only
+        delta_stimulus.zarr     # (B, T, N_i)         — cortex only
+        rule_idx.zarr           # (B, 1, 1)           — cortex only
+
+    Usage:
+        writer = ZarrTaskTrialsWriter(path, chunk_trials=1000)
+        for b in range(B):
+            writer.append_trial(state_b)   # state_b: TaskState
+        writer.finalize()
+
+    The on-disk layout matches what ``task_trials_to_disk`` produced before
+    the streaming writer existed, so existing readers (legacy
+    ``load_raw_array`` and ``TaskTrials.from_disk``) keep working unchanged.
+    """
+
+    # 1-D-along-T fields stored as (B, T, 1) on disk to keep the same chunking
+    # heuristics as the (B, T, n_feat) fields. The reader squeezes them back
+    # to (B, T).
+    _PROMOTE_TO_3D = ('theta_hd', 'is_stop', 'omega', 'length')
+
+    def __init__(
+        self,
+        path,
+        chunk_trials: int = 1000,
+    ):
+        self.path = Path(path)
+        self.chunk_trials = int(chunk_trials)
+
+        # Schema discovered from the first appended TaskState.
+        self._tensor_fields: list[str] | None = None
+        self._field_per_trial_shape: dict[str, tuple[int, ...]] = {}
+        self._field_is_promoted: dict[str, bool] = {}
+
+        self._buffers: dict[str, list[np.ndarray]] = {}
+        self._stores: dict[str, ts.TensorStore] = {}
+        self._epochs_buffer: list = []                  # cortex: per-trial dicts
+        self._meta: dict = {}                           # static fields
+        self._n_trials_written = 0
+        self._dynamic_initialized = False
+
+    # ------------------------------------------------------------------
+    # Schema discovery
+    # ------------------------------------------------------------------
+    def _discover_schema(self, state):
+        """Capture static metadata + per-field shapes from the first trial."""
+        import torch
+
+        # Static (scalar / string) metadata.
+        for k in ('task_family', 'n_input', 'n_output', 'dt'):
+            v = getattr(state, k, None)
+            if v is not None:
+                self._meta[k] = v
+
+        # Tensor fields: keep only those that are populated.
+        tensor_fields: list[str] = []
+        for fname in ('stimulus', 'target', 'length',
+                      'c_mask', 'stimulus_canonical', 'delta_stimulus',
+                      'theta_hd', 'is_stop', 'omega'):
+            val = getattr(state, fname, None)
+            if isinstance(val, torch.Tensor):
+                arr = val.detach().cpu().numpy()
+                shape = tuple(arr.shape)
+                if fname in self._PROMOTE_TO_3D and len(shape) == 1:
+                    self._field_is_promoted[fname] = True
+                    shape = shape + (1,)
+                else:
+                    self._field_is_promoted[fname] = False
+                self._field_per_trial_shape[fname] = shape
+                tensor_fields.append(fname)
+                self._buffers[fname] = []
+
+        # rule_idx is a per-trial scalar (cortex multitask).
+        if getattr(state, 'rule_idx', None) is not None:
+            self._field_per_trial_shape['rule_idx'] = (1, 1)
+            self._field_is_promoted['rule_idx'] = True
+            self._buffers['rule_idx'] = []
+            tensor_fields.append('rule_idx')
+
+        self._tensor_fields = tensor_fields
+
+    # ------------------------------------------------------------------
+    # Per-field zarr store init
+    # ------------------------------------------------------------------
+    def _initialize_stores(self):
+        initial_cap = max(self.chunk_trials * 4, 1000)
+        self.path.mkdir(parents=True, exist_ok=True)
+        for name in self._tensor_fields:
+            per = self._field_per_trial_shape[name]
+            shape = (initial_cap,) + per
+            chunks = (min(self.chunk_trials, initial_cap),) + per
+            zarr_path = self.path / f'{name}.zarr'
+            if zarr_path.exists():
+                import shutil
+                shutil.rmtree(zarr_path, ignore_errors=True)
+            spec = {
+                'driver': 'zarr',
+                'kvstore': {'driver': 'file', 'path': str(zarr_path)},
+                'metadata': {
+                    'dtype': '<f4',
+                    'shape': list(shape),
+                    'chunks': list(chunks),
+                    'compressor': {
+                        'id': 'blosc', 'cname': 'zstd', 'clevel': 3, 'shuffle': 2,
+                    },
+                },
+                'create': True,
+                'delete_existing': True,
+            }
+            self._stores[name] = ts.open(spec).result()
+        self._dynamic_initialized = True
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+    def append_trial(self, state):
+        """Append one ``TaskState`` to the in-memory buffer; flush when
+        the buffer hits ``chunk_trials``."""
+        import torch
+
+        if self._tensor_fields is None:
+            self._discover_schema(state)
+            if not self._tensor_fields:
+                raise ValueError(
+                    "TaskState has no populated tensor fields — nothing to write"
+                )
+
+        for name in self._tensor_fields:
+            if name == 'rule_idx':
+                v = int(getattr(state, 'rule_idx'))
+                arr = np.array([[v]], dtype=np.float32)        # (1, 1)
+            else:
+                val = getattr(state, name)
+                arr = val.detach().cpu().numpy().astype(np.float32)
+                if self._field_is_promoted[name]:
+                    arr = arr[..., None]                       # (T,) -> (T, 1)
+                # shape sanity-check
+                exp = self._field_per_trial_shape[name]
+                if tuple(arr.shape) != exp:
+                    raise ValueError(
+                        f"field '{name}' shape mismatch: got {tuple(arr.shape)}, "
+                        f"first trial had {exp}"
+                    )
+            self._buffers[name].append(arr)
+
+        # Cortex: stash per-trial epoch dicts in a JSON-friendly buffer.
+        ep = getattr(state, 'epochs', None)
+        if ep is not None:
+            self._epochs_buffer.append(ep)
+
+        if len(self._buffers[self._tensor_fields[0]]) >= self.chunk_trials:
+            self._flush_buffer()
+
+    def _flush_buffer(self):
+        if not self._tensor_fields:
+            return
+        n = len(self._buffers[self._tensor_fields[0]])
+        if n == 0:
+            return
+        if not self._dynamic_initialized:
+            self._initialize_stores()
+
+        for name in self._tensor_fields:
+            data = np.stack(self._buffers[name], axis=0)       # (n, *per)
+            current_shape = self._stores[name].shape
+            needed = self._n_trials_written + n
+            if needed > current_shape[0]:
+                new_cap = max(needed, current_shape[0] * 2)
+                self._stores[name] = self._stores[name].resize(
+                    exclusive_max=[new_cap, *current_shape[1:]]
+                ).result()
+            self._stores[name][self._n_trials_written:self._n_trials_written + n].write(data).result()
+            self._buffers[name].clear()
+
+        self._n_trials_written += n
+
+    def finalize(self) -> int:
+        """Flush, trim stores to exact size, and write meta.json sidecar."""
+        import json
+
+        self._flush_buffer()
+
+        # Trim every store to the exact (n_trials, *per_trial_shape).
+        for name in self._tensor_fields or ():
+            if name not in self._stores or self._n_trials_written == 0:
+                continue
+            per = self._field_per_trial_shape[name]
+            self._stores[name] = self._stores[name].resize(
+                exclusive_max=[self._n_trials_written, *per]
+            ).result()
+
+        # Persist static metadata + counts.
+        meta = dict(self._meta)
+        meta['n_trials'] = int(self._n_trials_written)
+        if 'stimulus' in self._field_per_trial_shape:
+            meta['n_frames'] = int(self._field_per_trial_shape['stimulus'][0])
+        if self._epochs_buffer:
+            meta['epochs'] = self._epochs_buffer
+        self.path.mkdir(parents=True, exist_ok=True)
+        with open(self.path / 'meta.json', 'w') as f:
+            json.dump(meta, f, indent=2, default=str)
+        return self._n_trials_written
+
+
 def detect_format(path: str | Path) -> Literal['npy', 'zarr_v3', 'none']:
     """check what format exists at path.
 

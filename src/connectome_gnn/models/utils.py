@@ -9,9 +9,166 @@ import torch
 from connectome_gnn.figure_style import dark_style, default_style
 from connectome_gnn.log import get_logger
 from connectome_gnn.neuron_state import NeuronState
-from connectome_gnn.utils import graphs_data_path, log_path
+from connectome_gnn.config import NeuralGraphConfig
+from connectome_gnn.utils import (
+    add_pre_folder,
+    config_path,
+    get_repo_root,
+    graphs_data_path,
+    load_config_fallback_roots,
+    load_data_fallback_roots,
+    log_path,
+    set_data_root,
+    validate_pre_folder,
+)
 
 logger = get_logger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Connectivity-recovery dispatch + sign-lock restore (single source of truth
+# shared by the trainer, the tester, and GNN_PlotFigure.plot_synaptic).
+# ---------------------------------------------------------------------------
+
+def model_family(model) -> str:
+    """Which connectivity-recovery path a model uses: ``'linear'`` (tau/V_rest/W
+    are direct params -> plot_training_linear), ``'gnn'`` (params live inside
+    f_theta/g_phi, extracted via slope fit + g_phi correction -> plot_training_gnn),
+    or ``'mlp'`` (no edges; connectivity from the Jacobian -> jacobian_connectivity).
+
+    Reads the class attribute ``MODEL_FAMILY``; defaults to ``'gnn'`` so legacy
+    GNN/RNN/eed models (which historically routed to the flyvis plotter) are
+    unchanged. Replaces the old substring matching on ``signal_model_name``.
+    Unwraps a ``torch.compile`` wrapper (``_orig_mod``) so the CX trainer's
+    recompiled model still resolves its family.
+    """
+    fam = getattr(model, "MODEL_FAMILY", None)
+    if fam is None:
+        fam = getattr(getattr(model, "_orig_mod", None), "MODEL_FAMILY", "gnn")
+    return fam
+
+
+def forward_kind(model) -> str:
+    """Which forward/rollout call interface a model uses (tester dispatch):
+    ``'rnn'`` (stateful packed call), ``'eed'`` (latent-space evolve),
+    ``'mlp'`` (flat packed call, no edges), ``'stimulus'`` (feed-forward, no
+    rollout), or ``'gnn'`` (default — full state + edges, e.g. NeuralGNN /
+    KnownODE). Reads the class attribute ``FORWARD_KIND``; unwraps a
+    ``torch.compile`` wrapper. Replaces the old ``signal_model_name`` substring
+    dispatch in graph_tester. This is the forward/rollout axis — distinct from
+    ``model_family`` (the connectivity-recovery axis)."""
+    fk = getattr(model, "FORWARD_KIND", None)
+    if fk is None:
+        fk = getattr(getattr(model, "_orig_mod", None), "FORWARD_KIND", "gnn")
+    return fk
+
+
+def restore_edge_sign_lock(model, gt_weights) -> bool:
+    """Re-establish the Eq-10 hard sign-lock buffer after a checkpoint reload.
+
+    ``_edge_sign`` is a *non-persistent* buffer (neural_gnn), so it is dropped by
+    ``load_state_dict`` and the model would silently roll out on the raw (free-sign)
+    ``W`` -- which under sign-lock training carries the WRONG signs, collapsing the
+    rollout. The trainer sets the buffer once from ``ode_params.W``; the tester and
+    plot_synaptic must re-derive it the same way on reload. No-op unless the model
+    uses ``lock_edge_signs_from_connectome`` and ``gt_weights`` is available.
+
+    Returns True if the sign-lock was (re)applied.
+    """
+    if not getattr(model, "lock_edge_signs_from_connectome", False):
+        return False
+    if gt_weights is None:
+        logger.warning("restore_edge_sign_lock: model is sign-locked but no GT "
+                       "weights given; rollout/metrics will use the raw (wrong) sign.")
+        return False
+    model.set_edge_sign_from_weights(gt_weights)
+    return True
+
+
+def _resolve_config_path(yaml_path: str) -> str:
+    """If yaml_path doesn't exist at the local repo, try each fallback config
+    root from data_paths.json (cluster_data_dir/config, cluster_root_dir/config).
+    Returns the first existing path (with a yellow warning), or the original
+    path if nothing is found.
+    """
+    if os.path.isfile(yaml_path):
+        return yaml_path
+    repo_config_root = os.path.join(get_repo_root(), 'config')
+    if not yaml_path.startswith(repo_config_root + os.sep):
+        return yaml_path
+    rel = os.path.relpath(yaml_path, repo_config_root)
+    for root in load_config_fallback_roots():
+        candidate = os.path.join(root, rel)
+        if os.path.isfile(candidate):
+            print(f"\033[33m  config not found at {yaml_path}\033[0m")
+            print(f"\033[33m  using fallback config: {candidate}\033[0m")
+            return candidate
+    return yaml_path
+
+
+def load_run_config(config_file_: str, explicit_output_root: bool, task: str):
+    """Load a run's NeuralGraphConfig.
+
+    Handles direct filesystem paths vs repo-relative config names, YAML
+    fallback roots (cluster_data_dir/config, cluster_root_dir/config),
+    CV-fold suffix (_cvNN) that shares a base config, and the data-root
+    fallback when the dataset is missing locally.
+
+    Returns (config, yaml_file).
+    """
+    if os.path.isfile(config_file_) or os.path.isabs(config_file_):
+        # Direct filesystem path — load without repo lookup.
+        # pre_folder is derived from the parent directory name.
+        yaml_file = config_file_ if config_file_.endswith('.yaml') else config_file_ + '.yaml'
+        parent = os.path.basename(os.path.dirname(os.path.abspath(yaml_file)))
+        pre_folder = parent + "/" if parent else ""
+        validate_pre_folder(pre_folder)
+        config = NeuralGraphConfig.from_yaml(yaml_file)
+        if not config.dataset.startswith(pre_folder):
+            config.dataset = pre_folder + config.dataset
+        # If config_file is still the default "none", derive it from the YAML path
+        # so logs go to log/<domain>/<config_name>/ not log/none/
+        if config.config_file == "none":
+            stem = os.path.splitext(os.path.basename(yaml_file))[0]
+            config.config_file = pre_folder + stem
+    else:
+        config_file, pre_folder = add_pre_folder(config_file_)
+
+        # load config — if YAML not found, try stripping _cvNN suffix (CV folds
+        # share a base config; the cv_runner overrides dataset/config_file at runtime)
+        yaml_path = _resolve_config_path(config_path(f"{config_file}.yaml"))
+        cv_match = re.search(r'_cv(\d+)$', config_file_)
+        if not os.path.isfile(yaml_path) and cv_match:
+            base_name = config_file_[:cv_match.start()]
+            base_file, _ = add_pre_folder(base_name)
+            print(f"  CV fold detected: loading base config {base_name}.yaml, "
+                  f"dataset/log -> {config_file_}")
+            yaml_file = _resolve_config_path(config_path(f"{base_file}.yaml"))
+            config = NeuralGraphConfig.from_yaml(yaml_file)
+            config.dataset = pre_folder + config_file_
+            config.config_file = pre_folder + config_file_
+        else:
+            yaml_file = yaml_path
+            config = NeuralGraphConfig.from_yaml(yaml_file)
+            if not config.dataset.startswith(pre_folder):
+                config.dataset = pre_folder + config.dataset
+            config.config_file = pre_folder + config_file_
+
+    # Data-root fallback: if dataset is missing at the current data root,
+    # switch to the first fallback root that has it. Skipped when
+    # --output_root / GNN_OUTPUT_ROOT was explicit or when generating data.
+    if not explicit_output_root and 'generate' not in task:
+        dataset_dir = graphs_data_path(config.dataset)
+        if not os.path.isdir(dataset_dir):
+            for root in load_data_fallback_roots():
+                candidate = os.path.join(root, 'graphs_data', config.dataset)
+                if os.path.isdir(candidate):
+                    print(f"\033[33m  data not found at {dataset_dir}\033[0m")
+                    print(f"\033[33m  switching data root to: {root}\033[0m")
+                    set_data_root(root)
+                    break
+
+    return config, yaml_file
 
 
 def _batch_frames(frames, edge_index):
@@ -254,55 +411,6 @@ def get_in_features_g_phi(x, model, model_config, xnorm, n_neurons, device):
 
     return in_features, in_features_next
 
-def get_in_features(rr=None, embedding=None, model=[], model_name = [], max_radius=[]):
-
-    if model.embedding_trial:
-        embedding = torch.cat((embedding, model.b[0].repeat(embedding.shape[0], 1)), dim=1)
-
-    match model_name:
-        case 'PDE_A' | 'PDE_Cell_A':
-            in_features = torch.cat((rr[:, None] / max_radius, 0 * rr[:, None],
-                                     rr[:, None] / max_radius, embedding), dim=1)
-        case 'PDE_ParticleField_A':
-            in_features = torch.cat((rr[:, None] / max_radius, 0 * rr[:, None],
-                                     rr[:, None] / max_radius, embedding), dim=1)
-        case 'PDE_A_bis':
-            in_features = torch.cat((rr[:, None] / max_radius, 0 * rr[:, None],
-                                     rr[:, None] / max_radius, embedding, embedding), dim=1)
-        case 'PDE_B' | 'PDE_Cell_B':
-            in_features = torch.cat((rr[:, None] / max_radius, 0 * rr[:, None],
-                                     torch.abs(rr[:, None]) / max_radius, 0 * rr[:, None], 0 * rr[:, None],
-                                     0 * rr[:, None], 0 * rr[:, None], embedding), dim=1)
-        case 'PDE_ParticleField_B':
-            in_features = torch.cat((rr[:, None] / max_radius, 0 * rr[:, None],
-                                     rr[:, None] / max_radius, 0 * rr[:, None], 0 * rr[:, None],
-                                     0 * rr[:, None], 0 * rr[:, None], embedding), dim=1)
-        case 'PDE_GS':
-            in_features = torch.cat(
-                (rr[:, None] / max_radius, 0 * rr[:, None], rr[:, None] / max_radius, 10 ** embedding), dim=1)
-        case 'PDE_G':
-            in_features = torch.cat((rr[:, None] / max_radius, 0 * rr[:, None],
-                                     rr[:, None] / max_radius, 0 * rr[:, None],
-                                     0 * rr[:, None],
-                                     0 * rr[:, None], 0 * rr[:, None], embedding), dim=1)
-        case 'PDE_E':
-            in_features = torch.cat((rr[:, None] / max_radius, 0 * rr[:, None],
-                                     rr[:, None] / max_radius, embedding, embedding), dim=1)
-        case 'PDE_N2' | 'PDE_N3' | 'PDE_N6' :
-            in_features = rr[:, None]
-        case 'PDE_N4' | 'PDE_N7' | 'PDE_N11':
-            in_features = torch.cat((rr[:, None], embedding), dim=1)
-        case 'PDE_N8':
-            in_features = torch.cat((rr[:, None]*0, rr[:, None], embedding, embedding), dim=1)
-        case 'PDE_N5':
-            in_features = torch.cat((rr[:, None], embedding, embedding), dim=1)
-        case 'PDE_K':
-            in_features = torch.cat((0 * rr[:, None], rr[:, None] / max_radius), dim=1)
-        case 'PDE_F':
-            in_features = torch.cat((0 * rr[:, None], rr[:, None] / max_radius, rr[:, None] / max_radius, embedding, embedding), dim=-1)
-
-    return in_features
-
 def set_trainable_parameters(model=[], lr_embedding=[], lr=[],  lr_update=[], lr_W=[], lr_NNR_f=[]):
 
     trainable_params = [param for _, param in model.named_parameters() if param.requires_grad]
@@ -340,157 +448,6 @@ def set_trainable_parameters(model=[], lr_embedding=[], lr=[],  lr_update=[], lr
     optimizer = torch.optim.Adam(param_groups, fused=True)
 
     return optimizer, n_total_params
-
-
-def get_index_particles(x, n_neuron_types, dimension):
-    index_particles = []
-    for n in range(n_neuron_types):
-        index = np.argwhere(x.neuron_type.detach().cpu().numpy() == n)
-        index_particles.append(index.squeeze())
-    return index_particles
-
-def sample_synaptic_data_and_predict(model, x_list, edges, n_runs, n_frames, time_step, device,
-                            has_missing_activity=False, model_missing_activity=None,
-                            has_neural_field=False, model_f=None,
-                            run=None, k=None):
-    """
-    Sample data from x_list and get model predictions
-
-    Args:
-        model: trained GNN model
-        x_list: list of data arrays [n_runs][n_frames]
-        edges: edge indices for graph
-        n_runs, n_frames, time_step: data dimensions
-        device: torch device
-        has_missing_activity: whether to fill missing activity
-        model_missing_activity: model for missing activity (if needed)
-        has_neural_field: whether to compute neural field
-        model_f: field model (if needed)
-        run: specific run index (if None, random)
-        k: specific frame index (if None, random)
-
-    Returns:
-        dict with pred, in_features, x, dataset, data_id, k_batch
-    """
-    # Sample random run and frame if not specified
-    if run is None:
-        run = np.random.randint(n_runs)
-    if k is None:
-        k = np.random.randint(n_frames - 4 - time_step)
-
-    # Get data
-    x = torch.tensor(x_list[run][k], dtype=torch.float32, device=device)
-
-    # Handle missing activity if needed
-    if has_missing_activity and model_missing_activity is not None:
-        pos = torch.argwhere(x[:, 3] == 6)
-        if len(pos) > 0:
-            t = torch.tensor([k / n_frames], dtype=torch.float32, device=device)
-            missing_activity = model_missing_activity[run](t).squeeze()
-            x[pos, 3] = missing_activity[pos]
-
-    # Handle neural field if needed
-    if has_neural_field and model_f is not None:
-        t = torch.tensor([k / n_frames], dtype=torch.float32, device=device)
-        x[:, 4] = model_f[run](t) ** 2
-
-    # Create dataset (local import — generic signal models still use PyG)
-    import torch_geometric.data as data
-    dataset = data.Data(x=x, edge_index=edges)
-    data_id = torch.ones((x.shape[0], 1), dtype=torch.int, device=device) * run
-    k_batch = torch.ones((x.shape[0], 1), dtype=torch.int, device=device) * k
-
-    # Get predictions
-    pred, in_features = model(dataset, data_id=data_id, k=k_batch, return_all=True)
-
-    return {
-        'pred': pred,
-        'in_features': in_features,
-        'x': x,
-        'dataset': dataset,
-        'data_id': data_id,
-        'k_batch': k_batch,
-        'run': run,
-        'k': k
-    }
-
-def analyze_odor_responses_by_neuron(model, x_list, edges, n_runs, n_frames, time_step, device,
-                                     all_neuron_list, has_missing_activity=False, model_missing_activity=None,
-                                     has_neural_field=False, model_f=None, n_samples=50, run=0):
-    """
-    Analyze odor responses by comparing f_theta output with and without excitation
-    Returns top responding neurons by name for each odor
-    """
-    odor_list = ['butanone', 'pentanedione', 'NaCL']
-
-    # Store responses: difference between excitation and baseline
-    odor_responses = {odor: [] for odor in odor_list}
-    valid_samples = 0
-
-    model.eval()
-    with torch.no_grad():
-        sample = 0
-        while valid_samples < n_samples:
-            result = sample_synaptic_data_and_predict(
-                model, x_list, edges, n_runs, n_frames, time_step, device,
-                has_missing_activity, model_missing_activity,
-                has_neural_field, model_f, run
-            )
-
-            if not (torch.isnan(result['x']).any()):
-                # Get baseline response (no excitation — generic signal models still use PyG)
-                import torch_geometric.data as data
-                x_baseline = result['x'].clone()
-                x_baseline[:, 10:13] = 0  # no excitation
-                dataset_baseline = data.Data(x=x_baseline, edge_index=edges)
-                pred_baseline = model(dataset_baseline, data_id=result['data_id'],
-                                      k=result['k_batch'], return_all=False)
-
-                for i, odor in enumerate(odor_list):
-                    x_odor = result['x'].clone()
-                    x_odor[:, 10:13] = 0
-                    x_odor[:, 10 + i] = 1  # activate specific odor
-
-                    dataset_odor = data.Data(x=x_odor, edge_index=edges)
-                    pred_odor = model(dataset_odor, data_id=result['data_id'],
-                                      k=result['k_batch'], return_all=False)
-
-                    odor_diff = pred_odor - pred_baseline
-                    odor_responses[odor].append(odor_diff.cpu())
-
-                valid_samples += 1
-
-            sample += 1
-            if sample > n_samples * 10:
-                break
-
-        # Convert to tensors [n_samples, n_neurons]
-        for odor in odor_list:
-            odor_responses[odor] = torch.stack(odor_responses[odor]).squeeze()
-
-    # Identify top responding neurons for each odor
-    top_neurons = {}
-    for odor in odor_list:
-        # Calculate mean response across samples for each neuron
-        mean_response = torch.mean(odor_responses[odor], dim=0)  # [n_neurons]
-
-        # Get top 3 responding neurons (highest positive response)
-        top_20_indices = torch.topk(mean_response, k=20).indices.cpu().numpy()
-        top_20_names = [all_neuron_list[idx] for idx in top_20_indices]
-        top_20_values = [mean_response[idx].item() for idx in top_20_indices]
-
-        top_neurons[odor] = {
-            'names': top_20_names,
-            'indices': top_20_indices.tolist(),
-            'values': top_20_values
-        }
-
-        logger.info(f"top 20 responding neurons for {odor}:")
-        for i, (name, idx, val) in enumerate(zip(top_20_names, top_20_indices, top_20_values)):
-            logger.info(f"  {i + 1}. {name} : {val:.4f}")
-
-    return odor_responses  # Return only odor_responses to match original function signature
-
 
 def check_dales_law(edges, weights, type_list=None, n_neurons=None, verbose=True, logger=None):
     """

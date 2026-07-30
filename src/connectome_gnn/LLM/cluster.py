@@ -144,11 +144,27 @@ def wait_for_cluster_jobs(job_ids, log_dir=None, poll_interval=60, job_prefix='c
     while pending:
         ids_str = ' '.join(pending.values())
         ssh_cmd = f"ssh {CLUSTER_SSH} \"source /etc/profile.d/profile.lsf.sh && bjobs {ids_str}\""
-        out = subprocess.run(ssh_cmd, shell=True, capture_output=True, text=True)
-        if out.returncode != 0 and not out.stdout.strip():
-            raise RuntimeError(
-                f"bjobs failed (rc={out.returncode}): {out.stderr.strip() or '(no output)'}"
+
+        # Retry SSH handshake errors (e.g. "kex_exchange_identification: read:
+        # Connection reset by peer") — login-node throttling or transient net
+        # blips shouldn't kill an exploration that may have hours of in-flight
+        # cluster jobs. Real bjobs failures (job not found, etc.) still raise.
+        out = None
+        last_err = ''
+        for attempt in range(6):
+            out = subprocess.run(ssh_cmd, shell=True, capture_output=True, text=True)
+            if out.returncode == 0 or out.stdout.strip():
+                break
+            last_err = out.stderr.strip() or '(no output)'
+            backoff = min(30, 5 * (2 ** attempt))
+            print(
+                f"\033[93m  bjobs SSH transient failure (rc={out.returncode}, "
+                f"attempt {attempt+1}/6): {last_err} — retrying in {backoff}s\033[0m",
+                flush=True,
             )
+            time.sleep(backoff)
+        else:
+            raise RuntimeError(f"bjobs failed after 6 retries: {last_err}")
 
         for slot, jid in list(pending.items()):
             for line in out.stdout.splitlines():
@@ -313,18 +329,53 @@ def _read_latest_training_metrics(log_dir):
         return None
     try:
         with open(path) as f:
-            # Skip header; return last non-empty data line.
+            header = None
             last = None
             for line in f:
                 line = line.strip()
-                if not line or line.startswith('iteration'):
+                if not line:
                     continue
+                if line.startswith('iteration'):
+                    header = line
+                    continue
+                if line.startswith('#'):
+                    continue  # injected post-hoc metrics line — not a CSV data row
                 last = line
         if last is None:
             return None
         parts = last.split(',')
         if len(parts) < 4:
             return None
+
+        # Task-trainer metrics.log header is
+        #   iteration,epoch,loss,mse,cosd,norm,tv,l1S,pi_acc,fwhm_deg,
+        #   r_roll,rmse_roll_deg,r_roll_1k
+        # Detected via the presence of 'loss' as the third column. Returned
+        # under different keys so _print_training_metrics can branch.
+        if header is not None and 'loss' in header.split(',')[:5]:
+            def _f(idx):
+                if idx >= len(parts):
+                    return None
+                v = parts[idx].strip()
+                if not v or v.lower() == 'nan':
+                    return None
+                try:
+                    return float(v)
+                except ValueError:
+                    return None
+
+            return {
+                'kind':       'task',
+                'iter':       int(float(parts[0])),
+                'epoch':      _f(1),
+                'loss':       _f(2),
+                'mse':        _f(3),
+                'pi_acc':     _f(8),
+                'fwhm_deg':   _f(9),
+                'r_roll':     _f(10),
+                'rmse_roll':  _f(11),
+                'r_roll_1k':  _f(12),
+            }
 
         def _opt_float(idx):
             if len(parts) <= idx:
@@ -349,6 +400,7 @@ def _read_latest_training_metrics(log_dir):
                 return default
 
         return {
+            'kind':         'circuit',
             'iter':         int(parts[0]),
             'conn':         float(parts[1]),
             'vr':           float(parts[2]),
@@ -382,9 +434,10 @@ def _read_total_iter(log_dir):
         return None
 
 
-def _read_clustering_accuracy(log_dir):
-    """Return clustering_accuracy float from <log_dir>/results/metrics.txt
-    (written by data_plot), or None if not available yet."""
+def _read_results_metric(log_dir, key):
+    """Return a float metric `key` from <log_dir>/results/metrics.txt (written by
+    data_plot), or None if absent. One-iteration-stale during training (reflects
+    the previous iteration's test+plot), like clustering_accuracy."""
     path = os.path.join(log_dir, 'results', 'metrics.txt')
     if not os.path.isfile(path):
         return None
@@ -393,11 +446,17 @@ def _read_clustering_accuracy(log_dir):
             for line in f:
                 if ':' not in line:
                     continue
-                key, val = line.split(':', 1)
-                if key.strip() == 'clustering_accuracy':
+                k, val = line.split(':', 1)
+                if k.strip() == key:
                     return float(val.strip())
     except (OSError, ValueError):
         return None
+    return None
+
+
+def _read_clustering_accuracy(log_dir):
+    """clustering_accuracy from <log_dir>/results/metrics.txt, or None."""
+    return _read_results_metric(log_dir, 'clustering_accuracy')
     return None
 
 
@@ -485,9 +544,18 @@ def _print_training_metrics(log_dirs, slots_active, prefix='  [metrics]'):
         sd = (sum((v - m) ** 2 for v in vals) / n) ** 0.5 if n > 1 else 0.0
         return m, sd, n
 
+    # Per-condition summary uses task r_roll_1k when available (task runs),
+    # else the circuit R²W.
+    def _summary_metric(tm):
+        if tm is None:
+            return None
+        if tm.get('kind') == 'task':
+            return tm.get('r_roll_1k')
+        return tm.get('conn')
+
     group_stats = {
-        c: _mean_sd_n([r['tm']['conn'] for r in rs
-                       if r['tm'] is not None and r['tm'].get('conn') is not None])
+        c: _mean_sd_n([v for v in (_summary_metric(r['tm']) for r in rs)
+                       if v is not None])
         for c, rs in groups.items()
     }
     ordered_conds = sorted(groups.keys(), key=lambda c: -group_stats[c][0])
@@ -509,12 +577,16 @@ def _print_training_metrics(log_dirs, slots_active, prefix='  [metrics]'):
         # — the per-slot row already shows that value, so a header would just
         # repeat it). The cond placeholder is padded to summary_lhs_w so the
         # `R²W =` token lands at the same column as `R²W=` on the rows below.
+        # For task runs the headline metric is r_roll_1k, not R²W.
         n_folds = len(rs)
+        is_task_block = any(r['tm'] is not None
+                            and r['tm'].get('kind') == 'task' for r in rs)
+        summary_label = 'r_roll_1k' if is_task_block else 'R²W'
         if n_folds > 1 and n > 0:
             lhs = cond.ljust(summary_lhs_w)
             print(f"  [summary] {lhs}  "
-                  f"{_r2_color(m)}R²W = {m:.3f} ± {sd:.3f}{_ANSI_RESET}  "
-                  f"(n={n}/{n_folds})")
+                  f"{_r2_color(m)}{summary_label} = {m:.3f} ± {sd:.3f}"
+                  f"{_ANSI_RESET}  (n={n}/{n_folds})")
 
         for r in rs:
             slot, log_dir, tm, cfg_tag = (r['slot'], r['log_dir'],
@@ -523,12 +595,47 @@ def _print_training_metrics(log_dirs, slots_active, prefix='  [metrics]'):
                 print(f"{prefix} slot {slot}: (no metrics.log yet)")
                 continue
 
+            # Task-trainer row: drop the circuit R²W/R²Vr/R²τ block and show
+            # the task metrics the trainer actually wrote (matches the
+            # direct-CLI `epoch X (T=N): ... r_roll= pi_acc= fwhm= loss=` line).
+            if tm.get('kind') == 'task':
+                def _v(name, fmt):
+                    val = tm.get(name)
+                    if val is None:
+                        return f"{name}=nan"
+                    return f"{name}={fmt.format(val)}"
+                fwhm = tm.get('fwhm_deg')
+                fwhm_str = f"fwhm={fwhm:.0f}°" if fwhm is not None else "fwhm=nan"
+                parts = [
+                    _v('r_roll_1k', '{:+.3f}'),
+                    _v('pi_acc',    '{:.3f}'),
+                    fwhm_str,
+                    _v('loss',      '{:.2e}'),
+                    _v('rmse_roll', '{:.1f}°'),
+                ]
+                slot_text = f"slot {slot}"
+                iter_str = r['iter_str']
+                print(f"{prefix} {slot_text:<{slot_w}}  "
+                      f"{cfg_tag:<{tag_w}}  {iter_str:<{iter_w}}  "
+                      + "  ".join(parts))
+                continue
+
             cl = _read_clustering_accuracy(log_dir)
             cl_str = (f"{_r2_color(cl)}{cl:.2f}{_ANSI_RESET}"
                       if cl is not None else f"{_ANSI_RESET}n/a{_ANSI_RESET}")
+            # Post-hoc scale-free metrics (one-iteration-stale during training,
+            # like cluster) — the meaningful recovery signal vs the NSE R²W.
+            sr = _read_results_metric(log_dir, 'W_structure_r')
+            zr = _read_results_metric(log_dir, 'W_zscored_R2')
 
             parts = [
                 f"{_r2_color(tm['conn'])}R²W={tm['conn']:.3f}{_ANSI_RESET}",
+            ]
+            if sr is not None:
+                parts.append(f"{_r2_color(sr, thresholds=(0.8, 0.5, 0.3))}r_struct={sr:.3f}{_ANSI_RESET}")
+            if zr is not None:
+                parts.append(f"{_r2_color(zr, thresholds=(0.7, 0.4, 0.2))}zR²={zr:.3f}{_ANSI_RESET}")
+            parts += [
                 _fmt_R2_out('R²Vr', tm['vr_clean'], tm['vr'],
                             tm['n_out_vr'], tm['n_total_vr']),
                 _fmt_R2_out('R²τ', tm['tau_clean'], tm['tau'],

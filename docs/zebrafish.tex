@@ -1,0 +1,2734 @@
+\documentclass[11pt]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{natbib}
+\usepackage{geometry}
+\geometry{margin=2.5cm}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{nicefrac}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage[table]{xcolor}
+\usepackage{subcaption}
+\usepackage{cleveref}
+\crefname{equation}{Eq.\@}{Eqs.\@}
+\Crefname{equation}{Eq.\@}{Eqs.\@}
+\crefname{figure}{Fig.\@}{Figs.\@}
+\Crefname{figure}{Fig.\@}{Figs.\@}
+\crefname{table}{Tab.\@}{Tabs.\@}
+\Crefname{table}{Tab.\@}{Tabs.\@}
+\crefname{section}{Sect.\@}{Sects.\@}
+\Crefname{section}{Sect.\@}{Sects.\@}
+
+\definecolor{cgreen}{HTML}{2ea043}
+\definecolor{corange}{HTML}{d29922}
+\definecolor{cred}{HTML}{cf222e}
+\newcommand{\good}[1]{\textcolor{green!50!black}{#1}}
+\newcommand{\bad}[1]{\textcolor{orange}{#1}}
+
+\def\eg{{\it e.g.}}
+\def\ie{{\it i.e.}}
+\def\R{\mathbb{R}}
+\def\relu{\mathrm{ReLU}}
+\def\softplus{\mathrm{softplus}}
+\def\petrucco{Petrucco et al.\ 2023}
+\def\rpi{r1\ensuremath{\pi}}
+% Functional-class macros (Results section)
+\newcommand{\mi}{\mathcal{I}}
+\newcommand{\omag}{\mathcal{W}}
+\newcommand{\smod}{\mathcal{S}}
+\newcommand{\specf}{\mathcal{T}}
+\newcommand{\cls}[1]{\mathsf{#1}}
+
+% Figure directory. Change ONLY this line when moving between editors:
+% \newcommand{\figdir}{figures/zebrafish}
+%   local repo (docs/ build):              \newcommand{\figdir}{../figures/zebrafish}
+\newcommand{\figdir}{../figures/zebrafish}
+
+% No first-line paragraph indent; add a small inter-paragraph skip so the
+% paragraph boundary stays visually obvious.
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.5em plus 0.1em minus 0.05em}
+
+\title{\textbf{Connectome-constrained self-motion integration in the larval
+zebrafish hindbrain}}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+\begin{abstract}
+How much computation can a circuit with a measured connectome support?
+We test this on a vertebrate
+self-motion integrator at single-neuron resolution. This integrator is the GABAergic
+\rpi{} population of the larval-zebrafish anterior hindbrain and the
+afferent populations the \emph{fish2} EM inventory identifies as
+carrying its angular and translational drives. From the
+\emph{neuprint-fish2} reconstruction we build sign-locked RNN and
+message-passing GNN models whose recurrent connectivity is fixed to the
+connectome under an all-inhibitory Dale convention, and train the
+\emph{same} wiring on a family of progressively harder integration
+tasks (heading, heading $+$ forward distance, 2-D path integration,
+and a proprioceptive sensory-vs-efference gain mismatch) to ask what
+the wiring \emph{can} compute.
+\end{abstract}
+
+\paragraph{From mechanism to geometry.}
+Low-dimensional population structure is often analysed directly from neural
+recordings, where rings, manifolds, and other geometric objects are extracted
+as compact descriptions of activity. Such analyses typically focus on the
+directions of largest variance, both because they are easiest to estimate and
+because they are assumed to carry the dominant computations. Here we approach
+the problem from the opposite direction. We begin with a measured connectome,
+construct a dynamical model constrained by that wiring, train it to perform a
+defined self-motion computation, and only then analyse the resulting population
+activity. The geometric structures reported below are therefore not assumptions
+and not purely descriptive summaries of data. They are consequences of a
+specific recurrent computation implemented on a specific connectome.
+
+This perspective is particularly important because the translation signal
+recovered by the model occupies a low-variance population direction. Although it
+is readily decoded from the full recurrent state, it is largely absent from the
+dominant principal components. A purely variance-ranked analysis of activity
+would therefore underestimate or entirely miss this component of the
+computation. The geometry reported below should therefore be interpreted not
+simply as a description of neural activity, but as a window onto which aspects
+of the computation are visible in the dominant activity modes and which are
+hidden in weaker yet behaviourally relevant population directions.
+
+The translation estimate provides a cautionary example for variance-based
+analyses of population activity. In the model, translation is readily recovered
+because the computational variables are known: the task explicitly defines the
+quantities of interest ($\theta$, $d$, and $(x,y)$), allowing us to test
+directly whether they can be decoded from the recurrent state. In a recording,
+by contrast, the latent variables are typically unknown and are often inferred
+from the dominant activity modes themselves. Our results show that these two
+approaches need not agree. Although translation is strongly decodable from the
+full population, it contributes little to the total variance and is largely
+absent from the leading principal components. A purely variance-ranked analysis
+would therefore give little indication that such a variable exists, even though
+it may be behaviourally important. The point is not that translation is
+impossible to recover from neural data, but that identifying it requires either
+an appropriate behavioural target or a mechanistic model that suggests where to
+look.
+
+\section{Anatomy, functions and connectome}
+\label{sec:anatomy}
+
+\paragraph{3-D anatomy.}
+\Cref{fig:zhd_3d} shows the circuit cell families rendered in
+3-D and colour-coded by the same seven-way functional partition used
+in the circuit diagram: the recurrent ring substrate
+(\emph{dIPN} $=$ \emph{IPNd*} $+$ \emph{IPNds*}), the \emph{IPN12}
+pool, and the \emph{IPN-core} families \emph{IPN28/29/31--36}; the
+three afferent populations that
+the velocity gate routes the angular and translational drives through
+(\emph{ARTR} $=$ \emph{RIPN01/02/03\_a/03\_b}, \emph{pt-IPN1}, and
+\emph{motor\_efferent} $=$ \emph{RIPN11/12\_a/12\_c}); and a residual
+``other'' category for sub-types not routed through the gate
+(\emph{RIPN05/12\_b}). Spatially, the
+\emph{dIPN} substrate forms the compact midline neuropil;
+\emph{RIPN}-derived afferents descend from the habenula (a paired
+diencephalic nucleus relaying limbic and modulatory signals to the
+hindbrain) and \emph{pt-IPN}-derived afferents sweep in from the
+lateral pretectum (a midbrain visual-processing region carrying optic-
+flow and water-flow signals).
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{\figdir/fig_1_overview.png}
+  \caption{\textbf{Zebrafish HD / IPN circuit --- anatomy
+  (\textbf{a}, \textbf{b}) and afferent partition (\textbf{c},
+  \textbf{d}).} Seven-way colour code shared across panels:
+  \emph{dIPN} (amber, $n=408$; ring substrate),
+  \emph{IPN12} (rose, $n=108$; recurrent), \emph{IPN-core}
+  (teal, $n=184$; recurrent),
+  \emph{ARTR} (blue, $n=76$; angular afferent), \emph{pt-IPN1}
+  (orange, $n=51$; exteroceptive translation), \emph{motor\_efferent}
+  (green, $n=65$; angular/heading efference), \emph{other}
+  (grey, $n=25$).
+  \textbf{(a)}~Full \emph{neuprint-fish2} skeletons against Habenula /
+  dIPN / vIPN ROI silhouettes; dorsal view.
+  \textbf{(b)}~Same view restricted to cell bodies (SWC soma nodes).
+  Panels (a, b) show spatially disjoint compartments of the same
+  neurons: the dense central region of (a) is the dIPN / iIPN
+  neuropil (no cell bodies), the somata sit in the surrounding cortex.
+  \textbf{(c)}~Velocity-gate partition on the $917$-cell connectome:
+  $\omega$ routed exclusively to ARTR and the exteroceptive forward
+  channel $v_{\mathrm{ext}}$ routed exclusively to pt-IPN1; rotation
+  and translation paths are anatomically separated.
+  \textbf{(d)}~Proprioception extension: the motor-efferent RIPN
+  sub-types (RIPN11/12\_a/12\_c) carry an efference copy of the
+  \emph{heading/turn} command and are driven by a separate companion
+  angular channel $\omega_{\mathrm{proprio}}$ in parallel with ARTR (green box
+  between the ARTR and pt-IPN1 boxes), modelling sensory plus
+  efference-copy redundancy on the \emph{angular} drive.
+  Recurrent network and decoder are identical between (c) and (d);
+  only the gate-target taxonomy differs.}
+  \label{fig:zhd_3d}
+\end{figure}
+
+\paragraph{Functional circuit and afferent cell types.}
+\label{method:proprioception}
+The angular (heading) drive reaches IPN through two complementary
+afferent pathways (\cref{fig:zhd_3d}\textbf{d}). One is the \emph{sensory}
+ARTR population. The other is a \emph{motor-efference} copy of the turn
+command. The exteroceptive \emph{translation} drive enters separately
+through \emph{pt-IPN1}. Each afferent type carries a distinct, identifiable
+signal. \emph{ARTR}, the Anterior Rhombomere Turning Region, is a
+long-time-constant population. It typically becomes active only after the
+first turning event, then sustains its activity over a relatively long
+window. It is built from two similar pairs. \emph{RIPN01} and
+\emph{RIPN03\_a} share a connectivity pattern that differs only in its ring
+target: \emph{RIPN01} projects to \emph{dIPN}, and \emph{RIPN03\_a} to
+\emph{dsIPN} ($=$\emph{IPNds*}), a small region just posterior to dIPN.
+\emph{RIPN02} and \emph{RIPN03\_b} form a second pair with the targets
+swapped (\emph{RIPN03\_b}$\to$\emph{dIPN}, \emph{RIPN02}$\to$\emph{dsIPN}).
+This pair reads out the \emph{hSAG} pathway carrying horizontal rotational
+signals. These latter cells are not yet reliably driven in the present data
+(their activity resembles noise), but their connectivity places them with
+ARTR. \emph{pt-IPN1} integrates optic-flow and water-flow signals. It
+divides into roughly four groups, each encoding a different direction. The
+\emph{motor-efference} cells are the motor-efferent RIPN sub-types
+\emph{RIPN11}, \emph{RIPN12\_a}, and \emph{RIPN12\_c} ($36+29$ cells per
+side, glutamatergic). The \emph{fish2} inventory ties them to head
+direction, not forward swim. They split by efferent source. \emph{RIPN11}
+receives \emph{ascending} motor efferents together with hSAG, and is our
+leading candidate for moving the heading bump. \emph{RIPN12\_a} and
+\emph{RIPN12\_c} (best treated as a single group) receive \emph{descending}
+motor efferents together with hSAG. In the \emph{proprioception variant} of the model, these motor-efference
+cells become a second, independent angular gate target. The sensory angular
+velocity $\omega$ routes to \emph{ARTR}. A separate proprioceptive efference
+copy routes to \emph{motor\_efferent}. The forward drive $v_{\mathrm{fwd}}$
+routes only to \emph{pt-IPN1}. Keeping the two angular streams on distinct
+ports is what lets us later drive them apart and ask whether the circuit
+tracks their mismatch (\cref{method:mismatch}). This rotation/translation
+split of the afferent partition (\cref{fig:zhd_3d}) mirrors the functional
+organisation \citet{feierstein2023} report in the zebrafish hindbrain. They
+apply reduced-rank regression to whole-brain GCaMP6s imaging. They find
+that behaviour-related population activity is low-dimensional, captured by
+two features. The corresponding voxels segregate into a
+vergent-movement/swimming (translational) cluster and two rotation clusters
+that lie selectively in the left and right hemispheres.
+
+\paragraph{Connectome.}
+\Cref{fig:zhd_connectome_summary} depicts the nominal $917$-cell
+circuit, its binary support $\mathrm{supp}(W^{\mathrm{con}})$ and the
+signed $W^{\mathrm{con}}$. The matrix is sparse (density $0.037$,
+$30\,851$ non-zero edges out of $917^2 = 840\,889$); edge weights are
+the \emph{fish2} synapse contact areas, spectrally normalised to
+radius $0.9$. The recurrent substrate (the \rpi{} cells
+\emph{IPNd*}, \emph{IPNds*}, the \emph{IPN12} pool, and the
+\emph{IPN-core} families) is taken GABAergic: its
+outgoing weights are sign-flipped to inhibitory, giving an
+all-inhibitory recurrent substrate ($E\!:\!I = 10\,406\!:\!20\,445$,
+$33.7\%$ / $66.3\%$). \emph{RIPN*} and \emph{pt-IPN*} afferents have
+no Dale annotation on the \emph{fish2} server and are kept positive
+(excitatory).
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{\figdir/fig_2_connectome.png}
+  \caption{\textbf{Zebrafish HD / IPN connectome (nominal $917$-cell
+  circuit).} Matrix size $N \times N = 917 \times 917$, $30{,}851$
+  non-zero edges (density $=0.037$); edge weights are \emph{fish2}
+  synapse contact areas, the recurrent ring Dale-flipped inhibitory so
+  $E\!:\!I = 10{,}406\!:\!20{,}445$ ($33.7\%$ / $66.3\%$). Both panels
+  share the row/column ordering: neurons are sorted by the seven-way
+  functional partition introduced in \cref{fig:zhd_3d}
+  --- \emph{dIPN} (amber, $n=408$), \emph{IPN12} (rose, $n=108$),
+  \emph{IPN-core} (teal, $n=184$), \emph{other} (grey, $n=25$),
+  \emph{ARTR} (blue, $n=76$), \emph{pt-IPN1} (orange, $n=51$),
+  \emph{motor\_efferent} (green, $n=65$) --- so the same block appears
+  at the same matrix coordinates across (a) and (b), and the colour
+  code matches \cref{fig:zhd_3d}.
+  \textbf{(a)} Support mask. Colour-coded strips on the row and column
+  axes mark each partition block, and translucent column bands inside
+  the matrix carry the same colour code.
+  \textbf{(b)} Signed $W^{\mathrm{con}}$, $z$-scored (red excitatory,
+  blue inhibitory).}
+  \label{fig:zhd_connectome_summary}
+\end{figure}
+
+\section{Methods}
+\label{sec:methods}
+
+\textbf{Recurrent neural network.}\label{method:RNN}
+The RNN is a discrete-time recurrent network for
+$i\in\{1,\dots,N\}$ with $N=917$:
+\begin{equation}
+\tau\,\frac{d\hat h_i(t)}{dt}
+  = -\hat h_i(t)
+  + \sum_j \hat W^{\mathrm{rec}}_{ij}\,\sigma\!\big(\hat h_j(t)\big)
+  + \sum_l \hat W^{\mathrm{in}}_{il}\,u_l(t)
+  + \hat b_i,
+\label{eq:zhd_dynamics}
+\end{equation}
+$\sigma$ is the sigmoid, $\tau=0.1\,\mathrm{s}$, $\Delta t=0.01\,\mathrm{s}$.
+The recurrent matrix is sign-locked to the connectome template
+$W^{\mathrm{con}}\in\R^{N\times N}$ (built from the
+\emph{neuprint-fish2} reconstruction; outgoing columns of GABAergic
+HD-ring cells \emph{IPNd*}, \emph{IPNds*} are negated, and the whole
+matrix is spectrally normalised to radius $0.9$): the trainable
+per-edge parameter is the magnitude $\hat S$, and
+\begin{equation}
+\hat W^{\mathrm{rec}}_{ij}
+  = |\hat S_{ij}|\,\mathrm{sign}(W^{\mathrm{con}}_{ij}).
+\label{eq:zhd_w_rec}
+\end{equation}
+\bigskip
+\noindent\textbf{Input gate on $\hat W^{\mathrm{in}}$}%
+\label{method:input_extended}
+$\hat W^{\mathrm{in}}\in\R^{N\times n_{\mathrm{in}}}$ has one row per
+neuron ($N=917$) and one column per input channel
+($n_{\mathrm{in}}=\dim u(t)$). At every step it injects the external
+drive $\hat W^{\mathrm{in}}u(t)\in\R^{N}$ into the dynamics, added to
+the recurrent term $\hat W^{\mathrm{rec}}\sigma(\hat h)$ of
+\cref{eq:zhd_dynamics}. The rule is that each input variable may touch
+only the one afferent cell type that
+\cref{fig:zhd_3d}\textbf{c}--\textbf{d} assigns to it; the three
+afferent types are the only entry points, and the ring cells
+(\emph{IPNd*}, \emph{IPNds*}, \emph{IPN12}) never receive external
+input. Take the exteroceptive variant of \cref{fig:zhd_3d}\textbf{c}, with the
+four-channel drive
+\begin{equation*}
+u(t)=\bigl(\,\omega,\ v_{\mathrm{fwd}},\
+   \cos\theta_0\!\cdot\!\delta_{t_0},\
+   \sin\theta_0\!\cdot\!\delta_{t_0}\,\bigr)^{\!\top},\qquad
+\omega\to\mathrm{ARTR},\quad v_{\mathrm{fwd}}\to\text{pt-IPN1}.
+\end{equation*}
+Grouping the $N$ rows by population, the signal injected into the
+network at time $t$ (the $+\hat W^{\mathrm{in}}u(t)$ term of
+\cref{eq:zhd_dynamics}) is the matrix--vector product
+{\small
+\begin{equation}
+\begin{gathered}
+\hat W^{\mathrm{in}}\,u(t)=
+\bordermatrix{%
+ & \omega & v_{\mathrm{fwd}} & \cos\theta_0 & \sin\theta_0 \cr
+\mathrm{ARTR}_L   & -\softplus(\tilde v_\omega^{L}) & 0 & * & * \cr
+\mathrm{ARTR}_R   & +\softplus(\tilde v_\omega^{R}) & 0 & * & * \cr
+\text{pt-IPN1}_L  & 0 & v_{\mathrm{fwd}}^{L} & * & * \cr
+\text{pt-IPN1}_R  & 0 & v_{\mathrm{fwd}}^{R} & * & * \cr
+\text{ring}       & 0 & 0 & * & * \cr
+\text{other aff.} & 0 & 0 & * & * \cr}
+\begin{pmatrix}\omega\\[1pt] v_{\mathrm{fwd}}\\[1pt]
+   \cos\theta_0\,\delta_{t_0}\\[1pt] \sin\theta_0\,\delta_{t_0}\end{pmatrix}
+\\[6pt]
+=\ \omega\,\mathbf{w}_\omega+v_{\mathrm{fwd}}\,\mathbf{w}_{v}
+  +\delta_{t_0}\bigl(\cos\theta_0\,\mathbf{c}+\sin\theta_0\,\mathbf{s}\bigr)
+  \ \in\R^{N},
+\end{gathered}
+\label{eq:zhd_swim_gate}
+\end{equation}
+}
+where ``$*$'' marks a free (unconstrained) entry and
+$\mathbf{w}_\omega,\mathbf{w}_{v},\mathbf{c},\mathbf{s}\in\R^{N}$ are
+the four columns of $\hat W^{\mathrm{in}}$. The three column kinds are:
+the \emph{sign-locked turn column} $\mathbf{w}_\omega$
+($\omega\!\to\!$ARTR), nonzero only on ARTR with its left half forced
+inhibitory and right half excitatory via $\mp\softplus$ (the two
+scalars $\tilde v_\omega^{L},\tilde v_\omega^{R}$ are the only learned
+parameters), and the lock makes left/right turns drive the ring peak in
+opposite directions (a same-sign gate would integrate heading equally
+well but drive both hemispheres in phase, unlike the data); the
+\emph{unlocked vigour column} $\mathbf{w}_{v}$
+($v_{\mathrm{fwd}}\!\to\!$pt-IPN1), non-directional, keeping the pt-IPN1
+restriction but dropping the lock (one free scalar per side, either
+sign); and the \emph{free cue columns} $\mathbf{c},\mathbf{s}$
+($\cos\theta_0,\sin\theta_0$), dense and fully free over all $N$ rows,
+which $\delta_{t_0}$ switches on only at the first frame $t_0$ to plant
+the starting heading bump into the ring before they fall silent.
+The proprioception variant of \cref{fig:zhd_3d}\textbf{d} adds
+a fifth channel,
+\begin{equation*}
+u(t)=\bigl(\,\omega,\ v_{\mathrm{fwd}},\ \omega_{\mathrm{proprio}},\
+   \cos\theta_0\!\cdot\!\delta_{t_0},\
+   \sin\theta_0\!\cdot\!\delta_{t_0}\,\bigr)^{\!\top},\qquad
+\omega_{\mathrm{proprio}}\to\mathrm{motor\_efferent},
+\end{equation*}
+i.e.\ a \emph{second} sign-locked angular column routed to
+motor\_efferent (RIPN11 + RIPN12\_a + RIPN12\_c, which the \emph{fish2}
+inventory ties to head direction, carrying the turn command's efference
+copy), while $v_{\mathrm{fwd}}$ still routes only to pt-IPN1. In the
+first model version the two angular columns share a driver,
+$\omega_{\mathrm{proprio}}(t)=\omega(t)$, each with its own pair of
+scalars. The same rule scales to the full multi-modal driver of the
+nine ZAPBench conditions (\cref{fig:zhd_allblocks}): every visual
+channel (rotation/optic-flow velocity, whole-field luminance, L/R light
+difference, random-dot motion) drives pt-IPN1, and every tail-EMG
+self-motion channel drives RIPN, each gated by \cref{eq:zhd_swim_gate}.
+Anatomy fixes \emph{which} port a modality uses, the sign-lock fixes its
+L/R \emph{polarity}, and only the gain $\softplus(\tilde v_c^{L,R})$ is
+free.
+
+\bigskip
+\noindent\textbf{Output readout on $\hat W^{\mathrm{out}}$}%
+\label{method:output_readout}
+$\hat W^{\mathrm{out}}$ reads from the HD ring (\emph{IPNd*},
+\emph{IPNds*}, \emph{IPN12 pool}) and never from the afferent
+populations. Its column dimension $n_{\mathrm{out}}$ is set by the
+active sub-task (\cref{fig:zhd_swim_task_modes}):
+\begin{equation}
+\hat y(t) =
+\begin{cases}
+(\cos\hat\theta,\sin\hat\theta)                 & n_{\mathrm{out}}=2 \ \ (\text{heading only}),\\
+(\cos\hat\theta,\sin\hat\theta,\hat d)          & n_{\mathrm{out}}=3 \ \ (\text{heading}+\text{forward distance}),\\
+(\cos\hat\theta,\sin\hat\theta,\hat x,\hat y)   & n_{\mathrm{out}}=4 \ \ (\text{2D path integration}),
+\end{cases}
+\label{eq:zhd_readout}
+\end{equation}
+with $\hat y = \hat W^{\mathrm{out}}\,\sigma\!\big(\hat h(t)\big)+\hat b^{\mathrm{out}}$,
+$\hat\theta=\operatorname{atan2}(\hat y_2,\hat y_1)$. The leaky-vs-cumulative choice
+(\cref{eq:xi_leaky,eq:xy_pi}) changes only what $\hat d$ and
+$(\hat x,\hat y)$ are supervised against, not the readout shape.
+The learnable parameters of the model are
+\begin{equation*}
+\big\{\hat W^{\mathrm{rec}}_{ij},\;
+\{\tilde v_c^{L},\tilde v_c^{R}\}_c,\;
+\hat W^{\mathrm{in}}_{:,\theta_0},\,\hat b,\,
+\hat W^{\mathrm{out}},\,\hat b^{\mathrm{out}}\big\};
+\end{equation*}
+the connectome template $W^{\mathrm{con}}$, the afferent
+subpopulation membership, the neuron-type assignments, $\tau$ and
+$\Delta t$ are given.
+
+\bigskip
+\noindent\textbf{Graph neural network model.}\label{method:GNN}
+The GNN model replaces the dense recurrent operator
+$\sum_j \hat W^{\mathrm{rec}}_{ij}\,\sigma(\hat h_j)$ of
+\cref{eq:zhd_dynamics} with a message-passing graph neural network
+(Gilmer \emph{et al.}\ 2017). Compared to the RNN model, it does \emph{not}
+hard-code either the leak, the firing-rate nonlinearity, or the
+synaptic activation function. The per-edge message that combines a
+presynaptic activity with its postsynaptic effect are optimized through learned functions $f_\theta$ and $g_\phi$. Beyond removing the functional bias, the GNN also admits an explicit form
+of neuronal heterogeneity through a per-neuron learnable embedding
+$\mathbf a_i \in \R^d$ that enters both $f_\theta$ and $g_\phi$.
+Same-type neurons share their architectural role but can specialise
+via their embedding, so a single pair of learnable functions covers the $34$ fish2
+cell types of \cref{sec:anatomy} and all $N = 917$ instance-level
+distinctions without any further per-type parameter tying. Nodes correspond to neurons and edges to the non-zero entries of the zebrafish HD connectome template
+$W^{\mathrm{con}}$, and the subthreshold activity evolves as
+\begin{equation}
+\tau\,\frac{d\hat h_i(t)}{dt}
+  = f_\theta\!\Big(\hat h_i(t),\,\mathbf a_i,\,
+       \sum_{j \in \mathcal N_i}
+       \hat W_{ij}\,g_\phi\!\big(\hat h_j(t),\mathbf a_j\big)\Big)
+  + \sum_l \hat W^{\mathrm{in}}_{il}\,u_l(t),
+\label{eq:zhd_gnn_dynamics}
+\end{equation}
+with the same readout (\cref{eq:zhd_readout}), swim-gated encoder
+(\cref{eq:zhd_swim_gate}), and dynamics constants ($\tau,\Delta t$)
+as the RNN. The neighbour set is fixed by the connectome topology,
+$\mathcal N_i = \{j : W^{\mathrm{con}}_{ij} \neq 0\}$. The node
+update $f_\theta$ and edge message $g_\phi$ are three-layer
+perceptrons (width 64, ReLU, linear output). $g_\phi$ maps the
+presynaptic state $\hat h_j$ to a per-edge message conditioned on
+$\mathbf a_j$ and weighted by the per-edge gain $\hat W_{ij}$;
+$f_\theta$ then processes the postsynaptic state $\hat h_i$, the
+embedding $\mathbf a_i$, and the aggregated synaptic drive. We
+constrain $g_\phi$ to be monotonically increasing in $\hat h_j$ via
+the prior $\partial g_\phi / \partial \hat h \ge 0$ (see
+\cref{eq:zhd_gnn_loss}); combined with the sign-locked $\hat W_{ij}$
+(\cref{eq:zhd_gnn_w}) this restores Dale's law at the per-edge level
+without introducing a $\pm$-sign degeneracy. The leak, the
+firing-rate non-linearity, and any departure from a linear synapse
+must emerge from $(f_\theta, g_\phi, \mathbf a)$ themselves; the
+monotonicity priors of the training objective (\cref{eq:zhd_gnn_loss})
+provide the minimum inductive bias for $f_\theta, g_\phi$ to behave like a
+neuron (postsynaptic drive increases with net excitatory input). The per-edge weight is
+sign-locked to the connectome as in the RNN,
+\begin{equation}
+\hat W_{ij}
+  = |W_{ij}|\,\mathrm{sign}(W^{\mathrm{con}}_{ij}),
+\label{eq:zhd_gnn_w}
+\end{equation}
+where $W_{ij} \in \R$ is the trainable per-edge magnitude.
+In the zebrafish circuit $\mathrm{sign}(W^{\mathrm{con}}_{ij})$ is
+negative for every edge whose presynaptic neuron is in the dIPN
+(\emph{IPNd*} or \emph{IPNds*}) and positive for every edge from
+\emph{RIPN*} or \emph{pt-IPN*}; the GNN therefore inherits the
+inhibitory dIPN directly from the sign pattern. The learnable parameters are
+\begin{equation*}
+\big\{\theta,\,\phi,\,\mathbf a,\,\hat{W}_{ij},\;
+\{\tilde v_c^{L},\tilde v_c^{R}\}_c,\;
+\hat W^{\mathrm{in}}_{:,\theta_0},\,\hat b,\,
+\hat W^{\mathrm{out}},\,\hat b^{\mathrm{out}}\big\};
+\end{equation*}
+the connectome template $W^{\mathrm{con}}$, the afferent
+subpopulation membership, the neuron-type assignments, $\tau$ and
+$\Delta t$ are given. As with the RNN, heading recovery from cos/sin readouts is
+fundamentally non-unique: many distinct $(\theta,\phi,\mathbf a,W)$
+configurations produce identical readouts, so the GNN is trained under a
+regularised objective. This objective combines the same connectome-prior terms as the RNN with
+sparsity and monotonicity priors on $f_\theta$ and $g_\phi$, specified
+together with the rest of the training procedure in \cref{eq:zhd_gnn_loss}.
+
+\bigskip
+\noindent\textbf{Swim-integration task.}%
+\label{method:swim_task_modes}\label{method:xi_leaky}
+The on-disk swim-integration dataset is a \emph{single superset} from
+which several sub-tasks are projected at training time. Swim events are
+sampled at a Poisson rate $r_{\mathrm{swim}}=0.5\,\mathrm{Hz}$ with
+event duration $\Delta t_{\mathrm{swim}}=0.3\,$s, partitioned into four
+behavioural categories with fractions $L:R:F:B=0.3:0.3:0.2:0.2$. Left
+and right events drive an angular signed phase impulse, forward and
+backward events drive a signed forward-velocity impulse. The input is a
+$4$-channel stream $u\in\R^{B\times T\times 4}=[\,\omega,\,v_{\mathrm{fwd}},\,
+\cos\theta_0\!\cdot\!\delta_{t,0},\,\sin\theta_0\!\cdot\!\delta_{t,0}\,]$:
+left/right events drive $\omega$, forward/backward events drive
+$v_{\mathrm{fwd}}$, and the initial heading $(\cos\theta_0,\sin\theta_0)$
+enters as a single-frame impulse at $t=0$ (position needs no such cue, as it
+starts at the origin). The target column layout depends on the sub-task: the
+\emph{scalar} recipe stores $y=[\,\cos\theta,\,\sin\theta,\,d\,]$ with
+$\theta(t)=\theta_0+\int_0^t\omega\,ds$ and $d(t)=\int_0^t v_{\mathrm{fwd}}\,ds$
+($d(0)=0$), while the \emph{2D path-integration} recipe stores
+$y=[\,\cos\theta,\,\sin\theta,\,x,\,y\,]$, projecting $v_{\mathrm{fwd}}$ through
+the current heading and integrating each spatial axis independently
+(\cref{eq:xy_pi}). The 2D recipe is the \emph{true} path-integration target: it
+couples translation to heading, so the network must maintain $\theta$
+internally to predict $(x,y)$. Throughout the paper we use two words for the
+two integrated quantities the circuit reports: the \emph{heading} (the
+integrated angular self-motion $\theta$) and the \emph{translation} (the
+integrated forward self-motion: the $1$-D distance $d$ in the scalar
+recipe, the $2$-D position $(x,y)$ in the path recipe). The default scalar
+$d$ and the default 2D position $(x, y)$ are both
+\emph{cumulative} integrators of their respective drives. With a non-zero
+mean forward-swim drive these targets grow linearly with the
+curriculum horizon, so the loss scales with $T$ and cross-snapshot
+comparisons become awkward. A finite time constant $\tau>0$ replaces
+the cumulative sum with the leaky recurrence
+\begin{equation}
+d(t+\Delta t) = \left(1-\frac{\Delta t}{\tau_d}\right)d(t)
+    + v_{\mathrm{fwd}}(t)\,\Delta t,
+\qquad d(0)=0,
+\label{eq:xi_leaky}
+\end{equation}
+equivalent to $\dot d = -d/\tau_d + v_{\mathrm{fwd}}$. For the
+2D-position target the same leaky law is applied independently to each
+axis,
+\begin{equation}
+\frac{dx}{dt} = -\frac{x}{\tau_p} + v_{\mathrm{fwd}}\cos\theta,
+\qquad
+\frac{dy}{dt} = -\frac{y}{\tau_p} + v_{\mathrm{fwd}}\sin\theta,
+\qquad x(0)=y(0)=0,
+\label{eq:xy_pi}
+\end{equation}
+which keeps the trajectory bounded near the recent egocentric
+displacement. Biologically this is the natural choice: real neural
+integrators leak, and what the fish actually encodes is a
+low-pass-filtered estimate of \emph{recent} forward swim vigour and
+recent displacement, not absolute long-horizon position. The
+production runs use $\tau_d=\tau_p=0.5\,$s, with the
+cumulative-integrator recipes preserved as separate variants so the loss
+and metric comparisons stay clean.
+
+\bigskip
+\noindent\textbf{Proprioceptive-gain mismatch task.}\label{method:mismatch}
+The proprioception circuit (\cref{method:proprioception}) lets us pose a
+sharper question than redundant sensory$+$efference integration: can the
+circuit track a \emph{discrepancy} between its two angular streams? We
+drive ARTR with the observed angular velocity $\omega$ and
+motor\_efferent with a \emph{gain-modulated} proprioceptive copy
+$\omega_{\mathrm{proprio}}(t) = g(t)\,\omega(t)$, where the gain $g(t)$
+is a piecewise-constant process drawn uniformly in $[0,1.5]$ that steps
+to a new value every ${\approx}2\,$s. The supervised third readout column is
+no longer a forward distance but the integrated mismatch
+\begin{equation}
+m(t) = \int_0^t \big(\omega(s) - \omega_{\mathrm{proprio}}(s)\big)\,ds
+     = \int_0^t \big(1 - g(s)\big)\,\omega(s)\,ds,
+\label{eq:zhd_mismatch}
+\end{equation}
+the accumulated sensory-vs-proprioceptive heading discrepancy. This is zero
+when proprioception is veridical ($g\equiv1$) and grows whenever the
+two streams disagree. The input is the $5$-channel proprioception layout
+$[\omega, v_{\mathrm{fwd}}, \omega_{\mathrm{proprio}},
+\cos\theta_0\delta_{t_0}, \sin\theta_0\delta_{t_0}]$ ($n_{\mathrm{in}}=5$)
+and the readout is $\hat y=(\cos\hat\theta,\sin\hat\theta,\hat m)$.
+
+\begin{figure}[t!]
+\centering
+\includegraphics[width=\textwidth]{\figdir/fig_3_swim_task.png}
+\caption{\textbf{Swim-integration task and its target recipes for the
+same trial.} \textbf{(a)}~$4$-channel input:
+$\omega$, $v_{\mathrm{ext}}$, and the initial-heading impulse
+$(\cos\theta_0,\sin\theta_0)\,\delta_{t,0}$ (non-zero only at $t=0$;
+shown as stem markers carrying the per-trial value).
+\textbf{(b)}~Scalar-$d$ target: $\cos\theta$, $\sin\theta$, and
+forward distance $d$; perfect cumulative integrator (green) vs leaky
+$\tau_d=0.5\,$s (red dashed).
+\textbf{(c)}~The same trial's 2D trajectory in spatial coordinates,
+computed from the $\omega$ and $v_{\mathrm{ext}}$ inputs of (a):
+cumulative path (green) and leaky path (red dashed, $\tau_p=0.5\,$s).
+\textbf{(d)}~Proprioceptive-gain mismatch task on the same $\omega$
+(\cref{method:mismatch}): a piecewise-constant gain $g(t)\in[0,1.5]$
+(top) sets the proprioceptive copy $\omega_{\mathrm{proprio}}=g\,\omega$
+(orange, middle) against the sensory $\omega$ (green); the supervised
+scalar (bottom) is the integrated mismatch
+$\int(\omega-\omega_{\mathrm{proprio}})\,dt$.}
+\label{fig:zhd_swim_task_modes}
+\end{figure}
+
+\paragraph{Training.}
+
+\bigskip
+Training optimises a per-frame MSE
+on the heading readout with two connectome-prior regularisers and
+an $\ell_1$ sparsity prior on the recurrent magnitudes,
+\begin{equation}
+\mathcal{L}
+= \tfrac{1}{BT}\sum_{b,t} \|\hat y_{b,t} - y_{b,t}\|_2^2
++ \lambda_{\mathrm{cos}}\,\mathcal{L}_{\mathrm{cos}}
++ \lambda_{\mathrm{nf}}\,\mathcal{L}_{\mathrm{nf}}
++ \lambda_{1}\,\|\hat{W}^{rec}_{ij} \|_1,
+\label{eq:zhd_loss}
+\end{equation}
+with block losses computed over type-pair masks
+$\mathcal{B}_p \subset \{1,\dots,N\}^2$ (one block per ordered
+pre/post neuron-type pair $p \in \mathcal{P}$),
+\begin{align}
+\mathcal{L}_{\mathrm{cos}}
+  &= \tfrac{1}{|\mathcal{P}|}\sum_{p \in \mathcal{P}}
+     \!\left[1 - \frac{\langle \hat W^{\mathrm{rec}}_{\mathcal{B}_p},\,
+         W^{\mathrm{con}}_{\mathcal{B}_p}\rangle}
+       {\|\hat W^{\mathrm{rec}}_{\mathcal{B}_p}\|\,
+        \|W^{\mathrm{con}}_{\mathcal{B}_p}\|}\right],
+\label{eq:zhd_cos}\\
+\mathcal{L}_{\mathrm{nf}}
+  &= \tfrac{1}{|\mathcal{P}|}\sum_{p \in \mathcal{P}}
+     \relu\!\big(\kappa -
+       \overline{|\hat W^{\mathrm{rec}}_{\mathcal{B}_p}|}\big)^2.
+\label{eq:zhd_nf}
+\end{align}
+The cosine-distance term $\mathcal{L}_{\mathrm{cos}}$ anchors each
+block to the connectome template; the norm-floor term
+$\mathcal{L}_{\mathrm{nf}}$ prevents any type-pair block from
+collapsing to zero by penalising the squared shortfall of the block
+mean absolute weight $\overline{|\hat W^{\mathrm{rec}}_{\mathcal{B}_p}|}$
+below a fixed floor $\kappa$ (typical value $\kappa = 0.05$). Because
+$\mathcal{L}_{\mathrm{cos}}$ is scale-invariant,
+$\mathcal{L}_{\mathrm{nf}}$ is required to prevent a degenerate
+solution in which the cosine prior is satisfied by an arbitrarily
+small recurrent magnitude. The type-pair vocabulary $\mathcal{P}$ is
+the cartesian product of the 34 fish2 cell types identified in
+\cref{sec:anatomy}, restricted to pairs with at least one non-zero
+entry in $W^{\mathrm{con}}$.
+
+\bigskip
+\noindent\textbf{GNN training objective.}
+The message-passing GNN (\cref{method:GNN}) is trained on the same per-frame
+MSE and the same connectome-prior regularisers, augmented with sparsity and
+monotonicity priors on its learned functions. As with the RNN, heading
+recovery from cos/sin readouts is fundamentally non-unique: many distinct
+$(\theta,\phi,\mathbf a,W)$ configurations produce identical readouts. We
+constrain the solution space with the connectome-prior regularisers
+$\mathcal{L}_{\mathrm{cos}}$, $\mathcal{L}_{\mathrm{nf}}$
+(\cref{eq:zhd_cos,eq:zhd_nf}, computed on the per-edge gain surface
+$\hat W_{ij}$ with floor threshold $\kappa$), together with sparsity
+and monotonicity priors on the MLPs:
+\begin{align}
+\mathcal{L} \;=\;&
+  \tfrac{1}{BT}\sum_{b,t}\|\hat y_{b,t} - y_{b,t}\|_2^2
++ \lambda_{\mathrm{cos}}\mathcal{L}_{\mathrm{cos}}
++ \lambda_{\mathrm{nf}}\mathcal{L}_{\mathrm{nf}} \nonumber\\
+& +\;\lambda_0\|\theta\|_1 + \lambda_1\|\phi\|_1
+   + \lambda_2\|\theta\| + \lambda_3\|\phi\|
+   \;+\;\gamma_0\|W\|_1 + \gamma_1\|W\|_2 \nonumber\\
+& +\;\mu_0\!\left\|
+       \relu\!\left(+\tfrac{\partial f_\theta(\hat h,\mathbf a,m)}
+                          {\partial \hat h}\right)\right\|
+   +\;\mu_1\!\left\|
+       \relu\!\left(-\tfrac{\partial f_\theta(\hat h,\mathbf a,m)}
+                          {\partial m}\right)\right\| \nonumber\\
+& +\;\mu_2\!\left\|
+       \relu\!\left(-\tfrac{\partial g_\phi(\hat h,\mathbf a)}
+                          {\partial \hat h}\right)\right\|
+   +\;\mu_3\,\big\|g_\phi(h_\star,\mathbf a)-h_\star\big\|,
+\label{eq:zhd_gnn_loss}
+\end{align}
+where $m = \sum_{j \in \mathcal N_i}\hat W_{ij}\,
+g_\phi(\hat h_j,\mathbf a_j)$ is the aggregated synaptic input. The
+$\ell_1$ penalties $\lambda_0,\lambda_1$ on the MLP weights bias
+$f_\theta, g_\phi$ toward sparser, simpler functions; the $\ell_2$
+penalties $\lambda_2,\lambda_3$ prevent weight explosion. The
+leak-monotonicity term $\mu_0$ penalises \emph{positive} slopes of
+$f_\theta$ in the postsynaptic state $\hat h$, encoding the prior
+that the drift contains a leak
+($\partial f_\theta / \partial \hat h \le 0$); $\mu_1$ penalises
+negative slopes of $f_\theta$ in the aggregated input $m$, encoding
+the prior that postsynaptic drive increases with net excitatory
+input. Together, $\mu_0$ and $\mu_1$ force the discovered drift to be
+decreasing in self-voltage and increasing in synaptic input, the
+two qualitative signatures of \cref{eq:zhd_dynamics}. The term $\mu_2$
+enforces the analogous monotonicity prior on $g_\phi$ in the
+presynaptic voltage. The normalisation term $\mu_3$ anchors $g_\phi$
+at a reference subthreshold value $h_\star$, removing the
+multiplicative degeneracy between $g_\phi$ and $\hat W$ in
+\cref{eq:zhd_gnn_dynamics}. Hyperparameters
+$\lambda_{\{0,1,2,3\}},\,\gamma_{\{0,1\}},\,\mu_{\{0,1,2,3\}}$ and the
+MLP widths/depths are tuned with an agentic optimisation procedure,
+with $r_{\mathrm{roll},1k}$ (the Pearson correlation between the decoded
+and true heading over a $1\,000$-step deterministic swim-impulse rollout)
+as the primary score.
+
+\bigskip
+\noindent\textbf{Calcium observation loss.}\label{method:obs}
+The heading loss of \cref{eq:zhd_loss} constrains only the
+two-dimensional readout $\hat y(t)$; the $N$-dimensional recurrent state
+$\hat h(t)$ is left unobserved, so the task alone does not pin the
+internal dynamics. To constrain the implementation we add an optional
+term that matches the model's predicted calcium to \emph{recorded}
+activity. A GCaMP indicator turns the model's per-neuron activity into a
+fluorescence trace by causal convolution with a unit-area
+difference-of-exponentials kernel,
+\begin{equation}
+k_{\mathrm{GCaMP}}(t) \;\propto\; e^{-t/\tau_d} - e^{-t/\tau_r},
+  \quad t \ge 0,
+\qquad
+\hat c_i(t) \;=\; \big(k_{\mathrm{GCaMP}} * \hat h_i\big)(t),
+\label{eq:zhd_gcamp}
+\end{equation}
+with nominal cytosolic GCaMP7f rise/decay constants
+$(\tau_r,\tau_d) = (0.15,\,1.20)\,\mathrm{s}$ \citep{dana2019}. ZAPBench
+imaged the slower nuclear \emph{H2B-GCaMP7f}, so \cref{eq:zhd_gcamp} if
+anything \emph{under}-states the low-pass smearing of the real observable.
+The kernel is normalised to unit area so the transform
+preserves the mean, the convolution is evaluated on the model grid
+$\Delta t$, and it is differentiable, so gradients flow from the
+fluorescence back into $\hat W^{\mathrm{rec}}$, the afferent gate and
+$\hat b$. Let $\mathcal{O}$ index the $|\mathcal{O}| = 481$ HD-circuit
+neurons matched to a recorded ROI (below) and let $c^{\star}_i(t)$ be the
+recorded $\Delta F/F$ of neuron $i$. Because the indicator gain and
+baseline are not identifiable, the term is made invariant to a per-neuron
+affine rescaling by $z$-scoring both signals over time before comparison,
+\begin{equation}
+\mathcal{L}_{\mathrm{obs}}
+  = \frac{1}{|\mathcal{O}|\,B_c T}\sum_{i\in\mathcal{O}}\sum_{b,t}
+    \big(z[\hat c_i]_{b,t} - z[c^{\star}_i]_{b,t}\big)^2 ,
+\qquad
+z[x]_{b,t} = \frac{x_{b,t} - \mu_{b,i}}{\sigma_{b,i}},
+\label{eq:zhd_obs}
+\end{equation}
+where $\mu_{b,i},\sigma_{b,i}$ are the per-trial, per-neuron mean and
+standard deviation over time. For unit-variance signals
+$\mathcal{L}_{\mathrm{obs}} = 2\,(1-\rho)$ with $\rho$ the Pearson
+correlation, so the term rewards temporal \emph{shape} agreement rather
+than absolute scale. The full objective adds it to \cref{eq:zhd_loss}
+with weight $\lambda_{\mathrm{obs}}$,
+$\mathcal{L}_{\mathrm{total}} = \mathcal{L}
+  + \lambda_{\mathrm{obs}}\,\mathcal{L}_{\mathrm{obs}}$;
+setting $\lambda_{\mathrm{obs}} = 0$ (or supplying no calcium trials)
+recovers the task-only model exactly.
+
+\paragraph{Mutual-information estimators.}\label{method:MI}
+We use mutual information to quantify how strongly each unit's
+firing rate $r_i(t) = \sigma(\hat h_i(t))$ tracks the heading
+$\theta(t)$ (or, where stated, the angular velocity $\omega(t)$ or
+the swim-onset trace $s(t)$) over a held-out rollout. For a single
+neuron we wrap $\theta$ to $(-\pi, \pi]$ via
+$\theta \leftarrow \arg(e^{i\theta})$, discretise the wrapped angle
+into $n_\theta = 32$ equal-width angular bins and $r$ into $n_r = 20$
+equal-width bins, then compute the plug-in estimator in bits,
+\begin{equation}
+\hat I(r_i;\theta) = \sum_{b,c} \hat p(b,c)\,\log_2
+\frac{\hat p(b,c)}{\hat p(b)\,\hat p(c)},
+\label{eq:zhd_mi_plugin}
+\end{equation}
+where $\hat p$ is the empirical joint over the
+$(\theta\!\!-\!\!\mathrm{bin}, r\!\!-\!\!\mathrm{bin})$ histogram. The
+plug-in construction is used so that the per-neuron and
+per-cell-type quantities of
+\cref{sec:results_four_classes} are
+comparable across cell types and sub-populations. For a group of $K$ neurons we
+use the cross-validated lower bound
+\begin{equation}
+\hat I_{\mathrm{LB}}(\mathbf r_{1:K};\theta) =
+H(\theta) - \tfrac{1}{|\mathcal D_{\mathrm{te}}|}
+\sum_{(t,\theta)\in\mathcal D_{\mathrm{te}}}
+-\log_2 q_\psi(\theta_b\mid \mathbf r(t)),
+\label{eq:zhd_mi_joint_lb}
+\end{equation}
+where $q_\psi$ is an $L_2$-regularised multinomial logistic
+regression with input $\mathbf r \in \mathbb R^K$ and output the
+$n_\theta$ heading bins, trained on a stratified 5-fold split.
+
+\iffalse  % --- Image-domain ROI sampling / dF/F0 paragraph commented out ---
+\paragraph{Image-domain ROI sampling and $\Delta F/F_0$.}\label{method:dff}
+To make the model's population dynamics comparable to two-photon
+calcium imaging of the larval-zebrafish dIPN, we sample activity
+\emph{from the rendered frames} of the dorsal-view animation, not
+from the latent state $\hat h_i(t)$. Each frame is a
+$3000 \times 4380$-pixel canvas in which each neuron's skeleton is
+drawn with a per-segment alpha proportional to its firing rate; we
+place four axis-aligned ROI rectangles $R_k$
+($k \in \{\mathrm{dIPN}_L, \mathrm{dIPN}_R, \mathrm{dsIPN}_L,
+\mathrm{dsIPN}_R\}$) over the dorsal-IPN neuropil (drawn on frame~0
+of \emph{\figdir/3D\_voltage\_const/frame\_0000.png}) and
+integrate the green channel of the canvas RGBA buffer:
+\begin{equation}
+I_k(t) \;=\; \frac{1}{|R_k|}\sum_{(x,y)\,\in\,R_k}
+              \mathrm{img}_t[y, x, \mathrm{green}].
+\label{eq:zhd_roi_intens}
+\end{equation}
+The four traces $I_k(t)$ are then converted to a fractional change
+with respect to a post-init baseline, mirroring the Seelig / Kim /
+Green calcium-imaging convention:
+\begin{align}
+F_0[k] &\;=\; \bigl\langle I_k(t)\bigr\rangle_{t \,\ge\,
+                t_{\mathrm{init}}} + \varepsilon, \\
+\Delta F/F_0\,(k,t) &\;=\;
+   \frac{I_k(t) - F_0[k]}{F_0[k]},
+\label{eq:zhd_dff}
+\end{align}
+with $t_{\mathrm{init}} = 0.5$~s (drops the network start-up
+transient that would otherwise dominate the baseline) and
+$\varepsilon = 10^{-6}$. The per-pair population-vector position
+overlaid on the kinographs in red is the activity-weighted centre
+of mass across each $L/R$ pair,
+$\mathrm{pos}_p(t) = \big(I_{p,L}\,y_{p,L} + I_{p,R}\,y_{p,R}\big)/
+                      \big(I_{p,L} + I_{p,R}\big)$,
+i.e.\ the same Seelig/Hulse PVA reduced to two phase bins per pair.
+Image-domain sampling inherits all the projection biases of the
+microscope (depth-of-field, projection, downsample) and so the
+kinographs are directly comparable to \petrucco{}~Fig.~2 without
+having to invert the calcium kernel.
+\fi  % --- end commented-out ROI / dF/F0 paragraph ---
+
+\section{Results}
+\label{sec:results}
+
+\subsection{Trained heading integrator}
+\label{sec:results_evolution}
+
+We train the sign-locked RNN of \cref{method:RNN} on the nominal
+$917$-cell circuit of \cref{fig:zhd_3d}\textbf{c} (angular drive
+$\omega$ routed exclusively to ARTR, \emph{RIPN01/02/03\_a/03\_b})
+on the
+heading-only sub-task of \cref{fig:zhd_swim_task_modes} ($n_{\rm in}=3$
+channels, $n_{\rm out}=2$ outputs).
+\Cref{fig:zhd_evolution_artr_pt1} reports the trained network.
+After training the heading code is correctly recovered. Across the
+five held-out swim-integration test trials (panel \textbf{i}) the
+decoded heading tracks ground truth with a mean per-trial circular
+RMSE of $5.9^\circ \pm 2.5^\circ$ and Pearson $r=0.997 \pm 0.003$.
+Constant-$\omega$ deterministic rollouts of $T=2000$ frames spanning
+the full $\pm 180^\circ/\mathrm{s}$ range (panels \textbf{h},
+\textbf{j}) integrate heading at a near-unit gain: the linear-fit slope
+of decoded vs.\ true $\omega$ is $1.07$ (mean local gain
+$1.04 \pm 0.05$; panel \textbf{h}), and the Pearson correlation on the
+unwrapped trajectories is $\ge 0.999$ for every
+sweep. The dIPN carries a single travelling
+ring activity peak (panel \textbf{e}). The learned recurrent weights
+$\hat W^{\mathrm{rec}}$ sit on the signed connectome support by
+construction; the per-edge magnitude correlates with the connectome
+template at Pearson $r=0.430$ (panel \textbf{c}), consistent with the
+sign-locked re-scaling described in \cref{method:RNN}.
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=0.9\textwidth]{\figdir/fig_evolution_zebrafish_hd_si_ipn_917_v1_selfmotion_rotation.png}
+  \caption{\textbf{Trained heading integrator on the ARTR / pt-IPN1
+  variant of \cref{fig:zhd_3d}\textbf{c}.} Sign-locked RNN with
+  $\hat W^{\mathrm{rec}} = |\hat S|\odot\mathrm{sign}(W^{\mathrm{con}})$
+  on the nominal $917$-cell circuit ($917$ v1, inhibitory). Drive:
+  $\omega$ routed exclusively to ARTR
+  (\emph{RIPN01/02/03\_a/03\_b}). Task: heading only ($n_{\rm in}=3$,
+  $n_{\rm out}=2$).
+  \textbf{(a)} GT connectome $W^{\mathrm{con}}$, neuron-type blocks on
+  both axes.
+  \textbf{(b)} Learned $\hat W^{\mathrm{rec}}$ on the same scale.
+  \textbf{(c)} Scatter of the learned per-edge weight $\hat W_{ij}$
+  against $W^{\mathrm{con}}_{ij}$ over all connectome edges.
+  \textbf{(d)} All $917$ neurons over a constant-$\omega =
+  +60^\circ/\mathrm{s}$ rollout, sorted by cell type.
+  \textbf{(e)} dIPN sub-population over the same rollout; firing rates
+  $z$-scored per neuron.
+  \textbf{(f)} Constant-$\omega$ rollout. Top: $\omega(t)$. Bottom:
+  true heading (green) and decoded heading (black), wrapped. Title
+  reports post-warmup Pearson $r$ and circular RMSE.
+  \textbf{(g)} Same layout on a held-out swim-integration test trial.
+  \textbf{(h)} Integration gain (Hulse-style scatter): measured slope
+  of the unwrapped decoded heading vs.\ true $\omega$, on a
+  $15^\circ/\mathrm{s}$ grid over $[-180,+180]$; the
+  near-linear domain is shaded, dashed line $g = 1$.
+  \textbf{(i)} Five held-out swim-integration test trials: true
+  heading (green) and decoded heading (black); per-panel circular RMSE
+  and Pearson $r$.
+  \textbf{(j)} Five constant-$\omega$ deterministic sweeps
+  ($T=2000$ frames): same overlay; per-panel circular RMSE and Pearson
+  $r$ on the unwrapped trajectories.}
+  \label{fig:zhd_evolution_artr_pt1}
+\end{figure}
+
+\label{sec:results_decoder}
+In \cref{sec:results_evolution} the heading was read out by a linear map
+onto $(\cos\theta,\sin\theta)$ and decoded with $\operatorname{atan2}$.
+The readout is not a neutral observer: because the recurrent weights are
+connectome-locked and only re-scaled, the \emph{form} of the decoder is
+one of the few degrees of freedom left to the optimiser, and it can
+shape the internal representation the network settles on. We therefore
+re-train the same $917$-cell circuit on the same heading task with two
+alternative heading decoders, holding the recurrent dynamics and the
+afferent gate fixed: (i) a \emph{$64$-bin softmax} readout, in which the
+heading is one of $64$ angular bins (a localist ring code) decoded by the
+softmax-weighted circular mean ($n_{\mathrm{out}}=64$); and (ii) a
+\emph{nonlinear MLP} readout replacing the linear map.
+
+The $64$-bin decoder converges as well as the $(\cos\theta,\sin\theta)$
+readout: heading is recovered across held-out trials and constant-$\omega$
+sweeps, and the dIPN still carries a single travelling activity peak, now
+read out directly as a moving band in bin space
+(\cref{fig:zhd_evolution_kbins}, panel \textbf{h}). The nonlinear MLP
+decoder also converges, but only once the optimisation is \emph{paced}.
+Trained at equal rates, the flexible MLP readout collapses to the target
+mean (chance) before the connectome-locked ring can form. This is a
+chicken-and-egg a linear readout avoids, because its optimum already
+requires a structured ring. Letting the recurrent core lead and the
+decoder follow (a higher, gently decaying recurrent learning rate against a
+slower readout rate) removes the imbalance, and the MLP then recovers
+heading as cleanly as the other two readouts (per-trial $r_\theta=0.999$,
+median circular RMSE $1.3^\circ$; \cref{fig:zhd_evolution_mlpdec}). A small
+capacity sweep confirms this is not tuned to one architecture: five
+variants spanning hidden width $8$--$128$ and depth $2$--$4$ all converge
+($r_\theta\ge0.994$, RMSE $1.3$--$3.9^\circ$). The takeaway is
+methodological: with the recurrent substrate fixed to the connectome, the
+decoder is an active modelling choice that interacts with the dynamics
+(a too-flexible readout can out-run the circuit and must be paced so the
+integrator forms first), but none of the three readouts (cos/sin,
+localist bin, or nonlinear MLP) changes the underlying solution, and the
+ARTR diagnostic confirms the recurrent dynamics are qualitatively unchanged
+across all three readouts (\cref{fig:zhd_artr_oscillation}).
+
+\label{sec:results_mismatch}
+The proprioception circuit (\cref{fig:zhd_3d}\textbf{d}) routes the
+angular drive through two anatomically distinct afferent streams: the
+sensory ARTR copy $\omega$ and a gain-modulated motor-efference copy
+$\omega_{\mathrm{proprio}}=g(t)\,\omega$
+(\cref{method:mismatch}; \cref{fig:zhd_swim_task_modes}\textbf{d}).
+Trained to report the integrated mismatch
+$m=\int(\omega-\omega_{\mathrm{proprio}})\,dt$ alongside heading, the same
+sign-locked $917$-cell RNN recovers both. Unlike the heading, which is
+encoded as the unit vector $(\cos\theta,\sin\theta)$ and decoded by
+$\operatorname{atan2}$, the mismatch $m$ is an unbounded cumulative
+quantity and is supervised directly as a scalar, a plain regression
+head trained under the same per-frame MSE. Across held-out swim trials the
+decoded heading and the decoded mismatch each track ground truth at
+per-trial Pearson $r\approx0.999$, and the mismatch trace follows the
+piecewise-constant gain regime-switches frame by frame
+(\cref{fig:zhd_evolution_mismatch}, panel \textbf{g} and row \textbf{j}).
+The circuit therefore does not merely echo one afferent stream: it
+maintains a running \emph{difference} of the two, accumulating the
+sensory-vs-proprioceptive heading discrepancy, a quantity that is zero
+only when proprioception is veridical. This is the connectome-locked
+analogue of a forward-model error signal, and it shows the dual-afferent
+wiring can support gain-mismatch detection, not just redundant
+integration.
+
+
+\subsection{Trained heading + distance integrator}
+\label{sec:results_variants}
+
+We do not know a priori which integration the larval circuit actually
+performs: whether it maintains a scalar forward distance or a full
+2-D position, and whether either is accumulated losslessly or leaked.
+Rather than commit, we train all four combinations,
+(distance vs.\ 2-D path) $\times$ (cumulative vs.\ leaky), on
+the same connectome-locked circuit and compare. This brackets the
+biologically plausible options: the cumulative target is the idealised
+path integrator, the leaky target the bounded \emph{recent-displacement}
+estimate a real leaky neural integrator would hold.
+
+The same $917$-cell circuit and sign-locked RNN trains successfully
+on every sub-task projection of the swim-integration superset
+(\cref{fig:zhd_swim_task_modes}). Each variant changes only the
+target column layout ($\hat W^{\mathrm{out}}$, \cref{method:output_readout})
+and, where applicable, the leaky-integrator time constant
+$\tau_d=\tau_p=0.5\,$s; the gate, connectome and recurrent dynamics
+are unchanged across all five runs. The quantitative
+trajectory-precision metrics below are aggregated from held-out test
+trials on each trained checkpoint, with constant-$\omega$ and
+constant-$v_{\mathrm{fwd}}$ deterministic rollouts at $T=2000$ frames
+as the extrapolation probe.
+\Cref{tab:zhd_subtask_metrics} summarises the headline numbers; full
+panel layout in each figure matches \cref{fig:zhd_evolution_artr_pt1}.
+
+\begin{table}[H]
+\centering
+\small
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{l c c c c c c}
+\toprule
+ & \multicolumn{3}{c}{\textit{rollout accuracy} (Pearson $r$)} & \multicolumn{3}{c}{\textit{precision horizon} (60\,s naturalistic drive)} \\
+\cmidrule(lr){2-4}\cmidrule(lr){5-7}
+Variant & $r_\theta$ & $r_d$ & $\bar r_{xy}$ & $\tau_\theta$ (s) & $\tau_d$ (s) & $|g_\theta\!-\!1|$ \\
+\midrule
+\multicolumn{7}{@{}l}{\textit{Sign-locked RNN}} \\
+Heading                      & $0.998 \pm 0.023$ & ---               & ---               & $\ge 60$ & ---      & $0.010$ \\
+Heading $+$ distance (cumulative)
+                             & $0.995 \pm 0.035$ & $0.989 \pm 0.053$ & ---               & $20.7$   & $5.7$    & $0.026$ \\
+Heading $+$ distance (leaky) & $0.997 \pm 0.033$ & $0.997 \pm 0.027$ & ---               & $21.6$   & $\ge 60$ & $0.019$ \\
+2-D path (cumulative)        & ---               & ---               & $0.760 \pm 0.268$ & $4.4$    & $4.4$    & $0.58$  \\
+2-D path (leaky)             & ---               & ---               & $0.945 \pm 0.152$ & $18.5$   & $5.4$    & $0.024$ \\
+\midrule
+\multicolumn{7}{@{}l}{\textit{Message-passing GNN}} \\
+Heading                      & $0.997 \pm 0.008$ & ---               & ---               & $12.7$   & ---      & $0.031$ \\
+Heading $+$ distance (cumulative)
+                             & $0.993 \pm 0.030$ & $0.991 \pm 0.034$ & ---               & $7.9$    & $6.6$    & $0.051$ \\
+Heading $+$ distance (leaky) & $0.994 \pm 0.025$ & $0.998 \pm 0.003$ & ---               & $8.9$    & $38.2$   & $0.043$ \\
+2-D path (cumulative)        & ---               & ---               & $0.837 \pm 0.209$ & $4.1$    & $3.8$    & $0.60$  \\
+2-D path (leaky)             & ---               & ---               & $0.945 \pm 0.155$ & $4.0$    & $4.4$    & $0.061$ \\
+Heading (cluster-move emb.)  & $0.997 \pm 0.011$ & ---               & ---               & $30.4$   & ---      & $0.012$ \\
+Heading (frozen emb.)        & $0.996 \pm 0.011$ & ---               & ---               & $9.5$    & ---      & $0.051$ \\
+\bottomrule
+\end{tabular}}
+\caption{Per-trial Pearson $r$ (mean $\pm$ SD on held-out test trials). RNN rows: across all $n=10\,000$ trials. GNN rows:
+on a $n=512$ trial sample. $r_\theta$: correlation of unwrapped decoded
+vs.\ ground-truth heading after a $10$-frame warmup. $r_d$: correlation
+of decoded vs.\ ground-truth forward distance $d$. $\bar r_{xy}$: mean
+of per-axis Pearson on $(x,y)$. Precision horizon, measured on a $60\,$s rollout
+driven by a naturalistic Ornstein--Uhlenbeck $\omega(t)$ and $v_{\rm
+fwd}(t)$ (mean over $4$ seeds). $\tau_\theta$: time the decoded heading
+stays within $15^\circ$ of the integrated truth ($\ge 60$ = never crosses
+within the rollout). $\tau_d$: same for displacement, with a \emph{relative} tolerance --- time
+the decoded distance (scalar tasks) or $2$-D position stays within $20\%$
+of the true displacement (evaluated once the true displacement exceeds
+$0.5$ units, skipping the near-zero start). A relative band is used because
+the cumulative targets are unbounded: only the leaky scalar-distance
+integrator holds to $20\%$ for the whole rollout, whereas the cumulative
+and $2$-D codes lose it within a few seconds (the cumulative ones partly
+because they leave their trained range).
+$|g_\theta\!-\!1|$: heading integration-gain error (slope of decoded vs.\
+true unwrapped heading minus $1$), the $\omega$-independent driver of
+drift. The message-passing GNN (\cref{method:GNN}) replaces the dense
+recurrent operator with per-edge $g_\phi$ and per-neuron $f_\theta$ MLPs
+over a learnable per-neuron embedding on the same connectome, gate, and
+heads as the RNN. The last two GNN rows are embedding ablations on the
+heading task --- \emph{cluster-move} (the embedding stays clustered by cell
+type but the clusters may drift during training) and \emph{frozen} (the
+embedding is held at its cell-type initialisation).}
+\label{tab:zhd_subtask_metrics}
+\end{table}
+
+\Cref{fig:zhd_evolution_both,fig:zhd_evolution_both_leaky} train on
+the joint heading-plus-forward-distance task
+($n_{\rm in}=4$, $n_{\rm out}=3$, target $(\cos\theta,\sin\theta,d)$).
+Per-frame test R² is $\ge 0.9998$ on both heading and distance for
+both variants. The constant-$\omega$ trajectory metrics over four
+sweeps give a mean heading RMSE of $33.1^\circ$ (slope ratio $0.97$)
+for the cumulative variant and $8.1^\circ$ (slope ratio $0.99$) for the
+leaky variant: \emph{the leaky-target supervision actually produces
+a sharper compass} than the cumulative-target version of the joint task
+(and is comparable to the heading-only model of
+\cref{fig:zhd_evolution_artr_pt1}). The distance head behaves
+like the translation-only models: average $d$-RMSE over the five
+constant-$v_{\mathrm{fwd}}$ sweeps is $10.9$ (cumulative) and $13.9$
+(leaky), with slope-ratio $\dot{\hat d}/\dot d$ of $0.14$ (cumulative)
+/ $0.003$ (leaky), confirming that the constant-input extrapolation
+problem of the translation-only run is task-, not input-, dependent.
+
+\Cref{fig:zhd_evolution_position2d,fig:zhd_evolution_position2d_leaky}
+train on the full 2-D path task ($n_{\rm in}=4$, $n_{\rm out}=4$,
+target $(\cos\theta,\sin\theta,x,y)$ with
+$\dot x = v_{\mathrm{fwd}}\cos\theta$,
+$\dot y = v_{\mathrm{fwd}}\sin\theta$). Heading is still recovered at
+test R² $\ge 0.994$ on the disk-stored target. The 2-D-position head
+is the harder regression: averaged over five $(\omega, v_{\mathrm{fwd}})$
+sweeps at $v_{\mathrm{fwd}}=+1$, the per-frame Euclidean RMSE between
+decoded $(\hat x,\hat y)$ and true $(x,y)$ is $2.10$ for the cumulative
+variant and $0.98$ for the leaky variant: the leaky target
+\emph{halves} the trajectory error. Mean endpoint error
+$\|(\hat x,\hat y)_T - (x,y)_T\|$ similarly drops from $3.72$ to
+$1.78$. The path-length ratio
+$\sum\|\Delta(\hat x,\hat y)\|/\sum\|\Delta(x,y)\|$ is highly
+variable across sweeps (cumulative $0.23$--$1.85$, leaky $0.28$--$0.98$),
+indicating that the absolute arc-length is unreliable on deterministic
+constant-drive probes even when the per-frame error is small. Panels
+(f)--(g) of these figures show the decoded $(x,y)$ trajectory as a
+2-D path instead of the heading time-trace.
+
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=0.9\textwidth]{\figdir/fig_evolution_zebrafish_hd_si_ipn_917_v1_position_2d_leaky.png}
+  \caption{\textbf{Trained 2-D path integrator, leaky target}
+  ($\tau_p=0.5\,$s). Panels follow \cref{fig:zhd_evolution_artr_pt1};
+  panels (f)--(g) show the decoded path $(x,y)$ in spatial coordinates on
+  the constant-$\omega$ rollout and on a held-out swim trial. The
+  cumulative-target companion and the other model dashboards are in
+  \cref{app:dashboards}.}
+  \label{fig:zhd_evolution_position2d_leaky}
+\end{figure}
+
+\label{res:gnn_subtasks}
+The same connectome-locked circuit also trains under the message-passing
+GNN of \cref{method:GNN}, which replaces the dense recurrent operator
+$\sum_j\hat W^{\mathrm{rec}}_{ij}\sigma(\hat h_j)$ with per-edge $g_\phi$
+and per-neuron $f_\theta$ MLPs over a learnable per-neuron embedding
+$\mathbf a_i$. The leak, the firing-rate nonlinearity, and the synaptic
+activation are no longer hard-coded; they must emerge from
+$(f_\theta, g_\phi, \mathbf a)$. We train the GNN on three of the
+swim-integration sub-tasks (heading-only, 2-D path with the
+cumulative target, and 2-D path with the leaky target) on the same
+on-disk dataset, the same anatomy-routed afferent gate, and the same
+heading and $(x, y)$ readout heads as the sign-locked RNN. The bottom
+block of \cref{tab:zhd_subtask_metrics} reports the per-trial Pearson
+$r$. On heading the GNN reaches $r_\theta = 0.997 \pm 0.008$, within
+the SD of the RNN baseline ($0.998 \pm 0.023$). On the harder 2-D path
+the GNN matches the RNN on the leaky target
+($\bar r_{xy} = 0.945 \pm 0.155$ vs.\ $0.945 \pm 0.152$) and slightly
+exceeds it on the cumulative target
+($0.837 \pm 0.209$ vs.\ $0.760 \pm 0.268$). Lifting the hard-coded
+leak, firing-rate nonlinearity, and synaptic activation does not
+collapse the task solution: the circuit reaches the same
+per-frame accuracy under a substantially less constrained dynamical
+parameterisation, consistent with the integration being a property of
+the connectome and the afferent partition rather than of a particular
+choice of single-cell dynamics.
+\Cref{fig:zhd_gnn_dashboard} shows the trained heading-only GNN in the
+same panel layout as \cref{fig:zhd_evolution_artr_pt1}, with an extra
+row reporting the three quantities the GNN adds over the sign-locked
+RNN: the per-neuron embedding and the two learned functions (the
+per-edge signalling function and the node update) that replace the
+fixed leak and firing-rate nonlinearity. Trained on the joint targets the
+GNN also reproduces the recurrent code: its pooled mutual information shows
+the same distributed structure as the RNN (single neurons carry little,
+the whole pool reaches the ceiling) across all four joint-target
+variants (\cref{fig:zhd_mi_partition_gnn}, the companion of
+\cref{fig:zhd_mi_partition}).
+
+
+\subsection{Population structure of the distributed self-motion code}
+\label{sec:results_four_classes}
+
+The previous sections established that the same connectome-constrained circuit
+can solve a family of self-motion integration tasks, from heading estimation to
+full $2$-D path integration. The remaining question is how these variables are
+represented within the recurrent population. In recent years, low-dimensional
+population geometry has become a common language for describing neural activity,
+with rings, manifolds, and other geometric structures routinely extracted from
+recordings. Such descriptions are often informative, but by themselves they
+remain descriptive: a geometric object observed in data does not explain why it
+exists or what computation generates it. Here we approach the problem from the
+opposite direction. We begin with a measured connectome, construct a dynamical
+model constrained by that wiring, train it to perform a defined self-motion
+computation, and only then analyse the resulting population activity. The
+geometric structure reported below is therefore not an assumption and not merely
+a compact summary of data. It is a consequence of a specific computation
+implemented by a specific recurrent circuit.
+
+This distinction is particularly important because behaviourally relevant
+variables need not coincide with the dominant directions of population variance.
+Previous work has shown that neural information can be distributed across
+low-variance dimensions of activity, rather than being confined to the leading
+principal components. Here we find an extreme example: heading dominates the
+activity variance and forms the familiar ring-attractor geometry, whereas
+translation occupies a distinct population direction that is strongly decodable
+from the full recurrent state yet largely absent from the dominant principal
+components. A variance-ranked analysis alone would therefore capture the heading
+manifold while substantially underestimating the translation representation. The
+goal of this section is to characterise how heading and translation are
+distributed across neurons, cell types, and population dimensions, and to relate
+that organisation back to the underlying connectome-constrained computation.
+
+Recall the two integrated variables the circuit reports
+(\cref{method:swim_task_modes}): the \emph{heading} (integrated angular
+self-motion) and the \emph{translation} (integrated forward self-motion: a
+$1$-D distance or a $2$-D position). We characterise the recurrent code in three
+steps: which variable each neuron carries, the population geometry that supports
+these representations, and how that geometry compares to the reduced-rank
+population modes reported by \citet{feierstein2023} in the same hindbrain
+region.
+
+For the four models trained to
+report heading together with a translation target (a $1$-D distance or a $2$-D
+path, each cumulative or leaky) we ask where each variable lives. For every
+recurrent neuron we measure the mutual information (\cref{method:MI}) its
+activity carries about heading and about translation (the radial distance
+for the $2$-D models), then decode the same two quantities from progressively
+larger \emph{groups}: each fish2 cell type, each anatomical family, and the
+whole $700$-cell GABAergic pool (the afferents, whose drive-locked MI is
+trivially high, are excluded). \Cref{fig:zhd_mi_partition}, and its
+message-passing-GNN companion \cref{fig:zhd_mi_partition_gnn}, plot all of
+these in one heading-versus-translation plane, dot area growing with group
+size.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.8\textwidth]{\figdir/fig_zebrafish_mi_partition.png}
+  \caption{\textbf{Pooled mutual information of the recurrent code: more
+  neurons, more information.} The four task models, one per panel:
+  \textbf{(a)}~heading\,$+$\,distance (cumulative),
+  \textbf{(b)}~heading\,$+$\,distance (leaky), \textbf{(c)}~2-D path
+  (cumulative), \textbf{(d)}~2-D path (leaky), all on the nominal
+  $917$-cell circuit. Each panel plots mutual information about heading
+  ($x$) against translation ($y$), in bits, on a common $0$--$4$ scale.
+  Every marker is the joint MI of a \emph{group} of recurrent neurons
+  (cross-validated decoder lower bound, \cref{eq:zhd_mi_joint_lb}; for the
+  2-D models the translation target is the joint $(x,y)$ position), with
+  \textbf{dot area growing with group size}: the faint cloud is the single
+  neurons (per-neuron plug-in MI, $n=1$, coloured by family), then one dot
+  per fish2 cell type and the whole recurrent pool (black, $n=700$). Family
+  colours: \emph{dIPN} amber, \emph{dsIPN} teal, \emph{IPN12} rose,
+  \emph{IPN-core} purple. The single-neuron plug-in MI and the group
+  decoder lower bound are different estimators (not comparable
+  point-by-point) but consistent across panels. Light grey diagonals mark
+  constant \emph{total} information --- heading MI $+$ translation MI ---
+  at each integer bit (labelled in \textbf{b}); a group's distance up the
+  diagonals is its total joint code. The family-colour key is in panel
+  \textbf{a}, the dot-size key in panel \textbf{d}.}
+  \label{fig:zhd_mi_partition}
+\end{figure}
+
+Heading and translation are represented very differently. Heading is encoded redundantly at every scale, from single neurons to the entire recurrent population. Many individual neurons are strongly heading-tuned, and any sufficiently large group decodes heading near the $\approx 3.7$-bit ceiling. Translation depends strongly on the task. For the 1-D forward-distance target (\cref{fig:zhd_mi_partition}\textbf{a},\textbf{b}), some individual neurons are distance-tuned and the per-neuron cloud extends above $1$ bit on the translation axis. For the 2-D path-integration target (\cref{fig:zhd_mi_partition}\textbf{c},\textbf{d}), however, essentially no single neuron carries substantial position information (per-neuron translation information $\approx 0$), yet the recurrent population as a whole decodes position near the information ceiling ($\approx 3.4$ bits), consistent with the path-integration accuracy of the network ($\bar r_{xy}=0.95$, \cref{tab:zhd_subtask_metrics}).\footnote{This agreement is a consistency check rather than an exact identity. For jointly Gaussian variables with correlation $\rho$, $I=-\tfrac12\log_2(1-\rho^2)$. Two approximately independent position coordinates each decoded at $\rho\approx0.95$ yield $\approx3.4$ bits, while the heading coordinate decoded at $\rho\approx0.997$ yields $\approx3.7$ bits.} The 2-D position estimate is therefore represented as a genuinely distributed population code: it is readily recoverable from the population yet largely absent at the level of individual neurons.
+
+This division is computational rather than anatomical. No recurrent family occupies a distinct region of the heading-versus-translation information plane of \cref{fig:zhd_mi_partition}. All four GABAergic families (\emph{dIPN}, \emph{dsIPN}, \emph{IPN12}, \emph{IPN-core}) contribute to both variables with only modest biases, despite the fact that heading and translation enter through anatomically distinct afferent pathways (\cref{fig:zhd_3d}\textbf{c}). The recurrent computation therefore mixes the two streams rather than preserving the input partition. The code is also highly redundant. Pooled information grows only logarithmically with group size ($I_{\mathrm{group}}\approx a+b\log_{10}N$, with $b\approx0.80$ bits/decade for heading and $0.93$ bits/decade for translation; \cref{fig:zhd_mi_grouped}), indicating strong overlap between neurons. The full $700$-cell recurrent pool already lies close to saturation, so adding additional neurons contributes little extra information. The message-passing GNN reproduces the same qualitative organisation (\cref{fig:zhd_mi_partition_gnn}).
+
+
+\begin{figure}[t!]
+  \centering
+  \includegraphics[width=\textwidth]{\figdir/fig_zebrafish_distributed_code.png}
+  \caption{\textbf{Heading forms a dominant ring manifold, whereas translation
+  emerges as a distributed population code occupying a different population
+  direction.} Recurrent firing rates over held-out swim rollouts; panels
+  \textbf{a}--\textbf{e} use the $2$-D-path model, \textbf{f} all four
+  joint-target models, which share one neuron basis.
+  \textbf{(a)}~The population projected onto its two heading axes, coloured by
+  true heading: a clean ring attractor (participation ratio and cross-validated
+  heading decode annotated).
+  \textbf{(b)}~The same population in a $3$-D frame built from the two heading
+  axes and the translation axis orthogonal to the heading plane, coloured by
+  true distance: the translation axis lifts almost vertically out of the
+  heading ring (their principal angle annotated), i.e.\ translation occupies a
+  distinct population direction.
+  \textbf{(c)}~Translation information (cross-validated decoder lower bound)
+  against group size, from single neurons through cell types and anatomical
+  families to the whole recurrent pool (colours mark families; dashed line, the
+  logarithmic trend). Single neurons carry little $2$-D position information; the
+  whole pool carries it near the entropy ceiling, an order of magnitude more.
+  \textbf{(d)}~Translation decode $R^2$ against the number of \emph{top-variance}
+  principal components retained (curves, the two $2$-D models; star, the
+  variance-matched top-$2$ components) versus the task-tuned readout the network
+  actually learns (dotted line). The estimate is rank-$2$-readable but oriented
+  away from the directions of greatest activity: important does not mean
+  high-variance.
+  \textbf{(e)}~Reduced-rank regression after \citet{feierstein2023}: every
+  neuron in the plane of its heading-feature and translation-feature loadings,
+  coloured by population. The exteroceptive translation afferent loads on the
+  translation axis and the two halves of the heading afferent split along
+  $\pm$ heading --- three clusters as in their data, here \emph{built in} by the
+  anatomy-routed input gate and L/R sign-lock --- while the recurrent pool (the
+  emergent part) forms a mixed cloud through the centre.
+  \textbf{(f)}~Cross-task geometry: the heading ring is reused across tasks
+  (small mean principal angle) while the translation subspace rotates from the
+  $1$-D distance axis to the $2$-D path plane (measured angles annotated).}
+  \label{fig:zhd_distributed_code}
+\end{figure}
+
+Projecting the recurrent activity onto its principal axes reveals a strikingly low-dimensional population geometry: across all four task variants the participation ratio is only $3.2$--$4.7$ and $90\%$ of the variance is contained within $5$--$8$ dimensions, despite the recurrent population containing roughly $700$ neurons. The self-motion estimate therefore occupies a compact low-dimensional manifold. A targeted dimensionality reduction based on the task variables separates this manifold into two dominant components. A heading subspace carries most of the variance and forms a clean ring as heading sweeps through $360^\circ$ (\cref{fig:zhd_distributed_code}\textbf{a}). A second translation-related subspace lies nearly orthogonal to the heading ring (principal angle $84^\circ$--$89^\circ$ for the $1$-D-distance models and $68^\circ$--$86^\circ$ for the $2$-D-path models; the two position axes are themselves approximately orthogonal, $71^\circ$--$82^\circ$). Projected into a $3$-D frame spanned by the two heading axes and the translation axis, the population traces a ring in the heading plane while the translation direction lifts almost vertically out of it (\cref{fig:zhd_distributed_code}\textbf{b}), making the orthogonality directly visible.
+
+This geometric separation explains the contrast between the single-neuron and population-level analyses. The heading estimate is visible at the level of individual neurons, whereas the $2$-D position estimate is primarily a population-level quantity: single neurons carry little information about the planar position, but pooling cell types, then anatomical families, then the whole recurrent pool lifts the decodable translation information by an order of magnitude, up towards the entropy ceiling (\cref{fig:zhd_distributed_code}\textbf{c}). A linear decoder restricted to the top two principal components recovers the $2$-D position poorly ($R^2\approx0.01$--$0.06$), whereas the task-trained readout learned by the network recovers it almost perfectly ($R^2\approx0.99$; \cref{fig:zhd_distributed_code}\textbf{d}). Thus the position estimate is encoded in a low-dimensional subspace that is not aligned with the directions of greatest activity variance. Translation is therefore readily decodable from the population yet difficult to recover from either single neurons or variance-ranked dimensionality reduction alone. A notable feature is that the heading geometry is conserved across tasks whereas the translation geometry is not. The heading ring remains largely unchanged between the distance and 2-D-path tasks, while the translation subspace rotates substantially (\cref{fig:zhd_distributed_code}\textbf{f}). The recurrent circuit therefore appears to reuse a common heading scaffold while adapting the representation of translation to the demands of the task.
+
+
+Because the four models share one neuron basis, their subspaces can be compared
+directly (\cref{fig:zhd_distributed_code}\textbf{f}). The heading subspace is
+conserved across all four tasks (cross-task principal angles $10$--$30^\circ$,
+nearly identical between the cumulative and leaky variants), whereas the
+translation subspace rotates as the task grows: the $1$-D-distance axis sits
+$60$--$67^\circ$ from the $2$-D-path plane, and the two $2$-D subspaces differ
+by ${\approx}50^\circ$ between cumulative and leaky. The circuit reuses a
+single heading ring as a stable scaffold and re-orients a separate
+translation subspace for each task. The message-passing GNN reproduces this
+within-model geometry: low-dimensional ($\mathrm{PR}\approx5$--$11$),
+near-orthogonal heading and translation axes ($83$--$87^\circ$), translation
+invisible to the top two modes ($R^2\!\approx\!0.02$--$0.06$) yet
+rank-2-readable ($R^2\!\approx\!0.998$). The geometry is therefore a property of
+the connectome-locked computation, not of the single-cell parameterisation.
+
+\Citet{feierstein2023} analysed this hindbrain with reduced-rank regression
+and found that behaviour-related activity collapses onto an effectively
+two-dimensional subspace: one vergence / translation-plus-swim mode and one
+rotation mode (their term for the angular self-motion we call heading), with
+neurons separating by their loadings into a translation cluster and two
+left / right rotation clusters that segregate to opposite hemispheres. Running
+the identical analysis on the model (population activity regressed on
+time-shifted behavioural regressors grouped into a translation and a heading
+family) recovers the same low-dimensional behaviour subspace, whose two
+dominant features split cleanly into a \emph{heading} feature (loading on
+angular velocity and heading) and a \emph{translation} feature (loading on
+forward velocity, swim, and displacement), the model's two behavioural modes.
+In the plane of these two feature loadings the regression finds the same clean
+three-cluster, hemispherically-split organisation \citet{feierstein2023}
+report: the exteroceptive translation afferent loads on the translation axis,
+the heading afferent on the heading axis with its two halves carrying
+opposite-signed angular-velocity weights, while the recurrent pool forms a
+mixed cloud through the centre (\cref{fig:zhd_distributed_code}\textbf{e}).
+This separation, however, is
+\emph{built in}, not discovered: the input gate routes the angular drive only
+to the heading afferent and the forward drive only to the translation
+afferent, with the heading afferent's two halves sign-locked to opposite
+polarity (\cref{method:input_extended}). The regression at those cells
+therefore reads the imposed wiring back out, a positive control that the
+analysis recovers the input organisation we built in, which is itself the
+anatomical organisation \citet{feierstein2023} describe and which is precisely
+why we route the gate that way. The \emph{emergent} result is what the
+recurrent integrator does with these cleanly separated inputs: it does
+\emph{not} inherit their separation. Its neurons are mixed, with
+heading-minus-translation selectivity near zero, the population-level echo
+of the distributed code above. So where imaging of the (largely afferent /
+sensorimotor) hindbrain reveals separate translation and rotation populations,
+the connectome-locked recurrent computation \emph{downstream} of those inputs
+distributes heading and translation across a shared, low-dimensional manifold
+rather than segregating them. That mixing, not the imposed afferent split,
+is the model's prediction, and the explicit geometric account of what
+``distributed'' means here that \cref{out:manifold} called for.
+
+\subsection{Task accuracy does not imply realistic activity}
+\label{sec:results_task_vs_activity}
+Solving the task is not the same as matching the brain. Driven by the
+recorded stimulus, the task-only circuit decodes heading well yet produces
+calcium quite unlike the recording. This is the core degeneracy that a
+connectome plus a task loss leaves unresolved, since many circuits realise
+the same computation with different activity. A calcium-observation loss
+that pulls predicted activity toward the recording partially closes this
+gap, and the fish's own behaviour bounds how far any such model can reach.
+We develop these observation-matching experiments (the task-only
+baseline, the behavioural covariates, the observation-loss sweep, and the
+proprioceptive 2-D variant under calcium supervision) in
+\cref{app:calcium}; the discussion and outlook below build on them.
+
+
+\subsection{ARTR: opponent L/R gate and the origin of the oscillation}
+\label{sec:results_artr}
+
+The angular afferent pool (ARTR; \cref{tab:zhd_mapping}) is the anterior
+rhombencephalic turning region of \citet{dunn2016artr}, defined biologically
+by a slow ($\sim$10--20\,s) antiphase oscillation between its left and right
+clusters that biases successive swim bouts. We ask three things of the
+connectome-locked model: whether it reproduces the L/R opponency, what
+generates the alternation, and whether the rhythm is intrinsic or inherited.
+Every diagnostic is shown for the three heading decoders of
+\cref{sec:results_decoder} together (the linear
+$(\cos\theta,\sin\theta)$ readout, the $64$-bin localist readout, and the
+nonlinear MLP), so any decoder dependence is visible at a glance.
+
+The recorded L/R anti-correlation is not imposed by the heading task. Trained
+unconstrained, the angular gate converges to a same-sign solution that
+integrates heading equally well but drives both hemispheres in phase. Locking
+the gate to opposite polarity (left $\le 0$, right $\ge 0$, magnitudes free)
+restores opponency at no cost to accuracy; the non-directional channels
+(forward vigour, luminance) carry no lock.Band-splitting the L/R population means at a $16$\,s period separates two
+components (\cref{fig:zhd_artr_kino}). The slow band ($>16$\,s) is the
+turn-block: antiphase and command-locked in both data ($r_{LR}=-0.57$) and
+model ($-0.96$). The fast band ($<16$\,s) is the heading-bump carrier at the
+rotation period $360/|\omega|$; it is L/R phase-locked in the model
+($|r_{LR}|=0.90$) but incoherent and left-lateralised in the recording
+($r_{LR}=+0.03$). An inherited carrier is necessarily L/R-locked, so the
+recorded fast band is a graded mix: an inherited carrier plus a
+cell-specific component at or below the imaging-SNR floor. The modelled ARTR
+is antiphase and command-locked under all three decoders; the opponency is
+strongest for the linear readout and weaker but preserved for the bin and MLP
+readouts (whole-trace $r_{LR}=-0.93$, $-0.59$, $-0.53$), so the decoder leaves
+a measurable imprint without changing the qualitative picture. 
+
+An intrinsic oscillator has a period set by its own time constants
+(invariant to the drive, and sustained without it), whereas an inherited one
+tracks the drive and stops with it. Under a constant-$\omega$ sweep the ARTR
+period tracks the bump period $360/|\omega|$ while its amplitude stays roughly
+constant, for all three decoders (\cref{fig:zhd_artr_oscillation}): the
+signature of a carrier slaved to the rotating heading bump, not a clock with
+its own frequency. This is structural: the modelled ARTR is all-excitatory
+with a single fast time constant, so it latches rather than oscillates. An
+intrinsic rhythm would need recurrent left$\leftrightarrow$right inhibition
+(for bistability) and a slow adaptation variable (to set the $\sim$10--20\,s
+period), neither of which the connectome-locked circuit contains.
+
+The decisive test removes the command: the ZAPBench session runs a rotation
+block straight into darkness in the same fish. Driven identically (recorded
+$\omega$, then zero input), the recorded ARTR keeps alternating in the dark
+($|L-R|$ std $=0.72$) while the model is near-flat ($0.14$,
+$\sim$5$\times$ smaller; \cref{fig:zhd_artr_dark}); a zero-input free-run from
+a small perturbation decays to a fixed point for every decoder
+(amplitude $<0.006$), confirming the model carries no self-sustained
+oscillation. The recording carries an intrinsic dark-state rhythm
+\citep{dunn2016artr} that the command-driven model lacks. This is a
+prediction--data gap that names the missing ingredients (recurrent inhibition
+$+$ slow adaptation) and a falsifiable target for future work
+(\cref{out:oscillation}).
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\textwidth]{\figdir/fig_zebrafish_artr_kinograph_decoders.png}
+  \caption{\textbf{Recorded versus modelled ARTR across the three heading
+  decoders.} Recorded ARTR neurons matched to their model counterparts and
+  grouped by hemisphere (L block below the white divider), the model driven by
+  the recorded $\omega$ and GCaMP-convolved. Columns: recorded $\Delta F/F$,
+  then the model under the linear $(\cos\theta,\sin\theta)$, $64$-bin, and
+  nonlinear MLP decoders.
+  \textbf{(a)}~Recorded angular drive $\omega(t)$, a square-wave rotation
+  command, shared across columns.
+  \textbf{(b)}~Per-row $z$-scored kinographs; $r_{LR}$ is the L/R
+  population-mean correlation.
+  \textbf{(c, d)}~Per-hemisphere band decomposition of the population mean ---
+  ARTR$_L$ (\textbf{c}, red) and ARTR$_R$ (\textbf{d}, blue) --- each an offset
+  stack of the full trace (sum), its slow band (period $>16$\,s, the
+  turn-block) and its fast band ($<16$\,s, the bump carrier), so that
+  sum $=$ slow $+$ fast. The slow- and fast-band L/R correlations are annotated
+  above each ARTR$_L$ panel: the recorded fast band is incoherent
+  ($r_{LR}=+0.03$) whereas the modelled fast band is L/R phase-locked.}
+  \label{fig:zhd_artr_kino}
+\end{figure}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.85\textwidth]{\figdir/fig_zebrafish_artr_oscillation_decoders.png}
+  \caption{\textbf{ARTR oscillation diagnostic across the three heading
+  decoders} (sign-constrained $917$-cell model, recorded $\omega$; the linear
+  $(\cos\theta,\sin\theta)$, $64$-bin and MLP decoders overlaid).
+  \textbf{(a)}~Dominant ARTR oscillation period versus constant $\omega$,
+  against the bump-rotation period $360/|\omega|$ (dashed).
+  \textbf{(b)}~ARTR oscillation amplitude (std of the population mean) versus
+  constant $\omega$. The period tracks the bump and the amplitude stays
+  roughly constant for all three decoders --- the inherited-carrier signature,
+  independent of the readout.}
+  \label{fig:zhd_artr_oscillation}
+\end{figure}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\textwidth]{\figdir/fig_zebrafish_artr_dark.png}
+  \caption{\textbf{ARTR at the rotation$\to$dark transition.} The continuous
+  ZAPBench \emph{open loop} $\to$ \emph{rotation} $\to$ \emph{dark} blocks; the
+  model is driven with the recorded rotation $\omega$ followed by zero input
+  (dark block, shaded). \textbf{(a)}~Angular drive $\omega(t)$: zero in open
+  loop, the $\pm30^\circ/$s square wave in rotation, zero in dark.
+  \textbf{(b)}~Recorded ARTR L/R population mean (ARTR$_L$ red, ARTR$_R$ blue),
+  normalised. \textbf{(c)}~Model ARTR L/R population mean, normalised.
+  \textbf{(d, e)}~Recorded and modelled ARTR kinographs (per-row $z$-scored, L
+  block below the white divider; dashed lines mark the rotation and dark
+  onsets).}
+  \label{fig:zhd_artr_dark}
+\end{figure}
+
+
+\section{Discussion}
+\label{sec:discussion}
+
+Taken together, the four results establish a single claim: a circuit whose
+recurrent wiring is \emph{fixed} to the measured larval connectome (only
+the edge magnitudes, the afferent gate, and the readout are free) can be
+trained to perform the navigational computations the inferior--peduncular
+region is thought to support, and the resulting model is informative about
+\emph{how} the wiring does so.
+
+First, the sign-locked circuit learns a near-unit-gain heading integrator
+on the nominal connectome (\cref{sec:results_evolution}): a single
+travelling activity peak tracks heading across held-out swims and
+constant-drive sweeps. That integrator is a property of the recurrent
+substrate, not of the observer reading it out: a localist ring, a
+linear, and a nonlinear readout all recover the same dynamics, the only
+caveat being that an over-flexible readout must be paced so the integrator
+forms first (\cref{sec:results_decoder}). The same circuit, given two
+anatomically distinct angular afferents, maintains a running
+sensory-vs-proprioceptive \emph{difference} rather than echoing either
+stream, a connectome-locked forward-model error signal
+(\cref{sec:results_mismatch}).
+
+Second, the circuit integrates heading together with translation, but
+per-frame accuracy alone cannot decide \emph{which} translation the larval
+brain performs: leaky and cumulative integrators, and 1-D distance versus
+2-D path, all fit the swim statistics about equally well, so the choice
+must be made on biological grounds rather than on fit quality
+(\cref{sec:results_variants}). The biology points two ways. Leaky versus
+cumulative is not a binary: a perfectly cumulative integrator demands a
+marginally stable line attractor with exactly unit feedback, which is not
+physically realisable \citep{seung1996,khona2022}, and the persistence time
+constant of the goldfish and zebrafish oculomotor integrators is itself
+detuned and retuned by feedback \citep{major2004,goncalves2014}; our
+cumulative runs already drift toward a leaky solution, so the realistic
+configuration is asymmetric: a near-lossless, topologically stabilised
+heading ring \citep{kim2017,chaudhuri2019} alongside finite-time-constant,
+leaky translation. The 2-D-versus-distance axis stays open: only the 2-D
+target couples translation to the internally maintained heading, the
+defining feature of true path integration, demonstrated by vector summation
+in the fly central complex \citep{lyu2022}; the model's 2-D success
+therefore states what the wiring \emph{can compute}, not that this circuit
+holds an allocentric place code, which is established in the larval
+telencephalon \citep{yang2024} but not in the hindbrain circuit we model.
+Third, the recurrent code that supports this
+is distributed and saturated: heading is encoded redundantly down to single
+cells, the 2-D position only collectively (no neuron carries it, yet the
+population decodes it near the information ceiling), and the split between
+the two is set by the recurrent computation, not read off the cleanly
+separated afferents, with pooled information growing only logarithmically in
+neuron number (\cref{sec:results_four_classes}). Fourth, solving the task is
+not the same as reproducing the brain: a connectome plus a task loss leaves
+a genuine activity degeneracy that a calcium-observation loss only partially
+closes, with the fish's own unmodelled behaviour setting the ceiling
+(\cref{sec:results_task_vs_activity}).
+
+These four results are one finding seen four times. The connectome fixes
+\emph{that} the circuit integrates self-motion --- the topology and signs of
+the recurrent pool make a heading integrator the natural solution --- but it
+underdetermines almost everything else about the implementation. It
+underdetermines the \emph{weights}: many sign-consistent edge-magnitude
+configurations fit the same task equally well (\cref{sec:results_decoder}), and
+the calcium-observation loss narrows but does not collapse this fold
+(\cref{sec:results_obs_baseline}). It underdetermines the \emph{integrator
+form}: leaky versus cumulative, and $1$-D distance versus $2$-D path, are
+indistinguishable on per-frame fit and must be decided on biological grounds
+(\cref{sec:results_variants}). It underdetermines the \emph{readout}: a
+localist ring, a linear, and a nonlinear decoder all recover the same
+underlying dynamics (\cref{sec:results_decoder}). And it underdetermines the
+\emph{activity}: a circuit that solves the task perfectly can still produce
+calcium quite unlike the recording (\cref{sec:results_task_vs_activity}). These
+are not four separate caveats but four faces of a single underdetermination ---
+the connectome constrains the computation far more tightly than it constrains
+the weights, the dynamical form, the code that reads it, or the activity that
+realises it. Naming and measuring that gap, rather than any single
+task-solving result, is what this paper contributes.
+
+\section{Outlook: which circuit properties are necessary, sufficient,
+and biologically meaningful?}
+\label{sec:outlook_future}
+
+Three findings already in this paper are, we believe, its most
+consequential, and each is a falsifiable structural prediction rather than a
+reproduction of known physiology:
+
+\begin{itemize}
+\item \textbf{The afferents are separated; the recurrent code is mixed.}
+  \Citet{feierstein2023} see distinct rotation and translation populations in
+  the imaged hindbrain. The model places that separation at the \emph{input}:
+  the angular and translational drives enter through anatomically distinct,
+  sign-locked ports, while the recurrent integrator downstream mixes them onto
+  a single low-dimensional manifold whose neurons carry both variables with
+  only a graded bias (\cref{sec:results_four_classes}). The clean peripheral
+  split is therefore an afferent property, not a property of the computation it
+  feeds. This yields a direct prediction: imaging deeper into the recurrent
+  pool should reveal mixed heading/translation selectivity, not the clean
+  rotation/translation segregation reported at the periphery. The result
+  reframes the imaging account rather than merely reproducing it.
+\item \textbf{The two-dimensional translation code has no single-cell
+  signature yet decodes near ceiling.} No neuron carries the planar position
+  (per-neuron translation information $\approx\!0$), yet the population recovers
+  it at $\approx\!3.4$ bits, on a low-variance subspace nearly orthogonal to
+  the dominant heading ring and invisible to variance-ranked dimensionality
+  reduction (\cref{fig:zhd_distributed_code}). This is a
+  concrete, surprising claim about how a vertebrate circuit can hide a position
+  code in plain sight, and it comes with its own test: the same subspace
+  geometry should be recoverable from the recorded recurrent activity, not only
+  from the trained model.
+\item \textbf{The opponent code is reproduced; the intrinsic oscillator is
+  not.} The connectome-locked circuit captures the ARTR's left/right opponent
+  organisation but reproduces its fast alternation only while driven, going
+  near-flat in darkness where the recording keeps oscillating ($|L\!-\!R|$ std
+  $0.72$ recorded vs.\ $0.14$ model; \cref{fig:zhd_artr_dark}). The dissociation
+  names the missing biology --- recurrent left$\leftrightarrow$right inhibition
+  plus a slow adaptation variable --- and is a negative result that specifies a
+  mechanism, which constrains the circuit more sharply than a positive
+  capability claim would.
+\end{itemize}
+
+These three points motivate the directions below. The results otherwise leave
+open the harder question of \emph{what about this particular network} is
+actually doing the work. Nine directions follow directly from the experiments
+already in this paper and together would convert the present existence proof
+into a structural account of the computation.
+
+\paragraph{Is the connectome necessary, and at what E/I ratio?}\label{out:necessary}\label{out:ei}
+Re-training the same task family on random networks matched for size,
+density, weight scale and E/I ratio (and on systematically rewired
+versions of the measured connectome) isolates how much of the observed
+performance comes from the wiring as opposed to the network's capacity. The
+expected gradient (intact $\to$ degree-preserved rewiring $\to$
+Erd\H{o}s--R\'enyi at matched density) speaks to whether the larval brain's
+connectivity is computationally efficient or merely sufficient. The same
+nulls also probe the E/I dimension: the recurrent pool is predominantly
+inhibitory, and the v1 vs v2 connectome variants flip the \emph{IPN12} sign
+while leaving every other edge fixed. Sweeping a controlled inhibitory
+fraction at constant density and re-fitting the joint swim-integration task
+would identify the window inside which both heading and forward distance
+remain decodable, and how close the measured ratio sits to its centre. We
+build these size-, density- and weight-scale-matched random null
+connectomes (an inhibitory-fraction sweep together with ten replicates
+matched to the measured E/I ratio) in \cref{app:er_null}
+(\cref{fig:zhd_er_connectomes}).
+
+\paragraph{What structure carries the computation --- how sparse, and
+how divided?}\label{out:sparsity}\label{out:mixed} Two complementary
+cuts probe how the trained recurrent pool actually does the work. An
+edge-pruning sweep against the trained both / position-2D models, scoring
+the task error as edges are removed in order of magnitude, gives the
+sparsity floor below which integration fails, distinguishes a smoothly
+degrading regime (graceful) from a brittle one (a cliff at a critical
+sparsity), and identifies the small core of edges that carries the
+computation. A finer per-neuron mutual-information analysis on
+$\hat\theta$, $\hat d$, and their interaction (refining the coarse
+angular/displacement partition of \cref{sec:results_four_classes})
+would then say whether that core resolves into disjoint heading and
+distance subpopulations or relies on neurons that jointly encode both,
+and whether mixed selectivity emerges only when the task complexity
+demands it.
+
+\paragraph{How much does calcium supervision reduce solution
+degeneracy?}\label{out:degeneracy} The observation loss already shifts each model toward a
+small neighbourhood of recordings-consistent solutions
+(\cref{sec:results_obs_sweep}). Training $K$ independent seeds with
+$\lambda_{\mathrm{obs}} = 0$ and again with $\lambda_{\mathrm{obs}}
+> 0$ and comparing the spread of $W^{\mathrm{rec}}$, $W^{\mathrm{in}}$,
+$W^{\mathrm{out}}$, and the resulting per-cell tuning would quantify
+how much identifiability the observation loss adds beyond the
+connectome support and the task loss alone.
+
+\paragraph{Exteroceptive vs proprioceptive translation.}\label{out:proprio} The
+proprioceptive variant (\cref{method:proprioception}) routes
+$v_{\mathrm{fwd}}$ through motor-efferent cells in parallel with the
+exteroceptive (pt-IPN1) pathway. Ablating each pathway in turn at
+test time (on the same trained circuit) decomposes the
+translation drive into the two physiologically distinct sources and
+predicts which calcium signatures should disappear under selective
+silencing of either limb, providing a directly testable bridge to
+in-vivo perturbation experiments.
+
+\paragraph{What \emph{is} the distributed translation code?}\label{out:manifold}
+\Cref{sec:results_four_classes} now answers the geometric form of this
+question: the place estimate lives on a low-dimensional manifold (participation
+ratio $3$--$5$) as a low-variance translation subspace nearly orthogonal to a
+dominant heading ring, rank-2-readable by a task-tuned but not a
+variance-aligned readout, with the heading ring reused and the translation
+subspace rotated as the task moves from $1$-D distance to a $2$-D path; the
+same reduced-rank analysis \citet{feierstein2023} applied to the imaged
+hindbrain recovers separate rotation and translation modes at the afferents
+that the recurrent integrator then mixes. What remains open is the
+\emph{dynamical} side of this geometry: how trajectories move on the manifold
+during a swim bout, whether the translation subspace is a true line / plane
+attractor or a transient, and (the decisive test) whether the same
+subspace geometry is recoverable from the \emph{recorded} dIPN activity rather
+than only from the trained model, which would tie the account to the biology
+directly.
+
+\paragraph{Do latent translation variables emerge without translation
+supervision?}\label{out:latent_translation}
+The geometry analysis suggests that translation occupies a population subspace
+distinct from the dominant heading ring, but it remains unclear whether this
+representation is induced by translation supervision or already present in the
+connectome-constrained dynamics. A direct control is to train the circuit on
+heading alone while retaining the forward-velocity input and then decode
+distance and position from the recurrent state. Preliminary experiments
+indicate that a heading-only model already carries partially decodable distance
+and 2-D position information despite never being supervised on either quantity.
+However, current integral-versus-leaky-filter tests favour a short-timescale
+trace rather than a stable accumulated estimate, suggesting that the latent
+signal may reflect a recurrent memory of forward velocity rather than a true
+path integrator. Resolving this distinction requires fully converged
+heading-only models, replication across random seeds, and comparison against
+matched Erd\H{o}s--R\'enyi null connectomes. Together, these controls would
+distinguish translation signals inherited from the inputs, translation
+representations induced by supervision, and latent computations that emerge
+naturally from the measured recurrent wiring.
+
+A further sharpening tracks this signal as training proceeds. Because any
+recurrent network passively low-pass-filters its forward-velocity input, a
+leaky-filtered distance is decodable from the recurrent state \emph{by
+construction} --- a matched random null already yields it at initialisation ---
+so a positive explained variance for the leaky trace is uninformative on its
+own. The discriminating quantity is instead the \emph{gap} between the explained
+variance of the true cumulative integral and that of the leaky filter,
+$R^2_{\mathrm{int}}-R^2_{\mathrm{leaky}}$, followed as a function of training
+epoch. The signature of a genuinely emergent integrator would be that this gap
+\emph{grows} over the course of heading training in the measured connectome but
+not in the matched random control: the passive velocity echo present at
+initialisation giving way to a stable accumulated estimate that the specific
+measured wiring, and not generic recurrence, is able to build.
+
+\paragraph{How and why are the fast oscillations generated --- and do they
+drive heading?}\label{out:oscillation} The recorded ARTR carries a fast hemispheric alternation
+that the connectome-locked model reproduces only while driven and loses in
+darkness (\cref{fig:zhd_artr_oscillation,fig:zhd_artr_dark}): in the model
+the oscillation is \emph{inherited}, not intrinsic. Whether the biological
+rhythm is generated locally (by recurrent left$\leftrightarrow$right
+inhibition plus a slow adaptation variable) or inherited from upstream,
+and, crucially, whether it \emph{drives} the heading estimate or merely
+rides on it, is unresolved. Adding the two missing ingredients to the
+connectome-locked circuit and asking whether a self-sustained oscillation
+then emerges, and whether suppressing it degrades integration, would test
+both its origin and its causal role.
+
+\paragraph{Can the recording be recovered by injecting a learned drive?}\label{out:inr}
+The calcium reconstruction is bounded from above by signals the model never
+sees, chiefly the fish's own behaviour (\cref{sec:results_unmodeled}).
+Rather than hand-craft those inputs, one could \emph{learn} the missing
+drive as a continuous implicit neural representation (an INR mapping time,
+or behavioural state, to an injected proprioceptive / efference signal)
+trained jointly with the observation loss so that the connectome-locked
+circuit reproduces the recorded activity. If a low-dimensional learned
+drive closes the remaining gap, it would both name the behavioural variable
+the circuit is tracking and give a generative model of the recording; if it
+does not, the residual marks structure the connectome-locked dynamics
+genuinely cannot produce.
+
+\paragraph{Why is heading easily decoded in the model but not in the
+recording?}\label{out:decodability}
+One of the most striking discrepancies in this study is that heading is almost
+perfectly decodable from the connectome-constrained models yet remains difficult
+to recover from the recorded ZAPBench calcium activity. At least four
+explanations are possible. First, the observable itself may destroy much of the
+signal: calcium kinetics, low imaging rates, and partial observation of the
+circuit substantially degrade heading decoding even in the model. Second,
+heading may be represented dynamically rather than instantaneously, so that it
+is recoverable from population trajectories or temporal windows but not from
+single calcium frames. Third, the stimulus-defined heading used in the model may
+not be the variable represented most faithfully by the biological circuit, which
+could instead track internal estimates of self-motion, motor state, uncertainty,
+or other latent quantities. Fourth, the model may be too clean: training
+explicitly optimises heading, whereas the biological population simultaneously
+represents multiple sensory, motor, and internal-state variables, diluting any
+single decodable signal. Distinguishing between these possibilities requires
+moving beyond frame-by-frame decoding and comparing alternative behavioural and
+latent variables against the recorded activity. More generally, this discrepancy
+highlights the central inverse-problem question of the paper: a computation may
+be obvious in a mechanistic model yet remain difficult to identify from the
+experimentally accessible observable.
+
+\appendix
+\section{Supplementary figures: training dashboards}
+\label{app:dashboards}
+The connectome-locked training dashboards for the model variants of \cref{sec:results}, in the same panel layout as \cref{fig:zhd_evolution_artr_pt1}.
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=0.9\textwidth]{\figdir/fig_evolution_zebrafish_hd_si_ipn_917_v1_selfmotion_rotation_kbins.png}
+  \caption{\textbf{Heading integrator with a $64$-bin softmax decoder.}
+  Same circuit and heading task as \cref{fig:zhd_evolution_artr_pt1},
+  with the linear $(\cos\theta,\sin\theta)$ readout replaced by a
+  $64$-bin heading-bin readout ($n_{\mathrm{out}}=64$). Panels
+  \textbf{(a)}--\textbf{(e)} follow \cref{fig:zhd_evolution_artr_pt1}
+  (GT and learned $\hat W^{\mathrm{rec}}$, per-edge weight scatter,
+  all-neuron and dIPN kinographs). \textbf{(f)}~Constant-$\omega$
+  rollout: $\omega(t)$ and the bin-decoded heading vs.\ truth.
+  \textbf{(g)}~Held-out swim trial, same overlay. \textbf{(h)}~The
+  $64$-bin softmax readout over the rollout (bin index vs.\ time; the
+  diagonal band is the travelling heading estimate, GT bin overlaid).
+  \textbf{(i)}~Five held-out trials and \textbf{(j)}~five constant-$\omega$
+  sweeps, bin-decoded heading vs.\ truth.}
+  \label{fig:zhd_evolution_kbins}
+\end{figure}
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=0.9\textwidth]{\figdir/fig_evolution_zebrafish_hd_si_ipn_917_v1_propriocep_mismatch.png}
+  \caption{\textbf{Trained proprioceptive-gain mismatch integrator.}
+  Sign-locked $917$-cell RNN on the proprioception circuit
+  (\cref{fig:zhd_3d}\textbf{d}), driven by the $5$-channel proprioception
+  input and supervised on $(\cos\theta,\sin\theta,m)$ with $m$ the
+  integrated mismatch (\cref{method:mismatch}). Panels
+  \textbf{(a)}--\textbf{(e)} and \textbf{(h)} follow
+  \cref{fig:zhd_evolution_artr_pt1} (GT and learned
+  $\hat W^{\mathrm{rec}}$, per-edge weight scatter, all-neuron and dIPN
+  kinographs, integration-gain scatter).
+  \textbf{(f)}~Constant-$\omega$ deterministic rollout: $\omega(t)$ and
+  decoded vs.\ true heading.
+  \textbf{(g)}~Mismatch rollout --- top: the sensory $\omega$ and the
+  proprioceptive $\omega_{\mathrm{proprio}}=g\,\omega$; middle: the two
+  diverging integral paths $\int\omega$ and $\int\omega_{\mathrm{proprio}}$;
+  bottom: decoded (black) vs.\ true (green) integrated mismatch $m$.
+  \textbf{(i)}~Five held-out swim trials, decoded vs.\ true heading.
+  \textbf{(j)}~The same trials, decoded vs.\ true integrated mismatch
+  $m$ --- the companion of panel \textbf{g} over multiple trials.
+  \textbf{(k)}~Constant-$\omega$ deterministic heading sweeps.}
+  \label{fig:zhd_evolution_mismatch}
+\end{figure}
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=0.9\textwidth]{\figdir/fig_evolution_zebrafish_hd_si_ipn_917_v1_selfmotion_both.png}
+  \caption{\textbf{Trained heading $+$ distance integrator,
+  cumulative target.} Same panel layout as
+  \cref{fig:zhd_evolution_artr_pt1}; panel (g) overlays the GT and
+  decoded forward-distance trace below the heading components.}
+  \label{fig:zhd_evolution_both}
+\end{figure}
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=0.9\textwidth]{\figdir/fig_evolution_zebrafish_hd_si_ipn_917_v1_selfmotion_both_leaky.png}
+  \caption{\textbf{Trained heading $+$ distance integrator,
+  leaky target} ($\tau_d=0.5\,$s). Same panel layout as
+  \cref{fig:zhd_evolution_both}.}
+  \label{fig:zhd_evolution_both_leaky}
+\end{figure}
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=0.9\textwidth]{\figdir/fig_evolution_zebrafish_hd_si_ipn_917_v1_position_2d.png}
+  \caption{\textbf{Trained 2-D path integrator, cumulative target.}
+  Panels (a)--(e), (h)--(i) follow \cref{fig:zhd_evolution_artr_pt1};
+  panels (f)--(g) show the decoded path $(x,y)$ in spatial coordinates
+  on the constant-$\omega$ rollout and on a held-out swim trial.}
+  \label{fig:zhd_evolution_position2d}
+\end{figure}
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=0.9\textwidth]{\figdir/fig_gnn_dashboard_zebrafish_hd_si_gnn_ipn_917_v1_selfmotion_rotation.png}
+  \caption{\textbf{Message-passing GNN on the heading-only task.}
+  Companion of \cref{fig:zhd_evolution_artr_pt1}. Same circuit, gate,
+  and heading head as the sign-locked RNN, with the dense recurrent
+  operator replaced by per-edge and per-neuron MLPs over a learnable
+  per-neuron embedding.
+  \textbf{(a)}~GT connectome $W^{\mathrm{con}}$, neuron-type blocks on
+  both axes. \textbf{(b)}~Learned per-edge gain on the same scale.
+  \textbf{(c)}~Scatter of the learned per-edge gain against
+  $W^{\mathrm{con}}$. \textbf{(d)}~All $917$ neurons over a
+  constant-$\omega = +60^\circ/\mathrm{s}$ rollout, sorted by cell type.
+  \textbf{(e)}~dIPN sub-population over the same rollout, rows ordered by
+  preferred heading. \textbf{(f)}~Constant-$\omega$ rollout: $\omega(t)$
+  and decoded (black) vs.\ true (green) heading. \textbf{(g)}~A held-out
+  swim test trial, same overlay. \textbf{(h)}~Integration-gain scatter:
+  measured slope of the decoded heading vs.\ true $\omega$.
+  \textbf{(i)}~The per-neuron embedding, coloured by cell type.
+  \textbf{(j)}~The learned per-edge signalling function (mean $\pm$ SD
+  per cell type) over the subthreshold-state range. \textbf{(k)}~The
+  learned node update at zero recurrent input (mean $\pm$ SD per cell
+  type). Panels (i)--(k) are the GNN-specific row absent from the RNN
+  figure.}
+  \label{fig:zhd_gnn_dashboard}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.9\textwidth]{\figdir/fig_zebrafish_mi_partition_gnn.png}
+  \caption{\textbf{Pooled mutual information for the message-passing GNN
+  models} --- the companion of \cref{fig:zhd_mi_partition} for the GNN
+  variant (\cref{method:GNN}; per-edge $g_\phi$ and per-neuron $f_\theta$
+  MLPs on the same connectome, gate, and heads). Same panels, axes, and
+  dot-size encoding as \cref{fig:zhd_mi_partition}:
+  \textbf{(a)}~heading\,$+$\,distance (cumulative), \textbf{(b)}~leaky,
+  \textbf{(c)}~2-D path (cumulative), \textbf{(d)}~leaky.}
+  \label{fig:zhd_mi_partition_gnn}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.9\textwidth]{\figdir/fig_zebrafish_mi_grouped.png}
+  \caption{\textbf{Logarithmic redundancy law of the pooled code.} For each
+  of the four joint-target models, the cross-validated group decoder
+  information (in bits, vertical axis) is plotted against the summed
+  single-neuron information of the same group (horizontal axis, logarithmic),
+  with one point per cell type and per anatomical family and a cross for the
+  whole recurrent pool. The group information rises only logarithmically with
+  the pooled single-cell information, a shallow slope that is the quantitative
+  statement of diminishing returns: each added neuron contributes little once
+  the pool is large. The overlaid fit reports the per-decade slope and its
+  goodness of fit; heading and translation are shown separately.}
+  \label{fig:zhd_mi_grouped}
+\end{figure}
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=0.9\textwidth]{\figdir/fig_evolution_zebrafish_hd_si_ipn_917_v1_selfmotion_rotation_mlpdec.png}
+  \caption{\textbf{Trained heading integrator with a nonlinear MLP decoder.}
+  The same $917$-cell circuit and heading task as
+  \cref{fig:zhd_evolution_artr_pt1}, with the linear
+  $(\cos\theta,\sin\theta)$ readout replaced by a $2$-layer, width-$64$
+  $\tanh$ MLP, and the recurrent core paced to lead the decoder
+  (\cref{sec:results_decoder}). Panels follow
+  \cref{fig:zhd_evolution_artr_pt1}: \textbf{(a--c)} ground-truth and
+  learned recurrent weights and the per-edge scatter; \textbf{(d, e)}
+  all-neuron and dIPN kinographs over a constant-$\omega$ rollout;
+  \textbf{(f, g)} constant-$\omega$ and held-out swim rollouts (drive on
+  top, decoded vs.\ true heading below); \textbf{(h)} integration-gain
+  scatter; \textbf{(i)} five held-out swim trials and \textbf{(j)} five
+  constant-$\omega$ sweeps, decoded (black) vs.\ true (green) heading with
+  per-panel circular RMSE and Pearson $r$.}
+  \label{fig:zhd_evolution_mlpdec}
+\end{figure}
+
+
+\section{Randomized null-connectome controls}
+\label{app:er_null}
+
+To make the necessity question of \cref{sec:outlook_future} concrete we
+construct random null connectomes against which the same heading task can be
+re-fitted, in \emph{three} families that isolate progressively finer aspects of
+the wiring. All of them are matched to the measured $917$-cell circuit on the
+number of nodes ($N=917$), the edge count (and hence density: $30{,}851$ edges,
+density $0.037$) and the weight scale --- each random magnitude drawn
+independently from the empirical distribution of measured synaptic weights ---
+and all inherit the \emph{node identities} unchanged (cell-type assignment,
+afferent gate targets, recurrent ring ordering), so every null remains a valid
+drop-in substrate for the same trained model. The families differ in how much of
+the measured connectivity they preserve.
+
+\paragraph{Full-network rewiring, inhibitory-fraction sweep.} The first family
+draws a brand-new random support uniformly over the whole adjacency matrix,
+destroying the block structure entirely. Following Dale's law each cell keeps a
+single output polarity; the afferent populations stay excitatory while a
+controlled fraction $p_{\mathrm{inh}}$ of the recurrent pool is made inhibitory.
+The four settings $p_{\mathrm{inh}}\in\{0.4,0.6,0.8,1.0\}$ span overall
+inhibitory edge fractions of $30.7\%$, $46.0\%$, $61.4\%$ and $76.8\%$,
+bracketing the measured $66.3\%$, and probe the inhibitory-fraction window of
+\cref{sec:outlook_future}.
+
+\paragraph{Full-network rewiring, E/I matched.} The second family is the same
+full-network rewiring but with its overall inhibitory edge fraction matched
+\emph{exactly} to the measured $66.3\%$; ten independent draws (different random
+support and polarity assignment) give the null-model variance against which the
+intact circuit is read. This is the necessity control proper: it asks whether
+\emph{any} random network of the measured size, density, weight scale and
+excitation/inhibition balance reproduces the computation, or whether the
+specific measured wiring is required.
+
+\paragraph{Block-preserving shuffle.} The third family is the intermediate null.
+Instead of a fresh random support it keeps the measured block-to-block
+connectivity exactly --- every functional block-pair retains its edge count and
+its magnitude distribution --- and randomises only \emph{which} cells within
+those blocks are wired. The coarse block architecture (which functional
+populations connect, and how densely) is therefore identical to the measured
+circuit while the microscopic wiring is scrambled; ten independent draws again
+give the null band. Where the full-network families ask whether the wiring
+matters \emph{at all}, the block-preserving family separates the contribution of
+the coarse block architecture from that of the fine within-block wiring: a
+computation that survives the block-preserving shuffle but fails the
+full-network nulls is carried by the block-level organisation, whereas one that
+fails even the shuffle depends on the precise cell-to-cell connectivity.
+
+\Cref{fig:zhd_er_connectomes} renders the measured connectome alongside one
+representative of each family in the same $z$-scored, partition-sorted
+signed-matrix format as \cref{fig:zhd_connectome_summary}: the measured block
+structure is visibly retained by the block-preserving shuffle (block-density
+correlation $\approx1$) but erased by both full-network rewirings ($\approx0$),
+with the block-preserving and E/I-matched families at the measured $66.3\%$
+inhibitory fraction and the inhibitory-fraction sweep spanning it by design.
+Re-fitting the heading task on each family and
+comparing the recovered integration accuracy against the intact circuit is the
+experiment of \cref{sec:outlook_future}; the matched random substrates and the
+training configuration are prepared here.
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=\textwidth]{\figdir/fig_er_connectomes.png}
+  \caption{\textbf{Three null-connectome families vs.\ the measured circuit.}
+  \textbf{(a--d)}~Same $z$-scored, partition-sorted signed-matrix rendering as
+  \cref{fig:zhd_connectome_summary} (red excitatory, blue inhibitory; partition
+  blocks on both axes), for the measured circuit and one representative of each
+  null family. \textbf{(a)}~The measured $917$-cell connectome, block-structured
+  by the functional partition. \textbf{(b)}~A full-network random rewiring
+  (inhibitory-fraction sweep): the block structure is destroyed.
+  \textbf{(c)}~A full-network rewiring matched to the measured
+  excitation/inhibition balance: still structureless, with matched colour
+  balance. \textbf{(d)}~A block-preserving shuffle: the block-to-block
+  connectivity is kept while the fine within-block wiring is randomised. All
+  nulls match the measured size, density and weight scale and inherit the node
+  identities, so the excitatory afferent columns (right) are unchanged
+  throughout. Quantitatively, the block-preserving shuffle reproduces the
+  measured block-density map almost exactly (block-density correlation
+  $\approx1$) at the measured $66.3\%$ inhibitory fraction, whereas both
+  full-network rewirings erase the block structure (correlation $\approx0$).}
+  \label{fig:zhd_er_connectomes}
+\end{figure}
+
+
+\section{Latent translation probe}\label{app:latent_translation}
+This appendix collects the control experiment proposed in
+\cref{out:latent_translation}: training the circuit on heading alone while
+keeping the forward-velocity input, then asking whether the recurrent state
+nonetheless carries a translation estimate, and if so whether that estimate is a
+genuine integral or a passive low-pass echo of the velocity drive, and whether
+it depends on the measured wiring. \Cref{fig:zhd_vfwd_distance} compares the
+measured circuit against a randomized-connectome control matched on size,
+density, weight scale and excitation/inhibition balance, with only the recurrent
+topology shuffled. For each one a linear decoder is fit from the recurrent state
+to the forward distance on held-in trials and applied to held-out trials,
+against two references: the true cumulative integral (which a genuine integrator
+tracks) and a leaky-filtered velocity (which a passive echo saturates onto). A
+state that follows the cumulative reference, on the measured circuit but not the
+randomized one, would identify the latent translation estimate as a genuine
+path-integration variable built by the specific connectome.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{\figdir/fig_zebrafish_vfwd_distance_dashboard.png}
+  \caption{\textbf{Latent forward-distance decode, measured connectome vs.\
+  randomized control.} Rows are held-out swim trials. The four columns are the
+  two heading-only models crossed with the two ground-truth references the
+  decoder is fit to: \textbf{(a)}~measured circuit, cumulative integral;
+  \textbf{(b)}~measured circuit, leaky-filtered velocity; \textbf{(c)}~randomized
+  connectome, cumulative integral; \textbf{(d)}~randomized connectome, leaky
+  velocity. Within a column every panel reads out the \emph{same} recurrent
+  state; columns differ only in the reference the linear decoder is regressed on,
+  not in the model (which is never supervised on distance). In each panel the
+  green trace is the ground-truth reference and the black trace is its decode
+  from the recurrent state, with the per-trial explained variance annotated. A
+  decode that tracks the cumulative reference (column a / c) indicates a genuine
+  integral; one that only tracks the leaky reference (column b / d) indicates a
+  passive low-pass echo. The measured-vs-randomized contrast tests whether any
+  property recovered here is specific to the measured wiring.}
+  \label{fig:zhd_vfwd_distance}
+\end{figure}
+
+
+\section{ZAPBench training data}\label{method:zapbench}
+The recorded activity is the publicly released ZAPBench whole-brain
+light-sheet calcium recording of a larval zebrafish, registered to the
+same \emph{fish2} EM volume as the connectome (\cref{sec:anatomy}): the
+$\Delta F/F$ trace of every segmented cell is taken from the ZAPBench
+release and each connectome \emph{bodyId} is matched to its functional
+ROI through the EM\,$\leftrightarrow$\,functional registration. Of the
+$839$ neurons in the IPN12 circuit, $481$ carry a matched recording:
+$300$ ring-pool cells (\emph{IPNd}/\emph{IPNds}/\emph{IPN12}) and $181$
+afferents (\emph{RIPN}, \emph{pt-IPN}). \Cref{fig:zhd_allblocks} lays out
+the whole $\sim\!2\,\mathrm{h}$ recording: the nine task blocks, the fish's
+own swim behaviour, the recorded activity of the three velocity-gate
+afferent classes (ARTR, pt-IPN1, motor\_efferent), and the ring pool,
+the same $481$ matched neurons used throughout. The observation loss is
+taken over all $481$ matched cells; the real-vs-model kinographs display only
+the $300$ ring-pool subset. (These matched-cell counts are for the
+$839$-cell \emph{IPN12 precursor} on which the calcium observation-loss
+experiments of \cref{sec:results_obs_sweep} were run, the circuit
+\emph{before} the IPN-core families were added to form the nominal
+$917$-cell circuit of \cref{sec:anatomy}. The task-only calcium baseline
+of \cref{fig:zhd_obs_baseline} has since been re-run on the full
+$917$-cell circuit, where $279$ ring-pool cells carry a matched
+recording; the task-integration results of \cref{sec:results} all use
+the $917$-cell circuit.) We supervise on the ``Rotations'' block, in which a
+$45^\circ/\mathrm{s}$ drifting grating rotates the animal's virtual
+heading: the true heading is read from the recorded stimulus channel and
+differentiated to the angular-velocity drive $s(t)$, so the \emph{model}
+is driven by the \emph{same} stimulus that produced the recording. The
+block spans ${\sim}600\,\mathrm{s}$ ($656$ imaging frames at the
+$1.09\,\mathrm{Hz}$, $0.915\,\mathrm{s}$ imaging rate). Because the model
+runs at $\Delta t = 0.01\,\mathrm{s}$, the recorded $\Delta F/F$ is
+linearly interpolated up to the model grid (edge-padded), and each neuron
+is $z$-scored \emph{globally} over the whole block (not per window),
+so the target keeps a single, trial-independent scale. The block is then
+sliced into $1000$-frame ($10\,\mathrm{s}$) trials drawn from disjoint
+train/test time spans, in the same format as the synthetic
+swim-integration trials: channel~0 is the recorded drive $s(t)$ and the
+first frame carries the $(\cos\theta_0,\sin\theta_0)$ heading cue, with no
+warm-up. During training each task minibatch is augmented with $B_c$ of
+these calcium trials in a single forward pass; the heading MSE of
+\cref{eq:zhd_loss} is taken over the combined batch (the rotation trials
+also carry a true heading), while $\mathcal{L}_{\mathrm{obs}}$ is
+evaluated on the calcium trials only.
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=\textwidth]{\figdir/fig_zebrafish_all_blocks.png}
+  \caption{\textbf{The full ZAPBench session: nine conditions, one circuit.}
+  All locally-available drives and behaviour over the whole recording
+  ($7870$ frames $\approx 2\,\mathrm{h}$; the same $481$ matched neurons used
+  throughout), with the nine task blocks separated and labelled
+  (\textsc{gain, dots, flash, taxis, turning, position, open loop, rotation,
+  dark}). \textbf{Top:} the per-frame stimulus-condition code. \textbf{Next
+  two:} the fish's own swim behaviour --- \emph{forward} (bilateral tail-EMG
+  envelope) and \emph{turning} (L/R asymmetry) --- available continuously in
+  every block. \textbf{Middle three:} the recorded $\Delta F/F$ of the three
+  velocity-gate afferent classes, in the \cref{fig:zhd_3d} colour code ---
+  \emph{ARTR} (blue, angular drive), \emph{pt-IPN1} (orange, exteroceptive
+  forward) and \emph{motor\_efferent} (green, angular efference);
+  matched cells only, $z$-scored per neuron. \textbf{Bottom:} the recorded
+  ring-pool $\Delta F/F$ ($n{=}300$, rastermap order, $z$-scored; same row set
+  as \cref{fig:zhd_obs_reconstruction,fig:zhd_unmodeled}). We have so far
+  trained only on the Rotation slice.}
+  \label{fig:zhd_allblocks}
+\end{figure}
+
+\section{Reconstructing the recorded calcium activity}
+\label{app:calcium}
+
+\subsection{Task ability does not imply realistic activity}
+\label{sec:results_obs_baseline}
+
+The results so far establish that the connectome-constrained network learns
+to integrate heading accurately, and that the solution is robust to any
+single-type lesion. Accuracy on the task, however, says nothing about
+whether the network's \emph{internal activity} matches the brain. We test
+this directly by driving the trained task-only model
+(\emph{zebrafish\_hd\_si\_ipn\_917\_v1}, the nominal $917$-cell circuit,
+trained on the rotation task \emph{only}) with the recorded ZAPBench
+``Rotations'' stimulus (\cref{method:zapbench}), converting its
+rolled-out activity to GCaMP7f calcium (\cref{eq:zhd_gcamp}), and
+comparing it to the recorded $\Delta F/F$ of the $279$ matched ring-pool
+neurons in the same rastermap row order (\cref{fig:zhd_obs_baseline}).
+
+The model is an excellent head-direction predictor (its decoded heading
+tracks the $45^\circ/\mathrm{s}$ rotation closely,
+\cref{fig:zhd_obs_baseline}, bottom panel), yet its population activity is
+plainly \emph{not} the recorded one: the model's learned kinograph is a
+clean, stimulus-locked set of bands, whereas the recorded $\Delta F/F$
+above it is irregular, bursty and drift-laden. This
+is the degeneracy at the heart of the paper, now read out on real data:
+\emph{many circuits realise the same head-direction computation, and hence
+the same task ability, while producing different activity}. Task
+supervision constrains only the two-dimensional readout
+(\cref{eq:zhd_readout}); the $N$-dimensional state it leaves unobserved is
+exactly where implementations diverge.
+
+A natural objection is that the mismatch is merely cosmetic: perhaps the
+recorded activity still encodes heading, just in a form our eye does not
+read off the kinograph. We tested this directly by training a decoder
+(a small neural network) to predict the instantaneous heading
+$(\cos\theta,\sin\theta)$ from the recorded per-frame $\Delta F/F$ of the
+ring-pool neurons (fit on the first $70\%$ of the rotation block,
+evaluated on the held-out tail). The result was \emph{not} conclusive: the
+decoded heading does not track the true heading
+(\cref{fig:zhd_obs_control}; recorded-$\Delta F/F$ decode at circular
+$r=0.14$), in sharp contrast to the model's own readout, which
+recovers heading almost perfectly from its latent state
+(\cref{fig:zhd_obs_baseline}, bottom panel). The implication is that \emph{the
+instantaneous head-direction signal is hard to read, frame by frame, from
+the observed calcium activity}.
+
+How much of this failure is the \emph{observable} rather than the brain? We
+settle the confound with a control: run the \emph{identical} decoder on the
+trained model pushed through the \emph{same} observation pipeline: its
+rolled-out activity convolved with the GCaMP kernel, sampled at the
+$1.09\,\mathrm{Hz}$ imaging rate and restricted to the same $300$ cells
+(\cref{fig:zhd_obs_control}). The model provably encodes heading: its latent
+readout decodes the heading at circular $r = 0.97$. Through the degraded
+observable the \emph{same} circuit decodes at only $r = 0.73$. The
+observation pipeline alone (GCaMP low-pass of the fast $45^\circ/\mathrm{s}$
+ring activity, $\tau_d = 1.2\,\mathrm{s}$, \cref{eq:zhd_gcamp}; $1.09\,\mathrm{Hz}$
+aliasing of an $8\,\mathrm{s}$ revolution; only $300$ of $839$ cells seen)
+removes a substantial fraction of the per-frame legibility. It does
+\emph{not}, however, reach the real-data level ($r = 0.14$): a circuit that
+encoded heading as cleanly as the model would still be decodable at
+$r \approx 0.73$ under the recording's observation, so the observable is a
+major but \emph{not} the sole cause. The residual gap reflects additional
+real-world degradation: recording noise, behavioural variability of the
+animal relative to the grating, and the idealised, stimulus-locked model
+ring activity being crisper than the brain's. Either way heading is carried in the
+population's \emph{temporal dynamics}, not in any single calcium frame.
+This is why the observation loss matches the time-course of each neuron's
+trace (\cref{eq:zhd_obs}, a per-neuron shape loss) rather than asking the
+activity to decode heading frame-by-frame.
+
+This motivates the calcium observation loss (\cref{eq:zhd_obs}): by adding
+a term that pulls the model's predicted calcium toward the recorded
+$\Delta F/F$, we aim to \emph{partially break} this degeneracy,
+selecting, among the task-equivalent circuits, those whose activity is
+also consistent with the measured brain. Runs that train with the
+observation loss are reported in \cref{sec:results_obs_sweep};
+\cref{fig:zhd_obs_baseline} is the no-observation-loss
+($\lambda_{\mathrm{obs}} = 0$) baseline against which they are compared.
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=0.7\textwidth]{\figdir/fig_zebrafish_calcium_baseline.png}
+  \caption{\textbf{Task-only model driven by the recorded Rotations
+  stimulus and rendered as calcium.}
+  The nominal $917$-cell model
+  (\emph{zebrafish\_hd\_si\_ipn\_917\_v1}, heading task only, no
+  observation loss) driven by the recorded ZAPBench Rotations stimulus
+  and rendered as GCaMP7f calcium (\cref{eq:zhd_gcamp}), in the same
+  reconstruction layout as \cref{fig:zhd_obs_reconstruction}. Top:
+  recorded angular-velocity drive $\omega(t)$. For the bump-pool
+  ($n=279$ matched ring-pool neurons, official ZAPBench rastermap row
+  order) and the \emph{ARTR} afferent class ($n=33$, sorted by per-cell
+  preferred-heading angle, \cref{fig:zhd_unmodeled}), two rows are
+  shown: the recorded $\Delta F/F$ and the model's calcium under a
+  continuous $600\,\mathrm{s}$ rollout, with per-panel $z$-MSE and SSIM
+  inset; each row is the same recorded cell across the recorded and
+  model panels. Bottom: true heading (green) and the model's
+  readout-decoded heading (black) over the same rollout. This is the
+  no-observation-loss baseline for the degeneracy the observation loss
+  (\cref{eq:zhd_obs}; \cref{sec:results_obs_sweep}) targets; pt-IPN1 and
+  motor\_efferent are omitted here (shown with the observation loss on in
+  \cref{fig:zhd_obs_reconstruction}).}
+  \label{fig:zhd_obs_baseline}
+\end{figure}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\textwidth]{\figdir/fig_zebrafish_obs_control.png}
+  \caption{\textbf{Observability control: the same per-frame decoder applied
+  to the model's matched observable.} The task-only model is driven by the
+  ZAPBench Rotations stimulus and its decoded heading read three ways over
+  the block (circular correlation $r$ on the held-out tail).
+  \textbf{Left:} true heading (green) vs.\ the model's latent readout (black);
+  the MLP decode of the model's GCaMP-convolved,
+  imaging-sampled, $300$-cell observable (red); and the MLP decode
+  of the recorded $\Delta F/F$ (blue); the time axis is shown for
+  the first $300\,\mathrm{s}$ for legibility (the $r$ values are computed over
+  the full held-out tail). \textbf{Right:} the three held-out correlations
+  as a bar chart.}
+  \label{fig:zhd_obs_control}
+\end{figure}
+
+\subsection{Signals not yet accounted for: the fish's own behaviour}
+\label{sec:results_unmodeled}
+
+The task-only model's calcium is essentially uncorrelated with the
+recording (\cref{sec:results_obs_baseline}; \cref{fig:zhd_obs_baseline}),
+and the ceiling on what any model can recover here is set in part by
+what the model is \emph{allowed to see}. The only time-varying input
+to the network is the angular-velocity drive $s(t)$, which for the
+Rotations block is an essentially periodic $\pm 45^\circ/\mathrm{s}$
+square wave. A deterministic circuit driven by a periodic input can
+only produce (after transients) a periodic output, so \emph{any}
+non-periodic structure in the recorded $\Delta F/F$ is, by construction,
+outside the model's reach. The recorded ring activity is
+conspicuously non-periodic across the $600\,\mathrm{s}$ block even
+though the stimulus repeats.
+
+\Cref{fig:zhd_unmodeled} lays the recording's covariates side by side
+over the rotation block to make the missing signals explicit. Above
+the recorded $\Delta F/F$ we plot, from the raw ZAPBench ephys, the
+fish's own swimming behaviour, the quantity the model never
+receives. The two bottom traces are the left and right tail-muscle
+EMG channels (the independent motor readout); the larval-zebrafish
+swim decode summarises them as a \emph{forward} drive (bilateral
+envelope) and a \emph{turning} signal (left/right asymmetry). These
+behave very differently with respect to the stimulus. Turning is
+largely stimulus-locked (it correlates with the drive at
+$\rho \approx 0.76$, the expected optomotor following of the grating),
+and so a stimulus-driven model can in principle capture it.
+Forward drive, by contrast, is a slow, non-periodic latent: its
+lag-one autocorrelation is $\approx 0.97$ and it is essentially
+uncorrelated with the stimulus magnitude ($|\rho| \lesssim 0.05$). It
+drifts on the tens-of-seconds-to-minutes timescale that dominates the
+recurrent pool's irregular activity, yet nothing in $s(t)$ carries
+it.\footnote{The forward/turning traces are derived from the two
+tail-EMG electrodes by the standard ZAPBench swim-EMG pipeline
+(windowed-variance envelope, swim-bout detection, per-bout weighting);
+we verified they are genuinely those channels by recovering
+\emph{forward} from the bilateral EMG sum ($\rho \approx 0.57$) and
+\emph{turning} from the left$-$right difference ($\rho \approx 0.42$).
+The per-frame RMS shown here is a coarse envelope of the same
+channels.}
+
+Three classes of signal are therefore present in the recording but
+absent from the current model. (i) \emph{Self-generated motor drive}:
+the forward/turning behaviour above, which is internally generated
+and not a deterministic function of the visual stimulus; the forward
+component in particular injects exactly the slow, aperiodic variation
+the model cannot synthesise. (ii) \emph{Slow physiological and state
+drift}: bleaching, arousal, and adaptation accumulate over the
+block, which is why per-trial $z$-scoring is necessary in
+\cref{eq:zhd_obs} to remove this component rather than fit it.
+(iii) \emph{Unmodelled sensory channels}: the recording also
+carries the raw visual-velocity and other stimulus channels at full
+temporal resolution, of which the model receives only the distilled
+heading drive. None of these are failures of identifiability: they
+are inputs the network is simply not given. With this in mind we now
+turn the observation loss on (\cref{sec:results_obs_sweep}) and see
+how far it can close the gap.
+
+\paragraph{Overall: do the results agree with the introduction?}
+The introductory picture is a ring-attractor head-direction circuit:
+hundreds of GABAergic \rpi{} cells in the anterior hindbrain that carry a
+single sinusoidal activity peak travelling around the functional ring,
+persisting for tens of seconds, and tracking the swum heading, supported
+by the reciprocal dIPN connectivity the EM reconstruction reveals. Our
+trained, connectome-locked circuit reproduces
+the computational core of this picture: it integrates heading at
+near-unit gain and carries a single travelling activity peak on the dIPN
+ring (\cref{sec:results_evolution}), realised on the measured fish2
+wiring with the magnitudes sitting on the signed connectome support. In
+that sense the results agree with the introduction: the ring-attractor
+account is realisable on the real connectome. They also sharpen its open
+questions in two ways the introduction did not anticipate. First, the
+implementation is \emph{degenerate}: many connectome-consistent circuits
+integrate equally well, the preferred-heading map is not anatomically
+organised, and the recurrent pool mixes heading and translation rather
+than segregating them by cell type (\cref{sec:results_four_classes}),
+so anatomy fixes \emph{that} the circuit integrates, not \emph{how} the
+code is laid out. Second, the introductory ring activity is only
+\emph{partly} matched on the recorded data: the task-only model's calcium
+is nearly uncorrelated with the recording until the observation loss is
+added (\cref{sec:results_obs_sweep}), and the recorded ARTR carries an
+intrinsic dark-state rhythm that the command-driven model lacks
+(\cref{sec:results_artr}). The agreement is therefore at the level of the
+\emph{computation} the introduction describes, while the
+\emph{implementation} and the \emph{full recorded dynamics} remain
+under-determined, the gap the rest of the paper sets out to measure.
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=0.8\textwidth]{\figdir/fig_zebrafish_rotation_covariates.png}
+  \caption{\textbf{Signals present in the recording but not given to
+  the model, over the ZAPBench Rotations block} ($656$ frames
+  $\approx 600\,\mathrm{s}$; shared time axis). Top to bottom: the
+  periodic angular-velocity drive $s(t)$ (the model's only input),
+  its integrated heading, the stimulus direction; the larval-fish
+  \emph{forward} (slow, $\sim$stimulus-independent drift) and
+  \emph{turning} (largely stimulus-locked with $s(t)$) swim decodes; the raw left/right tail-EMG channels (RMS)
+  the decodes are computed from; the recorded $\Delta F/F$ of the three
+  velocity-gate afferent classes in the \cref{fig:zhd_3d} colour code ---
+  \emph{ARTR} (blue, angular drive), \emph{pt-IPN1} (orange, exteroceptive
+  forward) and \emph{motor\_efferent} (green, angular efference),
+  matched cells only; and two views of the recorded
+  $n{=}300$ ring-pool $\Delta F/F$ --- the global ZAPBench rastermap
+  permutation (matches \cref{fig:zhd_obs_baseline}) and a per-neuron
+  preferred-heading-angle sort computed from the same calcium.
+  These behavioural and afferent signals are the covariates discussed in
+  \cref{sec:results_unmodeled} as bounding the calcium reconstruction of
+  \cref{sec:results_obs_sweep}.}
+  \label{fig:zhd_unmodeled}
+\end{figure}
+
+\subsection{Calcium-observation loss partially closes the activity gap}
+\label{sec:results_obs_sweep}
+
+We now turn the observation loss on. Using the sign-locked RNN of
+\cref{method:RNN} (the same recurrent dynamics used throughout
+Section 4) we trained the $839$-cell \emph{IPN12 precursor} circuit
+(\cref{method:zapbench}; the connectome before the IPN-core families
+were added to reach the nominal $917$-cell circuit) on the
+swim-integration task (dataset~A) while augmenting each minibatch with
+$B_c$ recorded ``Rotations'' trials (dataset~B) and matching predicted
+to recorded calcium with the $z$-scored shape loss of \cref{eq:zhd_obs},
+sweeping the observation weight
+$\lambda_{\mathrm{obs}} \in \{0,\,0.1,\,0.5,\,1,\,5\}$
+($\lambda_{\mathrm{obs}}=0$ is the task-only control). Each trained model is then driven by the
+held-out recorded stimulus and its rolled-out activity rendered to
+GCaMP7f calcium exactly as for the baseline (\cref{fig:zhd_obs_baseline}),
+and scored against the recorded $\Delta F/F$ over a continuous
+$600\,\mathrm{s}$ rollout (\cref{tab:zhd_obs_sweep},
+\cref{fig:zhd_obs_reconstruction}). The figure of merit is the per-neuron
+temporal $z$-MSE of \cref{eq:zhd_obs}, equal to $2(1-\rho)$ with $\rho$
+the predicted-vs-recorded Pearson correlation, reported separately for
+the $300$ ring-pool cells and the $181$ afferents.
+
+The loss does what it is designed to. With $\lambda_{\mathrm{obs}} = 0$
+the task-only model's calcium is essentially uncorrelated with the
+recording ($z$-MSE $\approx 1.88$ for both pools, $\rho \approx 0.06$):
+the network integrates heading perfectly yet its activity is unrelated to
+the brain's, exactly the degeneracy of \cref{sec:results_obs_baseline}.
+Turning the loss on collapses this error immediately: already at the
+smallest weight $\lambda_{\mathrm{obs}} = 0.1$ the ring-pool $z$-MSE
+drops to $1.25$ ($\rho \approx 0.38$) and the afferent pool to $0.92$
+($\rho \approx 0.54$), and larger weights buy little further reduction
+($z$-MSE plateaus at $1.1$--$1.3$ for the ring activity peak and $0.90$--$0.98$ for the
+afferents across $\lambda_{\mathrm{obs}} \in [0.1, 5]$). Most of the
+benefit is therefore captured by the mere presence of the term rather
+than its magnitude. The afferent (\emph{RIPN}/\emph{pt-IPN}) pool is
+reconstructed markedly better than the recurrent pool (afferent
+$\rho \approx 0.54$ and SSIM up to $0.44$, vs.\ ring-pool $\rho \approx 0.40$
+and SSIM $\approx 0.18$), consistent with the afferents carrying the
+stimulus-locked part of the recording while the ring activity peak is the irregular,
+drift-laden activity that is hardest to match.
+
+The fit is partial, not complete, and trades against the task at large
+weights. Even at its best the ring-pool correlation plateaus near
+$\rho \approx 0.4$: the loss pulls the predicted activity toward the
+recording but does not reproduce it, so the degeneracy of
+\cref{sec:results_obs_baseline} is \emph{partially}, not fully, broken,
+the expected outcome for a single per-neuron shape loss applied to
+$481$ of the $839$ cells. Pushing $\lambda_{\mathrm{obs}}$ higher does not
+help and begins to hurt: the structural SSIM peaks at the smallest weight
+($\lambda_{\mathrm{obs}} = 0.1$) and declines thereafter, and the
+decoded-heading panels (\cref{fig:zhd_obs_reconstruction}, bottom)
+develop more frequent slips as the observation term competes with the
+heading MSE. An intermediate weight
+($\lambda_{\mathrm{obs}} \approx 0.1$--$0.5$) is thus the operating point
+that best balances calcium realism against task accuracy.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{c c c c c}
+\toprule
+$\lambda_{\mathrm{obs}}$ & ring-pool $z$-MSE & ring-pool SSIM
+       & aff.\ $z$-MSE & aff.\ SSIM \\
+\midrule
+$0$   & $1.88$ & $\mathbf{0.29}$ & $1.83$ & $0.21$ \\
+$0.1$ & $1.25$ & $0.17$ & $0.92$ & $\mathbf{0.44}$ \\
+$0.5$ & $\mathbf{1.14}$ & $0.18$ & $0.98$ & $0.43$ \\
+$1.0$ & $1.31$ & $0.16$ & $0.95$ & $0.37$ \\
+$5.0$ & $1.21$ & $0.17$ & $\mathbf{0.90}$ & $0.22$ \\
+\bottomrule
+\end{tabular}
+\caption{\textbf{Calcium-reconstruction quality vs.\ observation weight
+$\lambda_{\mathrm{obs}}$.} GNN model, $839$-cell IPN12 circuit, scored on
+the held-out continuous $600\,\mathrm{s}$ rollout against the recorded
+ZAPBench Rotations block. $z$-MSE is the per-neuron temporal loss of
+\cref{eq:zhd_obs} (lower is better; $z\text{-MSE} = 2(1-\rho)$ with $\rho$
+the predicted-vs-recorded Pearson correlation);
+SSIM is the structural-similarity index of the kinograph (higher is
+better). Bold marks the best entry in each column.}
+\label{tab:zhd_obs_sweep}
+\end{table}
+
+\paragraph{Task generalisation across the gcamp family.}
+The observation-loss recipe is task-agnostic (the per-neuron
+$z$-scored shape loss does not refer to heading, distance, or any
+other behavioural variable), so the same training procedure can
+be swapped onto the other swim-integration sub-tasks of
+\cref{sec:results_variants}. We train two such companions of
+\cref{fig:zhd_obs_reconstruction}, both supervised against the
+recorded \emph{Rotations} block of dataset~B: (i) the joint
+heading-plus-distance task (\cref{fig:zhd_obs_reconstruction_both},
+the ``selfmotion\_both'' four-input variant) and (ii) the
+translation-only task
+(\cref{fig:zhd_obs_reconstruction_translation},
+``selfmotion\_translation''). For the four-input model the
+continuous test-time rollout is now driven jointly by the recorded
+$\omega(t)$ and the recorded swim-forward envelope
+$v_{\mathrm{fwd}}(t)$ (read from the calcium dataset's
+swim-forward channel, the same channel the trainer feeds into the
+calcium-batch trials); i.e.\ the model sees at test exactly the
+four channels it was trained on. For the translation-only model
+the rollout is driven by $v_{\mathrm{fwd}}$ alone. The pattern is
+consistent across these two variants: the afferent pool
+reconstructs at $\rho \approx 0.4$ (SSIM $0.39$--$0.48$), the
+recurrent ring-pool at $\rho \approx 0.2$--$0.3$ (SSIM
+$0.20$--$0.25$), and the per-frame task readouts (heading and/or
+distance) remain accurately decoded in every case; the observation
+loss does not collapse onto the task heads. The Turning block of
+dataset~B is excluded from this comparison because its recorded
+stimulus is stored as discrete L/R direction codes (no angular
+velocity in the dataset's first channel), which leaves the input
+gate driving the trained heading-only model with zeros and
+therefore cannot supervise the heading-driven activity meaningfully.
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=0.8\textwidth]{\figdir/fig_zebrafish_calcium_reconstruction.png}
+  \caption{\textbf{Calcium reconstruction with the observation loss on
+  ($\lambda_{\mathrm{obs}} = 1$, heading task).} The
+  sign-locked RNN of \cref{method:RNN}, trained on the
+  heading-only task ($n_{\mathrm{in}} = 3$, $n_{\mathrm{out}} = 2$,
+  target $(\cos\theta, \sin\theta)$) with calcium-observation
+  supervision, is driven by the held-out recorded ZAPBench Rotations
+  stimulus (top: angular-velocity drive $\omega(t)$) and its
+  rolled-out activity rendered to GCaMP7f calcium
+  (\cref{eq:zhd_gcamp}). For the recurrent pool ($300$ cells, rastermap
+  row order) and each of the three afferent classes (\emph{ARTR},
+  \emph{pt-IPN1}, \emph{motor\_efferent}), two rows are
+  shown: the recorded $\Delta F/F$ and the model's calcium under a
+  continuous $600\,\mathrm{s}$ rollout; per-panel $z$-MSE and SSIM are
+  inset. Each afferent class is sorted by per-cell preferred-heading
+  angle (\cref{fig:zhd_unmodeled}), the same order in its recorded and
+  model rows. Bottom: true heading
+  (green) and the model's readout-decoded heading (black) over the
+  same continuous rollout. The task-only baseline (no observation loss)
+  is \cref{fig:zhd_obs_baseline}; \cref{tab:zhd_obs_sweep} reports the
+  full $\lambda_{\mathrm{obs}}$ sweep.}
+  \label{fig:zhd_obs_reconstruction}
+\end{figure}
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=0.8\textwidth]{\figdir/fig_zebrafish_calcium_reconstruction_both_gcamp.png}
+  \caption{\textbf{Calcium reconstruction --- joint
+  heading-plus-forward-distance task} ($\lambda_{\mathrm{obs}} =
+  1$). Same layout as \cref{fig:zhd_obs_reconstruction} for the
+  joint heading $+$ distance variant
+  (``selfmotion\_both''): $n_{\mathrm{in}} = 4$, $n_{\mathrm{out}}
+  = 3$, target $(\cos\theta, \sin\theta, d)$ with $d$ the
+  \emph{cumulative} forward distance $d(t)=\int v_{\mathrm{fwd}}\,ds$
+  (no leak --- the parent ``selfmotion\_both'' config has no
+  $\xi$-decay time constant). Both drive channels the trained
+  $4$-input model expects are now plotted at the top: $\omega(t)$
+  is the recorded ZAPBench Rotations angular-velocity drive, and
+  $v_{\mathrm{fwd}}(t)$ is the recorded swim-forward envelope read
+  from the calcium dataset's $\mathrm{swim\_forward.zarr}$ (the
+  same tail-EMG channel the trainer feeds into the calcium-batch
+  trials, \cref{fig:zhd_unmodeled}); the continuous rollout below
+  is driven by both. The bottom panel shows the model's decoded
+  $d$ (black) against the cumulative reference
+  $\int v_{\mathrm{fwd}}\,ds$ (green) over the continuous
+  $600\,\mathrm{s}$ block.}
+  \label{fig:zhd_obs_reconstruction_both}
+\end{figure}
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=0.8\textwidth]{\figdir/fig_zebrafish_calcium_reconstruction_translation_gcamp.png}
+  \caption{\textbf{Calcium reconstruction --- translation-only task}
+  ($\lambda_{\mathrm{obs}} = 1$). Translation-only variant
+  (``selfmotion\_translation''): $n_{\mathrm{in}} = 1$,
+  $n_{\mathrm{out}} = 1$, target $d(t) = \int v_{\mathrm{fwd}}\,ds$
+  (cumulative). The drive at the top is the recorded swim-forward
+  envelope $v_{\mathrm{fwd}}(t)$ (the only channel this $1$-input
+  model receives at test time); the $\omega$ panel of
+  \cref{fig:zhd_obs_reconstruction_both} is absent here because the
+  model has no rotation input. Below: bump-pool and afferent real /
+  continuous-rollout kinographs in matched rastermap order, per-pool
+  $z$-MSE / SSIM inset. Bottom: decoded forward distance $d$ (black)
+  against the cumulative reference $\int v_{\mathrm{fwd}}\,ds$
+  (green) over the continuous $600\,\mathrm{s}$ block; no heading
+  panel since heading is not decoded in this variant.}
+  \label{fig:zhd_obs_reconstruction_translation}
+\end{figure}
+
+\subsection{Proprioceptive 2-D path integration under calcium supervision}
+\label{sec:results_propriocep}
+
+The proprioception-extended circuit of \cref{method:proprioception}
+(\cref{fig:zhd_3d}\textbf{d}) routes the forward-swim drive
+$v_{\mathrm{fwd}}$ to IPN through two anatomically distinct ports in
+parallel (the exteroceptive \emph{pt-IPN1} channel and the
+motor-efferent \emph{RIPN11/12\_a/12\_c} channel) and is trained on
+the full 2-D path-integration task ($n_{\mathrm{in}}=5$,
+$n_{\mathrm{out}}=4$, target $(\cos\theta,\sin\theta,x,y)$) \emph{with}
+the calcium-observation loss on (dataset~B ``Rotations'',
+$\lambda_{\mathrm{obs}}=1$, $B_c=8$). This is the single circuit in
+which the proprioceptive afferent split, the hardest (2-D path) target,
+and the real-calcium supervision are all active at once.
+The proprioceptive circuit differs from the task-only 2-D models
+(\cref{fig:zhd_evolution_position2d,fig:zhd_evolution_position2d_leaky})
+only in the second (proprioceptive) afferent port and the added
+observation term. Heading is still recovered on held-out swim trials (per-trial
+Pearson $r_\theta \approx 0.94$), and the 2-D-position head integrates
+the path at a per-frame Euclidean RMSE of $\approx 0.38$ on natural
+trials for the cumulative variant: the calcium term and the extra
+afferent port do not degrade the task.
+
+Driving these same two checkpoints with the recorded ZAPBench Rotations
+stimulus and rendering the rolled-out activity to GCaMP7f calcium
+(\cref{eq:zhd_gcamp}) gives the reconstructions of
+\cref{fig:zhd_obs_reconstruction_propriocep_position2d,fig:zhd_obs_reconstruction_propriocep_position2d_leaky}.
+The layout follows \cref{fig:zhd_obs_reconstruction_translation}, except
+that the bottom panel shows the decoded 2-D \emph{trajectory}
+$(\hat x,\hat y)$ against the cumulative path-integration reference, in
+spatial coordinates, rather than the scalar forward-distance trace. As
+elsewhere the afferent pool reconstructs markedly better than the
+recurrent ring pool (cumulative: afferent $z$-MSE $=0.97$, SSIM $=0.43$
+vs.\ ring-pool $z$-MSE $=1.12$, SSIM $=0.17$; leaky: afferent
+$z$-MSE $=0.94$, SSIM $=0.59$ vs.\ ring-pool $z$-MSE $=1.04$,
+SSIM $=0.20$), consistent with the afferents carrying the
+stimulus-locked part of the recording. The decoded trajectory makes the
+leaky-vs-cumulative contrast explicit on the continuous $600\,\mathrm{s}$
+rollout: the cumulative decode drifts away from the origin while the
+leaky decode stays bounded near it, the spatial analogue of the scalar
+forward-distance trace in \cref{fig:zhd_obs_reconstruction_translation}.
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=0.8\textwidth]{\figdir/fig_zebrafish_calcium_reconstruction_propriocep_position_2d_gcamp.png}
+  \caption{\textbf{Calcium reconstruction --- proprioceptive 2-D
+  path-integration task, cumulative target} ($\lambda_{\mathrm{obs}} =
+  1$). Same layout as \cref{fig:zhd_obs_reconstruction_translation} for
+  the proprioception-extended circuit ($n_{\mathrm{in}}=5$,
+  $n_{\mathrm{out}}=4$, target $(\cos\theta,\sin\theta,x,y)$). Top: the
+  recorded ZAPBench Rotations angular-velocity drive $\omega(t)$ and the
+  recorded swim-forward envelope $v_{\mathrm{fwd}}(t)$. For the
+  ring pool ($300$ cells, rastermap order) and each of the three
+  afferent classes (\emph{ARTR}, \emph{pt-IPN1}, \emph{motor\_efferent},
+  sorted by per-cell preferred-heading angle), the recorded $\Delta F/F$
+  and the model's GCaMP7f calcium under a continuous
+  $600\,\mathrm{s}$ rollout are shown, with per-panel $z$-MSE and SSIM
+  inset. \emph{Bottom panel
+  (replacing the scalar-$d$ trace of
+  \cref{fig:zhd_obs_reconstruction_translation}):} the decoded 2-D path
+  $(\hat x,\hat y)$ (black) against the cumulative path-integration
+  reference $(\,\int v_{\mathrm{fwd}}\cos\theta,\ \int
+  v_{\mathrm{fwd}}\sin\theta\,)$ (green) in spatial coordinates over the
+  same continuous block; the marker is the shared origin. The cumulative
+  decode drifts from the origin as the unbounded reference grows.}
+  \label{fig:zhd_obs_reconstruction_propriocep_position2d}
+\end{figure}
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=0.8\textwidth]{\figdir/fig_zebrafish_calcium_reconstruction_propriocep_position_2d_leaky_gcamp.png}
+  \caption{\textbf{Calcium reconstruction --- proprioceptive 2-D
+  path-integration task, leaky target} ($\lambda_{\mathrm{obs}} = 1$,
+  $\tau_p = 0.5\,$s). Same layout as
+  \cref{fig:zhd_obs_reconstruction_propriocep_position2d}. In the bottom
+  trajectory panel the decoded path (black) stays bounded near the
+  origin --- the signature of the leaky 2-D integrator
+  (\cref{eq:xy_pi}) --- while the cumulative reference (green) drifts,
+  the spatial counterpart of the bounded-vs-growing distance in
+  \cref{fig:zhd_obs_reconstruction_translation}.}
+  \label{fig:zhd_obs_reconstruction_propriocep_position2d_leaky}
+\end{figure}
+
+
+\section{Cell-type vocabulary}
+\label{app:celltype_vocabulary}
+
+\Cref{tab:zhd_mapping} lists the cell-type families of the HD circuit
+exposed by the \emph{fish2} neuprint server, together with their roles
+and \emph{fish2} type prefixes, and is referenced throughout the main
+text whenever a cell-type tag is introduced.
+
+\begin{table}[H]
+\centering
+\small
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{l l l r l}
+\toprule
+Role & Zebrafish population & \emph{fish2} type prefix & $n$ & Sign / source \\
+\midrule
+Recurrent (HD ring) & dorsal IPN (\rpi) & \emph{IPNd*} & 313 & inh.\ (Dale); \rpi{} population \\
+Recurrent (HD ring, subset) & dorsal-subset IPN & \emph{IPNds*} & 95 & inh.\ (Dale) \\
+Recurrent (HD ring, IPN12) & dorsal IPN & \emph{IPN12\_a/\_b} & 108 & inh.\ (v1) / exc.\ (v2) \\
+Recurrent (IPN-core) & core IPN & \emph{IPN28/29/31--36} & 184 & inh.\ (Dale) \\
+Angular afferent (ARTR) & Rh2/3 $\to$ IPN & \emph{RIPN01/02/03\_a/03\_b} & 76 & exc.; ARTR \citep{dunn2016artr} \\
+Motor efference & motor $\to$ IPN & \emph{RIPN11/12\_a/12\_c} & 65 & exc.; efference-copy (our assignment) \\
+Other RIPN (residual) & habenula $\to$ IPN & \emph{RIPN05/12\_b} & 25 & exc.; not gate-routed \\
+Exteroceptive translational afferent & pretectum $\to$ IPN & \emph{pt-IPN1} & 51 & exc.; optic / water-flow (our assignment) \\
+\midrule
+\multicolumn{4}{l}{\emph{total}} & 917 \\
+\bottomrule
+\end{tabular}%
+}
+\caption{HD-circuit cell-type families from the \emph{fish2}
+reconstruction. \emph{Role}: how the cell is wired into the model
+(recurrent ring, gate-routed afferent, or residual). \emph{Population}:
+the corresponding zebrafish anatomical pool. \emph{fish2 type prefix}:
+the \emph{fish2} connectome type name; the asterisk is a wildcard
+grouping all sub-types with that prefix (e.g.\ \emph{IPNd13B},
+\emph{IPNd17A}, \emph{IPNdp01} all match \emph{IPNd*}). $n$: cell
+count in this pool. \emph{Sign / source}: Dale sign used in this work
+(\emph{v1} and \emph{v2} are the two IPN12 sign variants), and the
+functional identification or its origin --- a citation when the pool
+matches a previously named population, ``our assignment'' when the
+functional label is introduced here. \emph{IPN12*} (dorsal-IPN
+recurrent) and the unrelated \emph{RIPN12*} (habenular afferent) are
+distinct families despite the shared number. The \emph{IPN-core}
+families (\emph{IPN28/29/31--36}) complete the recurrent GABAergic
+substrate; the eight rows sum to the nominal $917$-cell circuit (the
+$839$-cell precursor used for the observation-loss runs of
+\cref{sec:results_obs_sweep} omits IPN-core).}
+\label{tab:zhd_mapping}
+\end{table}
+
+\section{Configuration families}
+\label{app:config_families}
+
+The $80$ training configurations in \texttt{config/zebrafish/} group into a
+small number of families; each varies one axis (task, readout, weight prior,
+connectome, stimulus, or seed) about the base heading-integration run. Most
+tasks are trained both as the sign-locked recurrent network
+(\texttt{zebrafish\_hd\_si\_ipn\_917\_v1\_*}) and as the message-passing GNN
+(\texttt{zebrafish\_hd\_si\_gnn\_ipn\_917\_v1\_*}); the RNN/GNN columns count
+the members of each. All share the nominal $917$-cell circuit unless the family
+replaces the connectome. Suffixes below are relative to the
+\texttt{...\_selfmotion\_rotation} base.
+
+\begin{table}[h]
+\centering\small
+\begin{tabular}{@{}l c c p{7.4cm}@{}}
+\toprule
+Family (config suffix) & RNN & GNN & Description \\
+\midrule
+\multicolumn{4}{@{}l}{\emph{Task suite}}\\
+\texttt{rotation}                       & 1 & 1 & Heading-only integration: $\omega\!\to\!\theta$, $\cos/\sin$ readout (base task).\\
+\texttt{rotation\_vfwd}                  & 1 & 1 & Heading-only readout, but $v_{\mathrm{fwd}}$ is also fed --- latent-translation probe (\cref{app:latent_translation}).\\
+\texttt{both}, \texttt{both\_leaky}      & 2 & 2 & Heading $+$ forward distance; cumulative and leaky.\\
+\texttt{position\_2d}, \texttt{\_leaky}  & 2 & 0 & 2-D path integration to $(x,y)$ (the GNN 2-D runs sit under the clustered-motion family below).\\
+\texttt{propriocep\_*}                   & 5 & 4 & Proprioceptive gate (sensory $\omega$ $+$ efference copy): distance, 2-D, and gain-mismatch sub-tasks.\\
+\midrule
+\multicolumn{4}{@{}l}{\emph{Readout ablations} (heading-only RNN)}\\
+\texttt{rotation\_kbins}                 & 1 & 0 & $K{=}64$-bin heading-classifier readout (vs.\ $\cos/\sin$).\\
+\texttt{rotation\_mlpdec}\,(\,$+$\,\texttt{\_\{1..5\}}) & 6 & 0 & Nonlinear MLP readout (vs.\ linear), with 5 seed replicates.\\
+\midrule
+\multicolumn{4}{@{}l}{\emph{Connectome weight prior} (Hulse-style block-cosine)}\\
+\texttt{\{rotation,both,position\_2d\}\_cos\{000..100\}} & 15 & 0 & Anchors each (post,\,pre) cell-type block of $W^{\mathrm{rec}}$ to the connectome direction at strength $0.00$--$1.00$ (5 levels $\times$ 3 tasks).\\
+\midrule
+\multicolumn{4}{@{}l}{\emph{Null connectomes} (necessity controls, \cref{app:er_null})}\\
+\texttt{\{rotation,rotation\_vfwd\}\_bs\_\{1..5\}} & 10 & 0 & Block-shuffle: per (post-,\,pre-type) block edge count/$|W|$/sign preserved, fine wiring randomised.\\
+\texttt{rotation\_er\{,\_1..4\}}         & 1 & 4 & Erd\H{o}s--R\'enyi, size/density/$|W|$-matched.\\
+\texttt{rotation\_er\_ei\_\{1..5\}}      & 0 & 5 & ER matched to the measured inhibitory fraction.\\
+\midrule
+\multicolumn{4}{@{}l}{\emph{Stimulus / embedding variants} (GNN)}\\
+\texttt{\{rotation,position\_2d\}\_clustermove\{,\_1..5\}} & 0 & 13 & Clustered self-motion stimulus regime (bouts), with seed replicates.\\
+\texttt{rotation\_freezeemb}             & 0 & 1 & Type-cluster embedding held frozen (no-learning ablation).\\
+\midrule
+\multicolumn{4}{@{}l}{\emph{Seed replicates} (solution variability)}\\
+\texttt{rotation\_vfwd\_rep\_\{1..5\}}   & 5 & 0 & Independent random seeds of the heading\,$+\,v_{\mathrm{fwd}}$ probe.\\
+\midrule
+\textbf{Total} & \textbf{49} & \textbf{31} & \textbf{80 configurations}\\
+\bottomrule
+\end{tabular}
+\caption{\textbf{Configuration families for the zebrafish HD study.}
+Suffixes are relative to the \texttt{...\_selfmotion\_rotation} base (e.g.\
+\texttt{both} $\equiv$
+\texttt{zebrafish\_hd\_si\_ipn\_917\_v1\_selfmotion\_both}). Leaky variants
+supervise a finite-$\tau$ leaky integrator instead of a cumulative one.}
+\label{tab:zhd_config_families}
+\end{table}
+
+\clearpage
+
+\bibliographystyle{unsrtnat}
+\begin{thebibliography}{9}
+
+\bibitem[Petrucco et al.(2023)]{petrucco2023}
+L.~Petrucco, H.~Lavian, Y.~K.~Wu, F.~Svara, V.~\v{S}tih, R.~Portugues.
+Neural dynamics and architecture of the heading direction circuit in
+zebrafish. \emph{Nature Neuroscience} \textbf{26}, 765--773 (2023).
+
+\bibitem[Allier et~al.(2026)]{cx2026}
+C.~Allier et~al.
+Central complex: identifiable computation, non-identifiable
+implementation. Companion manuscript, in preparation (2026).
+
+\bibitem[Dana et al.(2019)]{dana2019}
+H.~Dana, Y.~Sun, B.~Mohar, et~al.
+High-performance calcium sensors for imaging activity in neuronal
+populations and microcompartments. \emph{Nature Methods} \textbf{16},
+649--657 (2019).
+
+\bibitem[Feierstein et al.(2023)]{feierstein2023}
+C.~E.~Feierstein, M.~H.~M.~de~Goeij, A.~D.~Ostrovsky, A.~Laborde,
+R.~Portugues, M.~B.~Orger, C.~K.~Machens.
+Dimensionality reduction reveals separate translation and rotation
+populations in the zebrafish hindbrain. \emph{Current Biology}
+\textbf{33}, 3911--3925 (2023).
+
+\bibitem[Dunn et al.(2016)]{dunn2016artr}
+T.~W.~Dunn, Y.~Mu, S.~Narayan, O.~Randlett, E.~A.~Naumann, C.~T.~Yang,
+A.~F.~Schier, J.~Freeman, F.~Engert, M.~B.~Ahrens.
+Brain-wide mapping of neural activity controlling zebrafish exploratory
+locomotion. \emph{eLife} \textbf{5}, e12741 (2016).
+
+\bibitem[Khona \& Fiete(2022)]{khona2022}
+M.~Khona, I.~R.~Fiete.
+Attractor and integrator networks in the brain.
+\emph{Nature Reviews Neuroscience} \textbf{23}, 744--766 (2022).
+
+\bibitem[Seung(1996)]{seung1996}
+H.~S.~Seung.
+How the brain keeps the eyes still.
+\emph{Proc.\ Natl.\ Acad.\ Sci.\ USA} \textbf{93}, 13339--13344 (1996).
+
+\bibitem[Major et al.(2004)]{major2004}
+G.~Major, R.~Baker, E.~Aksay, B.~Mensh, H.~S.~Seung, D.~W.~Tank.
+Plasticity and tuning by visual feedback of the stability of a neural
+integrator. \emph{Proc.\ Natl.\ Acad.\ Sci.\ USA} \textbf{101},
+7739--7744 (2004).
+
+\bibitem[Gon\c{c}alves et al.(2014)]{goncalves2014}
+P.~J.~Gon\c{c}alves, A.~B.~Arrenberg, B.~Hablitzel, H.~Baier,
+C.~K.~Machens.
+Optogenetic perturbations reveal the dynamics of an oculomotor
+integrator. \emph{Frontiers in Neural Circuits} \textbf{8}, 10 (2014).
+
+\bibitem[Kim et al.(2017)]{kim2017}
+S.~S.~Kim, H.~Rouault, S.~Druckmann, V.~Jayaraman.
+Ring attractor dynamics in the \emph{Drosophila} central brain.
+\emph{Science} \textbf{356}, 849--853 (2017).
+
+\bibitem[Chaudhuri et al.(2019)]{chaudhuri2019}
+R.~Chaudhuri, B.~Ger\c{c}ek, B.~Pandey, A.~Peyrache, I.~Fiete.
+The intrinsic attractor manifold and population dynamics of a canonical
+cognitive circuit across waking and sleep. \emph{Nature Neuroscience}
+\textbf{22}, 1512--1520 (2019).
+
+\bibitem[Lyu et al.(2022)]{lyu2022}
+C.~Lyu, L.~F.~Abbott, G.~Maimon.
+Building an allocentric travelling direction signal via vector
+computation. \emph{Nature} \textbf{601}, 92--97 (2022).
+
+\bibitem[Yang et al.(2024)]{yang2024}
+C.~Yang, L.~Mammen, B.~Kim, M.~Li, D.~N.~Robson, J.~M.~Li.
+A population code for spatial representation in the zebrafish
+telencephalon. \emph{Nature} \textbf{634}, 397--406 (2024).
+
+\end{thebibliography}
+
+\end{document}

@@ -299,6 +299,10 @@ validate_registry()
 
 def get_model_W(model) -> torch.Tensor:
     """Get the weight matrix from a model, handling low-rank factorization."""
+    # Prefer the effective weight (|W|·sign_GT under the hard sign-lock); when
+    # the lock is off this equals the raw W, so existing models are unaffected.
+    if hasattr(model, 'effective_W'):
+        return model.effective_W
     if hasattr(model, 'W'):
         return model.W
     elif hasattr(model, 'WL') and hasattr(model, 'WR'):
@@ -352,9 +356,15 @@ def compute_r_squared_NSE(true: np.ndarray, learned: np.ndarray) -> tuple[float,
     Slope from learned ≈ a·true + b diagnoses scale miscalibration when R² is low.
     """
     try:
-        var_true = float(np.var(true))
-        if var_true <= 0:
+        a = np.asarray(true).ravel()
+        # Effectively-constant GT -> identity-line R² is undefined and would
+        # explode to a huge negative number on tiny float-level variation
+        # (e.g. a tau that is 0.1 up to ~1e-6 noise, var≈1e-12). Return NaN so
+        # callers show 'N/A' + a MAE instead (see is_degenerate_gt/recovery_mae).
+        scale = max(float(np.mean(np.abs(a))), 1e-12)
+        if a.size < 2 or float(np.std(a)) / scale < 1e-4:
             return float('nan'), float('nan')
+        var_true = float(np.var(true))
         mse = float(np.mean((true - learned) ** 2))
         r_squared = 1.0 - mse / var_true
         slope = float(np.polyfit(true, learned, 1)[0])
@@ -381,6 +391,96 @@ def compute_r_squared_filtered(true: np.ndarray, learned: np.ndarray, outlier_th
 
     r_squared, slope = compute_r_squared_NSE(true_in, learned_in)
     return r_squared, slope, mask
+
+
+def is_degenerate_gt(true: np.ndarray, rel_eps: float = 1e-4) -> bool:
+    """True when the GT is effectively constant, so the identity-line (NSE) R²
+    is undefined (``1 - rss/var`` with ``var≈0``) and explodes to a huge negative
+    number on tiny float-level variation. Uses a *relative* test (coefficient of
+    variation ``std/|mean| < rel_eps``) so it is scale-robust — e.g. a tau that is
+    0.1 up to ~1e-6 float noise (var≈1e-12) is correctly flagged constant. For
+    such a parameter report a MAE instead of a garbage R²."""
+    a = np.asarray(true).ravel()
+    if a.size < 2:
+        return True
+    scale = max(float(np.mean(np.abs(a))), 1e-12)
+    return float(np.std(a)) / scale < rel_eps
+
+
+def recovery_mae(true: np.ndarray, learned: np.ndarray) -> float:
+    """Mean absolute error |true - learned| — the fallback metric for a recovered
+    parameter whose GT is constant (R² undefined)."""
+    a = np.asarray(true).ravel()
+    b = np.asarray(learned).ravel()
+    n = min(a.size, b.size)
+    return float(np.mean(np.abs(a[:n] - b[:n]))) if n else float('nan')
+
+
+def r2_scatter_text(true: np.ndarray, learned: np.ndarray, clean_r2: float = None,
+                    label: str = 'R²', n: int = None) -> str:
+    """Annotation text for a recovery scatter (tau, V_rest, ...).
+
+    Normal: ``'R²: 0.83\\nslope: 1.02'`` (or ``'R²: clean (all)\\nslope'`` when
+    ``clean_r2`` is given). When the GT has ~no variance the R² is undefined, so
+    it shows ``'R²: N/A (const GT)\\nMAE: 0.012'`` instead. Optional ``n`` appends
+    a sample-count line."""
+    tail = '' if n is None else f'\nN: {n}'
+    if is_degenerate_gt(true):
+        return f'{label}: N/A (const GT)\nMAE: {recovery_mae(true, learned):.3g}{tail}'
+    r2, slope = compute_r_squared_NSE(true, learned)
+    if clean_r2 is not None:
+        return f'{label}: {clean_r2:.2f} ({r2:.2f})\nslope: {slope:.2f}{tail}'
+    return f'{label}: {r2:.2f}\nslope: {slope:.2f}{tail}'
+
+
+def fmt_r2_bar(val) -> str:
+    """Progress-bar value: ``'N/A'`` when the R² is undefined (None/NaN, e.g. a
+    constant-GT parameter), else 3-dp."""
+    if val is None or (isinstance(val, float) and np.isnan(val)):
+        return 'N/A'
+    return f'{val:.3f}'
+
+
+def recovery_param_metrics(gt: np.ndarray, learned: np.ndarray, outlier_thresh: float) -> dict:
+    """All recovery metrics for one per-neuron parameter (tau, V_rest), computed
+    ONCE so the scatter, console line and metrics.txt can't disagree.
+
+    Outlier rule: ``|learned - true| > outlier_thresh`` (the neurips.tex
+    eq:outlier_threshold band, delta_tau=0.1 / delta_Vrest=0.2).
+
+    Returns a dict with: ``r2``/``slope`` (full identity-line NSE),
+    ``r2_clean``/``slope_clean`` (inliers only; NaN if <2 inliers),
+    ``n_outliers``/``n_total``/``pct_outliers``, ``outlier_mask``/``inlier_mask``,
+    ``degenerate`` (bool, GT ~constant -> R² undefined), ``mae`` (fallback metric),
+    and ``rel_err_median``/``rel_err_iqr`` (|learned-true|/max(|true|,1e-6))."""
+    gt = np.asarray(gt).ravel()
+    learned = np.asarray(learned).ravel()
+    n = min(gt.size, learned.size)
+    gt, learned = gt[:n], learned[:n]
+    r2, slope = compute_r_squared_NSE(gt, learned)
+    out_mask = np.abs(learned - gt) > outlier_thresh
+    in_mask = ~out_mask
+    n_out = int(out_mask.sum())
+    n_tot = int(gt.size)
+    if int(in_mask.sum()) >= 2:
+        r2_clean, slope_clean = compute_r_squared_NSE(gt[in_mask], learned[in_mask])
+    else:
+        r2_clean, slope_clean = float('nan'), float('nan')
+    if n_tot:
+        rel = np.abs(learned - gt) / np.maximum(np.abs(gt), 1e-6)
+        rel_med = float(np.median(rel))
+        q1, q3 = np.percentile(rel, [25.0, 75.0])
+        rel_iqr = float(q3 - q1)
+    else:
+        rel_med = rel_iqr = float('nan')
+    return dict(
+        r2=r2, slope=slope, r2_clean=r2_clean, slope_clean=slope_clean,
+        n_outliers=n_out, n_total=n_tot,
+        pct_outliers=(100.0 * n_out / n_tot) if n_tot else 0.0,
+        outlier_mask=out_mask, inlier_mask=in_mask,
+        degenerate=is_degenerate_gt(gt), mae=recovery_mae(gt, learned),
+        rel_err_median=rel_med, rel_err_iqr=rel_iqr,
+    )
 
 
 # ------------------------------------------------------------------ #
@@ -851,13 +951,28 @@ def compute_dynamics_r2(model, x_ts, config, device, n_neurons):
             n_out_tau      : number of tau outliers
             n_total_tau    : total neurons evaluated for tau
     """
-    from connectome_gnn.generators.ode_params import get_ode_params_class
+    from connectome_gnn.generators.ode_params import (
+        FlyVisODEParams, get_ode_params_class,
+    )
     signal_model = config.graph_model.signal_model_name
     try:
         OdeParamsCls = get_ode_params_class(signal_model)
+    except KeyError:
+        OdeParamsCls = FlyVisODEParams
+    try:
         ode_params = OdeParamsCls.load(graphs_data_path(config.dataset), device=device)
-    except (KeyError, FileNotFoundError):
+    except FileNotFoundError:
         return dict(_DYNAMICS_R2_EMPTY)
+    except TypeError:
+        # On-disk schema mismatch (e.g. signal_model=drosophila_cx maps to
+        # DrosophilaCxODEParams but the file holds FlyVisODEParams from the
+        # voltage-recovery generator). Fall back to FlyVisODEParams.
+        try:
+            ode_params = FlyVisODEParams.load(
+                graphs_data_path(config.dataset), device=device
+            )
+        except (FileNotFoundError, TypeError):
+            return dict(_DYNAMICS_R2_EMPTY)
 
     mu, sigma = compute_activity_stats(x_ts, device)
     slopes, offsets = extract_f_theta_slopes(model, config, n_neurons, mu, sigma, device)
@@ -1148,3 +1263,232 @@ def compute_all_corrected_weights(model, config, edges, x_ts, device,
         model, edges, slopes_f_theta, g_phi_correction, grad_msg)
 
     return corrected_W, slopes_f_theta, g_phi_correction, offsets_f_theta, g_phi_fitted
+
+
+# ------------------------------------------------------------------ #
+#  Calcium / time-series spectral comparison
+# ------------------------------------------------------------------ #
+# Used by:
+#   - figures/zebrafish/fig_zebrafish_calcium_baseline.py — power-
+#     spectrum panel on real vs.\ modelled ΔF/F.
+#   - figures/zebrafish/best_match_to_model.py (and analogs) — score
+#     every observed neuron against every modelled neuron by spectral
+#     distance (and/or correlation) to find best-matching candidates
+#     from the ~70 k-cell recording.
+# Implemented as a thin numpy layer so it stays cheap and reusable.
+
+def fft_power_spectrum(
+    x: np.ndarray,
+    dt: float = 1.0,
+    *,
+    axis: int = -1,
+    detrend: bool = True,
+    window: str = "hann",
+    one_sided: bool = True,
+):
+    """Per-trace FFT power spectrum.
+
+    Parameters
+    ----------
+    x : np.ndarray
+        Time series. Frequencies are computed along ``axis``.
+    dt : float
+        Sample interval in seconds. ``1/dt`` is the sampling rate.
+    axis : int
+        Time axis. Default ``-1``.
+    detrend : bool
+        Subtract the per-trace mean before the FFT so the DC bin doesn't
+        dominate (and the per-frame baseline drift in ΔF/F doesn't leak
+        into the lowest few bins).
+    window : ``"hann"`` | ``"hamming"`` | ``None``
+        Optional tapering window. ``"hann"`` is sensible for irregularly
+        sampled ZAPBench-style ΔF/F (no implicit periodicity assumption).
+    one_sided : bool
+        Keep only non-negative frequencies (``rfft`` semantics).
+
+    Returns
+    -------
+    freqs : np.ndarray, shape ``(F,)``
+        Frequency bin centres in Hz.
+    power : np.ndarray, same shape as ``x`` except the time axis is
+        replaced by ``F``. Single-sided power $|X(f)|^2$ (the windowed,
+        detrended FFT magnitude squared); not normalised — this is the
+        raw spectrum so callers can pick their own normalisation.
+    """
+    x = np.asarray(x, dtype=np.float64)
+    x = np.moveaxis(x, axis, -1)
+    T = int(x.shape[-1])
+    if detrend:
+        x = x - x.mean(axis=-1, keepdims=True)
+    if window == "hann":
+        w = np.hanning(T)
+    elif window == "hamming":
+        w = np.hamming(T)
+    else:
+        w = None
+    if w is not None:
+        x = x * w
+    if one_sided:
+        X = np.fft.rfft(x, n=T, axis=-1)
+        freqs = np.fft.rfftfreq(T, d=dt)
+    else:
+        X = np.fft.fft(x, n=T, axis=-1)
+        freqs = np.fft.fftfreq(T, d=dt)
+    power = (X.real ** 2 + X.imag ** 2)
+    power = np.moveaxis(power, -1, axis)
+    return freqs, power
+
+
+def _normalise_pdf(p: np.ndarray, axis: int = -1, eps: float = 1e-12):
+    """Normalise the spectrum to a probability mass function along
+    ``axis`` so spectral-distance metrics that assume a PMF are
+    well-defined.
+
+    Used internally by :func:`spectrum_distance`. Zero or negative
+    inputs (numerical noise) are clipped before normalisation.
+    """
+    p = np.maximum(p, 0.0)
+    s = p.sum(axis=axis, keepdims=True)
+    return p / (s + eps)
+
+
+def spectrum_distance(
+    p: np.ndarray,
+    q: np.ndarray,
+    *,
+    metric: str = "l2",
+    axis: int = -1,
+):
+    """Distance between two power spectra ``p`` and ``q``.
+
+    Both inputs should be the power output of :func:`fft_power_spectrum`
+    (any non-negative array works). The arrays must have the same shape
+    along ``axis`` (the frequency axis); other axes broadcast.
+
+    Parameters
+    ----------
+    metric : ``"l2"`` | ``"l1"`` | ``"cosine"`` | ``"jsd"``
+        - ``"l2"``: Euclidean distance over a log-1+ transform of the
+          unit-sum spectrum (matches what eye balls do — low-frequency
+          differences dominate without small numerical bins exploding).
+        - ``"l1"``: total-variation distance after unit-sum
+          normalisation. Cheap, bounded in ``[0, 2]``.
+        - ``"cosine"``: ``1 - dot(p, q) / (||p|| ||q||)``. Insensitive
+          to absolute amplitude — good for comparing shape.
+        - ``"jsd"``: Jensen–Shannon divergence on the unit-sum
+          normalised spectra (symmetric, bounded ``[0, ln 2]``).
+
+    Returns
+    -------
+    np.ndarray
+        Distance scalar per non-axis index. Broadcasts over the
+        non-frequency axes of ``p`` and ``q``.
+    """
+    p = np.asarray(p, dtype=np.float64)
+    q = np.asarray(q, dtype=np.float64)
+    if metric == "cosine":
+        num = (p * q).sum(axis=axis)
+        denom = (np.sqrt((p * p).sum(axis=axis))
+                 * np.sqrt((q * q).sum(axis=axis)))
+        return 1.0 - num / (denom + 1e-12)
+    pn = _normalise_pdf(p, axis=axis)
+    qn = _normalise_pdf(q, axis=axis)
+    if metric == "l1":
+        return np.abs(pn - qn).sum(axis=axis)
+    if metric == "l2":
+        return float(np.linalg.norm(
+            np.log1p(pn) - np.log1p(qn), axis=axis,
+        )) if pn.ndim == 1 else np.linalg.norm(
+            np.log1p(pn) - np.log1p(qn), axis=axis,
+        )
+    if metric == "jsd":
+        m = 0.5 * (pn + qn)
+        def _kl(a, b):
+            mask = a > 0
+            r = np.zeros_like(a)
+            r[mask] = a[mask] * (np.log(a[mask]) - np.log(b[mask] + 1e-12))
+            return r.sum(axis=axis)
+        return 0.5 * _kl(pn, m) + 0.5 * _kl(qn, m)
+    raise ValueError(
+        f"spectrum_distance: unknown metric {metric!r}; expected one of "
+        f"'l2', 'l1', 'cosine', 'jsd'.")
+
+
+def best_observed_match(
+    obs: np.ndarray,
+    model: np.ndarray,
+    dt: float,
+    *,
+    metric: str = "cosine",
+    band_hz: tuple | None = None,
+    return_scores: bool = False,
+):
+    """For every modelled trace, find the observed trace whose power
+    spectrum is the closest match.
+
+    Used to search the ~70 k observed-neuron pool from a recording for
+    the cells that best explain each modelled cell, regardless of which
+    481 neurons were anatomy-matched at training time.
+
+    Parameters
+    ----------
+    obs : np.ndarray, shape ``(N_obs, T)``
+        Observed traces (ΔF/F or voltage), one per row.
+    model : np.ndarray, shape ``(N_model, T)``
+        Modelled traces, one per row. Must have the same ``T`` as
+        ``obs`` (resample or trim before calling).
+    dt : float
+        Sample interval in seconds. Forwarded to
+        :func:`fft_power_spectrum`.
+    metric : str
+        Spectral-distance metric (see :func:`spectrum_distance`).
+        ``"cosine"`` is shape-only; ``"l2"`` weights low-frequency
+        differences more.
+    band_hz : tuple ``(f_lo, f_hi)`` or None
+        Restrict the comparison to a frequency band. ``None`` uses the
+        full spectrum.
+    return_scores : bool
+        When ``True``, also return the full ``(N_model, N_obs)``
+        distance matrix.
+
+    Returns
+    -------
+    best_idx : np.ndarray, shape ``(N_model,)``
+        For each modelled trace, the index into ``obs`` of the
+        best-matching observed trace.
+    best_score : np.ndarray, shape ``(N_model,)``
+        The matching distance (lower = better fit).
+    scores : np.ndarray, shape ``(N_model, N_obs)``
+        Only when ``return_scores=True``: the full distance matrix.
+    """
+    obs = np.asarray(obs, dtype=np.float64)
+    model = np.asarray(model, dtype=np.float64)
+    if obs.shape[-1] != model.shape[-1]:
+        raise ValueError(
+            f"best_observed_match: time axis mismatch obs.T={obs.shape[-1]} "
+            f"vs model.T={model.shape[-1]} — resample first.")
+    freqs, p_obs = fft_power_spectrum(obs, dt=dt, axis=-1)
+    _, p_mod = fft_power_spectrum(model, dt=dt, axis=-1)
+    if band_hz is not None:
+        f_lo, f_hi = band_hz
+        mask = (freqs >= f_lo) & (freqs <= f_hi)
+        p_obs = p_obs[..., mask]
+        p_mod = p_mod[..., mask]
+    # Vectorised pairwise: tile to (N_model, N_obs, F) — cheap when
+    # F is small (~rfft of a few-min trace) but heavy when N_obs is
+    # ~70 k. Chunk over N_obs to bound memory.
+    n_model = p_mod.shape[0]
+    n_obs = p_obs.shape[0]
+    scores = np.empty((n_model, n_obs), dtype=np.float64)
+    CHUNK = max(1, int(2**24 // max(p_obs.shape[-1], 1)))
+    for j0 in range(0, n_obs, CHUNK):
+        j1 = min(j0 + CHUNK, n_obs)
+        scores[:, j0:j1] = spectrum_distance(
+            p_mod[:, None, :], p_obs[None, j0:j1, :],
+            metric=metric, axis=-1,
+        )
+    best_idx = np.argmin(scores, axis=1)
+    best_score = scores[np.arange(n_model), best_idx]
+    if return_scores:
+        return best_idx, best_score, scores
+    return best_idx, best_score

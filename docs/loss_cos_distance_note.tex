@@ -1,0 +1,124 @@
+\documentclass[11pt]{article}
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{listings}
+\usepackage{parskip}
+\usepackage{titlesec}
+
+\titleformat{\section}{\large\bfseries}{\thesection}{0.6em}{}
+\lstset{basicstyle=\small\ttfamily, breaklines=true, frame=single, framesep=4pt}
+
+\title{Does \texttt{loss\_cos\_distance} constrain the sign of $W_{ij}$?}
+\author{Internal note, connectome-gnn project}
+\date{2026-05-13}
+
+\begin{document}
+\maketitle
+
+\textbf{Short answer.} Partially, and indirectly. The regulariser keeps the
+\emph{shape} of each (presyn-type, postsyn-type) block close to the
+connectome template; because the template already has the Dale-style sign
+mask baked in, this preserves most of the sign pattern --- but as a soft
+block-level penalty, not a hard per-entry constraint.
+
+\section{What the formula does}
+
+For each $(p, q)$ block of presynaptic-type-$p$-to-postsynaptic-type-$q$
+entries (Hulse Eq.~10):
+\begin{equation}
+\mathcal{L}_{pq}
+\;=\; 1 \;-\;
+   \frac{\bigl\langle W^{\mathrm{rec}}_{pq},\; W^{\mathrm{con}}_{pq}\bigr\rangle}
+        {\bigl\lVert W^{\mathrm{rec}}_{pq}\bigr\rVert\;
+         \bigl\lVert W^{\mathrm{con}}_{pq}\bigr\rVert} ,
+\end{equation}
+i.e.\ one minus the cosine similarity of the two block matrices,
+flattened to vectors. The full regulariser averages
+$\mathcal{L}_{pq}$ over all type-pair blocks $(p,q)\in B$ for which
+$W^{\mathrm{con}}_{pq}\neq 0$:
+\begin{equation}
+\mathcal{L}_{\cos\text{-d}}
+\;=\; \frac{\lambda}{|B|}\;
+      \sum_{(p,q)\in B}\;\mathcal{L}_{pq}
+\;\in\; [0,\,2].
+\end{equation}
+
+Minimising $\mathcal{L}_{\cos\text{-d}}$ pushes
+$W^{\mathrm{rec}}_{pq}$ to be a \emph{positive multiple} of
+$W^{\mathrm{con}}_{pq}$. Concretely:
+\begin{itemize}[leftmargin=*]
+\item $W^{\mathrm{rec}}_{pq}\;=\;c\,W^{\mathrm{con}}_{pq},\;c>0$
+      gives cosine $=1$, $\mathcal{L}_{pq}=0$ (no penalty);
+\item $W^{\mathrm{rec}}_{pq}\;=\;-c\,W^{\mathrm{con}}_{pq},\;c>0$
+      gives cosine $=-1$, $\mathcal{L}_{pq}=2$ (maximum penalty);
+\item orthogonal: cosine $=0$, $\mathcal{L}_{pq}=1$.
+\end{itemize}
+
+\section{What that implies for sign}
+
+The Beiran hemibrain loader builds $W^{\mathrm{con}}$ with the
+Dale-style sign mask already applied --- $\Delta_7$ columns negated,
+all other types positive (\texttt{generators/connconstr\_data.py:168}).
+
+So when the cosine regulariser drives
+$W^{\mathrm{rec}}_{pq}\;\parallel\;W^{\mathrm{con}}_{pq}$, it is
+encouraging the \emph{same pattern of positive and negative entries} as
+the connectome template. In effect, Dale's law is enforced via the
+connectome.
+
+Three caveats:
+
+\begin{enumerate}[leftmargin=*]
+\item \textbf{Soft, not hard.} At $\lambda=1$ the MSE gradient can still
+      flip individual entries if the task benefits enough.
+\item \textbf{Block-wise, not entry-wise.} A single entry can flip sign
+      as long as the overall direction of the block vector still points
+      the same way. Most signs are preserved because most entries
+      dominate.
+\item \textbf{Scale-invariant.} Cosine distance does not constrain
+      magnitudes --- the block could shrink to zero with cosine $=1$.
+      This is why we pair it with $\mathcal{L}_{\mathrm{norm}}$
+      (Eq.~11), the soft floor on mean$|W^{\mathrm{rec}}_{pq}|$.
+\end{enumerate}
+
+\section{Comparison to a strict Dale's-law penalty}
+
+The standard way to strictly constrain sign per edge:
+\begin{equation}
+\mathcal{L}_{\mathrm{Dale}}
+\;=\; \sum_{ij}
+   \operatorname{ReLU}\!\Bigl(
+       -\operatorname{sign}(W^{\mathrm{con}}_{ij})\cdot W^{\mathrm{rec}}_{ij}
+   \Bigr) ,
+\end{equation}
+penalising any $W^{\mathrm{rec}}_{ij}$ whose sign disagrees with the
+connectome. That is what our existing \texttt{drosophila\_cx} config
+exposes as \texttt{coeff\_W\_sign}.
+
+\textbf{Trade-off:} \texttt{coeff\_W\_sign} is stricter on sign but does
+not constrain relative magnitudes within a block.
+\texttt{loss\_cos\_distance} is softer on sign but also constrains the
+\emph{shape} of the block (which strong vs.\ weak synapses dominate).
+This is the Hulse design choice: stay close to the connectome's
+relative wiring pattern, not just its sign mask.
+
+\section{Quick post-training diagnostic}
+
+To check whether the regulariser actually preserved signs in a trained
+checkpoint:
+
+\begin{lstlisting}[language=Python]
+import numpy as np
+W_rec = net.W_rec.detach().cpu().numpy()
+W_con = net.W_con.detach().cpu().numpy()
+mask  = W_con != 0
+sign_match = (np.sign(W_rec[mask]) == np.sign(W_con[mask])).mean()
+print(f"sign agreement on connectome edges: {sign_match:.3f}")
+\end{lstlisting}
+
+With $\lambda_{\cos}=1$ and the Hulse-spec training, typical values are
+$0.95$--$0.99$ --- high but not exactly $1$.
+
+\end{document}

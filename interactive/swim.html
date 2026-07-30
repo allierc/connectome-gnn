@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Swim to steer the bump — zebrafish dIPN</title>
+<style>
+  :root{
+    --bg:#f6f5f1; --ink:#23262b; --muted:#8b9098; --hair:#e3e1da; --card:#fffefb;
+    --IPNd:#d8392f; --IPNds:#ef8a1e; --RIPN:#2f7fd8; --ptIPN:#8b4bc6;
+    --accent:#23262b;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.55 ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{max-width:1080px;margin:0 auto;padding:40px 26px 70px}
+  h1{font-size:23px;font-weight:600;letter-spacing:-.01em;margin:0 0 4px}
+  .sub{color:var(--muted);font-size:15px;margin:0 0 26px;max-width:680px}
+  .stage{display:grid;grid-template-columns:1fr 300px;gap:22px;align-items:start}
+  @media(max-width:840px){.stage{grid-template-columns:1fr}}
+  .panel{background:var(--card);border:1px solid var(--hair);border-radius:16px;overflow:hidden}
+  canvas{display:block;width:100%}
+  #scene{aspect-ratio:1/0.78;cursor:grab}
+  #scene:active{cursor:grabbing}
+  .side{display:flex;flex-direction:column;gap:18px}
+  .blk{background:var(--card);border:1px solid var(--hair);border-radius:16px;padding:16px 16px 18px}
+  .blk h3{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);
+    font-weight:600;margin:0 0 12px}
+  .chips{display:flex;flex-direction:column;gap:8px}
+  .chip{display:flex;align-items:center;gap:10px;border:1px solid var(--hair);border-radius:10px;
+    padding:8px 11px;cursor:pointer;user-select:none;transition:.12s;background:#fff}
+  .chip:hover{border-color:#cfcdc5}
+  .chip .dot{width:11px;height:11px;border-radius:50%;flex:0 0 11px}
+  .chip .nm{font-weight:550;font-size:13.5px}
+  .chip .ds{color:var(--muted);font-size:11.5px;margin-left:auto}
+  .chip.off{opacity:.38}
+  .bar{height:3px;border-radius:2px;background:var(--hair);margin-top:7px;overflow:hidden}
+  .bar i{display:block;height:100%;width:0;background:currentColor;transition:width .08s linear}
+  /* swim pad */
+  .pad{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,44px);
+    gap:8px;justify-items:stretch}
+  .pad button{border:1px solid var(--hair);background:#fff;border-radius:11px;cursor:pointer;
+    font-size:17px;color:var(--ink);transition:.08s;display:flex;align-items:center;justify-content:center}
+  .pad button:hover{border-color:#bfbdb4;background:#fbfaf6}
+  .pad button:active,.pad button.flash{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .fwd{grid-column:2;grid-row:1}.bwd{grid-column:2;grid-row:3}
+  .lft{grid-column:1;grid-row:2}.rgt{grid-column:3;grid-row:2}
+  .hub{grid-column:2;grid-row:2;display:flex;align-items:center;justify-content:center;
+    color:var(--muted);font-size:10px;border:1px dashed var(--hair);border-radius:11px}
+  .hint{color:var(--muted);font-size:11.5px;margin-top:11px;text-align:center}
+  .read{display:flex;justify-content:space-between;font-variant-numeric:tabular-nums;
+    font-size:13px;color:var(--muted);margin-top:2px}
+  .read b{color:var(--ink);font-weight:600}
+  #tankwrap{padding:0}
+  #tank{aspect-ratio:1/0.62;background:#fbfbf8}
+  .foot{color:var(--muted);font-size:12px;margin-top:26px;border-top:1px solid var(--hair);padding-top:14px}
+  .scenelabels{position:relative}
+  .badge{position:absolute;top:12px;left:14px;font-size:12px;color:var(--muted);
+    font-variant-numeric:tabular-nums}
+  .badge b{color:var(--ink)}
+  .rot{position:absolute;top:12px;right:14px;font-size:11px;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Swim to steer the bump</h1>
+  <p class="sub">A vertebrate head-direction ring attractor in the larval-zebrafish dorsal IPN.
+  Give the fish <b>swim orders</b> — turn left/right or push forward/back — and watch a single
+  bump of activity travel around the ring to track heading. <span style="color:var(--ink)">Drag the
+  scene to rotate it.</span></p>
+
+  <div class="stage">
+    <div class="panel scenelabels">
+      <canvas id="scene"></canvas>
+      <div class="badge">heading <b id="hd">0°</b> &nbsp;·&nbsp; last order <b id="last">—</b></div>
+      <div class="rot">drag to rotate · scroll to zoom</div>
+    </div>
+
+    <div class="side">
+      <div class="blk">
+        <h3>Cell populations</h3>
+        <div class="chips" id="chips"></div>
+      </div>
+
+      <div class="blk">
+        <h3>Swim orders</h3>
+        <div class="pad">
+          <button class="fwd" data-cmd="F" title="swim forward (↑)">▲</button>
+          <button class="lft" data-cmd="L" title="turn left (←)">◀</button>
+          <div class="hub">swim</div>
+          <button class="rgt" data-cmd="R" title="turn right (→)">▶</button>
+          <button class="bwd" data-cmd="B" title="swim backward (↓)">▼</button>
+        </div>
+        <div class="hint">L / R turn the heading bump by ≈ π/4 · F / B move the fish</div>
+      </div>
+
+      <div class="blk" id="tankwrap" style="padding:14px">
+        <h3 style="padding:0 2px">The fish</h3>
+        <div class="panel" style="border-radius:11px"><canvas id="tank"></canvas></div>
+      </div>
+    </div>
+  </div>
+
+  <p class="foot">Minimal live re-implementation of the dorsal-IPN HD ring (companion to the zebrafish
+  manuscript). Swim impulses follow the swim-integration convention (≈ π/4 rad per turn). The fish's
+  heading is read out from the bump by population vector — turning steers it, swimming forward moves it
+  along that heading. Built with Claude · reviewed by C. Allier.</p>
+</div>
+
+<script>
+"use strict";
+/* ===================== verified ring-attractor engine ===================== */
+const N=48, tau=0.1, dt=0.004, J0=4, J1=16, I0=0.5, GAIN=1.5;
+const PHI=[]; for(let i=0;i<N;i++) PHI.push(2*Math.PI*i/N);
+const SIN=[], base=[];
+for(let i=0;i<N;i++){SIN.push(new Float64Array(N)); base.push(new Float64Array(N));
+  for(let j=0;j<N;j++){const d=PHI[i]-PHI[j]; SIN[i][j]=Math.sin(d);
+    base[i][j]=(1/N)*(-J0+J1*Math.cos(d));}}
+const sat=x=>x>0?Math.tanh(x):0;
+let h=new Float64Array(N); for(let i=0;i<N;i++) h[i]=0.1+0.3*Math.cos(PHI[i]);
+function ringStep(v){const r=h.map(sat); const sc=GAIN*v/N; const hn=new Float64Array(N);
+  for(let i=0;i<N;i++){let s=0; const B=base[i],S=SIN[i];
+    for(let j=0;j<N;j++) s+=(B[j]+sc*S[j])*r[j];
+    hn[i]=h[i]+(dt/tau)*(-h[i]+s+I0);} h=hn;}
+function rates(){const r=new Float64Array(N); for(let i=0;i<N;i++) r[i]=sat(h[i]); return r;}
+function decode(){const r=rates(); let cx=0,cy=0;
+  for(let i=0;i<N;i++){cx+=r[i]*Math.cos(PHI[i]); cy+=r[i]*Math.sin(PHI[i]);} return Math.atan2(cy,cx);}
+
+/* ===================== populations & 3-D layout ===================== */
+const POP=[
+  {key:"IPNd",  name:"IPNd",   ds:"HD ring",          color:"#d8392f"},
+  {key:"IPNds", name:"IPNds",  ds:"dorsal subset",    color:"#ef8a1e"},
+  {key:"RIPN",  name:"RIPN",   ds:"habenula → IPN",   color:"#2f7fd8"},
+  {key:"ptIPN", name:"pt-IPN", ds:"pretectum → IPN",  color:"#8b4bc6"},
+];
+const show={IPNd:true,IPNds:true,RIPN:true,ptIPN:true};
+const jit=(i,k)=>{const s=Math.sin(i*12.9898+k*78.233)*43758.5453; return (s-Math.floor(s))-0.5;};
+
+// build neuron list: {x,y,z, pop, ringIdx?}
+const neurons=[];
+for(let i=0;i<N;i++){const a=PHI[i];
+  neurons.push({x:Math.cos(a),y:0,z:Math.sin(a),pop:"IPNd",ringIdx:i});}      // HD ring
+for(let i=0;i<18;i++){const a=2*Math.PI*i/18;
+  neurons.push({x:0.58*Math.cos(a),y:-0.42,z:0.58*Math.sin(a),pop:"IPNds",ringIdx:Math.round(i/18*N)%N});}
+for(let i=0;i<13;i++){neurons.push({pop:"RIPN",
+  x:-1.55+0.34*jit(i,1),y:0.78+0.34*jit(i,2),z:-0.35+0.5*jit(i,3)});}          // habenula afferents
+for(let i=0;i<13;i++){neurons.push({pop:"ptIPN",
+  x:1.55+0.34*jit(i,4),y:0.62+0.34*jit(i,5),z:0.42+0.5*jit(i,6)});}            // pretectum afferents
+
+/* ===================== 3-D camera ===================== */
+let yaw=0.6, pitch=-0.5, zoom=1.0, dragging=false, lx=0, ly=0, idle=true;
+function project(p,W,H){
+  let cy=Math.cos(yaw),sy=Math.sin(yaw), cp=Math.cos(pitch),sp=Math.sin(pitch);
+  let x=p.x*cy + p.z*sy, z=-p.x*sy + p.z*cy;
+  let y=p.y*cp - z*sp,    z2=p.y*sp + z*cp;
+  const sc=Math.min(W,H)*0.30*zoom;
+  const persp=1.0/(1.0+0.16*z2);
+  return {sx:W/2 + x*sc*persp, sy:H/2 - y*sc*persp, depth:z2, persp};
+}
+
+/* ===================== scene rendering ===================== */
+const scene=document.getElementById("scene"), sctx=scene.getContext("2d");
+function fit(cv){const r=cv.getBoundingClientRect(), d=window.devicePixelRatio||1;
+  cv.width=r.width*d; cv.height=r.height*d; cv.getContext("2d").setTransform(d,0,0,d,0,0);
+  return {w:r.width,h:r.height};}
+let SC=fit(scene);
+function hex2rgb(h){return [parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];}
+const RGB=Object.fromEntries(POP.map(p=>[p.key,hex2rgb(p.color)]));
+
+function drawScene(r, afferentGlow){
+  const {w,h}=SC; sctx.clearRect(0,0,w,h);
+  // faint ring-plane ellipse
+  const pts=[];
+  for(let a=0;a<2*Math.PI;a+=0.12) pts.push(project({x:Math.cos(a),y:0,z:Math.sin(a)},w,h));
+  sctx.beginPath(); pts.forEach((p,k)=>k?sctx.lineTo(p.sx,p.sy):sctx.moveTo(p.sx,p.sy));
+  sctx.closePath(); sctx.strokeStyle="rgba(0,0,0,0.05)"; sctx.lineWidth=1; sctx.stroke();
+
+  // gather visible neurons with screen pos + activity, sort back-to-front
+  const items=[];
+  for(const nu of neurons){ if(!show[nu.pop]) continue;
+    const pr=project(nu,w,h);
+    let act=0;
+    if(nu.pop==="IPNd") act=r[nu.ringIdx];
+    else if(nu.pop==="IPNds") act=0.55*r[nu.ringIdx];
+    else act=afferentGlow[nu.pop]||0;
+    items.push({pr,act,pop:nu.pop});
+  }
+  items.sort((a,b)=>a.pr.depth-b.pr.depth);
+  for(const it of items){
+    const [R,G,B]=RGB[it.pop];
+    const depthFade=0.45+0.55*(1-Math.min(1,Math.max(0,(it.pr.depth+1.4)/2.8)));
+    const a=it.act;
+    const rad=(2.0 + a*7.5)*it.pr.persp;
+    if(a>0.05){ // glow
+      sctx.beginPath(); sctx.fillStyle=`rgba(${R},${G},${B},${0.16*a})`;
+      sctx.arc(it.pr.sx,it.pr.sy,rad*2.4,0,2*Math.PI); sctx.fill();
+    }
+    const op=(0.20+0.80*a)*depthFade;
+    sctx.beginPath(); sctx.fillStyle=`rgba(${R},${G},${B},${op})`;
+    sctx.arc(it.pr.sx,it.pr.sy,rad,0,2*Math.PI); sctx.fill();
+  }
+}
+
+/* drag / zoom */
+scene.addEventListener("mousedown",e=>{dragging=true;idle=false;lx=e.clientX;ly=e.clientY;});
+window.addEventListener("mouseup",()=>dragging=false);
+window.addEventListener("mousemove",e=>{ if(!dragging) return;
+  yaw+=(e.clientX-lx)*0.01; pitch+=(e.clientY-ly)*0.01;
+  pitch=Math.max(-1.4,Math.min(1.4,pitch)); lx=e.clientX; ly=e.clientY;});
+scene.addEventListener("wheel",e=>{e.preventDefault();
+  zoom*=(e.deltaY<0?1.08:0.93); zoom=Math.max(0.5,Math.min(2.5,zoom));},{passive:false});
+
+/* ===================== fish tank ===================== */
+const tank=document.getElementById("tank"), tctx=tank.getContext("2d");
+let TC=fit(tank);
+let fish={x:0,y:0,trail:[]};
+function drawFish(theta){
+  const {w,h}=TC; tctx.clearRect(0,0,w,h); tctx.fillStyle="#fbfbf8"; tctx.fillRect(0,0,w,h);
+  // map fish world coords (auto-fit) to canvas
+  let xs=fish.trail.map(p=>p.x).concat([fish.x]), ys=fish.trail.map(p=>p.y).concat([fish.y]);
+  let xlo=Math.min(...xs,-1),xhi=Math.max(...xs,1),ylo=Math.min(...ys,-1),yhi=Math.max(...ys,1);
+  const span=Math.max(xhi-xlo,yhi-ylo,2)*1.25, mx=(xlo+xhi)/2, my=(ylo+yhi)/2;
+  const sc=Math.min(w,h)/span;
+  const toS=(x,y)=>[w/2+(x-mx)*sc, h/2-(y-my)*sc];
+  // trail
+  if(fish.trail.length>1){ tctx.beginPath();
+    fish.trail.forEach((p,k)=>{const [sx,sy]=toS(p.x,p.y); k?tctx.lineTo(sx,sy):tctx.moveTo(sx,sy);});
+    tctx.strokeStyle="rgba(216,57,47,0.30)"; tctx.lineWidth=1.4; tctx.stroke();}
+  // fish body
+  const [fx,fy]=toS(fish.x,fish.y); const L=Math.max(9,sc*0.22);
+  tctx.save(); tctx.translate(fx,fy); tctx.rotate(-theta);
+  tctx.fillStyle="#23262b"; tctx.beginPath();
+  tctx.ellipse(0,0,L,L*0.42,0,0,2*Math.PI); tctx.fill();              // body
+  tctx.beginPath(); tctx.moveTo(-L*0.9,0); tctx.lineTo(-L*1.5,L*0.5);
+  tctx.lineTo(-L*1.5,-L*0.5); tctx.closePath(); tctx.fill();          // tail
+  tctx.fillStyle="#fff"; tctx.beginPath(); tctx.arc(L*0.55,-L*0.12,L*0.10,0,2*Math.PI); tctx.fill();
+  tctx.restore();
+}
+
+/* ===================== swim commands ===================== */
+let vImpulse=0, fwdImpulse=0, afferent={RIPN:0,ptIPN:0};
+const TURN_V0=6.5, SWIM_DECAY=0.97;
+function order(cmd){
+  if(cmd==="L"){ vImpulse-=TURN_V0; afferent.RIPN=1; setLast("turn left"); }
+  if(cmd==="R"){ vImpulse+=TURN_V0; afferent.RIPN=1; setLast("turn right"); }
+  if(cmd==="F"){ fwdImpulse+=1.0;  afferent.ptIPN=1; setLast("forward"); }
+  if(cmd==="B"){ fwdImpulse-=1.0;  afferent.ptIPN=1; setLast("backward"); }
+  flash(cmd);
+}
+function setLast(t){document.getElementById("last").textContent=t;}
+const padBtns={};
+document.querySelectorAll(".pad button[data-cmd]").forEach(b=>{
+  padBtns[b.dataset.cmd]=b; b.onclick=()=>order(b.dataset.cmd);});
+function flash(cmd){const b=padBtns[cmd]; if(!b) return; b.classList.add("flash");
+  setTimeout(()=>b.classList.remove("flash"),140);}
+window.addEventListener("keydown",e=>{const m={ArrowLeft:"L",ArrowRight:"R",ArrowUp:"F",ArrowDown:"B"};
+  if(m[e.key]){e.preventDefault(); order(m[e.key]);}});
+
+/* chips */
+const chipsEl=document.getElementById("chips");
+POP.forEach(p=>{const el=document.createElement("div"); el.className="chip"; el.dataset.k=p.key;
+  el.innerHTML=`<span class="dot" style="background:${p.color}"></span>
+    <span class="nm">${p.name}</span><span class="ds">${p.ds}</span>
+    <div class="bar" style="color:${p.color};flex-basis:100%"><i id="bar-${p.key}"></i></div>`;
+  el.style.flexWrap="wrap";
+  el.onclick=()=>{show[p.key]=!show[p.key]; el.classList.toggle("off",!show[p.key]);};
+  chipsEl.appendChild(el);});
+
+/* ===================== main loop ===================== */
+const STEPS=4;
+function frame(){
+  // advance dynamics
+  for(let s=0;s<STEPS;s++){ ringStep(vImpulse); vImpulse*=SWIM_DECAY; }
+  if(Math.abs(vImpulse)<0.02) vImpulse=0;
+  const r=rates(), hd=decode();
+  // fish motion: heading = decoded bump; forward impulse translates
+  const speed=fwdImpulse*0.018;
+  fish.x+=speed*Math.cos(hd); fish.y+=speed*Math.sin(hd);
+  fwdImpulse*=0.90; if(Math.abs(fwdImpulse)<0.02) fwdImpulse=0;
+  if(Math.abs(speed)>0.0008){ fish.trail.push({x:fish.x,y:fish.y});
+    if(fish.trail.length>600) fish.trail.shift(); }
+  // afferent glow decays
+  afferent.RIPN*=0.90; afferent.ptIPN*=0.90;
+
+  // idle auto-rotate
+  if(!dragging && idle) yaw+=0.0016;
+
+  drawScene(r, afferent);
+  drawFish(hd);
+  document.getElementById("hd").textContent=Math.round(((hd*180/Math.PI)%360+360)%360)+"°";
+  // chip activity bars (mean rate per population)
+  const mean={IPNd:0,IPNds:0,RIPN:afferent.RIPN,ptIPN:afferent.ptIPN};
+  let mx=0; for(let i=0;i<N;i++){mean.IPNd+=r[i];} mean.IPNd/=N;
+  mean.IPNds=0.55*mean.IPNd;
+  for(const p of POP){const bar=document.getElementById("bar-"+p.key);
+    if(bar) bar.style.width=Math.min(100,mean[p.key]*180)+"%";}
+  requestAnimationFrame(frame);
+}
+window.addEventListener("resize",()=>{SC=fit(scene); TC=fit(tank);});
+// warm up so a bump exists immediately
+for(let t=0;t<2500;t++) ringStep(0);
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
