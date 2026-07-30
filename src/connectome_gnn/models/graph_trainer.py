@@ -125,7 +125,11 @@ def data_train(config=None, erase=False, best_model=None, style=None, device=Non
 def _inject_hidden_voltage(model, x, k, hidden_ids, injection_active):
     """Hidden-neuron voltage estimator: NGP/SIREN forward or zero-silence.
 
-    Mutates x.voltage[hidden_ids] in place.
+    Mutates x.voltage[hidden_ids] in place. injection_active is binary:
+    phase 1 → False, phase 2 → True. The smooth absorption of the new
+    input distribution at the phase 1→2 transition is handled by the
+    LR-damping V-schedule on the GNN param groups, not by ramping the
+    injection magnitude here.
 
     Phase 1 (injection_active=False): hidden voltages are zero-silenced
     (identical to the no-NGP baseline). NGP/SIREN still trains via the
@@ -1024,12 +1028,6 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                     x.voltage = x.voltage + x.noise
 
                 # Hidden neurons: predict via SIREN/NGP or zero-silence.
-                # injection_active is binary: phase 1 → False (v_h=0, identical
-                # to the no-NGP baseline; NGP still trains via the anchor loss
-                # elsewhere in the step), phase 2 → True (NGP fully injected).
-                # The smooth absorption of the new input distribution at the
-                # phase 1→2 transition is handled by the LR-damping V-schedule
-                # on the GNN param groups, not by ramping injection magnitude.
                 # See _inject_hidden_voltage for the phase 1/2 branching.
                 if has_hidden_neurons:
                     _inject_hidden_voltage(model, x, k, hidden_ids, injection_active)
